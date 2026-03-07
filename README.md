@@ -1,9 +1,9 @@
 # agent-sdk
 
-이 디렉토리가 로컬 작업 기준 SSOT다.
+이 디렉토리가 현재 작업 환경에서의 로컬 SSOT다.
 
 - 사람 기준 이름: `agent-sdk`
-- canonical source path: `~/me/workspace/yousleepwhen/agent-sdk`
+- local workspace path in this environment: `~/me/workspace/yousleepwhen/agent-sdk`
 - OCaml 패키지 이름: `agent_sdk`
 - OCaml 모듈 이름: `Agent_sdk`
 - `agent-swarm` 코드는 별도 제품이 아니라 `~/me/workspace/yousleepwhen/masc-mcp` 내부 구현으로 이관한다
@@ -88,7 +88,7 @@ let calc_tool = Tool.create
 ## 빌드
 
 ```bash
-cd ~/me/workspace/yousleepwhen/agent-sdk
+# from the repo root
 dune build @all
 ```
 

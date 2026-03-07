@@ -1,2 +1,23 @@
 _build/
 .worktrees/
+
+# OCaml / opam
+*.install
+*.merlin
+.merlin
+_opam/
+
+# Editor
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.*
