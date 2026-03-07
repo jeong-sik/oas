@@ -1,0 +1,28 @@
+(lang dune 3.11)
+(name agent_sdk)
+(version 0.2.0)
+
+(generate_opam_files true)
+
+(source (github jeong-sik/agent-sdk))
+(license MIT)
+(authors "Jeong-sik Yun")
+(maintainers "yousleepwhen@gmail.com")
+
+(package
+ (name agent_sdk)
+ (synopsis "Anthropic Agent SDK for OCaml (Eio Edition)")
+ (description "A native OCaml implementation of the Anthropic Agent SDK using OCaml 5.x Eio for structured concurrency, inspired by Go SDK patterns.")
+ (depends
+  (ocaml (>= 5.1))
+  (dune (>= 3.11))
+  (eio_main (>= 0.12))
+  (cohttp-eio (>= 6.0.0~alpha2))
+  (tls (>= 0.17.0))
+  (tls-eio (>= 0.17.0))
+  (ca-certs (>= 0.2.3))
+  (yojson (>= 2.1))
+  (ppx_deriving_yojson (>= 3.7))
+  (ppx_deriving (>= 5.2.1))
+  (uri (>= 4.4))
+  (alcotest (and :with-test (>= 1.7)))))

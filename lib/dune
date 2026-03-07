@@ -1,0 +1,5 @@
+(library
+ (name agent_sdk)
+ (public_name agent_sdk)
+ (libraries eio eio_main cohttp-eio tls tls-eio ca-certs yojson ppx_deriving_yojson.runtime uri)
+ (preprocess (pps ppx_deriving_yojson ppx_deriving.show)))

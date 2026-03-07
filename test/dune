@@ -1,0 +1,51 @@
+(test
+ (name test_agent_sdk)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_integration)
+ (libraries agent_sdk alcotest eio eio_main cohttp-eio yojson))
+
+(test
+ (name test_provider)
+ (libraries agent_sdk alcotest unix str))
+
+(test
+ (name test_types)
+ (libraries agent_sdk alcotest))
+
+(test
+ (name test_hooks)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_context)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_guardrails)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_handoff)
+ (libraries agent_sdk alcotest yojson))
+
+(executable
+ (name test_local_llm)
+ (libraries agent_sdk eio eio_main yojson))
+
+(executable
+ (name test_llm_call)
+ (libraries agent_sdk eio eio_main yojson))
+
+(test
+ (name test_retry)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_streaming)
+ (libraries agent_sdk alcotest yojson))
+
+(executable
+ (name test_streaming_e2e)
+ (libraries agent_sdk eio eio_main yojson))
