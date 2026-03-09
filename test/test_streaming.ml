@@ -94,7 +94,7 @@ let test_parse_message_start () =
 let test_parse_content_block_start () =
   let data = {|{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}|} in
   match Agent_sdk.Api.parse_sse_event None data with
-  | Some (ContentBlockStart { index; content_type }) ->
+  | Some (ContentBlockStart { index; content_type; _ }) ->
     Alcotest.(check int) "index" 0 index;
     Alcotest.(check string) "content_type" "text" content_type
   | Some _ -> Alcotest.fail "unexpected event type"
