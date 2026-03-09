@@ -51,7 +51,7 @@ let () =
         let s = Session.create ~id:"rt-1" ~cwd:"/home" ~resumed_from:"old" () in
         let s = Session.record_turn s in
         let json = Session.to_json s in
-        let s2 = Session.of_json json in
+        let s2 = Result.get_ok (Session.of_json json) in
         check string "id" s.id s2.id;
         check int "turn_count" s.turn_count s2.turn_count;
         check (option string) "cwd" s.cwd s2.cwd;
@@ -61,11 +61,15 @@ let () =
         let s = Session.create ~id:"rt-2" () in
         Context.set s.metadata "key" (`String "value");
         let json = Session.to_json s in
-        let s2 = Session.of_json json in
+        let s2 = Result.get_ok (Session.of_json json) in
         check (option string) "metadata key"
           (Some "value")
           (match Context.get s2.metadata "key" with
            | Some (`String v) -> Some v
            | _ -> None));
+
+      test_case "malformed json returns Error" `Quick (fun () ->
+        let bad = `Assoc [("not_id", `Int 42)] in
+        check bool "is error" true (Result.is_error (Session.of_json bad)));
     ];
   ]

@@ -175,12 +175,14 @@ let of_markdown ?path ?scope markdown =
   }
 
 let load ?scope path =
-  let ch = open_in_bin path in
-  Fun.protect
-    ~finally:(fun () -> close_in_noerr ch)
-    (fun () ->
-      let content = really_input_string ch (in_channel_length ch) in
-      of_markdown ~path ?scope content)
+  try
+    let ch = open_in_bin path in
+    Fun.protect
+      ~finally:(fun () -> close_in_noerr ch)
+      (fun () ->
+        let content = really_input_string ch (in_channel_length ch) in
+        Ok (of_markdown ~path ?scope content))
+  with exn -> Error (Printf.sprintf "Skill.load %s: %s" path (Printexc.to_string exn))
 
 let load_dir ?scope dir =
   Sys.readdir dir
@@ -189,7 +191,10 @@ let load_dir ?scope dir =
     Filename.check_suffix name ".md"
     && not (String.starts_with ~prefix:"." name))
   |> List.sort String.compare
-  |> List.map (fun name -> load ?scope (Filename.concat dir name))
+  |> List.filter_map (fun name ->
+    match load ?scope (Filename.concat dir name) with
+    | Ok skill -> Some skill
+    | Error _ -> None)
 
 let render_prompt ?arguments skill =
   match arguments with

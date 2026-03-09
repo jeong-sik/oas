@@ -11,6 +11,8 @@ type t = {
   metadata: Context.t;
 }
 
+let () = Random.self_init ()
+
 let generate_id () =
   let t = Unix.gettimeofday () in
   let hi = Float.to_int (Float.rem t 1_000_000.) in
@@ -53,24 +55,28 @@ let to_json t =
   ]
 
 let of_json json =
-  let open Yojson.Safe.Util in
-  let metadata =
-    match json |> member "metadata" with
-    | `Null -> Context.create ()
-    | v -> Context.of_json v
-  in
-  {
-    id = json |> member "id" |> to_string;
-    started_at = json |> member "started_at" |> to_float;
-    last_active_at =
-      (match json |> member "last_active_at" |> to_float_option with
-       | Some v -> v
-       | None -> json |> member "started_at" |> to_float);
-    turn_count =
-      (match json |> member "turn_count" |> to_int_option with
-       | Some v -> v
-       | None -> 0);
-    resumed_from = json |> member "resumed_from" |> to_string_option;
-    cwd = json |> member "cwd" |> to_string_option;
-    metadata;
-  }
+  try
+    let open Yojson.Safe.Util in
+    let metadata =
+      match json |> member "metadata" with
+      | `Null -> Context.create ()
+      | v -> Context.of_json v
+    in
+    Ok {
+      id = json |> member "id" |> to_string;
+      started_at = json |> member "started_at" |> to_float;
+      last_active_at =
+        (match json |> member "last_active_at" |> to_float_option with
+         | Some v -> v
+         | None -> json |> member "started_at" |> to_float);
+      turn_count =
+        (match json |> member "turn_count" |> to_int_option with
+         | Some v -> v
+         | None -> 0);
+      resumed_from = json |> member "resumed_from" |> to_string_option;
+      cwd = json |> member "cwd" |> to_string_option;
+      metadata;
+    }
+  with
+  | Yojson.Safe.Util.Type_error (msg, _) -> Error (Printf.sprintf "Session.of_json: %s" msg)
+  | exn -> Error (Printf.sprintf "Session.of_json: %s" (Printexc.to_string exn))
