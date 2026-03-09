@@ -160,8 +160,8 @@ let test_parse_response_complete () =
    | Types.EndTurn -> ()
    | sr -> fail (Printf.sprintf "expected EndTurn, got %s" (Types.show_stop_reason sr)));
   (match resp.usage with
-   | Some (100, 50) -> ()
-   | _ -> fail "expected usage (100, 50)")
+   | Some u when u.Types.input_tokens = 100 && u.output_tokens = 50 -> ()
+   | _ -> fail "expected usage input=100 output=50")
 
 let test_parse_response_tool_use () =
   let json = Yojson.Safe.from_string {|{
