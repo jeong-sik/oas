@@ -2,6 +2,11 @@
 
 open Agent_sdk.Types
 
+(* Helper: create api_usage from input/output token counts *)
+let make_usage inp out =
+  { input_tokens = inp; output_tokens = out;
+    cache_creation_input_tokens = 0; cache_read_input_tokens = 0 }
+
 (* ------------------------------------------------------------------ *)
 (* Usage tracking                                                       *)
 (* ------------------------------------------------------------------ *)
@@ -12,27 +17,27 @@ let test_empty_usage () =
   Alcotest.(check int) "api_calls is 0" 0 empty_usage.api_calls
 
 let test_add_usage_basic () =
-  let s = add_usage empty_usage 100 50 in
+  let s = add_usage empty_usage (make_usage 100 50) in
   Alcotest.(check int) "input_tokens accumulated" 100 s.total_input_tokens;
   Alcotest.(check int) "output_tokens accumulated" 50 s.total_output_tokens;
   Alcotest.(check int) "api_calls incremented" 1 s.api_calls
 
 let test_add_usage_multiple () =
-  let s0 = add_usage empty_usage 100 50 in
-  let s1 = add_usage s0 200 80 in
+  let s0 = add_usage empty_usage (make_usage 100 50) in
+  let s1 = add_usage s0 (make_usage 200 80) in
   Alcotest.(check int) "input_tokens summed" 300 s1.total_input_tokens;
   Alcotest.(check int) "output_tokens summed" 130 s1.total_output_tokens;
   Alcotest.(check int) "api_calls counted" 2 s1.api_calls
 
 let test_add_usage_zero_tokens () =
-  let s = add_usage empty_usage 0 0 in
+  let s = add_usage empty_usage (make_usage 0 0) in
   Alcotest.(check int) "zero input accepted" 0 s.total_input_tokens;
   Alcotest.(check int) "zero output accepted" 0 s.total_output_tokens;
   Alcotest.(check int) "api_calls still incremented" 1 s.api_calls
 
 let test_add_usage_immutable () =
-  let s0 = add_usage empty_usage 100 50 in
-  let _s1 = add_usage s0 10 5 in
+  let s0 = add_usage empty_usage (make_usage 100 50) in
+  let _s1 = add_usage s0 (make_usage 10 5) in
   (* s0 must not be mutated *)
   Alcotest.(check int) "original input_tokens unchanged" 100 s0.total_input_tokens;
   Alcotest.(check int) "original api_calls unchanged" 1 s0.api_calls

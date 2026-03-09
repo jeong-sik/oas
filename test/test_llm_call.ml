@@ -36,7 +36,7 @@ let () =
       | _ -> Printf.printf "Other block\n%!"
     ) resp.content;
     (match resp.usage with
-     | Some (inp, out) -> Printf.printf "Usage: in=%d out=%d\n%!" inp out
+     | Some u -> Printf.printf "Usage: in=%d out=%d\n%!" u.Types.input_tokens u.output_tokens
      | None -> Printf.printf "No usage data\n%!")
   | Error e ->
     Printf.printf "Error: %s\n%!" e

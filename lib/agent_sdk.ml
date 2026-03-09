@@ -61,5 +61,5 @@ let create_agent ~net ?name ?model ?system_prompt ?max_tokens ?max_turns ?provid
   Agent.create ~net ~config ?provider ()
 
 (** Version info *)
-let version = "0.3.0"
+let version = "0.3.1"
 let sdk_name = "anthropic-agent-sdk"

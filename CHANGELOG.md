@@ -2,6 +2,17 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.3.1] - 2026-03-10
+
+### Added
+- Prompt caching: `cache_system_prompt` config option wraps system prompt with `cache_control` ephemeral
+- `api_usage` record type with `cache_creation_input_tokens` and `cache_read_input_tokens` fields
+- `usage_stats` accumulates cache token counts across turns
+
+### Changed
+- `api_response.usage` type changed from `(int * int) option` to `api_usage option`
+- `add_usage` accepts `api_usage` record instead of two ints
+
 ## [0.3.0] - 2026-03-05
 
 ### Added

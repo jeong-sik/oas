@@ -104,7 +104,15 @@ let parse_response json =
   let usage =
     let u = json |> member "usage" in
     if u = `Null then None
-    else Some (u |> member "input_tokens" |> to_int, u |> member "output_tokens" |> to_int)
+    else
+      let input_tokens = u |> member "input_tokens" |> to_int in
+      let output_tokens = u |> member "output_tokens" |> to_int in
+      let cache_creation_input_tokens =
+        u |> member "cache_creation_input_tokens" |> to_int_option |> Option.value ~default:0 in
+      let cache_read_input_tokens =
+        u |> member "cache_read_input_tokens" |> to_int_option |> Option.value ~default:0 in
+      Some { Types.input_tokens; output_tokens;
+             cache_creation_input_tokens; cache_read_input_tokens }
   in
   let stop_reason = stop_reason_of_string stop_reason_str in
   { id; model; stop_reason; content; usage }
@@ -141,6 +149,13 @@ let build_body_assoc ~config ~messages ?tools ~stream () =
     ("stream", `Bool stream);
   ] in
   let body_assoc = match config.config.system_prompt with
+    | Some s when config.config.cache_system_prompt ->
+        let cached_block = `Assoc [
+          ("type", `String "text");
+          ("text", `String s);
+          ("cache_control", `Assoc [("type", `String "ephemeral")]);
+        ] in
+        ("system", `List [cached_block]) :: body_assoc
     | Some s -> ("system", `String s) :: body_assoc
     | None -> body_assoc
   in
@@ -419,7 +434,10 @@ let create_message_stream ~sw ~net ?(base_url=default_base_url) ?provider ~confi
         in
 
         let usage = if !input_tokens > 0 || !output_tokens > 0
-          then Some (!input_tokens, !output_tokens)
+          then Some { Types.input_tokens = !input_tokens;
+                      output_tokens = !output_tokens;
+                      cache_creation_input_tokens = 0;
+                      cache_read_input_tokens = 0 }
           else None
         in
         Ok {
