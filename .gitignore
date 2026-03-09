@@ -18,6 +18,10 @@ _opam/
 .DS_Store
 Thumbs.db
 
+# Coverage
+_coverage/
+*.coverage
+
 # Environment
 .env
 .env.*

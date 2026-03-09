@@ -22,6 +22,7 @@ depends: [
   "ppx_deriving" {>= "5.2.1"}
   "uri" {>= "4.4"}
   "alcotest" {with-test & >= "1.7"}
+  "bisect_ppx" {with-test & >= "2.8"}
   "odoc" {with-doc}
 ]
 build: [

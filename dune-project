@@ -25,4 +25,5 @@
   (ppx_deriving_yojson (>= 3.7))
   (ppx_deriving (>= 5.2.1))
   (uri (>= 4.4))
-  (alcotest (and :with-test (>= 1.7)))))
+  (alcotest (and :with-test (>= 1.7)))
+  (bisect_ppx (and :with-test (>= 2.8)))))

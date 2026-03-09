@@ -53,3 +53,11 @@
 (test
  (name test_multimodal)
  (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_tool)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_api)
+ (libraries agent_sdk alcotest yojson))
