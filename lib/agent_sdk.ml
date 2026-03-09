@@ -46,6 +46,9 @@ module Hooks = Hooks
 module Context = Context
 module Guardrails = Guardrails
 module Handoff = Handoff
+module Session = Session
+module Skill = Skill
+module Subagent = Subagent
 
 (** Quick start: create an agent with default config *)
 let create_agent ~net ?name ?model ?system_prompt ?max_tokens ?max_turns ?cache_system_prompt ?provider () =
