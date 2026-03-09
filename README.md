@@ -1,29 +1,31 @@
 # agent-sdk
 
-이 디렉토리가 현재 작업 환경에서의 로컬 SSOT다.
+OCaml 5.x + Eio 기반 LLM Agent SDK. Anthropic Messages API와 OpenAI-compatible local LLM 엔드포인트를 지원한다.
 
-- 사람 기준 이름: `agent-sdk`
-- local workspace path in this environment: `~/me/workspace/yousleepwhen/agent-sdk`
 - OCaml 패키지 이름: `agent_sdk`
 - OCaml 모듈 이름: `Agent_sdk`
-- `agent-swarm` 코드는 별도 제품이 아니라 `~/me/workspace/yousleepwhen/masc-mcp` 내부 구현으로 이관한다
-
-OCaml 5.x + Eio 기반 LLM Agent SDK. Anthropic Messages API와 OpenAI-compatible local LLM 엔드포인트를 지원한다.
 
 ## 아키텍처
 
 ```
-Provider  →  API  →  Agent  →  Tool
-(endpoint)  (HTTP)  (loop)   (functions)
+Provider  ->  API  ->  Agent  ->  Tool
+(endpoint)   (HTTP)   (loop)    (functions)
+               |
+            Streaming (SSE)
 ```
 
 | 모듈 | 역할 |
 |------|------|
-| `Types` | 메시지, 역할, stop_reason 등 도메인 타입 |
-| `Provider` | LLM 엔드포인트 추상화 (Local / Anthropic) |
-| `Api` | HTTP 클라이언트 — `create_message` 호출 |
+| `Types` | 메시지, 역할, stop_reason, content_block (Text/Thinking/Image/Document), SSE event 등 도메인 타입 |
+| `Provider` | LLM 엔드포인트 추상화 (Local / Anthropic / OpenAICompat) |
+| `Api` | HTTP 클라이언트 -- `create_message` (동기) + `create_message_stream` (SSE) |
 | `Agent` | 멀티턴 에이전트 루프 (tool_use 자동 처리) |
-| `Tool` | 도구 정의 + JSON Schema 생성 + 실행 |
+| `Tool` | 도구 정의 + JSON Schema 생성 + 실행 (Simple / WithContext) |
+| `Retry` | 구조적 API 에러 분류 (7 variant) + exponential backoff with jitter |
+| `Hooks` | 에이전트 lifecycle hooks (BeforeTurn, AfterTurn, PreToolUse, PostToolUse, OnStop) |
+| `Context` | Cross-turn 공유 상태 (key-value store, Yojson.Safe.t 값) |
+| `Guardrails` | Tool 필터링 (AllowList/DenyList/Custom) + per-turn 호출 제한 |
+| `Handoff` | Sub-agent 위임 (`transfer_to_*` tool 패턴) |
 
 ## Provider 패턴
 
@@ -38,14 +40,19 @@ let local_cfg : Provider.config = {
 (* Anthropic *)
 let anthropic_cfg : Provider.config = {
   provider = Anthropic;
-  model_id = "claude-sonnet-4-20250514";
+  model_id = "claude-sonnet-4-6";
   api_key_env = "ANTHROPIC_API_KEY";
 }
+
+(* OpenAI-compatible (OpenRouter 등) *)
+let openrouter_cfg = Provider.openrouter ~model_id:"anthropic/claude-sonnet-4-6" ()
 ```
 
 `Provider.resolve`는 `(base_url * api_key * headers, error_msg) result`를 반환한다. 환경변수가 없으면 `Error`를 반환하며, silent fallback 없음.
 
 ## 사용법
+
+### 기본 에이전트
 
 ```ocaml
 open Agent_sdk
@@ -54,41 +61,116 @@ let () =
   Eio_main.run @@ fun env ->
   let net = Eio.Stdenv.net env in
   Eio.Switch.run @@ fun sw ->
-  let provider : Provider.config = {
-    provider = Local { base_url = "http://127.0.0.1:8085" };
-    model_id = "qwen3.5-35b";
-    api_key_env = "LOCAL_LLM_KEY";
-  } in
-  let agent = Agent.create
-    ~provider
-    ~system_prompt:"You are a helpful assistant."
-    ~tools:[]
-    ~max_turns:5 in
-  match Agent.run ~sw ~net agent "What is 2+2?" with
-  | Ok response -> Printf.printf "Response: %s\n" response
-  | Error e -> Printf.eprintf "Error: %s\n" e
+  let agent = Agent.create ~net
+    ~config:{ Types.default_config with
+      name = "assistant";
+      system_prompt = Some "You are a helpful assistant.";
+    }
+    ~tools:[] () in
+  match Agent.run ~sw agent "What is 2+2?" with
+  | Ok response ->
+    List.iter (function
+      | Types.Text t -> print_endline t | _ -> ()) response.content
+  | Error e -> prerr_endline ("Error: " ^ e)
+```
+
+### 스트리밍
+
+```ocaml
+let on_event = function
+  | Types.ContentBlockDelta { delta = Types.TextDelta s; _ } ->
+    print_string s; flush stdout
+  | _ -> ()
+in
+match Api.create_message_stream ~sw ~net ~config ~messages ~on_event () with
+| Ok response -> Printf.printf "\nDone: %s\n" response.id
+| Error e -> prerr_endline e
+```
+
+### Hooks
+
+```ocaml
+let my_hooks = { Hooks.empty with
+  pre_tool_use = Some (function
+    | Hooks.PreToolUse { tool_name; _ } ->
+      Printf.printf "Calling tool: %s\n" tool_name;
+      Hooks.Continue
+    | _ -> Hooks.Continue);
+}
+```
+
+### Guardrails
+
+```ocaml
+let guardrails = {
+  Guardrails.tool_filter = Guardrails.AllowList ["calculator"; "weather"];
+  max_tool_calls_per_turn = Some 5;
+}
+```
+
+### Multimodal (Image/Document)
+
+```ocaml
+let image_block = Types.Image {
+  media_type = "image/png";
+  data = base64_encoded_string;
+  source_type = "base64";
+}
+let doc_block = Types.Document {
+  media_type = "application/pdf";
+  data = base64_encoded_pdf;
+  source_type = "base64";
+}
+let msg = { Types.role = User; content = [Types.Text "Describe this:"; image_block] }
+```
+
+### Handoff (Sub-agent delegation)
+
+```ocaml
+let target = {
+  Handoff.name = "researcher";
+  description = "Research agent for web queries";
+  config = { Types.default_config with name = "researcher" };
+  tools = [search_tool];
+}
+let handoff_tool = Handoff.make_handoff_tool target
+(* Agent runner intercepts "transfer_to_researcher" tool calls *)
 ```
 
 ## 도구 정의
 
 ```ocaml
+(* Simple handler *)
 let calc_tool = Tool.create
   ~name:"calculator"
   ~description:"Evaluate a math expression"
-  ~parameters:[
-    ("expression", `String, "The math expression to evaluate", true);
-  ]
-  ~handler:(fun args ->
-    match List.assoc_opt "expression" args with
-    | Some expr -> Printf.sprintf "Result: %s" expr
-    | None -> "Error: missing expression"
-  )
+  ~parameters:[{
+    Types.name = "expression"; description = "The math expression";
+    param_type = String; required = true;
+  }]
+  (fun args ->
+    let open Yojson.Safe.Util in
+    match args |> member "expression" |> to_string_option with
+    | Some expr -> Ok (Printf.sprintf "Result: %s" expr)
+    | None -> Error "missing expression")
+
+(* Context-aware handler *)
+let stateful_tool = Tool.create_with_context
+  ~name:"counter"
+  ~description:"Increment and return counter"
+  ~parameters:[]
+  (fun ctx _input ->
+    let n = match Context.get ctx "count" with
+      | Some (`Int n) -> n + 1
+      | _ -> 1
+    in
+    Context.set ctx "count" (`Int n);
+    Ok (string_of_int n))
 ```
 
 ## 빌드
 
 ```bash
-# from the repo root
 dune build @all
 ```
 
@@ -108,27 +190,23 @@ dune exec ./test/test_integration.exe
 
 API 응답의 `stop_reason` 필드는 `Unknown of string` variant를 포함한다. 알 수 없는 값이 들어와도 silent 무시하지 않고 원본 문자열을 보존한다.
 
-```ocaml
-match Types.stop_reason_of_string "some_new_reason" with
-| Types.Unknown s -> Printf.printf "Unknown stop reason: %s\n" s
-| Types.EndTurn -> (* ... *)
-| _ -> (* ... *)
-```
-
 ## 의존성
 
-- `eio`, `eio_main` — 구조적 동시성
-- `cohttp-eio` — HTTP 클라이언트
-- `yojson` — JSON 파싱
-- `ppx_deriving` — show, eq 자동 생성
-- `alcotest` — 테스트 (dev)
+- `eio`, `eio_main` -- 구조적 동시성
+- `cohttp-eio` -- HTTP 클라이언트
+- `tls-eio`, `ca-certs` -- HTTPS/TLS
+- `yojson` -- JSON 파싱
+- `ppx_deriving`, `ppx_deriving_yojson` -- show, yojson 자동 생성
+- `alcotest` -- 테스트 (dev)
 
 ## 제약 및 트레이드오프
 
 - HTTP 응답 본문 상한: 10MB. 이보다 큰 응답은 에러 처리.
-- streaming 미지원. 전체 응답을 버퍼링한 뒤 파싱.
+- SSE 스트리밍은 실시간 이벤트 콜백 방식. 재시도(retry)는 스트림 외부에서 래핑 필요.
 - tool_use 루프에서 max_turns 초과 시 마지막 응답을 반환하고 종료.
+- Eio 단일 도메인에서 동작. 멀티코어 병렬 실행은 미구현.
+- Prompt caching (cache_control) 미구현.
 
 ## 버전
 
-0.2.0
+0.3.0
