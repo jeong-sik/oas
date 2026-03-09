@@ -49,3 +49,7 @@
 (executable
  (name test_streaming_e2e)
  (libraries agent_sdk eio eio_main yojson))
+
+(test
+ (name test_multimodal)
+ (libraries agent_sdk alcotest yojson))
