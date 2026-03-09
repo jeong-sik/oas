@@ -2,6 +2,8 @@
 
 (** Supported Claude models *)
 type model =
+  | Claude_opus_4_6
+  | Claude_sonnet_4_6
   | Claude_opus_4_5
   | Claude_sonnet_4
   | Claude_haiku_4_5
@@ -10,6 +12,8 @@ type model =
 [@@deriving yojson, show]
 
 let model_to_string = function
+  | Claude_opus_4_6 -> "claude-opus-4-6-20250514"
+  | Claude_sonnet_4_6 -> "claude-sonnet-4-6-20250514"
   | Claude_opus_4_5 -> "claude-opus-4-5-20251101"
   | Claude_sonnet_4 -> "claude-sonnet-4-20250514"
   | Claude_haiku_4_5 -> "claude-haiku-4-5-20251001"
@@ -69,6 +73,10 @@ type content_block =
   | RedactedThinking of string (* data *)
   | ToolUse of string * string * Yojson.Safe.t (* id, name, input *)
   | ToolResult of string * string * bool (* tool_use_id, content, is_error *)
+  | Image of { media_type: string; data: string; source_type: string }
+    (* source_type = "base64" *)
+  | Document of { media_type: string; data: string; source_type: string }
+    (* PDF, etc. *)
 [@@deriving show]
 
 (** A single message in the conversation *)
@@ -119,7 +127,7 @@ type agent_config = {
 
 let default_config = {
   name = "agent";
-  model = Claude_3_7_sonnet;
+  model = Claude_sonnet_4_6;
   system_prompt = None;
   max_tokens = 4096;
   max_turns = 10;
@@ -136,7 +144,8 @@ type content_delta =
 
 type sse_event =
   | MessageStart of { id: string; model: string; usage: (int * int) option }
-  | ContentBlockStart of { index: int; content_type: string }
+  | ContentBlockStart of { index: int; content_type: string;
+                          tool_id: string option; tool_name: string option }
   | ContentBlockDelta of { index: int; delta: content_delta }
   | ContentBlockStop of { index: int }
   | MessageDelta of { stop_reason: stop_reason option; usage: (int * int) option }

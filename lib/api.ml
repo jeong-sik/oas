@@ -30,6 +30,24 @@ let content_block_to_json = function
         ("content", `String content);
         ("is_error", `Bool is_error);
       ]
+  | Image { media_type; data; source_type } ->
+      `Assoc [
+        ("type", `String "image");
+        ("source", `Assoc [
+          ("type", `String source_type);
+          ("media_type", `String media_type);
+          ("data", `String data);
+        ]);
+      ]
+  | Document { media_type; data; source_type } ->
+      `Assoc [
+        ("type", `String "document");
+        ("source", `Assoc [
+          ("type", `String source_type);
+          ("media_type", `String media_type);
+          ("data", `String data);
+        ]);
+      ]
 
 let content_block_of_json json =
   let open Yojson.Safe.Util in
@@ -54,6 +72,18 @@ let content_block_of_json json =
       let content = json |> member "content" |> to_string in
       let is_error = json |> member "is_error" |> to_bool_option |> Option.value ~default:false in
       Some (ToolResult (tool_use_id, content, is_error))
+  | Some "image" ->
+      let source = json |> member "source" in
+      let source_type = source |> member "type" |> to_string in
+      let media_type = source |> member "media_type" |> to_string in
+      let data = source |> member "data" |> to_string in
+      Some (Image { media_type; data; source_type })
+  | Some "document" ->
+      let source = json |> member "source" in
+      let source_type = source |> member "type" |> to_string in
+      let media_type = source |> member "media_type" |> to_string in
+      let data = source |> member "data" |> to_string in
+      Some (Document { media_type; data; source_type })
   | _ -> None
 
 let message_to_json msg =
@@ -205,7 +235,9 @@ let parse_sse_event event_type data_str =
         let index = json |> member "index" |> to_int in
         let cb = json |> member "content_block" in
         let content_type = cb |> member "type" |> to_string in
-        Some (ContentBlockStart { index; content_type })
+        let tool_id = cb |> member "id" |> to_string_option in
+        let tool_name = cb |> member "name" |> to_string_option in
+        Some (ContentBlockStart { index; content_type; tool_id; tool_name })
     | "content_block_delta" ->
         let index = json |> member "index" |> to_int in
         let delta_json = json |> member "delta" in
@@ -244,7 +276,7 @@ let parse_sse_event event_type data_str =
         let msg = json |> member "error" |> member "message" |> to_string in
         Some (SSEError msg)
     | _ -> None
-  with _ -> None
+  with Yojson.Safe.Util.Type_error _ | Yojson.Json_error _ -> None
 
 (** Streaming variant of create_message.
     Sends request with stream:true, parses SSE events line-by-line,
@@ -294,6 +326,9 @@ let create_message_stream ~sw ~net ?(base_url=default_base_url) ?provider ~confi
         (* Map from block index to accumulated text/json *)
         let block_texts : (int, Buffer.t) Hashtbl.t = Hashtbl.create 4 in
         let block_types : (int, string) Hashtbl.t = Hashtbl.create 4 in
+        (* Track tool_use id/name from ContentBlockStart events *)
+        let block_tool_ids : (int, string) Hashtbl.t = Hashtbl.create 4 in
+        let block_tool_names : (int, string) Hashtbl.t = Hashtbl.create 4 in
 
         let buf_reader = Eio.Buf_read.of_flow ~max_size:(1024 * 1024 * 10) body in
         let current_event_type = ref None in
@@ -319,9 +354,15 @@ let create_message_stream ~sw ~net ?(base_url=default_base_url) ?provider ~confi
                       (match usage with
                        | Some (inp, _) -> input_tokens := inp
                        | None -> ())
-                  | ContentBlockStart { index; content_type } ->
+                  | ContentBlockStart { index; content_type; tool_id; tool_name } ->
                       Hashtbl.replace block_types index content_type;
-                      Hashtbl.replace block_texts index (Buffer.create 64)
+                      Hashtbl.replace block_texts index (Buffer.create 64);
+                      (match tool_id with
+                       | Some id -> Hashtbl.replace block_tool_ids index id
+                       | None -> ());
+                      (match tool_name with
+                       | Some name -> Hashtbl.replace block_tool_names index name
+                       | None -> ())
                   | ContentBlockDelta { index; delta } ->
                       let buf = match Hashtbl.find_opt block_texts index with
                         | Some b -> b
@@ -359,11 +400,14 @@ let create_message_stream ~sw ~net ?(base_url=default_base_url) ?provider ~confi
               | "text" -> Some (Text text)
               | "thinking" -> Some (Thinking ("", text))
               | "tool_use" ->
-                  (* For tool_use, we'd need to track id/name separately.
-                     This is a simplified accumulation — tool_use via streaming
-                     requires more state. Return as Text for now. *)
-                  (try Some (ToolUse ("", "", Yojson.Safe.from_string text))
-                   with _ -> Some (Text text))
+                  let tool_id = match Hashtbl.find_opt block_tool_ids index with
+                    | Some id -> id | None -> ""
+                  in
+                  let tool_name = match Hashtbl.find_opt block_tool_names index with
+                    | Some name -> name | None -> ""
+                  in
+                  (try Some (ToolUse (tool_id, tool_name, Yojson.Safe.from_string text))
+                   with Yojson.Json_error _ -> Some (Text text))
               | _ -> None
             in
             match block with
