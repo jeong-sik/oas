@@ -10,8 +10,13 @@ All notable changes to `agent_sdk` are documented in this file.
 - `usage_stats` accumulates cache token counts across turns
 
 ### Changed
-- `api_response.usage` type changed from `(int * int) option` to `api_usage option`
-- `add_usage` accepts `api_usage` record instead of two ints
+- **BREAKING**: `api_response.usage` type changed from `(int * int) option` to `api_usage option`
+- **BREAKING**: `add_usage` accepts `api_usage` record instead of two ints
+- `usage_stats` cache fields renamed to `total_cache_creation_input_tokens` / `total_cache_read_input_tokens` for consistency
+- `create_agent` convenience function now accepts `?cache_system_prompt`
+
+### Known Limitations
+- Streaming mode (`create_message_stream`) reports cache tokens as 0. SSE event types still use `(int * int) option` for usage. Full streaming cache support planned for v0.4.0.
 
 ## [0.3.0] - 2026-03-05
 

@@ -168,8 +168,8 @@ type sse_event =
 type usage_stats = {
   total_input_tokens: int;
   total_output_tokens: int;
-  cache_creation_input_tokens: int;
-  cache_read_input_tokens: int;
+  total_cache_creation_input_tokens: int;
+  total_cache_read_input_tokens: int;
   api_calls: int;
 }
 [@@deriving show]
@@ -177,16 +177,16 @@ type usage_stats = {
 let empty_usage = {
   total_input_tokens = 0;
   total_output_tokens = 0;
-  cache_creation_input_tokens = 0;
-  cache_read_input_tokens = 0;
+  total_cache_creation_input_tokens = 0;
+  total_cache_read_input_tokens = 0;
   api_calls = 0;
 }
 
 let add_usage stats (u : api_usage) =
   { total_input_tokens = stats.total_input_tokens + u.input_tokens;
     total_output_tokens = stats.total_output_tokens + u.output_tokens;
-    cache_creation_input_tokens = stats.cache_creation_input_tokens + u.cache_creation_input_tokens;
-    cache_read_input_tokens = stats.cache_read_input_tokens + u.cache_read_input_tokens;
+    total_cache_creation_input_tokens = stats.total_cache_creation_input_tokens + u.cache_creation_input_tokens;
+    total_cache_read_input_tokens = stats.total_cache_read_input_tokens + u.cache_read_input_tokens;
     api_calls = stats.api_calls + 1 }
 
 (** Agent state *)

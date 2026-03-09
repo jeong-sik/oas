@@ -148,6 +148,8 @@ let build_body_assoc ~config ~messages ?tools ~stream () =
     ("messages", `List (List.map message_to_json messages));
     ("stream", `Bool stream);
   ] in
+  (* Prompt caching is GA since Dec 2024 — no anthropic-beta header needed.
+     Only extended TTL (1h) requires a beta header. *)
   let body_assoc = match config.config.system_prompt with
     | Some s when config.config.cache_system_prompt ->
         let cached_block = `Assoc [

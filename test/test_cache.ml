@@ -103,8 +103,8 @@ let test_add_usage_cache_accumulation () =
   let stats = add_usage (add_usage empty_usage u1) u2 in
   Alcotest.(check int) "total_input" 180 stats.total_input_tokens;
   Alcotest.(check int) "total_output" 80 stats.total_output_tokens;
-  Alcotest.(check int) "cache_creation sum" 2000 stats.cache_creation_input_tokens;
-  Alcotest.(check int) "cache_read sum" 1800 stats.cache_read_input_tokens;
+  Alcotest.(check int) "cache_creation sum" 2000 stats.total_cache_creation_input_tokens;
+  Alcotest.(check int) "cache_read sum" 1800 stats.total_cache_read_input_tokens;
   Alcotest.(check int) "api_calls" 2 stats.api_calls
 
 (* ------------------------------------------------------------------ *)

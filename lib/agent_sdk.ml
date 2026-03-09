@@ -48,7 +48,7 @@ module Guardrails = Guardrails
 module Handoff = Handoff
 
 (** Quick start: create an agent with default config *)
-let create_agent ~net ?name ?model ?system_prompt ?max_tokens ?max_turns ?provider () =
+let create_agent ~net ?name ?model ?system_prompt ?max_tokens ?max_turns ?cache_system_prompt ?provider () =
   let open Types in
   let config = {
     default_config with
@@ -57,6 +57,7 @@ let create_agent ~net ?name ?model ?system_prompt ?max_tokens ?max_turns ?provid
     system_prompt;
     max_tokens = Option.value max_tokens ~default:default_config.max_tokens;
     max_turns = Option.value max_turns ~default:default_config.max_turns;
+    cache_system_prompt = Option.value cache_system_prompt ~default:default_config.cache_system_prompt;
   } in
   Agent.create ~net ~config ?provider ()
 
