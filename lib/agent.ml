@@ -78,7 +78,7 @@ let run_turn ~sw ?clock agent =
   | Ok response ->
       (* Accumulate usage stats *)
       let usage = match response.usage with
-        | Some (input, output) -> add_usage agent.state.usage input output
+        | Some u -> add_usage agent.state.usage u
         | None -> { agent.state.usage with api_calls = agent.state.usage.api_calls + 1 }
       in
 

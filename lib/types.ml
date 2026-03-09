@@ -102,13 +102,22 @@ let stop_reason_of_string = function
   | "stop_sequence" -> StopSequence
   | other -> Unknown other
 
+(** API usage from a single response *)
+type api_usage = {
+  input_tokens: int;
+  output_tokens: int;
+  cache_creation_input_tokens: int;
+  cache_read_input_tokens: int;
+}
+[@@deriving show]
+
 (** API response *)
 type api_response = {
   id: string;
   model: string;
   stop_reason: stop_reason;
   content: content_block list;
-  usage: (int * int) option;  (* input_tokens, output_tokens *)
+  usage: api_usage option;
 }
 [@@deriving show]
 
@@ -122,6 +131,7 @@ type agent_config = {
   temperature: float option;
   thinking_budget: int option; (* For Claude 3.7+ extended thinking *)
   tool_choice: tool_choice option;
+  cache_system_prompt: bool; (* Wrap system prompt with cache_control ephemeral *)
 }
 [@@deriving show]
 
@@ -134,6 +144,7 @@ let default_config = {
   temperature = None;
   thinking_budget = None;
   tool_choice = None;
+  cache_system_prompt = false;
 }
 
 (* SSE streaming event types *)
@@ -157,15 +168,25 @@ type sse_event =
 type usage_stats = {
   total_input_tokens: int;
   total_output_tokens: int;
+  total_cache_creation_input_tokens: int;
+  total_cache_read_input_tokens: int;
   api_calls: int;
 }
 [@@deriving show]
 
-let empty_usage = { total_input_tokens = 0; total_output_tokens = 0; api_calls = 0 }
+let empty_usage = {
+  total_input_tokens = 0;
+  total_output_tokens = 0;
+  total_cache_creation_input_tokens = 0;
+  total_cache_read_input_tokens = 0;
+  api_calls = 0;
+}
 
-let add_usage stats input_tokens output_tokens =
-  { total_input_tokens = stats.total_input_tokens + input_tokens;
-    total_output_tokens = stats.total_output_tokens + output_tokens;
+let add_usage stats (u : api_usage) =
+  { total_input_tokens = stats.total_input_tokens + u.input_tokens;
+    total_output_tokens = stats.total_output_tokens + u.output_tokens;
+    total_cache_creation_input_tokens = stats.total_cache_creation_input_tokens + u.cache_creation_input_tokens;
+    total_cache_read_input_tokens = stats.total_cache_read_input_tokens + u.cache_read_input_tokens;
     api_calls = stats.api_calls + 1 }
 
 (** Agent state *)

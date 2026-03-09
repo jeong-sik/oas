@@ -29,7 +29,7 @@ let test_simple_chat () =
     Printf.printf "  Response: %s\n%!" text;
     Printf.printf "  Stop reason: %s\n%!" (show_stop_reason response.stop_reason);
     (match response.usage with
-     | Some (inp, out) -> Printf.printf "  Tokens: %d in / %d out\n%!" inp out
+     | Some u -> Printf.printf "  Tokens: %d in / %d out\n%!" u.Types.input_tokens u.output_tokens
      | None -> ());
     assert (String.length text > 0);
     Printf.printf "  PASS\n%!"
