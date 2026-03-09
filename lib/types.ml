@@ -34,6 +34,23 @@ let param_type_to_string = function
   | Array -> "array"
   | Object -> "object"
 
+type tool_kind =
+  | Read_only
+  | File_edit
+  | Command
+  | Network
+  | Task
+  | Unknown
+[@@deriving yojson, show]
+
+let tool_kind_to_string = function
+  | Read_only -> "read_only"
+  | File_edit -> "file_edit"
+  | Command -> "command"
+  | Network -> "network"
+  | Task -> "task"
+  | Unknown -> "unknown"
+
 type tool_param = {
   name: string;
   description: string;
@@ -47,6 +64,7 @@ type tool_schema = {
   name: string;
   description: string;
   parameters: tool_param list;
+  kind: tool_kind;
 }
 [@@deriving yojson, show]
 

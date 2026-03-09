@@ -1,134 +1,189 @@
-# agent-sdk
+# `agent_sdk`
 
-이 디렉토리가 현재 작업 환경에서의 로컬 SSOT다.
+OCaml 5.x + Eio 기반 agent runtime kernel.
 
-- 사람 기준 이름: `agent-sdk`
-- local workspace path in this environment: `~/me/workspace/yousleepwhen/agent-sdk`
-- OCaml 패키지 이름: `agent_sdk`
-- OCaml 모듈 이름: `Agent_sdk`
-- `agent-swarm` 코드는 별도 제품이 아니라 `~/me/workspace/yousleepwhen/masc-mcp` 내부 구현으로 이관한다
+- repo: `https://github.com/jeong-sik/oas`
+- local workspace path in this environment: `~/me/workspace/yousleepwhen/oas`
+- opam package: `agent_sdk`
+- OCaml module: `Agent_sdk`
 
-OCaml 5.x + Eio 기반 LLM Agent SDK. Anthropic Messages API와 OpenAI-compatible local LLM 엔드포인트를 지원한다.
+`masc-mcp` 같은 orchestration layer가 재사용할 수 있도록, single-agent loop 위에 `hooks`, `permission-aware guardrails`, `sessions`, `skills`, `subagents`를 얹는 방향으로 설계되어 있다.
 
-## 아키텍처
+## Module Map
 
-```
-Provider  →  API  →  Agent  →  Tool
-(endpoint)  (HTTP)  (loop)   (functions)
-```
+| Module | Role |
+| --- | --- |
+| `Types` | message/content/tool schema/streaming events |
+| `Provider` | Anthropic / local / OpenAI-compatible endpoint resolution |
+| `Api` | `create_message`, `create_message_stream`, SSE parsing |
+| `Agent` | multi-turn tool loop, permission checks, handoffs, subagents |
+| `Tool` | tool definition, kind metadata, JSON schema export |
+| `Hooks` | lifecycle / permission / subagent hook events |
+| `Guardrails` | tool visibility, permission mode, output limits |
+| `Context` | shared mutable key-value context |
+| `Session` | resumable session metadata and lifecycle state |
+| `Skill` | markdown + frontmatter parser for reusable prompt skills |
+| `Subagent` | typed subagent spec and handoff target conversion |
+| `Handoff` | delegated sub-agent tool contract |
+| `Retry` | HTTP/network retry classification |
 
-| 모듈 | 역할 |
-|------|------|
-| `Types` | 메시지, 역할, stop_reason 등 도메인 타입 |
-| `Provider` | LLM 엔드포인트 추상화 (Local / Anthropic) |
-| `Api` | HTTP 클라이언트 — `create_message` 호출 |
-| `Agent` | 멀티턴 에이전트 루프 (tool_use 자동 처리) |
-| `Tool` | 도구 정의 + JSON Schema 생성 + 실행 |
+## Feature Matrix
 
-## Provider 패턴
+| Feature | Status | Notes |
+| --- | --- | --- |
+| Multi-turn tool loop | Stable | `Agent.run` |
+| SSE streaming | Stable | `Api.create_message_stream` + parsed SSE events |
+| Hooks | Stable | turn/tool/session/permission/subagent events |
+| Permission-aware guardrails | Stable | `permission_mode`, allow/ask/deny lists, output caps |
+| Shared context | Stable | `Context.t` |
+| Handoff tools | Stable | `Agent.run_with_handoffs` |
+| Sessions | Stable | `Session.t`, hook-visible lifecycle |
+| Skill markdown loader | Experimental | lightweight frontmatter subset |
+| Typed subagent specs | Experimental | `Subagent.t` -> `Handoff.handoff_target` |
+| Prompt caching | Planned | not implemented yet |
+| Multimodal content blocks | Planned | not implemented yet |
+| MCP resources / prompts | Planned | integration surface not added yet |
 
-```ocaml
-(* Local LLM (llama-server, vllm-mlx 등) *)
-let local_cfg : Provider.config = {
-  provider = Local { base_url = "http://127.0.0.1:8085" };
-  model_id = "qwen3.5-35b";
-  api_key_env = "LOCAL_LLM_KEY";
-}
-
-(* Anthropic *)
-let anthropic_cfg : Provider.config = {
-  provider = Anthropic;
-  model_id = "claude-sonnet-4-20250514";
-  api_key_env = "ANTHROPIC_API_KEY";
-}
-```
-
-`Provider.resolve`는 `(base_url * api_key * headers, error_msg) result`를 반환한다. 환경변수가 없으면 `Error`를 반환하며, silent fallback 없음.
-
-## 사용법
+## Quick Start
 
 ```ocaml
 open Agent_sdk
 
+let echo_tool =
+  Tool.create
+    ~name:"echo"
+    ~description:"Echo back the input"
+    ~parameters:[
+      {
+        Types.name = "message";
+        description = "Text to echo";
+        param_type = Types.String;
+        required = true;
+      };
+    ]
+    (fun input ->
+      let message = Yojson.Safe.Util.(input |> member "message" |> to_string) in
+      Ok message)
+
 let () =
   Eio_main.run @@ fun env ->
-  let net = Eio.Stdenv.net env in
   Eio.Switch.run @@ fun sw ->
-  let provider : Provider.config = {
-    provider = Local { base_url = "http://127.0.0.1:8085" };
-    model_id = "qwen3.5-35b";
-    api_key_env = "LOCAL_LLM_KEY";
-  } in
-  let agent = Agent.create
-    ~provider
-    ~system_prompt:"You are a helpful assistant."
-    ~tools:[]
-    ~max_turns:5 in
-  match Agent.run ~sw ~net agent "What is 2+2?" with
-  | Ok response -> Printf.printf "Response: %s\n" response
-  | Error e -> Printf.eprintf "Error: %s\n" e
+    let provider =
+      {
+        Provider.provider = Provider.Local { base_url = "http://127.0.0.1:8085" };
+        model_id = "qwen3.5-35b";
+        api_key_env = "LOCAL_LLM_KEY";
+      }
+    in
+    let agent =
+      Agent.create
+        ~net:env#net
+        ~provider
+        ~config:{
+          Types.default_config with
+          name = "echo-agent";
+          system_prompt = Some "You are a concise assistant.";
+          max_turns = 5;
+        }
+        ~tools:[echo_tool]
+        ()
+    in
+    match Agent.run ~sw agent "Say hello" with
+    | Ok response ->
+        response.Types.content
+        |> List.iter (function
+             | Types.Text text -> print_endline text
+             | _ -> ())
+    | Error err ->
+        prerr_endline err
 ```
 
-## 도구 정의
+## Tool Kinds and Guardrails
+
+`Tool.create` and `Tool.create_with_context` support `?kind`.
 
 ```ocaml
-let calc_tool = Tool.create
-  ~name:"calculator"
-  ~description:"Evaluate a math expression"
-  ~parameters:[
-    ("expression", `String, "The math expression to evaluate", true);
-  ]
-  ~handler:(fun args ->
-    match List.assoc_opt "expression" args with
-    | Some expr -> Printf.sprintf "Result: %s" expr
-    | None -> "Error: missing expression"
-  )
+let edit_tool =
+  Tool.create
+    ~kind:Types.File_edit
+    ~name:"write_file"
+    ~description:"Write a file"
+    ~parameters:[]
+    (fun _ -> Ok "done")
 ```
 
-## 빌드
+`Guardrails.permission_mode` drives runtime behavior:
 
-```bash
-# from the repo root
-dune build @all
+- `Default`: read-only tools auto-allow, others require approval
+- `Accept_edits`: read-only and file-edit tools auto-allow
+- `Dont_ask`: tools that need approval are rejected
+- `Bypass_permissions`: everything allows unless explicitly denied
+- `Plan`: read-only tools only
+
+Approval-requiring tools emit `Hooks.PermissionRequest`.
+
+## Skills and Subagents
+
+`Skill` parses markdown files with a lightweight frontmatter subset:
+
+```md
+---
+name: code-review
+description: Review code changes
+allowed-tools: Read, Grep
+argument-hint: revision range
+disable-model-invocation: true
+---
+Review the diff in $ARGUMENTS.
 ```
 
-## 테스트
+`Subagent` parses Claude-style subagent metadata and can be converted into a handoff target:
+
+```ocaml
+let reviewer_skill = Skill.load ".claude/skills/review.md"
+
+let reviewer =
+  Subagent.of_markdown
+    ~skills:[reviewer_skill]
+    {|
+---
+name: reviewer
+tools: grep, read
+disallowed-tools: edit
+permission-mode: accept-edits
+max-turns: 3
+---
+Review the implementation and summarize issues.
+|}
+```
+
+Run with typed subagents:
+
+```ocaml
+let result = Agent.run_with_subagents ~sw agent ~specs:[reviewer] "delegate"
+```
+
+## Build and Test
 
 ```bash
-# 단위 테스트
+dune build
 dune runtest
-
-# 통합 테스트 (로컬 LLM 서버 필요)
-LLAMA_LIVE_TEST=1 dune exec ./test/test_local_llm.exe
-LLAMA_LIVE_TEST=1 dune exec ./test/test_streaming_e2e.exe
-dune exec ./test/test_integration.exe
 ```
 
-## stop_reason 처리
+Selected executables:
 
-API 응답의 `stop_reason` 필드는 `Unknown of string` variant를 포함한다. 알 수 없는 값이 들어와도 silent 무시하지 않고 원본 문자열을 보존한다.
-
-```ocaml
-match Types.stop_reason_of_string "some_new_reason" with
-| Types.Unknown s -> Printf.printf "Unknown stop reason: %s\n" s
-| Types.EndTurn -> (* ... *)
-| _ -> (* ... *)
+```bash
+dune exec ./test/test_local_llm.exe
+dune exec ./test/test_streaming_e2e.exe
 ```
 
-## 의존성
+## Constraints
 
-- `eio`, `eio_main` — 구조적 동시성
-- `cohttp-eio` — HTTP 클라이언트
-- `yojson` — JSON 파싱
-- `ppx_deriving` — show, eq 자동 생성
-- `alcotest` — 테스트 (dev)
+- HTTP response body hard limit: 10MB
+- streaming retry is not automatic; callers should wrap `create_message_stream` externally
+- frontmatter parsing is intentionally lightweight, not full YAML
+- skill/subagent filesystem loading is local-only and synchronous
 
-## 제약 및 트레이드오프
+## Version
 
-- HTTP 응답 본문 상한: 10MB. 이보다 큰 응답은 에러 처리.
-- streaming 미지원. 전체 응답을 버퍼링한 뒤 파싱.
-- tool_use 루프에서 max_turns 초과 시 마지막 응답을 반환하고 종료.
-
-## 버전
-
-0.2.0
+`0.4.0`

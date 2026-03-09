@@ -46,9 +46,13 @@ module Hooks = Hooks
 module Context = Context
 module Guardrails = Guardrails
 module Handoff = Handoff
+module Session = Session
+module Skill = Skill
+module Subagent = Subagent
 
 (** Quick start: create an agent with default config *)
-let create_agent ~net ?name ?model ?system_prompt ?max_tokens ?max_turns ?provider () =
+let create_agent ~net ?name ?model ?system_prompt ?max_tokens ?max_turns
+    ?provider ?hooks ?guardrails ?session () =
   let open Types in
   let config = {
     default_config with
@@ -58,8 +62,8 @@ let create_agent ~net ?name ?model ?system_prompt ?max_tokens ?max_turns ?provid
     max_tokens = Option.value max_tokens ~default:default_config.max_tokens;
     max_turns = Option.value max_turns ~default:default_config.max_turns;
   } in
-  Agent.create ~net ~config ?provider ()
+  Agent.create ~net ~config ?provider ?hooks ?guardrails ?session ()
 
 (** Version info *)
-let version = "0.2.0"
+let version = "0.4.0"
 let sdk_name = "anthropic-agent-sdk"

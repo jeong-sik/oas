@@ -19,13 +19,13 @@ type t = {
 }
 
 (** Create a tool with a simple handler *)
-let create ~name ~description ~parameters handler =
-  let schema = { name; description; parameters } in
+let create ?(kind = Read_only) ~name ~description ~parameters handler =
+  let schema = { name; description; parameters; kind } in
   { schema; handler = Simple handler }
 
 (** Create a tool with a context-aware handler *)
-let create_with_context ~name ~description ~parameters handler =
-  let schema = { name; description; parameters } in
+let create_with_context ?(kind = Read_only) ~name ~description ~parameters handler =
+  let schema = { name; description; parameters; kind } in
   { schema; handler = WithContext handler }
 
 (** Execute a tool, optionally passing context *)
@@ -54,6 +54,7 @@ let schema_to_json tool =
   `Assoc [
     ("name", `String tool.schema.name);
     ("description", `String tool.schema.description);
+    ("x-kind", `String (tool_kind_to_string tool.schema.kind));
     ("input_schema", `Assoc [
       ("type", `String "object");
       ("properties", `Assoc (List.rev properties));

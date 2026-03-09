@@ -11,8 +11,8 @@ let test_default () =
   let g = Guardrails.default in
   check bool "default filter is AllowAll" true
     (g.tool_filter = Guardrails.AllowAll);
-  check bool "default limit is None" true
-    (g.max_tool_calls_per_turn = None)
+  check bool "default limit is None" true (g.max_tool_calls_per_turn = None);
+  check bool "default permission mode" true (g.permission_mode = Guardrails.Default)
 
 let test_allow_all () =
   let g = Guardrails.default in
@@ -61,6 +61,39 @@ let test_exceeds_limit_over () =
   let g = { Guardrails.default with max_tool_calls_per_turn = Some 5 } in
   check bool "over limit" true (Guardrails.exceeds_limit g 6)
 
+let test_permission_default_read_only () =
+  let tool = make_tool "read_file" in
+  check (of_pp Guardrails.pp_permission_outcome) "read-only auto allowed"
+    Guardrails.Authorized
+    (Guardrails.permission_for_tool Guardrails.default tool.schema)
+
+let test_permission_default_command_requires_confirmation () =
+  let tool =
+    Tool.create ~kind:Command ~name:"bash" ~description:"run command" ~parameters:[]
+      (fun _ -> Ok "ok")
+  in
+  check (of_pp Guardrails.pp_permission_outcome) "command requires confirmation"
+    (Guardrails.Requires_confirmation "tool needs explicit approval in default mode")
+    (Guardrails.permission_for_tool Guardrails.default tool.schema)
+
+let test_permission_plan_rejects_edits () =
+  let tool =
+    Tool.create ~kind:File_edit ~name:"edit" ~description:"edit file" ~parameters:[]
+      (fun _ -> Ok "ok")
+  in
+  let guardrails = { Guardrails.default with permission_mode = Guardrails.Plan } in
+  check bool "plan rejects edit"
+    true
+    (match Guardrails.permission_for_tool guardrails tool.schema with
+     | Guardrails.Rejected _ -> true
+     | _ -> false)
+
+let test_output_limit_truncates () =
+  let guardrails = { Guardrails.default with max_output_chars = Some 5 } in
+  let output, truncated = Guardrails.apply_output_limit guardrails "123456789" in
+  check bool "output truncated" true truncated;
+  check bool "suffix added" true (String.ends_with ~suffix:"[truncated by guardrails]" output)
+
 let () =
   run "Guardrails" [
     "default", [
@@ -77,5 +110,10 @@ let () =
       test_case "under limit" `Quick test_exceeds_limit_under;
       test_case "at limit" `Quick test_exceeds_limit_equal;
       test_case "over limit" `Quick test_exceeds_limit_over;
+      test_case "permission read-only" `Quick test_permission_default_read_only;
+      test_case "permission command confirm" `Quick
+        test_permission_default_command_requires_confirmation;
+      test_case "permission plan rejects edits" `Quick test_permission_plan_rejects_edits;
+      test_case "output limit truncates" `Quick test_output_limit_truncates;
     ];
   ]

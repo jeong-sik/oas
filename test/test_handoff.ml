@@ -29,6 +29,9 @@ let test_make_handoff_tool_name () =
     description = "Research specialist";
     config = default_config;
     tools = [];
+    hooks = None;
+    guardrails = None;
+    session = None;
   } in
   let tool = Handoff.make_handoff_tool target in
   check string "tool name" "transfer_to_researcher" tool.schema.name
@@ -39,6 +42,9 @@ let test_make_handoff_tool_description () =
     description = "Writes code";
     config = default_config;
     tools = [];
+    hooks = None;
+    guardrails = None;
+    session = None;
   } in
   let tool = Handoff.make_handoff_tool target in
   check bool "description contains name" true
@@ -50,6 +56,9 @@ let test_make_handoff_tool_parameters () =
     description = "General helper";
     config = default_config;
     tools = [];
+    hooks = None;
+    guardrails = None;
+    session = None;
   } in
   let tool = Handoff.make_handoff_tool target in
   check int "has prompt parameter" 1 (List.length tool.schema.parameters);
@@ -63,6 +72,9 @@ let test_make_handoff_tool_handler_is_sentinel () =
     description = "Intercept-only test target";
     config = default_config;
     tools = [];
+    hooks = None;
+    guardrails = None;
+    session = None;
   } in
   let tool = Handoff.make_handoff_tool target in
   match Tool.execute tool `Null with
@@ -114,6 +126,11 @@ let handoff_mock_handler _conn req body =
 let test_run_with_handoffs_intercepts_tool_use () =
   let port = 8083 in
   let base_url = Printf.sprintf "http://127.0.0.1:%d" port in
+  let provider = {
+    Provider.provider = Local { base_url };
+    model_id = "mock-local";
+    api_key_env = "DUMMY_KEY";
+  } in
   Eio_main.run @@ fun env ->
   try
     Eio.Switch.run @@ fun sw ->
@@ -129,8 +146,11 @@ let test_run_with_handoffs_intercepts_tool_use () =
         description = "Research specialist";
         config = { default_config with name = "researcher" };
         tools = [];
+        hooks = None;
+        guardrails = None;
+        session = None;
       } in
-      let agent = Agent.create ~net:env#net ~base_url () in
+      let agent = Agent.create ~net:env#net ~base_url ~provider () in
       match Agent.run_with_handoffs ~sw agent ~targets:[target] "delegate" with
       | Ok response ->
           let text =
@@ -147,6 +167,11 @@ let test_run_with_handoffs_intercepts_tool_use () =
 let test_run_with_handoffs_reports_unknown_target () =
   let port = 8084 in
   let base_url = Printf.sprintf "http://127.0.0.1:%d" port in
+  let provider = {
+    Provider.provider = Local { base_url };
+    model_id = "mock-local";
+    api_key_env = "DUMMY_KEY";
+  } in
   Eio_main.run @@ fun env ->
   try
     Eio.Switch.run @@ fun sw ->
@@ -162,8 +187,11 @@ let test_run_with_handoffs_reports_unknown_target () =
         description = "Research specialist";
         config = { default_config with name = "researcher" };
         tools = [];
+        hooks = None;
+        guardrails = None;
+        session = None;
       } in
-      let agent = Agent.create ~net:env#net ~base_url () in
+      let agent = Agent.create ~net:env#net ~base_url ~provider () in
       match Agent.run_with_handoffs ~sw agent ~targets:[target] "delegate_unknown" with
       | Ok response ->
           let text =
@@ -172,6 +200,57 @@ let test_run_with_handoffs_reports_unknown_target () =
           in
           check string "unknown target error"
             "handoff complete: Unknown handoff target: unknown" text;
+          Eio.Switch.fail sw Exit
+      | Error e ->
+          fail e
+  with Exit -> ()
+
+let test_run_with_subagents_uses_spec () =
+  let port = 8085 in
+  let base_url = Printf.sprintf "http://127.0.0.1:%d" port in
+  let provider = {
+    Provider.provider = Local { base_url };
+    model_id = "mock-local";
+    api_key_env = "DUMMY_KEY";
+  } in
+  Eio_main.run @@ fun env ->
+  try
+    Eio.Switch.run @@ fun sw ->
+      let socket =
+        Eio.Net.listen env#net ~sw ~backlog:128 ~reuse_addr:true
+          (`Tcp (Eio.Net.Ipaddr.V4.loopback, port))
+      in
+      let server = Cohttp_eio.Server.make ~callback:handoff_mock_handler () in
+      Eio.Fiber.fork ~sw (fun () ->
+        Cohttp_eio.Server.run socket server ~on_error:(fun _ -> ()));
+      let reviewer_skill =
+        Skill.of_markdown
+          {|
+---
+name: reviewer
+---
+Always write a concise review.
+|}
+      in
+      let subagent =
+        Subagent.of_markdown ~skills:[reviewer_skill]
+          {|
+---
+name: researcher
+tools: []
+---
+Research the task and respond clearly.
+|}
+      in
+      let agent = Agent.create ~net:env#net ~base_url ~provider () in
+      match Agent.run_with_subagents ~sw agent ~specs:[subagent] "delegate" with
+      | Ok response ->
+          let text =
+            List.filter_map (function Text s -> Some s | _ -> None) response.content
+            |> String.concat ""
+          in
+          check string "subagent final text"
+            "handoff complete: delegated response" text;
           Eio.Switch.fail sw Exit
       | Error e ->
           fail e
@@ -197,5 +276,7 @@ let () =
         test_run_with_handoffs_intercepts_tool_use;
       test_case "reports unknown target" `Quick
         test_run_with_handoffs_reports_unknown_target;
+      test_case "run_with_subagents uses typed spec" `Quick
+        test_run_with_subagents_uses_spec;
     ];
   ]

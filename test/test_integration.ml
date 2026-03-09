@@ -39,6 +39,11 @@ let mock_handler _conn req body =
 let test_simple_conversation () =
   let port = 8081 in
   let base_url = Printf.sprintf "http://127.0.0.1:%d" port in
+  let provider = {
+    Provider.provider = Local { base_url };
+    model_id = "mock-local";
+    api_key_env = "DUMMY_KEY";
+  } in
   
   Eio_main.run @@ fun env ->
   try
@@ -47,7 +52,7 @@ let test_simple_conversation () =
       let server = Cohttp_eio.Server.make ~callback:mock_handler () in
       Eio.Fiber.fork ~sw (fun () -> Cohttp_eio.Server.run socket server ~on_error:(fun _ -> ()));
 
-      let agent = Agent.create ~net:env#net ~base_url () in
+      let agent = Agent.create ~net:env#net ~base_url ~provider () in
       match Agent.run ~sw agent "ping" with
       | Ok response ->
           let text = List.filter_map (function Text s -> Some s | _ -> None) response.content |> String.concat "" in
@@ -59,6 +64,11 @@ let test_simple_conversation () =
 let test_tool_use () =
   let port = 8082 in
   let base_url = Printf.sprintf "http://127.0.0.1:%d" port in
+  let provider = {
+    Provider.provider = Local { base_url };
+    model_id = "mock-local";
+    api_key_env = "DUMMY_KEY";
+  } in
   
   Eio_main.run @@ fun env ->
   try
@@ -72,7 +82,7 @@ let test_tool_use () =
          let b = Yojson.Safe.Util.(input |> member "b" |> to_int) in
          Ok (string_of_int (a + b))) in
 
-      let agent = Agent.create ~net:env#net ~base_url ~tools:[calc_tool] () in
+      let agent = Agent.create ~net:env#net ~base_url ~provider ~tools:[calc_tool] () in
       match Agent.run ~sw agent "use_tool" with
       | Ok response ->
           let text = List.filter_map (function Text s -> Some s | _ -> None) response.content |> String.concat "" in

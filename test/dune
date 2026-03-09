@@ -23,6 +23,18 @@
  (libraries agent_sdk alcotest yojson))
 
 (test
+ (name test_session)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_skill)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_subagent)
+ (libraries agent_sdk alcotest yojson))
+
+(test
  (name test_guardrails)
  (libraries agent_sdk alcotest yojson))
 
