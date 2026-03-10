@@ -210,19 +210,49 @@ let tool_calls_to_openai_json blocks =
                   ])
          | _ -> None)
 
+let openai_content_parts_of_blocks blocks =
+  blocks
+  |> List.filter_map (function
+         | Text s ->
+             Some (`Assoc [("type", `String "text"); ("text", `String s)])
+         | Image { media_type; data; source_type = _ } ->
+             Some (`Assoc [
+               ("type", `String "image_url");
+               ("image_url", `Assoc [
+                 ("url", `String (Printf.sprintf "data:%s;base64,%s" media_type data))
+               ])
+             ])
+         | Document { media_type; data; source_type = _ } ->
+             (* Encode documents as image_url with data URI — best-effort for
+                providers that support inline documents (e.g. GPT-4o PDF). *)
+             Some (`Assoc [
+               ("type", `String "image_url");
+               ("image_url", `Assoc [
+                 ("url", `String (Printf.sprintf "data:%s;base64,%s" media_type data))
+               ])
+             ])
+         | Thinking _ | RedactedThinking _ | ToolUse _ | ToolResult _ -> None)
+
 let openai_messages_of_message (msg : message) : Yojson.Safe.t list =
   match msg.role with
   | User ->
-      let text_content = text_blocks_to_string msg.content in
-      let text_msgs =
-        if string_is_blank text_content then
-          []
+      let content_parts = openai_content_parts_of_blocks msg.content in
+      let has_multimodal =
+        List.exists (function Image _ | Document _ -> true | _ -> false) msg.content
+      in
+      let user_msgs =
+        if content_parts = [] then []
+        else if has_multimodal then
+          [ `Assoc [
+              ("role", `String "user");
+              ("content", `List content_parts);
+            ] ]
         else
-          [ `Assoc
-              [
-                ("role", `String "user");
-                ("content", `String text_content);
-              ] ]
+          let text_content = text_blocks_to_string msg.content in
+          [ `Assoc [
+              ("role", `String "user");
+              ("content", `String text_content);
+            ] ]
       in
       let tool_msgs =
         msg.content
@@ -237,7 +267,7 @@ let openai_messages_of_message (msg : message) : Yojson.Safe.t list =
                         ])
                | _ -> None)
       in
-      text_msgs @ tool_msgs
+      user_msgs @ tool_msgs
   | Assistant ->
       let text_content = text_blocks_to_string msg.content in
       let tool_calls = tool_calls_to_openai_json msg.content in
@@ -483,7 +513,10 @@ let parse_ollama_chat_response json_str =
             try
               let fn = tc |> member "function" in
               let arguments =
-                fn |> member "arguments" |> to_string_option |> Option.value ~default:"{}"
+                match fn |> member "arguments" with
+                | `String s -> s
+                | `Null -> "{}"
+                | other -> Yojson.Safe.to_string other
               in
               Some
                 (ToolUse

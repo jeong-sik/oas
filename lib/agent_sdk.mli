@@ -614,6 +614,24 @@ module Api : sig
     unit ->
     (string * Yojson.Safe.t) list
 
+  (** Convert a message to OpenAI-compatible message JSON list.
+      Handles multimodal content (Image/Document) as content_parts arrays. *)
+  val openai_messages_of_message : Types.message -> Yojson.Safe.t list
+
+  (** Convert content blocks to OpenAI content_parts array entries.
+      Text -> text part, Image/Document -> image_url with data URI. *)
+  val openai_content_parts_of_blocks : Types.content_block list -> Yojson.Safe.t list
+
+  (** Parse an Ollama /api/chat response JSON string into an api_response.
+      Handles tool_calls with arguments as both string and JSON object. *)
+  val parse_ollama_chat_response : string -> Types.api_response
+
+  (** Parse an Ollama /api/generate response JSON string. *)
+  val parse_ollama_generate_response : string -> Types.api_response
+
+  (** Parse an OpenAI-compatible response JSON string. *)
+  val parse_openai_response : string -> Types.api_response
+
   (** Send a non-streaming message to the Anthropic API *)
   val create_message :
     sw:Eio.Switch.t ->

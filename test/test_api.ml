@@ -362,6 +362,57 @@ let test_message_to_json_assistant () =
   check int "2 blocks" 2 (List.length content)
 
 (* ------------------------------------------------------------------ *)
+(* openai_messages_of_message: multimodal user content                  *)
+(* ------------------------------------------------------------------ *)
+
+let test_openai_messages_text_only () =
+  let msg = { Types.role = Types.User; content = [Types.Text "hello"] } in
+  let msgs = Api.openai_messages_of_message msg in
+  check int "1 message" 1 (List.length msgs);
+  let open Yojson.Safe.Util in
+  let content = List.hd msgs |> member "content" in
+  (* text-only should be a plain string, not an array *)
+  check string "plain string" "hello" (to_string content)
+
+let test_openai_messages_with_image () =
+  let msg = { Types.role = Types.User; content = [
+    Types.Text "describe this";
+    Types.Image { media_type = "image/png"; data = "abc123"; source_type = "base64" };
+  ] } in
+  let msgs = Api.openai_messages_of_message msg in
+  check int "1 message" 1 (List.length msgs);
+  let open Yojson.Safe.Util in
+  let content = List.hd msgs |> member "content" |> to_list in
+  check int "2 content parts" 2 (List.length content);
+  let first_type = List.nth content 0 |> member "type" |> to_string in
+  let second_type = List.nth content 1 |> member "type" |> to_string in
+  check string "text part" "text" first_type;
+  check string "image part" "image_url" second_type
+
+(* ------------------------------------------------------------------ *)
+(* parse_ollama_chat_response: tool arguments as JSON object            *)
+(* ------------------------------------------------------------------ *)
+
+let test_ollama_tool_args_string () =
+  let json_str = {|{"model":"qwen","message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"get_weather","arguments":"{\"city\":\"Seoul\"}"}}]},"done":true,"eval_count":10,"prompt_eval_count":5}|} in
+  let resp = Api.parse_ollama_chat_response json_str in
+  match resp.content with
+  | [Types.ToolUse (_, "get_weather", input)] ->
+      let open Yojson.Safe.Util in
+      check string "city" "Seoul" (input |> member "city" |> to_string)
+  | _ -> fail "expected single ToolUse block"
+
+let test_ollama_tool_args_object () =
+  (* Ollama native format: arguments as JSON object, not string *)
+  let json_str = {|{"model":"qwen","message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"get_weather","arguments":{"city":"Seoul"}}}]},"done":true,"eval_count":10,"prompt_eval_count":5}|} in
+  let resp = Api.parse_ollama_chat_response json_str in
+  match resp.content with
+  | [Types.ToolUse (_, "get_weather", input)] ->
+      let open Yojson.Safe.Util in
+      check string "city from object" "Seoul" (input |> member "city" |> to_string)
+  | _ -> fail "expected single ToolUse block with object arguments"
+
+(* ------------------------------------------------------------------ *)
 (* Test runner                                                          *)
 (* ------------------------------------------------------------------ *)
 
@@ -409,5 +460,13 @@ let () =
     "message_to_json", [
       test_case "user message" `Quick test_message_to_json;
       test_case "assistant mixed content" `Quick test_message_to_json_assistant;
+    ];
+    "openai_messages", [
+      test_case "text only user" `Quick test_openai_messages_text_only;
+      test_case "user with image" `Quick test_openai_messages_with_image;
+    ];
+    "parse_ollama_chat", [
+      test_case "tool args as string" `Quick test_ollama_tool_args_string;
+      test_case "tool args as object" `Quick test_ollama_tool_args_object;
     ];
   ]
