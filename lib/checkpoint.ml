@@ -1,9 +1,9 @@
 (** Agent state checkpoint — versioned JSON serialization.
 
-    Captures the full conversation state (messages, usage, config) so an
-    agent can be suspended and later resumed.  All functions are pure
-    (string / Yojson.Safe.t in, string / Yojson.Safe.t out); file I/O is
-    left to the caller. *)
+    Captures the full conversation state (messages, usage, config) as a
+    pure value for callers that want to persist and later restore agent
+    state.  This module only handles serialization; file I/O and resume
+    orchestration are left to the caller. *)
 
 open Types
 
