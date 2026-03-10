@@ -41,6 +41,19 @@ let touch t =
 let elapsed t =
   Unix.gettimeofday () -. t.started_at
 
+let resume_from (cp : Checkpoint.t) =
+  let now = Unix.gettimeofday () in
+  {
+    id = generate_id ();
+    started_at = now;
+    last_active_at = now;
+    turn_count = cp.turn_count;
+    resumed_from =
+      (match cp.session_id with "" -> None | sid -> Some sid);
+    cwd = None;
+    metadata = Context.create ();
+  }
+
 let to_json t =
   `Assoc [
     ("id", `String t.id);
