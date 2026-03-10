@@ -102,3 +102,7 @@
 (test
  (name test_context_reducer)
  (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_mcp)
+ (libraries agent_sdk alcotest yojson))
