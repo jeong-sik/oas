@@ -456,9 +456,10 @@ module Mcp : sig
   (** {2 Stdio transport} *)
 
   (** Spawn an MCP server subprocess.
-      [command] is the executable, [args] are its arguments. *)
+      [command] is the executable, [args] are its arguments.
+      [env] optionally overrides the process environment. *)
   val connect :
-    command:string -> args:string list -> unit -> (t, string) result
+    command:string -> args:string list -> ?env:string array -> unit -> (t, string) result
 
   (** Send the MCP initialize handshake (protocol version 2024-11-05). *)
   val initialize : t -> (unit, string) result
@@ -478,6 +479,41 @@ module Mcp : sig
 
   (** Close the MCP server subprocess. *)
   val close : t -> unit
+
+  (** {2 Managed lifecycle} *)
+
+  (** Server start specification.
+      [command] is the executable, [args] its arguments.
+      [env] contains extra environment variable overrides.
+      [name] identifies the server for diagnostics. *)
+  type server_spec = {
+    command: string;
+    args: string list;
+    env: (string * string) list;
+    name: string;
+  }
+
+  (** A connected MCP server together with its converted SDK tools. *)
+  type managed = {
+    client: t;
+    tools: Tool.t list;
+    name: string;
+  }
+
+  (** Merge extra key-value pairs into the current process environment.
+      Existing keys in [extras] are overridden. *)
+  val merge_env : (string * string) list -> string array
+
+  (** Close all managed MCP server connections (best-effort). *)
+  val close_all : managed list -> unit
+
+  (** Connect to an MCP server, initialize, fetch tools, and convert
+      them to SDK {!Tool.t} values.  On failure the subprocess is closed. *)
+  val connect_and_load : server_spec -> (managed, string) result
+
+  (** Connect to multiple MCP servers sequentially.
+      On failure, all previously-connected servers are closed. *)
+  val connect_all : server_spec list -> (managed list, string) result
 end
 
 (** {1 Guardrails} *)
@@ -786,6 +822,7 @@ module Agent : sig
     tracer: Tracing.t;
     approval: Hooks.approval_callback option;
     context_reducer: Context_reducer.t option;
+    mcp_clients: Mcp.managed list;
   }
 
   val default_options : options
@@ -844,6 +881,10 @@ module Agent : sig
     targets:Handoff.handoff_target list ->
     string ->
     (Types.api_response, string) result
+
+  (** Close all MCP server connections held by this agent.
+      Safe to call even if no MCP servers were configured. *)
+  val close : t -> unit
 
   (** Create a checkpoint from the current agent state.
       The checkpoint captures messages, usage, tools, and config

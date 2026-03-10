@@ -160,12 +160,14 @@ let send_notification t ~method_ ?(params=`Assoc []) () =
   with _ -> ()
 
 (** Connect to an MCP server by spawning a subprocess.
-    [command] is the executable path, [args] are command-line arguments. *)
-let connect ~command ~args () =
+    [command] is the executable path, [args] are command-line arguments.
+    [env] overrides the process environment; defaults to [Unix.environment ()]. *)
+let connect ~command ~args ?env () =
   try
     let full_args = Array.of_list (command :: args) in
+    let env_arr = match env with Some e -> e | None -> Unix.environment () in
     let (ic, oc, ec) =
-      Unix.open_process_args_full command full_args (Unix.environment ()) in
+      Unix.open_process_args_full command full_args env_arr in
     Ok { ic; oc; ec; next_id = 1; tools = [] }
   with
   | Unix.Unix_error (err, fn, arg) ->
@@ -252,3 +254,82 @@ let close t =
     let _status = Unix.close_process_full (t.ic, t.oc, t.ec) in
     ()
   with _ -> ())
+
+(* ── Managed lifecycle ─────────────────────────────────────────── *)
+
+(** Server start specification.
+    [command] is the executable, [args] its arguments.
+    [env] contains extra environment variable overrides (merged with
+    the current process environment).  [name] identifies the server. *)
+type server_spec = {
+  command: string;
+  args: string list;
+  env: (string * string) list;
+  name: string;
+}
+
+(** A connected MCP server together with its converted SDK tools. *)
+type managed = {
+  client: t;
+  tools: Tool.t list;
+  name: string;
+}
+
+(** Merge extra key-value pairs into the current process environment.
+    Existing keys listed in [extras] are overridden. *)
+let merge_env extras =
+  if extras = [] then Unix.environment ()
+  else
+    let extra_keys = List.map fst extras in
+    let base_filtered =
+      Array.to_list (Unix.environment ())
+      |> List.filter (fun entry ->
+        let key = match String.split_on_char '=' entry with
+          | k :: _ -> k | [] -> "" in
+        not (List.mem key extra_keys))
+    in
+    let extra_entries = List.map (fun (k, v) -> k ^ "=" ^ v) extras in
+    Array.of_list (base_filtered @ extra_entries)
+
+(** Close all managed MCP server connections.
+    Exceptions from individual servers are swallowed (best-effort). *)
+let close_all managed_list =
+  List.iter (fun m -> close m.client) managed_list
+
+(** Connect to an MCP server, perform the initialize handshake, fetch
+    tools, and convert them to SDK [Tool.t] values.
+    On any failure the subprocess is closed before returning [Error]. *)
+let connect_and_load spec =
+  let env = merge_env spec.env in
+  match connect ~command:spec.command ~args:spec.args ~env () with
+  | Error e -> Error e
+  | Ok client ->
+    (try
+      match initialize client with
+      | Error e -> close client; Error e
+      | Ok () ->
+        match list_tools client with
+        | Error e -> close client; Error e
+        | Ok _mcp_tools ->
+          let tools = to_tools client in
+          Ok { client; tools; name = spec.name }
+    with exn ->
+      close client;
+      Error (Printf.sprintf "MCP server '%s' failed: %s"
+        spec.name (Printexc.to_string exn)))
+
+(** Connect to multiple MCP servers sequentially.
+    If any server fails, all previously-connected servers are closed
+    and the first error is returned. *)
+let connect_all specs =
+  let rec loop acc = function
+    | [] -> Ok (List.rev acc)
+    | spec :: rest ->
+      match connect_and_load spec with
+      | Error e ->
+        close_all (List.rev acc);
+        Error e
+      | Ok m ->
+        loop (m :: acc) rest
+  in
+  loop [] specs
