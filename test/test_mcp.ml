@@ -65,6 +65,18 @@ let test_decode_response_error_defaults () =
     Alcotest.(check int) "default code" (-1) e.code;
     Alcotest.(check string) "default message" "Unknown error" e.message
 
+let test_notification_has_no_id () =
+  (* Notifications have no "id" — read_response skips them *)
+  let notif = Yojson.Safe.from_string
+    {|{"jsonrpc":"2.0","method":"notifications/progress","params":{"token":"abc"}}|} in
+  let open Yojson.Safe.Util in
+  Alcotest.check check_json "no id in notification" `Null (notif |> member "id");
+  (* Response always has "id" *)
+  let resp = Yojson.Safe.from_string
+    {|{"jsonrpc":"2.0","id":1,"result":{"tools":[]}}|} in
+  let has_id = match resp |> member "id" with `Null -> false | _ -> true in
+  Alcotest.(check bool) "response has id" true has_id
+
 (* ── MCP tool parsing ───────────────────────────────────────────── *)
 
 let test_parse_mcp_tool () =
@@ -223,6 +235,7 @@ let () =
       test_case "decode_response success" `Quick test_decode_response_success;
       test_case "decode_response error" `Quick test_decode_response_error;
       test_case "decode_response error defaults" `Quick test_decode_response_error_defaults;
+      test_case "notification vs response id" `Quick test_notification_has_no_id;
     ];
     "mcp_types", [
       test_case "parse_mcp_tool" `Quick test_parse_mcp_tool;

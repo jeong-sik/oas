@@ -128,11 +128,14 @@ let send_raw t json =
   output_char t.oc '\n';
   flush t.oc
 
-let read_response t =
+let rec read_response t =
   try
     let line = input_line t.ic in
     let json = Yojson.Safe.from_string line in
-    decode_response json
+    let open Yojson.Safe.Util in
+    match json |> member "id" with
+    | `Null -> read_response t  (* skip server notifications *)
+    | _ -> decode_response json
   with
   | End_of_file ->
     Error { code = (-1); message = "MCP server closed connection" }
