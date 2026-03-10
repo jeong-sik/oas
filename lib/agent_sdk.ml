@@ -35,24 +35,24 @@
     ]}
 *)
 
-(** Re-export all modules *)
+(** Re-export all modules (dependency-safe order) *)
 module Types = Types
-module Tool = Tool
-module Api = Api
-module Agent = Agent
+module Context = Context
 module Provider = Provider
 module Retry = Retry
 module Hooks = Hooks
-module Context = Context
-module Guardrails = Guardrails
-module Handoff = Handoff
-module Session = Session
-module Skill = Skill
-module Subagent = Subagent
-module Structured = Structured
-module Streaming = Streaming
 module Tracing = Tracing
 module Context_reducer = Context_reducer
+module Tool = Tool
+module Guardrails = Guardrails
+module Skill = Skill
+module Handoff = Handoff
+module Session = Session
+module Api = Api
+module Streaming = Streaming
+module Subagent = Subagent
+module Structured = Structured
+module Agent = Agent
 
 (** Quick start: create an agent with default config *)
 let create_agent ~net ?name ?model ?system_prompt ?max_tokens ?max_turns ?cache_system_prompt ?provider () =
