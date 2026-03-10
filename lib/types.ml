@@ -66,6 +66,16 @@ let tool_choice_to_json = function
   | Any -> `Assoc [("type", `String "any")]
   | Tool name -> `Assoc [("type", `String "tool"); ("name", `String name)]
 
+let tool_choice_of_json json =
+  let open Yojson.Safe.Util in
+  match json |> member "type" |> to_string with
+  | "auto" -> Ok Auto
+  | "any" -> Ok Any
+  | "tool" ->
+    let name = json |> member "name" |> to_string in
+    Ok (Tool name)
+  | other -> Error (Printf.sprintf "Unknown tool_choice type: %s" other)
+
 (** Content block types - Tuple Style for safety *)
 type content_block =
   | Text of string

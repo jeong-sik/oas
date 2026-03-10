@@ -335,3 +335,19 @@ let run_with_handoffs ~sw ?clock agent ~targets user_prompt =
   agent_with_handoffs.state <- { agent_with_handoffs.state with
     messages = agent_with_handoffs.state.messages @ [{ role = User; content = [Text user_prompt] }] };
   loop ()
+
+(** Create a checkpoint from the current agent state. *)
+let checkpoint ?(session_id="") agent =
+  {
+    Checkpoint.version = Checkpoint.checkpoint_version;
+    session_id;
+    agent_name = agent.state.config.name;
+    model = agent.state.config.model;
+    system_prompt = agent.state.config.system_prompt;
+    messages = agent.state.messages;
+    usage = agent.state.usage;
+    turn_count = agent.state.turn_count;
+    created_at = Unix.gettimeofday ();
+    tools = List.map (fun (t : Tool.t) -> t.schema) agent.tools;
+    tool_choice = agent.state.config.tool_choice;
+  }
