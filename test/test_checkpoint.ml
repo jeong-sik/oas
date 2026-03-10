@@ -296,5 +296,102 @@ let () =
       test_case "empty JSON object" `Quick (fun () ->
         check bool "error" true
           (Result.is_error (Checkpoint.of_json (`Assoc []))));
+
+      test_case "invalid model tag returns Error" `Quick (fun () ->
+        let cp = make_checkpoint () in
+        let json = Checkpoint.to_json cp in
+        let bad = match json with
+          | `Assoc pairs ->
+            `Assoc (List.map (fun (k, v) ->
+              if k = "model" then (k, `String "not-a-real-model") else (k, v)
+            ) pairs)
+          | other -> other
+        in
+        check bool "error" true (Result.is_error (Checkpoint.of_json bad)));
+
+      test_case "invalid role returns Error" `Quick (fun () ->
+        let cp = make_checkpoint ~messages:[
+          { Types.role = Types.User; content = [Types.Text "hello"] }
+        ] () in
+        let json = Checkpoint.to_json cp in
+        let bad =
+          match json with
+          | `Assoc pairs ->
+            `Assoc (List.map (fun (k, v) ->
+              if k = "messages" then
+                match v with
+                | `List (`Assoc msg_fields :: rest) ->
+                  let msg_fields =
+                    List.map (fun (mk, mv) ->
+                      if mk = "role" then (mk, `String "system") else (mk, mv)
+                    ) msg_fields
+                  in
+                  (k, `List (`Assoc msg_fields :: rest))
+                | other -> (k, other)
+              else (k, v)
+            ) pairs)
+          | other -> other
+        in
+        check bool "error" true (Result.is_error (Checkpoint.of_json bad)));
+
+      test_case "invalid param_type returns Error" `Quick (fun () ->
+        let cp = make_checkpoint ~tools:[sample_tool_schema] () in
+        let json = Checkpoint.to_json cp in
+        let bad =
+          match json with
+          | `Assoc pairs ->
+            `Assoc (List.map (fun (k, v) ->
+              if k = "tools" then
+                match v with
+                | `List (`Assoc tool_fields :: rest_tools) ->
+                  let tool_fields =
+                    List.map (fun (tk, tv) ->
+                      if tk = "parameters" then
+                        match tv with
+                        | `List (`Assoc param_fields :: rest_params) ->
+                          let param_fields =
+                            List.map (fun (pk, pv) ->
+                              if pk = "param_type" then (pk, `String "bad_type") else (pk, pv)
+                            ) param_fields
+                          in
+                          (tk, `List (`Assoc param_fields :: rest_params))
+                        | other -> (tk, other)
+                      else (tk, tv)
+                    ) tool_fields
+                  in
+                  (k, `List (`Assoc tool_fields :: rest_tools))
+                | other -> (k, other)
+              else (k, v)
+            ) pairs)
+          | other -> other
+        in
+        check bool "error" true (Result.is_error (Checkpoint.of_json bad)));
+
+      test_case "unknown content block returns Error" `Quick (fun () ->
+        let cp = make_checkpoint ~messages:[
+          { Types.role = Types.User; content = [Types.Text "hello"] }
+        ] () in
+        let json = Checkpoint.to_json cp in
+        let bad =
+          match json with
+          | `Assoc pairs ->
+            `Assoc (List.map (fun (k, v) ->
+              if k = "messages" then
+                match v with
+                | `List (`Assoc msg_fields :: rest) ->
+                  let msg_fields =
+                    List.map (fun (mk, mv) ->
+                      if mk = "content" then
+                        (mk, `List [`Assoc [("type", `String "mystery")]])
+                      else (mk, mv)
+                    ) msg_fields
+                  in
+                  (k, `List (`Assoc msg_fields :: rest))
+                | other -> (k, other)
+              else (k, v)
+            ) pairs)
+          | other -> other
+        in
+        check bool "error" true (Result.is_error (Checkpoint.of_json bad)));
     ];
   ]
