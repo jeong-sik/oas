@@ -119,6 +119,27 @@ let run_turn ~sw ?clock agent =
       | Unknown reason ->
         Error (Printf.sprintf "Unrecognized stop_reason from API: %s" reason)
 
+(** Check if token budget has been exceeded. Returns an error message or None. *)
+let check_token_budget config usage =
+  let exceeded_input =
+    match config.max_input_tokens with
+    | Some limit when usage.total_input_tokens > limit ->
+        Some (Printf.sprintf "Input token budget exceeded: %d/%d" usage.total_input_tokens limit)
+    | _ -> None
+  in
+  let exceeded_total =
+    match config.max_total_tokens with
+    | Some limit ->
+        let total = usage.total_input_tokens + usage.total_output_tokens in
+        if total > limit then
+          Some (Printf.sprintf "Total token budget exceeded: %d/%d" total limit)
+        else None
+    | _ -> None
+  in
+  match exceeded_input with
+  | Some _ as err -> err
+  | None -> exceeded_total
+
 (** Run loop *)
 let run ~sw ?clock agent user_prompt =
   agent.state <- { agent.state with messages = agent.state.messages @ [{ role = User; content = [Text user_prompt] }] };
@@ -127,10 +148,13 @@ let run ~sw ?clock agent user_prompt =
     if agent.state.turn_count >= agent.state.config.max_turns then
       Error "Max turns exceeded"
     else
-      match run_turn ~sw ?clock agent with
-      | Error e -> Error e
-      | Ok `Complete response -> Ok response
-      | Ok `ToolsExecuted -> loop ()
+      match check_token_budget agent.state.config agent.state.usage with
+      | Some err -> Error err
+      | None ->
+        match run_turn ~sw ?clock agent with
+        | Error e -> Error e
+        | Ok `Complete response -> Ok response
+        | Ok `ToolsExecuted -> loop ()
   in
   loop ()
 

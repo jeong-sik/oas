@@ -1,6 +1,6 @@
 (lang dune 3.11)
 (name agent_sdk)
-(version 0.3.2)
+(version 0.4.0)
 
 (generate_opam_files true)
 
@@ -26,4 +26,6 @@
   (ppx_deriving (>= 5.2.1))
   (uri (>= 4.4))
   (alcotest (and :with-test (>= 1.7)))
+  (qcheck-core (and :with-test (>= 0.21)))
+  (qcheck-alcotest (and :with-test (>= 0.21)))
   (bisect_ppx (and :with-test (>= 2.8)))))

@@ -47,12 +47,14 @@ let test_add_usage_immutable () =
 (* ------------------------------------------------------------------ *)
 
 let test_sse_message_start () =
-  let evt = MessageStart { id = "msg_abc"; model = "claude-sonnet-4"; usage = Some (100, 0) } in
+  let evt = MessageStart { id = "msg_abc"; model = "claude-sonnet-4";
+    usage = Some { input_tokens = 100; output_tokens = 0;
+                   cache_creation_input_tokens = 0; cache_read_input_tokens = 0 } } in
   match evt with
-  | MessageStart { id; model; usage = Some (inp, _) } ->
+  | MessageStart { id; model; usage = Some u } ->
     Alcotest.(check string) "id" "msg_abc" id;
     Alcotest.(check string) "model" "claude-sonnet-4" model;
-    Alcotest.(check int) "input_tokens" 100 inp
+    Alcotest.(check int) "input_tokens" 100 u.input_tokens
   | _ -> Alcotest.fail "expected MessageStart"
 
 let test_sse_content_block_delta_text () =
@@ -91,8 +93,8 @@ let test_parse_message_start () =
     Alcotest.(check string) "id" "msg_01" id;
     Alcotest.(check string) "model" "claude-3-7-sonnet-20250219" model;
     (match usage with
-     | Some (42, _) -> ()
-     | _ -> Alcotest.fail "expected usage Some (42, _)")
+     | Some u -> Alcotest.(check int) "input_tokens" 42 u.input_tokens
+     | None -> Alcotest.fail "expected Some usage")
   | Some _ -> Alcotest.fail "unexpected event type"
   | None -> Alcotest.fail "parse returned None"
 
@@ -146,8 +148,8 @@ let test_parse_message_delta_end_turn () =
      | Some EndTurn -> ()
      | _ -> Alcotest.fail "expected EndTurn stop_reason");
     (match usage with
-     | Some (_, 57) -> ()
-     | _ -> Alcotest.fail "expected output_tokens = 57")
+     | Some u -> Alcotest.(check int) "output_tokens" 57 u.output_tokens
+     | None -> Alcotest.fail "expected Some usage")
   | Some _ -> Alcotest.fail "unexpected event type"
   | None -> Alcotest.fail "parse returned None"
 
@@ -183,6 +185,20 @@ let test_parse_unknown_event_type () =
   match Agent_sdk.Api.parse_sse_event None data with
   | None -> ()
   | Some _ -> Alcotest.fail "expected None for unknown event type"
+
+let test_parse_message_start_with_cache () =
+  let data = {|{"type":"message_start","message":{"id":"msg_cache","model":"claude-sonnet-4","usage":{"input_tokens":100,"cache_creation_input_tokens":50,"cache_read_input_tokens":30}}}|} in
+  match Agent_sdk.Api.parse_sse_event None data with
+  | Some (MessageStart { id; usage; _ }) ->
+    Alcotest.(check string) "id" "msg_cache" id;
+    (match usage with
+     | Some u ->
+       Alcotest.(check int) "input_tokens" 100 u.input_tokens;
+       Alcotest.(check int) "cache_creation" 50 u.cache_creation_input_tokens;
+       Alcotest.(check int) "cache_read" 30 u.cache_read_input_tokens
+     | None -> Alcotest.fail "expected Some usage")
+  | Some _ -> Alcotest.fail "unexpected event type"
+  | None -> Alcotest.fail "parse returned None"
 
 let test_parse_with_explicit_event_type () =
   (* event_type parameter overrides the 'type' field in JSON *)
@@ -227,6 +243,7 @@ let () =
       test_case "error_event" `Quick test_parse_error_event;
       test_case "invalid_json" `Quick test_parse_invalid_json;
       test_case "unknown_event_type" `Quick test_parse_unknown_event_type;
+      test_case "message_start_with_cache" `Quick test_parse_message_start_with_cache;
       test_case "explicit_event_type" `Quick test_parse_with_explicit_event_type;
     ];
   ]

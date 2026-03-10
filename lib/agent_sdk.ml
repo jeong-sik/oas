@@ -49,6 +49,7 @@ module Handoff = Handoff
 module Session = Session
 module Skill = Skill
 module Subagent = Subagent
+module Structured = Structured
 
 (** Quick start: create an agent with default config *)
 let create_agent ~net ?name ?model ?system_prompt ?max_tokens ?max_turns ?cache_system_prompt ?provider () =
@@ -65,5 +66,5 @@ let create_agent ~net ?name ?model ?system_prompt ?max_tokens ?max_turns ?cache_
   Agent.create ~net ~config ?provider ()
 
 (** Version info *)
-let version = "0.3.2"
+let version = "0.4.0"
 let sdk_name = "anthropic-agent-sdk"

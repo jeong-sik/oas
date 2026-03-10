@@ -81,3 +81,11 @@
 (test
  (name test_agent)
  (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_property)
+ (libraries agent_sdk alcotest qcheck-core qcheck-alcotest yojson))
+
+(test
+ (name test_structured)
+ (libraries agent_sdk alcotest yojson))

@@ -245,7 +245,14 @@ let parse_sse_event event_type data_str =
         let usage =
           let u = msg |> member "usage" in
           if u = `Null then None
-          else Some (u |> member "input_tokens" |> to_int, 0)
+          else
+            let input_tokens = u |> member "input_tokens" |> to_int in
+            let cache_creation_input_tokens =
+              u |> member "cache_creation_input_tokens" |> to_int_option |> Option.value ~default:0 in
+            let cache_read_input_tokens =
+              u |> member "cache_read_input_tokens" |> to_int_option |> Option.value ~default:0 in
+            Some { Types.input_tokens; output_tokens = 0;
+                   cache_creation_input_tokens; cache_read_input_tokens }
         in
         Some (MessageStart { id; model; usage })
     | "content_block_start" ->
@@ -282,7 +289,10 @@ let parse_sse_event event_type data_str =
         let usage =
           let u = json |> member "usage" in
           if u = `Null then None
-          else Some (0, u |> member "output_tokens" |> to_int)
+          else
+            let output_tokens = u |> member "output_tokens" |> to_int in
+            Some { Types.input_tokens = 0; output_tokens;
+                   cache_creation_input_tokens = 0; cache_read_input_tokens = 0 }
         in
         Some (MessageDelta { stop_reason; usage })
     | "message_stop" ->
@@ -339,6 +349,8 @@ let create_message_stream ~sw ~net ?(base_url=default_base_url) ?provider ~confi
         let msg_model = ref "" in
         let input_tokens = ref 0 in
         let output_tokens = ref 0 in
+        let cache_creation = ref 0 in
+        let cache_read = ref 0 in
         let stop_reason = ref EndTurn in
         (* Map from block index to accumulated text/json *)
         let block_texts : (int, Buffer.t) Hashtbl.t = Hashtbl.create 4 in
@@ -369,7 +381,10 @@ let create_message_stream ~sw ~net ?(base_url=default_base_url) ?provider ~confi
                       msg_id := id;
                       msg_model := model;
                       (match usage with
-                       | Some (inp, _) -> input_tokens := inp
+                       | Some u ->
+                           input_tokens := u.Types.input_tokens;
+                           cache_creation := u.Types.cache_creation_input_tokens;
+                           cache_read := u.Types.cache_read_input_tokens
                        | None -> ())
                   | ContentBlockStart { index; content_type; tool_id; tool_name } ->
                       Hashtbl.replace block_types index content_type;
@@ -392,7 +407,7 @@ let create_message_stream ~sw ~net ?(base_url=default_base_url) ?provider ~confi
                   | MessageDelta { stop_reason = sr; usage } ->
                       (match sr with Some r -> stop_reason := r | None -> ());
                       (match usage with
-                       | Some (_, out) -> output_tokens := out
+                       | Some u -> output_tokens := u.Types.output_tokens
                        | None -> ())
                   | _ -> ())
             end
@@ -436,10 +451,11 @@ let create_message_stream ~sw ~net ?(base_url=default_base_url) ?provider ~confi
         in
 
         let usage = if !input_tokens > 0 || !output_tokens > 0
+            || !cache_creation > 0 || !cache_read > 0
           then Some { Types.input_tokens = !input_tokens;
                       output_tokens = !output_tokens;
-                      cache_creation_input_tokens = 0;
-                      cache_read_input_tokens = 0 }
+                      cache_creation_input_tokens = !cache_creation;
+                      cache_read_input_tokens = !cache_read }
           else None
         in
         Ok {

@@ -132,6 +132,8 @@ type agent_config = {
   thinking_budget: int option; (* For Claude 3.7+ extended thinking *)
   tool_choice: tool_choice option;
   cache_system_prompt: bool; (* Wrap system prompt with cache_control ephemeral *)
+  max_input_tokens: int option; (* Token budget: max cumulative input tokens *)
+  max_total_tokens: int option; (* Token budget: max cumulative total tokens *)
 }
 [@@deriving show]
 
@@ -145,6 +147,8 @@ let default_config = {
   thinking_budget = None;
   tool_choice = None;
   cache_system_prompt = false;
+  max_input_tokens = None;
+  max_total_tokens = None;
 }
 
 (* SSE streaming event types *)
@@ -154,12 +158,12 @@ type content_delta =
   | InputJsonDelta of string
 
 type sse_event =
-  | MessageStart of { id: string; model: string; usage: (int * int) option }
+  | MessageStart of { id: string; model: string; usage: api_usage option }
   | ContentBlockStart of { index: int; content_type: string;
                           tool_id: string option; tool_name: string option }
   | ContentBlockDelta of { index: int; delta: content_delta }
   | ContentBlockStop of { index: int }
-  | MessageDelta of { stop_reason: stop_reason option; usage: (int * int) option }
+  | MessageDelta of { stop_reason: stop_reason option; usage: api_usage option }
   | MessageStop
   | Ping
   | SSEError of string
