@@ -2,6 +2,30 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.5.0] - 2026-03-10
+
+### Added
+- `Tracing` module: observability via `TRACER` module type with `Null_tracer` (zero-allocation no-op) and `Fmt_tracer` (stderr output)
+- `with_span` exception-safe RAII pattern for span lifecycle management
+- Agent API calls and tool executions wrapped with tracing spans
+- Human-in-the-Loop: `ApprovalRequired` hook decision variant with `approval_callback` type
+- `approval_decision` type: `Approve`, `Reject of string`, `Edit of Yojson.Safe.t`
+- `Context_reducer` module: message windowing with turn-boundary grouping
+- `keep_last` strategy: retain last N turn groups
+- `token_budget` strategy: approximate token-based windowing (4-char heuristic)
+- `custom` strategy: user-provided `message list -> message list` function
+- `group_into_turns`: respects ToolUse/ToolResult pairing constraint
+- `find_and_execute_tool` helper: eliminates code duplication in tool execution
+
+### Changed
+- `Agent.t` record: added `tracer`, `approval`, `context_reducer` fields (all optional with defaults)
+- `hook_decision` type: added `ApprovalRequired` variant (non-breaking: exhaustive match warning only)
+- Context reducer applies as a view before API calls; full history preserved in agent state
+
+### Migration Guide
+- `hook_decision` match expressions will emit warning 8 for missing `ApprovalRequired` case. Add the case or use wildcard.
+- New `Agent.create` optional params: `?tracer`, `?approval`, `?context_reducer` (all default to no-op/None)
+
 ## [0.4.0] - 2026-03-10
 
 ### Added
