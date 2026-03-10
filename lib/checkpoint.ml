@@ -1,9 +1,9 @@
 (** Agent state checkpoint — versioned JSON serialization.
 
-    Captures the full conversation state (messages, usage, config) so an
-    agent can be suspended and later resumed.  All functions are pure
-    (string / Yojson.Safe.t in, string / Yojson.Safe.t out); file I/O is
-    left to the caller. *)
+    Captures the full conversation state (messages, usage, config) as a
+    pure value for callers that want to persist and later restore agent
+    state.  This module only handles serialization; file I/O and resume
+    orchestration are left to the caller. *)
 
 open Types
 
@@ -50,6 +50,14 @@ let usage_of_json json =
       |> Option.value ~default:0;
   }
 
+let result_all items =
+  let rec loop acc = function
+    | [] -> Ok (List.rev acc)
+    | Ok item :: rest -> loop (item :: acc) rest
+    | Error e :: _ -> Error e
+  in
+  loop [] items
+
 let tool_param_to_json (p : tool_param) =
   `Assoc [
     ("name", `String p.name);
@@ -61,21 +69,25 @@ let tool_param_to_json (p : tool_param) =
 let tool_param_of_json json =
   let open Yojson.Safe.Util in
   let type_str = json |> member "param_type" |> to_string in
-  let param_type = match type_str with
-    | "string" -> String
-    | "integer" -> Integer
-    | "number" -> Number
-    | "boolean" -> Boolean
-    | "array" -> Array
-    | "object" -> Object
-    | _ -> String
+  let param_type =
+    match type_str with
+    | "string" -> Ok String
+    | "integer" -> Ok Integer
+    | "number" -> Ok Number
+    | "boolean" -> Ok Boolean
+    | "array" -> Ok Array
+    | "object" -> Ok Object
+    | other -> Error (Printf.sprintf "Unknown param_type: %s" other)
   in
-  {
-    name = json |> member "name" |> to_string;
-    description = json |> member "description" |> to_string;
-    param_type;
-    required = json |> member "required" |> to_bool;
-  }
+  Result.map
+    (fun param_type ->
+      {
+        name = json |> member "name" |> to_string;
+        description = json |> member "description" |> to_string;
+        param_type;
+        required = json |> member "required" |> to_bool;
+      })
+    param_type
 
 let tool_schema_to_json (s : tool_schema) =
   `Assoc [
@@ -86,24 +98,52 @@ let tool_schema_to_json (s : tool_schema) =
 
 let tool_schema_of_json json =
   let open Yojson.Safe.Util in
-  {
-    name = json |> member "name" |> to_string;
-    description = json |> member "description" |> to_string;
-    parameters = json |> member "parameters" |> to_list |> List.map tool_param_of_json;
-  }
+  let parameters =
+    json |> member "parameters" |> to_list |> List.map tool_param_of_json |> result_all
+  in
+  Result.map
+    (fun parameters ->
+      {
+        name = json |> member "name" |> to_string;
+        description = json |> member "description" |> to_string;
+        parameters;
+      })
+    parameters
+
+let content_block_of_json_strict json =
+  try
+    match Api.content_block_of_json json with
+    | Some block -> Ok block
+    | None ->
+        let open Yojson.Safe.Util in
+        let block_type =
+          json |> member "type" |> to_string_option |> Option.value ~default:"<missing>"
+        in
+        Error (Printf.sprintf "Unknown content block type: %s" block_type)
+  with
+  | Yojson.Safe.Util.Type_error (msg, _) ->
+      Error (Printf.sprintf "Invalid content block: %s" msg)
+  | exn ->
+      Error (Printf.sprintf "Invalid content block: %s" (Printexc.to_string exn))
 
 let message_of_json json =
   let open Yojson.Safe.Util in
   let role_str = json |> member "role" |> to_string in
-  let role = match role_str with
-    | "assistant" -> Assistant
-    | _ -> User
+  let role =
+    match role_str with
+    | "assistant" -> Ok Assistant
+    | "user" -> Ok User
+    | other -> Error (Printf.sprintf "Unknown role: %s" other)
   in
   let content =
     json |> member "content" |> to_list
-    |> List.filter_map Api.content_block_of_json
+    |> List.map content_block_of_json_strict
+    |> result_all
   in
-  { role; content }
+  match role, content with
+  | Ok role, Ok content -> Ok { role; content }
+  | Error e, _ -> Error e
+  | _, Error e -> Error e
 
 (* ── Public API ─────────────────────────────────────────────────── *)
 
@@ -142,24 +182,31 @@ let of_json json =
       match tool_choice with
       | Error e -> Error e
       | Ok tool_choice ->
-        Ok {
-          version;
-          session_id = json |> member "session_id" |> to_string;
-          agent_name = json |> member "agent_name" |> to_string;
-          model =
-            (match model_of_yojson (json |> member "model") with
-             | Ok m -> m
-             | Error _ -> Claude_sonnet_4_6);
-          system_prompt = json |> member "system_prompt" |> to_string_option;
-          messages =
-            json |> member "messages" |> to_list |> List.map message_of_json;
-          usage = json |> member "usage" |> usage_of_json;
-          turn_count = json |> member "turn_count" |> to_int;
-          created_at = json |> member "created_at" |> to_float;
-          tools =
-            json |> member "tools" |> to_list |> List.map tool_schema_of_json;
-          tool_choice;
-        }
+        let model = model_of_yojson (json |> member "model") in
+        let messages =
+          json |> member "messages" |> to_list |> List.map message_of_json |> result_all
+        in
+        let tools =
+          json |> member "tools" |> to_list |> List.map tool_schema_of_json |> result_all
+        in
+        (match model, messages, tools with
+         | Ok model, Ok messages, Ok tools ->
+             Ok {
+               version;
+               session_id = json |> member "session_id" |> to_string;
+               agent_name = json |> member "agent_name" |> to_string;
+               model;
+               system_prompt = json |> member "system_prompt" |> to_string_option;
+               messages;
+               usage = json |> member "usage" |> usage_of_json;
+               turn_count = json |> member "turn_count" |> to_int;
+               created_at = json |> member "created_at" |> to_float;
+               tools;
+               tool_choice;
+             }
+         | Error e, _, _ -> Error e
+         | _, Error e, _ -> Error e
+         | _, _, Error e -> Error e)
   with
   | Yojson.Safe.Util.Type_error (msg, _) ->
     Error (Printf.sprintf "Checkpoint.of_json: %s" msg)
