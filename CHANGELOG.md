@@ -2,6 +2,18 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.3.2] - 2026-03-10
+
+### Added
+- `Session` module for conversation persistence (save/load JSON)
+- `Skill` module for reusable agent capability bundles
+- `Subagent` module for spawning child agents with isolated context
+- Test hardening: 106+ unit tests across 15 test files
+- `replace_tool_result` bug fix in `Agent` module
+
+### Changed
+- README synced to v0.3.1 feature set (prompt caching status corrected)
+
 ## [0.3.1] - 2026-03-10
 
 ### Added
