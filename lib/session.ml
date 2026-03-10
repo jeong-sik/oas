@@ -48,7 +48,8 @@ let resume_from (cp : Checkpoint.t) =
     started_at = now;
     last_active_at = now;
     turn_count = cp.turn_count;
-    resumed_from = Some cp.session_id;
+    resumed_from =
+      (match cp.session_id with "" -> None | sid -> Some sid);
     cwd = None;
     metadata = Context.create ();
   }

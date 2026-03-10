@@ -108,6 +108,12 @@ let test_resume_from_unique_ids () =
   let s2 = Session.resume_from cp in
   Alcotest.(check bool) "different ids" true (s1.id <> s2.id)
 
+let test_resume_from_empty_session_id () =
+  let cp = make_checkpoint ~session_id:"" () in
+  let s = Session.resume_from cp in
+  Alcotest.(check (option string)) "empty session_id yields None"
+    None s.resumed_from
+
 (* ── Agent.resume tests ──────────────────────────────────────── *)
 
 let with_net f =
@@ -319,6 +325,7 @@ let () =
       test_case "fresh metadata" `Quick test_resume_from_fresh_metadata;
       test_case "zero turn checkpoint" `Quick test_resume_from_zero_turn_checkpoint;
       test_case "unique ids" `Quick test_resume_from_unique_ids;
+      test_case "empty session_id" `Quick test_resume_from_empty_session_id;
     ];
 
     "Agent.resume", [
