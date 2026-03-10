@@ -119,6 +119,7 @@ module Types : sig
     max_tokens: int;
     max_turns: int;
     temperature: float option;
+    response_format_json: bool;
     thinking_budget: int option;
     tool_choice: tool_choice option;
     cache_system_prompt: bool;
@@ -191,16 +192,35 @@ end
 (** {1 LLM Provider Abstraction} *)
 
 module Provider : sig
+  type ollama_mode =
+    | Chat
+    | Generate
+
   type provider =
     | Local of { base_url: string }
     | Anthropic
-    | OpenAICompat of { base_url: string; auth_header: string }
+    | OpenAICompat of {
+        base_url: string;
+        auth_header: string option;
+        path: string;
+        static_token: string option;
+      }
+    | Ollama of { base_url: string; mode: ollama_mode }
 
   type config = {
     provider: provider;
     model_id: string;
     api_key_env: string;
   }
+
+  type request_kind =
+    | Anthropic_messages
+    | Openai_chat_completions
+    | Ollama_chat
+    | Ollama_generate
+
+  val request_kind : provider -> request_kind
+  val request_path : provider -> string
 
   (** Resolve provider config to (base_url, api_key, headers) *)
   val resolve : config -> (string * string * (string * string) list, string) result
@@ -212,6 +232,7 @@ module Provider : sig
   val anthropic_opus : unit -> config
   val local_mlx : unit -> config
   val openrouter : ?model_id:string -> unit -> config
+  val ollama : ?base_url:string -> ?model_id:string -> ?mode:ollama_mode -> unit -> config
 end
 
 (** {1 Error Handling and Retry} *)
@@ -592,6 +613,24 @@ module Api : sig
     stream:bool ->
     unit ->
     (string * Yojson.Safe.t) list
+
+  (** Convert a message to OpenAI-compatible message JSON list.
+      Handles multimodal content (Image/Document) as content_parts arrays. *)
+  val openai_messages_of_message : Types.message -> Yojson.Safe.t list
+
+  (** Convert content blocks to OpenAI content_parts array entries.
+      Text -> text part, Image/Document -> image_url with data URI. *)
+  val openai_content_parts_of_blocks : Types.content_block list -> Yojson.Safe.t list
+
+  (** Parse an Ollama /api/chat response JSON string into an api_response.
+      Handles tool_calls with arguments as both string and JSON object. *)
+  val parse_ollama_chat_response : string -> Types.api_response
+
+  (** Parse an Ollama /api/generate response JSON string. *)
+  val parse_ollama_generate_response : string -> Types.api_response
+
+  (** Parse an OpenAI-compatible response JSON string. *)
+  val parse_openai_response : string -> Types.api_response
 
   (** Send a non-streaming message to the Anthropic API *)
   val create_message :

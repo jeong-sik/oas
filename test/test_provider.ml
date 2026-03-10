@@ -71,7 +71,9 @@ let test_openai_compat_resolve_success () =
   let cfg : Provider.config = {
     provider = OpenAICompat {
       base_url = "https://openrouter.ai/api/v1";
-      auth_header = "Authorization";
+      auth_header = Some "Authorization";
+      path = "/chat/completions";
+      static_token = None;
     };
     model_id = "anthropic/claude-sonnet-4-6";
     api_key_env = env_var;
@@ -89,7 +91,9 @@ let test_openai_compat_resolve_missing_key () =
   let cfg : Provider.config = {
     provider = OpenAICompat {
       base_url = "https://example.com";
-      auth_header = "Authorization";
+      auth_header = Some "Authorization";
+      path = "/chat/completions";
+      static_token = None;
     };
     model_id = "test";
     api_key_env = "AGENT_SDK_TEST_NONEXISTENT_COMPAT_KEY_z0z0";

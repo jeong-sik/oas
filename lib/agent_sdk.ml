@@ -66,6 +66,7 @@ let create_agent ~net ?name ?model ?system_prompt ?max_tokens ?max_turns ?cache_
     system_prompt;
     max_tokens = Option.value max_tokens ~default:default_config.max_tokens;
     max_turns = Option.value max_turns ~default:default_config.max_turns;
+    response_format_json = default_config.response_format_json;
     cache_system_prompt = Option.value cache_system_prompt ~default:default_config.cache_system_prompt;
   } in
   let options = match provider with
