@@ -88,7 +88,7 @@ let test_sse_error () =
 
 let test_parse_message_start () =
   let data = {|{"type":"message_start","message":{"id":"msg_01","model":"claude-3-7-sonnet-20250219","usage":{"input_tokens":42}}}|} in
-  match Agent_sdk.Api.parse_sse_event None data with
+  match Agent_sdk.Streaming.parse_sse_event None data with
   | Some (MessageStart { id; model; usage }) ->
     Alcotest.(check string) "id" "msg_01" id;
     Alcotest.(check string) "model" "claude-3-7-sonnet-20250219" model;
@@ -100,7 +100,7 @@ let test_parse_message_start () =
 
 let test_parse_content_block_start () =
   let data = {|{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}|} in
-  match Agent_sdk.Api.parse_sse_event None data with
+  match Agent_sdk.Streaming.parse_sse_event None data with
   | Some (ContentBlockStart { index; content_type; _ }) ->
     Alcotest.(check int) "index" 0 index;
     Alcotest.(check string) "content_type" "text" content_type
@@ -109,7 +109,7 @@ let test_parse_content_block_start () =
 
 let test_parse_content_block_delta_text () =
   let data = {|{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hello"}}|} in
-  match Agent_sdk.Api.parse_sse_event None data with
+  match Agent_sdk.Streaming.parse_sse_event None data with
   | Some (ContentBlockDelta { index; delta = TextDelta s }) ->
     Alcotest.(check int) "index" 0 index;
     Alcotest.(check string) "text" "hello" s
@@ -118,7 +118,7 @@ let test_parse_content_block_delta_text () =
 
 let test_parse_content_block_delta_thinking () =
   let data = {|{"type":"content_block_delta","index":1,"delta":{"type":"thinking_delta","thinking":"I think..."}}|} in
-  match Agent_sdk.Api.parse_sse_event None data with
+  match Agent_sdk.Streaming.parse_sse_event None data with
   | Some (ContentBlockDelta { index = 1; delta = ThinkingDelta s }) ->
     Alcotest.(check string) "thinking" "I think..." s
   | Some _ -> Alcotest.fail "unexpected event type"
@@ -126,7 +126,7 @@ let test_parse_content_block_delta_thinking () =
 
 let test_parse_content_block_delta_input_json () =
   let data = {|{"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"{\"k\":"}}|} in
-  match Agent_sdk.Api.parse_sse_event None data with
+  match Agent_sdk.Streaming.parse_sse_event None data with
   | Some (ContentBlockDelta { index = 2; delta = InputJsonDelta s }) ->
     Alcotest.(check string) "partial_json" {|{"k":|}  s
   | Some _ -> Alcotest.fail "unexpected event type"
@@ -134,7 +134,7 @@ let test_parse_content_block_delta_input_json () =
 
 let test_parse_content_block_stop () =
   let data = {|{"type":"content_block_stop","index":0}|} in
-  match Agent_sdk.Api.parse_sse_event None data with
+  match Agent_sdk.Streaming.parse_sse_event None data with
   | Some (ContentBlockStop { index }) ->
     Alcotest.(check int) "index" 0 index
   | Some _ -> Alcotest.fail "unexpected event type"
@@ -142,7 +142,7 @@ let test_parse_content_block_stop () =
 
 let test_parse_message_delta_end_turn () =
   let data = {|{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":57}}|} in
-  match Agent_sdk.Api.parse_sse_event None data with
+  match Agent_sdk.Streaming.parse_sse_event None data with
   | Some (MessageDelta { stop_reason; usage }) ->
     (match stop_reason with
      | Some EndTurn -> ()
@@ -155,40 +155,40 @@ let test_parse_message_delta_end_turn () =
 
 let test_parse_message_stop () =
   let data = {|{"type":"message_stop"}|} in
-  match Agent_sdk.Api.parse_sse_event None data with
+  match Agent_sdk.Streaming.parse_sse_event None data with
   | Some MessageStop -> ()
   | Some _ -> Alcotest.fail "unexpected event type"
   | None -> Alcotest.fail "parse returned None"
 
 let test_parse_ping () =
   let data = {|{"type":"ping"}|} in
-  match Agent_sdk.Api.parse_sse_event None data with
+  match Agent_sdk.Streaming.parse_sse_event None data with
   | Some Ping -> ()
   | Some _ -> Alcotest.fail "unexpected event type"
   | None -> Alcotest.fail "parse returned None"
 
 let test_parse_error_event () =
   let data = {|{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}|} in
-  match Agent_sdk.Api.parse_sse_event None data with
+  match Agent_sdk.Streaming.parse_sse_event None data with
   | Some (SSEError msg) ->
     Alcotest.(check string) "error message" "Overloaded" msg
   | Some _ -> Alcotest.fail "unexpected event type"
   | None -> Alcotest.fail "parse returned None"
 
 let test_parse_invalid_json () =
-  match Agent_sdk.Api.parse_sse_event None "not json at all" with
+  match Agent_sdk.Streaming.parse_sse_event None "not json at all" with
   | None -> ()
   | Some _ -> Alcotest.fail "expected None for invalid JSON"
 
 let test_parse_unknown_event_type () =
   let data = {|{"type":"unknown_future_event","data":"x"}|} in
-  match Agent_sdk.Api.parse_sse_event None data with
+  match Agent_sdk.Streaming.parse_sse_event None data with
   | None -> ()
   | Some _ -> Alcotest.fail "expected None for unknown event type"
 
 let test_parse_message_start_with_cache () =
   let data = {|{"type":"message_start","message":{"id":"msg_cache","model":"claude-sonnet-4","usage":{"input_tokens":100,"cache_creation_input_tokens":50,"cache_read_input_tokens":30}}}|} in
-  match Agent_sdk.Api.parse_sse_event None data with
+  match Agent_sdk.Streaming.parse_sse_event None data with
   | Some (MessageStart { id; usage; _ }) ->
     Alcotest.(check string) "id" "msg_cache" id;
     (match usage with
@@ -203,7 +203,7 @@ let test_parse_message_start_with_cache () =
 let test_parse_with_explicit_event_type () =
   (* event_type parameter overrides the 'type' field in JSON *)
   let data = {|{"message":{"id":"msg_02","model":"claude-haiku-4-5-20251001","usage":{"input_tokens":10}}}|} in
-  match Agent_sdk.Api.parse_sse_event (Some "message_start") data with
+  match Agent_sdk.Streaming.parse_sse_event (Some "message_start") data with
   | Some (MessageStart { id; _ }) ->
     Alcotest.(check string) "id via explicit event type" "msg_02" id
   | Some _ -> Alcotest.fail "unexpected event type"

@@ -50,6 +50,7 @@ module Session = Session
 module Skill = Skill
 module Subagent = Subagent
 module Structured = Structured
+module Streaming = Streaming
 module Tracing = Tracing
 module Context_reducer = Context_reducer
 
@@ -68,5 +69,5 @@ let create_agent ~net ?name ?model ?system_prompt ?max_tokens ?max_turns ?cache_
   Agent.create ~net ~config ?provider ()
 
 (** Version info *)
-let version = "0.4.0"
+let version = "0.5.0"
 let sdk_name = "anthropic-agent-sdk"
