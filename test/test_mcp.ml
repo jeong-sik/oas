@@ -169,6 +169,28 @@ let test_text_of_tool_result () =
   let text = Mcp.text_of_tool_result result in
   Alcotest.(check string) "concatenated" "line1\nline2" text
 
+let test_text_of_tool_result_empty () =
+  let result : Mcp_protocol.Mcp_types.tool_result = {
+    content = [];
+    is_error = None;
+    structured_content = None;
+  } in
+  let text = Mcp.text_of_tool_result result in
+  Alcotest.(check string) "empty content" "" text
+
+let test_text_of_tool_result_non_text_only () =
+  let result : Mcp_protocol.Mcp_types.tool_result = {
+    content = [
+      Mcp_protocol.Mcp_types.ImageContent {
+        type_ = "image"; data = "base64..."; mime_type = "image/png";
+        annotations = None };
+    ];
+    is_error = None;
+    structured_content = None;
+  } in
+  let text = Mcp.text_of_tool_result result in
+  Alcotest.(check string) "non-text returns empty" "" text
+
 let test_text_of_tool_result_mixed () =
   let result : Mcp_protocol.Mcp_types.tool_result = {
     content = [
@@ -206,6 +228,8 @@ let () =
       test_case "mcp_tool_of_sdk_tool" `Quick test_mcp_tool_of_sdk_tool;
       test_case "sdk_tool no description" `Quick test_mcp_tool_of_sdk_tool_no_description;
       test_case "text_of_tool_result" `Quick test_text_of_tool_result;
+      test_case "text_of_tool_result empty" `Quick test_text_of_tool_result_empty;
+      test_case "text_of_tool_result non-text only" `Quick test_text_of_tool_result_non_text_only;
       test_case "text_of_tool_result mixed content" `Quick test_text_of_tool_result_mixed;
     ];
   ]
