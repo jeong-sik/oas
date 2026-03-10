@@ -228,7 +228,9 @@ let test_provider_constructors () =
   let p = Provider.openrouter () in
   check string "openrouter default" "anthropic/claude-sonnet-4-6" p.model_id;
   let p = Provider.openrouter ~model_id:"google/gemini-2.5-pro" () in
-  check string "openrouter override" "google/gemini-2.5-pro" p.model_id
+  check string "openrouter override" "google/gemini-2.5-pro" p.model_id;
+  let p = Provider.ollama () in
+  check string "ollama default" "glm-4.7-flash" p.model_id
 
 let () =
   run "Retry" [

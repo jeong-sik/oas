@@ -139,6 +139,7 @@ type agent_config = {
   max_tokens: int;
   max_turns: int;
   temperature: float option;
+  response_format_json: bool;
   thinking_budget: int option; (* For Claude 3.7+ extended thinking *)
   tool_choice: tool_choice option;
   cache_system_prompt: bool; (* Wrap system prompt with cache_control ephemeral *)
@@ -154,6 +155,7 @@ let default_config = {
   max_tokens = 4096;
   max_turns = 10;
   temperature = None;
+  response_format_json = false;
   thinking_budget = None;
   tool_choice = None;
   cache_system_prompt = false;

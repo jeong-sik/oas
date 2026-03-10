@@ -119,6 +119,7 @@ module Types : sig
     max_tokens: int;
     max_turns: int;
     temperature: float option;
+    response_format_json: bool;
     thinking_budget: int option;
     tool_choice: tool_choice option;
     cache_system_prompt: bool;
@@ -191,16 +192,35 @@ end
 (** {1 LLM Provider Abstraction} *)
 
 module Provider : sig
+  type ollama_mode =
+    | Chat
+    | Generate
+
   type provider =
     | Local of { base_url: string }
     | Anthropic
-    | OpenAICompat of { base_url: string; auth_header: string }
+    | OpenAICompat of {
+        base_url: string;
+        auth_header: string option;
+        path: string;
+        static_token: string option;
+      }
+    | Ollama of { base_url: string; mode: ollama_mode }
 
   type config = {
     provider: provider;
     model_id: string;
     api_key_env: string;
   }
+
+  type request_kind =
+    | Anthropic_messages
+    | Openai_chat_completions
+    | Ollama_chat
+    | Ollama_generate
+
+  val request_kind : provider -> request_kind
+  val request_path : provider -> string
 
   (** Resolve provider config to (base_url, api_key, headers) *)
   val resolve : config -> (string * string * (string * string) list, string) result
@@ -212,6 +232,7 @@ module Provider : sig
   val anthropic_opus : unit -> config
   val local_mlx : unit -> config
   val openrouter : ?model_id:string -> unit -> config
+  val ollama : ?base_url:string -> ?model_id:string -> ?mode:ollama_mode -> unit -> config
 end
 
 (** {1 Error Handling and Retry} *)
