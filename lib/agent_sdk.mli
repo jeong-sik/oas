@@ -182,6 +182,8 @@ module Context : sig
   val keys : t -> string list
   val merge : t -> (string * Yojson.Safe.t) list -> unit
   val to_json : t -> Yojson.Safe.t
+  (** Deserialize from JSON.  Returns an empty context if [json] is not
+      a JSON object (i.e. not [`Assoc _]). *)
   val of_json : Yojson.Safe.t -> t
 end
 
@@ -540,7 +542,12 @@ module Streaming : sig
   val parse_sse_event : string option -> string -> Types.sse_event option
 
   (** Send a streaming message to the Anthropic API.
-      Calls [on_event] for each parsed SSE event. *)
+      Calls [on_event] for each parsed SSE event.
+
+      Unlike {!Api.create_message}, this function does not accept [?clock]
+      or [?retry_config] because retrying mid-stream would discard already-
+      delivered events.  Callers who need retry should wrap the entire call
+      externally. *)
   val create_message_stream :
     sw:Eio.Switch.t ->
     net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
