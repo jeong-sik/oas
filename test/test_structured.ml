@@ -65,7 +65,11 @@ let test_extract_tool_input_wrong_name () =
   match Structured.extract_tool_input ~schema:person_schema content with
   | Error msg ->
     Alcotest.(check bool) "mentions schema name" true
-      (let len = String.length msg in len > 0)
+      (let target = "extract_person" in
+       let tlen = String.length target in
+       let mlen = String.length msg in
+       let rec has i = i + tlen <= mlen && (String.sub msg i tlen = target || has (i + 1)) in
+       has 0)
   | Ok _ -> Alcotest.fail "expected error for wrong tool name"
 
 let test_extract_tool_input_no_tool_use () =

@@ -41,14 +41,10 @@ let schema_to_tool_json (s : _ schema) : Yojson.Safe.t =
 (** Extract a tool_use input JSON from an API response's content blocks.
     Returns the first ToolUse matching the schema name, or an error. *)
 let extract_tool_input ~(schema : _ schema) (content : content_block list) =
-  let found = List.fold_left (fun acc block ->
-    match acc with
-    | Some _ -> acc
-    | None ->
-        match block with
-        | ToolUse (_id, name, input) when name = schema.name -> Some input
-        | _ -> None
-  ) None content in
+  let found = List.find_map (function
+    | ToolUse (_id, name, input) when name = schema.name -> Some input
+    | _ -> None
+  ) content in
   match found with
   | Some json -> schema.parse json
   | None -> Error (Printf.sprintf "No tool_use block for '%s' in response" schema.name)
