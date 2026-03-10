@@ -13,11 +13,12 @@ type t = {
   context: Context.t;
   guardrails: Guardrails.t;
   tracer: Tracing.t;
+  approval: Hooks.approval_callback option;
 }
 
 let create ~net ?(config=default_config) ?(tools=[]) ?(base_url=Api.default_base_url)
     ?provider ?(hooks=Hooks.empty) ?context ?(guardrails=Guardrails.default)
-    ?(tracer=Tracing.null) () =
+    ?(tracer=Tracing.null) ?approval () =
   let state = {
     config;
     messages = [];
@@ -28,7 +29,23 @@ let create ~net ?(config=default_config) ?(tools=[]) ?(base_url=Api.default_base
     | Some c -> c
     | None -> Context.create ()
   in
-  { state; tools; base_url; provider; net; hooks; context = ctx; guardrails; tracer }
+  { state; tools; base_url; provider; net; hooks; context = ctx; guardrails; tracer; approval }
+
+(** Helper: find and execute a tool, invoke PostToolUse hook.
+    Returns (id, content, is_error) triple. *)
+let find_and_execute_tool agent name input id =
+  let tool_opt = List.find_opt (fun (tool: Tool.t) -> tool.schema.name = name) agent.tools in
+  match tool_opt with
+  | Some tool ->
+    let result = Tool.execute ~context:agent.context tool input in
+    let _post = Hooks.invoke agent.hooks.post_tool_use
+      (Hooks.PostToolUse { tool_name = name; input; output = result }) in
+    let content, is_error = match result with
+      | Ok output -> output, false
+      | Error err -> err, true
+    in
+    (id, content, is_error)
+  | None -> (id, "Tool not found", true)
 
 (** Execute tools in parallel using Eio fibers.
     Applies PreToolUse/PostToolUse hooks and passes context to context-aware handlers.
@@ -49,20 +66,17 @@ let execute_tools agent tool_uses =
               (match decision with
               | Hooks.Skip -> (id, "Tool execution skipped by hook", false)
               | Hooks.Override value -> (id, value, false)
-              | Hooks.Continue ->
-                let tool_opt = List.find_opt (fun (tool: Tool.t) -> tool.schema.name = name) agent.tools in
-                (match tool_opt with
-                | Some tool ->
-                    let result = Tool.execute ~context:agent.context tool input in
-                    (* PostToolUse hook *)
-                    let _post = Hooks.invoke agent.hooks.post_tool_use
-                      (Hooks.PostToolUse { tool_name = name; input; output = result }) in
-                    let content, is_error = match result with
-                      | Ok output -> output, false
-                      | Error err -> err, true
-                    in
-                    (id, content, is_error)
-                | None -> (id, "Tool not found", true)))
+              | Hooks.ApprovalRequired ->
+                (match agent.approval with
+                | None ->
+                  (* No callback registered: permissive default, execute normally *)
+                  find_and_execute_tool agent name input id
+                | Some approve_fn ->
+                  (match approve_fn ~tool_name:name ~input with
+                  | Hooks.Approve -> find_and_execute_tool agent name input id
+                  | Hooks.Reject reason -> (id, "Tool rejected: " ^ reason, true)
+                  | Hooks.Edit new_input -> find_and_execute_tool agent name new_input id))
+              | Hooks.Continue -> find_and_execute_tool agent name input id)
             with exn ->
               let msg = Printf.sprintf "Tool '%s' raised: %s" name (Printexc.to_string exn) in
               (id, msg, true)))

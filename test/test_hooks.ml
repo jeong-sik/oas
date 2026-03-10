@@ -60,6 +60,12 @@ let test_post_tool_use_event () =
     }) in
   check string "hook received output" "hello" !received_output
 
+let test_invoke_approval_required () =
+  let hook _event = Hooks.ApprovalRequired in
+  let result = Hooks.invoke (Some hook)
+    (Hooks.PreToolUse { tool_name = "dangerous"; input = `Null }) in
+  check bool "hook returns ApprovalRequired" true (result = Hooks.ApprovalRequired)
+
 let () =
   run "Hooks" [
     "empty", [
@@ -70,6 +76,7 @@ let () =
       test_case "invoke Continue" `Quick test_invoke_continue;
       test_case "invoke Skip" `Quick test_invoke_skip;
       test_case "invoke Override" `Quick test_invoke_override;
+      test_case "invoke ApprovalRequired" `Quick test_invoke_approval_required;
       test_case "receives event" `Quick test_hook_receives_event;
       test_case "post_tool_use event" `Quick test_post_tool_use_event;
     ];
