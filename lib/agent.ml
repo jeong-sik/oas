@@ -14,11 +14,12 @@ type t = {
   guardrails: Guardrails.t;
   tracer: Tracing.t;
   approval: Hooks.approval_callback option;
+  context_reducer: Context_reducer.t option;
 }
 
 let create ~net ?(config=default_config) ?(tools=[]) ?(base_url=Api.default_base_url)
     ?provider ?(hooks=Hooks.empty) ?context ?(guardrails=Guardrails.default)
-    ?(tracer=Tracing.null) ?approval () =
+    ?(tracer=Tracing.null) ?approval ?context_reducer () =
   let state = {
     config;
     messages = [];
@@ -29,7 +30,8 @@ let create ~net ?(config=default_config) ?(tools=[]) ?(base_url=Api.default_base
     | Some c -> c
     | None -> Context.create ()
   in
-  { state; tools; base_url; provider; net; hooks; context = ctx; guardrails; tracer; approval }
+  { state; tools; base_url; provider; net; hooks; context = ctx; guardrails;
+    tracer; approval; context_reducer }
 
 (** Helper: find and execute a tool, invoke PostToolUse hook.
     Returns (id, content, is_error) triple. *)
@@ -94,6 +96,13 @@ let run_turn ~sw ?clock agent =
   let tool_schemas = List.map Tool.schema_to_json visible_tools in
   let tools_json = if tool_schemas = [] then None else Some tool_schemas in
 
+  (* Apply context reducer: only the API call sees the windowed messages.
+     The full history is preserved in agent.state.messages. *)
+  let effective_messages = match agent.context_reducer with
+    | None -> agent.state.messages
+    | Some reducer -> Context_reducer.reduce reducer agent.state.messages
+  in
+
   let api_result = Tracing.with_span agent.tracer
     { kind = Api_call; name = "create_message";
       agent_name = agent.state.config.name;
@@ -101,7 +110,7 @@ let run_turn ~sw ?clock agent =
     (fun _tracer ->
       Api.create_message ~sw ~net:agent.net ~base_url:agent.base_url
         ?provider:agent.provider ?clock ~config:agent.state
-        ~messages:agent.state.messages ?tools:tools_json ())
+        ~messages:effective_messages ?tools:tools_json ())
   in
   match api_result with
   | Error e -> Error e

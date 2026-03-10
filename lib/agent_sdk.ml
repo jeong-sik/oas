@@ -51,6 +51,7 @@ module Skill = Skill
 module Subagent = Subagent
 module Structured = Structured
 module Tracing = Tracing
+module Context_reducer = Context_reducer
 
 (** Quick start: create an agent with default config *)
 let create_agent ~net ?name ?model ?system_prompt ?max_tokens ?max_turns ?cache_system_prompt ?provider () =
