@@ -61,6 +61,7 @@ module Types : sig
   [@@deriving show]
 
   val tool_choice_to_json : tool_choice -> Yojson.Safe.t
+  val tool_choice_of_json : Yojson.Safe.t -> (tool_choice, string) result
 
   (** Content block types *)
   type content_block =
@@ -701,6 +702,37 @@ module Structured : sig
     ('a, string) result
 end
 
+(** {1 Checkpoint} *)
+
+module Checkpoint : sig
+  (** Versioned snapshot of agent conversation state.
+      Pure serialization — no file I/O dependency. *)
+
+  type t = {
+    version: int;
+    session_id: string;
+    agent_name: string;
+    model: Types.model;
+    system_prompt: string option;
+    messages: Types.message list;
+    usage: Types.usage_stats;
+    turn_count: int;
+    created_at: float;
+    tools: Types.tool_schema list;
+    tool_choice: Types.tool_choice option;
+  }
+
+  val checkpoint_version : int
+
+  val to_json : t -> Yojson.Safe.t
+  val of_json : Yojson.Safe.t -> (t, string) result
+  val to_string : t -> string
+  val of_string : string -> (t, string) result
+
+  val message_count : t -> int
+  val token_usage : t -> Types.usage_stats
+end
+
 (** {1 Agent} *)
 
 module Agent : sig
@@ -773,6 +805,11 @@ module Agent : sig
     targets:Handoff.handoff_target list ->
     string ->
     (Types.api_response, string) result
+
+  (** Create a checkpoint from the current agent state.
+      The checkpoint captures messages, usage, tools, and config
+      for later serialization via {!Checkpoint}. *)
+  val checkpoint : ?session_id:string -> t -> Checkpoint.t
 end
 
 (** {1 Quick Start} *)

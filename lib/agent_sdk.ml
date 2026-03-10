@@ -53,6 +53,7 @@ module Api = Api
 module Streaming = Streaming
 module Subagent = Subagent
 module Structured = Structured
+module Checkpoint = Checkpoint
 module Agent = Agent
 
 (** Quick start: create an agent with default config *)
