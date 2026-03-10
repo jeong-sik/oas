@@ -489,6 +489,50 @@ module Mcp : sig
     server_spec list -> (managed list, string) result
 end
 
+(** {1 MCP Client Bridge (Eio-native)}
+
+    Wraps {!Mcp_protocol_eio.Client} to provide Eio-native,
+    non-blocking MCP connectivity.  The bridge converts SDK types
+    to oas {!Tool.t} so agent code sees the same interface. *)
+
+module Mcp_bridge : sig
+  (** Opaque bridge handle wrapping an MCP stdio client and subprocess. *)
+  type t
+
+  (** Connect to an MCP server by spawning a subprocess.
+      @param clock Optional Eio clock for request timeouts. *)
+  val connect :
+    sw:Eio.Switch.t ->
+    mgr:_ Eio.Process.mgr ->
+    ?clock:_ Eio.Time.clock ->
+    command:string ->
+    args:string list ->
+    unit ->
+    (t, string) result
+
+  (** Perform the MCP initialize handshake. *)
+  val initialize : t -> (unit, string) result
+
+  (** Fetch tools from the MCP server. *)
+  val list_tools : t -> (Mcp_protocol.Mcp_types.tool list, string) result
+
+  (** Call a tool by name with JSON arguments. *)
+  val call_tool : t -> name:string -> arguments:Yojson.Safe.t ->
+    (string, string) result
+
+  (** Convert MCP server tools to oas {!Tool.t} list. *)
+  val to_sdk_tools : t -> Mcp_protocol.Mcp_types.tool list -> Tool.t list
+
+  (** Convert a JSON Schema type string to oas {!Types.param_type}. *)
+  val json_schema_type_to_param_type : string -> Types.param_type
+
+  (** Extract oas {!Types.tool_param} list from a JSON Schema object. *)
+  val json_schema_to_params : Yojson.Safe.t -> Types.tool_param list
+
+  (** Close the MCP client transport and signal the subprocess. *)
+  val close : t -> unit
+end
+
 (** {1 Guardrails} *)
 
 module Guardrails : sig
