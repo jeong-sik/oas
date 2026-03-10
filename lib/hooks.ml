@@ -19,6 +19,18 @@ type hook_decision =
   | Continue
   | Skip           (** PreToolUse only: skip this tool execution *)
   | Override of string  (** PreToolUse only: return this value instead *)
+  | ApprovalRequired  (** PreToolUse only: signals that tool needs approval before execution *)
+
+(** Decision from approval callback *)
+type approval_decision =
+  | Approve                      (** Proceed with original input *)
+  | Reject of string             (** Block execution with reason *)
+  | Edit of Yojson.Safe.t        (** Proceed with modified input *)
+
+(** Approval callback: called when a hook returns ApprovalRequired.
+    Receives tool name and input, returns approval decision. *)
+type approval_callback =
+  tool_name:string -> input:Yojson.Safe.t -> approval_decision
 
 (** A hook function *)
 type hook = hook_event -> hook_decision
