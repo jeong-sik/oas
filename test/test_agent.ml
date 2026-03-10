@@ -115,6 +115,59 @@ let test_replace_preserves_other_results () =
   | other ->
       Alcotest.fail (Printf.sprintf "unexpected content: %d blocks" (List.length other))
 
+(* --- check_token_budget --- *)
+
+let test_budget_no_limit () =
+  let config = { default_config with max_input_tokens = None; max_total_tokens = None } in
+  let usage = { empty_usage with total_input_tokens = 999999; total_output_tokens = 999999 } in
+  Alcotest.(check bool) "no limit set" true
+    (Agent.check_token_budget config usage = None)
+
+let test_budget_input_within () =
+  let config = { default_config with max_input_tokens = Some 1000 } in
+  let usage = { empty_usage with total_input_tokens = 500 } in
+  Alcotest.(check bool) "within budget" true
+    (Agent.check_token_budget config usage = None)
+
+let test_budget_input_exceeded () =
+  let config = { default_config with max_input_tokens = Some 1000 } in
+  let usage = { empty_usage with total_input_tokens = 1500 } in
+  match Agent.check_token_budget config usage with
+  | Some msg ->
+    Alcotest.(check bool) "contains exceeded" true
+      (String.length msg > 0)
+  | None -> Alcotest.fail "expected budget exceeded"
+
+let test_budget_total_exceeded () =
+  let config = { default_config with max_total_tokens = Some 2000 } in
+  let usage = { empty_usage with total_input_tokens = 1200; total_output_tokens = 1000 } in
+  match Agent.check_token_budget config usage with
+  | Some msg ->
+    Alcotest.(check bool) "contains exceeded" true
+      (String.length msg > 0)
+  | None -> Alcotest.fail "expected total budget exceeded"
+
+let test_budget_total_within () =
+  let config = { default_config with max_total_tokens = Some 5000 } in
+  let usage = { empty_usage with total_input_tokens = 1200; total_output_tokens = 1000 } in
+  Alcotest.(check bool) "within total budget" true
+    (Agent.check_token_budget config usage = None)
+
+let test_budget_input_priority () =
+  (* When both limits are set and input is exceeded, input error takes priority *)
+  let config = { default_config with max_input_tokens = Some 100; max_total_tokens = Some 5000 } in
+  let usage = { empty_usage with total_input_tokens = 200; total_output_tokens = 10 } in
+  match Agent.check_token_budget config usage with
+  | Some msg ->
+    Alcotest.(check bool) "input mentioned" true
+      (let len = String.length msg in
+       let rec find i =
+         if i + 5 > len then false
+         else if String.sub msg i 5 = "Input" then true
+         else find (i + 1)
+       in find 0)
+  | None -> Alcotest.fail "expected input budget exceeded"
+
 let () =
   Alcotest.run "Agent" [
     "find_handoff", [
@@ -129,5 +182,13 @@ let () =
       Alcotest.test_case "replace existing" `Quick test_replace_existing;
       Alcotest.test_case "missing appends" `Quick test_replace_missing_appends;
       Alcotest.test_case "preserves siblings" `Quick test_replace_preserves_other_results;
+    ];
+    "check_token_budget", [
+      Alcotest.test_case "no limit" `Quick test_budget_no_limit;
+      Alcotest.test_case "input within" `Quick test_budget_input_within;
+      Alcotest.test_case "input exceeded" `Quick test_budget_input_exceeded;
+      Alcotest.test_case "total exceeded" `Quick test_budget_total_exceeded;
+      Alcotest.test_case "total within" `Quick test_budget_total_within;
+      Alcotest.test_case "input priority" `Quick test_budget_input_priority;
     ];
   ]

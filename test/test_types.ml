@@ -108,7 +108,9 @@ let test_default_config () =
   Alcotest.(check int) "max_turns" 10 c.max_turns;
   Alcotest.(check bool) "no system prompt" true (c.system_prompt = None);
   Alcotest.(check bool) "no thinking_budget" true (c.thinking_budget = None);
-  Alcotest.(check bool) "cache off" false c.cache_system_prompt
+  Alcotest.(check bool) "cache off" false c.cache_system_prompt;
+  Alcotest.(check bool) "no max_input_tokens" true (c.max_input_tokens = None);
+  Alcotest.(check bool) "no max_total_tokens" true (c.max_total_tokens = None)
 
 let () =
   Alcotest.run "Types" [

@@ -274,7 +274,7 @@ let test_parse_sse_message_start () =
     check string "id" "msg_1" id;
     check string "model" "claude-sonnet-4-6" model;
     (match usage with
-     | Some (inp, _) -> check int "input" 10 inp
+     | Some u -> check int "input" 10 u.Types.input_tokens
      | None -> fail "expected usage")
   | _ -> fail "expected MessageStart"
 
@@ -318,7 +318,7 @@ let test_parse_sse_message_delta () =
      | Some Types.EndTurn -> ()
      | _ -> fail "expected EndTurn");
     (match usage with
-     | Some (_, out) -> check int "output" 42 out
+     | Some u -> check int "output" 42 u.Types.output_tokens
      | None -> fail "expected usage")
   | _ -> fail "expected MessageDelta"
 

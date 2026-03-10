@@ -2,6 +2,25 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.4.0] - 2026-03-10
+
+### Added
+- `Structured` module: typed structured output extraction via tool_use + tool_choice=Tool pattern
+- Token budget tracking: `max_input_tokens` and `max_total_tokens` fields in `agent_config`
+- Token budget enforcement in agent run loop (per-turn check before API call)
+- Property-based tests using QCheck (model/role/param_type round-trip, usage commutativity)
+- Test coverage for structured output extraction and token budget logic
+
+### Changed
+- **BREAKING**: `MessageStart` and `MessageDelta` SSE event usage type changed from `(int * int) option` to `api_usage option`
+- Streaming SSE parser now extracts `cache_creation_input_tokens` and `cache_read_input_tokens` from `message_start` events
+- `create_message_stream` accumulates cache tokens in usage stats
+
+### Migration Guide
+- `MessageStart { usage = Some (inp, out) }` → `MessageStart { usage = Some { input_tokens; output_tokens; cache_creation_input_tokens; cache_read_input_tokens } }`
+- `MessageDelta { usage = Some (inp, out) }` → same pattern
+- New `agent_config` fields have `None` defaults (backward compatible for config construction)
+
 ## [0.3.2] - 2026-03-10
 
 ### Added
