@@ -208,6 +208,160 @@ let test_message_to_json () =
   check int "1 block" 1 (List.length content)
 
 (* ------------------------------------------------------------------ *)
+(* build_body_assoc: cache_system_prompt                                *)
+(* ------------------------------------------------------------------ *)
+
+let test_build_body_with_cache () =
+  let config = { Types.default_config with
+    system_prompt = Some "You are a cached helper.";
+    cache_system_prompt = true;
+  } in
+  let state = { Types.config; messages = []; turn_count = 0; usage = Types.empty_usage } in
+  let assoc = Api.build_body_assoc ~config:state ~messages:[] ~stream:false () in
+  let json = `Assoc assoc in
+  let open Yojson.Safe.Util in
+  let system = json |> member "system" in
+  (* cache_system_prompt wraps as [{"type":"text","text":"...","cache_control":{"type":"ephemeral"}}] *)
+  let blocks = system |> to_list in
+  check int "1 system block" 1 (List.length blocks);
+  let block = List.hd blocks in
+  check string "block type" "text" (block |> member "type" |> to_string);
+  check string "block text" "You are a cached helper." (block |> member "text" |> to_string);
+  let cc = block |> member "cache_control" in
+  check string "cache_control type" "ephemeral" (cc |> member "type" |> to_string)
+
+let test_build_body_no_system_prompt () =
+  let state = { Types.config = Types.default_config;
+                messages = []; turn_count = 0; usage = Types.empty_usage } in
+  let assoc = Api.build_body_assoc ~config:state ~messages:[] ~stream:false () in
+  let has_system = List.exists (fun (k, _) -> k = "system") assoc in
+  check bool "no system key" false has_system
+
+(* ------------------------------------------------------------------ *)
+(* parse_response: cache tokens in usage                               *)
+(* ------------------------------------------------------------------ *)
+
+let test_parse_response_with_cache_tokens () =
+  let json = Yojson.Safe.from_string {|{
+    "id": "msg_cache",
+    "model": "claude-sonnet-4-6-20250514",
+    "stop_reason": "end_turn",
+    "content": [{"type": "text", "text": "cached"}],
+    "usage": {
+      "input_tokens": 50,
+      "output_tokens": 25,
+      "cache_creation_input_tokens": 1000,
+      "cache_read_input_tokens": 800
+    }
+  }|} in
+  let resp = Api.parse_response json in
+  match resp.usage with
+  | Some u ->
+    check int "input" 50 u.Types.input_tokens;
+    check int "output" 25 u.output_tokens;
+    check int "cache_creation" 1000 u.cache_creation_input_tokens;
+    check int "cache_read" 800 u.cache_read_input_tokens
+  | None -> fail "expected usage"
+
+(* ------------------------------------------------------------------ *)
+(* parse_sse_event                                                      *)
+(* ------------------------------------------------------------------ *)
+
+let test_parse_sse_message_start () =
+  let data = {|{"message":{"id":"msg_1","model":"claude-sonnet-4-6","usage":{"input_tokens":10}}}|} in
+  match Api.parse_sse_event (Some "message_start") data with
+  | Some (Types.MessageStart { id; model; usage }) ->
+    check string "id" "msg_1" id;
+    check string "model" "claude-sonnet-4-6" model;
+    (match usage with
+     | Some (inp, _) -> check int "input" 10 inp
+     | None -> fail "expected usage")
+  | _ -> fail "expected MessageStart"
+
+let test_parse_sse_content_block_delta_text () =
+  let data = {|{"index":0,"delta":{"type":"text_delta","text":"hello"}}|} in
+  match Api.parse_sse_event (Some "content_block_delta") data with
+  | Some (Types.ContentBlockDelta { index; delta = Types.TextDelta t }) ->
+    check int "index" 0 index;
+    check string "text" "hello" t
+  | _ -> fail "expected ContentBlockDelta TextDelta"
+
+let test_parse_sse_content_block_delta_thinking () =
+  let data = {|{"index":0,"delta":{"type":"thinking_delta","thinking":"hmm"}}|} in
+  match Api.parse_sse_event (Some "content_block_delta") data with
+  | Some (Types.ContentBlockDelta { delta = Types.ThinkingDelta t; _ }) ->
+    check string "thinking" "hmm" t
+  | _ -> fail "expected ThinkingDelta"
+
+let test_parse_sse_content_block_delta_input_json () =
+  let data = {|{"index":1,"delta":{"type":"input_json_delta","partial_json":"{\"x\":1"}}|} in
+  match Api.parse_sse_event (Some "content_block_delta") data with
+  | Some (Types.ContentBlockDelta { delta = Types.InputJsonDelta j; _ }) ->
+    check string "partial json" {|{"x":1|} j
+  | _ -> fail "expected InputJsonDelta"
+
+let test_parse_sse_content_block_start () =
+  let data = {|{"index":0,"content_block":{"type":"tool_use","id":"tu_1","name":"calc"}}|} in
+  match Api.parse_sse_event (Some "content_block_start") data with
+  | Some (Types.ContentBlockStart { index; content_type; tool_id; tool_name }) ->
+    check int "index" 0 index;
+    check string "type" "tool_use" content_type;
+    check (option string) "tool_id" (Some "tu_1") tool_id;
+    check (option string) "tool_name" (Some "calc") tool_name
+  | _ -> fail "expected ContentBlockStart"
+
+let test_parse_sse_message_delta () =
+  let data = {|{"delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":42}}|} in
+  match Api.parse_sse_event (Some "message_delta") data with
+  | Some (Types.MessageDelta { stop_reason; usage }) ->
+    (match stop_reason with
+     | Some Types.EndTurn -> ()
+     | _ -> fail "expected EndTurn");
+    (match usage with
+     | Some (_, out) -> check int "output" 42 out
+     | None -> fail "expected usage")
+  | _ -> fail "expected MessageDelta"
+
+let test_parse_sse_message_stop () =
+  match Api.parse_sse_event (Some "message_stop") "{}" with
+  | Some Types.MessageStop -> ()
+  | _ -> fail "expected MessageStop"
+
+let test_parse_sse_ping () =
+  match Api.parse_sse_event (Some "ping") "{}" with
+  | Some Types.Ping -> ()
+  | _ -> fail "expected Ping"
+
+let test_parse_sse_error () =
+  let data = {|{"error":{"message":"rate limited"}}|} in
+  match Api.parse_sse_event (Some "error") data with
+  | Some (Types.SSEError msg) -> check string "error msg" "rate limited" msg
+  | _ -> fail "expected SSEError"
+
+let test_parse_sse_unknown_type () =
+  match Api.parse_sse_event (Some "future_event") "{}" with
+  | None -> ()
+  | Some _ -> fail "expected None for unknown type"
+
+let test_parse_sse_malformed_json () =
+  match Api.parse_sse_event (Some "message_start") "not json" with
+  | None -> ()
+  | Some _ -> fail "expected None for malformed JSON"
+
+(* ------------------------------------------------------------------ *)
+(* message_to_json: assistant + mixed content                           *)
+(* ------------------------------------------------------------------ *)
+
+let test_message_to_json_assistant () =
+  let msg = { Types.role = Types.Assistant;
+              content = [Types.Text "hi"; Types.ToolUse ("t1", "calc", `Null)] } in
+  let json = Api.message_to_json msg in
+  let open Yojson.Safe.Util in
+  check string "role" "assistant" (json |> member "role" |> to_string);
+  let content = json |> member "content" |> to_list in
+  check int "2 blocks" 2 (List.length content)
+
+(* ------------------------------------------------------------------ *)
 (* Test runner                                                          *)
 (* ------------------------------------------------------------------ *)
 
@@ -230,13 +384,30 @@ let () =
       test_case "without thinking" `Quick test_build_body_without_thinking;
       test_case "with tool_choice" `Quick test_build_body_with_tool_choice;
       test_case "with tools" `Quick test_build_body_with_tools;
+      test_case "with cache_system_prompt" `Quick test_build_body_with_cache;
+      test_case "no system prompt" `Quick test_build_body_no_system_prompt;
     ];
     "parse_response", [
       test_case "complete response" `Quick test_parse_response_complete;
       test_case "tool_use response" `Quick test_parse_response_tool_use;
       test_case "unknown stop_reason" `Quick test_parse_response_unknown_stop;
+      test_case "cache tokens in usage" `Quick test_parse_response_with_cache_tokens;
+    ];
+    "parse_sse_event", [
+      test_case "message_start" `Quick test_parse_sse_message_start;
+      test_case "content_block_delta text" `Quick test_parse_sse_content_block_delta_text;
+      test_case "content_block_delta thinking" `Quick test_parse_sse_content_block_delta_thinking;
+      test_case "content_block_delta input_json" `Quick test_parse_sse_content_block_delta_input_json;
+      test_case "content_block_start" `Quick test_parse_sse_content_block_start;
+      test_case "message_delta" `Quick test_parse_sse_message_delta;
+      test_case "message_stop" `Quick test_parse_sse_message_stop;
+      test_case "ping" `Quick test_parse_sse_ping;
+      test_case "error" `Quick test_parse_sse_error;
+      test_case "unknown event type" `Quick test_parse_sse_unknown_type;
+      test_case "malformed JSON" `Quick test_parse_sse_malformed_json;
     ];
     "message_to_json", [
       test_case "user message" `Quick test_message_to_json;
+      test_case "assistant mixed content" `Quick test_message_to_json_assistant;
     ];
   ]

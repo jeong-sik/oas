@@ -65,6 +65,58 @@ let test_anthropic_provider () =
   | Error e ->
     Alcotest.fail (Printf.sprintf "should succeed but got: %s" e)
 
+let test_openai_compat_resolve_success () =
+  let env_var = "AGENT_SDK_TEST_OPENROUTER_KEY_q1w2e3" in
+  Unix.putenv env_var "or-test-key";
+  let cfg : Provider.config = {
+    provider = OpenAICompat {
+      base_url = "https://openrouter.ai/api/v1";
+      auth_header = "Authorization";
+    };
+    model_id = "anthropic/claude-sonnet-4-6";
+    api_key_env = env_var;
+  } in
+  match Provider.resolve cfg with
+  | Ok (base_url, api_key, headers) ->
+    Alcotest.(check string) "base_url" "https://openrouter.ai/api/v1" base_url;
+    Alcotest.(check string) "api_key" "or-test-key" api_key;
+    let auth = List.assoc "Authorization" headers in
+    Alcotest.(check string) "bearer token" "Bearer or-test-key" auth
+  | Error e ->
+    Alcotest.fail (Printf.sprintf "should succeed: %s" e)
+
+let test_openai_compat_resolve_missing_key () =
+  let cfg : Provider.config = {
+    provider = OpenAICompat {
+      base_url = "https://example.com";
+      auth_header = "Authorization";
+    };
+    model_id = "test";
+    api_key_env = "AGENT_SDK_TEST_NONEXISTENT_COMPAT_KEY_z0z0";
+  } in
+  match Provider.resolve cfg with
+  | Error _ -> ()
+  | Ok _ -> Alcotest.fail "should fail when env var missing"
+
+let test_anthropic_headers () =
+  let env_var = "AGENT_SDK_TEST_HDR_KEY_h3h3" in
+  Unix.putenv env_var "sk-ant-hdr-test";
+  let cfg : Provider.config = {
+    provider = Anthropic;
+    model_id = "test";
+    api_key_env = env_var;
+  } in
+  match Provider.resolve cfg with
+  | Ok (_, _, headers) ->
+    let xkey = List.assoc "x-api-key" headers in
+    Alcotest.(check string) "x-api-key header" "sk-ant-hdr-test" xkey;
+    let version = List.assoc "anthropic-version" headers in
+    Alcotest.(check string) "anthropic-version" "2023-06-01" version;
+    let ct = List.assoc "Content-Type" headers in
+    Alcotest.(check string) "content-type" "application/json" ct
+  | Error e ->
+    Alcotest.fail (Printf.sprintf "should succeed: %s" e)
+
 let () =
   Alcotest.run "Provider" [
     "resolve", [
@@ -72,5 +124,8 @@ let () =
       Alcotest.test_case "present env var returns Ok" `Quick test_present_env_var;
       Alcotest.test_case "local skips env var" `Quick test_local_skips_env_var;
       Alcotest.test_case "anthropic provider" `Quick test_anthropic_provider;
+      Alcotest.test_case "openai compat success" `Quick test_openai_compat_resolve_success;
+      Alcotest.test_case "openai compat missing key" `Quick test_openai_compat_resolve_missing_key;
+      Alcotest.test_case "anthropic headers" `Quick test_anthropic_headers;
     ];
   ]
