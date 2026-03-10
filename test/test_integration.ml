@@ -47,7 +47,8 @@ let test_simple_conversation () =
       let server = Cohttp_eio.Server.make ~callback:mock_handler () in
       Eio.Fiber.fork ~sw (fun () -> Cohttp_eio.Server.run socket server ~on_error:(fun _ -> ()));
 
-      let agent = Agent.create ~net:env#net ~base_url () in
+      let options = { Agent.default_options with base_url } in
+      let agent = Agent.create ~net:env#net ~options () in
       match Agent.run ~sw agent "ping" with
       | Ok response ->
           let text = List.filter_map (function Text s -> Some s | _ -> None) response.content |> String.concat "" in
@@ -72,7 +73,8 @@ let test_tool_use () =
          let b = Yojson.Safe.Util.(input |> member "b" |> to_int) in
          Ok (string_of_int (a + b))) in
 
-      let agent = Agent.create ~net:env#net ~base_url ~tools:[calc_tool] () in
+      let options = { Agent.default_options with base_url } in
+      let agent = Agent.create ~net:env#net ~tools:[calc_tool] ~options () in
       match Agent.run ~sw agent "use_tool" with
       | Ok response ->
           let text = List.filter_map (function Text s -> Some s | _ -> None) response.content |> String.concat "" in

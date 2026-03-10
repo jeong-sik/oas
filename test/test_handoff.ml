@@ -130,7 +130,8 @@ let test_run_with_handoffs_intercepts_tool_use () =
         config = { default_config with name = "researcher" };
         tools = [];
       } in
-      let agent = Agent.create ~net:env#net ~base_url () in
+      let options = { Agent.default_options with base_url } in
+      let agent = Agent.create ~net:env#net ~options () in
       match Agent.run_with_handoffs ~sw agent ~targets:[target] "delegate" with
       | Ok response ->
           let text =
@@ -163,7 +164,8 @@ let test_run_with_handoffs_reports_unknown_target () =
         config = { default_config with name = "researcher" };
         tools = [];
       } in
-      let agent = Agent.create ~net:env#net ~base_url () in
+      let options = { Agent.default_options with base_url } in
+      let agent = Agent.create ~net:env#net ~options () in
       match Agent.run_with_handoffs ~sw agent ~targets:[target] "delegate_unknown" with
       | Ok response ->
           let text =

@@ -35,13 +35,15 @@ let test_extract_text () =
 
 let test_agent_create () =
   Eio_main.run @@ fun env ->
-  let agent = Agent.create ~net:env#net ~base_url:"http://test" () in
+  let options = { Agent.default_options with base_url = "http://test" } in
+  let agent = Agent.create ~net:env#net ~options () in
   Alcotest.(check int) "initial turn count" 0 agent.state.turn_count;
   Alcotest.(check int) "initial messages" 0 (List.length agent.state.messages)
 
 let test_add_message () =
   Eio_main.run @@ fun env ->
-  let agent = Agent.create ~net:env#net ~base_url:"http://test" () in
+  let options = { Agent.default_options with base_url = "http://test" } in
+  let agent = Agent.create ~net:env#net ~options () in
   agent.state <- { agent.state with messages = agent.state.messages @ [{ role = User; content = [Text "Hi"] }] };
   Alcotest.(check int) "message count" 1 (List.length agent.state.messages)
 

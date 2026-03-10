@@ -21,7 +21,8 @@ let test_simple_chat () =
     max_tokens = 100;
     max_turns = 1;
   } in
-  let agent = Agent.create ~net:env#net ~config ~base_url () in
+  let options = { Agent.default_options with base_url } in
+  let agent = Agent.create ~net:env#net ~config ~options () in
   match Agent.run ~sw agent "What is 2+3? Answer with just the number." with
   | Ok response ->
     let text = List.filter_map (function Text s -> Some s | _ -> None) response.content
@@ -61,7 +62,8 @@ let test_tool_calling () =
       (* Simple eval for demo *)
       Ok (Printf.sprintf "Result of %s = 5" expr))
   in
-  let agent = Agent.create ~net:env#net ~config ~base_url ~tools:[calc_tool] () in
+  let options = { Agent.default_options with base_url } in
+  let agent = Agent.create ~net:env#net ~config ~tools:[calc_tool] ~options () in
   match Agent.run ~sw agent "What is 2+3? Use the calculator tool." with
   | Ok response ->
     let text = List.filter_map (function Text s -> Some s | _ -> None) response.content
@@ -96,7 +98,8 @@ let test_multi_tool () =
       Printf.printf "  [Tool called] read_file(%s)\n%!" path;
       Ok "hello world\nthis is a test file\n")
   in
-  let agent = Agent.create ~net:env#net ~config ~base_url ~tools:[read_file_tool] () in
+  let options = { Agent.default_options with base_url } in
+  let agent = Agent.create ~net:env#net ~config ~tools:[read_file_tool] ~options () in
   match Agent.run ~sw agent "Read the file at /tmp/test.txt and tell me what it says." with
   | Ok response ->
     let text = List.filter_map (function Text s -> Some s | _ -> None) response.content
