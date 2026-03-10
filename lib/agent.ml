@@ -172,9 +172,11 @@ let replace_tool_result messages ~tool_id ~content ~is_error =
       | block -> block
     ) blocks
   in
-  let rec rewrite rev_prefix = function
+  (* Walk from the end (reversed) to find the most recent matching ToolResult.
+     acc accumulates skipped elements in original order. *)
+  let rec rewrite acc = function
     | [] ->
-        List.rev ({ role = User; content = [ToolResult (tool_id, content, is_error)] } :: rev_prefix)
+        acc @ [{ role = User; content = [ToolResult (tool_id, content, is_error)] }]
     | ((message : message) :: rest) ->
         let has_tool_result =
           List.exists (function
@@ -183,9 +185,9 @@ let replace_tool_result messages ~tool_id ~content ~is_error =
           ) message.content
         in
         if message.role = User && has_tool_result then
-          List.rev_append rev_prefix ({ message with content = replace_in_content message.content } :: rest)
+          List.rev_append rest ({ message with content = replace_in_content message.content } :: acc)
         else
-          rewrite (message :: rev_prefix) rest
+          rewrite (message :: acc) rest
   in
   rewrite [] (List.rev messages)
 

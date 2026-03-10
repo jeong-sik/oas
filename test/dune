@@ -77,3 +77,7 @@
 (test
  (name test_subagent)
  (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_agent)
+ (libraries agent_sdk alcotest yojson))

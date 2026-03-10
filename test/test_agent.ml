@@ -1,0 +1,133 @@
+(** Unit tests for Agent module — pure functions only (no Eio, no network). *)
+
+open Agent_sdk
+open Types
+
+(* --- find_handoff_in_messages --- *)
+
+let test_find_handoff_none () =
+  let msgs = [
+    { role = User; content = [Text "hello"] };
+    { role = Assistant; content = [Text "world"] };
+  ] in
+  Alcotest.(check bool) "no handoff" true
+    (Agent.find_handoff_in_messages msgs = None)
+
+let test_find_handoff_normal_tool () =
+  let msgs = [
+    { role = User; content = [Text "use_tool"] };
+    { role = Assistant; content = [ToolUse ("t1", "calculator", `Assoc [("a", `Int 1)])] };
+  ] in
+  Alcotest.(check bool) "non-handoff tool" true
+    (Agent.find_handoff_in_messages msgs = None)
+
+let test_find_handoff_present () =
+  let input = `Assoc [("prompt", `String "research this")] in
+  let msgs = [
+    { role = User; content = [Text "delegate"] };
+    { role = Assistant; content = [ToolUse ("h1", "transfer_to_researcher", input)] };
+  ] in
+  match Agent.find_handoff_in_messages msgs with
+  | Some (id, name, prompt) ->
+      Alcotest.(check string) "tool id" "h1" id;
+      Alcotest.(check string) "target name" "researcher" name;
+      Alcotest.(check string) "prompt" "research this" prompt
+  | None ->
+      Alcotest.fail "expected Some handoff"
+
+let test_find_handoff_no_prompt_field () =
+  let input = `Assoc [("other", `Int 42)] in
+  let msgs = [
+    { role = Assistant; content = [ToolUse ("h2", "transfer_to_coder", input)] };
+  ] in
+  match Agent.find_handoff_in_messages msgs with
+  | Some (_, _, prompt) ->
+      Alcotest.(check string) "default prompt" "Continue the conversation." prompt
+  | None ->
+      Alcotest.fail "expected Some handoff"
+
+let test_find_handoff_empty () =
+  Alcotest.(check bool) "empty messages" true
+    (Agent.find_handoff_in_messages [] = None)
+
+let test_find_handoff_mixed_content () =
+  let msgs = [
+    { role = Assistant; content = [
+        Text "I'll delegate";
+        ToolUse ("h3", "transfer_to_analyst", `Assoc [("prompt", `String "analyze")]);
+    ] };
+  ] in
+  match Agent.find_handoff_in_messages msgs with
+  | Some (id, name, prompt) ->
+      Alcotest.(check string) "id" "h3" id;
+      Alcotest.(check string) "name" "analyst" name;
+      Alcotest.(check string) "prompt" "analyze" prompt
+  | None ->
+      Alcotest.fail "expected handoff in mixed content"
+
+(* --- replace_tool_result --- *)
+
+let test_replace_existing () =
+  let msgs = [
+    { role = User; content = [Text "hello"] };
+    { role = Assistant; content = [ToolUse ("t1", "calc", `Null)] };
+    { role = User; content = [ToolResult ("t1", "old result", false)] };
+  ] in
+  let updated = Agent.replace_tool_result msgs ~tool_id:"t1" ~content:"new result" ~is_error:false in
+  let last = List.nth updated (List.length updated - 1) in
+  match last.content with
+  | [ToolResult (id, content, is_err)] ->
+      Alcotest.(check string) "id preserved" "t1" id;
+      Alcotest.(check string) "content replaced" "new result" content;
+      Alcotest.(check bool) "not error" false is_err
+  | _ ->
+      Alcotest.fail "expected single ToolResult"
+
+let test_replace_missing_appends () =
+  let msgs = [
+    { role = User; content = [Text "hello"] };
+  ] in
+  let updated = Agent.replace_tool_result msgs ~tool_id:"t99" ~content:"injected" ~is_error:true in
+  let last = List.nth updated (List.length updated - 1) in
+  match last.content with
+  | [ToolResult (id, content, is_err)] ->
+      Alcotest.(check string) "id" "t99" id;
+      Alcotest.(check string) "content" "injected" content;
+      Alcotest.(check bool) "is error" true is_err
+  | _ ->
+      Alcotest.fail "expected appended ToolResult"
+
+let test_replace_preserves_other_results () =
+  let msgs = [
+    { role = User; content = [
+        ToolResult ("t1", "keep", false);
+        ToolResult ("t2", "replace me", false);
+    ] };
+  ] in
+  let updated = Agent.replace_tool_result msgs ~tool_id:"t2" ~content:"replaced" ~is_error:true in
+  let last = List.nth updated (List.length updated - 1) in
+  match last.content with
+  | [ToolResult ("t1", c1, e1); ToolResult ("t2", c2, e2)] ->
+      Alcotest.(check string) "t1 unchanged" "keep" c1;
+      Alcotest.(check bool) "t1 no error" false e1;
+      Alcotest.(check string) "t2 replaced" "replaced" c2;
+      Alcotest.(check bool) "t2 error" true e2
+  | other ->
+      Alcotest.fail (Printf.sprintf "unexpected content: %d blocks" (List.length other))
+
+let () =
+  Alcotest.run "Agent" [
+    "find_handoff", [
+      Alcotest.test_case "no handoff" `Quick test_find_handoff_none;
+      Alcotest.test_case "normal tool ignored" `Quick test_find_handoff_normal_tool;
+      Alcotest.test_case "handoff present" `Quick test_find_handoff_present;
+      Alcotest.test_case "no prompt field" `Quick test_find_handoff_no_prompt_field;
+      Alcotest.test_case "empty messages" `Quick test_find_handoff_empty;
+      Alcotest.test_case "mixed content" `Quick test_find_handoff_mixed_content;
+    ];
+    "replace_tool_result", [
+      Alcotest.test_case "replace existing" `Quick test_replace_existing;
+      Alcotest.test_case "missing appends" `Quick test_replace_missing_appends;
+      Alcotest.test_case "preserves siblings" `Quick test_replace_preserves_other_results;
+    ];
+  ]
