@@ -105,7 +105,7 @@
 
 (test
  (name test_mcp)
- (libraries agent_sdk alcotest yojson))
+ (libraries agent_sdk alcotest yojson mcp_protocol))
 
 (test
  (name test_checkpoint)

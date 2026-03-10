@@ -411,12 +411,6 @@ end
 (** {1 MCP Client} *)
 
 module Mcp : sig
-  (** JSON-RPC 2.0 error *)
-  type jsonrpc_error = {
-    code: int;
-    message: string;
-  }
-
   (** MCP tool definition as received from the server *)
   type mcp_tool = {
     name: string;
@@ -427,57 +421,32 @@ module Mcp : sig
   (** Opaque MCP client connected to a server subprocess *)
   type t
 
-  (** {2 JSON-RPC 2.0 encoding (pure)} *)
-
-  val encode_request :
-    id:int -> method_:string -> ?params:Yojson.Safe.t -> unit -> Yojson.Safe.t
-  val encode_notification :
-    method_:string -> ?params:Yojson.Safe.t -> unit -> Yojson.Safe.t
-  val decode_response : Yojson.Safe.t -> (Yojson.Safe.t, jsonrpc_error) result
-
-  (** {2 MCP schema parsing (pure)} *)
-
-  val parse_mcp_tool : Yojson.Safe.t -> mcp_tool
-  val parse_tools_list : Yojson.Safe.t -> mcp_tool list
-
   (** {2 JSON Schema conversion (pure)} *)
 
   val json_schema_type_to_param_type : string -> Types.param_type
   val json_schema_to_params : Yojson.Safe.t -> Types.tool_param list
 
-  (** {2 Tool bridge (pure)} *)
+  (** {2 SDK type bridge (pure)} *)
 
-  (** Convert an MCP tool to an SDK [Tool.t].
-      [call_fn] is injected as the tool handler — typically bound to
-      {!call_tool} on a connected client. *)
+  val mcp_tool_of_sdk_tool : Mcp_protocol.Mcp_types.tool -> mcp_tool
   val mcp_tool_to_sdk_tool :
     call_fn:Tool.tool_handler -> mcp_tool -> Tool.t
+  val text_of_tool_result : Mcp_protocol.Mcp_types.tool_result -> string
 
-  (** {2 Stdio transport} *)
+  (** {2 Eio stdio transport} *)
 
-  (** Spawn an MCP server subprocess.
+  (** Spawn an MCP server subprocess via Eio.
+      [sw] controls the process lifetime.  [mgr] spawns the child.
       [command] is the executable, [args] are its arguments.
       [env] optionally overrides the process environment. *)
   val connect :
+    sw:Eio.Switch.t -> mgr:_ Eio.Process.mgr ->
     command:string -> args:string list -> ?env:string array -> unit -> (t, string) result
-
-  (** Send the MCP initialize handshake (protocol version 2024-11-05). *)
   val initialize : t -> (unit, string) result
-
-  (** Fetch available tools from the server.  Stores them in [t]. *)
   val list_tools : t -> (mcp_tool list, string) result
-
-  (** Invoke a tool on the server by name.
-      Returns concatenated text content on success. *)
   val call_tool :
     t -> name:string -> arguments:Yojson.Safe.t -> (string, string) result
-
-  (** Convert stored MCP tools to SDK [Tool.t] list.
-      Each tool delegates to {!call_tool}.
-      Call {!list_tools} first to populate the tool list. *)
   val to_tools : t -> Tool.t list
-
-  (** Close the MCP server subprocess. *)
   val close : t -> unit
 
   (** {2 Managed lifecycle} *)
@@ -509,11 +478,15 @@ module Mcp : sig
 
   (** Connect to an MCP server, initialize, fetch tools, and convert
       them to SDK {!Tool.t} values.  On failure the subprocess is closed. *)
-  val connect_and_load : server_spec -> (managed, string) result
+  val connect_and_load :
+    sw:Eio.Switch.t -> mgr:_ Eio.Process.mgr ->
+    server_spec -> (managed, string) result
 
   (** Connect to multiple MCP servers sequentially.
       On failure, all previously-connected servers are closed. *)
-  val connect_all : server_spec list -> (managed list, string) result
+  val connect_all :
+    sw:Eio.Switch.t -> mgr:_ Eio.Process.mgr ->
+    server_spec list -> (managed list, string) result
 end
 
 (** {1 Guardrails} *)

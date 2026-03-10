@@ -21,6 +21,8 @@ depends: [
   "ppx_deriving_yojson" {>= "3.7"}
   "ppx_deriving" {>= "5.2.1"}
   "uri" {>= "4.4"}
+  "mcp_protocol" {>= "0.10.0"}
+  "mcp_protocol_eio" {>= "0.10.0"}
   "alcotest" {with-test & >= "1.7"}
   "qcheck-core" {with-test & >= "0.21"}
   "qcheck-alcotest" {with-test & >= "0.21"}

@@ -21,6 +21,12 @@ let with_net f =
   Eio_main.run @@ fun env ->
   f (Eio.Stdenv.net env)
 
+(** Run a test body inside Eio with switch and process manager. *)
+let with_eio f =
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  f ~sw ~mgr:(Eio.Stdenv.process_mgr env)
+
 (* ── server_spec ───────────────────────────────────────────────── *)
 
 let test_server_spec_fields () =
@@ -92,7 +98,8 @@ let test_merge_env_preserves_existing () =
 (* ── connect_all / close_all ───────────────────────────────────── *)
 
 let test_connect_all_empty () =
-  match Mcp.connect_all [] with
+  with_eio @@ fun ~sw ~mgr ->
+  match Mcp.connect_all ~sw ~mgr [] with
   | Ok managed -> Alcotest.(check int) "empty list" 0 (List.length managed)
   | Error e -> Alcotest.fail ("Expected Ok [], got Error: " ^ e)
 
@@ -101,20 +108,22 @@ let test_close_all_empty () =
   Alcotest.(check bool) "no crash" true true
 
 let test_connect_all_bad_command () =
+  with_eio @@ fun ~sw ~mgr ->
   let spec : Mcp.server_spec = {
     command = "/nonexistent/command/that/should/fail";
     args = []; env = []; name = "bad-server";
   } in
-  match Mcp.connect_all [spec] with
+  match Mcp.connect_all ~sw ~mgr [spec] with
   | Ok _ -> Alcotest.fail "Expected Error for bad command"
   | Error _ -> Alcotest.(check bool) "error returned" true true
 
 let test_connect_and_load_bad_command () =
+  with_eio @@ fun ~sw ~mgr ->
   let spec : Mcp.server_spec = {
     command = "/this/does/not/exist";
     args = []; env = []; name = "ghost";
   } in
-  match Mcp.connect_and_load spec with
+  match Mcp.connect_and_load ~sw ~mgr spec with
   | Ok _ -> Alcotest.fail "Expected Error"
   | Error e ->
     Alcotest.(check bool) "error message non-empty" true (String.length e > 0)
@@ -122,13 +131,8 @@ let test_connect_and_load_bad_command () =
 (* ── managed type ──────────────────────────────────────────────── *)
 
 let test_managed_tools_access () =
-  (* Test that managed.tools field works correctly by constructing
-     a managed record via connect_and_load on a program that exits
-     immediately — which will fail at initialize but we test the
-     type structure separately via a different approach. *)
   let t1 = make_test_tool "alpha" in
   let t2 = make_test_tool "beta" in
-  (* Verify SDK Tool.t list operations work as expected *)
   let tools = [t1; t2] in
   Alcotest.(check int) "tool count" 2 (List.length tools);
   Alcotest.(check string) "first tool" "alpha" (List.hd tools).schema.name;
@@ -171,7 +175,7 @@ let test_agent_close_idempotent () =
 
 let test_agent_options_mcp_clients_field () =
   let opts = { Agent.default_options with
-    mcp_clients = []  (* just verifying the field exists *)
+    mcp_clients = []
   } in
   Alcotest.(check int) "explicit empty" 0 (List.length opts.mcp_clients)
 
@@ -186,8 +190,7 @@ let test_agent_checkpoint_with_mcp_options () =
 (* ── connect_all partial failure cleanup ───────────────────────── *)
 
 let test_connect_all_second_fails () =
-  (* First spec succeeds (connect), but second fails.
-     All previously connected should be cleaned up. *)
+  with_eio @@ fun ~sw ~mgr ->
   let good_spec : Mcp.server_spec = {
     command = "cat"; args = []; env = []; name = "cat-server";
   } in
@@ -195,15 +198,8 @@ let test_connect_all_second_fails () =
     command = "/nonexistent/binary";
     args = []; env = []; name = "bad-server";
   } in
-  (* cat will connect (spawn succeeds) but initialize will fail
-     because cat doesn't speak JSON-RPC. However, connect_and_load
-     first calls connect (succeeds for cat), then initialize (fails).
-     The error from initialize causes cat's connection to be closed.
-     Then the second spec is never attempted.
-     So connect_all returns Error from the first spec's initialize. *)
-  match Mcp.connect_all [good_spec; bad_spec] with
+  match Mcp.connect_all ~sw ~mgr [good_spec; bad_spec] with
   | Ok _ ->
-    (* cat might actually fail at connect_and_load level, so Error is expected *)
     Alcotest.(check bool) "unexpected success" true true
   | Error _ ->
     Alcotest.(check bool) "error from lifecycle" true true

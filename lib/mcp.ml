@@ -1,72 +1,15 @@
 (** MCP (Model Context Protocol) client.
 
-    Connects to MCP servers via stdio transport and bridges MCP tools
-    to the SDK's {!Tool.t} type.  Uses JSON-RPC 2.0 over newline-delimited
-    JSON on stdin/stdout of a spawned subprocess.
+    Wraps {!Mcp_protocol_eio.Client} to connect to MCP servers via Eio
+    stdio transport.  Bridges MCP tools to the SDK's {!Tool.t} type.
 
-    Pure functions (encoding, parsing, conversion) are separated from I/O
-    so they can be tested without a running MCP server. *)
+    Protocol version: 2025-11-25 (via mcp-protocol-sdk v0.10.0). *)
 
 open Types
+module Sdk_client = Mcp_protocol_eio.Client
+module Sdk_types = Mcp_protocol.Mcp_types
 
-(* ── JSON-RPC 2.0 ───────────────────────────────────────────────── *)
-
-type jsonrpc_error = {
-  code: int;
-  message: string;
-}
-
-let encode_request ~id ~method_ ?(params=`Assoc []) () =
-  `Assoc [
-    ("jsonrpc", `String "2.0");
-    ("id", `Int id);
-    ("method", `String method_);
-    ("params", params);
-  ]
-
-let encode_notification ~method_ ?(params=`Assoc []) () =
-  `Assoc [
-    ("jsonrpc", `String "2.0");
-    ("method", `String method_);
-    ("params", params);
-  ]
-
-let decode_response json =
-  let open Yojson.Safe.Util in
-  match json |> member "error" with
-  | `Null ->
-    Ok (json |> member "result")
-  | error_obj ->
-    let code =
-      error_obj |> member "code" |> to_int_option
-      |> Option.value ~default:(-1) in
-    let message =
-      error_obj |> member "message" |> to_string_option
-      |> Option.value ~default:"Unknown error" in
-    Error { code; message }
-
-(* ── MCP tool types ─────────────────────────────────────────────── *)
-
-type mcp_tool = {
-  name: string;
-  description: string;
-  input_schema: Yojson.Safe.t;
-}
-
-let parse_mcp_tool json =
-  let open Yojson.Safe.Util in
-  let name = json |> member "name" |> to_string in
-  let description =
-    json |> member "description" |> to_string_option
-    |> Option.value ~default:"" in
-  let input_schema = json |> member "inputSchema" in
-  { name; description; input_schema }
-
-let parse_tools_list json =
-  let open Yojson.Safe.Util in
-  json |> member "tools" |> to_list |> List.map parse_mcp_tool
-
-(* ── JSON Schema → SDK tool_param ───────────────────────────────── *)
+(* ── JSON Schema -> SDK tool_param (oas-specific bridge) ─────────── *)
 
 let json_schema_type_to_param_type = function
   | "string" -> String
@@ -102,8 +45,21 @@ let json_schema_to_params schema =
     ) pairs
   | _ -> []
 
-(* ── Tool bridge ────────────────────────────────────────────────── *)
+(* ── MCP tool type (oas-local, bridged from SDK) ─────────────────── *)
 
+type mcp_tool = {
+  name: string;
+  description: string;
+  input_schema: Yojson.Safe.t;
+}
+
+(** Convert SDK {!Sdk_types.tool} to oas {!mcp_tool}. *)
+let mcp_tool_of_sdk_tool (t : Sdk_types.tool) : mcp_tool =
+  { name = t.name;
+    description = Option.value ~default:"" t.description;
+    input_schema = t.input_schema }
+
+(** Convert {!mcp_tool} to SDK {!Tool.t} with the given call handler. *)
 let mcp_tool_to_sdk_tool ~call_fn mcp_tool =
   let params = json_schema_to_params mcp_tool.input_schema in
   Tool.create
@@ -112,128 +68,81 @@ let mcp_tool_to_sdk_tool ~call_fn mcp_tool =
     ~parameters:params
     call_fn
 
-(* ── Stdio transport client ─────────────────────────────────────── *)
+(* ── Eio stdio transport client ──────────────────────────────────── *)
 
 type t = {
-  ic: in_channel;   (** subprocess stdout — read responses *)
-  oc: out_channel;  (** subprocess stdin — write requests *)
-  ec: in_channel;   (** subprocess stderr *)
-  mutable next_id: int;
+  client: Sdk_client.t;
+  kill: unit -> unit;
   mutable tools: mcp_tool list;
 }
 
-let send_raw t json =
-  let line = Yojson.Safe.to_string json in
-  output_string t.oc line;
-  output_char t.oc '\n';
-  flush t.oc
+(** Extract concatenated text content from a {!Sdk_types.tool_result}. *)
+let text_of_tool_result (r : Sdk_types.tool_result) =
+  List.filter_map (fun (c : Sdk_types.tool_content) ->
+    match c with
+    | TextContent { text; _ } -> Some text
+    | _ -> None
+  ) r.content
+  |> String.concat "\n"
 
-let rec read_response t =
-  try
-    let line = input_line t.ic in
-    let json = Yojson.Safe.from_string line in
-    let open Yojson.Safe.Util in
-    match json |> member "id" with
-    | `Null -> read_response t  (* skip server notifications *)
-    | _ -> decode_response json
-  with
-  | End_of_file ->
-    Error { code = (-1); message = "MCP server closed connection" }
-  | Yojson.Json_error msg ->
-    Error { code = (-1); message = "Invalid JSON from MCP server: " ^ msg }
-
-let send_request t ~method_ ?(params=`Assoc []) () =
-  let id = t.next_id in
-  t.next_id <- t.next_id + 1;
-  let request = encode_request ~id ~method_ ~params () in
-  try
-    send_raw t request;
-    read_response t
-  with Unix.Unix_error (err, fn, _arg) ->
-    Error { code = (-1);
-            message = Printf.sprintf "I/O error: %s (%s)"
-              (Unix.error_message err) fn }
-
-let send_notification t ~method_ ?(params=`Assoc []) () =
-  let notif = encode_notification ~method_ ~params () in
-  try send_raw t notif
-  with _ -> ()
-
-(** Connect to an MCP server by spawning a subprocess.
+(** Connect to an MCP server by spawning a subprocess via Eio.
+    [sw] controls the process lifetime.  [mgr] spawns the child.
     [command] is the executable path, [args] are command-line arguments.
-    [env] overrides the process environment; defaults to [Unix.environment ()]. *)
-let connect ~command ~args ?env () =
+    [env] optionally overrides the process environment. *)
+let connect ~sw ~(mgr : _ Eio.Process.mgr) ~command ~args ?env () =
   try
-    let full_args = Array.of_list (command :: args) in
-    let env_arr = match env with Some e -> e | None -> Unix.environment () in
-    let (ic, oc, ec) =
-      Unix.open_process_args_full command full_args env_arr in
-    Ok { ic; oc; ec; next_id = 1; tools = [] }
-  with
-  | Unix.Unix_error (err, fn, arg) ->
-    Error (Printf.sprintf "Failed to start MCP server: %s (%s %s)"
-      (Unix.error_message err) fn arg)
+    let r_child_stdin, w_child_stdin = Eio_unix.pipe sw in
+    let r_child_stdout, w_child_stdout = Eio_unix.pipe sw in
+    let proc =
+      Eio.Process.spawn ~sw mgr
+        ~stdin:(r_child_stdin :> Eio.Flow.source_ty Eio.Resource.t)
+        ~stdout:(w_child_stdout :> Eio.Flow.sink_ty Eio.Resource.t)
+        ?env
+        (command :: args)
+    in
+    Eio.Flow.close r_child_stdin;
+    Eio.Flow.close w_child_stdout;
+    let client =
+      Sdk_client.create
+        ~stdin:(r_child_stdout :> _ Eio.Flow.source)
+        ~stdout:(w_child_stdin :> _ Eio.Flow.sink)
+        ()
+    in
+    let kill () =
+      try Eio.Process.signal proc Sys.sigterm with _ -> ()
+    in
+    Ok { client; kill; tools = [] }
+  with exn ->
+    Error (Printf.sprintf "Failed to start MCP server: %s" (Printexc.to_string exn))
 
-(** Send MCP initialize handshake.
-    Protocol version: 2024-11-05 (current stable). *)
+(** Send MCP initialize handshake. *)
 let initialize t =
-  let params = `Assoc [
-    ("protocolVersion", `String "2024-11-05");
-    ("capabilities", `Assoc []);
-    ("clientInfo", `Assoc [
-      ("name", `String "oas-mcp-client");
-      ("version", `String "0.5.0");
-    ]);
-  ] in
-  match send_request t ~method_:"initialize" ~params () with
-  | Error e ->
-    Error (Printf.sprintf "MCP initialize failed: [%d] %s" e.code e.message)
-  | Ok _result ->
-    send_notification t ~method_:"notifications/initialized" ();
-    Ok ()
+  match Sdk_client.initialize t.client
+          ~client_name:"oas-mcp-client" ~client_version:"0.5.0" with
+  | Ok _result -> Ok ()
+  | Error msg -> Error (Printf.sprintf "MCP initialize failed: %s" msg)
 
 (** Fetch tools from MCP server.  Stores them in [t.tools]. *)
 let list_tools t =
-  match send_request t ~method_:"tools/list" () with
-  | Error e ->
-    Error (Printf.sprintf "MCP tools/list failed: [%d] %s" e.code e.message)
-  | Ok result ->
-    let tools = parse_tools_list result in
+  match Sdk_client.list_tools t.client with
+  | Ok sdk_tools ->
+    let tools = List.map mcp_tool_of_sdk_tool sdk_tools in
     t.tools <- tools;
     Ok tools
+  | Error msg ->
+    Error (Printf.sprintf "MCP tools/list failed: %s" msg)
 
 (** Invoke a tool on the MCP server.
     Returns the concatenated text content on success. *)
 let call_tool t ~name ~arguments =
-  let params = `Assoc [
-    ("name", `String name);
-    ("arguments", arguments);
-  ] in
-  match send_request t ~method_:"tools/call" ~params () with
-  | Error e ->
-    Error (Printf.sprintf "MCP tools/call '%s' failed: [%d] %s"
-      name e.code e.message)
+  match Sdk_client.call_tool t.client ~name ~arguments () with
   | Ok result ->
-    let open Yojson.Safe.Util in
-    let content =
-      match result |> member "content" with
-      | `List items -> items
-      | _ -> []
-    in
-    let text =
-      List.filter_map (fun c ->
-        if c |> member "type" |> to_string_option = Some "text" then
-          c |> member "text" |> to_string_option
-        else
-          None
-      ) content
-      |> String.concat "\n"
-    in
+    let text = text_of_tool_result result in
     let is_error =
-      result |> member "isError" |> to_bool_option
-      |> Option.value ~default:false
-    in
+      result.is_error |> Option.value ~default:false in
     if is_error then Error text else Ok text
+  | Error msg ->
+    Error (Printf.sprintf "MCP tools/call '%s' failed: %s" name msg)
 
 (** Convert stored MCP tools to SDK [Tool.t] list.
     Each tool's handler delegates to {!call_tool} on [t].
@@ -241,19 +150,15 @@ let call_tool t ~name ~arguments =
 let to_tools t =
   List.map (fun (mt : mcp_tool) ->
     let call_fn input =
-      match call_tool t ~name:mt.name ~arguments:input with
-      | Ok text -> Ok text
-      | Error msg -> Error msg
+      call_tool t ~name:mt.name ~arguments:input
     in
     mcp_tool_to_sdk_tool ~call_fn mt
   ) t.tools
 
-(** Close the MCP server subprocess. *)
+(** Close the MCP client and terminate the subprocess. *)
 let close t =
-  (try
-    let _status = Unix.close_process_full (t.ic, t.oc, t.ec) in
-    ()
-  with _ -> ())
+  (try Sdk_client.close t.client with _ -> ());
+  t.kill ()
 
 (* ── Managed lifecycle ─────────────────────────────────────────── *)
 
@@ -299,9 +204,9 @@ let close_all managed_list =
 (** Connect to an MCP server, perform the initialize handshake, fetch
     tools, and convert them to SDK [Tool.t] values.
     On any failure the subprocess is closed before returning [Error]. *)
-let connect_and_load spec =
+let connect_and_load ~sw ~mgr spec =
   let env = merge_env spec.env in
-  match connect ~command:spec.command ~args:spec.args ~env () with
+  match connect ~sw ~mgr ~command:spec.command ~args:spec.args ~env () with
   | Error e -> Error e
   | Ok client ->
     (try
@@ -321,11 +226,11 @@ let connect_and_load spec =
 (** Connect to multiple MCP servers sequentially.
     If any server fails, all previously-connected servers are closed
     and the first error is returned. *)
-let connect_all specs =
+let connect_all ~sw ~mgr specs =
   let rec loop acc = function
     | [] -> Ok (List.rev acc)
     | spec :: rest ->
-      match connect_and_load spec with
+      match connect_and_load ~sw ~mgr spec with
       | Error e ->
         close_all (List.rev acc);
         Error e
