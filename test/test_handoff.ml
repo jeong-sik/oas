@@ -178,6 +178,9 @@ let test_run_with_handoffs_reports_unknown_target () =
   with Exit -> ()
 
 let () =
+  (* Mock server tests need a key in env but don't use it *)
+  if Sys.getenv_opt "ANTHROPIC_API_KEY" = None then
+    Unix.putenv "ANTHROPIC_API_KEY" "test-mock-key";
   run "Handoff" [
     "prefix", [
       test_case "handoff_prefix" `Quick test_handoff_prefix;
