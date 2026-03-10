@@ -89,3 +89,7 @@
 (test
  (name test_structured)
  (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_tracing)
+ (libraries agent_sdk alcotest unix str))
