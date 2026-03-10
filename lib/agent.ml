@@ -346,6 +346,35 @@ let run_with_handoffs ~sw ?clock agent ~targets user_prompt =
     messages = agent_with_handoffs.state.messages @ [{ role = User; content = [Text user_prompt] }] };
   loop ()
 
+(** Restore an agent from a checkpoint.
+    Tools must be re-provided since handlers are closures (not serializable).
+    Config fields not captured in checkpoint (max_tokens, max_turns, etc.)
+    use defaults or can be overridden via [?config]. *)
+let resume ~net ~(checkpoint : Checkpoint.t) ?(tools=[]) ?context
+    ?(options=default_options) ?config () =
+  let base_config = match config with
+    | Some c -> c
+    | None -> default_config
+  in
+  let restored_config = {
+    base_config with
+    name = checkpoint.agent_name;
+    model = checkpoint.model;
+    system_prompt = checkpoint.system_prompt;
+    tool_choice = checkpoint.tool_choice;
+  } in
+  let state = {
+    config = restored_config;
+    messages = checkpoint.messages;
+    turn_count = checkpoint.turn_count;
+    usage = checkpoint.usage;
+  } in
+  let ctx = match context with
+    | Some c -> c
+    | None -> Context.create ()
+  in
+  { state; tools; net; context = ctx; options }
+
 (** Create a checkpoint from the current agent state. *)
 let checkpoint ?(session_id="") agent =
   {

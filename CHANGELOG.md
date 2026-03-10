@@ -2,6 +2,16 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.6.0] - 2026-03-11
+
+### Added
+- `Agent.resume`: restore agent from a `Checkpoint.t` with messages, usage, turn count, model, and config
+- `Session.resume_from`: create a new session linked to a checkpoint's session_id via `resumed_from`
+- MCP server lifecycle management: `Mcp.server_spec`, `Mcp.managed`, `Mcp.connect_and_load`, `Mcp.connect_all`, `Mcp.close_all`
+
+### Changed
+- Version bump: 0.5.0 -> 0.6.0
+
 ## [0.5.0] - 2026-03-10
 
 ### Added

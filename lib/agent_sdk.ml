@@ -48,12 +48,12 @@ module Mcp = Mcp
 module Guardrails = Guardrails
 module Skill = Skill
 module Handoff = Handoff
-module Session = Session
 module Api = Api
 module Streaming = Streaming
 module Subagent = Subagent
 module Structured = Structured
 module Checkpoint = Checkpoint
+module Session = Session
 module Agent = Agent
 
 (** Quick start: create an agent with default config *)
@@ -76,5 +76,5 @@ let create_agent ~net ?name ?model ?system_prompt ?max_tokens ?max_turns ?cache_
   Agent.create ~net ~config ~options ()
 
 (** Version info *)
-let version = "0.5.0"
+let version = "0.6.0"
 let sdk_name = "anthropic-agent-sdk"

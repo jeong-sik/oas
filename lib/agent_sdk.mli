@@ -604,30 +604,6 @@ module Handoff : sig
   val make_handoff_tool : handoff_target -> Tool.t
 end
 
-(** {1 Session Management} *)
-
-module Session : sig
-  type t = {
-    id: string;
-    started_at: float;
-    last_active_at: float;
-    turn_count: int;
-    resumed_from: string option;
-    cwd: string option;
-    metadata: Context.t;
-  }
-
-  val generate_id : unit -> string
-  val create :
-    ?id:string -> ?resumed_from:string -> ?cwd:string ->
-    ?metadata:Context.t -> unit -> t
-  val record_turn : t -> t
-  val touch : t -> t
-  val elapsed : t -> float
-  val to_json : t -> Yojson.Safe.t
-  val of_json : Yojson.Safe.t -> (t, string) result
-end
-
 (** {1 HTTP API Client} *)
 
 module Api : sig
@@ -808,6 +784,36 @@ module Checkpoint : sig
   val token_usage : t -> Types.usage_stats
 end
 
+(** {1 Session Management} *)
+
+module Session : sig
+  type t = {
+    id: string;
+    started_at: float;
+    last_active_at: float;
+    turn_count: int;
+    resumed_from: string option;
+    cwd: string option;
+    metadata: Context.t;
+  }
+
+  val generate_id : unit -> string
+  val create :
+    ?id:string -> ?resumed_from:string -> ?cwd:string ->
+    ?metadata:Context.t -> unit -> t
+  val record_turn : t -> t
+  val touch : t -> t
+  val elapsed : t -> float
+
+  (** Create a new session from a checkpoint.
+      Generates a fresh session ID, sets [resumed_from] to the checkpoint's
+      session_id, and carries forward the turn count. *)
+  val resume_from : Checkpoint.t -> t
+
+  val to_json : t -> Yojson.Safe.t
+  val of_json : Yojson.Safe.t -> (t, string) result
+end
+
 (** {1 Agent} *)
 
 module Agent : sig
@@ -886,6 +892,18 @@ module Agent : sig
       Safe to call even if no MCP servers were configured. *)
   val close : t -> unit
 
+  (** Restore an agent from a checkpoint.
+      Tools must be re-provided since handlers cannot be serialized.
+      Config fields not in the checkpoint (max_tokens, max_turns, etc.)
+      use [?config] defaults or {!Types.default_config}. *)
+  val resume :
+    net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
+    checkpoint:Checkpoint.t ->
+    ?tools:Tool.t list ->
+    ?context:Context.t ->
+    ?options:options ->
+    ?config:Types.agent_config ->
+    unit -> t
   (** Create a checkpoint from the current agent state.
       The checkpoint captures messages, usage, tools, and config
       for later serialization via {!Checkpoint}. *)
