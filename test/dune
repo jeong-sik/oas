@@ -40,7 +40,7 @@
 
 (test
  (name test_retry)
- (libraries agent_sdk alcotest yojson))
+ (libraries agent_sdk alcotest yojson eio eio_main))
 
 (test
  (name test_streaming)
