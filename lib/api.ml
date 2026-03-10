@@ -429,6 +429,14 @@ let usage_of_openai_json json =
         cache_read_input_tokens = 0;
       }
 
+let usage_of_ollama_json json =
+  let open Yojson.Safe.Util in
+  let inp = json |> member "prompt_eval_count" |> to_int_option |> Option.value ~default:0 in
+  let out = json |> member "eval_count" |> to_int_option |> Option.value ~default:0 in
+  if inp = 0 && out = 0 then None
+  else Some { input_tokens = inp; output_tokens = out;
+              cache_creation_input_tokens = 0; cache_read_input_tokens = 0 }
+
 let parse_openai_response json_str =
   let open Yojson.Safe.Util in
   let raw_json = Yojson.Safe.from_string json_str in
@@ -475,7 +483,7 @@ let parse_openai_response json_str =
                        ( tc |> member "id" |> to_string,
                          fn |> member "name" |> to_string,
                          json_of_string_or_raw arguments ))
-                with _ -> None)
+                with Yojson.Safe.Util.Type_error _ | Yojson.Json_error _ -> None)
               calls
         | _ -> []
       in
@@ -523,50 +531,28 @@ let parse_ollama_chat_response json_str =
                    ( tc |> member "id" |> to_string_option |> Option.value ~default:"function_call",
                      fn |> member "name" |> to_string,
                      json_of_string_or_raw arguments ))
-            with _ -> None)
+            with Yojson.Safe.Util.Type_error _ | Yojson.Json_error _ -> None)
           calls
     | _ -> []
-  in
-  let usage =
-    Some
-      {
-        input_tokens =
-          json |> member "prompt_eval_count" |> to_int_option |> Option.value ~default:0;
-        output_tokens =
-          json |> member "eval_count" |> to_int_option |> Option.value ~default:0;
-        cache_creation_input_tokens = 0;
-        cache_read_input_tokens = 0;
-      }
   in
   {
     id = json |> member "created_at" |> to_string_option |> Option.value ~default:"";
     model = json |> member "model" |> to_string_option |> Option.value ~default:"";
     stop_reason = if tool_blocks <> [] then StopToolUse else EndTurn;
     content = (if string_is_blank content then [] else [Text content]) @ tool_blocks;
-    usage;
+    usage = usage_of_ollama_json json;
   }
 
 let parse_ollama_generate_response json_str =
   let open Yojson.Safe.Util in
   let json = Yojson.Safe.from_string json_str in
   let content = json |> member "response" |> to_string_option |> Option.value ~default:"" in
-  let usage =
-    Some
-      {
-        input_tokens =
-          json |> member "prompt_eval_count" |> to_int_option |> Option.value ~default:0;
-        output_tokens =
-          json |> member "eval_count" |> to_int_option |> Option.value ~default:0;
-        cache_creation_input_tokens = 0;
-        cache_read_input_tokens = 0;
-      }
-  in
   {
     id = json |> member "created_at" |> to_string_option |> Option.value ~default:"";
     model = json |> member "model" |> to_string_option |> Option.value ~default:"";
     stop_reason = EndTurn;
     content = if string_is_blank content then [] else [Text content];
-    usage;
+    usage = usage_of_ollama_json json;
   }
 
 let create_message ~sw ~net ?(base_url=default_base_url) ?provider ?clock ?retry_config ~config ~messages ?tools () =

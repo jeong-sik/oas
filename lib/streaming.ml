@@ -92,35 +92,34 @@ let parse_sse_event event_type data_str =
     would discard already-received data and produce duplicate content.
     Callers that need retry should wrap this function externally. *)
 let create_message_stream ~sw ~net ?(base_url=Api.default_base_url) ?provider ~config ~messages ?tools ~on_event () : (api_response, string) result =
+  (* Fail fast: check provider kind before any I/O or env-var reads *)
+  let provider_kind = match provider with
+    | Some p -> Some (Provider.request_kind p.Provider.provider)
+    | None -> Some Provider.Anthropic_messages  (* default is Anthropic *)
+  in
+  match provider_kind with
+  | Some (Provider.Openai_chat_completions | Provider.Ollama_chat | Provider.Ollama_generate) ->
+      Error "Streaming is only supported for Anthropic-compatible providers"
+  | _ ->
   let resolve_result = match provider with
     | Some p ->
         (match Provider.resolve p with
-         | Ok (url, key, _headers) -> Ok (p, url, key)
+         | Ok (url, _key, headers) -> Ok (url, headers)
          | Error e -> Error e)
     | None ->
         (match Sys.getenv_opt "ANTHROPIC_API_KEY" with
          | Some key ->
              Ok
-               ( Provider.
-                   {
-                     provider = Anthropic;
-                     model_id = model_to_string config.config.model;
-                     api_key_env = "ANTHROPIC_API_KEY";
-                   },
-                 base_url,
-                 key )
+               ( base_url,
+                 [ ("Content-Type", "application/json");
+                   ("x-api-key", key);
+                   ("anthropic-version", Api.api_version) ] )
          | None -> Error "API key env var 'ANTHROPIC_API_KEY' not set")
   in
   match resolve_result with
   | Error e -> Error e
-  | Ok (provider_cfg, base_url, api_key) ->
-      (match Provider.request_kind provider_cfg.provider with
-       | Provider.Anthropic_messages ->
-           let headers = Http.Header.of_list [
-             ("Content-Type", "application/json");
-             ("x-api-key", api_key);
-             ("anthropic-version", Api.api_version);
-           ] in
+  | Ok (base_url, header_list) ->
+           let headers = Http.Header.of_list header_list in
            let body_assoc = Api.build_body_assoc ~config ~messages ?tools ~stream:true () in
            let body_str = Yojson.Safe.to_string (`Assoc body_assoc) in
            let uri = Uri.of_string (base_url ^ "/v1/messages") in
@@ -274,7 +273,3 @@ let create_message_stream ~sw ~net ?(base_url=Api.default_base_url) ?provider ~c
                        (Cohttp.Code.string_of_status status) body_str)
             with exn ->
               Error (Printf.sprintf "Network error: %s" (Printexc.to_string exn)))
-       | Provider.Openai_chat_completions
-       | Provider.Ollama_chat
-       | Provider.Ollama_generate ->
-           Error "Streaming is only supported for Anthropic-compatible providers")
