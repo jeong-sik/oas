@@ -15,7 +15,8 @@ let run_execute ~hooks ?approval tool_uses =
   Eio_main.run @@ fun env ->
   let net = Eio.Stdenv.net env in
   let tools = [make_echo_tool "safe"; make_echo_tool "dangerous"] in
-  let agent = Agent.create ~net ~hooks ?approval ~tools () in
+  let options = { Agent.default_options with hooks; approval } in
+  let agent = Agent.create ~net ~tools ~options () in
   Agent.execute_tools agent tool_uses
 
 (* --- Test cases --- *)

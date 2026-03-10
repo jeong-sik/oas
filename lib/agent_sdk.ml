@@ -66,7 +66,11 @@ let create_agent ~net ?name ?model ?system_prompt ?max_tokens ?max_turns ?cache_
     max_turns = Option.value max_turns ~default:default_config.max_turns;
     cache_system_prompt = Option.value cache_system_prompt ~default:default_config.cache_system_prompt;
   } in
-  Agent.create ~net ~config ?provider ()
+  let options = match provider with
+    | None -> Agent.default_options
+    | Some p -> { Agent.default_options with provider = Some p }
+  in
+  Agent.create ~net ~config ~options ()
 
 (** Version info *)
 let version = "0.5.0"

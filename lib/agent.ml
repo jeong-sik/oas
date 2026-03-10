@@ -3,23 +3,40 @@
 
 open Types
 
-type t = {
-  mutable state: agent_state;
-  tools: Tool.t list;
+(** Configuration options for agent behavior.
+    Core runtime resources (net, tools, context) are kept on Agent.t directly;
+    everything else lives here so new options don't bloat the Agent.create
+    signature. *)
+type options = {
   base_url: string;
   provider: Provider.config option;
-  net: [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t;
   hooks: Hooks.hooks;
-  context: Context.t;
   guardrails: Guardrails.t;
   tracer: Tracing.t;
   approval: Hooks.approval_callback option;
   context_reducer: Context_reducer.t option;
 }
 
-let create ~net ?(config=default_config) ?(tools=[]) ?(base_url=Api.default_base_url)
-    ?provider ?(hooks=Hooks.empty) ?context ?(guardrails=Guardrails.default)
-    ?(tracer=Tracing.null) ?approval ?context_reducer () =
+let default_options = {
+  base_url = Api.default_base_url;
+  provider = None;
+  hooks = Hooks.empty;
+  guardrails = Guardrails.default;
+  tracer = Tracing.null;
+  approval = None;
+  context_reducer = None;
+}
+
+type t = {
+  mutable state: agent_state;
+  tools: Tool.t list;
+  net: [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t;
+  context: Context.t;
+  options: options;
+}
+
+let create ~net ?(config=default_config) ?(tools=[]) ?context
+    ?(options=default_options) () =
   let state = {
     config;
     messages = [];
@@ -30,8 +47,7 @@ let create ~net ?(config=default_config) ?(tools=[]) ?(base_url=Api.default_base
     | Some c -> c
     | None -> Context.create ()
   in
-  { state; tools; base_url; provider; net; hooks; context = ctx; guardrails;
-    tracer; approval; context_reducer }
+  { state; tools; net; context = ctx; options }
 
 (** Helper: find and execute a tool, invoke PostToolUse hook.
     Returns (id, content, is_error) triple. *)
@@ -40,7 +56,7 @@ let find_and_execute_tool agent name input id =
   match tool_opt with
   | Some tool ->
     let result = Tool.execute ~context:agent.context tool input in
-    let _post = Hooks.invoke agent.hooks.post_tool_use
+    let _post = Hooks.invoke agent.options.hooks.post_tool_use
       (Hooks.PostToolUse { tool_name = name; input; output = result }) in
     let content, is_error = match result with
       | Ok output -> output, false
@@ -56,20 +72,20 @@ let execute_tools agent tool_uses =
   Eio.Fiber.List.map (fun block ->
     match block with
     | ToolUse (id, name, input) ->
-        Tracing.with_span agent.tracer
+        Tracing.with_span agent.options.tracer
           { kind = Tool_exec; name;
             agent_name = agent.state.config.name;
             turn = agent.state.turn_count; extra = [] }
           (fun _tracer ->
             (try
               (* PreToolUse hook *)
-              let decision = Hooks.invoke agent.hooks.pre_tool_use
+              let decision = Hooks.invoke agent.options.hooks.pre_tool_use
                 (Hooks.PreToolUse { tool_name = name; input }) in
               (match decision with
               | Hooks.Skip -> (id, "Tool execution skipped by hook", false)
               | Hooks.Override value -> (id, value, false)
               | Hooks.ApprovalRequired ->
-                (match agent.approval with
+                (match agent.options.approval with
                 | None ->
                   (* No callback registered: permissive default, execute normally *)
                   find_and_execute_tool agent name input id
@@ -88,28 +104,28 @@ let execute_tools agent tool_uses =
 (** Run a single turn with hook and guardrail support *)
 let run_turn ~sw ?clock agent =
   (* BeforeTurn hook *)
-  let _before = Hooks.invoke agent.hooks.before_turn
+  let _before = Hooks.invoke agent.options.hooks.before_turn
     (Hooks.BeforeTurn { turn = agent.state.turn_count; messages = agent.state.messages }) in
 
   (* Apply guardrails: filter tools visible to LLM *)
-  let visible_tools = Guardrails.filter_tools agent.guardrails agent.tools in
+  let visible_tools = Guardrails.filter_tools agent.options.guardrails agent.tools in
   let tool_schemas = List.map Tool.schema_to_json visible_tools in
   let tools_json = if tool_schemas = [] then None else Some tool_schemas in
 
   (* Apply context reducer: only the API call sees the windowed messages.
      The full history is preserved in agent.state.messages. *)
-  let effective_messages = match agent.context_reducer with
+  let effective_messages = match agent.options.context_reducer with
     | None -> agent.state.messages
     | Some reducer -> Context_reducer.reduce reducer agent.state.messages
   in
 
-  let api_result = Tracing.with_span agent.tracer
+  let api_result = Tracing.with_span agent.options.tracer
     { kind = Api_call; name = "create_message";
       agent_name = agent.state.config.name;
       turn = agent.state.turn_count; extra = [] }
     (fun _tracer ->
-      Api.create_message ~sw ~net:agent.net ~base_url:agent.base_url
-        ?provider:agent.provider ?clock ~config:agent.state
+      Api.create_message ~sw ~net:agent.net ~base_url:agent.options.base_url
+        ?provider:agent.options.provider ?clock ~config:agent.state
         ~messages:effective_messages ?tools:tools_json ())
   in
   match api_result with
@@ -122,7 +138,7 @@ let run_turn ~sw ?clock agent =
       in
 
       (* AfterTurn hook *)
-      let _after = Hooks.invoke agent.hooks.after_turn
+      let _after = Hooks.invoke agent.options.hooks.after_turn
         (Hooks.AfterTurn { turn = agent.state.turn_count; response }) in
 
       agent.state <- { agent.state with
@@ -137,7 +153,7 @@ let run_turn ~sw ?clock agent =
 
         (* Guardrail: check tool call count limit *)
         let count = List.length tool_uses in
-        (match Guardrails.exceeds_limit agent.guardrails count with
+        (match Guardrails.exceeds_limit agent.options.guardrails count with
         | true ->
           let msg = Printf.sprintf "Tool call limit exceeded: %d calls in one turn" count in
           agent.state <- { agent.state with
@@ -152,7 +168,7 @@ let run_turn ~sw ?clock agent =
           Ok (`ToolsExecuted))
       | EndTurn | MaxTokens | StopSequence ->
         (* OnStop hook *)
-        let _stop = Hooks.invoke agent.hooks.on_stop
+        let _stop = Hooks.invoke agent.options.hooks.on_stop
           (Hooks.OnStop { reason = response.stop_reason; response }) in
         Ok (`Complete response)
       | Unknown reason ->
@@ -289,8 +305,9 @@ let run_with_handoffs ~sw ?clock agent ~targets user_prompt =
             | Some target ->
               (* Create sub-agent with target's config and tools *)
               let sub = create ~net:agent.net ~config:target.config
-                ~tools:target.tools ~base_url:agent.base_url
-                ?provider:agent.provider () in
+                ~tools:target.tools ~options:{ default_options with
+                  base_url = agent.options.base_url;
+                  provider = agent.options.provider } () in
                (match run ~sw ?clock sub prompt with
                | Error e ->
                  let err_msg = Printf.sprintf "Handoff to %s failed: %s" target_name e in
