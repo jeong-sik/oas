@@ -38,6 +38,15 @@ let sample_tool_schema : Types.tool_schema = {
   ];
 }
 
+let sample_echo_tool =
+  Tool.create
+    ~name:"echo"
+    ~description:"Echo input"
+    ~parameters:[{ name = "msg"; description = "Message"; param_type = Types.String; required = true }]
+    (fun input ->
+       let msg = Yojson.Safe.Util.(input |> member "msg" |> to_string) in
+       Ok msg)
+
 let () =
   let open Alcotest in
   run "Checkpoint" [
@@ -270,6 +279,42 @@ let () =
         let cp = make_checkpoint ~usage:u () in
         let result = Checkpoint.token_usage cp in
         check int "input" 42 result.total_input_tokens);
+
+      test_case "Agent.checkpoint captures live state" `Quick (fun () ->
+        Eio_main.run @@ fun env ->
+        let net = Eio.Stdenv.net env in
+        let config = {
+          Types.default_config with
+          name = "checkpoint-agent";
+          tool_choice = Some Types.Auto;
+        } in
+        let agent = Agent.create ~net ~config ~tools:[sample_echo_tool] () in
+        agent.state <- {
+          agent.state with
+          messages = [
+            { Types.role = Types.User; content = [Types.Text "hello"] };
+            { Types.role = Types.Assistant; content = [Types.Text "hi"] };
+          ];
+          turn_count = 2;
+          usage = {
+            Types.total_input_tokens = 9;
+            total_output_tokens = 4;
+            total_cache_creation_input_tokens = 0;
+            total_cache_read_input_tokens = 0;
+            api_calls = 1;
+          };
+        };
+        let cp = Agent.checkpoint ~session_id:"sess-1" agent in
+        check string "session_id" "sess-1" cp.session_id;
+        check string "agent_name" "checkpoint-agent" cp.agent_name;
+        check int "turn_count" 2 cp.turn_count;
+        check int "message_count" 2 (Checkpoint.message_count cp);
+        check int "tool_count" 1 (List.length cp.tools);
+        check (option string) "tool_choice auto"
+          (Some "auto")
+          (match cp.tool_choice with
+           | Some Types.Auto -> Some "auto"
+           | _ -> None));
     ];
 
     "error_cases", [
@@ -361,6 +406,20 @@ let () =
                   in
                   (k, `List (`Assoc tool_fields :: rest_tools))
                 | other -> (k, other)
+              else (k, v)
+            ) pairs)
+          | other -> other
+        in
+        check bool "error" true (Result.is_error (Checkpoint.of_json bad)));
+
+      test_case "invalid tool_choice returns Error" `Quick (fun () ->
+        let cp = make_checkpoint ~tool_choice:(Some Types.Auto) () in
+        let json = Checkpoint.to_json cp in
+        let bad =
+          match json with
+          | `Assoc pairs ->
+            `Assoc (List.map (fun (k, v) ->
+              if k = "tool_choice" then ("tool_choice", `Assoc [("type", `Int 3)])
               else (k, v)
             ) pairs)
           | other -> other

@@ -68,13 +68,17 @@ let tool_choice_to_json = function
 
 let tool_choice_of_json json =
   let open Yojson.Safe.Util in
-  match json |> member "type" |> to_string with
-  | "auto" -> Ok Auto
-  | "any" -> Ok Any
-  | "tool" ->
-    let name = json |> member "name" |> to_string in
-    Ok (Tool name)
-  | other -> Error (Printf.sprintf "Unknown tool_choice type: %s" other)
+  try
+    match json |> member "type" |> to_string with
+    | "auto" -> Ok Auto
+    | "any" -> Ok Any
+    | "tool" ->
+      let name = json |> member "name" |> to_string in
+      Ok (Tool name)
+    | other -> Error (Printf.sprintf "Unknown tool_choice type: %s" other)
+  with
+  | Yojson.Safe.Util.Type_error (msg, _) ->
+    Error (Printf.sprintf "Invalid tool_choice JSON: %s" msg)
 
 (** Content block types - Tuple Style for safety *)
 type content_block =
