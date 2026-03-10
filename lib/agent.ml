@@ -15,6 +15,7 @@ type options = {
   tracer: Tracing.t;
   approval: Hooks.approval_callback option;
   context_reducer: Context_reducer.t option;
+  mcp_clients: Mcp.managed list;
 }
 
 let default_options = {
@@ -25,6 +26,7 @@ let default_options = {
   tracer = Tracing.null;
   approval = None;
   context_reducer = None;
+  mcp_clients = [];
 }
 
 type t = {
@@ -37,6 +39,10 @@ type t = {
 
 let create ~net ?(config=default_config) ?(tools=[]) ?context
     ?(options=default_options) () =
+  let mcp_tools =
+    List.concat_map (fun (m : Mcp.managed) -> m.tools) options.mcp_clients
+  in
+  let all_tools = tools @ mcp_tools in
   let state = {
     config;
     messages = [];
@@ -47,7 +53,11 @@ let create ~net ?(config=default_config) ?(tools=[]) ?context
     | Some c -> c
     | None -> Context.create ()
   in
-  { state; tools; net; context = ctx; options }
+  { state; tools = all_tools; net; context = ctx; options }
+
+(** Close all MCP server connections held by this agent. *)
+let close agent =
+  Mcp.close_all agent.options.mcp_clients
 
 (** Helper: find and execute a tool, invoke PostToolUse hook.
     Returns (id, content, is_error) triple. *)
