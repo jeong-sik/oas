@@ -39,7 +39,7 @@ let test_stream_basic () =
   in
 
   Printf.printf "=== Streaming E2E Test: basic ===\n%!";
-  match Api.create_message_stream ~sw ~net ~provider
+  match Streaming.create_message_stream ~sw ~net ~provider
           ~config:state ~messages ~on_event () with
   | Ok resp ->
     let text = Buffer.contents text_buf in
@@ -104,7 +104,7 @@ let test_stream_event_sequence () =
   in
 
   Printf.printf "\n=== Streaming E2E Test: event sequence ===\n%!";
-  match Api.create_message_stream ~sw ~net ~provider
+  match Streaming.create_message_stream ~sw ~net ~provider
           ~config:state ~messages ~on_event () with
   | Ok _resp ->
     Printf.printf "MessageStart: %b\n%!" !saw_message_start;

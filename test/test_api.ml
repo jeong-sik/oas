@@ -269,7 +269,7 @@ let test_parse_response_with_cache_tokens () =
 
 let test_parse_sse_message_start () =
   let data = {|{"message":{"id":"msg_1","model":"claude-sonnet-4-6","usage":{"input_tokens":10}}}|} in
-  match Api.parse_sse_event (Some "message_start") data with
+  match Streaming.parse_sse_event (Some "message_start") data with
   | Some (Types.MessageStart { id; model; usage }) ->
     check string "id" "msg_1" id;
     check string "model" "claude-sonnet-4-6" model;
@@ -280,7 +280,7 @@ let test_parse_sse_message_start () =
 
 let test_parse_sse_content_block_delta_text () =
   let data = {|{"index":0,"delta":{"type":"text_delta","text":"hello"}}|} in
-  match Api.parse_sse_event (Some "content_block_delta") data with
+  match Streaming.parse_sse_event (Some "content_block_delta") data with
   | Some (Types.ContentBlockDelta { index; delta = Types.TextDelta t }) ->
     check int "index" 0 index;
     check string "text" "hello" t
@@ -288,21 +288,21 @@ let test_parse_sse_content_block_delta_text () =
 
 let test_parse_sse_content_block_delta_thinking () =
   let data = {|{"index":0,"delta":{"type":"thinking_delta","thinking":"hmm"}}|} in
-  match Api.parse_sse_event (Some "content_block_delta") data with
+  match Streaming.parse_sse_event (Some "content_block_delta") data with
   | Some (Types.ContentBlockDelta { delta = Types.ThinkingDelta t; _ }) ->
     check string "thinking" "hmm" t
   | _ -> fail "expected ThinkingDelta"
 
 let test_parse_sse_content_block_delta_input_json () =
   let data = {|{"index":1,"delta":{"type":"input_json_delta","partial_json":"{\"x\":1"}}|} in
-  match Api.parse_sse_event (Some "content_block_delta") data with
+  match Streaming.parse_sse_event (Some "content_block_delta") data with
   | Some (Types.ContentBlockDelta { delta = Types.InputJsonDelta j; _ }) ->
     check string "partial json" {|{"x":1|} j
   | _ -> fail "expected InputJsonDelta"
 
 let test_parse_sse_content_block_start () =
   let data = {|{"index":0,"content_block":{"type":"tool_use","id":"tu_1","name":"calc"}}|} in
-  match Api.parse_sse_event (Some "content_block_start") data with
+  match Streaming.parse_sse_event (Some "content_block_start") data with
   | Some (Types.ContentBlockStart { index; content_type; tool_id; tool_name }) ->
     check int "index" 0 index;
     check string "type" "tool_use" content_type;
@@ -312,7 +312,7 @@ let test_parse_sse_content_block_start () =
 
 let test_parse_sse_message_delta () =
   let data = {|{"delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":42}}|} in
-  match Api.parse_sse_event (Some "message_delta") data with
+  match Streaming.parse_sse_event (Some "message_delta") data with
   | Some (Types.MessageDelta { stop_reason; usage }) ->
     (match stop_reason with
      | Some Types.EndTurn -> ()
@@ -323,28 +323,28 @@ let test_parse_sse_message_delta () =
   | _ -> fail "expected MessageDelta"
 
 let test_parse_sse_message_stop () =
-  match Api.parse_sse_event (Some "message_stop") "{}" with
+  match Streaming.parse_sse_event (Some "message_stop") "{}" with
   | Some Types.MessageStop -> ()
   | _ -> fail "expected MessageStop"
 
 let test_parse_sse_ping () =
-  match Api.parse_sse_event (Some "ping") "{}" with
+  match Streaming.parse_sse_event (Some "ping") "{}" with
   | Some Types.Ping -> ()
   | _ -> fail "expected Ping"
 
 let test_parse_sse_error () =
   let data = {|{"error":{"message":"rate limited"}}|} in
-  match Api.parse_sse_event (Some "error") data with
+  match Streaming.parse_sse_event (Some "error") data with
   | Some (Types.SSEError msg) -> check string "error msg" "rate limited" msg
   | _ -> fail "expected SSEError"
 
 let test_parse_sse_unknown_type () =
-  match Api.parse_sse_event (Some "future_event") "{}" with
+  match Streaming.parse_sse_event (Some "future_event") "{}" with
   | None -> ()
   | Some _ -> fail "expected None for unknown type"
 
 let test_parse_sse_malformed_json () =
-  match Api.parse_sse_event (Some "message_start") "not json" with
+  match Streaming.parse_sse_event (Some "message_start") "not json" with
   | None -> ()
   | Some _ -> fail "expected None for malformed JSON"
 
