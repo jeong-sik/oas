@@ -44,6 +44,7 @@ module Hooks = Hooks
 module Tracing = Tracing
 module Context_reducer = Context_reducer
 module Tool = Tool
+module Mcp = Mcp
 module Guardrails = Guardrails
 module Skill = Skill
 module Handoff = Handoff
