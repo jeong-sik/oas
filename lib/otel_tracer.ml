@@ -41,7 +41,6 @@ type span = {
 
 let _current_spans : span list ref = ref []
 let _completed_spans : span list ref = ref []
-let _initialized = ref false
 
 (* -- Config ----------------------------------------------------------- *)
 
@@ -56,12 +55,6 @@ let default_config = {
 }
 
 (* -- Random hex ID generation ----------------------------------------- *)
-
-let () =
-  if not !_initialized then begin
-    Random.self_init ();
-    _initialized := true
-  end
 
 let hex_chars = "0123456789abcdef"
 

@@ -11,8 +11,6 @@ type t = {
   metadata: Context.t;
 }
 
-let () = Random.self_init ()
-
 let generate_id () =
   let t = Unix.gettimeofday () in
   let hi = Float.to_int (Float.rem t 1_000_000.) in
