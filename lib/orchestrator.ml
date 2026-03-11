@@ -33,6 +33,7 @@ type config = {
   on_task_start: (task -> unit) option;
   on_task_complete: (task_result -> unit) option;
   timeout_per_task: float option;
+  event_bus: Event_bus.t option;
 }
 
 let default_config = {
@@ -41,6 +42,7 @@ let default_config = {
   on_task_start = None;
   on_task_complete = None;
   timeout_per_task = None;
+  event_bus = None;
 }
 
 type t = {
@@ -83,6 +85,11 @@ let run_agent_with_timeout ~sw ?clock config agent prompt =
 
 let run_task ~sw ?clock orch task =
   Option.iter (fun cb -> cb task) orch.config.on_task_start;
+  (* AgentStarted event *)
+  (match orch.config.event_bus with
+   | Some bus -> Event_bus.publish bus
+       (AgentStarted { agent_name = task.agent_name; task_id = task.id })
+   | None -> ());
   let t0 = Unix.gettimeofday () in
   let result =
     match find_agent orch task.agent_name with
@@ -98,6 +105,12 @@ let run_task ~sw ?clock orch task =
   in
   let elapsed = Unix.gettimeofday () -. t0 in
   let tr = { task_id = task.id; agent_name = task.agent_name; result; elapsed } in
+  (* AgentCompleted event *)
+  (match orch.config.event_bus with
+   | Some bus -> Event_bus.publish bus
+       (AgentCompleted { agent_name = task.agent_name; task_id = task.id;
+                         result; elapsed })
+   | None -> ());
   Option.iter (fun cb -> cb tr) orch.config.on_task_complete;
   tr
 

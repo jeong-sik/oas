@@ -830,38 +830,6 @@ module Mcp_session : sig
   val info_list_of_json : Yojson.Safe.t -> (info list, string) result
 end
 
-(** {1 MCP Session Persistence} *)
-
-module Mcp_session : sig
-  (** Serializable MCP session info for checkpoint/resume.
-      Captures server specification and discovered tool schemas.
-      Live connections cannot be serialized — use {!reconnect_all}
-      on resume to re-establish them. *)
-
-  type info = {
-    server_name: string;
-    command: string;
-    args: string list;
-    env: (string * string) list;
-    tool_schemas: Types.tool_schema list;
-  }
-
-  val capture : Mcp.managed -> info
-  val capture_all : Mcp.managed list -> info list
-  val to_server_spec : info -> Mcp.server_spec
-
-  (** Reconnect to MCP servers from saved session info.
-      Returns [(connected, failed)].  Failed connections do not abort others. *)
-  val reconnect_all :
-    sw:Eio.Switch.t -> mgr:_ Eio.Process.mgr ->
-    info list -> Mcp.managed list * info list
-
-  val info_to_json : info -> Yojson.Safe.t
-  val info_of_json : Yojson.Safe.t -> (info, string) result
-  val info_list_to_json : info list -> Yojson.Safe.t
-  val info_list_of_json : Yojson.Safe.t -> (info list, string) result
-end
-
 (** {1 Checkpoint} *)
 
 module Checkpoint : sig
@@ -942,6 +910,56 @@ module Session : sig
   val of_json : Yojson.Safe.t -> (t, string) result
 end
 
+(** {1 Event Bus} *)
+
+module Event_bus : sig
+  (** Typed publish/subscribe for agent lifecycle events.
+      Each subscriber gets its own bounded {!Eio.Stream.t}; [publish] copies
+      each event to every matching subscriber. *)
+
+  (** Lifecycle event variants. *)
+  type event =
+    | AgentStarted of { agent_name: string; task_id: string }
+    | AgentCompleted of { agent_name: string; task_id: string;
+                          result: (Types.api_response, string) result; elapsed: float }
+    | ToolCalled of { agent_name: string; tool_name: string; input: Yojson.Safe.t }
+    | ToolCompleted of { agent_name: string; tool_name: string;
+                         output: (string, string) result }
+    | TurnStarted of { agent_name: string; turn: int }
+    | TurnCompleted of { agent_name: string; turn: int }
+    | Custom of string * Yojson.Safe.t
+
+  (** Predicate for filtering events. *)
+  type filter = event -> bool
+
+  (** A subscription handle with its own buffered stream. *)
+  type subscription = {
+    id: int;
+    stream: event Eio.Stream.t;
+    filter: filter;
+  }
+
+  (** The event bus instance. All state is internal — no globals. *)
+  type t
+
+  val create : ?buffer_size:int -> unit -> t
+  val subscribe : ?filter:filter -> t -> subscription
+  val unsubscribe : t -> subscription -> unit
+  val publish : t -> event -> unit
+
+  (** Drain all buffered events from a subscription (non-blocking). *)
+  val drain : subscription -> event list
+
+  (** Number of active subscribers. *)
+  val subscriber_count : t -> int
+
+  (** {2 Built-in filters} *)
+
+  val accept_all : filter
+  val filter_agent : string -> filter
+  val filter_tools_only : filter
+end
+
 (** {1 Agent} *)
 
 module Agent : sig
@@ -957,6 +975,7 @@ module Agent : sig
     approval: Hooks.approval_callback option;
     context_reducer: Context_reducer.t option;
     mcp_clients: Mcp.managed list;
+    event_bus: Event_bus.t option;
   }
 
   val default_options : options
@@ -1094,6 +1113,7 @@ module Builder : sig
   val with_max_total_tokens : int -> t -> t
   val with_response_format_json : bool -> t -> t
   val with_cache_system_prompt : bool -> t -> t
+  val with_event_bus : Event_bus.t -> t -> t
   val build : t -> Agent.t
 end
 
@@ -1136,6 +1156,7 @@ module Orchestrator : sig
     on_task_start: (task -> unit) option;
     on_task_complete: (task_result -> unit) option;
     timeout_per_task: float option;
+    event_bus: Event_bus.t option;
   }
 
   val default_config : config

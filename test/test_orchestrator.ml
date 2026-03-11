@@ -332,6 +332,52 @@ let test_task_fields () =
   check string "prompt" "do something" task.prompt;
   check string "agent_name" "worker" task.agent_name
 
+(* ── event_bus ───────────────────────────────────────────────────── *)
+
+let test_event_bus_config_none () =
+  check bool "default event_bus is None" true
+    (Option.is_none Orchestrator.default_config.event_bus)
+
+let test_event_bus_receives_started () =
+  Eio_main.run @@ fun _env ->
+  Eio.Switch.run @@ fun sw ->
+  let bus = Event_bus.create () in
+  let sub = Event_bus.subscribe bus in
+  let cfg = { Orchestrator.default_config with event_bus = Some bus } in
+  let orch = Orchestrator.create ~config:cfg [] in
+  let task : Orchestrator.task =
+    { id = "eb-1"; prompt = "hi"; agent_name = "ghost" }
+  in
+  let _tr = Orchestrator.run_task ~sw orch task in
+  let events = Event_bus.drain sub in
+  (* Should have AgentStarted + AgentCompleted *)
+  check bool "has events" true (List.length events >= 2);
+  match List.hd events with
+  | AgentStarted r ->
+    check string "agent_name" "ghost" r.agent_name;
+    check string "task_id" "eb-1" r.task_id
+  | _ -> fail "expected AgentStarted first"
+
+let test_event_bus_receives_completed () =
+  Eio_main.run @@ fun _env ->
+  Eio.Switch.run @@ fun sw ->
+  let bus = Event_bus.create () in
+  let sub = Event_bus.subscribe bus in
+  let cfg = { Orchestrator.default_config with event_bus = Some bus } in
+  let orch = Orchestrator.create ~config:cfg [] in
+  let task : Orchestrator.task =
+    { id = "eb-2"; prompt = "hi"; agent_name = "phantom" }
+  in
+  let _tr = Orchestrator.run_task ~sw orch task in
+  let events = Event_bus.drain sub in
+  let last = List.nth events (List.length events - 1) in
+  match last with
+  | AgentCompleted r ->
+    check string "agent_name" "phantom" r.agent_name;
+    check string "task_id" "eb-2" r.task_id;
+    check bool "result is error (unknown agent)" true (Result.is_error r.result)
+  | _ -> fail "expected AgentCompleted last"
+
 (* ── Suite ────────────────────────────────────────────────────────── *)
 
 let () =
@@ -394,5 +440,10 @@ let () =
       test_case "unknown agent" `Quick test_run_task_unknown_agent;
       test_case "callbacks called" `Quick test_run_task_unknown_agent_callbacks_called;
       test_case "elapsed nonneg" `Quick test_run_task_elapsed_nonnegative;
+    ];
+    "event_bus", [
+      test_case "config none" `Quick test_event_bus_config_none;
+      test_case "receives started" `Quick test_event_bus_receives_started;
+      test_case "receives completed" `Quick test_event_bus_receives_completed;
     ];
   ]
