@@ -421,6 +421,17 @@ let test_latest_ignores_corrupted () =
       | Error e -> Alcotest.fail e
       | Ok cp -> Alcotest.(check string) "session_id" "valid" cp.session_id)
 
+let test_latest_all_corrupted () =
+  with_tmp_store (fun _store tmp_dir ->
+      Eio.Path.save ~create:(`Or_truncate 0o644)
+        Eio.Path.(tmp_dir / "bad1.json") "not json";
+      Eio.Path.save ~create:(`Or_truncate 0o644)
+        Eio.Path.(tmp_dir / "bad2.json") "{broken";
+      let store = create_ok tmp_dir in
+      match Checkpoint_store.latest store with
+      | Error _ -> ()
+      | Ok _ -> Alcotest.fail "expected Error when all checkpoints are corrupted")
+
 let test_exists_true_for_saved () =
   with_tmp_store (fun store _tmp_dir ->
       let _ =
@@ -547,6 +558,8 @@ let () =
             test_latest_with_single;
           Alcotest.test_case "latest ignores corrupted files" `Quick
             test_latest_ignores_corrupted;
+          Alcotest.test_case "latest all corrupted returns error" `Quick
+            test_latest_all_corrupted;
         ] );
       ( "exists",
         [

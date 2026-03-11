@@ -36,7 +36,8 @@ let save store (cp : Checkpoint.t) =
        Eio.Path.rename tmp target;
        Ok ()
      with exn ->
-       (try Eio.Path.unlink tmp with _ -> ());
+       (* Best-effort cleanup: ignore unlink failure — the primary error is already captured *)
+      (try Eio.Path.unlink tmp with _ -> ());
        Error
          (Printf.sprintf "Failed to save checkpoint: %s"
             (Printexc.to_string exn)))
