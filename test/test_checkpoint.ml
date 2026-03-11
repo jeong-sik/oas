@@ -454,6 +454,19 @@ let () =
           | other -> other
         in
         check bool "error" true (Result.is_error (Checkpoint.of_json bad)));
+
+      test_case "malformed mcp_sessions returns Error" `Quick (fun () ->
+        let cp = make_checkpoint () in
+        let json = Checkpoint.to_json cp in
+        let bad = match json with
+          | `Assoc pairs ->
+            `Assoc (List.map (fun (k, v) ->
+              if k = "mcp_sessions" then (k, `Int 42)
+              else (k, v)
+            ) pairs)
+          | other -> other
+        in
+        check bool "error" true (Result.is_error (Checkpoint.of_json bad)));
     ];
 
     "mcp_sessions", [

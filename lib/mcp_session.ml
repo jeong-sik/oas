@@ -50,14 +50,14 @@ let to_server_spec (info : info) : Mcp.server_spec =
   }
 
 (** Reconnect to MCP servers from saved session info.
-    Returns a pair: (successfully connected, failed infos).
-    Failed connections are logged but do not abort the others. *)
-let reconnect_all ~sw ~mgr (infos : info list) : Mcp.managed list * info list =
+    Returns a pair: (successfully connected, failed infos with error messages).
+    Failed connections do not abort the others. *)
+let reconnect_all ~sw ~mgr (infos : info list) : Mcp.managed list * (info * string) list =
   List.fold_left (fun (connected, failed) info ->
     let spec = to_server_spec info in
     match Mcp.connect_and_load ~sw ~mgr spec with
     | Ok m -> (m :: connected, failed)
-    | Error _e -> (connected, info :: failed)
+    | Error e -> (connected, (info, e) :: failed)
   ) ([], []) infos
   |> fun (connected, failed) -> (List.rev connected, List.rev failed)
 

@@ -819,10 +819,11 @@ module Mcp_session : sig
   val to_server_spec : info -> Mcp.server_spec
 
   (** Reconnect to MCP servers from saved session info.
-      Returns [(connected, failed)].  Failed connections do not abort others. *)
+      Returns [(connected, failed_with_reason)].  Failed connections do not abort others.
+      Each failed entry includes the original info and the error message. *)
   val reconnect_all :
     sw:Eio.Switch.t -> mgr:_ Eio.Process.mgr ->
-    info list -> Mcp.managed list * info list
+    info list -> Mcp.managed list * (info * string) list
 
   val info_to_json : info -> Yojson.Safe.t
   val info_of_json : Yojson.Safe.t -> (info, string) result
