@@ -774,6 +774,22 @@ module Structured : sig
     schema:'a schema ->
     string ->
     ('a, string) result
+
+  (** Extract structured output with SSE streaming.
+      Like [extract] but calls [on_event] for each SSE event received.
+      Returns [(parsed_value, api_response)] on success.
+      Falls back to sync API + synthetic events for non-Anthropic providers. *)
+  val extract_stream :
+    sw:Eio.Switch.t ->
+    net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
+    ?base_url:string ->
+    ?provider:Provider.config ->
+    ?clock:_ Eio.Time.clock ->
+    config:Types.agent_config ->
+    schema:'a schema ->
+    on_event:(Types.sse_event -> unit) ->
+    string ->
+    ('a * Types.api_response, string) result
 end
 
 (** {1 Checkpoint} *)

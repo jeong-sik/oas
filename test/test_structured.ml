@@ -101,12 +101,61 @@ let test_extract_picks_first_match () =
     Alcotest.(check int) "first age" 1 age
   | Error e -> Alcotest.fail ("unexpected error: " ^ e)
 
+(* --- schema edge cases --- *)
+
+let test_schema_optional_params () =
+  let schema : unit Structured.schema = {
+    name = "test_opt"; description = "Test optional params";
+    params = [
+      { name = "required_f"; description = "R"; param_type = String; required = true };
+      { name = "optional_f"; description = "O"; param_type = String; required = false };
+    ];
+    parse = (fun _ -> Ok ());
+  } in
+  let json = Structured.schema_to_tool_json schema in
+  let open Yojson.Safe.Util in
+  let required = json |> member "input_schema" |> member "required"
+    |> to_list |> List.map to_string in
+  Alcotest.(check bool) "required_f in list" true (List.mem "required_f" required);
+  Alcotest.(check bool) "optional_f not in list" false (List.mem "optional_f" required)
+
+let test_extract_with_thinking_blocks () =
+  let input_json = `Assoc [("name", `String "Bob"); ("age", `Int 25)] in
+  let content = [
+    Types.Thinking ("sig", "some thinking...");
+    Text "preamble";
+    ToolUse ("tu_t", "extract_person", input_json);
+  ] in
+  match Structured.extract_tool_input ~schema:person_schema content with
+  | Ok (name, age) ->
+    Alcotest.(check string) "name" "Bob" name;
+    Alcotest.(check int) "age" 25 age
+  | Error e -> Alcotest.fail ("unexpected error: " ^ e)
+
+let test_schema_tool_choice_name () =
+  let json = Structured.schema_to_tool_json person_schema in
+  let open Yojson.Safe.Util in
+  (* The name field is what tool_choice=Tool(name) would reference *)
+  Alcotest.(check string) "name for tool_choice" "extract_person"
+    (json |> member "name" |> to_string);
+  let props = json |> member "input_schema" |> member "properties" |> to_assoc in
+  Alcotest.(check int) "property count" 2 (List.length props)
+
+let test_extract_from_empty_content () =
+  match Structured.extract_tool_input ~schema:person_schema [] with
+  | Error msg ->
+    Alcotest.(check bool) "mentions schema name" true
+      (String.length msg > 0)
+  | Ok _ -> Alcotest.fail "expected error for empty content"
+
 (* --- Runner --- *)
 
 let () =
   Alcotest.run "structured" [
     "schema_to_tool_json", [
       Alcotest.test_case "structure" `Quick test_schema_to_json_structure;
+      Alcotest.test_case "optional params" `Quick test_schema_optional_params;
+      Alcotest.test_case "tool choice name" `Quick test_schema_tool_choice_name;
     ];
     "extract_tool_input", [
       Alcotest.test_case "success" `Quick test_extract_tool_input_success;
@@ -114,5 +163,7 @@ let () =
       Alcotest.test_case "no tool_use" `Quick test_extract_tool_input_no_tool_use;
       Alcotest.test_case "parse failure" `Quick test_extract_tool_input_parse_failure;
       Alcotest.test_case "picks first match" `Quick test_extract_picks_first_match;
+      Alcotest.test_case "with thinking blocks" `Quick test_extract_with_thinking_blocks;
+      Alcotest.test_case "empty content" `Quick test_extract_from_empty_content;
     ];
   ]

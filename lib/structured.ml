@@ -65,3 +65,45 @@ let extract ~sw ~net ?base_url ?provider ~config ~(schema : 'a schema) prompt
   match Api.create_message ~sw ~net ?base_url ?provider ~config:state ~messages ~tools () with
   | Error e -> Error e
   | Ok response -> extract_tool_input ~schema response.content
+
+(** Extract structured output with SSE streaming.
+    Like [extract] but uses [Streaming.create_message_stream] to receive
+    incremental SSE events.  Calls [on_event] for each event.
+    Falls back to sync API + synthetic events for non-Anthropic providers. *)
+let extract_stream ~sw ~net ?base_url ?provider ?clock ~config ~(schema : 'a schema)
+    ~on_event prompt : ('a * api_response, string) result =
+  let config_with_tool = { config with
+    tool_choice = Some (Tool schema.name);
+  } in
+  let state = { config = config_with_tool; messages = []; turn_count = 0; usage = empty_usage } in
+  let messages = [{ role = User; content = [Text prompt] }] in
+  let tools = [schema_to_tool_json schema] in
+  let api_result =
+    let stream_result =
+      Streaming.create_message_stream ~sw ~net ?base_url ?provider
+        ~config:state ~messages ~tools ~on_event ()
+    in
+    match stream_result with
+    | Ok _ -> stream_result
+    | Error msg ->
+      let prefix = "Streaming is only supported" in
+      let msg_len = String.length msg in
+      let prefix_len = String.length prefix in
+      if msg_len >= prefix_len && String.sub msg 0 prefix_len = prefix then
+        (* Non-Anthropic: fallback to sync + synthetic events *)
+        let sync_result = Api.create_message ~sw ~net ?base_url ?provider
+          ?clock ~config:state ~messages ~tools () in
+        (match sync_result with
+         | Ok response ->
+           Streaming.emit_synthetic_events response on_event;
+           Ok response
+         | Error _ -> sync_result)
+      else
+        stream_result
+  in
+  match api_result with
+  | Error e -> Error e
+  | Ok response ->
+    (match extract_tool_input ~schema response.content with
+     | Ok value -> Ok (value, response)
+     | Error e -> Error e)
