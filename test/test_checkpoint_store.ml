@@ -16,6 +16,7 @@ let make_checkpoint ?(session_id = "test-session") ?(created_at = 1000.0) () :
     created_at;
     tools = [];
     tool_choice = None;
+    mcp_sessions = [];
   }
 
 let sample_tool_schema : Types.tool_schema =

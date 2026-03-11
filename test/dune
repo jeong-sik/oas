@@ -124,6 +124,10 @@
  (libraries agent_sdk alcotest yojson))
 
 (test
+ (name test_mcp_session)
+ (libraries agent_sdk alcotest yojson))
+
+(test
  (name test_builder)
  (libraries agent_sdk alcotest eio eio_main yojson))
 

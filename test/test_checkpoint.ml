@@ -11,6 +11,7 @@ let make_checkpoint
     ?(turn_count=0)
     ?(tools=[])
     ?(tool_choice=None)
+    ?(mcp_sessions=[])
     () : Checkpoint.t =
   {
     version = Checkpoint.checkpoint_version;
@@ -24,6 +25,7 @@ let make_checkpoint
     created_at = 1000.0;
     tools;
     tool_choice;
+    mcp_sessions;
   }
 
 (* Helper: a sample tool_schema *)
@@ -51,14 +53,14 @@ let () =
   let open Alcotest in
   run "Checkpoint" [
     "version", [
-      test_case "checkpoint_version is 1" `Quick (fun () ->
-        check int "version" 1 Checkpoint.checkpoint_version);
+      test_case "checkpoint_version is 2" `Quick (fun () ->
+        check int "version" 2 Checkpoint.checkpoint_version);
 
       test_case "version field in to_json" `Quick (fun () ->
         let cp = make_checkpoint () in
         let json = Checkpoint.to_json cp in
         let v = Yojson.Safe.Util.(json |> member "version" |> to_int) in
-        check int "version" 1 v);
+        check int "version" 2 v);
 
       test_case "wrong version returns Error" `Quick (fun () ->
         let cp = make_checkpoint () in
@@ -452,5 +454,92 @@ let () =
           | other -> other
         in
         check bool "error" true (Result.is_error (Checkpoint.of_json bad)));
+    ];
+
+    "mcp_sessions", [
+      test_case "empty mcp_sessions roundtrip" `Quick (fun () ->
+        let cp = make_checkpoint ~mcp_sessions:[] () in
+        let cp2 = Result.get_ok (Checkpoint.of_json (Checkpoint.to_json cp)) in
+        check int "no sessions" 0 (List.length cp2.mcp_sessions));
+
+      test_case "mcp_sessions with tools roundtrip" `Quick (fun () ->
+        let info : Mcp_session.info = {
+          server_name = "test-server";
+          command = "/usr/bin/mcp-server";
+          args = ["--port"; "8080"];
+          env = [("API_KEY", "secret123")];
+          tool_schemas = [sample_tool_schema];
+        } in
+        let cp = make_checkpoint ~mcp_sessions:[info] () in
+        let cp2 = Result.get_ok (Checkpoint.of_json (Checkpoint.to_json cp)) in
+        check int "1 session" 1 (List.length cp2.mcp_sessions);
+        let s = List.hd cp2.mcp_sessions in
+        check string "server_name" "test-server" s.server_name;
+        check string "command" "/usr/bin/mcp-server" s.command;
+        check int "args count" 2 (List.length s.args);
+        check int "env count" 1 (List.length s.env);
+        check int "tools count" 1 (List.length s.tool_schemas);
+        let t = List.hd s.tool_schemas in
+        check string "tool name" "get_weather" t.name);
+
+      test_case "multiple mcp_sessions roundtrip" `Quick (fun () ->
+        let info1 : Mcp_session.info = {
+          server_name = "server-a";
+          command = "mcp-a"; args = []; env = [];
+          tool_schemas = [];
+        } in
+        let info2 : Mcp_session.info = {
+          server_name = "server-b";
+          command = "mcp-b"; args = ["--verbose"]; env = [("X", "1")];
+          tool_schemas = [sample_tool_schema];
+        } in
+        let cp = make_checkpoint ~mcp_sessions:[info1; info2] () in
+        let cp2 = Result.get_ok (Checkpoint.of_json (Checkpoint.to_json cp)) in
+        check int "2 sessions" 2 (List.length cp2.mcp_sessions);
+        let s1 = List.hd cp2.mcp_sessions in
+        let s2 = List.nth cp2.mcp_sessions 1 in
+        check string "first" "server-a" s1.server_name;
+        check string "second" "server-b" s2.server_name);
+
+      test_case "version 1 backward compat (no mcp_sessions field)" `Quick (fun () ->
+        (* Simulate a v1 checkpoint JSON that has no mcp_sessions field *)
+        let cp = make_checkpoint () in
+        let json = Checkpoint.to_json cp in
+        let v1_json = match json with
+          | `Assoc pairs ->
+            `Assoc (List.filter_map (fun (k, v) ->
+              if k = "version" then Some (k, `Int 1)
+              else if k = "mcp_sessions" then None
+              else Some (k, v)
+            ) pairs)
+          | other -> other
+        in
+        let cp2 = Result.get_ok (Checkpoint.of_json v1_json) in
+        check int "version upgraded to 2" 2 cp2.version;
+        check int "mcp_sessions empty" 0 (List.length cp2.mcp_sessions));
+
+      test_case "version 1 with null mcp_sessions" `Quick (fun () ->
+        let cp = make_checkpoint () in
+        let json = Checkpoint.to_json cp in
+        let v1_json = match json with
+          | `Assoc pairs ->
+            `Assoc (List.map (fun (k, v) ->
+              if k = "version" then (k, `Int 1)
+              else if k = "mcp_sessions" then (k, `Null)
+              else (k, v)
+            ) pairs)
+          | other -> other
+        in
+        let cp2 = Result.get_ok (Checkpoint.of_json v1_json) in
+        check int "mcp_sessions empty" 0 (List.length cp2.mcp_sessions));
+
+      test_case "Agent.checkpoint has empty mcp_sessions" `Quick (fun () ->
+        Eio_main.run @@ fun env ->
+        let net = Eio.Stdenv.net env in
+        let agent = Agent.create ~net
+          ~config:{ Types.default_config with name = "mcp-test" }
+          () in
+        let cp = Agent.checkpoint agent in
+        check int "no mcp sessions" 0 (List.length cp.mcp_sessions));
     ];
   ]

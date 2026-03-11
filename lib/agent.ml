@@ -504,4 +504,5 @@ let checkpoint ?(session_id="") agent =
     created_at = Unix.gettimeofday ();
     tools = List.map (fun (t : Tool.t) -> t.schema) agent.tools;
     tool_choice = agent.state.config.tool_choice;
+    mcp_sessions = Mcp_session.capture_all agent.options.mcp_clients;
   }
