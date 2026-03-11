@@ -69,9 +69,10 @@ let filter_tools_only : filter = function
 (* ── Subscribe / unsubscribe ───────────────────────────────────────── *)
 
 let subscribe ?(filter = accept_all) bus =
+  let stream = Eio.Stream.create bus.buffer_size in
   Eio.Mutex.use_rw ~protect:true bus.mu (fun () ->
     let id = bus.next_id in
-    let sub = { id; stream = Eio.Stream.create bus.buffer_size; filter } in
+    let sub = { id; stream; filter } in
     bus.subscribers <- sub :: bus.subscribers;
     bus.next_id <- id + 1;
     sub)
