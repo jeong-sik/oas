@@ -63,6 +63,32 @@ let test_create_store () =
         "dir exists" true
         (Eio.Path.is_directory tmp_dir))
 
+let test_create_returns_error_on_bad_path () =
+  Eio_main.run @@ fun env ->
+  let fs = Eio.Stdenv.fs env in
+  let suffix = string_of_int (Random.int 999999) in
+  let file_path = Eio.Path.(fs / "/tmp" / ("oas-not-a-dir-" ^ suffix)) in
+  Eio.Path.save ~create:(`Or_truncate 0o644) file_path "x";
+  let bad_path = Eio.Path.(file_path / "sub") in
+  Fun.protect
+    ~finally:(fun () ->
+      try Eio.Path.unlink file_path with _ -> ())
+    (fun () ->
+      match Checkpoint_store.create bad_path with
+      | Error _ -> ()
+      | Ok _ -> Alcotest.fail "expected Error for path under a file")
+
+let test_list_returns_error_when_dir_removed () =
+  Eio_main.run @@ fun env ->
+  let fs = Eio.Stdenv.fs env in
+  let suffix = string_of_int (Random.int 999999) in
+  let tmp_dir = Eio.Path.(fs / "/tmp" / ("oas-test-list-err-" ^ suffix)) in
+  let store = create_ok tmp_dir in
+  Eio.Path.rmtree ~missing_ok:true tmp_dir;
+  match Checkpoint_store.list store with
+  | Error _ -> ()
+  | Ok _ -> Alcotest.fail "expected Error after removing directory"
+
 let test_create_auto_creates_directory () =
   Eio_main.run @@ fun env ->
   let fs = Eio.Stdenv.fs env in
@@ -446,6 +472,20 @@ let () =
           Alcotest.test_case "create store" `Quick test_create_store;
           Alcotest.test_case "create auto creates directory" `Quick
             test_create_auto_creates_directory;
+          Alcotest.test_case "create returns error on bad path" `Quick
+            test_create_returns_error_on_bad_path;
+        ] );
+      ( "list",
+        [
+          Alcotest.test_case "list empty store" `Quick test_list_empty_store;
+          Alcotest.test_case "list returns all saved" `Quick
+            test_list_returns_all_saved;
+          Alcotest.test_case "list excludes .tmp files" `Quick
+            test_list_excludes_tmp_files;
+          Alcotest.test_case "list is sorted" `Quick test_list_is_sorted;
+          Alcotest.test_case "list after delete" `Quick test_list_after_delete;
+          Alcotest.test_case "list returns error when dir removed" `Quick
+            test_list_returns_error_when_dir_removed;
         ] );
       ( "save",
         [
@@ -486,16 +526,6 @@ let () =
             test_roundtrip_preserves_tools;
           Alcotest.test_case "roundtrip preserves tool_choice" `Quick
             test_roundtrip_preserves_tool_choice;
-        ] );
-      ( "list",
-        [
-          Alcotest.test_case "list empty store" `Quick test_list_empty_store;
-          Alcotest.test_case "list returns all saved" `Quick
-            test_list_returns_all_saved;
-          Alcotest.test_case "list excludes .tmp files" `Quick
-            test_list_excludes_tmp_files;
-          Alcotest.test_case "list is sorted" `Quick test_list_is_sorted;
-          Alcotest.test_case "list after delete" `Quick test_list_after_delete;
         ] );
       ( "delete",
         [
