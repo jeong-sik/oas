@@ -2,6 +2,21 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.9.1] - 2026-03-11
+
+### Changed (breaking)
+- `Types.tool_choice_of_json`: `(_, string) result` → `(_, Error.sdk_error) result`
+- `Provider.resolve`: `(_, string) result` → `(_, Error.sdk_error) result`
+- `.mli`: `module Retry : sig ... end` and `module Error : sig ... end` → module aliases for type equality
+
+### Fixed
+- `Checkpoint.of_json`: removed redundant `Result.map_error` bridge for `tool_choice_of_json` (now returns `sdk_error` directly)
+- `Api.create_message`, `Streaming.create_message_stream`: pass through `Provider.resolve` error directly instead of re-wrapping
+
+### Migration
+- All SDK functions now return `(_, Error.sdk_error) result` — structured error migration is complete
+- `Structured.schema.parse` retains `('a, string) result` (user-provided parser; wrapped to `sdk_error` at boundary)
+
 ## [0.9.0] - 2026-03-11
 
 ### Added
@@ -32,8 +47,7 @@ All notable changes to `agent_sdk` are documented in this file.
 - `Retry.classify_error`: narrowed `with _ ->` to `Yojson.Json_error | Type_error` so non-JSON exceptions propagate
 
 ### Migration
-- `Types.tool_choice_of_json` and `Provider.resolve` retain `(_, string) result` (declared before `Error` in `.mli` module order)
-- Tool handler interfaces (`Tool.t`) retain `(string, string) result` (user-provided handlers)
+- Tool handler interfaces (`Tool.t`) retain `(string, string) result` (user-provided handlers, not SDK errors)
 - Use `Error.to_string` where string representation is needed
 
 ### Internal
