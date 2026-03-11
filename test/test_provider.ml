@@ -11,13 +11,11 @@ let test_missing_env_var () =
     api_key_env = "AGENT_SDK_TEST_NONEXISTENT_KEY_39f7b2";
   } in
   match Provider.resolve cfg with
-  | Error msg ->
-    Alcotest.(check bool) "error mentions env var" true
-      (String.length msg > 0 &&
-       let has_var_name =
-         try let _ = Str.search_forward (Str.regexp_string "AGENT_SDK_TEST_NONEXISTENT_KEY_39f7b2") msg 0 in true
-         with Not_found -> false
-       in has_var_name)
+  | Error (Error.Config (MissingEnvVar { var_name })) ->
+    Alcotest.(check string) "error mentions env var"
+      "AGENT_SDK_TEST_NONEXISTENT_KEY_39f7b2" var_name
+  | Error e ->
+    Alcotest.fail (Printf.sprintf "unexpected error variant: %s" (Error.to_string e))
   | Ok _ ->
     Alcotest.fail "should fail when env var is missing"
 
@@ -35,7 +33,7 @@ let test_present_env_var () =
     Alcotest.(check string) "base_url" "https://api.anthropic.com" base_url;
     Alcotest.(check string) "api_key" "test-api-key-value" api_key
   | Error e ->
-    Alcotest.fail (Printf.sprintf "should succeed but got: %s" e)
+    Alcotest.fail (Printf.sprintf "should succeed but got: %s" (Error.to_string e))
 
 let test_local_skips_env_var () =
   (* Local provider always succeeds without env var lookup *)
@@ -48,7 +46,7 @@ let test_local_skips_env_var () =
   | Ok (base_url, _api_key, _headers) ->
     Alcotest.(check string) "base_url" "http://localhost:9999" base_url
   | Error e ->
-    Alcotest.fail (Printf.sprintf "Local should always succeed: %s" e)
+    Alcotest.fail (Printf.sprintf "Local should always succeed: %s" (Error.to_string e))
 
 let test_anthropic_provider () =
   let env_var = "AGENT_SDK_TEST_ANTHROPIC_KEY_x9y8z7" in
@@ -63,7 +61,7 @@ let test_anthropic_provider () =
     Alcotest.(check string) "anthropic base_url" "https://api.anthropic.com" base_url;
     Alcotest.(check string) "api_key" "sk-ant-test-key" api_key
   | Error e ->
-    Alcotest.fail (Printf.sprintf "should succeed but got: %s" e)
+    Alcotest.fail (Printf.sprintf "should succeed but got: %s" (Error.to_string e))
 
 let test_openai_compat_resolve_success () =
   let env_var = "AGENT_SDK_TEST_OPENROUTER_KEY_q1w2e3" in
@@ -85,7 +83,7 @@ let test_openai_compat_resolve_success () =
     let auth = List.assoc "Authorization" headers in
     Alcotest.(check string) "bearer token" "Bearer or-test-key" auth
   | Error e ->
-    Alcotest.fail (Printf.sprintf "should succeed: %s" e)
+    Alcotest.fail (Printf.sprintf "should succeed: %s" (Error.to_string e))
 
 let test_openai_compat_resolve_missing_key () =
   let cfg : Provider.config = {
@@ -99,7 +97,11 @@ let test_openai_compat_resolve_missing_key () =
     api_key_env = "AGENT_SDK_TEST_NONEXISTENT_COMPAT_KEY_z0z0";
   } in
   match Provider.resolve cfg with
-  | Error _ -> ()
+  | Error (Error.Config (MissingEnvVar { var_name })) ->
+    Alcotest.(check string) "error mentions env var"
+      "AGENT_SDK_TEST_NONEXISTENT_COMPAT_KEY_z0z0" var_name
+  | Error e ->
+    Alcotest.fail (Printf.sprintf "unexpected error variant: %s" (Error.to_string e))
   | Ok _ -> Alcotest.fail "should fail when env var missing"
 
 let test_anthropic_headers () =
@@ -119,7 +121,7 @@ let test_anthropic_headers () =
     let ct = List.assoc "Content-Type" headers in
     Alcotest.(check string) "content-type" "application/json" ct
   | Error e ->
-    Alcotest.fail (Printf.sprintf "should succeed: %s" e)
+    Alcotest.fail (Printf.sprintf "should succeed: %s" (Error.to_string e))
 
 let () =
   Alcotest.run "Provider" [

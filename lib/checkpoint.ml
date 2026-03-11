@@ -178,8 +178,7 @@ let of_json json =
       let tool_choice =
         match json |> member "tool_choice" with
         | `Null -> Ok None
-        | tc -> Result.map Option.some (tool_choice_of_json tc
-                |> Result.map_error (fun e -> Error.Serialization (JsonParseError { detail = e })))
+        | tc -> Result.map Option.some (tool_choice_of_json tc)
       in
       match tool_choice with
       | Error e -> Error e
