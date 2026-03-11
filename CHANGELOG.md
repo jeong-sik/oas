@@ -4,6 +4,18 @@ All notable changes to `agent_sdk` are documented in this file.
 
 ## [0.9.0] - 2026-03-11
 
+## [0.8.3] - 2026-03-11
+
+### Changed
+- `Mcp.t`: removed `mutable tools` field — `list_tools` is now pure, `to_tools` takes explicit `mcp_tool list` argument
+
+### Changed (breaking)
+- `Mcp.to_tools`: signature changed from `t -> Tool.t list` to `t -> mcp_tool list -> Tool.t list`
+
+### Added (tests)
+- `test_mcp_session.ml`: server_spec roundtrip, JSON serialization with env, reconnect_all empty case
+- `test_otel.ml`: in-progress span JSON, flush/reset state, concurrent span creation
+
 ### Added
 - `Error` module: 2-level structured error type hierarchy (`sdk_error`) replacing `(_, string) result` across the SDK
   - 7 domain-specific inner types: `api_error`, `agent_error`, `mcp_error`, `config_error`, `serialization_error`, `io_error`, `orchestration_error`
