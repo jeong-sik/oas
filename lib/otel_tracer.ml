@@ -39,6 +39,11 @@ type span = {
 
 (* -- Global state ----------------------------------------------------- *)
 
+let _mutex = Mutex.create ()
+
+let with_lock f =
+  Mutex.lock _mutex;
+  Fun.protect f ~finally:(fun () -> Mutex.unlock _mutex)
 let _current_spans : span list ref = ref []
 let _completed_spans : span list ref = ref []
 
@@ -106,6 +111,7 @@ let make_span_name (attrs : Tracing.span_attrs) =
 (* -- TRACER implementation -------------------------------------------- *)
 
 let start_span (attrs : Tracing.span_attrs) : span =
+  with_lock @@ fun () ->
   let parent = match !_current_spans with
     | p :: _ -> Some p
     | []     -> None
@@ -134,6 +140,7 @@ let start_span (attrs : Tracing.span_attrs) : span =
   s
 
 let end_span (s : span) ~ok =
+  with_lock @@ fun () ->
   s.end_time_ns <- Some (now_ns ());
   s.status <- Some ok;
   (* Pop from current stack -- remove the first matching span *)
@@ -204,7 +211,8 @@ let span_to_json (s : span) : Yojson.Safe.t =
   `Assoc with_parent
 
 let to_otlp_json (cfg : config) : Yojson.Safe.t =
-  let spans = List.rev !_completed_spans in
+  let spans = with_lock
+    (fun () -> List.rev !_completed_spans) in
   `Assoc [
     ("resourceSpans", `List [
       `Assoc [
@@ -229,18 +237,22 @@ let to_otlp_json (cfg : config) : Yojson.Safe.t =
 (* -- Buffer management ------------------------------------------------ *)
 
 let flush () =
+  with_lock @@ fun () ->
   let spans = List.rev !_completed_spans in
   _completed_spans := [];
   spans
 
 let reset () =
+  with_lock @@ fun () ->
   _current_spans := [];
   _completed_spans := []
 
 let completed_count () =
+  with_lock @@ fun () ->
   List.length !_completed_spans
 
 let active_count () =
+  with_lock @@ fun () ->
   List.length !_current_spans
 
 (* -- First-class module constructor ----------------------------------- *)
