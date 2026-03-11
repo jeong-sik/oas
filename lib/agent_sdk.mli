@@ -929,6 +929,40 @@ module Agent : sig
   val checkpoint : ?session_id:string -> t -> Checkpoint.t
 end
 
+(** {1 Builder Pattern} *)
+
+module Builder : sig
+  (** Flat, chainable API for agent creation.
+      Alternative to the nested [Agent.create ~config ~options] pattern. *)
+
+  type t
+
+  val create : net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t -> model:Types.model -> t
+  val with_system_prompt : string -> t -> t
+  val with_name : string -> t -> t
+  val with_max_tokens : int -> t -> t
+  val with_max_turns : int -> t -> t
+  val with_temperature : float -> t -> t
+  val with_tools : Tool.t list -> t -> t
+  val with_tool : Tool.t -> t -> t
+  val with_hooks : Hooks.hooks -> t -> t
+  val with_tracer : Tracing.t -> t -> t
+  val with_approval : Hooks.approval_callback -> t -> t
+  val with_context_reducer : Context_reducer.t -> t -> t
+  val with_context : Context.t -> t -> t
+  val with_provider : Provider.config -> t -> t
+  val with_base_url : string -> t -> t
+  val with_mcp_clients : Mcp.managed list -> t -> t
+  val with_guardrails : Guardrails.t -> t -> t
+  val with_tool_choice : Types.tool_choice -> t -> t
+  val with_thinking_budget : int -> t -> t
+  val with_max_input_tokens : int -> t -> t
+  val with_max_total_tokens : int -> t -> t
+  val with_response_format_json : bool -> t -> t
+  val with_cache_system_prompt : bool -> t -> t
+  val build : t -> Agent.t
+end
+
 (** {1 Quick Start} *)
 
 (** Create an agent with default config and optional overrides *)
