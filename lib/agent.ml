@@ -75,72 +75,14 @@ let clone ?(copy_context=false) agent =
 let close agent =
   Mcp.close_all agent.options.mcp_clients
 
-(** Helper: find and execute a tool, invoke PostToolUse hook.
-    Returns (id, content, is_error) triple. *)
-let find_and_execute_tool agent name input id =
-  (* ToolCalled event *)
-  (match agent.options.event_bus with
-   | Some bus -> Event_bus.publish bus
-       (ToolCalled { agent_name = agent.state.config.name; tool_name = name; input })
-   | None -> ());
-  let tool_opt = List.find_opt (fun (tool: Tool.t) -> tool.schema.name = name) agent.tools in
-  let triple = match tool_opt with
-  | Some tool ->
-    let result = Tool.execute ~context:agent.context tool input in
-    let _post = Hooks.invoke agent.options.hooks.post_tool_use
-      (Hooks.PostToolUse { tool_name = name; input; output = result }) in
-    let content, is_error = match result with
-      | Ok output -> output, false
-      | Error err -> err, true
-    in
-    (id, content, is_error)
-  | None -> (id, "Tool not found", true)
-  in
-  (* ToolCompleted event *)
-  (match agent.options.event_bus with
-   | Some bus ->
-     let (_, content, is_error) = triple in
-     let output = if is_error then Error content else Ok content in
-     Event_bus.publish bus
-       (ToolCompleted { agent_name = agent.state.config.name; tool_name = name; output })
-   | None -> ());
-  triple
-
-(** Execute tools in parallel using Eio fibers.
-    Applies PreToolUse/PostToolUse hooks and passes context to context-aware handlers.
-    Each fiber catches exceptions to prevent one tool failure from canceling siblings. *)
+(** Execute tools in parallel — delegates to Agent_tools with explicit parameters. *)
 let execute_tools agent tool_uses =
-  Eio.Fiber.List.map (fun block ->
-    match block with
-    | ToolUse (id, name, input) ->
-        Tracing.with_span agent.options.tracer
-          { kind = Tool_exec; name;
-            agent_name = agent.state.config.name;
-            turn = agent.state.turn_count; extra = [] }
-          (fun _tracer ->
-            (try
-              (* PreToolUse hook *)
-              let decision = Hooks.invoke agent.options.hooks.pre_tool_use
-                (Hooks.PreToolUse { tool_name = name; input }) in
-              (match decision with
-              | Hooks.Skip -> (id, "Tool execution skipped by hook", false)
-              | Hooks.Override value -> (id, value, false)
-              | Hooks.ApprovalRequired ->
-                (match agent.options.approval with
-                | None ->
-                  (* No callback registered: permissive default, execute normally *)
-                  find_and_execute_tool agent name input id
-                | Some approve_fn ->
-                  (match approve_fn ~tool_name:name ~input with
-                  | Hooks.Approve -> find_and_execute_tool agent name input id
-                  | Hooks.Reject reason -> (id, "Tool rejected: " ^ reason, true)
-                  | Hooks.Edit new_input -> find_and_execute_tool agent name new_input id))
-              | Hooks.Continue -> find_and_execute_tool agent name input id)
-            with exn ->
-              let msg = Printf.sprintf "Tool '%s' raised: %s" name (Printexc.to_string exn) in
-              (id, msg, true)))
-    | _ -> ("", "", true)
-  ) tool_uses
+  Agent_tools.execute_tools
+    ~context:agent.context ~tools:agent.tools
+    ~hooks:agent.options.hooks ~event_bus:agent.options.event_bus
+    ~tracer:agent.options.tracer ~agent_name:agent.state.config.name
+    ~turn_count:agent.state.turn_count ~approval:agent.options.approval
+    tool_uses
 
 (** Run a single turn with hook and guardrail support *)
 let run_turn ~sw ?clock agent =
@@ -387,62 +329,9 @@ let run_stream ~sw ?clock ~on_event agent user_prompt =
   in
   loop ()
 
-(** Find the most recent assistant message and extract the first handoff ToolUse.
-    Returns (tool_use_id, target_name, prompt) or None. *)
-let find_handoff_in_messages messages =
-  let last_assistant =
-    List.rev messages |> List.find_opt (fun message -> message.role = Assistant)
-  in
-  match last_assistant with
-  | None -> None
-  | Some assistant_message ->
-      List.fold_left (fun acc block ->
-        match acc with
-        | Some _ -> acc
-        | None ->
-            match block with
-            | ToolUse (id, name, input) when Handoff.is_handoff_tool name ->
-                let target_name = Handoff.target_name_of_tool name in
-                let prompt =
-                  match input with
-                  | `Assoc pairs ->
-                      (match List.assoc_opt "prompt" pairs with
-                       | Some (`String s) -> s
-                       | _ -> "Continue the conversation.")
-                  | _ -> "Continue the conversation."
-                in
-                Some (id, target_name, prompt)
-            | _ -> None
-      ) None assistant_message.content
-
-(** Replace the tool result emitted for a specific ToolUse id in the most recent
-    user tool_result message. This lets handoff interception overwrite the
-    sentinel handler output with the delegated agent response. *)
-let replace_tool_result messages ~tool_id ~content ~is_error =
-  let replace_in_content blocks =
-    List.map (function
-      | ToolResult (id, _, _) when id = tool_id -> ToolResult (id, content, is_error)
-      | block -> block
-    ) blocks
-  in
-  (* Walk from the end (reversed) to find the most recent matching ToolResult.
-     acc accumulates skipped elements in original order. *)
-  let rec rewrite acc = function
-    | [] ->
-        acc @ [{ role = User; content = [ToolResult (tool_id, content, is_error)] }]
-    | ((message : message) :: rest) ->
-        let has_tool_result =
-          List.exists (function
-            | ToolResult (id, _, _) when id = tool_id -> true
-            | _ -> false
-          ) message.content
-        in
-        if message.role = User && has_tool_result then
-          List.rev_append rest ({ message with content = replace_in_content message.content } :: acc)
-        else
-          rewrite (message :: acc) rest
-  in
-  rewrite [] (List.rev messages)
+(* Re-export Agent_handoff helpers for backward compatibility *)
+let find_handoff_in_messages = Agent_handoff.find_handoff_in_messages
+let replace_tool_result = Agent_handoff.replace_tool_result
 
 (** Run with handoff support.
     Handoff tools are added to the agent's tool list.
