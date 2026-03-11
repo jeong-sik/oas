@@ -174,6 +174,7 @@ let test_reset_clears_all () =
   Otel_tracer.reset ();
   check int "active=0 after reset" 0 (Otel_tracer.active_count ());
   check int "completed=0 after reset" 0 (Otel_tracer.completed_count ());
+  (* s is intentionally left un-ended to verify reset clears active spans *)
   ignore s
 
 let test_counts () =
@@ -262,7 +263,7 @@ let test_status_to_json () =
     (match json_assoc_field "code" j_unset with
      | Some (`Int n) -> Some n | _ -> None);
   Otel_tracer.end_span s_unset ~ok:true;
-  (* OK: status = Some true *)
+  (* OK: s_unset now has status=Some true (mutable record, mutated by end_span) *)
   let j_ok = Otel_tracer.status_to_json s_unset in
   check (option int) "OK code=1" (Some 1)
     (match json_assoc_field "code" j_ok with
