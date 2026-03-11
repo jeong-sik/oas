@@ -1081,6 +1081,71 @@ module Orchestrator : sig
   val all_ok : task_result list -> bool
 end
 
+(** {1 OpenTelemetry Tracing} *)
+
+module Otel_tracer : sig
+  (** OpenTelemetry-compatible tracer for Agent SDK.
+      Implements {!Tracing.TRACER} and exports spans as OTLP JSON.
+      Self-contained: no external opentelemetry dependency. *)
+
+  (** OTel span kind values *)
+  type otel_span_kind = Internal | Client | Server | Producer | Consumer
+
+  (** An event recorded within a span *)
+  type otel_event = {
+    event_name: string;
+    timestamp_ns: Int64.t;
+    attributes: (string * string) list;
+  }
+
+  (** A span with mutable end-time, status, attributes, and events *)
+  type span = {
+    trace_id: string;
+    span_id: string;
+    parent_span_id: string option;
+    name: string;
+    kind: otel_span_kind;
+    start_time_ns: Int64.t;
+    mutable end_time_ns: Int64.t option;
+    mutable status: bool option;
+    mutable attributes: (string * string) list;
+    mutable events: otel_event list;
+  }
+
+  (** Exporter configuration *)
+  type config = {
+    service_name: string;
+    endpoint: string option;
+  }
+
+  val default_config : config
+
+  (** {2 Span lifecycle} *)
+
+  val start_span : Tracing.span_attrs -> span
+  val end_span : span -> ok:bool -> unit
+  val add_event : span -> string -> unit
+  val add_attrs : span -> (string * string) list -> unit
+
+  (** {2 Helpers} *)
+
+  val map_span_kind : Tracing.span_kind -> otel_span_kind
+  val make_span_name : Tracing.span_attrs -> string
+
+  (** {2 Export} *)
+
+  val span_to_json : span -> Yojson.Safe.t
+  val to_otlp_json : config -> Yojson.Safe.t
+  val flush : unit -> span list
+  val reset : unit -> unit
+  val completed_count : unit -> int
+  val active_count : unit -> int
+
+  (** {2 First-class module constructor} *)
+
+  val create : ?config:config -> unit -> Tracing.t
+end
+
 (** {1 Quick Start} *)
 
 (** Create an agent with default config and optional overrides *)
