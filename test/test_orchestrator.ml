@@ -37,7 +37,7 @@ let ok_result ?(task_id="t1") ?(agent_name="a") text = {
 }
 
 (** Build a task_result from an Error. *)
-let err_result ?(task_id="t2") ?(agent_name="b") msg = {
+let err_result ?(task_id="t2") ?(agent_name="b") (msg : Error.sdk_error) = {
   Orchestrator.task_id;
   agent_name;
   result = Error msg;
@@ -165,7 +165,7 @@ let test_task_result_ok_fields () =
   check bool "is ok" true (Result.is_ok tr.result)
 
 let test_task_result_error_fields () =
-  let tr = err_result ~task_id:"t-err" ~agent_name:"beta" "boom" in
+  let tr = err_result ~task_id:"t-err" ~agent_name:"beta" (Error.Internal "boom") in
   check string "task_id" "t-err" tr.task_id;
   check string "agent_name" "beta" tr.agent_name;
   check bool "is error" true (Result.is_error tr.result)
@@ -193,15 +193,15 @@ let test_collect_text_multiple_ok () =
 let test_collect_text_skips_errors () =
   let results = [
     ok_result ~task_id:"1" "good";
-    err_result ~task_id:"2" "bad";
+    err_result ~task_id:"2" (Error.Internal "bad");
     ok_result ~task_id:"3" "also good";
   ] in
   check string "errors skipped" "good\nalso good" (Orchestrator.collect_text results)
 
 let test_collect_text_all_errors () =
   let results = [
-    err_result ~task_id:"1" "err1";
-    err_result ~task_id:"2" "err2";
+    err_result ~task_id:"1" (Error.Internal "err1");
+    err_result ~task_id:"2" (Error.Internal "err2");
   ] in
   check string "all errors" "" (Orchestrator.collect_text results)
 
@@ -225,11 +225,11 @@ let test_all_ok_true () =
   check bool "all ok" true (Orchestrator.all_ok results)
 
 let test_all_ok_false () =
-  let results = [ok_result "a"; err_result "oops"] in
+  let results = [ok_result "a"; err_result (Error.Internal "oops")] in
   check bool "not all ok" false (Orchestrator.all_ok results)
 
 let test_all_ok_single_error () =
-  let results = [err_result "fail"] in
+  let results = [err_result (Error.Internal "fail")] in
   check bool "single error" false (Orchestrator.all_ok results)
 
 (* ── config defaults ──────────────────────────────────────────────── *)
@@ -292,7 +292,8 @@ let test_run_task_unknown_agent () =
   match tr.result with
   | Error msg ->
     check bool "mentions agent name" true
-      (String.length msg > 0 && String.sub msg 0 14 = "Unknown agent:")
+      (let s = Error.to_string msg in
+       String.length s > 0 && String.sub s 0 14 = "Unknown agent:")
   | Ok _ -> fail "expected error"
 
 let test_run_task_unknown_agent_callbacks_called () =

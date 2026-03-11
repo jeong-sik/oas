@@ -40,6 +40,7 @@ module Types = Types
 module Context = Context
 module Provider = Provider
 module Retry = Retry
+module Error = Error
 module Hooks = Hooks
 module Tracing = Tracing
 module Context_reducer = Context_reducer

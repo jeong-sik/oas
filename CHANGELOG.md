@@ -2,18 +2,36 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
-## [0.8.2] - 2026-03-11
+## [0.9.0] - 2026-03-11
 
-### Fixed
-- `Checkpoint_store.create`: now returns `(t, string) result` instead of silently ignoring `mkdirs` failure
-- `Checkpoint_store.list`: now returns `(string list, string) result` instead of silently returning `[]` on `read_dir` failure
-- `Retry.classify_error`: narrowed `with _ ->` to `Yojson.Json_error | Type_error` so non-JSON exceptions propagate
-- `Api.parse_openai_chat_response` / `parse_ollama_chat_response`: narrowed tool_call parsing catch to Yojson-specific exceptions
+### Added
+- `Error` module: 2-level structured error type hierarchy (`sdk_error`) replacing `(_, string) result` across the SDK
+  - 7 domain-specific inner types: `api_error`, `agent_error`, `mcp_error`, `config_error`, `serialization_error`, `io_error`, `orchestration_error`
+  - `agent_error.TokenBudgetExceeded` with `{ kind; used; limit }` for structured budget checks
+  - `Error.to_string` for human-readable messages, `Error.is_retryable` for retry decisions
+  - `Error.api_error` is a type alias for `Retry.api_error` (zero-cost reuse)
 
 ### Changed (breaking)
-- `Checkpoint_store.create`: `Eio.Fs.dir_ty Eio.Path.t -> t` changed to `-> (t, string) result`
-- `Checkpoint_store.list`: `t -> string list` changed to `-> (string list, string) result`
+- 33 function signatures changed from `(_, string) result` to `(_, Error.sdk_error) result` across 14 modules
+- `Api.create_message`: no longer flattens `Retry.api_error` to string; returns `Error (Api err)` preserving the structured error
+- `Agent.check_token_budget`: returns `Error.sdk_error option` instead of `string option`
+- `Streaming.create_message_stream`: returns `Error.sdk_error` with `Config (UnsupportedProvider _)` for non-Anthropic providers
+- `Orchestrator.task_result.result`: error type changed from `string` to `Error.sdk_error`
+- `Event_bus.AgentCompleted.result`: error type changed from `string` to `Error.sdk_error`
+- `Checkpoint_store.create`: `Eio.Fs.dir_ty Eio.Path.t -> t` changed to `-> (t, Error.sdk_error) result`
+- `Checkpoint_store.list`: `t -> string list` changed to `-> (string list, Error.sdk_error) result`
 
+### Fixed
+- Removed string prefix matching anti-pattern in `agent.ml` (was guessing error types from message text)
+- `Api.create_message` no longer discards structured error information from retry layer
+- `Checkpoint_store.create`: now returns result instead of silently ignoring `mkdirs` failure
+- `Checkpoint_store.list`: now returns result instead of silently returning `[]` on `read_dir` failure
+- `Retry.classify_error`: narrowed `with _ ->` to `Yojson.Json_error | Type_error` so non-JSON exceptions propagate
+
+### Migration
+- `Types.tool_choice_of_json` and `Provider.resolve` retain `(_, string) result` (declared before `Error` in `.mli` module order)
+- Tool handler interfaces (`Tool.t`) retain `(string, string) result` (user-provided handlers)
+- Use `Error.to_string` where string representation is needed
 ## [0.8.1] - 2026-03-11
 
 ### Fixed

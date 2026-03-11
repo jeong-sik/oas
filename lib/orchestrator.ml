@@ -17,7 +17,7 @@ type task = {
 type task_result = {
   task_id: string;
   agent_name: string;
-  result: (api_response, string) result;
+  result: (api_response, Error.sdk_error) result;
   elapsed: float;
 }
 
@@ -77,7 +77,7 @@ let run_agent_with_timeout ~sw ?clock config agent prompt =
     (try
        Eio.Time.with_timeout_exn clk timeout (fun () ->
          Agent.run ~sw ~clock:clk agent prompt)
-     with Eio.Time.Timeout -> Error "Task timed out")
+     with Eio.Time.Timeout -> Error (Error.Orchestration (TaskTimeout { task_id = "" })))
   | _ ->
     Agent.run ~sw ?clock agent prompt
 
@@ -93,7 +93,7 @@ let run_task ~sw ?clock orch task =
   let t0 = Unix.gettimeofday () in
   let result =
     match find_agent orch task.agent_name with
-    | None -> Error (Printf.sprintf "Unknown agent: %s" task.agent_name)
+    | None -> Error (Error.Orchestration (UnknownAgent { name = task.agent_name }))
     | Some agent ->
       (* If shared_context is configured, merge it into the agent's context *)
       (match orch.config.shared_context with

@@ -34,21 +34,19 @@ let connect ~sw ~(mgr : _ Eio.Process.mgr) ?clock ~command ~args () =
     Ok { client; proc = Proc proc }
   with
   | Eio.Exn.Io _ as exn ->
-    Error (Printf.sprintf "Failed to start MCP server '%s': %s"
-      command (Printexc.to_string exn))
+    Error (Error.Mcp (ServerStartFailed { command; detail = Printexc.to_string exn }))
   | Unix.Unix_error _ as exn ->
-    Error (Printf.sprintf "Failed to start MCP server '%s': %s"
-      command (Printexc.to_string exn))
+    Error (Error.Mcp (ServerStartFailed { command; detail = Printexc.to_string exn }))
 
 let initialize t =
   match Client.initialize t.client
-    ~client_name:"oas-mcp-bridge" ~client_version:"0.8.3" with
-  | Error e -> Error (Printf.sprintf "MCP initialize failed: %s" e)
+    ~client_name:"oas-mcp-bridge" ~client_version:"0.9.0" with
+  | Error e -> Error (Error.Mcp (InitializeFailed { detail = e }))
   | Ok _result -> Ok ()
 
 let list_tools t =
   match Client.list_tools t.client with
-  | Error e -> Error (Printf.sprintf "MCP tools/list failed: %s" e)
+  | Error e -> Error (Error.Mcp (ToolListFailed { detail = e }))
   | Ok tools -> Ok tools
 
 let call_tool t ~name ~arguments =

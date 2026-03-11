@@ -46,8 +46,8 @@ let extract_tool_input ~(schema : _ schema) (content : content_block list) =
     | _ -> None
   ) content in
   match found with
-  | Some json -> schema.parse json
-  | None -> Error (Printf.sprintf "No tool_use block for '%s' in response" schema.name)
+  | Some json -> schema.parse json |> Result.map_error (fun e -> Error.Internal e)
+  | None -> Error (Error.Internal (Printf.sprintf "No tool_use block for '%s' in response" schema.name))
 
 (** Extract structured output from a prompt using the Anthropic API.
     Forces tool_choice=Tool(schema.name), sends the prompt, and parses
@@ -55,7 +55,7 @@ let extract_tool_input ~(schema : _ schema) (content : content_block list) =
 
     Requires Eio context (sw, net) and an agent_state for config. *)
 let extract ~sw ~net ?base_url ?provider ~config ~(schema : 'a schema) prompt
-    : ('a, string) result =
+    : ('a, Error.sdk_error) result =
   let config_with_tool = { config with
     tool_choice = Some (Tool schema.name);
   } in
@@ -64,14 +64,17 @@ let extract ~sw ~net ?base_url ?provider ~config ~(schema : 'a schema) prompt
   let tools = [schema_to_tool_json schema] in
   match Api.create_message ~sw ~net ?base_url ?provider ~config:state ~messages ~tools () with
   | Error e -> Error e
-  | Ok response -> extract_tool_input ~schema response.content
+  | Ok response ->
+    (match extract_tool_input ~schema response.content with
+     | Ok v -> Ok v
+     | Error e -> Error e)
 
 (** Extract structured output with SSE streaming.
     Like [extract] but uses [Streaming.create_message_stream] to receive
     incremental SSE events.  Calls [on_event] for each event.
     Falls back to sync API + synthetic events for non-Anthropic providers. *)
 let extract_stream ~sw ~net ?base_url ?provider ?clock ~config ~(schema : 'a schema)
-    ~on_event prompt : ('a * api_response, string) result =
+    ~on_event prompt : ('a * api_response, Error.sdk_error) result =
   let config_with_tool = { config with
     tool_choice = Some (Tool schema.name);
   } in
@@ -85,11 +88,7 @@ let extract_stream ~sw ~net ?base_url ?provider ?clock ~config ~(schema : 'a sch
     in
     match stream_result with
     | Ok _ -> stream_result
-    | Error msg ->
-      let prefix = "Streaming is only supported" in
-      let msg_len = String.length msg in
-      let prefix_len = String.length prefix in
-      if msg_len >= prefix_len && String.sub msg 0 prefix_len = prefix then
+    | Error (Error.Config (UnsupportedProvider _)) ->
         (* Non-Anthropic: fallback to sync + synthetic events *)
         let sync_result = Api.create_message ~sw ~net ?base_url ?provider
           ?clock ~config:state ~messages ~tools () in
@@ -98,8 +97,7 @@ let extract_stream ~sw ~net ?base_url ?provider ?clock ~config ~(schema : 'a sch
            Streaming.emit_synthetic_events response on_event;
            Ok response
          | Error _ -> sync_result)
-      else
-        stream_result
+    | Error _ -> stream_result
   in
   match api_result with
   | Error e -> Error e

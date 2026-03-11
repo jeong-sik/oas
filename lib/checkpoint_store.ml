@@ -7,10 +7,10 @@ type t = { base_dir: Eio.Fs.dir_ty Eio.Path.t }
 
 (** Validate session_id: reject empty, containing '/', containing '\000'. *)
 let validate_session_id id =
-  if String.length id = 0 then Error "session_id must not be empty"
-  else if String.contains id '/' then Error "session_id must not contain '/'"
+  if String.length id = 0 then Error (Error.Io (ValidationFailed { detail = "session_id must not be empty" }))
+  else if String.contains id '/' then Error (Error.Io (ValidationFailed { detail = "session_id must not contain '/'" }))
   else if String.contains id '\000' then
-    Error "session_id must not contain null byte"
+    Error (Error.Io (ValidationFailed { detail = "session_id must not contain null byte" }))
   else Ok ()
 
 let create base_dir =
@@ -18,8 +18,7 @@ let create base_dir =
     Eio.Path.mkdirs ~exists_ok:true ~perm:0o755 base_dir;
     Ok { base_dir }
   with exn ->
-    Error (Printf.sprintf "Failed to create checkpoint directory: %s"
-      (Printexc.to_string exn))
+    Error (Error.Io (FileOpFailed { op = "create"; path = "checkpoint_dir"; detail = Printexc.to_string exn }))
 
 let file_path store id = Eio.Path.(store.base_dir / (id ^ ".json"))
 let tmp_path store id = Eio.Path.(store.base_dir / (id ^ ".json.tmp"))
@@ -37,10 +36,8 @@ let save store (cp : Checkpoint.t) =
        Ok ()
      with exn ->
        (* Best-effort cleanup: ignore unlink failure — the primary error is already captured *)
-      (try Eio.Path.unlink tmp with _ -> ());
-       Error
-         (Printf.sprintf "Failed to save checkpoint: %s"
-            (Printexc.to_string exn)))
+       (try Eio.Path.unlink tmp with _ -> ());
+       Error (Error.Io (FileOpFailed { op = "save"; path = cp.session_id; detail = Printexc.to_string exn })))
 
 let load store id =
   match validate_session_id id with
@@ -51,9 +48,7 @@ let load store id =
        let data = Eio.Path.load path in
        Checkpoint.of_string data
      with exn ->
-       Error
-         (Printf.sprintf "Failed to load checkpoint: %s"
-            (Printexc.to_string exn)))
+       Error (Error.Io (FileOpFailed { op = "load"; path = id; detail = Printexc.to_string exn })))
 
 let list store =
   try
@@ -67,8 +62,7 @@ let list store =
     |> List.map (fun name -> String.sub name 0 (String.length name - 5))
     |> List.sort String.compare)
   with exn ->
-    Error (Printf.sprintf "Failed to list checkpoints: %s"
-      (Printexc.to_string exn))
+    Error (Error.Io (FileOpFailed { op = "list"; path = "checkpoint_dir"; detail = Printexc.to_string exn }))
 
 let delete store id =
   match validate_session_id id with
@@ -79,9 +73,7 @@ let delete store id =
        Eio.Path.unlink path;
        Ok ()
      with exn ->
-       Error
-         (Printf.sprintf "Failed to delete checkpoint: %s"
-            (Printexc.to_string exn)))
+       Error (Error.Io (FileOpFailed { op = "delete"; path = id; detail = Printexc.to_string exn })))
 
 let exists store id =
   match validate_session_id id with
@@ -94,7 +86,7 @@ let latest store =
   match list store with
   | Error e -> Error e
   | Ok ids ->
-  if ids = [] then Error "No checkpoints found"
+  if ids = [] then Error (Error.Io (FileOpFailed { op = "latest"; path = ""; detail = "No checkpoints found" }))
   else
     let best =
       List.fold_left
@@ -110,4 +102,4 @@ let latest store =
     in
     match best with
     | Some cp -> Ok cp
-    | None -> Error "All checkpoints corrupted"
+    | None -> Error (Error.Serialization (JsonParseError { detail = "All checkpoints corrupted" }))

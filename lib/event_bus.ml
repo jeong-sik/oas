@@ -14,7 +14,7 @@ open Types
 type event =
   | AgentStarted of { agent_name: string; task_id: string }
   | AgentCompleted of { agent_name: string; task_id: string;
-                        result: (api_response, string) result; elapsed: float }
+                        result: (api_response, Error.sdk_error) result; elapsed: float }
   | ToolCalled of { agent_name: string; tool_name: string; input: Yojson.Safe.t }
   | ToolCompleted of { agent_name: string; tool_name: string;
                        output: (string, string) result }

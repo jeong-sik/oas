@@ -112,21 +112,21 @@ let connect ~sw ~(mgr : _ Eio.Process.mgr) ~command ~args ?env () =
     in
     Ok { client; kill }
   with exn ->
-    Error (Printf.sprintf "Failed to start MCP server: %s" (Printexc.to_string exn))
+    Error (Error.Mcp (ServerStartFailed { command; detail = Printexc.to_string exn }))
 
 (** Send MCP initialize handshake. *)
 let initialize t =
   match Sdk_client.initialize t.client
           ~client_name:"oas-mcp-client" ~client_version:"0.8.3" with
   | Ok _result -> Ok ()
-  | Error msg -> Error (Printf.sprintf "MCP initialize failed: %s" msg)
+  | Error msg -> Error (Error.Mcp (InitializeFailed { detail = msg }))
 
 (** Fetch tools from MCP server and return them. *)
 let list_tools t =
   match Sdk_client.list_tools t.client with
   | Ok sdk_tools -> Ok (List.map mcp_tool_of_sdk_tool sdk_tools)
   | Error msg ->
-    Error (Printf.sprintf "MCP tools/list failed: %s" msg)
+    Error (Error.Mcp (ToolListFailed { detail = msg }))
 
 (** Invoke a tool on the MCP server.
     Returns the concatenated text content on success. *)
@@ -216,8 +216,7 @@ let connect_and_load ~sw ~mgr spec =
           Ok { client; tools; name = spec.name; spec }
     with exn ->
       close client;
-      Error (Printf.sprintf "MCP server '%s' failed: %s"
-        spec.name (Printexc.to_string exn)))
+      Error (Error.Mcp (InitializeFailed { detail = Printf.sprintf "MCP server '%s': %s" spec.name (Printexc.to_string exn) })))
 
 (** Connect to multiple MCP servers sequentially.
     If any server fails, all previously-connected servers are closed

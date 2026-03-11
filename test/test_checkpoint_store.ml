@@ -145,7 +145,7 @@ let test_save_empty_session_id () =
       | Error msg ->
         Alcotest.(check bool)
           "contains empty" true
-          (String.length msg > 0)
+          (String.length (Error.to_string msg) > 0)
       | Ok () -> Alcotest.fail "expected error")
 
 let test_save_slash_in_session_id () =
@@ -170,7 +170,7 @@ let test_save_overwrites_existing () =
       | Ok loaded ->
         Alcotest.(check (float 0.1))
           "updated created_at" 2000.0 loaded.created_at
-      | Error e -> Alcotest.fail e)
+      | Error e -> Alcotest.fail (Error.to_string e))
 
 let test_load_existing () =
   with_tmp_store (fun store _tmp_dir ->
@@ -202,7 +202,7 @@ let test_roundtrip_preserves_all_fields () =
       let cp = make_checkpoint ~session_id:"rt1" ~created_at:42.5 () in
       let _ = Checkpoint_store.save store cp in
       match Checkpoint_store.load store "rt1" with
-      | Error e -> Alcotest.fail e
+      | Error e -> Alcotest.fail (Error.to_string e)
       | Ok loaded ->
         Alcotest.(check int) "version" cp.version loaded.version;
         Alcotest.(check string) "session_id" cp.session_id loaded.session_id;
@@ -225,7 +225,7 @@ let test_roundtrip_preserves_messages () =
       in
       let _ = Checkpoint_store.save store cp in
       match Checkpoint_store.load store "rt-msg" with
-      | Error e -> Alcotest.fail e
+      | Error e -> Alcotest.fail (Error.to_string e)
       | Ok loaded ->
         Alcotest.(check int) "msg count" 2 (List.length loaded.messages))
 
@@ -246,7 +246,7 @@ let test_roundtrip_preserves_usage () =
       in
       let _ = Checkpoint_store.save store cp in
       match Checkpoint_store.load store "rt-usage" with
-      | Error e -> Alcotest.fail e
+      | Error e -> Alcotest.fail (Error.to_string e)
       | Ok loaded ->
         Alcotest.(check int)
           "input_tokens" 100 loaded.usage.total_input_tokens;
@@ -264,7 +264,7 @@ let test_roundtrip_preserves_tools () =
       in
       let _ = Checkpoint_store.save store cp in
       match Checkpoint_store.load store "rt-tools" with
-      | Error e -> Alcotest.fail e
+      | Error e -> Alcotest.fail (Error.to_string e)
       | Ok loaded ->
         Alcotest.(check int) "tools count" 1 (List.length loaded.tools);
         let t = List.hd loaded.tools in
@@ -280,7 +280,7 @@ let test_roundtrip_preserves_tool_choice () =
       in
       let _ = Checkpoint_store.save store cp in
       match Checkpoint_store.load store "rt-tc" with
-      | Error e -> Alcotest.fail e
+      | Error e -> Alcotest.fail (Error.to_string e)
       | Ok loaded ->
         Alcotest.(check bool) "has tool_choice" true
           (Option.is_some loaded.tool_choice))
@@ -387,7 +387,7 @@ let test_latest_returns_most_recent () =
           (make_checkpoint ~session_id:"mid" ~created_at:200.0 ())
       in
       match Checkpoint_store.latest store with
-      | Error e -> Alcotest.fail e
+      | Error e -> Alcotest.fail (Error.to_string e)
       | Ok cp ->
         Alcotest.(check string) "latest session_id" "new" cp.session_id)
 
@@ -403,7 +403,7 @@ let test_latest_with_single () =
           (make_checkpoint ~session_id:"only" ~created_at:500.0 ())
       in
       match Checkpoint_store.latest store with
-      | Error e -> Alcotest.fail e
+      | Error e -> Alcotest.fail (Error.to_string e)
       | Ok cp -> Alcotest.(check string) "session_id" "only" cp.session_id)
 
 let test_latest_ignores_corrupted () =
@@ -418,7 +418,7 @@ let test_latest_ignores_corrupted () =
         Eio.Path.(tmp_dir / "bad.json")
         "not json";
       match Checkpoint_store.latest store with
-      | Error e -> Alcotest.fail e
+      | Error e -> Alcotest.fail (Error.to_string e)
       | Ok cp -> Alcotest.(check string) "session_id" "valid" cp.session_id)
 
 let test_latest_all_corrupted () =
@@ -469,7 +469,7 @@ let test_multiple_save_same_id_overwrites () =
       in
       let _ = Checkpoint_store.save store cp2 in
       match Checkpoint_store.load store "dup" with
-      | Error e -> Alcotest.fail e
+      | Error e -> Alcotest.fail (Error.to_string e)
       | Ok loaded ->
         Alcotest.(check int) "overwritten turn_count" 99 loaded.turn_count)
 

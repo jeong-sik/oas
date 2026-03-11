@@ -35,7 +35,7 @@ let test_simple_chat () =
     assert (String.length text > 0);
     Printf.printf "  PASS\n%!"
   | Error e ->
-    Printf.printf "  FAIL: %s\n%!" e;
+    Printf.printf "  FAIL: %s\n%!" (Error.to_string e);
     assert false
 
 (** Test 2: Tool calling *)
@@ -72,7 +72,7 @@ let test_tool_calling () =
     Printf.printf "  Turns used: (stop_reason=%s)\n%!" (show_stop_reason response.stop_reason);
     Printf.printf "  PASS\n%!"
   | Error e ->
-    Printf.printf "  FAIL: %s\n%!" e;
+    Printf.printf "  FAIL: %s\n%!" (Error.to_string e);
     assert false
 
 (** Test 3: Multi-turn tool loop *)
@@ -107,7 +107,7 @@ let test_multi_tool () =
     Printf.printf "  Final response: %s\n%!" text;
     Printf.printf "  PASS\n%!"
   | Error e ->
-    Printf.printf "  FAIL: %s\n%!" e;
+    Printf.printf "  FAIL: %s\n%!" (Error.to_string e);
     assert false
 
 let () =

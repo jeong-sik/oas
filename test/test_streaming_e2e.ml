@@ -63,7 +63,7 @@ let test_stream_basic () =
     assert (String.length resp_text > 0);
     Printf.printf "PASS: basic streaming\n%!"
   | Error e ->
-    Printf.printf "FAIL: %s\n%!" e;
+    Printf.printf "FAIL: %s\n%!" (Error.to_string e);
     exit 1
 
 let test_stream_event_sequence () =
@@ -119,7 +119,7 @@ let test_stream_event_sequence () =
     (* MessageStop may or may not be sent depending on proxy behavior *)
     Printf.printf "PASS: event sequence\n%!"
   | Error e ->
-    Printf.printf "FAIL: %s\n%!" e;
+    Printf.printf "FAIL: %s\n%!" (Error.to_string e);
     exit 1
 
 let () =

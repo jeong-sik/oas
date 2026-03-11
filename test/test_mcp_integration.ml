@@ -101,7 +101,7 @@ let test_connect_all_empty () =
   with_eio @@ fun ~sw ~mgr ->
   match Mcp.connect_all ~sw ~mgr [] with
   | Ok managed -> Alcotest.(check int) "empty list" 0 (List.length managed)
-  | Error e -> Alcotest.fail ("Expected Ok [], got Error: " ^ e)
+  | Error e -> Alcotest.fail ("Expected Ok [], got Error: " ^ Error.to_string e)
 
 let test_close_all_empty () =
   Mcp.close_all [];
@@ -126,7 +126,7 @@ let test_connect_and_load_bad_command () =
   match Mcp.connect_and_load ~sw ~mgr spec with
   | Ok _ -> Alcotest.fail "Expected Error"
   | Error e ->
-    Alcotest.(check bool) "error message non-empty" true (String.length e > 0)
+    Alcotest.(check bool) "error message non-empty" true (String.length (Error.to_string e) > 0)
 
 (* ── managed type ──────────────────────────────────────────────── *)
 

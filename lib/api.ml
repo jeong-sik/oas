@@ -574,7 +574,7 @@ let create_message ~sw ~net ?(base_url=default_base_url) ?provider ?clock ?retry
     | Some p ->
         (match Provider.resolve p with
          | Ok (url, _key, headers) -> Ok (p, url, headers)
-         | Error e -> Error e)
+         | Error _e -> Error (Error.Config (MissingEnvVar { var_name = p.api_key_env })))
     | None ->
         (match Sys.getenv_opt "ANTHROPIC_API_KEY" with
          | Some key ->
@@ -591,7 +591,7 @@ let create_message ~sw ~net ?(base_url=default_base_url) ?provider ?clock ?retry
                    ("x-api-key", key);
                    ("anthropic-version", api_version);
                  ] )
-         | None -> Error "API key env var 'ANTHROPIC_API_KEY' not set")
+         | None -> Error (Error.Config (MissingEnvVar { var_name = "ANTHROPIC_API_KEY" })))
   in
   match resolve_result with
   | Error e -> Error e
@@ -643,8 +643,8 @@ let create_message ~sw ~net ?(base_url=default_base_url) ?provider ?clock ?retry
   | Some clock ->
       (match Retry.with_retry ~clock ?config:retry_config do_request with
        | Ok _ as success -> success
-       | Error err -> Error (Retry.error_message err))
+       | Error err -> Error (Error.Api err))
   | None ->
       (match do_request () with
        | Ok _ as success -> success
-       | Error err -> Error (Retry.error_message err))
+       | Error err -> Error (Error.Api err))

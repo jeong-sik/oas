@@ -55,7 +55,7 @@ let test_extract_tool_input_success () =
   | Ok (name, age) ->
     Alcotest.(check string) "name" "Alice" name;
     Alcotest.(check int) "age" 30 age
-  | Error e -> Alcotest.fail ("unexpected error: " ^ e)
+  | Error e -> Alcotest.fail ("unexpected error: " ^ Error.to_string e)
 
 let test_extract_tool_input_wrong_name () =
   let input_json = `Assoc [("x", `Int 1)] in
@@ -67,8 +67,9 @@ let test_extract_tool_input_wrong_name () =
     Alcotest.(check bool) "mentions schema name" true
       (let target = "extract_person" in
        let tlen = String.length target in
-       let mlen = String.length msg in
-       let rec has i = i + tlen <= mlen && (String.sub msg i tlen = target || has (i + 1)) in
+       let s = Error.to_string msg in
+       let mlen = String.length s in
+       let rec has i = i + tlen <= mlen && (String.sub s i tlen = target || has (i + 1)) in
        has 0)
   | Ok _ -> Alcotest.fail "expected error for wrong tool name"
 
@@ -99,7 +100,7 @@ let test_extract_picks_first_match () =
   | Ok (name, age) ->
     Alcotest.(check string) "first match" "First" name;
     Alcotest.(check int) "first age" 1 age
-  | Error e -> Alcotest.fail ("unexpected error: " ^ e)
+  | Error e -> Alcotest.fail ("unexpected error: " ^ Error.to_string e)
 
 (* --- schema edge cases --- *)
 
@@ -130,7 +131,7 @@ let test_extract_with_thinking_blocks () =
   | Ok (name, age) ->
     Alcotest.(check string) "name" "Bob" name;
     Alcotest.(check int) "age" 25 age
-  | Error e -> Alcotest.fail ("unexpected error: " ^ e)
+  | Error e -> Alcotest.fail ("unexpected error: " ^ Error.to_string e)
 
 let test_schema_tool_choice_name () =
   let json = Structured.schema_to_tool_json person_schema in
@@ -145,7 +146,7 @@ let test_extract_from_empty_content () =
   match Structured.extract_tool_input ~schema:person_schema [] with
   | Error msg ->
     Alcotest.(check bool) "mentions schema name" true
-      (String.length msg > 0)
+      (String.length (Error.to_string msg) > 0)
   | Ok _ -> Alcotest.fail "expected error for empty content"
 
 (* --- Runner --- *)

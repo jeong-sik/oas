@@ -182,7 +182,7 @@ let load ?scope path =
       (fun () ->
         let content = really_input_string ch (in_channel_length ch) in
         Ok (of_markdown ~path ?scope content))
-  with exn -> Error (Printf.sprintf "Skill.load %s: %s" path (Printexc.to_string exn))
+  with exn -> Error (Error.Io (FileOpFailed { op = "load"; path; detail = Printexc.to_string exn }))
 
 let load_dir ?scope dir =
   Sys.readdir dir

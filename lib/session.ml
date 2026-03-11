@@ -89,5 +89,5 @@ let of_json json =
       metadata;
     }
   with
-  | Yojson.Safe.Util.Type_error (msg, _) -> Error (Printf.sprintf "Session.of_json: %s" msg)
-  | exn -> Error (Printf.sprintf "Session.of_json: %s" (Printexc.to_string exn))
+  | Yojson.Safe.Util.Type_error (msg, _) -> Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Session.of_json: %s" msg }))
+  | exn -> Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Session.of_json: %s" (Printexc.to_string exn) }))
