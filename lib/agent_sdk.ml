@@ -54,6 +54,7 @@ module Streaming = Streaming
 module Subagent = Subagent
 module Structured = Structured
 module Checkpoint = Checkpoint
+module Checkpoint_store = Checkpoint_store
 module Session = Session
 module Agent = Agent
 module Builder = Builder

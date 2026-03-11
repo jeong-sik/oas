@@ -803,6 +803,24 @@ module Checkpoint : sig
   val token_usage : t -> Types.usage_stats
 end
 
+(** {1 File-backed Checkpoint Store} *)
+
+module Checkpoint_store : sig
+  (** File-backed checkpoint persistence.
+      Layout: [<base_dir>/<session_id>.json].
+      Uses atomic writes (.tmp + rename). *)
+
+  type t
+
+  val create : Eio.Fs.dir_ty Eio.Path.t -> t
+  val save : t -> Checkpoint.t -> (unit, string) result
+  val load : t -> string -> (Checkpoint.t, string) result
+  val latest : t -> (Checkpoint.t, string) result
+  val list : t -> string list
+  val delete : t -> string -> (unit, string) result
+  val exists : t -> string -> bool
+end
+
 (** {1 Session Management} *)
 
 module Session : sig

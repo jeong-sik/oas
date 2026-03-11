@@ -1,0 +1,104 @@
+(** File-backed checkpoint persistence using Eio.Path.
+
+    Layout: [<base_dir>/<session_id>.json].
+    Atomic writes via .tmp + rename. *)
+
+type t = { base_dir: Eio.Fs.dir_ty Eio.Path.t }
+
+(** Validate session_id: reject empty, containing '/', containing '\000'. *)
+let validate_session_id id =
+  if String.length id = 0 then Error "session_id must not be empty"
+  else if String.contains id '/' then Error "session_id must not contain '/'"
+  else if String.contains id '\000' then
+    Error "session_id must not contain null byte"
+  else Ok ()
+
+let create base_dir =
+  (try Eio.Path.mkdirs ~exists_ok:true ~perm:0o755 base_dir with _ -> ());
+  { base_dir }
+
+let file_path store id = Eio.Path.(store.base_dir / (id ^ ".json"))
+let tmp_path store id = Eio.Path.(store.base_dir / (id ^ ".json.tmp"))
+
+let save store (cp : Checkpoint.t) =
+  match validate_session_id cp.session_id with
+  | Error e -> Error e
+  | Ok () ->
+    let data = Checkpoint.to_string cp in
+    let tmp = tmp_path store cp.session_id in
+    let target = file_path store cp.session_id in
+    (try
+       Eio.Path.save ~create:(`Or_truncate 0o644) tmp data;
+       Eio.Path.rename tmp target;
+       Ok ()
+     with exn ->
+       (try Eio.Path.unlink tmp with _ -> ());
+       Error
+         (Printf.sprintf "Failed to save checkpoint: %s"
+            (Printexc.to_string exn)))
+
+let load store id =
+  match validate_session_id id with
+  | Error e -> Error e
+  | Ok () ->
+    let path = file_path store id in
+    (try
+       let data = Eio.Path.load path in
+       Checkpoint.of_string data
+     with exn ->
+       Error
+         (Printf.sprintf "Failed to load checkpoint: %s"
+            (Printexc.to_string exn)))
+
+let list store =
+  try
+    let entries = Eio.Path.read_dir store.base_dir in
+    entries
+    |> List.filter (fun name ->
+           let len = String.length name in
+           len > 5
+           && String.sub name (len - 5) 5 = ".json"
+           && not (len > 9 && String.sub name (len - 9) 9 = ".json.tmp"))
+    |> List.map (fun name -> String.sub name 0 (String.length name - 5))
+    |> List.sort String.compare
+  with _ -> []
+
+let delete store id =
+  match validate_session_id id with
+  | Error e -> Error e
+  | Ok () ->
+    let path = file_path store id in
+    (try
+       Eio.Path.unlink path;
+       Ok ()
+     with exn ->
+       Error
+         (Printf.sprintf "Failed to delete checkpoint: %s"
+            (Printexc.to_string exn)))
+
+let exists store id =
+  match validate_session_id id with
+  | Error _ -> false
+  | Ok () ->
+    let path = file_path store id in
+    Eio.Path.is_file path
+
+let latest store =
+  let ids = list store in
+  if ids = [] then Error "No checkpoints found"
+  else
+    let best =
+      List.fold_left
+        (fun acc id ->
+          match load store id with
+          | Error _ -> acc
+          | Ok cp -> (
+            match acc with
+            | None -> Some cp
+            | Some prev ->
+              if cp.created_at > prev.created_at then Some cp else Some prev))
+        None ids
+    in
+    match best with
+    | Some cp -> Ok cp
+    | None -> Error "All checkpoints corrupted"
