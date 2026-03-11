@@ -2,6 +2,27 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.8.0] - 2026-03-11
+
+### Added
+- `Agent.clone`: deep-copy agent state with fresh or copied context, shared net/tools/options
+- `Context.copy`: shallow-copy context hashtable
+- `Structured.extract_stream`: SSE streaming for structured output extraction with schema validation
+- `Event_bus`: typed publish/subscribe for agent lifecycle events (Eio.Stream per subscriber)
+  - 7 event types: AgentStarted, AgentCompleted, ToolCalled, ToolCompleted, TurnStarted, TurnCompleted, Custom
+  - 3 built-in filters: `filter_agent`, `filter_tools_only`, `accept_all`
+  - Integrated into Agent.options, Orchestrator.config, Builder.with_event_bus
+- `Mcp_session`: persistent MCP session capture/restore for checkpoint/resume cycles
+  - `capture`/`capture_all`: serialize server specs and discovered tool schemas
+  - `reconnect_all`: re-establish MCP connections from saved info
+- `Checkpoint` v1 to v2 migration: added `mcp_sessions` field with backward compatibility
+- `Mcp.managed`: added `spec` field to preserve original server_spec for reconnection
+
+### Changed
+- Agent: `run_turn`, `run_turn_stream`, `find_and_execute_tool` publish events to event_bus
+- Orchestrator: `run_task` publishes AgentStarted/AgentCompleted events
+- Version bump: 0.7.1 -> 0.8.0 (27 modules, 584 tests)
+
 ## [0.7.1] - 2026-03-11
 
 ### Fixed
