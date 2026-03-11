@@ -278,3 +278,38 @@ let create_message_stream ~sw ~net ?(base_url=Api.default_base_url) ?provider ~c
        | Provider.Ollama_chat
        | Provider.Ollama_generate ->
            Error "Streaming is only supported for Anthropic-compatible providers")
+
+(** Emit synthetic SSE events from a complete api_response.
+    Used as fallback for non-Anthropic providers that don't support SSE. *)
+let emit_synthetic_events (response : api_response) on_event =
+  on_event (MessageStart {
+    id = response.id;
+    model = response.model;
+    usage = response.usage;
+  });
+  List.iteri (fun index block ->
+    let content_type, tool_id, tool_name = match block with
+      | Text _ -> "text", None, None
+      | Thinking _ -> "thinking", None, None
+      | ToolUse (id, name, _) -> "tool_use", Some id, Some name
+      | Image _ -> "text", None, None
+      | Document _ -> "text", None, None
+      | RedactedThinking _ -> "text", None, None
+      | ToolResult _ -> "text", None, None
+    in
+    on_event (ContentBlockStart { index; content_type; tool_id; tool_name });
+    (match block with
+     | Text s ->
+       on_event (ContentBlockDelta { index; delta = TextDelta s })
+     | Thinking (_, s) ->
+       on_event (ContentBlockDelta { index; delta = ThinkingDelta s })
+     | ToolUse (_, _, input) ->
+       on_event (ContentBlockDelta { index; delta = InputJsonDelta (Yojson.Safe.to_string input) })
+     | _ -> ());
+    on_event (ContentBlockStop { index });
+  ) response.content;
+  on_event (MessageDelta {
+    stop_reason = Some response.stop_reason;
+    usage = response.usage;
+  });
+  on_event MessageStop
