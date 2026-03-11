@@ -32,6 +32,7 @@ All notable changes to `agent_sdk` are documented in this file.
 - `Types.tool_choice_of_json` and `Provider.resolve` retain `(_, string) result` (declared before `Error` in `.mli` module order)
 - Tool handler interfaces (`Tool.t`) retain `(string, string) result` (user-provided handlers)
 - Use `Error.to_string` where string representation is needed
+
 ## [0.8.1] - 2026-03-11
 
 ### Fixed
