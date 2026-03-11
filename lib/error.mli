@@ -11,6 +11,7 @@ type api_error = Retry.api_error
 
 type agent_error =
   | MaxTurnsExceeded of { turns: int; limit: int }
+  | TokenBudgetExceeded of { kind: string; used: int; limit: int }
   | UnrecognizedStopReason of { reason: string }
 
 type mcp_error =

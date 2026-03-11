@@ -25,6 +25,11 @@ let test_agent_max_turns () =
   let err = Error.Agent (MaxTurnsExceeded { turns = 10; limit = 10 }) in
   check string "max turns" "Max turns exceeded (turn 10, limit 10)" (Error.to_string err)
 
+let test_agent_token_budget () =
+  let err = Error.Agent (TokenBudgetExceeded { kind = "Input"; used = 1500; limit = 1000 }) in
+  check string "token budget" "Input token budget exceeded: 1500/1000"
+    (Error.to_string err)
+
 let test_agent_stop_reason () =
   let err = Error.Agent (UnrecognizedStopReason { reason = "unknown_42" }) in
   check string "stop reason" "Unrecognized stop_reason from API: unknown_42"
@@ -33,6 +38,16 @@ let test_agent_stop_reason () =
 let test_mcp_server_start () =
   let err = Error.Mcp (ServerStartFailed { command = "npx"; detail = "not found" }) in
   check string "mcp start" "Failed to start MCP server 'npx': not found"
+    (Error.to_string err)
+
+let test_mcp_init_failed () =
+  let err = Error.Mcp (InitializeFailed { detail = "handshake timeout" }) in
+  check string "mcp init" "MCP initialize failed: handshake timeout"
+    (Error.to_string err)
+
+let test_mcp_tool_list () =
+  let err = Error.Mcp (ToolListFailed { detail = "connection reset" }) in
+  check string "mcp tool list" "MCP tools/list failed: connection reset"
     (Error.to_string err)
 
 let test_mcp_tool_call () =
@@ -45,9 +60,24 @@ let test_config_missing_env () =
   check string "missing env" "Missing env var: ANTHROPIC_API_KEY"
     (Error.to_string err)
 
+let test_config_unsupported_provider () =
+  let err = Error.Config (UnsupportedProvider { detail = "streaming not supported for LocalLLM" }) in
+  check string "unsupported provider" "Unsupported provider: streaming not supported for LocalLLM"
+    (Error.to_string err)
+
 let test_serialization_version () =
   let err = Error.Serialization (VersionMismatch { expected = 2; got = 99 }) in
   check string "version mismatch" "Version mismatch: expected 2, got 99"
+    (Error.to_string err)
+
+let test_serialization_json_parse () =
+  let err = Error.Serialization (JsonParseError { detail = "unexpected token" }) in
+  check string "json parse" "JSON parse error: unexpected token"
+    (Error.to_string err)
+
+let test_serialization_unknown_variant () =
+  let err = Error.Serialization (UnknownVariant { type_name = "model"; value = "gpt-99" }) in
+  check string "unknown variant" "Unknown model variant: gpt-99"
     (Error.to_string err)
 
 let test_io_file_op () =
@@ -55,9 +85,18 @@ let test_io_file_op () =
   check string "file op" "File read failed on /tmp/x: ENOENT"
     (Error.to_string err)
 
+let test_io_validation () =
+  let err = Error.Io (ValidationFailed { detail = "path is empty" }) in
+  check string "validation" "Validation failed: path is empty"
+    (Error.to_string err)
+
 let test_orchestration_unknown_agent () =
   let err = Error.Orchestration (UnknownAgent { name = "ghost" }) in
   check string "unknown agent" "Unknown agent: ghost" (Error.to_string err)
+
+let test_orchestration_timeout () =
+  let err = Error.Orchestration (TaskTimeout { task_id = "task-42" }) in
+  check string "task timeout" "Task timed out: task-42" (Error.to_string err)
 
 let test_internal () =
   let err = Error.Internal "sentinel" in
@@ -115,13 +154,21 @@ let () =
       test_case "Api RateLimited" `Quick test_api_rate_limited;
       test_case "Api AuthError" `Quick test_api_auth_error;
       test_case "Agent MaxTurnsExceeded" `Quick test_agent_max_turns;
+      test_case "Agent TokenBudgetExceeded" `Quick test_agent_token_budget;
       test_case "Agent UnrecognizedStopReason" `Quick test_agent_stop_reason;
       test_case "Mcp ServerStartFailed" `Quick test_mcp_server_start;
+      test_case "Mcp InitializeFailed" `Quick test_mcp_init_failed;
+      test_case "Mcp ToolListFailed" `Quick test_mcp_tool_list;
       test_case "Mcp ToolCallFailed" `Quick test_mcp_tool_call;
       test_case "Config MissingEnvVar" `Quick test_config_missing_env;
+      test_case "Config UnsupportedProvider" `Quick test_config_unsupported_provider;
       test_case "Serialization VersionMismatch" `Quick test_serialization_version;
+      test_case "Serialization JsonParseError" `Quick test_serialization_json_parse;
+      test_case "Serialization UnknownVariant" `Quick test_serialization_unknown_variant;
       test_case "Io FileOpFailed" `Quick test_io_file_op;
+      test_case "Io ValidationFailed" `Quick test_io_validation;
       test_case "Orchestration UnknownAgent" `Quick test_orchestration_unknown_agent;
+      test_case "Orchestration TaskTimeout" `Quick test_orchestration_timeout;
       test_case "Internal" `Quick test_internal;
     ];
     "is_retryable", [

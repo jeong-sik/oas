@@ -15,6 +15,7 @@ type api_error = Retry.api_error
 (** Agent runtime errors. *)
 type agent_error =
   | MaxTurnsExceeded of { turns: int; limit: int }
+  | TokenBudgetExceeded of { kind: string; used: int; limit: int }
   | UnrecognizedStopReason of { reason: string }
 
 (** MCP client errors. *)
@@ -61,6 +62,8 @@ type sdk_error =
 let agent_error_to_string = function
   | MaxTurnsExceeded r ->
     Printf.sprintf "Max turns exceeded (turn %d, limit %d)" r.turns r.limit
+  | TokenBudgetExceeded r ->
+    Printf.sprintf "%s token budget exceeded: %d/%d" r.kind r.used r.limit
   | UnrecognizedStopReason r ->
     Printf.sprintf "Unrecognized stop_reason from API: %s" r.reason
 

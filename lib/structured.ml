@@ -46,7 +46,7 @@ let extract_tool_input ~(schema : _ schema) (content : content_block list) =
     | _ -> None
   ) content in
   match found with
-  | Some json -> schema.parse json |> Result.map_error (fun e -> Error.Internal e)
+  | Some json -> schema.parse json |> Result.map_error (fun e -> Error.Serialization (JsonParseError { detail = e }))
   | None -> Error (Error.Internal (Printf.sprintf "No tool_use block for '%s' in response" schema.name))
 
 (** Extract structured output from a prompt using the Anthropic API.
