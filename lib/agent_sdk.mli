@@ -830,6 +830,38 @@ module Mcp_session : sig
   val info_list_of_json : Yojson.Safe.t -> (info list, string) result
 end
 
+(** {1 MCP Session Persistence} *)
+
+module Mcp_session : sig
+  (** Serializable MCP session info for checkpoint/resume.
+      Captures server specification and discovered tool schemas.
+      Live connections cannot be serialized — use {!reconnect_all}
+      on resume to re-establish them. *)
+
+  type info = {
+    server_name: string;
+    command: string;
+    args: string list;
+    env: (string * string) list;
+    tool_schemas: Types.tool_schema list;
+  }
+
+  val capture : Mcp.managed -> info
+  val capture_all : Mcp.managed list -> info list
+  val to_server_spec : info -> Mcp.server_spec
+
+  (** Reconnect to MCP servers from saved session info.
+      Returns [(connected, failed)].  Failed connections do not abort others. *)
+  val reconnect_all :
+    sw:Eio.Switch.t -> mgr:_ Eio.Process.mgr ->
+    info list -> Mcp.managed list * info list
+
+  val info_to_json : info -> Yojson.Safe.t
+  val info_of_json : Yojson.Safe.t -> (info, string) result
+  val info_list_to_json : info list -> Yojson.Safe.t
+  val info_list_of_json : Yojson.Safe.t -> (info list, string) result
+end
+
 (** {1 Checkpoint} *)
 
 module Checkpoint : sig
