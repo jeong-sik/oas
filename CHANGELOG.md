@@ -12,6 +12,9 @@ All notable changes to `agent_sdk` are documented in this file.
   - `Error.api_error` is a type alias for `Retry.api_error` (zero-cost reuse)
 
 ### Changed (breaking)
+- `api.ml` split into `api_common.ml`, `api_anthropic.ml`, `api_openai.ml`, `api_ollama.ml` — public API (`Api.create_message`) unchanged
+- `agent.ml` split: tool execution extracted to `agent_tools.ml`, handoff helpers to `agent_handoff.ml` — public API unchanged
+- `Mcp_bridge` module removed from public API — use `Mcp.connect` and `Mcp.to_tools` instead
 - 33 function signatures changed from `(_, string) result` to `(_, Error.sdk_error) result` across 14 modules
 - `Api.create_message`: no longer flattens `Retry.api_error` to string; returns `Error (Api err)` preserving the structured error
 - `Agent.check_token_budget`: returns `Error.sdk_error option` instead of `string option`
@@ -32,6 +35,21 @@ All notable changes to `agent_sdk` are documented in this file.
 - `Types.tool_choice_of_json` and `Provider.resolve` retain `(_, string) result` (declared before `Error` in `.mli` module order)
 - Tool handler interfaces (`Tool.t`) retain `(string, string) result` (user-provided handlers)
 - Use `Error.to_string` where string representation is needed
+
+### Internal
+- Test coverage baseline: 63.72% (1491/2340 points, bisect_ppx)
+
+## [0.8.3] - 2026-03-11
+
+### Changed
+- `Mcp.t`: removed `mutable tools` field — `list_tools` is now pure, `to_tools` takes explicit `mcp_tool list` argument
+
+### Changed (breaking)
+- `Mcp.to_tools`: signature changed from `t -> Tool.t list` to `t -> mcp_tool list -> Tool.t list`
+
+### Added (tests)
+- `test_mcp_session.ml`: server_spec roundtrip, JSON serialization with env, reconnect_all empty case
+- `test_otel.ml`: in-progress span JSON, flush/reset state, concurrent span creation
 
 ## [0.8.1] - 2026-03-11
 

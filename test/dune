@@ -127,9 +127,6 @@
  (name test_session_resume)
  (libraries agent_sdk alcotest yojson unix eio eio_main))
 
-(test
- (name test_mcp_bridge)
- (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_mcp_session)

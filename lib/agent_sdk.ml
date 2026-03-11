@@ -46,7 +46,6 @@ module Tracing = Tracing
 module Context_reducer = Context_reducer
 module Tool = Tool
 module Mcp = Mcp
-module Mcp_bridge = Mcp_bridge
 module Mcp_session = Mcp_session
 module Guardrails = Guardrails
 module Event_bus = Event_bus
@@ -84,5 +83,5 @@ let create_agent ~net ?name ?model ?system_prompt ?max_tokens ?max_turns ?cache_
   Agent.create ~net ~config ~options ()
 
 (** Version info *)
-let version = "0.8.3"
+let version = "0.9.0"
 let sdk_name = "anthropic-agent-sdk"

@@ -1,0 +1,132 @@
+(** Shared helpers, constants, and content-block serialization for API modules *)
+
+open Types
+
+let default_base_url = "https://api.anthropic.com"
+let api_version = "2023-06-01"
+
+(** Maximum response body size (10 MB) *)
+let max_response_body = 10 * 1024 * 1024
+
+let string_is_blank s =
+  String.trim s = ""
+
+let text_blocks_to_string blocks =
+  blocks
+  |> List.filter_map (function
+         | Text s -> Some s
+         | Thinking (_, s) -> Some s
+         | RedactedThinking _ -> None
+         | ToolUse _ | ToolResult _ | Image _ | Document _ -> None)
+  |> String.concat "\n"
+
+let json_of_string_or_raw s =
+  try Yojson.Safe.from_string s
+  with Yojson.Json_error _ -> `Assoc [("raw", `String s)]
+
+(** Content block <-> JSON *)
+let content_block_to_json = function
+  | Text s -> `Assoc [("type", `String "text"); ("text", `String s)]
+  | Thinking (signature, content) ->
+      `Assoc [
+        ("type", `String "thinking");
+        ("signature", `String signature);
+        ("thinking", `String content);
+      ]
+  | RedactedThinking data ->
+      `Assoc [("type", `String "redacted_thinking"); ("data", `String data)]
+  | ToolUse (id, name, input) ->
+      `Assoc [
+        ("type", `String "tool_use");
+        ("id", `String id);
+        ("name", `String name);
+        ("input", input);
+      ]
+  | ToolResult (tool_use_id, content, is_error) ->
+      `Assoc [
+        ("type", `String "tool_result");
+        ("tool_use_id", `String tool_use_id);
+        ("content", `String content);
+        ("is_error", `Bool is_error);
+      ]
+  | Image { media_type; data; source_type } ->
+      `Assoc [
+        ("type", `String "image");
+        ("source", `Assoc [
+          ("type", `String source_type);
+          ("media_type", `String media_type);
+          ("data", `String data);
+        ]);
+      ]
+  | Document { media_type; data; source_type } ->
+      `Assoc [
+        ("type", `String "document");
+        ("source", `Assoc [
+          ("type", `String source_type);
+          ("media_type", `String media_type);
+          ("data", `String data);
+        ]);
+      ]
+
+let content_block_of_json json =
+  let open Yojson.Safe.Util in
+  match json |> member "type" |> to_string_option with
+  | Some "text" ->
+      let text = json |> member "text" |> to_string in
+      Some (Text text)
+  | Some "thinking" ->
+      let signature = json |> member "signature" |> to_string in
+      let content = json |> member "thinking" |> to_string in
+      Some (Thinking (signature, content))
+  | Some "redacted_thinking" ->
+      let data = json |> member "data" |> to_string in
+      Some (RedactedThinking data)
+  | Some "tool_use" ->
+      let id = json |> member "id" |> to_string in
+      let name = json |> member "name" |> to_string in
+      let input = json |> member "input" in
+      Some (ToolUse (id, name, input))
+  | Some "tool_result" ->
+      let tool_use_id = json |> member "tool_use_id" |> to_string in
+      let content = json |> member "content" |> to_string in
+      let is_error = json |> member "is_error" |> to_bool_option |> Option.value ~default:false in
+      Some (ToolResult (tool_use_id, content, is_error))
+  | Some "image" ->
+      let source = json |> member "source" in
+      let source_type = source |> member "type" |> to_string in
+      let media_type = source |> member "media_type" |> to_string in
+      let data = source |> member "data" |> to_string in
+      Some (Image { media_type; data; source_type })
+  | Some "document" ->
+      let source = json |> member "source" in
+      let source_type = source |> member "type" |> to_string in
+      let media_type = source |> member "media_type" |> to_string in
+      let data = source |> member "data" |> to_string in
+      Some (Document { media_type; data; source_type })
+  | _ -> None
+
+let message_to_json msg =
+  let role_str = match msg.role with User -> "user" | Assistant -> "assistant" in
+  `Assoc [
+    ("role", `String role_str);
+    ("content", `List (List.map content_block_to_json msg.content));
+  ]
+
+(** Create HTTPS upgrade function using tls-eio *)
+let make_https () : (Uri.t -> _ -> _) option =
+  match Ca_certs.authenticator () with
+  | Error _ -> None
+  | Ok authenticator ->
+    match Tls.Config.client ~authenticator () with
+    | Error _ -> None
+    | Ok tls_config ->
+      Some (fun uri flow ->
+        let host =
+          match Uri.host uri with
+          | None -> None
+          | Some h ->
+            match Domain_name.of_string h with
+            | Error _ -> None
+            | Ok dn -> Some (Domain_name.host_exn dn)
+        in
+        Tls_eio.client_of_flow tls_config ?host flow)

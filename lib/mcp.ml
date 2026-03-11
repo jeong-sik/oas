@@ -117,7 +117,7 @@ let connect ~sw ~(mgr : _ Eio.Process.mgr) ~command ~args ?env () =
 (** Send MCP initialize handshake. *)
 let initialize t =
   match Sdk_client.initialize t.client
-          ~client_name:"oas-mcp-client" ~client_version:"0.8.3" with
+          ~client_name:"oas-mcp-client" ~client_version:"0.9.0" with
   | Ok _result -> Ok ()
   | Error msg -> Error (Error.Mcp (InitializeFailed { detail = msg }))
 
