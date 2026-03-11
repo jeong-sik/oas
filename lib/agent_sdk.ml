@@ -46,7 +46,6 @@ module Tracing = Tracing
 module Context_reducer = Context_reducer
 module Tool = Tool
 module Mcp = Mcp
-module Mcp_bridge = Mcp_bridge
 module Mcp_session = Mcp_session
 module Guardrails = Guardrails
 module Event_bus = Event_bus
