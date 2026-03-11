@@ -98,6 +98,10 @@
  (name test_structured)
  (libraries agent_sdk alcotest yojson))
 
+(test
+ (name test_structured_stream)
+ (libraries agent_sdk alcotest yojson))
+
 
 (test
  (name test_tracing)
