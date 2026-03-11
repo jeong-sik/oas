@@ -20,8 +20,6 @@ depends: [
   "yojson" {>= "2.1"}
   "ppx_deriving_yojson" {>= "3.7"}
   "ppx_deriving" {>= "5.2.1"}
-  "mcp_protocol" {>= "0.9"}
-  "mcp_protocol_eio" {>= "0.9"}
   "uri" {>= "4.4"}
   "mcp_protocol" {>= "0.10.0"}
   "mcp_protocol_eio" {>= "0.10.0"}
