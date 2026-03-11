@@ -2,6 +2,18 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.7.0] - 2026-03-11
+
+### Changed
+- README: architecture table expanded to 25 modules, version synced to 0.7.0
+- `Mcp.initialize`, `Mcp_bridge.initialize`: client_version updated to 0.7.0
+
+### Fixed
+- `Otel_tracer`: global span state protected with `Stdlib.Mutex` (race condition under `Eio.Fiber.List.map` parallel tool execution)
+
+### Removed
+- `Random.self_init()` calls in `Session` and `Otel_tracer` (unnecessary on OCaml 5.x domain-local PRNG)
+
 ## [0.6.0] - 2026-03-11
 
 ### Added
@@ -10,6 +22,8 @@ All notable changes to `agent_sdk` are documented in this file.
 - MCP server lifecycle management: `Mcp.server_spec`, `Mcp.managed`, `Mcp.connect_and_load`, `Mcp.connect_all`, `Mcp.close_all`
 
 ### Changed
+- MCP client: replaced self-contained implementation with `mcp-protocol-sdk` v0.10.0 wrapper (PR #29)
+- `Mcp_bridge`: added Eio-native MCP client bridge module (PR #24)
 - Version bump: 0.5.0 -> 0.6.0
 
 ## [0.5.0] - 2026-03-10
