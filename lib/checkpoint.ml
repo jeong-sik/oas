@@ -193,9 +193,9 @@ let of_json json =
         in
         let mcp_sessions =
           match json |> member "mcp_sessions" with
-          | `Null -> Ok []
+          | `Null -> Ok []  (* v1 backward compatibility *)
           | `List _ as lst -> Mcp_session.info_list_of_json lst
-          | _ -> Ok []
+          | _ -> Error "Checkpoint.of_json: mcp_sessions must be a JSON array or null"
         in
         (match model, messages, tools, mcp_sessions with
          | Ok model, Ok messages, Ok tools, Ok mcp_sessions ->

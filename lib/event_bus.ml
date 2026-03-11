@@ -53,16 +53,14 @@ let create ?(buffer_size = 256) () = {
 let accept_all : filter = fun _ -> true
 
 let filter_agent name : filter = fun event ->
-  let n = match event with
-    | AgentStarted r -> r.agent_name
-    | AgentCompleted r -> r.agent_name
-    | ToolCalled r -> r.agent_name
-    | ToolCompleted r -> r.agent_name
-    | TurnStarted r -> r.agent_name
-    | TurnCompleted r -> r.agent_name
-    | Custom _ -> ""
-  in
-  n = name
+  match event with
+  | AgentStarted r -> r.agent_name = name
+  | AgentCompleted r -> r.agent_name = name
+  | ToolCalled r -> r.agent_name = name
+  | ToolCompleted r -> r.agent_name = name
+  | TurnStarted r -> r.agent_name = name
+  | TurnCompleted r -> r.agent_name = name
+  | Custom _ -> true  (* Custom events are not agent-scoped; always pass *)
 
 let filter_tools_only : filter = function
   | ToolCalled _ | ToolCompleted _ -> true
@@ -71,18 +69,16 @@ let filter_tools_only : filter = function
 (* ── Subscribe / unsubscribe ───────────────────────────────────────── *)
 
 let subscribe ?(filter = accept_all) bus =
-  Eio.Mutex.lock bus.mu;
-  let id = bus.next_id in
-  let sub = { id; stream = Eio.Stream.create bus.buffer_size; filter } in
-  bus.subscribers <- sub :: bus.subscribers;
-  bus.next_id <- id + 1;
-  Eio.Mutex.unlock bus.mu;
-  sub
+  Eio.Mutex.use_rw ~protect:true bus.mu (fun () ->
+    let id = bus.next_id in
+    let sub = { id; stream = Eio.Stream.create bus.buffer_size; filter } in
+    bus.subscribers <- sub :: bus.subscribers;
+    bus.next_id <- id + 1;
+    sub)
 
 let unsubscribe bus sub =
-  Eio.Mutex.lock bus.mu;
-  bus.subscribers <- List.filter (fun s -> s.id <> sub.id) bus.subscribers;
-  Eio.Mutex.unlock bus.mu
+  Eio.Mutex.use_rw ~protect:true bus.mu (fun () ->
+    bus.subscribers <- List.filter (fun s -> s.id <> sub.id) bus.subscribers)
 
 (* ── Publish ───────────────────────────────────────────────────────── *)
 
@@ -90,9 +86,7 @@ let publish bus event =
   (* Snapshot subscriber list under lock, then deliver outside lock.
      Stream.add can block on a full stream — holding the lock would
      deadlock if another fiber tries to subscribe concurrently. *)
-  Eio.Mutex.lock bus.mu;
-  let subs = bus.subscribers in
-  Eio.Mutex.unlock bus.mu;
+  let subs = Eio.Mutex.use_ro bus.mu (fun () -> bus.subscribers) in
   List.iter (fun sub ->
     if sub.filter event then
       Eio.Stream.add sub.stream event
@@ -111,7 +105,4 @@ let drain sub =
 (* ── Queries ───────────────────────────────────────────────────────── *)
 
 let subscriber_count bus =
-  Eio.Mutex.lock bus.mu;
-  let n = List.length bus.subscribers in
-  Eio.Mutex.unlock bus.mu;
-  n
+  Eio.Mutex.use_ro bus.mu (fun () -> List.length bus.subscribers)

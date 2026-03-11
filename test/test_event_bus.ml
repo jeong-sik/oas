@@ -13,21 +13,25 @@ let mock_response text = {
 (* ── create ───────────────────────────────────────────────────────── *)
 
 let test_create_default () =
+  Eio_main.run @@ fun _env ->
   let bus = Event_bus.create () in
   check int "no subscribers" 0 (Event_bus.subscriber_count bus)
 
 let test_create_custom_buffer () =
+  Eio_main.run @@ fun _env ->
   let bus = Event_bus.create ~buffer_size:8 () in
   check int "no subscribers" 0 (Event_bus.subscriber_count bus)
 
 (* ── subscribe / unsubscribe ──────────────────────────────────────── *)
 
 let test_subscribe_count () =
+  Eio_main.run @@ fun _env ->
   let bus = Event_bus.create () in
   let _sub = Event_bus.subscribe bus in
   check int "one subscriber" 1 (Event_bus.subscriber_count bus)
 
 let test_unsubscribe_count () =
+  Eio_main.run @@ fun _env ->
   let bus = Event_bus.create () in
   let sub = Event_bus.subscribe bus in
   Event_bus.unsubscribe bus sub;
@@ -111,6 +115,14 @@ let test_filter_tools_only () =
   Event_bus.publish bus (TurnCompleted { agent_name = "a"; turn = 0 });
   let events = Event_bus.drain sub in
   check int "only tool events" 2 (List.length events)
+
+let test_filter_agent_passes_custom () =
+  Eio_main.run @@ fun _env ->
+  let bus = Event_bus.create () in
+  let sub = Event_bus.subscribe ~filter:(Event_bus.filter_agent "alpha") bus in
+  Event_bus.publish bus (Custom ("my_event", `Null));
+  let events = Event_bus.drain sub in
+  check int "custom passes through agent filter" 1 (List.length events)
 
 let test_accept_all () =
   Eio_main.run @@ fun _env ->
@@ -210,6 +222,7 @@ let () =
     ];
     "filters", [
       test_case "agent name" `Quick test_filter_agent_name;
+      test_case "agent filter passes custom" `Quick test_filter_agent_passes_custom;
       test_case "tools only" `Quick test_filter_tools_only;
       test_case "accept all" `Quick test_accept_all;
     ];
