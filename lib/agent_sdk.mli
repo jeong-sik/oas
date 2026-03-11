@@ -529,7 +529,9 @@ module Mcp_bridge : sig
   (** Extract oas {!Types.tool_param} list from a JSON Schema object. *)
   val json_schema_to_params : Yojson.Safe.t -> Types.tool_param list
 
-  (** Close the MCP client transport and signal the subprocess. *)
+  (** Close the MCP client transport and send SIGTERM to the subprocess.
+      The Eio switch also terminates the subprocess on exit, so calling
+      [close] is optional but recommended for prompt cleanup. *)
   val close : t -> unit
 end
 

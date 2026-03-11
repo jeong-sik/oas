@@ -3,8 +3,6 @@
     Delegates protocol handling to {!Mcp_protocol_eio.Client},
     spawns subprocess via Eio, and bridges types to oas {!Tool.t}. *)
 
-open Types
-
 module Client = Mcp_protocol_eio.Client
 module Mcp_types = Mcp_protocol.Mcp_types
 
@@ -35,7 +33,10 @@ let connect ~sw ~(mgr : _ Eio.Process.mgr) ?clock ~command ~args () =
     in
     Ok { client; proc = Proc proc }
   with
-  | exn ->
+  | Eio.Exn.Io _ as exn ->
+    Error (Printf.sprintf "Failed to start MCP server '%s': %s"
+      command (Printexc.to_string exn))
+  | Unix.Unix_error _ as exn ->
     Error (Printf.sprintf "Failed to start MCP server '%s': %s"
       command (Printexc.to_string exn))
 
@@ -68,41 +69,10 @@ let call_tool t ~name ~arguments =
     in
     if is_error then Error text else Ok text
 
-(* ── JSON Schema → oas tool_param (reused from Mcp) ──────────── *)
+(* ── JSON Schema → oas tool_param (delegated to Mcp) ─────────── *)
 
-let json_schema_type_to_param_type = function
-  | "string" -> String
-  | "integer" -> Integer
-  | "number" -> Number
-  | "boolean" -> Boolean
-  | "array" -> Array
-  | "object" -> Object
-  | _ -> String
-
-let json_schema_to_params schema =
-  let open Yojson.Safe.Util in
-  let properties = schema |> member "properties" in
-  let required_list =
-    match schema |> member "required" with
-    | `List items -> List.filter_map to_string_option items
-    | _ -> []
-  in
-  match properties with
-  | `Assoc pairs ->
-    List.map (fun (name, prop) ->
-      let param_type =
-        prop |> member "type" |> to_string_option
-        |> Option.value ~default:"string"
-        |> json_schema_type_to_param_type
-      in
-      let description =
-        prop |> member "description" |> to_string_option
-        |> Option.value ~default:""
-      in
-      let required = List.mem name required_list in
-      { name; description; param_type; required }
-    ) pairs
-  | _ -> []
+let json_schema_type_to_param_type = Mcp.json_schema_type_to_param_type
+let json_schema_to_params = Mcp.json_schema_to_params
 
 (* ── Tool bridge ─────────────────────────────────────────────── *)
 

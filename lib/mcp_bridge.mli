@@ -17,6 +17,9 @@
               ~command:"npx" ~args:["-y"; "@modelcontextprotocol/server-everything"] () with
       | Error e -> Printf.eprintf "connect: %s\n" e
       | Ok bridge ->
+        match Mcp_bridge.initialize bridge with
+        | Error e -> Printf.eprintf "initialize: %s\n" e
+        | Ok () ->
         match Mcp_bridge.list_tools bridge with
         | Error e -> Printf.eprintf "list_tools: %s\n" e
         | Ok tools ->
@@ -72,6 +75,7 @@ val json_schema_type_to_param_type : string -> param_type
 (** Extract oas {!tool_param} list from a JSON Schema object. *)
 val json_schema_to_params : Yojson.Safe.t -> tool_param list
 
-(** Close the MCP client transport.
-    The subprocess is terminated by the Eio switch, not by this function. *)
+(** Close the MCP client transport and send SIGTERM to the subprocess.
+    The Eio switch also terminates the subprocess on exit, so calling
+    [close] is optional but recommended for prompt cleanup. *)
 val close : t -> unit
