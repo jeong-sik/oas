@@ -223,6 +223,121 @@ let run ~sw ?clock agent user_prompt =
   in
   loop ()
 
+(** Run a single turn with streaming.
+    Uses Streaming.create_message_stream for Anthropic providers,
+    falls back to Api.create_message + synthetic events for others. *)
+let run_turn_stream ~sw ?clock ~on_event agent =
+  (* BeforeTurn hook *)
+  let _before = Hooks.invoke agent.options.hooks.before_turn
+    (Hooks.BeforeTurn { turn = agent.state.turn_count; messages = agent.state.messages }) in
+
+  (* Apply guardrails: filter tools visible to LLM *)
+  let visible_tools = Guardrails.filter_tools agent.options.guardrails agent.tools in
+  let tool_schemas = List.map Tool.schema_to_json visible_tools in
+  let tools_json = if tool_schemas = [] then None else Some tool_schemas in
+
+  (* Apply context reducer *)
+  let effective_messages = match agent.options.context_reducer with
+    | None -> agent.state.messages
+    | Some reducer -> Context_reducer.reduce reducer agent.state.messages
+  in
+
+  let api_result = Tracing.with_span agent.options.tracer
+    { kind = Api_call; name = "create_message_stream";
+      agent_name = agent.state.config.name;
+      turn = agent.state.turn_count; extra = [] }
+    (fun _tracer ->
+      (* Try streaming first for Anthropic, fallback for others *)
+      let stream_result =
+        Streaming.create_message_stream ~sw ~net:agent.net
+          ~base_url:agent.options.base_url ?provider:agent.options.provider
+          ~config:agent.state ~messages:effective_messages ?tools:tools_json
+          ~on_event ()
+      in
+      match stream_result with
+      | Ok _ -> stream_result
+      | Error msg ->
+        let prefix = "Streaming is only supported" in
+        let msg_len = String.length msg in
+        let prefix_len = String.length prefix in
+        if msg_len >= prefix_len
+           && String.sub msg 0 prefix_len = prefix then
+          (* Non-Anthropic provider: fallback to sync + synthetic events *)
+          let sync_result = Api.create_message ~sw ~net:agent.net
+            ~base_url:agent.options.base_url ?provider:agent.options.provider
+            ?clock ~config:agent.state ~messages:effective_messages
+            ?tools:tools_json () in
+          (match sync_result with
+           | Ok response ->
+             Streaming.emit_synthetic_events response on_event;
+             Ok response
+           | Error _ -> sync_result)
+        else
+          stream_result)
+  in
+  match api_result with
+  | Error e -> Error e
+  | Ok response ->
+    (* Accumulate usage stats *)
+    let usage = match response.usage with
+      | Some u -> add_usage agent.state.usage u
+      | None -> { agent.state.usage with api_calls = agent.state.usage.api_calls + 1 }
+    in
+
+    (* AfterTurn hook *)
+    let _after = Hooks.invoke agent.options.hooks.after_turn
+      (Hooks.AfterTurn { turn = agent.state.turn_count; response }) in
+
+    agent.state <- { agent.state with
+      messages = agent.state.messages @ [{ role = Assistant; content = response.content }];
+      turn_count = agent.state.turn_count + 1;
+      usage;
+    };
+
+    match response.stop_reason with
+    | StopToolUse ->
+      let tool_uses = List.filter (function ToolUse _ -> true | _ -> false) response.content in
+      let count = List.length tool_uses in
+      (match Guardrails.exceeds_limit agent.options.guardrails count with
+      | true ->
+        let msg = Printf.sprintf "Tool call limit exceeded: %d calls in one turn" count in
+        agent.state <- { agent.state with
+          messages = agent.state.messages @ [{ role = User; content = [Text msg] }] };
+        Ok (`ToolsExecuted)
+      | false ->
+        let results = execute_tools agent tool_uses in
+        let tool_results = List.map (fun (id, content, is_error) ->
+          ToolResult (id, content, is_error)
+        ) results in
+        agent.state <- { agent.state with
+          messages = agent.state.messages @ [{ role = User; content = tool_results }] };
+        Ok (`ToolsExecuted))
+    | EndTurn | MaxTokens | StopSequence ->
+      let _stop = Hooks.invoke agent.options.hooks.on_stop
+        (Hooks.OnStop { reason = response.stop_reason; response }) in
+      Ok (`Complete response)
+    | Unknown reason ->
+      Error (Printf.sprintf "Unrecognized stop_reason from API: %s" reason)
+
+(** Run agent loop with streaming.
+    Same as [run] but uses [run_turn_stream] for each turn. *)
+let run_stream ~sw ?clock ~on_event agent user_prompt =
+  agent.state <- { agent.state with
+    messages = agent.state.messages @ [{ role = User; content = [Text user_prompt] }] };
+  let rec loop () =
+    if agent.state.turn_count >= agent.state.config.max_turns then
+      Error "Max turns exceeded"
+    else
+      match check_token_budget agent.state.config agent.state.usage with
+      | Some err -> Error err
+      | None ->
+        match run_turn_stream ~sw ?clock ~on_event agent with
+        | Error e -> Error e
+        | Ok `Complete response -> Ok response
+        | Ok `ToolsExecuted -> loop ()
+  in
+  loop ()
+
 (** Find the most recent assistant message and extract the first handoff ToolUse.
     Returns (tool_use_id, target_name, prompt) or None. *)
 let find_handoff_in_messages messages =

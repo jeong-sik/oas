@@ -702,6 +702,10 @@ module Streaming : sig
     on_event:(Types.sse_event -> unit) ->
     unit ->
     (Types.api_response, string) result
+
+  (** Emit synthetic SSE events from a complete [api_response].
+      Used as fallback for providers that don't support native SSE streaming. *)
+  val emit_synthetic_events : Types.api_response -> (Types.sse_event -> unit) -> unit
 end
 
 (** {1 Typed Subagent Specs} *)
@@ -894,6 +898,25 @@ module Agent : sig
   val run :
     sw:Eio.Switch.t ->
     ?clock:_ Eio.Time.clock ->
+    t -> string ->
+    (Types.api_response, string) result
+
+  (** Run a single agent turn with SSE streaming.
+      Calls [on_event] for each SSE event received.
+      Falls back to sync API + synthetic events for non-Anthropic providers. *)
+  val run_turn_stream :
+    sw:Eio.Switch.t ->
+    ?clock:_ Eio.Time.clock ->
+    on_event:(Types.sse_event -> unit) ->
+    t ->
+    ([ `Complete of Types.api_response | `ToolsExecuted ], string) result
+
+  (** Run full agent loop with SSE streaming.
+      Like [run] but uses streaming for each API call. *)
+  val run_stream :
+    sw:Eio.Switch.t ->
+    ?clock:_ Eio.Time.clock ->
+    on_event:(Types.sse_event -> unit) ->
     t -> string ->
     (Types.api_response, string) result
 
