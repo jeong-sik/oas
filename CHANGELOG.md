@@ -12,6 +12,7 @@ All notable changes to `agent_sdk` are documented in this file.
 
 ### Changed (breaking)
 - `Mcp_session.reconnect_all`: return type changed from `Mcp.managed list * info list` to `Mcp.managed list * (info * string) list` — callers matching on the second element need to destructure the `(info, error_msg)` pair
+- `Event_bus.filter_agent`: `Custom` events now pass through all agent-scoped filters (previously silently dropped because `Custom` had no `agent_name` field)
 
 ## [0.8.0] - 2026-03-11
 

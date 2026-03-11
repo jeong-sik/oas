@@ -957,6 +957,8 @@ module Event_bus : sig
   (** {2 Built-in filters} *)
 
   val accept_all : filter
+  (** Match events whose [agent_name] equals the given name.
+      [Custom] events always pass (they have no agent scope). *)
   val filter_agent : string -> filter
   val filter_tools_only : filter
 end

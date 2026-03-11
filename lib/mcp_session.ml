@@ -12,7 +12,10 @@
       (* ... serialize infos into checkpoint JSON ... *)
 
       (* On resume *)
-      let managed, failed = Mcp_session.reconnect_all ~sw ~mgr infos in
+      let managed, failed_with_reasons = Mcp_session.reconnect_all ~sw ~mgr infos in
+      List.iter (fun (info, err) ->
+        Printf.eprintf "Failed to reconnect %s: %s\n" info.server_name err
+      ) failed_with_reasons;
     ]} *)
 
 open Types
