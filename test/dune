@@ -157,4 +157,4 @@
 
 (test
  (name test_otel)
- (libraries agent_sdk alcotest yojson))
+ (libraries agent_sdk alcotest yojson eio eio_main))

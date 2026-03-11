@@ -364,4 +364,83 @@ let () =
       test_case "with_span works with otel" `Quick (with_reset test_with_span_works_with_otel);
       test_case "interchangeable with null" `Quick (with_reset test_interchangeable_with_null);
     ];
+
+    "edge_cases", [
+      test_case "span_to_json with end_time_ns None" `Quick (with_reset (fun () ->
+        (* In-progress span: end_time_ns is None, JSON should use start_time_ns *)
+        let s = Otel_tracer.start_span (default_attrs ~name:"in_progress" ()) in
+        let json = Otel_tracer.span_to_json s in
+        let open Yojson.Safe.Util in
+        let start_ns = json |> member "startTimeUnixNano" |> to_string in
+        let end_ns = json |> member "endTimeUnixNano" |> to_string in
+        check string "end falls back to start" start_ns end_ns;
+        check bool "status is UNSET" true
+          (json |> member "status" |> member "code" |> to_int = 0);
+        Otel_tracer.end_span s ~ok:true));
+
+      test_case "flush empties completed_spans" `Quick (with_reset (fun () ->
+        let s1 = Otel_tracer.start_span (default_attrs ~name:"f1" ()) in
+        Otel_tracer.end_span s1 ~ok:true;
+        let s2 = Otel_tracer.start_span (default_attrs ~name:"f2" ()) in
+        Otel_tracer.end_span s2 ~ok:false;
+        check int "2 before flush" 2 (Otel_tracer.completed_count ());
+        let flushed = Otel_tracer.flush () in
+        check int "flushed 2" 2 (List.length flushed);
+        check int "0 after flush" 0 (Otel_tracer.completed_count ());
+        (* Second flush returns empty *)
+        let flushed2 = Otel_tracer.flush () in
+        check int "second flush empty" 0 (List.length flushed2)));
+
+      test_case "reset clears both current and completed" `Quick (with_reset (fun () ->
+        (* Create active span (not ended) *)
+        let _active = Otel_tracer.start_span (default_attrs ~name:"active" ()) in
+        (* Create completed span *)
+        let done_ = Otel_tracer.start_span (default_attrs ~name:"done" ()) in
+        Otel_tracer.end_span done_ ~ok:true;
+        check bool "has active" true (Otel_tracer.active_count () > 0);
+        check bool "has completed" true (Otel_tracer.completed_count () > 0);
+        Otel_tracer.reset ();
+        check int "active after reset" 0 (Otel_tracer.active_count ());
+        check int "completed after reset" 0 (Otel_tracer.completed_count ())));
+
+      test_case "concurrent with_span via Eio fibers" `Quick (with_reset (fun () ->
+        Eio_main.run @@ fun _env ->
+        let tracer = Otel_tracer.create () in
+        let results = Array.make 4 "" in
+        Eio.Fiber.all (List.init 4 (fun i () ->
+          let name = Printf.sprintf "fiber_%d" i in
+          let v = Tracing.with_span tracer
+            (default_attrs ~name ())
+            (fun _t -> Printf.sprintf "ok_%d" i) in
+          results.(i) <- v
+        ));
+        (* All fibers completed and produced correct results *)
+        Array.iteri (fun i v ->
+          check string (Printf.sprintf "fiber %d" i) (Printf.sprintf "ok_%d" i) v
+        ) results;
+        (* All spans were completed *)
+        check bool "spans completed" true (Otel_tracer.completed_count () >= 4)));
+
+      test_case "span_to_json with events" `Quick (with_reset (fun () ->
+        let s = Otel_tracer.start_span (default_attrs ~name:"evts" ()) in
+        Otel_tracer.add_event s "start_processing";
+        Otel_tracer.add_event s "end_processing";
+        Otel_tracer.end_span s ~ok:true;
+        let json = Otel_tracer.span_to_json s in
+        let open Yojson.Safe.Util in
+        let events = json |> member "events" |> to_list in
+        check int "2 events in json" 2 (List.length events);
+        let name0 = List.hd events |> member "name" |> to_string in
+        check string "first event" "start_processing" name0));
+
+      test_case "span error status json" `Quick (with_reset (fun () ->
+        let s = Otel_tracer.start_span (default_attrs ~name:"err" ()) in
+        Otel_tracer.end_span s ~ok:false;
+        let json = Otel_tracer.span_to_json s in
+        let open Yojson.Safe.Util in
+        let code = json |> member "status" |> member "code" |> to_int in
+        let msg = json |> member "status" |> member "message" |> to_string in
+        check int "error code 2" 2 code;
+        check string "error message" "error" msg));
+    ];
   ]
