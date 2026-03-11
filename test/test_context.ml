@@ -61,6 +61,27 @@ let test_of_json_non_assoc () =
   let ctx = Context.of_json (`String "invalid") in
   check (list string) "non-Assoc gives empty context" [] (Context.keys ctx)
 
+let test_copy_empty () =
+  let ctx = Context.create () in
+  let copy = Context.copy ctx in
+  check (list string) "copy of empty is empty" [] (Context.keys copy)
+
+let test_copy_values () =
+  let ctx = Context.create () in
+  Context.set ctx "a" (`String "hello");
+  Context.set ctx "b" (`Int 99);
+  let copy = Context.copy ctx in
+  check bool "a copied" true (Context.get copy "a" = Some (`String "hello"));
+  check bool "b copied" true (Context.get copy "b" = Some (`Int 99))
+
+let test_copy_independence () =
+  let ctx = Context.create () in
+  Context.set ctx "x" (`String "original");
+  let copy = Context.copy ctx in
+  Context.set copy "x" (`String "modified");
+  check bool "original unchanged" true
+    (Context.get ctx "x" = Some (`String "original"))
+
 let () =
   run "Context" [
     "create", [
@@ -81,5 +102,10 @@ let () =
       test_case "to_json" `Quick test_to_json;
       test_case "of_json roundtrip" `Quick test_of_json_roundtrip;
       test_case "of_json non-Assoc" `Quick test_of_json_non_assoc;
+    ];
+    "copy", [
+      test_case "copy empty" `Quick test_copy_empty;
+      test_case "copy values" `Quick test_copy_values;
+      test_case "copy independence" `Quick test_copy_independence;
     ];
   ]

@@ -30,3 +30,8 @@ let of_json (json : Yojson.Safe.t) : t =
    | `Assoc pairs -> List.iter (fun (k, v) -> Hashtbl.replace ctx k v) pairs
    | _ -> ());
   ctx
+
+let copy (ctx : t) : t =
+  let new_ctx = create () in
+  Hashtbl.iter (fun k v -> Hashtbl.replace new_ctx k v) ctx;
+  new_ctx

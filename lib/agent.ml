@@ -55,6 +55,20 @@ let create ~net ?(config=default_config) ?(tools=[]) ?context
   in
   { state; tools = all_tools; net; context = ctx; options }
 
+(** Clone an agent with independent state.
+    By default the clone gets a fresh (empty) context.
+    Pass [~copy_context:true] to shallow-copy all context entries.
+    Tools, net, options, and mcp_clients are shared (immutable/stateless). *)
+let clone ?(copy_context=false) agent =
+  let ctx = if copy_context then Context.copy agent.context else Context.create () in
+  let state = {
+    config = agent.state.config;
+    messages = agent.state.messages;
+    turn_count = agent.state.turn_count;
+    usage = agent.state.usage;
+  } in
+  { state; tools = agent.tools; net = agent.net; context = ctx; options = agent.options }
+
 (** Close all MCP server connections held by this agent. *)
 let close agent =
   Mcp.close_all agent.options.mcp_clients

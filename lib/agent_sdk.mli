@@ -187,6 +187,11 @@ module Context : sig
   (** Deserialize from JSON.  Returns an empty context if [json] is not
       a JSON object (i.e. not [`Assoc _]). *)
   val of_json : Yojson.Safe.t -> t
+
+  (** Shallow-copy all entries into a fresh context.
+      Values are [Yojson.Safe.t] (structurally immutable), so shallow copy
+      is sufficient for full independence. *)
+  val copy : t -> t
 end
 
 (** {1 LLM Provider Abstraction} *)
@@ -947,6 +952,12 @@ module Agent : sig
     targets:Handoff.handoff_target list ->
     string ->
     (Types.api_response, string) result
+
+  (** Clone an agent with independent mutable state.
+      The clone shares [tools], [net], [options], and [mcp_clients]
+      (immutable / stateless).  By default it gets a fresh empty context;
+      pass [~copy_context:true] to shallow-copy all context entries. *)
+  val clone : ?copy_context:bool -> t -> t
 
   (** Close all MCP server connections held by this agent.
       Safe to call even if no MCP servers were configured. *)
