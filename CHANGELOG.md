@@ -2,14 +2,16 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
-## [0.7.0] - 2026-03-11
-
-### Changed
-- README: architecture table expanded to 25 modules, version synced to 0.7.0
-- `Mcp.initialize`, `Mcp_bridge.initialize`: client_version updated to 0.7.0
+## [0.7.1] - 2026-03-11
 
 ### Fixed
-- `Otel_tracer`: global span state protected with `Stdlib.Mutex` (race condition under `Eio.Fiber.List.map` parallel tool execution)
+- `Otel_tracer`: all mutable span operations (`start_span`, `end_span`, `add_event`, `add_attrs`, `flush`, `reset`) protected with `Stdlib.Mutex`
+- `Otel_tracer.start_span`: ID generation moved outside critical section to reduce lock contention
+
+### Changed
+- README: architecture table expanded to 25 modules, version synced to 0.7.1
+- `Mcp.initialize`, `Mcp_bridge.initialize`: client_version updated to 0.7.1
+- CHANGELOG: added `[0.7.0]` section for previously undocumented changes
 
 ### Removed
 - `Random.self_init()` calls in `Session` and `Otel_tracer` (unnecessary on OCaml 5.x domain-local PRNG)
