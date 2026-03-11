@@ -97,7 +97,11 @@ let test_openai_compat_resolve_missing_key () =
     api_key_env = "AGENT_SDK_TEST_NONEXISTENT_COMPAT_KEY_z0z0";
   } in
   match Provider.resolve cfg with
-  | Error _ -> ()
+  | Error (Error.Config (MissingEnvVar { var_name })) ->
+    Alcotest.(check string) "error mentions env var"
+      "AGENT_SDK_TEST_NONEXISTENT_COMPAT_KEY_z0z0" var_name
+  | Error e ->
+    Alcotest.fail (Printf.sprintf "unexpected error variant: %s" (Error.to_string e))
   | Ok _ -> Alcotest.fail "should fail when env var missing"
 
 let test_anthropic_headers () =
