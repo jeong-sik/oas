@@ -159,4 +159,69 @@ let () =
         ] in
         check bool "error" true (Result.is_error (Mcp_session.info_of_json bad)));
     ];
+
+    "spec_roundtrip", [
+      test_case "to_server_spec preserves all fields" `Quick (fun () ->
+        let info = make_info
+          ~server_name:"roundtrip-srv"
+          ~command:"/opt/bin/server"
+          ~args:["--verbose"; "--port"; "8080"]
+          ~env:[("HOME", "/tmp"); ("LANG", "en_US")]
+          ~tool_schemas:[sample_tool_schema; multi_param_tool] () in
+        let spec = Mcp_session.to_server_spec info in
+        check string "name roundtrip" info.server_name spec.name;
+        check string "command roundtrip" info.command spec.command;
+        check (list string) "args roundtrip" info.args spec.args;
+        check int "env count" (List.length info.env) (List.length spec.env);
+        List.iter2 (fun (ik, iv) (sk, sv) ->
+          check string "env key" ik sk;
+          check string "env val" iv sv
+        ) info.env spec.env);
+
+      test_case "to_server_spec with empty fields" `Quick (fun () ->
+        let info = make_info ~server_name:"empty" ~command:"cmd" () in
+        let spec = Mcp_session.to_server_spec info in
+        check string "name" "empty" spec.name;
+        check (list string) "empty args" [] spec.args;
+        check int "empty env" 0 (List.length spec.env));
+    ];
+
+    "json_env_roundtrip", [
+      test_case "env with special characters" `Quick (fun () ->
+        let info = make_info
+          ~env:[
+            ("PATH", "/usr/bin:/usr/local/bin");
+            ("QUERY", "a=1&b=2");
+            ("UNICODE", "\xc3\xa9\xc3\xa0\xc3\xbc");
+          ] () in
+        let json = Mcp_session.info_to_json info in
+        let info2 = Result.get_ok (Mcp_session.info_of_json json) in
+        check int "3 env pairs" 3 (List.length info2.env);
+        List.iter2 (fun (k1, v1) (k2, v2) ->
+          check string ("key " ^ k1) k1 k2;
+          check string ("val " ^ k1) v1 v2
+        ) info.env info2.env);
+
+      test_case "all param types roundtrip" `Quick (fun () ->
+        let all_types_tool : Types.tool_schema = {
+          name = "all_types";
+          description = "All param types";
+          parameters = [
+            { name = "s"; description = ""; param_type = Types.String; required = true };
+            { name = "i"; description = ""; param_type = Types.Integer; required = false };
+            { name = "n"; description = ""; param_type = Types.Number; required = false };
+            { name = "b"; description = ""; param_type = Types.Boolean; required = true };
+            { name = "a"; description = ""; param_type = Types.Array; required = false };
+            { name = "o"; description = ""; param_type = Types.Object; required = false };
+          ];
+        } in
+        let info = make_info ~tool_schemas:[all_types_tool] () in
+        let json = Mcp_session.info_to_json info in
+        let info2 = Result.get_ok (Mcp_session.info_of_json json) in
+        let params = (List.hd info2.tool_schemas).parameters in
+        check int "6 params" 6 (List.length params);
+        let pt_strs = List.map (fun (p : Types.tool_param) ->
+          Types.param_type_to_string p.param_type) params in
+        check (list string) "param types" ["string";"integer";"number";"boolean";"array";"object"] pt_strs);
+    ];
   ]
