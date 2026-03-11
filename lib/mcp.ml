@@ -178,6 +178,7 @@ type managed = {
   client: t;
   tools: Tool.t list;
   name: string;
+  spec: server_spec;
 }
 
 (** Merge extra key-value pairs into the current process environment.
@@ -217,7 +218,7 @@ let connect_and_load ~sw ~mgr spec =
         | Error e -> close client; Error e
         | Ok _mcp_tools ->
           let tools = to_tools client in
-          Ok { client; tools; name = spec.name }
+          Ok { client; tools; name = spec.name; spec }
     with exn ->
       close client;
       Error (Printf.sprintf "MCP server '%s' failed: %s"

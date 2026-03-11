@@ -26,6 +26,7 @@ let make_checkpoint
     created_at;
     tools;
     tool_choice;
+    mcp_sessions = [];
   }
 
 let sample_messages = [

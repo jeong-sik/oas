@@ -7,7 +7,7 @@
 
 open Types
 
-let checkpoint_version = 1
+let checkpoint_version = 2
 
 type t = {
   version: int;
@@ -21,6 +21,7 @@ type t = {
   created_at: float;
   tools: tool_schema list;
   tool_choice: tool_choice option;
+  mcp_sessions: Mcp_session.info list;
 }
 
 (* ── Serialization helpers ──────────────────────────────────────── *)
@@ -164,14 +165,15 @@ let to_json cp =
       (match cp.tool_choice with
        | Some tc -> tool_choice_to_json tc
        | None -> `Null));
+    ("mcp_sessions", Mcp_session.info_list_to_json cp.mcp_sessions);
   ]
 
 let of_json json =
   try
     let open Yojson.Safe.Util in
     let version = json |> member "version" |> to_int in
-    if version <> checkpoint_version then
-      Error (Printf.sprintf "Unsupported checkpoint version: %d (expected %d)"
+    if version <> checkpoint_version && version <> 1 then
+      Error (Printf.sprintf "Unsupported checkpoint version: %d (expected %d or 1)"
         version checkpoint_version)
     else
       let tool_choice =
@@ -189,10 +191,16 @@ let of_json json =
         let tools =
           json |> member "tools" |> to_list |> List.map tool_schema_of_json |> result_all
         in
-        (match model, messages, tools with
-         | Ok model, Ok messages, Ok tools ->
+        let mcp_sessions =
+          match json |> member "mcp_sessions" with
+          | `Null -> Ok []
+          | `List _ as lst -> Mcp_session.info_list_of_json lst
+          | _ -> Ok []
+        in
+        (match model, messages, tools, mcp_sessions with
+         | Ok model, Ok messages, Ok tools, Ok mcp_sessions ->
              Ok {
-               version;
+               version = checkpoint_version;
                session_id = json |> member "session_id" |> to_string;
                agent_name = json |> member "agent_name" |> to_string;
                model;
@@ -203,10 +211,12 @@ let of_json json =
                created_at = json |> member "created_at" |> to_float;
                tools;
                tool_choice;
+               mcp_sessions;
              }
-         | Error e, _, _ -> Error e
-         | _, Error e, _ -> Error e
-         | _, _, Error e -> Error e)
+         | Error e, _, _, _ -> Error e
+         | _, Error e, _, _ -> Error e
+         | _, _, Error e, _ -> Error e
+         | _, _, _, Error e -> Error e)
   with
   | Yojson.Safe.Util.Type_error (msg, _) ->
     Error (Printf.sprintf "Checkpoint.of_json: %s" msg)
