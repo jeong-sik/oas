@@ -27,6 +27,7 @@ type t = {
   approval: Hooks.approval_callback option;
   context_reducer: Context_reducer.t option;
   mcp_clients: Mcp.managed list;
+  event_bus: Event_bus.t option;
 }
 
 let create ~net ~model =
@@ -53,6 +54,7 @@ let create ~net ~model =
     approval = None;
     context_reducer = None;
     mcp_clients = [];
+    event_bus = None;
   }
 
 let with_system_prompt prompt b = { b with system_prompt = Some prompt }
@@ -77,6 +79,7 @@ let with_max_input_tokens n b = { b with max_input_tokens = Some n }
 let with_max_total_tokens n b = { b with max_total_tokens = Some n }
 let with_response_format_json v b = { b with response_format_json = v }
 let with_cache_system_prompt v b = { b with cache_system_prompt = v }
+let with_event_bus bus b = { b with event_bus = Some bus }
 
 let build b =
   let config = {
@@ -102,5 +105,6 @@ let build b =
     approval = b.approval;
     context_reducer = b.context_reducer;
     mcp_clients = b.mcp_clients;
+    event_bus = b.event_bus;
   } in
   Agent.create ~net:b.net ~config ~tools:b.tools ?context:b.context ~options ()

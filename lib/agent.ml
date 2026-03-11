@@ -16,6 +16,7 @@ type options = {
   approval: Hooks.approval_callback option;
   context_reducer: Context_reducer.t option;
   mcp_clients: Mcp.managed list;
+  event_bus: Event_bus.t option;
 }
 
 let default_options = {
@@ -27,6 +28,7 @@ let default_options = {
   approval = None;
   context_reducer = None;
   mcp_clients = [];
+  event_bus = None;
 }
 
 type t = {
@@ -76,8 +78,13 @@ let close agent =
 (** Helper: find and execute a tool, invoke PostToolUse hook.
     Returns (id, content, is_error) triple. *)
 let find_and_execute_tool agent name input id =
+  (* ToolCalled event *)
+  (match agent.options.event_bus with
+   | Some bus -> Event_bus.publish bus
+       (ToolCalled { agent_name = agent.state.config.name; tool_name = name; input })
+   | None -> ());
   let tool_opt = List.find_opt (fun (tool: Tool.t) -> tool.schema.name = name) agent.tools in
-  match tool_opt with
+  let triple = match tool_opt with
   | Some tool ->
     let result = Tool.execute ~context:agent.context tool input in
     let _post = Hooks.invoke agent.options.hooks.post_tool_use
@@ -88,6 +95,16 @@ let find_and_execute_tool agent name input id =
     in
     (id, content, is_error)
   | None -> (id, "Tool not found", true)
+  in
+  (* ToolCompleted event *)
+  (match agent.options.event_bus with
+   | Some bus ->
+     let (_, content, is_error) = triple in
+     let output = if is_error then Error content else Ok content in
+     Event_bus.publish bus
+       (ToolCompleted { agent_name = agent.state.config.name; tool_name = name; output })
+   | None -> ());
+  triple
 
 (** Execute tools in parallel using Eio fibers.
     Applies PreToolUse/PostToolUse hooks and passes context to context-aware handlers.
@@ -131,6 +148,12 @@ let run_turn ~sw ?clock agent =
   let _before = Hooks.invoke agent.options.hooks.before_turn
     (Hooks.BeforeTurn { turn = agent.state.turn_count; messages = agent.state.messages }) in
 
+  (* TurnStarted event *)
+  (match agent.options.event_bus with
+   | Some bus -> Event_bus.publish bus
+       (TurnStarted { agent_name = agent.state.config.name; turn = agent.state.turn_count })
+   | None -> ());
+
   (* Apply guardrails: filter tools visible to LLM *)
   let visible_tools = Guardrails.filter_tools agent.options.guardrails agent.tools in
   let tool_schemas = List.map Tool.schema_to_json visible_tools in
@@ -164,6 +187,12 @@ let run_turn ~sw ?clock agent =
       (* AfterTurn hook *)
       let _after = Hooks.invoke agent.options.hooks.after_turn
         (Hooks.AfterTurn { turn = agent.state.turn_count; response }) in
+
+      (* TurnCompleted event *)
+      (match agent.options.event_bus with
+       | Some bus -> Event_bus.publish bus
+           (TurnCompleted { agent_name = agent.state.config.name; turn = agent.state.turn_count })
+       | None -> ());
 
       agent.state <- { agent.state with
         messages = agent.state.messages @ [{ role = Assistant; content = response.content }];
@@ -245,6 +274,12 @@ let run_turn_stream ~sw ?clock ~on_event agent =
   let _before = Hooks.invoke agent.options.hooks.before_turn
     (Hooks.BeforeTurn { turn = agent.state.turn_count; messages = agent.state.messages }) in
 
+  (* TurnStarted event *)
+  (match agent.options.event_bus with
+   | Some bus -> Event_bus.publish bus
+       (TurnStarted { agent_name = agent.state.config.name; turn = agent.state.turn_count })
+   | None -> ());
+
   (* Apply guardrails: filter tools visible to LLM *)
   let visible_tools = Guardrails.filter_tools agent.options.guardrails agent.tools in
   let tool_schemas = List.map Tool.schema_to_json visible_tools in
@@ -301,6 +336,12 @@ let run_turn_stream ~sw ?clock ~on_event agent =
     (* AfterTurn hook *)
     let _after = Hooks.invoke agent.options.hooks.after_turn
       (Hooks.AfterTurn { turn = agent.state.turn_count; response }) in
+
+    (* TurnCompleted event *)
+    (match agent.options.event_bus with
+     | Some bus -> Event_bus.publish bus
+         (TurnCompleted { agent_name = agent.state.config.name; turn = agent.state.turn_count })
+     | None -> ());
 
     agent.state <- { agent.state with
       messages = agent.state.messages @ [{ role = Assistant; content = response.content }];

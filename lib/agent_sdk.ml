@@ -48,6 +48,7 @@ module Mcp = Mcp
 module Mcp_bridge = Mcp_bridge
 module Mcp_session = Mcp_session
 module Guardrails = Guardrails
+module Event_bus = Event_bus
 module Skill = Skill
 module Handoff = Handoff
 module Api = Api
