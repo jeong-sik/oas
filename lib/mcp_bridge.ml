@@ -42,7 +42,7 @@ let connect ~sw ~(mgr : _ Eio.Process.mgr) ?clock ~command ~args () =
 
 let initialize t =
   match Client.initialize t.client
-    ~client_name:"oas-mcp-bridge" ~client_version:"0.8.2" with
+    ~client_name:"oas-mcp-bridge" ~client_version:"0.8.3" with
   | Error e -> Error (Printf.sprintf "MCP initialize failed: %s" e)
   | Ok _result -> Ok ()
 

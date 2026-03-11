@@ -73,7 +73,6 @@ let mcp_tool_to_sdk_tool ~call_fn mcp_tool =
 type t = {
   client: Sdk_client.t;
   kill: unit -> unit;
-  mutable tools: mcp_tool list;
 }
 
 (** Extract concatenated text content from a {!Sdk_types.tool_result}. *)
@@ -111,24 +110,21 @@ let connect ~sw ~(mgr : _ Eio.Process.mgr) ~command ~args ?env () =
     let kill () =
       try Eio.Process.signal proc Sys.sigterm with _ -> ()
     in
-    Ok { client; kill; tools = [] }
+    Ok { client; kill }
   with exn ->
     Error (Printf.sprintf "Failed to start MCP server: %s" (Printexc.to_string exn))
 
 (** Send MCP initialize handshake. *)
 let initialize t =
   match Sdk_client.initialize t.client
-          ~client_name:"oas-mcp-client" ~client_version:"0.8.2" with
+          ~client_name:"oas-mcp-client" ~client_version:"0.8.3" with
   | Ok _result -> Ok ()
   | Error msg -> Error (Printf.sprintf "MCP initialize failed: %s" msg)
 
-(** Fetch tools from MCP server.  Stores them in [t.tools]. *)
+(** Fetch tools from MCP server and return them. *)
 let list_tools t =
   match Sdk_client.list_tools t.client with
-  | Ok sdk_tools ->
-    let tools = List.map mcp_tool_of_sdk_tool sdk_tools in
-    t.tools <- tools;
-    Ok tools
+  | Ok sdk_tools -> Ok (List.map mcp_tool_of_sdk_tool sdk_tools)
   | Error msg ->
     Error (Printf.sprintf "MCP tools/list failed: %s" msg)
 
@@ -144,16 +140,15 @@ let call_tool t ~name ~arguments =
   | Error msg ->
     Error (Printf.sprintf "MCP tools/call '%s' failed: %s" name msg)
 
-(** Convert stored MCP tools to SDK [Tool.t] list.
-    Each tool's handler delegates to {!call_tool} on [t].
-    Call {!list_tools} first to populate [t.tools]. *)
-let to_tools t =
+(** Convert MCP tools to SDK [Tool.t] list.
+    Each tool's handler delegates to {!call_tool} on [t]. *)
+let to_tools t (tools : mcp_tool list) =
   List.map (fun (mt : mcp_tool) ->
     let call_fn input =
       call_tool t ~name:mt.name ~arguments:input
     in
     mcp_tool_to_sdk_tool ~call_fn mt
-  ) t.tools
+  ) tools
 
 (** Close the MCP client and terminate the subprocess. *)
 let close t =
@@ -216,8 +211,8 @@ let connect_and_load ~sw ~mgr spec =
       | Ok () ->
         match list_tools client with
         | Error e -> close client; Error e
-        | Ok _mcp_tools ->
-          let tools = to_tools client in
+        | Ok mcp_tools ->
+          let tools = to_tools client mcp_tools in
           Ok { client; tools; name = spec.name; spec }
     with exn ->
       close client;

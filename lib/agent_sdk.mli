@@ -451,7 +451,7 @@ module Mcp : sig
   val list_tools : t -> (mcp_tool list, string) result
   val call_tool :
     t -> name:string -> arguments:Yojson.Safe.t -> (string, string) result
-  val to_tools : t -> Tool.t list
+  val to_tools : t -> mcp_tool list -> Tool.t list
   val close : t -> unit
 
   (** {2 Managed lifecycle} *)
