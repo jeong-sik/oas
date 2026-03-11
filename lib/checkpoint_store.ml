@@ -14,8 +14,12 @@ let validate_session_id id =
   else Ok ()
 
 let create base_dir =
-  (try Eio.Path.mkdirs ~exists_ok:true ~perm:0o755 base_dir with _ -> ());
-  { base_dir }
+  try
+    Eio.Path.mkdirs ~exists_ok:true ~perm:0o755 base_dir;
+    Ok { base_dir }
+  with exn ->
+    Error (Printf.sprintf "Failed to create checkpoint directory: %s"
+      (Printexc.to_string exn))
 
 let file_path store id = Eio.Path.(store.base_dir / (id ^ ".json"))
 let tmp_path store id = Eio.Path.(store.base_dir / (id ^ ".json.tmp"))
@@ -53,15 +57,17 @@ let load store id =
 let list store =
   try
     let entries = Eio.Path.read_dir store.base_dir in
-    entries
+    Ok (entries
     |> List.filter (fun name ->
            let len = String.length name in
            len > 5
            && String.sub name (len - 5) 5 = ".json"
            && not (len > 9 && String.sub name (len - 9) 9 = ".json.tmp"))
     |> List.map (fun name -> String.sub name 0 (String.length name - 5))
-    |> List.sort String.compare
-  with _ -> []
+    |> List.sort String.compare)
+  with exn ->
+    Error (Printf.sprintf "Failed to list checkpoints: %s"
+      (Printexc.to_string exn))
 
 let delete store id =
   match validate_session_id id with
@@ -84,7 +90,9 @@ let exists store id =
     Eio.Path.is_file path
 
 let latest store =
-  let ids = list store in
+  match list store with
+  | Error e -> Error e
+  | Ok ids ->
   if ids = [] then Error "No checkpoints found"
   else
     let best =

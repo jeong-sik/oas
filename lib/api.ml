@@ -475,7 +475,7 @@ let parse_openai_response json_str =
                        ( tc |> member "id" |> to_string,
                          fn |> member "name" |> to_string,
                          json_of_string_or_raw arguments ))
-                with _ -> None)
+                with Yojson.Safe.Util.Type_error _ | Yojson.Json_error _ -> None)
               calls
         | _ -> []
       in
@@ -523,7 +523,7 @@ let parse_ollama_chat_response json_str =
                    ( tc |> member "id" |> to_string_option |> Option.value ~default:"function_call",
                      fn |> member "name" |> to_string,
                      json_of_string_or_raw arguments ))
-            with _ -> None)
+            with Yojson.Safe.Util.Type_error _ | Yojson.Json_error _ -> None)
           calls
     | _ -> []
   in
