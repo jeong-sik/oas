@@ -75,10 +75,10 @@ let tool_choice_of_json json =
     | "tool" ->
       let name = json |> member "name" |> to_string in
       Ok (Tool name)
-    | other -> Error (Printf.sprintf "Unknown tool_choice type: %s" other)
+    | other -> Error (Error.Serialization (UnknownVariant { type_name = "tool_choice"; value = other }))
   with
   | Yojson.Safe.Util.Type_error (msg, _) ->
-    Error (Printf.sprintf "Invalid tool_choice JSON: %s" msg)
+    Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Invalid tool_choice JSON: %s" msg }))
 
 (** Content block types - Tuple Style for safety *)
 type content_block =

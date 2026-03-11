@@ -33,7 +33,7 @@ let create_message ~sw ~net ?(base_url=default_base_url) ?provider ?clock ?retry
     | Some p ->
         (match Provider.resolve p with
          | Ok (url, _key, headers) -> Ok (p, url, headers)
-         | Error _e -> Error (Error.Config (MissingEnvVar { var_name = p.api_key_env })))
+         | Error e -> Error e)
     | None ->
         (match Sys.getenv_opt "ANTHROPIC_API_KEY" with
          | Some key ->

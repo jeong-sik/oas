@@ -61,7 +61,7 @@ module Types : sig
   [@@deriving show]
 
   val tool_choice_to_json : tool_choice -> Yojson.Safe.t
-  val tool_choice_of_json : Yojson.Safe.t -> (tool_choice, string) result
+  val tool_choice_of_json : Yojson.Safe.t -> (tool_choice, Error.sdk_error) result
 
   (** Content block types *)
   type content_block =
@@ -228,7 +228,7 @@ module Provider : sig
   val request_path : provider -> string
 
   (** Resolve provider config to (base_url, api_key, headers) *)
-  val resolve : config -> (string * string * (string * string) list, string) result
+  val resolve : config -> (string * string * (string * string) list, Error.sdk_error) result
 
   (** Pre-built provider configs *)
   val local_qwen : unit -> config
@@ -242,97 +242,32 @@ end
 
 (** {1 Error Handling and Retry} *)
 
-module Retry : sig
-  (** Structured API errors *)
-  type api_error =
-    | RateLimited of { retry_after: float option; message: string }
-    | Overloaded of { message: string }
-    | ServerError of { status: int; message: string }
-    | AuthError of { message: string }
-    | InvalidRequest of { message: string }
-    | NetworkError of { message: string }
-    | Timeout of { message: string }
+module Retry = Retry
+(** Structured API errors and retry logic.
 
-  type retry_config = {
-    max_retries: int;
-    initial_delay: float;
-    max_delay: float;
-    backoff_factor: float;
-  }
+    Key types:
+    - [api_error]: 7-variant error type (RateLimited, Overloaded, ServerError, etc.)
+    - [retry_config]: exponential backoff configuration
 
-  val default_config : retry_config
-  val is_retryable : api_error -> bool
-  val error_message : api_error -> string
-  val classify_error : status:int -> body:string -> api_error
-  val calculate_delay : retry_config -> int -> float
-
-  (** Retry with exponential backoff + jitter.
-      Non-retryable errors (AuthError, InvalidRequest) return immediately. *)
-  val with_retry :
-    clock:_ Eio.Time.clock ->
-    ?config:retry_config ->
-    (unit -> ('a, api_error) result) ->
-    ('a, api_error) result
-end
+    Key operations:
+    - [with_retry]: automatic retry with backoff + jitter
+    - [classify_error]: HTTP status/body to [api_error]
+    - [is_retryable]: check if an error is worth retrying *)
 
 (** {1 Structured Errors} *)
 
-module Error : sig
-  (** Structured SDK error types.
+module Error = Error
+(** Structured SDK error types.
 
-      Replaces [(_, string) result] with [(_, sdk_error) result] across the SDK.
-      Provides human-readable [to_string] for backward-compatible error messages
-      and [is_retryable] for automated retry decisions. *)
+    Replaces [(_, string) result] with [(_, sdk_error) result] across the SDK.
+    Provides human-readable [to_string] for backward-compatible error messages
+    and [is_retryable] for automated retry decisions.
 
-  (** {2 Domain error types} *)
-
-  type api_error = Retry.api_error
-
-  type agent_error =
-    | MaxTurnsExceeded of { turns: int; limit: int }
-    | TokenBudgetExceeded of { kind: string; used: int; limit: int }
-    | UnrecognizedStopReason of { reason: string }
-
-  type mcp_error =
-    | ServerStartFailed of { command: string; detail: string }
-    | InitializeFailed of { detail: string }
-    | ToolListFailed of { detail: string }
-    | ToolCallFailed of { tool_name: string; detail: string }
-
-  type config_error =
-    | MissingEnvVar of { var_name: string }
-    | UnsupportedProvider of { detail: string }
-
-  type serialization_error =
-    | JsonParseError of { detail: string }
-    | VersionMismatch of { expected: int; got: int }
-    | UnknownVariant of { type_name: string; value: string }
-
-  type io_error =
-    | FileOpFailed of { op: string; path: string; detail: string }
-    | ValidationFailed of { detail: string }
-
-  type orchestration_error =
-    | UnknownAgent of { name: string }
-    | TaskTimeout of { task_id: string }
-
-  (** {2 Top-level error} *)
-
-  type sdk_error =
-    | Api of api_error
-    | Agent of agent_error
-    | Mcp of mcp_error
-    | Config of config_error
-    | Serialization of serialization_error
-    | Io of io_error
-    | Orchestration of orchestration_error
-    | Internal of string
-
-  (** {2 Operations} *)
-
-  val to_string : sdk_error -> string
-  val is_retryable : sdk_error -> bool
-end
+    See {!Error} for the full type definitions:
+    - Domain types: [api_error], [agent_error], [mcp_error], [config_error],
+      [serialization_error], [io_error], [orchestration_error]
+    - Top-level: [sdk_error]
+    - Operations: [to_string], [is_retryable] *)
 
 (** {1 Lifecycle Hooks} *)
 

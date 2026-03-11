@@ -49,7 +49,7 @@ let resolve cfg =
        [("x-api-key", key);
         ("anthropic-version", "2023-06-01");
         ("Content-Type", "application/json")])
-     | None -> Error (Printf.sprintf "Missing env var: %s" cfg.api_key_env))
+     | None -> Error (Error.Config (MissingEnvVar { var_name = cfg.api_key_env })))
   | OpenAICompat { base_url; auth_header; static_token; _ } ->
     (match static_token with
      | Some key when String.trim key <> "" ->
@@ -70,7 +70,7 @@ let resolve cfg =
                      ( base_url,
                        key,
                        [ (header, "Bearer " ^ key); ("Content-Type", "application/json") ] )
-               | None -> Error (Printf.sprintf "Missing env var: %s" cfg.api_key_env))))
+               | None -> Error (Error.Config (MissingEnvVar { var_name = cfg.api_key_env })))))
   | Ollama { base_url; _ } ->
     Ok (base_url, "dummy", [("Content-Type", "application/json")])
 

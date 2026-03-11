@@ -96,7 +96,7 @@ let create_message_stream ~sw ~net ?(base_url=Api.default_base_url) ?provider ~c
     | Some p ->
         (match Provider.resolve p with
          | Ok (url, key, _headers) -> Ok (p, url, key)
-         | Error _e -> Error (Error.Config (MissingEnvVar { var_name = p.api_key_env })))
+         | Error e -> Error e)
     | None ->
         (match Sys.getenv_opt "ANTHROPIC_API_KEY" with
          | Some key ->
