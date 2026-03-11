@@ -37,12 +37,12 @@ let sample_tool_schema : Types.tool_schema =
 let create_ok dir =
   match Checkpoint_store.create dir with
   | Ok s -> s
-  | Error e -> Alcotest.fail ("create failed: " ^ e)
+  | Error e -> Alcotest.fail ("create failed: " ^ Error.to_string e)
 
 let list_ok store =
   match Checkpoint_store.list store with
   | Ok ids -> ids
-  | Error e -> Alcotest.fail ("list failed: " ^ e)
+  | Error e -> Alcotest.fail ("list failed: " ^ Error.to_string e)
 
 let with_tmp_store f =
   Eio_main.run @@ fun env ->
