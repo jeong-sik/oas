@@ -159,3 +159,7 @@
 (test
  (name test_error)
  (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_otel_tracer)
+ (libraries agent_sdk alcotest yojson))

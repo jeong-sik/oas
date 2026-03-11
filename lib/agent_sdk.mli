@@ -1194,11 +1194,14 @@ module Otel_tracer : sig
 
   (** {2 Helpers} *)
 
+  val otel_span_kind_to_int : otel_span_kind -> int
   val map_span_kind : Tracing.span_kind -> otel_span_kind
   val make_span_name : Tracing.span_attrs -> string
 
   (** {2 Export} *)
 
+  val attrs_to_json : (string * string) list -> Yojson.Safe.t
+  val status_to_json : span -> Yojson.Safe.t
   val span_to_json : span -> Yojson.Safe.t
   val to_otlp_json : config -> Yojson.Safe.t
   val flush : unit -> span list
