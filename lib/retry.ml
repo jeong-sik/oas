@@ -43,7 +43,7 @@ let classify_error ~status ~body : api_error =
       let json = Yojson.Safe.from_string body in
       let open Yojson.Safe.Util in
       json |> member "error" |> member "message" |> to_string
-    with _ -> body
+    with Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ | Yojson.Safe.Util.Undefined _ -> body
   in
   match status with
   | 401 -> AuthError { message }
@@ -54,7 +54,7 @@ let classify_error ~status ~body : api_error =
         let json = Yojson.Safe.from_string body in
         let open Yojson.Safe.Util in
         Some (json |> member "error" |> member "retry_after" |> to_float)
-      with _ -> None
+      with Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ | Yojson.Safe.Util.Undefined _ -> None
     in
     RateLimited { retry_after; message }
   | 529 -> Overloaded { message }

@@ -872,11 +872,11 @@ module Checkpoint_store : sig
 
   type t
 
-  val create : Eio.Fs.dir_ty Eio.Path.t -> t
+  val create : Eio.Fs.dir_ty Eio.Path.t -> (t, string) result
   val save : t -> Checkpoint.t -> (unit, string) result
   val load : t -> string -> (Checkpoint.t, string) result
   val latest : t -> (Checkpoint.t, string) result
-  val list : t -> string list
+  val list : t -> (string list, string) result
   val delete : t -> string -> (unit, string) result
   val exists : t -> string -> bool
 end

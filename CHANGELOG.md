@@ -2,6 +2,18 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.8.2] - 2026-03-11
+
+### Fixed
+- `Checkpoint_store.create`: now returns `(t, string) result` instead of silently ignoring `mkdirs` failure
+- `Checkpoint_store.list`: now returns `(string list, string) result` instead of silently returning `[]` on `read_dir` failure
+- `Retry.classify_error`: narrowed `with _ ->` to `Yojson.Json_error | Type_error` so non-JSON exceptions propagate
+- `Api.parse_openai_chat_response` / `parse_ollama_chat_response`: narrowed tool_call parsing catch to Yojson-specific exceptions
+
+### Changed (breaking)
+- `Checkpoint_store.create`: `Eio.Fs.dir_ty Eio.Path.t -> t` changed to `-> (t, string) result`
+- `Checkpoint_store.list`: `t -> string list` changed to `-> (string list, string) result`
+
 ## [0.8.1] - 2026-03-11
 
 ### Fixed

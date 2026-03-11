@@ -34,12 +34,22 @@ let sample_tool_schema : Types.tool_schema =
       ];
   }
 
+let create_ok dir =
+  match Checkpoint_store.create dir with
+  | Ok s -> s
+  | Error e -> Alcotest.fail ("create failed: " ^ e)
+
+let list_ok store =
+  match Checkpoint_store.list store with
+  | Ok ids -> ids
+  | Error e -> Alcotest.fail ("list failed: " ^ e)
+
 let with_tmp_store f =
   Eio_main.run @@ fun env ->
   let fs = Eio.Stdenv.fs env in
   let suffix = string_of_int (Random.int 999999) in
   let tmp_dir = Eio.Path.(fs / "/tmp" / ("oas-test-" ^ suffix)) in
-  let store = Checkpoint_store.create tmp_dir in
+  let store = create_ok tmp_dir in
   Fun.protect
     ~finally:(fun () ->
       try Eio.Path.rmtree ~missing_ok:true tmp_dir with _ -> ())
@@ -52,6 +62,32 @@ let test_create_store () =
       Alcotest.(check bool)
         "dir exists" true
         (Eio.Path.is_directory tmp_dir))
+
+let test_create_returns_error_on_bad_path () =
+  Eio_main.run @@ fun env ->
+  let fs = Eio.Stdenv.fs env in
+  let suffix = string_of_int (Random.int 999999) in
+  let file_path = Eio.Path.(fs / "/tmp" / ("oas-not-a-dir-" ^ suffix)) in
+  Eio.Path.save ~create:(`Or_truncate 0o644) file_path "x";
+  let bad_path = Eio.Path.(file_path / "sub") in
+  Fun.protect
+    ~finally:(fun () ->
+      try Eio.Path.unlink file_path with _ -> ())
+    (fun () ->
+      match Checkpoint_store.create bad_path with
+      | Error _ -> ()
+      | Ok _ -> Alcotest.fail "expected Error for path under a file")
+
+let test_list_returns_error_when_dir_removed () =
+  Eio_main.run @@ fun env ->
+  let fs = Eio.Stdenv.fs env in
+  let suffix = string_of_int (Random.int 999999) in
+  let tmp_dir = Eio.Path.(fs / "/tmp" / ("oas-test-list-err-" ^ suffix)) in
+  let store = create_ok tmp_dir in
+  Eio.Path.rmtree ~missing_ok:true tmp_dir;
+  match Checkpoint_store.list store with
+  | Error _ -> ()
+  | Ok _ -> Alcotest.fail "expected Error after removing directory"
 
 let test_create_auto_creates_directory () =
   Eio_main.run @@ fun env ->
@@ -67,7 +103,7 @@ let test_create_auto_creates_directory () =
     ~finally:(fun () ->
       try Eio.Path.rmtree ~missing_ok:true parent with _ -> ())
     (fun () ->
-      let _store = Checkpoint_store.create tmp_dir in
+      let _store = create_ok tmp_dir in
       Alcotest.(check bool)
         "nested dir exists" true
         (Eio.Path.is_directory tmp_dir))
@@ -95,7 +131,7 @@ let test_save_atomic_no_tmp_residue () =
   with_tmp_store (fun store _tmp_dir ->
       let cp = make_checkpoint () in
       let _ = Checkpoint_store.save store cp in
-      let ids = Checkpoint_store.list store in
+      let ids = list_ok store in
       (* No .tmp files should appear in the listing *)
       Alcotest.(check (list string))
         "only json" [ "test-session" ] ids)
@@ -152,7 +188,7 @@ let test_load_corrupted () =
   with_tmp_store (fun _store tmp_dir ->
       let path = Eio.Path.(tmp_dir / "corrupted.json") in
       Eio.Path.save ~create:(`Or_truncate 0o644) path "not valid json{{{";
-      let store = Checkpoint_store.create tmp_dir in
+      let store = create_ok tmp_dir in
       let result = Checkpoint_store.load store "corrupted" in
       Alcotest.(check bool) "load error" true (Result.is_error result))
 
@@ -251,7 +287,7 @@ let test_roundtrip_preserves_tool_choice () =
 
 let test_list_empty_store () =
   with_tmp_store (fun store _tmp_dir ->
-      let ids = Checkpoint_store.list store in
+      let ids = list_ok store in
       Alcotest.(check (list string)) "empty" [] ids)
 
 let test_list_returns_all_saved () =
@@ -265,7 +301,7 @@ let test_list_returns_all_saved () =
       let _ =
         Checkpoint_store.save store (make_checkpoint ~session_id:"ccc" ())
       in
-      let ids = Checkpoint_store.list store in
+      let ids = list_ok store in
       Alcotest.(check (list string)) "all three" [ "aaa"; "bbb"; "ccc" ] ids)
 
 let test_list_excludes_tmp_files () =
@@ -278,7 +314,7 @@ let test_list_excludes_tmp_files () =
         ~create:(`Or_truncate 0o644)
         Eio.Path.(tmp_dir / "orphan.json.tmp")
         "{}";
-      let ids = Checkpoint_store.list store in
+      let ids = list_ok store in
       Alcotest.(check (list string)) "no tmp" [ "good" ] ids)
 
 let test_list_is_sorted () =
@@ -292,7 +328,7 @@ let test_list_is_sorted () =
       let _ =
         Checkpoint_store.save store (make_checkpoint ~session_id:"mid" ())
       in
-      let ids = Checkpoint_store.list store in
+      let ids = list_ok store in
       Alcotest.(check (list string))
         "sorted" [ "alpha"; "mid"; "zebra" ] ids)
 
@@ -305,7 +341,7 @@ let test_list_after_delete () =
         Checkpoint_store.save store (make_checkpoint ~session_id:"remove" ())
       in
       let _ = Checkpoint_store.delete store "remove" in
-      let ids = Checkpoint_store.list store in
+      let ids = list_ok store in
       Alcotest.(check (list string)) "after delete" [ "keep" ] ids)
 
 let test_delete_existing () =
@@ -385,6 +421,17 @@ let test_latest_ignores_corrupted () =
       | Error e -> Alcotest.fail e
       | Ok cp -> Alcotest.(check string) "session_id" "valid" cp.session_id)
 
+let test_latest_all_corrupted () =
+  with_tmp_store (fun _store tmp_dir ->
+      Eio.Path.save ~create:(`Or_truncate 0o644)
+        Eio.Path.(tmp_dir / "bad1.json") "not json";
+      Eio.Path.save ~create:(`Or_truncate 0o644)
+        Eio.Path.(tmp_dir / "bad2.json") "{broken";
+      let store = create_ok tmp_dir in
+      match Checkpoint_store.latest store with
+      | Error _ -> ()
+      | Ok _ -> Alcotest.fail "expected Error when all checkpoints are corrupted")
+
 let test_exists_true_for_saved () =
   with_tmp_store (fun store _tmp_dir ->
       let _ =
@@ -436,6 +483,20 @@ let () =
           Alcotest.test_case "create store" `Quick test_create_store;
           Alcotest.test_case "create auto creates directory" `Quick
             test_create_auto_creates_directory;
+          Alcotest.test_case "create returns error on bad path" `Quick
+            test_create_returns_error_on_bad_path;
+        ] );
+      ( "list",
+        [
+          Alcotest.test_case "list empty store" `Quick test_list_empty_store;
+          Alcotest.test_case "list returns all saved" `Quick
+            test_list_returns_all_saved;
+          Alcotest.test_case "list excludes .tmp files" `Quick
+            test_list_excludes_tmp_files;
+          Alcotest.test_case "list is sorted" `Quick test_list_is_sorted;
+          Alcotest.test_case "list after delete" `Quick test_list_after_delete;
+          Alcotest.test_case "list returns error when dir removed" `Quick
+            test_list_returns_error_when_dir_removed;
         ] );
       ( "save",
         [
@@ -477,16 +538,6 @@ let () =
           Alcotest.test_case "roundtrip preserves tool_choice" `Quick
             test_roundtrip_preserves_tool_choice;
         ] );
-      ( "list",
-        [
-          Alcotest.test_case "list empty store" `Quick test_list_empty_store;
-          Alcotest.test_case "list returns all saved" `Quick
-            test_list_returns_all_saved;
-          Alcotest.test_case "list excludes .tmp files" `Quick
-            test_list_excludes_tmp_files;
-          Alcotest.test_case "list is sorted" `Quick test_list_is_sorted;
-          Alcotest.test_case "list after delete" `Quick test_list_after_delete;
-        ] );
       ( "delete",
         [
           Alcotest.test_case "delete existing" `Quick test_delete_existing;
@@ -507,6 +558,8 @@ let () =
             test_latest_with_single;
           Alcotest.test_case "latest ignores corrupted files" `Quick
             test_latest_ignores_corrupted;
+          Alcotest.test_case "latest all corrupted returns error" `Quick
+            test_latest_all_corrupted;
         ] );
       ( "exists",
         [
