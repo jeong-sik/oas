@@ -39,4 +39,4 @@ let () =
      | Some u -> Printf.printf "Usage: in=%d out=%d\n%!" u.Types.input_tokens u.output_tokens
      | None -> Printf.printf "No usage data\n%!")
   | Error e ->
-    Printf.printf "Error: %s\n%!" e
+    Printf.printf "Error: %s\n%!" (Error.to_string e)

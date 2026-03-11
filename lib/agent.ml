@@ -225,14 +225,14 @@ let run_turn ~sw ?clock agent =
           (Hooks.OnStop { reason = response.stop_reason; response }) in
         Ok (`Complete response)
       | Unknown reason ->
-        Error (Printf.sprintf "Unrecognized stop_reason from API: %s" reason)
+        Error (Error.Agent (UnrecognizedStopReason { reason }))
 
-(** Check if token budget has been exceeded. Returns an error message or None. *)
+(** Check if token budget has been exceeded. Returns a structured error or None. *)
 let check_token_budget config usage =
   let exceeded_input =
     match config.max_input_tokens with
     | Some limit when usage.total_input_tokens > limit ->
-        Some (Printf.sprintf "Input token budget exceeded: %d/%d" usage.total_input_tokens limit)
+        Some (Error.Agent (TokenBudgetExceeded { kind = "Input"; used = usage.total_input_tokens; limit }))
     | _ -> None
   in
   let exceeded_total =
@@ -240,7 +240,7 @@ let check_token_budget config usage =
     | Some limit ->
         let total = usage.total_input_tokens + usage.total_output_tokens in
         if total > limit then
-          Some (Printf.sprintf "Total token budget exceeded: %d/%d" total limit)
+          Some (Error.Agent (TokenBudgetExceeded { kind = "Total"; used = total; limit }))
         else None
     | _ -> None
   in
@@ -254,7 +254,7 @@ let run ~sw ?clock agent user_prompt =
 
   let rec loop () =
     if agent.state.turn_count >= agent.state.config.max_turns then
-      Error "Max turns exceeded"
+      Error (Error.Agent (MaxTurnsExceeded { turns = agent.state.turn_count; limit = agent.state.config.max_turns }))
     else
       match check_token_budget agent.state.config agent.state.usage with
       | Some err -> Error err
@@ -305,12 +305,7 @@ let run_turn_stream ~sw ?clock ~on_event agent =
       in
       match stream_result with
       | Ok _ -> stream_result
-      | Error msg ->
-        let prefix = "Streaming is only supported" in
-        let msg_len = String.length msg in
-        let prefix_len = String.length prefix in
-        if msg_len >= prefix_len
-           && String.sub msg 0 prefix_len = prefix then
+      | Error (Error.Config (UnsupportedProvider _)) ->
           (* Non-Anthropic provider: fallback to sync + synthetic events *)
           let sync_result = Api.create_message ~sw ~net:agent.net
             ~base_url:agent.options.base_url ?provider:agent.options.provider
@@ -321,8 +316,7 @@ let run_turn_stream ~sw ?clock ~on_event agent =
              Streaming.emit_synthetic_events response on_event;
              Ok response
            | Error _ -> sync_result)
-        else
-          stream_result)
+      | Error _ -> stream_result)
   in
   match api_result with
   | Error e -> Error e
@@ -372,7 +366,7 @@ let run_turn_stream ~sw ?clock ~on_event agent =
         (Hooks.OnStop { reason = response.stop_reason; response }) in
       Ok (`Complete response)
     | Unknown reason ->
-      Error (Printf.sprintf "Unrecognized stop_reason from API: %s" reason)
+      Error (Error.Agent (UnrecognizedStopReason { reason }))
 
 (** Run agent loop with streaming.
     Same as [run] but uses [run_turn_stream] for each turn. *)
@@ -381,7 +375,7 @@ let run_stream ~sw ?clock ~on_event agent user_prompt =
     messages = agent.state.messages @ [{ role = User; content = [Text user_prompt] }] };
   let rec loop () =
     if agent.state.turn_count >= agent.state.config.max_turns then
-      Error "Max turns exceeded"
+      Error (Error.Agent (MaxTurnsExceeded { turns = agent.state.turn_count; limit = agent.state.config.max_turns }))
     else
       match check_token_budget agent.state.config agent.state.usage with
       | Some err -> Error err
@@ -461,7 +455,7 @@ let run_with_handoffs ~sw ?clock agent ~targets user_prompt =
 
   let rec loop () =
     if agent_with_handoffs.state.turn_count >= agent_with_handoffs.state.config.max_turns then
-      Error "Max turns exceeded"
+      Error (Error.Agent (MaxTurnsExceeded { turns = agent.state.turn_count; limit = agent.state.config.max_turns }))
     else
       match run_turn ~sw ?clock agent_with_handoffs with
       | Error e -> Error e
@@ -490,7 +484,7 @@ let run_with_handoffs ~sw ?clock agent ~targets user_prompt =
                   provider = agent.options.provider } () in
                (match run ~sw ?clock sub prompt with
                | Error e ->
-                 let err_msg = Printf.sprintf "Handoff to %s failed: %s" target_name e in
+                 let err_msg = Printf.sprintf "Handoff to %s failed: %s" target_name (Error.to_string e) in
                  agent_with_handoffs.state <- { agent_with_handoffs.state with
                    messages =
                      replace_tool_result agent_with_handoffs.state.messages

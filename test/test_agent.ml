@@ -135,7 +135,7 @@ let test_budget_input_exceeded () =
   match Agent.check_token_budget config usage with
   | Some msg ->
     Alcotest.(check bool) "contains exceeded" true
-      (String.length msg > 0)
+      (String.length (Error.to_string msg) > 0)
   | None -> Alcotest.fail "expected budget exceeded"
 
 let test_budget_total_exceeded () =
@@ -144,7 +144,7 @@ let test_budget_total_exceeded () =
   match Agent.check_token_budget config usage with
   | Some msg ->
     Alcotest.(check bool) "contains exceeded" true
-      (String.length msg > 0)
+      (String.length (Error.to_string msg) > 0)
   | None -> Alcotest.fail "expected total budget exceeded"
 
 let test_budget_total_within () =
@@ -160,10 +160,11 @@ let test_budget_input_priority () =
   match Agent.check_token_budget config usage with
   | Some msg ->
     Alcotest.(check bool) "input mentioned" true
-      (let len = String.length msg in
+      (let s = Error.to_string msg in
+       let len = String.length s in
        let rec find i =
          if i + 5 > len then false
-         else if String.sub msg i 5 = "Input" then true
+         else if String.sub s i 5 = "Input" then true
          else find (i + 1)
        in find 0)
   | None -> Alcotest.fail "expected input budget exceeded"

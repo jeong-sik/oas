@@ -47,13 +47,13 @@ val connect :
   command:string ->
   args:string list ->
   unit ->
-  (t, string) result
+  (t, Error.sdk_error) result
 
 (** Perform the MCP initialize handshake (protocol 2025-11-25). *)
-val initialize : t -> (unit, string) result
+val initialize : t -> (unit, Error.sdk_error) result
 
 (** Fetch tools from the MCP server. *)
-val list_tools : t -> (Mcp_protocol.Mcp_types.tool list, string) result
+val list_tools : t -> (Mcp_protocol.Mcp_types.tool list, Error.sdk_error) result
 
 (** Call a tool by name with JSON arguments.
     Returns concatenated text content on success. *)

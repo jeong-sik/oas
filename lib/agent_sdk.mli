@@ -275,6 +275,65 @@ module Retry : sig
     ('a, api_error) result
 end
 
+(** {1 Structured Errors} *)
+
+module Error : sig
+  (** Structured SDK error types.
+
+      Replaces [(_, string) result] with [(_, sdk_error) result] across the SDK.
+      Provides human-readable [to_string] for backward-compatible error messages
+      and [is_retryable] for automated retry decisions. *)
+
+  (** {2 Domain error types} *)
+
+  type api_error = Retry.api_error
+
+  type agent_error =
+    | MaxTurnsExceeded of { turns: int; limit: int }
+    | TokenBudgetExceeded of { kind: string; used: int; limit: int }
+    | UnrecognizedStopReason of { reason: string }
+
+  type mcp_error =
+    | ServerStartFailed of { command: string; detail: string }
+    | InitializeFailed of { detail: string }
+    | ToolListFailed of { detail: string }
+    | ToolCallFailed of { tool_name: string; detail: string }
+
+  type config_error =
+    | MissingEnvVar of { var_name: string }
+    | UnsupportedProvider of { detail: string }
+
+  type serialization_error =
+    | JsonParseError of { detail: string }
+    | VersionMismatch of { expected: int; got: int }
+    | UnknownVariant of { type_name: string; value: string }
+
+  type io_error =
+    | FileOpFailed of { op: string; path: string; detail: string }
+    | ValidationFailed of { detail: string }
+
+  type orchestration_error =
+    | UnknownAgent of { name: string }
+    | TaskTimeout of { task_id: string }
+
+  (** {2 Top-level error} *)
+
+  type sdk_error =
+    | Api of api_error
+    | Agent of agent_error
+    | Mcp of mcp_error
+    | Config of config_error
+    | Serialization of serialization_error
+    | Io of io_error
+    | Orchestration of orchestration_error
+    | Internal of string
+
+  (** {2 Operations} *)
+
+  val to_string : sdk_error -> string
+  val is_retryable : sdk_error -> bool
+end
+
 (** {1 Lifecycle Hooks} *)
 
 module Hooks : sig
@@ -446,9 +505,9 @@ module Mcp : sig
       [env] optionally overrides the process environment. *)
   val connect :
     sw:Eio.Switch.t -> mgr:_ Eio.Process.mgr ->
-    command:string -> args:string list -> ?env:string array -> unit -> (t, string) result
-  val initialize : t -> (unit, string) result
-  val list_tools : t -> (mcp_tool list, string) result
+    command:string -> args:string list -> ?env:string array -> unit -> (t, Error.sdk_error) result
+  val initialize : t -> (unit, Error.sdk_error) result
+  val list_tools : t -> (mcp_tool list, Error.sdk_error) result
   val call_tool :
     t -> name:string -> arguments:Yojson.Safe.t -> (string, string) result
   val to_tools : t -> mcp_tool list -> Tool.t list
@@ -486,13 +545,13 @@ module Mcp : sig
       them to SDK {!Tool.t} values.  On failure the subprocess is closed. *)
   val connect_and_load :
     sw:Eio.Switch.t -> mgr:_ Eio.Process.mgr ->
-    server_spec -> (managed, string) result
+    server_spec -> (managed, Error.sdk_error) result
 
   (** Connect to multiple MCP servers sequentially.
       On failure, all previously-connected servers are closed. *)
   val connect_all :
     sw:Eio.Switch.t -> mgr:_ Eio.Process.mgr ->
-    server_spec list -> (managed list, string) result
+    server_spec list -> (managed list, Error.sdk_error) result
 end
 
 (** {1 MCP Client Bridge (Eio-native)}
@@ -514,13 +573,13 @@ module Mcp_bridge : sig
     command:string ->
     args:string list ->
     unit ->
-    (t, string) result
+    (t, Error.sdk_error) result
 
   (** Perform the MCP initialize handshake. *)
-  val initialize : t -> (unit, string) result
+  val initialize : t -> (unit, Error.sdk_error) result
 
   (** Fetch tools from the MCP server. *)
-  val list_tools : t -> (Mcp_protocol.Mcp_types.tool list, string) result
+  val list_tools : t -> (Mcp_protocol.Mcp_types.tool list, Error.sdk_error) result
 
   (** Call a tool by name with JSON arguments. *)
   val call_tool : t -> name:string -> arguments:Yojson.Safe.t ->
@@ -593,7 +652,7 @@ module Skill : sig
 
   (** Skill construction *)
   val of_markdown : ?path:string -> ?scope:scope -> string -> t
-  val load : ?scope:scope -> string -> (t, string) result
+  val load : ?scope:scope -> string -> (t, Error.sdk_error) result
   val load_dir : ?scope:scope -> string -> t list
 
   (** Prompt rendering with argument substitution *)
@@ -621,7 +680,7 @@ module Handoff : sig
     sw:Eio.Switch.t ->
     handoff_target ->
     string ->
-    (Types.api_response, string) result
+    (Types.api_response, Error.sdk_error) result
 
   val handoff_prefix : string
   val is_handoff_tool : string -> bool
@@ -681,7 +740,7 @@ module Api : sig
     messages:Types.message list ->
     ?tools:Yojson.Safe.t list ->
     unit ->
-    (Types.api_response, string) result
+    (Types.api_response, Error.sdk_error) result
 end
 
 (** {1 SSE Streaming} *)
@@ -707,7 +766,7 @@ module Streaming : sig
     ?tools:Yojson.Safe.t list ->
     on_event:(Types.sse_event -> unit) ->
     unit ->
-    (Types.api_response, string) result
+    (Types.api_response, Error.sdk_error) result
 
   (** Emit synthetic SSE events from a complete [api_response].
       Used as fallback for providers that don't support native SSE streaming. *)
@@ -745,7 +804,7 @@ module Subagent : sig
   [@@deriving show]
 
   val of_markdown : ?path:string -> ?skills:Skill.t list -> string -> t
-  val load : ?skill_roots:string list -> string -> (t, string) result
+  val load : ?skill_roots:string list -> string -> (t, Error.sdk_error) result
   val compose_prompt : ?arguments:string -> t -> string
   val filter_tools : t -> Tool.t list -> Tool.t list
   val to_handoff_target :
@@ -767,7 +826,7 @@ module Structured : sig
 
   val schema_to_tool_json : _ schema -> Yojson.Safe.t
   val extract_tool_input :
-    schema:'a schema -> Types.content_block list -> ('a, string) result
+    schema:'a schema -> Types.content_block list -> ('a, Error.sdk_error) result
 
   (** Extract structured output from a prompt.
       Forces tool_choice to the schema's tool name. *)
@@ -779,7 +838,7 @@ module Structured : sig
     config:Types.agent_config ->
     schema:'a schema ->
     string ->
-    ('a, string) result
+    ('a, Error.sdk_error) result
 
   (** Extract structured output with SSE streaming.
       Like [extract] but calls [on_event] for each SSE event received.
@@ -795,7 +854,7 @@ module Structured : sig
     schema:'a schema ->
     on_event:(Types.sse_event -> unit) ->
     string ->
-    ('a * Types.api_response, string) result
+    ('a * Types.api_response, Error.sdk_error) result
 end
 
 (** {1 MCP Session Persistence} *)
@@ -823,12 +882,12 @@ module Mcp_session : sig
       Each failed entry includes the original info and the error message. *)
   val reconnect_all :
     sw:Eio.Switch.t -> mgr:_ Eio.Process.mgr ->
-    info list -> Mcp.managed list * (info * string) list
+    info list -> Mcp.managed list * (info * Error.sdk_error) list
 
   val info_to_json : info -> Yojson.Safe.t
-  val info_of_json : Yojson.Safe.t -> (info, string) result
+  val info_of_json : Yojson.Safe.t -> (info, Error.sdk_error) result
   val info_list_to_json : info list -> Yojson.Safe.t
-  val info_list_of_json : Yojson.Safe.t -> (info list, string) result
+  val info_list_of_json : Yojson.Safe.t -> (info list, Error.sdk_error) result
 end
 
 (** {1 Checkpoint} *)
@@ -855,9 +914,9 @@ module Checkpoint : sig
   val checkpoint_version : int
 
   val to_json : t -> Yojson.Safe.t
-  val of_json : Yojson.Safe.t -> (t, string) result
+  val of_json : Yojson.Safe.t -> (t, Error.sdk_error) result
   val to_string : t -> string
-  val of_string : string -> (t, string) result
+  val of_string : string -> (t, Error.sdk_error) result
 
   val message_count : t -> int
   val token_usage : t -> Types.usage_stats
@@ -872,12 +931,12 @@ module Checkpoint_store : sig
 
   type t
 
-  val create : Eio.Fs.dir_ty Eio.Path.t -> (t, string) result
-  val save : t -> Checkpoint.t -> (unit, string) result
-  val load : t -> string -> (Checkpoint.t, string) result
-  val latest : t -> (Checkpoint.t, string) result
-  val list : t -> (string list, string) result
-  val delete : t -> string -> (unit, string) result
+  val create : Eio.Fs.dir_ty Eio.Path.t -> (t, Error.sdk_error) result
+  val save : t -> Checkpoint.t -> (unit, Error.sdk_error) result
+  val load : t -> string -> (Checkpoint.t, Error.sdk_error) result
+  val latest : t -> (Checkpoint.t, Error.sdk_error) result
+  val list : t -> (string list, Error.sdk_error) result
+  val delete : t -> string -> (unit, Error.sdk_error) result
   val exists : t -> string -> bool
 end
 
@@ -908,7 +967,7 @@ module Session : sig
   val resume_from : Checkpoint.t -> t
 
   val to_json : t -> Yojson.Safe.t
-  val of_json : Yojson.Safe.t -> (t, string) result
+  val of_json : Yojson.Safe.t -> (t, Error.sdk_error) result
 end
 
 (** {1 Event Bus} *)
@@ -922,7 +981,7 @@ module Event_bus : sig
   type event =
     | AgentStarted of { agent_name: string; task_id: string }
     | AgentCompleted of { agent_name: string; task_id: string;
-                          result: (Types.api_response, string) result; elapsed: float }
+                          result: (Types.api_response, Error.sdk_error) result; elapsed: float }
     | ToolCalled of { agent_name: string; tool_name: string; input: Yojson.Safe.t }
     | ToolCompleted of { agent_name: string; tool_name: string;
                          output: (string, string) result }
@@ -1008,7 +1067,7 @@ module Agent : sig
     sw:Eio.Switch.t ->
     ?clock:_ Eio.Time.clock ->
     t -> string ->
-    (Types.api_response, string) result
+    (Types.api_response, Error.sdk_error) result
 
   (** Run a single agent turn with SSE streaming.
       Calls [on_event] for each SSE event received.
@@ -1018,7 +1077,7 @@ module Agent : sig
     ?clock:_ Eio.Time.clock ->
     on_event:(Types.sse_event -> unit) ->
     t ->
-    ([ `Complete of Types.api_response | `ToolsExecuted ], string) result
+    ([ `Complete of Types.api_response | `ToolsExecuted ], Error.sdk_error) result
 
   (** Run full agent loop with SSE streaming.
       Like [run] but uses streaming for each API call. *)
@@ -1027,7 +1086,7 @@ module Agent : sig
     ?clock:_ Eio.Time.clock ->
     on_event:(Types.sse_event -> unit) ->
     t -> string ->
-    (Types.api_response, string) result
+    (Types.api_response, Error.sdk_error) result
 
   (** Find the most recent handoff tool call in messages.
       Returns [(tool_use_id, target_name, prompt)] or [None]. *)
@@ -1044,7 +1103,7 @@ module Agent : sig
   (** Check if token budget has been exceeded.
       Returns an error message or [None] if within budget. *)
   val check_token_budget :
-    Types.agent_config -> Types.usage_stats -> string option
+    Types.agent_config -> Types.usage_stats -> Error.sdk_error option
 
   (** Run with handoff support.
       Handoff tools are added to the agent's tool list. When the LLM calls
@@ -1055,7 +1114,7 @@ module Agent : sig
     t ->
     targets:Handoff.handoff_target list ->
     string ->
-    (Types.api_response, string) result
+    (Types.api_response, Error.sdk_error) result
 
   (** Clone an agent with independent mutable state.
       The clone shares [tools], [net], [options], and [mcp_clients]
@@ -1138,7 +1197,7 @@ module Orchestrator : sig
   type task_result = {
     task_id: string;
     agent_name: string;
-    result: (Types.api_response, string) result;
+    result: (Types.api_response, Error.sdk_error) result;
     elapsed: float;
   }
 

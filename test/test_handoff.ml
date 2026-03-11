@@ -142,7 +142,7 @@ let test_run_with_handoffs_intercepts_tool_use () =
             "handoff complete: delegated response" text;
           Eio.Switch.fail sw Exit
       | Error e ->
-          fail e
+          fail (Error.to_string e)
   with Exit -> ()
 
 let test_run_with_handoffs_reports_unknown_target () =
@@ -176,7 +176,7 @@ let test_run_with_handoffs_reports_unknown_target () =
             "handoff complete: Unknown handoff target: unknown" text;
           Eio.Switch.fail sw Exit
       | Error e ->
-          fail e
+          fail (Error.to_string e)
   with Exit -> ()
 
 let () =

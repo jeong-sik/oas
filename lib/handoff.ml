@@ -27,7 +27,7 @@ type delegate_fn =
   sw:Eio.Switch.t ->
   handoff_target ->
   string ->
-  (Types.api_response, string) result
+  (Types.api_response, Error.sdk_error) result
 
 (** Prefix used to identify handoff tools in ToolUse blocks *)
 let handoff_prefix = "transfer_to_"

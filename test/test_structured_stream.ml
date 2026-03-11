@@ -165,10 +165,10 @@ let test_multiple_schemas () =
   ] in
   (match Structured.extract_tool_input ~schema:color_schema content with
    | Ok color -> Alcotest.(check string) "color matched" "blue" color
-   | Error e -> Alcotest.fail ("color error: " ^ e));
+   | Error e -> Alcotest.fail ("color error: " ^ Error.to_string e));
   (match Structured.extract_tool_input ~schema:person_schema content with
    | Ok (name, _) -> Alcotest.(check string) "person matched" "X" name
-   | Error e -> Alcotest.fail ("person error: " ^ e))
+   | Error e -> Alcotest.fail ("person error: " ^ Error.to_string e))
 
 (* ── 5. accumulate_json_deltas ───────────────────────────────────── *)
 
@@ -279,7 +279,7 @@ let test_extract_after_accumulation () =
   | Ok (name, age) ->
     Alcotest.(check string) "roundtrip name" "Zoe" name;
     Alcotest.(check int) "roundtrip age" 28 age
-  | Error e -> Alcotest.fail ("roundtrip error: " ^ e)
+  | Error e -> Alcotest.fail ("roundtrip error: " ^ Error.to_string e)
 
 (* ── Suite ────────────────────────────────────────────────────────── *)
 

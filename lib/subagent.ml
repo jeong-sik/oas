@@ -125,7 +125,7 @@ let load ?(skill_roots = []) path =
         in
         let resolved = List.filter_map resolve initial.skill_refs in
         Ok { initial with skills = resolved })
-  with exn -> Error (Printf.sprintf "Subagent.load %s: %s" path (Printexc.to_string exn))
+  with exn -> Error (Error.Io (FileOpFailed { op = "load"; path; detail = Printexc.to_string exn }))
 
 (* --- Prompt composition --- *)
 

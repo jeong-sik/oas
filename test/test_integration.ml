@@ -54,7 +54,7 @@ let test_simple_conversation () =
           let text = List.filter_map (function Text s -> Some s | _ -> None) response.content |> String.concat "" in
           Alcotest.(check string) "response is pong" "pong" text;
           Eio.Switch.fail sw Exit
-      | Error e -> Alcotest.fail e
+      | Error e -> Alcotest.fail (Error.to_string e)
   with Exit -> ()
 
 let test_tool_use () =
@@ -80,7 +80,7 @@ let test_tool_use () =
           let text = List.filter_map (function Text s -> Some s | _ -> None) response.content |> String.concat "" in
           Alcotest.(check string) "tool result" "The result is 3" text;
           Eio.Switch.fail sw Exit
-      | Error e -> Alcotest.fail e
+      | Error e -> Alcotest.fail (Error.to_string e)
   with Exit -> ()
 
 let () =

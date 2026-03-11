@@ -55,7 +55,7 @@ let to_server_spec (info : info) : Mcp.server_spec =
 (** Reconnect to MCP servers from saved session info.
     Returns a pair: (successfully connected, failed infos with error messages).
     Failed connections do not abort the others. *)
-let reconnect_all ~sw ~mgr (infos : info list) : Mcp.managed list * (info * string) list =
+let reconnect_all ~sw ~mgr (infos : info list) : Mcp.managed list * (info * Error.sdk_error) list =
   List.fold_left (fun (connected, failed) info ->
     let spec = to_server_spec info in
     match Mcp.connect_and_load ~sw ~mgr spec with
@@ -75,7 +75,7 @@ let env_pair_of_json json =
     Ok (json |> member "key" |> to_string,
         json |> member "value" |> to_string)
   with exn ->
-    Error (Printf.sprintf "Invalid env pair: %s" (Printexc.to_string exn))
+    Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Invalid env pair: %s" (Printexc.to_string exn) }))
 
 let result_all items =
   let rec loop acc = function
@@ -103,7 +103,7 @@ let tool_param_of_json json =
     | "string" -> Ok String | "integer" -> Ok Integer
     | "number" -> Ok Number | "boolean" -> Ok Boolean
     | "array" -> Ok Array  | "object" -> Ok Object
-    | other -> Error (Printf.sprintf "Unknown param_type: %s" other)
+    | other -> Error (Error.Serialization (UnknownVariant { type_name = "param_type"; value = other }))
   in
   Result.map (fun param_type ->
     { name = json |> member "name" |> to_string;
@@ -141,7 +141,7 @@ let info_to_json (info : info) : Yojson.Safe.t =
     ("tool_schemas", `List (List.map tool_schema_to_json info.tool_schemas));
   ]
 
-let info_of_json json : (info, string) result =
+let info_of_json json : (info, Error.sdk_error) result =
   try
     let open Yojson.Safe.Util in
     let env_result =
@@ -165,19 +165,19 @@ let info_of_json json : (info, string) result =
     | _, Error e -> Error e
   with
   | Yojson.Safe.Util.Type_error (msg, _) ->
-    Error (Printf.sprintf "Mcp_session.info_of_json: %s" msg)
+    Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Mcp_session.info_of_json: %s" msg }))
   | exn ->
-    Error (Printf.sprintf "Mcp_session.info_of_json: %s" (Printexc.to_string exn))
+    Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Mcp_session.info_of_json: %s" (Printexc.to_string exn) }))
 
 let info_list_to_json (infos : info list) : Yojson.Safe.t =
   `List (List.map info_to_json infos)
 
-let info_list_of_json json : (info list, string) result =
+let info_list_of_json json : (info list, Error.sdk_error) result =
   try
     let open Yojson.Safe.Util in
     json |> to_list |> List.map info_of_json |> result_all
   with
   | Yojson.Safe.Util.Type_error (msg, _) ->
-    Error (Printf.sprintf "Mcp_session.info_list_of_json: %s" msg)
+    Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Mcp_session.info_list_of_json: %s" msg }))
   | exn ->
-    Error (Printf.sprintf "Mcp_session.info_list_of_json: %s" (Printexc.to_string exn))
+    Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Mcp_session.info_list_of_json: %s" (Printexc.to_string exn) }))

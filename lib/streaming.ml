@@ -91,12 +91,12 @@ let parse_sse_event event_type data_str =
     SSE streams deliver partial results incrementally; retrying mid-stream
     would discard already-received data and produce duplicate content.
     Callers that need retry should wrap this function externally. *)
-let create_message_stream ~sw ~net ?(base_url=Api.default_base_url) ?provider ~config ~messages ?tools ~on_event () : (api_response, string) result =
+let create_message_stream ~sw ~net ?(base_url=Api.default_base_url) ?provider ~config ~messages ?tools ~on_event () : (api_response, Error.sdk_error) result =
   let resolve_result = match provider with
     | Some p ->
         (match Provider.resolve p with
          | Ok (url, key, _headers) -> Ok (p, url, key)
-         | Error e -> Error e)
+         | Error _e -> Error (Error.Config (MissingEnvVar { var_name = p.api_key_env })))
     | None ->
         (match Sys.getenv_opt "ANTHROPIC_API_KEY" with
          | Some key ->
@@ -109,7 +109,7 @@ let create_message_stream ~sw ~net ?(base_url=Api.default_base_url) ?provider ~c
                    },
                  base_url,
                  key )
-         | None -> Error "API key env var 'ANTHROPIC_API_KEY' not set")
+         | None -> Error (Error.Config (MissingEnvVar { var_name = "ANTHROPIC_API_KEY" })))
   in
   match resolve_result with
   | Error e -> Error e
@@ -266,18 +266,17 @@ let create_message_stream ~sw ~net ?(base_url=Api.default_base_url) ?provider ~c
                       usage;
                     }
               | status ->
+                  let code = Cohttp.Code.code_of_status status in
                   let body_str =
                     Eio.Buf_read.(of_flow ~max_size:Api.max_response_body body |> take_all)
                   in
-                  Error
-                    (Printf.sprintf "API Error %s: %s"
-                       (Cohttp.Code.string_of_status status) body_str)
+                  Error (Error.Api (Retry.classify_error ~status:code ~body:body_str))
             with exn ->
-              Error (Printf.sprintf "Network error: %s" (Printexc.to_string exn)))
+              Error (Error.Api (Retry.NetworkError { message = Printexc.to_string exn })))
        | Provider.Openai_chat_completions
        | Provider.Ollama_chat
        | Provider.Ollama_generate ->
-           Error "Streaming is only supported for Anthropic-compatible providers")
+           Error (Error.Config (UnsupportedProvider { detail = "Streaming is only supported for Anthropic-compatible providers" })))
 
 (** Emit synthetic SSE events from a complete api_response.
     Used as fallback for non-Anthropic providers that don't support SSE. *)
