@@ -126,3 +126,7 @@
 (test
  (name test_builder)
  (libraries agent_sdk alcotest eio eio_main yojson))
+
+(test
+ (name test_checkpoint_store)
+ (libraries agent_sdk alcotest eio eio_main yojson unix))
