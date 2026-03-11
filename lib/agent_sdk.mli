@@ -1004,6 +1004,83 @@ module Builder : sig
   val build : t -> Agent.t
 end
 
+(** {1 Multi-Agent Orchestration} *)
+
+module Orchestrator : sig
+  (** Distribute tasks across multiple named agents and collect results.
+      External code decides the execution plan; the LLM does not participate
+      in routing (contrast with {!Handoff} where the LLM decides). *)
+
+  (** A unit of work: a prompt directed at a named agent. *)
+  type task = {
+    id: string;
+    prompt: string;
+    agent_name: string;
+  }
+
+  (** Result of executing a single task. *)
+  type task_result = {
+    task_id: string;
+    agent_name: string;
+    result: (Types.api_response, string) result;
+    elapsed: float;
+  }
+
+  (** Execution plan variants. *)
+  type plan =
+    | Sequential of task list  (** Run tasks one by one in order. *)
+    | Parallel of task list    (** Run tasks concurrently via Eio fibers. *)
+    | FanOut of { prompt: string; agents: string list }
+      (** Same prompt sent to multiple agents in parallel. *)
+    | Pipeline of task list
+      (** Run sequentially; each task's prompt is appended with the
+          previous task's text output. *)
+
+  (** Orchestrator configuration. *)
+  type config = {
+    max_parallel: int;
+    shared_context: Context.t option;
+    on_task_start: (task -> unit) option;
+    on_task_complete: (task_result -> unit) option;
+    timeout_per_task: float option;
+  }
+
+  val default_config : config
+
+  (** Orchestrator instance: a registry of named agents plus config. *)
+  type t = {
+    agents: (string * Agent.t) list;
+    config: config;
+  }
+
+  val create : ?config:config -> (string * Agent.t) list -> t
+  val add_agent : t -> string -> Agent.t -> t
+  val find_agent : t -> string -> Agent.t option
+
+  (** Execute a single task against the named agent. *)
+  val run_task :
+    sw:Eio.Switch.t -> ?clock:_ Eio.Time.clock -> t -> task -> task_result
+
+  (** Execute an entire plan. *)
+  val execute :
+    sw:Eio.Switch.t -> ?clock:_ Eio.Time.clock -> t -> plan -> task_result list
+
+  (** Fan out: send the same prompt to every registered agent. *)
+  val fan_out :
+    sw:Eio.Switch.t -> ?clock:_ Eio.Time.clock -> t -> string -> task_result list
+
+  (** Pipeline: chain tasks sequentially, feeding each output into the
+      next task's prompt. *)
+  val pipeline :
+    sw:Eio.Switch.t -> ?clock:_ Eio.Time.clock -> t -> task list -> task_result list
+
+  (** Extract concatenated text from all successful results. *)
+  val collect_text : task_result list -> string
+
+  (** [true] when every result is [Ok _]. *)
+  val all_ok : task_result list -> bool
+end
+
 (** {1 Quick Start} *)
 
 (** Create an agent with default config and optional overrides *)
