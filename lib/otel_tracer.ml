@@ -111,6 +111,8 @@ let make_span_name (attrs : Tracing.span_attrs) =
 (* -- TRACER implementation -------------------------------------------- *)
 
 let start_span (attrs : Tracing.span_attrs) : span =
+  let new_trace_id = gen_trace_id () in
+  let span_id = gen_span_id () in
   with_lock @@ fun () ->
   let parent = match !_current_spans with
     | p :: _ -> Some p
@@ -118,7 +120,7 @@ let start_span (attrs : Tracing.span_attrs) : span =
   in
   let trace_id = match parent with
     | Some p -> p.trace_id
-    | None   -> gen_trace_id ()
+    | None   -> new_trace_id
   in
   let parent_span_id = match parent with
     | Some p -> Some p.span_id
@@ -126,7 +128,7 @@ let start_span (attrs : Tracing.span_attrs) : span =
   in
   let s = {
     trace_id;
-    span_id = gen_span_id ();
+    span_id;
     parent_span_id;
     name = make_span_name attrs;
     kind = map_span_kind attrs.kind;
@@ -155,6 +157,7 @@ let end_span (s : span) ~ok =
   _completed_spans := s :: !_completed_spans
 
 let add_event (s : span) (msg : string) =
+  with_lock @@ fun () ->
   let evt = {
     event_name = msg;
     timestamp_ns = now_ns ();
@@ -163,6 +166,7 @@ let add_event (s : span) (msg : string) =
   s.events <- s.events @ [evt]
 
 let add_attrs (s : span) (attrs : (string * string) list) =
+  with_lock @@ fun () ->
   s.attributes <- s.attributes @ attrs
 
 (* -- JSON export ------------------------------------------------------ *)
