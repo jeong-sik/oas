@@ -414,7 +414,17 @@ let resume ~net ~(checkpoint : Checkpoint.t) ?(tools=[]) ?context
     name = checkpoint.agent_name;
     model = checkpoint.model;
     system_prompt = checkpoint.system_prompt;
+    temperature = checkpoint.temperature;
+    top_p = checkpoint.top_p;
+    top_k = checkpoint.top_k;
+    min_p = checkpoint.min_p;
+    enable_thinking = checkpoint.enable_thinking;
+    response_format_json = checkpoint.response_format_json;
+    thinking_budget = checkpoint.thinking_budget;
     tool_choice = checkpoint.tool_choice;
+    cache_system_prompt = checkpoint.cache_system_prompt;
+    max_input_tokens = checkpoint.max_input_tokens;
+    max_total_tokens = checkpoint.max_total_tokens;
   } in
   let state = {
     config = restored_config;
@@ -442,5 +452,15 @@ let checkpoint ?(session_id="") agent =
     created_at = Unix.gettimeofday ();
     tools = List.map (fun (t : Tool.t) -> t.schema) agent.tools;
     tool_choice = agent.state.config.tool_choice;
+    temperature = agent.state.config.temperature;
+    top_p = agent.state.config.top_p;
+    top_k = agent.state.config.top_k;
+    min_p = agent.state.config.min_p;
+    enable_thinking = agent.state.config.enable_thinking;
+    response_format_json = agent.state.config.response_format_json;
+    thinking_budget = agent.state.config.thinking_budget;
+    cache_system_prompt = agent.state.config.cache_system_prompt;
+    max_input_tokens = agent.state.config.max_input_tokens;
+    max_total_tokens = agent.state.config.max_total_tokens;
     mcp_sessions = Mcp_session.capture_all agent.options.mcp_clients;
   }

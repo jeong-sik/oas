@@ -75,8 +75,8 @@ let resolve cfg =
     Ok (base_url, "dummy", [("Content-Type", "application/json")])
 
 let local_qwen () = {
-  provider = Local { base_url = "http://127.0.0.1:3034" };
-  model_id = "qwen3.5";
+  provider = Local { base_url = "http://127.0.0.1:8085" };
+  model_id = "qwen3.5-35b-a3b-ud-q8-xl";
   api_key_env = "DUMMY_KEY";
 }
 

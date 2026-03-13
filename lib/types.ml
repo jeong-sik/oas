@@ -143,6 +143,10 @@ type agent_config = {
   max_tokens: int;
   max_turns: int;
   temperature: float option;
+  top_p: float option;
+  top_k: int option;
+  min_p: float option;
+  enable_thinking: bool option;
   response_format_json: bool;
   thinking_budget: int option; (* For Claude 3.7+ extended thinking *)
   tool_choice: tool_choice option;
@@ -159,6 +163,10 @@ let default_config = {
   max_tokens = 4096;
   max_turns = 10;
   temperature = None;
+  top_p = None;
+  top_k = None;
+  min_p = None;
+  enable_thinking = None;
   response_format_json = false;
   thinking_budget = None;
   tool_choice = None;

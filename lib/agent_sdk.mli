@@ -119,6 +119,10 @@ module Types : sig
     max_tokens: int;
     max_turns: int;
     temperature: float option;
+    top_p: float option;
+    top_k: int option;
+    min_p: float option;
+    enable_thinking: bool option;
     response_format_json: bool;
     thinking_budget: int option;
     tool_choice: tool_choice option;
@@ -607,6 +611,14 @@ module Api : sig
       Text -> text part, Image/Document -> image_url with data URI. *)
   val openai_content_parts_of_blocks : Types.content_block list -> Yojson.Safe.t list
 
+  (** Build an OpenAI-compatible chat completions body. *)
+  val build_openai_body :
+    config:Types.agent_state ->
+    messages:Types.message list ->
+    ?tools:Yojson.Safe.t list ->
+    unit ->
+    string
+
   (** Parse an Ollama /api/chat response JSON string into an api_response.
       Handles tool_calls with arguments as both string and JSON object. *)
   val parse_ollama_chat_response : string -> Types.api_response
@@ -797,6 +809,16 @@ module Checkpoint : sig
     created_at: float;
     tools: Types.tool_schema list;
     tool_choice: Types.tool_choice option;
+    temperature: float option;
+    top_p: float option;
+    top_k: int option;
+    min_p: float option;
+    enable_thinking: bool option;
+    response_format_json: bool;
+    thinking_budget: int option;
+    cache_system_prompt: bool;
+    max_input_tokens: int option;
+    max_total_tokens: int option;
     mcp_sessions: Mcp_session.info list;
   }
 
@@ -1047,6 +1069,10 @@ module Builder : sig
   val with_max_tokens : int -> t -> t
   val with_max_turns : int -> t -> t
   val with_temperature : float -> t -> t
+  val with_top_p : float -> t -> t
+  val with_top_k : int -> t -> t
+  val with_min_p : float -> t -> t
+  val with_enable_thinking : bool -> t -> t
   val with_tools : Tool.t list -> t -> t
   val with_tool : Tool.t -> t -> t
   val with_hooks : Hooks.hooks -> t -> t

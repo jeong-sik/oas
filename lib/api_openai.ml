@@ -109,6 +109,19 @@ let tool_choice_to_openai_json = function
           ("function", `Assoc [("name", `String name)]);
         ]
 
+let strip_json_markdown_fences text =
+  let trimmed = String.trim text in
+  if String.length trimmed < 7 || String.sub trimmed 0 3 <> "```" then
+    trimmed
+  else
+    match String.split_on_char '\n' trimmed with
+    | first :: rest when String.length first >= 3 ->
+        (match List.rev rest with
+         | last :: middle_rev when String.trim last = "```" ->
+             String.concat "\n" (List.rev middle_rev) |> String.trim
+         | _ -> trimmed)
+    | _ -> trimmed
+
 let build_openai_tool_json = function
   | `Assoc fields ->
       let name =
@@ -158,6 +171,27 @@ let build_openai_body ~config ~messages ?tools () =
   let body_assoc =
     match config.config.temperature with
     | Some temp -> ("temperature", `Float temp) :: body_assoc
+    | None -> body_assoc
+  in
+  let body_assoc =
+    match config.config.top_p with
+    | Some top_p -> ("top_p", `Float top_p) :: body_assoc
+    | None -> body_assoc
+  in
+  let body_assoc =
+    match config.config.top_k with
+    | Some top_k -> ("top_k", `Int top_k) :: body_assoc
+    | None -> body_assoc
+  in
+  let body_assoc =
+    match config.config.min_p with
+    | Some min_p -> ("min_p", `Float min_p) :: body_assoc
+    | None -> body_assoc
+  in
+  let body_assoc =
+    match config.config.enable_thinking with
+    | Some enabled ->
+        ("chat_template_kwargs", `Assoc [("enable_thinking", `Bool enabled)]) :: body_assoc
     | None -> body_assoc
   in
   let body_assoc =
@@ -225,6 +259,16 @@ let parse_openai_response json_str =
                    | _ -> None)
             |> String.concat ""
         | _ -> ""
+      in
+      let text_content =
+        let stripped = strip_json_markdown_fences text_content in
+        if stripped = text_content then
+          text_content
+        else
+          try
+            ignore (Yojson.Safe.from_string stripped);
+            stripped
+          with Yojson.Json_error _ -> text_content
       in
       let tool_blocks =
         match msg |> member "tool_calls" with

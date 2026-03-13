@@ -21,6 +21,7 @@ let build_body_assoc = Api_anthropic.build_body_assoc
 (* Re-export Api_openai *)
 let openai_messages_of_message = Api_openai.openai_messages_of_message
 let openai_content_parts_of_blocks = Api_openai.openai_content_parts_of_blocks
+let build_openai_body = Api_openai.build_openai_body
 let parse_openai_response = Api_openai.parse_openai_response
 
 (* Re-export Api_ollama *)

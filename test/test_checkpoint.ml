@@ -25,6 +25,16 @@ let make_checkpoint
     created_at = 1000.0;
     tools;
     tool_choice;
+    temperature = None;
+    top_p = None;
+    top_k = None;
+    min_p = None;
+    enable_thinking = None;
+    response_format_json = false;
+    thinking_budget = None;
+    cache_system_prompt = false;
+    max_input_tokens = None;
+    max_total_tokens = None;
     mcp_sessions;
   }
 
