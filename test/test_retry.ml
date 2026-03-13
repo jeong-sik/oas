@@ -216,7 +216,7 @@ let test_with_retry_max_retries_exhausted () =
 
 let test_provider_constructors () =
   let p = Provider.local_qwen () in
-  check string "local_qwen" "qwen3.5" p.model_id;
+  check string "local_qwen" "qwen3.5-35b-a3b-ud-q8-xl" p.model_id;
   let p = Provider.anthropic_sonnet () in
   check string "anthropic_sonnet" "claude-sonnet-4-6" p.model_id;
   let p = Provider.anthropic_haiku () in

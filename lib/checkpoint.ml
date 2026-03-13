@@ -21,6 +21,16 @@ type t = {
   created_at: float;
   tools: tool_schema list;
   tool_choice: tool_choice option;
+  temperature: float option;
+  top_p: float option;
+  top_k: int option;
+  min_p: float option;
+  enable_thinking: bool option;
+  response_format_json: bool;
+  thinking_budget: int option;
+  cache_system_prompt: bool;
+  max_input_tokens: int option;
+  max_total_tokens: int option;
   mcp_sessions: Mcp_session.info list;
 }
 
@@ -165,6 +175,16 @@ let to_json cp =
       (match cp.tool_choice with
        | Some tc -> tool_choice_to_json tc
        | None -> `Null));
+    ("temperature", Option.value ~default:`Null (Option.map (fun v -> `Float v) cp.temperature));
+    ("top_p", Option.value ~default:`Null (Option.map (fun v -> `Float v) cp.top_p));
+    ("top_k", Option.value ~default:`Null (Option.map (fun v -> `Int v) cp.top_k));
+    ("min_p", Option.value ~default:`Null (Option.map (fun v -> `Float v) cp.min_p));
+    ("enable_thinking", Option.value ~default:`Null (Option.map (fun v -> `Bool v) cp.enable_thinking));
+    ("response_format_json", `Bool cp.response_format_json);
+    ("thinking_budget", Option.value ~default:`Null (Option.map (fun v -> `Int v) cp.thinking_budget));
+    ("cache_system_prompt", `Bool cp.cache_system_prompt);
+    ("max_input_tokens", Option.value ~default:`Null (Option.map (fun v -> `Int v) cp.max_input_tokens));
+    ("max_total_tokens", Option.value ~default:`Null (Option.map (fun v -> `Int v) cp.max_total_tokens));
     ("mcp_sessions", Mcp_session.info_list_to_json cp.mcp_sessions);
   ]
 
@@ -211,6 +231,18 @@ let of_json json =
                created_at = json |> member "created_at" |> to_float;
                tools;
                tool_choice;
+               temperature = json |> member "temperature" |> to_float_option;
+               top_p = json |> member "top_p" |> to_float_option;
+               top_k = json |> member "top_k" |> to_int_option;
+               min_p = json |> member "min_p" |> to_float_option;
+               enable_thinking = json |> member "enable_thinking" |> to_bool_option;
+               response_format_json =
+                 json |> member "response_format_json" |> to_bool_option |> Option.value ~default:false;
+               thinking_budget = json |> member "thinking_budget" |> to_int_option;
+               cache_system_prompt =
+                 json |> member "cache_system_prompt" |> to_bool_option |> Option.value ~default:false;
+               max_input_tokens = json |> member "max_input_tokens" |> to_int_option;
+               max_total_tokens = json |> member "max_total_tokens" |> to_int_option;
                mcp_sessions;
              }
          | Error e, _, _, _ -> Error e

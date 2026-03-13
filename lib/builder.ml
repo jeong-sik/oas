@@ -11,6 +11,10 @@ type t = {
   max_tokens: int;
   max_turns: int;
   temperature: float option;
+  top_p: float option;
+  top_k: int option;
+  min_p: float option;
+  enable_thinking: bool option;
   response_format_json: bool;
   thinking_budget: int option;
   tool_choice: tool_choice option;
@@ -38,6 +42,10 @@ let create ~net ~model =
     max_tokens = default_config.max_tokens;
     max_turns = default_config.max_turns;
     temperature = default_config.temperature;
+    top_p = default_config.top_p;
+    top_k = default_config.top_k;
+    min_p = default_config.min_p;
+    enable_thinking = default_config.enable_thinking;
     response_format_json = default_config.response_format_json;
     thinking_budget = default_config.thinking_budget;
     tool_choice = default_config.tool_choice;
@@ -62,6 +70,10 @@ let with_name name b = { b with name }
 let with_max_tokens n b = { b with max_tokens = n }
 let with_max_turns n b = { b with max_turns = n }
 let with_temperature t b = { b with temperature = Some t }
+let with_top_p p b = { b with top_p = Some p }
+let with_top_k k b = { b with top_k = Some k }
+let with_min_p p b = { b with min_p = Some p }
+let with_enable_thinking enabled b = { b with enable_thinking = Some enabled }
 let with_tools tools b = { b with tools }
 let with_tool tool b = { b with tools = b.tools @ [tool] }
 let with_hooks hooks b = { b with hooks }
@@ -89,6 +101,10 @@ let build b =
     max_tokens = b.max_tokens;
     max_turns = b.max_turns;
     temperature = b.temperature;
+    top_p = b.top_p;
+    top_k = b.top_k;
+    min_p = b.min_p;
+    enable_thinking = b.enable_thinking;
     response_format_json = b.response_format_json;
     thinking_budget = b.thinking_budget;
     tool_choice = b.tool_choice;

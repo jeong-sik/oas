@@ -107,6 +107,10 @@ let test_default_config () =
   Alcotest.(check int) "max_tokens" 4096 c.max_tokens;
   Alcotest.(check int) "max_turns" 10 c.max_turns;
   Alcotest.(check bool) "no system prompt" true (c.system_prompt = None);
+  Alcotest.(check bool) "no top_p" true (c.top_p = None);
+  Alcotest.(check bool) "no top_k" true (c.top_k = None);
+  Alcotest.(check bool) "no min_p" true (c.min_p = None);
+  Alcotest.(check bool) "no enable_thinking" true (c.enable_thinking = None);
   Alcotest.(check bool) "no thinking_budget" true (c.thinking_budget = None);
   Alcotest.(check bool) "cache off" false c.cache_system_prompt;
   Alcotest.(check bool) "no max_input_tokens" true (c.max_input_tokens = None);

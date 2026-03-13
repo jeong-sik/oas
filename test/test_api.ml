@@ -137,6 +137,33 @@ let test_build_body_with_tools () =
   let tools = json |> member "tools" |> to_list in
   check int "1 tool" 1 (List.length tools)
 
+let test_build_openai_body_with_qwen_sampling () =
+  let state = {
+    Types.config = {
+      Types.default_config with
+      model = Types.Custom "qwen3.5-35b-a3b-ud-q8-xl";
+      temperature = Some 0.6;
+      top_p = Some 0.95;
+      top_k = Some 20;
+      min_p = Some 0.01;
+      enable_thinking = Some false;
+    };
+    messages = [];
+    turn_count = 0;
+    usage = Types.empty_usage;
+  } in
+  let json =
+    Api.build_openai_body ~config:state ~messages:[] ()
+    |> Yojson.Safe.from_string
+  in
+  let open Yojson.Safe.Util in
+  check (option (float 0.001)) "top_p" (Some 0.95) (json |> member "top_p" |> to_float_option);
+  check (option int) "top_k" (Some 20) (json |> member "top_k" |> to_int_option);
+  check (option (float 0.001)) "min_p" (Some 0.01) (json |> member "min_p" |> to_float_option);
+  check bool "enable_thinking false"
+    false
+    (json |> member "chat_template_kwargs" |> member "enable_thinking" |> to_bool)
+
 (* ------------------------------------------------------------------ *)
 (* parse_response                                                       *)
 (* ------------------------------------------------------------------ *)
@@ -194,6 +221,26 @@ let test_parse_response_unknown_stop () =
   (match resp.stop_reason with
    | Types.Unknown "new_future_reason" -> ()
    | sr -> fail (Printf.sprintf "expected Unknown, got %s" (Types.show_stop_reason sr)))
+
+let test_parse_openai_response_strips_fenced_json () =
+  let json_str = {|{
+    "id": "chatcmpl_test",
+    "model": "qwen",
+    "choices": [{
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "```json\n{\"engine\":\"default\",\"tool_calling\":false}\n```"
+      }
+    }]
+  }|} in
+  let resp = Api.parse_openai_response json_str in
+  match resp.content with
+  | [Types.Text text] ->
+      Alcotest.(check string) "stripped json"
+        "{\"engine\":\"default\",\"tool_calling\":false}" text
+  | _ -> Alcotest.fail "expected stripped text block"
 
 (* ------------------------------------------------------------------ *)
 (* message_to_json                                                      *)
@@ -435,6 +482,7 @@ let () =
       test_case "without thinking" `Quick test_build_body_without_thinking;
       test_case "with tool_choice" `Quick test_build_body_with_tool_choice;
       test_case "with tools" `Quick test_build_body_with_tools;
+      test_case "with qwen sampling" `Quick test_build_openai_body_with_qwen_sampling;
       test_case "with cache_system_prompt" `Quick test_build_body_with_cache;
       test_case "no system prompt" `Quick test_build_body_no_system_prompt;
     ];
@@ -442,6 +490,7 @@ let () =
       test_case "complete response" `Quick test_parse_response_complete;
       test_case "tool_use response" `Quick test_parse_response_tool_use;
       test_case "unknown stop_reason" `Quick test_parse_response_unknown_stop;
+      test_case "strip fenced json" `Quick test_parse_openai_response_strips_fenced_json;
       test_case "cache tokens in usage" `Quick test_parse_response_with_cache_tokens;
     ];
     "parse_sse_event", [

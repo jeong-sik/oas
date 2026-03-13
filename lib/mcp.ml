@@ -1,12 +1,10 @@
 (** MCP (Model Context Protocol) client.
 
-    Wraps {!Mcp_protocol_eio.Client} to connect to MCP servers via Eio
-    stdio transport.  Bridges MCP tools to the SDK's {!Tool.t} type.
-
-    Protocol version: 2025-11-25 (via mcp-protocol-sdk v0.10.0). *)
+    Uses a tolerant NDJSON-over-stdio client for runtime interop while
+    keeping the pure SDK bridge helpers for tests. This lets OAS talk to
+    MCP servers that paginate [tools/list] and add non-standard fields. *)
 
 open Types
-module Sdk_client = Mcp_protocol_eio.Client
 module Sdk_types = Mcp_protocol.Mcp_types
 
 (* ── JSON Schema -> SDK tool_param (oas-specific bridge) ─────────── *)
@@ -71,7 +69,9 @@ let mcp_tool_to_sdk_tool ~call_fn mcp_tool =
 (* ── Eio stdio transport client ──────────────────────────────────── *)
 
 type t = {
-  client: Sdk_client.t;
+  reader: Eio.Buf_read.t;
+  writer: Eio.Flow.sink_ty Eio.Resource.t;
+  mutable next_id: int;
   kill: unit -> unit;
 }
 
@@ -101,44 +101,177 @@ let connect ~sw ~(mgr : _ Eio.Process.mgr) ~command ~args ?env () =
     in
     Eio.Flow.close r_child_stdin;
     Eio.Flow.close w_child_stdout;
-    let client =
-      Sdk_client.create
-        ~stdin:(r_child_stdout :> _ Eio.Flow.source)
-        ~stdout:(w_child_stdin :> _ Eio.Flow.sink)
-        ()
+    let reader =
+      Eio.Buf_read.of_flow (r_child_stdout :> _ Eio.Flow.source)
+        ~max_size:(16 * 1024 * 1024)
     in
     let kill () =
       try Eio.Process.signal proc Sys.sigterm with _ -> ()
     in
-    Ok { client; kill }
+    Ok { reader; writer = (w_child_stdin :> Eio.Flow.sink_ty Eio.Resource.t); next_id = 1; kill }
   with exn ->
     Error (Error.Mcp (ServerStartFailed { command; detail = Printexc.to_string exn }))
 
+(** Lightweight NDJSON request/response helpers. *)
+let send_raw t json =
+  Eio.Flow.copy_string (Yojson.Safe.to_string json ^ "\n") t.writer
+
+let rec read_response t =
+  try
+    let line = Eio.Buf_read.line t.reader |> String.trim in
+    if line = "" then
+      read_response t
+    else
+      let json = Yojson.Safe.from_string line in
+      let open Yojson.Safe.Util in
+      match json |> member "id" with
+      | `Null -> read_response t
+      | _ ->
+          (match json |> member "error" with
+           | `Null -> Ok (json |> member "result")
+           | error_obj ->
+               let message =
+                 error_obj |> member "message" |> to_string_option
+                 |> Option.value ~default:"Unknown MCP error"
+               in
+               Error message)
+  with
+  | End_of_file -> Error "MCP server closed connection"
+  | Yojson.Json_error msg -> Error ("Invalid JSON from MCP server: " ^ msg)
+  | Eio.Io _ as exn -> Error (Printexc.to_string exn)
+
+let send_request t ~method_ ?params () =
+  let id = t.next_id in
+  t.next_id <- t.next_id + 1;
+  let fields = [
+    ("jsonrpc", `String "2.0");
+    ("id", `Int id);
+    ("method", `String method_);
+  ] in
+  let fields =
+    match params with
+    | Some json -> fields @ [("params", json)]
+    | None -> fields
+  in
+  send_raw t (`Assoc fields);
+  read_response t
+
+let send_notification t ~method_ ?params () =
+  let fields = [
+    ("jsonrpc", `String "2.0");
+    ("method", `String method_);
+  ] in
+  let fields =
+    match params with
+    | Some json -> fields @ [("params", json)]
+    | None -> fields
+  in
+  send_raw t (`Assoc fields)
+
+let mcp_tool_of_json = function
+  | `Assoc fields ->
+      let input_schema =
+        match List.assoc_opt "inputSchema" fields with
+        | Some schema -> schema
+        | None ->
+            (match List.assoc_opt "input_schema" fields with
+             | Some schema -> schema
+             | None -> `Assoc [])
+      in
+      Some {
+        name =
+          (match List.assoc_opt "name" fields with
+           | Some (`String s) -> s
+           | _ -> "tool");
+        description =
+          (match List.assoc_opt "description" fields with
+           | Some (`String s) -> s
+           | _ -> "");
+        input_schema;
+      }
+  | _ -> None
+
 (** Send MCP initialize handshake. *)
 let initialize t =
-  match Sdk_client.initialize t.client
-          ~client_name:"oas-mcp-client" ~client_version:"0.9.0" with
-  | Ok _result -> Ok ()
+  let params =
+    `Assoc [
+      ("protocolVersion", `String "2025-11-25");
+      ("capabilities", `Assoc []);
+      ("clientInfo", `Assoc [
+        ("name", `String "oas-mcp-client");
+        ("version", `String "0.9.0");
+      ]);
+    ]
+  in
+  match send_request t ~method_:"initialize" ~params () with
+  | Ok _result ->
+      send_notification t ~method_:"notifications/initialized" ();
+      Ok ()
   | Error msg -> Error (Error.Mcp (InitializeFailed { detail = msg }))
 
 (** Fetch tools from MCP server and return them. *)
 let list_tools t =
-  match Sdk_client.list_tools t.client with
-  | Ok sdk_tools -> Ok (List.map mcp_tool_of_sdk_tool sdk_tools)
-  | Error msg ->
-    Error (Error.Mcp (ToolListFailed { detail = msg }))
+  let rec loop cursor acc =
+    let params =
+      match cursor with
+      | Some value -> Some (`Assoc [("cursor", `String value)])
+      | None -> None
+    in
+    match send_request t ~method_:"tools/list" ?params () with
+    | Error msg ->
+        Error (Error.Mcp (ToolListFailed { detail = msg }))
+    | Ok result ->
+        let open Yojson.Safe.Util in
+        let page =
+          match result |> member "tools" with
+          | `List items -> List.filter_map mcp_tool_of_json items
+          | _ -> []
+        in
+        let next_cursor = result |> member "nextCursor" |> to_string_option in
+        let acc = acc @ page in
+        (match next_cursor with
+         | Some value when String.trim value <> "" -> loop (Some value) acc
+         | _ -> Ok acc)
+  in
+  loop None []
 
 (** Invoke a tool on the MCP server.
     Returns the concatenated text content on success. *)
 let call_tool t ~name ~arguments =
-  match Sdk_client.call_tool t.client ~name ~arguments () with
-  | Ok result ->
-    let text = text_of_tool_result result in
-    let is_error =
-      result.is_error |> Option.value ~default:false in
-    if is_error then Error text else Ok text
+  let params =
+    `Assoc [
+      ("name", `String name);
+      ("arguments", arguments);
+    ]
+  in
+  match send_request t ~method_:"tools/call" ~params () with
   | Error msg ->
-    Error (Printf.sprintf "MCP tools/call '%s' failed: %s" name msg)
+      Error (Printf.sprintf "MCP tools/call '%s' failed: %s" name msg)
+  | Ok result ->
+      let open Yojson.Safe.Util in
+      let content =
+        match result |> member "content" with
+        | `List items -> items
+        | _ -> []
+      in
+      let text =
+        List.filter_map (fun item ->
+          if item |> member "type" |> to_string_option = Some "text" then
+            item |> member "text" |> to_string_option
+          else
+            None
+        ) content
+        |> String.concat "\n"
+      in
+      let is_error =
+        match result |> member "isError" with
+        | `Bool b -> b
+        | _ ->
+            (match result |> member "is_error" with
+             | `Bool b -> b
+             | _ -> false)
+      in
+      if is_error then Error text else Ok text
 
 (** Convert MCP tools to SDK [Tool.t] list.
     Each tool's handler delegates to {!call_tool} on [t]. *)
@@ -152,7 +285,6 @@ let to_tools t (tools : mcp_tool list) =
 
 (** Close the MCP client and terminate the subprocess. *)
 let close t =
-  (try Sdk_client.close t.client with _ -> ());
   t.kill ()
 
 (* ── Managed lifecycle ─────────────────────────────────────────── *)

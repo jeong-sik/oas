@@ -72,14 +72,22 @@ module Sessions = Sessions
 let create_agent ~net ?name ?model ?system_prompt ?max_tokens ?max_turns ?cache_system_prompt ?provider () =
   let open Types in
   let config = {
-    default_config with
     name = Option.value name ~default:default_config.name;
     model = Option.value model ~default:default_config.model;
     system_prompt;
     max_tokens = Option.value max_tokens ~default:default_config.max_tokens;
     max_turns = Option.value max_turns ~default:default_config.max_turns;
+    temperature = default_config.temperature;
+    top_p = default_config.top_p;
+    top_k = default_config.top_k;
+    min_p = default_config.min_p;
+    enable_thinking = default_config.enable_thinking;
     response_format_json = default_config.response_format_json;
+    thinking_budget = default_config.thinking_budget;
+    tool_choice = default_config.tool_choice;
     cache_system_prompt = Option.value cache_system_prompt ~default:default_config.cache_system_prompt;
+    max_input_tokens = default_config.max_input_tokens;
+    max_total_tokens = default_config.max_total_tokens;
   } in
   let options = match provider with
     | None -> Agent.default_options

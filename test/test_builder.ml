@@ -83,6 +83,22 @@ let test_with_temperature () =
   Alcotest.(check (option (float 0.001))) "temperature"
     (Some 0.7) agent.state.config.temperature
 
+let test_with_qwen_sampling () =
+  with_net @@ fun net ->
+  let agent =
+    Builder.create ~net ~model:Types.(Custom "qwen3.5-35b-a3b-ud-q8-xl")
+    |> Builder.with_top_p 0.95
+    |> Builder.with_top_k 20
+    |> Builder.with_min_p 0.01
+    |> Builder.with_enable_thinking false
+    |> Builder.build
+  in
+  Alcotest.(check (option (float 0.001))) "top_p" (Some 0.95) agent.state.config.top_p;
+  Alcotest.(check (option int)) "top_k" (Some 20) agent.state.config.top_k;
+  Alcotest.(check (option (float 0.001))) "min_p" (Some 0.01) agent.state.config.min_p;
+  Alcotest.(check (option bool)) "enable_thinking" (Some false)
+    agent.state.config.enable_thinking
+
 (* --- 7. with_tools replaces --- *)
 
 let test_with_tools_replaces () =
@@ -433,6 +449,7 @@ let () =
       Alcotest.test_case "max_tokens" `Quick test_with_max_tokens;
       Alcotest.test_case "max_turns" `Quick test_with_max_turns;
       Alcotest.test_case "temperature" `Quick test_with_temperature;
+      Alcotest.test_case "qwen sampling" `Quick test_with_qwen_sampling;
       Alcotest.test_case "tools replaces" `Quick test_with_tools_replaces;
       Alcotest.test_case "tool appends" `Quick test_with_tool_appends;
       Alcotest.test_case "hooks" `Quick test_with_hooks;
