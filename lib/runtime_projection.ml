@@ -28,6 +28,7 @@ let initial_session (request : start_request) =
     goal = request.goal;
     title = None;
     tag = None;
+    permission_mode = request.permission_mode;
     phase = Bootstrapping;
     created_at = ts;
     updated_at = ts;
@@ -84,6 +85,13 @@ let apply_event (session : session) (event : event) =
   match event.kind with
   | Session_started _ ->
       Ok { session with phase = Running }
+  | Session_settings_updated detail ->
+      Ok
+        {
+          session with
+          model = detail.model;
+          permission_mode = detail.permission_mode;
+        }
   | Turn_recorded _ ->
       let* session = ensure_active_phase session in
       Ok { session with turn_count = session.turn_count + 1 }
@@ -111,6 +119,9 @@ let apply_event (session : session) (event : event) =
                started_at = Some (Option.value participant.started_at ~default:event.ts);
                last_error = None;
              }))
+  | Agent_output_delta _ ->
+      let* session = ensure_active_phase session in
+      Ok session
   | Agent_completed detail ->
       let* session = ensure_active_phase session in
       Ok

@@ -22,6 +22,8 @@ type agent_definition = Sdk_client_types.agent_definition = {
 type options = Sdk_client_types.options = {
   runtime_path: string option;
   session_root: string option;
+  session_id: string option;
+  resume_session: string option;
   cwd: string option;
   permission_mode: permission_mode;
   model: string option;
@@ -36,6 +38,10 @@ type options = Sdk_client_types.options = {
 
 type message = Sdk_client_types.message =
   | System_message of string
+  | Partial_message of {
+      participant_name: string;
+      delta: string;
+    }
   | Session_status of Runtime.session
   | Session_events of Runtime.event list
   | Session_report of Runtime.report
@@ -64,12 +70,17 @@ let default_options = Sdk_client_types.default_options
 
 let connect = Internal_query_engine.connect
 let query = Internal_query_engine.query_turn
+let has_pending_messages = Internal_query_engine.has_pending_messages
 let receive_messages = Internal_query_engine.receive_messages
+let receive_response = Internal_query_engine.wait_for_messages
+let wait_for_messages = Internal_query_engine.wait_for_messages
 let interrupt = Internal_query_engine.interrupt
 let set_permission_mode = Internal_query_engine.set_permission_mode
 let set_model = Internal_query_engine.set_model
 let set_can_use_tool = Internal_query_engine.set_can_use_tool
 let set_hook_callback = Internal_query_engine.set_hook_callback
+let get_server_info state = Runtime_client.get_server_info state.Internal_query_engine.runtime
 let current_session_id = Internal_query_engine.current_session_id
 let finalize = Internal_query_engine.finalize
+let disconnect = Internal_query_engine.close
 let close = Internal_query_engine.close

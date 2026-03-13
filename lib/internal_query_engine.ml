@@ -4,6 +4,8 @@ type t = {
   mutable session_id: string option;
   mutable last_event_seq: int;
   mutable buffered_messages: Sdk_client_types.message list;
+  message_mu: Mutex.t;
+  message_cv: Condition.t;
   mutable can_use_tool: Sdk_client_types.can_use_tool option;
   mutable hook_callback: Sdk_client_types.hook_callback option;
 }
@@ -11,39 +13,152 @@ type t = {
 let ( let* ) = Result.bind
 
 let append_message state message =
-  state.buffered_messages <- state.buffered_messages @ [ message ]
+  Mutex.lock state.message_mu;
+  state.buffered_messages <- state.buffered_messages @ [ message ];
+  Condition.broadcast state.message_cv;
+  Mutex.unlock state.message_mu
 
 let runtime_options options =
   {
     Runtime_client.runtime_path = options.Sdk_client_types.runtime_path;
     session_root = options.session_root;
+    provider = options.provider;
+    model = options.model;
+    permission_mode =
+      Some (Sdk_client_types.string_of_permission_mode options.permission_mode);
+    include_partial_messages = options.include_partial_messages;
+    setting_sources =
+      List.map
+        (function
+          | Sdk_client_types.User -> "user"
+          | Sdk_client_types.Project -> "project"
+          | Sdk_client_types.Local -> "local")
+        options.setting_sources;
+    resume_session = options.resume_session;
+    cwd = options.cwd;
   }
 
 let connect ?(options = Sdk_client_types.default_options) () =
   let* runtime = Runtime_client.connect ~options:(runtime_options options) () in
-  Ok
+  let state =
     {
       runtime;
       options;
       session_id = None;
       last_event_seq = 0;
       buffered_messages = [];
+      message_mu = Mutex.create ();
+      message_cv = Condition.create ();
       can_use_tool = None;
       hook_callback = None;
     }
+  in
+  match options.resume_session with
+  | Some session_id when String.trim session_id <> "" ->
+      let* session = Runtime_client.status runtime ~session_id in
+      state.options <-
+        {
+          state.options with
+          model = session.model;
+          permission_mode =
+            (match session.permission_mode with
+             | Some raw -> (
+                 match Sdk_client_types.permission_mode_of_string raw with
+                 | Some mode -> mode
+                 | None -> state.options.permission_mode)
+             | None -> state.options.permission_mode);
+        };
+      state.session_id <- Some session.session_id;
+      state.last_event_seq <- session.last_seq;
+      append_message state (Internal_message_parser.status session);
+      Ok state
+  | _ -> Ok state
 
 let receive_messages state =
+  Mutex.lock state.message_mu;
   let messages = state.buffered_messages in
   state.buffered_messages <- [];
+  Mutex.unlock state.message_mu;
   messages
+
+let has_pending_messages state =
+  Mutex.lock state.message_mu;
+  let pending = state.buffered_messages <> [] in
+  Mutex.unlock state.message_mu;
+  pending
+
+let wait_for_messages ?timeout state =
+  let drain_if_any () =
+    Mutex.lock state.message_mu;
+    let messages = state.buffered_messages in
+    let had_messages = messages <> [] in
+    if had_messages then state.buffered_messages <- [];
+    Mutex.unlock state.message_mu;
+    if had_messages then Some messages else None
+  in
+  match drain_if_any () with
+  | Some messages -> messages
+  | None -> (
+      match timeout with
+      | None ->
+          Mutex.lock state.message_mu;
+          while state.buffered_messages = [] do
+            Condition.wait state.message_cv state.message_mu
+          done;
+          let messages = state.buffered_messages in
+          state.buffered_messages <- [];
+          Mutex.unlock state.message_mu;
+          messages
+      | Some timeout_s ->
+          let deadline = Unix.gettimeofday () +. max 0.0 timeout_s in
+          let rec loop () =
+            match drain_if_any () with
+            | Some messages -> messages
+            | None ->
+                if Unix.gettimeofday () >= deadline then []
+                else (
+                  Thread.delay 0.01;
+                  loop ())
+          in
+          loop ())
 
 let current_session_id state = state.session_id
 
 let set_permission_mode state permission_mode =
-  state.options <- { state.options with permission_mode }
+  state.options <- { state.options with permission_mode };
+  match state.session_id with
+  | None -> Ok ()
+  | Some session_id ->
+      let* session =
+        Runtime_client.apply_command state.runtime ~session_id
+          (Runtime.Update_session_settings
+             {
+               model = state.options.model;
+               permission_mode =
+                 Some (Sdk_client_types.string_of_permission_mode permission_mode);
+             })
+      in
+      append_message state (Internal_message_parser.status session);
+      Ok ()
 
 let set_model state model =
-  state.options <- { state.options with model }
+  state.options <- { state.options with model };
+  match state.session_id with
+  | None -> Ok ()
+  | Some session_id ->
+      let* session =
+        Runtime_client.apply_command state.runtime ~session_id
+          (Runtime.Update_session_settings
+             {
+               model;
+               permission_mode =
+                 Some
+                   (Sdk_client_types.string_of_permission_mode
+                      state.options.permission_mode);
+             })
+      in
+      append_message state (Internal_message_parser.status session);
+      Ok ()
 
 let set_can_use_tool state callback =
   state.can_use_tool <- Some callback
@@ -55,6 +170,11 @@ let close state = Runtime_client.close state.runtime
 
 let handle_event state (event : Runtime.event) =
   state.last_event_seq <- max state.last_event_seq event.seq;
+  (match (state.options.include_partial_messages, event.kind) with
+   | true, Runtime.Agent_output_delta delta ->
+       append_message state
+         (Internal_message_parser.partial_output delta.participant_name delta.delta)
+   | _ -> ());
   append_message state (Internal_message_parser.events [ event ])
 
 let handle_control_request state request =
@@ -110,11 +230,15 @@ let ensure_session state ~prompt =
     let request =
       Runtime.
         {
-          session_id = None;
+          session_id = state.options.session_id;
           goal = prompt;
           participants;
           provider = state.options.provider;
           model = state.options.model;
+          permission_mode =
+            Some
+              (Sdk_client_types.string_of_permission_mode
+                 state.options.permission_mode);
           system_prompt = state.options.system_prompt;
           max_turns = state.options.max_turns;
           workdir = state.options.cwd;

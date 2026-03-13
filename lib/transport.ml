@@ -1,6 +1,13 @@
 type options = {
   runtime_path: string option;
   session_root: string option;
+  provider: string option;
+  model: string option;
+  permission_mode: string option;
+  include_partial_messages: bool;
+  setting_sources: string list;
+  resume_session: string option;
+  cwd: string option;
 }
 
 let ( let* ) = Result.bind
@@ -13,6 +20,13 @@ type event_handler = Runtime.event -> unit
 let default_options = {
   runtime_path = None;
   session_root = None;
+  provider = None;
+  model = None;
+  permission_mode = None;
+  include_partial_messages = false;
+  setting_sources = [];
+  resume_session = None;
+  cwd = None;
 }
 
 type t = {
@@ -20,6 +34,7 @@ type t = {
   ic: in_channel;
   oc: out_channel;
   ec: in_channel;
+  mutable init_info: Runtime.init_response option;
   mutable closed: bool;
   mutable next_request_id: int;
   write_mu: Mutex.t;
@@ -155,6 +170,8 @@ let dispatch_protocol_message transport = function
 let start_reader_thread transport =
   let rec loop () =
     match input_line transport.ic with
+    | line when String.trim line = "" ->
+        if not transport.closed then loop ()
     | line -> (
         match Runtime.protocol_message_of_string line with
         | Ok message ->
@@ -208,6 +225,7 @@ let connect ?(options = default_options) () =
         ic;
         oc;
         ec;
+        init_info = None;
         closed = false;
         next_request_id = 1;
         write_mu = Mutex.create ();
@@ -227,11 +245,23 @@ let connect ?(options = default_options) () =
           (Runtime.Request_message
              {
                request_id = init_request_id;
-               request = Runtime.Initialize { session_root = options.session_root };
+               request =
+                 Runtime.Initialize
+                   {
+                     session_root = options.session_root;
+                     provider = options.provider;
+                     model = options.model;
+                     permission_mode = options.permission_mode;
+                     include_partial_messages = options.include_partial_messages;
+                     setting_sources = options.setting_sources;
+                     resume_session = options.resume_session;
+                     cwd = options.cwd;
+                   };
              }));
     let* response = await_response transport init_request_id in
     (match response with
      | Runtime.Initialized init when String.equal init.protocol_version Runtime.protocol_version ->
+         transport.init_info <- Some init;
          Ok transport
      | Runtime.Initialized init ->
          Error
@@ -282,3 +312,5 @@ let close transport =
     transport.closed <- true;
     ignore (Unix.close_process_full (transport.ic, transport.oc, transport.ec));
     Option.iter Thread.join transport.reader_thread)
+
+let server_info transport = transport.init_info

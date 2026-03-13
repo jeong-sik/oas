@@ -7,6 +7,8 @@ type state = {
   event_bus: Event_bus.t;
   mutable session_root: string option;
   mutable next_control_id: int;
+  stdout_mu: Mutex.t;
+  store_mu: Mutex.t;
 }
 
 let runtime_version = "0.1.0"
@@ -22,6 +24,8 @@ let create ~net () =
     event_bus = Event_bus.create ();
     session_root = None;
     next_control_id = 1;
+    stdout_mu = Mutex.create ();
+    store_mu = Mutex.create ();
   }
 
 let store_of_state state =
@@ -31,10 +35,14 @@ let session_root_request_path = function
   | Some value when String.trim value <> "" -> Some (String.trim value)
   | _ -> None
 
-let write_protocol_message message =
-  output_string stdout (protocol_message_to_string message);
-  output_char stdout '\n';
-  flush stdout
+let write_protocol_message state message =
+  Mutex.lock state.stdout_mu;
+  Fun.protect
+    ~finally:(fun () -> Mutex.unlock state.stdout_mu)
+    (fun () ->
+      output_string stdout (protocol_message_to_string message);
+      output_char stdout '\n';
+      flush stdout)
 
 let next_control_id state =
   let id = state.next_control_id in
@@ -44,10 +52,13 @@ let next_control_id state =
 let emit_event state session_id (event : event) =
   Event_bus.publish state.event_bus
     (Event_bus.Custom ("runtime.event", event |> event_to_yojson));
-  write_protocol_message (Event_message { session_id = Some session_id; event })
+  write_protocol_message state
+    (Event_message { session_id = Some session_id; event })
 
 let rec read_control_response state control_id =
   match input_line stdin with
+  | raw when String.trim raw = "" ->
+      read_control_response state control_id
   | exception End_of_file ->
       Error
         (Error.Io
@@ -68,7 +79,7 @@ let rec read_control_response state control_id =
 
 let ask_permission state ~action ~subject ~payload =
   let control_id = next_control_id state in
-  write_protocol_message
+  write_protocol_message state
     (Control_request_message
        {
          control_id;
@@ -78,7 +89,7 @@ let ask_permission state ~action ~subject ~payload =
 
 let invoke_hook state ~hook_name ~payload =
   let control_id = next_control_id state in
-  write_protocol_message
+  write_protocol_message state
     (Control_request_message
        {
          control_id;
@@ -132,31 +143,65 @@ let make_event (session : session) kind =
     kind;
   }
 
-let persist_event store state session kind =
-  let event = make_event session kind in
-  let* projected = Runtime_projection.apply_event session event in
-  let* () = Runtime_store.append_event store session.session_id event in
-  let* () = Runtime_store.save_session store projected in
-  let () = emit_event state session.session_id event in
-  Ok (projected, event)
+let with_store_lock state f =
+  Mutex.lock state.store_mu;
+  Fun.protect ~finally:(fun () -> Mutex.unlock state.store_mu) f
 
-let generate_report_and_proof store (session : session) =
-  let* events = Runtime_store.read_events store session.session_id () in
-  let report = Runtime_projection.build_report session events in
-  let proof = Runtime_projection.build_proof session events in
-  let* () = Runtime_store.save_report store report in
-  let* () = Runtime_store.save_proof store proof in
-  Ok (report, proof)
+let persist_event store state session_id kind =
+  with_store_lock state (fun () ->
+      let* session = Runtime_store.load_session store session_id in
+      let event = make_event session kind in
+      let* projected = Runtime_projection.apply_event session event in
+      let* () = Runtime_store.append_event store session_id event in
+      let* () = Runtime_store.save_session store projected in
+      let () = emit_event state session_id event in
+      Ok (projected, event))
 
-let run_participant state (session : session) (detail : spawn_agent_request) =
+let generate_report_and_proof store state session_id =
+  with_store_lock state (fun () ->
+      let* session = Runtime_store.load_session store session_id in
+      let* events = Runtime_store.read_events store session_id () in
+      let report = Runtime_projection.build_report session events in
+      let proof = Runtime_projection.build_proof session events in
+      let* () = Runtime_store.save_report store report in
+      let* () = Runtime_store.save_proof store proof in
+      Ok (report, proof))
+
+let emit_output_delta store state session_id participant_name delta =
+  if String.trim delta = "" then Ok ()
+  else
+    let* _session, _ =
+      persist_event store state session_id
+        (Agent_output_delta { participant_name; delta })
+    in
+    Ok ()
+
+let run_participant store state session_id (detail : spawn_agent_request) =
+  let emit_delta_text text =
+    match emit_output_delta store state session_id detail.participant_name text with
+    | Ok () -> ()
+    | Error _ -> ()
+  in
   match String.lowercase_ascii (Option.value detail.provider ~default:"") with
   | "mock" | "echo" ->
-      Ok
-        (Printf.sprintf "Mock runtime response for %s: %s" detail.participant_name
-           detail.prompt)
+      let full =
+        Printf.sprintf "Mock runtime response for %s: %s" detail.participant_name
+          detail.prompt
+      in
+      let half = String.length full / 2 in
+      Thread.delay 0.02;
+      emit_delta_text (String.sub full 0 half);
+      Thread.delay 0.02;
+      emit_delta_text (String.sub full half (String.length full - half));
+      Ok full
   | _ ->
       let provider_cfg = resolve_provider ?provider:detail.provider ?model:detail.model () in
       Eio.Switch.run @@ fun sw ->
+      let session =
+        match Runtime_store.load_session store session_id with
+        | Ok session -> session
+        | Error err -> raise (Failure (Error.to_string err))
+      in
       let config =
         {
           Types.default_config with
@@ -178,7 +223,12 @@ let run_participant state (session : session) (detail : spawn_agent_request) =
         | None -> Agent.default_options
       in
       let agent = Agent.create ~net:state.net ~config ~options () in
-      match Agent.run ~sw agent detail.prompt with
+      let on_event = function
+        | Types.ContentBlockDelta { delta = Types.TextDelta text; _ } ->
+            emit_delta_text text
+        | _ -> ()
+      in
+      match Agent.run_stream ~sw ~on_event agent detail.prompt with
       | Ok response -> Ok (extract_text response)
       | Error err -> Error err
 
@@ -189,23 +239,23 @@ let start_session state (request : start_request) =
     invoke_hook state ~hook_name:"SessionStart"
       ~payload:(start_request_to_yojson request)
   in
-  let event =
-    make_event session
+  let* () =
+    with_store_lock state (fun () -> Runtime_store.save_session store session)
+  in
+  let* projected, _ =
+    persist_event store state session.session_id
       (Session_started { goal = request.goal; participants = request.participants })
   in
-  let* projected = Runtime_projection.apply_event session event in
-  let* () = Runtime_store.append_event store session.session_id event in
-  let* () = Runtime_store.save_session store projected in
-  let () = emit_event state session.session_id event in
   Ok (Session_started_response projected)
 
-let finalize_session state store session reason =
+let finalize_session state store (session : session) reason =
+  let session_id = session.session_id in
   let* session, _ =
     match session.phase with
     | Finalizing ->
         Ok (session, make_event session (Finalize_requested { reason }))
     | Bootstrapping | Running | Waiting_on_workers ->
-        persist_event store state session (Finalize_requested { reason })
+        persist_event store state session_id (Finalize_requested { reason })
     | Completed | Failed | Cancelled ->
         Ok (session, make_event session (Session_completed { outcome = session.outcome }))
   in
@@ -216,16 +266,23 @@ let finalize_session state store session reason =
     | Bootstrapping | Running | Waiting_on_workers | Finalizing ->
         Session_completed { outcome = first_some reason session.outcome }
   in
-  let* final_session, _ = persist_event store state session completion_kind in
-  let* _report, _proof = generate_report_and_proof store final_session in
+  let* final_session, _ = persist_event store state session_id completion_kind in
+  let* _report, _proof = generate_report_and_proof store state session_id in
   Ok (Finalized final_session)
 
-let apply_command state store session command =
+let apply_command state store (session : session) command =
+  let session_id = session.session_id in
   match command with
   | Record_turn detail ->
       let* session, _ =
-        persist_event store state session
+        persist_event store state session_id
           (Turn_recorded { actor = detail.actor; message = detail.message })
+      in
+      Ok (Command_applied session)
+  | Update_session_settings detail ->
+      let* session, _ =
+        persist_event store state session_id
+          (Session_settings_updated detail)
       in
       Ok (Command_applied session)
   | Spawn_agent detail ->
@@ -239,7 +296,7 @@ let apply_command state store session command =
         | Hook_response _ -> (true, None)
       in
       let* session, _ =
-        persist_event store state session
+        persist_event store state session_id
           (Agent_spawn_requested
              {
                participant_name = detail.participant_name;
@@ -260,7 +317,7 @@ let apply_command state store session command =
       in
       if not permission_allowed || not hook_allowed then
         let* session, _ =
-          persist_event store state session
+          persist_event store state session_id
             (Agent_failed
                {
                  participant_name = detail.participant_name;
@@ -274,59 +331,55 @@ let apply_command state store session command =
         in
         Ok (Command_applied session)
       else
-        let* session, _ =
-          persist_event store state session
-            (Agent_became_live
-               {
-                 participant_name = detail.participant_name;
-                 summary = Some "runtime-started";
-                 error = None;
-               })
+        let participant_name = detail.participant_name in
+        let _worker =
+          Thread.create
+            (fun () ->
+              ignore
+                (match
+                   persist_event store state session_id
+                     (Agent_became_live
+                        {
+                          participant_name;
+                          summary = Some "runtime-started";
+                          error = None;
+                        })
+                 with
+                 | Error _ -> Ok ()
+                 | Ok _ -> (
+                     match run_participant store state session_id detail with
+                     | Ok summary ->
+                         let* _session, _ =
+                           persist_event store state session_id
+                             (Agent_completed
+                                {
+                                  participant_name;
+                                  summary = Some summary;
+                                  error = None;
+                                })
+                         in
+                         Ok ()
+                     | Error err ->
+                         let* _session, _ =
+                           persist_event store state session_id
+                             (Agent_failed
+                                {
+                                  participant_name;
+                                  summary = None;
+                                  error = Some (Error.to_string err);
+                                })
+                         in
+                         Ok ())))
+            ()
         in
-        (match run_participant state session detail with
-         | Ok summary ->
-             let* _ =
-               invoke_hook state ~hook_name:"PostSpawn"
-                 ~payload:(`Assoc [ ("participant_name", `String detail.participant_name); ("status", `String "ok") ])
-             in
-             let* session, _ =
-               persist_event store state session
-                 (Agent_completed
-                    {
-                      participant_name = detail.participant_name;
-                      summary = Some summary;
-                      error = None;
-                    })
-             in
-             Ok (Command_applied session)
-         | Error err ->
-             let* _ =
-               invoke_hook state ~hook_name:"PostSpawn"
-                 ~payload:
-                   (`Assoc
-                      [
-                        ("participant_name", `String detail.participant_name);
-                        ("status", `String "error");
-                        ("error", `String (Error.to_string err));
-                      ])
-             in
-             let* session, _ =
-               persist_event store state session
-                 (Agent_failed
-                    {
-                      participant_name = detail.participant_name;
-                      summary = None;
-                      error = Some (Error.to_string err);
-                    })
-             in
-             Ok (Command_applied session))
+        Ok (Command_applied session)
   | Attach_artifact detail ->
       let* path =
         Runtime_store.save_artifact_text store session.session_id ~name:detail.name
           ~kind:detail.kind ~content:detail.content
       in
       let* session, _ =
-        persist_event store state session
+        persist_event store state session_id
           (Artifact_attached
              { name = detail.name; kind = detail.kind; path })
       in
@@ -341,7 +394,7 @@ let apply_command state store session command =
           created_at = Unix.gettimeofday ();
         }
       in
-      let* session, _ = persist_event store state session (Vote_recorded vote) in
+      let* session, _ = persist_event store state session_id (Vote_recorded vote) in
       Ok (Command_applied session)
   | Checkpoint detail ->
       let path =
@@ -349,7 +402,7 @@ let apply_command state store session command =
           ~seq:(session.last_seq + 1) ~label:detail.label
       in
       let* session, _ =
-        persist_event store state session
+        persist_event store state session_id
           (Checkpoint_saved { label = detail.label; path })
       in
       let* _ = Runtime_store.save_snapshot store session ~label:detail.label in
@@ -427,6 +480,7 @@ let serve_stdio ~net () =
   let state = create ~net () in
   let rec loop () =
     match input_line stdin with
+    | raw when String.trim raw = "" -> loop ()
     | exception End_of_file -> ()
     | raw -> (
         match protocol_message_of_string raw with
@@ -436,7 +490,7 @@ let serve_stdio ~net () =
               | Ok response -> response
               | Error err -> Error_response (Error.to_string err)
             in
-            write_protocol_message
+            write_protocol_message state
               (Response_message
                  { request_id = payload.request_id; response });
             (match response with
@@ -446,7 +500,7 @@ let serve_stdio ~net () =
         | Error _ -> (
             match request_of_string raw with
             | Error detail ->
-                write_protocol_message
+                write_protocol_message state
                   (Response_message
                      { request_id = "legacy"; response = Error_response detail });
                 loop ()
@@ -456,7 +510,7 @@ let serve_stdio ~net () =
               | Ok response -> response
               | Error err -> Error_response (Error.to_string err)
             in
-            write_protocol_message
+            write_protocol_message state
               (Response_message { request_id = "legacy"; response });
             match response with
             | Shutdown_ack -> ()

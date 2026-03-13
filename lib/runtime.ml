@@ -52,6 +52,7 @@ type session = {
   goal: string;
   title: string option;
   tag: string option;
+  permission_mode: string option;
   phase: phase;
   created_at: float;
   updated_at: float;
@@ -72,6 +73,13 @@ type session = {
 
 type init_request = {
   session_root: string option;
+  provider: string option;
+  model: string option;
+  permission_mode: string option;
+  include_partial_messages: bool;
+  setting_sources: string list;
+  resume_session: string option;
+  cwd: string option;
 }
 [@@deriving yojson, show]
 
@@ -116,9 +124,16 @@ type start_request = {
   participants: string list;
   provider: string option;
   model: string option;
+  permission_mode: string option;
   system_prompt: string option;
   max_turns: int option;
   workdir: string option;
+}
+[@@deriving yojson, show]
+
+type update_settings_request = {
+  model: string option;
+  permission_mode: string option;
 }
 [@@deriving yojson, show]
 
@@ -167,6 +182,7 @@ type finalize_request = {
 type command =
   | Record_turn of record_turn_request
   | Spawn_agent of spawn_agent_request
+  | Update_session_settings of update_settings_request
   | Attach_artifact of attach_artifact_request
   | Vote of vote_request
   | Checkpoint of checkpoint_request
@@ -201,6 +217,12 @@ type participant_event = {
 }
 [@@deriving yojson, show]
 
+type output_delta_event = {
+  participant_name: string;
+  delta: string;
+}
+[@@deriving yojson, show]
+
 type artifact_event = {
   name: string;
   kind: string;
@@ -221,9 +243,11 @@ type completion_event = {
 
 type event_kind =
   | Session_started of start_event
+  | Session_settings_updated of update_settings_request
   | Turn_recorded of turn_event
   | Agent_spawn_requested of spawn_event
   | Agent_became_live of participant_event
+  | Agent_output_delta of output_delta_event
   | Agent_completed of participant_event
   | Agent_failed of participant_event
   | Artifact_attached of artifact_event

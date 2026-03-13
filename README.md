@@ -150,11 +150,24 @@ let () =
           match Client.query client "Review this runtime setup" with
           | Error err -> prerr_endline (Error.to_string err)
           | Ok () ->
+              let server_info = Client.get_server_info client in
+              let first_batch = Client.receive_response ~timeout:0.5 client in
+              Printf.printf "Received %d messages after first turn\n"
+                (List.length first_batch);
+              ignore (Client.query client "Continue with one more refinement.");
+              ignore (Client.wait_until_idle client);
+              let second_batch = Client.receive_messages client in
+              Printf.printf "Received %d messages after second turn\n"
+                (List.length second_batch);
               ignore (Client.finalize client ());
-              let messages = Client.receive_messages client in
-              Printf.printf "Received %d buffered messages\n"
-                (List.length messages))
+              let final_batch = Client.receive_messages client in
+              Printf.printf "Received %d final messages\n"
+                (List.length final_batch);
+              ignore server_info)
 ```
+
+`include_partial_messages = true`를 주면 `Client.receive_messages()`에
+`Partial_message { participant_name; delta }`가 함께 들어온다.
 
 ### Session Helpers
 
@@ -165,6 +178,22 @@ let () =
   match Sessions.list_sessions ~session_root:"./.oas-runtime-demo" () with
   | Ok infos -> Printf.printf "Known sessions: %d\n" (List.length infos)
   | Error err -> prerr_endline (Error.to_string err)
+```
+
+### Resume a Session
+
+```ocaml
+open Agent_sdk
+
+let reconnect session_id =
+  Client.connect
+    ~options:
+      {
+        Client.default_options with
+        session_root = Some "./.oas-runtime-demo";
+        resume_session = Some session_id;
+      }
+    ()
 ```
 
 ### Advanced Runtime Access
