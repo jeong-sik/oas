@@ -2,6 +2,29 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.10.0] - 2026-03-13
+
+### Added
+- Harness-first runtime layer with bundled `oas-runtime` subprocess, file-backed session journal, report/proof generation, and typed runtime protocol
+- High-level `query` / `Client` surface on top of the runtime harness, with low-level `runtime_query` / `Runtime_client` escape hatches
+- Session helpers for listing, reading, renaming, and tagging persisted runtime sessions
+- Control-protocol callback round-trip for permission and hook requests
+- Long-lived interactive client semantics:
+  - partial message surfacing (`Partial_message`)
+  - progressive receive (`receive_messages`, `receive_response`, `wait_for_messages`)
+  - resume/attach via `session_id` / `resume_session`
+  - persisted session settings across reconnects
+
+### Changed
+- Default high-level local-first path is now `provider = Some "local-qwen"` and `model = Some "qwen3.5"` for `llama.cpp`-style local runtimes
+- Runtime transport now uses a background reader thread to handle response, control, and event envelopes
+- `set_permission_mode` and `set_model` now persist through runtime session updates instead of mutating SDK-local state only
+
+### Fixed
+- Runtime protocol version mismatch is detected during initialize handshake
+- Blank protocol lines are ignored on both SDK and runtime sides instead of surfacing as JSON parse failures
+- Runtime tests now reflect asynchronous worker completion semantics rather than assuming synchronous spawn completion
+
 ## [0.9.1] - 2026-03-11
 
 ### Changed (breaking)
