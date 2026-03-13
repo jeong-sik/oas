@@ -4,6 +4,7 @@ OCaml 5.x + Eio 기반 agent runtime SDK. Anthropic Messages API와 OpenAI-compa
 
 - OCaml 패키지 이름: `agent_sdk`
 - OCaml 모듈 이름: `Agent_sdk`
+- 기본 local-first 기준선: `llama.cpp` + `qwen3.5`
 
 ## 아키텍처
 
@@ -73,6 +74,12 @@ let openrouter_cfg = Provider.openrouter ~model_id:"anthropic/claude-sonnet-4-6"
 ```
 
 `Provider.resolve`는 `(base_url * api_key * headers, error_msg) result`를 반환한다. 환경변수가 없으면 `Error`를 반환하며, silent fallback 없음.
+
+## Canonical Local Path
+
+- high-level `Client.default_options`와 `query`는 `provider = Some "local-qwen"` / `model = Some "qwen3.5"`를 기본값으로 둔다.
+- 즉 기본 happy path는 `llama.cpp` 계열 OpenAI-compatible endpoint가 `127.0.0.1:8085`에서 `qwen3.5`를 서빙하는 환경이다.
+- 문서 예제는 결정론 검증을 위해 `mock` provider도 사용하지만, 실제 운용 기준선은 local `llama.cpp`다.
 
 ## 사용법
 

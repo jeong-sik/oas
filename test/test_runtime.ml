@@ -32,6 +32,12 @@ let unwrap = function
   | Ok value -> value
   | Error err -> Alcotest.fail (Error.to_string err)
 
+let test_default_local_first_options () =
+  Alcotest.(check (option string)) "default provider"
+    (Some "local-qwen") Client.default_options.provider;
+  Alcotest.(check (option string)) "default model"
+    (Some "qwen3.5") Client.default_options.model
+
 let test_query_lifecycle () =
   with_temp_dir @@ fun session_root ->
   let runtime = runtime_path () in
@@ -350,6 +356,11 @@ let () =
   Random.self_init ();
   Alcotest.run "runtime"
     [
+      ( "defaults",
+        [
+          Alcotest.test_case "local first options" `Quick
+            test_default_local_first_options;
+        ] );
       ("query", [ Alcotest.test_case "lifecycle" `Quick test_query_lifecycle ]);
       ( "runtime_client",
         [ Alcotest.test_case "roundtrip" `Quick test_runtime_client_roundtrip ] );
