@@ -196,6 +196,33 @@ let reconnect session_id =
     ()
 ```
 
+### Explicit Runtime Contract
+
+```ocaml
+open Agent_sdk
+
+let review_skill =
+  Skill.of_markdown
+    "---\nname: reviewer\n---\nList concrete findings before summaries."
+
+let contract =
+  Contract.empty
+  |> Contract.with_runtime_awareness
+       "You are running inside an explicit runtime contract."
+  |> Contract.with_trigger ~source:"room" ~reason:"direct mention"
+       "direct_mention"
+  |> Contract.add_instruction_layer ~label:"role"
+       "Prefer short, grounded answers."
+
+let agent =
+  Builder.create ~net ~model:Types.Claude_sonnet_4_6
+  |> Builder.with_system_prompt "Review the request carefully."
+  |> Builder.with_contract contract
+  |> Builder.with_skill review_skill
+  |> Builder.with_tool_grants ["read_file"; "search"]
+  |> Builder.build
+```
+
 ### Advanced Runtime Access
 
 ```ocaml
@@ -387,4 +414,4 @@ API 응답의 `stop_reason` 필드는 `Unknown of string` variant를 포함한�
 
 ## 버전
 
-0.9.0
+0.10.0

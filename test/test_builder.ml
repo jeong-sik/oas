@@ -13,6 +13,21 @@ let make_tool name =
   Tool.create ~name ~description:("tool:" ^ name) ~parameters:[] (fun input ->
     Ok (Yojson.Safe.to_string input))
 
+let contains_substring ~needle haystack =
+  let needle_len = String.length needle in
+  let haystack_len = String.length haystack in
+  let rec loop idx =
+    if needle_len = 0 then
+      true
+    else if idx + needle_len > haystack_len then
+      false
+    else if String.sub haystack idx needle_len = needle then
+      true
+    else
+      loop (idx + 1)
+  in
+  loop 0
+
 (** Helper: compare model fields via string. *)
 let check_model msg expected actual =
   Alcotest.(check string) msg
@@ -254,7 +269,111 @@ let test_with_guardrails () =
   Alcotest.(check bool) "max_tool_calls set" true
     (agent.options.guardrails.max_tool_calls_per_turn = Some 3)
 
-(* --- 18. with_tool_choice --- *)
+(* --- 18. with_contract composes prompt --- *)
+
+let test_with_contract_composes_prompt () =
+  with_net @@ fun net ->
+  let contract =
+    Contract.empty
+    |> Contract.with_runtime_awareness
+         "You are running inside an explicit runtime contract."
+    |> Contract.with_trigger ~source:"room" ~reason:"direct mention"
+         "direct_mention"
+    |> Contract.add_instruction_layer ~label:"role"
+         "Prefer concise, factual answers."
+  in
+  let agent =
+    Builder.create ~net ~model:Types.Claude_sonnet_4_6
+    |> Builder.with_system_prompt "Base prompt."
+    |> Builder.with_contract contract
+    |> Builder.build
+  in
+  let prompt =
+    match agent.state.config.system_prompt with
+    | Some value -> value
+    | None -> Alcotest.fail "missing composed system prompt"
+  in
+  Alcotest.(check bool) "base prompt preserved" true
+    (contains_substring ~needle:"Base prompt." prompt);
+  Alcotest.(check bool) "runtime awareness section" true
+    (contains_substring ~needle:"[Runtime Awareness]" prompt
+     && contains_substring
+          ~needle:"You are running inside an explicit runtime contract."
+          prompt);
+  Alcotest.(check bool) "trigger section rendered" true
+    (contains_substring ~needle:"[Trigger Context]" prompt
+     && contains_substring ~needle:"kind: direct_mention" prompt
+     && contains_substring ~needle:"source: room" prompt);
+  Alcotest.(check bool) "instruction layer rendered" true
+    (contains_substring ~needle:"[Instruction Layer: role]" prompt
+     && contains_substring ~needle:"Prefer concise, factual answers." prompt)
+
+(* --- 19. with_skill appends skill prompt --- *)
+
+let test_with_skill_appends_prompt () =
+  with_net @@ fun net ->
+  let skill =
+    Skill.of_markdown
+      "---\nname: reviewer\ndescription: Review skill\n---\nState concrete findings first."
+  in
+  let agent =
+    Builder.create ~net ~model:Types.Claude_sonnet_4_6
+    |> Builder.with_system_prompt "Base prompt."
+    |> Builder.with_skill skill
+    |> Builder.build
+  in
+  let prompt =
+    match agent.state.config.system_prompt with
+    | Some value -> value
+    | None -> Alcotest.fail "missing prompt with skill"
+  in
+  Alcotest.(check bool) "skill label present" true
+    (contains_substring ~needle:"[Skill: reviewer]" prompt);
+  Alcotest.(check bool) "skill body present" true
+    (contains_substring ~needle:"State concrete findings first." prompt)
+
+(* --- 20. with_tool_grants filters tools --- *)
+
+let test_with_tool_grants_filters_tools () =
+  with_net @@ fun net ->
+  let t1 = make_tool "alpha" in
+  let t2 = make_tool "beta" in
+  let agent =
+    Builder.create ~net ~model:Types.Claude_sonnet_4_6
+    |> Builder.with_tool t1
+    |> Builder.with_tool t2
+    |> Builder.with_tool_grants [ "beta" ]
+    |> Builder.build
+  in
+  Alcotest.(check int) "tool count" 1 (List.length agent.tools);
+  Alcotest.(check string) "filtered tool name" "beta"
+    (List.hd agent.tools).schema.name
+
+(* --- 21. with_contract injects context metadata --- *)
+
+let test_with_contract_injects_context_metadata () =
+  with_net @@ fun net ->
+  let ctx = Context.create () in
+  Context.set ctx "original" (`String "kept");
+  let contract =
+    Contract.empty |> Contract.with_runtime_awareness "Aware of explicit grants."
+  in
+  let agent =
+    Builder.create ~net ~model:Types.Claude_sonnet_4_6
+    |> Builder.with_context ctx
+    |> Builder.with_contract contract
+    |> Builder.build
+  in
+  Alcotest.(check (option string)) "original context kept" (Some "kept")
+    (match Context.get agent.context "original" with
+    | Some (`String value) -> Some value
+    | _ -> None);
+  Alcotest.(check bool) "contract metadata injected" true
+    (match Context.get agent.context "agent_sdk.contract" with
+    | Some (`Assoc _) -> true
+    | _ -> false)
+
+(* --- 22. with_tool_choice --- *)
 
 let test_with_tool_choice () =
   with_net @@ fun net ->
@@ -272,7 +391,7 @@ let test_with_tool_choice () =
     (Yojson.Safe.to_string expected)
     (Yojson.Safe.to_string actual)
 
-(* --- 19. with_thinking_budget --- *)
+(* --- 23. with_thinking_budget --- *)
 
 let test_with_thinking_budget () =
   with_net @@ fun net ->
@@ -284,7 +403,7 @@ let test_with_thinking_budget () =
   Alcotest.(check (option int)) "thinking_budget"
     (Some 10000) agent.state.config.thinking_budget
 
-(* --- 20. with_max_input_tokens --- *)
+(* --- 24. with_max_input_tokens --- *)
 
 let test_with_max_input_tokens () =
   with_net @@ fun net ->
@@ -296,7 +415,7 @@ let test_with_max_input_tokens () =
   Alcotest.(check (option int)) "max_input_tokens"
     (Some 50000) agent.state.config.max_input_tokens
 
-(* --- 21. with_max_total_tokens --- *)
+(* --- 25. with_max_total_tokens --- *)
 
 let test_with_max_total_tokens () =
   with_net @@ fun net ->
@@ -308,7 +427,7 @@ let test_with_max_total_tokens () =
   Alcotest.(check (option int)) "max_total_tokens"
     (Some 100000) agent.state.config.max_total_tokens
 
-(* --- 22. build produces valid agent --- *)
+(* --- 26. build produces valid agent --- *)
 
 let test_build_produces_valid_agent () =
   with_net @@ fun net ->
@@ -335,7 +454,7 @@ let test_build_produces_valid_agent () =
   Alcotest.(check int) "turn_count zero" 0 agent.state.turn_count;
   Alcotest.(check int) "api_calls zero" 0 agent.state.usage.api_calls
 
-(* --- 23. chain multiple --- *)
+(* --- 27. chain multiple --- *)
 
 let test_chain_multiple () =
   with_net @@ fun net ->
@@ -362,7 +481,7 @@ let test_chain_multiple () =
   Alcotest.(check (option int)) "thinking_budget"
     (Some 5000) agent.state.config.thinking_budget
 
-(* --- 24. immutability check --- *)
+(* --- 28. immutability check --- *)
 
 let test_immutability_check () =
   with_net @@ fun net ->
@@ -372,7 +491,7 @@ let test_immutability_check () =
   Alcotest.(check string) "original name unchanged"
     "agent" agent_from_original.state.config.name
 
-(* --- 25. defaults match Agent.create defaults --- *)
+(* --- 29. defaults match Agent.create defaults --- *)
 
 let test_defaults_match_agent_create () =
   with_net @@ fun net ->
@@ -406,7 +525,7 @@ let test_defaults_match_agent_create () =
     (Option.is_none builder_agent.options.provider);
   Alcotest.(check int) "tools" 0 (List.length builder_agent.tools)
 
-(* --- 26. build with tools merges mcp --- *)
+(* --- 30. build with tools merges mcp --- *)
 
 let test_build_with_tools_merges_mcp () =
   with_net @@ fun net ->
@@ -422,7 +541,7 @@ let test_build_with_tools_merges_mcp () =
   Alcotest.(check string) "tool name" "explicit"
     (List.hd agent.tools).schema.name
 
-(* --- 27. build minimal: only net+model, rest defaults --- *)
+(* --- 31. build minimal: only net+model, rest defaults --- *)
 
 let test_build_minimal_required_only () =
   with_net @@ fun net ->
@@ -461,6 +580,14 @@ let () =
       Alcotest.test_case "base_url" `Quick test_with_base_url;
       Alcotest.test_case "mcp_clients" `Quick test_with_mcp_clients;
       Alcotest.test_case "guardrails" `Quick test_with_guardrails;
+      Alcotest.test_case "contract composes prompt" `Quick
+        test_with_contract_composes_prompt;
+      Alcotest.test_case "skill appends prompt" `Quick
+        test_with_skill_appends_prompt;
+      Alcotest.test_case "tool grants filter tools" `Quick
+        test_with_tool_grants_filters_tools;
+      Alcotest.test_case "contract injects context metadata" `Quick
+        test_with_contract_injects_context_metadata;
       Alcotest.test_case "tool_choice" `Quick test_with_tool_choice;
       Alcotest.test_case "thinking_budget" `Quick test_with_thinking_budget;
       Alcotest.test_case "max_input_tokens" `Quick test_with_max_input_tokens;

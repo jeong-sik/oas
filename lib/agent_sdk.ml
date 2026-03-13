@@ -50,6 +50,7 @@ module Mcp_session = Mcp_session
 module Guardrails = Guardrails
 module Event_bus = Event_bus
 module Skill = Skill
+module Contract = Contract
 module Handoff = Handoff
 module Api = Api
 module Streaming = Streaming
@@ -99,5 +100,5 @@ let runtime_query = Runtime_query.query
 let query = Query.query
 
 (** Version info *)
-let version = "0.9.0"
-let sdk_name = "anthropic-agent-sdk"
+let version = "0.10.0"
+let sdk_name = "agent_sdk"
