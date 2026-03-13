@@ -1214,6 +1214,538 @@ module Otel_tracer : sig
   val create : ?config:config -> unit -> Tracing.t
 end
 
+module Runtime : sig
+  type phase =
+    | Bootstrapping
+    | Running
+    | Waiting_on_workers
+    | Finalizing
+    | Completed
+    | Failed
+    | Cancelled
+  [@@deriving yojson, show]
+
+  type participant_state =
+    | Planned
+    | Starting
+    | Live
+    | Idle
+    | Done
+    | Failed_participant
+    | Detached
+  [@@deriving yojson, show]
+
+  type participant = {
+    name: string;
+    role: string option;
+    state: participant_state;
+    summary: string option;
+    started_at: float option;
+    finished_at: float option;
+    last_error: string option;
+  }
+  [@@deriving yojson, show]
+
+  type artifact = {
+    name: string;
+    kind: string;
+    path: string option;
+    inline_content: string option;
+    created_at: float;
+  }
+  [@@deriving yojson, show]
+
+  type vote = {
+    topic: string;
+    options: string list;
+    choice: string;
+    actor: string option;
+    created_at: float;
+  }
+  [@@deriving yojson, show]
+
+  type session = {
+    session_id: string;
+    goal: string;
+    title: string option;
+    tag: string option;
+    phase: phase;
+    created_at: float;
+    updated_at: float;
+    provider: string option;
+    model: string option;
+    system_prompt: string option;
+    max_turns: int;
+    workdir: string option;
+    planned_participants: string list;
+    participants: participant list;
+    artifacts: artifact list;
+    votes: vote list;
+    turn_count: int;
+    last_seq: int;
+    outcome: string option;
+  }
+  [@@deriving yojson, show]
+
+  type init_request = {
+    session_root: string option;
+  }
+  [@@deriving yojson, show]
+
+  type init_response = {
+    sdk_name: string;
+    sdk_version: string;
+    runtime_version: string;
+    protocol_version: string;
+    capabilities: string list;
+  }
+  [@@deriving yojson, show]
+
+  type permission_request = {
+    action: string;
+    subject: string;
+    payload: Yojson.Safe.t;
+  }
+  [@@deriving yojson, show]
+
+  type permission_response = {
+    allow: bool;
+    message: string option;
+    interrupt: bool;
+  }
+  [@@deriving yojson, show]
+
+  type hook_request = {
+    hook_name: string;
+    payload: Yojson.Safe.t;
+  }
+  [@@deriving yojson, show]
+
+  type hook_response = {
+    continue_: bool; [@key "continue"]
+    message: string option;
+  }
+  [@@deriving yojson, show]
+
+  type start_request = {
+    session_id: string option;
+    goal: string;
+    participants: string list;
+    provider: string option;
+    model: string option;
+    system_prompt: string option;
+    max_turns: int option;
+    workdir: string option;
+  }
+  [@@deriving yojson, show]
+
+  type record_turn_request = {
+    actor: string option;
+    message: string;
+  }
+  [@@deriving yojson, show]
+
+  type spawn_agent_request = {
+    participant_name: string;
+    role: string option;
+    prompt: string;
+    provider: string option;
+    model: string option;
+    system_prompt: string option;
+    max_turns: int option;
+  }
+  [@@deriving yojson, show]
+
+  type attach_artifact_request = {
+    name: string;
+    kind: string;
+    content: string;
+  }
+  [@@deriving yojson, show]
+
+  type vote_request = {
+    topic: string;
+    options: string list;
+    choice: string;
+    actor: string option;
+  }
+  [@@deriving yojson, show]
+
+  type checkpoint_request = {
+    label: string option;
+  }
+  [@@deriving yojson, show]
+
+  type finalize_request = {
+    reason: string option;
+  }
+  [@@deriving yojson, show]
+
+  type command =
+    | Record_turn of record_turn_request
+    | Spawn_agent of spawn_agent_request
+    | Attach_artifact of attach_artifact_request
+    | Vote of vote_request
+    | Checkpoint of checkpoint_request
+    | Request_finalize of finalize_request
+  [@@deriving yojson, show]
+
+  type start_event = {
+    goal: string;
+    participants: string list;
+  }
+  [@@deriving yojson, show]
+
+  type turn_event = {
+    actor: string option;
+    message: string;
+  }
+  [@@deriving yojson, show]
+
+  type spawn_event = {
+    participant_name: string;
+    role: string option;
+    prompt: string;
+    provider: string option;
+    model: string option;
+  }
+  [@@deriving yojson, show]
+
+  type participant_event = {
+    participant_name: string;
+    summary: string option;
+    error: string option;
+  }
+  [@@deriving yojson, show]
+
+  type artifact_event = {
+    name: string;
+    kind: string;
+    path: string;
+  }
+  [@@deriving yojson, show]
+
+  type checkpoint_event = {
+    label: string option;
+    path: string;
+  }
+  [@@deriving yojson, show]
+
+  type completion_event = {
+    outcome: string option;
+  }
+  [@@deriving yojson, show]
+
+  type event_kind =
+    | Session_started of start_event
+    | Turn_recorded of turn_event
+    | Agent_spawn_requested of spawn_event
+    | Agent_became_live of participant_event
+    | Agent_completed of participant_event
+    | Agent_failed of participant_event
+    | Artifact_attached of artifact_event
+    | Vote_recorded of vote
+    | Checkpoint_saved of checkpoint_event
+    | Finalize_requested of finalize_request
+    | Session_completed of completion_event
+    | Session_failed of completion_event
+  [@@deriving yojson, show]
+
+  type event = {
+    seq: int;
+    ts: float;
+    kind: event_kind;
+  }
+  [@@deriving yojson, show]
+
+  type report = {
+    session_id: string;
+    summary: string list;
+    markdown: string;
+    generated_at: float;
+  }
+  [@@deriving yojson, show]
+
+  type proof_check = {
+    name: string;
+    passed: bool;
+  }
+  [@@deriving yojson, show]
+
+  type proof = {
+    session_id: string;
+    ok: bool;
+    checks: proof_check list;
+    evidence: string list;
+    generated_at: float;
+  }
+  [@@deriving yojson, show]
+
+  type request =
+    | Initialize of init_request
+    | Start_session of start_request
+    | Apply_command of { session_id: string; command: command }
+    | Status of { session_id: string }
+    | Events of { session_id: string; after_seq: int option }
+    | Finalize of { session_id: string; reason: string option }
+    | Report of { session_id: string }
+    | Prove of { session_id: string }
+    | Shutdown
+  [@@deriving yojson, show]
+
+  type response =
+    | Initialized of init_response
+    | Session_started_response of session
+    | Command_applied of session
+    | Status_response of session
+    | Events_response of event list
+    | Finalized of session
+    | Report_response of report
+    | Prove_response of proof
+    | Shutdown_ack
+    | Error_response of string
+  [@@deriving yojson, show]
+
+  type control_request =
+    | Permission_request of permission_request
+    | Hook_request of hook_request
+  [@@deriving yojson, show]
+
+  type control_response =
+    | Permission_response of permission_response
+    | Hook_response of hook_response
+  [@@deriving yojson, show]
+
+  type protocol_message =
+    | Request_message of { request_id: string; request: request }
+    | Response_message of { request_id: string; response: response }
+    | Control_request_message of { control_id: string; request: control_request }
+    | Control_response_message of { control_id: string; response: control_response }
+    | Event_message of { session_id: string option; event: event }
+    | System_message of { level: string; message: string }
+  [@@deriving yojson, show]
+
+  val request_to_json : request -> Yojson.Safe.t
+  val request_of_json : Yojson.Safe.t -> (request, string) result
+  val response_to_json : response -> Yojson.Safe.t
+  val response_of_json : Yojson.Safe.t -> (response, string) result
+  val protocol_message_to_json : protocol_message -> Yojson.Safe.t
+  val protocol_message_of_json : Yojson.Safe.t -> (protocol_message, string) result
+  val request_to_string : request -> string
+  val response_to_string : response -> string
+  val protocol_message_to_string : protocol_message -> string
+  val request_of_string : string -> (request, string) result
+  val response_of_string : string -> (response, string) result
+  val protocol_message_of_string : string -> (protocol_message, string) result
+  val protocol_version : string
+end
+
+module Transport : sig
+  type options = {
+    runtime_path: string option;
+    session_root: string option;
+  }
+
+  val default_options : options
+
+  type t
+
+  val connect : ?options:options -> unit -> (t, Error.sdk_error) result
+  val request :
+    ?control_handler:
+      (Runtime.control_request -> (Runtime.control_response, Error.sdk_error) result) ->
+    ?event_handler:(Runtime.event -> unit) ->
+    t ->
+    Runtime.request ->
+    (Runtime.response, Error.sdk_error) result
+  val close : t -> unit
+end
+
+module Runtime_client : sig
+  type options = Transport.options = {
+    runtime_path: string option;
+    session_root: string option;
+  }
+
+  val default_options : options
+
+  type t
+
+  val connect : ?options:options -> unit -> (t, Error.sdk_error) result
+  val request :
+    ?control_handler:
+      (Runtime.control_request -> (Runtime.control_response, Error.sdk_error) result) ->
+    ?event_handler:(Runtime.event -> unit) ->
+    t ->
+    Runtime.request ->
+    (Runtime.response, Error.sdk_error) result
+  val init_info : t -> (Runtime.response, Error.sdk_error) result
+  val start_session :
+    ?control_handler:
+      (Runtime.control_request -> (Runtime.control_response, Error.sdk_error) result) ->
+    ?event_handler:(Runtime.event -> unit) ->
+    t ->
+    Runtime.start_request ->
+    (Runtime.session, Error.sdk_error) result
+  val apply_command :
+    ?control_handler:
+      (Runtime.control_request -> (Runtime.control_response, Error.sdk_error) result) ->
+    ?event_handler:(Runtime.event -> unit) ->
+    t ->
+    session_id:string ->
+    Runtime.command ->
+    (Runtime.session, Error.sdk_error) result
+  val status : t -> session_id:string -> (Runtime.session, Error.sdk_error) result
+  val events :
+    t ->
+    session_id:string ->
+    ?after_seq:int ->
+    unit ->
+    (Runtime.event list, Error.sdk_error) result
+  val finalize :
+    ?control_handler:
+      (Runtime.control_request -> (Runtime.control_response, Error.sdk_error) result) ->
+    ?event_handler:(Runtime.event -> unit) ->
+    t ->
+    session_id:string ->
+    ?reason:string ->
+    unit ->
+    (Runtime.session, Error.sdk_error) result
+  val report : t -> session_id:string -> (Runtime.report, Error.sdk_error) result
+  val prove : t -> session_id:string -> (Runtime.proof, Error.sdk_error) result
+  val close : t -> unit
+end
+
+val runtime_query :
+  ?runtime_path:string ->
+  ?session_root:string ->
+  Runtime.request ->
+  (Runtime.response, Error.sdk_error) result
+
+module Client : sig
+  type permission_mode =
+    | Default
+    | Accept_edits
+    | Plan
+    | Bypass_permissions
+  [@@deriving show]
+
+  type setting_source =
+    | User
+    | Project
+    | Local
+  [@@deriving show]
+
+  type agent_definition = {
+    description: string;
+    prompt: string;
+    tools: string list option;
+    model: string option;
+  }
+  [@@deriving show]
+
+  type options = {
+    runtime_path: string option;
+    session_root: string option;
+    cwd: string option;
+    permission_mode: permission_mode;
+    model: string option;
+    system_prompt: string option;
+    max_turns: int option;
+    provider: string option;
+    agents: (string * agent_definition) list;
+    include_partial_messages: bool;
+    setting_sources: setting_source list;
+  }
+  [@@deriving show]
+
+  type message =
+    | System_message of string
+    | Session_status of Runtime.session
+    | Session_events of Runtime.event list
+    | Session_report of Runtime.report
+    | Session_proof of Runtime.proof
+  [@@deriving show]
+
+  type permission_result =
+    | Permission_result_allow of { message: string option }
+    | Permission_result_deny of { message: string option; interrupt: bool }
+
+  type tool_permission_context = {
+    suggestions: string list;
+  }
+
+  type can_use_tool =
+    string -> Yojson.Safe.t -> tool_permission_context -> permission_result
+
+  type hook_result =
+    | Hook_continue
+    | Hook_block of string option
+
+  type hook_callback =
+    string -> Yojson.Safe.t -> hook_result
+
+  val default_options : options
+
+  type t
+
+  val connect : ?options:options -> unit -> (t, Error.sdk_error) result
+  val query : t -> string -> (unit, Error.sdk_error) result
+  val receive_messages : t -> message list
+  val interrupt : t -> (unit, Error.sdk_error) result
+  val set_permission_mode : t -> permission_mode -> unit
+  val set_model : t -> string option -> unit
+  val set_can_use_tool : t -> can_use_tool -> unit
+  val set_hook_callback : t -> hook_callback -> unit
+  val current_session_id : t -> string option
+  val finalize :
+    t ->
+    ?reason:string ->
+    unit ->
+    (unit, Error.sdk_error) result
+  val close : t -> unit
+end
+
+module Sessions : sig
+  type session_info = {
+    session_id: string;
+    title: string option;
+    tag: string option;
+    goal: string;
+    updated_at: float;
+    phase: Runtime.phase;
+    participant_count: int;
+    path: string;
+  }
+
+  val list_sessions :
+    ?session_root:string -> unit -> (session_info list, Error.sdk_error) result
+  val get_session :
+    ?session_root:string -> string -> (Runtime.session, Error.sdk_error) result
+  val get_session_events :
+    ?session_root:string ->
+    string ->
+    (Runtime.event list, Error.sdk_error) result
+  val rename_session :
+    ?session_root:string ->
+    session_id:string ->
+    title:string ->
+    unit ->
+    (unit, Error.sdk_error) result
+  val tag_session :
+    ?session_root:string ->
+    session_id:string ->
+    tag:string option ->
+    unit ->
+    (unit, Error.sdk_error) result
+end
+
+val query :
+  ?options:Client.options ->
+  prompt:string ->
+  unit ->
+  (Client.message list, Error.sdk_error) result
+
 (** {1 Quick Start} *)
 
 (** Create an agent with default config and optional overrides *)

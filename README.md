@@ -1,6 +1,6 @@
 # agent-sdk
 
-OCaml 5.x + Eio 기반 LLM Agent SDK. Anthropic Messages API와 OpenAI-compatible local LLM 엔드포인트를 지원한다.
+OCaml 5.x + Eio 기반 agent runtime SDK. Anthropic Messages API와 OpenAI-compatible local LLM 엔드포인트를 지원하며, `query` / `Client` public API 뒤에 bundled subprocess runtime을 두는 구조를 제공한다.
 
 - OCaml 패키지 이름: `agent_sdk`
 - OCaml 모듈 이름: `Agent_sdk`
@@ -8,10 +8,15 @@ OCaml 5.x + Eio 기반 LLM Agent SDK. Anthropic Messages API와 OpenAI-compatibl
 ## 아키텍처
 
 ```
-Provider  ->  API  ->  Agent  ->  Tool
-(endpoint)   (HTTP)   (loop)    (functions)
-               |
-            Streaming (SSE)
+Public SDK (`query` / `Client`)
+           |
+      Transport
+           |
+  Bundled `oas-runtime`
+           |
+ Runtime journal + projection
+           |
+ Provider  ->  API  ->  Agent  ->  Tool
 ```
 
 | 모듈 | 역할 |
@@ -19,6 +24,9 @@ Provider  ->  API  ->  Agent  ->  Tool
 | `Types` | 메시지, 역할, stop_reason, content_block (Text/Thinking/Image/Document), SSE event 등 도메인 타입 |
 | `Provider` | LLM 엔드포인트 추상화 (Local / Anthropic / OpenAICompat) |
 | `Api` | HTTP 클라이언트 -- `create_message` (동기) + `create_message_stream` (SSE) |
+| `Runtime` | 세션/이벤트/명령/리포트/증명 타입을 정의하는 런타임 프로토콜 |
+| `Transport` | `oas-runtime` subprocess transport와 runtime binary 탐색 |
+| `Client` | persistent runtime client (`connect`, `start_session`, `apply_command`, `status`, `finalize`) |
 | `Agent` | 멀티턴 에이전트 루프 (tool_use 자동 처리) |
 | `Tool` | 도구 정의 + JSON Schema 생성 + 실행 (Simple / WithContext) |
 | `Retry` | 구조적 API 에러 분류 (7 variant) + exponential backoff with jitter |
@@ -67,6 +75,118 @@ let openrouter_cfg = Provider.openrouter ~model_id:"anthropic/claude-sonnet-4-6"
 `Provider.resolve`는 `(base_url * api_key * headers, error_msg) result`를 반환한다. 환경변수가 없으면 `Error`를 반환하며, silent fallback 없음.
 
 ## 사용법
+
+### One-shot Query
+
+```ocaml
+open Agent_sdk
+
+let () =
+  match
+    query
+      ~options:
+        {
+          Client.default_options with
+          session_root = Some "./.oas-runtime-demo";
+          provider = Some "mock";
+          agents =
+            [
+              ( "planner",
+                {
+                  Client.description = "planner";
+                  prompt = "Break the problem into steps.";
+                  tools = None;
+                  model = None;
+                } );
+            ];
+        }
+      ~prompt:"Coordinate a small runtime task"
+      ()
+  with
+  | Ok messages ->
+      Printf.printf "Collected %d runtime messages\n" (List.length messages)
+  | Error err ->
+      Printf.eprintf "Query failed: %s\n" (Error.to_string err)
+```
+
+### Interactive Client
+
+```ocaml
+open Agent_sdk
+
+let () =
+  match
+    Client.connect
+      ~options:
+        {
+          Client.default_options with
+          session_root = Some "./.oas-runtime-demo";
+          provider = Some "mock";
+          agents =
+            [
+              ( "reviewer",
+                {
+                  Client.description = "reviewer";
+                  prompt = "Review the user request carefully.";
+                  tools = None;
+                  model = None;
+                } );
+            ];
+        }
+      ()
+  with
+  | Error err -> prerr_endline (Error.to_string err)
+  | Ok client ->
+      Fun.protect
+        ~finally:(fun () -> Client.close client)
+        (fun () ->
+          match Client.query client "Review this runtime setup" with
+          | Error err -> prerr_endline (Error.to_string err)
+          | Ok () ->
+              ignore (Client.finalize client ());
+              let messages = Client.receive_messages client in
+              Printf.printf "Received %d buffered messages\n"
+                (List.length messages))
+```
+
+### Session Helpers
+
+```ocaml
+open Agent_sdk
+
+let () =
+  match Sessions.list_sessions ~session_root:"./.oas-runtime-demo" () with
+  | Ok infos -> Printf.printf "Known sessions: %d\n" (List.length infos)
+  | Error err -> prerr_endline (Error.to_string err)
+```
+
+### Advanced Runtime Access
+
+```ocaml
+open Agent_sdk
+
+let request =
+  Runtime.Start_session
+    {
+      session_id = Some "demo-session";
+      goal = "Coordinate a small runtime task";
+      participants = [ "planner"; "builder" ];
+      provider = Some "mock";
+      model = None;
+      system_prompt = Some "Coordinate the team carefully.";
+      max_turns = Some 3;
+      workdir = None;
+    }
+
+let () =
+  match runtime_query ~session_root:"./.oas-runtime-demo" request with
+  | Ok (Runtime.Session_started_response session) ->
+      Printf.printf "Started %s\n" session.session_id
+  | Ok other ->
+      Printf.eprintf "Unexpected response: %s\n" (Runtime.show_response other)
+  | Error err ->
+      Printf.eprintf "Runtime error: %s\n" (Error.to_string err)
+```
 
 ### 기본 에이전트
 
@@ -188,6 +308,9 @@ let stateful_tool = Tool.create_with_context
 
 ```bash
 dune build @all
+
+# runtime binary
+_build/default/bin/oas_runtime.exe
 ```
 
 ## 테스트
@@ -195,6 +318,9 @@ dune build @all
 ```bash
 # 단위 테스트
 dune runtest
+
+# runtime query/client vertical slice
+dune exec ./test/test_runtime.exe
 
 # 통합 테스트 (로컬 LLM 서버 필요)
 LLAMA_LIVE_TEST=1 dune exec ./test/test_local_llm.exe
