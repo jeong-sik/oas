@@ -1,0 +1,5 @@
+(executable
+ (name oas_runtime)
+ (public_name oas-runtime)
+ (libraries agent_sdk eio eio_main yojson unix))
+

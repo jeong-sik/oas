@@ -62,6 +62,11 @@ module Agent = Agent
 module Builder = Builder
 module Orchestrator = Orchestrator
 module Otel_tracer = Otel_tracer
+module Runtime = Runtime
+module Transport = Transport
+module Runtime_client = Runtime_client
+module Client = Client
+module Sessions = Sessions
 
 (** Quick start: create an agent with default config *)
 let create_agent ~net ?name ?model ?system_prompt ?max_tokens ?max_turns ?cache_system_prompt ?provider () =
@@ -81,6 +86,9 @@ let create_agent ~net ?name ?model ?system_prompt ?max_tokens ?max_turns ?cache_
     | Some p -> { Agent.default_options with provider = Some p }
   in
   Agent.create ~net ~config ~options ()
+
+let runtime_query = Runtime_query.query
+let query = Query.query
 
 (** Version info *)
 let version = "0.9.0"
