@@ -1269,6 +1269,7 @@ module Runtime : sig
     goal: string;
     title: string option;
     tag: string option;
+    permission_mode: string option;
     phase: phase;
     created_at: float;
     updated_at: float;
@@ -1289,6 +1290,13 @@ module Runtime : sig
 
   type init_request = {
     session_root: string option;
+    provider: string option;
+    model: string option;
+    permission_mode: string option;
+    include_partial_messages: bool;
+    setting_sources: string list;
+    resume_session: string option;
+    cwd: string option;
   }
   [@@deriving yojson, show]
 
@@ -1333,9 +1341,16 @@ module Runtime : sig
     participants: string list;
     provider: string option;
     model: string option;
+    permission_mode: string option;
     system_prompt: string option;
     max_turns: int option;
     workdir: string option;
+  }
+  [@@deriving yojson, show]
+
+  type update_settings_request = {
+    model: string option;
+    permission_mode: string option;
   }
   [@@deriving yojson, show]
 
@@ -1384,6 +1399,7 @@ module Runtime : sig
   type command =
     | Record_turn of record_turn_request
     | Spawn_agent of spawn_agent_request
+    | Update_session_settings of update_settings_request
     | Attach_artifact of attach_artifact_request
     | Vote of vote_request
     | Checkpoint of checkpoint_request
@@ -1418,6 +1434,12 @@ module Runtime : sig
   }
   [@@deriving yojson, show]
 
+  type output_delta_event = {
+    participant_name: string;
+    delta: string;
+  }
+  [@@deriving yojson, show]
+
   type artifact_event = {
     name: string;
     kind: string;
@@ -1438,9 +1460,11 @@ module Runtime : sig
 
   type event_kind =
     | Session_started of start_event
+    | Session_settings_updated of update_settings_request
     | Turn_recorded of turn_event
     | Agent_spawn_requested of spawn_event
     | Agent_became_live of participant_event
+    | Agent_output_delta of output_delta_event
     | Agent_completed of participant_event
     | Agent_failed of participant_event
     | Artifact_attached of artifact_event
@@ -1544,6 +1568,13 @@ module Transport : sig
   type options = {
     runtime_path: string option;
     session_root: string option;
+    provider: string option;
+    model: string option;
+    permission_mode: string option;
+    include_partial_messages: bool;
+    setting_sources: string list;
+    resume_session: string option;
+    cwd: string option;
   }
 
   val default_options : options
@@ -1558,6 +1589,7 @@ module Transport : sig
     t ->
     Runtime.request ->
     (Runtime.response, Error.sdk_error) result
+  val server_info : t -> Runtime.init_response option
   val close : t -> unit
 end
 
@@ -1565,6 +1597,13 @@ module Runtime_client : sig
   type options = Transport.options = {
     runtime_path: string option;
     session_root: string option;
+    provider: string option;
+    model: string option;
+    permission_mode: string option;
+    include_partial_messages: bool;
+    setting_sources: string list;
+    resume_session: string option;
+    cwd: string option;
   }
 
   val default_options : options
@@ -1580,6 +1619,7 @@ module Runtime_client : sig
     Runtime.request ->
     (Runtime.response, Error.sdk_error) result
   val init_info : t -> (Runtime.response, Error.sdk_error) result
+  val get_server_info : t -> Runtime.init_response option
   val start_session :
     ?control_handler:
       (Runtime.control_request -> (Runtime.control_response, Error.sdk_error) result) ->
@@ -1647,6 +1687,8 @@ module Client : sig
   type options = {
     runtime_path: string option;
     session_root: string option;
+    session_id: string option;
+    resume_session: string option;
     cwd: string option;
     permission_mode: permission_mode;
     model: string option;
@@ -1661,6 +1703,10 @@ module Client : sig
 
   type message =
     | System_message of string
+    | Partial_message of {
+        participant_name: string;
+        delta: string;
+      }
     | Session_status of Runtime.session
     | Session_events of Runtime.event list
     | Session_report of Runtime.report
@@ -1691,18 +1737,23 @@ module Client : sig
 
   val connect : ?options:options -> unit -> (t, Error.sdk_error) result
   val query : t -> string -> (unit, Error.sdk_error) result
+  val has_pending_messages : t -> bool
   val receive_messages : t -> message list
+  val receive_response : ?timeout:float -> t -> message list
+  val wait_for_messages : ?timeout:float -> t -> message list
   val interrupt : t -> (unit, Error.sdk_error) result
-  val set_permission_mode : t -> permission_mode -> unit
-  val set_model : t -> string option -> unit
+  val set_permission_mode : t -> permission_mode -> (unit, Error.sdk_error) result
+  val set_model : t -> string option -> (unit, Error.sdk_error) result
   val set_can_use_tool : t -> can_use_tool -> unit
   val set_hook_callback : t -> hook_callback -> unit
+  val get_server_info : t -> Runtime.init_response option
   val current_session_id : t -> string option
   val finalize :
     t ->
     ?reason:string ->
     unit ->
     (unit, Error.sdk_error) result
+  val disconnect : t -> unit
   val close : t -> unit
 end
 

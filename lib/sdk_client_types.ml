@@ -5,6 +5,19 @@ type permission_mode =
   | Bypass_permissions
 [@@deriving show]
 
+let string_of_permission_mode = function
+  | Default -> "default"
+  | Accept_edits -> "accept_edits"
+  | Plan -> "plan"
+  | Bypass_permissions -> "bypass_permissions"
+
+let permission_mode_of_string = function
+  | "default" -> Some Default
+  | "accept_edits" -> Some Accept_edits
+  | "plan" -> Some Plan
+  | "bypass_permissions" -> Some Bypass_permissions
+  | _ -> None
+
 type setting_source =
   | User
   | Project
@@ -22,6 +35,8 @@ type agent_definition = {
 type options = {
   runtime_path: string option;
   session_root: string option;
+  session_id: string option;
+  resume_session: string option;
   cwd: string option;
   permission_mode: permission_mode;
   model: string option;
@@ -36,6 +51,10 @@ type options = {
 
 type message =
   | System_message of string
+  | Partial_message of {
+      participant_name: string;
+      delta: string;
+    }
   | Session_status of Runtime.session
   | Session_events of Runtime.event list
   | Session_report of Runtime.report
@@ -64,6 +83,8 @@ let default_options =
   {
     runtime_path = None;
     session_root = None;
+    session_id = None;
+    resume_session = None;
     cwd = None;
     permission_mode = Default;
     model = Some "qwen3.5";

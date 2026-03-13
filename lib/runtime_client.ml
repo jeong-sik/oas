@@ -1,6 +1,13 @@
 type options = Transport.options = {
   runtime_path: string option;
   session_root: string option;
+  provider: string option;
+  model: string option;
+  permission_mode: string option;
+  include_partial_messages: bool;
+  setting_sources: string list;
+  resume_session: string option;
+  cwd: string option;
 }
 
 let ( let* ) = Result.bind
@@ -26,7 +33,20 @@ let request ?control_handler ?event_handler client request =
   | _ -> Ok response
 
 let init_info client =
-  request client (Runtime.Initialize { session_root = None })
+  request client
+    (Runtime.Initialize
+       {
+         session_root = None;
+         provider = None;
+         model = None;
+         permission_mode = None;
+         include_partial_messages = false;
+         setting_sources = [];
+         resume_session = None;
+         cwd = None;
+       })
+
+let get_server_info client = Transport.server_info client.transport
 
 let start_session ?control_handler ?event_handler client request_data =
   let* response =
