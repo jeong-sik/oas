@@ -38,13 +38,15 @@ let create_message ~sw ~net ?(base_url=default_base_url) ?provider ?clock ?retry
     | None ->
         (match Sys.getenv_opt "ANTHROPIC_API_KEY" with
          | Some key ->
+             let fallback_provider : Provider.config =
+               {
+                 provider = Provider.Anthropic;
+                 model_id = model_to_string config.config.model;
+                 api_key_env = "ANTHROPIC_API_KEY";
+               }
+             in
              Ok
-               ( Provider.
-                   {
-                     provider = Anthropic;
-                     model_id = model_to_string config.config.model;
-                     api_key_env = "ANTHROPIC_API_KEY";
-                   },
+               ( fallback_provider,
                  base_url,
                  [
                    ("Content-Type", "application/json");
@@ -57,16 +59,19 @@ let create_message ~sw ~net ?(base_url=default_base_url) ?provider ?clock ?retry
   | Error e -> Error e
   | Ok (provider_cfg, base_url, header_list) ->
   let headers = Http.Header.of_list header_list in
-  let kind = Provider.request_kind provider_cfg.provider in
-  let path = Provider.request_path provider_cfg.provider in
+  let model_spec = Provider.model_spec_of_config provider_cfg in
+  let kind = model_spec.request_kind in
+  let path = model_spec.request_path in
   let body_str =
     match kind with
     | Provider.Anthropic_messages ->
         Yojson.Safe.to_string (`Assoc (build_body_assoc ~config ~messages ?tools ~stream:false ()))
     | Provider.Openai_chat_completions ->
-        Api_openai.build_openai_body ~config ~messages ?tools ()
+        Api_openai.build_openai_body ~provider_config:provider_cfg ~config
+          ~messages ?tools ()
     | Provider.Ollama_chat ->
-        Api_ollama.build_ollama_chat_body ~config ~messages ?tools ()
+        Api_ollama.build_ollama_chat_body ~provider_config:provider_cfg ~config
+          ~messages ?tools ()
     | Provider.Ollama_generate ->
         Api_ollama.build_ollama_generate_body ~config ~messages ()
   in

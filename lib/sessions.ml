@@ -52,6 +52,12 @@ let get_session_events ?session_root session_id =
   let* store = make_store ?session_root () in
   Runtime_store.read_events store session_id ()
 
+let list_artifacts ?session_root ~session_id () =
+  Artifact_service.list ?session_root ~session_id ()
+
+let get_artifact_text ?session_root ~session_id ~artifact_id () =
+  Artifact_service.get_text ?session_root ~session_id ~artifact_id ()
+
 let rename_session ?session_root ~session_id ~title () =
   let* store = make_store ?session_root () in
   let* session = Runtime_store.load_session store session_id in

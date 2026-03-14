@@ -155,8 +155,24 @@ let build_openai_tool_json = function
         ]
   | other -> other
 
-let build_openai_body ~config ~messages ?tools () =
+let capabilities_for_request ?provider_config (config : agent_state) =
+  match provider_config with
+  | Some cfg -> Provider.capabilities_for_config cfg
+  | None ->
+      Provider.capabilities_for_model
+        ~provider:
+          (Provider.OpenAICompat
+             {
+               base_url = "";
+               auth_header = None;
+               path = "/chat/completions";
+               static_token = None;
+             })
+        ~model_id:(model_to_string config.config.model)
+
+let build_openai_body ?provider_config ~config ~messages ?tools () =
   let model_str = model_to_string config.config.model in
+  let capabilities = capabilities_for_request ?provider_config config in
   let provider_messages =
     system_message_json config
     @ List.concat_map openai_messages_of_message messages
@@ -180,33 +196,42 @@ let build_openai_body ~config ~messages ?tools () =
   in
   let body_assoc =
     match config.config.top_k with
-    | Some top_k -> ("top_k", `Int top_k) :: body_assoc
+    | Some top_k when capabilities.supports_top_k ->
+        ("top_k", `Int top_k) :: body_assoc
     | None -> body_assoc
+    | Some _ -> body_assoc
   in
   let body_assoc =
     match config.config.min_p with
-    | Some min_p -> ("min_p", `Float min_p) :: body_assoc
+    | Some min_p when capabilities.supports_min_p ->
+        ("min_p", `Float min_p) :: body_assoc
     | None -> body_assoc
+    | Some _ -> body_assoc
   in
   let body_assoc =
     match config.config.enable_thinking with
-    | Some enabled ->
+    | Some enabled when capabilities.supports_reasoning ->
         ("chat_template_kwargs", `Assoc [("enable_thinking", `Bool enabled)]) :: body_assoc
     | None -> body_assoc
+    | Some _ -> body_assoc
   in
   let body_assoc =
     match tools with
-    | Some entries when entries <> [] ->
+    | Some entries when entries <> [] && capabilities.supports_tools ->
         ("tools", `List (List.map build_openai_tool_json entries)) :: body_assoc
     | _ -> body_assoc
   in
   let body_assoc =
     match config.config.tool_choice with
-    | Some choice -> ("tool_choice", tool_choice_to_openai_json choice) :: body_assoc
+    | Some choice when capabilities.supports_tool_choice ->
+        ("tool_choice", tool_choice_to_openai_json choice) :: body_assoc
     | None -> body_assoc
+    | Some _ -> body_assoc
   in
   let body_assoc =
-    if config.config.response_format_json then
+    if config.config.response_format_json
+       && capabilities.supports_response_format_json
+    then
       ("response_format", `Assoc [("type", `String "json_object")]) :: body_assoc
     else
       body_assoc

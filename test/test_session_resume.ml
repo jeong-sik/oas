@@ -13,6 +13,7 @@ let make_checkpoint
     ?(created_at = 1000.0)
     ?(tools = [])
     ?(tool_choice = None)
+    ?(context = Context.create ())
     () : Checkpoint.t =
   {
     version = Checkpoint.checkpoint_version;
@@ -36,6 +37,7 @@ let make_checkpoint
     cache_system_prompt = false;
     max_input_tokens = None;
     max_total_tokens = None;
+    context;
     mcp_sessions = [];
   }
 
@@ -106,6 +108,15 @@ let test_resume_from_fresh_metadata () =
      | Some (`String v) -> Some v
      | _ -> None)
 
+let test_resume_from_copies_checkpoint_context () =
+  let ctx = Context.create () in
+  Context.set_scoped ctx Context.Session "trace_id" (`String "abc");
+  let cp = make_checkpoint ~context:ctx () in
+  let s = Session.resume_from cp in
+  Alcotest.(check bool) "metadata copied" true
+    (Context.get_scoped s.metadata Context.Session "trace_id"
+     = Some (`String "abc"))
+
 let test_resume_from_zero_turn_checkpoint () =
   let cp = make_checkpoint ~turn_count:0 ~messages:[] () in
   let s = Session.resume_from cp in
@@ -138,6 +149,16 @@ let test_resume_restores_messages () =
   let agent = Agent.resume ~net ~checkpoint:cp () in
   Alcotest.(check int) "message count" 4
     (List.length agent.state.messages)
+
+let test_resume_restores_context () =
+  with_net @@ fun net ->
+  let ctx = Context.create () in
+  Context.set_scoped ctx Context.User "theme" (`String "dark");
+  let cp = make_checkpoint ~context:ctx () in
+  let agent = Agent.resume ~net ~checkpoint:cp () in
+  Alcotest.(check bool) "context restored" true
+    (Context.get_scoped agent.context Context.User "theme"
+     = Some (`String "dark"))
 
 let test_resume_restores_usage () =
   with_net @@ fun net ->
@@ -334,6 +355,8 @@ let () =
       test_case "fresh timestamps" `Quick test_resume_from_fresh_timestamps;
       test_case "cwd is None" `Quick test_resume_from_cwd_is_none;
       test_case "fresh metadata" `Quick test_resume_from_fresh_metadata;
+      test_case "copies checkpoint context" `Quick
+        test_resume_from_copies_checkpoint_context;
       test_case "zero turn checkpoint" `Quick test_resume_from_zero_turn_checkpoint;
       test_case "unique ids" `Quick test_resume_from_unique_ids;
       test_case "empty session_id" `Quick test_resume_from_empty_session_id;
@@ -341,6 +364,7 @@ let () =
 
     "Agent.resume", [
       test_case "restores messages" `Quick test_resume_restores_messages;
+      test_case "restores context" `Quick test_resume_restores_context;
       test_case "restores usage" `Quick test_resume_restores_usage;
       test_case "restores turn_count" `Quick test_resume_restores_turn_count;
       test_case "restores model" `Quick test_resume_restores_model;

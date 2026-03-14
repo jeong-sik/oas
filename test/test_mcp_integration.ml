@@ -27,6 +27,20 @@ let with_eio f =
   Eio.Switch.run @@ fun sw ->
   f ~sw ~mgr:(Eio.Stdenv.process_mgr env)
 
+let with_temp_script body f =
+  let dir =
+    Filename.concat (Filename.get_temp_dir_name ())
+      (Printf.sprintf "oas-mcp-%d-%06x" (Unix.getpid ()) (Random.int 0xFFFFFF))
+  in
+  Unix.mkdir dir 0o755;
+  let path = Filename.concat dir "fake_mcp_server.py" in
+  let oc = open_out path in
+  output_string oc body;
+  close_out oc;
+  Fun.protect
+    ~finally:(fun () -> ignore (Sys.command (Printf.sprintf "rm -rf %s" dir)))
+    (fun () -> f path)
+
 (* ── server_spec ───────────────────────────────────────────────── *)
 
 let test_server_spec_fields () =
@@ -204,6 +218,121 @@ let test_connect_all_second_fails () =
   | Error _ ->
     Alcotest.(check bool) "error from lifecycle" true true
 
+let test_resources_and_prompts_roundtrip () =
+  let script = {|
+import json, sys
+
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    req = json.loads(line)
+    method = req.get("method")
+    req_id = req.get("id")
+    if req_id is None:
+        continue
+    if method == "initialize":
+        result = {
+            "protocolVersion": "2025-11-25",
+            "capabilities": {},
+            "serverInfo": {"name": "fake", "version": "1.0"},
+        }
+    elif method == "resources/list":
+        result = {
+            "resources": [
+                {
+                    "uri": "file://guide",
+                    "name": "Guide",
+                    "description": "A guide",
+                    "mime_type": "text/plain",
+                    "icon": None,
+                }
+            ]
+        }
+    elif method == "resources/read":
+        result = {
+            "contents": [
+                {
+                    "uri": req.get("params", {}).get("uri", "file://guide"),
+                    "mime_type": "text/plain",
+                    "text": "hello resource",
+                    "blob": None,
+                }
+            ]
+        }
+    elif method == "prompts/list":
+        result = {
+            "prompts": [
+                {
+                    "name": "summarize",
+                    "description": "Summarize a topic",
+                    "arguments": [
+                        {"name": "topic", "description": "Topic", "required": True}
+                    ],
+                    "icon": None,
+                }
+            ]
+        }
+    elif method == "prompts/get":
+        topic = req.get("params", {}).get("arguments", {}).get("topic", "")
+        result = {
+            "description": "Prompt result",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": ["PromptText", {"type_": "text", "text": "Topic: " + topic}],
+                }
+            ],
+        }
+    else:
+        result = {"tools": []}
+    sys.stdout.write(json.dumps({"jsonrpc": "2.0", "id": req_id, "result": result}) + "\n")
+    sys.stdout.flush()
+|} in
+  with_temp_script script @@ fun path ->
+  with_eio @@ fun ~sw ~mgr ->
+  match
+    Mcp.connect ~sw ~mgr ~command:"python3" ~args:[ path ] ()
+  with
+  | Error e -> Alcotest.fail ("connect failed: " ^ Error.to_string e)
+  | Ok client ->
+      Fun.protect
+        ~finally:(fun () -> Mcp.close client)
+        (fun () ->
+          (match Mcp.initialize client with
+           | Ok () -> ()
+           | Error e -> Alcotest.fail ("initialize failed: " ^ Error.to_string e));
+          let resources =
+            match Mcp.list_resources client with
+            | Ok items -> items
+            | Error e -> Alcotest.fail ("list_resources failed: " ^ Error.to_string e)
+          in
+          Alcotest.(check int) "resource count" 1 (List.length resources);
+          let resource = List.hd resources in
+          Alcotest.(check string) "resource uri" "file://guide" resource.uri;
+          let contents =
+            match Mcp.read_resource client ~uri:resource.uri with
+            | Ok items -> items
+            | Error e -> Alcotest.fail ("read_resource failed: " ^ Error.to_string e)
+          in
+          Alcotest.(check int) "content count" 1 (List.length contents);
+          Alcotest.(check (option string)) "resource text" (Some "hello resource")
+            (List.hd contents).text;
+          let prompts =
+            match Mcp.list_prompts client with
+            | Ok items -> items
+            | Error e -> Alcotest.fail ("list_prompts failed: " ^ Error.to_string e)
+          in
+          Alcotest.(check int) "prompt count" 1 (List.length prompts);
+          Alcotest.(check string) "prompt name" "summarize" (List.hd prompts).name;
+          let prompt_result =
+            match Mcp.get_prompt client ~name:"summarize" ~arguments:[("topic", "tools")] () with
+            | Ok result -> result
+            | Error e -> Alcotest.fail ("get_prompt failed: " ^ Error.to_string e)
+          in
+          Alcotest.(check int) "prompt message count" 1
+            (List.length prompt_result.Mcp_protocol.Mcp_types.messages))
+
 (* ── Test runner ───────────────────────────────────────────────── *)
 
 let () =
@@ -227,6 +356,8 @@ let () =
       test_case "connect_all bad command" `Quick test_connect_all_bad_command;
       test_case "connect_and_load bad command" `Quick test_connect_and_load_bad_command;
       test_case "connect_all partial failure" `Quick test_connect_all_second_fails;
+      test_case "resources and prompts roundtrip" `Quick
+        test_resources_and_prompts_roundtrip;
     ];
     "managed_type", [
       test_case "tools list access" `Quick test_managed_tools_access;

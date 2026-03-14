@@ -164,6 +164,55 @@ let test_build_openai_body_with_qwen_sampling () =
     false
     (json |> member "chat_template_kwargs" |> member "enable_thinking" |> to_bool)
 
+let test_build_openai_body_omits_qwen_only_fields_for_generic_compat () =
+  let provider_config =
+    Provider.openrouter ~model_id:"anthropic/claude-sonnet-4-6" ()
+  in
+  let state = {
+    Types.config = {
+      Types.default_config with
+      model = Types.Custom provider_config.model_id;
+      top_p = Some 0.9;
+      top_k = Some 40;
+      min_p = Some 0.05;
+      enable_thinking = Some false;
+      response_format_json = true;
+      tool_choice = Some Types.Any;
+    };
+    messages = [];
+    turn_count = 0;
+    usage = Types.empty_usage;
+  } in
+  let tool_json =
+    `Assoc
+      [
+        ("name", `String "calculator");
+        ("description", `String "math");
+        ("input_schema", `Assoc [("type", `String "object")]);
+      ]
+  in
+  let json =
+    Api.build_openai_body ~provider_config ~config:state ~messages:[]
+      ~tools:[tool_json] ()
+    |> Yojson.Safe.from_string
+  in
+  let open Yojson.Safe.Util in
+  let assoc = to_assoc json in
+  check (option (float 0.001)) "top_p kept" (Some 0.9)
+    (json |> member "top_p" |> to_float_option);
+  check (option int) "top_k omitted" None
+    (json |> member "top_k" |> to_int_option);
+  check (option (float 0.001)) "min_p omitted" None
+    (json |> member "min_p" |> to_float_option);
+  check bool "chat_template_kwargs omitted" false
+    (List.mem_assoc "chat_template_kwargs" assoc);
+  check bool "response_format preserved" true
+    (List.mem_assoc "response_format" assoc);
+  check bool "tool_choice preserved" true
+    (List.mem_assoc "tool_choice" assoc);
+  check bool "tools preserved" true
+    (List.mem_assoc "tools" assoc)
+
 (* ------------------------------------------------------------------ *)
 (* parse_response                                                       *)
 (* ------------------------------------------------------------------ *)
@@ -483,6 +532,8 @@ let () =
       test_case "with tool_choice" `Quick test_build_body_with_tool_choice;
       test_case "with tools" `Quick test_build_body_with_tools;
       test_case "with qwen sampling" `Quick test_build_openai_body_with_qwen_sampling;
+      test_case "generic compat omits qwen-only fields" `Quick
+        test_build_openai_body_omits_qwen_only_fields_for_generic_compat;
       test_case "with cache_system_prompt" `Quick test_build_body_with_cache;
       test_case "no system prompt" `Quick test_build_body_no_system_prompt;
     ];

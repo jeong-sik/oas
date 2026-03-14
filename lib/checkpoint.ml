@@ -7,7 +7,7 @@
 
 open Types
 
-let checkpoint_version = 2
+let checkpoint_version = 3
 
 type t = {
   version: int;
@@ -31,6 +31,7 @@ type t = {
   cache_system_prompt: bool;
   max_input_tokens: int option;
   max_total_tokens: int option;
+  context: Context.t;
   mcp_sessions: Mcp_session.info list;
 }
 
@@ -185,6 +186,7 @@ let to_json cp =
     ("cache_system_prompt", `Bool cp.cache_system_prompt);
     ("max_input_tokens", Option.value ~default:`Null (Option.map (fun v -> `Int v) cp.max_input_tokens));
     ("max_total_tokens", Option.value ~default:`Null (Option.map (fun v -> `Int v) cp.max_total_tokens));
+    ("context", Context.to_json cp.context);
     ("mcp_sessions", Mcp_session.info_list_to_json cp.mcp_sessions);
   ]
 
@@ -192,7 +194,7 @@ let of_json json =
   try
     let open Yojson.Safe.Util in
     let version = json |> member "version" |> to_int in
-    if version <> checkpoint_version && version <> 1 then
+    if version <> checkpoint_version && version <> 2 && version <> 1 then
       Error (Error.Serialization (VersionMismatch { expected = checkpoint_version; got = version }))
     else
       let tool_choice =
@@ -211,14 +213,24 @@ let of_json json =
         let tools =
           json |> member "tools" |> to_list |> List.map tool_schema_of_json |> result_all
         in
+        let context =
+          match json |> member "context" with
+          | `Null -> Ok (Context.create ())
+          | `Assoc _ as value -> Ok (Context.of_json value)
+          | _ ->
+              Error
+                (Error.Serialization
+                   (JsonParseError
+                      { detail = "Checkpoint.of_json: context must be a JSON object or null" }))
+        in
         let mcp_sessions =
           match json |> member "mcp_sessions" with
           | `Null -> Ok []  (* v1 backward compatibility *)
           | `List _ as lst -> Mcp_session.info_list_of_json lst
           | _ -> Error (Error.Serialization (JsonParseError { detail = "Checkpoint.of_json: mcp_sessions must be a JSON array or null" }))
         in
-        (match model, messages, tools, mcp_sessions with
-         | Ok model, Ok messages, Ok tools, Ok mcp_sessions ->
+        (match model, messages, tools, context, mcp_sessions with
+         | Ok model, Ok messages, Ok tools, Ok context, Ok mcp_sessions ->
              Ok {
                version = checkpoint_version;
                session_id = json |> member "session_id" |> to_string;
@@ -243,12 +255,14 @@ let of_json json =
                  json |> member "cache_system_prompt" |> to_bool_option |> Option.value ~default:false;
                max_input_tokens = json |> member "max_input_tokens" |> to_int_option;
                max_total_tokens = json |> member "max_total_tokens" |> to_int_option;
+               context;
                mcp_sessions;
              }
-         | Error e, _, _, _ -> Error e
-         | _, Error e, _, _ -> Error e
-         | _, _, Error e, _ -> Error e
-         | _, _, _, Error e -> Error e)
+         | Error e, _, _, _, _ -> Error e
+         | _, Error e, _, _, _ -> Error e
+         | _, _, Error e, _, _ -> Error e
+         | _, _, _, Error e, _ -> Error e
+         | _, _, _, _, Error e -> Error e)
   with
   | Yojson.Safe.Util.Type_error (msg, _) ->
     Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Checkpoint.of_json: %s" msg }))

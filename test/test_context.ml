@@ -25,6 +25,12 @@ let test_set_overwrite () =
   let result = Context.get ctx "count" in
   check bool "overwrite works" true (result = Some (`Int 2))
 
+let test_delete () =
+  let ctx = Context.create () in
+  Context.set ctx "count" (`Int 2);
+  Context.delete ctx "count";
+  check bool "delete removes key" true (Context.get ctx "count" = None)
+
 let test_keys () =
   let ctx = Context.create () in
   Context.set ctx "a" (`String "1");
@@ -41,6 +47,39 @@ let test_merge () =
   ];
   check bool "merge overwrites" true (Context.get ctx "existing" = Some (`String "new"));
   check bool "merge adds" true (Context.get ctx "added" = Some (`Int 42))
+
+let test_scoped_helpers () =
+  let ctx = Context.create () in
+  Context.set_scoped ctx Context.Session "trace_id" (`String "abc");
+  Context.set_scoped ctx Context.User "theme" (`String "dark");
+  check bool "scoped session get" true
+    (Context.get_scoped ctx Context.Session "trace_id" = Some (`String "abc"));
+  check bool "scoped user get" true
+    (Context.get_scoped ctx Context.User "theme" = Some (`String "dark"));
+  check (list string) "keys in session scope" ["trace_id"]
+    (Context.keys_in_scope ctx Context.Session)
+
+let test_snapshot_sorted () =
+  let ctx = Context.create () in
+  Context.set ctx "b" (`Int 2);
+  Context.set ctx "a" (`Int 1);
+  let snapshot = Context.snapshot ctx in
+  check (list string) "snapshot sorted"
+    ["a"; "b"] (List.map fst snapshot)
+
+let test_diff () =
+  let before = Context.create () in
+  Context.set before "stable" (`String "x");
+  Context.set before "removed" (`Int 1);
+  Context.set before "changed" (`Int 1);
+  let after = Context.copy before in
+  Context.delete after "removed";
+  Context.set after "changed" (`Int 2);
+  Context.set after "added" (`Bool true);
+  let diff = Context.diff before after in
+  check (list string) "removed" ["removed"] diff.removed;
+  check (list string) "added keys" ["added"] (List.map fst diff.added);
+  check (list string) "changed keys" ["changed"] (List.map fst diff.changed)
 
 let test_to_json () =
   let ctx = Context.create () in
@@ -91,12 +130,18 @@ let () =
       test_case "set and get" `Quick test_set_get;
       test_case "get missing" `Quick test_get_missing;
       test_case "overwrite" `Quick test_set_overwrite;
+      test_case "delete" `Quick test_delete;
     ];
     "keys", [
       test_case "keys" `Quick test_keys;
+      test_case "snapshot sorted" `Quick test_snapshot_sorted;
     ];
     "merge", [
       test_case "merge" `Quick test_merge;
+    ];
+    "scope", [
+      test_case "scoped helpers" `Quick test_scoped_helpers;
+      test_case "diff" `Quick test_diff;
     ];
     "json", [
       test_case "to_json" `Quick test_to_json;
