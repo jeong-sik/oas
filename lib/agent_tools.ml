@@ -5,9 +5,40 @@
 
 open Types
 
+let hook_decision_to_string = function
+  | Hooks.Continue -> "continue"
+  | Hooks.Skip -> "skip"
+  | Hooks.Override _ -> "override"
+  | Hooks.ApprovalRequired -> "approval_required"
+
+let invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count ~hook_name
+    hook_opt event =
+  Tracing.with_span tracer
+    {
+      kind = Hook_invoke;
+      name = hook_name;
+      agent_name;
+      turn = turn_count;
+      extra = [];
+    }
+    (fun _ ->
+      let decision = Hooks.invoke hook_opt event in
+      (match on_hook_invoked with
+      | Some callback ->
+          callback ~hook_name ~decision
+            ~detail:
+              (match event with
+              | Hooks.PreToolUse { tool_name; _ }
+              | Hooks.PostToolUse { tool_name; _ }
+              | Hooks.PostToolUseFailure { tool_name; _ } -> Some tool_name
+              | Hooks.BeforeTurn _ | Hooks.AfterTurn _ | Hooks.OnStop _ -> None)
+      | None -> ());
+      decision)
+
 (** Find and execute a single tool, invoking PostToolUse hook.
     Returns (id, content, is_error) triple. *)
-let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~agent_name name input id =
+let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tracer
+    ~agent_name ~turn_count ?on_hook_invoked name input id =
   (* ToolCalled event *)
   (match event_bus with
    | Some bus -> Event_bus.publish bus
@@ -17,8 +48,19 @@ let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~age
   let triple = match tool_opt with
   | Some tool ->
     let result = Tool.execute ~context tool input in
-    let _post = Hooks.invoke hooks.post_tool_use
-      (Hooks.PostToolUse { tool_name = name; input; output = result }) in
+    let _post =
+      invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count
+        ~hook_name:"post_tool_use" hooks.post_tool_use
+        (Hooks.PostToolUse { tool_name = name; input; output = result })
+    in
+    (match result with
+     | Error err ->
+         ignore
+           (invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count
+              ~hook_name:"post_tool_use_failure" hooks.post_tool_use_failure
+              (Hooks.PostToolUseFailure { tool_name = name; input; error = err })
+            : Hooks.hook_decision)
+     | Ok _ -> ());
     let content, is_error = match result with
       | Ok output -> output, false
       | Error err -> err, true
@@ -41,7 +83,7 @@ let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~age
     Each fiber catches exceptions to prevent one tool failure from canceling siblings. *)
 let execute_tools ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tracer
     ~agent_name ~turn_count ~approval ?on_tool_execution_started
-    ?on_tool_execution_finished tool_uses =
+    ?on_tool_execution_finished ?on_hook_invoked tool_uses =
   Eio.Fiber.List.map (fun block ->
     match block with
     | ToolUse (id, name, input) ->
@@ -55,8 +97,11 @@ let execute_tools ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tracer
           (fun _tracer ->
             (try
               (* PreToolUse hook *)
-              let decision = Hooks.invoke hooks.pre_tool_use
-                (Hooks.PreToolUse { tool_name = name; input }) in
+              let decision =
+                invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count
+                  ~hook_name:"pre_tool_use" hooks.pre_tool_use
+                  (Hooks.PreToolUse { tool_name = name; input })
+              in
               (match decision with
               | Hooks.Skip -> (id, "Tool execution skipped by hook", false)
               | Hooks.Override value -> (id, value, false)
@@ -64,13 +109,23 @@ let execute_tools ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tracer
                 (match approval with
                 | None ->
                   (* No callback registered: permissive default, execute normally *)
-                  find_and_execute_tool ~context ~tools ~hooks ~event_bus ~agent_name name input id
+                  find_and_execute_tool ~context ~tools ~hooks ~event_bus
+                    ~tracer ~agent_name ~turn_count ?on_hook_invoked name input id
                 | Some approve_fn ->
                   (match approve_fn ~tool_name:name ~input with
-                  | Hooks.Approve -> find_and_execute_tool ~context ~tools ~hooks ~event_bus ~agent_name name input id
+                  | Hooks.Approve ->
+                      find_and_execute_tool ~context ~tools ~hooks ~event_bus
+                        ~tracer ~agent_name ~turn_count ?on_hook_invoked name
+                        input id
                   | Hooks.Reject reason -> (id, "Tool rejected: " ^ reason, true)
-                  | Hooks.Edit new_input -> find_and_execute_tool ~context ~tools ~hooks ~event_bus ~agent_name name new_input id))
-              | Hooks.Continue -> find_and_execute_tool ~context ~tools ~hooks ~event_bus ~agent_name name input id)
+                  | Hooks.Edit new_input ->
+                      find_and_execute_tool ~context ~tools ~hooks ~event_bus
+                        ~tracer ~agent_name ~turn_count ?on_hook_invoked name
+                        new_input id))
+              | Hooks.Continue ->
+                  find_and_execute_tool ~context ~tools ~hooks ~event_bus
+                    ~tracer ~agent_name ~turn_count ?on_hook_invoked name
+                    input id)
             with exn ->
               let msg = Printf.sprintf "Tool '%s' raised: %s" name (Printexc.to_string exn) in
               (id, msg, true)))

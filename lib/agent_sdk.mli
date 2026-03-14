@@ -327,6 +327,8 @@ module Hooks : sig
     | PreToolUse of { tool_name: string; input: Yojson.Safe.t }
     | PostToolUse of { tool_name: string; input: Yojson.Safe.t;
                        output: (string, string) result }
+    | PostToolUseFailure of { tool_name: string; input: Yojson.Safe.t;
+                              error: string }
     | OnStop of { reason: Types.stop_reason; response: Types.api_response }
 
   (** Decision returned by a hook *)
@@ -354,6 +356,7 @@ module Hooks : sig
     after_turn: hook option;
     pre_tool_use: hook option;
     post_tool_use: hook option;
+    post_tool_use_failure: hook option;
     on_stop: hook option;
   }
 
@@ -1065,6 +1068,7 @@ module Raw_trace : sig
     | Assistant_block
     | Tool_execution_started
     | Tool_execution_finished
+    | Hook_invoked
     | Run_finished
   [@@deriving show]
 
@@ -1084,6 +1088,8 @@ module Raw_trace : sig
     assistant_block_count: int;
     tool_execution_started_count: int;
     tool_execution_finished_count: int;
+    hook_invoked_count: int;
+    hook_names: string list;
     tool_names: string list;
     final_text: string option;
     stop_reason: string option;
@@ -1131,6 +1137,9 @@ module Raw_trace : sig
     tool_input: Yojson.Safe.t option;
     tool_result: string option;
     tool_error: bool option;
+    hook_name: string option;
+    hook_decision: string option;
+    hook_detail: string option;
     final_text: string option;
     stop_reason: string option;
     error: string option;
@@ -2214,6 +2223,24 @@ module Sessions : sig
     missing_files: missing_file list;
   }
 
+  type hook_summary = {
+    hook_name: string;
+    count: int;
+    latest_decision: string option;
+    latest_detail: string option;
+    latest_ts: float option;
+  }
+
+  type tool_contract = {
+    name: string;
+    description: string;
+    origin: string option;
+    kind: string option;
+    shell: Tool.shell_constraints option;
+    notes: string list;
+    examples: string list;
+  }
+
   type raw_trace_run = Raw_trace.run_ref
   type raw_trace_summary = Raw_trace.run_summary
   type raw_trace_validation = Raw_trace.run_validation
@@ -2275,6 +2302,8 @@ module Sessions : sig
     telemetry: telemetry;
     structured_telemetry: structured_telemetry;
     evidence: evidence;
+    hook_summary: hook_summary list;
+    tool_catalog: tool_contract list;
     latest_raw_trace_run: raw_trace_run option;
     raw_trace_runs: raw_trace_run list;
     raw_trace_summaries: raw_trace_summary list;
@@ -2328,6 +2357,16 @@ module Sessions : sig
     session_id:string ->
     unit ->
     (evidence, Error.sdk_error) result
+  val get_hook_summary :
+    ?session_root:string ->
+    session_id:string ->
+    unit ->
+    (hook_summary list, Error.sdk_error) result
+  val get_tool_catalog :
+    ?session_root:string ->
+    session_id:string ->
+    unit ->
+    (tool_contract list, Error.sdk_error) result
   val get_raw_trace_runs :
     ?session_root:string ->
     session_id:string ->
@@ -2459,6 +2498,8 @@ module Conformance : sig
     latest_failure_reason: string option;
     latest_resolved_provider: string option;
     latest_resolved_model: string option;
+    hook_event_count: int;
+    tool_catalog_count: int;
     trace_capabilities: Sessions.trace_capability list;
   }
 

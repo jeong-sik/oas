@@ -12,6 +12,7 @@ type hook_event =
   | AfterTurn of { turn: int; response: api_response }
   | PreToolUse of { tool_name: string; input: Yojson.Safe.t }
   | PostToolUse of { tool_name: string; input: Yojson.Safe.t; output: (string, string) result }
+  | PostToolUseFailure of { tool_name: string; input: Yojson.Safe.t; error: string }
   | OnStop of { reason: stop_reason; response: api_response }
 
 (** Decision returned by a hook *)
@@ -41,6 +42,7 @@ type hooks = {
   after_turn: hook option;
   pre_tool_use: hook option;
   post_tool_use: hook option;
+  post_tool_use_failure: hook option;
   on_stop: hook option;
 }
 
@@ -50,6 +52,7 @@ let empty = {
   after_turn = None;
   pre_tool_use = None;
   post_tool_use = None;
+  post_tool_use_failure = None;
   on_stop = None;
 }
 

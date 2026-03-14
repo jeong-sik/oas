@@ -80,6 +80,63 @@ let primary_alias aliases =
   | alias :: _ when String.trim alias <> "" -> Some alias
   | _ -> None
 
+let workdir_policy_to_json = function
+  | Tool.Required -> `String "required"
+  | Tool.Recommended -> `String "recommended"
+  | Tool.None_expected -> `String "none_expected"
+
+let shell_constraints_to_json (shell : Tool.shell_constraints) =
+  `Assoc
+    [
+      ("single_command_only", `Bool shell.single_command_only);
+      ( "shell_metacharacters_allowed",
+        `Bool shell.shell_metacharacters_allowed );
+      ("chaining_allowed", `Bool shell.chaining_allowed);
+      ("redirection_allowed", `Bool shell.redirection_allowed);
+      ("pipes_allowed", `Bool shell.pipes_allowed);
+      ( "workdir_policy",
+        Option.value
+          ~default:`Null
+          (Option.map workdir_policy_to_json shell.workdir_policy) );
+    ]
+
+let tool_contracts_to_json tools =
+  `List
+    (List.map
+       (fun (tool : Tool.t) ->
+         let descriptor = Tool.descriptor tool in
+         let kind =
+           match Option.bind descriptor (fun d -> d.kind) with
+           | Some value -> `String value
+           | None -> `Null
+         in
+         let shell =
+           match Option.bind descriptor (fun d -> d.shell) with
+           | Some shell -> shell_constraints_to_json shell
+           | None -> `Null
+         in
+         let notes =
+           descriptor
+           |> Option.map (fun (d : Tool.descriptor) -> d.notes)
+           |> Option.value ~default:[]
+         in
+         let examples =
+           descriptor
+           |> Option.map (fun (d : Tool.descriptor) -> d.examples)
+           |> Option.value ~default:[]
+         in
+         `Assoc
+           [
+             ("name", `String tool.schema.name);
+             ("description", `String tool.schema.description);
+             ("origin", `String "local");
+             ("kind", kind);
+             ("shell", shell);
+             ("notes", `List (List.map (fun v -> `String v) notes));
+             ("examples", `List (List.map (fun v -> `String v) examples));
+           ])
+       tools)
+
 let worker_status_of_lifecycle = function
   | Agent.Accepted -> Sessions.Accepted
   | Agent.Ready -> Sessions.Ready
@@ -434,6 +491,13 @@ let persist ~agent ~raw_trace ~(options : options) () =
         Artifact_service.save_text_internal store ~session_id:options.session_id
           ~name:"runtime-telemetry" ~kind:"markdown" ~content:telemetry_md
       in
+      let tool_catalog_json =
+        tool_contracts_to_json agent.tools |> Yojson.Safe.pretty_to_string
+      in
+      let* tool_catalog_artifact =
+        Artifact_service.save_text_internal store ~session_id:options.session_id
+          ~name:"tool-catalog" ~kind:"json" ~content:tool_catalog_json
+      in
       let evidence =
         Runtime_evidence.build_evidence_bundle ~session_id:options.session_id
           [
@@ -457,6 +521,7 @@ let persist ~agent ~raw_trace ~(options : options) () =
         [
           telemetry_json_artifact;
           telemetry_md_artifact;
+          tool_catalog_artifact;
           evidence_artifact;
         ]
         |> List.mapi (fun index (artifact : Runtime.artifact) ->

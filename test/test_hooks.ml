@@ -9,6 +9,8 @@ let test_empty_hooks () =
   check bool "after_turn is None" true (hooks.after_turn = None);
   check bool "pre_tool_use is None" true (hooks.pre_tool_use = None);
   check bool "post_tool_use is None" true (hooks.post_tool_use = None);
+  check bool "post_tool_use_failure is None" true
+    (hooks.post_tool_use_failure = None);
   check bool "on_stop is None" true (hooks.on_stop = None)
 
 let test_invoke_none () =
@@ -60,6 +62,21 @@ let test_post_tool_use_event () =
     }) in
   check string "hook received output" "hello" !received_output
 
+let test_post_tool_use_failure_event () =
+  let received_error = ref "" in
+  let hook = function
+    | Hooks.PostToolUseFailure { error; _ } ->
+        received_error := error;
+        Hooks.Continue
+    | _ -> Hooks.Continue
+  in
+  let _result =
+    Hooks.invoke (Some hook)
+      (Hooks.PostToolUseFailure
+         { tool_name = "echo"; input = `Null; error = "boom" })
+  in
+  check string "hook received error" "boom" !received_error
+
 let test_invoke_approval_required () =
   let hook _event = Hooks.ApprovalRequired in
   let result = Hooks.invoke (Some hook)
@@ -79,5 +96,7 @@ let () =
       test_case "invoke ApprovalRequired" `Quick test_invoke_approval_required;
       test_case "receives event" `Quick test_hook_receives_event;
       test_case "post_tool_use event" `Quick test_post_tool_use_event;
+      test_case "post_tool_use_failure event" `Quick
+        test_post_tool_use_failure_event;
     ];
   ]

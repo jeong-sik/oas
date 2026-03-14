@@ -25,6 +25,8 @@ type summary = {
   latest_failure_reason: string option;
   latest_resolved_provider: string option;
   latest_resolved_model: string option;
+  hook_event_count: int;
+  tool_catalog_count: int;
   trace_capabilities: Sessions.trace_capability list;
 }
 
@@ -452,6 +454,8 @@ let report bundle =
         latest_resolved_model =
           Option.bind latest_worker (fun (worker : Sessions.worker_run) ->
               worker.resolved_model);
+        hook_event_count = List.fold_left (fun acc item -> acc + item.Sessions.count) 0 bundle.hook_summary;
+        tool_catalog_count = List.length bundle.tool_catalog;
         trace_capabilities = bundle.trace_capabilities;
       };
     checks;
