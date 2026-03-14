@@ -18,6 +18,24 @@ let first_some a b =
   | Some _ -> a
   | None -> b
 
+let provider_runtime_name selected (cfg : Provider.config option) =
+  match cfg with
+  | None -> selected
+  | Some cfg -> (
+      match cfg.provider with
+      | Provider.Local _ -> "local"
+      | Provider.Anthropic -> "anthropic"
+      | Provider.OpenAICompat _ -> "openai-compat"
+      | Provider.Ollama _ -> "ollama")
+
+type execution_resolution = {
+  selected_provider: string;
+  requested_model: string option;
+  resolved_provider: string option;
+  resolved_model: string option;
+  provider_cfg: Provider.config option;
+}
+
 let create ~net () =
   {
     net;
@@ -130,6 +148,48 @@ let resolve_provider ?provider ?model () =
           model_id =
             (match model with Some value when String.trim value <> "" -> value | _ -> cfg.model_id);
         }
+
+let resolve_execution (session : session) (detail : spawn_agent_request) =
+  let selected_provider =
+    match detail.provider with
+    | Some value when String.trim value <> "" ->
+        String.lowercase_ascii (String.trim value)
+    | _ -> (
+        match session.provider with
+        | Some value when String.trim value <> "" ->
+            String.lowercase_ascii (String.trim value)
+        | _ -> "local-qwen")
+  in
+  let requested_model =
+    match detail.model with
+    | Some value when String.trim value <> "" -> Some (String.trim value)
+    | _ -> None
+  in
+  match selected_provider with
+  | "mock" | "echo" ->
+      {
+        selected_provider;
+        requested_model;
+        resolved_provider = Some selected_provider;
+        resolved_model = first_some requested_model session.model;
+        provider_cfg = None;
+      }
+  | _ ->
+      let provider_cfg =
+        resolve_provider ~provider:selected_provider
+          ?model:(first_some requested_model session.model) ()
+      in
+      {
+        selected_provider;
+        requested_model;
+        resolved_provider =
+          Some (provider_runtime_name selected_provider provider_cfg);
+        resolved_model =
+          (match provider_cfg with
+          | Some cfg -> Some cfg.model_id
+          | None -> first_some requested_model session.model);
+        provider_cfg;
+      }
 
 let extract_text (resp : Types.api_response) =
   resp.content
@@ -255,7 +315,8 @@ let emit_output_delta store state session_id participant_name delta =
     in
     Ok ()
 
-let run_participant store state session_id (detail : spawn_agent_request) =
+let run_participant store state session_id
+    (resolution : execution_resolution) (detail : spawn_agent_request) =
   let emit_delta_text text =
     match emit_output_delta store state session_id detail.participant_name text with
     | Ok () -> ()
@@ -269,7 +330,7 @@ let run_participant store state session_id (detail : spawn_agent_request) =
     | Ok trace -> Some trace
     | Error _ -> None
   in
-  match String.lowercase_ascii (Option.value detail.provider ~default:"") with
+  match resolution.selected_provider with
   | "mock" | "echo" ->
       let full =
         Printf.sprintf "Mock runtime response for %s: %s" detail.participant_name
@@ -297,7 +358,6 @@ let run_participant store state session_id (detail : spawn_agent_request) =
       emit_delta_text (String.sub full half (String.length full - half));
       Ok full
   | _ ->
-      let provider_cfg = resolve_provider ?provider:detail.provider ?model:detail.model () in
       Eio.Switch.run @@ fun sw ->
       let session =
         match Runtime_store.load_session store session_id with
@@ -320,7 +380,7 @@ let run_participant store state session_id (detail : spawn_agent_request) =
         }
       in
       let options =
-        match provider_cfg with
+        match resolution.provider_cfg with
         | Some provider ->
             {
               Agent.default_options with
@@ -413,6 +473,7 @@ let apply_command state store (session : session) command =
                prompt = detail.prompt;
                provider = detail.provider;
                model = detail.model;
+               permission_mode = session.permission_mode;
              })
       in
       let* hook_response =
@@ -424,6 +485,7 @@ let apply_command state store (session : session) command =
         | Hook_response result -> (result.continue_, result.message)
         | Permission_response _ -> (true, None)
       in
+      let resolution = resolve_execution session detail in
       if not permission_allowed || not hook_allowed then
         let* session, _ =
           persist_event store state session_id
@@ -431,6 +493,8 @@ let apply_command state store (session : session) command =
                {
                  participant_name = detail.participant_name;
                  summary = None;
+                 provider = resolution.resolved_provider;
+                 model = resolution.resolved_model;
                  error =
                    Some
                      (Option.value
@@ -451,12 +515,16 @@ let apply_command state store (session : session) command =
                         {
                           participant_name;
                           summary = Some "runtime-started";
+                          provider = resolution.resolved_provider;
+                          model = resolution.resolved_model;
                           error = None;
                         })
                  with
                  | Error _ -> Ok ()
                  | Ok _ -> (
-                     match run_participant store state session_id detail with
+                     match
+                       run_participant store state session_id resolution detail
+                     with
                      | Ok summary ->
                          let* _session, _ =
                            persist_event store state session_id
@@ -464,6 +532,8 @@ let apply_command state store (session : session) command =
                                 {
                                   participant_name;
                                   summary = Some summary;
+                                  provider = resolution.resolved_provider;
+                                  model = resolution.resolved_model;
                                   error = None;
                                 })
                          in
@@ -475,6 +545,8 @@ let apply_command state store (session : session) command =
                                 {
                                   participant_name;
                                   summary = None;
+                                  provider = resolution.resolved_provider;
+                                  model = resolution.resolved_model;
                                   error = Some (Error.to_string err);
                                 })
                          in

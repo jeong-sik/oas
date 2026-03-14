@@ -21,12 +21,18 @@ type participant_state =
 type participant = {
   name: string;
   role: string option;
+  requested_provider: string option;
+  requested_model: string option;
+  requested_policy: string option;
   provider: string option;
   model: string option;
+  resolved_provider: string option;
+  resolved_model: string option;
   state: participant_state;
   summary: string option;
   started_at: float option;
   finished_at: float option;
+  last_progress_at: float option;
   last_error: string option;
 }
 [@@deriving yojson, show]
@@ -212,12 +218,15 @@ type spawn_event = {
   prompt: string;
   provider: string option;
   model: string option;
+  permission_mode: string option;
 }
 [@@deriving yojson, show]
 
 type participant_event = {
   participant_name: string;
   summary: string option;
+  provider: string option;
+  model: string option;
   error: string option;
 }
 [@@deriving yojson, show]

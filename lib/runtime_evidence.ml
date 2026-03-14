@@ -98,14 +98,14 @@ let structured_fields_of_event = function
         None,
         None,
         None )
-  | Agent_became_live _ ->
-      (None, None, None, None, None, None, None, None, None)
+  | Agent_became_live detail ->
+      (None, None, detail.provider, detail.model, None, None, None, None, None)
   | Agent_output_delta _ ->
       (None, None, None, None, None, None, None, None, None)
-  | Agent_completed _ ->
-      (None, None, None, None, None, None, None, None, None)
-  | Agent_failed _ ->
-      (None, None, None, None, None, None, None, None, None)
+  | Agent_completed detail ->
+      (None, None, detail.provider, detail.model, None, None, None, None, None)
+  | Agent_failed detail ->
+      (None, None, detail.provider, detail.model, None, None, None, None, None)
   | Artifact_attached detail ->
       ( None,
         None,

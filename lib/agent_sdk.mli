@@ -1509,12 +1509,18 @@ module Runtime : sig
   type participant = {
     name: string;
     role: string option;
+    requested_provider: string option;
+    requested_model: string option;
+    requested_policy: string option;
     provider: string option;
     model: string option;
+    resolved_provider: string option;
+    resolved_model: string option;
     state: participant_state;
     summary: string option;
     started_at: float option;
     finished_at: float option;
+    last_progress_at: float option;
     last_error: string option;
   }
   [@@deriving yojson, show]
@@ -1700,12 +1706,15 @@ module Runtime : sig
     prompt: string;
     provider: string option;
     model: string option;
+    permission_mode: string option;
   }
   [@@deriving yojson, show]
 
   type participant_event = {
     participant_name: string;
     summary: string option;
+    provider: string option;
+    model: string option;
     error: string option;
   }
   [@@deriving yojson, show]
@@ -2146,11 +2155,26 @@ module Sessions : sig
   type raw_trace_summary = Raw_trace.run_summary
   type raw_trace_validation = Raw_trace.run_validation
 
+  type worker_status =
+    | Planned
+    | Accepted
+    | Ready
+    | Running
+    | Completed
+    | Failed
+  [@@deriving show]
+
   type worker_run = {
     worker_run_id: string;
     agent_name: string;
     provider: string option;
     model: string option;
+    requested_provider: string option;
+    requested_model: string option;
+    requested_policy: string option;
+    resolved_provider: string option;
+    resolved_model: string option;
+    status: worker_status;
     trace_capability: trace_capability;
     validated: bool;
     tool_names: string list;
@@ -2160,6 +2184,7 @@ module Sessions : sig
     failure_reason: string option;
     started_at: float option;
     finished_at: float option;
+    last_progress_at: float option;
     policy_snapshot: string option;
     paired_tool_result_count: int;
     has_file_write: bool;
@@ -2184,7 +2209,11 @@ module Sessions : sig
     raw_trace_summaries: raw_trace_summary list;
     raw_trace_validations: raw_trace_validation list;
     worker_runs: worker_run list;
+    latest_accepted_worker_run: worker_run option;
+    latest_ready_worker_run: worker_run option;
+    latest_running_worker_run: worker_run option;
     latest_worker_run: worker_run option;
+    latest_completed_worker_run: worker_run option;
     latest_validated_worker_run: worker_run option;
     latest_failed_worker_run: worker_run option;
     validated_worker_runs: worker_run list;
@@ -2282,12 +2311,32 @@ module Sessions : sig
     session_id:string ->
     unit ->
     (worker_run option, Error.sdk_error) result
+  val get_latest_accepted_worker_run :
+    ?session_root:string ->
+    session_id:string ->
+    unit ->
+    (worker_run option, Error.sdk_error) result
+  val get_latest_ready_worker_run :
+    ?session_root:string ->
+    session_id:string ->
+    unit ->
+    (worker_run option, Error.sdk_error) result
+  val get_latest_running_worker_run :
+    ?session_root:string ->
+    session_id:string ->
+    unit ->
+    (worker_run option, Error.sdk_error) result
   val get_latest_completed_worker_run :
     ?session_root:string ->
     session_id:string ->
     unit ->
     (worker_run option, Error.sdk_error) result
   val get_latest_failed_worker_run :
+    ?session_root:string ->
+    session_id:string ->
+    unit ->
+    (worker_run option, Error.sdk_error) result
+  val get_latest_validated_worker_run :
     ?session_root:string ->
     session_id:string ->
     unit ->
@@ -2324,7 +2373,11 @@ module Conformance : sig
     worker_run_count: int;
     raw_trace_run_count: int;
     validated_worker_run_count: int;
+    latest_accepted_worker_run_id: string option;
+    latest_ready_worker_run_id: string option;
+    latest_running_worker_run_id: string option;
     latest_worker_run_id: string option;
+    latest_completed_worker_run_id: string option;
     latest_worker_agent_name: string option;
     latest_worker_validated: bool option;
     latest_failed_worker_run_id: string option;

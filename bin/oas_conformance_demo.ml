@@ -71,8 +71,24 @@ let report_to_json (report : Conformance.report) =
             ("raw_trace_run_count", `Int report.summary.raw_trace_run_count);
             ( "validated_worker_run_count",
               `Int report.summary.validated_worker_run_count );
+            ( "latest_accepted_worker_run_id",
+              match report.summary.latest_accepted_worker_run_id with
+              | Some value -> `String value
+              | None -> `Null );
+            ( "latest_ready_worker_run_id",
+              match report.summary.latest_ready_worker_run_id with
+              | Some value -> `String value
+              | None -> `Null );
+            ( "latest_running_worker_run_id",
+              match report.summary.latest_running_worker_run_id with
+              | Some value -> `String value
+              | None -> `Null );
             ( "latest_worker_run_id",
               match report.summary.latest_worker_run_id with
+              | Some value -> `String value
+              | None -> `Null );
+            ( "latest_completed_worker_run_id",
+              match report.summary.latest_completed_worker_run_id with
               | Some value -> `String value
               | None -> `Null );
             ( "latest_worker_agent_name",

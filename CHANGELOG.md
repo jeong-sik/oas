@@ -2,6 +2,40 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.19.0] - 2026-03-14
+
+### Added
+- Consumer-safe worker lifecycle surface:
+  - `Sessions.get_latest_accepted_worker_run`
+  - `Sessions.get_latest_ready_worker_run`
+  - `Sessions.get_latest_running_worker_run`
+  - `Sessions.get_latest_completed_worker_run`
+  - `Sessions.get_latest_failed_worker_run`
+  - `Sessions.get_latest_validated_worker_run`
+- `worker_run` now exposes lifecycle and runtime selection metadata:
+  - `status`
+  - `requested_provider`
+  - `requested_model`
+  - `requested_policy`
+  - `resolved_provider`
+  - `resolved_model`
+  - `last_progress_at`
+- `proof_bundle` now carries:
+  - `latest_accepted_worker_run`
+  - `latest_ready_worker_run`
+  - `latest_running_worker_run`
+  - `latest_completed_worker_run`
+- Conformance checks now cover lifecycle-oriented consistency:
+  - latest accepted/ready/running/completed ordering
+  - lifecycle timestamp monotonicity
+  - resolved runtime presence consistency
+
+### Changed
+- Runtime participants persist requested and resolved provider/model metadata into session state.
+- Runtime telemetry now records resolved provider/model for worker live/completed/failed events.
+- Runtime store writes session/proof/evidence files atomically to reduce resume/read races on background consumers.
+- `oas_conformance_demo` now exposes latest worker lifecycle ids in its summary output.
+
 ## [0.18.0] - 2026-03-14
 
 ### Added
