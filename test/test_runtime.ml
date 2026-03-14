@@ -347,20 +347,24 @@ let test_runtime_finalize_generates_telemetry_and_evidence () =
       (Sessions.get_artifact_text ~session_root ~session_id
          ~artifact_id:evidence_artifact.artifact_id ())
   in
-  let evidence_json = Yojson.Safe.from_string evidence_text in
-  let missing_files =
-    Yojson.Safe.Util.(evidence_json |> member "missing_files" |> to_list)
-  in
-  let files =
-    Yojson.Safe.Util.(evidence_json |> member "files" |> to_list)
-  in
+  let telemetry = unwrap (Sessions.get_telemetry ~session_root ~session_id ()) in
+  let evidence = unwrap (Sessions.get_evidence ~session_root ~session_id ()) in
+  let bundle = unwrap (Sessions.get_proof_bundle ~session_root ~session_id ()) in
   Alcotest.(check bool) "evidence contains report json" true
     (contains_substring ~sub:"report_json" evidence_text);
   Alcotest.(check bool) "evidence contains proof json" true
     (contains_substring ~sub:"proof_json" evidence_text);
-  Alcotest.(check int) "no missing evidence files" 0 (List.length missing_files);
+  Alcotest.(check bool) "telemetry has steps" true (telemetry.step_count >= 1);
+  Alcotest.(check int) "no missing evidence files" 0
+    (List.length evidence.missing_files);
   Alcotest.(check bool) "evidence tracks persisted files" true
-    (List.length files >= 6)
+    (List.length evidence.files >= 6);
+  Alcotest.(check string) "bundle session id" session_id bundle.session.session_id;
+  Alcotest.(check string) "bundle report session id" session_id
+    bundle.report.session_id;
+  Alcotest.(check string) "bundle proof session id" session_id
+    bundle.proof.session_id;
+  Alcotest.(check bool) "bundle proof ok" true bundle.proof.ok
 
 let test_high_level_query_and_sessions () =
   with_temp_dir @@ fun session_root ->
