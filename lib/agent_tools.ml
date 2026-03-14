@@ -40,10 +40,14 @@ let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~age
     Applies PreToolUse/PostToolUse hooks and passes context to context-aware handlers.
     Each fiber catches exceptions to prevent one tool failure from canceling siblings. *)
 let execute_tools ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tracer
-    ~agent_name ~turn_count ~approval tool_uses =
+    ~agent_name ~turn_count ~approval ?on_tool_execution_started
+    ?on_tool_execution_finished tool_uses =
   Eio.Fiber.List.map (fun block ->
     match block with
     | ToolUse (id, name, input) ->
+        (match on_tool_execution_started with
+         | Some callback -> callback ~tool_use_id:id ~tool_name:name ~input
+         | None -> ());
         Tracing.with_span tracer
           { kind = Tool_exec; name;
             agent_name;
@@ -70,5 +74,12 @@ let execute_tools ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tracer
             with exn ->
               let msg = Printf.sprintf "Tool '%s' raised: %s" name (Printexc.to_string exn) in
               (id, msg, true)))
+        |> fun triple ->
+        (match on_tool_execution_finished with
+         | Some callback ->
+             let (_, content, is_error) = triple in
+             callback ~tool_use_id:id ~tool_name:name ~content ~is_error
+         | None -> ());
+        triple
     | _ -> ("", "", true)
   ) tool_uses

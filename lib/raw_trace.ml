@@ -1,0 +1,387 @@
+open Types
+
+let ( let* ) = Result.bind
+
+type record_type =
+  | Run_started
+  | Assistant_block
+  | Tool_execution_started
+  | Tool_execution_finished
+  | Run_finished
+[@@deriving show]
+
+type run_ref = {
+  worker_run_id: string;
+  path: string;
+  start_seq: int;
+  end_seq: int;
+  agent_name: string;
+  session_id: string option;
+}
+[@@deriving show]
+
+type record = {
+  trace_version: int;
+  worker_run_id: string;
+  seq: int;
+  ts: float;
+  agent_name: string;
+  session_id: string option;
+  record_type: record_type;
+  prompt: string option;
+  block_index: int option;
+  block_kind: string option;
+  assistant_block: Yojson.Safe.t option;
+  tool_use_id: string option;
+  tool_name: string option;
+  tool_input: Yojson.Safe.t option;
+  tool_result: string option;
+  tool_error: bool option;
+  final_text: string option;
+  stop_reason: string option;
+  error: string option;
+}
+[@@deriving show]
+
+type t = {
+  path: string;
+  session_id: string option;
+  lock: Mutex.t;
+  mutable next_seq: int;
+  mutable run_counter: int;
+  mutable last_run: run_ref option;
+}
+
+type active_run = {
+  sink: t;
+  worker_run_id: string;
+  agent_name: string;
+  session_id: string option;
+  start_seq: int;
+  mutable end_seq: int;
+}
+
+exception Trace_error of Error.sdk_error
+
+let trace_version = 1
+
+let json_parse_error detail =
+  Error.Serialization (JsonParseError { detail })
+
+let file_read_error ~path ~detail =
+  Error.Io (FileOpFailed { op = "read"; path; detail })
+
+let file_write_error ~path ~detail =
+  Error.Io (FileOpFailed { op = "write"; path; detail })
+
+let rec ensure_dir path =
+  if path = "" || path = "." || path = "/" then Ok ()
+  else
+    try
+      if Sys.file_exists path then Ok ()
+      else (
+        let parent = Filename.dirname path in
+        match ensure_dir parent with
+        | Error _ as err -> err
+        | Ok () ->
+            Unix.mkdir path 0o755;
+            Ok ())
+    with
+    | Unix.Unix_error (err, _, _) ->
+        Error (file_write_error ~path ~detail:(Unix.error_message err))
+    | exn ->
+        Error (file_write_error ~path ~detail:(Printexc.to_string exn))
+
+let record_type_to_string = function
+  | Run_started -> "run_started"
+  | Assistant_block -> "assistant_block"
+  | Tool_execution_started -> "tool_execution_started"
+  | Tool_execution_finished -> "tool_execution_finished"
+  | Run_finished -> "run_finished"
+
+let record_type_of_string = function
+  | "run_started" -> Ok Run_started
+  | "assistant_block" -> Ok Assistant_block
+  | "tool_execution_started" -> Ok Tool_execution_started
+  | "tool_execution_finished" -> Ok Tool_execution_finished
+  | "run_finished" -> Ok Run_finished
+  | other ->
+      Error
+        (Error.Serialization
+           (UnknownVariant { type_name = "raw_trace.record_type"; value = other }))
+
+let option_assoc name value =
+  match value with
+  | Some json -> [ (name, json) ]
+  | None -> []
+
+let option_string name value =
+  option_assoc name (Option.map (fun v -> `String v) value)
+
+let option_int name value =
+  option_assoc name (Option.map (fun v -> `Int v) value)
+
+let option_bool name value =
+  option_assoc name (Option.map (fun v -> `Bool v) value)
+
+let option_json name value =
+  option_assoc name value
+
+let record_to_json (record : record) =
+  `Assoc
+    ([
+       ("trace_version", `Int record.trace_version);
+       ("worker_run_id", `String record.worker_run_id);
+       ("seq", `Int record.seq);
+       ("ts", `Float record.ts);
+       ("agent_name", `String record.agent_name);
+       ("record_type", `String (record_type_to_string record.record_type));
+       ( "session_id",
+         match record.session_id with
+         | Some value -> `String value
+         | None -> `Null );
+     ]
+    @ option_string "prompt" record.prompt
+    @ option_int "block_index" record.block_index
+    @ option_string "block_kind" record.block_kind
+    @ option_json "assistant_block" record.assistant_block
+    @ option_string "tool_use_id" record.tool_use_id
+    @ option_string "tool_name" record.tool_name
+    @ option_json "tool_input" record.tool_input
+    @ option_string "tool_result" record.tool_result
+    @ option_bool "tool_error" record.tool_error
+    @ option_string "final_text" record.final_text
+    @ option_string "stop_reason" record.stop_reason
+    @ option_string "error" record.error)
+
+let record_of_json json =
+  let open Yojson.Safe.Util in
+  let* record_type =
+    json |> member "record_type" |> to_string |> record_type_of_string
+  in
+  Ok
+    {
+      trace_version = json |> member "trace_version" |> to_int;
+      worker_run_id = json |> member "worker_run_id" |> to_string;
+      seq = json |> member "seq" |> to_int;
+      ts = json |> member "ts" |> to_float;
+      agent_name = json |> member "agent_name" |> to_string;
+      session_id = json |> member "session_id" |> to_string_option;
+      record_type;
+      prompt = json |> member "prompt" |> to_string_option;
+      block_index = json |> member "block_index" |> to_int_option;
+      block_kind = json |> member "block_kind" |> to_string_option;
+      assistant_block =
+        (match json |> member "assistant_block" with `Null -> None | value -> Some value);
+      tool_use_id = json |> member "tool_use_id" |> to_string_option;
+      tool_name = json |> member "tool_name" |> to_string_option;
+      tool_input =
+        (match json |> member "tool_input" with `Null -> None | value -> Some value);
+      tool_result = json |> member "tool_result" |> to_string_option;
+      tool_error = json |> member "tool_error" |> to_bool_option;
+      final_text = json |> member "final_text" |> to_string_option;
+      stop_reason = json |> member "stop_reason" |> to_string_option;
+      error = json |> member "error" |> to_string_option;
+    }
+
+let parse_json_string raw =
+  try Ok (Yojson.Safe.from_string raw)
+  with Yojson.Json_error detail -> Error (json_parse_error detail)
+
+let load_lines path =
+  if not (Sys.file_exists path) then Ok []
+  else
+    try
+      let ic = open_in_bin path in
+      Fun.protect
+        ~finally:(fun () -> close_in_noerr ic)
+        (fun () ->
+          let rec loop acc =
+            match input_line ic with
+            | line -> loop (line :: acc)
+            | exception End_of_file -> Ok (List.rev acc)
+          in
+          loop [])
+    with
+    | Sys_error detail -> Error (file_read_error ~path ~detail)
+    | exn -> Error (file_read_error ~path ~detail:(Printexc.to_string exn))
+
+let read_all ~path () =
+  let* lines = load_lines path in
+  lines
+  |> List.filter (fun line -> String.trim line <> "")
+  |> List.map (fun line ->
+         let* json = parse_json_string line in
+         record_of_json json)
+  |> List.fold_left
+       (fun acc item ->
+         match acc, item with
+         | Ok records, Ok record -> Ok (record :: records)
+         | Error _ as err, _ -> err
+         | _, (Error _ as err) -> err)
+       (Ok [])
+  |> Result.map List.rev
+
+let read_run (run_ref : run_ref) =
+  let* records = read_all ~path:run_ref.path () in
+  Ok
+    (List.filter
+       (fun (record : record) ->
+         String.equal record.worker_run_id run_ref.worker_run_id
+         && record.seq >= run_ref.start_seq
+         && record.seq <= run_ref.end_seq)
+       records)
+
+let scan_next_seq path =
+  let* records = read_all ~path () in
+  let next =
+    match List.rev records with
+    | [] -> 1
+    | last :: _ -> last.seq + 1
+  in
+  Ok next
+
+let create ?session_id ~path () =
+  let* () = ensure_dir (Filename.dirname path) in
+  let* next_seq = scan_next_seq path in
+  Ok
+    {
+      path;
+      session_id;
+      lock = Mutex.create ();
+      next_seq;
+      run_counter = 0;
+      last_run = None;
+    }
+
+let file_path trace = trace.path
+let session_id (trace : t) = trace.session_id
+let last_run trace = trace.last_run
+
+let next_worker_run_id sink =
+  let ts = int_of_float (Unix.gettimeofday () *. 1000.0) in
+  let pid = Unix.getpid () land 0xFFFF in
+  let idx = sink.run_counter in
+  sink.run_counter <- idx + 1;
+  Printf.sprintf "wr-%08x-%04x-%04x" ts pid idx
+
+let append_locked sink (record : record) =
+  try
+    let oc =
+      open_out_gen [ Open_creat; Open_append; Open_text ] 0o644 sink.path
+    in
+    Fun.protect
+      ~finally:(fun () -> close_out_noerr oc)
+      (fun () ->
+        output_string oc (record_to_json record |> Yojson.Safe.to_string);
+        output_char oc '\n';
+        flush oc;
+        Ok ())
+  with
+  | Sys_error detail -> Error (file_write_error ~path:sink.path ~detail)
+  | exn -> Error (file_write_error ~path:sink.path ~detail:(Printexc.to_string exn))
+
+let append_record active ~record_type ?prompt ?block_index ?block_kind
+    ?assistant_block ?tool_use_id ?tool_name ?tool_input ?tool_result ?tool_error
+    ?final_text ?stop_reason ?error () =
+  Mutex.lock active.sink.lock;
+  let seq = active.sink.next_seq in
+  active.sink.next_seq <- seq + 1;
+  let record =
+    {
+      trace_version;
+      worker_run_id = active.worker_run_id;
+      seq;
+      ts = Unix.gettimeofday ();
+      agent_name = active.agent_name;
+      session_id = active.session_id;
+      record_type;
+      prompt;
+      block_index;
+      block_kind;
+      assistant_block;
+      tool_use_id;
+      tool_name;
+      tool_input;
+      tool_result;
+      tool_error;
+      final_text;
+      stop_reason;
+      error;
+    }
+  in
+  let result = append_locked active.sink record in
+  (match result with Ok () -> active.end_seq <- max active.end_seq seq | Error _ -> ());
+  Mutex.unlock active.sink.lock;
+  result
+
+let start_run sink ~agent_name ~prompt =
+  Mutex.lock sink.lock;
+  let worker_run_id = next_worker_run_id sink in
+  let start_seq = sink.next_seq in
+  Mutex.unlock sink.lock;
+  let active =
+    {
+      sink;
+      worker_run_id;
+      agent_name;
+      session_id = sink.session_id;
+      start_seq;
+      end_seq = start_seq;
+    }
+  in
+  let result =
+    append_record active ~record_type:Run_started ~prompt ()
+  in
+  match result with
+  | Ok () -> Ok active
+  | Error _ as err -> err
+
+let record_assistant_block active ~block_index block =
+  let json = Api.content_block_to_json block in
+  let block_kind =
+    match block with
+    | Text _ -> "text"
+    | Thinking _ -> "thinking"
+    | RedactedThinking _ -> "redacted_thinking"
+    | ToolUse _ -> "tool_use"
+    | ToolResult _ -> "tool_result"
+    | Image _ -> "image"
+    | Document _ -> "document"
+  in
+  append_record active ~record_type:Assistant_block
+    ~block_index ~block_kind ~assistant_block:json ()
+
+let record_tool_execution_started active ~tool_use_id ~tool_name ~tool_input =
+  append_record active ~record_type:Tool_execution_started
+    ~tool_use_id ~tool_name ~tool_input ()
+
+let record_tool_execution_finished active ~tool_use_id ~tool_name ~tool_result
+    ~tool_error =
+  append_record active ~record_type:Tool_execution_finished
+    ~tool_use_id ~tool_name ~tool_result ~tool_error ()
+
+let finish_run active ~(final_text : string option)
+    ~(stop_reason : string option) ~(error : string option) =
+  let* () =
+    append_record active ~record_type:Run_finished ?final_text ?stop_reason
+      ?error ()
+  in
+  let run_ref =
+    {
+      worker_run_id = active.worker_run_id;
+      path = active.sink.path;
+      start_seq = active.start_seq;
+      end_seq = active.end_seq;
+      agent_name = active.agent_name;
+      session_id = active.session_id;
+    }
+  in
+  Mutex.lock active.sink.lock;
+  active.sink.last_run <- Some run_ref;
+  Mutex.unlock active.sink.lock;
+  Ok run_ref
+
+let raise_if_error = function
+  | Ok () -> ()
+  | Error err -> raise (Trace_error err)

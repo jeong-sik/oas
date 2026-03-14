@@ -3,6 +3,8 @@
 
 open Types
 
+let ( let* ) = Result.bind
+
 (** Configuration options for agent behavior.
     Core runtime resources (net, tools, context) are kept on Agent.t directly;
     everything else lives here so new options don't bloat the Agent.create
@@ -13,6 +15,7 @@ type options = {
   hooks: Hooks.hooks;
   guardrails: Guardrails.t;
   tracer: Tracing.t;
+  raw_trace: Raw_trace.t option;
   approval: Hooks.approval_callback option;
   context_reducer: Context_reducer.t option;
   mcp_clients: Mcp.managed list;
@@ -25,6 +28,7 @@ let default_options = {
   hooks = Hooks.empty;
   guardrails = Guardrails.default;
   tracer = Tracing.null;
+  raw_trace = None;
   approval = None;
   context_reducer = None;
   mcp_clients = [];
@@ -71,6 +75,11 @@ let clone ?(copy_context=false) agent =
   } in
   { state; tools = agent.tools; net = agent.net; context = ctx; options = agent.options }
 
+let last_raw_trace_run agent =
+  match agent.options.raw_trace with
+  | Some sink -> Raw_trace.last_run sink
+  | None -> None
+
 (** Close all MCP server connections held by this agent. *)
 let close agent =
   Mcp.close_all agent.options.mcp_clients
@@ -84,8 +93,77 @@ let execute_tools agent tool_uses =
     ~turn_count:agent.state.turn_count ~approval:agent.options.approval
     tool_uses
 
+let execute_tools_with_trace agent active_run tool_uses =
+  let on_tool_execution_started =
+    match active_run with
+    | None -> None
+    | Some active ->
+        Some
+          (fun ~tool_use_id ~tool_name ~input ->
+            Raw_trace.raise_if_error
+              (Raw_trace.record_tool_execution_started active ~tool_use_id
+                 ~tool_name ~tool_input:input))
+  in
+  let on_tool_execution_finished =
+    match active_run with
+    | None -> None
+    | Some active ->
+        Some
+          (fun ~tool_use_id ~tool_name ~content ~is_error ->
+            Raw_trace.raise_if_error
+              (Raw_trace.record_tool_execution_finished active ~tool_use_id
+                 ~tool_name ~tool_result:content ~tool_error:is_error))
+  in
+  Agent_tools.execute_tools
+    ~context:agent.context ~tools:agent.tools
+    ~hooks:agent.options.hooks ~event_bus:agent.options.event_bus
+    ~tracer:agent.options.tracer ~agent_name:agent.state.config.name
+    ~turn_count:agent.state.turn_count ~approval:agent.options.approval
+    ?on_tool_execution_started ?on_tool_execution_finished tool_uses
+
+let trace_assistant_blocks active_run blocks =
+  match active_run with
+  | None -> Ok ()
+  | Some active ->
+      blocks
+      |> List.mapi (fun index block ->
+             Raw_trace.record_assistant_block active ~block_index:index block)
+      |> List.fold_left
+           (fun acc item ->
+             match acc, item with
+             | Ok (), Ok () -> Ok ()
+             | Error _ as err, _ -> err
+             | _, (Error _ as err) -> err)
+           (Ok ())
+
+let with_raw_trace_run agent user_prompt f =
+  match agent.options.raw_trace with
+  | None -> f None
+  | Some sink ->
+      let* active =
+        Raw_trace.start_run sink ~agent_name:agent.state.config.name
+          ~prompt:user_prompt
+      in
+      let finalize result =
+        let final_text, stop_reason, error =
+          match result with
+          | Ok response ->
+              let text = Api.text_blocks_to_string response.content in
+              ( (if String.trim text = "" then None else Some text),
+                Some (Types.show_stop_reason response.stop_reason),
+                None )
+          | Error err -> (None, None, Some (Error.to_string err))
+        in
+        match
+          Raw_trace.finish_run active ~final_text ~stop_reason ~error
+        with
+        | Ok _ -> result
+        | Error err -> Error err
+      in
+      finalize (f (Some active))
+
 (** Run a single turn with hook and guardrail support *)
-let run_turn ~sw ?clock agent =
+let run_turn_with_trace ~sw ?clock ?raw_trace_run agent =
   (* BeforeTurn hook *)
   let _before = Hooks.invoke agent.options.hooks.before_turn
     (Hooks.BeforeTurn { turn = agent.state.turn_count; messages = agent.state.messages }) in
@@ -120,6 +198,7 @@ let run_turn ~sw ?clock agent =
   match api_result with
   | Error e -> Error e
   | Ok response ->
+      let* () = trace_assistant_blocks raw_trace_run response.content in
       (* Accumulate usage stats *)
       let usage = match response.usage with
         | Some u -> add_usage agent.state.usage u
@@ -155,7 +234,11 @@ let run_turn ~sw ?clock agent =
             messages = agent.state.messages @ [{ role = User; content = [Text msg] }] };
           Ok (`ToolsExecuted)
         | false ->
-          let results = execute_tools agent tool_uses in
+          let results =
+            try Ok (execute_tools_with_trace agent raw_trace_run tool_uses)
+            with Raw_trace.Trace_error err -> Error err
+          in
+          let* results = results in
           let tool_results = List.map (fun (id, content, is_error) ->
             ToolResult (id, content, is_error)
           ) results in
@@ -193,7 +276,7 @@ let check_token_budget config usage =
 (** Run loop *)
 let run ~sw ?clock agent user_prompt =
   agent.state <- { agent.state with messages = agent.state.messages @ [{ role = User; content = [Text user_prompt] }] };
-
+  with_raw_trace_run agent user_prompt @@ fun raw_trace_run ->
   let rec loop () =
     if agent.state.turn_count >= agent.state.config.max_turns then
       Error (Error.Agent (MaxTurnsExceeded { turns = agent.state.turn_count; limit = agent.state.config.max_turns }))
@@ -201,7 +284,7 @@ let run ~sw ?clock agent user_prompt =
       match check_token_budget agent.state.config agent.state.usage with
       | Some err -> Error err
       | None ->
-        match run_turn ~sw ?clock agent with
+        match run_turn_with_trace ~sw ?clock ?raw_trace_run agent with
         | Error e -> Error e
         | Ok `Complete response -> Ok response
         | Ok `ToolsExecuted -> loop ()
@@ -211,7 +294,7 @@ let run ~sw ?clock agent user_prompt =
 (** Run a single turn with streaming.
     Uses Streaming.create_message_stream for Anthropic providers,
     falls back to Api.create_message + synthetic events for others. *)
-let run_turn_stream ~sw ?clock ~on_event agent =
+let run_turn_stream_with_trace ~sw ?clock ~on_event ?raw_trace_run agent =
   (* BeforeTurn hook *)
   let _before = Hooks.invoke agent.options.hooks.before_turn
     (Hooks.BeforeTurn { turn = agent.state.turn_count; messages = agent.state.messages }) in
@@ -263,6 +346,7 @@ let run_turn_stream ~sw ?clock ~on_event agent =
   match api_result with
   | Error e -> Error e
   | Ok response ->
+    let* () = trace_assistant_blocks raw_trace_run response.content in
     (* Accumulate usage stats *)
     let usage = match response.usage with
       | Some u -> add_usage agent.state.usage u
@@ -296,7 +380,11 @@ let run_turn_stream ~sw ?clock ~on_event agent =
           messages = agent.state.messages @ [{ role = User; content = [Text msg] }] };
         Ok (`ToolsExecuted)
       | false ->
-        let results = execute_tools agent tool_uses in
+        let results =
+          try Ok (execute_tools_with_trace agent raw_trace_run tool_uses)
+          with Raw_trace.Trace_error err -> Error err
+        in
+        let* results = results in
         let tool_results = List.map (fun (id, content, is_error) ->
           ToolResult (id, content, is_error)
         ) results in
@@ -315,6 +403,7 @@ let run_turn_stream ~sw ?clock ~on_event agent =
 let run_stream ~sw ?clock ~on_event agent user_prompt =
   agent.state <- { agent.state with
     messages = agent.state.messages @ [{ role = User; content = [Text user_prompt] }] };
+  with_raw_trace_run agent user_prompt @@ fun raw_trace_run ->
   let rec loop () =
     if agent.state.turn_count >= agent.state.config.max_turns then
       Error (Error.Agent (MaxTurnsExceeded { turns = agent.state.turn_count; limit = agent.state.config.max_turns }))
@@ -322,7 +411,7 @@ let run_stream ~sw ?clock ~on_event agent user_prompt =
       match check_token_budget agent.state.config agent.state.usage with
       | Some err -> Error err
       | None ->
-        match run_turn_stream ~sw ?clock ~on_event agent with
+        match run_turn_stream_with_trace ~sw ?clock ~on_event ?raw_trace_run agent with
         | Error e -> Error e
         | Ok `Complete response -> Ok response
         | Ok `ToolsExecuted -> loop ()
@@ -346,7 +435,7 @@ let run_with_handoffs ~sw ?clock agent ~targets user_prompt =
     if agent_with_handoffs.state.turn_count >= agent_with_handoffs.state.config.max_turns then
       Error (Error.Agent (MaxTurnsExceeded { turns = agent.state.turn_count; limit = agent.state.config.max_turns }))
     else
-      match run_turn ~sw ?clock agent_with_handoffs with
+      match run_turn_with_trace ~sw ?clock agent_with_handoffs with
       | Error e -> Error e
       | Ok `Complete response -> Ok response
       | Ok `ToolsExecuted ->
@@ -465,3 +554,5 @@ let checkpoint ?(session_id="") agent =
     context = Context.copy agent.context;
     mcp_sessions = Mcp_session.capture_all agent.options.mcp_clients;
   }
+let run_turn_stream ~sw ?clock ~on_event agent =
+  run_turn_stream_with_trace ~sw ?clock ~on_event agent

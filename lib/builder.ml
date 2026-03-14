@@ -133,6 +133,7 @@ let build b =
     hooks = b.hooks;
     guardrails = b.guardrails;
     tracer = b.tracer;
+    raw_trace = None;
     approval = b.approval;
     context_reducer = b.context_reducer;
     mcp_clients;
