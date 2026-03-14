@@ -435,8 +435,7 @@ let get_latest_raw_trace_run ?session_root ~session_id () =
   | latest :: _ -> Ok (Some latest)
   | [] -> Ok None
 
-let get_raw_trace_summaries ?session_root ~session_id () =
-  let* runs = get_raw_trace_runs ?session_root ~session_id () in
+let summarize_runs runs =
   runs
   |> List.map Raw_trace.summarize_run
   |> List.fold_left
@@ -448,8 +447,11 @@ let get_raw_trace_summaries ?session_root ~session_id () =
        (Ok [])
   |> Result.map List.rev
 
-let get_raw_trace_validations ?session_root ~session_id () =
+let get_raw_trace_summaries ?session_root ~session_id () =
   let* runs = get_raw_trace_runs ?session_root ~session_id () in
+  summarize_runs runs
+
+let validate_runs runs =
   runs
   |> List.map Raw_trace.validate_run
   |> List.fold_left
@@ -461,10 +463,16 @@ let get_raw_trace_validations ?session_root ~session_id () =
        (Ok [])
   |> Result.map List.rev
 
-let evidence_capabilities_of_bundle ~raw_trace_runs =
+let get_raw_trace_validations ?session_root ~session_id () =
+  let* runs = get_raw_trace_runs ?session_root ~session_id () in
+  validate_runs runs
+
+let evidence_capabilities_of_bundle ~raw_trace_runs ~raw_trace_summaries
+    ~raw_trace_validations =
   {
     raw_trace = raw_trace_runs <> [];
-    validated_summary = true;
+    validated_summary =
+      raw_trace_summaries <> [] && raw_trace_validations <> [];
     proof_bundle = true;
   }
 
@@ -479,13 +487,12 @@ let get_proof_bundle ?session_root ~session_id () =
   let* evidence = get_evidence ?session_root ~session_id () in
   let* latest_raw_trace_run = get_latest_raw_trace_run ?session_root ~session_id () in
   let* raw_trace_runs = get_raw_trace_runs ?session_root ~session_id () in
-  let* raw_trace_summaries =
-    get_raw_trace_summaries ?session_root ~session_id ()
+  let* raw_trace_summaries = summarize_runs raw_trace_runs in
+  let* raw_trace_validations = validate_runs raw_trace_runs in
+  let capabilities =
+    evidence_capabilities_of_bundle ~raw_trace_runs ~raw_trace_summaries
+      ~raw_trace_validations
   in
-  let* raw_trace_validations =
-    get_raw_trace_validations ?session_root ~session_id ()
-  in
-  let capabilities = evidence_capabilities_of_bundle ~raw_trace_runs in
   Ok
     {
       session;

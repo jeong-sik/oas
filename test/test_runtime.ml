@@ -423,7 +423,7 @@ let test_runtime_finalize_generates_telemetry_and_evidence () =
     (List.length bundle.raw_trace_validations);
   Alcotest.(check bool) "bundle capabilities raw trace false" false
     bundle.capabilities.raw_trace;
-  Alcotest.(check bool) "bundle capabilities validated summary true" true
+  Alcotest.(check bool) "bundle capabilities validated summary false" false
     bundle.capabilities.validated_summary;
   Alcotest.(check bool) "bundle capabilities proof bundle true" true
     bundle.capabilities.proof_bundle
