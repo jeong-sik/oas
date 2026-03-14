@@ -47,6 +47,10 @@ let test_add_message () =
   agent.state <- { agent.state with messages = agent.state.messages @ [{ role = User; content = [Text "Hi"] }] };
   Alcotest.(check int) "message count" 1 (List.length agent.state.messages)
 
+let test_version_info () =
+  Alcotest.(check string) "version" "0.10.0" Agent_sdk.version;
+  Alcotest.(check string) "sdk_name" "agent_sdk" Agent_sdk.sdk_name
+
 let () =
   run "Agent SDK" [
     "types", [
@@ -63,5 +67,6 @@ let () =
     "agent", [
       test_case "create" `Quick test_agent_create;
       test_case "add_message" `Quick test_add_message;
+      test_case "version info" `Quick test_version_info;
     ];
   ]

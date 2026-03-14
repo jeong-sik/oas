@@ -59,6 +59,8 @@ All notable changes to `agent_sdk` are documented in this file.
 - High-level `query` / `Client` surface on top of the runtime harness, with low-level `runtime_query` / `Runtime_client` escape hatches
 - Session helpers for listing, reading, renaming, and tagging persisted runtime sessions
 - Control-protocol callback round-trip for permission and hook requests
+- `Contract` module for explicit runtime awareness, trigger context, tool grants, MCP allowlists, and skill bundles
+- Builder helpers for contract-aware assembly: `with_contract`, `with_skill`, `with_skills`, `with_tool_grants`, `with_mcp_tool_allowlist`
 - Long-lived interactive client semantics:
   - partial message surfacing (`Partial_message`)
   - progressive receive (`receive_messages`, `receive_response`, `wait_for_messages`)
@@ -69,6 +71,7 @@ All notable changes to `agent_sdk` are documented in this file.
 - Default high-level local-first path is now `provider = Some "local-qwen"` and `model = Some "qwen3.5"` for `llama.cpp`-style local runtimes
 - Runtime transport now uses a background reader thread to handle response, control, and event envelopes
 - `set_permission_mode` and `set_model` now persist through runtime session updates instead of mutating SDK-local state only
+- Builder now compiles explicit contracts into composed system prompts, filtered local tools, filtered MCP tool surfaces, and reserved context metadata
 
 ### Fixed
 - Runtime protocol version mismatch is detected during initialize handshake

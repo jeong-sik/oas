@@ -221,7 +221,7 @@ let initialize t =
       ("capabilities", `Assoc []);
       ("clientInfo", `Assoc [
         ("name", `String "oas-mcp-client");
-        ("version", `String "0.9.0");
+        ("version", `String "0.10.0");
       ]);
     ]
   in

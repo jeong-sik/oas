@@ -612,6 +612,42 @@ module Skill : sig
   val supporting_file_paths : t -> string list
 end
 
+(** {1 Explicit Runtime Contract} *)
+
+module Contract : sig
+  type trigger = {
+    kind: string;
+    source: string option;
+    reason: string option;
+    payload: Yojson.Safe.t option;
+  }
+
+  type instruction_layer = {
+    label: string option;
+    content: string;
+  }
+
+  type t
+
+  val empty : t
+  val is_empty : t -> bool
+  val with_runtime_awareness : string -> t -> t
+  val with_trigger :
+    ?source:string ->
+    ?reason:string ->
+    ?payload:Yojson.Safe.t ->
+    string ->
+    t -> t
+  val add_instruction_layer : ?label:string -> string -> t -> t
+  val with_skill : Skill.t -> t -> t
+  val with_skills : Skill.t list -> t -> t
+  val with_tool_grants : string list -> t -> t
+  val with_mcp_tool_allowlist : string list -> t -> t
+  val merge : t -> t -> t
+  val to_json : t -> Yojson.Safe.t
+  val compose_system_prompt : ?base:string -> t -> string option
+end
+
 (** {1 Sub-agent Delegation} *)
 
 module Handoff : sig
@@ -1145,6 +1181,11 @@ module Builder : sig
   val with_base_url : string -> t -> t
   val with_mcp_clients : Mcp.managed list -> t -> t
   val with_guardrails : Guardrails.t -> t -> t
+  val with_contract : Contract.t -> t -> t
+  val with_skill : Skill.t -> t -> t
+  val with_skills : Skill.t list -> t -> t
+  val with_tool_grants : string list -> t -> t
+  val with_mcp_tool_allowlist : string list -> t -> t
   val with_tool_choice : Types.tool_choice -> t -> t
   val with_thinking_budget : int -> t -> t
   val with_max_input_tokens : int -> t -> t
