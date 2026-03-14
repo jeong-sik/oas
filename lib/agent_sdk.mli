@@ -2129,6 +2129,12 @@ module Sessions : sig
   type raw_trace_summary = Raw_trace.run_summary
   type raw_trace_validation = Raw_trace.run_validation
 
+  type evidence_capabilities = {
+    raw_trace: bool;
+    validated_summary: bool;
+    proof_bundle: bool;
+  }
+
   type proof_bundle = {
     session: Runtime.session;
     report: Runtime.report;
@@ -2136,7 +2142,11 @@ module Sessions : sig
     telemetry: telemetry;
     structured_telemetry: structured_telemetry;
     evidence: evidence;
+    latest_raw_trace_run: raw_trace_run option;
     raw_trace_runs: raw_trace_run list;
+    raw_trace_summaries: raw_trace_summary list;
+    raw_trace_validations: raw_trace_validation list;
+    capabilities: evidence_capabilities;
   }
 
   val list_sessions :
@@ -2202,6 +2212,21 @@ module Sessions : sig
     worker_run_id:string ->
     unit ->
     (raw_trace_validation, Error.sdk_error) result
+  val get_latest_raw_trace_run :
+    ?session_root:string ->
+    session_id:string ->
+    unit ->
+    (raw_trace_run option, Error.sdk_error) result
+  val get_raw_trace_summaries :
+    ?session_root:string ->
+    session_id:string ->
+    unit ->
+    (raw_trace_summary list, Error.sdk_error) result
+  val get_raw_trace_validations :
+    ?session_root:string ->
+    session_id:string ->
+    unit ->
+    (raw_trace_validation list, Error.sdk_error) result
   val get_proof_bundle :
     ?session_root:string ->
     session_id:string ->

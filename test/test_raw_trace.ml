@@ -224,11 +224,27 @@ let test_agent_run_stream_append_only_raw_trace () =
           (Sessions.validate_raw_trace_run ~session_root:root
              ~session_id:"sess-raw" ~worker_run_id:run1.worker_run_id ())
       in
+      let latest_run =
+        unwrap
+          (Sessions.get_latest_raw_trace_run ~session_root:root
+             ~session_id:"sess-raw" ())
+      in
+      let summaries =
+        unwrap
+          (Sessions.get_raw_trace_summaries ~session_root:root
+             ~session_id:"sess-raw" ())
+      in
+      let validations =
+        unwrap
+          (Sessions.get_raw_trace_validations ~session_root:root
+             ~session_id:"sess-raw" ())
+      in
       Alcotest.(check string) "trace path preserved" trace_path run1.path;
       Alcotest.(check bool) "run2 starts after run1 ends" true
         (run2.start_seq > run1.end_seq);
       Alcotest.(check int) "two discovered runs" 2 (List.length discovered_runs);
       Alcotest.(check int) "two session runs" 2 (List.length session_runs);
+      Alcotest.(check bool) "latest run present" true (Option.is_some latest_run);
       Alcotest.(check string) "session getter worker run id" run1.worker_run_id
         run1_from_session.worker_run_id;
       Alcotest.(check int) "append only all records"
@@ -265,6 +281,8 @@ let test_agent_run_stream_append_only_raw_trace () =
         run1_summary.record_count;
       Alcotest.(check int) "summary tool start count" 2
         run1_summary.tool_execution_started_count;
+      Alcotest.(check int) "two summaries" 2 (List.length summaries);
+      Alcotest.(check int) "two validations" 2 (List.length validations);
       Alcotest.(check bool) "validation ok" true run1_validation.ok;
       Alcotest.(check bool) "validation mentions tool pairs" true
         (List.exists

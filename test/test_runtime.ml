@@ -412,7 +412,21 @@ let test_runtime_finalize_generates_telemetry_and_evidence () =
     structured_telemetry.step_count
     (List.length bundle.structured_telemetry.steps);
   Alcotest.(check int) "bundle raw trace runs empty" 0
-    (List.length bundle.raw_trace_runs)
+    (List.length bundle.raw_trace_runs);
+  Alcotest.(check (option string)) "bundle latest raw trace run none"
+    None
+    (Option.map (fun (run : Sessions.raw_trace_run) -> run.worker_run_id)
+       bundle.latest_raw_trace_run);
+  Alcotest.(check int) "bundle raw trace summaries empty" 0
+    (List.length bundle.raw_trace_summaries);
+  Alcotest.(check int) "bundle raw trace validations empty" 0
+    (List.length bundle.raw_trace_validations);
+  Alcotest.(check bool) "bundle capabilities raw trace false" false
+    bundle.capabilities.raw_trace;
+  Alcotest.(check bool) "bundle capabilities validated summary false" false
+    bundle.capabilities.validated_summary;
+  Alcotest.(check bool) "bundle capabilities proof bundle true" true
+    bundle.capabilities.proof_bundle
 
 let test_high_level_query_and_sessions () =
   with_temp_dir @@ fun session_root ->

@@ -83,6 +83,12 @@ type raw_trace_run = Raw_trace.run_ref
 type raw_trace_summary = Raw_trace.run_summary
 type raw_trace_validation = Raw_trace.run_validation
 
+type evidence_capabilities = {
+  raw_trace: bool;
+  validated_summary: bool;
+  proof_bundle: bool;
+}
+
 type proof_bundle = {
   session: Runtime.session;
   report: Runtime.report;
@@ -90,7 +96,11 @@ type proof_bundle = {
   telemetry: telemetry;
   structured_telemetry: structured_telemetry;
   evidence: evidence;
+  latest_raw_trace_run: raw_trace_run option;
   raw_trace_runs: raw_trace_run list;
+  raw_trace_summaries: raw_trace_summary list;
+  raw_trace_validations: raw_trace_validation list;
+  capabilities: evidence_capabilities;
 }
 
 let ( let* ) = Result.bind
@@ -419,6 +429,53 @@ let validate_raw_trace_run ?session_root ~session_id ~worker_run_id () =
   let* run = get_raw_trace_run ?session_root ~session_id ~worker_run_id () in
   Raw_trace.validate_run run
 
+let get_latest_raw_trace_run ?session_root ~session_id () =
+  let* runs = get_raw_trace_runs ?session_root ~session_id () in
+  match List.rev runs with
+  | latest :: _ -> Ok (Some latest)
+  | [] -> Ok None
+
+let summarize_runs runs =
+  runs
+  |> List.map Raw_trace.summarize_run
+  |> List.fold_left
+       (fun acc item ->
+         match acc, item with
+         | Ok summaries, Ok summary -> Ok (summary :: summaries)
+         | Error _ as err, _ -> err
+         | _, (Error _ as err) -> err)
+       (Ok [])
+  |> Result.map List.rev
+
+let get_raw_trace_summaries ?session_root ~session_id () =
+  let* runs = get_raw_trace_runs ?session_root ~session_id () in
+  summarize_runs runs
+
+let validate_runs runs =
+  runs
+  |> List.map Raw_trace.validate_run
+  |> List.fold_left
+       (fun acc item ->
+         match acc, item with
+         | Ok validations, Ok validation -> Ok (validation :: validations)
+         | Error _ as err, _ -> err
+         | _, (Error _ as err) -> err)
+       (Ok [])
+  |> Result.map List.rev
+
+let get_raw_trace_validations ?session_root ~session_id () =
+  let* runs = get_raw_trace_runs ?session_root ~session_id () in
+  validate_runs runs
+
+let evidence_capabilities_of_bundle ~raw_trace_runs ~raw_trace_summaries
+    ~raw_trace_validations =
+  {
+    raw_trace = raw_trace_runs <> [];
+    validated_summary =
+      raw_trace_summaries <> [] && raw_trace_validations <> [];
+    proof_bundle = true;
+  }
+
 let get_proof_bundle ?session_root ~session_id () =
   let* session = get_session ?session_root session_id in
   let* report = get_report ?session_root ~session_id () in
@@ -428,8 +485,28 @@ let get_proof_bundle ?session_root ~session_id () =
     get_telemetry_structured ?session_root ~session_id ()
   in
   let* evidence = get_evidence ?session_root ~session_id () in
+  let* latest_raw_trace_run = get_latest_raw_trace_run ?session_root ~session_id () in
   let* raw_trace_runs = get_raw_trace_runs ?session_root ~session_id () in
-  Ok { session; report; proof; telemetry; structured_telemetry; evidence; raw_trace_runs }
+  let* raw_trace_summaries = summarize_runs raw_trace_runs in
+  let* raw_trace_validations = validate_runs raw_trace_runs in
+  let capabilities =
+    evidence_capabilities_of_bundle ~raw_trace_runs ~raw_trace_summaries
+      ~raw_trace_validations
+  in
+  Ok
+    {
+      session;
+      report;
+      proof;
+      telemetry;
+      structured_telemetry;
+      evidence;
+      latest_raw_trace_run;
+      raw_trace_runs;
+      raw_trace_summaries;
+      raw_trace_validations;
+      capabilities;
+    }
 
 let rename_session ?session_root ~session_id ~title () =
   let* store = make_store ?session_root () in
