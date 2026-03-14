@@ -670,3 +670,5 @@ let finish_run active ~(final_text : string option)
 let raise_if_error : type a. (a, Error.sdk_error) result -> unit = function
   | Ok _ -> ()
   | Error err -> raise (Trace_error err)
+
+let active_run_id (active : active_run) = active.worker_run_id

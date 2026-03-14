@@ -116,7 +116,36 @@ let save_session store (session : session) =
 let load_session store session_id =
   let* raw = load_text (session_path store session_id) in
   try
-    match session_of_yojson (Yojson.Safe.from_string raw) with
+    let with_default key value fields =
+      if List.mem_assoc key fields then fields else (key, value) :: fields
+    in
+    let normalize_participant = function
+      | `Assoc fields ->
+          `Assoc
+            (fields
+            |> with_default "aliases" (`List [])
+            |> with_default "requested_provider" `Null
+            |> with_default "requested_model" `Null
+            |> with_default "requested_policy" `Null
+            |> with_default "resolved_provider" `Null
+            |> with_default "resolved_model" `Null
+            |> with_default "last_progress_at" `Null)
+      | json -> json
+    in
+    let normalize_session = function
+      | `Assoc fields ->
+          let participants =
+            match List.assoc_opt "participants" fields with
+            | Some (`List items) -> `List (List.map normalize_participant items)
+            | Some value -> value
+            | None -> `List []
+          in
+          `Assoc
+            ((fields |> List.remove_assoc "participants")
+            @ [ ("participants", participants) ])
+      | json -> json
+    in
+    match session_of_yojson (Yojson.Safe.from_string raw |> normalize_session) with
     | Ok session -> Ok session
     | Error detail ->
         Error

@@ -117,7 +117,9 @@ let test_conformance_report_detects_inconsistent_bundle () =
   Alcotest.(check bool) "raw trace shape check failed" true
     (List.exists
        (fun (check : Conformance.check) ->
-         check.name = "raw_trace_shapes_consistent" && not check.passed)
+         check.name = "raw_trace_shapes_consistent"
+         && String.equal check.code "raw_trace_shape_mismatch"
+         && not check.passed)
        report.checks)
 
 let () =

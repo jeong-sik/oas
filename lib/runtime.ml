@@ -21,6 +21,7 @@ type participant_state =
 type participant = {
   name: string;
   role: string option;
+  aliases: string list;
   requested_provider: string option;
   requested_model: string option;
   requested_policy: string option;

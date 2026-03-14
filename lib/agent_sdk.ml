@@ -66,6 +66,7 @@ module Orchestrator = Orchestrator
 module Otel_tracer = Otel_tracer
 module Trace_eval = Trace_eval
 module Conformance = Conformance
+module Direct_evidence = Direct_evidence
 module Runtime = Runtime
 module Transport = Transport
 module Runtime_client = Runtime_client
@@ -108,5 +109,5 @@ let runtime_query = Runtime_query.query
 let query = Query.query
 
 (** Version info *)
-let version = "0.19.0"
+let version = "0.20.0"
 let sdk_name = "agent_sdk"

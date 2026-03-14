@@ -101,6 +101,8 @@ type worker_status =
 type worker_run = {
   worker_run_id: string;
   agent_name: string;
+  role: string option;
+  aliases: string list;
   provider: string option;
   model: string option;
   requested_provider: string option;
@@ -620,6 +622,8 @@ let worker_run_of_raw (session : Runtime.session)
   {
     worker_run_id = summary.run_ref.worker_run_id;
     agent_name = summary.run_ref.agent_name;
+    role = Option.bind participant (fun p -> p.role);
+    aliases = Option.bind participant (fun p -> Some p.aliases) |> Option.value ~default:[];
     provider;
     model;
     requested_provider = Option.bind participant (fun p -> p.requested_provider);
@@ -666,6 +670,8 @@ let summary_only_worker_run (session : Runtime.session) index
     worker_run_id =
       Printf.sprintf "summary-only:%s:%Ld" participant.name stamp;
     agent_name = participant.name;
+    role = participant.role;
+    aliases = participant.aliases;
     provider = resolved_provider_of_participant session (Some participant);
     model = resolved_model_of_participant session (Some participant);
     requested_provider = participant.requested_provider;
