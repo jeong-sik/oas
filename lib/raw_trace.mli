@@ -78,4 +78,4 @@ val finish_run :
   stop_reason:string option ->
   error:string option ->
   (run_ref, Error.sdk_error) result
-val raise_if_error : (unit, Error.sdk_error) result -> unit
+val raise_if_error : ('a, Error.sdk_error) result -> unit

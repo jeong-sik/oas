@@ -431,11 +431,15 @@ let run_with_handoffs ~sw ?clock agent ~targets user_prompt =
   let all_tools = agent.tools @ handoff_tools in
   let agent_with_handoffs = { agent with tools = all_tools } in
 
+  agent_with_handoffs.state <- { agent_with_handoffs.state with
+    messages = agent_with_handoffs.state.messages @ [{ role = User; content = [Text user_prompt] }] };
+
+  with_raw_trace_run agent_with_handoffs user_prompt @@ fun raw_trace_run ->
   let rec loop () =
     if agent_with_handoffs.state.turn_count >= agent_with_handoffs.state.config.max_turns then
       Error (Error.Agent (MaxTurnsExceeded { turns = agent.state.turn_count; limit = agent.state.config.max_turns }))
     else
-      match run_turn_with_trace ~sw ?clock agent_with_handoffs with
+      match run_turn_with_trace ~sw ?clock ?raw_trace_run agent_with_handoffs with
       | Error e -> Error e
       | Ok `Complete response -> Ok response
       | Ok `ToolsExecuted ->
@@ -484,8 +488,6 @@ let run_with_handoffs ~sw ?clock agent ~targets user_prompt =
            (* No handoff detected, normal tool execution loop *)
            loop ())
   in
-  agent_with_handoffs.state <- { agent_with_handoffs.state with
-    messages = agent_with_handoffs.state.messages @ [{ role = User; content = [Text user_prompt] }] };
   loop ()
 
 (** Restore an agent from a checkpoint.

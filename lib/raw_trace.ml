@@ -57,7 +57,7 @@ type active_run = {
   worker_run_id: string;
   agent_name: string;
   session_id: string option;
-  start_seq: int;
+  mutable start_seq: int;
   mutable end_seq: int;
 }
 
@@ -286,7 +286,6 @@ let append_record active ~record_type ?prompt ?block_index ?block_kind
     ?final_text ?stop_reason ?error () =
   Mutex.lock active.sink.lock;
   let seq = active.sink.next_seq in
-  active.sink.next_seq <- seq + 1;
   let record =
     {
       trace_version;
@@ -311,14 +310,18 @@ let append_record active ~record_type ?prompt ?block_index ?block_kind
     }
   in
   let result = append_locked active.sink record in
-  (match result with Ok () -> active.end_seq <- max active.end_seq seq | Error _ -> ());
+  (match result with
+   | Ok () ->
+       active.sink.next_seq <- seq + 1;
+       if active.start_seq = 0 then active.start_seq <- seq;
+       active.end_seq <- max active.end_seq seq
+   | Error _ -> ());
   Mutex.unlock active.sink.lock;
-  result
+  Result.map (fun () -> seq) result
 
 let start_run sink ~agent_name ~prompt =
   Mutex.lock sink.lock;
   let worker_run_id = next_worker_run_id sink in
-  let start_seq = sink.next_seq in
   Mutex.unlock sink.lock;
   let active =
     {
@@ -326,16 +329,16 @@ let start_run sink ~agent_name ~prompt =
       worker_run_id;
       agent_name;
       session_id = sink.session_id;
-      start_seq;
-      end_seq = start_seq;
+      start_seq = 0;
+      end_seq = 0;
     }
   in
   let result =
     append_record active ~record_type:Run_started ~prompt ()
   in
   match result with
-  | Ok () -> Ok active
-  | Error _ as err -> err
+    | Ok _ -> Ok active
+    | Error _ as err -> err
 
 let record_assistant_block active ~block_index block =
   let json = Api.content_block_to_json block in
@@ -351,21 +354,25 @@ let record_assistant_block active ~block_index block =
   in
   append_record active ~record_type:Assistant_block
     ~block_index ~block_kind ~assistant_block:json ()
+  |> Result.map (fun _ -> ())
 
 let record_tool_execution_started active ~tool_use_id ~tool_name ~tool_input =
   append_record active ~record_type:Tool_execution_started
     ~tool_use_id ~tool_name ~tool_input ()
+  |> Result.map (fun _ -> ())
 
 let record_tool_execution_finished active ~tool_use_id ~tool_name ~tool_result
     ~tool_error =
   append_record active ~record_type:Tool_execution_finished
     ~tool_use_id ~tool_name ~tool_result ~tool_error ()
+  |> Result.map (fun _ -> ())
 
 let finish_run active ~(final_text : string option)
     ~(stop_reason : string option) ~(error : string option) =
   let* () =
     append_record active ~record_type:Run_finished ?final_text ?stop_reason
       ?error ()
+    |> Result.map (fun _ -> ())
   in
   let run_ref =
     {
@@ -382,6 +389,6 @@ let finish_run active ~(final_text : string option)
   Mutex.unlock active.sink.lock;
   Ok run_ref
 
-let raise_if_error = function
-  | Ok () -> ()
+let raise_if_error : type a. (a, Error.sdk_error) result -> unit = function
+  | Ok _ -> ()
   | Error err -> raise (Trace_error err)
