@@ -78,6 +78,11 @@ let parse_runtime_json of_yojson raw =
   | Ok value -> Ok value
   | Error detail -> Error (json_parse_error detail)
 
+let decode_json_with decoder raw =
+  let* json = parse_json_string raw in
+  try Ok (decoder json)
+  with Yojson.Safe.Util.Type_error (detail, _) -> Error (json_parse_error detail)
+
 let latest_named_artifact artifacts name =
   List.fold_left
     (fun acc (artifact : Runtime.artifact) ->
@@ -218,10 +223,7 @@ let get_telemetry ?session_root ~session_id () =
     Artifact_service.get_text ?session_root ~session_id
       ~artifact_id:artifact.artifact_id ()
   in
-  try Ok (telemetry_of_json (Yojson.Safe.from_string raw))
-  with
-  | Yojson.Json_error detail -> Error (json_parse_error detail)
-  | Yojson.Safe.Util.Type_error (detail, _) -> Error (json_parse_error detail)
+  decode_json_with telemetry_of_json raw
 
 let get_evidence ?session_root ~session_id () =
   let* artifact =
@@ -231,10 +233,7 @@ let get_evidence ?session_root ~session_id () =
     Artifact_service.get_text ?session_root ~session_id
       ~artifact_id:artifact.artifact_id ()
   in
-  try Ok (evidence_of_json (Yojson.Safe.from_string raw))
-  with
-  | Yojson.Json_error detail -> Error (json_parse_error detail)
-  | Yojson.Safe.Util.Type_error (detail, _) -> Error (json_parse_error detail)
+  decode_json_with evidence_of_json raw
 
 let get_proof_bundle ?session_root ~session_id () =
   let* session = get_session ?session_root session_id in
