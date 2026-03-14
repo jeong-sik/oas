@@ -27,6 +27,7 @@ type evidence_bundle = {
   session_id: string;
   generated_at: float;
   files: evidence_file list;
+  missing_files: (string * string) list;
 }
 
 let now () = Unix.gettimeofday ()
@@ -160,21 +161,28 @@ let file_size path =
   (Unix.stat path).st_size
 
 let build_evidence_bundle ~session_id file_specs =
-  let files =
-    file_specs
-    |> List.filter_map (fun (label, path) ->
-           if Sys.file_exists path then
-             Some
-               {
-                 label;
-                 path;
-                 size_bytes = file_size path;
-                 md5 = digest_file_md5 path;
-               }
-           else
-             None)
+  let files, missing_files =
+    List.fold_left
+      (fun (files, missing_files) (label, path) ->
+        if Sys.file_exists path then
+          ( {
+              label;
+              path;
+              size_bytes = file_size path;
+              md5 = digest_file_md5 path;
+            }
+            :: files,
+            missing_files )
+        else
+          (files, (label, path) :: missing_files))
+      ([], []) file_specs
   in
-  { session_id; generated_at = now (); files }
+  {
+    session_id;
+    generated_at = now ();
+    files = List.rev files;
+    missing_files = List.rev missing_files;
+  }
 
 let evidence_bundle_to_json (bundle : evidence_bundle) =
   `Assoc
@@ -193,4 +201,14 @@ let evidence_bundle_to_json (bundle : evidence_bundle) =
                    ("md5", `String file.md5);
                  ])
              bundle.files) );
+      ( "missing_files",
+        `List
+          (List.map
+             (fun (label, path) ->
+               `Assoc
+                 [
+                   ("label", `String label);
+                   ("path", `String path);
+                 ])
+             bundle.missing_files) );
     ]

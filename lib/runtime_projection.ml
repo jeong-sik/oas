@@ -251,6 +251,9 @@ let build_report (session : session) (events : event list) =
 
 let build_proof (session : session) (events : event list) =
   let generated_at = now () in
+  let ordered_events =
+    List.sort (fun (a : event) (b : event) -> Int.compare a.seq b.seq) events
+  in
   let has_turn = List.exists (function { kind = Turn_recorded _; _ } -> true | _ -> false) events in
   let has_spawn =
     List.exists
@@ -278,9 +281,9 @@ let build_proof (session : session) (events : event list) =
       | (event : event) :: rest ->
           event.seq = expected && loop (expected + 1) rest
     in
-    match events with
+    match ordered_events with
     | [] -> false
-    | first :: _ -> loop first.seq events
+    | first :: _ -> loop first.seq ordered_events
   in
   let no_duplicate_artifact_ids =
     let ids =

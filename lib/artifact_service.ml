@@ -31,10 +31,18 @@ let mime_type_of_kind kind =
   | "text" | "txt" | "" -> "text/plain"
   | _ -> "application/octet-stream"
 
+let artifact_counter = ref 0
+
+let next_artifact_counter () =
+  let value = !artifact_counter in
+  artifact_counter := value + 1;
+  value
+
 let generate_artifact_id name =
   let ts = int_of_float (Unix.gettimeofday () *. 1000.0) in
-  let salt = Random.int 0xFFFF in
-  Printf.sprintf "art-%08x-%04x-%s" ts salt (safe_name name)
+  let pid = Unix.getpid () land 0xFFFF in
+  let seq = next_artifact_counter () land 0xFFFFFF in
+  Printf.sprintf "art-%08x-%04x-%06x-%s" ts pid seq (safe_name name)
 
 let make_store ?session_root () =
   Runtime_store.create ?root:session_root ()
