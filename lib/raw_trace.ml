@@ -30,6 +30,8 @@ type run_summary = {
   final_text: string option;
   stop_reason: string option;
   error: string option;
+  started_at: float option;
+  finished_at: float option;
 }
 [@@deriving show]
 
@@ -44,6 +46,13 @@ type run_validation = {
   ok: bool;
   checks: validation_check list;
   evidence: string list;
+  paired_tool_result_count: int;
+  has_file_write: bool;
+  verification_pass_after_file_write: bool;
+  final_text: string option;
+  tool_names: string list;
+  stop_reason: string option;
+  failure_reason: string option;
 }
 [@@deriving show]
 
@@ -329,6 +338,16 @@ let summarize_run run_ref =
     |> List.find_opt (fun (record : record) ->
            record.record_type = Run_finished)
   in
+  let started_at =
+    match records with
+    | first :: _ -> Some first.ts
+    | [] -> None
+  in
+  let finished_at =
+    match List.rev records with
+    | last :: _ -> Some last.ts
+    | [] -> None
+  in
   Ok
     {
       run_ref;
@@ -340,6 +359,8 @@ let summarize_run run_ref =
       final_text = Option.bind final_record (fun record -> record.final_text);
       stop_reason = Option.bind final_record (fun record -> record.stop_reason);
       error = Option.bind final_record (fun record -> record.error);
+      started_at;
+      finished_at;
     }
 
 let validate_run run_ref =
@@ -388,6 +409,13 @@ let validate_run run_ref =
     pair_table |> Hashtbl.to_seq_values
     |> Seq.for_all (fun (started, finished) -> started = finished)
   in
+  let paired_tool_result_count =
+    pair_table |> Hashtbl.to_seq_values
+    |> Seq.fold_left
+         (fun acc (started, finished) ->
+           if started = finished && started > 0 then acc + started else acc)
+         0
+  in
   let checks =
     [
       { name = "seq_monotonic"; passed = seq_monotonic };
@@ -398,6 +426,47 @@ let validate_run run_ref =
   in
   let ok = List.for_all (fun check -> check.passed) checks in
   let* summary = summarize_run run_ref in
+  let has_file_write = List.exists (( = ) "file_write") summary.tool_names in
+  let last_file_write_seq =
+    records
+    |> List.fold_left
+         (fun acc (record : record) ->
+           match record.record_type, record.tool_name, record.tool_error with
+           | Tool_execution_finished, Some "file_write", Some false ->
+               Some (max (Option.value ~default:record.seq acc) record.seq)
+           | _ -> acc)
+         None
+  in
+  let verification_pass_after_file_write =
+    match last_file_write_seq with
+    | None -> false
+    | Some seq ->
+        List.exists
+          (fun (record : record) ->
+            record.seq > seq
+            &&
+            match record.record_type, record.tool_name, record.tool_result, record.tool_error with
+            | Tool_execution_finished, Some "shell_exec", Some result, Some false ->
+                let upper = String.uppercase_ascii result in
+                String.length upper >= 4
+                &&
+                let rec find i =
+                  if i + 4 > String.length upper then false
+                  else if String.sub upper i 4 = "PASS" then true
+                  else find (i + 1)
+                in
+                find 0
+            | _ -> false)
+          records
+  in
+  let failure_reason =
+    match summary.error with
+    | Some _ as err -> err
+    | None ->
+        checks
+        |> List.find_opt (fun check -> not check.passed)
+        |> Option.map (fun check -> check.name)
+  in
   let evidence =
     [
       Printf.sprintf "record_count=%d" summary.record_count;
@@ -411,9 +480,26 @@ let validate_run run_ref =
       Printf.sprintf "stop_reason=%s"
         (Option.value summary.stop_reason ~default:"");
       Printf.sprintf "error=%s" (Option.value summary.error ~default:"");
+      Printf.sprintf "paired_tool_result_count=%d" paired_tool_result_count;
+      Printf.sprintf "has_file_write=%b" has_file_write;
+      Printf.sprintf "verification_pass_after_file_write=%b"
+        verification_pass_after_file_write;
     ]
   in
-  Ok { run_ref; ok; checks; evidence }
+  Ok
+    {
+      run_ref;
+      ok;
+      checks;
+      evidence;
+      paired_tool_result_count;
+      has_file_write;
+      verification_pass_after_file_write;
+      final_text = summary.final_text;
+      tool_names = summary.tool_names;
+      stop_reason = summary.stop_reason;
+      failure_reason;
+    }
 
 let scan_next_seq path =
   let* records = read_all ~path () in

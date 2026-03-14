@@ -261,12 +261,35 @@ let run_participant store state session_id (detail : spawn_agent_request) =
     | Ok () -> ()
     | Error _ -> ()
   in
+  let trace_sink =
+    match
+      Raw_trace.create_for_session ~session_root:store.root
+        ~session_id ~agent_name:detail.participant_name ()
+    with
+    | Ok trace -> Some trace
+    | Error _ -> None
+  in
   match String.lowercase_ascii (Option.value detail.provider ~default:"") with
   | "mock" | "echo" ->
       let full =
         Printf.sprintf "Mock runtime response for %s: %s" detail.participant_name
           detail.prompt
       in
+      (match trace_sink with
+       | Some sink -> (
+           match
+             Raw_trace.start_run sink ~agent_name:detail.participant_name
+               ~prompt:detail.prompt
+           with
+           | Ok active ->
+               ignore
+                 (Raw_trace.record_assistant_block active ~block_index:0
+                    (Types.Text full));
+               ignore
+                 (Raw_trace.finish_run active ~final_text:(Some full)
+                    ~stop_reason:(Some "EndTurn") ~error:None)
+           | Error _ -> ())
+       | None -> ());
       let half = String.length full / 2 in
       Thread.delay 0.02;
       emit_delta_text (String.sub full 0 half);
@@ -298,8 +321,13 @@ let run_participant store state session_id (detail : spawn_agent_request) =
       in
       let options =
         match provider_cfg with
-        | Some provider -> { Agent.default_options with provider = Some provider }
-        | None -> Agent.default_options
+        | Some provider ->
+            {
+              Agent.default_options with
+              provider = Some provider;
+              raw_trace = trace_sink;
+            }
+        | None -> { Agent.default_options with raw_trace = trace_sink }
       in
       let agent = Agent.create ~net:state.net ~config ~options () in
       let on_event = function

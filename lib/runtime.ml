@@ -21,6 +21,8 @@ type participant_state =
 type participant = {
   name: string;
   role: string option;
+  provider: string option;
+  model: string option;
   state: participant_state;
   summary: string option;
   started_at: float option;

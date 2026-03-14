@@ -13,6 +13,8 @@ let make_planned_participant name =
   {
     name;
     role = None;
+    provider = None;
+    model = None;
     state = Planned;
     summary = None;
     started_at = None;
@@ -56,6 +58,8 @@ let update_participant (session : session) name f =
                ({
                  name;
                  role = None;
+                 provider = None;
+                 model = None;
                  state = Planned;
                  summary = None;
                  started_at = None;
@@ -102,6 +106,8 @@ let apply_event (session : session) (event : event) =
              {
                participant with
                role = detail.role;
+               provider = detail.provider;
+               model = detail.model;
                state = Starting;
                summary = None;
                started_at = Some event.ts;

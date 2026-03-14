@@ -1061,6 +1061,8 @@ module Raw_trace : sig
     final_text: string option;
     stop_reason: string option;
     error: string option;
+    started_at: float option;
+    finished_at: float option;
   }
   [@@deriving show]
 
@@ -1075,6 +1077,13 @@ module Raw_trace : sig
     ok: bool;
     checks: validation_check list;
     evidence: string list;
+    paired_tool_result_count: int;
+    has_file_write: bool;
+    verification_pass_after_file_write: bool;
+    final_text: string option;
+    tool_names: string list;
+    stop_reason: string option;
+    failure_reason: string option;
   }
   [@@deriving show]
 
@@ -1500,6 +1509,8 @@ module Runtime : sig
   type participant = {
     name: string;
     role: string option;
+    provider: string option;
+    model: string option;
     state: participant_state;
     summary: string option;
     started_at: float option;
@@ -2044,6 +2055,12 @@ module Artifact_service : sig
 end
 
 module Sessions : sig
+  type trace_capability =
+    | Raw
+    | Summary_only
+    | No_trace
+  [@@deriving show]
+
   type session_info = {
     session_id: string;
     title: string option;
@@ -2129,6 +2146,26 @@ module Sessions : sig
   type raw_trace_summary = Raw_trace.run_summary
   type raw_trace_validation = Raw_trace.run_validation
 
+  type worker_run = {
+    worker_run_id: string;
+    agent_name: string;
+    provider: string option;
+    model: string option;
+    trace_capability: trace_capability;
+    validated: bool;
+    tool_names: string list;
+    final_text: string option;
+    stop_reason: string option;
+    error: string option;
+    failure_reason: string option;
+    started_at: float option;
+    finished_at: float option;
+    policy_snapshot: string option;
+    paired_tool_result_count: int;
+    has_file_write: bool;
+    verification_pass_after_file_write: bool;
+  }
+
   type evidence_capabilities = {
     raw_trace: bool;
     validated_summary: bool;
@@ -2146,6 +2183,14 @@ module Sessions : sig
     raw_trace_runs: raw_trace_run list;
     raw_trace_summaries: raw_trace_summary list;
     raw_trace_validations: raw_trace_validation list;
+    worker_runs: worker_run list;
+    latest_worker_run: worker_run option;
+    latest_validated_worker_run: worker_run option;
+    latest_failed_worker_run: worker_run option;
+    validated_worker_runs: worker_run list;
+    raw_trace_run_count: int;
+    validated_worker_run_count: int;
+    trace_capabilities: trace_capability list;
     capabilities: evidence_capabilities;
   }
 
@@ -2227,6 +2272,26 @@ module Sessions : sig
     session_id:string ->
     unit ->
     (raw_trace_validation list, Error.sdk_error) result
+  val get_worker_runs :
+    ?session_root:string ->
+    session_id:string ->
+    unit ->
+    (worker_run list, Error.sdk_error) result
+  val get_latest_worker_run :
+    ?session_root:string ->
+    session_id:string ->
+    unit ->
+    (worker_run option, Error.sdk_error) result
+  val get_latest_completed_worker_run :
+    ?session_root:string ->
+    session_id:string ->
+    unit ->
+    (worker_run option, Error.sdk_error) result
+  val get_latest_failed_worker_run :
+    ?session_root:string ->
+    session_id:string ->
+    unit ->
+    (worker_run option, Error.sdk_error) result
   val get_proof_bundle :
     ?session_root:string ->
     session_id:string ->
