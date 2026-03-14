@@ -2,6 +2,24 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.16.0] - 2026-03-14
+
+### Added
+- Consumer-safe evidence hardening on top of `0.15.0`:
+  - `Sessions.get_latest_raw_trace_run`
+  - `Sessions.get_raw_trace_summaries`
+  - `Sessions.get_raw_trace_validations`
+- Proof bundle now carries validated summary shape:
+  - `latest_raw_trace_run`
+  - `raw_trace_summaries`
+  - `raw_trace_validations`
+  - `capabilities`
+
+### Changed
+- `Raw_trace` can now be created directly under a session-scoped `raw-traces/` directory with `create_for_session`.
+- `Sessions.get_proof_bundle` is now sufficient as a summary-first evidence entrypoint for consumers that should avoid raw path parsing by default.
+- `Builder.with_raw_trace` and top-level `create_agent ?raw_trace` remain available for direct-agent consumers.
+
 ## [0.15.0] - 2026-03-14
 
 ### Added
