@@ -1032,6 +1032,59 @@ end
 
 (** {1 Agent} *)
 
+module Raw_trace : sig
+  type record_type =
+    | Run_started
+    | Assistant_block
+    | Tool_execution_started
+    | Tool_execution_finished
+    | Run_finished
+  [@@deriving show]
+
+  type run_ref = {
+    worker_run_id: string;
+    path: string;
+    start_seq: int;
+    end_seq: int;
+    agent_name: string;
+    session_id: string option;
+  }
+  [@@deriving show]
+
+  type record = {
+    trace_version: int;
+    worker_run_id: string;
+    seq: int;
+    ts: float;
+    agent_name: string;
+    session_id: string option;
+    record_type: record_type;
+    prompt: string option;
+    block_index: int option;
+    block_kind: string option;
+    assistant_block: Yojson.Safe.t option;
+    tool_use_id: string option;
+    tool_name: string option;
+    tool_input: Yojson.Safe.t option;
+    tool_result: string option;
+    tool_error: bool option;
+    final_text: string option;
+    stop_reason: string option;
+    error: string option;
+  }
+  [@@deriving show]
+
+  type t
+
+  val trace_version : int
+  val create : ?session_id:string -> path:string -> unit -> (t, Error.sdk_error) result
+  val file_path : t -> string
+  val session_id : t -> string option
+  val last_run : t -> run_ref option
+  val read_all : path:string -> unit -> (record list, Error.sdk_error) result
+  val read_run : run_ref -> (record list, Error.sdk_error) result
+end
+
 module Agent : sig
   (** Configuration options for agent behavior.
       Core runtime resources (net, tools, context) are kept on [t] directly;
@@ -1042,6 +1095,7 @@ module Agent : sig
     hooks: Hooks.hooks;
     guardrails: Guardrails.t;
     tracer: Tracing.t;
+    raw_trace: Raw_trace.t option;
     approval: Hooks.approval_callback option;
     context_reducer: Context_reducer.t option;
     mcp_clients: Mcp.managed list;
@@ -1150,6 +1204,7 @@ module Agent : sig
       The checkpoint captures messages, usage, tools, and config
       for later serialization via {!Checkpoint}. *)
   val checkpoint : ?session_id:string -> t -> Checkpoint.t
+  val last_raw_trace_run : t -> Raw_trace.run_ref option
 end
 
 (** {1 Builder Pattern} *)

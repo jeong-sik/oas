@@ -59,6 +59,7 @@ module Structured = Structured
 module Checkpoint = Checkpoint
 module Checkpoint_store = Checkpoint_store
 module Session = Session
+module Raw_trace = Raw_trace
 module Agent = Agent
 module Builder = Builder
 module Orchestrator = Orchestrator
@@ -102,5 +103,5 @@ let runtime_query = Runtime_query.query
 let query = Query.query
 
 (** Version info *)
-let version = "0.13.0"
+let version = "0.14.0"
 let sdk_name = "agent_sdk"

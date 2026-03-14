@@ -2,6 +2,26 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.14.0] - 2026-03-14
+
+### Added
+- Append-only agent-level raw trace capability for direct `Agent` runs:
+  - `Raw_trace.create`
+  - `Raw_trace.read_all`
+  - `Raw_trace.read_run`
+  - `Agent.last_raw_trace_run`
+- `Agent.options.raw_trace` for attaching a JSONL raw trace sink to `run` / `run_stream` / resumed agents.
+- Raw trace record types:
+  - `run_started`
+  - `assistant_block`
+  - `tool_execution_started`
+  - `tool_execution_finished`
+  - `run_finished`
+
+### Changed
+- Direct `Agent.run_stream` tool loops can now emit immutable audit traces without changing `Checkpoint`, which remains the latest-state resume mechanism.
+- `Builder` now carries the new `Agent.options.raw_trace` field with a default of `None`.
+
 ## [0.13.0] - 2026-03-14
 
 ### Added
