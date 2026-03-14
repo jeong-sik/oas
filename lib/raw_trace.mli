@@ -26,6 +26,8 @@ type run_summary = {
   final_text: string option;
   stop_reason: string option;
   error: string option;
+  started_at: float option;
+  finished_at: float option;
 }
 [@@deriving show]
 
@@ -40,6 +42,13 @@ type run_validation = {
   ok: bool;
   checks: validation_check list;
   evidence: string list;
+  paired_tool_result_count: int;
+  has_file_write: bool;
+  verification_pass_after_file_write: bool;
+  final_text: string option;
+  tool_names: string list;
+  stop_reason: string option;
+  failure_reason: string option;
 }
 [@@deriving show]
 

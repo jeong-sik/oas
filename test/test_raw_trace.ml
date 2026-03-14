@@ -48,21 +48,41 @@ let mock_handler _root _conn req body =
             |}
         | "tool" ->
             let tool_use_id = last_msg |> member "tool_call_id" |> to_string in
-            let content = last_msg |> member "content" |> to_string in
             if tool_use_id = "t_read" then
               Printf.sprintf
-                {|{"id":"raw-2","model":"test-model","choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"t_write","type":"function","function":{"name":"file_write","arguments":%s}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}|}
+                {|{"id":"raw-2","model":"test-model","choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"t_verify_before","type":"function","function":{"name":"shell_exec","arguments":%s}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}|}
+                (Yojson.Safe.to_string
+                   (`String
+                      (Yojson.Safe.to_string
+                         (`Assoc
+                            [
+                              ("command", `String "test -f input.txt && echo PASS");
+                            ]))))
+            else if tool_use_id = "t_verify_before" then
+              Printf.sprintf
+                {|{"id":"raw-3","model":"test-model","choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"t_write","type":"function","function":{"name":"file_write","arguments":%s}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}|}
                 (Yojson.Safe.to_string
                    (`String
                       (Yojson.Safe.to_string
                          (`Assoc
                             [
                               ("path", `String "output.txt");
-                              ("content", `String (content ^ " -> copied"));
+                              ("content", `String "source text -> copied");
+                            ]))))
+            else if tool_use_id = "t_write" then
+              Printf.sprintf
+                {|{"id":"raw-4","model":"test-model","choices":[{"message":{"role":"assistant","content":null,"tool_calls":[{"id":"t_verify_after","type":"function","function":{"name":"shell_exec","arguments":%s}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}|}
+                (Yojson.Safe.to_string
+                   (`String
+                      (Yojson.Safe.to_string
+                         (`Assoc
+                            [
+                              ( "command",
+                                `String "grep -q 'copied' output.txt && echo PASS" );
                             ]))))
             else
               {|
-              {"id":"raw-3","model":"test-model","choices":[{"message":{"role":"assistant","content":"trace complete"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}
+              {"id":"raw-5","model":"test-model","choices":[{"message":{"role":"assistant","content":"trace complete"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}
               |}
         | other ->
             Printf.sprintf
@@ -132,7 +152,30 @@ let test_agent_run_stream_append_only_raw_trace () =
         write_file (Filename.concat root rel) content;
         Ok (Printf.sprintf "wrote:%s" rel))
   in
-  let tools = [ file_read_tool; file_write_tool ] in
+  let shell_exec_tool =
+    Tool.create ~name:"shell_exec" ~description:"Run a verification command"
+      ~parameters:
+        [ { name = "command"; description = "Command"; param_type = String; required = true } ]
+      (fun input ->
+        let command = Yojson.Safe.Util.(input |> member "command" |> to_string) in
+        if String.equal command "test -f input.txt && echo PASS" then
+          Ok
+            (if Sys.file_exists (Filename.concat root "input.txt") then "PASS"
+             else "FAIL")
+        else if
+          String.equal command "grep -q 'copied' output.txt && echo PASS"
+        then
+          Ok
+            (if
+               Sys.file_exists (Filename.concat root "output.txt")
+               && String.equal
+                    (read_file (Filename.concat root "output.txt"))
+                    "source text -> copied"
+             then "PASS"
+             else "FAIL")
+        else Error ("unexpected command: " ^ command))
+  in
+  let tools = [ file_read_tool; shell_exec_tool; file_write_tool ] in
   let port = 8094 in
   let base_url = Printf.sprintf "http://127.0.0.1:%d" port in
   Eio_main.run @@ fun env ->
@@ -255,19 +298,19 @@ let test_agent_run_stream_append_only_raw_trace () =
       assert_monotonic_seq all_records;
       Alcotest.(check int) "run_started count" 1
         (count_records run1_records Raw_trace.Run_started);
-      Alcotest.(check int) "assistant block count" 3
+      Alcotest.(check int) "assistant block count" 5
         (count_records run1_records Raw_trace.Assistant_block);
-      Alcotest.(check int) "tool started count" 2
+      Alcotest.(check int) "tool started count" 4
         (count_records run1_records Raw_trace.Tool_execution_started);
-      Alcotest.(check int) "tool finished count" 2
+      Alcotest.(check int) "tool finished count" 4
         (count_records run1_records Raw_trace.Tool_execution_finished);
       Alcotest.(check int) "run_finished count" 1
         (count_records run1_records Raw_trace.Run_finished);
       Alcotest.(check (list string)) "tool start names"
-        [ "file_read"; "file_write" ]
+        [ "file_read"; "shell_exec"; "file_write"; "shell_exec" ]
         (tool_names_of_records run1_records Raw_trace.Tool_execution_started);
       Alcotest.(check (list string)) "tool finish names"
-        [ "file_read"; "file_write" ]
+        [ "file_read"; "shell_exec"; "file_write"; "shell_exec" ]
         (tool_names_of_records run1_records Raw_trace.Tool_execution_finished);
       let first_record = List.hd run1_records in
       Alcotest.(check (option string)) "prompt stored"
@@ -279,7 +322,7 @@ let test_agent_run_stream_append_only_raw_trace () =
         (Some "sess-raw") last_record.session_id;
       Alcotest.(check int) "summary record count" (List.length run1_records)
         run1_summary.record_count;
-      Alcotest.(check int) "summary tool start count" 2
+      Alcotest.(check int) "summary tool start count" 4
         run1_summary.tool_execution_started_count;
       Alcotest.(check int) "two summaries" 2 (List.length summaries);
       Alcotest.(check int) "two validations" 2 (List.length validations);
@@ -289,6 +332,12 @@ let test_agent_run_stream_append_only_raw_trace () =
            (fun (check : Raw_trace.validation_check) ->
              String.equal check.name "tool_pairs" && check.passed)
            run1_validation.checks);
+      Alcotest.(check int) "paired tool result count" 4
+        run1_validation.paired_tool_result_count;
+      Alcotest.(check bool) "has file_write" true
+        run1_validation.has_file_write;
+      Alcotest.(check bool) "verification pass after file_write" true
+        run1_validation.verification_pass_after_file_write;
       let output_path = Filename.concat root "output.txt" in
       Alcotest.(check string) "output file content"
         "source text -> copied" (read_file output_path);

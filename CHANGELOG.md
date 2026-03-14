@@ -2,6 +2,48 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.17.0] - 2026-03-14
+
+### Added
+- Session-level worker-run evidence getters for summary-first consumers:
+  - `Sessions.get_worker_runs`
+  - `Sessions.get_latest_worker_run`
+  - `Sessions.get_latest_completed_worker_run`
+  - `Sessions.get_latest_failed_worker_run`
+- Worker-run summaries now expose:
+  - `worker_run_id`
+  - `agent_name`
+  - `trace_capability`
+  - `validated`
+  - `tool_names`
+  - `final_text`
+  - `stop_reason`
+  - `error`
+  - `started_at`
+  - `finished_at`
+  - `policy_snapshot`
+- Raw trace validation now includes consumer-friendly verdict details:
+  - `paired_tool_result_count`
+  - `has_file_write`
+  - `verification_pass_after_file_write`
+  - `final_text`
+  - `tool_names`
+  - `stop_reason`
+  - `failure_reason`
+
+### Changed
+- `Sessions.get_proof_bundle` now carries worker-run oriented summary fields:
+  - `worker_runs`
+  - `latest_worker_run`
+  - `latest_validated_worker_run`
+  - `latest_failed_worker_run`
+  - `validated_worker_runs`
+  - `raw_trace_run_count`
+  - `validated_worker_run_count`
+  - `trace_capabilities`
+- Runtime participants persist `provider` and `model` into session state so worker evidence can be read without reconstructing it from raw records.
+- Runtime mock workers now emit a minimal raw trace so dashboard-style consumers can use the same summary/validation surfaces as direct-agent runs.
+
 ## [0.16.0] - 2026-03-14
 
 ### Added

@@ -1,3 +1,9 @@
+type trace_capability =
+  | Raw
+  | Summary_only
+  | No_trace
+[@@deriving show]
+
 type session_info = {
   session_id: string;
   title: string option;
@@ -83,6 +89,26 @@ type raw_trace_run = Raw_trace.run_ref
 type raw_trace_summary = Raw_trace.run_summary
 type raw_trace_validation = Raw_trace.run_validation
 
+type worker_run = {
+  worker_run_id: string;
+  agent_name: string;
+  provider: string option;
+  model: string option;
+  trace_capability: trace_capability;
+  validated: bool;
+  tool_names: string list;
+  final_text: string option;
+  stop_reason: string option;
+  error: string option;
+  failure_reason: string option;
+  started_at: float option;
+  finished_at: float option;
+  policy_snapshot: string option;
+  paired_tool_result_count: int;
+  has_file_write: bool;
+  verification_pass_after_file_write: bool;
+}
+
 type evidence_capabilities = {
   raw_trace: bool;
   validated_summary: bool;
@@ -100,6 +126,14 @@ type proof_bundle = {
   raw_trace_runs: raw_trace_run list;
   raw_trace_summaries: raw_trace_summary list;
   raw_trace_validations: raw_trace_validation list;
+  worker_runs: worker_run list;
+  latest_worker_run: worker_run option;
+  latest_validated_worker_run: worker_run option;
+  latest_failed_worker_run: worker_run option;
+  validated_worker_runs: worker_run list;
+  raw_trace_run_count: int;
+  validated_worker_run_count: int;
+  trace_capabilities: trace_capability list;
   capabilities: evidence_capabilities;
 }
 
@@ -476,6 +510,161 @@ let evidence_capabilities_of_bundle ~raw_trace_runs ~raw_trace_summaries
     proof_bundle = true;
   }
 
+let participant_by_name (session : Runtime.session) name =
+  List.find_opt
+    (fun (participant : Runtime.participant) -> String.equal participant.name name)
+    session.participants
+
+let worker_run_of_raw (session : Runtime.session)
+    (summary : raw_trace_summary) (validation : raw_trace_validation) =
+  let participant = participant_by_name session summary.run_ref.agent_name in
+  let provider =
+    match participant with
+    | Some p -> p.provider
+    | None -> session.provider
+  in
+  let model =
+    match participant with
+    | Some p -> p.model
+    | None -> session.model
+  in
+  let final_text =
+    match summary.final_text with
+    | Some _ as value -> value
+    | None -> Option.bind participant (fun p -> p.summary)
+  in
+  let error =
+    match summary.error with
+    | Some _ as value -> value
+    | None -> Option.bind participant (fun p -> p.last_error)
+  in
+  let failure_reason =
+    match validation.failure_reason with
+    | Some _ as value -> value
+    | None -> error
+  in
+  {
+    worker_run_id = summary.run_ref.worker_run_id;
+    agent_name = summary.run_ref.agent_name;
+    provider;
+    model;
+    trace_capability = Raw;
+    validated = validation.ok;
+    tool_names = validation.tool_names;
+    final_text;
+    stop_reason = validation.stop_reason;
+    error;
+    failure_reason;
+    started_at = summary.started_at;
+    finished_at = summary.finished_at;
+    policy_snapshot = session.permission_mode;
+    paired_tool_result_count = validation.paired_tool_result_count;
+    has_file_write = validation.has_file_write;
+    verification_pass_after_file_write =
+      validation.verification_pass_after_file_write;
+  }
+
+let summary_only_worker_run (session : Runtime.session) index
+    (participant : Runtime.participant) =
+  let ts =
+    match participant.started_at with
+    | Some _ as value -> value
+    | None -> participant.finished_at
+  in
+  let stamp =
+    match ts with
+    | Some ts -> Int64.of_float (ts *. 1000.)
+    | None -> Int64.of_int index
+  in
+  {
+    worker_run_id =
+      Printf.sprintf "summary-only:%s:%Ld" participant.name stamp;
+    agent_name = participant.name;
+    provider = participant.provider;
+    model = participant.model;
+    trace_capability = Summary_only;
+    validated = false;
+    tool_names = [];
+    final_text = participant.summary;
+    stop_reason = None;
+    error = participant.last_error;
+    failure_reason = participant.last_error;
+    started_at = participant.started_at;
+    finished_at = participant.finished_at;
+    policy_snapshot = session.permission_mode;
+    paired_tool_result_count = 0;
+    has_file_write = false;
+    verification_pass_after_file_write = false;
+  }
+
+let unique_trace_capabilities worker_runs =
+  worker_runs
+  |> List.fold_left
+       (fun acc (worker : worker_run) ->
+         if List.exists (( = ) worker.trace_capability) acc then acc
+         else acc @ [ worker.trace_capability ])
+       []
+
+let get_worker_runs ?session_root ~session_id () =
+  let* session = get_session ?session_root session_id in
+  let* summaries = get_raw_trace_summaries ?session_root ~session_id () in
+  let* validations = get_raw_trace_validations ?session_root ~session_id () in
+  let validation_by_run =
+    validations
+    |> List.map (fun (validation : raw_trace_validation) ->
+           (validation.run_ref.worker_run_id, validation))
+  in
+  let raw_worker_runs =
+    summaries
+    |> List.filter_map (fun (summary : raw_trace_summary) ->
+           match List.assoc_opt summary.run_ref.worker_run_id validation_by_run with
+           | Some validation -> Some (worker_run_of_raw session summary validation)
+           | None -> None)
+  in
+  let raw_agent_names =
+    raw_worker_runs |> List.map (fun worker -> worker.agent_name)
+  in
+  let summary_only_runs =
+    session.participants
+    |> List.mapi (fun index (participant : Runtime.participant) ->
+           if List.exists (String.equal participant.name) raw_agent_names then None
+           else Some (summary_only_worker_run session index participant))
+    |> List.filter_map (fun value -> value)
+  in
+  Ok
+    (List.sort
+       (fun a b ->
+         match a.started_at, b.started_at with
+         | Some x, Some y -> Float.compare x y
+         | Some _, None -> -1
+         | None, Some _ -> 1
+         | None, None -> String.compare a.worker_run_id b.worker_run_id)
+       (raw_worker_runs @ summary_only_runs))
+
+let get_latest_worker_run ?session_root ~session_id () =
+  let* workers = get_worker_runs ?session_root ~session_id () in
+  match List.rev workers with
+  | worker :: _ -> Ok (Some worker)
+  | [] -> Ok None
+
+let get_latest_completed_worker_run ?session_root ~session_id () =
+  let* workers = get_worker_runs ?session_root ~session_id () in
+  workers
+  |> List.filter (fun worker -> worker.error = None)
+  |> List.rev
+  |> function
+  | worker :: _ -> Ok (Some worker)
+  | [] -> Ok None
+
+let get_latest_failed_worker_run ?session_root ~session_id () =
+  let* workers = get_worker_runs ?session_root ~session_id () in
+  workers
+  |> List.filter (fun worker -> worker.error <> None || worker.failure_reason <> None)
+  |> List.rev
+  |> function
+  | worker :: _ -> Ok (Some worker)
+  | [] -> Ok None
+
 let get_proof_bundle ?session_root ~session_id () =
   let* session = get_session ?session_root session_id in
   let* report = get_report ?session_root ~session_id () in
@@ -489,6 +678,34 @@ let get_proof_bundle ?session_root ~session_id () =
   let* raw_trace_runs = get_raw_trace_runs ?session_root ~session_id () in
   let* raw_trace_summaries = summarize_runs raw_trace_runs in
   let* raw_trace_validations = validate_runs raw_trace_runs in
+  let* worker_runs = get_worker_runs ?session_root ~session_id () in
+  let latest_worker_run =
+    match List.rev worker_runs with
+    | worker :: _ -> Some worker
+    | [] -> None
+  in
+  let latest_validated_worker_run =
+    worker_runs
+    |> List.filter (fun worker -> worker.validated)
+    |> List.rev
+    |> function
+    | worker :: _ -> Some worker
+    | [] -> None
+  in
+  let latest_failed_worker_run =
+    worker_runs
+    |> List.filter (fun worker -> worker.error <> None || worker.failure_reason <> None)
+    |> List.rev
+    |> function
+    | worker :: _ -> Some worker
+    | [] -> None
+  in
+  let validated_worker_runs =
+    worker_runs |> List.filter (fun worker -> worker.validated)
+  in
+  let raw_trace_run_count = List.length raw_trace_runs in
+  let validated_worker_run_count = List.length validated_worker_runs in
+  let trace_capabilities = unique_trace_capabilities worker_runs in
   let capabilities =
     evidence_capabilities_of_bundle ~raw_trace_runs ~raw_trace_summaries
       ~raw_trace_validations
@@ -505,6 +722,14 @@ let get_proof_bundle ?session_root ~session_id () =
       raw_trace_runs;
       raw_trace_summaries;
       raw_trace_validations;
+      worker_runs;
+      latest_worker_run;
+      latest_validated_worker_run;
+      latest_failed_worker_run;
+      validated_worker_runs;
+      raw_trace_run_count;
+      validated_worker_run_count;
+      trace_capabilities;
       capabilities;
     }
 
