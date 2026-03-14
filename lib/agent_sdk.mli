@@ -1984,6 +1984,36 @@ module Sessions : sig
     steps: telemetry_step list;
   }
 
+  type structured_event_count = {
+    event_name: string;
+    count: int;
+  }
+
+  type structured_telemetry_step = {
+    seq: int;
+    ts: float;
+    event_name: string;
+    participant: string option;
+    detail: string option;
+    actor: string option;
+    role: string option;
+    provider: string option;
+    model: string option;
+    artifact_id: string option;
+    artifact_name: string option;
+    artifact_kind: string option;
+    checkpoint_label: string option;
+    outcome: string option;
+  }
+
+  type structured_telemetry = {
+    session_id: string;
+    generated_at: float;
+    step_count: int;
+    event_counts: structured_event_count list;
+    steps: structured_telemetry_step list;
+  }
+
   type evidence_file = {
     label: string;
     path: string;
@@ -2035,6 +2065,11 @@ module Sessions : sig
     session_id:string ->
     unit ->
     (telemetry, Error.sdk_error) result
+  val get_telemetry_structured :
+    ?session_root:string ->
+    session_id:string ->
+    unit ->
+    (structured_telemetry, Error.sdk_error) result
   val get_evidence :
     ?session_root:string ->
     session_id:string ->

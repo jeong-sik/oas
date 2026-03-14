@@ -2,6 +2,20 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.13.0] - 2026-03-14
+
+### Added
+- Structured telemetry schema alongside the legacy string-based telemetry surface:
+  - `Sessions.structured_event_count`
+  - `Sessions.structured_telemetry_step`
+  - `Sessions.structured_telemetry`
+  - `Sessions.get_telemetry_structured`
+- Telemetry artifacts now include normalized `event_name` counts and per-step structured fields such as actor, role, provider, model, checkpoint label, and outcome.
+
+### Changed
+- Telemetry JSON keeps the legacy `kind` and raw `event_counts` output, but now also emits normalized event-name fields for stable downstream verification.
+- Runtime tests now validate structured telemetry metadata rather than relying only on `kind` string substring checks.
+
 ## [0.12.0] - 2026-03-14
 
 ### Added
