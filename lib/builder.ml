@@ -28,6 +28,7 @@ type t = {
   hooks: Hooks.hooks;
   guardrails: Guardrails.t;
   tracer: Tracing.t;
+  raw_trace: Raw_trace.t option;
   approval: Hooks.approval_callback option;
   context_reducer: Context_reducer.t option;
   mcp_clients: Mcp.managed list;
@@ -60,6 +61,7 @@ let create ~net ~model =
     hooks = Hooks.empty;
     guardrails = Guardrails.default;
     tracer = Tracing.null;
+    raw_trace = None;
     approval = None;
     context_reducer = None;
     mcp_clients = [];
@@ -80,6 +82,7 @@ let with_tools tools b = { b with tools }
 let with_tool tool b = { b with tools = b.tools @ [tool] }
 let with_hooks hooks b = { b with hooks }
 let with_tracer tracer b = { b with tracer }
+let with_raw_trace raw_trace b = { b with raw_trace = Some raw_trace }
 let with_approval approval b = { b with approval = Some approval }
 let with_context_reducer reducer b = { b with context_reducer = Some reducer }
 let with_context ctx b = { b with context = Some ctx }
@@ -133,7 +136,7 @@ let build b =
     hooks = b.hooks;
     guardrails = b.guardrails;
     tracer = b.tracer;
-    raw_trace = None;
+    raw_trace = b.raw_trace;
     approval = b.approval;
     context_reducer = b.context_reducer;
     mcp_clients;

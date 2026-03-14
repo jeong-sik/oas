@@ -1051,6 +1051,33 @@ module Raw_trace : sig
   }
   [@@deriving show]
 
+  type run_summary = {
+    run_ref: run_ref;
+    record_count: int;
+    assistant_block_count: int;
+    tool_execution_started_count: int;
+    tool_execution_finished_count: int;
+    tool_names: string list;
+    final_text: string option;
+    stop_reason: string option;
+    error: string option;
+  }
+  [@@deriving show]
+
+  type validation_check = {
+    name: string;
+    passed: bool;
+  }
+  [@@deriving show]
+
+  type run_validation = {
+    run_ref: run_ref;
+    ok: bool;
+    checks: validation_check list;
+    evidence: string list;
+  }
+  [@@deriving show]
+
   type record = {
     trace_version: int;
     worker_run_id: string;
@@ -1078,11 +1105,20 @@ module Raw_trace : sig
 
   val trace_version : int
   val create : ?session_id:string -> path:string -> unit -> (t, Error.sdk_error) result
+  val create_for_session :
+    ?session_root:string ->
+    session_id:string ->
+    agent_name:string ->
+    unit ->
+    (t, Error.sdk_error) result
   val file_path : t -> string
   val session_id : t -> string option
   val last_run : t -> run_ref option
   val read_all : path:string -> unit -> (record list, Error.sdk_error) result
+  val read_runs : path:string -> unit -> (run_ref list, Error.sdk_error) result
   val read_run : run_ref -> (record list, Error.sdk_error) result
+  val summarize_run : run_ref -> (run_summary, Error.sdk_error) result
+  val validate_run : run_ref -> (run_validation, Error.sdk_error) result
 end
 
 module Agent : sig
@@ -1229,6 +1265,7 @@ module Builder : sig
   val with_tool : Tool.t -> t -> t
   val with_hooks : Hooks.hooks -> t -> t
   val with_tracer : Tracing.t -> t -> t
+  val with_raw_trace : Raw_trace.t -> t -> t
   val with_approval : Hooks.approval_callback -> t -> t
   val with_context_reducer : Context_reducer.t -> t -> t
   val with_context : Context.t -> t -> t
@@ -2088,12 +2125,18 @@ module Sessions : sig
     missing_files: missing_file list;
   }
 
+  type raw_trace_run = Raw_trace.run_ref
+  type raw_trace_summary = Raw_trace.run_summary
+  type raw_trace_validation = Raw_trace.run_validation
+
   type proof_bundle = {
     session: Runtime.session;
     report: Runtime.report;
     proof: Runtime.proof;
     telemetry: telemetry;
+    structured_telemetry: structured_telemetry;
     evidence: evidence;
+    raw_trace_runs: raw_trace_run list;
   }
 
   val list_sessions :
@@ -2130,6 +2173,35 @@ module Sessions : sig
     session_id:string ->
     unit ->
     (evidence, Error.sdk_error) result
+  val get_raw_trace_runs :
+    ?session_root:string ->
+    session_id:string ->
+    unit ->
+    (raw_trace_run list, Error.sdk_error) result
+  val get_raw_trace_run :
+    ?session_root:string ->
+    session_id:string ->
+    worker_run_id:string ->
+    unit ->
+    (raw_trace_run, Error.sdk_error) result
+  val get_raw_trace_records :
+    ?session_root:string ->
+    session_id:string ->
+    worker_run_id:string ->
+    unit ->
+    (Raw_trace.record list, Error.sdk_error) result
+  val get_raw_trace_summary :
+    ?session_root:string ->
+    session_id:string ->
+    worker_run_id:string ->
+    unit ->
+    (raw_trace_summary, Error.sdk_error) result
+  val validate_raw_trace_run :
+    ?session_root:string ->
+    session_id:string ->
+    worker_run_id:string ->
+    unit ->
+    (raw_trace_validation, Error.sdk_error) result
   val get_proof_bundle :
     ?session_root:string ->
     session_id:string ->
@@ -2167,6 +2239,7 @@ val create_agent :
   ?max_turns:int ->
   ?cache_system_prompt:bool ->
   ?provider:Provider.config ->
+  ?raw_trace:Raw_trace.t ->
   unit -> Agent.t
 
 (** Version info *)
