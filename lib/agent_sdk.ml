@@ -63,10 +63,12 @@ module Agent = Agent
 module Builder = Builder
 module Orchestrator = Orchestrator
 module Otel_tracer = Otel_tracer
+module Trace_eval = Trace_eval
 module Runtime = Runtime
 module Transport = Transport
 module Runtime_client = Runtime_client
 module Client = Client
+module Artifact_service = Artifact_service
 module Sessions = Sessions
 
 (** Quick start: create an agent with default config *)
@@ -100,5 +102,5 @@ let runtime_query = Runtime_query.query
 let query = Query.query
 
 (** Version info *)
-let version = "0.10.0"
+let version = "0.11.0"
 let sdk_name = "agent_sdk"

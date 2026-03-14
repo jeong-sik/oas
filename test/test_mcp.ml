@@ -10,6 +10,28 @@
 
 open Agent_sdk
 
+let with_env key value f =
+  let original = Sys.getenv_opt key in
+  (match value with
+   | Some v -> Unix.putenv key v
+   | None -> Unix.putenv key "");
+  Fun.protect
+    ~finally:(fun () ->
+      match original with
+      | Some v -> Unix.putenv key v
+      | None -> Unix.putenv key "")
+    f
+
+let contains_substring ~sub text =
+  let sub_len = String.length sub in
+  let text_len = String.length text in
+  let rec loop index =
+    if index + sub_len > text_len then false
+    else if String.sub text index sub_len = sub then true
+    else loop (index + 1)
+  in
+  if sub_len = 0 then true else loop 0
+
 (* ── JSON Schema -> SDK tool_param ───────────────────────────────── *)
 
 let check_param_type = Alcotest.testable
@@ -208,6 +230,23 @@ let test_text_of_tool_result_mixed () =
   let text = Mcp.text_of_tool_result result in
   Alcotest.(check string) "text only" "hello\nworld" text
 
+let test_text_of_tool_result_budget_truncates () =
+  with_env "OAS_MCP_OUTPUT_MAX_TOKENS" (Some "1") (fun () ->
+      let result : Mcp_protocol.Mcp_types.tool_result = {
+        content = [
+          Mcp_protocol.Mcp_types.TextContent {
+            type_ = "text";
+            text = "0123456789";
+            annotations = None;
+          };
+        ];
+        is_error = None;
+        structured_content = None;
+      } in
+      let text = Mcp.text_of_tool_result result in
+      Alcotest.(check bool) "truncated" true
+        (contains_substring ~sub:"...[oas mcp output truncated]" text))
+
 (* ── Test runner ────────────────────────────────────────────────── *)
 
 let () =
@@ -231,5 +270,7 @@ let () =
       test_case "text_of_tool_result empty" `Quick test_text_of_tool_result_empty;
       test_case "text_of_tool_result non-text only" `Quick test_text_of_tool_result_non_text_only;
       test_case "text_of_tool_result mixed content" `Quick test_text_of_tool_result_mixed;
+      test_case "text_of_tool_result budget truncates" `Quick
+        test_text_of_tool_result_budget_truncates;
     ];
   ]

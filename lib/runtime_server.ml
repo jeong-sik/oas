@@ -147,15 +147,18 @@ let with_store_lock state f =
   Mutex.lock state.store_mu;
   Fun.protect ~finally:(fun () -> Mutex.unlock state.store_mu) f
 
+let persist_event_locked store state (session : session) kind =
+  let event = make_event session kind in
+  let* projected = Runtime_projection.apply_event session event in
+  let* () = Runtime_store.append_event store session.session_id event in
+  let* () = Runtime_store.save_session store projected in
+  let () = emit_event state session.session_id event in
+  Ok (projected, event)
+
 let persist_event store state session_id kind =
   with_store_lock state (fun () ->
       let* session = Runtime_store.load_session store session_id in
-      let event = make_event session kind in
-      let* projected = Runtime_projection.apply_event session event in
-      let* () = Runtime_store.append_event store session_id event in
-      let* () = Runtime_store.save_session store projected in
-      let () = emit_event state session_id event in
-      Ok (projected, event))
+      persist_event_locked store state session kind)
 
 let generate_report_and_proof store state session_id =
   with_store_lock state (fun () ->
@@ -165,7 +168,83 @@ let generate_report_and_proof store state session_id =
       let proof = Runtime_projection.build_proof session events in
       let* () = Runtime_store.save_report store report in
       let* () = Runtime_store.save_proof store proof in
-      Ok (report, proof))
+      let telemetry =
+        Runtime_evidence.build_telemetry_report session events
+      in
+      let telemetry_json =
+        Runtime_evidence.telemetry_report_to_json telemetry
+        |> Yojson.Safe.pretty_to_string
+      in
+      let telemetry_md =
+        Runtime_evidence.telemetry_report_to_markdown telemetry
+      in
+      let evidence =
+        Runtime_evidence.build_evidence_bundle ~session_id
+          [
+            ("session_json", Runtime_store.session_path store session_id);
+            ("events_jsonl", Runtime_store.events_path store session_id);
+            ("report_json", Runtime_store.report_json_path store session_id);
+            ("report_md", Runtime_store.report_md_path store session_id);
+            ("proof_json", Runtime_store.proof_json_path store session_id);
+            ("proof_md", Runtime_store.proof_md_path store session_id);
+          ]
+      in
+      let evidence_json =
+        Runtime_evidence.evidence_bundle_to_json evidence
+        |> Yojson.Safe.pretty_to_string
+      in
+      let* telemetry_json_artifact =
+        Artifact_service.save_text_internal store ~session_id
+          ~name:"runtime-telemetry-json" ~kind:"json"
+          ~content:telemetry_json
+      in
+      let* telemetry_md_artifact =
+        Artifact_service.save_text_internal store ~session_id
+          ~name:"runtime-telemetry" ~kind:"markdown"
+          ~content:telemetry_md
+      in
+      let* evidence_artifact =
+        Artifact_service.save_text_internal store ~session_id
+          ~name:"runtime-evidence" ~kind:"json"
+          ~content:evidence_json
+      in
+      let* session, _ =
+        persist_event_locked store state session
+          (Artifact_attached
+             {
+               artifact_id = telemetry_json_artifact.artifact_id;
+               name = telemetry_json_artifact.name;
+               kind = telemetry_json_artifact.kind;
+               mime_type = telemetry_json_artifact.mime_type;
+               path = Option.value ~default:"" telemetry_json_artifact.path;
+               size_bytes = telemetry_json_artifact.size_bytes;
+             })
+      in
+      let* session, _ =
+        persist_event_locked store state session
+          (Artifact_attached
+             {
+               artifact_id = telemetry_md_artifact.artifact_id;
+               name = telemetry_md_artifact.name;
+               kind = telemetry_md_artifact.kind;
+               mime_type = telemetry_md_artifact.mime_type;
+               path = Option.value ~default:"" telemetry_md_artifact.path;
+               size_bytes = telemetry_md_artifact.size_bytes;
+             })
+      in
+      let* session, _ =
+        persist_event_locked store state session
+          (Artifact_attached
+             {
+               artifact_id = evidence_artifact.artifact_id;
+               name = evidence_artifact.name;
+               kind = evidence_artifact.kind;
+               mime_type = evidence_artifact.mime_type;
+               path = Option.value ~default:"" evidence_artifact.path;
+               size_bytes = evidence_artifact.size_bytes;
+             })
+      in
+      Ok (session, report, proof))
 
 let emit_output_delta store state session_id participant_name delta =
   if String.trim delta = "" then Ok ()
@@ -266,8 +345,10 @@ let finalize_session state store (session : session) reason =
     | Bootstrapping | Running | Waiting_on_workers | Finalizing ->
         Session_completed { outcome = first_some reason session.outcome }
   in
-  let* final_session, _ = persist_event store state session_id completion_kind in
-  let* _report, _proof = generate_report_and_proof store state session_id in
+  let* _final_session, _ = persist_event store state session_id completion_kind in
+  let* final_session, _report, _proof =
+    generate_report_and_proof store state session_id
+  in
   Ok (Finalized final_session)
 
 let apply_command state store (session : session) command =
@@ -374,14 +455,21 @@ let apply_command state store (session : session) command =
         in
         Ok (Command_applied session)
   | Attach_artifact detail ->
-      let* path =
-        Runtime_store.save_artifact_text store session.session_id ~name:detail.name
-          ~kind:detail.kind ~content:detail.content
+      let* artifact =
+        Artifact_service.save_text_internal store ~session_id:session.session_id
+          ~name:detail.name ~kind:detail.kind ~content:detail.content
       in
       let* session, _ =
         persist_event store state session_id
           (Artifact_attached
-             { name = detail.name; kind = detail.kind; path })
+             {
+               artifact_id = artifact.artifact_id;
+               name = artifact.name;
+               kind = artifact.kind;
+               mime_type = artifact.mime_type;
+               path = Option.value ~default:"" artifact.path;
+               size_bytes = artifact.size_bytes;
+             })
       in
       Ok (Command_applied session)
   | Vote detail ->

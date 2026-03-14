@@ -1,7 +1,10 @@
 open Agent_sdk
 
 let runtime_path () =
-  "/Users/dancer/me/workspace/yousleepwhen/oas/.worktrees/codex-oas-long-lived/_build/default/bin/oas_runtime.exe"
+  match Sys.getenv_opt "OAS_RUNTIME_PATH" with
+  | Some value when String.trim value <> "" -> String.trim value
+  | _ ->
+      Filename.concat (Sys.getcwd ()) "_build/default/bin/oas_runtime.exe"
 
 let with_temp_dir f =
   let root =
@@ -19,6 +22,16 @@ let unwrap_response = function
 let unwrap = function
   | Ok value -> value
   | Error err -> Alcotest.fail (Error.to_string err)
+
+let contains_substring ~sub text =
+  let sub_len = String.length sub in
+  let text_len = String.length text in
+  let rec loop index =
+    if index + sub_len > text_len then false
+    else if String.sub text index sub_len = sub then true
+    else loop (index + 1)
+  in
+  if sub_len = 0 then true else loop 0
 
 let wait_until_session ~timeout_s fetch =
   let deadline = Unix.gettimeofday () +. timeout_s in
@@ -144,6 +157,210 @@ let test_runtime_client_roundtrip () =
             unwrap (Runtime_client.status client ~session_id:session.session_id))
       in
       Alcotest.(check bool) "last seq progressed" true (status.last_seq >= 3))
+
+let test_runtime_attach_artifact_and_read_back () =
+  with_temp_dir @@ fun session_root ->
+  let runtime = runtime_path () in
+  let start_request =
+    Runtime.
+      {
+        session_id = Some "sess-artifact";
+        goal = "Capture artifacts";
+        participants = [];
+        provider = Some "mock";
+        model = None;
+        permission_mode = Some "default";
+        system_prompt = None;
+        max_turns = Some 1;
+        workdir = None;
+      }
+  in
+  let session =
+    match
+      unwrap_response
+        (runtime_query ~runtime_path:runtime ~session_root
+           (Runtime.Start_session start_request))
+    with
+    | Runtime.Session_started_response session -> session
+    | other -> Alcotest.fail (Runtime.show_response other)
+  in
+  let session =
+    match
+      unwrap_response
+        (runtime_query ~runtime_path:runtime ~session_root
+           (Runtime.Apply_command
+              {
+                session_id = session.session_id;
+                command =
+                  Runtime.Attach_artifact
+                    {
+                      name = "summary";
+                      kind = "markdown";
+                      content = "# Report\nhello artifact\n";
+                    };
+              }))
+    with
+    | Runtime.Command_applied session -> session
+    | other -> Alcotest.fail (Runtime.show_response other)
+  in
+  Alcotest.(check int) "artifact count in status" 1
+    (List.length session.artifacts);
+  let listed =
+    unwrap (Sessions.list_artifacts ~session_root ~session_id:session.session_id ())
+  in
+  Alcotest.(check int) "artifact count in sessions" 1 (List.length listed);
+  let artifact = List.hd listed in
+  Alcotest.(check string) "artifact name" "summary" artifact.name;
+  Alcotest.(check string) "artifact kind" "markdown" artifact.kind;
+  Alcotest.(check string) "artifact mime" "text/markdown" artifact.mime_type;
+  Alcotest.(check bool) "artifact has path" true (Option.is_some artifact.path);
+  Alcotest.(check bool) "artifact has size" true (artifact.size_bytes > 0);
+  let content =
+    unwrap
+      (Sessions.get_artifact_text ~session_root ~session_id:session.session_id
+         ~artifact_id:artifact.artifact_id ())
+  in
+  Alcotest.(check string) "artifact content" "# Report\nhello artifact\n"
+    content
+
+let test_runtime_artifact_ids_are_unique () =
+  with_temp_dir @@ fun session_root ->
+  let runtime = runtime_path () in
+  let start_request =
+    Runtime.
+      {
+        session_id = Some "sess-artifact-ids";
+        goal = "Capture artifacts";
+        participants = [];
+        provider = Some "mock";
+        model = None;
+        permission_mode = Some "default";
+        system_prompt = None;
+        max_turns = Some 1;
+        workdir = None;
+      }
+  in
+  let session =
+    match
+      unwrap_response
+        (runtime_query ~runtime_path:runtime ~session_root
+           (Runtime.Start_session start_request))
+    with
+    | Runtime.Session_started_response session -> session
+    | other -> Alcotest.fail (Runtime.show_response other)
+  in
+  let attach content =
+    match
+      unwrap_response
+        (runtime_query ~runtime_path:runtime ~session_root
+           (Runtime.Apply_command
+              {
+                session_id = session.session_id;
+                command =
+                  Runtime.Attach_artifact
+                    {
+                      name = "summary";
+                      kind = "markdown";
+                      content;
+                    };
+              }))
+    with
+    | Runtime.Command_applied updated -> updated
+    | other -> Alcotest.fail (Runtime.show_response other)
+  in
+  let _session = attach "# First\n" in
+  let session = attach "# Second\n" in
+  let artifact_ids =
+    session.artifacts |> List.map (fun (artifact : Runtime.artifact) -> artifact.artifact_id)
+  in
+  Alcotest.(check int) "two artifacts" 2 (List.length artifact_ids);
+  Alcotest.(check int) "unique artifact ids" 2
+    (List.length (List.sort_uniq String.compare artifact_ids))
+
+let test_runtime_finalize_generates_telemetry_and_evidence () =
+  with_temp_dir @@ fun session_root ->
+  let client =
+    unwrap
+      (Client.connect
+         ~options:
+           {
+             Client.default_options with
+             runtime_path = Some (runtime_path ());
+             session_root = Some session_root;
+             provider = Some "mock";
+             agents =
+               [
+                 ( "reviewer",
+                   {
+                     Client.description = "reviewer";
+                     prompt = "Summarize briefly.";
+                     tools = None;
+                     model = None;
+                   } );
+               ];
+           }
+         ())
+  in
+  unwrap (Client.query client "Create proof artifacts.");
+  let session_id =
+    match Client.current_session_id client with
+    | Some value -> value
+    | None -> Alcotest.fail "missing session id"
+  in
+  ignore
+    (gather_messages_until ~timeout_s:1.0 client
+       (fun messages ->
+         List.exists
+           (function
+             | Client.Session_events events ->
+                 List.exists
+                   (function
+                     | { Runtime.kind = Runtime.Agent_completed _ | Runtime.Agent_failed _; _ } -> true
+                     | _ -> false)
+                   events
+             | _ -> false)
+           messages)
+       []);
+  unwrap (Client.finalize client ());
+  Client.disconnect client;
+  let artifacts =
+    unwrap (Sessions.list_artifacts ~session_root ~session_id ())
+  in
+  let names = List.map (fun (artifact : Runtime.artifact) -> artifact.name) artifacts in
+  Alcotest.(check bool) "has telemetry json" true
+    (List.mem "runtime-telemetry-json" names);
+  Alcotest.(check bool) "has telemetry markdown" true
+    (List.mem "runtime-telemetry" names);
+  Alcotest.(check bool) "has evidence json" true
+    (List.mem "runtime-evidence" names);
+  let evidence_artifact =
+    match
+      List.find_opt
+        (fun (a : Runtime.artifact) -> a.name = "runtime-evidence")
+        artifacts
+    with
+    | Some artifact -> artifact
+    | None -> Alcotest.fail "missing runtime-evidence artifact"
+  in
+  let evidence_text =
+    unwrap
+      (Sessions.get_artifact_text ~session_root ~session_id
+         ~artifact_id:evidence_artifact.artifact_id ())
+  in
+  let evidence_json = Yojson.Safe.from_string evidence_text in
+  let missing_files =
+    Yojson.Safe.Util.(evidence_json |> member "missing_files" |> to_list)
+  in
+  let files =
+    Yojson.Safe.Util.(evidence_json |> member "files" |> to_list)
+  in
+  Alcotest.(check bool) "evidence contains report json" true
+    (contains_substring ~sub:"report_json" evidence_text);
+  Alcotest.(check bool) "evidence contains proof json" true
+    (contains_substring ~sub:"proof_json" evidence_text);
+  Alcotest.(check int) "no missing evidence files" 0 (List.length missing_files);
+  Alcotest.(check bool) "evidence tracks persisted files" true
+    (List.length files >= 6)
 
 let test_high_level_query_and_sessions () =
   with_temp_dir @@ fun session_root ->
@@ -582,6 +799,15 @@ let () =
             test_default_local_first_options;
         ] );
       ("query", [ Alcotest.test_case "lifecycle" `Quick test_query_lifecycle ]);
+      ( "artifacts",
+        [
+          Alcotest.test_case "attach artifact and read back" `Quick
+            test_runtime_attach_artifact_and_read_back;
+          Alcotest.test_case "artifact ids are unique" `Quick
+            test_runtime_artifact_ids_are_unique;
+          Alcotest.test_case "finalize generates telemetry and evidence" `Quick
+            test_runtime_finalize_generates_telemetry_and_evidence;
+        ] );
       ( "runtime_client",
         [ Alcotest.test_case "roundtrip" `Quick test_runtime_client_roundtrip ] );
       ( "sdk",

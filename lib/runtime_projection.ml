@@ -145,13 +145,15 @@ let apply_event (session : session) (event : event) =
                last_error = detail.error;
              }))
   | Artifact_attached detail ->
-      let* session = ensure_active_phase session in
       let artifact =
         {
+          artifact_id = detail.artifact_id;
           name = detail.name;
           kind = detail.kind;
+          mime_type = detail.mime_type;
           path = Some detail.path;
           inline_content = None;
+          size_bytes = detail.size_bytes;
           created_at = event.ts;
         }
       in
@@ -249,6 +251,9 @@ let build_report (session : session) (events : event list) =
 
 let build_proof (session : session) (events : event list) =
   let generated_at = now () in
+  let ordered_events =
+    List.sort (fun (a : event) (b : event) -> Int.compare a.seq b.seq) events
+  in
   let has_turn = List.exists (function { kind = Turn_recorded _; _ } -> true | _ -> false) events in
   let has_spawn =
     List.exists
@@ -260,12 +265,42 @@ let build_proof (session : session) (events : event list) =
     | Completed | Failed | Cancelled -> true
     | Bootstrapping | Running | Waiting_on_workers | Finalizing -> false
   in
+  let has_session_started =
+    List.exists (function { kind = Session_started _; _ } -> true | _ -> false) events
+  in
+  let has_terminal_event =
+    List.exists
+      (function
+        | { kind = Session_completed _ | Session_failed _; _ } -> true
+        | _ -> false)
+      events
+  in
+  let seq_contiguous =
+    let rec loop expected = function
+      | [] -> true
+      | (event : event) :: rest ->
+          event.seq = expected && loop (expected + 1) rest
+    in
+    match ordered_events with
+    | [] -> false
+    | first :: _ -> loop first.seq ordered_events
+  in
+  let no_duplicate_artifact_ids =
+    let ids =
+      session.artifacts |> List.map (fun (artifact : artifact) -> artifact.artifact_id)
+    in
+    let uniq = List.sort_uniq String.compare ids in
+    List.length uniq = List.length ids
+  in
   let checks =
     [
-      { name = "session_started"; passed = session.last_seq >= 1 };
+      { name = "session_started"; passed = has_session_started };
       { name = "turn_recorded"; passed = has_turn };
       { name = "participant_outcome"; passed = has_spawn };
       { name = "terminal_phase"; passed = finalized };
+      { name = "terminal_event"; passed = has_terminal_event };
+      { name = "seq_contiguous"; passed = seq_contiguous };
+      { name = "artifact_ids_unique"; passed = no_duplicate_artifact_ids };
     ]
   in
   let ok = List.for_all (fun check -> check.passed) checks in

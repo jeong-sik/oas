@@ -26,6 +26,7 @@ let make_checkpoint ?(session_id = "test-session") ?(created_at = 1000.0) () :
     cache_system_prompt = false;
     max_input_tokens = None;
     max_total_tokens = None;
+    context = Context.create ();
     mcp_sessions = [];
   }
 
