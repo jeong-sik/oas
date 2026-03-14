@@ -169,6 +169,11 @@
  (libraries agent_sdk alcotest yojson))
 
 (test
+ (name test_conformance)
+ (libraries agent_sdk alcotest yojson unix)
+ (deps ../bin/oas_runtime.exe))
+
+(test
  (name test_runtime)
  (libraries agent_sdk alcotest unix)
  (deps ../bin/oas_runtime.exe))
