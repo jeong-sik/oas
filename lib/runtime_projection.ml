@@ -9,16 +9,27 @@ let make_session_id () =
   let salt = Random.int 0xFFFF in
   Printf.sprintf "rt-%08x-%04x" base salt
 
+let first_some a b =
+  match a with
+  | Some _ -> a
+  | None -> b
+
 let make_planned_participant name =
   {
     name;
     role = None;
+    requested_provider = None;
+    requested_model = None;
+    requested_policy = None;
     provider = None;
     model = None;
+    resolved_provider = None;
+    resolved_model = None;
     state = Planned;
     summary = None;
     started_at = None;
     finished_at = None;
+    last_progress_at = None;
     last_error = None;
   }
 
@@ -58,12 +69,18 @@ let update_participant (session : session) name f =
                ({
                  name;
                  role = None;
+                 requested_provider = None;
+                 requested_model = None;
+                 requested_policy = None;
                  provider = None;
                  model = None;
+                 resolved_provider = None;
+                 resolved_model = None;
                  state = Planned;
                  summary = None;
                  started_at = None;
                  finished_at = None;
+                 last_progress_at = None;
                  last_error = None;
                } : participant)
              :: acc)
@@ -106,12 +123,18 @@ let apply_event (session : session) (event : event) =
              {
                participant with
                role = detail.role;
-               provider = detail.provider;
-               model = detail.model;
+               requested_provider = detail.provider;
+               requested_model = detail.model;
+               requested_policy = detail.permission_mode;
+               provider = first_some detail.provider session.provider;
+               model = first_some detail.model session.model;
+               resolved_provider = first_some detail.provider session.provider;
+               resolved_model = first_some detail.model session.model;
                state = Starting;
                summary = None;
                started_at = Some event.ts;
                finished_at = None;
+               last_progress_at = Some event.ts;
                last_error = None;
              }))
   | Agent_became_live detail ->
@@ -120,23 +143,43 @@ let apply_event (session : session) (event : event) =
         (update_participant session detail.participant_name (fun participant ->
              {
                participant with
+               provider = first_some detail.provider participant.provider;
+               model = first_some detail.model participant.model;
+               resolved_provider =
+                 first_some detail.provider participant.resolved_provider;
+               resolved_model =
+                 first_some detail.model participant.resolved_model;
                state = Live;
                summary = detail.summary;
                started_at = Some (Option.value participant.started_at ~default:event.ts);
+               last_progress_at = Some event.ts;
                last_error = None;
              }))
-  | Agent_output_delta _ ->
+  | Agent_output_delta detail ->
       let* session = ensure_active_phase session in
-      Ok session
+      Ok
+        (update_participant session detail.participant_name (fun participant ->
+             {
+               participant with
+               state = Live;
+               last_progress_at = Some event.ts;
+             }))
   | Agent_completed detail ->
       let* session = ensure_active_phase session in
       Ok
         (update_participant session detail.participant_name (fun participant ->
              {
                participant with
+               provider = first_some detail.provider participant.provider;
+               model = first_some detail.model participant.model;
+               resolved_provider =
+                 first_some detail.provider participant.resolved_provider;
+               resolved_model =
+                 first_some detail.model participant.resolved_model;
                state = Done;
                summary = detail.summary;
                finished_at = Some event.ts;
+               last_progress_at = Some event.ts;
                last_error = None;
              }))
   | Agent_failed detail ->
@@ -145,9 +188,16 @@ let apply_event (session : session) (event : event) =
         (update_participant session detail.participant_name (fun participant ->
              {
                participant with
+               provider = first_some detail.provider participant.provider;
+               model = first_some detail.model participant.model;
+               resolved_provider =
+                 first_some detail.provider participant.resolved_provider;
+               resolved_model =
+                 first_some detail.model participant.resolved_model;
                state = Failed_participant;
                summary = detail.summary;
                finished_at = Some event.ts;
+               last_progress_at = Some event.ts;
                last_error = detail.error;
              }))
   | Artifact_attached detail ->

@@ -104,7 +104,30 @@ let test_query_lifecycle () =
     | other -> Alcotest.fail (Runtime.show_response other)
   in
   Alcotest.(check int) "turn count" 1 session.turn_count;
-  Alcotest.(check string) "session goal" "Ship the runtime" session.goal
+  Alcotest.(check string) "session goal" "Ship the runtime" session.goal;
+  let planned_workers =
+    unwrap (Sessions.get_worker_runs ~session_root ~session_id:session.session_id ())
+  in
+  Alcotest.(check int) "planned workers count" 2 (List.length planned_workers);
+  Alcotest.(check bool) "all planned" true
+    (List.for_all
+       (fun (worker : Sessions.worker_run) -> worker.status = Sessions.Planned)
+       planned_workers);
+  Alcotest.(check bool) "latest accepted none" true
+    (unwrap
+       (Sessions.get_latest_accepted_worker_run ~session_root
+          ~session_id:session.session_id ())
+    = None);
+  Alcotest.(check bool) "latest ready none" true
+    (unwrap
+       (Sessions.get_latest_ready_worker_run ~session_root
+          ~session_id:session.session_id ())
+    = None);
+  Alcotest.(check bool) "latest running none" true
+    (unwrap
+       (Sessions.get_latest_running_worker_run ~session_root
+          ~session_id:session.session_id ())
+    = None)
 
 let test_runtime_client_roundtrip () =
   with_temp_dir @@ fun session_root ->
@@ -358,11 +381,23 @@ let test_runtime_finalize_generates_telemetry_and_evidence () =
   let latest_worker =
     unwrap (Sessions.get_latest_worker_run ~session_root ~session_id ())
   in
+  let latest_accepted =
+    unwrap (Sessions.get_latest_accepted_worker_run ~session_root ~session_id ())
+  in
+  let latest_ready =
+    unwrap (Sessions.get_latest_ready_worker_run ~session_root ~session_id ())
+  in
+  let latest_running =
+    unwrap (Sessions.get_latest_running_worker_run ~session_root ~session_id ())
+  in
   let latest_completed =
     unwrap (Sessions.get_latest_completed_worker_run ~session_root ~session_id ())
   in
   let latest_failed =
     unwrap (Sessions.get_latest_failed_worker_run ~session_root ~session_id ())
+  in
+  let latest_validated =
+    unwrap (Sessions.get_latest_validated_worker_run ~session_root ~session_id ())
   in
   let bundle = unwrap (Sessions.get_proof_bundle ~session_root ~session_id ()) in
   Alcotest.(check bool) "evidence contains report json" true
@@ -411,14 +446,33 @@ let test_runtime_finalize_generates_telemetry_and_evidence () =
   Alcotest.(check string) "worker run agent name" "reviewer" worker.agent_name;
   Alcotest.(check (option string)) "worker provider" (Some "mock")
     worker.provider;
+  Alcotest.(check (option string)) "worker resolved provider" (Some "mock")
+    worker.resolved_provider;
+  Alcotest.(check (option string)) "worker resolved model" (Some "qwen3.5")
+    worker.resolved_model;
+  Alcotest.(check (option string)) "worker requested provider" (Some "mock")
+    worker.requested_provider;
+  Alcotest.(check (option string)) "worker requested model" (Some "qwen3.5")
+    worker.requested_model;
+  Alcotest.(check (option string)) "worker requested policy" (Some "default")
+    worker.requested_policy;
   Alcotest.(check (option string)) "worker policy snapshot" (Some "default")
     worker.policy_snapshot;
+  Alcotest.(check bool) "worker status completed" true
+    (worker.status = Sessions.Completed);
+  Alcotest.(check bool) "worker has progress timestamp" true
+    (Option.is_some worker.last_progress_at);
   Alcotest.(check bool) "worker raw capability" true
     (worker.trace_capability = Sessions.Raw);
   Alcotest.(check bool) "worker validated" true worker.validated;
+  Alcotest.(check bool) "latest accepted none" true (latest_accepted = None);
+  Alcotest.(check bool) "latest ready none" true (latest_ready = None);
+  Alcotest.(check bool) "latest running none" true (latest_running = None);
   Alcotest.(check bool) "latest worker exists" true (Option.is_some latest_worker);
   Alcotest.(check bool) "latest completed exists" true
     (Option.is_some latest_completed);
+  Alcotest.(check bool) "latest validated exists" true
+    (Option.is_some latest_validated);
   Alcotest.(check bool) "latest failed none" true (latest_failed = None);
   Alcotest.(check int) "no missing evidence files" 0
     (List.length evidence.missing_files);
@@ -451,8 +505,16 @@ let test_runtime_finalize_generates_telemetry_and_evidence () =
     (List.length bundle.raw_trace_validations);
   Alcotest.(check int) "bundle worker runs one" 1
     (List.length bundle.worker_runs);
+  Alcotest.(check bool) "bundle latest accepted none" true
+    (bundle.latest_accepted_worker_run = None);
+  Alcotest.(check bool) "bundle latest ready none" true
+    (bundle.latest_ready_worker_run = None);
+  Alcotest.(check bool) "bundle latest running none" true
+    (bundle.latest_running_worker_run = None);
   Alcotest.(check bool) "bundle latest worker exists" true
     (Option.is_some bundle.latest_worker_run);
+  Alcotest.(check bool) "bundle latest completed exists" true
+    (Option.is_some bundle.latest_completed_worker_run);
   Alcotest.(check bool) "bundle latest validated worker exists" true
     (Option.is_some bundle.latest_validated_worker_run);
   Alcotest.(check bool) "bundle latest failed worker none" true
@@ -604,6 +666,12 @@ let test_control_roundtrip_callbacks () =
   | Some worker ->
       Alcotest.(check string) "failed worker name" "guarded-worker"
         worker.agent_name;
+      Alcotest.(check bool) "failed worker status" true
+        (worker.status = Sessions.Failed);
+      Alcotest.(check (option string)) "failed worker resolved provider"
+        (Some "mock") worker.resolved_provider;
+      Alcotest.(check (option string)) "failed worker resolved model"
+        (Some "qwen3.5") worker.resolved_model;
       Alcotest.(check (option string)) "failed worker reason"
         (Some "blocked by permission callback")
         worker.failure_reason

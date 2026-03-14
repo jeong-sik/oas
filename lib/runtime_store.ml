@@ -66,12 +66,16 @@ let create ?root () =
 
 let save_text path content =
   try
-    let oc = open_out_bin path in
+    let temp_path =
+      Printf.sprintf "%s.tmp-%d-%06x" path (Unix.getpid ()) (Random.int 0xFFFFFF)
+    in
+    let oc = open_out_bin temp_path in
     Fun.protect
       ~finally:(fun () -> close_out_noerr oc)
       (fun () ->
         output_string oc content;
         flush oc;
+        Unix.rename temp_path path;
         Ok ())
   with
   | Sys_error detail ->
