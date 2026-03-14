@@ -49,7 +49,7 @@ let test_extract_tool_input_success () =
   let input_json = `Assoc [("name", `String "Alice"); ("age", `Int 30)] in
   let content = [
     Text "some text";
-    ToolUse ("tu_1", "extract_person", input_json);
+    ToolUse { id = "tu_1"; name = "extract_person"; input = input_json };
   ] in
   match Structured.extract_tool_input ~schema:person_schema content with
   | Ok (name, age) ->
@@ -60,7 +60,7 @@ let test_extract_tool_input_success () =
 let test_extract_tool_input_wrong_name () =
   let input_json = `Assoc [("x", `Int 1)] in
   let content = [
-    ToolUse ("tu_2", "other_tool", input_json);
+    ToolUse { id = "tu_2"; name = "other_tool"; input = input_json };
   ] in
   match Structured.extract_tool_input ~schema:person_schema content with
   | Error msg ->
@@ -83,7 +83,7 @@ let test_extract_tool_input_parse_failure () =
   (* Valid ToolUse name but invalid input JSON for the parser *)
   let input_json = `Assoc [("name", `Int 999)] in
   let content = [
-    ToolUse ("tu_3", "extract_person", input_json);
+    ToolUse { id = "tu_3"; name = "extract_person"; input = input_json };
   ] in
   match Structured.extract_tool_input ~schema:person_schema content with
   | Error _ -> ()
@@ -93,8 +93,8 @@ let test_extract_picks_first_match () =
   let input1 = `Assoc [("name", `String "First"); ("age", `Int 1)] in
   let input2 = `Assoc [("name", `String "Second"); ("age", `Int 2)] in
   let content = [
-    ToolUse ("tu_4", "extract_person", input1);
-    ToolUse ("tu_5", "extract_person", input2);
+    ToolUse { id = "tu_4"; name = "extract_person"; input = input1 };
+    ToolUse { id = "tu_5"; name = "extract_person"; input = input2 };
   ] in
   match Structured.extract_tool_input ~schema:person_schema content with
   | Ok (name, age) ->
@@ -123,9 +123,9 @@ let test_schema_optional_params () =
 let test_extract_with_thinking_blocks () =
   let input_json = `Assoc [("name", `String "Bob"); ("age", `Int 25)] in
   let content = [
-    Types.Thinking ("sig", "some thinking...");
+    Types.Thinking { thinking_type = "sig"; content = "some thinking..." };
     Text "preamble";
-    ToolUse ("tu_t", "extract_person", input_json);
+    ToolUse { id = "tu_t"; name = "extract_person"; input = input_json };
   ] in
   match Structured.extract_tool_input ~schema:person_schema content with
   | Ok (name, age) ->

@@ -66,10 +66,10 @@ module Types : sig
   (** Content block types *)
   type content_block =
     | Text of string
-    | Thinking of string * string
+    | Thinking of { thinking_type: string; content: string }
     | RedactedThinking of string
-    | ToolUse of string * string * Yojson.Safe.t
-    | ToolResult of string * string * bool
+    | ToolUse of { id: string; name: string; input: Yojson.Safe.t }
+    | ToolResult of { tool_use_id: string; content: string; is_error: bool }
     | Image of { media_type: string; data: string; source_type: string }
     | Document of { media_type: string; data: string; source_type: string }
   [@@deriving show]

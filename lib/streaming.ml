@@ -221,7 +221,7 @@ let create_message_stream ~sw ~net ?(base_url=Api.default_base_url) ?provider ~c
                         let block =
                           match ctype with
                           | "text" -> Some (Text text)
-                          | "thinking" -> Some (Thinking ("", text))
+                          | "thinking" -> Some (Thinking { thinking_type = ""; content = text })
                           | "tool_use" ->
                               let tool_id =
                                 match Hashtbl.find_opt block_tool_ids index with
@@ -234,7 +234,7 @@ let create_message_stream ~sw ~net ?(base_url=Api.default_base_url) ?provider ~c
                                 | None -> ""
                               in
                               (try
-                                 Some (ToolUse (tool_id, tool_name, Yojson.Safe.from_string text))
+                                 Some (ToolUse { id = tool_id; name = tool_name; input = Yojson.Safe.from_string text })
                                with Yojson.Json_error _ -> Some (Text text))
                           | _ -> None
                         in
@@ -292,7 +292,7 @@ let emit_synthetic_events (response : api_response) on_event =
     let content_type, tool_id, tool_name = match block with
       | Text _ -> "text", None, None
       | Thinking _ -> "thinking", None, None
-      | ToolUse (id, name, _) -> "tool_use", Some id, Some name
+      | ToolUse { id; name; _ } -> "tool_use", Some id, Some name
       | Image _ -> "text", None, None
       | Document _ -> "text", None, None
       | RedactedThinking _ -> "text", None, None
@@ -302,9 +302,9 @@ let emit_synthetic_events (response : api_response) on_event =
     (match block with
      | Text s ->
        on_event (ContentBlockDelta { index; delta = TextDelta s })
-     | Thinking (_, s) ->
-       on_event (ContentBlockDelta { index; delta = ThinkingDelta s })
-     | ToolUse (_, _, input) ->
+     | Thinking { content; _ } ->
+       on_event (ContentBlockDelta { index; delta = ThinkingDelta content })
+     | ToolUse { input; _ } ->
        on_event (ContentBlockDelta { index; delta = InputJsonDelta (Yojson.Safe.to_string input) })
      | _ -> ());
     on_event (ContentBlockStop { index });

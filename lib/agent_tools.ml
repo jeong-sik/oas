@@ -86,7 +86,7 @@ let execute_tools ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tracer
     ?on_tool_execution_finished ?on_hook_invoked tool_uses =
   Eio.Fiber.List.map (fun block ->
     match block with
-    | ToolUse (id, name, input) ->
+    | ToolUse { id; name; input } ->
         (match on_tool_execution_started with
          | Some callback -> callback ~tool_use_id:id ~tool_name:name ~input
          | None -> ());

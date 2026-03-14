@@ -29,7 +29,7 @@ let test_simple_tool () =
   | Error _ -> Alcotest.fail "Tool execution failed"
 
 let test_extract_text () =
-  let content = [Text "Hello"; ToolUse ("1", "t", `Null); Text " World"] in
+  let content = [Text "Hello"; ToolUse { id = "1"; name = "t"; input = `Null }; Text " World"] in
   let text = List.filter_map (function Text s -> Some s | _ -> None) content |> String.concat "" in
   Alcotest.(check string) "extract text" "Hello World" text
 

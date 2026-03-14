@@ -145,13 +145,13 @@ let () =
       test_case "ToolUse message roundtrip" `Quick (fun () ->
         let msgs = [
           { Types.role = Types.Assistant;
-            content = [Types.ToolUse ("id1", "get_weather",
-              `Assoc [("city", `String "Seoul")])] };
+            content = [Types.ToolUse { id = "id1"; name = "get_weather";
+              input = `Assoc [("city", `String "Seoul")] }] };
         ] in
         let cp = make_checkpoint ~messages:msgs () in
         let cp2 = Result.get_ok (Checkpoint.of_json (Checkpoint.to_json cp)) in
         match (List.hd cp2.messages).content with
-        | [Types.ToolUse (id, name, _)] ->
+        | [Types.ToolUse { id; name; _ }] ->
           check string "id" "id1" id;
           check string "name" "get_weather" name
         | _ -> fail "expected ToolUse");
@@ -159,15 +159,15 @@ let () =
       test_case "ToolResult message roundtrip" `Quick (fun () ->
         let msgs = [
           { Types.role = Types.User;
-            content = [Types.ToolResult ("id1", "Sunny 22C", false)] };
+            content = [Types.ToolResult { tool_use_id = "id1"; content = "Sunny 22C"; is_error = false }] };
         ] in
         let cp = make_checkpoint ~messages:msgs () in
         let cp2 = Result.get_ok (Checkpoint.of_json (Checkpoint.to_json cp)) in
         match (List.hd cp2.messages).content with
-        | [Types.ToolResult (id, content, is_err)] ->
-          check string "id" "id1" id;
+        | [Types.ToolResult { tool_use_id; content; is_error }] ->
+          check string "id" "id1" tool_use_id;
           check string "content" "Sunny 22C" content;
-          check bool "is_error" false is_err
+          check bool "is_error" false is_error
         | _ -> fail "expected ToolResult");
 
       test_case "empty messages roundtrip" `Quick (fun () ->
@@ -180,10 +180,10 @@ let () =
           { Types.role = Types.Assistant;
             content = [
               Types.Text "Let me check.";
-              Types.ToolUse ("t1", "search", `Assoc [("q", `String "test")]);
+              Types.ToolUse { id = "t1"; name = "search"; input = `Assoc [("q", `String "test")] };
             ] };
           { Types.role = Types.User;
-            content = [Types.ToolResult ("t1", "found it", false)] };
+            content = [Types.ToolResult { tool_use_id = "t1"; content = "found it"; is_error = false }] };
         ] in
         let cp = make_checkpoint ~messages:msgs () in
         let cp2 = Result.get_ok (Checkpoint.of_json (Checkpoint.to_json cp)) in

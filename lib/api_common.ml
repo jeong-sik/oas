@@ -15,7 +15,7 @@ let text_blocks_to_string blocks =
   blocks
   |> List.filter_map (function
          | Text s -> Some s
-         | Thinking (_, s) -> Some s
+         | Thinking { content = s; _ } -> Some s
          | RedactedThinking _ -> None
          | ToolUse _ | ToolResult _ | Image _ | Document _ -> None)
   |> String.concat "\n"
@@ -27,22 +27,22 @@ let json_of_string_or_raw s =
 (** Content block <-> JSON *)
 let content_block_to_json = function
   | Text s -> `Assoc [("type", `String "text"); ("text", `String s)]
-  | Thinking (signature, content) ->
+  | Thinking { thinking_type; content } ->
       `Assoc [
         ("type", `String "thinking");
-        ("signature", `String signature);
+        ("signature", `String thinking_type);
         ("thinking", `String content);
       ]
   | RedactedThinking data ->
       `Assoc [("type", `String "redacted_thinking"); ("data", `String data)]
-  | ToolUse (id, name, input) ->
+  | ToolUse { id; name; input } ->
       `Assoc [
         ("type", `String "tool_use");
         ("id", `String id);
         ("name", `String name);
         ("input", input);
       ]
-  | ToolResult (tool_use_id, content, is_error) ->
+  | ToolResult { tool_use_id; content; is_error } ->
       `Assoc [
         ("type", `String "tool_result");
         ("tool_use_id", `String tool_use_id);
@@ -75,9 +75,9 @@ let content_block_of_json json =
       let text = json |> member "text" |> to_string in
       Some (Text text)
   | Some "thinking" ->
-      let signature = json |> member "signature" |> to_string in
+      let thinking_type = json |> member "signature" |> to_string in
       let content = json |> member "thinking" |> to_string in
-      Some (Thinking (signature, content))
+      Some (Thinking { thinking_type; content })
   | Some "redacted_thinking" ->
       let data = json |> member "data" |> to_string in
       Some (RedactedThinking data)
@@ -85,12 +85,12 @@ let content_block_of_json json =
       let id = json |> member "id" |> to_string in
       let name = json |> member "name" |> to_string in
       let input = json |> member "input" in
-      Some (ToolUse (id, name, input))
+      Some (ToolUse { id; name; input })
   | Some "tool_result" ->
       let tool_use_id = json |> member "tool_use_id" |> to_string in
       let content = json |> member "content" |> to_string in
       let is_error = json |> member "is_error" |> to_bool_option |> Option.value ~default:false in
-      Some (ToolResult (tool_use_id, content, is_error))
+      Some (ToolResult { tool_use_id; content; is_error })
   | Some "image" ->
       let source = json |> member "source" in
       let source_type = source |> member "type" |> to_string in

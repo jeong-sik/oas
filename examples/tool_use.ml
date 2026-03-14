@@ -63,9 +63,9 @@ let () =
       List.iter
         (function
           | Text t -> Printf.printf "%s\n" t
-          | ToolUse (id, name, _input) ->
+          | ToolUse { id; name; _ } ->
               Printf.printf "[tool_use] %s (id=%s)\n" name id
-          | ToolResult (_id, content, is_error) ->
+          | ToolResult { content; is_error; _ } ->
               Printf.printf "[tool_result] %s (error=%b)\n" content is_error
           | _ -> ())
         response.content

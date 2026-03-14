@@ -5,7 +5,7 @@ open Types
 let tool_calls_to_openai_json blocks =
   blocks
   |> List.filter_map (function
-         | ToolUse (id, name, input) ->
+         | ToolUse { id; name; input } ->
              Some
                (`Assoc
                   [
@@ -65,7 +65,7 @@ let openai_messages_of_message (msg : message) : Yojson.Safe.t list =
       let tool_msgs =
         msg.content
         |> List.filter_map (function
-               | ToolResult (tool_use_id, content, _is_error) ->
+               | ToolResult { tool_use_id; content; _ } ->
                    Some
                      (`Assoc
                         [
@@ -307,9 +307,9 @@ let parse_openai_response json_str =
                   in
                   Some
                     (ToolUse
-                       ( tc |> member "id" |> to_string,
-                         fn |> member "name" |> to_string,
-                         Api_common.json_of_string_or_raw arguments ))
+                       { id = tc |> member "id" |> to_string;
+                         name = fn |> member "name" |> to_string;
+                         input = Api_common.json_of_string_or_raw arguments })
                 with Yojson.Safe.Util.Type_error _ | Yojson.Safe.Util.Undefined _ | Yojson.Json_error _ -> None)
               calls
         | _ -> []
