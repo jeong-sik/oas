@@ -16,6 +16,33 @@ type run_ref = {
 }
 [@@deriving show]
 
+type run_summary = {
+  run_ref: run_ref;
+  record_count: int;
+  assistant_block_count: int;
+  tool_execution_started_count: int;
+  tool_execution_finished_count: int;
+  tool_names: string list;
+  final_text: string option;
+  stop_reason: string option;
+  error: string option;
+}
+[@@deriving show]
+
+type validation_check = {
+  name: string;
+  passed: bool;
+}
+[@@deriving show]
+
+type run_validation = {
+  run_ref: run_ref;
+  ok: bool;
+  checks: validation_check list;
+  evidence: string list;
+}
+[@@deriving show]
+
 type record = {
   trace_version: int;
   worker_run_id: string;
@@ -46,11 +73,20 @@ exception Trace_error of Error.sdk_error
 
 val trace_version : int
 val create : ?session_id:string -> path:string -> unit -> (t, Error.sdk_error) result
+val create_for_session :
+  ?session_root:string ->
+  session_id:string ->
+  agent_name:string ->
+  unit ->
+  (t, Error.sdk_error) result
 val file_path : t -> string
 val session_id : t -> string option
 val last_run : t -> run_ref option
 val read_all : path:string -> unit -> (record list, Error.sdk_error) result
+val read_runs : path:string -> unit -> (run_ref list, Error.sdk_error) result
 val read_run : run_ref -> (record list, Error.sdk_error) result
+val summarize_run : run_ref -> (run_summary, Error.sdk_error) result
+val validate_run : run_ref -> (run_validation, Error.sdk_error) result
 
 (** Internal append helpers used by the direct Agent loop. *)
 val start_run :

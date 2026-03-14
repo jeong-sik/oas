@@ -407,7 +407,12 @@ let test_runtime_finalize_generates_telemetry_and_evidence () =
     bundle.report.session_id;
   Alcotest.(check string) "bundle proof session id" session_id
     bundle.proof.session_id;
-  Alcotest.(check bool) "bundle proof ok" true bundle.proof.ok
+  Alcotest.(check bool) "bundle proof ok" true bundle.proof.ok;
+  Alcotest.(check int) "bundle structured telemetry steps"
+    structured_telemetry.step_count
+    (List.length bundle.structured_telemetry.steps);
+  Alcotest.(check int) "bundle raw trace runs empty" 0
+    (List.length bundle.raw_trace_runs)
 
 let test_high_level_query_and_sessions () =
   with_temp_dir @@ fun session_root ->

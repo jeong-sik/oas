@@ -12,6 +12,7 @@ let session_path store session_id = Filename.concat (session_dir store session_i
 let events_path store session_id = Filename.concat (session_dir store session_id) "events.jsonl"
 let snapshots_dir store session_id = Filename.concat (session_dir store session_id) "snapshots"
 let artifacts_dir store session_id = Filename.concat (session_dir store session_id) "artifacts"
+let raw_traces_dir store session_id = Filename.concat (session_dir store session_id) "raw-traces"
 let report_json_path store session_id = Filename.concat (artifacts_dir store session_id) "report.json"
 let report_md_path store session_id = Filename.concat (artifacts_dir store session_id) "report.md"
 let proof_json_path store session_id = Filename.concat (artifacts_dir store session_id) "proof.json"
@@ -44,7 +45,8 @@ let ensure_tree store session_id =
   let* () = ensure_dir (sessions_dir store) in
   let* () = ensure_dir (session_dir store session_id) in
   let* () = ensure_dir (snapshots_dir store session_id) in
-  ensure_dir (artifacts_dir store session_id)
+  let* () = ensure_dir (artifacts_dir store session_id) in
+  ensure_dir (raw_traces_dir store session_id)
 
 let default_root () =
   match Sys.getenv_opt "OAS_RUNTIME_SESSION_ROOT" with

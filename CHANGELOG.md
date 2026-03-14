@@ -2,6 +2,27 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.15.0] - 2026-03-14
+
+### Added
+- Session-scoped raw trace evidence surface:
+  - `Raw_trace.create_for_session`
+  - `Raw_trace.read_runs`
+  - `Raw_trace.summarize_run`
+  - `Raw_trace.validate_run`
+- `Sessions` raw trace getters:
+  - `Sessions.get_raw_trace_runs`
+  - `Sessions.get_raw_trace_run`
+  - `Sessions.get_raw_trace_records`
+  - `Sessions.get_raw_trace_summary`
+  - `Sessions.validate_raw_trace_run`
+- `Builder.with_raw_trace` and optional `raw_trace` support in top-level `create_agent`.
+
+### Changed
+- `Sessions.get_proof_bundle` now includes `structured_telemetry` and discovered `raw_trace_runs`.
+- Session-scoped direct agent runs can now be discovered and validated without parsing `Checkpoint.messages`.
+- Runtime store now reserves a stable `raw-traces/` directory under each session root.
+
 ## [0.14.0] - 2026-03-14
 
 ### Added

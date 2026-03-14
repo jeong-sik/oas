@@ -73,7 +73,8 @@ module Artifact_service = Artifact_service
 module Sessions = Sessions
 
 (** Quick start: create an agent with default config *)
-let create_agent ~net ?name ?model ?system_prompt ?max_tokens ?max_turns ?cache_system_prompt ?provider () =
+let create_agent ~net ?name ?model ?system_prompt ?max_tokens ?max_turns
+    ?cache_system_prompt ?provider ?raw_trace () =
   let open Types in
   let config = {
     name = Option.value name ~default:default_config.name;
@@ -93,9 +94,12 @@ let create_agent ~net ?name ?model ?system_prompt ?max_tokens ?max_turns ?cache_
     max_input_tokens = default_config.max_input_tokens;
     max_total_tokens = default_config.max_total_tokens;
   } in
-  let options = match provider with
-    | None -> Agent.default_options
-    | Some p -> { Agent.default_options with provider = Some p }
+  let options = match provider, raw_trace with
+    | None, None -> Agent.default_options
+    | Some p, None -> { Agent.default_options with provider = Some p }
+    | None, Some trace -> { Agent.default_options with raw_trace = Some trace }
+    | Some p, Some trace ->
+        { Agent.default_options with provider = Some p; raw_trace = Some trace }
   in
   Agent.create ~net ~config ~options ()
 
@@ -103,5 +107,5 @@ let runtime_query = Runtime_query.query
 let query = Query.query
 
 (** Version info *)
-let version = "0.14.0"
+let version = "0.15.0"
 let sdk_name = "agent_sdk"

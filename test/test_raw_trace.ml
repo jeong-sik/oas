@@ -105,8 +105,12 @@ let test_agent_run_stream_append_only_raw_trace () =
   with_temp_dir @@ fun root ->
   let input_path = Filename.concat root "input.txt" in
   write_file input_path "source text";
-  let trace_path = Filename.concat root "agent-raw-trace.jsonl" in
-  let sink = unwrap (Raw_trace.create ~path:trace_path ~session_id:"sess-raw" ()) in
+  let sink =
+    unwrap
+      (Raw_trace.create_for_session ~session_root:root ~session_id:"sess-raw"
+         ~agent_name:"raw-worker" ())
+  in
+  let trace_path = Raw_trace.file_path sink in
   let file_read_tool =
     Tool.create ~name:"file_read" ~description:"Read a file"
       ~parameters:
@@ -192,12 +196,46 @@ let test_agent_run_stream_append_only_raw_trace () =
       let run1_records = unwrap (Raw_trace.read_run run1) in
       let run2_records = unwrap (Raw_trace.read_run run2) in
       let all_records = unwrap (Raw_trace.read_all ~path:trace_path ()) in
+      let discovered_runs =
+        unwrap (Raw_trace.read_runs ~path:trace_path ())
+      in
+      let session_runs =
+        unwrap
+          (Sessions.get_raw_trace_runs ~session_root:root ~session_id:"sess-raw"
+             ())
+      in
+      let run1_from_session =
+        unwrap
+          (Sessions.get_raw_trace_run ~session_root:root ~session_id:"sess-raw"
+             ~worker_run_id:run1.worker_run_id ())
+      in
+      let run1_records_from_session =
+        unwrap
+          (Sessions.get_raw_trace_records ~session_root:root
+             ~session_id:"sess-raw" ~worker_run_id:run1.worker_run_id ())
+      in
+      let run1_summary =
+        unwrap
+          (Sessions.get_raw_trace_summary ~session_root:root
+             ~session_id:"sess-raw" ~worker_run_id:run1.worker_run_id ())
+      in
+      let run1_validation =
+        unwrap
+          (Sessions.validate_raw_trace_run ~session_root:root
+             ~session_id:"sess-raw" ~worker_run_id:run1.worker_run_id ())
+      in
       Alcotest.(check string) "trace path preserved" trace_path run1.path;
       Alcotest.(check bool) "run2 starts after run1 ends" true
         (run2.start_seq > run1.end_seq);
+      Alcotest.(check int) "two discovered runs" 2 (List.length discovered_runs);
+      Alcotest.(check int) "two session runs" 2 (List.length session_runs);
+      Alcotest.(check string) "session getter worker run id" run1.worker_run_id
+        run1_from_session.worker_run_id;
       Alcotest.(check int) "append only all records"
         (List.length run1_records + List.length run2_records)
         (List.length all_records);
+      Alcotest.(check int) "session records match direct records"
+        (List.length run1_records) (List.length run1_records_from_session);
       assert_monotonic_seq all_records;
       Alcotest.(check int) "run_started count" 1
         (count_records run1_records Raw_trace.Run_started);
@@ -223,6 +261,16 @@ let test_agent_run_stream_append_only_raw_trace () =
         (Some "trace complete") last_record.final_text;
       Alcotest.(check (option string)) "session id stored"
         (Some "sess-raw") last_record.session_id;
+      Alcotest.(check int) "summary record count" (List.length run1_records)
+        run1_summary.record_count;
+      Alcotest.(check int) "summary tool start count" 2
+        run1_summary.tool_execution_started_count;
+      Alcotest.(check bool) "validation ok" true run1_validation.ok;
+      Alcotest.(check bool) "validation mentions tool pairs" true
+        (List.exists
+           (fun (check : Raw_trace.validation_check) ->
+             String.equal check.name "tool_pairs" && check.passed)
+           run1_validation.checks);
       let output_path = Filename.concat root "output.txt" in
       Alcotest.(check string) "output file content"
         "source text -> copied" (read_file output_path);
