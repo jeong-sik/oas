@@ -19,6 +19,8 @@ let make_planned_participant name =
     name;
     role = None;
     aliases = [];
+    worker_id = None;
+    runtime_actor = Some name;
     requested_provider = None;
     requested_model = None;
     requested_policy = None;
@@ -28,6 +30,9 @@ let make_planned_participant name =
     resolved_model = None;
     state = Planned;
     summary = None;
+    accepted_at = None;
+    ready_at = None;
+    first_progress_at = None;
     started_at = None;
     finished_at = None;
     last_progress_at = None;
@@ -71,6 +76,8 @@ let update_participant (session : session) name f =
                  name;
                  role = None;
                  aliases = [];
+                 worker_id = None;
+                 runtime_actor = Some name;
                  requested_provider = None;
                  requested_model = None;
                  requested_policy = None;
@@ -80,6 +87,9 @@ let update_participant (session : session) name f =
                  resolved_model = None;
                  state = Planned;
                  summary = None;
+                 accepted_at = None;
+                 ready_at = None;
+                 first_progress_at = None;
                  started_at = None;
                  finished_at = None;
                  last_progress_at = None;
@@ -134,6 +144,12 @@ let apply_event (session : session) (event : event) =
                resolved_model = first_some detail.model session.model;
                state = Starting;
                summary = None;
+               worker_id = first_some participant.worker_id (Some detail.participant_name);
+               runtime_actor =
+                 first_some participant.runtime_actor (Some detail.participant_name);
+               accepted_at = Some event.ts;
+               ready_at = None;
+               first_progress_at = None;
                started_at = Some event.ts;
                finished_at = None;
                last_progress_at = Some event.ts;
@@ -153,6 +169,17 @@ let apply_event (session : session) (event : event) =
                  first_some detail.model participant.resolved_model;
                state = Live;
                summary = detail.summary;
+               worker_id =
+                 first_some participant.worker_id (Some detail.participant_name);
+               runtime_actor =
+                 first_some participant.runtime_actor (Some detail.participant_name);
+               accepted_at =
+                 first_some participant.accepted_at
+                   (Some (Option.value participant.started_at ~default:event.ts));
+               ready_at =
+                 first_some participant.ready_at
+                   (Some (Option.value participant.started_at ~default:event.ts));
+               first_progress_at = first_some participant.first_progress_at (Some event.ts);
                started_at = Some (Option.value participant.started_at ~default:event.ts);
                last_progress_at = Some event.ts;
                last_error = None;
@@ -164,6 +191,17 @@ let apply_event (session : session) (event : event) =
              {
                participant with
                state = Live;
+               worker_id =
+                 first_some participant.worker_id (Some detail.participant_name);
+               runtime_actor =
+                 first_some participant.runtime_actor (Some detail.participant_name);
+               accepted_at =
+                 first_some participant.accepted_at
+                   (Some (Option.value participant.started_at ~default:event.ts));
+               ready_at =
+                 first_some participant.ready_at
+                   (Some (Option.value participant.started_at ~default:event.ts));
+               first_progress_at = first_some participant.first_progress_at (Some event.ts);
                last_progress_at = Some event.ts;
              }))
   | Agent_completed detail ->
@@ -180,6 +218,17 @@ let apply_event (session : session) (event : event) =
                  first_some detail.model participant.resolved_model;
                state = Done;
                summary = detail.summary;
+               worker_id =
+                 first_some participant.worker_id (Some detail.participant_name);
+               runtime_actor =
+                 first_some participant.runtime_actor (Some detail.participant_name);
+               accepted_at =
+                 first_some participant.accepted_at
+                   (Some (Option.value participant.started_at ~default:event.ts));
+               ready_at =
+                 first_some participant.ready_at
+                   (Some (Option.value participant.started_at ~default:event.ts));
+               first_progress_at = first_some participant.first_progress_at (Some event.ts);
                finished_at = Some event.ts;
                last_progress_at = Some event.ts;
                last_error = None;
@@ -198,6 +247,17 @@ let apply_event (session : session) (event : event) =
                  first_some detail.model participant.resolved_model;
                state = Failed_participant;
                summary = detail.summary;
+               worker_id =
+                 first_some participant.worker_id (Some detail.participant_name);
+               runtime_actor =
+                 first_some participant.runtime_actor (Some detail.participant_name);
+               accepted_at =
+                 first_some participant.accepted_at
+                   (Some (Option.value participant.started_at ~default:event.ts));
+               ready_at =
+                 first_some participant.ready_at
+                   (Some (Option.value participant.started_at ~default:event.ts));
+               first_progress_at = first_some participant.first_progress_at (Some event.ts);
                finished_at = Some event.ts;
                last_progress_at = Some event.ts;
                last_error = detail.error;

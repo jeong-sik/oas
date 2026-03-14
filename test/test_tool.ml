@@ -125,9 +125,13 @@ let test_descriptor_preserved_and_not_in_schema () =
               {
                 Tool.single_command_only = true;
                 shell_metacharacters_allowed = false;
+                chaining_allowed = false;
+                redirection_allowed = false;
+                pipes_allowed = false;
                 workdir_policy = Some Tool.Recommended;
               };
           notes = [ "Use explicit workdir." ];
+          examples = [ "python3 check.py" ];
         }
       ~name:"shell_exec"
       ~description:"Run a constrained shell command"
@@ -144,10 +148,15 @@ let test_descriptor_preserved_and_not_in_schema () =
   in
   let descriptor = Tool.descriptor tool in
   check bool "descriptor present" true (Option.is_some descriptor);
+  let descriptor_json = Tool.descriptor_to_yojson descriptor in
   let json = Tool.schema_to_json tool in
   let open Yojson.Safe.Util in
   check bool "descriptor not in wire schema" true
-    (json |> member "descriptor" = `Null)
+    (json |> member "descriptor" = `Null);
+  check bool "descriptor json has shell" true
+    (descriptor_json |> member "shell" <> `Null);
+  check bool "descriptor json has examples" true
+    (descriptor_json |> member "examples" <> `Null)
 
 let () =
   run "Tool" [

@@ -30,6 +30,23 @@ let mock_handler _root _conn req body =
   | _ ->
       Cohttp_eio.Server.respond_string ~status:`Not_found ~body:"Not found" ()
 
+let direct_options root =
+  {
+    Direct_evidence.session_root = Some root;
+    session_id = "sess-direct";
+    goal = "Direct evidence goal";
+    title = Some "Direct worker";
+    tag = Some "direct";
+    worker_id = Some "worker-direct-1";
+    runtime_actor = Some "direct-worker";
+    role = Some "implementer";
+    aliases = [ "impl-1"; "worker-alpha" ];
+    requested_provider = Some "openai-compat";
+    requested_model = Some "direct-evidence-model";
+    requested_policy = Some "default";
+    workdir = Some root;
+  }
+
 let test_direct_evidence_materializes_bundle () =
   with_temp_dir @@ fun root ->
   Eio_main.run @@ fun env ->
@@ -72,9 +89,13 @@ let test_direct_evidence_materializes_bundle () =
               {
                 Tool.single_command_only = true;
                 shell_metacharacters_allowed = false;
+                chaining_allowed = false;
+                redirection_allowed = false;
+                pipes_allowed = false;
                 workdir_policy = Some Tool.Recommended;
               };
           notes = [ "Use explicit workdir." ];
+          examples = [ "python3 check.py" ];
         }
       ~name:"shell_exec"
       ~description:"Run a shell command"
@@ -110,66 +131,47 @@ let test_direct_evidence_materializes_bundle () =
   in
   Alcotest.(check bool) "snapshot completed" true
     (snapshot.status = Agent.Completed);
-  let bundle =
-    unwrap
-      (Direct_evidence.persist ~agent ~raw_trace
-         ~options:
-           {
-             Direct_evidence.session_root = Some root;
-             session_id = "sess-direct";
-             goal = "Direct evidence goal";
-             title = Some "Direct worker";
-             tag = Some "direct";
-             role = Some "implementer";
-             aliases = [ "impl-1"; "worker-alpha" ];
-             requested_provider = Some "openai-compat";
-             requested_model = Some "direct-evidence-model";
-             requested_policy = Some "default";
-             workdir = Some root;
-           }
-         ())
-  in
+  Alcotest.(check bool) "snapshot accepted_at" true
+    (Option.is_some snapshot.accepted_at);
+  Alcotest.(check bool) "snapshot ready_at" true (Option.is_some snapshot.ready_at);
+  Alcotest.(check bool) "snapshot first_progress_at" true
+    (Option.is_some snapshot.first_progress_at);
   let worker =
-    match bundle.Sessions.latest_worker_run with
-    | Some worker -> worker
-    | None -> Alcotest.fail "missing worker in proof bundle"
+    unwrap (Direct_evidence.get_worker_run ~agent ~raw_trace ~options:(direct_options root) ())
   in
   Alcotest.(check string) "worker name" "direct-worker" worker.agent_name;
+  Alcotest.(check (option string)) "worker id" (Some "worker-direct-1")
+    worker.worker_id;
+  Alcotest.(check (option string)) "runtime actor" (Some "direct-worker")
+    worker.runtime_actor;
   Alcotest.(check (option string)) "worker role" (Some "implementer")
     worker.role;
   Alcotest.(check (list string)) "worker aliases"
     [ "impl-1"; "worker-alpha" ] worker.aliases;
+  Alcotest.(check (option string)) "primary alias" (Some "impl-1")
+    worker.primary_alias;
   Alcotest.(check (option string)) "resolved provider" (Some "openai-compat")
     worker.resolved_provider;
   Alcotest.(check (option string)) "resolved model"
     (Some "direct-evidence-model") worker.resolved_model;
+  let bundle =
+    unwrap (Direct_evidence.get_proof_bundle ~agent ~raw_trace ~options:(direct_options root) ())
+  in
   Alcotest.(check bool) "proof bundle enabled" true
     bundle.capabilities.proof_bundle;
   let report =
-    unwrap
-      (Direct_evidence.run_conformance ~agent ~raw_trace
-         ~options:
-           {
-             Direct_evidence.session_root = Some root;
-             session_id = "sess-direct";
-             goal = "Direct evidence goal";
-             title = Some "Direct worker";
-             tag = Some "direct";
-             role = Some "implementer";
-             aliases = [ "impl-1"; "worker-alpha" ];
-             requested_provider = Some "openai-compat";
-             requested_model = Some "direct-evidence-model";
-             requested_policy = Some "default";
-             workdir = Some root;
-           }
-         ())
+    unwrap (Direct_evidence.get_conformance ~agent ~raw_trace ~options:(direct_options root) ())
   in
   Alcotest.(check bool) "conformance ok" true report.ok;
   Alcotest.(check bool) "conformance has proof bundle check" true
     (List.exists
        (fun (check : Conformance.check) ->
          String.equal check.code "proof_bundle_available" && check.passed)
-       report.checks)
+       report.checks);
+  Alcotest.(check (option string)) "latest worker status" (Some "completed")
+    report.summary.latest_worker_status;
+  Alcotest.(check (option string)) "latest resolved provider"
+    (Some "openai-compat") report.summary.latest_resolved_provider
 
 let () =
   let open Alcotest in

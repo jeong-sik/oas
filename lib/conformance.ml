@@ -17,9 +17,14 @@ type summary = {
   latest_worker_run_id: string option;
   latest_completed_worker_run_id: string option;
   latest_worker_agent_name: string option;
+  latest_worker_status: string option;
+  latest_worker_role: string option;
+  latest_worker_aliases: string list;
   latest_worker_validated: bool option;
   latest_failed_worker_run_id: string option;
   latest_failure_reason: string option;
+  latest_resolved_provider: string option;
+  latest_resolved_model: string option;
   trace_capabilities: Sessions.trace_capability list;
 }
 
@@ -60,6 +65,25 @@ let worker_ids worker_runs =
 
 let raw_run_ids raw_runs =
   raw_runs |> List.map (fun (run : Sessions.raw_trace_run) -> run.worker_run_id)
+
+let is_runtime_resolved (worker : Sessions.worker_run) =
+  worker.resolved_provider <> None && worker.resolved_model <> None
+
+let identity_is_consistent (worker : Sessions.worker_run) =
+  let alias_ok =
+    match worker.primary_alias with
+    | None -> true
+    | Some alias -> List.exists (String.equal alias) worker.aliases
+  in
+  worker.worker_id <> None && worker.runtime_actor <> None && alias_ok
+
+let worker_status_name = function
+  | Sessions.Planned -> "planned"
+  | Sessions.Accepted -> "accepted"
+  | Sessions.Ready -> "ready"
+  | Sessions.Running -> "running"
+  | Sessions.Completed -> "completed"
+  | Sessions.Failed -> "failed"
 
 let check bundle =
   let expected_latest_worker =
@@ -107,6 +131,25 @@ let check bundle =
       detail =
         Some
           (Printf.sprintf "proof_bundle=%b" bundle.capabilities.proof_bundle);
+    };
+    {
+      code = "direct_evidence_incomplete";
+      name = "direct_evidence_complete_when_raw_capable";
+      passed =
+        bundle.worker_runs
+        |> List.for_all (fun (worker : Sessions.worker_run) ->
+               match worker.trace_capability with
+               | Sessions.Raw ->
+                   List.exists
+                     (fun (run : Sessions.raw_trace_run) ->
+                       String.equal run.worker_run_id worker.worker_run_id)
+                     bundle.raw_trace_runs
+               | Sessions.Summary_only | Sessions.No_trace -> true);
+      detail =
+        Some
+          (Printf.sprintf "worker_runs=%d raw_runs=%d"
+             (List.length bundle.worker_runs)
+             (List.length bundle.raw_trace_runs));
     };
     {
       code =
@@ -275,6 +318,14 @@ let check bundle =
              (List.length expected_trace_capabilities));
     };
     {
+      code = "identity_alias_mismatch";
+      name = "worker_identity_alias_consistent";
+      passed = List.for_all identity_is_consistent bundle.worker_runs;
+      detail =
+        Some
+          (Printf.sprintf "workers=%d" (List.length bundle.worker_runs));
+    };
+    {
       code = "failed_worker_reason_missing";
       name = "failed_workers_have_reason";
       passed =
@@ -299,12 +350,7 @@ let check bundle =
           (Printf.sprintf "workers=%d" (List.length bundle.worker_runs));
     };
     {
-      code =
-        if bundle.worker_runs
-           |> List.exists (fun (worker : Sessions.worker_run) ->
-                  worker.resolved_provider = None)
-        then "resolved_provider_missing"
-        else "resolved_model_missing";
+      code = "resolved_runtime_missing";
       name = "resolved_runtime_presence_consistent";
       passed =
         bundle.worker_runs
@@ -315,9 +361,7 @@ let check bundle =
                | Sessions.Ready
                | Sessions.Running
                | Sessions.Completed
-               | Sessions.Failed ->
-                   worker.resolved_provider <> None
-                   && worker.resolved_model <> None);
+               | Sessions.Failed -> is_runtime_resolved worker);
       detail =
         Some
           (Printf.sprintf "workers=%d" (List.length bundle.worker_runs));
@@ -379,6 +423,18 @@ let report bundle =
         latest_worker_agent_name =
           Option.map (fun (worker : Sessions.worker_run) -> worker.agent_name)
             latest_worker;
+        latest_worker_status =
+          Option.map
+            (fun (worker : Sessions.worker_run) ->
+              worker_status_name worker.status)
+            latest_worker;
+        latest_worker_role =
+          Option.bind latest_worker (fun (worker : Sessions.worker_run) ->
+              worker.role);
+        latest_worker_aliases =
+          Option.bind latest_worker (fun (worker : Sessions.worker_run) ->
+              Some worker.aliases)
+          |> Option.value ~default:[];
         latest_worker_validated =
           Option.map (fun (worker : Sessions.worker_run) -> worker.validated)
             latest_worker;
@@ -390,6 +446,12 @@ let report bundle =
               match worker.failure_reason with
               | Some _ as value -> value
               | None -> worker.error);
+        latest_resolved_provider =
+          Option.bind latest_worker (fun (worker : Sessions.worker_run) ->
+              worker.resolved_provider);
+        latest_resolved_model =
+          Option.bind latest_worker (fun (worker : Sessions.worker_run) ->
+              worker.resolved_model);
         trace_capabilities = bundle.trace_capabilities;
       };
     checks;

@@ -120,15 +120,20 @@ let load_session store session_id =
       if List.mem_assoc key fields then fields else (key, value) :: fields
     in
     let normalize_participant = function
-      | `Assoc fields ->
+        | `Assoc fields ->
           `Assoc
             (fields
             |> with_default "aliases" (`List [])
+            |> with_default "worker_id" `Null
+            |> with_default "runtime_actor" `Null
             |> with_default "requested_provider" `Null
             |> with_default "requested_model" `Null
             |> with_default "requested_policy" `Null
             |> with_default "resolved_provider" `Null
             |> with_default "resolved_model" `Null
+            |> with_default "accepted_at" `Null
+            |> with_default "ready_at" `Null
+            |> with_default "first_progress_at" `Null
             |> with_default "last_progress_at" `Null)
       | json -> json
     in

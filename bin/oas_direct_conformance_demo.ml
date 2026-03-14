@@ -54,12 +54,24 @@ let report_to_json (report : Conformance.report) =
             ("session_id", `String report.summary.session_id);
             ("worker_run_count", `Int report.summary.worker_run_count);
             ("raw_trace_run_count", `Int report.summary.raw_trace_run_count);
+            ( "latest_worker_status",
+              match report.summary.latest_worker_status with
+              | Some value -> `String value
+              | None -> `Null );
             ( "latest_worker_run_id",
               match report.summary.latest_worker_run_id with
               | Some value -> `String value
               | None -> `Null );
             ( "latest_completed_worker_run_id",
               match report.summary.latest_completed_worker_run_id with
+              | Some value -> `String value
+              | None -> `Null );
+            ( "latest_resolved_provider",
+              match report.summary.latest_resolved_provider with
+              | Some value -> `String value
+              | None -> `Null );
+            ( "latest_resolved_model",
+              match report.summary.latest_resolved_model with
               | Some value -> `String value
               | None -> `Null );
             ( "trace_capabilities",
@@ -74,12 +86,24 @@ let worker_to_json (worker : Sessions.worker_run) =
   `Assoc
     [
       ("worker_run_id", `String worker.worker_run_id);
+      ( "worker_id",
+        match worker.worker_id with
+        | Some value -> `String value
+        | None -> `Null );
       ("agent_name", `String worker.agent_name);
+      ( "runtime_actor",
+        match worker.runtime_actor with
+        | Some value -> `String value
+        | None -> `Null );
       ( "role",
         match worker.role with
         | Some value -> `String value
         | None -> `Null );
       ("aliases", `List (List.map (fun value -> `String value) worker.aliases));
+      ( "primary_alias",
+        match worker.primary_alias with
+        | Some value -> `String value
+        | None -> `Null );
       ( "status",
         `String
           (match worker.status with
@@ -154,6 +178,8 @@ let () =
              goal = "Create direct evidence.";
              title = Some "Direct agent demo";
              tag = Some "demo";
+             worker_id = Some "direct-demo-worker-id";
+             runtime_actor = Some "direct-demo-worker";
              role = Some "implementer";
              aliases = [ "impl"; "demo-worker" ];
              requested_provider = Some "openai-compat";
@@ -178,6 +204,8 @@ let () =
              goal = "Create direct evidence.";
              title = Some "Direct agent demo";
              tag = Some "demo";
+             worker_id = Some "direct-demo-worker-id";
+             runtime_actor = Some "direct-demo-worker";
              role = Some "implementer";
              aliases = [ "impl"; "demo-worker" ];
              requested_provider = Some "openai-compat";

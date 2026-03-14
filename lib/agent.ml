@@ -33,12 +33,17 @@ type lifecycle_status =
 type lifecycle_snapshot = {
   current_run_id: string option;
   agent_name: string;
+  worker_id: string option;
+  runtime_actor: string option;
   status: lifecycle_status;
   requested_provider: string option;
   requested_model: string option;
   resolved_provider: string option;
   resolved_model: string option;
   last_error: string option;
+  accepted_at: float option;
+  ready_at: float option;
+  first_progress_at: float option;
   started_at: float option;
   last_progress_at: float option;
   finished_at: float option;
@@ -95,10 +100,12 @@ let resolved_model agent =
   | Some cfg -> Some cfg.model_id
   | None -> Some (Types.model_to_string agent.state.config.model)
 
-let set_lifecycle agent ?current_run_id ?last_error ?started_at
-    ?last_progress_at ?finished_at status =
+let set_lifecycle agent ?current_run_id ?worker_id ?runtime_actor ?last_error
+    ?accepted_at ?ready_at ?first_progress_at ?started_at ?last_progress_at
+    ?finished_at status =
   let previous = agent.lifecycle in
   let pick fallback next = first_some next fallback in
+  let default_actor = Some agent.state.config.name in
   agent.lifecycle <-
     Some
       {
@@ -106,6 +113,14 @@ let set_lifecycle agent ?current_run_id ?last_error ?started_at
           pick (Option.bind previous (fun snapshot -> snapshot.current_run_id))
             current_run_id;
         agent_name = agent.state.config.name;
+        worker_id =
+          pick
+            (Option.bind previous (fun snapshot -> snapshot.worker_id))
+            (pick default_actor worker_id);
+        runtime_actor =
+          pick
+            (Option.bind previous (fun snapshot -> snapshot.runtime_actor))
+            (pick default_actor runtime_actor);
         status;
         requested_provider = requested_provider agent;
         requested_model = requested_model agent;
@@ -114,6 +129,16 @@ let set_lifecycle agent ?current_run_id ?last_error ?started_at
         last_error =
           pick (Option.bind previous (fun snapshot -> snapshot.last_error))
             last_error;
+        accepted_at =
+          pick (Option.bind previous (fun snapshot -> snapshot.accepted_at))
+            accepted_at;
+        ready_at =
+          pick (Option.bind previous (fun snapshot -> snapshot.ready_at))
+            ready_at;
+        first_progress_at =
+          pick
+            (Option.bind previous (fun snapshot -> snapshot.first_progress_at))
+            first_progress_at;
         started_at =
           pick (Option.bind previous (fun snapshot -> snapshot.started_at))
             started_at;
@@ -192,8 +217,9 @@ let execute_tools_with_trace agent active_run tool_uses =
     | Some active ->
         Some
           (fun ~tool_use_id ~tool_name ~input ->
+            let ts = Unix.gettimeofday () in
             set_lifecycle agent ~current_run_id:(Raw_trace.active_run_id active)
-              ~last_progress_at:(Unix.gettimeofday ()) Running;
+              ~first_progress_at:ts ~last_progress_at:ts Running;
             Raw_trace.raise_if_error
               (Raw_trace.record_tool_execution_started active ~tool_use_id
                  ~tool_name ~tool_input:input))
@@ -204,8 +230,9 @@ let execute_tools_with_trace agent active_run tool_uses =
     | Some active ->
         Some
           (fun ~tool_use_id ~tool_name ~content ~is_error ->
+            let ts = Unix.gettimeofday () in
             set_lifecycle agent ~current_run_id:(Raw_trace.active_run_id active)
-              ~last_progress_at:(Unix.gettimeofday ()) Running;
+              ~first_progress_at:ts ~last_progress_at:ts Running;
             Raw_trace.raise_if_error
               (Raw_trace.record_tool_execution_finished active ~tool_use_id
                  ~tool_name ~tool_result:content ~tool_error:is_error))
@@ -235,7 +262,8 @@ let trace_assistant_blocks active_run blocks =
 let with_raw_trace_run agent user_prompt f =
   match agent.options.raw_trace with
   | None ->
-      set_lifecycle agent ~started_at:(Unix.gettimeofday ()) Accepted;
+      let ts = Unix.gettimeofday () in
+      set_lifecycle agent ~accepted_at:ts ~started_at:ts Accepted;
       let result = f None in
       let ts = Unix.gettimeofday () in
       (match result with
@@ -250,8 +278,9 @@ let with_raw_trace_run agent user_prompt f =
         Raw_trace.start_run sink ~agent_name:agent.state.config.name
           ~prompt:user_prompt
       in
+      let ts = Unix.gettimeofday () in
       set_lifecycle agent ~current_run_id:(Raw_trace.active_run_id active)
-        ~started_at:(Unix.gettimeofday ()) Accepted;
+        ~accepted_at:ts ~started_at:ts Accepted;
       let finalize result =
         let final_text, stop_reason, error =
           match result with
@@ -284,7 +313,8 @@ let with_raw_trace_run agent user_prompt f =
 
 (** Run a single turn with hook and guardrail support *)
 let run_turn_with_trace ~sw ?clock ?raw_trace_run agent =
-  set_lifecycle agent ~started_at:(Unix.gettimeofday ()) Ready;
+  let ts = Unix.gettimeofday () in
+  set_lifecycle agent ~ready_at:ts Ready;
   (* BeforeTurn hook *)
   let _before = Hooks.invoke agent.options.hooks.before_turn
     (Hooks.BeforeTurn { turn = agent.state.turn_count; messages = agent.state.messages }) in
@@ -319,7 +349,8 @@ let run_turn_with_trace ~sw ?clock ?raw_trace_run agent =
   match api_result with
   | Error e -> Error e
   | Ok response ->
-      set_lifecycle agent ~last_progress_at:(Unix.gettimeofday ()) Running;
+      let ts = Unix.gettimeofday () in
+      set_lifecycle agent ~first_progress_at:ts ~last_progress_at:ts Running;
       let* () = trace_assistant_blocks raw_trace_run response.content in
       (* Accumulate usage stats *)
       let usage = match response.usage with
@@ -417,7 +448,8 @@ let run ~sw ?clock agent user_prompt =
     Uses Streaming.create_message_stream for Anthropic providers,
     falls back to Api.create_message + synthetic events for others. *)
 let run_turn_stream_with_trace ~sw ?clock ~on_event ?raw_trace_run agent =
-  set_lifecycle agent ~started_at:(Unix.gettimeofday ()) Ready;
+  let ts = Unix.gettimeofday () in
+  set_lifecycle agent ~ready_at:ts Ready;
   (* BeforeTurn hook *)
   let _before = Hooks.invoke agent.options.hooks.before_turn
     (Hooks.BeforeTurn { turn = agent.state.turn_count; messages = agent.state.messages }) in
@@ -469,7 +501,8 @@ let run_turn_stream_with_trace ~sw ?clock ~on_event ?raw_trace_run agent =
   match api_result with
   | Error e -> Error e
   | Ok response ->
-    set_lifecycle agent ~last_progress_at:(Unix.gettimeofday ()) Running;
+    let ts = Unix.gettimeofday () in
+    set_lifecycle agent ~first_progress_at:ts ~last_progress_at:ts Running;
     let* () = trace_assistant_blocks raw_trace_run response.content in
     (* Accumulate usage stats *)
     let usage = match response.usage with
