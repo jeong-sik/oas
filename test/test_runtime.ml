@@ -385,6 +385,11 @@ let test_runtime_finalize_generates_telemetry_and_evidence () =
        (fun (count : Sessions.structured_event_count) ->
          String.equal count.event_name "session_started" && count.count >= 1)
        structured_telemetry.event_counts);
+  Alcotest.(check bool) "structured telemetry count tracks output deltas" true
+    (List.exists
+       (fun (count : Sessions.structured_event_count) ->
+         String.equal count.event_name "agent_output_delta" && count.count = 2)
+       structured_telemetry.event_counts);
   Alcotest.(check int) "no missing evidence files" 0
     (List.length evidence.missing_files);
   Alcotest.(check bool) "evidence tracks persisted files" true
