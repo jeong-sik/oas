@@ -14,15 +14,15 @@ let test_stop_reason () =
   Alcotest.(check bool) "tool_use" true (stop_reason_of_string "tool_use" = StopToolUse)
 
 let test_simple_tool () =
-  let tool = Tool.create 
-    ~name:"echo" 
-    ~description:"Echo input" 
-    ~parameters:[{ name="msg"; description="Message"; param_type=String; required=true }] 
+  let tool = Tool.create
+    ~name:"echo"
+    ~description:"Echo input"
+    ~parameters:[{ name="msg"; description="Message"; param_type=String; required=true }]
     (fun input ->
        let msg = Yojson.Safe.Util.(input |> member "msg" |> to_string) in
        Ok msg)
   in
-  
+
   let input = `Assoc [("msg", `String "hello")] in
   match Tool.execute tool input with
   | Ok output -> Alcotest.(check string) "echo output" "hello" output
@@ -37,19 +37,51 @@ let test_agent_create () =
   Eio_main.run @@ fun env ->
   let options = { Agent.default_options with base_url = "http://test" } in
   let agent = Agent.create ~net:env#net ~options () in
-  Alcotest.(check int) "initial turn count" 0 agent.state.turn_count;
-  Alcotest.(check int) "initial messages" 0 (List.length agent.state.messages)
+  let st = Agent.state agent in
+  Alcotest.(check int) "initial turn count" 0 st.turn_count;
+  Alcotest.(check int) "initial messages" 0 (List.length st.messages)
 
-let test_add_message () =
+let test_agent_accessors () =
   Eio_main.run @@ fun env ->
   let options = { Agent.default_options with base_url = "http://test" } in
   let agent = Agent.create ~net:env#net ~options () in
-  agent.state <- { agent.state with messages = agent.state.messages @ [{ role = User; content = [Text "Hi"] }] };
-  Alcotest.(check int) "message count" 1 (List.length agent.state.messages)
+  Alcotest.(check int) "no tools" 0 (List.length (Agent.tools agent));
+  Alcotest.(check bool) "no lifecycle" true (Option.is_none (Agent.lifecycle agent));
+  let opts = Agent.options agent in
+  Alcotest.(check string) "base_url" "http://test" opts.base_url
 
 let test_version_info () =
-  Alcotest.(check string) "version" "0.22.0" Agent_sdk.version;
+  Alcotest.(check string) "version" "0.23.0" Agent_sdk.version;
   Alcotest.(check string) "sdk_name" "agent_sdk" Agent_sdk.sdk_name
+
+let test_build_safe_valid () =
+  Eio_main.run @@ fun env ->
+  let result =
+    Builder.create ~net:env#net ~model:Types.Claude_sonnet_4_6
+    |> Builder.with_system_prompt "test"
+    |> Builder.with_max_turns 5
+    |> Builder.with_max_tokens 1024
+    |> Builder.build_safe
+  in
+  Alcotest.(check bool) "build_safe ok" true (Result.is_ok result)
+
+let test_build_safe_invalid_turns () =
+  Eio_main.run @@ fun env ->
+  let result =
+    Builder.create ~net:env#net ~model:Types.Claude_sonnet_4_6
+    |> Builder.with_max_turns 0
+    |> Builder.build_safe
+  in
+  Alcotest.(check bool) "build_safe error" true (Result.is_error result)
+
+let test_build_safe_thinking_without_enable () =
+  Eio_main.run @@ fun env ->
+  let result =
+    Builder.create ~net:env#net ~model:Types.Claude_sonnet_4_6
+    |> Builder.with_thinking_budget 1000
+    |> Builder.build_safe
+  in
+  Alcotest.(check bool) "thinking_budget without enable" true (Result.is_error result)
 
 let () =
   run "Agent SDK" [
@@ -66,7 +98,12 @@ let () =
     ];
     "agent", [
       test_case "create" `Quick test_agent_create;
-      test_case "add_message" `Quick test_add_message;
+      test_case "accessors" `Quick test_agent_accessors;
       test_case "version info" `Quick test_version_info;
+    ];
+    "builder", [
+      test_case "build_safe valid" `Quick test_build_safe_valid;
+      test_case "build_safe invalid turns" `Quick test_build_safe_invalid_turns;
+      test_case "build_safe thinking" `Quick test_build_safe_thinking_without_enable;
     ];
   ]

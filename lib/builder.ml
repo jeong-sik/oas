@@ -143,3 +143,23 @@ let build b =
     event_bus = b.event_bus;
   } in
   Agent.create ~net:b.net ~config ~tools ?context ~options ()
+
+let build_safe b =
+  if b.max_turns <= 0 then
+    Error (Error.Config (Error.InvalidConfig {
+      field = "max_turns";
+      detail = Printf.sprintf "must be > 0, got %d" b.max_turns;
+    }))
+  else if b.max_tokens <= 0 then
+    Error (Error.Config (Error.InvalidConfig {
+      field = "max_tokens";
+      detail = Printf.sprintf "must be > 0, got %d" b.max_tokens;
+    }))
+  else
+    match b.thinking_budget, b.enable_thinking with
+    | Some _, (None | Some false) ->
+        Error (Error.Config (Error.InvalidConfig {
+          field = "thinking_budget";
+          detail = "thinking_budget requires enable_thinking = true";
+        }))
+    | _ -> Ok (build b)

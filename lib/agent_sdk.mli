@@ -280,10 +280,12 @@ module Provider : sig
 
   (** Pre-built provider configs *)
   val local_qwen : unit -> config
+  [@@deprecated "Use Provider.Local constructor directly. Will be removed in 1.0."]
   val anthropic_sonnet : unit -> config
   val anthropic_haiku : unit -> config
   val anthropic_opus : unit -> config
   val local_mlx : unit -> config
+  [@@deprecated "Use Provider.Local constructor directly. Will be removed in 1.0."]
   val openrouter : ?model_id:string -> unit -> config
   val ollama : ?base_url:string -> ?model_id:string -> ?mode:ollama_mode -> unit -> config
 end
@@ -1212,14 +1214,17 @@ module Agent : sig
     finished_at: float option;
   }
 
-  type t = {
-    mutable state: Types.agent_state;
-    mutable lifecycle: lifecycle_snapshot option;
-    tools: Tool.t list;
-    net: [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t;
-    context: Context.t;
-    options: options;
-  }
+  (** Abstract agent type. Use accessor functions below to inspect state. *)
+  type t
+
+  (** {2 Accessors} *)
+
+  val state : t -> Types.agent_state
+  val lifecycle : t -> lifecycle_snapshot option
+  val tools : t -> Tool.t list
+  val context : t -> Context.t
+  val options : t -> options
+  val net : t -> [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
 
   val create :
     net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
@@ -1361,6 +1366,13 @@ module Builder : sig
   val with_cache_system_prompt : bool -> t -> t
   val with_event_bus : Event_bus.t -> t -> t
   val build : t -> Agent.t
+  [@@deprecated "Use build_safe for validated construction"]
+
+  (** Validated agent construction. Returns Error if configuration is invalid:
+      - max_turns <= 0
+      - max_tokens <= 0
+      - thinking_budget set without enable_thinking *)
+  val build_safe : t -> (Agent.t, Error.sdk_error) result
 end
 
 (** {1 Multi-Agent Orchestration} *)

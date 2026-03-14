@@ -71,6 +71,14 @@ type t = {
   options: options;
 }
 
+(* Public accessors — .mli exposes Agent.t as abstract *)
+let state t = t.state
+let lifecycle t = t.lifecycle
+let tools t = t.tools
+let context t = t.context
+let options t = t.options
+let net t = t.net
+
 let provider_runtime_name (cfg : Provider.config option) =
   match cfg with
   | None -> None

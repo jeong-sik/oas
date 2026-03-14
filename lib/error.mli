@@ -23,6 +23,7 @@ type mcp_error =
 type config_error =
   | MissingEnvVar of { var_name: string }
   | UnsupportedProvider of { detail: string }
+  | InvalidConfig of { field: string; detail: string }
 
 type serialization_error =
   | JsonParseError of { detail: string }
