@@ -348,6 +348,9 @@ let test_runtime_finalize_generates_telemetry_and_evidence () =
          ~artifact_id:evidence_artifact.artifact_id ())
   in
   let telemetry = unwrap (Sessions.get_telemetry ~session_root ~session_id ()) in
+  let structured_telemetry =
+    unwrap (Sessions.get_telemetry_structured ~session_root ~session_id ())
+  in
   let evidence = unwrap (Sessions.get_evidence ~session_root ~session_id ()) in
   let bundle = unwrap (Sessions.get_proof_bundle ~session_root ~session_id ()) in
   Alcotest.(check bool) "evidence contains report json" true
@@ -362,6 +365,31 @@ let test_runtime_finalize_generates_telemetry_and_evidence () =
        (fun (step : Sessions.telemetry_step) ->
          contains_substring ~sub:"Session_started" step.kind)
        telemetry.steps);
+  Alcotest.(check int) "structured telemetry step_count matches steps"
+    structured_telemetry.step_count
+    (List.length structured_telemetry.steps);
+  Alcotest.(check bool) "structured telemetry has session_started" true
+    (List.exists
+       (fun (step : Sessions.structured_telemetry_step) ->
+         String.equal step.event_name "session_started")
+       structured_telemetry.steps);
+  Alcotest.(check bool) "structured telemetry has agent spawn metadata" true
+    (List.exists
+       (fun (step : Sessions.structured_telemetry_step) ->
+         String.equal step.event_name "agent_spawn_requested"
+         && step.participant = Some "reviewer"
+         && step.provider = Some "mock")
+       structured_telemetry.steps);
+  Alcotest.(check bool) "structured telemetry count tracks session_started" true
+    (List.exists
+       (fun (count : Sessions.structured_event_count) ->
+         String.equal count.event_name "session_started" && count.count >= 1)
+       structured_telemetry.event_counts);
+  Alcotest.(check bool) "structured telemetry count tracks output deltas" true
+    (List.exists
+       (fun (count : Sessions.structured_event_count) ->
+         String.equal count.event_name "agent_output_delta" && count.count = 2)
+       structured_telemetry.event_counts);
   Alcotest.(check int) "no missing evidence files" 0
     (List.length evidence.missing_files);
   Alcotest.(check bool) "evidence tracks persisted files" true
