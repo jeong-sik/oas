@@ -27,6 +27,11 @@ jobs:
           ocaml-compiler: 5.4.x
           dune-cache: true
 
+      - name: Pin MCP protocol packages
+        run: |
+          opam pin add mcp_protocol git+https://github.com/jeong-sik/mcp-protocol-sdk.git#main --no-action --yes
+          opam pin add mcp_protocol_eio git+https://github.com/jeong-sik/mcp-protocol-sdk.git#main --no-action --yes
+
       - name: Install dependencies
         run: |
           for attempt in 1 2 3; do
@@ -61,6 +66,11 @@ jobs:
         with:
           ocaml-compiler: 5.4.x
           dune-cache: true
+
+      - name: Pin MCP protocol packages
+        run: |
+          opam pin add mcp_protocol git+https://github.com/jeong-sik/mcp-protocol-sdk.git#main --no-action --yes
+          opam pin add mcp_protocol_eio git+https://github.com/jeong-sik/mcp-protocol-sdk.git#main --no-action --yes
 
       - name: Install dependencies
         run: |
