@@ -17,6 +17,9 @@ type workdir_policy =
 type shell_constraints = {
   single_command_only: bool;
   shell_metacharacters_allowed: bool;
+  chaining_allowed: bool;
+  redirection_allowed: bool;
+  pipes_allowed: bool;
   workdir_policy: workdir_policy option;
 }
 
@@ -24,6 +27,7 @@ type descriptor = {
   kind: string option;
   shell: shell_constraints option;
   notes: string list;
+  examples: string list;
 }
 
 (** Handler kind: preserves backward compatibility via Simple variant *)
@@ -59,6 +63,45 @@ let execute ?context tool input =
     f ctx input
 
 let descriptor tool = tool.descriptor
+
+let workdir_policy_to_json = function
+  | Required -> `String "required"
+  | Recommended -> `String "recommended"
+  | None_expected -> `String "none_expected"
+
+let descriptor_to_yojson = function
+  | None -> `Null
+  | Some descriptor ->
+      let shell_json =
+        match descriptor.shell with
+        | None -> `Null
+        | Some shell ->
+            `Assoc
+              [
+                ("single_command_only", `Bool shell.single_command_only);
+                ( "shell_metacharacters_allowed",
+                  `Bool shell.shell_metacharacters_allowed );
+                ("chaining_allowed", `Bool shell.chaining_allowed);
+                ("redirection_allowed", `Bool shell.redirection_allowed);
+                ("pipes_allowed", `Bool shell.pipes_allowed);
+                ( "workdir_policy",
+                  Option.value
+                    ~default:`Null
+                    (Option.map workdir_policy_to_json shell.workdir_policy) );
+              ]
+      in
+      `Assoc
+        [
+          ( "kind",
+            Option.value
+              ~default:`Null
+              (Option.map (fun value -> `String value) descriptor.kind) );
+          ("shell", shell_json);
+          ("notes", `List (List.map (fun note -> `String note) descriptor.notes));
+          ( "examples",
+            `List (List.map (fun example -> `String example) descriptor.examples)
+          );
+        ]
 
 (** Schema to JSON *)
 let schema_to_json tool =

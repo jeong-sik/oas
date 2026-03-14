@@ -2,6 +2,31 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.21.0] - 2026-03-14
+
+### Added
+- `Direct_evidence` stable consumer getters:
+  - `get_proof_bundle`
+  - `get_conformance`
+- `Tool.descriptor_to_yojson`
+- richer shell/tool descriptor fields:
+  - `chaining_allowed`
+  - `redirection_allowed`
+  - `pipes_allowed`
+  - `examples`
+
+### Changed
+- direct-agent worker summaries now expose stable identity and lifecycle fields:
+  - `worker_id`
+  - `runtime_actor`
+  - `primary_alias`
+  - `accepted_at`
+  - `ready_at`
+  - `first_progress_at`
+- runtime participants backfill the same identity/lifecycle vocabulary for summary-first consumers.
+- `Conformance.summary` now includes latest worker status, aliases, and resolved runtime/model.
+- `Conformance.check.code` now includes direct-evidence and identity/runtime consistency failures.
+
 ## [0.20.0] - 2026-03-14
 
 ### Added

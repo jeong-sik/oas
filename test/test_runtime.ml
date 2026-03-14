@@ -444,6 +444,11 @@ let test_runtime_finalize_generates_telemetry_and_evidence () =
     | _ -> Alcotest.fail "expected exactly one worker run"
   in
   Alcotest.(check string) "worker run agent name" "reviewer" worker.agent_name;
+  Alcotest.(check (option string)) "worker id" (Some "reviewer") worker.worker_id;
+  Alcotest.(check (option string)) "runtime actor" (Some "reviewer")
+    worker.runtime_actor;
+  Alcotest.(check (option string)) "primary alias none" None
+    worker.primary_alias;
   Alcotest.(check (option string)) "worker provider" (Some "mock")
     worker.provider;
   Alcotest.(check (option string)) "worker resolved provider" (Some "mock")
@@ -460,6 +465,12 @@ let test_runtime_finalize_generates_telemetry_and_evidence () =
     worker.policy_snapshot;
   Alcotest.(check bool) "worker status completed" true
     (worker.status = Sessions.Completed);
+  Alcotest.(check bool) "worker accepted_at present" true
+    (Option.is_some worker.accepted_at);
+  Alcotest.(check bool) "worker ready_at present" true
+    (Option.is_some worker.ready_at);
+  Alcotest.(check bool) "worker first_progress_at present" true
+    (Option.is_some worker.first_progress_at);
   Alcotest.(check bool) "worker has progress timestamp" true
     (Option.is_some worker.last_progress_at);
   Alcotest.(check bool) "worker raw capability" true

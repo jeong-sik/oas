@@ -100,7 +100,11 @@ let test_conformance_run_reports_ok () =
   Alcotest.(check int) "worker run count" 1 report.summary.worker_run_count;
   Alcotest.(check int) "raw trace run count" 1 report.summary.raw_trace_run_count;
   Alcotest.(check (option string)) "latest worker agent"
-    (Some "reviewer") report.summary.latest_worker_agent_name
+    (Some "reviewer") report.summary.latest_worker_agent_name;
+  Alcotest.(check (option string)) "latest worker status"
+    (Some "completed") report.summary.latest_worker_status;
+  Alcotest.(check (option string)) "latest resolved provider"
+    (Some "mock") report.summary.latest_resolved_provider
 
 let test_conformance_report_detects_inconsistent_bundle () =
   with_temp_dir @@ fun session_root ->
@@ -120,6 +124,11 @@ let test_conformance_report_detects_inconsistent_bundle () =
          check.name = "raw_trace_shapes_consistent"
          && String.equal check.code "raw_trace_shape_mismatch"
          && not check.passed)
+       report.checks);
+  Alcotest.(check bool) "direct evidence code present" true
+    (List.exists
+       (fun (check : Conformance.check) ->
+         String.equal check.code "direct_evidence_incomplete")
        report.checks)
 
 let () =

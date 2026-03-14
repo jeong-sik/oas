@@ -22,6 +22,8 @@ type participant = {
   name: string;
   role: string option;
   aliases: string list;
+  worker_id: string option;
+  runtime_actor: string option;
   requested_provider: string option;
   requested_model: string option;
   requested_policy: string option;
@@ -31,6 +33,9 @@ type participant = {
   resolved_model: string option;
   state: participant_state;
   summary: string option;
+  accepted_at: float option;
+  ready_at: float option;
+  first_progress_at: float option;
   started_at: float option;
   finished_at: float option;
   last_progress_at: float option;

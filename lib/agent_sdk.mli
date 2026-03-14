@@ -443,6 +443,9 @@ module Tool : sig
   type shell_constraints = {
     single_command_only: bool;
     shell_metacharacters_allowed: bool;
+    chaining_allowed: bool;
+    redirection_allowed: bool;
+    pipes_allowed: bool;
     workdir_policy: workdir_policy option;
   }
 
@@ -450,6 +453,7 @@ module Tool : sig
     kind: string option;
     shell: shell_constraints option;
     notes: string list;
+    examples: string list;
   }
 
   type handler_kind =
@@ -474,6 +478,7 @@ module Tool : sig
 
   val execute : ?context:Context.t -> t -> Yojson.Safe.t -> (string, string) result
   val descriptor : t -> descriptor option
+  val descriptor_to_yojson : descriptor option -> Yojson.Safe.t
   val schema_to_json : t -> Yojson.Safe.t
 end
 
@@ -1182,12 +1187,17 @@ module Agent : sig
   type lifecycle_snapshot = {
     current_run_id: string option;
     agent_name: string;
+    worker_id: string option;
+    runtime_actor: string option;
     status: lifecycle_status;
     requested_provider: string option;
     requested_model: string option;
     resolved_provider: string option;
     resolved_model: string option;
     last_error: string option;
+    accepted_at: float option;
+    ready_at: float option;
+    first_progress_at: float option;
     started_at: float option;
     last_progress_at: float option;
     finished_at: float option;
@@ -1557,6 +1567,8 @@ module Runtime : sig
     name: string;
     role: string option;
     aliases: string list;
+    worker_id: string option;
+    runtime_actor: string option;
     requested_provider: string option;
     requested_model: string option;
     requested_policy: string option;
@@ -1566,6 +1578,9 @@ module Runtime : sig
     resolved_model: string option;
     state: participant_state;
     summary: string option;
+    accepted_at: float option;
+    ready_at: float option;
+    first_progress_at: float option;
     started_at: float option;
     finished_at: float option;
     last_progress_at: float option;
@@ -2214,9 +2229,12 @@ module Sessions : sig
 
   type worker_run = {
     worker_run_id: string;
+    worker_id: string option;
     agent_name: string;
+    runtime_actor: string option;
     role: string option;
     aliases: string list;
+    primary_alias: string option;
     provider: string option;
     model: string option;
     requested_provider: string option;
@@ -2232,6 +2250,9 @@ module Sessions : sig
     stop_reason: string option;
     error: string option;
     failure_reason: string option;
+    accepted_at: float option;
+    ready_at: float option;
+    first_progress_at: float option;
     started_at: float option;
     finished_at: float option;
     last_progress_at: float option;
@@ -2430,9 +2451,14 @@ module Conformance : sig
     latest_worker_run_id: string option;
     latest_completed_worker_run_id: string option;
     latest_worker_agent_name: string option;
+    latest_worker_status: string option;
+    latest_worker_role: string option;
+    latest_worker_aliases: string list;
     latest_worker_validated: bool option;
     latest_failed_worker_run_id: string option;
     latest_failure_reason: string option;
+    latest_resolved_provider: string option;
+    latest_resolved_model: string option;
     trace_capabilities: Sessions.trace_capability list;
   }
 
@@ -2456,6 +2482,8 @@ module Direct_evidence : sig
     goal: string;
     title: string option;
     tag: string option;
+    worker_id: string option;
+    runtime_actor: string option;
     role: string option;
     aliases: string list;
     requested_provider: string option;
@@ -2476,6 +2504,18 @@ module Direct_evidence : sig
     options:options ->
     unit ->
     (Sessions.worker_run, Error.sdk_error) result
+  val get_proof_bundle :
+    agent:Agent.t ->
+    raw_trace:Raw_trace.t ->
+    options:options ->
+    unit ->
+    (Sessions.proof_bundle, Error.sdk_error) result
+  val get_conformance :
+    agent:Agent.t ->
+    raw_trace:Raw_trace.t ->
+    options:options ->
+    unit ->
+    (Conformance.report, Error.sdk_error) result
   val run_conformance :
     agent:Agent.t ->
     raw_trace:Raw_trace.t ->

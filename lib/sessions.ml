@@ -100,9 +100,12 @@ type worker_status =
 
 type worker_run = {
   worker_run_id: string;
+  worker_id: string option;
   agent_name: string;
+  runtime_actor: string option;
   role: string option;
   aliases: string list;
+  primary_alias: string option;
   provider: string option;
   model: string option;
   requested_provider: string option;
@@ -118,6 +121,9 @@ type worker_run = {
   stop_reason: string option;
   error: string option;
   failure_reason: string option;
+  accepted_at: float option;
+  ready_at: float option;
+  first_progress_at: float option;
   started_at: float option;
   finished_at: float option;
   last_progress_at: float option;
@@ -184,6 +190,11 @@ let first_some a b =
   match a with
   | Some _ -> a
   | None -> b
+
+let primary_alias aliases =
+  match aliases with
+  | alias :: _ when String.trim alias <> "" -> Some alias
+  | _ -> None
 
 let parse_json_string raw =
   try Ok (Yojson.Safe.from_string raw)
@@ -621,9 +632,19 @@ let worker_run_of_raw (session : Runtime.session)
   in
   {
     worker_run_id = summary.run_ref.worker_run_id;
+    worker_id =
+      first_some
+        (Option.bind participant (fun p -> p.worker_id))
+        (Some summary.run_ref.agent_name);
     agent_name = summary.run_ref.agent_name;
+    runtime_actor =
+      first_some
+        (Option.bind participant (fun p -> p.runtime_actor))
+        (Some summary.run_ref.agent_name);
     role = Option.bind participant (fun p -> p.role);
     aliases = Option.bind participant (fun p -> Some p.aliases) |> Option.value ~default:[];
+    primary_alias =
+      Option.bind participant (fun p -> primary_alias p.aliases);
     provider;
     model;
     requested_provider = Option.bind participant (fun p -> p.requested_provider);
@@ -642,6 +663,9 @@ let worker_run_of_raw (session : Runtime.session)
     stop_reason = validation.stop_reason;
     error;
     failure_reason;
+    accepted_at = Option.bind participant (fun p -> p.accepted_at);
+    ready_at = Option.bind participant (fun p -> p.ready_at);
+    first_progress_at = Option.bind participant (fun p -> p.first_progress_at);
     started_at =
       first_some (Option.bind participant (fun p -> p.started_at)) summary.started_at;
     finished_at =
@@ -669,9 +693,12 @@ let summary_only_worker_run (session : Runtime.session) index
   {
     worker_run_id =
       Printf.sprintf "summary-only:%s:%Ld" participant.name stamp;
+    worker_id = first_some participant.worker_id (Some participant.name);
     agent_name = participant.name;
+    runtime_actor = first_some participant.runtime_actor (Some participant.name);
     role = participant.role;
     aliases = participant.aliases;
+    primary_alias = primary_alias participant.aliases;
     provider = resolved_provider_of_participant session (Some participant);
     model = resolved_model_of_participant session (Some participant);
     requested_provider = participant.requested_provider;
@@ -687,6 +714,9 @@ let summary_only_worker_run (session : Runtime.session) index
     stop_reason = None;
     error = participant.last_error;
     failure_reason = participant.last_error;
+    accepted_at = participant.accepted_at;
+    ready_at = participant.ready_at;
+    first_progress_at = participant.first_progress_at;
     started_at = participant.started_at;
     finished_at = participant.finished_at;
     last_progress_at = participant.last_progress_at;

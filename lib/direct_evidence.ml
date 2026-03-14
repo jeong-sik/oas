@@ -8,6 +8,8 @@ type options = {
   goal: string;
   title: string option;
   tag: string option;
+  worker_id: string option;
+  runtime_actor: string option;
   role: string option;
   aliases: string list;
   requested_provider: string option;
@@ -44,23 +46,151 @@ let save_events store session_id (events : event list) =
   in
   Runtime_store.save_text (Runtime_store.events_path store session_id) content
 
-let lifecycle_snapshot_or_default agent =
+let lifecycle_snapshot_or_default (agent : Agent.t) : Agent.lifecycle_snapshot =
   match Agent.lifecycle_snapshot agent with
   | Some snapshot -> snapshot
   | None ->
       {
         Agent.current_run_id = None;
         agent_name = agent.state.config.name;
+        worker_id = Some agent.state.config.name;
+        runtime_actor = Some agent.state.config.name;
         status = Completed;
         requested_provider = None;
         requested_model = Some (Types.model_to_string agent.state.config.model);
         resolved_provider = None;
         resolved_model = Some (Types.model_to_string agent.state.config.model);
         last_error = None;
+        accepted_at = None;
+        ready_at = None;
+        first_progress_at = None;
         started_at = None;
         last_progress_at = None;
         finished_at = None;
       }
+
+let default_runtime_actor (agent : Agent.t) options =
+  first_some options.runtime_actor (Some agent.state.config.name)
+
+let default_worker_id (agent : Agent.t) options =
+  first_some options.worker_id (default_runtime_actor agent options)
+
+let primary_alias aliases =
+  match aliases with
+  | alias :: _ when String.trim alias <> "" -> Some alias
+  | _ -> None
+
+let worker_status_of_lifecycle = function
+  | Agent.Accepted -> Sessions.Accepted
+  | Agent.Ready -> Sessions.Ready
+  | Agent.Running -> Sessions.Running
+  | Agent.Completed -> Sessions.Completed
+  | Agent.Failed -> Sessions.Failed
+
+type raw_details = {
+  validated: bool;
+  tool_names: string list;
+  final_text: string option;
+  stop_reason: string option;
+  error: string option;
+  paired_tool_result_count: int;
+  has_file_write: bool;
+  verification_pass_after_file_write: bool;
+  failure_reason: string option;
+}
+
+let empty_raw_details =
+  {
+    validated = false;
+    tool_names = [];
+    final_text = None;
+    stop_reason = None;
+    error = None;
+    paired_tool_result_count = 0;
+    has_file_write = false;
+    verification_pass_after_file_write = false;
+    failure_reason = None;
+  }
+
+let raw_details_of_run run_ref =
+  let* validation = Raw_trace.validate_run run_ref in
+  Ok
+    {
+      validated = validation.ok;
+      tool_names = validation.tool_names;
+      final_text = validation.final_text;
+      stop_reason = validation.stop_reason;
+      error = validation.failure_reason;
+      paired_tool_result_count = validation.paired_tool_result_count;
+      has_file_write = validation.has_file_write;
+      verification_pass_after_file_write =
+        validation.verification_pass_after_file_write;
+      failure_reason = validation.failure_reason;
+    }
+
+let worker_run_of_agent ~(agent : Agent.t) ~options
+    ~(snapshot : Agent.lifecycle_snapshot) raw_details =
+  let aliases = options.aliases in
+  let worker_id = default_worker_id agent options in
+  let runtime_actor = default_runtime_actor agent options in
+  {
+    Sessions.worker_run_id =
+      Option.value ~default:"direct-untracked" snapshot.current_run_id;
+    worker_id;
+    agent_name = agent.state.config.name;
+    runtime_actor;
+    role = options.role;
+    aliases;
+    primary_alias = primary_alias aliases;
+    provider = snapshot.resolved_provider;
+    model = snapshot.resolved_model;
+    requested_provider =
+      first_some snapshot.requested_provider options.requested_provider;
+    requested_model =
+      first_some snapshot.requested_model options.requested_model;
+    requested_policy = options.requested_policy;
+    resolved_provider = snapshot.resolved_provider;
+    resolved_model = snapshot.resolved_model;
+    status = worker_status_of_lifecycle snapshot.status;
+    trace_capability =
+      (match snapshot.current_run_id with
+      | Some _ -> Sessions.Raw
+      | None -> Sessions.No_trace);
+    validated =
+      (match snapshot.status with
+      | Agent.Completed -> raw_details.validated
+      | Agent.Accepted | Agent.Ready | Agent.Running | Agent.Failed -> false);
+    tool_names = raw_details.tool_names;
+    final_text = raw_details.final_text;
+    stop_reason = raw_details.stop_reason;
+    error = first_some snapshot.last_error raw_details.error;
+    failure_reason = first_some snapshot.last_error raw_details.failure_reason;
+    accepted_at = snapshot.accepted_at;
+    ready_at = snapshot.ready_at;
+    first_progress_at = snapshot.first_progress_at;
+    started_at = snapshot.started_at;
+    finished_at = snapshot.finished_at;
+    last_progress_at = snapshot.last_progress_at;
+    policy_snapshot = options.requested_policy;
+    paired_tool_result_count = raw_details.paired_tool_result_count;
+    has_file_write = raw_details.has_file_write;
+    verification_pass_after_file_write =
+      raw_details.verification_pass_after_file_write;
+  }
+
+let current_worker_run ~(agent : Agent.t) ~raw_trace ~options () =
+  let snapshot = lifecycle_snapshot_or_default agent in
+  let raw_details =
+    match
+      match Raw_trace.last_run raw_trace with
+      | Some run -> Some run
+      | None -> Agent.last_raw_trace_run agent
+    with
+    | Some run -> raw_details_of_run run
+    | None -> Ok empty_raw_details
+  in
+  let* raw_details = raw_details in
+  Ok (worker_run_of_agent ~agent ~options ~snapshot raw_details)
 
 let extract_prompt (records : Raw_trace.record list) =
   records
@@ -155,192 +285,214 @@ let persist ~agent ~raw_trace ~(options : options) () =
       write_latest_run_to_session store options.session_id agent.state.config.name
         last_run
     in
-    let* raw_summary = Raw_trace.summarize_run raw_run in
-    let* _raw_validation = Raw_trace.validate_run raw_run in
-    let prompt = extract_prompt latest_records in
-    let selected_provider =
-      first_some snapshot.requested_provider options.requested_provider
+    let existing_bundle =
+      match Sessions.get_proof_bundle ?session_root:options.session_root
+              ~session_id:options.session_id ()
+      with
+      | Ok bundle -> (
+          match bundle.Sessions.latest_raw_trace_run with
+          | Some existing
+            when String.equal existing.worker_run_id raw_run.worker_run_id -> Some bundle
+          | _ -> None)
+      | Error _ -> None
     in
-    let selected_model =
-      first_some snapshot.requested_model options.requested_model
-    in
-    let start_request =
-      {
-        session_id = Some options.session_id;
-        goal = options.goal;
-        participants = [ agent.state.config.name ];
-        provider = selected_provider;
-        model = selected_model;
-        permission_mode = options.requested_policy;
-        system_prompt = agent.state.config.system_prompt;
-        max_turns = Some agent.state.config.max_turns;
-        workdir = options.workdir;
-      }
-    in
-    let initial_session =
-      let session = Runtime_projection.initial_session start_request in
-      {
-        session with
-        title = options.title;
-        tag = options.tag;
-        participants =
-          session.participants
-          |> List.map (fun (participant : Runtime.participant) ->
-                 if String.equal participant.name agent.state.config.name then
-                   {
-                     participant with
-                     role = first_some options.role participant.role;
-                     aliases = options.aliases;
-                   }
-                 else participant);
-      }
-    in
-    let started_at = Option.value raw_summary.started_at ~default:(now ()) in
-    let finished_at =
-      Option.value raw_summary.finished_at
-        ~default:(Option.value snapshot.finished_at ~default:started_at)
-    in
-    let deltas = extract_text_deltas latest_records in
-    let base_events =
-      [
-        make_event 1 (started_at -. 0.003)
-          (Session_started
-             { goal = options.goal; participants = [ agent.state.config.name ] });
-        make_event 2 (started_at -. 0.002)
-          (Turn_recorded { actor = None; message = prompt });
-        make_event 3 (started_at -. 0.001)
-          (Agent_spawn_requested
-             {
-               participant_name = agent.state.config.name;
-               role = first_some options.role None;
-               prompt;
-               provider = selected_provider;
-               model = selected_model;
-               permission_mode = options.requested_policy;
-             });
-        make_event 4 started_at
-          (Agent_became_live
-             {
-               participant_name = agent.state.config.name;
-               summary = Some "direct-agent-started";
-               provider = snapshot.resolved_provider;
-               model = snapshot.resolved_model;
-               error = None;
-             });
-      ]
-      @ (deltas
-        |> List.mapi (fun index (ts, text) ->
-               make_event (5 + index) ts
-                 (Agent_output_delta
-                    { participant_name = agent.state.config.name; delta = text })))
-      @ [
-          make_event (5 + List.length deltas) finished_at
-            (match snapshot.status with
-            | Agent.Failed ->
-                Agent_failed
-                  {
-                    participant_name = agent.state.config.name;
-                    summary = raw_summary.final_text;
-                    provider = snapshot.resolved_provider;
-                    model = snapshot.resolved_model;
-                    error = first_some snapshot.last_error raw_summary.error;
-                  }
-            | Agent.Accepted | Agent.Ready | Agent.Running | Agent.Completed ->
-                Agent_completed
-                  {
-                    participant_name = agent.state.config.name;
-                    summary = raw_summary.final_text;
-                    provider = snapshot.resolved_provider;
-                    model = snapshot.resolved_model;
-                    error = None;
-                  });
-          make_event (6 + List.length deltas) (finished_at +. 0.001)
-            (Finalize_requested { reason = None });
-          make_event (7 + List.length deltas) (finished_at +. 0.002)
-            (match snapshot.status with
-            | Agent.Failed ->
-                Session_failed
-                  { outcome = first_some snapshot.last_error raw_summary.error }
-            | Agent.Accepted | Agent.Ready | Agent.Running | Agent.Completed ->
-                Session_completed { outcome = raw_summary.stop_reason });
-        ]
-    in
-    let* terminal_session = apply_events initial_session base_events in
-    let* () = Runtime_store.save_session store terminal_session in
-    let* () = save_events store options.session_id base_events in
-    let telemetry = Runtime_evidence.build_telemetry_report terminal_session base_events in
-    let telemetry_json =
-      Runtime_evidence.telemetry_report_to_json telemetry
-      |> Yojson.Safe.pretty_to_string
-    in
-    let telemetry_md = Runtime_evidence.telemetry_report_to_markdown telemetry in
-    let report = Runtime_projection.build_report terminal_session base_events in
-    let proof = Runtime_projection.build_proof terminal_session base_events in
-    let* () = Runtime_store.save_report store report in
-    let* () = Runtime_store.save_proof store proof in
-    let* telemetry_json_artifact =
-      Artifact_service.save_text_internal store ~session_id:options.session_id
-        ~name:"runtime-telemetry-json" ~kind:"json" ~content:telemetry_json
-    in
-    let* telemetry_md_artifact =
-      Artifact_service.save_text_internal store ~session_id:options.session_id
-        ~name:"runtime-telemetry" ~kind:"markdown" ~content:telemetry_md
-    in
-    let evidence =
-      Runtime_evidence.build_evidence_bundle ~session_id:options.session_id
+    match existing_bundle with
+    | Some bundle -> Ok bundle
+    | None ->
+        let* raw_summary = Raw_trace.summarize_run raw_run in
+        let* _raw_validation = Raw_trace.validate_run raw_run in
+        let prompt = extract_prompt latest_records in
+        let selected_provider =
+          first_some snapshot.requested_provider options.requested_provider
+        in
+        let selected_model =
+          first_some snapshot.requested_model options.requested_model
+        in
+        let start_request =
+          {
+            session_id = Some options.session_id;
+            goal = options.goal;
+            participants = [ agent.state.config.name ];
+            provider = selected_provider;
+            model = selected_model;
+            permission_mode = options.requested_policy;
+            system_prompt = agent.state.config.system_prompt;
+            max_turns = Some agent.state.config.max_turns;
+            workdir = options.workdir;
+          }
+        in
+        let initial_session =
+          let session = Runtime_projection.initial_session start_request in
+          {
+            session with
+            title = options.title;
+            tag = options.tag;
+            participants =
+              session.participants
+              |> List.map (fun (participant : Runtime.participant) ->
+                     if String.equal participant.name agent.state.config.name then
+                       {
+                         participant with
+                         worker_id = default_worker_id agent options;
+                         runtime_actor = default_runtime_actor agent options;
+                         role = first_some options.role participant.role;
+                         aliases = options.aliases;
+                       }
+                     else participant);
+          }
+        in
+        let started_at = Option.value raw_summary.started_at ~default:(now ()) in
+        let finished_at =
+          Option.value raw_summary.finished_at
+            ~default:(Option.value snapshot.finished_at ~default:started_at)
+        in
+        let deltas = extract_text_deltas latest_records in
+        let base_events =
+          [
+            make_event 1 (started_at -. 0.003)
+              (Session_started
+                 { goal = options.goal; participants = [ agent.state.config.name ] });
+            make_event 2 (started_at -. 0.002)
+              (Turn_recorded { actor = None; message = prompt });
+            make_event 3 (started_at -. 0.001)
+              (Agent_spawn_requested
+                 {
+                   participant_name = agent.state.config.name;
+                   role = first_some options.role None;
+                   prompt;
+                   provider = selected_provider;
+                   model = selected_model;
+                   permission_mode = options.requested_policy;
+                 });
+            make_event 4 started_at
+              (Agent_became_live
+                 {
+                   participant_name = agent.state.config.name;
+                   summary = Some "direct-agent-started";
+                   provider = snapshot.resolved_provider;
+                   model = snapshot.resolved_model;
+                   error = None;
+                 });
+          ]
+          @ (deltas
+            |> List.mapi (fun index (ts, text) ->
+                   make_event (5 + index) ts
+                     (Agent_output_delta
+                        { participant_name = agent.state.config.name; delta = text })))
+          @ [
+              make_event (5 + List.length deltas) finished_at
+                (match snapshot.status with
+                | Agent.Failed ->
+                    Agent_failed
+                      {
+                        participant_name = agent.state.config.name;
+                        summary = raw_summary.final_text;
+                        provider = snapshot.resolved_provider;
+                        model = snapshot.resolved_model;
+                        error = first_some snapshot.last_error raw_summary.error;
+                      }
+                | Agent.Accepted | Agent.Ready | Agent.Running | Agent.Completed ->
+                    Agent_completed
+                      {
+                        participant_name = agent.state.config.name;
+                        summary = raw_summary.final_text;
+                        provider = snapshot.resolved_provider;
+                        model = snapshot.resolved_model;
+                        error = None;
+                      });
+              make_event (6 + List.length deltas) (finished_at +. 0.001)
+                (Finalize_requested { reason = None });
+              make_event (7 + List.length deltas) (finished_at +. 0.002)
+                (match snapshot.status with
+                | Agent.Failed ->
+                    Session_failed
+                      { outcome = first_some snapshot.last_error raw_summary.error }
+                | Agent.Accepted | Agent.Ready | Agent.Running | Agent.Completed ->
+                    Session_completed { outcome = raw_summary.stop_reason });
+            ]
+        in
+        let* terminal_session = apply_events initial_session base_events in
+        let* () = Runtime_store.save_session store terminal_session in
+        let* () = save_events store options.session_id base_events in
+      let telemetry =
+        Runtime_evidence.build_telemetry_report terminal_session base_events
+      in
+      let telemetry_json =
+        Runtime_evidence.telemetry_report_to_json telemetry
+        |> Yojson.Safe.pretty_to_string
+      in
+      let telemetry_md = Runtime_evidence.telemetry_report_to_markdown telemetry in
+      let report = Runtime_projection.build_report terminal_session base_events in
+      let proof = Runtime_projection.build_proof terminal_session base_events in
+      let* () = Runtime_store.save_report store report in
+      let* () = Runtime_store.save_proof store proof in
+      let* telemetry_json_artifact =
+        Artifact_service.save_text_internal store ~session_id:options.session_id
+          ~name:"runtime-telemetry-json" ~kind:"json" ~content:telemetry_json
+      in
+      let* telemetry_md_artifact =
+        Artifact_service.save_text_internal store ~session_id:options.session_id
+          ~name:"runtime-telemetry" ~kind:"markdown" ~content:telemetry_md
+      in
+      let evidence =
+        Runtime_evidence.build_evidence_bundle ~session_id:options.session_id
+          [
+            ("session_json", Runtime_store.session_path store options.session_id);
+            ("events_jsonl", Runtime_store.events_path store options.session_id);
+            ("report_json", Runtime_store.report_json_path store options.session_id);
+            ("report_md", Runtime_store.report_md_path store options.session_id);
+            ("proof_json", Runtime_store.proof_json_path store options.session_id);
+            ("proof_md", Runtime_store.proof_md_path store options.session_id);
+          ]
+      in
+      let evidence_json =
+        Runtime_evidence.evidence_bundle_to_json evidence
+        |> Yojson.Safe.pretty_to_string
+      in
+      let* evidence_artifact =
+        Artifact_service.save_text_internal store ~session_id:options.session_id
+          ~name:"runtime-evidence" ~kind:"json" ~content:evidence_json
+      in
+      let artifact_events =
         [
-          ("session_json", Runtime_store.session_path store options.session_id);
-          ("events_jsonl", Runtime_store.events_path store options.session_id);
-          ("report_json", Runtime_store.report_json_path store options.session_id);
-          ("report_md", Runtime_store.report_md_path store options.session_id);
-          ("proof_json", Runtime_store.proof_json_path store options.session_id);
-          ("proof_md", Runtime_store.proof_md_path store options.session_id);
+          telemetry_json_artifact;
+          telemetry_md_artifact;
+          evidence_artifact;
         ]
-    in
-    let evidence_json =
-      Runtime_evidence.evidence_bundle_to_json evidence
-      |> Yojson.Safe.pretty_to_string
-    in
-    let* evidence_artifact =
-      Artifact_service.save_text_internal store ~session_id:options.session_id
-        ~name:"runtime-evidence" ~kind:"json" ~content:evidence_json
-    in
-    let artifact_events =
-      [
-        telemetry_json_artifact;
-        telemetry_md_artifact;
-        evidence_artifact;
-      ]
-      |> List.mapi (fun index (artifact : Runtime.artifact) ->
-             make_event (8 + List.length deltas + index)
-               (finished_at +. 0.003 +. (float_of_int index *. 0.001))
-               (Artifact_attached
-                  {
-                    artifact_id = artifact.artifact_id;
-                    name = artifact.name;
-                    kind = artifact.kind;
-                    mime_type = artifact.mime_type;
-                    path = Option.value ~default:"" artifact.path;
-                    size_bytes = artifact.size_bytes;
-                  }))
-    in
-    let all_events = base_events @ artifact_events in
-    let* final_session = apply_events initial_session all_events in
-    let final_report = Runtime_projection.build_report final_session all_events in
-    let final_proof = Runtime_projection.build_proof final_session all_events in
-    let* () = Runtime_store.save_session store final_session in
-    let* () = save_events store options.session_id all_events in
-    let* () = Runtime_store.save_report store final_report in
-    let* () = Runtime_store.save_proof store final_proof in
-    Sessions.get_proof_bundle ?session_root:options.session_root
-      ~session_id:options.session_id ()
+        |> List.mapi (fun index (artifact : Runtime.artifact) ->
+               make_event (8 + List.length deltas + index)
+                 (finished_at +. 0.003 +. (float_of_int index *. 0.001))
+                 (Artifact_attached
+                    {
+                      artifact_id = artifact.artifact_id;
+                      name = artifact.name;
+                      kind = artifact.kind;
+                      mime_type = artifact.mime_type;
+                      path = Option.value ~default:"" artifact.path;
+                      size_bytes = artifact.size_bytes;
+                    }))
+      in
+      let all_events = base_events @ artifact_events in
+      let* final_session = apply_events initial_session all_events in
+      let final_report = Runtime_projection.build_report final_session all_events in
+      let final_proof = Runtime_projection.build_proof final_session all_events in
+      let* () = Runtime_store.save_session store final_session in
+      let* () = save_events store options.session_id all_events in
+      let* () = Runtime_store.save_report store final_report in
+      let* () = Runtime_store.save_proof store final_proof in
+        Sessions.get_proof_bundle ?session_root:options.session_root
+          ~session_id:options.session_id ()
 
 let get_worker_run ~agent ~raw_trace ~options () =
-  let* bundle = persist ~agent ~raw_trace ~options () in
-  match bundle.Sessions.latest_worker_run with
-  | Some worker -> Ok worker
-  | None -> Error (validation_error "Direct evidence did not produce a worker run")
+  current_worker_run ~agent ~raw_trace ~options ()
+
+let get_proof_bundle ~agent ~raw_trace ~options () =
+  persist ~agent ~raw_trace ~options ()
+
+let get_conformance ~agent ~raw_trace ~options () =
+  let* bundle = get_proof_bundle ~agent ~raw_trace ~options () in
+  Ok (Conformance.report bundle)
 
 let run_conformance ~agent ~raw_trace ~options () =
-  let* bundle = persist ~agent ~raw_trace ~options () in
-  Ok (Conformance.report bundle)
+  let* report = get_conformance ~agent ~raw_trace ~options () in
+  Ok report
