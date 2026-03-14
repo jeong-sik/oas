@@ -32,6 +32,7 @@ type t = {
   context_reducer: Context_reducer.t option;
   mcp_clients: Mcp.managed list;
   event_bus: Event_bus.t option;
+  contract: Contract.t;
 }
 
 let create ~net ~model =
@@ -63,6 +64,7 @@ let create ~net ~model =
     context_reducer = None;
     mcp_clients = [];
     event_bus = None;
+    contract = Contract.empty;
   }
 
 let with_system_prompt prompt b = { b with system_prompt = Some prompt }
@@ -85,6 +87,16 @@ let with_provider provider b = { b with provider = Some provider }
 let with_base_url url b = { b with base_url = url }
 let with_mcp_clients clients b = { b with mcp_clients = clients }
 let with_guardrails guardrails b = { b with guardrails }
+let with_contract contract b =
+  { b with contract = Contract.merge b.contract contract }
+let with_skill skill b =
+  with_contract (Contract.with_skill skill Contract.empty) b
+let with_skills skills b =
+  with_contract (Contract.with_skills skills Contract.empty) b
+let with_tool_grants tool_names b =
+  with_contract (Contract.with_tool_grants tool_names Contract.empty) b
+let with_mcp_tool_allowlist tool_names b =
+  with_contract (Contract.with_mcp_tool_allowlist tool_names Contract.empty) b
 let with_tool_choice tc b = { b with tool_choice = Some tc }
 let with_thinking_budget n b = { b with thinking_budget = Some n }
 let with_max_input_tokens n b = { b with max_input_tokens = Some n }
@@ -94,10 +106,13 @@ let with_cache_system_prompt v b = { b with cache_system_prompt = v }
 let with_event_bus bus b = { b with event_bus = Some bus }
 
 let build b =
+  let tools = Contract.filter_tools b.contract b.tools in
+  let mcp_clients = Contract.filter_mcp_clients b.contract b.mcp_clients in
+  let context = Contract.context_with_contract ?context:b.context b.contract in
   let config = {
     name = b.name;
     model = b.model;
-    system_prompt = b.system_prompt;
+    system_prompt = Contract.compose_system_prompt ?base:b.system_prompt b.contract;
     max_tokens = b.max_tokens;
     max_turns = b.max_turns;
     temperature = b.temperature;
@@ -120,7 +135,7 @@ let build b =
     tracer = b.tracer;
     approval = b.approval;
     context_reducer = b.context_reducer;
-    mcp_clients = b.mcp_clients;
+    mcp_clients;
     event_bus = b.event_bus;
   } in
-  Agent.create ~net:b.net ~config ~tools:b.tools ?context:b.context ~options ()
+  Agent.create ~net:b.net ~config ~tools ?context ~options ()
