@@ -434,7 +434,7 @@ let resume ~net ~(checkpoint : Checkpoint.t) ?(tools=[]) ?context
   } in
   let ctx = match context with
     | Some c -> c
-    | None -> Context.create ()
+    | None -> Context.copy checkpoint.context
   in
   { state; tools; net; context = ctx; options }
 
@@ -462,5 +462,6 @@ let checkpoint ?(session_id="") agent =
     cache_system_prompt = agent.state.config.cache_system_prompt;
     max_input_tokens = agent.state.config.max_input_tokens;
     max_total_tokens = agent.state.config.max_total_tokens;
+    context = Context.copy agent.context;
     mcp_sessions = Mcp_session.capture_all agent.options.mcp_clients;
   }

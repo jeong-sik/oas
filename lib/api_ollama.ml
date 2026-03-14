@@ -2,8 +2,11 @@
 
 open Types
 
-let build_ollama_chat_body ~config ~messages ?tools () =
-  let base = Yojson.Safe.from_string (Api_openai.build_openai_body ~config ~messages ?tools ()) in
+let build_ollama_chat_body ~provider_config ~config ~messages ?tools () =
+  let base =
+    Yojson.Safe.from_string
+      (Api_openai.build_openai_body ~provider_config ~config ~messages ?tools ())
+  in
   match base with
   | `Assoc fields ->
       Yojson.Safe.to_string

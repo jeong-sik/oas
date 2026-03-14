@@ -123,6 +123,45 @@ let test_anthropic_headers () =
   | Error e ->
     Alcotest.fail (Printf.sprintf "should succeed: %s" (Error.to_string e))
 
+let test_model_spec_local_qwen_capabilities () =
+  let spec = Provider.model_spec_of_config (Provider.local_qwen ()) in
+  Alcotest.(check string) "request path" "/v1/messages" spec.request_path;
+  Alcotest.(check bool) "supports tools" true spec.capabilities.supports_tools;
+  Alcotest.(check bool) "supports reasoning" true
+    spec.capabilities.supports_reasoning;
+  Alcotest.(check bool) "supports native streaming" true
+    spec.capabilities.supports_native_streaming
+
+let test_model_spec_openrouter_capabilities () =
+  let spec =
+    Provider.model_spec_of_config
+      (Provider.openrouter ~model_id:"anthropic/claude-sonnet-4-6" ())
+  in
+  Alcotest.(check string) "request path" "/chat/completions" spec.request_path;
+  Alcotest.(check bool) "supports tools" true spec.capabilities.supports_tools;
+  Alcotest.(check bool) "supports reasoning" false
+    spec.capabilities.supports_reasoning;
+  Alcotest.(check bool) "supports top_k" false spec.capabilities.supports_top_k;
+  Alcotest.(check bool) "supports json response" true
+    spec.capabilities.supports_response_format_json
+
+let test_qwen_family_openai_capabilities () =
+  let capabilities =
+    Provider.capabilities_for_model
+      ~provider:
+        (Provider.OpenAICompat
+           {
+             base_url = "http://localhost:8080";
+             auth_header = None;
+             path = "/chat/completions";
+             static_token = None;
+           })
+      ~model_id:"qwen3.5-35b-a3b-ud-q8-xl"
+  in
+  Alcotest.(check bool) "supports reasoning" true capabilities.supports_reasoning;
+  Alcotest.(check bool) "supports top_k" true capabilities.supports_top_k;
+  Alcotest.(check bool) "supports min_p" true capabilities.supports_min_p
+
 let () =
   Alcotest.run "Provider" [
     "resolve", [
@@ -133,5 +172,11 @@ let () =
       Alcotest.test_case "openai compat success" `Quick test_openai_compat_resolve_success;
       Alcotest.test_case "openai compat missing key" `Quick test_openai_compat_resolve_missing_key;
       Alcotest.test_case "anthropic headers" `Quick test_anthropic_headers;
+      Alcotest.test_case "local qwen model spec capabilities" `Quick
+        test_model_spec_local_qwen_capabilities;
+      Alcotest.test_case "openrouter model spec capabilities" `Quick
+        test_model_spec_openrouter_capabilities;
+      Alcotest.test_case "qwen family openai capabilities" `Quick
+        test_qwen_family_openai_capabilities;
     ];
   ]

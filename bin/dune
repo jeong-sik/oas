@@ -3,3 +3,6 @@
  (public_name oas-runtime)
  (libraries agent_sdk eio eio_main yojson unix))
 
+(executable
+ (name oas_proof_demo)
+ (libraries agent_sdk yojson unix))

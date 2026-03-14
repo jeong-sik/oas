@@ -11,6 +11,7 @@ let make_checkpoint
     ?(turn_count=0)
     ?(tools=[])
     ?(tool_choice=None)
+    ?(context=Context.create ())
     ?(mcp_sessions=[])
     () : Checkpoint.t =
   {
@@ -35,6 +36,7 @@ let make_checkpoint
     cache_system_prompt = false;
     max_input_tokens = None;
     max_total_tokens = None;
+    context;
     mcp_sessions;
   }
 
@@ -63,14 +65,14 @@ let () =
   let open Alcotest in
   run "Checkpoint" [
     "version", [
-      test_case "checkpoint_version is 2" `Quick (fun () ->
-        check int "version" 2 Checkpoint.checkpoint_version);
+      test_case "checkpoint_version is 3" `Quick (fun () ->
+        check int "version" 3 Checkpoint.checkpoint_version);
 
       test_case "version field in to_json" `Quick (fun () ->
         let cp = make_checkpoint () in
         let json = Checkpoint.to_json cp in
         let v = Yojson.Safe.Util.(json |> member "version" |> to_int) in
-        check int "version" 2 v);
+        check int "version" 3 v);
 
       test_case "wrong version returns Error" `Quick (fun () ->
         let cp = make_checkpoint () in
@@ -110,6 +112,19 @@ let () =
         let cp = make_checkpoint ~system_prompt:(Some "Be concise.") () in
         let cp2 = Result.get_ok (Checkpoint.of_json (Checkpoint.to_json cp)) in
         check (option string) "system_prompt" (Some "Be concise.") cp2.system_prompt);
+
+      test_case "context roundtrip" `Quick (fun () ->
+        let ctx = Context.create () in
+        Context.set_scoped ctx Context.Session "trace_id" (`String "abc");
+        Context.set_scoped ctx Context.User "theme" (`String "dark");
+        let cp = make_checkpoint ~context:ctx () in
+        let cp2 = Result.get_ok (Checkpoint.of_json (Checkpoint.to_json cp)) in
+        check bool "session state restored" true
+          (Context.get_scoped cp2.context Context.Session "trace_id"
+           = Some (`String "abc"));
+        check bool "user state restored" true
+          (Context.get_scoped cp2.context Context.User "theme"
+           = Some (`String "dark")));
     ];
 
     "messages", [
@@ -538,7 +553,7 @@ let () =
           | other -> other
         in
         let cp2 = Result.get_ok (Checkpoint.of_json v1_json) in
-        check int "version upgraded to 2" 2 cp2.version;
+        check int "version upgraded to 3" 3 cp2.version;
         check int "mcp_sessions empty" 0 (List.length cp2.mcp_sessions));
 
       test_case "version 1 with null mcp_sessions" `Quick (fun () ->

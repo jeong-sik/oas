@@ -2,6 +2,56 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.11.0] - 2026-03-14
+
+### Added
+- Provider model-spec and capability registry:
+  - `Provider.capabilities`
+  - `Provider.model_spec`
+  - `Provider.capabilities_for_model`
+  - `Provider.capabilities_for_config`
+  - `Provider.model_spec_of_config`
+- Scoped cross-turn state in `Context`:
+  - scopes: `App`, `User`, `Session`, `Temp`, `Custom`
+  - helpers: `delete`, `snapshot`, `scoped_key`, `get_scoped`, `set_scoped`, `delete_scoped`, `keys_in_scope`, `diff`
+- Artifact service and session artifact access:
+  - `Artifact_service.list`
+  - `Artifact_service.get_text`
+  - `Sessions.list_artifacts`
+  - `Sessions.get_artifact_text`
+- MCP expansion beyond tools:
+  - `Mcp.list_resources`
+  - `Mcp.read_resource`
+  - `Mcp.list_prompts`
+  - `Mcp.get_prompt`
+- Trace-driven evaluation:
+  - `Trace_eval.summarize`
+  - `Trace_eval.evaluate`
+  - `Trace_eval.evaluate_flushed`
+- Runtime evidence bundle generation:
+  - telemetry JSON artifact
+  - telemetry markdown artifact
+  - evidence JSON artifact with persisted file hashes
+- `oas_proof_demo` executable for reproducible non-test proof bundles
+
+### Changed
+- OpenAI-compatible request shaping is now capability-gated instead of relying on scattered provider/model conditionals.
+- Qwen-only request fields (`top_k`, `min_p`, `chat_template_kwargs.enable_thinking`) are omitted for generic OpenAI-compatible providers.
+- Checkpoints now persist agent context and restore it through `Agent.resume` and `Session.resume_from`.
+- Runtime artifact metadata is now first-class:
+  - `artifact_id`
+  - `mime_type`
+  - `size_bytes`
+- Runtime proof checks are stronger and deterministic:
+  - `terminal_event`
+  - `seq_contiguous`
+  - `artifact_ids_unique`
+
+### Fixed
+- Runtime finalize now persists telemetry/evidence artifacts even after the session has entered a terminal phase.
+- MCP output truncation is budget-aware for tool and resource text responses.
+- Session-level proof/demo evidence now includes artifact manifests with file sizes and MD5 digests.
+
 ## [0.10.0] - 2026-03-13
 
 ### Added

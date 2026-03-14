@@ -100,13 +100,15 @@ let create_message_stream ~sw ~net ?(base_url=Api.default_base_url) ?provider ~c
     | None ->
         (match Sys.getenv_opt "ANTHROPIC_API_KEY" with
          | Some key ->
+             let fallback_provider : Provider.config =
+               {
+                 provider = Provider.Anthropic;
+                 model_id = model_to_string config.config.model;
+                 api_key_env = "ANTHROPIC_API_KEY";
+               }
+             in
              Ok
-               ( Provider.
-                   {
-                     provider = Anthropic;
-                     model_id = model_to_string config.config.model;
-                     api_key_env = "ANTHROPIC_API_KEY";
-                   },
+               ( fallback_provider,
                  base_url,
                  key )
          | None -> Error (Error.Config (MissingEnvVar { var_name = "ANTHROPIC_API_KEY" })))

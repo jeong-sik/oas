@@ -7,6 +7,8 @@
 open Types
 module Sdk_types = Mcp_protocol.Mcp_types
 
+let ( let* ) = Result.bind
+
 (* ── JSON Schema -> SDK tool_param (oas-specific bridge) ─────────── *)
 
 let json_schema_type_to_param_type = function
@@ -51,6 +53,11 @@ type mcp_tool = {
   input_schema: Yojson.Safe.t;
 }
 
+type mcp_resource = Sdk_types.resource
+type mcp_resource_contents = Sdk_types.resource_contents
+type mcp_prompt = Sdk_types.prompt
+type mcp_prompt_result = Sdk_types.prompt_result
+
 (** Convert SDK {!Sdk_types.tool} to oas {!mcp_tool}. *)
 let mcp_tool_of_sdk_tool (t : Sdk_types.tool) : mcp_tool =
   { name = t.name;
@@ -76,6 +83,20 @@ type t = {
 }
 
 (** Extract concatenated text content from a {!Sdk_types.tool_result}. *)
+let output_token_budget () =
+  match Sys.getenv_opt "OAS_MCP_OUTPUT_MAX_TOKENS" with
+  | Some raw -> (
+      match int_of_string_opt (String.trim raw) with
+      | Some value when value > 0 -> value
+      | _ -> 25_000)
+  | None -> 25_000
+
+let truncate_output text =
+  let max_chars = output_token_budget () * 4 in
+  if String.length text <= max_chars then text
+  else
+    String.sub text 0 max_chars ^ "\n...[oas mcp output truncated]"
+
 let text_of_tool_result (r : Sdk_types.tool_result) =
   List.filter_map (fun (c : Sdk_types.tool_content) ->
     match c with
@@ -83,6 +104,7 @@ let text_of_tool_result (r : Sdk_types.tool_result) =
     | _ -> None
   ) r.content
   |> String.concat "\n"
+  |> truncate_output
 
 (** Connect to an MCP server by spawning a subprocess via Eio.
     [sw] controls the process lifetime.  [mgr] spawns the child.
@@ -235,6 +257,102 @@ let list_tools t =
   in
   loop None []
 
+let decode_items field decode result_json =
+  let open Yojson.Safe.Util in
+  match result_json |> member field with
+  | `List items ->
+      let rec loop acc = function
+        | [] -> Ok (List.rev acc)
+        | item :: rest -> (
+            match decode item with
+            | Ok value -> loop (value :: acc) rest
+            | Error detail ->
+                Error
+                  (Error.Serialization
+                     (JsonParseError
+                        { detail = Printf.sprintf "MCP %s decode failed: %s" field detail })))
+      in
+      loop [] items
+  | _ -> Ok []
+
+let list_resources t =
+  let rec loop cursor acc =
+    let params =
+      match cursor with
+      | Some value -> Some (`Assoc [("cursor", `String value)])
+      | None -> None
+    in
+    match send_request t ~method_:"resources/list" ?params () with
+    | Error msg -> Error (Error.Mcp (ToolListFailed { detail = msg }))
+    | Ok result ->
+        let open Yojson.Safe.Util in
+        let* page = decode_items "resources" Sdk_types.resource_of_yojson result in
+        let next_cursor = result |> member "nextCursor" |> to_string_option in
+        let acc = acc @ page in
+        (match next_cursor with
+         | Some value when String.trim value <> "" -> loop (Some value) acc
+         | _ -> Ok acc)
+  in
+  loop None []
+
+let read_resource t ~uri =
+  let params = `Assoc [("uri", `String uri)] in
+  match send_request t ~method_:"resources/read" ~params () with
+  | Error msg -> Error (Error.Mcp (ToolCallFailed { tool_name = uri; detail = msg }))
+  | Ok result ->
+      let* contents = decode_items "contents" Sdk_types.resource_contents_of_yojson result in
+      Ok
+        (List.map
+           (fun (content : Sdk_types.resource_contents) ->
+             match content.text with
+             | Some text -> { content with text = Some (truncate_output text) }
+             | None -> content)
+           contents)
+
+let list_prompts t =
+  let rec loop cursor acc =
+    let params =
+      match cursor with
+      | Some value -> Some (`Assoc [("cursor", `String value)])
+      | None -> None
+    in
+    match send_request t ~method_:"prompts/list" ?params () with
+    | Error msg -> Error (Error.Mcp (ToolListFailed { detail = msg }))
+    | Ok result ->
+        let open Yojson.Safe.Util in
+        let* page = decode_items "prompts" Sdk_types.prompt_of_yojson result in
+        let next_cursor = result |> member "nextCursor" |> to_string_option in
+        let acc = acc @ page in
+        (match next_cursor with
+         | Some value when String.trim value <> "" -> loop (Some value) acc
+         | _ -> Ok acc)
+  in
+  loop None []
+
+let get_prompt t ~name ?(arguments = []) () =
+  let args_json =
+    arguments
+    |> List.map (fun (key, value) -> (key, `String value))
+    |> fun pairs -> `Assoc pairs
+  in
+  let params =
+    `Assoc
+      [
+        ("name", `String name);
+        ("arguments", args_json);
+      ]
+  in
+  match send_request t ~method_:"prompts/get" ~params () with
+  | Error msg -> Error (Error.Mcp (ToolCallFailed { tool_name = name; detail = msg }))
+  | Ok result -> (
+      match Sdk_types.prompt_result_of_yojson result with
+      | Ok prompt_result -> Ok prompt_result
+      | Error detail ->
+          Error
+            (Error.Serialization
+               (JsonParseError
+                  { detail = Printf.sprintf "MCP prompt decode failed: %s" detail })))
+
 (** Invoke a tool on the MCP server.
     Returns the concatenated text content on success. *)
 let call_tool t ~name ~arguments =
@@ -271,7 +389,7 @@ let call_tool t ~name ~arguments =
              | `Bool b -> b
              | _ -> false)
       in
-      if is_error then Error text else Ok text
+      if is_error then Error text else Ok (truncate_output text)
 
 (** Convert MCP tools to SDK [Tool.t] list.
     Each tool's handler delegates to {!call_tool} on [t]. *)

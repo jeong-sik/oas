@@ -181,12 +181,32 @@ module Context : sig
       Values are [Yojson.Safe.t] for flexibility while maintaining
       serializability. *)
   type t
+  type scope =
+    | App
+    | User
+    | Session
+    | Temp
+    | Custom of string
+
+  type diff = {
+    added: (string * Yojson.Safe.t) list;
+    removed: string list;
+    changed: (string * Yojson.Safe.t) list;
+  }
 
   val create : unit -> t
   val get : t -> string -> Yojson.Safe.t option
   val set : t -> string -> Yojson.Safe.t -> unit
+  val delete : t -> string -> unit
   val keys : t -> string list
+  val snapshot : t -> (string * Yojson.Safe.t) list
+  val scoped_key : scope -> string -> string
+  val get_scoped : t -> scope -> string -> Yojson.Safe.t option
+  val set_scoped : t -> scope -> string -> Yojson.Safe.t -> unit
+  val delete_scoped : t -> scope -> string -> unit
+  val keys_in_scope : t -> scope -> string list
   val merge : t -> (string * Yojson.Safe.t) list -> unit
+  val diff : t -> t -> diff
   val to_json : t -> Yojson.Safe.t
   (** Deserialize from JSON.  Returns an empty context if [json] is not
       a JSON object (i.e. not [`Assoc _]). *)
@@ -228,8 +248,32 @@ module Provider : sig
     | Ollama_chat
     | Ollama_generate
 
+  type capabilities = {
+    supports_tools: bool;
+    supports_tool_choice: bool;
+    supports_reasoning: bool;
+    supports_response_format_json: bool;
+    supports_multimodal_inputs: bool;
+    supports_native_streaming: bool;
+    supports_top_k: bool;
+    supports_min_p: bool;
+  }
+
+  type model_spec = {
+    provider: provider;
+    model_id: string;
+    api_key_env: string;
+    request_kind: request_kind;
+    request_path: string;
+    capabilities: capabilities;
+  }
+
   val request_kind : provider -> request_kind
   val request_path : provider -> string
+  val default_capabilities : capabilities
+  val capabilities_for_model : provider:provider -> model_id:string -> capabilities
+  val capabilities_for_config : config -> capabilities
+  val model_spec_of_config : config -> model_spec
 
   (** Resolve provider config to (base_url, api_key, headers) *)
   val resolve : config -> (string * string * (string * string) list, Error.sdk_error) result
@@ -421,6 +465,11 @@ module Mcp : sig
     input_schema: Yojson.Safe.t;
   }
 
+  type mcp_resource = Mcp_protocol.Mcp_types.resource
+  type mcp_resource_contents = Mcp_protocol.Mcp_types.resource_contents
+  type mcp_prompt = Mcp_protocol.Mcp_types.prompt
+  type mcp_prompt_result = Mcp_protocol.Mcp_types.prompt_result
+
   (** Opaque MCP client connected to a server subprocess *)
   type t
 
@@ -447,6 +496,16 @@ module Mcp : sig
     command:string -> args:string list -> ?env:string array -> unit -> (t, Error.sdk_error) result
   val initialize : t -> (unit, Error.sdk_error) result
   val list_tools : t -> (mcp_tool list, Error.sdk_error) result
+  val list_resources : t -> (mcp_resource list, Error.sdk_error) result
+  val read_resource :
+    t -> uri:string -> (mcp_resource_contents list, Error.sdk_error) result
+  val list_prompts : t -> (mcp_prompt list, Error.sdk_error) result
+  val get_prompt :
+    t ->
+    name:string ->
+    ?arguments:(string * string) list ->
+    unit ->
+    (mcp_prompt_result, Error.sdk_error) result
   val call_tool :
     t -> name:string -> arguments:Yojson.Safe.t -> (string, string) result
   val to_tools : t -> mcp_tool list -> Tool.t list
@@ -613,6 +672,7 @@ module Api : sig
 
   (** Build an OpenAI-compatible chat completions body. *)
   val build_openai_body :
+    ?provider_config:Provider.config ->
     config:Types.agent_state ->
     messages:Types.message list ->
     ?tools:Yojson.Safe.t list ->
@@ -819,6 +879,7 @@ module Checkpoint : sig
     cache_system_prompt: bool;
     max_input_tokens: int option;
     max_total_tokens: int option;
+    context: Context.t;
     mcp_sessions: Mcp_session.info list;
   }
 
@@ -1240,6 +1301,48 @@ module Otel_tracer : sig
   val create : ?config:config -> unit -> Tracing.t
 end
 
+module Trace_eval : sig
+  type summary = {
+    total_spans: int;
+    agent_runs: int;
+    api_calls: int;
+    tool_execs: int;
+    hook_invokes: int;
+    failed_spans: int;
+    failed_api_calls: int;
+    failed_tool_execs: int;
+    total_events: int;
+    average_duration_ms: float option;
+    longest_span_name: string option;
+  }
+
+  type check = {
+    name: string;
+    passed: bool;
+    detail: string option;
+  }
+
+  type evaluation = {
+    ok: bool;
+    summary: summary;
+    checks: check list;
+  }
+
+  val summarize : Otel_tracer.span list -> summary
+  val evaluate :
+    ?max_failed_api_calls:int ->
+    ?max_failed_tool_execs:int ->
+    ?max_span_duration_ms:float ->
+    Otel_tracer.span list ->
+    evaluation
+  val evaluate_flushed :
+    ?max_failed_api_calls:int ->
+    ?max_failed_tool_execs:int ->
+    ?max_span_duration_ms:float ->
+    unit ->
+    evaluation
+end
+
 module Runtime : sig
   type phase =
     | Bootstrapping
@@ -1273,10 +1376,13 @@ module Runtime : sig
   [@@deriving yojson, show]
 
   type artifact = {
+    artifact_id: string;
     name: string;
     kind: string;
+    mime_type: string;
     path: string option;
     inline_content: string option;
+    size_bytes: int;
     created_at: float;
   }
   [@@deriving yojson, show]
@@ -1467,9 +1573,12 @@ module Runtime : sig
   [@@deriving yojson, show]
 
   type artifact_event = {
+    artifact_id: string;
     name: string;
     kind: string;
+    mime_type: string;
     path: string;
+    size_bytes: int;
   }
   [@@deriving yojson, show]
 
@@ -1783,6 +1892,24 @@ module Client : sig
   val close : t -> unit
 end
 
+module Artifact_service : sig
+  type descriptor = Runtime.artifact
+
+  val extension_of_kind : string -> string
+  val mime_type_of_kind : string -> string
+  val list :
+    ?session_root:string ->
+    session_id:string ->
+    unit ->
+    (descriptor list, Error.sdk_error) result
+  val get_text :
+    ?session_root:string ->
+    session_id:string ->
+    artifact_id:string ->
+    unit ->
+    (string, Error.sdk_error) result
+end
+
 module Sessions : sig
   type session_info = {
     session_id: string;
@@ -1803,6 +1930,17 @@ module Sessions : sig
     ?session_root:string ->
     string ->
     (Runtime.event list, Error.sdk_error) result
+  val list_artifacts :
+    ?session_root:string ->
+    session_id:string ->
+    unit ->
+    (Runtime.artifact list, Error.sdk_error) result
+  val get_artifact_text :
+    ?session_root:string ->
+    session_id:string ->
+    artifact_id:string ->
+    unit ->
+    (string, Error.sdk_error) result
   val rename_session :
     ?session_root:string ->
     session_id:string ->

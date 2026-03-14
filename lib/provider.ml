@@ -27,6 +27,86 @@ type request_kind =
   | Ollama_chat
   | Ollama_generate
 
+type capabilities = {
+  supports_tools: bool;
+  supports_tool_choice: bool;
+  supports_reasoning: bool;
+  supports_response_format_json: bool;
+  supports_multimodal_inputs: bool;
+  supports_native_streaming: bool;
+  supports_top_k: bool;
+  supports_min_p: bool;
+}
+
+type model_spec = {
+  provider: provider;
+  model_id: string;
+  api_key_env: string;
+  request_kind: request_kind;
+  request_path: string;
+  capabilities: capabilities;
+}
+
+let default_capabilities = {
+  supports_tools = false;
+  supports_tool_choice = false;
+  supports_reasoning = false;
+  supports_response_format_json = false;
+  supports_multimodal_inputs = false;
+  supports_native_streaming = false;
+  supports_top_k = false;
+  supports_min_p = false;
+}
+
+let anthropic_capabilities = {
+  default_capabilities with
+  supports_tools = true;
+  supports_tool_choice = true;
+  supports_reasoning = true;
+  supports_multimodal_inputs = true;
+  supports_native_streaming = true;
+}
+
+let openai_chat_capabilities = {
+  default_capabilities with
+  supports_tools = true;
+  supports_tool_choice = true;
+  supports_response_format_json = true;
+  supports_multimodal_inputs = true;
+}
+
+let qwen_openai_chat_capabilities = {
+  openai_chat_capabilities with
+  supports_reasoning = true;
+  supports_top_k = true;
+  supports_min_p = true;
+}
+
+let string_contains ~needle haystack =
+  let needle_len = String.length needle in
+  let haystack_len = String.length haystack in
+  let rec loop index =
+    if index + needle_len > haystack_len then false
+    else if String.sub haystack index needle_len = needle then true
+    else loop (index + 1)
+  in
+  if needle_len = 0 then true else loop 0
+
+let is_qwen_family model_id =
+  let normalized = String.lowercase_ascii (String.trim model_id) in
+  string_contains ~needle:"qwen" normalized
+
+let capabilities_for_model ~(provider : provider) ~(model_id : string) =
+  match provider with
+  | Anthropic | Local _ -> anthropic_capabilities
+  | OpenAICompat _ ->
+      if is_qwen_family model_id then qwen_openai_chat_capabilities
+      else openai_chat_capabilities
+  | Ollama { mode = Chat; _ } ->
+      if is_qwen_family model_id then qwen_openai_chat_capabilities
+      else openai_chat_capabilities
+  | Ollama { mode = Generate; _ } -> default_capabilities
+
 let request_kind = function
   | Local _ | Anthropic -> Anthropic_messages
   | OpenAICompat _ -> Openai_chat_completions
@@ -39,7 +119,20 @@ let request_path = function
   | Ollama { mode = Chat; _ } -> "/api/chat"
   | Ollama { mode = Generate; _ } -> "/api/generate"
 
-let resolve cfg =
+let capabilities_for_config (cfg : config) =
+  capabilities_for_model ~provider:cfg.provider ~model_id:cfg.model_id
+
+let model_spec_of_config (cfg : config) =
+  {
+    provider = cfg.provider;
+    model_id = cfg.model_id;
+    api_key_env = cfg.api_key_env;
+    request_kind = request_kind cfg.provider;
+    request_path = request_path cfg.provider;
+    capabilities = capabilities_for_config cfg;
+  }
+
+let resolve (cfg : config) =
   match cfg.provider with
   | Local { base_url } ->
     Ok (base_url, "dummy", [("Content-Type", "application/json")])

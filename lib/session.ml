@@ -49,7 +49,7 @@ let resume_from (cp : Checkpoint.t) =
     resumed_from =
       (match cp.session_id with "" -> None | sid -> Some sid);
     cwd = None;
-    metadata = Context.create ();
+    metadata = Context.copy cp.context;
   }
 
 let to_json t =

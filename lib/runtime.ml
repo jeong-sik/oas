@@ -30,10 +30,13 @@ type participant = {
 [@@deriving yojson, show]
 
 type artifact = {
+  artifact_id: string;
   name: string;
   kind: string;
+  mime_type: string;
   path: string option;
   inline_content: string option;
+  size_bytes: int;
   created_at: float;
 }
 [@@deriving yojson, show]
@@ -224,9 +227,12 @@ type output_delta_event = {
 [@@deriving yojson, show]
 
 type artifact_event = {
+  artifact_id: string;
   name: string;
   kind: string;
+  mime_type: string;
   path: string;
+  size_bytes: int;
 }
 [@@deriving yojson, show]
 
