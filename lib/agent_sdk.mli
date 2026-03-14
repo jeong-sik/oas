@@ -434,24 +434,46 @@ module Tool : sig
   type tool_handler = Yojson.Safe.t -> (string, string) result
   type context_tool_handler = Context.t -> Yojson.Safe.t -> (string, string) result
 
+  type workdir_policy =
+    | Required
+    | Recommended
+    | None_expected
+  [@@deriving show]
+
+  type shell_constraints = {
+    single_command_only: bool;
+    shell_metacharacters_allowed: bool;
+    workdir_policy: workdir_policy option;
+  }
+
+  type descriptor = {
+    kind: string option;
+    shell: shell_constraints option;
+    notes: string list;
+  }
+
   type handler_kind =
     | Simple of tool_handler
     | WithContext of context_tool_handler
 
   type t = {
     schema: Types.tool_schema;
+    descriptor: descriptor option;
     handler: handler_kind;
   }
 
   val create :
+    ?descriptor:descriptor ->
     name:string -> description:string -> parameters:Types.tool_param list ->
     tool_handler -> t
 
   val create_with_context :
+    ?descriptor:descriptor ->
     name:string -> description:string -> parameters:Types.tool_param list ->
     context_tool_handler -> t
 
   val execute : ?context:Context.t -> t -> Yojson.Safe.t -> (string, string) result
+  val descriptor : t -> descriptor option
   val schema_to_json : t -> Yojson.Safe.t
 end
 
@@ -1149,8 +1171,31 @@ module Agent : sig
 
   val default_options : options
 
+  type lifecycle_status =
+    | Accepted
+    | Ready
+    | Running
+    | Completed
+    | Failed
+  [@@deriving show]
+
+  type lifecycle_snapshot = {
+    current_run_id: string option;
+    agent_name: string;
+    status: lifecycle_status;
+    requested_provider: string option;
+    requested_model: string option;
+    resolved_provider: string option;
+    resolved_model: string option;
+    last_error: string option;
+    started_at: float option;
+    last_progress_at: float option;
+    finished_at: float option;
+  }
+
   type t = {
     mutable state: Types.agent_state;
+    mutable lifecycle: lifecycle_snapshot option;
     tools: Tool.t list;
     net: [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t;
     context: Context.t;
@@ -1250,6 +1295,8 @@ module Agent : sig
       for later serialization via {!Checkpoint}. *)
   val checkpoint : ?session_id:string -> t -> Checkpoint.t
   val last_raw_trace_run : t -> Raw_trace.run_ref option
+
+  val lifecycle_snapshot : t -> lifecycle_snapshot option
 end
 
 (** {1 Builder Pattern} *)
@@ -1509,6 +1556,7 @@ module Runtime : sig
   type participant = {
     name: string;
     role: string option;
+    aliases: string list;
     requested_provider: string option;
     requested_model: string option;
     requested_policy: string option;
@@ -2167,6 +2215,8 @@ module Sessions : sig
   type worker_run = {
     worker_run_id: string;
     agent_name: string;
+    role: string option;
+    aliases: string list;
     provider: string option;
     model: string option;
     requested_provider: string option;
@@ -2362,6 +2412,7 @@ end
 
 module Conformance : sig
   type check = {
+    code: string;
     name: string;
     passed: bool;
     detail: string option;
@@ -2396,6 +2447,41 @@ module Conformance : sig
   val run :
     ?session_root:string -> session_id:string -> unit ->
     (report, Error.sdk_error) result
+end
+
+module Direct_evidence : sig
+  type options = {
+    session_root: string option;
+    session_id: string;
+    goal: string;
+    title: string option;
+    tag: string option;
+    role: string option;
+    aliases: string list;
+    requested_provider: string option;
+    requested_model: string option;
+    requested_policy: string option;
+    workdir: string option;
+  }
+
+  val persist :
+    agent:Agent.t ->
+    raw_trace:Raw_trace.t ->
+    options:options ->
+    unit ->
+    (Sessions.proof_bundle, Error.sdk_error) result
+  val get_worker_run :
+    agent:Agent.t ->
+    raw_trace:Raw_trace.t ->
+    options:options ->
+    unit ->
+    (Sessions.worker_run, Error.sdk_error) result
+  val run_conformance :
+    agent:Agent.t ->
+    raw_trace:Raw_trace.t ->
+    options:options ->
+    unit ->
+    (Conformance.report, Error.sdk_error) result
 end
 
 val query :

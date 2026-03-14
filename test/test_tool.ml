@@ -114,6 +114,41 @@ let test_schema_param_types () =
   check string "array" "array" (props |> member "a" |> member "type" |> to_string);
   check string "object" "object" (props |> member "o" |> member "type" |> to_string)
 
+let test_descriptor_preserved_and_not_in_schema () =
+  let tool =
+    Tool.create
+      ~descriptor:
+        {
+          Tool.kind = Some "shell";
+          shell =
+            Some
+              {
+                Tool.single_command_only = true;
+                shell_metacharacters_allowed = false;
+                workdir_policy = Some Tool.Recommended;
+              };
+          notes = [ "Use explicit workdir." ];
+        }
+      ~name:"shell_exec"
+      ~description:"Run a constrained shell command"
+      ~parameters:
+        [
+          {
+            Types.name = "command";
+            description = "Command";
+            param_type = Types.String;
+            required = true;
+          };
+        ]
+      (fun _ -> Ok "ok")
+  in
+  let descriptor = Tool.descriptor tool in
+  check bool "descriptor present" true (Option.is_some descriptor);
+  let json = Tool.schema_to_json tool in
+  let open Yojson.Safe.Util in
+  check bool "descriptor not in wire schema" true
+    (json |> member "descriptor" = `Null)
+
 let () =
   run "Tool" [
     "simple_handler", [
@@ -128,5 +163,7 @@ let () =
     "schema", [
       test_case "json structure" `Quick test_schema_to_json_structure;
       test_case "param types" `Quick test_schema_param_types;
+      test_case "descriptor preserved" `Quick
+        test_descriptor_preserved_and_not_in_schema;
     ];
   ]

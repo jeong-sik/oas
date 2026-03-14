@@ -92,6 +92,7 @@ val file_path : t -> string
 val session_id : t -> string option
 val last_run : t -> run_ref option
 val read_all : path:string -> unit -> (record list, Error.sdk_error) result
+val record_to_json : record -> Yojson.Safe.t
 val read_runs : path:string -> unit -> (run_ref list, Error.sdk_error) result
 val read_run : run_ref -> (record list, Error.sdk_error) result
 val summarize_run : run_ref -> (run_summary, Error.sdk_error) result
@@ -124,3 +125,4 @@ val finish_run :
   error:string option ->
   (run_ref, Error.sdk_error) result
 val raise_if_error : ('a, Error.sdk_error) result -> unit
+val active_run_id : active_run -> string

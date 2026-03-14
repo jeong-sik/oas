@@ -2,6 +2,26 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.20.0] - 2026-03-14
+
+### Added
+- `Direct_evidence` module for direct-agent proof bundle materialization:
+  - `persist`
+  - `get_worker_run`
+  - `run_conformance`
+- `Agent.lifecycle_snapshot` for direct-agent lifecycle status visibility.
+- `Tool` minimal descriptor surface:
+  - `descriptor`
+  - optional shell constraints
+  - optional workdir policy hint
+- machine-stable conformance failure codes on `Conformance.check.code`
+- `oas_direct_conformance_demo` executable
+
+### Changed
+- direct-agent evidence can now be written into the same session-scoped runtime store layout that `Sessions.get_proof_bundle` expects.
+- `Sessions.worker_run` now carries `role` and `aliases`.
+- direct-agent conformance reuses the same `Sessions` and `Conformance` path instead of requiring consumer-side reconstruction.
+
 ## [0.19.0] - 2026-03-14
 
 ### Added

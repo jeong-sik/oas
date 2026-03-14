@@ -18,6 +18,7 @@ let make_planned_participant name =
   {
     name;
     role = None;
+    aliases = [];
     requested_provider = None;
     requested_model = None;
     requested_policy = None;
@@ -69,6 +70,7 @@ let update_participant (session : session) name f =
                ({
                  name;
                  role = None;
+                 aliases = [];
                  requested_provider = None;
                  requested_model = None;
                  requested_policy = None;

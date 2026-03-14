@@ -1,4 +1,5 @@
 type check = {
+  code: string;
   name: string;
   passed: bool;
   detail: string option;
@@ -100,6 +101,7 @@ let check bundle =
   let worker_ids = worker_ids bundle.worker_runs in
   [
     {
+      code = "proof_bundle_available";
       name = "proof_bundle_capability";
       passed = bundle.capabilities.proof_bundle;
       detail =
@@ -107,6 +109,9 @@ let check bundle =
           (Printf.sprintf "proof_bundle=%b" bundle.capabilities.proof_bundle);
     };
     {
+      code =
+        if bundle.raw_trace_runs = [] then "missing_raw_trace"
+        else "raw_trace_shape_mismatch";
       name = "raw_trace_shapes_consistent";
       passed =
         bundle.raw_trace_run_count = List.length bundle.raw_trace_runs
@@ -121,6 +126,7 @@ let check bundle =
              bundle.raw_trace_run_count);
     };
     {
+      code = "validated_count_mismatch";
       name = "validated_worker_counts_consistent";
       passed =
         bundle.validated_worker_run_count = List.length bundle.validated_worker_runs
@@ -133,6 +139,7 @@ let check bundle =
              (List.length validated_worker_runs));
     };
     {
+      code = "latest_accepted_inconsistent";
       name = "latest_accepted_worker_consistent";
       passed =
         Option.map (fun (worker : Sessions.worker_run) -> worker.worker_run_id)
@@ -150,6 +157,7 @@ let check bundle =
              |> Option.value ~default:""));
     };
     {
+      code = "latest_ready_inconsistent";
       name = "latest_ready_worker_consistent";
       passed =
         Option.map (fun (worker : Sessions.worker_run) -> worker.worker_run_id)
@@ -167,6 +175,7 @@ let check bundle =
              |> Option.value ~default:""));
     };
     {
+      code = "latest_running_inconsistent";
       name = "latest_running_worker_consistent";
       passed =
         Option.map (fun (worker : Sessions.worker_run) -> worker.worker_run_id)
@@ -184,6 +193,7 @@ let check bundle =
              |> Option.value ~default:""));
     };
     {
+      code = "latest_worker_inconsistent";
       name = "latest_worker_consistent";
       passed =
         Option.map (fun (worker : Sessions.worker_run) -> worker.worker_run_id)
@@ -201,6 +211,7 @@ let check bundle =
              |> Option.value ~default:""));
     };
     {
+      code = "latest_completed_inconsistent";
       name = "latest_completed_worker_consistent";
       passed =
         Option.map (fun (worker : Sessions.worker_run) -> worker.worker_run_id)
@@ -218,6 +229,7 @@ let check bundle =
              |> Option.value ~default:""));
     };
     {
+      code = "latest_validated_inconsistent";
       name = "latest_validated_worker_consistent";
       passed =
         Option.map (fun (worker : Sessions.worker_run) -> worker.worker_run_id)
@@ -235,6 +247,7 @@ let check bundle =
              |> Option.value ~default:""));
     };
     {
+      code = "latest_failed_inconsistent";
       name = "latest_failed_worker_consistent";
       passed =
         Option.map (fun (worker : Sessions.worker_run) -> worker.worker_run_id)
@@ -252,6 +265,7 @@ let check bundle =
              |> Option.value ~default:""));
     };
     {
+      code = "trace_capabilities_inconsistent";
       name = "trace_capabilities_consistent";
       passed = bundle.trace_capabilities = expected_trace_capabilities;
       detail =
@@ -261,6 +275,7 @@ let check bundle =
              (List.length expected_trace_capabilities));
     };
     {
+      code = "failed_worker_reason_missing";
       name = "failed_workers_have_reason";
       passed =
         bundle.worker_runs
@@ -276,6 +291,7 @@ let check bundle =
              |> List.length));
     };
     {
+      code = "lifecycle_non_monotonic";
       name = "lifecycle_state_monotonic";
       passed = List.for_all lifecycle_monotonic bundle.worker_runs;
       detail =
@@ -283,6 +299,12 @@ let check bundle =
           (Printf.sprintf "workers=%d" (List.length bundle.worker_runs));
     };
     {
+      code =
+        if bundle.worker_runs
+           |> List.exists (fun (worker : Sessions.worker_run) ->
+                  worker.resolved_provider = None)
+        then "resolved_provider_missing"
+        else "resolved_model_missing";
       name = "resolved_runtime_presence_consistent";
       passed =
         bundle.worker_runs
@@ -301,6 +323,7 @@ let check bundle =
           (Printf.sprintf "workers=%d" (List.length bundle.worker_runs));
     };
     {
+      code = "validated_worker_not_raw_capable";
       name = "validated_workers_are_raw_capable";
       passed =
         validated_worker_runs
@@ -312,6 +335,7 @@ let check bundle =
              (List.length validated_worker_runs));
     };
     {
+      code = "raw_trace_not_addressable";
       name = "raw_trace_runs_are_addressable";
       passed =
         raw_ids

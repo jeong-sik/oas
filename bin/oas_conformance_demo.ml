@@ -50,6 +50,7 @@ let trace_capability_to_json capability =
 let check_to_json (check : Conformance.check) =
   `Assoc
     [
+      ("code", `String check.code);
       ("name", `String check.name);
       ("passed", `Bool check.passed);
       ( "detail",

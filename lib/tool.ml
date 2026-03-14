@@ -8,6 +8,24 @@ type tool_handler = Yojson.Safe.t -> (string, string) result
 (** Context-aware tool handler *)
 type context_tool_handler = Context.t -> Yojson.Safe.t -> (string, string) result
 
+type workdir_policy =
+  | Required
+  | Recommended
+  | None_expected
+[@@deriving show]
+
+type shell_constraints = {
+  single_command_only: bool;
+  shell_metacharacters_allowed: bool;
+  workdir_policy: workdir_policy option;
+}
+
+type descriptor = {
+  kind: string option;
+  shell: shell_constraints option;
+  notes: string list;
+}
+
 (** Handler kind: preserves backward compatibility via Simple variant *)
 type handler_kind =
   | Simple of tool_handler
@@ -15,18 +33,19 @@ type handler_kind =
 
 type t = {
   schema: tool_schema;
+  descriptor: descriptor option;
   handler: handler_kind;
 }
 
 (** Create a tool with a simple handler *)
-let create ~name ~description ~parameters handler =
+let create ?descriptor ~name ~description ~parameters handler =
   let schema = { name; description; parameters } in
-  { schema; handler = Simple handler }
+  { schema; descriptor; handler = Simple handler }
 
 (** Create a tool with a context-aware handler *)
-let create_with_context ~name ~description ~parameters handler =
+let create_with_context ?descriptor ~name ~description ~parameters handler =
   let schema = { name; description; parameters } in
-  { schema; handler = WithContext handler }
+  { schema; descriptor; handler = WithContext handler }
 
 (** Execute a tool, optionally passing context *)
 let execute ?context tool input =
@@ -38,6 +57,8 @@ let execute ?context tool input =
       | None -> Context.create ()
     in
     f ctx input
+
+let descriptor tool = tool.descriptor
 
 (** Schema to JSON *)
 let schema_to_json tool =
