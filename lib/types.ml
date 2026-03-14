@@ -38,6 +38,13 @@ let param_type_to_string = function
   | Array -> "array"
   | Object -> "object"
 
+(** Tool execution result types.
+    Defined early to avoid field-name shadowing with content_block/message/api_response
+    which also have 'content' fields — OCaml resolves to the most recently defined record. *)
+type tool_output = { content: string }
+type tool_error = { message: string; recoverable: bool }
+type tool_result = (tool_output, tool_error) result
+
 type tool_param = {
   name: string;
   description: string;

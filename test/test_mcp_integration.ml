@@ -14,7 +14,7 @@ let check_string_array = Alcotest.testable
 
 let make_test_tool name =
   Tool.create ~name ~description:("Tool " ^ name) ~parameters:[]
-    (fun _input -> Ok ("result from " ^ name))
+    (fun _input -> Ok { Types.content = "result from " ^ name })
 
 (** Dummy Eio network for Agent.create (not used in these tests). *)
 let with_net f =

@@ -11,7 +11,7 @@ let with_net f =
 (** Helper: create a simple echo tool. *)
 let make_tool name =
   Tool.create ~name ~description:("tool:" ^ name) ~parameters:[] (fun input ->
-    Ok (Yojson.Safe.to_string input))
+    Ok { Types.content = Yojson.Safe.to_string input })
 
 let contains_substring ~needle haystack =
   let needle_len = String.length needle in

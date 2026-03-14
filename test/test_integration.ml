@@ -68,10 +68,10 @@ let test_tool_use () =
       let server = Cohttp_eio.Server.make ~callback:mock_handler () in
       Eio.Fiber.fork ~sw (fun () -> Cohttp_eio.Server.run socket server ~on_error:(fun _ -> ()));
 
-      let calc_tool = Tool.create ~name:"calculator" ~description:"add" ~parameters:[] (fun input -> 
+      let calc_tool = Tool.create ~name:"calculator" ~description:"add" ~parameters:[] (fun input ->
          let a = Yojson.Safe.Util.(input |> member "a" |> to_int) in
          let b = Yojson.Safe.Util.(input |> member "b" |> to_int) in
-         Ok (string_of_int (a + b))) in
+         Ok { Types.content = string_of_int (a + b) }) in
 
       let options = { Agent.default_options with base_url } in
       let agent = Agent.create ~net:env#net ~tools:[calc_tool] ~options () in

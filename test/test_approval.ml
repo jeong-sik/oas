@@ -7,7 +7,7 @@ open Types
 (** Helper: create a simple tool that echoes its input as JSON string *)
 let make_echo_tool name =
   Tool.create ~name ~description:"echo" ~parameters:[] (fun input ->
-    Ok (Yojson.Safe.to_string input))
+    Ok { Types.content = Yojson.Safe.to_string input })
 
 (** Helper: create a minimal agent inside Eio with given hooks and approval.
     Returns execute_tools results for the given tool_uses. *)

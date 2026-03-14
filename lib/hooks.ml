@@ -11,7 +11,7 @@ type hook_event =
   | BeforeTurn of { turn: int; messages: message list }
   | AfterTurn of { turn: int; response: api_response }
   | PreToolUse of { tool_name: string; input: Yojson.Safe.t }
-  | PostToolUse of { tool_name: string; input: Yojson.Safe.t; output: (string, string) result }
+  | PostToolUse of { tool_name: string; input: Yojson.Safe.t; output: Types.tool_result }
   | PostToolUseFailure of { tool_name: string; input: Yojson.Safe.t; error: string }
   | OnStop of { reason: stop_reason; response: api_response }
 

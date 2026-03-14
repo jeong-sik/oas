@@ -59,7 +59,7 @@ let sample_echo_tool =
     ~parameters:[{ name = "msg"; description = "Message"; param_type = Types.String; required = true }]
     (fun input ->
        let msg = Yojson.Safe.Util.(input |> member "msg" |> to_string) in
-       Ok msg)
+       Ok { Types.content = msg })
 
 let () =
   let open Alcotest in

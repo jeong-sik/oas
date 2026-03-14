@@ -101,7 +101,7 @@ let test_clone_preserves_config () =
 let test_clone_shares_tools () =
   Eio_main.run @@ fun env ->
   let tool = Tool.create ~name:"echo" ~description:"echo"
-    ~parameters:[] (fun _ -> Ok "ok") in
+    ~parameters:[] (fun _ -> Ok { Types.content = "ok" }) in
   let agent = Agent.create ~net:env#net
     ~config:Types.default_config ~tools:[tool] () in
   let clone = Agent.clone agent in

@@ -113,10 +113,10 @@ let test_mcp_tool_to_sdk_tool () =
       "required": ["text"]
     }|};
   } in
-  let call_fn input =
+  let call_fn input : Types.tool_result =
     let open Yojson.Safe.Util in
     let text = input |> member "text" |> to_string in
-    Ok ("echo: " ^ text)
+    Ok { content = "echo: " ^ text }
   in
   let sdk_tool = Mcp.mcp_tool_to_sdk_tool ~call_fn mcp_tool in
   Alcotest.(check string) "tool name" "echo" sdk_tool.schema.name;
@@ -124,7 +124,9 @@ let test_mcp_tool_to_sdk_tool () =
   Alcotest.(check int) "param count" 1 (List.length sdk_tool.schema.parameters);
   let input = `Assoc [("text", `String "hello")] in
   let result = Tool.execute sdk_tool input in
-  Alcotest.(check (result string string)) "execution" (Ok "echo: hello") result
+  (match result with
+   | Ok { content } -> Alcotest.(check string) "execution" "echo: hello" content
+   | Error _ -> Alcotest.fail "expected Ok")
 
 let test_mcp_tool_bridge_error () =
   let mcp_tool : Mcp.mcp_tool = {
@@ -132,10 +134,12 @@ let test_mcp_tool_bridge_error () =
     description = "Always fails";
     input_schema = `Assoc [("type", `String "object"); ("properties", `Assoc [])];
   } in
-  let call_fn _input = Error "server error" in
+  let call_fn _input : Types.tool_result = Error { message = "server error"; recoverable = true } in
   let sdk_tool = Mcp.mcp_tool_to_sdk_tool ~call_fn mcp_tool in
   let result = Tool.execute sdk_tool (`Assoc []) in
-  Alcotest.(check (result string string)) "error" (Error "server error") result
+  (match result with
+   | Error { message; _ } -> Alcotest.(check string) "error" "server error" message
+   | Ok _ -> Alcotest.fail "expected Error")
 
 (* ── SDK tool -> oas mcp_tool conversion ─────────────────────────── *)
 

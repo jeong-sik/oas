@@ -37,6 +37,11 @@ module Types : sig
 
   val param_type_to_string : param_type -> string
 
+  (** Tool execution result types *)
+  type tool_output = { content: string }
+  type tool_error = { message: string; recoverable: bool }
+  type tool_result = (tool_output, tool_error) result
+
   type tool_param = {
     name: string;
     description: string;
@@ -328,7 +333,7 @@ module Hooks : sig
     | AfterTurn of { turn: int; response: Types.api_response }
     | PreToolUse of { tool_name: string; input: Yojson.Safe.t }
     | PostToolUse of { tool_name: string; input: Yojson.Safe.t;
-                       output: (string, string) result }
+                       output: Types.tool_result }
     | PostToolUseFailure of { tool_name: string; input: Yojson.Safe.t;
                               error: string }
     | OnStop of { reason: Types.stop_reason; response: Types.api_response }
@@ -436,8 +441,8 @@ end
 (** {1 Tool System} *)
 
 module Tool : sig
-  type tool_handler = Yojson.Safe.t -> (string, string) result
-  type context_tool_handler = Context.t -> Yojson.Safe.t -> (string, string) result
+  type tool_handler = Yojson.Safe.t -> Types.tool_result
+  type context_tool_handler = Context.t -> Yojson.Safe.t -> Types.tool_result
 
   type workdir_policy =
     | Required
@@ -481,7 +486,7 @@ module Tool : sig
     name:string -> description:string -> parameters:Types.tool_param list ->
     context_tool_handler -> t
 
-  val execute : ?context:Context.t -> t -> Yojson.Safe.t -> (string, string) result
+  val execute : ?context:Context.t -> t -> Yojson.Safe.t -> Types.tool_result
   val descriptor : t -> descriptor option
   val descriptor_to_yojson : descriptor option -> Yojson.Safe.t
   val schema_to_json : t -> Yojson.Safe.t
@@ -539,7 +544,7 @@ module Mcp : sig
     unit ->
     (mcp_prompt_result, Error.sdk_error) result
   val call_tool :
-    t -> name:string -> arguments:Yojson.Safe.t -> (string, string) result
+    t -> name:string -> arguments:Yojson.Safe.t -> Types.tool_result
   val to_tools : t -> mcp_tool list -> Tool.t list
   val close : t -> unit
 
@@ -1024,7 +1029,7 @@ module Event_bus : sig
                           result: (Types.api_response, Error.sdk_error) result; elapsed: float }
     | ToolCalled of { agent_name: string; tool_name: string; input: Yojson.Safe.t }
     | ToolCompleted of { agent_name: string; tool_name: string;
-                         output: (string, string) result }
+                         output: Types.tool_result }
     | TurnStarted of { agent_name: string; turn: int }
     | TurnCompleted of { agent_name: string; turn: int }
     | Custom of string * Yojson.Safe.t

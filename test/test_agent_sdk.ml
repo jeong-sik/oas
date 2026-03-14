@@ -20,12 +20,12 @@ let test_simple_tool () =
     ~parameters:[{ name="msg"; description="Message"; param_type=String; required=true }]
     (fun input ->
        let msg = Yojson.Safe.Util.(input |> member "msg" |> to_string) in
-       Ok msg)
+       Ok { Types.content = msg })
   in
 
   let input = `Assoc [("msg", `String "hello")] in
   match Tool.execute tool input with
-  | Ok output -> Alcotest.(check string) "echo output" "hello" output
+  | Ok { content } -> Alcotest.(check string) "echo output" "hello" content
   | Error _ -> Alcotest.fail "Tool execution failed"
 
 let test_extract_text () =

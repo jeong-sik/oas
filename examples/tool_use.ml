@@ -29,8 +29,8 @@ let calculator_tool =
     (fun args ->
       let open Yojson.Safe.Util in
       match args |> member "expression" |> to_string_option with
-      | Some expr -> Ok (Printf.sprintf "Result of '%s': 42" expr)
-      | None -> Error "missing 'expression' parameter")
+      | Some expr -> Ok { Types.content = Printf.sprintf "Result of '%s': 42" expr }
+      | None -> Error { Types.message = "missing 'expression' parameter"; recoverable = true })
 
 let counter_tool =
   Tool.create_with_context ~name:"counter"
@@ -40,7 +40,7 @@ let counter_tool =
         match Context.get ctx "count" with Some (`Int n) -> n + 1 | _ -> 1
       in
       Context.set ctx "count" (`Int n);
-      Ok (string_of_int n))
+      Ok { Types.content = string_of_int n })
 
 let () =
   Eio_main.run @@ fun env ->
