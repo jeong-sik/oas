@@ -48,7 +48,7 @@ let test_add_message () =
   Alcotest.(check int) "message count" 1 (List.length agent.state.messages)
 
 let test_version_info () =
-  Alcotest.(check string) "version" "0.10.0" Agent_sdk.version;
+  Alcotest.(check string) "version" "0.22.0" Agent_sdk.version;
   Alcotest.(check string) "sdk_name" "agent_sdk" Agent_sdk.sdk_name
 
 let () =
