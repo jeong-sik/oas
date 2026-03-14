@@ -2,6 +2,25 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.18.0] - 2026-03-14
+
+### Added
+- Harness-level `Conformance` module:
+  - `Conformance.check`
+  - `Conformance.report`
+  - `Conformance.run`
+- Deterministic conformance checks over `Sessions.get_proof_bundle` covering:
+  - raw trace shape consistency
+  - validated worker count consistency
+  - latest worker / latest validated worker / latest failed worker consistency
+  - trace capability consistency
+  - validated worker raw-capability guarantees
+- `oas_conformance_demo` executable for generating a machine-readable conformance report from a mock runtime session.
+
+### Changed
+- `0.18.0` treats `proof_bundle` as the canonical verifier input for session-level harness conformance.
+- Consumers can now validate a session with a single `Conformance.run` call instead of re-assembling their own pass/fail logic around proof bundles.
+
 ## [0.17.0] - 2026-03-14
 
 ### Added

@@ -2311,6 +2311,40 @@ module Sessions : sig
     (unit, Error.sdk_error) result
 end
 
+module Conformance : sig
+  type check = {
+    name: string;
+    passed: bool;
+    detail: string option;
+  }
+
+  type summary = {
+    session_id: string;
+    generated_at: float;
+    worker_run_count: int;
+    raw_trace_run_count: int;
+    validated_worker_run_count: int;
+    latest_worker_run_id: string option;
+    latest_worker_agent_name: string option;
+    latest_worker_validated: bool option;
+    latest_failed_worker_run_id: string option;
+    latest_failure_reason: string option;
+    trace_capabilities: Sessions.trace_capability list;
+  }
+
+  type report = {
+    ok: bool;
+    summary: summary;
+    checks: check list;
+  }
+
+  val check : Sessions.proof_bundle -> check list
+  val report : Sessions.proof_bundle -> report
+  val run :
+    ?session_root:string -> session_id:string -> unit ->
+    (report, Error.sdk_error) result
+end
+
 val query :
   ?options:Client.options ->
   prompt:string ->
