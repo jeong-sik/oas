@@ -85,6 +85,24 @@ type evidence = {
   missing_files: missing_file list;
 }
 
+type hook_summary = {
+  hook_name: string;
+  count: int;
+  latest_decision: string option;
+  latest_detail: string option;
+  latest_ts: float option;
+}
+
+type tool_contract = {
+  name: string;
+  description: string;
+  origin: string option;
+  kind: string option;
+  shell: Tool.shell_constraints option;
+  notes: string list;
+  examples: string list;
+}
+
 type raw_trace_run = Raw_trace.run_ref
 type raw_trace_summary = Raw_trace.run_summary
 type raw_trace_validation = Raw_trace.run_validation
@@ -146,6 +164,8 @@ type proof_bundle = {
   telemetry: telemetry;
   structured_telemetry: structured_telemetry;
   evidence: evidence;
+  hook_summary: hook_summary list;
+  tool_catalog: tool_contract list;
   latest_raw_trace_run: raw_trace_run option;
   raw_trace_runs: raw_trace_run list;
   raw_trace_summaries: raw_trace_summary list;
@@ -232,7 +252,50 @@ let get_named_artifact ?session_root ~session_id ~name () =
         (file_read_error ~path:name
            ~detail:
              (Printf.sprintf "Artifact '%s' not found in session %s" name
-                session_id))
+               session_id))
+
+let get_optional_named_artifact ?session_root ~session_id ~name () =
+  let* artifacts = Artifact_service.list ?session_root ~session_id () in
+  Ok (latest_named_artifact artifacts name)
+
+let workdir_policy_of_string = function
+  | "required" -> Some Tool.Required
+  | "recommended" -> Some Tool.Recommended
+  | "none_expected" -> Some Tool.None_expected
+  | _ -> None
+
+let shell_constraints_of_json json =
+  let open Yojson.Safe.Util in
+  match json with
+  | `Null -> None
+  | value ->
+      Some
+        {
+          Tool.single_command_only = value |> member "single_command_only" |> to_bool;
+          shell_metacharacters_allowed =
+            value |> member "shell_metacharacters_allowed" |> to_bool;
+          chaining_allowed = value |> member "chaining_allowed" |> to_bool;
+          redirection_allowed = value |> member "redirection_allowed" |> to_bool;
+          pipes_allowed = value |> member "pipes_allowed" |> to_bool;
+          workdir_policy =
+            (match value |> member "workdir_policy" |> to_string_option with
+            | Some policy -> workdir_policy_of_string policy
+            | None -> None);
+        }
+
+let tool_contract_of_json json =
+  let open Yojson.Safe.Util in
+  {
+    name = json |> member "name" |> to_string;
+    description = json |> member "description" |> to_string;
+    origin = json |> member "origin" |> to_string_option;
+    kind = json |> member "kind" |> to_string_option;
+    shell = shell_constraints_of_json (json |> member "shell");
+    notes =
+      json |> member "notes" |> to_list |> List.map to_string;
+    examples =
+      json |> member "examples" |> to_list |> List.map to_string;
+  }
 
 let get_raw_trace_dir ?session_root ~session_id () =
   let* store = make_store ?session_root () in
@@ -457,6 +520,80 @@ let get_evidence ?session_root ~session_id () =
       ~artifact_id:artifact.artifact_id ()
   in
   decode_json_with evidence_of_json raw
+
+let get_hook_summary ?session_root ~session_id () =
+  let* paths = get_raw_trace_files ?session_root ~session_id () in
+  let* runs =
+    paths
+    |> List.map (fun path -> Raw_trace.read_runs ~path ())
+    |> List.fold_left
+         (fun acc item ->
+           match acc, item with
+           | Ok runs, Ok entries -> Ok (entries @ runs)
+           | Error _ as err, _ -> err
+           | _, (Error _ as err) -> err)
+         (Ok [])
+  in
+  let table : (string, hook_summary) Hashtbl.t = Hashtbl.create 8 in
+  let update_summary hook_name decision detail ts =
+    let current =
+      match Hashtbl.find_opt table hook_name with
+      | Some value -> value
+      | None ->
+          {
+            hook_name;
+            count = 0;
+            latest_decision = None;
+            latest_detail = None;
+            latest_ts = None;
+          }
+    in
+    Hashtbl.replace table hook_name
+      {
+        hook_name;
+        count = current.count + 1;
+        latest_decision = Some decision;
+        latest_detail = detail;
+        latest_ts = Some ts;
+      }
+  in
+  let* () =
+    runs
+    |> List.fold_left
+         (fun acc run ->
+           let* () = acc in
+           let* records = Raw_trace.read_run run in
+           List.iter
+             (fun (record : Raw_trace.record) ->
+               match
+                 record.record_type, record.hook_name, record.hook_decision
+               with
+               | Raw_trace.Hook_invoked, Some hook_name, Some decision ->
+                   update_summary hook_name decision record.hook_detail record.ts
+               | _ -> ())
+             records;
+           Ok ())
+         (Ok ())
+  in
+  Ok
+    (Hashtbl.to_seq_values table |> List.of_seq
+    |> List.sort (fun a b -> String.compare a.hook_name b.hook_name))
+
+let get_tool_catalog ?session_root ~session_id () =
+  let* artifact_opt =
+    get_optional_named_artifact ?session_root ~session_id ~name:"tool-catalog"
+      ()
+  in
+  match artifact_opt with
+  | None -> Ok []
+  | Some artifact ->
+      let* raw =
+        Artifact_service.get_text ?session_root ~session_id
+          ~artifact_id:artifact.artifact_id ()
+      in
+      let* json = parse_json_string raw in
+      let open Yojson.Safe.Util in
+      Ok (json |> to_list |> List.map tool_contract_of_json)
 
 let get_raw_trace_runs ?session_root ~session_id () =
   let* paths = get_raw_trace_files ?session_root ~session_id () in
@@ -799,6 +936,8 @@ let get_proof_bundle ?session_root ~session_id () =
     get_telemetry_structured ?session_root ~session_id ()
   in
   let* evidence = get_evidence ?session_root ~session_id () in
+  let* hook_summary = get_hook_summary ?session_root ~session_id () in
+  let* tool_catalog = get_tool_catalog ?session_root ~session_id () in
   let* latest_raw_trace_run = get_latest_raw_trace_run ?session_root ~session_id () in
   let* raw_trace_runs = get_raw_trace_runs ?session_root ~session_id () in
   let* raw_trace_summaries = summarize_runs raw_trace_runs in
@@ -841,6 +980,8 @@ let get_proof_bundle ?session_root ~session_id () =
       telemetry;
       structured_telemetry;
       evidence;
+      hook_summary;
+      tool_catalog;
       latest_raw_trace_run;
       raw_trace_runs;
       raw_trace_summaries;

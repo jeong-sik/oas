@@ -7,6 +7,7 @@ type record_type =
   | Assistant_block
   | Tool_execution_started
   | Tool_execution_finished
+  | Hook_invoked
   | Run_finished
 [@@deriving show]
 
@@ -26,6 +27,8 @@ type run_summary = {
   assistant_block_count: int;
   tool_execution_started_count: int;
   tool_execution_finished_count: int;
+  hook_invoked_count: int;
+  hook_names: string list;
   tool_names: string list;
   final_text: string option;
   stop_reason: string option;
@@ -73,6 +76,9 @@ type record = {
   tool_input: Yojson.Safe.t option;
   tool_result: string option;
   tool_error: bool option;
+  hook_name: string option;
+  hook_decision: string option;
+  hook_detail: string option;
   final_text: string option;
   stop_reason: string option;
   error: string option;
@@ -142,6 +148,7 @@ let record_type_to_string = function
   | Assistant_block -> "assistant_block"
   | Tool_execution_started -> "tool_execution_started"
   | Tool_execution_finished -> "tool_execution_finished"
+  | Hook_invoked -> "hook_invoked"
   | Run_finished -> "run_finished"
 
 let record_type_of_string = function
@@ -149,6 +156,7 @@ let record_type_of_string = function
   | "assistant_block" -> Ok Assistant_block
   | "tool_execution_started" -> Ok Tool_execution_started
   | "tool_execution_finished" -> Ok Tool_execution_finished
+  | "hook_invoked" -> Ok Hook_invoked
   | "run_finished" -> Ok Run_finished
   | other ->
       Error
@@ -195,6 +203,9 @@ let record_to_json (record : record) =
     @ option_json "tool_input" record.tool_input
     @ option_string "tool_result" record.tool_result
     @ option_bool "tool_error" record.tool_error
+    @ option_string "hook_name" record.hook_name
+    @ option_string "hook_decision" record.hook_decision
+    @ option_string "hook_detail" record.hook_detail
     @ option_string "final_text" record.final_text
     @ option_string "stop_reason" record.stop_reason
     @ option_string "error" record.error)
@@ -224,6 +235,9 @@ let record_of_json json =
         (match json |> member "tool_input" with `Null -> None | value -> Some value);
       tool_result = json |> member "tool_result" |> to_string_option;
       tool_error = json |> member "tool_error" |> to_bool_option;
+      hook_name = json |> member "hook_name" |> to_string_option;
+      hook_decision = json |> member "hook_decision" |> to_string_option;
+      hook_detail = json |> member "hook_detail" |> to_string_option;
       final_text = json |> member "final_text" |> to_string_option;
       stop_reason = json |> member "stop_reason" |> to_string_option;
       error = json |> member "error" |> to_string_option;
@@ -327,6 +341,17 @@ let summarize_run run_ref =
       records
     |> List.length
   in
+  let hook_invoked_count =
+    List.filter
+      (fun (record : record) -> record.record_type = Hook_invoked)
+      records
+    |> List.length
+  in
+  let hook_names =
+    records
+    |> List.filter_map (fun (record : record) -> record.hook_name)
+    |> List.sort_uniq String.compare
+  in
   let tool_names =
     records
     |> List.filter_map (fun (record : record) -> record.tool_name)
@@ -355,6 +380,8 @@ let summarize_run run_ref =
       assistant_block_count;
       tool_execution_started_count;
       tool_execution_finished_count;
+      hook_invoked_count;
+      hook_names;
       tool_names;
       final_text = Option.bind final_record (fun record -> record.final_text);
       stop_reason = Option.bind final_record (fun record -> record.stop_reason);
@@ -561,7 +588,7 @@ let append_locked sink (record : record) =
 
 let append_record active ~record_type ?prompt ?block_index ?block_kind
     ?assistant_block ?tool_use_id ?tool_name ?tool_input ?tool_result ?tool_error
-    ?final_text ?stop_reason ?error () =
+    ?hook_name ?hook_decision ?hook_detail ?final_text ?stop_reason ?error () =
   Mutex.lock active.sink.lock;
   let seq = active.sink.next_seq in
   let record =
@@ -582,6 +609,9 @@ let append_record active ~record_type ?prompt ?block_index ?block_kind
       tool_input;
       tool_result;
       tool_error;
+      hook_name;
+      hook_decision;
+      hook_detail;
       final_text;
       stop_reason;
       error;
@@ -643,6 +673,11 @@ let record_tool_execution_finished active ~tool_use_id ~tool_name ~tool_result
     ~tool_error =
   append_record active ~record_type:Tool_execution_finished
     ~tool_use_id ~tool_name ~tool_result ~tool_error ()
+  |> Result.map (fun _ -> ())
+
+let record_hook_invoked active ~hook_name ~hook_decision ?hook_detail () =
+  append_record active ~record_type:Hook_invoked ~hook_name ~hook_decision
+    ?hook_detail ()
   |> Result.map (fun _ -> ())
 
 let finish_run active ~(final_text : string option)

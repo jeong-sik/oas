@@ -3,6 +3,7 @@ type record_type =
   | Assistant_block
   | Tool_execution_started
   | Tool_execution_finished
+  | Hook_invoked
   | Run_finished
 [@@deriving show]
 
@@ -22,6 +23,8 @@ type run_summary = {
   assistant_block_count: int;
   tool_execution_started_count: int;
   tool_execution_finished_count: int;
+  hook_invoked_count: int;
+  hook_names: string list;
   tool_names: string list;
   final_text: string option;
   stop_reason: string option;
@@ -69,6 +72,9 @@ type record = {
   tool_input: Yojson.Safe.t option;
   tool_result: string option;
   tool_error: bool option;
+  hook_name: string option;
+  hook_decision: string option;
+  hook_detail: string option;
   final_text: string option;
   stop_reason: string option;
   error: string option;
@@ -117,6 +123,13 @@ val record_tool_execution_finished :
   tool_name:string ->
   tool_result:string ->
   tool_error:bool ->
+  (unit, Error.sdk_error) result
+val record_hook_invoked :
+  active_run ->
+  hook_name:string ->
+  hook_decision:string ->
+  ?hook_detail:string ->
+  unit ->
   (unit, Error.sdk_error) result
 val finish_run :
   active_run ->

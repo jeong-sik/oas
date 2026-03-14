@@ -86,6 +86,12 @@ let first_some a b =
   | Some _ -> a
   | None -> b
 
+let hook_decision_to_string = function
+  | Hooks.Continue -> "continue"
+  | Hooks.Skip -> "skip"
+  | Hooks.Override _ -> "override"
+  | Hooks.ApprovalRequired -> "approval_required"
+
 let requested_provider agent =
   provider_runtime_name agent.options.provider
 
@@ -210,6 +216,29 @@ let execute_tools agent tool_uses =
     ~turn_count:agent.state.turn_count ~approval:agent.options.approval
     tool_uses
 
+let record_hook_invocation active_run ~hook_name ~decision ?detail () =
+  match active_run with
+  | None -> ()
+  | Some active ->
+      Raw_trace.raise_if_error
+        (Raw_trace.record_hook_invoked active ~hook_name
+           ~hook_decision:(hook_decision_to_string decision) ?hook_detail:detail
+           ())
+
+let invoke_hook_with_trace agent ?raw_trace_run ~hook_name hook_opt event =
+  Tracing.with_span agent.options.tracer
+    {
+      kind = Hook_invoke;
+      name = hook_name;
+      agent_name = agent.state.config.name;
+      turn = agent.state.turn_count;
+      extra = [];
+    }
+    (fun _ ->
+      let decision = Hooks.invoke hook_opt event in
+      record_hook_invocation raw_trace_run ~hook_name ~decision ();
+      decision)
+
 let execute_tools_with_trace agent active_run tool_uses =
   let on_tool_execution_started =
     match active_run with
@@ -237,12 +266,16 @@ let execute_tools_with_trace agent active_run tool_uses =
               (Raw_trace.record_tool_execution_finished active ~tool_use_id
                  ~tool_name ~tool_result:content ~tool_error:is_error))
   in
+  let on_hook_invoked ~hook_name ~decision ~detail =
+    record_hook_invocation active_run ~hook_name ~decision ?detail ()
+  in
   Agent_tools.execute_tools
     ~context:agent.context ~tools:agent.tools
     ~hooks:agent.options.hooks ~event_bus:agent.options.event_bus
     ~tracer:agent.options.tracer ~agent_name:agent.state.config.name
     ~turn_count:agent.state.turn_count ~approval:agent.options.approval
-    ?on_tool_execution_started ?on_tool_execution_finished tool_uses
+    ?on_tool_execution_started ?on_tool_execution_finished ~on_hook_invoked
+    tool_uses
 
 let trace_assistant_blocks active_run blocks =
   match active_run with
@@ -316,8 +349,11 @@ let run_turn_with_trace ~sw ?clock ?raw_trace_run agent =
   let ts = Unix.gettimeofday () in
   set_lifecycle agent ~ready_at:ts Ready;
   (* BeforeTurn hook *)
-  let _before = Hooks.invoke agent.options.hooks.before_turn
-    (Hooks.BeforeTurn { turn = agent.state.turn_count; messages = agent.state.messages }) in
+  let _before =
+    invoke_hook_with_trace agent ?raw_trace_run ~hook_name:"before_turn"
+      agent.options.hooks.before_turn
+      (Hooks.BeforeTurn { turn = agent.state.turn_count; messages = agent.state.messages })
+  in
 
   (* TurnStarted event *)
   (match agent.options.event_bus with
@@ -359,8 +395,11 @@ let run_turn_with_trace ~sw ?clock ?raw_trace_run agent =
       in
 
       (* AfterTurn hook *)
-      let _after = Hooks.invoke agent.options.hooks.after_turn
-        (Hooks.AfterTurn { turn = agent.state.turn_count; response }) in
+      let _after =
+        invoke_hook_with_trace agent ?raw_trace_run ~hook_name:"after_turn"
+          agent.options.hooks.after_turn
+          (Hooks.AfterTurn { turn = agent.state.turn_count; response })
+      in
 
       (* TurnCompleted event *)
       (match agent.options.event_bus with
@@ -399,8 +438,11 @@ let run_turn_with_trace ~sw ?clock ?raw_trace_run agent =
           Ok (`ToolsExecuted))
       | EndTurn | MaxTokens | StopSequence ->
         (* OnStop hook *)
-        let _stop = Hooks.invoke agent.options.hooks.on_stop
-          (Hooks.OnStop { reason = response.stop_reason; response }) in
+        let _stop =
+          invoke_hook_with_trace agent ?raw_trace_run ~hook_name:"on_stop"
+            agent.options.hooks.on_stop
+            (Hooks.OnStop { reason = response.stop_reason; response })
+        in
         Ok (`Complete response)
       | Unknown reason ->
         Error (Error.Agent (UnrecognizedStopReason { reason }))
@@ -451,8 +493,11 @@ let run_turn_stream_with_trace ~sw ?clock ~on_event ?raw_trace_run agent =
   let ts = Unix.gettimeofday () in
   set_lifecycle agent ~ready_at:ts Ready;
   (* BeforeTurn hook *)
-  let _before = Hooks.invoke agent.options.hooks.before_turn
-    (Hooks.BeforeTurn { turn = agent.state.turn_count; messages = agent.state.messages }) in
+  let _before =
+    invoke_hook_with_trace agent ?raw_trace_run ~hook_name:"before_turn"
+      agent.options.hooks.before_turn
+      (Hooks.BeforeTurn { turn = agent.state.turn_count; messages = agent.state.messages })
+  in
 
   (* TurnStarted event *)
   (match agent.options.event_bus with
@@ -511,8 +556,11 @@ let run_turn_stream_with_trace ~sw ?clock ~on_event ?raw_trace_run agent =
     in
 
     (* AfterTurn hook *)
-    let _after = Hooks.invoke agent.options.hooks.after_turn
-      (Hooks.AfterTurn { turn = agent.state.turn_count; response }) in
+    let _after =
+      invoke_hook_with_trace agent ?raw_trace_run ~hook_name:"after_turn"
+        agent.options.hooks.after_turn
+        (Hooks.AfterTurn { turn = agent.state.turn_count; response })
+    in
 
     (* TurnCompleted event *)
     (match agent.options.event_bus with
@@ -549,8 +597,11 @@ let run_turn_stream_with_trace ~sw ?clock ~on_event ?raw_trace_run agent =
           messages = agent.state.messages @ [{ role = User; content = tool_results }] };
         Ok (`ToolsExecuted))
     | EndTurn | MaxTokens | StopSequence ->
-      let _stop = Hooks.invoke agent.options.hooks.on_stop
-        (Hooks.OnStop { reason = response.stop_reason; response }) in
+      let _stop =
+        invoke_hook_with_trace agent ?raw_trace_run ~hook_name:"on_stop"
+          agent.options.hooks.on_stop
+          (Hooks.OnStop { reason = response.stop_reason; response })
+      in
       Ok (`Complete response)
     | Unknown reason ->
       Error (Error.Agent (UnrecognizedStopReason { reason }))

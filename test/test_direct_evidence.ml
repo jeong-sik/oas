@@ -159,6 +159,21 @@ let test_direct_evidence_materializes_bundle () =
   in
   Alcotest.(check bool) "proof bundle enabled" true
     bundle.capabilities.proof_bundle;
+  Alcotest.(check int) "tool catalog one" 1 (List.length bundle.tool_catalog);
+  Alcotest.(check string) "tool contract name" "shell_exec"
+    (List.hd bundle.tool_catalog).name;
+  Alcotest.(check bool) "hook summary non-empty" true
+    (List.length bundle.hook_summary >= 3);
+  Alcotest.(check bool) "hook summary has before_turn" true
+    (List.exists
+       (fun (hook : Sessions.hook_summary) ->
+         String.equal hook.hook_name "before_turn")
+       bundle.hook_summary);
+  Alcotest.(check bool) "hook summary has on_stop" true
+    (List.exists
+       (fun (hook : Sessions.hook_summary) ->
+         String.equal hook.hook_name "on_stop")
+       bundle.hook_summary);
   let report =
     unwrap (Direct_evidence.get_conformance ~agent ~raw_trace ~options:(direct_options root) ())
   in
@@ -171,7 +186,11 @@ let test_direct_evidence_materializes_bundle () =
   Alcotest.(check (option string)) "latest worker status" (Some "completed")
     report.summary.latest_worker_status;
   Alcotest.(check (option string)) "latest resolved provider"
-    (Some "openai-compat") report.summary.latest_resolved_provider
+    (Some "openai-compat") report.summary.latest_resolved_provider;
+  Alcotest.(check bool) "hook event count positive" true
+    (report.summary.hook_event_count >= 3);
+  Alcotest.(check int) "tool catalog count one" 1
+    report.summary.tool_catalog_count
 
 let () =
   let open Alcotest in

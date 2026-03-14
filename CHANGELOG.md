@@ -2,6 +2,24 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.22.0] - 2026-03-14
+
+### Added
+- hook lifecycle evidence in direct raw traces:
+  - `hook_invoked` records
+  - `post_tool_use_failure` hook event
+- session/proof getters:
+  - `Sessions.get_hook_summary`
+  - `Sessions.get_tool_catalog`
+- `proof_bundle` now includes:
+  - `hook_summary`
+  - `tool_catalog`
+
+### Changed
+- direct-agent conformance summaries now include hook event and tool catalog counts.
+- direct evidence persists a `tool-catalog` artifact for consumer-safe tool contract reads.
+- raw trace summaries now expose hook counts and hook names.
+
 ## [0.21.0] - 2026-03-14
 
 ### Added

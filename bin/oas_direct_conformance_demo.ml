@@ -74,6 +74,8 @@ let report_to_json (report : Conformance.report) =
               match report.summary.latest_resolved_model with
               | Some value -> `String value
               | None -> `Null );
+            ("hook_event_count", `Int report.summary.hook_event_count);
+            ("tool_catalog_count", `Int report.summary.tool_catalog_count);
             ( "trace_capabilities",
               `List
                 (List.map trace_capability_to_json
@@ -156,6 +158,37 @@ let () =
       api_key_env = "DUMMY_KEY";
     }
   in
+  let shell_tool =
+    Tool.create
+      ~descriptor:
+        {
+          Tool.kind = Some "shell";
+          shell =
+            Some
+              {
+                Tool.single_command_only = true;
+                shell_metacharacters_allowed = false;
+                chaining_allowed = false;
+                redirection_allowed = false;
+                pipes_allowed = false;
+                workdir_policy = Some Tool.Recommended;
+              };
+          notes = [ "Use explicit workdir." ];
+          examples = [ "python3 check.py" ];
+        }
+      ~name:"shell_exec"
+      ~description:"Run a shell command"
+      ~parameters:
+        [
+          {
+            Types.name = "command";
+            description = "Command";
+            param_type = Types.String;
+            required = true;
+          };
+        ]
+      (fun _ -> Ok "PASS")
+  in
   let agent =
     Agent.create ~net:env#net
       ~config:
@@ -164,6 +197,7 @@ let () =
           name = "direct-demo-worker";
           model = Custom "direct-demo-model";
         }
+      ~tools:[ shell_tool ]
       ~options:{ Agent.default_options with provider = Some provider; raw_trace = Some raw_trace }
       ()
   in
@@ -221,6 +255,8 @@ let () =
         ("session_root", `String root);
         ("session_id", `String bundle.session.session_id);
         ("worker", worker_to_json worker);
+        ("hook_summary_count", `Int (List.length bundle.hook_summary));
+        ("tool_catalog_count", `Int (List.length bundle.tool_catalog));
         ("conformance", report_to_json report);
       ]
   in

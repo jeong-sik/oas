@@ -375,6 +375,8 @@ let test_runtime_finalize_generates_telemetry_and_evidence () =
     unwrap (Sessions.get_telemetry_structured ~session_root ~session_id ())
   in
   let evidence = unwrap (Sessions.get_evidence ~session_root ~session_id ()) in
+  let hook_summary = unwrap (Sessions.get_hook_summary ~session_root ~session_id ()) in
+  let tool_catalog = unwrap (Sessions.get_tool_catalog ~session_root ~session_id ()) in
   let worker_runs =
     unwrap (Sessions.get_worker_runs ~session_root ~session_id ())
   in
@@ -497,6 +499,10 @@ let test_runtime_finalize_generates_telemetry_and_evidence () =
     (List.exists
        (fun (file : Sessions.evidence_file) -> String.equal file.label "proof_json")
        evidence.files);
+  Alcotest.(check int) "hook summary mirrors bundle"
+    (List.length hook_summary) (List.length bundle.hook_summary);
+  Alcotest.(check int) "tool catalog empty for runtime mock" 0
+    (List.length tool_catalog);
   Alcotest.(check string) "bundle session id" session_id bundle.session.session_id;
   Alcotest.(check string) "bundle report session id" session_id
     bundle.report.session_id;
@@ -530,6 +536,10 @@ let test_runtime_finalize_generates_telemetry_and_evidence () =
     (Option.is_some bundle.latest_validated_worker_run);
   Alcotest.(check bool) "bundle latest failed worker none" true
     (bundle.latest_failed_worker_run = None);
+  Alcotest.(check bool) "bundle hook summary accessible" true
+    (List.length bundle.hook_summary >= 0);
+  Alcotest.(check int) "bundle tool catalog empty" 0
+    (List.length bundle.tool_catalog);
   Alcotest.(check int) "bundle validated worker runs one" 1
     (List.length bundle.validated_worker_runs);
   Alcotest.(check int) "bundle raw trace run count one" 1
