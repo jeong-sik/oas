@@ -74,9 +74,27 @@ We follow semver intent within the 0.x series:
 
 - **0.x.0**: May contain breaking changes. Migration guide in CHANGELOG.
 - **0.x.y** (y > 0): Additive features and bug fixes only.
+- Target cadence: at most one minor release per week.
 
-See `dune-project` for the current version. The version string in
-`lib/agent_sdk.ml` and `dune-project` must always match (enforced by CI).
+Version sources (must always match, enforced by CI):
+
+| Source | Location |
+|--------|----------|
+| `dune-project` | `(version X.Y.Z)` |
+| `lib/agent_sdk.ml` | `let version = "X.Y.Z"` |
+
+### Release process
+
+```bash
+# 1. Verify version consistency (dry run)
+./scripts/release.sh
+
+# 2. Create and push tag
+./scripts/release.sh --tag
+```
+
+The release script checks: version consistency, CHANGELOG entry exists,
+tag doesn't already exist, clean working tree.
 
 ## Module stability tiers
 
