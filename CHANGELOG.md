@@ -2,6 +2,19 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.12.0] - 2026-03-14
+
+### Added
+- Official session proof-bundle read APIs:
+  - `Sessions.get_telemetry`
+  - `Sessions.get_evidence`
+  - `Sessions.get_proof_bundle`
+- Typed proof-bundle surface in `Sessions` for telemetry step counts, evidence files, and combined session/report/proof retrieval.
+
+### Changed
+- Runtime proof and evidence artifacts can now be consumed through the SDK without relying on raw artifact-name lookups.
+- Runtime tests now verify the public proof-bundle getters rather than parsing evidence JSON ad hoc.
+
 ## [0.11.0] - 2026-03-14
 
 ### Added

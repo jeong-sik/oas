@@ -1963,6 +1963,54 @@ module Sessions : sig
     path: string;
   }
 
+  type telemetry_event_count = {
+    name: string;
+    count: int;
+  }
+
+  type telemetry_step = {
+    seq: int;
+    ts: float;
+    kind: string;
+    participant: string option;
+    detail: string option;
+  }
+
+  type telemetry = {
+    session_id: string;
+    generated_at: float;
+    step_count: int;
+    event_counts: telemetry_event_count list;
+    steps: telemetry_step list;
+  }
+
+  type evidence_file = {
+    label: string;
+    path: string;
+    size_bytes: int;
+    md5: string;
+  }
+
+  type missing_file = {
+    label: string;
+    path: string;
+  }
+
+  type evidence = {
+    session_id: string;
+    generated_at: float;
+    files: evidence_file list;
+    missing_files: missing_file list;
+  }
+
+  type proof_bundle = {
+    session: Runtime.session;
+    report: Runtime.report;
+    proof: Runtime.proof;
+    telemetry: telemetry;
+    evidence: evidence;
+  }
+
   val list_sessions :
     ?session_root:string -> unit -> (session_info list, Error.sdk_error) result
   val get_session :
@@ -1982,6 +2030,21 @@ module Sessions : sig
     artifact_id:string ->
     unit ->
     (string, Error.sdk_error) result
+  val get_telemetry :
+    ?session_root:string ->
+    session_id:string ->
+    unit ->
+    (telemetry, Error.sdk_error) result
+  val get_evidence :
+    ?session_root:string ->
+    session_id:string ->
+    unit ->
+    (evidence, Error.sdk_error) result
+  val get_proof_bundle :
+    ?session_root:string ->
+    session_id:string ->
+    unit ->
+    (proof_bundle, Error.sdk_error) result
   val rename_session :
     ?session_root:string ->
     session_id:string ->
