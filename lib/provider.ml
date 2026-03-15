@@ -82,15 +82,7 @@ let qwen_openai_chat_capabilities = {
   supports_min_p = true;
 }
 
-let string_contains ~needle haystack =
-  let needle_len = String.length needle in
-  let haystack_len = String.length haystack in
-  let rec loop index =
-    if index + needle_len > haystack_len then false
-    else if String.sub haystack index needle_len = needle then true
-    else loop (index + 1)
-  in
-  if needle_len = 0 then true else loop 0
+let string_contains = Util.string_contains
 
 let is_qwen_family model_id =
   let normalized = String.lowercase_ascii (String.trim model_id) in
@@ -168,7 +160,7 @@ let resolve (cfg : config) =
     Ok (base_url, "dummy", [("Content-Type", "application/json")])
 
 let local_qwen () = {
-  provider = Local { base_url = "http://127.0.0.1:8085" };
+  provider = Local { base_url = Defaults.local_qwen_url };
   model_id = "qwen3.5-35b-a3b-ud-q8-xl";
   api_key_env = "DUMMY_KEY";
 }
@@ -192,7 +184,7 @@ let anthropic_opus () = {
 }
 
 let local_mlx () = {
-  provider = Local { base_url = "http://127.0.0.1:3033" };
+  provider = Local { base_url = Defaults.local_mlx_url };
   model_id = "qwen3.5";
   api_key_env = "DUMMY_KEY";
 }
@@ -208,7 +200,7 @@ let openrouter ?(model_id="anthropic/claude-sonnet-4-6") () = {
   api_key_env = "OPENROUTER_API_KEY";
 }
 
-let ollama ?(base_url="http://127.0.0.1:11434") ?(model_id="glm-4.7-flash")
+let ollama ?(base_url=Defaults.ollama_url) ?(model_id=Defaults.ollama_model)
     ?(mode=Chat) () = {
   provider = Ollama { base_url; mode };
   model_id;

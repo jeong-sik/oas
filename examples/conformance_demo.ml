@@ -118,10 +118,13 @@ let report_to_json (report : Conformance.report) =
 
 let () =
   Random.self_init ();
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  let mgr = Eio.Stdenv.process_mgr env in
   let root = session_root () in
   let client =
     unwrap_result
-      (Client.connect
+      (Client.connect ~sw ~mgr
          ~options:
            {
              Client.default_options with

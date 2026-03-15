@@ -2007,7 +2007,12 @@ module Transport : sig
 
   type t
 
-  val connect : ?options:options -> unit -> (t, Error.sdk_error) result
+  val connect :
+    sw:Eio.Switch.t ->
+    mgr:_ Eio.Process.mgr ->
+    ?options:options ->
+    unit ->
+    (t, Error.sdk_error) result
   val request :
     ?control_handler:
       (Runtime.control_request -> (Runtime.control_response, Error.sdk_error) result) ->
@@ -2036,7 +2041,12 @@ module Runtime_client : sig
 
   type t
 
-  val connect : ?options:options -> unit -> (t, Error.sdk_error) result
+  val connect :
+    sw:Eio.Switch.t ->
+    mgr:_ Eio.Process.mgr ->
+    ?options:options ->
+    unit ->
+    (t, Error.sdk_error) result
   val request :
     ?control_handler:
       (Runtime.control_request -> (Runtime.control_response, Error.sdk_error) result) ->
@@ -2083,6 +2093,8 @@ module Runtime_client : sig
 end
 
 val runtime_query :
+  sw:Eio.Switch.t ->
+  mgr:_ Eio.Process.mgr ->
   ?runtime_path:string ->
   ?session_root:string ->
   Runtime.request ->
@@ -2161,7 +2173,12 @@ module Client : sig
 
   type t
 
-  val connect : ?options:options -> unit -> (t, Error.sdk_error) result
+  val connect :
+    sw:Eio.Switch.t ->
+    mgr:_ Eio.Process.mgr ->
+    ?options:options ->
+    unit ->
+    (t, Error.sdk_error) result
   val query : t -> string -> (unit, Error.sdk_error) result
   val has_pending_messages : t -> bool
   val receive_messages : t -> message list
@@ -2632,6 +2649,8 @@ module Direct_evidence : sig
 end
 
 val query :
+  sw:Eio.Switch.t ->
+  mgr:_ Eio.Process.mgr ->
   ?options:Client.options ->
   prompt:string ->
   unit ->

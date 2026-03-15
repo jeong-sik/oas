@@ -9,10 +9,7 @@ let make_session_id () =
   let salt = Random.int 0xFFFF in
   Printf.sprintf "rt-%08x-%04x" base salt
 
-let first_some a b =
-  match a with
-  | Some _ -> a
-  | None -> b
+let first_some = Util.first_some
 
 let make_planned_participant name =
   {

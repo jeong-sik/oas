@@ -18,8 +18,8 @@ type t = {
   transport: Transport.t;
 }
 
-let connect ?(options = default_options) () =
-  match Transport.connect ~options () with
+let connect ~sw ~mgr ?(options = default_options) () =
+  match Transport.connect ~sw ~mgr ~options () with
   | Ok transport -> Ok { transport }
   | Error err -> Error err
 

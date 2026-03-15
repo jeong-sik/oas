@@ -107,14 +107,9 @@ exception Trace_error of Error.sdk_error
 
 let trace_version = 1
 
-let json_parse_error detail =
-  Error.Serialization (JsonParseError { detail })
-
-let file_read_error ~path ~detail =
-  Error.Io (FileOpFailed { op = "read"; path; detail })
-
-let file_write_error ~path ~detail =
-  Error.Io (FileOpFailed { op = "write"; path; detail })
+let json_parse_error = Util.json_parse_error
+let file_read_error = Util.file_read_error
+let file_write_error = Util.file_write_error
 
 let safe_name name =
   let trimmed = String.trim name in

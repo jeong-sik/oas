@@ -20,10 +20,7 @@ type options = {
 
 let now () = Unix.gettimeofday ()
 
-let first_some a b =
-  match a with
-  | Some _ -> a
-  | None -> b
+let first_some = Util.first_some
 
 let validation_error detail =
   Error.Io (ValidationFailed { detail })

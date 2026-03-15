@@ -13,10 +13,7 @@ type state = {
 
 let runtime_version = "0.1.0"
 
-let first_some a b =
-  match a with
-  | Some _ -> a
-  | None -> b
+let first_some = Util.first_some
 
 let provider_runtime_name selected (cfg : Provider.config option) =
   match cfg with
@@ -119,7 +116,7 @@ let resolve_provider ?provider ?model () =
   let selected =
     match provider with
     | Some value when String.trim value <> "" -> String.lowercase_ascii (String.trim value)
-    | _ -> "local-qwen"
+    | _ -> Defaults.fallback_provider
   in
   let base =
     match selected with
@@ -134,7 +131,7 @@ let resolve_provider ?provider ?model () =
     | other ->
         Some
           {
-            Provider.provider = Local { base_url = "http://127.0.0.1:8085" };
+            Provider.provider = Local { base_url = Defaults.local_qwen_url };
             model_id = other;
             api_key_env = "LOCAL_LLM_KEY";
           }
@@ -158,7 +155,7 @@ let resolve_execution (session : session) (detail : spawn_agent_request) =
         match session.provider with
         | Some value when String.trim value <> "" ->
             String.lowercase_ascii (String.trim value)
-        | _ -> "local-qwen")
+        | _ -> Defaults.fallback_provider)
   in
   let requested_model =
     match detail.model with
