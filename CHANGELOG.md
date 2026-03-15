@@ -2,6 +2,28 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.24.0] - 2026-03-16
+
+### Added
+- **Cascade failover** (`Provider.cascade`): multi-provider failover with primary + fallback list. Retry-aware cascade with `Retry.with_cascade`.
+- **Idle detection**: fingerprint-based tool call repetition detection. Configurable `max_idle_turns` with `OnIdle` hook event and `IdleDetected` error.
+- **Context compaction** (`Context_reducer`): 6 strategies — `Keep_last_n`, `Token_budget`, `Prune_tool_outputs`, `Merge_contiguous`, `Drop_thinking`, `Compose`. Turn-boundary-aware grouping preserves ToolUse/ToolResult pairs.
+- **Context injection** (`Hooks.context_injector`): post-tool-execution hook that updates `Context` key-value store and appends extra messages to the conversation.
+- **Cost tracking** (`Provider.pricing_for_model`, `Provider.estimate_cost`): per-model pricing with cumulative `estimated_cost_usd` in `usage_stats`.
+- `test_bug_hunt.ml`: 7 bug candidate reproduction and fix verification tests.
+- `test_e2e_v024.ml`: 5 end-to-end integration scenarios against live local LLM (gated behind `LLAMA_LIVE_TEST=1`).
+
+### Fixed
+- **B1 CRITICAL**: `context_injector` exception crashed the tool loop. Wrapped in `try-with`; exceptions are caught and logged silently.
+- **B2 HIGH**: `create_message_cascade` with `clock=None` skipped all fallback providers. Fallbacks are now tried sequentially on retryable errors.
+- **B3 HIGH**: Injected `extra_messages` could violate role alternation. Added role validation that drops messages creating same-role adjacency.
+- **B4 HIGH**: `Token_budget` strategy returned empty message list when budget was smaller than the most recent turn. Added guard that always keeps the last turn.
+- **B5 MEDIUM**: Idle detection failed for empty-empty fingerprint comparison (`[] <> []` = false). Changed `last_tool_calls` from `list` to `option` to distinguish "not yet set" from "empty set".
+- **B6 MEDIUM**: `Drop_thinking` replaced thinking-only messages with `Text ""`. Changed to drop the entire message instead of inserting empty text.
+
+### Changed
+- `Agent.t.last_tool_calls`: internal type changed from `tool_call_fingerprint list` to `tool_call_fingerprint list option` (not in public API).
+
 ## [0.23.0] - 2026-03-15
 
 ### Breaking
