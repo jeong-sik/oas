@@ -214,3 +214,41 @@ let ollama ?(base_url="http://127.0.0.1:11434") ?(model_id="glm-4.7-flash")
   model_id;
   api_key_env = "DUMMY_KEY";
 }
+
+(* ── Cascade: multi-provider failover ──────────────────────────── *)
+
+type cascade = {
+  primary: config;
+  fallbacks: config list;
+}
+
+let cascade ~primary ~fallbacks = { primary; fallbacks }
+
+(* ── Pricing: per-model cost estimation ────────────────────────── *)
+
+type pricing = {
+  input_per_million: float;
+  output_per_million: float;
+}
+
+let pricing_for_model model_id =
+  let normalized = String.lowercase_ascii (String.trim model_id) in
+  if string_contains ~needle:"opus-4-6" normalized then
+    { input_per_million = 15.0; output_per_million = 75.0 }
+  else if string_contains ~needle:"opus-4-5" normalized then
+    { input_per_million = 15.0; output_per_million = 75.0 }
+  else if string_contains ~needle:"sonnet-4-6" normalized then
+    { input_per_million = 3.0; output_per_million = 15.0 }
+  else if string_contains ~needle:"sonnet-4" normalized then
+    { input_per_million = 3.0; output_per_million = 15.0 }
+  else if string_contains ~needle:"haiku-4-5" normalized then
+    { input_per_million = 0.8; output_per_million = 4.0 }
+  else if string_contains ~needle:"claude-3-7-sonnet" normalized then
+    { input_per_million = 3.0; output_per_million = 15.0 }
+  else
+    { input_per_million = 0.0; output_per_million = 0.0 }
+
+let estimate_cost ~(pricing : pricing) ~input_tokens ~output_tokens =
+  let input_cost = Float.of_int input_tokens *. pricing.input_per_million /. 1_000_000.0 in
+  let output_cost = Float.of_int output_tokens *. pricing.output_per_million /. 1_000_000.0 in
+  input_cost +. output_cost

@@ -12,12 +12,15 @@ let ( let* ) = Result.bind
 type options = {
   base_url: string;
   provider: Provider.config option;
+  cascade: Provider.cascade option;
+  max_idle_turns: int;
   hooks: Hooks.hooks;
   guardrails: Guardrails.t;
   tracer: Tracing.t;
   raw_trace: Raw_trace.t option;
   approval: Hooks.approval_callback option;
   context_reducer: Context_reducer.t option;
+  context_injector: Hooks.context_injector option;
   mcp_clients: Mcp.managed list;
   event_bus: Event_bus.t option;
 }
@@ -52,19 +55,29 @@ type lifecycle_snapshot = {
 let default_options = {
   base_url = Api.default_base_url;
   provider = None;
+  cascade = None;
+  max_idle_turns = 3;
   hooks = Hooks.empty;
   guardrails = Guardrails.default;
   tracer = Tracing.null;
   raw_trace = None;
   approval = None;
   context_reducer = None;
+  context_injector = None;
   mcp_clients = [];
   event_bus = None;
+}
+
+type tool_call_fingerprint = {
+  fp_name: string;
+  fp_input: string;
 }
 
 type t = {
   mutable state: agent_state;
   mutable lifecycle: lifecycle_snapshot option;
+  mutable last_tool_calls: tool_call_fingerprint list;
+  mutable consecutive_idle_turns: int;
   tools: Tool.t list;
   net: [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t;
   context: Context.t;
@@ -182,7 +195,8 @@ let create ~net ?(config=default_config) ?(tools=[]) ?context
     | Some c -> c
     | None -> Context.create ()
   in
-  { state; lifecycle = None; tools = all_tools; net; context = ctx; options }
+  { state; lifecycle = None; last_tool_calls = []; consecutive_idle_turns = 0;
+    tools = all_tools; net; context = ctx; options }
 
 (** Clone an agent with independent state.
     By default the clone gets a fresh (empty) context.
@@ -199,6 +213,8 @@ let clone ?(copy_context=false) agent =
   {
     state;
     lifecycle = agent.lifecycle;
+    last_tool_calls = [];
+    consecutive_idle_turns = 0;
     tools = agent.tools;
     net = agent.net;
     context = ctx;
@@ -387,9 +403,15 @@ let run_turn_with_trace ~sw ?clock ?raw_trace_run agent =
       agent_name = agent.state.config.name;
       turn = agent.state.turn_count; extra = [] }
     (fun _tracer ->
-      Api.create_message ~sw ~net:agent.net ~base_url:agent.options.base_url
-        ?provider:agent.options.provider ?clock ~config:agent.state
-        ~messages:effective_messages ?tools:tools_json ())
+      match agent.options.cascade with
+      | Some casc ->
+        Api.create_message_cascade ~sw ~net:agent.net ?clock
+          ~cascade:casc ~config:agent.state
+          ~messages:effective_messages ?tools:tools_json ()
+      | None ->
+        Api.create_message ~sw ~net:agent.net ~base_url:agent.options.base_url
+          ?provider:agent.options.provider ?clock ~config:agent.state
+          ~messages:effective_messages ?tools:tools_json ())
   in
   match api_result with
   | Error e -> Error e
@@ -397,9 +419,18 @@ let run_turn_with_trace ~sw ?clock ?raw_trace_run agent =
       let ts = Unix.gettimeofday () in
       set_lifecycle agent ~first_progress_at:ts ~last_progress_at:ts Running;
       let* () = trace_assistant_blocks raw_trace_run response.content in
-      (* Accumulate usage stats *)
+      (* Accumulate usage stats + cost *)
       let usage = match response.usage with
-        | Some u -> add_usage agent.state.usage u
+        | Some u ->
+          let base = add_usage agent.state.usage u in
+          let model_id = match agent.options.provider with
+            | Some cfg -> cfg.model_id
+            | None -> Types.model_to_string agent.state.config.model
+          in
+          let pricing = Provider.pricing_for_model model_id in
+          let turn_cost = Provider.estimate_cost ~pricing
+            ~input_tokens:u.input_tokens ~output_tokens:u.output_tokens in
+          { base with estimated_cost_usd = base.estimated_cost_usd +. turn_cost }
         | None -> { agent.state.usage with api_calls = agent.state.usage.api_calls + 1 }
       in
 
@@ -426,6 +457,32 @@ let run_turn_with_trace ~sw ?clock ?raw_trace_run agent =
       | StopToolUse ->
         let tool_uses = List.filter (function ToolUse _ -> true | _ -> false) response.content in
 
+        (* Idle detection: compare tool call fingerprints with previous turn *)
+        let current_fps = List.filter_map (function
+          | ToolUse { name; input; _ } ->
+            Some { fp_name = name; fp_input = Yojson.Safe.to_string input }
+          | _ -> None
+        ) tool_uses in
+        let is_idle =
+          agent.last_tool_calls <> [] &&
+          List.length current_fps = List.length agent.last_tool_calls &&
+          List.for_all2 (fun a b -> a.fp_name = b.fp_name && a.fp_input = b.fp_input)
+            current_fps agent.last_tool_calls
+        in
+        agent.last_tool_calls <- current_fps;
+        if is_idle then begin
+          agent.consecutive_idle_turns <- agent.consecutive_idle_turns + 1;
+          let _idle =
+            invoke_hook_with_trace agent ?raw_trace_run ~hook_name:"on_idle"
+              agent.options.hooks.on_idle
+              (Hooks.OnIdle {
+                consecutive_idle_turns = agent.consecutive_idle_turns;
+                tool_names = List.map (fun fp -> fp.fp_name) current_fps })
+          in
+          ()
+        end else
+          agent.consecutive_idle_turns <- 0;
+
         (* Guardrail: check tool call count limit *)
         let count = List.length tool_uses in
         (match Guardrails.exceeds_limit agent.options.guardrails count with
@@ -444,6 +501,28 @@ let run_turn_with_trace ~sw ?clock ?raw_trace_run agent =
             ToolResult { tool_use_id; content; is_error }
           ) results in
           agent.state <- { agent.state with messages = agent.state.messages @ [{ role = User; content = tool_results }] };
+          (* Context injection: call injector for each tool execution *)
+          (match agent.options.context_injector with
+           | None -> ()
+           | Some injector ->
+             List.iter2 (fun block (_, content, is_error) ->
+               match block with
+               | ToolUse { name; input; _ } ->
+                 let output : Types.tool_result =
+                   if is_error then Error { message = content; recoverable = true }
+                   else Ok { content }
+                 in
+                 (match injector ~tool_name:name ~input ~output with
+                  | None -> ()
+                  | Some inj ->
+                    List.iter (fun (key, value) ->
+                      Context.set agent.context key value
+                    ) inj.Hooks.context_updates;
+                    if inj.extra_messages <> [] then
+                      agent.state <- { agent.state with
+                        messages = agent.state.messages @ inj.extra_messages })
+               | _ -> ()
+             ) tool_uses results);
           Ok (`ToolsExecuted))
       | EndTurn | MaxTokens | StopSequence ->
         (* OnStop hook *)
@@ -484,6 +563,9 @@ let run ~sw ?clock agent user_prompt =
   let rec loop () =
     if agent.state.turn_count >= agent.state.config.max_turns then
       Error (Error.Agent (MaxTurnsExceeded { turns = agent.state.turn_count; limit = agent.state.config.max_turns }))
+    else if agent.consecutive_idle_turns >= agent.options.max_idle_turns
+            && agent.options.max_idle_turns > 0 then
+      Error (Error.Agent (IdleDetected { consecutive_idle_turns = agent.consecutive_idle_turns }))
     else
       match check_token_budget agent.state.config agent.state.usage with
       | Some err -> Error err
@@ -541,10 +623,18 @@ let run_turn_stream_with_trace ~sw ?clock ~on_event ?raw_trace_run agent =
       | Ok _ -> stream_result
       | Error (Error.Config (UnsupportedProvider _)) ->
           (* Non-Anthropic provider: fallback to sync + synthetic events *)
-          let sync_result = Api.create_message ~sw ~net:agent.net
-            ~base_url:agent.options.base_url ?provider:agent.options.provider
-            ?clock ~config:agent.state ~messages:effective_messages
-            ?tools:tools_json () in
+          let sync_result =
+            match agent.options.cascade with
+            | Some casc ->
+              Api.create_message_cascade ~sw ~net:agent.net ?clock
+                ~cascade:casc ~config:agent.state
+                ~messages:effective_messages ?tools:tools_json ()
+            | None ->
+              Api.create_message ~sw ~net:agent.net
+                ~base_url:agent.options.base_url ?provider:agent.options.provider
+                ?clock ~config:agent.state ~messages:effective_messages
+                ?tools:tools_json ()
+          in
           (match sync_result with
            | Ok response ->
              Streaming.emit_synthetic_events response on_event;
@@ -558,9 +648,18 @@ let run_turn_stream_with_trace ~sw ?clock ~on_event ?raw_trace_run agent =
     let ts = Unix.gettimeofday () in
     set_lifecycle agent ~first_progress_at:ts ~last_progress_at:ts Running;
     let* () = trace_assistant_blocks raw_trace_run response.content in
-    (* Accumulate usage stats *)
+    (* Accumulate usage stats + cost *)
     let usage = match response.usage with
-      | Some u -> add_usage agent.state.usage u
+      | Some u ->
+        let base = add_usage agent.state.usage u in
+        let model_id = match agent.options.provider with
+          | Some cfg -> cfg.model_id
+          | None -> Types.model_to_string agent.state.config.model
+        in
+        let pricing = Provider.pricing_for_model model_id in
+        let turn_cost = Provider.estimate_cost ~pricing
+          ~input_tokens:u.input_tokens ~output_tokens:u.output_tokens in
+        { base with estimated_cost_usd = base.estimated_cost_usd +. turn_cost }
       | None -> { agent.state.usage with api_calls = agent.state.usage.api_calls + 1 }
     in
 
@@ -744,7 +843,8 @@ let resume ~net ~(checkpoint : Checkpoint.t) ?(tools=[]) ?context
     | Some c -> c
     | None -> Context.copy checkpoint.context
   in
-  { state; lifecycle = None; tools; net; context = ctx; options }
+  { state; lifecycle = None; last_tool_calls = []; consecutive_idle_turns = 0;
+    tools; net; context = ctx; options }
 
 (** Create a checkpoint from the current agent state. *)
 let checkpoint ?(session_id="") agent =

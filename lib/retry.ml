@@ -100,3 +100,22 @@ let with_retry ~clock ?(config=default_config) (f : unit -> ('a, api_error) resu
     sleep_for err 0;
     loop 1 err
   | Error _ as non_retryable -> non_retryable
+
+(** Retry with cascade: try [primary] first (with retries), then each
+    fallback in order. Each attempt gets its own full retry budget.
+    Provider-agnostic: callers construct the request functions. *)
+let with_cascade ~clock ?(config=default_config)
+    ~primary ~fallbacks ()
+    : ('a, api_error) result =
+  match with_retry ~clock ~config primary with
+  | Ok _ as success -> success
+  | Error primary_err when is_retryable primary_err ->
+    let rec try_fallbacks = function
+      | [] -> Error primary_err
+      | fb :: rest ->
+        match with_retry ~clock ~config fb with
+        | Ok _ as success -> success
+        | Error _ -> try_fallbacks rest
+    in
+    try_fallbacks fallbacks
+  | Error _ as non_retryable -> non_retryable
