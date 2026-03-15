@@ -124,7 +124,12 @@ let test_anthropic_headers () =
     Alcotest.fail (Printf.sprintf "should succeed: %s" (Error.to_string e))
 
 let test_model_spec_local_qwen_capabilities () =
-  let spec = Provider.model_spec_of_config (Provider.local_qwen ()) in
+  let local_qwen : Provider.config = {
+    provider = Local { base_url = "http://127.0.0.1:8085" };
+    model_id = "qwen3.5-35b-a3b-ud-q8-xl";
+    api_key_env = "DUMMY_KEY";
+  } in
+  let spec = Provider.model_spec_of_config local_qwen in
   Alcotest.(check string) "request path" "/v1/messages" spec.request_path;
   Alcotest.(check bool) "supports tools" true spec.capabilities.supports_tools;
   Alcotest.(check bool) "supports reasoning" true

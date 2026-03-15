@@ -29,6 +29,7 @@ type mcp_error =
 type config_error =
   | MissingEnvVar of { var_name: string }
   | UnsupportedProvider of { detail: string }
+  | InvalidConfig of { field: string; detail: string }
 
 (** Serialization / deserialization errors. *)
 type serialization_error =
@@ -82,6 +83,8 @@ let config_error_to_string = function
     Printf.sprintf "Missing env var: %s" r.var_name
   | UnsupportedProvider r ->
     Printf.sprintf "Unsupported provider: %s" r.detail
+  | InvalidConfig r ->
+    Printf.sprintf "Invalid config '%s': %s" r.field r.detail
 
 let serialization_error_to_string = function
   | JsonParseError r ->

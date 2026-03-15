@@ -7,7 +7,11 @@
 open Agent_sdk
 open Types
 
-let provider = Provider.local_qwen ()
+let provider : Provider.config = {
+  provider = Local { base_url = "http://127.0.0.1:8085" };
+  model_id = "qwen3.5-35b-a3b-ud-q8-xl";
+  api_key_env = "DUMMY_KEY";
+}
 let base_url =
   match provider.provider with
   | Provider.Local { base_url } -> base_url
@@ -83,7 +87,7 @@ let test_tool_calling () =
       let expr = Yojson.Safe.Util.(input |> member "expression" |> to_string) in
       Printf.printf "  [Tool called] calculator(%s)\n%!" expr;
       (* Simple eval for demo *)
-      Ok (Printf.sprintf "Result of %s = 5" expr))
+      Ok { Types.content = Printf.sprintf "Result of %s = 5" expr })
   in
   let agent = Agent.create ~net:env#net ~config ~tools:[calc_tool] ~options () in
   match Agent.run ~sw agent "What is 2+3? Use the calculator tool." with
@@ -116,7 +120,7 @@ let test_multi_tool () =
     (fun input ->
       let path = Yojson.Safe.Util.(input |> member "path" |> to_string) in
       Printf.printf "  [Tool called] read_file(%s)\n%!" path;
-      Ok "hello world\nthis is a test file\n")
+      Ok { Types.content = "hello world\nthis is a test file\n" })
   in
   let agent = Agent.create ~net:env#net ~config ~tools:[read_file_tool] ~options () in
   match Agent.run ~sw agent "Read the file at /tmp/test.txt and tell me what it says." with

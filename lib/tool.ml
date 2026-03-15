@@ -3,10 +3,10 @@
 open Types
 
 (** Tool handler: Direct style (no Lwt) *)
-type tool_handler = Yojson.Safe.t -> (string, string) result
+type tool_handler = Yojson.Safe.t -> Types.tool_result
 
 (** Context-aware tool handler *)
-type context_tool_handler = Context.t -> Yojson.Safe.t -> (string, string) result
+type context_tool_handler = Context.t -> Yojson.Safe.t -> Types.tool_result
 
 type workdir_policy =
   | Required

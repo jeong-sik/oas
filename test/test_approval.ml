@@ -7,7 +7,7 @@ open Types
 (** Helper: create a simple tool that echoes its input as JSON string *)
 let make_echo_tool name =
   Tool.create ~name ~description:"echo" ~parameters:[] (fun input ->
-    Ok (Yojson.Safe.to_string input))
+    Ok { Types.content = Yojson.Safe.to_string input })
 
 (** Helper: create a minimal agent inside Eio with given hooks and approval.
     Returns execute_tools results for the given tool_uses. *)
@@ -25,7 +25,7 @@ let test_approval_required_no_callback () =
   (* ApprovalRequired with no callback registered: permissive fallthrough *)
   let hooks = { Hooks.empty with
     pre_tool_use = Some (fun _event -> Hooks.ApprovalRequired) } in
-  let results = run_execute ~hooks [ToolUse ("t1", "safe", `String "hello")] in
+  let results = run_execute ~hooks [ToolUse { id = "t1"; name = "safe"; input = `String "hello" }] in
   match results with
   | [(id, content, is_error)] ->
     check string "id" "t1" id;
@@ -38,7 +38,7 @@ let test_approval_approve () =
     pre_tool_use = Some (fun _event -> Hooks.ApprovalRequired) } in
   let approval ~tool_name:_ ~input:_ = Hooks.Approve in
   let results = run_execute ~hooks ~approval
-    [ToolUse ("t1", "safe", `String "data")] in
+    [ToolUse { id = "t1"; name = "safe"; input = `String "data" }] in
   match results with
   | [(id, content, is_error)] ->
     check string "id" "t1" id;
@@ -51,7 +51,7 @@ let test_approval_reject () =
     pre_tool_use = Some (fun _event -> Hooks.ApprovalRequired) } in
   let approval ~tool_name:_ ~input:_ = Hooks.Reject "too dangerous" in
   let results = run_execute ~hooks ~approval
-    [ToolUse ("t1", "dangerous", `String "rm -rf")] in
+    [ToolUse { id = "t1"; name = "dangerous"; input = `String "rm -rf" }] in
   match results with
   | [(id, content, is_error)] ->
     check string "id" "t1" id;
@@ -65,7 +65,7 @@ let test_approval_edit () =
   let safe_input = `String "sanitized" in
   let approval ~tool_name:_ ~input:_ = Hooks.Edit safe_input in
   let results = run_execute ~hooks ~approval
-    [ToolUse ("t1", "dangerous", `String "original")] in
+    [ToolUse { id = "t1"; name = "dangerous"; input = `String "original" }] in
   match results with
   | [(id, content, is_error)] ->
     check string "id" "t1" id;
@@ -86,8 +86,8 @@ let test_selective_approval () =
     else Hooks.Approve
   in
   let results = run_execute ~hooks ~approval [
-    ToolUse ("t1", "safe", `String "ok");
-    ToolUse ("t2", "dangerous", `String "bad");
+    ToolUse { id = "t1"; name = "safe"; input = `String "ok" };
+    ToolUse { id = "t2"; name = "dangerous"; input = `String "bad" };
   ] in
   (* Results may be in any order due to Eio.Fiber.List.map, so sort by id *)
   let sorted = List.sort (fun (a, _, _) (b, _, _) -> String.compare a b) results in
@@ -115,8 +115,8 @@ let test_skip_override_unaffected () =
     Hooks.Approve
   in
   let results = run_execute ~hooks ~approval [
-    ToolUse ("t1", "safe", `Null);
-    ToolUse ("t2", "dangerous", `Null);
+    ToolUse { id = "t1"; name = "safe"; input = `Null };
+    ToolUse { id = "t2"; name = "dangerous"; input = `Null };
   ] in
   let sorted = List.sort (fun (a, _, _) (b, _, _) -> String.compare a b) results in
   check bool "approval callback not called" false !approval_called;

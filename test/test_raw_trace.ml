@@ -137,7 +137,7 @@ let test_agent_run_stream_append_only_raw_trace () =
         [ { name = "path"; description = "Relative path"; param_type = String; required = true } ]
       (fun input ->
         let rel = Yojson.Safe.Util.(input |> member "path" |> to_string) in
-        Ok (read_file (Filename.concat root rel)))
+        Ok { Types.content = read_file (Filename.concat root rel) })
   in
   let file_write_tool =
     Tool.create ~name:"file_write" ~description:"Write a file"
@@ -150,7 +150,7 @@ let test_agent_run_stream_append_only_raw_trace () =
         let rel = Yojson.Safe.Util.(input |> member "path" |> to_string) in
         let content = Yojson.Safe.Util.(input |> member "content" |> to_string) in
         write_file (Filename.concat root rel) content;
-        Ok (Printf.sprintf "wrote:%s" rel))
+        Ok { Types.content = Printf.sprintf "wrote:%s" rel })
   in
   let shell_exec_tool =
     Tool.create ~name:"shell_exec" ~description:"Run a verification command"
@@ -160,20 +160,22 @@ let test_agent_run_stream_append_only_raw_trace () =
         let command = Yojson.Safe.Util.(input |> member "command" |> to_string) in
         if String.equal command "test -f input.txt && echo PASS" then
           Ok
-            (if Sys.file_exists (Filename.concat root "input.txt") then "PASS"
-             else "FAIL")
+            { Types.content =
+                (if Sys.file_exists (Filename.concat root "input.txt") then "PASS"
+                 else "FAIL") }
         else if
           String.equal command "grep -q 'copied' output.txt && echo PASS"
         then
           Ok
-            (if
-               Sys.file_exists (Filename.concat root "output.txt")
-               && String.equal
-                    (read_file (Filename.concat root "output.txt"))
-                    "source text -> copied"
-             then "PASS"
-             else "FAIL")
-        else Error ("unexpected command: " ^ command))
+            { Types.content =
+                (if
+                   Sys.file_exists (Filename.concat root "output.txt")
+                   && String.equal
+                        (read_file (Filename.concat root "output.txt"))
+                        "source text -> copied"
+                 then "PASS"
+                 else "FAIL") }
+        else Error { Types.message = "unexpected command: " ^ command; recoverable = true })
   in
   let tools = [ file_read_tool; shell_exec_tool; file_write_tool ] in
   let port = 8094 in

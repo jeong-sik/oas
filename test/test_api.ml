@@ -21,7 +21,7 @@ let test_text_round_trip () =
   | None -> fail "returned None"
 
 let test_thinking_round_trip () =
-  let block = Types.Thinking ("sig123", "I think therefore I am") in
+  let block = Types.Thinking { thinking_type = "sig123"; content = "I think therefore I am" } in
   let json = Api.content_block_to_json block in
   match Api.content_block_of_json json with
   | Some parsed -> check_block "thinking" block parsed
@@ -35,21 +35,21 @@ let test_redacted_thinking_round_trip () =
   | None -> fail "returned None"
 
 let test_tool_use_round_trip () =
-  let block = Types.ToolUse ("tu_001", "calculator", `Assoc [("expr", `String "2+2")]) in
+  let block = Types.ToolUse { id = "tu_001"; name = "calculator"; input = `Assoc [("expr", `String "2+2")] } in
   let json = Api.content_block_to_json block in
   match Api.content_block_of_json json with
   | Some parsed -> check_block "tool_use" block parsed
   | None -> fail "returned None"
 
 let test_tool_result_round_trip () =
-  let block = Types.ToolResult ("tu_001", "4", false) in
+  let block = Types.ToolResult { tool_use_id = "tu_001"; content = "4"; is_error = false } in
   let json = Api.content_block_to_json block in
   match Api.content_block_of_json json with
   | Some parsed -> check_block "tool_result" block parsed
   | None -> fail "returned None"
 
 let test_tool_result_error_round_trip () =
-  let block = Types.ToolResult ("tu_002", "failed", true) in
+  let block = Types.ToolResult { tool_use_id = "tu_002"; content = "failed"; is_error = true } in
   let json = Api.content_block_to_json block in
   match Api.content_block_of_json json with
   | Some parsed -> check_block "tool_result_error" block parsed
@@ -255,7 +255,7 @@ let test_parse_response_tool_use () =
    | sr -> fail (Printf.sprintf "expected StopToolUse, got %s" (Types.show_stop_reason sr)));
   check bool "usage is None" true (resp.usage = None);
   (match resp.content with
-   | [Types.ToolUse ("tu_1", "calc", _)] -> ()
+   | [Types.ToolUse { id = "tu_1"; name = "calc"; _ }] -> ()
    | _ -> fail "expected single ToolUse")
 
 let test_parse_response_unknown_stop () =
@@ -450,7 +450,7 @@ let test_parse_sse_malformed_json () =
 
 let test_message_to_json_assistant () =
   let msg = { Types.role = Types.Assistant;
-              content = [Types.Text "hi"; Types.ToolUse ("t1", "calc", `Null)] } in
+              content = [Types.Text "hi"; Types.ToolUse { id = "t1"; name = "calc"; input = `Null }] } in
   let json = Api.message_to_json msg in
   let open Yojson.Safe.Util in
   check string "role" "assistant" (json |> member "role" |> to_string);
@@ -493,7 +493,7 @@ let test_ollama_tool_args_string () =
   let json_str = {|{"model":"qwen","message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"get_weather","arguments":"{\"city\":\"Seoul\"}"}}]},"done":true,"eval_count":10,"prompt_eval_count":5}|} in
   let resp = Api.parse_ollama_chat_response json_str in
   match resp.content with
-  | [Types.ToolUse (_, "get_weather", input)] ->
+  | [Types.ToolUse { name = "get_weather"; input; _ }] ->
       let open Yojson.Safe.Util in
       check string "city" "Seoul" (input |> member "city" |> to_string)
   | _ -> fail "expected single ToolUse block"
@@ -503,7 +503,7 @@ let test_ollama_tool_args_object () =
   let json_str = {|{"model":"qwen","message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"get_weather","arguments":{"city":"Seoul"}}}]},"done":true,"eval_count":10,"prompt_eval_count":5}|} in
   let resp = Api.parse_ollama_chat_response json_str in
   match resp.content with
-  | [Types.ToolUse (_, "get_weather", input)] ->
+  | [Types.ToolUse { name = "get_weather"; input; _ }] ->
       let open Yojson.Safe.Util in
       check string "city from object" "Seoul" (input |> member "city" |> to_string)
   | _ -> fail "expected single ToolUse block with object arguments"

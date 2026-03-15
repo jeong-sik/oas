@@ -16,7 +16,7 @@ let test_find_handoff_none () =
 let test_find_handoff_normal_tool () =
   let msgs = [
     { role = User; content = [Text "use_tool"] };
-    { role = Assistant; content = [ToolUse ("t1", "calculator", `Assoc [("a", `Int 1)])] };
+    { role = Assistant; content = [ToolUse { id = "t1"; name = "calculator"; input = `Assoc [("a", `Int 1)] }] };
   ] in
   Alcotest.(check bool) "non-handoff tool" true
     (Agent.find_handoff_in_messages msgs = None)
@@ -25,7 +25,7 @@ let test_find_handoff_present () =
   let input = `Assoc [("prompt", `String "research this")] in
   let msgs = [
     { role = User; content = [Text "delegate"] };
-    { role = Assistant; content = [ToolUse ("h1", "transfer_to_researcher", input)] };
+    { role = Assistant; content = [ToolUse { id = "h1"; name = "transfer_to_researcher"; input }] };
   ] in
   match Agent.find_handoff_in_messages msgs with
   | Some (id, name, prompt) ->
@@ -38,7 +38,7 @@ let test_find_handoff_present () =
 let test_find_handoff_no_prompt_field () =
   let input = `Assoc [("other", `Int 42)] in
   let msgs = [
-    { role = Assistant; content = [ToolUse ("h2", "transfer_to_coder", input)] };
+    { role = Assistant; content = [ToolUse { id = "h2"; name = "transfer_to_coder"; input }] };
   ] in
   match Agent.find_handoff_in_messages msgs with
   | Some (_, _, prompt) ->
@@ -54,7 +54,7 @@ let test_find_handoff_mixed_content () =
   let msgs = [
     { role = Assistant; content = [
         Text "I'll delegate";
-        ToolUse ("h3", "transfer_to_analyst", `Assoc [("prompt", `String "analyze")]);
+        ToolUse { id = "h3"; name = "transfer_to_analyst"; input = `Assoc [("prompt", `String "analyze")] };
     ] };
   ] in
   match Agent.find_handoff_in_messages msgs with
@@ -70,16 +70,16 @@ let test_find_handoff_mixed_content () =
 let test_replace_existing () =
   let msgs = [
     { role = User; content = [Text "hello"] };
-    { role = Assistant; content = [ToolUse ("t1", "calc", `Null)] };
-    { role = User; content = [ToolResult ("t1", "old result", false)] };
+    { role = Assistant; content = [ToolUse { id = "t1"; name = "calc"; input = `Null }] };
+    { role = User; content = [ToolResult { tool_use_id = "t1"; content = "old result"; is_error = false }] };
   ] in
   let updated = Agent.replace_tool_result msgs ~tool_id:"t1" ~content:"new result" ~is_error:false in
   let last = List.nth updated (List.length updated - 1) in
   match last.content with
-  | [ToolResult (id, content, is_err)] ->
-      Alcotest.(check string) "id preserved" "t1" id;
+  | [ToolResult { tool_use_id; content; is_error }] ->
+      Alcotest.(check string) "id preserved" "t1" tool_use_id;
       Alcotest.(check string) "content replaced" "new result" content;
-      Alcotest.(check bool) "not error" false is_err
+      Alcotest.(check bool) "not error" false is_error
   | _ ->
       Alcotest.fail "expected single ToolResult"
 
@@ -90,24 +90,24 @@ let test_replace_missing_appends () =
   let updated = Agent.replace_tool_result msgs ~tool_id:"t99" ~content:"injected" ~is_error:true in
   let last = List.nth updated (List.length updated - 1) in
   match last.content with
-  | [ToolResult (id, content, is_err)] ->
-      Alcotest.(check string) "id" "t99" id;
+  | [ToolResult { tool_use_id; content; is_error }] ->
+      Alcotest.(check string) "id" "t99" tool_use_id;
       Alcotest.(check string) "content" "injected" content;
-      Alcotest.(check bool) "is error" true is_err
+      Alcotest.(check bool) "is error" true is_error
   | _ ->
       Alcotest.fail "expected appended ToolResult"
 
 let test_replace_preserves_other_results () =
   let msgs = [
     { role = User; content = [
-        ToolResult ("t1", "keep", false);
-        ToolResult ("t2", "replace me", false);
+        ToolResult { tool_use_id = "t1"; content = "keep"; is_error = false };
+        ToolResult { tool_use_id = "t2"; content = "replace me"; is_error = false };
     ] };
   ] in
   let updated = Agent.replace_tool_result msgs ~tool_id:"t2" ~content:"replaced" ~is_error:true in
   let last = List.nth updated (List.length updated - 1) in
   match last.content with
-  | [ToolResult ("t1", c1, e1); ToolResult ("t2", c2, e2)] ->
+  | [ToolResult { tool_use_id = "t1"; content = c1; is_error = e1 }; ToolResult { tool_use_id = "t2"; content = c2; is_error = e2 }] ->
       Alcotest.(check string) "t1 unchanged" "keep" c1;
       Alcotest.(check bool) "t1 no error" false e1;
       Alcotest.(check string) "t2 replaced" "replaced" c2;

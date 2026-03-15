@@ -42,7 +42,7 @@ let color_schema : string Structured.schema = {
 let make_tool_response ~tool_id ~tool_name ~input_json =
   { id = "msg_test"; model = "claude-sonnet-4";
     stop_reason = StopToolUse;
-    content = [ToolUse (tool_id, tool_name, input_json)];
+    content = [ToolUse { id = tool_id; name = tool_name; input = input_json }];
     usage = Some { input_tokens = 50; output_tokens = 20;
                    cache_creation_input_tokens = 0; cache_read_input_tokens = 0 } }
 
@@ -104,7 +104,7 @@ let test_on_event_callback_fires () =
   let response =
     { id = "msg_2"; model = "claude-sonnet-4";
       stop_reason = StopToolUse;
-      content = [Text "thinking..."; ToolUse ("tu_2", "extract_person", input_json)];
+      content = [Text "thinking..."; ToolUse { id = "tu_2"; name = "extract_person"; input = input_json }];
       usage = Some { input_tokens = 100; output_tokens = 50;
                      cache_creation_input_tokens = 0; cache_read_input_tokens = 0 } }
   in
@@ -160,8 +160,8 @@ let test_multiple_schemas () =
     (color_json |> member "name" |> to_string);
   (* extract_tool_input picks the matching schema *)
   let content = [
-    ToolUse ("tu_p", "extract_person", `Assoc [("name", `String "X"); ("age", `Int 1)]);
-    ToolUse ("tu_c", "extract_color", `Assoc [("color", `String "blue")]);
+    ToolUse { id = "tu_p"; name = "extract_person"; input = `Assoc [("name", `String "X"); ("age", `Int 1)] };
+    ToolUse { id = "tu_c"; name = "extract_color"; input = `Assoc [("color", `String "blue")] };
   ] in
   (match Structured.extract_tool_input ~schema:color_schema content with
    | Ok color -> Alcotest.(check string) "color matched" "blue" color
@@ -264,7 +264,7 @@ let test_extract_after_accumulation () =
             | Some id -> id | None -> "" in
           let tname = match Hashtbl.find_opt block_tool_names index with
             | Some n -> n | None -> "" in
-          (try Some (ToolUse (tid, tname, Yojson.Safe.from_string text))
+          (try Some (ToolUse { id = tid; name = tname; input = Yojson.Safe.from_string text })
            with Yojson.Json_error _ -> None)
         | "text" -> Some (Text text)
         | _ -> None

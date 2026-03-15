@@ -187,7 +187,7 @@ let () =
             required = true;
           };
         ]
-      (fun _ -> Ok "PASS")
+      (fun _ -> Ok { Types.content = "PASS" })
   in
   let agent =
     Agent.create ~net:env#net

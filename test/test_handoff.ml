@@ -66,9 +66,9 @@ let test_make_handoff_tool_handler_is_sentinel () =
   } in
   let tool = Handoff.make_handoff_tool target in
   match Tool.execute tool `Null with
-  | Error msg ->
+  | Error { message; _ } ->
       check string "sentinel message"
-        "Handoff tools are intercepted by the agent runner" msg
+        "Handoff tools are intercepted by the agent runner" message
   | Ok _ ->
       fail "Direct handoff tool execution should be rejected by the sentinel handler"
 

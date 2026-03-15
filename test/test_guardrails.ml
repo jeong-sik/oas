@@ -5,7 +5,7 @@ open Agent_sdk
 open Types
 
 let make_tool name =
-  Tool.create ~name ~description:"test" ~parameters:[] (fun _input -> Ok "ok")
+  Tool.create ~name ~description:"test" ~parameters:[] (fun _input -> Ok { Types.content = "ok" })
 
 let test_default () =
   let g = Guardrails.default in

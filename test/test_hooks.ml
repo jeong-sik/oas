@@ -49,8 +49,8 @@ let test_hook_receives_event () =
 let test_post_tool_use_event () =
   let received_output = ref "" in
   let hook = function
-    | Hooks.PostToolUse { output = Ok s; _ } ->
-      received_output := s;
+    | Hooks.PostToolUse { output = Ok { content }; _ } ->
+      received_output := content;
       Hooks.Continue
     | _ -> Hooks.Continue
   in
@@ -58,7 +58,7 @@ let test_post_tool_use_event () =
     (Hooks.PostToolUse {
       tool_name = "echo";
       input = `Null;
-      output = Ok "hello"
+      output = Ok { Types.content = "hello" }
     }) in
   check string "hook received output" "hello" !received_output
 

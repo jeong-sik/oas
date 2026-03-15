@@ -13,20 +13,24 @@ let test_simple_handler_ok () =
     }]
     (fun input ->
       let open Yojson.Safe.Util in
-      Ok (input |> member "msg" |> to_string))
+      Ok { Types.content = input |> member "msg" |> to_string })
   in
   let actual = Tool.execute tool (`Assoc [("msg", `String "hello")]) in
-  check (result string string) "returns Ok" (Ok "hello") actual
+  match actual with
+  | Ok { content } -> check string "returns Ok" "hello" content
+  | Error _ -> fail "expected Ok"
 
 let test_simple_handler_error () =
   let tool = Tool.create
     ~name:"fail"
     ~description:"Always fails"
     ~parameters:[]
-    (fun _input -> Error "intentional error")
+    (fun _input -> Error { Types.message = "intentional error"; recoverable = true })
   in
   let actual = Tool.execute tool `Null in
-  check (result string string) "returns Error" (Error "intentional error") actual
+  match actual with
+  | Error { message; _ } -> check string "returns Error" "intentional error" message
+  | Ok _ -> fail "expected Error"
 
 let test_context_handler_receives_context () =
   let tool = Tool.create_with_context
@@ -35,13 +39,15 @@ let test_context_handler_receives_context () =
     ~parameters:[]
     (fun ctx _input ->
       match Context.get ctx "key" with
-      | Some (`String v) -> Ok v
-      | _ -> Error "key not found")
+      | Some (`String v) -> Ok { Types.content = v }
+      | _ -> Error { Types.message = "key not found"; recoverable = true })
   in
   let ctx = Context.create () in
   Context.set ctx "key" (`String "ctx_value");
   let actual = Tool.execute ~context:ctx tool `Null in
-  check (result string string) "reads context" (Ok "ctx_value") actual
+  match actual with
+  | Ok { content } -> check string "reads context" "ctx_value" content
+  | Error _ -> fail "expected Ok"
 
 let test_context_handler_writes_context () =
   let tool = Tool.create_with_context
@@ -50,7 +56,7 @@ let test_context_handler_writes_context () =
     ~parameters:[]
     (fun ctx _input ->
       Context.set ctx "written" (`Int 42);
-      Ok "done")
+      Ok { Types.content = "done" })
   in
   let ctx = Context.create () in
   let _result = Tool.execute ~context:ctx tool `Null in
@@ -62,10 +68,12 @@ let test_context_handler_default_context () =
     ~name:"noctx"
     ~description:"No explicit context"
     ~parameters:[]
-    (fun _ctx _input -> Ok "works")
+    (fun _ctx _input -> Ok { Types.content = "works" })
   in
   let actual = Tool.execute tool `Null in
-  check (result string string) "default context" (Ok "works") actual
+  match actual with
+  | Ok { content } -> check string "default context" "works" content
+  | Error _ -> fail "expected Ok"
 
 let test_schema_to_json_structure () =
   let tool = Tool.create
@@ -77,7 +85,7 @@ let test_schema_to_json_structure () =
       { Types.name = "precision"; description = "Decimal places";
         param_type = Types.Integer; required = false };
     ]
-    (fun _input -> Ok "")
+    (fun _input -> Ok { Types.content = "" })
   in
   let json = Tool.schema_to_json tool in
   let open Yojson.Safe.Util in
@@ -103,7 +111,7 @@ let test_schema_param_types () =
     { Types.name = "o"; description = ""; param_type = Types.Object; required = false };
   ] in
   let tool = Tool.create ~name:"types" ~description:"" ~parameters:params
-    (fun _input -> Ok "") in
+    (fun _input -> Ok { Types.content = "" }) in
   let json = Tool.schema_to_json tool in
   let open Yojson.Safe.Util in
   let props = json |> member "input_schema" |> member "properties" in
@@ -144,7 +152,7 @@ let test_descriptor_preserved_and_not_in_schema () =
             required = true;
           };
         ]
-      (fun _ -> Ok "ok")
+      (fun _ -> Ok { Types.content = "ok" })
   in
   let descriptor = Tool.descriptor tool in
   check bool "descriptor present" true (Option.is_some descriptor);

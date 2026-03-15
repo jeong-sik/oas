@@ -17,7 +17,7 @@ type event =
                         result: (api_response, Error.sdk_error) result; elapsed: float }
   | ToolCalled of { agent_name: string; tool_name: string; input: Yojson.Safe.t }
   | ToolCompleted of { agent_name: string; tool_name: string;
-                       output: (string, string) result }
+                       output: Types.tool_result }
   | TurnStarted of { agent_name: string; turn: int }
   | TurnCompleted of { agent_name: string; turn: int }
   | Custom of string * Yojson.Safe.t

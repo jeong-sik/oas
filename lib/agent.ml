@@ -71,6 +71,15 @@ type t = {
   options: options;
 }
 
+(* Public accessors — .mli exposes Agent.t as abstract *)
+let state t = t.state
+let lifecycle t = t.lifecycle
+let tools t = t.tools
+let context t = t.context
+let options t = t.options
+let net t = t.net
+let set_state t s = t.state <- s
+
 let provider_runtime_name (cfg : Provider.config option) =
   match cfg with
   | None -> None
@@ -431,8 +440,8 @@ let run_turn_with_trace ~sw ?clock ?raw_trace_run agent =
             with Raw_trace.Trace_error err -> Error err
           in
           let* results = results in
-          let tool_results = List.map (fun (id, content, is_error) ->
-            ToolResult (id, content, is_error)
+          let tool_results = List.map (fun (tool_use_id, content, is_error) ->
+            ToolResult { tool_use_id; content; is_error }
           ) results in
           agent.state <- { agent.state with messages = agent.state.messages @ [{ role = User; content = tool_results }] };
           Ok (`ToolsExecuted))
@@ -590,8 +599,8 @@ let run_turn_stream_with_trace ~sw ?clock ~on_event ?raw_trace_run agent =
           with Raw_trace.Trace_error err -> Error err
         in
         let* results = results in
-        let tool_results = List.map (fun (id, content, is_error) ->
-          ToolResult (id, content, is_error)
+        let tool_results = List.map (fun (tool_use_id, content, is_error) ->
+          ToolResult { tool_use_id; content; is_error }
         ) results in
         agent.state <- { agent.state with
           messages = agent.state.messages @ [{ role = User; content = tool_results }] };

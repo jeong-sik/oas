@@ -111,7 +111,7 @@ let test_filter_tools_only () =
   let sub = Event_bus.subscribe ~filter:Event_bus.filter_tools_only bus in
   Event_bus.publish bus (TurnStarted { agent_name = "a"; turn = 0 });
   Event_bus.publish bus (ToolCalled { agent_name = "a"; tool_name = "calc"; input = `Null });
-  Event_bus.publish bus (ToolCompleted { agent_name = "a"; tool_name = "calc"; output = Ok "42" });
+  Event_bus.publish bus (ToolCompleted { agent_name = "a"; tool_name = "calc"; output = Ok { Types.content = "42" } });
   Event_bus.publish bus (TurnCompleted { agent_name = "a"; turn = 0 });
   let events = Event_bus.drain sub in
   check int "only tool events" 2 (List.length events)
@@ -155,7 +155,7 @@ let test_multiple_event_types () =
   Event_bus.publish bus (AgentStarted { agent_name = "a"; task_id = "t1" });
   Event_bus.publish bus (TurnStarted { agent_name = "a"; turn = 0 });
   Event_bus.publish bus (ToolCalled { agent_name = "a"; tool_name = "f"; input = `Null });
-  Event_bus.publish bus (ToolCompleted { agent_name = "a"; tool_name = "f"; output = Ok "ok" });
+  Event_bus.publish bus (ToolCompleted { agent_name = "a"; tool_name = "f"; output = Ok { Types.content = "ok" } });
   Event_bus.publish bus (TurnCompleted { agent_name = "a"; turn = 0 });
   Event_bus.publish bus (AgentCompleted { agent_name = "a"; task_id = "t1";
                                           result = Ok (mock_response "done"); elapsed = 0.1 });

@@ -4,11 +4,17 @@
 
 open Agent_sdk
 
+let local_qwen_provider : Provider.config = {
+  provider = Local { base_url = "http://127.0.0.1:8085" };
+  model_id = "qwen3.5-35b-a3b-ud-q8-xl";
+  api_key_env = "DUMMY_KEY";
+}
+
 let test_stream_basic () =
   Eio_main.run @@ fun env ->
   let net = Eio.Stdenv.net env in
   Eio.Switch.run @@ fun sw ->
-  let provider = Provider.local_qwen () in
+  let provider = local_qwen_provider in
   let config = {
     Types.default_config with
     model = Types.Custom provider.model_id;
@@ -70,7 +76,7 @@ let test_stream_event_sequence () =
   Eio_main.run @@ fun env ->
   let net = Eio.Stdenv.net env in
   Eio.Switch.run @@ fun sw ->
-  let provider = Provider.local_qwen () in
+  let provider = local_qwen_provider in
   let config = {
     Types.default_config with
     model = Types.Custom provider.model_id;

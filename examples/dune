@@ -1,0 +1,23 @@
+(executable
+ (name basic_agent)
+ (libraries agent_sdk eio eio_main yojson))
+
+(executable
+ (name tool_use)
+ (libraries agent_sdk eio eio_main yojson))
+
+(executable
+ (name streaming)
+ (libraries agent_sdk eio eio_main yojson))
+
+(executable
+ (name proof_demo)
+ (libraries agent_sdk yojson unix))
+
+(executable
+ (name conformance_demo)
+ (libraries agent_sdk yojson unix))
+
+(executable
+ (name direct_conformance_demo)
+ (libraries agent_sdk eio eio_main cohttp-eio yojson unix))

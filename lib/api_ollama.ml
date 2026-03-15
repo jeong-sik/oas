@@ -67,9 +67,9 @@ let parse_ollama_chat_response json_str =
               in
               Some
                 (ToolUse
-                   ( tc |> member "id" |> to_string_option |> Option.value ~default:"function_call",
-                     fn |> member "name" |> to_string,
-                     Api_common.json_of_string_or_raw arguments ))
+                   { id = tc |> member "id" |> to_string_option |> Option.value ~default:"function_call";
+                     name = fn |> member "name" |> to_string;
+                     input = Api_common.json_of_string_or_raw arguments })
             with Yojson.Safe.Util.Type_error _ | Yojson.Safe.Util.Undefined _ | Yojson.Json_error _ -> None)
           calls
     | _ -> []

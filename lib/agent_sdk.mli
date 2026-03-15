@@ -37,6 +37,11 @@ module Types : sig
 
   val param_type_to_string : param_type -> string
 
+  (** Tool execution result types *)
+  type tool_output = { content: string }
+  type tool_error = { message: string; recoverable: bool }
+  type tool_result = (tool_output, tool_error) result
+
   type tool_param = {
     name: string;
     description: string;
@@ -66,10 +71,10 @@ module Types : sig
   (** Content block types *)
   type content_block =
     | Text of string
-    | Thinking of string * string
+    | Thinking of { thinking_type: string; content: string }
     | RedactedThinking of string
-    | ToolUse of string * string * Yojson.Safe.t
-    | ToolResult of string * string * bool
+    | ToolUse of { id: string; name: string; input: Yojson.Safe.t }
+    | ToolResult of { tool_use_id: string; content: string; is_error: bool }
     | Image of { media_type: string; data: string; source_type: string }
     | Document of { media_type: string; data: string; source_type: string }
   [@@deriving show]
@@ -280,10 +285,12 @@ module Provider : sig
 
   (** Pre-built provider configs *)
   val local_qwen : unit -> config
+  [@@deprecated "Use Provider.Local constructor directly. Will be removed in 1.0."]
   val anthropic_sonnet : unit -> config
   val anthropic_haiku : unit -> config
   val anthropic_opus : unit -> config
   val local_mlx : unit -> config
+  [@@deprecated "Use Provider.Local constructor directly. Will be removed in 1.0."]
   val openrouter : ?model_id:string -> unit -> config
   val ollama : ?base_url:string -> ?model_id:string -> ?mode:ollama_mode -> unit -> config
 end
@@ -326,7 +333,7 @@ module Hooks : sig
     | AfterTurn of { turn: int; response: Types.api_response }
     | PreToolUse of { tool_name: string; input: Yojson.Safe.t }
     | PostToolUse of { tool_name: string; input: Yojson.Safe.t;
-                       output: (string, string) result }
+                       output: Types.tool_result }
     | PostToolUseFailure of { tool_name: string; input: Yojson.Safe.t;
                               error: string }
     | OnStop of { reason: Types.stop_reason; response: Types.api_response }
@@ -434,8 +441,8 @@ end
 (** {1 Tool System} *)
 
 module Tool : sig
-  type tool_handler = Yojson.Safe.t -> (string, string) result
-  type context_tool_handler = Context.t -> Yojson.Safe.t -> (string, string) result
+  type tool_handler = Yojson.Safe.t -> Types.tool_result
+  type context_tool_handler = Context.t -> Yojson.Safe.t -> Types.tool_result
 
   type workdir_policy =
     | Required
@@ -479,7 +486,7 @@ module Tool : sig
     name:string -> description:string -> parameters:Types.tool_param list ->
     context_tool_handler -> t
 
-  val execute : ?context:Context.t -> t -> Yojson.Safe.t -> (string, string) result
+  val execute : ?context:Context.t -> t -> Yojson.Safe.t -> Types.tool_result
   val descriptor : t -> descriptor option
   val descriptor_to_yojson : descriptor option -> Yojson.Safe.t
   val schema_to_json : t -> Yojson.Safe.t
@@ -537,7 +544,7 @@ module Mcp : sig
     unit ->
     (mcp_prompt_result, Error.sdk_error) result
   val call_tool :
-    t -> name:string -> arguments:Yojson.Safe.t -> (string, string) result
+    t -> name:string -> arguments:Yojson.Safe.t -> Types.tool_result
   val to_tools : t -> mcp_tool list -> Tool.t list
   val close : t -> unit
 
@@ -1022,7 +1029,7 @@ module Event_bus : sig
                           result: (Types.api_response, Error.sdk_error) result; elapsed: float }
     | ToolCalled of { agent_name: string; tool_name: string; input: Yojson.Safe.t }
     | ToolCompleted of { agent_name: string; tool_name: string;
-                         output: (string, string) result }
+                         output: Types.tool_result }
     | TurnStarted of { agent_name: string; turn: int }
     | TurnCompleted of { agent_name: string; turn: int }
     | Custom of string * Yojson.Safe.t
@@ -1212,14 +1219,18 @@ module Agent : sig
     finished_at: float option;
   }
 
-  type t = {
-    mutable state: Types.agent_state;
-    mutable lifecycle: lifecycle_snapshot option;
-    tools: Tool.t list;
-    net: [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t;
-    context: Context.t;
-    options: options;
-  }
+  (** Abstract agent type. Use accessor functions below to inspect state. *)
+  type t
+
+  (** {2 Accessors} *)
+
+  val state : t -> Types.agent_state
+  val lifecycle : t -> lifecycle_snapshot option
+  val tools : t -> Tool.t list
+  val context : t -> Context.t
+  val options : t -> options
+  val net : t -> [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+  val set_state : t -> Types.agent_state -> unit
 
   val create :
     net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
@@ -1361,6 +1372,13 @@ module Builder : sig
   val with_cache_system_prompt : bool -> t -> t
   val with_event_bus : Event_bus.t -> t -> t
   val build : t -> Agent.t
+  [@@deprecated "Use build_safe for validated construction"]
+
+  (** Validated agent construction. Returns Error if configuration is invalid:
+      - max_turns <= 0
+      - max_tokens <= 0
+      - thinking_budget set without enable_thinking *)
+  val build_safe : t -> (Agent.t, Error.sdk_error) result
 end
 
 (** {1 Multi-Agent Orchestration} *)

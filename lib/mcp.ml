@@ -355,7 +355,7 @@ let get_prompt t ~name ?(arguments = []) () =
 
 (** Invoke a tool on the MCP server.
     Returns the concatenated text content on success. *)
-let call_tool t ~name ~arguments =
+let call_tool t ~name ~arguments : Types.tool_result =
   let params =
     `Assoc [
       ("name", `String name);
@@ -364,7 +364,7 @@ let call_tool t ~name ~arguments =
   in
   match send_request t ~method_:"tools/call" ~params () with
   | Error msg ->
-      Error (Printf.sprintf "MCP tools/call '%s' failed: %s" name msg)
+      Error { message = Printf.sprintf "MCP tools/call '%s' failed: %s" name msg; recoverable = true }
   | Ok result ->
       let open Yojson.Safe.Util in
       let content =
@@ -389,7 +389,8 @@ let call_tool t ~name ~arguments =
              | `Bool b -> b
              | _ -> false)
       in
-      if is_error then Error text else Ok (truncate_output text)
+      if is_error then Error { message = text; recoverable = true }
+      else Ok { content = truncate_output text }
 
 (** Convert MCP tools to SDK [Tool.t] list.
     Each tool's handler delegates to {!call_tool} on [t]. *)
