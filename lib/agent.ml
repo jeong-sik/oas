@@ -103,10 +103,7 @@ let provider_runtime_name (cfg : Provider.config option) =
       | Provider.OpenAICompat _ -> Some "openai-compat"
       | Provider.Ollama _ -> Some "ollama")
 
-let first_some a b =
-  match a with
-  | Some _ -> a
-  | None -> b
+let first_some = Util.first_some
 
 let hook_decision_to_string = function
   | Hooks.Continue -> "continue"

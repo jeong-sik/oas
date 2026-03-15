@@ -190,26 +190,10 @@ let ( let* ) = Result.bind
 let make_store ?session_root () =
   Runtime_store.create ?root:session_root ()
 
-let json_parse_error detail =
-  Error.Serialization (JsonParseError { detail })
-
-let file_read_error ~path ~detail =
-  Error.Io (FileOpFailed { op = "read"; path; detail })
-
-let contains_substring ~sub text =
-  let sub_len = String.length sub in
-  let text_len = String.length text in
-  let rec loop index =
-    if index + sub_len > text_len then false
-    else if String.sub text index sub_len = sub then true
-    else loop (index + 1)
-  in
-  if sub_len = 0 then true else loop 0
-
-let first_some a b =
-  match a with
-  | Some _ -> a
-  | None -> b
+let json_parse_error = Util.json_parse_error
+let file_read_error = Util.file_read_error
+let contains_substring ~sub text = Util.string_contains ~needle:sub text
+let first_some = Util.first_some
 
 let primary_alias aliases =
   match aliases with
