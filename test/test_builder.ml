@@ -397,6 +397,7 @@ let test_with_thinking_budget () =
   with_net @@ fun net ->
   let agent =
     Builder.create ~net ~model:Types.Claude_sonnet_4_6
+    |> Builder.with_enable_thinking true
     |> Builder.with_thinking_budget 10000
     |> Builder.build_safe |> Result.get_ok
   in
@@ -470,6 +471,7 @@ let test_chain_multiple () =
     |> Builder.with_tool t1
     |> Builder.with_tool t2
     |> Builder.with_base_url "http://test:9090"
+    |> Builder.with_enable_thinking true
     |> Builder.with_thinking_budget 5000
     |> Builder.build_safe |> Result.get_ok
   in
