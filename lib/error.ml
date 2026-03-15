@@ -17,6 +17,7 @@ type agent_error =
   | MaxTurnsExceeded of { turns: int; limit: int }
   | TokenBudgetExceeded of { kind: string; used: int; limit: int }
   | UnrecognizedStopReason of { reason: string }
+  | IdleDetected of { consecutive_idle_turns: int }
 
 (** MCP client errors. *)
 type mcp_error =
@@ -67,6 +68,8 @@ let agent_error_to_string = function
     Printf.sprintf "%s token budget exceeded: %d/%d" r.kind r.used r.limit
   | UnrecognizedStopReason r ->
     Printf.sprintf "Unrecognized stop_reason from API: %s" r.reason
+  | IdleDetected r ->
+    Printf.sprintf "Idle detected: %d consecutive identical tool call turns" r.consecutive_idle_turns
 
 let mcp_error_to_string = function
   | ServerStartFailed r ->

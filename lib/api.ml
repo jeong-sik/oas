@@ -101,8 +101,15 @@ let create_message ~sw ~net ?(base_url=default_base_url) ?provider ?clock ?retry
           let code = Cohttp.Code.code_of_status status in
           let body_str = Eio.Buf_read.(of_flow ~max_size:max_response_body body |> take_all) in
           Error (Retry.classify_error ~status:code ~body:body_str)
-    with exn ->
+    with
+    | Eio.Io _ as exn ->
       Error (Retry.NetworkError { message = Printexc.to_string exn })
+    | Unix.Unix_error _ as exn ->
+      Error (Retry.NetworkError { message = Printexc.to_string exn })
+    | Failure msg ->
+      Error (Retry.NetworkError { message = msg })
+    | Yojson.Json_error msg ->
+      Error (Retry.NetworkError { message = "JSON parse error: " ^ msg })
   in
   match clock with
   | Some clock ->
@@ -113,3 +120,30 @@ let create_message ~sw ~net ?(base_url=default_base_url) ?provider ?clock ?retry
       (match do_request () with
        | Ok _ as success -> success
        | Error err -> Error (Error.Api err))
+
+(** Send a message with cascade failover across providers.
+    Tries primary provider first (with retries); on retryable failure,
+    tries each fallback provider in order. *)
+let create_message_cascade ~sw ~net ?clock ?retry_config
+    ~cascade:(casc : Provider.cascade) ~config ~messages ?tools () =
+  let make_f provider_cfg () =
+    match create_message ~sw ~net ~provider:provider_cfg ?clock
+            ~config ~messages ?tools () with
+    | Ok r -> Ok r
+    | Error (Error.Api err) -> Error err
+    | Error _other ->
+      Error (Retry.NetworkError { message = "Non-API error during cascade" })
+  in
+  match clock with
+  | Some clock ->
+    let retry_cfg = match retry_config with
+      | Some c -> c | None -> Retry.default_config in
+    let primary = make_f casc.primary in
+    let fallbacks = List.map make_f casc.fallbacks in
+    (match Retry.with_cascade ~clock ~config:retry_cfg ~primary ~fallbacks () with
+     | Ok _ as success -> success
+     | Error err -> Error (Error.Api err))
+  | None ->
+    (match make_f casc.primary () with
+     | Ok _ as success -> success
+     | Error err -> Error (Error.Api err))
