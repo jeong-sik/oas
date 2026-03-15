@@ -4,8 +4,8 @@ type t = {
   mutable session_id: string option;
   mutable last_event_seq: int;
   mutable buffered_messages: Sdk_client_types.message list;
-  message_mu: Mutex.t;
-  message_cv: Condition.t;
+  message_mu: Eio.Mutex.t;
+  message_cv: Eio.Condition.t;
   mutable can_use_tool: Sdk_client_types.can_use_tool option;
   mutable hook_callback: Sdk_client_types.hook_callback option;
 }
@@ -13,10 +13,9 @@ type t = {
 let ( let* ) = Result.bind
 
 let append_message state message =
-  Mutex.lock state.message_mu;
-  state.buffered_messages <- state.buffered_messages @ [ message ];
-  Condition.broadcast state.message_cv;
-  Mutex.unlock state.message_mu
+  Eio.Mutex.use_rw ~protect:true state.message_mu (fun () ->
+    state.buffered_messages <- state.buffered_messages @ [ message ]);
+  Eio.Condition.broadcast state.message_cv
 
 let runtime_options options =
   {
@@ -38,8 +37,8 @@ let runtime_options options =
     cwd = options.cwd;
   }
 
-let connect ?(options = Sdk_client_types.default_options) () =
-  let* runtime = Runtime_client.connect ~options:(runtime_options options) () in
+let connect ~sw ~mgr ?(options = Sdk_client_types.default_options) () =
+  let* runtime = Runtime_client.connect ~sw ~mgr ~options:(runtime_options options) () in
   let state =
     {
       runtime;
@@ -47,8 +46,8 @@ let connect ?(options = Sdk_client_types.default_options) () =
       session_id = None;
       last_event_seq = 0;
       buffered_messages = [];
-      message_mu = Mutex.create ();
-      message_cv = Condition.create ();
+      message_mu = Eio.Mutex.create ();
+      message_cv = Eio.Condition.create ();
       can_use_tool = None;
       hook_callback = None;
     }
@@ -75,40 +74,35 @@ let connect ?(options = Sdk_client_types.default_options) () =
   | _ -> Ok state
 
 let receive_messages state =
-  Mutex.lock state.message_mu;
-  let messages = state.buffered_messages in
-  state.buffered_messages <- [];
-  Mutex.unlock state.message_mu;
-  messages
+  Eio.Mutex.use_rw ~protect:true state.message_mu (fun () ->
+    let messages = state.buffered_messages in
+    state.buffered_messages <- [];
+    messages)
 
 let has_pending_messages state =
-  Mutex.lock state.message_mu;
-  let pending = state.buffered_messages <> [] in
-  Mutex.unlock state.message_mu;
-  pending
+  Eio.Mutex.use_ro state.message_mu (fun () ->
+    state.buffered_messages <> [])
 
 let wait_for_messages ?timeout state =
   let drain_if_any () =
-    Mutex.lock state.message_mu;
-    let messages = state.buffered_messages in
-    let had_messages = messages <> [] in
-    if had_messages then state.buffered_messages <- [];
-    Mutex.unlock state.message_mu;
-    if had_messages then Some messages else None
+    Eio.Mutex.use_rw ~protect:true state.message_mu (fun () ->
+      let messages = state.buffered_messages in
+      let had_messages = messages <> [] in
+      if had_messages then state.buffered_messages <- [];
+      if had_messages then Some messages else None)
   in
   match drain_if_any () with
   | Some messages -> messages
   | None -> (
       match timeout with
       | None ->
-          Mutex.lock state.message_mu;
-          while state.buffered_messages = [] do
-            Condition.wait state.message_cv state.message_mu
-          done;
-          let messages = state.buffered_messages in
-          state.buffered_messages <- [];
-          Mutex.unlock state.message_mu;
-          messages
+          Eio.Mutex.use_rw ~protect:true state.message_mu (fun () ->
+            while state.buffered_messages = [] do
+              Eio.Condition.await state.message_cv state.message_mu
+            done;
+            let messages = state.buffered_messages in
+            state.buffered_messages <- [];
+            messages)
       | Some timeout_s ->
           let deadline = Unix.gettimeofday () +. max 0.0 timeout_s in
           let rec loop () =
@@ -117,7 +111,7 @@ let wait_for_messages ?timeout state =
             | None ->
                 if Unix.gettimeofday () >= deadline then []
                 else (
-                  Thread.delay 0.01;
+                  Eio.Fiber.yield ();
                   loop ())
           in
           loop ())

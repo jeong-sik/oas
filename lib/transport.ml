@@ -1,3 +1,12 @@
+(** IPC transport for oas_runtime using Eio structured concurrency.
+
+    Replaces the previous OS-thread implementation (Mutex/Condition/Thread)
+    with Eio primitives: Eio.Mutex, Eio.Promise, Eio.Fiber, Eio_unix.pipe,
+    Eio.Process.spawn.
+
+    Reference pattern: lib/mcp.ml connect function (same project).
+    Reference pattern: lib/event_bus.ml Eio.Mutex usage (same project). *)
+
 type options = {
   runtime_path: string option;
   session_root: string option;
@@ -31,21 +40,21 @@ let default_options = {
 
 type t = {
   runtime_path: string;
-  ic: in_channel;
-  oc: out_channel;
-  ec: in_channel;
+  reader: Eio.Buf_read.t;
+  writer: Eio.Flow.sink_ty Eio.Resource.t;
   mutable init_info: Runtime.init_response option;
   mutable closed: bool;
   mutable next_request_id: int;
-  write_mu: Mutex.t;
-  state_mu: Mutex.t;
-  state_cv: Condition.t;
-  pending_responses: (string, Runtime.response) Hashtbl.t;
+  write_mu: Eio.Mutex.t;
+  mu: Eio.Mutex.t;
+  pending: (string, (Runtime.response, Error.sdk_error) result Eio.Promise.u) Hashtbl.t;
   mutable control_handler: control_handler option;
   mutable event_handler: event_handler option;
   mutable reader_failed: Error.sdk_error option;
-  mutable reader_thread: Thread.t option;
+  kill: unit -> unit;
 }
+
+(* ── Runtime discovery (unchanged) ─────────────────────────────────── *)
 
 let candidate_paths ?runtime_path () =
   let env_runtime = Sys.getenv_opt "OAS_RUNTIME_PATH" in
@@ -100,32 +109,26 @@ let find_runtime ?runtime_path () =
                   "No runtime binary found. Set OAS_RUNTIME_PATH or build bin/oas_runtime.exe.";
               }))
 
-let write_protocol_message oc message =
-  output_string oc (Runtime.protocol_message_to_string message);
-  output_char oc '\n';
-  flush oc
+(* ── Write helpers ──────────────────────────────────────────────────── *)
 
-let with_write_lock transport f =
-  Mutex.lock transport.write_mu;
-  Fun.protect
-    ~finally:(fun () -> Mutex.unlock transport.write_mu)
-    f
+let write_message transport message =
+  let line = Runtime.protocol_message_to_string message ^ "\n" in
+  Eio.Mutex.use_rw ~protect:true transport.write_mu (fun () ->
+    Eio.Flow.copy_string line transport.writer)
+
+(* ── Handler management ─────────────────────────────────────────────── *)
 
 let set_handlers ?control_handler ?event_handler transport =
-  Mutex.lock transport.state_mu;
-  (match control_handler with Some handler -> transport.control_handler <- Some handler | None -> ());
-  (match event_handler with Some handler -> transport.event_handler <- Some handler | None -> ());
-  Mutex.unlock transport.state_mu
+  Eio.Mutex.use_rw ~protect:true transport.mu (fun () ->
+    Option.iter (fun h -> transport.control_handler <- Some h) control_handler;
+    Option.iter (fun h -> transport.event_handler <- Some h) event_handler)
 
 let next_request_id transport =
   let id = transport.next_request_id in
   transport.next_request_id <- id + 1;
   Printf.sprintf "req-%06d" id
 
-let respond_to_control transport control_id response =
-  with_write_lock transport (fun () ->
-      write_protocol_message transport.oc
-        (Runtime.Control_response_message { control_id; response }))
+(* ── Response coordination via Eio.Promise ──────────────────────────── *)
 
 let default_control_response = function
   | Runtime.Permission_request _ ->
@@ -134,131 +137,142 @@ let default_control_response = function
   | Runtime.Hook_request _ ->
       Runtime.Hook_response { continue_ = true; message = None }
 
+let fail_all_pending transport err =
+  Hashtbl.iter (fun _id resolver ->
+    Eio.Promise.resolve resolver (Error err)
+  ) transport.pending;
+  Hashtbl.clear transport.pending
+
 let set_reader_failed transport err =
-  Mutex.lock transport.state_mu;
-  transport.reader_failed <- Some err;
-  Condition.broadcast transport.state_cv;
-  Mutex.unlock transport.state_mu
+  Eio.Mutex.use_rw ~protect:true transport.mu (fun () ->
+    transport.reader_failed <- Some err);
+  fail_all_pending transport err
+
+(* ── Protocol message dispatch (reader fiber) ──────────────────────── *)
 
 let dispatch_protocol_message transport = function
   | Runtime.Response_message payload ->
-      Mutex.lock transport.state_mu;
-      Hashtbl.replace transport.pending_responses payload.request_id payload.response;
-      Condition.broadcast transport.state_cv;
-      Mutex.unlock transport.state_mu
+      (match Hashtbl.find_opt transport.pending payload.request_id with
+       | Some resolver ->
+           Hashtbl.remove transport.pending payload.request_id;
+           Eio.Promise.resolve resolver (Ok payload.response)
+       | None -> ())
   | Runtime.Control_request_message payload ->
+      let handler =
+        Eio.Mutex.use_ro transport.mu (fun () -> transport.control_handler)
+      in
       let response =
-        Mutex.lock transport.state_mu;
-        let handler = transport.control_handler in
-        Mutex.unlock transport.state_mu;
         match handler with
         | Some handler -> handler payload.request
         | None -> Ok (default_control_response payload.request)
       in
       (match response with
-       | Ok response -> respond_to_control transport payload.control_id response
+       | Ok resp ->
+           write_message transport
+             (Runtime.Control_response_message
+                { control_id = payload.control_id; response = resp })
        | Error err -> set_reader_failed transport err)
   | Runtime.Event_message payload ->
-      Mutex.lock transport.state_mu;
-      let handler = transport.event_handler in
-      Mutex.unlock transport.state_mu;
+      let handler =
+        Eio.Mutex.use_ro transport.mu (fun () -> transport.event_handler)
+      in
       Option.iter (fun handle -> handle payload.event) handler
   | Runtime.Control_response_message _ -> ()
   | Runtime.System_message _ -> ()
   | Runtime.Request_message _ -> ()
 
-let start_reader_thread transport =
+let reader_loop transport =
   let rec loop () =
-    match input_line transport.ic with
-    | line when String.trim line = "" ->
-        if not transport.closed then loop ()
-    | line -> (
-        match Runtime.protocol_message_of_string line with
-        | Ok message ->
-            dispatch_protocol_message transport message;
-            if not transport.closed then loop ()
-        | Error detail ->
-            set_reader_failed transport
-              (Error.Serialization (JsonParseError { detail })))
-    | exception End_of_file ->
-        if not transport.closed then
+    let line = Eio.Buf_read.line transport.reader in
+    if String.trim line = "" then begin
+      if not transport.closed then loop ()
+    end else
+      match Runtime.protocol_message_of_string line with
+      | Ok message ->
+          dispatch_protocol_message transport message;
+          if not transport.closed then loop ()
+      | Error detail ->
           set_reader_failed transport
-            (Error.Io
-               (Error.FileOpFailed
-                  {
-                    op = "read";
-                    path = transport.runtime_path;
-                    detail = "Runtime closed the stream";
-                  }))
+            (Error.Serialization (JsonParseError { detail }))
   in
-  let thread = Thread.create loop () in
-  transport.reader_thread <- Some thread
+  loop ()
 
-let await_response transport request_id =
-  Mutex.lock transport.state_mu;
-  let rec wait () =
-    match Hashtbl.find_opt transport.pending_responses request_id with
-    | Some response ->
-        Hashtbl.remove transport.pending_responses request_id;
-        Mutex.unlock transport.state_mu;
-        Ok response
-    | None -> (
-        match transport.reader_failed with
-        | Some err ->
-            Mutex.unlock transport.state_mu;
-            Error err
-        | None ->
-            Condition.wait transport.state_cv transport.state_mu;
-            wait ())
-  in
-  wait ()
+let start_reader_fiber ~sw transport =
+  Eio.Fiber.fork_daemon ~sw (fun () ->
+    (try reader_loop transport
+     with _ ->
+       if not transport.closed then
+         set_reader_failed transport
+           (Error.Io
+              (Error.FileOpFailed
+                 {
+                   op = "read";
+                   path = transport.runtime_path;
+                   detail = "Runtime closed the stream";
+                 })));
+    `Stop_daemon)
 
-let connect ?(options = default_options) () =
+(* ── Public API ─────────────────────────────────────────────────────── *)
+
+let connect ~sw ~(mgr : _ Eio.Process.mgr) ?(options = default_options) () =
   let* runtime_path = find_runtime ?runtime_path:options.runtime_path () in
   try
-    let env = Unix.environment () in
-    let argv = [| runtime_path |] in
-    let ic, oc, ec = Unix.open_process_args_full runtime_path argv env in
+    let r_child_stdin, w_child_stdin = Eio_unix.pipe sw in
+    let r_child_stdout, w_child_stdout = Eio_unix.pipe sw in
+    let proc =
+      Eio.Process.spawn ~sw mgr
+        ~stdin:(r_child_stdin :> Eio.Flow.source_ty Eio.Resource.t)
+        ~stdout:(w_child_stdout :> Eio.Flow.sink_ty Eio.Resource.t)
+        [ runtime_path ]
+    in
+    Eio.Flow.close r_child_stdin;
+    Eio.Flow.close w_child_stdout;
+    let reader =
+      Eio.Buf_read.of_flow (r_child_stdout :> _ Eio.Flow.source)
+        ~max_size:(16 * 1024 * 1024)
+    in
+    let kill () =
+      try Eio.Process.signal proc Sys.sigterm with _ -> ()
+    in
     let transport =
       {
         runtime_path;
-        ic;
-        oc;
-        ec;
+        reader;
+        writer = (w_child_stdin :> Eio.Flow.sink_ty Eio.Resource.t);
         init_info = None;
         closed = false;
         next_request_id = 1;
-        write_mu = Mutex.create ();
-        state_mu = Mutex.create ();
-        state_cv = Condition.create ();
-        pending_responses = Hashtbl.create 16;
+        write_mu = Eio.Mutex.create ();
+        mu = Eio.Mutex.create ();
+        pending = Hashtbl.create 16;
         control_handler = None;
         event_handler = None;
         reader_failed = None;
-        reader_thread = None;
+        kill;
       }
     in
-    start_reader_thread transport;
+    start_reader_fiber ~sw transport;
     let init_request_id = next_request_id transport in
-    with_write_lock transport (fun () ->
-        write_protocol_message oc
-          (Runtime.Request_message
-             {
-               request_id = init_request_id;
-               request =
-                 Runtime.Initialize
-                   {
-                     session_root = options.session_root;
-                     provider = options.provider;
-                     model = options.model;
-                     permission_mode = options.permission_mode;
-                     include_partial_messages = options.include_partial_messages;
-                     setting_sources = options.setting_sources;
-                     resume_session = options.resume_session;
-                     cwd = options.cwd;
-                   };
-             }));
-    let* response = await_response transport init_request_id in
+    let promise, resolver = Eio.Promise.create () in
+    Hashtbl.replace transport.pending init_request_id resolver;
+    write_message transport
+      (Runtime.Request_message
+         {
+           request_id = init_request_id;
+           request =
+             Runtime.Initialize
+               {
+                 session_root = options.session_root;
+                 provider = options.provider;
+                 model = options.model;
+                 permission_mode = options.permission_mode;
+                 include_partial_messages = options.include_partial_messages;
+                 setting_sources = options.setting_sources;
+                 resume_session = options.resume_session;
+                 cwd = options.cwd;
+               };
+         });
+    let* response = Eio.Promise.await promise in
     (match response with
      | Runtime.Initialized init when String.equal init.protocol_version Runtime.protocol_version ->
          transport.init_info <- Some init;
@@ -275,6 +289,15 @@ let connect ?(options = default_options) () =
               (Printf.sprintf "Unexpected init response: %s"
                  (Runtime.show_response other))))
   with
+  | Eio.Io _ as exn ->
+      Error
+        (Io
+           (FileOpFailed
+              {
+                op = "spawn";
+                path = runtime_path;
+                detail = Printexc.to_string exn;
+              }))
   | Unix.Unix_error (err, _, _) ->
       Error
         (Io
@@ -298,19 +321,21 @@ let request ?control_handler ?event_handler transport request =
   let open Error in
   if transport.closed then
     Error (Internal "Runtime transport is already closed")
-  else
-    let () = set_handlers ?control_handler ?event_handler transport in
+  else begin
+    set_handlers ?control_handler ?event_handler transport;
     let request_id = next_request_id transport in
-    with_write_lock transport (fun () ->
-        write_protocol_message transport.oc
-          (Runtime.Request_message { request_id; request }));
-    await_response transport request_id
+    let promise, resolver = Eio.Promise.create () in
+    Hashtbl.replace transport.pending request_id resolver;
+    write_message transport
+      (Runtime.Request_message { request_id; request });
+    Eio.Promise.await promise
+  end
 
 let close transport =
-  if not transport.closed then (
-    (match request transport Runtime.Shutdown with _ -> ());
+  if not transport.closed then begin
+    (try ignore (request transport Runtime.Shutdown) with _ -> ());
     transport.closed <- true;
-    ignore (Unix.close_process_full (transport.ic, transport.oc, transport.ec));
-    Option.iter Thread.join transport.reader_thread)
+    transport.kill ()
+  end
 
 let server_info transport = transport.init_info

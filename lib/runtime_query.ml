@@ -1,4 +1,4 @@
-let query ?runtime_path ?session_root request =
+let query ~sw ~mgr ?runtime_path ?session_root request =
   let options =
     {
       Transport.runtime_path;
@@ -12,7 +12,7 @@ let query ?runtime_path ?session_root request =
       cwd = None;
     }
   in
-  match Runtime_client.connect ~options () with
+  match Runtime_client.connect ~sw ~mgr ~options () with
   | Error err -> Error err
   | Ok client ->
       Fun.protect

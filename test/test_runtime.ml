@@ -65,6 +65,9 @@ let test_default_local_first_options () =
     (Some "qwen3.5") Client.default_options.model
 
 let test_query_lifecycle () =
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  let mgr = Eio.Stdenv.process_mgr env in
   with_temp_dir @@ fun session_root ->
   let runtime = runtime_path () in
   let start_request =
@@ -82,7 +85,7 @@ let test_query_lifecycle () =
       }
   in
   let session =
-    match unwrap_response (runtime_query ~runtime_path:runtime ~session_root (Runtime.Start_session start_request)) with
+    match unwrap_response (runtime_query ~sw ~mgr ~runtime_path:runtime ~session_root (Runtime.Start_session start_request)) with
     | Runtime.Session_started_response session -> session
     | other -> Alcotest.fail (Runtime.show_response other)
   in
@@ -91,7 +94,7 @@ let test_query_lifecycle () =
   let session =
     match
       unwrap_response
-        (runtime_query ~runtime_path:runtime ~session_root
+        (runtime_query ~sw ~mgr ~runtime_path:runtime ~session_root
            (Runtime.Apply_command
               {
                 session_id = session.session_id;
@@ -130,10 +133,13 @@ let test_query_lifecycle () =
     = None)
 
 let test_runtime_client_roundtrip () =
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  let mgr = Eio.Stdenv.process_mgr env in
   with_temp_dir @@ fun session_root ->
   let client =
     unwrap
-      (Runtime_client.connect
+      (Runtime_client.connect ~sw ~mgr
          ~options:
            {
              Runtime_client.default_options with
@@ -182,6 +188,9 @@ let test_runtime_client_roundtrip () =
       Alcotest.(check bool) "last seq progressed" true (status.last_seq >= 3))
 
 let test_runtime_attach_artifact_and_read_back () =
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  let mgr = Eio.Stdenv.process_mgr env in
   with_temp_dir @@ fun session_root ->
   let runtime = runtime_path () in
   let start_request =
@@ -201,7 +210,7 @@ let test_runtime_attach_artifact_and_read_back () =
   let session =
     match
       unwrap_response
-        (runtime_query ~runtime_path:runtime ~session_root
+        (runtime_query ~sw ~mgr ~runtime_path:runtime ~session_root
            (Runtime.Start_session start_request))
     with
     | Runtime.Session_started_response session -> session
@@ -210,7 +219,7 @@ let test_runtime_attach_artifact_and_read_back () =
   let session =
     match
       unwrap_response
-        (runtime_query ~runtime_path:runtime ~session_root
+        (runtime_query ~sw ~mgr ~runtime_path:runtime ~session_root
            (Runtime.Apply_command
               {
                 session_id = session.session_id;
@@ -247,6 +256,9 @@ let test_runtime_attach_artifact_and_read_back () =
     content
 
 let test_runtime_artifact_ids_are_unique () =
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  let mgr = Eio.Stdenv.process_mgr env in
   with_temp_dir @@ fun session_root ->
   let runtime = runtime_path () in
   let start_request =
@@ -266,7 +278,7 @@ let test_runtime_artifact_ids_are_unique () =
   let session =
     match
       unwrap_response
-        (runtime_query ~runtime_path:runtime ~session_root
+        (runtime_query ~sw ~mgr ~runtime_path:runtime ~session_root
            (Runtime.Start_session start_request))
     with
     | Runtime.Session_started_response session -> session
@@ -275,7 +287,7 @@ let test_runtime_artifact_ids_are_unique () =
   let attach content =
     match
       unwrap_response
-        (runtime_query ~runtime_path:runtime ~session_root
+        (runtime_query ~sw ~mgr ~runtime_path:runtime ~session_root
            (Runtime.Apply_command
               {
                 session_id = session.session_id;
@@ -301,10 +313,13 @@ let test_runtime_artifact_ids_are_unique () =
     (List.length (List.sort_uniq String.compare artifact_ids))
 
 let test_runtime_finalize_generates_telemetry_and_evidence () =
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  let mgr = Eio.Stdenv.process_mgr env in
   with_temp_dir @@ fun session_root ->
   let client =
     unwrap
-      (Client.connect
+      (Client.connect ~sw ~mgr
          ~options:
            {
              Client.default_options with
@@ -556,10 +571,13 @@ let test_runtime_finalize_generates_telemetry_and_evidence () =
     bundle.capabilities.proof_bundle
 
 let test_high_level_query_and_sessions () =
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  let mgr = Eio.Stdenv.process_mgr env in
   with_temp_dir @@ fun session_root ->
   let messages =
     unwrap
-      (query
+      (query ~sw ~mgr
          ~options:
            {
              Client.default_options with
@@ -603,10 +621,13 @@ let test_high_level_query_and_sessions () =
   Alcotest.(check bool) "events still available" true (List.length events >= 4)
 
 let test_control_roundtrip_callbacks () =
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  let mgr = Eio.Stdenv.process_mgr env in
   with_temp_dir @@ fun session_root ->
   let client =
     unwrap
-      (Client.connect
+      (Client.connect ~sw ~mgr
          ~options:
            {
              Client.default_options with
@@ -699,10 +720,13 @@ let test_control_roundtrip_callbacks () =
   | None -> Alcotest.fail "expected latest failed worker"
 
 let test_receive_messages_streams_progressively () =
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  let mgr = Eio.Stdenv.process_mgr env in
   with_temp_dir @@ fun session_root ->
   let client =
     unwrap
-      (Client.connect
+      (Client.connect ~sw ~mgr
          ~options:
            {
              Client.default_options with
@@ -771,10 +795,13 @@ let test_receive_messages_streams_progressively () =
   Alcotest.(check bool) "proof arrives later" true has_proof
 
 let test_long_lived_client_multiple_turns () =
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  let mgr = Eio.Stdenv.process_mgr env in
   with_temp_dir @@ fun session_root ->
   let client =
     unwrap
-      (Client.connect
+      (Client.connect ~sw ~mgr
          ~options:
            {
              Client.default_options with
@@ -858,10 +885,13 @@ let test_long_lived_client_multiple_turns () =
   Alcotest.(check int) "single persisted session" 1 (List.length infos)
 
 let test_resume_existing_session () =
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  let mgr = Eio.Stdenv.process_mgr env in
   with_temp_dir @@ fun session_root ->
   let client1 =
     unwrap
-      (Client.connect
+      (Client.connect ~sw ~mgr
          ~options:
            {
              Client.default_options with
@@ -904,7 +934,7 @@ let test_resume_existing_session () =
   Client.disconnect client1;
   let client2 =
     unwrap
-      (Client.connect
+      (Client.connect ~sw ~mgr
          ~options:
            {
              Client.default_options with
@@ -944,10 +974,13 @@ let test_resume_existing_session () =
     true (List.length resumed_batch >= 3)
 
 let test_session_settings_persist_across_resume () =
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  let mgr = Eio.Stdenv.process_mgr env in
   with_temp_dir @@ fun session_root ->
   let client1 =
     unwrap
-      (Client.connect
+      (Client.connect ~sw ~mgr
          ~options:
            {
              Client.default_options with
@@ -978,7 +1011,7 @@ let test_session_settings_persist_across_resume () =
   Client.disconnect client1;
   let resumed =
     unwrap
-      (Client.connect
+      (Client.connect ~sw ~mgr
          ~options:
            {
              Client.default_options with

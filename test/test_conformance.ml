@@ -21,10 +21,10 @@ let unwrap = function
   | Ok value -> value
   | Error err -> Alcotest.fail (Error.to_string err)
 
-let with_runtime_client ~session_root f =
+let with_runtime_client ~sw ~mgr ~session_root f =
   let client =
     unwrap
-      (Runtime_client.connect
+      (Runtime_client.connect ~sw ~mgr
          ~options:
            {
              Runtime_client.default_options with
@@ -91,8 +91,11 @@ let finalize_runtime_session client ~session_id =
 
 let test_conformance_run_reports_ok () =
   with_temp_dir @@ fun session_root ->
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  let mgr = Eio.Stdenv.process_mgr env in
   let session_id = "sess-conformance" in
-  with_runtime_client ~session_root @@ fun client ->
+  with_runtime_client ~sw ~mgr ~session_root @@ fun client ->
   start_mock_runtime_session client ~session_id;
   ignore (finalize_runtime_session client ~session_id);
   let report = unwrap (Conformance.run ~session_root ~session_id ()) in
@@ -108,8 +111,11 @@ let test_conformance_run_reports_ok () =
 
 let test_conformance_report_detects_inconsistent_bundle () =
   with_temp_dir @@ fun session_root ->
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  let mgr = Eio.Stdenv.process_mgr env in
   let session_id = "sess-conformance-bad" in
-  with_runtime_client ~session_root @@ fun client ->
+  with_runtime_client ~sw ~mgr ~session_root @@ fun client ->
   start_mock_runtime_session client ~session_id;
   ignore (finalize_runtime_session client ~session_id);
   let bundle = unwrap (Sessions.get_proof_bundle ~session_root ~session_id ()) in
