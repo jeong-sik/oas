@@ -14,6 +14,7 @@ type hook_event =
   | PostToolUse of { tool_name: string; input: Yojson.Safe.t; output: Types.tool_result }
   | PostToolUseFailure of { tool_name: string; input: Yojson.Safe.t; error: string }
   | OnStop of { reason: stop_reason; response: api_response }
+  | OnIdle of { consecutive_idle_turns: int; tool_names: string list }
 
 (** Decision returned by a hook *)
 type hook_decision =
@@ -44,6 +45,7 @@ type hooks = {
   post_tool_use: hook option;
   post_tool_use_failure: hook option;
   on_stop: hook option;
+  on_idle: hook option;
 }
 
 (** Empty hooks -- no-op default *)
@@ -54,7 +56,22 @@ let empty = {
   post_tool_use = None;
   post_tool_use_failure = None;
   on_stop = None;
+  on_idle = None;
 }
+
+(** Context injection: data returned by a context_injector after tool execution.
+    [context_updates] are key-value pairs to set in the shared Context.
+    [extra_messages] are appended to the conversation (e.g., system observations). *)
+type injection = {
+  context_updates: (string * Yojson.Safe.t) list;
+  extra_messages: Types.message list;
+}
+
+(** Context injector: called after tool execution to inject external state.
+    Returns [Some injection] to update context/messages, [None] to skip. *)
+type context_injector =
+  tool_name:string -> input:Yojson.Safe.t -> output:Types.tool_result ->
+  injection option
 
 (** Invoke a hook if present, returning Continue if absent *)
 let invoke hook_opt event =

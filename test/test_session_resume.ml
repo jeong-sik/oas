@@ -54,6 +54,7 @@ let sample_usage : Types.usage_stats = {
   total_cache_creation_input_tokens = 20;
   total_cache_read_input_tokens = 10;
   api_calls = 3;
+  estimated_cost_usd = 0.0;
 }
 
 let sample_tool_schema : Types.tool_schema = {
@@ -327,6 +328,7 @@ let test_resume_cache_tokens () =
     total_cache_creation_input_tokens = 30;
     total_cache_read_input_tokens = 25;
     api_calls = 2;
+    estimated_cost_usd = 0.0;
   } in
   let cp = make_checkpoint ~usage () in
   let agent = Agent.resume ~net ~checkpoint:cp () in
