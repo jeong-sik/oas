@@ -1230,6 +1230,7 @@ module Agent : sig
   val context : t -> Context.t
   val options : t -> options
   val net : t -> [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+  val set_state : t -> Types.agent_state -> unit
 
   val create :
     net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->

@@ -316,8 +316,8 @@ let () =
           tool_choice = Some Types.Auto;
         } in
         let agent = Agent.create ~net ~config ~tools:[sample_echo_tool] () in
-        agent.state <- {
-          agent.state with
+        Agent.set_state agent {
+          (Agent.state agent) with
           messages = [
             { Types.role = Types.User; content = [Types.Text "hello"] };
             { Types.role = Types.Assistant; content = [Types.Text "hi"] };

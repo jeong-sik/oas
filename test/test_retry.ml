@@ -215,7 +215,7 @@ let test_with_retry_max_retries_exhausted () =
   check int "1 + max_retries attempts" 4 !attempt
 
 let test_provider_constructors () =
-  let p = Provider.local_qwen () in
+  let p = (Provider.local_qwen [@alert "-deprecated"]) () in
   check string "local_qwen" "qwen3.5-35b-a3b-ud-q8-xl" p.model_id;
   let p = Provider.anthropic_sonnet () in
   check string "anthropic_sonnet" "claude-sonnet-4-6" p.model_id;
@@ -223,7 +223,7 @@ let test_provider_constructors () =
   check string "anthropic_haiku" "claude-haiku-4-5-20251001" p.model_id;
   let p = Provider.anthropic_opus () in
   check string "anthropic_opus" "claude-opus-4-6" p.model_id;
-  let p = Provider.local_mlx () in
+  let p = (Provider.local_mlx [@alert "-deprecated"]) () in
   check string "local_mlx" "qwen3.5" p.model_id;
   let p = Provider.openrouter () in
   check string "openrouter default" "anthropic/claude-sonnet-4-6" p.model_id;

@@ -78,6 +78,7 @@ let tools t = t.tools
 let context t = t.context
 let options t = t.options
 let net t = t.net
+let set_state t s = t.state <- s
 
 let provider_runtime_name (cfg : Provider.config option) =
   match cfg with

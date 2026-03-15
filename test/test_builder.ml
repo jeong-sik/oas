@@ -38,8 +38,8 @@ let check_model msg expected actual =
 
 let test_create_sets_model () =
   with_net @@ fun net ->
-  let agent = Builder.create ~net ~model:Types.Claude_haiku_4_5 |> Builder.build in
-  check_model "model" Types.Claude_haiku_4_5 agent.state.config.model
+  let agent = Builder.create ~net ~model:Types.Claude_haiku_4_5 |> Builder.build_safe |> Result.get_ok in
+  check_model "model" Types.Claude_haiku_4_5 (Agent.state agent).config.model
 
 (* --- 2. with_system_prompt --- *)
 
@@ -48,10 +48,10 @@ let test_with_system_prompt () =
   let agent =
     Builder.create ~net ~model:Types.Claude_sonnet_4_6
     |> Builder.with_system_prompt "You are helpful."
-    |> Builder.build
+    |> Builder.build_safe |> Result.get_ok
   in
   Alcotest.(check (option string)) "system_prompt"
-    (Some "You are helpful.") agent.state.config.system_prompt
+    (Some "You are helpful.") (Agent.state agent).config.system_prompt
 
 (* --- 3. with_name --- *)
 
@@ -60,9 +60,9 @@ let test_with_name () =
   let agent =
     Builder.create ~net ~model:Types.Claude_sonnet_4_6
     |> Builder.with_name "test-agent"
-    |> Builder.build
+    |> Builder.build_safe |> Result.get_ok
   in
-  Alcotest.(check string) "name" "test-agent" agent.state.config.name
+  Alcotest.(check string) "name" "test-agent" (Agent.state agent).config.name
 
 (* --- 4. with_max_tokens --- *)
 
@@ -71,9 +71,9 @@ let test_with_max_tokens () =
   let agent =
     Builder.create ~net ~model:Types.Claude_sonnet_4_6
     |> Builder.with_max_tokens 8192
-    |> Builder.build
+    |> Builder.build_safe |> Result.get_ok
   in
-  Alcotest.(check int) "max_tokens" 8192 agent.state.config.max_tokens
+  Alcotest.(check int) "max_tokens" 8192 (Agent.state agent).config.max_tokens
 
 (* --- 5. with_max_turns --- *)
 
@@ -82,9 +82,9 @@ let test_with_max_turns () =
   let agent =
     Builder.create ~net ~model:Types.Claude_sonnet_4_6
     |> Builder.with_max_turns 25
-    |> Builder.build
+    |> Builder.build_safe |> Result.get_ok
   in
-  Alcotest.(check int) "max_turns" 25 agent.state.config.max_turns
+  Alcotest.(check int) "max_turns" 25 (Agent.state agent).config.max_turns
 
 (* --- 6. with_temperature --- *)
 
@@ -93,10 +93,10 @@ let test_with_temperature () =
   let agent =
     Builder.create ~net ~model:Types.Claude_sonnet_4_6
     |> Builder.with_temperature 0.7
-    |> Builder.build
+    |> Builder.build_safe |> Result.get_ok
   in
   Alcotest.(check (option (float 0.001))) "temperature"
-    (Some 0.7) agent.state.config.temperature
+    (Some 0.7) (Agent.state agent).config.temperature
 
 let test_with_qwen_sampling () =
   with_net @@ fun net ->
@@ -106,13 +106,13 @@ let test_with_qwen_sampling () =
     |> Builder.with_top_k 20
     |> Builder.with_min_p 0.01
     |> Builder.with_enable_thinking false
-    |> Builder.build
+    |> Builder.build_safe |> Result.get_ok
   in
-  Alcotest.(check (option (float 0.001))) "top_p" (Some 0.95) agent.state.config.top_p;
-  Alcotest.(check (option int)) "top_k" (Some 20) agent.state.config.top_k;
-  Alcotest.(check (option (float 0.001))) "min_p" (Some 0.01) agent.state.config.min_p;
+  Alcotest.(check (option (float 0.001))) "top_p" (Some 0.95) (Agent.state agent).config.top_p;
+  Alcotest.(check (option int)) "top_k" (Some 20) (Agent.state agent).config.top_k;
+  Alcotest.(check (option (float 0.001))) "min_p" (Some 0.01) (Agent.state agent).config.min_p;
   Alcotest.(check (option bool)) "enable_thinking" (Some false)
-    agent.state.config.enable_thinking
+    (Agent.state agent).config.enable_thinking
 
 (* --- 7. with_tools replaces --- *)
 
@@ -124,11 +124,11 @@ let test_with_tools_replaces () =
     Builder.create ~net ~model:Types.Claude_sonnet_4_6
     |> Builder.with_tool t1
     |> Builder.with_tools [t2]
-    |> Builder.build
+    |> Builder.build_safe |> Result.get_ok
   in
-  Alcotest.(check int) "tool count" 1 (List.length agent.tools);
+  Alcotest.(check int) "tool count" 1 (List.length (Agent.tools agent));
   Alcotest.(check string) "tool name" "b"
-    (List.hd agent.tools).schema.name
+    (List.hd (Agent.tools agent)).schema.name
 
 (* --- 8. with_tool appends --- *)
 
@@ -140,13 +140,13 @@ let test_with_tool_appends () =
     Builder.create ~net ~model:Types.Claude_sonnet_4_6
     |> Builder.with_tool t1
     |> Builder.with_tool t2
-    |> Builder.build
+    |> Builder.build_safe |> Result.get_ok
   in
-  Alcotest.(check int) "tool count" 2 (List.length agent.tools);
+  Alcotest.(check int) "tool count" 2 (List.length (Agent.tools agent));
   Alcotest.(check string) "first tool" "first"
-    (List.nth agent.tools 0).schema.name;
+    (List.nth (Agent.tools agent) 0).schema.name;
   Alcotest.(check string) "second tool" "second"
-    (List.nth agent.tools 1).schema.name
+    (List.nth (Agent.tools agent) 1).schema.name
 
 (* --- 9. with_hooks --- *)
 
@@ -157,10 +157,10 @@ let test_with_hooks () =
   let agent =
     Builder.create ~net ~model:Types.Claude_sonnet_4_6
     |> Builder.with_hooks hooks
-    |> Builder.build
+    |> Builder.build_safe |> Result.get_ok
   in
   Alcotest.(check bool) "before_turn set" true
-    (Option.is_some agent.options.hooks.before_turn)
+    (Option.is_some (Agent.options agent).hooks.before_turn)
 
 (* --- 10. with_tracer --- *)
 
@@ -169,10 +169,10 @@ let test_with_tracer () =
   let agent =
     Builder.create ~net ~model:Types.Claude_sonnet_4_6
     |> Builder.with_tracer Tracing.fmt
-    |> Builder.build
+    |> Builder.build_safe |> Result.get_ok
   in
   Alcotest.(check bool) "tracer not null" true
-    (agent.options.tracer != Tracing.null)
+    ((Agent.options agent).tracer != Tracing.null)
 
 (* --- 11. with_approval --- *)
 
@@ -182,10 +182,10 @@ let test_with_approval () =
   let agent =
     Builder.create ~net ~model:Types.Claude_sonnet_4_6
     |> Builder.with_approval approval
-    |> Builder.build
+    |> Builder.build_safe |> Result.get_ok
   in
   Alcotest.(check bool) "approval set" true
-    (Option.is_some agent.options.approval)
+    (Option.is_some (Agent.options agent).approval)
 
 (* --- 12. with_context_reducer --- *)
 
@@ -195,10 +195,10 @@ let test_with_context_reducer () =
   let agent =
     Builder.create ~net ~model:Types.Claude_sonnet_4_6
     |> Builder.with_context_reducer reducer
-    |> Builder.build
+    |> Builder.build_safe |> Result.get_ok
   in
   Alcotest.(check bool) "context_reducer set" true
-    (Option.is_some agent.options.context_reducer)
+    (Option.is_some (Agent.options agent).context_reducer)
 
 (* --- 13. with_context --- *)
 
@@ -209,11 +209,11 @@ let test_with_context () =
   let agent =
     Builder.create ~net ~model:Types.Claude_sonnet_4_6
     |> Builder.with_context ctx
-    |> Builder.build
+    |> Builder.build_safe |> Result.get_ok
   in
   Alcotest.(check (option string)) "context key"
     (Some "value")
-    (match Context.get agent.context "key" with
+    (match Context.get (Agent.context agent) "key" with
      | Some (`String s) -> Some s
      | _ -> None)
 
@@ -225,10 +225,10 @@ let test_with_provider () =
   let agent =
     Builder.create ~net ~model:Types.Claude_sonnet_4_6
     |> Builder.with_provider provider
-    |> Builder.build
+    |> Builder.build_safe |> Result.get_ok
   in
   Alcotest.(check bool) "provider set" true
-    (Option.is_some agent.options.provider)
+    (Option.is_some (Agent.options agent).provider)
 
 (* --- 15. with_base_url --- *)
 
@@ -237,10 +237,10 @@ let test_with_base_url () =
   let agent =
     Builder.create ~net ~model:Types.Claude_sonnet_4_6
     |> Builder.with_base_url "http://localhost:8080"
-    |> Builder.build
+    |> Builder.build_safe |> Result.get_ok
   in
   Alcotest.(check string) "base_url"
-    "http://localhost:8080" agent.options.base_url
+    "http://localhost:8080" (Agent.options agent).base_url
 
 (* --- 16. with_mcp_clients --- *)
 
@@ -249,10 +249,10 @@ let test_with_mcp_clients () =
   let agent =
     Builder.create ~net ~model:Types.Claude_sonnet_4_6
     |> Builder.with_mcp_clients []
-    |> Builder.build
+    |> Builder.build_safe |> Result.get_ok
   in
   Alcotest.(check int) "mcp_clients" 0
-    (List.length agent.options.mcp_clients)
+    (List.length (Agent.options agent).mcp_clients)
 
 (* --- 17. with_guardrails --- *)
 
@@ -264,10 +264,10 @@ let test_with_guardrails () =
   let agent =
     Builder.create ~net ~model:Types.Claude_sonnet_4_6
     |> Builder.with_guardrails guardrails
-    |> Builder.build
+    |> Builder.build_safe |> Result.get_ok
   in
   Alcotest.(check bool) "max_tool_calls set" true
-    (agent.options.guardrails.max_tool_calls_per_turn = Some 3)
+    ((Agent.options agent).guardrails.max_tool_calls_per_turn = Some 3)
 
 (* --- 18. with_contract composes prompt --- *)
 
@@ -286,10 +286,10 @@ let test_with_contract_composes_prompt () =
     Builder.create ~net ~model:Types.Claude_sonnet_4_6
     |> Builder.with_system_prompt "Base prompt."
     |> Builder.with_contract contract
-    |> Builder.build
+    |> Builder.build_safe |> Result.get_ok
   in
   let prompt =
-    match agent.state.config.system_prompt with
+    match (Agent.state agent).config.system_prompt with
     | Some value -> value
     | None -> Alcotest.fail "missing composed system prompt"
   in
@@ -320,10 +320,10 @@ let test_with_skill_appends_prompt () =
     Builder.create ~net ~model:Types.Claude_sonnet_4_6
     |> Builder.with_system_prompt "Base prompt."
     |> Builder.with_skill skill
-    |> Builder.build
+    |> Builder.build_safe |> Result.get_ok
   in
   let prompt =
-    match agent.state.config.system_prompt with
+    match (Agent.state agent).config.system_prompt with
     | Some value -> value
     | None -> Alcotest.fail "missing prompt with skill"
   in
@@ -343,11 +343,11 @@ let test_with_tool_grants_filters_tools () =
     |> Builder.with_tool t1
     |> Builder.with_tool t2
     |> Builder.with_tool_grants [ "beta" ]
-    |> Builder.build
+    |> Builder.build_safe |> Result.get_ok
   in
-  Alcotest.(check int) "tool count" 1 (List.length agent.tools);
+  Alcotest.(check int) "tool count" 1 (List.length (Agent.tools agent));
   Alcotest.(check string) "filtered tool name" "beta"
-    (List.hd agent.tools).schema.name
+    (List.hd (Agent.tools agent)).schema.name
 
 (* --- 21. with_contract injects context metadata --- *)
 
@@ -362,14 +362,14 @@ let test_with_contract_injects_context_metadata () =
     Builder.create ~net ~model:Types.Claude_sonnet_4_6
     |> Builder.with_context ctx
     |> Builder.with_contract contract
-    |> Builder.build
+    |> Builder.build_safe |> Result.get_ok
   in
   Alcotest.(check (option string)) "original context kept" (Some "kept")
-    (match Context.get agent.context "original" with
+    (match Context.get (Agent.context agent) "original" with
     | Some (`String value) -> Some value
     | _ -> None);
   Alcotest.(check bool) "contract metadata injected" true
-    (match Context.get agent.context "agent_sdk.contract" with
+    (match Context.get (Agent.context agent) "agent_sdk.contract" with
     | Some (`Assoc _) -> true
     | _ -> false)
 
@@ -380,10 +380,10 @@ let test_with_tool_choice () =
   let agent =
     Builder.create ~net ~model:Types.Claude_sonnet_4_6
     |> Builder.with_tool_choice Types.Any
-    |> Builder.build
+    |> Builder.build_safe |> Result.get_ok
   in
   let expected = Types.tool_choice_to_json Types.Any in
-  let actual = match agent.state.config.tool_choice with
+  let actual = match (Agent.state agent).config.tool_choice with
     | Some tc -> Types.tool_choice_to_json tc
     | None -> `Null
   in
@@ -398,10 +398,10 @@ let test_with_thinking_budget () =
   let agent =
     Builder.create ~net ~model:Types.Claude_sonnet_4_6
     |> Builder.with_thinking_budget 10000
-    |> Builder.build
+    |> Builder.build_safe |> Result.get_ok
   in
   Alcotest.(check (option int)) "thinking_budget"
-    (Some 10000) agent.state.config.thinking_budget
+    (Some 10000) (Agent.state agent).config.thinking_budget
 
 (* --- 24. with_max_input_tokens --- *)
 
@@ -410,10 +410,10 @@ let test_with_max_input_tokens () =
   let agent =
     Builder.create ~net ~model:Types.Claude_sonnet_4_6
     |> Builder.with_max_input_tokens 50000
-    |> Builder.build
+    |> Builder.build_safe |> Result.get_ok
   in
   Alcotest.(check (option int)) "max_input_tokens"
-    (Some 50000) agent.state.config.max_input_tokens
+    (Some 50000) (Agent.state agent).config.max_input_tokens
 
 (* --- 25. with_max_total_tokens --- *)
 
@@ -422,10 +422,10 @@ let test_with_max_total_tokens () =
   let agent =
     Builder.create ~net ~model:Types.Claude_sonnet_4_6
     |> Builder.with_max_total_tokens 100000
-    |> Builder.build
+    |> Builder.build_safe |> Result.get_ok
   in
   Alcotest.(check (option int)) "max_total_tokens"
-    (Some 100000) agent.state.config.max_total_tokens
+    (Some 100000) (Agent.state agent).config.max_total_tokens
 
 (* --- 26. build produces valid agent --- *)
 
@@ -438,9 +438,9 @@ let test_build_produces_valid_agent () =
     |> Builder.with_max_tokens 2048
     |> Builder.with_max_turns 5
     |> Builder.with_temperature 0.3
-    |> Builder.build
+    |> Builder.build_safe |> Result.get_ok
   in
-  let cfg = agent.state.config in
+  let cfg = (Agent.state agent).config in
   Alcotest.(check string) "name" "full-agent" cfg.name;
   check_model "model" Types.Claude_opus_4_5 cfg.model;
   Alcotest.(check (option string)) "system_prompt"
@@ -450,9 +450,9 @@ let test_build_produces_valid_agent () =
   Alcotest.(check (option (float 0.001))) "temperature"
     (Some 0.3) cfg.temperature;
   Alcotest.(check int) "messages empty" 0
-    (List.length agent.state.messages);
-  Alcotest.(check int) "turn_count zero" 0 agent.state.turn_count;
-  Alcotest.(check int) "api_calls zero" 0 agent.state.usage.api_calls
+    (List.length (Agent.state agent).messages);
+  Alcotest.(check int) "turn_count zero" 0 (Agent.state agent).turn_count;
+  Alcotest.(check int) "api_calls zero" 0 (Agent.state agent).usage.api_calls
 
 (* --- 27. chain multiple --- *)
 
@@ -471,15 +471,15 @@ let test_chain_multiple () =
     |> Builder.with_tool t2
     |> Builder.with_base_url "http://test:9090"
     |> Builder.with_thinking_budget 5000
-    |> Builder.build
+    |> Builder.build_safe |> Result.get_ok
   in
-  Alcotest.(check string) "name" "chained" agent.state.config.name;
-  Alcotest.(check int) "max_tokens" 1024 agent.state.config.max_tokens;
-  Alcotest.(check int) "max_turns" 3 agent.state.config.max_turns;
-  Alcotest.(check int) "tool count" 2 (List.length agent.tools);
-  Alcotest.(check string) "base_url" "http://test:9090" agent.options.base_url;
+  Alcotest.(check string) "name" "chained" (Agent.state agent).config.name;
+  Alcotest.(check int) "max_tokens" 1024 (Agent.state agent).config.max_tokens;
+  Alcotest.(check int) "max_turns" 3 (Agent.state agent).config.max_turns;
+  Alcotest.(check int) "tool count" 2 (List.length (Agent.tools agent));
+  Alcotest.(check string) "base_url" "http://test:9090" (Agent.options agent).base_url;
   Alcotest.(check (option int)) "thinking_budget"
-    (Some 5000) agent.state.config.thinking_budget
+    (Some 5000) (Agent.state agent).config.thinking_budget
 
 (* --- 28. immutability check --- *)
 
@@ -487,19 +487,19 @@ let test_immutability_check () =
   with_net @@ fun net ->
   let original = Builder.create ~net ~model:Types.Claude_sonnet_4_6 in
   let _modified = original |> Builder.with_name "modified" in
-  let agent_from_original = Builder.build original in
+  let agent_from_original = Builder.build_safe original |> Result.get_ok in
   Alcotest.(check string) "original name unchanged"
-    "agent" agent_from_original.state.config.name
+    "agent" (Agent.state agent_from_original).config.name
 
 (* --- 29. defaults match Agent.create defaults --- *)
 
 let test_defaults_match_agent_create () =
   with_net @@ fun net ->
   let builder_agent =
-    Builder.create ~net ~model:Types.Claude_sonnet_4_6 |> Builder.build in
+    Builder.create ~net ~model:Types.Claude_sonnet_4_6 |> Builder.build_safe |> Result.get_ok in
   let direct_agent = Agent.create ~net () in
-  let bc = builder_agent.state.config in
-  let dc = direct_agent.state.config in
+  let bc = (Agent.state builder_agent).config in
+  let dc = (Agent.state direct_agent).config in
   Alcotest.(check string) "name" dc.name bc.name;
   check_model "model" dc.model bc.model;
   Alcotest.(check (option string)) "system_prompt"
@@ -519,11 +519,11 @@ let test_defaults_match_agent_create () =
   Alcotest.(check (option int)) "max_total_tokens"
     dc.max_total_tokens bc.max_total_tokens;
   Alcotest.(check string) "base_url"
-    direct_agent.options.base_url builder_agent.options.base_url;
+    (Agent.options direct_agent).base_url (Agent.options builder_agent).base_url;
   Alcotest.(check bool) "provider none"
-    (Option.is_none direct_agent.options.provider)
-    (Option.is_none builder_agent.options.provider);
-  Alcotest.(check int) "tools" 0 (List.length builder_agent.tools)
+    (Option.is_none (Agent.options direct_agent).provider)
+    (Option.is_none (Agent.options builder_agent).provider);
+  Alcotest.(check int) "tools" 0 (List.length (Agent.tools builder_agent))
 
 (* --- 30. build with tools merges mcp --- *)
 
@@ -534,26 +534,26 @@ let test_build_with_tools_merges_mcp () =
     Builder.create ~net ~model:Types.Claude_sonnet_4_6
     |> Builder.with_tool t1
     |> Builder.with_mcp_clients []
-    |> Builder.build
+    |> Builder.build_safe |> Result.get_ok
   in
   Alcotest.(check int) "tool count with empty mcp" 1
-    (List.length agent.tools);
+    (List.length (Agent.tools agent));
   Alcotest.(check string) "tool name" "explicit"
-    (List.hd agent.tools).schema.name
+    (List.hd (Agent.tools agent)).schema.name
 
 (* --- 31. build minimal: only net+model, rest defaults --- *)
 
 let test_build_minimal_required_only () =
   with_net @@ fun net ->
   let agent =
-    Builder.create ~net ~model:Types.Claude_3_7_sonnet |> Builder.build in
-  check_model "model" Types.Claude_3_7_sonnet agent.state.config.model;
-  Alcotest.(check string) "name" "agent" agent.state.config.name;
-  Alcotest.(check int) "max_tokens" 4096 agent.state.config.max_tokens;
-  Alcotest.(check int) "max_turns" 10 agent.state.config.max_turns;
-  Alcotest.(check int) "tools" 0 (List.length agent.tools);
+    Builder.create ~net ~model:Types.Claude_3_7_sonnet |> Builder.build_safe |> Result.get_ok in
+  check_model "model" Types.Claude_3_7_sonnet (Agent.state agent).config.model;
+  Alcotest.(check string) "name" "agent" (Agent.state agent).config.name;
+  Alcotest.(check int) "max_tokens" 4096 (Agent.state agent).config.max_tokens;
+  Alcotest.(check int) "max_turns" 10 (Agent.state agent).config.max_turns;
+  Alcotest.(check int) "tools" 0 (List.length (Agent.tools agent));
   Alcotest.(check string) "base_url"
-    "https://api.anthropic.com" agent.options.base_url
+    "https://api.anthropic.com" (Agent.options agent).base_url
 
 (* --- Run all --- *)
 

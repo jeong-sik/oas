@@ -29,13 +29,20 @@ let () =
   Eio_main.run @@ fun env ->
   let net = Eio.Stdenv.net env in
   Eio.Switch.run @@ fun sw ->
+  let provider : Provider.config =
+    {
+      provider = Local { base_url = "http://127.0.0.1:8085" };
+      model_id = "qwen3.5-35b";
+      api_key_env = "DUMMY_KEY";
+    }
+  in
   let config =
-    Provider.
-      {
-        provider = Local { base_url = "http://127.0.0.1:8085" };
-        model_id = "qwen3.5-35b";
-        api_key_env = "DUMMY_KEY";
-      }
+    {
+      default_config with
+      model = Custom provider.model_id;
+      system_prompt = Some "You are a helpful assistant.";
+      max_tokens = 1024;
+    }
   in
   let messages =
     [
@@ -45,10 +52,12 @@ let () =
       };
     ]
   in
+  let state =
+    { config; messages = []; turn_count = 0; usage = empty_usage }
+  in
   match
-    Api.create_message_stream ~sw ~net ~config:(Provider.model_spec_of_config config)
-      ~api_key:"dummy" ~base_url:"http://127.0.0.1:8085"
-      ~model:"qwen3.5-35b" ~messages ~max_tokens:1024 ~on_event ()
+    Streaming.create_message_stream ~sw ~net ~provider ~config:state
+      ~messages ~on_event ()
   with
   | Ok response ->
       Printf.printf "\nResponse ID: %s\n" response.id;

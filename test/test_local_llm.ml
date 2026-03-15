@@ -7,7 +7,11 @@
 open Agent_sdk
 open Types
 
-let provider = Provider.local_qwen ()
+let provider : Provider.config = {
+  provider = Local { base_url = "http://127.0.0.1:8085" };
+  model_id = "qwen3.5-35b-a3b-ud-q8-xl";
+  api_key_env = "DUMMY_KEY";
+}
 let base_url =
   match provider.provider with
   | Provider.Local { base_url } -> base_url
