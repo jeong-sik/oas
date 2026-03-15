@@ -185,3 +185,11 @@
 (test
  (name test_raw_trace)
  (libraries agent_sdk alcotest yojson unix eio eio_main cohttp-eio))
+
+(test
+ (name test_cascade)
+ (libraries agent_sdk alcotest yojson eio eio_main))
+
+(test
+ (name test_injection)
+ (libraries agent_sdk alcotest yojson))

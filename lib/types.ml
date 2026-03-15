@@ -204,6 +204,7 @@ type usage_stats = {
   total_cache_creation_input_tokens: int;
   total_cache_read_input_tokens: int;
   api_calls: int;
+  estimated_cost_usd: float;
 }
 [@@deriving show]
 
@@ -213,6 +214,7 @@ let empty_usage = {
   total_cache_creation_input_tokens = 0;
   total_cache_read_input_tokens = 0;
   api_calls = 0;
+  estimated_cost_usd = 0.0;
 }
 
 let add_usage stats (u : api_usage) =
@@ -220,7 +222,8 @@ let add_usage stats (u : api_usage) =
     total_output_tokens = stats.total_output_tokens + u.output_tokens;
     total_cache_creation_input_tokens = stats.total_cache_creation_input_tokens + u.cache_creation_input_tokens;
     total_cache_read_input_tokens = stats.total_cache_read_input_tokens + u.cache_read_input_tokens;
-    api_calls = stats.api_calls + 1 }
+    api_calls = stats.api_calls + 1;
+    estimated_cost_usd = stats.estimated_cost_usd }
 
 (** Agent state *)
 type agent_state = {

@@ -179,6 +179,128 @@ let test_single_message () =
   let result = Context_reducer.reduce (Context_reducer.keep_last 5) msgs in
   Alcotest.(check int) "single" 1 (List.length result)
 
+(* --- prune_tool_outputs --- *)
+
+let test_prune_short_outputs () =
+  let msgs = [
+    user_msg "q";
+    tool_use_msg "t1" "calc";
+    tool_result_msg "t1" "short";
+  ] in
+  let result = Context_reducer.reduce (Context_reducer.prune_tool_outputs ~max_output_len:100) msgs in
+  (* "short" is under 100, so no truncation *)
+  let tool_content = match List.nth result 2 with
+    | { Types.content = [Types.ToolResult { content; _ }]; _ } -> content
+    | _ -> Alcotest.fail "expected tool result"
+  in
+  Alcotest.(check string) "no truncation" "short" tool_content
+
+let test_prune_long_outputs () =
+  let long_output = String.make 200 'x' in
+  let msgs = [
+    user_msg "q";
+    tool_use_msg "t1" "calc";
+    tool_result_msg "t1" long_output;
+  ] in
+  let result = Context_reducer.reduce (Context_reducer.prune_tool_outputs ~max_output_len:50) msgs in
+  let tool_content = match List.nth result 2 with
+    | { Types.content = [Types.ToolResult { content; _ }]; _ } -> content
+    | _ -> Alcotest.fail "expected tool result"
+  in
+  Alcotest.(check bool) "truncated" true (String.length tool_content < 200);
+  Alcotest.(check bool) "has marker" true (String.length tool_content > 50)
+
+(* --- merge_contiguous --- *)
+
+let test_merge_same_role () =
+  let msgs = [
+    user_msg "a"; user_msg "b"; asst_msg "c"
+  ] in
+  let result = Context_reducer.reduce Context_reducer.merge_contiguous msgs in
+  Alcotest.(check int) "merged to 2" 2 (List.length result);
+  (* First message should have 2 content blocks *)
+  (match result with
+   | { Types.content; _ } :: _ ->
+     Alcotest.(check int) "2 blocks" 2 (List.length content)
+   | _ -> Alcotest.fail "unexpected result")
+
+let test_merge_preserves_tool_results () =
+  let msgs = [
+    tool_result_msg "t1" "42";
+    tool_result_msg "t2" "43";
+  ] in
+  let result = Context_reducer.reduce Context_reducer.merge_contiguous msgs in
+  (* Tool result messages should NOT be merged *)
+  Alcotest.(check int) "not merged" 2 (List.length result)
+
+(* --- drop_thinking --- *)
+
+let test_drop_thinking_removes () =
+  let msgs = [
+    Types.{ role = Assistant; content = [
+      Thinking { thinking_type = ""; content = "internal reasoning" };
+      Text "answer"
+    ]};
+    user_msg "follow up";
+    asst_msg "response";
+  ] in
+  let result = Context_reducer.reduce Context_reducer.drop_thinking msgs in
+  (* First message should have thinking stripped (not in last 2) *)
+  (match result with
+   | { Types.content; _ } :: _ ->
+     let has_thinking = List.exists (function Types.Thinking _ -> true | _ -> false) content in
+     Alcotest.(check bool) "thinking removed" false has_thinking
+   | _ -> Alcotest.fail "unexpected result")
+
+let test_drop_thinking_preserves_recent () =
+  let msgs = [
+    user_msg "q";
+    Types.{ role = Assistant; content = [
+      Thinking { thinking_type = ""; content = "recent thinking" };
+      Text "answer"
+    ]};
+  ] in
+  let result = Context_reducer.reduce Context_reducer.drop_thinking msgs in
+  (* Last 2 messages are preserved *)
+  (match List.nth result 1 with
+   | { Types.content; _ } ->
+     let has_thinking = List.exists (function Types.Thinking _ -> true | _ -> false) content in
+     Alcotest.(check bool) "thinking preserved in recent" true has_thinking)
+
+(* --- compose --- *)
+
+let test_compose () =
+  let long_output = String.make 200 'x' in
+  let msgs = [
+    Types.{ role = Assistant; content = [
+      Thinking { thinking_type = ""; content = "old thinking" };
+      Text "old answer"
+    ]};
+    user_msg "q2";
+    tool_use_msg "t1" "calc";
+    tool_result_msg "t1" long_output;
+    asst_msg "final";
+  ] in
+  let reducer = Context_reducer.compose [
+    Context_reducer.drop_thinking;
+    Context_reducer.prune_tool_outputs ~max_output_len:50;
+  ] in
+  let result = Context_reducer.reduce reducer msgs in
+  (* First message should have thinking removed *)
+  (match result with
+   | { Types.content; _ } :: _ ->
+     let has_thinking = List.exists (function Types.Thinking _ -> true | _ -> false) content in
+     Alcotest.(check bool) "thinking removed" false has_thinking
+   | _ -> Alcotest.fail "unexpected result");
+  (* Tool result should be truncated *)
+  let tool_msg = List.find (fun (m : Types.message) ->
+    List.exists (function Types.ToolResult _ -> true | _ -> false) m.content
+  ) result in
+  (match tool_msg.content with
+   | [Types.ToolResult { content; _ }] ->
+     Alcotest.(check bool) "truncated" true (String.length content < 200)
+   | _ -> Alcotest.fail "expected tool result")
+
 let () =
   Alcotest.run "Context_reducer" [
     "keep_last_n", [
@@ -206,6 +328,21 @@ let () =
     ];
     "custom", [
       Alcotest.test_case "custom fn called" `Quick test_custom;
+    ];
+    "prune_tool_outputs", [
+      Alcotest.test_case "short outputs unchanged" `Quick test_prune_short_outputs;
+      Alcotest.test_case "long outputs truncated" `Quick test_prune_long_outputs;
+    ];
+    "merge_contiguous", [
+      Alcotest.test_case "same role merged" `Quick test_merge_same_role;
+      Alcotest.test_case "tool results not merged" `Quick test_merge_preserves_tool_results;
+    ];
+    "drop_thinking", [
+      Alcotest.test_case "removes old thinking" `Quick test_drop_thinking_removes;
+      Alcotest.test_case "preserves recent thinking" `Quick test_drop_thinking_preserves_recent;
+    ];
+    "compose", [
+      Alcotest.test_case "compose strategies" `Quick test_compose;
     ];
     "edge_cases", [
       Alcotest.test_case "empty messages" `Quick test_empty;

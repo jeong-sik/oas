@@ -163,6 +163,7 @@ module Types : sig
     total_cache_creation_input_tokens: int;
     total_cache_read_input_tokens: int;
     api_calls: int;
+    estimated_cost_usd: float;
   }
   [@@deriving show]
 
@@ -293,6 +294,25 @@ module Provider : sig
   [@@deprecated "Use Provider.Local constructor directly. Will be removed in 1.0."]
   val openrouter : ?model_id:string -> unit -> config
   val ollama : ?base_url:string -> ?model_id:string -> ?mode:ollama_mode -> unit -> config
+
+  (** {2 Cascade: multi-provider failover} *)
+
+  type cascade = {
+    primary: config;
+    fallbacks: config list;
+  }
+
+  val cascade : primary:config -> fallbacks:config list -> cascade
+
+  (** {2 Pricing: per-model cost estimation} *)
+
+  type pricing = {
+    input_per_million: float;
+    output_per_million: float;
+  }
+
+  val pricing_for_model : string -> pricing
+  val estimate_cost : pricing:pricing -> input_tokens:int -> output_tokens:int -> float
 end
 
 (** {1 Error Handling and Retry} *)
@@ -337,6 +357,7 @@ module Hooks : sig
     | PostToolUseFailure of { tool_name: string; input: Yojson.Safe.t;
                               error: string }
     | OnStop of { reason: Types.stop_reason; response: Types.api_response }
+    | OnIdle of { consecutive_idle_turns: int; tool_names: string list }
 
   (** Decision returned by a hook *)
   type hook_decision =
@@ -365,7 +386,19 @@ module Hooks : sig
     post_tool_use: hook option;
     post_tool_use_failure: hook option;
     on_stop: hook option;
+    on_idle: hook option;
   }
+
+  (** Context injection: data returned by a context_injector after tool execution *)
+  type injection = {
+    context_updates: (string * Yojson.Safe.t) list;
+    extra_messages: Types.message list;
+  }
+
+  (** Context injector: called after tool execution to inject external state *)
+  type context_injector =
+    tool_name:string -> input:Yojson.Safe.t -> output:Types.tool_result ->
+    injection option
 
   val empty : hooks
   val invoke : hook option -> hook_event -> hook_decision
@@ -417,6 +450,10 @@ module Context_reducer : sig
   type strategy =
     | Keep_last_n of int
     | Token_budget of int
+    | Prune_tool_outputs of { max_output_len: int }
+    | Merge_contiguous
+    | Drop_thinking
+    | Compose of strategy list
     | Custom of (Types.message list -> Types.message list)
 
   type t = { strategy : strategy }
@@ -435,6 +472,10 @@ module Context_reducer : sig
   (** Convenience constructors *)
   val keep_last : int -> t
   val token_budget : int -> t
+  val prune_tool_outputs : max_output_len:int -> t
+  val merge_contiguous : t
+  val drop_thinking : t
+  val compose : t list -> t
   val custom : (Types.message list -> Types.message list) -> t
 end
 
@@ -1180,12 +1221,15 @@ module Agent : sig
   type options = {
     base_url: string;
     provider: Provider.config option;
+    cascade: Provider.cascade option;
+    max_idle_turns: int;
     hooks: Hooks.hooks;
     guardrails: Guardrails.t;
     tracer: Tracing.t;
     raw_trace: Raw_trace.t option;
     approval: Hooks.approval_callback option;
     context_reducer: Context_reducer.t option;
+    context_injector: Hooks.context_injector option;
     mcp_clients: Mcp.managed list;
     event_bus: Event_bus.t option;
   }
@@ -1371,6 +1415,10 @@ module Builder : sig
   val with_response_format_json : bool -> t -> t
   val with_cache_system_prompt : bool -> t -> t
   val with_event_bus : Event_bus.t -> t -> t
+  val with_cascade : Provider.cascade -> t -> t
+  val with_fallback : Provider.config -> t -> t
+  val with_max_idle_turns : int -> t -> t
+  val with_context_injector : Hooks.context_injector -> t -> t
   val build : t -> Agent.t
   [@@deprecated "Use build_safe for validated construction"]
 

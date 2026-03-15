@@ -131,8 +131,13 @@ let connect ~sw ~(mgr : _ Eio.Process.mgr) ~command ~args ?env () =
       try Eio.Process.signal proc Sys.sigterm with _ -> ()
     in
     Ok { reader; writer = (w_child_stdin :> Eio.Flow.sink_ty Eio.Resource.t); next_id = 1; kill }
-  with exn ->
+  with
+  | Eio.Io _ as exn ->
     Error (Error.Mcp (ServerStartFailed { command; detail = Printexc.to_string exn }))
+  | Unix.Unix_error _ as exn ->
+    Error (Error.Mcp (ServerStartFailed { command; detail = Printexc.to_string exn }))
+  | Failure msg ->
+    Error (Error.Mcp (ServerStartFailed { command; detail = msg }))
 
 (** Lightweight NDJSON request/response helpers. *)
 let send_raw t json =
@@ -465,7 +470,11 @@ let connect_and_load ~sw ~mgr spec =
         | Ok mcp_tools ->
           let tools = to_tools client mcp_tools in
           Ok { client; tools; name = spec.name; spec }
-    with exn ->
+    with
+    | Out_of_memory -> close client; raise Out_of_memory
+    | Stack_overflow -> close client; raise Stack_overflow
+    | Sys.Break -> close client; raise Sys.Break
+    | exn ->
       close client;
       Error (Error.Mcp (InitializeFailed { detail = Printf.sprintf "MCP server '%s': %s" spec.name (Printexc.to_string exn) })))
 

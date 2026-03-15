@@ -273,8 +273,15 @@ let create_message_stream ~sw ~net ?(base_url=Api.default_base_url) ?provider ~c
                     Eio.Buf_read.(of_flow ~max_size:Api.max_response_body body |> take_all)
                   in
                   Error (Error.Api (Retry.classify_error ~status:code ~body:body_str))
-            with exn ->
-              Error (Error.Api (Retry.NetworkError { message = Printexc.to_string exn })))
+            with
+            | Eio.Io _ as exn ->
+              Error (Error.Api (Retry.NetworkError { message = Printexc.to_string exn }))
+            | Unix.Unix_error _ as exn ->
+              Error (Error.Api (Retry.NetworkError { message = Printexc.to_string exn }))
+            | Failure msg ->
+              Error (Error.Api (Retry.NetworkError { message = msg }))
+            | Yojson.Json_error msg ->
+              Error (Error.Api (Retry.NetworkError { message = "JSON parse error: " ^ msg })))
        | Provider.Openai_chat_completions
        | Provider.Ollama_chat
        | Provider.Ollama_generate ->

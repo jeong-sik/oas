@@ -31,7 +31,8 @@ let invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count ~hook_name
               | Hooks.PreToolUse { tool_name; _ }
               | Hooks.PostToolUse { tool_name; _ }
               | Hooks.PostToolUseFailure { tool_name; _ } -> Some tool_name
-              | Hooks.BeforeTurn _ | Hooks.AfterTurn _ | Hooks.OnStop _ -> None)
+              | Hooks.BeforeTurn _ | Hooks.AfterTurn _ | Hooks.OnStop _
+              | Hooks.OnIdle _ -> None)
       | None -> ());
       decision)
 
@@ -129,7 +130,11 @@ let execute_tools ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tracer
                   find_and_execute_tool ~context ~tools ~hooks ~event_bus
                     ~tracer ~agent_name ~turn_count ?on_hook_invoked name
                     input id)
-            with exn ->
+            with
+            | Out_of_memory -> raise Out_of_memory
+            | Stack_overflow -> raise Stack_overflow
+            | Sys.Break -> raise Sys.Break
+            | exn ->
               let msg = Printf.sprintf "Tool '%s' raised: %s" name (Printexc.to_string exn) in
               (id, msg, true)))
         |> fun triple ->

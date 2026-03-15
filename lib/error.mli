@@ -13,6 +13,7 @@ type agent_error =
   | MaxTurnsExceeded of { turns: int; limit: int }
   | TokenBudgetExceeded of { kind: string; used: int; limit: int }
   | UnrecognizedStopReason of { reason: string }
+  | IdleDetected of { consecutive_idle_turns: int }
 
 type mcp_error =
   | ServerStartFailed of { command: string; detail: string }

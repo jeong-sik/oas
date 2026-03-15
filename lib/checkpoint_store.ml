@@ -13,12 +13,23 @@ let validate_session_id id =
     Error (Error.Io (ValidationFailed { detail = "session_id must not contain null byte" }))
   else Ok ()
 
+(** Convert file I/O exceptions to sdk_error. Re-raises non-recoverable exceptions. *)
+let io_error_of_exn ~op ~path = function
+  | Eio.Io _ as exn ->
+    Error (Error.Io (FileOpFailed { op; path; detail = Printexc.to_string exn }))
+  | Unix.Unix_error _ as exn ->
+    Error (Error.Io (FileOpFailed { op; path; detail = Printexc.to_string exn }))
+  | Failure msg ->
+    Error (Error.Io (FileOpFailed { op; path; detail = msg }))
+  | Yojson.Json_error msg ->
+    Error (Error.Io (FileOpFailed { op; path; detail = "JSON error: " ^ msg }))
+  | exn -> raise exn
+
 let create base_dir =
   try
     Eio.Path.mkdirs ~exists_ok:true ~perm:0o755 base_dir;
     Ok { base_dir }
-  with exn ->
-    Error (Error.Io (FileOpFailed { op = "create"; path = "checkpoint_dir"; detail = Printexc.to_string exn }))
+  with exn -> io_error_of_exn ~op:"create" ~path:"checkpoint_dir" exn
 
 let file_path store id = Eio.Path.(store.base_dir / (id ^ ".json"))
 let tmp_path store id = Eio.Path.(store.base_dir / (id ^ ".json.tmp"))
@@ -37,7 +48,7 @@ let save store (cp : Checkpoint.t) =
      with exn ->
        (* Best-effort cleanup: ignore unlink failure — the primary error is already captured *)
        (try Eio.Path.unlink tmp with _ -> ());
-       Error (Error.Io (FileOpFailed { op = "save"; path = cp.session_id; detail = Printexc.to_string exn })))
+       io_error_of_exn ~op:"save" ~path:cp.session_id exn)
 
 let load store id =
   match validate_session_id id with
@@ -47,8 +58,7 @@ let load store id =
     (try
        let data = Eio.Path.load path in
        Checkpoint.of_string data
-     with exn ->
-       Error (Error.Io (FileOpFailed { op = "load"; path = id; detail = Printexc.to_string exn })))
+     with exn -> io_error_of_exn ~op:"load" ~path:id exn)
 
 let list store =
   try
@@ -61,8 +71,7 @@ let list store =
            && not (len > 9 && String.sub name (len - 9) 9 = ".json.tmp"))
     |> List.map (fun name -> String.sub name 0 (String.length name - 5))
     |> List.sort String.compare)
-  with exn ->
-    Error (Error.Io (FileOpFailed { op = "list"; path = "checkpoint_dir"; detail = Printexc.to_string exn }))
+  with exn -> io_error_of_exn ~op:"list" ~path:"checkpoint_dir" exn
 
 let delete store id =
   match validate_session_id id with
@@ -72,8 +81,7 @@ let delete store id =
     (try
        Eio.Path.unlink path;
        Ok ()
-     with exn ->
-       Error (Error.Io (FileOpFailed { op = "delete"; path = id; detail = Printexc.to_string exn })))
+     with exn -> io_error_of_exn ~op:"delete" ~path:id exn)
 
 let exists store id =
   match validate_session_id id with

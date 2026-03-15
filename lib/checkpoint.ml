@@ -44,6 +44,7 @@ let usage_to_json u =
     ("total_cache_creation_input_tokens", `Int u.total_cache_creation_input_tokens);
     ("total_cache_read_input_tokens", `Int u.total_cache_read_input_tokens);
     ("api_calls", `Int u.api_calls);
+    ("estimated_cost_usd", `Float u.estimated_cost_usd);
   ]
 
 let usage_of_json json =
@@ -60,6 +61,11 @@ let usage_of_json json =
     api_calls =
       json |> member "api_calls" |> to_int_option
       |> Option.value ~default:0;
+    estimated_cost_usd =
+      (match json |> member "estimated_cost_usd" with
+       | `Float f -> f
+       | `Int i -> Float.of_int i
+       | _ -> 0.0);
   }
 
 let result_all items =

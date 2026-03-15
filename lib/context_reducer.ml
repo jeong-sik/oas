@@ -16,6 +16,10 @@ open Types
 type strategy =
   | Keep_last_n of int
   | Token_budget of int
+  | Prune_tool_outputs of { max_output_len: int }
+  | Merge_contiguous
+  | Drop_thinking
+  | Compose of strategy list
   | Custom of (message list -> message list)
 
 type t = { strategy : strategy }
@@ -94,14 +98,76 @@ let apply_token_budget budget messages =
   let kept = take_turns [] budget reversed in
   List.concat kept
 
+(** Prune tool outputs: truncate ToolResult content exceeding max_output_len.
+    Replaces long content with a truncation marker preserving the first
+    max_output_len characters. *)
+let apply_prune_tool_outputs ~max_output_len messages =
+  List.map (fun (msg : message) ->
+    let content = List.map (fun block ->
+      match block with
+      | ToolResult { tool_use_id; content; is_error } when String.length content > max_output_len ->
+        let truncated = String.sub content 0 max_output_len in
+        let marker = Printf.sprintf "\n[truncated: %d chars]" (String.length content) in
+        ToolResult { tool_use_id; content = truncated ^ marker; is_error }
+      | other -> other
+    ) msg.content in
+    { msg with content }
+  ) messages
+
+(** Merge contiguous messages with the same role.
+    Concatenates content blocks. Respects ToolUse/ToolResult pairing
+    by not merging User messages that contain ToolResult blocks. *)
+let apply_merge_contiguous messages =
+  let rec aux acc = function
+    | [] -> List.rev acc
+    | msg :: rest ->
+      match acc with
+      | prev :: acc_rest when prev.role = msg.role
+        && not (List.exists (function ToolResult _ -> true | _ -> false) msg.content)
+        && not (List.exists (function ToolResult _ -> true | _ -> false) prev.content) ->
+        let merged = { prev with content = prev.content @ msg.content } in
+        aux (merged :: acc_rest) rest
+      | _ ->
+        aux (msg :: acc) rest
+  in
+  aux [] messages
+
+(** Drop Thinking and RedactedThinking blocks from all messages.
+    Preserves the last turn's thinking blocks for debugging. *)
+let apply_drop_thinking messages =
+  let total = List.length messages in
+  List.mapi (fun i (msg : message) ->
+    if i >= total - 2 then msg  (* preserve last 2 messages *)
+    else
+      let content = List.filter (fun block ->
+        match block with
+        | Thinking _ | RedactedThinking _ -> false
+        | _ -> true
+      ) msg.content in
+      if content = [] then { msg with content = [Text ""] }
+      else { msg with content }
+  ) messages
+
 (** Reduce messages according to the configured strategy. *)
-let reduce (reducer : t) (messages : message list) : message list =
-  match reducer.strategy with
+let rec reduce (reducer : t) (messages : message list) : message list =
+  apply_strategy reducer.strategy messages
+
+and apply_strategy strategy messages =
+  match strategy with
   | Keep_last_n n -> apply_keep_last_n n messages
   | Token_budget budget -> apply_token_budget budget messages
+  | Prune_tool_outputs { max_output_len } -> apply_prune_tool_outputs ~max_output_len messages
+  | Merge_contiguous -> apply_merge_contiguous messages
+  | Drop_thinking -> apply_drop_thinking messages
+  | Compose strategies ->
+    List.fold_left (fun msgs s -> apply_strategy s msgs) messages strategies
   | Custom f -> f messages
 
 (** Convenience constructors. *)
 let keep_last n = { strategy = Keep_last_n n }
 let token_budget n = { strategy = Token_budget n }
+let prune_tool_outputs ~max_output_len = { strategy = Prune_tool_outputs { max_output_len } }
+let merge_contiguous = { strategy = Merge_contiguous }
+let drop_thinking = { strategy = Drop_thinking }
+let compose strategies = { strategy = Compose (List.map (fun r -> r.strategy) strategies) }
 let custom f = { strategy = Custom f }

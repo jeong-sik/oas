@@ -1,0 +1,132 @@
+open Alcotest
+open Agent_sdk
+
+(* ── Provider cascade type tests ─────────────────────────────── *)
+
+let test_cascade_type () =
+  let primary = Provider.anthropic_sonnet () in
+  let fallback = { Provider.provider = Local { base_url = "http://127.0.0.1:8085" }; model_id = "qwen3.5-35b-a3b"; api_key_env = "DUMMY_KEY" } in
+  let casc = Provider.cascade ~primary ~fallbacks:[fallback] in
+  check string "primary model" "claude-sonnet-4-6" casc.primary.model_id;
+  check int "fallback count" 1 (List.length casc.fallbacks);
+  check string "fallback model" "qwen3.5-35b-a3b"
+    (List.hd casc.fallbacks).model_id
+
+let test_cascade_empty_fallbacks () =
+  let primary = Provider.anthropic_sonnet () in
+  let casc = Provider.cascade ~primary ~fallbacks:[] in
+  check int "no fallbacks" 0 (List.length casc.fallbacks)
+
+let test_cascade_multiple_fallbacks () =
+  let primary = Provider.anthropic_opus () in
+  let fb1 = Provider.anthropic_sonnet () in
+  let fb2 = { Provider.provider = Local { base_url = "http://127.0.0.1:8085" }; model_id = "qwen3.5-35b-a3b"; api_key_env = "DUMMY_KEY" } in
+  let casc = Provider.cascade ~primary ~fallbacks:[fb1; fb2] in
+  check int "two fallbacks" 2 (List.length casc.fallbacks)
+
+(* ── Pricing tests ───────────────────────────────────────────── *)
+
+let test_pricing_opus () =
+  let p = Provider.pricing_for_model "claude-opus-4-6-20250514" in
+  check (float 0.01) "opus input" 15.0 p.input_per_million;
+  check (float 0.01) "opus output" 75.0 p.output_per_million
+
+let test_pricing_sonnet () =
+  let p = Provider.pricing_for_model "claude-sonnet-4-6" in
+  check (float 0.01) "sonnet input" 3.0 p.input_per_million;
+  check (float 0.01) "sonnet output" 15.0 p.output_per_million
+
+let test_pricing_haiku () =
+  let p = Provider.pricing_for_model "claude-haiku-4-5-20251001" in
+  check (float 0.01) "haiku input" 0.8 p.input_per_million;
+  check (float 0.01) "haiku output" 4.0 p.output_per_million
+
+let test_pricing_unknown () =
+  let p = Provider.pricing_for_model "some-unknown-model" in
+  check (float 0.01) "unknown input" 0.0 p.input_per_million;
+  check (float 0.01) "unknown output" 0.0 p.output_per_million
+
+let test_estimate_cost () =
+  let pricing = Provider.pricing_for_model "claude-sonnet-4-6" in
+  let cost = Provider.estimate_cost ~pricing ~input_tokens:1_000_000 ~output_tokens:100_000 in
+  (* 1M input * 3.0/1M + 100K output * 15.0/1M = 3.0 + 1.5 = 4.5 *)
+  check (float 0.001) "cost" 4.5 cost
+
+(* ── Retry cascade tests ─────────────────────────────────────── *)
+
+let test_cascade_retry_primary_succeeds () =
+  Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  let primary () = Ok "primary_result" in
+  let fallback () = Ok "fallback_result" in
+  let config = { Retry.max_retries = 1; initial_delay = 0.01; max_delay = 0.1; backoff_factor = 2.0 } in
+  match Retry.with_cascade ~clock ~config ~primary ~fallbacks:[fallback] () with
+  | Ok v -> check string "uses primary" "primary_result" v
+  | Error _ -> fail "expected success"
+
+let test_cascade_retry_falls_through () =
+  Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  let primary () = Error (Retry.RateLimited { retry_after = Some 0.01; message = "rate limited" }) in
+  let fallback () = Ok "fallback_result" in
+  let config = { Retry.max_retries = 0; initial_delay = 0.01; max_delay = 0.1; backoff_factor = 2.0 } in
+  match Retry.with_cascade ~clock ~config ~primary ~fallbacks:[fallback] () with
+  | Ok v -> check string "uses fallback" "fallback_result" v
+  | Error _ -> fail "expected fallback success"
+
+let test_cascade_retry_non_retryable_stops () =
+  Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  let primary () = Error (Retry.AuthError { message = "bad key" }) in
+  let fallback () = Ok "fallback_result" in
+  let config = { Retry.max_retries = 1; initial_delay = 0.01; max_delay = 0.1; backoff_factor = 2.0 } in
+  match Retry.with_cascade ~clock ~config ~primary ~fallbacks:[fallback] () with
+  | Ok _ -> fail "expected auth error"
+  | Error (Retry.AuthError _) -> ()
+  | Error _ -> fail "expected AuthError variant"
+
+(* ── Builder cascade tests ───────────────────────────────────── *)
+
+let test_builder_with_fallback () =
+  Eio_main.run @@ fun env ->
+  let net = Eio.Stdenv.net env in
+  let agent =
+    Builder.create ~net ~model:Types.Claude_sonnet_4_6
+    |> Builder.with_provider (Provider.anthropic_sonnet ())
+    |> Builder.with_fallback ({ Provider.provider = Local { base_url = "http://127.0.0.1:8085" }; model_id = "qwen3.5-35b-a3b"; api_key_env = "DUMMY_KEY" })
+    |> Builder.build_safe
+  in
+  let agent = match agent with
+    | Ok a -> a
+    | Error e -> fail (Error.to_string e)
+  in
+  let opts = Agent.options agent in
+  match opts.cascade with
+  | Some casc ->
+    check string "primary" "claude-sonnet-4-6" casc.primary.model_id;
+    check int "fallbacks" 1 (List.length casc.fallbacks)
+  | None -> fail "expected cascade to be set"
+
+let () =
+  run "cascade" [
+    "type", [
+      test_case "basic cascade" `Quick test_cascade_type;
+      test_case "empty fallbacks" `Quick test_cascade_empty_fallbacks;
+      test_case "multiple fallbacks" `Quick test_cascade_multiple_fallbacks;
+    ];
+    "pricing", [
+      test_case "opus pricing" `Quick test_pricing_opus;
+      test_case "sonnet pricing" `Quick test_pricing_sonnet;
+      test_case "haiku pricing" `Quick test_pricing_haiku;
+      test_case "unknown pricing" `Quick test_pricing_unknown;
+      test_case "estimate cost" `Quick test_estimate_cost;
+    ];
+    "retry", [
+      test_case "primary succeeds" `Quick test_cascade_retry_primary_succeeds;
+      test_case "falls through to fallback" `Quick test_cascade_retry_falls_through;
+      test_case "non-retryable stops" `Quick test_cascade_retry_non_retryable_stops;
+    ];
+    "builder", [
+      test_case "with_fallback" `Quick test_builder_with_fallback;
+    ];
+  ]

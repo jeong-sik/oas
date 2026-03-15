@@ -252,6 +252,7 @@ let test_roundtrip_preserves_usage () =
               total_cache_creation_input_tokens = 10;
               total_cache_read_input_tokens = 20;
               api_calls = 3;
+              estimated_cost_usd = 0.0;
             };
         }
       in
