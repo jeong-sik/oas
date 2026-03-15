@@ -96,7 +96,11 @@ let apply_token_budget budget messages =
         acc
   in
   let kept = take_turns [] budget reversed in
-  List.concat kept
+  (* Guard: always keep at least the most recent turn to avoid sending
+     an empty message list to the API. *)
+  match kept, reversed with
+  | [], most_recent :: _ -> most_recent
+  | _ -> List.concat kept
 
 (** Prune tool outputs: truncate ToolResult content exceeding max_output_len.
     Replaces long content with a truncation marker preserving the first
@@ -133,20 +137,22 @@ let apply_merge_contiguous messages =
   aux [] messages
 
 (** Drop Thinking and RedactedThinking blocks from all messages.
-    Preserves the last turn's thinking blocks for debugging. *)
+    Preserves the last turn's thinking blocks for debugging.
+    Messages that become empty after dropping are removed entirely
+    rather than replaced with [Text ""], which would pollute the conversation. *)
 let apply_drop_thinking messages =
   let total = List.length messages in
-  List.mapi (fun i (msg : message) ->
-    if i >= total - 2 then msg  (* preserve last 2 messages *)
+  List.filter_map (fun (i, (msg : message)) ->
+    if i >= total - 2 then Some msg  (* preserve last 2 messages *)
     else
       let content = List.filter (fun block ->
         match block with
         | Thinking _ | RedactedThinking _ -> false
         | _ -> true
       ) msg.content in
-      if content = [] then { msg with content = [Text ""] }
-      else { msg with content }
-  ) messages
+      if content = [] then None  (* drop entirely *)
+      else Some { msg with content }
+  ) (List.mapi (fun i msg -> (i, msg)) messages)
 
 (** Reduce messages according to the configured strategy. *)
 let rec reduce (reducer : t) (messages : message list) : message list =
