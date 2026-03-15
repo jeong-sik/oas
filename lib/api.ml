@@ -144,6 +144,24 @@ let create_message_cascade ~sw ~net ?clock ?retry_config
      | Ok _ as success -> success
      | Error err -> Error (Error.Api err))
   | None ->
+    (* Without a clock, retries are disabled but we still try fallbacks
+       sequentially on retryable errors. *)
+    let rec try_providers = function
+      | [] -> fun last_err -> Error (Error.Api last_err)
+      | provider :: rest ->
+        fun _prev_err ->
+          match make_f provider () with
+          | Ok _ as success -> success
+          | Error err ->
+            if Retry.is_retryable err then
+              (try_providers rest) err
+            else
+              Error (Error.Api err)
+    in
     (match make_f casc.primary () with
      | Ok _ as success -> success
-     | Error err -> Error (Error.Api err))
+     | Error err ->
+       if Retry.is_retryable err && casc.fallbacks <> [] then
+         (try_providers casc.fallbacks) err
+       else
+         Error (Error.Api err))

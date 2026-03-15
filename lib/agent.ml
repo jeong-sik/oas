@@ -76,7 +76,7 @@ type tool_call_fingerprint = {
 type t = {
   mutable state: agent_state;
   mutable lifecycle: lifecycle_snapshot option;
-  mutable last_tool_calls: tool_call_fingerprint list;
+  mutable last_tool_calls: tool_call_fingerprint list option;
   mutable consecutive_idle_turns: int;
   tools: Tool.t list;
   net: [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t;
@@ -195,7 +195,7 @@ let create ~net ?(config=default_config) ?(tools=[]) ?context
     | Some c -> c
     | None -> Context.create ()
   in
-  { state; lifecycle = None; last_tool_calls = []; consecutive_idle_turns = 0;
+  { state; lifecycle = None; last_tool_calls = None; consecutive_idle_turns = 0;
     tools = all_tools; net; context = ctx; options }
 
 (** Clone an agent with independent state.
@@ -213,7 +213,7 @@ let clone ?(copy_context=false) agent =
   {
     state;
     lifecycle = agent.lifecycle;
-    last_tool_calls = [];
+    last_tool_calls = None;
     consecutive_idle_turns = 0;
     tools = agent.tools;
     net = agent.net;
@@ -463,13 +463,16 @@ let run_turn_with_trace ~sw ?clock ?raw_trace_run agent =
             Some { fp_name = name; fp_input = Yojson.Safe.to_string input }
           | _ -> None
         ) tool_uses in
-        let is_idle =
-          agent.last_tool_calls <> [] &&
-          List.length current_fps = List.length agent.last_tool_calls &&
-          List.for_all2 (fun a b -> a.fp_name = b.fp_name && a.fp_input = b.fp_input)
-            current_fps agent.last_tool_calls
+        (* Idle check: fingerprints match previous turn (including both-empty).
+           None = first tool turn, no comparison possible. *)
+        let is_idle = match agent.last_tool_calls with
+          | None -> false
+          | Some prev ->
+            List.length current_fps = List.length prev &&
+            List.for_all2 (fun a b -> a.fp_name = b.fp_name && a.fp_input = b.fp_input)
+              current_fps prev
         in
-        agent.last_tool_calls <- current_fps;
+        agent.last_tool_calls <- Some current_fps;
         if is_idle then begin
           agent.consecutive_idle_turns <- agent.consecutive_idle_turns + 1;
           let _idle =
@@ -501,7 +504,8 @@ let run_turn_with_trace ~sw ?clock ?raw_trace_run agent =
             ToolResult { tool_use_id; content; is_error }
           ) results in
           agent.state <- { agent.state with messages = agent.state.messages @ [{ role = User; content = tool_results }] };
-          (* Context injection: call injector for each tool execution *)
+          (* Context injection: call injector for each tool execution.
+             Wrapped in try-with so a faulty injector does not crash the tool loop. *)
           (match agent.options.context_injector with
            | None -> ()
            | Some injector ->
@@ -512,15 +516,39 @@ let run_turn_with_trace ~sw ?clock ?raw_trace_run agent =
                    if is_error then Error { message = content; recoverable = true }
                    else Ok { content }
                  in
-                 (match injector ~tool_name:name ~input ~output with
-                  | None -> ()
-                  | Some inj ->
-                    List.iter (fun (key, value) ->
-                      Context.set agent.context key value
-                    ) inj.Hooks.context_updates;
-                    if inj.extra_messages <> [] then
-                      agent.state <- { agent.state with
-                        messages = agent.state.messages @ inj.extra_messages })
+                 (try
+                   match injector ~tool_name:name ~input ~output with
+                   | None -> ()
+                   | Some inj ->
+                     List.iter (fun (key, value) ->
+                       Context.set agent.context key value
+                     ) inj.Hooks.context_updates;
+                     (* Validate role alternation before appending extra_messages.
+                        The last message in agent.state.messages is User (ToolResult).
+                        Only append messages that maintain valid alternation. *)
+                     let valid_messages = match agent.state.messages with
+                       | [] -> inj.extra_messages
+                       | _ ->
+                         let last_role = (List.nth agent.state.messages
+                           (List.length agent.state.messages - 1)).role in
+                         let rec filter_valid prev_role = function
+                           | [] -> []
+                           | (msg : Types.message) :: rest ->
+                             if msg.role = prev_role then
+                               filter_valid prev_role rest  (* skip: same role *)
+                             else
+                               msg :: filter_valid msg.role rest
+                         in
+                         filter_valid last_role inj.extra_messages
+                     in
+                     if valid_messages <> [] then
+                       agent.state <- { agent.state with
+                         messages = agent.state.messages @ valid_messages }
+                 with exn ->
+                   let _msg = Printf.sprintf
+                     "context_injector for tool '%s' raised: %s"
+                     name (Printexc.to_string exn) in
+                   () (* Log silently; do not crash the tool loop *))
                | _ -> ()
              ) tool_uses results);
           Ok (`ToolsExecuted))
@@ -843,7 +871,7 @@ let resume ~net ~(checkpoint : Checkpoint.t) ?(tools=[]) ?context
     | Some c -> c
     | None -> Context.copy checkpoint.context
   in
-  { state; lifecycle = None; last_tool_calls = []; consecutive_idle_turns = 0;
+  { state; lifecycle = None; last_tool_calls = None; consecutive_idle_turns = 0;
     tools; net; context = ctx; options }
 
 (** Create a checkpoint from the current agent state. *)
