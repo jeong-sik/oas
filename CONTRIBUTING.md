@@ -62,11 +62,17 @@ Implementation follows the interface, not the other way around.
 3. **CHANGELOG**: Add an entry under `## [Unreleased]` in `CHANGELOG.md`.
 4. **One concern per PR**: Keep PRs focused. Split unrelated changes.
 
-## bisect_ppx fork
+## Pinned fork dependencies
 
-The upstream `bisect_ppx >= 2.8` does not build on OCaml 5.4.x.
-We pin `patricoferris/bisect_ppx#5.2` which adds OCaml 5.4 support.
-This pin is required for `--with-test` installation and coverage reporting.
+Two dependencies are pinned to forks. Both are temporary.
+
+| Package | Fork | Why | Upstream status |
+|---------|------|-----|-----------------|
+| `bisect_ppx` | `patricoferris/bisect_ppx#5.2` | Upstream 2.8.x fails on OCaml 5.4. This fork adds 5.4 compat. | PR pending upstream. Remove pin when bisect_ppx >= 2.9 ships. |
+| `mcp_protocol`, `mcp_protocol_eio` | `jeong-sik/mcp-protocol-sdk#main` | OCaml MCP client bindings not yet on opam. | Same author. Publish to opam when MCP spec stabilizes. |
+
+These pins are set in CI (`ci.yml`) and in the build instructions above.
+When upstream releases resolve the issue, remove the pin and use the opam version.
 
 ## Versioning policy
 

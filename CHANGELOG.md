@@ -8,6 +8,34 @@ All notable changes to `agent_sdk` are documented in this file.
 - `Agent.t` is now an abstract type. Direct field access (`agent.state`, `agent.tools`, etc.) is replaced by accessor functions: `Agent.state`, `Agent.lifecycle`, `Agent.tools`, `Agent.context`, `Agent.options`, `Agent.net`.
 - `test_add_message` test removed (external mutation of agent state is no longer possible).
 
+### Migration from 0.22.x
+
+`Agent.t` field access must be replaced with accessor functions:
+
+```ocaml
+(* Before (0.22.x) *)
+let state = agent.state in
+let tools = agent.tools in
+let ctx = agent.context in
+
+(* After (0.23.0) *)
+let state = Agent.state agent in
+let tools = Agent.tools agent in
+let ctx = Agent.context agent in
+```
+
+`Builder.build` still works but emits a deprecation warning. Switch to `build_safe` for validation:
+
+```ocaml
+(* Before *)
+let agent = Builder.build builder in
+
+(* After *)
+match Builder.build_safe builder with
+| Ok agent -> (* use agent *)
+| Error err -> Printf.eprintf "Config error: %s\n" (Error.to_string err)
+```
+
 ### Added
 - `Agent.state`, `Agent.lifecycle`, `Agent.tools`, `Agent.context`, `Agent.options`, `Agent.net` accessor functions.
 - `Builder.build_safe : t -> (Agent.t, Error.sdk_error) result` with validation:
