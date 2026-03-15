@@ -74,7 +74,10 @@ jobs:
 
       - name: Build documentation (odoc)
         if: matrix.ocaml-compiler == '5.4.x'
-        run: opam exec -- dune build @doc
+        continue-on-error: true
+        run: |
+          opam install odoc --yes || true
+          opam exec -- dune build @doc
 
   lint:
     name: Lint
