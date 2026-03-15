@@ -24,12 +24,12 @@ type t = { strategy : strategy }
     Heuristic: 4 characters ~ 1 token. *)
 let estimate_block_tokens = function
   | Text s -> (String.length s + 3) / 4
-  | Thinking (_, s) -> (String.length s + 3) / 4
+  | Thinking { content; _ } -> (String.length content + 3) / 4
   | RedactedThinking _ -> 50
-  | ToolUse (_, name, input) ->
+  | ToolUse { name; input; _ } ->
     let input_str = Yojson.Safe.to_string input in
     ((String.length name + String.length input_str) + 3) / 4
-  | ToolResult (_, content, _) -> (String.length content + 3) / 4
+  | ToolResult { content; _ } -> (String.length content + 3) / 4
   | Image _ -> 1000
   | Document _ -> 2000
 

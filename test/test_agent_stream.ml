@@ -44,7 +44,7 @@ let test_emit_text_only () =
 let test_emit_tool_use () =
   let input = `Assoc [("location", `String "Seoul")] in
   let response = make_response ~stop_reason:Types.StopToolUse
-    [Types.ToolUse ("tool-1", "get_weather", input)] in
+    [Types.ToolUse { id = "tool-1"; name = "get_weather"; input }] in
   let events = collect_events response in
   Alcotest.(check int) "6 events" 6 (List.length events);
   (match List.nth events 1 with
@@ -60,7 +60,7 @@ let test_emit_tool_use () =
    | _ -> Alcotest.fail "expected InputJsonDelta")
 
 let test_emit_thinking () =
-  let response = make_response [Types.Thinking ("sig", "I think...")] in
+  let response = make_response [Types.Thinking { thinking_type = "sig"; content = "I think..." }] in
   let events = collect_events response in
   Alcotest.(check int) "6 events" 6 (List.length events);
   (match List.nth events 1 with
@@ -75,7 +75,7 @@ let test_emit_thinking () =
 let test_emit_multiple_blocks () =
   let response = make_response [
     Types.Text "Here is the result:";
-    Types.ToolUse ("t1", "calc", `Assoc [("x", `Int 42)]);
+    Types.ToolUse { id = "t1"; name = "calc"; input = `Assoc [("x", `Int 42)] };
   ] in
   let events = collect_events response in
   (* MessageStart + (CBS+CBD+CBStop)*2 + MessageDelta + MessageStop = 1+3+3+1+1=9 *)
@@ -141,7 +141,7 @@ let test_emit_empty_content () =
 
 let test_tool_use_has_ids () =
   let response = make_response
-    [Types.ToolUse ("id-abc", "my_tool", `Assoc [])] in
+    [Types.ToolUse { id = "id-abc"; name = "my_tool"; input = `Assoc [] }] in
   let events = collect_events response in
   (match List.nth events 1 with
    | Types.ContentBlockStart { tool_id = Some "id-abc"; tool_name = Some "my_tool"; _ } -> ()
@@ -174,7 +174,7 @@ let test_text_delta_content () =
 (* ------------------------------------------------------------------ *)
 
 let test_thinking_delta_content () =
-  let response = make_response [Types.Thinking ("sig123", "deep thought")] in
+  let response = make_response [Types.Thinking { thinking_type = "sig123"; content = "deep thought" }] in
   let events = collect_events response in
   (match List.nth events 2 with
    | Types.ContentBlockDelta { delta = Types.ThinkingDelta s; _ } ->
@@ -184,7 +184,7 @@ let test_thinking_delta_content () =
 let test_input_json_delta_content () =
   let input = `Assoc [("key", `String "value"); ("num", `Int 42)] in
   let response = make_response ~stop_reason:Types.StopToolUse
-    [Types.ToolUse ("t1", "fn", input)] in
+    [Types.ToolUse { id = "t1"; name = "fn"; input }] in
   let events = collect_events response in
   (match List.nth events 2 with
    | Types.ContentBlockDelta { delta = Types.InputJsonDelta s; _ } ->
@@ -230,7 +230,7 @@ let test_roundtrip_text_event_count () =
 
 let test_roundtrip_tool_event_count () =
   let response = make_response ~stop_reason:Types.StopToolUse
-    [Types.ToolUse ("t1", "fn", `Assoc [])] in
+    [Types.ToolUse { id = "t1"; name = "fn"; input = `Assoc [] }] in
   let events = collect_events response in
   let cbd_count = count_kind events (function
     | Types.ContentBlockDelta _ -> true | _ -> false) in
@@ -239,7 +239,7 @@ let test_roundtrip_tool_event_count () =
 let test_roundtrip_mixed_block_count () =
   let response = make_response [
     Types.Text "intro";
-    Types.Thinking ("sig", "hmm");
+    Types.Thinking { thinking_type = "sig"; content = "hmm" };
     Types.Text "conclusion";
   ] in
   let events = collect_events response in
@@ -278,7 +278,7 @@ let test_emit_stop_reason_max_tokens () =
 
 let test_emit_stop_reason_stop_tool_use () =
   let response = make_response ~stop_reason:Types.StopToolUse
-    [Types.ToolUse ("t1", "fn", `Null)] in
+    [Types.ToolUse { id = "t1"; name = "fn"; input = `Null }] in
   let events = collect_events response in
   let md = List.nth events (List.length events - 2) in
   (match md with
@@ -326,8 +326,8 @@ let test_emit_empty_id () =
 
 let test_emit_multiple_tool_uses () =
   let response = make_response ~stop_reason:Types.StopToolUse [
-    Types.ToolUse ("t1", "fn1", `Assoc [("a", `Int 1)]);
-    Types.ToolUse ("t2", "fn2", `Assoc [("b", `Int 2)]);
+    Types.ToolUse { id = "t1"; name = "fn1"; input = `Assoc [("a", `Int 1)] };
+    Types.ToolUse { id = "t2"; name = "fn2"; input = `Assoc [("b", `Int 2)] };
   ] in
   let events = collect_events response in
   (* MessageStart + (CBS+CBD+CBStop)*2 + MessageDelta + MessageStop = 9 *)

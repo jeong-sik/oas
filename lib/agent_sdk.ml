@@ -15,7 +15,7 @@
         }]
         (fun input ->
            let loc = Yojson.Safe.Util.(input |> member "location" |> to_string) in
-           Ok (Printf.sprintf "Weather in %s: Sunny, 22C" loc))
+           Ok { Types.content = Printf.sprintf "Weather in %s: Sunny, 22C" loc })
 
       let () =
         Eio_main.run @@ fun env ->
@@ -109,5 +109,5 @@ let runtime_query = Runtime_query.query
 let query = Query.query
 
 (** Version info *)
-let version = "0.22.0"
+let version = "0.23.0"
 let sdk_name = "agent_sdk"

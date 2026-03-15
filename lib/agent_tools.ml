@@ -54,16 +54,16 @@ let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tra
         (Hooks.PostToolUse { tool_name = name; input; output = result })
     in
     (match result with
-     | Error err ->
+     | Error { message; _ } ->
          ignore
            (invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count
               ~hook_name:"post_tool_use_failure" hooks.post_tool_use_failure
-              (Hooks.PostToolUseFailure { tool_name = name; input; error = err })
+              (Hooks.PostToolUseFailure { tool_name = name; input; error = message })
             : Hooks.hook_decision)
      | Ok _ -> ());
     let content, is_error = match result with
-      | Ok output -> output, false
-      | Error err -> err, true
+      | Ok { content } -> content, false
+      | Error { message; _ } -> message, true
     in
     (id, content, is_error)
   | None -> (id, "Tool not found", true)
@@ -72,7 +72,10 @@ let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tra
   (match event_bus with
    | Some bus ->
      let (_, content, is_error) = triple in
-     let output = if is_error then Error content else Ok content in
+     let output : Types.tool_result =
+       if is_error then Error { message = content; recoverable = true }
+       else Ok { content }
+     in
      Event_bus.publish bus
        (ToolCompleted { agent_name; tool_name = name; output })
    | None -> ());
@@ -86,7 +89,7 @@ let execute_tools ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tracer
     ?on_tool_execution_finished ?on_hook_invoked tool_uses =
   Eio.Fiber.List.map (fun block ->
     match block with
-    | ToolUse (id, name, input) ->
+    | ToolUse { id; name; input } ->
         (match on_tool_execution_started with
          | Some callback -> callback ~tool_use_id:id ~tool_name:name ~input
          | None -> ());

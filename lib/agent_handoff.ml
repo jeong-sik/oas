@@ -19,7 +19,7 @@ let find_handoff_in_messages messages =
         | Some _ -> acc
         | None ->
             match block with
-            | ToolUse (id, name, input) when Handoff.is_handoff_tool name ->
+            | ToolUse { id; name; input } when Handoff.is_handoff_tool name ->
                 let target_name = Handoff.target_name_of_tool name in
                 let prompt =
                   match input with
@@ -39,7 +39,7 @@ let find_handoff_in_messages messages =
 let replace_tool_result messages ~tool_id ~content ~is_error =
   let replace_in_content blocks =
     List.map (function
-      | ToolResult (id, _, _) when id = tool_id -> ToolResult (id, content, is_error)
+      | ToolResult { tool_use_id = id; _ } when id = tool_id -> ToolResult { tool_use_id = id; content; is_error }
       | block -> block
     ) blocks
   in
@@ -47,11 +47,11 @@ let replace_tool_result messages ~tool_id ~content ~is_error =
      acc accumulates skipped elements in original order. *)
   let rec rewrite acc = function
     | [] ->
-        acc @ [{ role = User; content = [ToolResult (tool_id, content, is_error)] }]
+        acc @ [{ role = User; content = [ToolResult { tool_use_id = tool_id; content; is_error }] }]
     | ((message : message) :: rest) ->
         let has_tool_result =
           List.exists (function
-            | ToolResult (id, _, _) when id = tool_id -> true
+            | ToolResult { tool_use_id = id; _ } when id = tool_id -> true
             | _ -> false
           ) message.content
         in

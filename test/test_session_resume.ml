@@ -148,7 +148,7 @@ let test_resume_restores_messages () =
   let cp = make_checkpoint ~messages:sample_messages () in
   let agent = Agent.resume ~net ~checkpoint:cp () in
   Alcotest.(check int) "message count" 4
-    (List.length agent.state.messages)
+    (List.length (Agent.state agent).messages)
 
 let test_resume_restores_context () =
   with_net @@ fun net ->
@@ -157,7 +157,7 @@ let test_resume_restores_context () =
   let cp = make_checkpoint ~context:ctx () in
   let agent = Agent.resume ~net ~checkpoint:cp () in
   Alcotest.(check bool) "context restored" true
-    (Context.get_scoped agent.context Context.User "theme"
+    (Context.get_scoped (Agent.context agent) Context.User "theme"
      = Some (`String "dark"))
 
 let test_resume_restores_usage () =
@@ -165,17 +165,17 @@ let test_resume_restores_usage () =
   let cp = make_checkpoint ~usage:sample_usage () in
   let agent = Agent.resume ~net ~checkpoint:cp () in
   Alcotest.(check int) "input_tokens" 150
-    agent.state.usage.total_input_tokens;
+    (Agent.state agent).usage.total_input_tokens;
   Alcotest.(check int) "output_tokens" 80
-    agent.state.usage.total_output_tokens;
+    (Agent.state agent).usage.total_output_tokens;
   Alcotest.(check int) "api_calls" 3
-    agent.state.usage.api_calls
+    (Agent.state agent).usage.api_calls
 
 let test_resume_restores_turn_count () =
   with_net @@ fun net ->
   let cp = make_checkpoint ~turn_count:5 () in
   let agent = Agent.resume ~net ~checkpoint:cp () in
-  Alcotest.(check int) "turn_count" 5 agent.state.turn_count
+  Alcotest.(check int) "turn_count" 5 (Agent.state agent).turn_count
 
 let test_resume_restores_model () =
   with_net @@ fun net ->
@@ -183,26 +183,26 @@ let test_resume_restores_model () =
   let agent = Agent.resume ~net ~checkpoint:cp () in
   Alcotest.(check string) "model"
     (Types.model_to_string Types.Claude_opus_4_6)
-    (Types.model_to_string agent.state.config.model)
+    (Types.model_to_string (Agent.state agent).config.model)
 
 let test_resume_restores_agent_name () =
   with_net @@ fun net ->
   let cp = make_checkpoint ~agent_name:"my-agent" () in
   let agent = Agent.resume ~net ~checkpoint:cp () in
-  Alcotest.(check string) "name" "my-agent" agent.state.config.name
+  Alcotest.(check string) "name" "my-agent" (Agent.state agent).config.name
 
 let test_resume_restores_system_prompt () =
   with_net @@ fun net ->
   let cp = make_checkpoint ~system_prompt:(Some "Be concise.") () in
   let agent = Agent.resume ~net ~checkpoint:cp () in
   Alcotest.(check (option string)) "system_prompt"
-    (Some "Be concise.") agent.state.config.system_prompt
+    (Some "Be concise.") (Agent.state agent).config.system_prompt
 
 let test_resume_restores_tool_choice () =
   with_net @@ fun net ->
   let cp = make_checkpoint ~tool_choice:(Some Types.Any) () in
   let agent = Agent.resume ~net ~checkpoint:cp () in
-  let tc_str = match agent.state.config.tool_choice with
+  let tc_str = match (Agent.state agent).config.tool_choice with
     | Some Types.Any -> "any"
     | Some Types.Auto -> "auto"
     | Some (Types.Tool n) -> "tool:" ^ n
@@ -215,7 +215,7 @@ let test_resume_none_system_prompt () =
   let cp = make_checkpoint ~system_prompt:None () in
   let agent = Agent.resume ~net ~checkpoint:cp () in
   Alcotest.(check (option string)) "system_prompt"
-    None agent.state.config.system_prompt
+    None (Agent.state agent).config.system_prompt
 
 let test_resume_with_tools () =
   with_net @@ fun net ->
@@ -223,18 +223,18 @@ let test_resume_with_tools () =
     ~name:"echo"
     ~description:"Echo input"
     ~parameters:[]
-    (fun input -> Ok (Yojson.Safe.to_string input))
+    (fun input -> Ok { Types.content = Yojson.Safe.to_string input })
   in
   let cp = make_checkpoint () in
   let agent = Agent.resume ~net ~checkpoint:cp ~tools:[tool] () in
-  Alcotest.(check int) "tool count" 1 (List.length agent.tools)
+  Alcotest.(check int) "tool count" 1 (List.length (Agent.tools agent))
 
 let test_resume_default_options () =
   with_net @@ fun net ->
   let cp = make_checkpoint () in
   let agent = Agent.resume ~net ~checkpoint:cp () in
   Alcotest.(check string) "base_url"
-    Api.default_base_url agent.options.base_url
+    Api.default_base_url (Agent.options agent).base_url
 
 let test_resume_custom_options () =
   with_net @@ fun net ->
@@ -243,7 +243,7 @@ let test_resume_custom_options () =
     base_url = "http://localhost:8080" } in
   let agent = Agent.resume ~net ~checkpoint:cp ~options:opts () in
   Alcotest.(check string) "custom base_url"
-    "http://localhost:8080" agent.options.base_url
+    "http://localhost:8080" (Agent.options agent).base_url
 
 let test_resume_with_config_override () =
   with_net @@ fun net ->
@@ -252,12 +252,12 @@ let test_resume_with_config_override () =
   let agent = Agent.resume ~net ~checkpoint:cp ~config:cfg () in
   (* checkpoint fields override config *)
   Alcotest.(check string) "name from checkpoint"
-    "cp-name" agent.state.config.name;
+    "cp-name" (Agent.state agent).config.name;
   (* config fields not in checkpoint are preserved *)
   Alcotest.(check int) "max_turns from config" 50
-    agent.state.config.max_turns;
+    (Agent.state agent).config.max_turns;
   Alcotest.(check int) "max_tokens from config" 8192
-    agent.state.config.max_tokens
+    (Agent.state agent).config.max_tokens
 
 let test_resume_empty_checkpoint () =
   with_net @@ fun net ->
@@ -265,9 +265,9 @@ let test_resume_empty_checkpoint () =
     ~messages:[] ~usage:Types.empty_usage ~turn_count:0 () in
   let agent = Agent.resume ~net ~checkpoint:cp () in
   Alcotest.(check int) "messages" 0
-    (List.length agent.state.messages);
-  Alcotest.(check int) "turn_count" 0 agent.state.turn_count;
-  Alcotest.(check int) "api_calls" 0 agent.state.usage.api_calls
+    (List.length (Agent.state agent).messages);
+  Alcotest.(check int) "turn_count" 0 (Agent.state agent).turn_count;
+  Alcotest.(check int) "api_calls" 0 (Agent.state agent).usage.api_calls
 
 let test_resume_preserves_message_content () =
   with_net @@ fun net ->
@@ -277,7 +277,7 @@ let test_resume_preserves_message_content () =
   ] in
   let cp = make_checkpoint ~messages:msgs () in
   let agent = Agent.resume ~net ~checkpoint:cp () in
-  let first_msg = List.hd agent.state.messages in
+  let first_msg = List.hd (Agent.state agent).messages in
   Alcotest.(check int) "content blocks" 2
     (List.length first_msg.content);
   let first_text = match List.hd first_msg.content with
@@ -305,12 +305,12 @@ let test_checkpoint_resume_roundtrip () =
   let cp2 = Result.get_ok (Checkpoint.of_string json_str) in
   let agent = Agent.resume ~net ~checkpoint:cp2 () in
   Alcotest.(check string) "agent_name" "rt-agent"
-    agent.state.config.name;
+    (Agent.state agent).config.name;
   Alcotest.(check int) "messages" 4
-    (List.length agent.state.messages);
-  Alcotest.(check int) "turn_count" 4 agent.state.turn_count;
+    (List.length (Agent.state agent).messages);
+  Alcotest.(check int) "turn_count" 4 (Agent.state agent).turn_count;
   Alcotest.(check int) "input_tokens" 150
-    agent.state.usage.total_input_tokens
+    (Agent.state agent).usage.total_input_tokens
 
 let test_session_resume_from_then_record () =
   let cp = make_checkpoint ~turn_count:3 () in
@@ -331,9 +331,9 @@ let test_resume_cache_tokens () =
   let cp = make_checkpoint ~usage () in
   let agent = Agent.resume ~net ~checkpoint:cp () in
   Alcotest.(check int) "cache_creation" 30
-    agent.state.usage.total_cache_creation_input_tokens;
+    (Agent.state agent).usage.total_cache_creation_input_tokens;
   Alcotest.(check int) "cache_read" 25
-    agent.state.usage.total_cache_read_input_tokens
+    (Agent.state agent).usage.total_cache_read_input_tokens
 
 let test_resume_custom_model () =
   with_net @@ fun net ->
@@ -341,7 +341,7 @@ let test_resume_custom_model () =
   let agent = Agent.resume ~net ~checkpoint:cp () in
   Alcotest.(check string) "custom model"
     "my-local-model"
-    (Types.model_to_string agent.state.config.model)
+    (Types.model_to_string (Agent.state agent).config.model)
 
 (* ── Test runner ─────────────────────────────────────────────── *)
 

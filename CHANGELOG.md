@@ -2,6 +2,34 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.23.0] - 2026-03-15
+
+### Breaking
+- `Agent.t` is now an abstract type. Direct field access (`agent.state`, `agent.tools`, etc.) is replaced by accessor functions: `Agent.state`, `Agent.lifecycle`, `Agent.tools`, `Agent.context`, `Agent.options`, `Agent.net`.
+- `test_add_message` test removed (external mutation of agent state is no longer possible).
+
+### Added
+- `Agent.state`, `Agent.lifecycle`, `Agent.tools`, `Agent.context`, `Agent.options`, `Agent.net` accessor functions.
+- `Builder.build_safe : t -> (Agent.t, Error.sdk_error) result` with validation:
+  - `max_turns > 0`
+  - `max_tokens > 0`
+  - `thinking_budget` requires `enable_thinking = true`
+- `Error.InvalidConfig` variant for configuration validation errors.
+- CI pipeline: GitHub Actions with OCaml 5.1.x + 5.4.x matrix, bisect_ppx coverage, odoc, version-check.
+- `examples/` directory with 6 examples (3 moved from `bin/`, 3 new).
+- `CONTRIBUTING.md` with build instructions, code style, PR expectations.
+- Module stability tiers in README (Stable / Evolving / Experimental).
+
+### Deprecated
+- `Builder.build` -- use `Builder.build_safe` for validated construction.
+- `Provider.local_qwen` -- use `Provider.Local` constructor directly.
+- `Provider.local_mlx` -- use `Provider.Local` constructor directly.
+
+### Changed
+- README restructured for third-party onboarding: Installation, Quickstart, Provider table, stability tiers.
+- Demo executables moved from `bin/` to `examples/`.
+- Version consistency enforced by CI (dune-project == agent_sdk.ml).
+
 ## [0.22.0] - 2026-03-14
 
 ### Added

@@ -42,7 +42,7 @@ let schema_to_tool_json (s : _ schema) : Yojson.Safe.t =
     Returns the first ToolUse matching the schema name, or an error. *)
 let extract_tool_input ~(schema : _ schema) (content : content_block list) =
   let found = List.find_map (function
-    | ToolUse (_id, name, input) when name = schema.name -> Some input
+    | ToolUse { name; input; _ } when name = schema.name -> Some input
     | _ -> None
   ) content in
   match found with

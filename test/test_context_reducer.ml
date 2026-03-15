@@ -4,8 +4,8 @@ open Agent_sdk
 
 let user_msg text = Types.{ role = User; content = [Text text] }
 let asst_msg text = Types.{ role = Assistant; content = [Text text] }
-let tool_use_msg id name = Types.{ role = Assistant; content = [ToolUse (id, name, `Null)] }
-let tool_result_msg id content = Types.{ role = User; content = [ToolResult (id, content, false)] }
+let tool_use_msg id name = Types.{ role = Assistant; content = [ToolUse { id; name; input = `Null }] }
+let tool_result_msg id content = Types.{ role = User; content = [ToolResult { tool_use_id = id; content; is_error = false }] }
 
 (* --- keep_last_n --- *)
 
@@ -100,13 +100,13 @@ let test_estimate_text () =
   Alcotest.(check int) "text estimation" 3 tokens
 
 let test_estimate_tool_use () =
-  let msg = Types.{ role = Assistant; content = [ToolUse ("id1", "calc", `String "input")] } in
+  let msg = Types.{ role = Assistant; content = [ToolUse { id = "id1"; name = "calc"; input = `String "input" }] } in
   let tokens = Context_reducer.estimate_message_tokens msg in
   (* "calc" = 4 chars, `String "input" -> "\"input\"" = 7 chars, total 11, (11+3)/4 = 3 *)
   Alcotest.(check bool) "tool_use > 0" true (tokens > 0)
 
 let test_estimate_tool_result () =
-  let msg = Types.{ role = User; content = [ToolResult ("id1", "result text", false)] } in
+  let msg = Types.{ role = User; content = [ToolResult { tool_use_id = "id1"; content = "result text"; is_error = false }] } in
   let tokens = Context_reducer.estimate_message_tokens msg in
   (* "result text" = 11 chars -> (11+3)/4 = 3 *)
   Alcotest.(check int) "tool_result estimation" 3 tokens

@@ -6,7 +6,11 @@ let () =
   Eio_main.run @@ fun env ->
   let net = Eio.Stdenv.net env in
   Eio.Switch.run @@ fun sw ->
-  let provider = Provider.local_qwen () in
+  let provider : Provider.config = {
+    provider = Local { base_url = "http://127.0.0.1:8085" };
+    model_id = "qwen3.5-35b-a3b-ud-q8-xl";
+    api_key_env = "DUMMY_KEY";
+  } in
   Printf.printf "Provider: base_url=%s model=%s\n%!"
     (match provider.provider with
      | Provider.Local { base_url } -> base_url

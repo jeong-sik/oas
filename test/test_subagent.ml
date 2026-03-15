@@ -67,24 +67,24 @@ let () =
     "filter_tools", [
       test_case "no filter passes all" `Quick (fun () ->
         let spec = Subagent.of_markdown "body" in
-        let t1 = Tool.create ~name:"read" ~description:"" ~parameters:[] (fun _ -> Ok "") in
-        let t2 = Tool.create ~name:"write" ~description:"" ~parameters:[] (fun _ -> Ok "") in
+        let t1 = Tool.create ~name:"read" ~description:"" ~parameters:[] (fun _ -> Ok { Types.content = "" }) in
+        let t2 = Tool.create ~name:"write" ~description:"" ~parameters:[] (fun _ -> Ok { Types.content = "" }) in
         let result = Subagent.filter_tools spec [t1; t2] in
         check int "count" 2 (List.length result));
 
       test_case "allowlist filters" `Quick (fun () ->
         let md = "---\ntools: read\n---\nbody" in
         let spec = Subagent.of_markdown md in
-        let t1 = Tool.create ~name:"read" ~description:"" ~parameters:[] (fun _ -> Ok "") in
-        let t2 = Tool.create ~name:"write" ~description:"" ~parameters:[] (fun _ -> Ok "") in
+        let t1 = Tool.create ~name:"read" ~description:"" ~parameters:[] (fun _ -> Ok { Types.content = "" }) in
+        let t2 = Tool.create ~name:"write" ~description:"" ~parameters:[] (fun _ -> Ok { Types.content = "" }) in
         let result = Subagent.filter_tools spec [t1; t2] in
         check int "count" 1 (List.length result));
 
       test_case "disallowed removes" `Quick (fun () ->
         let md = "---\ndisallowed-tools: write\n---\nbody" in
         let spec = Subagent.of_markdown md in
-        let t1 = Tool.create ~name:"read" ~description:"" ~parameters:[] (fun _ -> Ok "") in
-        let t2 = Tool.create ~name:"write" ~description:"" ~parameters:[] (fun _ -> Ok "") in
+        let t1 = Tool.create ~name:"read" ~description:"" ~parameters:[] (fun _ -> Ok { Types.content = "" }) in
+        let t2 = Tool.create ~name:"write" ~description:"" ~parameters:[] (fun _ -> Ok { Types.content = "" }) in
         let result = Subagent.filter_tools spec [t1; t2] in
         check int "count" 1 (List.length result));
     ];
@@ -93,7 +93,7 @@ let () =
       test_case "to_handoff_target" `Quick (fun () ->
         let md = "---\nname: helper\ndescription: Helps out\nmodel: haiku\nmax-turns: 3\n---\nYou help." in
         let spec = Subagent.of_markdown md in
-        let tools = [Tool.create ~name:"read" ~description:"" ~parameters:[] (fun _ -> Ok "")] in
+        let tools = [Tool.create ~name:"read" ~description:"" ~parameters:[] (fun _ -> Ok { Types.content = "" })] in
         let target = Subagent.to_handoff_target
           ~parent_config:Types.default_config ~base_tools:tools spec in
         check string "name" "helper" target.name;

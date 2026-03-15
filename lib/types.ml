@@ -38,6 +38,13 @@ let param_type_to_string = function
   | Array -> "array"
   | Object -> "object"
 
+(** Tool execution result types.
+    Defined early to avoid field-name shadowing with content_block/message/api_response
+    which also have 'content' fields — OCaml resolves to the most recently defined record. *)
+type tool_output = { content: string }
+type tool_error = { message: string; recoverable: bool }
+type tool_result = (tool_output, tool_error) result
+
 type tool_param = {
   name: string;
   description: string;
@@ -80,17 +87,15 @@ let tool_choice_of_json json =
   | Yojson.Safe.Util.Type_error (msg, _) ->
     Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Invalid tool_choice JSON: %s" msg }))
 
-(** Content block types - Tuple Style for safety *)
+(** Content block types — inline records for clarity *)
 type content_block =
   | Text of string
-  | Thinking of string * string (* signature, content *)
-  | RedactedThinking of string (* data *)
-  | ToolUse of string * string * Yojson.Safe.t (* id, name, input *)
-  | ToolResult of string * string * bool (* tool_use_id, content, is_error *)
+  | Thinking of { thinking_type: string; content: string }
+  | RedactedThinking of string
+  | ToolUse of { id: string; name: string; input: Yojson.Safe.t }
+  | ToolResult of { tool_use_id: string; content: string; is_error: bool }
   | Image of { media_type: string; data: string; source_type: string }
-    (* source_type = "base64" *)
   | Document of { media_type: string; data: string; source_type: string }
-    (* PDF, etc. *)
 [@@deriving show]
 
 (** A single message in the conversation *)
