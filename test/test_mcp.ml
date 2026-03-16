@@ -251,6 +251,72 @@ let test_text_of_tool_result_budget_truncates () =
       Alcotest.(check bool) "truncated" true
         (contains_substring ~sub:"...[oas mcp output truncated]" text))
 
+(* ── mcp_tool_of_json tests ─────────────────────────────────── *)
+
+let test_mcp_tool_of_json_valid () =
+  let json = `Assoc [
+    ("name", `String "my_tool");
+    ("description", `String "Does things");
+    ("inputSchema", `Assoc [("type", `String "object")]);
+  ] in
+  match Mcp.mcp_tool_of_json json with
+  | Some t ->
+    Alcotest.(check string) "name" "my_tool" t.name;
+    Alcotest.(check string) "desc" "Does things" t.description
+  | None -> Alcotest.fail "expected Some"
+
+let test_mcp_tool_of_json_input_schema_underscore () =
+  let json = `Assoc [
+    ("name", `String "t2");
+    ("input_schema", `Assoc [("type", `String "object")]);
+  ] in
+  match Mcp.mcp_tool_of_json json with
+  | Some t -> Alcotest.(check string) "name" "t2" t.name
+  | None -> Alcotest.fail "expected Some for input_schema"
+
+let test_mcp_tool_of_json_missing_name () =
+  (* After fix: tools without a name are skipped (returns None) *)
+  let json = `Assoc [
+    ("description", `String "no name");
+    ("inputSchema", `Assoc []);
+  ] in
+  match Mcp.mcp_tool_of_json json with
+  | None -> ()
+  | Some _ -> Alcotest.fail "expected None for missing name"
+
+let test_mcp_tool_of_json_missing_schema () =
+  let json = `Assoc [("name", `String "bare")] in
+  match Mcp.mcp_tool_of_json json with
+  | Some t ->
+    (* Schema defaults to empty Assoc *)
+    Alcotest.(check string) "name" "bare" t.name
+  | None -> Alcotest.fail "expected Some"
+
+let test_mcp_tool_of_json_non_assoc () =
+  match Mcp.mcp_tool_of_json (`String "not an object") with
+  | None -> ()
+  | Some _ -> Alcotest.fail "expected None for non-assoc"
+
+let test_truncate_output_short () =
+  let result = Mcp.truncate_output "short text" in
+  Alcotest.(check string) "no truncation" "short text" result
+
+let test_truncate_output_at_boundary () =
+  with_env "OAS_MCP_OUTPUT_MAX_TOKENS" (Some "2") (fun () ->
+    let text = String.make 8 'x' in  (* 2*4 = 8 chars = exact limit *)
+    let result = Mcp.truncate_output text in
+    Alcotest.(check string) "exact boundary" text result)
+
+let test_output_token_budget_default () =
+  with_env "OAS_MCP_OUTPUT_MAX_TOKENS" (Some "") (fun () ->
+    let budget = Mcp.output_token_budget () in
+    Alcotest.(check int) "default" 25_000 budget)
+
+let test_output_token_budget_negative () =
+  with_env "OAS_MCP_OUTPUT_MAX_TOKENS" (Some "-5") (fun () ->
+    let budget = Mcp.output_token_budget () in
+    Alcotest.(check int) "negative -> default" 25_000 budget)
+
 (* ── Test runner ────────────────────────────────────────────────── *)
 
 let () =
@@ -276,5 +342,18 @@ let () =
       test_case "text_of_tool_result mixed content" `Quick test_text_of_tool_result_mixed;
       test_case "text_of_tool_result budget truncates" `Quick
         test_text_of_tool_result_budget_truncates;
+    ];
+    "mcp_tool_of_json", [
+      test_case "valid" `Quick test_mcp_tool_of_json_valid;
+      test_case "input_schema underscore" `Quick test_mcp_tool_of_json_input_schema_underscore;
+      test_case "missing name" `Quick test_mcp_tool_of_json_missing_name;
+      test_case "missing schema" `Quick test_mcp_tool_of_json_missing_schema;
+      test_case "non-assoc" `Quick test_mcp_tool_of_json_non_assoc;
+    ];
+    "truncation", [
+      test_case "short text" `Quick test_truncate_output_short;
+      test_case "boundary" `Quick test_truncate_output_at_boundary;
+      test_case "budget default" `Quick test_output_token_budget_default;
+      test_case "budget negative" `Quick test_output_token_budget_negative;
     ];
   ]

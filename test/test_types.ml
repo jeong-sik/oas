@@ -127,6 +127,115 @@ let test_default_config () =
   Alcotest.(check bool) "no max_input_tokens" true (c.max_input_tokens = None);
   Alcotest.(check bool) "no max_total_tokens" true (c.max_total_tokens = None)
 
+(* ── yojson roundtrips (Phase 3) ──────────────────────────────── *)
+
+let test_model_yojson_roundtrip () =
+  let variants = [
+    Types.Claude_opus_4_6; Types.Claude_sonnet_4_6; Types.Claude_opus_4_5;
+    Types.Claude_sonnet_4; Types.Claude_haiku_4_5; Types.Claude_3_7_sonnet;
+    Types.Custom "my-model";
+  ] in
+  List.iter (fun m ->
+    let json = Types.model_to_yojson m in
+    match Types.model_of_yojson json with
+    | Ok decoded ->
+      Alcotest.(check string) "model roundtrip"
+        (Types.show_model m) (Types.show_model decoded)
+    | Error msg -> Alcotest.fail ("model_of_yojson: " ^ msg)
+  ) variants
+
+let test_role_yojson_roundtrip () =
+  List.iter (fun r ->
+    let json = Types.role_to_yojson r in
+    match Types.role_of_yojson json with
+    | Ok decoded ->
+      Alcotest.(check string) "role roundtrip"
+        (Types.show_role r) (Types.show_role decoded)
+    | Error msg -> Alcotest.fail ("role_of_yojson: " ^ msg)
+  ) [Types.User; Types.Assistant]
+
+let test_param_type_yojson_roundtrip () =
+  let variants = [
+    Types.String; Types.Integer; Types.Number;
+    Types.Boolean; Types.Array; Types.Object;
+  ] in
+  List.iter (fun p ->
+    let json = Types.param_type_to_yojson p in
+    match Types.param_type_of_yojson json with
+    | Ok decoded ->
+      Alcotest.(check string) "param_type roundtrip"
+        (Types.show_param_type p) (Types.show_param_type decoded)
+    | Error msg -> Alcotest.fail ("param_type_of_yojson: " ^ msg)
+  ) variants
+
+let test_tool_choice_of_json_error_bogus () =
+  let json = `Assoc [("type", `String "bogus")] in
+  match Types.tool_choice_of_json json with
+  | Error _ -> ()
+  | Ok _ -> Alcotest.fail "expected error for bogus type"
+
+let test_tool_choice_of_json_error_non_object () =
+  let json = `String "not an object" in
+  match Types.tool_choice_of_json json with
+  | Error _ -> ()
+  | Ok _ -> Alcotest.fail "expected error for non-object"
+
+let test_show_content_block_variants () =
+  let blocks = [
+    Types.Text "hello";
+    Types.Thinking { thinking_type = "sig"; content = "hmm" };
+    Types.RedactedThinking "redacted";
+    Types.ToolUse { id = "tu1"; name = "read"; input = `Null };
+    Types.ToolResult { tool_use_id = "tu1"; content = "ok"; is_error = false };
+    Types.Image { media_type = "image/png"; data = "abc"; source_type = "base64" };
+    Types.Document { media_type = "application/pdf"; data = "pdf"; source_type = "base64" };
+  ] in
+  List.iter (fun b ->
+    let s = Types.show_content_block b in
+    Alcotest.(check bool) "show non-empty" true (String.length s > 0)
+  ) blocks
+
+let test_show_message () =
+  let m : Types.message = {
+    role = Types.User;
+    content = [Types.Text "test"];
+  } in
+  let s = Types.show_message m in
+  Alcotest.(check bool) "show_message non-empty" true (String.length s > 0)
+
+let test_show_agent_config () =
+  let s = Types.show_agent_config Types.default_config in
+  Alcotest.(check bool) "show_agent_config non-empty" true (String.length s > 0)
+
+let test_show_agent_state () =
+  let state : Types.agent_state = {
+    config = Types.default_config;
+    messages = [];
+    turn_count = 0;
+    usage = Types.empty_usage;
+  } in
+  let s = Types.show_agent_state state in
+  Alcotest.(check bool) "show_agent_state non-empty" true (String.length s > 0)
+
+let test_show_api_response () =
+  let r : Types.api_response = {
+    id = "msg-1"; model = "test"; stop_reason = Types.EndTurn;
+    content = [Types.Text "hi"]; usage = None;
+  } in
+  let s = Types.show_api_response r in
+  Alcotest.(check bool) "show_api_response non-empty" true (String.length s > 0)
+
+let test_tool_choice_roundtrip_all () =
+  let variants = [Types.Auto; Types.Any; Types.Tool "calc"; Types.None_] in
+  List.iter (fun tc ->
+    let json = Types.tool_choice_to_json tc in
+    match Types.tool_choice_of_json json with
+    | Ok decoded ->
+      Alcotest.(check string) "tool_choice roundtrip"
+        (Types.show_tool_choice tc) (Types.show_tool_choice decoded)
+    | Error _ -> Alcotest.fail "tool_choice roundtrip failed"
+  ) variants
+
 let () =
   Alcotest.run "Types" [
     "stop_reason", [
@@ -155,5 +264,22 @@ let () =
     ];
     "config", [
       Alcotest.test_case "default_config" `Quick test_default_config;
+    ];
+    "yojson_roundtrip", [
+      Alcotest.test_case "model" `Quick test_model_yojson_roundtrip;
+      Alcotest.test_case "role" `Quick test_role_yojson_roundtrip;
+      Alcotest.test_case "param_type" `Quick test_param_type_yojson_roundtrip;
+      Alcotest.test_case "tool_choice all" `Quick test_tool_choice_roundtrip_all;
+    ];
+    "tool_choice_errors", [
+      Alcotest.test_case "bogus type" `Quick test_tool_choice_of_json_error_bogus;
+      Alcotest.test_case "non-object" `Quick test_tool_choice_of_json_error_non_object;
+    ];
+    "show_functions", [
+      Alcotest.test_case "content_block variants" `Quick test_show_content_block_variants;
+      Alcotest.test_case "message" `Quick test_show_message;
+      Alcotest.test_case "agent_config" `Quick test_show_agent_config;
+      Alcotest.test_case "agent_state" `Quick test_show_agent_state;
+      Alcotest.test_case "api_response" `Quick test_show_api_response;
     ];
   ]

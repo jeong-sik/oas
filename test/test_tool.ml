@@ -166,6 +166,43 @@ let test_descriptor_preserved_and_not_in_schema () =
   check bool "descriptor json has examples" true
     (descriptor_json |> member "examples" <> `Null)
 
+(* ── Phase 4: descriptor yojson, workdir_policy ────────────────── *)
+
+let test_workdir_policy_yojson_roundtrip () =
+  let variants = [
+    (Tool.Required, "required");
+    (Tool.Recommended, "recommended");
+    (Tool.None_expected, "none_expected");
+  ] in
+  List.iter (fun (v, expected_str) ->
+    let json = Tool.workdir_policy_to_yojson v in
+    match Tool.workdir_policy_of_yojson json with
+    | Ok decoded ->
+      check string "roundtrip" (Tool.show_workdir_policy v) (Tool.show_workdir_policy decoded)
+    | Error msg -> fail (Printf.sprintf "workdir_policy roundtrip %s: %s" expected_str msg)
+  ) variants
+
+let test_shell_constraints_yojson_roundtrip () =
+  let value : Tool.shell_constraints = {
+    single_command_only = true;
+    shell_metacharacters_allowed = false;
+    chaining_allowed = false;
+    redirection_allowed = true;
+    pipes_allowed = true;
+    workdir_policy = Some Tool.Required;
+  } in
+  let json = Tool.shell_constraints_to_yojson value in
+  match Tool.shell_constraints_of_yojson json with
+  | Ok decoded ->
+    check string "shell roundtrip"
+      (Tool.show_shell_constraints value)
+      (Tool.show_shell_constraints decoded)
+  | Error msg -> fail ("shell_constraints roundtrip: " ^ msg)
+
+let test_descriptor_to_yojson_none () =
+  let json = Tool.descriptor_to_yojson None in
+  check string "null" (Yojson.Safe.to_string `Null) (Yojson.Safe.to_string json)
+
 let () =
   run "Tool" [
     "simple_handler", [
@@ -182,5 +219,10 @@ let () =
       test_case "param types" `Quick test_schema_param_types;
       test_case "descriptor preserved" `Quick
         test_descriptor_preserved_and_not_in_schema;
+    ];
+    "yojson_roundtrip", [
+      test_case "workdir_policy" `Quick test_workdir_policy_yojson_roundtrip;
+      test_case "shell_constraints" `Quick test_shell_constraints_yojson_roundtrip;
+      test_case "descriptor None" `Quick test_descriptor_to_yojson_none;
     ];
   ]

@@ -238,6 +238,128 @@ let test_parse_with_explicit_event_type () =
   | None -> Alcotest.fail "parse returned None"
 
 (* ------------------------------------------------------------------ *)
+(* emit_synthetic_events                                                *)
+(* ------------------------------------------------------------------ *)
+
+let collect_events response =
+  let events = ref [] in
+  Agent_sdk.Streaming.emit_synthetic_events response
+    (fun evt -> events := evt :: !events);
+  List.rev !events
+
+let test_synthetic_text_only () =
+  let response : api_response = {
+    id = "msg-s1"; model = "test"; stop_reason = EndTurn;
+    content = [Text "hello"];
+    usage = Some { input_tokens = 10; output_tokens = 5;
+                   cache_creation_input_tokens = 0;
+                   cache_read_input_tokens = 0 };
+  } in
+  let events = collect_events response in
+  (* MessageStart, ContentBlockStart, TextDelta, ContentBlockStop, MessageDelta, MessageStop *)
+  Alcotest.(check int) "6 events" 6 (List.length events);
+  (match List.nth events 0 with
+   | MessageStart { id; _ } -> Alcotest.(check string) "id" "msg-s1" id
+   | _ -> Alcotest.fail "expected MessageStart");
+  (match List.nth events 1 with
+   | ContentBlockStart { index; content_type; _ } ->
+     Alcotest.(check int) "idx" 0 index;
+     Alcotest.(check string) "type" "text" content_type
+   | _ -> Alcotest.fail "expected ContentBlockStart");
+  (match List.nth events 2 with
+   | ContentBlockDelta { delta = TextDelta s; _ } ->
+     Alcotest.(check string) "text" "hello" s
+   | _ -> Alcotest.fail "expected TextDelta");
+  (match List.nth events 4 with
+   | MessageDelta { stop_reason = Some EndTurn; _ } -> ()
+   | _ -> Alcotest.fail "expected MessageDelta EndTurn")
+
+let test_synthetic_thinking () =
+  let response : api_response = {
+    id = "msg-t"; model = "test"; stop_reason = EndTurn;
+    content = [Thinking { thinking_type = "sig"; content = "I think..." }];
+    usage = None;
+  } in
+  let events = collect_events response in
+  (match List.nth events 2 with
+   | ContentBlockDelta { delta = ThinkingDelta s; _ } ->
+     Alcotest.(check string) "thinking" "I think..." s
+   | _ -> Alcotest.fail "expected ThinkingDelta")
+
+let test_synthetic_tool_use () =
+  let response : api_response = {
+    id = "msg-tu"; model = "test"; stop_reason = StopToolUse;
+    content = [ToolUse { id = "tu1"; name = "calc"; input = `Assoc [("x", `Int 1)] }];
+    usage = None;
+  } in
+  let events = collect_events response in
+  (match List.nth events 1 with
+   | ContentBlockStart { content_type; tool_id; tool_name; _ } ->
+     Alcotest.(check string) "type" "tool_use" content_type;
+     Alcotest.(check (option string)) "tool_id" (Some "tu1") tool_id;
+     Alcotest.(check (option string)) "tool_name" (Some "calc") tool_name
+   | _ -> Alcotest.fail "expected tool_use ContentBlockStart");
+  (match List.nth events 2 with
+   | ContentBlockDelta { delta = InputJsonDelta s; _ } ->
+     Alcotest.(check bool) "has json" true (String.length s > 0)
+   | _ -> Alcotest.fail "expected InputJsonDelta")
+
+let test_synthetic_image_no_delta () =
+  let response : api_response = {
+    id = "msg-img"; model = "test"; stop_reason = EndTurn;
+    content = [Image { media_type = "image/png"; data = "abc"; source_type = "base64" }];
+    usage = None;
+  } in
+  let events = collect_events response in
+  (* MessageStart, ContentBlockStart, ContentBlockStop, MessageDelta, MessageStop *)
+  (* No delta for Image *)
+  Alcotest.(check int) "5 events (no delta)" 5 (List.length events)
+
+let test_synthetic_multi_block () =
+  let response : api_response = {
+    id = "msg-m"; model = "test"; stop_reason = EndTurn;
+    content = [
+      Thinking { thinking_type = "s"; content = "hmm" };
+      Text "answer";
+      ToolUse { id = "tu2"; name = "read"; input = `Assoc [] };
+    ];
+    usage = None;
+  } in
+  let events = collect_events response in
+  (* For each block: Start+Delta+Stop (Thinking, Text) or Start+Delta+Stop (ToolUse) *)
+  (* + MessageStart + MessageDelta + MessageStop = 3*3 + 3 = 12 *)
+  Alcotest.(check int) "12 events" 12 (List.length events);
+  (* Check index increases *)
+  (match List.nth events 1 with
+   | ContentBlockStart { index = 0; _ } -> ()
+   | _ -> Alcotest.fail "expected index 0");
+  (match List.nth events 4 with
+   | ContentBlockStart { index = 1; _ } -> ()
+   | _ -> Alcotest.fail "expected index 1");
+  (match List.nth events 7 with
+   | ContentBlockStart { index = 2; _ } -> ()
+   | _ -> Alcotest.fail "expected index 2")
+
+let test_synthetic_usage_propagation () =
+  let usage : api_usage = {
+    input_tokens = 100; output_tokens = 50;
+    cache_creation_input_tokens = 10; cache_read_input_tokens = 5;
+  } in
+  let response : api_response = {
+    id = "msg-u"; model = "test"; stop_reason = EndTurn;
+    content = [Text "x"]; usage = Some usage;
+  } in
+  let events = collect_events response in
+  (match List.hd events with
+   | MessageStart { usage = Some u; _ } ->
+     Alcotest.(check int) "input" 100 u.input_tokens
+   | _ -> Alcotest.fail "expected MessageStart with usage");
+  (match List.nth events 4 with
+   | MessageDelta { usage = Some u; _ } ->
+     Alcotest.(check int) "output" 50 u.output_tokens
+   | _ -> Alcotest.fail "expected MessageDelta with usage")
+
+(* ------------------------------------------------------------------ *)
 (* Test runner                                                          *)
 (* ------------------------------------------------------------------ *)
 
@@ -275,5 +397,13 @@ let () =
       test_case "explicit_event_type" `Quick test_parse_with_explicit_event_type;
       test_case "message_delta_with_cache" `Quick test_message_delta_with_cache_usage;
       test_case "message_start_missing_output" `Quick test_message_start_missing_output_tokens;
+    ];
+    "emit_synthetic_events", [
+      test_case "text only" `Quick test_synthetic_text_only;
+      test_case "thinking block" `Quick test_synthetic_thinking;
+      test_case "tool use" `Quick test_synthetic_tool_use;
+      test_case "image no delta" `Quick test_synthetic_image_no_delta;
+      test_case "multi block indexes" `Quick test_synthetic_multi_block;
+      test_case "usage propagation" `Quick test_synthetic_usage_propagation;
     ];
   ]

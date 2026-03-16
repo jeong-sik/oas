@@ -3,6 +3,14 @@
  (libraries agent_sdk alcotest yojson))
 
 (test
+ (name test_sessions_types)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_runtime_types)
+ (libraries agent_sdk alcotest yojson))
+
+(test
  (name test_integration)
  (libraries agent_sdk alcotest eio eio_main cohttp-eio yojson))
 

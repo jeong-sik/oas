@@ -146,16 +146,19 @@ let connect ~sw ~(mgr : _ Eio.Process.mgr) ~command ~args ?env () =
 let send_raw t json =
   Eio.Flow.copy_string (Yojson.Safe.to_string json ^ "\n") t.writer
 
-let rec read_response t =
-  try
+(** Read the next JSON-RPC response, skipping notifications (id = null)
+    and empty lines.  The recursive [loop] sits outside [try] so that
+    notification-skipping is tail-recursive — important for long-lived
+    MCP connections that receive many notifications. *)
+let read_response t =
+  let rec loop () =
     let line = Eio.Buf_read.line t.reader |> String.trim in
-    if line = "" then
-      read_response t
+    if line = "" then loop ()
     else
       let json = Yojson.Safe.from_string line in
       let open Yojson.Safe.Util in
       match json |> member "id" with
-      | `Null -> read_response t
+      | `Null -> loop ()  (* notification — skip *)
       | _ ->
           (match json |> member "error" with
            | `Null -> Ok (json |> member "result")
@@ -165,6 +168,8 @@ let rec read_response t =
                  |> Option.value ~default:"Unknown MCP error"
                in
                Error message)
+  in
+  try loop ()
   with
   | End_of_file -> Error "MCP server closed connection"
   | Yojson.Json_error msg -> Error ("Invalid JSON from MCP server: " ^ msg)
@@ -211,17 +216,17 @@ let mcp_tool_of_json = function
              | Some schema -> schema
              | None -> `Assoc [])
       in
-      Some {
-        name =
-          (match List.assoc_opt "name" fields with
-           | Some (`String s) -> s
-           | _ -> "tool");
-        description =
-          (match List.assoc_opt "description" fields with
-           | Some (`String s) -> s
-           | _ -> "");
-        input_schema;
-      }
+      (match List.assoc_opt "name" fields with
+       | Some (`String name) ->
+           Some {
+             name;
+             description =
+               (match List.assoc_opt "description" fields with
+                | Some (`String s) -> s
+                | _ -> "");
+             input_schema;
+           }
+       | _ -> None)  (* skip tools without a valid name *)
   | _ -> None
 
 (** Send MCP initialize handshake. *)

@@ -346,6 +346,140 @@ let test_agent_run_stream_append_only_raw_trace () =
       Eio.Switch.fail sw Exit
   with Exit -> ()
 
+(* ── Pure function tests (no Eio) ────────────────────────────── *)
+
+let test_safe_name () =
+  Alcotest.(check string) "normal" "agent" (Raw_trace.safe_name "agent");
+  Alcotest.(check string) "spaces" "hello_world" (Raw_trace.safe_name "hello world");
+  Alcotest.(check string) "slash" "a_b" (Raw_trace.safe_name "a/b");
+  Alcotest.(check string) "empty" "agent" (Raw_trace.safe_name "");
+  Alcotest.(check string) "whitespace" "agent" (Raw_trace.safe_name "   ")
+
+let test_record_type_to_string () =
+  let cases = [
+    (Raw_trace.Run_started, "run_started");
+    (Raw_trace.Assistant_block, "assistant_block");
+    (Raw_trace.Tool_execution_started, "tool_execution_started");
+    (Raw_trace.Tool_execution_finished, "tool_execution_finished");
+    (Raw_trace.Hook_invoked, "hook_invoked");
+    (Raw_trace.Run_finished, "run_finished");
+  ] in
+  List.iter (fun (v, expected) ->
+    Alcotest.(check string) expected expected (Raw_trace.record_type_to_string v)
+  ) cases
+
+let test_record_type_of_string () =
+  let cases = [
+    "run_started"; "assistant_block"; "tool_execution_started";
+    "tool_execution_finished"; "hook_invoked"; "run_finished";
+  ] in
+  List.iter (fun s ->
+    match Raw_trace.record_type_of_string s with
+    | Ok rt ->
+      Alcotest.(check string) ("roundtrip " ^ s) s (Raw_trace.record_type_to_string rt)
+    | Error e -> Alcotest.fail (Error.to_string e)
+  ) cases;
+  (match Raw_trace.record_type_of_string "bogus" with
+   | Error _ -> ()
+   | Ok _ -> Alcotest.fail "expected error for bogus")
+
+let test_record_to_json_roundtrip () =
+  let record : Raw_trace.record = {
+    trace_version = 1; worker_run_id = "wr-test"; seq = 1;
+    ts = 1700000000.0; agent_name = "test-agent";
+    session_id = Some "sess-1"; record_type = Raw_trace.Run_started;
+    prompt = Some "hello"; block_index = None; block_kind = None;
+    assistant_block = None; tool_use_id = None; tool_name = None;
+    tool_input = None; tool_result = None; tool_error = None;
+    hook_name = None; hook_decision = None; hook_detail = None;
+    final_text = None; stop_reason = None; error = None;
+  } in
+  let json = Raw_trace.record_to_json record in
+  match Raw_trace.record_of_json json with
+  | Ok decoded ->
+    Alcotest.(check string) "worker_run_id" "wr-test" decoded.worker_run_id;
+    Alcotest.(check int) "seq" 1 decoded.seq;
+    Alcotest.(check (option string)) "session_id" (Some "sess-1") decoded.session_id;
+    Alcotest.(check (option string)) "prompt" (Some "hello") decoded.prompt
+  | Error e -> Alcotest.fail (Error.to_string e)
+
+let test_record_to_json_full () =
+  let record : Raw_trace.record = {
+    trace_version = 1; worker_run_id = "wr-full"; seq = 5;
+    ts = 1700000005.0; agent_name = "worker";
+    session_id = Some "sess-2";
+    record_type = Raw_trace.Tool_execution_finished;
+    prompt = None; block_index = Some 2; block_kind = Some "tool_use";
+    assistant_block = Some (`String "block-data");
+    tool_use_id = Some "tu-1"; tool_name = Some "read_file";
+    tool_input = Some (`Assoc [("path", `String "/tmp/x")]);
+    tool_result = Some "file content"; tool_error = Some false;
+    hook_name = Some "pre_tool"; hook_decision = Some "allow";
+    hook_detail = Some "passed"; final_text = Some "done";
+    stop_reason = Some "end_turn"; error = None;
+  } in
+  let json = Raw_trace.record_to_json record in
+  match Raw_trace.record_of_json json with
+  | Ok decoded ->
+    Alcotest.(check (option string)) "tool_name" (Some "read_file") decoded.tool_name;
+    Alcotest.(check (option int)) "block_index" (Some 2) decoded.block_index;
+    Alcotest.(check (option bool)) "tool_error" (Some false) decoded.tool_error;
+    Alcotest.(check (option string)) "hook_name" (Some "pre_tool") decoded.hook_name
+  | Error e -> Alcotest.fail (Error.to_string e)
+
+let test_run_ref_yojson () =
+  let ref_ : Raw_trace.run_ref = {
+    worker_run_id = "wr-ref"; path = "/tmp/trace.jsonl";
+    start_seq = 0; end_seq = 10;
+    agent_name = "agent"; session_id = Some "sess-ref";
+  } in
+  let json = Raw_trace.run_ref_to_yojson ref_ in
+  match Raw_trace.run_ref_of_yojson json with
+  | Ok decoded ->
+    Alcotest.(check string) "roundtrip"
+      (Raw_trace.show_run_ref ref_) (Raw_trace.show_run_ref decoded)
+  | Error msg -> Alcotest.fail ("run_ref_of_yojson: " ^ msg)
+
+let test_run_summary_yojson () =
+  let ref_ : Raw_trace.run_ref = {
+    worker_run_id = "wr-sum"; path = "/tmp/t.jsonl";
+    start_seq = 0; end_seq = 5; agent_name = "a"; session_id = None;
+  } in
+  let summary : Raw_trace.run_summary = {
+    run_ref = ref_; record_count = 6; assistant_block_count = 2;
+    tool_execution_started_count = 2; tool_execution_finished_count = 2;
+    hook_invoked_count = 0; hook_names = []; tool_names = ["read"; "write"];
+    final_text = Some "done"; stop_reason = Some "end_turn"; error = None;
+    started_at = Some 1.7e9; finished_at = Some 1.7e9;
+  } in
+  let json = Raw_trace.run_summary_to_yojson summary in
+  match Raw_trace.run_summary_of_yojson json with
+  | Ok decoded ->
+    Alcotest.(check string) "roundtrip"
+      (Raw_trace.show_run_summary summary) (Raw_trace.show_run_summary decoded)
+  | Error msg -> Alcotest.fail ("run_summary_of_yojson: " ^ msg)
+
+let test_run_validation_yojson () =
+  let ref_ : Raw_trace.run_ref = {
+    worker_run_id = "wr-val"; path = "/tmp/v.jsonl";
+    start_seq = 0; end_seq = 3; agent_name = "v"; session_id = None;
+  } in
+  let validation : Raw_trace.run_validation = {
+    run_ref = ref_; ok = true;
+    checks = [{ name = "tool_pairs"; passed = true }];
+    evidence = ["evidence1"]; paired_tool_result_count = 2;
+    has_file_write = false; verification_pass_after_file_write = false;
+    final_text = Some "ok"; tool_names = ["read"];
+    stop_reason = Some "end_turn"; failure_reason = None;
+  } in
+  let json = Raw_trace.run_validation_to_yojson validation in
+  match Raw_trace.run_validation_of_yojson json with
+  | Ok decoded ->
+    Alcotest.(check string) "roundtrip"
+      (Raw_trace.show_run_validation validation)
+      (Raw_trace.show_run_validation decoded)
+  | Error msg -> Alcotest.fail ("run_validation_of_yojson: " ^ msg)
+
 let () =
   Random.self_init ();
   Alcotest.run "Raw Trace"
@@ -354,5 +488,22 @@ let () =
         [
           Alcotest.test_case "append-only direct agent raw trace" `Quick
             test_agent_run_stream_append_only_raw_trace;
+        ] );
+      ( "pure_helpers",
+        [
+          Alcotest.test_case "safe_name" `Quick test_safe_name;
+          Alcotest.test_case "record_type_to_string" `Quick test_record_type_to_string;
+          Alcotest.test_case "record_type_of_string" `Quick test_record_type_of_string;
+        ] );
+      ( "record_json",
+        [
+          Alcotest.test_case "minimal roundtrip" `Quick test_record_to_json_roundtrip;
+          Alcotest.test_case "full roundtrip" `Quick test_record_to_json_full;
+        ] );
+      ( "type_yojson",
+        [
+          Alcotest.test_case "run_ref" `Quick test_run_ref_yojson;
+          Alcotest.test_case "run_summary" `Quick test_run_summary_yojson;
+          Alcotest.test_case "run_validation" `Quick test_run_validation_yojson;
         ] );
     ]

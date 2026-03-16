@@ -89,6 +89,58 @@ let () =
         check int "count" 1 (List.length result));
     ];
 
+    "model_override_of_string", [
+      test_case "inherit" `Quick (fun () ->
+        check bool "inherit" true
+          (Subagent.model_override_of_string "inherit" = Subagent.Inherit_model));
+      test_case "sonnet alias" `Quick (fun () ->
+        check bool "sonnet" true
+          (Subagent.model_override_of_string "sonnet" =
+           Subagent.Use_model Types.Claude_sonnet_4_6));
+      test_case "opus alias" `Quick (fun () ->
+        check bool "opus" true
+          (Subagent.model_override_of_string "opus" =
+           Subagent.Use_model Types.Claude_opus_4_6));
+      test_case "claude-opus-4-5" `Quick (fun () ->
+        check bool "opus 4.5" true
+          (Subagent.model_override_of_string "claude-opus-4-5" =
+           Subagent.Use_model Types.Claude_opus_4_5));
+      test_case "claude-sonnet-4" `Quick (fun () ->
+        check bool "sonnet 4" true
+          (Subagent.model_override_of_string "claude-sonnet-4" =
+           Subagent.Use_model Types.Claude_sonnet_4));
+      test_case "haiku" `Quick (fun () ->
+        check bool "haiku" true
+          (Subagent.model_override_of_string "haiku" =
+           Subagent.Use_model Types.Claude_haiku_4_5));
+      test_case "claude-3-7-sonnet" `Quick (fun () ->
+        check bool "3.7" true
+          (Subagent.model_override_of_string "claude-3-7-sonnet" =
+           Subagent.Use_model Types.Claude_3_7_sonnet));
+      test_case "custom fallback" `Quick (fun () ->
+        match Subagent.model_override_of_string "gpt-4o" with
+        | Subagent.Use_model (Types.Custom "gpt-4o") -> ()
+        | _ -> fail "expected Custom");
+    ];
+
+    "isolation_of_string", [
+      test_case "worktree" `Quick (fun () ->
+        check bool "worktree" true
+          (Subagent.isolation_of_string "worktree" = Subagent.Worktree));
+      test_case "Worktree uppercase" `Quick (fun () ->
+        check bool "Worktree" true
+          (Subagent.isolation_of_string "Worktree" = Subagent.Worktree));
+      test_case "other -> Shared" `Quick (fun () ->
+        check bool "shared" true
+          (Subagent.isolation_of_string "anything" = Subagent.Shared));
+    ];
+
+    "compose_prompt_edge", [
+      test_case "empty prompt no skills" `Quick (fun () ->
+        let spec = Subagent.of_markdown "" in
+        check string "empty" "" (Subagent.compose_prompt spec));
+    ];
+
     "handoff", [
       test_case "to_handoff_target" `Quick (fun () ->
         let md = "---\nname: helper\ndescription: Helps out\nmodel: haiku\nmax-turns: 3\n---\nYou help." in
