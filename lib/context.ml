@@ -150,3 +150,26 @@ let merge_back scope =
     | Some v -> set scope.parent key v
     | None -> ()
   ) scope.propagate_up
+
+(* ── User data convenience API ─────────────────────────────── *)
+
+let set_user_data (ctx : t) key value =
+  set_scoped ctx User key value
+
+let get_user_data (ctx : t) key =
+  get_scoped ctx User key
+
+let delete_user_data (ctx : t) key =
+  delete_scoped ctx User key
+
+let all_user_data (ctx : t) =
+  let prefix = scope_prefix User in
+  let prefix_len = String.length prefix in
+  snapshot ctx
+  |> List.filter_map (fun (key, value) ->
+       if String.length key >= prefix_len
+          && String.sub key 0 prefix_len = prefix
+       then
+         Some (String.sub key prefix_len (String.length key - prefix_len), value)
+       else
+         None)

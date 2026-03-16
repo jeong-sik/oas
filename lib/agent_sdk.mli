@@ -239,6 +239,15 @@ module Context : sig
     isolated_scope
 
   val merge_back : isolated_scope -> unit
+
+  (** {2 User data convenience API} *)
+
+  val set_user_data : t -> string -> Yojson.Safe.t -> unit
+  val get_user_data : t -> string -> Yojson.Safe.t option
+  val delete_user_data : t -> string -> unit
+
+  (** All key-value pairs in the [User] scope (keys without prefix). *)
+  val all_user_data : t -> (string * Yojson.Safe.t) list
 end
 
 (** {1 Utilities} *)
@@ -654,6 +663,10 @@ module Tool : sig
   val descriptor : t -> descriptor option
   val descriptor_to_yojson : descriptor option -> Yojson.Safe.t
   val schema_to_json : t -> Yojson.Safe.t
+
+  (** Wrap a tool to inject default arguments when not provided.
+      Defaults are merged into the input JSON before the handler runs. *)
+  val with_defaults : (string * Yojson.Safe.t) list -> t -> t
 end
 
 (** {1 MCP Client} *)
@@ -1586,6 +1599,14 @@ module Agent_card : sig
 end
 
 module Agent : sig
+  (** Periodic side-fiber callback. Forks alongside Agent.run
+      and fires [callback] every [interval_sec] seconds.
+      Stops automatically when [run] returns. *)
+  type periodic_callback = {
+    interval_sec: float;
+    callback: unit -> unit;
+  }
+
   (** Configuration options for agent behavior.
       Core runtime resources (net, tools, context) are kept on [t] directly;
       everything else lives here. *)
@@ -1606,6 +1627,7 @@ module Agent : sig
     skill_registry: Skill_registry.t option;
     elicitation: Hooks.elicitation_callback option;
     description: string option;
+    periodic_callbacks: periodic_callback list;
   }
 
   val default_options : options
@@ -1801,6 +1823,8 @@ module Builder : sig
   val with_skill_registry : Skill_registry.t -> t -> t
   val with_elicitation : Hooks.elicitation_callback -> t -> t
   val with_description : string -> t -> t
+  val with_periodic_callback : Agent.periodic_callback -> t -> t
+  val with_periodic_callbacks : Agent.periodic_callback list -> t -> t
   val build : t -> Agent.t
   [@@deprecated "Use build_safe for validated construction"]
 
