@@ -1,0 +1,229 @@
+(** Shared turn logic for sync and streaming paths.
+
+    Contains helper functions that both [Agent.run_turn_with_trace] and
+    [Agent.run_turn_stream_with_trace] call, eliminating ~60% code duplication.
+
+    These functions take explicit parameters (not Agent.t) to avoid
+    circular module dependency: Agent -> Agent_turn is fine,
+    Agent_turn -> Agent is not. *)
+
+open Types
+
+let ( let* ) = Result.bind
+
+(* ── Fingerprint-based idle detection ─────────────────────────── *)
+
+type tool_call_fingerprint = {
+  fp_name: string;
+  fp_input: string;
+}
+
+let compute_fingerprints tool_uses =
+  List.filter_map (function
+    | ToolUse { name; input; _ } ->
+      Some { fp_name = name; fp_input = Yojson.Safe.to_string input }
+    | _ -> None
+  ) tool_uses
+
+let is_idle (prev : tool_call_fingerprint list option) current =
+  match prev with
+  | None -> false
+  | Some prev_fps ->
+    List.length current = List.length prev_fps &&
+    List.for_all2 (fun a b -> a.fp_name = b.fp_name && a.fp_input = b.fp_input)
+      current prev_fps
+
+(* ── Turn preparation ─────────────────────────────────────────── *)
+
+type turn_preparation = {
+  tools_json: Yojson.Safe.t list option;
+  effective_messages: message list;
+  effective_guardrails: Guardrails.t;
+}
+
+let prepare_tools ~guardrails ~tools ~turn_params =
+  let effective_guardrails = match turn_params.Hooks.tool_filter_override with
+    | Some filter -> { guardrails with Guardrails.tool_filter = filter }
+    | None -> guardrails
+  in
+  let visible_tools = Guardrails.filter_tools effective_guardrails tools in
+  let tool_schemas = List.map Tool.schema_to_json visible_tools in
+  let tools_json = if tool_schemas = [] then None else Some tool_schemas in
+  (tools_json, effective_guardrails)
+
+let prepare_messages ~messages ~context_reducer ~turn_params =
+  let effective = match context_reducer with
+    | None -> messages
+    | Some reducer -> Context_reducer.reduce reducer messages
+  in
+  match turn_params.Hooks.extra_system_context with
+  | None -> effective
+  | Some ctx ->
+    let system_msg = { role = User; content = [Text ("[system context] " ^ ctx)] } in
+    system_msg :: effective
+
+let prepare_turn ~guardrails ~tools ~messages ~context_reducer ~turn_params =
+  let tools_json, effective_guardrails =
+    prepare_tools ~guardrails ~tools ~turn_params
+  in
+  let effective_messages =
+    prepare_messages ~messages ~context_reducer ~turn_params
+  in
+  { tools_json; effective_messages; effective_guardrails }
+
+(* ── Usage accumulation ───────────────────────────────────────── *)
+
+let accumulate_usage ~current_usage ~provider ~response_usage =
+  match response_usage with
+  | Some u ->
+    let base = add_usage current_usage u in
+    let model_id = match provider with
+      | Some (cfg : Provider.config) -> cfg.model_id
+      | None -> ""
+    in
+    let pricing = Provider.pricing_for_model model_id in
+    let turn_cost = Provider.estimate_cost ~pricing
+      ~input_tokens:u.input_tokens ~output_tokens:u.output_tokens in
+    { base with estimated_cost_usd = base.estimated_cost_usd +. turn_cost }
+  | None -> { current_usage with api_calls = current_usage.api_calls + 1 }
+
+(* ── Turn params resolution ───────────────────────────────────── *)
+
+let resolve_turn_params ~hooks ~messages ~invoke_hook =
+  match hooks.Hooks.before_turn_params with
+  | None -> Hooks.default_turn_params
+  | Some _ ->
+    let last_results =
+      let rec find_last = function
+        | [] -> []
+        | msg :: rest ->
+          if msg.role = User then
+            let results = List.filter_map (function
+              | ToolResult { content; is_error; _ } ->
+                if is_error then Some (Error { message = content; recoverable = true } : tool_result)
+                else Some (Ok { content } : tool_result)
+              | _ -> None
+            ) msg.content in
+            if results <> [] then results
+            else find_last rest
+          else find_last rest
+      in
+      find_last (List.rev messages)
+    in
+    let reasoning = Hooks.extract_reasoning messages in
+    let decision =
+      invoke_hook ~hook_name:"before_turn_params"
+        hooks.Hooks.before_turn_params
+        (Hooks.BeforeTurnParams {
+          turn = 0;  (* overridden by caller *)
+          messages;
+          last_tool_results = last_results;
+          current_params = Hooks.default_turn_params;
+          reasoning;
+        })
+    in
+    match decision with
+    | Hooks.AdjustParams params -> params
+    | _ -> Hooks.default_turn_params
+
+(* ── Context injection after tool execution ───────────────────── *)
+
+let filter_valid_messages ~messages extra_messages =
+  match messages with
+  | [] -> extra_messages
+  | _ ->
+    let last_role = (List.nth messages
+      (List.length messages - 1)).role in
+    let rec filter_valid prev_role = function
+      | [] -> []
+      | (msg : message) :: rest ->
+        if msg.role = prev_role then
+          filter_valid prev_role rest
+        else
+          msg :: filter_valid msg.role rest
+    in
+    filter_valid last_role extra_messages
+
+let apply_context_injection ~context ~messages ~injector ~tool_uses ~results =
+  let current_messages = ref messages in
+  List.iter2 (fun block (_, content, is_error) ->
+    match block with
+    | ToolUse { name; input; _ } ->
+      let output : tool_result =
+        if is_error then Error { message = content; recoverable = true }
+        else Ok { content }
+      in
+      (try
+        match injector ~tool_name:name ~input ~output with
+        | None -> ()
+        | Some inj ->
+          List.iter (fun (key, value) ->
+            Context.set context key value
+          ) inj.Hooks.context_updates;
+          let valid_messages =
+            filter_valid_messages ~messages:!current_messages inj.extra_messages
+          in
+          if valid_messages <> [] then
+            current_messages := !current_messages @ valid_messages
+      with exn ->
+        Printf.eprintf
+          "[oas] context_injector for tool '%s' raised: %s\n%!"
+          name (Printexc.to_string exn))
+    | _ -> ()
+  ) tool_uses results;
+  !current_messages
+
+(* ── Token budget check ───────────────────────────────────────── *)
+
+let check_token_budget config usage =
+  let exceeded_input =
+    match config.max_input_tokens with
+    | Some limit when usage.total_input_tokens > limit ->
+        Some (Error.Agent (TokenBudgetExceeded { kind = "Input"; used = usage.total_input_tokens; limit }))
+    | _ -> None
+  in
+  let exceeded_total =
+    match config.max_total_tokens with
+    | Some limit ->
+        let total = usage.total_input_tokens + usage.total_output_tokens in
+        if total > limit then
+          Some (Error.Agent (TokenBudgetExceeded { kind = "Total"; used = total; limit }))
+        else None
+    | _ -> None
+  in
+  match exceeded_input with
+  | Some _ as err -> err
+  | None -> exceeded_total
+
+(* ── Stop reason handling (tool execution branch) ─────────────── *)
+
+type idle_state = {
+  last_tool_calls: tool_call_fingerprint list option;
+  consecutive_idle_turns: int;
+}
+
+type idle_result = {
+  new_state: idle_state;
+  is_idle: bool;
+}
+
+let update_idle_detection ~idle_state ~tool_uses =
+  let current_fps = compute_fingerprints tool_uses in
+  let idle = is_idle idle_state.last_tool_calls current_fps in
+  let new_consecutive =
+    if idle then idle_state.consecutive_idle_turns + 1
+    else 0
+  in
+  {
+    new_state = {
+      last_tool_calls = Some current_fps;
+      consecutive_idle_turns = new_consecutive;
+    };
+    is_idle = idle;
+  }
+
+(** Process tool results into ToolResult content blocks. *)
+let make_tool_results results =
+  List.map (fun (tool_use_id, content, is_error) ->
+    ToolResult { tool_use_id; content; is_error }
+  ) results
