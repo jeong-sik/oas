@@ -57,6 +57,7 @@ type sdk_error =
   | Serialization of serialization_error
   | Io of io_error
   | Orchestration of orchestration_error
+  | A2a of string
   | Internal of string
 
 (* ── Human-readable messages ──────────────────────────────────────── *)
@@ -117,6 +118,7 @@ let to_string = function
   | Serialization err -> serialization_error_to_string err
   | Io err -> io_error_to_string err
   | Orchestration err -> orchestration_error_to_string err
+  | A2a msg -> Printf.sprintf "A2A error: %s" msg
   | Internal msg -> Printf.sprintf "Internal error: %s" msg
 
 (* ── Retryability ─────────────────────────────────────────────────── *)
@@ -126,4 +128,4 @@ let is_retryable = function
   | Mcp (ServerStartFailed _) -> false
   | Mcp _ -> true
   | Agent _ | Config _ | Serialization _ | Io _ | Orchestration _
-  | Internal _ -> false
+  | A2a _ | Internal _ -> false
