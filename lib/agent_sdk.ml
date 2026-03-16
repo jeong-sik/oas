@@ -112,5 +112,5 @@ let runtime_query = Runtime_query.query
 let query = Query.query
 
 (** Version info *)
-let version = "0.25.1"
+let version = "0.26.0"
 let sdk_name = "agent_sdk"

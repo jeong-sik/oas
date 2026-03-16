@@ -330,6 +330,33 @@ module Provider : sig
 
   val pricing_for_model : string -> pricing
   val estimate_cost : pricing:pricing -> input_tokens:int -> output_tokens:int -> float
+
+  (** {2 Custom Provider Registry} *)
+
+  (** Implementation for a custom provider.
+      Register via {!register_provider} to extend the SDK with
+      third-party LLM endpoints (e.g. vLLM, TGI). *)
+  type provider_impl = {
+    name: string;
+    request_kind: request_kind;
+    capabilities: capabilities;
+    build_body:
+      config:Types.agent_state ->
+      messages:Types.message list ->
+      ?tools:Yojson.Safe.t list ->
+      unit -> string;
+    parse_response: string -> Types.api_response;
+    resolve: config -> (string * string * (string * string) list, Error.sdk_error) result;
+  }
+
+  (** Register a custom provider implementation at runtime. *)
+  val register_provider : provider_impl -> unit
+
+  (** Look up a registered custom provider by name. *)
+  val find_provider : string -> provider_impl option
+
+  (** List all registered custom provider names. *)
+  val registered_providers : unit -> string list
 end
 
 (** {1 Error Handling and Retry} *)
@@ -678,6 +705,20 @@ module Mcp : sig
   val connect_all :
     sw:Eio.Switch.t -> mgr:_ Eio.Process.mgr ->
     server_spec list -> (managed list, Error.sdk_error) result
+
+  (** Check if the MCP server subprocess is still responsive. *)
+  val is_alive : t -> bool
+
+  (** Reconnect a managed MCP server by closing and re-spawning. *)
+  val reconnect :
+    sw:Eio.Switch.t -> mgr:_ Eio.Process.mgr ->
+    managed -> (managed, Error.sdk_error) result
+
+  (** Connect to multiple MCP servers, returning all that succeed.
+      Failed servers are reported alongside successful ones. *)
+  val connect_all_best_effort :
+    sw:Eio.Switch.t -> mgr:_ Eio.Process.mgr ->
+    server_spec list -> managed list * (string * Error.sdk_error) list
 end
 
 (** {1 Guardrails} *)
@@ -2111,6 +2152,10 @@ module Transport : sig
     Runtime.request ->
     (Runtime.response, Error.sdk_error) result
   val server_info : t -> Runtime.init_response option
+
+  (** Query connection status. *)
+  val status : t -> [ `Connected | `Disconnected | `Error of string ]
+
   val close : t -> unit
 end
 

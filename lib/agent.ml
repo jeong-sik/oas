@@ -1,5 +1,10 @@
 (** Agent implementation using Eio structured concurrency.
-    Supports hooks, context, guardrails, and handoffs as optional features. *)
+
+    Supports hooks, context, guardrails, and handoffs as optional features.
+
+    Lifecycle logic lives in {!Agent_lifecycle}, checkpoint logic in
+    {!Agent_checkpoint}.  Sync and streaming turns share a single
+    {!run_turn_core} with an [api_strategy] parameter. *)
 
 open Types
 
@@ -25,7 +30,10 @@ type options = {
   event_bus: Event_bus.t option;
 }
 
-type lifecycle_status =
+(* Re-export lifecycle types from Agent_lifecycle.
+   Type equations make these structurally identical so existing code
+   using Agent.Accepted, Agent.lifecycle_snapshot, etc. still works. *)
+type lifecycle_status = Agent_lifecycle.lifecycle_status =
   | Accepted
   | Ready
   | Running
@@ -33,7 +41,7 @@ type lifecycle_status =
   | Failed
 [@@deriving show]
 
-type lifecycle_snapshot = {
+type lifecycle_snapshot = Agent_lifecycle.lifecycle_snapshot = {
   current_run_id: string option;
   agent_name: string;
   worker_id: string option;
@@ -90,89 +98,18 @@ let options t = t.options
 let net t = t.net
 let set_state t s = t.state <- s
 
-let provider_runtime_name (cfg : Provider.config option) =
-  match cfg with
-  | None -> None
-  | Some cfg -> (
-      match cfg.provider with
-      | Provider.Local _ -> Some "local"
-      | Provider.Anthropic -> Some "anthropic"
-      | Provider.OpenAICompat _ -> Some "openai-compat"
-      | Provider.Ollama _ -> Some "ollama")
-
-let first_some = Util.first_some
-
-let hook_decision_to_string = function
-  | Hooks.Continue -> "continue"
-  | Hooks.Skip -> "skip"
-  | Hooks.Override _ -> "override"
-  | Hooks.ApprovalRequired -> "approval_required"
-  | Hooks.AdjustParams _ -> "adjust_params"
-
-let requested_provider agent =
-  provider_runtime_name agent.options.provider
-
-let requested_model agent =
-  Some (Types.model_to_string agent.state.config.model)
-
-let resolved_provider agent =
-  provider_runtime_name agent.options.provider
-
-let resolved_model agent =
-  match agent.options.provider with
-  | Some cfg -> Some cfg.model_id
-  | None -> Some (Types.model_to_string agent.state.config.model)
-
+(** Update lifecycle snapshot via Agent_lifecycle.build_snapshot. *)
 let set_lifecycle agent ?current_run_id ?worker_id ?runtime_actor ?last_error
     ?accepted_at ?ready_at ?first_progress_at ?started_at ?last_progress_at
     ?finished_at status =
-  let previous = agent.lifecycle in
-  let pick fallback next = first_some next fallback in
-  let default_actor = Some agent.state.config.name in
-  agent.lifecycle <-
-    Some
-      {
-        current_run_id =
-          pick (Option.bind previous (fun snapshot -> snapshot.current_run_id))
-            current_run_id;
-        agent_name = agent.state.config.name;
-        worker_id =
-          pick
-            (Option.bind previous (fun snapshot -> snapshot.worker_id))
-            (pick default_actor worker_id);
-        runtime_actor =
-          pick
-            (Option.bind previous (fun snapshot -> snapshot.runtime_actor))
-            (pick default_actor runtime_actor);
-        status;
-        requested_provider = requested_provider agent;
-        requested_model = requested_model agent;
-        resolved_provider = resolved_provider agent;
-        resolved_model = resolved_model agent;
-        last_error =
-          pick (Option.bind previous (fun snapshot -> snapshot.last_error))
-            last_error;
-        accepted_at =
-          pick (Option.bind previous (fun snapshot -> snapshot.accepted_at))
-            accepted_at;
-        ready_at =
-          pick (Option.bind previous (fun snapshot -> snapshot.ready_at))
-            ready_at;
-        first_progress_at =
-          pick
-            (Option.bind previous (fun snapshot -> snapshot.first_progress_at))
-            first_progress_at;
-        started_at =
-          pick (Option.bind previous (fun snapshot -> snapshot.started_at))
-            started_at;
-        last_progress_at =
-          pick
-            (Option.bind previous (fun snapshot -> snapshot.last_progress_at))
-            last_progress_at;
-        finished_at =
-          pick (Option.bind previous (fun snapshot -> snapshot.finished_at))
-            finished_at;
-      }
+  agent.lifecycle <- Some (Agent_lifecycle.build_snapshot
+    ~agent_name:agent.state.config.name
+    ~provider:agent.options.provider
+    ~model:agent.state.config.model
+    ?previous:agent.lifecycle
+    ?current_run_id ?worker_id ?runtime_actor ?last_error
+    ?accepted_at ?ready_at ?first_progress_at ?started_at
+    ?last_progress_at ?finished_at status)
 
 let create ~net ?(config=default_config) ?(tools=[]) ?context
     ?(options=default_options) () =
@@ -180,12 +117,7 @@ let create ~net ?(config=default_config) ?(tools=[]) ?context
     List.concat_map (fun (m : Mcp.managed) -> m.tools) options.mcp_clients
   in
   let all_tools = tools @ mcp_tools in
-  let state = {
-    config;
-    messages = [];
-    turn_count = 0;
-    usage = empty_usage;
-  } in
+  let state = { config; messages = []; turn_count = 0; usage = empty_usage } in
   let ctx = match context with
     | Some c -> c
     | None -> Context.create ()
@@ -193,28 +125,18 @@ let create ~net ?(config=default_config) ?(tools=[]) ?context
   { state; lifecycle = None; last_tool_calls = None; consecutive_idle_turns = 0;
     tools = all_tools; net; context = ctx; options }
 
-(** Clone an agent with independent state.
-    By default the clone gets a fresh (empty) context.
-    Pass [~copy_context:true] to shallow-copy all context entries.
-    Tools, net, options, and mcp_clients are shared (immutable/stateless). *)
 let clone ?(copy_context=false) agent =
-  let ctx = if copy_context then Context.copy agent.context else Context.create () in
+  let ctx = if copy_context then Context.copy agent.context
+            else Context.create () in
   let state = {
     config = agent.state.config;
     messages = agent.state.messages;
     turn_count = agent.state.turn_count;
     usage = agent.state.usage;
   } in
-  {
-    state;
-    lifecycle = agent.lifecycle;
-    last_tool_calls = None;
-    consecutive_idle_turns = 0;
-    tools = agent.tools;
-    net = agent.net;
-    context = ctx;
-    options = agent.options;
-  }
+  { state; lifecycle = agent.lifecycle; last_tool_calls = None;
+    consecutive_idle_turns = 0; tools = agent.tools; net = agent.net;
+    context = ctx; options = agent.options }
 
 let last_raw_trace_run agent =
   match agent.options.raw_trace with
@@ -223,11 +145,8 @@ let last_raw_trace_run agent =
 
 let lifecycle_snapshot agent = agent.lifecycle
 
-(** Close all MCP server connections held by this agent. *)
-let close agent =
-  Mcp.close_all agent.options.mcp_clients
+let close agent = Mcp.close_all agent.options.mcp_clients
 
-(** Execute tools in parallel — delegates to Agent_tools with explicit parameters. *)
 let execute_tools agent tool_uses =
   Agent_tools.execute_tools
     ~context:agent.context ~tools:agent.tools
@@ -236,24 +155,22 @@ let execute_tools agent tool_uses =
     ~turn_count:agent.state.turn_count ~approval:agent.options.approval
     tool_uses
 
+(* ── Hook & trace helpers ────────────────────────────────────── *)
+
 let record_hook_invocation active_run ~hook_name ~decision ?detail () =
   match active_run with
   | None -> ()
   | Some active ->
       Raw_trace.raise_if_error
         (Raw_trace.record_hook_invoked active ~hook_name
-           ~hook_decision:(hook_decision_to_string decision) ?hook_detail:detail
-           ())
+           ~hook_decision:(Agent_lifecycle.hook_decision_to_string decision)
+           ?hook_detail:detail ())
 
 let invoke_hook_with_trace agent ?raw_trace_run ~hook_name hook_opt event =
   Tracing.with_span agent.options.tracer
-    {
-      kind = Hook_invoke;
-      name = hook_name;
+    { kind = Hook_invoke; name = hook_name;
       agent_name = agent.state.config.name;
-      turn = agent.state.turn_count;
-      extra = [];
-    }
+      turn = agent.state.turn_count; extra = [] }
     (fun _ ->
       let decision = Hooks.invoke hook_opt event in
       record_hook_invocation raw_trace_run ~hook_name ~decision ();
@@ -264,8 +181,7 @@ let execute_tools_with_trace agent active_run tool_uses =
     match active_run with
     | None -> None
     | Some active ->
-        Some
-          (fun ~tool_use_id ~tool_name ~input ->
+        Some (fun ~tool_use_id ~tool_name ~input ->
             let ts = Unix.gettimeofday () in
             set_lifecycle agent ~current_run_id:(Raw_trace.active_run_id active)
               ~first_progress_at:ts ~last_progress_at:ts Running;
@@ -277,8 +193,7 @@ let execute_tools_with_trace agent active_run tool_uses =
     match active_run with
     | None -> None
     | Some active ->
-        Some
-          (fun ~tool_use_id ~tool_name ~content ~is_error ->
+        Some (fun ~tool_use_id ~tool_name ~content ~is_error ->
             let ts = Unix.gettimeofday () in
             set_lifecycle agent ~current_run_id:(Raw_trace.active_run_id active)
               ~first_progress_at:ts ~last_progress_at:ts Running;
@@ -311,6 +226,8 @@ let trace_assistant_blocks active_run blocks =
              | Error _ as err, _ -> err
              | _, (Error _ as err) -> err)
            (Ok ())
+
+(* ── Raw trace run wrapper ───────────────────────────────────── *)
 
 let with_raw_trace_run agent user_prompt f =
   match agent.options.raw_trace with
@@ -351,8 +268,7 @@ let with_raw_trace_run agent user_prompt f =
             let ts = Unix.gettimeofday () in
             (match result with
             | Ok _ ->
-                set_lifecycle agent ~finished_at:ts
-                  Completed
+                set_lifecycle agent ~finished_at:ts Completed
             | Error err ->
                 set_lifecycle agent ~finished_at:ts
                   ~last_error:(Error.to_string err) Failed);
@@ -364,7 +280,8 @@ let with_raw_trace_run agent user_prompt f =
       in
       finalize (f (Some active))
 
-(** Extract the last tool results from the most recent User message. *)
+(* ── Turn helpers ────────────────────────────────────────────── *)
+
 let last_tool_results_from messages =
   let rec find_last = function
     | [] -> []
@@ -382,8 +299,6 @@ let last_tool_results_from messages =
   in
   find_last (List.rev messages)
 
-(** Apply turn_params overrides to the agent state for one turn.
-    Returns the original config for restoration after API call. *)
 let apply_turn_params agent (params : Hooks.turn_params) =
   let original_config = agent.state.config in
   let new_config = {
@@ -398,227 +313,36 @@ let apply_turn_params agent (params : Hooks.turn_params) =
   agent.state <- { agent.state with config = new_config };
   original_config
 
-(** Run a single turn with hook and guardrail support *)
-let run_turn_with_trace ~sw ?clock ?raw_trace_run agent =
+(* ── Unified turn execution ──────────────────────────────────── *)
+
+type api_strategy =
+  | Sync
+  | Stream of { on_event: Types.sse_event -> unit }
+
+(** Run a single turn, dispatching the API call via [api_strategy].
+    Shared by both sync and streaming paths — eliminates ~170 lines
+    of duplicated hook/guardrail/response handling code. *)
+let run_turn_core ~sw ?clock ~api_strategy ?raw_trace_run agent =
   let ts = Unix.gettimeofday () in
   set_lifecycle agent ~ready_at:ts Ready;
+
   (* BeforeTurn hook *)
   let _before =
     invoke_hook_with_trace agent ?raw_trace_run ~hook_name:"before_turn"
       agent.options.hooks.before_turn
-      (Hooks.BeforeTurn { turn = agent.state.turn_count; messages = agent.state.messages })
+      (Hooks.BeforeTurn { turn = agent.state.turn_count;
+                          messages = agent.state.messages })
   in
 
-  (* BeforeTurnParams hook: allow per-turn parameter adjustment *)
+  (* BeforeTurnParams hook *)
   let turn_params = match agent.options.hooks.before_turn_params with
     | None -> Hooks.default_turn_params
     | Some _ ->
       let last_results = last_tool_results_from agent.state.messages in
       let reasoning = Hooks.extract_reasoning agent.state.messages in
       let decision =
-        invoke_hook_with_trace agent ?raw_trace_run ~hook_name:"before_turn_params"
-          agent.options.hooks.before_turn_params
-          (Hooks.BeforeTurnParams {
-            turn = agent.state.turn_count;
-            messages = agent.state.messages;
-            last_tool_results = last_results;
-            current_params = Hooks.default_turn_params;
-            reasoning;
-          })
-      in
-      match decision with
-      | Hooks.AdjustParams params -> params
-      | _ -> Hooks.default_turn_params
-  in
-
-  (* Apply turn_params overrides — will be restored after API call *)
-  let original_config = apply_turn_params agent turn_params in
-
-  (* TurnStarted event *)
-  (match agent.options.event_bus with
-   | Some bus -> Event_bus.publish bus
-       (TurnStarted { agent_name = agent.state.config.name; turn = agent.state.turn_count })
-   | None -> ());
-
-  (* Apply guardrails: filter tools visible to LLM, with optional override *)
-  let effective_guardrails = match turn_params.tool_filter_override with
-    | Some filter -> { agent.options.guardrails with tool_filter = filter }
-    | None -> agent.options.guardrails
-  in
-  let visible_tools = Guardrails.filter_tools effective_guardrails agent.tools in
-  let tool_schemas = List.map Tool.schema_to_json visible_tools in
-  let tools_json = if tool_schemas = [] then None else Some tool_schemas in
-
-  (* Apply context reducer: only the API call sees the windowed messages.
-     The full history is preserved in agent.state.messages. *)
-  let effective_messages = match agent.options.context_reducer with
-    | None -> agent.state.messages
-    | Some reducer -> Context_reducer.reduce reducer agent.state.messages
-  in
-
-  (* Inject extra_system_context if provided by turn_params *)
-  let effective_messages = match turn_params.extra_system_context with
-    | None -> effective_messages
-    | Some ctx ->
-      let system_msg = { role = User; content = [Text ("[system context] " ^ ctx)] } in
-      system_msg :: effective_messages
-  in
-
-  let api_result = Tracing.with_span agent.options.tracer
-    { kind = Api_call; name = "create_message";
-      agent_name = agent.state.config.name;
-      turn = agent.state.turn_count; extra = [] }
-    (fun _tracer ->
-      match agent.options.cascade with
-      | Some casc ->
-        Api.create_message_cascade ~sw ~net:agent.net ?clock
-          ~cascade:casc ~config:agent.state
-          ~messages:effective_messages ?tools:tools_json ()
-      | None ->
-        Api.create_message ~sw ~net:agent.net ~base_url:agent.options.base_url
-          ?provider:agent.options.provider ?clock ~config:agent.state
-          ~messages:effective_messages ?tools:tools_json ())
-  in
-  (* Restore original config after API call — turn_params are ephemeral *)
-  agent.state <- { agent.state with config = original_config };
-  match api_result with
-  | Error e -> Error e
-  | Ok response ->
-      let ts = Unix.gettimeofday () in
-      set_lifecycle agent ~first_progress_at:ts ~last_progress_at:ts Running;
-      let* () = trace_assistant_blocks raw_trace_run response.content in
-      let usage = Agent_turn.accumulate_usage
-        ~current_usage:agent.state.usage
-        ~provider:agent.options.provider
-        ~response_usage:response.usage
-      in
-
-      (* AfterTurn hook *)
-      let _after =
-        invoke_hook_with_trace agent ?raw_trace_run ~hook_name:"after_turn"
-          agent.options.hooks.after_turn
-          (Hooks.AfterTurn { turn = agent.state.turn_count; response })
-      in
-
-      (* TurnCompleted event *)
-      (match agent.options.event_bus with
-       | Some bus -> Event_bus.publish bus
-           (TurnCompleted { agent_name = agent.state.config.name; turn = agent.state.turn_count })
-       | None -> ());
-
-      agent.state <- { agent.state with
-        messages = agent.state.messages @ [{ role = Assistant; content = response.content }];
-        turn_count = agent.state.turn_count + 1;
-        usage;
-      };
-
-      match response.stop_reason with
-      | StopToolUse ->
-        let tool_uses = List.filter (function ToolUse _ -> true | _ -> false) response.content in
-
-        (* Idle detection via Agent_turn *)
-        let idle_result = Agent_turn.update_idle_detection
-          ~idle_state:{
-            last_tool_calls = agent.last_tool_calls;
-            consecutive_idle_turns = agent.consecutive_idle_turns;
-          }
-          ~tool_uses
-        in
-        agent.last_tool_calls <- idle_result.new_state.last_tool_calls;
-        agent.consecutive_idle_turns <- idle_result.new_state.consecutive_idle_turns;
-        if idle_result.is_idle then begin
-          let _idle =
-            invoke_hook_with_trace agent ?raw_trace_run ~hook_name:"on_idle"
-              agent.options.hooks.on_idle
-              (Hooks.OnIdle {
-                consecutive_idle_turns = agent.consecutive_idle_turns;
-                tool_names = List.filter_map (function
-                  | ToolUse { name; _ } -> Some name | _ -> None
-                ) tool_uses })
-          in
-          ()
-        end;
-
-        (* Guardrail: check tool call count limit *)
-        let count = List.length tool_uses in
-        (match Guardrails.exceeds_limit agent.options.guardrails count with
-        | true ->
-          let msg = Printf.sprintf "Tool call limit exceeded: %d calls in one turn" count in
-          agent.state <- { agent.state with
-            messages = agent.state.messages @ [{ role = User; content = [Text msg] }] };
-          Ok (`ToolsExecuted)
-        | false ->
-          let results =
-            try Ok (execute_tools_with_trace agent raw_trace_run tool_uses)
-            with Raw_trace.Trace_error err -> Error err
-          in
-          let* results = results in
-          let tool_results = Agent_turn.make_tool_results results in
-          agent.state <- { agent.state with messages = agent.state.messages @ [{ role = User; content = tool_results }] };
-          (* Context injection *)
-          (match agent.options.context_injector with
-           | None -> ()
-           | Some injector ->
-             let new_messages = Agent_turn.apply_context_injection
-               ~context:agent.context ~messages:agent.state.messages
-               ~injector ~tool_uses ~results
-             in
-             agent.state <- { agent.state with messages = new_messages });
-          Ok (`ToolsExecuted))
-      | EndTurn | MaxTokens | StopSequence ->
-        let _stop =
-          invoke_hook_with_trace agent ?raw_trace_run ~hook_name:"on_stop"
-            agent.options.hooks.on_stop
-            (Hooks.OnStop { reason = response.stop_reason; response })
-        in
-        Ok (`Complete response)
-      | Unknown reason ->
-        Error (Error.Agent (UnrecognizedStopReason { reason }))
-
-let check_token_budget = Agent_turn.check_token_budget
-
-(** Run loop *)
-let run ~sw ?clock agent user_prompt =
-  agent.state <- { agent.state with messages = agent.state.messages @ [{ role = User; content = [Text user_prompt] }] };
-  with_raw_trace_run agent user_prompt @@ fun raw_trace_run ->
-  let rec loop () =
-    if agent.state.turn_count >= agent.state.config.max_turns then
-      Error (Error.Agent (MaxTurnsExceeded { turns = agent.state.turn_count; limit = agent.state.config.max_turns }))
-    else if agent.consecutive_idle_turns >= agent.options.max_idle_turns
-            && agent.options.max_idle_turns > 0 then
-      Error (Error.Agent (IdleDetected { consecutive_idle_turns = agent.consecutive_idle_turns }))
-    else
-      match check_token_budget agent.state.config agent.state.usage with
-      | Some err -> Error err
-      | None ->
-        match run_turn_with_trace ~sw ?clock ?raw_trace_run agent with
-        | Error e -> Error e
-        | Ok `Complete response -> Ok response
-        | Ok `ToolsExecuted -> loop ()
-  in
-  loop ()
-
-(** Run a single turn with streaming.
-    Uses Streaming.create_message_stream for Anthropic providers,
-    falls back to Api.create_message + synthetic events for others. *)
-let run_turn_stream_with_trace ~sw ?clock ~on_event ?raw_trace_run agent =
-  let ts = Unix.gettimeofday () in
-  set_lifecycle agent ~ready_at:ts Ready;
-  (* BeforeTurn hook *)
-  let _before =
-    invoke_hook_with_trace agent ?raw_trace_run ~hook_name:"before_turn"
-      agent.options.hooks.before_turn
-      (Hooks.BeforeTurn { turn = agent.state.turn_count; messages = agent.state.messages })
-  in
-
-  (* BeforeTurnParams hook: same as non-streaming path *)
-  let turn_params = match agent.options.hooks.before_turn_params with
-    | None -> Hooks.default_turn_params
-    | Some _ ->
-      let last_results = last_tool_results_from agent.state.messages in
-      let reasoning = Hooks.extract_reasoning agent.state.messages in
-      let decision =
-        invoke_hook_with_trace agent ?raw_trace_run ~hook_name:"before_turn_params"
+        invoke_hook_with_trace agent ?raw_trace_run
+          ~hook_name:"before_turn_params"
           agent.options.hooks.before_turn_params
           (Hooks.BeforeTurnParams {
             turn = agent.state.turn_count;
@@ -638,7 +362,8 @@ let run_turn_stream_with_trace ~sw ?clock ~on_event ?raw_trace_run agent =
   (* TurnStarted event *)
   (match agent.options.event_bus with
    | Some bus -> Event_bus.publish bus
-       (TurnStarted { agent_name = agent.state.config.name; turn = agent.state.turn_count })
+       (TurnStarted { agent_name = agent.state.config.name;
+                       turn = agent.state.turn_count })
    | None -> ());
 
   (* Prepare tools and messages via Agent_turn *)
@@ -648,41 +373,67 @@ let run_turn_stream_with_trace ~sw ?clock ~on_event ?raw_trace_run agent =
     ~context_reducer:agent.options.context_reducer ~turn_params
   in
 
-  let api_result = Tracing.with_span agent.options.tracer
-    { kind = Api_call; name = "create_message_stream";
-      agent_name = agent.state.config.name;
-      turn = agent.state.turn_count; extra = [] }
-    (fun _tracer ->
-      let stream_result =
-        Streaming.create_message_stream ~sw ~net:agent.net
-          ~base_url:agent.options.base_url ?provider:agent.options.provider
-          ~config:agent.state ~messages:prep.effective_messages
-          ?tools:prep.tools_json ~on_event ()
-      in
-      match stream_result with
-      | Ok _ -> stream_result
-      | Error (Error.Config (UnsupportedProvider _)) ->
-          let sync_result =
-            match agent.options.cascade with
-            | Some casc ->
-              Api.create_message_cascade ~sw ~net:agent.net ?clock
-                ~cascade:casc ~config:agent.state
-                ~messages:prep.effective_messages ?tools:prep.tools_json ()
-            | None ->
-              Api.create_message ~sw ~net:agent.net
-                ~base_url:agent.options.base_url ?provider:agent.options.provider
-                ?clock ~config:agent.state ~messages:prep.effective_messages
-                ?tools:prep.tools_json ()
+  (* API call — divergence point between sync and streaming *)
+  let api_result = match api_strategy with
+    | Sync ->
+      Tracing.with_span agent.options.tracer
+        { kind = Api_call; name = "create_message";
+          agent_name = agent.state.config.name;
+          turn = agent.state.turn_count; extra = [] }
+        (fun _tracer ->
+          match agent.options.cascade with
+          | Some casc ->
+            Api.create_message_cascade ~sw ~net:agent.net ?clock
+              ~cascade:casc ~config:agent.state
+              ~messages:prep.effective_messages ?tools:prep.tools_json ()
+          | None ->
+            Api.create_message ~sw ~net:agent.net
+              ~base_url:agent.options.base_url
+              ?provider:agent.options.provider ?clock ~config:agent.state
+              ~messages:prep.effective_messages ?tools:prep.tools_json ())
+    | Stream { on_event } ->
+      Tracing.with_span agent.options.tracer
+        { kind = Api_call; name = "create_message_stream";
+          agent_name = agent.state.config.name;
+          turn = agent.state.turn_count; extra = [] }
+        (fun _tracer ->
+          let stream_result =
+            Streaming.create_message_stream ~sw ~net:agent.net
+              ~base_url:agent.options.base_url
+              ?provider:agent.options.provider
+              ~config:agent.state ~messages:prep.effective_messages
+              ?tools:prep.tools_json ~on_event ()
           in
-          (match sync_result with
-           | Ok response ->
-             Streaming.emit_synthetic_events response on_event;
-             Ok response
-           | Error _ -> sync_result)
-      | Error _ -> stream_result)
+          match stream_result with
+          | Ok _ -> stream_result
+          | Error (Error.Config (UnsupportedProvider _)) ->
+              let sync_result =
+                match agent.options.cascade with
+                | Some casc ->
+                  Api.create_message_cascade ~sw ~net:agent.net ?clock
+                    ~cascade:casc ~config:agent.state
+                    ~messages:prep.effective_messages
+                    ?tools:prep.tools_json ()
+                | None ->
+                  Api.create_message ~sw ~net:agent.net
+                    ~base_url:agent.options.base_url
+                    ?provider:agent.options.provider ?clock
+                    ~config:agent.state
+                    ~messages:prep.effective_messages
+                    ?tools:prep.tools_json ()
+              in
+              (match sync_result with
+               | Ok response ->
+                 Streaming.emit_synthetic_events response on_event;
+                 Ok response
+               | Error _ -> sync_result)
+          | Error _ -> stream_result)
   in
-  (* Restore original config after API call *)
+
+  (* Restore original config — turn_params are ephemeral *)
   agent.state <- { agent.state with config = original_config };
+
+  (* Common post-API response handling *)
   match api_result with
   | Error e -> Error e
   | Ok response ->
@@ -705,18 +456,21 @@ let run_turn_stream_with_trace ~sw ?clock ~on_event ?raw_trace_run agent =
     (* TurnCompleted event *)
     (match agent.options.event_bus with
      | Some bus -> Event_bus.publish bus
-         (TurnCompleted { agent_name = agent.state.config.name; turn = agent.state.turn_count })
+         (TurnCompleted { agent_name = agent.state.config.name;
+                          turn = agent.state.turn_count })
      | None -> ());
 
     agent.state <- { agent.state with
-      messages = agent.state.messages @ [{ role = Assistant; content = response.content }];
+      messages = agent.state.messages @
+        [{ role = Assistant; content = response.content }];
       turn_count = agent.state.turn_count + 1;
       usage;
     };
 
     match response.stop_reason with
     | StopToolUse ->
-      let tool_uses = List.filter (function ToolUse _ -> true | _ -> false) response.content in
+      let tool_uses = List.filter
+        (function ToolUse _ -> true | _ -> false) response.content in
 
       (* Idle detection via Agent_turn *)
       let idle_result = Agent_turn.update_idle_detection
@@ -727,7 +481,8 @@ let run_turn_stream_with_trace ~sw ?clock ~on_event ?raw_trace_run agent =
         ~tool_uses
       in
       agent.last_tool_calls <- idle_result.new_state.last_tool_calls;
-      agent.consecutive_idle_turns <- idle_result.new_state.consecutive_idle_turns;
+      agent.consecutive_idle_turns <-
+        idle_result.new_state.consecutive_idle_turns;
       if idle_result.is_idle then begin
         let _idle =
           invoke_hook_with_trace agent ?raw_trace_run ~hook_name:"on_idle"
@@ -744,9 +499,11 @@ let run_turn_stream_with_trace ~sw ?clock ~on_event ?raw_trace_run agent =
       let count = List.length tool_uses in
       (match Guardrails.exceeds_limit prep.effective_guardrails count with
       | true ->
-        let msg = Printf.sprintf "Tool call limit exceeded: %d calls in one turn" count in
+        let msg = Printf.sprintf
+          "Tool call limit exceeded: %d calls in one turn" count in
         agent.state <- { agent.state with
-          messages = agent.state.messages @ [{ role = User; content = [Text msg] }] };
+          messages = agent.state.messages @
+            [{ role = User; content = [Text msg] }] };
         Ok (`ToolsExecuted)
       | false ->
         let results =
@@ -756,8 +513,8 @@ let run_turn_stream_with_trace ~sw ?clock ~on_event ?raw_trace_run agent =
         let* results = results in
         let tool_results = Agent_turn.make_tool_results results in
         agent.state <- { agent.state with
-          messages = agent.state.messages @ [{ role = User; content = tool_results }] };
-        (* Context injection — now in streaming path too *)
+          messages = agent.state.messages @
+            [{ role = User; content = tool_results }] };
         (match agent.options.context_injector with
          | None -> ()
          | Some injector ->
@@ -777,168 +534,138 @@ let run_turn_stream_with_trace ~sw ?clock ~on_event ?raw_trace_run agent =
     | Unknown reason ->
       Error (Error.Agent (UnrecognizedStopReason { reason }))
 
-(** Run agent loop with streaming.
-    Same as [run] but uses [run_turn_stream] for each turn. *)
-let run_stream ~sw ?clock ~on_event agent user_prompt =
+(* Backward-compatible wrappers *)
+let run_turn_with_trace ~sw ?clock ?raw_trace_run agent =
+  run_turn_core ~sw ?clock ~api_strategy:Sync ?raw_trace_run agent
+
+let check_token_budget = Agent_turn.check_token_budget
+
+(* ── Unified run loop ────────────────────────────────────────── *)
+
+let run_loop ~sw ?clock ~api_strategy agent user_prompt =
   agent.state <- { agent.state with
-    messages = agent.state.messages @ [{ role = User; content = [Text user_prompt] }] };
+    messages = agent.state.messages @
+      [{ role = User; content = [Text user_prompt] }] };
   with_raw_trace_run agent user_prompt @@ fun raw_trace_run ->
   let rec loop () =
     if agent.state.turn_count >= agent.state.config.max_turns then
-      Error (Error.Agent (MaxTurnsExceeded { turns = agent.state.turn_count; limit = agent.state.config.max_turns }))
+      Error (Error.Agent (MaxTurnsExceeded {
+        turns = agent.state.turn_count;
+        limit = agent.state.config.max_turns }))
     else if agent.consecutive_idle_turns >= agent.options.max_idle_turns
             && agent.options.max_idle_turns > 0 then
-      Error (Error.Agent (IdleDetected { consecutive_idle_turns = agent.consecutive_idle_turns }))
+      Error (Error.Agent (IdleDetected {
+        consecutive_idle_turns = agent.consecutive_idle_turns }))
     else
       match check_token_budget agent.state.config agent.state.usage with
       | Some err -> Error err
       | None ->
-        match run_turn_stream_with_trace ~sw ?clock ~on_event ?raw_trace_run agent with
+        match run_turn_core ~sw ?clock ~api_strategy ?raw_trace_run agent with
         | Error e -> Error e
         | Ok `Complete response -> Ok response
         | Ok `ToolsExecuted -> loop ()
   in
   loop ()
 
-(* Re-export Agent_handoff helpers for backward compatibility *)
+let run ~sw ?clock agent user_prompt =
+  run_loop ~sw ?clock ~api_strategy:Sync agent user_prompt
+
+let run_stream ~sw ?clock ~on_event agent user_prompt =
+  run_loop ~sw ?clock ~api_strategy:(Stream { on_event }) agent user_prompt
+
+(* ── Handoff support ─────────────────────────────────────────── *)
+
 let find_handoff_in_messages = Agent_handoff.find_handoff_in_messages
 let replace_tool_result = Agent_handoff.replace_tool_result
 
-(** Run with handoff support.
-    Handoff tools are added to the agent's tool list.
-    When the LLM calls a transfer_to_* tool, a sub-agent is spawned and run.
-    The sub-agent's final text is returned as the tool result. *)
 let run_with_handoffs ~sw ?clock agent ~targets user_prompt =
   let handoff_tools = List.map Handoff.make_handoff_tool targets in
   let all_tools = agent.tools @ handoff_tools in
   let agent_with_handoffs = { agent with tools = all_tools } in
 
   agent_with_handoffs.state <- { agent_with_handoffs.state with
-    messages = agent_with_handoffs.state.messages @ [{ role = User; content = [Text user_prompt] }] };
+    messages = agent_with_handoffs.state.messages @
+      [{ role = User; content = [Text user_prompt] }] };
 
   with_raw_trace_run agent_with_handoffs user_prompt @@ fun raw_trace_run ->
   let rec loop () =
-    if agent_with_handoffs.state.turn_count >= agent_with_handoffs.state.config.max_turns then
-      Error (Error.Agent (MaxTurnsExceeded { turns = agent.state.turn_count; limit = agent.state.config.max_turns }))
+    if agent_with_handoffs.state.turn_count >=
+       agent_with_handoffs.state.config.max_turns then
+      Error (Error.Agent (MaxTurnsExceeded {
+        turns = agent.state.turn_count;
+        limit = agent.state.config.max_turns }))
     else
-      match run_turn_with_trace ~sw ?clock ?raw_trace_run agent_with_handoffs with
+      match run_turn_with_trace ~sw ?clock ?raw_trace_run
+              agent_with_handoffs with
       | Error e -> Error e
       | Ok `Complete response -> Ok response
       | Ok `ToolsExecuted ->
-        (* Check if the last assistant message contained a handoff tool call *)
-        (match find_handoff_in_messages agent_with_handoffs.state.messages with
+        (match find_handoff_in_messages
+                 agent_with_handoffs.state.messages with
          | Some (tool_id, target_name, prompt) ->
-           (* Find matching target definition *)
            let target_opt = List.find_opt
-             (fun (t : Handoff.handoff_target) -> t.name = target_name) targets in
+             (fun (t : Handoff.handoff_target) ->
+                t.name = target_name) targets in
            (match target_opt with
             | None ->
-              (* Unknown target: replace the sentinel result with a useful error. *)
-              let err_msg = Printf.sprintf "Unknown handoff target: %s" target_name in
-              agent_with_handoffs.state <- { agent_with_handoffs.state with
-                messages =
-                  replace_tool_result agent_with_handoffs.state.messages
-                    ~tool_id ~content:err_msg ~is_error:true };
+              let err_msg = Printf.sprintf
+                "Unknown handoff target: %s" target_name in
+              agent_with_handoffs.state <-
+                { agent_with_handoffs.state with
+                  messages =
+                    replace_tool_result
+                      agent_with_handoffs.state.messages
+                      ~tool_id ~content:err_msg ~is_error:true };
               loop ()
             | Some target ->
-              (* Create sub-agent with target's config and tools *)
               let sub = create ~net:agent.net ~config:target.config
                 ~tools:target.tools ~options:{ default_options with
                   base_url = agent.options.base_url;
                   provider = agent.options.provider } () in
-               (match run ~sw ?clock sub prompt with
+              (match run ~sw ?clock sub prompt with
                | Error e ->
-                 let err_msg = Printf.sprintf "Handoff to %s failed: %s" target_name (Error.to_string e) in
-                 agent_with_handoffs.state <- { agent_with_handoffs.state with
-                   messages =
-                     replace_tool_result agent_with_handoffs.state.messages
-                       ~tool_id ~content:err_msg ~is_error:true };
+                 let err_msg = Printf.sprintf
+                   "Handoff to %s failed: %s"
+                   target_name (Error.to_string e) in
+                 agent_with_handoffs.state <-
+                   { agent_with_handoffs.state with
+                     messages =
+                       replace_tool_result
+                         agent_with_handoffs.state.messages
+                         ~tool_id ~content:err_msg ~is_error:true };
                  loop ()
                | Ok sub_response ->
-                 (* Extract text from sub-agent response *)
                  let text = List.fold_left (fun acc block ->
                    match block with
-                   | Text s -> if acc = "" then s else acc ^ "\n" ^ s
+                   | Text s ->
+                     if acc = "" then s else acc ^ "\n" ^ s
                    | _ -> acc
                  ) "" sub_response.content in
-                 agent_with_handoffs.state <- { agent_with_handoffs.state with
-                   messages =
-                     replace_tool_result agent_with_handoffs.state.messages
-                       ~tool_id ~content:text ~is_error:false };
+                 agent_with_handoffs.state <-
+                   { agent_with_handoffs.state with
+                     messages =
+                       replace_tool_result
+                         agent_with_handoffs.state.messages
+                         ~tool_id ~content:text ~is_error:false };
                  loop ()))
-         | None ->
-           (* No handoff detected, normal tool execution loop *)
-           loop ())
+         | None -> loop ())
   in
   loop ()
 
-(** Restore an agent from a checkpoint.
-    Tools must be re-provided since handlers are closures (not serializable).
-    Config fields not captured in checkpoint (max_tokens, max_turns, etc.)
-    use defaults or can be overridden via [?config]. *)
+(* ── Checkpoint / Resume ─────────────────────────────────────── *)
+
 let resume ~net ~(checkpoint : Checkpoint.t) ?(tools=[]) ?context
     ?(options=default_options) ?config () =
-  let base_config = match config with
-    | Some c -> c
-    | None -> default_config
+  let { Agent_checkpoint.state; context = ctx } =
+    Agent_checkpoint.build_resume ~checkpoint ?config ?context ()
   in
-  let restored_config = {
-    base_config with
-    name = checkpoint.agent_name;
-    model = checkpoint.model;
-    system_prompt = checkpoint.system_prompt;
-    temperature = checkpoint.temperature;
-    top_p = checkpoint.top_p;
-    top_k = checkpoint.top_k;
-    min_p = checkpoint.min_p;
-    enable_thinking = checkpoint.enable_thinking;
-    response_format_json = checkpoint.response_format_json;
-    thinking_budget = checkpoint.thinking_budget;
-    tool_choice = checkpoint.tool_choice;
-    cache_system_prompt = checkpoint.cache_system_prompt;
-    max_input_tokens = checkpoint.max_input_tokens;
-    max_total_tokens = checkpoint.max_total_tokens;
-  } in
-  let state = {
-    config = restored_config;
-    messages = checkpoint.messages;
-    turn_count = checkpoint.turn_count;
-    usage = checkpoint.usage;
-  } in
-  let ctx = match context with
-    | Some c -> c
-    | None -> Context.copy checkpoint.context
-  in
-  { state; lifecycle = None; last_tool_calls = None; consecutive_idle_turns = 0;
-    tools; net; context = ctx; options }
+  { state; lifecycle = None; last_tool_calls = None;
+    consecutive_idle_turns = 0; tools; net; context = ctx; options }
 
-(** Create a checkpoint from the current agent state. *)
 let checkpoint ?(session_id="") agent =
-  {
-    Checkpoint.version = Checkpoint.checkpoint_version;
-    session_id;
-    agent_name = agent.state.config.name;
-    model = agent.state.config.model;
-    system_prompt = agent.state.config.system_prompt;
-    messages = agent.state.messages;
-    usage = agent.state.usage;
-    turn_count = agent.state.turn_count;
-    created_at = Unix.gettimeofday ();
-    tools = List.map (fun (t : Tool.t) -> t.schema) agent.tools;
-    tool_choice = agent.state.config.tool_choice;
-    disable_parallel_tool_use = agent.state.config.disable_parallel_tool_use;
-    temperature = agent.state.config.temperature;
-    top_p = agent.state.config.top_p;
-    top_k = agent.state.config.top_k;
-    min_p = agent.state.config.min_p;
-    enable_thinking = agent.state.config.enable_thinking;
-    response_format_json = agent.state.config.response_format_json;
-    thinking_budget = agent.state.config.thinking_budget;
-    cache_system_prompt = agent.state.config.cache_system_prompt;
-    max_input_tokens = agent.state.config.max_input_tokens;
-    max_total_tokens = agent.state.config.max_total_tokens;
-    context = Context.copy agent.context;
-    mcp_sessions = Mcp_session.capture_all agent.options.mcp_clients;
-  }
+  Agent_checkpoint.build_checkpoint ~session_id ~state:agent.state
+    ~tools:agent.tools ~context:agent.context
+    ~mcp_clients:agent.options.mcp_clients ()
+
 let run_turn_stream ~sw ?clock ~on_event agent =
-  run_turn_stream_with_trace ~sw ?clock ~on_event agent
+  run_turn_core ~sw ?clock ~api_strategy:(Stream { on_event }) agent
