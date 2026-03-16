@@ -2,6 +2,19 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.25.1] - 2026-03-16
+
+### Fixed
+- **Error classification**: OpenAI-compatible API errors in response body were classified as `NetworkError` (retryable) instead of `InvalidRequest` (non-retryable). Added `Openai_api_error` exception with correct routing in `Api.create_message`. (#86)
+- **Crash on unexpected JSON**: `api_ollama.ml` used `assert false` for unreachable branch, which would crash with `Assert_failure` if triggered. Replaced with descriptive `failwith`. (#86)
+- **Silent exception in worker thread**: `runtime_server.ml` raised `Failure` inside `Eio.Switch.run`, losing the error in the worker thread. Changed to `Result` propagation. (#86)
+
+### Added
+- **`tool_choice: None_`**: Disables tool use for a turn. Serializes to `{"type":"none"}` (Anthropic) / `"none"` (OpenAI). (#86)
+- **`disable_parallel_tool_use`**: Config field to force sequential tool execution. Maps to `tool_choice.disable_parallel_tool_use` (Anthropic) / `parallel_tool_calls: false` (OpenAI). (#86)
+- **`yojson` derivation** for `Sessions`, `Raw_trace`, and `Tool` types. (#87)
+- **Makefile** with `make test`, `make coverage`, `make clean` targets. (#85)
+
 ## [0.25.0] - 2026-03-16
 
 ### Added
