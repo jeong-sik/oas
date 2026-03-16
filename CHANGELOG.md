@@ -2,6 +2,39 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.30.0] - 2026-03-16
+
+### Added
+- Skill Registry (`skill_registry.ml`) — runtime skill loading/matching
+- Agent Card (`agent_card.ml`) — agent metadata + capability declaration
+- ElicitInput handler — interactive user input during agent runs
+
+## [0.28.1] - 2026-03-16
+
+### Fixed
+- MCP `read_response` non-tail-recursive loop — stack overflow risk on long sessions
+- MCP `mcp_tool_of_json` silent "tool" name fallback — now returns None
+
+### Added
+- 101 new tests, coverage 65.32% to 75.14%
+- Export missing `[@@deriving yojson, show]` in `agent_sdk.mli`
+
+## [0.28.0] - 2026-03-16
+
+### Changed
+- Split `sessions.ml` into `sessions_types.ml` + `sessions_store.ml` + `sessions_proof.ml`
+
+### Added
+- Cache cost tracking (`Provider.pricing_for_model`, `estimate_cost`)
+- Context reduction strategies (`context_reducer.ml`)
+
+## [0.27.0] - 2026-03-16
+
+### Added
+- Prompt caching for all providers (Anthropic `cache_control` ephemeral)
+- Provider registry E2E integration tests
+- Extracted module tests (`api_dispatch`, `api_ollama`)
+
 ## [0.26.0] - 2026-03-16
 
 ### Changed
