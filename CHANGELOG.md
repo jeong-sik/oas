@@ -5,6 +5,13 @@ All notable changes to `agent_sdk` are documented in this file.
 ## [0.25.0] - 2026-03-16
 
 ### Added
+- **`Agent_turn` module** (new): Common turn logic extracted from `agent.ml`. Provides `prepare_turn`, `accumulate_usage`, `update_idle_detection`, `apply_context_injection`, `check_token_budget`, `make_tool_results`, and `filter_valid_messages`.
+
+### Changed
+- **Streaming path feature parity**: `run_turn_stream_with_trace` now includes `BeforeTurnParams` hook, `apply_turn_params`, `extra_system_context`, `tool_filter_override`, and `context_injector`.
+- `agent.ml` reduced by ~50 lines through delegation to `Agent_turn`.
+
+### Added (v0.25.0-rc)
 - **Test harness framework** (`Harness`): 6-type pluggable verification — Behavioral, Adversarial, Performance, Regression, Swiss Cheese (multi-layer), Composability.
 - **Provider mock** (`Provider_mock`): network-free scripted responses with cycling, convenience builders for text/tool_use/thinking responses.
 - **Per-turn parameter adjustment** (`Hooks.turn_params`, `BeforeTurnParams`): hooks can adjust temperature, thinking_budget, tool_choice, tool_filter per turn via `AdjustParams` decision. Parameters revert after each API call.

@@ -68,10 +68,7 @@ let default_options = {
   event_bus = None;
 }
 
-type tool_call_fingerprint = {
-  fp_name: string;
-  fp_input: string;
-}
+type tool_call_fingerprint = Agent_turn.tool_call_fingerprint
 
 type t = {
   mutable state: agent_state;
@@ -490,19 +487,10 @@ let run_turn_with_trace ~sw ?clock ?raw_trace_run agent =
       let ts = Unix.gettimeofday () in
       set_lifecycle agent ~first_progress_at:ts ~last_progress_at:ts Running;
       let* () = trace_assistant_blocks raw_trace_run response.content in
-      (* Accumulate usage stats + cost *)
-      let usage = match response.usage with
-        | Some u ->
-          let base = add_usage agent.state.usage u in
-          let model_id = match agent.options.provider with
-            | Some cfg -> cfg.model_id
-            | None -> Types.model_to_string agent.state.config.model
-          in
-          let pricing = Provider.pricing_for_model model_id in
-          let turn_cost = Provider.estimate_cost ~pricing
-            ~input_tokens:u.input_tokens ~output_tokens:u.output_tokens in
-          { base with estimated_cost_usd = base.estimated_cost_usd +. turn_cost }
-        | None -> { agent.state.usage with api_calls = agent.state.usage.api_calls + 1 }
+      let usage = Agent_turn.accumulate_usage
+        ~current_usage:agent.state.usage
+        ~provider:agent.options.provider
+        ~response_usage:response.usage
       in
 
       (* AfterTurn hook *)
@@ -528,34 +516,28 @@ let run_turn_with_trace ~sw ?clock ?raw_trace_run agent =
       | StopToolUse ->
         let tool_uses = List.filter (function ToolUse _ -> true | _ -> false) response.content in
 
-        (* Idle detection: compare tool call fingerprints with previous turn *)
-        let current_fps = List.filter_map (function
-          | ToolUse { name; input; _ } ->
-            Some { fp_name = name; fp_input = Yojson.Safe.to_string input }
-          | _ -> None
-        ) tool_uses in
-        (* Idle check: fingerprints match previous turn (including both-empty).
-           None = first tool turn, no comparison possible. *)
-        let is_idle = match agent.last_tool_calls with
-          | None -> false
-          | Some prev ->
-            List.length current_fps = List.length prev &&
-            List.for_all2 (fun a b -> a.fp_name = b.fp_name && a.fp_input = b.fp_input)
-              current_fps prev
+        (* Idle detection via Agent_turn *)
+        let idle_result = Agent_turn.update_idle_detection
+          ~idle_state:{
+            last_tool_calls = agent.last_tool_calls;
+            consecutive_idle_turns = agent.consecutive_idle_turns;
+          }
+          ~tool_uses
         in
-        agent.last_tool_calls <- Some current_fps;
-        if is_idle then begin
-          agent.consecutive_idle_turns <- agent.consecutive_idle_turns + 1;
+        agent.last_tool_calls <- idle_result.new_state.last_tool_calls;
+        agent.consecutive_idle_turns <- idle_result.new_state.consecutive_idle_turns;
+        if idle_result.is_idle then begin
           let _idle =
             invoke_hook_with_trace agent ?raw_trace_run ~hook_name:"on_idle"
               agent.options.hooks.on_idle
               (Hooks.OnIdle {
                 consecutive_idle_turns = agent.consecutive_idle_turns;
-                tool_names = List.map (fun fp -> fp.fp_name) current_fps })
+                tool_names = List.filter_map (function
+                  | ToolUse { name; _ } -> Some name | _ -> None
+                ) tool_uses })
           in
           ()
-        end else
-          agent.consecutive_idle_turns <- 0;
+        end;
 
         (* Guardrail: check tool call count limit *)
         let count = List.length tool_uses in
@@ -571,59 +553,19 @@ let run_turn_with_trace ~sw ?clock ?raw_trace_run agent =
             with Raw_trace.Trace_error err -> Error err
           in
           let* results = results in
-          let tool_results = List.map (fun (tool_use_id, content, is_error) ->
-            ToolResult { tool_use_id; content; is_error }
-          ) results in
+          let tool_results = Agent_turn.make_tool_results results in
           agent.state <- { agent.state with messages = agent.state.messages @ [{ role = User; content = tool_results }] };
-          (* Context injection: call injector for each tool execution.
-             Wrapped in try-with so a faulty injector does not crash the tool loop. *)
+          (* Context injection *)
           (match agent.options.context_injector with
            | None -> ()
            | Some injector ->
-             List.iter2 (fun block (_, content, is_error) ->
-               match block with
-               | ToolUse { name; input; _ } ->
-                 let output : Types.tool_result =
-                   if is_error then Error { message = content; recoverable = true }
-                   else Ok { content }
-                 in
-                 (try
-                   match injector ~tool_name:name ~input ~output with
-                   | None -> ()
-                   | Some inj ->
-                     List.iter (fun (key, value) ->
-                       Context.set agent.context key value
-                     ) inj.Hooks.context_updates;
-                     (* Validate role alternation before appending extra_messages.
-                        The last message in agent.state.messages is User (ToolResult).
-                        Only append messages that maintain valid alternation. *)
-                     let valid_messages = match agent.state.messages with
-                       | [] -> inj.extra_messages
-                       | _ ->
-                         let last_role = (List.nth agent.state.messages
-                           (List.length agent.state.messages - 1)).role in
-                         let rec filter_valid prev_role = function
-                           | [] -> []
-                           | (msg : Types.message) :: rest ->
-                             if msg.role = prev_role then
-                               filter_valid prev_role rest  (* skip: same role *)
-                             else
-                               msg :: filter_valid msg.role rest
-                         in
-                         filter_valid last_role inj.extra_messages
-                     in
-                     if valid_messages <> [] then
-                       agent.state <- { agent.state with
-                         messages = agent.state.messages @ valid_messages }
-                 with exn ->
-                   Printf.eprintf
-                     "[oas] context_injector for tool '%s' raised: %s\n%!"
-                     name (Printexc.to_string exn))
-               | _ -> ()
-             ) tool_uses results);
+             let new_messages = Agent_turn.apply_context_injection
+               ~context:agent.context ~messages:agent.state.messages
+               ~injector ~tool_uses ~results
+             in
+             agent.state <- { agent.state with messages = new_messages });
           Ok (`ToolsExecuted))
       | EndTurn | MaxTokens | StopSequence ->
-        (* OnStop hook *)
         let _stop =
           invoke_hook_with_trace agent ?raw_trace_run ~hook_name:"on_stop"
             agent.options.hooks.on_stop
@@ -633,26 +575,7 @@ let run_turn_with_trace ~sw ?clock ?raw_trace_run agent =
       | Unknown reason ->
         Error (Error.Agent (UnrecognizedStopReason { reason }))
 
-(** Check if token budget has been exceeded. Returns a structured error or None. *)
-let check_token_budget config usage =
-  let exceeded_input =
-    match config.max_input_tokens with
-    | Some limit when usage.total_input_tokens > limit ->
-        Some (Error.Agent (TokenBudgetExceeded { kind = "Input"; used = usage.total_input_tokens; limit }))
-    | _ -> None
-  in
-  let exceeded_total =
-    match config.max_total_tokens with
-    | Some limit ->
-        let total = usage.total_input_tokens + usage.total_output_tokens in
-        if total > limit then
-          Some (Error.Agent (TokenBudgetExceeded { kind = "Total"; used = total; limit }))
-        else None
-    | _ -> None
-  in
-  match exceeded_input with
-  | Some _ as err -> err
-  | None -> exceeded_total
+let check_token_budget = Agent_turn.check_token_budget
 
 (** Run loop *)
 let run ~sw ?clock agent user_prompt =
@@ -688,21 +611,41 @@ let run_turn_stream_with_trace ~sw ?clock ~on_event ?raw_trace_run agent =
       (Hooks.BeforeTurn { turn = agent.state.turn_count; messages = agent.state.messages })
   in
 
+  (* BeforeTurnParams hook: same as non-streaming path *)
+  let turn_params = match agent.options.hooks.before_turn_params with
+    | None -> Hooks.default_turn_params
+    | Some _ ->
+      let last_results = last_tool_results_from agent.state.messages in
+      let reasoning = Hooks.extract_reasoning agent.state.messages in
+      let decision =
+        invoke_hook_with_trace agent ?raw_trace_run ~hook_name:"before_turn_params"
+          agent.options.hooks.before_turn_params
+          (Hooks.BeforeTurnParams {
+            turn = agent.state.turn_count;
+            messages = agent.state.messages;
+            last_tool_results = last_results;
+            current_params = Hooks.default_turn_params;
+            reasoning;
+          })
+      in
+      match decision with
+      | Hooks.AdjustParams params -> params
+      | _ -> Hooks.default_turn_params
+  in
+
+  let original_config = apply_turn_params agent turn_params in
+
   (* TurnStarted event *)
   (match agent.options.event_bus with
    | Some bus -> Event_bus.publish bus
        (TurnStarted { agent_name = agent.state.config.name; turn = agent.state.turn_count })
    | None -> ());
 
-  (* Apply guardrails: filter tools visible to LLM *)
-  let visible_tools = Guardrails.filter_tools agent.options.guardrails agent.tools in
-  let tool_schemas = List.map Tool.schema_to_json visible_tools in
-  let tools_json = if tool_schemas = [] then None else Some tool_schemas in
-
-  (* Apply context reducer *)
-  let effective_messages = match agent.options.context_reducer with
-    | None -> agent.state.messages
-    | Some reducer -> Context_reducer.reduce reducer agent.state.messages
+  (* Prepare tools and messages via Agent_turn *)
+  let prep = Agent_turn.prepare_turn
+    ~guardrails:agent.options.guardrails ~tools:agent.tools
+    ~messages:agent.state.messages
+    ~context_reducer:agent.options.context_reducer ~turn_params
   in
 
   let api_result = Tracing.with_span agent.options.tracer
@@ -710,28 +653,26 @@ let run_turn_stream_with_trace ~sw ?clock ~on_event ?raw_trace_run agent =
       agent_name = agent.state.config.name;
       turn = agent.state.turn_count; extra = [] }
     (fun _tracer ->
-      (* Try streaming first for Anthropic, fallback for others *)
       let stream_result =
         Streaming.create_message_stream ~sw ~net:agent.net
           ~base_url:agent.options.base_url ?provider:agent.options.provider
-          ~config:agent.state ~messages:effective_messages ?tools:tools_json
-          ~on_event ()
+          ~config:agent.state ~messages:prep.effective_messages
+          ?tools:prep.tools_json ~on_event ()
       in
       match stream_result with
       | Ok _ -> stream_result
       | Error (Error.Config (UnsupportedProvider _)) ->
-          (* Non-Anthropic provider: fallback to sync + synthetic events *)
           let sync_result =
             match agent.options.cascade with
             | Some casc ->
               Api.create_message_cascade ~sw ~net:agent.net ?clock
                 ~cascade:casc ~config:agent.state
-                ~messages:effective_messages ?tools:tools_json ()
+                ~messages:prep.effective_messages ?tools:prep.tools_json ()
             | None ->
               Api.create_message ~sw ~net:agent.net
                 ~base_url:agent.options.base_url ?provider:agent.options.provider
-                ?clock ~config:agent.state ~messages:effective_messages
-                ?tools:tools_json ()
+                ?clock ~config:agent.state ~messages:prep.effective_messages
+                ?tools:prep.tools_json ()
           in
           (match sync_result with
            | Ok response ->
@@ -740,25 +681,18 @@ let run_turn_stream_with_trace ~sw ?clock ~on_event ?raw_trace_run agent =
            | Error _ -> sync_result)
       | Error _ -> stream_result)
   in
+  (* Restore original config after API call *)
+  agent.state <- { agent.state with config = original_config };
   match api_result with
   | Error e -> Error e
   | Ok response ->
     let ts = Unix.gettimeofday () in
     set_lifecycle agent ~first_progress_at:ts ~last_progress_at:ts Running;
     let* () = trace_assistant_blocks raw_trace_run response.content in
-    (* Accumulate usage stats + cost *)
-    let usage = match response.usage with
-      | Some u ->
-        let base = add_usage agent.state.usage u in
-        let model_id = match agent.options.provider with
-          | Some cfg -> cfg.model_id
-          | None -> Types.model_to_string agent.state.config.model
-        in
-        let pricing = Provider.pricing_for_model model_id in
-        let turn_cost = Provider.estimate_cost ~pricing
-          ~input_tokens:u.input_tokens ~output_tokens:u.output_tokens in
-        { base with estimated_cost_usd = base.estimated_cost_usd +. turn_cost }
-      | None -> { agent.state.usage with api_calls = agent.state.usage.api_calls + 1 }
+    let usage = Agent_turn.accumulate_usage
+      ~current_usage:agent.state.usage
+      ~provider:agent.options.provider
+      ~response_usage:response.usage
     in
 
     (* AfterTurn hook *)
@@ -784,35 +718,31 @@ let run_turn_stream_with_trace ~sw ?clock ~on_event ?raw_trace_run agent =
     | StopToolUse ->
       let tool_uses = List.filter (function ToolUse _ -> true | _ -> false) response.content in
 
-      (* Idle detection: compare tool call fingerprints with previous turn *)
-      let current_fps = List.filter_map (function
-        | ToolUse { name; input; _ } ->
-          Some { fp_name = name; fp_input = Yojson.Safe.to_string input }
-        | _ -> None
-      ) tool_uses in
-      let is_idle = match agent.last_tool_calls with
-        | None -> false
-        | Some prev ->
-          List.length current_fps = List.length prev &&
-          List.for_all2 (fun a b -> a.fp_name = b.fp_name && a.fp_input = b.fp_input)
-            current_fps prev
+      (* Idle detection via Agent_turn *)
+      let idle_result = Agent_turn.update_idle_detection
+        ~idle_state:{
+          last_tool_calls = agent.last_tool_calls;
+          consecutive_idle_turns = agent.consecutive_idle_turns;
+        }
+        ~tool_uses
       in
-      agent.last_tool_calls <- Some current_fps;
-      if is_idle then begin
-        agent.consecutive_idle_turns <- agent.consecutive_idle_turns + 1;
+      agent.last_tool_calls <- idle_result.new_state.last_tool_calls;
+      agent.consecutive_idle_turns <- idle_result.new_state.consecutive_idle_turns;
+      if idle_result.is_idle then begin
         let _idle =
           invoke_hook_with_trace agent ?raw_trace_run ~hook_name:"on_idle"
             agent.options.hooks.on_idle
             (Hooks.OnIdle {
               consecutive_idle_turns = agent.consecutive_idle_turns;
-              tool_names = List.map (fun fp -> fp.fp_name) current_fps })
+              tool_names = List.filter_map (function
+                | ToolUse { name; _ } -> Some name | _ -> None
+              ) tool_uses })
         in
         ()
-      end else
-        agent.consecutive_idle_turns <- 0;
+      end;
 
       let count = List.length tool_uses in
-      (match Guardrails.exceeds_limit agent.options.guardrails count with
+      (match Guardrails.exceeds_limit prep.effective_guardrails count with
       | true ->
         let msg = Printf.sprintf "Tool call limit exceeded: %d calls in one turn" count in
         agent.state <- { agent.state with
@@ -824,11 +754,18 @@ let run_turn_stream_with_trace ~sw ?clock ~on_event ?raw_trace_run agent =
           with Raw_trace.Trace_error err -> Error err
         in
         let* results = results in
-        let tool_results = List.map (fun (tool_use_id, content, is_error) ->
-          ToolResult { tool_use_id; content; is_error }
-        ) results in
+        let tool_results = Agent_turn.make_tool_results results in
         agent.state <- { agent.state with
           messages = agent.state.messages @ [{ role = User; content = tool_results }] };
+        (* Context injection — now in streaming path too *)
+        (match agent.options.context_injector with
+         | None -> ()
+         | Some injector ->
+           let new_messages = Agent_turn.apply_context_injection
+             ~context:agent.context ~messages:agent.state.messages
+             ~injector ~tool_uses ~results
+           in
+           agent.state <- { agent.state with messages = new_messages });
         Ok (`ToolsExecuted))
     | EndTurn | MaxTokens | StopSequence ->
       let _stop =
