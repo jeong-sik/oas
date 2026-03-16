@@ -2,6 +2,17 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.25.0] - 2026-03-16
+
+### Added
+- **Test harness framework** (`Harness`): 6-type pluggable verification — Behavioral, Adversarial, Performance, Regression, Swiss Cheese (multi-layer), Composability.
+- **Provider mock** (`Provider_mock`): network-free scripted responses with cycling, convenience builders for text/tool_use/thinking responses.
+- **Per-turn parameter adjustment** (`Hooks.turn_params`, `BeforeTurnParams`): hooks can adjust temperature, thinking_budget, tool_choice, tool_filter per turn via `AdjustParams` decision. Parameters revert after each API call.
+- **Reasoning extraction** (`Hooks.extract_reasoning`): extracts thinking blocks, detects uncertainty markers, identifies tool selection rationale.
+- **Dynamic context strategy** (`Context_reducer.Dynamic`): select windowing strategy at runtime based on turn count and message state.
+- **Conditional orchestration** (`Orchestrator.conditional_plan`): `Branch`, `Loop`, `Sequence`, `Cond_parallel` with route conditions (`Always`, `ResultOk`, `TextContains`, `And`, `Or`, `Not`).
+- **Context scope isolation** (`Context.isolated_scope`): `create_scope` with `propagate_up`/`propagate_down` key control for sub-agent delegation.
+
 ## [0.24.0] - 2026-03-16
 
 ### Added
