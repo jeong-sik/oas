@@ -209,7 +209,7 @@ dune exec examples/streaming.exe
 
 ## Versioning
 
-0.25.1
+0.26.0
 
 We follow semver intent within the 0.x series:
 - **0.x.0**: May contain breaking changes with migration guide in CHANGELOG.
