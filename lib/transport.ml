@@ -201,7 +201,7 @@ let start_reader_fiber ~sw transport =
   Eio.Fiber.fork_daemon ~sw (fun () ->
     (try reader_loop transport
      with
-     | End_of_file | Eio.Io _ | Unix.Unix_error _ ->
+     | End_of_file | Eio.Io _ | Unix.Unix_error _ | Sys_error _ ->
        if not (Atomic.get transport.closed) then
          set_reader_failed transport
            (Error.Io
@@ -334,10 +334,9 @@ let request ?control_handler ?event_handler transport request =
   end
 
 let close transport =
-  if not (Atomic.get transport.closed) then begin
+  if Atomic.compare_and_set transport.closed false true then begin
     (try ignore (request transport Runtime.Shutdown)
      with Eio.Io _ | Unix.Unix_error _ | Failure _ -> ());
-    Atomic.set transport.closed true;
     transport.kill ()
   end
 
