@@ -2,6 +2,20 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.40.0] - 2026-03-16
+
+### Added
+- v0.36: File-backed A2A task persistence (`a2a_task_store.ml`) — atomic write, validate_task_id, GC
+- v0.37: MCP HTTP transport (`mcp_http.ml`) + SSE parser (`sse_parser.ml`) — JSON-RPC 2.0 over HTTP
+- v0.38: Agent Registry (`agent_registry.ml`) — Hashtbl-based registry with capability lookup
+- v0.39: Approval Pipeline (`approval.ml`) — composable multi-step approval evaluation
+- v0.40: SDK CLI (`bin/oas_cli.ml`) + Agent Config (`agent_config.ml`) — cmdliner-based CLI entry point
+- 7 new test suites (69 tests, 1,183 LOC)
+- Error types: `HttpTransportFailed`, `DiscoveryFailed`
+
+### Changed
+- `sdk_version` bumped to `"0.40.0"`
+
 ## [0.30.0] - 2026-03-16
 
 ### Added
