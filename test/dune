@@ -217,3 +217,11 @@
 (test
  (name test_conditional_orch)
  (libraries agent_sdk alcotest yojson str eio eio_main))
+
+(test
+ (name test_api_dispatch)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_property_advanced)
+ (libraries agent_sdk alcotest qcheck-core qcheck-alcotest yojson))

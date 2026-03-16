@@ -333,6 +333,13 @@ let request ?control_handler ?event_handler transport request =
     Eio.Promise.await promise
   end
 
+(** Query connection status. *)
+let status transport =
+  if Atomic.get transport.closed then `Disconnected
+  else match transport.reader_failed with
+  | Some err -> `Error (Error.to_string err)
+  | None -> `Connected
+
 let close transport =
   if Atomic.compare_and_set transport.closed false true then begin
     (try ignore (request transport Runtime.Shutdown)

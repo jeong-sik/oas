@@ -79,6 +79,7 @@ type t = {
   reader: Eio.Buf_read.t;
   writer: Eio.Flow.sink_ty Eio.Resource.t;
   mutable next_id: int;
+  id_mu: Eio.Mutex.t;
   kill: unit -> unit;
 }
 
@@ -131,7 +132,8 @@ let connect ~sw ~(mgr : _ Eio.Process.mgr) ~command ~args ?env () =
       try Eio.Process.signal proc Sys.sigterm
       with Unix.Unix_error _ | Eio.Io _ | Sys_error _ -> ()
     in
-    Ok { reader; writer = (w_child_stdin :> Eio.Flow.sink_ty Eio.Resource.t); next_id = 1; kill }
+    Ok { reader; writer = (w_child_stdin :> Eio.Flow.sink_ty Eio.Resource.t);
+         next_id = 1; id_mu = Eio.Mutex.create (); kill }
   with
   | Eio.Io _ as exn ->
     Error (Error.Mcp (ServerStartFailed { command; detail = Printexc.to_string exn }))
@@ -169,8 +171,11 @@ let rec read_response t =
   | Eio.Io _ as exn -> Error (Printexc.to_string exn)
 
 let send_request t ~method_ ?params () =
-  let id = t.next_id in
-  t.next_id <- t.next_id + 1;
+  let id = Eio.Mutex.use_rw ~protect:true t.id_mu (fun () ->
+    let id = t.next_id in
+    t.next_id <- t.next_id + 1;
+    id)
+  in
   let fields = [
     ("jsonrpc", `String "2.0");
     ("id", `Int id);
@@ -408,6 +413,16 @@ let to_tools t (tools : mcp_tool list) =
     mcp_tool_to_sdk_tool ~call_fn mt
   ) tools
 
+(** Check if the MCP server subprocess is still responsive.
+    Sends a [ping] request and returns [true] if a response arrives. *)
+let is_alive t =
+  try
+    match send_request t ~method_:"ping" () with
+    | Ok _ -> true
+    | Error _ -> false
+  with
+  | End_of_file | Eio.Io _ | Unix.Unix_error _ | Failure _ -> false
+
 (** Close the MCP client and terminate the subprocess. *)
 let close t =
   t.kill ()
@@ -494,3 +509,25 @@ let connect_all ~sw ~mgr specs =
         loop (m :: acc) rest
   in
   loop [] specs
+
+(** Reconnect a managed MCP server by closing the old connection
+    and starting a fresh one from its spec.
+    Returns the new managed value on success. *)
+let reconnect ~sw ~mgr (m : managed) =
+  (try close m.client with _ -> ());
+  connect_and_load ~sw ~mgr m.spec
+
+(** Connect to multiple MCP servers, returning all that succeed.
+    Failed servers are reported in the second element of the pair
+    but do not prevent other servers from connecting. *)
+let connect_all_best_effort ~sw ~mgr specs =
+  let rec loop ok_acc err_acc = function
+    | [] -> (List.rev ok_acc, List.rev err_acc)
+    | spec :: rest ->
+      match connect_and_load ~sw ~mgr spec with
+      | Error e ->
+        loop ok_acc ((spec.name, e) :: err_acc) rest
+      | Ok m ->
+        loop (m :: ok_acc) err_acc rest
+  in
+  loop [] [] specs

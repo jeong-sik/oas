@@ -237,6 +237,18 @@ let pricing_for_model model_id =
     { input_per_million = 0.8; output_per_million = 4.0 }
   else if string_contains ~needle:"claude-3-7-sonnet" normalized then
     { input_per_million = 3.0; output_per_million = 15.0 }
+  else if string_contains ~needle:"gpt-4o-mini" normalized then
+    { input_per_million = 0.15; output_per_million = 0.6 }
+  else if string_contains ~needle:"gpt-4o" normalized then
+    { input_per_million = 2.5; output_per_million = 10.0 }
+  else if string_contains ~needle:"gpt-4.1" normalized then
+    { input_per_million = 2.0; output_per_million = 8.0 }
+  else if string_contains ~needle:"o3-mini" normalized then
+    { input_per_million = 1.1; output_per_million = 4.4 }
+  else if string_contains ~needle:"ollama" normalized
+       || string_contains ~needle:"qwen" normalized
+       || string_contains ~needle:"llama" normalized then
+    { input_per_million = 0.0; output_per_million = 0.0 }
   else
     { input_per_million = 0.0; output_per_million = 0.0 }
 
@@ -244,3 +256,33 @@ let estimate_cost ~(pricing : pricing) ~input_tokens ~output_tokens =
   let input_cost = Float.of_int input_tokens *. pricing.input_per_million /. 1_000_000.0 in
   let output_cost = Float.of_int output_tokens *. pricing.output_per_million /. 1_000_000.0 in
   input_cost +. output_cost
+
+(* ── Provider Registry: runtime registration for custom providers ── *)
+
+type provider_impl = {
+  name: string;
+  request_kind: request_kind;
+  capabilities: capabilities;
+  build_body:
+    config:Types.agent_state ->
+    messages:Types.message list ->
+    ?tools:Yojson.Safe.t list ->
+    unit -> string;
+  parse_response: string -> Types.api_response;
+  resolve: config -> (string * string * (string * string) list, Error.sdk_error) result;
+}
+
+let registry : (string, provider_impl) Hashtbl.t = Hashtbl.create 8
+let registry_mu = Eio.Mutex.create ()
+
+let register_provider impl =
+  Eio.Mutex.use_rw ~protect:true registry_mu (fun () ->
+    Hashtbl.replace registry impl.name impl)
+
+let find_provider name =
+  Eio.Mutex.use_ro registry_mu (fun () ->
+    Hashtbl.find_opt registry name)
+
+let registered_providers () =
+  Eio.Mutex.use_ro registry_mu (fun () ->
+    Hashtbl.fold (fun name _ acc -> name :: acc) registry [])

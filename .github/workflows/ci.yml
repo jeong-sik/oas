@@ -63,14 +63,23 @@ jobs:
 
       - name: Coverage report
         if: matrix.ocaml-compiler == '5.4.x'
-        continue-on-error: true
         env:
           BISECT_ENABLE: "yes"
         run: |
           opam exec -- dune clean
           opam exec -- dune runtest --force
-          opam exec -- bisect-ppx-report summary || echo "Coverage files not found; skipping report"
+          COVERAGE=$(opam exec -- bisect-ppx-report summary 2>/dev/null | grep -oP '\d+\.\d+(?=%)' | head -1 || echo "0")
+          echo "Total coverage: ${COVERAGE}%"
           opam exec -- bisect-ppx-report summary --per-file || true
+          # Enforce minimum coverage threshold (65%)
+          if [ -n "$COVERAGE" ]; then
+            THRESHOLD=65
+            if [ "$(echo "$COVERAGE < $THRESHOLD" | bc -l)" -eq 1 ]; then
+              echo "Coverage ${COVERAGE}% is below threshold ${THRESHOLD}%"
+              exit 1
+            fi
+            echo "Coverage ${COVERAGE}% meets threshold ${THRESHOLD}%"
+          fi
 
       - name: Build documentation (odoc)
         if: matrix.ocaml-compiler == '5.4.x'
