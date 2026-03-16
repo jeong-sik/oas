@@ -51,8 +51,27 @@ let build_body_assoc ~config ~messages ?tools ~stream () =
     | None -> body_assoc
   in
   let body_assoc = match config.config.tool_choice with
-    | Some tc -> ("tool_choice", tool_choice_to_json tc) :: body_assoc
-    | None -> body_assoc
+    | Some tc ->
+        let tc_json = tool_choice_to_json tc in
+        let tc_json =
+          if config.config.disable_parallel_tool_use then
+            match tc_json with
+            | `Assoc fields ->
+                `Assoc (("disable_parallel_tool_use", `Bool true) :: fields)
+            | other -> other
+          else
+            tc_json
+        in
+        ("tool_choice", tc_json) :: body_assoc
+    | None ->
+        if config.config.disable_parallel_tool_use then
+          let tc_json = `Assoc [
+            ("type", `String "auto");
+            ("disable_parallel_tool_use", `Bool true);
+          ] in
+          ("tool_choice", tc_json) :: body_assoc
+        else
+          body_assoc
   in
   let body_assoc = match config.config.thinking_budget with
     | Some budget ->

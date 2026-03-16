@@ -18,6 +18,7 @@ type t = {
   response_format_json: bool;
   thinking_budget: int option;
   tool_choice: tool_choice option;
+  disable_parallel_tool_use: bool;
   cache_system_prompt: bool;
   max_input_tokens: int option;
   max_total_tokens: int option;
@@ -54,6 +55,7 @@ let create ~net ~model =
     response_format_json = default_config.response_format_json;
     thinking_budget = default_config.thinking_budget;
     tool_choice = default_config.tool_choice;
+    disable_parallel_tool_use = default_config.disable_parallel_tool_use;
     cache_system_prompt = default_config.cache_system_prompt;
     max_input_tokens = default_config.max_input_tokens;
     max_total_tokens = default_config.max_total_tokens;
@@ -107,6 +109,7 @@ let with_tool_grants tool_names b =
 let with_mcp_tool_allowlist tool_names b =
   with_contract (Contract.with_mcp_tool_allowlist tool_names Contract.empty) b
 let with_tool_choice tc b = { b with tool_choice = Some tc }
+let with_disable_parallel_tool_use v b = { b with disable_parallel_tool_use = v }
 let with_thinking_budget n b = { b with thinking_budget = Some n }
 let with_max_input_tokens n b = { b with max_input_tokens = Some n }
 let with_max_total_tokens n b = { b with max_total_tokens = Some n }
@@ -146,6 +149,7 @@ let build b =
     response_format_json = b.response_format_json;
     thinking_budget = b.thinking_budget;
     tool_choice = b.tool_choice;
+    disable_parallel_tool_use = b.disable_parallel_tool_use;
     cache_system_prompt = b.cache_system_prompt;
     max_input_tokens = b.max_input_tokens;
     max_total_tokens = b.max_total_tokens;

@@ -21,6 +21,7 @@ type t = {
   created_at: float;
   tools: tool_schema list;
   tool_choice: tool_choice option;
+  disable_parallel_tool_use: bool;
   temperature: float option;
   top_p: float option;
   top_k: int option;
@@ -189,6 +190,7 @@ let to_json cp =
     ("enable_thinking", Option.value ~default:`Null (Option.map (fun v -> `Bool v) cp.enable_thinking));
     ("response_format_json", `Bool cp.response_format_json);
     ("thinking_budget", Option.value ~default:`Null (Option.map (fun v -> `Int v) cp.thinking_budget));
+    ("disable_parallel_tool_use", `Bool cp.disable_parallel_tool_use);
     ("cache_system_prompt", `Bool cp.cache_system_prompt);
     ("max_input_tokens", Option.value ~default:`Null (Option.map (fun v -> `Int v) cp.max_input_tokens));
     ("max_total_tokens", Option.value ~default:`Null (Option.map (fun v -> `Int v) cp.max_total_tokens));
@@ -249,6 +251,9 @@ let of_json json =
                created_at = json |> member "created_at" |> to_float;
                tools;
                tool_choice;
+               disable_parallel_tool_use =
+                 json |> member "disable_parallel_tool_use" |> to_bool_option
+                 |> Option.value ~default:false;
                temperature = json |> member "temperature" |> to_float_option;
                top_p = json |> member "top_p" |> to_float_option;
                top_k = json |> member "top_k" |> to_int_option;

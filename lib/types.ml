@@ -66,12 +66,14 @@ type tool_choice =
   | Auto
   | Any
   | Tool of string
+  | None_  (** Disables tool use for a turn. Anthropic: {"type":"none"}, OpenAI: "none" *)
 [@@deriving show]
 
 let tool_choice_to_json = function
   | Auto -> `Assoc [("type", `String "auto")]
   | Any -> `Assoc [("type", `String "any")]
   | Tool name -> `Assoc [("type", `String "tool"); ("name", `String name)]
+  | None_ -> `Assoc [("type", `String "none")]
 
 let tool_choice_of_json json =
   let open Yojson.Safe.Util in
@@ -82,6 +84,7 @@ let tool_choice_of_json json =
     | "tool" ->
       let name = json |> member "name" |> to_string in
       Ok (Tool name)
+    | "none" -> Ok None_
     | other -> Error (Error.Serialization (UnknownVariant { type_name = "tool_choice"; value = other }))
   with
   | Yojson.Safe.Util.Type_error (msg, _) ->
@@ -155,6 +158,7 @@ type agent_config = {
   response_format_json: bool;
   thinking_budget: int option; (* For Claude 3.7+ extended thinking *)
   tool_choice: tool_choice option;
+  disable_parallel_tool_use: bool; (* Anthropic: tool_choice.disable_parallel_tool_use, OpenAI: parallel_tool_calls=false *)
   cache_system_prompt: bool; (* Wrap system prompt with cache_control ephemeral *)
   max_input_tokens: int option; (* Token budget: max cumulative input tokens *)
   max_total_tokens: int option; (* Token budget: max cumulative total tokens *)
@@ -175,6 +179,7 @@ let default_config = {
   response_format_json = false;
   thinking_budget = None;
   tool_choice = None;
+  disable_parallel_tool_use = false;
   cache_system_prompt = false;
   max_input_tokens = None;
   max_total_tokens = None;

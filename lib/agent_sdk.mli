@@ -63,6 +63,7 @@ module Types : sig
     | Auto
     | Any
     | Tool of string
+    | None_
   [@@deriving show]
 
   val tool_choice_to_json : tool_choice -> Yojson.Safe.t
@@ -131,6 +132,7 @@ module Types : sig
     response_format_json: bool;
     thinking_budget: int option;
     tool_choice: tool_choice option;
+    disable_parallel_tool_use: bool;
     cache_system_prompt: bool;
     max_input_tokens: int option;
     max_total_tokens: int option;
@@ -1031,6 +1033,7 @@ module Checkpoint : sig
     created_at: float;
     tools: Types.tool_schema list;
     tool_choice: Types.tool_choice option;
+    disable_parallel_tool_use: bool;
     temperature: float option;
     top_p: float option;
     top_k: int option;
@@ -1457,6 +1460,7 @@ module Builder : sig
   val with_tool_grants : string list -> t -> t
   val with_mcp_tool_allowlist : string list -> t -> t
   val with_tool_choice : Types.tool_choice -> t -> t
+  val with_disable_parallel_tool_use : bool -> t -> t
   val with_thinking_budget : int -> t -> t
   val with_max_input_tokens : int -> t -> t
   val with_max_total_tokens : int -> t -> t

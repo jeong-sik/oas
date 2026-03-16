@@ -2,6 +2,10 @@
 
 open Types
 
+(** Raised when the OpenAI-compatible API returns an error in the response body.
+    Caught by [Api.create_message] and classified as [Retry.InvalidRequest]. *)
+exception Openai_api_error of string
+
 let tool_calls_to_openai_json blocks =
   blocks
   |> List.filter_map (function
@@ -108,6 +112,7 @@ let tool_choice_to_openai_json = function
           ("type", `String "function");
           ("function", `Assoc [("name", `String name)]);
         ]
+  | None_ -> `String "none"
 
 let strip_json_markdown_fences text =
   let trimmed = String.trim text in
@@ -229,6 +234,12 @@ let build_openai_body ?provider_config ~config ~messages ?tools () =
     | Some _ -> body_assoc
   in
   let body_assoc =
+    if config.config.disable_parallel_tool_use && capabilities.supports_tools then
+      ("parallel_tool_calls", `Bool false) :: body_assoc
+    else
+      body_assoc
+  in
+  let body_assoc =
     if config.config.response_format_json
        && capabilities.supports_response_format_json
     then
@@ -333,4 +344,4 @@ let parse_openai_response json_str =
       let msg =
         err |> member "message" |> to_string_option |> Option.value ~default:"Unknown API error"
       in
-      failwith msg
+      raise (Openai_api_error msg)
