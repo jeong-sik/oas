@@ -73,6 +73,8 @@ module Runtime_client = Runtime_client
 module Client = Client
 module Artifact_service = Artifact_service
 module Sessions = Sessions
+module Provider_mock = Provider_mock
+module Harness = Harness
 
 (** Quick start: create an agent with default config *)
 let create_agent ~net ?name ?model ?system_prompt ?max_tokens ?max_turns
