@@ -1179,7 +1179,7 @@ module Raw_trace : sig
     agent_name: string;
     session_id: string option;
   }
-  [@@deriving show]
+  [@@deriving yojson, show]
 
   type run_summary = {
     run_ref: run_ref;
@@ -1196,13 +1196,13 @@ module Raw_trace : sig
     started_at: float option;
     finished_at: float option;
   }
-  [@@deriving show]
+  [@@deriving yojson, show]
 
   type validation_check = {
     name: string;
     passed: bool;
   }
-  [@@deriving show]
+  [@@deriving yojson, show]
 
   type run_validation = {
     run_ref: run_ref;
@@ -1217,7 +1217,7 @@ module Raw_trace : sig
     stop_reason: string option;
     failure_reason: string option;
   }
-  [@@deriving show]
+  [@@deriving yojson, show]
 
   type record = {
     trace_version: int;
@@ -2313,7 +2313,7 @@ module Sessions : sig
     | Raw
     | Summary_only
     | No_trace
-  [@@deriving show]
+  [@@deriving yojson, show]
 
   type session_info = {
     session_id: string;
@@ -2415,8 +2415,11 @@ module Sessions : sig
   }
 
   type raw_trace_run = Raw_trace.run_ref
+  [@@deriving yojson, show]
   type raw_trace_summary = Raw_trace.run_summary
+  [@@deriving yojson, show]
   type raw_trace_validation = Raw_trace.run_validation
+  [@@deriving yojson, show]
 
   type worker_status =
     | Planned
@@ -2425,7 +2428,7 @@ module Sessions : sig
     | Running
     | Completed
     | Failed
-  [@@deriving show]
+  [@@deriving yojson, show]
 
   type worker_run = {
     worker_run_id: string;
@@ -2461,6 +2464,7 @@ module Sessions : sig
     has_file_write: bool;
     verification_pass_after_file_write: bool;
   }
+  [@@deriving yojson, show]
 
   type evidence_capabilities = {
     raw_trace: bool;
@@ -2650,6 +2654,7 @@ module Conformance : sig
     passed: bool;
     detail: string option;
   }
+  [@@deriving yojson]
 
   type summary = {
     session_id: string;
@@ -2675,12 +2680,14 @@ module Conformance : sig
     tool_catalog_count: int;
     trace_capabilities: Sessions.trace_capability list;
   }
+  [@@deriving yojson]
 
   type report = {
     ok: bool;
     summary: summary;
     checks: check list;
   }
+  [@@deriving yojson]
 
   val check : Sessions.proof_bundle -> check list
   val report : Sessions.proof_bundle -> report
