@@ -14,6 +14,11 @@ let ( let* ) = Result.bind
     Core runtime resources (net, tools, context) are kept on Agent.t directly;
     everything else lives here so new options don't bloat the Agent.create
     signature. *)
+type periodic_callback = {
+  interval_sec: float;
+  callback: unit -> unit;
+}
+
 type options = {
   base_url: string;
   provider: Provider.config option;
@@ -31,6 +36,7 @@ type options = {
   skill_registry: Skill_registry.t option;
   elicitation: Hooks.elicitation_callback option;
   description: string option;
+  periodic_callbacks: periodic_callback list;
 }
 
 (* Re-export lifecycle types from Agent_lifecycle.
@@ -80,6 +86,7 @@ let default_options = {
   skill_registry = None;
   elicitation = None;
   description = None;
+  periodic_callbacks = [];
 }
 
 type tool_call_fingerprint = Agent_turn.tool_call_fingerprint
@@ -614,11 +621,40 @@ let run_loop ~sw ?clock ~api_strategy agent user_prompt =
   in
   loop ()
 
+(* Start periodic callback fibers, return a stop function *)
+let start_periodic_callbacks ~sw ?clock (cbs : periodic_callback list) =
+  match clock with
+  | None -> (fun () -> ())
+  | Some clock ->
+    let stops = List.map (fun cb ->
+      let active = ref true in
+      Eio.Fiber.fork ~sw (fun () ->
+        let rec tick () =
+          if !active then begin
+            Eio.Time.sleep clock cb.interval_sec;
+            if !active then
+              (try cb.callback ()
+               with Eio.Cancel.Cancelled _ as ex -> raise ex | _ -> ());
+            tick ()
+          end
+        in
+        (try tick ()
+         with Eio.Cancel.Cancelled _ as ex -> raise ex | _ -> ()));
+      fun () -> active := false
+    ) cbs in
+    fun () -> List.iter (fun stop -> stop ()) stops
+
 let run ~sw ?clock agent user_prompt =
-  run_loop ~sw ?clock ~api_strategy:Sync agent user_prompt
+  let stop = start_periodic_callbacks ~sw ?clock agent.options.periodic_callbacks in
+  Fun.protect
+    ~finally:stop
+    (fun () -> run_loop ~sw ?clock ~api_strategy:Sync agent user_prompt)
 
 let run_stream ~sw ?clock ~on_event agent user_prompt =
-  run_loop ~sw ?clock ~api_strategy:(Stream { on_event }) agent user_prompt
+  let stop = start_periodic_callbacks ~sw ?clock agent.options.periodic_callbacks in
+  Fun.protect
+    ~finally:stop
+    (fun () -> run_loop ~sw ?clock ~api_strategy:(Stream { on_event }) agent user_prompt)
 
 (* ── Handoff support ─────────────────────────────────────────── *)
 

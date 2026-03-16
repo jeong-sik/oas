@@ -40,6 +40,7 @@ type t = {
   skill_registry: Skill_registry.t option;
   elicitation: Hooks.elicitation_callback option;
   description: string option;
+  periodic_callbacks: Agent.periodic_callback list;
   contract: Contract.t;
 }
 
@@ -80,6 +81,7 @@ let create ~net ~model =
     skill_registry = None;
     elicitation = None;
     description = None;
+    periodic_callbacks = [];
     contract = Contract.empty;
   }
 
@@ -128,6 +130,10 @@ let with_context_injector injector b = { b with context_injector = Some injector
 let with_skill_registry reg b = { b with skill_registry = Some reg }
 let with_elicitation cb b = { b with elicitation = Some cb }
 let with_description desc b = { b with description = Some desc }
+let with_periodic_callback cb b =
+  { b with periodic_callbacks = b.periodic_callbacks @ [cb] }
+let with_periodic_callbacks cbs b =
+  { b with periodic_callbacks = b.periodic_callbacks @ cbs }
 let with_fallback fallback b =
   let casc = match b.cascade with
     | Some c -> { c with Provider.fallbacks = c.fallbacks @ [fallback] }
@@ -180,6 +186,7 @@ let build b =
     skill_registry = b.skill_registry;
     elicitation = b.elicitation;
     description = b.description;
+    periodic_callbacks = b.periodic_callbacks;
   } in
   Agent.create ~net:b.net ~config ~tools ?context ~options ()
 

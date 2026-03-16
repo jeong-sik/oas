@@ -225,4 +225,52 @@ let () =
       test_case "shell_constraints" `Quick test_shell_constraints_yojson_roundtrip;
       test_case "descriptor None" `Quick test_descriptor_to_yojson_none;
     ];
+    "with_defaults", [
+      test_case "injects missing args" `Quick (fun () ->
+        let tool = Tool.create
+          ~name:"greet" ~description:"Greet"
+          ~parameters:[{
+            Types.name = "name"; description = "Name";
+            param_type = Types.String; required = true;
+          }]
+          (fun input ->
+            let open Yojson.Safe.Util in
+            Ok { Types.content = input |> member "name" |> to_string })
+        in
+        let wrapped = Tool.with_defaults
+          [("name", `String "default_user")] tool in
+        match Tool.execute wrapped (`Assoc []) with
+        | Ok { content } -> check string "default injected" "default_user" content
+        | Error _ -> fail "expected Ok"
+      );
+      test_case "preserves explicit args" `Quick (fun () ->
+        let tool = Tool.create
+          ~name:"greet" ~description:"Greet"
+          ~parameters:[]
+          (fun input ->
+            let open Yojson.Safe.Util in
+            Ok { Types.content = input |> member "name" |> to_string })
+        in
+        let wrapped = Tool.with_defaults
+          [("name", `String "default_user")] tool in
+        match Tool.execute wrapped (`Assoc [("name", `String "alice")]) with
+        | Ok { content } -> check string "explicit preserved" "alice" content
+        | Error _ -> fail "expected Ok"
+      );
+      test_case "works with context handler" `Quick (fun () ->
+        let tool = Tool.create_with_context
+          ~name:"ctx_greet" ~description:"Greet with context"
+          ~parameters:[]
+          (fun _ctx input ->
+            let open Yojson.Safe.Util in
+            Ok { Types.content = input |> member "agent" |> to_string })
+        in
+        let wrapped = Tool.with_defaults
+          [("agent", `String "worker-1")] tool in
+        let ctx = Context.create () in
+        match Tool.execute ~context:ctx wrapped (`Assoc []) with
+        | Ok { content } -> check string "default in ctx handler" "worker-1" content
+        | Error _ -> fail "expected Ok"
+      );
+    ];
   ]

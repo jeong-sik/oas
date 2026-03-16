@@ -125,3 +125,22 @@ let schema_to_json tool =
       ("required", `List required);
     ]);
   ]
+
+(** Wrap a tool to inject default arguments when not provided by the LLM.
+    Defaults are merged into JSON object args before the handler runs. *)
+let with_defaults (defaults : (string * Yojson.Safe.t) list) (tool : t) : t =
+  let inject_defaults input =
+    match input with
+    | `Assoc fields ->
+      let merged = List.fold_left (fun acc (k, v) ->
+        if List.mem_assoc k acc then acc
+        else (k, v) :: acc
+      ) fields defaults in
+      `Assoc merged
+    | other -> other
+  in
+  let handler = match tool.handler with
+    | Simple f -> Simple (fun input -> f (inject_defaults input))
+    | WithContext f -> WithContext (fun ctx input -> f ctx (inject_defaults input))
+  in
+  { tool with handler }

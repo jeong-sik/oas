@@ -153,4 +153,39 @@ let () =
       test_case "copy values" `Quick test_copy_values;
       test_case "copy independence" `Quick test_copy_independence;
     ];
+    "user_data", [
+      test_case "set and get" `Quick (fun () ->
+        let ctx = Context.create () in
+        Context.set_user_data ctx "name" (`String "alice");
+        let actual = Context.get_user_data ctx "name" in
+        check bool "get returns value" true
+          (actual = Some (`String "alice"))
+      );
+      test_case "stored with user: prefix" `Quick (fun () ->
+        let ctx = Context.create () in
+        Context.set_user_data ctx "role" (`String "admin");
+        let raw = Context.get ctx "user:role" in
+        check bool "raw key has prefix" true
+          (raw = Some (`String "admin"))
+      );
+      test_case "all_user_data" `Quick (fun () ->
+        let ctx = Context.create () in
+        Context.set_user_data ctx "a" (`Int 1);
+        Context.set_user_data ctx "b" (`Int 2);
+        Context.set_scoped ctx Context.Session "c" (`Int 3);
+        let ud = Context.all_user_data ctx in
+        check int "only user keys" 2 (List.length ud);
+        check bool "has a" true
+          (List.assoc_opt "a" ud = Some (`Int 1));
+        check bool "has b" true
+          (List.assoc_opt "b" ud = Some (`Int 2))
+      );
+      test_case "delete_user_data" `Quick (fun () ->
+        let ctx = Context.create () in
+        Context.set_user_data ctx "x" (`Bool true);
+        Context.delete_user_data ctx "x";
+        check bool "deleted" true
+          (Context.get_user_data ctx "x" = None)
+      );
+    ];
   ]
