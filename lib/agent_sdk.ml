@@ -47,7 +47,9 @@ module Tracing = Tracing
 module Context_reducer = Context_reducer
 module Tool = Tool
 module Mcp = Mcp
+module Mcp_http = Mcp_http
 module Mcp_session = Mcp_session
+module Sse_parser = Sse_parser
 module Guardrails = Guardrails
 module Log = Log
 module Event_bus = Event_bus
@@ -70,6 +72,9 @@ module Agent_checkpoint = Agent_checkpoint
 module Agent = Agent
 module Builder = Builder
 module Agent_card = Agent_card
+module Agent_registry = Agent_registry
+module Agent_config = Agent_config
+module Approval = Approval
 module Orchestrator = Orchestrator
 module Otel_tracer = Otel_tracer
 module Trace_eval = Trace_eval
@@ -87,6 +92,7 @@ module Eval = Eval
 module Eval_collector = Eval_collector
 module Event_forward = Event_forward
 module A2a_task = A2a_task
+module A2a_task_store = A2a_task_store
 module A2a_server = A2a_server
 
 (** Quick start: create an agent with default config *)
@@ -125,5 +131,5 @@ let runtime_query = Runtime_query.query
 let query = Query.query
 
 (** Version info *)
-let version = "0.35.0"
+let version = "0.40.0"
 let sdk_name = "agent_sdk"

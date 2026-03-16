@@ -281,3 +281,32 @@
 (test
  (name test_coverage_gaps)
  (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_a2a_task_store)
+ (libraries agent_sdk alcotest yojson unix eio eio_main))
+
+(test
+ (name test_sse_parser)
+ (libraries agent_sdk alcotest yojson eio eio_main))
+
+(test
+ (name test_mcp_http)
+ (libraries agent_sdk alcotest yojson eio eio_main cohttp-eio))
+
+(test
+ (name test_agent_registry)
+ (libraries agent_sdk alcotest yojson eio eio_main cohttp-eio))
+
+(test
+ (name test_approval_pipeline)
+ (libraries agent_sdk alcotest yojson str))
+
+(test
+ (name test_agent_config)
+ (libraries agent_sdk alcotest yojson eio eio_main))
+
+(test
+ (name test_cli)
+ (libraries agent_sdk alcotest yojson unix str)
+ (deps ../bin/oas_cli.exe))

@@ -2,3 +2,8 @@
  (name oas_runtime)
  (public_name oas-runtime)
  (libraries agent_sdk eio eio_main yojson unix))
+
+(executable
+ (name oas_cli)
+ (public_name oas)
+ (libraries agent_sdk eio eio_main yojson unix cmdliner))
