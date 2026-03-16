@@ -181,3 +181,103 @@ let all_ok results =
   List.for_all (fun tr ->
     match tr.result with Ok _ -> true | Error _ -> false
   ) results
+
+(* ── Conditional orchestration ───────────────────────────────── *)
+
+(** Route condition: predicate on task results. *)
+type route_condition =
+  | Always
+  | ResultOk                                    (** Last result was Ok *)
+  | TextContains of string                      (** Last result text contains string *)
+  | Custom_cond of (task_result -> bool)        (** Arbitrary predicate *)
+  | And of route_condition list
+  | Or of route_condition list
+  | Not of route_condition
+
+(** Conditional plan — extends the base [plan] with branching and loops.
+    Backward-compatible: base [plan] types can be wrapped via [Step]. *)
+type conditional_plan =
+  | Step of task
+  | Branch of {
+      condition: route_condition;
+      if_true: conditional_plan;
+      if_false: conditional_plan;
+    }
+  | Sequence of conditional_plan list
+  | Cond_parallel of conditional_plan list
+  | Loop of {
+      body: conditional_plan;
+      until: route_condition;
+      max_iterations: int;
+    }
+
+(** Evaluate a route condition against the most recent task result. *)
+let rec eval_condition (last_result : task_result option) cond =
+  match cond with
+  | Always -> true
+  | ResultOk ->
+    (match last_result with
+     | Some tr -> Result.is_ok tr.result
+     | None -> true)
+  | TextContains needle ->
+    (match last_result with
+     | Some { result = Ok resp; _ } ->
+       let text = text_of_response resp in
+       (try let _ = Str.search_forward (Str.regexp_string needle) text 0 in true
+        with Not_found -> false)
+     | _ -> false)
+  | Custom_cond pred ->
+    (match last_result with
+     | Some tr -> pred tr
+     | None -> true)
+  | And conds -> List.for_all (eval_condition last_result) conds
+  | Or conds -> List.exists (eval_condition last_result) conds
+  | Not c -> not (eval_condition last_result c)
+
+(** Execute a conditional plan, returning all task results in execution order. *)
+let rec execute_conditional ~sw ?clock orch plan =
+  execute_conditional_inner ~sw ?clock orch None plan
+
+and execute_conditional_inner ~sw ?clock orch last_result plan =
+  match plan with
+  | Step task ->
+    let tr = run_task ~sw ?clock orch task in
+    [tr]
+  | Branch { condition; if_true; if_false } ->
+    if eval_condition last_result condition then
+      execute_conditional_inner ~sw ?clock orch last_result if_true
+    else
+      execute_conditional_inner ~sw ?clock orch last_result if_false
+  | Sequence plans ->
+    let rec go acc last = function
+      | [] -> List.rev acc
+      | p :: rest ->
+        let results = execute_conditional_inner ~sw ?clock orch last p in
+        let new_last = match List.rev results with
+          | hd :: _ -> Some hd
+          | [] -> last
+        in
+        go (List.rev results @ acc) new_last rest
+    in
+    go [] last_result plans
+  | Cond_parallel plans ->
+    let results_per_plan = Eio.Fiber.List.map
+      ~max_fibers:orch.config.max_parallel
+      (fun p -> execute_conditional_inner ~sw ?clock orch last_result p)
+      plans
+    in
+    List.concat results_per_plan
+  | Loop { body; until; max_iterations } ->
+    let rec iterate acc last iteration =
+      if iteration >= max_iterations then List.rev acc
+      else
+        let results = execute_conditional_inner ~sw ?clock orch last body in
+        let new_last = match List.rev results with
+          | hd :: _ -> Some hd
+          | [] -> last
+        in
+        let all_acc = List.rev results @ acc in
+        if eval_condition new_last until then List.rev all_acc
+        else iterate all_acc new_last (iteration + 1)
+    in
+    iterate [] last_result 0

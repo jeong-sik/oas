@@ -116,3 +116,37 @@ let copy (ctx : t) : t =
   let new_ctx = create () in
   Hashtbl.iter (fun k v -> Hashtbl.replace new_ctx k v) ctx;
   new_ctx
+
+(* ── Scoped isolation for sub-agent delegation ───────────────── *)
+
+(** An isolated scope for sub-agent execution.
+    [parent] is the parent context (read-only reference).
+    [local] is the sub-agent's working context.
+    [propagate_up] lists keys that should be merged back to parent.
+    [propagate_down] lists keys inherited from parent at creation. *)
+type isolated_scope = {
+  parent: t;
+  local: t;
+  propagate_up: string list;
+  propagate_down: string list;
+}
+
+(** Create an isolated scope from a parent context.
+    Only keys listed in [propagate_down] are copied to the local context. *)
+let create_scope ~parent ~propagate_down ~propagate_up =
+  let local = create () in
+  List.iter (fun key ->
+    match get parent key with
+    | Some v -> set local key v
+    | None -> ()
+  ) propagate_down;
+  { parent; local; propagate_up; propagate_down }
+
+(** Merge specified keys from the local context back into the parent.
+    Only keys listed in [propagate_up] are merged. *)
+let merge_back scope =
+  List.iter (fun key ->
+    match get scope.local key with
+    | Some v -> set scope.parent key v
+    | None -> ()
+  ) scope.propagate_up

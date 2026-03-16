@@ -10,6 +10,7 @@ let hook_decision_to_string = function
   | Hooks.Skip -> "skip"
   | Hooks.Override _ -> "override"
   | Hooks.ApprovalRequired -> "approval_required"
+  | Hooks.AdjustParams _ -> "adjust_params"
 
 let invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count ~hook_name
     hook_opt event =
@@ -31,7 +32,8 @@ let invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count ~hook_name
               | Hooks.PreToolUse { tool_name; _ }
               | Hooks.PostToolUse { tool_name; _ }
               | Hooks.PostToolUseFailure { tool_name; _ } -> Some tool_name
-              | Hooks.BeforeTurn _ | Hooks.AfterTurn _ | Hooks.OnStop _
+              | Hooks.BeforeTurn _ | Hooks.BeforeTurnParams _
+              | Hooks.AfterTurn _ | Hooks.OnStop _
               | Hooks.OnIdle _ -> None)
       | None -> ());
       decision)
@@ -127,6 +129,11 @@ let execute_tools ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tracer
                         ~tracer ~agent_name ~turn_count ?on_hook_invoked name
                         new_input id))
               | Hooks.Continue ->
+                  find_and_execute_tool ~context ~tools ~hooks ~event_bus
+                    ~tracer ~agent_name ~turn_count ?on_hook_invoked name
+                    input id
+              | Hooks.AdjustParams _ ->
+                  (* AdjustParams is only valid for BeforeTurnParams; treat as Continue here *)
                   find_and_execute_tool ~context ~tools ~hooks ~event_bus
                     ~tracer ~agent_name ~turn_count ?on_hook_invoked name
                     input id)

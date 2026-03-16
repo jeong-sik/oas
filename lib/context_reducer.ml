@@ -21,6 +21,7 @@ type strategy =
   | Drop_thinking
   | Compose of strategy list
   | Custom of (message list -> message list)
+  | Dynamic of (turn:int -> messages:message list -> strategy)
 
 type t = { strategy : strategy }
 
@@ -168,6 +169,11 @@ and apply_strategy strategy messages =
   | Compose strategies ->
     List.fold_left (fun msgs s -> apply_strategy s msgs) messages strategies
   | Custom f -> f messages
+  | Dynamic selector ->
+    (* Infer turn count from message structure *)
+    let turn_count = List.length (group_into_turns messages) in
+    let selected = selector ~turn:turn_count ~messages in
+    apply_strategy selected messages
 
 (** Convenience constructors. *)
 let keep_last n = { strategy = Keep_last_n n }
@@ -177,3 +183,12 @@ let merge_contiguous = { strategy = Merge_contiguous }
 let drop_thinking = { strategy = Drop_thinking }
 let compose strategies = { strategy = Compose (List.map (fun r -> r.strategy) strategies) }
 let custom f = { strategy = Custom f }
+
+(** Dynamic strategy: selects a strategy per turn based on conversation state.
+    Example: early turns get full context, later turns use token budget.
+    {[
+      dynamic (fun ~turn ~messages:_ ->
+        if turn < 5 then Keep_last_n 20
+        else Token_budget 4000)
+    ]} *)
+let dynamic selector = { strategy = Dynamic selector }

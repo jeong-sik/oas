@@ -110,6 +110,7 @@ let hook_decision_to_string = function
   | Hooks.Skip -> "skip"
   | Hooks.Override _ -> "override"
   | Hooks.ApprovalRequired -> "approval_required"
+  | Hooks.AdjustParams _ -> "adjust_params"
 
 let requested_provider agent =
   provider_runtime_name agent.options.provider
@@ -366,6 +367,40 @@ let with_raw_trace_run agent user_prompt f =
       in
       finalize (f (Some active))
 
+(** Extract the last tool results from the most recent User message. *)
+let last_tool_results_from messages =
+  let rec find_last = function
+    | [] -> []
+    | msg :: rest ->
+      if msg.role = User then
+        let results = List.filter_map (function
+          | ToolResult { content; is_error; _ } ->
+            if is_error then Some (Error { Types.message = content; recoverable = true } : Types.tool_result)
+            else Some (Ok { Types.content } : Types.tool_result)
+          | _ -> None
+        ) msg.content in
+        if results <> [] then results
+        else find_last rest
+      else find_last rest
+  in
+  find_last (List.rev messages)
+
+(** Apply turn_params overrides to the agent state for one turn.
+    Returns the original config for restoration after API call. *)
+let apply_turn_params agent (params : Hooks.turn_params) =
+  let original_config = agent.state.config in
+  let new_config = {
+    original_config with
+    temperature =
+      (match params.temperature with Some _ as t -> t | None -> original_config.temperature);
+    thinking_budget =
+      (match params.thinking_budget with Some _ as t -> t | None -> original_config.thinking_budget);
+    tool_choice =
+      (match params.tool_choice with Some _ as t -> t | None -> original_config.tool_choice);
+  } in
+  agent.state <- { agent.state with config = new_config };
+  original_config
+
 (** Run a single turn with hook and guardrail support *)
 let run_turn_with_trace ~sw ?clock ?raw_trace_run agent =
   let ts = Unix.gettimeofday () in
@@ -377,14 +412,43 @@ let run_turn_with_trace ~sw ?clock ?raw_trace_run agent =
       (Hooks.BeforeTurn { turn = agent.state.turn_count; messages = agent.state.messages })
   in
 
+  (* BeforeTurnParams hook: allow per-turn parameter adjustment *)
+  let turn_params = match agent.options.hooks.before_turn_params with
+    | None -> Hooks.default_turn_params
+    | Some _ ->
+      let last_results = last_tool_results_from agent.state.messages in
+      let reasoning = Hooks.extract_reasoning agent.state.messages in
+      let decision =
+        invoke_hook_with_trace agent ?raw_trace_run ~hook_name:"before_turn_params"
+          agent.options.hooks.before_turn_params
+          (Hooks.BeforeTurnParams {
+            turn = agent.state.turn_count;
+            messages = agent.state.messages;
+            last_tool_results = last_results;
+            current_params = Hooks.default_turn_params;
+            reasoning;
+          })
+      in
+      match decision with
+      | Hooks.AdjustParams params -> params
+      | _ -> Hooks.default_turn_params
+  in
+
+  (* Apply turn_params overrides — will be restored after API call *)
+  let original_config = apply_turn_params agent turn_params in
+
   (* TurnStarted event *)
   (match agent.options.event_bus with
    | Some bus -> Event_bus.publish bus
        (TurnStarted { agent_name = agent.state.config.name; turn = agent.state.turn_count })
    | None -> ());
 
-  (* Apply guardrails: filter tools visible to LLM *)
-  let visible_tools = Guardrails.filter_tools agent.options.guardrails agent.tools in
+  (* Apply guardrails: filter tools visible to LLM, with optional override *)
+  let effective_guardrails = match turn_params.tool_filter_override with
+    | Some filter -> { agent.options.guardrails with tool_filter = filter }
+    | None -> agent.options.guardrails
+  in
+  let visible_tools = Guardrails.filter_tools effective_guardrails agent.tools in
   let tool_schemas = List.map Tool.schema_to_json visible_tools in
   let tools_json = if tool_schemas = [] then None else Some tool_schemas in
 
@@ -393,6 +457,14 @@ let run_turn_with_trace ~sw ?clock ?raw_trace_run agent =
   let effective_messages = match agent.options.context_reducer with
     | None -> agent.state.messages
     | Some reducer -> Context_reducer.reduce reducer agent.state.messages
+  in
+
+  (* Inject extra_system_context if provided by turn_params *)
+  let effective_messages = match turn_params.extra_system_context with
+    | None -> effective_messages
+    | Some ctx ->
+      let system_msg = { role = User; content = [Text ("[system context] " ^ ctx)] } in
+      system_msg :: effective_messages
   in
 
   let api_result = Tracing.with_span agent.options.tracer
@@ -410,6 +482,8 @@ let run_turn_with_trace ~sw ?clock ?raw_trace_run agent =
           ?provider:agent.options.provider ?clock ~config:agent.state
           ~messages:effective_messages ?tools:tools_json ())
   in
+  (* Restore original config after API call — turn_params are ephemeral *)
+  agent.state <- { agent.state with config = original_config };
   match api_result with
   | Error e -> Error e
   | Ok response ->

@@ -222,6 +222,21 @@ module Context : sig
       Values are [Yojson.Safe.t] (structurally immutable), so shallow copy
       is sufficient for full independence. *)
   val copy : t -> t
+
+  (** Isolated scope for sub-agent delegation.
+      Only specified keys propagate between parent and child contexts. *)
+  type isolated_scope = {
+    parent: t;
+    local: t;
+    propagate_up: string list;
+    propagate_down: string list;
+  }
+
+  val create_scope :
+    parent:t -> propagate_down:string list -> propagate_up:string list ->
+    isolated_scope
+
+  val merge_back : isolated_scope -> unit
 end
 
 (** {1 LLM Provider Abstraction} *)
@@ -347,9 +362,38 @@ module Error = Error
 (** {1 Lifecycle Hooks} *)
 
 module Hooks : sig
+  (** Per-turn adjustable parameters.
+      Returned via [AdjustParams] from [BeforeTurnParams] hook. *)
+  type turn_params = {
+    temperature: float option;
+    thinking_budget: int option;
+    tool_choice: Types.tool_choice option;
+    extra_system_context: string option;
+    tool_filter_override: Guardrails.tool_filter option;
+  }
+
+  val default_turn_params : turn_params
+
+  (** Reasoning summary extracted from assistant messages. *)
+  type reasoning_summary = {
+    thinking_blocks: string list;
+    has_uncertainty: bool;
+    tool_rationale: string option;
+  }
+
+  val empty_reasoning_summary : reasoning_summary
+  val extract_reasoning : Types.message list -> reasoning_summary
+
   (** Events emitted during agent execution *)
   type hook_event =
     | BeforeTurn of { turn: int; messages: Types.message list }
+    | BeforeTurnParams of {
+        turn: int;
+        messages: Types.message list;
+        last_tool_results: Types.tool_result list;
+        current_params: turn_params;
+        reasoning: reasoning_summary;
+      }
     | AfterTurn of { turn: int; response: Types.api_response }
     | PreToolUse of { tool_name: string; input: Yojson.Safe.t }
     | PostToolUse of { tool_name: string; input: Yojson.Safe.t;
@@ -365,6 +409,7 @@ module Hooks : sig
     | Skip
     | Override of string
     | ApprovalRequired
+    | AdjustParams of turn_params
 
   (** Decision from approval callback *)
   type approval_decision =
@@ -381,6 +426,7 @@ module Hooks : sig
   (** Collection of optional hooks *)
   type hooks = {
     before_turn: hook option;
+    before_turn_params: hook option;
     after_turn: hook option;
     pre_tool_use: hook option;
     post_tool_use: hook option;
@@ -455,6 +501,7 @@ module Context_reducer : sig
     | Drop_thinking
     | Compose of strategy list
     | Custom of (Types.message list -> Types.message list)
+    | Dynamic of (turn:int -> messages:Types.message list -> strategy)
 
   type t = { strategy : strategy }
 
@@ -477,6 +524,7 @@ module Context_reducer : sig
   val drop_thinking : t
   val compose : t list -> t
   val custom : (Types.message list -> Types.message list) -> t
+  val dynamic : (turn:int -> messages:Types.message list -> strategy) -> t
 end
 
 (** {1 Tool System} *)
@@ -1505,6 +1553,44 @@ module Orchestrator : sig
 
   (** [true] when every result is [Ok _]. *)
   val all_ok : task_result list -> bool
+
+  (** {2 Conditional Orchestration} *)
+
+  (** Route condition: predicate on the most recent task result. *)
+  type route_condition =
+    | Always
+    | ResultOk
+    | TextContains of string
+    | Custom_cond of (task_result -> bool)
+    | And of route_condition list
+    | Or of route_condition list
+    | Not of route_condition
+
+  (** Conditional plan with branching and loops.
+      Extends the base [plan] with control flow. *)
+  type conditional_plan =
+    | Step of task
+    | Branch of {
+        condition: route_condition;
+        if_true: conditional_plan;
+        if_false: conditional_plan;
+      }
+    | Sequence of conditional_plan list
+    | Cond_parallel of conditional_plan list
+    | Loop of {
+        body: conditional_plan;
+        until: route_condition;
+        max_iterations: int;
+      }
+
+  val eval_condition : task_result option -> route_condition -> bool
+
+  val execute_conditional :
+    sw:Eio.Switch.t ->
+    ?clock:_ Eio.Time.clock ->
+    t ->
+    conditional_plan ->
+    task_result list
 end
 
 (** {1 OpenTelemetry Tracing} *)
@@ -2674,3 +2760,150 @@ val create_agent :
 (** Version info *)
 val version : string
 val sdk_name : string
+
+(** {1 Testing Infrastructure} *)
+
+module Provider_mock : sig
+  (** Mock provider for testing — eliminates network dependency. *)
+
+  type response_fn = Types.message list -> Types.api_response
+  type t
+
+  val create : responses:response_fn list -> unit -> t
+  val next_response : t -> Types.message list -> (Types.api_response, Error.sdk_error) result
+  val reset : t -> unit
+  val call_count : t -> int
+
+  (** Convenience builders *)
+  val text_response : ?id:string -> ?model:string -> string -> response_fn
+  val tool_use_response :
+    ?id:string -> ?model:string ->
+    tool_name:string -> tool_input:Yojson.Safe.t -> unit -> response_fn
+  val tool_then_text :
+    tool_name:string -> tool_input:Yojson.Safe.t -> final_text:string ->
+    unit -> response_fn list
+  val thinking_response :
+    ?id:string -> ?model:string ->
+    thinking:string -> text:string -> unit -> response_fn
+  val to_provider_config : unit -> Provider.config
+end
+
+module Harness : sig
+  (** Test harness framework for agent verification.
+      Provides pluggable verification layers. *)
+
+  type verdict = {
+    passed: bool;
+    score: float option;
+    evidence: string list;
+    detail: string option;
+  }
+
+  type 'obs layer = {
+    name: string;
+    check: 'obs -> bool;
+    evidence: 'obs -> string;
+  }
+
+  module Behavioral : sig
+    type expectation =
+      | ToolSelected of string list
+      | CompletesWithin of int
+      | ContainsText of string
+      | All of expectation list
+
+    type observation = {
+      tools_called: string list;
+      turn_count: int;
+      final_response: string;
+      messages: Types.message list;
+    }
+
+    val observe : Agent.t -> (Types.api_response, Error.sdk_error) result -> observation
+    val evaluate : observation -> expectation -> verdict
+  end
+
+  module Adversarial : sig
+    type adversarial_input =
+      | MalformedJson of string
+      | PromptInjection of string
+      | ToolError of { tool_name: string; error: string }
+      | OversizedInput of { size: int }
+
+    type expectation =
+      | GracefulError
+      | NoToolExecution
+      | ErrorContains of string
+
+    type observation = {
+      result: (Types.api_response, Error.sdk_error) result;
+      tools_executed: string list;
+      error_message: string option;
+    }
+
+    val evaluate : observation -> expectation -> verdict
+  end
+
+  module Performance : sig
+    type observation = {
+      latencies_ms: float list;
+      total_tokens: int;
+      total_cost_usd: float;
+      turn_count: int;
+    }
+
+    type expectation = {
+      max_p95_latency_ms: float option;
+      max_total_tokens: int option;
+      max_cost_usd: float option;
+      max_turns: int option;
+    }
+
+    val default_expectation : expectation
+    val p95 : float list -> float
+    val evaluate : observation -> expectation -> verdict
+  end
+
+  module Regression : sig
+    type match_mode =
+      | ExactMatch
+      | StructuralMatch of (Yojson.Safe.t -> Yojson.Safe.t -> bool)
+      | FuzzyMatch of { threshold: float }
+
+    type observation = {
+      output_json: Yojson.Safe.t;
+      output_text: string;
+    }
+
+    val evaluate : mode:match_mode -> observation -> string -> verdict
+  end
+
+  module Swiss_cheese : sig
+    val require_all : 'obs layer list -> 'obs -> verdict
+    val require_n : int -> 'obs layer list -> 'obs -> verdict
+  end
+
+  module Composability : sig
+    type scenario =
+      | SingleAgent
+      | Handoff of { parent: string; targets: string list }
+      | Orchestrated of { agents: string list }
+      | Pipeline of { stages: string list }
+
+    type expectation =
+      | HandoffOccurred of string
+      | AllAgentsCompleted
+      | ContextPropagated of string
+      | TurnCountBelow of int
+
+    type observation = {
+      agents_involved: string list;
+      handoffs_observed: (string * string) list;
+      all_completed: bool;
+      context_keys: string list;
+      total_turns: int;
+    }
+
+    val evaluate : observation -> expectation -> verdict
+  end
+end
