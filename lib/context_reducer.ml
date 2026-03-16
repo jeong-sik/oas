@@ -38,8 +38,16 @@ let estimate_block_tokens = function
     let input_str = Yojson.Safe.to_string input in
     ((String.length name + String.length input_str) + 3) / 4
   | ToolResult { content; _ } -> (String.length content + 3) / 4
-  | Image _ -> 1000
-  | Document _ -> 2000
+  | Image { data; _ } ->
+    (* Approximate: base64 data length * 3/4 / 750 tokens, capped at 1600.
+       Avoids base64 decoding; uses length as proxy for byte size. *)
+    min ((String.length data * 3 / 4 / 750) + 1) 1600
+  | Document { data; _ } ->
+    (* Documents: similar heuristic, typically larger *)
+    min ((String.length data * 3 / 4 / 500) + 1) 3000
+  | Audio { data; _ } ->
+    (* Audio: ~1 token per 10ms at 16kHz mono, rough estimate from data size *)
+    min ((String.length data * 3 / 4 / 320) + 1) 5000
 
 (** Estimate tokens for a message (sum of its content blocks). *)
 let estimate_message_tokens (msg : message) : int =

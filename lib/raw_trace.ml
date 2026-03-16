@@ -408,6 +408,7 @@ let record_assistant_block active ~block_index block =
     | ToolResult _ -> "tool_result"
     | Image _ -> "image"
     | Document _ -> "document"
+    | Audio _ -> "audio"
   in
   append_record active ~record_type:Assistant_block
     ~block_index ~block_kind ~assistant_block:json ()

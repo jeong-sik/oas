@@ -99,6 +99,7 @@ type content_block =
   | ToolResult of { tool_use_id: string; content: string; is_error: bool }
   | Image of { media_type: string; data: string; source_type: string }
   | Document of { media_type: string; data: string; source_type: string }
+  | Audio of { media_type: string; data: string; source_type: string }
 [@@deriving show]
 
 (** A single message in the conversation *)

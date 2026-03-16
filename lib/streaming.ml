@@ -314,6 +314,7 @@ let emit_synthetic_events (response : api_response) on_event =
       | ToolUse { id; name; _ } -> "tool_use", Some id, Some name
       | Image _ -> "text", None, None
       | Document _ -> "text", None, None
+      | Audio _ -> "text", None, None
       | RedactedThinking _ -> "text", None, None
       | ToolResult _ -> "text", None, None
     in
