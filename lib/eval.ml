@@ -130,12 +130,13 @@ let run_metrics_of_yojson json =
       | Error _ as e -> e
       | Ok ms ->
         match metric_of_yojson j with
-        | Ok m -> Ok (ms @ [m])
+        | Ok m -> Ok (m :: ms)
         | Error e -> Error e
     ) (Ok []) metrics_json in
     match metrics_result with
     | Error e -> Error e
     | Ok metrics ->
+      let metrics = List.rev metrics in
       Ok { run_id; agent_name; timestamp; metrics;
            harness_verdicts = []; trace_summary = None }
   with Type_error (msg, _) -> Error msg
@@ -199,13 +200,17 @@ type comparison = {
   unchanged: metric_delta list;
 }
 
-let compute_delta ~baseline_val ~candidate_val =
+(** Threshold percentage for classifying a delta as regression/improvement.
+    Default 5.0%: changes within +/-5% are classified as Unchanged. *)
+let default_delta_threshold_pct = 5.0
+
+let compute_delta ?(threshold_pct = default_delta_threshold_pct) ~baseline_val ~candidate_val () =
   match metric_value_to_float baseline_val, metric_value_to_float candidate_val with
   | Some bv, Some cv when bv <> 0.0 ->
     let pct = ((cv -. bv) /. (Float.abs bv)) *. 100.0 in
     let direction =
-      if pct > 5.0 then Regression
-      else if pct < -5.0 then Improvement
+      if pct > threshold_pct then Regression
+      else if pct < (-.threshold_pct) then Improvement
       else Unchanged
     in
     (direction, Some pct)
@@ -223,7 +228,7 @@ let compare ~(baseline : run_metrics) ~(candidate : run_metrics) =
     match List.find_opt (fun (cm : metric) -> cm.name = bm.name) candidate.metrics with
     | None -> None
     | Some cm ->
-      let (direction, delta_pct) = compute_delta ~baseline_val:bm.value ~candidate_val:cm.value in
+      let (direction, delta_pct) = compute_delta ~baseline_val:bm.value ~candidate_val:cm.value () in
       Some {
         metric_name = bm.name;
         baseline_value = bm.value;

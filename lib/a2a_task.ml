@@ -163,7 +163,7 @@ let task_message_of_yojson json =
         | Error _ as e -> e
         | Ok ps ->
           match message_part_of_yojson j with
-          | Ok p -> Ok (ps @ [p])
+          | Ok p -> Ok (p :: ps)
           | Error e -> Error e
       ) (Ok []) parts_json in
       match parts_result with
@@ -173,7 +173,7 @@ let task_message_of_yojson json =
           | `Assoc kvs -> kvs
           | _ -> []
         in
-        Ok { role; parts; metadata }
+        Ok { role; parts = List.rev parts; metadata }
   with Type_error (msg, _) -> Error msg
 
 (* ── Artifact ─────────────────────────────────────────────────── *)
@@ -277,24 +277,26 @@ let task_of_yojson json =
         | Error _ as e -> e
         | Ok ms ->
           match task_message_of_yojson j with
-          | Ok m -> Ok (ms @ [m])
+          | Ok m -> Ok (m :: ms)
           | Error e -> Error e
       ) (Ok []) messages_json in
       match messages_result with
       | Error e -> Error e
       | Ok messages ->
+        let messages = List.rev messages in
         let artifacts_json = json |> member "artifacts" |> to_list in
         let artifacts_result = List.fold_left (fun acc j ->
           match acc with
           | Error _ as e -> e
           | Ok as_ ->
             match artifact_of_yojson j with
-            | Ok a -> Ok (as_ @ [a])
+            | Ok a -> Ok (a :: as_)
             | Error e -> Error e
         ) (Ok []) artifacts_json in
         match artifacts_result with
         | Error e -> Error e
         | Ok artifacts ->
+          let artifacts = List.rev artifacts in
           let metadata = match json |> member "metadata" with
             | `Assoc kvs -> kvs
             | _ -> []
