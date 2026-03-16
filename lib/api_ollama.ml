@@ -15,7 +15,9 @@ let build_ollama_chat_body ~provider_config ~config ~messages ?tools () =
            :: ("think", `Bool false)
            :: ("options", `Assoc [("num_predict", `Int config.config.max_tokens)])
            :: fields))
-  | _ -> assert false
+  | other ->
+      failwith (Printf.sprintf "build_ollama_chat_body: unexpected JSON shape: %s"
+        (Yojson.Safe.to_string other))
 
 let build_ollama_generate_body ~config ~messages () =
   let prompt =

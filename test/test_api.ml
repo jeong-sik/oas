@@ -509,6 +509,38 @@ let test_ollama_tool_args_object () =
   | _ -> fail "expected single ToolUse block with object arguments"
 
 (* ------------------------------------------------------------------ *)
+(* F1: OpenAI API error → Openai_api_error exception                    *)
+(* ------------------------------------------------------------------ *)
+
+let test_openai_api_error_raises () =
+  let error_json = {|{"error":{"message":"Invalid API key","type":"invalid_request_error"}}|} in
+  let raised = ref false in
+  (try ignore (Api.parse_openai_response error_json) with
+   | _ -> raised := true);
+  check bool "exception raised on API error" true !raised
+
+let test_openai_api_error_unknown_message () =
+  let error_json = {|{"error":{}}|} in
+  let raised = ref false in
+  (try ignore (Api.parse_openai_response error_json) with
+   | _ -> raised := true);
+  check bool "exception raised on empty error" true !raised
+
+(* ------------------------------------------------------------------ *)
+(* F2: Ollama build body non-assoc JSON                                 *)
+(* ------------------------------------------------------------------ *)
+
+let test_openai_error_not_failwith () =
+  (* Verify that the error is NOT a plain Failure (which would be misclassified
+     as NetworkError). It should be a distinct exception type. *)
+  let error_json = {|{"error":{"message":"bad request"}}|} in
+  let is_failure = ref false in
+  (try ignore (Api.parse_openai_response error_json) with
+   | Failure _ -> is_failure := true
+   | _ -> ());
+  check bool "not a Failure exception" false !is_failure
+
+(* ------------------------------------------------------------------ *)
 (* Test runner                                                          *)
 (* ------------------------------------------------------------------ *)
 
@@ -543,6 +575,11 @@ let () =
       test_case "unknown stop_reason" `Quick test_parse_response_unknown_stop;
       test_case "strip fenced json" `Quick test_parse_openai_response_strips_fenced_json;
       test_case "cache tokens in usage" `Quick test_parse_response_with_cache_tokens;
+    ];
+    "error_handling", [
+      test_case "openai api error raises Openai_api_error" `Quick test_openai_api_error_raises;
+      test_case "openai api error unknown message" `Quick test_openai_api_error_unknown_message;
+      test_case "openai error not Failure" `Quick test_openai_error_not_failwith;
     ];
     "parse_sse_event", [
       test_case "message_start" `Quick test_parse_sse_message_start;

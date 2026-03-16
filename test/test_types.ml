@@ -73,6 +73,17 @@ let test_tool_choice_tool () =
   | `Assoc [("type", `String "tool"); ("name", `String "calculator")] -> ()
   | _ -> Alcotest.fail "expected tool with name"
 
+let test_tool_choice_none () =
+  let json = Types.tool_choice_to_json Types.None_ in
+  (match json with
+   | `Assoc [("type", `String "none")] -> ()
+   | _ -> Alcotest.fail "expected none type");
+  let rt = Types.tool_choice_of_json json in
+  match rt with
+  | Ok Types.None_ -> ()
+  | Ok _ -> Alcotest.fail "expected None_ variant"
+  | Error _ -> Alcotest.fail "expected Ok"
+
 let test_add_usage () =
   let stats = Types.empty_usage in
   let u : Types.api_usage = {
@@ -136,6 +147,7 @@ let () =
       Alcotest.test_case "auto" `Quick test_tool_choice_auto;
       Alcotest.test_case "any" `Quick test_tool_choice_any;
       Alcotest.test_case "tool" `Quick test_tool_choice_tool;
+      Alcotest.test_case "none roundtrip" `Quick test_tool_choice_none;
     ];
     "usage", [
       Alcotest.test_case "add_usage" `Quick test_add_usage;

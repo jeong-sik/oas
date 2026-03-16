@@ -26,6 +26,7 @@ let make_checkpoint
     created_at = 1000.0;
     tools;
     tool_choice;
+    disable_parallel_tool_use = false;
     temperature = None;
     top_p = None;
     top_k = None;
@@ -272,6 +273,11 @@ let () =
         let cp = make_checkpoint ~tool_choice:None () in
         let cp2 = Result.get_ok (Checkpoint.of_json (Checkpoint.to_json cp)) in
         check bool "none" true (cp2.tool_choice = None));
+
+      test_case "None_ roundtrip" `Quick (fun () ->
+        let cp = make_checkpoint ~tool_choice:(Some Types.None_) () in
+        let cp2 = Result.get_ok (Checkpoint.of_json (Checkpoint.to_json cp)) in
+        check bool "none_" true (cp2.tool_choice = Some Types.None_));
     ];
 
     "model", [

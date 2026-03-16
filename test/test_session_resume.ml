@@ -27,6 +27,7 @@ let make_checkpoint
     created_at;
     tools;
     tool_choice;
+    disable_parallel_tool_use = false;
     temperature = None;
     top_p = None;
     top_k = None;
@@ -207,6 +208,7 @@ let test_resume_restores_tool_choice () =
     | Some Types.Any -> "any"
     | Some Types.Auto -> "auto"
     | Some (Types.Tool n) -> "tool:" ^ n
+    | Some Types.None_ -> "none_"
     | None -> "none"
   in
   Alcotest.(check string) "tool_choice" "any" tc_str

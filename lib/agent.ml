@@ -926,6 +926,7 @@ let checkpoint ?(session_id="") agent =
     created_at = Unix.gettimeofday ();
     tools = List.map (fun (t : Tool.t) -> t.schema) agent.tools;
     tool_choice = agent.state.config.tool_choice;
+    disable_parallel_tool_use = agent.state.config.disable_parallel_tool_use;
     temperature = agent.state.config.temperature;
     top_p = agent.state.config.top_p;
     top_k = agent.state.config.top_k;

@@ -16,6 +16,7 @@ let make_checkpoint ?(session_id = "test-session") ?(created_at = 1000.0) () :
     created_at;
     tools = [];
     tool_choice = None;
+    disable_parallel_tool_use = false;
     temperature = None;
     top_p = None;
     top_k = None;

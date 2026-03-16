@@ -356,11 +356,9 @@ let run_participant store state session_id
       Ok full
   | _ ->
       Eio.Switch.run @@ fun sw ->
-      let session =
-        match Runtime_store.load_session store session_id with
-        | Ok session -> session
-        | Error err -> raise (Failure (Error.to_string err))
-      in
+      match Runtime_store.load_session store session_id with
+      | Error err -> Error err
+      | Ok session ->
       let config =
         {
           Types.default_config with
