@@ -39,7 +39,8 @@ let provider_runtime_name (cfg : Provider.config option) =
       | Provider.Local _ -> Some "local"
       | Provider.Anthropic -> Some "anthropic"
       | Provider.OpenAICompat _ -> Some "openai-compat"
-      | Provider.Ollama _ -> Some "ollama")
+      | Provider.Ollama _ -> Some "ollama"
+      | Provider.Custom_registered { name } -> Some ("custom:" ^ name))
 
 let hook_decision_to_string = function
   | Hooks.Continue -> "continue"

@@ -27,3 +27,6 @@ let file_read_error ~path ~detail =
 
 let file_write_error ~path ~detail =
   Error.Io (FileOpFailed { op = "write"; path; detail })
+
+let snoc xs x = xs @ [x]
+let snoc_list xs ys = xs @ ys

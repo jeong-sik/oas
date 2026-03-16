@@ -164,7 +164,7 @@ let apply_context_injection ~context ~messages ~injector ~tool_uses ~results =
             filter_valid_messages ~messages:!current_messages inj.extra_messages
           in
           if valid_messages <> [] then
-            current_messages := !current_messages @ valid_messages
+            current_messages := Util.snoc_list !current_messages valid_messages
       with exn ->
         Printf.eprintf
           "[oas] context_injector for tool '%s' raised: %s\n%!"

@@ -241,6 +241,15 @@ module Context : sig
   val merge_back : isolated_scope -> unit
 end
 
+(** {1 Utilities} *)
+
+module Util : sig
+  val first_some : 'a option -> 'a option -> 'a option
+  val string_contains : needle:string -> string -> bool
+  val snoc : 'a list -> 'a -> 'a list
+  val snoc_list : 'a list -> 'a list -> 'a list
+end
+
 (** {1 LLM Provider Abstraction} *)
 
 module Provider : sig
@@ -258,6 +267,7 @@ module Provider : sig
         static_token: string option;
       }
     | Ollama of { base_url: string; mode: ollama_mode }
+    | Custom_registered of { name: string }
 
   type config = {
     provider: provider;
@@ -270,6 +280,7 @@ module Provider : sig
     | Openai_chat_completions
     | Ollama_chat
     | Ollama_generate
+    | Custom of string
 
   type capabilities = {
     supports_tools: bool;
@@ -339,6 +350,7 @@ module Provider : sig
   type provider_impl = {
     name: string;
     request_kind: request_kind;
+    request_path: string;
     capabilities: capabilities;
     build_body:
       config:Types.agent_state ->
@@ -357,6 +369,9 @@ module Provider : sig
 
   (** List all registered custom provider names. *)
   val registered_providers : unit -> string list
+
+  (** Create a config for a registered custom provider. *)
+  val custom_provider : name:string -> ?model_id:string -> ?api_key_env:string -> unit -> config
 end
 
 (** {1 Error Handling and Retry} *)
@@ -1304,6 +1319,140 @@ module Raw_trace : sig
   val read_run : run_ref -> (record list, Error.sdk_error) result
   val summarize_run : run_ref -> (run_summary, Error.sdk_error) result
   val validate_run : run_ref -> (run_validation, Error.sdk_error) result
+end
+
+(** {1 Agent Internal Modules (Extracted)} *)
+
+module Agent_lifecycle : sig
+  type lifecycle_status =
+    | Accepted
+    | Ready
+    | Running
+    | Completed
+    | Failed
+  [@@deriving show]
+
+  type lifecycle_snapshot = {
+    current_run_id: string option;
+    agent_name: string;
+    worker_id: string option;
+    runtime_actor: string option;
+    status: lifecycle_status;
+    requested_provider: string option;
+    requested_model: string option;
+    resolved_provider: string option;
+    resolved_model: string option;
+    last_error: string option;
+    accepted_at: float option;
+    ready_at: float option;
+    first_progress_at: float option;
+    started_at: float option;
+    last_progress_at: float option;
+    finished_at: float option;
+  }
+
+  val provider_runtime_name : Provider.config option -> string option
+  val hook_decision_to_string : Hooks.hook_decision -> string
+
+  val build_snapshot :
+    agent_name:string ->
+    provider:Provider.config option ->
+    model:Types.model ->
+    ?previous:lifecycle_snapshot ->
+    ?current_run_id:string ->
+    ?worker_id:string ->
+    ?runtime_actor:string ->
+    ?last_error:string ->
+    ?accepted_at:float ->
+    ?ready_at:float ->
+    ?first_progress_at:float ->
+    ?started_at:float ->
+    ?last_progress_at:float ->
+    ?finished_at:float ->
+    lifecycle_status ->
+    lifecycle_snapshot
+end
+
+module Agent_turn : sig
+  type tool_call_fingerprint = {
+    fp_name: string;
+    fp_input: string;
+  }
+
+  type turn_preparation = {
+    tools_json: Yojson.Safe.t list option;
+    effective_messages: Types.message list;
+    effective_guardrails: Guardrails.t;
+  }
+
+  type idle_state = {
+    last_tool_calls: tool_call_fingerprint list option;
+    consecutive_idle_turns: int;
+  }
+
+  type idle_result = {
+    new_state: idle_state;
+    is_idle: bool;
+  }
+
+  val prepare_turn :
+    guardrails:Guardrails.t ->
+    tools:Tool.t list ->
+    messages:Types.message list ->
+    context_reducer:Context_reducer.t option ->
+    turn_params:Hooks.turn_params ->
+    turn_preparation
+
+  val prepare_messages :
+    messages:Types.message list ->
+    context_reducer:Context_reducer.t option ->
+    turn_params:Hooks.turn_params ->
+    Types.message list
+
+  val accumulate_usage :
+    current_usage:Types.usage_stats ->
+    provider:Provider.config option ->
+    response_usage:Types.api_usage option ->
+    Types.usage_stats
+
+  val update_idle_detection :
+    idle_state:idle_state ->
+    tool_uses:Types.content_block list ->
+    idle_result
+
+  val make_tool_results :
+    (string * string * bool) list -> Types.content_block list
+
+  val filter_valid_messages :
+    messages:Types.message list ->
+    Types.message list ->
+    Types.message list
+
+  val check_token_budget :
+    Types.agent_config -> Types.usage_stats -> Error.sdk_error option
+end
+
+module Agent_checkpoint : sig
+  type resume_state = {
+    state: Types.agent_state;
+    context: Context.t;
+  }
+
+  val build_resume :
+    checkpoint:Checkpoint.t ->
+    ?config:Types.agent_config ->
+    ?context:Context.t ->
+    unit ->
+    resume_state
+
+  val build_checkpoint :
+    ?session_id:string ->
+    state:Types.agent_state ->
+    tools:Tool.t list ->
+    context:Context.t ->
+    mcp_clients:Mcp.managed list ->
+    unit ->
+    Checkpoint.t
 end
 
 module Agent : sig

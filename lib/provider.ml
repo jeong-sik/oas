@@ -14,6 +14,7 @@ type provider =
       static_token: string option;
     }
   | Ollama of { base_url: string; mode: ollama_mode }
+  | Custom_registered of { name: string }
 
 type config = {
   provider: provider;
@@ -26,6 +27,7 @@ type request_kind =
   | Openai_chat_completions
   | Ollama_chat
   | Ollama_generate
+  | Custom of string
 
 type capabilities = {
   supports_tools: bool;
@@ -88,6 +90,37 @@ let is_qwen_family model_id =
   let normalized = String.lowercase_ascii (String.trim model_id) in
   string_contains ~needle:"qwen" normalized
 
+(* ── Provider Registry: runtime registration for custom providers ── *)
+
+type provider_impl = {
+  name: string;
+  request_kind: request_kind;
+  request_path: string;
+  capabilities: capabilities;
+  build_body:
+    config:Types.agent_state ->
+    messages:Types.message list ->
+    ?tools:Yojson.Safe.t list ->
+    unit -> string;
+  parse_response: string -> Types.api_response;
+  resolve: config -> (string * string * (string * string) list, Error.sdk_error) result;
+}
+
+let registry : (string, provider_impl) Hashtbl.t = Hashtbl.create 8
+let registry_mu = Eio.Mutex.create ()
+
+let register_provider impl =
+  Eio.Mutex.use_rw ~protect:true registry_mu (fun () ->
+    Hashtbl.replace registry impl.name impl)
+
+let find_provider name =
+  Eio.Mutex.use_ro registry_mu (fun () ->
+    Hashtbl.find_opt registry name)
+
+let registered_providers () =
+  Eio.Mutex.use_ro registry_mu (fun () ->
+    Hashtbl.fold (fun name _ acc -> name :: acc) registry [])
+
 let capabilities_for_model ~(provider : provider) ~(model_id : string) =
   match provider with
   | Anthropic | Local _ -> anthropic_capabilities
@@ -98,18 +131,30 @@ let capabilities_for_model ~(provider : provider) ~(model_id : string) =
       if is_qwen_family model_id then qwen_openai_chat_capabilities
       else openai_chat_capabilities
   | Ollama { mode = Generate; _ } -> default_capabilities
+  | Custom_registered { name } ->
+      (match find_provider name with
+       | Some impl -> impl.capabilities
+       | None -> default_capabilities)
 
 let request_kind = function
   | Local _ | Anthropic -> Anthropic_messages
   | OpenAICompat _ -> Openai_chat_completions
   | Ollama { mode = Chat; _ } -> Ollama_chat
   | Ollama { mode = Generate; _ } -> Ollama_generate
+  | Custom_registered { name } ->
+      (match find_provider name with
+       | Some impl -> impl.request_kind
+       | None -> Custom name)
 
 let request_path = function
   | Local _ | Anthropic -> "/v1/messages"
   | OpenAICompat { path; _ } -> path
   | Ollama { mode = Chat; _ } -> "/api/chat"
   | Ollama { mode = Generate; _ } -> "/api/generate"
+  | Custom_registered { name } ->
+      (match find_provider name with
+       | Some impl -> impl.request_path
+       | None -> "/v1/chat/completions")
 
 let capabilities_for_config (cfg : config) =
   capabilities_for_model ~provider:cfg.provider ~model_id:cfg.model_id
@@ -158,6 +203,12 @@ let resolve (cfg : config) =
                | None -> Error (Error.Config (MissingEnvVar { var_name = cfg.api_key_env })))))
   | Ollama { base_url; _ } ->
     Ok (base_url, "dummy", [("Content-Type", "application/json")])
+  | Custom_registered { name } ->
+    (match find_provider name with
+     | Some impl -> impl.resolve cfg
+     | None -> Error (Error.Config (InvalidConfig {
+         field = "provider";
+         detail = Printf.sprintf "Custom provider '%s' not registered" name })))
 
 let local_qwen () = {
   provider = Local { base_url = Defaults.local_qwen_url };
@@ -257,32 +308,10 @@ let estimate_cost ~(pricing : pricing) ~input_tokens ~output_tokens =
   let output_cost = Float.of_int output_tokens *. pricing.output_per_million /. 1_000_000.0 in
   input_cost +. output_cost
 
-(* ── Provider Registry: runtime registration for custom providers ── *)
+(* ── Convenience: create config for a Custom_registered provider ── *)
 
-type provider_impl = {
-  name: string;
-  request_kind: request_kind;
-  capabilities: capabilities;
-  build_body:
-    config:Types.agent_state ->
-    messages:Types.message list ->
-    ?tools:Yojson.Safe.t list ->
-    unit -> string;
-  parse_response: string -> Types.api_response;
-  resolve: config -> (string * string * (string * string) list, Error.sdk_error) result;
+let custom_provider ~name ?(model_id="custom") ?(api_key_env="DUMMY_KEY") () = {
+  provider = Custom_registered { name };
+  model_id;
+  api_key_env;
 }
-
-let registry : (string, provider_impl) Hashtbl.t = Hashtbl.create 8
-let registry_mu = Eio.Mutex.create ()
-
-let register_provider impl =
-  Eio.Mutex.use_rw ~protect:true registry_mu (fun () ->
-    Hashtbl.replace registry impl.name impl)
-
-let find_provider name =
-  Eio.Mutex.use_ro registry_mu (fun () ->
-    Hashtbl.find_opt registry name)
-
-let registered_providers () =
-  Eio.Mutex.use_ro registry_mu (fun () ->
-    Hashtbl.fold (fun name _ acc -> name :: acc) registry [])

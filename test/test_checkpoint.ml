@@ -353,6 +353,81 @@ let () =
            | _ -> None));
     ];
 
+    "build_resume", [
+      test_case "roundtrip preserves fields" `Quick (fun () ->
+        let ctx = Context.create () in
+        Context.set ctx "key" (`String "val");
+        let cp = make_checkpoint
+          ~agent_name:"resume-agent"
+          ~model:Types.Claude_opus_4_6
+          ~system_prompt:(Some "Be precise.")
+          ~turn_count:3
+          ~context:ctx
+          () in
+        let { Agent_checkpoint.state; context = ctx2 } =
+          Agent_checkpoint.build_resume ~checkpoint:cp () in
+        check string "agent_name" "resume-agent" state.config.name;
+        check int "turn_count" 3 state.turn_count;
+        check (option string) "system_prompt"
+          (Some "Be precise.") state.config.system_prompt;
+        check bool "context preserved" true
+          (Context.get ctx2 "key" = Some (`String "val")));
+
+      test_case "override config takes precedence" `Quick (fun () ->
+        let cp = make_checkpoint
+          ~agent_name:"orig-agent"
+          ~model:Types.Claude_sonnet_4_6
+          () in
+        let override = {
+          Types.default_config with
+          name = "should-be-ignored";
+          max_turns = 99;
+        } in
+        let { Agent_checkpoint.state; _ } =
+          Agent_checkpoint.build_resume ~checkpoint:cp ~config:override () in
+        check string "agent_name from checkpoint" "orig-agent" state.config.name;
+        check int "max_turns from override" 99 state.config.max_turns);
+
+      test_case "override context replaces checkpoint context" `Quick (fun () ->
+        let cp_ctx = Context.create () in
+        Context.set cp_ctx "old" (`String "old-val");
+        let cp = make_checkpoint ~context:cp_ctx () in
+        let new_ctx = Context.create () in
+        Context.set new_ctx "new" (`String "new-val");
+        let { Agent_checkpoint.context = result_ctx; _ } =
+          Agent_checkpoint.build_resume ~checkpoint:cp ~context:new_ctx () in
+        check bool "has new key" true
+          (Context.get result_ctx "new" = Some (`String "new-val"));
+        check bool "no old key" true
+          (Context.get result_ctx "old" = None));
+
+      test_case "build_checkpoint -> build_resume roundtrip" `Quick (fun () ->
+        Eio_main.run @@ fun env ->
+        let net = Eio.Stdenv.net env in
+        let config = {
+          Types.default_config with
+          name = "roundtrip-agent";
+          system_prompt = Some "Be brief.";
+          temperature = Some 0.5;
+        } in
+        let agent = Agent.create ~net ~config () in
+        Agent.set_state agent {
+          (Agent.state agent) with
+          messages = [
+            { Types.role = Types.User; content = [Types.Text "test"] };
+          ];
+          turn_count = 7;
+        };
+        let cp = Agent.checkpoint ~session_id:"rt-sess" agent in
+        let { Agent_checkpoint.state; _ } =
+          Agent_checkpoint.build_resume ~checkpoint:cp () in
+        check string "name" "roundtrip-agent" state.config.name;
+        check int "turn_count" 7 state.turn_count;
+        check (option string) "system_prompt"
+          (Some "Be brief.") state.config.system_prompt;
+        check int "messages" 1 (List.length state.messages));
+    ];
+
     "error_cases", [
       test_case "malformed JSON string" `Quick (fun () ->
         check bool "error" true

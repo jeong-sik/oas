@@ -295,7 +295,8 @@ let create_message_stream ~sw ~net ?(base_url=Api.default_base_url) ?provider ~c
               Error (Error.Api (Retry.NetworkError { message = "JSON parse error: " ^ msg })))
        | Provider.Openai_chat_completions
        | Provider.Ollama_chat
-       | Provider.Ollama_generate ->
+       | Provider.Ollama_generate
+       | Provider.Custom _ ->
            Error (Error.Config (UnsupportedProvider { detail = "Streaming is only supported for Anthropic-compatible providers" })))
 
 (** Emit synthetic SSE events from a complete api_response.

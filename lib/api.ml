@@ -74,6 +74,10 @@ let create_message ~sw ~net ?(base_url=default_base_url) ?provider ?clock ?retry
           ~messages ?tools ()
     | Provider.Ollama_generate ->
         Api_ollama.build_ollama_generate_body ~config ~messages ()
+    | Provider.Custom name ->
+        (match Provider.find_provider name with
+         | Some impl -> impl.build_body ~config ~messages ?tools ()
+         | None -> Yojson.Safe.to_string (`Assoc []))
   in
   let uri = Uri.of_string (base_url ^ path) in
 
@@ -95,6 +99,10 @@ let create_message ~sw ~net ?(base_url=default_base_url) ?provider ?clock ?retry
                 parse_ollama_chat_response body_str
             | Provider.Ollama_generate ->
                 parse_ollama_generate_response body_str
+            | Provider.Custom name ->
+                (match Provider.find_provider name with
+                 | Some impl -> impl.parse_response body_str
+                 | None -> parse_openai_response body_str)
           in
           Ok response
       | status ->

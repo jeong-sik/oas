@@ -37,6 +37,7 @@
 
 (** Re-export all modules (dependency-safe order) *)
 module Types = Types
+module Util = Util
 module Context = Context
 module Provider = Provider
 module Retry = Retry
@@ -60,6 +61,9 @@ module Checkpoint = Checkpoint
 module Checkpoint_store = Checkpoint_store
 module Session = Session
 module Raw_trace = Raw_trace
+module Agent_lifecycle = Agent_lifecycle
+module Agent_turn = Agent_turn
+module Agent_checkpoint = Agent_checkpoint
 module Agent = Agent
 module Builder = Builder
 module Orchestrator = Orchestrator
@@ -112,5 +116,5 @@ let runtime_query = Runtime_query.query
 let query = Query.query
 
 (** Version info *)
-let version = "0.26.0"
+let version = "0.27.0"
 let sdk_name = "agent_sdk"

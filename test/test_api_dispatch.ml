@@ -169,7 +169,8 @@ let test_request_kind_routing () =
        | Provider.Anthropic_messages -> "anthropic"
        | Provider.Openai_chat_completions -> "openai"
        | Provider.Ollama_chat -> "ollama_chat"
-       | Provider.Ollama_generate -> "ollama_generate")
+       | Provider.Ollama_generate -> "ollama_generate"
+       | Provider.Custom name -> "custom:" ^ name)
   in
   check_kind "local" "anthropic" (Provider.Local { base_url = "http://x" });
   check_kind "anthropic" "anthropic" Provider.Anthropic;

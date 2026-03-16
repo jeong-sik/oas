@@ -23,7 +23,8 @@ let provider_runtime_name selected (cfg : Provider.config option) =
       | Provider.Local _ -> "local"
       | Provider.Anthropic -> "anthropic"
       | Provider.OpenAICompat _ -> "openai-compat"
-      | Provider.Ollama _ -> "ollama")
+      | Provider.Ollama _ -> "ollama"
+      | Provider.Custom_registered { name } -> "custom:" ^ name)
 
 type execution_resolution = {
   selected_provider: string;
