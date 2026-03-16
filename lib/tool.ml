@@ -12,7 +12,7 @@ type workdir_policy =
   | Required
   | Recommended
   | None_expected
-[@@deriving show]
+[@@deriving yojson, show]
 
 type shell_constraints = {
   single_command_only: bool;
@@ -22,6 +22,7 @@ type shell_constraints = {
   pipes_allowed: bool;
   workdir_policy: workdir_policy option;
 }
+[@@deriving yojson, show]
 
 type descriptor = {
   kind: string option;

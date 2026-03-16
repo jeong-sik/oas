@@ -2,7 +2,7 @@ type trace_capability =
   | Raw
   | Summary_only
   | No_trace
-[@@deriving show]
+[@@deriving yojson, show]
 
 type session_info = {
   session_id: string;
@@ -14,11 +14,13 @@ type session_info = {
   participant_count: int;
   path: string;
 }
+[@@deriving yojson, show]
 
 type telemetry_event_count = {
   name: string;
   count: int;
 }
+[@@deriving yojson, show]
 
 type telemetry_step = {
   seq: int;
@@ -27,6 +29,7 @@ type telemetry_step = {
   participant: string option;
   detail: string option;
 }
+[@@deriving yojson, show]
 
 type telemetry = {
   session_id: string;
@@ -35,11 +38,13 @@ type telemetry = {
   event_counts: telemetry_event_count list;
   steps: telemetry_step list;
 }
+[@@deriving yojson, show]
 
 type structured_event_count = {
   event_name: string;
   count: int;
 }
+[@@deriving yojson, show]
 
 type structured_telemetry_step = {
   seq: int;
@@ -57,6 +62,7 @@ type structured_telemetry_step = {
   checkpoint_label: string option;
   outcome: string option;
 }
+[@@deriving yojson, show]
 
 type structured_telemetry = {
   session_id: string;
@@ -65,6 +71,7 @@ type structured_telemetry = {
   event_counts: structured_event_count list;
   steps: structured_telemetry_step list;
 }
+[@@deriving yojson, show]
 
 type evidence_file = {
   label: string;
@@ -72,11 +79,13 @@ type evidence_file = {
   size_bytes: int;
   md5: string;
 }
+[@@deriving yojson, show]
 
 type missing_file = {
   label: string;
   path: string;
 }
+[@@deriving yojson, show]
 
 type evidence = {
   session_id: string;
@@ -84,6 +93,7 @@ type evidence = {
   files: evidence_file list;
   missing_files: missing_file list;
 }
+[@@deriving yojson, show]
 
 type hook_summary = {
   hook_name: string;
@@ -92,6 +102,7 @@ type hook_summary = {
   latest_detail: string option;
   latest_ts: float option;
 }
+[@@deriving yojson, show]
 
 type tool_contract = {
   name: string;
@@ -102,10 +113,14 @@ type tool_contract = {
   notes: string list;
   examples: string list;
 }
+[@@deriving yojson, show]
 
 type raw_trace_run = Raw_trace.run_ref
+[@@deriving yojson, show]
 type raw_trace_summary = Raw_trace.run_summary
+[@@deriving yojson, show]
 type raw_trace_validation = Raw_trace.run_validation
+[@@deriving yojson, show]
 
 type worker_status =
   | Planned
@@ -114,7 +129,7 @@ type worker_status =
   | Running
   | Completed
   | Failed
-[@@deriving show]
+[@@deriving yojson, show]
 
 type worker_run = {
   worker_run_id: string;
@@ -150,12 +165,14 @@ type worker_run = {
   has_file_write: bool;
   verification_pass_after_file_write: bool;
 }
+[@@deriving yojson, show]
 
 type evidence_capabilities = {
   raw_trace: bool;
   validated_summary: bool;
   proof_bundle: bool;
 }
+[@@deriving yojson, show]
 
 type proof_bundle = {
   session: Runtime.session;
@@ -184,6 +201,7 @@ type proof_bundle = {
   trace_capabilities: trace_capability list;
   capabilities: evidence_capabilities;
 }
+[@@deriving yojson, show]
 
 let ( let* ) = Result.bind
 
