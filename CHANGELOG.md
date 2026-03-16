@@ -2,6 +2,24 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.26.0] - 2026-03-16
+
+### Changed
+- **agent.ml split** (944→671 lines, 29% reduction): Extracted `Agent_lifecycle` and `Agent_checkpoint` modules. (#90)
+- **Unified sync/streaming turns**: `run_turn_core` with `api_strategy` parameter replaces duplicated turn functions (~170 lines dedup). (#90)
+- **CI coverage gate**: 65% threshold enforced. (#90)
+
+### Fixed
+- **MCP race condition**: `next_id` in `Mcp.send_request` protected by `Eio.Mutex`. (#90)
+
+### Added
+- **Provider pricing**: OpenAI (gpt-4o, gpt-4o-mini, gpt-4.1, o3-mini) and local models (ollama/qwen/llama = 0.0). (#90)
+- **MCP health/reconnect**: `Mcp.is_alive`, `Mcp.reconnect`, `Mcp.connect_all_best_effort`. (#90)
+- **Transport status**: `Transport.status` query. (#90)
+- **Provider registry**: Runtime custom provider registration (`register_provider`, `find_provider`). (#90)
+- **test_api_dispatch**: 10 dispatch tests. **test_property_advanced**: 20 QCheck property tests. (#90)
+- **docs/custom-providers.md**: vLLM example guide. (#90)
+
 ## [0.25.1] - 2026-03-16
 
 ### Fixed
