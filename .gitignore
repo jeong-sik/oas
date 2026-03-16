@@ -25,3 +25,7 @@ _coverage/
 # Environment
 .env
 .env.*
+
+# Local working documents
+REFACTORING-PLAN*.md
+.mcp.json
