@@ -269,3 +269,7 @@
 (test
  (name test_eval)
  (libraries agent_sdk alcotest yojson unix eio eio_main))
+
+(test
+ (name test_event_forward)
+ (libraries agent_sdk alcotest yojson unix eio eio_main))

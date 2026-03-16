@@ -136,6 +136,9 @@ let with_periodic_callbacks cbs b =
   { b with periodic_callbacks = b.periodic_callbacks @ cbs }
 let with_log_level level _b = Log.set_global_level level; _b
 let with_log_sink sink _b = Log.add_sink sink; _b
+let with_event_targets targets _b =
+  let _forwarder = Event_forward.create ~targets () in
+  _b
 let with_fallback fallback b =
   let casc = match b.cascade with
     | Some c -> { c with Provider.fallbacks = c.fallbacks @ [fallback] }

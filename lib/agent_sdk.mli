@@ -1907,6 +1907,7 @@ module Builder : sig
   val with_periodic_callbacks : Agent.periodic_callback list -> t -> t
   val with_log_level : Log.level -> t -> t
   val with_log_sink : Log.sink -> t -> t
+  val with_event_targets : Event_forward.target list -> t -> t
   val build : t -> Agent.t
   [@@deprecated "Use build_safe for validated construction"]
 
@@ -3479,4 +3480,54 @@ module Eval_collector : sig
   (** Process pending events and produce final [run_metrics].
       Unsubscribes from the event bus. *)
   val finalize : t -> Eval.run_metrics
+end
+
+(** {1 Event Forwarding} *)
+
+module Event_forward : sig
+  (** Deliver Event_bus events to external targets: HTTP webhooks,
+      file append, or custom transports. Best-effort delivery that
+      never blocks the agent. *)
+
+  type event_payload = {
+    event_type: string;
+    timestamp: float;
+    agent_name: string option;
+    data: Yojson.Safe.t;
+  }
+
+  val payload_to_json : event_payload -> Yojson.Safe.t
+  val event_type_name : Event_bus.event -> string
+  val event_to_payload : Event_bus.event -> event_payload
+
+  type target =
+    | Webhook of {
+        url: string;
+        headers: (string * string) list;
+        method_: [ `POST | `PUT ];
+        timeout_s: float;
+      }
+    | File_append of { path: string }
+    | Custom_target of { name: string; deliver: event_payload -> unit }
+
+  type t
+
+  val create :
+    targets:target list ->
+    ?batch_size:int ->
+    ?flush_interval_s:float ->
+    unit -> t
+
+  (** Start forwarding in a separate Eio fiber. Idempotent. *)
+  val start :
+    sw:Eio.Switch.t ->
+    net:_ Eio.Net.t ->
+    bus:Event_bus.t ->
+    t -> unit
+
+  (** Signal the forwarder to stop after flushing pending events. *)
+  val stop : t -> unit
+
+  val delivered_count : t -> int
+  val failed_count : t -> int
 end
