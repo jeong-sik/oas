@@ -111,6 +111,9 @@ let of_json (json : Yojson.Safe.t) : (agent_card, Error.sdk_error) result =
       | `Assoc pairs -> pairs
       | _ -> []
     in
+    (* tools and skills contain runtime objects (functions) that cannot
+       be fully restored from JSON.  Callers must re-attach them after
+       deserializing the card skeleton. *)
     Ok { name; description; version; capabilities;
          tools = []; skills = [];
          supported_providers; metadata }
