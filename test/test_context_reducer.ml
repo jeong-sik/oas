@@ -301,6 +301,93 @@ let test_compose () =
      Alcotest.(check bool) "truncated" true (String.length content < 200)
    | _ -> Alcotest.fail "expected tool result")
 
+(* --- keep_first_and_last --- *)
+
+let test_keep_first_and_last_identity () =
+  let msgs = [
+    user_msg "turn1"; asst_msg "r1";
+    user_msg "turn2"; asst_msg "r2";
+  ] in
+  (* first_n=1 + last_n=1 = 2, total turns = 2, so all preserved *)
+  let result = Context_reducer.reduce
+    (Context_reducer.keep_first_and_last ~first_n:1 ~last_n:1) msgs in
+  Alcotest.(check int) "all preserved" (List.length msgs) (List.length result)
+
+let test_keep_first_and_last_drops_middle () =
+  let msgs = [
+    user_msg "turn1"; asst_msg "r1";
+    user_msg "turn2"; asst_msg "r2";
+    user_msg "turn3"; asst_msg "r3";
+    user_msg "turn4"; asst_msg "r4";
+  ] in
+  let result = Context_reducer.reduce
+    (Context_reducer.keep_first_and_last ~first_n:1 ~last_n:1) msgs in
+  (* Should keep turn1 and turn4, dropping turn2 and turn3 *)
+  Alcotest.(check int) "first + last = 4 msgs" 4 (List.length result);
+  (match result with
+   | { Types.content = [Types.Text t1]; _ } :: _ :: { Types.content = [Types.Text t3]; _ } :: _ ->
+     Alcotest.(check string) "first is turn1" "turn1" t1;
+     Alcotest.(check string) "last start is turn4" "turn4" t3
+   | _ -> Alcotest.fail "unexpected structure")
+
+(* --- prune_by_role --- *)
+
+let test_prune_by_role_drops_user () =
+  let msgs = [
+    user_msg "q1"; asst_msg "a1";
+    user_msg "q2"; asst_msg "a2";
+  ] in
+  let result = Context_reducer.reduce
+    (Context_reducer.prune_by_role ~drop_roles:[Types.User]) msgs in
+  (* Only assistant messages remain *)
+  Alcotest.(check int) "only assistant" 2 (List.length result);
+  List.iter (fun (m : Types.message) ->
+    Alcotest.(check bool) "is assistant" true (m.role = Types.Assistant)
+  ) result
+
+let test_prune_by_role_preserves_tool_result () =
+  let msgs = [
+    user_msg "q";
+    tool_use_msg "t1" "calc";
+    tool_result_msg "t1" "42";
+    asst_msg "done";
+  ] in
+  let result = Context_reducer.reduce
+    (Context_reducer.prune_by_role ~drop_roles:[Types.User]) msgs in
+  (* The tool_result user message and tool_use assistant message must be preserved *)
+  let has_tool_result = List.exists (fun (m : Types.message) ->
+    List.exists (function Types.ToolResult _ -> true | _ -> false) m.content
+  ) result in
+  Alcotest.(check bool) "tool result preserved" true has_tool_result
+
+(* --- summarize_old --- *)
+
+let test_summarize_old_basic () =
+  let msgs = [
+    user_msg "turn1"; asst_msg "r1";
+    user_msg "turn2"; asst_msg "r2";
+    user_msg "turn3"; asst_msg "r3";
+  ] in
+  let summarizer msgs =
+    Printf.sprintf "[Summary of %d messages]" (List.length msgs) in
+  let result = Context_reducer.reduce
+    (Context_reducer.summarize_old ~keep_recent:1 ~summarizer) msgs in
+  (* Should have: summary_msg + turn3 (2 msgs) = 3 msgs *)
+  Alcotest.(check int) "summary + recent" 3 (List.length result);
+  (match result with
+   | { Types.content = [Types.Text t]; _ } :: _ ->
+     Alcotest.(check bool) "has summary prefix" true
+       (String.length t > 0 && t.[0] = '[')
+   | _ -> Alcotest.fail "expected summary first")
+
+let test_summarize_old_all_recent () =
+  let msgs = [user_msg "only"; asst_msg "one"] in
+  let summarizer _ = "should not be called" in
+  let result = Context_reducer.reduce
+    (Context_reducer.summarize_old ~keep_recent:5 ~summarizer) msgs in
+  (* All turns fit in keep_recent, no summarization *)
+  Alcotest.(check int) "no change" 2 (List.length result)
+
 let () =
   Alcotest.run "Context_reducer" [
     "keep_last_n", [
@@ -343,6 +430,18 @@ let () =
     ];
     "compose", [
       Alcotest.test_case "compose strategies" `Quick test_compose;
+    ];
+    "keep_first_and_last", [
+      Alcotest.test_case "identity when under limit" `Quick test_keep_first_and_last_identity;
+      Alcotest.test_case "drops middle turns" `Quick test_keep_first_and_last_drops_middle;
+    ];
+    "prune_by_role", [
+      Alcotest.test_case "drops user messages" `Quick test_prune_by_role_drops_user;
+      Alcotest.test_case "preserves tool results" `Quick test_prune_by_role_preserves_tool_result;
+    ];
+    "summarize_old", [
+      Alcotest.test_case "basic summarization" `Quick test_summarize_old_basic;
+      Alcotest.test_case "all recent no-op" `Quick test_summarize_old_all_recent;
     ];
     "edge_cases", [
       Alcotest.test_case "empty messages" `Quick test_empty;

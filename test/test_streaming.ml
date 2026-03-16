@@ -200,6 +200,34 @@ let test_parse_message_start_with_cache () =
   | Some _ -> Alcotest.fail "unexpected event type"
   | None -> Alcotest.fail "parse returned None"
 
+let test_message_delta_with_cache_usage () =
+  (* message_delta may carry usage with cache metrics *)
+  let data = {|{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":0,"output_tokens":150,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}|} in
+  match Agent_sdk.Streaming.parse_sse_event None data with
+  | Some (MessageDelta { stop_reason; usage }) ->
+    (match stop_reason with
+     | Some EndTurn -> ()
+     | _ -> Alcotest.fail "expected end_turn");
+    (match usage with
+     | Some u ->
+       Alcotest.(check int) "output" 150 u.output_tokens;
+       Alcotest.(check int) "cache_write zero" 0 u.cache_creation_input_tokens
+     | None -> Alcotest.fail "expected usage in delta")
+  | Some _ -> Alcotest.fail "unexpected event type"
+  | None -> Alcotest.fail "parse returned None"
+
+let test_message_start_missing_output_tokens () =
+  (* Some API responses may omit output_tokens in message_start usage *)
+  let data = {|{"type":"message_start","message":{"id":"msg_partial","model":"claude-sonnet-4-6","usage":{"input_tokens":500}}}|} in
+  match Agent_sdk.Streaming.parse_sse_event None data with
+  | Some (MessageStart { id; usage; _ }) ->
+    Alcotest.(check string) "id" "msg_partial" id;
+    (match usage with
+     | Some u -> Alcotest.(check int) "input" 500 u.input_tokens
+     | None -> Alcotest.fail "expected usage")
+  | Some _ -> Alcotest.fail "unexpected event type"
+  | None -> Alcotest.fail "parse returned None"
+
 let test_parse_with_explicit_event_type () =
   (* event_type parameter overrides the 'type' field in JSON *)
   let data = {|{"message":{"id":"msg_02","model":"claude-haiku-4-5-20251001","usage":{"input_tokens":10}}}|} in
@@ -245,5 +273,7 @@ let () =
       test_case "unknown_event_type" `Quick test_parse_unknown_event_type;
       test_case "message_start_with_cache" `Quick test_parse_message_start_with_cache;
       test_case "explicit_event_type" `Quick test_parse_with_explicit_event_type;
+      test_case "message_delta_with_cache" `Quick test_message_delta_with_cache_usage;
+      test_case "message_start_missing_output" `Quick test_message_start_missing_output_tokens;
     ];
   ]

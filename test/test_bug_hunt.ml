@@ -177,7 +177,7 @@ let test_b7_unknown_model_zero_cost () =
   check (float 0.001) "input zero" 0.0 pricing.input_per_million;
   check (float 0.001) "output zero" 0.0 pricing.output_per_million;
   let cost = Provider.estimate_cost ~pricing
-    ~input_tokens:1_000_000 ~output_tokens:500_000 in
+    ~input_tokens:1_000_000 ~output_tokens:500_000 () in
   check (float 0.001) "total cost zero" 0.0 cost
 
 (* ── Test runner ──────────────────────────────────────────────── *)
