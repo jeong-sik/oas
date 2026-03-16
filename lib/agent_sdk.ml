@@ -49,6 +49,7 @@ module Tool = Tool
 module Mcp = Mcp
 module Mcp_session = Mcp_session
 module Guardrails = Guardrails
+module Log = Log
 module Event_bus = Event_bus
 module Skill = Skill
 module Skill_registry = Skill_registry
@@ -119,5 +120,5 @@ let runtime_query = Runtime_query.query
 let query = Query.query
 
 (** Version info *)
-let version = "0.30.0"
+let version = "0.31.0"
 let sdk_name = "agent_sdk"

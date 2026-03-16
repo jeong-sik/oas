@@ -1240,6 +1240,86 @@ module Session : sig
   val of_json : Yojson.Safe.t -> (t, Error.sdk_error) result
 end
 
+(** {1 Structured Logging} *)
+
+module Log : sig
+  (** Level-based structured log system with composable sinks.
+
+      [sink] is [record -> unit] — composable and lightweight.
+      [field] is a closed variant for schema enforcement at call sites.
+      Disabled levels skip record allocation entirely (zero-cost). *)
+
+  type level = Debug | Info | Warn | Error
+
+  val level_to_string : level -> string
+  val level_of_string : string -> (level, string) result
+  val level_to_yojson : level -> Yojson.Safe.t
+  val level_of_yojson : Yojson.Safe.t -> (level, string) result
+  val pp_level : Format.formatter -> level -> unit
+  val show_level : level -> string
+
+  (** Structured key-value fields attached to log records.
+      [S] = string, [I] = int, [F] = float, [B] = bool,
+      [J] = arbitrary JSON (escape hatch). *)
+  type field =
+    | S of string * string
+    | I of string * int
+    | F of string * float
+    | B of string * bool
+    | J of string * Yojson.Safe.t
+
+  val field_to_json : field -> string * Yojson.Safe.t
+
+  (** A single structured log record. *)
+  type record = {
+    ts: float;
+    level: level;
+    module_name: string;
+    message: string;
+    fields: field list;
+    trace_id: string option;
+    span_id: string option;
+  }
+
+  val record_to_json : record -> Yojson.Safe.t
+
+  (** A sink consumes log records. Multiple sinks can be composed
+      by registering each via {!add_sink}. *)
+  type sink = record -> unit
+
+  (** Logger instance, scoped to a module name. *)
+  type t
+
+  val create : module_name:string -> unit -> t
+  val with_trace_id : t -> trace_id:string -> t
+  val with_span_id : t -> span_id:string -> t
+
+  (** {2 Global configuration} *)
+
+  val set_global_level : level -> unit
+  val add_sink : sink -> unit
+  val clear_sinks : unit -> unit
+
+  (** {2 Logging functions}
+      Each checks the global level before allocating a record. *)
+
+  val debug : t -> string -> field list -> unit
+  val info  : t -> string -> field list -> unit
+  val warn  : t -> string -> field list -> unit
+  val error : t -> string -> field list -> unit
+
+  (** {2 Built-in sinks} *)
+
+  (** JSON-lines sink: writes one JSON object per record to the given flow. *)
+  val json_sink : _ Eio.Flow.sink -> sink
+
+  (** Human-readable stderr sink with timestamp and fields. *)
+  val stderr_sink : unit -> sink
+
+  (** Collector sink for testing: returns [(sink, get_records)]. *)
+  val collector_sink : unit -> sink * (unit -> record list)
+end
+
 (** {1 Event Bus} *)
 
 module Event_bus : sig
@@ -1825,6 +1905,8 @@ module Builder : sig
   val with_description : string -> t -> t
   val with_periodic_callback : Agent.periodic_callback -> t -> t
   val with_periodic_callbacks : Agent.periodic_callback list -> t -> t
+  val with_log_level : Log.level -> t -> t
+  val with_log_sink : Log.sink -> t -> t
   val build : t -> Agent.t
   [@@deprecated "Use build_safe for validated construction"]
 
