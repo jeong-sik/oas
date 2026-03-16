@@ -49,6 +49,7 @@ module Tool = Tool
 module Mcp = Mcp
 module Mcp_session = Mcp_session
 module Guardrails = Guardrails
+module Log = Log
 module Event_bus = Event_bus
 module Skill = Skill
 module Skill_registry = Skill_registry
@@ -82,6 +83,11 @@ module Artifact_service = Artifact_service
 module Sessions = Sessions
 module Provider_mock = Provider_mock
 module Harness = Harness
+module Eval = Eval
+module Eval_collector = Eval_collector
+module Event_forward = Event_forward
+module A2a_task = A2a_task
+module A2a_server = A2a_server
 
 (** Quick start: create an agent with default config *)
 let create_agent ~net ?name ?model ?system_prompt ?max_tokens ?max_turns
@@ -119,5 +125,5 @@ let runtime_query = Runtime_query.query
 let query = Query.query
 
 (** Version info *)
-let version = "0.30.0"
+let version = "0.35.0"
 let sdk_name = "agent_sdk"

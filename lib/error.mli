@@ -49,6 +49,7 @@ type sdk_error =
   | Serialization of serialization_error
   | Io of io_error
   | Orchestration of orchestration_error
+  | A2a of string
   | Internal of string
 
 (** {1 Operations} *)

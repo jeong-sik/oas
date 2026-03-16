@@ -82,14 +82,17 @@ let test_token_budget_exceeds () =
   Alcotest.(check int) "only last turn" 2 (List.length result)
 
 let test_token_budget_image_doc () =
+  (* Use large data so token estimates are meaningful for budget testing *)
+  let large_img = String.make 1_200_000 'A' in (* ~1200 tokens for image *)
+  let large_doc = String.make 2_000_000 'A' in (* ~3000 tokens for document *)
   let msgs = [
-    Types.{ role = User; content = [Image { media_type = "image/png"; data = "abc"; source_type = "base64" }] };
+    Types.{ role = User; content = [Image { media_type = "image/png"; data = large_img; source_type = "base64" }] };
     asst_msg "nice image";
-    Types.{ role = User; content = [Document { media_type = "application/pdf"; data = "abc"; source_type = "base64" }] };
+    Types.{ role = User; content = [Document { media_type = "application/pdf"; data = large_doc; source_type = "base64" }] };
     asst_msg "nice doc";
   ] in
-  (* Image turn ~ 1000+, Document turn ~ 2000+. Budget 1500 should keep only doc turn *)
-  let result = Context_reducer.reduce (Context_reducer.token_budget 2100) msgs in
+  (* Image turn: ~1200 + 3 tokens. Doc turn: ~3000 + 2 tokens. Budget 3100 should keep only doc turn *)
+  let result = Context_reducer.reduce (Context_reducer.token_budget 3100) msgs in
   Alcotest.(check int) "doc turn only" 2 (List.length result)
 
 (* --- estimate_message_tokens --- *)
@@ -112,14 +115,30 @@ let test_estimate_tool_result () =
   Alcotest.(check int) "tool_result estimation" 3 tokens
 
 let test_estimate_image () =
-  let msg = Types.{ role = User; content = [Image { media_type = "image/png"; data = "x"; source_type = "base64" }] } in
-  let tokens = Context_reducer.estimate_message_tokens msg in
-  Alcotest.(check int) "image estimation" 1000 tokens
+  (* Small data: 1 byte -> min((1*3/4/750)+1, 1600) = 1 *)
+  let msg_small = Types.{ role = User; content = [Image { media_type = "image/png"; data = "x"; source_type = "base64" }] } in
+  let tokens_small = Context_reducer.estimate_message_tokens msg_small in
+  Alcotest.(check int) "small image estimation" 1 tokens_small;
+  (* Larger data: 100K chars -> min((100000*3/4/750)+1, 1600) = min(100+1, 1600) = 101 *)
+  let msg_large = Types.{ role = User; content = [Image { media_type = "image/png"; data = String.make 100_000 'A'; source_type = "base64" }] } in
+  let tokens_large = Context_reducer.estimate_message_tokens msg_large in
+  Alcotest.(check bool) "large image > 0" true (tokens_large > 0);
+  Alcotest.(check bool) "large image capped" true (tokens_large <= 1600)
 
 let test_estimate_document () =
-  let msg = Types.{ role = User; content = [Document { media_type = "application/pdf"; data = "x"; source_type = "base64" }] } in
+  let msg_small = Types.{ role = User; content = [Document { media_type = "application/pdf"; data = "x"; source_type = "base64" }] } in
+  let tokens_small = Context_reducer.estimate_message_tokens msg_small in
+  Alcotest.(check int) "small doc estimation" 1 tokens_small;
+  let msg_large = Types.{ role = User; content = [Document { media_type = "application/pdf"; data = String.make 200_000 'A'; source_type = "base64" }] } in
+  let tokens_large = Context_reducer.estimate_message_tokens msg_large in
+  Alcotest.(check bool) "large doc > 0" true (tokens_large > 0);
+  Alcotest.(check bool) "large doc capped" true (tokens_large <= 3000)
+
+let test_estimate_audio () =
+  let msg = Types.{ role = User; content = [Audio { media_type = "audio/wav"; data = String.make 50_000 'A'; source_type = "base64" }] } in
   let tokens = Context_reducer.estimate_message_tokens msg in
-  Alcotest.(check int) "document estimation" 2000 tokens
+  Alcotest.(check bool) "audio > 0" true (tokens > 0);
+  Alcotest.(check bool) "audio capped" true (tokens <= 5000)
 
 (* --- group_into_turns --- *)
 
@@ -407,6 +426,7 @@ let () =
       Alcotest.test_case "tool_result" `Quick test_estimate_tool_result;
       Alcotest.test_case "image" `Quick test_estimate_image;
       Alcotest.test_case "document" `Quick test_estimate_document;
+      Alcotest.test_case "audio" `Quick test_estimate_audio;
     ];
     "group_into_turns", [
       Alcotest.test_case "basic grouping" `Quick test_group_basic;

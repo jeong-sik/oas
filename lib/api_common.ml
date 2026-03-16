@@ -17,7 +17,7 @@ let text_blocks_to_string blocks =
          | Text s -> Some s
          | Thinking { content = s; _ } -> Some s
          | RedactedThinking _ -> None
-         | ToolUse _ | ToolResult _ | Image _ | Document _ -> None)
+         | ToolUse _ | ToolResult _ | Image _ | Document _ | Audio _ -> None)
   |> String.concat "\n"
 
 let json_of_string_or_raw s =
@@ -67,6 +67,15 @@ let content_block_to_json = function
           ("data", `String data);
         ]);
       ]
+  | Audio { media_type; data; source_type } ->
+      `Assoc [
+        ("type", `String "audio");
+        ("source", `Assoc [
+          ("type", `String source_type);
+          ("media_type", `String media_type);
+          ("data", `String data);
+        ]);
+      ]
 
 let content_block_of_json json =
   let open Yojson.Safe.Util in
@@ -103,6 +112,12 @@ let content_block_of_json json =
       let media_type = source |> member "media_type" |> to_string in
       let data = source |> member "data" |> to_string in
       Some (Document { media_type; data; source_type })
+  | Some "audio" ->
+      let source = json |> member "source" in
+      let source_type = source |> member "type" |> to_string in
+      let media_type = source |> member "media_type" |> to_string in
+      let data = source |> member "data" |> to_string in
+      Some (Audio { media_type; data; source_type })
   | _ -> None
 
 let message_to_json msg =

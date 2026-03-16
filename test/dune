@@ -261,3 +261,19 @@
 (test
  (name test_usability_v030)
  (libraries agent_sdk alcotest yojson eio eio_main))
+
+(test
+ (name test_log)
+ (libraries agent_sdk alcotest yojson unix))
+
+(test
+ (name test_eval)
+ (libraries agent_sdk alcotest yojson unix eio eio_main))
+
+(test
+ (name test_event_forward)
+ (libraries agent_sdk alcotest yojson unix eio eio_main))
+
+(test
+ (name test_a2a)
+ (libraries agent_sdk alcotest yojson unix))

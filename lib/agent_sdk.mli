@@ -78,6 +78,7 @@ module Types : sig
     | ToolResult of { tool_use_id: string; content: string; is_error: bool }
     | Image of { media_type: string; data: string; source_type: string }
     | Document of { media_type: string; data: string; source_type: string }
+    | Audio of { media_type: string; data: string; source_type: string }
   [@@deriving show]
 
   (** A single message in the conversation *)
@@ -1240,6 +1241,86 @@ module Session : sig
   val of_json : Yojson.Safe.t -> (t, Error.sdk_error) result
 end
 
+(** {1 Structured Logging} *)
+
+module Log : sig
+  (** Level-based structured log system with composable sinks.
+
+      [sink] is [record -> unit] — composable and lightweight.
+      [field] is a closed variant for schema enforcement at call sites.
+      Disabled levels skip record allocation entirely (zero-cost). *)
+
+  type level = Debug | Info | Warn | Error
+
+  val level_to_string : level -> string
+  val level_of_string : string -> (level, string) result
+  val level_to_yojson : level -> Yojson.Safe.t
+  val level_of_yojson : Yojson.Safe.t -> (level, string) result
+  val pp_level : Format.formatter -> level -> unit
+  val show_level : level -> string
+
+  (** Structured key-value fields attached to log records.
+      [S] = string, [I] = int, [F] = float, [B] = bool,
+      [J] = arbitrary JSON (escape hatch). *)
+  type field =
+    | S of string * string
+    | I of string * int
+    | F of string * float
+    | B of string * bool
+    | J of string * Yojson.Safe.t
+
+  val field_to_json : field -> string * Yojson.Safe.t
+
+  (** A single structured log record. *)
+  type record = {
+    ts: float;
+    level: level;
+    module_name: string;
+    message: string;
+    fields: field list;
+    trace_id: string option;
+    span_id: string option;
+  }
+
+  val record_to_json : record -> Yojson.Safe.t
+
+  (** A sink consumes log records. Multiple sinks can be composed
+      by registering each via {!add_sink}. *)
+  type sink = record -> unit
+
+  (** Logger instance, scoped to a module name. *)
+  type t
+
+  val create : module_name:string -> unit -> t
+  val with_trace_id : t -> trace_id:string -> t
+  val with_span_id : t -> span_id:string -> t
+
+  (** {2 Global configuration} *)
+
+  val set_global_level : level -> unit
+  val add_sink : sink -> unit
+  val clear_sinks : unit -> unit
+
+  (** {2 Logging functions}
+      Each checks the global level before allocating a record. *)
+
+  val debug : t -> string -> field list -> unit
+  val info  : t -> string -> field list -> unit
+  val warn  : t -> string -> field list -> unit
+  val error : t -> string -> field list -> unit
+
+  (** {2 Built-in sinks} *)
+
+  (** JSON-lines sink: writes one JSON object per record to the given flow. *)
+  val json_sink : _ Eio.Flow.sink -> sink
+
+  (** Human-readable stderr sink with timestamp and fields. *)
+  val stderr_sink : unit -> sink
+
+  (** Collector sink for testing: returns [(sink, get_records)]. *)
+  val collector_sink : unit -> sink * (unit -> record list)
+end
+
 (** {1 Event Bus} *)
 
 module Event_bus : sig
@@ -1259,6 +1340,7 @@ module Event_bus : sig
     | TurnCompleted of { agent_name: string; turn: int }
     | ElicitationCompleted of { agent_name: string; question: string;
                                 response: Hooks.elicitation_response }
+    | TaskStateChanged of { task_id: string; from_state: string; to_state: string }
     | Custom of string * Yojson.Safe.t
 
   (** Predicate for filtering events. *)
@@ -1564,10 +1646,17 @@ module Agent_card : sig
     | Custom_cap of string
   [@@deriving yojson, show]
 
+  type authentication = {
+    schemes: string list;
+    credentials: string option;
+  }
+
   type agent_card = {
     name: string;
     description: string option;
     version: string;
+    url: string option;
+    authentication: authentication option;
     capabilities: capability list;
     tools: Types.tool_schema list;
     skills: Skill.t list;
@@ -1825,6 +1914,9 @@ module Builder : sig
   val with_description : string -> t -> t
   val with_periodic_callback : Agent.periodic_callback -> t -> t
   val with_periodic_callbacks : Agent.periodic_callback list -> t -> t
+  val with_log_level : Log.level -> t -> t
+  val with_log_sink : Log.sink -> t -> t
+  val with_event_targets : Event_forward.target list -> t -> t
   val build : t -> Agent.t
   [@@deprecated "Use build_safe for validated construction"]
 
@@ -3288,4 +3380,274 @@ module Harness : sig
 
     val evaluate : observation -> expectation -> verdict
   end
+end
+
+(** {1 Evaluation Framework} *)
+
+module Eval : sig
+  (** Quantitative agent run assessment with metric collection,
+      baseline comparison, and threshold checking. *)
+
+  type metric_value =
+    | Int_val of int
+    | Float_val of float
+    | Bool_val of bool
+    | String_val of string
+
+  val metric_value_to_yojson : metric_value -> Yojson.Safe.t
+  val metric_value_of_yojson : Yojson.Safe.t -> (metric_value, string) result
+  val show_metric_value : metric_value -> string
+  val pp_metric_value : Format.formatter -> metric_value -> unit
+  val metric_value_to_float : metric_value -> float option
+
+  type metric = {
+    name: string;
+    value: metric_value;
+    unit_: string option;
+    tags: (string * string) list;
+  }
+
+  val metric_to_yojson : metric -> Yojson.Safe.t
+  val metric_of_yojson : Yojson.Safe.t -> (metric, string) result
+  val show_metric : metric -> string
+  val pp_metric : Format.formatter -> metric -> unit
+
+  type run_metrics = {
+    run_id: string;
+    agent_name: string;
+    timestamp: float;
+    metrics: metric list;
+    harness_verdicts: Harness.verdict list;
+    trace_summary: Trace_eval.summary option;
+  }
+
+  val run_metrics_to_yojson : run_metrics -> Yojson.Safe.t
+  val run_metrics_of_yojson : Yojson.Safe.t -> (run_metrics, string) result
+  val show_run_metrics : run_metrics -> string
+  val pp_run_metrics : Format.formatter -> run_metrics -> unit
+
+  (** {2 Collector}
+      Mutable during a run; call {!finalize} to produce immutable [run_metrics]. *)
+
+  type collector
+
+  val create_collector : agent_name:string -> run_id:string -> collector
+  val record : collector -> metric -> unit
+  val add_verdict : collector -> Harness.verdict -> unit
+  val set_trace_summary : collector -> Trace_eval.summary -> unit
+  val finalize : collector -> run_metrics
+
+  (** {2 Comparison} *)
+
+  type change_direction = Regression | Improvement | Unchanged
+
+  type metric_delta = {
+    metric_name: string;
+    baseline_value: metric_value;
+    candidate_value: metric_value;
+    direction: change_direction;
+    delta_pct: float option;
+  }
+
+  type comparison = {
+    baseline: run_metrics;
+    candidate: run_metrics;
+    regressions: metric_delta list;
+    improvements: metric_delta list;
+    unchanged: metric_delta list;
+  }
+
+  val compare : baseline:run_metrics -> candidate:run_metrics -> comparison
+
+  (** {2 Threshold checking} *)
+
+  type threshold = {
+    metric_name: string;
+    max_value: metric_value option;
+    min_value: metric_value option;
+  }
+
+  val check_thresholds : run_metrics -> threshold list -> Harness.verdict
+
+  (** {2 Lookup} *)
+
+  val find_metric : run_metrics -> string -> metric option
+  val find_metric_value : run_metrics -> string -> metric_value option
+end
+
+(** {1 Automatic Eval Collection} *)
+
+module Eval_collector : sig
+  (** Subscribes to an [Event_bus] and automatically extracts metrics
+      (turn count, tool calls, latency) from agent lifecycle events. *)
+
+  type t
+
+  val wrap_run :
+    bus:Event_bus.t -> agent_name:string -> run_id:string -> unit -> t
+
+  (** Process pending events and produce final [run_metrics].
+      Unsubscribes from the event bus. *)
+  val finalize : t -> Eval.run_metrics
+end
+
+(** {1 Event Forwarding} *)
+
+module Event_forward : sig
+  (** Deliver Event_bus events to external targets: HTTP webhooks,
+      file append, or custom transports. Best-effort delivery that
+      never blocks the agent. *)
+
+  type event_payload = {
+    event_type: string;
+    timestamp: float;
+    agent_name: string option;
+    data: Yojson.Safe.t;
+  }
+
+  val payload_to_json : event_payload -> Yojson.Safe.t
+  val event_type_name : Event_bus.event -> string
+  val event_to_payload : Event_bus.event -> event_payload
+
+  type target =
+    | Webhook of {
+        url: string;
+        headers: (string * string) list;
+        method_: [ `POST | `PUT ];
+        timeout_s: float;
+      }
+    | File_append of { path: string }
+    | Custom_target of { name: string; deliver: event_payload -> unit }
+
+  type t
+
+  val create :
+    targets:target list ->
+    ?batch_size:int ->
+    ?flush_interval_s:float ->
+    unit -> t
+
+  (** Start forwarding in a separate Eio fiber. Idempotent. *)
+  val start :
+    sw:Eio.Switch.t ->
+    net:_ Eio.Net.t ->
+    bus:Event_bus.t ->
+    t -> unit
+
+  (** Signal the forwarder to stop after flushing pending events. *)
+  val stop : t -> unit
+
+  val delivered_count : t -> int
+  val failed_count : t -> int
+end
+
+(** {1 A2A Task Lifecycle} *)
+
+module A2a_task : sig
+  (** Agent-to-Agent protocol task state machine.
+      Tasks flow through: Submitted -> Working -> Completed/Failed/Canceled.
+      Illegal transitions return Error. *)
+
+  type task_state =
+    | Submitted | Working | Input_required
+    | Completed | Failed | Canceled
+
+  val task_state_to_string : task_state -> string
+  val task_state_of_string : string -> (task_state, string) result
+  val task_state_to_yojson : task_state -> Yojson.Safe.t
+  val task_state_of_yojson : Yojson.Safe.t -> (task_state, string) result
+  val pp_task_state : Format.formatter -> task_state -> unit
+  val show_task_state : task_state -> string
+
+  val valid_transitions : task_state -> task_state list
+  val is_terminal : task_state -> bool
+
+  type transition_error =
+    | InvalidTransition of { from_state: task_state; to_state: task_state }
+    | TaskAlreadyTerminal of { state: task_state }
+
+  val transition_error_to_string : transition_error -> string
+
+  type message_part =
+    | Text_part of string
+    | File_part of { name: string; mime_type: string; data: string }
+    | Data_part of Yojson.Safe.t
+
+  val message_part_to_yojson : message_part -> Yojson.Safe.t
+  val message_part_of_yojson : Yojson.Safe.t -> (message_part, string) result
+  val pp_message_part : Format.formatter -> message_part -> unit
+  val show_message_part : message_part -> string
+
+  type task_role = TaskUser | TaskAgent
+
+  type task_message = {
+    role: task_role;
+    parts: message_part list;
+    metadata: (string * Yojson.Safe.t) list;
+  }
+
+  val task_message_to_yojson : task_message -> Yojson.Safe.t
+  val task_message_of_yojson : Yojson.Safe.t -> (task_message, string) result
+
+  type artifact = {
+    name: string;
+    parts: message_part list;
+    metadata: (string * Yojson.Safe.t) list;
+  }
+
+  val artifact_to_yojson : artifact -> Yojson.Safe.t
+  val artifact_of_yojson : Yojson.Safe.t -> (artifact, string) result
+
+  type task_id = string
+
+  type task = {
+    id: task_id;
+    state: task_state;
+    messages: task_message list;
+    artifacts: artifact list;
+    metadata: (string * Yojson.Safe.t) list;
+    created_at: float;
+    updated_at: float;
+  }
+
+  val create : task_message -> task
+  val transition : task -> task_state -> (task, transition_error) result
+  val add_message : task -> task_message -> task
+  val add_artifact : task -> artifact -> task
+
+  val task_to_yojson : task -> Yojson.Safe.t
+  val task_of_yojson : Yojson.Safe.t -> (task, string) result
+
+  (** {2 In-memory store} *)
+  type store
+  val create_store : unit -> store
+  val store_task : store -> task -> unit
+  val get_task : store -> task_id -> task option
+  val list_tasks : store -> task list
+end
+
+(** {1 A2A Server} *)
+
+module A2a_server : sig
+  (** JSON-RPC server for A2A protocol.
+      Serves agent card at /.well-known/agent.json and
+      handles tasks/send, tasks/get, tasks/cancel methods. *)
+
+  type config = {
+    port: int;
+    agent_card: Agent_card.agent_card;
+    on_task_send: A2a_task.task_message -> (A2a_task.task, Error.sdk_error) result;
+    on_task_cancel: A2a_task.task_id -> (unit, Error.sdk_error) result;
+  }
+
+  type t
+
+  val create : ?event_bus:Event_bus.t -> config -> t
+  val start : sw:Eio.Switch.t -> net:_ Eio.Net.t -> t -> unit
+  val stop : t -> unit
+  val is_running : t -> bool
+
+  (** Process a request directly (for testing without HTTP transport). *)
+  val process_request :
+    t -> meth:string -> path:string -> body:string -> int * string
 end

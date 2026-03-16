@@ -43,6 +43,15 @@ let openai_content_parts_of_blocks blocks =
                  ("url", `String (Printf.sprintf "data:%s;base64,%s" media_type data))
                ])
              ])
+         | Audio { media_type; data; source_type = _ } ->
+             (* OpenAI input_audio format *)
+             Some (`Assoc [
+               ("type", `String "input_audio");
+               ("input_audio", `Assoc [
+                 ("data", `String data);
+                 ("format", `String media_type);
+               ])
+             ])
          | Thinking _ | RedactedThinking _ | ToolUse _ | ToolResult _ -> None)
 
 let openai_messages_of_message (msg : message) : Yojson.Safe.t list =
@@ -50,7 +59,7 @@ let openai_messages_of_message (msg : message) : Yojson.Safe.t list =
   | User ->
       let content_parts = openai_content_parts_of_blocks msg.content in
       let has_multimodal =
-        List.exists (function Image _ | Document _ -> true | _ -> false) msg.content
+        List.exists (function Image _ | Document _ | Audio _ -> true | _ -> false) msg.content
       in
       let user_msgs =
         if content_parts = [] then []

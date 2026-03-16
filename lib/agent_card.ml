@@ -24,10 +24,17 @@ type capability =
 
 (* ── Agent Card ─────────────────────────────────────────── *)
 
+type authentication = {
+  schemes: string list;
+  credentials: string option;
+}
+
 type agent_card = {
   name: string;
   description: string option;
   version: string;
+  url: string option;
+  authentication: authentication option;
   capabilities: capability list;
   tools: Types.tool_schema list;
   skills: Skill.t list;
@@ -64,9 +71,20 @@ let to_json (card : agent_card) : Yojson.Safe.t =
     | Some v -> [(key, `String v)]
     | None -> []
   in
+  let opt_auth = match card.authentication with
+    | None -> []
+    | Some a ->
+      [("authentication", `Assoc ([
+        ("schemes", `List (List.map (fun s -> `String s) a.schemes));
+      ] @ (match a.credentials with
+           | Some c -> [("credentials", `String c)]
+           | None -> [])))]
+  in
   `Assoc ([
     ("name", `String card.name);
   ] @ opt "description" card.description
+    @ opt "url" card.url
+    @ opt_auth
     @ [
     ("version", `String card.version);
     ("capabilities",
@@ -114,7 +132,22 @@ let of_json (json : Yojson.Safe.t) : (agent_card, Error.sdk_error) result =
     (* tools and skills contain runtime objects (functions) that cannot
        be fully restored from JSON.  Callers must re-attach them after
        deserializing the card skeleton. *)
-    Ok { name; description; version; capabilities;
+    let url = match json |> member "url" with
+      | `Null -> None
+      | v -> Some (to_string v)
+    in
+    let authentication = match json |> member "authentication" with
+      | `Assoc _ as auth_json ->
+        let schemes = auth_json |> member "schemes" |> to_list
+          |> List.filter_map (function `String s -> Some s | _ -> None) in
+        let credentials = match auth_json |> member "credentials" with
+          | `Null -> None
+          | v -> Some (to_string v)
+        in
+        Some { schemes; credentials }
+      | _ -> None
+    in
+    Ok { name; description; version; url; authentication; capabilities;
          tools = []; skills = [];
          supported_providers; metadata }
   with
@@ -180,6 +213,8 @@ let of_info (info : agent_info) : agent_card =
     name = info.agent_name;
     description = info.agent_description;
     version = info.version;
+    url = None;
+    authentication = None;
     capabilities = List.rev !caps;
     tools = info.tool_schemas;
     skills;
