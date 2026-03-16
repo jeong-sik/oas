@@ -11,7 +11,7 @@
 
 ## Remaining
 
-- [ ] **Prompt Caching**: `cache_control` 파라미터 지원. system prompt에 `{"type":"ephemeral"}` 캐시 제어 + usage 통계에 cache_creation/cache_read 토큰 추출.
+- [x] **Prompt Caching** (v0.27.0): Anthropic system prompt cache_control + usage cache token 파싱 + OpenAI `prompt_tokens_details.cached_tokens` 파싱 + streaming `message_delta` cache token 추출.
 - [ ] **Eio Multicore 활용**: 여러 에이전트를 동시에 돌릴 때 멀티코어 성능을 극대화할 수 있도록 `Eio.Executor` 활용 검토.
 
 ---

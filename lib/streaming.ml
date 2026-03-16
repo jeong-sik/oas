@@ -69,8 +69,14 @@ let parse_sse_event event_type data_str =
           if u = `Null then None
           else
             let output_tokens = u |> member "output_tokens" |> to_int in
+            let cache_creation_input_tokens =
+              u |> member "cache_creation_input_tokens" |> to_int_option
+              |> Option.value ~default:0 in
+            let cache_read_input_tokens =
+              u |> member "cache_read_input_tokens" |> to_int_option
+              |> Option.value ~default:0 in
             Some { Types.input_tokens = 0; output_tokens;
-                   cache_creation_input_tokens = 0; cache_read_input_tokens = 0 }
+                   cache_creation_input_tokens; cache_read_input_tokens }
         in
         Some (MessageDelta { stop_reason; usage })
     | "message_stop" ->
@@ -197,7 +203,12 @@ let create_message_stream ~sw ~net ?(base_url=Api.default_base_url) ?provider ~c
                              | MessageDelta { stop_reason = sr; usage } ->
                                  (match sr with Some r -> stop_reason := r | None -> ());
                                  (match usage with
-                                  | Some u -> output_tokens := u.Types.output_tokens
+                                  | Some u ->
+                                      output_tokens := u.Types.output_tokens;
+                                      if u.Types.cache_creation_input_tokens > 0 then
+                                        cache_creation := u.Types.cache_creation_input_tokens;
+                                      if u.Types.cache_read_input_tokens > 0 then
+                                        cache_read := u.Types.cache_read_input_tokens
                                   | None -> ())
                              | _ -> ())
                     end
