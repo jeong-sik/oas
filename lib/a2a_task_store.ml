@@ -1,0 +1,123 @@
+(** File-backed A2A task persistence using Eio.Path.
+
+    Layout: [<base_dir>/<task_id>.json].
+    Atomic writes via .tmp + rename (same pattern as checkpoint_store.ml).
+    In-memory Hashtbl cache for fast lookups; file I/O for durability. *)
+
+type t = {
+  base_dir: Eio.Fs.dir_ty Eio.Path.t;
+  cache: (A2a_task.task_id, A2a_task.task) Hashtbl.t;
+}
+
+(** Validate task_id: reject empty, containing '/', containing '\000'. *)
+let validate_task_id id =
+  if String.length id = 0 then
+    Error (Error.Io (ValidationFailed { detail = "task_id must not be empty" }))
+  else if String.contains id '/' then
+    Error (Error.Io (ValidationFailed { detail = "task_id must not contain '/'" }))
+  else if String.contains id '\000' then
+    Error (Error.Io (ValidationFailed { detail = "task_id must not contain null byte" }))
+  else Ok ()
+
+(** Convert file I/O exceptions to sdk_error.  Re-raises non-recoverable exceptions. *)
+let io_error_of_exn ~op ~path = function
+  | Eio.Io _ as exn ->
+    Error (Error.Io (FileOpFailed { op; path; detail = Printexc.to_string exn }))
+  | Unix.Unix_error _ as exn ->
+    Error (Error.Io (FileOpFailed { op; path; detail = Printexc.to_string exn }))
+  | Failure msg ->
+    Error (Error.Io (FileOpFailed { op; path; detail = msg }))
+  | Yojson.Json_error msg ->
+    Error (Error.Io (FileOpFailed { op; path; detail = "JSON error: " ^ msg }))
+  | exn -> raise exn
+
+let file_path store id = Eio.Path.(store.base_dir / (id ^ ".json"))
+let tmp_path store id = Eio.Path.(store.base_dir / (id ^ ".json.tmp"))
+
+let create base_dir =
+  try
+    Eio.Path.mkdirs ~exists_ok:true ~perm:0o755 base_dir;
+    Ok { base_dir; cache = Hashtbl.create 64 }
+  with exn -> io_error_of_exn ~op:"create" ~path:"task_store_dir" exn
+
+let store_task store (task : A2a_task.task) =
+  match validate_task_id task.id with
+  | Error e -> Error e
+  | Ok () ->
+    let json = A2a_task.task_to_yojson task in
+    let data = Yojson.Safe.to_string json in
+    let tmp = tmp_path store task.id in
+    let target = file_path store task.id in
+    (try
+       Eio.Path.save ~create:(`Or_truncate 0o644) tmp data;
+       Eio.Path.rename tmp target;
+       Hashtbl.replace store.cache task.id task;
+       Ok ()
+     with exn ->
+       (try Eio.Path.unlink tmp with Eio.Io _ | Unix.Unix_error _ -> ());
+       io_error_of_exn ~op:"store_task" ~path:task.id exn)
+
+let get_task store id =
+  Hashtbl.find_opt store.cache id
+
+let list_tasks store =
+  Hashtbl.fold (fun _ task acc -> task :: acc) store.cache []
+
+let delete_task store id =
+  match validate_task_id id with
+  | Error e -> Error e
+  | Ok () ->
+    let path = file_path store id in
+    (try
+       Eio.Path.unlink path;
+       Hashtbl.remove store.cache id;
+       Ok ()
+     with exn -> io_error_of_exn ~op:"delete_task" ~path:id exn)
+
+(** Reload all tasks from disk into the cache.
+    Skips files that fail to parse (corrupted JSON). *)
+let reload store =
+  try
+    Hashtbl.clear store.cache;
+    let entries = Eio.Path.read_dir store.base_dir in
+    let json_files = entries
+      |> List.filter (fun name ->
+             let len = String.length name in
+             len > 5
+             && String.sub name (len - 5) 5 = ".json"
+             && not (len > 9 && String.sub name (len - 9) 9 = ".json.tmp"))
+    in
+    List.iter (fun filename ->
+      let path = Eio.Path.(store.base_dir / filename) in
+      try
+        let data = Eio.Path.load path in
+        let json = Yojson.Safe.from_string data in
+        match A2a_task.task_of_yojson json with
+        | Ok task -> Hashtbl.replace store.cache task.id task
+        | Error _ -> ()  (* skip corrupted files *)
+      with _ -> ()  (* skip unreadable files *)
+    ) json_files;
+    Ok ()
+  with exn -> io_error_of_exn ~op:"reload" ~path:"task_store_dir" exn
+
+(** Garbage-collect terminal tasks older than [max_age_s] seconds.
+    Returns the number of tasks removed. *)
+let gc ?(max_age_s = 86400.0) store =
+  let now = Unix.gettimeofday () in
+  let to_remove = Hashtbl.fold (fun id (task : A2a_task.task) acc ->
+    if A2a_task.is_terminal task.state
+       && now -. task.updated_at > max_age_s
+    then id :: acc
+    else acc
+  ) store.cache [] in
+  let errors = List.filter_map (fun id ->
+    match delete_task store id with
+    | Ok () -> None
+    | Error _ -> Some id
+  ) to_remove in
+  let removed = List.length to_remove - List.length errors in
+  if errors = [] then Ok removed
+  else
+    let detail = Printf.sprintf "gc removed %d tasks, %d failed to delete"
+      removed (List.length errors) in
+    Error (Error.Io (FileOpFailed { op = "gc"; path = "task_store_dir"; detail }))

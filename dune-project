@@ -1,6 +1,6 @@
 (lang dune 3.11)
 (name agent_sdk)
-(version 0.35.0)
+(version 0.40.0)
 
 (generate_opam_files true)
 
@@ -27,6 +27,7 @@
   (uri (>= 4.4))
   (mcp_protocol (>= 0.10.0))
   (mcp_protocol_eio (>= 0.10.0))
+  (cmdliner (>= 1.3.0))
   (alcotest (and :with-test (>= 1.7)))
   (qcheck-core (and :with-test (>= 0.21)))
   (qcheck-alcotest (and :with-test (>= 0.21)))

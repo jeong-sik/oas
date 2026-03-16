@@ -787,6 +787,68 @@ module Mcp : sig
     server_spec list -> managed list * (string * Error.sdk_error) list
 end
 
+(** {1 SSE Parser} *)
+
+module Sse_parser : sig
+  (** SSE (Server-Sent Events) line-level parser.
+      Follows the SSE spec: event/data/id/retry fields, blank line = dispatch. *)
+
+  type raw_sse_event = {
+    event_type: string option;
+    data: string;
+    id: string option;
+    retry: int option;
+  }
+
+  val parse_lines : Eio.Buf_read.t -> on_event:(raw_sse_event -> unit) -> unit
+end
+
+(** {1 MCP HTTP Transport} *)
+
+module Mcp_http : sig
+  (** HTTP+SSE transport for MCP servers (MCP 2025-03 spec).
+      JSON-RPC 2.0 over HTTP POST. *)
+
+  type config = {
+    base_url: string;
+    headers: (string * string) list;
+    reconnect_max_s: float;
+    request_timeout_s: float;
+  }
+
+  val default_config : config
+
+  type t
+
+  val connect :
+    sw:Eio.Switch.t ->
+    net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
+    config -> (t, Error.sdk_error) result
+
+  val initialize : t -> (unit, Error.sdk_error) result
+  val list_tools : t -> (Mcp.mcp_tool list, Error.sdk_error) result
+  val call_tool : t -> name:string -> arguments:Yojson.Safe.t -> Types.tool_result
+  val close : t -> unit
+
+  type http_spec = {
+    base_url: string;
+    headers: (string * string) list;
+    name: string;
+  }
+
+  type managed = {
+    client: t;
+    tools: Tool.t list;
+    name: string;
+    spec: http_spec;
+  }
+
+  val connect_and_load :
+    sw:Eio.Switch.t ->
+    net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
+    http_spec -> (managed, Error.sdk_error) result
+end
+
 (** {1 Guardrails} *)
 
 module Guardrails : sig
@@ -1862,6 +1924,80 @@ module Agent : sig
   val lifecycle_snapshot : t -> lifecycle_snapshot option
 end
 
+(** {1 Agent Registry} *)
+
+module Agent_registry : sig
+  (** Capability-based multi-agent discovery registry.
+      Maintains local and remote agents for orchestration routing. *)
+
+  type agent_entry =
+    | Local of { agent: Agent.t; card: Agent_card.agent_card }
+    | Remote of { url: string; card: Agent_card.agent_card }
+
+  type t
+
+  val create : unit -> t
+  val register_local : t -> name:string -> Agent.t -> unit
+  val register_remote : t -> name:string -> url:string -> Agent_card.agent_card -> unit
+  val lookup : t -> string -> agent_entry option
+  val list_all : t -> (string * agent_entry) list
+  val list_by_capability : t -> Agent_card.capability -> (string * agent_entry) list
+  val list_by_tool : t -> string -> (string * agent_entry) list
+  val fetch_remote_card :
+    sw:Eio.Switch.t ->
+    net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
+    string -> (Agent_card.agent_card, Error.sdk_error) result
+  val discover_and_register :
+    sw:Eio.Switch.t ->
+    net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
+    t -> name:string -> url:string -> (unit, Error.sdk_error) result
+  val unregister : t -> string -> unit
+  val count : t -> int
+  val card_of_entry : agent_entry -> Agent_card.agent_card
+end
+
+(** {1 Approval Pipeline} *)
+
+module Approval : sig
+  (** Composable multi-stage approval pipeline for tool execution.
+      Replaces single [approval_callback] with a chain of stages. *)
+
+  type risk_level = Low | Medium | High | Critical
+  val risk_level_to_string : risk_level -> string
+
+  type approval_context = {
+    tool_name: string;
+    input: Yojson.Safe.t;
+    agent_name: string;
+    turn: int;
+    risk_level: risk_level;
+  }
+
+  type stage_result = Decided of Hooks.approval_decision | Pass
+
+  type approval_stage = {
+    name: string;
+    evaluate: approval_context -> stage_result;
+    timeout_s: float option;
+  }
+
+  type t
+
+  val create : approval_stage list -> t
+  val evaluate :
+    t -> tool_name:string -> input:Yojson.Safe.t ->
+    agent_name:string -> turn:int -> Hooks.approval_decision
+  val as_callback : t -> Hooks.approval_callback
+
+  (** {2 Built-in stages} *)
+  val auto_approve_known_tools : string list -> approval_stage
+  val reject_dangerous_patterns : (string * string) list -> approval_stage
+  val risk_classifier : (string -> Yojson.Safe.t -> risk_level) -> approval_stage
+  val human_callback : Hooks.approval_callback -> approval_stage
+  val always_approve : approval_stage
+  val always_reject : string -> approval_stage
+end
+
 (** {1 Builder Pattern} *)
 
 module Builder : sig
@@ -1925,6 +2061,42 @@ module Builder : sig
       - max_tokens <= 0
       - thinking_budget set without enable_thinking *)
   val build_safe : t -> (Agent.t, Error.sdk_error) result
+end
+
+(** {1 Agent Config File} *)
+
+module Agent_config : sig
+  (** Load agent configuration from a JSON file (oas.json).
+      Convert to Builder.t for agent construction. *)
+
+  type tool_file_config = {
+    name: string;
+    description: string;
+    parameters: Types.tool_param list;
+  }
+
+  type mcp_file_config = {
+    command: string;
+    args: string list;
+    name: string;
+    env: string list;
+  }
+
+  type agent_file_config = {
+    name: string;
+    model: string;
+    system_prompt: string option;
+    max_tokens: int option;
+    max_turns: int option;
+    tools: tool_file_config list;
+    mcp_servers: mcp_file_config list;
+  }
+
+  val load : string -> (agent_file_config, Error.sdk_error) result
+  val of_json : Yojson.Safe.t -> (agent_file_config, Error.sdk_error) result
+  val to_builder :
+    net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
+    agent_file_config -> Builder.t
 end
 
 (** {1 Multi-Agent Orchestration} *)
@@ -3626,12 +3798,31 @@ module A2a_task : sig
   val list_tasks : store -> task list
 end
 
+(** {1 A2A Persistent Task Store} *)
+
+module A2a_task_store : sig
+  (** File-backed A2A task persistence.
+      Layout: [<dir>/<task_id>.json].  Atomic writes via tmp+rename.
+      In-memory Hashtbl cache for fast lookups; file I/O for durability. *)
+
+  type t
+
+  val create : Eio.Fs.dir_ty Eio.Path.t -> (t, Error.sdk_error) result
+  val store_task : t -> A2a_task.task -> (unit, Error.sdk_error) result
+  val get_task : t -> A2a_task.task_id -> A2a_task.task option
+  val list_tasks : t -> A2a_task.task list
+  val delete_task : t -> A2a_task.task_id -> (unit, Error.sdk_error) result
+  val reload : t -> (unit, Error.sdk_error) result
+  val gc : ?max_age_s:float -> t -> (int, Error.sdk_error) result
+end
+
 (** {1 A2A Server} *)
 
 module A2a_server : sig
   (** JSON-RPC server for A2A protocol.
       Serves agent card at /.well-known/agent.json and
-      handles tasks/send, tasks/get, tasks/cancel methods. *)
+      handles tasks/send, tasks/get, tasks/cancel methods.
+      Optionally backed by file-based persistence (v0.36+). *)
 
   type config = {
     port: int;
@@ -3642,7 +3833,7 @@ module A2a_server : sig
 
   type t
 
-  val create : ?event_bus:Event_bus.t -> config -> t
+  val create : ?event_bus:Event_bus.t -> ?persistent_store:A2a_task_store.t -> config -> t
   val start : sw:Eio.Switch.t -> net:_ Eio.Net.t -> t -> unit
   val stop : t -> unit
   val is_running : t -> bool

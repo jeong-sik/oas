@@ -7,7 +7,7 @@
     Design:
     - JSON-RPC 2.0 over HTTP (POST /a2a for methods, GET /.well-known/agent.json).
     - Callbacks [on_task_send] and [on_task_cancel] delegate to the host agent.
-    - In-memory task store with event bus integration.
+    - In-memory task store with optional file-backed persistence (v0.36+).
     - cohttp-eio based (no extra dependencies). *)
 
 (* ── Config ───────────────────────────────────────────────────── *)
@@ -60,17 +60,31 @@ let rpc_error ~id ~code ~message =
 type t = {
   config: config;
   store: A2a_task.store;
+  persistent_store: A2a_task_store.t option;
   mutable running: bool;
   log: Log.t;
   event_bus: Event_bus.t option;
 }
 
-let create ?(event_bus : Event_bus.t option) config =
-  { config; store = A2a_task.create_store (); running = false;
+let create ?(event_bus : Event_bus.t option) ?persistent_store config =
+  { config; store = A2a_task.create_store (); persistent_store;
+    running = false;
     log = Log.create ~module_name:"a2a_server" ();
     event_bus }
 
 (* ── Method handlers ──────────────────────────────────────────── *)
+
+(** Write task to both in-memory and persistent store (if configured). *)
+let persist_task t (task : A2a_task.task) =
+  A2a_task.store_task t.store task;
+  match t.persistent_store with
+  | Some ps ->
+    (match A2a_task_store.store_task ps task with
+     | Ok () -> ()
+     | Error e ->
+       Log.warn t.log "persistent store write failed"
+         [Log.S ("task_id", task.id); Log.S ("error", Error.to_string e)])
+  | None -> ()
 
 let handle_tasks_send t params =
   let open Yojson.Safe.Util in
@@ -82,7 +96,7 @@ let handle_tasks_send t params =
       match t.config.on_task_send msg with
       | Error sdk_err -> Error (Error.to_string sdk_err)
       | Ok task ->
-        A2a_task.store_task t.store task;
+        persist_task t task;
         Log.info t.log "task created"
           [Log.S ("task_id", task.id);
            Log.S ("state", A2a_task.task_state_to_string task.state)];
@@ -111,7 +125,7 @@ let handle_tasks_cancel t params =
         match A2a_task.transition task Canceled with
         | Error err -> Error (A2a_task.transition_error_to_string err)
         | Ok updated ->
-          A2a_task.store_task t.store updated;
+          persist_task t updated;
           Log.info t.log "task canceled" [Log.S ("task_id", task_id)];
           Ok (A2a_task.task_to_yojson updated)
   with Type_error (msg, _) -> Error msg

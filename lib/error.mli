@@ -20,6 +20,7 @@ type mcp_error =
   | InitializeFailed of { detail: string }
   | ToolListFailed of { detail: string }
   | ToolCallFailed of { tool_name: string; detail: string }
+  | HttpTransportFailed of { url: string; detail: string }
 
 type config_error =
   | MissingEnvVar of { var_name: string }
@@ -38,6 +39,7 @@ type io_error =
 type orchestration_error =
   | UnknownAgent of { name: string }
   | TaskTimeout of { task_id: string }
+  | DiscoveryFailed of { url: string; detail: string }
 
 (** {1 Top-level error} *)
 

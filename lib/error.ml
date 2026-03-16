@@ -25,6 +25,7 @@ type mcp_error =
   | InitializeFailed of { detail: string }
   | ToolListFailed of { detail: string }
   | ToolCallFailed of { tool_name: string; detail: string }
+  | HttpTransportFailed of { url: string; detail: string }
 
 (** Configuration errors. *)
 type config_error =
@@ -47,6 +48,7 @@ type io_error =
 type orchestration_error =
   | UnknownAgent of { name: string }
   | TaskTimeout of { task_id: string }
+  | DiscoveryFailed of { url: string; detail: string }
 
 (** Top-level SDK error. *)
 type sdk_error =
@@ -81,6 +83,8 @@ let mcp_error_to_string = function
     Printf.sprintf "MCP tools/list failed: %s" r.detail
   | ToolCallFailed r ->
     Printf.sprintf "MCP tools/call '%s' failed: %s" r.tool_name r.detail
+  | HttpTransportFailed r ->
+    Printf.sprintf "MCP HTTP transport failed for %s: %s" r.url r.detail
 
 let config_error_to_string = function
   | MissingEnvVar r ->
@@ -109,6 +113,8 @@ let orchestration_error_to_string = function
     Printf.sprintf "Unknown agent: %s" r.name
   | TaskTimeout r ->
     Printf.sprintf "Task timed out: %s" r.task_id
+  | DiscoveryFailed r ->
+    Printf.sprintf "Agent discovery failed for %s: %s" r.url r.detail
 
 let to_string = function
   | Api err -> Retry.error_message err
