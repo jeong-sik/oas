@@ -1513,6 +1513,58 @@ module Agent_checkpoint : sig
     Checkpoint.t
 end
 
+(** {1 Agent Card} *)
+
+module Agent_card : sig
+  (** Self-describing metadata for agent capability negotiation.
+      Inspired by A2A (Agent-to-Agent) protocol. *)
+
+  type capability =
+    | Tools
+    | Streaming
+    | Thinking
+    | StructuredOutput
+    | Handoff
+    | Checkpoint
+    | MCP
+    | Elicitation
+    | Custom_cap of string
+  [@@deriving yojson, show]
+
+  type agent_card = {
+    name: string;
+    description: string option;
+    version: string;
+    capabilities: capability list;
+    tools: Types.tool_schema list;
+    skills: Skill.t list;
+    supported_providers: string list;
+    metadata: (string * Yojson.Safe.t) list;
+  }
+
+  type agent_info = {
+    agent_name: string;
+    agent_description: string option;
+    version: string;
+    config: Types.agent_config;
+    tool_schemas: Types.tool_schema list;
+    provider: Provider.config option;
+    cascade: Provider.cascade option;
+    mcp_clients_count: int;
+    has_elicitation: bool;
+    skill_registry: Skill_registry.t option;
+  }
+
+  val capability_to_string : capability -> string
+  val capability_of_string : string -> capability
+  val of_info : agent_info -> agent_card
+  val to_json : agent_card -> Yojson.Safe.t
+  val of_json : Yojson.Safe.t -> (agent_card, Error.sdk_error) result
+  val has_capability : agent_card -> capability -> bool
+  val can_handle_tool : agent_card -> string -> bool
+  val has_skill : agent_card -> string -> bool
+end
+
 module Agent : sig
   (** Configuration options for agent behavior.
       Core runtime resources (net, tools, context) are kept on [t] directly;
@@ -1737,57 +1789,6 @@ module Builder : sig
       - max_tokens <= 0
       - thinking_budget set without enable_thinking *)
   val build_safe : t -> (Agent.t, Error.sdk_error) result
-end
-
-(** {1 Agent Card} *)
-
-module Agent_card : sig
-  (** Self-describing metadata for agent capability negotiation.
-      Inspired by A2A (Agent-to-Agent) protocol. *)
-
-  type capability =
-    | Tools
-    | Streaming
-    | Thinking
-    | StructuredOutput
-    | Handoff
-    | Checkpoint
-    | MCP
-    | Elicitation
-    | Custom_cap of string
-  [@@deriving yojson, show]
-
-  type agent_card = {
-    name: string;
-    description: string option;
-    version: string;
-    capabilities: capability list;
-    tools: Types.tool_schema list;
-    skills: Skill.t list;
-    supported_providers: string list;
-    metadata: (string * Yojson.Safe.t) list;
-  }
-
-  type agent_info = {
-    agent_name: string;
-    agent_description: string option;
-    config: Types.agent_config;
-    tool_schemas: Types.tool_schema list;
-    provider: Provider.config option;
-    cascade: Provider.cascade option;
-    mcp_clients_count: int;
-    has_elicitation: bool;
-    skill_registry: Skill_registry.t option;
-  }
-
-  val capability_to_string : capability -> string
-  val capability_of_string : string -> capability
-  val of_info : agent_info -> agent_card
-  val to_json : agent_card -> Yojson.Safe.t
-  val of_json : Yojson.Safe.t -> (agent_card, Error.sdk_error) result
-  val has_capability : agent_card -> capability -> bool
-  val can_handle_tool : agent_card -> string -> bool
-  val has_skill : agent_card -> string -> bool
 end
 
 (** {1 Multi-Agent Orchestration} *)

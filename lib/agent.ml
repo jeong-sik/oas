@@ -105,10 +105,13 @@ let net t = t.net
 let set_state t s = t.state <- s
 let description t = t.options.description
 
+let sdk_version = "0.30.0"
+
 let card t =
   Agent_card.of_info {
     agent_name = t.state.config.name;
     agent_description = t.options.description;
+    version = sdk_version;
     config = t.state.config;
     tool_schemas = List.map (fun (tool : Tool.t) -> tool.schema) t.tools;
     provider = t.options.provider;
@@ -346,13 +349,37 @@ let run_turn_core ~sw ?clock ~api_strategy ?raw_trace_run agent =
   let ts = Unix.gettimeofday () in
   set_lifecycle agent ~ready_at:ts Ready;
 
-  (* BeforeTurn hook *)
-  let _before =
+  (* BeforeTurn hook — may return ElicitInput *)
+  let before_decision =
     invoke_hook_with_trace agent ?raw_trace_run ~hook_name:"before_turn"
       agent.options.hooks.before_turn
       (Hooks.BeforeTurn { turn = agent.state.turn_count;
                           messages = agent.state.messages })
   in
+  (* Handle ElicitInput from BeforeTurn: call elicitation callback,
+     inject Answer as user message, or silently continue on Declined/Timeout. *)
+  (match before_decision with
+   | Hooks.ElicitInput req ->
+     (match agent.options.elicitation with
+      | Some cb ->
+        let response = cb req in
+        (match agent.options.event_bus with
+         | Some bus -> Event_bus.publish bus
+             (ElicitationCompleted {
+                agent_name = agent.state.config.name;
+                question = req.question;
+                response })
+         | None -> ());
+        (match response with
+         | Hooks.Answer json ->
+           let text = Printf.sprintf "[User input] %s: %s"
+             req.question (Yojson.Safe.to_string json) in
+           agent.state <- { agent.state with
+             messages = Util.snoc agent.state.messages
+               { role = User; content = [Text text] } }
+         | Hooks.Declined | Hooks.Timeout -> ())
+      | None -> ())
+   | _ -> ());
 
   (* BeforeTurnParams hook *)
   let turn_params = match agent.options.hooks.before_turn_params with

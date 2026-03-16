@@ -249,3 +249,7 @@
 (test
  (name test_elicitation)
  (libraries agent_sdk alcotest yojson eio eio_main))
+
+(test
+ (name test_usability_v030)
+ (libraries agent_sdk alcotest yojson eio eio_main))
