@@ -61,6 +61,7 @@ module Checkpoint = Checkpoint
 module Checkpoint_store = Checkpoint_store
 module Session = Session
 module Raw_trace = Raw_trace
+module Raw_trace_query = Raw_trace_query
 module Agent_lifecycle = Agent_lifecycle
 module Agent_turn = Agent_turn
 module Agent_checkpoint = Agent_checkpoint
@@ -116,5 +117,5 @@ let runtime_query = Runtime_query.query
 let query = Query.query
 
 (** Version info *)
-let version = "0.28.0"
+let version = "0.29.0"
 let sdk_name = "agent_sdk"

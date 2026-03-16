@@ -167,7 +167,7 @@ let empty_raw_details =
   }
 
 let raw_details_of_run run_ref =
-  let* validation = Raw_trace.validate_run run_ref in
+  let* validation = Raw_trace_query.validate_run run_ref in
   Ok
     {
       validated = validation.ok;
@@ -265,7 +265,7 @@ let extract_text_deltas (records : Raw_trace.record list) =
          | _ -> None)
 
 let write_latest_run_to_session store session_id agent_name (run_ref : Raw_trace.run_ref) =
-  let* records = Raw_trace.read_run run_ref in
+  let* records = Raw_trace_query.read_run run_ref in
   let path =
     Filename.concat (Runtime_store.raw_traces_dir store session_id)
       (safe_name agent_name ^ ".jsonl")
@@ -278,7 +278,7 @@ let write_latest_run_to_session store session_id agent_name (run_ref : Raw_trace
     |> fun body -> if body = "" then "" else body ^ "\n"
   in
   let* () = Runtime_store.save_text path content in
-  let* runs = Raw_trace.read_runs ~path () in
+  let* runs = Raw_trace_query.read_runs ~path () in
   match
     List.find_opt
       (fun (candidate : Raw_trace.run_ref) ->
@@ -353,8 +353,8 @@ let persist ~agent ~raw_trace ~(options : options) () =
     match existing_bundle with
     | Some bundle -> Ok bundle
     | None ->
-        let* raw_summary = Raw_trace.summarize_run raw_run in
-        let* _raw_validation = Raw_trace.validate_run raw_run in
+        let* raw_summary = Raw_trace_query.summarize_run raw_run in
+        let* _raw_validation = Raw_trace_query.validate_run raw_run in
         let prompt = extract_prompt latest_records in
         let selected_provider =
           first_some snapshot.requested_provider options.requested_provider

@@ -163,11 +163,11 @@ let add_event (s : span) (msg : string) =
     timestamp_ns = now_ns ();
     attributes = [];
   } in
-  s.events <- s.events @ [evt]
+  s.events <- Util.snoc s.events evt
 
 let add_attrs (s : span) (attrs : (string * string) list) =
   with_lock @@ fun () ->
-  s.attributes <- s.attributes @ attrs
+  s.attributes <- Util.snoc_list s.attributes attrs
 
 (* -- JSON export ------------------------------------------------------ *)
 

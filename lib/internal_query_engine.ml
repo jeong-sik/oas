@@ -14,7 +14,7 @@ let ( let* ) = Result.bind
 
 let append_message state message =
   Eio.Mutex.use_rw ~protect:true state.message_mu (fun () ->
-    state.buffered_messages <- state.buffered_messages @ [ message ]);
+    state.buffered_messages <- Util.snoc state.buffered_messages message);
   Eio.Condition.broadcast state.message_cv
 
 let runtime_options options =

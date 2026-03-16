@@ -330,7 +330,7 @@ let get_hook_summary ?session_root ~session_id () =
   let* paths = get_raw_trace_files ?session_root ~session_id () in
   let* runs =
     paths
-    |> List.map (fun path -> Raw_trace.read_runs ~path ())
+    |> List.map (fun path -> Raw_trace_query.read_runs ~path ())
     |> List.fold_left
          (fun acc item ->
            match acc, item with
@@ -367,7 +367,7 @@ let get_hook_summary ?session_root ~session_id () =
     |> List.fold_left
          (fun acc run ->
            let* () = acc in
-           let* records = Raw_trace.read_run run in
+           let* records = Raw_trace_query.read_run run in
            List.iter
              (fun (record : Raw_trace.record) ->
                match
@@ -403,7 +403,7 @@ let get_tool_catalog ?session_root ~session_id () =
 let get_raw_trace_runs ?session_root ~session_id () =
   let* paths = get_raw_trace_files ?session_root ~session_id () in
   paths
-  |> List.map (fun path -> Raw_trace.read_runs ~path ())
+  |> List.map (fun path -> Raw_trace_query.read_runs ~path ())
   |> List.fold_left
        (fun acc item ->
          match acc, item with
@@ -433,15 +433,15 @@ let get_raw_trace_run ?session_root ~session_id ~worker_run_id () =
 
 let get_raw_trace_records ?session_root ~session_id ~worker_run_id () =
   let* run = get_raw_trace_run ?session_root ~session_id ~worker_run_id () in
-  Raw_trace.read_run run
+  Raw_trace_query.read_run run
 
 let get_raw_trace_summary ?session_root ~session_id ~worker_run_id () =
   let* run = get_raw_trace_run ?session_root ~session_id ~worker_run_id () in
-  Raw_trace.summarize_run run
+  Raw_trace_query.summarize_run run
 
 let validate_raw_trace_run ?session_root ~session_id ~worker_run_id () =
   let* run = get_raw_trace_run ?session_root ~session_id ~worker_run_id () in
-  Raw_trace.validate_run run
+  Raw_trace_query.validate_run run
 
 let get_latest_raw_trace_run ?session_root ~session_id () =
   let* runs = get_raw_trace_runs ?session_root ~session_id () in
@@ -451,7 +451,7 @@ let get_latest_raw_trace_run ?session_root ~session_id () =
 
 let summarize_runs runs =
   runs
-  |> List.map Raw_trace.summarize_run
+  |> List.map Raw_trace_query.summarize_run
   |> List.fold_left
        (fun acc item ->
          match acc, item with
@@ -467,7 +467,7 @@ let get_raw_trace_summaries ?session_root ~session_id () =
 
 let validate_runs runs =
   runs
-  |> List.map Raw_trace.validate_run
+  |> List.map Raw_trace_query.validate_run
   |> List.fold_left
        (fun acc item ->
          match acc, item with

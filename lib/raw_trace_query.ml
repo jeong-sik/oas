@@ -1,0 +1,257 @@
+(** Read-side operations for raw traces: list runs, read, summarize, validate.
+
+    Extracted from raw_trace.ml to separate write-path (recording) from
+    read-path (query/analysis).  All functions operate on JSONL files
+    written by Raw_trace and return structured results. *)
+
+let ( let* ) = Result.bind
+
+(* ── Run discovery ──────────────────────────────────────────── *)
+
+let run_refs_of_records ~path records : Raw_trace.run_ref list =
+  let table : (string, Raw_trace.run_ref) Hashtbl.t = Hashtbl.create 8 in
+  List.iter
+    (fun (record : Raw_trace.record) ->
+      match Hashtbl.find_opt table record.worker_run_id with
+      | None ->
+          Hashtbl.replace table record.worker_run_id
+            {
+              worker_run_id = record.worker_run_id;
+              path;
+              start_seq = record.seq;
+              end_seq = record.seq;
+              agent_name = record.agent_name;
+              session_id = record.session_id;
+            }
+      | Some current ->
+          Hashtbl.replace table record.worker_run_id
+            {
+              current with
+              start_seq = min current.start_seq record.seq;
+              end_seq = max current.end_seq record.seq;
+            })
+    records;
+  Hashtbl.to_seq_values table |> List.of_seq
+  |> List.sort (fun (a : Raw_trace.run_ref) (b : Raw_trace.run_ref) ->
+         Int.compare a.start_seq b.start_seq)
+
+let read_runs ~path () =
+  let* records = Raw_trace.read_all ~path () in
+  Ok (run_refs_of_records ~path records)
+
+let read_run (run_ref : Raw_trace.run_ref) =
+  let* records = Raw_trace.read_all ~path:run_ref.path () in
+  Ok
+    (List.filter
+       (fun (record : Raw_trace.record) ->
+         String.equal record.worker_run_id run_ref.worker_run_id
+         && record.seq >= run_ref.start_seq
+         && record.seq <= run_ref.end_seq)
+       records)
+
+(* ── Summarize ──────────────────────────────────────────────── *)
+
+let summarize_run run_ref =
+  let* records = read_run run_ref in
+  let assistant_block_count =
+    List.filter
+      (fun (record : Raw_trace.record) -> record.record_type = Assistant_block)
+      records
+    |> List.length
+  in
+  let tool_execution_started_count =
+    List.filter
+      (fun (record : Raw_trace.record) -> record.record_type = Tool_execution_started)
+      records
+    |> List.length
+  in
+  let tool_execution_finished_count =
+    List.filter
+      (fun (record : Raw_trace.record) -> record.record_type = Tool_execution_finished)
+      records
+    |> List.length
+  in
+  let hook_invoked_count =
+    List.filter
+      (fun (record : Raw_trace.record) -> record.record_type = Hook_invoked)
+      records
+    |> List.length
+  in
+  let hook_names =
+    records
+    |> List.filter_map (fun (record : Raw_trace.record) -> record.hook_name)
+    |> List.sort_uniq String.compare
+  in
+  let tool_names =
+    records
+    |> List.filter_map (fun (record : Raw_trace.record) -> record.tool_name)
+    |> List.sort_uniq String.compare
+  in
+  let final_record =
+    records
+    |> List.rev
+    |> List.find_opt (fun (record : Raw_trace.record) ->
+           record.record_type = Run_finished)
+  in
+  let started_at =
+    match records with
+    | first :: _ -> Some first.ts
+    | [] -> None
+  in
+  let finished_at =
+    match List.rev records with
+    | last :: _ -> Some last.ts
+    | [] -> None
+  in
+  Ok
+    {
+      Raw_trace.run_ref;
+      record_count = List.length records;
+      assistant_block_count;
+      tool_execution_started_count;
+      tool_execution_finished_count;
+      hook_invoked_count;
+      hook_names;
+      tool_names;
+      final_text = Option.bind final_record (fun record -> record.final_text);
+      stop_reason = Option.bind final_record (fun record -> record.stop_reason);
+      error = Option.bind final_record (fun record -> record.error);
+      started_at;
+      finished_at;
+    }
+
+(* ── Validate ───────────────────────────────────────────────── *)
+
+let validate_run run_ref =
+  let* records = read_run run_ref in
+  let seq_monotonic =
+    let rec loop last = function
+      | [] -> true
+      | (record : Raw_trace.record) :: rest ->
+          record.seq > last && loop record.seq rest
+    in
+    match records with
+    | [] -> false
+    | first :: rest -> loop first.seq rest
+  in
+  let has_run_started =
+    List.exists
+      (fun (record : Raw_trace.record) -> record.record_type = Run_started)
+      records
+  in
+  let has_run_finished =
+    List.exists
+      (fun (record : Raw_trace.record) -> record.record_type = Run_finished)
+      records
+  in
+  let pair_table : (string, int * int) Hashtbl.t = Hashtbl.create 8 in
+  List.iter
+    (fun (record : Raw_trace.record) ->
+      match record.record_type, record.tool_use_id with
+      | Tool_execution_started, Some tool_use_id ->
+          let started, finished =
+            match Hashtbl.find_opt pair_table tool_use_id with
+            | Some counts -> counts
+            | None -> (0, 0)
+          in
+          Hashtbl.replace pair_table tool_use_id (started + 1, finished)
+      | Tool_execution_finished, Some tool_use_id ->
+          let started, finished =
+            match Hashtbl.find_opt pair_table tool_use_id with
+            | Some counts -> counts
+            | None -> (0, 0)
+          in
+          Hashtbl.replace pair_table tool_use_id (started, finished + 1)
+      | _ -> ())
+    records;
+  let tool_pairs_ok =
+    pair_table |> Hashtbl.to_seq_values
+    |> Seq.for_all (fun (started, finished) -> started = finished)
+  in
+  let paired_tool_result_count =
+    pair_table |> Hashtbl.to_seq_values
+    |> Seq.fold_left
+         (fun acc (started, finished) ->
+           if started = finished && started > 0 then acc + started else acc)
+         0
+  in
+  let checks =
+    [
+      { Raw_trace.name = "seq_monotonic"; passed = seq_monotonic };
+      { name = "run_started"; passed = has_run_started };
+      { name = "run_finished"; passed = has_run_finished };
+      { name = "tool_pairs"; passed = tool_pairs_ok };
+    ]
+  in
+  let ok = List.for_all (fun (check : Raw_trace.validation_check) -> check.passed) checks in
+  let* summary = summarize_run run_ref in
+  let has_file_write = List.exists (( = ) "file_write") summary.tool_names in
+  let last_file_write_seq =
+    records
+    |> List.fold_left
+         (fun acc (record : Raw_trace.record) ->
+           match record.record_type, record.tool_name, record.tool_error with
+           | Tool_execution_finished, Some "file_write", Some false ->
+               Some (max (Option.value ~default:record.seq acc) record.seq)
+           | _ -> acc)
+         None
+  in
+  let verification_pass_after_file_write =
+    match last_file_write_seq with
+    | None -> false
+    | Some seq ->
+        List.exists
+          (fun (record : Raw_trace.record) ->
+            record.seq > seq
+            &&
+            match record.record_type, record.tool_name, record.tool_result, record.tool_error with
+            | Tool_execution_finished, Some "shell_exec", Some result, Some false ->
+                Util.string_contains ~needle:"PASS"
+                  (String.uppercase_ascii result)
+            | _ -> false)
+          records
+  in
+  let failure_reason =
+    match summary.error with
+    | Some _ as err -> err
+    | None ->
+        checks
+        |> List.find_opt (fun (check : Raw_trace.validation_check) -> not check.passed)
+        |> Option.map (fun (check : Raw_trace.validation_check) -> check.name)
+  in
+  let evidence =
+    [
+      Printf.sprintf "record_count=%d" summary.record_count;
+      Printf.sprintf "assistant_blocks=%d" summary.assistant_block_count;
+      Printf.sprintf "tool_exec_started=%d"
+        summary.tool_execution_started_count;
+      Printf.sprintf "tool_exec_finished=%d"
+        summary.tool_execution_finished_count;
+      Printf.sprintf "hooks=%d" summary.hook_invoked_count;
+      Printf.sprintf "hook_names=%s" (String.concat "," summary.hook_names);
+      Printf.sprintf "tool_names=%s" (String.concat "," summary.tool_names);
+      Printf.sprintf "final_text=%s"
+        (Option.value summary.final_text ~default:"");
+      Printf.sprintf "stop_reason=%s"
+        (Option.value summary.stop_reason ~default:"");
+      Printf.sprintf "error=%s" (Option.value summary.error ~default:"");
+      Printf.sprintf "paired_tool_result_count=%d" paired_tool_result_count;
+      Printf.sprintf "has_file_write=%b" has_file_write;
+      Printf.sprintf "verification_pass_after_file_write=%b"
+        verification_pass_after_file_write;
+    ]
+  in
+  Ok
+    {
+      Raw_trace.run_ref;
+      ok;
+      checks;
+      evidence;
+      paired_tool_result_count;
+      has_file_write;
+      verification_pass_after_file_write;
+      final_text = summary.final_text;
+      tool_names = summary.tool_names;
+      stop_reason = summary.stop_reason;
+      failure_reason;
+    }

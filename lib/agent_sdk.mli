@@ -1330,10 +1330,16 @@ module Raw_trace : sig
   val session_id : t -> string option
   val last_run : t -> run_ref option
   val read_all : path:string -> unit -> (record list, Error.sdk_error) result
-  val read_runs : path:string -> unit -> (run_ref list, Error.sdk_error) result
-  val read_run : run_ref -> (record list, Error.sdk_error) result
-  val summarize_run : run_ref -> (run_summary, Error.sdk_error) result
-  val validate_run : run_ref -> (run_validation, Error.sdk_error) result
+  val record_to_json : record -> Yojson.Safe.t
+end
+
+(** Read-side query operations for raw traces.
+    Extracted from Raw_trace for separation of write/read concerns. *)
+module Raw_trace_query : sig
+  val read_runs : path:string -> unit -> (Raw_trace.run_ref list, Error.sdk_error) result
+  val read_run : Raw_trace.run_ref -> (Raw_trace.record list, Error.sdk_error) result
+  val summarize_run : Raw_trace.run_ref -> (Raw_trace.run_summary, Error.sdk_error) result
+  val validate_run : Raw_trace.run_ref -> (Raw_trace.run_validation, Error.sdk_error) result
 end
 
 (** {1 Agent Internal Modules (Extracted)} *)
