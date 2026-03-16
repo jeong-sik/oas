@@ -337,10 +337,18 @@ module Provider : sig
   type pricing = {
     input_per_million: float;
     output_per_million: float;
+    cache_write_multiplier: float;
+    cache_read_multiplier: float;
   }
 
   val pricing_for_model : string -> pricing
-  val estimate_cost : pricing:pricing -> input_tokens:int -> output_tokens:int -> float
+  val estimate_cost :
+    pricing:pricing ->
+    input_tokens:int ->
+    output_tokens:int ->
+    ?cache_creation_input_tokens:int ->
+    ?cache_read_input_tokens:int ->
+    unit -> float
 
   (** {2 Custom Provider Registry} *)
 
@@ -543,6 +551,9 @@ module Context_reducer : sig
     | Prune_tool_outputs of { max_output_len: int }
     | Merge_contiguous
     | Drop_thinking
+    | Keep_first_and_last of { first_n: int; last_n: int }
+    | Prune_by_role of { drop_roles: Types.role list }
+    | Summarize_old of { keep_recent: int; summarizer: Types.message list -> string }
     | Compose of strategy list
     | Custom of (Types.message list -> Types.message list)
     | Dynamic of (turn:int -> messages:Types.message list -> strategy)
@@ -566,6 +577,10 @@ module Context_reducer : sig
   val prune_tool_outputs : max_output_len:int -> t
   val merge_contiguous : t
   val drop_thinking : t
+  val keep_first_and_last : first_n:int -> last_n:int -> t
+  val prune_by_role : drop_roles:Types.role list -> t
+  val summarize_old :
+    keep_recent:int -> summarizer:(Types.message list -> string) -> t
   val compose : t list -> t
   val custom : (Types.message list -> Types.message list) -> t
   val dynamic : (turn:int -> messages:Types.message list -> strategy) -> t

@@ -19,6 +19,9 @@ type strategy =
   | Prune_tool_outputs of { max_output_len: int }
   | Merge_contiguous
   | Drop_thinking
+  | Keep_first_and_last of { first_n: int; last_n: int }
+  | Prune_by_role of { drop_roles: role list }
+  | Summarize_old of { keep_recent: int; summarizer: message list -> string }
   | Compose of strategy list
   | Custom of (message list -> message list)
   | Dynamic of (turn:int -> messages:message list -> strategy)
@@ -155,6 +158,46 @@ let apply_drop_thinking messages =
       else Some { msg with content }
   ) (List.mapi (fun i msg -> (i, msg)) messages)
 
+(** Keep the first [first_n] and last [last_n] turns.
+    Preserves system/initial context at the start and recent conversation
+    at the end, dropping the middle. Useful for long conversations where
+    the opening context matters (e.g. system examples, initial instructions). *)
+let apply_keep_first_and_last ~first_n ~last_n messages =
+  let turns = group_into_turns messages in
+  let total = List.length turns in
+  if total <= first_n + last_n then messages
+  else
+    let first_turns = List.filteri (fun i _ -> i < first_n) turns in
+    let last_turns = List.filteri (fun i _ -> i >= total - last_n) turns in
+    List.concat (first_turns @ last_turns)
+
+(** Drop messages matching any of the specified roles.
+    Respects ToolUse/ToolResult pairing: if dropping a User message would
+    orphan a ToolResult, that message is retained. *)
+let apply_prune_by_role ~drop_roles messages =
+  let should_drop (msg : message) =
+    List.exists (fun r -> r = msg.role) drop_roles
+    && not (List.exists (function ToolResult _ -> true | _ -> false) msg.content)
+    && not (List.exists (function ToolUse _ -> true | _ -> false) msg.content)
+  in
+  List.filter (fun msg -> not (should_drop msg)) messages
+
+(** Replace old messages with a summary, keeping the [keep_recent] most
+    recent turns intact. The caller supplies a [summarizer] function
+    that produces a summary string from the old messages.
+    The summary is injected as a single User message at the front. *)
+let apply_summarize_old ~keep_recent ~summarizer messages =
+  let turns = group_into_turns messages in
+  let total = List.length turns in
+  if total <= keep_recent then messages
+  else
+    let old_turns = List.filteri (fun i _ -> i < total - keep_recent) turns in
+    let recent_turns = List.filteri (fun i _ -> i >= total - keep_recent) turns in
+    let old_messages = List.concat old_turns in
+    let summary_text = summarizer old_messages in
+    let summary_msg = { role = User; content = [Text summary_text] } in
+    summary_msg :: List.concat recent_turns
+
 (** Reduce messages according to the configured strategy. *)
 let rec reduce (reducer : t) (messages : message list) : message list =
   apply_strategy reducer.strategy messages
@@ -166,6 +209,11 @@ and apply_strategy strategy messages =
   | Prune_tool_outputs { max_output_len } -> apply_prune_tool_outputs ~max_output_len messages
   | Merge_contiguous -> apply_merge_contiguous messages
   | Drop_thinking -> apply_drop_thinking messages
+  | Keep_first_and_last { first_n; last_n } ->
+    apply_keep_first_and_last ~first_n ~last_n messages
+  | Prune_by_role { drop_roles } -> apply_prune_by_role ~drop_roles messages
+  | Summarize_old { keep_recent; summarizer } ->
+    apply_summarize_old ~keep_recent ~summarizer messages
   | Compose strategies ->
     List.fold_left (fun msgs s -> apply_strategy s msgs) messages strategies
   | Custom f -> f messages
@@ -181,6 +229,11 @@ let token_budget n = { strategy = Token_budget n }
 let prune_tool_outputs ~max_output_len = { strategy = Prune_tool_outputs { max_output_len } }
 let merge_contiguous = { strategy = Merge_contiguous }
 let drop_thinking = { strategy = Drop_thinking }
+let keep_first_and_last ~first_n ~last_n =
+  { strategy = Keep_first_and_last { first_n; last_n } }
+let prune_by_role ~drop_roles = { strategy = Prune_by_role { drop_roles } }
+let summarize_old ~keep_recent ~summarizer =
+  { strategy = Summarize_old { keep_recent; summarizer } }
 let compose strategies = { strategy = Compose (List.map (fun r -> r.strategy) strategies) }
 let custom f = { strategy = Custom f }
 

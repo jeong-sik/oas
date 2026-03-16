@@ -174,8 +174,10 @@ let test_cost_estimation_non_negative =
          Printf.sprintf "(rate=%.2f, in=%d, out=%d)" rate inp out))
     (fun (rate, input_tokens, output_tokens) ->
        let pricing = { Provider.input_per_million = rate;
-                        output_per_million = rate } in
-       Provider.estimate_cost ~pricing ~input_tokens ~output_tokens >= 0.0)
+                        output_per_million = rate;
+                        cache_write_multiplier = 1.25;
+                        cache_read_multiplier = 0.1 } in
+       Provider.estimate_cost ~pricing ~input_tokens ~output_tokens () >= 0.0)
 
 let test_cost_scales_with_tokens =
   QCheck.Test.make ~count:200
@@ -185,11 +187,13 @@ let test_cost_scales_with_tokens =
        ~print:(fun (a, b) -> Printf.sprintf "(%d, %d)" a b))
     (fun (a, b) ->
        let pricing = { Provider.input_per_million = 3.0;
-                        output_per_million = 15.0 } in
+                        output_per_million = 15.0;
+                        cache_write_multiplier = 1.25;
+                        cache_read_multiplier = 0.1 } in
        let cost_a = Provider.estimate_cost ~pricing
-         ~input_tokens:a ~output_tokens:0 in
+         ~input_tokens:a ~output_tokens:0 () in
        let cost_b = Provider.estimate_cost ~pricing
-         ~input_tokens:(a + b) ~output_tokens:0 in
+         ~input_tokens:(a + b) ~output_tokens:0 () in
        cost_b >= cost_a)
 
 (* ── Provider Resolve Properties ──────────────────────────────── *)

@@ -203,10 +203,93 @@ let test_pricing_known_models () =
 
 let test_pricing_cost_estimation () =
   let pricing = { Provider.input_per_million = 3.0;
-                  output_per_million = 15.0 } in
+                  output_per_million = 15.0;
+                  cache_write_multiplier = 1.25;
+                  cache_read_multiplier = 0.1 } in
   let cost = Provider.estimate_cost ~pricing
-    ~input_tokens:1_000_000 ~output_tokens:100_000 in
+    ~input_tokens:1_000_000 ~output_tokens:100_000 () in
   check (float 0.01) "cost" 4.5 cost
+
+(* ── Adversarial: malformed usage JSON ────────────────────────── *)
+
+let test_anthropic_missing_usage () =
+  let json = Yojson.Safe.from_string {|{
+    "id": "msg_001",
+    "model": "claude-sonnet-4-6",
+    "stop_reason": "end_turn",
+    "content": [{"type": "text", "text": "hello"}],
+    "usage": null
+  }|} in
+  let resp = Api.parse_response json in
+  (match resp.usage with
+   | None -> ()
+   | Some _ -> fail "expected None usage")
+
+let test_anthropic_empty_content () =
+  let json = Yojson.Safe.from_string {|{
+    "id": "msg_002",
+    "model": "claude-sonnet-4-6",
+    "stop_reason": "end_turn",
+    "content": [],
+    "usage": {"input_tokens": 10, "output_tokens": 5,
+              "cache_creation_input_tokens": 0,
+              "cache_read_input_tokens": 0}
+  }|} in
+  let resp = Api.parse_response json in
+  check int "empty content" 0 (List.length resp.content)
+
+let test_anthropic_cache_usage_parsing () =
+  let json = Yojson.Safe.from_string {|{
+    "id": "msg_003",
+    "model": "claude-sonnet-4-6",
+    "stop_reason": "end_turn",
+    "content": [{"type": "text", "text": "cached"}],
+    "usage": {
+      "input_tokens": 1000,
+      "output_tokens": 200,
+      "cache_creation_input_tokens": 500,
+      "cache_read_input_tokens": 300
+    }
+  }|} in
+  let resp = Api.parse_response json in
+  match resp.usage with
+  | None -> fail "expected usage"
+  | Some u ->
+    check int "input" 1000 u.input_tokens;
+    check int "output" 200 u.output_tokens;
+    check int "cache write" 500 u.cache_creation_input_tokens;
+    check int "cache read" 300 u.cache_read_input_tokens
+
+(* ── Cache-aware cost estimation ─────────────────────────────── *)
+
+let test_cache_cost_calculation () =
+  let pricing = Provider.pricing_for_model "claude-sonnet-4-6" in
+  (* Sonnet: 3.0/M input, 15.0/M output, cache_write=1.25x, cache_read=0.1x *)
+  let cost = Provider.estimate_cost ~pricing
+    ~input_tokens:1_000_000
+    ~output_tokens:0
+    ~cache_creation_input_tokens:500_000
+    ~cache_read_input_tokens:300_000 () in
+  (* regular = 1M - 500K - 300K = 200K -> 200K * 3.0/1M = 0.6
+     cache_write = 500K * 3.0/1M * 1.25 = 1.875
+     cache_read  = 300K * 3.0/1M * 0.1  = 0.09
+     total = 0.6 + 1.875 + 0.09 = 2.565 *)
+  check (float 0.001) "cache cost" 2.565 cost
+
+let test_cache_cost_no_cache_tokens () =
+  let pricing = Provider.pricing_for_model "claude-sonnet-4-6" in
+  let cost_with = Provider.estimate_cost ~pricing
+    ~input_tokens:1_000_000 ~output_tokens:100_000 () in
+  let cost_explicit = Provider.estimate_cost ~pricing
+    ~input_tokens:1_000_000 ~output_tokens:100_000
+    ~cache_creation_input_tokens:0 ~cache_read_input_tokens:0 () in
+  check (float 0.0001) "zero cache same as default" cost_with cost_explicit
+
+let test_cache_multipliers_for_non_anthropic () =
+  let pricing = Provider.pricing_for_model "gpt-4o" in
+  (* OpenAI: no cache pricing, multipliers are 1.0 *)
+  check (float 0.001) "no cache write discount" 1.0 pricing.cache_write_multiplier;
+  check (float 0.001) "no cache read discount" 1.0 pricing.cache_read_multiplier
 
 (* ── Test runner ─────────────────────────────────────────────── *)
 
@@ -231,5 +314,13 @@ let () =
     "pricing", [
       test_case "known models" `Quick test_pricing_known_models;
       test_case "cost estimation" `Quick test_pricing_cost_estimation;
+      test_case "cache cost calculation" `Quick test_cache_cost_calculation;
+      test_case "cache cost zero default" `Quick test_cache_cost_no_cache_tokens;
+      test_case "non-anthropic cache multipliers" `Quick test_cache_multipliers_for_non_anthropic;
+    ];
+    "adversarial", [
+      test_case "missing usage" `Quick test_anthropic_missing_usage;
+      test_case "empty content" `Quick test_anthropic_empty_content;
+      test_case "cache usage parsing" `Quick test_anthropic_cache_usage_parsing;
     ];
   ]

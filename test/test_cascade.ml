@@ -48,7 +48,7 @@ let test_pricing_unknown () =
 
 let test_estimate_cost () =
   let pricing = Provider.pricing_for_model "claude-sonnet-4-6" in
-  let cost = Provider.estimate_cost ~pricing ~input_tokens:1_000_000 ~output_tokens:100_000 in
+  let cost = Provider.estimate_cost ~pricing ~input_tokens:1_000_000 ~output_tokens:100_000 () in
   (* 1M input * 3.0/1M + 100K output * 15.0/1M = 3.0 + 1.5 = 4.5 *)
   check (float 0.001) "cost" 4.5 cost
 

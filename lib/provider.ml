@@ -272,41 +272,62 @@ let cascade ~primary ~fallbacks = { primary; fallbacks }
 type pricing = {
   input_per_million: float;
   output_per_million: float;
+  cache_write_multiplier: float;  (* cache creation tokens cost input_rate * this *)
+  cache_read_multiplier: float;   (* cache read tokens cost input_rate * this *)
 }
 
 let pricing_for_model model_id =
   let normalized = String.lowercase_ascii (String.trim model_id) in
-  if string_contains ~needle:"opus-4-6" normalized then
-    { input_per_million = 15.0; output_per_million = 75.0 }
-  else if string_contains ~needle:"opus-4-5" normalized then
-    { input_per_million = 15.0; output_per_million = 75.0 }
-  else if string_contains ~needle:"sonnet-4-6" normalized then
-    { input_per_million = 3.0; output_per_million = 15.0 }
-  else if string_contains ~needle:"sonnet-4" normalized then
-    { input_per_million = 3.0; output_per_million = 15.0 }
-  else if string_contains ~needle:"haiku-4-5" normalized then
-    { input_per_million = 0.8; output_per_million = 4.0 }
-  else if string_contains ~needle:"claude-3-7-sonnet" normalized then
-    { input_per_million = 3.0; output_per_million = 15.0 }
-  else if string_contains ~needle:"gpt-4o-mini" normalized then
-    { input_per_million = 0.15; output_per_million = 0.6 }
-  else if string_contains ~needle:"gpt-4o" normalized then
-    { input_per_million = 2.5; output_per_million = 10.0 }
-  else if string_contains ~needle:"gpt-4.1" normalized then
-    { input_per_million = 2.0; output_per_million = 8.0 }
-  else if string_contains ~needle:"o3-mini" normalized then
-    { input_per_million = 1.1; output_per_million = 4.4 }
-  else if string_contains ~needle:"ollama" normalized
-       || string_contains ~needle:"qwen" normalized
-       || string_contains ~needle:"llama" normalized then
-    { input_per_million = 0.0; output_per_million = 0.0 }
-  else
-    { input_per_million = 0.0; output_per_million = 0.0 }
+  (* Anthropic cache pricing: write = 1.25x input, read = 0.1x input.
+     OpenAI/local: no cache pricing (multipliers are 1.0 and 1.0 for no-op). *)
+  let anthropic_cache = (1.25, 0.1) in
+  let no_cache = (1.0, 1.0) in
+  let base, (cw, cr) =
+    if string_contains ~needle:"opus-4-6" normalized then
+      (15.0, 75.0), anthropic_cache
+    else if string_contains ~needle:"opus-4-5" normalized then
+      (15.0, 75.0), anthropic_cache
+    else if string_contains ~needle:"sonnet-4-6" normalized then
+      (3.0, 15.0), anthropic_cache
+    else if string_contains ~needle:"sonnet-4" normalized then
+      (3.0, 15.0), anthropic_cache
+    else if string_contains ~needle:"haiku-4-5" normalized then
+      (0.8, 4.0), anthropic_cache
+    else if string_contains ~needle:"claude-3-7-sonnet" normalized then
+      (3.0, 15.0), anthropic_cache
+    else if string_contains ~needle:"gpt-4o-mini" normalized then
+      (0.15, 0.6), no_cache
+    else if string_contains ~needle:"gpt-4o" normalized then
+      (2.5, 10.0), no_cache
+    else if string_contains ~needle:"gpt-4.1" normalized then
+      (2.0, 8.0), no_cache
+    else if string_contains ~needle:"o3-mini" normalized then
+      (1.1, 4.4), no_cache
+    else if string_contains ~needle:"ollama" normalized
+         || string_contains ~needle:"qwen" normalized
+         || string_contains ~needle:"llama" normalized then
+      (0.0, 0.0), no_cache
+    else
+      (0.0, 0.0), no_cache
+  in
+  let input_per_million, output_per_million = base in
+  { input_per_million; output_per_million;
+    cache_write_multiplier = cw; cache_read_multiplier = cr }
 
-let estimate_cost ~(pricing : pricing) ~input_tokens ~output_tokens =
-  let input_cost = Float.of_int input_tokens *. pricing.input_per_million /. 1_000_000.0 in
+let estimate_cost ~(pricing : pricing)
+    ~input_tokens ~output_tokens
+    ?(cache_creation_input_tokens=0) ?(cache_read_input_tokens=0) () =
+  (* Regular input tokens (excluding cache tokens — those are billed separately) *)
+  let regular_input = input_tokens - cache_creation_input_tokens - cache_read_input_tokens in
+  let regular_input = max 0 regular_input in
+  let rate = pricing.input_per_million /. 1_000_000.0 in
+  let input_cost = Float.of_int regular_input *. rate in
+  let cache_write_cost =
+    Float.of_int cache_creation_input_tokens *. rate *. pricing.cache_write_multiplier in
+  let cache_read_cost =
+    Float.of_int cache_read_input_tokens *. rate *. pricing.cache_read_multiplier in
   let output_cost = Float.of_int output_tokens *. pricing.output_per_million /. 1_000_000.0 in
-  input_cost +. output_cost
+  input_cost +. cache_write_cost +. cache_read_cost +. output_cost
 
 (* ── Convenience: create config for a Custom_registered provider ── *)
 
