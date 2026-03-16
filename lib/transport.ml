@@ -43,7 +43,7 @@ type t = {
   reader: Eio.Buf_read.t;
   writer: Eio.Flow.sink_ty Eio.Resource.t;
   mutable init_info: Runtime.init_response option;
-  mutable closed: bool;
+  closed: bool Atomic.t;
   mutable next_request_id: int;
   write_mu: Eio.Mutex.t;
   mu: Eio.Mutex.t;
@@ -185,12 +185,12 @@ let reader_loop transport =
   let rec loop () =
     let line = Eio.Buf_read.line transport.reader in
     if String.trim line = "" then begin
-      if not transport.closed then loop ()
+      if not (Atomic.get transport.closed) then loop ()
     end else
       match Runtime.protocol_message_of_string line with
       | Ok message ->
           dispatch_protocol_message transport message;
-          if not transport.closed then loop ()
+          if not (Atomic.get transport.closed) then loop ()
       | Error detail ->
           set_reader_failed transport
             (Error.Serialization (JsonParseError { detail }))
@@ -200,8 +200,9 @@ let reader_loop transport =
 let start_reader_fiber ~sw transport =
   Eio.Fiber.fork_daemon ~sw (fun () ->
     (try reader_loop transport
-     with _ ->
-       if not transport.closed then
+     with
+     | End_of_file | Eio.Io _ | Unix.Unix_error _ | Sys_error _ ->
+       if not (Atomic.get transport.closed) then
          set_reader_failed transport
            (Error.Io
               (Error.FileOpFailed
@@ -232,7 +233,8 @@ let connect ~sw ~(mgr : _ Eio.Process.mgr) ?(options = default_options) () =
         ~max_size:(16 * 1024 * 1024)
     in
     let kill () =
-      try Eio.Process.signal proc Sys.sigterm with _ -> ()
+      try Eio.Process.signal proc Sys.sigterm
+      with Unix.Unix_error _ | Eio.Io _ | Sys_error _ -> ()
     in
     let transport =
       {
@@ -240,7 +242,7 @@ let connect ~sw ~(mgr : _ Eio.Process.mgr) ?(options = default_options) () =
         reader;
         writer = (w_child_stdin :> Eio.Flow.sink_ty Eio.Resource.t);
         init_info = None;
-        closed = false;
+        closed = Atomic.make false;
         next_request_id = 1;
         write_mu = Eio.Mutex.create ();
         mu = Eio.Mutex.create ();
@@ -319,7 +321,7 @@ let connect ~sw ~(mgr : _ Eio.Process.mgr) ?(options = default_options) () =
 
 let request ?control_handler ?event_handler transport request =
   let open Error in
-  if transport.closed then
+  if Atomic.get transport.closed then
     Error (Internal "Runtime transport is already closed")
   else begin
     set_handlers ?control_handler ?event_handler transport;
@@ -332,9 +334,9 @@ let request ?control_handler ?event_handler transport request =
   end
 
 let close transport =
-  if not transport.closed then begin
-    (try ignore (request transport Runtime.Shutdown) with _ -> ());
-    transport.closed <- true;
+  if Atomic.compare_and_set transport.closed false true then begin
+    (try ignore (request transport Runtime.Shutdown)
+     with Eio.Io _ | Unix.Unix_error _ | Failure _ -> ());
     transport.kill ()
   end
 

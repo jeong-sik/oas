@@ -128,7 +128,8 @@ let connect ~sw ~(mgr : _ Eio.Process.mgr) ~command ~args ?env () =
         ~max_size:(16 * 1024 * 1024)
     in
     let kill () =
-      try Eio.Process.signal proc Sys.sigterm with _ -> ()
+      try Eio.Process.signal proc Sys.sigterm
+      with Unix.Unix_error _ | Eio.Io _ | Sys_error _ -> ()
     in
     Ok { reader; writer = (w_child_stdin :> Eio.Flow.sink_ty Eio.Resource.t); next_id = 1; kill }
   with
