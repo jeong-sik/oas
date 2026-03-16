@@ -86,6 +86,10 @@ type active_run
 
 exception Trace_error of Error.sdk_error
 
+val safe_name : string -> string
+val record_type_to_string : record_type -> string
+val record_type_of_string : string -> (record_type, Error.sdk_error) result
+val record_of_json : Yojson.Safe.t -> (record, Error.sdk_error) result
 val trace_version : int
 val create : ?session_id:string -> path:string -> unit -> (t, Error.sdk_error) result
 val create_for_session :

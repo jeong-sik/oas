@@ -167,6 +167,89 @@ let test_qwen_family_openai_capabilities () =
   Alcotest.(check bool) "supports top_k" true capabilities.supports_top_k;
   Alcotest.(check bool) "supports min_p" true capabilities.supports_min_p
 
+(* ── Phase 6: pricing, ollama, static_token ─────────────────────── *)
+
+let test_pricing_sonnet () =
+  let p = Provider.pricing_for_model "claude-sonnet-4-6-20250514" in
+  Alcotest.(check (float 0.001)) "input/M" 3.0 p.input_per_million;
+  Alcotest.(check (float 0.001)) "output/M" 15.0 p.output_per_million;
+  Alcotest.(check (float 0.001)) "cache_write" 1.25 p.cache_write_multiplier;
+  Alcotest.(check (float 0.001)) "cache_read" 0.1 p.cache_read_multiplier
+
+let test_pricing_local () =
+  let p = Provider.pricing_for_model "qwen3.5-35b-a3b" in
+  Alcotest.(check (float 0.001)) "free" 0.0 p.input_per_million;
+  Alcotest.(check (float 0.001)) "free output" 0.0 p.output_per_million
+
+let test_pricing_unknown () =
+  let p = Provider.pricing_for_model "future-model-xyz" in
+  Alcotest.(check (float 0.001)) "zero" 0.0 p.input_per_million
+
+let test_estimate_cost () =
+  let p = Provider.pricing_for_model "claude-sonnet-4-6" in
+  let cost = Provider.estimate_cost ~pricing:p
+    ~input_tokens:1_000_000 ~output_tokens:500_000
+    ~cache_creation_input_tokens:100_000
+    ~cache_read_input_tokens:200_000 () in
+  Alcotest.(check bool) "cost > 0" true (cost > 0.0)
+
+let test_ollama_resolve () =
+  let cfg = Provider.ollama ~base_url:"http://localhost:11434" ~model_id:"qwen3.5" () in
+  match Provider.resolve cfg with
+  | Ok (base_url, _, _) ->
+    Alcotest.(check string) "base_url" "http://localhost:11434" base_url
+  | Error e -> Alcotest.fail (Error.to_string e)
+
+let test_ollama_generate_capabilities () =
+  let cfg : Provider.config = {
+    provider = Ollama { base_url = "http://localhost:11434"; mode = Generate };
+    model_id = "test"; api_key_env = "DUMMY";
+  } in
+  let spec = Provider.model_spec_of_config cfg in
+  Alcotest.(check bool) "no tools" false spec.capabilities.supports_tools;
+  Alcotest.(check string) "path" "/api/generate" spec.request_path
+
+let test_openai_compat_static_token () =
+  let cfg : Provider.config = {
+    provider = OpenAICompat {
+      base_url = "http://localhost:8080";
+      auth_header = Some "Authorization";
+      path = "/v1/chat/completions";
+      static_token = Some "static-key-123";
+    };
+    model_id = "test"; api_key_env = "NONEXISTENT";
+  } in
+  match Provider.resolve cfg with
+  | Ok (_, key, headers) ->
+    Alcotest.(check string) "static key" "static-key-123" key;
+    let auth = List.assoc "Authorization" headers in
+    Alcotest.(check string) "bearer" "Bearer static-key-123" auth
+  | Error e -> Alcotest.fail (Error.to_string e)
+
+let test_openai_compat_no_auth () =
+  let cfg : Provider.config = {
+    provider = OpenAICompat {
+      base_url = "http://localhost:8080";
+      auth_header = None;
+      path = "/v1/chat/completions";
+      static_token = None;
+    };
+    model_id = "test"; api_key_env = "NONEXISTENT";
+  } in
+  match Provider.resolve cfg with
+  | Ok (_, key, _) ->
+    Alcotest.(check string) "empty key" "" key
+  | Error e -> Alcotest.fail (Error.to_string e)
+
+let test_cascade_create () =
+  let primary = Provider.anthropic_sonnet () in
+  let fallback : Provider.config = {
+    provider = Local { base_url = "http://127.0.0.1:8085" };
+    model_id = "qwen3.5"; api_key_env = "DUMMY_KEY";
+  } in
+  let c = Provider.cascade ~primary ~fallbacks:[fallback] in
+  Alcotest.(check int) "1 fallback" 1 (List.length c.fallbacks)
+
 let () =
   Alcotest.run "Provider" [
     "resolve", [
@@ -183,5 +266,22 @@ let () =
         test_model_spec_openrouter_capabilities;
       Alcotest.test_case "qwen family openai capabilities" `Quick
         test_qwen_family_openai_capabilities;
+    ];
+    "pricing", [
+      Alcotest.test_case "sonnet pricing" `Quick test_pricing_sonnet;
+      Alcotest.test_case "local free" `Quick test_pricing_local;
+      Alcotest.test_case "unknown model" `Quick test_pricing_unknown;
+      Alcotest.test_case "estimate cost" `Quick test_estimate_cost;
+    ];
+    "ollama", [
+      Alcotest.test_case "resolve" `Quick test_ollama_resolve;
+      Alcotest.test_case "generate capabilities" `Quick test_ollama_generate_capabilities;
+    ];
+    "openai_compat", [
+      Alcotest.test_case "static token" `Quick test_openai_compat_static_token;
+      Alcotest.test_case "no auth" `Quick test_openai_compat_no_auth;
+    ];
+    "cascade", [
+      Alcotest.test_case "create" `Quick test_cascade_create;
     ];
   ]

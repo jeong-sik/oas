@@ -541,6 +541,52 @@ let test_openai_error_not_failwith () =
   check bool "not a Failure exception" false !is_failure
 
 (* ------------------------------------------------------------------ *)
+(* Phase 6: additional api_common helpers                               *)
+(* ------------------------------------------------------------------ *)
+
+let test_text_blocks_to_string () =
+  let blocks = [
+    Types.Text "hello";
+    Types.Thinking { thinking_type = "s"; content = "hmm" };
+    Types.RedactedThinking "r";
+    Types.ToolUse { id = "t"; name = "n"; input = `Null };
+    Types.ToolResult { tool_use_id = "t"; content = "ok"; is_error = false };
+    Types.Image { media_type = "image/png"; data = ""; source_type = "base64" };
+    Types.Text "world";
+  ] in
+  let result = Api.text_blocks_to_string blocks in
+  check string "text+thinking" "hello\nhmm\nworld" result
+
+let test_string_is_blank () =
+  check bool "empty is blank" true (Api.string_is_blank "");
+  check bool "spaces is blank" true (Api.string_is_blank "   ");
+  check bool "text not blank" false (Api.string_is_blank "hi");
+  check bool "tabs blank" true (Api.string_is_blank "\t\n ")
+
+let test_json_of_string_or_raw_valid () =
+  let result = Api.json_of_string_or_raw {|{"key":"value"}|} in
+  let open Yojson.Safe.Util in
+  check string "parsed" "value" (result |> member "key" |> to_string)
+
+let test_json_of_string_or_raw_invalid () =
+  let result = Api.json_of_string_or_raw "not json" in
+  let open Yojson.Safe.Util in
+  check string "fallback raw" "not json" (result |> member "raw" |> to_string)
+
+let test_build_body_disable_parallel () =
+  let config = { Types.default_config with
+    tool_choice = Some Types.Auto;
+    disable_parallel_tool_use = true;
+  } in
+  let state = { Types.config; messages = []; turn_count = 0; usage = Types.empty_usage } in
+  let assoc = Api.build_body_assoc ~config:state ~messages:[] ~stream:false () in
+  let json = `Assoc assoc in
+  let open Yojson.Safe.Util in
+  let tc = json |> member "tool_choice" in
+  check bool "disable_parallel" true
+    (tc |> member "disable_parallel_tool_use" |> to_bool)
+
+(* ------------------------------------------------------------------ *)
 (* Test runner                                                          *)
 (* ------------------------------------------------------------------ *)
 
@@ -605,5 +651,12 @@ let () =
     "parse_ollama_chat", [
       test_case "tool args as string" `Quick test_ollama_tool_args_string;
       test_case "tool args as object" `Quick test_ollama_tool_args_object;
+    ];
+    "api_common_helpers", [
+      test_case "text_blocks_to_string" `Quick test_text_blocks_to_string;
+      test_case "string_is_blank" `Quick test_string_is_blank;
+      test_case "json_of_string_or_raw valid" `Quick test_json_of_string_or_raw_valid;
+      test_case "json_of_string_or_raw invalid" `Quick test_json_of_string_or_raw_invalid;
+      test_case "disable_parallel_tool_use" `Quick test_build_body_disable_parallel;
     ];
   ]

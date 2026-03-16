@@ -611,7 +611,7 @@ module Tool : sig
     | Required
     | Recommended
     | None_expected
-  [@@deriving show]
+  [@@deriving yojson, show]
 
   type shell_constraints = {
     single_command_only: bool;
@@ -621,6 +621,7 @@ module Tool : sig
     pipes_allowed: bool;
     workdir_policy: workdir_policy option;
   }
+  [@@deriving yojson, show]
 
   type descriptor = {
     kind: string option;
@@ -684,6 +685,12 @@ module Mcp : sig
   val mcp_tool_to_sdk_tool :
     call_fn:Tool.tool_handler -> mcp_tool -> Tool.t
   val text_of_tool_result : Mcp_protocol.Mcp_types.tool_result -> string
+
+  (** {2 JSON tool parsing (pure)} *)
+
+  val mcp_tool_of_json : Yojson.Safe.t -> mcp_tool option
+  val output_token_budget : unit -> int
+  val truncate_output : string -> string
 
   (** {2 Eio stdio transport} *)
 
@@ -916,6 +923,11 @@ module Api : sig
   val default_base_url : string
   val api_version : string
 
+  (** Pure helpers *)
+  val string_is_blank : string -> bool
+  val text_blocks_to_string : Types.content_block list -> string
+  val json_of_string_or_raw : string -> Yojson.Safe.t
+
   (** Content block serialization *)
   val content_block_to_json : Types.content_block -> Yojson.Safe.t
   val content_block_of_json : Yojson.Safe.t -> Types.content_block option
@@ -1034,6 +1046,8 @@ module Subagent : sig
   }
   [@@deriving show]
 
+  val model_override_of_string : string -> model_override
+  val isolation_of_string : string -> isolation
   val of_markdown : ?path:string -> ?skills:Skill.t list -> string -> t
   val load : ?skill_roots:string list -> string -> (t, Error.sdk_error) result
   val compose_prompt : ?arguments:string -> t -> string
@@ -1352,6 +1366,13 @@ module Raw_trace : sig
     error: string option;
   }
   [@@deriving show]
+
+  (** Pure helpers *)
+  val safe_name : string -> string
+  val record_type_to_string : record_type -> string
+  val record_type_of_string : string -> (record_type, Error.sdk_error) result
+  val record_to_json : record -> Yojson.Safe.t
+  val record_of_json : Yojson.Safe.t -> (record, Error.sdk_error) result
 
   type t
 
@@ -2639,11 +2660,13 @@ module Sessions : sig
     participant_count: int;
     path: string;
   }
+  [@@deriving yojson, show]
 
   type telemetry_event_count = {
     name: string;
     count: int;
   }
+  [@@deriving yojson, show]
 
   type telemetry_step = {
     seq: int;
@@ -2652,6 +2675,7 @@ module Sessions : sig
     participant: string option;
     detail: string option;
   }
+  [@@deriving yojson, show]
 
   type telemetry = {
     session_id: string;
@@ -2660,11 +2684,13 @@ module Sessions : sig
     event_counts: telemetry_event_count list;
     steps: telemetry_step list;
   }
+  [@@deriving yojson, show]
 
   type structured_event_count = {
     event_name: string;
     count: int;
   }
+  [@@deriving yojson, show]
 
   type structured_telemetry_step = {
     seq: int;
@@ -2682,6 +2708,7 @@ module Sessions : sig
     checkpoint_label: string option;
     outcome: string option;
   }
+  [@@deriving yojson, show]
 
   type structured_telemetry = {
     session_id: string;
@@ -2690,6 +2717,7 @@ module Sessions : sig
     event_counts: structured_event_count list;
     steps: structured_telemetry_step list;
   }
+  [@@deriving yojson, show]
 
   type evidence_file = {
     label: string;
@@ -2697,11 +2725,13 @@ module Sessions : sig
     size_bytes: int;
     md5: string;
   }
+  [@@deriving yojson, show]
 
   type missing_file = {
     label: string;
     path: string;
   }
+  [@@deriving yojson, show]
 
   type evidence = {
     session_id: string;
@@ -2709,6 +2739,7 @@ module Sessions : sig
     files: evidence_file list;
     missing_files: missing_file list;
   }
+  [@@deriving yojson, show]
 
   type hook_summary = {
     hook_name: string;
@@ -2717,6 +2748,7 @@ module Sessions : sig
     latest_detail: string option;
     latest_ts: float option;
   }
+  [@@deriving yojson, show]
 
   type tool_contract = {
     name: string;
@@ -2727,6 +2759,7 @@ module Sessions : sig
     notes: string list;
     examples: string list;
   }
+  [@@deriving yojson, show]
 
   type raw_trace_run = Raw_trace.run_ref
   [@@deriving yojson, show]
@@ -2785,6 +2818,7 @@ module Sessions : sig
     validated_summary: bool;
     proof_bundle: bool;
   }
+  [@@deriving yojson, show]
 
   type proof_bundle = {
     session: Runtime.session;
