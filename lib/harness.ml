@@ -322,7 +322,7 @@ module Regression = struct
         obs.output_text = golden
       | StructuralMatch cmp ->
         let golden_json = try Yojson.Safe.from_string golden
-          with _ -> `Null in
+          with Yojson.Json_error _ -> `Null in
         cmp obs.output_json golden_json
       | FuzzyMatch { threshold } ->
         (* Simple character-level similarity *)

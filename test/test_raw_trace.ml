@@ -238,11 +238,11 @@ let test_agent_run_stream_append_only_raw_trace () =
         | Some run -> run
         | None -> Alcotest.fail "missing second raw trace run ref"
       in
-      let run1_records = unwrap (Raw_trace.read_run run1) in
-      let run2_records = unwrap (Raw_trace.read_run run2) in
+      let run1_records = unwrap (Raw_trace_query.read_run run1) in
+      let run2_records = unwrap (Raw_trace_query.read_run run2) in
       let all_records = unwrap (Raw_trace.read_all ~path:trace_path ()) in
       let discovered_runs =
-        unwrap (Raw_trace.read_runs ~path:trace_path ())
+        unwrap (Raw_trace_query.read_runs ~path:trace_path ())
       in
       let session_runs =
         unwrap

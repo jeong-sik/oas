@@ -272,10 +272,10 @@ let apply_event (session : session) (event : event) =
           created_at = event.ts;
         }
       in
-      Ok { session with artifacts = session.artifacts @ [ artifact ] }
+      Ok { session with artifacts = Util.snoc session.artifacts artifact }
   | Vote_recorded vote ->
       let* session = ensure_active_phase session in
-      Ok { session with votes = session.votes @ [ vote ] }
+      Ok { session with votes = Util.snoc session.votes vote }
   | Checkpoint_saved _ ->
       let* session = ensure_active_phase session in
       Ok session

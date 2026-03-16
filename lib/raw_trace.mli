@@ -99,10 +99,6 @@ val session_id : t -> string option
 val last_run : t -> run_ref option
 val read_all : path:string -> unit -> (record list, Error.sdk_error) result
 val record_to_json : record -> Yojson.Safe.t
-val read_runs : path:string -> unit -> (run_ref list, Error.sdk_error) result
-val read_run : run_ref -> (record list, Error.sdk_error) result
-val summarize_run : run_ref -> (run_summary, Error.sdk_error) result
-val validate_run : run_ref -> (run_validation, Error.sdk_error) result
 
 (** Internal append helpers used by the direct Agent loop. *)
 val start_run :

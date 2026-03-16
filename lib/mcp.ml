@@ -514,7 +514,7 @@ let connect_all ~sw ~mgr specs =
     and starting a fresh one from its spec.
     Returns the new managed value on success. *)
 let reconnect ~sw ~mgr (m : managed) =
-  (try close m.client with _ -> ());
+  (try close m.client with Eio.Io _ | Unix.Unix_error _ | Failure _ -> ());
   connect_and_load ~sw ~mgr m.spec
 
 (** Connect to multiple MCP servers, returning all that succeed.
