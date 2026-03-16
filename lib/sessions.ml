@@ -1,7 +1,7 @@
 type trace_capability =
-  | Raw
-  | Summary_only
-  | No_trace
+  | Raw [@name "raw"]
+  | Summary_only [@name "summary_only"]
+  | No_trace [@name "none"]
 [@@deriving yojson, show]
 
 type session_info = {
@@ -123,12 +123,12 @@ type raw_trace_validation = Raw_trace.run_validation
 [@@deriving yojson, show]
 
 type worker_status =
-  | Planned
-  | Accepted
-  | Ready
-  | Running
-  | Completed
-  | Failed
+  | Planned [@name "planned"]
+  | Accepted [@name "accepted"]
+  | Ready [@name "ready"]
+  | Running [@name "running"]
+  | Completed [@name "completed"]
+  | Failed [@name "failed"]
 [@@deriving yojson, show]
 
 type worker_run = {

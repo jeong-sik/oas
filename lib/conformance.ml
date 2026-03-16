@@ -4,6 +4,7 @@ type check = {
   passed: bool;
   detail: string option;
 }
+[@@deriving yojson]
 
 type summary = {
   session_id: string;
@@ -29,12 +30,14 @@ type summary = {
   tool_catalog_count: int;
   trace_capabilities: Sessions.trace_capability list;
 }
+[@@deriving yojson]
 
 type report = {
   ok: bool;
   summary: summary;
   checks: check list;
 }
+[@@deriving yojson]
 
 let ( let* ) = Result.bind
 
