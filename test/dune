@@ -237,3 +237,15 @@
 (test
  (name test_agent_lifecycle)
  (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_skill_registry)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_agent_card)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_elicitation)
+ (libraries agent_sdk alcotest yojson eio eio_main))

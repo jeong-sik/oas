@@ -20,6 +20,8 @@ type event =
                        output: Types.tool_result }
   | TurnStarted of { agent_name: string; turn: int }
   | TurnCompleted of { agent_name: string; turn: int }
+  | ElicitationCompleted of { agent_name: string; question: string;
+                              response: Hooks.elicitation_response }
   | Custom of string * Yojson.Safe.t
 
 (* ── Subscription ──────────────────────────────────────────────────── *)
@@ -60,6 +62,7 @@ let filter_agent name : filter = fun event ->
   | ToolCompleted r -> r.agent_name = name
   | TurnStarted r -> r.agent_name = name
   | TurnCompleted r -> r.agent_name = name
+  | ElicitationCompleted r -> r.agent_name = name
   | Custom _ -> true  (* Custom events are not agent-scoped; always pass *)
 
 let filter_tools_only : filter = function

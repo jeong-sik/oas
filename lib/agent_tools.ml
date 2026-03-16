@@ -11,6 +11,7 @@ let hook_decision_to_string = function
   | Hooks.Override _ -> "override"
   | Hooks.ApprovalRequired -> "approval_required"
   | Hooks.AdjustParams _ -> "adjust_params"
+  | Hooks.ElicitInput _ -> "elicit_input"
 
 let invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count ~hook_name
     hook_opt event =
@@ -134,6 +135,11 @@ let execute_tools ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tracer
                     input id
               | Hooks.AdjustParams _ ->
                   (* AdjustParams is only valid for BeforeTurnParams; treat as Continue here *)
+                  find_and_execute_tool ~context ~tools ~hooks ~event_bus
+                    ~tracer ~agent_name ~turn_count ?on_hook_invoked name
+                    input id
+              | Hooks.ElicitInput _ ->
+                  (* ElicitInput is handled at the agent loop level; treat as Continue here *)
                   find_and_execute_tool ~context ~tools ~hooks ~event_bus
                     ~tracer ~agent_name ~turn_count ?on_hook_invoked name
                     input id)

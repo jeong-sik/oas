@@ -48,6 +48,7 @@ let hook_decision_to_string = function
   | Hooks.Override _ -> "override"
   | Hooks.ApprovalRequired -> "approval_required"
   | Hooks.AdjustParams _ -> "adjust_params"
+  | Hooks.ElicitInput _ -> "elicit_input"
 
 (** Build a new lifecycle snapshot, merging with a previous one.
     Pure function — caller handles the mutation on Agent.t. *)

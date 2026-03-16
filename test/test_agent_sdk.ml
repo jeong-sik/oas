@@ -51,7 +51,7 @@ let test_agent_accessors () =
   Alcotest.(check string) "base_url" "http://test" opts.base_url
 
 let test_version_info () =
-  Alcotest.(check string) "version" "0.29.0" Agent_sdk.version;
+  Alcotest.(check string) "version" "0.30.0" Agent_sdk.version;
   Alcotest.(check string) "sdk_name" "agent_sdk" Agent_sdk.sdk_name
 
 let test_build_safe_valid () =

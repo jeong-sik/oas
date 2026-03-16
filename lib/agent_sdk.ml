@@ -51,6 +51,7 @@ module Mcp_session = Mcp_session
 module Guardrails = Guardrails
 module Event_bus = Event_bus
 module Skill = Skill
+module Skill_registry = Skill_registry
 module Contract = Contract
 module Handoff = Handoff
 module Api = Api
@@ -67,6 +68,7 @@ module Agent_turn = Agent_turn
 module Agent_checkpoint = Agent_checkpoint
 module Agent = Agent
 module Builder = Builder
+module Agent_card = Agent_card
 module Orchestrator = Orchestrator
 module Otel_tracer = Otel_tracer
 module Trace_eval = Trace_eval
@@ -117,5 +119,5 @@ let runtime_query = Runtime_query.query
 let query = Query.query
 
 (** Version info *)
-let version = "0.29.0"
+let version = "0.30.0"
 let sdk_name = "agent_sdk"
