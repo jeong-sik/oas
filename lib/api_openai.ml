@@ -255,14 +255,21 @@ let usage_of_openai_json json =
   if usage = `Null then
     None
   else
+    let prompt_tokens =
+      usage |> member "prompt_tokens" |> to_int_option |> Option.value ~default:0 in
+    (* OpenAI returns cached token count in usage.prompt_tokens_details.cached_tokens *)
+    let cached_tokens =
+      let details = usage |> member "prompt_tokens_details" in
+      if details = `Null then 0
+      else details |> member "cached_tokens" |> to_int_option |> Option.value ~default:0
+    in
     Some
       {
-        input_tokens =
-          usage |> member "prompt_tokens" |> to_int_option |> Option.value ~default:0;
+        input_tokens = prompt_tokens;
         output_tokens =
           usage |> member "completion_tokens" |> to_int_option |> Option.value ~default:0;
         cache_creation_input_tokens = 0;
-        cache_read_input_tokens = 0;
+        cache_read_input_tokens = cached_tokens;
       }
 
 let parse_openai_response json_str =
