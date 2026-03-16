@@ -47,7 +47,7 @@ let save store (cp : Checkpoint.t) =
        Ok ()
      with exn ->
        (* Best-effort cleanup: ignore unlink failure — the primary error is already captured *)
-       (try Eio.Path.unlink tmp with _ -> ());
+       (try Eio.Path.unlink tmp with Eio.Io _ | Unix.Unix_error _ -> ());
        io_error_of_exn ~op:"save" ~path:cp.session_id exn)
 
 let load store id =

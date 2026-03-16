@@ -198,6 +198,10 @@
  (name test_bug_hunt)
  (libraries agent_sdk alcotest yojson))
 
+(test
+ (name test_v024_fixes)
+ (libraries agent_sdk alcotest yojson str unix))
+
 (executable
  (name test_e2e_v024)
  (libraries agent_sdk eio eio_main yojson))

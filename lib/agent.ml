@@ -616,10 +616,9 @@ let run_turn_with_trace ~sw ?clock ?raw_trace_run agent =
                        agent.state <- { agent.state with
                          messages = agent.state.messages @ valid_messages }
                  with exn ->
-                   let _msg = Printf.sprintf
-                     "context_injector for tool '%s' raised: %s"
-                     name (Printexc.to_string exn) in
-                   () (* Log silently; do not crash the tool loop *))
+                   Printf.eprintf
+                     "[oas] context_injector for tool '%s' raised: %s\n%!"
+                     name (Printexc.to_string exn))
                | _ -> ()
              ) tool_uses results);
           Ok (`ToolsExecuted))
@@ -784,6 +783,34 @@ let run_turn_stream_with_trace ~sw ?clock ~on_event ?raw_trace_run agent =
     match response.stop_reason with
     | StopToolUse ->
       let tool_uses = List.filter (function ToolUse _ -> true | _ -> false) response.content in
+
+      (* Idle detection: compare tool call fingerprints with previous turn *)
+      let current_fps = List.filter_map (function
+        | ToolUse { name; input; _ } ->
+          Some { fp_name = name; fp_input = Yojson.Safe.to_string input }
+        | _ -> None
+      ) tool_uses in
+      let is_idle = match agent.last_tool_calls with
+        | None -> false
+        | Some prev ->
+          List.length current_fps = List.length prev &&
+          List.for_all2 (fun a b -> a.fp_name = b.fp_name && a.fp_input = b.fp_input)
+            current_fps prev
+      in
+      agent.last_tool_calls <- Some current_fps;
+      if is_idle then begin
+        agent.consecutive_idle_turns <- agent.consecutive_idle_turns + 1;
+        let _idle =
+          invoke_hook_with_trace agent ?raw_trace_run ~hook_name:"on_idle"
+            agent.options.hooks.on_idle
+            (Hooks.OnIdle {
+              consecutive_idle_turns = agent.consecutive_idle_turns;
+              tool_names = List.map (fun fp -> fp.fp_name) current_fps })
+        in
+        ()
+      end else
+        agent.consecutive_idle_turns <- 0;
+
       let count = List.length tool_uses in
       (match Guardrails.exceeds_limit agent.options.guardrails count with
       | true ->
@@ -822,6 +849,9 @@ let run_stream ~sw ?clock ~on_event agent user_prompt =
   let rec loop () =
     if agent.state.turn_count >= agent.state.config.max_turns then
       Error (Error.Agent (MaxTurnsExceeded { turns = agent.state.turn_count; limit = agent.state.config.max_turns }))
+    else if agent.consecutive_idle_turns >= agent.options.max_idle_turns
+            && agent.options.max_idle_turns > 0 then
+      Error (Error.Agent (IdleDetected { consecutive_idle_turns = agent.consecutive_idle_turns }))
     else
       match check_token_budget agent.state.config agent.state.usage with
       | Some err -> Error err
