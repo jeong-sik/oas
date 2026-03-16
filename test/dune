@@ -225,3 +225,15 @@
 (test
  (name test_property_advanced)
  (libraries agent_sdk alcotest qcheck-core qcheck-alcotest yojson))
+
+(test
+ (name test_custom_provider)
+ (libraries agent_sdk alcotest yojson eio eio_main))
+
+(test
+ (name test_agent_turn)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_agent_lifecycle)
+ (libraries agent_sdk alcotest yojson))
