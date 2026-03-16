@@ -1371,7 +1371,6 @@ module Raw_trace : sig
   val safe_name : string -> string
   val record_type_to_string : record_type -> string
   val record_type_of_string : string -> (record_type, Error.sdk_error) result
-  val record_to_json : record -> Yojson.Safe.t
   val record_of_json : Yojson.Safe.t -> (record, Error.sdk_error) result
 
   type t
