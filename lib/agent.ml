@@ -28,6 +28,9 @@ type options = {
   context_injector: Hooks.context_injector option;
   mcp_clients: Mcp.managed list;
   event_bus: Event_bus.t option;
+  skill_registry: Skill_registry.t option;
+  elicitation: Hooks.elicitation_callback option;
+  description: string option;
 }
 
 (* Re-export lifecycle types from Agent_lifecycle.
@@ -74,6 +77,9 @@ let default_options = {
   context_injector = None;
   mcp_clients = [];
   event_bus = None;
+  skill_registry = None;
+  elicitation = None;
+  description = None;
 }
 
 type tool_call_fingerprint = Agent_turn.tool_call_fingerprint
@@ -97,6 +103,20 @@ let context t = t.context
 let options t = t.options
 let net t = t.net
 let set_state t s = t.state <- s
+let description t = t.options.description
+
+let card t =
+  Agent_card.of_info {
+    agent_name = t.state.config.name;
+    agent_description = t.options.description;
+    config = t.state.config;
+    tool_schemas = List.map (fun (tool : Tool.t) -> tool.schema) t.tools;
+    provider = t.options.provider;
+    cascade = t.options.cascade;
+    mcp_clients_count = List.length t.options.mcp_clients;
+    has_elicitation = Option.is_some t.options.elicitation;
+    skill_registry = t.options.skill_registry;
+  }
 
 (** Update lifecycle snapshot via Agent_lifecycle.build_snapshot. *)
 let set_lifecycle agent ?current_run_id ?worker_id ?runtime_actor ?last_error

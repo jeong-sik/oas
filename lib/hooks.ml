@@ -89,6 +89,24 @@ type hook_event =
   | OnStop of { reason: stop_reason; response: api_response }
   | OnIdle of { consecutive_idle_turns: int; tool_names: string list }
 
+(** Elicitation: structured request for user input during agent execution.
+    Inspired by Claude SDK MCP Elicitation pattern. *)
+type elicitation_request = {
+  question: string;
+  schema: Yojson.Safe.t option;   (** JSON Schema for expected answer *)
+  timeout_s: float option;
+}
+
+type elicitation_response =
+  | Answer of Yojson.Safe.t
+  | Declined
+  | Timeout
+
+(** Elicitation callback: called when a hook returns ElicitInput.
+    Returns the user's response or Declined/Timeout. *)
+type elicitation_callback =
+  elicitation_request -> elicitation_response
+
 (** Decision returned by a hook *)
 type hook_decision =
   | Continue
@@ -96,6 +114,7 @@ type hook_decision =
   | Override of string  (** PreToolUse only: return this value instead *)
   | ApprovalRequired  (** PreToolUse only: signals that tool needs approval before execution *)
   | AdjustParams of turn_params  (** BeforeTurnParams only: override params for this turn *)
+  | ElicitInput of elicitation_request  (** Request user input before proceeding *)
 
 (** Decision from approval callback *)
 type approval_decision =

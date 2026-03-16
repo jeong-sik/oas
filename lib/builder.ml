@@ -37,6 +37,9 @@ type t = {
   context_injector: Hooks.context_injector option;
   mcp_clients: Mcp.managed list;
   event_bus: Event_bus.t option;
+  skill_registry: Skill_registry.t option;
+  elicitation: Hooks.elicitation_callback option;
+  description: string option;
   contract: Contract.t;
 }
 
@@ -74,6 +77,9 @@ let create ~net ~model =
     context_injector = None;
     mcp_clients = [];
     event_bus = None;
+    skill_registry = None;
+    elicitation = None;
+    description = None;
     contract = Contract.empty;
   }
 
@@ -119,6 +125,9 @@ let with_event_bus bus b = { b with event_bus = Some bus }
 let with_cascade cascade b = { b with cascade = Some cascade }
 let with_max_idle_turns n b = { b with max_idle_turns = n }
 let with_context_injector injector b = { b with context_injector = Some injector }
+let with_skill_registry reg b = { b with skill_registry = Some reg }
+let with_elicitation cb b = { b with elicitation = Some cb }
+let with_description desc b = { b with description = Some desc }
 let with_fallback fallback b =
   let casc = match b.cascade with
     | Some c -> { c with Provider.fallbacks = c.fallbacks @ [fallback] }
@@ -168,6 +177,9 @@ let build b =
     context_injector = b.context_injector;
     mcp_clients;
     event_bus = b.event_bus;
+    skill_registry = b.skill_registry;
+    elicitation = b.elicitation;
+    description = b.description;
   } in
   Agent.create ~net:b.net ~config ~tools ?context ~options ()
 

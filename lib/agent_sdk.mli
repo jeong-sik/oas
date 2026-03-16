@@ -455,6 +455,20 @@ module Hooks : sig
     | OnStop of { reason: Types.stop_reason; response: Types.api_response }
     | OnIdle of { consecutive_idle_turns: int; tool_names: string list }
 
+  (** Elicitation: structured request for user input during agent execution. *)
+  type elicitation_request = {
+    question: string;
+    schema: Yojson.Safe.t option;
+    timeout_s: float option;
+  }
+
+  type elicitation_response =
+    | Answer of Yojson.Safe.t
+    | Declined
+    | Timeout
+
+  type elicitation_callback = elicitation_request -> elicitation_response
+
   (** Decision returned by a hook *)
   type hook_decision =
     | Continue
@@ -462,6 +476,7 @@ module Hooks : sig
     | Override of string
     | ApprovalRequired
     | AdjustParams of turn_params
+    | ElicitInput of elicitation_request
 
   (** Decision from approval callback *)
   type approval_decision =
@@ -809,6 +824,26 @@ module Skill : sig
   (** Prompt rendering with argument substitution *)
   val render_prompt : ?arguments:string -> t -> string
   val supporting_file_paths : t -> string list
+end
+
+(** {1 Runtime Skill Registry} *)
+
+module Skill_registry : sig
+  (** Runtime skill discovery and management.
+      Wraps a Hashtbl keyed by skill name. *)
+
+  type t
+
+  val create : unit -> t
+  val register : t -> Skill.t -> unit
+  val find : t -> string -> Skill.t option
+  val remove : t -> string -> unit
+  val list : t -> Skill.t list
+  val names : t -> string list
+  val count : t -> int
+  val load_from_dir : t -> ?scope:Skill.scope -> string -> (int, Error.sdk_error) result
+  val to_json : t -> Yojson.Safe.t
+  val of_json : Yojson.Safe.t -> (t, Error.sdk_error) result
 end
 
 (** {1 Explicit Runtime Contract} *)
@@ -1195,6 +1230,8 @@ module Event_bus : sig
                          output: Types.tool_result }
     | TurnStarted of { agent_name: string; turn: int }
     | TurnCompleted of { agent_name: string; turn: int }
+    | ElicitationCompleted of { agent_name: string; question: string;
+                                response: Hooks.elicitation_response }
     | Custom of string * Yojson.Safe.t
 
   (** Predicate for filtering events. *)
@@ -1494,6 +1531,9 @@ module Agent : sig
     context_injector: Hooks.context_injector option;
     mcp_clients: Mcp.managed list;
     event_bus: Event_bus.t option;
+    skill_registry: Skill_registry.t option;
+    elicitation: Hooks.elicitation_callback option;
+    description: string option;
   }
 
   val default_options : options
@@ -1537,6 +1577,10 @@ module Agent : sig
   val options : t -> options
   val net : t -> [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   val set_state : t -> Types.agent_state -> unit
+  val description : t -> string option
+
+  (** Generate an agent card describing this agent's capabilities. *)
+  val card : t -> Agent_card.agent_card
 
   val create :
     net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
@@ -1682,6 +1726,9 @@ module Builder : sig
   val with_fallback : Provider.config -> t -> t
   val with_max_idle_turns : int -> t -> t
   val with_context_injector : Hooks.context_injector -> t -> t
+  val with_skill_registry : Skill_registry.t -> t -> t
+  val with_elicitation : Hooks.elicitation_callback -> t -> t
+  val with_description : string -> t -> t
   val build : t -> Agent.t
   [@@deprecated "Use build_safe for validated construction"]
 
@@ -1690,6 +1737,57 @@ module Builder : sig
       - max_tokens <= 0
       - thinking_budget set without enable_thinking *)
   val build_safe : t -> (Agent.t, Error.sdk_error) result
+end
+
+(** {1 Agent Card} *)
+
+module Agent_card : sig
+  (** Self-describing metadata for agent capability negotiation.
+      Inspired by A2A (Agent-to-Agent) protocol. *)
+
+  type capability =
+    | Tools
+    | Streaming
+    | Thinking
+    | StructuredOutput
+    | Handoff
+    | Checkpoint
+    | MCP
+    | Elicitation
+    | Custom_cap of string
+  [@@deriving yojson, show]
+
+  type agent_card = {
+    name: string;
+    description: string option;
+    version: string;
+    capabilities: capability list;
+    tools: Types.tool_schema list;
+    skills: Skill.t list;
+    supported_providers: string list;
+    metadata: (string * Yojson.Safe.t) list;
+  }
+
+  type agent_info = {
+    agent_name: string;
+    agent_description: string option;
+    config: Types.agent_config;
+    tool_schemas: Types.tool_schema list;
+    provider: Provider.config option;
+    cascade: Provider.cascade option;
+    mcp_clients_count: int;
+    has_elicitation: bool;
+    skill_registry: Skill_registry.t option;
+  }
+
+  val capability_to_string : capability -> string
+  val capability_of_string : string -> capability
+  val of_info : agent_info -> agent_card
+  val to_json : agent_card -> Yojson.Safe.t
+  val of_json : Yojson.Safe.t -> (agent_card, Error.sdk_error) result
+  val has_capability : agent_card -> capability -> bool
+  val can_handle_tool : agent_card -> string -> bool
+  val has_skill : agent_card -> string -> bool
 end
 
 (** {1 Multi-Agent Orchestration} *)
