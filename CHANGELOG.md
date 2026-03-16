@@ -2,13 +2,16 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
-## [0.24.1] - 2026-03-16
+## [0.25.0] - 2026-03-16
 
-### Fixed
-- **B8 HIGH**: Streaming path (`run_turn_stream_with_trace`) was missing idle detection. Same fingerprint comparison + `OnIdle` hook + `consecutive_idle_turns` counter now exists in both streaming and non-streaming paths. `run_stream` loop now checks `max_idle_turns` and returns `IdleDetected` error, matching `run` behavior.
-- **B9 MEDIUM**: `context_injector` exception message was computed but discarded (`_msg`). Now logs to stderr via `Printf.eprintf` with tool name and exception details.
-- **B10 MEDIUM**: `with _ -> ()` catch-all patterns in `mcp.ml`, `checkpoint_store.ml`, and `transport.ml` narrowed to specific exception types (`Unix.Unix_error`, `Eio.Io`, `Sys_error`, `End_of_file`, `Failure`). Non-recoverable exceptions (e.g. `Out_of_memory`) are no longer swallowed.
-- **B11 MEDIUM**: `transport.closed` field changed from `mutable bool` to `bool Atomic.t` to prevent data race between reader fiber and `close` call.
+### Added
+- **Test harness framework** (`Harness`): 6-type pluggable verification — Behavioral, Adversarial, Performance, Regression, Swiss Cheese (multi-layer), Composability.
+- **Provider mock** (`Provider_mock`): network-free scripted responses with cycling, convenience builders for text/tool_use/thinking responses.
+- **Per-turn parameter adjustment** (`Hooks.turn_params`, `BeforeTurnParams`): hooks can adjust temperature, thinking_budget, tool_choice, tool_filter per turn via `AdjustParams` decision. Parameters revert after each API call.
+- **Reasoning extraction** (`Hooks.extract_reasoning`): extracts thinking blocks, detects uncertainty markers, identifies tool selection rationale.
+- **Dynamic context strategy** (`Context_reducer.Dynamic`): select windowing strategy at runtime based on turn count and message state.
+- **Conditional orchestration** (`Orchestrator.conditional_plan`): `Branch`, `Loop`, `Sequence`, `Cond_parallel` with route conditions (`Always`, `ResultOk`, `TextContains`, `And`, `Or`, `Not`).
+- **Context scope isolation** (`Context.isolated_scope`): `create_scope` with `propagate_up`/`propagate_down` key control for sub-agent delegation.
 
 ## [0.24.0] - 2026-03-16
 
