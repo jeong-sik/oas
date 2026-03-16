@@ -5,7 +5,7 @@ type record_type =
   | Tool_execution_finished
   | Hook_invoked
   | Run_finished
-[@@deriving show]
+[@@deriving yojson, show]
 
 type run_ref = {
   worker_run_id: string;
@@ -15,7 +15,7 @@ type run_ref = {
   agent_name: string;
   session_id: string option;
 }
-[@@deriving show]
+[@@deriving yojson, show]
 
 type run_summary = {
   run_ref: run_ref;
@@ -32,13 +32,13 @@ type run_summary = {
   started_at: float option;
   finished_at: float option;
 }
-[@@deriving show]
+[@@deriving yojson, show]
 
 type validation_check = {
   name: string;
   passed: bool;
 }
-[@@deriving show]
+[@@deriving yojson, show]
 
 type run_validation = {
   run_ref: run_ref;
@@ -53,7 +53,7 @@ type run_validation = {
   stop_reason: string option;
   failure_reason: string option;
 }
-[@@deriving show]
+[@@deriving yojson, show]
 
 type record = {
   trace_version: int;
@@ -79,7 +79,7 @@ type record = {
   stop_reason: string option;
   error: string option;
 }
-[@@deriving show]
+[@@deriving yojson, show]
 
 type t
 type active_run
