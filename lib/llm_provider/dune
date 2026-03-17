@@ -3,6 +3,6 @@
 (library
  (name llm_provider)
  (public_name agent_sdk.llm_provider)
- (libraries yojson ppx_deriving_yojson.runtime)
+ (libraries yojson ppx_deriving_yojson.runtime eio tls tls-eio ca-certs uri)
  (preprocess (pps ppx_deriving_yojson ppx_deriving.show))
  (instrumentation (backend bisect_ppx)))
