@@ -40,6 +40,7 @@ module Types = Types
 module Util = Util
 module Context = Context
 module Provider = Provider
+module Provider_intf = Provider_intf
 module Retry = Retry
 module Error = Error
 module Hooks = Hooks

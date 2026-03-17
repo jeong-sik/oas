@@ -392,6 +392,45 @@ module Provider : sig
   val custom_provider : name:string -> ?model_id:string -> ?api_key_env:string -> unit -> config
 end
 
+(** {1 Provider Interface (Functor Types)} *)
+
+module Provider_intf : sig
+  (** Compile-time provider capability checking.
+      Defines module types that LLM backends must satisfy. *)
+
+  module type PROVIDER = sig
+    type t
+    val create_message :
+      sw:Eio.Switch.t ->
+      net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
+      config:Types.agent_state ->
+      messages:Types.message list ->
+      ?tools:Yojson.Safe.t list ->
+      unit ->
+      (Types.api_response, Error.sdk_error) result
+  end
+
+  module type STREAMING_PROVIDER = sig
+    include PROVIDER
+    val create_message_stream :
+      sw:Eio.Switch.t ->
+      net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
+      config:Types.agent_state ->
+      messages:Types.message list ->
+      ?tools:Yojson.Safe.t list ->
+      on_event:(Types.sse_event -> unit) ->
+      unit ->
+      (Types.api_response, Error.sdk_error) result
+  end
+
+  type provider_module = (module PROVIDER)
+  type streaming_provider_module = (module STREAMING_PROVIDER)
+
+  val of_config : Provider.config -> provider_module
+  val supports_streaming : Provider.config -> bool
+  val of_config_streaming : Provider.config -> streaming_provider_module option
+end
+
 (** {1 Error Handling and Retry} *)
 
 module Retry = Retry
