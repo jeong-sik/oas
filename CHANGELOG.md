@@ -2,6 +2,99 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.50.0] - 2026-03-18
+
+### Added
+- `.mli` API contracts for 13 modules: `builder`, `event_bus`, `log`, `orchestrator`, `capabilities`, `backend_anthropic`, `backend_openai`, `api_common`, `a2a_server`, `a2a_task_store`, `agent_registry`, `mcp_http`, `mcp_session`.
+- `examples/swarm_review.ml`: 3-agent Supervisor-mode swarm PR review.
+- `examples/codegen_agent.ml`: natural language to OCaml code generation.
+- `bin/review_agent.ml`: cmdliner-based `oas-review` CLI with `--provider` selection.
+- `test_http_client.ml`: 14 tests for HTTP client pure functions, SSE parsing, content block roundtrips, and Error_domain conversion.
+- README: 3-layer architecture diagram, Swarm Engine section, updated module table and stability tiers.
+- CHANGELOG: backfilled v0.41.0 through v0.46.0 entries.
+
+### Changed
+- `Log.t` fields `trace_id` and `span_id` changed from mutable to immutable (functional update via `with_trace_id`/`with_span_id`).
+- README restructured with Layer 1/Layer 2 architecture, Swarm execution example.
+- Version bumped to `0.50.0`.
+
+## [0.46.0] - 2026-03-17
+
+### Added
+- `agent.mli`: `Agent.t` becomes abstract type with accessor functions (`Agent.state`, `Agent.lifecycle`, `Agent.tools`, `Agent.context`, `Agent.options`, `Agent.net`). (#124)
+- `examples/review_agent.ml`: first real OAS agent — code review via gh CLI tool_use. (#123)
+
+### Changed
+- Library-internal code uses `Agent_types.t` directly; external consumers go through abstract `Agent.t` and accessor API. (#124)
+- `direct_evidence.ml`, `orchestrator.ml`, `builder.ml` updated to use accessor-based patterns. (#124)
+
+## [0.45.0] - 2026-03-17
+
+### Added
+- `Http_client` module in `llm_provider/`: `post_sync`, `post_stream` (Eio+cohttp), `read_sse`, `inject_stream_param`. Network errors captured as `http_error` ADT. (#122)
+
+### Changed
+- `streaming.ml` delegates HTTP to `Http_client.post_stream` + `read_sse`, removing ~180 lines of inline HTTP/SSE code. (#122)
+- `complete.ml` refactored to share HTTP path via `Http_client.post_sync`. (#122)
+
+## [0.44.0] - 2026-03-17
+
+### Added
+- Multi-provider SSE streaming: OpenAI-compatible and Ollama now support native SSE streaming (previously `UnsupportedProvider` error). (#122)
+- `llm_provider/streaming.ml`: `parse_openai_sse_chunk`, `openai_stream_state`, `openai_chunk_to_events` for OpenAI delta-to-block conversion. (#122)
+- `test_streaming_openai.ml`: 15 unit tests for chunk parsing and event conversion. (#122)
+
+### Changed
+- `provider.ml`: `supports_native_streaming` enabled for `openai_chat_capabilities`. (#122)
+- Ollama Chat redirects to `/v1/chat/completions` for SSE compatibility. (#122)
+
+## [0.43.0] - 2026-03-17
+
+### Added
+- Structured A2A errors: `A2a of a2a_error` ADT replaces `A2a of string`. 5 typed variants: `TaskNotFound`, `InvalidTransition`, `MessageSendFailed`, `ProtocolError`, `StoreCapacityExceeded`. (#118)
+- Instance-based OTel tracer: each `create`/`create_eio` returns independent tracer with own span stack, preventing misattribution in concurrent agents. (#118)
+- `Tool_set` module: O(1) tool lookup wired into agent core. (#114)
+- `Provider_intf`: `supports_streaming` wired into pipeline Route. (#114)
+- `Error_domain`: pipeline stage context tagging. (#114)
+- 150 new tests, coverage 70.78% to 75.45%. (#120)
+
+### Fixed
+- `raw_trace.ml` reverted to `Stdlib.Mutex` (Eio context not guaranteed in all call sites). (#119)
+- Concurrent mutable state in `transport` and `artifact_service` protected. (#117)
+- OS Mutex replaced with `Eio.Mutex` across codebase, version strings unified. (#115)
+
+### Changed
+- `sdk_version` bumped to `"0.43.0"`. (#115)
+
+## [0.42.0] - 2026-03-17
+
+### Added
+- `agent_sdk_swarm` library (`lib_swarm/`): Layer 2 Swarm Engine with 3 orchestration modes (Decentralized, Supervisor, Pipeline), convergence loop, `Eio.Mutex` state protection. (#112)
+- `swarm_types.ml`: `agent_role`, `orchestration_mode`, `convergence_config`, `agent_entry`, `swarm_state`, `swarm_callbacks`, `swarm_result`. (#112)
+- `runner.ml`: `eval_metric`, `run_single_pass`, `run` with convergence loop. (#112)
+- `test_swarm.ml`: 13 unit tests for swarm types and metric evaluation. (#112)
+- `llm_provider` sub-library (`lib/llm_provider/`): shared LLM types for OAS and MASC. (#111)
+  - `types.ml`: role, content_block, message, SSE, tool types
+  - `capabilities.ml`: provider capability flags + presets
+  - `pricing.ml`: per-model cost estimation
+  - `error.ml`: provider-level error types
+
+### Changed
+- Monolithic `agent_sdk.mli` (3928 lines) removed. Per-module `.mli` files replace it. (#113)
+- OAS `types.ml` re-exports `llm_provider` types via `include` for nominal type equality. (#111)
+
+## [0.41.0] - 2026-03-17
+
+### Changed
+- **Architecture restructuring**: protocol modules moved to `lib/protocol/`, agent modules to `lib/agent/`. (#109)
+  - `(include_subdirs unqualified)` in `lib/dune` for automatic discovery
+  - Module names and public API unchanged
+- A2A task store: O(1) list operations + bounded in-memory capacity. (#110)
+
+### Added
+- Per-module `.mli` files for 6 core modules (initial batch from Phase 1-3). (#109)
+- `pipeline.ml` + `pipeline.mli`: 6-stage turn pipeline. (#109)
+
 ## [0.40.0] - 2026-03-16
 
 ### Added

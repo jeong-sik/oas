@@ -120,8 +120,8 @@ let clear_sinks () =
 
 type t = {
   module_name: string;
-  mutable trace_id: string option;
-  mutable span_id: string option;
+  trace_id: string option;
+  span_id: string option;
 }
 
 let create ~module_name () =

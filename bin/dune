@@ -7,3 +7,8 @@
  (name oas_cli)
  (public_name oas)
  (libraries agent_sdk eio eio_main yojson unix cmdliner))
+
+(executable
+ (name review_agent)
+ (public_name oas-review)
+ (libraries agent_sdk eio eio_main yojson unix str cmdliner))
