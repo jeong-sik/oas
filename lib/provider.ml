@@ -75,6 +75,7 @@ let openai_chat_capabilities = {
   supports_tool_choice = true;
   supports_response_format_json = true;
   supports_multimodal_inputs = true;
+  supports_native_streaming = true;
 }
 
 let qwen_openai_chat_capabilities = {
