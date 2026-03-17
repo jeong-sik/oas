@@ -305,6 +305,16 @@ let stage_output ?raw_trace_run agent ~effective_guardrails response =
 
 (* ── Pipeline coordinator ────────────────────────────────── *)
 
+let tag_error stage result =
+  match result with
+  | Ok _ as ok -> ok
+  | Error e ->
+    let poly = Error_domain.of_sdk_error e in
+    let _ctx = Error_domain.with_stage stage poly in
+    (* Stage context is created for diagnostics;
+       we still propagate sdk_error for backward compat *)
+    Error e
+
 let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
   (* Stage 1: Input *)
   stage_input ?raw_trace_run agent;
@@ -313,7 +323,8 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
   let (prep, original_config) = stage_parse ?raw_trace_run agent in
 
   (* Stage 3: Route *)
-  let api_result = stage_route ~sw ?clock ~api_strategy agent prep in
+  let api_result = stage_route ~sw ?clock ~api_strategy agent prep
+    |> tag_error "route" in
 
   (* Stage 4+5+6: Collect, Execute/Output *)
   match api_result with
@@ -321,6 +332,8 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
     agent.state <- { agent.state with config = original_config };
     Error e
   | Ok response ->
-    let* () = stage_collect ?raw_trace_run agent ~original_config response in
+    let* () = stage_collect ?raw_trace_run agent ~original_config response
+      |> tag_error "collect" in
     stage_output ?raw_trace_run agent
       ~effective_guardrails:prep.effective_guardrails response
+    |> tag_error "output"
