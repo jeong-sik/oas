@@ -17,7 +17,13 @@ let run_execute ~hooks ?approval tool_uses =
   let tools = [make_echo_tool "safe"; make_echo_tool "dangerous"] in
   let options = { Agent.default_options with hooks; approval } in
   let agent = Agent.create ~net ~tools ~options () in
-  Agent.execute_tools agent tool_uses
+  let opts = Agent.options agent in
+  Agent_tools.execute_tools
+    ~context:(Agent.context agent) ~tools:(Tool_set.to_list (Agent.tools agent))
+    ~hooks:opts.hooks ~event_bus:opts.event_bus
+    ~tracer:opts.tracer ~agent_name:(Agent.state agent).config.name
+    ~turn_count:(Agent.state agent).turn_count ~approval:opts.approval
+    tool_uses
 
 (* --- Test cases --- *)
 

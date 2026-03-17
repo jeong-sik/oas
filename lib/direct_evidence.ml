@@ -47,16 +47,17 @@ let lifecycle_snapshot_or_default (agent : Agent.t) : Agent.lifecycle_snapshot =
   match Agent.lifecycle_snapshot agent with
   | Some snapshot -> snapshot
   | None ->
+      let cfg = (Agent.state agent).config in
       {
-        Agent.current_run_id = None;
-        agent_name = agent.state.config.name;
-        worker_id = Some agent.state.config.name;
-        runtime_actor = Some agent.state.config.name;
+        Agent_lifecycle.current_run_id = None;
+        agent_name = cfg.name;
+        worker_id = Some cfg.name;
+        runtime_actor = Some cfg.name;
         status = Completed;
         requested_provider = None;
-        requested_model = Some (Types.model_to_string agent.state.config.model);
+        requested_model = Some (Types.model_to_string cfg.model);
         resolved_provider = None;
-        resolved_model = Some (Types.model_to_string agent.state.config.model);
+        resolved_model = Some (Types.model_to_string cfg.model);
         last_error = None;
         accepted_at = None;
         ready_at = None;
@@ -67,7 +68,7 @@ let lifecycle_snapshot_or_default (agent : Agent.t) : Agent.lifecycle_snapshot =
       }
 
 let default_runtime_actor (agent : Agent.t) options =
-  first_some options.runtime_actor (Some agent.state.config.name)
+  first_some options.runtime_actor (Some (Agent.state agent).config.name)
 
 let default_worker_id (agent : Agent.t) options =
   first_some options.worker_id (default_runtime_actor agent options)
@@ -191,7 +192,7 @@ let worker_run_of_agent ~(agent : Agent.t) ~options
     Sessions.worker_run_id =
       Option.value ~default:"direct-untracked" snapshot.current_run_id;
     worker_id;
-    agent_name = agent.state.config.name;
+    agent_name = (Agent.state agent).config.name;
     runtime_actor;
     role = options.role;
     aliases;
@@ -302,6 +303,7 @@ let apply_events initial_session (events : event list) =
 let make_event seq ts kind = { seq; ts; kind }
 
 let persist ~agent ~raw_trace ~(options : options) () =
+  let cfg = (Agent.state agent).config in
   let snapshot = lifecycle_snapshot_or_default agent in
   let terminal =
     match snapshot.status with
@@ -336,7 +338,7 @@ let persist ~agent ~raw_trace ~(options : options) () =
       | None -> Error (validation_error "No raw trace run was available")
     in
     let* raw_run, latest_records =
-      write_latest_run_to_session store options.session_id agent.state.config.name
+      write_latest_run_to_session store options.session_id cfg.name
         last_run
     in
     let existing_bundle =
@@ -366,12 +368,12 @@ let persist ~agent ~raw_trace ~(options : options) () =
           {
             session_id = Some options.session_id;
             goal = options.goal;
-            participants = [ agent.state.config.name ];
+            participants = [ cfg.name ];
             provider = selected_provider;
             model = selected_model;
             permission_mode = options.requested_policy;
-            system_prompt = agent.state.config.system_prompt;
-            max_turns = Some agent.state.config.max_turns;
+            system_prompt = cfg.system_prompt;
+            max_turns = Some cfg.max_turns;
             workdir = options.workdir;
           }
         in
@@ -384,7 +386,7 @@ let persist ~agent ~raw_trace ~(options : options) () =
             participants =
               session.participants
               |> List.map (fun (participant : Runtime.participant) ->
-                     if String.equal participant.name agent.state.config.name then
+                     if String.equal participant.name cfg.name then
                        {
                          participant with
                          worker_id = default_worker_id agent options;
@@ -405,13 +407,13 @@ let persist ~agent ~raw_trace ~(options : options) () =
           [
             make_event 1 (started_at -. 0.003)
               (Session_started
-                 { goal = options.goal; participants = [ agent.state.config.name ] });
+                 { goal = options.goal; participants = [ cfg.name ] });
             make_event 2 (started_at -. 0.002)
               (Turn_recorded { actor = None; message = prompt });
             make_event 3 (started_at -. 0.001)
               (Agent_spawn_requested
                  {
-                   participant_name = agent.state.config.name;
+                   participant_name = cfg.name;
                    role = first_some options.role None;
                    prompt;
                    provider = selected_provider;
@@ -421,7 +423,7 @@ let persist ~agent ~raw_trace ~(options : options) () =
             make_event 4 started_at
               (Agent_became_live
                  {
-                   participant_name = agent.state.config.name;
+                   participant_name = cfg.name;
                    summary = Some "direct-agent-started";
                    provider = snapshot.resolved_provider;
                    model = snapshot.resolved_model;
@@ -432,14 +434,14 @@ let persist ~agent ~raw_trace ~(options : options) () =
             |> List.mapi (fun index (ts, text) ->
                    make_event (5 + index) ts
                      (Agent_output_delta
-                        { participant_name = agent.state.config.name; delta = text })))
+                        { participant_name = cfg.name; delta = text })))
           @ [
               make_event (5 + List.length deltas) finished_at
                 (match snapshot.status with
                 | Agent.Failed ->
                     Agent_failed
                       {
-                        participant_name = agent.state.config.name;
+                        participant_name = cfg.name;
                         summary = raw_summary.final_text;
                         provider = snapshot.resolved_provider;
                         model = snapshot.resolved_model;
@@ -448,7 +450,7 @@ let persist ~agent ~raw_trace ~(options : options) () =
                 | Agent.Accepted | Agent.Ready | Agent.Running | Agent.Completed ->
                     Agent_completed
                       {
-                        participant_name = agent.state.config.name;
+                        participant_name = cfg.name;
                         summary = raw_summary.final_text;
                         provider = snapshot.resolved_provider;
                         model = snapshot.resolved_model;
@@ -489,7 +491,7 @@ let persist ~agent ~raw_trace ~(options : options) () =
           ~name:"runtime-telemetry" ~kind:"markdown" ~content:telemetry_md
       in
       let tool_catalog_json =
-        tool_contracts_to_json (Tool_set.to_list agent.tools) |> Yojson.Safe.pretty_to_string
+        tool_contracts_to_json (Tool_set.to_list (Agent.tools agent)) |> Yojson.Safe.pretty_to_string
       in
       let* tool_catalog_artifact =
         Artifact_service.save_text_internal store ~session_id:options.session_id
