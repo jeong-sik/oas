@@ -139,8 +139,8 @@ jobs:
           DUNE_VER=$(grep '(version' dune-project | head -1 | sed 's/.*version \(.*\))/\1/')
           echo "dune-project version: $DUNE_VER"
 
-          SDK_VER=$(grep 'let version' lib/agent_sdk.ml | head -1 | sed 's/.*"\(.*\)".*/\1/')
-          echo "agent_sdk.ml version: $SDK_VER"
+          SDK_VER=$(grep 'let version' lib/sdk_version.ml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          echo "sdk_version.ml version: $SDK_VER"
 
           if [ "$DUNE_VER" != "$SDK_VER" ]; then
             echo "ERROR: dune-project ($DUNE_VER) != agent_sdk.ml ($SDK_VER)"
