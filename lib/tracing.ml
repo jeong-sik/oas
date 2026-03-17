@@ -21,6 +21,8 @@ module type TRACER = sig
   val end_span : span -> ok:bool -> unit
   val add_event : span -> string -> unit
   val add_attrs : span -> (string * string) list -> unit
+  val trace_id : span -> string option
+  val span_id : span -> string option
 end
 
 module Null_tracer : TRACER with type span = unit = struct
@@ -29,6 +31,8 @@ module Null_tracer : TRACER with type span = unit = struct
   let end_span () ~ok:_ = ()
   let add_event () _msg = ()
   let add_attrs () _attrs = ()
+  let trace_id () = None
+  let span_id () = None
 end
 
 module Fmt_tracer : TRACER = struct
@@ -65,6 +69,9 @@ module Fmt_tracer : TRACER = struct
       Format.eprintf "[TRACE] ATTR %s/%s: %s=%s@."
         (span_kind_to_string span.attrs.kind) span.attrs.name k v
     ) attrs
+
+  let trace_id _span = None
+  let span_id _span = None
 end
 
 type t = (module TRACER)

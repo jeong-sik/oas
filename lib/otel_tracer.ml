@@ -311,6 +311,8 @@ let tracer_of_instance inst : Tracing.t =
     let end_span = inst_end_span inst
     let add_event = inst_add_event inst
     let add_attrs = inst_add_attrs inst
+    let trace_id s = Some s.trace_id
+    let span_id s = Some s.span_id
   end)
 
 (* -- First-class module constructors ---------------------------------- *)
