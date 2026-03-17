@@ -52,6 +52,12 @@ type agent_entry = {
 }
 
 
+(** Wrap an [Agent.t] into an [agent_entry]. Clock is captured via closure. *)
+let make_entry ~name ~role ~(clock : _ Eio.Time.clock) (agent : Agent.t) =
+  { name;
+    run = (fun ~sw prompt -> Agent.run ~sw ~clock agent prompt);
+    role }
+
 type swarm_config = {
   entries: agent_entry list;
   mode: orchestration_mode;

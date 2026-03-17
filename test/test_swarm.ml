@@ -25,9 +25,7 @@ let test_create_state () =
   let agent = Agent.create ~net:env#net
     ~config:{ Types.default_config with name = "test-agent"; max_turns = 1 } () in
   let config : Swarm_types.swarm_config = {
-    entries = [{ Swarm_types.name = "agent-1";
-        run = (fun ~sw prompt -> Agent.run ~sw ~clock agent prompt);
-        role = Discover }];
+    entries = [Swarm_types.make_entry ~name:"agent-1" ~role:Discover ~clock agent];
     mode = Decentralized;
     convergence = None;
     max_parallel = 4;
@@ -149,9 +147,7 @@ let test_multi_agent_config () =
   let make name role =
     let agent = Agent.create ~net:env#net
       ~config:{ Types.default_config with name; max_turns = 1 } () in
-    { Swarm_types.name;
-      run = (fun ~sw prompt -> Agent.run ~sw ~clock agent prompt);
-      role }
+    Swarm_types.make_entry ~name ~role ~clock agent
   in
   let config : Swarm_types.swarm_config = {
     entries = [
@@ -200,9 +196,7 @@ let test_state_history () =
   let agent = Agent.create ~net:env#net
     ~config:{ Types.default_config with name = "a"; max_turns = 1 } () in
   let config : Swarm_types.swarm_config = {
-    entries = [{ Swarm_types.name = "a";
-        run = (fun ~sw prompt -> Agent.run ~sw ~clock agent prompt);
-        role = Execute }];
+    entries = [Swarm_types.make_entry ~name:"a" ~role:Execute ~clock agent];
     mode = Decentralized;
     convergence = None;
     max_parallel = 2;
@@ -211,6 +205,171 @@ let test_state_history () =
   } in
   let state = Swarm_types.create_state config in
   check int "empty history" 0 (List.length state.history)
+
+(* ── Convergence loop tests (mock agents) ────────────────────────── *)
+
+(** Mock run function that always returns a text response. *)
+let mock_run text ~sw:_ _prompt =
+  Ok { Types.id = "mock"; model = "mock"; stop_reason = Types.EndTurn;
+       content = [Types.Text text];
+       usage = Some { Types.input_tokens = 10; output_tokens = 5;
+                      cache_creation_input_tokens = 0;
+                      cache_read_input_tokens = 0 } }
+
+let test_convergence_reaches_target () =
+  Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  let call_count = ref 0 in
+  let metric_fn () =
+    incr call_count;
+    (* Simulate improving metric: 0.5, 0.7, 0.9, 1.0 *)
+    match !call_count with
+    | 1 -> 0.5 | 2 -> 0.7 | 3 -> 0.9 | _ -> 1.0
+  in
+  let config : Swarm_types.swarm_config = {
+    entries = [
+      { name = "worker-1"; run = mock_run "result-1"; role = Execute };
+    ];
+    mode = Decentralized;
+    convergence = Some {
+      metric = Callback metric_fn;
+      target = 0.95;
+      max_iterations = 10;
+      patience = 5;
+      aggregate = Best_score;
+    };
+    max_parallel = 2;
+    prompt = "test convergence";
+    timeout_sec = None;
+  } in
+  Eio.Switch.run @@ fun sw ->
+  match Runner.run ~sw ~clock config with
+  | Ok result ->
+    check bool "converged" true result.converged;
+    check int "4 iterations" 4 (List.length result.iterations);
+    (match result.final_metric with
+     | Some v -> check bool "metric >= 0.95" true (v >= 0.95)
+     | None -> fail "expected final metric")
+  | Error e -> fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))
+
+let test_convergence_patience_exhausted () =
+  Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  let metric_fn () = 0.3 in  (* Never improves *)
+  let config : Swarm_types.swarm_config = {
+    entries = [
+      { name = "stuck"; run = mock_run "stuck"; role = Execute };
+    ];
+    mode = Decentralized;
+    convergence = Some {
+      metric = Callback metric_fn;
+      target = 0.95;
+      max_iterations = 20;
+      patience = 3;
+      aggregate = Best_score;
+    };
+    max_parallel = 1;
+    prompt = "patience test";
+    timeout_sec = None;
+  } in
+  Eio.Switch.run @@ fun sw ->
+  match Runner.run ~sw ~clock config with
+  | Ok result ->
+    check bool "not converged" false result.converged;
+    (* patience=3: first iteration sets baseline, then 3 more without improvement *)
+    check bool "stopped by patience" true (List.length result.iterations <= 5)
+  | Error e -> fail (Printf.sprintf "error: %s" (Error.to_string e))
+
+let test_convergence_max_iterations () =
+  Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  let counter = ref 0 in
+  let metric_fn () = incr counter; float_of_int !counter *. 0.1 in
+  let config : Swarm_types.swarm_config = {
+    entries = [
+      { name = "w"; run = mock_run "x"; role = Execute };
+    ];
+    mode = Decentralized;
+    convergence = Some {
+      metric = Callback metric_fn;
+      target = 100.0;  (* Unreachable *)
+      max_iterations = 3;
+      patience = 100;
+      aggregate = Best_score;
+    };
+    max_parallel = 1;
+    prompt = "max iter test";
+    timeout_sec = None;
+  } in
+  Eio.Switch.run @@ fun sw ->
+  match Runner.run ~sw ~clock config with
+  | Ok result ->
+    check bool "not converged" false result.converged;
+    check int "exactly 3 iterations" 3 (List.length result.iterations)
+  | Error e -> fail (Printf.sprintf "error: %s" (Error.to_string e))
+
+let test_single_pass_no_convergence () =
+  Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  let config : Swarm_types.swarm_config = {
+    entries = [
+      { name = "a1"; run = mock_run "hello"; role = Discover };
+      { name = "a2"; run = mock_run "world"; role = Verify };
+    ];
+    mode = Decentralized;
+    convergence = None;
+    max_parallel = 4;
+    prompt = "single pass";
+    timeout_sec = None;
+  } in
+  Eio.Switch.run @@ fun sw ->
+  match Runner.run ~sw ~clock config with
+  | Ok result ->
+    check bool "not converged" false result.converged;
+    check int "1 iteration" 1 (List.length result.iterations);
+    let iter = List.hd result.iterations in
+    check int "2 agents" 2 (List.length iter.agent_results)
+  | Error e -> fail (Printf.sprintf "error: %s" (Error.to_string e))
+
+let test_callbacks_fire () =
+  Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  let iter_starts = ref 0 in
+  let iter_ends = ref 0 in
+  let agent_starts = ref 0 in
+  let agent_dones = ref 0 in
+  let callbacks : Swarm_types.swarm_callbacks = {
+    on_iteration_start = Some (fun _ -> incr iter_starts);
+    on_iteration_end = Some (fun _ -> incr iter_ends);
+    on_agent_start = Some (fun _ -> incr agent_starts);
+    on_agent_done = Some (fun _ _ -> incr agent_dones);
+    on_converged = None;
+    on_error = None;
+  } in
+  let config : Swarm_types.swarm_config = {
+    entries = [
+      { name = "cb-agent"; run = mock_run "ok"; role = Execute };
+    ];
+    mode = Decentralized;
+    convergence = Some {
+      metric = Callback (fun () -> 1.0);
+      target = 0.5;
+      max_iterations = 1;
+      patience = 1;
+      aggregate = Best_score;
+    };
+    max_parallel = 1;
+    prompt = "callback test";
+    timeout_sec = None;
+  } in
+  Eio.Switch.run @@ fun sw ->
+  (match Runner.run ~sw ~clock ~callbacks config with
+   | Ok _ -> ()
+   | Error e -> fail (Printf.sprintf "error: %s" (Error.to_string e)));
+  check bool "iter_starts fired" true (!iter_starts > 0);
+  check bool "iter_ends fired" true (!iter_ends > 0);
+  check bool "agent_starts fired" true (!agent_starts > 0);
+  check bool "agent_dones fired" true (!agent_dones > 0)
 
 (* ── Test suite ──────────────────────────────────────────────────── *)
 
@@ -239,5 +398,12 @@ let () =
       test_case "majority_vote" `Quick test_aggregate_majority_vote;
       test_case "custom" `Quick test_aggregate_custom;
       test_case "empty" `Quick test_aggregate_empty;
+    ];
+    "convergence", [
+      test_case "reaches_target" `Quick test_convergence_reaches_target;
+      test_case "patience_exhausted" `Quick test_convergence_patience_exhausted;
+      test_case "max_iterations" `Quick test_convergence_max_iterations;
+      test_case "single_pass" `Quick test_single_pass_no_convergence;
+      test_case "callbacks_fire" `Quick test_callbacks_fire;
     ];
   ]
