@@ -324,6 +324,10 @@
  (libraries agent_sdk alcotest yojson))
 
 (test
+ (name test_metrics)
+ (libraries agent_sdk alcotest yojson))
+
+(test
  (name test_provider_intf)
  (libraries agent_sdk alcotest yojson))
 

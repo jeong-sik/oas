@@ -98,6 +98,7 @@ module Event_forward = Event_forward
 module A2a_task = A2a_task
 module A2a_task_store = A2a_task_store
 module A2a_server = A2a_server
+module Metrics = Metrics
 
 (** Quick start: create an agent with default config *)
 let create_agent ~net ?name ?model ?system_prompt ?max_tokens ?max_turns
