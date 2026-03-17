@@ -143,13 +143,14 @@ let run_single_pass ~sw ~clock:_ ?(callbacks = no_callbacks) config =
   let agent_results =
     List.map (fun (name, status, _) -> (name, status)) results
   in
-  Ok {
+  let usage = collect_usage Types.empty_usage results in
+  Ok ({
     iteration = 0;
     metric_value = None;
     agent_results;
     elapsed;
     timestamp = Unix.gettimeofday ();
-  }
+  }, usage)
 
 (* ── Eio.Mutex-protected state handle ───────────────────────────── *)
 
@@ -201,21 +202,26 @@ let run_convergence_loop ~sw ~clock:_ ~callbacks config conv =
       state.agent_statuses <- agent_results;
     );
     fire callbacks.on_iteration_end record;
-    (* Check convergence under mutex *)
+    (* Check convergence under mutex — apply aggregate strategy *)
     with_state handle (fun state ->
       match metric_value with
-      | Some v ->
+      | Some _v ->
+        (* Aggregate all metric values from history (current record already added) *)
+        let all_metrics =
+          List.filter_map (fun r -> r.metric_value) state.history
+        in
+        let effective = aggregate_scores conv.aggregate all_metrics in
         let improved = match state.best_metric with
           | None -> true
-          | Some prev -> v > prev
+          | Some prev -> effective > prev
         in
         if improved then begin
-          state.best_metric <- Some v;
+          state.best_metric <- Some effective;
           state.best_iteration <- iter;
           state.patience_counter <- 0
         end else
           state.patience_counter <- state.patience_counter + 1;
-        if v >= conv.target then begin
+        if effective >= conv.target then begin
           state.converged <- true;
           continue := false;
           fire callbacks.on_converged state
@@ -245,25 +251,27 @@ let run_convergence_loop ~sw ~clock:_ ~callbacks config conv =
 (* ── Main entry point ───────────────────────────────────────────── *)
 
 let run ~sw ~clock ?(callbacks = no_callbacks) config =
-  match config.convergence with
+  let run_inner () =
+    match config.convergence with
+    | None ->
+      (match run_single_pass ~sw ~clock ~callbacks config with
+       | Ok (record, usage) ->
+         Ok {
+           iterations = [record];
+           final_metric = None;
+           converged = false;
+           total_elapsed = record.elapsed;
+           total_usage = usage;
+         }
+       | Error e -> Error e)
+    | Some conv ->
+      run_convergence_loop ~sw ~clock ~callbacks config conv
+  in
+  match config.timeout_sec with
+  | Some timeout ->
+    (try
+       Eio.Time.with_timeout_exn clock timeout run_inner
+     with Eio.Time.Timeout ->
+       Error (Error.Orchestration (Error.TaskTimeout { task_id = "swarm-timeout" })))
   | None ->
-    (match run_single_pass ~sw ~clock ~callbacks config with
-     | Ok record ->
-       Ok {
-         iterations = [record];
-         final_metric = None;
-         converged = false;
-         total_elapsed = record.elapsed;
-         total_usage = Types.empty_usage;
-       }
-     | Error e -> Error e)
-  | Some conv ->
-    (match config.timeout_sec with
-     | Some timeout ->
-       (try
-          Eio.Time.with_timeout_exn clock timeout (fun () ->
-            run_convergence_loop ~sw ~clock ~callbacks config conv)
-        with Eio.Time.Timeout ->
-          Error (Error.Orchestration (Error.TaskTimeout { task_id = "swarm-timeout" })))
-     | None ->
-       run_convergence_loop ~sw ~clock ~callbacks config conv)
+    run_inner ()

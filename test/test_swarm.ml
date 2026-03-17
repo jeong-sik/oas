@@ -607,6 +607,92 @@ let test_partial_failure_resilience () =
     check int "1 error" 1 err_count
   | Error e -> fail (Printf.sprintf "error: %s" (Error.to_string e))
 
+(* ── Review-driven regression tests ──────────────────────────────── *)
+
+(** P1: Single-pass swarm should respect timeout_sec. *)
+let test_single_pass_timeout () =
+  Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  let slow_run ~sw:_ _prompt =
+    Eio.Time.sleep clock 10.0;  (* 10s — will exceed timeout *)
+    Ok { Types.id = "mock"; model = "mock"; stop_reason = Types.EndTurn;
+         content = [Types.Text "late"]; usage = None }
+  in
+  let config : Swarm_types.swarm_config = {
+    entries = [{ name = "slow"; run = slow_run; role = Execute }];
+    mode = Decentralized;
+    convergence = None;
+    max_parallel = 1;
+    prompt = "timeout test";
+    timeout_sec = Some 0.05;  (* 50ms timeout *)
+  } in
+  Eio.Switch.run @@ fun sw ->
+  match Runner.run ~sw ~clock config with
+  | Ok _ -> fail "expected timeout error"
+  | Error (Error.Orchestration (Error.TaskTimeout _)) -> ()
+  | Error e -> fail (Printf.sprintf "wrong error: %s" (Error.to_string e))
+
+(** P1: Single-pass swarm should accumulate usage from agents. *)
+let test_single_pass_usage () =
+  Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  let config : Swarm_types.swarm_config = {
+    entries = [
+      { name = "a1"; run = mock_run "hello"; role = Discover };
+      { name = "a2"; run = mock_run "world"; role = Verify };
+    ];
+    mode = Decentralized;
+    convergence = None;
+    max_parallel = 4;
+    prompt = "usage test";
+    timeout_sec = None;
+  } in
+  Eio.Switch.run @@ fun sw ->
+  match Runner.run ~sw ~clock config with
+  | Ok result ->
+    (* mock_run returns usage with input_tokens=10, output_tokens=5 each *)
+    check int "api_calls" 2 result.total_usage.api_calls;
+    check int "input_tokens" 20 result.total_usage.total_input_tokens;
+    check int "output_tokens" 10 result.total_usage.total_output_tokens
+  | Error e -> fail (Printf.sprintf "error: %s" (Error.to_string e))
+
+(** P2: Average_score aggregate prevents premature convergence from spikes.
+
+    With Best_score, a single spike (0.9) would converge at target=0.5.
+    With Average_score, the avg stays below 0.5, proving aggregate is applied. *)
+let test_convergence_average_aggregate () =
+  Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  let call_count = ref 0 in
+  let metric_fn () =
+    incr call_count;
+    (* One spike among low values: 0.3, 0.3, 0.3, 0.3, 0.9, 0.3 *)
+    if !call_count = 5 then 0.9 else 0.3
+  in
+  let config : Swarm_types.swarm_config = {
+    entries = [
+      { name = "w"; run = mock_run "x"; role = Execute };
+    ];
+    mode = Decentralized;
+    convergence = Some {
+      metric = Callback metric_fn;
+      target = 0.5;
+      max_iterations = 6;
+      patience = 10;
+      aggregate = Average_score;
+    };
+    max_parallel = 1;
+    prompt = "aggregate test";
+    timeout_sec = None;
+  } in
+  Eio.Switch.run @@ fun sw ->
+  match Runner.run ~sw ~clock config with
+  | Ok result ->
+    (* avg([0.3,0.3,0.3,0.3,0.9,0.3]) = 0.4 < 0.5 → not converged *)
+    check bool "not converged (avg too low)" false result.converged;
+    check int "ran all 6 iterations" 6 (List.length result.iterations)
+  | Error e -> fail (Printf.sprintf "error: %s" (Error.to_string e))
+
 (* ── Test suite ──────────────────────────────────────────────────── *)
 
 let () =
@@ -648,5 +734,10 @@ let () =
       test_case "12_worker_supervisor" `Quick test_12_worker_supervisor;
       test_case "12_worker_pipeline" `Quick test_12_worker_pipeline;
       test_case "partial_failure" `Quick test_partial_failure_resilience;
+    ];
+    "review_fixes", [
+      test_case "single_pass_timeout" `Quick test_single_pass_timeout;
+      test_case "single_pass_usage" `Quick test_single_pass_usage;
+      test_case "convergence_avg_aggregate" `Quick test_convergence_average_aggregate;
     ];
   ]
