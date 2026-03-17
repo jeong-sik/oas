@@ -392,6 +392,45 @@ module Provider : sig
   val custom_provider : name:string -> ?model_id:string -> ?api_key_env:string -> unit -> config
 end
 
+(** {1 Provider Interface (Functor Types)} *)
+
+module Provider_intf : sig
+  (** Compile-time provider capability checking.
+      Defines module types that LLM backends must satisfy. *)
+
+  module type PROVIDER = sig
+    type t
+    val create_message :
+      sw:Eio.Switch.t ->
+      net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
+      config:Types.agent_state ->
+      messages:Types.message list ->
+      ?tools:Yojson.Safe.t list ->
+      unit ->
+      (Types.api_response, Error.sdk_error) result
+  end
+
+  module type STREAMING_PROVIDER = sig
+    include PROVIDER
+    val create_message_stream :
+      sw:Eio.Switch.t ->
+      net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
+      config:Types.agent_state ->
+      messages:Types.message list ->
+      ?tools:Yojson.Safe.t list ->
+      on_event:(Types.sse_event -> unit) ->
+      unit ->
+      (Types.api_response, Error.sdk_error) result
+  end
+
+  type provider_module = (module PROVIDER)
+  type streaming_provider_module = (module STREAMING_PROVIDER)
+
+  val of_config : Provider.config -> provider_module
+  val supports_streaming : Provider.config -> bool
+  val of_config_streaming : Provider.config -> streaming_provider_module option
+end
+
 (** {1 Error Handling and Retry} *)
 
 module Retry = Retry
@@ -409,6 +448,7 @@ module Retry = Retry
 (** {1 Structured Errors} *)
 
 module Error = Error
+module Error_domain = Error_domain
 (** Structured SDK error types.
 
     Replaces [(_, string) result] with [(_, sdk_error) result] across the SDK.
@@ -868,6 +908,35 @@ module Guardrails : sig
   val is_allowed : t -> Types.tool_schema -> bool
   val filter_tools : t -> Tool.t list -> Tool.t list
   val exceeds_limit : t -> int -> bool
+end
+
+(** {1 Tool Set} *)
+
+module Tool_set : sig
+  (** Composable, deduplicated tool collections (monoid).
+      Last-writer-wins on name conflict during merge. *)
+
+  type t
+
+  val empty : t
+  val singleton : Tool.t -> t
+  val of_list : Tool.t list -> t
+
+  (** Merge two tool sets.  On name conflict the right-hand tool wins. *)
+  val merge : t -> t -> t
+  val concat : t list -> t
+  val filter : Guardrails.t -> t -> t
+  val to_list : t -> Tool.t list
+  val find : string -> t -> Tool.t option
+  val mem : string -> t -> bool
+  val size : t -> int
+  val names : t -> string list
+
+  type dep_error =
+    | DuplicateName of string
+    | EmptyName
+
+  val validate : t -> (unit, dep_error list) result
 end
 
 (** {1 Skill Loading} *)

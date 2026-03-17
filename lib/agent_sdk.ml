@@ -40,8 +40,10 @@ module Types = Types
 module Util = Util
 module Context = Context
 module Provider = Provider
+module Provider_intf = Provider_intf
 module Retry = Retry
 module Error = Error
+module Error_domain = Error_domain
 module Hooks = Hooks
 module Tracing = Tracing
 module Context_reducer = Context_reducer
@@ -51,6 +53,7 @@ module Mcp_http = Mcp_http
 module Mcp_session = Mcp_session
 module Sse_parser = Sse_parser
 module Guardrails = Guardrails
+module Tool_set = Tool_set
 module Log = Log
 module Event_bus = Event_bus
 module Skill = Skill
@@ -131,5 +134,5 @@ let runtime_query = Runtime_query.query
 let query = Query.query
 
 (** Version info *)
-let version = "0.40.0"
+let version = "0.41.0"
 let sdk_name = "agent_sdk"
