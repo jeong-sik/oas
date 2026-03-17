@@ -98,7 +98,7 @@ let net t = t.net
 let set_state t s = t.state <- s
 let description t = t.options.description
 
-let sdk_version = "0.40.0"
+let sdk_version = Sdk_version.version
 
 let card t =
   Agent_card.of_info {

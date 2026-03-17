@@ -137,7 +137,7 @@ let test_init_request () =
 
 let test_init_response () =
   let v : Runtime.init_response = {
-    sdk_name = "oas"; sdk_version = "0.28.0";
+    sdk_name = "oas"; sdk_version = Agent_sdk.Sdk_version.version;
     runtime_version = "1.0"; protocol_version = "1";
     capabilities = ["streaming"; "tools"];
   } in

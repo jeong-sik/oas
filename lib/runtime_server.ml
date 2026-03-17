@@ -256,7 +256,7 @@ let handle_request state request =
         (Initialized
            {
              sdk_name = "agent_sdk";
-             sdk_version = "0.10.0";
+             sdk_version = Sdk_version.version;
              runtime_version;
              protocol_version = Runtime.protocol_version;
              capabilities =
