@@ -310,3 +310,7 @@
  (name test_cli)
  (libraries agent_sdk alcotest yojson unix str)
  (deps ../bin/oas_cli.exe))
+
+(test
+ (name test_tool_set)
+ (libraries agent_sdk alcotest qcheck-core qcheck-alcotest yojson))

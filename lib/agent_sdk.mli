@@ -870,6 +870,35 @@ module Guardrails : sig
   val exceeds_limit : t -> int -> bool
 end
 
+(** {1 Tool Set} *)
+
+module Tool_set : sig
+  (** Composable, deduplicated tool collections (monoid).
+      Last-writer-wins on name conflict during merge. *)
+
+  type t
+
+  val empty : t
+  val singleton : Tool.t -> t
+  val of_list : Tool.t list -> t
+
+  (** Merge two tool sets.  On name conflict the right-hand tool wins. *)
+  val merge : t -> t -> t
+  val concat : t list -> t
+  val filter : Guardrails.t -> t -> t
+  val to_list : t -> Tool.t list
+  val find : string -> t -> Tool.t option
+  val mem : string -> t -> bool
+  val size : t -> int
+  val names : t -> string list
+
+  type dep_error =
+    | DuplicateName of string
+    | EmptyName
+
+  val validate : t -> (unit, dep_error list) result
+end
+
 (** {1 Skill Loading} *)
 
 module Skill : sig
