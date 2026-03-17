@@ -98,8 +98,7 @@ let run_task ~sw ?clock orch task =
       (* If shared_context is configured, merge it into the agent's context *)
       (match orch.config.shared_context with
        | Some ctx ->
-         let pairs = Hashtbl.fold (fun k v acc -> (k, v) :: acc) ctx [] in
-         Context.merge agent.context pairs
+         Context.merge agent.context (Context.snapshot ctx)
        | None -> ());
       run_agent_with_timeout ~sw ?clock ~task_id:task.id orch.config agent task.prompt
   in
