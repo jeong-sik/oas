@@ -29,20 +29,20 @@ let test_anthropic_supports_streaming () =
   Alcotest.(check bool) "anthropic streams" true
     (Provider_intf.supports_streaming config)
 
-let test_ollama_no_streaming () =
+let test_ollama_streaming () =
   let config = Provider.ollama ~model_id:"qwen3.5" () in
-  (* Ollama chat mode: supports_native_streaming = false *)
+  (* Ollama chat mode: streaming via OpenAI-compat /v1/chat/completions *)
   let caps = Provider.capabilities_for_config config in
-  Alcotest.(check bool) "ollama caps" false caps.supports_native_streaming
+  Alcotest.(check bool) "ollama caps" true caps.supports_native_streaming
 
 (* ── of_config_streaming ─────────────────────────────────── *)
 
-let test_streaming_provider_none_for_now () =
-  (* Current implementation returns None — streaming wrapping is deferred *)
+let test_streaming_provider_some () =
   let config = Provider.anthropic_sonnet () in
   match Provider_intf.of_config_streaming config with
-  | None -> ()
-  | Some _ -> () (* If implemented in future, this should still pass *)
+  | Some (module SP : Provider_intf.STREAMING_PROVIDER) ->
+      ignore (module SP : Provider_intf.STREAMING_PROVIDER)
+  | None -> Alcotest.fail "expected Some for anthropic"
 
 (* ── Runner ──────────────────────────────────────────────── *)
 
@@ -55,7 +55,7 @@ let () =
     ];
     "streaming", [
       Alcotest.test_case "anthropic supports streaming" `Quick test_anthropic_supports_streaming;
-      Alcotest.test_case "ollama native streaming" `Quick test_ollama_no_streaming;
-      Alcotest.test_case "of_config_streaming" `Quick test_streaming_provider_none_for_now;
+      Alcotest.test_case "ollama native streaming" `Quick test_ollama_streaming;
+      Alcotest.test_case "of_config_streaming" `Quick test_streaming_provider_some;
     ];
   ]

@@ -1,8 +1,8 @@
-(** OpenAI-compatible API response parsing and message serialization.
+(** OpenAI-compatible API response parsing, message serialization,
+    and request building.
 
-    Pure functions operating on {!Llm_provider.Types}. No agent_sdk coupling.
-    Request building (build_openai_body) remains in agent_sdk because it
-    depends on agent_config/agent_state/Provider. *)
+    Pure functions operating on {!Llm_provider.Types}.
+    {!build_request} uses {!Provider_config.t} (no agent_sdk coupling). *)
 
 open Types
 
@@ -288,3 +288,67 @@ let parse_openai_response json_str =
         err |> member "message" |> to_string_option |> Option.value ~default:"Unknown API error"
       in
       raise (Openai_api_error msg)
+
+(** Build OpenAI Chat Completions request body from {!Provider_config.t}.
+    Returns a JSON string ready for HTTP POST. *)
+let build_request ?(stream=false) ~(config : Provider_config.t)
+    ~(messages : message list) ?(tools : Yojson.Safe.t list = []) () =
+  let provider_messages =
+    (match config.system_prompt with
+     | Some s when not (Api_common.string_is_blank s) ->
+         [`Assoc [("role", `String "system"); ("content", `String s)]]
+     | _ -> [])
+    @ List.concat_map openai_messages_of_message messages
+  in
+  let body =
+    [ ("model", `String config.model_id);
+      ("messages", `List provider_messages);
+      ("max_tokens", `Int config.max_tokens) ]
+  in
+  let body = match config.temperature with
+    | Some t -> ("temperature", `Float t) :: body
+    | None -> body
+  in
+  let body = match config.top_p with
+    | Some p -> ("top_p", `Float p) :: body
+    | None -> body
+  in
+  let body = match config.top_k with
+    | Some k -> ("top_k", `Int k) :: body
+    | None -> body
+  in
+  let body = match config.min_p with
+    | Some p -> ("min_p", `Float p) :: body
+    | None -> body
+  in
+  let body = match config.enable_thinking with
+    | Some enabled ->
+        ("chat_template_kwargs",
+         `Assoc [("enable_thinking", `Bool enabled)]) :: body
+    | None -> body
+  in
+  let body = match tools with
+    | [] -> body
+    | ts ->
+        ("tools", `List (List.map build_openai_tool_json ts)) :: body
+  in
+  let body = match config.tool_choice with
+    | Some choice -> ("tool_choice", tool_choice_to_openai_json choice) :: body
+    | None -> body
+  in
+  let body =
+    if config.disable_parallel_tool_use && tools <> [] then
+      ("parallel_tool_calls", `Bool false) :: body
+    else body
+  in
+  let body =
+    if config.response_format_json then
+      ("response_format",
+       `Assoc [("type", `String "json_object")]) :: body
+    else body
+  in
+  let body =
+    if stream then ("stream", `Bool true) :: body
+    else body
+  in
+  Yojson.Safe.to_string (`Assoc body)

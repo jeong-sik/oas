@@ -119,11 +119,23 @@ let supports_streaming (provider_cfg : Provider.config) : bool =
   let caps = Provider.capabilities_for_config provider_cfg in
   caps.supports_native_streaming
 
-(** Resolve to a streaming provider if supported. *)
-let of_config_streaming (_provider_cfg : Provider.config)
+(** Resolve to a streaming provider if supported.
+    Returns [Some] for Anthropic, OpenAI-compatible, and Ollama Chat. *)
+let of_config_streaming (provider_cfg : Provider.config)
     : streaming_provider_module option =
-  (* Streaming providers are constructed only when
-     supports_native_streaming = true.  Currently Anthropic and Local
-     support native streaming. Other providers fall back to
-     sync + synthetic events at the pipeline level. *)
-  None (* Streaming provider wrapping deferred — uses existing Streaming module directly *)
+  if not (supports_streaming provider_cfg) then None
+  else
+    let base_module = of_config provider_cfg in
+    let module Base = (val base_module : PROVIDER) in
+    let base_url = match Provider.resolve provider_cfg with
+      | Ok (url, _, _) -> url | Error _ -> ""
+    in
+    let module SP = struct
+      include Base
+
+      let create_message_stream ~sw ~net ~config ~messages ?tools
+          ~on_event () =
+        Streaming.create_message_stream ~sw ~net ~base_url
+          ~provider:provider_cfg ~config ~messages ?tools ~on_event ()
+    end in
+    Some (module SP : STREAMING_PROVIDER)
