@@ -3860,8 +3860,9 @@ module A2a_task : sig
   val task_of_yojson : Yojson.Safe.t -> (task, string) result
 
   (** {2 In-memory store} *)
+  val default_max_tasks : int
   type store
-  val create_store : unit -> store
+  val create_store : ?max_tasks:int -> unit -> store
   val store_task : store -> task -> unit
   val get_task : store -> task_id -> task option
   val list_tasks : store -> task list

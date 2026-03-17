@@ -309,15 +309,49 @@ let task_of_yojson json =
 
 (* ── In-memory store ──────────────────────────────────────────── *)
 
-type store = (task_id, task) Hashtbl.t
+let default_max_tasks = 10_000
 
-let create_store () : store = Hashtbl.create 64
+type store = {
+  tasks : (task_id, task) Hashtbl.t;
+  max_tasks : int;
+}
+
+let create_store ?(max_tasks = default_max_tasks) () : store =
+  { tasks = Hashtbl.create 64; max_tasks }
+
+(** Evict terminal tasks (oldest updated_at first) when store is at capacity. *)
+let evict_if_needed (s : store) : unit =
+  if Hashtbl.length s.tasks < s.max_tasks then ()
+  else
+    let terminals =
+      Hashtbl.fold (fun id t acc ->
+        if is_terminal t.state then (id, t.updated_at) :: acc
+        else acc
+      ) s.tasks []
+    in
+    match terminals with
+    | [] -> () (* all tasks are active; cannot evict *)
+    | _ ->
+      let sorted =
+        List.sort (fun (_, a) (_, b) -> Float.compare a b) terminals
+      in
+      (* Remove oldest terminal tasks to free 10% capacity *)
+      let to_remove = max 1 (s.max_tasks / 10) in
+      let rec remove n = function
+        | [] -> ()
+        | _ when n <= 0 -> ()
+        | (id, _) :: rest ->
+          Hashtbl.remove s.tasks id;
+          remove (n - 1) rest
+      in
+      remove to_remove sorted
 
 let store_task (s : store) (t : task) : unit =
-  Hashtbl.replace s t.id t
+  evict_if_needed s;
+  Hashtbl.replace s.tasks t.id t
 
 let get_task (s : store) (id : task_id) : task option =
-  Hashtbl.find_opt s id
+  Hashtbl.find_opt s.tasks id
 
 let list_tasks (s : store) : task list =
-  Hashtbl.fold (fun _ t acc -> t :: acc) s []
+  Hashtbl.fold (fun _ t acc -> t :: acc) s.tasks []
