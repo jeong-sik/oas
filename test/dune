@@ -63,6 +63,10 @@
  (libraries agent_sdk llm_provider alcotest yojson))
 
 (test
+ (name test_provider_complete)
+ (libraries llm_provider alcotest yojson))
+
+(test
  (name test_cache)
  (libraries agent_sdk alcotest yojson))
 

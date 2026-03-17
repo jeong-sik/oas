@@ -1,8 +1,8 @@
-(** Anthropic Claude API response parsing.
+(** Anthropic Claude API response parsing and request building.
 
-    Pure functions operating on {!Llm_provider.Types}. No agent_sdk coupling.
-    Request building (build_body_assoc) remains in agent_sdk because it
-    depends on agent_config/agent_state. *)
+    Pure functions operating on {!Llm_provider.Types}.
+    {!build_request} uses {!Provider_config.t} (no agent_sdk coupling).
+    The legacy [build_body_assoc] in agent_sdk delegates here. *)
 
 open Types
 
@@ -29,3 +29,57 @@ let parse_response json =
   in
   let stop_reason = stop_reason_of_string stop_reason_str in
   { id; model; stop_reason; content; usage }
+
+(** Build Anthropic Messages API request body from {!Provider_config.t}.
+    Returns a JSON string ready for HTTP POST. *)
+let build_request ?(stream=false) ~(config : Provider_config.t)
+    ~(messages : message list) ?(tools : Yojson.Safe.t list = []) () =
+  let msgs_json =
+    List.map Api_common.message_to_json messages in
+  let body =
+    [ ("model", `String config.model_id);
+      ("max_tokens", `Int config.max_tokens);
+      ("messages", `List msgs_json);
+      ("stream", `Bool stream) ]
+  in
+  let body = match config.system_prompt with
+    | Some s when not (Api_common.string_is_blank s) ->
+        ("system", `String s) :: body
+    | _ -> body
+  in
+  let body = match config.temperature with
+    | Some t -> ("temperature", `Float t) :: body
+    | None -> body
+  in
+  let body = match config.top_p with
+    | Some p -> ("top_p", `Float p) :: body
+    | None -> body
+  in
+  let body = match config.top_k with
+    | Some k -> ("top_k", `Int k) :: body
+    | None -> body
+  in
+  let body = match config.enable_thinking with
+    | Some true ->
+        let budget = match config.thinking_budget with
+          | Some b -> b | None -> 10000 in
+        ("thinking", `Assoc [
+          ("type", `String "enabled");
+          ("budget_tokens", `Int budget)]) :: body
+    | _ -> body
+  in
+  let body = match tools with
+    | [] -> body
+    | ts -> ("tools", `List ts) :: body
+  in
+  let body = match config.tool_choice with
+    | Some choice ->
+        ("tool_choice", tool_choice_to_json choice) :: body
+    | None -> body
+  in
+  let body =
+    if config.disable_parallel_tool_use && tools <> [] then
+      ("disable_parallel_tool_use", `Bool true) :: body
+    else body
+  in
+  Yojson.Safe.to_string (`Assoc body)
