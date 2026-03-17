@@ -11,6 +11,7 @@ let default_attrs ?(kind = Tracing.Agent_run) ?(name = "test")
   { kind; name; agent_name; turn; extra }
 
 let with_reset f () =
+  Eio_main.run @@ fun _env ->
   Otel_tracer.reset ();
   f ()
 
@@ -404,7 +405,7 @@ let () =
         check int "completed after reset" 0 (Otel_tracer.completed_count ())));
 
       test_case "concurrent with_span via Eio fibers" `Quick (with_reset (fun () ->
-        Eio_main.run @@ fun _env ->
+        (* Already inside Eio_main.run via with_reset *)
         let tracer = Otel_tracer.create () in
         let results = Array.make 4 "" in
         Eio.Fiber.all (List.init 4 (fun i () ->
