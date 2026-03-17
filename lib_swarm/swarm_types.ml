@@ -1,0 +1,136 @@
+(** Swarm types — core type definitions for multi-agent swarm execution.
+
+    Part of the [agent_sdk_swarm] library (Layer 2).
+    Depends on [agent_sdk] types through the public API.
+
+    @since 0.42.0 *)
+
+open Agent_sdk
+
+(* ── Agent Roles ─────────────────────────────────────────────────── *)
+
+type agent_role =
+  | Discover
+  | Verify
+  | Execute
+  | Summarize
+  | Custom_role of string
+[@@deriving show]
+
+(* ── Orchestration ───────────────────────────────────────────────── *)
+
+type orchestration_mode =
+  | Decentralized
+  | Supervisor
+  | Pipeline_mode
+[@@deriving show]
+
+type aggregate_strategy =
+  | Best_score
+  | Average_score
+  | Majority_vote
+  | Custom_agg of (float list -> float)
+
+type metric_source =
+  | Shell_command of string
+  | Callback of (unit -> float)
+
+type convergence_config = {
+  metric: metric_source;
+  target: float;
+  max_iterations: int;
+  patience: int;
+  aggregate: aggregate_strategy;
+}
+
+(* ── Swarm Configuration ────────────────────────────────────────── *)
+
+type agent_entry = {
+  name: string;
+  run: sw:Eio.Switch.t -> string -> (Types.api_response, Error.sdk_error) result;
+  role: agent_role;
+}
+
+
+type swarm_config = {
+  entries: agent_entry list;
+  mode: orchestration_mode;
+  convergence: convergence_config option;
+  max_parallel: int;
+  prompt: string;
+  timeout_sec: float option;
+}
+
+(* ── Execution State ────────────────────────────────────────────── *)
+
+type agent_status =
+  | Idle
+  | Working
+  | Done_ok of { elapsed: float; text: string }
+  | Done_error of { elapsed: float; error: string }
+[@@deriving show]
+
+type iteration_record = {
+  iteration: int;
+  metric_value: float option;
+  agent_results: (string * agent_status) list;
+  elapsed: float;
+  timestamp: float;
+}
+
+type swarm_state = {
+  config: swarm_config;
+  mutable current_iteration: int;
+  mutable best_metric: float option;
+  mutable best_iteration: int;
+  mutable patience_counter: int;
+  mutable agent_statuses: (string * agent_status) list;
+  mutable history: iteration_record list;
+  mutable converged: bool;
+} [@@warning "-69"]
+
+(* ── State Operations ───────────────────────────────────────────── *)
+
+let create_state config =
+  let statuses =
+    List.map (fun (e : agent_entry) -> (e.name, Idle)) config.entries
+  in
+  { config;
+    current_iteration = 0;
+    best_metric = None;
+    best_iteration = 0;
+    patience_counter = 0;
+    agent_statuses = statuses;
+    history = [];
+    converged = false;
+  }
+
+(* ── Callbacks ──────────────────────────────────────────────────── *)
+
+type swarm_callbacks = {
+  on_iteration_start: (int -> unit) option;
+  on_iteration_end: (iteration_record -> unit) option;
+  on_agent_start: (string -> unit) option;
+  on_agent_done: (string -> agent_status -> unit) option;
+  on_converged: (swarm_state -> unit) option;
+  on_error: (string -> unit) option;
+}
+
+let no_callbacks = {
+  on_iteration_start = None;
+  on_iteration_end = None;
+  on_agent_start = None;
+  on_agent_done = None;
+  on_converged = None;
+  on_error = None;
+}
+
+(* ── Result ─────────────────────────────────────────────────────── *)
+
+type swarm_result = {
+  iterations: iteration_record list;
+  final_metric: float option;
+  converged: bool;
+  total_elapsed: float;
+  total_usage: Types.usage_stats;
+}
