@@ -21,3 +21,7 @@
 (executable
  (name direct_conformance_demo)
  (libraries agent_sdk eio eio_main cohttp-eio yojson unix))
+
+(executable
+ (name review_agent)
+ (libraries agent_sdk eio eio_main yojson unix str))
