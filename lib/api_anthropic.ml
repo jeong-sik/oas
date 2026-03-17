@@ -1,30 +1,13 @@
-(** Anthropic Claude API request building and response parsing *)
+(** Anthropic Claude API request building and response parsing.
+
+    Response parsing is delegated to {!Llm_provider.Backend_anthropic}.
+    Request building remains here due to agent_config/agent_state coupling. *)
 
 open Types
 
-(** Parse Anthropic API response JSON *)
-let parse_response json =
-  let open Yojson.Safe.Util in
-  let id = json |> member "id" |> to_string in
-  let model = json |> member "model" |> to_string in
-  let stop_reason_str = json |> member "stop_reason" |> to_string in
-  let content_list = json |> member "content" |> to_list in
-  let content = List.filter_map Api_common.content_block_of_json content_list in
-  let usage =
-    let u = json |> member "usage" in
-    if u = `Null then None
-    else
-      let input_tokens = u |> member "input_tokens" |> to_int in
-      let output_tokens = u |> member "output_tokens" |> to_int in
-      let cache_creation_input_tokens =
-        u |> member "cache_creation_input_tokens" |> to_int_option |> Option.value ~default:0 in
-      let cache_read_input_tokens =
-        u |> member "cache_read_input_tokens" |> to_int_option |> Option.value ~default:0 in
-      Some { Types.input_tokens; output_tokens;
-             cache_creation_input_tokens; cache_read_input_tokens }
-  in
-  let stop_reason = stop_reason_of_string stop_reason_str in
-  { id; model; stop_reason; content; usage }
+(** Parse Anthropic API response JSON.
+    Re-exported from {!Llm_provider.Backend_anthropic}. *)
+let parse_response = Llm_provider.Backend_anthropic.parse_response
 
 (** Build request body assoc list shared between stream and non-stream calls *)
 let build_body_assoc ~config ~messages ?tools ~stream () =

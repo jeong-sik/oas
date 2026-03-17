@@ -31,12 +31,15 @@ let build_ollama_generate_body ~config ~messages () =
       messages
       |> List.concat_map (fun msg ->
              match msg.role with
-             | User ->
+             | User | Tool ->
                  let text = Api_common.text_blocks_to_string msg.content in
                  if Api_common.string_is_blank text then [] else [ text ]
              | Assistant ->
                  let text = Api_common.text_blocks_to_string msg.content in
-                 if Api_common.string_is_blank text then [] else [ "[Assistant] " ^ text ])
+                 if Api_common.string_is_blank text then [] else [ "[Assistant] " ^ text ]
+             | System ->
+                 let text = Api_common.text_blocks_to_string msg.content in
+                 if Api_common.string_is_blank text then [] else [ "[System] " ^ text ])
     in
     String.concat "\n" (system @ rendered)
   in
