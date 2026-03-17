@@ -1,6 +1,6 @@
 # OAS — OCaml Agent SDK
 
-OCaml 5.x + Eio 기반 에이전트 SDK. v0.43.0.
+OCaml 5.x + Eio 기반 에이전트 SDK. v0.50.0.
 
 ## Architecture
 
