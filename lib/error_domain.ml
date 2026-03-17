@@ -130,6 +130,22 @@ let to_sdk_error (err : sdk_error_poly) : Error.sdk_error =
   | `A2a s -> Error.A2a s
   | `Internal s -> Error.Internal s
 
+(* ── Error with context (moonpool Exn_bt.t inspired) ────── *)
+
+type error_ctx = {
+  error: sdk_error_poly;
+  stage: string option;
+  backtrace: string option;
+}
+
+let with_stage stage error =
+  { error; stage = Some stage; backtrace = None }
+
+let with_backtrace error =
+  { error; stage = None; backtrace = Some (Printexc.get_backtrace ()) }
+
+(* ── String / retryable ─────────────────────────────────── *)
+
 let to_string (err : [< sdk_error_poly]) : string =
   to_sdk_error (err :> sdk_error_poly) |> Error.to_string
 
@@ -140,3 +156,9 @@ let is_retryable (err : [< sdk_error_poly]) : bool =
   | `Mcp_init_failed _ | `Mcp_tool_list_failed _
   | `Mcp_tool_call_failed _ | `Mcp_http_failed _ -> true
   | _ -> false
+
+let ctx_to_string (ctx : error_ctx) : string =
+  let base = to_string ctx.error in
+  match ctx.stage with
+  | Some stage -> Printf.sprintf "[%s] %s" stage base
+  | None -> base
