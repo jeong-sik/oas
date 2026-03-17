@@ -82,15 +82,15 @@ let test_agent_tools_registered () =
     ~parameters:[] (fun _ -> Ok { Types.content = "ok" }) in
   let agent = Agent.create ~net ~tools:[tool] () in
   let tools = Agent.tools agent in
-  Alcotest.(check int) "tool count" 1 (List.length tools);
+  Alcotest.(check int) "tool count" 1 (Tool_set.size tools);
   Alcotest.(check string) "tool name" "my_tool"
-    (List.hd tools).schema.name
+    (List.hd (Tool_set.to_list tools)).schema.name
 
 (* ── Pipeline type contracts ─────────────────────────────── *)
 
 let test_agent_turn_preparation () =
   (* Verify Agent_turn.prepare_turn produces valid preparation *)
-  let tools = [
+  let tools = Tool_set.of_list [
     Tool.create ~name:"a" ~description:"tool a" ~parameters:[]
       (fun _ -> Ok { Types.content = "a" });
     Tool.create ~name:"b" ~description:"tool b" ~parameters:[]

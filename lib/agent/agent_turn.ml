@@ -41,13 +41,13 @@ type turn_preparation = {
   effective_guardrails: Guardrails.t;
 }
 
-let prepare_tools ~guardrails ~tools ~turn_params =
+let prepare_tools ~guardrails ~(tools : Tool_set.t) ~turn_params =
   let effective_guardrails = match turn_params.Hooks.tool_filter_override with
     | Some filter -> { guardrails with Guardrails.tool_filter = filter }
     | None -> guardrails
   in
-  let visible_tools = Guardrails.filter_tools effective_guardrails tools in
-  let tool_schemas = List.map Tool.schema_to_json visible_tools in
+  let visible = Tool_set.filter effective_guardrails tools in
+  let tool_schemas = List.map Tool.schema_to_json (Tool_set.to_list visible) in
   let tools_json = if tool_schemas = [] then None else Some tool_schemas in
   (tools_json, effective_guardrails)
 

@@ -14,7 +14,7 @@ let ( let* ) = Result.bind
 
 let execute_tools agent tool_uses =
   Agent_tools.execute_tools
-    ~context:agent.context ~tools:agent.tools
+    ~context:agent.context ~tools:(Tool_set.to_list agent.tools)
     ~hooks:agent.options.hooks ~event_bus:agent.options.event_bus
     ~tracer:agent.options.tracer ~agent_name:agent.state.config.name
     ~turn_count:agent.state.turn_count ~approval:agent.options.approval
@@ -117,7 +117,7 @@ let replace_tool_result = Agent_handoff.replace_tool_result
 
 let run_with_handoffs ~sw ?clock agent ~targets user_prompt =
   let handoff_tools = List.map Handoff.make_handoff_tool targets in
-  let all_tools = agent.tools @ handoff_tools in
+  let all_tools = Tool_set.merge agent.tools (Tool_set.of_list handoff_tools) in
   let agent_with_handoffs = { agent with tools = all_tools } in
 
   agent_with_handoffs.state <- { agent_with_handoffs.state with
@@ -197,7 +197,7 @@ let resume ~net ~(checkpoint : Checkpoint.t) ?(tools=[]) ?context
     Agent_checkpoint.build_resume ~checkpoint ?config ?context ()
   in
   { state; lifecycle = None; last_tool_calls = None;
-    consecutive_idle_turns = 0; tools; net; context = ctx; options }
+    consecutive_idle_turns = 0; tools = Tool_set.of_list tools; net; context = ctx; options }
 
 let checkpoint ?(session_id="") agent =
   Agent_checkpoint.build_checkpoint ~session_id ~state:agent.state

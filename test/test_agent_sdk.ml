@@ -45,7 +45,7 @@ let test_agent_accessors () =
   Eio_main.run @@ fun env ->
   let options = { Agent.default_options with base_url = "http://test" } in
   let agent = Agent.create ~net:env#net ~options () in
-  Alcotest.(check int) "no tools" 0 (List.length (Agent.tools agent));
+  Alcotest.(check int) "no tools" 0 (Tool_set.size (Agent.tools agent));
   Alcotest.(check bool) "no lifecycle" true (Option.is_none (Agent.lifecycle agent));
   let opts = Agent.options agent in
   Alcotest.(check string) "base_url" "http://test" opts.base_url

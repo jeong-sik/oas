@@ -126,9 +126,9 @@ let test_with_tools_replaces () =
     |> Builder.with_tools [t2]
     |> Builder.build_safe |> Result.get_ok
   in
-  Alcotest.(check int) "tool count" 1 (List.length (Agent.tools agent));
+  Alcotest.(check int) "tool count" 1 (Tool_set.size (Agent.tools agent));
   Alcotest.(check string) "tool name" "b"
-    (List.hd (Agent.tools agent)).schema.name
+    (List.hd (Tool_set.to_list (Agent.tools agent))).schema.name
 
 (* --- 8. with_tool appends --- *)
 
@@ -142,11 +142,12 @@ let test_with_tool_appends () =
     |> Builder.with_tool t2
     |> Builder.build_safe |> Result.get_ok
   in
-  Alcotest.(check int) "tool count" 2 (List.length (Agent.tools agent));
+  Alcotest.(check int) "tool count" 2 (Tool_set.size (Agent.tools agent));
+  let tools_list = Tool_set.to_list (Agent.tools agent) in
   Alcotest.(check string) "first tool" "first"
-    (List.nth (Agent.tools agent) 0).schema.name;
+    (List.nth tools_list 0).schema.name;
   Alcotest.(check string) "second tool" "second"
-    (List.nth (Agent.tools agent) 1).schema.name
+    (List.nth tools_list 1).schema.name
 
 (* --- 9. with_hooks --- *)
 
@@ -345,9 +346,9 @@ let test_with_tool_grants_filters_tools () =
     |> Builder.with_tool_grants [ "beta" ]
     |> Builder.build_safe |> Result.get_ok
   in
-  Alcotest.(check int) "tool count" 1 (List.length (Agent.tools agent));
+  Alcotest.(check int) "tool count" 1 (Tool_set.size (Agent.tools agent));
   Alcotest.(check string) "filtered tool name" "beta"
-    (List.hd (Agent.tools agent)).schema.name
+    (List.hd (Tool_set.to_list (Agent.tools agent))).schema.name
 
 (* --- 21. with_contract injects context metadata --- *)
 
@@ -478,7 +479,7 @@ let test_chain_multiple () =
   Alcotest.(check string) "name" "chained" (Agent.state agent).config.name;
   Alcotest.(check int) "max_tokens" 1024 (Agent.state agent).config.max_tokens;
   Alcotest.(check int) "max_turns" 3 (Agent.state agent).config.max_turns;
-  Alcotest.(check int) "tool count" 2 (List.length (Agent.tools agent));
+  Alcotest.(check int) "tool count" 2 (Tool_set.size (Agent.tools agent));
   Alcotest.(check string) "base_url" "http://test:9090" (Agent.options agent).base_url;
   Alcotest.(check (option int)) "thinking_budget"
     (Some 5000) (Agent.state agent).config.thinking_budget
@@ -525,7 +526,7 @@ let test_defaults_match_agent_create () =
   Alcotest.(check bool) "provider none"
     (Option.is_none (Agent.options direct_agent).provider)
     (Option.is_none (Agent.options builder_agent).provider);
-  Alcotest.(check int) "tools" 0 (List.length (Agent.tools builder_agent))
+  Alcotest.(check int) "tools" 0 (Tool_set.size (Agent.tools builder_agent))
 
 (* --- 30. build with tools merges mcp --- *)
 
@@ -539,9 +540,9 @@ let test_build_with_tools_merges_mcp () =
     |> Builder.build_safe |> Result.get_ok
   in
   Alcotest.(check int) "tool count with empty mcp" 1
-    (List.length (Agent.tools agent));
+    (Tool_set.size (Agent.tools agent));
   Alcotest.(check string) "tool name" "explicit"
-    (List.hd (Agent.tools agent)).schema.name
+    (List.hd (Tool_set.to_list (Agent.tools agent))).schema.name
 
 (* --- 31. build minimal: only net+model, rest defaults --- *)
 
@@ -553,7 +554,7 @@ let test_build_minimal_required_only () =
   Alcotest.(check string) "name" "agent" (Agent.state agent).config.name;
   Alcotest.(check int) "max_tokens" 4096 (Agent.state agent).config.max_tokens;
   Alcotest.(check int) "max_turns" 10 (Agent.state agent).config.max_turns;
-  Alcotest.(check int) "tools" 0 (List.length (Agent.tools agent));
+  Alcotest.(check int) "tools" 0 (Tool_set.size (Agent.tools agent));
   Alcotest.(check string) "base_url"
     "https://api.anthropic.com" (Agent.options agent).base_url
 

@@ -489,7 +489,7 @@ let persist ~agent ~raw_trace ~(options : options) () =
           ~name:"runtime-telemetry" ~kind:"markdown" ~content:telemetry_md
       in
       let tool_catalog_json =
-        tool_contracts_to_json agent.tools |> Yojson.Safe.pretty_to_string
+        tool_contracts_to_json (Tool_set.to_list agent.tools) |> Yojson.Safe.pretty_to_string
       in
       let* tool_catalog_artifact =
         Artifact_service.save_text_internal store ~session_id:options.session_id
