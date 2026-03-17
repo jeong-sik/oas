@@ -407,6 +407,115 @@ let test_summarize_old_all_recent () =
   (* All turns fit in keep_recent, no summarization *)
   Alcotest.(check int) "no change" 2 (List.length result)
 
+(* --- prune_tool_args --- *)
+
+(** Helper: build an assistant message with a ToolUse whose input has a long string arg. *)
+let tool_use_msg_with_input id name input =
+  Types.{ role = Assistant; content = [ToolUse { id; name; input }] }
+
+let test_prune_tool_args_short_unchanged () =
+  let input = `Assoc [("content", `String "short")] in
+  let msgs = [
+    user_msg "turn1";
+    tool_use_msg_with_input "t1" "write_file" input;
+    tool_result_msg "t1" "ok";
+    user_msg "turn2"; asst_msg "done";
+  ] in
+  let reducer = Context_reducer.prune_tool_args ~max_arg_len:2000 () in
+  let result = Context_reducer.reduce reducer msgs in
+  (* Short args unchanged *)
+  (match List.nth result 1 with
+   | { Types.content = [Types.ToolUse { input = `Assoc pairs; _ }]; _ } ->
+     (match List.assoc "content" pairs with
+      | `String s -> Alcotest.(check string) "unchanged" "short" s
+      | _ -> Alcotest.fail "expected string")
+   | _ -> Alcotest.fail "expected tool use")
+
+let test_prune_tool_args_long_truncated () =
+  let long_str = String.make 3000 'x' in
+  let input = `Assoc [("content", `String long_str); ("path", `String "/file.txt")] in
+  let msgs = [
+    user_msg "turn1";
+    tool_use_msg_with_input "t1" "write_file" input;
+    tool_result_msg "t1" "ok";
+    user_msg "turn2"; asst_msg "done";
+  ] in
+  (* keep_recent=1 so turn1 (with tool use) is in the old zone *)
+  let reducer = Context_reducer.prune_tool_args ~max_arg_len:2000 ~keep_recent:1 () in
+  let result = Context_reducer.reduce reducer msgs in
+  (match List.nth result 1 with
+   | { Types.content = [Types.ToolUse { input = `Assoc pairs; _ }]; _ } ->
+     (* "content" should be truncated *)
+     (match List.assoc "content" pairs with
+      | `String s ->
+        Alcotest.(check bool) "truncated" true (String.length s < 3000);
+        let has_truncated_marker =
+          try let _ = Str.search_forward (Str.regexp_string "(truncated") s 0 in true
+          with Not_found -> false in
+        Alcotest.(check bool) "has marker" true has_truncated_marker
+      | _ -> Alcotest.fail "expected string");
+     (* "path" should be unchanged (short) *)
+     (match List.assoc "path" pairs with
+      | `String s -> Alcotest.(check string) "path unchanged" "/file.txt" s
+      | _ -> Alcotest.fail "expected string")
+   | _ -> Alcotest.fail "expected tool use")
+
+let test_prune_tool_args_preserves_recent () =
+  let long_str = String.make 3000 'x' in
+  let input = `Assoc [("content", `String long_str)] in
+  let msgs = [
+    user_msg "turn1";
+    tool_use_msg_with_input "t1" "write_file" input;
+    tool_result_msg "t1" "ok";
+  ] in
+  (* keep_recent=1 means all turns are recent *)
+  let reducer = Context_reducer.prune_tool_args ~max_arg_len:100 ~keep_recent:1 () in
+  let result = Context_reducer.reduce reducer msgs in
+  (match List.nth result 1 with
+   | { Types.content = [Types.ToolUse { input = `Assoc pairs; _ }]; _ } ->
+     (match List.assoc "content" pairs with
+      | `String s -> Alcotest.(check int) "not truncated" 3000 (String.length s)
+      | _ -> Alcotest.fail "expected string")
+   | _ -> Alcotest.fail "expected tool use")
+
+let test_prune_tool_args_nested_json () =
+  let long_str = String.make 3000 'y' in
+  let input = `Assoc [("nested", `Assoc [("deep", `String long_str)])] in
+  let msgs = [
+    user_msg "old turn";
+    tool_use_msg_with_input "t1" "edit_file" input;
+    tool_result_msg "t1" "ok";
+    user_msg "recent"; asst_msg "done";
+  ] in
+  let reducer = Context_reducer.prune_tool_args ~max_arg_len:100 ~keep_recent:1 () in
+  let result = Context_reducer.reduce reducer msgs in
+  (match List.nth result 1 with
+   | { Types.content = [Types.ToolUse { input = `Assoc pairs; _ }]; _ } ->
+     (match List.assoc "nested" pairs with
+      | `Assoc nested_pairs ->
+        (match List.assoc "deep" nested_pairs with
+         | `String s ->
+           Alcotest.(check bool) "nested truncated" true (String.length s < 3000)
+         | _ -> Alcotest.fail "expected string")
+      | _ -> Alcotest.fail "expected nested assoc")
+   | _ -> Alcotest.fail "expected tool use")
+
+let test_prune_tool_args_non_assistant_untouched () =
+  (* User messages should never be modified, even with ToolResult *)
+  let msgs = [
+    user_msg "turn1";
+    tool_use_msg_with_input "t1" "calc" (`Assoc [("x", `String (String.make 5000 'z'))]);
+    tool_result_msg "t1" (String.make 5000 'r');
+    user_msg "turn2"; asst_msg "done";
+  ] in
+  let reducer = Context_reducer.prune_tool_args ~max_arg_len:100 () in
+  let result = Context_reducer.reduce reducer msgs in
+  (* ToolResult (in User msg) should be unchanged *)
+  (match List.nth result 2 with
+   | { Types.content = [Types.ToolResult { content; _ }]; _ } ->
+     Alcotest.(check int) "tool result unchanged" 5000 (String.length content)
+   | _ -> Alcotest.fail "expected tool result")
+
 let () =
   Alcotest.run "Context_reducer" [
     "keep_last_n", [
@@ -462,6 +571,13 @@ let () =
     "summarize_old", [
       Alcotest.test_case "basic summarization" `Quick test_summarize_old_basic;
       Alcotest.test_case "all recent no-op" `Quick test_summarize_old_all_recent;
+    ];
+    "prune_tool_args", [
+      Alcotest.test_case "short args unchanged" `Quick test_prune_tool_args_short_unchanged;
+      Alcotest.test_case "long args truncated" `Quick test_prune_tool_args_long_truncated;
+      Alcotest.test_case "preserves recent turns" `Quick test_prune_tool_args_preserves_recent;
+      Alcotest.test_case "nested JSON truncated" `Quick test_prune_tool_args_nested_json;
+      Alcotest.test_case "non-assistant untouched" `Quick test_prune_tool_args_non_assistant_untouched;
     ];
     "edge_cases", [
       Alcotest.test_case "empty messages" `Quick test_empty;

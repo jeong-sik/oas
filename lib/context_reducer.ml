@@ -17,6 +17,7 @@ type strategy =
   | Keep_last_n of int
   | Token_budget of int
   | Prune_tool_outputs of { max_output_len: int }
+  | Prune_tool_args of { max_arg_len: int; keep_recent: int }
   | Merge_contiguous
   | Drop_thinking
   | Keep_first_and_last of { first_n: int; last_n: int }
@@ -130,6 +131,57 @@ let apply_prune_tool_outputs ~max_output_len messages =
     { msg with content }
   ) messages
 
+(** Truncate long string values in ToolUse input JSON.
+    Walks the JSON tree and replaces string values exceeding [max_arg_len]
+    with a truncated prefix plus a marker. Returns the original JSON
+    unchanged if no values exceed the limit. *)
+let truncate_json_strings ~max_arg_len (json : Yojson.Safe.t) : Yojson.Safe.t =
+  let changed = ref false in
+  let rec walk = function
+    | `String s when String.length s > max_arg_len ->
+      changed := true;
+      let prefix = if max_arg_len >= 20 then String.sub s 0 20
+                   else String.sub s 0 (min max_arg_len (String.length s)) in
+      `String (Printf.sprintf "%s...(truncated %d chars)" prefix (String.length s))
+    | `Assoc pairs ->
+      `Assoc (List.map (fun (k, v) -> (k, walk v)) pairs)
+    | `List items ->
+      `List (List.map walk items)
+    | other -> other
+  in
+  let result = walk json in
+  if !changed then result else json
+
+(** Prune tool arguments: truncate long string values in ToolUse input
+    for older messages, keeping the most recent [keep_recent] turns intact.
+    Targets ToolUse blocks whose input JSON contains strings exceeding
+    [max_arg_len]. This is a lightweight pre-summarization optimization
+    inspired by Deep Agents' TruncateArgsSettings. *)
+let apply_prune_tool_args ~max_arg_len ~keep_recent messages =
+  let turns = group_into_turns messages in
+  let total = List.length turns in
+  if total <= keep_recent then messages
+  else
+    let process_turn i turn =
+      if i >= total - keep_recent then turn  (* preserve recent turns *)
+      else
+        List.map (fun (msg : message) ->
+          if msg.role <> Assistant then msg
+          else
+            let content = List.map (fun block ->
+              match block with
+              | ToolUse { id; name; input } ->
+                let truncated = truncate_json_strings ~max_arg_len input in
+                if truncated == input then block  (* physical equality: unchanged *)
+                else ToolUse { id; name; input = truncated }
+              | other -> other
+            ) msg.content in
+            { msg with content }
+        ) turn
+    in
+    let processed = List.mapi process_turn turns in
+    List.concat processed
+
 (** Merge contiguous messages with the same role.
     Concatenates content blocks. Respects ToolUse/ToolResult pairing
     by not merging User messages that contain ToolResult blocks. *)
@@ -215,6 +267,7 @@ and apply_strategy strategy messages =
   | Keep_last_n n -> apply_keep_last_n n messages
   | Token_budget budget -> apply_token_budget budget messages
   | Prune_tool_outputs { max_output_len } -> apply_prune_tool_outputs ~max_output_len messages
+  | Prune_tool_args { max_arg_len; keep_recent } -> apply_prune_tool_args ~max_arg_len ~keep_recent messages
   | Merge_contiguous -> apply_merge_contiguous messages
   | Drop_thinking -> apply_drop_thinking messages
   | Keep_first_and_last { first_n; last_n } ->
@@ -235,6 +288,8 @@ and apply_strategy strategy messages =
 let keep_last n = { strategy = Keep_last_n n }
 let token_budget n = { strategy = Token_budget n }
 let prune_tool_outputs ~max_output_len = { strategy = Prune_tool_outputs { max_output_len } }
+let prune_tool_args ~max_arg_len ?(keep_recent=20) () =
+  { strategy = Prune_tool_args { max_arg_len; keep_recent } }
 let merge_contiguous = { strategy = Merge_contiguous }
 let drop_thinking = { strategy = Drop_thinking }
 let keep_first_and_last ~first_n ~last_n =
