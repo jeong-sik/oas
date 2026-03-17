@@ -42,9 +42,12 @@ type t = {
   runtime_path: string;
   reader: Eio.Buf_read.t;
   writer: Eio.Flow.sink_ty Eio.Resource.t;
+  (* Set once during [connect], then read-only from other fibers.
+     No mutex needed: the write completes before the transport value
+     is returned to the caller, establishing a happens-before edge. *)
   mutable init_info: Runtime.init_response option;
   closed: bool Atomic.t;
-  mutable next_request_id: int;
+  next_request_id: int Atomic.t;
   write_mu: Eio.Mutex.t;
   mu: Eio.Mutex.t;
   pending: (string, (Runtime.response, Error.sdk_error) result Eio.Promise.u) Hashtbl.t;
@@ -124,8 +127,7 @@ let set_handlers ?control_handler ?event_handler transport =
     Option.iter (fun h -> transport.event_handler <- Some h) event_handler)
 
 let next_request_id transport =
-  let id = transport.next_request_id in
-  transport.next_request_id <- id + 1;
+  let id = Atomic.fetch_and_add transport.next_request_id 1 in
   Printf.sprintf "req-%06d" id
 
 (* ── Response coordination via Eio.Promise ──────────────────────────── *)
@@ -243,7 +245,7 @@ let connect ~sw ~(mgr : _ Eio.Process.mgr) ?(options = default_options) () =
         writer = (w_child_stdin :> Eio.Flow.sink_ty Eio.Resource.t);
         init_info = None;
         closed = Atomic.make false;
-        next_request_id = 1;
+        next_request_id = Atomic.make 1;
         write_mu = Eio.Mutex.create ();
         mu = Eio.Mutex.create ();
         pending = Hashtbl.create 16;
