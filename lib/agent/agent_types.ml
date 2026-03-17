@@ -82,7 +82,7 @@ type t = {
   mutable lifecycle: lifecycle_snapshot option;
   mutable last_tool_calls: tool_call_fingerprint list option;
   mutable consecutive_idle_turns: int;
-  tools: Tool.t list;
+  tools: Tool_set.t;
   net: [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t;
   context: Context.t;
   options: options;
@@ -106,7 +106,7 @@ let card t =
     agent_description = t.options.description;
     version = sdk_version;
     config = t.state.config;
-    tool_schemas = List.map (fun (tool : Tool.t) -> tool.schema) t.tools;
+    tool_schemas = List.map (fun (tool : Tool.t) -> tool.schema) (Tool_set.to_list t.tools);
     provider = t.options.provider;
     cascade = t.options.cascade;
     mcp_clients_count = List.length t.options.mcp_clients;
@@ -131,7 +131,7 @@ let create ~net ?(config=default_config) ?(tools=[]) ?context
   let mcp_tools =
     List.concat_map (fun (m : Mcp.managed) -> m.tools) options.mcp_clients
   in
-  let all_tools = tools @ mcp_tools in
+  let all_tools = Tool_set.merge (Tool_set.of_list tools) (Tool_set.of_list mcp_tools) in
   let state = { config; messages = []; turn_count = 0; usage = empty_usage } in
   let ctx = match context with
     | Some c -> c

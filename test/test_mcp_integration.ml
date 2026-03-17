@@ -162,7 +162,7 @@ let test_default_options_mcp_clients () =
 let test_agent_create_with_default_options () =
   with_net @@ fun net ->
   let agent = Agent.create ~net () in
-  Alcotest.(check int) "no tools" 0 (List.length (Agent.tools agent));
+  Alcotest.(check int) "no tools" 0 (Tool_set.size (Agent.tools agent));
   Alcotest.(check int) "no mcp_clients" 0
     (List.length (Agent.options agent).mcp_clients)
 
@@ -171,8 +171,8 @@ let test_agent_create_preserves_regular_tools () =
   let t1 = make_test_tool "tool1" in
   let t2 = make_test_tool "tool2" in
   let agent = Agent.create ~net ~tools:[t1; t2] () in
-  Alcotest.(check int) "2 tools" 2 (List.length (Agent.tools agent));
-  Alcotest.(check string) "first" "tool1" (List.hd (Agent.tools agent)).schema.name
+  Alcotest.(check int) "2 tools" 2 (Tool_set.size (Agent.tools agent));
+  Alcotest.(check string) "first" "tool1" (List.hd (Tool_set.to_list (Agent.tools agent))).schema.name
 
 let test_agent_close_no_mcp () =
   with_net @@ fun net ->
