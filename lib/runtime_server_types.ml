@@ -29,7 +29,7 @@ let session_root_request_path = function
   | _ -> None
 
 let write_protocol_message state message =
-  Eio.Mutex.use_rw ~protect:true state.stdout_mu (fun () ->
+  Eio.Mutex.use_rw ~protect:false state.stdout_mu (fun () ->
     output_string stdout (protocol_message_to_string message);
     output_char stdout '\n';
     flush stdout)
