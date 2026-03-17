@@ -17,15 +17,18 @@ open Types
 
 (* ── Tools ─────────────────────────────────────────────────── *)
 
-let run_gh_command cmd =
+let run_gh_command args =
+  let cmd = String.concat " " ("gh" :: List.map Filename.quote args) in
   let ic = Unix.open_process_in cmd in
   let buf = Buffer.create 4096 in
   (try while true do
      Buffer.add_string buf (input_line ic);
      Buffer.add_char buf '\n'
    done with End_of_file -> ());
-  let _ = Unix.close_process_in ic in
-  Buffer.contents buf
+  match Unix.close_process_in ic with
+  | Unix.WEXITED 0 -> Ok (Buffer.contents buf)
+  | Unix.WEXITED n -> Error (Printf.sprintf "gh exited with code %d: %s" n (Buffer.contents buf))
+  | _ -> Error "gh process killed or stopped"
 
 let get_pr_info_tool =
   Tool.create ~name:"get_pr_info"
@@ -38,11 +41,10 @@ let get_pr_info_tool =
       let open Yojson.Safe.Util in
       let repo = args |> member "repo" |> to_string in
       let pr_num = args |> member "pr_number" |> to_string in
-      let cmd = Printf.sprintf
-        "gh pr view %s --repo %s --json title,body,additions,deletions,changedFiles,labels"
-        pr_num repo in
-      let output = run_gh_command cmd in
-      Ok { content = output })
+      match run_gh_command ["pr"; "view"; pr_num; "--repo"; repo;
+        "--json"; "title,body,additions,deletions,changedFiles,labels"] with
+      | Ok output -> Ok { content = output }
+      | Error msg -> Error { message = msg; recoverable = true })
 
 let get_pr_diff_tool =
   Tool.create ~name:"get_pr_diff"
@@ -57,8 +59,9 @@ let get_pr_diff_tool =
       let open Yojson.Safe.Util in
       let repo = args |> member "repo" |> to_string in
       let pr_num = args |> member "pr_number" |> to_string in
-      let cmd = Printf.sprintf "gh pr diff %s --repo %s" pr_num repo in
-      let output = run_gh_command cmd in
+      (match run_gh_command ["pr"; "diff"; pr_num; "--repo"; repo] with
+      | Error msg -> Error { message = msg; recoverable = true }
+      | Ok output ->
       let filtered = match args |> member "file_filter" |> to_string_option with
         | None -> output
         | Some path ->
@@ -83,7 +86,7 @@ let get_pr_diff_tool =
       let result = if String.length filtered > max_len then
         String.sub filtered 0 max_len ^ "\n... [truncated]"
       else filtered in
-      Ok { content = result })
+      Ok { content = result }))
 
 let post_review_tool =
   Tool.create ~name:"post_review"
@@ -104,11 +107,11 @@ let post_review_tool =
       let oc = open_out tmp in
       output_string oc body;
       close_out oc;
-      let cmd = Printf.sprintf
-        "gh pr comment %s --repo %s --body-file %s" pr_num repo tmp in
-      let output = run_gh_command cmd in
+      let result = run_gh_command ["pr"; "comment"; pr_num; "--repo"; repo; "--body-file"; tmp] in
       Sys.remove tmp;
-      Ok { content = Printf.sprintf "Review posted. %s" (String.trim output) })
+      match result with
+      | Ok output -> Ok { content = Printf.sprintf "Review posted. %s" (String.trim output) }
+      | Error msg -> Error { message = msg; recoverable = true })
 
 (* ── System prompt ─────────────────────────────────────────── *)
 
