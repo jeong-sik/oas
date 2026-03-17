@@ -101,6 +101,9 @@ type sink = record -> unit
 
 (* ── Global state ─────────────────────────────────────────────── *)
 
+(* Set-once at startup before any fibers are spawned.
+   Not protected by a mutex: callers must configure level and sinks
+   before concurrent logging begins. Do not mutate at runtime. *)
 let global_level = ref Info
 let global_sinks : sink list ref = ref []
 

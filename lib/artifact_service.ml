@@ -31,12 +31,10 @@ let mime_type_of_kind kind =
   | "text" | "txt" | "" -> "text/plain"
   | _ -> "application/octet-stream"
 
-let artifact_counter = ref 0
+let artifact_counter = Atomic.make 0
 
 let next_artifact_counter () =
-  let value = !artifact_counter in
-  artifact_counter := value + 1;
-  value
+  Atomic.fetch_and_add artifact_counter 1
 
 let generate_artifact_id name =
   let ts = int_of_float (Unix.gettimeofday () *. 1000.0) in
