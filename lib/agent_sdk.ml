@@ -43,6 +43,7 @@ module Provider = Provider
 module Provider_intf = Provider_intf
 module Retry = Retry
 module Error = Error
+module Error_domain = Error_domain
 module Hooks = Hooks
 module Tracing = Tracing
 module Context_reducer = Context_reducer

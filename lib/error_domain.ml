@@ -1,0 +1,142 @@
+(** Fine-grained error domains using polymorphic variants. *)
+
+type provider_error = [
+  | `Rate_limited of float option
+  | `Auth_error of string
+  | `Server_error of int * string
+  | `Network_error of string
+  | `Provider_timeout of string
+  | `Overloaded
+  | `Invalid_request of string
+]
+
+type tool_error = [
+  | `Tool_exec_failed of string * string
+  | `Tool_timeout of string * float
+]
+
+type agent_error = [
+  | `Max_turns_exceeded of int * int
+  | `Token_budget_exceeded of int * int
+  | `Idle_detected of int
+  | `Unrecognized_stop_reason of string
+]
+
+type config_error = [
+  | `Missing_env_var of string
+  | `Unsupported_provider of string
+  | `Invalid_config of string * string
+]
+
+type mcp_error = [
+  | `Mcp_server_start_failed of string * string
+  | `Mcp_init_failed of string
+  | `Mcp_tool_list_failed of string
+  | `Mcp_tool_call_failed of string * string
+  | `Mcp_http_failed of string * string
+]
+
+type sdk_error_poly = [
+  | provider_error
+  | tool_error
+  | agent_error
+  | config_error
+  | mcp_error
+  | `Serialization of string
+  | `Io of string
+  | `Orchestration of string
+  | `A2a of string
+  | `Internal of string
+]
+
+(* ── Conversion from Error.sdk_error ────────────────────── *)
+
+let of_api_error (err : Retry.api_error) : provider_error =
+  match err with
+  | Retry.RateLimited r -> `Rate_limited r.retry_after
+  | Retry.AuthError r -> `Auth_error r.message
+  | Retry.ServerError r -> `Server_error (r.status, r.message)
+  | Retry.NetworkError r -> `Network_error r.message
+  | Retry.Timeout r -> `Provider_timeout r.message
+  | Retry.Overloaded _ -> `Overloaded
+  | Retry.InvalidRequest r -> `Invalid_request r.message
+
+let of_sdk_error (err : Error.sdk_error) : sdk_error_poly =
+  match err with
+  | Error.Api err -> (of_api_error err :> sdk_error_poly)
+  | Error.Agent (MaxTurnsExceeded r) -> `Max_turns_exceeded (r.turns, r.limit)
+  | Error.Agent (TokenBudgetExceeded r) -> `Token_budget_exceeded (r.used, r.limit)
+  | Error.Agent (IdleDetected r) -> `Idle_detected r.consecutive_idle_turns
+  | Error.Agent (UnrecognizedStopReason r) -> `Unrecognized_stop_reason r.reason
+  | Error.Config (MissingEnvVar r) -> `Missing_env_var r.var_name
+  | Error.Config (UnsupportedProvider r) -> `Unsupported_provider r.detail
+  | Error.Config (InvalidConfig r) -> `Invalid_config (r.field, r.detail)
+  | Error.Mcp (ServerStartFailed r) -> `Mcp_server_start_failed (r.command, r.detail)
+  | Error.Mcp (InitializeFailed r) -> `Mcp_init_failed r.detail
+  | Error.Mcp (ToolListFailed r) -> `Mcp_tool_list_failed r.detail
+  | Error.Mcp (ToolCallFailed r) -> `Mcp_tool_call_failed (r.tool_name, r.detail)
+  | Error.Mcp (HttpTransportFailed r) -> `Mcp_http_failed (r.url, r.detail)
+  | Error.Serialization e -> `Serialization (Error.to_string (Error.Serialization e))
+  | Error.Io e -> `Io (Error.to_string (Error.Io e))
+  | Error.Orchestration e -> `Orchestration (Error.to_string (Error.Orchestration e))
+  | Error.A2a s -> `A2a s
+  | Error.Internal s -> `Internal s
+
+(* ── Conversion back to Error.sdk_error ─────────────────── *)
+
+let provider_to_api : provider_error -> Retry.api_error = function
+  | `Rate_limited after -> Retry.RateLimited { retry_after = after; message = "rate limited" }
+  | `Auth_error msg -> Retry.AuthError { message = msg }
+  | `Server_error (status, msg) -> Retry.ServerError { status; message = msg }
+  | `Network_error msg -> Retry.NetworkError { message = msg }
+  | `Provider_timeout msg -> Retry.Timeout { message = msg }
+  | `Overloaded -> Retry.Overloaded { message = "overloaded" }
+  | `Invalid_request msg -> Retry.InvalidRequest { message = msg }
+
+let to_sdk_error (err : sdk_error_poly) : Error.sdk_error =
+  match err with
+  | #provider_error as e -> Error.Api (provider_to_api e)
+  | `Max_turns_exceeded (turns, limit) ->
+    Error.Agent (MaxTurnsExceeded { turns; limit })
+  | `Token_budget_exceeded (used, limit) ->
+    Error.Agent (TokenBudgetExceeded { kind = "total"; used; limit })
+  | `Idle_detected n ->
+    Error.Agent (IdleDetected { consecutive_idle_turns = n })
+  | `Unrecognized_stop_reason reason ->
+    Error.Agent (UnrecognizedStopReason { reason })
+  | `Missing_env_var var ->
+    Error.Config (MissingEnvVar { var_name = var })
+  | `Unsupported_provider detail ->
+    Error.Config (UnsupportedProvider { detail })
+  | `Invalid_config (field, detail) ->
+    Error.Config (InvalidConfig { field; detail })
+  | `Mcp_server_start_failed (command, detail) ->
+    Error.Mcp (ServerStartFailed { command; detail })
+  | `Mcp_init_failed detail ->
+    Error.Mcp (InitializeFailed { detail })
+  | `Mcp_tool_list_failed detail ->
+    Error.Mcp (ToolListFailed { detail })
+  | `Mcp_tool_call_failed (tool_name, detail) ->
+    Error.Mcp (ToolCallFailed { tool_name; detail })
+  | `Mcp_http_failed (url, detail) ->
+    Error.Mcp (HttpTransportFailed { url; detail })
+  | `Tool_exec_failed (_name, detail) ->
+    Error.Internal (Printf.sprintf "Tool execution failed: %s" detail)
+  | `Tool_timeout (name, elapsed) ->
+    Error.Internal (Printf.sprintf "Tool %s timed out after %.1fs" name elapsed)
+  | `Serialization detail -> Error.Serialization (JsonParseError { detail })
+  | `Io detail -> Error.Io (ValidationFailed { detail })
+  | `Orchestration detail -> Error.Internal detail
+  | `A2a s -> Error.A2a s
+  | `Internal s -> Error.Internal s
+
+let to_string (err : [< sdk_error_poly]) : string =
+  to_sdk_error (err :> sdk_error_poly) |> Error.to_string
+
+let is_retryable (err : [< sdk_error_poly]) : bool =
+  match (err :> sdk_error_poly) with
+  | `Rate_limited _ | `Server_error _ | `Overloaded | `Provider_timeout _
+  | `Network_error _ -> true
+  | `Mcp_init_failed _ | `Mcp_tool_list_failed _
+  | `Mcp_tool_call_failed _ | `Mcp_http_failed _ -> true
+  | _ -> false

@@ -448,6 +448,7 @@ module Retry = Retry
 (** {1 Structured Errors} *)
 
 module Error = Error
+module Error_domain = Error_domain
 (** Structured SDK error types.
 
     Replaces [(_, string) result] with [(_, sdk_error) result] across the SDK.
