@@ -105,6 +105,12 @@ let openai_messages_of_message (msg : message) : Yojson.Safe.t list =
         if tool_calls = [] then fields else ("tool_calls", `List tool_calls) :: fields
       in
       [ `Assoc fields ]
+  | System ->
+      let text = Api_common.text_blocks_to_string msg.content in
+      [`Assoc [("role", `String "system"); ("content", `String text)]]
+  | Tool ->
+      let text = Api_common.text_blocks_to_string msg.content in
+      [`Assoc [("role", `String "user"); ("content", `String text)]]
 
 let system_message_json (config : agent_state) : Yojson.Safe.t list =
   match config.config.system_prompt with

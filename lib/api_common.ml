@@ -121,7 +121,10 @@ let content_block_of_json json =
   | _ -> None
 
 let message_to_json msg =
-  let role_str = match msg.role with User -> "user" | Assistant -> "assistant" in
+  let role_str = match msg.role with
+    | User | System | Tool -> "user"
+    | Assistant -> "assistant"
+  in
   `Assoc [
     ("role", `String role_str);
     ("content", `List (List.map content_block_to_json msg.content));

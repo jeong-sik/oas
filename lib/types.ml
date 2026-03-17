@@ -1,4 +1,36 @@
-(** Core types for Anthropic Agent SDK *)
+(** Core types for Anthropic Agent SDK.
+
+    LLM-level types (role, message, content_block, etc.) are defined in
+    {!Llm_provider.Types} and re-exported here for backward compatibility.
+    Agent-specific types (model, agent_config, agent_state) remain local. *)
+
+(* ================================================================ *)
+(* Re-export all LLM provider types                                  *)
+(* ================================================================ *)
+include Llm_provider.Types
+
+(* ================================================================ *)
+(* tool_choice JSON parsing -- depends on OAS Error module           *)
+(* ================================================================ *)
+
+let tool_choice_of_json json =
+  let open Yojson.Safe.Util in
+  try
+    match json |> member "type" |> to_string with
+    | "auto" -> Ok Auto
+    | "any" -> Ok Any
+    | "tool" ->
+      let name = json |> member "name" |> to_string in
+      Ok (Tool name)
+    | "none" -> Ok None_
+    | other -> Error (Error.Serialization (UnknownVariant { type_name = "tool_choice"; value = other }))
+  with
+  | Yojson.Safe.Util.Type_error (msg, _) ->
+    Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Invalid tool_choice JSON: %s" msg }))
+
+(* ================================================================ *)
+(* Agent-specific types (not shared with MASC)                       *)
+(* ================================================================ *)
 
 (** Supported Claude models *)
 type model =
@@ -19,130 +51,6 @@ let model_to_string = function
   | Claude_haiku_4_5 -> "claude-haiku-4-5-20251001"
   | Claude_3_7_sonnet -> "claude-3-7-sonnet-20250219"
   | Custom s -> s
-
-(** Message role *)
-type role = User | Assistant
-[@@deriving yojson, show]
-
-let role_to_string = function User -> "user" | Assistant -> "assistant"
-
-(** Tool parameter schema *)
-type param_type = String | Integer | Number | Boolean | Array | Object
-[@@deriving yojson, show]
-
-let param_type_to_string = function
-  | String -> "string"
-  | Integer -> "integer"
-  | Number -> "number"
-  | Boolean -> "boolean"
-  | Array -> "array"
-  | Object -> "object"
-
-(** Tool execution result types.
-    Defined early to avoid field-name shadowing with content_block/message/api_response
-    which also have 'content' fields — OCaml resolves to the most recently defined record. *)
-type tool_output = { content: string }
-type tool_error = { message: string; recoverable: bool }
-type tool_result = (tool_output, tool_error) result
-
-type tool_param = {
-  name: string;
-  description: string;
-  param_type: param_type;
-  required: bool;
-}
-[@@deriving yojson, show]
-
-(** Tool definition *)
-type tool_schema = {
-  name: string;
-  description: string;
-  parameters: tool_param list;
-}
-[@@deriving yojson, show]
-
-(** Tool choice mode *)
-type tool_choice =
-  | Auto
-  | Any
-  | Tool of string
-  | None_  (** Disables tool use for a turn. Anthropic: {"type":"none"}, OpenAI: "none" *)
-[@@deriving show]
-
-let tool_choice_to_json = function
-  | Auto -> `Assoc [("type", `String "auto")]
-  | Any -> `Assoc [("type", `String "any")]
-  | Tool name -> `Assoc [("type", `String "tool"); ("name", `String name)]
-  | None_ -> `Assoc [("type", `String "none")]
-
-let tool_choice_of_json json =
-  let open Yojson.Safe.Util in
-  try
-    match json |> member "type" |> to_string with
-    | "auto" -> Ok Auto
-    | "any" -> Ok Any
-    | "tool" ->
-      let name = json |> member "name" |> to_string in
-      Ok (Tool name)
-    | "none" -> Ok None_
-    | other -> Error (Error.Serialization (UnknownVariant { type_name = "tool_choice"; value = other }))
-  with
-  | Yojson.Safe.Util.Type_error (msg, _) ->
-    Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Invalid tool_choice JSON: %s" msg }))
-
-(** Content block types — inline records for clarity *)
-type content_block =
-  | Text of string
-  | Thinking of { thinking_type: string; content: string }
-  | RedactedThinking of string
-  | ToolUse of { id: string; name: string; input: Yojson.Safe.t }
-  | ToolResult of { tool_use_id: string; content: string; is_error: bool }
-  | Image of { media_type: string; data: string; source_type: string }
-  | Document of { media_type: string; data: string; source_type: string }
-  | Audio of { media_type: string; data: string; source_type: string }
-[@@deriving show]
-
-(** A single message in the conversation *)
-type message = {
-  role: role;
-  content: content_block list;
-}
-[@@deriving show]
-
-(** Stop reason from API *)
-type stop_reason =
-  | EndTurn
-  | StopToolUse
-  | MaxTokens
-  | StopSequence
-  | Unknown of string
-[@@deriving show]
-
-let stop_reason_of_string = function
-  | "end_turn" -> EndTurn
-  | "tool_use" -> StopToolUse
-  | "max_tokens" -> MaxTokens
-  | "stop_sequence" -> StopSequence
-  | other -> Unknown other
-
-(** API usage from a single response *)
-type api_usage = {
-  input_tokens: int;
-  output_tokens: int;
-  cache_creation_input_tokens: int;
-  cache_read_input_tokens: int;
-}
-[@@deriving show]
-
-(** API response *)
-type api_response = {
-  id: string;
-  model: string;
-  stop_reason: stop_reason;
-  content: content_block list;
-  usage: api_usage option;
-}
-[@@deriving show]
 
 (** Agent configuration *)
 type agent_config = {
@@ -185,23 +93,6 @@ let default_config = {
   max_input_tokens = None;
   max_total_tokens = None;
 }
-
-(* SSE streaming event types *)
-type content_delta =
-  | TextDelta of string
-  | ThinkingDelta of string
-  | InputJsonDelta of string
-
-type sse_event =
-  | MessageStart of { id: string; model: string; usage: api_usage option }
-  | ContentBlockStart of { index: int; content_type: string;
-                          tool_id: string option; tool_name: string option }
-  | ContentBlockDelta of { index: int; delta: content_delta }
-  | ContentBlockStop of { index: int }
-  | MessageDelta of { stop_reason: stop_reason option; usage: api_usage option }
-  | MessageStop
-  | Ping
-  | SSEError of string
 
 (* Usage tracking *)
 type usage_stats = {

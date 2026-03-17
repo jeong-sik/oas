@@ -25,11 +25,14 @@ module Types : sig
 
   val model_to_string : model -> string
 
-  (** Message role *)
-  type role = User | Assistant
+  (** Message role.
+      4-variant: System and Tool added for MASC/multi-provider compatibility.
+      OAS agent loop uses User/Assistant; System and Tool are used at boundaries. *)
+  type role = System | User | Assistant | Tool
   [@@deriving yojson, show]
 
   val role_to_string : role -> string
+  val role_of_string : string -> role option
 
   (** Tool parameter schema *)
   type param_type = String | Integer | Number | Boolean | Array | Object
@@ -181,6 +184,16 @@ module Types : sig
     usage: usage_stats;
   }
   [@@deriving show]
+
+  (** {2 Convenience Constructors} *)
+
+  val text_message : role -> string -> message
+  val system_msg : string -> message
+  val user_msg : string -> message
+  val assistant_msg : string -> message
+  val tool_result_msg : tool_use_id:string -> content:string -> ?is_error:bool -> unit -> message
+  val text_of_content : content_block list -> string
+  val text_of_message : message -> string
 end
 
 (** {1 Cross-turn State} *)

@@ -1,4 +1,22 @@
-(** Core types for Anthropic Agent SDK. *)
+(** Core types for Anthropic Agent SDK.
+
+    LLM-level types (role, message, content_block, etc.) are re-exported from
+    {!Llm_provider.Types}. Agent-specific types remain local. *)
+
+(* ================================================================ *)
+(* Re-export all LLM provider types                                  *)
+(* ================================================================ *)
+include module type of struct include Llm_provider.Types end
+
+(* ================================================================ *)
+(* OAS-specific additions                                            *)
+(* ================================================================ *)
+
+val tool_choice_of_json : Yojson.Safe.t -> (tool_choice, Error.sdk_error) result
+
+(* ================================================================ *)
+(* Agent-specific types                                              *)
+(* ================================================================ *)
 
 (** Supported Claude models *)
 type model =
@@ -12,99 +30,6 @@ type model =
 [@@deriving yojson, show]
 
 val model_to_string : model -> string
-
-(** Message role *)
-type role = User | Assistant
-[@@deriving yojson, show]
-
-val role_to_string : role -> string
-
-(** Tool parameter schema *)
-type param_type = String | Integer | Number | Boolean | Array | Object
-[@@deriving yojson, show]
-
-val param_type_to_string : param_type -> string
-
-(** Tool execution result types *)
-type tool_output = { content: string }
-type tool_error = { message: string; recoverable: bool }
-type tool_result = (tool_output, tool_error) result
-
-type tool_param = {
-  name: string;
-  description: string;
-  param_type: param_type;
-  required: bool;
-}
-[@@deriving yojson, show]
-
-(** Tool definition *)
-type tool_schema = {
-  name: string;
-  description: string;
-  parameters: tool_param list;
-}
-[@@deriving yojson, show]
-
-(** Tool choice mode *)
-type tool_choice =
-  | Auto
-  | Any
-  | Tool of string
-  | None_
-[@@deriving show]
-
-val tool_choice_to_json : tool_choice -> Yojson.Safe.t
-val tool_choice_of_json : Yojson.Safe.t -> (tool_choice, Error.sdk_error) result
-
-(** Content block types *)
-type content_block =
-  | Text of string
-  | Thinking of { thinking_type: string; content: string }
-  | RedactedThinking of string
-  | ToolUse of { id: string; name: string; input: Yojson.Safe.t }
-  | ToolResult of { tool_use_id: string; content: string; is_error: bool }
-  | Image of { media_type: string; data: string; source_type: string }
-  | Document of { media_type: string; data: string; source_type: string }
-  | Audio of { media_type: string; data: string; source_type: string }
-[@@deriving show]
-
-(** A single message in the conversation *)
-type message = {
-  role: role;
-  content: content_block list;
-}
-[@@deriving show]
-
-(** Stop reason from API *)
-type stop_reason =
-  | EndTurn
-  | StopToolUse
-  | MaxTokens
-  | StopSequence
-  | Unknown of string
-[@@deriving show]
-
-val stop_reason_of_string : string -> stop_reason
-
-(** API usage from a single response *)
-type api_usage = {
-  input_tokens: int;
-  output_tokens: int;
-  cache_creation_input_tokens: int;
-  cache_read_input_tokens: int;
-}
-[@@deriving show]
-
-(** API response *)
-type api_response = {
-  id: string;
-  model: string;
-  stop_reason: stop_reason;
-  content: content_block list;
-  usage: api_usage option;
-}
-[@@deriving show]
 
 (** Agent configuration *)
 type agent_config = {
@@ -129,23 +54,6 @@ type agent_config = {
 [@@deriving show]
 
 val default_config : agent_config
-
-(** SSE streaming event types *)
-type content_delta =
-  | TextDelta of string
-  | ThinkingDelta of string
-  | InputJsonDelta of string
-
-type sse_event =
-  | MessageStart of { id: string; model: string; usage: api_usage option }
-  | ContentBlockStart of { index: int; content_type: string;
-                            tool_id: string option; tool_name: string option }
-  | ContentBlockDelta of { index: int; delta: content_delta }
-  | ContentBlockStop of { index: int }
-  | MessageDelta of { stop_reason: stop_reason option; usage: api_usage option }
-  | MessageStop
-  | Ping
-  | SSEError of string
 
 (** Usage tracking *)
 type usage_stats = {
