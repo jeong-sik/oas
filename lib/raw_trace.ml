@@ -88,7 +88,7 @@ type record = {
 type t = {
   path: string;
   session_id: string option;
-  lock: Mutex.t;
+  lock: Eio.Mutex.t;
   mutable next_seq: int;
   mutable run_counter: int;
   mutable last_run: run_ref option;
@@ -293,7 +293,7 @@ let create ?session_id ~path () =
     {
       path;
       session_id;
-      lock = Mutex.create ();
+      lock = Eio.Mutex.create ();
       next_seq;
       run_counter = 0;
       last_run = None;
@@ -338,48 +338,48 @@ let append_locked sink (record : record) =
 let append_record active ~record_type ?prompt ?block_index ?block_kind
     ?assistant_block ?tool_use_id ?tool_name ?tool_input ?tool_result ?tool_error
     ?hook_name ?hook_decision ?hook_detail ?final_text ?stop_reason ?error () =
-  Mutex.lock active.sink.lock;
-  let seq = active.sink.next_seq in
-  let record =
-    {
-      trace_version;
-      worker_run_id = active.worker_run_id;
-      seq;
-      ts = Unix.gettimeofday ();
-      agent_name = active.agent_name;
-      session_id = active.session_id;
-      record_type;
-      prompt;
-      block_index;
-      block_kind;
-      assistant_block;
-      tool_use_id;
-      tool_name;
-      tool_input;
-      tool_result;
-      tool_error;
-      hook_name;
-      hook_decision;
-      hook_detail;
-      final_text;
-      stop_reason;
-      error;
-    }
-  in
-  let result = append_locked active.sink record in
-  (match result with
-   | Ok () ->
-       active.sink.next_seq <- seq + 1;
-       if active.start_seq = 0 then active.start_seq <- seq;
-       active.end_seq <- max active.end_seq seq
-   | Error _ -> ());
-  Mutex.unlock active.sink.lock;
-  Result.map (fun () -> seq) result
+  Eio.Mutex.use_rw ~protect:true active.sink.lock (fun () ->
+    let seq = active.sink.next_seq in
+    let record =
+      {
+        trace_version;
+        worker_run_id = active.worker_run_id;
+        seq;
+        ts = Unix.gettimeofday ();
+        agent_name = active.agent_name;
+        session_id = active.session_id;
+        record_type;
+        prompt;
+        block_index;
+        block_kind;
+        assistant_block;
+        tool_use_id;
+        tool_name;
+        tool_input;
+        tool_result;
+        tool_error;
+        hook_name;
+        hook_decision;
+        hook_detail;
+        final_text;
+        stop_reason;
+        error;
+      }
+    in
+    let result = append_locked active.sink record in
+    (match result with
+     | Ok () ->
+         active.sink.next_seq <- seq + 1;
+         if active.start_seq = 0 then active.start_seq <- seq;
+         active.end_seq <- max active.end_seq seq
+     | Error _ -> ());
+    Result.map (fun () -> seq) result)
 
 let start_run sink ~agent_name ~prompt =
-  Mutex.lock sink.lock;
-  let worker_run_id = next_worker_run_id sink in
-  Mutex.unlock sink.lock;
+  let worker_run_id =
+    Eio.Mutex.use_rw ~protect:true sink.lock (fun () ->
+      next_worker_run_id sink)
+  in
   let active =
     {
       sink;
@@ -447,9 +447,8 @@ let finish_run active ~(final_text : string option)
       session_id = active.session_id;
     }
   in
-  Mutex.lock active.sink.lock;
-  active.sink.last_run <- Some run_ref;
-  Mutex.unlock active.sink.lock;
+  Eio.Mutex.use_rw ~protect:true active.sink.lock (fun () ->
+    active.sink.last_run <- Some run_ref);
   Ok run_ref
 
 let raise_if_error : type a. (a, Error.sdk_error) result -> unit = function

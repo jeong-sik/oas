@@ -3,7 +3,7 @@ open Agent_sdk
 let base_info : Agent_card.agent_info = {
   agent_name = "test-agent";
   agent_description = Some "A test agent";
-  version = "0.30.0";
+  version = Agent_sdk.Sdk_version.version;
   config = { Types.default_config with
     name = "test-agent";
     enable_thinking = Some true;

@@ -5,11 +5,11 @@ type state = {
   event_bus: Event_bus.t;
   mutable session_root: string option;
   mutable next_control_id: int;
-  stdout_mu: Mutex.t;
-  store_mu: Mutex.t;
+  stdout_mu: Eio.Mutex.t;
+  store_mu: Eio.Mutex.t;
 }
 
-let runtime_version = "0.1.0"
+let runtime_version = Sdk_version.version
 
 let create ~net () =
   {
@@ -17,8 +17,8 @@ let create ~net () =
     event_bus = Event_bus.create ();
     session_root = None;
     next_control_id = 1;
-    stdout_mu = Mutex.create ();
-    store_mu = Mutex.create ();
+    stdout_mu = Eio.Mutex.create ();
+    store_mu = Eio.Mutex.create ();
   }
 
 let store_of_state state =
@@ -29,13 +29,10 @@ let session_root_request_path = function
   | _ -> None
 
 let write_protocol_message state message =
-  Mutex.lock state.stdout_mu;
-  Fun.protect
-    ~finally:(fun () -> Mutex.unlock state.stdout_mu)
-    (fun () ->
-      output_string stdout (protocol_message_to_string message);
-      output_char stdout '\n';
-      flush stdout)
+  Eio.Mutex.use_rw ~protect:true state.stdout_mu (fun () ->
+    output_string stdout (protocol_message_to_string message);
+    output_char stdout '\n';
+    flush stdout)
 
 let next_control_id state =
   let id = state.next_control_id in

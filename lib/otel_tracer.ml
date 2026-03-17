@@ -39,11 +39,10 @@ type span = {
 
 (* -- Global state ----------------------------------------------------- *)
 
-let _mutex = Mutex.create ()
+let _mutex = Eio.Mutex.create ()
 
 let with_lock f =
-  Mutex.lock _mutex;
-  Fun.protect f ~finally:(fun () -> Mutex.unlock _mutex)
+  Eio.Mutex.use_rw ~protect:true _mutex f
 let _current_spans : span list ref = ref []
 let _completed_spans : span list ref = ref []
 
@@ -64,13 +63,18 @@ let default_config = {
 let hex_chars = "0123456789abcdef"
 
 let hex_of_random n =
-  let buf = Bytes.create (n * 2) in
-  for i = 0 to n - 1 do
-    let byte = Random.int 256 in
-    Bytes.set buf (i * 2) hex_chars.[byte lsr 4];
-    Bytes.set buf (i * 2 + 1) hex_chars.[byte land 0x0f]
-  done;
-  Bytes.to_string buf
+  let ic = open_in_bin "/dev/urandom" in
+  Fun.protect
+    ~finally:(fun () -> close_in_noerr ic)
+    (fun () ->
+      let raw = Bytes.create n in
+      really_input ic raw 0 n;
+      let hex = Buffer.create (n * 2) in
+      Bytes.iter (fun c ->
+        let byte = Char.code c in
+        Buffer.add_char hex hex_chars.[byte lsr 4];
+        Buffer.add_char hex hex_chars.[byte land 0x0f]) raw;
+      Buffer.contents hex)
 
 let gen_trace_id () = hex_of_random 16  (* 32-char hex = 128-bit *)
 let gen_span_id () = hex_of_random 8    (* 16-char hex = 64-bit *)

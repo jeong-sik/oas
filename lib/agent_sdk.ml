@@ -36,6 +36,7 @@
 *)
 
 (** Re-export all modules (dependency-safe order) *)
+module Sdk_version = Sdk_version
 module Types = Types
 module Util = Util
 module Context = Context
@@ -134,5 +135,5 @@ let runtime_query = Runtime_query.query
 let query = Query.query
 
 (** Version info *)
-let version = "0.42.0"
-let sdk_name = "agent_sdk"
+let version = Sdk_version.version
+let sdk_name = Sdk_version.sdk_name
