@@ -108,9 +108,26 @@ let test_eval_metric_shell_bad_output () =
 
 (* ── Aggregate tests ─────────────────────────────────────────────── *)
 
-(* Runner doesn't expose aggregate_scores directly, but we test it
-   indirectly through the convergence loop behavior. For now, test
-   metric evaluation patterns. *)
+let test_aggregate_best_score () =
+  let result = Runner.aggregate_scores Best_score [0.3; 0.9; 0.5] in
+  check_float "best" 0.9 result
+
+let test_aggregate_average () =
+  let result = Runner.aggregate_scores Average_score [0.2; 0.4; 0.6] in
+  check_float "average" 0.4 result
+
+let test_aggregate_majority_vote () =
+  let result = Runner.aggregate_scores Majority_vote [0.5; 0.5; 0.8] in
+  check_float "majority" 0.5 result
+
+let test_aggregate_custom () =
+  let sum_fn scores = List.fold_left ( +. ) 0.0 scores in
+  let result = Runner.aggregate_scores (Custom_agg sum_fn) [1.0; 2.0; 3.0] in
+  check_float "custom sum" 6.0 result
+
+let test_aggregate_empty () =
+  let result = Runner.aggregate_scores Best_score [] in
+  check_float "empty" 0.0 result
 
 let test_convergence_config_construction () =
   let conv : Swarm_types.convergence_config = {
@@ -215,5 +232,12 @@ let () =
       test_case "eval_callback_raises" `Quick test_eval_metric_callback_raises;
       test_case "eval_shell" `Quick test_eval_metric_shell;
       test_case "eval_shell_bad_output" `Quick test_eval_metric_shell_bad_output;
+    ];
+    "aggregate", [
+      test_case "best_score" `Quick test_aggregate_best_score;
+      test_case "average" `Quick test_aggregate_average;
+      test_case "majority_vote" `Quick test_aggregate_majority_vote;
+      test_case "custom" `Quick test_aggregate_custom;
+      test_case "empty" `Quick test_aggregate_empty;
     ];
   ]

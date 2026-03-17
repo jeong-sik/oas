@@ -1,5 +1,10 @@
 (** Swarm runner — multi-agent parallel execution with convergence loops.
 
+    Part of the [agent_sdk_swarm] library (Layer 2).
+
+    Thread safety: swarm_state is protected by [Eio.Mutex] during
+    convergence loops to support concurrent fiber access.
+
     @since 0.42.0 *)
 
 open Agent_sdk
@@ -33,7 +38,7 @@ let text_of_response (resp : Types.api_response) =
 
 (* ── Aggregate ──────────────────────────────────────────────────── *)
 
-let _aggregate_scores strategy scores =
+let aggregate_scores strategy scores =
   match scores with
   | [] -> 0.0
   | _ ->
@@ -43,8 +48,6 @@ let _aggregate_scores strategy scores =
       let sum = List.fold_left ( +. ) 0.0 scores in
       sum /. float_of_int (List.length scores)
     | Majority_vote ->
-      (* Treat each score as a vote; return the most common value.
-         For floats, round to 2 decimals before comparison. *)
       let rounded = List.map (fun v -> Float.round (v *. 100.0) /. 100.0) scores in
       let counts = List.fold_left (fun acc v ->
         let prev = match List.assoc_opt v acc with Some n -> n | None -> 0 in
@@ -75,153 +78,107 @@ let run_one_agent ~sw ~callbacks (entry : agent_entry) prompt =
   fire2 callbacks.on_agent_done entry.name status;
   (entry.name, status, result)
 
+(* ── Run agents by mode (shared) ────────────────────────────────── *)
+
+let run_agents_by_mode ~sw ~callbacks config =
+  match config.mode with
+  | Decentralized ->
+    Eio.Fiber.List.map ~max_fibers:config.max_parallel
+      (fun entry -> run_one_agent ~sw ~callbacks entry config.prompt)
+      config.entries
+  | Pipeline_mode ->
+    let rec go acc prev_text = function
+      | [] -> List.rev acc
+      | entry :: rest ->
+        let prompt =
+          match prev_text with
+          | None -> config.prompt
+          | Some text -> config.prompt ^ "\n\nPrevious agent output:\n" ^ text
+        in
+        let (_name, status, _result) as triple =
+          run_one_agent ~sw ~callbacks entry prompt
+        in
+        let next = match status with
+          | Done_ok { text; _ } -> Some text | _ -> prev_text
+        in
+        go (triple :: acc) next rest
+    in
+    go [] None config.entries
+  | Supervisor ->
+    (match config.entries with
+     | [] -> []
+     | sup :: workers ->
+       let wr =
+         Eio.Fiber.List.map ~max_fibers:config.max_parallel
+           (fun e -> run_one_agent ~sw ~callbacks e config.prompt)
+           workers
+       in
+       let summary =
+         List.map (fun (n, s, _) -> match s with
+           | Done_ok { text; _ } -> Printf.sprintf "=== %s ===\n%s" n text
+           | Done_error { error; _ } -> Printf.sprintf "=== %s (ERROR) ===\n%s" n error
+           | _ -> Printf.sprintf "=== %s (no result) ===" n
+         ) wr |> String.concat "\n\n"
+       in
+       let sr = run_one_agent ~sw ~callbacks sup
+         (config.prompt ^ "\n\nWorker results:\n" ^ summary) in
+       wr @ [sr])
+
 (* ── Collect usage from results ─────────────────────────────────── *)
 
-let _collect_usage results =
-  List.fold_left (fun acc (_name, _status, result) ->
-    match result with
+let collect_usage acc results =
+  List.fold_left (fun a (_, _, r) ->
+    match r with
     | Ok (resp : Types.api_response) ->
-      (match resp.usage with
-       | Some u -> Types.add_usage acc u
-       | None -> acc)
-    | Error _ -> acc
-  ) Types.empty_usage results
+      (match resp.usage with Some u -> Types.add_usage a u | None -> a)
+    | Error _ -> a
+  ) acc results
 
 (* ── Single pass (all agents once) ──────────────────────────────── *)
 
 let run_single_pass ~sw ~clock:_ ?(callbacks = no_callbacks) config =
   let t0 = Unix.gettimeofday () in
-  let results =
-    match config.mode with
-    | Decentralized ->
-      Eio.Fiber.List.map ~max_fibers:config.max_parallel
-        (fun entry -> run_one_agent ~sw ~callbacks entry config.prompt)
-        config.entries
-    | Pipeline_mode ->
-      let rec go acc prev_text = function
-        | [] -> List.rev acc
-        | entry :: rest ->
-          let effective_prompt =
-            match prev_text with
-            | None -> config.prompt
-            | Some text -> config.prompt ^ "\n\nPrevious agent output:\n" ^ text
-          in
-          let (name, status, result) as triple =
-            run_one_agent ~sw ~callbacks entry effective_prompt
-          in
-          let next_text = match status with
-            | Done_ok { text; _ } -> Some text
-            | _ -> prev_text
-          in
-          ignore name; ignore result;
-          go (triple :: acc) next_text rest
-      in
-      go [] None config.entries
-    | Supervisor ->
-      (match config.entries with
-       | [] -> []
-       | supervisor :: workers ->
-         (* Workers run first in parallel *)
-         let worker_results =
-           Eio.Fiber.List.map ~max_fibers:config.max_parallel
-             (fun entry -> run_one_agent ~sw ~callbacks entry config.prompt)
-             workers
-         in
-         (* Supervisor gets a summary of worker outputs *)
-         let worker_summary =
-           List.map (fun (name, status, _result) ->
-             match status with
-             | Done_ok { text; _ } ->
-               Printf.sprintf "=== %s ===\n%s" name text
-             | Done_error { error; _ } ->
-               Printf.sprintf "=== %s (ERROR) ===\n%s" name error
-             | _ -> Printf.sprintf "=== %s (no result) ===" name
-           ) worker_results
-           |> String.concat "\n\n"
-         in
-         let supervisor_prompt =
-           config.prompt ^ "\n\nWorker results:\n" ^ worker_summary
-         in
-         let supervisor_result =
-           run_one_agent ~sw ~callbacks supervisor supervisor_prompt
-         in
-         worker_results @ [supervisor_result])
-  in
+  let results = run_agents_by_mode ~sw ~callbacks config in
   let elapsed = Unix.gettimeofday () -. t0 in
   let agent_results =
-    List.map (fun (name, status, _result) -> (name, status)) results
+    List.map (fun (name, status, _) -> (name, status)) results
   in
-  let record = {
+  Ok {
     iteration = 0;
     metric_value = None;
     agent_results;
     elapsed;
     timestamp = Unix.gettimeofday ();
-  } in
-  Ok record
+  }
 
-(* ── Convergence loop ───────────────────────────────────────────── *)
+(* ── Eio.Mutex-protected state handle ───────────────────────────── *)
+
+type state_handle = {
+  mu: Eio.Mutex.t;
+  state: swarm_state;
+}
+
+let with_state h f =
+  Eio.Mutex.use_rw ~protect:true h.mu (fun () -> f h.state)
+
+let read_state h f =
+  Eio.Mutex.use_ro h.mu (fun () -> f h.state)
+
+(* ── Convergence loop (Mutex-protected) ─────────────────────────── *)
 
 let run_convergence_loop ~sw ~clock:_ ~callbacks config conv =
-  let state = create_state config in
+  let handle = {
+    mu = Eio.Mutex.create ();
+    state = create_state config;
+  } in
   let total_usage = ref Types.empty_usage in
   let t0 = Unix.gettimeofday () in
   let continue = ref true in
-  while !continue && state.current_iteration < conv.max_iterations do
-    let iter = state.current_iteration in
+  while !continue && read_state handle (fun s -> s.current_iteration) < conv.max_iterations do
+    let iter = read_state handle (fun s -> s.current_iteration) in
     fire callbacks.on_iteration_start iter;
-    (* Run all agents *)
-    let results =
-      match config.mode with
-      | Decentralized ->
-        Eio.Fiber.List.map ~max_fibers:config.max_parallel
-          (fun entry -> run_one_agent ~sw ~callbacks entry config.prompt)
-          config.entries
-      | Pipeline_mode ->
-        let rec go acc prev_text = function
-          | [] -> List.rev acc
-          | entry :: rest ->
-            let prompt =
-              match prev_text with
-              | None -> config.prompt
-              | Some text -> config.prompt ^ "\n\nPrevious agent output:\n" ^ text
-            in
-            let (_name, status, _result) as triple =
-              run_one_agent ~sw ~callbacks entry prompt
-            in
-            let next = match status with
-              | Done_ok { text; _ } -> Some text | _ -> prev_text
-            in
-            go (triple :: acc) next rest
-        in
-        go [] None config.entries
-      | Supervisor ->
-        (match config.entries with
-         | [] -> []
-         | sup :: workers ->
-           let wr =
-             Eio.Fiber.List.map ~max_fibers:config.max_parallel
-               (fun e -> run_one_agent ~sw ~callbacks e config.prompt)
-               workers
-           in
-           let summary =
-             List.map (fun (n, s, _) -> match s with
-               | Done_ok { text; _ } -> Printf.sprintf "=== %s ===\n%s" n text
-               | Done_error { error; _ } -> Printf.sprintf "=== %s (ERROR) ===\n%s" n error
-               | _ -> Printf.sprintf "=== %s (no result) ===" n
-             ) wr |> String.concat "\n\n"
-           in
-           let sr = run_one_agent ~sw ~callbacks sup
-             (config.prompt ^ "\n\nWorker results:\n" ^ summary) in
-           wr @ [sr])
-    in
-    (* Collect usage *)
-    total_usage := List.fold_left (fun acc (_, _, r) ->
-      match r with
-      | Ok (resp : Types.api_response) ->
-        (match resp.usage with Some u -> Types.add_usage acc u | None -> acc)
-      | Error _ -> acc
-    ) !total_usage results;
+    let results = run_agents_by_mode ~sw ~callbacks config in
+    total_usage := collect_usage !total_usage results;
     (* Evaluate metric *)
     let metric_value = match eval_metric conv.metric with
       | Ok v -> Some v
@@ -238,50 +195,58 @@ let run_convergence_loop ~sw ~clock:_ ~callbacks config conv =
       elapsed;
       timestamp = Unix.gettimeofday ();
     } in
-    state.history <- record :: state.history;
-    state.agent_statuses <- agent_results;
+    (* Update state under mutex *)
+    with_state handle (fun state ->
+      state.history <- record :: state.history;
+      state.agent_statuses <- agent_results;
+    );
     fire callbacks.on_iteration_end record;
-    (* Check convergence *)
-    (match metric_value with
-     | Some v ->
-       let improved = match state.best_metric with
-         | None -> true
-         | Some prev -> v > prev
-       in
-       if improved then begin
-         state.best_metric <- Some v;
-         state.best_iteration <- iter;
-         state.patience_counter <- 0
-       end else
-         state.patience_counter <- state.patience_counter + 1;
-       if v >= conv.target then begin
-         state.converged <- true;
-         continue := false;
-         fire callbacks.on_converged state
-       end;
-       if state.patience_counter >= conv.patience then
-         continue := false
-     | None ->
-       state.patience_counter <- state.patience_counter + 1;
-       if state.patience_counter >= conv.patience then
-         continue := false);
-    state.current_iteration <- iter + 1
+    (* Check convergence under mutex *)
+    with_state handle (fun state ->
+      match metric_value with
+      | Some v ->
+        let improved = match state.best_metric with
+          | None -> true
+          | Some prev -> v > prev
+        in
+        if improved then begin
+          state.best_metric <- Some v;
+          state.best_iteration <- iter;
+          state.patience_counter <- 0
+        end else
+          state.patience_counter <- state.patience_counter + 1;
+        if v >= conv.target then begin
+          state.converged <- true;
+          continue := false;
+          fire callbacks.on_converged state
+        end;
+        if state.patience_counter >= conv.patience then
+          continue := false
+      | None ->
+        state.patience_counter <- state.patience_counter + 1;
+        if state.patience_counter >= conv.patience then
+          continue := false
+    );
+    with_state handle (fun state ->
+      state.current_iteration <- iter + 1
+    )
   done;
   let total_elapsed = Unix.gettimeofday () -. t0 in
-  Ok {
-    iterations = List.rev state.history;
-    final_metric = state.best_metric;
-    converged = state.converged;
-    total_elapsed;
-    total_usage = !total_usage;
-  }
+  read_state handle (fun state ->
+    Ok {
+      iterations = List.rev state.history;
+      final_metric = state.best_metric;
+      converged = state.converged;
+      total_elapsed;
+      total_usage = !total_usage;
+    }
+  )
 
 (* ── Main entry point ───────────────────────────────────────────── *)
 
 let run ~sw ~clock ?(callbacks = no_callbacks) config =
   match config.convergence with
   | None ->
-    (* Single pass *)
     (match run_single_pass ~sw ~clock ~callbacks config with
      | Ok record ->
        Ok {
@@ -293,7 +258,6 @@ let run ~sw ~clock ?(callbacks = no_callbacks) config =
        }
      | Error e -> Error e)
   | Some conv ->
-    (* Convergence loop *)
     (match config.timeout_sec with
      | Some timeout ->
        (try
