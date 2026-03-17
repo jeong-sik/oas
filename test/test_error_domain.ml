@@ -119,7 +119,11 @@ let test_to_string_each_variant () =
     `Serialization "bad json";
     `Io "file missing";
     `Orchestration "routing failed";
-    `A2a "a2a error";
+    `A2a_task_not_found "tid";
+    `A2a_invalid_transition ("tid", "s1", "s2");
+    `A2a_message_send_failed ("tid", "err");
+    `A2a_protocol_error "proto";
+    `A2a_store_capacity_exceeded (100, 50);
     `Internal "bug";
   ] in
   List.iter (fun v ->
@@ -369,14 +373,14 @@ let test_roundtrip_orchestration () =
    | _ -> Alcotest.fail "roundtrip mismatch for Orchestration")
 
 let test_roundtrip_a2a () =
-  let orig = Error.A2a "protocol error" in
+  let orig = Error.A2a (Error.ProtocolError { detail = "protocol error" }) in
   let poly = Error_domain.of_sdk_error orig in
   (match poly with
-   | `A2a "protocol error" -> ()
-   | _ -> Alcotest.fail "expected A2a");
+   | `A2a_protocol_error "protocol error" -> ()
+   | _ -> Alcotest.fail "expected A2a_protocol_error");
   let back = Error_domain.to_sdk_error poly in
   (match back with
-   | Error.A2a "protocol error" -> ()
+   | Error.A2a (Error.ProtocolError _) -> ()
    | _ -> Alcotest.fail "roundtrip mismatch for A2a")
 
 (* ── is_retryable: cover remaining branches ─────────────── *)
@@ -455,7 +459,7 @@ let test_retryable_orchestration () =
 
 let test_retryable_a2a () =
   Alcotest.(check bool) "a2a not retryable" false
-    (Error_domain.is_retryable (`A2a "x"))
+    (Error_domain.is_retryable (`A2a_protocol_error "x"))
 
 let test_retryable_internal () =
   Alcotest.(check bool) "internal not retryable" false

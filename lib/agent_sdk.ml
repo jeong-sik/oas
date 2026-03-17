@@ -88,6 +88,7 @@ module Runtime = Runtime
 module Transport = Transport
 module Runtime_client = Runtime_client
 module Client = Client
+module Sdk_client_types = Sdk_client_types
 module Artifact_service = Artifact_service
 module Sessions = Sessions
 module Provider_mock = Provider_mock

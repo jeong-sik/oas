@@ -83,6 +83,68 @@ let test_build_safe_thinking_without_enable () =
   in
   Alcotest.(check bool) "thinking_budget without enable" true (Result.is_error result)
 
+(* --- create_agent coverage --- *)
+
+let test_create_agent_defaults () =
+  Eio_main.run @@ fun env ->
+  let agent = Agent_sdk.create_agent ~net:env#net () in
+  let st = Agent.state agent in
+  Alcotest.(check int) "initial turn count" 0 st.turn_count
+
+let test_create_agent_with_name_model () =
+  Eio_main.run @@ fun env ->
+  let agent = Agent_sdk.create_agent ~net:env#net
+    ~name:"test-agent"
+    ~model:Types.Claude_haiku_4_5
+    ~system_prompt:"You are helpful."
+    ~max_tokens:2048
+    ~max_turns:5
+    () in
+  let config = (Agent.state agent).config in
+  Alcotest.(check string) "name" "test-agent" config.name;
+  Alcotest.(check bool) "model" true (config.model = Types.Claude_haiku_4_5);
+  Alcotest.(check (option string)) "prompt" (Some "You are helpful.") config.system_prompt;
+  Alcotest.(check int) "max_tokens" 2048 config.max_tokens;
+  Alcotest.(check int) "max_turns" 5 config.max_turns
+
+let test_create_agent_with_provider () =
+  Eio_main.run @@ fun env ->
+  let provider_cfg = { Provider.provider = Provider.Local { base_url = "http://localhost:11434" }; model_id = "test"; api_key_env = "" } in
+  let agent = Agent_sdk.create_agent ~net:env#net ~provider:provider_cfg () in
+  let opts = Agent.options agent in
+  Alcotest.(check bool) "provider set" true (Option.is_some opts.provider)
+
+let test_create_agent_with_raw_trace () =
+  Eio_main.run @@ fun env ->
+  let path = Filename.concat (Filename.get_temp_dir_name ()) "oas-test-trace" in
+  (match Raw_trace.create ~path () with
+   | Ok trace ->
+     let agent = Agent_sdk.create_agent ~net:env#net ~raw_trace:trace () in
+     let opts = Agent.options agent in
+     Alcotest.(check bool) "raw_trace set" true (Option.is_some opts.raw_trace)
+   | Error _ ->
+     (* Skip if directory creation fails *)
+     ())
+
+let test_create_agent_with_provider_and_trace () =
+  Eio_main.run @@ fun env ->
+  let provider_cfg = { Provider.provider = Provider.Local { base_url = "http://localhost:11434" }; model_id = "test"; api_key_env = "" } in
+  let path = Filename.concat (Filename.get_temp_dir_name ()) "oas-test-trace2" in
+  (match Raw_trace.create ~path () with
+   | Ok trace ->
+     let agent = Agent_sdk.create_agent ~net:env#net ~provider:provider_cfg ~raw_trace:trace () in
+     let opts = Agent.options agent in
+     Alcotest.(check bool) "provider set" true (Option.is_some opts.provider);
+     Alcotest.(check bool) "trace set" true (Option.is_some opts.raw_trace)
+   | Error _ ->
+     ())
+
+let test_create_agent_with_cache () =
+  Eio_main.run @@ fun env ->
+  let agent = Agent_sdk.create_agent ~net:env#net ~cache_system_prompt:true () in
+  let config = (Agent.state agent).config in
+  Alcotest.(check bool) "cache enabled" true config.cache_system_prompt
+
 let () =
   run "Agent SDK" [
     "types", [
@@ -105,5 +167,13 @@ let () =
       test_case "build_safe valid" `Quick test_build_safe_valid;
       test_case "build_safe invalid turns" `Quick test_build_safe_invalid_turns;
       test_case "build_safe thinking" `Quick test_build_safe_thinking_without_enable;
+    ];
+    "create_agent", [
+      test_case "defaults" `Quick test_create_agent_defaults;
+      test_case "with name/model/prompt" `Quick test_create_agent_with_name_model;
+      test_case "with provider" `Quick test_create_agent_with_provider;
+      test_case "with raw_trace" `Quick test_create_agent_with_raw_trace;
+      test_case "with provider+trace" `Quick test_create_agent_with_provider_and_trace;
+      test_case "with cache" `Quick test_create_agent_with_cache;
     ];
   ]
