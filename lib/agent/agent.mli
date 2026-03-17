@@ -6,9 +6,30 @@
 
 (** {1 Types (re-exported from Agent_types)} *)
 
-type periodic_callback = Agent_types.periodic_callback
+type periodic_callback = Agent_types.periodic_callback = {
+  interval_sec: float;
+  callback: unit -> unit;
+}
 
-type options = Agent_types.options
+type options = Agent_types.options = {
+  base_url: string;
+  provider: Provider.config option;
+  cascade: Provider.cascade option;
+  max_idle_turns: int;
+  hooks: Hooks.hooks;
+  guardrails: Guardrails.t;
+  tracer: Tracing.t;
+  raw_trace: Raw_trace.t option;
+  approval: Hooks.approval_callback option;
+  context_reducer: Context_reducer.t option;
+  context_injector: Hooks.context_injector option;
+  mcp_clients: Mcp.managed list;
+  event_bus: Event_bus.t option;
+  skill_registry: Skill_registry.t option;
+  elicitation: Hooks.elicitation_callback option;
+  description: string option;
+  periodic_callbacks: periodic_callback list;
+}
 
 type lifecycle_status = Agent_lifecycle.lifecycle_status =
   | Accepted
