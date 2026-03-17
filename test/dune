@@ -314,3 +314,15 @@
 (test
  (name test_tool_set)
  (libraries agent_sdk alcotest qcheck-core qcheck-alcotest yojson))
+
+(test
+ (name test_pipeline)
+ (libraries agent_sdk alcotest yojson eio eio_main))
+
+(test
+ (name test_error_domain)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_provider_intf)
+ (libraries agent_sdk alcotest yojson))
