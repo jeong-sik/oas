@@ -201,12 +201,13 @@ let artifact_of_yojson json =
       | Error _ as e -> e
       | Ok ps ->
         match message_part_of_yojson j with
-        | Ok p -> Ok (ps @ [p])
+        | Ok p -> Ok (p :: ps)
         | Error e -> Error e
     ) (Ok []) parts_json in
     match parts_result with
     | Error e -> Error e
     | Ok parts ->
+      let parts = List.rev parts in
       let metadata = match json |> member "metadata" with
         | `Assoc kvs -> kvs
         | _ -> []
@@ -245,10 +246,10 @@ let transition (t : task) (new_state : task_state) : (task, transition_error) re
     Error (InvalidTransition { from_state = t.state; to_state = new_state })
 
 let add_message (t : task) (msg : task_message) : task =
-  { t with messages = t.messages @ [msg]; updated_at = Unix.gettimeofday () }
+  { t with messages = msg :: t.messages; updated_at = Unix.gettimeofday () }
 
 let add_artifact (t : task) (art : artifact) : task =
-  { t with artifacts = t.artifacts @ [art]; updated_at = Unix.gettimeofday () }
+  { t with artifacts = art :: t.artifacts; updated_at = Unix.gettimeofday () }
 
 (* ── JSON serialization ───────────────────────────────────────── *)
 
@@ -256,8 +257,8 @@ let task_to_yojson t =
   `Assoc [
     ("id", `String t.id);
     ("state", task_state_to_yojson t.state);
-    ("messages", `List (List.map task_message_to_yojson t.messages));
-    ("artifacts", `List (List.map artifact_to_yojson t.artifacts));
+    ("messages", `List (List.rev_map task_message_to_yojson t.messages));
+    ("artifacts", `List (List.rev_map artifact_to_yojson t.artifacts));
     ("metadata", `Assoc t.metadata);
     ("created_at", `Float t.created_at);
     ("updated_at", `Float t.updated_at);
@@ -283,7 +284,7 @@ let task_of_yojson json =
       match messages_result with
       | Error e -> Error e
       | Ok messages ->
-        let messages = List.rev messages in
+        (* messages stored in reverse chronological order (newest first) *)
         let artifacts_json = json |> member "artifacts" |> to_list in
         let artifacts_result = List.fold_left (fun acc j ->
           match acc with
@@ -296,7 +297,7 @@ let task_of_yojson json =
         match artifacts_result with
         | Error e -> Error e
         | Ok artifacts ->
-          let artifacts = List.rev artifacts in
+          (* artifacts stored in reverse chronological order (newest first) *)
           let metadata = match json |> member "metadata" with
             | `Assoc kvs -> kvs
             | _ -> []
@@ -308,15 +309,49 @@ let task_of_yojson json =
 
 (* ── In-memory store ──────────────────────────────────────────── *)
 
-type store = (task_id, task) Hashtbl.t
+let default_max_tasks = 10_000
 
-let create_store () : store = Hashtbl.create 64
+type store = {
+  tasks : (task_id, task) Hashtbl.t;
+  max_tasks : int;
+}
+
+let create_store ?(max_tasks = default_max_tasks) () : store =
+  { tasks = Hashtbl.create 64; max_tasks }
+
+(** Evict terminal tasks (oldest updated_at first) when store is at capacity. *)
+let evict_if_needed (s : store) : unit =
+  if Hashtbl.length s.tasks < s.max_tasks then ()
+  else
+    let terminals =
+      Hashtbl.fold (fun id t acc ->
+        if is_terminal t.state then (id, t.updated_at) :: acc
+        else acc
+      ) s.tasks []
+    in
+    match terminals with
+    | [] -> () (* all tasks are active; cannot evict *)
+    | _ ->
+      let sorted =
+        List.sort (fun (_, a) (_, b) -> Float.compare a b) terminals
+      in
+      (* Remove oldest terminal tasks to free 10% capacity *)
+      let to_remove = max 1 (s.max_tasks / 10) in
+      let rec remove n = function
+        | [] -> ()
+        | _ when n <= 0 -> ()
+        | (id, _) :: rest ->
+          Hashtbl.remove s.tasks id;
+          remove (n - 1) rest
+      in
+      remove to_remove sorted
 
 let store_task (s : store) (t : task) : unit =
-  Hashtbl.replace s t.id t
+  evict_if_needed s;
+  Hashtbl.replace s.tasks t.id t
 
 let get_task (s : store) (id : task_id) : task option =
-  Hashtbl.find_opt s id
+  Hashtbl.find_opt s.tasks id
 
 let list_tasks (s : store) : task list =
-  Hashtbl.fold (fun _ t acc -> t :: acc) s []
+  Hashtbl.fold (fun _ t acc -> t :: acc) s.tasks []

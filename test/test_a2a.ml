@@ -161,6 +161,55 @@ let test_store () =
   let tasks = A2a_task.list_tasks store in
   Alcotest.(check int) "one task" 1 (List.length tasks)
 
+let test_store_eviction () =
+  (* max_tasks=5, so filling with 5 terminal + 1 active should evict terminals *)
+  let store = A2a_task.create_store ~max_tasks:5 () in
+  (* Insert 5 terminal (completed) tasks with staggered updated_at *)
+  for i = 0 to 4 do
+    let msg = mk_message (Printf.sprintf "q%d" i) in
+    let task = A2a_task.create msg in
+    let task = { task with
+      id = Printf.sprintf "term_%d" i;
+      updated_at = float_of_int i;
+    } in
+    let task = match A2a_task.transition task Working with
+      | Ok t -> t | Error _ -> task in
+    let task = match A2a_task.transition task Completed with
+      | Ok t -> { t with updated_at = float_of_int i }
+      | Error _ -> task in
+    A2a_task.store_task store task
+  done;
+  Alcotest.(check int) "5 tasks before eviction" 5
+    (List.length (A2a_task.list_tasks store));
+  (* Add one more -- should trigger eviction of oldest terminal *)
+  let active = A2a_task.create (mk_message "active") in
+  let active = { active with id = "active_task" } in
+  A2a_task.store_task store active;
+  let tasks = A2a_task.list_tasks store in
+  (* Should have evicted at least 1 terminal (oldest) and added the active *)
+  Alcotest.(check bool) "active task present" true
+    (List.exists (fun (t : A2a_task.task) -> t.id = "active_task") tasks);
+  Alcotest.(check bool) "oldest terminal evicted" true
+    (not (List.exists (fun (t : A2a_task.task) -> t.id = "term_0") tasks))
+
+let test_store_eviction_preserves_active () =
+  (* When all tasks are active (non-terminal), eviction cannot remove any *)
+  let store = A2a_task.create_store ~max_tasks:3 () in
+  for i = 0 to 2 do
+    let task = A2a_task.create (mk_message (Printf.sprintf "w%d" i)) in
+    let task = { task with id = Printf.sprintf "working_%d" i } in
+    let task = match A2a_task.transition task Working with
+      | Ok t -> t | Error _ -> task in
+    A2a_task.store_task store task
+  done;
+  (* Store one more -- all are active so no eviction possible *)
+  let extra = A2a_task.create (mk_message "extra") in
+  let extra = { extra with id = "extra" } in
+  A2a_task.store_task store extra;
+  (* All 4 should be present (store exceeds max_tasks because no terminals to evict) *)
+  Alcotest.(check int) "all kept" 4
+    (List.length (A2a_task.list_tasks store))
+
 (* ── A2A Server tests ─────────────────────────────────────────── *)
 
 let test_well_known_agent_json () =
@@ -314,6 +363,8 @@ let () =
     ];
     "store", [
       Alcotest.test_case "CRUD" `Quick test_store;
+      Alcotest.test_case "eviction" `Quick test_store_eviction;
+      Alcotest.test_case "eviction preserves active" `Quick test_store_eviction_preserves_active;
     ];
     "server", [
       Alcotest.test_case "well-known" `Quick test_well_known_agent_json;
