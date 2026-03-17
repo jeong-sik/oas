@@ -45,7 +45,11 @@ type sdk_error_poly = [
   | `Serialization of string
   | `Io of string
   | `Orchestration of string
-  | `A2a of string
+  | `A2a_task_not_found of string
+  | `A2a_invalid_transition of string * string * string
+  | `A2a_message_send_failed of string * string
+  | `A2a_protocol_error of string
+  | `A2a_store_capacity_exceeded of int * int
   | `Internal of string
 ]
 
@@ -79,7 +83,11 @@ let of_sdk_error (err : Error.sdk_error) : sdk_error_poly =
   | Error.Serialization e -> `Serialization (Error.to_string (Error.Serialization e))
   | Error.Io e -> `Io (Error.to_string (Error.Io e))
   | Error.Orchestration e -> `Orchestration (Error.to_string (Error.Orchestration e))
-  | Error.A2a s -> `A2a s
+  | Error.A2a (Error.TaskNotFound r) -> `A2a_task_not_found r.task_id
+  | Error.A2a (Error.InvalidTransition r) -> `A2a_invalid_transition (r.task_id, r.from_state, r.to_state)
+  | Error.A2a (Error.MessageSendFailed r) -> `A2a_message_send_failed (r.task_id, r.detail)
+  | Error.A2a (Error.ProtocolError r) -> `A2a_protocol_error r.detail
+  | Error.A2a (Error.StoreCapacityExceeded r) -> `A2a_store_capacity_exceeded (r.current, r.max)
   | Error.Internal s -> `Internal s
 
 (* ── Conversion back to Error.sdk_error ─────────────────── *)
@@ -127,7 +135,14 @@ let to_sdk_error (err : sdk_error_poly) : Error.sdk_error =
   | `Serialization detail -> Error.Serialization (JsonParseError { detail })
   | `Io detail -> Error.Io (ValidationFailed { detail })
   | `Orchestration detail -> Error.Internal detail
-  | `A2a s -> Error.A2a s
+  | `A2a_task_not_found task_id -> Error.a2a_task_not_found task_id
+  | `A2a_invalid_transition (task_id, from_state, to_state) ->
+    Error.a2a_invalid_transition ~task_id ~from_state ~to_state
+  | `A2a_message_send_failed (task_id, detail) ->
+    Error.a2a_message_send_failed ~task_id ~detail
+  | `A2a_protocol_error detail -> Error.a2a_protocol detail
+  | `A2a_store_capacity_exceeded (current, max) ->
+    Error.a2a_store_capacity_exceeded ~current ~max
   | `Internal s -> Error.Internal s
 
 (* ── Error with context (moonpool Exn_bt.t inspired) ────── *)

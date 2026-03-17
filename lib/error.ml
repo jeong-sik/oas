@@ -50,6 +50,14 @@ type orchestration_error =
   | TaskTimeout of { task_id: string }
   | DiscoveryFailed of { url: string; detail: string }
 
+(** A2A protocol errors. *)
+type a2a_error =
+  | TaskNotFound of { task_id: string }
+  | InvalidTransition of { task_id: string; from_state: string; to_state: string }
+  | MessageSendFailed of { task_id: string; detail: string }
+  | ProtocolError of { detail: string }
+  | StoreCapacityExceeded of { current: int; max: int }
+
 (** Top-level SDK error. *)
 type sdk_error =
   | Api of api_error
@@ -59,7 +67,7 @@ type sdk_error =
   | Serialization of serialization_error
   | Io of io_error
   | Orchestration of orchestration_error
-  | A2a of string
+  | A2a of a2a_error
   | Internal of string
 
 (* ── Human-readable messages ──────────────────────────────────────── *)
@@ -116,6 +124,18 @@ let orchestration_error_to_string = function
   | DiscoveryFailed r ->
     Printf.sprintf "Agent discovery failed for %s: %s" r.url r.detail
 
+let a2a_error_to_string = function
+  | TaskNotFound r ->
+    Printf.sprintf "A2A task not found: %s" r.task_id
+  | InvalidTransition r ->
+    Printf.sprintf "A2A invalid transition: %s -> %s (task %s)" r.from_state r.to_state r.task_id
+  | MessageSendFailed r ->
+    Printf.sprintf "A2A message send failed for task %s: %s" r.task_id r.detail
+  | ProtocolError r ->
+    Printf.sprintf "A2A protocol error: %s" r.detail
+  | StoreCapacityExceeded r ->
+    Printf.sprintf "A2A store capacity exceeded: %d/%d" r.current r.max
+
 let to_string = function
   | Api err -> Retry.error_message err
   | Agent err -> agent_error_to_string err
@@ -124,7 +144,7 @@ let to_string = function
   | Serialization err -> serialization_error_to_string err
   | Io err -> io_error_to_string err
   | Orchestration err -> orchestration_error_to_string err
-  | A2a msg -> Printf.sprintf "A2A error: %s" msg
+  | A2a err -> a2a_error_to_string err
   | Internal msg -> Printf.sprintf "Internal error: %s" msg
 
 (* ── Retryability ─────────────────────────────────────────────────── *)
@@ -135,3 +155,14 @@ let is_retryable = function
   | Mcp _ -> true
   | Agent _ | Config _ | Serialization _ | Io _ | Orchestration _
   | A2a _ | Internal _ -> false
+
+(* ── A2A convenience constructors ────────────────────────────────── *)
+
+let a2a_protocol detail = A2a (ProtocolError { detail })
+let a2a_task_not_found task_id = A2a (TaskNotFound { task_id })
+let a2a_invalid_transition ~task_id ~from_state ~to_state =
+  A2a (InvalidTransition { task_id; from_state; to_state })
+let a2a_message_send_failed ~task_id ~detail =
+  A2a (MessageSendFailed { task_id; detail })
+let a2a_store_capacity_exceeded ~current ~max =
+  A2a (StoreCapacityExceeded { current; max })

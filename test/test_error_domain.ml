@@ -119,7 +119,11 @@ let test_all_variants_convert () =
     `Serialization "x";
     `Io "x";
     `Orchestration "x";
-    `A2a "x";
+    `A2a_task_not_found "t1";
+    `A2a_invalid_transition ("t1", "working", "submitted");
+    `A2a_message_send_failed ("t1", "timeout");
+    `A2a_protocol_error "bad request";
+    `A2a_store_capacity_exceeded (100, 100);
     `Internal "x";
   ] in
   List.iter (fun poly ->
