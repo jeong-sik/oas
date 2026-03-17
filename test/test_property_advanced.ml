@@ -287,7 +287,7 @@ let test_lifecycle_show_non_empty =
     ~name:"show_lifecycle_status is never empty"
     (QCheck.make lifecycle_status_gen)
     (fun status ->
-       String.length (Agent.show_lifecycle_status status) > 0)
+       String.length (Agent_lifecycle.show_lifecycle_status status) > 0)
 
 (* ── Token Budget Properties ─────────────────────────────────── *)
 
@@ -302,7 +302,7 @@ let test_token_budget_within_limit =
          max_input_tokens = Some limit } in
        let usage = { empty_usage with
          total_input_tokens = limit - 1 } in
-       Agent.check_token_budget config usage = None)
+       Agent_turn.check_token_budget config usage = None)
 
 let test_token_budget_exceeds_limit =
   QCheck.Test.make ~count:200
@@ -315,7 +315,7 @@ let test_token_budget_exceeds_limit =
          max_input_tokens = Some limit } in
        let usage = { empty_usage with
          total_input_tokens = limit + 1 } in
-       Agent.check_token_budget config usage <> None)
+       Agent_turn.check_token_budget config usage <> None)
 
 (* ── Capabilities Properties ─────────────────────────────────── *)
 

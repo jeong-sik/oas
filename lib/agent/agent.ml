@@ -10,16 +10,6 @@ open Types
 include Agent_types
 open Agent_trace
 
-let ( let* ) = Result.bind
-
-let execute_tools agent tool_uses =
-  Agent_tools.execute_tools
-    ~context:agent.context ~tools:(Tool_set.to_list agent.tools)
-    ~hooks:agent.options.hooks ~event_bus:agent.options.event_bus
-    ~tracer:agent.options.tracer ~agent_name:agent.state.config.name
-    ~turn_count:agent.state.turn_count ~approval:agent.options.approval
-    tool_uses
-
 (* ── Unified turn execution (delegated to Pipeline) ──────────── *)
 
 type api_strategy = Pipeline.api_strategy =

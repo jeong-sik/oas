@@ -176,7 +176,7 @@ let build b =
     max_total_tokens = b.max_total_tokens;
   } in
   let options = {
-    Agent.base_url = b.base_url;
+    Agent_types.base_url = b.base_url;
     provider = b.provider;
     cascade = b.cascade;
     max_idle_turns = b.max_idle_turns;
