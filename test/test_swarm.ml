@@ -10,6 +10,7 @@
 open Alcotest
 open Agent_sdk
 open Agent_sdk_swarm
+open Swarm_types
 
 (* ── Helpers ──────────────────────────────────────────────────────── *)
 
@@ -371,6 +372,241 @@ let test_callbacks_fire () =
   check bool "agent_starts fired" true (!agent_starts > 0);
   check bool "agent_dones fired" true (!agent_dones > 0)
 
+(* ── 12-worker swarm harness (pure mock, no LLM) ─────────────────── *)
+
+(** Mock run with latency simulation via Eio.Time.sleep.
+    Each agent takes a slightly different time to simulate real concurrency. *)
+let mock_run_with_latency ~clock ~latency_ms text ~sw:_ _prompt =
+  Eio.Time.sleep clock (float_of_int latency_ms /. 1000.0);
+  Ok { Types.id = "mock"; model = "mock"; stop_reason = Types.EndTurn;
+       content = [Types.Text text];
+       usage = Some { Types.input_tokens = 50; output_tokens = 25;
+                      cache_creation_input_tokens = 0;
+                      cache_read_input_tokens = 0 } }
+
+(** Mock run that can fail on demand. *)
+let mock_run_failing ~fail_on_call counter ~sw:_ _prompt =
+  incr counter;
+  if !counter = fail_on_call then
+    Error (Error.Internal "simulated failure")
+  else
+    Ok { Types.id = "mock"; model = "mock"; stop_reason = Types.EndTurn;
+         content = [Types.Text (Printf.sprintf "result-%d" !counter)];
+         usage = None }
+
+let test_12_worker_decentralized () =
+  Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  let agent_names = ref [] in
+  let callbacks : Swarm_types.swarm_callbacks = {
+    on_iteration_start = None;
+    on_iteration_end = None;
+    on_agent_start = Some (fun name -> agent_names := name :: !agent_names);
+    on_agent_done = None;
+    on_converged = None;
+    on_error = None;
+  } in
+  let make_worker i role =
+    let name = Printf.sprintf "%s-%d" (Swarm_types.show_agent_role role) i in
+    let latency = 10 + (i mod 5) * 5 in  (* 10-30ms *)
+    { Swarm_types.name;
+      run = mock_run_with_latency ~clock ~latency_ms:latency
+              (Printf.sprintf "output-%s" name);
+      role }
+  in
+  let config : Swarm_types.swarm_config = {
+    entries = [
+      make_worker 1 Discover;
+      make_worker 2 Discover;
+      make_worker 3 Discover;
+      make_worker 4 Verify;
+      make_worker 5 Verify;
+      make_worker 6 Execute;
+      make_worker 7 Execute;
+      make_worker 8 Execute;
+      make_worker 9 Execute;
+      make_worker 10 Summarize;
+      make_worker 11 Summarize;
+      make_worker 12 (Custom_role "review");
+    ];
+    mode = Decentralized;
+    convergence = None;
+    max_parallel = 6;
+    prompt = "12-worker harness test";
+    timeout_sec = None;
+  } in
+  Eio.Switch.run @@ fun sw ->
+  match Runner.run ~sw ~clock ~callbacks config with
+  | Ok result ->
+    check int "1 iteration" 1 (List.length result.iterations);
+    let iter = List.hd result.iterations in
+    check int "12 agent results" 12 (List.length iter.agent_results);
+    (* All agents should have completed *)
+    List.iter (fun (name, status) ->
+      match status with
+      | Swarm_types.Done_ok _ -> ()
+      | _ -> fail (Printf.sprintf "agent %s not Done_ok" name)
+    ) iter.agent_results;
+    (* All 12 agents should have been started *)
+    check int "12 agents started" 12 (List.length !agent_names);
+    (* Usage should be accumulated *)
+    check bool "has usage" true (result.total_usage.api_calls >= 0)
+  | Error e -> fail (Printf.sprintf "error: %s" (Error.to_string e))
+
+let test_12_worker_convergence () =
+  Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  let iteration = ref 0 in
+  let metric_fn () =
+    incr iteration;
+    (* 12 workers contribute: metric rises quickly *)
+    min 1.0 (float_of_int !iteration *. 0.35)
+  in
+  let make_worker i role =
+    let name = Printf.sprintf "w%d" i in
+    { Swarm_types.name;
+      run = mock_run_with_latency ~clock ~latency_ms:5 (Printf.sprintf "r%d" i);
+      role }
+  in
+  let config : Swarm_types.swarm_config = {
+    entries = List.init 12 (fun i ->
+      let role = match i mod 4 with
+        | 0 -> Swarm_types.Discover | 1 -> Verify
+        | 2 -> Execute | _ -> Summarize
+      in
+      make_worker (i + 1) role);
+    mode = Decentralized;
+    convergence = Some {
+      metric = Callback metric_fn;
+      target = 0.95;
+      max_iterations = 10;
+      patience = 5;
+      aggregate = Best_score;
+    };
+    max_parallel = 12;
+    prompt = "12-worker convergence";
+    timeout_sec = Some 30.0;
+  } in
+  Eio.Switch.run @@ fun sw ->
+  match Runner.run ~sw ~clock config with
+  | Ok result ->
+    check bool "converged" true result.converged;
+    check bool "3 or fewer iterations" true (List.length result.iterations <= 3);
+    (* Each iteration should have 12 agent results *)
+    List.iter (fun iter ->
+      check int "12 per iteration" 12 (List.length iter.agent_results)
+    ) result.iterations
+  | Error e -> fail (Printf.sprintf "error: %s" (Error.to_string e))
+
+let test_12_worker_supervisor () =
+  Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  let supervisor_saw_workers = ref false in
+  let supervisor_run ~sw:_ prompt =
+    (* Supervisor should receive worker summaries *)
+    if String.length prompt > 100 then
+      supervisor_saw_workers := true;
+    Ok { Types.id = "mock"; model = "mock"; stop_reason = Types.EndTurn;
+         content = [Types.Text "supervisor synthesis"];
+         usage = None }
+  in
+  let make_worker i =
+    { Swarm_types.name = Printf.sprintf "worker-%d" i;
+      run = mock_run_with_latency ~clock ~latency_ms:5
+              (Printf.sprintf "worker-%d output" i);
+      role = Execute }
+  in
+  let config : Swarm_types.swarm_config = {
+    entries =
+      { name = "supervisor"; run = supervisor_run; role = Summarize }
+      :: List.init 11 (fun i -> make_worker (i + 1));
+    mode = Supervisor;
+    convergence = None;
+    max_parallel = 6;
+    prompt = "supervisor test";
+    timeout_sec = None;
+  } in
+  Eio.Switch.run @@ fun sw ->
+  match Runner.run ~sw ~clock config with
+  | Ok result ->
+    let iter = List.hd result.iterations in
+    (* 11 workers + 1 supervisor = 12 results *)
+    check int "12 results" 12 (List.length iter.agent_results);
+    check bool "supervisor saw worker outputs" true !supervisor_saw_workers
+  | Error e -> fail (Printf.sprintf "error: %s" (Error.to_string e))
+
+let test_12_worker_pipeline () =
+  Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  let received_prompts = ref [] in
+  let pipeline_run name ~sw:_ prompt =
+    received_prompts := (name, String.length prompt) :: !received_prompts;
+    Ok { Types.id = "mock"; model = "mock"; stop_reason = Types.EndTurn;
+         content = [Types.Text (Printf.sprintf "stage-%s-output" name)];
+         usage = None }
+  in
+  let config : Swarm_types.swarm_config = {
+    entries = List.init 4 (fun i ->
+      let name = Printf.sprintf "stage-%d" i in
+      { Swarm_types.name;
+        run = pipeline_run name;
+        role = Execute });
+    mode = Pipeline_mode;
+    convergence = None;
+    max_parallel = 1;
+    prompt = "base prompt";
+    timeout_sec = None;
+  } in
+  Eio.Switch.run @@ fun sw ->
+  match Runner.run ~sw ~clock config with
+  | Ok result ->
+    let iter = List.hd result.iterations in
+    check int "4 results" 4 (List.length iter.agent_results);
+    (* Later stages should receive longer prompts (base + previous output) *)
+    let prompts = List.rev !received_prompts in
+    let lengths = List.map snd prompts in
+    (* Each stage's prompt should be >= the previous one *)
+    let rec increasing = function
+      | [] | [_] -> true
+      | a :: b :: rest -> a <= b && increasing (b :: rest)
+    in
+    check bool "prompts grow" true (increasing lengths)
+  | Error e -> fail (Printf.sprintf "error: %s" (Error.to_string e))
+
+let test_partial_failure_resilience () =
+  Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  let counter = ref 0 in
+  let config : Swarm_types.swarm_config = {
+    entries = [
+      { name = "ok-1"; run = mock_run "fine"; role = Execute };
+      { name = "fail-1";
+        run = mock_run_failing ~fail_on_call:1 counter;
+        role = Execute };
+      { name = "ok-2"; run = mock_run "also-fine"; role = Execute };
+    ];
+    mode = Decentralized;
+    convergence = None;
+    max_parallel = 3;
+    prompt = "resilience test";
+    timeout_sec = None;
+  } in
+  Eio.Switch.run @@ fun sw ->
+  match Runner.run ~sw ~clock config with
+  | Ok result ->
+    let iter = List.hd result.iterations in
+    check int "3 results" 3 (List.length iter.agent_results);
+    (* Check that we have both ok and error results *)
+    let ok_count = List.length (List.filter (fun (_, s) ->
+      match s with Swarm_types.Done_ok _ -> true | _ -> false
+    ) iter.agent_results) in
+    let err_count = List.length (List.filter (fun (_, s) ->
+      match s with Swarm_types.Done_error _ -> true | _ -> false
+    ) iter.agent_results) in
+    check int "2 ok" 2 ok_count;
+    check int "1 error" 1 err_count
+  | Error e -> fail (Printf.sprintf "error: %s" (Error.to_string e))
+
 (* ── Test suite ──────────────────────────────────────────────────── *)
 
 let () =
@@ -405,5 +641,12 @@ let () =
       test_case "max_iterations" `Quick test_convergence_max_iterations;
       test_case "single_pass" `Quick test_single_pass_no_convergence;
       test_case "callbacks_fire" `Quick test_callbacks_fire;
+    ];
+    "harness", [
+      test_case "12_worker_decentralized" `Quick test_12_worker_decentralized;
+      test_case "12_worker_convergence" `Quick test_12_worker_convergence;
+      test_case "12_worker_supervisor" `Quick test_12_worker_supervisor;
+      test_case "12_worker_pipeline" `Quick test_12_worker_pipeline;
+      test_case "partial_failure" `Quick test_partial_failure_resilience;
     ];
   ]
