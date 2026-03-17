@@ -80,11 +80,11 @@ let init_cmd name =
   Printf.printf "Run with: oas run --config %s/oas.json \"Hello\"\n" dir
 
 let init_term =
-  let name =
+  let project_name =
     let doc = "Name of the agent project to create." in
     Arg.(required & pos 0 (some string) None & info [] ~doc ~docv:"NAME")
   in
-  Term.(const init_cmd $ name)
+  Term.(const init_cmd $ project_name)
 
 let init_info =
   Cmd.info "init" ~doc:"Scaffold a new agent project"
