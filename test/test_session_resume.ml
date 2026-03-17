@@ -230,7 +230,7 @@ let test_resume_with_tools () =
   in
   let cp = make_checkpoint () in
   let agent = Agent.resume ~net ~checkpoint:cp ~tools:[tool] () in
-  Alcotest.(check int) "tool count" 1 (List.length (Agent.tools agent))
+  Alcotest.(check int) "tool count" 1 (Tool_set.size (Agent.tools agent))
 
 let test_resume_default_options () =
   with_net @@ fun net ->

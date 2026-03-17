@@ -22,7 +22,7 @@ type t = {
   cache_system_prompt: bool;
   max_input_tokens: int option;
   max_total_tokens: int option;
-  tools: Tool.t list;
+  tools: Tool_set.t;
   context: Context.t option;
   base_url: string;
   provider: Provider.config option;
@@ -63,7 +63,7 @@ let create ~net ~model =
     cache_system_prompt = default_config.cache_system_prompt;
     max_input_tokens = default_config.max_input_tokens;
     max_total_tokens = default_config.max_total_tokens;
-    tools = [];
+    tools = Tool_set.empty;
     context = None;
     base_url = Api.default_base_url;
     provider = None;
@@ -94,8 +94,8 @@ let with_top_p p b = { b with top_p = Some p }
 let with_top_k k b = { b with top_k = Some k }
 let with_min_p p b = { b with min_p = Some p }
 let with_enable_thinking enabled b = { b with enable_thinking = Some enabled }
-let with_tools tools b = { b with tools }
-let with_tool tool b = { b with tools = b.tools @ [tool] }
+let with_tools tools b = { b with tools = Tool_set.of_list tools }
+let with_tool tool b = { b with tools = Tool_set.merge b.tools (Tool_set.singleton tool) }
 let with_hooks hooks b = { b with hooks }
 let with_tracer tracer b = { b with tracer }
 let with_raw_trace raw_trace b = { b with raw_trace = Some raw_trace }
@@ -153,7 +153,7 @@ let with_fallback fallback b =
   { b with cascade = Some casc }
 
 let build b =
-  let tools = Contract.filter_tools b.contract b.tools in
+  let tools = Tool_set.of_list (Contract.filter_tools b.contract (Tool_set.to_list b.tools)) in
   let mcp_clients = Contract.filter_mcp_clients b.contract b.mcp_clients in
   let context = Contract.context_with_contract ?context:b.context b.contract in
   let config = {
@@ -194,7 +194,7 @@ let build b =
     description = b.description;
     periodic_callbacks = b.periodic_callbacks;
   } in
-  Agent.create ~net:b.net ~config ~tools ?context ~options ()
+  Agent.create ~net:b.net ~config ~tools:(Tool_set.to_list tools) ?context ~options ()
 
 let build_safe b =
   if b.max_turns <= 0 then
