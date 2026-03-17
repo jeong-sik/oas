@@ -111,8 +111,23 @@ let openai_messages_of_message (msg : message) : Yojson.Safe.t list =
       let text = Api_common.text_blocks_to_string msg.content in
       [`Assoc [("role", `String "system"); ("content", `String text)]]
   | Tool ->
-      let text = Api_common.text_blocks_to_string msg.content in
-      [`Assoc [("role", `String "user"); ("content", `String text)]]
+      (* Tool-role messages carry ToolResult blocks; emit proper OpenAI
+         "tool" role with tool_call_id so the model receives the result. *)
+      msg.content
+      |> List.filter_map (function
+             | ToolResult { tool_use_id; content; _ } ->
+                 Some (`Assoc [
+                   ("role", `String "tool");
+                   ("tool_call_id", `String tool_use_id);
+                   ("content", `String content);
+                 ])
+             | _ -> None)
+      |> (function
+          | [] ->
+              (* Fallback: no ToolResult blocks, emit as user message *)
+              let text = Api_common.text_blocks_to_string msg.content in
+              [`Assoc [("role", `String "user"); ("content", `String text)]]
+          | tool_msgs -> tool_msgs)
 
 let tool_choice_to_openai_json = function
   | Auto -> `String "auto"
