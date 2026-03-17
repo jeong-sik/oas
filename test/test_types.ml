@@ -152,7 +152,7 @@ let test_role_yojson_roundtrip () =
       Alcotest.(check string) "role roundtrip"
         (Types.show_role r) (Types.show_role decoded)
     | Error msg -> Alcotest.fail ("role_of_yojson: " ^ msg)
-  ) [Types.User; Types.Assistant]
+  ) [Types.System; Types.User; Types.Assistant; Types.Tool]
 
 let test_param_type_yojson_roundtrip () =
   let variants = [
@@ -236,6 +236,104 @@ let test_tool_choice_roundtrip_all () =
     | Error _ -> Alcotest.fail "tool_choice roundtrip failed"
   ) variants
 
+(* ── role_of_string ──────────────────────────────────────── *)
+
+let test_role_of_string () =
+  Alcotest.(check (option string)) "system" (Some "system")
+    (Option.map Types.role_to_string (Types.role_of_string "system"));
+  Alcotest.(check (option string)) "user" (Some "user")
+    (Option.map Types.role_to_string (Types.role_of_string "user"));
+  Alcotest.(check (option string)) "assistant" (Some "assistant")
+    (Option.map Types.role_to_string (Types.role_of_string "assistant"));
+  Alcotest.(check (option string)) "tool" (Some "tool")
+    (Option.map Types.role_to_string (Types.role_of_string "tool"));
+  Alcotest.(check bool) "unknown" true
+    (Types.role_of_string "unknown" = None)
+
+(* ── Convenience message constructors ──────────────────── *)
+
+let test_text_message () =
+  let m = Types.text_message Types.User "hello" in
+  Alcotest.(check string) "role" "user" (Types.role_to_string m.role);
+  (match m.content with
+   | [Types.Text "hello"] -> ()
+   | _ -> Alcotest.fail "expected single Text block")
+
+let test_system_msg () =
+  let m = Types.system_msg "system prompt" in
+  Alcotest.(check string) "role" "system" (Types.role_to_string m.role);
+  (match m.content with
+   | [Types.Text "system prompt"] -> ()
+   | _ -> Alcotest.fail "expected Text")
+
+let test_user_msg () =
+  let m = Types.user_msg "question" in
+  Alcotest.(check string) "role" "user" (Types.role_to_string m.role);
+  (match m.content with
+   | [Types.Text "question"] -> ()
+   | _ -> Alcotest.fail "expected Text")
+
+let test_assistant_msg () =
+  let m = Types.assistant_msg "answer" in
+  Alcotest.(check string) "role" "assistant" (Types.role_to_string m.role);
+  (match m.content with
+   | [Types.Text "answer"] -> ()
+   | _ -> Alcotest.fail "expected Text")
+
+let test_tool_result_msg () =
+  let m = Types.tool_result_msg ~tool_use_id:"tu1" ~content:"result" () in
+  Alcotest.(check string) "role" "tool" (Types.role_to_string m.role);
+  (match m.content with
+   | [Types.ToolResult { tool_use_id = "tu1"; content = "result"; is_error = false }] -> ()
+   | _ -> Alcotest.fail "expected ToolResult")
+
+let test_tool_result_msg_error () =
+  let m = Types.tool_result_msg ~tool_use_id:"tu2" ~content:"err" ~is_error:true () in
+  (match m.content with
+   | [Types.ToolResult { is_error = true; _ }] -> ()
+   | _ -> Alcotest.fail "expected error ToolResult")
+
+(* ── text_of_content / text_of_message ─────────────────── *)
+
+let test_text_of_content_text_only () =
+  let content = [Types.Text "hello"; Types.Text "world"] in
+  Alcotest.(check string) "joined" "hello\nworld" (Types.text_of_content content)
+
+let test_text_of_content_mixed () =
+  let content = [
+    Types.Text "start";
+    Types.Thinking { thinking_type = "sig"; content = "hmm" };
+    Types.ToolUse { id = "tu1"; name = "search"; input = `Null };
+    Types.Text "end";
+  ] in
+  Alcotest.(check string) "skips non-text" "start\nend" (Types.text_of_content content)
+
+let test_text_of_content_tool_result () =
+  let content = [
+    Types.ToolResult { tool_use_id = "tu1"; content = "result text"; is_error = false };
+  ] in
+  Alcotest.(check string) "includes tool result" "result text" (Types.text_of_content content)
+
+let test_text_of_content_empty () =
+  Alcotest.(check string) "empty" "" (Types.text_of_content [])
+
+let test_text_of_message () =
+  let m : Types.message = { role = Types.User; content = [Types.Text "hi"] } in
+  Alcotest.(check string) "text" "hi" (Types.text_of_message m)
+
+(* ── Audio content block show ──────────────────────────── *)
+
+let test_show_audio_block () =
+  let block = Types.Audio { media_type = "audio/wav"; data = "data"; source_type = "base64" } in
+  let s = Types.show_content_block block in
+  Alcotest.(check bool) "show non-empty" true (String.length s > 0)
+
+(* ── role System / Tool ────────────────────────────────── *)
+
+let test_role_system_tool_strings () =
+  Alcotest.(check string) "system" "system" (Types.role_to_string Types.System);
+  Alcotest.(check string) "tool" "tool" (Types.role_to_string Types.Tool)
+
 let () =
   Alcotest.run "Types" [
     "stop_reason", [
@@ -248,6 +346,8 @@ let () =
     ];
     "role", [
       Alcotest.test_case "role_to_string" `Quick test_role_to_string;
+      Alcotest.test_case "role_of_string" `Quick test_role_of_string;
+      Alcotest.test_case "system/tool strings" `Quick test_role_system_tool_strings;
     ];
     "param_type", [
       Alcotest.test_case "param_type_to_string" `Quick test_param_type_to_string;
@@ -281,5 +381,49 @@ let () =
       Alcotest.test_case "agent_config" `Quick test_show_agent_config;
       Alcotest.test_case "agent_state" `Quick test_show_agent_state;
       Alcotest.test_case "api_response" `Quick test_show_api_response;
+      Alcotest.test_case "audio block" `Quick test_show_audio_block;
+    ];
+    "message_constructors", [
+      Alcotest.test_case "text_message" `Quick test_text_message;
+      Alcotest.test_case "system_msg" `Quick test_system_msg;
+      Alcotest.test_case "user_msg" `Quick test_user_msg;
+      Alcotest.test_case "assistant_msg" `Quick test_assistant_msg;
+      Alcotest.test_case "tool_result_msg" `Quick test_tool_result_msg;
+      Alcotest.test_case "tool_result_msg error" `Quick test_tool_result_msg_error;
+    ];
+    "tool_schema_yojson", [
+      Alcotest.test_case "roundtrip" `Quick (fun () ->
+        let schema : Types.tool_schema = {
+          name = "calc"; description = "Calculate";
+          parameters = [
+            { name = "expr"; description = "Expression";
+              param_type = Types.String; required = true };
+            { name = "precision"; description = "Decimal places";
+              param_type = Types.Integer; required = false };
+          ];
+        } in
+        let json = Types.tool_schema_to_yojson schema in
+        match Types.tool_schema_of_yojson json with
+        | Ok decoded ->
+          Alcotest.(check string) "name" "calc" decoded.name;
+          Alcotest.(check int) "params" 2 (List.length decoded.parameters)
+        | Error msg -> Alcotest.fail ("tool_schema_of_yojson: " ^ msg));
+      Alcotest.test_case "tool_param roundtrip" `Quick (fun () ->
+        let param : Types.tool_param = {
+          name = "x"; description = "Value";
+          param_type = Types.Number; required = true; } in
+        let json = Types.tool_param_to_yojson param in
+        match Types.tool_param_of_yojson json with
+        | Ok decoded ->
+          Alcotest.(check string) "name" "x" decoded.name;
+          Alcotest.(check bool) "required" true decoded.required
+        | Error msg -> Alcotest.fail ("tool_param_of_yojson: " ^ msg));
+    ];
+    "text_extraction", [
+      Alcotest.test_case "text only" `Quick test_text_of_content_text_only;
+      Alcotest.test_case "mixed" `Quick test_text_of_content_mixed;
+      Alcotest.test_case "tool result" `Quick test_text_of_content_tool_result;
+      Alcotest.test_case "empty" `Quick test_text_of_content_empty;
+      Alcotest.test_case "text_of_message" `Quick test_text_of_message;
     ];
   ]

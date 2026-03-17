@@ -232,6 +232,242 @@ let test_make_tool_results () =
     Alcotest.(check bool) "not error" false is_error
   | _ -> Alcotest.fail "expected ToolResult"
 
+(* ── prepare_tools with tool_filter_override ─────────────── *)
+
+let test_prepare_turn_filter_override () =
+  let tool_a = Tool.create ~name:"a" ~description:"A" ~parameters:[]
+    (fun _ -> Ok { Types.content = "" }) in
+  let tool_b = Tool.create ~name:"b" ~description:"B" ~parameters:[]
+    (fun _ -> Ok { Types.content = "" }) in
+  let turn_params = {
+    Hooks.default_turn_params with
+    tool_filter_override = Some (Guardrails.DenyList ["b"]);
+  } in
+  let prep = Agent_turn.prepare_turn
+    ~guardrails:Guardrails.default
+    ~tools:(Tool_set.of_list [tool_a; tool_b])
+    ~messages:[]
+    ~context_reducer:None
+    ~turn_params
+  in
+  let count = match prep.tools_json with Some l -> List.length l | None -> 0 in
+  Alcotest.(check int) "override filters b" 1 count
+
+(* ── accumulate_usage: no provider ──────────────────────── *)
+
+let test_accumulate_usage_no_provider () =
+  let current = Types.empty_usage in
+  let response_usage : Types.api_usage = {
+    input_tokens = 200; output_tokens = 100;
+    cache_creation_input_tokens = 10; cache_read_input_tokens = 5;
+  } in
+  let result = Agent_turn.accumulate_usage
+    ~current_usage:current ~provider:None
+    ~response_usage:(Some response_usage)
+  in
+  Alcotest.(check int) "input" 200 result.total_input_tokens;
+  Alcotest.(check int) "output" 100 result.total_output_tokens;
+  Alcotest.(check int) "cache_create" 10 result.total_cache_creation_input_tokens;
+  Alcotest.(check int) "cache_read" 5 result.total_cache_read_input_tokens
+
+(* ── accumulate_usage: cumulative ───────────────────────── *)
+
+let test_accumulate_usage_cumulative () =
+  let current = {
+    Types.empty_usage with
+    total_input_tokens = 100;
+    total_output_tokens = 50;
+    api_calls = 1;
+  } in
+  let response_usage : Types.api_usage = {
+    input_tokens = 200; output_tokens = 100;
+    cache_creation_input_tokens = 0; cache_read_input_tokens = 0;
+  } in
+  let result = Agent_turn.accumulate_usage
+    ~current_usage:current ~provider:None
+    ~response_usage:(Some response_usage)
+  in
+  Alcotest.(check int) "cumulative input" 300 result.total_input_tokens;
+  Alcotest.(check int) "cumulative output" 150 result.total_output_tokens
+
+(* ── filter_valid_messages: alternating roles ───────────── *)
+
+let test_filter_valid_alternating () =
+  let messages = [
+    { Types.role = Types.User; content = [Types.Text "u1"] };
+    { Types.role = Types.Assistant; content = [Types.Text "a1"] };
+  ] in
+  let extra = [
+    { Types.role = Types.User; content = [Types.Text "u2"] };
+    { Types.role = Types.Assistant; content = [Types.Text "a2"] };
+  ] in
+  let result = Agent_turn.filter_valid_messages ~messages extra in
+  Alcotest.(check int) "all pass" 2 (List.length result)
+
+let test_filter_valid_all_same_role () =
+  let messages = [
+    { Types.role = Types.Assistant; content = [Types.Text "a1"] };
+  ] in
+  let extra = [
+    { Types.role = Types.Assistant; content = [Types.Text "a2"] };
+    { Types.role = Types.Assistant; content = [Types.Text "a3"] };
+  ] in
+  let result = Agent_turn.filter_valid_messages ~messages extra in
+  Alcotest.(check int) "all filtered" 0 (List.length result)
+
+(* ── idle detection: multiple tools ─────────────────────── *)
+
+let test_idle_multiple_tools () =
+  let tools = [
+    make_tool_use "search" {|{"q":"a"}|};
+    make_tool_use "calc" {|{"x":1}|};
+  ] in
+  let r1 = Agent_turn.update_idle_detection
+    ~idle_state:{ last_tool_calls = None; consecutive_idle_turns = 0 }
+    ~tool_uses:tools
+  in
+  Alcotest.(check bool) "first not idle" false r1.is_idle;
+  let r2 = Agent_turn.update_idle_detection
+    ~idle_state:r1.new_state ~tool_uses:tools
+  in
+  Alcotest.(check bool) "same multiple idle" true r2.is_idle
+
+let test_idle_non_tool_use_ignored () =
+  let tool_uses = [
+    Types.Text "not a tool";
+    make_tool_use "search" {|{"q":"test"}|};
+  ] in
+  let r1 = Agent_turn.update_idle_detection
+    ~idle_state:{ last_tool_calls = None; consecutive_idle_turns = 0 }
+    ~tool_uses
+  in
+  Alcotest.(check bool) "first not idle" false r1.is_idle
+
+(* ── check_token_budget: no limits ──────────────────────── *)
+
+let test_token_budget_no_limits () =
+  let config = Types.default_config in
+  let usage = { Types.empty_usage with
+    total_input_tokens = 999999;
+    total_output_tokens = 999999;
+  } in
+  Alcotest.(check (option reject)) "no limits" None
+    (Agent_turn.check_token_budget config usage)
+
+let test_token_budget_input_priority_over_total () =
+  let config = { Types.default_config with
+    max_input_tokens = Some 100;
+    max_total_tokens = Some 200;
+  } in
+  let usage = {
+    Types.empty_usage with
+    total_input_tokens = 150;
+    total_output_tokens = 50;
+  } in
+  match Agent_turn.check_token_budget config usage with
+  | Some (Error.Agent (TokenBudgetExceeded { kind; _ })) ->
+    Alcotest.(check string) "input takes priority" "Input" kind
+  | _ -> Alcotest.fail "expected input budget error"
+
+let test_token_budget_total_within () =
+  let config = { Types.default_config with max_total_tokens = Some 500 } in
+  let usage = {
+    Types.empty_usage with
+    total_input_tokens = 200;
+    total_output_tokens = 200;
+  } in
+  Alcotest.(check (option reject)) "total within" None
+    (Agent_turn.check_token_budget config usage)
+
+(* ── apply_context_injection ─────────────────────────────── *)
+
+let test_apply_context_injection_no_injector () =
+  let context = Context.create () in
+  let messages = [{ Types.role = Types.User; content = [Types.Text "hi"] }] in
+  let tool_uses = [make_tool_use "search" {|{"q":"test"}|}] in
+  let results = [("t1", "result", false)] in
+  let injector ~tool_name:_ ~input:_ ~output:_ = None in
+  let new_msgs = Agent_turn.apply_context_injection
+    ~context ~messages ~injector ~tool_uses ~results
+  in
+  Alcotest.(check int) "unchanged" 1 (List.length new_msgs)
+
+let test_apply_context_injection_with_context_update () =
+  let context = Context.create () in
+  let messages = [{ Types.role = Types.User; content = [Types.Text "hi"] }] in
+  let tool_uses = [make_tool_use "search" {|{"q":"test"}|}] in
+  let results = [("t1", "found it", false)] in
+  let injector ~tool_name:_ ~input:_ ~output:_ =
+    Some {
+      Hooks.context_updates = [("last_result", `String "found it")];
+      extra_messages = [];
+    }
+  in
+  let _new_msgs = Agent_turn.apply_context_injection
+    ~context ~messages ~injector ~tool_uses ~results
+  in
+  (* Check context was updated *)
+  (match Context.get context "last_result" with
+   | Some (`String "found it") -> ()
+   | _ -> Alcotest.fail "expected context update")
+
+let test_apply_context_injection_with_extra_messages () =
+  let context = Context.create () in
+  let messages = [
+    { Types.role = Types.User; content = [Types.Text "hi"] };
+  ] in
+  let tool_uses = [make_tool_use "search" {|{"q":"test"}|}] in
+  let results = [("t1", "result", false)] in
+  let injector ~tool_name:_ ~input:_ ~output:_ =
+    Some {
+      Hooks.context_updates = [];
+      extra_messages = [
+        { Types.role = Types.Assistant; content = [Types.Text "injected"] };
+      ];
+    }
+  in
+  let new_msgs = Agent_turn.apply_context_injection
+    ~context ~messages ~injector ~tool_uses ~results
+  in
+  Alcotest.(check int) "message added" 2 (List.length new_msgs)
+
+let test_apply_context_injection_exception_handled () =
+  let context = Context.create () in
+  let messages = [{ Types.role = Types.User; content = [Types.Text "hi"] }] in
+  let tool_uses = [make_tool_use "search" {|{"q":"test"}|}] in
+  let results = [("t1", "result", false)] in
+  let injector ~tool_name:_ ~input:_ ~output:_ =
+    failwith "injector crashed"
+  in
+  (* Should not raise - exception is caught internally *)
+  let new_msgs = Agent_turn.apply_context_injection
+    ~context ~messages ~injector ~tool_uses ~results
+  in
+  Alcotest.(check int) "unchanged on error" 1 (List.length new_msgs)
+
+(* ── resolve_turn_params ──────────────────────────────────── *)
+
+let test_resolve_turn_params_no_hook () =
+  let hooks = Hooks.empty in
+  let invoke_hook ~hook_name:_ _h _input = Hooks.Continue in
+  let params = Agent_turn.resolve_turn_params ~hooks ~messages:[] ~invoke_hook in
+  Alcotest.(check (option reject)) "default temperature" None params.temperature
+
+let test_resolve_turn_params_with_hook () =
+  let custom_params = {
+    Hooks.default_turn_params with
+    temperature = Some 0.5;
+  } in
+  let hook _input = Hooks.AdjustParams custom_params in
+  let hooks = { Hooks.empty with before_turn_params = Some hook } in
+  let invoke_hook ~hook_name:_ h input =
+    match h with
+    | Some f -> f input
+    | None -> Hooks.Continue
+  in
+  let params = Agent_turn.resolve_turn_params ~hooks ~messages:[] ~invoke_hook in
+  Alcotest.(check (option (float 0.01))) "custom temp" (Some 0.5) params.temperature
+
 (* ── Test runner ────────────────────────────────────────── *)
 
 let () =
@@ -240,6 +476,7 @@ let () =
       Alcotest.test_case "empty tools" `Quick test_prepare_turn_empty_tools;
       Alcotest.test_case "with tools" `Quick test_prepare_turn_with_tools;
       Alcotest.test_case "guardrails filter" `Quick test_prepare_turn_with_guardrails_filter;
+      Alcotest.test_case "filter override" `Quick test_prepare_turn_filter_override;
     ];
     "prepare_messages", [
       Alcotest.test_case "no reducer" `Quick test_prepare_messages_no_reducer;
@@ -249,22 +486,41 @@ let () =
       Alcotest.test_case "with response" `Quick test_accumulate_usage_with_response;
       Alcotest.test_case "none response" `Quick test_accumulate_usage_none_response;
       Alcotest.test_case "local pricing" `Quick test_accumulate_usage_local_pricing;
+      Alcotest.test_case "no provider" `Quick test_accumulate_usage_no_provider;
+      Alcotest.test_case "cumulative" `Quick test_accumulate_usage_cumulative;
     ];
     "idle_detection", [
       Alcotest.test_case "first call" `Quick test_idle_first_call;
       Alcotest.test_case "same calls" `Quick test_idle_same_calls;
       Alcotest.test_case "different calls" `Quick test_idle_different_calls;
+      Alcotest.test_case "multiple tools" `Quick test_idle_multiple_tools;
+      Alcotest.test_case "non-tool ignored" `Quick test_idle_non_tool_use_ignored;
     ];
     "filter_valid_messages", [
       Alcotest.test_case "empty base" `Quick test_filter_valid_empty;
       Alcotest.test_case "same-role adjacency" `Quick test_filter_valid_same_role_adjacency;
+      Alcotest.test_case "alternating" `Quick test_filter_valid_alternating;
+      Alcotest.test_case "all same role" `Quick test_filter_valid_all_same_role;
     ];
     "check_token_budget", [
       Alcotest.test_case "within budget" `Quick test_token_budget_within;
       Alcotest.test_case "input exceeded" `Quick test_token_budget_exceeded;
       Alcotest.test_case "total exceeded" `Quick test_token_budget_total_exceeded;
+      Alcotest.test_case "no limits" `Quick test_token_budget_no_limits;
+      Alcotest.test_case "input priority" `Quick test_token_budget_input_priority_over_total;
+      Alcotest.test_case "total within" `Quick test_token_budget_total_within;
     ];
     "make_tool_results", [
       Alcotest.test_case "tool results" `Quick test_make_tool_results;
+    ];
+    "apply_context_injection", [
+      Alcotest.test_case "no injector" `Quick test_apply_context_injection_no_injector;
+      Alcotest.test_case "context update" `Quick test_apply_context_injection_with_context_update;
+      Alcotest.test_case "extra messages" `Quick test_apply_context_injection_with_extra_messages;
+      Alcotest.test_case "exception handled" `Quick test_apply_context_injection_exception_handled;
+    ];
+    "resolve_turn_params", [
+      Alcotest.test_case "no hook" `Quick test_resolve_turn_params_no_hook;
+      Alcotest.test_case "with hook" `Quick test_resolve_turn_params_with_hook;
     ];
   ]

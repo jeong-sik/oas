@@ -109,6 +109,70 @@ let test_load_from_dir_missing () =
   | Error _ -> ()  (* expected *)
   | Ok _ -> Alcotest.fail "should fail on missing dir"
 
+(* ── JSON with rich skill ──────────────────────────────── *)
+
+let test_json_roundtrip_rich_skill () =
+  let md = "---\nname: complex\ndescription: Complex skill\nmodel: gpt-4\nargument-hint: <file>\nallowed-tools: Read, Write\nsupporting-files: utils.py\nscope: project\n---\nDo the thing" in
+  let skill = Skill.of_markdown ~path:"/skills/complex.md" md in
+  let reg = Skill_registry.create () in
+  Skill_registry.register reg skill;
+  let json = Skill_registry.to_json reg in
+  match Skill_registry.of_json json with
+  | Ok reg2 ->
+    (match Skill_registry.find reg2 "complex" with
+     | Some s ->
+       Alcotest.(check string) "name" "complex" s.name;
+       Alcotest.(check (option string)) "desc" (Some "Complex skill") s.description;
+       Alcotest.(check (option string)) "model" (Some "gpt-4") s.model;
+       Alcotest.(check (option string)) "hint" (Some "<file>") s.argument_hint;
+       Alcotest.(check (list string)) "tools" ["Read"; "Write"] s.allowed_tools;
+       Alcotest.(check (list string)) "files" ["utils.py"] s.supporting_files
+     | None -> Alcotest.fail "skill not found")
+  | Error e -> Alcotest.fail (Error.to_string e)
+
+let test_json_skill_no_optional_fields () =
+  let reg = Skill_registry.create () in
+  Skill_registry.register reg (Skill.of_markdown "---\nname: bare\n---\nbody");
+  let json = Skill_registry.to_json reg in
+  match Skill_registry.of_json json with
+  | Ok reg2 ->
+    (match Skill_registry.find reg2 "bare" with
+     | Some s ->
+       Alcotest.(check (option string)) "no desc" None s.description;
+       Alcotest.(check (option string)) "no model" None s.model;
+       Alcotest.(check (option string)) "no hint" None s.argument_hint;
+       Alcotest.(check (list string)) "no tools" [] s.allowed_tools;
+       Alcotest.(check (list string)) "no files" [] s.supporting_files
+     | None -> Alcotest.fail "skill not found")
+  | Error e -> Alcotest.fail (Error.to_string e)
+
+let test_of_json_bad_skill () =
+  let json = `Assoc [
+    ("skills", `List [`String "not a skill"]);
+    ("count", `Int 1);
+  ] in
+  match Skill_registry.of_json json with
+  | Error _ -> ()
+  | Ok _ -> Alcotest.fail "expected error for bad skill json"
+
+let test_of_json_empty_skills () =
+  let json = `Assoc [
+    ("skills", `List []);
+    ("count", `Int 0);
+  ] in
+  match Skill_registry.of_json json with
+  | Ok reg ->
+    Alcotest.(check int) "empty" 0 (Skill_registry.count reg)
+  | Error e -> Alcotest.fail (Error.to_string e)
+
+(* ── remove nonexistent ───────────────────────────────── *)
+
+let test_remove_nonexistent () =
+  let reg = Skill_registry.create () in
+  Skill_registry.register reg skill_a;
+  Skill_registry.remove reg "nonexistent";
+  Alcotest.(check int) "still 1" 1 (Skill_registry.count reg)
+
 let () =
   let open Alcotest in
   run "Skill_registry" [
@@ -119,12 +183,17 @@ let () =
       test_case "register multiple" `Quick test_register_multiple;
       test_case "register overwrite" `Quick test_register_overwrite;
       test_case "remove" `Quick test_remove;
+      test_case "remove nonexistent" `Quick test_remove_nonexistent;
       test_case "list sorted" `Quick test_list_sorted;
     ];
     "json", [
       test_case "roundtrip" `Quick test_json_roundtrip;
       test_case "to_json structure" `Quick test_to_json_structure;
       test_case "of_json invalid" `Quick test_of_json_invalid;
+      test_case "rich skill roundtrip" `Quick test_json_roundtrip_rich_skill;
+      test_case "bare skill roundtrip" `Quick test_json_skill_no_optional_fields;
+      test_case "bad skill json" `Quick test_of_json_bad_skill;
+      test_case "empty skills" `Quick test_of_json_empty_skills;
     ];
     "load", [
       test_case "missing dir" `Quick test_load_from_dir_missing;
