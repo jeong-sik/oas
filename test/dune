@@ -326,3 +326,7 @@
 (test
  (name test_provider_intf)
  (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_swarm)
+ (libraries agent_sdk agent_sdk_swarm alcotest yojson eio eio_main unix))
