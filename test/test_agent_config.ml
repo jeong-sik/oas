@@ -140,6 +140,104 @@ let test_to_builder_no_tools () =
   | Ok _ -> ()
   | Error e -> fail (Error.to_string e)
 
+(* ── to_builder: model string mapping ─────────────────── *)
+
+let test_to_builder_all_models () =
+  Eio_main.run @@ fun env ->
+  let net = Eio.Stdenv.net env in
+  let models = [
+    "claude-opus-4-6"; "claude-sonnet-4-6"; "claude-opus-4-5";
+    "claude-sonnet-4"; "claude-haiku-4-5"; "claude-3-7-sonnet";
+    "custom-model";
+  ] in
+  List.iter (fun model_str ->
+    let cfg : Agent_config.agent_file_config = {
+      name = "m-test"; model = model_str;
+      system_prompt = None; max_tokens = None; max_turns = None;
+      tools = []; mcp_servers = [];
+    } in
+    let builder = Agent_config.to_builder ~net cfg in
+    match Builder.build_safe builder with
+    | Ok _ -> ()
+    | Error e -> fail (Printf.sprintf "model %s: %s" model_str (Error.to_string e))
+  ) models
+
+(* ── parse_mcp: edge cases ───────────────────────────── *)
+
+let test_mcp_defaults () =
+  let json = `Assoc [
+    ("name", `String "test");
+    ("mcp_servers", `List [
+      `Assoc [
+        ("command", `String "node");
+      ]
+    ]);
+  ] in
+  match Agent_config.of_json json with
+  | Ok cfg ->
+    check int "1 mcp" 1 (List.length cfg.mcp_servers);
+    let mcp = List.hd cfg.mcp_servers in
+    check string "name defaults to command" "node" mcp.name;
+    check (list string) "empty args" [] mcp.args;
+    check (list string) "empty env" [] mcp.env
+  | Error e -> fail (Error.to_string e)
+
+let test_mcp_with_env () =
+  let json = `Assoc [
+    ("name", `String "test");
+    ("mcp_servers", `List [
+      `Assoc [
+        ("command", `String "node");
+        ("args", `List [`String "server.js"]);
+        ("name", `String "my-server");
+        ("env", `List [`String "NODE_ENV=production"]);
+      ]
+    ]);
+  ] in
+  match Agent_config.of_json json with
+  | Ok cfg ->
+    let mcp = List.hd cfg.mcp_servers in
+    check (list string) "env" ["NODE_ENV=production"] mcp.env;
+    check (list string) "args" ["server.js"] mcp.args
+  | Error e -> fail (Error.to_string e)
+
+(* ── parse_tool: param type mapping ──────────────────── *)
+
+let test_tool_param_types () =
+  let json = `Assoc [
+    ("name", `String "multi");
+    ("tools", `List [
+      `Assoc [
+        ("name", `String "calc");
+        ("description", `String "Calculator");
+        ("parameters", `List [
+          `Assoc [("name", `String "x"); ("type", `String "number")];
+          `Assoc [("name", `String "op"); ("type", `String "string"); ("required", `Bool true)];
+          `Assoc [("name", `String "flag"); ("type", `String "boolean")];
+        ]);
+      ]
+    ]);
+  ] in
+  match Agent_config.of_json json with
+  | Ok cfg ->
+    let tool = List.hd cfg.tools in
+    check int "3 params" 3 (List.length tool.parameters)
+  | Error e -> fail (Error.to_string e)
+
+let test_tool_no_params () =
+  let json = `Assoc [
+    ("name", `String "test");
+    ("tools", `List [
+      `Assoc [("name", `String "simple")]
+    ]);
+  ] in
+  match Agent_config.of_json json with
+  | Ok cfg ->
+    let tool = List.hd cfg.tools in
+    check string "default desc" "" tool.description;
+    check int "no params" 0 (List.length tool.parameters)
+  | Error e -> fail (Error.to_string e)
+
 (* ── Suite ──────────────────────────────────────────────── *)
 
 let () =
@@ -148,6 +246,10 @@ let () =
       test_case "minimal" `Quick test_minimal_config;
       test_case "full" `Quick test_full_config;
       test_case "defaults" `Quick test_defaults;
+      test_case "mcp defaults" `Quick test_mcp_defaults;
+      test_case "mcp with env" `Quick test_mcp_with_env;
+      test_case "tool param types" `Quick test_tool_param_types;
+      test_case "tool no params" `Quick test_tool_no_params;
     ];
     "load", [
       test_case "nonexistent" `Quick test_load_nonexistent;
@@ -157,5 +259,6 @@ let () =
     "to_builder", [
       test_case "with tools" `Quick test_to_builder;
       test_case "no tools" `Quick test_to_builder_no_tools;
+      test_case "all models" `Quick test_to_builder_all_models;
     ];
   ]

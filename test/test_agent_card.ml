@@ -133,6 +133,129 @@ let test_of_json_invalid () =
   | Error _ -> ()
   | Ok _ -> Alcotest.fail "should fail on invalid json"
 
+(* ── capability_to/of_string roundtrip ──────────────────── *)
+
+let test_capability_roundtrip () =
+  let caps = [
+    Agent_card.Tools; Streaming; Thinking; StructuredOutput;
+    Handoff; Checkpoint; MCP; Elicitation; Custom_cap "my_cap";
+  ] in
+  List.iter (fun cap ->
+    let s = Agent_card.capability_to_string cap in
+    let decoded = Agent_card.capability_of_string s in
+    Alcotest.(check bool) ("roundtrip " ^ s) true (cap = decoded)
+  ) caps
+
+(* ── to_json/of_json with authentication ───────────────── *)
+
+let test_json_with_authentication () =
+  let card : Agent_card.agent_card = {
+    name = "auth-agent"; description = Some "with auth"; version = "1.0";
+    url = Some "http://agent.local:8080";
+    authentication = Some { schemes = ["bearer"; "api-key"]; credentials = Some "secret" };
+    capabilities = [Tools; Streaming];
+    tools = []; skills = []; supported_providers = ["anthropic"];
+    metadata = [("env", `String "test")];
+  } in
+  let json = Agent_card.to_json card in
+  match Agent_card.of_json json with
+  | Ok card2 ->
+    Alcotest.(check string) "name" "auth-agent" card2.name;
+    Alcotest.(check (option string)) "url" (Some "http://agent.local:8080") card2.url;
+    (match card2.authentication with
+     | Some auth ->
+       Alcotest.(check (list string)) "schemes" ["bearer"; "api-key"] auth.schemes;
+       Alcotest.(check (option string)) "creds" (Some "secret") auth.credentials
+     | None -> Alcotest.fail "expected auth");
+    Alcotest.(check int) "metadata" 1 (List.length card2.metadata)
+  | Error e -> Alcotest.fail (Error.to_string e)
+
+let test_json_no_auth_no_metadata () =
+  let card : Agent_card.agent_card = {
+    name = "simple"; description = None; version = "0.1";
+    url = None; authentication = None;
+    capabilities = []; tools = []; skills = [];
+    supported_providers = []; metadata = [];
+  } in
+  let json = Agent_card.to_json card in
+  match Agent_card.of_json json with
+  | Ok card2 ->
+    Alcotest.(check (option string)) "no desc" None card2.description;
+    Alcotest.(check (option string)) "no url" None card2.url;
+    Alcotest.(check bool) "no auth" true (Option.is_none card2.authentication);
+    Alcotest.(check (list string)) "no metadata" [] (List.map fst card2.metadata)
+  | Error e -> Alcotest.fail (Error.to_string e)
+
+let test_json_auth_no_credentials () =
+  let card : Agent_card.agent_card = {
+    name = "auth-noc"; description = None; version = "1.0";
+    url = None;
+    authentication = Some { schemes = ["oauth"]; credentials = None };
+    capabilities = []; tools = []; skills = [];
+    supported_providers = []; metadata = [];
+  } in
+  let json = Agent_card.to_json card in
+  match Agent_card.of_json json with
+  | Ok card2 ->
+    (match card2.authentication with
+     | Some auth ->
+       Alcotest.(check (option string)) "no creds" None auth.credentials
+     | None -> Alcotest.fail "expected auth")
+  | Error e -> Alcotest.fail (Error.to_string e)
+
+(* ── provider_name ──────────────────────────────────────── *)
+
+let test_provider_name_ollama () =
+  let cfg : Provider.config = {
+    provider = Ollama { base_url = "http://localhost:11434"; mode = Chat };
+    model_id = "qwen3.5"; api_key_env = "DUMMY"; } in
+  Alcotest.(check string) "ollama" "ollama" (Agent_card.provider_name cfg)
+
+let test_provider_name_local () =
+  let cfg : Provider.config = {
+    provider = Local { base_url = "http://localhost:8085" };
+    model_id = "local"; api_key_env = "DUMMY"; } in
+  Alcotest.(check string) "local" "local" (Agent_card.provider_name cfg)
+
+let test_provider_name_custom () =
+  let cfg : Provider.config = {
+    provider = Custom_registered { name = "myengine" };
+    model_id = "x"; api_key_env = "DUMMY"; } in
+  Alcotest.(check string) "custom" "myengine" (Agent_card.provider_name cfg)
+
+(* ── has_capability / has_skill ─────────────────────────── *)
+
+let test_has_capability_false () =
+  let card = Agent_card.of_info base_info in
+  Alcotest.(check bool) "no checkpoint" false
+    (Agent_card.has_capability card Checkpoint)
+
+let test_has_skill_false () =
+  let card = Agent_card.of_info base_info in
+  Alcotest.(check bool) "no skill" false
+    (Agent_card.has_skill card "nonexistent")
+
+(* ── to_json with skills ─────────────────────────────────── *)
+
+let test_to_json_with_skills () =
+  let card : Agent_card.agent_card = {
+    name = "skill-agent"; description = None; version = "1.0";
+    url = None; authentication = None;
+    capabilities = [];
+    tools = [];
+    skills = [
+      Skill.of_markdown "---\nname: greet\ndescription: Say hi\n---\nHello";
+      Skill.of_markdown "---\nname: deploy\n---\nDeploy";
+    ];
+    supported_providers = []; metadata = [];
+  } in
+  let json = Agent_card.to_json card in
+  let open Yojson.Safe.Util in
+  let skills = json |> member "skills" |> to_list in
+  Alcotest.(check int) "2 skills" 2 (List.length skills);
+  let first = List.hd skills in
+  Alcotest.(check string) "skill name" "greet" (first |> member "name" |> to_string)
+
 let () =
   let open Alcotest in
   run "Agent_card" [
@@ -152,10 +275,24 @@ let () =
       test_case "providers default" `Quick test_providers_default;
       test_case "providers custom" `Quick test_providers_custom;
       test_case "skills from registry" `Quick test_skills_from_registry;
+      test_case "has_capability false" `Quick test_has_capability_false;
+      test_case "has_skill false" `Quick test_has_skill_false;
+    ];
+    "capabilities", [
+      test_case "roundtrip all" `Quick test_capability_roundtrip;
     ];
     "json", [
       test_case "roundtrip" `Quick test_json_roundtrip;
       test_case "to_json structure" `Quick test_to_json_structure;
       test_case "of_json invalid" `Quick test_of_json_invalid;
+      test_case "with auth" `Quick test_json_with_authentication;
+      test_case "no auth no meta" `Quick test_json_no_auth_no_metadata;
+      test_case "auth no creds" `Quick test_json_auth_no_credentials;
+      test_case "with skills" `Quick test_to_json_with_skills;
+    ];
+    "provider_name", [
+      test_case "ollama" `Quick test_provider_name_ollama;
+      test_case "local" `Quick test_provider_name_local;
+      test_case "custom" `Quick test_provider_name_custom;
     ];
   ]

@@ -149,6 +149,129 @@ let test_extract_from_empty_content () =
       (String.length (Error.to_string msg) > 0)
   | Ok _ -> Alcotest.fail "expected error for empty content"
 
+(* --- Additional schema_to_tool_json coverage --- *)
+
+let test_schema_empty_params () =
+  let schema : unit Structured.schema = {
+    name = "no_params"; description = "No params tool";
+    params = [];
+    parse = (fun _ -> Ok ());
+  } in
+  let json = Structured.schema_to_tool_json schema in
+  let open Yojson.Safe.Util in
+  let props = json |> member "input_schema" |> member "properties" |> to_assoc in
+  Alcotest.(check int) "no properties" 0 (List.length props);
+  let required = json |> member "input_schema" |> member "required" |> to_list in
+  Alcotest.(check int) "no required" 0 (List.length required)
+
+let test_schema_all_param_types () =
+  let schema : unit Structured.schema = {
+    name = "all_types"; description = "All param types";
+    params = [
+      { name = "s"; description = "string"; param_type = String; required = true };
+      { name = "i"; description = "integer"; param_type = Integer; required = true };
+      { name = "n"; description = "number"; param_type = Number; required = false };
+      { name = "b"; description = "boolean"; param_type = Boolean; required = false };
+    ];
+    parse = (fun _ -> Ok ());
+  } in
+  let json = Structured.schema_to_tool_json schema in
+  let open Yojson.Safe.Util in
+  let props = json |> member "input_schema" |> member "properties" in
+  Alcotest.(check string) "string type" "string"
+    (props |> member "s" |> member "type" |> to_string);
+  Alcotest.(check string) "integer type" "integer"
+    (props |> member "i" |> member "type" |> to_string);
+  Alcotest.(check string) "number type" "number"
+    (props |> member "n" |> member "type" |> to_string);
+  Alcotest.(check string) "boolean type" "boolean"
+    (props |> member "b" |> member "type" |> to_string);
+  let required = json |> member "input_schema" |> member "required"
+    |> to_list |> List.map to_string in
+  Alcotest.(check int) "2 required" 2 (List.length required);
+  Alcotest.(check bool) "s required" true (List.mem "s" required);
+  Alcotest.(check bool) "i required" true (List.mem "i" required);
+  Alcotest.(check bool) "n not required" false (List.mem "n" required);
+  Alcotest.(check bool) "b not required" false (List.mem "b" required)
+
+let test_schema_description_preserved () =
+  let schema : unit Structured.schema = {
+    name = "desc_test"; description = "My detailed description";
+    params = [
+      { name = "x"; description = "field X description"; param_type = String; required = true };
+    ];
+    parse = (fun _ -> Ok ());
+  } in
+  let json = Structured.schema_to_tool_json schema in
+  let open Yojson.Safe.Util in
+  Alcotest.(check string) "schema desc" "My detailed description"
+    (json |> member "description" |> to_string);
+  let x_desc = json |> member "input_schema" |> member "properties"
+    |> member "x" |> member "description" |> to_string in
+  Alcotest.(check string) "param desc" "field X description" x_desc
+
+(* --- extract_tool_input error types --- *)
+
+let test_extract_parse_error_is_serialization () =
+  let input_json = `Assoc [("name", `Int 999)] in
+  let content = [
+    ToolUse { id = "tu_x"; name = "extract_person"; input = input_json };
+  ] in
+  match Structured.extract_tool_input ~schema:person_schema content with
+  | Error (Error.Serialization _) -> ()
+  | Error e -> Alcotest.failf "expected Serialization, got: %s" (Error.to_string e)
+  | Ok _ -> Alcotest.fail "expected parse error"
+
+let test_extract_missing_tool_is_internal () =
+  let content = [Text "no tools here"] in
+  match Structured.extract_tool_input ~schema:person_schema content with
+  | Error (Error.Internal s) ->
+    Alcotest.(check bool) "mentions schema name" true
+      (let tgt = "extract_person" in
+       let tlen = String.length tgt in
+       let slen = String.length s in
+       let rec has i = i + tlen <= slen && (String.sub s i tlen = tgt || has (i + 1)) in
+       has 0)
+  | Error e -> Alcotest.failf "expected Internal, got: %s" (Error.to_string e)
+  | Ok _ -> Alcotest.fail "expected error"
+
+(* --- extract_tool_input: ToolResult blocks ignored --- *)
+
+let test_extract_ignores_tool_result () =
+  let input_json = `Assoc [("name", `String "Carol"); ("age", `Int 40)] in
+  let content = [
+    ToolResult { tool_use_id = "old"; content = "previous result"; is_error = false };
+    ToolUse { id = "tu_r"; name = "extract_person"; input = input_json };
+  ] in
+  match Structured.extract_tool_input ~schema:person_schema content with
+  | Ok (name, age) ->
+    Alcotest.(check string) "name" "Carol" name;
+    Alcotest.(check int) "age" 40 age
+  | Error e -> Alcotest.fail ("unexpected: " ^ Error.to_string e)
+
+(* --- schema with many required/optional mix --- *)
+
+let test_schema_mixed_required () =
+  let schema : unit Structured.schema = {
+    name = "mixed"; description = "Mixed";
+    params = [
+      { name = "a"; description = "A"; param_type = String; required = true };
+      { name = "b"; description = "B"; param_type = String; required = false };
+      { name = "c"; description = "C"; param_type = Integer; required = true };
+      { name = "d"; description = "D"; param_type = Boolean; required = false };
+      { name = "e"; description = "E"; param_type = Number; required = true };
+    ];
+    parse = (fun _ -> Ok ());
+  } in
+  let json = Structured.schema_to_tool_json schema in
+  let open Yojson.Safe.Util in
+  let required = json |> member "input_schema" |> member "required"
+    |> to_list |> List.map to_string in
+  Alcotest.(check int) "3 required" 3 (List.length required);
+  Alcotest.(check bool) "a required" true (List.mem "a" required);
+  Alcotest.(check bool) "c required" true (List.mem "c" required);
+  Alcotest.(check bool) "e required" true (List.mem "e" required)
+
 (* --- Runner --- *)
 
 let () =
@@ -157,6 +280,10 @@ let () =
       Alcotest.test_case "structure" `Quick test_schema_to_json_structure;
       Alcotest.test_case "optional params" `Quick test_schema_optional_params;
       Alcotest.test_case "tool choice name" `Quick test_schema_tool_choice_name;
+      Alcotest.test_case "empty params" `Quick test_schema_empty_params;
+      Alcotest.test_case "all param types" `Quick test_schema_all_param_types;
+      Alcotest.test_case "description preserved" `Quick test_schema_description_preserved;
+      Alcotest.test_case "mixed required" `Quick test_schema_mixed_required;
     ];
     "extract_tool_input", [
       Alcotest.test_case "success" `Quick test_extract_tool_input_success;
@@ -166,5 +293,8 @@ let () =
       Alcotest.test_case "picks first match" `Quick test_extract_picks_first_match;
       Alcotest.test_case "with thinking blocks" `Quick test_extract_with_thinking_blocks;
       Alcotest.test_case "empty content" `Quick test_extract_from_empty_content;
+      Alcotest.test_case "parse error type" `Quick test_extract_parse_error_is_serialization;
+      Alcotest.test_case "missing tool type" `Quick test_extract_missing_tool_is_internal;
+      Alcotest.test_case "ignores tool_result" `Quick test_extract_ignores_tool_result;
     ];
   ]

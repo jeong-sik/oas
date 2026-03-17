@@ -379,6 +379,276 @@ let test_event_bus_receives_completed () =
     check bool "result is error (unknown agent)" true (Result.is_error r.result)
   | _ -> fail "expected AgentCompleted last"
 
+(* ── execute_sequential: unknown agents ─────────────────────────── *)
+
+let test_execute_sequential_empty () =
+  Eio_main.run @@ fun _env ->
+  Eio.Switch.run @@ fun sw ->
+  let orch = Orchestrator.create [] in
+  let results = Orchestrator.execute_sequential ~sw orch [] in
+  check int "empty results" 0 (List.length results)
+
+let test_execute_sequential_multiple_unknown () =
+  Eio_main.run @@ fun _env ->
+  Eio.Switch.run @@ fun sw ->
+  let orch = Orchestrator.create [] in
+  let tasks = [
+    { Orchestrator.id = "t1"; prompt = "a"; agent_name = "x" };
+    { id = "t2"; prompt = "b"; agent_name = "y" };
+  ] in
+  let results = Orchestrator.execute_sequential ~sw orch tasks in
+  check int "2 results" 2 (List.length results);
+  check bool "both error" true (List.for_all (fun r -> Result.is_error r.Orchestrator.result) results)
+
+(* ── execute_parallel ─────────────────────────────────────────── *)
+
+let test_execute_parallel_empty () =
+  Eio_main.run @@ fun _env ->
+  Eio.Switch.run @@ fun sw ->
+  let orch = Orchestrator.create [] in
+  let results = Orchestrator.execute_parallel ~sw orch [] in
+  check int "empty results" 0 (List.length results)
+
+let test_execute_parallel_unknown_agents () =
+  Eio_main.run @@ fun _env ->
+  Eio.Switch.run @@ fun sw ->
+  let orch = Orchestrator.create [] in
+  let tasks = [
+    { Orchestrator.id = "p1"; prompt = "x"; agent_name = "a1" };
+    { id = "p2"; prompt = "y"; agent_name = "a2" };
+    { id = "p3"; prompt = "z"; agent_name = "a3" };
+  ] in
+  let results = Orchestrator.execute_parallel ~sw orch tasks in
+  check int "3 results" 3 (List.length results);
+  check bool "all errors" true (List.for_all (fun r -> Result.is_error r.Orchestrator.result) results)
+
+(* ── execute_fan_out ──────────────────────────────────────────── *)
+
+let test_execute_fan_out_unknown_agents () =
+  Eio_main.run @@ fun _env ->
+  Eio.Switch.run @@ fun sw ->
+  let orch = Orchestrator.create [] in
+  let results = Orchestrator.execute_fan_out ~sw orch ~prompt:"test" ~agents:["a"; "b"] in
+  check int "2 results" 2 (List.length results);
+  (* Each result should have fanout-N as task_id *)
+  let task_ids = List.map (fun r -> r.Orchestrator.task_id) results in
+  check bool "has fanout-0" true (List.mem "fanout-0" task_ids);
+  check bool "has fanout-1" true (List.mem "fanout-1" task_ids)
+
+let test_execute_fan_out_empty_agents () =
+  Eio_main.run @@ fun _env ->
+  Eio.Switch.run @@ fun sw ->
+  let orch = Orchestrator.create [] in
+  let results = Orchestrator.execute_fan_out ~sw orch ~prompt:"test" ~agents:[] in
+  check int "empty results" 0 (List.length results)
+
+(* ── execute_pipeline: with unknown agents ────────────────────── *)
+
+let test_execute_pipeline_empty () =
+  Eio_main.run @@ fun _env ->
+  Eio.Switch.run @@ fun sw ->
+  let orch = Orchestrator.create [] in
+  let results = Orchestrator.execute_pipeline ~sw orch [] in
+  check int "empty results" 0 (List.length results)
+
+let test_execute_pipeline_error_carries_prev_text () =
+  Eio_main.run @@ fun _env ->
+  Eio.Switch.run @@ fun sw ->
+  (* Both agents unknown, so both fail; prev_text stays None *)
+  let orch = Orchestrator.create [] in
+  let tasks = [
+    { Orchestrator.id = "s1"; prompt = "step1"; agent_name = "ghost1" };
+    { id = "s2"; prompt = "step2"; agent_name = "ghost2" };
+  ] in
+  let results = Orchestrator.execute_pipeline ~sw orch tasks in
+  check int "2 results" 2 (List.length results);
+  check bool "both errors" true (List.for_all (fun r -> Result.is_error r.Orchestrator.result) results)
+
+(* ── execute: plan dispatch ───────────────────────────────────── *)
+
+let test_execute_dispatches_sequential () =
+  Eio_main.run @@ fun _env ->
+  Eio.Switch.run @@ fun sw ->
+  let orch = Orchestrator.create [] in
+  let results = Orchestrator.execute ~sw orch (Sequential []) in
+  check int "sequential empty" 0 (List.length results)
+
+let test_execute_dispatches_parallel () =
+  Eio_main.run @@ fun _env ->
+  Eio.Switch.run @@ fun sw ->
+  let orch = Orchestrator.create [] in
+  let results = Orchestrator.execute ~sw orch (Parallel []) in
+  check int "parallel empty" 0 (List.length results)
+
+let test_execute_dispatches_fanout () =
+  Eio_main.run @@ fun _env ->
+  Eio.Switch.run @@ fun sw ->
+  let orch = Orchestrator.create [] in
+  let results = Orchestrator.execute ~sw orch (FanOut { prompt = "test"; agents = [] }) in
+  check int "fanout empty" 0 (List.length results)
+
+let test_execute_dispatches_pipeline () =
+  Eio_main.run @@ fun _env ->
+  Eio.Switch.run @@ fun sw ->
+  let orch = Orchestrator.create [] in
+  let results = Orchestrator.execute ~sw orch (Pipeline []) in
+  check int "pipeline empty" 0 (List.length results)
+
+(* ── fan_out convenience ──────────────────────────────────────── *)
+
+let test_fan_out_convenience () =
+  Eio_main.run @@ fun _env ->
+  Eio.Switch.run @@ fun sw ->
+  let orch = Orchestrator.create [] in
+  (* fan_out with no agents creates empty task list *)
+  let results = Orchestrator.fan_out ~sw orch "test prompt" in
+  check int "no agents = no results" 0 (List.length results)
+
+(* ── pipeline convenience ─────────────────────────────────────── *)
+
+let test_pipeline_convenience () =
+  Eio_main.run @@ fun _env ->
+  Eio.Switch.run @@ fun sw ->
+  let orch = Orchestrator.create [] in
+  let results = Orchestrator.pipeline ~sw orch [] in
+  check int "empty pipeline" 0 (List.length results)
+
+(* ── collect_text: with non-text blocks ───────────────────────── *)
+
+let test_collect_text_with_tool_use () =
+  let resp = {
+    id = "r"; model = "m"; stop_reason = EndTurn;
+    content = [
+      Text "before";
+      ToolUse { id = "tu1"; name = "search"; input = `Null };
+      Text "after";
+    ]; usage = None;
+  } in
+  let tr = { Orchestrator.task_id = "t"; agent_name = "a";
+             result = Ok resp; elapsed = 0.0 } in
+  check string "filters non-text" "before\nafter" (Orchestrator.collect_text [tr])
+
+(* ── eval_condition: edge cases ───────────────────────────────── *)
+
+let test_eval_condition_result_ok_none () =
+  check bool "ResultOk with None" true
+    (Orchestrator.eval_condition None ResultOk)
+
+let test_eval_condition_custom_none () =
+  let pred _tr = false in
+  check bool "Custom with None" true
+    (Orchestrator.eval_condition None (Custom_cond pred))
+
+let test_eval_condition_text_contains_error () =
+  let tr = err_result ~task_id:"e" (Error.Internal "err") in
+  check bool "TextContains on error" false
+    (Orchestrator.eval_condition (Some tr) (TextContains "anything"))
+
+let test_eval_condition_and_empty () =
+  check bool "And empty" true
+    (Orchestrator.eval_condition None (And []))
+
+let test_eval_condition_or_empty () =
+  check bool "Or empty" false
+    (Orchestrator.eval_condition None (Or []))
+
+(* ── execute_conditional: basic paths ─────────────────────────── *)
+
+let test_execute_conditional_step () =
+  Eio_main.run @@ fun _env ->
+  Eio.Switch.run @@ fun sw ->
+  let orch = Orchestrator.create [] in
+  let task : Orchestrator.task = { id = "s1"; prompt = "x"; agent_name = "ghost" } in
+  let results = Orchestrator.execute_conditional ~sw orch (Step task) in
+  check int "one result" 1 (List.length results);
+  check bool "is error" true (Result.is_error (List.hd results).result)
+
+let test_execute_conditional_branch_true () =
+  Eio_main.run @@ fun _env ->
+  Eio.Switch.run @@ fun sw ->
+  let orch = Orchestrator.create [] in
+  let task_a : Orchestrator.task = { id = "a"; prompt = "a"; agent_name = "ga" } in
+  let task_b : Orchestrator.task = { id = "b"; prompt = "b"; agent_name = "gb" } in
+  let plan = Orchestrator.Branch {
+    condition = Always;
+    if_true = Step task_a;
+    if_false = Step task_b;
+  } in
+  let results = Orchestrator.execute_conditional ~sw orch plan in
+  check int "one result" 1 (List.length results);
+  check string "took true branch" "a" (List.hd results).task_id
+
+let test_execute_conditional_branch_false () =
+  Eio_main.run @@ fun _env ->
+  Eio.Switch.run @@ fun sw ->
+  let orch = Orchestrator.create [] in
+  let task_a : Orchestrator.task = { id = "a"; prompt = "a"; agent_name = "ga" } in
+  let task_b : Orchestrator.task = { id = "b"; prompt = "b"; agent_name = "gb" } in
+  let plan = Orchestrator.Branch {
+    condition = Not Always;
+    if_true = Step task_a;
+    if_false = Step task_b;
+  } in
+  let results = Orchestrator.execute_conditional ~sw orch plan in
+  check int "one result" 1 (List.length results);
+  check string "took false branch" "b" (List.hd results).task_id
+
+let test_execute_conditional_sequence () =
+  Eio_main.run @@ fun _env ->
+  Eio.Switch.run @@ fun sw ->
+  let orch = Orchestrator.create [] in
+  let task_a : Orchestrator.task = { id = "a"; prompt = "a"; agent_name = "ga" } in
+  let task_b : Orchestrator.task = { id = "b"; prompt = "b"; agent_name = "gb" } in
+  let plan = Orchestrator.Sequence [Step task_a; Step task_b] in
+  let results = Orchestrator.execute_conditional ~sw orch plan in
+  check int "two results" 2 (List.length results)
+
+let test_execute_conditional_sequence_empty () =
+  Eio_main.run @@ fun _env ->
+  Eio.Switch.run @@ fun sw ->
+  let orch = Orchestrator.create [] in
+  let plan = Orchestrator.Sequence [] in
+  let results = Orchestrator.execute_conditional ~sw orch plan in
+  check int "empty" 0 (List.length results)
+
+let test_execute_conditional_cond_parallel () =
+  Eio_main.run @@ fun _env ->
+  Eio.Switch.run @@ fun sw ->
+  let orch = Orchestrator.create [] in
+  let task_a : Orchestrator.task = { id = "a"; prompt = "a"; agent_name = "ga" } in
+  let task_b : Orchestrator.task = { id = "b"; prompt = "b"; agent_name = "gb" } in
+  let plan = Orchestrator.Cond_parallel [Step task_a; Step task_b] in
+  let results = Orchestrator.execute_conditional ~sw orch plan in
+  check int "two results" 2 (List.length results)
+
+let test_execute_conditional_loop_max_iterations () =
+  Eio_main.run @@ fun _env ->
+  Eio.Switch.run @@ fun sw ->
+  let orch = Orchestrator.create [] in
+  let task : Orchestrator.task = { id = "loop"; prompt = "x"; agent_name = "ghost" } in
+  (* until = Not Always means never stops, so it runs max_iterations times *)
+  let plan = Orchestrator.Loop {
+    body = Step task;
+    until = Not Always;  (* never true *)
+    max_iterations = 3;
+  } in
+  let results = Orchestrator.execute_conditional ~sw orch plan in
+  check int "3 iterations" 3 (List.length results)
+
+let test_execute_conditional_loop_stops_on_condition () =
+  Eio_main.run @@ fun _env ->
+  Eio.Switch.run @@ fun sw ->
+  let orch = Orchestrator.create [] in
+  let task : Orchestrator.task = { id = "loop"; prompt = "x"; agent_name = "ghost" } in
+  (* until = Always means stops after first iteration *)
+  let plan = Orchestrator.Loop {
+    body = Step task;
+    until = Always;
+    max_iterations = 10;
+  } in
+  let results = Orchestrator.execute_conditional ~sw orch plan in
+  check int "1 iteration (until=Always)" 1 (List.length results)
+
 (* ── Suite ────────────────────────────────────────────────────────── *)
 
 let () =
@@ -420,6 +690,7 @@ let () =
       test_case "skips errors" `Quick test_collect_text_skips_errors;
       test_case "all errors" `Quick test_collect_text_all_errors;
       test_case "multi text blocks" `Quick test_collect_text_multiblock;
+      test_case "with tool_use" `Quick test_collect_text_with_tool_use;
     ];
     "all_ok", [
       test_case "empty" `Quick test_all_ok_empty;
@@ -446,5 +717,48 @@ let () =
       test_case "config none" `Quick test_event_bus_config_none;
       test_case "receives started" `Quick test_event_bus_receives_started;
       test_case "receives completed" `Quick test_event_bus_receives_completed;
+    ];
+    "execute_sequential", [
+      test_case "empty" `Quick test_execute_sequential_empty;
+      test_case "multiple unknown" `Quick test_execute_sequential_multiple_unknown;
+    ];
+    "execute_parallel", [
+      test_case "empty" `Quick test_execute_parallel_empty;
+      test_case "unknown agents" `Quick test_execute_parallel_unknown_agents;
+    ];
+    "execute_fan_out", [
+      test_case "unknown agents" `Quick test_execute_fan_out_unknown_agents;
+      test_case "empty agents" `Quick test_execute_fan_out_empty_agents;
+    ];
+    "execute_pipeline", [
+      test_case "empty" `Quick test_execute_pipeline_empty;
+      test_case "error carries prev" `Quick test_execute_pipeline_error_carries_prev_text;
+    ];
+    "execute", [
+      test_case "sequential" `Quick test_execute_dispatches_sequential;
+      test_case "parallel" `Quick test_execute_dispatches_parallel;
+      test_case "fanout" `Quick test_execute_dispatches_fanout;
+      test_case "pipeline" `Quick test_execute_dispatches_pipeline;
+    ];
+    "convenience", [
+      test_case "fan_out" `Quick test_fan_out_convenience;
+      test_case "pipeline" `Quick test_pipeline_convenience;
+    ];
+    "eval_condition", [
+      test_case "result_ok none" `Quick test_eval_condition_result_ok_none;
+      test_case "custom none" `Quick test_eval_condition_custom_none;
+      test_case "text_contains error" `Quick test_eval_condition_text_contains_error;
+      test_case "and empty" `Quick test_eval_condition_and_empty;
+      test_case "or empty" `Quick test_eval_condition_or_empty;
+    ];
+    "conditional", [
+      test_case "step" `Quick test_execute_conditional_step;
+      test_case "branch true" `Quick test_execute_conditional_branch_true;
+      test_case "branch false" `Quick test_execute_conditional_branch_false;
+      test_case "sequence" `Quick test_execute_conditional_sequence;
+      test_case "sequence empty" `Quick test_execute_conditional_sequence_empty;
+      test_case "cond_parallel" `Quick test_execute_conditional_cond_parallel;
+      test_case "loop max_iterations" `Quick test_execute_conditional_loop_max_iterations;
+      test_case "loop stops on condition" `Quick test_execute_conditional_loop_stops_on_condition;
     ];
   ]

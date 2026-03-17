@@ -140,6 +140,70 @@ let test_all_levels () =
   let messages = List.map (fun (r : Log.record) -> r.message) records in
   Alcotest.(check (list string)) "order" ["d"; "i"; "w"; "e"] messages
 
+(* ── Additional coverage tests ─────────────────────────────── *)
+
+let test_level_of_yojson_non_string () =
+  match Log.level_of_yojson (`Int 42) with
+  | Error _ -> ()
+  | Ok _ -> Alcotest.fail "expected error for non-string"
+
+let test_pp_level () =
+  let buf = Buffer.create 16 in
+  let fmt = Format.formatter_of_buffer buf in
+  Log.pp_level fmt Log.Debug;
+  Format.pp_print_flush fmt ();
+  Alcotest.(check string) "debug" "debug" (Buffer.contents buf)
+
+let test_show_level () =
+  Alcotest.(check string) "info" "info" (Log.show_level Log.Info);
+  Alcotest.(check string) "warn" "warn" (Log.show_level Log.Warn)
+
+let test_stderr_sink () =
+  setup ();
+  let sink = Log.stderr_sink () in
+  let record : Log.record = {
+    ts = 1000000000.0;
+    level = Log.Warn;
+    module_name = "test";
+    message = "test stderr";
+    fields = [Log.S ("key", "val"); Log.I ("n", 42)];
+    trace_id = None; span_id = None;
+  } in
+  (* Should not raise *)
+  sink record
+
+let test_emit_below_level () =
+  setup ();
+  Log.set_global_level Log.Error;
+  let (sink, get) = Log.collector_sink () in
+  Log.add_sink sink;
+  Log.debug log "should be skipped" [];
+  Log.info log "also skipped" [];
+  Log.warn log "also skipped" [];
+  let records = get () in
+  Alcotest.(check int) "0 below error" 0 (List.length records);
+  setup () (* Reset for other tests *)
+
+let test_record_to_json_with_all_field_types () =
+  let record : Log.record = {
+    ts = 1.0; level = Log.Info; module_name = "m"; message = "msg";
+    fields = [
+      Log.S ("s", "str"); Log.I ("i", 10); Log.F ("f", 1.5);
+      Log.B ("b", true); Log.J ("j", `Assoc [("x", `Int 1)]);
+    ];
+    trace_id = Some "trace-123"; span_id = Some "span-456";
+  } in
+  let json = Log.record_to_json record in
+  let open Yojson.Safe.Util in
+  Alcotest.(check string) "trace_id" "trace-123"
+    (json |> member "trace_id" |> to_string);
+  Alcotest.(check string) "span_id" "span-456"
+    (json |> member "span_id" |> to_string);
+  Alcotest.(check string) "s field" "str"
+    (json |> member "s" |> to_string);
+  Alcotest.(check int) "i field" 10
+    (json |> member "i" |> to_int)
+
 (* ── Runner ───────────────────────────────────────────────────── *)
 
 let () =
@@ -148,11 +212,15 @@ let () =
       Alcotest.test_case "roundtrip" `Quick test_level_roundtrip;
       Alcotest.test_case "yojson roundtrip" `Quick test_level_yojson_roundtrip;
       Alcotest.test_case "error on invalid" `Quick test_level_of_string_error;
+      Alcotest.test_case "of_yojson non-string" `Quick test_level_of_yojson_non_string;
+      Alcotest.test_case "pp_level" `Quick test_pp_level;
+      Alcotest.test_case "show_level" `Quick test_show_level;
     ];
     "sink", [
       Alcotest.test_case "collector" `Quick test_collector_sink;
       Alcotest.test_case "level filtering" `Quick test_level_filtering;
       Alcotest.test_case "multiple sinks" `Quick test_multiple_sinks;
+      Alcotest.test_case "stderr sink" `Quick test_stderr_sink;
     ];
     "field", [
       Alcotest.test_case "to_json" `Quick test_field_to_json;
@@ -160,11 +228,13 @@ let () =
     "record", [
       Alcotest.test_case "to_json" `Quick test_record_to_json;
       Alcotest.test_case "empty fields" `Quick test_empty_fields;
+      Alcotest.test_case "all field types" `Quick test_record_to_json_with_all_field_types;
     ];
     "context", [
       Alcotest.test_case "trace/span" `Quick test_with_trace_context;
     ];
     "integration", [
       Alcotest.test_case "all levels" `Quick test_all_levels;
+      Alcotest.test_case "emit below level" `Quick test_emit_below_level;
     ];
   ]
