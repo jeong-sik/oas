@@ -82,6 +82,8 @@ end = struct
     List.iter (fun (k, v) ->
       log := (Printf.sprintf "attr:%s:%s=%s" span.span_name k v) :: !log
     ) kvs
+  let trace_id _span = None
+  let span_id _span = None
   let events () = List.rev !log
   let reset () = log := []
 end

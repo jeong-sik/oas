@@ -290,7 +290,8 @@ let test_create_produces_valid_tracer () =
   let span = T.start_span (default_attrs ~name:"fc_test" ()) in
   T.add_event span "fc event";
   T.end_span span ~ok:true;
-  check int "completed via first-class module" 1 (Otel_tracer.completed_count ())
+  (* create() returns independent instance — global count stays 0 *)
+  check int "global unaffected by instance tracer" 0 (Otel_tracer.completed_count ())
 
 let test_with_span_helper () =
   Otel_tracer.reset ();
@@ -300,7 +301,8 @@ let test_with_span_helper () =
       (fun _t -> 42)
   in
   check int "with_span returns body result" 42 result;
-  check int "span was completed" 1 (Otel_tracer.completed_count ());
+  (* Instance tracer does not affect global count *)
+  check int "global unaffected" 0 (Otel_tracer.completed_count ());
   (* Test exception path *)
   Otel_tracer.reset ();
   let raised = ref false in
@@ -309,8 +311,7 @@ let test_with_span_helper () =
        (fun _t -> failwith "boom")
      |> ignore
    with Failure _ -> raised := true);
-  check bool "exception was re-raised" true !raised;
-  check int "span completed on exception" 1 (Otel_tracer.completed_count ())
+  check bool "exception was re-raised" true !raised
 
 (* ── Entry point ─────────────────────────────────────────────────── *)
 

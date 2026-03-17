@@ -58,6 +58,18 @@ let make_entry ~name ~role ~(clock : _ Eio.Time.clock) (agent : Agent.t) =
     run = (fun ~sw prompt -> Agent.run ~sw ~clock agent prompt);
     role }
 
+type resource_budget = {
+  max_total_tokens: int option;
+  max_total_time_sec: float option;
+  max_total_api_calls: int option;
+}
+
+let no_budget = {
+  max_total_tokens = None;
+  max_total_time_sec = None;
+  max_total_api_calls = None;
+}
+
 type swarm_config = {
   entries: agent_entry list;
   mode: orchestration_mode;
@@ -65,6 +77,7 @@ type swarm_config = {
   max_parallel: int;
   prompt: string;
   timeout_sec: float option;
+  budget: resource_budget;
 }
 
 (* ── Execution State ────────────────────────────────────────────── *)

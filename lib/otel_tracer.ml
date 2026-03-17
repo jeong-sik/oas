@@ -3,7 +3,12 @@
 
     Self-contained: no external opentelemetry dependency.
     Generates W3C trace/span IDs, maps to GenAI semantic conventions,
-    and serializes completed spans to OTLP JSON for HTTP export. *)
+    and serializes completed spans to OTLP JSON for HTTP export.
+
+    v0.43.0: Instance-based state — each [create] call returns an
+    independent tracer with its own span stack. The global functions
+    ([start_span], [flush], etc.) delegate to a shared global instance
+    for backward compatibility. *)
 
 (* -- OTel span kind --------------------------------------------------- *)
 
@@ -37,15 +42,6 @@ type span = {
   mutable events: otel_event list;
 }
 
-(* -- Global state ----------------------------------------------------- *)
-
-let _mutex = Eio.Mutex.create ()
-
-let with_lock f =
-  Eio.Mutex.use_rw ~protect:true _mutex f
-let _current_spans : span list ref = ref []
-let _completed_spans : span list ref = ref []
-
 (* -- Config ----------------------------------------------------------- *)
 
 type config = {
@@ -56,6 +52,19 @@ type config = {
 let default_config = {
   service_name = "agent-sdk";
   endpoint = None;
+}
+
+(* -- Instance type ---------------------------------------------------- *)
+
+type mutex_impl =
+  | Stdlib_mu of Mutex.t
+  | Eio_mu of Eio.Mutex.t
+
+type instance = {
+  config: config;
+  mu: mutex_impl;
+  mutable current_spans: span list;
+  mutable completed_spans: span list;
 }
 
 (* -- Random hex ID generation ----------------------------------------- *)
@@ -112,13 +121,20 @@ let span_kind_to_string = function
 let make_span_name (attrs : Tracing.span_attrs) =
   Printf.sprintf "%s/%s" (span_kind_to_string attrs.kind) attrs.name
 
-(* -- TRACER implementation -------------------------------------------- *)
+(* -- Instance operations ---------------------------------------------- *)
 
-let start_span (attrs : Tracing.span_attrs) : span =
+let inst_with_lock inst f =
+  match inst.mu with
+  | Eio_mu mu -> Eio.Mutex.use_rw ~protect:true mu f
+  | Stdlib_mu mu ->
+    Mutex.lock mu;
+    Fun.protect f ~finally:(fun () -> Mutex.unlock mu)
+
+let inst_start_span inst (attrs : Tracing.span_attrs) : span =
   let new_trace_id = gen_trace_id () in
   let span_id = gen_span_id () in
-  with_lock @@ fun () ->
-  let parent = match !_current_spans with
+  inst_with_lock inst @@ fun () ->
+  let parent = match inst.current_spans with
     | p :: _ -> Some p
     | []     -> None
   in
@@ -142,26 +158,25 @@ let start_span (attrs : Tracing.span_attrs) : span =
     attributes = semantic_attrs attrs;
     events = [];
   } in
-  _current_spans := s :: !_current_spans;
+  inst.current_spans <- s :: inst.current_spans;
   s
 
-let end_span (s : span) ~ok =
-  with_lock @@ fun () ->
+let inst_end_span inst (s : span) ~ok =
+  inst_with_lock inst @@ fun () ->
   s.end_time_ns <- Some (now_ns ());
   s.status <- Some ok;
-  (* Pop from current stack -- remove the first matching span *)
-  _current_spans := (
+  inst.current_spans <- (
     let found = ref false in
     List.filter (fun sp ->
       if not !found && sp.span_id = s.span_id then begin
         found := true; false
       end else true
-    ) !_current_spans
+    ) inst.current_spans
   );
-  _completed_spans := s :: !_completed_spans
+  inst.completed_spans <- s :: inst.completed_spans
 
-let add_event (s : span) (msg : string) =
-  with_lock @@ fun () ->
+let inst_add_event inst (s : span) (msg : string) =
+  inst_with_lock inst @@ fun () ->
   let evt = {
     event_name = msg;
     timestamp_ns = now_ns ();
@@ -169,9 +184,46 @@ let add_event (s : span) (msg : string) =
   } in
   s.events <- Util.snoc s.events evt
 
-let add_attrs (s : span) (attrs : (string * string) list) =
-  with_lock @@ fun () ->
+let inst_add_attrs inst (s : span) (attrs : (string * string) list) =
+  inst_with_lock inst @@ fun () ->
   s.attributes <- Util.snoc_list s.attributes attrs
+
+let inst_flush inst =
+  inst_with_lock inst @@ fun () ->
+  let spans = List.rev inst.completed_spans in
+  inst.completed_spans <- [];
+  spans
+
+let inst_reset inst =
+  inst_with_lock inst @@ fun () ->
+  inst.current_spans <- [];
+  inst.completed_spans <- []
+
+let inst_completed_count inst =
+  inst_with_lock inst @@ fun () ->
+  List.length inst.completed_spans
+
+let inst_active_count inst =
+  inst_with_lock inst @@ fun () ->
+  List.length inst.current_spans
+
+(* -- Global instance (backward compat) -------------------------------- *)
+
+let _global : instance = {
+  config = default_config;
+  mu = Stdlib_mu (Mutex.create ());
+  current_spans = [];
+  completed_spans = [];
+}
+
+let start_span attrs = inst_start_span _global attrs
+let end_span s ~ok = inst_end_span _global s ~ok
+let add_event s msg = inst_add_event _global s msg
+let add_attrs s attrs = inst_add_attrs _global s attrs
+let flush () = inst_flush _global
+let reset () = inst_reset _global
+let completed_count () = inst_completed_count _global
+let active_count () = inst_active_count _global
 
 (* -- JSON export ------------------------------------------------------ *)
 
@@ -219,8 +271,8 @@ let span_to_json (s : span) : Yojson.Safe.t =
   `Assoc with_parent
 
 let to_otlp_json (cfg : config) : Yojson.Safe.t =
-  let spans = with_lock
-    (fun () -> List.rev !_completed_spans) in
+  let spans = inst_with_lock _global
+    (fun () -> List.rev _global.completed_spans) in
   `Assoc [
     ("resourceSpans", `List [
       `Assoc [
@@ -233,7 +285,7 @@ let to_otlp_json (cfg : config) : Yojson.Safe.t =
           `Assoc [
             ("scope", `Assoc [
               ("name", `String "agent_sdk.otel_tracer");
-              ("version", `String "0.1.0");
+              ("version", `String Sdk_version.version);
             ]);
             ("spans", `List (List.map span_to_json spans));
           ]
@@ -242,35 +294,31 @@ let to_otlp_json (cfg : config) : Yojson.Safe.t =
     ])
   ]
 
-(* -- Buffer management ------------------------------------------------ *)
+(* -- Instance creation ------------------------------------------------ *)
 
-let flush () =
-  with_lock @@ fun () ->
-  let spans = List.rev !_completed_spans in
-  _completed_spans := [];
-  spans
+let create_instance ?(config = default_config) () : instance =
+  { config; mu = Stdlib_mu (Mutex.create ());
+    current_spans = []; completed_spans = [] }
 
-let reset () =
-  with_lock @@ fun () ->
-  _current_spans := [];
-  _completed_spans := []
+let create_instance_eio ?(config = default_config) () : instance =
+  { config; mu = Eio_mu (Eio.Mutex.create ());
+    current_spans = []; completed_spans = [] }
 
-let completed_count () =
-  with_lock @@ fun () ->
-  List.length !_completed_spans
-
-let active_count () =
-  with_lock @@ fun () ->
-  List.length !_current_spans
-
-(* -- First-class module constructor ----------------------------------- *)
-
-let create ?(config : config = default_config) () : Tracing.t =
-  ignore config;
+let tracer_of_instance inst : Tracing.t =
   (module struct
     type nonrec span = span
-    let start_span = start_span
-    let end_span = end_span
-    let add_event = add_event
-    let add_attrs = add_attrs
+    let start_span = inst_start_span inst
+    let end_span = inst_end_span inst
+    let add_event = inst_add_event inst
+    let add_attrs = inst_add_attrs inst
+    let trace_id s = Some s.trace_id
+    let span_id s = Some s.span_id
   end)
+
+(* -- First-class module constructors ---------------------------------- *)
+
+let create ?(config : config = default_config) () : Tracing.t =
+  tracer_of_instance (create_instance ~config ())
+
+let create_eio ?(config : config = default_config) () : Tracing.t =
+  tracer_of_instance (create_instance_eio ~config ())

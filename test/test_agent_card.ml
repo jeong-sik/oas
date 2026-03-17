@@ -26,7 +26,7 @@ let test_of_info_basic () =
   Alcotest.(check string) "name" "test-agent" card.name;
   Alcotest.(check (option string)) "description"
     (Some "A test agent") card.description;
-  Alcotest.(check string) "version" "0.30.0" card.version
+  Alcotest.(check string) "version" Agent_sdk.Sdk_version.version card.version
 
 let test_capabilities_tools () =
   let card = Agent_card.of_info base_info in
