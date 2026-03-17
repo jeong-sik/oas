@@ -153,13 +153,29 @@ let () =
   Eio_main.run @@ fun env ->
   let net = Eio.Stdenv.net env in
   Eio.Switch.run @@ fun sw ->
+  let base_url = match Sys.getenv_opt "LLM_BASE_URL" with
+    | Some url -> url
+    | None -> "http://127.0.0.1:8085"
+  in
+  let provider_config : Provider.config = {
+    provider = OpenAICompat {
+      base_url;
+      auth_header = None;
+      path = "/v1/chat/completions";
+      static_token = None;
+    };
+    model_id = "qwen3.5";
+    api_key_env = "";
+  } in
   let config = {
     default_config with
     name = "review-agent";
     system_prompt = Some system_prompt;
     max_turns = 5;
+    model = Custom "qwen3.5";
   } in
-  let agent = Agent.create ~net ~config ~tools () in
+  let options = { Agent.default_options with provider = Some provider_config } in
+  let agent = Agent.create ~net ~config ~tools ~options () in
   let prompt = Printf.sprintf
     "Review PR #%s in repository %s. Get the PR info and diff, then provide your analysis."
     pr_num repo in
