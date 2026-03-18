@@ -122,30 +122,48 @@ let run_structured ~sw ?clock agent prompt ~(extract : 'a extractor) =
 
     [max_retries] defaults to 2 (so up to 3 total attempts).
     [on_validation_error] is called on each retry for observability. *)
+(** Result of [extract_with_retry] — includes total usage across all attempts. *)
+type 'a retry_result = {
+  value: 'a;
+  total_usage: api_usage option;
+  attempts: int;
+}
+
 let extract_with_retry ~sw ~net ?base_url ?provider ?clock
     ~config ~(schema : 'a schema) ?(max_retries=2)
     ?(on_validation_error : (int -> string -> unit) option)
-    prompt : ('a, Error.sdk_error) result =
+    prompt : ('a retry_result, Error.sdk_error) result =
   let config_with_tool = { config with
     tool_choice = Some (Tool schema.name);
   } in
   let tools = [schema_to_tool_json schema] in
-  let rec attempt n messages =
+  let add_usage acc resp_usage =
+    match acc, resp_usage with
+    | None, u -> u
+    | Some _, None -> acc
+    | Some a, Some u ->
+      Some { input_tokens = a.input_tokens + u.input_tokens;
+             output_tokens = a.output_tokens + u.output_tokens;
+             cache_creation_input_tokens =
+               a.cache_creation_input_tokens + u.cache_creation_input_tokens;
+             cache_read_input_tokens =
+               a.cache_read_input_tokens + u.cache_read_input_tokens }
+  in
+  let rec attempt n acc_usage messages =
     let state = { config = config_with_tool; messages = []; turn_count = 0;
                   usage = empty_usage } in
     match Api.create_message ~sw ~net ?base_url ?provider ?clock
             ~config:state ~messages ~tools () with
     | Error e -> Error e
     | Ok response ->
+        let total = add_usage acc_usage response.usage in
         match extract_tool_input ~schema response.content with
-        | Ok v -> Ok v
+        | Ok v -> Ok { value = v; total_usage = total; attempts = n + 1 }
         | Error e when n < max_retries ->
             let error_msg = Error.to_string e in
             (match on_validation_error with
              | Some cb -> cb (n + 1) error_msg
              | None -> ());
-            (* Build retry messages: original conversation + assistant response
-               + tool_result with error feedback *)
             let tool_use_id = List.find_map (function
               | ToolUse { id; name; _ } when name = schema.name -> Some id
               | _ -> None) response.content
@@ -162,11 +180,11 @@ let extract_with_retry ~sw ~net ?base_url ?provider ?clock
                   }
                 ] };
             ] in
-            attempt (n + 1) retry_messages
+            attempt (n + 1) total retry_messages
         | Error e -> Error e
   in
   let initial_messages = [{ role = User; content = [Text prompt] }] in
-  attempt 0 initial_messages
+  attempt 0 None initial_messages
 
 (** Extract structured output with SSE streaming.
     Like [extract] but uses [Streaming.create_message_stream] to receive
