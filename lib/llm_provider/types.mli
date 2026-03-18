@@ -67,6 +67,8 @@ type content_block =
 type message = {
   role: role;
   content: content_block list;
+  name: string option;
+  tool_call_id: string option;
 }
 [@@deriving show]
 
@@ -119,6 +121,7 @@ type sse_event =
 
 (** {1 Convenience Constructors} *)
 
+val make_message : ?name:string -> ?tool_call_id:string -> role:role -> content_block list -> message
 val text_message : role -> string -> message
 val system_msg : string -> message
 val user_msg : string -> message

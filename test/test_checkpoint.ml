@@ -39,6 +39,7 @@ let make_checkpoint
     max_total_tokens = None;
     context;
     mcp_sessions;
+    working_context = None;
   }
 
 (* Helper: a sample tool_schema *)
@@ -66,14 +67,14 @@ let () =
   let open Alcotest in
   run "Checkpoint" [
     "version", [
-      test_case "checkpoint_version is 3" `Quick (fun () ->
-        check int "version" 3 Checkpoint.checkpoint_version);
+      test_case "checkpoint_version is 4" `Quick (fun () ->
+        check int "version" 4 Checkpoint.checkpoint_version);
 
       test_case "version field in to_json" `Quick (fun () ->
         let cp = make_checkpoint () in
         let json = Checkpoint.to_json cp in
         let v = Yojson.Safe.Util.(json |> member "version" |> to_int) in
-        check int "version" 3 v);
+        check int "version" 4 v);
 
       test_case "wrong version returns Error" `Quick (fun () ->
         let cp = make_checkpoint () in
@@ -131,8 +132,8 @@ let () =
     "messages", [
       test_case "Text message roundtrip" `Quick (fun () ->
         let msgs = [
-          { Types.role = Types.User; content = [Types.Text "Hello"] };
-          { Types.role = Types.Assistant; content = [Types.Text "Hi there"] };
+          { Types.role = Types.User; content = [Types.Text "Hello"]; name = None; tool_call_id = None };
+          { Types.role = Types.Assistant; content = [Types.Text "Hi there"]; name = None; tool_call_id = None };
         ] in
         let cp = make_checkpoint ~messages:msgs () in
         let cp2 = Result.get_ok (Checkpoint.of_json (Checkpoint.to_json cp)) in
@@ -147,7 +148,8 @@ let () =
         let msgs = [
           { Types.role = Types.Assistant;
             content = [Types.ToolUse { id = "id1"; name = "get_weather";
-              input = `Assoc [("city", `String "Seoul")] }] };
+              input = `Assoc [("city", `String "Seoul")] }];
+            name = None; tool_call_id = None };
         ] in
         let cp = make_checkpoint ~messages:msgs () in
         let cp2 = Result.get_ok (Checkpoint.of_json (Checkpoint.to_json cp)) in
@@ -160,7 +162,8 @@ let () =
       test_case "ToolResult message roundtrip" `Quick (fun () ->
         let msgs = [
           { Types.role = Types.User;
-            content = [Types.ToolResult { tool_use_id = "id1"; content = "Sunny 22C"; is_error = false }] };
+            content = [Types.ToolResult { tool_use_id = "id1"; content = "Sunny 22C"; is_error = false }];
+            name = None; tool_call_id = None };
         ] in
         let cp = make_checkpoint ~messages:msgs () in
         let cp2 = Result.get_ok (Checkpoint.of_json (Checkpoint.to_json cp)) in
@@ -182,9 +185,10 @@ let () =
             content = [
               Types.Text "Let me check.";
               Types.ToolUse { id = "t1"; name = "search"; input = `Assoc [("q", `String "test")] };
-            ] };
+            ]; name = None; tool_call_id = None };
           { Types.role = Types.User;
-            content = [Types.ToolResult { tool_use_id = "t1"; content = "found it"; is_error = false }] };
+            content = [Types.ToolResult { tool_use_id = "t1"; content = "found it"; is_error = false }];
+            name = None; tool_call_id = None };
         ] in
         let cp = make_checkpoint ~messages:msgs () in
         let cp2 = Result.get_ok (Checkpoint.of_json (Checkpoint.to_json cp)) in
@@ -295,9 +299,9 @@ let () =
     "helpers", [
       test_case "message_count" `Quick (fun () ->
         let msgs = [
-          { Types.role = Types.User; content = [Types.Text "a"] };
-          { Types.role = Types.Assistant; content = [Types.Text "b"] };
-          { Types.role = Types.User; content = [Types.Text "c"] };
+          { Types.role = Types.User; content = [Types.Text "a"]; name = None; tool_call_id = None };
+          { Types.role = Types.Assistant; content = [Types.Text "b"]; name = None; tool_call_id = None };
+          { Types.role = Types.User; content = [Types.Text "c"]; name = None; tool_call_id = None };
         ] in
         let cp = make_checkpoint ~messages:msgs () in
         check int "count" 3 (Checkpoint.message_count cp));
@@ -327,8 +331,8 @@ let () =
         Agent.set_state agent {
           (Agent.state agent) with
           messages = [
-            { Types.role = Types.User; content = [Types.Text "hello"] };
-            { Types.role = Types.Assistant; content = [Types.Text "hi"] };
+            { Types.role = Types.User; content = [Types.Text "hello"]; name = None; tool_call_id = None };
+            { Types.role = Types.Assistant; content = [Types.Text "hi"]; name = None; tool_call_id = None };
           ];
           turn_count = 2;
           usage = {
@@ -414,7 +418,7 @@ let () =
         Agent.set_state agent {
           (Agent.state agent) with
           messages = [
-            { Types.role = Types.User; content = [Types.Text "test"] };
+            { Types.role = Types.User; content = [Types.Text "test"]; name = None; tool_call_id = None };
           ];
           turn_count = 7;
         };
@@ -467,7 +471,7 @@ let () =
 
       test_case "invalid role returns Error" `Quick (fun () ->
         let cp = make_checkpoint ~messages:[
-          { Types.role = Types.User; content = [Types.Text "hello"] }
+          { Types.role = Types.User; content = [Types.Text "hello"]; name = None; tool_call_id = None }
         ] () in
         let json = Checkpoint.to_json cp in
         let bad =
@@ -539,7 +543,7 @@ let () =
 
       test_case "unknown content block returns Error" `Quick (fun () ->
         let cp = make_checkpoint ~messages:[
-          { Types.role = Types.User; content = [Types.Text "hello"] }
+          { Types.role = Types.User; content = [Types.Text "hello"]; name = None; tool_call_id = None }
         ] () in
         let json = Checkpoint.to_json cp in
         let bad =
@@ -640,7 +644,7 @@ let () =
           | other -> other
         in
         let cp2 = Result.get_ok (Checkpoint.of_json v1_json) in
-        check int "version upgraded to 3" 3 cp2.version;
+        check int "version upgraded to 4" 4 cp2.version;
         check int "mcp_sessions empty" 0 (List.length cp2.mcp_sessions));
 
       test_case "version 1 with null mcp_sessions" `Quick (fun () ->

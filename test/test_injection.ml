@@ -7,7 +7,7 @@ open Agent_sdk
 let test_injection_type () =
   let inj : Hooks.injection = {
     context_updates = [("key1", `String "value1"); ("key2", `Int 42)];
-    extra_messages = [Types.{ role = User; content = [Text "injected observation"] }];
+    extra_messages = [Types.{ role = User; content = [Text "injected observation"]; name = None; tool_call_id = None }];
   } in
   check int "2 context updates" 2 (List.length inj.context_updates);
   check int "1 extra message" 1 (List.length inj.extra_messages)
@@ -44,7 +44,7 @@ let test_injector_with_extra_messages () =
       Some {
         Hooks.context_updates = [];
         extra_messages = [
-          Types.{ role = User; content = [Text "[system] git status: clean"] };
+          Types.{ role = User; content = [Text "[system] git status: clean"]; name = None; tool_call_id = None };
         ];
       }
   in

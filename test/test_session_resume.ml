@@ -40,13 +40,14 @@ let make_checkpoint
     max_total_tokens = None;
     context;
     mcp_sessions = [];
+    working_context = None;
   }
 
 let sample_messages = [
-  { Types.role = Types.User; content = [Types.Text "Hello"] };
-  { Types.role = Types.Assistant; content = [Types.Text "Hi there."] };
-  { Types.role = Types.User; content = [Types.Text "What is 2+2?"] };
-  { Types.role = Types.Assistant; content = [Types.Text "4"] };
+  { Types.role = Types.User; content = [Types.Text "Hello"]; name = None; tool_call_id = None };
+  { Types.role = Types.Assistant; content = [Types.Text "Hi there."]; name = None; tool_call_id = None };
+  { Types.role = Types.User; content = [Types.Text "What is 2+2?"]; name = None; tool_call_id = None };
+  { Types.role = Types.Assistant; content = [Types.Text "4"]; name = None; tool_call_id = None };
 ]
 
 let sample_usage : Types.usage_stats = {
@@ -276,7 +277,8 @@ let test_resume_preserves_message_content () =
   with_net @@ fun net ->
   let msgs = [
     { Types.role = Types.User;
-      content = [Types.Text "Hello"; Types.Text "World"] };
+      content = [Types.Text "Hello"; Types.Text "World"];
+      name = None; tool_call_id = None };
   ] in
   let cp = make_checkpoint ~messages:msgs () in
   let agent = Agent.resume ~net ~checkpoint:cp () in

@@ -19,7 +19,8 @@ let test_stream_basic () =
   } in
   let messages = [
     { Types.role = Types.User;
-      content = [Types.Text "What is 2+3? Answer with just the number."] }
+      content = [Types.Text "What is 2+3? Answer with just the number."];
+      name = None; tool_call_id = None }
   ] in
   let state = {
     Types.config = config;
@@ -81,7 +82,8 @@ let test_stream_event_sequence () =
   } in
   let messages = [
     { Types.role = Types.User;
-      content = [Types.Text "Say yes."] }
+      content = [Types.Text "Say yes."];
+      name = None; tool_call_id = None }
   ] in
   let state = {
     Types.config = config;

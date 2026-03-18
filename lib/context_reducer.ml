@@ -217,7 +217,7 @@ let apply_repair_dangling_tool_calls messages =
         let repairs = List.map (fun id ->
           { role = User; content = [
             ToolResult { tool_use_id = id; content = "Tool call cancelled before completion."; is_error = true }
-          ]}
+          ]; name = None; tool_call_id = None }
         ) orphan_ids in
         aux (List.rev_append repairs (msg :: acc)) rest
   in
@@ -296,7 +296,7 @@ let apply_summarize_old ~keep_recent ~summarizer messages =
     let recent_turns = List.filteri (fun i _ -> i >= total - keep_recent) turns in
     let old_messages = List.concat old_turns in
     let summary_text = summarizer old_messages in
-    let summary_msg = { role = User; content = [Text summary_text] } in
+    let summary_msg = { role = User; content = [Text summary_text]; name = None; tool_call_id = None } in
     summary_msg :: List.concat recent_turns
 
 (** Reduce messages according to the configured strategy. *)

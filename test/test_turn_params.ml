@@ -25,7 +25,7 @@ let test_reasoning_with_thinking () =
       Types.Thinking { thinking_type = "thinking";
                        content = "I'm not sure about this approach" };
       Types.Text "Here is my answer";
-    ] };
+    ]; name = None; tool_call_id = None };
   ] in
   let r = Hooks.extract_reasoning messages in
   Alcotest.(check int) "one thinking block" 1 (List.length r.thinking_blocks);
@@ -37,7 +37,7 @@ let test_reasoning_tool_rationale () =
       Types.Thinking { thinking_type = "thinking";
                        content = "I should use the search tool to find information" };
       Types.Text "Let me search for that";
-    ] };
+    ]; name = None; tool_call_id = None };
   ] in
   let r = Hooks.extract_reasoning messages in
   Alcotest.(check bool) "has tool rationale" true (r.tool_rationale <> None)
@@ -140,8 +140,8 @@ let test_dynamic_reducer () =
   ) in
   (* With few turns, should keep all *)
   let messages : Types.message list = [
-    { role = User; content = [Types.Text "hello"] };
-    { role = Assistant; content = [Types.Text "hi"] };
+    { role = User; content = [Types.Text "hello"]; name = None; tool_call_id = None };
+    { role = Assistant; content = [Types.Text "hi"]; name = None; tool_call_id = None };
   ] in
   let reduced = Context_reducer.reduce reducer messages in
   Alcotest.(check int) "2 messages kept" 2 (List.length reduced)

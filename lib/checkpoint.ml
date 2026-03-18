@@ -7,7 +7,7 @@
 
 open Types
 
-let checkpoint_version = 3
+let checkpoint_version = 4
 
 type t = {
   version: int;
@@ -34,6 +34,7 @@ type t = {
   max_total_tokens: int option;
   context: Context.t;
   mcp_sessions: Mcp_session.info list;
+  working_context: Yojson.Safe.t option;
 }
 
 (* ── Serialization helpers ──────────────────────────────────────── *)
@@ -160,7 +161,7 @@ let message_of_json json =
     |> result_all
   in
   match role, content with
-  | Ok role, Ok content -> Ok { role; content }
+  | Ok role, Ok content -> Ok { role; content; name = None; tool_call_id = None }
   | Error e, _ -> Error e
   | _, Error e -> Error e
 
@@ -196,13 +197,14 @@ let to_json cp =
     ("max_total_tokens", Option.value ~default:`Null (Option.map (fun v -> `Int v) cp.max_total_tokens));
     ("context", Context.to_json cp.context);
     ("mcp_sessions", Mcp_session.info_list_to_json cp.mcp_sessions);
+    ("working_context", Option.value ~default:`Null cp.working_context);
   ]
 
 let of_json json =
   try
     let open Yojson.Safe.Util in
     let version = json |> member "version" |> to_int in
-    if version <> checkpoint_version && version <> 2 && version <> 1 then
+    if version <> checkpoint_version && version <> 3 && version <> 2 && version <> 1 then
       Error (Error.Serialization (VersionMismatch { expected = checkpoint_version; got = version }))
     else
       let tool_choice =
@@ -237,6 +239,11 @@ let of_json json =
           | `List _ as lst -> Mcp_session.info_list_of_json lst
           | _ -> Error (Error.Serialization (JsonParseError { detail = "Checkpoint.of_json: mcp_sessions must be a JSON array or null" }))
         in
+        let working_context =
+          match json |> member "working_context" with
+          | `Null -> None
+          | v -> Some v
+        in
         (match model, messages, tools, context, mcp_sessions with
          | Ok model, Ok messages, Ok tools, Ok context, Ok mcp_sessions ->
              Ok {
@@ -268,6 +275,7 @@ let of_json json =
                max_total_tokens = json |> member "max_total_tokens" |> to_int_option;
                context;
                mcp_sessions;
+               working_context;
              }
          | Error e, _, _, _, _ -> Error e
          | _, Error e, _, _, _ -> Error e

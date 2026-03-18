@@ -23,7 +23,7 @@ let () =
     max_turns = 1;
     max_tokens = 100;
   } in
-  let messages = [{ Types.role = Types.User; content = [Types.Text "Say hello in exactly 5 words."] }] in
+  let messages = [{ Types.role = Types.User; content = [Types.Text "Say hello in exactly 5 words."]; name = None; tool_call_id = None }] in
   Printf.printf "Sending request...\n%!";
   match Api.create_message ~sw ~net ~provider ~config:{ config = config; messages = []; turn_count = 0; usage = Types.empty_usage } ~messages () with
   | Ok resp ->

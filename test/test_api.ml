@@ -390,7 +390,7 @@ let test_parse_openai_response_no_reasoning () =
 (* ------------------------------------------------------------------ *)
 
 let test_message_to_json () =
-  let msg = { Types.role = Types.User; content = [Types.Text "hi"] } in
+  let msg = { Types.role = Types.User; content = [Types.Text "hi"]; name = None; tool_call_id = None } in
   let json = Api.message_to_json msg in
   let open Yojson.Safe.Util in
   check string "role" "user" (json |> member "role" |> to_string);
@@ -544,7 +544,8 @@ let test_parse_sse_malformed_json () =
 
 let test_message_to_json_assistant () =
   let msg = { Types.role = Types.Assistant;
-              content = [Types.Text "hi"; Types.ToolUse { id = "t1"; name = "calc"; input = `Null }] } in
+              content = [Types.Text "hi"; Types.ToolUse { id = "t1"; name = "calc"; input = `Null }];
+              name = None; tool_call_id = None } in
   let json = Api.message_to_json msg in
   let open Yojson.Safe.Util in
   check string "role" "assistant" (json |> member "role" |> to_string);
@@ -556,7 +557,7 @@ let test_message_to_json_assistant () =
 (* ------------------------------------------------------------------ *)
 
 let test_openai_messages_text_only () =
-  let msg = { Types.role = Types.User; content = [Types.Text "hello"] } in
+  let msg = { Types.role = Types.User; content = [Types.Text "hello"]; name = None; tool_call_id = None } in
   let msgs = Api.openai_messages_of_message msg in
   check int "1 message" 1 (List.length msgs);
   let open Yojson.Safe.Util in
@@ -568,7 +569,7 @@ let test_openai_messages_with_image () =
   let msg = { Types.role = Types.User; content = [
     Types.Text "describe this";
     Types.Image { media_type = "image/png"; data = "abc123"; source_type = "base64" };
-  ] } in
+  ]; name = None; tool_call_id = None } in
   let msgs = Api.openai_messages_of_message msg in
   check int "1 message" 1 (List.length msgs);
   let open Yojson.Safe.Util in

@@ -43,7 +43,7 @@ let check_token_budget = Agent_turn.check_token_budget
 let run_loop ~sw ?clock ~api_strategy agent user_prompt =
   agent.state <- { agent.state with
     messages = Util.snoc agent.state.messages
-      { role = User; content = [Text user_prompt] } };
+      { role = User; content = [Text user_prompt]; name = None; tool_call_id = None } };
   with_raw_trace_run agent user_prompt @@ fun raw_trace_run ->
   let rec loop () =
     if agent.state.turn_count >= agent.state.config.max_turns then
@@ -112,7 +112,7 @@ let run_with_handoffs ~sw ?clock agent ~targets user_prompt =
 
   agent_with_handoffs.state <- { agent_with_handoffs.state with
     messages = Util.snoc agent_with_handoffs.state.messages
-      { role = User; content = [Text user_prompt] } };
+      { role = User; content = [Text user_prompt]; name = None; tool_call_id = None } };
 
   with_raw_trace_run agent_with_handoffs user_prompt @@ fun raw_trace_run ->
   let rec loop () =
