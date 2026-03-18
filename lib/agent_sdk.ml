@@ -112,6 +112,7 @@ module Provider_bridge = Provider_bridge
 module Async_agent = Async_agent
 module Append_instruction = Append_instruction
 module Consumer = Consumer
+module Agent_typed = Agent_typed
 
 (** Quick start: create an agent with default config *)
 let create_agent ~net ?name ?model ?system_prompt ?max_tokens ?max_turns
