@@ -114,6 +114,7 @@ val complete_named :
   ?max_tokens:int ->
   ?system_prompt:string ->
   ?accept:(Types.api_response -> bool) ->
+  ?timeout_sec:int ->
   ?cache:Cache.t ->
   ?metrics:Metrics.t ->
   unit ->

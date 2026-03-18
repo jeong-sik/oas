@@ -320,7 +320,7 @@ let complete_named ~sw ~net ?clock ?config_path
     ~name ~defaults ~messages
     ?(tools = []) ?(temperature = 0.3) ?(max_tokens = 500)
     ?system_prompt ?(accept = fun _ -> true)
-    ?cache ?metrics () =
+    ?timeout_sec ?cache ?metrics () =
   (* 1. Load from config file, fall back to defaults *)
   let model_strings =
     match config_path with
@@ -350,6 +350,18 @@ let complete_named ~sw ~net ?clock ?config_path
               "All providers unhealthy for cascade '%s'" name
         })
     else
-      (* 4. Execute cascade with accept validation *)
-      complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
-        ~accept healthy_providers ~messages ~tools
+      (* 4. Execute cascade with accept validation, enforcing timeout *)
+      let run () =
+        complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
+          ~accept healthy_providers ~messages ~tools
+      in
+      match clock, timeout_sec with
+      | Some clk, Some secs when secs > 0 ->
+        (try Eio.Time.with_timeout_exn clk (float_of_int secs) run
+         with Eio.Time.Timeout ->
+           Error (Http_client.NetworkError {
+               message =
+                 Printf.sprintf
+                   "Cascade '%s' timed out after %ds" name secs
+             }))
+      | _ -> run ()
