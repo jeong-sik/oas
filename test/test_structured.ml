@@ -272,6 +272,52 @@ let test_schema_mixed_required () =
   Alcotest.(check bool) "c required" true (List.mem "c" required);
   Alcotest.(check bool) "e required" true (List.mem "e" required)
 
+(* --- Extractors --- *)
+
+let make_response content : Types.api_response =
+  { id = "m"; model = "m"; stop_reason = EndTurn; content; usage = None }
+
+let test_json_extractor_success () =
+  let extract = Structured.json_extractor (fun json ->
+    Yojson.Safe.Util.(json |> member "value" |> to_int))
+  in
+  let resp = make_response [Text {|{"value": 42}|}] in
+  match extract resp with
+  | Ok v -> Alcotest.(check int) "extracted value" 42 v
+  | Error e -> Alcotest.fail e
+
+let test_json_extractor_invalid_json () =
+  let extract = Structured.json_extractor (fun _ -> 0) in
+  let resp = make_response [Text "not json"] in
+  match extract resp with
+  | Error _ -> ()
+  | Ok _ -> Alcotest.fail "expected parse error"
+
+let test_json_extractor_no_text () =
+  let extract = Structured.json_extractor (fun _ -> 0) in
+  let resp = make_response [] in
+  match extract resp with
+  | Error msg ->
+    Alcotest.(check bool) "mentions no text" true
+      (String.length msg > 0)
+  | Ok _ -> Alcotest.fail "expected error"
+
+let test_text_extractor_success () =
+  let extract = Structured.text_extractor (fun s ->
+    if String.length s > 0 then Some (String.length s) else None)
+  in
+  let resp = make_response [Text "hello world"] in
+  match extract resp with
+  | Ok v -> Alcotest.(check int) "text length" 11 v
+  | Error e -> Alcotest.fail e
+
+let test_text_extractor_none () =
+  let extract = Structured.text_extractor (fun _ -> None) in
+  let resp = make_response [Text "anything"] in
+  match extract resp with
+  | Error _ -> ()
+  | Ok _ -> Alcotest.fail "expected error"
+
 (* --- Runner --- *)
 
 let () =
@@ -296,5 +342,12 @@ let () =
       Alcotest.test_case "parse error type" `Quick test_extract_parse_error_is_serialization;
       Alcotest.test_case "missing tool type" `Quick test_extract_missing_tool_is_internal;
       Alcotest.test_case "ignores tool_result" `Quick test_extract_ignores_tool_result;
+    ];
+    "extractors", [
+      Alcotest.test_case "json_extractor success" `Quick test_json_extractor_success;
+      Alcotest.test_case "json_extractor invalid" `Quick test_json_extractor_invalid_json;
+      Alcotest.test_case "json_extractor no text" `Quick test_json_extractor_no_text;
+      Alcotest.test_case "text_extractor success" `Quick test_text_extractor_success;
+      Alcotest.test_case "text_extractor none" `Quick test_text_extractor_none;
     ];
   ]

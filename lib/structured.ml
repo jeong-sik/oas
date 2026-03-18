@@ -69,6 +69,51 @@ let extract ~sw ~net ?base_url ?provider ~config ~(schema : 'a schema) prompt
      | Ok v -> Ok v
      | Error e -> Error e)
 
+(* ── Extractors ────────────────────────────────────────────────── *)
+
+(** An extractor converts an api_response into a typed value.
+    Use with {!run_structured} for Agent.t-level structured output. *)
+type 'a extractor = api_response -> ('a, string) result
+
+(** Extract a JSON value from the first text block and parse it. *)
+let json_extractor (parse : Yojson.Safe.t -> 'a) : 'a extractor =
+  fun resp ->
+    let texts =
+      List.filter_map (function Text s -> Some s | _ -> None) resp.content
+    in
+    match texts with
+    | [] -> Error "no text content in response"
+    | text :: _ ->
+      (try Ok (parse (Yojson.Safe.from_string text))
+       with
+       | Yojson.Json_error e -> Error (Printf.sprintf "JSON parse: %s" e)
+       | exn -> Error (Printexc.to_string exn))
+
+(** Extract a value from the first text block using a string parser. *)
+let text_extractor (parse : string -> 'a option) : 'a extractor =
+  fun resp ->
+    let texts =
+      List.filter_map (function Text s -> Some s | _ -> None) resp.content
+    in
+    match texts with
+    | [] -> Error "no text content in response"
+    | text :: _ ->
+      (match parse text with
+       | Some v -> Ok v
+       | None -> Error "text extractor returned None")
+
+(** Run an agent with a prompt and extract a structured value from the response.
+    Uses the full Agent pipeline (hooks, tools, tracing) unlike {!extract}
+    which calls the API directly. *)
+let run_structured ~sw ?clock agent prompt ~(extract : 'a extractor) =
+  match Agent.run ~sw ?clock agent prompt with
+  | Error e -> Error e
+  | Ok response ->
+    (match extract response with
+     | Ok v -> Ok v
+     | Error detail ->
+       Error (Error.Serialization (JsonParseError { detail })))
+
 (** Extract structured output with SSE streaming.
     Like [extract] but uses [Streaming.create_message_stream] to receive
     incremental SSE events.  Calls [on_event] for each event.
