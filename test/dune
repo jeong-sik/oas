@@ -362,3 +362,7 @@
 (test
  (name test_autonomy_smoke)
  (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_traced_swarm)
+ (libraries agent_sdk agent_sdk_swarm alcotest yojson eio eio_main unix))

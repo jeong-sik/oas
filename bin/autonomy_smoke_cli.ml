@@ -9,6 +9,7 @@
       autonomy_smoke --config oas.json --workers 2 --prompt "Examine this workspace" *)
 
 open Agent_sdk
+open Agent_sdk_swarm
 open Cmdliner
 
 let version = Agent_sdk.version
@@ -16,77 +17,22 @@ let version = Agent_sdk.version
 (* ── Offline mode: analyze existing trace files ────────────── *)
 
 let analyze_trace_files trace_dir =
-  match Sys.readdir trace_dir with
-  | exception Sys_error e ->
-      Printf.eprintf "Error reading trace directory: %s\n" e;
+  match Traced_swarm.collect_summaries ~trace_dir with
+  | Error e ->
+      Printf.eprintf "Error reading traces: %s\n" (Error.to_string e);
       exit 1
-  | entries ->
-      let jsonl_files =
-        entries |> Array.to_list
-        |> List.filter (fun name -> Filename.check_suffix name ".jsonl")
-        |> List.sort String.compare
-        |> List.map (fun name -> Filename.concat trace_dir name)
-      in
-      if jsonl_files = [] then begin
-        Printf.eprintf "No .jsonl trace files found in %s\n" trace_dir;
-        exit 1
-      end;
-      let summaries =
-        List.filter_map
-          (fun path ->
-            match Raw_trace_query.read_runs ~path () with
-            | Error e ->
-                Printf.eprintf "Warning: skipping %s: %s\n" path
-                  (Error.to_string e);
-                None
-            | Ok runs ->
-                let last_run =
-                  match List.rev runs with
-                  | run :: _ -> Some run
-                  | [] -> None
-                in
-                Option.bind last_run (fun run ->
-                    match Raw_trace_query.summarize_run run with
-                    | Ok summary -> Some summary
-                    | Error e ->
-                        Printf.eprintf "Warning: skipping run in %s: %s\n"
-                          path (Error.to_string e);
-                        None))
-          jsonl_files
-      in
+  | Ok summaries ->
       if summaries = [] then begin
         Printf.eprintf "No valid runs found in trace files\n";
         exit 1
       end;
-      Printf.eprintf "Analyzed %d trace files, %d valid runs\n"
-        (List.length jsonl_files)
-        (List.length summaries);
+      Printf.eprintf "Analyzed %d valid runs from %s\n"
+        (List.length summaries) trace_dir;
       let verdict = Autonomy_trace_analyzer.analyze summaries in
       let json = Autonomy_trace_analyzer.verdict_to_json verdict in
       print_endline (Yojson.Safe.pretty_to_string json)
 
-(* ── Live mode: spawn agents and analyze ───────────────────── *)
-
-let summarize_trace ~agent_name ~trace_path =
-  match Raw_trace_query.read_runs ~path:trace_path () with
-  | Ok runs -> begin
-      match List.rev runs with
-      | run :: _ -> begin
-          match Raw_trace_query.summarize_run run with
-          | Ok summary -> Some summary
-          | Error e ->
-              Printf.eprintf "Warning: cannot summarize %s trace: %s\n"
-                agent_name (Error.to_string e);
-              None
-        end
-      | [] ->
-          Printf.eprintf "Warning: no runs found in %s trace\n" agent_name;
-          None
-    end
-  | Error e ->
-      Printf.eprintf "Warning: cannot read %s trace: %s\n" agent_name
-        (Error.to_string e);
-      None
+(* ── Live mode: spawn agents via Traced_swarm ─────────────── *)
 
 let live_smoke config_file workers prompt =
   match Agent_sdk.Agent_config.load config_file with
@@ -97,65 +43,27 @@ let live_smoke config_file workers prompt =
       Eio_main.run @@ fun env ->
       let net = Eio.Stdenv.net env in
       let clock = Eio.Stdenv.clock env in
-      let trace_dir = Filename.temp_dir "autonomy_smoke" "" in
-      Printf.eprintf "Trace directory: %s\n" trace_dir;
+      let base_builder = Agent_sdk.Agent_config.to_builder ~net cfg in
       Printf.eprintf "Spawning %d workers with prompt: %s\n" workers prompt;
-      let summaries = ref [] in
       Eio.Switch.run @@ fun sw ->
-      for i = 1 to workers do
-        let agent_name = Printf.sprintf "worker-%d" i in
-        let trace_path =
-          Filename.concat trace_dir (Printf.sprintf "%s.jsonl" agent_name)
-        in
-        Printf.eprintf "Running %s...\n%!" agent_name;
-        let builder = Agent_sdk.Agent_config.to_builder ~net cfg in
-        let builder = Agent_sdk.Builder.with_name agent_name builder in
-        match Raw_trace.create ~path:trace_path () with
-        | Error e ->
-            Printf.eprintf "Error creating trace for %s: %s\n" agent_name
-              (Error.to_string e)
-        | Ok trace -> begin
-            let builder =
-              Agent_sdk.Builder.with_raw_trace trace builder
-            in
-            match Agent_sdk.Builder.build_safe builder with
-            | Error e ->
-                Printf.eprintf "Error building %s: %s\n" agent_name
-                  (Error.to_string e)
-            | Ok agent -> begin
-                match Agent_sdk.Agent.run ~sw ~clock agent prompt with
-                | Ok response ->
-                    let text =
-                      List.filter_map
-                        (function
-                          | Agent_sdk.Types.Text s -> Some s
-                          | _ -> None)
-                        response.content
-                      |> String.concat "\n"
-                    in
-                    Printf.eprintf "%s completed: %d chars output\n"
-                      agent_name (String.length text);
-                    begin
-                      match summarize_trace ~agent_name ~trace_path with
-                      | Some summary ->
-                          summaries := summary :: !summaries
-                      | None -> ()
-                    end
-                | Error e ->
-                    Printf.eprintf "%s failed: %s\n" agent_name
-                      (Error.to_string e)
-              end
-          end
-      done;
-      let summaries = List.rev !summaries in
-      if summaries = [] then begin
-        Printf.eprintf "No successful runs to analyze\n";
-        exit 1
-      end;
-      let verdict = Autonomy_trace_analyzer.analyze summaries in
-      let json = Autonomy_trace_analyzer.verdict_to_json verdict in
-      print_endline (Yojson.Safe.pretty_to_string json);
-      Printf.eprintf "Trace files preserved at: %s\n" trace_dir
+      match
+        Traced_swarm.run_traced ~sw ~clock ~workers
+          ~base_builder ~prompt ()
+      with
+      | Ok { summaries; trace_dir; _ } ->
+          if summaries = [] then begin
+            Printf.eprintf "No successful runs to analyze\n";
+            exit 1
+          end;
+          Printf.eprintf "Analyzed %d workers, %d valid runs\n"
+            workers (List.length summaries);
+          let verdict = Autonomy_trace_analyzer.analyze summaries in
+          let json = Autonomy_trace_analyzer.verdict_to_json verdict in
+          print_endline (Yojson.Safe.pretty_to_string json);
+          Printf.eprintf "Trace files preserved at: %s\n" trace_dir
+      | Error e ->
+          Printf.eprintf "Error: %s\n" (Error.to_string e);
+          exit 1
 
 (* ── CLI definition ────────────────────────────────────────── *)
 

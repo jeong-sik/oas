@@ -16,4 +16,4 @@
 (executable
  (name autonomy_smoke_cli)
  (public_name oas-autonomy-smoke)
- (libraries agent_sdk eio eio_main yojson unix cmdliner))
+ (libraries agent_sdk agent_sdk_swarm eio eio_main yojson unix cmdliner))
