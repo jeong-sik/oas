@@ -126,3 +126,4 @@ val assistant_msg : string -> message
 val tool_result_msg : tool_use_id:string -> content:string -> ?is_error:bool -> unit -> message
 val text_of_content : content_block list -> string
 val text_of_message : message -> string
+val text_of_response : api_response -> string

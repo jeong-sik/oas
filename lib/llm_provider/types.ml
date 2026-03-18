@@ -187,3 +187,6 @@ let text_of_content content =
 
 (** Extract text from a message. *)
 let text_of_message (msg : message) = text_of_content msg.content
+
+(** Extract text from an api_response. *)
+let text_of_response (resp : api_response) = text_of_content resp.content
