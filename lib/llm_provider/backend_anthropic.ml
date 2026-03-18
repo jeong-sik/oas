@@ -45,14 +45,18 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
   let body = match config.system_prompt with
     | Some s when not (Api_common.string_is_blank s) ->
         if config.cache_system_prompt then
-          (* Anthropic prompt caching: send system as content block array
-             with cache_control breakpoint on the last block *)
-          let block = `Assoc [
-            ("type", `String "text");
-            ("text", `String s);
-            ("cache_control", `Assoc [("type", `String "ephemeral")])
-          ] in
-          ("system", `List [block]) :: body
+          (* Anthropic prompt caching requires minimum ~1024 tokens (~4096 chars)
+             for cache breakpoint to take effect. Skip cache_control on short prompts. *)
+          let min_cache_chars = 3500 in
+          if String.length s >= min_cache_chars then
+            let block = `Assoc [
+              ("type", `String "text");
+              ("text", `String s);
+              ("cache_control", `Assoc [("type", `String "ephemeral")])
+            ] in
+            ("system", `List [block]) :: body
+          else
+            ("system", `String s) :: body
         else
           ("system", `String s) :: body
     | _ -> body
