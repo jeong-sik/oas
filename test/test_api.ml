@@ -307,7 +307,7 @@ let test_parse_openai_response_reasoning_content () =
     "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30}
   }|} in
   let resp = Api.parse_openai_response json_str in
-  check int "3 content blocks" 2 (List.length resp.content);
+  check int "2 content blocks" 2 (List.length resp.content);
   (match resp.content with
    | [Types.Thinking { thinking_type; content }; Types.Text text] ->
        check string "thinking_type" "reasoning" thinking_type;
@@ -345,6 +345,26 @@ let test_parse_openai_response_reasoning_with_tools () =
   (match resp.stop_reason with
    | Types.StopToolUse -> ()
    | sr -> Alcotest.fail (Printf.sprintf "expected StopToolUse, got %s" (Types.show_stop_reason sr)))
+
+let test_parse_openai_response_blank_reasoning () =
+  let json_str = {|{
+    "id": "chatcmpl_blank",
+    "model": "qwen3.5-35b",
+    "choices": [{
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "Just text",
+        "reasoning_content": "   "
+      }
+    }]
+  }|} in
+  let resp = Api.parse_openai_response json_str in
+  check int "1 content block (blank reasoning filtered)" 1 (List.length resp.content);
+  (match resp.content with
+   | [Types.Text "Just text"] -> ()
+   | _ -> Alcotest.fail "expected [Text] only, blank reasoning should be filtered")
 
 let test_parse_openai_response_no_reasoning () =
   let json_str = {|{
@@ -674,6 +694,7 @@ let () =
       test_case "cache tokens in usage" `Quick test_parse_response_with_cache_tokens;
       test_case "reasoning_content" `Quick test_parse_openai_response_reasoning_content;
       test_case "reasoning_content with tools" `Quick test_parse_openai_response_reasoning_with_tools;
+      test_case "blank reasoning_content" `Quick test_parse_openai_response_blank_reasoning;
       test_case "no reasoning_content" `Quick test_parse_openai_response_no_reasoning;
     ];
     "error_handling", [
