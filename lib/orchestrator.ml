@@ -361,8 +361,8 @@ let execute_consensus ~sw ?clock orch ~prompt ~agents ~strategy =
     attributed to [label].
 
     Results from all sub-orchestrators are returned in input order. *)
-let execute_hierarchical ~sw ?clock sub_plans =
-  Eio.Fiber.List.map (fun (label, sub_orch, sub_plan) ->
+let execute_hierarchical ~sw ?clock ?(max_parallel = 4) sub_plans =
+  Eio.Fiber.List.map ~max_fibers:max_parallel (fun (label, sub_orch, sub_plan) ->
     let t0 = Unix.gettimeofday () in
     let sub_results = execute ~sw ?clock sub_orch sub_plan in
     let elapsed = Unix.gettimeofday () -. t0 in
