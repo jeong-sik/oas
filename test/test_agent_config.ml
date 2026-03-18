@@ -59,9 +59,12 @@ let test_full_config () =
     check string "tool name" "get_weather" tool.name;
     check int "tool params" 1 (List.length tool.parameters);
     check int "mcp" 1 (List.length cfg.mcp_servers);
-    let mcp = List.hd cfg.mcp_servers in
-    check string "mcp command" "npx" mcp.command;
-    check string "mcp name" "my-server" mcp.name
+    (match List.hd cfg.mcp_servers with
+     | Agent_config.Stdio_mcp { command; name; _ } ->
+         check string "mcp command" "npx" command;
+         check string "mcp name" "my-server" name
+     | Agent_config.Http_mcp _ ->
+         fail "expected Stdio_mcp")
   | Error e -> fail (Error.to_string e)
 
 let test_defaults () =
@@ -182,10 +185,13 @@ let test_mcp_defaults () =
   match Agent_config.of_json json with
   | Ok cfg ->
     check int "1 mcp" 1 (List.length cfg.mcp_servers);
-    let mcp = List.hd cfg.mcp_servers in
-    check string "name defaults to command" "node" mcp.name;
-    check (list string) "empty args" [] mcp.args;
-    check (list string) "empty env" [] mcp.env
+    (match List.hd cfg.mcp_servers with
+     | Agent_config.Stdio_mcp { name; args; env; _ } ->
+         check string "name defaults to command" "node" name;
+         check (list string) "empty args" [] args;
+         check (list string) "empty env" [] env
+     | Agent_config.Http_mcp _ ->
+         fail "expected Stdio_mcp")
   | Error e -> fail (Error.to_string e)
 
 let test_mcp_with_env () =
@@ -202,9 +208,12 @@ let test_mcp_with_env () =
   ] in
   match Agent_config.of_json json with
   | Ok cfg ->
-    let mcp = List.hd cfg.mcp_servers in
-    check (list string) "env" ["NODE_ENV=production"] mcp.env;
-    check (list string) "args" ["server.js"] mcp.args
+    (match List.hd cfg.mcp_servers with
+     | Agent_config.Stdio_mcp { env; args; _ } ->
+         check (list string) "env" ["NODE_ENV=production"] env;
+         check (list string) "args" ["server.js"] args
+     | Agent_config.Http_mcp _ ->
+         fail "expected Stdio_mcp")
   | Error e -> fail (Error.to_string e)
 
 (* ── parse_tool: param type mapping ──────────────────── *)
@@ -244,6 +253,82 @@ let test_tool_no_params () =
     check int "no params" 0 (List.length tool.parameters)
   | Error e -> fail (Error.to_string e)
 
+(* ── HTTP MCP parsing ──────────────────────────────────── *)
+
+let test_http_mcp_config () =
+  let json = `Assoc [
+    ("name", `String "test");
+    ("mcp_servers", `List [
+      `Assoc [
+        ("url", `String "http://localhost:8935/mcp");
+        ("name", `String "masc");
+        ("headers", `Assoc [("Authorization", `String "Bearer tok")]);
+      ]
+    ]);
+  ] in
+  match Agent_config.of_json json with
+  | Ok cfg ->
+    check int "1 mcp" 1 (List.length cfg.mcp_servers);
+    (match List.hd cfg.mcp_servers with
+     | Agent_config.Http_mcp { url; name; headers } ->
+         check string "url" "http://localhost:8935/mcp" url;
+         check string "name" "masc" name;
+         check int "1 header" 1 (List.length headers);
+         let (hk, hv) = List.hd headers in
+         check string "header key" "Authorization" hk;
+         check string "header val" "Bearer tok" hv
+     | Agent_config.Stdio_mcp _ ->
+         fail "expected Http_mcp")
+  | Error e -> fail (Error.to_string e)
+
+let test_http_mcp_defaults () =
+  let json = `Assoc [
+    ("name", `String "test");
+    ("mcp_servers", `List [
+      `Assoc [
+        ("url", `String "http://example.com/mcp");
+      ]
+    ]);
+  ] in
+  match Agent_config.of_json json with
+  | Ok cfg ->
+    (match List.hd cfg.mcp_servers with
+     | Agent_config.Http_mcp { url; name; headers } ->
+         check string "url" "http://example.com/mcp" url;
+         check string "name defaults to url" "http://example.com/mcp" name;
+         check (list (pair string string)) "no headers" [] headers
+     | Agent_config.Stdio_mcp _ ->
+         fail "expected Http_mcp")
+  | Error e -> fail (Error.to_string e)
+
+let test_mixed_mcp_config () =
+  let json = `Assoc [
+    ("name", `String "test");
+    ("mcp_servers", `List [
+      `Assoc [
+        ("command", `String "npx");
+        ("args", `List [`String "-y"; `String "server"]);
+        ("name", `String "stdio-server");
+      ];
+      `Assoc [
+        ("url", `String "http://localhost:8080/mcp");
+        ("name", `String "http-server");
+      ];
+    ]);
+  ] in
+  match Agent_config.of_json json with
+  | Ok cfg ->
+    check int "2 mcp servers" 2 (List.length cfg.mcp_servers);
+    (match List.nth cfg.mcp_servers 0 with
+     | Agent_config.Stdio_mcp { name; _ } ->
+         check string "first is stdio" "stdio-server" name
+     | _ -> fail "expected Stdio_mcp first");
+    (match List.nth cfg.mcp_servers 1 with
+     | Agent_config.Http_mcp { name; _ } ->
+         check string "second is http" "http-server" name
+     | _ -> fail "expected Http_mcp second")
+  | Error e -> fail (Error.to_string e)
+
 (* ── Suite ──────────────────────────────────────────────── *)
 
 let () =
@@ -256,6 +341,9 @@ let () =
       test_case "mcp with env" `Quick test_mcp_with_env;
       test_case "tool param types" `Quick test_tool_param_types;
       test_case "tool no params" `Quick test_tool_no_params;
+      test_case "http mcp" `Quick test_http_mcp_config;
+      test_case "http mcp defaults" `Quick test_http_mcp_defaults;
+      test_case "mixed mcp" `Quick test_mixed_mcp_config;
     ];
     "load", [
       test_case "nonexistent" `Quick test_load_nonexistent;

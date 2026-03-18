@@ -123,7 +123,7 @@ let connect ~sw:_ ~net config =
 let initialize t =
   let* result = send_request t ~method_:"initialize"
     ~params:(`Assoc [
-      ("protocolVersion", `String "2024-11-05");
+      ("protocolVersion", `String "2025-11-25");
       ("capabilities", `Assoc []);
       ("clientInfo", `Assoc [
         ("name", `String "oas-sdk");
@@ -186,7 +186,7 @@ let call_tool t ~name ~arguments =
 
 let close _t = ()
 
-(* ── Managed client ──────────────────────────────────────── *)
+(* ── Managed client (returns unified Mcp.managed) ─────────── *)
 
 type http_spec = {
   base_url: string;
@@ -194,15 +194,10 @@ type http_spec = {
   name: string;
 }
 
-type managed = {
-  client: t;
-  tools: Tool.t list;
-  name: string;
-  spec: http_spec;
-}
-
-(** Connect, initialize, load tools, and wrap as [managed]. *)
-let connect_and_load ~sw ~net (spec : http_spec) =
+(** Connect, initialize, load tools, and wrap as unified [Mcp.managed].
+    The returned managed value uses [Mcp.Http] transport. *)
+let connect_and_load_managed ~sw ~net (spec : http_spec) :
+    (Mcp.managed, Error.sdk_error) result =
   let config = {
     base_url = spec.base_url;
     headers = spec.headers;
@@ -216,4 +211,9 @@ let connect_and_load ~sw ~net (spec : http_spec) =
     Mcp.mcp_tool_to_sdk_tool mt
       ~call_fn:(fun input -> call_tool client ~name:mt.name ~arguments:input)
   ) mcp_tools in
-  Ok { client; tools; name = spec.name; spec }
+  Ok { Mcp.tools; name = spec.name;
+       transport = Http { close_fn = (fun () -> close client) } }
+
+(** @deprecated Use {!connect_and_load_managed} instead.
+    Kept for backward compatibility. *)
+let connect_and_load ~sw ~net spec = connect_and_load_managed ~sw ~net spec

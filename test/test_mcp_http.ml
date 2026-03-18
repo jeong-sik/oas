@@ -107,6 +107,60 @@ let test_http_transport_error () =
     (Error.is_retryable (Error.Mcp (ServerStartFailed { command = "x"; detail = "y" })));
   check bool "http transport is retryable" true (Error.is_retryable err)
 
+(* ── Managed type integration ──────────────────────────── *)
+
+let test_connect_and_load_returns_mcp_managed () =
+  (* connect_and_load_managed should return Mcp.managed (not Mcp_http.managed).
+     We test the type system guarantees by assigning to Mcp.managed. *)
+  Eio_main.run @@ fun env ->
+  let net = Eio.Stdenv.net env in
+  Eio.Switch.run @@ fun sw ->
+  let spec : Mcp_http.http_spec = {
+    base_url = "http://127.0.0.1:19999";
+    headers = [("X-Custom", "test")];
+    name = "typed-test";
+  } in
+  let result : (Mcp.managed, Error.sdk_error) result =
+    Mcp_http.connect_and_load_managed ~sw ~net spec
+  in
+  match result with
+  | Error _ -> ()  (* expected — unreachable, but type check passes *)
+  | Ok managed ->
+      check string "name" "typed-test" managed.name;
+      (match managed.transport with
+       | Mcp.Http _ -> ()
+       | Mcp.Stdio _ -> fail "expected Http transport")
+
+let test_session_transport_kind () =
+  (* Verify that transport_kind roundtrips through JSON *)
+  let info : Mcp_session.info = {
+    server_name = "http-srv";
+    command = "http";
+    args = [];
+    env = [];
+    tool_schemas = [];
+    transport_kind = Http;
+  } in
+  let json = Mcp_session.info_to_json info in
+  let info2 = Result.get_ok (Mcp_session.info_of_json json) in
+  check bool "transport_kind is Http" true
+    (info2.transport_kind = Mcp_session.Http);
+  check string "command" "http" info2.command
+
+let test_session_transport_kind_stdio_default () =
+  (* Old JSON without transport_kind should default to Stdio *)
+  let json = `Assoc [
+    ("server_name", `String "old-srv");
+    ("command", `String "cmd");
+    ("args", `List []);
+    ("env", `List []);
+    ("tool_schemas", `List []);
+    (* no transport_kind field *)
+  ] in
+  let info = Result.get_ok (Mcp_session.info_of_json json) in
+  check bool "defaults to Stdio" true
+    (info.transport_kind = Mcp_session.Stdio)
+
 (* ── Suite ──────────────────────────────────────────────── *)
 
 let () =
@@ -121,8 +175,13 @@ let () =
       test_case "call_tool unreachable" `Quick test_call_tool_unreachable;
       test_case "close safe" `Quick test_close_safe;
       test_case "connect_and_load unreachable" `Quick test_connect_and_load_unreachable;
+      test_case "connect_and_load returns Mcp.managed" `Quick test_connect_and_load_returns_mcp_managed;
     ];
     "errors", [
       test_case "http transport error" `Quick test_http_transport_error;
+    ];
+    "session", [
+      test_case "transport_kind roundtrip" `Quick test_session_transport_kind;
+      test_case "transport_kind default stdio" `Quick test_session_transport_kind_stdio_default;
     ];
   ]

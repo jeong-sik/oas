@@ -5,12 +5,15 @@
 
 open Types
 
+type transport_kind = Stdio | Http
+
 type info = {
   server_name: string;
   command: string;
   args: string list;
   env: (string * string) list;
   tool_schemas: tool_schema list;
+  transport_kind: transport_kind;
 }
 
 val capture : Mcp.managed -> info

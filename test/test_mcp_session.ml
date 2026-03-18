@@ -29,7 +29,8 @@ let make_info
     ?(env=[])
     ?(tool_schemas=[])
     () : Mcp_session.info =
-  { server_name; command; args; env; tool_schemas }
+  { server_name; command; args; env; tool_schemas;
+    transport_kind = Stdio }
 
 let () =
   let open Alcotest in

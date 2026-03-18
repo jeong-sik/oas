@@ -42,12 +42,18 @@ type tool_file_config = {
 
 (* ── MCP server config ───────────────────────────────────── *)
 
-type mcp_file_config = {
-  command: string;
-  args: string list;
-  name: string;
-  env: string list;
-}
+type mcp_file_config =
+  | Stdio_mcp of {
+      command: string;
+      args: string list;
+      name: string;
+      env: string list;
+    }
+  | Http_mcp of {
+      url: string;
+      headers: (string * string) list;
+      name: string;
+    }
 
 (* ── Agent config ────────────────────────────────────────── *)
 
@@ -108,18 +114,33 @@ let parse_tool json =
 let parse_mcp json =
   let open Yojson.Safe.Util in
   try
-    let command = json |> member "command" |> to_string in
-    let args = match json |> member "args" with
-      | `List items -> List.filter_map to_string_option items
-      | _ -> []
-    in
-    let name = json |> member "name" |> to_string_option
-      |> Option.value ~default:command in
-    let env = match json |> member "env" with
-      | `List items -> List.filter_map to_string_option items
-      | _ -> []
-    in
-    Ok { command; args; name; env }
+    match json |> member "url" |> to_string_option with
+    | Some url ->
+        (* HTTP MCP: { "url": "...", "name": "...", "headers": {...} } *)
+        let name = json |> member "name" |> to_string_option
+          |> Option.value ~default:url in
+        let headers = match json |> member "headers" with
+          | `Assoc pairs ->
+              List.filter_map (fun (k, v) ->
+                match v with `String s -> Some (k, s) | _ -> None
+              ) pairs
+          | _ -> []
+        in
+        Ok (Http_mcp { url; headers; name })
+    | None ->
+        (* Stdio MCP: { "command": "...", "args": [...], ... } *)
+        let command = json |> member "command" |> to_string in
+        let args = match json |> member "args" with
+          | `List items -> List.filter_map to_string_option items
+          | _ -> []
+        in
+        let name = json |> member "name" |> to_string_option
+          |> Option.value ~default:command in
+        let env = match json |> member "env" with
+          | `List items -> List.filter_map to_string_option items
+          | _ -> []
+        in
+        Ok (Stdio_mcp { command; args; name; env })
   with Type_error (msg, _) ->
     Error (Error.Config (InvalidConfig { field = "mcp_server"; detail = msg }))
 
@@ -222,8 +243,41 @@ let resolve_provider ~model_id provider_str base_url =
           path = "/v1/chat/completions"; static_token = None };
         model_id; api_key_env = other }
 
-(** Convert a loaded config to a Builder.t. *)
-let to_builder ~net (cfg : agent_file_config) =
+(** Convert mcp_file_config to a server spec for stdio, or connect HTTP directly. *)
+let connect_mcp_server ~sw ~mgr ~net mcp_cfg =
+  match mcp_cfg with
+  | Stdio_mcp { command; args; name; env } ->
+      let env_pairs = List.filter_map (fun entry ->
+        match String.split_on_char '=' entry with
+        | k :: rest -> Some (k, String.concat "=" rest)
+        | [] -> None
+      ) env in
+      let spec : Mcp.server_spec = { command; args; env = env_pairs; name } in
+      Mcp.connect_and_load ~sw ~mgr spec
+  | Http_mcp { url; headers; name } ->
+      let spec : Mcp_http.http_spec = { base_url = url; headers; name } in
+      Mcp_http.connect_and_load_managed ~sw ~net spec
+
+(** Connect all MCP servers from config (best-effort: failures are logged,
+    not fatal). *)
+let connect_mcp_servers_best_effort ~sw ~mgr ~net mcp_cfgs =
+  List.fold_left (fun acc cfg ->
+    match connect_mcp_server ~sw ~mgr ~net cfg with
+    | Ok managed -> managed :: acc
+    | Error e ->
+        let name = match cfg with
+          | Stdio_mcp { name; _ } -> name
+          | Http_mcp { name; _ } -> name
+        in
+        Printf.eprintf "[oas] MCP server '%s' failed: %s\n%!" name (Error.to_string e);
+        acc
+  ) [] mcp_cfgs
+  |> List.rev
+
+(** Convert a loaded config to a Builder.t.
+    When [~sw] and [~mgr] are provided, MCP servers from config are connected
+    and their tools are registered.  Without them, MCP servers are skipped. *)
+let to_builder ?sw ?mgr ~net (cfg : agent_file_config) =
   let model = Model_registry.resolve_model_id cfg.model in
   let b = Builder.create ~net ~model in
   let b = Builder.with_name cfg.name b in
@@ -259,4 +313,11 @@ let to_builder ~net (cfg : agent_file_config) =
           tc.name (Yojson.Safe.to_string input) })
   ) cfg.tools in
   let b = if tools <> [] then Builder.with_tools tools b else b in
+  (* Connect MCP servers if sw+mgr provided *)
+  let b = match sw, mgr with
+    | Some sw, Some mgr when cfg.mcp_servers <> [] ->
+        let managed = connect_mcp_servers_best_effort ~sw ~mgr ~net cfg.mcp_servers in
+        if managed <> [] then Builder.with_mcp_clients managed b else b
+    | _ -> b
+  in
   b

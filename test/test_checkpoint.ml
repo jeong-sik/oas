@@ -591,6 +591,7 @@ let () =
           args = ["--port"; "8080"];
           env = [("API_KEY", "secret123")];
           tool_schemas = [sample_tool_schema];
+          transport_kind = Stdio;
         } in
         let cp = make_checkpoint ~mcp_sessions:[info] () in
         let cp2 = Result.get_ok (Checkpoint.of_json (Checkpoint.to_json cp)) in
@@ -609,11 +610,13 @@ let () =
           server_name = "server-a";
           command = "mcp-a"; args = []; env = [];
           tool_schemas = [];
+          transport_kind = Stdio;
         } in
         let info2 : Mcp_session.info = {
           server_name = "server-b";
           command = "mcp-b"; args = ["--verbose"]; env = [("X", "1")];
           tool_schemas = [sample_tool_schema];
+          transport_kind = Stdio;
         } in
         let cp = make_checkpoint ~mcp_sessions:[info1; info2] () in
         let cp2 = Result.get_ok (Checkpoint.of_json (Checkpoint.to_json cp)) in
