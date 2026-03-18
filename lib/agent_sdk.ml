@@ -107,6 +107,7 @@ module A2a_server = A2a_server
 module Metrics = Metrics
 module Progressive_tools = Progressive_tools
 module Autonomy_trace_analyzer = Autonomy_trace_analyzer
+module Provider_bridge = Provider_bridge
 
 (** Quick start: create an agent with default config *)
 let create_agent ~net ?name ?model ?system_prompt ?max_tokens ?max_turns

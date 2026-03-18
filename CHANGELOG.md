@@ -2,6 +2,16 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.53.0] - 2026-03-18
+
+### Added
+- `Complete.complete_with_retry`: exponential backoff retry for LLM completions. (#144)
+- `Complete.complete_cascade`: multi-provider failover with retry per-provider. (#144)
+- `Complete.complete_stream`: streaming completion with SSE event accumulation for both Anthropic and OpenAI-compatible providers. (#144)
+- `Complete.is_retryable`: classify HTTP errors as retryable (429, 500, 502, 503, 529, network errors). (#144)
+- `Provider_bridge`: convert legacy `Provider.config` to `Provider_config.t`. (#144)
+- `Provider_bridge.cascade_to_provider_config`: convert legacy cascade to new cascade type. (#144)
+
 ## [0.51.0] - 2026-03-18
 
 ### Added
