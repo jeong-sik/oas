@@ -123,13 +123,13 @@ let test_anthropic_headers () =
   | Error e ->
     Alcotest.fail (Printf.sprintf "should succeed: %s" (Error.to_string e))
 
-let test_model_spec_local_qwen_capabilities () =
-  let local_qwen : Provider.config = {
+let test_model_spec_local_llm_capabilities () =
+  let local_llm : Provider.config = {
     provider = Local { base_url = "http://127.0.0.1:8085" };
-    model_id = "qwen3.5-35b-a3b-ud-q8-xl";
+    model_id = "default";
     api_key_env = "DUMMY_KEY";
   } in
-  let spec = Provider.model_spec_of_config local_qwen in
+  let spec = Provider.model_spec_of_config local_llm in
   Alcotest.(check string) "request path" "/v1/messages" spec.request_path;
   Alcotest.(check bool) "supports tools" true spec.capabilities.supports_tools;
   Alcotest.(check bool) "supports reasoning" true
@@ -244,8 +244,8 @@ let () =
       Alcotest.test_case "openai compat success" `Quick test_openai_compat_resolve_success;
       Alcotest.test_case "openai compat missing key" `Quick test_openai_compat_resolve_missing_key;
       Alcotest.test_case "anthropic headers" `Quick test_anthropic_headers;
-      Alcotest.test_case "local qwen model spec capabilities" `Quick
-        test_model_spec_local_qwen_capabilities;
+      Alcotest.test_case "local llm model spec capabilities" `Quick
+        test_model_spec_local_llm_capabilities;
       Alcotest.test_case "openrouter model spec capabilities" `Quick
         test_model_spec_openrouter_capabilities;
       Alcotest.test_case "qwen family openai capabilities" `Quick

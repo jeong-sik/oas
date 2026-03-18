@@ -27,8 +27,7 @@ let resolve_provider ?provider ?model () =
   let base =
     match selected with
     | "mock" | "echo" -> None
-    | "local-qwen" -> Some (Provider.local_qwen ())
-    | "local-mlx" -> Some (Provider.local_mlx ())
+    | "local" | "local-qwen" -> Some (Provider.local_llm ())
     | "sonnet" -> Some (Provider.anthropic_sonnet ())
     | "haiku" -> Some (Provider.anthropic_haiku ())
     | "opus" -> Some (Provider.anthropic_opus ())
@@ -36,7 +35,7 @@ let resolve_provider ?provider ?model () =
     | other ->
         Some
           {
-            Provider.provider = Local { base_url = Defaults.local_qwen_url };
+            Provider.provider = Local { base_url = Defaults.local_llm_url };
             model_id = other;
             api_key_env = "LOCAL_LLM_KEY";
           }

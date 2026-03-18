@@ -1,20 +1,15 @@
-(* test_streaming_e2e.ml — E2E streaming test against real Qwen3.5
-   via anthropic-proxy(:3034).
+(* test_streaming_e2e.ml — E2E streaming test against local LLM server.
    Run: LLAMA_LIVE_TEST=1 dune exec ./test/test_streaming_e2e.exe *)
 
 open Agent_sdk
 
-let local_qwen_provider : Provider.config = {
-  provider = Local { base_url = "http://127.0.0.1:8085" };
-  model_id = "qwen3.5-35b-a3b-ud-q8-xl";
-  api_key_env = "DUMMY_KEY";
-}
+let local_llm_provider : Provider.config = Provider.local_llm ()
 
 let test_stream_basic () =
   Eio_main.run @@ fun env ->
   let net = Eio.Stdenv.net env in
   Eio.Switch.run @@ fun sw ->
-  let provider = local_qwen_provider in
+  let provider = local_llm_provider in
   let config = {
     Types.default_config with
     model = Types.Custom provider.model_id;
@@ -76,7 +71,7 @@ let test_stream_event_sequence () =
   Eio_main.run @@ fun env ->
   let net = Eio.Stdenv.net env in
   Eio.Switch.run @@ fun sw ->
-  let provider = local_qwen_provider in
+  let provider = local_llm_provider in
   let config = {
     Types.default_config with
     model = Types.Custom provider.model_id;
@@ -131,7 +126,7 @@ let test_stream_event_sequence () =
 let () =
   match Sys.getenv_opt "LLAMA_LIVE_TEST" with
   | Some "1" ->
-    Printf.printf "Running streaming E2E tests (Qwen3.5 via anthropic-proxy:3034)...\n%!";
+    Printf.printf "Running streaming E2E tests (local LLM server)...\n%!";
     test_stream_basic ();
     test_stream_event_sequence ();
     Printf.printf "\nAll streaming E2E tests passed.\n%!"
