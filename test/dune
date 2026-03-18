@@ -384,3 +384,7 @@
 (test
  (name test_consumer)
  (libraries agent_sdk alcotest yojson eio eio_main cohttp-eio unix))
+
+(test
+ (name test_a2a_client)
+ (libraries agent_sdk alcotest yojson unix))
