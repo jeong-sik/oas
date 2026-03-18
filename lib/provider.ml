@@ -22,16 +22,7 @@ type request_kind =
   | Openai_chat_completions
   | Custom of string
 
-type capabilities = {
-  supports_tools: bool;
-  supports_tool_choice: bool;
-  supports_reasoning: bool;
-  supports_response_format_json: bool;
-  supports_multimodal_inputs: bool;
-  supports_native_streaming: bool;
-  supports_top_k: bool;
-  supports_min_p: bool;
-}
+include Llm_provider.Capabilities
 
 type model_spec = {
   provider: provider;
@@ -40,42 +31,6 @@ type model_spec = {
   request_kind: request_kind;
   request_path: string;
   capabilities: capabilities;
-}
-
-let default_capabilities = {
-  supports_tools = false;
-  supports_tool_choice = false;
-  supports_reasoning = false;
-  supports_response_format_json = false;
-  supports_multimodal_inputs = false;
-  supports_native_streaming = false;
-  supports_top_k = false;
-  supports_min_p = false;
-}
-
-let anthropic_capabilities = {
-  default_capabilities with
-  supports_tools = true;
-  supports_tool_choice = true;
-  supports_reasoning = true;
-  supports_multimodal_inputs = true;
-  supports_native_streaming = true;
-}
-
-let openai_chat_capabilities = {
-  default_capabilities with
-  supports_tools = true;
-  supports_tool_choice = true;
-  supports_response_format_json = true;
-  supports_multimodal_inputs = true;
-  supports_native_streaming = true;
-}
-
-let openai_chat_extended_capabilities = {
-  openai_chat_capabilities with
-  supports_reasoning = true;
-  supports_top_k = true;
-  supports_min_p = true;
 }
 
 let string_contains = Util.string_contains
@@ -280,16 +235,19 @@ let pricing_for_model model_id =
       (2.0, 8.0), no_cache
     else if string_contains ~needle:"o3-mini" normalized then
       (1.1, 4.4), no_cache
-    else if string_contains ~needle:"ollama" normalized
-         || string_contains ~needle:"qwen" normalized
-         || string_contains ~needle:"llama" normalized then
-      (0.0, 0.0), no_cache
     else
       (0.0, 0.0), no_cache
   in
   let input_per_million, output_per_million = base in
   { input_per_million; output_per_million;
     cache_write_multiplier = cw; cache_read_multiplier = cr }
+
+let pricing_for_provider ~(provider : provider) ~(model_id : string) =
+  match provider with
+  | Local _ ->
+    { input_per_million = 0.0; output_per_million = 0.0;
+      cache_write_multiplier = 1.0; cache_read_multiplier = 1.0 }
+  | _ -> pricing_for_model model_id
 
 let estimate_cost ~(pricing : pricing)
     ~input_tokens ~output_tokens

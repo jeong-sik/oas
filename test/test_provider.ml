@@ -177,7 +177,9 @@ let test_pricing_sonnet () =
   Alcotest.(check (float 0.001)) "cache_read" 0.1 p.cache_read_multiplier
 
 let test_pricing_local () =
-  let p = Provider.pricing_for_model "qwen3.5-35b-a3b" in
+  let p = Provider.pricing_for_provider
+    ~provider:(Local { base_url = "http://127.0.0.1:8085" })
+    ~model_id:"qwen3.5-35b-a3b" in
   Alcotest.(check (float 0.001)) "free" 0.0 p.input_per_million;
   Alcotest.(check (float 0.001)) "free output" 0.0 p.output_per_million
 
