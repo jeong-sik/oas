@@ -2,12 +2,17 @@
 
     @since 0.55.0 *)
 
-(* ── Future type ──────────────────────────────────────────────────── *)
+(* ── Internal cancellation exception ──────────────────────────── *)
+
+exception Cancelled
+
+(* ── Future type ──────────────────────────────────────────────── *)
 
 type 'a future = {
   promise: ('a, Error.sdk_error) result Eio.Promise.t;
   resolver: ('a, Error.sdk_error) result Eio.Promise.u;
   resolved: bool Atomic.t;
+  mutable cancel_fn: (unit -> unit) option;
 }
 
 (** Resolve the future exactly once. Subsequent calls are no-ops. *)
@@ -15,29 +20,37 @@ let resolve_once future result =
   if not (Atomic.exchange future.resolved true) then
     Eio.Promise.resolve future.resolver result
 
-(* ── Agent name extraction ────────────────────────────────────────── *)
+(* ── Agent name extraction ────────────────────────────────────── *)
 
 let agent_name agent =
   let card = Agent.card agent in
   card.Agent_card.name
 
-(* ── Spawning ─────────────────────────────────────────────────────── *)
+(* ── Spawning ─────────────────────────────────────────────────── *)
 
 let spawn ~sw ?clock agent prompt =
   let promise, resolver = Eio.Promise.create () in
   let resolved = Atomic.make false in
-  let future = { promise; resolver; resolved } in
+  let future = { promise; resolver; resolved; cancel_fn = None } in
   Eio.Fiber.fork ~sw (fun () ->
+    (* Run agent inside a sub-switch so cancel can terminate the fiber.
+       Eio.Switch.run creates an independent error domain — failing it
+       cancels all I/O (HTTP, DNS, etc.) within Agent.run. *)
     let result =
-      try Agent.run ~sw ?clock agent prompt
+      try
+        Eio.Switch.run (fun sub_sw ->
+          future.cancel_fn <- Some (fun () ->
+            Eio.Switch.fail sub_sw Cancelled);
+          Agent.run ~sw:sub_sw ?clock agent prompt)
       with
+      | Cancelled -> Error (Error.Internal "cancelled")
       | Raw_trace.Trace_error e -> Error e
       | exn -> Error (Error.Internal (Printexc.to_string exn))
     in
     resolve_once future result);
   future
 
-(* ── Awaiting ─────────────────────────────────────────────────────── *)
+(* ── Awaiting ─────────────────────────────────────────────────── *)
 
 let await future =
   Eio.Promise.await future.promise
@@ -45,12 +58,15 @@ let await future =
 let is_ready future =
   Option.is_some (Eio.Promise.peek future.promise)
 
-(* ── Cancellation ─────────────────────────────────────────────────── *)
+(* ── Cancellation ─────────────────────────────────────────────── *)
 
 let cancel future =
-  resolve_once future (Error (Error.Internal "cancelled"))
+  resolve_once future (Error (Error.Internal "cancelled"));
+  match future.cancel_fn with
+  | Some f -> (try f () with _ -> ())
+  | None -> ()
 
-(* ── Combinators ──────────────────────────────────────────────────── *)
+(* ── Combinators ──────────────────────────────────────────────── *)
 
 let race ~sw ?clock agents =
   match agents with
@@ -64,7 +80,7 @@ let race ~sw ?clock agents =
   | _ ->
     (* Each closure returns (name, result) — both Ok and Error are
        normal completions. Eio.Fiber.first returns the first fiber to
-       finish and cancels the rest. No exception-based signaling. *)
+       finish and cancels the rest via structured concurrency. *)
     let fns =
       List.map (fun (agent, prompt) ->
         fun () ->
