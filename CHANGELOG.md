@@ -2,6 +2,11 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.54.0] - 2026-03-18
+
+### Added
+- `Types.text_of_response`: extract text from `api_response` for MASC convergence. (#147)
+
 ## [0.53.0] - 2026-03-18
 
 ### Added
