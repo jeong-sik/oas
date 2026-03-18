@@ -93,6 +93,7 @@ type swarm_config = {
   prompt: string;
   timeout_sec: float option;
   budget: resource_budget;
+  max_agent_retries: int;
 }
 
 (** {1 Execution State} *)
