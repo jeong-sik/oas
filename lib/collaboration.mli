@@ -83,7 +83,13 @@ type t = {
 
 val create : ?id:string -> ?shared_context:Context.t -> goal:string -> unit -> t
 
-(** {1 Participant operations} *)
+(** {1 Participant operations}
+
+    Participant names are expected to be unique.  The module does not
+    enforce uniqueness; callers are responsible.  If duplicates exist:
+    - [find_participant] returns the first match.
+    - [update_participant] updates {e all} matches.
+    - [remove_participant] removes {e all} matches. *)
 
 val add_participant : t -> participant -> t
 val update_participant : t -> string -> (participant -> participant) -> t
@@ -106,7 +112,12 @@ val is_terminal : t -> bool
 
 val touch : t -> t
 
-(** {1 Serialization} *)
+(** {1 Serialization}
+
+    [shared_context] is serialized via {!Context.to_json} / {!Context.of_json}.
+    Note: [Context.of_json] silently returns an empty context if the JSON
+    value is not an object — this is a known limitation of [Context], not
+    specific to [Collaboration]. *)
 
 val to_json : t -> Yojson.Safe.t
 val of_json : Yojson.Safe.t -> (t, Error.sdk_error) result
