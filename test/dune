@@ -358,3 +358,7 @@
 (test
  (name test_trajectory)
  (libraries agent_sdk alcotest yojson unix))
+
+(test
+ (name test_autonomy_smoke)
+ (libraries agent_sdk alcotest yojson))

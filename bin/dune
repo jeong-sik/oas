@@ -12,3 +12,8 @@
  (name review_agent)
  (public_name oas-review)
  (libraries agent_sdk eio eio_main yojson unix str cmdliner))
+
+(executable
+ (name autonomy_smoke_cli)
+ (public_name oas-autonomy-smoke)
+ (libraries agent_sdk eio eio_main yojson unix cmdliner))
