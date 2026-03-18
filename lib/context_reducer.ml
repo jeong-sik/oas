@@ -18,6 +18,7 @@ type strategy =
   | Token_budget of int
   | Prune_tool_outputs of { max_output_len: int }
   | Prune_tool_args of { max_arg_len: int; keep_recent: int }
+  | Repair_dangling_tool_calls
   | Merge_contiguous
   | Drop_thinking
   | Keep_first_and_last of { first_n: int; last_n: int }
@@ -182,6 +183,46 @@ let apply_prune_tool_args ~max_arg_len ~keep_recent messages =
     let processed = List.mapi process_turn turns in
     List.concat processed
 
+(** Repair dangling tool calls: find ToolUse blocks without a matching
+    ToolResult and insert a synthetic cancelled ToolResult.
+    Anthropic API returns 400 on orphan ToolUse, so this prevents errors.
+    Inspired by Deep Agents PatchToolCallsMiddleware. *)
+let apply_repair_dangling_tool_calls messages =
+  (* Collect all ToolResult tool_use_ids *)
+  let result_ids =
+    List.fold_left (fun acc (msg : message) ->
+      List.fold_left (fun acc block ->
+        match block with
+        | ToolResult { tool_use_id; _ } -> tool_use_id :: acc
+        | _ -> acc
+      ) acc msg.content
+    ) [] messages
+  in
+  (* For each message, if it has ToolUse without matching ToolResult,
+     insert a synthetic ToolResult after it *)
+  let rec aux acc = function
+    | [] -> List.rev acc
+    | (msg : message) :: rest ->
+      let orphan_ids =
+        List.filter_map (fun block ->
+          match block with
+          | ToolUse { id; _ } when not (List.mem id result_ids) -> Some id
+          | _ -> None
+        ) msg.content
+      in
+      if orphan_ids = [] then
+        aux (msg :: acc) rest
+      else
+        (* Insert msg, then synthetic ToolResult for each orphan *)
+        let repairs = List.map (fun id ->
+          { role = User; content = [
+            ToolResult { tool_use_id = id; content = "Tool call cancelled before completion."; is_error = true }
+          ]}
+        ) orphan_ids in
+        aux (List.rev_append repairs (msg :: acc)) rest
+  in
+  aux [] messages
+
 (** Merge contiguous messages with the same role.
     Concatenates content blocks. Respects ToolUse/ToolResult pairing
     by not merging User messages that contain ToolResult blocks. *)
@@ -268,6 +309,7 @@ and apply_strategy strategy messages =
   | Token_budget budget -> apply_token_budget budget messages
   | Prune_tool_outputs { max_output_len } -> apply_prune_tool_outputs ~max_output_len messages
   | Prune_tool_args { max_arg_len; keep_recent } -> apply_prune_tool_args ~max_arg_len ~keep_recent messages
+  | Repair_dangling_tool_calls -> apply_repair_dangling_tool_calls messages
   | Merge_contiguous -> apply_merge_contiguous messages
   | Drop_thinking -> apply_drop_thinking messages
   | Keep_first_and_last { first_n; last_n } ->
@@ -290,6 +332,7 @@ let token_budget n = { strategy = Token_budget n }
 let prune_tool_outputs ~max_output_len = { strategy = Prune_tool_outputs { max_output_len } }
 let prune_tool_args ~max_arg_len ?(keep_recent=20) () =
   { strategy = Prune_tool_args { max_arg_len; keep_recent } }
+let repair_dangling_tool_calls = { strategy = Repair_dangling_tool_calls }
 let merge_contiguous = { strategy = Merge_contiguous }
 let drop_thinking = { strategy = Drop_thinking }
 let keep_first_and_last ~first_n ~last_n =
