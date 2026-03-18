@@ -62,9 +62,9 @@ let test_show_message_partial () =
 
 let test_default_options () =
   check_bool "permission default" true (default_options.permission_mode = Default);
-  check_opt_string "model" (Some "qwen3.5") default_options.model;
+  check_opt_string "model" None default_options.model;
   check_bool "max_turns" true (default_options.max_turns = Some 8);
-  check_opt_string "provider" (Some "local-qwen") default_options.provider;
+  check_opt_string "provider" (Some "local") default_options.provider;
   check_bool "no agents" true (default_options.agents = []);
   check_bool "no partial" false default_options.include_partial_messages;
   check_bool "no sources" true (default_options.setting_sources = []);

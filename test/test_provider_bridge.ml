@@ -19,18 +19,18 @@ let test_openai_compat_bridge () =
       Alcotest.(check string) "path" "/chat/completions" cfg.request_path
 
 let test_local_provider_bridge () =
-  let legacy = Agent_sdk.Provider.local_qwen () in
+  let legacy = Agent_sdk.Provider.local_llm () in
   match Agent_sdk.Provider_bridge.to_provider_config legacy with
   | Error _ ->
       Alcotest.fail "local provider should not need env var"
   | Ok cfg ->
-      Alcotest.(check string) "model" "qwen3.5-35b-a3b-ud-q8-xl"
+      Alcotest.(check string) "model" "default"
         cfg.model_id;
       Alcotest.(check string) "path" "/v1/messages" cfg.request_path
 
 let test_cascade_bridge () =
-  let primary = Agent_sdk.Provider.local_qwen () in
-  let fallback = Agent_sdk.Provider.local_mlx () in
+  let primary = Agent_sdk.Provider.local_llm () in
+  let fallback = Agent_sdk.Provider.local_llm () in
   let legacy = Agent_sdk.Provider.cascade ~primary ~fallbacks:[fallback] in
   match Agent_sdk.Provider_bridge.cascade_to_provider_config legacy with
   | Error _ ->

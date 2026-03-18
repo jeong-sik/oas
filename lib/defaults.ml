@@ -8,14 +8,17 @@ let env_or default var =
   | Some v when String.trim v <> "" -> String.trim v
   | _ -> default
 
-let local_qwen_url =
-  env_or "http://127.0.0.1:8085" "OAS_LOCAL_QWEN_URL"
-
-let local_mlx_url =
-  env_or "http://127.0.0.1:3033" "OAS_LOCAL_MLX_URL"
+let local_llm_url =
+  (* Backward compat: OAS_LOCAL_QWEN_URL still works as fallback *)
+  let primary = Sys.getenv_opt "OAS_LOCAL_LLM_URL" in
+  let legacy = Sys.getenv_opt "OAS_LOCAL_QWEN_URL" in
+  match primary, legacy with
+  | Some v, _ when String.trim v <> "" -> String.trim v
+  | _, Some v when String.trim v <> "" -> String.trim v
+  | _ -> "http://127.0.0.1:8085"
 
 let fallback_provider =
-  env_or "local-qwen" "OAS_FALLBACK_PROVIDER"
+  env_or "local" "OAS_FALLBACK_PROVIDER"
 
 (** Default context reducer: repair dangling tool calls + prune old tool args.
     Applied automatically unless the user provides a custom reducer.

@@ -194,11 +194,15 @@ let resolve (cfg : config) =
          field = "provider";
          detail = Printf.sprintf "Custom provider '%s' not registered" name })))
 
-let local_qwen () = {
-  provider = Local { base_url = Defaults.local_qwen_url };
-  model_id = "qwen3.5-35b-a3b-ud-q8-xl";
+let local_llm () = {
+  provider = Local { base_url = Defaults.local_llm_url };
+  model_id = "default";
   api_key_env = "DUMMY_KEY";
 }
+
+(* Backward-compatible aliases — use local_llm instead *)
+let local_qwen () = local_llm ()
+let local_mlx () = local_llm ()
 
 let anthropic_sonnet () = {
   provider = Anthropic;
@@ -216,12 +220,6 @@ let anthropic_opus () = {
   provider = Anthropic;
   model_id = "claude-opus-4-6";
   api_key_env = "ANTHROPIC_API_KEY";
-}
-
-let local_mlx () = {
-  provider = Local { base_url = Defaults.local_mlx_url };
-  model_id = "qwen3.5";
-  api_key_env = "DUMMY_KEY";
 }
 
 let openrouter ?(model_id="anthropic/claude-sonnet-4-6") () = {
