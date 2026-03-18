@@ -89,6 +89,10 @@ let write_file_tool =
       let open Yojson.Safe.Util in
       let path = args |> member "path" |> to_string in
       let code = args |> member "code" |> to_string in
+      (* Reject path traversal attempts *)
+      if String.contains path '\000' || (String.length path > 2 && String.sub path 0 2 = "..") || (try ignore (Str.search_forward (Str.regexp_string "/../") path 0); true with Not_found -> false) then
+        Error { message = Printf.sprintf "Rejected path: %s (path traversal)" path; recoverable = false }
+      else
       (try
         let oc = open_out path in
         output_string oc code;
