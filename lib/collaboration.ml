@@ -173,7 +173,7 @@ let of_json json =
     let parse_list parser j =
       match j with
       | `List xs -> List.map (fun x -> unwrap (parser x)) xs
-      | _ -> failwith "expected JSON array"
+      | other -> raise (Type_error ("expected JSON array", other))
     in
     let shared_context =
       match json |> member "shared_context" with
@@ -206,9 +206,6 @@ let of_json json =
     }
   with
   | Yojson.Safe.Util.Type_error (msg, _) ->
-    Error (Error.Serialization
-      (JsonParseError { detail = "Collaboration.of_json: " ^ msg }))
-  | Failure msg ->
     Error (Error.Serialization
       (JsonParseError { detail = "Collaboration.of_json: " ^ msg }))
   | exn ->

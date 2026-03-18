@@ -290,7 +290,7 @@ let () =
     ];
 
     "edge_cases", [
-      test_case "duplicate participant name" `Quick (fun () ->
+      test_case "duplicate participant name — find returns first" `Quick (fun () ->
         let c = Collaboration.create ~goal:"test" () in
         let mk state = Collaboration.{
           name = "dup"; role = None; state;
@@ -302,6 +302,32 @@ let () =
         let found = Collaboration.find_participant c "dup" in
         check bool "finds first" true
           ((Option.get found).state = Collaboration.Planned));
+
+      test_case "duplicate participant name — update affects all" `Quick (fun () ->
+        let c = Collaboration.create ~goal:"test" () in
+        let mk state = Collaboration.{
+          name = "dup"; role = None; state;
+          joined_at = None; finished_at = None; summary = None;
+        } in
+        let c = Collaboration.add_participant c (mk Planned) in
+        let c = Collaboration.add_participant c (mk Joined) in
+        let c = Collaboration.update_participant c "dup"
+          (fun p -> Collaboration.{ p with state = Done }) in
+        let all_done = List.for_all
+          (fun (p : Collaboration.participant) -> p.state = Done)
+          c.participants in
+        check bool "both updated to Done" true all_done);
+
+      test_case "duplicate participant name — remove deletes all" `Quick (fun () ->
+        let c = Collaboration.create ~goal:"test" () in
+        let mk state = Collaboration.{
+          name = "dup"; role = None; state;
+          joined_at = None; finished_at = None; summary = None;
+        } in
+        let c = Collaboration.add_participant c (mk Planned) in
+        let c = Collaboration.add_participant c (mk Joined) in
+        let c = Collaboration.remove_participant c "dup" in
+        check int "all removed" 0 (List.length c.participants));
 
       test_case "remove nonexistent participant" `Quick (fun () ->
         let c = Collaboration.create ~goal:"test" () in
