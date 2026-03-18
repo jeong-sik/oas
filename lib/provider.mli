@@ -84,6 +84,7 @@ type pricing = {
 }
 
 val pricing_for_model : string -> pricing
+val pricing_for_provider : provider:provider -> model_id:string -> pricing
 val estimate_cost :
   pricing:pricing ->
   input_tokens:int ->

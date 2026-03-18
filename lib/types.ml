@@ -42,15 +42,6 @@ type model = string
     Delegates to {!Model_registry.resolve_model_id}. *)
 let model_to_string = Model_registry.resolve_model_id
 
-(* Backward-compatible constructors for code that used the old enum.
-   Each resolves the alias immediately so the config holds the full ID. *)
-let _Claude_opus_4_6 = "claude-opus-4-6"
-let _Claude_sonnet_4_6 = "claude-sonnet-4-6"
-let _Claude_opus_4_5 = "claude-opus-4-5"
-let _Claude_sonnet_4 = "claude-sonnet-4"
-let _Claude_haiku_4_5 = "claude-haiku-4-5"
-let _Claude_3_7_sonnet = "claude-3-7-sonnet"
-
 (** Agent configuration *)
 type agent_config = {
   name: string;
