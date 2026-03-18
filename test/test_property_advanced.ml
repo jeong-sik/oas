@@ -211,19 +211,6 @@ let test_local_provider_resolve_always_succeeds =
        | Ok _ -> true
        | Error _ -> false)
 
-let test_ollama_resolve_always_succeeds =
-  QCheck.Test.make ~count:100
-    ~name:"Ollama provider resolve always succeeds"
-    (QCheck.make QCheck.Gen.string_printable)
-    (fun url ->
-       let cfg : Provider.config = {
-         provider = Ollama { base_url = url; mode = Chat };
-         model_id = "test"; api_key_env = "DUMMY";
-       } in
-       match Provider.resolve cfg with
-       | Ok _ -> true
-       | Error _ -> false)
-
 let test_capabilities_qwen_reasoning =
   QCheck.Test.make ~count:50
     ~name:"Qwen models get reasoning capability"
@@ -328,16 +315,6 @@ let test_anthropic_supports_tools =
          ~provider:Provider.Anthropic ~model_id:"claude-sonnet-4-6" in
        caps.supports_tools && caps.supports_tool_choice)
 
-let test_ollama_generate_no_tools =
-  QCheck.Test.make ~count:50
-    ~name:"Ollama Generate does not support tools"
-    (QCheck.make (QCheck.Gen.return ()))
-    (fun () ->
-       let caps = Provider.capabilities_for_model
-         ~provider:(Provider.Ollama { base_url = "x"; mode = Generate })
-         ~model_id:"test" in
-       not caps.supports_tools)
-
 (* ── Test Runner ─────────────────────────────────────────────── *)
 
 let () =
@@ -357,7 +334,6 @@ let () =
       test_cost_scales_with_tokens;
       (* Provider resolve *)
       test_local_provider_resolve_always_succeeds;
-      test_ollama_resolve_always_succeeds;
       test_capabilities_qwen_reasoning;
       (* Context reducer *)
       test_context_reducer_never_adds;
@@ -369,7 +345,6 @@ let () =
       test_token_budget_exceeds_limit;
       (* Capabilities *)
       test_anthropic_supports_tools;
-      test_ollama_generate_no_tools;
     ]
   in
   Alcotest.run "property_advanced" [

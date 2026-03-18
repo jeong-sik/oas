@@ -109,14 +109,6 @@ let test_runtime_name_openai_compat () =
   Alcotest.(check (option string)) "openai-compat" (Some "openai-compat")
     (Agent_lifecycle.provider_runtime_name (Some cfg))
 
-let test_runtime_name_ollama () =
-  let cfg : Provider.config = {
-    provider = Ollama { base_url = "http://localhost:11434"; mode = Chat };
-    model_id = "test"; api_key_env = "DUMMY";
-  } in
-  Alcotest.(check (option string)) "ollama" (Some "ollama")
-    (Agent_lifecycle.provider_runtime_name (Some cfg))
-
 let test_runtime_name_custom () =
   let cfg : Provider.config = {
     provider = Custom_registered { name = "my-custom" };
@@ -148,7 +140,6 @@ let () =
       Alcotest.test_case "Local" `Quick test_runtime_name_local;
       Alcotest.test_case "Anthropic" `Quick test_runtime_name_anthropic;
       Alcotest.test_case "OpenAICompat" `Quick test_runtime_name_openai_compat;
-      Alcotest.test_case "Ollama" `Quick test_runtime_name_ollama;
       Alcotest.test_case "Custom_registered" `Quick test_runtime_name_custom;
     ];
     "hook_decision", [

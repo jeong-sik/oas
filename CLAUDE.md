@@ -75,7 +75,6 @@ let config = { entries = List.init 12 (fun i ->
 |----------|--------|----------|
 | Anthropic | `api_anthropic.ml` | Messages API |
 | OpenAI-compatible | `api_openai.ml` | Chat Completions |
-| Ollama | `api_ollama.ml` | Deprecated (llama-server via OpenAI-compat) |
 
 ## LLM Discovery (`lib/llm_provider/discovery.ml`)
 

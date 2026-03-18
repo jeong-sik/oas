@@ -24,10 +24,6 @@ let openai_content_parts_of_blocks = Api_openai.openai_content_parts_of_blocks
 let build_openai_body = Api_openai.build_openai_body
 let parse_openai_response = Api_openai.parse_openai_response
 
-(* Re-export Api_ollama *)
-let parse_ollama_chat_response = Api_ollama.parse_ollama_chat_response
-let parse_ollama_generate_response = Api_ollama.parse_ollama_generate_response
-
 (** Send a non-streaming message to the API, dispatching by provider *)
 let create_message ~sw ~net ?(base_url=default_base_url) ?provider ?clock ?retry_config ~config ~messages ?tools () =
   let resolve_result = match provider with
@@ -69,11 +65,6 @@ let create_message ~sw ~net ?(base_url=default_base_url) ?provider ?clock ?retry
     | Provider.Openai_chat_completions ->
         Api_openai.build_openai_body ~provider_config:provider_cfg ~config
           ~messages ?tools ()
-    | Provider.Ollama_chat ->
-        Api_ollama.build_ollama_chat_body ~provider_config:provider_cfg ~config
-          ~messages ?tools ()
-    | Provider.Ollama_generate ->
-        Api_ollama.build_ollama_generate_body ~config ~messages ()
     | Provider.Custom name ->
         (match Provider.find_provider name with
          | Some impl -> impl.build_body ~config ~messages ?tools ()
@@ -95,10 +86,6 @@ let create_message ~sw ~net ?(base_url=default_base_url) ?provider ?clock ?retry
                 parse_response (Yojson.Safe.from_string body_str)
             | Provider.Openai_chat_completions ->
                 parse_openai_response body_str
-            | Provider.Ollama_chat ->
-                parse_ollama_chat_response body_str
-            | Provider.Ollama_generate ->
-                parse_ollama_generate_response body_str
             | Provider.Custom name ->
                 (match Provider.find_provider name with
                  | Some impl -> impl.parse_response body_str

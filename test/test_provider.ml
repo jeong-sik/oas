@@ -193,22 +193,6 @@ let test_estimate_cost () =
     ~cache_read_input_tokens:200_000 () in
   Alcotest.(check bool) "cost > 0" true (cost > 0.0)
 
-let test_ollama_resolve () =
-  let cfg = Provider.ollama ~base_url:"http://localhost:11434" ~model_id:"qwen3.5" () in
-  match Provider.resolve cfg with
-  | Ok (base_url, _, _) ->
-    Alcotest.(check string) "base_url" "http://localhost:11434" base_url
-  | Error e -> Alcotest.fail (Error.to_string e)
-
-let test_ollama_generate_capabilities () =
-  let cfg : Provider.config = {
-    provider = Ollama { base_url = "http://localhost:11434"; mode = Generate };
-    model_id = "test"; api_key_env = "DUMMY";
-  } in
-  let spec = Provider.model_spec_of_config cfg in
-  Alcotest.(check bool) "no tools" false spec.capabilities.supports_tools;
-  Alcotest.(check string) "path" "/api/generate" spec.request_path
-
 let test_openai_compat_static_token () =
   let cfg : Provider.config = {
     provider = OpenAICompat {
@@ -272,10 +256,6 @@ let () =
       Alcotest.test_case "local free" `Quick test_pricing_local;
       Alcotest.test_case "unknown model" `Quick test_pricing_unknown;
       Alcotest.test_case "estimate cost" `Quick test_estimate_cost;
-    ];
-    "ollama", [
-      Alcotest.test_case "resolve" `Quick test_ollama_resolve;
-      Alcotest.test_case "generate capabilities" `Quick test_ollama_generate_capabilities;
     ];
     "openai_compat", [
       Alcotest.test_case "static token" `Quick test_openai_compat_static_token;

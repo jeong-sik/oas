@@ -87,14 +87,19 @@ let test_providers_default () =
 
 let test_providers_custom () =
   let provider = Provider.{
-    provider = Ollama { base_url = "http://localhost:11434"; mode = Chat };
+    provider = OpenAICompat {
+      base_url = "http://localhost:8085";
+      auth_header = None;
+      path = "/v1/chat/completions";
+      static_token = None;
+    };
     model_id = "qwen3.5";
     api_key_env = "";
   } in
   let info = { base_info with provider = Some provider } in
   let card = Agent_card.of_info info in
-  Alcotest.(check (list string)) "ollama provider"
-    ["ollama"] card.supported_providers
+  Alcotest.(check (list string)) "openai-compat provider"
+    ["openai-compat"] card.supported_providers
 
 let test_skills_from_registry () =
   let reg = Skill_registry.create () in
@@ -205,12 +210,6 @@ let test_json_auth_no_credentials () =
 
 (* ── provider_name ──────────────────────────────────────── *)
 
-let test_provider_name_ollama () =
-  let cfg : Provider.config = {
-    provider = Ollama { base_url = "http://localhost:11434"; mode = Chat };
-    model_id = "qwen3.5"; api_key_env = "DUMMY"; } in
-  Alcotest.(check string) "ollama" "ollama" (Agent_card.provider_name cfg)
-
 let test_provider_name_local () =
   let cfg : Provider.config = {
     provider = Local { base_url = "http://localhost:8085" };
@@ -291,7 +290,6 @@ let () =
       test_case "with skills" `Quick test_to_json_with_skills;
     ];
     "provider_name", [
-      test_case "ollama" `Quick test_provider_name_ollama;
       test_case "local" `Quick test_provider_name_local;
       test_case "custom" `Quick test_provider_name_custom;
     ];

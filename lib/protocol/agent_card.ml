@@ -161,7 +161,6 @@ let provider_name (cfg : Provider.config) =
   match cfg.provider with
   | Provider.Anthropic -> "anthropic"
   | Provider.OpenAICompat _ -> "openai-compat"
-  | Provider.Ollama _ -> "ollama"
   | Provider.Local _ -> "local"
   | Provider.Custom_registered { name } -> name
 

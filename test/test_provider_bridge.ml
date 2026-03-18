@@ -28,17 +28,9 @@ let test_local_provider_bridge () =
         cfg.model_id;
       Alcotest.(check string) "path" "/v1/messages" cfg.request_path
 
-let test_ollama_bridge () =
-  let legacy = Agent_sdk.Provider.ollama () in
-  match Agent_sdk.Provider_bridge.to_provider_config legacy with
-  | Error _ ->
-      Alcotest.fail "ollama should not need env var"
-  | Ok cfg ->
-      Alcotest.(check string) "path" "/api/chat" cfg.request_path
-
 let test_cascade_bridge () =
   let primary = Agent_sdk.Provider.local_qwen () in
-  let fallback = Agent_sdk.Provider.ollama () in
+  let fallback = Agent_sdk.Provider.local_mlx () in
   let legacy = Agent_sdk.Provider.cascade ~primary ~fallbacks:[fallback] in
   match Agent_sdk.Provider_bridge.cascade_to_provider_config legacy with
   | Error _ ->
@@ -54,7 +46,6 @@ let () =
       test_case "anthropic" `Quick test_anthropic_bridge;
       test_case "openai compat" `Quick test_openai_compat_bridge;
       test_case "local" `Quick test_local_provider_bridge;
-      test_case "ollama" `Quick test_ollama_bridge;
     ];
     "cascade", [
       test_case "cascade bridge" `Quick test_cascade_bridge;

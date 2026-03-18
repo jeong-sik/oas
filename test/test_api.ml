@@ -486,29 +486,6 @@ let test_openai_messages_with_image () =
   check string "image part" "image_url" second_type
 
 (* ------------------------------------------------------------------ *)
-(* parse_ollama_chat_response: tool arguments as JSON object            *)
-(* ------------------------------------------------------------------ *)
-
-let test_ollama_tool_args_string () =
-  let json_str = {|{"model":"qwen","message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"get_weather","arguments":"{\"city\":\"Seoul\"}"}}]},"done":true,"eval_count":10,"prompt_eval_count":5}|} in
-  let resp = Api.parse_ollama_chat_response json_str in
-  match resp.content with
-  | [Types.ToolUse { name = "get_weather"; input; _ }] ->
-      let open Yojson.Safe.Util in
-      check string "city" "Seoul" (input |> member "city" |> to_string)
-  | _ -> fail "expected single ToolUse block"
-
-let test_ollama_tool_args_object () =
-  (* Ollama native format: arguments as JSON object, not string *)
-  let json_str = {|{"model":"qwen","message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"get_weather","arguments":{"city":"Seoul"}}}]},"done":true,"eval_count":10,"prompt_eval_count":5}|} in
-  let resp = Api.parse_ollama_chat_response json_str in
-  match resp.content with
-  | [Types.ToolUse { name = "get_weather"; input; _ }] ->
-      let open Yojson.Safe.Util in
-      check string "city from object" "Seoul" (input |> member "city" |> to_string)
-  | _ -> fail "expected single ToolUse block with object arguments"
-
-(* ------------------------------------------------------------------ *)
 (* F1: OpenAI API error → Openai_api_error exception                    *)
 (* ------------------------------------------------------------------ *)
 
@@ -527,7 +504,7 @@ let test_openai_api_error_unknown_message () =
   check bool "exception raised on empty error" true !raised
 
 (* ------------------------------------------------------------------ *)
-(* F2: Ollama build body non-assoc JSON                                 *)
+(* F2: OpenAI error type distinction                                    *)
 (* ------------------------------------------------------------------ *)
 
 let test_openai_error_not_failwith () =
@@ -647,10 +624,6 @@ let () =
     "openai_messages", [
       test_case "text only user" `Quick test_openai_messages_text_only;
       test_case "user with image" `Quick test_openai_messages_with_image;
-    ];
-    "parse_ollama_chat", [
-      test_case "tool args as string" `Quick test_ollama_tool_args_string;
-      test_case "tool args as object" `Quick test_ollama_tool_args_object;
     ];
     "api_common_helpers", [
       test_case "text_blocks_to_string" `Quick test_text_blocks_to_string;

@@ -16,7 +16,6 @@ let provider_runtime_name selected (cfg : Provider.config option) =
       | Provider.Local _ -> "local"
       | Provider.Anthropic -> "anthropic"
       | Provider.OpenAICompat _ -> "openai-compat"
-      | Provider.Ollama _ -> "ollama"
       | Provider.Custom_registered { name } -> "custom:" ^ name)
 
 let resolve_provider ?provider ?model () =
@@ -34,7 +33,6 @@ let resolve_provider ?provider ?model () =
     | "haiku" -> Some (Provider.anthropic_haiku ())
     | "opus" -> Some (Provider.anthropic_opus ())
     | "openrouter" -> Some (Provider.openrouter ())
-    | "ollama" -> Some (Provider.ollama ())
     | other ->
         Some
           {

@@ -1,7 +1,6 @@
 (** SSE streaming client for multi-provider LLM APIs.
 
-    Supports Anthropic (native SSE), OpenAI-compatible (SSE), and
-    Ollama Chat (via OpenAI-compat endpoint redirect).
+    Supports Anthropic (native SSE) and OpenAI-compatible (SSE).
     Pure SSE event parsing and synthetic emission are delegated to
     {!Llm_provider.Streaming}. The HTTP streaming client remains here
     due to agent_state/Provider/Error coupling. *)
@@ -122,8 +121,7 @@ let map_http_error = function
       Error.Api (Retry.NetworkError { message })
 
 (** Streaming variant of create_message.
-    Supports Anthropic (native SSE), OpenAI-compatible (SSE), and
-    Ollama Chat (via OpenAI-compat redirect). Ollama Generate and
+    Supports Anthropic (native SSE) and OpenAI-compatible (SSE).
     Custom providers fall back to sync + synthetic events.
 
     Does not accept retry_config: SSE streams deliver partial results
@@ -179,18 +177,13 @@ let create_message_stream ~sw ~net ?(base_url=Api.default_base_url)
                   ) ();
                 on_event MessageStop;
                 Ok (finalize_stream_acc acc))
-       | Provider.Openai_chat_completions
-       | Provider.Ollama_chat ->
-           (* OpenAI-compatible SSE streaming.
-              Ollama Chat redirects to /v1/chat/completions for SSE. *)
+       | Provider.Openai_chat_completions ->
+           (* OpenAI-compatible SSE streaming. *)
            let headers = match Provider.resolve provider_cfg with
              | Ok (_, _, h) -> h
              | Error _ -> [("Content-Type", "application/json")]
            in
-           let stream_path = match provider_cfg.provider with
-             | Provider.Ollama _ -> "/v1/chat/completions"
-             | _ -> Provider.request_path provider_cfg.provider
-           in
+           let stream_path = Provider.request_path provider_cfg.provider in
            let body =
              Api_openai.build_openai_body
                ~provider_config:provider_cfg ~config ~messages
@@ -231,7 +224,6 @@ let create_message_stream ~sw ~net ?(base_url=Api.default_base_url)
                   ) ();
                 on_event MessageStop;
                 Ok (finalize_stream_acc acc))
-       | Provider.Ollama_generate
        | Provider.Custom _ ->
            (* Sync fallback: non-streaming call + synthetic events *)
            (match Api.create_message ~sw ~net ~base_url
