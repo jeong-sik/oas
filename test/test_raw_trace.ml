@@ -213,7 +213,7 @@ let test_agent_run_stream_append_only_raw_trace () =
       in
       let agent = Agent.create ~net:env#net ~tools ~options () in
       let response1 =
-        unwrap (Agent.run_stream ~sw ~on_event:(fun _ -> ()) agent "trace chain")
+        unwrap (Agent.run ~sw agent "trace chain")
       in
       let text1 = response_text response1 in
       Alcotest.(check string) "first final text" "trace complete" text1;
@@ -227,9 +227,7 @@ let test_agent_run_stream_append_only_raw_trace () =
         Agent.resume ~net:env#net ~checkpoint ~tools ~options ()
       in
       let response2 =
-        unwrap
-          (Agent.run_stream ~sw ~on_event:(fun _ -> ()) resumed
-             "trace chain again")
+        unwrap (Agent.run ~sw resumed "trace chain again")
       in
       let text2 = response_text response2 in
       Alcotest.(check string) "second final text" "trace complete" text2;
