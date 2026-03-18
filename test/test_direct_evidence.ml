@@ -116,7 +116,7 @@ let test_direct_evidence_materializes_bundle () =
         {
           Types.default_config with
           name = "direct-worker";
-          model = Custom "direct-evidence-model";
+          model = "direct-evidence-model";
         }
       ~tools:[ shell_tool ]
       ~options:{ Agent.default_options with provider = Some provider; raw_trace = Some raw_trace }

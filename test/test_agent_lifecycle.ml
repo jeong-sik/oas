@@ -8,7 +8,7 @@ let test_build_snapshot_fresh () =
   let snap = Agent_lifecycle.build_snapshot
     ~agent_name:"test-agent"
     ~provider:None
-    ~model:Types.Claude_sonnet_4_6
+    ~model:"claude-sonnet-4-6"
     Agent_lifecycle.Running
   in
   Alcotest.(check string) "agent_name" "test-agent" snap.agent_name;
@@ -22,7 +22,7 @@ let test_build_snapshot_merge_previous () =
   let prev = Agent_lifecycle.build_snapshot
     ~agent_name:"test-agent"
     ~provider:None
-    ~model:Types.Claude_sonnet_4_6
+    ~model:"claude-sonnet-4-6"
     ~accepted_at:100.0
     ~started_at:101.0
     Agent_lifecycle.Running
@@ -30,7 +30,7 @@ let test_build_snapshot_merge_previous () =
   let snap = Agent_lifecycle.build_snapshot
     ~agent_name:"test-agent"
     ~provider:None
-    ~model:Types.Claude_sonnet_4_6
+    ~model:"claude-sonnet-4-6"
     ~previous:prev
     ~finished_at:200.0
     Agent_lifecycle.Completed
@@ -46,14 +46,14 @@ let test_build_snapshot_last_error () =
   let prev = Agent_lifecycle.build_snapshot
     ~agent_name:"test-agent"
     ~provider:None
-    ~model:Types.Claude_sonnet_4_6
+    ~model:"claude-sonnet-4-6"
     ~last_error:"previous error"
     Agent_lifecycle.Failed
   in
   let snap = Agent_lifecycle.build_snapshot
     ~agent_name:"test-agent"
     ~provider:None
-    ~model:Types.Claude_sonnet_4_6
+    ~model:"claude-sonnet-4-6"
     ~previous:prev
     Agent_lifecycle.Running
   in
@@ -69,7 +69,7 @@ let test_build_snapshot_with_provider () =
   let snap = Agent_lifecycle.build_snapshot
     ~agent_name:"test-agent"
     ~provider:(Some provider)
-    ~model:Types.Claude_sonnet_4_6
+    ~model:"claude-sonnet-4-6"
     Agent_lifecycle.Accepted
   in
   Alcotest.(check (option string)) "requested_provider"

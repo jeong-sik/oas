@@ -11,7 +11,7 @@ open Agent_sdk
 let base_state = {
   Types.config = { Types.default_config with
     name = "test-dispatch";
-    model = Types.Custom "test-model";
+    model = "test-model";
     system_prompt = Some "You are a test assistant.";
     max_tokens = 1024;
   };

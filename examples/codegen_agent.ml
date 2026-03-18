@@ -167,7 +167,7 @@ let () =
     name = "codegen";
     system_prompt = Some system_prompt;
     max_turns = 8;
-    model = Custom "qwen3.5";
+    model = "qwen3.5";
   } in
   let options = { Agent.default_options with provider = Some provider_config } in
   let agent = Agent.create ~net ~config ~tools ~options () in

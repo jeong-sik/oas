@@ -17,7 +17,7 @@ let base_url =
   | Provider.Local { base_url } -> base_url
   | _ -> "http://127.0.0.1:8085"
 
-let local_model = Custom provider.model_id
+let local_model = provider.model_id
 let options = { Agent.default_options with base_url; provider = Some provider }
 
 let masc_mcp_command () =

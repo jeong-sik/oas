@@ -30,23 +30,21 @@ let contains_substring ~needle haystack =
 
 (** Helper: compare model fields via string. *)
 let check_model msg expected actual =
-  Alcotest.(check string) msg
-    (Types.model_to_string expected)
-    (Types.model_to_string actual)
+  Alcotest.(check string) msg expected actual
 
 (* --- 1. create sets model --- *)
 
 let test_create_sets_model () =
   with_net @@ fun net ->
-  let agent = Builder.create ~net ~model:Types.Claude_haiku_4_5 |> Builder.build_safe |> Result.get_ok in
-  check_model "model" Types.Claude_haiku_4_5 (Agent.state agent).config.model
+  let agent = Builder.create ~net ~model:"claude-haiku-4-5" |> Builder.build_safe |> Result.get_ok in
+  check_model "model" "claude-haiku-4-5" (Agent.state agent).config.model
 
 (* --- 2. with_system_prompt --- *)
 
 let test_with_system_prompt () =
   with_net @@ fun net ->
   let agent =
-    Builder.create ~net ~model:Types.Claude_sonnet_4_6
+    Builder.create ~net ~model:"claude-sonnet-4-6"
     |> Builder.with_system_prompt "You are helpful."
     |> Builder.build_safe |> Result.get_ok
   in
@@ -58,7 +56,7 @@ let test_with_system_prompt () =
 let test_with_name () =
   with_net @@ fun net ->
   let agent =
-    Builder.create ~net ~model:Types.Claude_sonnet_4_6
+    Builder.create ~net ~model:"claude-sonnet-4-6"
     |> Builder.with_name "test-agent"
     |> Builder.build_safe |> Result.get_ok
   in
@@ -69,7 +67,7 @@ let test_with_name () =
 let test_with_max_tokens () =
   with_net @@ fun net ->
   let agent =
-    Builder.create ~net ~model:Types.Claude_sonnet_4_6
+    Builder.create ~net ~model:"claude-sonnet-4-6"
     |> Builder.with_max_tokens 8192
     |> Builder.build_safe |> Result.get_ok
   in
@@ -80,7 +78,7 @@ let test_with_max_tokens () =
 let test_with_max_turns () =
   with_net @@ fun net ->
   let agent =
-    Builder.create ~net ~model:Types.Claude_sonnet_4_6
+    Builder.create ~net ~model:"claude-sonnet-4-6"
     |> Builder.with_max_turns 25
     |> Builder.build_safe |> Result.get_ok
   in
@@ -91,7 +89,7 @@ let test_with_max_turns () =
 let test_with_temperature () =
   with_net @@ fun net ->
   let agent =
-    Builder.create ~net ~model:Types.Claude_sonnet_4_6
+    Builder.create ~net ~model:"claude-sonnet-4-6"
     |> Builder.with_temperature 0.7
     |> Builder.build_safe |> Result.get_ok
   in
@@ -101,7 +99,7 @@ let test_with_temperature () =
 let test_with_qwen_sampling () =
   with_net @@ fun net ->
   let agent =
-    Builder.create ~net ~model:Types.(Custom "qwen3.5-35b-a3b-ud-q8-xl")
+    Builder.create ~net ~model:"qwen3.5-35b-a3b-ud-q8-xl"
     |> Builder.with_top_p 0.95
     |> Builder.with_top_k 20
     |> Builder.with_min_p 0.01
@@ -121,7 +119,7 @@ let test_with_tools_replaces () =
   let t1 = make_tool "a" in
   let t2 = make_tool "b" in
   let agent =
-    Builder.create ~net ~model:Types.Claude_sonnet_4_6
+    Builder.create ~net ~model:"claude-sonnet-4-6"
     |> Builder.with_tool t1
     |> Builder.with_tools [t2]
     |> Builder.build_safe |> Result.get_ok
@@ -137,7 +135,7 @@ let test_with_tool_appends () =
   let t1 = make_tool "first" in
   let t2 = make_tool "second" in
   let agent =
-    Builder.create ~net ~model:Types.Claude_sonnet_4_6
+    Builder.create ~net ~model:"claude-sonnet-4-6"
     |> Builder.with_tool t1
     |> Builder.with_tool t2
     |> Builder.build_safe |> Result.get_ok
@@ -156,7 +154,7 @@ let test_with_hooks () =
   let hook _event = Hooks.Skip in
   let hooks = { Hooks.empty with before_turn = Some hook } in
   let agent =
-    Builder.create ~net ~model:Types.Claude_sonnet_4_6
+    Builder.create ~net ~model:"claude-sonnet-4-6"
     |> Builder.with_hooks hooks
     |> Builder.build_safe |> Result.get_ok
   in
@@ -168,7 +166,7 @@ let test_with_hooks () =
 let test_with_tracer () =
   with_net @@ fun net ->
   let agent =
-    Builder.create ~net ~model:Types.Claude_sonnet_4_6
+    Builder.create ~net ~model:"claude-sonnet-4-6"
     |> Builder.with_tracer Tracing.fmt
     |> Builder.build_safe |> Result.get_ok
   in
@@ -181,7 +179,7 @@ let test_with_approval () =
   with_net @@ fun net ->
   let approval ~tool_name:_ ~input:_ = Hooks.Approve in
   let agent =
-    Builder.create ~net ~model:Types.Claude_sonnet_4_6
+    Builder.create ~net ~model:"claude-sonnet-4-6"
     |> Builder.with_approval approval
     |> Builder.build_safe |> Result.get_ok
   in
@@ -194,7 +192,7 @@ let test_with_context_reducer () =
   with_net @@ fun net ->
   let reducer = Context_reducer.keep_last 5 in
   let agent =
-    Builder.create ~net ~model:Types.Claude_sonnet_4_6
+    Builder.create ~net ~model:"claude-sonnet-4-6"
     |> Builder.with_context_reducer reducer
     |> Builder.build_safe |> Result.get_ok
   in
@@ -208,7 +206,7 @@ let test_with_context () =
   let ctx = Context.create () in
   Context.set ctx "key" (`String "value");
   let agent =
-    Builder.create ~net ~model:Types.Claude_sonnet_4_6
+    Builder.create ~net ~model:"claude-sonnet-4-6"
     |> Builder.with_context ctx
     |> Builder.build_safe |> Result.get_ok
   in
@@ -224,7 +222,7 @@ let test_with_provider () =
   with_net @@ fun net ->
   let provider = Provider.anthropic_haiku () in
   let agent =
-    Builder.create ~net ~model:Types.Claude_sonnet_4_6
+    Builder.create ~net ~model:"claude-sonnet-4-6"
     |> Builder.with_provider provider
     |> Builder.build_safe |> Result.get_ok
   in
@@ -236,7 +234,7 @@ let test_with_provider () =
 let test_with_base_url () =
   with_net @@ fun net ->
   let agent =
-    Builder.create ~net ~model:Types.Claude_sonnet_4_6
+    Builder.create ~net ~model:"claude-sonnet-4-6"
     |> Builder.with_base_url "http://localhost:8080"
     |> Builder.build_safe |> Result.get_ok
   in
@@ -248,7 +246,7 @@ let test_with_base_url () =
 let test_with_mcp_clients () =
   with_net @@ fun net ->
   let agent =
-    Builder.create ~net ~model:Types.Claude_sonnet_4_6
+    Builder.create ~net ~model:"claude-sonnet-4-6"
     |> Builder.with_mcp_clients []
     |> Builder.build_safe |> Result.get_ok
   in
@@ -263,7 +261,7 @@ let test_with_guardrails () =
     { tool_filter = Guardrails.AllowList ["safe"];
       max_tool_calls_per_turn = Some 3 } in
   let agent =
-    Builder.create ~net ~model:Types.Claude_sonnet_4_6
+    Builder.create ~net ~model:"claude-sonnet-4-6"
     |> Builder.with_guardrails guardrails
     |> Builder.build_safe |> Result.get_ok
   in
@@ -284,7 +282,7 @@ let test_with_contract_composes_prompt () =
          "Prefer concise, factual answers."
   in
   let agent =
-    Builder.create ~net ~model:Types.Claude_sonnet_4_6
+    Builder.create ~net ~model:"claude-sonnet-4-6"
     |> Builder.with_system_prompt "Base prompt."
     |> Builder.with_contract contract
     |> Builder.build_safe |> Result.get_ok
@@ -318,7 +316,7 @@ let test_with_skill_appends_prompt () =
       "---\nname: reviewer\ndescription: Review skill\n---\nState concrete findings first."
   in
   let agent =
-    Builder.create ~net ~model:Types.Claude_sonnet_4_6
+    Builder.create ~net ~model:"claude-sonnet-4-6"
     |> Builder.with_system_prompt "Base prompt."
     |> Builder.with_skill skill
     |> Builder.build_safe |> Result.get_ok
@@ -340,7 +338,7 @@ let test_with_tool_grants_filters_tools () =
   let t1 = make_tool "alpha" in
   let t2 = make_tool "beta" in
   let agent =
-    Builder.create ~net ~model:Types.Claude_sonnet_4_6
+    Builder.create ~net ~model:"claude-sonnet-4-6"
     |> Builder.with_tool t1
     |> Builder.with_tool t2
     |> Builder.with_tool_grants [ "beta" ]
@@ -360,7 +358,7 @@ let test_with_contract_injects_context_metadata () =
     Contract.empty |> Contract.with_runtime_awareness "Aware of explicit grants."
   in
   let agent =
-    Builder.create ~net ~model:Types.Claude_sonnet_4_6
+    Builder.create ~net ~model:"claude-sonnet-4-6"
     |> Builder.with_context ctx
     |> Builder.with_contract contract
     |> Builder.build_safe |> Result.get_ok
@@ -379,7 +377,7 @@ let test_with_contract_injects_context_metadata () =
 let test_with_tool_choice () =
   with_net @@ fun net ->
   let agent =
-    Builder.create ~net ~model:Types.Claude_sonnet_4_6
+    Builder.create ~net ~model:"claude-sonnet-4-6"
     |> Builder.with_tool_choice Types.Any
     |> Builder.build_safe |> Result.get_ok
   in
@@ -397,7 +395,7 @@ let test_with_tool_choice () =
 let test_with_thinking_budget () =
   with_net @@ fun net ->
   let agent =
-    Builder.create ~net ~model:Types.Claude_sonnet_4_6
+    Builder.create ~net ~model:"claude-sonnet-4-6"
     |> Builder.with_enable_thinking true
     |> Builder.with_thinking_budget 10000
     |> Builder.build_safe |> Result.get_ok
@@ -410,7 +408,7 @@ let test_with_thinking_budget () =
 let test_with_max_input_tokens () =
   with_net @@ fun net ->
   let agent =
-    Builder.create ~net ~model:Types.Claude_sonnet_4_6
+    Builder.create ~net ~model:"claude-sonnet-4-6"
     |> Builder.with_max_input_tokens 50000
     |> Builder.build_safe |> Result.get_ok
   in
@@ -422,7 +420,7 @@ let test_with_max_input_tokens () =
 let test_with_max_total_tokens () =
   with_net @@ fun net ->
   let agent =
-    Builder.create ~net ~model:Types.Claude_sonnet_4_6
+    Builder.create ~net ~model:"claude-sonnet-4-6"
     |> Builder.with_max_total_tokens 100000
     |> Builder.build_safe |> Result.get_ok
   in
@@ -434,7 +432,7 @@ let test_with_max_total_tokens () =
 let test_build_produces_valid_agent () =
   with_net @@ fun net ->
   let agent =
-    Builder.create ~net ~model:Types.Claude_opus_4_5
+    Builder.create ~net ~model:"claude-opus-4-5"
     |> Builder.with_name "full-agent"
     |> Builder.with_system_prompt "Be concise."
     |> Builder.with_max_tokens 2048
@@ -444,7 +442,7 @@ let test_build_produces_valid_agent () =
   in
   let cfg = (Agent.state agent).config in
   Alcotest.(check string) "name" "full-agent" cfg.name;
-  check_model "model" Types.Claude_opus_4_5 cfg.model;
+  check_model "model" "claude-opus-4-5" cfg.model;
   Alcotest.(check (option string)) "system_prompt"
     (Some "Be concise.") cfg.system_prompt;
   Alcotest.(check int) "max_tokens" 2048 cfg.max_tokens;
@@ -463,7 +461,7 @@ let test_chain_multiple () =
   let t1 = make_tool "t1" in
   let t2 = make_tool "t2" in
   let agent =
-    Builder.create ~net ~model:Types.Claude_sonnet_4
+    Builder.create ~net ~model:"claude-sonnet-4"
     |> Builder.with_name "chained"
     |> Builder.with_system_prompt "system"
     |> Builder.with_max_tokens 1024
@@ -488,7 +486,7 @@ let test_chain_multiple () =
 
 let test_immutability_check () =
   with_net @@ fun net ->
-  let original = Builder.create ~net ~model:Types.Claude_sonnet_4_6 in
+  let original = Builder.create ~net ~model:"claude-sonnet-4-6" in
   let _modified = original |> Builder.with_name "modified" in
   let agent_from_original = Builder.build_safe original |> Result.get_ok in
   Alcotest.(check string) "original name unchanged"
@@ -499,7 +497,7 @@ let test_immutability_check () =
 let test_defaults_match_agent_create () =
   with_net @@ fun net ->
   let builder_agent =
-    Builder.create ~net ~model:Types.Claude_sonnet_4_6 |> Builder.build_safe |> Result.get_ok in
+    Builder.create ~net ~model:"claude-sonnet-4-6" |> Builder.build_safe |> Result.get_ok in
   let direct_agent = Agent.create ~net () in
   let bc = (Agent.state builder_agent).config in
   let dc = (Agent.state direct_agent).config in
@@ -534,7 +532,7 @@ let test_build_with_tools_merges_mcp () =
   with_net @@ fun net ->
   let t1 = make_tool "explicit" in
   let agent =
-    Builder.create ~net ~model:Types.Claude_sonnet_4_6
+    Builder.create ~net ~model:"claude-sonnet-4-6"
     |> Builder.with_tool t1
     |> Builder.with_mcp_clients []
     |> Builder.build_safe |> Result.get_ok
@@ -549,8 +547,8 @@ let test_build_with_tools_merges_mcp () =
 let test_build_minimal_required_only () =
   with_net @@ fun net ->
   let agent =
-    Builder.create ~net ~model:Types.Claude_3_7_sonnet |> Builder.build_safe |> Result.get_ok in
-  check_model "model" Types.Claude_3_7_sonnet (Agent.state agent).config.model;
+    Builder.create ~net ~model:"claude-3-7-sonnet" |> Builder.build_safe |> Result.get_ok in
+  check_model "model" "claude-3-7-sonnet" (Agent.state agent).config.model;
   Alcotest.(check string) "name" "agent" (Agent.state agent).config.name;
   Alcotest.(check int) "max_tokens" 4096 (Agent.state agent).config.max_tokens;
   Alcotest.(check int) "max_turns" 10 (Agent.state agent).config.max_turns;

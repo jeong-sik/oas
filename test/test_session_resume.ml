@@ -5,7 +5,7 @@ open Agent_sdk
 let make_checkpoint
     ?(session_id = "sess-original")
     ?(agent_name = "test-agent")
-    ?(model = Types.Claude_sonnet_4_6)
+    ?(model = "claude-sonnet-4-6")
     ?(system_prompt = Some "You are helpful.")
     ?(messages = [])
     ?(usage = Types.empty_usage)
@@ -181,11 +181,11 @@ let test_resume_restores_turn_count () =
 
 let test_resume_restores_model () =
   with_net @@ fun net ->
-  let cp = make_checkpoint ~model:Types.Claude_opus_4_6 () in
+  let cp = make_checkpoint ~model:"claude-opus-4-6" () in
   let agent = Agent.resume ~net ~checkpoint:cp () in
   Alcotest.(check string) "model"
-    (Types.model_to_string Types.Claude_opus_4_6)
-    (Types.model_to_string (Agent.state agent).config.model)
+    "claude-opus-4-6"
+    (Agent.state agent).config.model
 
 let test_resume_restores_agent_name () =
   with_net @@ fun net ->
@@ -295,7 +295,7 @@ let test_checkpoint_resume_roundtrip () =
   let cp = make_checkpoint
     ~session_id:"rt-sess"
     ~agent_name:"rt-agent"
-    ~model:Types.Claude_haiku_4_5
+    ~model:"claude-haiku-4-5"
     ~system_prompt:(Some "Be brief.")
     ~messages:sample_messages
     ~usage:sample_usage
@@ -341,11 +341,11 @@ let test_resume_cache_tokens () =
 
 let test_resume_custom_model () =
   with_net @@ fun net ->
-  let cp = make_checkpoint ~model:(Types.Custom "my-local-model") () in
+  let cp = make_checkpoint ~model:"my-local-model" () in
   let agent = Agent.resume ~net ~checkpoint:cp () in
   Alcotest.(check string) "custom model"
     "my-local-model"
-    (Types.model_to_string (Agent.state agent).config.model)
+    (Agent.state agent).config.model
 
 (* ── Test runner ─────────────────────────────────────────────── *)
 

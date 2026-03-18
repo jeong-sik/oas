@@ -91,7 +91,7 @@ let test_builder_with_fallback () =
   Eio_main.run @@ fun env ->
   let net = Eio.Stdenv.net env in
   let agent =
-    Builder.create ~net ~model:Types.Claude_sonnet_4_6
+    Builder.create ~net ~model:"claude-sonnet-4-6"
     |> Builder.with_provider (Provider.anthropic_sonnet ())
     |> Builder.with_fallback ({ Provider.provider = Local { base_url = "http://127.0.0.1:8085" }; model_id = "qwen3.5-35b-a3b"; api_key_env = "DUMMY_KEY" })
     |> Builder.build_safe

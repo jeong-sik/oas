@@ -35,13 +35,13 @@ let test_empty_stop_reason () =
 
 let test_model_to_string () =
   Alcotest.(check string) "opus 4.6" "claude-opus-4-6-20250514"
-    (Types.model_to_string Types.Claude_opus_4_6);
+    (Types.model_to_string "claude-opus-4-6");
   Alcotest.(check string) "sonnet 4.6" "claude-sonnet-4-6-20250514"
-    (Types.model_to_string Types.Claude_sonnet_4_6);
+    (Types.model_to_string "claude-sonnet-4-6");
   Alcotest.(check string) "haiku 4.5" "claude-haiku-4-5-20251001"
-    (Types.model_to_string Types.Claude_haiku_4_5);
+    (Types.model_to_string "claude-haiku-4-5");
   Alcotest.(check string) "custom" "my-model"
-    (Types.model_to_string (Types.Custom "my-model"))
+    (Types.model_to_string "my-model")
 
 let test_role_to_string () =
   Alcotest.(check string) "user" "user" (Types.role_to_string Types.User);
@@ -131,9 +131,9 @@ let test_default_config () =
 
 let test_model_yojson_roundtrip () =
   let variants = [
-    Types.Claude_opus_4_6; Types.Claude_sonnet_4_6; Types.Claude_opus_4_5;
-    Types.Claude_sonnet_4; Types.Claude_haiku_4_5; Types.Claude_3_7_sonnet;
-    Types.Custom "my-model";
+    "claude-opus-4-6"; "claude-sonnet-4-6"; "claude-opus-4-5";
+    "claude-sonnet-4"; "claude-haiku-4-5"; "claude-3-7-sonnet";
+    "my-model";
   ] in
   List.iter (fun m ->
     let json = Types.model_to_yojson m in

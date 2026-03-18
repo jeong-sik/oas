@@ -21,7 +21,7 @@ let provider : Provider.config = {
 
 let base_url = "http://127.0.0.1:8085"
 
-let local_model = Custom provider.model_id
+let local_model = provider.model_id
 
 let qwen_config ?(system_prompt=None) ?(max_tokens=200) ?(max_turns=5) name = {
   default_config with

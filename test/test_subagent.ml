@@ -11,7 +11,7 @@ let () =
         check (option string) "desc" (Some "Code review agent") spec.description;
         check string "prompt" "You review code." spec.prompt;
         check bool "model is sonnet" true
-          (spec.model = Subagent.Use_model Types.Claude_sonnet_4_6));
+          (spec.model = Subagent.Use_model "claude-sonnet-4-6"));
 
       test_case "inherit model" `Quick (fun () ->
         let spec = Subagent.of_markdown "Just a prompt" in
@@ -194,42 +194,42 @@ let () =
       test_case "sonnet alias" `Quick (fun () ->
         check bool "sonnet" true
           (Subagent.model_override_of_string "sonnet" =
-           Subagent.Use_model Types.Claude_sonnet_4_6));
+           Subagent.Use_model "claude-sonnet-4-6"));
       test_case "claude-sonnet-4-6" `Quick (fun () ->
         check bool "sonnet 4.6" true
           (Subagent.model_override_of_string "claude-sonnet-4-6" =
-           Subagent.Use_model Types.Claude_sonnet_4_6));
+           Subagent.Use_model "claude-sonnet-4-6"));
       test_case "opus alias" `Quick (fun () ->
         check bool "opus" true
           (Subagent.model_override_of_string "opus" =
-           Subagent.Use_model Types.Claude_opus_4_6));
+           Subagent.Use_model "claude-opus-4-6"));
       test_case "claude-opus-4-6" `Quick (fun () ->
         check bool "opus 4.6" true
           (Subagent.model_override_of_string "claude-opus-4-6" =
-           Subagent.Use_model Types.Claude_opus_4_6));
+           Subagent.Use_model "claude-opus-4-6"));
       test_case "claude-opus-4-5" `Quick (fun () ->
         check bool "opus 4.5" true
           (Subagent.model_override_of_string "claude-opus-4-5" =
-           Subagent.Use_model Types.Claude_opus_4_5));
+           Subagent.Use_model "claude-opus-4-5"));
       test_case "claude-sonnet-4" `Quick (fun () ->
         check bool "sonnet 4" true
           (Subagent.model_override_of_string "claude-sonnet-4" =
-           Subagent.Use_model Types.Claude_sonnet_4));
+           Subagent.Use_model "claude-sonnet-4"));
       test_case "haiku alias" `Quick (fun () ->
         check bool "haiku" true
           (Subagent.model_override_of_string "haiku" =
-           Subagent.Use_model Types.Claude_haiku_4_5));
+           Subagent.Use_model "claude-haiku-4-5"));
       test_case "claude-haiku-4-5" `Quick (fun () ->
         check bool "haiku" true
           (Subagent.model_override_of_string "claude-haiku-4-5" =
-           Subagent.Use_model Types.Claude_haiku_4_5));
+           Subagent.Use_model "claude-haiku-4-5"));
       test_case "claude-3-7-sonnet" `Quick (fun () ->
         check bool "3.7" true
           (Subagent.model_override_of_string "claude-3-7-sonnet" =
-           Subagent.Use_model Types.Claude_3_7_sonnet));
+           Subagent.Use_model "claude-3-7-sonnet"));
       test_case "custom fallback" `Quick (fun () ->
         match Subagent.model_override_of_string "gpt-4o" with
-        | Subagent.Use_model (Types.Custom "gpt-4o") -> ()
+        | Subagent.Use_model "gpt-4o" -> ()
         | _ -> fail "expected Custom");
     ];
 
@@ -368,7 +368,7 @@ let () =
       test_case "show_model_override" `Quick (fun () ->
         let s1 = Subagent.show_model_override Subagent.Inherit_model in
         check bool "non-empty" true (String.length s1 > 0);
-        let s2 = Subagent.show_model_override (Subagent.Use_model Types.Claude_sonnet_4_6) in
+        let s2 = Subagent.show_model_override (Subagent.Use_model "claude-sonnet-4-6") in
         check bool "non-empty" true (String.length s2 > 0));
       test_case "show_isolation" `Quick (fun () ->
         let s1 = Subagent.show_isolation Subagent.Shared in
@@ -404,7 +404,7 @@ let () =
           ~parent_config:Types.default_config ~base_tools:tools spec in
         check string "name" "helper" target.name;
         check string "desc" "Helps out" target.description;
-        check bool "model" true (target.config.model = Types.Claude_haiku_4_5);
+        check bool "model" true (target.config.model = "claude-haiku-4-5");
         check int "max_turns" 3 target.config.max_turns;
         check (option string) "system_prompt" (Some "You help.") target.config.system_prompt);
 

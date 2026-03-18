@@ -8,7 +8,7 @@ let make_checkpoint ?(session_id = "test-session") ?(created_at = 1000.0) () :
     version = Checkpoint.checkpoint_version;
     session_id;
     agent_name = "test-agent";
-    model = Types.Claude_sonnet_4_6;
+    model = "claude-sonnet-4-6";
     system_prompt = Some "test prompt";
     messages = [ { role = User; content = [ Text "hello" ] } ];
     usage = Types.empty_usage;

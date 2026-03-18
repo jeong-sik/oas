@@ -18,17 +18,12 @@ val tool_choice_of_json : Yojson.Safe.t -> (tool_choice, Error.sdk_error) result
 (* Agent-specific types                                              *)
 (* ================================================================ *)
 
-(** Supported Claude models *)
-type model =
-  | Claude_opus_4_6
-  | Claude_sonnet_4_6
-  | Claude_opus_4_5
-  | Claude_sonnet_4
-  | Claude_haiku_4_5
-  | Claude_3_7_sonnet
-  | Custom of string
+(** Model identifier — a plain string.
+    Use {!Model_registry.resolve_model_id} to resolve aliases. *)
+type model = string
 [@@deriving yojson, show]
 
+(** Resolve a model alias to its canonical API model ID. *)
 val model_to_string : model -> string
 
 (** Agent configuration *)

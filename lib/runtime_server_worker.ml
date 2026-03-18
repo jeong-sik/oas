@@ -180,7 +180,7 @@ let run_participant store state session_id
           name = detail.participant_name;
           model =
             (match detail.model with
-             | Some value when String.trim value <> "" -> Types.Custom value
+             | Some value when String.trim value <> "" -> Model_registry.resolve_model_id value
              | _ -> Types.default_config.model);
           system_prompt =
             (match detail.system_prompt with

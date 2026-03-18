@@ -171,8 +171,8 @@ let run repo pr_num should_post provider_name =
   Eio.Switch.run @@ fun sw ->
   let provider_config = resolve_provider provider_name in
   let model_id = match provider_name with
-    | "anthropic" -> Custom "claude-sonnet-4-6"
-    | _ -> Custom "qwen3.5"
+    | "anthropic" -> "claude-sonnet-4-6"
+    | _ -> "qwen3.5"
   in
   let config = {
     default_config with

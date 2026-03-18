@@ -195,7 +195,7 @@ let () =
         {
           Types.default_config with
           name = "direct-demo-worker";
-          model = Custom "direct-demo-model";
+          model = "direct-demo-model";
         }
       ~tools:[ shell_tool ]
       ~options:{ Agent.default_options with provider = Some provider; raw_trace = Some raw_trace }

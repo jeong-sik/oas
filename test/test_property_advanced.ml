@@ -68,10 +68,10 @@ let tool_choice_gen =
 
 let model_gen =
   QCheck.Gen.oneof [
-    QCheck.Gen.return Claude_opus_4_6;
-    QCheck.Gen.return Claude_sonnet_4_6;
-    QCheck.Gen.return Claude_haiku_4_5;
-    QCheck.Gen.map (fun s -> Custom s) QCheck.Gen.string_printable;
+    QCheck.Gen.return "claude-opus-4-6";
+    QCheck.Gen.return "claude-sonnet-4-6";
+    QCheck.Gen.return "claude-haiku-4-5";
+    QCheck.Gen.string_printable;
   ]
 
 (* ── JSON Round-trip Properties ──────────────────────────────── *)
