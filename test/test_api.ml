@@ -291,6 +291,80 @@ let test_parse_openai_response_strips_fenced_json () =
         "{\"engine\":\"default\",\"tool_calling\":false}" text
   | _ -> Alcotest.fail "expected stripped text block"
 
+let test_parse_openai_response_reasoning_content () =
+  let json_str = {|{
+    "id": "chatcmpl_think",
+    "model": "qwen3.5-35b",
+    "choices": [{
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "The answer is 42.",
+        "reasoning_content": "Let me think step by step about the meaning of life."
+      }
+    }],
+    "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30}
+  }|} in
+  let resp = Api.parse_openai_response json_str in
+  check int "3 content blocks" 2 (List.length resp.content);
+  (match resp.content with
+   | [Types.Thinking { thinking_type; content }; Types.Text text] ->
+       check string "thinking_type" "reasoning" thinking_type;
+       check string "thinking content"
+         "Let me think step by step about the meaning of life." content;
+       check string "text" "The answer is 42." text
+   | _ -> Alcotest.fail "expected [Thinking; Text]")
+
+let test_parse_openai_response_reasoning_with_tools () =
+  let json_str = {|{
+    "id": "chatcmpl_think_tool",
+    "model": "qwen3.5-35b",
+    "choices": [{
+      "finish_reason": "tool_calls",
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": null,
+        "reasoning_content": "I need to call the calculator.",
+        "tool_calls": [{
+          "id": "call_1",
+          "type": "function",
+          "function": { "name": "calc", "arguments": "{\"expr\":\"2+2\"}" }
+        }]
+      }
+    }]
+  }|} in
+  let resp = Api.parse_openai_response json_str in
+  check int "2 content blocks" 2 (List.length resp.content);
+  (match resp.content with
+   | [Types.Thinking { content; _ }; Types.ToolUse { name; _ }] ->
+       check string "thinking" "I need to call the calculator." content;
+       check string "tool name" "calc" name
+   | _ -> Alcotest.fail "expected [Thinking; ToolUse]");
+  (match resp.stop_reason with
+   | Types.StopToolUse -> ()
+   | sr -> Alcotest.fail (Printf.sprintf "expected StopToolUse, got %s" (Types.show_stop_reason sr)))
+
+let test_parse_openai_response_no_reasoning () =
+  let json_str = {|{
+    "id": "chatcmpl_no_think",
+    "model": "qwen3.5-35b",
+    "choices": [{
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "Hello world"
+      }
+    }]
+  }|} in
+  let resp = Api.parse_openai_response json_str in
+  check int "1 content block" 1 (List.length resp.content);
+  (match resp.content with
+   | [Types.Text "Hello world"] -> ()
+   | _ -> Alcotest.fail "expected [Text]")
+
 (* ------------------------------------------------------------------ *)
 (* message_to_json                                                      *)
 (* ------------------------------------------------------------------ *)
@@ -598,6 +672,9 @@ let () =
       test_case "unknown stop_reason" `Quick test_parse_response_unknown_stop;
       test_case "strip fenced json" `Quick test_parse_openai_response_strips_fenced_json;
       test_case "cache tokens in usage" `Quick test_parse_response_with_cache_tokens;
+      test_case "reasoning_content" `Quick test_parse_openai_response_reasoning_content;
+      test_case "reasoning_content with tools" `Quick test_parse_openai_response_reasoning_with_tools;
+      test_case "no reasoning_content" `Quick test_parse_openai_response_no_reasoning;
     ];
     "error_handling", [
       test_case "openai api error raises Openai_api_error" `Quick test_openai_api_error_raises;
