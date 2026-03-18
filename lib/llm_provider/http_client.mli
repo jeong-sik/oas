@@ -9,6 +9,15 @@ type http_error =
   | HttpError of { code: int; body: string }
   | NetworkError of { message: string }
 
+(** GET a URL synchronously, returning the full response.
+    Returns [(status_code, body_string)] on success. *)
+val get_sync :
+  sw:Eio.Switch.t ->
+  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
+  url:string ->
+  headers:(string * string) list ->
+  (int * string, http_error) result
+
 (** POST JSON body synchronously, returning the full response.
     Returns [(status_code, body_string)] on success. *)
 val post_sync :

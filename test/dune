@@ -364,3 +364,7 @@
 (test
  (name test_traced_swarm)
  (libraries agent_sdk agent_sdk_swarm alcotest yojson eio eio_main unix))
+
+(test
+ (name test_discovery)
+ (libraries llm_provider alcotest yojson unix))
