@@ -63,12 +63,23 @@ let aggregate_scores strategy scores =
 let fire opt arg = match opt with Some f -> (try f arg with _ -> ()) | None -> ()
 let fire2 opt a b = match opt with Some f -> (try f a b with _ -> ()) | None -> ()
 
+(* ── Agent-level retry ──────────────────────────────────────────── *)
+
+let default_agent_max_retries = 2
+let default_agent_initial_delay = 1.0
+let default_agent_backoff = 2.0
+
+let is_retryable_agent_error = function
+  | Error.Api _ -> true
+  | Error.Mcp (Error.ToolCallFailed _) -> true
+  | _ -> false
+
 (* ── Single agent run ───────────────────────────────────────────── *)
 
-let run_one_agent ~sw ~callbacks ?(max_retries=0) (entry : agent_entry) prompt =
+let run_one_agent ~sw ~callbacks ?(max_retries=default_agent_max_retries) (entry : agent_entry) prompt =
   fire callbacks.on_agent_start entry.name;
-  let rec attempt n =
-    let t0 = Unix.gettimeofday () in
+  let t0 = Unix.gettimeofday () in
+  let rec attempt n delay =
     let result = entry.run ~sw prompt in
     let elapsed = Unix.gettimeofday () -. t0 in
     let telemetry =
@@ -81,16 +92,15 @@ let run_one_agent ~sw ~callbacks ?(max_retries=0) (entry : agent_entry) prompt =
         let status = Done_ok { elapsed; text = text_of_response resp; telemetry } in
         fire2 callbacks.on_agent_done entry.name status;
         (entry.name, status, result)
-    | Error _err when n < max_retries ->
-        let delay = (Float.of_int (n + 1)) *. (0.5 +. Random.float 1.0) in
-        Unix.sleepf delay;
-        attempt (n + 1)
+    | Error err when is_retryable_agent_error err && n < max_retries ->
+        Unix.sleepf (delay *. (0.5 +. Random.float 1.0));
+        attempt (n + 1) (Float.min (delay *. default_agent_backoff) 30.0)
     | Error err ->
         let status = Done_error { elapsed; error = Error.to_string err; telemetry } in
         fire2 callbacks.on_agent_done entry.name status;
         (entry.name, status, result)
   in
-  attempt 0
+  attempt 0 default_agent_initial_delay
 
 (* ── Run agents by mode (shared) ────────────────────────────────── *)
 

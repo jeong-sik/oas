@@ -168,14 +168,18 @@ let extract_with_retry ~sw ~net ?base_url ?provider ?clock
               | ToolUse { id; name; _ } when name = schema.name -> Some id
               | _ -> None) response.content
               |> Option.value ~default:"structured_retry" in
-            let retry_messages = messages @ [
+            (* Keep only the original user message + latest error feedback.
+               Previous failed attempts are dropped to avoid unbounded
+               token growth across retries. *)
+            let retry_messages = [
+              List.hd messages;  (* original user prompt *)
               { role = Assistant; content = response.content };
               { role = User; content = [
                   ToolResult {
                     tool_use_id;
                     content = Printf.sprintf
-                      "Validation error: %s. Please fix the output and try again."
-                      error_msg;
+                      "Validation error (attempt %d/%d): %s. Please fix the output and try again."
+                      (n + 1) (max_retries + 1) error_msg;
                     is_error = true;
                   }
                 ] };
