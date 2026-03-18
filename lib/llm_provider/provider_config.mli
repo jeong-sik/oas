@@ -28,6 +28,7 @@ type t = {
   tool_choice: Types.tool_choice option;
   disable_parallel_tool_use: bool;
   response_format_json: bool;
+  cache_system_prompt: bool;
 }
 
 (** Default config for quick construction. Only [kind], [model_id],
@@ -50,4 +51,5 @@ val make :
   ?tool_choice:Types.tool_choice ->
   ?disable_parallel_tool_use:bool ->
   ?response_format_json:bool ->
+  ?cache_system_prompt:bool ->
   unit -> t

@@ -44,7 +44,17 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
   in
   let body = match config.system_prompt with
     | Some s when not (Api_common.string_is_blank s) ->
-        ("system", `String s) :: body
+        if config.cache_system_prompt then
+          (* Anthropic prompt caching: send system as content block array
+             with cache_control breakpoint on the last block *)
+          let block = `Assoc [
+            ("type", `String "text");
+            ("text", `String s);
+            ("cache_control", `Assoc [("type", `String "ephemeral")])
+          ] in
+          ("system", `List [block]) :: body
+        else
+          ("system", `String s) :: body
     | _ -> body
   in
   let body = match config.temperature with
@@ -70,7 +80,23 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
   in
   let body = match tools with
     | [] -> body
-    | ts -> ("tools", `List ts) :: body
+    | ts ->
+        if config.cache_system_prompt then
+          (* Add cache_control to last tool for extended cache prefix *)
+          let ts_with_cache =
+            (* ts is non-empty (outer match guarantees), safe to destructure *)
+            let rev = List.rev ts in
+            let last = List.hd rev and rest = List.tl rev in
+            let last_with_cache = match last with
+              | `Assoc fields ->
+                  `Assoc (("cache_control", `Assoc [("type", `String "ephemeral")]) :: fields)
+              | other -> other
+            in
+            List.rev (last_with_cache :: rest)
+          in
+          ("tools", `List ts_with_cache) :: body
+        else
+          ("tools", `List ts) :: body
   in
   let body = match config.tool_choice with
     | Some choice ->

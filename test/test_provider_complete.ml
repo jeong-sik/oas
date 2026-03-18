@@ -210,6 +210,63 @@ let test_stream_acc_tool_use () =
   ] in
   Alcotest.(check int) "6 events" 6 (List.length events)
 
+(* ── Prompt caching ───────────────────────────────── *)
+
+let test_cache_system_prompt () =
+  let config = PC.make ~kind:Anthropic ~model_id:"claude-sonnet-4-6"
+    ~base_url:"" ~system_prompt:"You are helpful."
+    ~cache_system_prompt:true () in
+  let body = BA.build_request ~config ~messages:[user_msg "hi"] () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  (* system should be a list of content blocks, not a string *)
+  let system = json |> member "system" |> to_list in
+  Alcotest.(check int) "1 system block" 1 (List.length system);
+  let block = List.hd system in
+  Alcotest.(check string) "type" "text"
+    (block |> member "type" |> to_string);
+  Alcotest.(check string) "text" "You are helpful."
+    (block |> member "text" |> to_string);
+  let cc = block |> member "cache_control" in
+  Alcotest.(check string) "cache_control type" "ephemeral"
+    (cc |> member "type" |> to_string)
+
+let test_cache_no_system_no_cache () =
+  let config = PC.make ~kind:Anthropic ~model_id:"m"
+    ~base_url:"" ~system_prompt:"Hello."
+    ~cache_system_prompt:false () in
+  let body = BA.build_request ~config ~messages:[user_msg "hi"] () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  (* system should be a plain string when caching disabled *)
+  Alcotest.(check string) "system is string" "Hello."
+    (json |> member "system" |> to_string)
+
+let test_cache_tools () =
+  let config = PC.make ~kind:Anthropic ~model_id:"m"
+    ~base_url:"" ~cache_system_prompt:true () in
+  let tool1 = `Assoc [("name", `String "a"); ("description", `String "tool a")] in
+  let tool2 = `Assoc [("name", `String "b"); ("description", `String "tool b")] in
+  let body = BA.build_request ~config ~messages:[user_msg "hi"]
+    ~tools:[tool1; tool2] () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  let tools = json |> member "tools" |> to_list in
+  Alcotest.(check int) "2 tools" 2 (List.length tools);
+  (* First tool should NOT have cache_control *)
+  let first = List.hd tools in
+  Alcotest.(check bool) "first tool no cache" true
+    (first |> member "cache_control" = `Null);
+  (* Last tool SHOULD have cache_control *)
+  let last = List.nth tools 1 in
+  let cc = last |> member "cache_control" in
+  Alcotest.(check string) "last tool cache_control" "ephemeral"
+    (cc |> member "type" |> to_string)
+
+let test_cache_default_false () =
+  let cfg = PC.make ~kind:Anthropic ~model_id:"m" ~base_url:"" () in
+  Alcotest.(check bool) "default cache off" false cfg.cache_system_prompt
+
 let () =
   let open Alcotest in
   run "provider_complete" [
@@ -239,5 +296,11 @@ let () =
     "stream_acc", [
       test_case "text events" `Quick test_stream_acc_text;
       test_case "tool_use events" `Quick test_stream_acc_tool_use;
+    ];
+    "prompt_caching", [
+      test_case "system block with cache_control" `Quick test_cache_system_prompt;
+      test_case "no cache when disabled" `Quick test_cache_no_system_no_cache;
+      test_case "last tool gets cache_control" `Quick test_cache_tools;
+      test_case "default cache off" `Quick test_cache_default_false;
     ];
   ]
