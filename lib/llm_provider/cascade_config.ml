@@ -1,0 +1,278 @@
+(** Cascade configuration: named provider profiles with JSON hot-reload
+    and discovery-aware health filtering.
+
+    @since 0.59.0 *)
+
+(* ── Provider registry ─────────────────────────────────── *)
+
+type provider_defaults = {
+  kind: Provider_config.provider_kind;
+  base_url: string;
+  api_key_env: string;
+  request_path: string;
+}
+
+let llama_defaults = {
+  kind = OpenAI_compat;
+  base_url =
+    (match Sys.getenv_opt "LLM_ENDPOINTS" with
+     | Some s ->
+       (match String.split_on_char ',' s with
+        | url :: _ -> String.trim url
+        | [] -> "http://127.0.0.1:8085")
+     | None -> "http://127.0.0.1:8085");
+  api_key_env = "";
+  request_path = "/v1/chat/completions";
+}
+
+let claude_defaults = {
+  kind = Anthropic;
+  base_url = "https://api.anthropic.com";
+  api_key_env = "ANTHROPIC_API_KEY";
+  request_path = "/v1/messages";
+}
+
+let gemini_defaults = {
+  kind = OpenAI_compat;
+  base_url =
+    (match Sys.getenv_opt "GEMINI_BASE_URL" with
+     | Some url -> url
+     | None -> "https://generativelanguage.googleapis.com/v1beta/openai");
+  api_key_env = "GEMINI_API_KEY";
+  request_path = "/chat/completions";
+}
+
+let glm_defaults = {
+  kind = OpenAI_compat;
+  base_url =
+    (match Sys.getenv_opt "ZAI_BASE_URL" with
+     | Some url -> url
+     | None -> "https://open.bigmodel.cn/api/paas/v4");
+  api_key_env = "ZAI_API_KEY";
+  request_path = "/chat/completions";
+}
+
+let openrouter_defaults = {
+  kind = OpenAI_compat;
+  base_url = "https://openrouter.ai/api/v1";
+  api_key_env = "OPENROUTER_API_KEY";
+  request_path = "/chat/completions";
+}
+
+let known_providers : (string * provider_defaults) list = [
+  ("llama", llama_defaults);
+  ("claude", claude_defaults);
+  ("gemini", gemini_defaults);
+  ("glm", glm_defaults);
+  ("openrouter", openrouter_defaults);
+]
+
+(* ── Model string parsing ──────────────────────────────── *)
+
+let has_api_key env_name =
+  env_name = "" ||
+  (match Sys.getenv_opt env_name with
+   | Some s -> String.trim s <> ""
+   | None -> false)
+
+let parse_custom_model model_id =
+  match String.index_opt model_id '@' with
+  | Some at_idx ->
+    let model = String.sub model_id 0 at_idx in
+    let url = String.sub model_id (at_idx + 1) (String.length model_id - at_idx - 1) in
+    (model, url)
+  | None ->
+    let url =
+      match Sys.getenv_opt "CUSTOM_LLM_BASE_URL" with
+      | Some u -> u
+      | None -> "http://127.0.0.1:8080"
+    in
+    (model_id, url)
+
+let parse_model_string ?(temperature = 0.3) ?(max_tokens = 500)
+    ?system_prompt (s : string) : Provider_config.t option =
+  let s = String.trim s in
+  match String.index_opt s ':' with
+  | None -> None
+  | Some idx ->
+    if idx = 0 || idx >= String.length s - 1 then None
+    else
+      let provider_name = String.sub s 0 idx |> String.lowercase_ascii in
+      let model_id =
+        String.sub s (idx + 1) (String.length s - idx - 1) |> String.trim
+      in
+      if model_id = "" then None
+      else
+        match provider_name with
+        | "custom" ->
+          let actual_model, base_url = parse_custom_model model_id in
+          Some (Provider_config.make
+                  ~kind:OpenAI_compat
+                  ~model_id:actual_model
+                  ~base_url
+                  ~request_path:"/v1/chat/completions"
+                  ~temperature
+                  ~max_tokens
+                  ?system_prompt
+                  ())
+        | _ ->
+          match List.assoc_opt provider_name known_providers with
+          | None -> None
+          | Some defaults ->
+            if not (has_api_key defaults.api_key_env) then None
+            else
+              let api_key =
+                if defaults.api_key_env = "" then ""
+                else
+                  Sys.getenv_opt defaults.api_key_env
+                  |> Option.value ~default:""
+              in
+              Some (Provider_config.make
+                      ~kind:defaults.kind
+                      ~model_id
+                      ~base_url:defaults.base_url
+                      ~api_key
+                      ~request_path:defaults.request_path
+                      ~temperature
+                      ~max_tokens
+                      ?system_prompt
+                      ())
+
+let parse_model_strings ?(temperature = 0.3) ?(max_tokens = 500)
+    ?system_prompt (strs : string list) : Provider_config.t list =
+  List.filter_map
+    (parse_model_string ~temperature ~max_tokens ?system_prompt)
+    strs
+
+(* ── JSON config loading with mtime hot-reload ─────────── *)
+
+let config_cache : (string, float * Yojson.Safe.t) Hashtbl.t =
+  Hashtbl.create 4
+
+let load_json path =
+  try
+    let st = Unix.stat path in
+    let mtime = st.Unix.st_mtime in
+    match Hashtbl.find_opt config_cache path with
+    | Some (cached_mtime, json) when Float.equal cached_mtime mtime ->
+      Ok json
+    | _ ->
+      let ic = open_in path in
+      let content = Fun.protect
+          ~finally:(fun () -> close_in_noerr ic)
+          (fun () ->
+             let len = in_channel_length ic in
+             let buf = Bytes.create len in
+             really_input ic buf 0 len;
+             Bytes.to_string buf)
+      in
+      let json = Yojson.Safe.from_string content in
+      Hashtbl.replace config_cache path (mtime, json);
+      Ok json
+  with
+  | Sys_error msg -> Error msg
+  | Unix.Unix_error (err, fn, arg) ->
+    Error (Printf.sprintf "%s(%s): %s" fn arg (Unix.error_message err))
+  | exn -> Error (Printexc.to_string exn)
+
+let load_profile ~config_path ~name =
+  let key = name ^ "_models" in
+  match load_json config_path with
+  | Error _ -> []
+  | Ok json ->
+    let open Yojson.Safe.Util in
+    match json |> member key with
+    | `List items ->
+      List.filter_map
+        (function
+          | `String s -> Some (String.trim s)
+          | _ -> None)
+        items
+    | _ -> []
+
+(* ── Discovery-aware health filtering ──────────────────── *)
+
+let is_local_provider (cfg : Provider_config.t) =
+  let url = String.lowercase_ascii cfg.base_url in
+  String.length url >= 16 &&
+  (let prefix = String.sub url 0 16 in
+   prefix = "http://127.0.0.1" || prefix = "http://localhost:")
+  ||
+  (String.length url >= 17 &&
+   String.sub url 0 17 = "http://localhost/")
+
+let filter_healthy ~sw ~net (providers : Provider_config.t list) =
+  let local_providers =
+    List.filter is_local_provider providers
+  in
+  let cloud_providers =
+    List.filter (fun cfg -> not (is_local_provider cfg)) providers
+  in
+  if local_providers = [] then
+    (* No local providers, nothing to filter *)
+    providers
+  else if cloud_providers = [] then
+    (* Only local providers — pass through unchanged.
+       Let the provider return connection error rather than empty list. *)
+    providers
+  else
+    (* Mixed: probe local health, remove unhealthy locals *)
+    let endpoints =
+      local_providers
+      |> List.map (fun (cfg : Provider_config.t) -> cfg.base_url)
+      |> List.sort_uniq String.compare
+    in
+    let statuses = Discovery.discover ~sw ~net ~endpoints in
+    let any_healthy =
+      List.exists (fun (s : Discovery.endpoint_status) -> s.healthy) statuses
+    in
+    if any_healthy then
+      providers  (* At least one local is healthy — keep all *)
+    else
+      cloud_providers  (* All locals unhealthy — cloud only *)
+
+(* ── Named cascade execution ───────────────────────────── *)
+
+let complete_named ~sw ~net ?clock ?config_path
+    ~name ~defaults ~messages
+    ?(tools = []) ?(temperature = 0.3) ?(max_tokens = 500)
+    ?system_prompt ?cache ?metrics () =
+  (* 1. Load from config file, fall back to defaults *)
+  let model_strings =
+    match config_path with
+    | Some path ->
+      let from_file = load_profile ~config_path:path ~name in
+      if from_file <> [] then from_file else defaults
+    | None -> defaults
+  in
+  (* 2. Parse model strings → Provider_config.t list *)
+  let providers =
+    parse_model_strings ~temperature ~max_tokens ?system_prompt model_strings
+  in
+  if providers = [] then
+    Error (Http_client.NetworkError {
+        message =
+          Printf.sprintf
+            "No callable models for cascade '%s'. Tried: [%s]"
+            name (String.concat "; " model_strings)
+      })
+  else
+    (* 3. Filter by local endpoint health *)
+    let healthy_providers = filter_healthy ~sw ~net providers in
+    if healthy_providers = [] then
+      Error (Http_client.NetworkError {
+          message =
+            Printf.sprintf
+              "All providers unhealthy for cascade '%s'" name
+        })
+    else
+      (* 4. Build cascade and execute *)
+      match healthy_providers with
+      | [] ->
+        Error (Http_client.NetworkError {
+            message = Printf.sprintf "Empty provider list for '%s'" name
+          })
+      | primary :: fallbacks ->
+        let cascade : Complete.cascade = { primary; fallbacks } in
+        Complete.complete_cascade ~sw ~net ?clock
+          ~cascade ~messages ~tools ?cache ?metrics ()

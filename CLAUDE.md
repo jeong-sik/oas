@@ -1,6 +1,6 @@
 # OAS — OCaml Agent SDK
 
-OCaml 5.x + Eio 기반 에이전트 SDK. v0.57.0.
+OCaml 5.x + Eio 기반 에이전트 SDK. v0.59.0.
 
 ## Architecture
 
@@ -90,6 +90,26 @@ let statuses = Discovery.discover ~sw ~net
 ```
 
 Configure via `LLM_ENDPOINTS` env var (comma-separated, default `http://127.0.0.1:8085`).
+
+## Cascade Config (`lib/llm_provider/cascade_config.ml`)
+
+Named cascade profiles with JSON hot-reload and discovery-aware health filtering.
+Consumers (MASC, standalone agents) define cascade profiles; OAS handles routing.
+
+```ocaml
+(* Execute a named cascade: load config, filter health, failover *)
+Cascade_config.complete_named ~sw ~net ~clock
+  ~name:"heartbeat_action"
+  ~defaults:["llama:qwen3.5-35b"; "glm:auto"]
+  ~messages ~temperature:0.3 ~max_tokens:500 ()
+
+(* Or use individual pieces *)
+let configs = Cascade_config.parse_model_strings ["llama:qwen3.5"; "glm:glm-4.5"] in
+let healthy = Cascade_config.filter_healthy ~sw ~net configs in
+(* ... use with Complete.complete_cascade *)
+```
+
+Supported providers: `llama`, `claude`, `gemini`, `glm`, `openrouter`, `custom:model@url`.
 
 ## Key Types
 
