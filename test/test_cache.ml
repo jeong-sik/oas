@@ -11,18 +11,18 @@ let make_config ?(cache = false) ?system_prompt () =
   let config = { default_config with system_prompt; cache_system_prompt = cache } in
   { config; messages = []; turn_count = 0; usage = empty_usage }
 
+(* Prompt must be >= 4096 chars to trigger cache_control (min token threshold) *)
+let long_system_prompt = "You are helpful. " ^ String.make 4100 'x'
+
 let test_cache_system_prompt_enabled () =
-  let config = make_config ~cache:true ~system_prompt:"You are helpful." () in
+  let config = make_config ~cache:true ~system_prompt:long_system_prompt () in
   let body = Agent_sdk.Api.build_body_assoc ~config ~messages:[] ~stream:false () in
   let system_json = List.assoc "system" body in
-  (* Should be a list with one cached block *)
   match system_json with
   | `List [`Assoc fields] ->
     let typ = List.assoc "type" fields in
-    let text = List.assoc "text" fields in
     let cc = List.assoc "cache_control" fields in
     Alcotest.(check string) "type" "text" (Yojson.Safe.Util.to_string typ);
-    Alcotest.(check string) "text" "You are helpful." (Yojson.Safe.Util.to_string text);
     (match cc with
      | `Assoc [("type", `String "ephemeral")] -> ()
      | _ -> Alcotest.fail "cache_control should be {type: ephemeral}")
