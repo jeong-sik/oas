@@ -27,6 +27,21 @@ let catch_network f =
 
 (* ── Public API ────────────────────────────────────────────── *)
 
+let get_sync ~sw ~net ~url ~headers =
+  catch_network (fun () ->
+    let uri = Uri.of_string url in
+    let client = make_client ~net in
+    let hdr = Http.Header.of_list headers in
+    let resp, resp_body =
+      Cohttp_eio.Client.get ~sw client ~headers:hdr uri
+    in
+    let code =
+      Cohttp.Response.status resp |> Cohttp.Code.code_of_status in
+    let body_str =
+      Eio.Buf_read.(of_flow ~max_size:Api_common.max_response_body
+                       resp_body |> take_all) in
+    Ok (code, body_str))
+
 let post_sync ~sw ~net ~url ~headers ~body =
   catch_network (fun () ->
     let uri = Uri.of_string url in

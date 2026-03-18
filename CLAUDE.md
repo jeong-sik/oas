@@ -75,7 +75,22 @@ let config = { entries = List.init 12 (fun i ->
 |----------|--------|----------|
 | Anthropic | `api_anthropic.ml` | Messages API |
 | OpenAI-compatible | `api_openai.ml` | Chat Completions |
-| Ollama | `api_ollama.ml` | `http://127.0.0.1:11434/api/chat` |
+| Ollama | `api_ollama.ml` | Deprecated (llama-server via OpenAI-compat) |
+
+## LLM Discovery (`lib/llm_provider/discovery.ml`)
+
+Probes local llama-server instances via OpenAI-compatible API:
+- `GET /health` — reachability
+- `GET /v1/models` — loaded models
+- `GET /props` — total_slots, ctx_size
+- `GET /slots` — per-slot busy/idle status
+
+```ocaml
+let statuses = Discovery.discover ~sw ~net
+  ~endpoints:(Discovery.endpoints_from_env ())
+```
+
+Configure via `LLM_ENDPOINTS` env var (comma-separated, default `http://127.0.0.1:8085`).
 
 ## Key Types
 
