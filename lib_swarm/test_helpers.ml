@@ -24,6 +24,7 @@ let mock_entry ~name ?(role = Swarm_types.Execute) text : Swarm_types.agent_entr
   { name;
     run = (fun ~sw:_ _prompt -> text_response text);
     role;
+    get_telemetry = None;
   }
 
 (** Create a mock agent_entry that fails with the given message. *)
@@ -31,6 +32,7 @@ let failing_entry ~name ?(role = Swarm_types.Execute) msg : Swarm_types.agent_en
   { name;
     run = (fun ~sw:_ _prompt -> Error (Error.Internal msg));
     role;
+    get_telemetry = None;
   }
 
 (** Create a mock agent_entry with a counter (tracks call count). *)
@@ -41,6 +43,7 @@ let counting_entry ~name ?(role = Swarm_types.Execute) text
     name;
     run = (fun ~sw:_ _prompt -> incr count; text_response text);
     role;
+    get_telemetry = None;
   } in
   (entry, fun () -> !count)
 

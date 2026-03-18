@@ -23,7 +23,7 @@ let test_review_mock_flow () =
       Ok { Types.id = "m2"; model = "mock"; stop_reason = EndTurn;
            content = [Text "Review complete."]; usage = None }
   in
-  let entry = { Swarm_types.name = "reviewer"; run = mock_run; role = Execute } in
+  let entry = { Swarm_types.name = "reviewer"; run = mock_run; role = Execute; get_telemetry = None } in
   let config = Test_helpers.basic_config ~prompt:"Review PR #1 in test/repo" [entry] in
   let state = Swarm_types.create_state config in
   check int "initial iteration" 0 state.current_iteration;

@@ -43,20 +43,36 @@ type convergence_config = {
   aggregate: aggregate_strategy;
 }
 
+(* ── Agent Telemetry ────────────────────────────────────────────── *)
+
+(** Per-agent telemetry collected after each run.
+    Exposed to swarm consumers (e.g. MASC) so they don't need to
+    re-query Layer 1 internals. *)
+type agent_telemetry = {
+  trace_ref: Raw_trace.run_ref option;
+}
+[@@deriving show]
+
+let empty_telemetry = { trace_ref = None }
+
 (* ── Swarm Configuration ────────────────────────────────────────── *)
 
 type agent_entry = {
   name: string;
   run: sw:Eio.Switch.t -> string -> (Types.api_response, Error.sdk_error) result;
   role: agent_role;
+  get_telemetry: (unit -> agent_telemetry) option;
 }
 
 
-(** Wrap an [Agent.t] into an [agent_entry]. Clock is captured via closure. *)
+(** Wrap an [Agent.t] into an [agent_entry]. Clock is captured via closure.
+    Automatically wires [get_telemetry] to extract [Agent.last_raw_trace_run]. *)
 let make_entry ~name ~role ~(clock : _ Eio.Time.clock) (agent : Agent.t) =
   { name;
     run = (fun ~sw prompt -> Agent.run ~sw ~clock agent prompt);
-    role }
+    role;
+    get_telemetry = Some (fun () ->
+      { trace_ref = Agent.last_raw_trace_run agent }) }
 
 type resource_budget = {
   max_total_tokens: int option;
@@ -85,8 +101,10 @@ type swarm_config = {
 type agent_status =
   | Idle
   | Working
-  | Done_ok of { elapsed: float; text: string }
-  | Done_error of { elapsed: float; error: string }
+  | Done_ok of { elapsed: float; text: string;
+                 telemetry: agent_telemetry }
+  | Done_error of { elapsed: float; error: string;
+                    telemetry: agent_telemetry }
 [@@deriving show]
 
 type iteration_record = {
@@ -95,6 +113,8 @@ type iteration_record = {
   agent_results: (string * agent_status) list;
   elapsed: float;
   timestamp: float;
+  (* Layer 1 telemetry — aggregated from agent runs *)
+  trace_refs: Raw_trace.run_ref list;
 }
 
 type swarm_state = {

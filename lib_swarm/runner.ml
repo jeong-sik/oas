@@ -70,10 +70,16 @@ let run_one_agent ~sw ~callbacks (entry : agent_entry) prompt =
   let t0 = Unix.gettimeofday () in
   let result = entry.run ~sw prompt in
   let elapsed = Unix.gettimeofday () -. t0 in
+  (* Collect telemetry from agent after run completes *)
+  let telemetry =
+    match entry.get_telemetry with
+    | Some f -> (try f () with _ -> empty_telemetry)
+    | None -> empty_telemetry
+  in
   let status =
     match result with
-    | Ok resp -> Done_ok { elapsed; text = text_of_response resp }
-    | Error err -> Done_error { elapsed; error = Error.to_string err }
+    | Ok resp -> Done_ok { elapsed; text = text_of_response resp; telemetry }
+    | Error err -> Done_error { elapsed; error = Error.to_string err; telemetry }
   in
   fire2 callbacks.on_agent_done entry.name status;
   (entry.name, status, result)
@@ -124,6 +130,16 @@ let run_agents_by_mode ~sw ~callbacks config =
          (config.prompt ^ "\n\nWorker results:\n" ^ summary) in
        wr @ [sr])
 
+(* ── Collect trace refs from agent results ─────────────────────── *)
+
+let collect_trace_refs agent_results =
+  List.filter_map (fun (_name, status) ->
+    match status with
+    | Done_ok { telemetry; _ } -> telemetry.trace_ref
+    | Done_error { telemetry; _ } -> telemetry.trace_ref
+    | Idle | Working -> None
+  ) agent_results
+
 (* ── Collect usage from results ─────────────────────────────────── *)
 
 let collect_usage acc results =
@@ -150,6 +166,7 @@ let run_single_pass ~sw ~clock:_ ?(callbacks = no_callbacks) config =
     agent_results;
     elapsed;
     timestamp = Unix.gettimeofday ();
+    trace_refs = collect_trace_refs agent_results;
   }, usage)
 
 (* ── Eio.Mutex-protected state handle ───────────────────────────── *)
@@ -195,6 +212,7 @@ let run_convergence_loop ~sw ~clock:_ ~callbacks config conv =
       agent_results;
       elapsed;
       timestamp = Unix.gettimeofday ();
+      trace_refs = collect_trace_refs agent_results;
     } in
     (* Update state under mutex *)
     with_state handle (fun state ->
