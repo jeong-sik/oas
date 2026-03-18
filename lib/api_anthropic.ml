@@ -18,8 +18,12 @@ let build_body_assoc ~config ~messages ?tools ~stream () =
     ("messages", `List (List.map Api_common.message_to_json messages));
     ("stream", `Bool stream);
   ] in
+  (* Anthropic requires ~1024+ tokens for cache_control to take effect.
+     Heuristic: 1 token ≈ 4 chars, so 4096 chars ≈ 1024 tokens minimum. *)
+  let min_cache_chars = 4096 in
   let body_assoc = match config.config.system_prompt with
-    | Some s when config.config.cache_system_prompt ->
+    | Some s when config.config.cache_system_prompt
+                  && String.length s >= min_cache_chars ->
         let cached_block = `Assoc [
           ("type", `String "text");
           ("text", `String s);

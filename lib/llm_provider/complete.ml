@@ -117,11 +117,16 @@ let complete_with_retry ~sw ~net ~clock
     ~(messages : Types.message list) ?(tools=[])
     ?(retry_config=default_retry_config)
     ?cache ?metrics () =
+  (* Jitter: randomize delay by 0.5x-1.5x to prevent thundering herd *)
+  let jittered delay =
+    let factor = 0.5 +. Random.float 1.0 in
+    delay *. factor
+  in
   let rec attempt n delay =
     match complete ~sw ~net ~config ~messages ~tools ?cache ?metrics () with
     | Ok _ as success -> success
     | Error err when is_retryable err && n < retry_config.max_retries ->
-        Eio.Time.sleep clock delay;
+        Eio.Time.sleep clock (jittered delay);
         let next_delay =
           Float.min
             (delay *. retry_config.backoff_multiplier)
