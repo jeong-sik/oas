@@ -2,6 +2,50 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.58.0] - 2026-03-18
+
+Version bump only. No functional changes since 0.57.0.
+
+## [0.57.0] - 2026-03-18
+
+### Added
+- `Collaboration.t`: 3-Type session split (Session/Collaboration/Orchestrator) for multi-agent shared context. (#173)
+- Runtime-Collaboration bridge + `swarm_config` collaboration field. (#190)
+- `agent_telemetry` extended with `usage_stats` and `turn_count`. (#180)
+- `Structured.extract_with_retry`: total usage tracking across retry attempts. (#181)
+- Swarm retry truncation, agent retry, and budget enforcement. (#189)
+
+### Fixed
+- Self-review findings across 4 modules. (#174)
+- Race semantics + hierarchical fiber limit. (#179)
+- `async_agent` cancel now terminates the fiber via sub-switch. (#183)
+- Retry jitter + minimum token threshold for prompt caching. (#186)
+- Checkpoint history restore + retry jitter + cache threshold. (#188)
+- Production hardening: jitter, cache threshold, agent retry, budget, checkpoint. (#187)
+
+### Changed
+- Vendor-neutral naming for local LLM provider. (#182)
+- Replace model enum with string + `Model_registry`. (#184)
+- Vendor-neutral capability naming + resolve model IDs eagerly. (#185)
+
+## [0.56.0] - 2026-03-18
+
+### Added
+- `Complete.cache` interface + metrics hooks. (#149)
+- `Async_agent`: async agent execution + `raw_trace` `Eio.Mutex` fix. (#150)
+- Swarm telemetry bridge: expose Layer 1 trace refs to consumers. (#152)
+- `Structured.extractor` API + `run_structured` for Agent-level extraction. (#155)
+- `Append_instruction`: dynamic hook-based instruction injection. (#156)
+- Anthropic prompt caching control in `llm_provider`. (#157)
+- `Structured.extract_with_retry`: validation retry loop. (#158)
+- Consumer API: high-level agent execution with telemetry. (#159)
+- Consensus + hierarchical orchestration patterns. (#160)
+- A2A Client: Agent-to-Agent protocol client. (#161)
+- `Agent_typed`: phantom-type lifecycle state machine (experimental). (#162)
+
+### Changed
+- Removed Ollama provider. OpenAI-compatible is the only local path. (#151)
+
 ## [0.54.0] - 2026-03-18
 
 ### Added
