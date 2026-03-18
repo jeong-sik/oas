@@ -13,8 +13,6 @@ let to_provider_config (legacy : Provider.config) : (Llm_provider.Provider_confi
         | Provider.Anthropic_messages ->
             Llm_provider.Provider_config.Anthropic
         | Provider.Openai_chat_completions
-        | Provider.Ollama_chat
-        | Provider.Ollama_generate
         | Provider.Custom _ ->
             Llm_provider.Provider_config.OpenAI_compat
       in

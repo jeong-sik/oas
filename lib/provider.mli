@@ -1,9 +1,5 @@
 (** LLM Provider abstraction. *)
 
-type ollama_mode =
-  | Chat
-  | Generate
-
 type provider =
   | Local of { base_url: string }
   | Anthropic
@@ -13,7 +9,6 @@ type provider =
       path: string;
       static_token: string option;
     }
-  | Ollama of { base_url: string; mode: ollama_mode }
   | Custom_registered of { name: string }
 
 type config = {
@@ -25,8 +20,6 @@ type config = {
 type request_kind =
   | Anthropic_messages
   | Openai_chat_completions
-  | Ollama_chat
-  | Ollama_generate
   | Custom of string
 
 type capabilities = {
@@ -66,7 +59,6 @@ val anthropic_haiku : unit -> config
 val anthropic_opus : unit -> config
 val local_mlx : unit -> config
 val openrouter : ?model_id:string -> unit -> config
-val ollama : ?base_url:string -> ?model_id:string -> ?mode:ollama_mode -> unit -> config
 
 (** {2 Cascade: multi-provider failover} *)
 

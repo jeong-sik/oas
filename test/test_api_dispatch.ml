@@ -127,39 +127,6 @@ let test_openai_parse_response () =
    | [Types.Text "OpenAI response"] -> ()
    | _ -> fail "expected single text block")
 
-(* ── Ollama chat body shape ──────────────────────────────────── *)
-
-let test_ollama_chat_parse_response () =
-  let mock_body = {|{
-    "model": "qwen3.5",
-    "message": {
-      "role": "assistant",
-      "content": "Ollama chat response"
-    },
-    "done": true,
-    "eval_count": 20,
-    "prompt_eval_count": 10
-  }|} in
-  let resp = Api.parse_ollama_chat_response mock_body in
-  check string "model" "qwen3.5" resp.model;
-  (match resp.content with
-   | [Types.Text "Ollama chat response"] -> ()
-   | _ -> fail "expected text block")
-
-let test_ollama_generate_parse_response () =
-  let mock_body = {|{
-    "model": "qwen3.5",
-    "response": "Ollama generate response",
-    "done": true,
-    "eval_count": 15,
-    "prompt_eval_count": 8
-  }|} in
-  let resp = Api.parse_ollama_generate_response mock_body in
-  check string "model" "qwen3.5" resp.model;
-  (match resp.content with
-   | [Types.Text "Ollama generate response"] -> ()
-   | _ -> fail "expected text block")
-
 (* ── Provider routing ────────────────────────────────────────── *)
 
 let test_request_kind_routing () =
@@ -168,8 +135,6 @@ let test_request_kind_routing () =
       (match Provider.request_kind provider with
        | Provider.Anthropic_messages -> "anthropic"
        | Provider.Openai_chat_completions -> "openai"
-       | Provider.Ollama_chat -> "ollama_chat"
-       | Provider.Ollama_generate -> "ollama_generate"
        | Provider.Custom name -> "custom:" ^ name)
   in
   check_kind "local" "anthropic" (Provider.Local { base_url = "http://x" });
@@ -177,11 +142,7 @@ let test_request_kind_routing () =
   check_kind "openai" "openai"
     (Provider.OpenAICompat { base_url = "http://x"; auth_header = None;
                              path = "/v1/chat/completions";
-                             static_token = None });
-  check_kind "ollama chat" "ollama_chat"
-    (Provider.Ollama { base_url = "http://x"; mode = Chat });
-  check_kind "ollama gen" "ollama_generate"
-    (Provider.Ollama { base_url = "http://x"; mode = Generate })
+                             static_token = None })
 
 (* ── Pricing ─────────────────────────────────────────────────── *)
 
@@ -195,8 +156,8 @@ let test_pricing_known_models () =
   let p_mini = Provider.pricing_for_model "gpt-4o-mini" in
   check (float 0.01) "mini input" 0.15 p_mini.input_per_million;
 
-  let p_ollama = Provider.pricing_for_model "qwen3.5-35b" in
-  check (float 0.01) "ollama free" 0.0 p_ollama.input_per_million;
+  let p_local = Provider.pricing_for_model "qwen3.5-35b" in
+  check (float 0.01) "local free" 0.0 p_local.input_per_million;
 
   let p_llama = Provider.pricing_for_model "llama-3.1-70b" in
   check (float 0.01) "llama free" 0.0 p_llama.input_per_million
@@ -303,10 +264,6 @@ let () =
     "openai", [
       test_case "body shape" `Quick test_openai_body_shape;
       test_case "parse response" `Quick test_openai_parse_response;
-    ];
-    "ollama", [
-      test_case "chat parse" `Quick test_ollama_chat_parse_response;
-      test_case "generate parse" `Quick test_ollama_generate_parse_response;
     ];
     "routing", [
       test_case "request_kind" `Quick test_request_kind_routing;

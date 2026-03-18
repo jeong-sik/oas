@@ -14,12 +14,6 @@ let local_qwen_url =
 let local_mlx_url =
   env_or "http://127.0.0.1:3033" "OAS_LOCAL_MLX_URL"
 
-let ollama_url =
-  env_or "http://127.0.0.1:11434" "OAS_OLLAMA_URL"
-
-let ollama_model =
-  env_or "glm-4.7-flash" "OAS_OLLAMA_MODEL"
-
 let fallback_provider =
   env_or "local-qwen" "OAS_FALLBACK_PROVIDER"
 

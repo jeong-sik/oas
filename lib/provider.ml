@@ -1,9 +1,5 @@
 (** Provider abstraction for local and cloud LLM endpoints *)
 
-type ollama_mode =
-  | Chat
-  | Generate
-
 type provider =
   | Local of { base_url: string }
   | Anthropic
@@ -13,7 +9,6 @@ type provider =
       path: string;
       static_token: string option;
     }
-  | Ollama of { base_url: string; mode: ollama_mode }
   | Custom_registered of { name: string }
 
 type config = {
@@ -25,8 +20,6 @@ type config = {
 type request_kind =
   | Anthropic_messages
   | Openai_chat_completions
-  | Ollama_chat
-  | Ollama_generate
   | Custom of string
 
 type capabilities = {
@@ -128,10 +121,6 @@ let capabilities_for_model ~(provider : provider) ~(model_id : string) =
   | OpenAICompat _ ->
       if is_qwen_family model_id then qwen_openai_chat_capabilities
       else openai_chat_capabilities
-  | Ollama { mode = Chat; _ } ->
-      if is_qwen_family model_id then qwen_openai_chat_capabilities
-      else openai_chat_capabilities
-  | Ollama { mode = Generate; _ } -> default_capabilities
   | Custom_registered { name } ->
       (match find_provider name with
        | Some impl -> impl.capabilities
@@ -140,8 +129,6 @@ let capabilities_for_model ~(provider : provider) ~(model_id : string) =
 let request_kind = function
   | Local _ | Anthropic -> Anthropic_messages
   | OpenAICompat _ -> Openai_chat_completions
-  | Ollama { mode = Chat; _ } -> Ollama_chat
-  | Ollama { mode = Generate; _ } -> Ollama_generate
   | Custom_registered { name } ->
       (match find_provider name with
        | Some impl -> impl.request_kind
@@ -150,8 +137,6 @@ let request_kind = function
 let request_path = function
   | Local _ | Anthropic -> "/v1/messages"
   | OpenAICompat { path; _ } -> path
-  | Ollama { mode = Chat; _ } -> "/api/chat"
-  | Ollama { mode = Generate; _ } -> "/api/generate"
   | Custom_registered { name } ->
       (match find_provider name with
        | Some impl -> impl.request_path
@@ -202,8 +187,6 @@ let resolve (cfg : config) =
                        key,
                        [ (header, "Bearer " ^ key); ("Content-Type", "application/json") ] )
                | None -> Error (Error.Config (MissingEnvVar { var_name = cfg.api_key_env })))))
-  | Ollama { base_url; _ } ->
-    Ok (base_url, "dummy", [("Content-Type", "application/json")])
   | Custom_registered { name } ->
     (match find_provider name with
      | Some impl -> impl.resolve cfg
@@ -250,13 +233,6 @@ let openrouter ?(model_id="anthropic/claude-sonnet-4-6") () = {
   };
   model_id;
   api_key_env = "OPENROUTER_API_KEY";
-}
-
-let ollama ?(base_url=Defaults.ollama_url) ?(model_id=Defaults.ollama_model)
-    ?(mode=Chat) () = {
-  provider = Ollama { base_url; mode };
-  model_id;
-  api_key_env = "DUMMY_KEY";
 }
 
 (* ── Cascade: multi-provider failover ──────────────────────────── *)

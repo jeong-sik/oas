@@ -100,15 +100,6 @@ let test_api_parse_openai_response () =
   let resp = Api.parse_openai_response body in
   Alcotest.(check string) "id" "chatcmpl-1" resp.id
 
-let test_api_parse_ollama_chat () =
-  let body = {|{"model":"qwen","message":{"role":"assistant","content":"hi"},"done":true,"eval_count":5,"prompt_eval_count":10}|} in
-  let resp = Api.parse_ollama_chat_response body in
-  Alcotest.(check string) "model" "qwen" resp.model
-
-let test_api_parse_ollama_generate () =
-  let body = {|{"model":"qwen","response":"hi","done":true,"eval_count":5,"prompt_eval_count":10}|} in
-  let resp = Api.parse_ollama_generate_response body in
-  Alcotest.(check string) "model" "qwen" resp.model
 
 (* ================================================================== *)
 (* Streaming: emit_synthetic_events remaining block types              *)
@@ -261,8 +252,6 @@ let () =
       Alcotest.test_case "build_body_assoc" `Quick test_api_build_body_assoc;
       Alcotest.test_case "openai_messages" `Quick test_api_openai_messages;
       Alcotest.test_case "parse_openai_response" `Quick test_api_parse_openai_response;
-      Alcotest.test_case "parse_ollama_chat" `Quick test_api_parse_ollama_chat;
-      Alcotest.test_case "parse_ollama_generate" `Quick test_api_parse_ollama_generate;
     ];
     "streaming_block_types", [
       Alcotest.test_case "document" `Quick test_synthetic_document;

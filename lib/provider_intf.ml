@@ -4,8 +4,7 @@
     Each LLM backend should satisfy one of these.
 
     {b Compile-time guarantee}: attempting to pass a non-streaming
-    provider as STREAMING_PROVIDER produces a type error (e.g. Ollama
-    Chat mode does not support native streaming). *)
+    provider as STREAMING_PROVIDER produces a type error. *)
 
 (** Synchronous provider: can send a message and get a response. *)
 module type PROVIDER = sig
@@ -62,10 +61,6 @@ let of_config (provider_cfg : Provider.config) : provider_module =
           Yojson.Safe.to_string (`Assoc (Api_anthropic.build_body_assoc ~config ~messages ?tools ~stream:false ()))
         | Provider.Openai_chat_completions ->
           Api_openai.build_openai_body ~provider_config:provider_cfg ~config ~messages ?tools ()
-        | Provider.Ollama_chat ->
-          Api_ollama.build_ollama_chat_body ~provider_config:provider_cfg ~config ~messages ?tools ()
-        | Provider.Ollama_generate ->
-          Api_ollama.build_ollama_generate_body ~config ~messages ()
         | Provider.Custom name ->
           (match Provider.find_provider name with
            | Some impl -> impl.build_body ~config ~messages ?tools ()
@@ -90,10 +85,6 @@ let of_config (provider_cfg : Provider.config) : provider_module =
               Api_anthropic.parse_response (Yojson.Safe.from_string body_str)
             | Provider.Openai_chat_completions ->
               Api_openai.parse_openai_response body_str
-            | Provider.Ollama_chat ->
-              Api_ollama.parse_ollama_chat_response body_str
-            | Provider.Ollama_generate ->
-              Api_ollama.parse_ollama_generate_response body_str
             | Provider.Custom name ->
               (match Provider.find_provider name with
                | Some impl -> impl.parse_response body_str
@@ -120,7 +111,7 @@ let supports_streaming (provider_cfg : Provider.config) : bool =
   caps.supports_native_streaming
 
 (** Resolve to a streaming provider if supported.
-    Returns [Some] for Anthropic, OpenAI-compatible, and Ollama Chat. *)
+    Returns [Some] for Anthropic and OpenAI-compatible providers. *)
 let of_config_streaming (provider_cfg : Provider.config)
     : streaming_provider_module option =
   if not (supports_streaming provider_cfg) then None
