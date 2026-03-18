@@ -152,7 +152,18 @@ let load ~path : (t, Error.sdk_error) result =
           best_metric = json |> member "best_metric" |> to_float_option;
           best_iteration = json |> member "best_iteration" |> to_int;
           patience_counter = json |> member "patience_counter" |> to_int;
-          history = [];  (* history reconstruction from JSON is complex; skip for now *)
+          history =
+            (let open Swarm_types in
+             json |> member "history" |> to_list |> List.filter_map (fun h ->
+               try Some {
+                 iteration = h |> member "iteration" |> to_int;
+                 metric_value = h |> member "metric_value" |> to_float_option;
+                 agent_results = [];
+                 elapsed = h |> member "elapsed" |> to_float;
+                 timestamp = h |> member "timestamp" |> to_float;
+                 trace_refs = [];
+               }
+               with _ -> None));
           created_at = json |> member "created_at" |> to_float;
         }
     with
