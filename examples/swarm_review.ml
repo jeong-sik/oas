@@ -70,7 +70,7 @@ let get_diff_tool repo pr_num =
     ~description:"Get the unified diff of the PR"
     ~parameters:[]
     (fun _args ->
-      let cmd = Printf.sprintf "gh pr diff %s --repo %s" pr_num repo in
+      let cmd = Printf.sprintf "gh pr diff %s --repo %s" (Filename.quote pr_num) (Filename.quote repo) in
       match run_command cmd with
       | Ok output ->
         let max_len = 8000 in
@@ -85,7 +85,7 @@ let get_files_tool repo pr_num =
     ~description:"List files changed in the PR"
     ~parameters:[]
     (fun _args ->
-      let cmd = Printf.sprintf "gh pr view %s --repo %s --json files --jq '.files[].path'" pr_num repo in
+      let cmd = Printf.sprintf "gh pr view %s --repo %s --json files --jq '.files[].path'" (Filename.quote pr_num) (Filename.quote repo) in
       match run_command cmd with
       | Ok output -> Ok { content = output }
       | Error msg -> Error { message = msg; recoverable = true })
