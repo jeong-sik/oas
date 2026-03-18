@@ -368,3 +368,7 @@
 (test
  (name test_discovery)
  (libraries llm_provider alcotest yojson unix))
+
+(test
+ (name test_provider_bridge)
+ (libraries agent_sdk llm_provider alcotest yojson))
