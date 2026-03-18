@@ -131,13 +131,11 @@ let extract_with_retry ~sw ~net ?base_url ?provider ?clock
   } in
   let tools = [schema_to_tool_json schema] in
   let initial_messages = [{ role = User; content = [Text prompt] }] in
-  let rec attempt n =
-    (* On retry: send only [user prompt, last failed assistant, error feedback].
-       This avoids accumulating full conversation history across retries. *)
+  let rec attempt n messages =
     let state = { config = config_with_tool; messages = []; turn_count = 0;
                   usage = empty_usage } in
     match Api.create_message ~sw ~net ?base_url ?provider ?clock
-            ~config:state ~messages:initial_messages ~tools () with
+            ~config:state ~messages ~tools () with
     | Error e -> Error e
     | Ok response ->
         match extract_tool_input ~schema response.content with
@@ -147,12 +145,12 @@ let extract_with_retry ~sw ~net ?base_url ?provider ?clock
             (match on_validation_error with
              | Some cb -> cb (n + 1) error_msg
              | None -> ());
-            (* Retry with error feedback — keep it minimal to save tokens *)
             let tool_use_id = List.find_map (function
               | ToolUse { id; name; _ } when name = schema.name -> Some id
               | _ -> None) response.content
               |> Option.value ~default:"structured_retry" in
-            (* Replace initial_messages with: original prompt + last failure + error *)
+            (* Send: original prompt + last failure + error feedback.
+               Constant token cost regardless of retry depth. *)
             let retry_msgs = initial_messages @ [
               { role = Assistant; content = response.content };
               { role = User; content = [
@@ -165,20 +163,10 @@ let extract_with_retry ~sw ~net ?base_url ?provider ?clock
                   }
                 ] };
             ] in
-            let state2 = { config = config_with_tool; messages = [];
-                           turn_count = 0; usage = empty_usage } in
-            (match Api.create_message ~sw ~net ?base_url ?provider ?clock
-                     ~config:state2 ~messages:retry_msgs ~tools () with
-             | Error e2 -> Error e2
-             | Ok response2 ->
-                 match extract_tool_input ~schema response2.content with
-                 | Ok v -> Ok v
-                 | Error _ when n + 1 < max_retries ->
-                     attempt (n + 1)
-                 | Error e_final -> Error e_final)
+            attempt (n + 1) retry_msgs
         | Error e -> Error e
   in
-  attempt 0
+  attempt 0 initial_messages
 
 (** Extract structured output with SSE streaming.
     Like [extract] but uses [Streaming.create_message_stream] to receive
