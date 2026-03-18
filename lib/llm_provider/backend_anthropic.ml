@@ -83,15 +83,16 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
     | ts ->
         if config.cache_system_prompt then
           (* Add cache_control to last tool for extended cache prefix *)
-          let ts_with_cache = match List.rev ts with
-            | [] -> []
-            | last :: rest ->
-                let last_with_cache = match last with
-                  | `Assoc fields ->
-                      `Assoc (("cache_control", `Assoc [("type", `String "ephemeral")]) :: fields)
-                  | other -> other
-                in
-                List.rev (last_with_cache :: rest)
+          let ts_with_cache =
+            (* ts is non-empty (outer match guarantees), safe to destructure *)
+            let rev = List.rev ts in
+            let last = List.hd rev and rest = List.tl rev in
+            let last_with_cache = match last with
+              | `Assoc fields ->
+                  `Assoc (("cache_control", `Assoc [("type", `String "ephemeral")]) :: fields)
+              | other -> other
+            in
+            List.rev (last_with_cache :: rest)
           in
           ("tools", `List ts_with_cache) :: body
         else
