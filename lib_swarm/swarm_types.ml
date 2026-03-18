@@ -107,6 +107,8 @@ type swarm_config = {
   budget: resource_budget;
   max_agent_retries: int;
   collaboration: Collaboration.t option;
+  resource_check: (unit -> bool) option;
+  max_concurrent_agents: int option;
 }
 
 (* ── Execution State ────────────────────────────────────────────── *)

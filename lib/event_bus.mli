@@ -33,6 +33,9 @@ type filter = event -> bool
 val accept_all : filter
 val filter_agent : string -> filter
 val filter_tools_only : filter
+val filter_topic : string -> filter
+val filter_any : filter list -> filter
+val filter_all : filter list -> filter
 
 (** {2 Subscription} *)
 

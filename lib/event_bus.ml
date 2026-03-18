@@ -71,6 +71,19 @@ let filter_tools_only : filter = function
   | ToolCalled _ | ToolCompleted _ -> true
   | _ -> false
 
+(** Filter by Custom event topic name. *)
+let filter_topic topic : filter = function
+  | Custom (t, _) -> t = topic
+  | _ -> false
+
+(** Combine filters: event passes if any filter accepts. *)
+let filter_any (filters : filter list) : filter = fun event ->
+  List.exists (fun f -> f event) filters
+
+(** Combine filters: event passes only if all filters accept. *)
+let filter_all (filters : filter list) : filter = fun event ->
+  List.for_all (fun f -> f event) filters
+
 (* ── Subscribe / unsubscribe ───────────────────────────────────────── *)
 
 let subscribe ?(filter = accept_all) bus =

@@ -102,13 +102,28 @@ let run_one_agent ~sw ~callbacks ?(max_retries=default_agent_max_retries) (entry
   in
   attempt 0 default_agent_initial_delay
 
+(* ── Resource check filter ──────────────────────────────────────── *)
+
+let check_resource config =
+  match config.resource_check with
+  | None -> true
+  | Some f -> (try f () with _ -> false)
+
 (* ── Run agents by mode (shared) ────────────────────────────────── *)
 
 let run_agents_by_mode ~sw ~callbacks config =
   match config.mode with
   | Decentralized ->
+    let run_with_check entry =
+      if check_resource config then
+        run_one_agent ~sw ~callbacks ~max_retries:config.max_agent_retries entry config.prompt
+      else
+        let status = Done_error { elapsed = 0.0; error = "resource check failed"; telemetry = empty_telemetry } in
+        fire2 callbacks.on_agent_done entry.name status;
+        (entry.name, status, Error (Error.Internal "resource check failed"))
+    in
     Eio.Fiber.List.map ~max_fibers:config.max_parallel
-      (fun entry -> run_one_agent ~sw ~callbacks ~max_retries:config.max_agent_retries entry config.prompt)
+      (fun entry -> run_with_check entry)
       config.entries
   | Pipeline_mode ->
     let rec go acc prev_text = function
@@ -303,6 +318,11 @@ let run_convergence_loop ~sw ~clock:_ ~callbacks config conv =
 (* ── Main entry point ───────────────────────────────────────────── *)
 
 let run ~sw ~clock ?(callbacks = no_callbacks) config =
+  let effective_parallel =
+    min config.max_parallel
+      (Option.value ~default:config.max_parallel config.max_concurrent_agents)
+  in
+  let config = { config with max_parallel = effective_parallel } in
   let run_inner () =
     match config.convergence with
     | None ->

@@ -33,6 +33,7 @@ let test_create_state () =
     prompt = "test prompt";
     timeout_sec = None;
     budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration = None;
+    resource_check = None; max_concurrent_agents = None;
   } in
   let state = Swarm_types.create_state config in
   check int "initial iteration" 0 state.current_iteration;
@@ -170,6 +171,7 @@ let test_multi_agent_config () =
     prompt = "Analyze the codebase";
     timeout_sec = Some 60.0;
     budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration = None;
+    resource_check = None; max_concurrent_agents = None;
   } in
   check int "four agents" 4 (List.length config.entries);
   let state = Swarm_types.create_state config in
@@ -206,6 +208,7 @@ let test_state_history () =
     prompt = "test";
     timeout_sec = None;
     budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration = None;
+    resource_check = None; max_concurrent_agents = None;
   } in
   let state = Swarm_types.create_state config in
   check int "empty history" 0 (List.length state.history)
@@ -246,6 +249,7 @@ let test_convergence_reaches_target () =
     prompt = "test convergence";
     timeout_sec = None;
     budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration = None;
+    resource_check = None; max_concurrent_agents = None;
   } in
   Eio.Switch.run @@ fun sw ->
   match Runner.run ~sw ~clock config with
@@ -277,6 +281,7 @@ let test_convergence_patience_exhausted () =
     prompt = "patience test";
     timeout_sec = None;
     budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration = None;
+    resource_check = None; max_concurrent_agents = None;
   } in
   Eio.Switch.run @@ fun sw ->
   match Runner.run ~sw ~clock config with
@@ -307,6 +312,7 @@ let test_convergence_max_iterations () =
     prompt = "max iter test";
     timeout_sec = None;
     budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration = None;
+    resource_check = None; max_concurrent_agents = None;
   } in
   Eio.Switch.run @@ fun sw ->
   match Runner.run ~sw ~clock config with
@@ -329,6 +335,7 @@ let test_single_pass_no_convergence () =
     prompt = "single pass";
     timeout_sec = None;
     budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration = None;
+    resource_check = None; max_concurrent_agents = None;
   } in
   Eio.Switch.run @@ fun sw ->
   match Runner.run ~sw ~clock config with
@@ -370,6 +377,7 @@ let test_callbacks_fire () =
     prompt = "callback test";
     timeout_sec = None;
     budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration = None;
+    resource_check = None; max_concurrent_agents = None;
   } in
   Eio.Switch.run @@ fun sw ->
   (match Runner.run ~sw ~clock ~callbacks config with
@@ -443,6 +451,7 @@ let test_12_worker_decentralized () =
     prompt = "12-worker harness test";
     timeout_sec = None;
     budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration = None;
+    resource_check = None; max_concurrent_agents = None;
   } in
   Eio.Switch.run @@ fun sw ->
   match Runner.run ~sw ~clock ~callbacks config with
@@ -496,6 +505,7 @@ let test_12_worker_convergence () =
     prompt = "12-worker convergence";
     timeout_sec = Some 30.0;
     budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration = None;
+    resource_check = None; max_concurrent_agents = None;
   } in
   Eio.Switch.run @@ fun sw ->
   match Runner.run ~sw ~clock config with
@@ -536,6 +546,7 @@ let test_12_worker_supervisor () =
     prompt = "supervisor test";
     timeout_sec = None;
     budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration = None;
+    resource_check = None; max_concurrent_agents = None;
   } in
   Eio.Switch.run @@ fun sw ->
   match Runner.run ~sw ~clock config with
@@ -568,6 +579,7 @@ let test_12_worker_pipeline () =
     prompt = "base prompt";
     timeout_sec = None;
     budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration = None;
+    resource_check = None; max_concurrent_agents = None;
   } in
   Eio.Switch.run @@ fun sw ->
   match Runner.run ~sw ~clock config with
@@ -603,6 +615,7 @@ let test_partial_failure_resilience () =
     prompt = "resilience test";
     timeout_sec = None;
     budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration = None;
+    resource_check = None; max_concurrent_agents = None;
   } in
   Eio.Switch.run @@ fun sw ->
   match Runner.run ~sw ~clock config with
@@ -639,6 +652,7 @@ let test_single_pass_timeout () =
     prompt = "timeout test";
     timeout_sec = Some 0.05;  (* 50ms timeout *)
     budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration = None;
+    resource_check = None; max_concurrent_agents = None;
   } in
   Eio.Switch.run @@ fun sw ->
   match Runner.run ~sw ~clock config with
@@ -661,6 +675,7 @@ let test_single_pass_usage () =
     prompt = "usage test";
     timeout_sec = None;
     budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration = None;
+    resource_check = None; max_concurrent_agents = None;
   } in
   Eio.Switch.run @@ fun sw ->
   match Runner.run ~sw ~clock config with
@@ -700,6 +715,7 @@ let test_convergence_average_aggregate () =
     prompt = "aggregate test";
     timeout_sec = None;
     budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration = None;
+    resource_check = None; max_concurrent_agents = None;
   } in
   Eio.Switch.run @@ fun sw ->
   match Runner.run ~sw ~clock config with
