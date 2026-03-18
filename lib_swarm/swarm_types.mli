@@ -49,6 +49,8 @@ type convergence_config = {
     re-query Layer 1 internals. *)
 type agent_telemetry = {
   trace_ref: Raw_trace.run_ref option;
+  usage: Types.usage_stats option;
+  turn_count: int;
 }
 [@@deriving show]
 

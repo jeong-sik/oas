@@ -50,10 +50,12 @@ type convergence_config = {
     re-query Layer 1 internals. *)
 type agent_telemetry = {
   trace_ref: Raw_trace.run_ref option;
+  usage: Types.usage_stats option;
+  turn_count: int;
 }
 [@@deriving show]
 
-let empty_telemetry = { trace_ref = None }
+let empty_telemetry = { trace_ref = None; usage = None; turn_count = 0 }
 
 (* ── Swarm Configuration ────────────────────────────────────────── *)
 
@@ -72,7 +74,10 @@ let make_entry ~name ~role ~(clock : _ Eio.Time.clock) (agent : Agent.t) =
     run = (fun ~sw prompt -> Agent.run ~sw ~clock agent prompt);
     role;
     get_telemetry = Some (fun () ->
-      { trace_ref = Agent.last_raw_trace_run agent }) }
+      let state = Agent.state agent in
+      { trace_ref = Agent.last_raw_trace_run agent;
+        usage = Some state.usage;
+        turn_count = state.turn_count }) }
 
 type resource_budget = {
   max_total_tokens: int option;
