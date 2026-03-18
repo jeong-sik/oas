@@ -188,19 +188,17 @@
  (name test_trace_eval)
  (libraries agent_sdk alcotest yojson eio eio_main unix))
 
-(test
+(executable
  (name test_conformance)
- (libraries agent_sdk alcotest yojson unix)
- (deps ../bin/oas_runtime.exe))
+ (libraries agent_sdk alcotest yojson unix))
 
 (test
  (name test_direct_evidence)
  (libraries agent_sdk alcotest yojson unix eio eio_main cohttp-eio))
 
-(test
+(executable
  (name test_runtime)
- (libraries agent_sdk alcotest unix)
- (deps ../bin/oas_runtime.exe))
+ (libraries agent_sdk alcotest unix))
 
 (test
  (name test_raw_trace)
