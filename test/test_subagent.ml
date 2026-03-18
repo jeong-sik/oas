@@ -248,6 +248,70 @@ let () =
           (Subagent.isolation_of_string "" = Subagent.Shared));
     ];
 
+    "state_isolation_of_string", [
+      test_case "inherit by default" `Quick (fun () ->
+        check bool "inherit" true
+          (Subagent.state_isolation_of_string "inherit" = Subagent.Inherit_all));
+      test_case "empty -> Inherit_all" `Quick (fun () ->
+        check bool "inherit" true
+          (Subagent.state_isolation_of_string "" = Subagent.Inherit_all));
+      test_case "isolated" `Quick (fun () ->
+        check bool "isolated" true
+          (Subagent.state_isolation_of_string "isolated" = Subagent.Isolated));
+      test_case "Isolated uppercase" `Quick (fun () ->
+        check bool "isolated" true
+          (Subagent.state_isolation_of_string "Isolated" = Subagent.Isolated));
+      test_case "selective" `Quick (fun () ->
+        match Subagent.state_isolation_of_string "selective" with
+        | Subagent.Selective [] -> ()
+        | _ -> fail "expected Selective []");
+      test_case "Selective uppercase" `Quick (fun () ->
+        match Subagent.state_isolation_of_string "Selective" with
+        | Subagent.Selective [] -> ()
+        | _ -> fail "expected Selective []");
+      test_case "unknown -> Inherit_all" `Quick (fun () ->
+        check bool "inherit" true
+          (Subagent.state_isolation_of_string "container" = Subagent.Inherit_all));
+    ];
+
+    "state_isolation_parse", [
+      test_case "state-isolation inherit default" `Quick (fun () ->
+        let spec = Subagent.of_markdown "no state isolation" in
+        check bool "inherit" true (spec.state_isolation = Subagent.Inherit_all));
+      test_case "state-isolation isolated from frontmatter" `Quick (fun () ->
+        let md = "---\nstate-isolation: isolated\n---\nbody" in
+        let spec = Subagent.of_markdown md in
+        check bool "isolated" true (spec.state_isolation = Subagent.Isolated));
+      test_case "state-isolation selective with state-keys" `Quick (fun () ->
+        let md = "---\nstate-isolation: selective\nstate-keys: user_id, config\n---\nbody" in
+        let spec = Subagent.of_markdown md in
+        match spec.state_isolation with
+        | Subagent.Selective ["user_id"; "config"] -> ()
+        | _ -> fail "expected Selective with two keys");
+      test_case "state-isolation selective with state_keys underscore" `Quick (fun () ->
+        let md = "---\nstate-isolation: selective\nstate_keys: session_id\n---\nbody" in
+        let spec = Subagent.of_markdown md in
+        match spec.state_isolation with
+        | Subagent.Selective ["session_id"] -> ()
+        | _ -> fail "expected Selective with one key");
+      test_case "state-isolation selective with list syntax" `Quick (fun () ->
+        let md = "---\nstate-isolation: selective\nstate-keys:\n- user_id\n- config\n---\nbody" in
+        let spec = Subagent.of_markdown md in
+        match spec.state_isolation with
+        | Subagent.Selective ["user_id"; "config"] -> ()
+        | _ -> fail "expected Selective with two keys from list");
+      test_case "state-isolation selective no keys" `Quick (fun () ->
+        let md = "---\nstate-isolation: selective\n---\nbody" in
+        let spec = Subagent.of_markdown md in
+        match spec.state_isolation with
+        | Subagent.Selective [] -> ()
+        | _ -> fail "expected Selective with empty list");
+      test_case "state-isolation inherit explicit" `Quick (fun () ->
+        let md = "---\nstate-isolation: inherit\n---\nbody" in
+        let spec = Subagent.of_markdown md in
+        check bool "inherit" true (spec.state_isolation = Subagent.Inherit_all));
+    ];
+
     "compose_prompt_edge", [
       test_case "empty prompt no skills" `Quick (fun () ->
         let spec = Subagent.of_markdown "" in
@@ -255,6 +319,49 @@ let () =
       test_case "whitespace only prompt" `Quick (fun () ->
         let spec = Subagent.of_markdown "   \n  " in
         check string "empty" "" (Subagent.compose_prompt spec));
+    ];
+
+    "compose_prompt_state_isolation", [
+      test_case "Inherit_all no preamble" `Quick (fun () ->
+        let spec = Subagent.of_markdown "Do work." in
+        let composed = Subagent.compose_prompt spec in
+        check string "no preamble" "Do work." composed);
+      test_case "Isolated adds preamble" `Quick (fun () ->
+        let md = "---\nstate-isolation: isolated\n---\nDo work." in
+        let spec = Subagent.of_markdown md in
+        let composed = Subagent.compose_prompt spec in
+        check bool "has isolation notice" true
+          (String.length composed > String.length "Do work.");
+        check bool "contains preamble" true
+          (let prefix = "[State Isolation:" in
+           String.length composed >= String.length prefix
+           && String.sub composed 0 (String.length prefix) = prefix);
+        check bool "contains prompt" true
+          (let lines = String.split_on_char '\n' composed in
+           List.exists (fun l -> String.trim l = "Do work.") lines));
+      test_case "Selective lists keys" `Quick (fun () ->
+        let md = "---\nstate-isolation: selective\nstate-keys: session_id, user_id\n---\nRun task." in
+        let spec = Subagent.of_markdown md in
+        let composed = Subagent.compose_prompt spec in
+        let contains_substring haystack needle =
+          let nlen = String.length needle in
+          let hlen = String.length haystack in
+          if nlen > hlen then false
+          else
+            let rec find i =
+              if i > hlen - nlen then false
+              else if String.sub haystack i nlen = needle then true
+              else find (i + 1)
+            in find 0
+        in
+        check bool "contains session_id" true (contains_substring composed "session_id");
+        check bool "contains user_id" true (contains_substring composed "user_id"));
+      test_case "Isolated with empty prompt" `Quick (fun () ->
+        let md = "---\nstate-isolation: isolated\n---\n" in
+        let spec = Subagent.of_markdown md in
+        let composed = Subagent.compose_prompt spec in
+        check bool "preamble only" true (String.length composed > 0);
+        check bool "starts with bracket" true (composed.[0] = '['));
     ];
 
     "show", [
@@ -268,6 +375,13 @@ let () =
         check bool "non-empty" true (String.length s1 > 0);
         let s2 = Subagent.show_isolation Subagent.Worktree in
         check bool "non-empty" true (String.length s2 > 0));
+      test_case "show_state_isolation" `Quick (fun () ->
+        let s1 = Subagent.show_state_isolation Subagent.Inherit_all in
+        check bool "non-empty" true (String.length s1 > 0);
+        let s2 = Subagent.show_state_isolation Subagent.Isolated in
+        check bool "non-empty" true (String.length s2 > 0);
+        let s3 = Subagent.show_state_isolation (Subagent.Selective ["a"; "b"]) in
+        check bool "non-empty" true (String.length s3 > 0));
       test_case "show_t" `Quick (fun () ->
         let spec = Subagent.of_markdown "---\nname: x\n---\nbody" in
         let s = Subagent.show spec in

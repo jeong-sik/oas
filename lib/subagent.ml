@@ -12,6 +12,12 @@ type isolation =
   | Worktree
 [@@deriving show]
 
+type state_isolation =
+  | Inherit_all
+  | Isolated
+  | Selective of string list
+[@@deriving show]
+
 type t = {
   name: string;
   description: string option;
@@ -23,6 +29,7 @@ type t = {
   skill_refs: string list;
   skills: Skill.t list;
   isolation: isolation;
+  state_isolation: state_isolation;
   background: bool;
   path: string option;
   metadata: (string * string list) list;
@@ -46,6 +53,12 @@ let isolation_of_string s =
   match String.lowercase_ascii s with
   | "worktree" -> Worktree
   | _ -> Shared
+
+let state_isolation_of_string s =
+  match String.lowercase_ascii (String.trim s) with
+  | "isolated" -> Isolated
+  | "selective" -> Selective []
+  | _ -> Inherit_all
 
 let int_opt s = try Some (int_of_string s) with Failure _ -> None
 
@@ -93,6 +106,21 @@ let of_markdown ?path ?(skills = []) markdown =
       |> Option.map isolation_of_string
       |> Option.value ~default:Shared
     );
+    state_isolation = (
+      let mode =
+        Skill.frontmatter_value fm "state-isolation"
+        |> Option.map state_isolation_of_string
+        |> Option.value ~default:Inherit_all
+      in
+      match mode with
+      | Selective _ ->
+        let keys =
+          Skill.frontmatter_values fm "state-keys"
+          @ Skill.frontmatter_values fm "state_keys"
+        in
+        Selective keys
+      | other -> other
+    );
     background =
       List.exists
         (fun v -> String.lowercase_ascii v = "true")
@@ -129,19 +157,35 @@ let load ?(skill_roots = []) path =
 
 (* --- Prompt composition --- *)
 
+let state_isolation_preamble = function
+  | Inherit_all -> None
+  | Isolated ->
+    Some "[State Isolation: This agent runs in an isolated context without access to parent conversation history.]"
+  | Selective keys ->
+    Some (Printf.sprintf
+      "[State Isolation: This agent inherits only the following state keys from parent: %s]"
+      (String.concat ", " keys))
+
 let compose_prompt ?arguments spec =
   let rendered_skills =
     spec.skills
     |> List.map (Skill.render_prompt ?arguments)
     |> List.filter (fun s -> s <> "")
   in
-  match String.trim spec.prompt, rendered_skills with
-  | "", [] -> ""
-  | prompt, [] -> prompt
-  | "", extras -> String.concat "\n\n" extras
-  | prompt, extras ->
-    String.concat "\n\n"
-      (prompt :: List.map (fun s -> Printf.sprintf "[Skill]\n%s" s) extras)
+  let base =
+    match String.trim spec.prompt, rendered_skills with
+    | "", [] -> ""
+    | prompt, [] -> prompt
+    | "", extras -> String.concat "\n\n" extras
+    | prompt, extras ->
+      String.concat "\n\n"
+        (prompt :: List.map (fun s -> Printf.sprintf "[Skill]\n%s" s) extras)
+  in
+  match state_isolation_preamble spec.state_isolation with
+  | None -> base
+  | Some preamble ->
+    if base = "" then preamble
+    else preamble ^ "\n\n" ^ base
 
 (* --- Tool filtering --- *)
 
