@@ -114,6 +114,60 @@ let run_structured ~sw ?clock agent prompt ~(extract : 'a extractor) =
      | Error detail ->
        Error (Error.Serialization (JsonParseError { detail })))
 
+(** Extract structured output with validation retry (Instructor pattern).
+
+    On parse/extraction failure, feeds the error message back to the LLM
+    as a tool_result with [is_error=true] and retries. This self-healing
+    loop gives the model a chance to correct its output.
+
+    [max_retries] defaults to 2 (so up to 3 total attempts).
+    [on_validation_error] is called on each retry for observability. *)
+let extract_with_retry ~sw ~net ?base_url ?provider ?clock
+    ~config ~(schema : 'a schema) ?(max_retries=2)
+    ?(on_validation_error : (int -> string -> unit) option)
+    prompt : ('a, Error.sdk_error) result =
+  let config_with_tool = { config with
+    tool_choice = Some (Tool schema.name);
+  } in
+  let tools = [schema_to_tool_json schema] in
+  let rec attempt n messages =
+    let state = { config = config_with_tool; messages = []; turn_count = 0;
+                  usage = empty_usage } in
+    match Api.create_message ~sw ~net ?base_url ?provider ?clock
+            ~config:state ~messages ~tools () with
+    | Error e -> Error e
+    | Ok response ->
+        match extract_tool_input ~schema response.content with
+        | Ok v -> Ok v
+        | Error e when n < max_retries ->
+            let error_msg = Error.to_string e in
+            (match on_validation_error with
+             | Some cb -> cb (n + 1) error_msg
+             | None -> ());
+            (* Build retry messages: original conversation + assistant response
+               + tool_result with error feedback *)
+            let tool_use_id = List.find_map (function
+              | ToolUse { id; name; _ } when name = schema.name -> Some id
+              | _ -> None) response.content
+              |> Option.value ~default:"structured_retry" in
+            let retry_messages = messages @ [
+              { role = Assistant; content = response.content };
+              { role = User; content = [
+                  ToolResult {
+                    tool_use_id;
+                    content = Printf.sprintf
+                      "Validation error: %s. Please fix the output and try again."
+                      error_msg;
+                    is_error = true;
+                  }
+                ] };
+            ] in
+            attempt (n + 1) retry_messages
+        | Error e -> Error e
+  in
+  let initial_messages = [{ role = User; content = [Text prompt] }] in
+  attempt 0 initial_messages
+
 (** Extract structured output with SSE streaming.
     Like [extract] but uses [Streaming.create_message_stream] to receive
     incremental SSE events.  Calls [on_event] for each event.
