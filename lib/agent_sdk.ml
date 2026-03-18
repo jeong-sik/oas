@@ -89,6 +89,7 @@ module Trace_eval = Trace_eval
 module Conformance = Conformance
 module Direct_evidence = Direct_evidence
 module Runtime = Runtime
+module Runtime_projection = Runtime_projection
 module Transport = Transport
 module Runtime_client = Runtime_client
 module Client = Client
