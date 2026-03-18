@@ -279,22 +279,26 @@ let test_three_workers_partial_overlap () =
        v.pairwise_divergences)
 
 let test_custom_thresholds () =
+  (* Very strict thresholds: diversity >= 0.9 and divergence >= 0.99.
+     diverse_summary diversity = 5/8 = 0.625 < 0.9 → fails.
+     The same data that was autonomous with defaults now fails. *)
   let strict_thresholds =
     {
-      diversity_autonomous = 0.5;
-      diversity_scripted = 0.3;
-      divergence_autonomous = 0.3;
-      divergence_scripted = 0.1;
-      min_unique_tools = 5;
+      diversity_autonomous = 0.9;
+      diversity_scripted = 0.8;
+      divergence_autonomous = 0.99;
+      divergence_scripted = 0.95;
+      min_unique_tools = 10;
+      random_divergence = 0.8;
     }
   in
   let v =
     analyze ~thresholds:strict_thresholds
       [ diverse_summary; divergent_summary ]
   in
-  Alcotest.(check bool)
-    "verdict produced with custom thresholds" true
-    (v.confidence > 0.0)
+  (* diversity 0.598 < 0.8 (low) + divergence 1.0 > 0.8 (high) → Random *)
+  Alcotest.(check classification_testable)
+    "strict thresholds → not autonomous" Random v.classification
 
 (* ── Test suite ────────────────────────────────────────────── *)
 

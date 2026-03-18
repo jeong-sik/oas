@@ -63,6 +63,8 @@ type thresholds = {
   (** < this is considered identical (default 0.05) *)
   min_unique_tools: int;
   (** minimum unique tools for autonomous (default 3) *)
+  random_divergence: float;
+  (** divergence above this with low diversity → Random (default 0.8) *)
 }
 
 val default_thresholds : thresholds

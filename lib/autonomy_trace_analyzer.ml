@@ -47,6 +47,8 @@ type thresholds = {
   divergence_autonomous: float;
   divergence_scripted: float;
   min_unique_tools: int;
+  random_divergence: float;
+  (** divergence above this with low diversity → Random (default 0.8) *)
 }
 
 let default_thresholds =
@@ -56,6 +58,7 @@ let default_thresholds =
     divergence_autonomous = 0.15;
     divergence_scripted = 0.05;
     min_unique_tools = 3;
+    random_divergence = 0.8;
   }
 
 (* ── Helpers ───────────────────────────────────────────────── *)
@@ -173,7 +176,7 @@ let classify ~(t : thresholds) ~mean_div ~mean_divg ~min_unique
           (fun (m : worker_metric) -> m.diversity < t.diversity_scripted)
           metrics
       in
-      let has_high_divergence = mean_divg > 0.8 in
+      let has_high_divergence = mean_divg > t.random_divergence in
       if has_high_divergence && has_low_diversity then begin
         add "RANDOM: high divergence but low diversity suggests random tool use";
         (Random, 0.6, List.rev !evidence)

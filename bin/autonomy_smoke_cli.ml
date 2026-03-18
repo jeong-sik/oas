@@ -15,12 +15,7 @@ let version = Agent_sdk.version
 
 (* ── Offline mode: analyze existing trace files ────────────── *)
 
-let analyze_trace_files trace_dir thresholds_json =
-  let thresholds =
-    match thresholds_json with
-    | Some _ -> Autonomy_trace_analyzer.default_thresholds
-    | None -> Autonomy_trace_analyzer.default_thresholds
-  in
+let analyze_trace_files trace_dir =
   match Sys.readdir trace_dir with
   | exception Sys_error e ->
       Printf.eprintf "Error reading trace directory: %s\n" e;
@@ -45,7 +40,6 @@ let analyze_trace_files trace_dir thresholds_json =
                   (Error.to_string e);
                 None
             | Ok runs ->
-                (* Take the last run from each file *)
                 let last_run =
                   match List.rev runs with
                   | run :: _ -> Some run
@@ -67,13 +61,32 @@ let analyze_trace_files trace_dir thresholds_json =
       Printf.eprintf "Analyzed %d trace files, %d valid runs\n"
         (List.length jsonl_files)
         (List.length summaries);
-      let verdict =
-        Autonomy_trace_analyzer.analyze ~thresholds summaries
-      in
+      let verdict = Autonomy_trace_analyzer.analyze summaries in
       let json = Autonomy_trace_analyzer.verdict_to_json verdict in
       print_endline (Yojson.Safe.pretty_to_string json)
 
 (* ── Live mode: spawn agents and analyze ───────────────────── *)
+
+let summarize_trace ~agent_name ~trace_path =
+  match Raw_trace_query.read_runs ~path:trace_path () with
+  | Ok runs -> begin
+      match List.rev runs with
+      | run :: _ -> begin
+          match Raw_trace_query.summarize_run run with
+          | Ok summary -> Some summary
+          | Error e ->
+              Printf.eprintf "Warning: cannot summarize %s trace: %s\n"
+                agent_name (Error.to_string e);
+              None
+        end
+      | [] ->
+          Printf.eprintf "Warning: no runs found in %s trace\n" agent_name;
+          None
+    end
+  | Error e ->
+      Printf.eprintf "Warning: cannot read %s trace: %s\n" agent_name
+        (Error.to_string e);
+      None
 
 let live_smoke config_file workers prompt =
   match Agent_sdk.Agent_config.load config_file with
@@ -89,7 +102,6 @@ let live_smoke config_file workers prompt =
       Printf.eprintf "Spawning %d workers with prompt: %s\n" workers prompt;
       let summaries = ref [] in
       Eio.Switch.run @@ fun sw ->
-      (* Run workers sequentially to avoid port contention *)
       for i = 1 to workers do
         let agent_name = Printf.sprintf "worker-%d" i in
         let trace_path =
@@ -97,9 +109,7 @@ let live_smoke config_file workers prompt =
         in
         Printf.eprintf "Running %s...\n%!" agent_name;
         let builder = Agent_sdk.Agent_config.to_builder ~net cfg in
-        let builder =
-          Agent_sdk.Builder.with_name agent_name builder
-        in
+        let builder = Agent_sdk.Builder.with_name agent_name builder in
         match Raw_trace.create ~path:trace_path () with
         | Error e ->
             Printf.eprintf "Error creating trace for %s: %s\n" agent_name
@@ -125,20 +135,11 @@ let live_smoke config_file workers prompt =
                     in
                     Printf.eprintf "%s completed: %d chars output\n"
                       agent_name (String.length text);
-                    (* Read trace and summarize *)
                     begin
-                      match Raw_trace_query.read_runs ~path:trace_path () with
-                      | Ok runs -> begin
-                          match List.rev runs with
-                          | run :: _ -> begin
-                              match Raw_trace_query.summarize_run run with
-                              | Ok summary ->
-                                  summaries := summary :: !summaries
-                              | Error _ -> ()
-                            end
-                          | [] -> ()
-                        end
-                      | Error _ -> ()
+                      match summarize_trace ~agent_name ~trace_path with
+                      | Some summary ->
+                          summaries := summary :: !summaries
+                      | None -> ()
                     end
                 | Error e ->
                     Printf.eprintf "%s failed: %s\n" agent_name
@@ -153,7 +154,8 @@ let live_smoke config_file workers prompt =
       end;
       let verdict = Autonomy_trace_analyzer.analyze summaries in
       let json = Autonomy_trace_analyzer.verdict_to_json verdict in
-      print_endline (Yojson.Safe.pretty_to_string json)
+      print_endline (Yojson.Safe.pretty_to_string json);
+      Printf.eprintf "Trace files preserved at: %s\n" trace_dir
 
 (* ── CLI definition ────────────────────────────────────────── *)
 
@@ -182,13 +184,9 @@ let prompt_arg =
          current state. Summarize what you found in a short note."
     & info [ "prompt"; "p" ] ~doc ~docv:"TEXT")
 
-let thresholds_arg =
-  let doc = "Custom thresholds JSON (reserved for future use)." in
-  Arg.(value & opt (some string) None & info [ "thresholds" ] ~doc ~docv:"JSON")
-
-let main_cmd trace_dir config workers prompt thresholds =
+let main_cmd trace_dir config workers prompt =
   match trace_dir, config with
-  | Some dir, _ -> analyze_trace_files dir thresholds
+  | Some dir, _ -> analyze_trace_files dir
   | None, Some cfg -> live_smoke cfg workers prompt
   | None, None ->
       Printf.eprintf
@@ -198,8 +196,7 @@ let main_cmd trace_dir config workers prompt thresholds =
 
 let term =
   Term.(
-    const main_cmd $ trace_dir_arg $ config_arg $ workers_arg $ prompt_arg
-    $ thresholds_arg)
+    const main_cmd $ trace_dir_arg $ config_arg $ workers_arg $ prompt_arg)
 
 let info =
   Cmd.info "autonomy_smoke" ~version
