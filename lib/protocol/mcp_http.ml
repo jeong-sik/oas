@@ -40,7 +40,7 @@ type t = {
 let make_headers config extra =
   let base = [
     ("Content-Type", "application/json");
-    ("Accept", "application/json, text/event-stream");
+    ("Accept", "application/json");
   ] in
   Http.Header.of_list (base @ config.headers @ extra)
 
@@ -63,11 +63,41 @@ let jsonrpc_request t ~method_ ?params () =
   in
   `Assoc fields
 
-(** Send a JSON-RPC request via HTTP POST and parse the response. *)
+(** Extract JSON-RPC response from an SSE body.
+    SSE format: lines prefixed with "data: " contain JSON payloads.
+    Multiple data lines for the same event are concatenated. *)
+let parse_sse_body raw =
+  let lines = String.split_on_char '\n' raw in
+  let data_lines = List.filter_map (fun line ->
+    let trimmed = String.trim line in
+    if String.length trimmed > 5 && String.sub trimmed 0 5 = "data:" then
+      Some (String.trim (String.sub trimmed 5 (String.length trimmed - 5)))
+    else None
+  ) lines in
+  match data_lines with
+  | [] -> None
+  | _ ->
+      (* Take the last data line — it's the final JSON-RPC response *)
+      let last = List.nth data_lines (List.length data_lines - 1) in
+      if last = "" then None
+      else (try Some (Yojson.Safe.from_string last) with _ -> None)
+
+(** Parse a JSON-RPC response from either plain JSON or SSE body. *)
+let parse_response_body ~content_type resp_body =
+  let is_sse = match content_type with
+    | Some ct -> String.length ct >= 17 &&
+        String.sub (String.lowercase_ascii ct) 0 17 = "text/event-stream"
+    | None -> false
+  in
+  if is_sse then parse_sse_body resp_body
+  else (try Some (Yojson.Safe.from_string resp_body) with _ -> None)
+
+(** Send a JSON-RPC request via HTTP POST and parse the response.
+    Handles both plain JSON and SSE response formats. *)
 let send_request t ~method_ ?params () =
   let body_json = jsonrpc_request t ~method_ ?params () in
   let body_str = Yojson.Safe.to_string body_json in
-  let uri = Uri.of_string (t.config.base_url ^ "/mcp") in
+  let uri = Uri.of_string t.config.base_url in
   let headers = make_headers t.config [] in
   let https = Api.make_https () in
   let client = Cohttp_eio.Client.make ~https t.net in
@@ -80,14 +110,19 @@ let send_request t ~method_ ?params () =
       match Cohttp.Response.status resp with
       | `OK ->
         let resp_body = Eio.Buf_read.(of_flow ~max_size:(10 * 1024 * 1024) body |> take_all) in
-        let json = Yojson.Safe.from_string resp_body in
-        let open Yojson.Safe.Util in
-        (match json |> member "error" with
-         | `Null -> Ok (json |> member "result")
-         | error_obj ->
-           let message = error_obj |> member "message" |> to_string_option
-             |> Option.value ~default:"Unknown MCP error" in
-           Error (Error.Mcp (ToolCallFailed { tool_name = method_; detail = message })))
+        let content_type = Cohttp.Header.get (Cohttp.Response.headers resp) "content-type" in
+        (match parse_response_body ~content_type resp_body with
+         | None ->
+           Error (Error.Mcp (ToolCallFailed { tool_name = method_;
+             detail = "Empty or unparseable response from MCP server" }))
+         | Some json ->
+           let open Yojson.Safe.Util in
+           (match json |> member "error" with
+            | `Null -> Ok (json |> member "result")
+            | error_obj ->
+              let message = error_obj |> member "message" |> to_string_option
+                |> Option.value ~default:"Unknown MCP error" in
+              Error (Error.Mcp (ToolCallFailed { tool_name = method_; detail = message }))))
       | status ->
         let code = Cohttp.Code.code_of_status status in
         let detail = Printf.sprintf "HTTP %d from %s" code t.config.base_url in
