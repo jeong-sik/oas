@@ -1,6 +1,6 @@
 # OAS — OCaml Agent SDK
 
-OCaml 5.x + Eio 기반 에이전트 SDK. v0.57.0.
+OCaml 5.x + Eio 기반 에이전트 SDK. v0.58.0.
 
 ## Architecture
 
@@ -23,7 +23,7 @@ examples/   →  사용 예제
 | `lib/protocol/` | A2A, Agent Card, Agent Registry, MCP |
 | `lib/*.ml` | API(multi-provider), Context, Hooks, Guardrails, Orchestrator 등 |
 
-주요 모듈: `Agent`, `Types`, `Error`, `Provider`, `Context`, `Orchestrator`, `Hooks`, `Tool`
+주요 모듈: `Agent`, `Types`, `Error`, `Provider`, `Context`, `Collaboration`, `Orchestrator`, `Hooks`, `Tool`
 
 ### Layer 2: Swarm Engine (`lib_swarm/`)
 
@@ -31,7 +31,7 @@ examples/   →  사용 예제
 
 | 파일 | 역할 |
 |------|------|
-| `swarm_types.ml` | agent_role, orchestration_mode, convergence_config, agent_entry, swarm_state, callbacks |
+| `swarm_types.ml` | agent_role, orchestration_mode, convergence_config, agent_entry, swarm_state, callbacks, collaboration option |
 | `runner.ml` | 3가지 모드(Decentralized/Supervisor/Pipeline), 수렴 루프, Eio.Mutex 상태 보호 |
 
 `agent_entry.run`은 closure 기반 — `Agent.t` abstract type 장벽을 우회. `make_entry`로 Agent.t를 wrapping.
@@ -96,8 +96,56 @@ Configure via `LLM_ENDPOINTS` env var (comma-separated, default `http://127.0.0.
 - `Types.agent_config` — 에이전트 설정 (model, system_prompt, max_turns 등)
 - `Types.api_response` — LLM 응답 (content blocks, usage, stop_reason)
 - `Error.sdk_error` — 타입 안전한 에러 (Agent, Config, Orchestration 등)
-- `Swarm_types.swarm_config` — 스웜 설정 (entries, mode, convergence)
+- `Collaboration.t` — 공유 협업 컨텍스트 (goal, phase, participants, artifacts, votes)
+- `Swarm_types.swarm_config` — 스웜 설정 (entries, mode, convergence, collaboration)
 - `Swarm_types.swarm_result` — 스웜 결과 (iterations, final_metric, converged)
+
+## Collaboration (3-Type Session Model)
+
+세션을 3개 독립 타입으로 분리. `Session.t`(개인) / `Collaboration.t`(공유) / `Orchestrator`(전략).
+
+```
+Session.t ──참조──> Collaboration.t <──사용── Orchestrator
+(개인 런타임)       (공유 맥락)              (조율 전략)
+```
+
+### 사용 패턴
+
+```ocaml
+(* 새 코드: Collaboration.t 직접 사용 *)
+let collab = Collaboration.create ~goal:"deploy v2" () in
+let collab = Collaboration.add_participant collab
+  { name = "alice"; role = Some "lead"; state = Working;
+    joined_at = Some (Unix.gettimeofday ()); finished_at = None; summary = None } in
+let collab = Collaboration.set_phase collab Active in
+
+(* Runtime.session에서 변환 (기존 코드 호환) *)
+let collab = Runtime_projection.collaboration_of_session session in
+let session = Runtime_projection.update_session_from_collaboration session collab in
+
+(* Swarm에 collaboration 전달 *)
+let config = { entries; mode = Decentralized; ...; collaboration = Some collab } in
+```
+
+### 타입 관계
+
+| 타입 | 필드 수 | 용도 |
+|------|---------|------|
+| `Session.t` | 7 | 에이전트 개인 런타임 (턴, 타임스탬프, 메타데이터) |
+| `Collaboration.t` | 12 | 공유 협업 (goal, phase, participants, artifacts, votes) |
+| `Runtime.session` | 18 | 와이어 프로토콜 (Session + Collaboration 필드 혼재, 마이그레이션 중) |
+
+### Runtime.session과의 관계
+
+`Runtime.session`은 협업 필드(goal, phase, participants 등)를 직접 가지고 있다.
+`Runtime_projection.collaboration_of_session`으로 lossy projection 가능.
+새 코드는 `Collaboration.t`를 사용하고, 기존 코드는 `Runtime.session`을 유지한다.
+`Runtime.session`의 협업 필드에는 `(→ Collaboration.t)` 마이그레이션 주석이 있다.
+
+### 외부 소비자 (MASC)
+
+MASC는 `agent_sdk >= 0.57.0`에 의존하며, `team_context.collaboration_of_session`으로
+team_session (47필드) → Collaboration.t (12필드) lossy projection을 수행한다.
 
 ## Dependencies
 
