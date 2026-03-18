@@ -376,3 +376,7 @@
 (test
  (name test_async_agent)
  (libraries agent_sdk alcotest yojson eio eio_main cohttp-eio unix))
+
+(test
+ (name test_append_instruction)
+ (libraries agent_sdk alcotest yojson))
