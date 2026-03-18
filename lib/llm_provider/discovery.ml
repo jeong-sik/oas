@@ -135,11 +135,11 @@ let string_contains_ci ~haystack ~needle =
     !found
 
 let infer_capabilities models =
-  let has_qwen =
+  let needs_extended =
     List.exists (fun (m : model_info) ->
       string_contains_ci ~haystack:m.id ~needle:"qwen") models
   in
-  if has_qwen then Capabilities.qwen_openai_chat_capabilities
+  if needs_extended then Capabilities.openai_chat_extended_capabilities
   else Capabilities.openai_chat_capabilities
 
 (* ── Probe ───────────────────────────────────────────────── *)

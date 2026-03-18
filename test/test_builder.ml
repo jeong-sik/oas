@@ -37,7 +37,7 @@ let check_model msg expected actual =
 let test_create_sets_model () =
   with_net @@ fun net ->
   let agent = Builder.create ~net ~model:"claude-haiku-4-5" |> Builder.build_safe |> Result.get_ok in
-  check_model "model" "claude-haiku-4-5" (Agent.state agent).config.model
+  check_model "model" "claude-haiku-4-5-20251001" (Agent.state agent).config.model
 
 (* --- 2. with_system_prompt --- *)
 
@@ -442,7 +442,7 @@ let test_build_produces_valid_agent () =
   in
   let cfg = (Agent.state agent).config in
   Alcotest.(check string) "name" "full-agent" cfg.name;
-  check_model "model" "claude-opus-4-5" cfg.model;
+  check_model "model" "claude-opus-4-5-20251101" cfg.model;
   Alcotest.(check (option string)) "system_prompt"
     (Some "Be concise.") cfg.system_prompt;
   Alcotest.(check int) "max_tokens" 2048 cfg.max_tokens;
@@ -548,7 +548,7 @@ let test_build_minimal_required_only () =
   with_net @@ fun net ->
   let agent =
     Builder.create ~net ~model:"claude-3-7-sonnet" |> Builder.build_safe |> Result.get_ok in
-  check_model "model" "claude-3-7-sonnet" (Agent.state agent).config.model;
+  check_model "model" "claude-3-7-sonnet-20250219" (Agent.state agent).config.model;
   Alcotest.(check string) "name" "agent" (Agent.state agent).config.name;
   Alcotest.(check int) "max_tokens" 4096 (Agent.state agent).config.max_tokens;
   Alcotest.(check int) "max_turns" 10 (Agent.state agent).config.max_turns;

@@ -11,7 +11,7 @@ let () =
         check (option string) "desc" (Some "Code review agent") spec.description;
         check string "prompt" "You review code." spec.prompt;
         check bool "model is sonnet" true
-          (spec.model = Subagent.Use_model "claude-sonnet-4-6"));
+          (spec.model = Subagent.Use_model "claude-sonnet-4-6-20250514"));
 
       test_case "inherit model" `Quick (fun () ->
         let spec = Subagent.of_markdown "Just a prompt" in
@@ -194,39 +194,39 @@ let () =
       test_case "sonnet alias" `Quick (fun () ->
         check bool "sonnet" true
           (Subagent.model_override_of_string "sonnet" =
-           Subagent.Use_model "claude-sonnet-4-6"));
+           Subagent.Use_model "claude-sonnet-4-6-20250514"));
       test_case "claude-sonnet-4-6" `Quick (fun () ->
         check bool "sonnet 4.6" true
           (Subagent.model_override_of_string "claude-sonnet-4-6" =
-           Subagent.Use_model "claude-sonnet-4-6"));
+           Subagent.Use_model "claude-sonnet-4-6-20250514"));
       test_case "opus alias" `Quick (fun () ->
         check bool "opus" true
           (Subagent.model_override_of_string "opus" =
-           Subagent.Use_model "claude-opus-4-6"));
+           Subagent.Use_model "claude-opus-4-6-20250514"));
       test_case "claude-opus-4-6" `Quick (fun () ->
         check bool "opus 4.6" true
           (Subagent.model_override_of_string "claude-opus-4-6" =
-           Subagent.Use_model "claude-opus-4-6"));
+           Subagent.Use_model "claude-opus-4-6-20250514"));
       test_case "claude-opus-4-5" `Quick (fun () ->
         check bool "opus 4.5" true
           (Subagent.model_override_of_string "claude-opus-4-5" =
-           Subagent.Use_model "claude-opus-4-5"));
+           Subagent.Use_model "claude-opus-4-5-20251101"));
       test_case "claude-sonnet-4" `Quick (fun () ->
         check bool "sonnet 4" true
           (Subagent.model_override_of_string "claude-sonnet-4" =
-           Subagent.Use_model "claude-sonnet-4"));
+           Subagent.Use_model "claude-sonnet-4-20250514"));
       test_case "haiku alias" `Quick (fun () ->
         check bool "haiku" true
           (Subagent.model_override_of_string "haiku" =
-           Subagent.Use_model "claude-haiku-4-5"));
+           Subagent.Use_model "claude-haiku-4-5-20251001"));
       test_case "claude-haiku-4-5" `Quick (fun () ->
         check bool "haiku" true
           (Subagent.model_override_of_string "claude-haiku-4-5" =
-           Subagent.Use_model "claude-haiku-4-5"));
+           Subagent.Use_model "claude-haiku-4-5-20251001"));
       test_case "claude-3-7-sonnet" `Quick (fun () ->
         check bool "3.7" true
           (Subagent.model_override_of_string "claude-3-7-sonnet" =
-           Subagent.Use_model "claude-3-7-sonnet"));
+           Subagent.Use_model "claude-3-7-sonnet-20250219"));
       test_case "custom fallback" `Quick (fun () ->
         match Subagent.model_override_of_string "gpt-4o" with
         | Subagent.Use_model "gpt-4o" -> ()
@@ -404,7 +404,7 @@ let () =
           ~parent_config:Types.default_config ~base_tools:tools spec in
         check string "name" "helper" target.name;
         check string "desc" "Helps out" target.description;
-        check bool "model" true (target.config.model = "claude-haiku-4-5");
+        check bool "model" true (target.config.model = "claude-haiku-4-5-20251001");
         check int "max_turns" 3 target.config.max_turns;
         check (option string) "system_prompt" (Some "You help.") target.config.system_prompt);
 

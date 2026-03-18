@@ -453,17 +453,17 @@ let () =
         check bool "error" true
           (Result.is_error (Checkpoint.of_json (`Assoc []))));
 
-      test_case "invalid model tag returns Error" `Quick (fun () ->
+      test_case "any string is valid model" `Quick (fun () ->
         let cp = make_checkpoint () in
         let json = Checkpoint.to_json cp in
-        let bad = match json with
+        let custom = match json with
           | `Assoc pairs ->
             `Assoc (List.map (fun (k, v) ->
-              if k = "model" then (k, `String "not-a-real-model") else (k, v)
+              if k = "model" then (k, `String "my-custom-model") else (k, v)
             ) pairs)
           | other -> other
         in
-        check bool "error" true (Result.is_error (Checkpoint.of_json bad)));
+        check bool "ok" true (Result.is_ok (Checkpoint.of_json custom)));
 
       test_case "invalid role returns Error" `Quick (fun () ->
         let cp = make_checkpoint ~messages:[

@@ -14,4 +14,4 @@ type capabilities = {
 val default_capabilities : capabilities
 val anthropic_capabilities : capabilities
 val openai_chat_capabilities : capabilities
-val qwen_openai_chat_capabilities : capabilities
+val openai_chat_extended_capabilities : capabilities
