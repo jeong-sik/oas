@@ -115,6 +115,8 @@ let test_to_builder () =
     max_turns = Some 5;
     tools = [{ name = "echo"; description = "Echo"; parameters = [] }];
     mcp_servers = [];
+    enable_thinking = None; thinking_budget = None;
+    provider = None; base_url = None;
   } in
   let builder = Agent_config.to_builder ~net cfg in
   match Builder.build_safe builder with
@@ -134,6 +136,8 @@ let test_to_builder_no_tools () =
     max_turns = None;
     tools = [];
     mcp_servers = [];
+    enable_thinking = None; thinking_budget = None;
+    provider = None; base_url = None;
   } in
   let builder = Agent_config.to_builder ~net cfg in
   match Builder.build_safe builder with
@@ -154,6 +158,8 @@ let test_to_builder_all_models () =
     let cfg : Agent_config.agent_file_config = {
       name = "m-test"; model = model_str;
       system_prompt = None; max_tokens = None; max_turns = None;
+      enable_thinking = None; thinking_budget = None;
+      provider = None; base_url = None;
       tools = []; mcp_servers = [];
     } in
     let builder = Agent_config.to_builder ~net cfg in
