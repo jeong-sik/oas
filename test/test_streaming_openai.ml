@@ -80,7 +80,7 @@ let test_events_text_first_chunk () =
   let state = S.create_openai_stream_state () in
   let chunk : S.openai_chunk = {
     chunk_id = "c"; chunk_model = "m"; delta_content = Some "Hi";
-    delta_tool_calls = []; finish_reason = None; chunk_usage = None;
+    delta_reasoning = None; delta_tool_calls = []; finish_reason = None; chunk_usage = None;
   } in
   let events = S.openai_chunk_to_events state chunk in
   Alcotest.(check int) "2 events" 2 (List.length events);
@@ -98,11 +98,11 @@ let test_events_text_subsequent () =
   (* First chunk starts the block *)
   let _ = S.openai_chunk_to_events state
     { chunk_id = "c"; chunk_model = "m"; delta_content = Some "A";
-      delta_tool_calls = []; finish_reason = None; chunk_usage = None } in
+      delta_reasoning = None; delta_tool_calls = []; finish_reason = None; chunk_usage = None } in
   (* Second chunk: no ContentBlockStart *)
   let events = S.openai_chunk_to_events state
     { chunk_id = "c"; chunk_model = "m"; delta_content = Some "B";
-      delta_tool_calls = []; finish_reason = None; chunk_usage = None } in
+      delta_reasoning = None; delta_tool_calls = []; finish_reason = None; chunk_usage = None } in
   Alcotest.(check int) "1 event" 1 (List.length events);
   (match List.hd events with
    | ContentBlockDelta { delta = TextDelta s; _ } ->
@@ -117,7 +117,7 @@ let test_events_tool_call () =
   } in
   let events = S.openai_chunk_to_events state
     { chunk_id = "c"; chunk_model = "m"; delta_content = None;
-      delta_tool_calls = [tc]; finish_reason = None; chunk_usage = None } in
+      delta_reasoning = None; delta_tool_calls = [tc]; finish_reason = None; chunk_usage = None } in
   Alcotest.(check int) "2 events" 2 (List.length events);
   (match List.nth events 0 with
    | ContentBlockStart { content_type; tool_id; tool_name; _ } ->
@@ -135,7 +135,7 @@ let test_events_finish_reason () =
   let events = S.openai_chunk_to_events state
     { chunk_id = "c"; chunk_model = "m"; delta_content = None;
       delta_tool_calls = [];
-      finish_reason = Some "stop"; chunk_usage = None } in
+      delta_reasoning = None; finish_reason = Some "stop"; chunk_usage = None } in
   Alcotest.(check int) "1 event" 1 (List.length events);
   (match List.hd events with
    | MessageDelta { stop_reason = Some EndTurn; _ } -> ()
@@ -146,7 +146,7 @@ let test_events_tool_calls_finish () =
   let events = S.openai_chunk_to_events state
     { chunk_id = "c"; chunk_model = "m"; delta_content = None;
       delta_tool_calls = [];
-      finish_reason = Some "tool_calls"; chunk_usage = None } in
+      delta_reasoning = None; finish_reason = Some "tool_calls"; chunk_usage = None } in
   (match List.hd events with
    | MessageDelta { stop_reason = Some StopToolUse; _ } -> ()
    | _ -> Alcotest.fail "expected StopToolUse")
@@ -156,7 +156,7 @@ let test_events_length_finish () =
   let events = S.openai_chunk_to_events state
     { chunk_id = "c"; chunk_model = "m"; delta_content = None;
       delta_tool_calls = [];
-      finish_reason = Some "length"; chunk_usage = None } in
+      delta_reasoning = None; finish_reason = Some "length"; chunk_usage = None } in
   (match List.hd events with
    | MessageDelta { stop_reason = Some MaxTokens; _ } -> ()
    | _ -> Alcotest.fail "expected MaxTokens")
@@ -165,8 +165,44 @@ let test_events_empty_content_ignored () =
   let state = S.create_openai_stream_state () in
   let events = S.openai_chunk_to_events state
     { chunk_id = "c"; chunk_model = "m"; delta_content = Some "";
-      delta_tool_calls = []; finish_reason = None; chunk_usage = None } in
+      delta_reasoning = None; delta_tool_calls = []; finish_reason = None; chunk_usage = None } in
   Alcotest.(check int) "0 events" 0 (List.length events)
+
+let test_parse_reasoning_chunk () =
+  let data = {|{"id":"c-r","model":"qwen","choices":[{"index":0,"delta":{"reasoning_content":"Let me think"},"finish_reason":null}]}|} in
+  match S.parse_openai_sse_chunk data with
+  | Some chunk ->
+      Alcotest.(check (option string)) "reasoning" (Some "Let me think") chunk.delta_reasoning;
+      Alcotest.(check (option string)) "no content" None chunk.delta_content
+  | None -> Alcotest.fail "expected Some chunk"
+
+let test_events_reasoning_then_text () =
+  let state = S.create_openai_stream_state () in
+  let r_events = S.openai_chunk_to_events state
+    { chunk_id = "c"; chunk_model = "m"; delta_content = None;
+      delta_reasoning = Some "thinking...";
+      delta_tool_calls = []; finish_reason = None; chunk_usage = None } in
+  Alcotest.(check int) "2 events (start+delta)" 2 (List.length r_events);
+  (match List.nth r_events 0 with
+   | ContentBlockStart { content_type; _ } ->
+       Alcotest.(check string) "thinking type" "thinking" content_type
+   | _ -> Alcotest.fail "expected ContentBlockStart thinking");
+  (match List.nth r_events 1 with
+   | ContentBlockDelta { delta = ThinkingDelta s; _ } ->
+       Alcotest.(check string) "thinking text" "thinking..." s
+   | _ -> Alcotest.fail "expected ThinkingDelta");
+  let t_events = S.openai_chunk_to_events state
+    { chunk_id = "c"; chunk_model = "m"; delta_content = Some "answer";
+      delta_reasoning = None; delta_tool_calls = []; finish_reason = None; chunk_usage = None } in
+  Alcotest.(check int) "2 events (start+delta)" 2 (List.length t_events);
+  (match List.nth t_events 0 with
+   | ContentBlockStart { content_type; _ } ->
+       Alcotest.(check string) "text type" "text" content_type
+   | _ -> Alcotest.fail "expected ContentBlockStart text");
+  (match List.nth t_events 1 with
+   | ContentBlockDelta { index = 1; delta = TextDelta s } ->
+       Alcotest.(check string) "text" "answer" s
+   | _ -> Alcotest.fail "expected TextDelta at index 1")
 
 let () =
   let open Alcotest in
@@ -180,6 +216,7 @@ let () =
       test_case "usage" `Quick test_parse_usage;
       test_case "invalid JSON" `Quick test_parse_invalid_json;
       test_case "empty choices" `Quick test_parse_empty_choices;
+      test_case "reasoning_content" `Quick test_parse_reasoning_chunk;
     ];
     "openai_chunk_to_events", [
       test_case "text first chunk" `Quick test_events_text_first_chunk;
@@ -189,5 +226,6 @@ let () =
       test_case "finish tool_calls" `Quick test_events_tool_calls_finish;
       test_case "finish length" `Quick test_events_length_finish;
       test_case "empty content ignored" `Quick test_events_empty_content_ignored;
+      test_case "reasoning then text" `Quick test_events_reasoning_then_text;
     ];
   ]
