@@ -30,8 +30,9 @@ let spawn ~sw ?clock agent prompt =
   Eio.Fiber.fork ~sw (fun () ->
     let result =
       try Agent.run ~sw ?clock agent prompt
-      with exn ->
-        Error (Error.Internal (Printexc.to_string exn))
+      with
+      | Raw_trace.Trace_error e -> Error e
+      | exn -> Error (Error.Internal (Printexc.to_string exn))
     in
     resolve_once future result);
   future

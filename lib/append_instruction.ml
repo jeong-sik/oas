@@ -34,7 +34,10 @@ let render_source ?context ~turn = function
        Fun.protect
          ~finally:(fun () -> close_in_noerr ic)
          (fun () -> Some (really_input_string ic (in_channel_length ic)))
-     with _ -> None)
+     with exn ->
+       let _ = Printf.eprintf "[append_instruction] FromFile %s failed: %s\n%!"
+         path (Printexc.to_string exn) in
+       None)
   | Dynamic f -> f turn
 
 (* ── Public API ──────────────────────────────────────────────────── *)

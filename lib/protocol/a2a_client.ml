@@ -60,7 +60,11 @@ let rpc_call ~sw ~net endpoint method_ params =
        | `Null ->
          Ok (json |> member "result")
        | err ->
-         let msg = err |> member "message" |> to_string in
+         let msg =
+           match err |> member "message" |> to_string_option with
+           | Some s -> s
+           | None -> Yojson.Safe.to_string err
+         in
          Error (Error.A2a (ProtocolError { detail = msg }))
      with
      | Yojson.Json_error e ->
