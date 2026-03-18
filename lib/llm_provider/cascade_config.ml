@@ -106,7 +106,8 @@ let parse_model_string ?(temperature = 0.3) ?(max_tokens = 500)
         match provider_name with
         | "custom" ->
           let actual_model, base_url = parse_custom_model model_id in
-          Some (Provider_config.make
+          if actual_model = "" then None
+          else Some (Provider_config.make
                   ~kind:OpenAI_compat
                   ~model_id:actual_model
                   ~base_url
@@ -148,32 +149,35 @@ let parse_model_strings ?(temperature = 0.3) ?(max_tokens = 500)
 
 let config_cache : (string, float * Yojson.Safe.t) Hashtbl.t =
   Hashtbl.create 4
+let config_cache_mu = Mutex.create ()
 
 let load_json path =
-  try
-    let st = Unix.stat path in
-    let mtime = st.Unix.st_mtime in
-    match Hashtbl.find_opt config_cache path with
-    | Some (cached_mtime, json) when Float.equal cached_mtime mtime ->
-      Ok json
-    | _ ->
-      let ic = open_in path in
-      let content = Fun.protect
-          ~finally:(fun () -> close_in_noerr ic)
-          (fun () ->
-             let len = in_channel_length ic in
-             let buf = Bytes.create len in
-             really_input ic buf 0 len;
-             Bytes.to_string buf)
-      in
-      let json = Yojson.Safe.from_string content in
-      Hashtbl.replace config_cache path (mtime, json);
-      Ok json
-  with
-  | Sys_error msg -> Error msg
-  | Unix.Unix_error (err, fn, arg) ->
-    Error (Printf.sprintf "%s(%s): %s" fn arg (Unix.error_message err))
-  | exn -> Error (Printexc.to_string exn)
+  Mutex.lock config_cache_mu;
+  Fun.protect ~finally:(fun () -> Mutex.unlock config_cache_mu) (fun () ->
+    try
+      let st = Unix.stat path in
+      let mtime = st.Unix.st_mtime in
+      match Hashtbl.find_opt config_cache path with
+      | Some (cached_mtime, json) when Float.equal cached_mtime mtime ->
+        Ok json
+      | _ ->
+        let ic = open_in path in
+        let content = Fun.protect
+            ~finally:(fun () -> close_in_noerr ic)
+            (fun () ->
+               let len = in_channel_length ic in
+               let buf = Bytes.create len in
+               really_input ic buf 0 len;
+               Bytes.to_string buf)
+        in
+        let json = Yojson.Safe.from_string content in
+        Hashtbl.replace config_cache path (mtime, json);
+        Ok json
+    with
+    | Sys_error msg -> Error msg
+    | Unix.Unix_error (err, fn, arg) ->
+      Error (Printf.sprintf "%s(%s): %s" fn arg (Unix.error_message err))
+    | exn -> Error (Printexc.to_string exn))
 
 let load_profile ~config_path ~name =
   let key = name ^ "_models" in
@@ -194,12 +198,15 @@ let load_profile ~config_path ~name =
 
 let is_local_provider (cfg : Provider_config.t) =
   let url = String.lowercase_ascii cfg.base_url in
-  String.length url >= 16 &&
-  (let prefix = String.sub url 0 16 in
-   prefix = "http://127.0.0.1" || prefix = "http://localhost:")
-  ||
-  (String.length url >= 17 &&
-   String.sub url 0 17 = "http://localhost/")
+  let len = String.length url in
+  let starts_with prefix =
+    let plen = String.length prefix in
+    len >= plen && String.sub url 0 plen = prefix
+  in
+  starts_with "http://127.0.0.1"
+  || starts_with "http://localhost:"
+  || starts_with "http://localhost/"
+  || url = "http://localhost"
 
 let filter_healthy ~sw ~net (providers : Provider_config.t list) =
   let local_providers =
