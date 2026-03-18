@@ -200,7 +200,7 @@
  (name test_runtime)
  (libraries agent_sdk alcotest unix))
 
-(executable
+(test
  (name test_raw_trace)
  (libraries agent_sdk alcotest yojson unix eio eio_main cohttp-eio))
 
