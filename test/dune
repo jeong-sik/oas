@@ -354,3 +354,7 @@
 (test
  (name test_http_client)
  (libraries agent_sdk llm_provider alcotest yojson eio eio_main str))
+
+(test
+ (name test_trajectory)
+ (libraries agent_sdk alcotest yojson unix))
