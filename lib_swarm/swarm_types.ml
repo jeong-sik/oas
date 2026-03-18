@@ -91,6 +91,12 @@ let no_budget = {
   max_total_api_calls = None;
 }
 
+(** Swarm configuration.
+
+    [collaboration] optionally attaches a {!Collaboration.t} to track
+    shared state across the swarm.  When present, the runner updates
+    participant states as agents start/complete.  Defaults to [None]
+    for backward compatibility — existing call sites are unaffected. *)
 type swarm_config = {
   entries: agent_entry list;
   mode: orchestration_mode;
@@ -100,6 +106,7 @@ type swarm_config = {
   timeout_sec: float option;
   budget: resource_budget;
   max_agent_retries: int;
+  collaboration: Collaboration.t option;
 }
 
 (* ── Execution State ────────────────────────────────────────────── *)
