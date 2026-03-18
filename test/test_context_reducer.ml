@@ -516,6 +516,63 @@ let test_prune_tool_args_non_assistant_untouched () =
      Alcotest.(check int) "tool result unchanged" 5000 (String.length content)
    | _ -> Alcotest.fail "expected tool result")
 
+(* --- repair_dangling_tool_calls --- *)
+
+let test_repair_no_orphans () =
+  let msgs = [
+    user_msg "q";
+    tool_use_msg "t1" "calc";
+    tool_result_msg "t1" "42";
+    asst_msg "done";
+  ] in
+  let result = Context_reducer.reduce Context_reducer.repair_dangling_tool_calls msgs in
+  Alcotest.(check int) "no change" (List.length msgs) (List.length result)
+
+let test_repair_single_orphan () =
+  (* ToolUse without matching ToolResult *)
+  let msgs = [
+    user_msg "q";
+    tool_use_msg "t1" "calc";
+    asst_msg "continuing";
+  ] in
+  let result = Context_reducer.reduce Context_reducer.repair_dangling_tool_calls msgs in
+  (* Should insert a synthetic ToolResult after the ToolUse message *)
+  Alcotest.(check int) "repaired (+1 msg)" 4 (List.length result);
+  (* The inserted message should be a User message with ToolResult *)
+  (match List.nth result 2 with
+   | { Types.content = [Types.ToolResult { tool_use_id; is_error; _ }]; _ } ->
+     Alcotest.(check string) "matches id" "t1" tool_use_id;
+     Alcotest.(check bool) "is_error" true is_error
+   | _ -> Alcotest.fail "expected synthetic tool result")
+
+let test_repair_multiple_orphans () =
+  let msgs = [
+    user_msg "q";
+    Types.{ role = Assistant; content = [
+      ToolUse { id = "t1"; name = "read"; input = `Null };
+      ToolUse { id = "t2"; name = "write"; input = `Null };
+    ]};
+    asst_msg "done";
+  ] in
+  let result = Context_reducer.reduce Context_reducer.repair_dangling_tool_calls msgs in
+  (* 2 orphan ToolUse → 2 synthetic ToolResult messages inserted *)
+  Alcotest.(check int) "repaired (+2)" 5 (List.length result)
+
+let test_repair_partial_orphan () =
+  (* t1 has result, t2 does not *)
+  let msgs = [
+    user_msg "q";
+    Types.{ role = Assistant; content = [
+      ToolUse { id = "t1"; name = "read"; input = `Null };
+      ToolUse { id = "t2"; name = "write"; input = `Null };
+    ]};
+    tool_result_msg "t1" "ok";
+    asst_msg "done";
+  ] in
+  let result = Context_reducer.reduce Context_reducer.repair_dangling_tool_calls msgs in
+  (* Only t2 is orphan → 1 synthetic ToolResult *)
+  Alcotest.(check int) "repaired (+1)" 5 (List.length result)
+
 let () =
   Alcotest.run "Context_reducer" [
     "keep_last_n", [
@@ -578,6 +635,12 @@ let () =
       Alcotest.test_case "preserves recent turns" `Quick test_prune_tool_args_preserves_recent;
       Alcotest.test_case "nested JSON truncated" `Quick test_prune_tool_args_nested_json;
       Alcotest.test_case "non-assistant untouched" `Quick test_prune_tool_args_non_assistant_untouched;
+    ];
+    "repair_dangling_tool_calls", [
+      Alcotest.test_case "no orphans unchanged" `Quick test_repair_no_orphans;
+      Alcotest.test_case "single orphan repaired" `Quick test_repair_single_orphan;
+      Alcotest.test_case "multiple orphans repaired" `Quick test_repair_multiple_orphans;
+      Alcotest.test_case "partial orphan repaired" `Quick test_repair_partial_orphan;
     ];
     "edge_cases", [
       Alcotest.test_case "empty messages" `Quick test_empty;
