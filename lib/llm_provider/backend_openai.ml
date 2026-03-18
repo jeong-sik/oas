@@ -268,6 +268,12 @@ let parse_openai_response json_str =
               calls
         | _ -> []
       in
+      let thinking_blocks =
+        match msg |> member "reasoning_content" with
+        | `String s when not (Api_common.string_is_blank s) ->
+            [Thinking { thinking_type = "reasoning"; content = s }]
+        | _ -> []
+      in
       let stop_reason =
         match String.lowercase_ascii finish_reason with
         | "tool_calls" when tool_blocks <> [] -> StopToolUse
@@ -280,7 +286,7 @@ let parse_openai_response json_str =
         id = json |> member "id" |> to_string_option |> Option.value ~default:"";
         model = json |> member "model" |> to_string_option |> Option.value ~default:"";
         stop_reason;
-        content = (if Api_common.string_is_blank text_content then [] else [Text text_content]) @ tool_blocks;
+        content = thinking_blocks @ (if Api_common.string_is_blank text_content then [] else [Text text_content]) @ tool_blocks;
         usage = usage_of_openai_json json;
       }
   | err ->
