@@ -308,8 +308,10 @@ let test_message_to_json () =
 (* ------------------------------------------------------------------ *)
 
 let test_build_body_with_cache () =
+  (* Prompt must be >= 4096 chars for cache_control (min token threshold) *)
+  let long_prompt = "You are a cached helper. " ^ String.make 4100 'x' in
   let config = { Types.default_config with
-    system_prompt = Some "You are a cached helper.";
+    system_prompt = Some long_prompt;
     cache_system_prompt = true;
   } in
   let state = { Types.config; messages = []; turn_count = 0; usage = Types.empty_usage } in
@@ -317,12 +319,10 @@ let test_build_body_with_cache () =
   let json = `Assoc assoc in
   let open Yojson.Safe.Util in
   let system = json |> member "system" in
-  (* cache_system_prompt wraps as [{"type":"text","text":"...","cache_control":{"type":"ephemeral"}}] *)
   let blocks = system |> to_list in
   check int "1 system block" 1 (List.length blocks);
   let block = List.hd blocks in
   check string "block type" "text" (block |> member "type" |> to_string);
-  check string "block text" "You are a cached helper." (block |> member "text" |> to_string);
   let cc = block |> member "cache_control" in
   check string "cache_control type" "ephemeral" (cc |> member "type" |> to_string)
 

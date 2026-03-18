@@ -81,6 +81,26 @@ let iteration_record_to_json (r : Swarm_types.iteration_record) : Yojson.Safe.t 
     ("timestamp", `Float r.timestamp);
   ]
 
+(** Reconstruct an iteration_record from JSON.
+    agent_results statuses are restored as Idle (the original status
+    text is preserved in JSON but parsing show-format back is fragile).
+    Core fields (iteration, metric_value, elapsed, timestamp) are exact. *)
+let iteration_record_of_json (json : Yojson.Safe.t) : Swarm_types.iteration_record =
+  let open Yojson.Safe.Util in
+  let agent_results =
+    json |> member "agent_results" |> to_list
+    |> List.map (fun ar ->
+      let name = ar |> member "name" |> to_string in
+      (name, Swarm_types.Idle))
+  in
+  { iteration = json |> member "iteration" |> to_int;
+    metric_value = json |> member "metric_value" |> to_float_option;
+    agent_results;
+    elapsed = json |> member "elapsed" |> to_float;
+    timestamp = json |> member "timestamp" |> to_float;
+    trace_refs = [];
+  }
+
 let config_snapshot_to_json (s : config_snapshot) : Yojson.Safe.t =
   `Assoc [
     ("entry_names", `List (List.map (fun n -> `String n) s.entry_names));
@@ -152,7 +172,9 @@ let load ~path : (t, Error.sdk_error) result =
           best_metric = json |> member "best_metric" |> to_float_option;
           best_iteration = json |> member "best_iteration" |> to_int;
           patience_counter = json |> member "patience_counter" |> to_int;
-          history = [];  (* history reconstruction from JSON is complex; skip for now *)
+          history =
+            json |> member "history" |> to_list
+            |> List.map iteration_record_of_json;
           created_at = json |> member "created_at" |> to_float;
         }
     with
