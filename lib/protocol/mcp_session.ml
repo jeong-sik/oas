@@ -20,24 +20,31 @@
 
 open Types
 
+(** Transport kind tag for serialization. *)
+type transport_kind = Stdio | Http
+
 (** Serializable MCP session information. *)
 type info = {
   server_name: string;
-  command: string;
-  args: string list;
+  command: string;     (** For HTTP: "http"; for stdio: the executable *)
+  args: string list;   (** For HTTP: [url]; for stdio: command-line args *)
   env: (string * string) list;
   tool_schemas: tool_schema list;
+  transport_kind: transport_kind;
 }
 
 (** Capture session info from a connected managed server. *)
 let capture (m : Mcp.managed) : info =
-  {
-    server_name = m.spec.name;
-    command = m.spec.command;
-    args = m.spec.args;
-    env = m.spec.env;
-    tool_schemas = List.map (fun (t : Tool.t) -> t.schema) m.tools;
-  }
+  let tool_schemas = List.map (fun (t : Tool.t) -> t.schema) m.tools in
+  match m.transport with
+  | Mcp.Stdio { spec; _ } ->
+      { server_name = m.name; command = spec.command;
+        args = spec.args; env = spec.env;
+        tool_schemas; transport_kind = Stdio }
+  | Mcp.Http _ ->
+      { server_name = m.name; command = "http";
+        args = []; env = [];
+        tool_schemas; transport_kind = Http }
 
 (** Capture session info from all connected managed servers. *)
 let capture_all (managed_list : Mcp.managed list) : info list =
@@ -54,13 +61,21 @@ let to_server_spec (info : info) : Mcp.server_spec =
 
 (** Reconnect to MCP servers from saved session info.
     Returns a pair: (successfully connected, failed infos with error messages).
-    Failed connections do not abort the others. *)
+    Failed connections do not abort the others.
+    HTTP servers cannot be reconnected from session info alone — they are
+    reported as failed with an informational error. *)
 let reconnect_all ~sw ~mgr (infos : info list) : Mcp.managed list * (info * Error.sdk_error) list =
   List.fold_left (fun (connected, failed) info ->
-    let spec = to_server_spec info in
-    match Mcp.connect_and_load ~sw ~mgr spec with
-    | Ok m -> (m :: connected, failed)
-    | Error e -> (connected, (info, e) :: failed)
+    match info.transport_kind with
+    | Http ->
+        let e = Error.Mcp (InitializeFailed {
+          detail = Printf.sprintf "HTTP MCP server '%s' cannot be reconnected from session" info.server_name }) in
+        (connected, (info, e) :: failed)
+    | Stdio ->
+        let spec = to_server_spec info in
+        (match Mcp.connect_and_load ~sw ~mgr spec with
+         | Ok m -> (m :: connected, failed)
+         | Error e -> (connected, (info, e) :: failed))
   ) ([], []) infos
   |> fun (connected, failed) -> (List.rev connected, List.rev failed)
 
@@ -132,6 +147,14 @@ let tool_schema_of_json json =
 
 (* ── info JSON ─────────────────────────────────────────────────── *)
 
+let transport_kind_to_string = function
+  | Stdio -> "stdio"
+  | Http -> "http"
+
+let transport_kind_of_string = function
+  | "http" -> Http
+  | _ -> Stdio  (* default to stdio for backward compat *)
+
 let info_to_json (info : info) : Yojson.Safe.t =
   `Assoc [
     ("server_name", `String info.server_name);
@@ -139,6 +162,7 @@ let info_to_json (info : info) : Yojson.Safe.t =
     ("args", `List (List.map (fun s -> `String s) info.args));
     ("env", `List (List.map env_pair_to_json info.env));
     ("tool_schemas", `List (List.map tool_schema_to_json info.tool_schemas));
+    ("transport_kind", `String (transport_kind_to_string info.transport_kind));
   ]
 
 let info_of_json json : (info, Error.sdk_error) result =
@@ -154,12 +178,18 @@ let info_of_json json : (info, Error.sdk_error) result =
     in
     match env_result, tools_result with
     | Ok env, Ok tool_schemas ->
+      let transport_kind =
+        json |> member "transport_kind" |> to_string_option
+        |> Option.value ~default:"stdio"
+        |> transport_kind_of_string
+      in
       Ok {
         server_name = json |> member "server_name" |> to_string;
         command = json |> member "command" |> to_string;
         args = json |> member "args" |> to_list |> List.map to_string;
         env;
         tool_schemas;
+        transport_kind;
       }
     | Error e, _ -> Error e
     | _, Error e -> Error e

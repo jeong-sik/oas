@@ -381,12 +381,16 @@ type server_spec = {
   name: string;
 }
 
+(** Transport backend for a managed MCP connection. *)
+type transport =
+  | Stdio of { client: t; spec: server_spec }
+  | Http of { close_fn: unit -> unit }
+
 (** A connected MCP server together with its converted SDK tools. *)
 type managed = {
-  client: t;
   tools: Tool.t list;
   name: string;
-  spec: server_spec;
+  transport: transport;
 }
 
 (** Merge extra key-value pairs into the current process environment.
@@ -405,10 +409,18 @@ let merge_env extras =
     let extra_entries = List.map (fun (k, v) -> k ^ "=" ^ v) extras in
     Array.of_list (base_filtered @ extra_entries)
 
+(** Close a single managed MCP connection (transport-aware). *)
+let close_managed m =
+  match m.transport with
+  | Stdio { client; _ } ->
+      (try close client with Eio.Io _ | Unix.Unix_error _ | Failure _ -> ())
+  | Http { close_fn; _ } ->
+      (try close_fn () with _ -> ())
+
 (** Close all managed MCP server connections.
     Exceptions from individual servers are swallowed (best-effort). *)
 let close_all managed_list =
-  List.iter (fun m -> close m.client) managed_list
+  List.iter close_managed managed_list
 
 (** Connect to an MCP server, perform the initialize handshake, fetch
     tools, and convert them to SDK [Tool.t] values.
@@ -426,7 +438,8 @@ let connect_and_load ~sw ~mgr spec =
         | Error e -> close client; Error e
         | Ok mcp_tools ->
           let tools = to_tools client mcp_tools in
-          Ok { client; tools; name = spec.name; spec }
+          Ok { tools; name = spec.name;
+               transport = Stdio { client; spec } }
     with
     | Out_of_memory -> close client; raise Out_of_memory
     | Stack_overflow -> close client; raise Stack_overflow
@@ -453,10 +466,16 @@ let connect_all ~sw ~mgr specs =
 
 (** Reconnect a managed MCP server by closing the old connection
     and starting a fresh one from its spec.
-    Returns the new managed value on success. *)
+    Returns the new managed value on success.
+    Only stdio transports can be reconnected (HTTP has no persistent spec). *)
 let reconnect ~sw ~mgr (m : managed) =
-  (try close m.client with Eio.Io _ | Unix.Unix_error _ | Failure _ -> ());
-  connect_and_load ~sw ~mgr m.spec
+  match m.transport with
+  | Stdio { client; spec } ->
+      (try close client with Eio.Io _ | Unix.Unix_error _ | Failure _ -> ());
+      connect_and_load ~sw ~mgr spec
+  | Http _ ->
+      Error (Error.Mcp (InitializeFailed {
+        detail = Printf.sprintf "Cannot reconnect HTTP MCP server '%s'" m.name }))
 
 (** Connect to multiple MCP servers, returning all that succeed.
     Failed servers are reported in the second element of the pair

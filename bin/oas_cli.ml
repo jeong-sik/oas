@@ -21,7 +21,8 @@ let run_cmd config_file prompt =
     Eio_main.run @@ fun env ->
     let net = Eio.Stdenv.net env in
     Eio.Switch.run @@ fun sw ->
-    let builder = Agent_sdk.Agent_config.to_builder ~net cfg in
+    let mgr = Eio.Stdenv.process_mgr env in
+    let builder = Agent_sdk.Agent_config.to_builder ~sw ~mgr ~net cfg in
     match Agent_sdk.Builder.build_safe builder with
     | Error e ->
       Printf.eprintf "Error building agent: %s\n" (Agent_sdk.Error.to_string e);
@@ -100,7 +101,7 @@ let card_cmd config_file =
   | Ok cfg ->
     Eio_main.run @@ fun env ->
     let net = Eio.Stdenv.net env in
-    let builder = Agent_sdk.Agent_config.to_builder ~net cfg in
+    let builder = Agent_sdk.Agent_config.to_builder ~net cfg in  (* no sw/mgr for card *)
     match Agent_sdk.Builder.build_safe builder with
     | Error e ->
       Printf.eprintf "Error building agent: %s\n" (Agent_sdk.Error.to_string e);

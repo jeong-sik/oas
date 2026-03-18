@@ -30,13 +30,12 @@ type http_spec = {
   name: string;
 }
 
-type managed = {
-  client: t;
-  tools: Tool.t list;
-  name: string;
-  spec: http_spec;
-}
+(** Connect, initialize, load tools, and return a unified [Mcp.managed]. *)
+val connect_and_load_managed :
+  sw:Eio.Switch.t -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
+  http_spec -> (Mcp.managed, Error.sdk_error) result
 
+(** @deprecated Alias for {!connect_and_load_managed}. *)
 val connect_and_load :
   sw:Eio.Switch.t -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
-  http_spec -> (managed, Error.sdk_error) result
+  http_spec -> (Mcp.managed, Error.sdk_error) result
