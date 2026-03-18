@@ -2,6 +2,26 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.51.0] - 2026-03-18
+
+### Added
+- `Autonomy_trace_analyzer`: quantify agent autonomy via diversity/divergence metrics on raw traces. Classifications: Autonomous/Scripted/Random. (#132)
+- `Traced_swarm` (lib_swarm): `Runner.run` wrapper with automatic per-agent `Raw_trace` sinks. (#132)
+- `autonomy_smoke_cli`: offline trace analysis and live multi-agent smoke testing. (#132)
+- `Trajectory` module: Harbor-inspired trajectory recording with sandbox runner. (#136)
+- `Repair_dangling_tool_calls` context reducer strategy. (#135)
+- `Prune_tool_args` context reducer for ToolUse input truncation. (#127)
+- `state_isolation` for subagent parent state control. (#130)
+- Default `context_reducer` wired with repair + prune + drop_thinking. (#139)
+
+### Fixed
+- `test_raw_trace`: mock server returns plain JSON but pipeline routes to SSE parser. Switched to sync `Agent.run`. (#138)
+- Shell argument quoting in examples, path traversal rejection. (#137)
+- CI: exclude hanging integration tests from `dune runtest`. (#132)
+
+### Changed
+- `autonomy_smoke_cli` refactored to use `Traced_swarm.run_traced` (parallel Decentralized mode). (#132)
+
 ## [0.50.0] - 2026-03-18
 
 ### Added
