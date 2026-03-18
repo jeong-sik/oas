@@ -380,3 +380,7 @@
 (test
  (name test_append_instruction)
  (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_consumer)
+ (libraries agent_sdk alcotest yojson eio eio_main cohttp-eio unix))
