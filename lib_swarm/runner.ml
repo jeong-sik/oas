@@ -65,24 +65,32 @@ let fire2 opt a b = match opt with Some f -> (try f a b with _ -> ()) | None -> 
 
 (* ── Single agent run ───────────────────────────────────────────── *)
 
-let run_one_agent ~sw ~callbacks (entry : agent_entry) prompt =
+let run_one_agent ~sw ~callbacks ?(max_retries=0) (entry : agent_entry) prompt =
   fire callbacks.on_agent_start entry.name;
-  let t0 = Unix.gettimeofday () in
-  let result = entry.run ~sw prompt in
-  let elapsed = Unix.gettimeofday () -. t0 in
-  (* Collect telemetry from agent after run completes *)
-  let telemetry =
-    match entry.get_telemetry with
-    | Some f -> (try f () with _ -> empty_telemetry)
-    | None -> empty_telemetry
-  in
-  let status =
+  let rec attempt n =
+    let t0 = Unix.gettimeofday () in
+    let result = entry.run ~sw prompt in
+    let elapsed = Unix.gettimeofday () -. t0 in
+    let telemetry =
+      match entry.get_telemetry with
+      | Some f -> (try f () with _ -> empty_telemetry)
+      | None -> empty_telemetry
+    in
     match result with
-    | Ok resp -> Done_ok { elapsed; text = text_of_response resp; telemetry }
-    | Error err -> Done_error { elapsed; error = Error.to_string err; telemetry }
+    | Ok resp ->
+        let status = Done_ok { elapsed; text = text_of_response resp; telemetry } in
+        fire2 callbacks.on_agent_done entry.name status;
+        (entry.name, status, result)
+    | Error _err when n < max_retries ->
+        let delay = (Float.of_int (n + 1)) *. (0.5 +. Random.float 1.0) in
+        Unix.sleepf delay;
+        attempt (n + 1)
+    | Error err ->
+        let status = Done_error { elapsed; error = Error.to_string err; telemetry } in
+        fire2 callbacks.on_agent_done entry.name status;
+        (entry.name, status, result)
   in
-  fire2 callbacks.on_agent_done entry.name status;
-  (entry.name, status, result)
+  attempt 0
 
 (* ── Run agents by mode (shared) ────────────────────────────────── *)
 
@@ -90,7 +98,7 @@ let run_agents_by_mode ~sw ~callbacks config =
   match config.mode with
   | Decentralized ->
     Eio.Fiber.List.map ~max_fibers:config.max_parallel
-      (fun entry -> run_one_agent ~sw ~callbacks entry config.prompt)
+      (fun entry -> run_one_agent ~sw ~callbacks ~max_retries:config.max_agent_retries entry config.prompt)
       config.entries
   | Pipeline_mode ->
     let rec go acc prev_text = function
@@ -102,7 +110,7 @@ let run_agents_by_mode ~sw ~callbacks config =
           | Some text -> config.prompt ^ "\n\nPrevious agent output:\n" ^ text
         in
         let (_name, status, _result) as triple =
-          run_one_agent ~sw ~callbacks entry prompt
+          run_one_agent ~sw ~callbacks ~max_retries:config.max_agent_retries entry prompt
         in
         let next = match status with
           | Done_ok { text; _ } -> Some text | _ -> prev_text
@@ -192,7 +200,23 @@ let run_convergence_loop ~sw ~clock:_ ~callbacks config conv =
   let total_usage = ref Types.empty_usage in
   let t0 = Unix.gettimeofday () in
   let continue = ref true in
-  while !continue && read_state handle (fun s -> s.current_iteration) < conv.max_iterations do
+  let budget_exceeded () =
+    let u = !total_usage in
+    let elapsed = Unix.gettimeofday () -. t0 in
+    (match config.budget.max_total_tokens with
+     | Some max when u.total_input_tokens + u.total_output_tokens >= max -> true
+     | _ -> false)
+    || (match config.budget.max_total_time_sec with
+        | Some max when elapsed >= max -> true
+        | _ -> false)
+    || (match config.budget.max_total_api_calls with
+        | Some max ->
+            let iter = read_state handle (fun s -> s.current_iteration) in
+            iter * List.length config.entries >= max
+        | None -> false)
+  in
+  while !continue && not (budget_exceeded ())
+        && read_state handle (fun s -> s.current_iteration) < conv.max_iterations do
     let iter = read_state handle (fun s -> s.current_iteration) in
     fire callbacks.on_iteration_start iter;
     let results = run_agents_by_mode ~sw ~callbacks config in

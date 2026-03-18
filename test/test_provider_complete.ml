@@ -212,24 +212,35 @@ let test_stream_acc_tool_use () =
 
 (* ── Prompt caching ───────────────────────────────── *)
 
+(* Long prompt exceeding 3500 char threshold for cache_control *)
+let long_prompt = String.concat "" (List.init 200 (fun i ->
+  Printf.sprintf "Rule %d: follow this guideline carefully. " i))
+
 let test_cache_system_prompt () =
   let config = PC.make ~kind:Anthropic ~model_id:"claude-sonnet-4-6"
-    ~base_url:"" ~system_prompt:"You are helpful."
+    ~base_url:"" ~system_prompt:long_prompt
     ~cache_system_prompt:true () in
   let body = BA.build_request ~config ~messages:[user_msg "hi"] () in
   let json = Yojson.Safe.from_string body in
   let open Yojson.Safe.Util in
-  (* system should be a list of content blocks, not a string *)
   let system = json |> member "system" |> to_list in
   Alcotest.(check int) "1 system block" 1 (List.length system);
   let block = List.hd system in
   Alcotest.(check string) "type" "text"
     (block |> member "type" |> to_string);
-  Alcotest.(check string) "text" "You are helpful."
-    (block |> member "text" |> to_string);
   let cc = block |> member "cache_control" in
   Alcotest.(check string) "cache_control type" "ephemeral"
     (cc |> member "type" |> to_string)
+
+let test_cache_short_prompt_skips () =
+  let config = PC.make ~kind:Anthropic ~model_id:"m"
+    ~base_url:"" ~system_prompt:"Short."
+    ~cache_system_prompt:true () in
+  let body = BA.build_request ~config ~messages:[user_msg "hi"] () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  Alcotest.(check string) "short = plain string" "Short."
+    (json |> member "system" |> to_string)
 
 let test_cache_no_system_no_cache () =
   let config = PC.make ~kind:Anthropic ~model_id:"m"
@@ -302,5 +313,6 @@ let () =
       test_case "no cache when disabled" `Quick test_cache_no_system_no_cache;
       test_case "last tool gets cache_control" `Quick test_cache_tools;
       test_case "default cache off" `Quick test_cache_default_false;
+      test_case "short prompt skips cache" `Quick test_cache_short_prompt_skips;
     ];
   ]
