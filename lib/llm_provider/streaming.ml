@@ -146,6 +146,7 @@ type openai_chunk = {
   chunk_id: string;
   chunk_model: string;
   delta_content: string option;
+  delta_reasoning: string option;
   delta_tool_calls: openai_tool_call_delta list;
   finish_reason: string option;
   chunk_usage: api_usage option;
@@ -168,6 +169,7 @@ let parse_openai_sse_chunk data_str : openai_chunk option =
       let choice = json |> member "choices" |> index 0 in
       let delta = choice |> member "delta" in
       let delta_content = delta |> member "content" |> to_string_option in
+      let delta_reasoning = delta |> member "reasoning_content" |> to_string_option in
       let delta_tool_calls =
         match delta |> member "tool_calls" with
         | `List calls ->
@@ -207,7 +209,7 @@ let parse_openai_sse_chunk data_str : openai_chunk option =
             cache_read_input_tokens = cached;
           }
       in
-      Some { chunk_id; chunk_model; delta_content;
+      Some { chunk_id; chunk_model; delta_content; delta_reasoning;
              delta_tool_calls; finish_reason; chunk_usage }
     with
     | Yojson.Safe.Util.Type_error _ | Yojson.Safe.Util.Undefined _
@@ -215,12 +217,14 @@ let parse_openai_sse_chunk data_str : openai_chunk option =
 
 (** Mutable state for converting OpenAI flat deltas to block-based events. *)
 type openai_stream_state = {
+  mutable thinking_block_started: bool;
   mutable text_block_started: bool;
   tool_block_indices: (int, int) Hashtbl.t;  (** tool_call index -> block index *)
   mutable next_block_index: int;
 }
 
 let create_openai_stream_state () = {
+  thinking_block_started = false;
   text_block_started = false;
   tool_block_indices = Hashtbl.create 4;
   next_block_index = 0;
@@ -233,6 +237,18 @@ let openai_chunk_to_events (state : openai_stream_state)
     (chunk : openai_chunk) : sse_event list =
   let events = ref [] in
   let emit evt = events := evt :: !events in
+  (* Reasoning content delta — emitted before text *)
+  (match chunk.delta_reasoning with
+   | Some text when text <> "" ->
+       if not state.thinking_block_started then begin
+         emit (ContentBlockStart {
+           index = state.next_block_index; content_type = "thinking";
+           tool_id = None; tool_name = None });
+         state.thinking_block_started <- true;
+         state.next_block_index <- state.next_block_index + 1
+       end;
+       emit (ContentBlockDelta { index = 0; delta = ThinkingDelta text })
+   | _ -> ());
   (* Text content delta *)
   (match chunk.delta_content with
    | Some text when text <> "" ->
@@ -243,7 +259,8 @@ let openai_chunk_to_events (state : openai_stream_state)
          state.text_block_started <- true;
          state.next_block_index <- state.next_block_index + 1
        end;
-       emit (ContentBlockDelta { index = 0; delta = TextDelta text })
+       let text_idx = if state.thinking_block_started then 1 else 0 in
+       emit (ContentBlockDelta { index = text_idx; delta = TextDelta text })
    | _ -> ());
   (* Tool call deltas *)
   List.iter (fun (tc : openai_tool_call_delta) ->
