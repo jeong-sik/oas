@@ -4,12 +4,13 @@
     Both OAS and MASC can call these functions directly.
 
     @since 0.46.0  Sync completion
-    @since 0.53.0  Streaming, retry, cascade *)
+    @since 0.53.0  Streaming, retry, cascade
+    @since 0.54.0  Optional cache + metrics hooks *)
 
-(* ── Sync completion ─────────────────────────────────────── *)
+(* ── Internal: timed HTTP completion ──────────────────── *)
 
-let complete ~sw ~net ~(config : Provider_config.t)
-    ~(messages : Types.message list) ?(tools=[]) () =
+let complete_http ~sw ~net ~(config : Provider_config.t)
+    ~(messages : Types.message list) ~tools =
   let body_str = match config.kind with
     | Provider_config.Anthropic ->
         Backend_anthropic.build_request ~config ~messages ~tools ()
@@ -17,23 +18,80 @@ let complete ~sw ~net ~(config : Provider_config.t)
         Backend_openai.build_request ~config ~messages ~tools ()
   in
   let url = config.base_url ^ config.request_path in
-  match Http_client.post_sync ~sw ~net ~url
-          ~headers:config.headers ~body:body_str with
-  | Error _ as e -> e
-  | Ok (code, body) ->
-      if code >= 200 && code < 300 then
-        let response = match config.kind with
-          | Provider_config.Anthropic ->
-              Backend_anthropic.parse_response
-                (Yojson.Safe.from_string body)
-          | Provider_config.OpenAI_compat ->
-              Backend_openai.parse_openai_response body
-        in
-        Ok response
-      else
-        Error (Http_client.HttpError { code; body })
+  let t0 = Unix.gettimeofday () in
+  let result =
+    match Http_client.post_sync ~sw ~net ~url
+            ~headers:config.headers ~body:body_str with
+    | Error _ as e -> e
+    | Ok (code, body) ->
+        if code >= 200 && code < 300 then
+          let response = match config.kind with
+            | Provider_config.Anthropic ->
+                Backend_anthropic.parse_response
+                  (Yojson.Safe.from_string body)
+            | Provider_config.OpenAI_compat ->
+                Backend_openai.parse_openai_response body
+          in
+          Ok response
+        else
+          Error (Http_client.HttpError { code; body })
+  in
+  let latency_ms = int_of_float ((Unix.gettimeofday () -. t0) *. 1000.0) in
+  (result, latency_ms)
 
-(* ── Retry ───────────────────────────────────────────────── *)
+(* ── Sync completion ─────────────────────────────────── *)
+
+let complete ~sw ~net ~(config : Provider_config.t)
+    ~(messages : Types.message list) ?(tools=[])
+    ?(cache : Cache.t option) ?(metrics : Metrics.t option) () =
+  let m = match metrics with Some m -> m | None -> Metrics.noop in
+  let model_id = config.model_id in
+  (* Cache lookup *)
+  let cached = match cache with
+    | Some c ->
+        let key = Cache.request_fingerprint ~config ~messages ~tools () in
+        (match c.get ~key with
+         | Some json ->
+             (match Cache.response_of_json json with
+              | Some resp ->
+                  m.on_cache_hit ~model_id;
+                  Some (Ok resp, key)
+              | None ->
+                  m.on_cache_miss ~model_id;
+                  None)
+         | None ->
+             m.on_cache_miss ~model_id;
+             None)
+    | None -> None
+  in
+  match cached with
+  | Some (result, _key) -> result
+  | None ->
+      m.on_request_start ~model_id;
+      let (result, latency_ms) =
+        complete_http ~sw ~net ~config ~messages ~tools
+      in
+      (match result with
+       | Ok resp ->
+           m.on_request_end ~model_id ~latency_ms;
+           (* Cache store *)
+           (match cache with
+            | Some c ->
+                let key = Cache.request_fingerprint ~config ~messages ~tools () in
+                let json = Cache.response_to_json resp in
+                (try c.set ~key ~ttl_sec:300 json with _ -> ())
+            | None -> ());
+           Ok resp
+       | Error err ->
+           let err_str = match err with
+             | Http_client.HttpError { code; _ } ->
+                 Printf.sprintf "HTTP %d" code
+             | Http_client.NetworkError { message } -> message
+           in
+           m.on_error ~model_id ~error:err_str;
+           Error err)
+
+(* ── Retry ───────────────────────────────────────────── *)
 
 type retry_config = {
   max_retries: int;
@@ -57,9 +115,10 @@ let is_retryable = function
 let complete_with_retry ~sw ~net ~clock
     ~(config : Provider_config.t)
     ~(messages : Types.message list) ?(tools=[])
-    ?(retry_config=default_retry_config) () =
+    ?(retry_config=default_retry_config)
+    ?cache ?metrics () =
   let rec attempt n delay =
-    match complete ~sw ~net ~config ~messages ~tools () with
+    match complete ~sw ~net ~config ~messages ~tools ?cache ?metrics () with
     | Ok _ as success -> success
     | Error err when is_retryable err && n < retry_config.max_retries ->
         Eio.Time.sleep clock delay;
@@ -73,7 +132,7 @@ let complete_with_retry ~sw ~net ~clock
   in
   attempt 0 retry_config.initial_delay_sec
 
-(* ── Cascade: multi-provider failover ────────────────────── *)
+(* ── Cascade: multi-provider failover ────────────────── *)
 
 type cascade = {
   primary: Provider_config.t;
@@ -82,22 +141,32 @@ type cascade = {
 
 let complete_cascade ~sw ~net ?clock ?retry_config
     ~(cascade : cascade)
-    ~(messages : Types.message list) ?(tools=[]) () =
+    ~(messages : Types.message list) ?(tools=[])
+    ?cache ?metrics () =
+  let m = match metrics with Some m -> m | None -> Metrics.noop in
   let try_provider cfg =
     match clock with
     | Some clock ->
         complete_with_retry ~sw ~net ~clock ~config:cfg
-          ~messages ~tools ?retry_config ()
+          ~messages ~tools ?retry_config ?cache ?metrics ()
     | None ->
-        complete ~sw ~net ~config:cfg ~messages ~tools ()
+        complete ~sw ~net ~config:cfg ~messages ~tools ?cache ?metrics ()
   in
   match try_provider cascade.primary with
   | Ok _ as success -> success
   | Error err ->
       if is_retryable err then
+        let primary_id = cascade.primary.model_id in
         let rec try_fallbacks last_err = function
           | [] -> Error last_err
-          | fb :: rest ->
+          | (fb : Provider_config.t) :: rest ->
+              let err_str = match last_err with
+                | Http_client.HttpError { code; _ } ->
+                    Printf.sprintf "HTTP %d" code
+                | Http_client.NetworkError { message } -> message
+              in
+              m.on_cascade_fallback
+                ~from_model:primary_id ~to_model:fb.model_id ~reason:err_str;
               match try_provider fb with
               | Ok _ as success -> success
               | Error err2 ->
@@ -107,7 +176,7 @@ let complete_cascade ~sw ~net ?clock ?retry_config
         try_fallbacks err cascade.fallbacks
       else Error err
 
-(* ── Streaming ───────────────────────────────────────────── *)
+(* ── Streaming ───────────────────────────────────────── *)
 
 (** Internal: accumulate SSE events into content blocks. *)
 type stream_acc = {

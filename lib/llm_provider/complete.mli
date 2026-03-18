@@ -4,15 +4,17 @@
     Both OAS and MASC can call these functions directly.
 
     @since 0.46.0  Sync completion
-    @since 0.53.0  Streaming, retry, cascade *)
+    @since 0.53.0  Streaming, retry, cascade
+    @since 0.54.0  Optional cache + metrics hooks *)
 
 (** {1 Sync Completion} *)
 
 (** Execute a single LLM completion round-trip.
-    Builds the request body based on {!Provider_config.t.kind},
-    sends via {!Http_client.post_sync}, and parses the response.
 
-    @return [Ok api_response] on success
+    When [cache] is provided, checks cache before HTTP and stores on success.
+    When [metrics] is provided, fires lifecycle callbacks.
+
+    @return [Ok api_response] on success (possibly from cache)
     @return [Error http_error] on HTTP or network failure *)
 val complete :
   sw:Eio.Switch.t ->
@@ -20,6 +22,8 @@ val complete :
   config:Provider_config.t ->
   messages:Types.message list ->
   ?tools:Yojson.Safe.t list ->
+  ?cache:Cache.t ->
+  ?metrics:Metrics.t ->
   unit ->
   (Types.api_response, Http_client.http_error) result
 
@@ -41,7 +45,7 @@ val default_retry_config : retry_config
 val is_retryable : Http_client.http_error -> bool
 
 (** Completion with exponential backoff retry.
-    Requires an Eio clock for sleep between attempts. *)
+    Passes [cache] and [metrics] through to each attempt. *)
 val complete_with_retry :
   sw:Eio.Switch.t ->
   net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
@@ -50,6 +54,8 @@ val complete_with_retry :
   messages:Types.message list ->
   ?tools:Yojson.Safe.t list ->
   ?retry_config:retry_config ->
+  ?cache:Cache.t ->
+  ?metrics:Metrics.t ->
   unit ->
   (Types.api_response, Http_client.http_error) result
 
@@ -63,7 +69,8 @@ type cascade = {
 
 (** Execute completion with cascade failover.
     When [clock] is provided, retries are enabled per-provider.
-    On retryable failure, tries fallback providers in order. *)
+    On retryable failure, tries fallback providers in order.
+    Fires [metrics.on_cascade_fallback] on each provider switch. *)
 val complete_cascade :
   sw:Eio.Switch.t ->
   net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
@@ -72,6 +79,8 @@ val complete_cascade :
   cascade:cascade ->
   messages:Types.message list ->
   ?tools:Yojson.Safe.t list ->
+  ?cache:Cache.t ->
+  ?metrics:Metrics.t ->
   unit ->
   (Types.api_response, Http_client.http_error) result
 
