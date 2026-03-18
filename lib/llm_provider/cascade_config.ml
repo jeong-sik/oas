@@ -231,12 +231,89 @@ let filter_healthy ~sw ~net (providers : Provider_config.t list) =
     else
       cloud_providers  (* All locals unhealthy — cloud only *)
 
+(* ── Helpers ────────────────────────────────────────────── *)
+
+let text_of_response (resp : Types.api_response) : string =
+  resp.content
+  |> List.filter_map (function
+    | Types.Text t -> Some t
+    | _ -> None)
+  |> String.concat ""
+
 (* ── Named cascade execution ───────────────────────────── *)
+
+(** Accept-aware cascade: try each provider, skip on failure or rejection. *)
+let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
+    ~accept (providers : Provider_config.t list)
+    ~(messages : Types.message list) ~(tools : Yojson.Safe.t list) =
+  let m = match metrics with Some m -> m | None -> Metrics.noop in
+  let try_one cfg =
+    match clock with
+    | Some clock ->
+      Complete.complete_with_retry ~sw ~net ~clock ~config:cfg
+        ~messages ~tools ?cache ?metrics ()
+    | None ->
+      Complete.complete ~sw ~net ~config:cfg
+        ~messages ~tools ?cache ?metrics ()
+  in
+  let rec try_next last_err = function
+    | [] ->
+      let msg = match last_err with
+        | Some (Http_client.HttpError { code; body }) ->
+          Printf.sprintf "HTTP %d: %s" code
+            (if String.length body > 200
+             then String.sub body 0 200 ^ "..."
+             else body)
+        | Some (Http_client.NetworkError { message }) -> message
+        | None -> "No providers available"
+      in
+      Error (Http_client.NetworkError {
+          message = Printf.sprintf "All models failed: %s" msg
+        })
+    | (cfg : Provider_config.t) :: rest ->
+      match try_one cfg with
+      | Ok resp ->
+        if accept resp then Ok resp
+        else begin
+          (match last_err with
+           | Some (Http_client.HttpError { code; _ }) ->
+             m.on_cascade_fallback
+               ~from_model:cfg.model_id ~to_model:"next"
+               ~reason:(Printf.sprintf "rejected (prev HTTP %d)" code)
+           | _ ->
+             m.on_cascade_fallback
+               ~from_model:cfg.model_id ~to_model:"next"
+               ~reason:"rejected by accept validator");
+          try_next
+            (Some (Http_client.NetworkError {
+                 message = "response rejected by accept validator"
+               }))
+            rest
+        end
+      | Error err ->
+        let err_str = match err with
+          | Http_client.HttpError { code; _ } ->
+            Printf.sprintf "HTTP %d" code
+          | Http_client.NetworkError { message } -> message
+        in
+        (match rest with
+         | (next_cfg : Provider_config.t) :: _ ->
+           m.on_cascade_fallback
+             ~from_model:cfg.model_id ~to_model:next_cfg.model_id
+             ~reason:err_str
+         | [] -> ());
+        if Complete.is_retryable err then
+          try_next (Some err) rest
+        else
+          Error err
+  in
+  try_next None providers
 
 let complete_named ~sw ~net ?clock ?config_path
     ~name ~defaults ~messages
     ?(tools = []) ?(temperature = 0.3) ?(max_tokens = 500)
-    ?system_prompt ?cache ?metrics () =
+    ?system_prompt ?(accept = fun _ -> true)
+    ?cache ?metrics () =
   (* 1. Load from config file, fall back to defaults *)
   let model_strings =
     match config_path with
@@ -266,13 +343,6 @@ let complete_named ~sw ~net ?clock ?config_path
               "All providers unhealthy for cascade '%s'" name
         })
     else
-      (* 4. Build cascade and execute *)
-      match healthy_providers with
-      | [] ->
-        Error (Http_client.NetworkError {
-            message = Printf.sprintf "Empty provider list for '%s'" name
-          })
-      | primary :: fallbacks ->
-        let cascade : Complete.cascade = { primary; fallbacks } in
-        Complete.complete_cascade ~sw ~net ?clock
-          ~cascade ~messages ~tools ?cache ?metrics ()
+      (* 4. Execute cascade with accept validation *)
+      complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
+        ~accept healthy_providers ~messages ~tools

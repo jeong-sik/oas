@@ -83,15 +83,24 @@ val filter_healthy :
 
 (** {1 Named Cascade Execution} *)
 
+(** Extract the concatenated text content from an API response.
+    Joins all {!Types.Text} blocks. Useful for accept validators. *)
+val text_of_response : Types.api_response -> string
+
 (** Execute a cascade completion using a named profile.
 
     1. Loads the profile from [config_path] (if provided)
     2. Falls back to [defaults] when the config key is missing
     3. Filters by local endpoint health
-    4. Executes {!Complete.complete_cascade} with the resulting provider list
+    4. Executes cascade: try each provider in order, advancing on failure
+       or when [accept] returns [false]
+
+    When [accept] is provided, a successful response that the validator
+    rejects causes the cascade to try the next provider (same as a
+    retryable failure). This enables retry-on-invalid-format patterns.
 
     @return [Ok api_response] on success
-    @return [Error http_error] when all providers fail *)
+    @return [Error http_error] when all providers fail or are rejected *)
 val complete_named :
   sw:Eio.Switch.t ->
   net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
@@ -104,6 +113,7 @@ val complete_named :
   ?temperature:float ->
   ?max_tokens:int ->
   ?system_prompt:string ->
+  ?accept:(Types.api_response -> bool) ->
   ?cache:Cache.t ->
   ?metrics:Metrics.t ->
   unit ->
