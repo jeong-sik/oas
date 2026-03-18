@@ -58,7 +58,7 @@ let make_agent ~net ~name ~system_prompt ~tools =
       name;
       system_prompt = Some system_prompt;
       max_turns = 3;
-      model = Custom "qwen3.5";
+      model = "qwen3.5";
     }
     ~options:{ Agent.default_options with provider = Some provider }
     ~tools ()

@@ -39,7 +39,7 @@ let () =
   let config =
     {
       default_config with
-      model = Custom provider.model_id;
+      model = provider.model_id;
       system_prompt = Some "You are a helpful assistant.";
       max_tokens = 1024;
     }

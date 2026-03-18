@@ -4,7 +4,7 @@ open Agent_sdk
 let make_checkpoint
     ?(session_id="test-session")
     ?(agent_name="test-agent")
-    ?(model=Types.Claude_sonnet_4_6)
+    ?(model="claude-sonnet-4-6")
     ?(system_prompt=Some "You are helpful.")
     ?(messages=[])
     ?(usage=Types.empty_usage)
@@ -282,14 +282,14 @@ let () =
 
     "model", [
       test_case "Opus model roundtrip" `Quick (fun () ->
-        let cp = make_checkpoint ~model:Types.Claude_opus_4_6 () in
+        let cp = make_checkpoint ~model:"claude-opus-4-6" () in
         let cp2 = Result.get_ok (Checkpoint.of_json (Checkpoint.to_json cp)) in
-        check bool "model" true (cp2.model = Types.Claude_opus_4_6));
+        check string "model" "claude-opus-4-6" cp2.model);
 
       test_case "Custom model roundtrip" `Quick (fun () ->
-        let cp = make_checkpoint ~model:(Types.Custom "my-model-v1") () in
+        let cp = make_checkpoint ~model:"my-model-v1" () in
         let cp2 = Result.get_ok (Checkpoint.of_json (Checkpoint.to_json cp)) in
-        check bool "custom" true (cp2.model = Types.Custom "my-model-v1"));
+        check string "custom" "my-model-v1" cp2.model);
     ];
 
     "helpers", [
@@ -359,7 +359,7 @@ let () =
         Context.set ctx "key" (`String "val");
         let cp = make_checkpoint
           ~agent_name:"resume-agent"
-          ~model:Types.Claude_opus_4_6
+          ~model:"claude-opus-4-6"
           ~system_prompt:(Some "Be precise.")
           ~turn_count:3
           ~context:ctx
@@ -376,7 +376,7 @@ let () =
       test_case "override config takes precedence" `Quick (fun () ->
         let cp = make_checkpoint
           ~agent_name:"orig-agent"
-          ~model:Types.Claude_sonnet_4_6
+          ~model:"claude-sonnet-4-6"
           () in
         let override = {
           Types.default_config with

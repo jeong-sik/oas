@@ -141,7 +141,7 @@ let test_build_openai_body_with_qwen_sampling () =
   let state = {
     Types.config = {
       Types.default_config with
-      model = Types.Custom "qwen3.5-35b-a3b-ud-q8-xl";
+      model = "qwen3.5-35b-a3b-ud-q8-xl";
       temperature = Some 0.6;
       top_p = Some 0.95;
       top_k = Some 20;
@@ -171,7 +171,7 @@ let test_build_openai_body_omits_qwen_only_fields_for_generic_compat () =
   let state = {
     Types.config = {
       Types.default_config with
-      model = Types.Custom provider_config.model_id;
+      model = provider_config.model_id;
       top_p = Some 0.9;
       top_k = Some 40;
       min_p = Some 0.05;

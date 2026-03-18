@@ -12,7 +12,7 @@ let test_stream_basic () =
   let provider = local_llm_provider in
   let config = {
     Types.default_config with
-    model = Types.Custom provider.model_id;
+    model = provider.model_id;
     system_prompt = Some "You are a helpful assistant. Reply briefly.";
     max_turns = 1;
     max_tokens = 200;
@@ -74,7 +74,7 @@ let test_stream_event_sequence () =
   let provider = local_llm_provider in
   let config = {
     Types.default_config with
-    model = Types.Custom provider.model_id;
+    model = provider.model_id;
     system_prompt = Some "Reply with one word only.";
     max_turns = 1;
     max_tokens = 50;

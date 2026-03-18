@@ -8,13 +8,13 @@ open Types
 
 let model_gen =
   QCheck.Gen.oneof [
-    QCheck.Gen.return Claude_opus_4_6;
-    QCheck.Gen.return Claude_sonnet_4_6;
-    QCheck.Gen.return Claude_opus_4_5;
-    QCheck.Gen.return Claude_sonnet_4;
-    QCheck.Gen.return Claude_haiku_4_5;
-    QCheck.Gen.return Claude_3_7_sonnet;
-    QCheck.Gen.map (fun s -> Custom s) QCheck.Gen.string_printable;
+    QCheck.Gen.return "claude-opus-4-6";
+    QCheck.Gen.return "claude-sonnet-4-6";
+    QCheck.Gen.return "claude-opus-4-5";
+    QCheck.Gen.return "claude-sonnet-4";
+    QCheck.Gen.return "claude-haiku-4-5";
+    QCheck.Gen.return "claude-3-7-sonnet";
+    QCheck.Gen.string_printable;
   ]
 
 let role_gen =
@@ -72,11 +72,11 @@ let test_param_type_roundtrip =
        | Ok p' -> p = p'
        | Error _ -> false)
 
-(* Custom model: model_to_string returns the string unchanged *)
+(* Unknown model: model_to_string returns the string unchanged *)
 let test_custom_model_identity =
-  QCheck.Test.make ~count:200 ~name:"Custom model_to_string identity"
+  QCheck.Test.make ~count:200 ~name:"unknown model_to_string identity"
     QCheck.string_printable
-    (fun s -> model_to_string (Custom s) = s)
+    (fun s -> model_to_string s = s)
 
 (* add_usage commutativity: order of accumulation yields same totals *)
 let test_usage_commutativity =

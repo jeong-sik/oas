@@ -32,25 +32,24 @@ let tool_choice_of_json json =
 (* Agent-specific types (not shared with MASC)                       *)
 (* ================================================================ *)
 
-(** Supported Claude models *)
-type model =
-  | Claude_opus_4_6
-  | Claude_sonnet_4_6
-  | Claude_opus_4_5
-  | Claude_sonnet_4
-  | Claude_haiku_4_5
-  | Claude_3_7_sonnet
-  | Custom of string
+(** Model identifier — a plain string.
+    Use {!Model_registry.resolve_model_id} to resolve aliases like
+    "sonnet" → "claude-sonnet-4-6-20250514". *)
+type model = string
 [@@deriving yojson, show]
 
-let model_to_string = function
-  | Claude_opus_4_6 -> "claude-opus-4-6-20250514"
-  | Claude_sonnet_4_6 -> "claude-sonnet-4-6-20250514"
-  | Claude_opus_4_5 -> "claude-opus-4-5-20251101"
-  | Claude_sonnet_4 -> "claude-sonnet-4-20250514"
-  | Claude_haiku_4_5 -> "claude-haiku-4-5-20251001"
-  | Claude_3_7_sonnet -> "claude-3-7-sonnet-20250219"
-  | Custom s -> s
+(** Resolve a model alias to its canonical API model ID.
+    Delegates to {!Model_registry.resolve_model_id}. *)
+let model_to_string = Model_registry.resolve_model_id
+
+(* Backward-compatible constructors for code that used the old enum.
+   Each resolves the alias immediately so the config holds the full ID. *)
+let _Claude_opus_4_6 = "claude-opus-4-6"
+let _Claude_sonnet_4_6 = "claude-sonnet-4-6"
+let _Claude_opus_4_5 = "claude-opus-4-5"
+let _Claude_sonnet_4 = "claude-sonnet-4"
+let _Claude_haiku_4_5 = "claude-haiku-4-5"
+let _Claude_3_7_sonnet = "claude-3-7-sonnet"
 
 (** Agent configuration *)
 type agent_config = {
@@ -76,7 +75,7 @@ type agent_config = {
 
 let default_config = {
   name = "agent";
-  model = Claude_sonnet_4_6;
+  model = Model_registry.default_model_id;
   system_prompt = None;
   max_tokens = 4096;
   max_turns = 10;

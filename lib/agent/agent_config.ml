@@ -173,15 +173,7 @@ let load path =
 
 (** Convert a loaded config to a Builder.t. *)
 let to_builder ~net (cfg : agent_file_config) =
-  let model = match cfg.model with
-    | "claude-opus-4-6" -> Types.Claude_opus_4_6
-    | "claude-sonnet-4-6" -> Types.Claude_sonnet_4_6
-    | "claude-opus-4-5" -> Types.Claude_opus_4_5
-    | "claude-sonnet-4" -> Types.Claude_sonnet_4
-    | "claude-haiku-4-5" -> Types.Claude_haiku_4_5
-    | "claude-3-7-sonnet" -> Types.Claude_3_7_sonnet
-    | s -> Types.Custom s
-  in
+  let model = Model_registry.resolve_model_id cfg.model in
   let b = Builder.create ~net ~model in
   let b = Builder.with_name cfg.name b in
   let b = match cfg.system_prompt with

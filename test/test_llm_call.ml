@@ -18,7 +18,7 @@ let () =
     provider.model_id;
   let config = {
     Types.default_config with
-    model = Types.Custom provider.model_id;
+    model = provider.model_id;
     system_prompt = Some "You are a helpful assistant. Reply in one sentence.";
     max_turns = 1;
     max_tokens = 100;

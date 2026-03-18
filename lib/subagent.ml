@@ -41,13 +41,7 @@ type t = {
 let model_override_of_string s =
   match String.lowercase_ascii s with
   | "inherit" -> Inherit_model
-  | "sonnet" | "claude-sonnet-4-6" -> Use_model Types.Claude_sonnet_4_6
-  | "opus" | "claude-opus-4-6" -> Use_model Types.Claude_opus_4_6
-  | "claude-opus-4-5" -> Use_model Types.Claude_opus_4_5
-  | "claude-sonnet-4" -> Use_model Types.Claude_sonnet_4
-  | "haiku" | "claude-haiku-4-5" -> Use_model Types.Claude_haiku_4_5
-  | "claude-3-7-sonnet" -> Use_model Types.Claude_3_7_sonnet
-  | other -> Use_model (Types.Custom other)
+  | other -> Use_model (Model_registry.resolve_model_id other)
 
 let isolation_of_string s =
   match String.lowercase_ascii s with
