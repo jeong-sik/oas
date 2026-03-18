@@ -44,7 +44,7 @@ let openai_chat_capabilities = {
   supports_multimodal_inputs = true;
 }
 
-let qwen_openai_chat_capabilities = {
+let openai_chat_extended_capabilities = {
   openai_chat_capabilities with
   supports_reasoning = true;
   supports_top_k = true;

@@ -46,7 +46,7 @@ type t = {
 
 let create ~net ~model =
   {
-    net; model;
+    net; model = Model_registry.resolve_model_id model;
     name = default_config.name;
     system_prompt = default_config.system_prompt;
     max_tokens = default_config.max_tokens;

@@ -71,7 +71,7 @@ let openai_chat_capabilities = {
   supports_native_streaming = true;
 }
 
-let qwen_openai_chat_capabilities = {
+let openai_chat_extended_capabilities = {
   openai_chat_capabilities with
   supports_reasoning = true;
   supports_top_k = true;
@@ -80,7 +80,9 @@ let qwen_openai_chat_capabilities = {
 
 let string_contains = Util.string_contains
 
-let is_qwen_family model_id =
+(** Check if a model needs extended OpenAI capabilities
+    (reasoning, top_k, min_p). Currently triggers on qwen family models. *)
+let needs_extended_capabilities model_id =
   let normalized = String.lowercase_ascii (String.trim model_id) in
   string_contains ~needle:"qwen" normalized
 
@@ -119,7 +121,7 @@ let capabilities_for_model ~(provider : provider) ~(model_id : string) =
   match provider with
   | Anthropic | Local _ -> anthropic_capabilities
   | OpenAICompat _ ->
-      if is_qwen_family model_id then qwen_openai_chat_capabilities
+      if needs_extended_capabilities model_id then openai_chat_extended_capabilities
       else openai_chat_capabilities
   | Custom_registered { name } ->
       (match find_provider name with

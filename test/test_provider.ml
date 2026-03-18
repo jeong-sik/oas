@@ -150,7 +150,7 @@ let test_model_spec_openrouter_capabilities () =
   Alcotest.(check bool) "supports json response" true
     spec.capabilities.supports_response_format_json
 
-let test_qwen_family_openai_capabilities () =
+let test_extended_openai_capabilities () =
   let capabilities =
     Provider.capabilities_for_model
       ~provider:
@@ -248,8 +248,8 @@ let () =
         test_model_spec_local_llm_capabilities;
       Alcotest.test_case "openrouter model spec capabilities" `Quick
         test_model_spec_openrouter_capabilities;
-      Alcotest.test_case "qwen family openai capabilities" `Quick
-        test_qwen_family_openai_capabilities;
+      Alcotest.test_case "extended openai capabilities" `Quick
+        test_extended_openai_capabilities;
     ];
     "pricing", [
       Alcotest.test_case "sonnet pricing" `Quick test_pricing_sonnet;

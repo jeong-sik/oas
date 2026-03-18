@@ -55,7 +55,7 @@ let test_endpoint_status_to_json_healthy () =
     models = [{ id = "qwen3.5-35b"; owned_by = "llama-server" }];
     props = Some { total_slots = 4; ctx_size = 32768; model = "qwen3.5-35b" };
     slots = Some { total = 4; busy = 1; idle = 3 };
-    capabilities = Capabilities.qwen_openai_chat_capabilities;
+    capabilities = Capabilities.openai_chat_extended_capabilities;
   } in
   let json = Discovery.endpoint_status_to_json status in
   let open Yojson.Safe.Util in
