@@ -8,7 +8,6 @@ open Alcotest
 let test_static_source () =
   let config : Append_instruction.config = {
     sources = [Static "Always include this."];
-    position = After_system;
   } in
   match Append_instruction.render ~turn:0 config with
   | Some text -> check string "static text" "Always include this." text
@@ -17,7 +16,6 @@ let test_static_source () =
 let test_multiple_sources () =
   let config : Append_instruction.config = {
     sources = [Static "First."; Static "Second."];
-    position = After_system;
   } in
   match Append_instruction.render ~turn:0 config with
   | Some text -> check string "combined" "First.\n\nSecond." text
@@ -27,7 +25,6 @@ let test_dynamic_source () =
   let config : Append_instruction.config = {
     sources = [Dynamic (fun turn ->
       if turn >= 3 then Some "Late-game instruction" else None)];
-    position = Per_turn;
   } in
   check bool "turn 0 = None" true
     (Option.is_none (Append_instruction.render ~turn:0 config));
@@ -42,7 +39,6 @@ let test_from_context () =
   Context.set ctx "system.rules" (`String "Be concise.");
   let config : Append_instruction.config = {
     sources = [FromContext "system.rules"];
-    position = After_system;
   } in
   (match Append_instruction.render ~context:ctx ~turn:0 config with
    | Some text -> check string "from context" "Be concise." text
@@ -50,7 +46,6 @@ let test_from_context () =
   (* Missing key returns None *)
   let config2 : Append_instruction.config = {
     sources = [FromContext "missing.key"];
-    position = After_system;
   } in
   check bool "missing key = None" true
     (Option.is_none (Append_instruction.render ~context:ctx ~turn:0 config2))
@@ -62,7 +57,6 @@ let test_from_file () =
   close_out oc;
   let config : Append_instruction.config = {
     sources = [FromFile path];
-    position = After_system;
   } in
   (match Append_instruction.render ~turn:0 config with
    | Some text -> check string "from file" "File-based instruction." text
@@ -72,7 +66,6 @@ let test_from_file () =
 let test_from_file_missing () =
   let config : Append_instruction.config = {
     sources = [FromFile "/nonexistent/path.txt"];
-    position = After_system;
   } in
   check bool "missing file = None" true
     (Option.is_none (Append_instruction.render ~turn:0 config))
@@ -80,7 +73,6 @@ let test_from_file_missing () =
 let test_empty_sources () =
   let config : Append_instruction.config = {
     sources = [];
-    position = After_system;
   } in
   check bool "empty = None" true
     (Option.is_none (Append_instruction.render ~turn:0 config))
@@ -90,7 +82,6 @@ let test_empty_sources () =
 let test_hook_injects_on_before_turn_params () =
   let config : Append_instruction.config = {
     sources = [Static "Injected instruction."];
-    position = After_system;
   } in
   let hook = Append_instruction.as_hook config in
   let event = Hooks.BeforeTurnParams {
@@ -110,7 +101,6 @@ let test_hook_injects_on_before_turn_params () =
 let test_hook_appends_to_existing () =
   let config : Append_instruction.config = {
     sources = [Static "New."];
-    position = After_system;
   } in
   let hook = Append_instruction.as_hook config in
   let event = Hooks.BeforeTurnParams {
@@ -131,7 +121,6 @@ let test_hook_appends_to_existing () =
 let test_hook_continues_on_other_events () =
   let config : Append_instruction.config = {
     sources = [Static "text"];
-    position = After_system;
   } in
   let hook = Append_instruction.as_hook config in
   let event = Hooks.BeforeTurn { turn = 1; messages = [] } in

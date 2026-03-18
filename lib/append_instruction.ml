@@ -10,14 +10,8 @@ type instruction_source =
   | FromFile of string
   | Dynamic of (int -> string option)
 
-type position =
-  | Before_system
-  | After_system
-  | Per_turn
-
 type config = {
   sources: instruction_source list;
-  position: position;
 }
 
 (* ── Source rendering ────────────────────────────────────────────── *)

@@ -18,16 +18,11 @@ type instruction_source =
   | Dynamic of (int -> string option)
       (** Turn number -> optional instruction. *)
 
-(** Position in the system prompt where instructions are inserted. *)
-type position =
-  | Before_system
-  | After_system
-  | Per_turn
-
-(** Configuration for instruction injection. *)
+(** Configuration for instruction injection.
+    All sources are rendered and injected via [extra_system_context]
+    on each turn (per-turn semantics). *)
 type config = {
   sources: instruction_source list;
-  position: position;
 }
 
 (** Render all sources into a single instruction string for the given turn.
