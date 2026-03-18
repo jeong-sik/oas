@@ -201,7 +201,23 @@ let run_convergence_loop ~sw ~clock:_ ~callbacks config conv =
   let total_usage = ref Types.empty_usage in
   let t0 = Unix.gettimeofday () in
   let continue = ref true in
-  while !continue && read_state handle (fun s -> s.current_iteration) < conv.max_iterations do
+  let budget_exceeded () =
+    let u = !total_usage in
+    let elapsed = Unix.gettimeofday () -. t0 in
+    (match config.budget.max_total_tokens with
+     | Some max when u.total_input_tokens + u.total_output_tokens >= max -> true
+     | _ -> false)
+    || (match config.budget.max_total_time_sec with
+        | Some max when elapsed >= max -> true
+        | _ -> false)
+    || (match config.budget.max_total_api_calls with
+        | Some max ->
+            let iter = read_state handle (fun s -> s.current_iteration) in
+            iter * List.length config.entries >= max
+        | None -> false)
+  in
+  while !continue && not (budget_exceeded ())
+        && read_state handle (fun s -> s.current_iteration) < conv.max_iterations do
     let iter = read_state handle (fun s -> s.current_iteration) in
     fire callbacks.on_iteration_start iter;
     let results = run_agents_by_mode ~sw ~callbacks config in
