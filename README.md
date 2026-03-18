@@ -66,7 +66,7 @@ let agent =
     ~tools:[] ()
 ```
 
-See `examples/` for more: `basic_agent.ml`, `tool_use.ml`, `streaming.ml`, `proof_demo.ml`.
+See `examples/` for more: `basic_agent.ml`, `tool_use.ml`, `streaming.ml`, `review_agent.ml`, `swarm_review.ml`.
 
 ## Provider support
 
@@ -82,43 +82,54 @@ See `examples/` for more: `basic_agent.ml`, `tool_use.ml`, `streaming.ml`, `proo
 
 ## Architecture
 
+OAS has a 3-layer architecture. Each layer is a separate opam library with explicit dependencies.
+
 ```
-Types -> Provider -> Api -> Agent -> Tool
-                      |
-                   Streaming (SSE)
-                      |
-              Hooks / Guardrails / Context
+Layer 3: MASC  (external — multi-process coordination)
+            |
+Layer 2: agent_sdk_swarm  (lib_swarm/)
+            |  Swarm execution: Decentralized / Supervisor / Pipeline
+            |  Convergence loop, metric-driven iteration
+            |
+Layer 1: agent_sdk  (lib/)
+            |  Single-agent runtime: turn loop, tool dispatch, hooks
+            |
+            +-- lib/agent/       Agent lifecycle, turns, tools, handoff, builder
+            +-- lib/pipeline/    6-stage turn pipeline
+            +-- lib/protocol/    A2A, MCP, Agent Card, Agent Registry
+            +-- lib/llm_provider/  Shared LLM types, HTTP client, streaming
+            +-- lib/*.ml         Context, Hooks, Guardrails, Orchestrator, etc.
 ```
+
+### Layer 1: Agent Runtime (`agent_sdk`)
 
 | Module | Role |
 |--------|------|
 | `Types` | Domain types: message, role, stop_reason, content_block, SSE events |
 | `Provider` | LLM endpoint abstraction (Local / Anthropic / OpenAICompat / Ollama) |
 | `Api` | HTTP client: `create_message` (sync) + `create_message_stream` (SSE) |
-| `Agent` | Multi-turn agent loop with automatic tool_use handling |
-| `Tool` | Tool definition, JSON Schema generation, execution (Simple / WithContext) |
-| `Builder` | Fluent API for agent construction |
+| `Agent` | Multi-turn agent loop with automatic tool_use handling (abstract `Agent.t`) |
+| `Tool` / `Tool_set` | Tool definition, JSON Schema generation, O(1) lookup |
+| `Builder` | Fluent API for agent construction with `build_safe` validation |
 | `Hooks` | Lifecycle hooks: BeforeTurn, AfterTurn, PreToolUse, PostToolUse, OnStop |
-| `Context` | Cross-turn shared state (key-value store, `Yojson.Safe.t` values) |
+| `Context` | Cross-turn shared state (scoped key-value store, `Yojson.Safe.t` values) |
 | `Guardrails` | Tool filtering (AllowList/DenyList/Custom) + per-turn call limits |
-| `Error` | 2-level structured errors: 7 domain variants + Internal |
-| `Retry` | Structural error classification + exponential backoff with jitter |
-| `Streaming` | SSE event parsing and usage tracking |
-| `Structured` | Type-safe structured output extraction (tool_use + tool_choice) |
-| `Session` | Session lifecycle, metadata, turn counting, resume |
-| `Checkpoint` | Agent state snapshots (messages, usage, config preservation) |
-| `Handoff` | Sub-agent delegation (`transfer_to_*` tool pattern) |
-| `Subagent` | Isolated-context child agent spawning |
-| `Orchestrator` | Multi-agent task orchestration |
-| `Skill` | Reusable agent capability bundles (markdown parsing) |
-| `Context_reducer` | Message windowing (keep_last, token_budget, custom) |
-| `Mcp` | MCP client (mcp-protocol-sdk wrapper, server lifecycle) |
+| `Error` / `Error_domain` | 2-level structured errors: 7 domain variants + Internal, poly-variant mapping |
+| `Orchestrator` | Multi-agent task orchestration (Sequential, Parallel, FanOut, Pipeline, Conditional) |
+| `Log` | Structured logging with level filtering and composable sinks |
+| `Mcp` | MCP client (NDJSON-over-stdio, server lifecycle, paginated tool listing) |
+| `Streaming` | Multi-provider SSE parsing (Anthropic + OpenAI-compatible) |
+| `Pipeline` | 6-stage turn pipeline with Provider_intf routing |
 | `Contract` | Runtime contracts: instruction layers, triggers, tool grants |
-| `Otel_tracer` | OpenTelemetry-compatible tracer (OTLP JSON export) |
-| `Conformance` | Harness conformance checking and reporting |
-| `Direct_evidence` | Direct-agent proof bundle materialization |
-| `Runtime` | Session/event/command/report/proof protocol types |
-| `Client` | Persistent runtime client (connect, query, finalize) |
+
+### Layer 2: Swarm Engine (`agent_sdk_swarm`)
+
+| Module | Role |
+|--------|------|
+| `Swarm_types` | agent_role, orchestration_mode, convergence_config, agent_entry |
+| `Runner` | 3-mode swarm execution (Decentralized / Supervisor / Pipeline), convergence loop |
+| `Swarm_checkpoint` | Swarm state persistence for resume |
+| `Test_helpers` | Mock agent builders for zero-LLM testing |
 
 ## Module stability tiers
 
@@ -126,15 +137,15 @@ Not all modules are equally stable. Use this to gauge risk when depending on a m
 
 **Stable** -- safe to depend on, breaking changes only on minor version bumps:
 
-`Types`, `Error`, `Provider`, `Api`, `Agent`, `Tool`, `Hooks`, `Guardrails`, `Context`, `Builder`
+`Types`, `Error`, `Provider`, `Api`, `Agent`, `Tool`, `Tool_set`, `Hooks`, `Guardrails`, `Context`, `Builder`, `Log`
 
 **Evolving** -- API may change between minor versions:
 
-`Streaming`, `Structured`, `Orchestrator`, `Checkpoint`, `Mcp`, `Session`, `Skill`, `Subagent`, `Handoff`, `Contract`, `Context_reducer`, `Event_bus`
+`Streaming`, `Structured`, `Orchestrator`, `Checkpoint`, `Mcp`, `Session`, `Skill`, `Subagent`, `Handoff`, `Contract`, `Context_reducer`, `Event_bus`, `Pipeline`, `Error_domain`, `Provider_intf`
 
 **Experimental** -- may be redesigned or removed:
 
-`Runtime`, `Transport`, `Client`, `Sessions`, `Conformance`, `Direct_evidence`, `Raw_trace`, `Otel_tracer`, `Checkpoint_store`
+`Runtime`, `Transport`, `Client`, `Sessions`, `Conformance`, `Direct_evidence`, `Raw_trace`, `Otel_tracer`, `Checkpoint_store`, `Swarm_checkpoint`
 
 ## Tool definition
 
@@ -166,6 +177,30 @@ let counter_tool =
       Ok (string_of_int n))
 ```
 
+## Swarm execution
+
+```ocaml
+open Agent_sdk_swarm
+
+(* closure-based agents — no real LLM needed for testing *)
+let reviewer = Swarm_types.{
+  name = "reviewer";
+  run = (fun ~sw:_ prompt -> Ok { (* mock response *) });
+  role = Evaluate;
+}
+
+let config = Swarm_types.{
+  entries = [reviewer; writer; verifier];
+  mode = Supervisor;
+  convergence = { metric_fn = my_metric; threshold = 0.9;
+                  max_iterations = 5; patience = 2 };
+  callbacks = Swarm_types.default_callbacks;
+}
+
+let result = Runner.run ~sw config "Review this PR"
+(* result.converged, result.iterations, result.final_metric *)
+```
+
 ## Hooks and guardrails
 
 ```ocaml
@@ -189,14 +224,16 @@ let guardrails = {
 dune build @all
 dune runtest
 
+# Coverage report
+make coverage
+
 # Integration tests (requires local LLM server)
 LLAMA_LIVE_TEST=1 dune exec ./test/test_local_llm.exe
 LLAMA_LIVE_TEST=1 dune exec ./test/test_streaming_e2e.exe
 
 # Run examples
 dune exec examples/basic_agent.exe
-dune exec examples/tool_use.exe
-dune exec examples/streaming.exe
+dune exec examples/review_agent.exe -- jeong-sik/oas 123
 ```
 
 ## Constraints and trade-offs
@@ -206,10 +243,11 @@ dune exec examples/streaming.exe
 - tool_use loop returns the last response and stops when max_turns is exceeded.
 - Runs on a single Eio domain. No multi-core parallelism.
 - Prompt caching tracks `cache_creation_input_tokens` and `cache_read_input_tokens` in both streaming and non-streaming modes (since v0.4.0).
+- Swarm convergence loop is cooperative — if an agent blocks indefinitely, the loop stalls.
 
 ## Versioning
 
-0.43.0
+0.50.0
 
 We follow semver intent within the 0.x series:
 - **0.x.0**: May contain breaking changes with migration guide in CHANGELOG.

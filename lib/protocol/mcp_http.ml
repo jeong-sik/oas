@@ -33,7 +33,7 @@ type t = {
   id_mu: Eio.Mutex.t;
   mutable initialized: bool;
   log: Log.t;
-}
+} [@@warning "-69"]
 
 (* ── HTTP helpers ────────────────────────────────────────── *)
 

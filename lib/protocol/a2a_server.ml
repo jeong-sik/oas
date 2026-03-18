@@ -26,7 +26,7 @@ type rpc_request = {
   method_: string;
   params: Yojson.Safe.t;
   id: Yojson.Safe.t;
-}
+} [@@warning "-69"]
 
 let parse_rpc_request json =
   let open Yojson.Safe.Util in
@@ -64,7 +64,7 @@ type t = {
   mutable running: bool;
   log: Log.t;
   event_bus: Event_bus.t option;
-}
+} [@@warning "-69"]
 
 let create ?(event_bus : Event_bus.t option) ?persistent_store config =
   { config; store = A2a_task.create_store (); persistent_store;
