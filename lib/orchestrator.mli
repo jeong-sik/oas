@@ -109,6 +109,5 @@ val execute_consensus :
     becomes a single task_result attributed to [label]. *)
 val execute_hierarchical :
   sw:Eio.Switch.t -> ?clock:_ Eio.Time.clock ->
-  parent:t ->
   (string * t * plan) list ->
   task_result list

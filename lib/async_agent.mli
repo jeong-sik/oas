@@ -40,8 +40,12 @@ val is_ready : 'a future -> bool
 (** {1 Cancellation} *)
 
 (** [cancel future] resolves the future with [Error (Internal "cancelled")]
-    if it has not already been resolved. The underlying fiber may continue
-    running until it finishes naturally (cooperative cancellation). *)
+    if it has not already been resolved.
+
+    {b Limitation}: The underlying Eio fiber continues running until
+    natural completion. [cancel] only short-circuits [await] — it does
+    not stop the agent's network calls or computation. The fiber will
+    be cleaned up when the parent switch is cancelled. *)
 val cancel : 'a future -> unit
 
 (** {1 Combinators} *)

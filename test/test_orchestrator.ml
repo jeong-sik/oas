@@ -709,8 +709,7 @@ let test_hierarchical_basic () =
   let plan2 = Orchestrator.Sequential [
     { id = "s2"; prompt = "q"; agent_name = "ghost" }
   ] in
-  let parent = Orchestrator.create [] in
-  let results = Orchestrator.execute_hierarchical ~sw ~parent
+  let results = Orchestrator.execute_hierarchical ~sw
     [("sub-a", sub1, plan1); ("sub-b", sub2, plan2)] in
   check int "2 hierarchical results" 2 (List.length results);
   List.iter (fun tr ->
