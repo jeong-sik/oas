@@ -280,3 +280,102 @@ and execute_conditional_inner ~sw ?clock orch last_result plan =
         else iterate all_acc new_last (iteration + 1)
     in
     iterate [] last_result 0
+
+(* ── Consensus orchestration ─────────────────────────────────────── *)
+
+(** Strategy for selecting a winner from multiple agent results. *)
+type selection_strategy =
+  | FirstOk
+      (** First non-error result in completion order. *)
+  | BestBy of (task_result -> float)
+      (** Highest score wins. Only considers Ok results. *)
+  | MajorityText
+      (** Most common text response wins. Ties broken by first occurrence. *)
+
+(** Select the winning result from a list using the given strategy. *)
+let select_winner strategy results =
+  match strategy with
+  | FirstOk ->
+    List.find_opt (fun tr ->
+      match tr.result with Ok _ -> true | Error _ -> false
+    ) results
+  | BestBy score_fn ->
+    let scored =
+      List.filter_map (fun tr ->
+        match tr.result with
+        | Ok _ -> Some (tr, score_fn tr)
+        | Error _ -> None
+      ) results
+    in
+    (match scored with
+     | [] -> None
+     | _ ->
+       Some (fst (List.fold_left (fun (best_tr, best_s) (tr, s) ->
+         if s > best_s then (tr, s) else (best_tr, best_s)
+       ) (List.hd scored) (List.tl scored))))
+  | MajorityText ->
+    let texts =
+      List.filter_map (fun tr ->
+        match tr.result with
+        | Ok resp -> Some (tr, text_of_response resp)
+        | Error _ -> None
+      ) results
+    in
+    let counts =
+      List.fold_left (fun acc (_tr, text) ->
+        let prev = match List.assoc_opt text acc with Some n -> n | None -> 0 in
+        (text, prev + 1) :: List.remove_assoc text acc
+      ) [] texts
+    in
+    let best_text =
+      match counts with
+      | [] -> None
+      | _ ->
+        Some (fst (List.fold_left (fun (bt, bc) (t, c) ->
+          if c > bc then (t, c) else (bt, bc)
+        ) (List.hd counts) (List.tl counts)))
+    in
+    match best_text with
+    | None -> None
+    | Some text ->
+      Some (fst (List.find (fun (_tr, t) -> t = text) texts))
+
+(** Run N agents with the same prompt and select a winner.
+    All agents run in parallel. Returns all results + the selected winner.
+
+    @param agents list of agent names to participate
+    @param strategy how to pick the winning result *)
+let execute_consensus ~sw ?clock orch ~prompt ~agents ~strategy =
+  let tasks = List.mapi (fun i agent_name ->
+    { id = Printf.sprintf "consensus-%d" i; prompt; agent_name }
+  ) agents in
+  let results = execute_parallel ~sw ?clock orch tasks in
+  let winner = select_winner strategy results in
+  (results, winner)
+
+(* ── Hierarchical orchestration ──────────────────────────────────── *)
+
+(** Run sub-orchestrators as if they were agents.
+    Each [(label, sub_orch, sub_plan)] is executed independently,
+    and the collected text from each sub-plan becomes a task_result
+    attributed to [label].
+
+    Results from all sub-orchestrators are returned in input order. *)
+let execute_hierarchical ~sw ?clock ~parent:_ sub_plans =
+  Eio.Fiber.List.map (fun (label, sub_orch, sub_plan) ->
+    let t0 = Unix.gettimeofday () in
+    let sub_results = execute ~sw ?clock sub_orch sub_plan in
+    let elapsed = Unix.gettimeofday () -. t0 in
+    let combined_text = collect_text sub_results in
+    let combined_response : api_response = {
+      id = label;
+      model = "orchestrator";
+      stop_reason = EndTurn;
+      content = [Text combined_text];
+      usage = None;
+    } in
+    { task_id = label;
+      agent_name = label;
+      result = Ok combined_response;
+      elapsed }
+  ) sub_plans
