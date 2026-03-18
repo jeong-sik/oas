@@ -2,6 +2,16 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.59.0] - 2026-03-18
+
+### Added
+- `Cascade_config` module in `llm_provider`: named cascade profiles with JSON hot-reload and discovery-aware health filtering.
+  - `parse_model_string`: "provider:model" string to `Provider_config.t` (llama, claude, gemini, glm, openrouter, custom).
+  - `load_profile`: JSON config file loading with mtime-based hot-reload.
+  - `filter_healthy`: Discovery-integrated local endpoint health filtering.
+  - `complete_named`: convenience cascade execution combining config loading, health filtering, and failover.
+- 14 new tests for cascade_config (parse, config, health).
+
 ## [0.58.0] - 2026-03-18
 
 Version bump only. No functional changes since 0.57.0.

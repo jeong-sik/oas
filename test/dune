@@ -400,3 +400,7 @@
 (test
  (name test_agent_typed)
  (libraries agent_sdk alcotest yojson eio eio_main))
+
+(test
+ (name test_cascade_config)
+ (libraries llm_provider alcotest yojson unix eio eio_main))
