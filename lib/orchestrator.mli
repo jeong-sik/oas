@@ -83,3 +83,32 @@ val execute_conditional : sw:Eio.Switch.t -> ?clock:_ Eio.Time.clock -> t -> con
 
 val collect_text : task_result list -> string
 val all_ok : task_result list -> bool
+
+(** {2 Consensus Orchestration} *)
+
+(** Strategy for selecting a winner from multiple agent results. *)
+type selection_strategy =
+  | FirstOk
+  | BestBy of (task_result -> float)
+  | MajorityText
+
+val select_winner : selection_strategy -> task_result list -> task_result option
+
+(** Run all [agents] with the same [prompt] in parallel, then select
+    a winner using [strategy]. Returns [(all_results, winner)]. *)
+val execute_consensus :
+  sw:Eio.Switch.t -> ?clock:_ Eio.Time.clock ->
+  t -> prompt:string -> agents:string list ->
+  strategy:selection_strategy ->
+  task_result list * task_result option
+
+(** {2 Hierarchical Orchestration} *)
+
+(** Run sub-orchestrators as independent units. Each
+    [(label, sub_orch, sub_plan)] is executed and its collected text
+    becomes a single task_result attributed to [label]. *)
+val execute_hierarchical :
+  sw:Eio.Switch.t -> ?clock:_ Eio.Time.clock ->
+  parent:t ->
+  (string * t * plan) list ->
+  task_result list

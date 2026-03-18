@@ -649,6 +649,74 @@ let test_execute_conditional_loop_stops_on_condition () =
   let results = Orchestrator.execute_conditional ~sw orch plan in
   check int "1 iteration (until=Always)" 1 (List.length results)
 
+(* ── Consensus ─────────────────────────────────────────────────────── *)
+
+let test_consensus_first_ok () =
+  let results = [
+    err_result ~task_id:"c0" ~agent_name:"a0" (Error.Internal "fail");
+    ok_result ~task_id:"c1" ~agent_name:"a1" "winner";
+    ok_result ~task_id:"c2" ~agent_name:"a2" "also ok";
+  ] in
+  match Orchestrator.select_winner FirstOk results with
+  | Some tr -> check string "first ok agent" "a1" tr.agent_name
+  | None -> fail "expected a winner"
+
+let test_consensus_majority_text () =
+  let results = [
+    ok_result ~task_id:"c0" ~agent_name:"a0" "yes";
+    ok_result ~task_id:"c1" ~agent_name:"a1" "no";
+    ok_result ~task_id:"c2" ~agent_name:"a2" "yes";
+  ] in
+  match Orchestrator.select_winner MajorityText results with
+  | Some tr ->
+    (* "yes" appears twice, "no" once *)
+    let text = Orchestrator.collect_text [tr] in
+    check string "majority text" "yes" text
+  | None -> fail "expected a winner"
+
+let test_consensus_best_by () =
+  let score_fn tr = tr.Orchestrator.elapsed in
+  let results = [
+    { (ok_result ~task_id:"c0" ~agent_name:"slow" "x") with elapsed = 1.0 };
+    { (ok_result ~task_id:"c1" ~agent_name:"fast" "y") with elapsed = 5.0 };
+    { (ok_result ~task_id:"c2" ~agent_name:"mid" "z") with elapsed = 3.0 };
+  ] in
+  match Orchestrator.select_winner (BestBy score_fn) results with
+  | Some tr -> check string "highest score" "fast" tr.agent_name
+  | None -> fail "expected a winner"
+
+let test_consensus_all_error () =
+  let results = [
+    err_result ~task_id:"c0" ~agent_name:"a0" (Error.Internal "e1");
+    err_result ~task_id:"c1" ~agent_name:"a1" (Error.Internal "e2");
+  ] in
+  match Orchestrator.select_winner FirstOk results with
+  | None -> ()
+  | Some _ -> fail "expected no winner"
+
+(* ── Hierarchical ──────────────────────────────────────────────── *)
+
+let test_hierarchical_basic () =
+  Eio_main.run @@ fun _env ->
+  Eio.Switch.run @@ fun sw ->
+  (* Two sub-orchestrators, each with no agents (returns UnknownAgent errors).
+     Hierarchical wraps each sub-orch result into a single task_result. *)
+  let sub1 = Orchestrator.create [] in
+  let sub2 = Orchestrator.create [] in
+  let plan1 = Orchestrator.Sequential [
+    { Orchestrator.id = "s1"; prompt = "p"; agent_name = "ghost" }
+  ] in
+  let plan2 = Orchestrator.Sequential [
+    { id = "s2"; prompt = "q"; agent_name = "ghost" }
+  ] in
+  let parent = Orchestrator.create [] in
+  let results = Orchestrator.execute_hierarchical ~sw ~parent
+    [("sub-a", sub1, plan1); ("sub-b", sub2, plan2)] in
+  check int "2 hierarchical results" 2 (List.length results);
+  List.iter (fun tr ->
+    check bool "has result" true (Result.is_ok tr.Orchestrator.result)
+  ) results
+
 (* ── Suite ────────────────────────────────────────────────────────── *)
 
 let () =
@@ -760,5 +828,14 @@ let () =
       test_case "cond_parallel" `Quick test_execute_conditional_cond_parallel;
       test_case "loop max_iterations" `Quick test_execute_conditional_loop_max_iterations;
       test_case "loop stops on condition" `Quick test_execute_conditional_loop_stops_on_condition;
+    ];
+    "consensus", [
+      test_case "first_ok" `Quick test_consensus_first_ok;
+      test_case "majority_text" `Quick test_consensus_majority_text;
+      test_case "best_by" `Quick test_consensus_best_by;
+      test_case "all_error" `Quick test_consensus_all_error;
+    ];
+    "hierarchical", [
+      test_case "sub_orchestrators" `Quick test_hierarchical_basic;
     ];
   ]
