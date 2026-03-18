@@ -22,3 +22,13 @@ let ollama_model =
 
 let fallback_provider =
   env_or "local-qwen" "OAS_FALLBACK_PROVIDER"
+
+(** Default context reducer: repair dangling tool calls + prune old tool args.
+    Applied automatically unless the user provides a custom reducer.
+    Compose order: repair first (fix broken pairs), then prune (reduce tokens). *)
+let default_context_reducer =
+  Context_reducer.compose [
+    Context_reducer.repair_dangling_tool_calls;
+    Context_reducer.prune_tool_args ~max_arg_len:2000 ();
+    Context_reducer.drop_thinking;
+  ]
