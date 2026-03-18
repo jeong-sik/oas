@@ -39,13 +39,11 @@ val is_ready : 'a future -> bool
 
 (** {1 Cancellation} *)
 
-(** [cancel future] resolves the future with [Error (Internal "cancelled")]
-    if it has not already been resolved.
+(** [cancel future] terminates the agent's execution by:
+    1. Resolving the promise with [Error (Internal "cancelled")]
+    2. Failing the agent's sub-switch, cancelling all in-flight I/O
 
-    {b Limitation}: The underlying Eio fiber continues running until
-    natural completion. [cancel] only short-circuits [await] — it does
-    not stop the agent's network calls or computation. The fiber will
-    be cleaned up when the parent switch is cancelled. *)
+    If the agent has already completed, this is a no-op. *)
 val cancel : 'a future -> unit
 
 (** {1 Combinators} *)
