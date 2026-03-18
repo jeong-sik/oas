@@ -28,7 +28,11 @@ let spawn ~sw ?clock agent prompt =
   let resolved = Atomic.make false in
   let future = { promise; resolver; resolved } in
   Eio.Fiber.fork ~sw (fun () ->
-    let result = Agent.run ~sw ?clock agent prompt in
+    let result =
+      try Agent.run ~sw ?clock agent prompt
+      with exn ->
+        Error (Error.Internal (Printexc.to_string exn))
+    in
     resolve_once future result);
   future
 
