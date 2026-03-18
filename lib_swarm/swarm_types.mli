@@ -42,14 +42,28 @@ type convergence_config = {
   aggregate: aggregate_strategy;
 }
 
+(** {1 Agent Telemetry} *)
+
+(** Per-agent telemetry collected after each run.
+    Exposed to swarm consumers so they don't need to
+    re-query Layer 1 internals. *)
+type agent_telemetry = {
+  trace_ref: Raw_trace.run_ref option;
+}
+[@@deriving show]
+
+val empty_telemetry : agent_telemetry
+
 (** {1 Swarm Configuration} *)
 
 (** Closure-based agent entry. [run] captures the agent and clock
-    so that the swarm runner only needs [sw] and [prompt]. *)
+    so that the swarm runner only needs [sw] and [prompt].
+    [get_telemetry] optionally extracts Layer 1 telemetry after each run. *)
 type agent_entry = {
   name: string;
   run: sw:Eio.Switch.t -> string -> (Types.api_response, Error.sdk_error) result;
   role: agent_role;
+  get_telemetry: (unit -> agent_telemetry) option;
 }
 
 (** Wrap an {!Agent.t} into an {!agent_entry}.
@@ -84,8 +98,10 @@ type swarm_config = {
 type agent_status =
   | Idle
   | Working
-  | Done_ok of { elapsed: float; text: string }
-  | Done_error of { elapsed: float; error: string }
+  | Done_ok of { elapsed: float; text: string;
+                 telemetry: agent_telemetry }
+  | Done_error of { elapsed: float; error: string;
+                    telemetry: agent_telemetry }
 [@@deriving show]
 
 type iteration_record = {
@@ -94,6 +110,7 @@ type iteration_record = {
   agent_results: (string * agent_status) list;
   elapsed: float;
   timestamp: float;
+  trace_refs: Raw_trace.run_ref list;
 }
 
 type swarm_state = {

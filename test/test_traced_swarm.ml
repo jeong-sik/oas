@@ -37,6 +37,7 @@ let traced_mock_entry ~trace_dir ~name ~tool_names text =
       Ok { Types.id = "m"; model = "m"; stop_reason = EndTurn;
            content = [Text text]; usage = None });
     role = Execute;
+    get_telemetry = None;
   }
 
 (* ── Tests ────────────────────────────────────────────────── *)
