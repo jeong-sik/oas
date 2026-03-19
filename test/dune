@@ -428,3 +428,7 @@
 (test
  (name test_eval_baseline)
  (libraries agent_sdk alcotest yojson unix))
+
+(test
+ (name test_provider_registry)
+ (libraries llm_provider alcotest yojson))
