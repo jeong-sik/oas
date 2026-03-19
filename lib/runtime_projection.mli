@@ -15,9 +15,11 @@
 val initial_session : Runtime.start_request -> Runtime.session
 
 (** Apply a single event to a session, evolving its state.
-    Returns [Error] if the session is in a terminal phase
-    ([Completed], [Failed], [Cancelled]) when a non-terminal
-    event is applied. *)
+    Returns [Error] for active-phase-only events applied after the session
+    reaches a terminal phase ([Completed], [Failed], [Cancelled]).
+    Lifecycle/meta events such as [Session_started] and
+    [Session_settings_updated] remain accepted by the current
+    implementation. *)
 val apply_event :
   Runtime.session -> Runtime.event -> (Runtime.session, Error.sdk_error) result
 
