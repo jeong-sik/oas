@@ -138,6 +138,7 @@ let create_agent ~net ?name ?model ?system_prompt ?max_tokens ?max_turns
     cache_system_prompt = Option.value cache_system_prompt ~default:default_config.cache_system_prompt;
     max_input_tokens = default_config.max_input_tokens;
     max_total_tokens = default_config.max_total_tokens;
+    initial_messages = default_config.initial_messages;
   } in
   let options = match provider, raw_trace with
     | None, None -> Agent.default_options

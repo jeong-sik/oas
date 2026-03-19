@@ -27,6 +27,7 @@ val with_max_input_tokens : int -> t -> t
 val with_max_total_tokens : int -> t -> t
 val with_response_format_json : bool -> t -> t
 val with_cache_system_prompt : bool -> t -> t
+val with_initial_messages : Types.message list -> t -> t
 
 (** {2 Tools and MCP} *)
 

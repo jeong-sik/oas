@@ -22,6 +22,7 @@ type t = {
   cache_system_prompt: bool;
   max_input_tokens: int option;
   max_total_tokens: int option;
+  initial_messages: message list;
   tools: Tool_set.t;
   context: Context.t option;
   base_url: string;
@@ -63,6 +64,7 @@ let create ~net ~model =
     cache_system_prompt = default_config.cache_system_prompt;
     max_input_tokens = default_config.max_input_tokens;
     max_total_tokens = default_config.max_total_tokens;
+    initial_messages = default_config.initial_messages;
     tools = Tool_set.empty;
     context = None;
     base_url = Api.default_base_url;
@@ -123,6 +125,7 @@ let with_max_input_tokens n b = { b with max_input_tokens = Some n }
 let with_max_total_tokens n b = { b with max_total_tokens = Some n }
 let with_response_format_json v b = { b with response_format_json = v }
 let with_cache_system_prompt v b = { b with cache_system_prompt = v }
+let with_initial_messages msgs b = { b with initial_messages = msgs }
 let with_event_bus bus b = { b with event_bus = Some bus }
 let with_cascade cascade b = { b with cascade = Some cascade }
 let with_max_idle_turns n b = { b with max_idle_turns = n }
@@ -174,6 +177,7 @@ let build b =
     cache_system_prompt = b.cache_system_prompt;
     max_input_tokens = b.max_input_tokens;
     max_total_tokens = b.max_total_tokens;
+    initial_messages = b.initial_messages;
   } in
   let options = {
     Agent_types.base_url = b.base_url;

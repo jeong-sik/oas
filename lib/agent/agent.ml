@@ -40,10 +40,16 @@ let check_token_budget = Agent_turn.check_token_budget
 
 (* ── Unified run loop ────────────────────────────────────────── *)
 
+(** Prepend initial_messages on first run (when messages are empty). *)
+let base_messages agent =
+  match agent.state.messages with
+  | [] -> agent.state.config.initial_messages
+  | msgs -> msgs
+
 let run_loop ~sw ?clock ~api_strategy agent user_prompt =
+  let user_msg = { role = User; content = [Text user_prompt]; name = None; tool_call_id = None } in
   agent.state <- { agent.state with
-    messages = Util.snoc agent.state.messages
-      { role = User; content = [Text user_prompt]; name = None; tool_call_id = None } };
+    messages = Util.snoc (base_messages agent) user_msg };
   with_raw_trace_run agent user_prompt @@ fun raw_trace_run ->
   let rec loop () =
     if agent.state.turn_count >= agent.state.config.max_turns then
@@ -110,9 +116,9 @@ let run_with_handoffs ~sw ?clock agent ~targets user_prompt =
   let all_tools = Tool_set.merge agent.tools (Tool_set.of_list handoff_tools) in
   let agent_with_handoffs = { agent with tools = all_tools } in
 
+  let user_msg = { role = User; content = [Text user_prompt]; name = None; tool_call_id = None } in
   agent_with_handoffs.state <- { agent_with_handoffs.state with
-    messages = Util.snoc agent_with_handoffs.state.messages
-      { role = User; content = [Text user_prompt]; name = None; tool_call_id = None } };
+    messages = Util.snoc (base_messages agent_with_handoffs) user_msg };
 
   with_raw_trace_run agent_with_handoffs user_prompt @@ fun raw_trace_run ->
   let rec loop () =

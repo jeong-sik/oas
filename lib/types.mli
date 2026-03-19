@@ -45,6 +45,7 @@ type agent_config = {
   cache_system_prompt: bool;
   max_input_tokens: int option;
   max_total_tokens: int option;
+  initial_messages: message list;
 }
 [@@deriving show]
 
