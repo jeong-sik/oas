@@ -2,6 +2,12 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.69.0] - 2026-03-19
+
+### Added
+- **Provider Registry** (`Provider_registry`): extensible provider catalog with `register`/`unregister`/`find`/`available`/`find_capable`. Pre-populated with 5 known providers (llama, claude, gemini, glm, openrouter). Formalizes the hardcoded `known_providers` list from `Cascade_config`.
+- **Capability Filter** (`Capability_filter`): composable predicates for capability-aware provider selection. `requires_tools`, `requires_streaming`, `requires_reasoning`, `requires_all`/`requires_any` combinators.
+
 ## [0.68.1] - 2026-03-19
 
 ### Fixed

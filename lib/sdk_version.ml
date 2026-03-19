@@ -1,5 +1,5 @@
 (** Single source of truth for the SDK version string.
     All other modules reference this instead of hardcoding. *)
 
-let version = "0.68.1"
+let version = "0.69.0"
 let sdk_name = "agent_sdk"
