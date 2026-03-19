@@ -2,6 +2,17 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.71.0] - 2026-03-19
+
+### Added
+- **Named Cascade API**: `Api.named_cascade`, `Builder.with_named_cascade` — named cascade profiles integrated into Agent/Builder layer. Pipeline routes through `Cascade_config.complete_named` with automatic failover.
+- `.mli` API contracts for 13 modules: runtime_projection, transport, a2a_task, mcp, conformance, direct_evidence, runtime_server, runtime_store, runtime_evidence, agent_config, otel_tracer, streaming, internal_query_engine. Total .mli coverage: 61 -> 74/128 (48% -> 58%).
+- Stream accumulator tests (23 cases): `create_stream_acc`, `accumulate_event`, `finalize_stream_acc`, `map_http_error`.
+- Coverage tests for cache, pipeline, streaming, structured modules.
+
+### Changed
+- **Exception handling**: 16 catch-all `| exn ->` patterns narrowed to specific types across 10 files. `async_agent.ml` now re-raises `Out_of_memory`/`Stack_overflow`/`Sys.Break` (bug fix).
+
 ## [0.70.0] - 2026-03-19
 
 ### Added
