@@ -53,10 +53,15 @@ let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tra
   let triple = match tool_opt with
   | Some tool ->
     let result = Tool.execute ~context tool input in
+    let result_bytes = match result with
+      | Ok { content } -> String.length content
+      | Error { message; _ } -> String.length message
+    in
     let _post =
       invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count
         ~hook_name:"post_tool_use" hooks.post_tool_use
-        (Hooks.PostToolUse { tool_name = name; input; output = result })
+        (Hooks.PostToolUse { tool_name = name; input; output = result;
+                             result_bytes })
     in
     (match result with
      | Error { message; _ } ->
@@ -90,7 +95,8 @@ let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tra
     Applies PreToolUse/PostToolUse hooks and passes context to context-aware handlers.
     Each fiber catches exceptions to prevent one tool failure from canceling siblings. *)
 let execute_tools ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tracer
-    ~agent_name ~turn_count ~approval ?on_tool_execution_started
+    ~agent_name ~turn_count ~(usage : Types.usage_stats) ~approval
+    ?on_tool_execution_started
     ?on_tool_execution_finished ?on_hook_invoked tool_uses =
   Eio.Fiber.List.map (fun block ->
     match block with
@@ -108,7 +114,9 @@ let execute_tools ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tracer
               let decision =
                 invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count
                   ~hook_name:"pre_tool_use" hooks.pre_tool_use
-                  (Hooks.PreToolUse { tool_name = name; input })
+                  (Hooks.PreToolUse { tool_name = name; input;
+                                     accumulated_cost_usd = usage.Types.estimated_cost_usd;
+                                     turn = turn_count })
               in
               (match decision with
               | Hooks.Skip -> (id, "Tool execution skipped by hook", false)

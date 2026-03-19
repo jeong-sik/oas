@@ -83,8 +83,10 @@ type hook_event =
       reasoning: reasoning_summary;
     }
   | AfterTurn of { turn: int; response: api_response }
-  | PreToolUse of { tool_name: string; input: Yojson.Safe.t }
-  | PostToolUse of { tool_name: string; input: Yojson.Safe.t; output: Types.tool_result }
+  | PreToolUse of { tool_name: string; input: Yojson.Safe.t;
+                    accumulated_cost_usd: float; turn: int }
+  | PostToolUse of { tool_name: string; input: Yojson.Safe.t;
+                     output: Types.tool_result; result_bytes: int }
   | PostToolUseFailure of { tool_name: string; input: Yojson.Safe.t; error: string }
   | OnStop of { reason: stop_reason; response: api_response }
   | OnIdle of { consecutive_idle_turns: int; tool_names: string list }

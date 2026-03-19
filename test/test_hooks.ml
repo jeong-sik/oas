@@ -25,13 +25,13 @@ let test_invoke_continue () =
 let test_invoke_skip () =
   let hook _event = Hooks.Skip in
   let result = Hooks.invoke (Some hook)
-    (Hooks.PreToolUse { tool_name = "echo"; input = `Null }) in
+    (Hooks.PreToolUse { tool_name = "echo"; input = `Null; accumulated_cost_usd = 0.0; turn = 0 }) in
   check bool "hook returns Skip" true (result = Hooks.Skip)
 
 let test_invoke_override () =
   let hook _event = Hooks.Override "custom value" in
   let result = Hooks.invoke (Some hook)
-    (Hooks.PreToolUse { tool_name = "echo"; input = `Null }) in
+    (Hooks.PreToolUse { tool_name = "echo"; input = `Null; accumulated_cost_usd = 0.0; turn = 0 }) in
   check bool "hook returns Override" true (result = Hooks.Override "custom value")
 
 let test_hook_receives_event () =
@@ -43,7 +43,7 @@ let test_hook_receives_event () =
     | _ -> Hooks.Continue
   in
   let _result = Hooks.invoke (Some hook)
-    (Hooks.PreToolUse { tool_name = "test_tool"; input = `Null }) in
+    (Hooks.PreToolUse { tool_name = "test_tool"; input = `Null; accumulated_cost_usd = 0.0; turn = 0 }) in
   check string "hook received tool_name" "test_tool" !received
 
 let test_post_tool_use_event () =
@@ -58,7 +58,8 @@ let test_post_tool_use_event () =
     (Hooks.PostToolUse {
       tool_name = "echo";
       input = `Null;
-      output = Ok { Types.content = "hello" }
+      output = Ok { Types.content = "hello" };
+      result_bytes = 5
     }) in
   check string "hook received output" "hello" !received_output
 
@@ -80,7 +81,7 @@ let test_post_tool_use_failure_event () =
 let test_invoke_approval_required () =
   let hook _event = Hooks.ApprovalRequired in
   let result = Hooks.invoke (Some hook)
-    (Hooks.PreToolUse { tool_name = "dangerous"; input = `Null }) in
+    (Hooks.PreToolUse { tool_name = "dangerous"; input = `Null; accumulated_cost_usd = 0.0; turn = 0 }) in
   check bool "hook returns ApprovalRequired" true (result = Hooks.ApprovalRequired)
 
 let () =

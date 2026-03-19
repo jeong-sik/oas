@@ -54,7 +54,8 @@ let execute_tools_with_trace agent active_run tool_uses =
     ~context:agent.context ~tools:(Tool_set.to_list agent.tools)
     ~hooks:agent.options.hooks ~event_bus:agent.options.event_bus
     ~tracer:agent.options.tracer ~agent_name:agent.state.config.name
-    ~turn_count:agent.state.turn_count ~approval:agent.options.approval
+    ~turn_count:agent.state.turn_count ~usage:agent.state.usage
+    ~approval:agent.options.approval
     ?on_tool_execution_started ?on_tool_execution_finished ~on_hook_invoked
     tool_uses
 
