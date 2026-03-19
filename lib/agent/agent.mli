@@ -67,6 +67,7 @@ val create :
   ?config:Types.agent_config ->
   ?tools:Tool.t list ->
   ?context:Context.t ->
+  ?named_cascade:Api.named_cascade ->
   ?options:options ->
   unit -> t
 
@@ -120,6 +121,7 @@ val resume :
   checkpoint:Checkpoint.t ->
   ?tools:Tool.t list ->
   ?context:Context.t ->
+  ?named_cascade:Api.named_cascade ->
   ?options:options ->
   ?config:Types.agent_config ->
   unit -> t

@@ -141,56 +141,70 @@ let stage_route ~sw ?clock ~api_strategy agent prep =
         agent_name = agent.state.config.name;
         turn = agent.state.turn_count; extra = [] }
       (fun _tracer ->
-        match agent.options.cascade with
-        | Some casc ->
-          Api.create_message_cascade ~sw ~net:agent.net ?clock
-            ~cascade:casc ~config:agent.state
+        match agent.named_cascade with
+        | Some named ->
+          Api.create_message_named ~sw ~net:agent.net ?clock
+            ~named_cascade:named ~config:agent.state
             ~messages:prep.Agent_turn.effective_messages
             ?tools:prep.tools_json ()
         | None ->
-          Api.create_message ~sw ~net:agent.net
-            ~base_url:agent.options.base_url
-            ?provider:agent.options.provider ?clock ~config:agent.state
-            ~messages:prep.effective_messages ?tools:prep.tools_json ())
+          (match agent.options.cascade with
+           | Some casc ->
+             Api.create_message_cascade ~sw ~net:agent.net ?clock
+               ~cascade:casc ~config:agent.state
+               ~messages:prep.Agent_turn.effective_messages
+               ?tools:prep.tools_json ()
+           | None ->
+             Api.create_message ~sw ~net:agent.net
+               ~base_url:agent.options.base_url
+               ?provider:agent.options.provider ?clock ~config:agent.state
+               ~messages:prep.effective_messages ?tools:prep.tools_json ()))
   | Stream { on_event } ->
     Tracing.with_span agent.options.tracer
       { kind = Api_call; name = "create_message_stream";
         agent_name = agent.state.config.name;
         turn = agent.state.turn_count; extra = [] }
       (fun _tracer ->
-        let can_stream = match agent.options.provider with
-          | Some p -> Provider_intf.supports_streaming p
-          | None -> true  (* Default Anthropic supports streaming *)
-        in
-        if can_stream then
-          Streaming.create_message_stream ~sw ~net:agent.net
-            ~base_url:agent.options.base_url
-            ?provider:agent.options.provider
-            ~config:agent.state ~messages:prep.effective_messages
-            ?tools:prep.tools_json ~on_event ()
-        else
-          (* Provider does not support native streaming —
-             fall back to sync call + synthetic SSE events. *)
-          let sync_result =
-            match agent.options.cascade with
-            | Some casc ->
-              Api.create_message_cascade ~sw ~net:agent.net ?clock
-                ~cascade:casc ~config:agent.state
-                ~messages:prep.effective_messages
-                ?tools:prep.tools_json ()
-            | None ->
-              Api.create_message ~sw ~net:agent.net
-                ~base_url:agent.options.base_url
-                ?provider:agent.options.provider ?clock
-                ~config:agent.state
-                ~messages:prep.effective_messages
-                ?tools:prep.tools_json ()
+        match agent.named_cascade with
+        | Some named ->
+          Api.create_message_named_stream ~sw ~net:agent.net ?clock
+            ~named_cascade:named ~config:agent.state
+            ~messages:prep.effective_messages ?tools:prep.tools_json
+            ~on_event ()
+        | None ->
+          let can_stream = match agent.options.provider with
+            | Some p -> Provider_intf.supports_streaming p
+            | None -> true  (* Default Anthropic supports streaming *)
           in
-          (match sync_result with
-           | Ok response ->
-             Streaming.emit_synthetic_events response on_event;
-             Ok response
-           | Error _ -> sync_result))
+          if can_stream then
+            Streaming.create_message_stream ~sw ~net:agent.net
+              ~base_url:agent.options.base_url
+              ?provider:agent.options.provider
+              ~config:agent.state ~messages:prep.effective_messages
+              ?tools:prep.tools_json ~on_event ()
+          else
+            (* Provider does not support native streaming —
+               fall back to sync call + synthetic SSE events. *)
+            let sync_result =
+              match agent.options.cascade with
+              | Some casc ->
+                Api.create_message_cascade ~sw ~net:agent.net ?clock
+                  ~cascade:casc ~config:agent.state
+                  ~messages:prep.effective_messages
+                  ?tools:prep.tools_json ()
+              | None ->
+                Api.create_message ~sw ~net:agent.net
+                  ~base_url:agent.options.base_url
+                  ?provider:agent.options.provider ?clock
+                  ~config:agent.state
+                  ~messages:prep.effective_messages
+                  ?tools:prep.tools_json ()
+            in
+            (match sync_result with
+             | Ok response ->
+               Streaming.emit_synthetic_events response on_event;
+               Ok response
+             | Error _ -> sync_result))
 
 (* ── Stage 4: Collect ────────────────────────────────────── *)
 

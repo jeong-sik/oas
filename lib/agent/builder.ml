@@ -29,6 +29,7 @@ type t = {
   base_url: string;
   provider: Provider.config option;
   cascade: Provider.cascade option;
+  named_cascade: Api.named_cascade option;
   max_idle_turns: int;
   hooks: Hooks.hooks;
   guardrails: Guardrails.t;
@@ -72,6 +73,7 @@ let create ~net ~model =
     base_url = Api.default_base_url;
     provider = None;
     cascade = None;
+    named_cascade = None;
     max_idle_turns = 3;
     hooks = Hooks.empty;
     guardrails = Guardrails.default;
@@ -131,6 +133,7 @@ let with_response_format_json v b = { b with response_format_json = v }
 let with_cache_system_prompt v b = { b with cache_system_prompt = v }
 let with_event_bus bus b = { b with event_bus = Some bus }
 let with_cascade cascade b = { b with cascade = Some cascade }
+let with_named_cascade named_cascade b = { b with named_cascade = Some named_cascade }
 let with_max_idle_turns n b = { b with max_idle_turns = n }
 let with_context_injector injector b = { b with context_injector = Some injector }
 let with_skill_registry reg b = { b with skill_registry = Some reg }
@@ -202,7 +205,8 @@ let build b =
     description = b.description;
     periodic_callbacks = b.periodic_callbacks;
   } in
-  Agent.create ~net:b.net ~config ~tools:(Tool_set.to_list tools) ?context ~options ()
+  Agent.create ~net:b.net ~config ~tools:(Tool_set.to_list tools) ?context
+    ?named_cascade:b.named_cascade ~options ()
 
 let build_safe b =
   if b.max_turns <= 0 then
