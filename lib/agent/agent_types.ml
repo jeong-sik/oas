@@ -132,7 +132,7 @@ let create ~net ?(config=default_config) ?(tools=[]) ?context
     List.concat_map (fun (m : Mcp.managed) -> m.tools) options.mcp_clients
   in
   let all_tools = Tool_set.merge (Tool_set.of_list tools) (Tool_set.of_list mcp_tools) in
-  let state = { config; messages = []; turn_count = 0; usage = empty_usage } in
+  let state = { config; messages = config.initial_messages; turn_count = 0; usage = empty_usage } in
   let ctx = match context with
     | Some c -> c
     | None -> Context.create ()

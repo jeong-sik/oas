@@ -123,6 +123,7 @@ let with_disable_parallel_tool_use v b = { b with disable_parallel_tool_use = v 
 let with_thinking_budget n b = { b with thinking_budget = Some n }
 let with_max_input_tokens n b = { b with max_input_tokens = Some n }
 let with_max_total_tokens n b = { b with max_total_tokens = Some n }
+let with_initial_messages msgs b = { b with initial_messages = msgs }
 let with_response_format_json v b = { b with response_format_json = v }
 let with_cache_system_prompt v b = { b with cache_system_prompt = v }
 let with_initial_messages msgs b = { b with initial_messages = msgs }
