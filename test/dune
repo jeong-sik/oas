@@ -402,5 +402,9 @@
  (libraries agent_sdk alcotest yojson eio eio_main))
 
 (test
+ (name test_initial_messages)
+ (libraries agent_sdk alcotest yojson eio eio_main))
+
+(test
  (name test_cascade_config)
  (libraries llm_provider alcotest yojson unix eio eio_main))

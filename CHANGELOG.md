@@ -2,6 +2,16 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.61.0] - 2026-03-19
+
+### Added
+- `agent_config.initial_messages`: seed agent conversations with prior history on first run. Enables multi-turn context continuity for MASC Keeper migration. (#214)
+- `Builder.with_initial_messages`: builder API for setting initial messages. (#214)
+
+### Confirmed
+- `turn_params.tool_filter_override` already implements per-turn tool filtering (#216). No additional changes needed.
+- `Agent.run_stream` already provides streaming; #215 requires MASC-side changes only.
+
 ## [0.60.0] - 2026-03-19
 
 ### Added

@@ -135,3 +135,4 @@ val lifecycle_snapshot : t -> lifecycle_snapshot option
 (** {1 Internal (testing only -- do not use in production code)} *)
 
 val set_state : t -> Types.agent_state -> unit
+val base_messages : t -> Types.message list

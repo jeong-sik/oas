@@ -61,6 +61,7 @@ type agent_config = {
   cache_system_prompt: bool; (* Wrap system prompt with cache_control ephemeral *)
   max_input_tokens: int option; (* Token budget: max cumulative input tokens *)
   max_total_tokens: int option; (* Token budget: max cumulative total tokens *)
+  initial_messages: message list; (* Seed conversation with prior history on first run *)
 }
 [@@deriving show]
 
@@ -82,6 +83,7 @@ let default_config = {
   cache_system_prompt = false;
   max_input_tokens = None;
   max_total_tokens = None;
+  initial_messages = [];
 }
 
 (* Usage tracking *)
