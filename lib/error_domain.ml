@@ -18,6 +18,7 @@ type tool_error = [
 type agent_error = [
   | `Max_turns_exceeded of int * int
   | `Token_budget_exceeded of int * int
+  | `Cost_budget_exceeded
   | `Idle_detected of int
   | `Unrecognized_stop_reason of string
 ]
@@ -70,6 +71,7 @@ let of_sdk_error (err : Error.sdk_error) : sdk_error_poly =
   | Error.Api err -> (of_api_error err :> sdk_error_poly)
   | Error.Agent (MaxTurnsExceeded r) -> `Max_turns_exceeded (r.turns, r.limit)
   | Error.Agent (TokenBudgetExceeded r) -> `Token_budget_exceeded (r.used, r.limit)
+  | Error.Agent (CostBudgetExceeded _) -> `Cost_budget_exceeded
   | Error.Agent (IdleDetected r) -> `Idle_detected r.consecutive_idle_turns
   | Error.Agent (UnrecognizedStopReason r) -> `Unrecognized_stop_reason r.reason
   | Error.Config (MissingEnvVar r) -> `Missing_env_var r.var_name
@@ -108,6 +110,8 @@ let to_sdk_error (err : sdk_error_poly) : Error.sdk_error =
     Error.Agent (MaxTurnsExceeded { turns; limit })
   | `Token_budget_exceeded (used, limit) ->
     Error.Agent (TokenBudgetExceeded { kind = "total"; used; limit })
+  | `Cost_budget_exceeded ->
+    Error.Agent (CostBudgetExceeded { spent_usd = 0.0; limit_usd = 0.0 })
   | `Idle_detected n ->
     Error.Agent (IdleDetected { consecutive_idle_turns = n })
   | `Unrecognized_stop_reason reason ->

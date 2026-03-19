@@ -81,7 +81,8 @@ let test_builder_initial_messages () =
   let st = Agent.state agent in
   check int "config has 2 initial messages" 2
     (List.length st.config.initial_messages);
-  check int "state messages empty" 0 (List.length st.messages)
+  (* create initializes messages = config.initial_messages (agent_types.ml) *)
+  check int "state messages seeded from initial" 2 (List.length st.messages)
 
 let test_config_show () =
   (* Verify [@@deriving show] works with initial_messages *)

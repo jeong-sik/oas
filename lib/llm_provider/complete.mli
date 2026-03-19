@@ -101,3 +101,28 @@ val complete_stream :
   on_event:(Types.sse_event -> unit) ->
   unit ->
   (Types.api_response, Http_client.http_error) result
+
+(** {1 Streaming Cascade} *)
+
+(** Streaming completion with cascade failover.
+
+    Tries the primary provider with streaming, falling back to
+    each fallback provider on retryable errors. Failover only occurs
+    before the SSE stream begins (on connection/HTTP errors).
+    Once streaming starts, the provider is committed.
+
+    No retry per-provider (streaming is not retryable mid-stream).
+    No caching (streaming responses are not cacheable).
+    No [accept] validator (events are already emitted to [on_event]).
+
+    @since 0.61.0 *)
+val complete_stream_cascade :
+  sw:Eio.Switch.t ->
+  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
+  cascade:cascade ->
+  messages:Types.message list ->
+  ?tools:Yojson.Safe.t list ->
+  on_event:(Types.sse_event -> unit) ->
+  ?metrics:Metrics.t ->
+  unit ->
+  (Types.api_response, Http_client.http_error) result

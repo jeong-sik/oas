@@ -365,3 +365,103 @@ let complete_named ~sw ~net ?clock ?config_path
                    "Cascade '%s' timed out after %ds" name secs
              }))
       | _ -> run ()
+
+(* ── Streaming cascade (no accept, no cache) ──────── *)
+
+(** Streaming cascade: try each provider in order with streaming.
+    Failover on connection/HTTP errors only (before stream begins).
+    No [accept] validator — once streaming starts, events are already
+    emitted to [on_event] and the provider is committed.
+
+    @since 0.61.0 *)
+let complete_cascade_stream ~sw ~net ?(metrics : Metrics.t option)
+    (providers : Provider_config.t list)
+    ~(messages : Types.message list) ~(tools : Yojson.Safe.t list)
+    ~(on_event : Types.sse_event -> unit) =
+  let m = match metrics with Some m -> m | None -> Metrics.noop in
+  let try_one cfg =
+    Complete.complete_stream ~sw ~net ~config:cfg
+      ~messages ~tools ~on_event ()
+  in
+  let rec try_next last_err = function
+    | [] ->
+      let msg = match last_err with
+        | Some (Http_client.HttpError { code; body }) ->
+          Printf.sprintf "HTTP %d: %s" code
+            (if String.length body > 200
+             then String.sub body 0 200 ^ "..."
+             else body)
+        | Some (Http_client.NetworkError { message }) -> message
+        | None -> "No providers available"
+      in
+      Error (Http_client.NetworkError {
+        message = Printf.sprintf "All models failed (stream): %s" msg })
+    | (cfg : Provider_config.t) :: rest ->
+      match try_one cfg with
+      | Ok _ as success -> success
+      | Error err ->
+        let err_str = match err with
+          | Http_client.HttpError { code; _ } ->
+            Printf.sprintf "HTTP %d" code
+          | Http_client.NetworkError { message } -> message
+        in
+        (match rest with
+         | (next_cfg : Provider_config.t) :: _ ->
+           m.on_cascade_fallback
+             ~from_model:cfg.model_id ~to_model:next_cfg.model_id
+             ~reason:err_str
+         | [] -> ());
+        if Complete.is_retryable err then
+          try_next (Some err) rest
+        else
+          Error err
+  in
+  try_next None providers
+
+(** Execute a streaming cascade using a named profile.
+
+    Same resolution steps as {!complete_named}:
+    1. Load profile from [config_path], fall back to [defaults]
+    2. Filter by local endpoint health
+    3. Execute streaming cascade with failover
+
+    Unlike {!complete_named}, no [accept] validator or [cache].
+
+    @since 0.61.0 *)
+let complete_named_stream ~sw ~net ?clock ?config_path
+    ~name ~defaults ~messages
+    ?(tools = []) ?(temperature = 0.3) ?(max_tokens = 500)
+    ?system_prompt ?timeout_sec ?metrics ~on_event () =
+  let model_strings = match config_path with
+    | Some path ->
+      let from_file = load_profile ~config_path:path ~name in
+      if from_file <> [] then from_file else defaults
+    | None -> defaults
+  in
+  let providers =
+    parse_model_strings ~temperature ~max_tokens ?system_prompt model_strings
+  in
+  if providers = [] then
+    Error (Http_client.NetworkError {
+      message = Printf.sprintf
+        "No callable models for streaming cascade '%s'. Tried: [%s]"
+        name (String.concat "; " model_strings) })
+  else
+    let healthy_providers = filter_healthy ~sw ~net providers in
+    if healthy_providers = [] then
+      Error (Http_client.NetworkError {
+        message = Printf.sprintf
+          "All providers unhealthy for streaming cascade '%s'" name })
+    else
+      let run () =
+        complete_cascade_stream ~sw ~net ?metrics
+          healthy_providers ~messages ~tools ~on_event
+      in
+      match clock, timeout_sec with
+      | Some clk, Some secs when secs > 0 ->
+        (try Eio.Time.with_timeout_exn clk (float_of_int secs) run
+         with Eio.Time.Timeout ->
+           Error (Http_client.NetworkError {
+             message = Printf.sprintf
+               "Streaming cascade '%s' timed out after %ds" name secs }))
+      | _ -> run ()
