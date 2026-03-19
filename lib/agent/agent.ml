@@ -193,12 +193,13 @@ let run_with_handoffs ~sw ?clock agent ~targets user_prompt =
 (* ── Checkpoint / Resume ─────────────────────────────────────── *)
 
 let resume ~net ~(checkpoint : Checkpoint.t) ?(tools=[]) ?context
-    ?(options=default_options) ?config () =
+    ?named_cascade ?(options=default_options) ?config () =
   let { Agent_checkpoint.state; context = ctx } =
     Agent_checkpoint.build_resume ~checkpoint ?config ?context ()
   in
   { state; lifecycle = None; last_tool_calls = None;
-    consecutive_idle_turns = 0; tools = Tool_set.of_list tools; net; context = ctx; options }
+    consecutive_idle_turns = 0; named_cascade;
+    tools = Tool_set.of_list tools; net; context = ctx; options }
 
 let checkpoint ?(session_id="") agent =
   Agent_checkpoint.build_checkpoint ~session_id ~state:agent.state

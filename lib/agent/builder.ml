@@ -190,7 +190,6 @@ let build b =
     Agent_types.base_url = b.base_url;
     provider = b.provider;
     cascade = b.cascade;
-    named_cascade = b.named_cascade;
     max_idle_turns = b.max_idle_turns;
     hooks = b.hooks;
     guardrails = b.guardrails;
@@ -206,7 +205,8 @@ let build b =
     description = b.description;
     periodic_callbacks = b.periodic_callbacks;
   } in
-  Agent.create ~net:b.net ~config ~tools:(Tool_set.to_list tools) ?context ~options ()
+  Agent.create ~net:b.net ~config ~tools:(Tool_set.to_list tools) ?context
+    ?named_cascade:b.named_cascade ~options ()
 
 let build_safe b =
   if b.max_turns <= 0 then

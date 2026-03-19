@@ -9,7 +9,6 @@ type options = {
   base_url: string;
   provider: Provider.config option;
   cascade: Provider.cascade option;
-  named_cascade: Api.named_cascade option;
   max_idle_turns: int;
   hooks: Hooks.hooks;
   guardrails: Guardrails.t;
@@ -60,7 +59,6 @@ let default_options = {
   base_url = Api.default_base_url;
   provider = None;
   cascade = None;
-  named_cascade = None;
   max_idle_turns = 3;
   hooks = Hooks.empty;
   guardrails = Guardrails.default;
@@ -84,6 +82,7 @@ type t = {
   mutable lifecycle: lifecycle_snapshot option;
   mutable last_tool_calls: tool_call_fingerprint list option;
   mutable consecutive_idle_turns: int;
+  named_cascade: Api.named_cascade option;
   tools: Tool_set.t;
   net: [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t;
   context: Context.t;
@@ -128,7 +127,7 @@ let set_lifecycle agent ?current_run_id ?worker_id ?runtime_actor ?last_error
     ?accepted_at ?ready_at ?first_progress_at ?started_at
     ?last_progress_at ?finished_at status)
 
-let create ~net ?(config=default_config) ?(tools=[]) ?context
+let create ~net ?(config=default_config) ?(tools=[]) ?context ?named_cascade
     ?(options=default_options) () =
   let mcp_tools =
     List.concat_map (fun (m : Mcp.managed) -> m.tools) options.mcp_clients
@@ -140,6 +139,7 @@ let create ~net ?(config=default_config) ?(tools=[]) ?context
     | None -> Context.create ()
   in
   { state; lifecycle = None; last_tool_calls = None; consecutive_idle_turns = 0;
+    named_cascade;
     tools = all_tools; net; context = ctx; options }
 
 let clone ?(copy_context=false) agent =
@@ -153,6 +153,7 @@ let clone ?(copy_context=false) agent =
   } in
   { state; lifecycle = agent.lifecycle; last_tool_calls = None;
     consecutive_idle_turns = 0; tools = agent.tools; net = agent.net;
+    named_cascade = agent.named_cascade;
     context = ctx; options = agent.options }
 
 let last_raw_trace_run agent =

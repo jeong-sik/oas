@@ -141,7 +141,7 @@ let stage_route ~sw ?clock ~api_strategy agent prep =
         agent_name = agent.state.config.name;
         turn = agent.state.turn_count; extra = [] }
       (fun _tracer ->
-        match agent.options.named_cascade with
+        match agent.named_cascade with
         | Some named ->
           Api.create_message_named ~sw ~net:agent.net ?clock
             ~named_cascade:named ~config:agent.state
@@ -165,7 +165,7 @@ let stage_route ~sw ?clock ~api_strategy agent prep =
         agent_name = agent.state.config.name;
         turn = agent.state.turn_count; extra = [] }
       (fun _tracer ->
-        match agent.options.named_cascade with
+        match agent.named_cascade with
         | Some named ->
           Api.create_message_named_stream ~sw ~net:agent.net ?clock
             ~named_cascade:named ~config:agent.state

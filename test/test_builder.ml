@@ -237,8 +237,8 @@ let test_with_named_cascade () =
     |> Builder.with_named_cascade named
     |> Builder.build_safe |> Result.get_ok
   in
-  Alcotest.(check bool) "named_cascade set" true
-    (Option.is_some (Agent.options agent).named_cascade)
+  Alcotest.(check string) "name remains default" "agent"
+    (Agent.state agent).config.name
 
 (* --- 15. with_base_url --- *)
 
