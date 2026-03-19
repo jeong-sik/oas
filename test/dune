@@ -330,6 +330,10 @@
  (libraries agent_sdk alcotest yojson eio eio_main))
 
 (test
+ (name test_llm_cache)
+ (libraries llm_provider alcotest yojson))
+
+(test
  (name test_error_domain)
  (libraries agent_sdk alcotest yojson))
 
@@ -432,3 +436,11 @@
 (test
  (name test_provider_registry)
  (libraries llm_provider alcotest yojson))
+
+(test
+ (name test_streaming_coverage)
+ (libraries agent_sdk llm_provider alcotest yojson))
+
+(test
+ (name test_structured_coverage)
+ (libraries agent_sdk alcotest yojson))
