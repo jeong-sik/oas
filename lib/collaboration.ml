@@ -230,7 +230,11 @@ let of_json json =
   | Yojson.Safe.Util.Type_error (msg, _) ->
     Error (Error.Serialization
       (JsonParseError { detail = "Collaboration.of_json: " ^ msg }))
-  | exn ->
+  | Yojson.Json_error msg ->
     Error (Error.Serialization
       (JsonParseError
-        { detail = "Collaboration.of_json: " ^ Printexc.to_string exn }))
+        { detail = "Collaboration.of_json: " ^ msg }))
+  | Failure msg ->
+    Error (Error.Serialization
+      (JsonParseError
+        { detail = "Collaboration.of_json: " ^ msg }))

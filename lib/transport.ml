@@ -311,14 +311,14 @@ let connect ~sw ~(mgr : _ Eio.Process.mgr) ?(options = default_options) () =
                 path = runtime_path;
                 detail = Unix.error_message err;
               }))
-  | exn ->
+  | Failure msg ->
       Error
         (Io
            (FileOpFailed
               {
                 op = "spawn";
                 path = runtime_path;
-                detail = Printexc.to_string exn;
+                detail = msg;
               }))
 
 let request ?control_handler ?event_handler transport request =

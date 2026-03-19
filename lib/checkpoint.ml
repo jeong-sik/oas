@@ -143,8 +143,10 @@ let content_block_of_json_strict json =
   with
   | Yojson.Safe.Util.Type_error (msg, _) ->
       Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Invalid content block: %s" msg }))
-  | exn ->
-      Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Invalid content block: %s" (Printexc.to_string exn) }))
+  | Yojson.Json_error msg ->
+      Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Invalid content block: %s" msg }))
+  | Failure msg ->
+      Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Invalid content block: %s" msg }))
 
 let message_of_json json =
   let open Yojson.Safe.Util in
@@ -285,8 +287,10 @@ let of_json json =
   with
   | Yojson.Safe.Util.Type_error (msg, _) ->
     Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Checkpoint.of_json: %s" msg }))
-  | exn ->
-    Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Checkpoint.of_json: %s" (Printexc.to_string exn) }))
+  | Yojson.Json_error msg ->
+    Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Checkpoint.of_json: %s" msg }))
+  | Failure msg ->
+    Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Checkpoint.of_json: %s" msg }))
 
 let to_string cp =
   to_json cp |> Yojson.Safe.to_string

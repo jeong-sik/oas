@@ -34,11 +34,10 @@ let ensure_dir path =
                 path;
                 detail = Unix.error_message err;
               }))
-  | exn ->
+  | Sys_error detail ->
       Error
         (Error.Io
-           (FileOpFailed
-              { op = "mkdir"; path; detail = Printexc.to_string exn }))
+           (FileOpFailed { op = "mkdir"; path; detail }))
 
 let ensure_tree store session_id =
   let* () = ensure_dir store.root in
@@ -82,11 +81,10 @@ let save_text path content =
       Error
         (Error.Io
            (FileOpFailed { op = "write"; path; detail }))
-  | exn ->
+  | Unix.Unix_error (err, _, _) ->
       Error
         (Error.Io
-           (FileOpFailed
-              { op = "write"; path; detail = Printexc.to_string exn }))
+           (FileOpFailed { op = "write"; path; detail = Unix.error_message err }))
 
 let load_text path =
   try
@@ -101,11 +99,14 @@ let load_text path =
       Error
         (Error.Io
            (FileOpFailed { op = "read"; path; detail }))
-  | exn ->
+  | Unix.Unix_error (err, _, _) ->
       Error
         (Error.Io
-           (FileOpFailed
-              { op = "read"; path; detail = Printexc.to_string exn }))
+           (FileOpFailed { op = "read"; path; detail = Unix.error_message err }))
+  | End_of_file ->
+      Error
+        (Error.Io
+           (FileOpFailed { op = "read"; path; detail = "unexpected end of file" }))
 
 let save_session store (session : session) =
   let* () = ensure_tree store session.session_id in
@@ -176,11 +177,10 @@ let append_event store session_id (event : event) =
   | Sys_error detail ->
       Error
         (Error.Io (FileOpFailed { op = "append"; path; detail }))
-  | exn ->
+  | Unix.Unix_error (err, _, _) ->
       Error
         (Error.Io
-           (FileOpFailed
-              { op = "append"; path; detail = Printexc.to_string exn }))
+           (FileOpFailed { op = "append"; path; detail = Unix.error_message err }))
 
 let read_events store session_id ?after_seq () =
   let path = events_path store session_id in

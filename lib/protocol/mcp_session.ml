@@ -196,8 +196,10 @@ let info_of_json json : (info, Error.sdk_error) result =
   with
   | Yojson.Safe.Util.Type_error (msg, _) ->
     Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Mcp_session.info_of_json: %s" msg }))
-  | exn ->
-    Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Mcp_session.info_of_json: %s" (Printexc.to_string exn) }))
+  | Yojson.Json_error msg ->
+    Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Mcp_session.info_of_json: %s" msg }))
+  | Failure msg ->
+    Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Mcp_session.info_of_json: %s" msg }))
 
 let info_list_to_json (infos : info list) : Yojson.Safe.t =
   `List (List.map info_to_json infos)
@@ -209,5 +211,7 @@ let info_list_of_json json : (info list, Error.sdk_error) result =
   with
   | Yojson.Safe.Util.Type_error (msg, _) ->
     Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Mcp_session.info_list_of_json: %s" msg }))
-  | exn ->
-    Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Mcp_session.info_list_of_json: %s" (Printexc.to_string exn) }))
+  | Yojson.Json_error msg ->
+    Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Mcp_session.info_list_of_json: %s" msg }))
+  | Failure msg ->
+    Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Mcp_session.info_list_of_json: %s" msg }))
