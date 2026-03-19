@@ -86,6 +86,7 @@ let run_traced ~sw ~clock ~workers ~base_builder
       prompt;
       timeout_sec = None;
       budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration = None;
+      resource_check = None; max_concurrent_agents = None;
     }
   in
   let* swarm_result = Runner.run ~sw ~clock ~callbacks config in

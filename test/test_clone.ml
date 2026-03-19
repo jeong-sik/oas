@@ -63,7 +63,7 @@ let test_clone_preserves_messages () =
   Eio_main.run @@ fun env ->
   let agent = make_agent env in
   Agent.set_state agent { (Agent.state agent) with
-    messages = [{ Types.role = User; content = [Text "hello"] }] };
+    messages = [{ Types.role = User; content = [Text "hello"]; name = None; tool_call_id = None }] };
   let clone = Agent.clone agent in
   check int "clone has same messages" 1 (List.length (Agent.state clone).messages)
 
@@ -124,7 +124,7 @@ let test_clone_state_divergence () =
   (* Mutate original *)
   Agent.set_state agent { (Agent.state agent) with
     turn_count = 10;
-    messages = [{ Types.role = User; content = [Text "original only"] }] };
+    messages = [{ Types.role = User; content = [Text "original only"]; name = None; tool_call_id = None }] };
   (* Clone should be unaffected *)
   check int "clone turn_count unchanged" 0 (Agent.state clone).turn_count;
   check int "clone messages unchanged" 0 (List.length (Agent.state clone).messages)
@@ -137,8 +137,8 @@ let test_clone_from_resumed_agent () =
   Agent.set_state agent { (Agent.state agent) with
     turn_count = 3;
     messages = [
-      { Types.role = User; content = [Text "msg1"] };
-      { Types.role = Assistant; content = [Text "reply1"] };
+      { Types.role = User; content = [Text "msg1"]; name = None; tool_call_id = None };
+      { Types.role = Assistant; content = [Text "reply1"]; name = None; tool_call_id = None };
     ] };
   (* Simulate resume by creating checkpoint and restoring *)
   let cp = Agent.checkpoint ~session_id:"s1" agent in

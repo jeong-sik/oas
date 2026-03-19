@@ -146,6 +146,7 @@ Output as a numbered list with severity tags.|}
     prompt = Printf.sprintf "Review PR #%s in %s" pr_num repo;
     timeout_sec = Some 120.0;
     budget = no_budget; max_agent_retries = 0; collaboration = None;
+    resource_check = None; max_concurrent_agents = None;
   } in
 
   let callbacks = Swarm_types.{

@@ -60,7 +60,7 @@ let extract ~sw ~net ?base_url ?provider ~config ~(schema : 'a schema) prompt
     tool_choice = Some (Tool schema.name);
   } in
   let state = { config = config_with_tool; messages = []; turn_count = 0; usage = empty_usage } in
-  let messages = [{ role = User; content = [Text prompt] }] in
+  let messages = [{ role = User; content = [Text prompt]; name = None; tool_call_id = None }] in
   let tools = [schema_to_tool_json schema] in
   match Api.create_message ~sw ~net ?base_url ?provider ~config:state ~messages ~tools () with
   | Error e -> Error e
@@ -173,7 +173,7 @@ let extract_with_retry ~sw ~net ?base_url ?provider ?clock
                token growth across retries. *)
             let retry_messages = [
               List.hd messages;  (* original user prompt *)
-              { role = Assistant; content = response.content };
+              { role = Assistant; content = response.content; name = None; tool_call_id = None };
               { role = User; content = [
                   ToolResult {
                     tool_use_id;
@@ -182,12 +182,12 @@ let extract_with_retry ~sw ~net ?base_url ?provider ?clock
                       (n + 1) (max_retries + 1) error_msg;
                     is_error = true;
                   }
-                ] };
+                ]; name = None; tool_call_id = None };
             ] in
             attempt (n + 1) total retry_messages
         | Error e -> Error e
   in
-  let initial_messages = [{ role = User; content = [Text prompt] }] in
+  let initial_messages = [{ role = User; content = [Text prompt]; name = None; tool_call_id = None }] in
   attempt 0 None initial_messages
 
 (** Extract structured output with SSE streaming.
@@ -200,7 +200,7 @@ let extract_stream ~sw ~net ?base_url ?provider ?clock ~config ~(schema : 'a sch
     tool_choice = Some (Tool schema.name);
   } in
   let state = { config = config_with_tool; messages = []; turn_count = 0; usage = empty_usage } in
-  let messages = [{ role = User; content = [Text prompt] }] in
+  let messages = [{ role = User; content = [Text prompt]; name = None; tool_call_id = None }] in
   let tools = [schema_to_tool_json schema] in
   let api_result =
     let stream_result =

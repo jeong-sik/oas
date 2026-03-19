@@ -56,4 +56,5 @@ let basic_config ~prompt entries : Swarm_types.swarm_config =
     prompt;
     timeout_sec = None;
     budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration = None;
+    resource_check = None; max_concurrent_agents = None;
   }

@@ -199,6 +199,8 @@ let test_show_message () =
   let m : Types.message = {
     role = Types.User;
     content = [Types.Text "test"];
+    name = None;
+    tool_call_id = None;
   } in
   let s = Types.show_message m in
   Alcotest.(check bool) "show_message non-empty" true (String.length s > 0)
@@ -318,7 +320,7 @@ let test_text_of_content_empty () =
   Alcotest.(check string) "empty" "" (Types.text_of_content [])
 
 let test_text_of_message () =
-  let m : Types.message = { role = Types.User; content = [Types.Text "hi"] } in
+  let m : Types.message = { role = Types.User; content = [Types.Text "hi"]; name = None; tool_call_id = None } in
   Alcotest.(check string) "text" "hi" (Types.text_of_message m)
 
 (* ── Audio content block show ──────────────────────────── *)

@@ -49,6 +49,8 @@ let () =
       {
         role = User;
         content = [ Text "Explain monads in one paragraph." ];
+        name = None;
+        tool_call_id = None;
       };
     ]
   in

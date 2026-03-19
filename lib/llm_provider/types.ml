@@ -91,10 +91,14 @@ type content_block =
   | Audio of { media_type: string; data: string; source_type: string }
 [@@deriving show]
 
-(** A single message in the conversation *)
+(** A single message in the conversation.
+    [name] identifies the speaker (e.g. tool result source).
+    [tool_call_id] links a tool result back to its tool_use request. *)
 type message = {
   role: role;
   content: content_block list;
+  name: string option; [@default None]
+  tool_call_id: string option; [@default None]
 }
 [@@deriving show]
 
@@ -159,8 +163,12 @@ type sse_event =
     MASC uses flat [string] messages, OAS uses [content_block list].
     These constructors make the transition mechanical. *)
 
+(** Create a message with default [None] for optional fields. *)
+let make_message ?name ?tool_call_id ~role content =
+  { role; content; name; tool_call_id }
+
 (** Create a text-only message. *)
-let text_message role text = { role; content = [Text text] }
+let text_message role text = make_message ~role [Text text]
 
 (** Create a system message. *)
 let system_msg text = text_message System text
@@ -173,7 +181,8 @@ let assistant_msg text = text_message Assistant text
 
 (** Create a tool result message. *)
 let tool_result_msg ~tool_use_id ~content ?(is_error=false) () =
-  { role = Tool; content = [ToolResult { tool_use_id; content; is_error }] }
+  make_message ~tool_call_id:tool_use_id ~role:Tool
+    [ToolResult { tool_use_id; content; is_error }]
 
 (** Extract text from content blocks, concatenating with newlines.
     Drops Thinking, Image, ToolUse, etc. *)

@@ -53,7 +53,7 @@ let stage_input ?raw_trace_run agent =
              req.question (Yojson.Safe.to_string json) in
            agent.state <- { agent.state with
              messages = Util.snoc agent.state.messages
-               { role = User; content = [Text text] } }
+               { role = User; content = [Text text]; name = None; tool_call_id = None } }
          | Hooks.Declined | Hooks.Timeout -> ())
       | None -> ())
    | _ -> ())
@@ -222,7 +222,7 @@ let stage_collect ?raw_trace_run agent ~original_config response =
 
   agent.state <- { agent.state with
     messages = Util.snoc agent.state.messages
-      { role = Assistant; content = response.content };
+      { role = Assistant; content = response.content; name = None; tool_call_id = None };
     turn_count = agent.state.turn_count + 1;
     usage;
   };
@@ -262,7 +262,7 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
       "Tool call limit exceeded: %d calls in one turn" count in
     agent.state <- { agent.state with
       messages = Util.snoc agent.state.messages
-        { role = User; content = [Text msg] } };
+        { role = User; content = [Text msg]; name = None; tool_call_id = None } };
     Ok ToolsExecuted
   | false ->
     let results =
@@ -273,7 +273,7 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
     let tool_results = Agent_turn.make_tool_results results in
     agent.state <- { agent.state with
       messages = Util.snoc agent.state.messages
-        { role = User; content = tool_results } };
+        { role = User; content = tool_results; name = None; tool_call_id = None } };
     (match agent.options.context_injector with
      | None -> ()
      | Some injector ->

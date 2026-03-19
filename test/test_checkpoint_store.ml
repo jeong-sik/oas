@@ -10,7 +10,7 @@ let make_checkpoint ?(session_id = "test-session") ?(created_at = 1000.0) () :
     agent_name = "test-agent";
     model = "claude-sonnet-4-6";
     system_prompt = Some "test prompt";
-    messages = [ { role = User; content = [ Text "hello" ] } ];
+    messages = [ { role = User; content = [ Text "hello" ]; name = None; tool_call_id = None } ];
     usage = Types.empty_usage;
     turn_count = 1;
     created_at;
@@ -29,6 +29,7 @@ let make_checkpoint ?(session_id = "test-session") ?(created_at = 1000.0) () :
     max_total_tokens = None;
     context = Context.create ();
     mcp_sessions = [];
+    working_context = None;
   }
 
 let sample_tool_schema : Types.tool_schema =
@@ -230,8 +231,8 @@ let test_roundtrip_preserves_messages () =
           (make_checkpoint ~session_id:"rt-msg" ()) with
           messages =
             [
-              { role = User; content = [ Text "hello" ] };
-              { role = Assistant; content = [ Text "world" ] };
+              { role = User; content = [ Text "hello" ]; name = None; tool_call_id = None };
+              { role = Assistant; content = [ Text "world" ]; name = None; tool_call_id = None };
             ];
         }
       in

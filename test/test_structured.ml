@@ -339,7 +339,7 @@ let test_retry_message_construction () =
        let error_msg = "Validation error: parse failed" in
        let retry_msg = { role = User; content = [
          ToolResult { tool_use_id; content = error_msg; is_error = true }
-       ] } in
+       ]; name = None; tool_call_id = None } in
        Alcotest.(check string) "retry role" "User"
          (match retry_msg.role with User -> "User" | _ -> "other");
        let has_error_result = List.exists (function

@@ -88,6 +88,8 @@ type hook_event =
   | PostToolUseFailure of { tool_name: string; input: Yojson.Safe.t; error: string }
   | OnStop of { reason: stop_reason; response: api_response }
   | OnIdle of { consecutive_idle_turns: int; tool_names: string list }
+  | OnError of { detail: string; context: string }
+  | OnToolError of { tool_name: string; error: string }
 
 (** Elicitation: structured request for user input during agent execution.
     Inspired by Claude SDK MCP Elicitation pattern. *)
@@ -140,6 +142,8 @@ type hooks = {
   post_tool_use_failure: hook option;
   on_stop: hook option;
   on_idle: hook option;
+  on_error: hook option;
+  on_tool_error: hook option;
 }
 
 (** Empty hooks -- no-op default *)
@@ -152,6 +156,8 @@ let empty = {
   post_tool_use_failure = None;
   on_stop = None;
   on_idle = None;
+  on_error = None;
+  on_tool_error = None;
 }
 
 (** Context injection: data returned by a context_injector after tool execution.

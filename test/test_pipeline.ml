@@ -96,7 +96,7 @@ let test_agent_turn_preparation () =
     Tool.create ~name:"b" ~description:"tool b" ~parameters:[]
       (fun _ -> Ok { Types.content = "b" });
   ] in
-  let messages = [{ Types.role = User; content = [Text "hello"] }] in
+  let messages = [{ Types.role = User; content = [Text "hello"]; name = None; tool_call_id = None }] in
   let prep = Agent_turn.prepare_turn
     ~guardrails:Guardrails.default
     ~tools ~messages
@@ -264,7 +264,7 @@ let test_agent_multiple_tools () =
 (* ── Agent_turn: prepare_turn edge cases ──────────────── *)
 
 let test_prepare_turn_no_tools () =
-  let messages = [{ Types.role = User; content = [Text "hi"] }] in
+  let messages = [{ Types.role = User; content = [Text "hi"]; name = None; tool_call_id = None }] in
   let prep = Agent_turn.prepare_turn
     ~guardrails:Guardrails.default
     ~tools:Tool_set.empty ~messages
@@ -277,9 +277,9 @@ let test_prepare_turn_no_tools () =
 
 let test_prepare_turn_preserves_messages () =
   let messages = [
-    { Types.role = User; content = [Text "hello"] };
-    { Types.role = Assistant; content = [Text "hi there"] };
-    { Types.role = User; content = [Text "how are you"] };
+    { Types.role = User; content = [Text "hello"]; name = None; tool_call_id = None };
+    { Types.role = Assistant; content = [Text "hi there"]; name = None; tool_call_id = None };
+    { Types.role = User; content = [Text "how are you"]; name = None; tool_call_id = None };
   ] in
   let prep = Agent_turn.prepare_turn
     ~guardrails:Guardrails.default

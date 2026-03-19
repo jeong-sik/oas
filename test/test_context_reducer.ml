@@ -2,10 +2,10 @@
 
 open Agent_sdk
 
-let user_msg text = Types.{ role = User; content = [Text text] }
-let asst_msg text = Types.{ role = Assistant; content = [Text text] }
-let tool_use_msg id name = Types.{ role = Assistant; content = [ToolUse { id; name; input = `Null }] }
-let tool_result_msg id content = Types.{ role = User; content = [ToolResult { tool_use_id = id; content; is_error = false }] }
+let user_msg text = Types.{ role = User; content = [Text text]; name = None; tool_call_id = None }
+let asst_msg text = Types.{ role = Assistant; content = [Text text]; name = None; tool_call_id = None }
+let tool_use_msg id name = Types.{ role = Assistant; content = [ToolUse { id; name; input = `Null }]; name = None; tool_call_id = None }
+let tool_result_msg id content = Types.{ role = User; content = [ToolResult { tool_use_id = id; content; is_error = false }]; name = None; tool_call_id = None }
 
 (* --- keep_last_n --- *)
 
@@ -86,9 +86,9 @@ let test_token_budget_image_doc () =
   let large_img = String.make 1_200_000 'A' in (* ~1200 tokens for image *)
   let large_doc = String.make 2_000_000 'A' in (* ~3000 tokens for document *)
   let msgs = [
-    Types.{ role = User; content = [Image { media_type = "image/png"; data = large_img; source_type = "base64" }] };
+    Types.{ role = User; content = [Image { media_type = "image/png"; data = large_img; source_type = "base64" }]; name = None; tool_call_id = None };
     asst_msg "nice image";
-    Types.{ role = User; content = [Document { media_type = "application/pdf"; data = large_doc; source_type = "base64" }] };
+    Types.{ role = User; content = [Document { media_type = "application/pdf"; data = large_doc; source_type = "base64" }]; name = None; tool_call_id = None };
     asst_msg "nice doc";
   ] in
   (* Image turn: ~1200 + 3 tokens. Doc turn: ~3000 + 2 tokens. Budget 3100 should keep only doc turn *)
@@ -103,39 +103,39 @@ let test_estimate_text () =
   Alcotest.(check int) "text estimation" 3 tokens
 
 let test_estimate_tool_use () =
-  let msg = Types.{ role = Assistant; content = [ToolUse { id = "id1"; name = "calc"; input = `String "input" }] } in
+  let msg = Types.{ role = Assistant; content = [ToolUse { id = "id1"; name = "calc"; input = `String "input" }]; name = None; tool_call_id = None } in
   let tokens = Context_reducer.estimate_message_tokens msg in
   (* "calc" = 4 chars, `String "input" -> "\"input\"" = 7 chars, total 11, (11+3)/4 = 3 *)
   Alcotest.(check bool) "tool_use > 0" true (tokens > 0)
 
 let test_estimate_tool_result () =
-  let msg = Types.{ role = User; content = [ToolResult { tool_use_id = "id1"; content = "result text"; is_error = false }] } in
+  let msg = Types.{ role = User; content = [ToolResult { tool_use_id = "id1"; content = "result text"; is_error = false }]; name = None; tool_call_id = None } in
   let tokens = Context_reducer.estimate_message_tokens msg in
   (* "result text" = 11 chars -> (11+3)/4 = 3 *)
   Alcotest.(check int) "tool_result estimation" 3 tokens
 
 let test_estimate_image () =
   (* Small data: 1 byte -> min((1*3/4/750)+1, 1600) = 1 *)
-  let msg_small = Types.{ role = User; content = [Image { media_type = "image/png"; data = "x"; source_type = "base64" }] } in
+  let msg_small = Types.{ role = User; content = [Image { media_type = "image/png"; data = "x"; source_type = "base64" }]; name = None; tool_call_id = None } in
   let tokens_small = Context_reducer.estimate_message_tokens msg_small in
   Alcotest.(check int) "small image estimation" 1 tokens_small;
   (* Larger data: 100K chars -> min((100000*3/4/750)+1, 1600) = min(100+1, 1600) = 101 *)
-  let msg_large = Types.{ role = User; content = [Image { media_type = "image/png"; data = String.make 100_000 'A'; source_type = "base64" }] } in
+  let msg_large = Types.{ role = User; content = [Image { media_type = "image/png"; data = String.make 100_000 'A'; source_type = "base64" }]; name = None; tool_call_id = None } in
   let tokens_large = Context_reducer.estimate_message_tokens msg_large in
   Alcotest.(check bool) "large image > 0" true (tokens_large > 0);
   Alcotest.(check bool) "large image capped" true (tokens_large <= 1600)
 
 let test_estimate_document () =
-  let msg_small = Types.{ role = User; content = [Document { media_type = "application/pdf"; data = "x"; source_type = "base64" }] } in
+  let msg_small = Types.{ role = User; content = [Document { media_type = "application/pdf"; data = "x"; source_type = "base64" }]; name = None; tool_call_id = None } in
   let tokens_small = Context_reducer.estimate_message_tokens msg_small in
   Alcotest.(check int) "small doc estimation" 1 tokens_small;
-  let msg_large = Types.{ role = User; content = [Document { media_type = "application/pdf"; data = String.make 200_000 'A'; source_type = "base64" }] } in
+  let msg_large = Types.{ role = User; content = [Document { media_type = "application/pdf"; data = String.make 200_000 'A'; source_type = "base64" }]; name = None; tool_call_id = None } in
   let tokens_large = Context_reducer.estimate_message_tokens msg_large in
   Alcotest.(check bool) "large doc > 0" true (tokens_large > 0);
   Alcotest.(check bool) "large doc capped" true (tokens_large <= 3000)
 
 let test_estimate_audio () =
-  let msg = Types.{ role = User; content = [Audio { media_type = "audio/wav"; data = String.make 50_000 'A'; source_type = "base64" }] } in
+  let msg = Types.{ role = User; content = [Audio { media_type = "audio/wav"; data = String.make 50_000 'A'; source_type = "base64" }]; name = None; tool_call_id = None } in
   let tokens = Context_reducer.estimate_message_tokens msg in
   Alcotest.(check bool) "audio > 0" true (tokens > 0);
   Alcotest.(check bool) "audio capped" true (tokens <= 5000)
@@ -259,7 +259,7 @@ let test_drop_thinking_removes () =
     Types.{ role = Assistant; content = [
       Thinking { thinking_type = ""; content = "internal reasoning" };
       Text "answer"
-    ]};
+    ]; name = None; tool_call_id = None};
     user_msg "follow up";
     asst_msg "response";
   ] in
@@ -277,7 +277,7 @@ let test_drop_thinking_preserves_recent () =
     Types.{ role = Assistant; content = [
       Thinking { thinking_type = ""; content = "recent thinking" };
       Text "answer"
-    ]};
+    ]; name = None; tool_call_id = None};
   ] in
   let result = Context_reducer.reduce Context_reducer.drop_thinking msgs in
   (* Last 2 messages are preserved *)
@@ -294,7 +294,7 @@ let test_compose () =
     Types.{ role = Assistant; content = [
       Thinking { thinking_type = ""; content = "old thinking" };
       Text "old answer"
-    ]};
+    ]; name = None; tool_call_id = None};
     user_msg "q2";
     tool_use_msg "t1" "calc";
     tool_result_msg "t1" long_output;
@@ -411,7 +411,7 @@ let test_summarize_old_all_recent () =
 
 (** Helper: build an assistant message with a ToolUse whose input has a long string arg. *)
 let tool_use_msg_with_input id name input =
-  Types.{ role = Assistant; content = [ToolUse { id; name; input }] }
+  Types.{ role = Assistant; content = [ToolUse { id; name; input }]; name = None; tool_call_id = None }
 
 let test_prune_tool_args_short_unchanged () =
   let input = `Assoc [("content", `String "short")] in
@@ -551,7 +551,7 @@ let test_repair_multiple_orphans () =
     Types.{ role = Assistant; content = [
       ToolUse { id = "t1"; name = "read"; input = `Null };
       ToolUse { id = "t2"; name = "write"; input = `Null };
-    ]};
+    ]; name = None; tool_call_id = None};
     asst_msg "done";
   ] in
   let result = Context_reducer.reduce Context_reducer.repair_dangling_tool_calls msgs in
@@ -565,7 +565,7 @@ let test_repair_partial_orphan () =
     Types.{ role = Assistant; content = [
       ToolUse { id = "t1"; name = "read"; input = `Null };
       ToolUse { id = "t2"; name = "write"; input = `Null };
-    ]};
+    ]; name = None; tool_call_id = None};
     tool_result_msg "t1" "ok";
     asst_msg "done";
   ] in

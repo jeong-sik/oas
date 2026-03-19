@@ -59,7 +59,7 @@ let prepare_messages ~messages ~context_reducer ~turn_params =
   match turn_params.Hooks.extra_system_context with
   | None -> effective
   | Some ctx ->
-    let system_msg = { role = User; content = [Text ("[system context] " ^ ctx)] } in
+    let system_msg = { role = User; content = [Text ("[system context] " ^ ctx)]; name = None; tool_call_id = None } in
     system_msg :: effective
 
 let prepare_turn ~guardrails ~tools ~messages ~context_reducer ~turn_params =

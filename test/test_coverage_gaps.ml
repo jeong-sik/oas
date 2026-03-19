@@ -62,7 +62,7 @@ let test_api_content_block_roundtrip () =
   | _ -> Alcotest.fail "expected Some Text"
 
 let test_api_message_to_json () =
-  let msg = { role = User; content = [Text "hi"] } in
+  let msg = { role = User; content = [Text "hi"]; name = None; tool_call_id = None } in
   let json = Api.message_to_json msg in
   let open Yojson.Safe.Util in
   Alcotest.(check string) "role" "user" (json |> member "role" |> to_string)
@@ -85,13 +85,13 @@ let test_api_parse_response () =
 let test_api_build_body_assoc () =
   let config = { default_config with name = "test" } in
   let state = { config; messages = []; turn_count = 0; usage = empty_usage } in
-  let msgs = [{ role = User; content = [Text "hello"] }] in
+  let msgs = [{ role = User; content = [Text "hello"]; name = None; tool_call_id = None }] in
   let assoc = Api.build_body_assoc ~config:state ~messages:msgs ~stream:false () in
   Alcotest.(check bool) "has model" true
     (List.exists (fun (k, _) -> k = "model") assoc)
 
 let test_api_openai_messages () =
-  let msg = { role = User; content = [Text "hi"] } in
+  let msg = { role = User; content = [Text "hi"]; name = None; tool_call_id = None } in
   let result = Api.openai_messages_of_message msg in
   Alcotest.(check bool) "non-empty" true (List.length result > 0)
 
