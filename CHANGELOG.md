@@ -2,10 +2,25 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.68.0] - 2026-03-19
+
+### Added
+- **Eval baseline** (`Eval_baseline`): golden-file JSON comparison for regression detection. `save`/`load`/`compare` with tolerance-based metric diffs. `pass_at_k` metric. (#v0.68)
+- **Eval report** (`Eval_report`): structured report combining baseline comparison, harness verdicts, and pass@k. JSON + human-readable output. (#v0.68)
+
+## [0.67.0] - 2026-03-19
+
+### Added
+- **Async guardrails** (`Guardrails_async`): parallel input/output validation via `Eio.Fiber.all`. `input_validator`/`output_validator` types. `guarded` combinator gates LLM call on input validation, runs output validators post-response. (#v0.67)
+
+## [0.65.0] - 2026-03-19
+
+### Added
+- **Working memory** (`Memory`): 3-tier facade over `Context.t`. Scratchpad (per-turn), Working (cross-turn), Long_term (external callback). `store`/`recall`/`forget`/`promote`. Fallback recall across tiers. (#v0.65)
+
 ## [0.62.0] - 2026-03-19
 
 ### Added
-- **Streaming cascade** (`Complete.complete_stream_cascade`, `Cascade_config.complete_named_stream`): multi-provider streaming with failover. Failover on connection/HTTP errors before stream starts; committed once SSE begins. No mid-stream resume, no caching.
 - **Cost tracker** (`Cost_tracker`): USD budget enforcement via `agent_config.max_cost_usd`. `check_budget` returns `CostBudgetExceeded` when exceeded. Structured `cost_report` with per-call averages.
 - **Context offload** (`Context_offload`): large tool results (>threshold) written to filesystem, replaced with path + preview. Fail-open: on write failure, original content preserved.
 - `Error.CostBudgetExceeded` agent error variant with `spent_usd`/`limit_usd` fields.
@@ -18,15 +33,8 @@ All notable changes to `agent_sdk` are documented in this file.
 ## [0.61.0] - 2026-03-19
 
 ### Added
-- `Complete.complete_stream_cascade`: streaming + cascade failover at LLM provider level.
-- `Cascade_config.complete_named_stream`: named streaming cascade with discovery-aware health filtering and timeout.
-
-## [0.61.0] - 2026-03-19
-
-### Added
 - `agent_config.initial_messages`: seed agent conversations with prior history on first run. (#214)
-- `Complete.complete_stream_cascade`: streaming + cascade failover at LLM provider level.
-- `Cascade_config.complete_named_stream`: named streaming cascade with discovery-aware health filtering and timeout.
+- **Streaming cascade** (`Complete.complete_stream_cascade`, `Cascade_config.complete_named_stream`): multi-provider streaming with failover. Failover on connection/HTTP errors before stream starts; committed once SSE begins. No mid-stream resume, no caching.
 
 ## [0.60.0] - 2026-03-19
 
