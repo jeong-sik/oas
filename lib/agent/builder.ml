@@ -222,4 +222,11 @@ let build_safe b =
           field = "thinking_budget";
           detail = "thinking_budget requires enable_thinking = true";
         }))
-    | _ -> Ok (build b)
+    | _ ->
+      match b.max_cost_usd with
+      | Some v when v < 0.0 ->
+        Error (Error.Config (Error.InvalidConfig {
+          field = "max_cost_usd";
+          detail = Printf.sprintf "must be >= 0.0, got %.4f" v;
+        }))
+      | _ -> Ok (build b)
