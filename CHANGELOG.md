@@ -2,6 +2,26 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.60.0] - 2026-03-19
+
+### Added
+- **MCP HTTP transport**: unified `Mcp.managed` type with `transport` variant (Stdio | Http). JSON config auto-detects via `"url"` key. (#209)
+- `Agent_config.to_builder` connects MCP servers at build time with optional `~sw ~mgr`. (#209)
+- `Checkpoint.t` `working_context` field for MASC context co-storage. Checkpoint version 3 -> 4 (backward compat). (#197)
+- `Hooks.OnError` and `Hooks.OnToolError` hook events for LLM/tool failure callbacks. (#198)
+- `message.name` and `message.tool_call_id` optional fields + `make_message` constructor. (#201)
+- `Event_bus.filter_topic`, `filter_any`, `filter_all` filter combinators. (#199)
+- `Swarm_types.swarm_config` `resource_check` and `max_concurrent_agents` fields. Runner enforces both. (#200)
+- `Selection` module: `RoundRobin`, `Random`, `Custom` agent selection strategies. (#202)
+- `Cascade_config.complete_named` `timeout_sec` parameter. (#208)
+- docs: `stateful-tools.md` (closure, context, external patterns). (#203)
+- docs: `config-externalization.md` (Env_config pattern). (#204)
+
+### Fixed
+- MCP HTTP: use `base_url` directly (no `/mcp` append). (#210)
+- MCP HTTP: SSE response parser fallback + JSON-only Accept header. (#210)
+- OpenAI SSE streaming: parse `reasoning_content` field. (#207)
+
 ## [0.59.0] - 2026-03-18
 
 ### Added
