@@ -20,7 +20,7 @@ let msg role text =
 let test_default_empty () =
   check int "default empty" 0 (List.length default_config.initial_messages)
 
-let test_initial_messages_in_state () =
+let test_base_messages_fresh () =
   Eio_main.run @@ fun env ->
   let history = [
     msg User "What is OCaml?";
@@ -28,27 +28,40 @@ let test_initial_messages_in_state () =
   ] in
   let agent = make_agent ~net:env#net ~initial_messages:history () in
 
-  (* Before run: messages should be empty (initial_messages are config, not state) *)
-  let st = Agent.state agent in
-  check int "no messages before run" 0 (List.length st.messages);
-
-  (* After set_state simulating run_loop's first message injection:
-     set_state with user prompt — the real run_loop would do this *)
-  let user_msg = msg User "Tell me more" in
-  Agent.set_state agent { st with
-    messages = history @ [user_msg] };
-  let st2 = Agent.state agent in
-  check int "history + user msg" 3 (List.length st2.messages);
-  (* Verify ordering: first message is the history's first *)
-  let first = List.hd st2.messages in
-  (match first.content with
-   | [Text t] -> check string "first is history" "What is OCaml?" t
-   | _ -> fail "unexpected content");
-  (* Last message is the user prompt *)
-  let last = List.nth st2.messages 2 in
-  (match last.content with
-   | [Text t] -> check string "last is user prompt" "Tell me more" t
+  (* Fresh agent: base_messages returns initial_messages *)
+  let base = Agent.base_messages agent in
+  check int "returns initial_messages" 2 (List.length base);
+  (match (List.hd base).content with
+   | [Text t] -> check string "first msg" "What is OCaml?" t
    | _ -> fail "unexpected content")
+
+let test_base_messages_after_run () =
+  Eio_main.run @@ fun env ->
+  let history = [msg User "hi"; msg Assistant "hello"] in
+  let agent = make_agent ~net:env#net ~initial_messages:history () in
+
+  (* Simulate what run_loop does: inject initial + user_msg *)
+  let user_msg = msg User "new prompt" in
+  let st = Agent.state agent in
+  Agent.set_state agent { st with
+    messages = Util.snoc (Agent.base_messages agent) user_msg };
+
+  (* After first injection: base_messages returns existing messages, not initial *)
+  let base = Agent.base_messages agent in
+  check int "returns existing messages" 3 (List.length base);
+  (* Verify initial_messages are NOT re-injected *)
+  let second_user = msg User "follow up" in
+  let st2 = Agent.state agent in
+  Agent.set_state agent { st2 with
+    messages = Util.snoc (Agent.base_messages agent) second_user };
+  let final = (Agent.state agent).messages in
+  check int "no duplication" 4 (List.length final)
+
+let test_base_messages_empty_initial () =
+  Eio_main.run @@ fun env ->
+  let agent = make_agent ~net:env#net () in
+  let base = Agent.base_messages agent in
+  check int "empty returns empty" 0 (List.length base)
 
 let test_empty_initial_preserves_behavior () =
   Eio_main.run @@ fun env ->
@@ -85,8 +98,10 @@ let () =
       test_case "default is empty" `Quick test_default_empty;
       test_case "show works" `Quick test_config_show;
     ];
-    "agent", [
-      test_case "initial_messages in state" `Quick test_initial_messages_in_state;
+    "base_messages", [
+      test_case "fresh agent returns initial_messages" `Quick test_base_messages_fresh;
+      test_case "after injection returns existing" `Quick test_base_messages_after_run;
+      test_case "empty initial returns empty" `Quick test_base_messages_empty_initial;
       test_case "empty preserves behavior" `Quick test_empty_initial_preserves_behavior;
     ];
     "builder", [
