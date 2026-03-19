@@ -2,6 +2,15 @@
 
 open Types
 
+type named_cascade = {
+  name : string;
+  defaults : string list;
+  config_path : string option;
+}
+
+let named_cascade ?config_path ~name ~defaults () =
+  { name; defaults; config_path }
+
 (* Re-export Api_common *)
 let default_base_url = Api_common.default_base_url
 let api_version = Api_common.api_version
@@ -23,6 +32,12 @@ let openai_messages_of_message = Api_openai.openai_messages_of_message
 let openai_content_parts_of_blocks = Api_openai.openai_content_parts_of_blocks
 let build_openai_body = Api_openai.build_openai_body
 let parse_openai_response = Api_openai.parse_openai_response
+
+let map_named_cascade_error = function
+  | Llm_provider.Http_client.HttpError { code; body } ->
+      Error.Api (Retry.classify_error ~status:code ~body)
+  | Llm_provider.Http_client.NetworkError { message } ->
+      Error.Api (Retry.NetworkError { message })
 
 (** Send a non-streaming message to the API, dispatching by provider *)
 let create_message ~sw ~net ?(base_url=default_base_url) ?provider ?clock ?retry_config ~config ~messages ?tools () =
@@ -162,3 +177,39 @@ let create_message_cascade ~sw ~net ?clock ?retry_config
          (try_providers casc.fallbacks) err
        else
          Error (Error.Api err))
+
+let create_message_named ~sw ~net ?clock ~(named_cascade : named_cascade)
+    ~config ~messages ?tools ?(temperature = 0.3)
+    ?(max_tokens = config.config.max_tokens)
+    ?system_prompt ?(accept = fun _ -> true) ?timeout_sec () =
+  let system_prompt =
+    match system_prompt with
+    | Some _ -> system_prompt
+    | None -> config.config.system_prompt
+  in
+  match
+    Llm_provider.Cascade_config.complete_named ~sw ~net ?clock
+      ?config_path:named_cascade.config_path ~name:named_cascade.name
+      ~defaults:named_cascade.defaults ~messages ?tools ~temperature
+      ~max_tokens ?system_prompt ~accept ?timeout_sec ()
+  with
+  | Ok response -> Ok response
+  | Error err -> Error (map_named_cascade_error err)
+
+let create_message_named_stream ~sw ~net ?clock
+    ~(named_cascade : named_cascade) ~config ~messages ?tools
+    ?(temperature = 0.3) ?(max_tokens = config.config.max_tokens)
+    ?system_prompt ?timeout_sec ~on_event () =
+  let system_prompt =
+    match system_prompt with
+    | Some _ -> system_prompt
+    | None -> config.config.system_prompt
+  in
+  match
+    Llm_provider.Cascade_config.complete_named_stream ~sw ~net ?clock
+      ?config_path:named_cascade.config_path ~name:named_cascade.name
+      ~defaults:named_cascade.defaults ~messages ?tools ~temperature
+      ~max_tokens ?system_prompt ?timeout_sec ~on_event ()
+  with
+  | Ok response -> Ok response
+  | Error err -> Error (map_named_cascade_error err)

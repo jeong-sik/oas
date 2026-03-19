@@ -9,6 +9,7 @@ type options = {
   base_url: string;
   provider: Provider.config option;
   cascade: Provider.cascade option;
+  named_cascade: Api.named_cascade option;
   max_idle_turns: int;
   hooks: Hooks.hooks;
   guardrails: Guardrails.t;
@@ -59,6 +60,7 @@ let default_options = {
   base_url = Api.default_base_url;
   provider = None;
   cascade = None;
+  named_cascade = None;
   max_idle_turns = 3;
   hooks = Hooks.empty;
   guardrails = Guardrails.default;

@@ -8,6 +8,10 @@ open Agent_sdk
 
 (* ── Helpers ─────────────────────────────────────────────────── *)
 
+let with_net f =
+  Eio_main.run @@ fun env ->
+  f (Eio.Stdenv.net env)
+
 let base_state = {
   Types.config = { Types.default_config with
     name = "test-dispatch";
@@ -144,6 +148,33 @@ let test_request_kind_routing () =
                              path = "/v1/chat/completions";
                              static_token = None })
 
+let test_named_cascade_no_models () =
+  with_net @@ fun net ->
+  Eio.Switch.run @@ fun sw ->
+  let named = Api.named_cascade ~name:"missing" ~defaults:[] () in
+  match
+    Api.create_message_named ~sw ~net ~named_cascade:named ~config:base_state
+      ~messages:base_state.messages ()
+  with
+  | Error (Error.Api (Retry.NetworkError _)) -> ()
+  | Ok _ -> fail "expected missing named cascade models to fail"
+  | Error err ->
+      fail ("unexpected error: " ^ Error.to_string err)
+
+let test_named_cascade_stream_no_models () =
+  with_net @@ fun net ->
+  Eio.Switch.run @@ fun sw ->
+  let named = Api.named_cascade ~name:"missing" ~defaults:[] () in
+  match
+    Api.create_message_named_stream ~sw ~net ~named_cascade:named
+      ~config:base_state ~messages:base_state.messages ~on_event:(fun _ -> ())
+      ()
+  with
+  | Error (Error.Api (Retry.NetworkError _)) -> ()
+  | Ok _ -> fail "expected missing named streaming cascade models to fail"
+  | Error err ->
+      fail ("unexpected error: " ^ Error.to_string err)
+
 (* ── Pricing ─────────────────────────────────────────────────── *)
 
 let test_pricing_known_models () =
@@ -267,6 +298,9 @@ let () =
     ];
     "routing", [
       test_case "request_kind" `Quick test_request_kind_routing;
+      test_case "named cascade no models" `Quick test_named_cascade_no_models;
+      test_case "named cascade stream no models" `Quick
+        test_named_cascade_stream_no_models;
     ];
     "pricing", [
       test_case "known models" `Quick test_pricing_known_models;
