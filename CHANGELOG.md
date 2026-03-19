@@ -2,6 +2,14 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.70.0] - 2026-03-19
+
+### Added
+- `.mli` API contracts for 5 core modules: `harness.mli` (170L), `context_reducer.mli` (71L), `eval.mli` (126L), `checkpoint.mli` (62L), `session.mli` (51L). Total .mli count: 56 -> 61.
+
+### Changed
+- No new features. Stabilization release for v1.0 preparation.
+
 ## [0.69.0] - 2026-03-19
 
 ### Added

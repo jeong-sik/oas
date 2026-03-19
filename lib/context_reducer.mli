@@ -1,0 +1,71 @@
+(** Context reducer: message windowing strategies.
+
+    Reduces message lists before API calls while preserving the full
+    history in agent state. All strategies respect turn boundaries
+    so ToolUse/ToolResult pairs are never split.
+
+    Token estimation uses a 4-char-per-token heuristic. *)
+
+open Types
+
+(** {1 Strategy types} *)
+
+(** Windowing strategy for context reduction. *)
+type strategy =
+  | Keep_last_n of int
+  | Token_budget of int
+  | Prune_tool_outputs of { max_output_len: int }
+  | Prune_tool_args of { max_arg_len: int; keep_recent: int }
+  | Repair_dangling_tool_calls
+  | Merge_contiguous
+  | Drop_thinking
+  | Keep_first_and_last of { first_n: int; last_n: int }
+  | Prune_by_role of { drop_roles: role list }
+  | Summarize_old of { keep_recent: int; summarizer: message list -> string }
+  | Compose of strategy list
+  | Custom of (message list -> message list)
+  | Dynamic of (turn:int -> messages:message list -> strategy)
+
+(** A configured reducer wrapping a strategy. *)
+type t = { strategy : strategy }
+
+(** {1 Token estimation} *)
+
+(** Estimate tokens for a single content block. *)
+val estimate_block_tokens : content_block -> int
+
+(** Estimate tokens for a message. *)
+val estimate_message_tokens : message -> int
+
+(** {1 Turn grouping} *)
+
+(** Group messages into turns.
+
+    A turn starts with a User message and includes all following
+    messages until the next User message. User messages containing
+    ToolResult blocks belong to the preceding turn. *)
+val group_into_turns : message list -> message list list
+
+(** {1 Core reducer} *)
+
+(** Reduce messages according to the configured strategy. *)
+val reduce : t -> message list -> message list
+
+(** {1 Convenience constructors} *)
+
+val keep_last : int -> t
+val token_budget : int -> t
+val prune_tool_outputs : max_output_len:int -> t
+val prune_tool_args : max_arg_len:int -> ?keep_recent:int -> unit -> t
+val repair_dangling_tool_calls : t
+val merge_contiguous : t
+val drop_thinking : t
+val keep_first_and_last : first_n:int -> last_n:int -> t
+val prune_by_role : drop_roles:role list -> t
+val summarize_old : keep_recent:int -> summarizer:(message list -> string) -> t
+val compose : t list -> t
+val custom : (message list -> message list) -> t
+
+(** Dynamic strategy: selects a strategy per turn based on
+    conversation state. *)
+val dynamic : (turn:int -> messages:message list -> strategy) -> t
