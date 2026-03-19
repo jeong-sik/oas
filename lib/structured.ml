@@ -87,7 +87,8 @@ let json_extractor (parse : Yojson.Safe.t -> 'a) : 'a extractor =
       (try Ok (parse (Yojson.Safe.from_string text))
        with
        | Yojson.Json_error e -> Error (Printf.sprintf "JSON parse: %s" e)
-       | exn -> Error (Printexc.to_string exn))
+       | Yojson.Safe.Util.Type_error (msg, _) -> Error (Printf.sprintf "JSON type: %s" msg)
+       | Failure msg -> Error (Printf.sprintf "parse failure: %s" msg))
 
 (** Extract a value from the first text block using a string parser. *)
 let text_extractor (parse : string -> 'a option) : 'a extractor =

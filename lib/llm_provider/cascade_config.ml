@@ -177,7 +177,8 @@ let load_json path =
     | Sys_error msg -> Error msg
     | Unix.Unix_error (err, fn, arg) ->
       Error (Printf.sprintf "%s(%s): %s" fn arg (Unix.error_message err))
-    | exn -> Error (Printexc.to_string exn))
+    | Yojson.Json_error msg -> Error (Printf.sprintf "JSON error: %s" msg)
+    | End_of_file -> Error "unexpected end of file")
 
 let load_profile ~config_path ~name =
   let key = name ^ "_models" in

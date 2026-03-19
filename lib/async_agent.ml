@@ -45,6 +45,9 @@ let spawn ~sw ?clock agent prompt =
       with
       | Cancelled -> Error (Error.Internal "cancelled")
       | Raw_trace.Trace_error e -> Error e
+      | Out_of_memory -> raise Out_of_memory
+      | Stack_overflow -> raise Stack_overflow
+      | Sys.Break -> raise Sys.Break
       | exn -> Error (Error.Internal (Printexc.to_string exn))
     in
     resolve_once future result);
@@ -89,6 +92,9 @@ let race ~sw ?clock agents =
             try Agent.run ~sw ?clock agent prompt
             with
             | Raw_trace.Trace_error e -> Error e
+            | Out_of_memory -> raise Out_of_memory
+            | Stack_overflow -> raise Stack_overflow
+            | Sys.Break -> raise Sys.Break
             | exn -> Error (Error.Internal (Printexc.to_string exn))
           in
           (name, result))

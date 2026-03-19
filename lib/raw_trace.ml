@@ -135,8 +135,8 @@ let rec ensure_dir path =
     with
     | Unix.Unix_error (err, _, _) ->
         Error (file_write_error ~path ~detail:(Unix.error_message err))
-    | exn ->
-        Error (file_write_error ~path ~detail:(Printexc.to_string exn))
+    | Sys_error detail ->
+        Error (file_write_error ~path ~detail)
 
 let record_type_to_string = function
   | Run_started -> "run_started"
@@ -258,7 +258,8 @@ let load_lines path =
           loop [])
     with
     | Sys_error detail -> Error (file_read_error ~path ~detail)
-    | exn -> Error (file_read_error ~path ~detail:(Printexc.to_string exn))
+    | Unix.Unix_error (err, _, _) ->
+        Error (file_read_error ~path ~detail:(Unix.error_message err))
 
 let read_all ~path () =
   let* lines = load_lines path in
@@ -333,7 +334,8 @@ let append_locked sink (record : record) =
         Ok ())
   with
   | Sys_error detail -> Error (file_write_error ~path:sink.path ~detail)
-  | exn -> Error (file_write_error ~path:sink.path ~detail:(Printexc.to_string exn))
+  | Unix.Unix_error (err, _, _) ->
+      Error (file_write_error ~path:sink.path ~detail:(Unix.error_message err))
 
 let append_record active ~record_type ?prompt ?block_index ?block_kind
     ?assistant_block ?tool_use_id ?tool_name ?tool_input ?tool_result ?tool_error

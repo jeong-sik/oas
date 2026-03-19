@@ -90,4 +90,5 @@ let of_json json =
     }
   with
   | Yojson.Safe.Util.Type_error (msg, _) -> Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Session.of_json: %s" msg }))
-  | exn -> Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Session.of_json: %s" (Printexc.to_string exn) }))
+  | Yojson.Json_error msg -> Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Session.of_json: %s" msg }))
+  | Failure msg -> Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Session.of_json: %s" msg }))
