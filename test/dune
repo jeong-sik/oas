@@ -416,3 +416,15 @@
 (test
  (name test_cost_tracker)
  (libraries agent_sdk alcotest yojson str unix))
+
+(test
+ (name test_memory)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_guardrails_async)
+ (libraries agent_sdk alcotest yojson eio eio_main))
+
+(test
+ (name test_eval_baseline)
+ (libraries agent_sdk alcotest yojson unix))

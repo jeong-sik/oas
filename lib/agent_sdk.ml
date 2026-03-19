@@ -117,6 +117,10 @@ module Consumer = Consumer
 module Agent_typed = Agent_typed
 module Cost_tracker = Cost_tracker
 module Context_offload = Context_offload
+module Memory = Memory
+module Guardrails_async = Guardrails_async
+module Eval_baseline = Eval_baseline
+module Eval_report = Eval_report
 
 (** Quick start: create an agent with default config *)
 let create_agent ~net ?name ?model ?system_prompt ?max_tokens ?max_turns
