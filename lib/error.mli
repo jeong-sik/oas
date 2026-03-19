@@ -12,6 +12,7 @@ type api_error = Retry.api_error
 type agent_error =
   | MaxTurnsExceeded of { turns: int; limit: int }
   | TokenBudgetExceeded of { kind: string; used: int; limit: int }
+  | CostBudgetExceeded of { spent_usd: float; limit_usd: float }
   | UnrecognizedStopReason of { reason: string }
   | IdleDetected of { consecutive_idle_turns: int }
 

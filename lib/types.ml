@@ -62,6 +62,7 @@ type agent_config = {
   max_input_tokens: int option; (* Token budget: max cumulative input tokens *)
   max_total_tokens: int option; (* Token budget: max cumulative total tokens *)
   initial_messages: message list; (* Seed conversation with prior history on first run *)
+  max_cost_usd: float option; (* Cost budget: max cumulative estimated cost in USD. @since 0.62.0 *)
 }
 [@@deriving show]
 
@@ -84,6 +85,7 @@ let default_config = {
   max_input_tokens = None;
   max_total_tokens = None;
   initial_messages = [];
+  max_cost_usd = None;
 }
 
 (* Usage tracking *)

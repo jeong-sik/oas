@@ -46,6 +46,7 @@ type agent_config = {
   max_input_tokens: int option;
   max_total_tokens: int option;
   initial_messages: message list;
+  max_cost_usd: float option;
 }
 [@@deriving show]
 

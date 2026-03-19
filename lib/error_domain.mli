@@ -40,6 +40,7 @@ type tool_error = [
 type agent_error = [
   | `Max_turns_exceeded of int * int  (** turns, limit *)
   | `Token_budget_exceeded of int * int  (** used, limit *)
+  | `Cost_budget_exceeded
   | `Idle_detected of int  (** consecutive_idle_turns *)
   | `Unrecognized_stop_reason of string
 ]
