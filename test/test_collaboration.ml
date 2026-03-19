@@ -124,7 +124,7 @@ let () =
         check int "active count" 2 (List.length active));
     ];
 
-    "artifacts_votes", [
+    "artifacts_contributions", [
       test_case "add artifact" `Quick (fun () ->
         let c = Collaboration.create ~goal:"test" () in
         let a = Collaboration.{
@@ -135,15 +135,15 @@ let () =
         check int "count" 1 (List.length c.artifacts);
         check string "name" "report" (List.hd c.artifacts).name);
 
-      test_case "cast vote" `Quick (fun () ->
+      test_case "add contribution" `Quick (fun () ->
         let c = Collaboration.create ~goal:"test" () in
         let v = Collaboration.{
-          topic = "merge?"; choice = "yes";
-          voter = "bob"; cast_at = 2.0;
+          agent = "bob"; kind = "vote";
+          content = "merge?: yes"; created_at = 2.0;
         } in
-        let c = Collaboration.cast_vote c v in
-        check int "count" 1 (List.length c.votes);
-        check string "choice" "yes" (List.hd c.votes).choice);
+        let c = Collaboration.add_contribution c v in
+        check int "count" 1 (List.length c.contributions);
+        check string "content" "merge?: yes" (List.hd c.contributions).content);
     ];
 
     "phase_lifecycle", [
@@ -225,24 +225,24 @@ let () =
         check (option string) "role" (Some "reviewer") p2.role;
         check bool "state" true (p2.state = Collaboration.Working));
 
-      test_case "roundtrip with artifacts and votes" `Quick (fun () ->
-        let c = Collaboration.create ~id:"rt-3" ~goal:"vote" () in
+      test_case "roundtrip with artifacts and contributions" `Quick (fun () ->
+        let c = Collaboration.create ~id:"rt-3" ~goal:"contrib" () in
         let a = Collaboration.{
           id = "a1"; name = "patch"; kind = "code";
           producer = "frank"; created_at = 50.0;
         } in
         let v = Collaboration.{
-          topic = "approve?"; choice = "lgtm";
-          voter = "grace"; cast_at = 60.0;
+          agent = "grace"; kind = "review";
+          content = "lgtm"; created_at = 60.0;
         } in
         let c = Collaboration.add_artifact c a in
-        let c = Collaboration.cast_vote c v in
+        let c = Collaboration.add_contribution c v in
         let json = Collaboration.to_json c in
         let c2 = Result.get_ok (Collaboration.of_json json) in
         check int "artifacts" 1 (List.length c2.artifacts);
-        check int "votes" 1 (List.length c2.votes);
+        check int "contributions" 1 (List.length c2.contributions);
         check string "artifact name" "patch" (List.hd c2.artifacts).name;
-        check string "vote choice" "lgtm" (List.hd c2.votes).choice);
+        check string "contribution content" "lgtm" (List.hd c2.contributions).content);
 
       test_case "roundtrip with metadata" `Quick (fun () ->
         let c = Collaboration.create ~id:"rt-4" ~goal:"meta" () in

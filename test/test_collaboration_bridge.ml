@@ -136,7 +136,7 @@ let () =
         ) pairs);
     ];
 
-    "artifact_vote_projection", [
+    "artifact_contribution_projection", [
       test_case "artifact projection" `Quick (fun () ->
         let session = {
           Runtime.session_id = "s5"; goal = "g"; title = None;
@@ -162,7 +162,7 @@ let () =
         check string "kind" "document" a.kind;
         check string "producer is empty (lossy)" "" a.producer);
 
-      test_case "vote projection" `Quick (fun () ->
+      test_case "vote projects as contribution" `Quick (fun () ->
         let session = {
           Runtime.session_id = "s6"; goal = "g"; title = None;
           tag = None; permission_mode = None; phase = Completed;
@@ -177,11 +177,11 @@ let () =
           turn_count = 0; last_seq = 0; outcome = None;
         } in
         let collab = Runtime_projection.collaboration_of_session session in
-        check int "1 vote" 1 (List.length collab.votes);
-        let v = List.hd collab.votes in
-        check string "topic" "merge?" v.topic;
-        check string "choice" "yes" v.choice;
-        check string "voter" "bob" v.voter);
+        check int "1 contribution" 1 (List.length collab.contributions);
+        let c = List.hd collab.contributions in
+        check string "agent" "bob" c.agent;
+        check string "kind" "vote" c.kind;
+        check string "content" "merge?: yes" c.content);
 
       test_case "vote with no actor defaults to anonymous" `Quick (fun () ->
         let session = {
@@ -198,7 +198,7 @@ let () =
           turn_count = 0; last_seq = 0; outcome = None;
         } in
         let collab = Runtime_projection.collaboration_of_session session in
-        check string "voter" "anonymous" (List.hd collab.votes).voter);
+        check string "agent" "anonymous" (List.hd collab.contributions).agent);
     ];
 
     "collaboration_of_session", [

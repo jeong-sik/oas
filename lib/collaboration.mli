@@ -39,7 +39,7 @@ type participant = {
 }
 [@@deriving yojson, show]
 
-(** {1 Artifacts and votes} *)
+(** {1 Artifacts and contributions} *)
 
 type artifact = {
   id: string;
@@ -50,11 +50,22 @@ type artifact = {
 }
 [@@deriving yojson, show]
 
-type vote = {
-  topic: string;
-  choice: string;
-  voter: string;
-  cast_at: float;
+(** Generic contribution record.
+
+    Replaces the domain-specific [vote] type.  Agent state (participants,
+    phase, contributions) belongs in OAS; domain-specific semantics
+    (governance votes, rulings) belong to consumers such as MASC.
+
+    The [kind] field distinguishes contribution types:
+    - ["vote"]   — a governance decision
+    - ["review"] — a code/artifact review
+    - ["idea"]   — a suggestion or proposal
+    - any other consumer-defined string *)
+type contribution = {
+  agent: string;
+  kind: string;
+  content: string;
+  created_at: float;
 }
 [@@deriving yojson, show]
 
@@ -70,7 +81,7 @@ type t = {
   phase: phase;
   participants: participant list;
   artifacts: artifact list;
-  votes: vote list;
+  contributions: contribution list;
   shared_context: Context.t;
   created_at: float;
   updated_at: float;
@@ -97,10 +108,10 @@ val remove_participant : t -> string -> t
 val find_participant : t -> string -> participant option
 val active_participants : t -> participant list
 
-(** {1 Artifact and vote operations} *)
+(** {1 Artifact and contribution operations} *)
 
 val add_artifact : t -> artifact -> t
-val cast_vote : t -> vote -> t
+val add_contribution : t -> contribution -> t
 
 (** {1 Phase and outcome} *)
 
