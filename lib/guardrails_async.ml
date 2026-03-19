@@ -4,8 +4,8 @@
     - {b Input validators} run before the LLM call (gate).
     - {b Output validators} run after the LLM call (parallel).
 
-    All validators within a group run concurrently via [Eio.Fiber.all].
-    Any single failure stops the group.
+    All validators within a group run concurrently via [Eio.Fiber.all]
+    inside a dedicated [Eio.Switch]. Cancellation propagates correctly.
 
     @since 0.67.0 *)
 
@@ -41,15 +41,14 @@ let empty = {
 
 (** Run all input validators concurrently.
 
-    Uses [Eio.Fiber.all] to run validators in parallel within the
-    given switch. Returns the first failure found, or [Pass] if all
-    succeed. *)
-let run_input ~sw (validators : input_validator list) (messages : message list)
+    Creates a dedicated [Eio.Switch] for parallel execution.
+    Returns the first failure found, or [Pass] if all succeed.
+    Cancellation exceptions propagate correctly. *)
+let run_input (validators : input_validator list) (messages : message list)
     : validation_result =
   if validators = [] then Pass
   else begin
     let results = Array.make (List.length validators) Pass in
-    let _ = sw in
     let fns = List.mapi (fun i (v : input_validator) ->
       fun () ->
         match v.validate messages with
@@ -57,7 +56,8 @@ let run_input ~sw (validators : input_validator list) (messages : message list)
         | Error reason ->
           results.(i) <- Fail { validator_name = v.name; reason }
     ) validators in
-    (try Eio.Fiber.all fns with _ -> ());
+    Eio.Switch.run ~name:"input_validators" (fun _sw ->
+      Eio.Fiber.all fns);
     Array.to_list results
     |> List.find_opt (function Fail _ -> true | Pass -> false)
     |> Option.value ~default:Pass
@@ -66,12 +66,11 @@ let run_input ~sw (validators : input_validator list) (messages : message list)
 (** Run all output validators concurrently.
 
     Same parallel execution pattern as {!run_input}. *)
-let run_output ~sw (validators : output_validator list) (response : api_response)
+let run_output (validators : output_validator list) (response : api_response)
     : validation_result =
   if validators = [] then Pass
   else begin
     let results = Array.make (List.length validators) Pass in
-    let _ = sw in
     let fns = List.mapi (fun i (v : output_validator) ->
       fun () ->
         match v.validate response with
@@ -79,7 +78,8 @@ let run_output ~sw (validators : output_validator list) (response : api_response
         | Error reason ->
           results.(i) <- Fail { validator_name = v.name; reason }
     ) validators in
-    (try Eio.Fiber.all fns with _ -> ());
+    Eio.Switch.run ~name:"output_validators" (fun _sw ->
+      Eio.Fiber.all fns);
     Array.to_list results
     |> List.find_opt (function Fail _ -> true | Pass -> false)
     |> Option.value ~default:Pass
@@ -89,16 +89,16 @@ let run_output ~sw (validators : output_validator list) (response : api_response
 
     If input validation fails, the action is not executed.
     Returns [Ok response] on success, [Error validation_result] on failure. *)
-let guarded ~sw ~(config : t) ~(messages : message list)
+let guarded ~(config : t) ~(messages : message list)
     ~(action : unit -> (api_response, 'e) result)
     : (api_response, [`Validation of validation_result | `Action of 'e]) result =
-  match run_input ~sw config.input_validators messages with
+  match run_input config.input_validators messages with
   | Fail _ as f -> Error (`Validation f)
   | Pass ->
     match action () with
     | Error e -> Error (`Action e)
     | Ok response ->
-      match run_output ~sw config.output_validators response with
+      match run_output config.output_validators response with
       | Fail _ as f -> Error (`Validation f)
       | Pass -> Ok response
 

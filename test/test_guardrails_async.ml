@@ -28,16 +28,14 @@ let fail_output reason : Guardrails_async.output_validator =
 
 let test_input_empty () =
   Eio_main.run @@ fun _env ->
-  Eio.Switch.run @@ fun sw ->
-  let result = Guardrails_async.run_input ~sw [] dummy_messages in
+  let result = Guardrails_async.run_input [] dummy_messages in
   (match result with
    | Guardrails_async.Pass -> ()
    | Guardrails_async.Fail _ -> fail "empty should pass")
 
 let test_input_all_pass () =
   Eio_main.run @@ fun _env ->
-  Eio.Switch.run @@ fun sw ->
-  let result = Guardrails_async.run_input ~sw
+  let result = Guardrails_async.run_input
     [pass_input; pass_input; pass_input] dummy_messages in
   (match result with
    | Pass -> ()
@@ -45,8 +43,7 @@ let test_input_all_pass () =
 
 let test_input_one_fails () =
   Eio_main.run @@ fun _env ->
-  Eio.Switch.run @@ fun sw ->
-  let result = Guardrails_async.run_input ~sw
+  let result = Guardrails_async.run_input
     [pass_input; fail_input "blocked"; pass_input] dummy_messages in
   (match result with
    | Fail { validator_name = "fail_in"; reason = "blocked" } -> ()
@@ -57,24 +54,21 @@ let test_input_one_fails () =
 
 let test_output_empty () =
   Eio_main.run @@ fun _env ->
-  Eio.Switch.run @@ fun sw ->
   let response = make_response "ok" in
-  let result = Guardrails_async.run_output ~sw [] response in
+  let result = Guardrails_async.run_output [] response in
   (match result with Pass -> () | Fail _ -> fail "empty should pass")
 
 let test_output_all_pass () =
   Eio_main.run @@ fun _env ->
-  Eio.Switch.run @@ fun sw ->
   let response = make_response "safe content" in
-  let result = Guardrails_async.run_output ~sw
+  let result = Guardrails_async.run_output
     [pass_output; pass_output] response in
   (match result with Pass -> () | Fail _ -> fail "should pass")
 
 let test_output_one_fails () =
   Eio_main.run @@ fun _env ->
-  Eio.Switch.run @@ fun sw ->
   let response = make_response "bad content" in
-  let result = Guardrails_async.run_output ~sw
+  let result = Guardrails_async.run_output
     [pass_output; fail_output "toxic"] response in
   (match result with
    | Fail { reason = "toxic"; _ } -> ()
@@ -84,52 +78,48 @@ let test_output_one_fails () =
 
 let test_guarded_all_pass () =
   Eio_main.run @@ fun _env ->
-  Eio.Switch.run @@ fun sw ->
   let config : Guardrails_async.t = {
     input_validators = [pass_input];
     output_validators = [pass_output];
   } in
   let action () = Ok (make_response "result") in
-  match Guardrails_async.guarded ~sw ~config ~messages:dummy_messages ~action with
+  match Guardrails_async.guarded ~config ~messages:dummy_messages ~action with
   | Ok resp -> check string "response text" "result"
     (match List.hd resp.content with Text s -> s | _ -> "")
   | Error _ -> fail "should succeed"
 
 let test_guarded_input_blocks () =
   Eio_main.run @@ fun _env ->
-  Eio.Switch.run @@ fun sw ->
   let action_called = ref false in
   let config : Guardrails_async.t = {
     input_validators = [fail_input "banned"];
     output_validators = [pass_output];
   } in
   let action () = action_called := true; Ok (make_response "should not reach") in
-  match Guardrails_async.guarded ~sw ~config ~messages:dummy_messages ~action with
+  match Guardrails_async.guarded ~config ~messages:dummy_messages ~action with
   | Error (`Validation (Fail { reason = "banned"; _ })) ->
     check bool "action not called" false !action_called
   | _ -> fail "should have been blocked by input"
 
 let test_guarded_output_rejects () =
   Eio_main.run @@ fun _env ->
-  Eio.Switch.run @@ fun sw ->
   let config : Guardrails_async.t = {
     input_validators = [pass_input];
     output_validators = [fail_output "unsafe"];
   } in
   let action () = Ok (make_response "raw") in
-  match Guardrails_async.guarded ~sw ~config ~messages:dummy_messages ~action with
+  match Guardrails_async.guarded ~config ~messages:dummy_messages ~action with
   | Error (`Validation (Fail { reason = "unsafe"; _ })) -> ()
   | _ -> fail "should have been rejected by output"
 
 let test_guarded_action_error () =
   Eio_main.run @@ fun _env ->
-  Eio.Switch.run @@ fun sw ->
   let config : Guardrails_async.t = {
     input_validators = [pass_input];
     output_validators = [pass_output];
   } in
   let action () = Error "api down" in
-  match Guardrails_async.guarded ~sw ~config ~messages:dummy_messages ~action with
+  match Guardrails_async.guarded ~config ~messages:dummy_messages ~action with
   | Error (`Action "api down") -> ()
   | _ -> fail "should propagate action error"
 
@@ -145,7 +135,6 @@ let test_result_to_string () =
 
 let test_concurrent_execution () =
   Eio_main.run @@ fun _env ->
-  Eio.Switch.run @@ fun sw ->
   let order = ref [] in
   let v1 : Guardrails_async.input_validator = {
     name = "v1";
@@ -159,7 +148,7 @@ let test_concurrent_execution () =
     name = "v3";
     validate = fun _ -> order := "v3" :: !order; Ok ()
   } in
-  let result = Guardrails_async.run_input ~sw [v1; v2; v3] dummy_messages in
+  let result = Guardrails_async.run_input [v1; v2; v3] dummy_messages in
   (match result with Pass -> () | Fail _ -> fail "should pass");
   (* All 3 should have executed *)
   check int "all executed" 3 (List.length !order)

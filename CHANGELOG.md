@@ -2,6 +2,15 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.68.1] - 2026-03-19
+
+### Fixed
+- **Guardrails_async**: fix Eio cancellation swallowing — `try ... with _ -> ()` replaced with dedicated `Eio.Switch.run`. Removed unused `~sw` parameter from `run_input`/`run_output`/`guarded` (breaking API change, pre-v1.0).
+- **Builder**: add `max_cost_usd >= 0.0` validation in `build_safe`. Negative budget no longer silently triggers `CostBudgetExceeded`.
+
+### Added
+- `runtime.mli`: public API contract for wire protocol types. Documents collaboration field migration to `Collaboration.t`. (v0.66 formalization)
+
 ## [0.68.0] - 2026-03-19
 
 ### Added

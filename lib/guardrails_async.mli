@@ -1,5 +1,8 @@
 (** Async guardrails: parallel input/output validation.
 
+    All validators run concurrently inside a dedicated [Eio.Switch].
+    Cancellation propagates correctly (no exception swallowing).
+
     @since 0.67.0 *)
 
 (** Input validator: checks messages before the LLM call. *)
@@ -26,19 +29,14 @@ type t = {
 val empty : t
 
 (** Run input validators concurrently. Returns first failure or [Pass]. *)
-val run_input :
-  sw:Eio.Switch.t ->
-  input_validator list -> Types.message list -> validation_result
+val run_input : input_validator list -> Types.message list -> validation_result
 
 (** Run output validators concurrently. Returns first failure or [Pass]. *)
-val run_output :
-  sw:Eio.Switch.t ->
-  output_validator list -> Types.api_response -> validation_result
+val run_output : output_validator list -> Types.api_response -> validation_result
 
 (** Run input validation, action, output validation in sequence.
     Input failure skips the action. *)
 val guarded :
-  sw:Eio.Switch.t ->
   config:t ->
   messages:Types.message list ->
   action:(unit -> (Types.api_response, 'e) result) ->
