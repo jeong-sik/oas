@@ -1,0 +1,95 @@
+(** OpenTelemetry-compatible tracing with OTLP JSON export.
+
+    Provides span lifecycle management, event recording, and
+    OTLP JSON serialization. Supports both Stdlib.Mutex (non-Eio)
+    and Eio.Mutex backends. *)
+
+(** {1 Types} *)
+
+type otel_span_kind = Internal | Client | Server | Producer | Consumer
+
+type otel_event = {
+  event_name: string;
+  timestamp_ns: Int64.t;
+  attributes: (string * string) list;
+}
+
+type span = {
+  trace_id: string;
+  span_id: string;
+  parent_span_id: string option;
+  name: string;
+  kind: otel_span_kind;
+  start_time_ns: Int64.t;
+  mutable end_time_ns: Int64.t option;
+  mutable status: bool option;
+  mutable attributes: (string * string) list;
+  mutable events: otel_event list;
+}
+
+type config = {
+  service_name: string;
+  endpoint: string option;
+}
+
+type mutex_impl =
+  | Stdlib_mu of Mutex.t
+  | Eio_mu of Eio.Mutex.t
+
+type instance = {
+  config: config;
+  mu: mutex_impl;
+  mutable current_spans: span list;
+  mutable completed_spans: span list;
+}
+
+(** {1 Config} *)
+
+val default_config : config
+val otel_span_kind_to_int : otel_span_kind -> int
+
+(** {1 Utilities} *)
+
+val now_ns : unit -> Int64.t
+val map_span_kind : Tracing.span_kind -> otel_span_kind
+val semantic_attrs : Tracing.span_attrs -> (string * string) list
+val span_kind_to_string : Tracing.span_kind -> string
+val make_span_name : Tracing.span_attrs -> string
+
+(** {1 Instance operations} *)
+
+val create_instance : ?config:config -> unit -> instance
+val create_instance_eio : ?config:config -> unit -> instance
+val inst_start_span : instance -> Tracing.span_attrs -> span
+val inst_end_span : instance -> span -> ok:bool -> unit
+val inst_add_event : instance -> span -> string -> unit
+val inst_add_attrs : instance -> span -> (string * string) list -> unit
+val inst_flush : instance -> span list
+val inst_reset : instance -> unit
+val inst_completed_count : instance -> int
+val inst_active_count : instance -> int
+
+(** {1 Global operations} *)
+
+val start_span : Tracing.span_attrs -> span
+val end_span : span -> ok:bool -> unit
+val add_event : span -> string -> unit
+val add_attrs : span -> (string * string) list -> unit
+val flush : unit -> span list
+val reset : unit -> unit
+val completed_count : unit -> int
+val active_count : unit -> int
+
+(** {1 JSON serialization} *)
+
+val attrs_to_json : (string * string) list -> Yojson.Safe.t
+val event_to_json : otel_event -> Yojson.Safe.t
+val status_to_json : span -> Yojson.Safe.t
+val span_to_json : span -> Yojson.Safe.t
+val to_otlp_json : config -> Yojson.Safe.t
+
+(** {1 First-class module constructors} *)
+
+val tracer_of_instance : instance -> Tracing.t
+val create : ?config:config -> unit -> Tracing.t
+val create_eio : ?config:config -> unit -> Tracing.t
