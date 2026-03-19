@@ -1,0 +1,59 @@
+(** Explicit runtime contract helpers.
+
+    Packages system prompt, tools, MCP clients, guardrails, context,
+    and skill bundles into a first-class contract. *)
+
+(** {1 Types} *)
+
+type trigger = {
+  kind: string;
+  source: string option;
+  reason: string option;
+  payload: Yojson.Safe.t option;
+}
+
+type instruction_layer = {
+  label: string option;
+  content: string;
+}
+
+type t = {
+  runtime_awareness: string option;
+  trigger: trigger option;
+  instruction_layers: instruction_layer list;
+  skills: Skill.t list;
+  tool_grants: string list option;
+  mcp_tool_allowlist: string list option;
+}
+
+val context_key : string
+val empty : t
+
+(** {1 Builders} *)
+
+val with_runtime_awareness : string -> t -> t
+val with_trigger : ?source:string -> ?reason:string -> ?payload:Yojson.Safe.t -> string -> t -> t
+val add_instruction_layer : ?label:string -> string -> t -> t
+val with_skill : Skill.t -> t -> t
+val with_skills : Skill.t list -> t -> t
+val with_tool_grants : string list -> t -> t
+val with_mcp_tool_allowlist : string list -> t -> t
+
+(** {1 Operations} *)
+
+val merge : t -> t -> t
+val is_empty : t -> bool
+
+(** {1 Serialization} *)
+
+val to_json : t -> Yojson.Safe.t
+
+(** {1 Rendering} *)
+
+val compose_system_prompt : ?base:string -> t -> string option
+
+(** {1 Filtering} *)
+
+val filter_tools : t -> Tool.t list -> Tool.t list
+val filter_mcp_clients : t -> Mcp.managed list -> Mcp.managed list
+val context_with_contract : ?context:Context.t -> t -> Context.t option
