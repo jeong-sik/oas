@@ -16,6 +16,7 @@ type api_error = Retry.api_error
 type agent_error =
   | MaxTurnsExceeded of { turns: int; limit: int }
   | TokenBudgetExceeded of { kind: string; used: int; limit: int }
+  | CostBudgetExceeded of { spent_usd: float; limit_usd: float }
   | UnrecognizedStopReason of { reason: string }
   | IdleDetected of { consecutive_idle_turns: int }
 
@@ -77,6 +78,8 @@ let agent_error_to_string = function
     Printf.sprintf "Max turns exceeded (turn %d, limit %d)" r.turns r.limit
   | TokenBudgetExceeded r ->
     Printf.sprintf "%s token budget exceeded: %d/%d" r.kind r.used r.limit
+  | CostBudgetExceeded r ->
+    Printf.sprintf "Cost budget exceeded: $%.4f spent (limit $%.4f)" r.spent_usd r.limit_usd
   | UnrecognizedStopReason r ->
     Printf.sprintf "Unrecognized stop_reason from API: %s" r.reason
   | IdleDetected r ->

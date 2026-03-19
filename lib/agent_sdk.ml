@@ -115,6 +115,8 @@ module Async_agent = Async_agent
 module Append_instruction = Append_instruction
 module Consumer = Consumer
 module Agent_typed = Agent_typed
+module Cost_tracker = Cost_tracker
+module Context_offload = Context_offload
 
 (** Quick start: create an agent with default config *)
 let create_agent ~net ?name ?model ?system_prompt ?max_tokens ?max_turns
@@ -139,6 +141,7 @@ let create_agent ~net ?name ?model ?system_prompt ?max_tokens ?max_turns
     max_input_tokens = default_config.max_input_tokens;
     max_total_tokens = default_config.max_total_tokens;
     initial_messages = default_config.initial_messages;
+    max_cost_usd = default_config.max_cost_usd;
   } in
   let options = match provider, raw_trace with
     | None, None -> Agent.default_options

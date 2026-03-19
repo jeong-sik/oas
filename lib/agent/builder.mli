@@ -25,6 +25,7 @@ val with_tool_choice : Types.tool_choice -> t -> t
 val with_disable_parallel_tool_use : bool -> t -> t
 val with_max_input_tokens : int -> t -> t
 val with_max_total_tokens : int -> t -> t
+val with_max_cost_usd : float -> t -> t
 val with_response_format_json : bool -> t -> t
 val with_cache_system_prompt : bool -> t -> t
 val with_initial_messages : Types.message list -> t -> t
