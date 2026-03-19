@@ -1,14 +1,16 @@
-(** Runtime wire protocol types.
+(** OAS Runtime wire protocol types.
 
-    Defines the request/response/event types for the OAS runtime protocol.
-    All types derive [yojson] and [show] for serialization and debugging.
+    Defines the full request/response/event protocol between the OAS
+    runtime and its consumers (CLI, IDE, MASC).
 
-    {b Migration note}: {!session} contains collaboration fields marked
-    [(→ Collaboration.t)] that are being migrated to {!Collaboration.t}.
-    New code should use {!Runtime_projection.collaboration_of_session}
-    rather than reading those fields directly. *)
+    {b Migration note}: [session] contains collaboration fields that
+    are being migrated to {!Collaboration.t}. New code should use
+    {!Runtime_projection.collaboration_of_session} instead of reading
+    these fields directly.
 
-(** {1 Session state types} *)
+    @since 0.50.0 *)
+
+(** {1 Session State} *)
 
 type phase =
   | Bootstrapping
@@ -21,13 +23,7 @@ type phase =
 [@@deriving yojson, show]
 
 type participant_state =
-  | Planned
-  | Starting
-  | Live
-  | Idle
-  | Done
-  | Failed_participant
-  | Detached
+  | Planned | Starting | Live | Idle | Done | Failed_participant | Detached
 [@@deriving yojson, show]
 
 type participant = {
@@ -78,15 +74,25 @@ type vote = {
 
 (** Runtime session — wire protocol record.
 
-    Fields marked {i (→ Collaboration.t)} are migration targets.
-    @see {!Collaboration} for the target type. *)
+    {b Migration}: Fields marked {i (-> Collaboration.t)} are duplicated
+    from {!Collaboration.t} for backward compatibility. New consumers
+    should use {!Runtime_projection.collaboration_of_session} to obtain
+    a [Collaboration.t] value instead.
+
+    - [goal] {i (-> Collaboration.t)}
+    - [phase] {i (-> Collaboration.t)}
+    - [planned_participants] {i (-> Collaboration.t)}
+    - [participants] {i (-> Collaboration.t)}
+    - [artifacts] {i (-> Collaboration.t)}
+    - [votes] {i (-> Collaboration.t)}
+    - [outcome] {i (-> Collaboration.t)} *)
 type session = {
   session_id: string;
-  goal: string;                       (** (→ Collaboration.t) *)
+  goal: string;
   title: string option;
   tag: string option;
   permission_mode: string option;
-  phase: phase;                       (** (→ Collaboration.t) *)
+  phase: phase;
   created_at: float;
   updated_at: float;
   provider: string option;
@@ -94,17 +100,17 @@ type session = {
   system_prompt: string option;
   max_turns: int;
   workdir: string option;
-  planned_participants: string list;  (** (→ Collaboration.t) *)
-  participants: participant list;     (** (→ Collaboration.t) *)
-  artifacts: artifact list;           (** (→ Collaboration.t) *)
-  votes: vote list;                   (** (→ Collaboration.t) *)
+  planned_participants: string list;
+  participants: participant list;
+  artifacts: artifact list;
+  votes: vote list;
   turn_count: int;
   last_seq: int;
-  outcome: string option;             (** (→ Collaboration.t) *)
+  outcome: string option;
 }
 [@@deriving yojson, show]
 
-(** {1 Request/response types} *)
+(** {1 Protocol Messages} *)
 
 type init_request = {
   session_root: string option;
@@ -172,10 +178,7 @@ type update_settings_request = {
 }
 [@@deriving yojson, show]
 
-type record_turn_request = {
-  actor: string option;
-  message: string;
-}
+type record_turn_request = { actor: string option; message: string }
 [@@deriving yojson, show]
 
 type spawn_agent_request = {
@@ -189,11 +192,7 @@ type spawn_agent_request = {
 }
 [@@deriving yojson, show]
 
-type attach_artifact_request = {
-  name: string;
-  kind: string;
-  content: string;
-}
+type attach_artifact_request = { name: string; kind: string; content: string }
 [@@deriving yojson, show]
 
 type vote_request = {
@@ -204,17 +203,11 @@ type vote_request = {
 }
 [@@deriving yojson, show]
 
-type checkpoint_request = {
-  label: string option;
-}
+type checkpoint_request = { label: string option }
 [@@deriving yojson, show]
 
-type finalize_request = {
-  reason: string option;
-}
+type finalize_request = { reason: string option }
 [@@deriving yojson, show]
-
-(** {1 Commands and events} *)
 
 type command =
   | Record_turn of record_turn_request
@@ -226,16 +219,12 @@ type command =
   | Request_finalize of finalize_request
 [@@deriving yojson, show]
 
-type start_event = {
-  goal: string;
-  participants: string list;
-}
+(** {1 Events} *)
+
+type start_event = { goal: string; participants: string list }
 [@@deriving yojson, show]
 
-type turn_event = {
-  actor: string option;
-  message: string;
-}
+type turn_event = { actor: string option; message: string }
 [@@deriving yojson, show]
 
 type spawn_event = {
@@ -257,10 +246,7 @@ type participant_event = {
 }
 [@@deriving yojson, show]
 
-type output_delta_event = {
-  participant_name: string;
-  delta: string;
-}
+type output_delta_event = { participant_name: string; delta: string }
 [@@deriving yojson, show]
 
 type artifact_event = {
@@ -273,15 +259,10 @@ type artifact_event = {
 }
 [@@deriving yojson, show]
 
-type checkpoint_event = {
-  label: string option;
-  path: string;
-}
+type checkpoint_event = { label: string option; path: string }
 [@@deriving yojson, show]
 
-type completion_event = {
-  outcome: string option;
-}
+type completion_event = { outcome: string option }
 [@@deriving yojson, show]
 
 type event_kind =
@@ -301,12 +282,10 @@ type event_kind =
   | Session_failed of completion_event
 [@@deriving yojson, show]
 
-type event = {
-  seq: int;
-  ts: float;
-  kind: event_kind;
-}
+type event = { seq: int; ts: float; kind: event_kind }
 [@@deriving yojson, show]
+
+(** {1 Reports and Proofs} *)
 
 type report = {
   session_id: string;
@@ -316,10 +295,7 @@ type report = {
 }
 [@@deriving yojson, show]
 
-type proof_check = {
-  name: string;
-  passed: bool;
-}
+type proof_check = { name: string; passed: bool }
 [@@deriving yojson, show]
 
 type proof = {
@@ -331,7 +307,7 @@ type proof = {
 }
 [@@deriving yojson, show]
 
-(** {1 Protocol envelope} *)
+(** {1 Request / Response Envelopes} *)
 
 type request =
   | Initialize of init_request
@@ -377,7 +353,7 @@ type protocol_message =
   | System_message of { level: string; message: string }
 [@@deriving yojson, show]
 
-(** {1 Convenience functions} *)
+(** {1 Serialization} *)
 
 val request_to_json : request -> Yojson.Safe.t
 val request_of_json : Yojson.Safe.t -> (request, string) result
