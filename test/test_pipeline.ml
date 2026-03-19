@@ -369,6 +369,250 @@ let test_make_tool_results_mixed () =
   let tool_results = Agent_turn.make_tool_results results in
   Alcotest.(check int) "2 results" 2 (List.length tool_results)
 
+(* ── accumulate_usage ────────────────────────────────────── *)
+
+let test_accumulate_usage_with_response () =
+  let current = Types.empty_usage in
+  let resp_usage = Some {
+    Types.input_tokens = 100; output_tokens = 50;
+    cache_creation_input_tokens = 20; cache_read_input_tokens = 10;
+  } in
+  let result = Agent_turn.accumulate_usage
+    ~current_usage:current ~provider:None ~response_usage:resp_usage in
+  Alcotest.(check int) "input tokens" 100 result.total_input_tokens;
+  Alcotest.(check int) "output tokens" 50 result.total_output_tokens;
+  Alcotest.(check int) "api_calls" 1 result.api_calls
+
+let test_accumulate_usage_no_response () =
+  let current = { Types.empty_usage with
+    api_calls = 2; total_input_tokens = 500; total_output_tokens = 200 } in
+  let result = Agent_turn.accumulate_usage
+    ~current_usage:current ~provider:None ~response_usage:None in
+  Alcotest.(check int) "api_calls incremented" 3 result.api_calls;
+  Alcotest.(check int) "input tokens preserved" 500 result.total_input_tokens;
+  Alcotest.(check int) "output tokens preserved" 200 result.total_output_tokens
+
+let test_accumulate_usage_cumulative () =
+  let u1 = Some {
+    Types.input_tokens = 50; output_tokens = 20;
+    cache_creation_input_tokens = 0; cache_read_input_tokens = 0;
+  } in
+  let u2 = Some {
+    Types.input_tokens = 30; output_tokens = 10;
+    cache_creation_input_tokens = 0; cache_read_input_tokens = 0;
+  } in
+  let after1 = Agent_turn.accumulate_usage
+    ~current_usage:Types.empty_usage ~provider:None ~response_usage:u1 in
+  let after2 = Agent_turn.accumulate_usage
+    ~current_usage:after1 ~provider:None ~response_usage:u2 in
+  Alcotest.(check int) "cumulative input" 80 after2.total_input_tokens;
+  Alcotest.(check int) "cumulative output" 30 after2.total_output_tokens;
+  Alcotest.(check int) "cumulative calls" 2 after2.api_calls
+
+(* ── check_token_budget ──────────────────────────────────── *)
+
+let test_token_budget_no_limit () =
+  let config = Types.default_config in
+  let usage = { Types.empty_usage with total_input_tokens = 999999 } in
+  Alcotest.(check bool) "no limit = None" true
+    (Option.is_none (Agent_turn.check_token_budget config usage))
+
+let test_token_budget_input_under () =
+  let config = { Types.default_config with max_input_tokens = Some 1000 } in
+  let usage = { Types.empty_usage with total_input_tokens = 500 } in
+  Alcotest.(check bool) "under limit" true
+    (Option.is_none (Agent_turn.check_token_budget config usage))
+
+let test_token_budget_input_exceeded () =
+  let config = { Types.default_config with max_input_tokens = Some 1000 } in
+  let usage = { Types.empty_usage with total_input_tokens = 1500 } in
+  match Agent_turn.check_token_budget config usage with
+  | Some (Error.Agent (TokenBudgetExceeded { kind; used; limit })) ->
+    Alcotest.(check string) "kind" "Input" kind;
+    Alcotest.(check int) "used" 1500 used;
+    Alcotest.(check int) "limit" 1000 limit
+  | _ -> Alcotest.fail "expected TokenBudgetExceeded"
+
+let test_token_budget_total_exceeded () =
+  let config = { Types.default_config with max_total_tokens = Some 200 } in
+  let usage = {
+    Types.empty_usage with
+    total_input_tokens = 120; total_output_tokens = 100;
+  } in
+  match Agent_turn.check_token_budget config usage with
+  | Some (Error.Agent (TokenBudgetExceeded { kind; used; limit })) ->
+    Alcotest.(check string) "kind" "Total" kind;
+    Alcotest.(check int) "used" 220 used;
+    Alcotest.(check int) "limit" 200 limit
+  | _ -> Alcotest.fail "expected TokenBudgetExceeded"
+
+let test_token_budget_total_under () =
+  let config = { Types.default_config with max_total_tokens = Some 500 } in
+  let usage = {
+    Types.empty_usage with
+    total_input_tokens = 200; total_output_tokens = 100;
+  } in
+  Alcotest.(check bool) "under total limit" true
+    (Option.is_none (Agent_turn.check_token_budget config usage))
+
+let test_token_budget_input_takes_precedence () =
+  (* If both input and total are exceeded, input error is returned *)
+  let config = {
+    Types.default_config with
+    max_input_tokens = Some 100; max_total_tokens = Some 200;
+  } in
+  let usage = {
+    Types.empty_usage with
+    total_input_tokens = 150; total_output_tokens = 100;
+  } in
+  match Agent_turn.check_token_budget config usage with
+  | Some (Error.Agent (TokenBudgetExceeded { kind; _ })) ->
+    Alcotest.(check string) "input takes precedence" "Input" kind
+  | _ -> Alcotest.fail "expected TokenBudgetExceeded"
+
+(* ── prepare_turn: extra_system_context ──────────────────── *)
+
+let test_prepare_turn_extra_context () =
+  let messages = [{ Types.role = User; content = [Text "hi"]; name = None; tool_call_id = None }] in
+  let turn_params = { Hooks.default_turn_params with
+    extra_system_context = Some "You are in debug mode." } in
+  let prep = Agent_turn.prepare_turn
+    ~guardrails:Guardrails.default
+    ~tools:Tool_set.empty ~messages
+    ~context_reducer:None
+    ~turn_params in
+  (* Extra context adds a system message at the start *)
+  Alcotest.(check int) "2 messages (context + original)" 2
+    (List.length prep.effective_messages);
+  let first = List.hd prep.effective_messages in
+  (match first.content with
+   | [Types.Text s] ->
+     Alcotest.(check string) "injected context"
+       "[system context] You are in debug mode." s
+   | _ -> Alcotest.fail "expected Text block")
+
+(* ── prepare_turn: tool_filter_override ──────────────────── *)
+
+let test_prepare_turn_tool_filter_override () =
+  let tools = Tool_set.of_list [
+    Tool.create ~name:"allowed" ~description:"ok" ~parameters:[]
+      (fun _ -> Ok { Types.content = "ok" });
+    Tool.create ~name:"blocked" ~description:"no" ~parameters:[]
+      (fun _ -> Ok { Types.content = "no" });
+  ] in
+  let messages = [{ Types.role = User; content = [Text "hi"]; name = None; tool_call_id = None }] in
+  let turn_params = { Hooks.default_turn_params with
+    tool_filter_override = Some (AllowList ["allowed"]) } in
+  let prep = Agent_turn.prepare_turn
+    ~guardrails:Guardrails.default
+    ~tools ~messages
+    ~context_reducer:None
+    ~turn_params in
+  match prep.tools_json with
+  | Some tools_json ->
+    Alcotest.(check int) "only 1 tool after filter" 1 (List.length tools_json)
+  | None -> Alcotest.fail "expected some tools"
+
+(* ── Error_domain: tag_error ─────────────────────────────── *)
+
+let test_error_domain_of_sdk_error () =
+  let err = Error.Agent (UnrecognizedStopReason { reason = "weird" }) in
+  let poly = Error_domain.of_sdk_error err in
+  match poly with
+  | `Unrecognized_stop_reason s ->
+    Alcotest.(check string) "reason" "weird" s
+  | _ -> Alcotest.fail "expected Unrecognized_stop_reason"
+
+let test_error_domain_roundtrip () =
+  let err = Error.Internal "test error" in
+  let poly = Error_domain.of_sdk_error err in
+  let back = Error_domain.to_sdk_error poly in
+  Alcotest.(check string) "roundtrip" (Error.to_string err) (Error.to_string back)
+
+let test_error_domain_with_stage () =
+  let poly = Error_domain.of_sdk_error (Error.Internal "fail") in
+  let ctx = Error_domain.with_stage "route" poly in
+  let s = Error_domain.ctx_to_string ctx in
+  Alcotest.(check bool) "contains stage" true
+    (String.length s > 0);
+  Alcotest.(check bool) "has route prefix" true
+    (let prefix = "[route]" in
+     String.length s >= String.length prefix &&
+     String.sub s 0 (String.length prefix) = prefix)
+
+let test_error_domain_is_retryable () =
+  Alcotest.(check bool) "rate limited is retryable" true
+    (Error_domain.is_retryable (`Rate_limited (Some 1.0)));
+  Alcotest.(check bool) "internal not retryable" false
+    (Error_domain.is_retryable (`Internal "nope"));
+  Alcotest.(check bool) "network error retryable" true
+    (Error_domain.is_retryable (`Network_error "timeout"))
+
+let test_error_domain_provider_errors () =
+  let errs : Error_domain.sdk_error_poly list = [
+    `Auth_error "bad key";
+    `Server_error (500, "internal");
+    `Overloaded;
+    `Provider_timeout "slow";
+    `Invalid_request "bad";
+  ] in
+  List.iter (fun e ->
+    let s = Error_domain.to_string e in
+    Alcotest.(check bool) "has string" true (String.length s > 0)
+  ) errs
+
+(* ── Provider_mock: multi-tool response ───────────────────── *)
+
+let test_mock_multi_tool_response () =
+  let mock = Provider_mock.create
+    ~responses:[Provider_mock.tool_use_response
+      ~tool_name:"t1" ~tool_input:(`Assoc []) ()]
+    () in
+  match Provider_mock.next_response mock [] with
+  | Ok resp ->
+    let tool_count = List.length (List.filter (function
+      | Types.ToolUse _ -> true | _ -> false
+    ) resp.content) in
+    Alcotest.(check bool) "has tool use" true (tool_count > 0)
+  | Error _ -> Alcotest.fail "expected ok"
+
+(* ── Agent_turn: filter_valid_messages ────────────────────── *)
+
+let test_filter_valid_empty_messages () =
+  let extra = [
+    { Types.role = User; content = [Text "a"]; name = None; tool_call_id = None };
+    { Types.role = Assistant; content = [Text "b"]; name = None; tool_call_id = None };
+  ] in
+  let result = Agent_turn.filter_valid_messages ~messages:[] extra in
+  Alcotest.(check int) "passthrough on empty" 2 (List.length result)
+
+let test_filter_valid_removes_consecutive_same_role () =
+  let messages = [
+    { Types.role = User; content = [Text "x"]; name = None; tool_call_id = None };
+  ] in
+  let extra = [
+    { Types.role = User; content = [Text "a"]; name = None; tool_call_id = None };
+    { Types.role = Assistant; content = [Text "b"]; name = None; tool_call_id = None };
+  ] in
+  let result = Agent_turn.filter_valid_messages ~messages extra in
+  (* First extra msg has same role (User) as last message, should be filtered *)
+  Alcotest.(check int) "consecutive same role filtered" 1 (List.length result);
+  let first = List.hd result in
+  (match first.content with
+   | [Types.Text s] -> Alcotest.(check string) "kept assistant" "b" s
+   | _ -> Alcotest.fail "wrong content")
+
+let test_filter_valid_alternating_roles () =
+  let messages = [
+    { Types.role = Assistant; content = [Text "x"]; name = None; tool_call_id = None };
+  ] in
+  let extra = [
+    { Types.role = User; content = [Text "a"]; name = None; tool_call_id = None };
+    { Types.role = Assistant; content = [Text "b"]; name = None; tool_call_id = None };
+  ] in
+  let result = Agent_turn.filter_valid_messages ~messages extra in
+  Alcotest.(check int) "alternating kept" 2 (List.length result)
+
 (* ── Runner ──────────────────────────────────────────────── *)
 
 let () =
@@ -398,6 +642,8 @@ let () =
       Alcotest.test_case "different tools" `Quick test_idle_detection_different_tools;
       Alcotest.test_case "same input idle" `Quick test_idle_detection_same_input;
       Alcotest.test_case "empty tools idle" `Quick test_idle_detection_empty_tools;
+      Alcotest.test_case "extra system context" `Quick test_prepare_turn_extra_context;
+      Alcotest.test_case "tool filter override" `Quick test_prepare_turn_tool_filter_override;
     ];
     "guardrails", [
       Alcotest.test_case "allow all" `Quick test_guardrails_allow_all;
@@ -410,5 +656,33 @@ let () =
       Alcotest.test_case "make ok" `Quick test_make_tool_results_ok;
       Alcotest.test_case "make error" `Quick test_make_tool_results_error;
       Alcotest.test_case "make mixed" `Quick test_make_tool_results_mixed;
+    ];
+    "accumulate_usage", [
+      Alcotest.test_case "with response" `Quick test_accumulate_usage_with_response;
+      Alcotest.test_case "no response" `Quick test_accumulate_usage_no_response;
+      Alcotest.test_case "cumulative" `Quick test_accumulate_usage_cumulative;
+    ];
+    "token_budget", [
+      Alcotest.test_case "no limit" `Quick test_token_budget_no_limit;
+      Alcotest.test_case "input under" `Quick test_token_budget_input_under;
+      Alcotest.test_case "input exceeded" `Quick test_token_budget_input_exceeded;
+      Alcotest.test_case "total exceeded" `Quick test_token_budget_total_exceeded;
+      Alcotest.test_case "total under" `Quick test_token_budget_total_under;
+      Alcotest.test_case "input precedence" `Quick test_token_budget_input_takes_precedence;
+    ];
+    "error_domain", [
+      Alcotest.test_case "of_sdk_error" `Quick test_error_domain_of_sdk_error;
+      Alcotest.test_case "roundtrip" `Quick test_error_domain_roundtrip;
+      Alcotest.test_case "with_stage" `Quick test_error_domain_with_stage;
+      Alcotest.test_case "is_retryable" `Quick test_error_domain_is_retryable;
+      Alcotest.test_case "provider errors" `Quick test_error_domain_provider_errors;
+    ];
+    "provider_mock_extra", [
+      Alcotest.test_case "multi tool response" `Quick test_mock_multi_tool_response;
+    ];
+    "filter_valid_messages", [
+      Alcotest.test_case "empty messages" `Quick test_filter_valid_empty_messages;
+      Alcotest.test_case "same role filtered" `Quick test_filter_valid_removes_consecutive_same_role;
+      Alcotest.test_case "alternating roles" `Quick test_filter_valid_alternating_roles;
     ];
   ]
