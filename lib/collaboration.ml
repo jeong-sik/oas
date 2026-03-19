@@ -38,11 +38,11 @@ type artifact = {
 }
 [@@deriving yojson, show]
 
-type vote = {
-  topic: string;
-  choice: string;
-  voter: string;
-  cast_at: float;
+type contribution = {
+  agent: string;
+  kind: string;
+  content: string;
+  created_at: float;
 }
 [@@deriving yojson, show]
 
@@ -52,7 +52,7 @@ type t = {
   phase: phase;
   participants: participant list;
   artifacts: artifact list;
-  votes: vote list;
+  contributions: contribution list;
   shared_context: Context.t;
   created_at: float;
   updated_at: float;
@@ -79,7 +79,7 @@ let create ?id ?shared_context ~goal () =
     phase = Bootstrapping;
     participants = [];
     artifacts = [];
-    votes = [];
+    contributions = [];
     shared_context = Option.value shared_context ~default:(Context.create ());
     created_at = now;
     updated_at = now;
@@ -122,13 +122,13 @@ let active_participants t =
     | _ -> false
   ) t.participants
 
-(* --- Artifact and vote operations --- *)
+(* --- Artifact and contribution operations --- *)
 
 let add_artifact t a =
   { t with artifacts = t.artifacts @ [a] } |> touch
 
-let cast_vote t v =
-  { t with votes = t.votes @ [v] } |> touch
+let add_contribution t c =
+  { t with contributions = t.contributions @ [c] } |> touch
 
 (* --- Phase and outcome --- *)
 
@@ -152,7 +152,7 @@ let to_json t =
     ("phase", phase_to_yojson t.phase);
     ("participants", `List (List.map participant_to_yojson t.participants));
     ("artifacts", `List (List.map artifact_to_yojson t.artifacts));
-    ("votes", `List (List.map vote_to_yojson t.votes));
+    ("contributions", `List (List.map contribution_to_yojson t.contributions));
     ("shared_context", Context.to_json t.shared_context);
     ("created_at", `Float t.created_at);
     ("updated_at", `Float t.updated_at);
@@ -194,8 +194,30 @@ let of_json json =
         parse_list participant_of_yojson (json |> member "participants");
       artifacts =
         parse_list artifact_of_yojson (json |> member "artifacts");
-      votes =
-        parse_list vote_of_yojson (json |> member "votes");
+      contributions =
+        (match json |> member "contributions" with
+         | `Null ->
+           (* Backward compat: parse legacy "votes" key as contributions *)
+           (match json |> member "votes" with
+            | `Null -> []
+            | `List votes_json ->
+              List.map (fun vj ->
+                let topic =
+                  (try to_string (vj |> member "topic") with _ -> "") in
+                let choice =
+                  (try to_string (vj |> member "choice") with _ -> "") in
+                let voter =
+                  (try to_string (vj |> member "voter") with _ -> "anonymous") in
+                let cast_at =
+                  (try to_float (vj |> member "cast_at") with _ -> 0.0) in
+                { agent = voter;
+                  kind = "vote";
+                  content = topic ^ ": " ^ choice;
+                  created_at = cast_at; }
+              ) votes_json
+            | _ -> [])
+         | contributions_json ->
+           parse_list contribution_of_yojson contributions_json);
       shared_context;
       created_at = json |> member "created_at" |> to_float;
       updated_at = json |> member "updated_at" |> to_float;

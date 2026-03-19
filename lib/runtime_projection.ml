@@ -491,12 +491,12 @@ let artifact_to_collaboration (a : artifact) : Collaboration.artifact =
     created_at = a.created_at;
   }
 
-let vote_to_collaboration (v : vote) : Collaboration.vote =
+let contribution_of_runtime_vote (v : vote) : Collaboration.contribution =
   {
-    topic = v.topic;
-    choice = v.choice;
-    voter = Option.value v.actor ~default:"anonymous";
-    cast_at = v.created_at;
+    agent = Option.value v.actor ~default:"anonymous";
+    kind = "vote";
+    content = v.topic ^ ": " ^ v.choice;
+    created_at = v.created_at;
   }
 
 (** Extract a {!Collaboration.t} from a {!Runtime.session}.
@@ -513,7 +513,7 @@ let collaboration_of_session (session : session) : Collaboration.t =
     participants =
       List.map participant_to_collaboration session.participants;
     artifacts = List.map artifact_to_collaboration session.artifacts;
-    votes = List.map vote_to_collaboration session.votes;
+    contributions = List.map contribution_of_runtime_vote session.votes;
     shared_context = Context.create ();
     created_at = session.created_at;
     updated_at = session.updated_at;
@@ -525,7 +525,7 @@ let collaboration_of_session (session : session) : Collaboration.t =
 (** Sync collaboration-owned fields back into a {!Runtime.session}.
 
     Only updates: [goal], [phase], [outcome], [updated_at].
-    Does {b not} touch [participants], [artifacts], or [votes]
+    Does {b not} touch [participants], [artifacts], or [contributions]
     because Runtime versions of these carry richer data (21-field
     participant vs 6-field).  Use per-field update functions for those. *)
 let update_session_from_collaboration
