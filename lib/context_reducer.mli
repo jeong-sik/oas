@@ -6,9 +6,11 @@
 
     Token estimation uses a 4-char-per-token heuristic. *)
 
+open Types
+
 (** {1 Strategy types} *)
 
-(** A windowing strategy that can be applied to a message list. *)
+(** Windowing strategy for context reduction. *)
 type strategy =
   | Keep_last_n of int
   | Token_budget of int
@@ -18,33 +20,36 @@ type strategy =
   | Merge_contiguous
   | Drop_thinking
   | Keep_first_and_last of { first_n: int; last_n: int }
-  | Prune_by_role of { drop_roles: Types.role list }
-  | Summarize_old of { keep_recent: int; summarizer: Types.message list -> string }
+  | Prune_by_role of { drop_roles: role list }
+  | Summarize_old of { keep_recent: int; summarizer: message list -> string }
   | Compose of strategy list
-  | Custom of (Types.message list -> Types.message list)
-  | Dynamic of (turn:int -> messages:Types.message list -> strategy)
+  | Custom of (message list -> message list)
+  | Dynamic of (turn:int -> messages:message list -> strategy)
 
 (** A configured reducer wrapping a strategy. *)
 type t = { strategy : strategy }
 
-(** {1 Core operations} *)
-
-(** Reduce messages according to the configured strategy. *)
-val reduce : t -> Types.message list -> Types.message list
-
 (** {1 Token estimation} *)
 
-(** Estimate tokens for a single content block (4 chars ~ 1 token). *)
-val estimate_block_tokens : Types.content_block -> int
+(** Estimate tokens for a single content block. *)
+val estimate_block_tokens : content_block -> int
 
-(** Estimate tokens for a message (sum of its content blocks). *)
-val estimate_message_tokens : Types.message -> int
+(** Estimate tokens for a message. *)
+val estimate_message_tokens : message -> int
 
 (** {1 Turn grouping} *)
 
-(** Group messages into turns. A turn starts with a User message;
-    User messages containing ToolResult stay with the preceding turn. *)
-val group_into_turns : Types.message list -> Types.message list list
+(** Group messages into turns.
+
+    A turn starts with a User message and includes all following
+    messages until the next User message. User messages containing
+    ToolResult blocks belong to the preceding turn. *)
+val group_into_turns : message list -> message list list
+
+(** {1 Core reducer} *)
+
+(** Reduce messages according to the configured strategy. *)
+val reduce : t -> message list -> message list
 
 (** {1 Convenience constructors} *)
 
@@ -56,8 +61,11 @@ val repair_dangling_tool_calls : t
 val merge_contiguous : t
 val drop_thinking : t
 val keep_first_and_last : first_n:int -> last_n:int -> t
-val prune_by_role : drop_roles:Types.role list -> t
-val summarize_old : keep_recent:int -> summarizer:(Types.message list -> string) -> t
+val prune_by_role : drop_roles:role list -> t
+val summarize_old : keep_recent:int -> summarizer:(message list -> string) -> t
 val compose : t list -> t
-val custom : (Types.message list -> Types.message list) -> t
-val dynamic : (turn:int -> messages:Types.message list -> strategy) -> t
+val custom : (message list -> message list) -> t
+
+(** Dynamic strategy: selects a strategy per turn based on
+    conversation state. *)
+val dynamic : (turn:int -> messages:message list -> strategy) -> t

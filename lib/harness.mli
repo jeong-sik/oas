@@ -1,46 +1,51 @@
 (** Test harness framework for agent verification.
 
-    Provides pluggable verification layers: Behavioral, Adversarial,
-    Performance, Regression, Swiss Cheese, and Composability.
-    Harnesses compose via the Swiss Cheese combinator for
-    multi-layer independent verification. *)
+    Provides pluggable verification layers inspired by the Swiss Cheese
+    model: multiple independent layers, each catching different failure
+    modes. Compose layers via {!Swiss_cheese} for multi-layer checks. *)
 
 (** {1 Common types} *)
 
+(** Verdict from a harness evaluation. *)
 type verdict = {
   passed: bool;
-  score: float option;
-  evidence: string list;
-  detail: string option;
+  score: float option;       (** 0.0-1.0, for graded harnesses *)
+  evidence: string list;     (** Machine-readable evidence strings *)
+  detail: string option;     (** Human-readable explanation *)
 }
 
+(** A single layer in a Swiss Cheese stack. *)
 type 'obs layer = {
   name: string;
   check: 'obs -> bool;
   evidence: 'obs -> string;
 }
 
+(** Result of evaluating one layer. *)
 type 'obs layer_result = {
   layer_name: string;
   layer_passed: bool;
   layer_evidence: string;
 }
 
+(** Combined result from all layers. *)
 type 'obs swiss_verdict = {
   all_passed: bool;
   layer_results: 'obs layer_result list;
-  coverage: float;
+  coverage: float;  (** Fraction of layers that passed. *)
 }
 
 (** {1 Behavioral harness} *)
 
 module Behavioral : sig
+  (** What we expect from the agent. *)
   type expectation =
     | ToolSelected of string list
     | CompletesWithin of int
     | ContainsText of string
     | All of expectation list
 
+  (** What we observe from the agent run. *)
   type observation = {
     tools_called: string list;
     turn_count: int;
@@ -48,23 +53,24 @@ module Behavioral : sig
     messages: Types.message list;
   }
 
-  val observe :
-    Agent.t ->
-    (Types.api_response, Error.sdk_error) result ->
-    observation
+  (** Extract observation from an agent after a run. *)
+  val observe : Agent.t -> (Types.api_response, Error.sdk_error) result -> observation
 
+  (** Evaluate an observation against an expectation. *)
   val evaluate : observation -> expectation -> verdict
 end
 
 (** {1 Adversarial harness} *)
 
 module Adversarial : sig
+  (** Types of adversarial input. *)
   type adversarial_input =
     | MalformedJson of string
     | PromptInjection of string
     | ToolError of { tool_name: string; error: string }
     | OversizedInput of { size: int }
 
+  (** What we expect under adversarial conditions. *)
   type expectation =
     | GracefulError
     | NoToolExecution
@@ -76,6 +82,7 @@ module Adversarial : sig
     error_message: string option;
   }
 
+  (** Evaluate adversarial observation against expectation. *)
   val evaluate : observation -> expectation -> verdict
 end
 
@@ -97,7 +104,11 @@ module Performance : sig
   }
 
   val default_expectation : expectation
+
+  (** Calculate p95 from a list of latencies. *)
   val p95 : float list -> float
+
+  (** Evaluate performance against thresholds. *)
   val evaluate : observation -> expectation -> verdict
 end
 
@@ -114,14 +125,20 @@ module Regression : sig
     output_text: string;
   }
 
+  (** Compare observation against a golden string value. *)
   val evaluate : mode:match_mode -> observation -> string -> verdict
 end
 
 (** {1 Swiss Cheese combinator} *)
 
 module Swiss_cheese : sig
+  (** Run all layers and produce a combined verdict. *)
   val evaluate_layers : 'obs layer list -> 'obs -> 'obs swiss_verdict
+
+  (** Require all layers to pass. *)
   val require_all : 'obs layer list -> 'obs -> verdict
+
+  (** Require at least [n] layers to pass. *)
   val require_n : int -> 'obs layer list -> 'obs -> verdict
 end
 
@@ -148,5 +165,6 @@ module Composability : sig
     total_turns: int;
   }
 
+  (** Evaluate composability observation against expectation. *)
   val evaluate : observation -> expectation -> verdict
 end

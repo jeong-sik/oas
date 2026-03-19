@@ -61,7 +61,12 @@ let run_loop ~sw ?clock ~api_strategy agent user_prompt =
       Error (Error.Agent (IdleDetected {
         consecutive_idle_turns = agent.consecutive_idle_turns }))
     else
-      match check_token_budget agent.state.config agent.state.usage with
+      let budget_err =
+        match check_token_budget agent.state.config agent.state.usage with
+        | Some _ as err -> err
+        | None -> Cost_tracker.check_budget agent.state.config agent.state.usage
+      in
+      match budget_err with
       | Some err -> Error err
       | None ->
         match run_turn_core ~sw ?clock ~api_strategy ?raw_trace_run agent with

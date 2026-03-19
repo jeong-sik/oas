@@ -317,3 +317,43 @@ let complete_stream ~sw ~net ~(config : Provider_config.t)
         ) events
       ) ();
       Ok (finalize_stream_acc acc)
+
+(* ── Streaming Cascade ──────────────────────────── *)
+
+(** Streaming cascade: try each provider in order, failover on
+    connection/HTTP errors only. Once the SSE stream begins,
+    events are emitted to [on_event] and the provider is committed.
+    No mid-stream failover, no retry, no caching.
+
+    @since 0.61.0 *)
+let complete_stream_cascade ~sw ~net
+    ~(cascade : cascade)
+    ~(messages : Types.message list) ?(tools=[])
+    ~(on_event : Types.sse_event -> unit)
+    ?(metrics : Metrics.t option) () =
+  let m = match metrics with Some m -> m | None -> Metrics.noop in
+  let try_provider cfg =
+    complete_stream ~sw ~net ~config:cfg ~messages ~tools ~on_event ()
+  in
+  match try_provider cascade.primary with
+  | Ok _ as success -> success
+  | Error err when is_retryable err ->
+    let rec try_fallbacks last_err = function
+      | [] -> Error last_err
+      | (fb : Provider_config.t) :: rest ->
+        let err_str = match last_err with
+          | Http_client.HttpError { code; _ } ->
+            Printf.sprintf "HTTP %d" code
+          | Http_client.NetworkError { message } -> message
+        in
+        m.on_cascade_fallback
+          ~from_model:cascade.primary.model_id ~to_model:fb.model_id
+          ~reason:err_str;
+        match try_provider fb with
+        | Ok _ as success -> success
+        | Error err2 when is_retryable err2 ->
+          try_fallbacks err2 rest
+        | Error _ as fail -> fail
+    in
+    try_fallbacks err cascade.fallbacks
+  | Error _ as fail -> fail

@@ -119,3 +119,39 @@ val complete_named :
   ?metrics:Metrics.t ->
   unit ->
   (Types.api_response, Http_client.http_error) result
+
+(** {1 Named Streaming Cascade Execution} *)
+
+(** Execute a streaming cascade completion using a named profile.
+
+    Same resolution steps as {!complete_named}:
+    1. Loads the profile from [config_path] (if provided)
+    2. Falls back to [defaults] when the config key is missing
+    3. Filters by local endpoint health
+    4. Executes streaming cascade: try each provider in order
+
+    Unlike {!complete_named}, does not accept an [accept] validator:
+    once the SSE stream begins, events are emitted to [on_event]
+    and the provider is committed. Failover only occurs on
+    connection/HTTP errors before streaming starts.
+
+    No caching (streaming responses are not cacheable).
+
+    @since 0.61.0 *)
+val complete_named_stream :
+  sw:Eio.Switch.t ->
+  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
+  ?clock:_ Eio.Time.clock ->
+  ?config_path:string ->
+  name:string ->
+  defaults:string list ->
+  messages:Types.message list ->
+  ?tools:Yojson.Safe.t list ->
+  ?temperature:float ->
+  ?max_tokens:int ->
+  ?system_prompt:string ->
+  ?timeout_sec:int ->
+  ?metrics:Metrics.t ->
+  on_event:(Types.sse_event -> unit) ->
+  unit ->
+  (Types.api_response, Http_client.http_error) result

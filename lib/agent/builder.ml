@@ -23,6 +23,7 @@ type t = {
   max_input_tokens: int option;
   max_total_tokens: int option;
   initial_messages: message list;
+  max_cost_usd: float option;
   tools: Tool_set.t;
   context: Context.t option;
   base_url: string;
@@ -65,6 +66,7 @@ let create ~net ~model =
     max_input_tokens = default_config.max_input_tokens;
     max_total_tokens = default_config.max_total_tokens;
     initial_messages = default_config.initial_messages;
+    max_cost_usd = default_config.max_cost_usd;
     tools = Tool_set.empty;
     context = None;
     base_url = Api.default_base_url;
@@ -124,6 +126,7 @@ let with_thinking_budget n b = { b with thinking_budget = Some n }
 let with_max_input_tokens n b = { b with max_input_tokens = Some n }
 let with_max_total_tokens n b = { b with max_total_tokens = Some n }
 let with_initial_messages msgs b = { b with initial_messages = msgs }
+let with_max_cost_usd v b = { b with max_cost_usd = Some v }
 let with_response_format_json v b = { b with response_format_json = v }
 let with_cache_system_prompt v b = { b with cache_system_prompt = v }
 let with_event_bus bus b = { b with event_bus = Some bus }
@@ -178,6 +181,7 @@ let build b =
     max_input_tokens = b.max_input_tokens;
     max_total_tokens = b.max_total_tokens;
     initial_messages = b.initial_messages;
+    max_cost_usd = b.max_cost_usd;
   } in
   let options = {
     Agent_types.base_url = b.base_url;
@@ -218,4 +222,11 @@ let build_safe b =
           field = "thinking_budget";
           detail = "thinking_budget requires enable_thinking = true";
         }))
-    | _ -> Ok (build b)
+    | _ ->
+      match b.max_cost_usd with
+      | Some v when v < 0.0 ->
+        Error (Error.Config (Error.InvalidConfig {
+          field = "max_cost_usd";
+          detail = Printf.sprintf "must be >= 0.0, got %.4f" v;
+        }))
+      | _ -> Ok (build b)
