@@ -30,3 +30,14 @@ let file_write_error ~path ~detail =
 
 let snoc xs x = xs @ [x]
 let snoc_list xs ys = xs @ ys
+
+(** Traverse a list with a function returning [result], short-circuit on first error. *)
+let result_traverse ~f items =
+  let rec loop acc = function
+    | [] -> Ok (List.rev acc)
+    | x :: rest ->
+      match f x with
+      | Ok v -> loop (v :: acc) rest
+      | Error e -> Error e
+  in
+  loop [] items

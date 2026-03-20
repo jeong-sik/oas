@@ -1,4 +1,4 @@
-(** Audit trail — immutable log of policy decisions and agent actions.
+(** Audit trail — append-only log of policy decisions and agent actions.
 
     Records every decision point evaluation, providing accountability
     and transparency for agent behavior in a society.
@@ -17,20 +17,21 @@ type entry = {
 
 type t = {
   mutable entries: entry list;
+  mutable size: int;
   max_entries: int option;
 }
 
 let create ?max_entries () =
-  { entries = []; max_entries }
+  { entries = []; size = 0; max_entries }
 
 let record t entry =
   t.entries <- entry :: t.entries;
+  t.size <- t.size + 1;
   match t.max_entries with
   | None -> ()
-  | Some max when List.length t.entries > max ->
-    (* Keep only the newest [max] entries.
-       entries are stored newest-first, so take the first [max]. *)
-    t.entries <- List.filteri (fun i _ -> i < max) t.entries
+  | Some max when t.size > max ->
+    t.entries <- List.filteri (fun i _ -> i < max) t.entries;
+    t.size <- max
   | Some _ -> ()
 
 let query t ?agent ?action ?since () =
@@ -40,10 +41,9 @@ let query t ?agent ?action ?since () =
     && (match action with None -> true | Some a -> e.action = a)
     && (match since with None -> true | Some ts -> e.timestamp >= ts))
 
-let count t = List.length t.entries
+let count t = t.size
 
 let latest t n =
-  (* entries are stored newest-first, take first n *)
   List.filteri (fun i _ -> i < n) t.entries
 
 let entry_to_json e =

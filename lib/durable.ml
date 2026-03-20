@@ -35,11 +35,12 @@ type t = {
 
 let create ~name () = { name; steps = [] }
 
-let add_step t step = { t with steps = t.steps @ [step] }
+(* Steps are stored in reverse insertion order; reversed at execution time. *)
+let add_step t step = { t with steps = step :: t.steps }
 
 let name t = t.name
 let step_count t = List.length t.steps
-let step_names t = List.map (fun (s : step) -> s.name) t.steps
+let step_names t = List.rev_map (fun (s : step) -> s.name) t.steps
 
 let is_terminal = function
   | Completed _ | Failed _ -> true
@@ -48,7 +49,7 @@ let is_terminal = function
 (** Run steps starting from index [start_idx] with given [input]
     and accumulated [journal]. *)
 let run_from t ~start_idx ~input ~journal =
-  let steps = Array.of_list t.steps in
+  let steps = Array.of_list (List.rev t.steps) in
   let total = Array.length steps in
   let rec loop idx cur_input acc_journal =
     if idx >= total then
@@ -102,7 +103,7 @@ let resume t state =
   match state with
   | Suspended { at_step; journal; _ } | Failed { at_step; journal; _ } ->
     (* Find the step index for at_step *)
-    let steps = t.steps in
+    let steps = List.rev t.steps in
     let rec find_idx idx = function
       | [] -> None
       | (s : step) :: rest ->
@@ -120,22 +121,23 @@ let resume t state =
        (* Determine input: use the last successful step's output,
           or if resuming at first step, look at the journal's first entry input *)
        let input =
-         match List.rev journal with
+         match journal with
          | [] -> `Null
-         | entries ->
-           (* Find the last entry before at_step that has output *)
+         | _ ->
+           (* Find the last entry before at_step that has output.
+              journal is newest-first; scan for the failed step or
+              the most recent predecessor with output. *)
            let rec find_last_output = function
              | [] -> `Null
              | e :: rest ->
-               if e.step_name <> at_step then
+               if e.step_name = at_step then
+                 e.input_json
+               else
                  (match e.output_json with
                   | Some o -> o
                   | None -> find_last_output rest)
-               else
-                 (* This is the failed/suspended step, use its input *)
-                 e.input_json
            in
-           find_last_output (List.rev entries)
+           find_last_output journal
        in
        (* Keep journal entries before the current step *)
        let prior_journal =
@@ -193,15 +195,7 @@ let journal_list_to_json journal =
 
 let journal_list_of_json json =
   let open Yojson.Safe.Util in
-  let entries = to_list json in
-  let rec collect acc = function
-    | [] -> Ok (List.rev acc)
-    | j :: rest ->
-      match journal_entry_of_json j with
-      | Ok e -> collect (e :: acc) rest
-      | Error e -> Error e
-  in
-  collect [] entries
+  Util.result_traverse ~f:journal_entry_of_json (to_list json)
 
 let execution_state_to_json = function
   | NotStarted ->

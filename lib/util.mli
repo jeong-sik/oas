@@ -23,3 +23,7 @@ val snoc : 'a list -> 'a -> 'a list
 
 (** Concatenate two lists (alias for [@]). *)
 val snoc_list : 'a list -> 'a list -> 'a list
+
+(** Traverse a list with [f], collecting [Ok] values.
+    Short-circuits on first [Error]. *)
+val result_traverse : f:('a -> ('b, 'e) result) -> 'a list -> ('b list, 'e) result
