@@ -192,25 +192,7 @@ let eval_run_cmd config_file dataset_path out_dir =
   | Ok dataset ->
     (match config_file with
      | None ->
-       let results =
-         List.map (fun (case_ : Agent_sdk.Harness_case.t) ->
-           match Agent_sdk.Harness_runner.grade_case_from_trace case_ with
-           | Ok result -> result
-           | Error e ->
-             {
-               Agent_sdk.Harness_report.case_id = case_.id;
-               kind = case_.kind;
-               status = Agent_sdk.Harness_report.Fail;
-               verdicts = [];
-               evidence = [];
-               detail = Some (Agent_sdk.Error.to_string e);
-               response_text = None;
-               raw_trace_path = case_.source_trace_path;
-               metrics = None;
-             }
-         ) dataset
-       in
-       let report = Agent_sdk.Harness_report.of_results results in
+       let report = Agent_sdk.Harness_runner.run_dataset_mixed dataset in
        write_report_artifacts ~out_dir report;
        exit_for_report report
      | Some config_file ->
@@ -237,8 +219,9 @@ let eval_run_cmd config_file dataset_path out_dir =
            in
            Agent_sdk.Builder.build_safe builder
          in
+         let run_fixture = Agent_sdk.Harness_runner.run_case ~sw ~clock ~build_agent in
          let report =
-           Agent_sdk.Harness_runner.run_dataset ~sw ~clock ~build_agent dataset
+           Agent_sdk.Harness_runner.run_dataset_mixed ~run_fixture dataset
          in
          write_report_artifacts ~out_dir report;
          exit_for_report report)

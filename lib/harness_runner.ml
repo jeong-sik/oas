@@ -3,6 +3,20 @@
 let mk_verdict ?score ~detail passed evidence : Harness.verdict =
   { passed; score; evidence; detail }
 
+let case_failure ?detail ?response_text ?metrics ?raw_trace_path
+    (case_ : Harness_case.t) =
+  {
+    Harness_report.case_id = case_.id;
+    kind = case_.kind;
+    status = Harness_report.Fail;
+    verdicts = [];
+    evidence = [];
+    detail;
+    response_text;
+    raw_trace_path = Util.first_some raw_trace_path case_.source_trace_path;
+    metrics;
+  }
+
 let response_text_of_result = function
   | Ok (response : Types.api_response) ->
     response.content
@@ -345,20 +359,26 @@ let grade_case_from_trace (case_ : Harness_case.t) =
          ~raw_trace_path:path
          case_))
 
+let execute_case ?run_fixture (case_ : Harness_case.t) =
+  match case_.kind with
+  | Harness_case.Trace_replay ->
+    (match grade_case_from_trace case_ with
+     | Ok result -> result
+     | Error e -> case_failure case_ ~detail:(Error.to_string e))
+  | Harness_case.Fixture ->
+    (match run_fixture with
+     | Some run_fixture -> run_fixture case_
+     | None ->
+       case_failure case_
+         ~detail:(
+           (Printf.sprintf
+              "case '%s' requires live fixture execution; rerun with --config"
+              case_.id)))
+
 let run_case ~sw ~clock ~build_agent (case_ : Harness_case.t) =
   match build_agent case_ with
   | Error err ->
-    {
-      Harness_report.case_id = case_.id;
-      kind = case_.kind;
-      status = Harness_report.Fail;
-      verdicts = [];
-      evidence = [];
-      detail = Some (Error.to_string err);
-      response_text = None;
-      raw_trace_path = case_.source_trace_path;
-      metrics = None;
-    }
+    case_failure case_ ~detail:(Error.to_string err)
   | Ok agent ->
     let run_result = Consumer.run_agent ~sw ~clock agent case_.prompt in
     let obs = Harness.Behavioral.observe agent run_result.response in
@@ -377,7 +397,11 @@ let run_case ~sw ~clock ~build_agent (case_ : Harness_case.t) =
       ?raw_trace_path
       case_
 
-let run_dataset ~sw ~clock ~build_agent cases =
+let run_dataset_mixed ?run_fixture cases =
   cases
-  |> List.map (run_case ~sw ~clock ~build_agent)
+  |> List.map (execute_case ?run_fixture)
   |> Harness_report.of_results
+
+let run_dataset ~sw ~clock ~build_agent cases =
+  let run_fixture = run_case ~sw ~clock ~build_agent in
+  run_dataset_mixed ~run_fixture cases
