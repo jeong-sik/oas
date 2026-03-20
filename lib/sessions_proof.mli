@@ -6,6 +6,22 @@
 
 open Sessions_types
 
+(** {1 Participant queries} *)
+
+val participant_by_name :
+  Runtime.session -> string -> Runtime.participant option
+
+val resolved_provider_of_participant :
+  Runtime.session -> Runtime.participant option -> string option
+
+val resolved_model_of_participant :
+  Runtime.session -> Runtime.participant option -> string option
+
+val worker_status_of_participant :
+  Runtime.participant option -> worker_status
+
+val worker_order_ts : worker_run -> float option
+
 (** {1 Worker run construction} *)
 
 val worker_run_of_raw :
