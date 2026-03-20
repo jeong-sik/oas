@@ -161,6 +161,7 @@ let to_junit_xml (report : t) =
   in
   String.concat ""
     ([
+      "<?xml version=\"1.0\" encoding=\"UTF-8\"?>";
       Printf.sprintf
         "<testsuite name=\"oas-harness\" tests=\"%d\" failures=\"%d\" skipped=\"%d\">"
         report.summary.total report.summary.failed report.summary.skipped

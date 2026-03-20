@@ -187,11 +187,50 @@ let test_grade_case_from_trace_file () =
         check bool "passed" true (result.status = Harness_report.Pass);
         check bool "raw trace path kept" true (result.raw_trace_path = Some trace_path))
 
+let test_grade_case_from_trace_rejects_fixture_kind () =
+  let case_ =
+    Harness_case.make_fixture
+      ~assertions:[Harness_case.Response (Harness_case.Exact_text "done")]
+      ~id:"fixture-kind"
+      ~prompt:"noop"
+      ()
+  in
+  match Harness_runner.grade_case_from_trace case_ with
+  | Ok _ -> fail "expected fixture kind to be rejected"
+  | Error _ -> ()
+
+let test_grade_case_negative_metric_tolerance () =
+  let case_ =
+    Harness_case.make_fixture
+      ~assertions:[
+        Harness_case.Metric {
+          name = "elapsed_s";
+          goal = Eval.Lower;
+          target = Eval.Float_val 1.0;
+          tolerance_pct = Some (-1.0);
+        };
+      ]
+      ~id:"negative-tolerance"
+      ~prompt:"noop"
+      ()
+  in
+  let result =
+    Harness_runner.grade_case
+      ~agent_name:"runner-agent"
+      ~elapsed:0.1
+      ~response:(Ok (ok_response "done"))
+      ~observation:(mk_observation ())
+      case_
+  in
+  check bool "failed" true (result.status = Harness_report.Fail)
+
 let () =
   run "harness_runner" [
     "grade_case", [
       test_case "fixture" `Quick test_grade_case_fixture;
       test_case "trace replay" `Quick test_grade_case_trace_replay;
       test_case "from trace file" `Quick test_grade_case_from_trace_file;
+      test_case "rejects fixture in trace mode" `Quick test_grade_case_from_trace_rejects_fixture_kind;
+      test_case "rejects negative tolerance" `Quick test_grade_case_negative_metric_tolerance;
     ];
   ]

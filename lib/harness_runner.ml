@@ -173,46 +173,51 @@ let compare_numeric_threshold ~goal ~target ~tolerance_pct current =
     (Float.abs (current -. target) <= allowed, target)
 
 let metric_verdict (metrics : Eval.run_metrics) (assertion : Harness_case.metric_assertion) =
-  match Eval.find_metric metrics assertion.name with
-  | None ->
+  let tolerance_pct =
+    Option.value assertion.tolerance_pct ~default:0.0
+  in
+  if tolerance_pct < 0.0 then
     mk_verdict false
-      [Printf.sprintf "missing_metric=%s" assertion.name]
-      ~detail:(Some "metric was not collected")
-  | Some metric ->
-    let tolerance_pct =
-      Option.value assertion.tolerance_pct ~default:0.0
-    in
-    (match Eval.metric_value_to_float metric.value, Eval.metric_value_to_float assertion.target with
-     | Some current, Some target ->
-       let passed, bound =
-         compare_numeric_threshold ~goal:assertion.goal ~target ~tolerance_pct current
-       in
-       mk_verdict passed
-         [
-           Printf.sprintf "metric=%s" assertion.name;
-           Printf.sprintf "goal=%s"
-             (match assertion.goal with
-              | Eval.Higher -> "higher"
-              | Eval.Lower -> "lower"
-              | Eval.Exact -> "exact");
-           Printf.sprintf "current=%.4f" current;
-           Printf.sprintf "target=%.4f" target;
-           Printf.sprintf "bound=%.4f" bound;
-         ]
-         ~detail:(if passed then None else Some "metric threshold not met")
-     | _ ->
-       let passed =
-         match assertion.goal with
-         | Eval.Exact -> metric.value = assertion.target
-         | _ -> false
-       in
-       mk_verdict passed
-         [
-           Printf.sprintf "metric=%s" assertion.name;
-           Printf.sprintf "current=%s" (Eval.show_metric_value metric.value);
-           Printf.sprintf "target=%s" (Eval.show_metric_value assertion.target);
-         ]
-         ~detail:(if passed then None else Some "non-numeric metric requires exact match"))
+      [Printf.sprintf "metric=%s" assertion.name]
+      ~detail:(Some "metric tolerance_pct must be non-negative")
+  else
+    match Eval.find_metric metrics assertion.name with
+    | None ->
+      mk_verdict false
+        [Printf.sprintf "missing_metric=%s" assertion.name]
+        ~detail:(Some "metric was not collected")
+    | Some metric ->
+      (match Eval.metric_value_to_float metric.value, Eval.metric_value_to_float assertion.target with
+       | Some current, Some target ->
+         let passed, bound =
+           compare_numeric_threshold ~goal:assertion.goal ~target ~tolerance_pct current
+         in
+         mk_verdict passed
+           [
+             Printf.sprintf "metric=%s" assertion.name;
+             Printf.sprintf "goal=%s"
+               (match assertion.goal with
+                | Eval.Higher -> "higher"
+                | Eval.Lower -> "lower"
+                | Eval.Exact -> "exact");
+             Printf.sprintf "current=%.4f" current;
+             Printf.sprintf "target=%.4f" target;
+             Printf.sprintf "bound=%.4f" bound;
+           ]
+           ~detail:(if passed then None else Some "metric threshold not met")
+       | _ ->
+         let passed =
+           match assertion.goal with
+           | Eval.Exact -> metric.value = assertion.target
+           | _ -> false
+         in
+         mk_verdict passed
+           [
+             Printf.sprintf "metric=%s" assertion.name;
+             Printf.sprintf "current=%s" (Eval.show_metric_value metric.value);
+             Printf.sprintf "target=%s" (Eval.show_metric_value assertion.target);
+           ]
+           ~detail:(if passed then None else Some "non-numeric metric requires exact match"))
 
 let collect_metrics ~agent_name ~run_id ~(obs : Harness.Behavioral.observation)
     ~(response : (Types.api_response, Error.sdk_error) result) ~elapsed =
@@ -314,12 +319,16 @@ let grade_case ~agent_name ~elapsed ~response ~observation ?trajectory ?raw_trac
   }
 
 let grade_case_from_trace (case_ : Harness_case.t) =
-  match case_.source_trace_path with
-  | None ->
+  match case_.kind, case_.source_trace_path with
+  | Harness_case.Fixture, _ ->
+    Error (Error.Io (Error.ValidationFailed {
+      detail = Printf.sprintf "case '%s' is not a trace_replay case" case_.id;
+    }))
+  | _, None ->
     Error (Error.Io (Error.ValidationFailed {
       detail = Printf.sprintf "case '%s' does not define source_trace_path" case_.id;
     }))
-  | Some path ->
+  | Harness_case.Trace_replay, Some path ->
     (match Raw_trace.read_all ~path () with
      | Error _ as err -> err
      | Ok records ->
