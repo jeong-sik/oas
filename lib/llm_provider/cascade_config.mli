@@ -83,6 +83,17 @@ val filter_healthy :
   Provider_config.t list ->
   Provider_config.t list
 
+(** {1 Context Window Resolution} *)
+
+(** Effective max context tokens for a provider entry.
+
+    Returns [caps.max_context_tokens] when known (per-model), otherwise
+    falls back to [entry.max_context] (per-provider default from the registry).
+
+    @since 0.78.0 *)
+val effective_max_context :
+  Provider_registry.entry -> Capabilities.capabilities -> int
+
 (** {1 Capability-Aware Filtering} *)
 
 (** Filter providers by a capability predicate.

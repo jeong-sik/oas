@@ -119,13 +119,16 @@ let default () =
     api_key_env = "";
     request_path = "";
   } in
-  let cc_available () =
-    try
-      let ic = Unix.open_process_in "which claude 2>/dev/null" in
-      let result = try input_line ic with End_of_file -> "" in
-      ignore (Unix.close_process_in ic);
-      String.length (String.trim result) > 0
-    with _ -> false
+  let cc_available =
+    let cached = lazy (
+      try
+        let ic = Unix.open_process_in "which claude 2>/dev/null" in
+        let result = try input_line ic with End_of_file -> "" in
+        ignore (Unix.close_process_in ic);
+        String.length (String.trim result) > 0
+      with _ -> false
+    ) in
+    fun () -> Lazy.force cached
   in
   register t { name = "cc"; defaults = cc_defaults; max_context = 200_000;
                capabilities = Capabilities.claude_code_capabilities;
