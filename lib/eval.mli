@@ -35,6 +35,19 @@ val metric_of_yojson : Yojson.Safe.t -> (metric, string) result
 val show_metric : metric -> string
 val pp_metric : Format.formatter -> metric -> unit
 
+(** {1 Metric comparison policy} *)
+
+type metric_goal =
+  | Higher
+  | Lower
+  | Exact
+
+type metric_spec = {
+  name: string;
+  goal: metric_goal;
+  tolerance_pct: float option;
+}
+
 (** {1 Run metrics} *)
 
 (** Finalized metrics from an agent run. *)
@@ -106,6 +119,15 @@ val compute_delta :
 (** Compare two runs, classifying each metric as regression/improvement/unchanged. *)
 val compare : baseline:run_metrics -> candidate:run_metrics -> comparison
 
+(** Compare two runs using per-metric goals instead of the legacy
+    "lower is better" default. Metrics without a matching spec fall back
+    to the legacy behavior. *)
+val compare_with_specs :
+  specs:metric_spec list ->
+  baseline:run_metrics ->
+  candidate:run_metrics ->
+  comparison
+
 (** {1 Threshold checking} *)
 
 type threshold = {
@@ -124,3 +146,13 @@ val find_metric : run_metrics -> string -> metric option
 
 (** Find a metric value by name. *)
 val find_metric_value : run_metrics -> string -> metric_value option
+
+(** {1 Statistical regression detection} *)
+
+(** Compare multiple baseline runs against candidate runs.
+    Uses Welch's t-test per metric. Returns list of regressed
+    metric names with optional Cohen's d effect sizes. *)
+val compare_statistical :
+  baselines:run_metrics list ->
+  candidates:run_metrics list ->
+  (string * float option) list

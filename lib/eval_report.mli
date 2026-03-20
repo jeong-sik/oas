@@ -5,6 +5,8 @@
 type t = {
   agent_name: string;
   run_count: int;
+  evaluated_runs: int;
+  skipped_runs: int;
   pass_at_k: float;
   comparison: Eval_baseline.comparison option;
   verdict: [`Pass | `Fail | `NoBaseline];

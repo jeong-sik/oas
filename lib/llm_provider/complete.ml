@@ -26,6 +26,37 @@ let gemini_url ~(config : Provider_config.t) ~stream =
   | [] -> base
   | ps -> base ^ "?" ^ String.concat "&" ps
 
+(** Provider-aware sampling parameter defaults.
+    Local providers get min_p=0.05 (2026 llama.cpp standard).
+    Anthropic gets no top_p (incompatible with temperature).
+    Explicit agent_config values always take priority (overlay pattern). *)
+type sampling_defaults = {
+  default_min_p : float option;
+  default_top_p : float option;
+  default_top_k : int option;
+}
+
+let provider_sampling_defaults (kind : Provider_config.provider_kind) : sampling_defaults =
+  match kind with
+  | Provider_config.OpenAI_compat ->
+    { default_min_p = Some 0.05; default_top_p = None; default_top_k = None }
+  | Provider_config.Anthropic ->
+    { default_min_p = None; default_top_p = None; default_top_k = None }
+  | Provider_config.Gemini ->
+    { default_min_p = None; default_top_p = None; default_top_k = None }
+  | Provider_config.Claude_code ->
+    { default_min_p = None; default_top_p = None; default_top_k = None }
+
+(** Apply provider defaults to a config, preserving explicit values (overlay pattern).
+    Only fills in None fields; explicit values are never overwritten. *)
+let apply_sampling_defaults (config : Provider_config.t) : Provider_config.t =
+  let defaults = provider_sampling_defaults config.kind in
+  { config with
+    min_p = (match config.min_p with Some _ -> config.min_p | None -> defaults.default_min_p);
+    top_p = (match config.top_p with Some _ -> config.top_p | None -> defaults.default_top_p);
+    top_k = (match config.top_k with Some _ -> config.top_k | None -> defaults.default_top_k);
+  }
+
 let complete_http ~sw ~net ~(config : Provider_config.t)
     ~(messages : Types.message list) ~tools =
   if config.kind = Provider_config.Claude_code then
@@ -33,6 +64,7 @@ let complete_http ~sw ~net ~(config : Provider_config.t)
        message = "Claude_code provider requires a transport (use Transport_claude_code.create)" }),
      0)
   else
+  let config = apply_sampling_defaults config in
   let body_str = match config.kind with
     | Provider_config.Anthropic ->
         Backend_anthropic.build_request ~config ~messages ~tools ()
@@ -324,6 +356,7 @@ let complete_stream_http ~sw ~net ~(config : Provider_config.t)
     Error (Http_client.NetworkError {
       message = "Claude_code provider requires a transport (use Transport_claude_code.create)" })
   else
+  let config = apply_sampling_defaults config in
   let body_str = match config.kind with
     | Provider_config.Anthropic ->
         Backend_anthropic.build_request ~stream:true ~config ~messages ~tools ()
@@ -781,3 +814,56 @@ let%test "accumulate_event multiple MessageDelta accumulates tokens" =
     usage = Some { input_tokens = 0; output_tokens = 20;
                    cache_creation_input_tokens = 0; cache_read_input_tokens = 0 }});
   !(acc.output_tokens) = 50
+
+(* --- provider_sampling_defaults tests --- *)
+
+let%test "provider_sampling_defaults OpenAI_compat has min_p 0.05" =
+  let d = provider_sampling_defaults Provider_config.OpenAI_compat in
+  d.default_min_p = Some 0.05
+
+let%test "provider_sampling_defaults Anthropic has no min_p" =
+  let d = provider_sampling_defaults Provider_config.Anthropic in
+  d.default_min_p = None
+
+let%test "provider_sampling_defaults Gemini has no min_p" =
+  let d = provider_sampling_defaults Provider_config.Gemini in
+  d.default_min_p = None
+
+let%test "provider_sampling_defaults Claude_code has no min_p" =
+  let d = provider_sampling_defaults Provider_config.Claude_code in
+  d.default_min_p = None
+
+let%test "apply_sampling_defaults fills min_p for OpenAI_compat" =
+  let config = Provider_config.make
+    ~kind:OpenAI_compat ~model_id:"test" ~base_url:"http://localhost" () in
+  let applied = apply_sampling_defaults config in
+  applied.min_p = Some 0.05
+
+let%test "apply_sampling_defaults preserves explicit min_p override" =
+  let config = Provider_config.make
+    ~kind:OpenAI_compat ~model_id:"test" ~base_url:"http://localhost"
+    ~min_p:0.1 () in
+  let applied = apply_sampling_defaults config in
+  applied.min_p = Some 0.1
+
+let%test "apply_sampling_defaults Anthropic does not set min_p" =
+  let config = Provider_config.make
+    ~kind:Anthropic ~model_id:"claude" ~base_url:"https://api.anthropic.com" () in
+  let applied = apply_sampling_defaults config in
+  applied.min_p = None
+
+let%test "apply_sampling_defaults preserves all explicit values" =
+  let config = Provider_config.make
+    ~kind:OpenAI_compat ~model_id:"test" ~base_url:"http://localhost"
+    ~min_p:0.2 ~top_p:0.9 ~top_k:40 () in
+  let applied = apply_sampling_defaults config in
+  applied.min_p = Some 0.2
+  && applied.top_p = Some 0.9
+  && applied.top_k = Some 40
+
+let%test "apply_sampling_defaults Anthropic preserves explicit top_p" =
+  let config = Provider_config.make
+    ~kind:Anthropic ~model_id:"claude" ~base_url:"https://api.anthropic.com"
+    ~top_p:0.95 () in
+  let applied = apply_sampling_defaults config in
+  applied.top_p = Some 0.95

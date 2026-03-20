@@ -317,28 +317,33 @@ module Regression = struct
 
   (** Compare observation against a golden value. *)
   let evaluate ~mode obs golden : verdict =
-    let passed = match mode with
+    let passed, detail = match mode with
       | ExactMatch ->
-        obs.output_text = golden
+        (obs.output_text = golden, None)
       | StructuralMatch cmp ->
-        let golden_json = try Yojson.Safe.from_string golden
-          with Yojson.Json_error _ -> `Null in
-        cmp obs.output_json golden_json
+        (match try Ok (Yojson.Safe.from_string golden)
+         with Yojson.Json_error msg -> Error msg with
+         | Ok golden_json -> (cmp obs.output_json golden_json, None)
+         | Error msg ->
+           (false, Some (Printf.sprintf "Invalid golden JSON: %s" msg)))
       | FuzzyMatch { threshold } ->
         (* Simple character-level similarity *)
         let len1 = String.length obs.output_text in
         let len2 = String.length golden in
         let max_len = max len1 len2 in
-        if max_len = 0 then true
-        else begin
-          let common = ref 0 in
-          let min_len = min len1 len2 in
-          for i = 0 to min_len - 1 do
-            if obs.output_text.[i] = golden.[i] then
-              incr common
-          done;
-          Float.of_int !common /. Float.of_int max_len >= threshold
-        end
+        let passed =
+          if max_len = 0 then true
+          else begin
+            let common = ref 0 in
+            let min_len = min len1 len2 in
+            for i = 0 to min_len - 1 do
+              if obs.output_text.[i] = golden.[i] then
+                incr common
+            done;
+            Float.of_int !common /. Float.of_int max_len >= threshold
+          end
+        in
+        (passed, None)
     in
     {
       passed;
@@ -349,7 +354,11 @@ module Regression = struct
       ];
       detail =
         if passed then None
-        else Some "Output does not match golden file";
+        else begin
+          match detail with
+          | Some _ -> detail
+          | None -> Some "Output does not match golden file"
+        end;
     }
 end
 
@@ -496,4 +505,56 @@ module Composability = struct
           else Some (Printf.sprintf "Total turns %d >= limit %d"
             obs.total_turns limit);
       }
+end
+
+(* ── Model grader ──────────────────────────────────────────── *)
+
+module Model_grader = struct
+  (** Configuration for LLM-based evaluation. *)
+  type config = {
+    prompt_template: string;   (** Must contain {goal} and {result} placeholders *)
+    rubric: string;            (** Evaluation criteria *)
+    weight: float;             (** 0.0-1.0 weight for this grader *)
+  }
+
+  (** Grade a result using an LLM.
+      [complete_fn] is a dependency-injected completion function.
+      Returns a verdict with score extracted from the LLM response.
+
+      The prompt is constructed by replacing \{goal\} and \{result\}
+      in the template, appending the rubric. The LLM response is
+      parsed for a numeric score (first float found). *)
+  let grade ~complete_fn (config : config) ~goal ~result : verdict =
+    let prompt = config.prompt_template
+      |> Str.global_replace (Str.regexp_string "{goal}") goal
+      |> Str.global_replace (Str.regexp_string "{result}") result
+    in
+    let full_prompt = Printf.sprintf "%s\n\nRubric:\n%s\n\nRespond with a score from 0.0 to 1.0 on the first line, then explanation."
+      prompt config.rubric
+    in
+    match complete_fn full_prompt with
+    | Error msg ->
+      { passed = false; score = None;
+        evidence = [Printf.sprintf "grader_error=%s" msg];
+        detail = Some (Printf.sprintf "Model grader failed: %s" msg) }
+    | Ok response ->
+      (* Extract first float from response *)
+      let score = try
+        let _ = Str.search_forward (Str.regexp {|[0-9]+\.[0-9]+|}) response 0 in
+        Some (float_of_string (Str.matched_string response))
+      with Not_found | Failure _ -> None
+      in
+      let score = Option.map (fun s -> Float.min 1.0 (Float.max 0.0 s)) score in
+      let passed = match score with
+        | Some s -> s >= 0.5 *. config.weight
+        | None -> false
+      in
+      { passed; score;
+        evidence = [
+          Printf.sprintf "weight=%.2f" config.weight;
+          Printf.sprintf "response_len=%d" (String.length response);
+        ];
+        detail = match score with
+          | Some s -> Some (Printf.sprintf "Score: %.2f (weight: %.2f)" s config.weight)
+          | None -> Some "Could not extract score from model response" }
 end
