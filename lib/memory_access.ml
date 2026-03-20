@@ -111,10 +111,13 @@ let store_procedure t ~agent (proc : Memory.procedure) =
   | Ok () -> Memory.store_procedure t.mem proc; Ok ()
   | Error _ as err -> err
 
-let best_procedure t ~agent ~pattern =
+let find_procedure t ~agent ~pattern ?min_confidence ?(touch = false) () =
   match require t ~agent ~tier:Procedural ~key:"*" Read with
-  | Ok () -> Ok (Memory.best_procedure t.mem ~pattern)
+  | Ok () -> Ok (Memory.find_procedure t.mem ~pattern ?min_confidence ~touch ())
   | Error _ as err -> err
+
+let best_procedure t ~agent ~pattern =
+  find_procedure t ~agent ~pattern ()
 
 let access_error_to_string = function
   | Denied { agent_name; tier; key; needed } ->

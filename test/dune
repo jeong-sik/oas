@@ -656,3 +656,7 @@
 (test
  (name test_memory_access)
  (libraries agent_sdk llm_provider alcotest))
+
+(test
+ (name test_memory_tools)
+ (libraries agent_sdk alcotest yojson unix))

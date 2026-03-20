@@ -45,6 +45,11 @@ let make_memory_tool (ctx : Context.t) =
 
 **Trade-off**: Survives checkpoint/restore but context size grows.
 
+For standardized memory operations, prefer `Memory_tools` over ad hoc
+`remember`/`recall` tool implementations. `Memory_tools` gives you
+ready-made key/value memory, episodic writes, procedural lookup, and
+ACL-aware variants over `Memory_access`.
+
 ## 3. External State (database, file)
 
 State lives outside the process. Tool reads/writes external storage.
