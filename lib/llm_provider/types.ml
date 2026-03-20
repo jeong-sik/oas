@@ -199,3 +199,14 @@ let text_of_message (msg : message) = text_of_content msg.content
 
 (** Extract text from an api_response. *)
 let text_of_response (resp : api_response) = text_of_content resp.content
+
+(** {1 Usage Helpers} *)
+
+let zero_api_usage =
+  { input_tokens = 0;
+    output_tokens = 0;
+    cache_creation_input_tokens = 0;
+    cache_read_input_tokens = 0 }
+
+let usage_of_response (resp : api_response) =
+  match resp.usage with Some u -> u | None -> zero_api_usage

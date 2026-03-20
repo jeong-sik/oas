@@ -14,10 +14,13 @@ type provider_defaults = {
   request_path: string;
 }
 
-(** A registered provider entry. *)
+(** A registered provider entry.
+    [max_context] is the default context window size in tokens.
+    @since 0.78.0 max_context added *)
 type entry = {
   name: string;
   defaults: provider_defaults;
+  max_context: int;
   capabilities: Capabilities.capabilities;
   is_available: unit -> bool;
 }
