@@ -639,3 +639,7 @@
 (test
  (name test_a2a_client_cov)
  (libraries agent_sdk alcotest yojson eio eio_main cohttp-eio unix))
+
+(test
+ (name test_backend_gemini)
+ (libraries agent_sdk llm_provider alcotest yojson))

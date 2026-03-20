@@ -9,6 +9,23 @@
 
 (* ── Internal: timed HTTP completion ──────────────────── *)
 
+(** Construct the URL for a Gemini API call.
+    Sync: [base_url/models/model_id:generateContent?key=api_key]
+    Stream: [base_url/models/model_id:streamGenerateContent?key=api_key&alt=sse]
+    When api_key is empty (Vertex AI), the [?key=] param is omitted. *)
+let gemini_url ~(config : Provider_config.t) ~stream =
+  let method_name = if stream then "streamGenerateContent" else "generateContent" in
+  let base = Printf.sprintf "%s/models/%s:%s"
+      config.base_url config.model_id method_name
+  in
+  let params =
+    (if config.api_key <> "" then [Printf.sprintf "key=%s" config.api_key] else [])
+    @ (if stream then ["alt=sse"] else [])
+  in
+  match params with
+  | [] -> base
+  | ps -> base ^ "?" ^ String.concat "&" ps
+
 let complete_http ~sw ~net ~(config : Provider_config.t)
     ~(messages : Types.message list) ~tools =
   let body_str = match config.kind with
@@ -16,8 +33,13 @@ let complete_http ~sw ~net ~(config : Provider_config.t)
         Backend_anthropic.build_request ~config ~messages ~tools ()
     | Provider_config.OpenAI_compat ->
         Backend_openai.build_request ~config ~messages ~tools ()
+    | Provider_config.Gemini ->
+        Backend_gemini.build_request ~config ~messages ~tools ()
   in
-  let url = config.base_url ^ config.request_path in
+  let url = match config.kind with
+    | Provider_config.Gemini -> gemini_url ~config ~stream:false
+    | _ -> config.base_url ^ config.request_path
+  in
   let t0 = Unix.gettimeofday () in
   let result =
     match Http_client.post_sync ~sw ~net ~url
@@ -31,6 +53,9 @@ let complete_http ~sw ~net ~(config : Provider_config.t)
                   (Yojson.Safe.from_string body)
             | Provider_config.OpenAI_compat ->
                 Backend_openai.parse_openai_response body
+            | Provider_config.Gemini ->
+                Backend_gemini.parse_response
+                  (Yojson.Safe.from_string body)
           in
           Ok response
         else
@@ -285,9 +310,17 @@ let complete_stream ~sw ~net ~(config : Provider_config.t)
         Backend_anthropic.build_request ~stream:true ~config ~messages ~tools ()
     | Provider_config.OpenAI_compat ->
         Backend_openai.build_request ~stream:true ~config ~messages ~tools ()
+    | Provider_config.Gemini ->
+        Backend_gemini.build_request ~stream:true ~config ~messages ~tools ()
   in
-  let url = config.base_url ^ config.request_path in
-  let body_with_stream = Http_client.inject_stream_param body_str in
+  let url = match config.kind with
+    | Provider_config.Gemini -> gemini_url ~config ~stream:true
+    | _ -> config.base_url ^ config.request_path
+  in
+  let body_with_stream = match config.kind with
+    | Provider_config.Gemini -> body_str  (* Gemini: no body stream param *)
+    | _ -> Http_client.inject_stream_param body_str
+  in
   match Http_client.post_stream ~sw ~net ~url
           ~headers:config.headers ~body:body_with_stream with
   | Error _ as e -> e
@@ -309,6 +342,16 @@ let complete_stream ~sw ~net ~(config : Provider_config.t)
               in
               (match Streaming.parse_openai_sse_chunk data with
                | Some chunk -> Streaming.openai_chunk_to_events state chunk
+               | None -> [])
+          | Provider_config.Gemini ->
+              let state = match !openai_state with
+                | Some s -> s
+                | None ->
+                    let s = Streaming.create_openai_stream_state () in
+                    openai_state := Some s; s
+              in
+              (match Streaming.parse_gemini_sse_chunk data with
+               | Some chunk -> Streaming.gemini_chunk_to_events state chunk
                | None -> [])
         in
         List.iter (fun evt ->

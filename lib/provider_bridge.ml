@@ -9,12 +9,17 @@ let to_provider_config (legacy : Provider.config) : (Llm_provider.Provider_confi
   match Provider.resolve legacy with
   | Error e -> Error e
   | Ok (base_url, api_key, headers) ->
+      let is_gemini_model =
+        let m = String.lowercase_ascii legacy.model_id in
+        String.length m >= 6 && String.sub m 0 6 = "gemini"
+      in
       let kind = match Provider.request_kind legacy.provider with
         | Provider.Anthropic_messages ->
             Llm_provider.Provider_config.Anthropic
         | Provider.Openai_chat_completions
         | Provider.Custom _ ->
-            Llm_provider.Provider_config.OpenAI_compat
+            if is_gemini_model then Llm_provider.Provider_config.Gemini
+            else Llm_provider.Provider_config.OpenAI_compat
       in
       let request_path = Provider.request_path legacy.provider in
       Ok (Llm_provider.Provider_config.make
