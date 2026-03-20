@@ -71,9 +71,9 @@ jobs:
           COVERAGE=$(opam exec -- bisect-ppx-report summary 2>/dev/null | grep -oP '\d+\.\d+(?=%)' | head -1 || echo "0")
           echo "Total coverage: ${COVERAGE}%"
           opam exec -- bisect-ppx-report summary --per-file || true
-          # Enforce minimum coverage threshold (65%)
+          # Enforce minimum coverage threshold (80%)
           if [ -n "$COVERAGE" ]; then
-            THRESHOLD=65
+            THRESHOLD=80
             if [ "$(echo "$COVERAGE < $THRESHOLD" | bc -l)" -eq 1 ]; then
               echo "Coverage ${COVERAGE}% is below threshold ${THRESHOLD}%"
               exit 1
