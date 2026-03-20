@@ -175,6 +175,14 @@ let filter_healthy ~sw ~net (providers : Provider_config.t list) =
     else
       cloud_providers  (* All locals unhealthy — cloud only *)
 
+(* ── Context window resolution ──────────────────────────── *)
+
+let effective_max_context (entry : Provider_registry.entry)
+    (caps : Capabilities.capabilities) =
+  match caps.max_context_tokens with
+  | Some n -> n
+  | None -> entry.max_context
+
 (* ── Capability-aware filtering ─────────────────────────── *)
 
 (** Filter providers by a capability predicate.
@@ -626,3 +634,27 @@ let%test "filter_by_capabilities returns all if none match" =
     [cfg1; cfg2] in
   (* Neither supports computer_use, fallback to all *)
   List.length result = 2
+
+let%test "effective_max_context uses capability when present" =
+  let entry : Provider_registry.entry = {
+    name = "test"; max_context = 128_000;
+    defaults = { kind = OpenAI_compat; base_url = ""; api_key_env = "";
+                 request_path = "" };
+    capabilities = Capabilities.default_capabilities;
+    is_available = (fun () -> true);
+  } in
+  let caps = { Capabilities.default_capabilities with
+               max_context_tokens = Some 200_000 } in
+  effective_max_context entry caps = 200_000
+
+let%test "effective_max_context falls back to registry entry" =
+  let entry : Provider_registry.entry = {
+    name = "test"; max_context = 128_000;
+    defaults = { kind = OpenAI_compat; base_url = ""; api_key_env = "";
+                 request_path = "" };
+    capabilities = Capabilities.default_capabilities;
+    is_available = (fun () -> true);
+  } in
+  let caps = { Capabilities.default_capabilities with
+               max_context_tokens = None } in
+  effective_max_context entry caps = 128_000
