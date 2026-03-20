@@ -92,31 +92,35 @@ let test_prop_stats_consistent () =
            Memory.store mem ~tier:Scratchpad k (json_i 1)) keys;
          let unique_keys =
            List.sort_uniq String.compare keys |> List.length in
-         let (s, _, _) = Memory.stats mem in
+         let (s, _, _, _, _) = Memory.stats mem in
          s = unique_keys)
   in
   QCheck_alcotest.to_alcotest prop
 
 (* ── Long-term backend failure handling ──────────────── *)
 
-let test_backend_persist_raises () =
+let test_backend_persist_error () =
   let backend : Memory.long_term_backend = {
-    persist = (fun ~key:_ _value -> raise (Failure "disk full"));
+    persist = (fun ~key:_ _value -> Error "disk full");
     retrieve = (fun ~key:_ -> None);
-    remove = (fun ~key:_ -> ());
+    remove = (fun ~key:_ -> Ok ());
+    batch_persist = (fun _ -> Error "disk full");
+    query = (fun ~prefix:_ ~limit:_ -> []);
   } in
   let mem = Memory.create ~long_term:backend () in
-  (* Persist failure should propagate *)
+  (* Persist failure should propagate as Failure *)
   let raised = ref false in
   (try Memory.store mem ~tier:Long_term "key" (json_s "val")
    with Failure _ -> raised := true);
-  check bool "persist raises" true !raised
+  check bool "persist error propagates" true !raised
 
 let test_backend_retrieve_returns_none () =
   let backend : Memory.long_term_backend = {
-    persist = (fun ~key:_ _value -> ());
+    persist = (fun ~key:_ _value -> Ok ());
     retrieve = (fun ~key:_ -> None);
-    remove = (fun ~key:_ -> ());
+    remove = (fun ~key:_ -> Ok ());
+    batch_persist = (fun _ -> Ok ());
+    query = (fun ~prefix:_ ~limit:_ -> []);
   } in
   let mem = Memory.create ~long_term:backend () in
   Memory.store mem ~tier:Long_term "key" (json_s "val");
@@ -125,18 +129,20 @@ let test_backend_retrieve_returns_none () =
   (* No crash is the main assertion *)
   ignore result
 
-let test_backend_remove_raises () =
+let test_backend_remove_error () =
   let backend : Memory.long_term_backend = {
-    persist = (fun ~key:_ _value -> ());
+    persist = (fun ~key:_ _value -> Ok ());
     retrieve = (fun ~key:_ -> None);
-    remove = (fun ~key:_ -> raise (Failure "no perms"));
+    remove = (fun ~key:_ -> Error "no perms");
+    batch_persist = (fun _ -> Ok ());
+    query = (fun ~prefix:_ ~limit:_ -> []);
   } in
   let mem = Memory.create ~long_term:backend () in
   Memory.store mem ~tier:Long_term "key" (json_s "val");
   let raised = ref false in
   (try Memory.forget mem ~tier:Long_term "key"
    with Failure _ -> raised := true);
-  check bool "remove raises" true !raised
+  check bool "remove error propagates" true !raised
 
 (* ── Large-scale tests ───────────────────────────────── *)
 
@@ -153,7 +159,7 @@ let test_1000_keys () =
   (match Memory.recall mem ~tier:Working "key_999" with
    | Some (`Int 999) -> ()
    | _ -> fail "key_999 missing");
-  let (_, w, _) = Memory.stats mem in
+  let (_, w, _, _, _) = Memory.stats mem in
   check int "1000 working entries" 1000 w
 
 let test_overwrite_preserves_latest () =
@@ -182,10 +188,10 @@ let () =
       test_prop_stats_consistent ();
     ];
     "backend_failure", [
-      test_case "persist raises" `Quick test_backend_persist_raises;
+      test_case "persist error" `Quick test_backend_persist_error;
       test_case "retrieve returns None" `Quick
         test_backend_retrieve_returns_none;
-      test_case "remove raises" `Quick test_backend_remove_raises;
+      test_case "remove error" `Quick test_backend_remove_error;
     ];
     "large_scale", [
       test_case "1000 keys" `Quick test_1000_keys;

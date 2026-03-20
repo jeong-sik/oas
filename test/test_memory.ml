@@ -88,7 +88,7 @@ let test_clear_scratchpad () =
   Memory.store mem ~tier:Scratchpad "b" (json_i 2);
   Memory.store mem ~tier:Working "c" (json_i 3);
   Memory.clear_scratchpad mem;
-  let (s, w, _) = Memory.stats mem in
+  let (s, w, _, _, _) = Memory.stats mem in
   check int "scratchpad empty" 0 s;
   check int "working intact" 1 w
 
@@ -110,7 +110,7 @@ let test_stats () =
   Memory.store mem ~tier:Scratchpad "s2" (json_i 2);
   Memory.store mem ~tier:Working "w1" (json_i 3);
   Memory.store mem ~tier:Long_term "l1" (json_i 4);
-  let (s, w, l) = Memory.stats mem in
+  let (s, w, _, _, l) = Memory.stats mem in
   check int "scratchpad" 2 s;
   check int "working" 1 w;
   check int "long_term" 1 l
@@ -120,9 +120,17 @@ let test_stats () =
 let test_long_term_backend () =
   let store = Hashtbl.create 4 in
   let backend : Memory.long_term_backend = {
-    persist = (fun ~key value -> Hashtbl.replace store key value);
+    persist = (fun ~key value -> Hashtbl.replace store key value; Ok ());
     retrieve = (fun ~key -> Hashtbl.find_opt store key);
-    remove = (fun ~key -> Hashtbl.remove store key);
+    remove = (fun ~key -> Hashtbl.remove store key; Ok ());
+    batch_persist = (fun pairs ->
+      List.iter (fun (k, v) -> Hashtbl.replace store k v) pairs; Ok ());
+    query = (fun ~prefix ~limit ->
+      Hashtbl.fold (fun k v acc ->
+        if String.length k >= String.length prefix
+           && String.sub k 0 (String.length prefix) = prefix
+        then (k, v) :: acc else acc) store []
+      |> List.filteri (fun i _ -> i < limit));
   } in
   let mem = Memory.create ~long_term:backend () in
   Memory.store mem ~tier:Long_term "lt_key" (json_s "persisted");
@@ -142,9 +150,12 @@ let test_long_term_backend () =
 let test_long_term_backend_set_after_create () =
   let store = Hashtbl.create 4 in
   let backend : Memory.long_term_backend = {
-    persist = (fun ~key value -> Hashtbl.replace store key value);
+    persist = (fun ~key value -> Hashtbl.replace store key value; Ok ());
     retrieve = (fun ~key -> Hashtbl.find_opt store key);
-    remove = (fun ~key -> Hashtbl.remove store key);
+    remove = (fun ~key -> Hashtbl.remove store key; Ok ());
+    batch_persist = (fun pairs ->
+      List.iter (fun (k, v) -> Hashtbl.replace store k v) pairs; Ok ());
+    query = (fun ~prefix:_ ~limit:_ -> []);
   } in
   let mem = Memory.create () in
   Memory.set_long_term_backend mem backend;

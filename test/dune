@@ -589,6 +589,11 @@
  (libraries agent_sdk alcotest yojson eio eio_main cohttp-eio unix))
 
 (test
+ (name test_coverage_hotspots_srt)
+ (libraries agent_sdk llm_provider alcotest yojson eio eio_main cohttp-eio unix)
+ (deps ../bin/oas_runtime.exe))
+
+(test
  (name test_mcp_coverage)
  (libraries agent_sdk alcotest yojson mcp_protocol))
 
@@ -639,6 +644,26 @@
 (test
  (name test_a2a_client_cov)
  (libraries agent_sdk alcotest yojson eio eio_main cohttp-eio unix))
+
+(test
+ (name test_memory_episodic)
+ (libraries agent_sdk alcotest))
+
+(test
+ (name test_memory_procedural)
+ (libraries agent_sdk alcotest))
+
+(test
+ (name test_memory_lt_backend)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_memory_access)
+ (libraries agent_sdk llm_provider alcotest))
+
+(test
+ (name test_verified_output)
+ (libraries agent_sdk alcotest))
 
 (test
  (name test_backend_gemini)

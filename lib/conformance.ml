@@ -467,3 +467,140 @@ let report bundle =
 let run ?session_root ~session_id () =
   let* bundle = Sessions.get_proof_bundle ?session_root ~session_id () in
   Ok (report bundle)
+
+[@@@coverage off]
+(* === Inline tests === *)
+
+let make_worker
+    ?(worker_run_id="w1") ?(worker_id=Some "wid") ?(agent_name="agent")
+    ?(runtime_actor=Some "actor") ?(role=None) ?(aliases=[])
+    ?(primary_alias=None) ?(provider=None) ?(model=None)
+    ?(requested_provider=None) ?(requested_model=None)
+    ?(requested_policy=None)
+    ?(resolved_provider=Some "llama") ?(resolved_model=Some "qwen")
+    ?(status=Sessions.Completed) ?(trace_capability=Sessions.Raw)
+    ?(validated=true) ?(tool_names=[]) ?(final_text=None)
+    ?(stop_reason=None) ?(error=None) ?(failure_reason=None)
+    ?(accepted_at=None) ?(ready_at=None)
+    ?(first_progress_at=None) ?(started_at=Some 1.0)
+    ?(finished_at=Some 2.0) ?(last_progress_at=Some 1.5)
+    ?(policy_snapshot=None) ?(paired_tool_result_count=0)
+    ?(has_file_write=false) ?(verification_pass_after_file_write=false)
+    () : Sessions.worker_run =
+  { worker_run_id; worker_id; agent_name; runtime_actor; role; aliases;
+    primary_alias; provider; model; requested_provider; requested_model;
+    requested_policy; resolved_provider; resolved_model; status;
+    trace_capability; validated; tool_names; final_text; stop_reason;
+    error; failure_reason; accepted_at; ready_at; first_progress_at;
+    started_at; finished_at; last_progress_at; policy_snapshot;
+    paired_tool_result_count; has_file_write;
+    verification_pass_after_file_write }
+
+let%test "unique_trace_capabilities deduplicates" =
+  let w1 = make_worker ~trace_capability:Sessions.Raw () in
+  let w2 = make_worker ~trace_capability:Sessions.Raw () in
+  let w3 = make_worker ~trace_capability:Sessions.Summary_only () in
+  let result = unique_trace_capabilities [w1; w2; w3] in
+  List.length result = 2
+
+let%test "unique_trace_capabilities empty list" =
+  unique_trace_capabilities [] = []
+
+let%test "unique_trace_capabilities preserves order" =
+  let w1 = make_worker ~trace_capability:Sessions.Summary_only () in
+  let w2 = make_worker ~trace_capability:Sessions.Raw () in
+  let result = unique_trace_capabilities [w1; w2] in
+  result = [Sessions.Summary_only; Sessions.Raw]
+
+let%test "latest_by returns last matching element" =
+  let w1 = make_worker ~worker_run_id:"w1" ~status:Sessions.Completed () in
+  let w2 = make_worker ~worker_run_id:"w2" ~status:Sessions.Running () in
+  let w3 = make_worker ~worker_run_id:"w3" ~status:Sessions.Completed () in
+  match latest_by (fun (w : Sessions.worker_run) -> w.status = Sessions.Completed) [w1; w2; w3] with
+  | Some w -> w.worker_run_id = "w3"
+  | None -> false
+
+let%test "latest_by returns None when no match" =
+  let w1 = make_worker ~status:Sessions.Running () in
+  latest_by (fun (w : Sessions.worker_run) -> w.status = Sessions.Failed) [w1] = None
+
+let%test "latest_by empty list" =
+  latest_by (fun _ -> true) [] = None
+
+let%test "lifecycle_monotonic all timestamps ordered" =
+  let w = make_worker ~started_at:(Some 1.0)
+    ~last_progress_at:(Some 2.0) ~finished_at:(Some 3.0) () in
+  lifecycle_monotonic w = true
+
+let%test "lifecycle_monotonic None timestamps always pass" =
+  let w = make_worker ~started_at:None ~last_progress_at:None ~finished_at:None () in
+  lifecycle_monotonic w = true
+
+let%test "lifecycle_monotonic mixed None passes" =
+  let w = make_worker ~started_at:(Some 1.0)
+    ~last_progress_at:None ~finished_at:(Some 3.0) () in
+  lifecycle_monotonic w = true
+
+let%test "lifecycle_monotonic started > finished fails" =
+  let w = make_worker ~started_at:(Some 5.0)
+    ~last_progress_at:None ~finished_at:(Some 1.0) () in
+  lifecycle_monotonic w = false
+
+let%test "is_runtime_resolved both present" =
+  let w = make_worker ~resolved_provider:(Some "p") ~resolved_model:(Some "m") () in
+  is_runtime_resolved w = true
+
+let%test "is_runtime_resolved provider missing" =
+  let w = make_worker ~resolved_provider:None ~resolved_model:(Some "m") () in
+  is_runtime_resolved w = false
+
+let%test "is_runtime_resolved model missing" =
+  let w = make_worker ~resolved_provider:(Some "p") ~resolved_model:None () in
+  is_runtime_resolved w = false
+
+let%test "identity_is_consistent all present and matching" =
+  let w = make_worker ~worker_id:(Some "wid") ~runtime_actor:(Some "actor")
+    ~primary_alias:(Some "a1") ~aliases:["a1"; "a2"] () in
+  identity_is_consistent w = true
+
+let%test "identity_is_consistent primary_alias not in aliases fails" =
+  let w = make_worker ~worker_id:(Some "wid") ~runtime_actor:(Some "actor")
+    ~primary_alias:(Some "missing") ~aliases:["a1"; "a2"] () in
+  identity_is_consistent w = false
+
+let%test "identity_is_consistent no primary_alias is ok" =
+  let w = make_worker ~worker_id:(Some "wid") ~runtime_actor:(Some "actor")
+    ~primary_alias:None ~aliases:[] () in
+  identity_is_consistent w = true
+
+let%test "identity_is_consistent missing worker_id fails" =
+  let w = make_worker ~worker_id:None ~runtime_actor:(Some "actor") () in
+  identity_is_consistent w = false
+
+let%test "identity_is_consistent missing runtime_actor fails" =
+  let w = make_worker ~worker_id:(Some "wid") ~runtime_actor:None () in
+  identity_is_consistent w = false
+
+let%test "worker_status_name all variants" =
+  worker_status_name Sessions.Planned = "planned"
+  && worker_status_name Sessions.Accepted = "accepted"
+  && worker_status_name Sessions.Ready = "ready"
+  && worker_status_name Sessions.Running = "running"
+  && worker_status_name Sessions.Completed = "completed"
+  && worker_status_name Sessions.Failed = "failed"
+
+let%test "worker_ids extracts ids" =
+  let w1 = make_worker ~worker_run_id:"id1" () in
+  let w2 = make_worker ~worker_run_id:"id2" () in
+  worker_ids [w1; w2] = ["id1"; "id2"]
+
+let%test "raw_run_ids extracts ids" =
+  let r1 : Sessions.raw_trace_run = {
+    worker_run_id = "r1"; path = "/tmp/a"; start_seq = 0; end_seq = 10;
+    agent_name = "a"; session_id = None;
+  } in
+  let r2 : Sessions.raw_trace_run = {
+    worker_run_id = "r2"; path = "/tmp/b"; start_seq = 0; end_seq = 5;
+    agent_name = "b"; session_id = None;
+  } in
+  raw_run_ids [r1; r2] = ["r1"; "r2"]
