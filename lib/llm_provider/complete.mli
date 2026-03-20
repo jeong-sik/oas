@@ -1,11 +1,12 @@
-(** Standalone LLM completion: build request, HTTP POST, parse response.
+(** Standalone LLM completion: build request, send via transport, parse response.
 
     Self-contained in llm_provider -- no agent_sdk dependency.
     Both OAS and MASC can call these functions directly.
 
     @since 0.46.0  Sync completion
     @since 0.53.0  Streaming, retry, cascade
-    @since 0.54.0  Optional cache + metrics hooks *)
+    @since 0.54.0  Optional cache + metrics hooks
+    @since 0.78.0  Transport abstraction *)
 
 (** {1 Gemini URL Construction} *)
 
@@ -14,18 +15,35 @@
 val gemini_url :
   config:Provider_config.t -> stream:bool -> string
 
+(** {1 Transport} *)
+
+(** Create an HTTP-based transport.
+    Wraps the internal HTTP completion pipeline into a
+    {!Llm_transport.t} value that can be passed to [complete]
+    or [complete_stream] via [?transport].
+
+    @since 0.78.0 *)
+val make_http_transport :
+  sw:Eio.Switch.t ->
+  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
+  Llm_transport.t
+
 (** {1 Sync Completion} *)
 
 (** Execute a single LLM completion round-trip.
 
-    When [cache] is provided, checks cache before HTTP and stores on success.
+    When [transport] is provided, uses that transport for I/O.
+    Otherwise falls back to the built-in HTTP transport.
+
+    When [cache] is provided, checks cache before I/O and stores on success.
     When [metrics] is provided, fires lifecycle callbacks.
 
     @return [Ok api_response] on success (possibly from cache)
-    @return [Error http_error] on HTTP or network failure *)
+    @return [Error http_error] on failure *)
 val complete :
   sw:Eio.Switch.t ->
   net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
+  ?transport:Llm_transport.t ->
   config:Provider_config.t ->
   messages:Types.message list ->
   ?tools:Yojson.Safe.t list ->
@@ -52,10 +70,11 @@ val default_retry_config : retry_config
 val is_retryable : Http_client.http_error -> bool
 
 (** Completion with exponential backoff retry.
-    Passes [cache] and [metrics] through to each attempt. *)
+    Passes [transport], [cache] and [metrics] through to each attempt. *)
 val complete_with_retry :
   sw:Eio.Switch.t ->
   net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
+  ?transport:Llm_transport.t ->
   clock:_ Eio.Time.clock ->
   config:Provider_config.t ->
   messages:Types.message list ->
@@ -81,6 +100,7 @@ type cascade = {
 val complete_cascade :
   sw:Eio.Switch.t ->
   net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
+  ?transport:Llm_transport.t ->
   ?clock:_ Eio.Time.clock ->
   ?retry_config:retry_config ->
   cascade:cascade ->
@@ -102,6 +122,7 @@ val complete_cascade :
 val complete_stream :
   sw:Eio.Switch.t ->
   net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
+  ?transport:Llm_transport.t ->
   config:Provider_config.t ->
   messages:Types.message list ->
   ?tools:Yojson.Safe.t list ->
@@ -126,6 +147,7 @@ val complete_stream :
 val complete_stream_cascade :
   sw:Eio.Switch.t ->
   net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
+  ?transport:Llm_transport.t ->
   cascade:cascade ->
   messages:Types.message list ->
   ?tools:Yojson.Safe.t list ->
