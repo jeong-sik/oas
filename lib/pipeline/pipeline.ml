@@ -476,3 +476,55 @@ let%test "tag_error with Agent error" =
 
 let%test "tag_error string result Ok" =
   tag_error "collect" (Ok "success") = Ok "success"
+
+(* --- Additional pipeline tests --- *)
+
+let%test "last_tool_results_from only non-user roles" =
+  let msgs = [
+    { role = System; content = [Text "system"]; name = None; tool_call_id = None };
+    { role = Assistant; content = [Text "reply"]; name = None; tool_call_id = None };
+  ] in
+  last_tool_results_from msgs = []
+
+let%test "last_tool_results_from multiple tool results in one message" =
+  let msgs = [
+    { role = User; content = [
+        ToolResult { tool_use_id = "t1"; content = "r1"; is_error = false };
+        ToolResult { tool_use_id = "t2"; content = "r2"; is_error = false };
+        ToolResult { tool_use_id = "t3"; content = "r3"; is_error = true };
+      ]; name = None; tool_call_id = None };
+  ] in
+  List.length (last_tool_results_from msgs) = 3
+
+let%test "last_tool_results_from user msg with only non-tool content" =
+  let msgs = [
+    { role = User; content = [
+        Text "just text";
+        Types.ToolUse { id = "tu1"; name = "fn"; input = `Null };
+      ]; name = None; tool_call_id = None };
+  ] in
+  last_tool_results_from msgs = []
+
+let%test "tag_error with Serialization error" =
+  let err = Error.Serialization (JsonParseError { detail = "bad json" }) in
+  match tag_error "route" (Error err) with
+  | Error e -> e = err
+  | Ok _ -> false
+
+let%test "tag_error with Io error" =
+  let err = Error.Io (FileOpFailed { op = "read"; path = "/tmp/x"; detail = "not found" }) in
+  match tag_error "input" (Error err) with
+  | Error e -> e = err
+  | Ok _ -> false
+
+let%test "tag_error with Mcp error" =
+  let err = Error.Mcp (InitializeFailed { detail = "timeout" }) in
+  match tag_error "parse" (Error err) with
+  | Error e -> e = err
+  | Ok _ -> false
+
+let%test "tag_error Ok unit" =
+  tag_error "collect" (Ok ()) = Ok ()
+
+let%test "tag_error Ok list" =
+  tag_error "output" (Ok [1; 2; 3]) = Ok [1; 2; 3]

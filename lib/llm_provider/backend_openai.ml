@@ -549,3 +549,263 @@ let%test "openai_messages_of_message system" =
   let msg = { role = System; content = [Text "system prompt"]; name = None; tool_call_id = None } in
   let result = openai_messages_of_message msg in
   List.length result = 1
+
+(* --- Additional coverage tests --- *)
+
+let%test "openai_messages_of_message user empty content" =
+  let msg = { role = User; content = []; name = None; tool_call_id = None } in
+  let result = openai_messages_of_message msg in
+  (* no content parts and no tool results *)
+  result = []
+
+let%test "openai_messages_of_message user with image" =
+  let msg = { role = User; content = [
+    Image { media_type = "image/png"; data = "abc123"; source_type = "base64" };
+    Text "describe this";
+  ]; name = None; tool_call_id = None } in
+  let result = openai_messages_of_message msg in
+  (* multimodal -> content is a list *)
+  List.length result = 1
+
+let%test "openai_messages_of_message user with document" =
+  let msg = { role = User; content = [
+    Document { media_type = "application/pdf"; data = "abc"; source_type = "base64" };
+  ]; name = None; tool_call_id = None } in
+  let result = openai_messages_of_message msg in
+  List.length result = 1
+
+let%test "openai_messages_of_message user with audio" =
+  let msg = { role = User; content = [
+    Audio { media_type = "audio/wav"; data = "audiodata"; source_type = "base64" };
+  ]; name = None; tool_call_id = None } in
+  let result = openai_messages_of_message msg in
+  List.length result = 1
+
+let%test "openai_messages_of_message assistant text only" =
+  let msg = { role = Assistant; content = [Text "hello"]; name = None; tool_call_id = None } in
+  let result = openai_messages_of_message msg in
+  let json = List.hd result in
+  let open Yojson.Safe.Util in
+  json |> member "content" |> to_string = "hello"
+
+let%test "openai_messages_of_message assistant blank text with tool_calls" =
+  let msg = { role = Assistant; content = [
+    Text "";
+    ToolUse { id = "tc1"; name = "fn"; input = `Assoc [] };
+  ]; name = None; tool_call_id = None } in
+  let result = openai_messages_of_message msg in
+  let json = List.hd result in
+  let open Yojson.Safe.Util in
+  json |> member "content" = `Null
+
+let%test "openai_messages_of_message Tool role with ToolResult" =
+  let msg = { role = Tool; content = [
+    ToolResult { tool_use_id = "tc1"; content = "result data"; is_error = false };
+  ]; name = None; tool_call_id = None } in
+  let result = openai_messages_of_message msg in
+  List.length result = 1
+  && (let json = List.hd result in
+      let open Yojson.Safe.Util in
+      json |> member "role" |> to_string = "tool")
+
+let%test "openai_messages_of_message Tool role without ToolResult fallback to user" =
+  let msg = { role = Tool; content = [Text "fallback"]; name = None; tool_call_id = None } in
+  let result = openai_messages_of_message msg in
+  let json = List.hd result in
+  let open Yojson.Safe.Util in
+  json |> member "role" |> to_string = "user"
+
+let%test "build_openai_tool_json with parameters field" =
+  let tool_json = `Assoc [
+    ("name", `String "my_fn");
+    ("description", `String "does stuff");
+    ("parameters", `Assoc [("type", `String "object")]);
+  ] in
+  let result = build_openai_tool_json tool_json in
+  let open Yojson.Safe.Util in
+  result |> member "function" |> member "parameters" |> member "type" |> to_string = "object"
+
+let%test "build_openai_tool_json missing all optional fields" =
+  let tool_json = `Assoc [] in
+  let result = build_openai_tool_json tool_json in
+  let open Yojson.Safe.Util in
+  result |> member "function" |> member "name" |> to_string = "tool"
+  && result |> member "function" |> member "description" |> to_string = ""
+
+let%test "strip_json_markdown_fences no closing fence" =
+  let input = "```json\n{\"key\":\"value\"}" in
+  strip_json_markdown_fences input = input
+
+let%test "strip_json_markdown_fences empty content" =
+  strip_json_markdown_fences "" = ""
+
+let%test "parse_openai_response unknown finish_reason" =
+  let json_str = Yojson.Safe.to_string (`Assoc [
+    ("id", `String "c1");
+    ("model", `String "m");
+    ("choices", `List [
+      `Assoc [
+        ("finish_reason", `String "something_new");
+        ("message", `Assoc [("content", `String "text")]);
+      ];
+    ]);
+  ]) in
+  let resp = parse_openai_response json_str in
+  resp.stop_reason = Unknown "something_new"
+
+let%test "parse_openai_response end_turn finish_reason" =
+  let json_str = Yojson.Safe.to_string (`Assoc [
+    ("id", `String "c1");
+    ("model", `String "m");
+    ("choices", `List [
+      `Assoc [
+        ("finish_reason", `String "end_turn");
+        ("message", `Assoc [("content", `String "done")]);
+      ];
+    ]);
+  ]) in
+  let resp = parse_openai_response json_str in
+  resp.stop_reason = EndTurn
+
+let%test "parse_openai_response null content" =
+  let json_str = Yojson.Safe.to_string (`Assoc [
+    ("id", `String "c1");
+    ("model", `String "m");
+    ("choices", `List [
+      `Assoc [
+        ("finish_reason", `String "stop");
+        ("message", `Assoc [("content", `Null)]);
+      ];
+    ]);
+  ]) in
+  let resp = parse_openai_response json_str in
+  resp.stop_reason = EndTurn
+
+let%test "parse_openai_response list content" =
+  let json_str = Yojson.Safe.to_string (`Assoc [
+    ("id", `String "c1");
+    ("model", `String "m");
+    ("choices", `List [
+      `Assoc [
+        ("finish_reason", `String "stop");
+        ("message", `Assoc [
+          ("content", `List [`String "part1"; `String "part2"])
+        ]);
+      ];
+    ]);
+  ]) in
+  let resp = parse_openai_response json_str in
+  match resp.content with
+  | [Text t] -> String.length t > 0
+  | _ -> false
+
+let%test "parse_openai_response list content with assoc text blocks" =
+  let json_str = Yojson.Safe.to_string (`Assoc [
+    ("id", `String "c1");
+    ("model", `String "m");
+    ("choices", `List [
+      `Assoc [
+        ("finish_reason", `String "stop");
+        ("message", `Assoc [
+          ("content", `List [
+            `Assoc [("text", `String "block1")];
+            `Assoc [("text", `String "block2")];
+          ])
+        ]);
+      ];
+    ]);
+  ]) in
+  let resp = parse_openai_response json_str in
+  match resp.content with
+  | [Text t] -> t = "block1block2"
+  | _ -> false
+
+let%test "parse_openai_response with reasoning_content" =
+  let json_str = Yojson.Safe.to_string (`Assoc [
+    ("id", `String "c1");
+    ("model", `String "deepseek-r1");
+    ("choices", `List [
+      `Assoc [
+        ("finish_reason", `String "stop");
+        ("message", `Assoc [
+          ("content", `String "answer");
+          ("reasoning_content", `String "I thought about it");
+        ]);
+      ];
+    ]);
+  ]) in
+  let resp = parse_openai_response json_str in
+  let has_thinking = List.exists (function
+    | Thinking _ -> true | _ -> false) resp.content in
+  has_thinking
+
+let%test "parse_openai_response JSON list wrapping" =
+  let inner = `Assoc [
+    ("id", `String "c1");
+    ("model", `String "m");
+    ("choices", `List [
+      `Assoc [
+        ("finish_reason", `String "stop");
+        ("message", `Assoc [("content", `String "ok")]);
+      ];
+    ]);
+  ] in
+  let json_str = Yojson.Safe.to_string (`List [inner]) in
+  let resp = parse_openai_response json_str in
+  resp.id = "c1"
+
+let%test "parse_openai_response error without message" =
+  let json_str = Yojson.Safe.to_string (`Assoc [
+    ("error", `Assoc []);
+  ]) in
+  try
+    ignore (parse_openai_response json_str);
+    false
+  with Openai_api_error msg -> msg = "Unknown API error"
+
+let%test "usage_of_openai_json prompt_tokens_details null" =
+  let json = `Assoc [
+    ("usage", `Assoc [
+      ("prompt_tokens", `Int 50);
+      ("completion_tokens", `Int 25);
+      ("prompt_tokens_details", `Null);
+    ]);
+  ] in
+  match usage_of_openai_json json with
+  | Some u -> u.cache_read_input_tokens = 0
+  | None -> false
+
+let%test "openai_content_parts_of_blocks image block" =
+  let blocks = [
+    Image { media_type = "image/png"; data = "abc"; source_type = "base64" };
+  ] in
+  let result = openai_content_parts_of_blocks blocks in
+  List.length result = 1
+
+let%test "openai_content_parts_of_blocks document block" =
+  let blocks = [
+    Document { media_type = "application/pdf"; data = "abc"; source_type = "base64" };
+  ] in
+  let result = openai_content_parts_of_blocks blocks in
+  List.length result = 1
+
+let%test "openai_content_parts_of_blocks audio block" =
+  let blocks = [
+    Audio { media_type = "audio/wav"; data = "abc"; source_type = "base64" };
+  ] in
+  let result = openai_content_parts_of_blocks blocks in
+  List.length result = 1
+
+let%test "openai_content_parts_of_blocks redacted thinking filtered" =
+  let blocks = [
+    RedactedThinking "secret";
+    Text "visible";
+  ] in
+  let result = openai_content_parts_of_blocks blocks in
+  List.length result = 1
+
+let%test "openai_content_parts_of_blocks tool_result filtered" =
+  let blocks = [
+    ToolResult { tool_use_id = "t1"; content = "result"; is_error = false };
+  ] in
+  openai_content_parts_of_blocks blocks = []

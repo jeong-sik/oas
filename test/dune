@@ -696,3 +696,19 @@
 (test
  (name test_plan)
  (libraries agent_sdk alcotest yojson unix))
+
+(test
+ (name test_memory_coverage)
+ (libraries agent_sdk alcotest yojson unix))
+
+(test
+ (name test_runtime_projection_cov2)
+ (libraries agent_sdk alcotest yojson unix))
+
+(test
+ (name test_eval_coverage)
+ (libraries agent_sdk alcotest yojson unix eio eio_main))
+
+(test
+ (name test_skill_coverage2)
+ (libraries agent_sdk alcotest yojson unix))

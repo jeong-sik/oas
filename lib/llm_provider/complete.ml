@@ -544,3 +544,196 @@ let%test "finalize_stream_acc includes usage" =
     u.input_tokens = 100 && u.output_tokens = 50
     && u.cache_creation_input_tokens = 10 && u.cache_read_input_tokens = 20
   | None -> false
+
+(* --- gemini_url tests --- *)
+
+let%test "gemini_url sync no api_key" =
+  let config : Provider_config.t = {
+    kind = Provider_config.Gemini;
+    model_id = "gemini-2.5-flash";
+    base_url = "https://gen.googleapis.com/v1beta";
+    api_key = ""; request_path = ""; headers = [];
+    system_prompt = None; temperature = None; max_tokens = 1024;
+    top_p = None; top_k = None; min_p = None;
+    enable_thinking = None; thinking_budget = None;
+    tool_choice = None; disable_parallel_tool_use = false;
+    response_format_json = false; cache_system_prompt = false;
+  } in
+  let url = gemini_url ~config ~stream:false in
+  url = "https://gen.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+
+let%test "gemini_url sync with api_key" =
+  let config : Provider_config.t = {
+    kind = Gemini; model_id = "gemini-2.5-flash";
+    base_url = "https://gen.googleapis.com/v1beta";
+    api_key = "mykey"; request_path = ""; headers = [];
+    system_prompt = None; temperature = None; max_tokens = 1024;
+    top_p = None; top_k = None; min_p = None;
+    enable_thinking = None; thinking_budget = None;
+    tool_choice = None; disable_parallel_tool_use = false;
+    response_format_json = false; cache_system_prompt = false;
+  } in
+  let url = gemini_url ~config ~stream:false in
+  url = "https://gen.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=mykey"
+
+let%test "gemini_url stream with api_key" =
+  let config : Provider_config.t = {
+    kind = Gemini; model_id = "gemini-2.5-flash";
+    base_url = "https://gen.googleapis.com/v1beta";
+    api_key = "mykey"; request_path = ""; headers = [];
+    system_prompt = None; temperature = None; max_tokens = 1024;
+    top_p = None; top_k = None; min_p = None;
+    enable_thinking = None; thinking_budget = None;
+    tool_choice = None; disable_parallel_tool_use = false;
+    response_format_json = false; cache_system_prompt = false;
+  } in
+  let url = gemini_url ~config ~stream:true in
+  url = "https://gen.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?key=mykey&alt=sse"
+
+let%test "gemini_url stream no api_key" =
+  let config : Provider_config.t = {
+    kind = Gemini; model_id = "gemini-2.5-flash";
+    base_url = "https://gen.googleapis.com/v1beta";
+    api_key = ""; request_path = ""; headers = [];
+    system_prompt = None; temperature = None; max_tokens = 1024;
+    top_p = None; top_k = None; min_p = None;
+    enable_thinking = None; thinking_budget = None;
+    tool_choice = None; disable_parallel_tool_use = false;
+    response_format_json = false; cache_system_prompt = false;
+  } in
+  let url = gemini_url ~config ~stream:true in
+  url = "https://gen.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse"
+
+(* --- accumulate_event edge cases --- *)
+
+let%test "accumulate_event ContentBlockDelta on unknown index creates buffer" =
+  let acc = create_stream_acc () in
+  accumulate_event acc (Types.ContentBlockDelta {
+    index = 99; delta = Types.TextDelta "orphan" });
+  match Hashtbl.find_opt acc.block_texts 99 with
+  | Some buf -> Buffer.contents buf = "orphan"
+  | None -> false
+
+let%test "accumulate_event ContentBlockStart with tool_id and tool_name" =
+  let acc = create_stream_acc () in
+  accumulate_event acc (Types.ContentBlockStart {
+    index = 0; content_type = "tool_use";
+    tool_id = Some "tid-1"; tool_name = Some "my_fn" });
+  Hashtbl.find acc.block_tool_ids 0 = "tid-1"
+  && Hashtbl.find acc.block_tool_names 0 = "my_fn"
+
+let%test "accumulate_event ThinkingDelta appends to buffer" =
+  let acc = create_stream_acc () in
+  accumulate_event acc (Types.ContentBlockStart {
+    index = 0; content_type = "thinking"; tool_id = None; tool_name = None });
+  accumulate_event acc (Types.ContentBlockDelta {
+    index = 0; delta = Types.ThinkingDelta "step1" });
+  accumulate_event acc (Types.ContentBlockDelta {
+    index = 0; delta = Types.ThinkingDelta " step2" });
+  let buf = Hashtbl.find acc.block_texts 0 in
+  Buffer.contents buf = "step1 step2"
+
+let%test "accumulate_event InputJsonDelta appends to buffer" =
+  let acc = create_stream_acc () in
+  accumulate_event acc (Types.ContentBlockStart {
+    index = 0; content_type = "tool_use"; tool_id = None; tool_name = None });
+  accumulate_event acc (Types.ContentBlockDelta {
+    index = 0; delta = Types.InputJsonDelta "{\"k\":" });
+  accumulate_event acc (Types.ContentBlockDelta {
+    index = 0; delta = Types.InputJsonDelta "\"v\"}" });
+  let buf = Hashtbl.find acc.block_texts 0 in
+  Buffer.contents buf = "{\"k\":\"v\"}"
+
+let%test "accumulate_event MessageDelta None stop_reason keeps default" =
+  let acc = create_stream_acc () in
+  accumulate_event acc (Types.MessageDelta {
+    stop_reason = None; usage = None });
+  !(acc.stop_reason) = Types.EndTurn
+
+let%test "accumulate_event MessageDelta None usage does not change tokens" =
+  let acc = create_stream_acc () in
+  acc.output_tokens := 10;
+  accumulate_event acc (Types.MessageDelta {
+    stop_reason = None; usage = None });
+  !(acc.output_tokens) = 10
+
+let%test "accumulate_event MessageStop is no-op" =
+  let acc = create_stream_acc () in
+  acc.id := "keep";
+  accumulate_event acc Types.MessageStop;
+  !(acc.id) = "keep"
+
+let%test "accumulate_event Ping is no-op" =
+  let acc = create_stream_acc () in
+  accumulate_event acc Types.Ping;
+  !(acc.id) = ""
+
+let%test "accumulate_event SSEError is no-op" =
+  let acc = create_stream_acc () in
+  accumulate_event acc (Types.SSEError "bad");
+  !(acc.id) = ""
+
+(* --- finalize_stream_acc edge cases --- *)
+
+let%test "finalize_stream_acc empty produces empty content" =
+  let acc = create_stream_acc () in
+  let result = finalize_stream_acc acc in
+  result.content = []
+
+let%test "finalize_stream_acc unknown block type filtered out" =
+  let acc = create_stream_acc () in
+  Hashtbl.replace acc.block_types 0 "unknown_type";
+  let buf = Buffer.create 16 in
+  Buffer.add_string buf "data";
+  Hashtbl.replace acc.block_texts 0 buf;
+  let result = finalize_stream_acc acc in
+  result.content = []
+
+let%test "finalize_stream_acc tool_use with invalid json falls back to empty assoc" =
+  let acc = create_stream_acc () in
+  Hashtbl.replace acc.block_types 0 "tool_use";
+  let buf = Buffer.create 16 in
+  Buffer.add_string buf "not valid json";
+  Hashtbl.replace acc.block_texts 0 buf;
+  let result = finalize_stream_acc acc in
+  match result.content with
+  | [Types.ToolUse { input = `Assoc []; _ }] -> true
+  | _ -> false
+
+let%test "finalize_stream_acc tool_use missing id/name defaults to empty" =
+  let acc = create_stream_acc () in
+  Hashtbl.replace acc.block_types 0 "tool_use";
+  let buf = Buffer.create 16 in
+  Buffer.add_string buf "{}";
+  Hashtbl.replace acc.block_texts 0 buf;
+  let result = finalize_stream_acc acc in
+  match result.content with
+  | [Types.ToolUse { id = ""; name = ""; _ }] -> true
+  | _ -> false
+
+let%test "finalize_stream_acc block with no text buffer produces empty text" =
+  let acc = create_stream_acc () in
+  Hashtbl.replace acc.block_types 0 "text";
+  (* No buffer added for index 0 *)
+  let result = finalize_stream_acc acc in
+  match result.content with
+  | [Types.Text ""] -> true
+  | _ -> false
+
+let%test "is_retryable 200 not retryable" =
+  is_retryable (Http_client.HttpError { code = 200; body = "" }) = false
+
+let%test "is_retryable 403 not retryable" =
+  is_retryable (Http_client.HttpError { code = 403; body = "" }) = false
+
+let%test "accumulate_event multiple MessageDelta accumulates tokens" =
+  let acc = create_stream_acc () in
+  accumulate_event acc (Types.MessageDelta {
+    stop_reason = None;
+    usage = Some { input_tokens = 0; output_tokens = 30;
+                   cache_creation_input_tokens = 0; cache_read_input_tokens = 0 }});
+  accumulate_event acc (Types.MessageDelta {
+    stop_reason = None;
+    usage = Some { input_tokens = 0; output_tokens = 20;
+                   cache_creation_input_tokens = 0; cache_read_input_tokens = 0 }});
+  !(acc.output_tokens) = 50

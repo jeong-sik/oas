@@ -435,3 +435,132 @@ let%test "restore: history preserved" =
   match restore cp ~agent_lookup:lookup ~base_config:cfg with
   | Ok restored -> List.length restored.history = 1
   | Error _ -> false
+
+(* --- Additional checkpoint tests --- *)
+
+let%test "config_snapshot_to_json None convergence fields" =
+  let snap = {
+    entry_names = ["x"];
+    mode = Swarm_types.Pipeline_mode;
+    max_parallel = 1;
+    prompt = "p";
+    timeout_sec = None;
+    convergence_target = None;
+    convergence_max_iterations = None;
+    convergence_patience = None;
+  } in
+  let json = config_snapshot_to_json snap in
+  let open Yojson.Safe.Util in
+  json |> member "timeout_sec" = `Null
+  && json |> member "convergence_target" = `Null
+  && json |> member "convergence_max_iterations" = `Null
+  && json |> member "convergence_patience" = `Null
+
+let%test "config_snapshot_to_json Some convergence fields" =
+  let snap = {
+    entry_names = [];
+    mode = Swarm_types.Supervisor;
+    max_parallel = 4;
+    prompt = "go";
+    timeout_sec = Some 60.0;
+    convergence_target = Some 0.95;
+    convergence_max_iterations = Some 100;
+    convergence_patience = Some 5;
+  } in
+  let json = config_snapshot_to_json snap in
+  let open Yojson.Safe.Util in
+  json |> member "timeout_sec" |> to_float = 60.0
+  && json |> member "convergence_target" |> to_float = 0.95
+
+let%test "iteration_record_to_json with agent_results" =
+  let rec_ = make_iteration ~iteration:2
+    ~agent_results:[("w1", Swarm_types.Idle); ("w2", Swarm_types.Idle)]
+    ~elapsed:3.0 ~timestamp:500.0 () in
+  let json = iteration_record_to_json rec_ in
+  let open Yojson.Safe.Util in
+  let agents = json |> member "agent_results" |> to_list in
+  List.length agents = 2
+
+let%test "iteration_record_of_json preserves agent names" =
+  let json = `Assoc [
+    ("iteration", `Int 1);
+    ("metric_value", `Null);
+    ("agent_results", `List [
+      `Assoc [("name", `String "worker1"); ("status", `String "Idle")];
+    ]);
+    ("elapsed", `Float 1.0);
+    ("timestamp", `Float 200.0);
+  ] in
+  let rec_ = iteration_record_of_json json in
+  rec_.iteration = 1
+  && List.length rec_.agent_results = 1
+  && fst (List.hd rec_.agent_results) = "worker1"
+
+let%test "to_json best_metric None" =
+  let cfg = make_config () in
+  let state = Swarm_types.create_state cfg in
+  state.best_metric <- None;
+  let cp = of_state state in
+  let json = to_json cp in
+  let open Yojson.Safe.Util in
+  json |> member "best_metric" = `Null
+
+let%test "to_json best_metric Some" =
+  let cfg = make_config () in
+  let state = Swarm_types.create_state cfg in
+  state.best_metric <- Some 0.99;
+  let cp = of_state state in
+  let json = to_json cp in
+  let open Yojson.Safe.Util in
+  json |> member "best_metric" |> to_float = 0.99
+
+let%test "of_state patience_counter from state" =
+  let cfg = make_config () in
+  let state = Swarm_types.create_state cfg in
+  state.patience_counter <- 7;
+  let cp = of_state state in
+  cp.patience_counter = 7
+
+let%test "of_state best_iteration from state" =
+  let cfg = make_config () in
+  let state = Swarm_types.create_state cfg in
+  state.best_iteration <- 3;
+  let cp = of_state state in
+  cp.best_iteration = 3
+
+let%test "restore: best_iteration restored" =
+  let cfg = make_config () in
+  let state = Swarm_types.create_state cfg in
+  state.best_iteration <- 4;
+  let cp = of_state state in
+  let lookup name =
+    if name = "a1" || name = "a2" then Some (make_entry name) else None in
+  match restore cp ~agent_lookup:lookup ~base_config:cfg with
+  | Ok restored -> restored.best_iteration = 4
+  | Error _ -> false
+
+let%test "snapshot_of_config: Supervisor mode preserved" =
+  let cfg = make_config ~mode:Swarm_types.Supervisor () in
+  let snap = snapshot_of_config cfg in
+  snap.mode = Swarm_types.Supervisor
+
+let%test "snapshot_of_config: Pipeline mode preserved" =
+  let cfg = make_config ~mode:Swarm_types.Pipeline_mode () in
+  let snap = snapshot_of_config cfg in
+  snap.mode = Swarm_types.Pipeline_mode
+
+let%test "to_json history empty" =
+  let cfg = make_config () in
+  let state = Swarm_types.create_state cfg in
+  let cp = of_state state in
+  let json = to_json cp in
+  let open Yojson.Safe.Util in
+  json |> member "history" |> to_list = []
+
+let%test "to_json created_at is positive" =
+  let cfg = make_config () in
+  let state = Swarm_types.create_state cfg in
+  let cp = of_state state in
+  let json = to_json cp in
+  let open Yojson.Safe.Util in
+  json |> member "created_at" |> to_float > 0.0

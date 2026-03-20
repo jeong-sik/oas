@@ -289,3 +289,107 @@ let%test "text_blocks_to_string joins text" =
   let blocks = [Types.Text "a"; Types.Text "b"] in
   let result = text_blocks_to_string blocks in
   String.length result > 0
+
+(* --- Additional coverage tests for api.ml --- *)
+
+let%test "map_named_cascade_error HttpError 500" =
+  let err = Llm_provider.Http_client.HttpError { code = 500; body = "server error" } in
+  match map_named_cascade_error err with
+  | Error.Api _ -> true
+  | _ -> false
+
+let%test "map_named_cascade_error HttpError 429" =
+  let err = Llm_provider.Http_client.HttpError { code = 429; body = "rate limit" } in
+  match map_named_cascade_error err with
+  | Error.Api _ -> true
+  | _ -> false
+
+let%test "named_cascade defaults" =
+  let nc = named_cascade ~name:"default" ~defaults:[] () in
+  nc.name = "default" && nc.defaults = [] && nc.config_path = None
+
+let%test "string_is_blank tab only" =
+  string_is_blank "\t" = true
+
+let%test "string_is_blank newline only" =
+  string_is_blank "\n" = true
+
+let%test "string_is_blank mixed whitespace" =
+  string_is_blank " \t\n " = true
+
+let%test "string_is_blank single char" =
+  string_is_blank "x" = false
+
+let%test "json_of_string_or_raw empty string" =
+  match json_of_string_or_raw "" with
+  | `Assoc [("raw", `String "")] -> true
+  | _ -> false
+
+let%test "json_of_string_or_raw integer string" =
+  match json_of_string_or_raw "42" with
+  | `Int 42 -> true
+  | _ -> false
+
+let%test "json_of_string_or_raw array" =
+  match json_of_string_or_raw "[1,2,3]" with
+  | `List _ -> true
+  | _ -> false
+
+let%test "json_of_string_or_raw null" =
+  match json_of_string_or_raw "null" with
+  | `Null -> true
+  | _ -> false
+
+let%test "content_block_to_json tool_use block" =
+  let block = Types.ToolUse { id = "t1"; name = "fn"; input = `Assoc [("x", `Int 1)] } in
+  let json = content_block_to_json block in
+  let open Yojson.Safe.Util in
+  json |> member "type" |> to_string = "tool_use"
+
+let%test "content_block_of_json tool_use block" =
+  let json = `Assoc [
+    ("type", `String "tool_use");
+    ("id", `String "t1");
+    ("name", `String "fn");
+    ("input", `Assoc [("x", `Int 1)]);
+  ] in
+  match content_block_of_json json with
+  | Some (Types.ToolUse { id = "t1"; name = "fn"; _ }) -> true
+  | _ -> false
+
+let%test "content_block_of_json tool_result" =
+  let json = `Assoc [
+    ("type", `String "tool_result");
+    ("tool_use_id", `String "t1");
+    ("content", `String "ok");
+  ] in
+  match content_block_of_json json with
+  | Some (Types.ToolResult { tool_use_id = "t1"; content = "ok"; _ }) -> true
+  | _ -> false
+
+let%test "content_block_of_json unknown type" =
+  let json = `Assoc [("type", `String "unknown_type")] in
+  content_block_of_json json = None
+
+let%test "message_to_json assistant message" =
+  let msg : Types.message = {
+    role = Assistant; content = [Types.Text "response"];
+    name = None; tool_call_id = None } in
+  let json = message_to_json msg in
+  let open Yojson.Safe.Util in
+  json |> member "role" |> to_string = "assistant"
+
+let%test "text_blocks_to_string empty" =
+  text_blocks_to_string [] = ""
+
+let%test "text_blocks_to_string single" =
+  let result = text_blocks_to_string [Types.Text "only"] in
+  String.length result > 0
+
+let%test "text_blocks_to_string non-text blocks ignored" =
+  let blocks = [
+    Types.ToolUse { id = "t"; name = "f"; input = `Null };
+    Types.Text "visible";
+  ] in
+  let result = text_blocks_to_string blocks in
+  String.length result > 0
