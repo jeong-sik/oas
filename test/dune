@@ -565,6 +565,10 @@
  (libraries llm_provider alcotest yojson))
 
 (test
+ (name test_capabilities_wiring)
+ (libraries agent_sdk llm_provider alcotest yojson))
+
+(test
  (name test_hooks_integration)
  (libraries agent_sdk alcotest yojson eio eio_main cohttp-eio unix))
 

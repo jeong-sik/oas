@@ -134,13 +134,29 @@ let string_contains_ci ~haystack ~needle =
     done;
     !found
 
-let infer_capabilities models =
-  let needs_extended =
-    List.exists (fun (m : model_info) ->
-      string_contains_ci ~haystack:m.id ~needle:"qwen") models
+(** Infer capabilities from model info and server props.
+    Priority: model-specific lookup > generic inference > default. *)
+let infer_capabilities models props =
+  (* 1. Try model-specific lookup *)
+  let from_lookup = List.find_map (fun (m : model_info) ->
+    Capabilities.for_model_id m.id
+  ) models in
+  let base = match from_lookup with
+    | Some caps -> caps
+    | None ->
+      (* 2. Generic inference by model name *)
+      let needs_extended =
+        List.exists (fun (m : model_info) ->
+          string_contains_ci ~haystack:m.id ~needle:"qwen") models
+      in
+      if needs_extended then Capabilities.openai_chat_extended_capabilities
+      else Capabilities.openai_chat_capabilities
   in
-  if needs_extended then Capabilities.openai_chat_extended_capabilities
-  else Capabilities.openai_chat_capabilities
+  (* 3. Merge ctx_size from /props into capabilities *)
+  match props with
+  | Some (p : server_props) ->
+    Capabilities.with_context_size base ~ctx_size:p.ctx_size
+  | None -> base
 
 (* ── Probe ───────────────────────────────────────────────── *)
 
@@ -167,7 +183,7 @@ let probe_endpoint ~sw ~net url =
       | Ok json -> parse_slots json
       | Error _ -> None
     in
-    let capabilities = infer_capabilities models in
+    let capabilities = infer_capabilities models props in
     { url = base; healthy; models; props; slots; capabilities }
 
 let discover ~sw ~net ~endpoints =
