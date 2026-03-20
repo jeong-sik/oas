@@ -97,6 +97,9 @@ module Eval_baseline = Eval_baseline
 module Eval_report = Eval_report
 module Defaults = Defaults
 module Runtime_store = Runtime_store
+module Durable = Durable
+module Policy = Policy
+module Audit = Audit
 
 (** {1 Quick Start} *)
 
