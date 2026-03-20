@@ -6,6 +6,8 @@
     - [oas card --config oas.json]          Print agent card JSON
     - [oas eval run --config oas.json --dataset cases.jsonl --out out/]
                                               Run harness dataset and emit reports
+    - [oas eval save-baseline --dataset cases.jsonl --out baseline.json]
+                                              Save a baseline from a selected eval case
     - [oas eval record-trace --session <path|id> --out cases.jsonl]
                                               Lift a raw trace into a replay case
     - [oas version]                         Print SDK version *)
@@ -53,22 +55,139 @@ let ensure_out_dir out_dir =
       (Agent_sdk.Error.to_string e);
     exit 1
 
-let write_report_artifacts ~out_dir (report : Agent_sdk.Harness_report.t) =
+let write_eval_artifacts ~out_dir (report : Agent_sdk.Eval_report.t) =
+  ensure_out_dir out_dir;
+  write_text_file
+    (Filename.concat out_dir "eval.json")
+    (Yojson.Safe.pretty_to_string (Agent_sdk.Eval_report.to_json report));
+  write_text_file
+    (Filename.concat out_dir "eval.txt")
+    (Agent_sdk.Eval_report.to_string report)
+
+let write_report_artifacts ?eval_report ~out_dir (report : Agent_sdk.Harness_report.t) =
   ensure_out_dir out_dir;
   write_text_file
     (Filename.concat out_dir "report.json")
     (Yojson.Safe.pretty_to_string (Agent_sdk.Harness_report.to_json report));
   write_text_file
     (Filename.concat out_dir "report.md")
-    (Agent_sdk.Harness_report.to_markdown report);
+    (let base = Agent_sdk.Harness_report.to_markdown report in
+     match eval_report with
+     | None -> base
+     | Some eval_report ->
+       base ^ "\n## Eval Report\n\n```\n"
+       ^ Agent_sdk.Eval_report.to_string eval_report
+       ^ "\n```\n");
   write_text_file
     (Filename.concat out_dir "report.junit.xml")
-    (Agent_sdk.Harness_report.to_junit_xml report)
+    (Agent_sdk.Harness_report.to_junit_xml report);
+  Option.iter (write_eval_artifacts ~out_dir) eval_report
 
-let exit_for_report (report : Agent_sdk.Harness_report.t) =
+let exit_for_report ?eval_report (report : Agent_sdk.Harness_report.t) =
   Printf.printf "Evaluated %d cases: %d passed, %d failed, %d skipped\n"
     report.summary.total report.summary.passed report.summary.failed report.summary.skipped;
-  if report.summary.failed > 0 then exit 1
+  Option.iter (fun (eval_report : Agent_sdk.Eval_report.t) ->
+    Printf.printf "%s\n" eval_report.summary
+  ) eval_report;
+  let eval_failed =
+    match eval_report with
+    | Some { verdict = `Fail; _ } -> true
+    | _ -> false
+  in
+  if report.summary.failed > 0 || eval_failed then exit 1
+
+let run_metrics_of_report (report : Agent_sdk.Harness_report.t) =
+  report.results
+  |> List.filter_map (fun (result : Agent_sdk.Harness_report.case_result) ->
+    Option.map (fun metrics -> (result, metrics)) result.metrics)
+
+let select_report_case ?case_id ~purpose (report : Agent_sdk.Harness_report.t) =
+  let metric_results = run_metrics_of_report report in
+  match case_id with
+  | Some case_id ->
+    (match List.partition
+             (fun ((result, _) : Agent_sdk.Harness_report.case_result * Agent_sdk.Eval.run_metrics) ->
+               String.equal result.case_id case_id)
+             metric_results with
+     | [selected], rest -> Ok (selected, rest)
+     | [], _ ->
+       Error (Printf.sprintf
+         "Case '%s' was not found while %s" case_id purpose)
+     | _ -> assert false)
+  | None ->
+    (match metric_results with
+     | [] ->
+       Error (Printf.sprintf
+         "Dataset did not produce any evaluated runs while %s" purpose)
+     | [selected] -> Ok (selected, [])
+     | _ ->
+       let case_ids =
+         metric_results
+         |> List.map (fun ((result, _) : Agent_sdk.Harness_report.case_result * Agent_sdk.Eval.run_metrics) ->
+           result.case_id)
+         |> String.concat ", "
+       in
+       Error (Printf.sprintf
+         "Dataset produced multiple evaluated runs (%s); rerun with --case <id> while %s"
+         case_ids purpose))
+
+let eval_report_of_harness_report ?case_id ~baseline (report : Agent_sdk.Harness_report.t) =
+  match select_report_case ?case_id ~purpose:"comparing against a baseline" report with
+  | Error _ as err -> err
+  | Ok ((_, selected), rest) ->
+    let runs = selected :: List.map snd rest in
+    Ok (Agent_sdk.Eval_report.generate ~baseline runs)
+
+let baseline_of_harness_report ?case_id ?description (report : Agent_sdk.Harness_report.t) =
+  match select_report_case ?case_id ~purpose:"saving a baseline" report with
+  | Error _ as err -> err
+  | Ok (((result, metrics) as selected), _) ->
+    ignore selected;
+    (match result.status with
+     | Agent_sdk.Harness_report.Pass ->
+       let description =
+         Option.value description
+           ~default:(Printf.sprintf "baseline for case %s" result.case_id)
+       in
+       Ok (Agent_sdk.Eval_baseline.create ~description metrics)
+     | Agent_sdk.Harness_report.Fail | Agent_sdk.Harness_report.Skip ->
+       Error (Printf.sprintf
+         "Cannot save baseline from case '%s' because it did not pass" result.case_id))
+
+let run_dataset_with_config ?trace_dir cfg dataset =
+  Option.iter ensure_out_dir trace_dir;
+  Eio_main.run @@ fun env ->
+  let net = Eio.Stdenv.net env in
+  let mgr = Eio.Stdenv.process_mgr env in
+  let clock = Eio.Stdenv.clock env in
+  Eio.Switch.run @@ fun sw ->
+  let build_agent (case_ : Agent_sdk.Harness_case.t) =
+    let builder = Agent_sdk.Agent_config.to_builder ~sw ~mgr ~net cfg in
+    let builder =
+      match trace_dir with
+      | None -> builder
+      | Some trace_dir ->
+        let trace_path =
+          Filename.concat trace_dir
+            (Printf.sprintf "%s.ndjson" (Agent_sdk.Raw_trace.safe_name case_.id))
+        in
+        match Agent_sdk.Raw_trace.create ~path:trace_path () with
+        | Ok trace -> Agent_sdk.Builder.with_raw_trace trace builder
+        | Error _ -> builder
+    in
+    Agent_sdk.Builder.build_safe builder
+  in
+  let run_fixture = Agent_sdk.Harness_runner.run_case ~sw ~clock ~build_agent in
+  Agent_sdk.Harness_runner.run_dataset_mixed ~run_fixture dataset
+
+let run_harness_dataset ?trace_dir config_file dataset =
+  match config_file with
+  | None -> Ok (Agent_sdk.Harness_runner.run_dataset_mixed dataset)
+  | Some config_file ->
+    (match Agent_sdk.Agent_config.load config_file with
+     | Error e -> Error (Printf.sprintf "Error loading config: %s"
+                     (Agent_sdk.Error.to_string e))
+     | Ok cfg -> Ok (run_dataset_with_config ?trace_dir cfg dataset))
 
 (* ── Run command ─────────────────────────────────────────── *)
 
@@ -184,52 +303,54 @@ let card_info =
 
 (* ── Eval command group ──────────────────────────────────── *)
 
-let eval_run_cmd config_file dataset_path out_dir =
+let eval_run_cmd config_file baseline_path case_id dataset_path out_dir =
   match Agent_sdk.Harness_dataset.load ~path:dataset_path with
   | Error e ->
     Printf.eprintf "Error loading dataset: %s\n" (Agent_sdk.Error.to_string e);
     exit 1
   | Ok dataset ->
-    (match config_file with
-     | None ->
-       let report = Agent_sdk.Harness_runner.run_dataset_mixed dataset in
-       write_report_artifacts ~out_dir report;
-       exit_for_report report
-     | Some config_file ->
-       match Agent_sdk.Agent_config.load config_file with
-       | Error e ->
-         Printf.eprintf "Error loading config: %s\n" (Agent_sdk.Error.to_string e);
-         exit 1
-       | Ok cfg ->
-         Eio_main.run @@ fun env ->
-         let net = Eio.Stdenv.net env in
-         let mgr = Eio.Stdenv.process_mgr env in
-         let clock = Eio.Stdenv.clock env in
-         Eio.Switch.run @@ fun sw ->
-         let build_agent (case_ : Agent_sdk.Harness_case.t) =
-           let builder = Agent_sdk.Agent_config.to_builder ~sw ~mgr ~net cfg in
-           let trace_path =
-             Filename.concat out_dir
-               (Printf.sprintf "%s.ndjson" (Agent_sdk.Raw_trace.safe_name case_.id))
-           in
-           let builder =
-             match Agent_sdk.Raw_trace.create ~path:trace_path () with
-             | Ok trace -> Agent_sdk.Builder.with_raw_trace trace builder
-             | Error _ -> builder
-           in
-           Agent_sdk.Builder.build_safe builder
-         in
-         let run_fixture = Agent_sdk.Harness_runner.run_case ~sw ~clock ~build_agent in
-         let report =
-           Agent_sdk.Harness_runner.run_dataset_mixed ~run_fixture dataset
-         in
+    if Option.is_some case_id && Option.is_none baseline_path then (
+      Printf.eprintf "Error: --case requires --baseline\n";
+      exit 1
+    );
+    (match run_harness_dataset ~trace_dir:out_dir config_file dataset with
+     | Error msg ->
+       Printf.eprintf "%s\n" msg;
+       exit 1
+     | Ok report ->
+       let eval_report =
+         match baseline_path with
+         | None -> Ok None
+         | Some baseline_path ->
+           (match Agent_sdk.Eval_baseline.load ~path:baseline_path with
+            | Error msg ->
+              Error (Printf.sprintf "Error loading baseline: %s" msg)
+            | Ok baseline ->
+              match eval_report_of_harness_report ?case_id ~baseline report with
+              | Ok eval_report -> Ok (Some eval_report)
+              | Error _ as err -> err)
+       in
+       match eval_report with
+       | Error msg ->
          write_report_artifacts ~out_dir report;
-         exit_for_report report)
+         Printf.eprintf "%s\n" msg;
+         exit 1
+       | Ok eval_report ->
+         write_report_artifacts ?eval_report ~out_dir report;
+         exit_for_report ?eval_report report)
 
 let eval_run_term =
   let config =
     let doc = "Path to agent configuration file (JSON). Optional for offline trace-replay datasets." in
     Arg.(value & opt (some string) None & info ["config"; "c"] ~doc ~docv:"FILE")
+  in
+  let baseline =
+    let doc = "Path to a saved baseline JSON file for regression comparison." in
+    Arg.(value & opt (some string) None & info ["baseline"] ~doc ~docv:"FILE")
+  in
+  let case_id =
+    let doc = "Case ID to compare against the baseline when the dataset has multiple evaluated runs." in
+    Arg.(value & opt (some string) None & info ["case"] ~doc ~docv:"CASE")
   in
   let dataset =
     let doc = "Path to harness dataset in JSONL format." in
@@ -239,10 +360,61 @@ let eval_run_term =
     let doc = "Directory where report artifacts will be written." in
     Arg.(required & opt (some string) None & info ["out"] ~doc ~docv:"DIR")
   in
-  Term.(const eval_run_cmd $ config $ dataset $ out_dir)
+  Term.(const eval_run_cmd $ config $ baseline $ case_id $ dataset $ out_dir)
 
 let eval_run_info =
   Cmd.info "run" ~doc:"Run a harness dataset and write reports"
+
+let eval_save_baseline_cmd config_file case_id dataset_path out_path description =
+  match Agent_sdk.Harness_dataset.load ~path:dataset_path with
+  | Error e ->
+    Printf.eprintf "Error loading dataset: %s\n" (Agent_sdk.Error.to_string e);
+    exit 1
+  | Ok dataset ->
+    (match run_harness_dataset config_file dataset with
+     | Error msg ->
+       Printf.eprintf "%s\n" msg;
+       exit 1
+     | Ok report ->
+       match baseline_of_harness_report ?case_id ?description report with
+       | Error msg ->
+         Printf.eprintf "%s\n" msg;
+         exit 1
+       | Ok baseline ->
+         ensure_out_dir (Filename.dirname out_path);
+         (match Agent_sdk.Eval_baseline.save ~path:out_path baseline with
+          | Error msg ->
+            Printf.eprintf "%s\n" msg;
+            exit 1
+          | Ok () ->
+            Printf.printf "Saved baseline to %s (%s)\n"
+              out_path baseline.description))
+
+let eval_save_baseline_term =
+  let config =
+    let doc = "Path to agent configuration file (JSON). Optional for offline trace-replay datasets." in
+    Arg.(value & opt (some string) None & info ["config"; "c"] ~doc ~docv:"FILE")
+  in
+  let case_id =
+    let doc = "Case ID to save when the dataset has multiple evaluated runs." in
+    Arg.(value & opt (some string) None & info ["case"] ~doc ~docv:"CASE")
+  in
+  let dataset =
+    let doc = "Path to harness dataset in JSONL format." in
+    Arg.(required & opt (some string) None & info ["dataset"] ~doc ~docv:"FILE")
+  in
+  let out_path =
+    let doc = "Path where the baseline JSON file will be written." in
+    Arg.(required & opt (some string) None & info ["out"] ~doc ~docv:"FILE")
+  in
+  let description =
+    let doc = "Optional description stored in the baseline file." in
+    Arg.(value & opt (some string) None & info ["description"] ~doc ~docv:"TEXT")
+  in
+  Term.(const eval_save_baseline_cmd $ config $ case_id $ dataset $ out_path $ description)
+
+let eval_save_baseline_info =
+  Cmd.info "save-baseline" ~doc:"Run a dataset and save a baseline from one evaluated case"
 
 let eval_record_trace_cmd session_or_path out_path =
   match load_records_from_session_like session_or_path with
@@ -284,6 +456,7 @@ let eval_info =
 let eval_cmd =
   Cmd.group eval_info [
     Cmd.v eval_run_info eval_run_term;
+    Cmd.v eval_save_baseline_info eval_save_baseline_term;
     Cmd.v eval_record_trace_info eval_record_trace_term;
   ]
 

@@ -81,6 +81,57 @@ let remove_path path =
 let remove_dir_if_empty path =
   try Sys.rmdir path with _ -> ()
 
+let run_command_capture_output cmd =
+  let ic = Unix.open_process_in cmd in
+  let output = In_channel.input_all ic in
+  let status = Unix.close_process_in ic in
+  (status, output)
+
+let write_trace_replay_file ~path ~prompt ~final_text ~finished_ts =
+  Out_channel.with_open_text path (fun oc ->
+    output_string oc
+      (Printf.sprintf
+         {|{"trace_version":1,"worker_run_id":"wr-cli","seq":1,"ts":1.0,"agent_name":"cli-agent","session_id":null,"record_type":"run_started","prompt":"%s","block_index":null,"block_kind":null,"assistant_block":null,"tool_use_id":null,"tool_name":null,"tool_input":null,"tool_result":null,"tool_error":null,"hook_name":null,"hook_decision":null,"hook_detail":null,"final_text":null,"stop_reason":null,"error":null}|}
+         prompt);
+    output_char oc '\n';
+    output_string oc
+      (Printf.sprintf
+         {|{"trace_version":1,"worker_run_id":"wr-cli","seq":2,"ts":%.1f,"agent_name":"cli-agent","session_id":null,"record_type":"run_finished","prompt":null,"block_index":null,"block_kind":null,"assistant_block":null,"tool_use_id":null,"tool_name":null,"tool_input":null,"tool_result":null,"tool_error":null,"hook_name":null,"hook_decision":null,"hook_detail":null,"final_text":"%s","stop_reason":"end_turn","error":null}|}
+         finished_ts final_text);
+    output_char oc '\n')
+
+let replay_case_json ~id ~prompt ~expected_text ~trace_path =
+  Printf.sprintf
+    {|{"id":"%s","kind":"trace_replay","prompt":"%s","tags":["test"],"assertions":[{"type":"response_exact_text","value":"%s"},{"type":"trace_succeeds"}],"artifacts":["%s"],"source_trace_path":"%s"}|}
+    id prompt expected_text trace_path trace_path
+
+let pass_verdict : Harness.verdict =
+  { passed = true; score = Some 1.0; evidence = []; detail = None }
+
+let metric name value : Eval.metric =
+  { name; value; unit_ = None; tags = [] }
+
+let save_baseline_file ~path ~run_id ~elapsed_s =
+  let run_metrics : Eval.run_metrics =
+    {
+      run_id;
+      agent_name = "cli-agent";
+      timestamp = 1000.0;
+      metrics = [
+        metric "turn_count" (Eval.Int_val 1);
+        metric "tool_calls" (Eval.Int_val 0);
+        metric "elapsed_s" (Eval.Float_val elapsed_s);
+        metric "success" (Eval.Bool_val true);
+      ];
+      harness_verdicts = [pass_verdict];
+      trace_summary = None;
+    }
+  in
+  let baseline = Eval_baseline.create ~description:"test baseline" run_metrics in
+  match Eval_baseline.save ~path baseline with
+  | Ok () -> ()
+  | Error e -> fail e
+
 (* ── Version subcommand ─────────────────────────────────── *)
 
 let test_version_output () =
@@ -390,6 +441,143 @@ let test_eval_run_mixed_dataset () =
         Eio.Switch.fail sw Exit
       with Exit -> ())
 
+let test_eval_save_baseline_trace_replay_dataset () =
+  let trace_path = Printf.sprintf "/tmp/oas_cli_baseline_trace_%d.ndjson" (Unix.getpid ()) in
+  let dataset_path = Printf.sprintf "/tmp/oas_cli_baseline_dataset_%d.jsonl" (Unix.getpid ()) in
+  let baseline_path = Printf.sprintf "/tmp/oas_cli_baseline_%d.json" (Unix.getpid ()) in
+  Fun.protect
+    ~finally:(fun () ->
+      remove_path trace_path;
+      remove_path dataset_path;
+      remove_path baseline_path)
+    (fun () ->
+      write_trace_replay_file
+        ~path:trace_path
+        ~prompt:"Replay me"
+        ~final_text:"done"
+        ~finished_ts:1.5;
+      Out_channel.with_open_text dataset_path (fun oc ->
+        output_string oc
+          (replay_case_json
+             ~id:"replay"
+             ~prompt:"Replay me"
+             ~expected_text:"done"
+             ~trace_path);
+        output_char oc '\n');
+      let cmd =
+        Printf.sprintf "%s eval save-baseline --dataset %s --out %s"
+          cli_exe dataset_path baseline_path
+      in
+      let exit_code = Sys.command cmd in
+      check int "exit 0" 0 exit_code;
+      check bool "baseline exists" true (Sys.file_exists baseline_path);
+      match Eval_baseline.load ~path:baseline_path with
+      | Error e -> fail e
+      | Ok baseline ->
+        check string "run id" "replay" baseline.run_metrics.run_id)
+
+let test_eval_run_with_baseline_failure () =
+  let trace_path = Printf.sprintf "/tmp/oas_cli_reg_trace_%d.ndjson" (Unix.getpid ()) in
+  let dataset_path = Printf.sprintf "/tmp/oas_cli_reg_dataset_%d.jsonl" (Unix.getpid ()) in
+  let baseline_path = Printf.sprintf "/tmp/oas_cli_reg_baseline_%d.json" (Unix.getpid ()) in
+  let out_dir = Printf.sprintf "/tmp/oas_cli_reg_out_%d" (Unix.getpid ()) in
+  Fun.protect
+    ~finally:(fun () ->
+      remove_path trace_path;
+      remove_path dataset_path;
+      remove_path baseline_path;
+      remove_path (Filename.concat out_dir "report.json");
+      remove_path (Filename.concat out_dir "report.md");
+      remove_path (Filename.concat out_dir "report.junit.xml");
+      remove_path (Filename.concat out_dir "eval.json");
+      remove_path (Filename.concat out_dir "eval.txt");
+      remove_dir_if_empty out_dir)
+    (fun () ->
+      write_trace_replay_file
+        ~path:trace_path
+        ~prompt:"Replay me"
+        ~final_text:"done"
+        ~finished_ts:2.5;
+      Out_channel.with_open_text dataset_path (fun oc ->
+        output_string oc
+          (replay_case_json
+             ~id:"replay"
+             ~prompt:"Replay me"
+             ~expected_text:"done"
+             ~trace_path);
+        output_char oc '\n');
+      save_baseline_file ~path:baseline_path ~run_id:"replay" ~elapsed_s:2.5;
+      let cmd =
+        Printf.sprintf "%s eval run --baseline %s --dataset %s --out %s"
+          cli_exe baseline_path dataset_path out_dir
+      in
+      let exit_code = Sys.command cmd in
+      check int "exit 1" 1 exit_code;
+      check bool "eval json exists" true
+        (Sys.file_exists (Filename.concat out_dir "eval.json"));
+      let eval_json =
+        In_channel.with_open_text (Filename.concat out_dir "eval.json")
+          (fun ic -> Yojson.Safe.from_string (In_channel.input_all ic))
+      in
+      let open Yojson.Safe.Util in
+      check string "verdict" "fail" (eval_json |> member "verdict" |> to_string);
+      check int "has regression" 1 (eval_json |> member "regressions" |> to_int);
+      let report_md =
+        In_channel.with_open_text (Filename.concat out_dir "report.md") In_channel.input_all
+      in
+      check bool "report markdown includes regression metric" true
+        (Util.string_contains ~needle:"elapsed_s" report_md))
+
+let test_eval_save_baseline_requires_case_for_multi_run () =
+  let trace_a = Printf.sprintf "/tmp/oas_cli_case_a_%d.ndjson" (Unix.getpid ()) in
+  let trace_b = Printf.sprintf "/tmp/oas_cli_case_b_%d.ndjson" (Unix.getpid ()) in
+  let dataset_path = Printf.sprintf "/tmp/oas_cli_case_dataset_%d.jsonl" (Unix.getpid ()) in
+  let baseline_path = Printf.sprintf "/tmp/oas_cli_case_baseline_%d.json" (Unix.getpid ()) in
+  Fun.protect
+    ~finally:(fun () ->
+      remove_path trace_a;
+      remove_path trace_b;
+      remove_path dataset_path;
+      remove_path baseline_path)
+    (fun () ->
+      write_trace_replay_file
+        ~path:trace_a
+        ~prompt:"Replay A"
+        ~final_text:"done-a"
+        ~finished_ts:1.5;
+      write_trace_replay_file
+        ~path:trace_b
+        ~prompt:"Replay B"
+        ~final_text:"done-b"
+        ~finished_ts:1.6;
+      Out_channel.with_open_text dataset_path (fun oc ->
+        output_string oc
+          (replay_case_json
+             ~id:"replay-a"
+             ~prompt:"Replay A"
+             ~expected_text:"done-a"
+             ~trace_path:trace_a);
+        output_char oc '\n';
+        output_string oc
+          (replay_case_json
+             ~id:"replay-b"
+             ~prompt:"Replay B"
+             ~expected_text:"done-b"
+             ~trace_path:trace_b);
+        output_char oc '\n');
+      let status, output =
+        run_command_capture_output
+          (Printf.sprintf
+             "%s eval save-baseline --dataset %s --out %s 2>&1"
+             cli_exe dataset_path baseline_path)
+      in
+      (match status with
+       | Unix.WEXITED 0 -> fail "expected save-baseline to fail without --case"
+       | Unix.WEXITED _ -> ()
+       | _ -> fail "expected normal process exit");
+      check bool "mentions --case" true
+        (Util.string_contains ~needle:"--case" output))
+
 (* ── Suite ──────────────────────────────────────────────── *)
 
 let () =
@@ -416,5 +604,11 @@ let () =
       test_case "run empty dataset" `Quick test_eval_run_empty_dataset;
       test_case "run trace replay dataset" `Quick test_eval_run_trace_replay_dataset;
       test_case "run mixed dataset" `Quick test_eval_run_mixed_dataset;
+      test_case "save baseline trace replay dataset" `Quick
+        test_eval_save_baseline_trace_replay_dataset;
+      test_case "run with baseline failure" `Quick
+        test_eval_run_with_baseline_failure;
+      test_case "save baseline requires case for multi-run" `Quick
+        test_eval_save_baseline_requires_case_for_multi_run;
     ];
   ]
