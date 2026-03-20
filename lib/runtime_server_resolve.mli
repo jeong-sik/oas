@@ -1,0 +1,20 @@
+(** Provider resolution for the runtime server. *)
+
+type execution_resolution = {
+  selected_provider: string;
+  requested_model: string option;
+  resolved_provider: string option;
+  resolved_model: string option;
+  provider_cfg: Provider.config option;
+}
+
+val provider_runtime_name :
+  string -> Provider.config option -> string
+
+val resolve_provider :
+  ?provider:string -> ?model:string -> unit ->
+  Provider.config option
+
+val resolve_execution :
+  Runtime.session -> Runtime.spawn_agent_request ->
+  execution_resolution
