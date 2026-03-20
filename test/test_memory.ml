@@ -88,7 +88,7 @@ let test_clear_scratchpad () =
   Memory.store mem ~tier:Scratchpad "b" (json_i 2);
   Memory.store mem ~tier:Working "c" (json_i 3);
   Memory.clear_scratchpad mem;
-  let (s, w, _) = Memory.stats mem in
+  let (s, w, _, _, _) = Memory.stats mem in
   check int "scratchpad empty" 0 s;
   check int "working intact" 1 w
 
@@ -110,7 +110,7 @@ let test_stats () =
   Memory.store mem ~tier:Scratchpad "s2" (json_i 2);
   Memory.store mem ~tier:Working "w1" (json_i 3);
   Memory.store mem ~tier:Long_term "l1" (json_i 4);
-  let (s, w, l) = Memory.stats mem in
+  let (s, w, _, _, l) = Memory.stats mem in
   check int "scratchpad" 2 s;
   check int "working" 1 w;
   check int "long_term" 1 l
