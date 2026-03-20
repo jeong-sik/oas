@@ -1,9 +1,11 @@
-(** Memory workflow example: 3-tier memory with persistence.
+(** Memory workflow example: 5-tier memory with persistence and recall.
 
     Demonstrates:
-    - Memory.create with Scratchpad / Working / Long_term tiers
+    - Memory.create with Scratchpad / Working / Episodic / Procedural / Long_term tiers
     - store, recall, recall_exact, promote, forget
     - Tier fallback chain (Scratchpad -> Working -> Long_term)
+    - Episodic recall with participant/outcome filters
+    - Procedural recall with confidence filters
     - long_term_backend for file-based persistence
     - clear_scratchpad for per-turn cleanup
     - stats for debugging
@@ -18,16 +20,26 @@ open Agent_sdk
 let json_s s = `String s
 let json_i i = `Int i
 
+let string_of_outcome = function
+  | Memory.Success detail -> "success:" ^ detail
+  | Memory.Failure detail -> "failure:" ^ detail
+  | Memory.Neutral -> "neutral"
+
 (* ── File-based long-term backend ────────────────────── *)
 
 let file_backend dir : Memory.long_term_backend =
   (try Unix.mkdir dir 0o755 with Unix.Unix_error (Unix.EEXIST, _, _) -> ());
   let path_of key = Filename.concat dir (key ^ ".json") in
-  {
-    persist = (fun ~key value ->
+  let do_persist ~key value =
+    try
       let oc = open_out (path_of key) in
       output_string oc (Yojson.Safe.to_string value);
-      close_out oc);
+      close_out oc;
+      Ok ()
+    with exn -> Error (Printexc.to_string exn)
+  in
+  {
+    persist = do_persist;
     retrieve = (fun ~key ->
       let p = path_of key in
       if Sys.file_exists p then begin
@@ -37,8 +49,38 @@ let file_backend dir : Memory.long_term_backend =
         Some (Yojson.Safe.from_string content)
       end else None);
     remove = (fun ~key ->
-      let p = path_of key in
-      if Sys.file_exists p then Sys.remove p);
+      try
+        let p = path_of key in
+        if Sys.file_exists p then Sys.remove p;
+        Ok ()
+      with exn -> Error (Printexc.to_string exn));
+    batch_persist = (fun pairs ->
+      try
+        List.iter (fun (k, v) ->
+          match do_persist ~key:k v with
+          | Ok () -> ()
+          | Error e -> failwith e) pairs;
+        Ok ()
+      with Failure e -> Error e);
+    query = (fun ~prefix ~limit ->
+      let files = try Sys.readdir dir with _ -> [||] in
+      Array.to_list files
+      |> List.filter_map (fun f ->
+        if Filename.check_suffix f ".json" then
+          let key = Filename.chop_suffix f ".json" in
+          if String.length key >= String.length prefix
+             && String.sub key 0 (String.length prefix) = prefix
+          then Some key else None
+        else None)
+      |> List.filteri (fun i _ -> i < limit)
+      |> List.filter_map (fun key ->
+        let p = path_of key in
+        if Sys.file_exists p then begin
+          let ic = open_in p in
+          let content = really_input_string ic (in_channel_length ic) in
+          close_in ic;
+          Some (key, Yojson.Safe.from_string content)
+        end else None));
   }
 
 (* ── Main ────────────────────────────────────────────── *)
@@ -90,15 +132,84 @@ let () =
     Printf.printf "  %s = %s\n" k (Yojson.Safe.to_string v)
   ) entries;
 
-  (* 6. Long-term persistence verification *)
-  Printf.printf "\n6. Long-term persistence:\n";
+  (* 6. Episodic recall *)
+  Printf.printf "\n6. Episodic recall:\n";
+  Memory.store_episode mem {
+    id = "ep_success";
+    timestamp = Unix.gettimeofday () -. 30.0;
+    participants = ["alice"; "reviewer"];
+    action = "deploy v0.75.0";
+    outcome = Memory.Success "all green";
+    salience = 0.9;
+    metadata = [("env", `String "prod")];
+  };
+  Memory.store_episode mem {
+    id = "ep_failure";
+    timestamp = Unix.gettimeofday () -. 10.0;
+    participants = ["alice"; "ci"];
+    action = "deploy v0.76.0";
+    outcome = Memory.Failure "smoke test failed";
+    salience = 0.8;
+    metadata = [("env", `String "staging")];
+  };
+  let alice_episodes =
+    Memory.recall_episodes mem
+      ~filter:(fun ep -> List.mem "alice" ep.participants) ()
+  in
+  List.iter (fun (ep : Memory.episode) ->
+    Printf.printf "  alice episode: %s (%s, salience=%.2f)\n"
+      ep.id (string_of_outcome ep.outcome) ep.salience
+  ) alice_episodes;
+  let failures =
+    Memory.recall_episodes mem
+      ~filter:(fun ep ->
+        match ep.outcome with
+        | Memory.Failure _ -> true
+        | Memory.Success _ | Memory.Neutral -> false) ()
+  in
+  List.iter (fun (ep : Memory.episode) ->
+    Printf.printf "  failed episode: %s action=%s\n" ep.id ep.action
+  ) failures;
+
+  (* 7. Procedural recall *)
+  Printf.printf "\n7. Procedural recall:\n";
+  Memory.store_procedure mem {
+    id = "pr_deploy";
+    pattern = "deploy failed";
+    action = "rollback, inspect smoke logs, retry";
+    success_count = 6;
+    failure_count = 1;
+    confidence = 6.0 /. 7.0;
+    last_used = Unix.gettimeofday () -. 300.0;
+    metadata = [("team", `String "release")];
+  };
+  Memory.store_procedure mem {
+    id = "pr_test";
+    pattern = "unit test flake";
+    action = "rerun focused suite once";
+    success_count = 2;
+    failure_count = 2;
+    confidence = 0.5;
+    last_used = Unix.gettimeofday () -. 600.0;
+    metadata = [("team", `String "ci")];
+  };
+  (match Memory.find_procedure mem ~pattern:"deploy"
+           ~min_confidence:0.7 ~touch:true () with
+   | Some proc ->
+     Printf.printf "  best deploy procedure: %s (confidence=%.2f)\n"
+       proc.action proc.confidence
+   | None ->
+     Printf.printf "  no deploy procedure found\n");
+
+  (* 8. Long-term persistence verification *)
+  Printf.printf "\n8. Long-term persistence:\n";
   let fresh_mem = Memory.create ~long_term:backend () in
   let recovered = Memory.recall fresh_mem ~tier:Long_term "session_count" in
   Printf.printf "  recovered 'session_count' from new Memory: %s\n"
     (match recovered with Some v -> Yojson.Safe.to_string v | None -> "None");
 
-  (* 7. Forget *)
-  Printf.printf "\n7. Forget 'user_pref' from Working:\n";
+  (* 9. Forget *)
+  Printf.printf "\n9. Forget 'user_pref' from Working:\n";
   Memory.forget mem ~tier:Working "user_pref";
   let gone = Memory.recall_exact mem ~tier:Working "user_pref" in
   Printf.printf "  after forget: %s\n"

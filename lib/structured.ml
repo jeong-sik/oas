@@ -227,3 +227,116 @@ let extract_stream ~sw ~net ?base_url ?provider ?clock ~config ~(schema : 'a sch
     (match extract_tool_input ~schema response.content with
      | Ok value -> Ok (value, response)
      | Error e -> Error e)
+
+[@@@coverage off]
+(* === Inline tests === *)
+
+let test_schema : string schema = {
+  name = "test_extract";
+  description = "A test schema";
+  params = [
+    { name = "value"; description = "The value"; param_type = String; required = true };
+    { name = "count"; description = "A count"; param_type = Integer; required = false };
+  ];
+  parse = (fun json ->
+    let open Yojson.Safe.Util in
+    match json |> member "value" |> to_string_option with
+    | Some s -> Ok s
+    | None -> Error "missing value field");
+}
+
+let%test "schema_to_tool_json produces valid structure" =
+  let json = schema_to_tool_json test_schema in
+  let open Yojson.Safe.Util in
+  json |> member "name" |> to_string = "test_extract"
+  && json |> member "description" |> to_string = "A test schema"
+  && (let input_schema = json |> member "input_schema" in
+      input_schema |> member "type" |> to_string = "object")
+
+let%test "schema_to_tool_json required field lists required params" =
+  let json = schema_to_tool_json test_schema in
+  let open Yojson.Safe.Util in
+  let required = json |> member "input_schema" |> member "required" |> to_list in
+  List.length required = 1
+  && List.exists (fun j -> to_string j = "value") required
+
+let%test "schema_to_tool_json properties have correct types" =
+  let json = schema_to_tool_json test_schema in
+  let open Yojson.Safe.Util in
+  let props = json |> member "input_schema" |> member "properties" in
+  let value_type = props |> member "value" |> member "type" |> to_string in
+  let count_type = props |> member "count" |> member "type" |> to_string in
+  value_type = "string" && count_type = "integer"
+
+let%test "extract_tool_input finds matching tool_use block" =
+  let content = [
+    Text "some text";
+    ToolUse { id = "tu1"; name = "test_extract"; input = `Assoc [("value", `String "hello")] };
+  ] in
+  match extract_tool_input ~schema:test_schema content with
+  | Ok "hello" -> true
+  | _ -> false
+
+let%test "extract_tool_input returns error when no matching block" =
+  let content = [Text "only text"] in
+  match extract_tool_input ~schema:test_schema content with
+  | Error (Error.Internal _) -> true
+  | _ -> false
+
+let%test "extract_tool_input skips non-matching tool names" =
+  let content = [
+    ToolUse { id = "tu1"; name = "other_tool"; input = `Assoc [] };
+  ] in
+  match extract_tool_input ~schema:test_schema content with
+  | Error (Error.Internal _) -> true
+  | _ -> false
+
+let%test "extract_tool_input parse error propagates" =
+  let content = [
+    ToolUse { id = "tu1"; name = "test_extract"; input = `Assoc [("wrong", `String "x")] };
+  ] in
+  match extract_tool_input ~schema:test_schema content with
+  | Error (Error.Serialization _) -> true
+  | _ -> false
+
+let%test "json_extractor parses json from text block" =
+  let extractor = json_extractor (fun j ->
+    Yojson.Safe.Util.(j |> member "key" |> to_string)) in
+  let resp = { id = ""; model = ""; stop_reason = EndTurn;
+    content = [Text "{\"key\":\"val\"}"]; usage = None } in
+  match extractor resp with
+  | Ok "val" -> true
+  | _ -> false
+
+let%test "json_extractor returns error on empty content" =
+  let extractor = json_extractor (fun _ -> "x") in
+  let resp = { id = ""; model = ""; stop_reason = EndTurn;
+    content = []; usage = None } in
+  match extractor resp with
+  | Error _ -> true
+  | Ok _ -> false
+
+let%test "json_extractor returns error on invalid json" =
+  let extractor = json_extractor (fun _ -> "x") in
+  let resp = { id = ""; model = ""; stop_reason = EndTurn;
+    content = [Text "not json"]; usage = None } in
+  match extractor resp with
+  | Error _ -> true
+  | Ok _ -> false
+
+let%test "text_extractor parses text content" =
+  let extractor = text_extractor (fun s ->
+    if s = "yes" then Some true else None) in
+  let resp = { id = ""; model = ""; stop_reason = EndTurn;
+    content = [Text "yes"]; usage = None } in
+  match extractor resp with
+  | Ok true -> true
+  | _ -> false
+
+let%test "text_extractor returns error when parse returns None" =
+  let extractor = text_extractor (fun _ -> None) in
+  let resp = { id = ""; model = ""; stop_reason = EndTurn;
+    content = [Text "anything"]; usage = None } in
+  match extractor resp with
+  | Error _ -> true
+  | Ok _ -> false

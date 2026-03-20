@@ -23,12 +23,27 @@ type tier =
 
 (** {1 Long-term backend} *)
 
-(** Callback for long-term memory persistence. *)
+(** Callback for long-term memory persistence.
+
+    [persist] and [remove] return [Ok ()] on success or [Error reason].
+    [batch_persist] atomically stores multiple key-value pairs.
+    [query] returns entries whose keys start with [prefix], up to [limit]. *)
 type long_term_backend = {
-  persist: key:string -> Yojson.Safe.t -> unit;
+  persist: key:string -> Yojson.Safe.t -> (unit, string) result;
   retrieve: key:string -> Yojson.Safe.t option;
-  remove: key:string -> unit;
+  remove: key:string -> (unit, string) result;
+  batch_persist: (string * Yojson.Safe.t) list -> (unit, string) result;
+  query: prefix:string -> limit:int -> (string * Yojson.Safe.t) list;
 }
+
+(** Wrap legacy callbacks that return [unit] into a {!long_term_backend}
+    where [persist]/[remove] always return [Ok ()],
+    [batch_persist] iterates, and [query] returns [[]]. *)
+val legacy_backend :
+  persist:(key:string -> Yojson.Safe.t -> unit) ->
+  retrieve:(key:string -> Yojson.Safe.t option) ->
+  remove:(key:string -> unit) ->
+  long_term_backend
 
 (** {1 Abstract type} *)
 
@@ -104,10 +119,11 @@ val store_episode : t -> episode -> unit
 (** Recall episodes by salience (highest first), applying time decay.
     [decay_rate] controls exponential decay: [salience * exp(-rate * age)].
     Default decay_rate is [0.01] (slow decay).
-    [min_salience] filters out episodes below threshold (default [0.1]). *)
+    [min_salience] filters out episodes below threshold (default [0.1]).
+    [filter] is applied after decay and before sorting/limit. *)
 val recall_episodes :
   t -> ?now:float -> ?decay_rate:float -> ?min_salience:float ->
-  ?limit:int -> unit -> episode list
+  ?limit:int -> ?filter:(episode -> bool) -> unit -> episode list
 
 (** Recall a single episode by ID. *)
 val recall_episode : t -> string -> episode option
@@ -146,9 +162,16 @@ val store_procedure : t -> procedure -> unit
     Returns the highest-confidence match. *)
 val best_procedure : t -> pattern:string -> procedure option
 
+(** Extended procedure lookup with optional confidence/filter criteria.
+    [touch] updates the chosen procedure's [last_used] timestamp. *)
+val find_procedure :
+  t -> pattern:string -> ?min_confidence:float ->
+  ?filter:(procedure -> bool) -> ?touch:bool -> unit -> procedure option
+
 (** All procedures matching a pattern substring, sorted by confidence. *)
 val matching_procedures :
-  t -> pattern:string -> ?min_confidence:float -> unit -> procedure list
+  t -> pattern:string -> ?min_confidence:float ->
+  ?filter:(procedure -> bool) -> unit -> procedure list
 
 (** Record a success for a procedure (increments count, updates confidence). *)
 val record_success : t -> string -> unit

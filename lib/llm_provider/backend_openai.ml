@@ -358,3 +358,194 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
     else body
   in
   Yojson.Safe.to_string (`Assoc body)
+
+[@@@coverage off]
+(* === Inline tests === *)
+
+let%test "tool_choice_to_openai_json Auto" =
+  tool_choice_to_openai_json Auto = `String "auto"
+
+let%test "tool_choice_to_openai_json Any" =
+  tool_choice_to_openai_json Any = `String "required"
+
+let%test "tool_choice_to_openai_json None_" =
+  tool_choice_to_openai_json None_ = `String "none"
+
+let%test "tool_choice_to_openai_json Tool name" =
+  let result = tool_choice_to_openai_json (Tool "my_tool") in
+  let open Yojson.Safe.Util in
+  result |> member "type" |> to_string = "function"
+  && result |> member "function" |> member "name" |> to_string = "my_tool"
+
+let%test "strip_json_markdown_fences plain text unchanged" =
+  strip_json_markdown_fences "{\"key\":\"value\"}" = "{\"key\":\"value\"}"
+
+let%test "strip_json_markdown_fences strips json fences" =
+  let input = "```json\n{\"key\":\"value\"}\n```" in
+  strip_json_markdown_fences input = "{\"key\":\"value\"}"
+
+let%test "strip_json_markdown_fences strips plain fences" =
+  let input = "```\n{\"key\":\"value\"}\n```" in
+  strip_json_markdown_fences input = "{\"key\":\"value\"}"
+
+let%test "strip_json_markdown_fences short string unchanged" =
+  strip_json_markdown_fences "hi" = "hi"
+
+let%test "tool_calls_to_openai_json extracts ToolUse blocks" =
+  let blocks = [
+    Text "hello";
+    ToolUse { id = "tc1"; name = "fn1"; input = `Assoc [("x", `Int 1)] };
+  ] in
+  let result = tool_calls_to_openai_json blocks in
+  List.length result = 1
+
+let%test "tool_calls_to_openai_json empty for no tool_use" =
+  tool_calls_to_openai_json [Text "no tools"] = []
+
+let%test "openai_content_parts_of_blocks filters text and image" =
+  let blocks = [
+    Text "hello";
+    Thinking { thinking_type = "reasoning"; content = "..." };
+    ToolUse { id = "tc1"; name = "fn"; input = `Null };
+  ] in
+  let result = openai_content_parts_of_blocks blocks in
+  List.length result = 1
+
+let%test "build_openai_tool_json converts input_schema to parameters" =
+  let tool_json = `Assoc [
+    ("name", `String "my_fn");
+    ("description", `String "does stuff");
+    ("input_schema", `Assoc [("type", `String "object")]);
+  ] in
+  let result = build_openai_tool_json tool_json in
+  let open Yojson.Safe.Util in
+  result |> member "type" |> to_string = "function"
+  && result |> member "function" |> member "name" |> to_string = "my_fn"
+  && result |> member "function" |> member "parameters" |> member "type" |> to_string = "object"
+
+let%test "build_openai_tool_json non-assoc passthrough" =
+  build_openai_tool_json (`String "bad") = `String "bad"
+
+let%test "usage_of_openai_json parses usage" =
+  let json = `Assoc [
+    ("usage", `Assoc [
+      ("prompt_tokens", `Int 100);
+      ("completion_tokens", `Int 50);
+    ]);
+  ] in
+  match usage_of_openai_json json with
+  | Some u -> u.input_tokens = 100 && u.output_tokens = 50
+  | None -> false
+
+let%test "usage_of_openai_json null usage returns None" =
+  let json = `Assoc [("usage", `Null)] in
+  usage_of_openai_json json = None
+
+let%test "usage_of_openai_json missing usage returns None" =
+  let json = `Assoc [] in
+  usage_of_openai_json json = None
+
+let%test "usage_of_openai_json with cached_tokens" =
+  let json = `Assoc [
+    ("usage", `Assoc [
+      ("prompt_tokens", `Int 100);
+      ("completion_tokens", `Int 50);
+      ("prompt_tokens_details", `Assoc [("cached_tokens", `Int 30)]);
+    ]);
+  ] in
+  match usage_of_openai_json json with
+  | Some u -> u.cache_read_input_tokens = 30
+  | None -> false
+
+let%test "parse_openai_response basic text response" =
+  let json_str = Yojson.Safe.to_string (`Assoc [
+    ("id", `String "chatcmpl-1");
+    ("model", `String "gpt-4");
+    ("choices", `List [
+      `Assoc [
+        ("finish_reason", `String "stop");
+        ("message", `Assoc [
+          ("content", `String "Hello world");
+        ]);
+      ];
+    ]);
+  ]) in
+  let resp = parse_openai_response json_str in
+  resp.id = "chatcmpl-1"
+  && resp.model = "gpt-4"
+  && resp.stop_reason = EndTurn
+
+let%test "parse_openai_response tool calls" =
+  let json_str = Yojson.Safe.to_string (`Assoc [
+    ("id", `String "cmpl-2");
+    ("model", `String "gpt-4");
+    ("choices", `List [
+      `Assoc [
+        ("finish_reason", `String "tool_calls");
+        ("message", `Assoc [
+          ("content", `Null);
+          ("tool_calls", `List [
+            `Assoc [
+              ("id", `String "call_1");
+              ("type", `String "function");
+              ("function", `Assoc [
+                ("name", `String "get_weather");
+                ("arguments", `String "{\"city\":\"Seoul\"}");
+              ]);
+            ];
+          ]);
+        ]);
+      ];
+    ]);
+  ]) in
+  let resp = parse_openai_response json_str in
+  resp.stop_reason = StopToolUse
+
+let%test "parse_openai_response max_tokens stop reason" =
+  let json_str = Yojson.Safe.to_string (`Assoc [
+    ("id", `String "cmpl-3");
+    ("model", `String "m");
+    ("choices", `List [
+      `Assoc [
+        ("finish_reason", `String "length");
+        ("message", `Assoc [("content", `String "truncated")]);
+      ];
+    ]);
+  ]) in
+  let resp = parse_openai_response json_str in
+  resp.stop_reason = MaxTokens
+
+let%test "parse_openai_response error raises exception" =
+  let json_str = Yojson.Safe.to_string (`Assoc [
+    ("error", `Assoc [("message", `String "rate limited")]);
+  ]) in
+  try
+    ignore (parse_openai_response json_str);
+    false
+  with Openai_api_error msg -> msg = "rate limited"
+
+let%test "openai_messages_of_message user text" =
+  let msg = { role = User; content = [Text "hello"]; name = None; tool_call_id = None } in
+  let result = openai_messages_of_message msg in
+  List.length result = 1
+
+let%test "openai_messages_of_message user with tool_result" =
+  let msg = { role = User; content = [
+    Text "follow up";
+    ToolResult { tool_use_id = "tc1"; content = "result"; is_error = false };
+  ]; name = None; tool_call_id = None } in
+  let result = openai_messages_of_message msg in
+  (* One user text message + one tool result message *)
+  List.length result = 2
+
+let%test "openai_messages_of_message assistant with tool_calls" =
+  let msg = { role = Assistant; content = [
+    ToolUse { id = "tc1"; name = "fn"; input = `Assoc [] };
+  ]; name = None; tool_call_id = None } in
+  let result = openai_messages_of_message msg in
+  List.length result = 1
+
+let%test "openai_messages_of_message system" =
+  let msg = { role = System; content = [Text "system prompt"]; name = None; tool_call_id = None } in
+  let result = openai_messages_of_message msg in
+  List.length result = 1

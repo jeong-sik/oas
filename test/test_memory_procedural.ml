@@ -60,6 +60,46 @@ let () = Alcotest.run "Memory_Procedural" [
       Alcotest.(check bool) "none" true
         (Memory.best_procedure mem ~pattern:"nonexistent" = None)
     );
+
+    Alcotest.test_case "filter narrows matches" `Quick (fun () ->
+      let mem = Memory.create () in
+      Memory.store_procedure mem {
+        id = "pr1"; pattern = "deploy error"; action = "rollback";
+        success_count = 10; failure_count = 0; confidence = 1.0;
+        last_used = 100.0; metadata = [("team", `String "release")];
+      };
+      Memory.store_procedure mem {
+        id = "pr2"; pattern = "deploy timeout"; action = "retry";
+        success_count = 8; failure_count = 1; confidence = 0.889;
+        last_used = 100.0; metadata = [("team", `String "ci")];
+      };
+      let matches =
+        Memory.matching_procedures mem ~pattern:"deploy"
+          ~filter:(fun proc -> proc.action = "retry") ()
+      in
+      match matches with
+      | [proc] -> Alcotest.(check string) "retry only" "pr2" proc.id
+      | _ -> Alcotest.fail "expected one filtered procedure"
+    );
+
+    Alcotest.test_case "find_procedure applies filter and min_confidence" `Quick (fun () ->
+      let mem = Memory.create () in
+      Memory.store_procedure mem {
+        id = "pr1"; pattern = "deploy error"; action = "rollback";
+        success_count = 10; failure_count = 0; confidence = 1.0;
+        last_used = 100.0; metadata = [("team", `String "release")];
+      };
+      Memory.store_procedure mem {
+        id = "pr2"; pattern = "deploy timeout"; action = "retry";
+        success_count = 1; failure_count = 4; confidence = 0.2;
+        last_used = 100.0; metadata = [("team", `String "ci")];
+      };
+      match Memory.find_procedure mem ~pattern:"deploy"
+              ~min_confidence:0.5
+              ~filter:(fun proc -> proc.action = "rollback") () with
+      | Some proc -> Alcotest.(check string) "rollback only" "pr1" proc.id
+      | None -> Alcotest.fail "expected filtered procedure"
+    );
   ];
 
   "record_outcome", [
@@ -90,6 +130,25 @@ let () = Alcotest.run "Memory_Procedural" [
       | Some proc ->
         Alcotest.(check int) "failure_count" 2 proc.failure_count;
         Alcotest.(check (float 0.01)) "confidence" 0.333 proc.confidence
+      | None -> Alcotest.fail "not found"
+    );
+
+    Alcotest.test_case "best_procedure touch updates last_used" `Quick (fun () ->
+      let mem = Memory.create () in
+      Memory.store_procedure mem {
+        id = "pr1"; pattern = "deploy"; action = "rollback";
+        success_count = 3; failure_count = 1; confidence = 0.75;
+        last_used = 100.0; metadata = [];
+      };
+      match Memory.find_procedure mem ~pattern:"deploy" ~touch:true () with
+      | Some proc ->
+        Alcotest.(check bool) "touched" true (proc.last_used > 100.0);
+        let persisted = Memory.best_procedure mem ~pattern:"deploy" in
+        (match persisted with
+         | Some persisted ->
+           Alcotest.(check (float 0.001)) "persisted last_used"
+             proc.last_used persisted.last_used
+         | None -> Alcotest.fail "persisted procedure missing")
       | None -> Alcotest.fail "not found"
     );
   ];

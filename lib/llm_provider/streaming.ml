@@ -296,3 +296,120 @@ let openai_chunk_to_events (state : openai_stream_state)
                             usage = chunk.chunk_usage })
    | None -> ());
   List.rev !events
+
+(** {1 Gemini SSE Streaming}
+
+    Gemini [streamGenerateContent?alt=sse] emits SSE data lines with
+    JSON payloads: [{candidates: [{content: {parts: [...]}}]}].
+    Each chunk may contain text, thought, or functionCall parts. *)
+
+type gemini_chunk = {
+  gem_model: string;
+  gem_parts: Yojson.Safe.t list;
+  gem_finish_reason: string option;
+  gem_usage: api_usage option;
+}
+
+let parse_gemini_sse_chunk data_str : gemini_chunk option =
+  let open Yojson.Safe.Util in
+  try
+    let json = Yojson.Safe.from_string data_str in
+    let gem_model =
+      json |> member "modelVersion" |> to_string_option
+      |> Option.value ~default:""
+    in
+    let candidate = match json |> member "candidates" with
+      | `List (c :: _) -> c
+      | _ -> `Assoc []
+    in
+    let gem_parts = match candidate |> member "content" |> member "parts" with
+      | `List ps -> ps
+      | _ -> []
+    in
+    let gem_finish_reason =
+      candidate |> member "finishReason" |> to_string_option
+    in
+    let gem_usage =
+      let um = json |> member "usageMetadata" in
+      if um = `Null then None
+      else
+        Some {
+          input_tokens =
+            um |> member "promptTokenCount" |> to_int_option
+            |> Option.value ~default:0;
+          output_tokens =
+            um |> member "candidatesTokenCount" |> to_int_option
+            |> Option.value ~default:0;
+          cache_creation_input_tokens = 0;
+          cache_read_input_tokens =
+            um |> member "cachedContentTokenCount" |> to_int_option
+            |> Option.value ~default:0;
+        }
+    in
+    Some { gem_model; gem_parts; gem_finish_reason; gem_usage }
+  with
+  | Yojson.Safe.Util.Type_error _ | Yojson.Safe.Util.Undefined _
+  | Yojson.Json_error _ | Invalid_argument _ -> None
+
+let gemini_chunk_to_events (state : openai_stream_state)
+    (chunk : gemini_chunk) : sse_event list =
+  let open Yojson.Safe.Util in
+  let events = ref [] in
+  let emit evt = events := evt :: !events in
+  List.iter (fun part ->
+    let is_thought =
+      part |> member "thought" |> to_bool_option
+      |> Option.value ~default:false
+    in
+    match part |> member "text" |> to_string_option with
+    | Some text when text <> "" ->
+        if is_thought then begin
+          if not state.thinking_block_started then begin
+            emit (ContentBlockStart {
+              index = state.next_block_index; content_type = "thinking";
+              tool_id = None; tool_name = None });
+            state.thinking_block_started <- true;
+            state.next_block_index <- state.next_block_index + 1
+          end;
+          emit (ContentBlockDelta { index = 0; delta = ThinkingDelta text })
+        end else begin
+          if not state.text_block_started then begin
+            emit (ContentBlockStart {
+              index = state.next_block_index; content_type = "text";
+              tool_id = None; tool_name = None });
+            state.text_block_started <- true;
+            state.next_block_index <- state.next_block_index + 1
+          end;
+          let text_idx = if state.thinking_block_started then 1 else 0 in
+          emit (ContentBlockDelta { index = text_idx; delta = TextDelta text })
+        end
+    | _ ->
+        (match part |> member "functionCall" with
+         | `Assoc _ as fc ->
+             let name = fc |> member "name" |> to_string_option
+                        |> Option.value ~default:"" in
+             let args = fc |> member "args" in
+             let id = Printf.sprintf "call_%s_%d"
+                 name (Hashtbl.hash (Yojson.Safe.to_string args)) in
+             let idx = state.next_block_index in
+             emit (ContentBlockStart {
+               index = idx; content_type = "tool_use";
+               tool_id = Some id; tool_name = Some name;
+             });
+             state.next_block_index <- state.next_block_index + 1;
+             emit (ContentBlockDelta { index = idx;
+                                       delta = InputJsonDelta (Yojson.Safe.to_string args) })
+         | _ -> ())
+  ) chunk.gem_parts;
+  (* Finish reason *)
+  (match chunk.gem_finish_reason with
+   | Some reason ->
+       let stop_reason = match String.uppercase_ascii reason with
+         | "STOP" -> EndTurn
+         | "MAX_TOKENS" -> MaxTokens
+         | other -> Unknown other
+       in
+       emit (MessageDelta { stop_reason = Some stop_reason;
+                            usage = chunk.gem_usage })
+   | None -> ());
+  List.rev !events

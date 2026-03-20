@@ -9,6 +9,7 @@
 type provider_kind =
   | Anthropic
   | OpenAI_compat
+  | Gemini
 
 type t = {
   kind: provider_kind;

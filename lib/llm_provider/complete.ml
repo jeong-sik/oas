@@ -9,6 +9,23 @@
 
 (* ── Internal: timed HTTP completion ──────────────────── *)
 
+(** Construct the URL for a Gemini API call.
+    Sync: [base_url/models/model_id:generateContent?key=api_key]
+    Stream: [base_url/models/model_id:streamGenerateContent?key=api_key&alt=sse]
+    When api_key is empty (Vertex AI), the [?key=] param is omitted. *)
+let gemini_url ~(config : Provider_config.t) ~stream =
+  let method_name = if stream then "streamGenerateContent" else "generateContent" in
+  let base = Printf.sprintf "%s/models/%s:%s"
+      config.base_url config.model_id method_name
+  in
+  let params =
+    (if config.api_key <> "" then [Printf.sprintf "key=%s" config.api_key] else [])
+    @ (if stream then ["alt=sse"] else [])
+  in
+  match params with
+  | [] -> base
+  | ps -> base ^ "?" ^ String.concat "&" ps
+
 let complete_http ~sw ~net ~(config : Provider_config.t)
     ~(messages : Types.message list) ~tools =
   let body_str = match config.kind with
@@ -16,8 +33,13 @@ let complete_http ~sw ~net ~(config : Provider_config.t)
         Backend_anthropic.build_request ~config ~messages ~tools ()
     | Provider_config.OpenAI_compat ->
         Backend_openai.build_request ~config ~messages ~tools ()
+    | Provider_config.Gemini ->
+        Backend_gemini.build_request ~config ~messages ~tools ()
   in
-  let url = config.base_url ^ config.request_path in
+  let url = match config.kind with
+    | Provider_config.Gemini -> gemini_url ~config ~stream:false
+    | _ -> config.base_url ^ config.request_path
+  in
   let t0 = Unix.gettimeofday () in
   let result =
     match Http_client.post_sync ~sw ~net ~url
@@ -31,6 +53,9 @@ let complete_http ~sw ~net ~(config : Provider_config.t)
                   (Yojson.Safe.from_string body)
             | Provider_config.OpenAI_compat ->
                 Backend_openai.parse_openai_response body
+            | Provider_config.Gemini ->
+                Backend_gemini.parse_response
+                  (Yojson.Safe.from_string body)
           in
           Ok response
         else
@@ -285,9 +310,17 @@ let complete_stream ~sw ~net ~(config : Provider_config.t)
         Backend_anthropic.build_request ~stream:true ~config ~messages ~tools ()
     | Provider_config.OpenAI_compat ->
         Backend_openai.build_request ~stream:true ~config ~messages ~tools ()
+    | Provider_config.Gemini ->
+        Backend_gemini.build_request ~stream:true ~config ~messages ~tools ()
   in
-  let url = config.base_url ^ config.request_path in
-  let body_with_stream = Http_client.inject_stream_param body_str in
+  let url = match config.kind with
+    | Provider_config.Gemini -> gemini_url ~config ~stream:true
+    | _ -> config.base_url ^ config.request_path
+  in
+  let body_with_stream = match config.kind with
+    | Provider_config.Gemini -> body_str  (* Gemini: no body stream param *)
+    | _ -> Http_client.inject_stream_param body_str
+  in
   match Http_client.post_stream ~sw ~net ~url
           ~headers:config.headers ~body:body_with_stream with
   | Error _ as e -> e
@@ -309,6 +342,16 @@ let complete_stream ~sw ~net ~(config : Provider_config.t)
               in
               (match Streaming.parse_openai_sse_chunk data with
                | Some chunk -> Streaming.openai_chunk_to_events state chunk
+               | None -> [])
+          | Provider_config.Gemini ->
+              let state = match !openai_state with
+                | Some s -> s
+                | None ->
+                    let s = Streaming.create_openai_stream_state () in
+                    openai_state := Some s; s
+              in
+              (match Streaming.parse_gemini_sse_chunk data with
+               | Some chunk -> Streaming.gemini_chunk_to_events state chunk
                | None -> [])
         in
         List.iter (fun evt ->
@@ -357,3 +400,146 @@ let complete_stream_cascade ~sw ~net
     in
     try_fallbacks err cascade.fallbacks
   | Error _ as fail -> fail
+
+[@@@coverage off]
+(* === Inline tests === *)
+
+let%test "is_retryable 429 rate limit" =
+  is_retryable (Http_client.HttpError { code = 429; body = "" }) = true
+
+let%test "is_retryable 500 server error" =
+  is_retryable (Http_client.HttpError { code = 500; body = "" }) = true
+
+let%test "is_retryable 502 bad gateway" =
+  is_retryable (Http_client.HttpError { code = 502; body = "" }) = true
+
+let%test "is_retryable 503 service unavailable" =
+  is_retryable (Http_client.HttpError { code = 503; body = "" }) = true
+
+let%test "is_retryable 529 overloaded" =
+  is_retryable (Http_client.HttpError { code = 529; body = "" }) = true
+
+let%test "is_retryable 400 not retryable" =
+  is_retryable (Http_client.HttpError { code = 400; body = "" }) = false
+
+let%test "is_retryable 401 not retryable" =
+  is_retryable (Http_client.HttpError { code = 401; body = "" }) = false
+
+let%test "is_retryable 404 not retryable" =
+  is_retryable (Http_client.HttpError { code = 404; body = "" }) = false
+
+let%test "is_retryable network error always retryable" =
+  is_retryable (Http_client.NetworkError { message = "connection refused" }) = true
+
+let%test "default_retry_config values" =
+  default_retry_config.max_retries = 3
+  && default_retry_config.initial_delay_sec = 1.0
+  && default_retry_config.max_delay_sec = 30.0
+  && default_retry_config.backoff_multiplier = 2.0
+
+let%test "create_stream_acc has sensible defaults" =
+  let acc = create_stream_acc () in
+  !(acc.id) = ""
+  && !(acc.model) = ""
+  && !(acc.input_tokens) = 0
+  && !(acc.output_tokens) = 0
+  && !(acc.stop_reason) = Types.EndTurn
+
+let%test "accumulate_event MessageStart sets id and model" =
+  let acc = create_stream_acc () in
+  accumulate_event acc (Types.MessageStart {
+    id = "msg-1"; model = "gpt-4"; usage = None });
+  !(acc.id) = "msg-1" && !(acc.model) = "gpt-4"
+
+let%test "accumulate_event MessageStart with usage" =
+  let acc = create_stream_acc () in
+  accumulate_event acc (Types.MessageStart {
+    id = "msg-2"; model = "m";
+    usage = Some { input_tokens = 100; output_tokens = 0;
+                   cache_creation_input_tokens = 5; cache_read_input_tokens = 10 }});
+  !(acc.input_tokens) = 100
+  && !(acc.cache_creation) = 5
+  && !(acc.cache_read) = 10
+
+let%test "accumulate_event ContentBlockStart + Delta + Stop" =
+  let acc = create_stream_acc () in
+  accumulate_event acc (Types.ContentBlockStart {
+    index = 0; content_type = "text"; tool_id = None; tool_name = None });
+  accumulate_event acc (Types.ContentBlockDelta {
+    index = 0; delta = Types.TextDelta "Hello " });
+  accumulate_event acc (Types.ContentBlockDelta {
+    index = 0; delta = Types.TextDelta "world" });
+  accumulate_event acc (Types.ContentBlockStop { index = 0 });
+  let buf = Hashtbl.find acc.block_texts 0 in
+  Buffer.contents buf = "Hello world"
+
+let%test "accumulate_event MessageDelta sets stop_reason" =
+  let acc = create_stream_acc () in
+  accumulate_event acc (Types.MessageDelta {
+    stop_reason = Some Types.StopToolUse;
+    usage = Some { input_tokens = 0; output_tokens = 50;
+                   cache_creation_input_tokens = 0; cache_read_input_tokens = 0 }});
+  !(acc.stop_reason) = Types.StopToolUse
+  && !(acc.output_tokens) = 50
+
+let%test "finalize_stream_acc assembles text block" =
+  let acc = create_stream_acc () in
+  acc.id := "test-id";
+  acc.model := "test-model";
+  Hashtbl.replace acc.block_types 0 "text";
+  let buf = Buffer.create 16 in
+  Buffer.add_string buf "Hello world";
+  Hashtbl.replace acc.block_texts 0 buf;
+  let result = finalize_stream_acc acc in
+  result.id = "test-id"
+  && result.model = "test-model"
+  && result.content = [Types.Text "Hello world"]
+
+let%test "finalize_stream_acc assembles tool_use block" =
+  let acc = create_stream_acc () in
+  Hashtbl.replace acc.block_types 0 "tool_use";
+  Hashtbl.replace acc.block_tool_ids 0 "tool-id-1";
+  Hashtbl.replace acc.block_tool_names 0 "my_tool";
+  let buf = Buffer.create 16 in
+  Buffer.add_string buf "{\"key\":\"val\"}";
+  Hashtbl.replace acc.block_texts 0 buf;
+  let result = finalize_stream_acc acc in
+  match result.content with
+  | [Types.ToolUse { id = "tool-id-1"; name = "my_tool"; input }] ->
+    input = `Assoc [("key", `String "val")]
+  | _ -> false
+
+let%test "finalize_stream_acc assembles thinking block" =
+  let acc = create_stream_acc () in
+  Hashtbl.replace acc.block_types 0 "thinking";
+  let buf = Buffer.create 16 in
+  Buffer.add_string buf "reasoning...";
+  Hashtbl.replace acc.block_texts 0 buf;
+  let result = finalize_stream_acc acc in
+  match result.content with
+  | [Types.Thinking { thinking_type = "thinking"; content = "reasoning..." }] -> true
+  | _ -> false
+
+let%test "finalize_stream_acc multiple blocks ordered by index" =
+  let acc = create_stream_acc () in
+  Hashtbl.replace acc.block_types 0 "thinking";
+  Hashtbl.replace acc.block_types 1 "text";
+  let buf0 = Buffer.create 16 in Buffer.add_string buf0 "think";
+  let buf1 = Buffer.create 16 in Buffer.add_string buf1 "say";
+  Hashtbl.replace acc.block_texts 0 buf0;
+  Hashtbl.replace acc.block_texts 1 buf1;
+  let result = finalize_stream_acc acc in
+  List.length result.content = 2
+
+let%test "finalize_stream_acc includes usage" =
+  let acc = create_stream_acc () in
+  acc.input_tokens := 100;
+  acc.output_tokens := 50;
+  acc.cache_creation := 10;
+  acc.cache_read := 20;
+  let result = finalize_stream_acc acc in
+  match result.usage with
+  | Some u ->
+    u.input_tokens = 100 && u.output_tokens = 50
+    && u.cache_creation_input_tokens = 10 && u.cache_read_input_tokens = 20
+  | None -> false

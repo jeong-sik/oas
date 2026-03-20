@@ -20,10 +20,22 @@ type tier =
   | Long_term
 
 type long_term_backend = {
-  persist: key:string -> Yojson.Safe.t -> unit;
+  persist: key:string -> Yojson.Safe.t -> (unit, string) result;
   retrieve: key:string -> Yojson.Safe.t option;
-  remove: key:string -> unit;
+  remove: key:string -> (unit, string) result;
+  batch_persist: (string * Yojson.Safe.t) list -> (unit, string) result;
+  query: prefix:string -> limit:int -> (string * Yojson.Safe.t) list;
 }
+
+let legacy_backend ~persist ~retrieve ~remove =
+  {
+    persist = (fun ~key value -> persist ~key value; Ok ());
+    retrieve;
+    remove = (fun ~key -> remove ~key; Ok ());
+    batch_persist = (fun pairs ->
+      List.iter (fun (k, v) -> persist ~key:k v) pairs; Ok ());
+    query = (fun ~prefix:_ ~limit:_ -> []);
+  }
 
 type t = {
   ctx: Context.t;
@@ -48,7 +60,10 @@ let store t ~tier key value =
   | Long_term ->
     Context.set_scoped t.ctx (scope_of_tier Long_term) key value;
     (match t.long_term with
-     | Some backend -> backend.persist ~key value
+     | Some backend ->
+       (match backend.persist ~key value with
+        | Ok () -> ()
+        | Error reason -> failwith (Printf.sprintf "long_term persist failed: %s" reason))
      | None -> ())
   | _ ->
     Context.set_scoped t.ctx (scope_of_tier tier) key value
@@ -90,7 +105,10 @@ let forget t ~tier key =
   | Long_term ->
     Context.delete_scoped t.ctx (scope_of_tier Long_term) key;
     (match t.long_term with
-     | Some backend -> backend.remove ~key
+     | Some backend ->
+       (match backend.remove ~key with
+        | Ok () -> ()
+        | Error reason -> failwith (Printf.sprintf "long_term remove failed: %s" reason))
      | None -> ())
   | _ ->
     Context.delete_scoped t.ctx (scope_of_tier tier) key
@@ -214,12 +232,16 @@ let decayed_salience ~now ~decay_rate (ep : episode) =
   ep.salience *. exp (-. decay_rate *. age)
 
 let recall_episodes t ?(now = Unix.gettimeofday ()) ?(decay_rate = 0.01)
-    ?(min_salience = 0.1) ?(limit = 50) () =
+    ?(min_salience = 0.1) ?(limit = 50) ?filter () =
   all_episodes t
   |> List.map (fun ep ->
     let effective = decayed_salience ~now ~decay_rate ep in
     ({ ep with salience = effective }, effective))
   |> List.filter (fun (_, s) -> s >= min_salience)
+  |> List.filter (fun (ep, _) ->
+    match filter with
+    | Some predicate -> predicate ep
+    | None -> true)
   |> List.sort (fun (_, a) (_, b) -> Float.compare b a)
   |> (fun list ->
     let rec take n acc = function
@@ -310,17 +332,29 @@ let string_contains ~needle haystack =
     in
     loop 0
 
-let matching_procedures t ~pattern ?(min_confidence = 0.0) () =
+let matching_procedures t ~pattern ?(min_confidence = 0.0) ?filter () =
   all_procedures t
   |> List.filter (fun proc ->
     string_contains ~needle:pattern proc.pattern
-    && proc.confidence >= min_confidence)
+    && proc.confidence >= min_confidence
+    &&
+    match filter with
+    | Some predicate -> predicate proc
+    | None -> true)
   |> List.sort (fun a b -> Float.compare b.confidence a.confidence)
 
-let best_procedure t ~pattern =
-  match matching_procedures t ~pattern () with
-  | best :: _ -> Some best
+let find_procedure t ~pattern ?(min_confidence = 0.0) ?filter ?(touch = false) () =
+  match matching_procedures t ~pattern ~min_confidence ?filter () with
+  | best :: _ ->
+    if touch then begin
+      let touched = { best with last_used = Unix.gettimeofday () } in
+      store_procedure t touched;
+      Some touched
+    end else Some best
   | [] -> None
+
+let best_procedure t ~pattern =
+  find_procedure t ~pattern ()
 
 let update_procedure t id f =
   match Context.get_scoped t.ctx (scope_of_tier Procedural) id with

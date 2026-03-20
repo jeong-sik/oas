@@ -652,3 +652,27 @@
 (test
  (name test_memory_procedural)
  (libraries agent_sdk alcotest))
+
+(test
+ (name test_memory_lt_backend)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_memory_access)
+ (libraries agent_sdk llm_provider alcotest))
+
+(test
+ (name test_memory_tools)
+ (libraries agent_sdk alcotest yojson unix))
+
+(test
+ (name test_verified_output)
+ (libraries agent_sdk alcotest))
+
+(test
+ (name test_backend_gemini)
+ (libraries agent_sdk llm_provider alcotest yojson))
+
+(test
+ (name test_gemini_edge_cases)
+ (libraries llm_provider yojson))
