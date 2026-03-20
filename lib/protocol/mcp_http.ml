@@ -364,3 +364,61 @@ let%test "parse_sse_body multi-line non-data ignored" =
   match parse_sse_body body with
   | Some (`Assoc [("x", `Int 99)]) -> true
   | _ -> false
+
+(* --- Additional coverage tests for mcp_http --- *)
+
+let%test "parse_sse_body data line shorter than 5 chars ignored" =
+  let body = "dat\n" in
+  parse_sse_body body = None
+
+let%test "parse_sse_body only non-data prefixed lines returns None" =
+  let body = "event: message\nid: 42\nretry: 5000\n\n" in
+  parse_sse_body body = None
+
+let%test "parse_sse_body single valid data line" =
+  let body = "data: {\"single\":true}\n" in
+  match parse_sse_body body with
+  | Some (`Assoc [("single", `Bool true)]) -> true
+  | _ -> false
+
+let%test "parse_response_body empty string as json returns None" =
+  parse_response_body ~content_type:(Some "application/json") "" = None
+
+let%test "parse_response_body sse with empty body" =
+  parse_response_body ~content_type:(Some "text/event-stream") "" = None
+
+let%test "parse_response_body exactly 17 char content type as sse" =
+  (* "text/event-stream" is exactly 17 chars *)
+  let body = "data: {\"ok\":true}\n" in
+  match parse_response_body ~content_type:(Some "text/event-stream") body with
+  | Some (`Assoc [("ok", `Bool true)]) -> true
+  | _ -> false
+
+let%test "parse_response_body 16 char content type is not sse" =
+  (* shorter than "text/event-strea" = 16 chars, not SSE *)
+  let body = "{\"ok\":true}" in
+  match parse_response_body ~content_type:(Some "text/event-strea") body with
+  | Some (`Assoc [("ok", `Bool true)]) -> true
+  | _ -> false
+
+let%test "make_headers empty config and empty extra" =
+  let cfg = { default_config with headers = [] } in
+  let h = make_headers cfg [] in
+  Http.Header.get h "Content-Type" = Some "application/json"
+
+let%test "make_headers preserves order with multiple extras" =
+  let cfg = { default_config with headers = [("X-A", "1")] } in
+  let h = make_headers cfg [("X-B", "2"); ("X-C", "3")] in
+  Http.Header.get h "X-A" = Some "1"
+  && Http.Header.get h "X-B" = Some "2"
+  && Http.Header.get h "X-C" = Some "3"
+
+let%test "parse_sse_body three data lines takes last" =
+  let body = "data: {\"a\":1}\ndata: {\"b\":2}\ndata: {\"c\":3}\n" in
+  match parse_sse_body body with
+  | Some (`Assoc [("c", `Int 3)]) -> true
+  | _ -> false
+
+let%test "default_config reconnect and timeout positive" =
+  default_config.reconnect_max_s > 0.0
+  && default_config.request_timeout_s > 0.0

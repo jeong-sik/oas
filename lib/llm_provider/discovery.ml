@@ -255,3 +255,290 @@ let summary_to_json endpoints =
     ("available_capacity", `Int available_capacity);
     ("active_requests", `Int active_requests);
   ]
+
+[@@@coverage off]
+(* === Inline tests === *)
+
+(* --- default_endpoint --- *)
+
+let%test "default_endpoint is localhost:8085" =
+  default_endpoint = "http://127.0.0.1:8085"
+
+(* --- endpoints_from_env --- *)
+
+let%test "endpoints_from_env default when unset" =
+  (match Sys.getenv_opt "LLM_ENDPOINTS" with
+   | Some _ -> Unix.putenv "LLM_ENDPOINTS" ""
+   | None -> ());
+  endpoints_from_env () = [default_endpoint]
+
+let%test "endpoints_from_env parses comma-separated" =
+  Unix.putenv "LLM_ENDPOINTS" "http://a:8080,http://b:8081";
+  let eps = endpoints_from_env () in
+  Unix.putenv "LLM_ENDPOINTS" "";
+  eps = ["http://a:8080"; "http://b:8081"]
+
+let%test "endpoints_from_env trims whitespace" =
+  Unix.putenv "LLM_ENDPOINTS" "  http://a:8080 , http://b:8081  ";
+  let eps = endpoints_from_env () in
+  Unix.putenv "LLM_ENDPOINTS" "";
+  eps = ["http://a:8080"; "http://b:8081"]
+
+let%test "endpoints_from_env filters empty parts" =
+  Unix.putenv "LLM_ENDPOINTS" "http://a,,http://b,";
+  let eps = endpoints_from_env () in
+  Unix.putenv "LLM_ENDPOINTS" "";
+  eps = ["http://a"; "http://b"]
+
+let%test "endpoints_from_env empty string returns default" =
+  Unix.putenv "LLM_ENDPOINTS" "";
+  let eps = endpoints_from_env () in
+  eps = [default_endpoint]
+
+(* --- parse_models --- *)
+
+let%test "parse_models valid" =
+  let json = `Assoc [("data", `List [
+    `Assoc [("id", `String "qwen3.5-35b"); ("owned_by", `String "local")];
+    `Assoc [("id", `String "llama-4-scout"); ("owned_by", `String "meta")];
+  ])] in
+  let models = parse_models json in
+  List.length models = 2
+  && (List.hd models).id = "qwen3.5-35b"
+
+let%test "parse_models empty data" =
+  let json = `Assoc [("data", `List [])] in
+  parse_models json = []
+
+let%test "parse_models missing data" =
+  let json = `Assoc [] in
+  parse_models json = []
+
+let%test "parse_models non-list data" =
+  let json = `Assoc [("data", `String "bad")] in
+  parse_models json = []
+
+let%test "parse_models missing id skipped" =
+  let json = `Assoc [("data", `List [
+    `Assoc [("owned_by", `String "local")];
+  ])] in
+  parse_models json = []
+
+let%test "parse_models owned_by defaults to unknown" =
+  let json = `Assoc [("data", `List [
+    `Assoc [("id", `String "model1")];
+  ])] in
+  let models = parse_models json in
+  List.length models = 1
+  && (List.hd models).owned_by = "unknown"
+
+(* --- parse_props --- *)
+
+let%test "parse_props valid" =
+  let json = `Assoc [
+    ("total_slots", `Int 4);
+    ("default_generation_settings", `Assoc [
+      ("n_ctx", `Int 8192);
+      ("model", `String "qwen3.5");
+    ]);
+  ] in
+  match parse_props json with
+  | Some p -> p.total_slots = 4 && p.ctx_size = 8192 && p.model = "qwen3.5"
+  | None -> false
+
+let%test "parse_props missing total_slots" =
+  let json = `Assoc [] in
+  parse_props json = None
+
+let%test "parse_props total_slots not int" =
+  let json = `Assoc [("total_slots", `String "4")] in
+  parse_props json = None
+
+let%test "parse_props missing dgs" =
+  let json = `Assoc [("total_slots", `Int 2)] in
+  match parse_props json with
+  | Some p -> p.total_slots = 2 && p.ctx_size = 0 && p.model = ""
+  | None -> false
+
+let%test "parse_props dgs missing n_ctx" =
+  let json = `Assoc [
+    ("total_slots", `Int 1);
+    ("default_generation_settings", `Assoc [("model", `String "m")]);
+  ] in
+  match parse_props json with
+  | Some p -> p.ctx_size = 0 && p.model = "m"
+  | None -> false
+
+let%test "parse_props dgs missing model" =
+  let json = `Assoc [
+    ("total_slots", `Int 1);
+    ("default_generation_settings", `Assoc [("n_ctx", `Int 4096)]);
+  ] in
+  match parse_props json with
+  | Some p -> p.model = "" && p.ctx_size = 4096
+  | None -> false
+
+(* --- parse_slots --- *)
+
+let%test "parse_slots valid" =
+  let json = `List [
+    `Assoc [("is_processing", `Bool true)];
+    `Assoc [("is_processing", `Bool false)];
+    `Assoc [("is_processing", `Bool false)];
+  ] in
+  match parse_slots json with
+  | Some s -> s.total = 3 && s.busy = 1 && s.idle = 2
+  | None -> false
+
+let%test "parse_slots empty list" =
+  parse_slots (`List []) = None
+
+let%test "parse_slots non-list" =
+  parse_slots (`String "bad") = None
+
+let%test "parse_slots state-based busy detection" =
+  let json = `List [
+    `Assoc [("state", `Int 1)];
+    `Assoc [("state", `Int 0)];
+  ] in
+  match parse_slots json with
+  | Some s -> s.busy = 1 && s.idle = 1
+  | None -> false
+
+let%test "parse_slots neither is_processing nor state defaults to idle" =
+  let json = `List [`Assoc []] in
+  match parse_slots json with
+  | Some s -> s.busy = 0 && s.idle = 1
+  | None -> false
+
+(* --- string_contains_ci --- *)
+
+let%test "string_contains_ci case insensitive match" =
+  string_contains_ci ~haystack:"Qwen3.5-35B" ~needle:"qwen" = true
+
+let%test "string_contains_ci no match" =
+  string_contains_ci ~haystack:"llama" ~needle:"qwen" = false
+
+let%test "string_contains_ci needle longer than haystack" =
+  string_contains_ci ~haystack:"ab" ~needle:"abcdef" = false
+
+let%test "string_contains_ci empty needle" =
+  string_contains_ci ~haystack:"anything" ~needle:"" = true
+
+let%test "string_contains_ci exact match" =
+  string_contains_ci ~haystack:"QWEN" ~needle:"qwen" = true
+
+(* --- infer_capabilities --- *)
+
+let%test "infer_capabilities qwen model gets extended" =
+  let models = [{ id = "Qwen3.5-35B-A3B"; owned_by = "local" }] in
+  let caps = infer_capabilities models None in
+  caps.supports_reasoning = true
+  && caps.supports_top_k = true
+  && caps.supports_min_p = true
+
+let%test "infer_capabilities unknown model gets basic openai" =
+  let models = [{ id = "my-custom-model"; owned_by = "local" }] in
+  let caps = infer_capabilities models None in
+  caps.supports_tools = true
+  && caps.supports_reasoning = false
+
+let%test "infer_capabilities known model lookup has priority" =
+  let models = [{ id = "claude-opus-4-20260320"; owned_by = "anthropic" }] in
+  let caps = infer_capabilities models None in
+  caps.supports_caching = true
+  && caps.supports_computer_use = true
+
+let%test "infer_capabilities merges ctx_size from props" =
+  let models = [{ id = "my-model"; owned_by = "local" }] in
+  let props = Some { total_slots = 4; ctx_size = 32768; model = "my-model" } in
+  let caps = infer_capabilities models props in
+  caps.max_context_tokens = Some 32768
+
+let%test "infer_capabilities no models defaults" =
+  let caps = infer_capabilities [] None in
+  caps.supports_tools = true
+
+(* --- JSON serialization --- *)
+
+let%test "model_info_to_json" =
+  let json = model_info_to_json { id = "m1"; owned_by = "local" } in
+  let open Yojson.Safe.Util in
+  json |> member "id" |> to_string = "m1"
+  && json |> member "owned_by" |> to_string = "local"
+
+let%test "server_props_to_json" =
+  let json = server_props_to_json { total_slots = 4; ctx_size = 8192; model = "qwen" } in
+  let open Yojson.Safe.Util in
+  json |> member "total_slots" |> to_int = 4
+  && json |> member "ctx_size" |> to_int = 8192
+
+let%test "slot_status_to_json" =
+  let json = slot_status_to_json { total = 4; busy = 1; idle = 3 } in
+  let open Yojson.Safe.Util in
+  json |> member "total" |> to_int = 4
+  && json |> member "busy" |> to_int = 1
+
+let%test "capabilities_to_json" =
+  let json = capabilities_to_json Capabilities.default_capabilities in
+  let open Yojson.Safe.Util in
+  json |> member "tools" |> to_bool = false
+
+let%test "endpoint_status_to_json without props and slots" =
+  let es = {
+    url = "http://localhost:8085"; healthy = true;
+    models = []; props = None; slots = None;
+    capabilities = Capabilities.default_capabilities;
+  } in
+  let json = endpoint_status_to_json es in
+  let open Yojson.Safe.Util in
+  json |> member "url" |> to_string = "http://localhost:8085"
+  && json |> member "healthy" |> to_bool = true
+
+let%test "endpoint_status_to_json with props and slots" =
+  let es = {
+    url = "http://localhost:8085"; healthy = true;
+    models = [{ id = "m1"; owned_by = "local" }];
+    props = Some { total_slots = 4; ctx_size = 8192; model = "m1" };
+    slots = Some { total = 4; busy = 1; idle = 3 };
+    capabilities = Capabilities.default_capabilities;
+  } in
+  let json = endpoint_status_to_json es in
+  let open Yojson.Safe.Util in
+  (json |> member "props" |> member "total_slots" |> to_int) = 4
+  && (json |> member "slots" |> member "busy" |> to_int) = 1
+
+let%test "summary_to_json empty endpoints" =
+  let json = summary_to_json [] in
+  let open Yojson.Safe.Util in
+  json |> member "total_capacity" |> to_int = 0
+  && json |> member "available_capacity" |> to_int = 0
+  && json |> member "active_requests" |> to_int = 0
+
+let%test "summary_to_json with slots" =
+  let eps = [{
+    url = "a"; healthy = true; models = [];
+    props = None;
+    slots = Some { total = 4; busy = 1; idle = 3 };
+    capabilities = Capabilities.default_capabilities;
+  }; {
+    url = "b"; healthy = true; models = [];
+    props = None;
+    slots = Some { total = 2; busy = 2; idle = 0 };
+    capabilities = Capabilities.default_capabilities;
+  }] in
+  let json = summary_to_json eps in
+  let open Yojson.Safe.Util in
+  json |> member "total_capacity" |> to_int = 6
+  && json |> member "available_capacity" |> to_int = 3
+  && json |> member "active_requests" |> to_int = 3
+
+let%test "summary_to_json endpoint without slots ignored" =
+  let eps = [{
+    url = "a"; healthy = false; models = [];
+    props = None; slots = None;
+    capabilities = Capabilities.default_capabilities;
+  }] in
+  let json = summary_to_json eps in
+  let open Yojson.Safe.Util in
+  json |> member "total_capacity" |> to_int = 0
