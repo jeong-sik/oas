@@ -1,0 +1,355 @@
+(** Extended Streaming coverage tests — targets uncovered paths in
+    streaming.ml and llm_provider/complete.ml.
+
+    streaming.ml has NO .mli, so all functions are accessible.
+    Focuses on:
+    - stream_acc creation and accumulation
+    - finalize_stream_acc with various event sequences
+    - accumulate_event for each event type
+    - Complete.default_retry_config
+    - Complete.is_retryable *)
+
+open Agent_sdk
+
+(* ── stream_acc creation ──────────────────────────────────── *)
+
+let test_create_stream_acc () =
+  let acc = Streaming.create_stream_acc () in
+  Alcotest.(check string) "empty id" "" !(acc.msg_id);
+  Alcotest.(check string) "empty model" "" !(acc.msg_model);
+  Alcotest.(check int) "zero input" 0 !(acc.input_tokens);
+  Alcotest.(check int) "zero output" 0 !(acc.output_tokens)
+
+(* ── accumulate_event tests ───────────────────────────────── *)
+
+let test_accumulate_message_start () =
+  let acc = Streaming.create_stream_acc () in
+  let usage : Types.api_usage = {
+    input_tokens = 10; output_tokens = 0;
+    cache_creation_input_tokens = 2;
+    cache_read_input_tokens = 3;
+  } in
+  Streaming.accumulate_event acc
+    (Types.MessageStart { id = "msg_1"; model = "claude-3"; usage = Some usage });
+  Alcotest.(check string) "id" "msg_1" !(acc.msg_id);
+  Alcotest.(check string) "model" "claude-3" !(acc.msg_model);
+  Alcotest.(check int) "input tokens" 10 !(acc.input_tokens);
+  Alcotest.(check int) "cache creation" 2 !(acc.cache_creation);
+  Alcotest.(check int) "cache read" 3 !(acc.cache_read)
+
+let test_accumulate_message_start_no_usage () =
+  let acc = Streaming.create_stream_acc () in
+  Streaming.accumulate_event acc
+    (Types.MessageStart { id = "msg_2"; model = "gpt-4"; usage = None });
+  Alcotest.(check string) "id" "msg_2" !(acc.msg_id);
+  Alcotest.(check int) "input still 0" 0 !(acc.input_tokens)
+
+let test_accumulate_content_block_start () =
+  let acc = Streaming.create_stream_acc () in
+  Streaming.accumulate_event acc
+    (Types.ContentBlockStart {
+      index = 0; content_type = "text";
+      tool_id = None; tool_name = None });
+  Alcotest.(check bool) "type registered" true
+    (Hashtbl.mem acc.block_types 0);
+  Alcotest.(check bool) "text buf exists" true
+    (Hashtbl.mem acc.block_texts 0)
+
+let test_accumulate_content_block_start_tool () =
+  let acc = Streaming.create_stream_acc () in
+  Streaming.accumulate_event acc
+    (Types.ContentBlockStart {
+      index = 1; content_type = "tool_use";
+      tool_id = Some "tu_1"; tool_name = Some "read_file" });
+  Alcotest.(check bool) "tool_id registered" true
+    (Hashtbl.mem acc.block_tool_ids 1);
+  Alcotest.(check bool) "tool_name registered" true
+    (Hashtbl.mem acc.block_tool_names 1)
+
+let test_accumulate_content_block_delta_text () =
+  let acc = Streaming.create_stream_acc () in
+  Streaming.accumulate_event acc
+    (Types.ContentBlockStart {
+      index = 0; content_type = "text";
+      tool_id = None; tool_name = None });
+  Streaming.accumulate_event acc
+    (Types.ContentBlockDelta { index = 0; delta = Types.TextDelta "hello " });
+  Streaming.accumulate_event acc
+    (Types.ContentBlockDelta { index = 0; delta = Types.TextDelta "world" });
+  match Hashtbl.find_opt acc.block_texts 0 with
+  | Some buf -> Alcotest.(check string) "text" "hello world" (Buffer.contents buf)
+  | None -> Alcotest.fail "expected text buffer"
+
+let test_accumulate_content_block_delta_thinking () =
+  let acc = Streaming.create_stream_acc () in
+  Streaming.accumulate_event acc
+    (Types.ContentBlockStart {
+      index = 0; content_type = "thinking";
+      tool_id = None; tool_name = None });
+  Streaming.accumulate_event acc
+    (Types.ContentBlockDelta { index = 0; delta = Types.ThinkingDelta "reasoning..." });
+  match Hashtbl.find_opt acc.block_texts 0 with
+  | Some buf -> Alcotest.(check string) "thinking" "reasoning..." (Buffer.contents buf)
+  | None -> Alcotest.fail "expected thinking buffer"
+
+let test_accumulate_content_block_delta_json () =
+  let acc = Streaming.create_stream_acc () in
+  Streaming.accumulate_event acc
+    (Types.ContentBlockStart {
+      index = 0; content_type = "tool_use";
+      tool_id = Some "t1"; tool_name = Some "tool" });
+  Streaming.accumulate_event acc
+    (Types.ContentBlockDelta { index = 0; delta = Types.InputJsonDelta {|{"key":"|} });
+  Streaming.accumulate_event acc
+    (Types.ContentBlockDelta { index = 0; delta = Types.InputJsonDelta {|val"}|} });
+  match Hashtbl.find_opt acc.block_texts 0 with
+  | Some buf -> Alcotest.(check string) "json" {|{"key":"val"}|} (Buffer.contents buf)
+  | None -> Alcotest.fail "expected json buffer"
+
+let test_accumulate_content_block_delta_new_index () =
+  let acc = Streaming.create_stream_acc () in
+  (* Delta for index without prior ContentBlockStart *)
+  Streaming.accumulate_event acc
+    (Types.ContentBlockDelta { index = 5; delta = Types.TextDelta "orphan" });
+  match Hashtbl.find_opt acc.block_texts 5 with
+  | Some buf -> Alcotest.(check string) "orphan text" "orphan" (Buffer.contents buf)
+  | None -> Alcotest.fail "expected buffer for new index"
+
+let test_accumulate_message_delta () =
+  let acc = Streaming.create_stream_acc () in
+  let usage : Types.api_usage = {
+    input_tokens = 0; output_tokens = 50;
+    cache_creation_input_tokens = 1;
+    cache_read_input_tokens = 2;
+  } in
+  Streaming.accumulate_event acc
+    (Types.MessageDelta {
+      stop_reason = Some Types.EndTurn;
+      usage = Some usage });
+  Alcotest.(check int) "output tokens" 50 !(acc.output_tokens);
+  Alcotest.(check int) "cache creation" 1 !(acc.cache_creation);
+  Alcotest.(check int) "cache read" 2 !(acc.cache_read)
+
+let test_accumulate_message_delta_no_usage () =
+  let acc = Streaming.create_stream_acc () in
+  Streaming.accumulate_event acc
+    (Types.MessageDelta { stop_reason = None; usage = None });
+  Alcotest.(check int) "output still 0" 0 !(acc.output_tokens)
+
+let test_accumulate_other_events () =
+  let acc = Streaming.create_stream_acc () in
+  (* These should be no-ops *)
+  Streaming.accumulate_event acc (Types.ContentBlockStop { index = 0 });
+  Streaming.accumulate_event acc Types.MessageStop;
+  Streaming.accumulate_event acc Types.Ping;
+  Streaming.accumulate_event acc (Types.SSEError "test error");
+  Alcotest.(check string) "id unchanged" "" !(acc.msg_id)
+
+(* ── finalize_stream_acc ──────────────────────────────────── *)
+
+let test_finalize_text_only () =
+  let acc = Streaming.create_stream_acc () in
+  Streaming.accumulate_event acc
+    (Types.MessageStart { id = "m1"; model = "model"; usage = None });
+  Streaming.accumulate_event acc
+    (Types.ContentBlockStart {
+      index = 0; content_type = "text";
+      tool_id = None; tool_name = None });
+  Streaming.accumulate_event acc
+    (Types.ContentBlockDelta { index = 0; delta = Types.TextDelta "hello" });
+  let resp = Streaming.finalize_stream_acc acc in
+  Alcotest.(check string) "id" "m1" resp.id;
+  Alcotest.(check string) "model" "model" resp.model;
+  Alcotest.(check int) "one content" 1 (List.length resp.content);
+  (match resp.content with
+   | [Types.Text "hello"] -> ()
+   | _ -> Alcotest.fail "expected Text hello")
+
+let test_finalize_with_tool_use () =
+  let acc = Streaming.create_stream_acc () in
+  Streaming.accumulate_event acc
+    (Types.MessageStart { id = "m2"; model = "m"; usage = None });
+  Streaming.accumulate_event acc
+    (Types.ContentBlockStart {
+      index = 0; content_type = "tool_use";
+      tool_id = Some "tu_1"; tool_name = Some "read" });
+  Streaming.accumulate_event acc
+    (Types.ContentBlockDelta {
+      index = 0; delta = Types.InputJsonDelta {|{"path":"/tmp"}|} });
+  let resp = Streaming.finalize_stream_acc acc in
+  (match resp.content with
+   | [Types.ToolUse { id; name; _ }] ->
+     Alcotest.(check string) "tool id" "tu_1" id;
+     Alcotest.(check string) "tool name" "read" name
+   | _ -> Alcotest.fail "expected ToolUse")
+
+let test_finalize_with_thinking () =
+  let acc = Streaming.create_stream_acc () in
+  Streaming.accumulate_event acc
+    (Types.MessageStart { id = "m3"; model = "m"; usage = None });
+  Streaming.accumulate_event acc
+    (Types.ContentBlockStart {
+      index = 0; content_type = "thinking";
+      tool_id = None; tool_name = None });
+  Streaming.accumulate_event acc
+    (Types.ContentBlockDelta { index = 0; delta = Types.ThinkingDelta "I think..." });
+  let resp = Streaming.finalize_stream_acc acc in
+  (match resp.content with
+   | [Types.Thinking { content; _ }] ->
+     Alcotest.(check string) "thinking" "I think..." content
+   | _ -> Alcotest.fail "expected Thinking block")
+
+let test_finalize_with_usage () =
+  let acc = Streaming.create_stream_acc () in
+  let usage : Types.api_usage = {
+    input_tokens = 100; output_tokens = 50;
+    cache_creation_input_tokens = 0;
+    cache_read_input_tokens = 0;
+  } in
+  Streaming.accumulate_event acc
+    (Types.MessageStart { id = "m4"; model = "m"; usage = Some usage });
+  Streaming.accumulate_event acc
+    (Types.MessageDelta {
+      stop_reason = Some Types.EndTurn;
+      usage = Some { input_tokens = 0; output_tokens = 50;
+                     cache_creation_input_tokens = 0;
+                     cache_read_input_tokens = 0 } });
+  let resp = Streaming.finalize_stream_acc acc in
+  (match resp.usage with
+   | Some u ->
+     Alcotest.(check int) "input" 100 u.input_tokens;
+     Alcotest.(check int) "output" 50 u.output_tokens
+   | None -> Alcotest.fail "expected usage")
+
+let test_finalize_no_usage () =
+  let acc = Streaming.create_stream_acc () in
+  let resp = Streaming.finalize_stream_acc acc in
+  Alcotest.(check bool) "no usage" true (resp.usage = None)
+
+let test_finalize_unknown_content_type () =
+  let acc = Streaming.create_stream_acc () in
+  Streaming.accumulate_event acc
+    (Types.ContentBlockStart {
+      index = 0; content_type = "unknown_type";
+      tool_id = None; tool_name = None });
+  Streaming.accumulate_event acc
+    (Types.ContentBlockDelta { index = 0; delta = Types.TextDelta "data" });
+  let resp = Streaming.finalize_stream_acc acc in
+  Alcotest.(check int) "unknown skipped" 0 (List.length resp.content)
+
+let test_finalize_invalid_tool_json () =
+  let acc = Streaming.create_stream_acc () in
+  Streaming.accumulate_event acc
+    (Types.ContentBlockStart {
+      index = 0; content_type = "tool_use";
+      tool_id = Some "t1"; tool_name = Some "tool" });
+  Streaming.accumulate_event acc
+    (Types.ContentBlockDelta { index = 0; delta = Types.InputJsonDelta "not json{" });
+  let resp = Streaming.finalize_stream_acc acc in
+  (* Invalid JSON falls back to Text *)
+  (match resp.content with
+   | [Types.Text _] -> ()
+   | _ -> Alcotest.fail "expected Text fallback for invalid JSON")
+
+let test_finalize_multiple_blocks () =
+  let acc = Streaming.create_stream_acc () in
+  Streaming.accumulate_event acc
+    (Types.ContentBlockStart {
+      index = 0; content_type = "text"; tool_id = None; tool_name = None });
+  Streaming.accumulate_event acc
+    (Types.ContentBlockDelta { index = 0; delta = Types.TextDelta "first" });
+  Streaming.accumulate_event acc
+    (Types.ContentBlockStart {
+      index = 1; content_type = "text"; tool_id = None; tool_name = None });
+  Streaming.accumulate_event acc
+    (Types.ContentBlockDelta { index = 1; delta = Types.TextDelta "second" });
+  let resp = Streaming.finalize_stream_acc acc in
+  Alcotest.(check int) "two blocks" 2 (List.length resp.content)
+
+(* ── Complete module tests ────────────────────────────────── *)
+
+let test_default_retry_config () =
+  let cfg = Llm_provider.Complete.default_retry_config in
+  Alcotest.(check bool) "max_retries > 0" true (cfg.max_retries > 0);
+  Alcotest.(check bool) "initial_delay > 0" true (cfg.initial_delay_sec > 0.0);
+  Alcotest.(check bool) "max_delay > 0" true (cfg.max_delay_sec > 0.0);
+  Alcotest.(check bool) "backoff > 1" true (cfg.backoff_multiplier > 1.0)
+
+let test_is_retryable_rate_limit () =
+  let err = Llm_provider.Http_client.HttpError { code = 429; body = "rate limited" } in
+  Alcotest.(check bool) "429 retryable" true
+    (Llm_provider.Complete.is_retryable err)
+
+let test_is_retryable_server_errors () =
+  List.iter (fun code ->
+    let err = Llm_provider.Http_client.HttpError { code; body = "" } in
+    Alcotest.(check bool) (Printf.sprintf "%d retryable" code) true
+      (Llm_provider.Complete.is_retryable err)
+  ) [500; 502; 503; 529]
+
+let test_is_retryable_client_error () =
+  let err = Llm_provider.Http_client.HttpError { code = 400; body = "bad request" } in
+  Alcotest.(check bool) "400 not retryable" false
+    (Llm_provider.Complete.is_retryable err)
+
+let test_is_retryable_network_error () =
+  let err = Llm_provider.Http_client.NetworkError { message = "timeout" } in
+  Alcotest.(check bool) "network retryable" true
+    (Llm_provider.Complete.is_retryable err)
+
+(* ── parse_sse_event re-export ────────────────────────────── *)
+
+let test_parse_sse_event_text_delta () =
+  let data = {|{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hi"}}|} in
+  match Streaming.parse_sse_event (Some "content_block_delta") data with
+  | Some (Types.ContentBlockDelta { index; delta = Types.TextDelta "hi" }) ->
+    Alcotest.(check int) "index" 0 index
+  | _ -> Alcotest.fail "expected ContentBlockDelta"
+
+let test_parse_sse_event_ping () =
+  match Streaming.parse_sse_event (Some "ping") "{}" with
+  | Some Types.Ping -> ()
+  | _ -> Alcotest.fail "expected Ping"
+
+(* ── Suite ────────────────────────────────────────────────── *)
+
+let () =
+  Alcotest.run "Streaming_cov" [
+    "stream_acc", [
+      Alcotest.test_case "create" `Quick test_create_stream_acc;
+    ];
+    "accumulate", [
+      Alcotest.test_case "message_start with usage" `Quick test_accumulate_message_start;
+      Alcotest.test_case "message_start no usage" `Quick test_accumulate_message_start_no_usage;
+      Alcotest.test_case "block_start text" `Quick test_accumulate_content_block_start;
+      Alcotest.test_case "block_start tool" `Quick test_accumulate_content_block_start_tool;
+      Alcotest.test_case "delta text" `Quick test_accumulate_content_block_delta_text;
+      Alcotest.test_case "delta thinking" `Quick test_accumulate_content_block_delta_thinking;
+      Alcotest.test_case "delta json" `Quick test_accumulate_content_block_delta_json;
+      Alcotest.test_case "delta new index" `Quick test_accumulate_content_block_delta_new_index;
+      Alcotest.test_case "message_delta with usage" `Quick test_accumulate_message_delta;
+      Alcotest.test_case "message_delta no usage" `Quick test_accumulate_message_delta_no_usage;
+      Alcotest.test_case "other events" `Quick test_accumulate_other_events;
+    ];
+    "finalize", [
+      Alcotest.test_case "text only" `Quick test_finalize_text_only;
+      Alcotest.test_case "tool use" `Quick test_finalize_with_tool_use;
+      Alcotest.test_case "thinking" `Quick test_finalize_with_thinking;
+      Alcotest.test_case "with usage" `Quick test_finalize_with_usage;
+      Alcotest.test_case "no usage" `Quick test_finalize_no_usage;
+      Alcotest.test_case "unknown type" `Quick test_finalize_unknown_content_type;
+      Alcotest.test_case "invalid tool json" `Quick test_finalize_invalid_tool_json;
+      Alcotest.test_case "multiple blocks" `Quick test_finalize_multiple_blocks;
+    ];
+    "complete", [
+      Alcotest.test_case "default retry config" `Quick test_default_retry_config;
+      Alcotest.test_case "429 retryable" `Quick test_is_retryable_rate_limit;
+      Alcotest.test_case "5xx retryable" `Quick test_is_retryable_server_errors;
+      Alcotest.test_case "400 not retryable" `Quick test_is_retryable_client_error;
+      Alcotest.test_case "network retryable" `Quick test_is_retryable_network_error;
+    ];
+    "sse_re_export", [
+      Alcotest.test_case "text delta" `Quick test_parse_sse_event_text_delta;
+      Alcotest.test_case "ping" `Quick test_parse_sse_event_ping;
+    ];
+  ]
