@@ -664,3 +664,11 @@
 (test
  (name test_verified_output)
  (libraries agent_sdk alcotest))
+
+(test
+ (name test_backend_gemini)
+ (libraries agent_sdk llm_provider alcotest yojson))
+
+(test
+ (name test_gemini_edge_cases)
+ (libraries llm_provider yojson))

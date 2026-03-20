@@ -69,13 +69,13 @@ let claude_defaults = {
 }
 
 let gemini_defaults = {
-  kind = OpenAI_compat;
+  kind = Gemini;
   base_url =
     (match Sys.getenv_opt "GEMINI_BASE_URL" with
      | Some url -> url
-     | None -> "https://generativelanguage.googleapis.com/v1beta/openai");
+     | None -> "https://generativelanguage.googleapis.com/v1beta");
   api_key_env = "GEMINI_API_KEY";
-  request_path = "/chat/completions";
+  request_path = "";
 }
 
 let glm_defaults = {
@@ -103,7 +103,7 @@ let default () =
   in
   reg "llama" llama_defaults Capabilities.openai_chat_extended_capabilities;
   reg "claude" claude_defaults Capabilities.anthropic_capabilities;
-  reg "gemini" gemini_defaults Capabilities.openai_chat_capabilities;
+  reg "gemini" gemini_defaults Capabilities.gemini_capabilities;
   reg "glm" glm_defaults Capabilities.openai_chat_capabilities;
   reg "openrouter" openrouter_defaults Capabilities.openai_chat_extended_capabilities;
   t
