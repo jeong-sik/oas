@@ -8,8 +8,8 @@
     a matching ToolResult in the subsequent User message. All strategies
     respect turn boundaries so ToolUse/ToolResult pairs are never split.
 
-    Token estimation uses a 4-char-per-token heuristic. This is deliberately
-    approximate -- the goal is budget sizing, not exact counting. *)
+    Token estimation is CJK-aware: ASCII uses a 4-char-per-token heuristic,
+    multi-byte characters (CJK, emoji) use ~2/3 token per character. *)
 
 open Types
 
@@ -30,16 +30,34 @@ type strategy =
 
 type t = { strategy : strategy }
 
+(** CJK-aware token estimation.
+    ASCII: ~4 chars per token. Multi-byte (CJK, emoji, etc.): ~2/3 token per character.
+    Walks the string byte-by-byte using UTF-8 lead-byte classification. O(n), no allocation. *)
+let estimate_char_tokens (s : string) : int =
+  let len = String.length s in
+  let rec loop i ascii multi =
+    if i >= len then max 1 ((ascii + 3) / 4 + (multi * 2 + 2) / 3)
+    else
+      let byte = Char.code (String.unsafe_get s i) in
+      if byte < 0x80 then loop (i + 1) (ascii + 1) multi
+      else
+        let skip = if byte >= 0xF0 then 4
+                   else if byte >= 0xE0 then 3 else 2 in
+        loop (i + skip) ascii (multi + 1)
+  in
+  if len = 0 then 1
+  else loop 0 0 0
+
 (** Estimate tokens for a single content block.
-    Heuristic: 4 characters ~ 1 token. *)
+    Uses CJK-aware estimation for text-based blocks. *)
 let estimate_block_tokens = function
-  | Text s -> (String.length s + 3) / 4
-  | Thinking { content; _ } -> (String.length content + 3) / 4
+  | Text s -> estimate_char_tokens s
+  | Thinking { content; _ } -> estimate_char_tokens content
   | RedactedThinking _ -> 50
   | ToolUse { name; input; _ } ->
     let input_str = Yojson.Safe.to_string input in
-    ((String.length name + String.length input_str) + 3) / 4
-  | ToolResult { content; _ } -> (String.length content + 3) / 4
+    estimate_char_tokens (name ^ input_str)
+  | ToolResult { content; _ } -> estimate_char_tokens content
   | Image { data; _ } ->
     (* Approximate: base64 data length * 3/4 / 750 tokens, capped at 1600.
        Avoids base64 decoding; uses length as proxy for byte size. *)
@@ -366,3 +384,57 @@ let from_capabilities ?(margin=0.8) (caps : Llm_provider.Capabilities.capabiliti
       repair_dangling_tool_calls;
       token_budget budget;
     ])
+
+[@@@coverage off]
+(* === CJK token estimation inline tests === *)
+
+let%test "estimate_char_tokens empty string returns 1" =
+  estimate_char_tokens "" = 1
+
+let%test "estimate_char_tokens pure ASCII" =
+  (* "hello world" = 11 ASCII chars -> (11+3)/4 = 3 *)
+  estimate_char_tokens "hello world" = 3
+
+let%test "estimate_char_tokens pure CJK" =
+  (* 5 CJK chars (3-byte each) -> (0+3)/4 + (5*2+2)/3 = 0 + 4 = 4 *)
+  estimate_char_tokens "\xEC\x95\x88\xEB\x85\x95\xED\x95\x98\xEC\x84\xB8\xEC\x9A\x94" = 4
+
+let%test "estimate_char_tokens mixed ASCII and CJK" =
+  (* "hello " (6 ASCII) + 2 CJK chars -> (6+3)/4 + (2*2+2)/3 = 2 + 2 = 4 *)
+  estimate_char_tokens "hello \xEC\x95\x88\xEB\x85\x95" = 4
+
+let%test "estimate_char_tokens emoji 4-byte" =
+  (* 2 emoji (4-byte each) -> (0+3)/4 + (2*2+2)/3 = 0 + 2 = 2 *)
+  estimate_char_tokens "\xF0\x9F\x98\x80\xF0\x9F\x98\x80" = 2
+
+let%test "estimate_char_tokens single ASCII char" =
+  estimate_char_tokens "a" >= 1
+
+let%test "estimate_char_tokens backwards compat pure ASCII 100 chars" =
+  (* 100 ASCII chars -> (100+3)/4 = 25, same as old heuristic *)
+  let s = String.make 100 'x' in
+  estimate_char_tokens s = 25
+
+let%test "estimate_char_tokens CJK reasonable range" =
+  (* 20 CJK chars = 60 bytes.
+     Old: (60+3)/4 = 15. New: (0+3)/4 + (20*2+2)/3 = 0 + 14 = 14.
+     CJK tokens ~ 1-2 chars/token, so 20 chars ~ 10-20 tokens. 14 is reasonable. *)
+  let s = String.concat "" (List.init 20 (fun _ -> "\xEC\x95\x88")) in
+  let old_estimate = (String.length s + 3) / 4 in
+  let new_estimate = estimate_char_tokens s in
+  new_estimate <= old_estimate + 5 && new_estimate >= 1
+
+let%test "estimate_block_tokens Text uses CJK-aware estimation" =
+  let block = Text "hello \xEC\x95\x88\xEB\x85\x95\xED\x95\x98\xEC\x84\xB8\xEC\x9A\x94" in
+  let tokens = estimate_block_tokens block in
+  tokens >= 1
+
+let%test "estimate_block_tokens Thinking uses CJK-aware estimation" =
+  let block = Thinking { thinking_type = "thinking"; content = "\xEB\xB6\x84\xEC\x84\x9D \xEC\xA4\x91\xEC\x9E\x85\xEB\x8B\x88\xEB\x8B\xA4" } in
+  let tokens = estimate_block_tokens block in
+  tokens >= 1
+
+let%test "estimate_block_tokens ToolResult uses CJK-aware estimation" =
+  let block = ToolResult { tool_use_id = "t1"; content = "\xEA\xB2\xB0\xEA\xB3\xBC\xEC\x9E\x85\xEB\x8B\x88\xEB\x8B\xA4"; is_error = false } in
+  let tokens = estimate_block_tokens block in
+  tokens >= 1

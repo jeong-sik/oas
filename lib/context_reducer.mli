@@ -4,7 +4,8 @@
     history in agent state. All strategies respect turn boundaries
     so ToolUse/ToolResult pairs are never split.
 
-    Token estimation uses a 4-char-per-token heuristic. *)
+    Token estimation is CJK-aware: ~4 chars/token for ASCII,
+    ~2/3 token per character for multi-byte (CJK, emoji). *)
 
 open Types
 
@@ -30,6 +31,11 @@ type strategy =
 type t = { strategy : strategy }
 
 (** {1 Token estimation} *)
+
+(** CJK-aware character-level token estimation.
+    ASCII: ~4 chars/token. Multi-byte (CJK, emoji): ~2/3 token/char.
+    Returns at least 1. *)
+val estimate_char_tokens : string -> int
 
 (** Estimate tokens for a single content block. *)
 val estimate_block_tokens : content_block -> int
