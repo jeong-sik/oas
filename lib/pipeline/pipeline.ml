@@ -368,3 +368,51 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
     stage_output ?raw_trace_run agent
       ~effective_guardrails:prep.effective_guardrails response
     |> tag_error "output"))
+
+[@@@coverage off]
+(* === Inline tests === *)
+
+let%test "last_tool_results_from empty messages" =
+  last_tool_results_from [] = []
+
+let%test "last_tool_results_from no tool results" =
+  let msgs = [
+    { role = User; content = [Text "hello"]; name = None; tool_call_id = None };
+  ] in
+  last_tool_results_from msgs = []
+
+let%test "last_tool_results_from finds tool results in last user message" =
+  let msgs = [
+    { role = Assistant; content = [Text "thinking..."]; name = None; tool_call_id = None };
+    { role = User; content = [
+        ToolResult { tool_use_id = "t1"; content = "result1"; is_error = false };
+        ToolResult { tool_use_id = "t2"; content = "error msg"; is_error = true };
+      ]; name = None; tool_call_id = None };
+  ] in
+  match last_tool_results_from msgs with
+  | [Ok { content = "result1" }; Error { message = "error msg"; recoverable = true }] -> true
+  | _ -> false
+
+let%test "last_tool_results_from skips non-tool user messages" =
+  let msgs = [
+    { role = User; content = [
+        ToolResult { tool_use_id = "t1"; content = "first"; is_error = false };
+      ]; name = None; tool_call_id = None };
+    { role = Assistant; content = [Text "response"]; name = None; tool_call_id = None };
+    { role = User; content = [Text "follow up"]; name = None; tool_call_id = None };
+  ] in
+  (* Should find the tool result from the first user message since the last
+     user message has no tool results *)
+  match last_tool_results_from msgs with
+  | [Ok { content = "first" }] -> true
+  | _ -> false
+
+let%test "tag_error passes through Ok" =
+  let result = tag_error "test_stage" (Ok 42) in
+  result = Ok 42
+
+let%test "tag_error passes through Error" =
+  let err = Error.Internal "test error" in
+  match tag_error "test_stage" (Error err) with
+  | Error e -> e = err
+  | Ok _ -> false
