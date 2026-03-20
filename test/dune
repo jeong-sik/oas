@@ -74,7 +74,7 @@
  (name test_cache)
  (libraries agent_sdk alcotest yojson))
 
-(executable
+(test
  (name test_streaming_e2e)
  (libraries agent_sdk eio eio_main yojson))
 
@@ -188,17 +188,19 @@
  (name test_trace_eval)
  (libraries agent_sdk alcotest yojson eio eio_main unix))
 
-(executable
+(test
  (name test_conformance)
- (libraries agent_sdk alcotest yojson unix))
+ (libraries agent_sdk alcotest yojson unix eio eio_main)
+ (deps ../bin/oas_runtime.exe))
 
 (test
  (name test_direct_evidence)
  (libraries agent_sdk alcotest yojson unix eio eio_main cohttp-eio))
 
-(executable
+(test
  (name test_runtime)
- (libraries agent_sdk alcotest unix))
+ (libraries agent_sdk alcotest unix eio eio_main)
+ (deps ../bin/oas_runtime.exe))
 
 (test
  (name test_raw_trace)
@@ -220,7 +222,7 @@
  (name test_v024_fixes)
  (libraries agent_sdk alcotest yojson str unix))
 
-(executable
+(test
  (name test_e2e_v024)
  (libraries agent_sdk eio eio_main yojson))
 
@@ -448,6 +450,115 @@
 (test
  (name test_stream_accumulator)
  (libraries agent_sdk llm_provider alcotest yojson))
+
+(test
+ (name test_cascade_config_ext)
+ (libraries llm_provider alcotest yojson unix))
+
+(test
+ (name test_complete_ext)
+ (libraries llm_provider alcotest yojson))
+
+(test
+ (name test_structured_ext)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_complete_http)
+ (libraries agent_sdk llm_provider alcotest yojson eio eio_main cohttp-eio))
+
+(test
+ (name test_agent_pipeline)
+ (libraries agent_sdk alcotest yojson eio eio_main cohttp-eio unix))
+
+(test
+ (name test_transport_integration)
+ (libraries agent_sdk alcotest yojson eio eio_main unix)
+ (deps ../bin/oas_runtime.exe))
+
+(test
+ (name test_conformance_pure)
+ (libraries agent_sdk alcotest yojson unix))
+
+(test
+ (name test_sessions_proof_unit)
+ (libraries agent_sdk alcotest yojson unix))
+
+(test
+ (name test_collaboration_deep)
+ (libraries agent_sdk alcotest yojson unix))
+
+(test
+ (name test_eval_report_full)
+ (libraries agent_sdk alcotest yojson unix str))
+
+(test
+ (name test_defaults_unit)
+ (libraries agent_sdk alcotest yojson unix))
+
+(test
+ (name test_a2a_full)
+ (libraries agent_sdk alcotest yojson unix))
+
+(test
+ (name test_mcp_deep)
+ (libraries agent_sdk alcotest yojson unix mcp_protocol))
+
+(test
+ (name test_runtime_store_unit)
+ (libraries agent_sdk alcotest yojson unix))
+
+(test
+ (name test_structured_deep)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_pipeline_deep)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_sessions_types_deep)
+ (libraries agent_sdk alcotest yojson unix))
+
+(test
+ (name test_raw_trace_deep)
+ (libraries agent_sdk alcotest yojson unix))
+
+(test
+ (name test_runtime_projection_unit)
+ (libraries agent_sdk alcotest yojson unix))
+
+(test
+ (name test_cascade_deep)
+ (libraries agent_sdk llm_provider alcotest yojson unix))
+
+(test
+ (name test_trajectory_unit)
+ (libraries agent_sdk alcotest yojson unix str))
+
+(test
+ (name test_agent_config_deep)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_a2a_task_unit)
+ (libraries agent_sdk alcotest yojson unix str))
+
+(test
+ (name test_harness_deep)
+ (libraries agent_sdk alcotest yojson unix eio eio_main))
+
+(test
+ (name test_direct_evidence_unit)
+ (libraries agent_sdk alcotest yojson unix))
+
+(test
+ (name test_transport_deep)
+ (libraries agent_sdk alcotest yojson unix eio eio_main))
+
+(test
+ (name test_autonomy_trace_unit)
+ (libraries agent_sdk alcotest yojson unix))
 
 (test
  (name test_capabilities)
