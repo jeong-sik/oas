@@ -44,8 +44,8 @@ let file_backend dir : Memory.long_term_backend =
 (* ── Main ────────────────────────────────────────────── *)
 
 let print_stats mem label =
-  let (s, w, l) = Memory.stats mem in
-  Printf.printf "  [%s] scratchpad=%d working=%d long_term=%d\n" label s w l
+  let (s, w, ep, pr, l) = Memory.stats mem in
+  Printf.printf "  [%s] scratchpad=%d working=%d episodic=%d procedural=%d long_term=%d\n" label s w ep pr l
 
 let () =
   let tmp_dir = Filename.concat (Filename.get_temp_dir_name ()) "oas_mem_demo" in
