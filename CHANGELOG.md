@@ -2,6 +2,36 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.77.0] - 2026-03-20
+
+### Added
+- **Plan module** (`Plan`): goal decomposition into ordered steps with dependency DAG. Step lifecycle (Pending/Running/Done/Failed/Skipped), re-planning, progress tracking, JSON serialization. Complementary to Durable (Plan = what to do, Durable = how to execute reliably). 20 tests.
+- `examples/plan_execute_demo.ml`: 4 scenarios (linear deployment, re-planning after failure, serialization, dependency graph).
+
+### Design decisions
+- Norm module deferred to MASC. Norms are inter-agent (social), not intra-agent. Principle: "agent itself = OAS, MASC = consumer".
+
+## [0.76.0] - 2026-03-20
+
+### Added
+- **Governance layer**: runtime governance for agent decisions.
+  - `Policy`: priority-ordered rule evaluation at 6 decision points (BeforeToolCall, BeforeHandoff, BeforeResponse, ResourceRequest, BeforeMemoryWrite, Custom) with 4 verdicts (Allow, Deny, AllowWithCondition, Escalate). 11 tests.
+  - `Audit`: immutable log of policy decisions with capacity eviction, query filters, JSON export. 11 tests.
+  - `Durable`: typed step chains with execution journal for crash recovery. Execute/resume/suspend with retry. JSON round-trip. 20 tests.
+- `test_governance_integration.ml`: 9 integration tests (Policy+Audit, Durable+Audit, full governance flow).
+- `examples/governance_demo.ml`: 6 scenarios (tool governance, handoff escalation, resource budget, durable pipeline, resume, serialization).
+- `Fs_result`: Result-based filesystem operations replacing scattered try/with patterns.
+- `Memory_tools`: agent-facing memory store/recall/forget tools.
+- `Verified_output`: phantom-typed compile-time output verification (`unverified`/`verified` type tags).
+- `Memory_access`: deny-by-default agent-scoped permission layer (prefix-based key patterns).
+- Gemini native backend: `contents/parts` wire format, `thinkingConfig`, `functionCall/Response`, SSE streaming. 30 tests.
+- Inline tests via `ppx_inline_test` for 13 modules.
+
+### Changed
+- 5 files migrated to `Fs_result`, removing 143 lines of duplicated I/O.
+- `Thread.create` replaced with `Eio.Fiber.fork` in runtime server.
+- `Digest.string` replaced with stable hash; 18 bare catch-all patterns eliminated.
+
 ## [0.75.0] - 2026-03-20
 
 ### Added

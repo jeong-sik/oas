@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/jeong-sik/oas/actions/workflows/ci.yml/badge.svg)](https://github.com/jeong-sik/oas/actions/workflows/ci.yml)
 
-A native OCaml implementation of the Anthropic Agent SDK using OCaml 5.x + Eio for structured concurrency. Supports Anthropic Messages API, OpenAI-compatible endpoints, and Ollama.
+A native OCaml implementation of the Anthropic Agent SDK using OCaml 5.x + Eio for structured concurrency. Supports Anthropic Messages API, OpenAI-compatible endpoints, and Gemini.
 
 - OCaml package: `agent_sdk`
 - OCaml module: `Agent_sdk`
@@ -66,7 +66,7 @@ let agent =
     ~tools:[] ()
 ```
 
-See `examples/` for more: `basic_agent.ml`, `tool_use.ml`, `streaming.ml`, `review_agent.ml`, `swarm_review.ml`.
+See `examples/` for more: `basic_agent.ml`, `tool_use.ml`, `streaming.ml`, `review_agent.ml`, `swarm_review.ml`, `governance_demo.ml`, `plan_execute_demo.ml`.
 
 ## Provider support
 
@@ -75,7 +75,7 @@ See `examples/` for more: `basic_agent.ml`, `tool_use.ml`, `streaming.ml`, `revi
 | Local (llama-server) | `Provider.Local { base_url }` | `http://127.0.0.1:8085` |
 | Anthropic | `Provider.Anthropic` | `https://api.anthropic.com` |
 | OpenAI-compatible | `Provider.OpenAICompat { base_url; ... }` | Any `/chat/completions` |
-| Ollama | `Provider.Ollama { base_url; mode }` | `http://127.0.0.1:11434` |
+| Gemini | `Provider.Gemini` | `https://generativelanguage.googleapis.com` |
 | OpenRouter | `Provider.openrouter ()` | `https://openrouter.ai/api/v1` |
 
 `Provider.resolve` returns `(base_url * api_key * headers, sdk_error) result`. Missing env vars produce `Error`, not silent fallback.
@@ -121,6 +121,13 @@ Layer 1: agent_sdk  (lib/)
 | `Streaming` | Multi-provider SSE parsing (Anthropic + OpenAI-compatible) |
 | `Pipeline` | 6-stage turn pipeline with Provider_intf routing |
 | `Contract` | Runtime contracts: instruction layers, triggers, tool grants |
+| `Memory` | 5-tier memory: Scratchpad, Working, Episodic, Procedural, Long_term |
+| `Memory_access` | Deny-by-default agent-scoped memory permissions |
+| `Verified_output` | Phantom-typed compile-time output verification |
+| `Policy` | Priority-ordered rule evaluation at decision points |
+| `Audit` | Immutable log of policy decisions and agent actions |
+| `Durable` | Typed step chains with execution journal for crash recovery |
+| `Plan` | Goal decomposition with dependency DAG and re-planning |
 
 ### Layer 2: Swarm Engine (`agent_sdk_swarm`)
 
@@ -141,11 +148,11 @@ Not all modules are equally stable. Use this to gauge risk when depending on a m
 
 **Evolving** -- API may change between minor versions:
 
-`Streaming`, `Structured`, `Orchestrator`, `Checkpoint`, `Mcp`, `Session`, `Skill`, `Subagent`, `Handoff`, `Contract`, `Context_reducer`, `Event_bus`, `Pipeline`, `Error_domain`, `Provider_intf`
+`Streaming`, `Structured`, `Orchestrator`, `Checkpoint`, `Mcp`, `Session`, `Skill`, `Subagent`, `Handoff`, `Contract`, `Context_reducer`, `Event_bus`, `Pipeline`, `Error_domain`, `Provider_intf`, `Memory`, `Memory_access`, `Collaboration`
 
 **Experimental** -- may be redesigned or removed:
 
-`Runtime`, `Transport`, `Client`, `Sessions`, `Conformance`, `Direct_evidence`, `Raw_trace`, `Otel_tracer`, `Checkpoint_store`, `Swarm_checkpoint`
+`Runtime`, `Transport`, `Client`, `Sessions`, `Conformance`, `Direct_evidence`, `Raw_trace`, `Otel_tracer`, `Checkpoint_store`, `Swarm_checkpoint`, `Verified_output`, `Policy`, `Audit`, `Durable`, `Plan`
 
 ## Tool definition
 
@@ -247,7 +254,7 @@ dune exec examples/review_agent.exe -- jeong-sik/oas 123
 
 ## Versioning
 
-0.50.0
+0.77.0
 
 We follow semver intent within the 0.x series:
 - **0.x.0**: May contain breaking changes with migration guide in CHANGELOG.
