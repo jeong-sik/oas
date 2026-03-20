@@ -69,3 +69,7 @@
 (executable
  (name observable_agent)
  (libraries agent_sdk llm_provider eio eio_main cohttp-eio yojson unix))
+
+(executable
+ (name governance_demo)
+ (libraries agent_sdk yojson unix))
