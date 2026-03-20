@@ -23,6 +23,7 @@ type options = {
   elicitation: Hooks.elicitation_callback option;
   description: string option;
   periodic_callbacks: periodic_callback list;
+  memory: Memory.t option;
 }
 
 (* Re-export lifecycle types from Agent_lifecycle.
@@ -72,6 +73,7 @@ let default_options = {
   skill_registry = None;
   elicitation = None;
   description = None;
+  memory = None;
   periodic_callbacks = [];
 }
 
@@ -98,6 +100,7 @@ let options t = t.options
 let net t = t.net
 let set_state t s = t.state <- s
 let description t = t.options.description
+let memory t = t.options.memory
 
 let sdk_version = Sdk_version.version
 

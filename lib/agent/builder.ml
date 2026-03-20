@@ -45,6 +45,7 @@ type t = {
   description: string option;
   periodic_callbacks: Agent.periodic_callback list;
   contract: Contract.t;
+  memory: Memory.t option;
 }
 
 let create ~net ~model =
@@ -89,6 +90,7 @@ let create ~net ~model =
     description = None;
     periodic_callbacks = [];
     contract = Contract.empty;
+    memory = None;
   }
 
 let with_system_prompt prompt b = { b with system_prompt = Some prompt }
@@ -139,6 +141,7 @@ let with_context_injector injector b = { b with context_injector = Some injector
 let with_skill_registry reg b = { b with skill_registry = Some reg }
 let with_elicitation cb b = { b with elicitation = Some cb }
 let with_description desc b = { b with description = Some desc }
+let with_memory mem b = { b with memory = Some mem }
 let with_periodic_callback cb b =
   { b with periodic_callbacks = b.periodic_callbacks @ [cb] }
 let with_periodic_callbacks cbs b =
@@ -204,6 +207,7 @@ let build b =
     elicitation = b.elicitation;
     description = b.description;
     periodic_callbacks = b.periodic_callbacks;
+    memory = b.memory;
   } in
   Agent.create ~net:b.net ~config ~tools:(Tool_set.to_list tools) ?context
     ?named_cascade:b.named_cascade ~options ()
