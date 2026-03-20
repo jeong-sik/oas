@@ -405,7 +405,7 @@ let test_latest_worker_by_no_match () =
 let () =
   Alcotest.run "Sessions_proof unit"
     [
-      ( "Sessions.participant_by_name",
+      ( "participant_by_name",
         [
           Alcotest.test_case "found" `Quick test_participant_by_name_found;
           Alcotest.test_case "not_found" `Quick
