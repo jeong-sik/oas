@@ -126,6 +126,9 @@ module Eval_baseline = Eval_baseline
 module Eval_report = Eval_report
 module Defaults = Defaults
 module Runtime_store = Runtime_store
+module Durable = Durable
+module Policy = Policy
+module Audit = Audit
 
 (** Quick start: create an agent with default config *)
 let create_agent ~net ?name ?model ?system_prompt ?max_tokens ?max_turns
