@@ -68,6 +68,24 @@ val filter_healthy :
   Provider_config.t list ->
   Provider_config.t list
 
+(** {1 Capability-Aware Filtering} *)
+
+(** Filter providers by a capability predicate.
+
+    Resolves capabilities per-model (via {!Capabilities.for_model_id})
+    with registry-level fallback. Removes providers that do not satisfy
+    [pred]. If all providers would be removed, returns the original list
+    unchanged (let the provider return an API error).
+
+    Example: filter to providers supporting tools:
+    {[ filter_by_capabilities ~pred:(fun c -> c.supports_tools) providers ]}
+
+    @since 0.78.0 *)
+val filter_by_capabilities :
+  pred:(Capabilities.capabilities -> bool) ->
+  Provider_config.t list ->
+  Provider_config.t list
+
 (** {1 Named Cascade Execution} *)
 
 (** Extract the concatenated text content from an API response.
