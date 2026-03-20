@@ -240,8 +240,8 @@ let parse_response json =
             | `Assoc _ as fc ->
                 let name = fc |> member "name" |> to_string in
                 let args = fc |> member "args" in
-                let id = Printf.sprintf "call_%s_%d"
-                    name (Hashtbl.hash (Yojson.Safe.to_string args))
+                let id = Printf.sprintf "call_%s_%s"
+                    name Digest.(to_hex (string (Yojson.Safe.to_string args)))
                 in
                 Some (ToolUse { id; name; input = args })
             | _ -> None
