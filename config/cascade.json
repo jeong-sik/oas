@@ -1,0 +1,4 @@
+{
+  "default_models": ["llama:auto", "glm:auto"],
+  "briefing_models": ["llama:auto", "glm:flash", "gemini:flash", "glm:auto"]
+}

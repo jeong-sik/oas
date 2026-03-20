@@ -209,6 +209,20 @@ let text_of_response (resp : Types.api_response) : string =
     | _ -> None)
   |> String.concat ""
 
+(* ── Model resolution: named → "default" → hardcoded ─── *)
+
+(* TODO: per-profile temperature / max_tokens overrides from JSON *)
+
+let resolve_model_strings ?config_path ~name ~defaults () =
+  match config_path with
+  | Some path ->
+    let from_file = load_profile ~config_path:path ~name in
+    if from_file <> [] then from_file
+    else
+      let fallback = load_profile ~config_path:path ~name:"default" in
+      if fallback <> [] then fallback else defaults
+  | None -> defaults
+
 (* ── Named cascade execution ───────────────────────────── *)
 
 (** Accept-aware cascade: try each provider, skip on failure or rejection. *)
@@ -283,14 +297,8 @@ let complete_named ~sw ~net ?clock ?config_path
     ?(tools = []) ?(temperature = 0.3) ?(max_tokens = 500)
     ?system_prompt ?(accept = fun _ -> true)
     ?timeout_sec ?cache ?metrics () =
-  (* 1. Load from config file, fall back to defaults *)
-  let model_strings =
-    match config_path with
-    | Some path ->
-      let from_file = load_profile ~config_path:path ~name in
-      if from_file <> [] then from_file else defaults
-    | None -> defaults
-  in
+  (* 1. Resolve: named profile → "default" profile → hardcoded defaults *)
+  let model_strings = resolve_model_strings ?config_path ~name ~defaults () in
   (* 2. Parse model strings → Provider_config.t list *)
   let providers =
     parse_model_strings ~temperature ~max_tokens ?system_prompt model_strings
@@ -394,12 +402,7 @@ let complete_named_stream ~sw ~net ?clock ?config_path
     ~name ~defaults ~messages
     ?(tools = []) ?(temperature = 0.3) ?(max_tokens = 500)
     ?system_prompt ?timeout_sec ?metrics ~on_event () =
-  let model_strings = match config_path with
-    | Some path ->
-      let from_file = load_profile ~config_path:path ~name in
-      if from_file <> [] then from_file else defaults
-    | None -> defaults
-  in
+  let model_strings = resolve_model_strings ?config_path ~name ~defaults () in
   let providers =
     parse_model_strings ~temperature ~max_tokens ?system_prompt model_strings
   in
@@ -535,6 +538,47 @@ let%test "text_of_response non-text blocks ignored" =
 let%test "load_profile nonexistent file returns empty" =
   Eio_main.run (fun _env ->
     load_profile ~config_path:"/nonexistent/file.json" ~name:"test" = [])
+
+let%test "resolve_model_strings no config_path returns defaults" =
+  resolve_model_strings ~name:"test" ~defaults:["llama:auto"] () = ["llama:auto"]
+
+let%test "resolve_model_strings nonexistent file returns defaults" =
+  Eio_main.run (fun _env ->
+    resolve_model_strings ~config_path:"/nonexistent.json"
+      ~name:"test" ~defaults:["llama:auto"] () = ["llama:auto"])
+
+let%test "resolve_model_strings named profile found" =
+  Eio_main.run (fun _env ->
+    let tmp = Filename.temp_file "cascade" ".json" in
+    let oc = open_out tmp in
+    output_string oc {|{"foo_models": ["glm:flash"]}|};
+    close_out oc;
+    let result = resolve_model_strings ~config_path:tmp
+      ~name:"foo" ~defaults:["llama:auto"] () in
+    Sys.remove tmp;
+    result = ["glm:flash"])
+
+let%test "resolve_model_strings falls back to default profile" =
+  Eio_main.run (fun _env ->
+    let tmp = Filename.temp_file "cascade" ".json" in
+    let oc = open_out tmp in
+    output_string oc {|{"default_models": ["glm:auto", "llama:auto"]}|};
+    close_out oc;
+    let result = resolve_model_strings ~config_path:tmp
+      ~name:"nonexistent" ~defaults:["fallback:x"] () in
+    Sys.remove tmp;
+    result = ["glm:auto"; "llama:auto"])
+
+let%test "resolve_model_strings named takes priority over default" =
+  Eio_main.run (fun _env ->
+    let tmp = Filename.temp_file "cascade" ".json" in
+    let oc = open_out tmp in
+    output_string oc {|{"named_models": ["glm:flash"], "default_models": ["llama:auto"]}|};
+    close_out oc;
+    let result = resolve_model_strings ~config_path:tmp
+      ~name:"named" ~defaults:["fallback:x"] () in
+    Sys.remove tmp;
+    result = ["glm:flash"])
 
 let%test "default_registry has 5 providers" =
   List.length (Provider_registry.all default_registry) = 5
