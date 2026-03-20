@@ -583,3 +583,35 @@
 (test
  (name test_cost_integration)
  (libraries agent_sdk alcotest yojson eio eio_main cohttp-eio unix))
+
+(test
+ (name test_mcp_coverage)
+ (libraries agent_sdk alcotest yojson mcp_protocol))
+
+(test
+ (name test_api_coverage)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_client_coverage)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_builder_coverage)
+ (libraries agent_sdk alcotest yojson eio eio_main))
+
+(test
+ (name test_streaming_cov)
+ (libraries agent_sdk llm_provider alcotest yojson))
+
+(test
+ (name test_orchestrator_coverage)
+ (libraries agent_sdk alcotest yojson eio eio_main unix))
+
+(test
+ (name test_skill_coverage)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_swarm_coverage)
+ (libraries agent_sdk agent_sdk_swarm alcotest yojson eio eio_main unix))
