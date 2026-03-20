@@ -93,7 +93,8 @@ let test_thinking_config () =
   let gen = json |> member "generationConfig" in
   let tc = gen |> member "thinkingConfig" in
   check bool "has thinkingConfig" true (tc <> `Null);
-  check int "thinkingBudget" 8000 (tc |> member "thinkingBudget" |> to_int)
+  check int "thinkingBudget" 8000 (tc |> member "thinkingBudget" |> to_int);
+  check bool "includeThoughts" true (tc |> member "includeThoughts" |> to_bool)
 
 let test_tools () =
   let config = gemini_config () in

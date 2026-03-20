@@ -167,7 +167,8 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
          | Some b -> b | None -> 10000 in
        gen_config :=
          ("thinkingConfig", `Assoc [
-           ("thinkingBudget", `Int budget)
+           ("thinkingBudget", `Int budget);
+           ("includeThoughts", `Bool true);
          ]) :: !gen_config
    | _ -> ());
   (* JSON mode *)
