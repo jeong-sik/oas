@@ -158,18 +158,20 @@ let test_parse_model_strings_with_params () =
 (* ── load_json / load_profile ────────────────────────────────── *)
 
 let test_load_json_nonexistent () =
+  Eio_main.run @@ fun _env ->
   let path = "/tmp/cascade_nonexistent_file_12345.json" in
-  (* load_profile should return [] for nonexistent file *)
   let r = Cascade_config.load_profile ~config_path:path ~name:"test" in
   Alcotest.(check int) "nonexistent -> empty" 0 (List.length r)
 
 let test_load_json_invalid_json () =
+  Eio_main.run @@ fun _env ->
   let path = write_temp_file "not valid json {{{" in
   let r = Cascade_config.load_profile ~config_path:path ~name:"test" in
   Alcotest.(check int) "invalid json -> empty" 0 (List.length r);
   Sys.remove path
 
 let test_load_profile_valid () =
+  Eio_main.run @@ fun _env ->
   let json = {|{"myprofile_models": ["llama:qwen", "custom:x@http://a.b"]}|} in
   let path = write_temp_file json in
   let r = Cascade_config.load_profile ~config_path:path ~name:"myprofile" in
@@ -179,6 +181,7 @@ let test_load_profile_valid () =
   Sys.remove path
 
 let test_load_profile_missing_key () =
+  Eio_main.run @@ fun _env ->
   let json = {|{"other_models": ["llama:qwen"]}|} in
   let path = write_temp_file json in
   let r = Cascade_config.load_profile ~config_path:path ~name:"myprofile" in
@@ -186,6 +189,7 @@ let test_load_profile_missing_key () =
   Sys.remove path
 
 let test_load_profile_non_string_items () =
+  Eio_main.run @@ fun _env ->
   let json = {|{"test_models": ["llama:a", 42, "llama:b", null]}|} in
   let path = write_temp_file json in
   let r = Cascade_config.load_profile ~config_path:path ~name:"test" in
@@ -193,6 +197,7 @@ let test_load_profile_non_string_items () =
   Sys.remove path
 
 let test_load_profile_not_a_list () =
+  Eio_main.run @@ fun _env ->
   let json = {|{"test_models": "not-a-list"}|} in
   let path = write_temp_file json in
   let r = Cascade_config.load_profile ~config_path:path ~name:"test" in
@@ -200,6 +205,7 @@ let test_load_profile_not_a_list () =
   Sys.remove path
 
 let test_load_json_caching () =
+  Eio_main.run @@ fun _env ->
   let json = {|{"cache_models": ["llama:m1"]}|} in
   let path = write_temp_file json in
   let r1 = Cascade_config.load_profile ~config_path:path ~name:"cache" in

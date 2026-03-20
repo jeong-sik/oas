@@ -210,7 +210,7 @@ let call_tool t ~name ~arguments =
     let is_error = try
       result |> member "isError" |> to_bool_option
       |> Option.value ~default:false
-    with Yojson.Safe.Util.Type_error _ -> false
+    with Yojson.Safe.Util.Type_error _ | Not_found -> false
     in
     if is_error then
       (Error { Types.message = content; recoverable = true } : Types.tool_result)

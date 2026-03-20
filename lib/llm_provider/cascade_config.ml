@@ -149,11 +149,10 @@ let parse_model_strings ?(temperature = 0.3) ?(max_tokens = 500)
 
 let config_cache : (string, float * Yojson.Safe.t) Hashtbl.t =
   Hashtbl.create 4
-let config_cache_mu = Mutex.create ()
+let config_cache_mu = Eio.Mutex.create ()
 
 let load_json path =
-  Mutex.lock config_cache_mu;
-  Fun.protect ~finally:(fun () -> Mutex.unlock config_cache_mu) (fun () ->
+  Eio.Mutex.use_rw ~protect:true config_cache_mu (fun () ->
     try
       let st = Unix.stat path in
       let mtime = st.Unix.st_mtime in
@@ -586,7 +585,8 @@ let%test "text_of_response non-text blocks ignored" =
   text_of_response resp = "only this"
 
 let%test "load_profile nonexistent file returns empty" =
-  load_profile ~config_path:"/nonexistent/file.json" ~name:"test" = []
+  Eio_main.run (fun _env ->
+    load_profile ~config_path:"/nonexistent/file.json" ~name:"test" = [])
 
 let%test "known_providers has 5 entries" =
   List.length known_providers = 5
@@ -597,8 +597,8 @@ let%test "llama_defaults has OpenAI_compat kind" =
 let%test "claude_defaults has Anthropic kind" =
   claude_defaults.kind = Anthropic
 
-let%test "gemini_defaults has OpenAI_compat kind" =
-  gemini_defaults.kind = OpenAI_compat
+let%test "gemini_defaults has Gemini kind" =
+  gemini_defaults.kind = Gemini
 
 let%test "glm_defaults has OpenAI_compat kind" =
   glm_defaults.kind = OpenAI_compat

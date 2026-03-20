@@ -79,6 +79,7 @@ let with_temp_json content f =
     (fun () -> f path)
 
 let test_load_profile_found () =
+  Eio_main.run @@ fun _env ->
   with_temp_json
     {|{"test_action_models": ["llama:qwen3.5", "glm:auto"]}|}
     (fun path ->
@@ -90,6 +91,7 @@ let test_load_profile_found () =
        check string "second" "glm:auto" (List.nth models 1))
 
 let test_load_profile_missing_key () =
+  Eio_main.run @@ fun _env ->
   with_temp_json {|{"other_models": ["llama:x"]}|} (fun path ->
     let models =
       Cascade_config.load_profile ~config_path:path ~name:"nonexistent"
@@ -97,6 +99,7 @@ let test_load_profile_missing_key () =
     check int "empty" 0 (List.length models))
 
 let test_load_profile_missing_file () =
+  Eio_main.run @@ fun _env ->
   let models =
     Cascade_config.load_profile
       ~config_path:"/tmp/does_not_exist_cascade.json"
@@ -105,6 +108,7 @@ let test_load_profile_missing_file () =
   check int "empty on missing file" 0 (List.length models)
 
 let test_load_profile_hot_reload () =
+  Eio_main.run @@ fun _env ->
   let path = Filename.temp_file "cascade_reload_" ".json" in
   Fun.protect
     ~finally:(fun () -> try Sys.remove path with _ -> ())
