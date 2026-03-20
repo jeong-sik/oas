@@ -23,12 +23,27 @@ type tier =
 
 (** {1 Long-term backend} *)
 
-(** Callback for long-term memory persistence. *)
+(** Callback for long-term memory persistence.
+
+    [persist] and [remove] return [Ok ()] on success or [Error reason].
+    [batch_persist] atomically stores multiple key-value pairs.
+    [query] returns entries whose keys start with [prefix], up to [limit]. *)
 type long_term_backend = {
-  persist: key:string -> Yojson.Safe.t -> unit;
+  persist: key:string -> Yojson.Safe.t -> (unit, string) result;
   retrieve: key:string -> Yojson.Safe.t option;
-  remove: key:string -> unit;
+  remove: key:string -> (unit, string) result;
+  batch_persist: (string * Yojson.Safe.t) list -> (unit, string) result;
+  query: prefix:string -> limit:int -> (string * Yojson.Safe.t) list;
 }
+
+(** Wrap legacy callbacks that return [unit] into a {!long_term_backend}
+    where [persist]/[remove] always return [Ok ()],
+    [batch_persist] iterates, and [query] returns [[]]. *)
+val legacy_backend :
+  persist:(key:string -> Yojson.Safe.t -> unit) ->
+  retrieve:(key:string -> Yojson.Safe.t option) ->
+  remove:(key:string -> unit) ->
+  long_term_backend
 
 (** {1 Abstract type} *)
 
