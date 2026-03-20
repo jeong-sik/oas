@@ -506,3 +506,55 @@ module Composability = struct
             obs.total_turns limit);
       }
 end
+
+(* ── Model grader ──────────────────────────────────────────── *)
+
+module Model_grader = struct
+  (** Configuration for LLM-based evaluation. *)
+  type config = {
+    prompt_template: string;   (** Must contain {goal} and {result} placeholders *)
+    rubric: string;            (** Evaluation criteria *)
+    weight: float;             (** 0.0-1.0 weight for this grader *)
+  }
+
+  (** Grade a result using an LLM.
+      [complete_fn] is a dependency-injected completion function.
+      Returns a verdict with score extracted from the LLM response.
+
+      The prompt is constructed by replacing \{goal\} and \{result\}
+      in the template, appending the rubric. The LLM response is
+      parsed for a numeric score (first float found). *)
+  let grade ~complete_fn (config : config) ~goal ~result : verdict =
+    let prompt = config.prompt_template
+      |> Str.global_replace (Str.regexp_string "{goal}") goal
+      |> Str.global_replace (Str.regexp_string "{result}") result
+    in
+    let full_prompt = Printf.sprintf "%s\n\nRubric:\n%s\n\nRespond with a score from 0.0 to 1.0 on the first line, then explanation."
+      prompt config.rubric
+    in
+    match complete_fn full_prompt with
+    | Error msg ->
+      { passed = false; score = None;
+        evidence = [Printf.sprintf "grader_error=%s" msg];
+        detail = Some (Printf.sprintf "Model grader failed: %s" msg) }
+    | Ok response ->
+      (* Extract first float from response *)
+      let score = try
+        let _ = Str.search_forward (Str.regexp {|[0-9]+\.[0-9]+|}) response 0 in
+        Some (float_of_string (Str.matched_string response))
+      with Not_found | Failure _ -> None
+      in
+      let score = Option.map (fun s -> Float.min 1.0 (Float.max 0.0 s)) score in
+      let passed = match score with
+        | Some s -> s >= 0.5 *. config.weight
+        | None -> false
+      in
+      { passed; score;
+        evidence = [
+          Printf.sprintf "weight=%.2f" config.weight;
+          Printf.sprintf "response_len=%d" (String.length response);
+        ];
+        detail = match score with
+          | Some s -> Some (Printf.sprintf "Score: %.2f (weight: %.2f)" s config.weight)
+          | None -> Some "Could not extract score from model response" }
+end

@@ -146,3 +146,13 @@ val find_metric : run_metrics -> string -> metric option
 
 (** Find a metric value by name. *)
 val find_metric_value : run_metrics -> string -> metric_value option
+
+(** {1 Statistical regression detection} *)
+
+(** Compare multiple baseline runs against candidate runs.
+    Uses Welch's t-test per metric. Returns list of regressed
+    metric names with optional Cohen's d effect sizes. *)
+val compare_statistical :
+  baselines:run_metrics list ->
+  candidates:run_metrics list ->
+  (string * float option) list
