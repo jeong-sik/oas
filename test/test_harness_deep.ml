@@ -200,7 +200,7 @@ let test_regression_structural_match_fail () =
   Alcotest.(check bool) "structural mismatch" false v.passed
 
 let test_regression_structural_invalid_golden_json () =
-  (* golden is not valid JSON -> parsed as `Null *)
+  (* invalid golden JSON should fail instead of silently coercing to `Null *)
   let cmp a b = a = b in
   let obs : Harness.Regression.observation =
     { output_json = `Null; output_text = "x" }
@@ -208,8 +208,7 @@ let test_regression_structural_invalid_golden_json () =
   let v =
     Harness.Regression.evaluate ~mode:(StructuralMatch cmp) obs "not json {{"
   in
-  (* golden parsed as `Null, obs is `Null, so cmp `Null `Null = true *)
-  Alcotest.(check bool) "invalid golden -> Null comparison" true v.passed
+  Alcotest.(check bool) "invalid golden fails" false v.passed
 
 let test_regression_fuzzy_threshold_boundary () =
   (* "abcde" vs "abcXX" -> common=3, max_len=5, similarity=0.6 *)

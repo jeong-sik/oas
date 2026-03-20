@@ -129,12 +129,15 @@ let compare ?(tolerance_pct = 5.0) ~baseline ~(current : Eval.run_metrics) () : 
 
 (** pass\@k metric: fraction of [k] runs that pass all harness verdicts. *)
 let pass_at_k (runs : Eval.run_metrics list) : float =
-  if runs = [] then 0.0
+  let evaluated = List.filter (fun (rm : Eval.run_metrics) ->
+    rm.harness_verdicts <> []
+  ) runs in
+  if evaluated = [] then 0.0
   else
     let passed = List.length (List.filter (fun (rm : Eval.run_metrics) ->
       List.for_all (fun (v : Harness.verdict) -> v.passed) rm.harness_verdicts
-    ) runs) in
-    float_of_int passed /. float_of_int (List.length runs)
+    ) evaluated) in
+    float_of_int passed /. float_of_int (List.length evaluated)
 
 (** Format a metric diff for display. *)
 let show_diff = function

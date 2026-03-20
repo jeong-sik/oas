@@ -1,8 +1,11 @@
-(** Sandbox_runner — isolated agent execution with timeout and metric collection.
+(** Sandbox_runner — single-call probe execution with timeout and metric collection.
 
     Runs an agent function in a controlled environment, captures trajectory,
     and enforces resource limits. Uses pure counter-based limits (no Eio
-    dependency) for test portability. *)
+    dependency) for test portability.
+
+    This module records a single invocation of [run_fn]. For multi-case,
+    fresh-agent harness execution use {!Harness_runner}. *)
 
 (** {1 Configuration} *)
 
@@ -40,6 +43,15 @@ type sandbox_result = {
     The result contains the captured trajectory, collected metrics,
     and resource-budget verdicts. *)
 val run :
+  config:sandbox_config ->
+  agent_name:string ->
+  model:string ->
+  prompt:string ->
+  run_fn:(string -> (Types.api_response, Error.sdk_error) result) ->
+  sandbox_result
+
+(** Alias for {!run} that makes the single-call semantics explicit. *)
+val run_once :
   config:sandbox_config ->
   agent_name:string ->
   model:string ->

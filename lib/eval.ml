@@ -89,6 +89,19 @@ let show_metric m =
 
 let pp_metric fmt m = Format.fprintf fmt "%s" (show_metric m)
 
+(* ── Metric comparison policy ─────────────────────────────────── *)
+
+type metric_goal =
+  | Higher
+  | Lower
+  | Exact
+
+type metric_spec = {
+  name: string;
+  goal: metric_goal;
+  tolerance_pct: float option;
+}
+
 (* ── Run metrics ──────────────────────────────────────────────── *)
 
 type run_metrics = {
@@ -223,12 +236,55 @@ let compute_delta ?(threshold_pct = default_delta_threshold_pct) ~baseline_val ~
     (direction, None)
   | _ -> (Unchanged, None)
 
-let compare ~(baseline : run_metrics) ~(candidate : run_metrics) =
+let compute_delta_for_goal ?(threshold_pct = default_delta_threshold_pct) ~goal ~baseline_val
+    ~candidate_val () =
+  match goal with
+  | Lower ->
+    compute_delta ~threshold_pct ~baseline_val ~candidate_val ()
+  | Higher ->
+    let direction, pct = compute_delta ~threshold_pct ~baseline_val:candidate_val
+      ~candidate_val:baseline_val ()
+    in
+    let pct = Option.map (~-.) pct in
+    (direction, pct)
+  | Exact ->
+    (match metric_value_to_float baseline_val, metric_value_to_float candidate_val with
+     | Some bv, Some cv ->
+       let diff = Float.abs (cv -. bv) in
+       let pct =
+         if Float.abs bv < 1e-10 then None
+         else Some (diff /. Float.abs bv *. 100.0)
+       in
+       let direction =
+         match pct with
+         | Some v when v > threshold_pct -> Regression
+         | None when diff > 0.0 -> Regression
+         | _ -> Unchanged
+       in
+       (direction, pct)
+     | _ ->
+       if baseline_val = candidate_val then (Unchanged, None)
+       else (Regression, None))
+
+let compare_with specs ~(baseline : run_metrics) ~(candidate : run_metrics) =
   let deltas = List.filter_map (fun (bm : metric) ->
     match List.find_opt (fun (cm : metric) -> cm.name = bm.name) candidate.metrics with
     | None -> None
     | Some cm ->
-      let (direction, delta_pct) = compute_delta ~baseline_val:bm.value ~candidate_val:cm.value () in
+      let direction, delta_pct =
+        match specs with
+        | None ->
+          compute_delta ~baseline_val:bm.value ~candidate_val:cm.value ()
+        | Some specs ->
+          let threshold_pct, goal =
+            match List.find_opt (fun (spec : metric_spec) -> spec.name = bm.name) specs with
+            | None -> (default_delta_threshold_pct, Lower)
+            | Some spec ->
+              (Option.value spec.tolerance_pct ~default:default_delta_threshold_pct, spec.goal)
+          in
+          compute_delta_for_goal ~threshold_pct ~goal ~baseline_val:bm.value
+            ~candidate_val:cm.value ()
+      in
       Some {
         metric_name = bm.name;
         baseline_value = bm.value;
@@ -241,6 +297,12 @@ let compare ~(baseline : run_metrics) ~(candidate : run_metrics) =
   let improvements = List.filter (fun d -> d.direction = Improvement) deltas in
   let unchanged = List.filter (fun d -> d.direction = Unchanged) deltas in
   { baseline; candidate; regressions; improvements; unchanged }
+
+let compare ~(baseline : run_metrics) ~(candidate : run_metrics) =
+  compare_with None ~baseline ~candidate
+
+let compare_with_specs ~specs ~(baseline : run_metrics) ~(candidate : run_metrics) =
+  compare_with (Some specs) ~baseline ~candidate
 
 (* ── Threshold checking ───────────────────────────────────────── *)
 

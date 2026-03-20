@@ -1,0 +1,1 @@
+{"id":"hello-replay","kind":"trace_replay","prompt":"Say hello from replay","tags":["example","trace-replay"],"assertions":[{"type":"response_exact_text","value":"hello from replay"},{"type":"trace_succeeds"},{"type":"trace_max_turns","value":1}],"artifacts":["examples/evals/hello-trace.ndjson"],"source_trace_path":"examples/evals/hello-trace.ndjson"}
