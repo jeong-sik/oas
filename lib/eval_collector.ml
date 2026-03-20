@@ -17,7 +17,7 @@ type t = {
   mutable turn_count: int;
   mutable tool_calls: int;
   mutable tool_completions: int;
-  mutable start_time: float;
+  start_time: float;
 }
 
 let wrap_run ~bus ~agent_name ~run_id () =
