@@ -560,3 +560,86 @@ let get_conformance ~agent ~raw_trace ~options () =
 let run_conformance ~agent ~raw_trace ~options () =
   let* report = get_conformance ~agent ~raw_trace ~options () in
   Ok report
+
+[@@@coverage off]
+(* === Inline tests === *)
+
+let%test "safe_name replaces slashes and spaces" =
+  safe_name "my agent/v1" = "my_agent_v1"
+
+let%test "safe_name replaces backslash" =
+  safe_name "path\\to" = "path_to"
+
+let%test "safe_name replaces tab and newline" =
+  safe_name "a\tb\nc" = "a_b_c"
+
+let%test "safe_name trims whitespace" =
+  safe_name "  agent  " = "agent"
+
+let%test "safe_name empty string becomes agent" =
+  safe_name "" = "agent"
+
+let%test "safe_name whitespace only becomes agent" =
+  safe_name "   " = "agent"
+
+let%test "safe_name normal string unchanged" =
+  safe_name "my-agent_v1" = "my-agent_v1"
+
+let%test "primary_alias returns first non-empty alias" =
+  primary_alias ["alice"; "bob"] = Some "alice"
+
+let%test "primary_alias empty list returns None" =
+  primary_alias [] = None
+
+let%test "primary_alias blank first returns None" =
+  primary_alias ["  "; "bob"] = None
+
+let%test "worker_status_of_lifecycle Accepted" =
+  worker_status_of_lifecycle Agent.Accepted = Sessions.Accepted
+
+let%test "worker_status_of_lifecycle Ready" =
+  worker_status_of_lifecycle Agent.Ready = Sessions.Ready
+
+let%test "worker_status_of_lifecycle Running" =
+  worker_status_of_lifecycle Agent.Running = Sessions.Running
+
+let%test "worker_status_of_lifecycle Completed" =
+  worker_status_of_lifecycle Agent.Completed = Sessions.Completed
+
+let%test "worker_status_of_lifecycle Failed" =
+  worker_status_of_lifecycle Agent.Failed = Sessions.Failed
+
+let%test "empty_raw_details has expected defaults" =
+  empty_raw_details.validated = false
+  && empty_raw_details.tool_names = []
+  && empty_raw_details.final_text = None
+  && empty_raw_details.stop_reason = None
+  && empty_raw_details.error = None
+  && empty_raw_details.paired_tool_result_count = 0
+  && empty_raw_details.has_file_write = false
+  && empty_raw_details.verification_pass_after_file_write = false
+  && empty_raw_details.failure_reason = None
+
+let%test "validation_error creates Io error" =
+  match validation_error "test detail" with
+  | Error.Io (ValidationFailed { detail }) -> detail = "test detail"
+  | _ -> false
+
+let%test "workdir_policy_to_json Required" =
+  workdir_policy_to_json Tool.Required = `String "required"
+
+let%test "workdir_policy_to_json Recommended" =
+  workdir_policy_to_json Tool.Recommended = `String "recommended"
+
+let%test "workdir_policy_to_json None_expected" =
+  workdir_policy_to_json Tool.None_expected = `String "none_expected"
+
+let%test "make_event creates event with correct fields" =
+  let event = make_event 42 1234.0 (Session_started { goal = "test"; participants = ["a"] }) in
+  event.seq = 42 && event.ts = 1234.0
+
+let%test "extract_prompt empty records returns empty" =
+  extract_prompt [] = ""
+
+let%test "extract_text_deltas empty records returns empty" =
+  extract_text_deltas [] = []

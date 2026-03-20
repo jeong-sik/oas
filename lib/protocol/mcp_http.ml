@@ -252,3 +252,64 @@ let connect_and_load_managed ~sw ~net (spec : http_spec) :
 (** @deprecated Use {!connect_and_load_managed} instead.
     Kept for backward compatibility. *)
 let connect_and_load ~sw ~net spec = connect_and_load_managed ~sw ~net spec
+
+[@@@coverage off]
+(* === Inline tests === *)
+
+let%test "parse_sse_body extracts last data line" =
+  let body = "event: message\ndata: {\"result\":\"ok\"}\n\n" in
+  match parse_sse_body body with
+  | Some (`Assoc [("result", `String "ok")]) -> true
+  | _ -> false
+
+let%test "parse_sse_body multiple data lines takes last" =
+  let body = "data: {\"first\":true}\ndata: {\"last\":true}\n" in
+  match parse_sse_body body with
+  | Some (`Assoc [("last", `Bool true)]) -> true
+  | _ -> false
+
+let%test "parse_sse_body empty body returns None" =
+  parse_sse_body "" = None
+
+let%test "parse_sse_body no data lines returns None" =
+  parse_sse_body "event: ping\n\n" = None
+
+let%test "parse_sse_body data with spaces after colon" =
+  let body = "data:   {\"x\":1}\n" in
+  match parse_sse_body body with
+  | Some (`Assoc [("x", `Int 1)]) -> true
+  | _ -> false
+
+let%test "parse_sse_body invalid json returns None" =
+  let body = "data: not-valid-json\n" in
+  parse_sse_body body = None
+
+let%test "parse_response_body json content type" =
+  let body = "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":true}" in
+  match parse_response_body ~content_type:(Some "application/json") body with
+  | Some (`Assoc _) -> true
+  | _ -> false
+
+let%test "parse_response_body sse content type" =
+  let body = "data: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":42}\n\n" in
+  match parse_response_body ~content_type:(Some "text/event-stream; charset=utf-8") body with
+  | Some (`Assoc _) -> true
+  | _ -> false
+
+let%test "parse_response_body no content type defaults to json" =
+  let body = "{\"ok\":true}" in
+  match parse_response_body ~content_type:None body with
+  | Some (`Assoc [("ok", `Bool true)]) -> true
+  | _ -> false
+
+let%test "parse_response_body invalid json returns None" =
+  parse_response_body ~content_type:(Some "application/json") "bad{" = None
+
+let%test "default_config has expected base_url" =
+  default_config.base_url = "http://localhost:8080"
+
+let%test "default_config has expected reconnect_max_s" =
+  default_config.reconnect_max_s = 30.0
+
+let%test "default_config has expected request_timeout_s" =
+  default_config.request_timeout_s = 30.0

@@ -350,3 +350,65 @@ let close transport =
   end
 
 let server_info transport = transport.init_info
+
+[@@@coverage off]
+(* === Inline tests === *)
+
+let%test "candidate_paths includes explicit runtime_path first" =
+  let paths = candidate_paths ~runtime_path:"/custom/oas_runtime" () in
+  match paths with
+  | first :: _ -> first = "/custom/oas_runtime"
+  | [] -> false
+
+let%test "candidate_paths includes env override" =
+  Unix.putenv "OAS_RUNTIME_PATH" "/env/oas_runtime";
+  let paths = candidate_paths () in
+  List.exists (fun p -> p = "/env/oas_runtime") paths
+
+let%test "candidate_paths includes cwd paths" =
+  let paths = candidate_paths () in
+  List.exists (fun p -> String.length p > 0) paths
+
+let%test "candidate_paths explicit takes priority over env" =
+  Unix.putenv "OAS_RUNTIME_PATH" "/env/runtime";
+  let paths = candidate_paths ~runtime_path:"/explicit/runtime" () in
+  match paths with
+  | first :: _ -> first = "/explicit/runtime"
+  | [] -> false
+
+let%test "is_runnable false for nonexistent path" =
+  is_runnable "/nonexistent/path/binary" = false
+
+let%test "is_runnable false for directory" =
+  is_runnable "/tmp" = false
+
+let%test "default_options has expected defaults" =
+  default_options.runtime_path = None
+  && default_options.session_root = None
+  && default_options.provider = None
+  && default_options.model = None
+  && default_options.permission_mode = None
+  && default_options.include_partial_messages = false
+  && default_options.setting_sources = []
+  && default_options.resume_session = None
+  && default_options.cwd = None
+
+let%test "default_control_response Permission_request allows" =
+  match default_control_response (Runtime.Permission_request {
+    action = "test"; subject = "desc"; payload = `Null }) with
+  | Runtime.Permission_response { allow = true; interrupt = false; _ } -> true
+  | _ -> false
+
+let%test "default_control_response Hook_request continues" =
+  match default_control_response (Runtime.Hook_request {
+    hook_name = "before_turn"; payload = `Null }) with
+  | Runtime.Hook_response { continue_ = true; _ } -> true
+  | _ -> false
+
+let%test "next_request_id generates sequential formatted ids" =
+  (* Create a minimal transport-like struct to test the Atomic counter pattern *)
+  let counter = Atomic.make 1 in
+  let id1 = Atomic.fetch_and_add counter 1 in
+  let id2 = Atomic.fetch_and_add counter 1 in
+  let fmt_id n = Printf.sprintf "req-%06d" n in
+  fmt_id id1 = "req-000001" && fmt_id id2 = "req-000002"

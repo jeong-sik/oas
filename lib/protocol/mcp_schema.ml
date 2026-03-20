@@ -65,3 +65,74 @@ let mcp_tool_to_sdk_tool ~call_fn mcp_tool =
     ~description:mcp_tool.description
     ~parameters:params
     call_fn
+
+[@@@coverage off]
+(* === Inline tests === *)
+
+let%test "json_schema_type_to_param_type string" =
+  json_schema_type_to_param_type "string" = Types.String
+
+let%test "json_schema_type_to_param_type integer" =
+  json_schema_type_to_param_type "integer" = Types.Integer
+
+let%test "json_schema_type_to_param_type number" =
+  json_schema_type_to_param_type "number" = Types.Number
+
+let%test "json_schema_type_to_param_type boolean" =
+  json_schema_type_to_param_type "boolean" = Types.Boolean
+
+let%test "json_schema_type_to_param_type array" =
+  json_schema_type_to_param_type "array" = Types.Array
+
+let%test "json_schema_type_to_param_type object" =
+  json_schema_type_to_param_type "object" = Types.Object
+
+let%test "json_schema_type_to_param_type unknown defaults to string" =
+  json_schema_type_to_param_type "foobar" = Types.String
+
+let%test "json_schema_to_params basic schema" =
+  let schema = `Assoc [
+    ("type", `String "object");
+    ("properties", `Assoc [
+      ("name", `Assoc [("type", `String "string"); ("description", `String "the name")]);
+      ("count", `Assoc [("type", `String "integer"); ("description", `String "a count")]);
+    ]);
+    ("required", `List [`String "name"]);
+  ] in
+  let params = json_schema_to_params schema in
+  List.length params = 2
+  && (List.find (fun (p : Types.tool_param) -> p.name = "name") params).required = true
+  && (List.find (fun (p : Types.tool_param) -> p.name = "count") params).required = false
+
+let%test "json_schema_to_params empty properties" =
+  let schema = `Assoc [("properties", `Assoc [])] in
+  json_schema_to_params schema = []
+
+let%test "json_schema_to_params no properties key" =
+  let schema = `Assoc [] in
+  json_schema_to_params schema = []
+
+let%test "json_schema_to_params non-assoc properties" =
+  let schema = `Assoc [("properties", `List [])] in
+  json_schema_to_params schema = []
+
+let%test "mcp_tool_of_sdk_tool converts correctly" =
+  let sdk_tool : Sdk_types.tool = {
+    name = "test_tool";
+    description = Some "A test tool";
+    input_schema = `Assoc [("type", `String "object")];
+    title = None; annotations = None; icon = None;
+  } in
+  let result = mcp_tool_of_sdk_tool sdk_tool in
+  result.name = "test_tool"
+  && result.description = "A test tool"
+
+let%test "mcp_tool_of_sdk_tool None description becomes empty" =
+  let sdk_tool : Sdk_types.tool = {
+    name = "tool2";
+    description = None;
+    input_schema = `Assoc [];
+    title = None; annotations = None; icon = None;
+  } in
+  let result = mcp_tool_of_sdk_tool sdk_tool in
+  result.description = ""

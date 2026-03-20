@@ -491,3 +491,127 @@ let connect_all_best_effort ~sw ~mgr specs =
         loop (m :: ok_acc) err_acc rest
   in
   loop [] [] specs
+
+[@@@coverage off]
+(* === Inline tests === *)
+
+let%test "output_token_budget returns default 25000" =
+  (* Unset env var to test default *)
+  (match Sys.getenv_opt "OAS_MCP_OUTPUT_MAX_TOKENS" with
+   | Some _ -> Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "";
+   | None -> ());
+  let budget = output_token_budget () in
+  budget = 25_000
+
+let%test "truncate_output short string unchanged" =
+  (* Ensure default budget *)
+  (match Sys.getenv_opt "OAS_MCP_OUTPUT_MAX_TOKENS" with
+   | Some _ -> Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "";
+   | None -> ());
+  truncate_output "hello" = "hello"
+
+let%test "truncate_output long string gets truncated" =
+  Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "10";
+  let s = String.make 200 'x' in
+  let result = truncate_output s in
+  (* 10 tokens * 4 chars = 40 chars max *)
+  String.length result <= 40 + String.length "\n...[oas mcp output truncated]"
+  && String.length result > 0
+
+let%test "text_of_tool_result extracts text content" =
+  Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "10000";
+  let r : Sdk_types.tool_result = {
+    content = [
+      Sdk_types.TextContent { type_ = "text"; text = "hello"; annotations = None };
+      Sdk_types.TextContent { type_ = "text"; text = "world"; annotations = None };
+    ];
+    is_error = None;
+    structured_content = None;
+  } in
+  text_of_tool_result r = "hello\nworld"
+
+let%test "text_of_tool_result empty content" =
+  Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "10000";
+  let r : Sdk_types.tool_result = { content = []; is_error = None; structured_content = None } in
+  text_of_tool_result r = ""
+
+let%test "mcp_tool_of_json valid tool" =
+  let json = `Assoc [
+    ("name", `String "test_tool");
+    ("description", `String "A test tool");
+    ("inputSchema", `Assoc [("type", `String "object")]);
+  ] in
+  match mcp_tool_of_json json with
+  | Some tool -> tool.name = "test_tool" && tool.description = "A test tool"
+  | None -> false
+
+let%test "mcp_tool_of_json with input_schema variant" =
+  let json = `Assoc [
+    ("name", `String "tool2");
+    ("input_schema", `Assoc [("type", `String "object")]);
+  ] in
+  match mcp_tool_of_json json with
+  | Some tool -> tool.name = "tool2" && tool.input_schema = `Assoc [("type", `String "object")]
+  | None -> false
+
+let%test "mcp_tool_of_json missing name returns None" =
+  let json = `Assoc [("description", `String "no name")] in
+  mcp_tool_of_json json = None
+
+let%test "mcp_tool_of_json non-assoc returns None" =
+  mcp_tool_of_json (`String "bad") = None
+
+let%test "mcp_tool_of_json name not a string returns None" =
+  let json = `Assoc [("name", `Int 42)] in
+  mcp_tool_of_json json = None
+
+let%test "mcp_tool_of_json missing description defaults to empty" =
+  let json = `Assoc [("name", `String "minimal")] in
+  match mcp_tool_of_json json with
+  | Some tool -> tool.description = ""
+  | None -> false
+
+let%test "mcp_tool_of_json missing schema defaults to empty assoc" =
+  let json = `Assoc [("name", `String "no_schema")] in
+  match mcp_tool_of_json json with
+  | Some tool -> tool.input_schema = `Assoc []
+  | None -> false
+
+let%test "merge_env empty extras returns environment unchanged" =
+  let env = merge_env [] in
+  Array.length env = Array.length (Unix.environment ())
+
+let%test "merge_env adds new entries" =
+  let env = merge_env [("__OAS_TEST_VAR_INLINE__", "test_value")] in
+  Array.exists (fun entry -> entry = "__OAS_TEST_VAR_INLINE__=test_value") env
+
+let%test "merge_env overrides existing keys" =
+  let env = merge_env [("PATH", "/override/path")] in
+  let path_entries = Array.to_list env
+    |> List.filter (fun e ->
+      String.length e >= 5 && String.sub e 0 5 = "PATH=") in
+  match path_entries with
+  | [entry] -> entry = "PATH=/override/path"
+  | _ -> false
+
+let%test "decode_items empty list returns Ok []" =
+  let json = `Assoc [("items", `List [])] in
+  decode_items "items" (fun _ -> Ok "x") json = Ok []
+
+let%test "decode_items missing field returns Ok []" =
+  let json = `Assoc [] in
+  decode_items "items" (fun _ -> Ok "x") json = Ok []
+
+let%test "decode_items decodes successfully" =
+  let json = `Assoc [("items", `List [`String "a"; `String "b"])] in
+  match decode_items "items" (fun j ->
+    match j with `String s -> Ok s | _ -> Error "bad"
+  ) json with
+  | Ok ["a"; "b"] -> true
+  | _ -> false
+
+let%test "decode_items propagates decode error" =
+  let json = `Assoc [("items", `List [`Int 42])] in
+  match decode_items "items" (fun _ -> Error "decode failed") json with
+  | Error _ -> true
+  | Ok _ -> false
