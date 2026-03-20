@@ -256,6 +256,11 @@ let summary_to_json endpoints =
     ("active_requests", `Int active_requests);
   ]
 
+let max_context_of_status (status : endpoint_status) =
+  match status.props with
+  | Some p when p.ctx_size > 0 -> Some p.ctx_size
+  | _ -> status.capabilities.max_context_tokens
+
 [@@@coverage off]
 (* === Inline tests === *)
 
@@ -542,3 +547,38 @@ let%test "summary_to_json endpoint without slots ignored" =
   let json = summary_to_json eps in
   let open Yojson.Safe.Util in
   json |> member "total_capacity" |> to_int = 0
+
+(* --- max_context_of_status --- *)
+
+let%test "max_context_of_status from props" =
+  let status = {
+    url = "http://localhost"; healthy = true; models = [];
+    props = Some { total_slots = 4; ctx_size = 32768; model = "m" };
+    slots = None; capabilities = Capabilities.default_capabilities;
+  } in
+  max_context_of_status status = Some 32768
+
+let%test "max_context_of_status from capabilities when no props" =
+  let caps = { Capabilities.default_capabilities with max_context_tokens = Some 16384 } in
+  let status = {
+    url = "http://localhost"; healthy = true; models = [];
+    props = None; slots = None; capabilities = caps;
+  } in
+  max_context_of_status status = Some 16384
+
+let%test "max_context_of_status None when no info" =
+  let status = {
+    url = "http://localhost"; healthy = true; models = [];
+    props = None; slots = None;
+    capabilities = Capabilities.default_capabilities;
+  } in
+  max_context_of_status status = None
+
+let%test "max_context_of_status prefers props over capabilities" =
+  let caps = { Capabilities.default_capabilities with max_context_tokens = Some 8192 } in
+  let status = {
+    url = "http://localhost"; healthy = true; models = [];
+    props = Some { total_slots = 2; ctx_size = 65536; model = "m" };
+    slots = None; capabilities = caps;
+  } in
+  max_context_of_status status = Some 65536

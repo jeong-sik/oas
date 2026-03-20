@@ -54,3 +54,7 @@ val endpoint_status_to_json : endpoint_status -> Yojson.Safe.t
 
 (** Aggregate summary across multiple endpoints. *)
 val summary_to_json : endpoint_status list -> Yojson.Safe.t
+
+(** Extract max context size from endpoint status.
+    Returns [ctx_size] from [props] if available, else checks [capabilities.max_context_tokens]. *)
+val max_context_of_status : endpoint_status -> int option

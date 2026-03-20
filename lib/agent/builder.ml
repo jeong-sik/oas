@@ -38,6 +38,9 @@ type t = {
   raw_trace: Raw_trace.t option;
   approval: Hooks.approval_callback option;
   context_reducer: Context_reducer.t option;
+  context_compact_ratio: float option;
+  context_prepare_ratio: float option;
+  context_handoff_ratio: float option;
   context_injector: Hooks.context_injector option;
   mcp_clients: Mcp.managed list;
   event_bus: Event_bus.t option;
@@ -84,6 +87,9 @@ let create ~net ~model =
     raw_trace = None;
     approval = None;
     context_reducer = None;
+    context_compact_ratio = None;
+    context_prepare_ratio = None;
+    context_handoff_ratio = None;
     context_injector = None;
     mcp_clients = [];
     event_bus = None;
@@ -111,6 +117,13 @@ let with_tracer tracer b = { b with tracer }
 let with_raw_trace raw_trace b = { b with raw_trace = Some raw_trace }
 let with_approval approval b = { b with approval = Some approval }
 let with_context_reducer reducer b = { b with context_reducer = Some reducer }
+let with_context_thresholds ~compact_ratio ?prepare_ratio ?handoff_ratio b =
+  let reducer = Context_reducer.from_context_config ~compact_ratio
+    ~max_tokens:(match b.max_total_tokens with Some n -> n | None -> 200_000) () in
+  { b with context_reducer = Some reducer;
+    context_compact_ratio = Some compact_ratio;
+    context_prepare_ratio = prepare_ratio;
+    context_handoff_ratio = handoff_ratio }
 let with_context ctx b = { b with context = Some ctx }
 let with_provider provider b = { b with provider = Some provider }
 let with_base_url url b = { b with base_url = url }
@@ -191,6 +204,9 @@ let build b =
     max_total_tokens = b.max_total_tokens;
     initial_messages = b.initial_messages;
     max_cost_usd = b.max_cost_usd;
+    context_compact_ratio = b.context_compact_ratio;
+    context_prepare_ratio = b.context_prepare_ratio;
+    context_handoff_ratio = b.context_handoff_ratio;
   } in
   let options = {
     Agent_types.base_url = b.base_url;

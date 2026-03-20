@@ -45,6 +45,17 @@ val with_tracer : Tracing.t -> t -> t
 val with_raw_trace : Raw_trace.t -> t -> t
 val with_approval : Hooks.approval_callback -> t -> t
 val with_context_reducer : Context_reducer.t -> t -> t
+
+(** Set context reduction thresholds.
+    [compact_ratio] determines when to compact (default 0.8).
+    [prepare_ratio] and [handoff_ratio] are stored for future use.
+
+    @since 0.79.0 *)
+val with_context_thresholds :
+  compact_ratio:float ->
+  ?prepare_ratio:float ->
+  ?handoff_ratio:float ->
+  t -> t
 val with_context : Context.t -> t -> t
 val with_context_injector : Hooks.context_injector -> t -> t
 val with_event_bus : Event_bus.t -> t -> t

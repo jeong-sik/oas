@@ -385,6 +385,40 @@ let from_capabilities ?(margin=0.8) (caps : Llm_provider.Capabilities.capabiliti
       token_budget budget;
     ])
 
+(** Create a reducer from an explicit context budget with configurable thresholds.
+    [compact_ratio] (default 0.8) determines the fraction of [max_tokens] used as budget.
+    The reducer composes: drop_thinking, repair_dangling_tool_calls, token_budget.
+
+    @since 0.79.0 *)
+let from_context_config ?(compact_ratio=0.8) ~max_tokens () =
+  let budget = int_of_float (float_of_int max_tokens *. compact_ratio) in
+  compose [
+    drop_thinking;
+    repair_dangling_tool_calls;
+    token_budget budget;
+  ]
+
+let%test "from_context_config default compact_ratio 0.8" =
+  let reducer = from_context_config ~max_tokens:10000 () in
+  match reducer.strategy with
+  | Compose _ -> true
+  | _ -> false
+
+let%test "from_context_config custom compact_ratio" =
+  let reducer = from_context_config ~compact_ratio:0.5 ~max_tokens:10000 () in
+  match reducer.strategy with
+  | Compose _ -> true
+  | _ -> false
+
+let%test "from_context_config applied reduces long conversation" =
+  let msgs = List.init 100 (fun i ->
+    { role = User; content = [Text (String.make 200 (Char.chr (65 + (i mod 26))))];
+      name = None; tool_call_id = None }
+  ) in
+  let reducer = from_context_config ~compact_ratio:0.1 ~max_tokens:1000 () in
+  let reduced = reduce reducer msgs in
+  List.length reduced < List.length msgs
+
 [@@@coverage off]
 (* === CJK token estimation inline tests === *)
 

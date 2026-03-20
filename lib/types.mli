@@ -47,6 +47,9 @@ type agent_config = {
   max_total_tokens: int option;
   initial_messages: message list;
   max_cost_usd: float option;
+  context_compact_ratio: float option;
+  context_prepare_ratio: float option;
+  context_handoff_ratio: float option;
 }
 [@@deriving show]
 
