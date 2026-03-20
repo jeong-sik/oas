@@ -53,3 +53,11 @@
 (executable
  (name builder_patterns)
  (libraries agent_sdk eio eio_main yojson))
+
+(executable
+ (name custom_provider)
+ (libraries agent_sdk eio eio_main yojson))
+
+(executable
+ (name cascade_failover)
+ (libraries agent_sdk llm_provider eio eio_main yojson))
