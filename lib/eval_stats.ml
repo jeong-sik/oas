@@ -147,8 +147,8 @@ let%test "effect_size zero difference" =
 
 let%test "effect_size large difference" =
   match effect_size
-    [1.0; 1.0; 1.0; 1.0; 1.0]
-    [5.0; 5.0; 5.0; 5.0; 5.0] with
+    [1.0; 1.0; 1.0; 2.0; 2.0]
+    [4.0; 4.0; 5.0; 5.0; 5.0] with
   | Some d -> d > 3.0  (* Very large effect *)
   | None -> false
 
