@@ -1,79 +1,15 @@
 (** Cascade configuration: named provider profiles with JSON hot-reload
     and discovery-aware health filtering.
 
+    Provider defaults are sourced from {!Provider_registry} (SSOT).
+
     @since 0.59.0 *)
 
-(* ── Provider registry ─────────────────────────────────── *)
+(* ── Provider registry (SSOT: Provider_registry) ─────── *)
 
-type provider_defaults = {
-  kind: Provider_config.provider_kind;
-  base_url: string;
-  api_key_env: string;
-  request_path: string;
-}
-
-let llama_defaults = {
-  kind = OpenAI_compat;
-  base_url =
-    (match Sys.getenv_opt "LLM_ENDPOINTS" with
-     | Some s ->
-       (match String.split_on_char ',' s with
-        | url :: _ -> String.trim url
-        | [] -> "http://127.0.0.1:8085")
-     | None -> "http://127.0.0.1:8085");
-  api_key_env = "";
-  request_path = "/v1/chat/completions";
-}
-
-let claude_defaults = {
-  kind = Anthropic;
-  base_url = "https://api.anthropic.com";
-  api_key_env = "ANTHROPIC_API_KEY";
-  request_path = "/v1/messages";
-}
-
-let gemini_defaults = {
-  kind = Gemini;
-  base_url =
-    (match Sys.getenv_opt "GEMINI_BASE_URL" with
-     | Some url -> url
-     | None -> "https://generativelanguage.googleapis.com/v1beta");
-  api_key_env = "GEMINI_API_KEY";
-  request_path = "";
-}
-
-let glm_defaults = {
-  kind = OpenAI_compat;
-  base_url =
-    (match Sys.getenv_opt "ZAI_BASE_URL" with
-     | Some url -> url
-     | None -> "https://open.bigmodel.cn/api/paas/v4");
-  api_key_env = "ZAI_API_KEY";
-  request_path = "/chat/completions";
-}
-
-let openrouter_defaults = {
-  kind = OpenAI_compat;
-  base_url = "https://openrouter.ai/api/v1";
-  api_key_env = "OPENROUTER_API_KEY";
-  request_path = "/chat/completions";
-}
-
-let known_providers : (string * provider_defaults) list = [
-  ("llama", llama_defaults);
-  ("claude", claude_defaults);
-  ("gemini", gemini_defaults);
-  ("glm", glm_defaults);
-  ("openrouter", openrouter_defaults);
-]
+let default_registry = Provider_registry.default ()
 
 (* ── Model string parsing ──────────────────────────────── *)
-
-let has_api_key env_name =
-  env_name = "" ||
-  (match Sys.getenv_opt env_name with
-   | Some s -> String.trim s <> ""
-   | None -> false)
 
 let parse_custom_model model_id =
   match String.index_opt model_id '@' with
@@ -117,11 +53,12 @@ let parse_model_string ?(temperature = 0.3) ?(max_tokens = 500)
                   ?system_prompt
                   ())
         | _ ->
-          match List.assoc_opt provider_name known_providers with
+          match Provider_registry.find default_registry provider_name with
           | None -> None
-          | Some defaults ->
-            if not (has_api_key defaults.api_key_env) then None
+          | Some entry ->
+            if not (entry.is_available ()) then None
             else
+              let defaults = entry.defaults in
               let api_key =
                 if defaults.api_key_env = "" then ""
                 else
@@ -469,21 +406,7 @@ let complete_named_stream ~sw ~net ?clock ?config_path
 [@@@coverage off]
 (* === Inline tests === *)
 
-let%test "has_api_key empty env name always true" =
-  has_api_key "" = true
-
-let%test "has_api_key missing env var" =
-  has_api_key "__OAS_MISSING_KEY_TEST_XYZ__" = false
-
-let%test "has_api_key blank env var" =
-  Unix.putenv "__OAS_BLANK_KEY_TEST__" "  ";
-  let result = has_api_key "__OAS_BLANK_KEY_TEST__" in
-  result = false
-
-let%test "has_api_key non-empty env var" =
-  Unix.putenv "__OAS_PRESENT_KEY_TEST__" "sk-abc";
-  let result = has_api_key "__OAS_PRESENT_KEY_TEST__" in
-  result = true
+(* has_api_key tests moved to test_provider_registry.ml — SSOT *)
 
 let%test "parse_custom_model with @ sign" =
   let (model, url) = parse_custom_model "mymodel@http://host:1234" in
@@ -588,23 +511,20 @@ let%test "load_profile nonexistent file returns empty" =
   Eio_main.run (fun _env ->
     load_profile ~config_path:"/nonexistent/file.json" ~name:"test" = [])
 
-let%test "known_providers has 5 entries" =
-  List.length known_providers = 5
+let%test "default_registry has 5 providers" =
+  List.length (Provider_registry.all default_registry) = 5
 
-let%test "llama_defaults has OpenAI_compat kind" =
-  llama_defaults.kind = OpenAI_compat
+let%test "default_registry llama is OpenAI_compat" =
+  match Provider_registry.find default_registry "llama" with
+  | Some e -> e.defaults.kind = OpenAI_compat | None -> false
 
-let%test "claude_defaults has Anthropic kind" =
-  claude_defaults.kind = Anthropic
+let%test "default_registry claude is Anthropic" =
+  match Provider_registry.find default_registry "claude" with
+  | Some e -> e.defaults.kind = Anthropic | None -> false
 
-let%test "gemini_defaults has Gemini kind" =
-  gemini_defaults.kind = Gemini
-
-let%test "glm_defaults has OpenAI_compat kind" =
-  glm_defaults.kind = OpenAI_compat
-
-let%test "openrouter_defaults has OpenAI_compat kind" =
-  openrouter_defaults.kind = OpenAI_compat
+let%test "default_registry gemini is Gemini" =
+  match Provider_registry.find default_registry "gemini" with
+  | Some e -> e.defaults.kind = Gemini | None -> false
 
 let%test "parse_model_string trims whitespace" =
   match parse_model_string "  llama : qwen3.5  " with

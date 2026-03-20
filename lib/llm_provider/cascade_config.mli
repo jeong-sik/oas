@@ -12,23 +12,10 @@
 
 (** {1 Model String Parsing} *)
 
-(** Known provider identifiers and their default configuration. *)
-type provider_defaults = {
-  kind: Provider_config.provider_kind;
-  base_url: string;
-  api_key_env: string;
-  request_path: string;
-}
-
 (** Parse a "provider:model_id" string into a {!Provider_config.t}.
 
-    Supported providers:
-    - [llama:model]   — local llama-server (default http://127.0.0.1:8085)
-    - [claude:model]  — Anthropic Messages API
-    - [gemini:model]  — Google AI (OpenAI-compat gateway)
-    - [glm:model]     — Z.ai ChatCompletions
-    - [openrouter:model] — OpenRouter
-    - [custom:model\@http://host:port] — arbitrary OpenAI-compat endpoint
+    Supported providers are determined by {!Provider_registry.default}.
+    Built-in: llama, claude, gemini, glm, openrouter, custom.
 
     Returns [None] when the provider is unknown or the required API key
     env var is not set (provider is unavailable). *)
