@@ -109,7 +109,7 @@ let send_request t ~method_ ?params () =
       in
       match Cohttp.Response.status resp with
       | `OK ->
-        let resp_body = Eio.Buf_read.(of_flow ~max_size:(10 * 1024 * 1024) body |> take_all) in
+        let resp_body = Eio.Buf_read.(of_flow ~max_size:Llm_provider.Api_common.max_response_body body |> take_all) in
         let content_type = Cohttp.Header.get (Cohttp.Response.headers resp) "content-type" in
         (match parse_response_body ~content_type resp_body with
          | None ->

@@ -8,8 +8,13 @@ open Types
 let default_base_url = "https://api.anthropic.com"
 let api_version = "2023-06-01"
 
-(** Maximum response body size (10 MB) *)
+(** Maximum HTTP response body size (10 MB).
+    Used for LLM API responses, MCP HTTP, and agent registry. *)
 let max_response_body = 10 * 1024 * 1024
+
+(** Maximum stdio process buffer size (16 MB).
+    Larger than HTTP because stdio carries full JSON-RPC frames. *)
+let max_stdio_buffer = 16 * 1024 * 1024
 
 let string_is_blank s =
   String.trim s = ""
