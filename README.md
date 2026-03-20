@@ -234,6 +234,11 @@ dune runtest
 # Coverage report
 make coverage
 
+# Harness datasets
+oas eval record-trace --session /path/to/raw-trace.ndjson --out evals/replay.jsonl
+oas eval run --dataset examples/evals/replay.jsonl --out _build/evals
+oas eval run --config oas.json --dataset evals/replay.jsonl --out _build/evals
+
 # Integration tests (requires local LLM server)
 LLAMA_LIVE_TEST=1 dune exec ./test/test_local_llm.exe
 LLAMA_LIVE_TEST=1 dune exec ./test/test_streaming_e2e.exe

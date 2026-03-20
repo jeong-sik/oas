@@ -115,6 +115,14 @@ let test_pass_at_k_some_fail () =
 let test_pass_at_k_empty () =
   check (float 0.01) "0%" 0.0 (Eval_baseline.pass_at_k [])
 
+let test_pass_at_k_skips_unscored_runs () =
+  let runs = [
+    make_run [] [pass_verdict];
+    make_run [] [];
+    make_run [] [fail_verdict];
+  ] in
+  check (float 0.01) "50%" 0.5 (Eval_baseline.pass_at_k runs)
+
 (* ── Eval Report ──────────────────────────────────── *)
 
 let test_report_with_baseline () =
@@ -137,13 +145,17 @@ let test_report_to_json () =
   let json = Eval_report.to_json report in
   let open Yojson.Safe.Util in
   let verdict = json |> member "verdict" |> to_string in
-  check string "verdict in json" "no_baseline" verdict
+  check string "verdict in json" "no_baseline" verdict;
+  check int "evaluated runs" 1 (json |> member "evaluated_runs" |> to_int);
+  check int "skipped runs" 0 (json |> member "skipped_runs" |> to_int)
 
 let test_report_to_string () =
-  let runs = [make_run [] [pass_verdict]] in
+  let runs = [make_run [] [pass_verdict]; make_run [] []] in
   let report = Eval_report.generate runs in
   let s = Eval_report.to_string report in
-  check bool "non-empty" true (String.length s > 0)
+  check bool "non-empty" true (String.length s > 0);
+  check int "evaluated_runs" 1 report.evaluated_runs;
+  check int "skipped_runs" 1 report.skipped_runs
 
 (* ── show_diff ────────────────────────────────────── *)
 
@@ -170,6 +182,7 @@ let () =
       test_case "all pass" `Quick test_pass_at_k_all_pass;
       test_case "some fail" `Quick test_pass_at_k_some_fail;
       test_case "empty" `Quick test_pass_at_k_empty;
+      test_case "skips unscored runs" `Quick test_pass_at_k_skips_unscored_runs;
     ];
     "report", [
       test_case "with baseline" `Quick test_report_with_baseline;

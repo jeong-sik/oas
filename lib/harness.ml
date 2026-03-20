@@ -317,28 +317,33 @@ module Regression = struct
 
   (** Compare observation against a golden value. *)
   let evaluate ~mode obs golden : verdict =
-    let passed = match mode with
+    let passed, detail = match mode with
       | ExactMatch ->
-        obs.output_text = golden
+        (obs.output_text = golden, None)
       | StructuralMatch cmp ->
-        let golden_json = try Yojson.Safe.from_string golden
-          with Yojson.Json_error _ -> `Null in
-        cmp obs.output_json golden_json
+        (match try Ok (Yojson.Safe.from_string golden)
+         with Yojson.Json_error msg -> Error msg with
+         | Ok golden_json -> (cmp obs.output_json golden_json, None)
+         | Error msg ->
+           (false, Some (Printf.sprintf "Invalid golden JSON: %s" msg)))
       | FuzzyMatch { threshold } ->
         (* Simple character-level similarity *)
         let len1 = String.length obs.output_text in
         let len2 = String.length golden in
         let max_len = max len1 len2 in
-        if max_len = 0 then true
-        else begin
-          let common = ref 0 in
-          let min_len = min len1 len2 in
-          for i = 0 to min_len - 1 do
-            if obs.output_text.[i] = golden.[i] then
-              incr common
-          done;
-          Float.of_int !common /. Float.of_int max_len >= threshold
-        end
+        let passed =
+          if max_len = 0 then true
+          else begin
+            let common = ref 0 in
+            let min_len = min len1 len2 in
+            for i = 0 to min_len - 1 do
+              if obs.output_text.[i] = golden.[i] then
+                incr common
+            done;
+            Float.of_int !common /. Float.of_int max_len >= threshold
+          end
+        in
+        (passed, None)
     in
     {
       passed;
@@ -349,7 +354,11 @@ module Regression = struct
       ];
       detail =
         if passed then None
-        else Some "Output does not match golden file";
+        else begin
+          match detail with
+          | Some _ -> detail
+          | None -> Some "Output does not match golden file"
+        end;
     }
 end
 

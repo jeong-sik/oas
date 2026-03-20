@@ -98,6 +98,15 @@ let test_compare_unchanged () =
   let cmp = Eval.compare ~baseline ~candidate in
   Alcotest.(check int) "unchanged" 1 (List.length cmp.unchanged)
 
+let test_compare_with_specs_higher_is_better () =
+  let baseline = mk_run_metrics [mk_metric "accuracy" (Float_val 0.90)] in
+  let candidate = mk_run_metrics ~run_id:"r2"
+    [mk_metric "accuracy" (Float_val 0.95)] in
+  let specs = [{ Eval.name = "accuracy"; goal = Eval.Higher; tolerance_pct = Some 1.0 }] in
+  let cmp = Eval.compare_with_specs ~specs ~baseline ~candidate in
+  Alcotest.(check int) "improvements" 1 (List.length cmp.improvements);
+  Alcotest.(check int) "regressions" 0 (List.length cmp.regressions)
+
 (* ── threshold tests ──────────────────────────────────────────── *)
 
 let test_threshold_pass () =
@@ -188,6 +197,7 @@ let () =
       Alcotest.test_case "regression" `Quick test_compare_regression;
       Alcotest.test_case "improvement" `Quick test_compare_improvement;
       Alcotest.test_case "unchanged" `Quick test_compare_unchanged;
+      Alcotest.test_case "spec higher better" `Quick test_compare_with_specs_higher_is_better;
     ];
     "threshold", [
       Alcotest.test_case "pass" `Quick test_threshold_pass;

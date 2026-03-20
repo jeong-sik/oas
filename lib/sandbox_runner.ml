@@ -219,3 +219,5 @@ let run ~config ~agent_name ~model ~prompt ~run_fn =
     ]
   in
   { trajectory; metrics; verdicts; elapsed_s = elapsed }
+
+let run_once = run

@@ -56,10 +56,25 @@ jobs:
       - name: Build
         run: opam exec -- dune build @all
 
+      - name: Harness replay eval
+        run: |
+          opam exec -- dune exec ./bin/oas_cli.exe -- \
+            eval run \
+            --dataset examples/evals/replay.jsonl \
+            --out _build/evals
+
       - name: Test
         env:
           ALCOTEST_QUICK_TESTS: "1"
         run: opam exec -- dune runtest
+
+      - name: Upload harness eval artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-eval-${{ matrix.ocaml-compiler }}
+          path: _build/evals
+          if-no-files-found: warn
 
       - name: Coverage report
         if: matrix.ocaml-compiler == '5.4.x'

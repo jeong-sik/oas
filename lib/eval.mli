@@ -35,6 +35,19 @@ val metric_of_yojson : Yojson.Safe.t -> (metric, string) result
 val show_metric : metric -> string
 val pp_metric : Format.formatter -> metric -> unit
 
+(** {1 Metric comparison policy} *)
+
+type metric_goal =
+  | Higher
+  | Lower
+  | Exact
+
+type metric_spec = {
+  name: string;
+  goal: metric_goal;
+  tolerance_pct: float option;
+}
+
 (** {1 Run metrics} *)
 
 (** Finalized metrics from an agent run. *)
@@ -105,6 +118,15 @@ val compute_delta :
 
 (** Compare two runs, classifying each metric as regression/improvement/unchanged. *)
 val compare : baseline:run_metrics -> candidate:run_metrics -> comparison
+
+(** Compare two runs using per-metric goals instead of the legacy
+    "lower is better" default. Metrics without a matching spec fall back
+    to the legacy behavior. *)
+val compare_with_specs :
+  specs:metric_spec list ->
+  baseline:run_metrics ->
+  candidate:run_metrics ->
+  comparison
 
 (** {1 Threshold checking} *)
 
