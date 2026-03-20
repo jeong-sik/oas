@@ -69,7 +69,7 @@ let post_stream ~sw ~net ~url ~headers ~body =
     in
     match Cohttp.Response.status resp with
     | `OK ->
-        Ok (Eio.Buf_read.of_flow ~max_size:(1024 * 1024 * 10) resp_body)
+        Ok (Eio.Buf_read.of_flow ~max_size:Api_common.max_response_body resp_body)
     | status ->
         let code = Cohttp.Code.code_of_status status in
         let body_str =

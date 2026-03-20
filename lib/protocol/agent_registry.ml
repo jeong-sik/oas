@@ -86,7 +86,7 @@ let fetch_remote_card ~sw ~net url =
     in
     match Cohttp.Response.status resp with
     | `OK ->
-      let body_str = Eio.Buf_read.(of_flow ~max_size:(1024 * 1024) body |> take_all) in
+      let body_str = Eio.Buf_read.(of_flow ~max_size:Llm_provider.Api_common.max_response_body body |> take_all) in
       (try
          let json = Yojson.Safe.from_string body_str in
          Agent_card.of_json json

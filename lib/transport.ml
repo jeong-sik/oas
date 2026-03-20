@@ -232,7 +232,7 @@ let connect ~sw ~(mgr : _ Eio.Process.mgr) ?(options = default_options) () =
     Eio.Flow.close w_child_stdout;
     let reader =
       Eio.Buf_read.of_flow (r_child_stdout :> _ Eio.Flow.source)
-        ~max_size:(16 * 1024 * 1024)
+        ~max_size:Llm_provider.Api_common.max_stdio_buffer
     in
     let kill () =
       try Eio.Process.signal proc Sys.sigterm
