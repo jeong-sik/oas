@@ -15,6 +15,7 @@ type agent_error =
   | CostBudgetExceeded of { spent_usd: float; limit_usd: float }
   | UnrecognizedStopReason of { reason: string }
   | IdleDetected of { consecutive_idle_turns: int }
+  | GuardrailViolation of { validator: string; reason: string }
 
 type mcp_error =
   | ServerStartFailed of { command: string; detail: string }

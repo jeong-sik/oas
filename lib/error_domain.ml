@@ -20,6 +20,7 @@ type agent_error = [
   | `Token_budget_exceeded of int * int
   | `Cost_budget_exceeded
   | `Idle_detected of int
+  | `Guardrail_violation of string * string
   | `Unrecognized_stop_reason of string
 ]
 
@@ -73,6 +74,7 @@ let of_sdk_error (err : Error.sdk_error) : sdk_error_poly =
   | Error.Agent (TokenBudgetExceeded r) -> `Token_budget_exceeded (r.used, r.limit)
   | Error.Agent (CostBudgetExceeded _) -> `Cost_budget_exceeded
   | Error.Agent (IdleDetected r) -> `Idle_detected r.consecutive_idle_turns
+  | Error.Agent (GuardrailViolation r) -> `Guardrail_violation (r.validator, r.reason)
   | Error.Agent (UnrecognizedStopReason r) -> `Unrecognized_stop_reason r.reason
   | Error.Config (MissingEnvVar r) -> `Missing_env_var r.var_name
   | Error.Config (UnsupportedProvider r) -> `Unsupported_provider r.detail
@@ -114,6 +116,8 @@ let to_sdk_error (err : sdk_error_poly) : Error.sdk_error =
     Error.Agent (CostBudgetExceeded { spent_usd = 0.0; limit_usd = 0.0 })
   | `Idle_detected n ->
     Error.Agent (IdleDetected { consecutive_idle_turns = n })
+  | `Guardrail_violation (validator, reason) ->
+    Error.Agent (GuardrailViolation { validator; reason })
   | `Unrecognized_stop_reason reason ->
     Error.Agent (UnrecognizedStopReason { reason })
   | `Missing_env_var var ->

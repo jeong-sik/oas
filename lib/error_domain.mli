@@ -42,6 +42,7 @@ type agent_error = [
   | `Token_budget_exceeded of int * int  (** used, limit *)
   | `Cost_budget_exceeded
   | `Idle_detected of int  (** consecutive_idle_turns *)
+  | `Guardrail_violation of string * string  (** validator, reason *)
   | `Unrecognized_stop_reason of string
 ]
 

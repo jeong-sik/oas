@@ -33,6 +33,7 @@ type t = {
   max_idle_turns: int;
   hooks: Hooks.hooks;
   guardrails: Guardrails.t;
+  guardrails_async: Guardrails_async.t;
   tracer: Tracing.t;
   raw_trace: Raw_trace.t option;
   approval: Hooks.approval_callback option;
@@ -77,6 +78,7 @@ let create ~net ~model =
     max_idle_turns = 3;
     hooks = Hooks.empty;
     guardrails = Guardrails.default;
+    guardrails_async = Guardrails_async.empty;
     tracer = Tracing.null;
     raw_trace = None;
     approval = None;
@@ -112,6 +114,7 @@ let with_provider provider b = { b with provider = Some provider }
 let with_base_url url b = { b with base_url = url }
 let with_mcp_clients clients b = { b with mcp_clients = clients }
 let with_guardrails guardrails b = { b with guardrails }
+let with_guardrails_async guardrails_async b = { b with guardrails_async }
 let with_contract contract b =
   { b with contract = Contract.merge b.contract contract }
 let with_skill skill b =
@@ -193,6 +196,7 @@ let build b =
     max_idle_turns = b.max_idle_turns;
     hooks = b.hooks;
     guardrails = b.guardrails;
+    guardrails_async = b.guardrails_async;
     tracer = b.tracer;
     raw_trace = b.raw_trace;
     approval = b.approval;
