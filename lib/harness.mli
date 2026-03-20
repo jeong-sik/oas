@@ -168,3 +168,24 @@ module Composability : sig
   (** Evaluate composability observation against expectation. *)
   val evaluate : observation -> expectation -> verdict
 end
+
+(** {1 Model grader} *)
+
+module Model_grader : sig
+  (** Configuration for LLM-based evaluation. *)
+  type config = {
+    prompt_template: string;   (** Must contain \{goal\} and \{result\} placeholders *)
+    rubric: string;            (** Evaluation criteria *)
+    weight: float;             (** 0.0-1.0 weight for this grader *)
+  }
+
+  (** Grade a result using an LLM via dependency-injected [complete_fn].
+      Extracts a numeric score from the LLM response.
+      [passed] is true when score >= 0.5 * weight. *)
+  val grade :
+    complete_fn:(string -> (string, string) result) ->
+    config ->
+    goal:string ->
+    result:string ->
+    verdict
+end

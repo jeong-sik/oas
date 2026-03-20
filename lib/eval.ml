@@ -293,3 +293,34 @@ let find_metric (rm : run_metrics) name =
 
 let find_metric_value rm name =
   Option.map (fun (m : metric) -> m.value) (find_metric rm name)
+
+(* ── Statistical regression detection ──────────────────────── *)
+
+(** Compare two run_metrics using statistical testing.
+    Extracts float values for each metric name, applies Welch's t-test
+    across all matching metrics. Returns a comparison enhanced with
+    statistical significance. *)
+let compare_statistical ~(baselines : run_metrics list) ~(candidates : run_metrics list) =
+  (* Collect per-metric float lists *)
+  let collect_metric_values (runs : run_metrics list) name =
+    List.filter_map (fun (rm : run_metrics) ->
+      match find_metric rm name with
+      | Some m -> metric_value_to_float m.value
+      | None -> None
+    ) runs
+  in
+  (* Get all metric names from baselines *)
+  let metric_names = List.sort_uniq String.compare
+    (List.concat_map (fun (rm : run_metrics) ->
+      List.map (fun (m : metric) -> m.name) rm.metrics
+    ) baselines)
+  in
+  let regressions = List.filter_map (fun name ->
+    let baseline_vals = collect_metric_values baselines name in
+    let candidate_vals = collect_metric_values candidates name in
+    if Eval_stats.is_regression ~baseline:baseline_vals ~current:candidate_vals then
+      let eff = Eval_stats.effect_size baseline_vals candidate_vals in
+      Some (name, eff)
+    else None
+  ) metric_names in
+  regressions
