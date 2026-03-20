@@ -175,14 +175,9 @@ let of_markdown ?path ?scope markdown =
   }
 
 let load ?scope path =
-  try
-    let ch = open_in_bin path in
-    Fun.protect
-      ~finally:(fun () -> close_in_noerr ch)
-      (fun () ->
-        let content = really_input_string ch (in_channel_length ch) in
-        Ok (of_markdown ~path ?scope content))
-  with exn -> Error (Error.Io (FileOpFailed { op = "load"; path; detail = Printexc.to_string exn }))
+  match Fs_result.read_file path with
+  | Error _ as err -> err
+  | Ok content -> Ok (of_markdown ~path ?scope content)
 
 let load_dir ?scope dir =
   Sys.readdir dir

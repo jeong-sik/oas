@@ -29,14 +29,11 @@ let render_source ?context ~turn = function
         | None -> None)
      | None -> None)
   | FromFile path ->
-    (try
-       let ic = open_in_bin path in
-       Fun.protect
-         ~finally:(fun () -> close_in_noerr ic)
-         (fun () -> Some (really_input_string ic (in_channel_length ic)))
-     with exn ->
+    (match Fs_result.read_file path with
+     | Ok content -> Some content
+     | Error err ->
        let _ = Printf.eprintf "[append_instruction] FromFile %s failed: %s\n%!"
-         path (Printexc.to_string exn) in
+         path (Error.to_string err) in
        None)
   | Dynamic f -> f turn
 

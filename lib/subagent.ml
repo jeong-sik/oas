@@ -126,28 +126,24 @@ let of_markdown ?path ?(skills = []) markdown =
 (* --- File loading with skill resolution --- *)
 
 let load ?(skill_roots = []) path =
-  try
-    let ch = open_in_bin path in
-    Fun.protect
-      ~finally:(fun () -> close_in_noerr ch)
-      (fun () ->
-        let content = really_input_string ch (in_channel_length ch) in
-        let initial = of_markdown ~path content in
-        let base_dirs = (Filename.dirname path) :: skill_roots in
-        let resolve ref_name =
-          let candidates =
-            ref_name :: List.map (fun d -> Filename.concat d ref_name) base_dirs
-          in
-          match List.find_opt Sys.file_exists candidates with
-          | Some p ->
-            (match Skill.load p with
-             | Ok skill -> Some skill
-             | Error _ -> None)
-          | None -> None
-        in
-        let resolved = List.filter_map resolve initial.skill_refs in
-        Ok { initial with skills = resolved })
-  with exn -> Error (Error.Io (FileOpFailed { op = "load"; path; detail = Printexc.to_string exn }))
+  match Fs_result.read_file path with
+  | Error _ as err -> err
+  | Ok content ->
+    let initial = of_markdown ~path content in
+    let base_dirs = (Filename.dirname path) :: skill_roots in
+    let resolve ref_name =
+      let candidates =
+        ref_name :: List.map (fun d -> Filename.concat d ref_name) base_dirs
+      in
+      match List.find_opt Sys.file_exists candidates with
+      | Some p ->
+        (match Skill.load p with
+         | Ok skill -> Some skill
+         | Error _ -> None)
+      | None -> None
+    in
+    let resolved = List.filter_map resolve initial.skill_refs in
+    Ok { initial with skills = resolved }
 
 (* --- Prompt composition --- *)
 
