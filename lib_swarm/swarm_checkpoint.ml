@@ -203,3 +203,235 @@ let restore (cp : t) ~agent_lookup
     state.patience_counter <- cp.patience_counter;
     state.history <- cp.history;
     Ok state
+
+[@@@coverage off]
+(* === Inline tests === *)
+
+(* --- helpers --- *)
+
+let mock_run _text ~sw:_ _prompt =
+  Ok { Types.id = "m"; model = "m"; stop_reason = Types.EndTurn;
+       content = [Types.Text "ok"]; usage = None }
+
+let make_entry name =
+  { Swarm_types.name; run = mock_run "ok"; role = Swarm_types.Execute;
+    get_telemetry = None }
+
+let make_config ?(entries=[make_entry "a1"; make_entry "a2"])
+    ?(mode=Swarm_types.Pipeline_mode)
+    ?(prompt="test prompt")
+    ?(max_parallel=2)
+    ?(convergence=None)
+    ?(timeout_sec=None)
+    () : Swarm_types.swarm_config =
+  { entries; mode; convergence; max_parallel; prompt; timeout_sec;
+    budget = Swarm_types.no_budget; max_agent_retries = 0;
+    collaboration = None; resource_check = None; max_concurrent_agents = None }
+
+let make_iteration ~iteration ?(metric_value=None) ?(agent_results=[])
+    ?(elapsed=1.0) ?(timestamp=100.0) () : Swarm_types.iteration_record =
+  { iteration; metric_value; agent_results; elapsed; timestamp; trace_refs = [] }
+
+(* --- checkpoint_version --- *)
+
+let%test "checkpoint_version is 1" =
+  checkpoint_version = 1
+
+(* --- snapshot_of_config --- *)
+
+let%test "snapshot_of_config: entry names extracted" =
+  let cfg = make_config () in
+  let snap = snapshot_of_config cfg in
+  snap.entry_names = ["a1"; "a2"]
+
+let%test "snapshot_of_config: mode preserved" =
+  let cfg = make_config ~mode:Swarm_types.Decentralized () in
+  let snap = snapshot_of_config cfg in
+  snap.mode = Swarm_types.Decentralized
+
+let%test "snapshot_of_config: prompt preserved" =
+  let cfg = make_config ~prompt:"my prompt" () in
+  let snap = snapshot_of_config cfg in
+  snap.prompt = "my prompt"
+
+let%test "snapshot_of_config: max_parallel preserved" =
+  let cfg = make_config ~max_parallel:8 () in
+  let snap = snapshot_of_config cfg in
+  snap.max_parallel = 8
+
+let%test "snapshot_of_config: no convergence" =
+  let cfg = make_config ~convergence:None () in
+  let snap = snapshot_of_config cfg in
+  snap.convergence_target = None
+  && snap.convergence_max_iterations = None
+  && snap.convergence_patience = None
+
+let%test "snapshot_of_config: with convergence" =
+  let conv = Some {
+    Swarm_types.metric = Swarm_types.Callback (fun () -> 0.9);
+    target = 0.95; max_iterations = 10; patience = 3;
+    aggregate = Swarm_types.Best_score } in
+  let cfg = make_config ~convergence:conv () in
+  let snap = snapshot_of_config cfg in
+  snap.convergence_target = Some 0.95
+  && snap.convergence_max_iterations = Some 10
+  && snap.convergence_patience = Some 3
+
+let%test "snapshot_of_config: timeout_sec" =
+  let cfg = make_config ~timeout_sec:(Some 30.0) () in
+  let snap = snapshot_of_config cfg in
+  snap.timeout_sec = Some 30.0
+
+(* --- of_state --- *)
+
+let%test "of_state: version is checkpoint_version" =
+  let cfg = make_config () in
+  let state = Swarm_types.create_state cfg in
+  let cp = of_state state in
+  cp.version = checkpoint_version
+
+let%test "of_state: iteration from state" =
+  let cfg = make_config () in
+  let state = Swarm_types.create_state cfg in
+  state.current_iteration <- 5;
+  let cp = of_state state in
+  cp.iteration = 5
+
+let%test "of_state: best_metric from state" =
+  let cfg = make_config () in
+  let state = Swarm_types.create_state cfg in
+  state.best_metric <- Some 0.85;
+  let cp = of_state state in
+  cp.best_metric = Some 0.85
+
+let%test "of_state: created_at is positive" =
+  let cfg = make_config () in
+  let state = Swarm_types.create_state cfg in
+  let cp = of_state state in
+  cp.created_at > 0.0
+
+(* --- iteration_record JSON roundtrip --- *)
+
+let%test "iteration_record_to_json then of_json: core fields preserved" =
+  let rec_ = make_iteration ~iteration:3 ~metric_value:(Some 0.75)
+    ~agent_results:[("a1", Swarm_types.Idle); ("a2", Swarm_types.Idle)]
+    ~elapsed:2.5 ~timestamp:12345.0 () in
+  let json = iteration_record_to_json rec_ in
+  let restored = iteration_record_of_json json in
+  restored.iteration = 3
+  && restored.metric_value = Some 0.75
+  && restored.elapsed = 2.5
+  && restored.timestamp = 12345.0
+  && List.length restored.agent_results = 2
+
+let%test "iteration_record_to_json: None metric_value" =
+  let rec_ = make_iteration ~iteration:1 ~metric_value:None () in
+  let json = iteration_record_to_json rec_ in
+  let restored = iteration_record_of_json json in
+  restored.metric_value = None
+
+(* --- config_snapshot JSON roundtrip --- *)
+
+let%test "config_snapshot_to_json preserves fields" =
+  let snap = {
+    entry_names = ["x"; "y"];
+    mode = Swarm_types.Supervisor;
+    max_parallel = 4;
+    prompt = "hello";
+    timeout_sec = Some 10.0;
+    convergence_target = Some 0.9;
+    convergence_max_iterations = Some 20;
+    convergence_patience = Some 5;
+  } in
+  let json = config_snapshot_to_json snap in
+  let open Yojson.Safe.Util in
+  let names = json |> member "entry_names" |> to_list |> List.map to_string in
+  names = ["x"; "y"]
+  && (json |> member "max_parallel" |> to_int) = 4
+  && (json |> member "prompt" |> to_string) = "hello"
+
+(* --- to_json / full checkpoint roundtrip via JSON --- *)
+
+let%test "to_json preserves all top-level fields" =
+  let cfg = make_config () in
+  let state = Swarm_types.create_state cfg in
+  state.current_iteration <- 7;
+  state.best_metric <- Some 0.88;
+  state.best_iteration <- 5;
+  state.patience_counter <- 2;
+  let cp = of_state state in
+  let json = to_json cp in
+  let open Yojson.Safe.Util in
+  (json |> member "version" |> to_int) = 1
+  && (json |> member "iteration" |> to_int) = 7
+  && (json |> member "best_iteration" |> to_int) = 5
+  && (json |> member "patience_counter" |> to_int) = 2
+
+let%test "to_json: history serialized" =
+  let cfg = make_config () in
+  let state = Swarm_types.create_state cfg in
+  state.history <- [
+    make_iteration ~iteration:1 ~metric_value:(Some 0.5) ();
+    make_iteration ~iteration:2 ~metric_value:(Some 0.7) ();
+  ];
+  let cp = of_state state in
+  let json = to_json cp in
+  let open Yojson.Safe.Util in
+  let hist = json |> member "history" |> to_list in
+  List.length hist = 2
+
+(* --- load: error cases (no file I/O, testing in-memory parsing via from_string) --- *)
+
+let%test "load: nonexistent file returns error" =
+  match load ~path:"/nonexistent/path/checkpoint.json" with
+  | Error (Error.Io (FileOpFailed { op = "read"; _ })) -> true
+  | _ -> false
+
+(* --- restore --- *)
+
+let%test "restore: all agents found succeeds" =
+  let cfg = make_config () in
+  let state = Swarm_types.create_state cfg in
+  state.current_iteration <- 3;
+  state.best_metric <- Some 0.9;
+  state.patience_counter <- 1;
+  let cp = of_state state in
+  let lookup name =
+    if name = "a1" || name = "a2" then Some (make_entry name) else None in
+  match restore cp ~agent_lookup:lookup ~base_config:cfg with
+  | Ok restored ->
+      restored.current_iteration = 3
+      && restored.best_metric = Some 0.9
+      && restored.patience_counter = 1
+  | Error _ -> false
+
+let%test "restore: missing agent returns error" =
+  let cfg = make_config () in
+  let state = Swarm_types.create_state cfg in
+  let cp = of_state state in
+  let lookup _name = None in
+  match restore cp ~agent_lookup:lookup ~base_config:cfg with
+  | Error (Error.Config (InvalidConfig { field = "agent_lookup"; _ })) -> true
+  | _ -> false
+
+let%test "restore: partial missing agents returns error with detail" =
+  let cfg = make_config () in
+  let state = Swarm_types.create_state cfg in
+  let cp = of_state state in
+  let lookup name =
+    if name = "a1" then Some (make_entry name) else None in
+  match restore cp ~agent_lookup:lookup ~base_config:cfg with
+  | Error (Error.Config (InvalidConfig { detail; _ })) ->
+      Util.string_contains ~needle:"a2" detail
+  | _ -> false
+
+let%test "restore: history preserved" =
+  let cfg = make_config () in
+  let state = Swarm_types.create_state cfg in
+  state.history <- [make_iteration ~iteration:1 ~metric_value:(Some 0.5) ()];
+  let cp = of_state state in
+  let lookup name =
+    if name = "a1" || name = "a2" then Some (make_entry name) else None in
+  match restore cp ~agent_lookup:lookup ~base_config:cfg with
+  | Ok restored -> List.length restored.history = 1
+  | Error _ -> false

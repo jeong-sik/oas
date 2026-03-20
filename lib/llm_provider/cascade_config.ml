@@ -466,3 +466,152 @@ let complete_named_stream ~sw ~net ?clock ?config_path
              message = Printf.sprintf
                "Streaming cascade '%s' timed out after %ds" name secs }))
       | _ -> run ()
+
+[@@@coverage off]
+(* === Inline tests === *)
+
+let%test "has_api_key empty env name always true" =
+  has_api_key "" = true
+
+let%test "has_api_key missing env var" =
+  has_api_key "__OAS_MISSING_KEY_TEST_XYZ__" = false
+
+let%test "has_api_key blank env var" =
+  Unix.putenv "__OAS_BLANK_KEY_TEST__" "  ";
+  let result = has_api_key "__OAS_BLANK_KEY_TEST__" in
+  result = false
+
+let%test "has_api_key non-empty env var" =
+  Unix.putenv "__OAS_PRESENT_KEY_TEST__" "sk-abc";
+  let result = has_api_key "__OAS_PRESENT_KEY_TEST__" in
+  result = true
+
+let%test "parse_custom_model with @ sign" =
+  let (model, url) = parse_custom_model "mymodel@http://host:1234" in
+  model = "mymodel" && url = "http://host:1234"
+
+let%test "parse_custom_model no @ sign uses env or default" =
+  let (model, _url) = parse_custom_model "some-model" in
+  model = "some-model"
+
+let%test "parse_model_string None on empty string" =
+  parse_model_string "" = None
+
+let%test "parse_model_string None on no colon" =
+  parse_model_string "justmodel" = None
+
+let%test "parse_model_string None on colon at start" =
+  parse_model_string ":model" = None
+
+let%test "parse_model_string None on colon at end" =
+  parse_model_string "llama:" = None
+
+let%test "parse_model_string None on unknown provider" =
+  parse_model_string "unknownprov:model" = None
+
+let%test "parse_model_string llama provider" =
+  match parse_model_string "llama:qwen3.5" with
+  | Some cfg -> cfg.model_id = "qwen3.5" && cfg.kind = OpenAI_compat
+  | None -> false
+
+let%test "parse_model_string custom with url" =
+  match parse_model_string "custom:mymodel@http://localhost:9090" with
+  | Some cfg -> cfg.model_id = "mymodel" && cfg.base_url = "http://localhost:9090"
+  | None -> false
+
+let%test "parse_model_string custom with empty model after @" =
+  parse_model_string "custom:@http://foo" = None
+
+let%test "parse_model_string temperature and max_tokens forwarded" =
+  match parse_model_string ~temperature:0.7 ~max_tokens:100 "llama:m1" with
+  | Some cfg -> cfg.temperature = Some 0.7 && cfg.max_tokens = 100
+  | None -> false
+
+let%test "parse_model_string system_prompt forwarded" =
+  match parse_model_string ~system_prompt:"test prompt" "llama:m1" with
+  | Some cfg -> cfg.system_prompt = Some "test prompt"
+  | None -> false
+
+let%test "parse_model_strings empty list" =
+  parse_model_strings [] = []
+
+let%test "parse_model_strings filters unavailable" =
+  let results = parse_model_strings ["llama:qwen"; "badprovider:x"] in
+  List.length results = 1
+
+let%test "is_local_provider 127.0.0.1" =
+  let cfg = Provider_config.make ~kind:OpenAI_compat ~model_id:"m"
+    ~base_url:"http://127.0.0.1:8085" () in
+  is_local_provider cfg = true
+
+let%test "is_local_provider localhost with port" =
+  let cfg = Provider_config.make ~kind:OpenAI_compat ~model_id:"m"
+    ~base_url:"http://localhost:8085" () in
+  is_local_provider cfg = true
+
+let%test "is_local_provider localhost bare" =
+  let cfg = Provider_config.make ~kind:OpenAI_compat ~model_id:"m"
+    ~base_url:"http://localhost" () in
+  is_local_provider cfg = true
+
+let%test "is_local_provider localhost with path" =
+  let cfg = Provider_config.make ~kind:OpenAI_compat ~model_id:"m"
+    ~base_url:"http://localhost/v1" () in
+  is_local_provider cfg = true
+
+let%test "is_local_provider remote is false" =
+  let cfg = Provider_config.make ~kind:OpenAI_compat ~model_id:"m"
+    ~base_url:"https://api.example.com" () in
+  is_local_provider cfg = false
+
+let%test "text_of_response empty content" =
+  let resp : Types.api_response = {
+    id = ""; model = ""; stop_reason = EndTurn;
+    content = []; usage = None } in
+  text_of_response resp = ""
+
+let%test "text_of_response text blocks concatenated" =
+  let resp : Types.api_response = {
+    id = ""; model = ""; stop_reason = EndTurn;
+    content = [Types.Text "hello"; Types.Text " world"]; usage = None } in
+  text_of_response resp = "hello world"
+
+let%test "text_of_response non-text blocks ignored" =
+  let resp : Types.api_response = {
+    id = ""; model = ""; stop_reason = EndTurn;
+    content = [
+      Types.ToolUse { id = "t1"; name = "tool"; input = `Null };
+      Types.Text "only this";
+    ]; usage = None } in
+  text_of_response resp = "only this"
+
+let%test "load_profile nonexistent file returns empty" =
+  load_profile ~config_path:"/nonexistent/file.json" ~name:"test" = []
+
+let%test "known_providers has 5 entries" =
+  List.length known_providers = 5
+
+let%test "llama_defaults has OpenAI_compat kind" =
+  llama_defaults.kind = OpenAI_compat
+
+let%test "claude_defaults has Anthropic kind" =
+  claude_defaults.kind = Anthropic
+
+let%test "gemini_defaults has OpenAI_compat kind" =
+  gemini_defaults.kind = OpenAI_compat
+
+let%test "glm_defaults has OpenAI_compat kind" =
+  glm_defaults.kind = OpenAI_compat
+
+let%test "openrouter_defaults has OpenAI_compat kind" =
+  openrouter_defaults.kind = OpenAI_compat
+
+let%test "parse_model_string trims whitespace" =
+  match parse_model_string "  llama : qwen3.5  " with
+  | Some cfg -> cfg.model_id = "qwen3.5"
+  | None -> false
+
+let%test "parse_model_string case-insensitive provider" =
+  match parse_model_string "LLAMA:model1" with
+  | Some cfg -> cfg.model_id = "model1"
+  | None -> false

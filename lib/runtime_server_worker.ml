@@ -208,3 +208,82 @@ let run_participant store state session_id
       match Agent.run_stream ~sw ~on_event agent detail.prompt with
       | Ok response -> Ok (extract_text response)
       | Error err -> Error err
+
+[@@@coverage off]
+(* === Inline tests === *)
+
+(* --- extract_text --- *)
+
+let%test "extract_text: empty content" =
+  let resp = { Types.id = "r1"; model = "m"; stop_reason = Types.EndTurn;
+               content = []; usage = None } in
+  extract_text resp = ""
+
+let%test "extract_text: single Text block" =
+  let resp = { Types.id = "r1"; model = "m"; stop_reason = Types.EndTurn;
+               content = [Types.Text "hello"]; usage = None } in
+  extract_text resp = "hello"
+
+let%test "extract_text: multiple Text blocks joined by newline" =
+  let resp = { Types.id = "r1"; model = "m"; stop_reason = Types.EndTurn;
+               content = [Types.Text "hello"; Types.Text "world"]; usage = None } in
+  extract_text resp = "hello\nworld"
+
+let%test "extract_text: non-Text blocks filtered out" =
+  let resp = { Types.id = "r1"; model = "m"; stop_reason = Types.EndTurn;
+               content = [
+                 Types.Text "before";
+                 Types.ToolUse { id = "t1"; name = "fn"; input = `Null };
+                 Types.Text "after";
+               ]; usage = None } in
+  extract_text resp = "before\nafter"
+
+let%test "extract_text: only non-Text blocks returns empty" =
+  let resp = { Types.id = "r1"; model = "m"; stop_reason = Types.EndTurn;
+               content = [
+                 Types.ToolUse { id = "t1"; name = "fn"; input = `Null };
+                 Types.Thinking { thinking_type = "thinking"; content = "hmm" };
+               ]; usage = None } in
+  extract_text resp = ""
+
+(* --- make_event --- *)
+
+let dummy_session : Runtime.session = {
+  session_id = "s1";
+  goal = "test";
+  title = None;
+  tag = None;
+  permission_mode = None;
+  phase = Runtime.Running;
+  created_at = 0.0;
+  updated_at = 0.0;
+  provider = None;
+  model = None;
+  system_prompt = None;
+  max_turns = 10;
+  workdir = None;
+  planned_participants = [];
+  participants = [];
+  artifacts = [];
+  votes = [];
+  turn_count = 0;
+  last_seq = 5;
+  outcome = None;
+}
+
+let%test "make_event: seq is last_seq + 1" =
+  let event = make_event dummy_session
+    (Session_started { goal = "test"; participants = [] }) in
+  event.seq = 6
+
+let%test "make_event: ts is positive" =
+  let event = make_event dummy_session
+    (Session_started { goal = "test"; participants = [] }) in
+  event.ts > 0.0
+
+let%test "make_event: kind is preserved" =
+  let event = make_event dummy_session
+    (Turn_recorded { actor = Some "alice"; message = "hi" }) in
+  match event.kind with
+  | Turn_recorded { actor = Some "alice"; message = "hi" } -> true
+  | _ -> false
