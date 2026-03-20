@@ -78,3 +78,11 @@ val dynamic : (turn:int -> messages:message list -> strategy) -> t
     Returns [None] if [max_context_tokens] is unknown. *)
 val from_capabilities :
   ?margin:float -> Llm_provider.Capabilities.capabilities -> t option
+
+(** Create a reducer from an explicit context budget with configurable thresholds.
+    Uses [max_tokens * compact_ratio] as the token budget (default 80%),
+    composed with [drop_thinking] and [repair_dangling_tool_calls].
+
+    @since 0.79.0 *)
+val from_context_config :
+  ?compact_ratio:float -> max_tokens:int -> unit -> t

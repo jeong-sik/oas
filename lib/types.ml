@@ -63,6 +63,9 @@ type agent_config = {
   max_total_tokens: int option; (* Token budget: max cumulative total tokens *)
   initial_messages: message list; (* Seed conversation with prior history on first run *)
   max_cost_usd: float option; (* Cost budget: max cumulative estimated cost in USD. @since 0.62.0 *)
+  context_compact_ratio: float option;   (** Ratio of context budget at which to compact. Default 0.8 *)
+  context_prepare_ratio: float option;   (** Ratio at which to start preparing for compaction. Default 0.6 *)
+  context_handoff_ratio: float option;   (** Ratio at which to trigger handoff. Default 0.95 *)
 }
 [@@deriving show]
 
@@ -86,6 +89,9 @@ let default_config = {
   max_total_tokens = None;
   initial_messages = [];
   max_cost_usd = None;
+  context_compact_ratio = None;
+  context_prepare_ratio = None;
+  context_handoff_ratio = None;
 }
 
 (* Usage tracking *)

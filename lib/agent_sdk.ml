@@ -155,6 +155,9 @@ let create_agent ~net ?name ?model ?system_prompt ?max_tokens ?max_turns
     max_total_tokens = default_config.max_total_tokens;
     initial_messages = default_config.initial_messages;
     max_cost_usd = default_config.max_cost_usd;
+    context_compact_ratio = default_config.context_compact_ratio;
+    context_prepare_ratio = default_config.context_prepare_ratio;
+    context_handoff_ratio = default_config.context_handoff_ratio;
   } in
   let options = match provider, raw_trace with
     | None, None -> Agent.default_options
