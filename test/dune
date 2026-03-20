@@ -656,3 +656,7 @@
 (test
  (name test_memory_access)
  (libraries agent_sdk llm_provider alcotest))
+
+(test
+ (name test_verified_output)
+ (libraries agent_sdk alcotest))
