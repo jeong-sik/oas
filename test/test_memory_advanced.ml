@@ -92,7 +92,7 @@ let test_prop_stats_consistent () =
            Memory.store mem ~tier:Scratchpad k (json_i 1)) keys;
          let unique_keys =
            List.sort_uniq String.compare keys |> List.length in
-         let (s, _, _) = Memory.stats mem in
+         let (s, _, _, _, _) = Memory.stats mem in
          s = unique_keys)
   in
   QCheck_alcotest.to_alcotest prop
@@ -153,7 +153,7 @@ let test_1000_keys () =
   (match Memory.recall mem ~tier:Working "key_999" with
    | Some (`Int 999) -> ()
    | _ -> fail "key_999 missing");
-  let (_, w, _) = Memory.stats mem in
+  let (_, w, _, _, _) = Memory.stats mem in
   check int "1000 working entries" 1000 w
 
 let test_overwrite_preserves_latest () =
