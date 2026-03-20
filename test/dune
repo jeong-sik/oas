@@ -688,3 +688,7 @@
 (test
  (name test_durable)
  (libraries agent_sdk alcotest yojson unix))
+
+(test
+ (name test_governance_integration)
+ (libraries agent_sdk alcotest yojson unix))
