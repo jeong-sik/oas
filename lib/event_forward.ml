@@ -129,18 +129,17 @@ let create ~targets ?(batch_size = 10)
 (* ── Delivery ─────────────────────────────────────────────────── *)
 
 let deliver_to_file t path payloads =
-  let lines = List.map (fun p ->
-    Yojson.Safe.to_string (payload_to_json p) ^ "\n"
-  ) payloads in
-  try
-    let oc = open_out_gen [Open_append; Open_creat; Open_wronly] 0o644 path in
-    List.iter (output_string oc) lines;
-    close_out oc;
+  let content = String.concat ""
+    (List.map (fun p ->
+      Yojson.Safe.to_string (payload_to_json p) ^ "\n"
+    ) payloads) in
+  match Fs_result.append_file path content with
+  | Ok () ->
     t.delivered_count <- t.delivered_count + List.length payloads
-  with exn ->
+  | Error err ->
     t.failed_count <- t.failed_count + List.length payloads;
     Log.warn t.log "file delivery failed"
-      [Log.S ("path", path); Log.S ("error", Printexc.to_string exn)]
+      [Log.S ("path", path); Log.S ("error", Error.to_string err)]
 
 let deliver_to_custom t name deliver payloads =
   List.iter (fun p ->

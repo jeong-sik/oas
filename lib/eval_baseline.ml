@@ -36,26 +36,16 @@ let save ~path (baseline : baseline) =
     ("created_at", `Float baseline.created_at);
     ("description", `String baseline.description);
   ] in
-  try
-    let oc = open_out path in
-    Fun.protect
-      ~finally:(fun () -> close_out_noerr oc)
-      (fun () -> output_string oc (Yojson.Safe.pretty_to_string json));
-    Ok ()
-  with exn ->
-    Error (Printf.sprintf "Failed to save baseline: %s" (Printexc.to_string exn))
+  match Fs_result.write_file path (Yojson.Safe.pretty_to_string json) with
+  | Ok () -> Ok ()
+  | Error err -> Error (Printf.sprintf "Failed to save baseline: %s" (Error.to_string err))
 
 (** Load a baseline from a JSON file. *)
 let load ~path : (baseline, string) result =
   try
-    let ic = open_in path in
-    let content = Fun.protect
-      ~finally:(fun () -> close_in_noerr ic)
-      (fun () ->
-        let len = in_channel_length ic in
-        let buf = Bytes.create len in
-        really_input ic buf 0 len;
-        Bytes.to_string buf)
+    let content = match Fs_result.read_file path with
+      | Ok c -> c
+      | Error err -> failwith (Error.to_string err)
     in
     let json = Yojson.Safe.from_string content in
     let open Yojson.Safe.Util in
