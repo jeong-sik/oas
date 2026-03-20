@@ -30,11 +30,16 @@ let string_of_outcome = function
 let file_backend dir : Memory.long_term_backend =
   (try Unix.mkdir dir 0o755 with Unix.Unix_error (Unix.EEXIST, _, _) -> ());
   let path_of key = Filename.concat dir (key ^ ".json") in
-  {
-    persist = (fun ~key value ->
+  let do_persist ~key value =
+    try
       let oc = open_out (path_of key) in
       output_string oc (Yojson.Safe.to_string value);
-      close_out oc);
+      close_out oc;
+      Ok ()
+    with exn -> Error (Printexc.to_string exn)
+  in
+  {
+    persist = do_persist;
     retrieve = (fun ~key ->
       let p = path_of key in
       if Sys.file_exists p then begin
@@ -44,8 +49,38 @@ let file_backend dir : Memory.long_term_backend =
         Some (Yojson.Safe.from_string content)
       end else None);
     remove = (fun ~key ->
-      let p = path_of key in
-      if Sys.file_exists p then Sys.remove p);
+      try
+        let p = path_of key in
+        if Sys.file_exists p then Sys.remove p;
+        Ok ()
+      with exn -> Error (Printexc.to_string exn));
+    batch_persist = (fun pairs ->
+      try
+        List.iter (fun (k, v) ->
+          match do_persist ~key:k v with
+          | Ok () -> ()
+          | Error e -> failwith e) pairs;
+        Ok ()
+      with Failure e -> Error e);
+    query = (fun ~prefix ~limit ->
+      let files = try Sys.readdir dir with _ -> [||] in
+      Array.to_list files
+      |> List.filter_map (fun f ->
+        if Filename.check_suffix f ".json" then
+          let key = Filename.chop_suffix f ".json" in
+          if String.length key >= String.length prefix
+             && String.sub key 0 (String.length prefix) = prefix
+          then Some key else None
+        else None)
+      |> List.filteri (fun i _ -> i < limit)
+      |> List.filter_map (fun key ->
+        let p = path_of key in
+        if Sys.file_exists p then begin
+          let ic = open_in p in
+          let content = really_input_string ic (in_channel_length ic) in
+          close_in ic;
+          Some (key, Yojson.Safe.from_string content)
+        end else None));
   }
 
 (* ── Main ────────────────────────────────────────────── *)
