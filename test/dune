@@ -559,3 +559,27 @@
 (test
  (name test_autonomy_trace_unit)
  (libraries agent_sdk alcotest yojson unix))
+
+(test
+ (name test_capabilities)
+ (libraries llm_provider alcotest yojson))
+
+(test
+ (name test_hooks_integration)
+ (libraries agent_sdk alcotest yojson eio eio_main cohttp-eio unix))
+
+(test
+ (name test_guardrails_integration)
+ (libraries agent_sdk alcotest yojson eio eio_main cohttp-eio unix str))
+
+(test
+ (name test_memory_advanced)
+ (libraries agent_sdk alcotest qcheck-core qcheck-alcotest yojson eio eio_main))
+
+(test
+ (name test_session_advanced)
+ (libraries agent_sdk alcotest yojson unix))
+
+(test
+ (name test_cost_integration)
+ (libraries agent_sdk alcotest yojson eio eio_main cohttp-eio unix))
