@@ -515,3 +515,47 @@
 (test
  (name test_pipeline_deep)
  (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_sessions_types_deep)
+ (libraries agent_sdk alcotest yojson unix))
+
+(test
+ (name test_raw_trace_deep)
+ (libraries agent_sdk alcotest yojson unix))
+
+(test
+ (name test_runtime_projection_unit)
+ (libraries agent_sdk alcotest yojson unix))
+
+(test
+ (name test_cascade_deep)
+ (libraries agent_sdk llm_provider alcotest yojson unix))
+
+(test
+ (name test_trajectory_unit)
+ (libraries agent_sdk alcotest yojson unix str))
+
+(test
+ (name test_agent_config_deep)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_a2a_task_unit)
+ (libraries agent_sdk alcotest yojson unix str))
+
+(test
+ (name test_harness_deep)
+ (libraries agent_sdk alcotest yojson unix eio eio_main))
+
+(test
+ (name test_direct_evidence_unit)
+ (libraries agent_sdk alcotest yojson unix))
+
+(test
+ (name test_transport_deep)
+ (libraries agent_sdk alcotest yojson unix eio eio_main))
+
+(test
+ (name test_autonomy_trace_unit)
+ (libraries agent_sdk alcotest yojson unix))
