@@ -16,6 +16,12 @@ let max_response_body = 10 * 1024 * 1024
     Larger than HTTP because stdio carries full JSON-RPC frames. *)
 let max_stdio_buffer = 16 * 1024 * 1024
 
+(** Synthesize a deterministic tool_use_id from function name and args.
+    Gemini API does not return tool IDs; we generate stable ones via MD5. *)
+let synthesize_tool_use_id ~name args =
+  Printf.sprintf "call_%s_%s" name
+    Digest.(to_hex (string (Yojson.Safe.to_string args)))
+
 let string_is_blank s =
   String.trim s = ""
 

@@ -4,6 +4,7 @@ val default_base_url : string
 val api_version : string
 val max_response_body : int
 val max_stdio_buffer : int
+val synthesize_tool_use_id : name:string -> Yojson.Safe.t -> string
 
 val string_is_blank : string -> bool
 val text_blocks_to_string : Types.content_block list -> string
