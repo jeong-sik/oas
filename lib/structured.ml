@@ -340,3 +340,81 @@ let%test "text_extractor returns error when parse returns None" =
   match extractor resp with
   | Error _ -> true
   | Ok _ -> false
+
+(* --- Additional coverage tests --- *)
+
+let%test "schema_to_tool_json empty params" =
+  let s : string schema = {
+    name = "empty"; description = "d"; params = [];
+    parse = (fun _ -> Ok "x");
+  } in
+  let json = schema_to_tool_json s in
+  let open Yojson.Safe.Util in
+  let props = json |> member "input_schema" |> member "properties" in
+  let required = json |> member "input_schema" |> member "required" |> to_list in
+  props = `Assoc [] && required = []
+
+let%test "schema_to_tool_json boolean param type" =
+  let s : bool schema = {
+    name = "booltest"; description = "d";
+    params = [{ name = "flag"; description = "f"; param_type = Boolean; required = true }];
+    parse = (fun _ -> Ok true);
+  } in
+  let json = schema_to_tool_json s in
+  let open Yojson.Safe.Util in
+  let flag_type = json |> member "input_schema" |> member "properties"
+    |> member "flag" |> member "type" |> to_string in
+  flag_type = "boolean"
+
+let%test "extract_tool_input multiple tool_use picks matching name" =
+  let content = [
+    ToolUse { id = "t1"; name = "other"; input = `Assoc [("x", `Int 1)] };
+    ToolUse { id = "t2"; name = "test_extract"; input = `Assoc [("value", `String "found")] };
+  ] in
+  match extract_tool_input ~schema:test_schema content with
+  | Ok "found" -> true
+  | _ -> false
+
+let%test "json_extractor type error produces descriptive message" =
+  let extractor = json_extractor (fun j ->
+    Yojson.Safe.Util.(j |> member "key" |> to_int)) in
+  let resp = { id = ""; model = ""; stop_reason = EndTurn;
+    content = [Text "{\"key\":\"not_int\"}"]; usage = None } in
+  match extractor resp with
+  | Error msg -> String.length msg > 0
+  | Ok _ -> false
+
+let%test "json_extractor Failure propagation" =
+  let extractor = json_extractor (fun _ -> failwith "custom fail") in
+  let resp = { id = ""; model = ""; stop_reason = EndTurn;
+    content = [Text "{}"]; usage = None } in
+  match extractor resp with
+  | Error msg -> String.length msg > 0
+  | Ok _ -> false
+
+let%test "text_extractor skips non-text blocks" =
+  let extractor = text_extractor (fun s -> Some s) in
+  let resp = { id = ""; model = ""; stop_reason = EndTurn;
+    content = [
+      ToolUse { id = "tu"; name = "t"; input = `Null };
+      Text "target";
+    ]; usage = None } in
+  match extractor resp with
+  | Ok "target" -> true
+  | _ -> false
+
+let%test "text_extractor empty content" =
+  let extractor = text_extractor (fun s -> Some s) in
+  let resp = { id = ""; model = ""; stop_reason = EndTurn;
+    content = []; usage = None } in
+  match extractor resp with
+  | Error "no text content in response" -> true
+  | _ -> false
+
+let%test "json_extractor non-text content only" =
+  let extractor = json_extractor (fun _ -> "x") in
+  let resp = { id = ""; model = ""; stop_reason = EndTurn;
+    content = [ToolUse { id = "tu"; name = "t"; input = `Null }]; usage = None } in
+  match extractor resp with
+  | Error "no text content in response" -> true
+  | _ -> false

@@ -313,3 +313,54 @@ let%test "default_config has expected reconnect_max_s" =
 
 let%test "default_config has expected request_timeout_s" =
   default_config.request_timeout_s = 30.0
+
+let%test "default_config has empty headers" =
+  default_config.headers = []
+
+(* --- Additional coverage tests --- *)
+
+let%test "make_headers includes content-type and accept" =
+  let cfg = { default_config with headers = [] } in
+  let h = make_headers cfg [] in
+  Http.Header.get h "Content-Type" = Some "application/json"
+  && Http.Header.get h "Accept" = Some "application/json"
+
+let%test "make_headers includes config headers" =
+  let cfg = { default_config with headers = [("X-Custom", "val1")] } in
+  let h = make_headers cfg [] in
+  Http.Header.get h "X-Custom" = Some "val1"
+
+let%test "make_headers includes extra headers" =
+  let cfg = { default_config with headers = [] } in
+  let h = make_headers cfg [("Authorization", "Bearer xyz")] in
+  Http.Header.get h "Authorization" = Some "Bearer xyz"
+
+let%test "make_headers config and extra combined" =
+  let cfg = { default_config with headers = [("X-Cfg", "c")] } in
+  let h = make_headers cfg [("X-Extra", "e")] in
+  Http.Header.get h "X-Cfg" = Some "c"
+  && Http.Header.get h "X-Extra" = Some "e"
+
+let%test "parse_sse_body only whitespace data line returns None" =
+  let body = "data: \n" in
+  (* data line is empty after trim *)
+  parse_sse_body body = None
+
+let%test "parse_response_body sse with short content-type prefix" =
+  (* content_type too short to be SSE -- fallback to JSON parse *)
+  let body = "{\"ok\":true}" in
+  match parse_response_body ~content_type:(Some "text/plain") body with
+  | Some (`Assoc [("ok", `Bool true)]) -> true
+  | _ -> false
+
+let%test "parse_response_body sse uppercase content-type" =
+  let body = "data: {\"v\":1}\n\n" in
+  match parse_response_body ~content_type:(Some "Text/Event-Stream") body with
+  | Some (`Assoc [("v", `Int 1)]) -> true
+  | _ -> false
+
+let%test "parse_sse_body multi-line non-data ignored" =
+  let body = "event: keep-alive\nid: 123\ndata: {\"x\":99}\n\n" in
+  match parse_sse_body body with
+  | Some (`Assoc [("x", `Int 99)]) -> true
+  | _ -> false

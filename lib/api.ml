@@ -213,3 +213,79 @@ let create_message_named_stream ~sw ~net ?clock
   with
   | Ok response -> Ok response
   | Error err -> Error (map_named_cascade_error err)
+
+[@@@coverage off]
+(* === Inline tests === *)
+
+let%test "named_cascade creates record" =
+  let nc = named_cascade ~name:"test" ~defaults:["llama:m1"] () in
+  nc.name = "test" && nc.defaults = ["llama:m1"] && nc.config_path = None
+
+let%test "named_cascade with config_path" =
+  let nc = named_cascade ~config_path:"/some/path.json" ~name:"n" ~defaults:[] () in
+  nc.config_path = Some "/some/path.json"
+
+let%test "map_named_cascade_error HttpError" =
+  let err = Llm_provider.Http_client.HttpError { code = 429; body = "rate limited" } in
+  match map_named_cascade_error err with
+  | Error.Api _ -> true
+  | _ -> false
+
+let%test "map_named_cascade_error NetworkError" =
+  let err = Llm_provider.Http_client.NetworkError { message = "timeout" } in
+  match map_named_cascade_error err with
+  | Error.Api (Retry.NetworkError { message }) -> message = "timeout"
+  | _ -> false
+
+let%test "re-exported default_base_url is non-empty" =
+  String.length default_base_url > 0
+
+let%test "re-exported api_version is non-empty" =
+  String.length api_version > 0
+
+let%test "re-exported max_response_body is positive" =
+  max_response_body > 0
+
+let%test "string_is_blank true for empty" =
+  string_is_blank "" = true
+
+let%test "string_is_blank true for spaces" =
+  string_is_blank "   " = true
+
+let%test "string_is_blank false for content" =
+  string_is_blank "hello" = false
+
+let%test "json_of_string_or_raw valid json" =
+  match json_of_string_or_raw "{\"key\":\"val\"}" with
+  | `Assoc [("key", `String "val")] -> true
+  | _ -> false
+
+let%test "json_of_string_or_raw invalid json returns raw assoc" =
+  match json_of_string_or_raw "not json" with
+  | `Assoc [("raw", `String "not json")] -> true
+  | _ -> false
+
+let%test "content_block_to_json text block" =
+  let json = content_block_to_json (Types.Text "hello") in
+  let open Yojson.Safe.Util in
+  json |> member "type" |> to_string = "text"
+  && json |> member "text" |> to_string = "hello"
+
+let%test "content_block_of_json text block" =
+  let json = `Assoc [("type", `String "text"); ("text", `String "hi")] in
+  match content_block_of_json json with
+  | Some (Types.Text "hi") -> true
+  | _ -> false
+
+let%test "message_to_json user message" =
+  let msg : Types.message = {
+    role = User; content = [Types.Text "test"];
+    name = None; tool_call_id = None } in
+  let json = message_to_json msg in
+  let open Yojson.Safe.Util in
+  json |> member "role" |> to_string = "user"
+
+let%test "text_blocks_to_string joins text" =
+  let blocks = [Types.Text "a"; Types.Text "b"] in
+  let result = text_blocks_to_string blocks in
+  String.length result > 0

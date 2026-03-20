@@ -208,3 +208,161 @@ type proof_bundle = {
   capabilities: evidence_capabilities;
 }
 [@@deriving yojson, show]
+
+[@@@coverage off]
+(* === Inline tests === *)
+
+(* -- trace_capability round-trip -- *)
+let%test "trace_capability Raw round-trip" =
+  trace_capability_of_yojson (trace_capability_to_yojson Raw) = Ok Raw
+
+let%test "trace_capability Summary_only round-trip" =
+  trace_capability_of_yojson (trace_capability_to_yojson Summary_only) = Ok Summary_only
+
+let%test "trace_capability No_trace round-trip" =
+  trace_capability_of_yojson (trace_capability_to_yojson No_trace) = Ok No_trace
+
+let%test "trace_capability invalid string" =
+  match trace_capability_of_yojson (`String "invalid_value") with
+  | Error _ -> true
+  | Ok _ -> false
+
+(* -- worker_status round-trip -- *)
+let%test "worker_status Planned round-trip" =
+  worker_status_of_yojson (worker_status_to_yojson Planned) = Ok Planned
+
+let%test "worker_status Accepted round-trip" =
+  worker_status_of_yojson (worker_status_to_yojson Accepted) = Ok Accepted
+
+let%test "worker_status Ready round-trip" =
+  worker_status_of_yojson (worker_status_to_yojson Ready) = Ok Ready
+
+let%test "worker_status Running round-trip" =
+  worker_status_of_yojson (worker_status_to_yojson Running) = Ok Running
+
+let%test "worker_status Completed round-trip" =
+  worker_status_of_yojson (worker_status_to_yojson Completed) = Ok Completed
+
+let%test "worker_status Failed round-trip" =
+  worker_status_of_yojson (worker_status_to_yojson Failed) = Ok Failed
+
+let%test "worker_status invalid string" =
+  match worker_status_of_yojson (`String "bogus") with
+  | Error _ -> true
+  | Ok _ -> false
+
+(* -- session_info round-trip -- *)
+let%test "session_info yojson round-trip" =
+  let v : session_info = {
+    session_id = "sid"; title = Some "t"; tag = Some "tg";
+    goal = "g"; updated_at = 1.0; phase = Runtime.Running;
+    participant_count = 2; path = "/p";
+  } in
+  session_info_of_yojson (session_info_to_yojson v) = Ok v
+
+let%test "session_info with None optionals" =
+  let v : session_info = {
+    session_id = "s"; title = None; tag = None;
+    goal = "g"; updated_at = 0.0; phase = Runtime.Completed;
+    participant_count = 0; path = "/x";
+  } in
+  session_info_of_yojson (session_info_to_yojson v) = Ok v
+
+(* -- telemetry_event_count round-trip -- *)
+let%test "telemetry_event_count round-trip" =
+  let v : telemetry_event_count = { name = "evt"; count = 5 } in
+  telemetry_event_count_of_yojson (telemetry_event_count_to_yojson v) = Ok v
+
+(* -- telemetry_step round-trip -- *)
+let%test "telemetry_step round-trip" =
+  let v : telemetry_step = { seq = 1; ts = 2.0; kind = "k";
+    participant = Some "p"; detail = None } in
+  telemetry_step_of_yojson (telemetry_step_to_yojson v) = Ok v
+
+(* -- structured_event_count round-trip -- *)
+let%test "structured_event_count round-trip" =
+  let v : structured_event_count = { event_name = "e"; count = 3 } in
+  structured_event_count_of_yojson (structured_event_count_to_yojson v) = Ok v
+
+(* -- structured_telemetry_step round-trip -- *)
+let%test "structured_telemetry_step round-trip" =
+  let v : structured_telemetry_step = {
+    seq = 1; ts = 1.0; event_name = "en"; participant = None;
+    detail = None; actor = None; role = None; provider = None;
+    model = None; artifact_id = None; artifact_name = None;
+    artifact_kind = None; checkpoint_label = None; outcome = None;
+  } in
+  structured_telemetry_step_of_yojson (structured_telemetry_step_to_yojson v) = Ok v
+
+(* -- evidence_file round-trip -- *)
+let%test "evidence_file round-trip" =
+  let v : evidence_file = { label = "l"; path = "/p"; size_bytes = 42; md5 = "abc" } in
+  evidence_file_of_yojson (evidence_file_to_yojson v) = Ok v
+
+(* -- missing_file round-trip -- *)
+let%test "missing_file round-trip" =
+  let v : missing_file = { label = "l"; path = "/m" } in
+  missing_file_of_yojson (missing_file_to_yojson v) = Ok v
+
+(* -- hook_summary round-trip -- *)
+let%test "hook_summary round-trip" =
+  let v : hook_summary = {
+    hook_name = "h"; count = 1; latest_decision = Some "d";
+    latest_detail = None; latest_ts = Some 1.5;
+  } in
+  hook_summary_of_yojson (hook_summary_to_yojson v) = Ok v
+
+(* -- evidence_capabilities round-trip -- *)
+let%test "evidence_capabilities round-trip" =
+  let v : evidence_capabilities = { raw_trace = true; validated_summary = false; proof_bundle = true } in
+  evidence_capabilities_of_yojson (evidence_capabilities_to_yojson v) = Ok v
+
+(* -- show functions produce non-empty strings -- *)
+let%test "show_trace_capability non-empty" =
+  String.length (show_trace_capability Raw) > 0
+
+let%test "show_worker_status non-empty" =
+  String.length (show_worker_status Completed) > 0
+
+let%test "show_session_info non-empty" =
+  let v : session_info = {
+    session_id = "s"; title = None; tag = None;
+    goal = "g"; updated_at = 0.0; phase = Runtime.Bootstrapping;
+    participant_count = 0; path = "/";
+  } in
+  String.length (show_session_info v) > 0
+
+let%test "show_telemetry_event_count non-empty" =
+  String.length (show_telemetry_event_count { name = "x"; count = 0 }) > 0
+
+let%test "show_evidence_file non-empty" =
+  String.length (show_evidence_file { label = "l"; path = "p"; size_bytes = 0; md5 = "" }) > 0
+
+let%test "show_missing_file non-empty" =
+  String.length (show_missing_file { label = "l"; path = "p" }) > 0
+
+(* -- tool_contract round-trip -- *)
+let%test "tool_contract round-trip" =
+  let v : tool_contract = {
+    name = "t"; description = "d"; origin = Some "o";
+    kind = Some "k"; shell = None; notes = ["n1"]; examples = ["e1"];
+  } in
+  tool_contract_of_yojson (tool_contract_to_yojson v) = Ok v
+
+(* -- worker_run round-trip -- *)
+let%test "worker_run minimal round-trip" =
+  let v : worker_run = {
+    worker_run_id = "wid"; worker_id = None; agent_name = "a";
+    runtime_actor = None; role = None; aliases = []; primary_alias = None;
+    provider = None; model = None;
+    requested_provider = None; requested_model = None; requested_policy = None;
+    resolved_provider = None; resolved_model = None;
+    status = Planned; trace_capability = No_trace; validated = false;
+    tool_names = []; final_text = None; stop_reason = None; error = None;
+    failure_reason = None;
+    accepted_at = None; ready_at = None; first_progress_at = None;
+    started_at = None; finished_at = None; last_progress_at = None;
+    policy_snapshot = None; paired_tool_result_count = 0;
+    has_file_write = false; verification_pass_after_file_write = false;
+  } in
+  worker_run_of_yojson (worker_run_to_yojson v) = Ok v

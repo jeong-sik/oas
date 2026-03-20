@@ -130,3 +130,48 @@ let of_config_streaming (provider_cfg : Provider.config)
           ~provider:provider_cfg ~config ~messages ?tools ~on_event ()
     end in
     Some (module SP : STREAMING_PROVIDER)
+
+[@@@coverage off]
+(* === Inline tests === *)
+
+let%test "supports_streaming Anthropic" =
+  let cfg : Provider.config = {
+    provider = Provider.Anthropic;
+    model_id = "claude-3-5-sonnet-20241022";
+    api_key_env = "ANTHROPIC_API_KEY";
+  } in
+  supports_streaming cfg = true
+
+let%test "supports_streaming OpenAICompat" =
+  let cfg : Provider.config = {
+    provider = Provider.OpenAICompat {
+      base_url = "http://localhost:8085";
+      auth_header = None;
+      path = "/v1/chat/completions";
+      static_token = None;
+    };
+    model_id = "qwen3.5";
+    api_key_env = "";
+  } in
+  (* OpenAI-compat providers support streaming *)
+  supports_streaming cfg
+
+let%test "of_config returns a provider_module" =
+  let cfg : Provider.config = {
+    provider = Provider.Anthropic;
+    model_id = "claude-3-5-sonnet-20241022";
+    api_key_env = "ANTHROPIC_API_KEY";
+  } in
+  let _m = of_config cfg in
+  (* Just verify it doesn't raise *)
+  true
+
+let%test "of_config_streaming Anthropic returns Some" =
+  let cfg : Provider.config = {
+    provider = Provider.Anthropic;
+    model_id = "claude-3-5-sonnet-20241022";
+    api_key_env = "ANTHROPIC_API_KEY";
+  } in
+  match of_config_streaming cfg with
+  | Some _ -> true
+  | None -> false

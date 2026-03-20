@@ -615,3 +615,91 @@ let%test "decode_items propagates decode error" =
   match decode_items "items" (fun _ -> Error "decode failed") json with
   | Error _ -> true
   | Ok _ -> false
+
+(* --- Additional coverage tests --- *)
+
+let%test "output_token_budget respects env var" =
+  Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "100";
+  let budget = output_token_budget () in
+  Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "";
+  budget = 100
+
+let%test "output_token_budget negative env value falls back to default" =
+  Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "-5";
+  let budget = output_token_budget () in
+  Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "";
+  budget = 25_000
+
+let%test "output_token_budget non-numeric env value falls back to default" =
+  Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "abc";
+  let budget = output_token_budget () in
+  Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "";
+  budget = 25_000
+
+let%test "output_token_budget zero falls back to default" =
+  Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "0";
+  let budget = output_token_budget () in
+  Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "";
+  budget = 25_000
+
+let%test "truncate_output exact boundary not truncated" =
+  Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "5";
+  (* 5 tokens * 4 = 20 chars *)
+  let s = String.make 20 'a' in
+  let result = truncate_output s in
+  Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "";
+  result = s
+
+let%test "truncate_output one over boundary is truncated" =
+  Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "5";
+  let s = String.make 21 'b' in
+  let result = truncate_output s in
+  Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "";
+  let suffix = "\n...[oas mcp output truncated]" in
+  String.length result < String.length s + String.length suffix
+  && String.length result > 0
+  && String.sub result (String.length result - String.length suffix)
+       (String.length suffix) = suffix
+
+let%test "text_of_tool_result skips non-text content" =
+  Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "10000";
+  let r : Sdk_types.tool_result = {
+    content = [
+      Sdk_types.ImageContent { type_ = "image"; data = "abc"; mime_type = "image/png"; annotations = None };
+      Sdk_types.TextContent { type_ = "text"; text = "only_text"; annotations = None };
+    ];
+    is_error = None;
+    structured_content = None;
+  } in
+  let result = text_of_tool_result r in
+  Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "";
+  result = "only_text"
+
+let%test "mcp_tool_of_json description not a string defaults to empty" =
+  let json = `Assoc [
+    ("name", `String "tool_desc");
+    ("description", `Int 42);
+  ] in
+  match mcp_tool_of_json json with
+  | Some tool -> tool.description = ""
+  | None -> false
+
+let%test "decode_items with single successful item" =
+  let json = `Assoc [("items", `List [`String "only"])] in
+  match decode_items "items" (fun j ->
+    match j with `String s -> Ok s | _ -> Error "bad"
+  ) json with
+  | Ok ["only"] -> true
+  | _ -> false
+
+let%test "decode_items field is not a list returns Ok []" =
+  let json = `Assoc [("items", `String "not a list")] in
+  decode_items "items" (fun _ -> Ok "x") json = Ok []
+
+let%test "merge_env multiple overrides" =
+  let env = merge_env [
+    ("__OAS_TEST_A__", "val_a");
+    ("__OAS_TEST_B__", "val_b");
+  ] in
+  Array.exists (fun e -> e = "__OAS_TEST_A__=val_a") env
+  && Array.exists (fun e -> e = "__OAS_TEST_B__=val_b") env

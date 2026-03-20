@@ -416,3 +416,63 @@ let%test "tag_error passes through Error" =
   match tag_error "test_stage" (Error err) with
   | Error e -> e = err
   | Ok _ -> false
+
+(* --- Additional coverage tests --- *)
+
+let%test "last_tool_results_from assistant-only messages" =
+  let msgs = [
+    { role = Assistant; content = [Text "hello"]; name = None; tool_call_id = None };
+    { role = Assistant; content = [Text "world"]; name = None; tool_call_id = None };
+  ] in
+  last_tool_results_from msgs = []
+
+let%test "last_tool_results_from picks last user with tool results" =
+  let msgs = [
+    { role = User; content = [
+        ToolResult { tool_use_id = "t1"; content = "first"; is_error = false };
+      ]; name = None; tool_call_id = None };
+    { role = Assistant; content = [Text "mid"]; name = None; tool_call_id = None };
+    { role = User; content = [
+        ToolResult { tool_use_id = "t2"; content = "second"; is_error = false };
+      ]; name = None; tool_call_id = None };
+  ] in
+  match last_tool_results_from msgs with
+  | [Ok { content = "second" }] -> true
+  | _ -> false
+
+let%test "last_tool_results_from mixed content in user message" =
+  let msgs = [
+    { role = User; content = [
+        Text "some text";
+        ToolResult { tool_use_id = "t1"; content = "ok"; is_error = false };
+        Text "more text";
+      ]; name = None; tool_call_id = None };
+  ] in
+  match last_tool_results_from msgs with
+  | [Ok { content = "ok" }] -> true
+  | _ -> false
+
+let%test "last_tool_results_from error tool result" =
+  let msgs = [
+    { role = User; content = [
+        ToolResult { tool_use_id = "t1"; content = "fail msg"; is_error = true };
+      ]; name = None; tool_call_id = None };
+  ] in
+  match last_tool_results_from msgs with
+  | [Error { message = "fail msg"; recoverable = true }] -> true
+  | _ -> false
+
+let%test "tag_error with Config error" =
+  let err = Error.Config (MissingEnvVar { var_name = "X" }) in
+  match tag_error "parse" (Error err) with
+  | Error e -> e = err
+  | Ok _ -> false
+
+let%test "tag_error with Agent error" =
+  let err = Error.Agent (UnrecognizedStopReason { reason = "weird" }) in
+  match tag_error "output" (Error err) with
+  | Error e -> e = err
+  | Ok _ -> false
+
+let%test "tag_error string result Ok" =
+  tag_error "collect" (Ok "success") = Ok "success"
