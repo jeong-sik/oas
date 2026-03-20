@@ -73,3 +73,7 @@
 (executable
  (name governance_demo)
  (libraries agent_sdk yojson unix))
+
+(executable
+ (name plan_execute_demo)
+ (libraries agent_sdk yojson unix))

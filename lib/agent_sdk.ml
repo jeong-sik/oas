@@ -129,6 +129,7 @@ module Runtime_store = Runtime_store
 module Durable = Durable
 module Policy = Policy
 module Audit = Audit
+module Plan = Plan
 
 (** Quick start: create an agent with default config *)
 let create_agent ~net ?name ?model ?system_prompt ?max_tokens ?max_turns

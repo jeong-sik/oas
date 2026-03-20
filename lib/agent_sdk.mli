@@ -100,6 +100,7 @@ module Runtime_store = Runtime_store
 module Durable = Durable
 module Policy = Policy
 module Audit = Audit
+module Plan = Plan
 
 (** {1 Quick Start} *)
 
