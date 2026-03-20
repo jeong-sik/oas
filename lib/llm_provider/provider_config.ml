@@ -5,6 +5,7 @@ type provider_kind =
   | Anthropic
   | OpenAI_compat
   | Gemini
+  | Claude_code
 
 type t = {
   kind: provider_kind;
@@ -41,6 +42,7 @@ let make ~kind ~model_id ~base_url
       | Anthropic -> "/v1/messages"
       | OpenAI_compat -> "/v1/chat/completions"
       | Gemini -> ""
+      | Claude_code -> ""
   in
   { kind; model_id; base_url; api_key; headers; request_path;
     max_tokens; temperature; top_p; top_k; min_p;

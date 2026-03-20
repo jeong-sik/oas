@@ -10,6 +10,7 @@ type provider_kind =
   | Anthropic
   | OpenAI_compat
   | Gemini
+  | Claude_code  (** Subprocess transport via [claude -p]. @since 0.78.0 *)
 
 type t = {
   kind: provider_kind;
