@@ -254,13 +254,38 @@ let for_model_id model_id =
            supports_structured_output = true;
            supports_native_streaming = true;
            supports_caching = true }
-  else if starts_with "glm" then
+  else if starts_with "glm-4.5" || starts_with "glm-5" then
     Some { default_capabilities with
            max_context_tokens = Some 200_000;
            max_output_tokens = Some 128_000;
            supports_tools = true;
+           supports_tool_choice = true;
            supports_reasoning = true;
            supports_structured_output = true;
+           supports_response_format_json = true;
+           supports_multimodal_inputs = true;
+           supports_image_input = true;
+           supports_native_streaming = true }
+  else if starts_with "glm-4-flash" then
+    Some { default_capabilities with
+           max_context_tokens = Some 128_000;
+           max_output_tokens = Some 4_096;
+           supports_tools = true;
+           supports_native_streaming = true }
+  else if starts_with "glm-4v" then
+    Some { default_capabilities with
+           max_context_tokens = Some 128_000;
+           max_output_tokens = Some 4_096;
+           supports_tools = true;
+           supports_multimodal_inputs = true;
+           supports_image_input = true;
+           supports_native_streaming = true }
+  else if starts_with "glm-4" then
+    Some { default_capabilities with
+           max_context_tokens = Some 128_000;
+           max_output_tokens = Some 4_096;
+           supports_tools = true;
+           supports_tool_choice = true;
            supports_native_streaming = true }
   else
     None
@@ -268,3 +293,30 @@ let for_model_id model_id =
 (** Merge Discovery ctx_size into capabilities. *)
 let with_context_size caps ~ctx_size =
   { caps with max_context_tokens = Some ctx_size }
+
+[@@@coverage off]
+
+let%test "for_model_id glm-4.5 has reasoning" =
+  match for_model_id "glm-4.5" with
+  | Some c -> c.supports_reasoning && c.max_context_tokens = Some 200_000
+  | None -> false
+
+let%test "for_model_id glm-4 no reasoning" =
+  match for_model_id "glm-4-chat" with
+  | Some c -> not c.supports_reasoning && c.max_context_tokens = Some 128_000
+  | None -> false
+
+let%test "for_model_id glm-4v has vision" =
+  match for_model_id "glm-4v-flash" with
+  | Some c -> c.supports_image_input && c.supports_multimodal_inputs
+  | None -> false
+
+let%test "for_model_id glm-4-flash basic" =
+  match for_model_id "glm-4-flash" with
+  | Some c -> c.supports_tools && c.max_output_tokens = Some 4_096
+  | None -> false
+
+let%test "for_model_id glm-5 advanced" =
+  match for_model_id "glm-5" with
+  | Some c -> c.supports_reasoning && c.supports_image_input
+  | None -> false

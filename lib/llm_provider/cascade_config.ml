@@ -175,6 +175,31 @@ let filter_healthy ~sw ~net (providers : Provider_config.t list) =
     else
       cloud_providers  (* All locals unhealthy — cloud only *)
 
+(* ── Capability-aware filtering ─────────────────────────── *)
+
+(** Filter providers by a capability predicate.
+    Uses {!Capabilities.for_model_id} to resolve model-specific capabilities,
+    falling back to the provider-level defaults from the registry.
+
+    Providers that do not satisfy [pred] are removed.
+    If all providers are filtered out, returns the original list
+    (let the provider return an API error rather than an empty cascade). *)
+let filter_by_capabilities ~(pred : Capabilities.capabilities -> bool)
+    (providers : Provider_config.t list) =
+  let satisfies (cfg : Provider_config.t) =
+    let caps = match Capabilities.for_model_id cfg.model_id with
+      | Some c -> c
+      | None ->
+        match Provider_registry.find default_registry cfg.model_id with
+        | Some entry -> entry.capabilities
+        | None -> Capabilities.default_capabilities
+    in
+    pred caps
+  in
+  let filtered = List.filter satisfies providers in
+  if filtered = [] then providers  (* fallback: pass all through *)
+  else filtered
+
 (* ── Helpers ────────────────────────────────────────────── *)
 
 let text_of_response (resp : Types.api_response) : string =
@@ -535,3 +560,25 @@ let%test "parse_model_string case-insensitive provider" =
   match parse_model_string "LLAMA:model1" with
   | Some cfg -> cfg.model_id = "model1"
   | None -> false
+
+let%test "filter_by_capabilities keeps tool-supporting providers" =
+  let tool_cfg = Provider_config.make ~kind:OpenAI_compat ~model_id:"qwen3.5"
+    ~base_url:"http://localhost:8085" () in
+  let no_tool_cfg = Provider_config.make ~kind:OpenAI_compat ~model_id:"unknown-no-tools"
+    ~base_url:"http://localhost:8085" () in
+  let result = filter_by_capabilities
+    ~pred:(fun c -> c.Capabilities.supports_tools)
+    [tool_cfg; no_tool_cfg] in
+  (* qwen3.5 has tools via for_model_id, unknown falls back to default (no tools) *)
+  List.length result = 1
+
+let%test "filter_by_capabilities returns all if none match" =
+  let cfg1 = Provider_config.make ~kind:OpenAI_compat ~model_id:"unknown-a"
+    ~base_url:"http://localhost:8085" () in
+  let cfg2 = Provider_config.make ~kind:OpenAI_compat ~model_id:"unknown-b"
+    ~base_url:"http://localhost:8085" () in
+  let result = filter_by_capabilities
+    ~pred:(fun c -> c.Capabilities.supports_computer_use)
+    [cfg1; cfg2] in
+  (* Neither supports computer_use, fallback to all *)
+  List.length result = 2
