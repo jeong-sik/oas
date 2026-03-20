@@ -448,3 +448,23 @@
 (test
  (name test_stream_accumulator)
  (libraries agent_sdk llm_provider alcotest yojson))
+
+(test
+ (name test_cascade_config_ext)
+ (libraries llm_provider alcotest yojson unix))
+
+(test
+ (name test_complete_ext)
+ (libraries llm_provider alcotest yojson))
+
+(test
+ (name test_transport_pure)
+ (libraries agent_sdk alcotest yojson unix))
+
+(test
+ (name test_structured_ext)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_complete_http)
+ (libraries agent_sdk llm_provider alcotest yojson eio eio_main cohttp-eio))
