@@ -132,6 +132,14 @@ let gemini_capabilities = {
   supports_code_execution = true;
 }
 
+let claude_code_capabilities = {
+  anthropic_capabilities with
+  max_context_tokens = Some 1_000_000;  (* 1M context via Claude Code *)
+  max_output_tokens = Some 64_000;
+  supports_computer_use = true;
+  supports_code_execution = true;
+}
+
 (* ── Model-specific overrides (lookup table) ─────────── *)
 
 (** Lookup capabilities by model_id prefix.

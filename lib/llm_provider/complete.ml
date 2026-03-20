@@ -28,6 +28,11 @@ let gemini_url ~(config : Provider_config.t) ~stream =
 
 let complete_http ~sw ~net ~(config : Provider_config.t)
     ~(messages : Types.message list) ~tools =
+  if config.kind = Provider_config.Claude_code then
+    (Error (Http_client.NetworkError {
+       message = "Claude_code provider requires a transport (use Transport_claude_code.create)" }),
+     0)
+  else
   let body_str = match config.kind with
     | Provider_config.Anthropic ->
         Backend_anthropic.build_request ~config ~messages ~tools ()
@@ -35,6 +40,7 @@ let complete_http ~sw ~net ~(config : Provider_config.t)
         Backend_openai.build_request ~config ~messages ~tools ()
     | Provider_config.Gemini ->
         Backend_gemini.build_request ~config ~messages ~tools ()
+    | Provider_config.Claude_code -> assert false (* guarded above *)
   in
   let url = match config.kind with
     | Provider_config.Gemini -> gemini_url ~config ~stream:false
@@ -56,6 +62,7 @@ let complete_http ~sw ~net ~(config : Provider_config.t)
             | Provider_config.Gemini ->
                 Backend_gemini.parse_response
                   (Yojson.Safe.from_string body)
+            | Provider_config.Claude_code -> assert false
           in
           Ok response
         else
@@ -313,6 +320,10 @@ let finalize_stream_acc (acc : stream_acc) =
 let complete_stream_http ~sw ~net ~(config : Provider_config.t)
     ~(messages : Types.message list) ~tools
     ~(on_event : Types.sse_event -> unit) =
+  if config.kind = Provider_config.Claude_code then
+    Error (Http_client.NetworkError {
+      message = "Claude_code provider requires a transport (use Transport_claude_code.create)" })
+  else
   let body_str = match config.kind with
     | Provider_config.Anthropic ->
         Backend_anthropic.build_request ~stream:true ~config ~messages ~tools ()
@@ -320,6 +331,7 @@ let complete_stream_http ~sw ~net ~(config : Provider_config.t)
         Backend_openai.build_request ~stream:true ~config ~messages ~tools ()
     | Provider_config.Gemini ->
         Backend_gemini.build_request ~stream:true ~config ~messages ~tools ()
+    | Provider_config.Claude_code -> assert false
   in
   let url = match config.kind with
     | Provider_config.Gemini -> gemini_url ~config ~stream:true
@@ -361,6 +373,7 @@ let complete_stream_http ~sw ~net ~(config : Provider_config.t)
               (match Streaming.parse_gemini_sse_chunk data with
                | Some chunk -> Streaming.gemini_chunk_to_events state chunk
                | None -> [])
+          | Provider_config.Claude_code -> []  (* guarded above *)
         in
         List.iter (fun evt ->
           on_event evt;

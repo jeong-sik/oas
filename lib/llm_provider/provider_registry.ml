@@ -106,4 +106,22 @@ let default () =
   reg "gemini" gemini_defaults Capabilities.gemini_capabilities;
   reg "glm" glm_defaults Capabilities.openai_chat_capabilities;
   reg "openrouter" openrouter_defaults Capabilities.openai_chat_extended_capabilities;
+  (* Claude Code subprocess — always available if claude is in PATH *)
+  let cc_defaults = {
+    kind = Claude_code;
+    base_url = "";
+    api_key_env = "";
+    request_path = "";
+  } in
+  let cc_available () =
+    try
+      let ic = Unix.open_process_in "which claude 2>/dev/null" in
+      let result = try input_line ic with End_of_file -> "" in
+      ignore (Unix.close_process_in ic);
+      String.length (String.trim result) > 0
+    with _ -> false
+  in
+  register t { name = "cc"; defaults = cc_defaults;
+               capabilities = Capabilities.claude_code_capabilities;
+               is_available = cc_available };
   t
