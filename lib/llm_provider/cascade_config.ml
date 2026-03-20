@@ -580,8 +580,8 @@ let%test "resolve_model_strings named takes priority over default" =
     Sys.remove tmp;
     result = ["glm:flash"])
 
-let%test "default_registry has 5 providers" =
-  List.length (Provider_registry.all default_registry) = 5
+let%test "default_registry has 6 providers" =
+  List.length (Provider_registry.all default_registry) = 6
 
 let%test "default_registry llama is OpenAI_compat" =
   match Provider_registry.find default_registry "llama" with
