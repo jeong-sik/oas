@@ -69,3 +69,12 @@ val custom : (message list -> message list) -> t
 (** Dynamic strategy: selects a strategy per turn based on
     conversation state. *)
 val dynamic : (turn:int -> messages:message list -> strategy) -> t
+
+(** {1 Capabilities integration} *)
+
+(** Create a reducer from provider capabilities.
+    Uses [max_context_tokens * margin] as the token budget (default 80%),
+    composed with [drop_thinking] and [repair_dangling_tool_calls].
+    Returns [None] if [max_context_tokens] is unknown. *)
+val from_capabilities :
+  ?margin:float -> Llm_provider.Capabilities.capabilities -> t option

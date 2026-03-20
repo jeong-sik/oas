@@ -5,14 +5,6 @@
 
 open Types
 
-let hook_decision_to_string = function
-  | Hooks.Continue -> "continue"
-  | Hooks.Skip -> "skip"
-  | Hooks.Override _ -> "override"
-  | Hooks.ApprovalRequired -> "approval_required"
-  | Hooks.AdjustParams _ -> "adjust_params"
-  | Hooks.ElicitInput _ -> "elicit_input"
-
 let invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count ~hook_name
     hook_opt event =
   Tracing.with_span tracer
