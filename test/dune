@@ -720,3 +720,15 @@
 (test
  (name test_skill_coverage2)
  (libraries agent_sdk alcotest yojson unix))
+
+(test
+ (name test_runtime_worker_integration)
+ (libraries agent_sdk alcotest yojson unix eio eio_main))
+
+(test
+ (name test_deep_coverage)
+ (libraries agent_sdk alcotest yojson unix eio eio_main str))
+
+(test
+ (name test_llm_provider_cov)
+ (libraries agent_sdk llm_provider alcotest yojson unix eio eio_main str))
