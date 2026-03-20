@@ -1,8 +1,10 @@
-(** Convenience wrapper: connect, query, finalize, return messages. *)
+(** One-shot runtime query.
+
+    Alias for {!Internal_client.process_query}. *)
 
 val query :
   sw:Eio.Switch.t ->
-  mgr:[ `Generic | `Unix ] Eio.Process.mgr_ty Eio.Resource.t ->
+  mgr:_ Eio.Process.mgr ->
   ?options:Sdk_client_types.options ->
   prompt:string ->
   unit ->

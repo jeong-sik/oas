@@ -1,28 +1,35 @@
-(** Eval Collector -- automatic metric collection from {!Event_bus}.
+(** Eval Collector — automatic metric collection from {!Event_bus}.
 
-    Subscribes to an Event_bus and extracts metrics (turn count, tool
-    calls, latency) without requiring manual instrumentation in agent
-    code. *)
+    Subscribes to an {!Event_bus.t} and extracts metrics (turn count,
+    tool calls, latency, etc.) without requiring manual instrumentation
+    in agent code.
+
+    Usage:
+    {[
+      let collector = Eval_collector.wrap_run ~bus ~agent_name ~run_id () in
+      (* ... run agent ... *)
+      let metrics = Eval_collector.finalize collector
+    ]} *)
 
 (** {1 Types} *)
 
-(** Opaque collector handle. *)
+(** Opaque collector state. *)
 type t
 
 (** {1 Lifecycle} *)
 
-(** Subscribe to [bus] and begin collecting metrics for [agent_name]. *)
+(** Start collecting events from [bus] for the given agent and run. *)
 val wrap_run :
   bus:Event_bus.t ->
   agent_name:string ->
   run_id:string ->
   unit -> t
 
-(** Drain remaining events, unsubscribe, record aggregated metrics,
-    and return the finalized {!Eval.run_metrics}. *)
-val finalize : t -> Eval.run_metrics
-
-(** {1 Incremental processing} *)
-
-(** Drain and process any buffered events without finalizing. *)
+(** Process any pending events from the bus.
+    Called automatically by {!finalize} but can be invoked
+    manually for intermediate inspection. *)
 val process_events : t -> unit
+
+(** Finalize collection: drain remaining events, unsubscribe,
+    record aggregate metrics, and return the completed run metrics. *)
+val finalize : t -> Eval.run_metrics

@@ -1,35 +1,35 @@
-(** Read-side operations for raw traces: list runs, read, summarize,
-    validate.
+(** Read-side operations for raw traces: list runs, read, summarize, validate.
 
     Extracted from {!Raw_trace} to separate write-path (recording) from
     read-path (query/analysis).  All functions operate on JSONL files
     written by {!Raw_trace} and return structured results. *)
 
-(** {1 Run discovery} *)
+(** {1 Run Discovery} *)
 
-(** Extract distinct [run_ref] values from parsed records, ordered by
-    [start_seq]. *)
+(** Extract [run_ref] values from a list of parsed records.
+    Groups records by [worker_run_id] and computes [start_seq]/[end_seq]. *)
 val run_refs_of_records :
   path:string -> Raw_trace.record list -> Raw_trace.run_ref list
 
-(** Read the JSONL file at [path] and return all discovered runs. *)
+(** Read all runs from a trace file at [path]. *)
 val read_runs :
   path:string -> unit -> (Raw_trace.run_ref list, Error.sdk_error) result
 
-(** Read all records belonging to the given run. *)
+(** Read all records for a single run. *)
 val read_run :
   Raw_trace.run_ref -> (Raw_trace.record list, Error.sdk_error) result
 
 (** {1 Summarize} *)
 
-(** Produce a {!Raw_trace.run_summary} for the given run. *)
+(** Produce a summary of a single run (event counts, tool/hook names,
+    timestamps, final text and stop reason). *)
 val summarize_run :
   Raw_trace.run_ref -> (Raw_trace.run_summary, Error.sdk_error) result
 
 (** {1 Validate} *)
 
-(** Validate structural integrity (sequence monotonicity, start/finish
-    pairing, tool execution pairing) and return a
-    {!Raw_trace.validation_result}. *)
+(** Run structural validation checks on a single run.
+    Checks sequence monotonicity, run start/finish presence,
+    tool execution pairing, and optional verification pass. *)
 val validate_run :
   Raw_trace.run_ref -> (Raw_trace.run_validation, Error.sdk_error) result

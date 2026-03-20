@@ -1,6 +1,9 @@
-(** SDK client type definitions. *)
+(** Wire types for the SDK client protocol.
 
-(** {1 Permission mode} *)
+    Defines options, messages, permission callbacks, and hook callbacks
+    used by {!Client} and {!Internal_query_engine}. *)
+
+(** {1 Permission Mode} *)
 
 type permission_mode =
   | Default
@@ -12,13 +15,15 @@ type permission_mode =
 val string_of_permission_mode : permission_mode -> string
 val permission_mode_of_string : string -> permission_mode option
 
-(** {1 Settings} *)
+(** {1 Setting Source} *)
 
 type setting_source =
   | User
   | Project
   | Local
 [@@deriving show]
+
+(** {1 Agent Definition} *)
 
 type agent_definition = {
   description: string;
@@ -27,6 +32,8 @@ type agent_definition = {
   model: string option;
 }
 [@@deriving show]
+
+(** {1 Options} *)
 
 type options = {
   runtime_path: string option;
@@ -59,7 +66,7 @@ type message =
   | Session_proof of Runtime.proof
 [@@deriving show]
 
-(** {1 Permissions} *)
+(** {1 Permission Callbacks} *)
 
 type permission_result =
   | Permission_result_allow of { message: string option }
@@ -72,7 +79,7 @@ type tool_permission_context = {
 type can_use_tool =
   string -> Yojson.Safe.t -> tool_permission_context -> permission_result
 
-(** {1 Hooks} *)
+(** {1 Hook Callbacks} *)
 
 type hook_result =
   | Hook_continue
@@ -85,4 +92,7 @@ type hook_callback =
 
 val default_options : options
 val default_agent : agent_definition
+
+(** Return the agent entries from options, defaulting to a single
+    ["assistant"] entry if none are configured. *)
 val agent_entries : options -> (string * agent_definition) list

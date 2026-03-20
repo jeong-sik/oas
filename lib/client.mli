@@ -1,10 +1,9 @@
-(** High-level SDK client wrapper.
+(** High-level SDK client — manages runtime connection, sessions,
+    permission callbacks, and message buffering.
 
-    Re-exports {!Sdk_client_types} and wraps {!Internal_query_engine}
-    with a user-facing API for connecting to, querying, and managing
-    an agent runtime session. *)
+    Re-exports types from {!Sdk_client_types} for convenience. *)
 
-(** {1 Re-exported types} *)
+(** {1 Types (re-exported from Sdk_client_types)} *)
 
 type permission_mode = Sdk_client_types.permission_mode =
   | Default
@@ -72,45 +71,74 @@ type hook_result = Sdk_client_types.hook_result =
 
 type hook_callback = Sdk_client_types.hook_callback
 
-(** {1 Client handle} *)
+(** {1 Client} *)
 
+(** Opaque client state. *)
 type t
 
+(** Default client options. *)
 val default_options : options
 
-(** {1 Lifecycle} *)
+(** {1 Connection} *)
 
+(** Connect to an OAS runtime process. *)
 val connect :
   sw:Eio.Switch.t ->
-  mgr:[ `Generic | `Unix ] Eio.Process.mgr_ty Eio.Resource.t ->
-  ?options:Sdk_client_types.options ->
+  mgr:_ Eio.Process.mgr ->
+  ?options:options ->
   unit ->
   (t, Error.sdk_error) result
 
-val disconnect : t -> unit
-val close : t -> unit
+(** {1 Queries} *)
 
-(** {1 Query} *)
-
+(** Submit a user prompt as a new turn. *)
 val query : t -> string -> (unit, Error.sdk_error) result
-val interrupt : t -> (unit, Error.sdk_error) result
-val finalize : t -> ?reason:string -> unit -> (unit, Error.sdk_error) result
 
-(** {1 Messages} *)
-
+(** Check whether buffered messages are available. *)
 val has_pending_messages : t -> bool
+
+(** Drain all buffered messages (non-blocking). *)
 val receive_messages : t -> message list
+
+(** Drain buffered messages or block until messages arrive. *)
 val receive_response : ?timeout:float -> t -> message list
+
+(** Alias for {!receive_response}. *)
 val wait_for_messages : ?timeout:float -> t -> message list
+
+(** Interrupt the current session. *)
+val interrupt : t -> (unit, Error.sdk_error) result
 
 (** {1 Configuration} *)
 
-val set_permission_mode : t -> permission_mode -> (unit, Error.sdk_error) result
+(** Update the permission mode for the current session. *)
+val set_permission_mode :
+  t -> permission_mode -> (unit, Error.sdk_error) result
+
+(** Update the model for the current session. *)
 val set_model : t -> string option -> (unit, Error.sdk_error) result
+
+(** Set the tool permission callback. *)
 val set_can_use_tool : t -> can_use_tool -> unit
+
+(** Set the hook callback. *)
 val set_hook_callback : t -> hook_callback -> unit
 
-(** {1 Session} *)
+(** {1 Info} *)
 
-val current_session_id : t -> string option
+(** Retrieve server information from the runtime. *)
 val get_server_info : t -> Runtime.init_response option
+
+(** Get the current session ID, if any. *)
+val current_session_id : t -> string option
+
+(** {1 Lifecycle} *)
+
+(** Finalize the current session (generate report and proof). *)
+val finalize : t -> ?reason:string -> unit -> (unit, Error.sdk_error) result
+
+(** Disconnect from the runtime. *)
+val disconnect : t -> unit
+
+(** Alias for {!disconnect}. *)
+val close : t -> unit

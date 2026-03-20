@@ -5,24 +5,31 @@
 
 (** {1 Types} *)
 
+(** Opaque checkpoint store handle. *)
 type t
 
 (** {1 Lifecycle} *)
 
-(** Create the store, ensuring [base_dir] exists. *)
-val create : Eio.Fs.dir_ty Eio.Path.t -> (t, Error.sdk_error) result
+(** Create a store backed by [base_dir].  Creates the directory if needed. *)
+val create :
+  Eio.Fs.dir_ty Eio.Path.t -> (t, Error.sdk_error) result
 
-(** {1 CRUD} *)
+(** {1 Operations} *)
 
+(** Save a checkpoint atomically (write to tmp, then rename). *)
 val save : t -> Checkpoint.t -> (unit, Error.sdk_error) result
+
+(** Load a checkpoint by session ID. *)
 val load : t -> string -> (Checkpoint.t, Error.sdk_error) result
-val delete : t -> string -> (unit, Error.sdk_error) result
-val exists : t -> string -> bool
 
-(** {1 Query} *)
-
-(** List all session IDs with saved checkpoints, sorted alphabetically. *)
+(** List all stored session IDs, sorted alphabetically. *)
 val list : t -> (string list, Error.sdk_error) result
 
-(** Load the checkpoint with the most recent [created_at] timestamp. *)
+(** Delete a checkpoint by session ID. *)
+val delete : t -> string -> (unit, Error.sdk_error) result
+
+(** Check whether a checkpoint exists for the given session ID. *)
+val exists : t -> string -> bool
+
+(** Load the most recently created checkpoint. *)
 val latest : t -> (Checkpoint.t, Error.sdk_error) result

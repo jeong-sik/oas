@@ -1,10 +1,11 @@
-(** Anthropic Agent SDK for OCaml.
+(** Anthropic Agent SDK for OCaml
 
     A type-safe, Eio-based implementation of the Anthropic Agent SDK.
-    This module re-exports all sub-modules and provides a convenience
-    {!create_agent} constructor. *)
 
-(** {1 Re-exported modules (dependency-safe order)} *)
+    This is the top-level module that re-exports all sub-modules
+    in dependency-safe order. *)
+
+(** {1 Core Modules} *)
 
 module Sdk_version = Sdk_version
 module Types = Types
@@ -94,9 +95,10 @@ module Eval_report = Eval_report
 module Defaults = Defaults
 module Runtime_store = Runtime_store
 
-(** {1 Quick start} *)
+(** {1 Quick Start} *)
 
-(** Create an agent with default config and optional overrides. *)
+(** Create an agent with default config.
+    Convenience wrapper around {!Agent.create}. *)
 val create_agent :
   net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
   ?name:string ->
@@ -109,25 +111,26 @@ val create_agent :
   ?raw_trace:Raw_trace.t ->
   unit -> Agent.t
 
-(** {1 Convenience query} *)
-
+(** Low-level runtime query. *)
 val runtime_query :
   sw:Eio.Switch.t ->
-  mgr:[ `Generic | `Unix ] Eio.Process.mgr_ty Eio.Resource.t ->
+  mgr:_ Eio.Process.mgr ->
   ?runtime_path:string ->
   ?session_root:string ->
   Runtime.request ->
   (Runtime.response, Error.sdk_error) result
 
+(** One-shot client query — connect, send prompt, collect messages,
+    disconnect. *)
 val query :
   sw:Eio.Switch.t ->
-  mgr:[ `Generic | `Unix ] Eio.Process.mgr_ty Eio.Resource.t ->
+  mgr:_ Eio.Process.mgr ->
   ?options:Sdk_client_types.options ->
   prompt:string ->
   unit ->
   (Sdk_client_types.message list, Error.sdk_error) result
 
-(** {1 Version info} *)
+(** {1 Version} *)
 
 val version : string
 val sdk_name : string
