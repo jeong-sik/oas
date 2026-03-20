@@ -152,32 +152,38 @@ let with_temp_file content f =
        f path)
 
 let test_load_profile_valid () =
+  Eio_main.run @@ fun _env ->
   with_temp_file {|{"myname_models": ["llama:q1", "glm:auto"]}|} (fun path ->
     let models = Cascade_config.load_profile ~config_path:path ~name:"myname" in
     check int "2 models" 2 (List.length models);
     check string "first" "llama:q1" (List.nth models 0))
 
 let test_load_profile_missing_key () =
+  Eio_main.run @@ fun _env ->
   with_temp_file {|{"other_models": ["a"]}|} (fun path ->
     let models = Cascade_config.load_profile ~config_path:path ~name:"myname" in
     check int "empty" 0 (List.length models))
 
 let test_load_profile_nonexistent () =
+  Eio_main.run @@ fun _env ->
   let models = Cascade_config.load_profile
       ~config_path:"/nonexistent.json" ~name:"x" in
   check int "empty on missing" 0 (List.length models)
 
 let test_load_profile_non_string_items () =
+  Eio_main.run @@ fun _env ->
   with_temp_file {|{"x_models": ["valid", 42, true, "also_valid"]}|} (fun path ->
     let models = Cascade_config.load_profile ~config_path:path ~name:"x" in
     check int "filters non-strings" 2 (List.length models))
 
 let test_load_profile_not_list () =
+  Eio_main.run @@ fun _env ->
   with_temp_file {|{"x_models": "not_a_list"}|} (fun path ->
     let models = Cascade_config.load_profile ~config_path:path ~name:"x" in
     check int "not a list" 0 (List.length models))
 
 let test_load_profile_invalid_json () =
+  Eio_main.run @@ fun _env ->
   with_temp_file "not json" (fun path ->
     let models = Cascade_config.load_profile ~config_path:path ~name:"x" in
     check int "invalid json" 0 (List.length models))
