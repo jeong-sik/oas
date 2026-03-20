@@ -97,7 +97,7 @@ let parse_model_string ?(temperature = 0.3) ?(max_tokens = 500)
   | Some idx ->
     if idx = 0 || idx >= String.length s - 1 then None
     else
-      let provider_name = String.sub s 0 idx |> String.lowercase_ascii in
+      let provider_name = String.sub s 0 idx |> String.trim |> String.lowercase_ascii in
       let model_id =
         String.sub s (idx + 1) (String.length s - idx - 1) |> String.trim
       in

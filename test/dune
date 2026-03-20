@@ -74,7 +74,7 @@
  (name test_cache)
  (libraries agent_sdk alcotest yojson))
 
-(executable
+(test
  (name test_streaming_e2e)
  (libraries agent_sdk eio eio_main yojson))
 
@@ -188,17 +188,19 @@
  (name test_trace_eval)
  (libraries agent_sdk alcotest yojson eio eio_main unix))
 
-(executable
+(test
  (name test_conformance)
- (libraries agent_sdk alcotest yojson unix))
+ (libraries agent_sdk alcotest yojson unix eio eio_main)
+ (deps ../bin/oas_runtime.exe))
 
 (test
  (name test_direct_evidence)
  (libraries agent_sdk alcotest yojson unix eio eio_main cohttp-eio))
 
-(executable
+(test
  (name test_runtime)
- (libraries agent_sdk alcotest unix))
+ (libraries agent_sdk alcotest unix eio eio_main)
+ (deps ../bin/oas_runtime.exe))
 
 (test
  (name test_raw_trace)
@@ -220,7 +222,7 @@
  (name test_v024_fixes)
  (libraries agent_sdk alcotest yojson str unix))
 
-(executable
+(test
  (name test_e2e_v024)
  (libraries agent_sdk eio eio_main yojson))
 
