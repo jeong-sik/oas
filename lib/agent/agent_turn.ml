@@ -9,8 +9,6 @@
 
 open Types
 
-let ( let* ) = Result.bind
-
 (* ── Fingerprint-based idle detection ─────────────────────────── *)
 
 type tool_call_fingerprint = {
