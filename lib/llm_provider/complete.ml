@@ -66,7 +66,8 @@ let complete_http ~sw ~net ~(config : Provider_config.t)
 
 (* ── Sync completion ─────────────────────────────────── *)
 
-let complete ~sw ~net ~(config : Provider_config.t)
+let complete ~sw ~net ?(transport : Llm_transport.t option)
+    ~(config : Provider_config.t)
     ~(messages : Types.message list) ?(tools=[])
     ?(cache : Cache.t option) ?(metrics : Metrics.t option) () =
   let m = match metrics with Some m -> m | None -> Metrics.noop in
@@ -93,8 +94,13 @@ let complete ~sw ~net ~(config : Provider_config.t)
   | Some (result, _key) -> result
   | None ->
       m.on_request_start ~model_id;
-      let (result, latency_ms) =
-        complete_http ~sw ~net ~config ~messages ~tools
+      let { Llm_transport.response = result; latency_ms } =
+        match transport with
+        | Some t ->
+          t.complete_sync { Llm_transport.config; messages; tools }
+        | None ->
+          let (resp, lat) = complete_http ~sw ~net ~config ~messages ~tools in
+          { Llm_transport.response = resp; latency_ms = lat }
       in
       (match result with
        | Ok resp ->
@@ -138,7 +144,7 @@ let is_retryable = function
       code = 429 || code = 500 || code = 502 || code = 503 || code = 529
   | Http_client.NetworkError _ -> true
 
-let complete_with_retry ~sw ~net ~clock
+let complete_with_retry ~sw ~net ?transport ~clock
     ~(config : Provider_config.t)
     ~(messages : Types.message list) ?(tools=[])
     ?(retry_config=default_retry_config)
@@ -149,7 +155,7 @@ let complete_with_retry ~sw ~net ~clock
     delay *. factor
   in
   let rec attempt n delay =
-    match complete ~sw ~net ~config ~messages ~tools ?cache ?metrics () with
+    match complete ~sw ~net ?transport ~config ~messages ~tools ?cache ?metrics () with
     | Ok _ as success -> success
     | Error err when is_retryable err && n < retry_config.max_retries ->
         Eio.Time.sleep clock (jittered delay);
@@ -170,7 +176,7 @@ type cascade = {
   fallbacks: Provider_config.t list;
 }
 
-let complete_cascade ~sw ~net ?clock ?retry_config
+let complete_cascade ~sw ~net ?transport ?clock ?retry_config
     ~(cascade : cascade)
     ~(messages : Types.message list) ?(tools=[])
     ?cache ?metrics () =
@@ -178,10 +184,10 @@ let complete_cascade ~sw ~net ?clock ?retry_config
   let try_provider cfg =
     match clock with
     | Some clock ->
-        complete_with_retry ~sw ~net ~clock ~config:cfg
+        complete_with_retry ~sw ~net ?transport ~clock ~config:cfg
           ~messages ~tools ?retry_config ?cache ?metrics ()
     | None ->
-        complete ~sw ~net ~config:cfg ~messages ~tools ?cache ?metrics ()
+        complete ~sw ~net ?transport ~config:cfg ~messages ~tools ?cache ?metrics ()
   in
   match try_provider cascade.primary with
   | Ok _ as success -> success
@@ -303,9 +309,10 @@ let finalize_stream_acc (acc : stream_acc) =
       cache_read_input_tokens = !(acc.cache_read);
     } }
 
-let complete_stream ~sw ~net ~(config : Provider_config.t)
-    ~(messages : Types.message list) ?(tools=[])
-    ~(on_event : Types.sse_event -> unit) () =
+(* Internal: HTTP-specific streaming implementation. *)
+let complete_stream_http ~sw ~net ~(config : Provider_config.t)
+    ~(messages : Types.message list) ~tools
+    ~(on_event : Types.sse_event -> unit) =
   let body_str = match config.kind with
     | Provider_config.Anthropic ->
         Backend_anthropic.build_request ~stream:true ~config ~messages ~tools ()
@@ -319,7 +326,7 @@ let complete_stream ~sw ~net ~(config : Provider_config.t)
     | _ -> config.base_url ^ config.request_path
   in
   let body_with_stream = match config.kind with
-    | Provider_config.Gemini -> body_str  (* Gemini: no body stream param *)
+    | Provider_config.Gemini -> body_str
     | _ -> Http_client.inject_stream_param body_str
   in
   match Http_client.post_stream ~sw ~net ~url
@@ -362,6 +369,30 @@ let complete_stream ~sw ~net ~(config : Provider_config.t)
       ) ();
       Ok (finalize_stream_acc acc)
 
+let complete_stream ~sw ~net ?(transport : Llm_transport.t option)
+    ~(config : Provider_config.t)
+    ~(messages : Types.message list) ?(tools=[])
+    ~(on_event : Types.sse_event -> unit) () =
+  match transport with
+  | Some t ->
+    t.complete_stream ~on_event { Llm_transport.config; messages; tools }
+  | None ->
+    complete_stream_http ~sw ~net ~config ~messages ~tools ~on_event
+
+(* ── HTTP Transport constructor ─────────────────────── *)
+
+let make_http_transport ~sw ~net : Llm_transport.t = {
+  complete_sync = (fun (req : Llm_transport.completion_request) ->
+    let (response, latency_ms) =
+      complete_http ~sw ~net ~config:req.config
+        ~messages:req.messages ~tools:req.tools
+    in
+    { Llm_transport.response; latency_ms });
+  complete_stream = (fun ~on_event (req : Llm_transport.completion_request) ->
+    complete_stream_http ~sw ~net ~config:req.config
+      ~messages:req.messages ~tools:req.tools ~on_event);
+}
+
 (* ── Streaming Cascade ──────────────────────────── *)
 
 (** Streaming cascade: try each provider in order, failover on
@@ -370,14 +401,14 @@ let complete_stream ~sw ~net ~(config : Provider_config.t)
     No mid-stream failover, no retry, no caching.
 
     @since 0.61.0 *)
-let complete_stream_cascade ~sw ~net
+let complete_stream_cascade ~sw ~net ?transport
     ~(cascade : cascade)
     ~(messages : Types.message list) ?(tools=[])
     ~(on_event : Types.sse_event -> unit)
     ?(metrics : Metrics.t option) () =
   let m = match metrics with Some m -> m | None -> Metrics.noop in
   let try_provider cfg =
-    complete_stream ~sw ~net ~config:cfg ~messages ~tools ~on_event ()
+    complete_stream ~sw ~net ?transport ~config:cfg ~messages ~tools ~on_event ()
   in
   match try_provider cascade.primary with
   | Ok _ as success -> success
