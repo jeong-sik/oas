@@ -118,6 +118,7 @@ module Agent_typed = Agent_typed
 module Cost_tracker = Cost_tracker
 module Context_offload = Context_offload
 module Memory = Memory
+module Memory_access = Memory_access
 module Guardrails_async = Guardrails_async
 module Eval_baseline = Eval_baseline
 module Eval_report = Eval_report
