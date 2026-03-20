@@ -111,6 +111,27 @@ let openai_chat_extended_capabilities = {
   supports_min_p = true;
 }
 
+let gemini_capabilities = {
+  default_capabilities with
+  max_context_tokens = Some 1_000_000;
+  max_output_tokens = Some 65_000;
+  supports_tools = true;
+  supports_tool_choice = true;
+  supports_parallel_tool_calls = true;
+  supports_reasoning = true;
+  supports_extended_thinking = true;
+  supports_reasoning_budget = true;
+  supports_response_format_json = true;
+  supports_structured_output = true;
+  supports_multimodal_inputs = true;
+  supports_image_input = true;
+  supports_audio_input = true;
+  supports_video_input = true;
+  supports_native_streaming = true;
+  supports_caching = true;
+  supports_code_execution = true;
+}
+
 (* ── Model-specific overrides (lookup table) ─────────── *)
 
 (** Lookup capabilities by model_id prefix.
@@ -146,24 +167,7 @@ let for_model_id model_id =
            max_context_tokens = Some 128_000;
            max_output_tokens = Some 16_384 }
   else if starts_with "gemini-3" || starts_with "gemini-2.5" then
-    Some { default_capabilities with
-           max_context_tokens = Some 1_000_000;
-           max_output_tokens = Some 65_000;
-           supports_tools = true;
-           supports_tool_choice = true;
-           supports_parallel_tool_calls = true;
-           supports_reasoning = true;
-           supports_extended_thinking = true;
-           supports_reasoning_budget = true;
-           supports_response_format_json = true;
-           supports_structured_output = true;
-           supports_multimodal_inputs = true;
-           supports_image_input = true;
-           supports_audio_input = true;
-           supports_video_input = true;
-           supports_native_streaming = true;
-           supports_caching = true;
-           supports_code_execution = true }
+    Some gemini_capabilities
   else if starts_with "qwen3" then
     Some { default_capabilities with
            max_context_tokens = Some 262_144;

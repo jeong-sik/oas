@@ -38,3 +38,20 @@ type openai_stream_state = {
 val parse_openai_sse_chunk : string -> openai_chunk option
 val create_openai_stream_state : unit -> openai_stream_state
 val openai_chunk_to_events : openai_stream_state -> openai_chunk -> sse_event list
+
+(** {1 Gemini SSE}
+
+    Gemini [streamGenerateContent?alt=sse] emits SSE chunks with
+    [{candidates: [{content: {parts: [...]}}]}] structure per chunk.
+    We reuse {!openai_stream_state} for block tracking since the
+    state management pattern is identical. *)
+
+type gemini_chunk = {
+  gem_model: string;
+  gem_parts: Yojson.Safe.t list;
+  gem_finish_reason: string option;
+  gem_usage: api_usage option;
+}
+
+val parse_gemini_sse_chunk : string -> gemini_chunk option
+val gemini_chunk_to_events : openai_stream_state -> gemini_chunk -> sse_event list

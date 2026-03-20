@@ -2,6 +2,18 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.75.0] - 2026-03-20
+
+### Added
+- **5-tier Memory**: Episodic (time-decaying salience, interaction history) and Procedural (pattern matching, success/failure tracking with confidence) memory tiers added to the existing Scratchpad/Working/Long_term model. 17 new tests.
+- **.mli 100% coverage**: All 133 modules now have API contract files (.mli). 49 new .mli files across 6 PRs. Dead code discovered and removed during the process.
+- **Coverage 83%**: 44 new test files covering structured output, runtime_client, transport, API, MCP, streaming, orchestrator, swarm, and more.
+
+### Changed
+- `Memory.stats` returns `int * int * int * int * int` (added episodic and procedural counts). **Breaking change** from 3-tuple.
+- `Memory.tier` variant extended with `Episodic` and `Procedural`.
+- `eval_collector.ml`: removed unnecessary `mutable` on `start_time` field.
+
 ## [0.71.0] - 2026-03-19
 
 ### Added

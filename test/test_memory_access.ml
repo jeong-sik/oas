@@ -152,7 +152,23 @@ let () = Alcotest.run "Memory_Access" [
       (match Memory_access.store_procedure acl ~agent:"alice" proc with
        | Ok () -> ()
        | Error _ -> Alcotest.fail "should store procedure");
+      (match Memory_access.find_procedure acl ~agent:"alice" ~pattern:"deploy"
+                ~min_confidence:0.5 ~touch:true () with
+       | Ok (Some found) ->
+         Alcotest.(check string) "allowed find" "pr1" found.id;
+         Alcotest.(check bool) "touch updates last_used" true
+           (found.last_used > 100.0)
+       | Ok None -> Alcotest.fail "alice should find procedure"
+       | Error _ -> Alcotest.fail "alice should be allowed");
       match Memory_access.best_procedure acl ~agent:"bob" ~pattern:"deploy" with
+      | Ok _ -> Alcotest.fail "bob should be denied"
+      | Error (Denied _) -> ()
+    );
+
+    Alcotest.test_case "find_procedure denied without read access" `Quick (fun () ->
+      let mem = Memory.create () in
+      let acl = Memory_access.create mem in
+      match Memory_access.find_procedure acl ~agent:"bob" ~pattern:"deploy" () with
       | Ok _ -> Alcotest.fail "bob should be denied"
       | Error (Denied _) -> ()
     );

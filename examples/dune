@@ -47,6 +47,10 @@
  (libraries agent_sdk eio eio_main yojson unix))
 
 (executable
+ (name memory_tools_demo)
+ (libraries agent_sdk yojson unix))
+
+(executable
  (name collaboration)
  (libraries agent_sdk eio eio_main yojson unix))
 

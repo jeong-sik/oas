@@ -13,17 +13,7 @@ let validate_session_id id =
     Error (Error.Io (ValidationFailed { detail = "session_id must not contain null byte" }))
   else Ok ()
 
-(** Convert file I/O exceptions to sdk_error. Re-raises non-recoverable exceptions. *)
-let io_error_of_exn ~op ~path = function
-  | Eio.Io _ as exn ->
-    Error (Error.Io (FileOpFailed { op; path; detail = Printexc.to_string exn }))
-  | Unix.Unix_error _ as exn ->
-    Error (Error.Io (FileOpFailed { op; path; detail = Printexc.to_string exn }))
-  | Failure msg ->
-    Error (Error.Io (FileOpFailed { op; path; detail = msg }))
-  | Yojson.Json_error msg ->
-    Error (Error.Io (FileOpFailed { op; path; detail = "JSON error: " ^ msg }))
-  | exn -> raise exn
+let io_error_of_exn = Fs_result.io_error_of_exn
 
 let create base_dir =
   try

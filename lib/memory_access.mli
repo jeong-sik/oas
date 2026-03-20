@@ -108,6 +108,11 @@ val store_procedure :
   t -> agent:string -> Memory.procedure ->
   (unit, access_error) result
 
+val find_procedure :
+  t -> agent:string -> pattern:string ->
+  ?min_confidence:float -> ?touch:bool -> unit ->
+  (Memory.procedure option, access_error) result
+
 val best_procedure :
   t -> agent:string -> pattern:string ->
   (Memory.procedure option, access_error) result
