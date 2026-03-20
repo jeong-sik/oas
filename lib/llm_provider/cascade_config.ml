@@ -221,15 +221,21 @@ let text_of_response (resp : Types.api_response) : string =
 
 (* TODO: per-profile temperature / max_tokens overrides from JSON *)
 
-let resolve_model_strings ?config_path ~name ~defaults () =
+type cascade_source = Named | Default_fallback | Hardcoded_defaults
+
+let resolve_model_strings_traced ?config_path ~name ~defaults () =
   match config_path with
   | Some path ->
     let from_file = load_profile ~config_path:path ~name in
-    if from_file <> [] then from_file
+    if from_file <> [] then (from_file, Named)
     else
       let fallback = load_profile ~config_path:path ~name:"default" in
-      if fallback <> [] then fallback else defaults
-  | None -> defaults
+      if fallback <> [] then (fallback, Default_fallback)
+      else (defaults, Hardcoded_defaults)
+  | None -> (defaults, Hardcoded_defaults)
+
+let resolve_model_strings ?config_path ~name ~defaults () =
+  fst (resolve_model_strings_traced ?config_path ~name ~defaults ())
 
 (* ── Named cascade execution ───────────────────────────── *)
 
@@ -303,10 +309,23 @@ let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
 let complete_named ~sw ~net ?clock ?config_path
     ~name ~defaults ~messages
     ?(tools = []) ?(temperature = 0.3) ?(max_tokens = 500)
-    ?system_prompt ?(accept = fun _ -> true)
+    ?system_prompt ?(accept = fun _ -> true) ?(strict_name = false)
     ?timeout_sec ?cache ?metrics () =
   (* 1. Resolve: named profile → "default" profile → hardcoded defaults *)
-  let model_strings = resolve_model_strings ?config_path ~name ~defaults () in
+  let model_strings, source =
+    resolve_model_strings_traced ?config_path ~name ~defaults ()
+  in
+  if strict_name && source <> Named then
+    Error (Http_client.NetworkError {
+        message =
+          Printf.sprintf
+            "Cascade '%s' not found in config (resolved via %s)"
+            name (match source with
+                  | Named -> "named"
+                  | Default_fallback -> "default_fallback"
+                  | Hardcoded_defaults -> "hardcoded_defaults")
+      })
+  else
   (* 2. Parse model strings → Provider_config.t list *)
   let providers =
     parse_model_strings ~temperature ~max_tokens ?system_prompt model_strings
@@ -409,8 +428,20 @@ let complete_cascade_stream ~sw ~net ?(metrics : Metrics.t option)
 let complete_named_stream ~sw ~net ?clock ?config_path
     ~name ~defaults ~messages
     ?(tools = []) ?(temperature = 0.3) ?(max_tokens = 500)
-    ?system_prompt ?timeout_sec ?metrics ~on_event () =
-  let model_strings = resolve_model_strings ?config_path ~name ~defaults () in
+    ?system_prompt ?(strict_name = false)
+    ?timeout_sec ?metrics ~on_event () =
+  let model_strings, source =
+    resolve_model_strings_traced ?config_path ~name ~defaults ()
+  in
+  if strict_name && source <> Named then
+    Error (Http_client.NetworkError {
+      message = Printf.sprintf
+        "Streaming cascade '%s' not found in config (resolved via %s)"
+        name (match source with
+              | Named -> "named"
+              | Default_fallback -> "default_fallback"
+              | Hardcoded_defaults -> "hardcoded_defaults") })
+  else
   let providers =
     parse_model_strings ~temperature ~max_tokens ?system_prompt model_strings
   in
@@ -658,3 +689,41 @@ let%test "effective_max_context falls back to registry entry" =
   let caps = { Capabilities.default_capabilities with
                max_context_tokens = None } in
   effective_max_context entry caps = 128_000
+
+let%test "resolve_model_strings_traced returns Named for existing profile" =
+  Eio_main.run (fun _env ->
+    let tmp = Filename.temp_file "cascade" ".json" in
+    let oc = open_out tmp in
+    output_string oc {|{"myname_models": ["llama:auto"]}|};
+    close_out oc;
+    let (_models, source) = resolve_model_strings_traced ~config_path:tmp
+      ~name:"myname" ~defaults:["fallback:x"] () in
+    Sys.remove tmp;
+    source = Named)
+
+let%test "resolve_model_strings_traced returns Default_fallback on missing name" =
+  Eio_main.run (fun _env ->
+    let tmp = Filename.temp_file "cascade" ".json" in
+    let oc = open_out tmp in
+    output_string oc {|{"default_models": ["glm:auto"]}|};
+    close_out oc;
+    let (models, source) = resolve_model_strings_traced ~config_path:tmp
+      ~name:"typo_name" ~defaults:["fallback:x"] () in
+    Sys.remove tmp;
+    source = Default_fallback && models = ["glm:auto"])
+
+let%test "resolve_model_strings_traced returns Hardcoded_defaults when no config" =
+  let (_models, source) = resolve_model_strings_traced
+    ~name:"any" ~defaults:["llama:auto"] () in
+  source = Hardcoded_defaults
+
+let%test "resolve_model_strings_traced returns Hardcoded_defaults on empty config" =
+  Eio_main.run (fun _env ->
+    let tmp = Filename.temp_file "cascade" ".json" in
+    let oc = open_out tmp in
+    output_string oc {|{"other_models": ["glm:auto"]}|};
+    close_out oc;
+    let (_models, source) = resolve_model_strings_traced ~config_path:tmp
+      ~name:"missing" ~defaults:["fallback:x"] () in
+    Sys.remove tmp;
+    source = Hardcoded_defaults)
