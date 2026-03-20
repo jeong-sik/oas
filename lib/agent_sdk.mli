@@ -90,6 +90,7 @@ module Cost_tracker = Cost_tracker
 module Context_offload = Context_offload
 module Memory = Memory
 module Memory_access = Memory_access
+module Memory_tools = Memory_tools
 module Verified_output = Verified_output
 module Guardrails_async = Guardrails_async
 module Eval_baseline = Eval_baseline
