@@ -33,3 +33,23 @@
 (executable
  (name codegen_agent)
  (libraries agent_sdk eio eio_main yojson unix))
+
+(executable
+ (name hooks_and_guardrails)
+ (libraries agent_sdk eio eio_main yojson))
+
+(executable
+ (name error_handling)
+ (libraries agent_sdk eio eio_main yojson))
+
+(executable
+ (name memory_workflow)
+ (libraries agent_sdk eio eio_main yojson unix))
+
+(executable
+ (name collaboration)
+ (libraries agent_sdk eio eio_main yojson unix))
+
+(executable
+ (name builder_patterns)
+ (libraries agent_sdk eio eio_main yojson))
