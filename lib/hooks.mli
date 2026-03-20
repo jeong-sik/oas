@@ -33,9 +33,10 @@ type hook_event =
       reasoning: reasoning_summary;
     }
   | AfterTurn of { turn: int; response: Types.api_response }
-  | PreToolUse of { tool_name: string; input: Yojson.Safe.t }
+  | PreToolUse of { tool_name: string; input: Yojson.Safe.t;
+                    accumulated_cost_usd: float; turn: int }
   | PostToolUse of { tool_name: string; input: Yojson.Safe.t;
-                     output: Types.tool_result }
+                     output: Types.tool_result; result_bytes: int }
   | PostToolUseFailure of { tool_name: string; input: Yojson.Safe.t;
                             error: string }
   | OnStop of { reason: Types.stop_reason; response: Types.api_response }

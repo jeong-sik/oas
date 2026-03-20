@@ -22,7 +22,8 @@ let run_execute ~hooks ?approval tool_uses =
     ~context:(Agent.context agent) ~tools:(Tool_set.to_list (Agent.tools agent))
     ~hooks:opts.hooks ~event_bus:opts.event_bus
     ~tracer:opts.tracer ~agent_name:(Agent.state agent).config.name
-    ~turn_count:(Agent.state agent).turn_count ~approval:opts.approval
+    ~turn_count:(Agent.state agent).turn_count ~usage:(Agent.state agent).usage
+    ~approval:opts.approval
     tool_uses
 
 (* --- Test cases --- *)
