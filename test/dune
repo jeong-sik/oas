@@ -615,3 +615,23 @@
 (test
  (name test_swarm_coverage)
  (libraries agent_sdk agent_sdk_swarm alcotest yojson eio eio_main unix))
+
+(test
+ (name test_full_pipeline_cov)
+ (libraries agent_sdk alcotest yojson eio eio_main cohttp-eio unix))
+
+(test
+ (name test_conformance_cov2)
+ (libraries agent_sdk alcotest yojson unix))
+
+(test
+ (name test_sessions_cov2)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_evidence_pipeline_cov)
+ (libraries agent_sdk alcotest yojson unix eio eio_main cohttp-eio))
+
+(test
+ (name test_a2a_client_cov)
+ (libraries agent_sdk alcotest yojson eio eio_main cohttp-eio unix))
