@@ -468,3 +468,7 @@
 (test
  (name test_complete_http)
  (libraries agent_sdk llm_provider alcotest yojson eio eio_main cohttp-eio))
+
+(test
+ (name test_agent_pipeline)
+ (libraries agent_sdk alcotest yojson eio eio_main cohttp-eio unix))
