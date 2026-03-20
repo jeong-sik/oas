@@ -74,6 +74,55 @@ let () = Alcotest.run "Memory_Episodic" [
     );
   ];
 
+  "filter", [
+    Alcotest.test_case "participant filter" `Quick (fun () ->
+      let mem = Memory.create () in
+      let now = 1000.0 in
+      Memory.store_episode mem {
+        id = "alice"; timestamp = now; participants = ["alice"];
+        action = "deploy"; outcome = Success "ok"; salience = 0.9; metadata = [];
+      };
+      Memory.store_episode mem {
+        id = "bob"; timestamp = now; participants = ["bob"];
+        action = "deploy"; outcome = Success "ok"; salience = 0.9; metadata = [];
+      };
+      let episodes =
+        Memory.recall_episodes mem ~now
+          ~filter:(fun ep -> List.mem "alice" ep.participants) ()
+      in
+      Alcotest.(check int) "one match" 1 (List.length episodes);
+      match episodes with
+      | [ep] -> Alcotest.(check string) "alice only" "alice" ep.id
+      | _ -> Alcotest.fail "expected one alice episode"
+    );
+
+    Alcotest.test_case "outcome filter sees decayed salience" `Quick (fun () ->
+      let mem = Memory.create () in
+      let now = 500.0 in
+      Memory.store_episode mem {
+        id = "fail"; timestamp = now -. 1.0; participants = [];
+        action = "deploy"; outcome = Failure "smoke failed";
+        salience = 0.9; metadata = [];
+      };
+      Memory.store_episode mem {
+        id = "success"; timestamp = now -. 1.0; participants = [];
+        action = "deploy"; outcome = Success "ok";
+        salience = 0.9; metadata = [];
+      };
+      let failures =
+        Memory.recall_episodes mem ~now
+          ~filter:(fun ep ->
+            ep.salience > 0.5 &&
+            match ep.outcome with
+            | Failure _ -> true
+            | Success _ | Neutral -> false) ()
+      in
+      match failures with
+      | [ep] -> Alcotest.(check string) "failure only" "fail" ep.id
+      | _ -> Alcotest.fail "expected one failed episode"
+    );
+  ];
+
   "boost", [
     Alcotest.test_case "boost increases salience" `Quick (fun () ->
       let mem = Memory.create () in

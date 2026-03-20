@@ -214,12 +214,16 @@ let decayed_salience ~now ~decay_rate (ep : episode) =
   ep.salience *. exp (-. decay_rate *. age)
 
 let recall_episodes t ?(now = Unix.gettimeofday ()) ?(decay_rate = 0.01)
-    ?(min_salience = 0.1) ?(limit = 50) () =
+    ?(min_salience = 0.1) ?(limit = 50) ?filter () =
   all_episodes t
   |> List.map (fun ep ->
     let effective = decayed_salience ~now ~decay_rate ep in
     ({ ep with salience = effective }, effective))
   |> List.filter (fun (_, s) -> s >= min_salience)
+  |> List.filter (fun (ep, _) ->
+    match filter with
+    | Some predicate -> predicate ep
+    | None -> true)
   |> List.sort (fun (_, a) (_, b) -> Float.compare b a)
   |> (fun list ->
     let rec take n acc = function
@@ -310,17 +314,29 @@ let string_contains ~needle haystack =
     in
     loop 0
 
-let matching_procedures t ~pattern ?(min_confidence = 0.0) () =
+let matching_procedures t ~pattern ?(min_confidence = 0.0) ?filter () =
   all_procedures t
   |> List.filter (fun proc ->
     string_contains ~needle:pattern proc.pattern
-    && proc.confidence >= min_confidence)
+    && proc.confidence >= min_confidence
+    &&
+    match filter with
+    | Some predicate -> predicate proc
+    | None -> true)
   |> List.sort (fun a b -> Float.compare b.confidence a.confidence)
 
-let best_procedure t ~pattern =
-  match matching_procedures t ~pattern () with
-  | best :: _ -> Some best
+let find_procedure t ~pattern ?(min_confidence = 0.0) ?filter ?(touch = false) () =
+  match matching_procedures t ~pattern ~min_confidence ?filter () with
+  | best :: _ ->
+    if touch then begin
+      let touched = { best with last_used = Unix.gettimeofday () } in
+      store_procedure t touched;
+      Some touched
+    end else Some best
   | [] -> None
+
+let best_procedure t ~pattern =
+  find_procedure t ~pattern ()
 
 let update_procedure t id f =
   match Context.get_scoped t.ctx (scope_of_tier Procedural) id with
