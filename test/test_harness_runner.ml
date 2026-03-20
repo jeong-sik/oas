@@ -57,6 +57,33 @@ let mk_trajectory ?(success = true) ?(tool_names = []) ?(response_text = "done")
     error = None;
   }
 
+let with_trace_file name body =
+  let trace_path =
+    Printf.sprintf "/tmp/oas_harness_%s_%d.ndjson" name (Unix.getpid ())
+  in
+  Fun.protect
+    ~finally:(fun () -> try Sys.remove trace_path with _ -> ())
+    (fun () ->
+      Out_channel.with_open_text trace_path (fun oc ->
+        output_string oc
+          {|{"trace_version":1,"worker_run_id":"wr-file","seq":1,"ts":1.0,"agent_name":"runner-agent","session_id":null,"record_type":"run_started","prompt":"Replay this","block_index":null,"block_kind":null,"assistant_block":null,"tool_use_id":null,"tool_name":null,"tool_input":null,"tool_result":null,"tool_error":null,"hook_name":null,"hook_decision":null,"hook_detail":null,"final_text":null,"stop_reason":null,"error":null}|};
+        output_char oc '\n';
+        output_string oc
+          {|{"trace_version":1,"worker_run_id":"wr-file","seq":2,"ts":2.0,"agent_name":"runner-agent","session_id":null,"record_type":"run_finished","prompt":null,"block_index":null,"block_kind":null,"assistant_block":null,"tool_use_id":null,"tool_name":null,"tool_input":null,"tool_result":null,"tool_error":null,"hook_name":null,"hook_decision":null,"hook_detail":null,"final_text":"done","stop_reason":"end_turn","error":null}|};
+        output_char oc '\n');
+      body trace_path)
+
+let trace_case ~id ~trace_path =
+  Harness_case.make_trace_replay
+    ~assertions:[
+      Harness_case.Response (Harness_case.Exact_text "done");
+      Harness_case.Trace Harness_case.Succeeds;
+    ]
+    ~id
+    ~prompt:"Replay this"
+    ~source_trace_path:trace_path
+    ()
+
 let test_grade_case_fixture () =
   let case_ =
     Harness_case.make_fixture
@@ -159,28 +186,8 @@ let test_grade_case_trace_replay () =
     (String.length (Harness_report.to_markdown report) > 0)
 
 let test_grade_case_from_trace_file () =
-  let trace_path = Printf.sprintf "/tmp/oas_harness_trace_%d.ndjson" (Unix.getpid ()) in
-  Fun.protect
-    ~finally:(fun () -> try Sys.remove trace_path with _ -> ())
-    (fun () ->
-      Out_channel.with_open_text trace_path (fun oc ->
-        output_string oc
-          {|{"trace_version":1,"worker_run_id":"wr-file","seq":1,"ts":1.0,"agent_name":"runner-agent","session_id":null,"record_type":"run_started","prompt":"Replay this","block_index":null,"block_kind":null,"assistant_block":null,"tool_use_id":null,"tool_name":null,"tool_input":null,"tool_result":null,"tool_error":null,"hook_name":null,"hook_decision":null,"hook_detail":null,"final_text":null,"stop_reason":null,"error":null}|};
-        output_char oc '\n';
-        output_string oc
-          {|{"trace_version":1,"worker_run_id":"wr-file","seq":2,"ts":2.0,"agent_name":"runner-agent","session_id":null,"record_type":"run_finished","prompt":null,"block_index":null,"block_kind":null,"assistant_block":null,"tool_use_id":null,"tool_name":null,"tool_input":null,"tool_result":null,"tool_error":null,"hook_name":null,"hook_decision":null,"hook_detail":null,"final_text":"done","stop_reason":"end_turn","error":null}|};
-        output_char oc '\n');
-      let case_ =
-        Harness_case.make_trace_replay
-          ~assertions:[
-            Harness_case.Response (Harness_case.Exact_text "done");
-            Harness_case.Trace Harness_case.Succeeds;
-          ]
-          ~id:"trace-file"
-          ~prompt:"Replay this"
-          ~source_trace_path:trace_path
-          ()
-      in
+  with_trace_file "trace" (fun trace_path ->
+      let case_ = trace_case ~id:"trace-file" ~trace_path in
       match Harness_runner.grade_case_from_trace case_ with
       | Error e -> fail (Error.to_string e)
       | Ok result ->
@@ -224,6 +231,60 @@ let test_grade_case_negative_metric_tolerance () =
   in
   check bool "failed" true (result.status = Harness_report.Fail)
 
+let test_run_dataset_mixed_dispatches_by_kind () =
+  with_trace_file "mixed" (fun trace_path ->
+      let fixture_case =
+        Harness_case.make_fixture
+          ~assertions:[Harness_case.Response (Harness_case.Exact_text "fixture ok")]
+          ~id:"fixture-live"
+          ~prompt:"noop"
+          ()
+      in
+      let run_fixture case_ =
+        Harness_runner.grade_case
+          ~agent_name:"runner-agent"
+          ~elapsed:0.1
+          ~response:(Ok (ok_response "fixture ok"))
+          ~observation:(mk_observation ~final_response:"fixture ok" ())
+          case_
+      in
+      let report =
+        Harness_runner.run_dataset_mixed
+          ~run_fixture
+          [fixture_case; trace_case ~id:"trace-offline" ~trace_path]
+      in
+      check int "total" 2 report.summary.total;
+      check int "passed" 2 report.summary.passed;
+      check int "failed" 0 report.summary.failed)
+
+let test_run_dataset_mixed_without_fixture_runner_fails_fixture_only () =
+  with_trace_file "mixed-no-config" (fun trace_path ->
+      let fixture_case =
+        Harness_case.make_fixture
+          ~assertions:[Harness_case.Trace Harness_case.Succeeds]
+          ~id:"fixture-needs-config"
+          ~prompt:"noop"
+          ()
+      in
+      let report =
+        Harness_runner.run_dataset_mixed
+          [fixture_case; trace_case ~id:"trace-offline" ~trace_path]
+      in
+      check int "total" 2 report.summary.total;
+      check int "passed" 1 report.summary.passed;
+      check int "failed" 1 report.summary.failed;
+      let fixture_result =
+        match List.find_opt (fun (result : Harness_report.case_result) ->
+                result.case_id = "fixture-needs-config") report.results with
+        | Some result -> result
+        | None -> fail "missing fixture result"
+      in
+      check bool "fixture failed" true (fixture_result.status = Harness_report.Fail);
+      check bool "detail mentions config" true
+        (match fixture_result.detail with
+         | Some detail -> Util.string_contains ~needle:"--config" detail
+         | None -> false))
+
 let () =
   run "harness_runner" [
     "grade_case", [
@@ -232,5 +293,9 @@ let () =
       test_case "from trace file" `Quick test_grade_case_from_trace_file;
       test_case "rejects fixture in trace mode" `Quick test_grade_case_from_trace_rejects_fixture_kind;
       test_case "rejects negative tolerance" `Quick test_grade_case_negative_metric_tolerance;
+      test_case "mixed dataset dispatches by kind" `Quick
+        test_run_dataset_mixed_dispatches_by_kind;
+      test_case "mixed dataset without fixture runner fails fixture only" `Quick
+        test_run_dataset_mixed_without_fixture_runner_fails_fixture_only;
     ];
   ]

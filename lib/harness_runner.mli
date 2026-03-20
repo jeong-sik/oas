@@ -14,12 +14,22 @@ val grade_case_from_trace :
   Harness_case.t ->
   (Harness_report.case_result, Error.sdk_error) result
 
+val execute_case :
+  ?run_fixture:(Harness_case.t -> Harness_report.case_result) ->
+  Harness_case.t ->
+  Harness_report.case_result
+
 val run_case :
   sw:Eio.Switch.t ->
   clock:_ Eio.Time.clock ->
   build_agent:(Harness_case.t -> (Agent.t, Error.sdk_error) result) ->
   Harness_case.t ->
   Harness_report.case_result
+
+val run_dataset_mixed :
+  ?run_fixture:(Harness_case.t -> Harness_report.case_result) ->
+  Harness_case.t list ->
+  Harness_report.t
 
 val run_dataset :
   sw:Eio.Switch.t ->

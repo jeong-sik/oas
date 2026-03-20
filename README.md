@@ -237,7 +237,10 @@ make coverage
 # Harness datasets
 oas eval record-trace --session /path/to/raw-trace.ndjson --out evals/replay.jsonl
 oas eval run --dataset examples/evals/replay.jsonl --out _build/evals
+oas eval run --config oas.json --dataset examples/evals/mixed.jsonl --out _build/evals
 oas eval run --config oas.json --dataset evals/replay.jsonl --out _build/evals
+
+# `trace_replay` cases run offline, `fixture` cases use --config live in the same dataset
 
 # Integration tests (requires local LLM server)
 LLAMA_LIVE_TEST=1 dune exec ./test/test_local_llm.exe

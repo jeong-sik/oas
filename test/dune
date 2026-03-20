@@ -328,7 +328,7 @@
 
 (test
  (name test_cli)
- (libraries agent_sdk alcotest yojson unix str)
+ (libraries agent_sdk alcotest yojson unix str eio eio_main cohttp-eio)
  (deps ../bin/oas_cli.exe))
 
 (test
