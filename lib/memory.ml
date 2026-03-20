@@ -20,10 +20,22 @@ type tier =
   | Long_term
 
 type long_term_backend = {
-  persist: key:string -> Yojson.Safe.t -> unit;
+  persist: key:string -> Yojson.Safe.t -> (unit, string) result;
   retrieve: key:string -> Yojson.Safe.t option;
-  remove: key:string -> unit;
+  remove: key:string -> (unit, string) result;
+  batch_persist: (string * Yojson.Safe.t) list -> (unit, string) result;
+  query: prefix:string -> limit:int -> (string * Yojson.Safe.t) list;
 }
+
+let legacy_backend ~persist ~retrieve ~remove =
+  {
+    persist = (fun ~key value -> persist ~key value; Ok ());
+    retrieve;
+    remove = (fun ~key -> remove ~key; Ok ());
+    batch_persist = (fun pairs ->
+      List.iter (fun (k, v) -> persist ~key:k v) pairs; Ok ());
+    query = (fun ~prefix:_ ~limit:_ -> []);
+  }
 
 type t = {
   ctx: Context.t;
@@ -48,7 +60,10 @@ let store t ~tier key value =
   | Long_term ->
     Context.set_scoped t.ctx (scope_of_tier Long_term) key value;
     (match t.long_term with
-     | Some backend -> backend.persist ~key value
+     | Some backend ->
+       (match backend.persist ~key value with
+        | Ok () -> ()
+        | Error reason -> failwith (Printf.sprintf "long_term persist failed: %s" reason))
      | None -> ())
   | _ ->
     Context.set_scoped t.ctx (scope_of_tier tier) key value
@@ -90,7 +105,10 @@ let forget t ~tier key =
   | Long_term ->
     Context.delete_scoped t.ctx (scope_of_tier Long_term) key;
     (match t.long_term with
-     | Some backend -> backend.remove ~key
+     | Some backend ->
+       (match backend.remove ~key with
+        | Ok () -> ()
+        | Error reason -> failwith (Printf.sprintf "long_term remove failed: %s" reason))
      | None -> ())
   | _ ->
     Context.delete_scoped t.ctx (scope_of_tier tier) key

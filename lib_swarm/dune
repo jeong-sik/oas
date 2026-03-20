@@ -2,5 +2,6 @@
  (name agent_sdk_swarm)
  (public_name agent_sdk.swarm)
  (libraries agent_sdk eio eio_main unix)
- (preprocess (pps ppx_deriving_yojson ppx_deriving.show))
+ (inline_tests)
+ (preprocess (pps ppx_deriving_yojson ppx_deriving.show ppx_inline_test))
  (instrumentation (backend bisect_ppx)))

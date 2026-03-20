@@ -4,5 +4,6 @@
  (name agent_sdk)
  (public_name agent_sdk)
  (libraries llm_provider eio eio_main cohttp-eio tls tls-eio ca-certs yojson ppx_deriving_yojson.runtime uri unix threads str mcp_protocol mcp_protocol_eio)
- (preprocess (pps ppx_deriving_yojson ppx_deriving.show))
+ (inline_tests)
+ (preprocess (pps ppx_deriving_yojson ppx_deriving.show ppx_inline_test))
  (instrumentation (backend bisect_ppx)))
