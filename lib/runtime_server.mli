@@ -11,12 +11,12 @@ open Runtime_server_types
 
 (** Main server loop: reads protocol messages from stdin and processes
     them until a Shutdown message is received. *)
-val serve_stdio : net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t -> unit -> unit
+val serve_stdio : sw:Eio.Switch.t -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t -> unit -> unit
 
 (** {1 Request handling} *)
 
 val handle_request :
-  state -> request -> (response, Error.sdk_error) result
+  sw:Eio.Switch.t -> state -> request -> (response, Error.sdk_error) result
 
 val start_session :
   state -> start_request -> (response, Error.sdk_error) result
@@ -25,7 +25,7 @@ val finalize_session :
   state -> Runtime_store.t -> session -> string option -> (response, Error.sdk_error) result
 
 val apply_command :
-  state -> Runtime_store.t -> session -> command -> (response, Error.sdk_error) result
+  sw:Eio.Switch.t -> state -> Runtime_store.t -> session -> command -> (response, Error.sdk_error) result
 
 (** {1 Control channel} *)
 
