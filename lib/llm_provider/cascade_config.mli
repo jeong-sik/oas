@@ -50,6 +50,12 @@ val load_profile :
   name:string ->
   string list
 
+(** How a cascade name was resolved. *)
+type cascade_source =
+  | Named              (** Found as "{name}_models" in config *)
+  | Default_fallback   (** Name not found; used "default_models" *)
+  | Hardcoded_defaults (** Neither found; used hardcoded [defaults] *)
+
 (** Resolve model strings for a named cascade.
 
     Resolution order:
@@ -64,6 +70,18 @@ val resolve_model_strings :
   defaults:string list ->
   unit ->
   string list
+
+(** Like {!resolve_model_strings} but also returns which resolution
+    path was taken. Use this to detect typos: if [source <> Named]
+    when you expected a named profile, the cascade name is likely wrong.
+
+    @since 0.78.0 *)
+val resolve_model_strings_traced :
+  ?config_path:string ->
+  name:string ->
+  defaults:string list ->
+  unit ->
+  string list * cascade_source
 
 (** {1 Discovery-Aware Health Filtering} *)
 
@@ -130,6 +148,9 @@ val text_of_response : Types.api_response -> string
     rejects causes the cascade to try the next provider (same as a
     retryable failure). This enables retry-on-invalid-format patterns.
 
+    When [strict_name] is [true], returns [Error] if the named profile
+    is not found in the config file (prevents silent fallback on typos).
+
     @return [Ok api_response] on success
     @return [Error http_error] when all providers fail or are rejected *)
 val complete_named :
@@ -145,6 +166,7 @@ val complete_named :
   ?max_tokens:int ->
   ?system_prompt:string ->
   ?accept:(Types.api_response -> bool) ->
+  ?strict_name:bool ->
   ?timeout_sec:int ->
   ?cache:Cache.t ->
   ?metrics:Metrics.t ->
@@ -181,6 +203,7 @@ val complete_named_stream :
   ?temperature:float ->
   ?max_tokens:int ->
   ?system_prompt:string ->
+  ?strict_name:bool ->
   ?timeout_sec:int ->
   ?metrics:Metrics.t ->
   on_event:(Types.sse_event -> unit) ->
