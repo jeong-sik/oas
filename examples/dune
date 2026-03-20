@@ -61,3 +61,7 @@
 (executable
  (name cascade_failover)
  (libraries agent_sdk llm_provider eio eio_main yojson))
+
+(executable
+ (name observable_agent)
+ (libraries agent_sdk eio eio_main cohttp-eio yojson unix))
