@@ -40,6 +40,7 @@ val with_mcp_clients : Mcp.managed list -> t -> t
 
 val with_hooks : Hooks.hooks -> t -> t
 val with_guardrails : Guardrails.t -> t -> t
+val with_guardrails_async : Guardrails_async.t -> t -> t
 val with_tracer : Tracing.t -> t -> t
 val with_raw_trace : Raw_trace.t -> t -> t
 val with_approval : Hooks.approval_callback -> t -> t

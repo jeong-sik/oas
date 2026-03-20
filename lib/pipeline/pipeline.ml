@@ -336,6 +336,16 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
   (* Stage 2: Parse *)
   let (prep, original_config) = stage_parse ?raw_trace_run agent in
 
+  (* Stage 2.5: Async input validation *)
+  let async_guard = agent.options.guardrails_async in
+  (match Guardrails_async.run_input async_guard.input_validators
+           prep.Agent_turn.effective_messages with
+   | Guardrails_async.Fail { validator_name; reason } ->
+     agent.state <- { agent.state with config = original_config };
+     Error (Error.Agent (GuardrailViolation {
+       validator = validator_name; reason }))
+   | Guardrails_async.Pass ->
+
   (* Stage 3: Route *)
   let api_result = stage_route ~sw ?clock ~api_strategy agent prep
     |> tag_error "route" in
@@ -346,8 +356,15 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
     agent.state <- { agent.state with config = original_config };
     Error e
   | Ok response ->
+    (* Stage 3.5: Async output validation *)
+    (match Guardrails_async.run_output async_guard.output_validators response with
+     | Guardrails_async.Fail { validator_name; reason } ->
+       agent.state <- { agent.state with config = original_config };
+       Error (Error.Agent (GuardrailViolation {
+         validator = validator_name; reason }))
+     | Guardrails_async.Pass ->
     let* () = stage_collect ?raw_trace_run agent ~original_config response
       |> tag_error "collect" in
     stage_output ?raw_trace_run agent
       ~effective_guardrails:prep.effective_guardrails response
-    |> tag_error "output"
+    |> tag_error "output"))

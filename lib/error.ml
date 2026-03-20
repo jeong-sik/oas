@@ -19,6 +19,7 @@ type agent_error =
   | CostBudgetExceeded of { spent_usd: float; limit_usd: float }
   | UnrecognizedStopReason of { reason: string }
   | IdleDetected of { consecutive_idle_turns: int }
+  | GuardrailViolation of { validator: string; reason: string }
 
 (** MCP client errors. *)
 type mcp_error =
@@ -84,6 +85,8 @@ let agent_error_to_string = function
     Printf.sprintf "Unrecognized stop_reason from API: %s" r.reason
   | IdleDetected r ->
     Printf.sprintf "Idle detected: %d consecutive identical tool call turns" r.consecutive_idle_turns
+  | GuardrailViolation r ->
+    Printf.sprintf "Guardrail violation [%s]: %s" r.validator r.reason
 
 let mcp_error_to_string = function
   | ServerStartFailed r ->

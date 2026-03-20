@@ -18,6 +18,7 @@ type options = Agent_types.options = {
   max_idle_turns: int;
   hooks: Hooks.hooks;
   guardrails: Guardrails.t;
+  guardrails_async: Guardrails_async.t;
   tracer: Tracing.t;
   raw_trace: Raw_trace.t option;
   approval: Hooks.approval_callback option;
