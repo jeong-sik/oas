@@ -12,6 +12,7 @@ type provider_defaults = {
 type entry = {
   name: string;
   defaults: provider_defaults;
+  max_context: int;
   capabilities: Capabilities.capabilities;
   is_available: unit -> bool;
 }
@@ -97,15 +98,20 @@ let openrouter_defaults = {
 
 let default () =
   let t = create () in
-  let reg name defaults caps =
-    register t { name; defaults; capabilities = caps;
+  let reg name defaults ~max_context caps =
+    register t { name; defaults; max_context; capabilities = caps;
                  is_available = (fun () -> has_api_key defaults.api_key_env) }
   in
-  reg "llama" llama_defaults Capabilities.openai_chat_extended_capabilities;
-  reg "claude" claude_defaults Capabilities.anthropic_capabilities;
-  reg "gemini" gemini_defaults Capabilities.gemini_capabilities;
-  reg "glm" glm_defaults Capabilities.openai_chat_capabilities;
-  reg "openrouter" openrouter_defaults Capabilities.openai_chat_extended_capabilities;
+  reg "llama" llama_defaults ~max_context:128_000
+    Capabilities.openai_chat_extended_capabilities;
+  reg "claude" claude_defaults ~max_context:200_000
+    Capabilities.anthropic_capabilities;
+  reg "gemini" gemini_defaults ~max_context:1_000_000
+    Capabilities.gemini_capabilities;
+  reg "glm" glm_defaults ~max_context:128_000
+    Capabilities.openai_chat_capabilities;
+  reg "openrouter" openrouter_defaults ~max_context:128_000
+    Capabilities.openai_chat_extended_capabilities;
   (* Claude Code subprocess — always available if claude is in PATH *)
   let cc_defaults = {
     kind = Claude_code;
@@ -121,7 +127,7 @@ let default () =
       String.length (String.trim result) > 0
     with _ -> false
   in
-  register t { name = "cc"; defaults = cc_defaults;
+  register t { name = "cc"; defaults = cc_defaults; max_context = 200_000;
                capabilities = Capabilities.claude_code_capabilities;
                is_available = cc_available };
   t

@@ -130,3 +130,13 @@ val tool_result_msg : tool_use_id:string -> content:string -> ?is_error:bool -> 
 val text_of_content : content_block list -> string
 val text_of_message : message -> string
 val text_of_response : api_response -> string
+
+(** {1 Usage Helpers}
+
+    @since 0.78.0 *)
+
+(** Zero-valued usage sentinel for accumulation. *)
+val zero_api_usage : api_usage
+
+(** Extract usage from a response, defaulting to {!zero_api_usage}. *)
+val usage_of_response : api_response -> api_usage

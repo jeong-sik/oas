@@ -21,6 +21,7 @@ let test_register_and_find () =
       api_key_env = "";
       request_path = "/v1/chat/completions";
     };
+    max_context = 128_000;
     capabilities = Capabilities.default_capabilities;
     is_available = (fun () -> true);
   } in
@@ -38,6 +39,7 @@ let test_overwrite () =
       kind = OpenAI_compat; base_url = url;
       api_key_env = ""; request_path = "/v1/chat/completions";
     };
+    max_context = 128_000;
     capabilities = Capabilities.default_capabilities;
     is_available = (fun () -> true);
   } in
@@ -56,6 +58,7 @@ let test_unregister () =
       kind = OpenAI_compat; base_url = "http://x";
       api_key_env = ""; request_path = "/v1/chat/completions";
     };
+    max_context = 128_000;
     capabilities = Capabilities.default_capabilities;
     is_available = (fun () -> true);
   } in
@@ -74,6 +77,7 @@ let test_available_filter () =
       kind = OpenAI_compat; base_url = "http://x";
       api_key_env = ""; request_path = "/v1/chat/completions";
     };
+    max_context = 128_000;
     capabilities = Capabilities.default_capabilities;
     is_available = (fun () -> avail);
   } in
@@ -93,6 +97,7 @@ let test_find_capable_tools () =
       kind = OpenAI_compat; base_url = "http://x";
       api_key_env = ""; request_path = "/v1/chat/completions";
     };
+    max_context = 128_000;
     capabilities = caps;
     is_available = (fun () -> true);
   } in
@@ -112,6 +117,7 @@ let test_find_capable_composite () =
       kind = OpenAI_compat; base_url = "http://x";
       api_key_env = ""; request_path = "/v1/chat/completions";
     };
+    max_context = 128_000;
     capabilities = caps;
     is_available = (fun () -> true);
   } in
@@ -130,10 +136,10 @@ let test_find_capable_composite () =
 
 (* ── Default registry ───────────────────────────────── *)
 
-let test_default_has_5 () =
+let test_default_has_6 () =
   let reg = Provider_registry.default () in
   let all = Provider_registry.all reg in
-  check int "5 known providers" 5 (List.length all);
+  check int "6 known providers" 6 (List.length all);
   check bool "llama exists" true
     (Option.is_some (Provider_registry.find reg "llama"));
   check bool "claude exists" true
@@ -143,7 +149,9 @@ let test_default_has_5 () =
   check bool "glm exists" true
     (Option.is_some (Provider_registry.find reg "glm"));
   check bool "openrouter exists" true
-    (Option.is_some (Provider_registry.find reg "openrouter"))
+    (Option.is_some (Provider_registry.find reg "openrouter"));
+  check bool "cc exists" true
+    (Option.is_some (Provider_registry.find reg "cc"))
 
 let test_default_capabilities () =
   let reg = Provider_registry.default () in
@@ -157,6 +165,52 @@ let test_default_capabilities () =
      check bool "llama has tools" true e.capabilities.supports_tools;
      check bool "llama has top_k" true e.capabilities.supports_top_k
    | None -> fail "llama should exist")
+
+let test_default_max_context () =
+  let reg = Provider_registry.default () in
+  (match Provider_registry.find reg "llama" with
+   | Some e -> check int "llama 128K" 128_000 e.max_context
+   | None -> fail "llama should exist");
+  (match Provider_registry.find reg "claude" with
+   | Some e -> check int "claude 200K" 200_000 e.max_context
+   | None -> fail "claude should exist");
+  (match Provider_registry.find reg "gemini" with
+   | Some e -> check int "gemini 1M" 1_000_000 e.max_context
+   | None -> fail "gemini should exist");
+  (match Provider_registry.find reg "glm" with
+   | Some e -> check int "glm 128K" 128_000 e.max_context
+   | None -> fail "glm should exist");
+  (match Provider_registry.find reg "cc" with
+   | Some e -> check int "cc 200K" 200_000 e.max_context
+   | None -> fail "cc should exist")
+
+(* ── Types usage helpers ───────────────────────────── *)
+
+let test_zero_api_usage () =
+  let z = Types.zero_api_usage in
+  check int "input 0" 0 z.input_tokens;
+  check int "output 0" 0 z.output_tokens;
+  check int "cache_creation 0" 0 z.cache_creation_input_tokens;
+  check int "cache_read 0" 0 z.cache_read_input_tokens
+
+let test_usage_of_response_some () =
+  let usage : Types.api_usage =
+    { input_tokens = 100; output_tokens = 50;
+      cache_creation_input_tokens = 10; cache_read_input_tokens = 5 } in
+  let resp : Types.api_response =
+    { id = "r1"; model = "m"; stop_reason = EndTurn;
+      content = [Text "ok"]; usage = Some usage } in
+  let u = Types.usage_of_response resp in
+  check int "input" 100 u.input_tokens;
+  check int "output" 50 u.output_tokens
+
+let test_usage_of_response_none () =
+  let resp : Types.api_response =
+    { id = "r2"; model = "m"; stop_reason = EndTurn;
+      content = [Text "ok"]; usage = None } in
+  let u = Types.usage_of_response resp in
+  check int "input fallback" 0 u.input_tokens;
+  check int "output fallback" 0 u.output_tokens
 
 (* ── Capability_filter combinators ──────────────────── *)
 
@@ -189,7 +243,13 @@ let () =
       test_case "requires_any" `Quick test_requires_any;
     ];
     "default", [
-      test_case "has 5 providers" `Quick test_default_has_5;
+      test_case "has 6 providers" `Quick test_default_has_6;
       test_case "correct capabilities" `Quick test_default_capabilities;
+      test_case "max_context values" `Quick test_default_max_context;
+    ];
+    "types_usage", [
+      test_case "zero_api_usage" `Quick test_zero_api_usage;
+      test_case "usage_of_response some" `Quick test_usage_of_response_some;
+      test_case "usage_of_response none" `Quick test_usage_of_response_none;
     ];
   ]

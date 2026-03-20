@@ -2,6 +2,13 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.78.0] - 2026-03-20
+
+### Added
+- `max_context` field in `Provider_registry.entry` — default context window size per provider.
+- Usage helpers in `Types`: `zero_api_usage`, `usage_of_response`.
+- `cc` (Claude Code) provider integrated into `reg` pattern with `max_context:200_000`.
+
 ## [0.77.0] - 2026-03-20
 
 ### Added
