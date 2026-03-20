@@ -24,6 +24,20 @@ val worker_order_ts : worker_run -> float option
 
 (** {1 Worker run construction} *)
 
+val participant_by_name :
+  Runtime.session -> string -> Runtime.participant option
+
+val resolved_provider_of_participant :
+  Runtime.session -> Runtime.participant option -> string option
+
+val resolved_model_of_participant :
+  Runtime.session -> Runtime.participant option -> string option
+
+val worker_status_of_participant :
+  Runtime.participant option -> worker_status
+
+val worker_order_ts : worker_run -> float option
+
 val worker_run_of_raw :
   Runtime.session -> raw_trace_summary -> raw_trace_validation -> worker_run
 
