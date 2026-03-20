@@ -89,7 +89,7 @@ let finalize_session state store (session : session) reason =
   in
   Ok (Finalized final_session)
 
-let apply_command state store (session : session) command =
+let apply_command ~sw state store (session : session) command =
   let session_id = session.session_id in
   match command with
   | Record_turn detail ->
@@ -155,54 +155,50 @@ let apply_command state store (session : session) command =
         Ok (Command_applied session)
       else
         let participant_name = detail.participant_name in
-        let _worker =
-          Thread.create
-            (fun () ->
-              ignore
-                (match
-                   persist_event store state session_id
-                     (Agent_became_live
-                        {
-                          participant_name;
-                          summary = Some "runtime-started";
-                          provider = resolution.resolved_provider;
-                          model = resolution.resolved_model;
-                          error = None;
-                        })
+        Eio.Fiber.fork ~sw (fun () ->
+          ignore
+            (match
+               persist_event store state session_id
+                 (Agent_became_live
+                    {
+                      participant_name;
+                      summary = Some "runtime-started";
+                      provider = resolution.resolved_provider;
+                      model = resolution.resolved_model;
+                      error = None;
+                    })
+             with
+             | Error _ -> Ok ()
+             | Ok _ -> (
+                 match
+                   run_participant store state session_id resolution detail
                  with
-                 | Error _ -> Ok ()
-                 | Ok _ -> (
-                     match
-                       run_participant store state session_id resolution detail
-                     with
-                     | Ok summary ->
-                         let* _session, _ =
-                           persist_event store state session_id
-                             (Agent_completed
-                                {
-                                  participant_name;
-                                  summary = Some summary;
-                                  provider = resolution.resolved_provider;
-                                  model = resolution.resolved_model;
-                                  error = None;
-                                })
-                         in
-                         Ok ()
-                     | Error err ->
-                         let* _session, _ =
-                           persist_event store state session_id
-                             (Agent_failed
-                                {
-                                  participant_name;
-                                  summary = None;
-                                  provider = resolution.resolved_provider;
-                                  model = resolution.resolved_model;
-                                  error = Some (Error.to_string err);
-                                })
-                         in
-                         Ok ())))
-            ()
-        in
+                 | Ok summary ->
+                     let* _session, _ =
+                       persist_event store state session_id
+                         (Agent_completed
+                            {
+                              participant_name;
+                              summary = Some summary;
+                              provider = resolution.resolved_provider;
+                              model = resolution.resolved_model;
+                              error = None;
+                            })
+                     in
+                     Ok ()
+                 | Error err ->
+                     let* _session, _ =
+                       persist_event store state session_id
+                         (Agent_failed
+                            {
+                              participant_name;
+                              summary = None;
+                              provider = resolution.resolved_provider;
+                              model = resolution.resolved_model;
+                              error = Some (Error.to_string err);
+                            })
+                     in
+                     Ok ())));
         Ok (Command_applied session)
   | Attach_artifact detail ->
       let* artifact =
@@ -247,7 +243,7 @@ let apply_command state store (session : session) command =
       Ok (Command_applied session)
   | Request_finalize detail -> finalize_session state store session detail.reason
 
-let handle_request state request =
+let handle_request ~sw state request =
   match request with
   | Initialize detail ->
       state.session_root <- session_root_request_path detail.session_root;
@@ -275,7 +271,7 @@ let handle_request state request =
   | Apply_command { session_id; command } ->
       let* store = store_of_state state in
       let* session = Runtime_store.load_session store session_id in
-      apply_command state store session command
+      apply_command ~sw state store session command
   | Status { session_id } ->
       let* store = store_of_state state in
       let* session = Runtime_store.load_session store session_id in
@@ -314,7 +310,7 @@ let handle_request state request =
       Ok (Prove_response proof)
   | Shutdown -> Ok Shutdown_ack
 
-let serve_stdio ~net () =
+let serve_stdio ~sw ~net () =
   let state = create ~net () in
   let rec loop () =
     match input_line stdin with
@@ -324,7 +320,7 @@ let serve_stdio ~net () =
         match protocol_message_of_string raw with
         | Ok (Request_message payload) ->
             let response =
-              match handle_request state payload.request with
+              match handle_request ~sw state payload.request with
               | Ok response -> response
               | Error err -> Error_response (Error.to_string err)
             in
@@ -344,7 +340,7 @@ let serve_stdio ~net () =
                 loop ()
             | Ok request ->
             let response =
-              match handle_request state request with
+              match handle_request ~sw state request with
               | Ok response -> response
               | Error err -> Error_response (Error.to_string err)
             in
