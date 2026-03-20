@@ -583,3 +583,8 @@
 (test
  (name test_cost_integration)
  (libraries agent_sdk alcotest yojson eio eio_main cohttp-eio unix))
+
+(test
+ (name test_coverage_hotspots_srt)
+ (libraries agent_sdk llm_provider alcotest yojson eio eio_main cohttp-eio unix)
+ (deps ../bin/oas_runtime.exe))
