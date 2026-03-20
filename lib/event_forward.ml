@@ -113,7 +113,7 @@ type target =
 type t = {
   targets: target list;
   batch_size: int;
-  flush_interval_s: float;
+  flush_interval_s: float; [@warning "-69"]
   mutable delivered_count: int;
   mutable failed_count: int;
   mutable running: bool;
