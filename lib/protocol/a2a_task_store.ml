@@ -85,7 +85,7 @@ let reload store =
         match A2a_task.task_of_yojson json with
         | Ok task -> Hashtbl.replace store.cache task.id task
         | Error _ -> ()  (* skip corrupted files *)
-      with _ -> ()  (* skip unreadable files *)
+      with Eio.Io _ | Yojson.Json_error _ -> ()  (* skip unreadable/corrupt files *)
     ) json_files;
     Ok ()
   with exn -> io_error_of_exn ~op:"reload" ~path:"task_store_dir" exn

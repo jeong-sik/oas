@@ -66,7 +66,7 @@ let is_ready future =
 let cancel future =
   resolve_once future (Error (Error.Internal "cancelled"));
   match future.cancel_fn with
-  | Some f -> (try f () with _ -> ())
+  | Some f -> (try f () with Eio.Io _ | Unix.Unix_error _ | Failure _ -> ())
   | None -> ()
 
 (* ── Combinators ──────────────────────────────────────────────── *)

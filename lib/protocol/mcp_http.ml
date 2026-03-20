@@ -80,7 +80,7 @@ let parse_sse_body raw =
       (* Take the last data line — it's the final JSON-RPC response *)
       let last = List.nth data_lines (List.length data_lines - 1) in
       if last = "" then None
-      else (try Some (Yojson.Safe.from_string last) with _ -> None)
+      else (try Some (Yojson.Safe.from_string last) with Yojson.Json_error _ -> None)
 
 (** Parse a JSON-RPC response from either plain JSON or SSE body. *)
 let parse_response_body ~content_type resp_body =
@@ -187,10 +187,10 @@ let list_tools t =
           | schema -> schema
         in
         Some ({ Mcp.name; description; input_schema } : Mcp.mcp_tool)
-      with _ -> None
+      with Yojson.Safe.Util.Type_error _ | Not_found -> None
     ) tools_json in
     Ok tools
-  with _ ->
+  with Yojson.Safe.Util.Type_error _ | Not_found ->
     Error (Error.Mcp (ToolListFailed { detail = "Failed to parse tools/list response" }))
 
 let call_tool t ~name ~arguments =
@@ -205,12 +205,12 @@ let call_tool t ~name ~arguments =
         | Some "text" -> Some (c |> member "text" |> to_string)
         | _ -> None)
       |> String.concat "\n"
-    with _ -> Yojson.Safe.to_string result
+    with Yojson.Safe.Util.Type_error _ | Not_found -> Yojson.Safe.to_string result
     in
     let is_error = try
       result |> member "isError" |> to_bool_option
       |> Option.value ~default:false
-    with _ -> false
+    with Yojson.Safe.Util.Type_error _ -> false
     in
     if is_error then
       (Error { Types.message = content; recoverable = true } : Types.tool_result)

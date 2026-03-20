@@ -181,7 +181,7 @@ let parse_openai_sse_chunk data_str : openai_chunk option =
                 let tc_name = fn |> member "name" |> to_string_option in
                 let tc_arguments = fn |> member "arguments" |> to_string_option in
                 Some { tc_index; tc_id; tc_name; tc_arguments }
-              with _ -> None
+              with Yojson.Safe.Util.Type_error _ | Not_found -> None
             ) calls
         | _ -> []
       in
@@ -389,8 +389,8 @@ let gemini_chunk_to_events (state : openai_stream_state)
              let name = fc |> member "name" |> to_string_option
                         |> Option.value ~default:"" in
              let args = fc |> member "args" in
-             let id = Printf.sprintf "call_%s_%d"
-                 name (Hashtbl.hash (Yojson.Safe.to_string args)) in
+             let id = Printf.sprintf "call_%s_%s"
+                 name Digest.(to_hex (string (Yojson.Safe.to_string args))) in
              let idx = state.next_block_index in
              emit (ContentBlockStart {
                index = idx; content_type = "tool_use";

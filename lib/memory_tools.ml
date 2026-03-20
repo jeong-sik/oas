@@ -84,7 +84,8 @@ let parse_metadata_field json =
 
 let parse_value_json json =
   bind (parse_string_field json "value_json") (fun raw ->
-      try Ok (Yojson.Safe.from_string raw) with _ -> Ok (`String raw))
+      try Ok (Yojson.Safe.from_string raw)
+      with Yojson.Json_error _ -> Ok (`String raw))
 
 let parse_outcome json =
   let detail_result = parse_optional_string_field json "detail" in

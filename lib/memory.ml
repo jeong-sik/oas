@@ -210,7 +210,7 @@ let episode_of_json (json : Yojson.Safe.t) : episode option =
     let metadata = match json |> member "metadata" with
       | `Assoc pairs -> pairs | _ -> [] in
     Some { id; timestamp; participants; action; outcome; salience; metadata }
-  with _ -> None
+  with Yojson.Safe.Util.Type_error _ | Not_found -> None
 
 let store_episode t (ep : episode) =
   Context.set_scoped t.ctx (scope_of_tier Episodic) ep.id (episode_to_json ep)
@@ -308,7 +308,7 @@ let procedure_of_json (json : Yojson.Safe.t) : procedure option =
       | `Assoc pairs -> pairs | _ -> [] in
     Some { id; pattern; action; success_count; failure_count;
            confidence; last_used; metadata }
-  with _ -> None
+  with Yojson.Safe.Util.Type_error _ | Not_found -> None
 
 let store_procedure t (proc : procedure) =
   Context.set_scoped t.ctx (scope_of_tier Procedural) proc.id (procedure_to_json proc)
