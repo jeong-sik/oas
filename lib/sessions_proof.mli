@@ -6,6 +6,29 @@
 
 open Sessions_types
 
+(** {1 Participant lookup} *)
+
+val participant_by_name :
+  Runtime.session -> string -> Runtime.participant option
+
+(** Resolve the effective provider for a participant,
+    falling back to the session provider. *)
+val resolved_provider_of_participant :
+  Runtime.session -> Runtime.participant option -> string option
+
+(** Resolve the effective model for a participant,
+    falling back to the session model. *)
+val resolved_model_of_participant :
+  Runtime.session -> Runtime.participant option -> string option
+
+(** Map participant state to worker status. *)
+val worker_status_of_participant :
+  Runtime.participant option -> Sessions_types.worker_status
+
+(** Compute the ordering timestamp for a worker run:
+    [finished_at] > [last_progress_at] > [started_at]. *)
+val worker_order_ts : Sessions_types.worker_run -> float option
+
 (** {1 Worker run construction} *)
 
 val worker_run_of_raw :
