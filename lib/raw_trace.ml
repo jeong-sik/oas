@@ -108,8 +108,6 @@ exception Trace_error of Error.sdk_error
 let trace_version = 1
 
 let json_parse_error = Util.json_parse_error
-let file_read_error = Util.file_read_error
-let file_write_error = Util.file_write_error
 
 let safe_name name =
   let trimmed = String.trim name in
@@ -120,23 +118,7 @@ let safe_name name =
       | c -> c)
     base
 
-let rec ensure_dir path =
-  if path = "" || path = "." || path = "/" then Ok ()
-  else
-    try
-      if Sys.file_exists path then Ok ()
-      else (
-        let parent = Filename.dirname path in
-        match ensure_dir parent with
-        | Error _ as err -> err
-        | Ok () ->
-            Unix.mkdir path 0o755;
-            Ok ())
-    with
-    | Unix.Unix_error (err, _, _) ->
-        Error (file_write_error ~path ~detail:(Unix.error_message err))
-    | Sys_error detail ->
-        Error (file_write_error ~path ~detail)
+let ensure_dir = Fs_result.ensure_dir
 
 let record_type_to_string = function
   | Run_started -> "run_started"
@@ -243,23 +225,11 @@ let parse_json_string raw =
   with Yojson.Json_error detail -> Error (json_parse_error detail)
 
 let load_lines path =
-  if not (Sys.file_exists path) then Ok []
+  if not (Fs_result.file_exists path) then Ok []
   else
-    try
-      let ic = open_in_bin path in
-      Fun.protect
-        ~finally:(fun () -> close_in_noerr ic)
-        (fun () ->
-          let rec loop acc =
-            match input_line ic with
-            | line -> loop (line :: acc)
-            | exception End_of_file -> Ok (List.rev acc)
-          in
-          loop [])
-    with
-    | Sys_error detail -> Error (file_read_error ~path ~detail)
-    | Unix.Unix_error (err, _, _) ->
-        Error (file_read_error ~path ~detail:(Unix.error_message err))
+    let* raw = Fs_result.read_file path in
+    Ok (String.split_on_char '\n' raw
+        |> List.filter (fun line -> line <> ""))
 
 let read_all ~path () =
   let* lines = load_lines path in
@@ -321,21 +291,8 @@ let next_worker_run_id sink =
   Printf.sprintf "wr-%08x-%04x-%04x" ts pid idx
 
 let append_locked sink (record : record) =
-  try
-    let oc =
-      open_out_gen [ Open_creat; Open_append; Open_text ] 0o644 sink.path
-    in
-    Fun.protect
-      ~finally:(fun () -> close_out_noerr oc)
-      (fun () ->
-        output_string oc (record_to_json record |> Yojson.Safe.to_string);
-        output_char oc '\n';
-        flush oc;
-        Ok ())
-  with
-  | Sys_error detail -> Error (file_write_error ~path:sink.path ~detail)
-  | Unix.Unix_error (err, _, _) ->
-      Error (file_write_error ~path:sink.path ~detail:(Unix.error_message err))
+  let line = (record_to_json record |> Yojson.Safe.to_string) ^ "\n" in
+  Fs_result.append_file sink.path line
 
 let append_record active ~record_type ?prompt ?block_index ?block_kind
     ?assistant_block ?tool_use_id ?tool_name ?tool_input ?tool_result ?tool_error

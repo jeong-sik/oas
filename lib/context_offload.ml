@@ -49,17 +49,14 @@ let maybe_offload ~(config : config) ~(tool_name : string) (content : string)
       (int_of_float (Unix.gettimeofday () *. 1000.0))
     in
     let path = Filename.concat config.output_dir filename in
-    try
-      let oc = open_out path in
-      Fun.protect
-        ~finally:(fun () -> close_out_noerr oc)
-        (fun () -> output_string oc content);
+    match Fs_result.write_file path content with
+    | Ok () ->
       let preview =
         if len <= config.preview_len then content
         else String.sub content 0 config.preview_len
       in
       Offloaded { path; preview; original_bytes = len }
-    with _ ->
+    | Error _ ->
       (* Fail-open: if we can't write, keep original content *)
       Kept content
 

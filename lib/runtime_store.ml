@@ -18,26 +18,7 @@ let report_md_path store session_id = Filename.concat (artifacts_dir store sessi
 let proof_json_path store session_id = Filename.concat (artifacts_dir store session_id) "proof.json"
 let proof_md_path store session_id = Filename.concat (artifacts_dir store session_id) "proof.md"
 
-let ensure_dir path =
-  try
-    if Sys.file_exists path then Ok ()
-    else (
-      Unix.mkdir path 0o755;
-      Ok ())
-  with
-  | Unix.Unix_error (err, _, _) ->
-      Error
-        (Error.Io
-           (FileOpFailed
-              {
-                op = "mkdir";
-                path;
-                detail = Unix.error_message err;
-              }))
-  | Sys_error detail ->
-      Error
-        (Error.Io
-           (FileOpFailed { op = "mkdir"; path; detail }))
+let ensure_dir = Fs_result.ensure_dir
 
 let ensure_tree store session_id =
   let* () = ensure_dir store.root in
@@ -63,50 +44,9 @@ let create ?root () =
   let* () = ensure_dir (sessions_dir store) in
   Ok store
 
-let save_text path content =
-  try
-    let temp_path =
-      Printf.sprintf "%s.tmp-%d-%06x" path (Unix.getpid ()) (Random.int 0xFFFFFF)
-    in
-    let oc = open_out_bin temp_path in
-    Fun.protect
-      ~finally:(fun () -> close_out_noerr oc)
-      (fun () ->
-        output_string oc content;
-        flush oc;
-        Unix.rename temp_path path;
-        Ok ())
-  with
-  | Sys_error detail ->
-      Error
-        (Error.Io
-           (FileOpFailed { op = "write"; path; detail }))
-  | Unix.Unix_error (err, _, _) ->
-      Error
-        (Error.Io
-           (FileOpFailed { op = "write"; path; detail = Unix.error_message err }))
+let save_text = Fs_result.write_file
 
-let load_text path =
-  try
-    let ic = open_in_bin path in
-    Fun.protect
-      ~finally:(fun () -> close_in_noerr ic)
-      (fun () ->
-        let len = in_channel_length ic in
-        Ok (really_input_string ic len))
-  with
-  | Sys_error detail ->
-      Error
-        (Error.Io
-           (FileOpFailed { op = "read"; path; detail }))
-  | Unix.Unix_error (err, _, _) ->
-      Error
-        (Error.Io
-           (FileOpFailed { op = "read"; path; detail = Unix.error_message err }))
-  | End_of_file ->
-      Error
-        (Error.Io
-           (FileOpFailed { op = "read"; path; detail = "unexpected end of file" }))
+let load_text = Fs_result.read_file
 
 let save_session store (session : session) =
   let* () = ensure_tree store session.session_id in
@@ -162,25 +102,8 @@ let load_session store session_id =
 let append_event store session_id (event : event) =
   let* () = ensure_tree store session_id in
   let path = events_path store session_id in
-  try
-    let oc =
-      open_out_gen [ Open_creat; Open_text; Open_append ] 0o644 path
-    in
-    Fun.protect
-      ~finally:(fun () -> close_out_noerr oc)
-      (fun () ->
-        output_string oc (event |> event_to_yojson |> Yojson.Safe.to_string);
-        output_char oc '\n';
-        flush oc;
-        Ok ())
-  with
-  | Sys_error detail ->
-      Error
-        (Error.Io (FileOpFailed { op = "append"; path; detail }))
-  | Unix.Unix_error (err, _, _) ->
-      Error
-        (Error.Io
-           (FileOpFailed { op = "append"; path; detail = Unix.error_message err }))
+  let line = (event |> event_to_yojson |> Yojson.Safe.to_string) ^ "\n" in
+  Fs_result.append_file path line
 
 let read_events store session_id ?after_seq () =
   let path = events_path store session_id in
