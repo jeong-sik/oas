@@ -113,9 +113,9 @@ let of_raw_trace_records (records : Raw_trace.record list) : trajectory =
          let content = match r.assistant_block with
            | Some json ->
              (try Yojson.Safe.Util.(json |> member "content" |> to_string)
-              with _ ->
+              with Yojson.Safe.Util.Type_error _ ->
                 try Yojson.Safe.Util.(json |> member "thinking" |> to_string)
-                with _ -> Yojson.Safe.to_string json)
+                with Yojson.Safe.Util.Type_error _ -> Yojson.Safe.to_string json)
            | None -> ""
          in
          add_step (Think { content; ts = r.ts })
@@ -123,7 +123,7 @@ let of_raw_trace_records (records : Raw_trace.record list) : trajectory =
          let content = match r.assistant_block with
            | Some json ->
              (try Yojson.Safe.Util.(json |> member "text" |> to_string)
-              with _ -> Yojson.Safe.to_string json)
+              with Yojson.Safe.Util.Type_error _ -> Yojson.Safe.to_string json)
            | None -> ""
          in
          add_step (Respond { content; ts = r.ts })

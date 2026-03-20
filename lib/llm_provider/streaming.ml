@@ -181,7 +181,7 @@ let parse_openai_sse_chunk data_str : openai_chunk option =
                 let tc_name = fn |> member "name" |> to_string_option in
                 let tc_arguments = fn |> member "arguments" |> to_string_option in
                 Some { tc_index; tc_id; tc_name; tc_arguments }
-              with _ -> None
+              with Yojson.Safe.Util.Type_error _ | Not_found -> None
             ) calls
         | _ -> []
       in

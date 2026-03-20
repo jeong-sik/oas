@@ -203,13 +203,17 @@ let of_json json =
             | `List votes_json ->
               List.map (fun vj ->
                 let topic =
-                  (try to_string (vj |> member "topic") with _ -> "") in
+                  (try to_string (vj |> member "topic")
+                   with Yojson.Safe.Util.Type_error _ | Not_found -> "") in
                 let choice =
-                  (try to_string (vj |> member "choice") with _ -> "") in
+                  (try to_string (vj |> member "choice")
+                   with Yojson.Safe.Util.Type_error _ | Not_found -> "") in
                 let voter =
-                  (try to_string (vj |> member "voter") with _ -> "anonymous") in
+                  (try to_string (vj |> member "voter")
+                   with Yojson.Safe.Util.Type_error _ | Not_found -> "anonymous") in
                 let cast_at =
-                  (try to_float (vj |> member "cast_at") with _ -> 0.0) in
+                  (try to_float (vj |> member "cast_at")
+                   with Yojson.Safe.Util.Type_error _ | Not_found -> 0.0) in
                 { agent = voter;
                   kind = "vote";
                   content = topic ^ ": " ^ choice;

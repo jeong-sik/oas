@@ -104,7 +104,8 @@ let complete ~sw ~net ~(config : Provider_config.t)
             | Some c ->
                 let key = Cache.request_fingerprint ~config ~messages ~tools () in
                 let json = Cache.response_to_json resp in
-                (try c.set ~key ~ttl_sec:300 json with _ -> ())
+                (try c.set ~key ~ttl_sec:300 json
+                 with Eio.Io _ | Sys_error _ -> ())
             | None -> ());
            Ok resp
        | Error err ->
@@ -287,7 +288,7 @@ let finalize_stream_acc (acc : stream_acc) =
         let name = match Hashtbl.find_opt acc.block_tool_names idx with
           | Some s -> s | None -> "" in
         let input = try Yojson.Safe.from_string text
-          with _ -> `Assoc [] in
+          with Yojson.Json_error _ -> `Assoc [] in
         Some (Types.ToolUse { id; name; input })
     | _ -> None
   ) indices in

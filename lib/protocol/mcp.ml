@@ -415,7 +415,7 @@ let close_managed m =
   | Stdio { client; _ } ->
       (try close client with Eio.Io _ | Unix.Unix_error _ | Failure _ -> ())
   | Http { close_fn; _ } ->
-      (try close_fn () with _ -> ())
+      (try close_fn () with Eio.Io _ | Unix.Unix_error _ | Failure _ -> ())
 
 (** Close all managed MCP server connections.
     Exceptions from individual servers are swallowed (best-effort). *)

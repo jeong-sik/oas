@@ -135,4 +135,4 @@ let response_of_json (json : Yojson.Safe.t) : Types.api_response option =
         content;
         usage;
       }
-  with _ -> None
+  with Yojson.Safe.Util.Type_error _ | Not_found | Yojson.Json_error _ -> None
