@@ -7,6 +7,13 @@
     @since 0.53.0  Streaming, retry, cascade
     @since 0.54.0  Optional cache + metrics hooks *)
 
+(** {1 Gemini URL Construction} *)
+
+(** Construct Gemini API URL with model_id in path and optional key param.
+    Exposed for testing. *)
+val gemini_url :
+  config:Provider_config.t -> stream:bool -> string
+
 (** {1 Sync Completion} *)
 
 (** Execute a single LLM completion round-trip.

@@ -33,13 +33,13 @@ let claude_defaults = {
 }
 
 let gemini_defaults = {
-  kind = OpenAI_compat;
+  kind = Gemini;
   base_url =
     (match Sys.getenv_opt "GEMINI_BASE_URL" with
      | Some url -> url
-     | None -> "https://generativelanguage.googleapis.com/v1beta/openai");
+     | None -> "https://generativelanguage.googleapis.com/v1beta");
   api_key_env = "GEMINI_API_KEY";
-  request_path = "/chat/completions";
+  request_path = "";
 }
 
 let glm_defaults = {
