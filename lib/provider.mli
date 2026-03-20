@@ -23,14 +23,27 @@ type request_kind =
   | Custom of string
 
 type capabilities = {
+  max_context_tokens: int option;
+  max_output_tokens: int option;
   supports_tools: bool;
   supports_tool_choice: bool;
+  supports_parallel_tool_calls: bool;
   supports_reasoning: bool;
+  supports_extended_thinking: bool;
+  supports_reasoning_budget: bool;
   supports_response_format_json: bool;
+  supports_structured_output: bool;
   supports_multimodal_inputs: bool;
+  supports_image_input: bool;
+  supports_audio_input: bool;
+  supports_video_input: bool;
   supports_native_streaming: bool;
+  supports_system_prompt: bool;
+  supports_caching: bool;
   supports_top_k: bool;
   supports_min_p: bool;
+  supports_computer_use: bool;
+  supports_code_execution: bool;
 }
 
 type model_spec = {
