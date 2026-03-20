@@ -41,9 +41,10 @@ let create ~goal ~planner () = {
 
 (* ── Step management ──────────────────────────────── *)
 
+(* Steps stored in reverse insertion order; reversed by accessors. *)
 let add_step t ~id ~description ?(depends_on=[]) () =
   let step = { id; description; status = Pending; result = None; depends_on } in
-  { t with steps = t.steps @ [step] }
+  { t with steps = step :: t.steps }
 
 let update_step t step_id f =
   let steps = List.map (fun s ->
@@ -85,32 +86,31 @@ let abandon t ~reason = { t with status = Abandoned reason }
 let goal t = t.goal
 let planner t = t.planner
 let status t = t.status
-let steps t = t.steps
+let steps t = List.rev t.steps
 let step_count t = List.length t.steps
 
 let current_step t =
+  let ordered = List.rev t.steps in
   List.find_opt (fun (s : step) ->
     match s.status with Running -> true | _ -> false
-  ) t.steps
+  ) ordered
   |> function
   | Some _ as r -> r
   | None ->
-    (* No running step — find first Pending *)
     List.find_opt (fun (s : step) ->
       match s.status with Pending -> true | _ -> false
-    ) t.steps
+    ) ordered
 
 let find_step t step_id =
   List.find_opt (fun s -> s.id = step_id) t.steps
 
 let progress t =
-  let total = List.length t.steps in
+  let total, done_count = List.fold_left (fun (tot, done_n) (s : step) ->
+    let d = match s.status with Done | Skipped -> 1 | _ -> 0 in
+    (tot + 1, done_n + d)
+  ) (0, 0) t.steps in
   if total = 0 then 1.0
-  else
-    let done_count = List.length (List.filter (fun (s : step) ->
-      match s.status with Done | Skipped -> true | _ -> false
-    ) t.steps) in
-    float_of_int done_count /. float_of_int total
+  else float_of_int done_count /. float_of_int total
 
 let is_done t =
   match t.status with Completed | Abandoned _ -> true | _ -> false
@@ -207,7 +207,7 @@ let to_json t =
   `Assoc [
     ("goal", `String t.goal);
     ("planner", `String t.planner);
-    ("steps", `List (List.map step_to_json t.steps));
+    ("steps", `List (List.rev_map step_to_json t.steps));
     ("status", plan_status_to_json t.status);
     ("created_at", `Float t.created_at);
   ]
@@ -220,14 +220,7 @@ let of_json json =
     | Error e -> Error e
     | Ok status ->
       let steps_json = json |> member "steps" |> to_list in
-      let rec collect_steps acc = function
-        | [] -> Ok (List.rev acc)
-        | j :: rest ->
-          match step_of_json j with
-          | Ok s -> collect_steps (s :: acc) rest
-          | Error e -> Error e
-      in
-      (match collect_steps [] steps_json with
+      (match Util.result_traverse ~f:step_of_json steps_json with
        | Error e -> Error e
        | Ok steps ->
          Ok {

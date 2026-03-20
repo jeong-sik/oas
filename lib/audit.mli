@@ -1,4 +1,4 @@
-(** Audit trail — immutable log of policy decisions and agent actions.
+(** Audit trail — append-only log of policy decisions and agent actions.
 
     Records every decision point evaluation, providing accountability
     and transparency for agent behavior in a society.
