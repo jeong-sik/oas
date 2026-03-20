@@ -458,10 +458,6 @@
  (libraries llm_provider alcotest yojson))
 
 (test
- (name test_transport_pure)
- (libraries agent_sdk alcotest yojson unix))
-
-(test
  (name test_structured_ext)
  (libraries agent_sdk alcotest yojson))
 
@@ -472,3 +468,8 @@
 (test
  (name test_agent_pipeline)
  (libraries agent_sdk alcotest yojson eio eio_main cohttp-eio unix))
+
+(test
+ (name test_transport_integration)
+ (libraries agent_sdk alcotest yojson eio eio_main unix)
+ (deps ../bin/oas_runtime.exe))
