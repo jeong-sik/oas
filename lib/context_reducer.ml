@@ -351,3 +351,18 @@ let custom f = { strategy = Custom f }
         else Token_budget 4000)
     ]} *)
 let dynamic selector = { strategy = Dynamic selector }
+
+(** Create a reducer from provider capabilities.
+    Uses max_context_tokens with a safety margin (default 80%) as the
+    token budget, composed with repair_dangling_tool_calls and drop_thinking.
+    Returns None if max_context_tokens is unknown. *)
+let from_capabilities ?(margin=0.8) (caps : Llm_provider.Capabilities.capabilities) =
+  match caps.max_context_tokens with
+  | None -> None
+  | Some max_ctx ->
+    let budget = int_of_float (float_of_int max_ctx *. margin) in
+    Some (compose [
+      drop_thinking;
+      repair_dangling_tool_calls;
+      token_budget budget;
+    ])
