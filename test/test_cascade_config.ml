@@ -133,6 +133,52 @@ let test_load_profile_hot_reload () =
        check int "reloaded" 2 (List.length m2);
        check string "v2" "llama:v2" (List.hd m2))
 
+(* ── resolve_model_strings ────────────────────────────── *)
+
+let test_resolve_no_config_path () =
+  let result = Cascade_config.resolve_model_strings
+      ~name:"test" ~defaults:["llama:auto"] () in
+  check int "count" 1 (List.length result);
+  check string "first" "llama:auto" (List.hd result)
+
+let test_resolve_named_profile () =
+  Eio_main.run @@ fun _env ->
+  with_temp_json
+    {|{"myprofile_models": ["glm:flash", "llama:qwen3.5"]}|}
+    (fun path ->
+       let result = Cascade_config.resolve_model_strings
+           ~config_path:path ~name:"myprofile" ~defaults:["fallback:x"] () in
+       check int "count" 2 (List.length result);
+       check string "first" "glm:flash" (List.hd result))
+
+let test_resolve_falls_back_to_default () =
+  Eio_main.run @@ fun _env ->
+  with_temp_json
+    {|{"default_models": ["glm:auto", "llama:auto"]}|}
+    (fun path ->
+       let result = Cascade_config.resolve_model_strings
+           ~config_path:path ~name:"nonexistent" ~defaults:["hardcoded:x"] () in
+       check int "count" 2 (List.length result);
+       check string "first" "glm:auto" (List.hd result))
+
+let test_resolve_named_over_default () =
+  Eio_main.run @@ fun _env ->
+  with_temp_json
+    {|{"named_models": ["glm:flash"], "default_models": ["llama:auto"]}|}
+    (fun path ->
+       let result = Cascade_config.resolve_model_strings
+           ~config_path:path ~name:"named" ~defaults:["hardcoded:x"] () in
+       check int "count" 1 (List.length result);
+       check string "named wins" "glm:flash" (List.hd result))
+
+let test_resolve_hardcoded_when_no_profiles () =
+  Eio_main.run @@ fun _env ->
+  with_temp_json {|{"other_models": ["glm:x"]}|} (fun path ->
+    let result = Cascade_config.resolve_model_strings
+        ~config_path:path ~name:"missing" ~defaults:["hardcoded:x"] () in
+    check int "count" 1 (List.length result);
+    check string "hardcoded fallback" "hardcoded:x" (List.hd result))
+
 (* ── Health filtering ─────────────────────────────────── *)
 
 let test_is_local_detection () =
@@ -198,6 +244,13 @@ let () =
       test_case "missing key" `Quick test_load_profile_missing_key;
       test_case "missing file" `Quick test_load_profile_missing_file;
       test_case "hot reload" `Quick test_load_profile_hot_reload;
+    ];
+    "resolve", [
+      test_case "no config_path" `Quick test_resolve_no_config_path;
+      test_case "named profile" `Quick test_resolve_named_profile;
+      test_case "falls back to default" `Quick test_resolve_falls_back_to_default;
+      test_case "named over default" `Quick test_resolve_named_over_default;
+      test_case "hardcoded when no profiles" `Quick test_resolve_hardcoded_when_no_profiles;
     ];
     "health", [
       test_case "local detection" `Quick test_is_local_detection;

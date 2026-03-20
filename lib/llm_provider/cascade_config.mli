@@ -50,6 +50,21 @@ val load_profile :
   name:string ->
   string list
 
+(** Resolve model strings for a named cascade.
+
+    Resolution order:
+    1. Named profile "{name}_models" from [config_path]
+    2. "default_models" profile from [config_path] (fallback)
+    3. Hardcoded [defaults]
+
+    When [config_path] is [None], returns [defaults] directly. *)
+val resolve_model_strings :
+  ?config_path:string ->
+  name:string ->
+  defaults:string list ->
+  unit ->
+  string list
+
 (** {1 Discovery-Aware Health Filtering} *)
 
 (** Filter a provider list by local endpoint health.
