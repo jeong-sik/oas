@@ -7,20 +7,7 @@
 
 (* ── Text utilities ────────────────────────────────────────────── *)
 
-let contains_substring_ci ~haystack ~needle =
-  let h = String.lowercase_ascii haystack in
-  let n = String.lowercase_ascii needle in
-  let lh = String.length h in
-  let ln = String.length n in
-  if ln = 0 then true
-  else if ln > lh then false
-  else
-    let rec loop i =
-      if i + ln > lh then false
-      else if String.sub h i ln = n then true
-      else loop (i + 1)
-    in
-    loop 0
+let contains_substring_ci = Util.contains_substring_ci
 
 let normalize_for_overlap s =
   let b = Buffer.create (String.length s) in
@@ -43,9 +30,11 @@ let token_overlap_ratio ~source ~target =
   | [] -> 1.0
   | _ ->
     let target_tokens = tokenize target in
+    let target_set = Hashtbl.create (List.length target_tokens) in
+    List.iter (fun tok -> Hashtbl.replace target_set tok ()) target_tokens;
     let matched =
       List.fold_left (fun acc tok ->
-        if List.mem tok target_tokens then acc + 1 else acc
+        if Hashtbl.mem target_set tok then acc + 1 else acc
       ) 0 source_tokens
     in
     Float.of_int matched /. Float.of_int (List.length source_tokens)
@@ -110,9 +99,7 @@ let validate_dna dna =
 
 (* ── Continuity regression check ───────────────────────────────── *)
 
-let safe_sub s start len =
-  let actual_len = min len (String.length s - start) in
-  if actual_len <= 0 then "" else String.sub s start actual_len
+let safe_sub = Util.safe_sub
 
 let continuity_check ~full_context ~compressed_context =
   let goal_hint = extract_prefixed_line ~prefix:"goal:" full_context in

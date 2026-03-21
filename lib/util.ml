@@ -41,3 +41,28 @@ let result_traverse ~f items =
       | Error e -> Error e
   in
   loop [] items
+
+(** Truncate string to [max_len], appending "..." if truncated. *)
+let clip s max_len =
+  if String.length s > max_len then String.sub s 0 max_len ^ "..." else s
+
+(** Safe substring: returns "" if start is past end or len is negative. *)
+let safe_sub s start len =
+  let actual_len = min len (String.length s - start) in
+  if actual_len <= 0 then "" else String.sub s start actual_len
+
+(** Case-insensitive substring search. *)
+let contains_substring_ci ~haystack ~needle =
+  let h = String.lowercase_ascii haystack in
+  let n = String.lowercase_ascii needle in
+  let lh = String.length h in
+  let ln = String.length n in
+  if ln = 0 then true
+  else if ln > lh then false
+  else
+    let rec loop i =
+      if i + ln > lh then false
+      else if String.sub h i ln = n then true
+      else loop (i + 1)
+    in
+    loop 0

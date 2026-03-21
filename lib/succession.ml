@@ -55,8 +55,7 @@ type dna = {
 (* Helpers                                                          *)
 (* ================================================================ *)
 
-let clip s max_len =
-  if String.length s > max_len then String.sub s 0 max_len ^ "..." else s
+let clip = Util.clip
 
 
 (* ================================================================ *)
