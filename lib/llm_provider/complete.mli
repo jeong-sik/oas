@@ -129,6 +129,12 @@ val complete_cascade :
   unit ->
   (Types.api_response, Http_client.http_error) result
 
+(** {1 Stream Accumulator} *)
+
+(** Re-exported from {!Complete_stream_acc} for backward compatibility.
+    @since 0.79.0 *)
+include module type of Complete_stream_acc
+
 (** {1 Streaming Completion} *)
 
 (** Execute a streaming LLM completion.
