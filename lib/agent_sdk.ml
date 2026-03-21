@@ -78,6 +78,7 @@ module Agent_turn = Agent_turn
 module Agent_handoff = Agent_handoff
 module Agent_tools = Agent_tools
 module Agent_checkpoint = Agent_checkpoint
+module Agent_turn_budget = Agent_turn_budget
 module Agent = Agent
 module Builder = Builder
 module Agent_card = Agent_card

@@ -736,3 +736,7 @@
 (test
  (name test_checkpoint_validation)
  (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_turn_budget)
+ (libraries agent_sdk alcotest yojson str))
