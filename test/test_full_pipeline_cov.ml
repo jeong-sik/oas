@@ -10,29 +10,38 @@ open Alcotest
 
 (* ── Mock server helpers ──────────────────────────────────────── *)
 
-let anthropic_response ?(id = "msg-1") ?(stop = "end_turn") text =
-  Printf.sprintf
-    {|{"id":"%s","type":"message","role":"assistant","model":"mock","content":[{"type":"text","text":"%s"}],"stop_reason":"%s","usage":{"input_tokens":10,"output_tokens":5,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}|}
-    id text stop
+let escape_json_string s =
+  let buf = Buffer.create (String.length s) in
+  String.iter (fun c ->
+    match c with
+    | '"' -> Buffer.add_string buf "\\\""
+    | '\\' -> Buffer.add_string buf "\\\\"
+    | _ -> Buffer.add_char buf c) s;
+  Buffer.contents buf
 
-let anthropic_tool_use ?(id = "msg-t") tool_name input_json =
+let openai_text_response ?(id = "chatcmpl-1") text =
   Printf.sprintf
-    {|{"id":"%s","type":"message","role":"assistant","model":"mock","content":[{"type":"tool_use","id":"toolu_1","name":"%s","input":%s}],"stop_reason":"tool_use","usage":{"input_tokens":15,"output_tokens":10,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}|}
-    id tool_name input_json
+    {|{"id":"%s","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":"%s"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}|}
+    id text
 
-let anthropic_multi_content tool_name input_json text =
+let openai_tool_use ?(id = "chatcmpl-t") tool_name input_json =
   Printf.sprintf
-    {|{"id":"msg-m","type":"message","role":"assistant","model":"mock","content":[{"type":"text","text":"%s"},{"type":"tool_use","id":"toolu_2","name":"%s","input":%s}],"stop_reason":"tool_use","usage":{"input_tokens":20,"output_tokens":15,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}|}
-    text tool_name input_json
+    {|{"id":"%s","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"%s","arguments":"%s"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":15,"completion_tokens":10,"total_tokens":25}}|}
+    id tool_name (escape_json_string input_json)
+
+let openai_multi_content tool_name input_json text =
+  Printf.sprintf
+    {|{"id":"chatcmpl-m","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":"%s","tool_calls":[{"id":"call_2","type":"function","function":{"name":"%s","arguments":"%s"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":20,"completion_tokens":15,"total_tokens":35}}|}
+    text tool_name (escape_json_string input_json)
 
 let openai_response text =
   Printf.sprintf
     {|{"id":"chatcmpl-1","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":"%s"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}|}
     text
 
-let anthropic_sse text =
+let openai_sse text =
   Printf.sprintf
-    "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"s1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"mock\",\"content\":[],\"stop_reason\":null,\"usage\":{\"input_tokens\":10,\"output_tokens\":0,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"%s\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":5}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+    "data: {\"id\":\"chatcmpl-s1\",\"object\":\"chat.completion.chunk\",\"model\":\"mock\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"%s\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-s1\",\"object\":\"chat.completion.chunk\",\"model\":\"mock\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15}}\n\ndata: [DONE]\n\n"
     text
 
 (** Multi-response mock server cycling through responses. *)
@@ -130,7 +139,7 @@ let test_basic_text () =
   try
     Eio.Switch.run @@ fun sw ->
     let url = start_multi ~sw ~net:env#net ~port:21001
-        [anthropic_response "hello coverage"] in
+        [openai_text_response "hello coverage"] in
     let agent = make_agent ~net:env#net url in
     (match Agent.run ~sw agent "hi" with
      | Ok resp ->
@@ -146,8 +155,8 @@ let test_tool_call_loop () =
   try
     Eio.Switch.run @@ fun sw ->
     let responses = [
-      anthropic_tool_use "calc" {|{"x":42}|};
-      anthropic_response "result is 42";
+      openai_tool_use "calc" {|{"x":42}|};
+      openai_text_response "result is 42";
     ] in
     let url = start_multi ~sw ~net:env#net ~port:21002 responses in
     let tool = Tool.create ~name:"calc" ~description:"Calculate"
@@ -171,8 +180,8 @@ let test_multi_content_tool () =
   try
     Eio.Switch.run @@ fun sw ->
     let responses = [
-      anthropic_multi_content "greet" {|{"name":"test"}|} "thinking...";
-      anthropic_response "done";
+      openai_multi_content "greet" {|{"name":"test"}|} "thinking...";
+      openai_text_response "done";
     ] in
     let url = start_multi ~sw ~net:env#net ~port:21003 responses in
     let tool = Tool.create ~name:"greet" ~description:"Greet"
@@ -194,7 +203,7 @@ let test_streaming_sse () =
   try
     Eio.Switch.run @@ fun sw ->
     let url = start_sse ~sw ~net:env#net ~port:21004
-        (anthropic_sse "streamed text") in
+        (openai_sse "streamed text") in
     let agent = make_agent ~net:env#net url in
     let events = ref [] in
     (match Agent.run_stream ~sw
@@ -259,8 +268,8 @@ let test_tool_error_recovery () =
   try
     Eio.Switch.run @@ fun sw ->
     let responses = [
-      anthropic_tool_use "bad_tool" {|{}|};
-      anthropic_response "recovered";
+      openai_tool_use "bad_tool" {|{}|};
+      openai_text_response "recovered";
     ] in
     let url = start_multi ~sw ~net:env#net ~port:21008 responses in
     let tool = Tool.create ~name:"bad_tool" ~description:"Fails"
@@ -281,7 +290,7 @@ let test_max_turns () =
   try
     Eio.Switch.run @@ fun sw ->
     let url = start_multi ~sw ~net:env#net ~port:21009
-        [anthropic_tool_use "loop" {|{}|}] in
+        [openai_tool_use "loop" {|{}|}] in
     let tool = Tool.create ~name:"loop" ~description:"loops"
         ~parameters:[]
         (fun _input -> Ok { Types.content = "again" }) in
@@ -298,7 +307,7 @@ let test_hooks_turn () =
   try
     Eio.Switch.run @@ fun sw ->
     let url = start_multi ~sw ~net:env#net ~port:21010
-        [anthropic_response "hooked"] in
+        [openai_text_response "hooked"] in
     let before_count = ref 0 in
     let after_count = ref 0 in
     let hooks = { Hooks.empty with
@@ -321,7 +330,7 @@ let test_context_reducer () =
   try
     Eio.Switch.run @@ fun sw ->
     let url = start_multi ~sw ~net:env#net ~port:21011
-        [anthropic_response "reduced"] in
+        [openai_text_response "reduced"] in
     let reducer = Context_reducer.compose [
       Context_reducer.repair_dangling_tool_calls;
       Context_reducer.drop_thinking;
@@ -341,7 +350,7 @@ let test_guardrails_filter () =
   try
     Eio.Switch.run @@ fun sw ->
     let url = start_multi ~sw ~net:env#net ~port:21012
-        [anthropic_response "guarded"] in
+        [openai_text_response "guarded"] in
     let guardrails = {
       Guardrails.tool_filter = Guardrails.AllowAll;
       max_tool_calls_per_turn = Some 3;
@@ -361,8 +370,8 @@ let test_pre_tool_skip () =
   try
     Eio.Switch.run @@ fun sw ->
     let responses = [
-      anthropic_tool_use "skipped" {|{}|};
-      anthropic_response "skipped result";
+      openai_tool_use "skipped" {|{}|};
+      openai_text_response "skipped result";
     ] in
     let url = start_multi ~sw ~net:env#net ~port:21013 responses in
     let tool = Tool.create ~name:"skipped" ~description:"Skip me"
@@ -415,7 +424,7 @@ let test_agent_clone_run () =
   try
     Eio.Switch.run @@ fun sw ->
     let url = start_multi ~sw ~net:env#net ~port:21015
-        [anthropic_response "cloned"] in
+        [openai_text_response "cloned"] in
     let agent = make_agent ~net:env#net url in
     let cloned = Agent.clone agent in
     (match Agent.run ~sw cloned "test clone" with
@@ -431,8 +440,8 @@ let test_structured_extract () =
   Eio_main.run @@ fun env ->
   try
     Eio.Switch.run @@ fun sw ->
-    let tool_resp = Printf.sprintf
-        {|{"id":"msg-s","type":"message","role":"assistant","model":"mock","content":[{"type":"tool_use","id":"toolu_s","name":"get_info","input":{"name":"test","age":25}}],"stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":10,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}|}
+    let tool_resp =
+        {|{"id":"chatcmpl-s","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_s","type":"function","function":{"name":"get_info","arguments":"{\"name\":\"test\",\"age\":25}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":10,"total_tokens":20}}|}
     in
     let url = start_multi ~sw ~net:env#net ~port:21016 [tool_resp] in
     let schema : (string * int) Structured.schema = {
@@ -514,8 +523,8 @@ let test_context_tool () =
   try
     Eio.Switch.run @@ fun sw ->
     let responses = [
-      anthropic_tool_use "ctx_tool" {|{"key":"val"}|};
-      anthropic_response "ctx done";
+      openai_tool_use "ctx_tool" {|{"key":"val"}|};
+      openai_text_response "ctx done";
     ] in
     let url = start_multi ~sw ~net:env#net ~port:21020 responses in
     let tool = Tool.create_with_context
