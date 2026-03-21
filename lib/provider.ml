@@ -74,7 +74,13 @@ let registered_providers () =
 
 let capabilities_for_model ~(provider : provider) ~(model_id : string) =
   match provider with
-  | Anthropic | Local _ -> anthropic_capabilities
+  | Anthropic -> anthropic_capabilities
+  | Local _ ->
+      (* Local (llama-server) uses OpenAI-compatible API.
+         Resolve capabilities by model_id, fall back to openai_chat. *)
+      (match Llm_provider.Capabilities.for_model_id model_id with
+       | Some caps -> caps
+       | None -> openai_chat_capabilities)
   | OpenAICompat _ ->
       if needs_extended_capabilities model_id then openai_chat_extended_capabilities
       else openai_chat_capabilities
@@ -84,15 +90,16 @@ let capabilities_for_model ~(provider : provider) ~(model_id : string) =
        | None -> default_capabilities)
 
 let request_kind = function
-  | Local _ | Anthropic -> Anthropic_messages
-  | OpenAICompat _ -> Openai_chat_completions
+  | Anthropic -> Anthropic_messages
+  | Local _ | OpenAICompat _ -> Openai_chat_completions
   | Custom_registered { name } ->
       (match find_provider name with
        | Some impl -> impl.request_kind
        | None -> Custom name)
 
 let request_path = function
-  | Local _ | Anthropic -> "/v1/messages"
+  | Anthropic -> "/v1/messages"
+  | Local { base_url = _ } -> "/v1/chat/completions"
   | OpenAICompat { path; _ } -> path
   | Custom_registered { name } ->
       (match find_provider name with
