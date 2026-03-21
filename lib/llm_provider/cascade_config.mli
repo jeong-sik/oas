@@ -25,6 +25,18 @@ val parse_model_string :
   ?system_prompt:string ->
   string -> Provider_config.t option
 
+(** Like {!parse_model_string} but returns a [Result] with a diagnostic
+    error message explaining why parsing failed (unknown provider, missing
+    API key, bad format).  Intended for MCP tool boundaries where callers
+    need to report the reason back to the user.
+
+    @since 0.81.0 *)
+val parse_model_string_exn :
+  ?temperature:float ->
+  ?max_tokens:int ->
+  ?system_prompt:string ->
+  string -> (Provider_config.t, string) result
+
 (** Parse multiple model strings, skipping unavailable ones. *)
 val parse_model_strings :
   ?temperature:float ->
