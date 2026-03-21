@@ -77,34 +77,32 @@ let response_for_message body_str =
   let json = Yojson.Safe.from_string body_str in
   let messages = json |> member "messages" |> to_list in
   let last_msg = List.hd (List.rev messages) in
-  let content_items = last_msg |> member "content" |> to_list in
-  match content_items with
-  | [] ->
-      {|{"id":"empty","type":"message","role":"assistant","model":"c","content":[{"type":"text","text":"empty"}],"stop_reason":"end_turn","usage":{"input_tokens":0,"output_tokens":0}}|}
-  | item :: _ ->
-      let item_type = item |> member "type" |> to_string_option |> Option.value ~default:"" in
-      match item_type with
-      | "text" ->
-          let text = item |> member "text" |> to_string_option |> Option.value ~default:"" in
-          if text = "delegate" then
-            {|{"id":"handoff-tool","type":"message","role":"assistant","model":"c","content":[{"type":"tool_use","id":"handoff-1","name":"transfer_to_researcher","input":{"prompt":"sub_prompt"}}],"stop_reason":"tool_use","usage":{"input_tokens":1,"output_tokens":1}}|}
-          else if text = "delegate_unknown" then
-            {|{"id":"handoff-unknown-tool","type":"message","role":"assistant","model":"c","content":[{"type":"tool_use","id":"handoff-2","name":"transfer_to_unknown","input":{"prompt":"sub_prompt"}}],"stop_reason":"tool_use","usage":{"input_tokens":1,"output_tokens":1}}|}
-          else if text = "sub_prompt" then
-            {|{"id":"handoff-child","type":"message","role":"assistant","model":"c","content":[{"type":"text","text":"delegated response"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}|}
-          else
-            {|{"id":"handoff-fallback","type":"message","role":"assistant","model":"c","content":[{"type":"text","text":"unexpected"}],"stop_reason":"end_turn","usage":{"input_tokens":0,"output_tokens":0}}|}
-      | "tool_result" ->
-          let content = item |> member "content" |> to_string_option |> Option.value ~default:"" in
-          Printf.sprintf
-            {|{"id":"handoff-final","type":"message","role":"assistant","model":"c","content":[{"type":"text","text":"handoff complete: %s"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}|}
-            content
-      | _ ->
-          {|{"id":"handoff-unknown","type":"message","role":"assistant","model":"c","content":[{"type":"text","text":"unknown"}],"stop_reason":"end_turn","usage":{"input_tokens":0,"output_tokens":0}}|}
+  let role = last_msg |> member "role" |> to_string_option |> Option.value ~default:"" in
+  match role with
+  | "tool" ->
+      (* OpenAI tool result message *)
+      let content = last_msg |> member "content" |> to_string_option |> Option.value ~default:"" in
+      Printf.sprintf
+        {|{"id":"chatcmpl-final","object":"chat.completion","model":"c","choices":[{"index":0,"message":{"role":"assistant","content":"handoff complete: %s"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}|}
+        content
+  | _ ->
+      (* OpenAI user message — content is a plain string *)
+      let text = last_msg |> member "content" |> to_string_option |> Option.value ~default:"" in
+      if text = "delegate" then
+        {|{"id":"chatcmpl-handoff","object":"chat.completion","model":"c","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"handoff-1","type":"function","function":{"name":"transfer_to_researcher","arguments":"{\"prompt\":\"sub_prompt\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}|}
+      else if text = "delegate_unknown" then
+        {|{"id":"chatcmpl-handoff-unknown","object":"chat.completion","model":"c","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"handoff-2","type":"function","function":{"name":"transfer_to_unknown","arguments":"{\"prompt\":\"sub_prompt\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}|}
+      else if text = "sub_prompt" then
+        {|{"id":"chatcmpl-child","object":"chat.completion","model":"c","choices":[{"index":0,"message":{"role":"assistant","content":"delegated response"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}|}
+      else if text = "" then
+        (* Empty content — could be system or other message, check deeper *)
+        {|{"id":"chatcmpl-empty","object":"chat.completion","model":"c","choices":[{"index":0,"message":{"role":"assistant","content":"empty"},"finish_reason":"stop"}],"usage":{"prompt_tokens":0,"completion_tokens":0,"total_tokens":0}}|}
+      else
+        {|{"id":"chatcmpl-fallback","object":"chat.completion","model":"c","choices":[{"index":0,"message":{"role":"assistant","content":"unexpected"},"finish_reason":"stop"}],"usage":{"prompt_tokens":0,"completion_tokens":0,"total_tokens":0}}|}
 
 let handoff_mock_handler _conn req body =
   match Uri.path (Cohttp.Request.uri req) with
-  | "/v1/messages" ->
+  | "/v1/chat/completions" ->
       let body_str = Eio.Buf_read.(of_flow ~max_size:max_int body |> take_all) in
       let response_body = response_for_message body_str in
       Cohttp_eio.Server.respond_string ~status:`OK ~body:response_body ()
@@ -130,7 +128,11 @@ let test_run_with_handoffs_intercepts_tool_use () =
         config = { default_config with name = "researcher" };
         tools = [];
       } in
-      let options = { Agent.default_options with base_url } in
+      let provider : Provider.config = {
+        provider = Provider.Local { base_url };
+        model_id = "mock"; api_key_env = "";
+      } in
+      let options = { Agent.default_options with base_url; provider = Some provider } in
       let agent = Agent.create ~net:env#net ~options () in
       match Agent.run_with_handoffs ~sw agent ~targets:[target] "delegate" with
       | Ok response ->
@@ -164,7 +166,11 @@ let test_run_with_handoffs_reports_unknown_target () =
         config = { default_config with name = "researcher" };
         tools = [];
       } in
-      let options = { Agent.default_options with base_url } in
+      let provider : Provider.config = {
+        provider = Provider.Local { base_url };
+        model_id = "mock"; api_key_env = "";
+      } in
+      let options = { Agent.default_options with base_url; provider = Some provider } in
       let agent = Agent.create ~net:env#net ~options () in
       match Agent.run_with_handoffs ~sw agent ~targets:[target] "delegate_unknown" with
       | Ok response ->

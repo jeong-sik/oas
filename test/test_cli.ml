@@ -26,7 +26,7 @@ let cli_exe =
 
 let quick_response text =
   Printf.sprintf
-    {|{"id":"m","type":"message","role":"assistant","model":"m","content":[{"type":"text","text":"%s"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}|}
+    {|{"id":"chatcmpl-m","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":"%s"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}|}
     text
 
 let start_mock ~sw ~net ~clock ~port response_text =

@@ -33,116 +33,187 @@ let unwrap label = function
   | Ok value -> value
   | Error err -> fail (Printf.sprintf "%s: %s" label (Error.to_string err))
 
-let response_usage ?(input_tokens = 10) ?(output_tokens = 5) () =
+let response_usage ?(prompt_tokens = 10) ?(completion_tokens = 5) () =
   `Assoc
     [
-      ("input_tokens", `Int input_tokens);
-      ("output_tokens", `Int output_tokens);
-      ("cache_creation_input_tokens", `Int 0);
-      ("cache_read_input_tokens", `Int 0);
+      ("prompt_tokens", `Int prompt_tokens);
+      ("completion_tokens", `Int completion_tokens);
+      ("total_tokens", `Int (prompt_tokens + completion_tokens));
     ]
 
-let anthropic_text_response ?(id = "msg-1") ?(model = "mock")
-    ?(stop_reason = "end_turn") ?(input_tokens = 10) ?(output_tokens = 5) text =
+let openai_text_response ?(id = "chatcmpl-1") ?(model = "mock")
+    ?(finish_reason = "stop") ?(prompt_tokens = 10) ?(completion_tokens = 5) text =
   Yojson.Safe.to_string
     (`Assoc
        [
          ("id", `String id);
-         ("type", `String "message");
-         ("role", `String "assistant");
+         ("object", `String "chat.completion");
          ("model", `String model);
-         ( "content",
-           `List [ `Assoc [ ("type", `String "text"); ("text", `String text) ] ]
-         );
-         ("stop_reason", `String stop_reason);
-         ("usage", response_usage ~input_tokens ~output_tokens ());
-       ])
-
-let anthropic_tool_use_response ?(id = "msg-tool") ?(model = "mock")
-    ?(tool_id = "toolu_1") ?(input_tokens = 10) ?(output_tokens = 5)
-    ~tool_name ~tool_input () =
-  Yojson.Safe.to_string
-    (`Assoc
-       [
-         ("id", `String id);
-         ("type", `String "message");
-         ("role", `String "assistant");
-         ("model", `String model);
-         ( "content",
+         ( "choices",
            `List
              [
                `Assoc
                  [
-                   ("type", `String "tool_use");
-                   ("id", `String tool_id);
-                   ("name", `String tool_name);
-                   ("input", tool_input);
+                   ("index", `Int 0);
+                   ( "message",
+                     `Assoc
+                       [
+                         ("role", `String "assistant");
+                         ("content", `String text);
+                       ] );
+                   ("finish_reason", `String finish_reason);
                  ];
              ] );
-         ("stop_reason", `String "tool_use");
-         ("usage", response_usage ~input_tokens ~output_tokens ());
+         ("usage", response_usage ~prompt_tokens ~completion_tokens ());
        ])
 
-let sse_event event_name payload =
-  Printf.sprintf "event: %s\ndata: %s\n\n" event_name
-    (Yojson.Safe.to_string payload)
+let openai_tool_use_response ?(id = "chatcmpl-tool") ?(model = "mock")
+    ?(tool_id = "call_1") ?(prompt_tokens = 10) ?(completion_tokens = 5)
+    ~tool_name ~tool_input () =
+  let arguments = Yojson.Safe.to_string tool_input in
+  Yojson.Safe.to_string
+    (`Assoc
+       [
+         ("id", `String id);
+         ("object", `String "chat.completion");
+         ("model", `String model);
+         ( "choices",
+           `List
+             [
+               `Assoc
+                 [
+                   ("index", `Int 0);
+                   ( "message",
+                     `Assoc
+                       [
+                         ("role", `String "assistant");
+                         ("content", `Null);
+                         ( "tool_calls",
+                           `List
+                             [
+                               `Assoc
+                                 [
+                                   ("id", `String tool_id);
+                                   ("type", `String "function");
+                                   ( "function",
+                                     `Assoc
+                                       [
+                                         ("name", `String tool_name);
+                                         ("arguments", `String arguments);
+                                       ] );
+                                 ];
+                             ] );
+                       ] );
+                   ("finish_reason", `String "tool_calls");
+                 ];
+             ] );
+         ("usage", response_usage ~prompt_tokens ~completion_tokens ());
+       ])
 
-let anthropic_sse_tool_use_body ?(tool_id = "toolu_stream")
+let openai_sse_tool_use_body ?(tool_id = "call_stream")
     ?(tool_name = "extract_person") tool_input =
-  let partial_json = Yojson.Safe.to_string tool_input in
+  let arguments = Yojson.Safe.to_string tool_input in
   String.concat ""
     [
-      sse_event "message_start"
-        (`Assoc
-           [
-             ("type", `String "message_start");
-             ( "message",
-               `Assoc
-                 [
-                   ("id", `String "msg-stream");
-                   ("type", `String "message");
-                   ("role", `String "assistant");
-                   ("model", `String "mock");
-                   ("content", `List []);
-                   ("stop_reason", `Null);
-                   ("usage", response_usage ~input_tokens:12 ~output_tokens:0 ());
-                 ] );
-           ]);
-      sse_event "content_block_start"
-        (`Assoc
-           [
-             ("type", `String "content_block_start");
-             ("index", `Int 0);
-             ( "content_block",
-               `Assoc
-                 [
-                   ("type", `String "tool_use");
-                   ("id", `String tool_id);
-                   ("name", `String tool_name);
-                 ] );
-           ]);
-      sse_event "content_block_delta"
-        (`Assoc
-           [
-             ("type", `String "content_block_delta");
-             ("index", `Int 0);
-             ( "delta",
-               `Assoc
-                 [
-                   ("type", `String "input_json_delta");
-                   ("partial_json", `String partial_json);
-                 ] );
-           ]);
-      sse_event "content_block_stop"
-        (`Assoc [ ("type", `String "content_block_stop"); ("index", `Int 0) ]);
-      sse_event "message_delta"
-        (`Assoc
-           [
-             ("type", `String "message_delta");
-             ("delta", `Assoc [ ("stop_reason", `String "tool_use") ]);
-             ("usage", response_usage ~input_tokens:0 ~output_tokens:8 ());
-           ]);
-      sse_event "message_stop" (`Assoc [ ("type", `String "message_stop") ]);
+      Printf.sprintf "data: %s\n\n"
+        (Yojson.Safe.to_string
+           (`Assoc
+              [
+                ("id", `String "chatcmpl-stream");
+                ("object", `String "chat.completion.chunk");
+                ("model", `String "mock");
+                ( "choices",
+                  `List
+                    [
+                      `Assoc
+                        [
+                          ("index", `Int 0);
+                          ( "delta",
+                            `Assoc
+                              [
+                                ("role", `String "assistant");
+                                ("content", `Null);
+                                ( "tool_calls",
+                                  `List
+                                    [
+                                      `Assoc
+                                        [
+                                          ("index", `Int 0);
+                                          ("id", `String tool_id);
+                                          ("type", `String "function");
+                                          ( "function",
+                                            `Assoc
+                                              [
+                                                ("name", `String tool_name);
+                                                ("arguments", `String "");
+                                              ] );
+                                        ];
+                                    ] );
+                              ] );
+                          ("finish_reason", `Null);
+                        ];
+                    ] );
+              ]));
+      Printf.sprintf "data: %s\n\n"
+        (Yojson.Safe.to_string
+           (`Assoc
+              [
+                ("id", `String "chatcmpl-stream");
+                ("object", `String "chat.completion.chunk");
+                ("model", `String "mock");
+                ( "choices",
+                  `List
+                    [
+                      `Assoc
+                        [
+                          ("index", `Int 0);
+                          ( "delta",
+                            `Assoc
+                              [
+                                ( "tool_calls",
+                                  `List
+                                    [
+                                      `Assoc
+                                        [
+                                          ("index", `Int 0);
+                                          ( "function",
+                                            `Assoc
+                                              [
+                                                ("arguments", `String arguments);
+                                              ] );
+                                        ];
+                                    ] );
+                              ] );
+                          ("finish_reason", `Null);
+                        ];
+                    ] );
+              ]));
+      Printf.sprintf "data: %s\n\n"
+        (Yojson.Safe.to_string
+           (`Assoc
+              [
+                ("id", `String "chatcmpl-stream");
+                ("object", `String "chat.completion.chunk");
+                ("model", `String "mock");
+                ( "choices",
+                  `List
+                    [
+                      `Assoc
+                        [
+                          ("index", `Int 0);
+                          ("delta", `Assoc []);
+                          ("finish_reason", `String "tool_calls");
+                        ];
+                    ] );
+                ( "usage",
+                  `Assoc
+                    [
+                      ("prompt_tokens", `Int 12);
+                      ("completion_tokens", `Int 8);
+                      ("total_tokens", `Int 20);
+                    ] );
+              ]));
+      "data: [DONE]\n\n";
     ]
 
 let start_sequence_mock ~sw ~net ~port responses =
@@ -241,7 +312,7 @@ let test_structured_extract_success () =
   try
     Eio.Switch.run @@ fun sw ->
     let body =
-      anthropic_tool_use_response ~tool_name:"extract_person"
+      openai_tool_use_response ~tool_name:"extract_person"
         ~tool_input:(`Assoc [ ("name", `String "Alice"); ("age", `Int 30) ])
         ()
     in
@@ -262,7 +333,7 @@ let test_structured_extract_requires_tool_use () =
   Eio_main.run @@ fun env ->
   try
     Eio.Switch.run @@ fun sw ->
-    let body = anthropic_text_response "not structured" in
+    let body = openai_text_response "not structured" in
     let url = start_sequence_mock ~sw ~net:env#net ~port:21302 [ body ] in
     let provider = local_provider url in
     match
@@ -283,11 +354,11 @@ let test_structured_extract_with_retry_success () =
     Eio.Switch.run @@ fun sw ->
     let responses =
       [
-        anthropic_tool_use_response ~input_tokens:7 ~output_tokens:3
+        openai_tool_use_response ~prompt_tokens:7 ~completion_tokens:3
           ~tool_name:"extract_person"
           ~tool_input:(`Assoc [ ("name", `String "Bob"); ("age", `String "oops") ])
           ();
-        anthropic_tool_use_response ~input_tokens:11 ~output_tokens:5
+        openai_tool_use_response ~prompt_tokens:11 ~completion_tokens:5
           ~tool_name:"extract_person"
           ~tool_input:(`Assoc [ ("name", `String "Bob"); ("age", `Int 41) ])
           ();
@@ -323,7 +394,7 @@ let test_structured_extract_with_retry_exhausted () =
   try
     Eio.Switch.run @@ fun sw ->
     let body =
-      anthropic_tool_use_response ~tool_name:"extract_person"
+      openai_tool_use_response ~tool_name:"extract_person"
         ~tool_input:(`Assoc [ ("name", `String "Eve"); ("age", `String "bad") ])
         ()
     in
@@ -347,7 +418,7 @@ let test_structured_run_structured_success () =
   Eio_main.run @@ fun env ->
   try
     Eio.Switch.run @@ fun sw ->
-    let body = anthropic_text_response {|{"answer":42}|} in
+    let body = openai_text_response {|{"answer":42}|} in
     let url = start_sequence_mock ~sw ~net:env#net ~port:21305 [ body ] in
     let agent = make_agent ~net:env#net url in
     let extract =
@@ -366,7 +437,7 @@ let test_structured_extract_stream_success () =
   try
     Eio.Switch.run @@ fun sw ->
     let body =
-      anthropic_sse_tool_use_body
+      openai_sse_tool_use_body
         (`Assoc [ ("name", `String "Dana"); ("age", `Int 27) ])
     in
     let url = start_sse_mock ~sw ~net:env#net ~port:21306 body in

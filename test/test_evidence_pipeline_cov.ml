@@ -7,9 +7,9 @@ open Alcotest
 
 (* ── Mock server ──────────────────────────────────────────────── *)
 
-let anthropic_response text =
+let openai_response text =
   Printf.sprintf
-    {|{"id":"msg-ev","type":"message","role":"assistant","model":"mock","content":[{"type":"text","text":"%s"}],"stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":5,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}|}
+    {|{"id":"chatcmpl-ev","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":"%s"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}|}
     text
 
 let start_mock ~sw ~net ~port response =
@@ -63,7 +63,7 @@ let test_get_worker_run () =
   try
     Eio.Switch.run @@ fun sw ->
     let url = start_mock ~sw ~net:env#net ~port:21101
-        (anthropic_response "evidence test") in
+        (openai_response "evidence test") in
     let agent, raw_trace = make_agent ~net:env#net url in
     (match Agent.run ~sw agent "test" with
      | Ok _ ->
@@ -131,7 +131,7 @@ let test_persist_after_run () =
   try
     Eio.Switch.run @@ fun sw ->
     let url = start_mock ~sw ~net:env#net ~port:21104
-        (anthropic_response "persist test") in
+        (openai_response "persist test") in
     let agent, raw_trace = make_agent ~net:env#net url in
     (match Agent.run ~sw agent "test persist" with
      | Ok _ ->
@@ -168,7 +168,7 @@ let test_conformance_from_agent () =
   try
     Eio.Switch.run @@ fun sw ->
     let url = start_mock ~sw ~net:env#net ~port:21105
-        (anthropic_response "conformance test") in
+        (openai_response "conformance test") in
     let agent, raw_trace = make_agent ~net:env#net url in
     (match Agent.run ~sw agent "test conformance" with
      | Ok _ ->
