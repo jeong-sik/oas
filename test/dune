@@ -732,3 +732,7 @@
 (test
  (name test_llm_provider_cov)
  (libraries agent_sdk llm_provider alcotest yojson unix eio eio_main str))
+
+(test
+ (name test_checkpoint_validation)
+ (libraries agent_sdk alcotest yojson))

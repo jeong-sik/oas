@@ -112,6 +112,7 @@ module Durable = Durable
 module Policy = Policy
 module Audit = Audit
 module Plan = Plan
+module Checkpoint_validation = Checkpoint_validation
 
 (** {1 Quick Start} *)
 
