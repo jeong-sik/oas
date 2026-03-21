@@ -141,7 +141,7 @@ let test_request_kind_routing () =
        | Provider.Openai_chat_completions -> "openai"
        | Provider.Custom name -> "custom:" ^ name)
   in
-  check_kind "local" "anthropic" (Provider.Local { base_url = "http://x" });
+  check_kind "local" "openai" (Provider.Local { base_url = "http://x" });
   check_kind "anthropic" "anthropic" Provider.Anthropic;
   check_kind "openai" "openai"
     (Provider.OpenAICompat { base_url = "http://x"; auth_header = None;
