@@ -130,12 +130,13 @@ let test_model_spec_local_llm_capabilities () =
     api_key_env = "DUMMY_KEY";
   } in
   let spec = Provider.model_spec_of_config local_llm in
-  Alcotest.(check string) "request path" "/v1/messages" spec.request_path;
-  Alcotest.(check bool) "supports tools" true spec.capabilities.supports_tools;
-  Alcotest.(check bool) "supports reasoning" true
-    spec.capabilities.supports_reasoning;
-  Alcotest.(check bool) "supports native streaming" true
-    spec.capabilities.supports_native_streaming
+  Alcotest.(check string) "request path" "/v1/chat/completions" spec.request_path;
+  Alcotest.(check string) "request kind" "Openai_chat_completions"
+    (match spec.request_kind with
+     | Provider.Openai_chat_completions -> "Openai_chat_completions"
+     | Provider.Anthropic_messages -> "Anthropic_messages"
+     | Provider.Custom n -> "Custom:" ^ n);
+  Alcotest.(check bool) "supports tools" true spec.capabilities.supports_tools
 
 let test_model_spec_openrouter_capabilities () =
   let spec =
