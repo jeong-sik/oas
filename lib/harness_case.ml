@@ -125,7 +125,7 @@ let to_json (case_ : t) =
 let parse_string_list json =
   let open Yojson.Safe.Util in
   try Ok (json |> to_list |> List.map to_string)
-  with _ -> Error (Util.json_parse_error "expected string list")
+  with Yojson.Safe.Util.Type_error _ -> Error (Util.json_parse_error "expected string list")
 
 let response_assertion_of_json json =
   let open Yojson.Safe.Util in
