@@ -26,7 +26,7 @@ let test_local_provider_bridge () =
   | Ok cfg ->
       Alcotest.(check string) "model" "default"
         cfg.model_id;
-      Alcotest.(check string) "path" "/v1/messages" cfg.request_path
+      Alcotest.(check string) "path" "/v1/chat/completions" cfg.request_path
 
 let test_cascade_bridge () =
   let primary = Agent_sdk.Provider.local_llm () in

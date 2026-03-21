@@ -1,36 +1,39 @@
 open Agent_sdk
 open Types
 
-(** Mock Server Logic *)
+(** Mock Server Logic — OpenAI Chat Completions format *)
 let mock_handler _conn req body =
   let path = Uri.path (Cohttp.Request.uri req) in
   match path with
-  | "/v1/messages" ->
+  | "/v1/chat/completions" ->
       let body_str = Eio.Buf_read.(of_flow ~max_size:max_int body |> take_all) in
       let json = Yojson.Safe.from_string body_str in
-      
+
       let messages = Yojson.Safe.Util.(json |> member "messages" |> to_list) in
       let last_msg = List.hd (List.rev messages) in
-      let content_list = Yojson.Safe.Util.(last_msg |> member "content" |> to_list) in
-      let text = 
-        match content_list with
-        | [] -> "No content"
-        | item :: _ -> 
-            let open Yojson.Safe.Util in
-            match item |> member "text" |> to_string_option with
-            | Some t -> t
-            | None -> item |> member "content" |> to_string_option |> Option.value ~default:"unknown"
+      let text =
+        let open Yojson.Safe.Util in
+        match last_msg |> member "content" with
+        | `String s -> s
+        | `List items ->
+            (match items with
+             | [] -> "No content"
+             | item :: _ ->
+                 (match item |> member "text" |> to_string_option with
+                  | Some t -> t
+                  | None -> item |> member "content" |> to_string_option |> Option.value ~default:"unknown"))
+        | _ -> "No content"
       in
-      
-      let response_body = 
+
+      let response_body =
         if text = "ping" then
-          {|{"id":"m1","type":"message","role":"assistant","model":"c","content":[{"type":"text","text":"pong"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}|}
+          {|{"id":"chatcmpl-1","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":"pong"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}|}
         else if text = "use_tool" then
-          {|{"id":"m2","type":"message","role":"assistant","model":"c","content":[{"type":"tool_use","id":"t1","name":"calculator","input":{"a":1,"b":2}}],"stop_reason":"tool_use","usage":{"input_tokens":1,"output_tokens":1}}|}
+          {|{"id":"chatcmpl-2","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"calculator","arguments":"{\"a\":1,\"b\":2}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}|}
         else if text = "3" then
-          {|{"id":"m3","type":"message","role":"assistant","model":"c","content":[{"type":"text","text":"The result is 3"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}|}
+          {|{"id":"chatcmpl-3","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":"The result is 3"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}|}
         else
-          {|{"id":"me","type":"message","role":"assistant","model":"c","content":[{"type":"text","text":"err"}],"stop_reason":"end_turn","usage":{"input_tokens":0,"output_tokens":0}}|}
+          {|{"id":"chatcmpl-e","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":"err"},"finish_reason":"stop"}],"usage":{"prompt_tokens":0,"completion_tokens":0,"total_tokens":0}}|}
       in
       Cohttp_eio.Server.respond_string ~status:`OK ~body:response_body ()
   | _ ->
@@ -39,7 +42,7 @@ let mock_handler _conn req body =
 let test_simple_conversation () =
   let port = 8081 in
   let base_url = Printf.sprintf "http://127.0.0.1:%d" port in
-  
+
   Eio_main.run @@ fun env ->
   try
     Eio.Switch.run @@ fun sw ->
@@ -47,7 +50,11 @@ let test_simple_conversation () =
       let server = Cohttp_eio.Server.make ~callback:mock_handler () in
       Eio.Fiber.fork ~sw (fun () -> Cohttp_eio.Server.run socket server ~on_error:(fun _ -> ()));
 
-      let options = { Agent.default_options with base_url } in
+      let provider : Provider.config = {
+        provider = Provider.Local { base_url };
+        model_id = "mock"; api_key_env = "";
+      } in
+      let options = { Agent.default_options with base_url; provider = Some provider } in
       let agent = Agent.create ~net:env#net ~options () in
       match Agent.run ~sw agent "ping" with
       | Ok response ->
@@ -60,7 +67,7 @@ let test_simple_conversation () =
 let test_tool_use () =
   let port = 8082 in
   let base_url = Printf.sprintf "http://127.0.0.1:%d" port in
-  
+
   Eio_main.run @@ fun env ->
   try
     Eio.Switch.run @@ fun sw ->
@@ -73,7 +80,11 @@ let test_tool_use () =
          let b = Yojson.Safe.Util.(input |> member "b" |> to_int) in
          Ok { Types.content = string_of_int (a + b) }) in
 
-      let options = { Agent.default_options with base_url } in
+      let provider : Provider.config = {
+        provider = Provider.Local { base_url };
+        model_id = "mock"; api_key_env = "";
+      } in
+      let options = { Agent.default_options with base_url; provider = Some provider } in
       let agent = Agent.create ~net:env#net ~tools:[calc_tool] ~options () in
       match Agent.run ~sw agent "use_tool" with
       | Ok response ->
@@ -84,7 +95,7 @@ let test_tool_use () =
   with Exit -> ()
 
 let () =
-  (* Mock server tests need a key in env but don't use it *)
+  (* Agent.create resolves api_key_env even for Local provider; set a dummy *)
   if Sys.getenv_opt "ANTHROPIC_API_KEY" = None then
     Unix.putenv "ANTHROPIC_API_KEY" "test-mock-key";
   let open Alcotest in

@@ -8,15 +8,25 @@ open Alcotest
 
 (* ── Mock server: stateful, multi-response ──────────── *)
 
-let anthropic_text_response ?(id = "msg-1") text =
+(* OpenAI Chat Completions format — Local provider routes through this since PR #308 *)
+let openai_text_response ?(id = "chatcmpl-1") text =
   Printf.sprintf
-    {|{"id":"%s","type":"message","role":"assistant","model":"mock","content":[{"type":"text","text":"%s"}],"stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":5,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}|}
+    {|{"id":"%s","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":"%s"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}|}
     id text
 
-let anthropic_tool_use_response tool_name input_json =
+let escape_json_string s =
+  let buf = Buffer.create (String.length s) in
+  String.iter (fun c ->
+    match c with
+    | '"' -> Buffer.add_string buf "\\\""
+    | '\\' -> Buffer.add_string buf "\\\\"
+    | _ -> Buffer.add_char buf c) s;
+  Buffer.contents buf
+
+let openai_tool_use_response tool_name input_json =
   Printf.sprintf
-    {|{"id":"msg-t","type":"message","role":"assistant","model":"mock","content":[{"type":"tool_use","id":"toolu_1","name":"%s","input":%s}],"stop_reason":"tool_use","usage":{"input_tokens":15,"output_tokens":10,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}|}
-    tool_name input_json
+    {|{"id":"chatcmpl-t","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"%s","arguments":"%s"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":15,"completion_tokens":10,"total_tokens":25}}|}
+    tool_name (escape_json_string input_json)
 
 (** Multi-response mock: returns responses in order, cycling. *)
 let start_multi_mock ~sw ~net ~port (responses : string list) =
@@ -69,7 +79,7 @@ let test_agent_run_simple () =
   try
     Eio.Switch.run @@ fun sw ->
     let url = start_multi_mock ~sw ~net:env#net ~port:20001
-        [anthropic_text_response "hello pipeline"] in
+        [openai_text_response "hello pipeline"] in
     let agent = make_agent ~net:env#net url in
     (match Agent.run ~sw agent "test prompt" with
      | Ok resp ->
@@ -86,9 +96,9 @@ let test_agent_run_tool_use () =
     Eio.Switch.run @@ fun sw ->
     let responses = [
       (* Turn 1: model calls a tool *)
-      anthropic_tool_use_response "get_time" {|{"timezone": "UTC"}|};
+      openai_tool_use_response "get_time" {|{"timezone": "UTC"}|};
       (* Turn 2: model responds with text after tool result *)
-      anthropic_text_response "The time is 12:00 UTC";
+      openai_text_response "The time is 12:00 UTC";
     ] in
     let url = start_multi_mock ~sw ~net:env#net ~port:20002 responses in
     (* Define the tool *)
@@ -117,7 +127,7 @@ let test_agent_run_max_turns () =
     Eio.Switch.run @@ fun sw ->
     (* Always return tool_use → agent loops until max_turns *)
     let url = start_multi_mock ~sw ~net:env#net ~port:20003
-        [anthropic_tool_use_response "loop_tool" {|{}|}] in
+        [openai_tool_use_response "loop_tool" {|{}|}] in
     let loop_tool = Tool.create
         ~name:"loop_tool"
         ~description:"Always called"
@@ -142,7 +152,7 @@ let test_agent_run_with_hooks () =
   try
     Eio.Switch.run @@ fun sw ->
     let url = start_multi_mock ~sw ~net:env#net ~port:20004
-        [anthropic_text_response "hooked"] in
+        [openai_text_response "hooked"] in
     let before_count = ref 0 in
     let after_count = ref 0 in
     let hooks = { Hooks.empty with
@@ -166,7 +176,7 @@ let test_agent_run_with_reducer () =
   try
     Eio.Switch.run @@ fun sw ->
     let url = start_multi_mock ~sw ~net:env#net ~port:20005
-        [anthropic_text_response "reduced"] in
+        [openai_text_response "reduced"] in
     let reducer = Context_reducer.compose [
       Context_reducer.repair_dangling_tool_calls;
       Context_reducer.drop_thinking;
@@ -181,9 +191,9 @@ let test_agent_run_with_reducer () =
 
 (* ── Test 6: Agent.run_stream ────────────────────────── *)
 
-let anthropic_sse text =
+let openai_sse text =
   Printf.sprintf
-    "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"s1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"mock\",\"content\":[],\"stop_reason\":null,\"usage\":{\"input_tokens\":10,\"output_tokens\":0,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"%s\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":5}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+    "data: {\"id\":\"chatcmpl-s1\",\"object\":\"chat.completion.chunk\",\"model\":\"mock\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-s1\",\"object\":\"chat.completion.chunk\",\"model\":\"mock\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"%s\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-s1\",\"object\":\"chat.completion.chunk\",\"model\":\"mock\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
     text
 
 let start_sse_mock ~sw ~net ~port sse_body =
@@ -206,7 +216,7 @@ let test_agent_run_stream () =
   try
     Eio.Switch.run @@ fun sw ->
     let url = start_sse_mock ~sw ~net:env#net ~port:20006
-        (anthropic_sse "stream pipeline") in
+        (openai_sse "stream pipeline") in
     let agent = make_agent ~net:env#net url in
     let events = ref [] in
     (match Agent.run_stream ~sw
@@ -226,8 +236,8 @@ let test_agent_run_tool_error () =
   try
     Eio.Switch.run @@ fun sw ->
     let responses = [
-      anthropic_tool_use_response "fail_tool" {|{}|};
-      anthropic_text_response "recovered from tool error";
+      openai_tool_use_response "fail_tool" {|{}|};
+      openai_text_response "recovered from tool error";
     ] in
     let url = start_multi_mock ~sw ~net:env#net ~port:20007 responses in
     let fail_tool = Tool.create
@@ -252,8 +262,8 @@ let test_agent_run_pre_tool_hook () =
   try
     Eio.Switch.run @@ fun sw ->
     let responses = [
-      anthropic_tool_use_response "blocked_tool" {|{}|};
-      anthropic_text_response "after block";
+      openai_tool_use_response "blocked_tool" {|{}|};
+      openai_text_response "after block";
     ] in
     let url = start_multi_mock ~sw ~net:env#net ~port:20008 responses in
     let blocked_tool = Tool.create
@@ -313,7 +323,7 @@ let test_agent_run_guardrails () =
   try
     Eio.Switch.run @@ fun sw ->
     let url = start_multi_mock ~sw ~net:env#net ~port:20010
-        [anthropic_text_response "guarded"] in
+        [openai_text_response "guarded"] in
     let guardrails = {
       Guardrails.tool_filter = Guardrails.AllowAll;
       max_tool_calls_per_turn = Some 5;
