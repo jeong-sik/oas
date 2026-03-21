@@ -89,6 +89,12 @@ val with_log_sink : Log.sink -> t -> t
 val with_event_targets : Event_forward.target list -> t -> t
 val with_skill_registry : Skill_registry.t -> t -> t
 
+(** Set progressive tool disclosure strategy.
+    Tools are revealed in phases across turns (Gather -> Act -> Verify).
+    Installs a BeforeTurn hook that overrides tool_filter per turn.
+    @since 0.81.0 *)
+val with_progressive_tools : Progressive_tools.disclosure_strategy -> t -> t
+
 (** {2 Build} *)
 
 (** Build the agent. May raise on invalid config.

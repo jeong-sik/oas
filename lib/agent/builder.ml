@@ -50,6 +50,7 @@ type t = {
   periodic_callbacks: Agent.periodic_callback list;
   contract: Contract.t;
   memory: Memory.t option;
+  progressive_tools: Progressive_tools.disclosure_strategy option;
 }
 
 let create ~net ~model =
@@ -99,6 +100,7 @@ let create ~net ~model =
     periodic_callbacks = [];
     contract = Contract.empty;
     memory = None;
+    progressive_tools = None;
   }
 
 let with_system_prompt prompt b = { b with system_prompt = Some prompt }
@@ -155,6 +157,7 @@ let with_named_cascade named_cascade b = { b with named_cascade = Some named_cas
 let with_max_idle_turns n b = { b with max_idle_turns = n }
 let with_context_injector injector b = { b with context_injector = Some injector }
 let with_skill_registry reg b = { b with skill_registry = Some reg }
+let with_progressive_tools strategy b = { b with progressive_tools = Some strategy }
 let with_elicitation cb b = { b with elicitation = Some cb }
 let with_description desc b = { b with description = Some desc }
 let with_memory mem b = { b with memory = Some mem }
@@ -213,7 +216,17 @@ let build b =
     provider = b.provider;
     cascade = b.cascade;
     max_idle_turns = b.max_idle_turns;
-    hooks = b.hooks;
+    hooks = (match b.progressive_tools with
+      | None -> b.hooks
+      | Some strategy ->
+        let prog_hook = Progressive_tools.as_hook strategy in
+        let existing_pre = b.hooks.pre_tool_use in
+        { b.hooks with pre_tool_use = Some (fun event ->
+          match prog_hook event with
+          | Hooks.Skip as d -> d
+          | _ -> (match existing_pre with
+                  | Some h -> h event
+                  | None -> Hooks.Continue)) });
     guardrails = b.guardrails;
     guardrails_async = b.guardrails_async;
     tracer = b.tracer;
