@@ -73,11 +73,11 @@ let make_tool ~agent_ref ~budget ?(max_idle_before_extend=2) () =
   let handler input =
     let additional =
       try Yojson.Safe.Util.(member "additional_turns" input |> to_int)
-      with _ -> 5
+      with Yojson.Safe.Util.Type_error _ | Not_found -> 5
     in
     let reason =
       try Yojson.Safe.Util.(member "reason" input |> to_string)
-      with _ -> "no reason given"
+      with Yojson.Safe.Util.Type_error _ | Not_found -> "no reason given"
     in
     (* Check agent-level guardrails *)
     let agent_check =
