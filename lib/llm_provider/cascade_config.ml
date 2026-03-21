@@ -9,6 +9,19 @@
 
 let default_registry = Provider_registry.default ()
 
+(* Build headers list with Authorization when api_key is present.
+   Anthropic uses x-api-key; OpenAI-compat (including GLM) uses Bearer. *)
+let headers_with_auth ~(kind : Provider_config.provider_kind) ~api_key =
+  let base = [("Content-Type", "application/json")] in
+  if api_key = "" then base
+  else match kind with
+    | Anthropic ->
+        ("x-api-key", api_key)
+        :: ("anthropic-version", "2023-06-01")
+        :: base
+    | OpenAI_compat | Gemini | Claude_code ->
+        ("Authorization", "Bearer " ^ api_key) :: base
+
 (* ── Model string parsing ──────────────────────────────── *)
 
 let parse_custom_model model_id =
@@ -65,11 +78,12 @@ let parse_model_string ?(temperature = 0.3) ?(max_tokens = 500)
                   Sys.getenv_opt defaults.api_key_env
                   |> Option.value ~default:""
               in
+              let headers = headers_with_auth ~kind:defaults.kind ~api_key in
               Some (Provider_config.make
                       ~kind:defaults.kind
                       ~model_id
                       ~base_url:defaults.base_url
-                      ~api_key
+                      ~api_key ~headers
                       ~request_path:defaults.request_path
                       ~temperature
                       ~max_tokens
@@ -117,9 +131,10 @@ let parse_model_string_exn ?(temperature = 0.3) ?(max_tokens = 500)
                 if defaults.api_key_env = "" then ""
                 else Sys.getenv_opt defaults.api_key_env |> Option.value ~default:""
               in
+              let headers = headers_with_auth ~kind:defaults.kind ~api_key in
               Ok (Provider_config.make
                     ~kind:defaults.kind ~model_id ~base_url:defaults.base_url
-                    ~api_key ~request_path:defaults.request_path
+                    ~api_key ~headers ~request_path:defaults.request_path
                     ~temperature ~max_tokens ?system_prompt ()))
 
 let parse_model_strings ?(temperature = 0.3) ?(max_tokens = 500)
