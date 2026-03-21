@@ -32,4 +32,4 @@
   (qcheck-core (and :with-test (>= 0.21)))
   (qcheck-alcotest (and :with-test (>= 0.21)))
   (bisect_ppx (and :with-test (>= 2.8)))
-  (ppx_inline_test (and :with-test (>= 0.17)))))
+  (ppx_inline_test (>= 0.17))))
