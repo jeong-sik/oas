@@ -76,6 +76,52 @@ let parse_model_string ?(temperature = 0.3) ?(max_tokens = 500)
                       ?system_prompt
                       ())
 
+let parse_model_string_exn ?(temperature = 0.3) ?(max_tokens = 500)
+    ?system_prompt (s : string) : (Provider_config.t, string) result =
+  let s = String.trim s in
+  match String.index_opt s ':' with
+  | None ->
+    Error (Printf.sprintf "invalid model spec %S: expected \"provider:model_id\"" s)
+  | Some idx ->
+    if idx = 0 || idx >= String.length s - 1 then
+      Error (Printf.sprintf "invalid model spec %S: empty provider or model_id" s)
+    else
+      let provider_name = String.sub s 0 idx |> String.trim |> String.lowercase_ascii in
+      let model_id =
+        String.sub s (idx + 1) (String.length s - idx - 1) |> String.trim
+      in
+      if model_id = "" then
+        Error (Printf.sprintf "invalid model spec %S: empty model_id" s)
+      else
+        match provider_name with
+        | "custom" ->
+          let actual_model, base_url = parse_custom_model model_id in
+          if actual_model = "" then
+            Error (Printf.sprintf "invalid custom model spec %S: empty model after @" s)
+          else
+            Ok (Provider_config.make
+                  ~kind:OpenAI_compat ~model_id:actual_model ~base_url
+                  ~request_path:"/v1/chat/completions"
+                  ~temperature ~max_tokens ?system_prompt ())
+        | _ ->
+          (match Provider_registry.find default_registry provider_name with
+          | None ->
+            Error (Printf.sprintf "unknown provider %S in model spec %S" provider_name s)
+          | Some entry ->
+            if not (entry.is_available ()) then
+              Error (Printf.sprintf "provider %S unavailable (missing env var %S)"
+                       provider_name entry.defaults.api_key_env)
+            else
+              let defaults = entry.defaults in
+              let api_key =
+                if defaults.api_key_env = "" then ""
+                else Sys.getenv_opt defaults.api_key_env |> Option.value ~default:""
+              in
+              Ok (Provider_config.make
+                    ~kind:defaults.kind ~model_id ~base_url:defaults.base_url
+                    ~api_key ~request_path:defaults.request_path
+                    ~temperature ~max_tokens ?system_prompt ()))
+
 let parse_model_strings ?(temperature = 0.3) ?(max_tokens = 500)
     ?system_prompt (strs : string list) : Provider_config.t list =
   List.filter_map
