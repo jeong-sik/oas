@@ -126,7 +126,7 @@ let default () =
         let result = try input_line ic with End_of_file -> "" in
         ignore (Unix.close_process_in ic);
         String.length (String.trim result) > 0
-      with _ -> false
+      with Unix.Unix_error _ | End_of_file -> false
     ) in
     fun () -> Lazy.force cached
   in

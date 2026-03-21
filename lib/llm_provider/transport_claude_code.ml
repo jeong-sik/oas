@@ -250,7 +250,7 @@ let events_of_line line =
     | "result" ->
       [Types.MessageStop]
     | _ -> []  (* skip rate_limit_event etc. *)
-  with _ -> []
+  with Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ -> []
 
 (** Parse stream output: extract final api_response from "result" line. *)
 let parse_stream_result lines =
@@ -258,7 +258,7 @@ let parse_stream_result lines =
     try
       let json = Yojson.Safe.from_string line in
       member_str "type" json = "result"
-    with _ -> false
+    with Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ -> false
   ) lines in
   match result_line with
   | Some line -> parse_json_result line
@@ -268,7 +268,7 @@ let parse_stream_result lines =
       try
         let json = Yojson.Safe.from_string line in
         member_str "type" json = "assistant"
-      with _ -> false
+      with Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ -> false
     ) lines in
     (match assistant_line with
      | Some line ->
@@ -287,7 +287,7 @@ let parse_stream_result lines =
          let model = member_str "model" msg in
          let id = member_str "id" msg in
          Ok { Types.id; model; stop_reason = EndTurn; content; usage = parse_usage msg }
-       with _ ->
+       with Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ ->
          Error (Http_client.NetworkError {
            message = "Failed to parse assistant message" }))
      | None ->

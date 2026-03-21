@@ -90,7 +90,7 @@ let parse_response_body ~content_type resp_body =
     | None -> false
   in
   if is_sse then parse_sse_body resp_body
-  else (try Some (Yojson.Safe.from_string resp_body) with _ -> None)
+  else (try Some (Yojson.Safe.from_string resp_body) with Yojson.Json_error _ -> None)
 
 (** Send a JSON-RPC request via HTTP POST and parse the response.
     Handles both plain JSON and SSE response formats. *)
