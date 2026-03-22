@@ -148,6 +148,7 @@ let execute_tools ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tracer
             | Out_of_memory -> raise Out_of_memory
             | Stack_overflow -> raise Stack_overflow
             | Sys.Break -> raise Sys.Break
+            | Eio.Cancel.Cancelled _ as ex -> raise ex
             | exn ->
               let msg = Printf.sprintf "Tool '%s' raised: %s" name (Printexc.to_string exn) in
               (id, msg, true)))
