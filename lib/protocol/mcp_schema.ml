@@ -122,6 +122,7 @@ let%test "mcp_tool_of_sdk_tool converts correctly" =
     description = Some "A test tool";
     input_schema = `Assoc [("type", `String "object")];
     title = None; annotations = None; icon = None;
+    output_schema = None; execution = None;
   } in
   let result = mcp_tool_of_sdk_tool sdk_tool in
   result.name = "test_tool"
@@ -133,6 +134,7 @@ let%test "mcp_tool_of_sdk_tool None description becomes empty" =
     description = None;
     input_schema = `Assoc [];
     title = None; annotations = None; icon = None;
+    output_schema = None; execution = None;
   } in
   let result = mcp_tool_of_sdk_tool sdk_tool in
   result.description = ""
