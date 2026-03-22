@@ -185,7 +185,7 @@ let step_of_json json =
       }
   with
   | Eio.Cancel.Cancelled _ as e -> raise e
-  | exn -> Error (Printexc.to_string exn)
+  | Yojson.Safe.Util.Type_error (msg, _) -> Error msg
 
 let plan_status_to_json = function
   | Planning -> `Assoc [("status", `String "Planning")]
@@ -234,4 +234,4 @@ let of_json json =
          })
   with
   | Eio.Cancel.Cancelled _ as e -> raise e
-  | exn -> Error (Printexc.to_string exn)
+  | Yojson.Safe.Util.Type_error (msg, _) -> Error msg
