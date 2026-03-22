@@ -172,19 +172,21 @@ let test_finalize_text_response () =
     MessageDelta { stop_reason = Some EndTurn;
                    usage = Some (make_usage 0 50) };
   ];
-  let resp = Streaming.finalize_stream_acc acc in
-  Alcotest.(check string) "id" "msg_f" resp.id;
-  Alcotest.(check string) "model" "test" resp.model;
-  (match resp.stop_reason with EndTurn -> () | _ -> Alcotest.fail "expected EndTurn");
-  Alcotest.(check int) "1 content block" 1 (List.length resp.content);
-  (match List.hd resp.content with
-   | Text s -> Alcotest.(check string) "text" "hello world" s
-   | _ -> Alcotest.fail "expected Text");
-  (match resp.usage with
-   | Some u ->
-     Alcotest.(check int) "input" 100 u.input_tokens;
-     Alcotest.(check int) "output" 50 u.output_tokens
-   | None -> Alcotest.fail "expected usage")
+  (match Streaming.finalize_stream_acc acc with
+  | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
+  | Ok resp ->
+    Alcotest.(check string) "id" "msg_f" resp.id;
+    Alcotest.(check string) "model" "test" resp.model;
+    (match resp.stop_reason with EndTurn -> () | _ -> Alcotest.fail "expected EndTurn");
+    Alcotest.(check int) "1 content block" 1 (List.length resp.content);
+    (match List.hd resp.content with
+     | Text s -> Alcotest.(check string) "text" "hello world" s
+     | _ -> Alcotest.fail "expected Text");
+    (match resp.usage with
+     | Some u ->
+       Alcotest.(check int) "input" 100 u.input_tokens;
+       Alcotest.(check int) "output" 50 u.output_tokens
+     | None -> Alcotest.fail "expected usage"))
 
 let test_finalize_thinking_block () =
   let acc = Streaming.create_stream_acc () in
@@ -195,11 +197,13 @@ let test_finalize_thinking_block () =
     ContentBlockDelta { index = 0; delta = ThinkingDelta "reasoning here" };
     MessageDelta { stop_reason = Some EndTurn; usage = None };
   ];
-  let resp = Streaming.finalize_stream_acc acc in
-  (match List.hd resp.content with
-   | Thinking { content; _ } ->
-     Alcotest.(check string) "thinking" "reasoning here" content
-   | _ -> Alcotest.fail "expected Thinking")
+  (match Streaming.finalize_stream_acc acc with
+  | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
+  | Ok resp ->
+    (match List.hd resp.content with
+     | Thinking { content; _ } ->
+       Alcotest.(check string) "thinking" "reasoning here" content
+     | _ -> Alcotest.fail "expected Thinking"))
 
 let test_finalize_tool_use () =
   let acc = Streaming.create_stream_acc () in
@@ -210,14 +214,16 @@ let test_finalize_tool_use () =
     ContentBlockDelta { index = 0; delta = InputJsonDelta "{\"x\":42}" };
     MessageDelta { stop_reason = Some StopToolUse; usage = None };
   ];
-  let resp = Streaming.finalize_stream_acc acc in
-  (match List.hd resp.content with
-   | ToolUse { id; name; input } ->
-     Alcotest.(check string) "tool_id" "tu_1" id;
-     Alcotest.(check string) "tool_name" "calc" name;
-     Alcotest.(check string) "input" "{\"x\":42}"
-       (Yojson.Safe.to_string input)
-   | _ -> Alcotest.fail "expected ToolUse")
+  (match Streaming.finalize_stream_acc acc with
+  | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
+  | Ok resp ->
+    (match List.hd resp.content with
+     | ToolUse { id; name; input } ->
+       Alcotest.(check string) "tool_id" "tu_1" id;
+       Alcotest.(check string) "tool_name" "calc" name;
+       Alcotest.(check string) "input" "{\"x\":42}"
+         (Yojson.Safe.to_string input)
+     | _ -> Alcotest.fail "expected ToolUse"))
 
 let test_finalize_tool_use_invalid_json () =
   let acc = Streaming.create_stream_acc () in
@@ -228,10 +234,12 @@ let test_finalize_tool_use_invalid_json () =
     ContentBlockDelta { index = 0; delta = InputJsonDelta "not json{" };
     MessageDelta { stop_reason = Some EndTurn; usage = None };
   ];
-  let resp = Streaming.finalize_stream_acc acc in
-  (match List.hd resp.content with
-   | Text s -> Alcotest.(check string) "fallback to text" "not json{" s
-   | _ -> Alcotest.fail "expected Text fallback for invalid JSON")
+  (match Streaming.finalize_stream_acc acc with
+  | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
+  | Ok resp ->
+    (match List.hd resp.content with
+     | Text s -> Alcotest.(check string) "fallback to text" "not json{" s
+     | _ -> Alcotest.fail "expected Text fallback for invalid JSON"))
 
 let test_finalize_multi_block_ordering () =
   let acc = Streaming.create_stream_acc () in
@@ -245,11 +253,13 @@ let test_finalize_multi_block_ordering () =
     ContentBlockDelta { index = 1; delta = TextDelta "answer" };
     MessageDelta { stop_reason = Some EndTurn; usage = None };
   ];
-  let resp = Streaming.finalize_stream_acc acc in
-  Alcotest.(check int) "2 blocks" 2 (List.length resp.content);
-  (match resp.content with
-   | [Thinking _; Text "answer"] -> ()
-   | _ -> Alcotest.fail "expected [Thinking; Text] in order")
+  (match Streaming.finalize_stream_acc acc with
+  | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
+  | Ok resp ->
+    Alcotest.(check int) "2 blocks" 2 (List.length resp.content);
+    (match resp.content with
+     | [Thinking _; Text "answer"] -> ()
+     | _ -> Alcotest.fail "expected [Thinking; Text] in order"))
 
 let test_finalize_no_usage () =
   let acc = Streaming.create_stream_acc () in
@@ -260,8 +270,10 @@ let test_finalize_no_usage () =
     ContentBlockDelta { index = 0; delta = TextDelta "x" };
     MessageDelta { stop_reason = Some EndTurn; usage = None };
   ];
-  let resp = Streaming.finalize_stream_acc acc in
-  Alcotest.(check bool) "no usage" true (Option.is_none resp.usage)
+  (match Streaming.finalize_stream_acc acc with
+  | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
+  | Ok resp ->
+    Alcotest.(check bool) "no usage" true (Option.is_none resp.usage))
 
 let test_finalize_unknown_block_type_skipped () =
   let acc = Streaming.create_stream_acc () in
@@ -272,8 +284,10 @@ let test_finalize_unknown_block_type_skipped () =
     ContentBlockDelta { index = 0; delta = TextDelta "data" };
     MessageDelta { stop_reason = Some EndTurn; usage = None };
   ];
-  let resp = Streaming.finalize_stream_acc acc in
-  Alcotest.(check int) "unknown type skipped" 0 (List.length resp.content)
+  (match Streaming.finalize_stream_acc acc with
+  | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
+  | Ok resp ->
+    Alcotest.(check int) "unknown type skipped" 0 (List.length resp.content))
 
 (* ── map_http_error ───────────────────────────────────────── *)
 

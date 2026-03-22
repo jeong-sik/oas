@@ -78,6 +78,9 @@ let accumulate_event (acc : stream_acc) = function
   | _ -> ()
 
 let finalize_stream_acc (acc : stream_acc) =
+  match !(acc.sse_error) with
+  | Some msg -> Error msg
+  | None ->
   let content =
     Hashtbl.fold (fun index ctype items ->
       let text = match Hashtbl.find_opt acc.block_texts index with
@@ -112,7 +115,7 @@ let finalize_stream_acc (acc : stream_acc) =
                 cache_read_input_tokens = !(acc.cache_read) }
     else None
   in
-  { id = !(acc.msg_id); model = !(acc.msg_model);
+  Ok { id = !(acc.msg_id); model = !(acc.msg_model);
     stop_reason = !(acc.stop_reason); content; usage }
 
 (* ── HTTP error mapping ─────────────────────────────────────── *)
@@ -179,11 +182,11 @@ let create_message_stream ~sw ~net ?(base_url=Api.default_base_url)
                           on_event evt; accumulate_event acc evt
                   ) ();
                 on_event MessageStop;
-                match !(acc.sse_error) with
-                | Some msg ->
+                (match finalize_stream_acc acc with
+                | Ok resp -> Ok resp
+                | Error msg ->
                     Error (Error.Api (Retry.NetworkError {
-                      message = Printf.sprintf "SSE stream error: %s" msg }))
-                | None -> Ok (finalize_stream_acc acc))
+                      message = Printf.sprintf "SSE stream error: %s" msg }))))
        | Provider.Openai_chat_completions ->
            (* OpenAI-compatible SSE streaming. *)
            let headers = match Provider.resolve provider_cfg with
@@ -230,11 +233,11 @@ let create_message_stream ~sw ~net ?(base_url=Api.default_base_url)
                                oai_state chunk)
                   ) ();
                 on_event MessageStop;
-                match !(acc.sse_error) with
-                | Some msg ->
+                (match finalize_stream_acc acc with
+                | Ok resp -> Ok resp
+                | Error msg ->
                     Error (Error.Api (Retry.NetworkError {
-                      message = Printf.sprintf "SSE stream error: %s" msg }))
-                | None -> Ok (finalize_stream_acc acc))
+                      message = Printf.sprintf "SSE stream error: %s" msg }))))
        | Provider.Custom _ ->
            (* Sync fallback: non-streaming call + synthetic events *)
            (match Api.create_message ~sw ~net ~base_url

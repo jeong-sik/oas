@@ -13,11 +13,17 @@ let check_string = Alcotest.(check string)
 let check_int = Alcotest.(check int)
 let check_bool = Alcotest.(check bool)
 
+(** Unwrap finalize result or fail the test. *)
+let finalize_ok acc =
+  match Streaming.finalize_stream_acc acc with
+  | Ok resp -> resp
+  | Error msg -> Alcotest.fail ("unexpected SSE error: " ^ msg)
+
 (* ── create_stream_acc + finalize empty ─────────────────────────── *)
 
 let test_empty_acc_finalize () =
   let acc = Streaming.create_stream_acc () in
-  let resp = Streaming.finalize_stream_acc acc in
+  let resp = finalize_ok acc in
   check_string "empty id" "" resp.id;
   check_string "empty model" "" resp.model;
   Alcotest.(check int) "no content" 0 (List.length resp.content);
@@ -34,7 +40,7 @@ let test_acc_message_start_with_usage () =
                      cache_read_input_tokens = 10 } in
   Streaming.accumulate_event acc
     (MessageStart { id = "msg_1"; model = "claude-test"; usage });
-  let resp = Streaming.finalize_stream_acc acc in
+  let resp = finalize_ok acc in
   check_string "id" "msg_1" resp.id;
   check_string "model" "claude-test" resp.model;
   (match resp.usage with
@@ -48,7 +54,7 @@ let test_acc_message_start_no_usage () =
   let acc = Streaming.create_stream_acc () in
   Streaming.accumulate_event acc
     (MessageStart { id = "msg_2"; model = "test"; usage = None });
-  let resp = Streaming.finalize_stream_acc acc in
+  let resp = finalize_ok acc in
   check_string "id" "msg_2" resp.id;
   (match resp.usage with
    | None -> ()
@@ -65,7 +71,7 @@ let test_acc_content_block_start_text () =
     (ContentBlockDelta { index = 0; delta = TextDelta "hello " });
   Streaming.accumulate_event acc
     (ContentBlockDelta { index = 0; delta = TextDelta "world" });
-  let resp = Streaming.finalize_stream_acc acc in
+  let resp = finalize_ok acc in
   (match resp.content with
    | [Text s] -> check_string "text" "hello world" s
    | _ -> Alcotest.fail "expected single Text block")
@@ -79,7 +85,7 @@ let test_acc_content_block_start_tool_use () =
   Streaming.accumulate_event acc
     (ContentBlockDelta { index = 0;
                          delta = InputJsonDelta {|{"x": 42}|} });
-  let resp = Streaming.finalize_stream_acc acc in
+  let resp = finalize_ok acc in
   (match resp.content with
    | [ToolUse { id; name; input }] ->
      check_string "tool_id" "tu_1" id;
@@ -96,7 +102,7 @@ let test_acc_content_block_start_thinking () =
   Streaming.accumulate_event acc
     (ContentBlockDelta { index = 0;
                          delta = ThinkingDelta "let me think..." });
-  let resp = Streaming.finalize_stream_acc acc in
+  let resp = finalize_ok acc in
   (match resp.content with
    | [Thinking { content; _ }] ->
      check_string "thinking content" "let me think..." content
@@ -112,7 +118,7 @@ let test_acc_delta_creates_buffer_on_missing_index () =
   (* The buffer should be created on demand.
      But without a block_type, finalize won't produce content for it.
      This tests the None branch of Hashtbl.find_opt in accumulate_event. *)
-  let resp = Streaming.finalize_stream_acc acc in
+  let resp = finalize_ok acc in
   (* No block_type registered for index 5, so content stays empty *)
   check_int "no content (no block_type)" 0 (List.length resp.content)
 
@@ -122,7 +128,7 @@ let test_acc_message_delta_stop_reason () =
   let acc = Streaming.create_stream_acc () in
   Streaming.accumulate_event acc
     (MessageDelta { stop_reason = Some StopToolUse; usage = None });
-  let resp = Streaming.finalize_stream_acc acc in
+  let resp = finalize_ok acc in
   (match resp.stop_reason with
    | StopToolUse -> ()
    | _ -> Alcotest.fail "expected StopToolUse")
@@ -131,7 +137,7 @@ let test_acc_message_delta_none_stop_reason () =
   let acc = Streaming.create_stream_acc () in
   Streaming.accumulate_event acc
     (MessageDelta { stop_reason = None; usage = None });
-  let resp = Streaming.finalize_stream_acc acc in
+  let resp = finalize_ok acc in
   (* Default is EndTurn *)
   (match resp.stop_reason with
    | EndTurn -> ()
@@ -144,7 +150,7 @@ let test_acc_message_delta_with_usage () =
                      cache_read_input_tokens = 15 } in
   Streaming.accumulate_event acc
     (MessageDelta { stop_reason = Some EndTurn; usage });
-  let resp = Streaming.finalize_stream_acc acc in
+  let resp = finalize_ok acc in
   (match resp.usage with
    | Some u ->
      check_int "output" 200 u.output_tokens;
@@ -159,7 +165,7 @@ let test_acc_message_delta_with_zero_cache () =
                      cache_read_input_tokens = 0 } in
   Streaming.accumulate_event acc
     (MessageDelta { stop_reason = Some EndTurn; usage });
-  let resp = Streaming.finalize_stream_acc acc in
+  let resp = finalize_ok acc in
   (match resp.usage with
    | Some u ->
      (* Zero cache values should not overwrite prior values *)
@@ -172,7 +178,7 @@ let test_acc_message_delta_none_usage () =
   let acc = Streaming.create_stream_acc () in
   Streaming.accumulate_event acc
     (MessageDelta { stop_reason = Some EndTurn; usage = None });
-  let resp = Streaming.finalize_stream_acc acc in
+  let resp = finalize_ok acc in
   (match resp.usage with
    | None -> ()
    | Some _ -> Alcotest.fail "expected no usage")
@@ -182,26 +188,27 @@ let test_acc_message_delta_none_usage () =
 let test_acc_ignores_ping () =
   let acc = Streaming.create_stream_acc () in
   Streaming.accumulate_event acc Ping;
-  let resp = Streaming.finalize_stream_acc acc in
+  let resp = finalize_ok acc in
   check_string "empty id" "" resp.id;
   check_int "no content" 0 (List.length resp.content)
 
 let test_acc_ignores_message_stop () =
   let acc = Streaming.create_stream_acc () in
   Streaming.accumulate_event acc MessageStop;
-  let resp = Streaming.finalize_stream_acc acc in
+  let resp = finalize_ok acc in
   check_string "empty id" "" resp.id
 
-let test_acc_ignores_sse_error () =
+let test_acc_sse_error_propagated () =
   let acc = Streaming.create_stream_acc () in
   Streaming.accumulate_event acc (SSEError "overloaded");
-  let resp = Streaming.finalize_stream_acc acc in
-  check_string "empty id" "" resp.id
+  (match Streaming.finalize_stream_acc acc with
+   | Error msg -> check_string "error msg" "overloaded" msg
+   | Ok _ -> Alcotest.fail "expected Error from SSEError")
 
 let test_acc_ignores_content_block_stop () =
   let acc = Streaming.create_stream_acc () in
   Streaming.accumulate_event acc (ContentBlockStop { index = 0 });
-  let resp = Streaming.finalize_stream_acc acc in
+  let resp = finalize_ok acc in
   check_int "no content" 0 (List.length resp.content)
 
 (* ── finalize: multi-block ordering ─────────────────────────────── *)
@@ -226,7 +233,7 @@ let test_finalize_multi_block_ordered () =
                          tool_id = None; tool_name = None });
   Streaming.accumulate_event acc
     (ContentBlockDelta { index = 1; delta = TextDelta "second" });
-  let resp = Streaming.finalize_stream_acc acc in
+  let resp = finalize_ok acc in
   check_int "3 blocks" 3 (List.length resp.content);
   (match resp.content with
    | [Text a; Text b; Text c] ->
@@ -246,7 +253,7 @@ let test_finalize_tool_use_invalid_json () =
   Streaming.accumulate_event acc
     (ContentBlockDelta { index = 0;
                          delta = InputJsonDelta "not valid json{{{" });
-  let resp = Streaming.finalize_stream_acc acc in
+  let resp = finalize_ok acc in
   (* Invalid JSON in tool_use should fall back to Text *)
   (match resp.content with
    | [Text s] -> check_bool "contains raw text" true
@@ -263,7 +270,7 @@ let test_finalize_tool_use_missing_ids () =
   Streaming.accumulate_event acc
     (ContentBlockDelta { index = 0;
                          delta = InputJsonDelta {|{"ok": true}|} });
-  let resp = Streaming.finalize_stream_acc acc in
+  let resp = finalize_ok acc in
   (match resp.content with
    | [ToolUse { id; name; _ }] ->
      check_string "default tool_id" "" id;
@@ -278,7 +285,7 @@ let test_finalize_text_block_no_delta () =
     (ContentBlockStart { index = 0; content_type = "text";
                          tool_id = None; tool_name = None });
   (* No delta events for this block *)
-  let resp = Streaming.finalize_stream_acc acc in
+  let resp = finalize_ok acc in
   (match resp.content with
    | [Text s] -> check_string "empty text" "" s
    | _ -> Alcotest.fail "expected empty Text block")
@@ -292,7 +299,7 @@ let test_finalize_unknown_content_type () =
                          tool_id = None; tool_name = None });
   Streaming.accumulate_event acc
     (ContentBlockDelta { index = 0; delta = TextDelta "ignored" });
-  let resp = Streaming.finalize_stream_acc acc in
+  let resp = finalize_ok acc in
   check_int "unknown type skipped" 0 (List.length resp.content)
 
 (* ── finalize: usage thresholds ─────────────────────────────────── *)
@@ -300,7 +307,7 @@ let test_finalize_unknown_content_type () =
 let test_finalize_usage_all_zero () =
   let acc = Streaming.create_stream_acc () in
   (* No usage-carrying events -> usage should be None *)
-  let resp = Streaming.finalize_stream_acc acc in
+  let resp = finalize_ok acc in
   (match resp.usage with
    | None -> ()
    | Some _ -> Alcotest.fail "expected None usage when all zero")
@@ -312,7 +319,7 @@ let test_finalize_usage_only_cache_creation () =
                      cache_read_input_tokens = 0 } in
   Streaming.accumulate_event acc
     (MessageStart { id = "m"; model = "m"; usage });
-  let resp = Streaming.finalize_stream_acc acc in
+  let resp = finalize_ok acc in
   (match resp.usage with
    | Some u -> check_int "cache_creation" 50 u.cache_creation_input_tokens
    | None -> Alcotest.fail "expected usage with cache_creation only")
@@ -324,7 +331,7 @@ let test_finalize_usage_only_cache_read () =
                      cache_read_input_tokens = 20 } in
   Streaming.accumulate_event acc
     (MessageStart { id = "m"; model = "m"; usage });
-  let resp = Streaming.finalize_stream_acc acc in
+  let resp = finalize_ok acc in
   (match resp.usage with
    | Some u -> check_int "cache_read" 20 u.cache_read_input_tokens
    | None -> Alcotest.fail "expected usage with cache_read only")
@@ -354,7 +361,7 @@ let test_full_anthropic_sequence () =
     MessageStop;
   ] in
   List.iter (Streaming.accumulate_event acc) events;
-  let resp = Streaming.finalize_stream_acc acc in
+  let resp = finalize_ok acc in
   check_string "id" "msg_full" resp.id;
   check_string "model" "claude-sonnet-4" resp.model;
   check_int "2 content blocks" 2 (List.length resp.content);
@@ -398,7 +405,7 @@ let test_full_tool_use_sequence () =
     MessageStop;
   ] in
   List.iter (Streaming.accumulate_event acc) events;
-  let resp = Streaming.finalize_stream_acc acc in
+  let resp = finalize_ok acc in
   check_int "2 blocks" 2 (List.length resp.content);
   (match resp.content with
    | [Text t; ToolUse { name; input; _ }] ->
@@ -463,7 +470,7 @@ let test_acc_message_delta_cache_update_nonzero () =
                     usage = Some { input_tokens = 0; output_tokens = 100;
                                    cache_creation_input_tokens = 20;
                                    cache_read_input_tokens = 15 } });
-  let resp = Streaming.finalize_stream_acc acc in
+  let resp = finalize_ok acc in
   (match resp.usage with
    | Some u ->
      check_int "input" 50 u.input_tokens;
@@ -480,7 +487,7 @@ let test_acc_multiple_message_deltas () =
     (MessageDelta { stop_reason = Some MaxTokens; usage = None });
   Streaming.accumulate_event acc
     (MessageDelta { stop_reason = Some EndTurn; usage = None });
-  let resp = Streaming.finalize_stream_acc acc in
+  let resp = finalize_ok acc in
   (match resp.stop_reason with
    | EndTurn -> ()
    | _ -> Alcotest.fail "expected last stop_reason to win (EndTurn)")
@@ -495,7 +502,7 @@ let test_acc_partial_tool_metadata () =
   Streaming.accumulate_event acc
     (ContentBlockDelta { index = 0;
                          delta = InputJsonDelta {|{}|} });
-  let resp = Streaming.finalize_stream_acc acc in
+  let resp = finalize_ok acc in
   (match resp.content with
    | [ToolUse { id; name; _ }] ->
      check_string "default id" "" id;
@@ -510,7 +517,7 @@ let test_finalize_thinking_empty_content () =
     (ContentBlockStart { index = 0; content_type = "thinking";
                          tool_id = None; tool_name = None });
   (* No delta -> empty thinking *)
-  let resp = Streaming.finalize_stream_acc acc in
+  let resp = finalize_ok acc in
   (match resp.content with
    | [Thinking { content; _ }] ->
      check_string "empty thinking" "" content
@@ -555,8 +562,8 @@ let () =
       Alcotest.test_case "ignores Ping" `Quick test_acc_ignores_ping;
       Alcotest.test_case "ignores MessageStop" `Quick
         test_acc_ignores_message_stop;
-      Alcotest.test_case "ignores SSEError" `Quick
-        test_acc_ignores_sse_error;
+      Alcotest.test_case "SSEError propagated" `Quick
+        test_acc_sse_error_propagated;
       Alcotest.test_case "ignores ContentBlockStop" `Quick
         test_acc_ignores_content_block_stop;
     ];

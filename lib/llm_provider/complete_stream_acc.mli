@@ -30,5 +30,6 @@ val create_stream_acc : unit -> stream_acc
 val accumulate_event : stream_acc -> Types.sse_event -> unit
 
 (** Produce the final {!Types.api_response} from the accumulated state.
-    Content blocks are ordered by their stream index. *)
-val finalize_stream_acc : stream_acc -> Types.api_response
+    Returns [Error msg] if an SSE error was recorded during the stream;
+    content blocks are ordered by their stream index. *)
+val finalize_stream_acc : stream_acc -> (Types.api_response, string) result
