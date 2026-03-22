@@ -16,7 +16,9 @@ let run_agent ~sw ?clock ?harness agent prompt =
   let t0 = Unix.gettimeofday () in
   let response =
     try Agent.run ~sw ?clock agent prompt
-    with exn -> Error (Error.Internal (Printexc.to_string exn))
+    with
+    | Eio.Cancel.Cancelled _ as e -> raise e
+    | exn -> Error (Error.Internal (Printexc.to_string exn))
   in
   let elapsed = Unix.gettimeofday () -. t0 in
   let trace_ref = Agent.last_raw_trace_run agent in

@@ -57,7 +57,9 @@ let load ~path : (baseline, string) result =
       let description = json |> member "description" |> to_string_option
         |> Option.value ~default:"" in
       Ok { run_metrics; created_at; description }
-  with exn ->
+  with
+  | Eio.Cancel.Cancelled _ as e -> raise e
+  | exn ->
     Error (Printf.sprintf "Failed to load baseline: %s" (Printexc.to_string exn))
 
 (** Create a baseline from a run. *)

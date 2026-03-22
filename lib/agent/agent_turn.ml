@@ -165,7 +165,9 @@ let apply_context_injection ~context ~messages ~injector ~tool_uses ~results =
           in
           if valid_messages <> [] then
             current_messages := Util.snoc_list !current_messages valid_messages
-      with exn ->
+      with
+      | Eio.Cancel.Cancelled _ as e -> raise e
+      | exn ->
         Printf.eprintf
           "[oas] context_injector for tool '%s' raised: %s\n%!"
           name (Printexc.to_string exn))

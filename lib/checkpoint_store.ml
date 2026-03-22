@@ -19,7 +19,9 @@ let create base_dir =
   try
     Eio.Path.mkdirs ~exists_ok:true ~perm:0o755 base_dir;
     Ok { base_dir }
-  with exn -> io_error_of_exn ~op:"create" ~path:"checkpoint_dir" exn
+  with
+  | Eio.Cancel.Cancelled _ as e -> raise e
+  | exn -> io_error_of_exn ~op:"create" ~path:"checkpoint_dir" exn
 
 let file_path store id = Eio.Path.(store.base_dir / (id ^ ".json"))
 let tmp_path store id = Eio.Path.(store.base_dir / (id ^ ".json.tmp"))
@@ -35,7 +37,9 @@ let save store (cp : Checkpoint.t) =
        Eio.Path.save ~create:(`Or_truncate 0o644) tmp data;
        Eio.Path.rename tmp target;
        Ok ()
-     with exn ->
+     with
+     | Eio.Cancel.Cancelled _ as e -> raise e
+     | exn ->
        (* Best-effort cleanup: ignore unlink failure — the primary error is already captured *)
        (try Eio.Path.unlink tmp with Eio.Io _ | Unix.Unix_error _ -> ());
        io_error_of_exn ~op:"save" ~path:cp.session_id exn)
@@ -48,7 +52,9 @@ let load store id =
     (try
        let data = Eio.Path.load path in
        Checkpoint.of_string data
-     with exn -> io_error_of_exn ~op:"load" ~path:id exn)
+     with
+     | Eio.Cancel.Cancelled _ as e -> raise e
+     | exn -> io_error_of_exn ~op:"load" ~path:id exn)
 
 let list store =
   try
@@ -61,7 +67,9 @@ let list store =
            && not (len > 9 && String.sub name (len - 9) 9 = ".json.tmp"))
     |> List.map (fun name -> String.sub name 0 (String.length name - 5))
     |> List.sort String.compare)
-  with exn -> io_error_of_exn ~op:"list" ~path:"checkpoint_dir" exn
+  with
+  | Eio.Cancel.Cancelled _ as e -> raise e
+  | exn -> io_error_of_exn ~op:"list" ~path:"checkpoint_dir" exn
 
 let delete store id =
   match validate_session_id id with
@@ -71,7 +79,9 @@ let delete store id =
     (try
        Eio.Path.unlink path;
        Ok ()
-     with exn -> io_error_of_exn ~op:"delete" ~path:id exn)
+     with
+     | Eio.Cancel.Cancelled _ as e -> raise e
+     | exn -> io_error_of_exn ~op:"delete" ~path:id exn)
 
 let exists store id =
   match validate_session_id id with

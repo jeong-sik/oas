@@ -17,18 +17,23 @@ let io_error_of_exn ~op ~path = function
     Error (Error.Io (FileOpFailed { op; path; detail = msg }))
   | Yojson.Json_error msg ->
     Error (Error.Io (FileOpFailed { op; path; detail = "JSON error: " ^ msg }))
+  | Eio.Cancel.Cancelled _ as e -> raise e
   | exn -> raise exn
 
 let read_file path =
   try Ok (In_channel.with_open_bin path In_channel.input_all)
-  with exn -> io_error_of_exn ~op:"read" ~path exn
+  with
+  | Eio.Cancel.Cancelled _ as e -> raise e
+  | exn -> io_error_of_exn ~op:"read" ~path exn
 
 let ensure_dir path =
   try
     if not (Sys.file_exists path) then
       Sys.mkdir path 0o755;
     Ok ()
-  with exn -> io_error_of_exn ~op:"mkdir" ~path exn
+  with
+  | Eio.Cancel.Cancelled _ as e -> raise e
+  | exn -> io_error_of_exn ~op:"mkdir" ~path exn
 
 let ensure_dir_recursive path =
   let rec aux p =
@@ -39,7 +44,9 @@ let ensure_dir_recursive path =
     end
   in
   try aux path; Ok ()
-  with exn -> io_error_of_exn ~op:"mkdir_p" ~path exn
+  with
+  | Eio.Cancel.Cancelled _ as e -> raise e
+  | exn -> io_error_of_exn ~op:"mkdir_p" ~path exn
 
 let write_file path content =
   try
@@ -49,7 +56,9 @@ let write_file path content =
       Out_channel.output_string oc content);
     Sys.rename tmp_path path;
     Ok ()
-  with exn -> io_error_of_exn ~op:"write" ~path exn
+  with
+  | Eio.Cancel.Cancelled _ as e -> raise e
+  | exn -> io_error_of_exn ~op:"write" ~path exn
 
 let append_file path content =
   try
@@ -59,11 +68,15 @@ let append_file path content =
       ~finally:(fun () -> close_out_noerr oc)
       (fun () -> output_string oc content);
     Ok ()
-  with exn -> io_error_of_exn ~op:"append" ~path exn
+  with
+  | Eio.Cancel.Cancelled _ as e -> raise e
+  | exn -> io_error_of_exn ~op:"append" ~path exn
 
 let read_dir path =
   try Ok (Sys.readdir path |> Array.to_list |> List.sort String.compare)
-  with exn -> io_error_of_exn ~op:"read_dir" ~path exn
+  with
+  | Eio.Cancel.Cancelled _ as e -> raise e
+  | exn -> io_error_of_exn ~op:"read_dir" ~path exn
 
 let file_exists path =
   try Sys.file_exists path && not (Sys.is_directory path)
@@ -73,4 +86,6 @@ let remove_file path =
   try
     if Sys.file_exists path then Sys.remove path;
     Ok ()
-  with exn -> io_error_of_exn ~op:"remove" ~path exn
+  with
+  | Eio.Cancel.Cancelled _ as e -> raise e
+  | exn -> io_error_of_exn ~op:"remove" ~path exn

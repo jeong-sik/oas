@@ -183,7 +183,9 @@ let step_of_json json =
         depends_on = json |> member "depends_on" |> to_list
           |> List.map to_string;
       }
-  with exn -> Error (Printexc.to_string exn)
+  with
+  | Eio.Cancel.Cancelled _ as e -> raise e
+  | exn -> Error (Printexc.to_string exn)
 
 let plan_status_to_json = function
   | Planning -> `Assoc [("status", `String "Planning")]
@@ -230,4 +232,6 @@ let of_json json =
            status;
            created_at = json |> member "created_at" |> to_float;
          })
-  with exn -> Error (Printexc.to_string exn)
+  with
+  | Eio.Cancel.Cancelled _ as e -> raise e
+  | exn -> Error (Printexc.to_string exn)
