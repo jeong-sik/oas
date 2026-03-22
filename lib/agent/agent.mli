@@ -140,4 +140,6 @@ val lifecycle_snapshot : t -> lifecycle_snapshot option
 (** {1 Internal (testing only -- do not use in production code)} *)
 
 val set_state : t -> Types.agent_state -> unit
+val set_consecutive_idle_turns : t -> int -> unit
 val base_messages : t -> Types.message list
+val check_loop_guard : t -> Error.sdk_error option

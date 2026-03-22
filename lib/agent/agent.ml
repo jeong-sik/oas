@@ -38,6 +38,24 @@ let run_turn_with_trace ~sw ?clock ?raw_trace_run agent =
 
 let check_token_budget = Agent_turn.check_token_budget
 
+(* ── Shared loop guard (max_turns + idle + budget) ─────────── *)
+
+(** Check max_turns, idle detection, and token/cost budget.
+    Returns [Some error] when any guard fires, [None] to proceed. *)
+let check_loop_guard agent =
+  if agent.state.turn_count >= agent.state.config.max_turns then
+    Some (Error.Agent (Error.MaxTurnsExceeded {
+      turns = agent.state.turn_count;
+      limit = agent.state.config.max_turns }))
+  else if agent.consecutive_idle_turns >= agent.options.max_idle_turns
+          && agent.options.max_idle_turns > 0 then
+    Some (Error.Agent (Error.IdleDetected {
+      consecutive_idle_turns = agent.consecutive_idle_turns }))
+  else
+    match check_token_budget agent.state.config agent.state.usage with
+    | Some _ as err -> err
+    | None -> Cost_tracker.check_budget agent.state.config agent.state.usage
+
 (* ── Unified run loop ────────────────────────────────────────── *)
 
 (** Prepend initial_messages on first run (when messages are empty). *)
@@ -52,27 +70,13 @@ let run_loop ~sw ?clock ~api_strategy agent user_prompt =
     messages = Util.snoc (base_messages agent) user_msg };
   with_raw_trace_run agent user_prompt @@ fun raw_trace_run ->
   let rec loop () =
-    if agent.state.turn_count >= agent.state.config.max_turns then
-      Error (Error.Agent (MaxTurnsExceeded {
-        turns = agent.state.turn_count;
-        limit = agent.state.config.max_turns }))
-    else if agent.consecutive_idle_turns >= agent.options.max_idle_turns
-            && agent.options.max_idle_turns > 0 then
-      Error (Error.Agent (IdleDetected {
-        consecutive_idle_turns = agent.consecutive_idle_turns }))
-    else
-      let budget_err =
-        match check_token_budget agent.state.config agent.state.usage with
-        | Some _ as err -> err
-        | None -> Cost_tracker.check_budget agent.state.config agent.state.usage
-      in
-      match budget_err with
-      | Some err -> Error err
-      | None ->
-        match run_turn_core ~sw ?clock ~api_strategy ?raw_trace_run agent with
-        | Error e -> Error e
-        | Ok `Complete response -> Ok response
-        | Ok `ToolsExecuted -> loop ()
+    match check_loop_guard agent with
+    | Some err -> Error err
+    | None ->
+      match run_turn_core ~sw ?clock ~api_strategy ?raw_trace_run agent with
+      | Error e -> Error e
+      | Ok `Complete response -> Ok response
+      | Ok `ToolsExecuted -> loop ()
   in
   loop ()
 
@@ -127,12 +131,9 @@ let run_with_handoffs ~sw ?clock agent ~targets user_prompt =
 
   with_raw_trace_run agent_with_handoffs user_prompt @@ fun raw_trace_run ->
   let rec loop () =
-    if agent_with_handoffs.state.turn_count >=
-       agent_with_handoffs.state.config.max_turns then
-      Error (Error.Agent (MaxTurnsExceeded {
-        turns = agent.state.turn_count;
-        limit = agent.state.config.max_turns }))
-    else
+    match check_loop_guard agent_with_handoffs with
+    | Some err -> Error err
+    | None ->
       match run_turn_with_trace ~sw ?clock ?raw_trace_run
               agent_with_handoffs with
       | Error e -> Error e
