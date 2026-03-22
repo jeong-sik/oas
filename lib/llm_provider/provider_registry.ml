@@ -80,7 +80,7 @@ let gemini_defaults = {
 }
 
 let glm_defaults = {
-  kind = OpenAI_compat;
+  kind = Glm;
   base_url =
     (match Sys.getenv_opt "ZAI_BASE_URL" with
      | Some url -> url
@@ -108,8 +108,8 @@ let default () =
     Capabilities.anthropic_capabilities;
   reg "gemini" gemini_defaults ~max_context:1_000_000
     Capabilities.gemini_capabilities;
-  reg "glm" glm_defaults ~max_context:128_000
-    Capabilities.openai_chat_capabilities;
+  reg "glm" glm_defaults ~max_context:200_000
+    Capabilities.glm_capabilities;
   reg "openrouter" openrouter_defaults ~max_context:128_000
     Capabilities.openai_chat_extended_capabilities;
   (* Claude Code subprocess — always available if claude is in PATH *)
