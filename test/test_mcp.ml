@@ -160,6 +160,8 @@ let test_mcp_tool_of_sdk_tool () =
     title = None;
     annotations = None;
     icon = None;
+    output_schema = None;
+    execution = None;
   } in
   let mcp_tool = Mcp.mcp_tool_of_sdk_tool sdk_tool in
   Alcotest.(check string) "name" "read_file" mcp_tool.name;
@@ -177,6 +179,8 @@ let test_mcp_tool_of_sdk_tool_no_description () =
     title = None;
     annotations = None;
     icon = None;
+    output_schema = None;
+    execution = None;
   } in
   let mcp_tool = Mcp.mcp_tool_of_sdk_tool sdk_tool in
   Alcotest.(check string) "default desc" "" mcp_tool.description
