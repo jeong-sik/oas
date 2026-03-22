@@ -143,6 +143,7 @@ module Policy = Policy
 module Audit = Audit
 module Plan = Plan
 module Checkpoint_validation = Checkpoint_validation
+module Judge = Judge
 
 (** Quick start: create an agent with default config *)
 let create_agent ~net ?name ?model ?system_prompt ?max_tokens ?max_turns

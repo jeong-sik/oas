@@ -744,3 +744,7 @@
 (test
  (name test_turn_budget)
  (libraries agent_sdk alcotest yojson str))
+
+(test
+ (name test_judge)
+ (libraries agent_sdk alcotest yojson))
