@@ -40,6 +40,7 @@ val anthropic_capabilities : capabilities
 val openai_chat_capabilities : capabilities
 val openai_chat_extended_capabilities : capabilities
 val gemini_capabilities : capabilities
+val glm_capabilities : capabilities
 val claude_code_capabilities : capabilities
 
 (** Lookup capabilities for a known model_id.

@@ -178,7 +178,7 @@ let test_default_max_context () =
    | Some e -> check int "gemini 1M" 1_000_000 e.max_context
    | None -> fail "gemini should exist");
   (match Provider_registry.find reg "glm" with
-   | Some e -> check int "glm 128K" 128_000 e.max_context
+   | Some e -> check int "glm 200K" 200_000 e.max_context
    | None -> fail "glm should exist");
   (match Provider_registry.find reg "cc" with
    | Some e -> check int "cc 200K" 200_000 e.max_context

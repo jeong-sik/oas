@@ -10,6 +10,7 @@ type provider_kind =
   | Anthropic
   | OpenAI_compat
   | Gemini
+  | Glm  (** ZhipuAI GLM native: OpenAI wire format + JWT auth + GLM error parsing. @since 0.83.0 *)
   | Claude_code  (** Subprocess transport via [claude -p]. @since 0.78.0 *)
 
 type t = {

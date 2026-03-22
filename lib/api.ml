@@ -120,6 +120,8 @@ let create_message ~sw ~net ?(base_url=default_base_url) ?provider ?clock ?retry
       Error (Retry.InvalidRequest { message = msg })
     | Llm_provider.Backend_gemini.Gemini_api_error msg ->
       Error (Retry.InvalidRequest { message = msg })
+    | Llm_provider.Backend_glm.Glm_api_error msg ->
+      Error (Retry.InvalidRequest { message = msg })
     | Failure msg ->
       Error (Retry.NetworkError { message = msg })
     | Yojson.Json_error msg ->

@@ -111,6 +111,21 @@ let openai_chat_extended_capabilities = {
   supports_min_p = true;
 }
 
+let glm_capabilities = {
+  default_capabilities with
+  max_context_tokens = Some 200_000;
+  max_output_tokens = Some 128_000;
+  supports_tools = true;
+  supports_tool_choice = true;
+  supports_reasoning = true;
+  supports_extended_thinking = true;
+  supports_response_format_json = true;
+  supports_structured_output = true;
+  supports_multimodal_inputs = true;
+  supports_image_input = true;
+  supports_native_streaming = true;
+}
+
 let gemini_capabilities = {
   default_capabilities with
   max_context_tokens = Some 1_000_000;
@@ -254,13 +269,15 @@ let for_model_id model_id =
            supports_structured_output = true;
            supports_native_streaming = true;
            supports_caching = true }
-  else if starts_with "glm-4.5" || starts_with "glm-5" then
+  else if starts_with "glm-4.5" || starts_with "glm-4.6" || starts_with "glm-4.7"
+          || starts_with "glm-5" then
     Some { default_capabilities with
            max_context_tokens = Some 200_000;
            max_output_tokens = Some 128_000;
            supports_tools = true;
            supports_tool_choice = true;
            supports_reasoning = true;
+           supports_extended_thinking = true;
            supports_structured_output = true;
            supports_response_format_json = true;
            supports_multimodal_inputs = true;

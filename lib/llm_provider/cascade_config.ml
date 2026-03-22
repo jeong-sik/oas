@@ -19,7 +19,7 @@ let headers_with_auth ~(kind : Provider_config.provider_kind) ~api_key =
         ("x-api-key", api_key)
         :: ("anthropic-version", "2023-06-01")
         :: base
-    | OpenAI_compat | Gemini | Claude_code ->
+    | OpenAI_compat | Gemini | Glm | Claude_code ->
         ("Authorization", "Bearer " ^ api_key) :: base
 
 (* ── Model string parsing ──────────────────────────────── *)

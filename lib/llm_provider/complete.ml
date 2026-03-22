@@ -44,6 +44,8 @@ let provider_sampling_defaults (kind : Provider_config.provider_kind) : sampling
     { default_min_p = None; default_top_p = None; default_top_k = None }
   | Provider_config.Gemini ->
     { default_min_p = None; default_top_p = None; default_top_k = None }
+  | Provider_config.Glm ->
+    { default_min_p = None; default_top_p = None; default_top_k = None }
   | Provider_config.Claude_code ->
     { default_min_p = None; default_top_p = None; default_top_k = None }
 
@@ -72,6 +74,8 @@ let complete_http ~sw ~net ~(config : Provider_config.t)
         Backend_openai.build_request ~config ~messages ~tools ()
     | Provider_config.Gemini ->
         Backend_gemini.build_request ~config ~messages ~tools ()
+    | Provider_config.Glm ->
+        Backend_glm.build_request ~config ~messages ~tools ()
     | Provider_config.Claude_code -> assert false (* guarded above *)
   in
   let url = match config.kind with
@@ -94,6 +98,8 @@ let complete_http ~sw ~net ~(config : Provider_config.t)
             | Provider_config.Gemini ->
                 Backend_gemini.parse_response
                   (Yojson.Safe.from_string body)
+            | Provider_config.Glm ->
+                Backend_glm.parse_response body
             | Provider_config.Claude_code -> assert false
           in
           Ok response
@@ -276,6 +282,8 @@ let complete_stream_http ~sw ~net ~(config : Provider_config.t)
         Backend_openai.build_request ~stream:true ~config ~messages ~tools ()
     | Provider_config.Gemini ->
         Backend_gemini.build_request ~stream:true ~config ~messages ~tools ()
+    | Provider_config.Glm ->
+        Backend_glm.build_request ~stream:true ~config ~messages ~tools ()
     | Provider_config.Claude_code -> assert false
   in
   let url = match config.kind with
@@ -317,6 +325,17 @@ let complete_stream_http ~sw ~net ~(config : Provider_config.t)
               in
               (match Streaming.parse_gemini_sse_chunk data with
                | Some chunk -> Streaming.gemini_chunk_to_events state chunk
+               | None -> [])
+          | Provider_config.Glm ->
+              (* GLM uses OpenAI-compatible SSE format *)
+              let state = match !openai_state with
+                | Some s -> s
+                | None ->
+                    let s = Streaming.create_openai_stream_state () in
+                    openai_state := Some s; s
+              in
+              (match Backend_glm.parse_stream_chunk data with
+               | Some chunk -> Streaming.openai_chunk_to_events state chunk
                | None -> [])
           | Provider_config.Claude_code -> []  (* guarded above *)
         in
