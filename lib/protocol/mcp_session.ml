@@ -14,7 +14,9 @@
       (* On resume *)
       let managed, failed_with_reasons = Mcp_session.reconnect_all ~sw ~mgr infos in
       List.iter (fun (info, err) ->
-        Printf.eprintf "Failed to reconnect %s: %s\n" info.server_name err
+        let _log = Log.create ~module_name:"mcp_session" () in
+        Log.warn _log "Failed to reconnect"
+          [S ("server", info.server_name); S ("error", err)]
       ) failed_with_reasons;
     ]} *)
 
