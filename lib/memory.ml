@@ -62,11 +62,12 @@ let store t ~tier key value =
     (match t.long_term with
      | Some backend ->
        (match backend.persist ~key value with
-        | Ok () -> ()
-        | Error reason -> failwith (Printf.sprintf "long_term persist failed: %s" reason))
-     | None -> ())
+        | Ok () -> Ok ()
+        | Error reason -> Error reason)
+     | None -> Ok ())
   | _ ->
-    Context.set_scoped t.ctx (scope_of_tier tier) key value
+    Context.set_scoped t.ctx (scope_of_tier tier) key value;
+    Ok ()
 
 let recall t ~tier key =
   match Context.get_scoped t.ctx (scope_of_tier tier) key with
@@ -107,11 +108,12 @@ let forget t ~tier key =
     (match t.long_term with
      | Some backend ->
        (match backend.remove ~key with
-        | Ok () -> ()
-        | Error reason -> failwith (Printf.sprintf "long_term remove failed: %s" reason))
-     | None -> ())
+        | Ok () -> Ok ()
+        | Error reason -> Error reason)
+     | None -> Ok ())
   | _ ->
-    Context.delete_scoped t.ctx (scope_of_tier tier) key
+    Context.delete_scoped t.ctx (scope_of_tier tier) key;
+    Ok ()
 
 let promote t key =
   match Context.get_scoped t.ctx (scope_of_tier Scratchpad) key with
@@ -412,37 +414,37 @@ let%test "create default memory" =
 
 let%test "store and recall Working" =
   let mem = create () in
-  store mem ~tier:Working "k1" (`String "v1");
+  ignore (store mem ~tier:Working "k1" (`String "v1"));
   recall mem ~tier:Working "k1" = Some (`String "v1")
 
 let%test "store and recall Scratchpad" =
   let mem = create () in
-  store mem ~tier:Scratchpad "sp" (`Int 42);
+  ignore (store mem ~tier:Scratchpad "sp" (`Int 42));
   recall mem ~tier:Scratchpad "sp" = Some (`Int 42)
 
 let%test "recall Working falls through to Long_term" =
   let mem = create () in
-  store mem ~tier:Long_term "lt_key" (`String "lt_val");
+  ignore (store mem ~tier:Long_term "lt_key" (`String "lt_val"));
   recall mem ~tier:Working "lt_key" = Some (`String "lt_val")
 
 let%test "recall Scratchpad falls through to Working" =
   let mem = create () in
-  store mem ~tier:Working "wk" (`String "from_working");
+  ignore (store mem ~tier:Working "wk" (`String "from_working"));
   recall mem ~tier:Scratchpad "wk" = Some (`String "from_working")
 
 let%test "recall Scratchpad falls through to Long_term" =
   let mem = create () in
-  store mem ~tier:Long_term "deep" (`Bool true);
+  ignore (store mem ~tier:Long_term "deep" (`Bool true));
   recall mem ~tier:Scratchpad "deep" = Some (`Bool true)
 
 let%test "recall Episodic no fallback" =
   let mem = create () in
-  store mem ~tier:Working "wk" (`String "val");
+  ignore (store mem ~tier:Working "wk" (`String "val"));
   recall mem ~tier:Episodic "wk" = None
 
 let%test "recall Procedural no fallback" =
   let mem = create () in
-  store mem ~tier:Working "wk" (`String "val");
+  ignore (store mem ~tier:Working "wk" (`String "val"));
   recall mem ~tier:Procedural "wk" = None
 
 let%test "recall missing key" =
@@ -453,39 +455,39 @@ let%test "recall missing key" =
 
 let%test "recall_exact no fallback" =
   let mem = create () in
-  store mem ~tier:Scratchpad "sp" (`Int 1);
-  store mem ~tier:Working "sp" (`Int 2);
+  ignore (store mem ~tier:Scratchpad "sp" (`Int 1));
+  ignore (store mem ~tier:Working "sp" (`Int 2));
   recall_exact mem ~tier:Scratchpad "sp" = Some (`Int 1)
 
 let%test "recall_exact Working does not fall through" =
   let mem = create () in
-  store mem ~tier:Long_term "lt" (`String "val");
+  ignore (store mem ~tier:Long_term "lt" (`String "val"));
   recall_exact mem ~tier:Working "lt" = None
 
 let%test "recall_exact Long_term" =
   let mem = create () in
-  store mem ~tier:Long_term "lt" (`Bool true);
+  ignore (store mem ~tier:Long_term "lt" (`Bool true));
   recall_exact mem ~tier:Long_term "lt" = Some (`Bool true)
 
 (* --- forget --- *)
 
 let%test "forget removes key" =
   let mem = create () in
-  store mem ~tier:Working "k" (`Int 1);
-  forget mem ~tier:Working "k";
+  ignore (store mem ~tier:Working "k" (`Int 1));
+  ignore (forget mem ~tier:Working "k");
   recall_exact mem ~tier:Working "k" = None
 
 let%test "forget Long_term without backend" =
   let mem = create () in
-  store mem ~tier:Long_term "k" (`Int 1);
-  forget mem ~tier:Long_term "k";
+  ignore (store mem ~tier:Long_term "k" (`Int 1));
+  ignore (forget mem ~tier:Long_term "k");
   recall_exact mem ~tier:Long_term "k" = None
 
 (* --- promote --- *)
 
 let%test "promote moves from Scratchpad to Working" =
   let mem = create () in
-  store mem ~tier:Scratchpad "item" (`String "data");
+  ignore (store mem ~tier:Scratchpad "item" (`String "data"));
   let result = promote mem "item" in
   result = true
   && recall_exact mem ~tier:Working "item" = Some (`String "data")
@@ -499,35 +501,35 @@ let%test "promote missing key returns false" =
 
 let%test "working_entries returns stored items" =
   let mem = create () in
-  store mem ~tier:Working "a" (`Int 1);
-  store mem ~tier:Working "b" (`Int 2);
+  ignore (store mem ~tier:Working "a" (`Int 1));
+  ignore (store mem ~tier:Working "b" (`Int 2));
   List.length (working_entries mem) = 2
 
 let%test "scratchpad_entries returns stored items" =
   let mem = create () in
-  store mem ~tier:Scratchpad "x" (`Bool true);
+  ignore (store mem ~tier:Scratchpad "x" (`Bool true));
   List.length (scratchpad_entries mem) = 1
 
 let%test "clear_scratchpad removes all" =
   let mem = create () in
-  store mem ~tier:Scratchpad "a" (`Int 1);
-  store mem ~tier:Scratchpad "b" (`Int 2);
+  ignore (store mem ~tier:Scratchpad "a" (`Int 1));
+  ignore (store mem ~tier:Scratchpad "b" (`Int 2));
   clear_scratchpad mem;
   scratchpad_entries mem = []
 
 let%test "keys_in_tier" =
   let mem = create () in
-  store mem ~tier:Working "k1" (`Null);
-  store mem ~tier:Working "k2" (`Null);
+  ignore (store mem ~tier:Working "k1" (`Null));
+  ignore (store mem ~tier:Working "k2" (`Null));
   List.length (keys_in_tier mem Working) = 2
 
 (* --- stats --- *)
 
 let%test "stats counts tiers" =
   let mem = create () in
-  store mem ~tier:Scratchpad "s" (`Null);
-  store mem ~tier:Working "w1" (`Null);
-  store mem ~tier:Working "w2" (`Null);
+  ignore (store mem ~tier:Scratchpad "s" (`Null));
+  ignore (store mem ~tier:Working "w1" (`Null));
+  ignore (store mem ~tier:Working "w2" (`Null));
   let (sp, wk, ep, pr, lt) = stats mem in
   sp = 1 && wk = 2 && ep = 0 && pr = 0 && lt = 0
 
@@ -942,7 +944,7 @@ let%test "store Long_term with backend persists" =
     ~remove:(fun ~key -> Hashtbl.remove tbl key) in
   let mem = create () in
   set_long_term_backend mem backend;
-  store mem ~tier:Long_term "k" (`String "v");
+  ignore (store mem ~tier:Long_term "k" (`String "v"));
   Hashtbl.find_opt tbl "k" = Some (`String "v")
 
 let%test "recall Long_term with backend retrieves" =

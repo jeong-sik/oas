@@ -74,7 +74,7 @@ let () = Alcotest.run "Memory_Access" [
         key_pattern = "*"; permission = Read;
       };
       (* First store directly to memory so there's something to read *)
-      Memory.store mem ~tier:Working "key" (`String "v");
+      ignore (Memory.store mem ~tier:Working "key" (`String "v"));
       (match Memory_access.recall acl ~agent:"bob" ~tier:Working "key" with
        | Ok (Some _) -> ()
        | _ -> Alcotest.fail "should read");

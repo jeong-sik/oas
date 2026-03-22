@@ -159,5 +159,8 @@ let execute_tools ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tracer
              callback ~tool_use_id:id ~tool_name:name ~content ~is_error
          | None -> ());
         triple
-    | _ -> ("", "", true)
+    | _ ->
+        (* Non-ToolUse blocks (Text, Thinking, etc.) are not tool calls.
+           Skip them instead of returning a bogus error triple. *)
+        ("", "", false)
   ) tool_uses

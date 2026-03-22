@@ -62,7 +62,7 @@ let test_remember_falls_back_to_raw_string () =
 
 let test_recall_found_and_missing () =
   let mem = Memory.create () in
-  Memory.store mem ~tier:Working "cfg" (`Assoc [ ("enabled", `Bool true) ]);
+  ignore (Memory.store mem ~tier:Working "cfg" (`Assoc [ ("enabled", `Bool true) ]));
   let tool = Memory_tools.recall mem in
   let found =
     execute_ok_json tool (`Assoc [ ("key", `String "cfg") ])

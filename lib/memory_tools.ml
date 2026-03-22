@@ -122,8 +122,9 @@ let generated_episode_id () =
 let store_value backend ~tier key value =
   match backend with
   | Plain mem ->
-    Memory.store mem ~tier key value;
-    Ok ()
+    (match Memory.store mem ~tier key value with
+     | Ok () -> Ok ()
+     | Error reason -> tool_error reason)
   | Acl { acl; agent_name } ->
     (match Memory_access.store acl ~agent:agent_name ~tier key value with
     | Ok () -> Ok ()

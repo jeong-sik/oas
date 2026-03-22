@@ -74,16 +74,27 @@ let test_cascade_retry_falls_through () =
   | Ok v -> check string "uses fallback" "fallback_result" v
   | Error _ -> fail "expected fallback success"
 
-let test_cascade_retry_non_retryable_stops () =
+let test_cascade_non_retryable_tries_fallback () =
   Eio_main.run @@ fun env ->
   let clock = Eio.Stdenv.clock env in
   let primary () = Error (Retry.AuthError { message = "bad key" }) in
   let fallback () = Ok "fallback_result" in
   let config = { Retry.max_retries = 1; initial_delay = 0.01; max_delay = 0.1; backoff_factor = 2.0 } in
   match Retry.with_cascade ~clock ~config ~primary ~fallbacks:[fallback] () with
-  | Ok _ -> fail "expected auth error"
-  | Error (Retry.AuthError _) -> ()
-  | Error _ -> fail "expected AuthError variant"
+  | Ok v -> check string "fallback used on non-retryable primary" "fallback_result" v
+  | Error _ -> fail "expected fallback to succeed"
+
+let test_cascade_all_fail_returns_primary_error () =
+  Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  let primary () = Error (Retry.AuthError { message = "bad key" }) in
+  let fallback () = Error (Retry.ServerError { status = 500; message = "down" }) in
+  let config = { Retry.max_retries = 0; initial_delay = 0.01; max_delay = 0.1; backoff_factor = 2.0 } in
+  match Retry.with_cascade ~clock ~config ~primary ~fallbacks:[fallback] () with
+  | Ok _ -> fail "expected error"
+  | Error (Retry.AuthError { message }) ->
+      check string "primary error preserved" "bad key" message
+  | Error _ -> fail "expected primary AuthError"
 
 (* ── Builder cascade tests ───────────────────────────────────── *)
 
@@ -124,7 +135,8 @@ let () =
     "retry", [
       test_case "primary succeeds" `Quick test_cascade_retry_primary_succeeds;
       test_case "falls through to fallback" `Quick test_cascade_retry_falls_through;
-      test_case "non-retryable stops" `Quick test_cascade_retry_non_retryable_stops;
+      test_case "non-retryable tries fallback" `Quick test_cascade_non_retryable_tries_fallback;
+      test_case "all fail returns primary error" `Quick test_cascade_all_fail_returns_primary_error;
     ];
     "builder", [
       test_case "with_fallback" `Quick test_builder_with_fallback;

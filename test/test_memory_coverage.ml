@@ -62,7 +62,7 @@ let test_recall_exact_long_term_with_backend () =
 
 let test_recall_exact_long_term_no_backend () =
   let mem = Memory.create () in
-  Memory.store mem ~tier:Long_term "local_lt" (json_s "v");
+  ignore (Memory.store mem ~tier:Long_term "local_lt" (json_s "v"));
   match Memory.recall_exact mem ~tier:Long_term "local_lt" with
   | Some (`String "v") -> ()
   | _ -> Alcotest.fail "should use local ctx"
@@ -86,7 +86,7 @@ let test_scratchpad_recall_chain_with_backend () =
 
 let test_scratchpad_recall_chain_no_backend () =
   let mem = Memory.create () in
-  Memory.store mem ~tier:Long_term "deep" (json_i 42);
+  ignore (Memory.store mem ~tier:Long_term "deep" (json_i 42));
   match Memory.recall mem ~tier:Scratchpad "deep" with
   | Some (`Int 42) -> ()
   | _ -> Alcotest.fail "scratchpad should chain to local long_term ctx"
@@ -102,9 +102,9 @@ let test_long_term_recall_no_backend_none () =
 
 let test_scratchpad_entries () =
   let mem = Memory.create () in
-  Memory.store mem ~tier:Scratchpad "a" (json_i 1);
-  Memory.store mem ~tier:Scratchpad "b" (json_i 2);
-  Memory.store mem ~tier:Working "c" (json_i 3);
+  ignore (Memory.store mem ~tier:Scratchpad "a" (json_i 1));
+  ignore (Memory.store mem ~tier:Scratchpad "b" (json_i 2));
+  ignore (Memory.store mem ~tier:Working "c" (json_i 3));
   let entries = Memory.scratchpad_entries mem in
   Alcotest.(check int) "2 scratchpad entries" 2 (List.length entries)
 
@@ -280,7 +280,7 @@ let test_tier_non_string () =
 
 let test_recall_exact_flag () =
   let mem = Memory.create () in
-  Memory.store mem ~tier:Working "only_work" (json_s "here");
+  ignore (Memory.store mem ~tier:Working "only_work" (json_s "here"));
   let tool = Memory_tools.recall mem in
   let json = execute_ok_json tool
     (`Assoc [
@@ -454,7 +454,7 @@ let test_acl_recall_exact () =
     agent_name = "alice"; tier = Working;
     key_pattern = "*"; permission = ReadWrite;
   };
-  Memory.store mem ~tier:Working "k" (json_s "v");
+  ignore (Memory.store mem ~tier:Working "k" (json_s "v"));
   match Memory_access.recall_exact acl ~agent:"alice" ~tier:Working "k" with
   | Ok (Some (`String "v")) -> ()
   | _ -> Alcotest.fail "should recall exact"
@@ -475,7 +475,7 @@ let test_acl_forget () =
     agent_name = "alice"; tier = Working;
     key_pattern = "*"; permission = ReadWrite;
   };
-  Memory.store mem ~tier:Working "k" (json_s "v");
+  ignore (Memory.store mem ~tier:Working "k" (json_s "v"));
   (match Memory_access.forget acl ~agent:"alice" ~tier:Working "k" with
    | Ok () -> ()
    | Error _ -> Alcotest.fail "should forget");
@@ -512,7 +512,7 @@ let test_acl_memory_accessor () =
   let mem = Memory.create () in
   let acl = Memory_access.create mem in
   let underlying = Memory_access.memory acl in
-  Memory.store underlying ~tier:Working "direct" (json_s "val");
+  ignore (Memory.store underlying ~tier:Working "direct" (json_s "val"));
   match Memory.recall_exact underlying ~tier:Working "direct" with
   | Some (`String "val") -> ()
   | _ -> Alcotest.fail "should access underlying memory"
@@ -584,7 +584,7 @@ let test_recall_acl_allowed () =
     agent_name = "alice"; tier = Working;
     key_pattern = "*"; permission = ReadWrite;
   };
-  Memory.store mem ~tier:Working "k" (json_s "v");
+  ignore (Memory.store mem ~tier:Working "k" (json_s "v"));
   let tool = Memory_tools.recall_acl acl ~agent_name:"alice" in
   let json = execute_ok_json tool (`Assoc [("key", `String "k")]) in
   Alcotest.(check bool) "found" true
