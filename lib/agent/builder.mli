@@ -69,6 +69,7 @@ val with_periodic_callbacks : Agent.periodic_callback list -> t -> t
 (** {2 Provider} *)
 
 val with_provider : Provider.config -> t -> t
+val with_provider_config : Llm_provider.Provider_config.t -> t -> t
 val with_base_url : string -> t -> t
 val with_cascade : Provider.cascade -> t -> t
 val with_named_cascade : Api.named_cascade -> t -> t

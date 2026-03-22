@@ -126,3 +126,9 @@ val register_provider : provider_impl -> unit
 val find_provider : string -> provider_impl option
 val registered_providers : unit -> string list
 val custom_provider : name:string -> ?model_id:string -> ?api_key_env:string -> unit -> config
+
+(** Convert a {!Llm_provider.Provider_config.t} (from Cascade_config)
+    into a {!config}.  Use this to avoid building adapter layers in
+    consuming projects (e.g. MASC).
+    @since 0.84.0 *)
+val config_of_provider_config : Llm_provider.Provider_config.t -> config
