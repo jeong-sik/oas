@@ -128,6 +128,8 @@ let with_context_thresholds ~compact_ratio ?prepare_ratio ?handoff_ratio b =
     context_handoff_ratio = handoff_ratio }
 let with_context ctx b = { b with context = Some ctx }
 let with_provider provider b = { b with provider = Some provider }
+let with_provider_config pc b =
+  with_provider (Provider.config_of_provider_config pc) b
 let with_base_url url b = { b with base_url = url }
 let with_mcp_clients clients b = { b with mcp_clients = clients }
 let with_guardrails guardrails b = { b with guardrails }

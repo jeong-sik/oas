@@ -278,3 +278,30 @@ let custom_provider ~name ?(model_id="custom") ?(api_key_env="DUMMY_KEY") () = {
   model_id;
   api_key_env;
 }
+
+(** Convert a [Provider_config.t] (from Cascade_config) into a
+    [Provider.config] (for Agent Builder).  Keeps the conversion
+    internal to OAS so consumers don't need their own adapters. *)
+let config_of_provider_config (pc : Llm_provider.Provider_config.t) : config =
+  let is_local url =
+    let len = String.length url in
+    len >= 16 && (String.sub url 0 16 = "http://127.0.0.1"
+                  || String.sub url 0 (min 16 len) = "http://localhost")
+  in
+  let provider = match pc.kind with
+    | Anthropic -> Anthropic
+    | Gemini ->
+      OpenAICompat { base_url = pc.base_url; auth_header = None;
+                     path = pc.request_path; static_token = None }
+    | Glm ->
+      OpenAICompat { base_url = pc.base_url; auth_header = None;
+                     path = pc.request_path; static_token = None }
+    | OpenAI_compat ->
+      if is_local pc.base_url then Local { base_url = pc.base_url }
+      else OpenAICompat { base_url = pc.base_url; auth_header = None;
+                          path = pc.request_path; static_token = None }
+    | Claude_code ->
+      OpenAICompat { base_url = pc.base_url; auth_header = None;
+                     path = pc.request_path; static_token = None }
+  in
+  { provider; model_id = pc.model_id; api_key_env = pc.api_key }
