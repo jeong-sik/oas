@@ -38,8 +38,9 @@ val create_stream_acc : unit -> stream_acc
 (** Feed a single SSE event into the accumulator. *)
 val accumulate_event : stream_acc -> Types.sse_event -> unit
 
-(** Finalize the accumulator into a complete API response. *)
-val finalize_stream_acc : stream_acc -> Types.api_response
+(** Finalize the accumulator into a complete API response.
+    Returns [Error msg] if an SSE error was recorded during the stream. *)
+val finalize_stream_acc : stream_acc -> (Types.api_response, string) result
 
 (** {1 HTTP Error Mapping} *)
 

@@ -11,6 +11,12 @@
 
 open Agent_sdk
 
+(** Unwrap finalize result or fail the test. *)
+let finalize_ok acc =
+  match Streaming.finalize_stream_acc acc with
+  | Ok resp -> resp
+  | Error msg -> Alcotest.fail ("unexpected SSE error: " ^ msg)
+
 (* ── stream_acc creation ──────────────────────────────────── *)
 
 let test_create_stream_acc () =
@@ -157,7 +163,7 @@ let test_finalize_text_only () =
       tool_id = None; tool_name = None });
   Streaming.accumulate_event acc
     (Types.ContentBlockDelta { index = 0; delta = Types.TextDelta "hello" });
-  let resp = Streaming.finalize_stream_acc acc in
+  let resp = finalize_ok acc in
   Alcotest.(check string) "id" "m1" resp.id;
   Alcotest.(check string) "model" "model" resp.model;
   Alcotest.(check int) "one content" 1 (List.length resp.content);
@@ -176,7 +182,7 @@ let test_finalize_with_tool_use () =
   Streaming.accumulate_event acc
     (Types.ContentBlockDelta {
       index = 0; delta = Types.InputJsonDelta {|{"path":"/tmp"}|} });
-  let resp = Streaming.finalize_stream_acc acc in
+  let resp = finalize_ok acc in
   (match resp.content with
    | [Types.ToolUse { id; name; _ }] ->
      Alcotest.(check string) "tool id" "tu_1" id;
@@ -193,7 +199,7 @@ let test_finalize_with_thinking () =
       tool_id = None; tool_name = None });
   Streaming.accumulate_event acc
     (Types.ContentBlockDelta { index = 0; delta = Types.ThinkingDelta "I think..." });
-  let resp = Streaming.finalize_stream_acc acc in
+  let resp = finalize_ok acc in
   (match resp.content with
    | [Types.Thinking { content; _ }] ->
      Alcotest.(check string) "thinking" "I think..." content
@@ -214,7 +220,7 @@ let test_finalize_with_usage () =
       usage = Some { input_tokens = 0; output_tokens = 50;
                      cache_creation_input_tokens = 0;
                      cache_read_input_tokens = 0 } });
-  let resp = Streaming.finalize_stream_acc acc in
+  let resp = finalize_ok acc in
   (match resp.usage with
    | Some u ->
      Alcotest.(check int) "input" 100 u.input_tokens;
@@ -223,7 +229,7 @@ let test_finalize_with_usage () =
 
 let test_finalize_no_usage () =
   let acc = Streaming.create_stream_acc () in
-  let resp = Streaming.finalize_stream_acc acc in
+  let resp = finalize_ok acc in
   Alcotest.(check bool) "no usage" true (resp.usage = None)
 
 let test_finalize_unknown_content_type () =
@@ -234,7 +240,7 @@ let test_finalize_unknown_content_type () =
       tool_id = None; tool_name = None });
   Streaming.accumulate_event acc
     (Types.ContentBlockDelta { index = 0; delta = Types.TextDelta "data" });
-  let resp = Streaming.finalize_stream_acc acc in
+  let resp = finalize_ok acc in
   Alcotest.(check int) "unknown skipped" 0 (List.length resp.content)
 
 let test_finalize_invalid_tool_json () =
@@ -245,7 +251,7 @@ let test_finalize_invalid_tool_json () =
       tool_id = Some "t1"; tool_name = Some "tool" });
   Streaming.accumulate_event acc
     (Types.ContentBlockDelta { index = 0; delta = Types.InputJsonDelta "not json{" });
-  let resp = Streaming.finalize_stream_acc acc in
+  let resp = finalize_ok acc in
   (* Invalid JSON falls back to Text *)
   (match resp.content with
    | [Types.Text _] -> ()
@@ -263,7 +269,7 @@ let test_finalize_multiple_blocks () =
       index = 1; content_type = "text"; tool_id = None; tool_name = None });
   Streaming.accumulate_event acc
     (Types.ContentBlockDelta { index = 1; delta = Types.TextDelta "second" });
-  let resp = Streaming.finalize_stream_acc acc in
+  let resp = finalize_ok acc in
   Alcotest.(check int) "two blocks" 2 (List.length resp.content)
 
 (* ── Complete module tests ────────────────────────────────── *)

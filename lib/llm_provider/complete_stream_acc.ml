@@ -69,6 +69,9 @@ let accumulate_event (acc : stream_acc) = function
   | Types.MessageStop | Types.Ping -> ()
 
 let finalize_stream_acc (acc : stream_acc) =
+  match !(acc.sse_error) with
+  | Some msg -> Error msg
+  | None ->
   let indices =
     Hashtbl.fold (fun k _ acc -> k :: acc) acc.block_types []
     |> List.sort compare
@@ -91,7 +94,7 @@ let finalize_stream_acc (acc : stream_acc) =
         Some (Types.ToolUse { id; name; input })
     | _ -> None
   ) indices in
-  { Types.id = !(acc.id);
+  Ok { Types.id = !(acc.id);
     model = !(acc.model);
     stop_reason = !(acc.stop_reason);
     content;
@@ -159,10 +162,12 @@ let%test "finalize_stream_acc assembles text block" =
   let buf = Buffer.create 16 in
   Buffer.add_string buf "Hello world";
   Hashtbl.replace acc.block_texts 0 buf;
-  let result = finalize_stream_acc acc in
-  result.id = "test-id"
-  && result.model = "test-model"
-  && result.content = [Types.Text "Hello world"]
+  match finalize_stream_acc acc with
+  | Error _ -> false
+  | Ok result ->
+    result.id = "test-id"
+    && result.model = "test-model"
+    && result.content = [Types.Text "Hello world"]
 
 let%test "finalize_stream_acc assembles tool_use block" =
   let acc = create_stream_acc () in
@@ -172,11 +177,13 @@ let%test "finalize_stream_acc assembles tool_use block" =
   let buf = Buffer.create 16 in
   Buffer.add_string buf "{\"key\":\"val\"}";
   Hashtbl.replace acc.block_texts 0 buf;
-  let result = finalize_stream_acc acc in
-  match result.content with
-  | [Types.ToolUse { id = "tool-id-1"; name = "my_tool"; input }] ->
-    input = `Assoc [("key", `String "val")]
-  | _ -> false
+  match finalize_stream_acc acc with
+  | Error _ -> false
+  | Ok result ->
+    (match result.content with
+    | [Types.ToolUse { id = "tool-id-1"; name = "my_tool"; input }] ->
+      input = `Assoc [("key", `String "val")]
+    | _ -> false)
 
 let%test "finalize_stream_acc assembles thinking block" =
   let acc = create_stream_acc () in
@@ -184,10 +191,12 @@ let%test "finalize_stream_acc assembles thinking block" =
   let buf = Buffer.create 16 in
   Buffer.add_string buf "reasoning...";
   Hashtbl.replace acc.block_texts 0 buf;
-  let result = finalize_stream_acc acc in
-  match result.content with
-  | [Types.Thinking { thinking_type = "thinking"; content = "reasoning..." }] -> true
-  | _ -> false
+  match finalize_stream_acc acc with
+  | Error _ -> false
+  | Ok result ->
+    (match result.content with
+    | [Types.Thinking { thinking_type = "thinking"; content = "reasoning..." }] -> true
+    | _ -> false)
 
 let%test "finalize_stream_acc multiple blocks ordered by index" =
   let acc = create_stream_acc () in
@@ -197,8 +206,9 @@ let%test "finalize_stream_acc multiple blocks ordered by index" =
   let buf1 = Buffer.create 16 in Buffer.add_string buf1 "say";
   Hashtbl.replace acc.block_texts 0 buf0;
   Hashtbl.replace acc.block_texts 1 buf1;
-  let result = finalize_stream_acc acc in
-  List.length result.content = 2
+  match finalize_stream_acc acc with
+  | Error _ -> false
+  | Ok result -> List.length result.content = 2
 
 let%test "finalize_stream_acc includes usage" =
   let acc = create_stream_acc () in
@@ -206,12 +216,14 @@ let%test "finalize_stream_acc includes usage" =
   acc.output_tokens := 50;
   acc.cache_creation := 10;
   acc.cache_read := 20;
-  let result = finalize_stream_acc acc in
-  match result.usage with
-  | Some u ->
-    u.input_tokens = 100 && u.output_tokens = 50
-    && u.cache_creation_input_tokens = 10 && u.cache_read_input_tokens = 20
-  | None -> false
+  match finalize_stream_acc acc with
+  | Error _ -> false
+  | Ok result ->
+    (match result.usage with
+    | Some u ->
+      u.input_tokens = 100 && u.output_tokens = 50
+      && u.cache_creation_input_tokens = 10 && u.cache_read_input_tokens = 20
+    | None -> false)
 
 (* --- accumulate_event edge cases --- *)
 
@@ -286,8 +298,9 @@ let%test "accumulate_event SSEError records error" =
 
 let%test "finalize_stream_acc empty produces empty content" =
   let acc = create_stream_acc () in
-  let result = finalize_stream_acc acc in
-  result.content = []
+  match finalize_stream_acc acc with
+  | Error _ -> false
+  | Ok result -> result.content = []
 
 let%test "finalize_stream_acc unknown block type filtered out" =
   let acc = create_stream_acc () in
@@ -295,8 +308,9 @@ let%test "finalize_stream_acc unknown block type filtered out" =
   let buf = Buffer.create 16 in
   Buffer.add_string buf "data";
   Hashtbl.replace acc.block_texts 0 buf;
-  let result = finalize_stream_acc acc in
-  result.content = []
+  match finalize_stream_acc acc with
+  | Error _ -> false
+  | Ok result -> result.content = []
 
 let%test "finalize_stream_acc tool_use with invalid json falls back to empty assoc" =
   let acc = create_stream_acc () in
@@ -304,10 +318,12 @@ let%test "finalize_stream_acc tool_use with invalid json falls back to empty ass
   let buf = Buffer.create 16 in
   Buffer.add_string buf "not valid json";
   Hashtbl.replace acc.block_texts 0 buf;
-  let result = finalize_stream_acc acc in
-  match result.content with
-  | [Types.ToolUse { input = `Assoc []; _ }] -> true
-  | _ -> false
+  match finalize_stream_acc acc with
+  | Error _ -> false
+  | Ok result ->
+    (match result.content with
+    | [Types.ToolUse { input = `Assoc []; _ }] -> true
+    | _ -> false)
 
 let%test "finalize_stream_acc tool_use missing id/name defaults to empty" =
   let acc = create_stream_acc () in
@@ -315,19 +331,35 @@ let%test "finalize_stream_acc tool_use missing id/name defaults to empty" =
   let buf = Buffer.create 16 in
   Buffer.add_string buf "{}";
   Hashtbl.replace acc.block_texts 0 buf;
-  let result = finalize_stream_acc acc in
-  match result.content with
-  | [Types.ToolUse { id = ""; name = ""; _ }] -> true
-  | _ -> false
+  match finalize_stream_acc acc with
+  | Error _ -> false
+  | Ok result ->
+    (match result.content with
+    | [Types.ToolUse { id = ""; name = ""; _ }] -> true
+    | _ -> false)
 
 let%test "finalize_stream_acc block with no text buffer produces empty text" =
   let acc = create_stream_acc () in
   Hashtbl.replace acc.block_types 0 "text";
   (* No buffer added for index 0 *)
-  let result = finalize_stream_acc acc in
-  match result.content with
-  | [Types.Text ""] -> true
-  | _ -> false
+  match finalize_stream_acc acc with
+  | Error _ -> false
+  | Ok result ->
+    (match result.content with
+    | [Types.Text ""] -> true
+    | _ -> false)
+
+let%test "finalize_stream_acc returns Error when sse_error is set" =
+  let acc = create_stream_acc () in
+  acc.id := "partial-id";
+  Hashtbl.replace acc.block_types 0 "text";
+  let buf = Buffer.create 16 in
+  Buffer.add_string buf "partial content";
+  Hashtbl.replace acc.block_texts 0 buf;
+  acc.sse_error := Some "server overloaded";
+  match finalize_stream_acc acc with
+  | Error msg -> msg = "server overloaded"
+  | Ok _ -> false
 
 let%test "accumulate_event multiple MessageDelta accumulates tokens" =
   let acc = create_stream_acc () in

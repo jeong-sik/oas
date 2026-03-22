@@ -322,12 +322,11 @@ let complete_stream_http ~sw ~net ~(config : Provider_config.t)
           accumulate_event acc evt
         ) events
       ) ();
-      match !(acc.sse_error) with
-      | Some msg ->
+      match finalize_stream_acc acc with
+      | Ok resp -> Ok resp
+      | Error msg ->
           Error (Http_client.NetworkError {
             message = Printf.sprintf "SSE stream error: %s" msg })
-      | None ->
-          Ok (finalize_stream_acc acc)
 
 let complete_stream ~sw ~net ?(transport : Llm_transport.t option)
     ~(config : Provider_config.t)
