@@ -30,7 +30,9 @@ type openai_chunk = {
 
 type openai_stream_state = {
   mutable thinking_block_started: bool;
+  mutable thinking_block_index: int;
   mutable text_block_started: bool;
+  mutable text_block_index: int;
   tool_block_indices: (int, int) Hashtbl.t;
   mutable next_block_index: int;
 }

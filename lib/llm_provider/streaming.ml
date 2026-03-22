@@ -218,14 +218,18 @@ let parse_openai_sse_chunk data_str : openai_chunk option =
 (** Mutable state for converting OpenAI flat deltas to block-based events. *)
 type openai_stream_state = {
   mutable thinking_block_started: bool;
+  mutable thinking_block_index: int;
   mutable text_block_started: bool;
+  mutable text_block_index: int;
   tool_block_indices: (int, int) Hashtbl.t;  (** tool_call index -> block index *)
   mutable next_block_index: int;
 }
 
 let create_openai_stream_state () = {
   thinking_block_started = false;
+  thinking_block_index = 0;
   text_block_started = false;
+  text_block_index = 0;
   tool_block_indices = Hashtbl.create 4;
   next_block_index = 0;
 }
@@ -241,26 +245,29 @@ let openai_chunk_to_events (state : openai_stream_state)
   (match chunk.delta_reasoning with
    | Some text when text <> "" ->
        if not state.thinking_block_started then begin
+         state.thinking_block_index <- state.next_block_index;
          emit (ContentBlockStart {
            index = state.next_block_index; content_type = "thinking";
            tool_id = None; tool_name = None });
          state.thinking_block_started <- true;
          state.next_block_index <- state.next_block_index + 1
        end;
-       emit (ContentBlockDelta { index = 0; delta = ThinkingDelta text })
+       emit (ContentBlockDelta {
+         index = state.thinking_block_index; delta = ThinkingDelta text })
    | _ -> ());
   (* Text content delta *)
   (match chunk.delta_content with
    | Some text when text <> "" ->
        if not state.text_block_started then begin
+         state.text_block_index <- state.next_block_index;
          emit (ContentBlockStart {
            index = state.next_block_index; content_type = "text";
            tool_id = None; tool_name = None });
          state.text_block_started <- true;
          state.next_block_index <- state.next_block_index + 1
        end;
-       let text_idx = if state.thinking_block_started then 1 else 0 in
-       emit (ContentBlockDelta { index = text_idx; delta = TextDelta text })
+       emit (ContentBlockDelta {
+         index = state.text_block_index; delta = TextDelta text })
    | _ -> ());
   (* Tool call deltas *)
   List.iter (fun (tc : openai_tool_call_delta) ->
@@ -365,23 +372,26 @@ let gemini_chunk_to_events (state : openai_stream_state)
     | Some text when text <> "" ->
         if is_thought then begin
           if not state.thinking_block_started then begin
+            state.thinking_block_index <- state.next_block_index;
             emit (ContentBlockStart {
               index = state.next_block_index; content_type = "thinking";
               tool_id = None; tool_name = None });
             state.thinking_block_started <- true;
             state.next_block_index <- state.next_block_index + 1
           end;
-          emit (ContentBlockDelta { index = 0; delta = ThinkingDelta text })
+          emit (ContentBlockDelta {
+            index = state.thinking_block_index; delta = ThinkingDelta text })
         end else begin
           if not state.text_block_started then begin
+            state.text_block_index <- state.next_block_index;
             emit (ContentBlockStart {
               index = state.next_block_index; content_type = "text";
               tool_id = None; tool_name = None });
             state.text_block_started <- true;
             state.next_block_index <- state.next_block_index + 1
           end;
-          let text_idx = if state.thinking_block_started then 1 else 0 in
-          emit (ContentBlockDelta { index = text_idx; delta = TextDelta text })
+          emit (ContentBlockDelta {
+            index = state.text_block_index; delta = TextDelta text })
         end
     | _ ->
         (match part |> member "functionCall" with
