@@ -114,6 +114,7 @@ module Policy = Policy
 module Audit = Audit
 module Plan = Plan
 module Checkpoint_validation = Checkpoint_validation
+module Judge = Judge
 
 (** {1 Quick Start} *)
 
