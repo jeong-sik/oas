@@ -140,6 +140,20 @@ val lifecycle_snapshot : t -> lifecycle_snapshot option
 (** {1 Internal (testing only -- do not use in production code)} *)
 
 val set_state : t -> Types.agent_state -> unit
+val update_state : t -> (Types.agent_state -> Types.agent_state) -> unit
 val set_consecutive_idle_turns : t -> int -> unit
+val set_lifecycle :
+  t ->
+  ?current_run_id:string ->
+  ?worker_id:string ->
+  ?runtime_actor:string ->
+  ?last_error:string ->
+  ?accepted_at:float ->
+  ?ready_at:float ->
+  ?first_progress_at:float ->
+  ?started_at:float ->
+  ?last_progress_at:float ->
+  ?finished_at:float ->
+  Agent_lifecycle.lifecycle_status -> unit
 val base_messages : t -> Types.message list
 val check_loop_guard : t -> Error.sdk_error option

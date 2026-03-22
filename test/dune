@@ -267,6 +267,10 @@
  (libraries agent_sdk alcotest yojson))
 
 (test
+ (name test_agent_race)
+ (libraries agent_sdk alcotest yojson eio eio_main))
+
+(test
  (name test_skill_registry)
  (libraries agent_sdk alcotest yojson))
 

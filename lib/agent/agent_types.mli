@@ -67,8 +67,14 @@ type lifecycle_snapshot = Agent_lifecycle.lifecycle_snapshot = {
 type tool_call_fingerprint = Agent_turn.tool_call_fingerprint
 
 (** Mutable agent record — library-internal only.
-    External code must use [Agent.t] (abstract) and its accessors. *)
+    External code must use [Agent.t] (abstract) and its accessors.
+
+    All mutable fields are protected by [mu].  Use [set_state],
+    [update_state], [set_lifecycle], etc. rather than direct assignment
+    to prevent lost-update races from parallel tool-execution fibers or
+    periodic callbacks. *)
 type t = {
+  mu: Eio.Mutex.t;
   mutable state: Types.agent_state;
   mutable lifecycle: lifecycle_snapshot option;
   mutable last_tool_calls: tool_call_fingerprint list option;
@@ -93,6 +99,7 @@ val context : t -> Context.t
 val options : t -> options
 val net : t -> [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
 val set_state : t -> Types.agent_state -> unit
+val update_state : t -> (Types.agent_state -> Types.agent_state) -> unit
 val set_consecutive_idle_turns : t -> int -> unit
 val description : t -> string option
 val memory : t -> Memory.t option
