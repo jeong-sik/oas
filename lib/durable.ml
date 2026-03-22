@@ -190,7 +190,7 @@ let journal_entry_of_json json =
          error; attempt }
   with
   | Eio.Cancel.Cancelled _ as e -> raise e
-  | exn -> Error (Printexc.to_string exn)
+  | Yojson.Safe.Util.Type_error (msg, _) -> Error msg
 
 let journal_list_to_json journal =
   `List (List.map journal_entry_to_json journal)
@@ -262,4 +262,4 @@ let execution_state_of_json json =
     | unknown -> Error (Printf.sprintf "unknown execution state: %s" unknown)
   with
   | Eio.Cancel.Cancelled _ as e -> raise e
-  | exn -> Error (Printexc.to_string exn)
+  | Yojson.Safe.Util.Type_error (msg, _) -> Error msg
