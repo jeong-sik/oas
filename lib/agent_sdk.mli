@@ -20,6 +20,7 @@ module Error_domain = Error_domain
 module Hooks = Hooks
 module Tracing = Tracing
 module Context_reducer = Context_reducer
+module Budget_strategy = Budget_strategy
 module Tool = Tool
 module Mcp = Mcp
 module Mcp_http = Mcp_http
