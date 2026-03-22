@@ -82,6 +82,7 @@ let default_options = {
 type tool_call_fingerprint = Agent_turn.tool_call_fingerprint
 
 type t = {
+  mu: Eio.Mutex.t;
   mutable state: agent_state;
   mutable lifecycle: lifecycle_snapshot option;
   mutable last_tool_calls: tool_call_fingerprint list option;
@@ -100,8 +101,24 @@ let tools t = t.tools
 let context t = t.context
 let options t = t.options
 let net t = t.net
-let set_state t s = t.state <- s
-let set_consecutive_idle_turns t n = t.consecutive_idle_turns <- n
+
+(** Mutex-protected write to [state].  All mutations of [t.state] should
+    go through this function to prevent lost-update races when parallel
+    tool-execution fibers or periodic callbacks yield between read and
+    write. *)
+let set_state t s =
+  Eio.Mutex.use_rw ~protect:false t.mu (fun () -> t.state <- s)
+
+(** Read-modify-write [state] under the mutex.  Callers pass a pure
+    function [f : agent_state -> agent_state]; the read + write happen
+    inside a single critical section so no concurrent update is lost. *)
+let update_state t f =
+  Eio.Mutex.use_rw ~protect:false t.mu (fun () -> t.state <- f t.state)
+
+let set_consecutive_idle_turns t n =
+  Eio.Mutex.use_rw ~protect:false t.mu (fun () ->
+    t.consecutive_idle_turns <- n)
+
 let description t = t.options.description
 let memory t = t.options.memory
 
@@ -121,17 +138,23 @@ let card t =
     skill_registry = t.options.skill_registry;
   }
 
+(** Mutex-protected lifecycle update.  Multiple parallel tool-execution
+    fibers call this concurrently via [on_tool_execution_started] /
+    [on_tool_execution_finished] callbacks.  Without the mutex the
+    read of [agent.lifecycle] (for [?previous]) and the subsequent
+    write could interleave, losing an update. *)
 let set_lifecycle agent ?current_run_id ?worker_id ?runtime_actor ?last_error
     ?accepted_at ?ready_at ?first_progress_at ?started_at ?last_progress_at
     ?finished_at status =
-  agent.lifecycle <- Some (Agent_lifecycle.build_snapshot
-    ~agent_name:agent.state.config.name
-    ~provider:agent.options.provider
-    ~model:agent.state.config.model
-    ?previous:agent.lifecycle
-    ?current_run_id ?worker_id ?runtime_actor ?last_error
-    ?accepted_at ?ready_at ?first_progress_at ?started_at
-    ?last_progress_at ?finished_at status)
+  Eio.Mutex.use_rw ~protect:false agent.mu (fun () ->
+    agent.lifecycle <- Some (Agent_lifecycle.build_snapshot
+      ~agent_name:agent.state.config.name
+      ~provider:agent.options.provider
+      ~model:agent.state.config.model
+      ?previous:agent.lifecycle
+      ?current_run_id ?worker_id ?runtime_actor ?last_error
+      ?accepted_at ?ready_at ?first_progress_at ?started_at
+      ?last_progress_at ?finished_at status))
 
 let create ~net ?(config=default_config) ?(tools=[]) ?context ?named_cascade
     ?(options=default_options) () =
@@ -144,7 +167,8 @@ let create ~net ?(config=default_config) ?(tools=[]) ?context ?named_cascade
     | Some c -> c
     | None -> Context.create ()
   in
-  { state; lifecycle = None; last_tool_calls = None; consecutive_idle_turns = 0;
+  { mu = Eio.Mutex.create ();
+    state; lifecycle = None; last_tool_calls = None; consecutive_idle_turns = 0;
     named_cascade;
     tools = all_tools; net; context = ctx; options }
 
@@ -157,7 +181,8 @@ let clone ?(copy_context=false) agent =
     turn_count = agent.state.turn_count;
     usage = agent.state.usage;
   } in
-  { state; lifecycle = agent.lifecycle; last_tool_calls = None;
+  { mu = Eio.Mutex.create ();
+    state; lifecycle = agent.lifecycle; last_tool_calls = None;
     consecutive_idle_turns = 0; tools = agent.tools; net = agent.net;
     named_cascade = agent.named_cascade;
     context = ctx; options = agent.options }

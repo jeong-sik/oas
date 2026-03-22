@@ -51,9 +51,9 @@ let stage_input ?raw_trace_run agent =
          | Hooks.Answer json ->
            let text = Printf.sprintf "[User input] %s: %s"
              req.question (Yojson.Safe.to_string json) in
-           agent.state <- { agent.state with
-             messages = Util.snoc agent.state.messages
-               { role = User; content = [Text text]; name = None; tool_call_id = None } }
+           update_state agent (fun s ->
+             { s with messages = Util.snoc s.messages
+                 { role = User; content = [Text text]; name = None; tool_call_id = None } })
          | Hooks.Declined | Hooks.Timeout -> ())
       | None -> ())
    | _ -> ())
@@ -115,7 +115,7 @@ let stage_parse ?raw_trace_run agent =
     tool_choice =
       (match turn_params.tool_choice with Some _ as t -> t | None -> original_config.tool_choice);
   } in
-  agent.state <- { agent.state with config = new_config };
+  update_state agent (fun s -> { s with config = new_config });
   let original_config = original_config in
 
   (* TurnStarted event *)
@@ -213,7 +213,7 @@ let stage_route ~sw ?clock ~api_strategy agent prep =
 (** Accumulate usage, invoke AfterTurn hook, emit events, append
     assistant message, increment turn_count.  Restores original_config. *)
 let stage_collect ?raw_trace_run agent ~original_config response =
-  agent.state <- { agent.state with config = original_config };
+  update_state agent (fun s -> { s with config = original_config });
 
   let ts = Unix.gettimeofday () in
   set_lifecycle agent ~first_progress_at:ts ~last_progress_at:ts Running;
@@ -236,12 +236,12 @@ let stage_collect ?raw_trace_run agent ~original_config response =
                         turn = agent.state.turn_count })
    | None -> ());
 
-  agent.state <- { agent.state with
-    messages = Util.snoc agent.state.messages
-      { role = Assistant; content = response.content; name = None; tool_call_id = None };
-    turn_count = agent.state.turn_count + 1;
-    usage;
-  };
+  update_state agent (fun s ->
+    { s with
+      messages = Util.snoc s.messages
+        { role = Assistant; content = response.content; name = None; tool_call_id = None };
+      turn_count = s.turn_count + 1;
+      usage });
   Ok ()
 
 (* ── Stage 5: Execute ────────────────────────────────────── *)
@@ -255,9 +255,10 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
     }
     ~tool_uses
   in
-  agent.last_tool_calls <- idle_result.new_state.last_tool_calls;
-  agent.consecutive_idle_turns <-
-    idle_result.new_state.consecutive_idle_turns;
+  Eio.Mutex.use_rw ~protect:false agent.mu (fun () ->
+    agent.last_tool_calls <- idle_result.new_state.last_tool_calls;
+    agent.consecutive_idle_turns <-
+      idle_result.new_state.consecutive_idle_turns);
   if idle_result.is_idle then begin
     let _idle =
       invoke_hook_with_trace agent ?raw_trace_run ~hook_name:"on_idle"
@@ -276,9 +277,9 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
   | true ->
     let msg = Printf.sprintf
       "Tool call limit exceeded: %d calls in one turn" count in
-    agent.state <- { agent.state with
-      messages = Util.snoc agent.state.messages
-        { role = User; content = [Text msg]; name = None; tool_call_id = None } };
+    update_state agent (fun s ->
+      { s with messages = Util.snoc s.messages
+          { role = User; content = [Text msg]; name = None; tool_call_id = None } });
     Ok ToolsExecuted
   | false ->
     let results =
@@ -287,9 +288,9 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
     in
     let* results = results in
     let tool_results = Agent_turn.make_tool_results results in
-    agent.state <- { agent.state with
-      messages = Util.snoc agent.state.messages
-        { role = User; content = tool_results; name = None; tool_call_id = None } };
+    update_state agent (fun s ->
+      { s with messages = Util.snoc s.messages
+          { role = User; content = tool_results; name = None; tool_call_id = None } });
     (match agent.options.context_injector with
      | None -> ()
      | Some injector ->
@@ -297,7 +298,7 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
          ~context:agent.context ~messages:agent.state.messages
          ~injector ~tool_uses ~results
        in
-       agent.state <- { agent.state with messages = new_messages });
+       update_state agent (fun s -> { s with messages = new_messages }));
     Ok ToolsExecuted
 
 (* ── Stage 6: Output ─────────────────────────────────────── *)
@@ -343,7 +344,7 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
   (match Guardrails_async.run_input async_guard.input_validators
            prep.Agent_turn.effective_messages with
    | Guardrails_async.Fail { validator_name; reason } ->
-     agent.state <- { agent.state with config = original_config };
+     update_state agent (fun s -> { s with config = original_config });
      Error (Error.Agent (GuardrailViolation {
        validator = validator_name; reason }))
    | Guardrails_async.Pass ->
@@ -355,13 +356,13 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
   (* Stage 4+5+6: Collect, Execute/Output *)
   match api_result with
   | Error e ->
-    agent.state <- { agent.state with config = original_config };
+    update_state agent (fun s -> { s with config = original_config });
     Error e
   | Ok response ->
     (* Stage 3.5: Async output validation *)
     (match Guardrails_async.run_output async_guard.output_validators response with
      | Guardrails_async.Fail { validator_name; reason } ->
-       agent.state <- { agent.state with config = original_config };
+       update_state agent (fun s -> { s with config = original_config });
        Error (Error.Agent (GuardrailViolation {
          validator = validator_name; reason }))
      | Guardrails_async.Pass ->

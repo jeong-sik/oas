@@ -66,8 +66,8 @@ let base_messages agent =
 
 let run_loop ~sw ?clock ~api_strategy agent user_prompt =
   let user_msg = { role = User; content = [Text user_prompt]; name = None; tool_call_id = None } in
-  agent.state <- { agent.state with
-    messages = Util.snoc (base_messages agent) user_msg };
+  update_state agent (fun s ->
+    { s with messages = Util.snoc (base_messages agent) user_msg });
   with_raw_trace_run agent user_prompt @@ fun raw_trace_run ->
   let rec loop () =
     match check_loop_guard agent with
@@ -126,8 +126,8 @@ let run_with_handoffs ~sw ?clock agent ~targets user_prompt =
   let agent_with_handoffs = { agent with tools = all_tools } in
 
   let user_msg = { role = User; content = [Text user_prompt]; name = None; tool_call_id = None } in
-  agent_with_handoffs.state <- { agent_with_handoffs.state with
-    messages = Util.snoc (base_messages agent_with_handoffs) user_msg };
+  update_state agent_with_handoffs (fun s ->
+    { s with messages = Util.snoc (base_messages agent_with_handoffs) user_msg });
 
   with_raw_trace_run agent_with_handoffs user_prompt @@ fun raw_trace_run ->
   let rec loop () =
@@ -149,12 +149,10 @@ let run_with_handoffs ~sw ?clock agent ~targets user_prompt =
             | None ->
               let err_msg = Printf.sprintf
                 "Unknown handoff target: %s" target_name in
-              agent_with_handoffs.state <-
-                { agent_with_handoffs.state with
-                  messages =
-                    replace_tool_result
-                      agent_with_handoffs.state.messages
-                      ~tool_id ~content:err_msg ~is_error:true };
+              update_state agent_with_handoffs (fun s ->
+                { s with messages =
+                    replace_tool_result s.messages
+                      ~tool_id ~content:err_msg ~is_error:true });
               loop ()
             | Some target ->
               let sub = create ~net:agent.net ~config:target.config
@@ -166,12 +164,10 @@ let run_with_handoffs ~sw ?clock agent ~targets user_prompt =
                  let err_msg = Printf.sprintf
                    "Handoff to %s failed: %s"
                    target_name (Error.to_string e) in
-                 agent_with_handoffs.state <-
-                   { agent_with_handoffs.state with
-                     messages =
-                       replace_tool_result
-                         agent_with_handoffs.state.messages
-                         ~tool_id ~content:err_msg ~is_error:true };
+                 update_state agent_with_handoffs (fun s ->
+                   { s with messages =
+                       replace_tool_result s.messages
+                         ~tool_id ~content:err_msg ~is_error:true });
                  loop ()
                | Ok sub_response ->
                  let text = List.fold_left (fun acc block ->
@@ -180,12 +176,10 @@ let run_with_handoffs ~sw ?clock agent ~targets user_prompt =
                      if acc = "" then s else acc ^ "\n" ^ s
                    | _ -> acc
                  ) "" sub_response.content in
-                 agent_with_handoffs.state <-
-                   { agent_with_handoffs.state with
-                     messages =
-                       replace_tool_result
-                         agent_with_handoffs.state.messages
-                         ~tool_id ~content:text ~is_error:false };
+                 update_state agent_with_handoffs (fun s ->
+                   { s with messages =
+                       replace_tool_result s.messages
+                         ~tool_id ~content:text ~is_error:false });
                  loop ()))
          | None -> loop ())
   in
@@ -198,7 +192,8 @@ let resume ~net ~(checkpoint : Checkpoint.t) ?(tools=[]) ?context
   let { Agent_checkpoint.state; context = ctx } =
     Agent_checkpoint.build_resume ~checkpoint ?config ?context ()
   in
-  { state; lifecycle = None; last_tool_calls = None;
+  { mu = Eio.Mutex.create ();
+    state; lifecycle = None; last_tool_calls = None;
     consecutive_idle_turns = 0; named_cascade;
     tools = Tool_set.of_list tools; net; context = ctx; options }
 
