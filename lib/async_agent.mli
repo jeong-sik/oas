@@ -40,9 +40,12 @@ val is_ready : 'a future -> bool
 (** {1 Cancellation} *)
 
 (** [cancel future] terminates the agent's execution by:
-    1. Resolving the promise with [Error (Internal "cancelled")]
-    2. Failing the agent's sub-switch, cancelling all in-flight I/O
+    1. Failing the agent's sub-switch, cancelling all in-flight I/O
+    2. Resolving the promise with [Error (Internal "cancelled")] (fallback)
 
+    The fiber is stopped before the future is resolved so that callers
+    observing [is_ready] = [true] can rely on the fiber having received
+    the cancellation signal.
     If the agent has already completed, this is a no-op. *)
 val cancel : 'a future -> unit
 

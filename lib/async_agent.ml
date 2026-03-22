@@ -64,10 +64,14 @@ let is_ready future =
 (* ── Cancellation ─────────────────────────────────────────────── *)
 
 let cancel future =
-  resolve_once future (Error (Error.Internal "cancelled"));
-  match future.cancel_fn with
-  | Some f -> (try f () with Eio.Io _ | Unix.Unix_error _ | Failure _ -> ())
-  | None -> ()
+  (* Stop the fiber first, then resolve the future.
+     cancel_fn fails the sub-switch, which causes the fiber to exit
+     with Cancelled.  The fiber's own handler calls resolve_once,
+     but we call it again as a fallback (idempotent). *)
+  (match future.cancel_fn with
+   | Some f -> (try f () with Eio.Io _ | Unix.Unix_error _ | Failure _ -> ())
+   | None -> ());
+  resolve_once future (Error (Error.Internal "cancelled"))
 
 (* ── Combinators ──────────────────────────────────────────────── *)
 
