@@ -243,6 +243,123 @@ let test_events_reasoning_delta_index_multi_chunk () =
        Alcotest.(check int) "text delta index" 1 index
    | _ -> Alcotest.fail "expected TextDelta at index 1")
 
+(** Regression test for issue #333: tool-first stream must assign correct
+    text block index when text arrives after tool calls. *)
+let test_events_tool_first_then_text () =
+  let state = S.create_openai_stream_state () in
+  (* Step 1: tool call arrives first, gets block index 0 *)
+  let tc : S.openai_tool_call_delta = {
+    tc_index = 0; tc_id = Some "call_1";
+    tc_name = Some "get_weather"; tc_arguments = Some {|{"city":"Seoul"}|};
+  } in
+  let tool_events = S.openai_chunk_to_events state
+    { chunk_id = "c"; chunk_model = "m"; delta_content = None;
+      delta_reasoning = None; delta_tool_calls = [tc]; finish_reason = None;
+      chunk_usage = None } in
+  Alcotest.(check int) "2 tool events" 2 (List.length tool_events);
+  (match List.nth tool_events 0 with
+   | ContentBlockStart { index; content_type; _ } ->
+       Alcotest.(check int) "tool start index" 0 index;
+       Alcotest.(check string) "tool_use type" "tool_use" content_type
+   | _ -> Alcotest.fail "expected ContentBlockStart tool_use");
+  (match List.nth tool_events 1 with
+   | ContentBlockDelta { index; delta = InputJsonDelta _; _ } ->
+       Alcotest.(check int) "tool delta index" 0 index
+   | _ -> Alcotest.fail "expected InputJsonDelta at index 0");
+  (* Step 2: text arrives — must get index 1, not 0 *)
+  let text_events = S.openai_chunk_to_events state
+    { chunk_id = "c"; chunk_model = "m"; delta_content = Some "sunny";
+      delta_reasoning = None; delta_tool_calls = []; finish_reason = None;
+      chunk_usage = None } in
+  Alcotest.(check int) "2 text events" 2 (List.length text_events);
+  (match List.nth text_events 0 with
+   | ContentBlockStart { index; content_type; _ } ->
+       Alcotest.(check int) "text start index" 1 index;
+       Alcotest.(check string) "text type" "text" content_type
+   | _ -> Alcotest.fail "expected ContentBlockStart text at index 1");
+  (match List.nth text_events 1 with
+   | ContentBlockDelta { index; delta = TextDelta s } ->
+       Alcotest.(check int) "text delta index" 1 index;
+       Alcotest.(check string) "text content" "sunny" s
+   | _ -> Alcotest.fail "expected TextDelta at index 1");
+  (* Step 3: subsequent text must reuse the same block index *)
+  let text2_events = S.openai_chunk_to_events state
+    { chunk_id = "c"; chunk_model = "m"; delta_content = Some " today";
+      delta_reasoning = None; delta_tool_calls = []; finish_reason = None;
+      chunk_usage = None } in
+  Alcotest.(check int) "1 event (delta only)" 1 (List.length text2_events);
+  (match List.hd text2_events with
+   | ContentBlockDelta { index; delta = TextDelta s } ->
+       Alcotest.(check int) "subsequent text index" 1 index;
+       Alcotest.(check string) "subsequent text" " today" s
+   | _ -> Alcotest.fail "expected TextDelta at index 1")
+
+(** Regression test for issue #333: multiple tool calls then text. *)
+let test_events_multi_tool_then_text () =
+  let state = S.create_openai_stream_state () in
+  (* Two tool calls: indices 0 and 1 *)
+  let tc0 : S.openai_tool_call_delta = {
+    tc_index = 0; tc_id = Some "call_a";
+    tc_name = Some "fn_a"; tc_arguments = Some "{}";
+  } in
+  let tc1 : S.openai_tool_call_delta = {
+    tc_index = 1; tc_id = Some "call_b";
+    tc_name = Some "fn_b"; tc_arguments = Some "{}";
+  } in
+  let _ = S.openai_chunk_to_events state
+    { chunk_id = "c"; chunk_model = "m"; delta_content = None;
+      delta_reasoning = None; delta_tool_calls = [tc0; tc1];
+      finish_reason = None; chunk_usage = None } in
+  Alcotest.(check int) "next_block_index after 2 tools" 2
+    state.next_block_index;
+  (* Text must get index 2 *)
+  let text_events = S.openai_chunk_to_events state
+    { chunk_id = "c"; chunk_model = "m"; delta_content = Some "result";
+      delta_reasoning = None; delta_tool_calls = []; finish_reason = None;
+      chunk_usage = None } in
+  (match List.nth text_events 0 with
+   | ContentBlockStart { index; _ } ->
+       Alcotest.(check int) "text after 2 tools index" 2 index
+   | _ -> Alcotest.fail "expected ContentBlockStart at index 2");
+  (match List.nth text_events 1 with
+   | ContentBlockDelta { index; _ } ->
+       Alcotest.(check int) "text delta after 2 tools index" 2 index
+   | _ -> Alcotest.fail "expected ContentBlockDelta at index 2")
+
+(** Regression test for issue #333: tool between thinking and text. *)
+let test_events_thinking_tool_text () =
+  let state = S.create_openai_stream_state () in
+  (* Thinking: gets index 0 *)
+  let _ = S.openai_chunk_to_events state
+    { chunk_id = "c"; chunk_model = "m"; delta_content = None;
+      delta_reasoning = Some "planning";
+      delta_tool_calls = []; finish_reason = None; chunk_usage = None } in
+  Alcotest.(check int) "next after thinking" 1 state.next_block_index;
+  (* Tool call: gets index 1 *)
+  let tc : S.openai_tool_call_delta = {
+    tc_index = 0; tc_id = Some "call_x";
+    tc_name = Some "search"; tc_arguments = Some "{}";
+  } in
+  let _ = S.openai_chunk_to_events state
+    { chunk_id = "c"; chunk_model = "m"; delta_content = None;
+      delta_reasoning = None; delta_tool_calls = [tc];
+      finish_reason = None; chunk_usage = None } in
+  Alcotest.(check int) "next after tool" 2 state.next_block_index;
+  (* Text: must get index 2 *)
+  let text_events = S.openai_chunk_to_events state
+    { chunk_id = "c"; chunk_model = "m"; delta_content = Some "found it";
+      delta_reasoning = None; delta_tool_calls = []; finish_reason = None;
+      chunk_usage = None } in
+  (match List.nth text_events 0 with
+   | ContentBlockStart { index; _ } ->
+       Alcotest.(check int) "text after thinking+tool" 2 index
+   | _ -> Alcotest.fail "expected ContentBlockStart at index 2");
+  (match List.nth text_events 1 with
+   | ContentBlockDelta { index; delta = TextDelta s } ->
+       Alcotest.(check int) "text delta index" 2 index;
+       Alcotest.(check string) "text" "found it" s
+   | _ -> Alcotest.fail "expected TextDelta at index 2")
+
 let () =
   let open Alcotest in
   run "streaming_openai" [
@@ -267,5 +384,8 @@ let () =
       test_case "empty content ignored" `Quick test_events_empty_content_ignored;
       test_case "reasoning then text" `Quick test_events_reasoning_then_text;
       test_case "reasoning delta index multi-chunk (#332)" `Quick test_events_reasoning_delta_index_multi_chunk;
+      test_case "tool-first then text (#333)" `Quick test_events_tool_first_then_text;
+      test_case "multi-tool then text (#333)" `Quick test_events_multi_tool_then_text;
+      test_case "thinking + tool + text (#333)" `Quick test_events_thinking_tool_text;
     ];
   ]

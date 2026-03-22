@@ -227,9 +227,9 @@ type openai_stream_state = {
 
 let create_openai_stream_state () = {
   thinking_block_started = false;
-  thinking_block_index = 0;
+  thinking_block_index = -1;
   text_block_started = false;
-  text_block_index = 0;
+  text_block_index = -1;
   tool_block_indices = Hashtbl.create 4;
   next_block_index = 0;
 }
