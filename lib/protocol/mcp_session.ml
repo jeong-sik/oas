@@ -89,7 +89,9 @@ let env_pair_of_json json =
   try
     Ok (json |> member "key" |> to_string,
         json |> member "value" |> to_string)
-  with exn ->
+  with
+  | Eio.Cancel.Cancelled _ as e -> raise e
+  | exn ->
     Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Invalid env pair: %s" (Printexc.to_string exn) }))
 
 let result_all items =
