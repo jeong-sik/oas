@@ -225,9 +225,10 @@ let update_idle_detection ~idle_state ~tool_uses =
     is_idle = idle;
   }
 
-(** Process tool results into ToolResult content blocks. *)
+(** Process tool results into ToolResult content blocks.
+    All entries are valid ToolUse results — non-ToolUse blocks are filtered
+    upstream in {!Agent_tools.execute_tools}. *)
 let make_tool_results results =
-  List.filter_map (fun (tool_use_id, content, is_error) ->
-    if tool_use_id = "" then None  (* skip non-ToolUse block sentinels *)
-    else Some (ToolResult { tool_use_id; content; is_error })
+  List.map (fun (tool_use_id, content, is_error) ->
+    ToolResult { tool_use_id; content; is_error }
   ) results
