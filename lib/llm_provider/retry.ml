@@ -109,7 +109,9 @@ let with_cascade ~clock ?(config=default_config)
     : ('a, api_error) result =
   match with_retry ~clock ~config primary with
   | Ok _ as success -> success
-  | Error primary_err when is_retryable primary_err ->
+  | Error primary_err ->
+    (* Cascade tries all fallbacks on any primary failure, not just retryable ones.
+       A non-retryable error on provider A (e.g., AuthError) should still try provider B. *)
     let rec try_fallbacks = function
       | [] -> Error primary_err
       | fb :: rest ->
@@ -118,4 +120,3 @@ let with_cascade ~clock ?(config=default_config)
         | Error _ -> try_fallbacks rest
     in
     try_fallbacks fallbacks
-  | Error _ as non_retryable -> non_retryable
