@@ -168,26 +168,29 @@ let probe_endpoint ~sw ~net url =
       models = []; props = None; slots = None;
       capabilities = Capabilities.default_capabilities }
   else
-    let models =
-      match get_json ~sw ~net (base ^ "/v1/models") with
-      | Ok json -> parse_models json
-      | Error _ -> []
-    in
-    let props =
-      match get_json ~sw ~net (base ^ "/props") with
-      | Ok json -> parse_props json
-      | Error _ -> None
-    in
-    let slots =
-      match get_json ~sw ~net (base ^ "/slots") with
-      | Ok json -> parse_slots json
-      | Error _ -> None
-    in
+    (* Fetch models, props, and slots concurrently via Eio fibers *)
+    let models_ref = ref [] in
+    let props_ref = ref None in
+    let slots_ref = ref None in
+    Eio.Fiber.all [
+      (fun () ->
+        models_ref := match get_json ~sw ~net (base ^ "/v1/models") with
+          | Ok json -> parse_models json | Error _ -> []);
+      (fun () ->
+        props_ref := match get_json ~sw ~net (base ^ "/props") with
+          | Ok json -> parse_props json | Error _ -> None);
+      (fun () ->
+        slots_ref := match get_json ~sw ~net (base ^ "/slots") with
+          | Ok json -> parse_slots json | Error _ -> None);
+    ];
+    let models = !models_ref in
+    let props = !props_ref in
+    let slots = !slots_ref in
     let capabilities = infer_capabilities models props in
     { url = base; healthy; models; props; slots; capabilities }
 
 let discover ~sw ~net ~endpoints =
-  List.map (fun url -> probe_endpoint ~sw ~net url) endpoints
+  Eio.Fiber.List.map (fun url -> probe_endpoint ~sw ~net url) endpoints
 
 (* ── JSON serialization ──────────────────────────────────── *)
 

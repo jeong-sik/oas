@@ -76,7 +76,7 @@ let is_retryable_agent_error = function
 
 (* ── Single agent run ───────────────────────────────────────────── *)
 
-let run_one_agent ~sw ~callbacks ?(max_retries=default_agent_max_retries) (entry : agent_entry) prompt =
+let run_one_agent ~sw ~clock ~callbacks ?(max_retries=default_agent_max_retries) (entry : agent_entry) prompt =
   fire callbacks.on_agent_start entry.name;
   let t0 = Unix.gettimeofday () in
   let rec attempt n delay =
@@ -93,7 +93,7 @@ let run_one_agent ~sw ~callbacks ?(max_retries=default_agent_max_retries) (entry
         fire2 callbacks.on_agent_done entry.name status;
         (entry.name, status, result)
     | Error err when is_retryable_agent_error err && n < max_retries ->
-        Unix.sleepf (delay *. (0.5 +. Random.float 1.0));
+        Eio.Time.sleep clock (delay *. (0.5 +. Random.float 1.0));
         attempt (n + 1) (Float.min (delay *. default_agent_backoff) 30.0)
     | Error err ->
         let status = Done_error { elapsed; error = Error.to_string err; telemetry } in
@@ -111,12 +111,12 @@ let check_resource config =
 
 (* ── Run agents by mode (shared) ────────────────────────────────── *)
 
-let run_agents_by_mode ~sw ~callbacks config =
+let run_agents_by_mode ~sw ~clock ~callbacks config =
   match config.mode with
   | Decentralized ->
     let run_with_check entry =
       if check_resource config then
-        run_one_agent ~sw ~callbacks ~max_retries:config.max_agent_retries entry config.prompt
+        run_one_agent ~sw ~clock ~callbacks ~max_retries:config.max_agent_retries entry config.prompt
       else
         let status = Done_error { elapsed = 0.0; error = "resource check failed"; telemetry = empty_telemetry } in
         fire2 callbacks.on_agent_done entry.name status;
@@ -135,7 +135,7 @@ let run_agents_by_mode ~sw ~callbacks config =
           | Some text -> config.prompt ^ "\n\nPrevious agent output:\n" ^ text
         in
         let (_name, status, _result) as triple =
-          run_one_agent ~sw ~callbacks ~max_retries:config.max_agent_retries entry prompt
+          run_one_agent ~sw ~clock ~callbacks ~max_retries:config.max_agent_retries entry prompt
         in
         let next = match status with
           | Done_ok { text; _ } -> Some text | _ -> prev_text
@@ -149,7 +149,7 @@ let run_agents_by_mode ~sw ~callbacks config =
      | sup :: workers ->
        let wr =
          Eio.Fiber.List.map ~max_fibers:config.max_parallel
-           (fun e -> run_one_agent ~sw ~callbacks e config.prompt)
+           (fun e -> run_one_agent ~sw ~clock ~callbacks e config.prompt)
            workers
        in
        let summary =
@@ -159,7 +159,7 @@ let run_agents_by_mode ~sw ~callbacks config =
            | _ -> Printf.sprintf "=== %s (no result) ===" n
          ) wr |> String.concat "\n\n"
        in
-       let sr = run_one_agent ~sw ~callbacks sup
+       let sr = run_one_agent ~sw ~clock ~callbacks sup
          (config.prompt ^ "\n\nWorker results:\n" ^ summary) in
        wr @ [sr])
 
@@ -185,9 +185,9 @@ let collect_usage acc results =
 
 (* ── Single pass (all agents once) ──────────────────────────────── *)
 
-let run_single_pass ~sw ~clock:_ ?(callbacks = no_callbacks) config =
+let run_single_pass ~sw ~clock ?(callbacks = no_callbacks) config =
   let t0 = Unix.gettimeofday () in
-  let results = run_agents_by_mode ~sw ~callbacks config in
+  let results = run_agents_by_mode ~sw ~clock ~callbacks config in
   let elapsed = Unix.gettimeofday () -. t0 in
   let agent_results =
     List.map (fun (name, status, _) -> (name, status)) results
@@ -217,7 +217,7 @@ let read_state h f =
 
 (* ── Convergence loop (Mutex-protected) ─────────────────────────── *)
 
-let run_convergence_loop ~sw ~clock:_ ~callbacks config conv =
+let run_convergence_loop ~sw ~clock ~callbacks config conv =
   let handle = {
     mu = Eio.Mutex.create ();
     state = create_state config;
@@ -244,7 +244,7 @@ let run_convergence_loop ~sw ~clock:_ ~callbacks config conv =
         && read_state handle (fun s -> s.current_iteration) < conv.max_iterations do
     let iter = read_state handle (fun s -> s.current_iteration) in
     fire callbacks.on_iteration_start iter;
-    let results = run_agents_by_mode ~sw ~callbacks config in
+    let results = run_agents_by_mode ~sw ~clock ~callbacks config in
     total_usage := collect_usage !total_usage results;
     (* Evaluate metric *)
     let metric_value = match eval_metric conv.metric with

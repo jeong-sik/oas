@@ -61,21 +61,23 @@ let stage_input ?raw_trace_run agent =
 (* ── Stage 2: Parse ──────────────────────────────────────── *)
 
 let last_tool_results_from messages =
-  let rec find_last = function
-    | [] -> []
-    | msg :: rest ->
-      if msg.role = User then
-        let results = List.filter_map (function
-          | ToolResult { content; is_error; _ } ->
-            if is_error then Some (Error { Types.message = content; recoverable = true } : Types.tool_result)
-            else Some (Ok { Types.content } : Types.tool_result)
-          | _ -> None
-        ) msg.content in
-        if results <> [] then results
-        else find_last rest
-      else find_last rest
+  (* Fold from left to track the last User message with ToolResults,
+     avoiding List.rev allocation on the full message list. *)
+  let extract_results msg =
+    if msg.role <> User then []
+    else
+      List.filter_map (function
+        | ToolResult { content; is_error; _ } ->
+          if is_error then Some (Error { Types.message = content; recoverable = true } : Types.tool_result)
+          else Some (Ok { Types.content } : Types.tool_result)
+        | _ -> None
+      ) msg.content
   in
-  find_last (List.rev messages)
+  List.fold_left (fun acc msg ->
+    match extract_results msg with
+    | [] -> acc
+    | results -> results
+  ) [] messages
 
 (** Invoke BeforeTurnParams hook, apply turn params, prepare tools.
     Returns (turn_preparation, original_config). *)
