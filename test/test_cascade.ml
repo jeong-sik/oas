@@ -96,6 +96,27 @@ let test_cascade_all_fail_returns_primary_error () =
       check string "primary error preserved" "bad key" message
   | Error _ -> fail "expected primary AuthError"
 
+let test_cascade_invalid_request_tries_all_fallbacks () =
+  Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  let call_log = ref [] in
+  let make_provider name result () =
+    call_log := name :: !call_log;
+    result
+  in
+  let primary = make_provider "primary"
+    (Error (Retry.InvalidRequest { message = "bad param" })) in
+  let fb1 = make_provider "fb1"
+    (Error (Retry.AuthError { message = "no key" })) in
+  let fb2 = make_provider "fb2" (Ok "fb2_result") in
+  let config = { Retry.max_retries = 0; initial_delay = 0.01; max_delay = 0.1; backoff_factor = 2.0 } in
+  match Retry.with_cascade ~clock ~config ~primary ~fallbacks:[fb1; fb2] () with
+  | Ok v ->
+    check string "reached fb2" "fb2_result" v;
+    (* All three providers were attempted *)
+    check int "all providers called" 3 (List.length !call_log)
+  | Error _ -> fail "expected fb2 to succeed"
+
 (* ── Builder cascade tests ───────────────────────────────────── *)
 
 let test_builder_with_fallback () =
@@ -137,6 +158,7 @@ let () =
       test_case "falls through to fallback" `Quick test_cascade_retry_falls_through;
       test_case "non-retryable tries fallback" `Quick test_cascade_non_retryable_tries_fallback;
       test_case "all fail returns primary error" `Quick test_cascade_all_fail_returns_primary_error;
+      test_case "InvalidRequest cascades through all fallbacks" `Quick test_cascade_invalid_request_tries_all_fallbacks;
     ];
     "builder", [
       test_case "with_fallback" `Quick test_builder_with_fallback;

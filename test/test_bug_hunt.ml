@@ -45,8 +45,10 @@ let test_b1_injector_exception_caught () =
   ()
 
 (* ── B2: cascade fallback with clock=None — FIXED ────────────── *)
-(* Before fix: clock=None → only primary tried, fallbacks ignored.
-   After fix: fallbacks are tried sequentially on retryable errors. *)
+(* Before fix: clock=None → non-retryable errors (AuthError, InvalidRequest)
+   stopped the cascade, skipping fallback providers.
+   After fix (issue #326): fallbacks are tried on any error, matching
+   Retry.with_cascade semantics from PR #336. *)
 
 let test_b2_cascade_fallback_structure () =
   let primary_cfg : Provider.config = {
@@ -63,8 +65,8 @@ let test_b2_cascade_fallback_structure () =
   check bool "cascade has fallback" true (List.length casc.fallbacks > 0);
   check string "primary is fake" "fake-primary" casc.primary.model_id;
   check string "fallback is fake" "fake-fallback" (List.hd casc.fallbacks).model_id;
-  (* Fix verified: api.ml clock=None branch now contains try_providers
-     recursive function that iterates fallbacks on retryable errors. *)
+  (* Fix verified: api.ml clock=None branch's try_providers no longer
+     checks is_retryable — all errors cascade to the next provider. *)
   ()
 
 (* ── B3: injection role alternation — FIXED ───────────────────── *)
