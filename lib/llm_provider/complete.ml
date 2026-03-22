@@ -112,25 +112,29 @@ let complete ~sw ~net ?(transport : Llm_transport.t option)
   let m = match metrics with Some m -> m | None -> Metrics.noop in
   let model_id = config.model_id in
   (* Cache lookup *)
-  let cached = match cache with
-    | Some c ->
-        let key = Cache.request_fingerprint ~config ~messages ~tools () in
+  (* Compute fingerprint once; reuse for both lookup and store *)
+  let cache_key = match cache with
+    | Some _ -> Some (Cache.request_fingerprint ~config ~messages ~tools ())
+    | None -> None
+  in
+  let cached = match cache, cache_key with
+    | Some c, Some key ->
         (match c.get ~key with
          | Some json ->
              (match Cache.response_of_json json with
               | Some resp ->
                   m.on_cache_hit ~model_id;
-                  Some (Ok resp, key)
+                  Some (Ok resp)
               | None ->
                   m.on_cache_miss ~model_id;
                   None)
          | None ->
              m.on_cache_miss ~model_id;
              None)
-    | None -> None
+    | _, _ -> None
   in
   match cached with
-  | Some (result, _key) -> result
+  | Some result -> result
   | None ->
       m.on_request_start ~model_id;
       let { Llm_transport.response = result; latency_ms } =
@@ -144,14 +148,13 @@ let complete ~sw ~net ?(transport : Llm_transport.t option)
       (match result with
        | Ok resp ->
            m.on_request_end ~model_id ~latency_ms;
-           (* Cache store *)
-           (match cache with
-            | Some c ->
-                let key = Cache.request_fingerprint ~config ~messages ~tools () in
+           (* Cache store — reuse pre-computed key *)
+           (match cache, cache_key with
+            | Some c, Some key ->
                 let json = Cache.response_to_json resp in
                 (try c.set ~key ~ttl_sec:300 json
                  with Eio.Io _ | Sys_error _ -> ())
-            | None -> ());
+            | _, _ -> ());
            Ok resp
        | Error err ->
            let err_str = match err with
