@@ -98,9 +98,9 @@ let () =
 
   (* 1. Store in different tiers *)
   Printf.printf "1. Storing data across tiers:\n";
-  Memory.store mem ~tier:Scratchpad "temp_result" (json_s "intermediate");
-  Memory.store mem ~tier:Working "user_pref" (json_s "dark_mode");
-  Memory.store mem ~tier:Long_term "session_count" (json_i 42);
+  ignore (Memory.store mem ~tier:Scratchpad "temp_result" (json_s "intermediate"));
+  ignore (Memory.store mem ~tier:Working "user_pref" (json_s "dark_mode"));
+  ignore (Memory.store mem ~tier:Long_term "session_count" (json_i 42));
   print_stats mem "after stores";
 
   (* 2. Recall with fallback *)
@@ -120,7 +120,7 @@ let () =
 
   (* 4. Clear scratchpad (simulating turn boundary) *)
   Printf.printf "\n4. Clearing scratchpad (turn boundary):\n";
-  Memory.store mem ~tier:Scratchpad "ephemeral" (json_s "gone soon");
+  ignore (Memory.store mem ~tier:Scratchpad "ephemeral" (json_s "gone soon"));
   print_stats mem "before clear";
   Memory.clear_scratchpad mem;
   print_stats mem "after clear";
@@ -210,7 +210,7 @@ let () =
 
   (* 9. Forget *)
   Printf.printf "\n9. Forget 'user_pref' from Working:\n";
-  Memory.forget mem ~tier:Working "user_pref";
+  ignore (Memory.forget mem ~tier:Working "user_pref");
   let gone = Memory.recall_exact mem ~tier:Working "user_pref" in
   Printf.printf "  after forget: %s\n"
     (match gone with Some _ -> "still there" | None -> "gone");

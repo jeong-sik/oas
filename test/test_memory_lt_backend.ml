@@ -118,20 +118,18 @@ let test_persist_error_propagates () =
     query = (fun ~prefix:_ ~limit:_ -> []);
   } in
   let mem = Memory.create ~long_term:backend () in
-  let raised = ref false in
-  (try Memory.store mem ~tier:Long_term "x" (json_s "y")
-   with Failure msg ->
-     raised := true;
-     check bool "message contains reason" true
-       (String.length msg > 0
+  (match Memory.store mem ~tier:Long_term "x" (json_s "y") with
+   | Error reason ->
+     check bool "reason contains write denied" true
+       (String.length reason > 0
         && let needle = "write denied" in
            try
-             for i = 0 to String.length msg - String.length needle do
-               if String.sub msg i (String.length needle) = needle then
+             for i = 0 to String.length reason - String.length needle do
+               if String.sub reason i (String.length needle) = needle then
                  raise Exit
              done; false
-           with Exit -> true));
-  check bool "raised" true !raised
+           with Exit -> true)
+   | Ok () -> fail "expected Error from store")
 
 let test_remove_error_propagates () =
   let backend : Memory.long_term_backend = {
@@ -142,11 +140,10 @@ let test_remove_error_propagates () =
     query = (fun ~prefix:_ ~limit:_ -> []);
   } in
   let mem = Memory.create ~long_term:backend () in
-  Memory.store mem ~tier:Long_term "x" (json_s "y");
-  let raised = ref false in
-  (try Memory.forget mem ~tier:Long_term "x"
-   with Failure _ -> raised := true);
-  check bool "raised" true !raised
+  ignore (Memory.store mem ~tier:Long_term "x" (json_s "y"));
+  (match Memory.forget mem ~tier:Long_term "x" with
+   | Error _ -> ()
+   | Ok () -> fail "expected Error from forget")
 
 (* ── legacy_backend ──────────────────────────────────── *)
 
@@ -158,10 +155,10 @@ let test_legacy_backend () =
     ~remove:(fun ~key -> Hashtbl.remove store key)
   in
   let mem = Memory.create ~long_term:backend () in
-  Memory.store mem ~tier:Long_term "lk" (json_s "lv");
+  ignore (Memory.store mem ~tier:Long_term "lk" (json_s "lv"));
   check (option string) "persisted" (Some "\"lv\"")
     (Option.map Yojson.Safe.to_string (Hashtbl.find_opt store "lk"));
-  Memory.forget mem ~tier:Long_term "lk";
+  ignore (Memory.forget mem ~tier:Long_term "lk");
   check bool "removed" true (not (Hashtbl.mem store "lk"))
 
 let test_legacy_backend_batch () =

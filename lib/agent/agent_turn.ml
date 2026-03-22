@@ -227,6 +227,7 @@ let update_idle_detection ~idle_state ~tool_uses =
 
 (** Process tool results into ToolResult content blocks. *)
 let make_tool_results results =
-  List.map (fun (tool_use_id, content, is_error) ->
-    ToolResult { tool_use_id; content; is_error }
+  List.filter_map (fun (tool_use_id, content, is_error) ->
+    if tool_use_id = "" then None  (* skip non-ToolUse block sentinels *)
+    else Some (ToolResult { tool_use_id; content; is_error })
   ) results

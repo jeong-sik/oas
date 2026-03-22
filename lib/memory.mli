@@ -57,8 +57,10 @@ val set_long_term_backend : t -> long_term_backend -> unit
 (** {1 Generic key-value operations (Scratchpad, Working, Long_term)} *)
 
 (** Store a value at the given tier.  Long_term also invokes the backend.
+    Returns [Error reason] if the long-term backend persist fails
+    (the in-memory copy is still stored).
     For Episodic/Procedural tiers, prefer {!store_episode}/{!store_procedure}. *)
-val store : t -> tier:tier -> string -> Yojson.Safe.t -> unit
+val store : t -> tier:tier -> string -> Yojson.Safe.t -> (unit, string) result
 
 (** Recall a value.  Falls back through lower tiers:
     Scratchpad -> Working -> Long_term.
@@ -68,8 +70,9 @@ val recall : t -> tier:tier -> string -> Yojson.Safe.t option
 (** Recall from a specific tier only, no fallback. *)
 val recall_exact : t -> tier:tier -> string -> Yojson.Safe.t option
 
-(** Remove a key from the given tier. *)
-val forget : t -> tier:tier -> string -> unit
+(** Remove a key from the given tier.
+    Returns [Error reason] if the long-term backend remove fails. *)
+val forget : t -> tier:tier -> string -> (unit, string) result
 
 (** Promote a key from Scratchpad to Working.
     Returns [true] if the key existed in Scratchpad. *)

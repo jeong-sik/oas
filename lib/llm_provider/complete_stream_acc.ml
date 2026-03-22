@@ -14,6 +14,7 @@ type stream_acc = {
   cache_creation: int ref;
   cache_read: int ref;
   stop_reason: Types.stop_reason ref;
+  sse_error: string option ref;
   block_texts: (int, Buffer.t) Hashtbl.t;
   block_types: (int, string) Hashtbl.t;
   block_tool_ids: (int, string) Hashtbl.t;
@@ -25,6 +26,7 @@ let create_stream_acc () = {
   input_tokens = ref 0; output_tokens = ref 0;
   cache_creation = ref 0; cache_read = ref 0;
   stop_reason = ref Types.EndTurn;
+  sse_error = ref None;
   block_texts = Hashtbl.create 4;
   block_types = Hashtbl.create 4;
   block_tool_ids = Hashtbl.create 4;
@@ -63,7 +65,8 @@ let accumulate_event (acc : stream_acc) = function
       (match usage with
        | Some u -> acc.output_tokens := !(acc.output_tokens) + u.output_tokens
        | None -> ())
-  | Types.MessageStop | Types.Ping | Types.SSEError _ -> ()
+  | Types.SSEError msg -> acc.sse_error := Some msg
+  | Types.MessageStop | Types.Ping -> ()
 
 let finalize_stream_acc (acc : stream_acc) =
   let indices =
@@ -109,6 +112,7 @@ let%test "create_stream_acc has sensible defaults" =
   && !(acc.input_tokens) = 0
   && !(acc.output_tokens) = 0
   && !(acc.stop_reason) = Types.EndTurn
+  && !(acc.sse_error) = None
 
 let%test "accumulate_event MessageStart sets id and model" =
   let acc = create_stream_acc () in
@@ -273,10 +277,10 @@ let%test "accumulate_event Ping is no-op" =
   accumulate_event acc Types.Ping;
   !(acc.id) = ""
 
-let%test "accumulate_event SSEError is no-op" =
+let%test "accumulate_event SSEError records error" =
   let acc = create_stream_acc () in
   accumulate_event acc (Types.SSEError "bad");
-  !(acc.id) = ""
+  !(acc.sse_error) = Some "bad"
 
 (* --- finalize_stream_acc edge cases --- *)
 

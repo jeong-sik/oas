@@ -78,7 +78,7 @@ let require t ~agent ~tier ~key needed =
 
 let store t ~agent ~tier key value =
   match require t ~agent ~tier ~key Write with
-  | Ok () -> Memory.store t.mem ~tier key value; Ok ()
+  | Ok () -> ignore (Memory.store t.mem ~tier key value : (unit, string) result); Ok ()
   | Error _ as err -> err
 
 let recall t ~agent ~tier key =
@@ -93,7 +93,7 @@ let recall_exact t ~agent ~tier key =
 
 let forget t ~agent ~tier key =
   match require t ~agent ~tier ~key Write with
-  | Ok () -> Memory.forget t.mem ~tier key; Ok ()
+  | Ok () -> ignore (Memory.forget t.mem ~tier key : (unit, string) result); Ok ()
   | Error _ as err -> err
 
 let store_episode t ~agent (ep : Memory.episode) =

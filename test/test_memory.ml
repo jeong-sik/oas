@@ -12,14 +12,14 @@ let json_i i = `Int i
 
 let test_store_and_recall_scratchpad () =
   let mem = Memory.create () in
-  Memory.store mem ~tier:Scratchpad "key1" (json_s "val1");
+  ignore (Memory.store mem ~tier:Scratchpad "key1" (json_s "val1"));
   match Memory.recall mem ~tier:Scratchpad "key1" with
   | Some (`String "val1") -> ()
   | _ -> fail "expected val1 in scratchpad"
 
 let test_store_and_recall_working () =
   let mem = Memory.create () in
-  Memory.store mem ~tier:Working "key1" (json_s "work");
+  ignore (Memory.store mem ~tier:Working "key1" (json_s "work"));
   match Memory.recall mem ~tier:Working "key1" with
   | Some (`String "work") -> ()
   | _ -> fail "expected work in working"
@@ -33,7 +33,7 @@ let test_recall_missing () =
 
 let test_scratchpad_falls_back_to_working () =
   let mem = Memory.create () in
-  Memory.store mem ~tier:Working "shared" (json_s "from_working");
+  ignore (Memory.store mem ~tier:Working "shared" (json_s "from_working"));
   (* Recall from Scratchpad tier, should fall back to Working *)
   match Memory.recall mem ~tier:Scratchpad "shared" with
   | Some (`String "from_working") -> ()
@@ -41,14 +41,14 @@ let test_scratchpad_falls_back_to_working () =
 
 let test_working_falls_back_to_long_term () =
   let mem = Memory.create () in
-  Memory.store mem ~tier:Long_term "deep" (json_s "lt_val");
+  ignore (Memory.store mem ~tier:Long_term "deep" (json_s "lt_val"));
   match Memory.recall mem ~tier:Working "deep" with
   | Some (`String "lt_val") -> ()
   | _ -> fail "expected fallback to long_term"
 
 let test_recall_exact_no_fallback () =
   let mem = Memory.create () in
-  Memory.store mem ~tier:Working "only_work" (json_s "here");
+  ignore (Memory.store mem ~tier:Working "only_work" (json_s "here"));
   check bool "exact scratchpad miss" true
     (Option.is_none (Memory.recall_exact mem ~tier:Scratchpad "only_work"))
 
@@ -56,7 +56,7 @@ let test_recall_exact_no_fallback () =
 
 let test_promote_scratchpad_to_working () =
   let mem = Memory.create () in
-  Memory.store mem ~tier:Scratchpad "temp" (json_i 42);
+  ignore (Memory.store mem ~tier:Scratchpad "temp" (json_i 42));
   let promoted = Memory.promote mem "temp" in
   check bool "promoted" true promoted;
   (* Should be in Working now *)
@@ -75,8 +75,8 @@ let test_promote_missing_key () =
 
 let test_forget_working () =
   let mem = Memory.create () in
-  Memory.store mem ~tier:Working "bye" (json_s "gone");
-  Memory.forget mem ~tier:Working "bye";
+  ignore (Memory.store mem ~tier:Working "bye" (json_s "gone"));
+  ignore (Memory.forget mem ~tier:Working "bye");
   check bool "forgotten" true
     (Option.is_none (Memory.recall_exact mem ~tier:Working "bye"))
 
@@ -84,9 +84,9 @@ let test_forget_working () =
 
 let test_clear_scratchpad () =
   let mem = Memory.create () in
-  Memory.store mem ~tier:Scratchpad "a" (json_i 1);
-  Memory.store mem ~tier:Scratchpad "b" (json_i 2);
-  Memory.store mem ~tier:Working "c" (json_i 3);
+  ignore (Memory.store mem ~tier:Scratchpad "a" (json_i 1));
+  ignore (Memory.store mem ~tier:Scratchpad "b" (json_i 2));
+  ignore (Memory.store mem ~tier:Working "c" (json_i 3));
   Memory.clear_scratchpad mem;
   let (s, w, _, _, _) = Memory.stats mem in
   check int "scratchpad empty" 0 s;
@@ -96,9 +96,9 @@ let test_clear_scratchpad () =
 
 let test_working_entries () =
   let mem = Memory.create () in
-  Memory.store mem ~tier:Working "x" (json_s "1");
-  Memory.store mem ~tier:Working "y" (json_s "2");
-  Memory.store mem ~tier:Scratchpad "z" (json_s "3");
+  ignore (Memory.store mem ~tier:Working "x" (json_s "1"));
+  ignore (Memory.store mem ~tier:Working "y" (json_s "2"));
+  ignore (Memory.store mem ~tier:Scratchpad "z" (json_s "3"));
   let entries = Memory.working_entries mem in
   check int "2 working entries" 2 (List.length entries)
 
@@ -106,10 +106,10 @@ let test_working_entries () =
 
 let test_stats () =
   let mem = Memory.create () in
-  Memory.store mem ~tier:Scratchpad "s1" (json_i 1);
-  Memory.store mem ~tier:Scratchpad "s2" (json_i 2);
-  Memory.store mem ~tier:Working "w1" (json_i 3);
-  Memory.store mem ~tier:Long_term "l1" (json_i 4);
+  ignore (Memory.store mem ~tier:Scratchpad "s1" (json_i 1));
+  ignore (Memory.store mem ~tier:Scratchpad "s2" (json_i 2));
+  ignore (Memory.store mem ~tier:Working "w1" (json_i 3));
+  ignore (Memory.store mem ~tier:Long_term "l1" (json_i 4));
   let (s, w, _, _, l) = Memory.stats mem in
   check int "scratchpad" 2 s;
   check int "working" 1 w;
@@ -133,7 +133,7 @@ let test_long_term_backend () =
       |> List.filteri (fun i _ -> i < limit));
   } in
   let mem = Memory.create ~long_term:backend () in
-  Memory.store mem ~tier:Long_term "lt_key" (json_s "persisted");
+  ignore (Memory.store mem ~tier:Long_term "lt_key" (json_s "persisted"));
   (* Backend should have it *)
   (match Hashtbl.find_opt store "lt_key" with
    | Some (`String "persisted") -> ()
@@ -143,7 +143,7 @@ let test_long_term_backend () =
    | Some (`String "persisted") -> ()
    | _ -> fail "recall should find it");
   (* Forget should remove from backend *)
-  Memory.forget mem ~tier:Long_term "lt_key";
+  ignore (Memory.forget mem ~tier:Long_term "lt_key");
   check bool "backend removed" true
     (not (Hashtbl.mem store "lt_key"))
 
@@ -159,7 +159,7 @@ let test_long_term_backend_set_after_create () =
   } in
   let mem = Memory.create () in
   Memory.set_long_term_backend mem backend;
-  Memory.store mem ~tier:Long_term "late" (json_i 99);
+  ignore (Memory.store mem ~tier:Long_term "late" (json_i 99));
   (match Hashtbl.find_opt store "late" with
    | Some (`Int 99) -> ()
    | _ -> fail "late backend should work")
@@ -169,7 +169,7 @@ let test_long_term_backend_set_after_create () =
 let test_context_access () =
   let ctx = Context.create () in
   let mem = Memory.create ~ctx () in
-  Memory.store mem ~tier:Working "via_mem" (json_s "hello");
+  ignore (Memory.store mem ~tier:Working "via_mem" (json_s "hello"));
   (* Should be visible in the underlying context *)
   let ctx_out = Memory.context mem in
   (match Context.get_scoped ctx_out Session "via_mem" with
