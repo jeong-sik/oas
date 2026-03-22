@@ -44,6 +44,9 @@ val find_and_execute_tool :
 
 (** Execute tool-use content blocks in parallel using Eio fibers.
 
+    Non-[ToolUse] blocks in the input list are filtered out before
+    execution — only [ToolUse] blocks produce result triples.
+
     For each [ToolUse] block, applies the [PreToolUse] hook before execution.
     Supports approval flow: if the hook returns [ApprovalRequired], the
     [approval] callback is invoked.
@@ -52,8 +55,8 @@ val find_and_execute_tool :
     canceling siblings (except [Out_of_memory], [Stack_overflow],
     [Sys.Break]).
 
-    Returns [(tool_use_id, content, is_error)] triples in the same order
-    as the input. *)
+    Returns [(tool_use_id, content, is_error)] triples, one per [ToolUse]
+    block, in the same relative order as the input. *)
 val execute_tools :
   context:Context.t ->
   tools:Tool.t list ->

@@ -85,14 +85,20 @@ let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tra
 
 (** Execute tools in parallel using Eio fibers.
     Applies PreToolUse/PostToolUse hooks and passes context to context-aware handlers.
-    Each fiber catches exceptions to prevent one tool failure from canceling siblings. *)
+    Each fiber catches exceptions to prevent one tool failure from canceling siblings.
+    Non-ToolUse blocks are filtered out before execution. *)
 let execute_tools ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tracer
     ~agent_name ~turn_count ~(usage : Types.usage_stats) ~approval
     ?on_tool_execution_started
     ?on_tool_execution_finished ?on_hook_invoked tool_uses =
-  Eio.Fiber.List.map (fun block ->
+  (* Filter to ToolUse blocks only — prevents bogus result triples for
+     Text/Thinking/etc. blocks that may be present in the input list. *)
+  let tool_use_blocks = List.filter_map (fun block ->
     match block with
-    | ToolUse { id; name; input } ->
+    | ToolUse { id; name; input } -> Some (id, name, input)
+    | _ -> None
+  ) tool_uses in
+  Eio.Fiber.List.map (fun (id, name, input) ->
         (match on_tool_execution_started with
          | Some callback -> callback ~tool_use_id:id ~tool_name:name ~input
          | None -> ());
@@ -159,8 +165,4 @@ let execute_tools ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tracer
              callback ~tool_use_id:id ~tool_name:name ~content ~is_error
          | None -> ());
         triple
-    | _ ->
-        (* Non-ToolUse blocks (Text, Thinking, etc.) are not tool calls.
-           Skip them instead of returning a bogus error triple. *)
-        ("", "", false)
-  ) tool_uses
+  ) tool_use_blocks

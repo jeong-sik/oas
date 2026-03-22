@@ -137,6 +137,34 @@ let test_skip_override_unaffected () =
     check bool "override not error" false err2
   | _ -> fail "expected exactly two results")
 
+let test_non_tool_use_blocks_filtered () =
+  (* Non-ToolUse blocks (Text, Thinking) must be filtered out, not produce
+     bogus ("", "", false) triples. Regression test for issue #327. *)
+  let hooks = Hooks.empty in
+  let results = run_execute ~hooks [
+    Text "some assistant text";
+    ToolUse { id = "t1"; name = "safe"; input = `String "data" };
+    Thinking { thinking_type = "thinking"; content = "reasoning" };
+    ToolUse { id = "t2"; name = "safe"; input = `String "more" };
+  ] in
+  (* Only the 2 ToolUse blocks should produce results *)
+  check int "result count" 2 (List.length results);
+  let sorted = List.sort (fun (a, _, _) (b, _, _) -> String.compare a b) results in
+  (match sorted with
+  | [(id1, _, _); (id2, _, _)] ->
+    check string "first id" "t1" id1;
+    check string "second id" "t2" id2
+  | _ -> fail "expected exactly two results")
+
+let test_only_non_tool_use_blocks () =
+  (* When all blocks are non-ToolUse, result should be empty *)
+  let hooks = Hooks.empty in
+  let results = run_execute ~hooks [
+    Text "just text";
+    Thinking { thinking_type = "thinking"; content = "thoughts" };
+  ] in
+  check int "empty results" 0 (List.length results)
+
 let () =
   run "Approval" [
     "approval_required", [
@@ -146,5 +174,9 @@ let () =
       test_case "Edit modifies input" `Quick test_approval_edit;
       test_case "selective by tool name" `Quick test_selective_approval;
       test_case "Skip/Override unaffected" `Quick test_skip_override_unaffected;
+    ];
+    "non_tool_use_filtering", [
+      test_case "mixed blocks filtered (#327)" `Quick test_non_tool_use_blocks_filtered;
+      test_case "only non-ToolUse = empty" `Quick test_only_non_tool_use_blocks;
     ];
   ]
