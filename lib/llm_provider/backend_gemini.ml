@@ -32,9 +32,9 @@ let build_tool_id_to_name (messages : message list) : (string, string) Hashtbl.t
 
 let part_of_content_block id_to_name = function
   | Text s ->
-      Some (`Assoc [("text", `String s)])
+      Some (`Assoc [("text", `String (Utf8_sanitize.sanitize s))])
   | Thinking { content; _ } ->
-      Some (`Assoc [("thought", `Bool true); ("text", `String content)])
+      Some (`Assoc [("thought", `Bool true); ("text", `String (Utf8_sanitize.sanitize content))])
   | Image { media_type; data; _ } ->
       Some (`Assoc [
         ("inlineData", `Assoc [
@@ -71,7 +71,7 @@ let part_of_content_block id_to_name = function
       Some (`Assoc [
         ("functionResponse", `Assoc [
           ("name", `String name);
-          ("response", `Assoc [("result", `String content)]);
+          ("response", `Assoc [("result", `String (Utf8_sanitize.sanitize content))]);
         ])
       ])
   | RedactedThinking _ -> None
@@ -134,8 +134,10 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
   (* Prepend system_prompt from config if present *)
   let system_instruction = match config.system_prompt, system_instruction with
     | Some s, None when not (Api_common.string_is_blank s) ->
+        let s = Utf8_sanitize.sanitize s in
         Some (`Assoc [("parts", `List [`Assoc [("text", `String s)]])])
     | Some s, Some (`Assoc fields) when not (Api_common.string_is_blank s) ->
+        let s = Utf8_sanitize.sanitize s in
         let existing_parts = match List.assoc_opt "parts" fields with
           | Some (`List ps) -> ps | _ -> []
         in

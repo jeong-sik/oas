@@ -28,8 +28,8 @@ let string_is_blank s =
 let text_blocks_to_string blocks =
   blocks
   |> List.filter_map (function
-         | Text s -> Some s
-         | Thinking { content = s; _ } -> Some s
+         | Text s -> Some (Utf8_sanitize.sanitize s)
+         | Thinking { content = s; _ } -> Some (Utf8_sanitize.sanitize s)
          | RedactedThinking _ -> None
          | ToolUse _ | ToolResult _ | Image _ | Document _ | Audio _ -> None)
   |> String.concat "\n"
@@ -40,12 +40,12 @@ let json_of_string_or_raw s =
 
 (** Content block <-> JSON *)
 let content_block_to_json = function
-  | Text s -> `Assoc [("type", `String "text"); ("text", `String s)]
+  | Text s -> `Assoc [("type", `String "text"); ("text", `String (Utf8_sanitize.sanitize s))]
   | Thinking { thinking_type; content } ->
       `Assoc [
         ("type", `String "thinking");
         ("signature", `String thinking_type);
-        ("thinking", `String content);
+        ("thinking", `String (Utf8_sanitize.sanitize content));
       ]
   | RedactedThinking data ->
       `Assoc [("type", `String "redacted_thinking"); ("data", `String data)]
@@ -60,7 +60,7 @@ let content_block_to_json = function
       `Assoc [
         ("type", `String "tool_result");
         ("tool_use_id", `String tool_use_id);
-        ("content", `String content);
+        ("content", `String (Utf8_sanitize.sanitize content));
         ("is_error", `Bool is_error);
       ]
   | Image { media_type; data; source_type } ->
