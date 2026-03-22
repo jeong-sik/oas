@@ -110,6 +110,38 @@ let test_cancel () =
      | Error e -> fail (Printf.sprintf "wrong error: %s" (Error.to_string e)))
   with Exit -> ()
 
+(* ── cancel fires cancel_fn before resolving future ──────────────── *)
+
+let test_cancel_fiber_stops_before_resolve () =
+  Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  try
+    Eio.Switch.run @@ fun sw ->
+    (* Slow server: 5s delay — ensures the fiber is blocked in I/O *)
+    let url =
+      start_mock ~sw ~net:env#net ~clock ~port:18020
+        ~delay_sec:5.0 "slow-cancel"
+    in
+    let agent = make_agent ~net:env#net url "cancel-order-agent" in
+    let future = Async_agent.spawn ~sw ~clock agent "test" in
+    (* Give the fiber time to start and set cancel_fn *)
+    Eio.Time.sleep clock 0.05;
+    (* Cancel: must fire cancel_fn before resolving future.
+       After cancel returns, the fiber should have received the
+       cancellation signal. We verify by yielding once and
+       checking that await returns the cancel error. *)
+    Async_agent.cancel future;
+    Eio.Fiber.yield ();
+    check bool "ready after cancel" true (Async_agent.is_ready future);
+    (match Async_agent.await future with
+     | Ok _ -> fail "expected cancelled error"
+     | Error (Error.Internal msg) ->
+       check string "cancel message" "cancelled" msg;
+       Eio.Switch.fail sw Exit
+     | Error e ->
+       fail (Printf.sprintf "wrong error: %s" (Error.to_string e)))
+  with Exit -> ()
+
 (* ── race (first wins) ────────────────────────────────────────────── *)
 
 let test_race_first_wins () =
@@ -239,6 +271,8 @@ let () =
       test_case "spawn_and_await" `Quick test_spawn_and_await;
       test_case "is_ready" `Quick test_is_ready;
       test_case "cancel" `Quick test_cancel;
+      test_case "cancel_fiber_stops_before_resolve" `Quick
+        test_cancel_fiber_stops_before_resolve;
     ];
     "race", [
       test_case "first_wins" `Quick test_race_first_wins;
