@@ -192,6 +192,20 @@ let load_profile ~config_path ~name =
         items
     | _ -> []
 
+(* ── Cascade-level error classification ────────────────── *)
+
+(** Decide whether an error should cascade to the next provider.
+    Different from {!Complete.is_retryable} which governs same-provider retry:
+    - Auth errors (401/403) are NOT retryable on the same provider but SHOULD
+      cascade to the next one (different provider may have valid credentials).
+    - Rate limits and server errors cascade as before.
+    - Network errors (connection refused, DNS) always cascade. *)
+let should_cascade_to_next = function
+  | Http_client.HttpError { code; _ } ->
+    code = 401 || code = 403
+    || code = 429 || code = 500 || code = 502 || code = 503 || code = 529
+  | Http_client.NetworkError _ -> true
+
 (* ── Discovery-aware health filtering ──────────────────── *)
 
 let is_local_provider (cfg : Provider_config.t) =
@@ -206,7 +220,19 @@ let is_local_provider (cfg : Provider_config.t) =
   || starts_with "http://localhost/"
   || url = "http://localhost"
 
+(** Check whether a provider has credentials when required.
+    Local providers (llama on localhost) never need an API key.
+    Cloud providers with an empty [api_key] are filtered out. *)
+let has_required_api_key (cfg : Provider_config.t) =
+  cfg.api_key <> "" || is_local_provider cfg
+
 let filter_healthy ~sw ~net (providers : Provider_config.t list) =
+  (* Step 0: Remove cloud providers missing required API keys *)
+  let providers =
+    let with_keys = List.filter has_required_api_key providers in
+    if with_keys = [] then providers  (* keep all rather than empty *)
+    else with_keys
+  in
   let local_providers =
     List.filter is_local_provider providers
   in
@@ -360,7 +386,7 @@ let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
              ~from_model:cfg.model_id ~to_model:next_cfg.model_id
              ~reason:err_str
          | [] -> ());
-        if Complete.is_retryable err then
+        if should_cascade_to_next err then
           try_next (Some err) rest
         else
           Error err
@@ -469,7 +495,7 @@ let complete_cascade_stream ~sw ~net ?(metrics : Metrics.t option)
              ~from_model:cfg.model_id ~to_model:next_cfg.model_id
              ~reason:err_str
          | [] -> ());
-        if Complete.is_retryable err then
+        if should_cascade_to_next err then
           try_next (Some err) rest
         else
           Error err
@@ -788,3 +814,57 @@ let%test "resolve_model_strings_traced returns Hardcoded_defaults on empty confi
       ~name:"missing" ~defaults:["fallback:x"] () in
     Sys.remove tmp;
     source = Hardcoded_defaults)
+
+(* ── should_cascade_to_next tests ─────────────────────── *)
+
+let%test "should_cascade_to_next 401 auth error" =
+  should_cascade_to_next (Http_client.HttpError { code = 401; body = "" }) = true
+
+let%test "should_cascade_to_next 403 forbidden" =
+  should_cascade_to_next (Http_client.HttpError { code = 403; body = "" }) = true
+
+let%test "should_cascade_to_next 429 rate limit" =
+  should_cascade_to_next (Http_client.HttpError { code = 429; body = "" }) = true
+
+let%test "should_cascade_to_next 500 server error" =
+  should_cascade_to_next (Http_client.HttpError { code = 500; body = "" }) = true
+
+let%test "should_cascade_to_next 502 bad gateway" =
+  should_cascade_to_next (Http_client.HttpError { code = 502; body = "" }) = true
+
+let%test "should_cascade_to_next 503 service unavailable" =
+  should_cascade_to_next (Http_client.HttpError { code = 503; body = "" }) = true
+
+let%test "should_cascade_to_next 529 overloaded" =
+  should_cascade_to_next (Http_client.HttpError { code = 529; body = "" }) = true
+
+let%test "should_cascade_to_next network error" =
+  should_cascade_to_next (Http_client.NetworkError { message = "refused" }) = true
+
+let%test "should_cascade_to_next 400 bad request stops" =
+  should_cascade_to_next (Http_client.HttpError { code = 400; body = "" }) = false
+
+let%test "should_cascade_to_next 404 not found stops" =
+  should_cascade_to_next (Http_client.HttpError { code = 404; body = "" }) = false
+
+(* ── has_required_api_key tests ───────────────────────── *)
+
+let%test "has_required_api_key with key present" =
+  let cfg = Provider_config.make ~kind:OpenAI_compat ~model_id:"m"
+    ~base_url:"https://api.example.com" ~api_key:"sk-123" () in
+  has_required_api_key cfg = true
+
+let%test "has_required_api_key local no key is ok" =
+  let cfg = Provider_config.make ~kind:OpenAI_compat ~model_id:"m"
+    ~base_url:"http://127.0.0.1:8085" () in
+  has_required_api_key cfg = true
+
+let%test "has_required_api_key localhost no key is ok" =
+  let cfg = Provider_config.make ~kind:OpenAI_compat ~model_id:"m"
+    ~base_url:"http://localhost:8085" () in
+  has_required_api_key cfg = true
+
+let%test "has_required_api_key cloud no key is rejected" =
+  let cfg = Provider_config.make ~kind:Anthropic ~model_id:"m"
+    ~base_url:"https://api.anthropic.com" () in
+  has_required_api_key cfg = false
