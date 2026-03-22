@@ -11,7 +11,7 @@ include Llm_provider.Backend_openai
 let system_message_json (config : agent_state) : Yojson.Safe.t list =
   match config.config.system_prompt with
   | Some s when not (Api_common.string_is_blank s) ->
-      [ `Assoc [("role", `String "system"); ("content", `String s)] ]
+      [ `Assoc [("role", `String "system"); ("content", `String (Llm_provider.Utf8_sanitize.sanitize s))] ]
   | _ -> []
 
 let capabilities_for_request ?provider_config (config : agent_state) =

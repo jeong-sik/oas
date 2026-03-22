@@ -31,7 +31,7 @@ let openai_content_parts_of_blocks blocks =
   blocks
   |> List.filter_map (function
          | Text s ->
-             Some (`Assoc [("type", `String "text"); ("text", `String s)])
+             Some (`Assoc [("type", `String "text"); ("text", `String (Utf8_sanitize.sanitize s))])
          | Image { media_type; data; source_type = _ } ->
              Some (`Assoc [
                ("type", `String "image_url");
@@ -86,7 +86,7 @@ let openai_messages_of_message (msg : message) : Yojson.Safe.t list =
                         [
                           ("role", `String "tool");
                           ("tool_call_id", `String tool_use_id);
-                          ("content", `String content);
+                          ("content", `String (Utf8_sanitize.sanitize content));
                         ])
                | _ -> None)
       in
@@ -119,7 +119,7 @@ let openai_messages_of_message (msg : message) : Yojson.Safe.t list =
                  Some (`Assoc [
                    ("role", `String "tool");
                    ("tool_call_id", `String tool_use_id);
-                   ("content", `String content);
+                   ("content", `String (Utf8_sanitize.sanitize content));
                  ])
              | _ -> None)
       |> (function
@@ -302,7 +302,7 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
   let provider_messages =
     (match config.system_prompt with
      | Some s when not (Api_common.string_is_blank s) ->
-         [`Assoc [("role", `String "system"); ("content", `String s)]]
+         [`Assoc [("role", `String "system"); ("content", `String (Utf8_sanitize.sanitize s))]]
      | _ -> [])
     @ List.concat_map openai_messages_of_message messages
   in
