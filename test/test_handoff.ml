@@ -185,6 +185,65 @@ let test_run_with_handoffs_reports_unknown_target () =
           fail (Error.to_string e)
   with Exit -> ()
 
+(* ── check_loop_guard unit tests ──────────────────────────────── *)
+
+let make_agent_for_guard () =
+  Eio_main.run @@ fun env ->
+  Agent.create ~net:env#net ()
+
+let test_guard_none_when_fresh () =
+  let agent = make_agent_for_guard () in
+  check (option reject) "no guard fires on fresh agent" None
+    (Agent.check_loop_guard agent)
+
+let test_guard_max_turns () =
+  let agent = make_agent_for_guard () in
+  let st = Agent.state agent in
+  Agent.set_state agent { st with turn_count = st.config.max_turns };
+  match Agent.check_loop_guard agent with
+  | Some (Error.Agent (Error.MaxTurnsExceeded _)) -> ()
+  | _ -> fail "expected MaxTurnsExceeded"
+
+let test_guard_idle_detected () =
+  let agent = make_agent_for_guard () in
+  let max_idle = (Agent.options agent).max_idle_turns in
+  Agent.set_consecutive_idle_turns agent max_idle;
+  match Agent.check_loop_guard agent with
+  | Some (Error.Agent (Error.IdleDetected r)) ->
+    check int "idle turns" max_idle r.consecutive_idle_turns
+  | _ -> fail "expected IdleDetected"
+
+let test_guard_idle_disabled () =
+  (* max_idle_turns = 0 disables the idle guard *)
+  Eio_main.run @@ fun env ->
+  let options = { Agent.default_options with max_idle_turns = 0 } in
+  let agent = Agent.create ~net:env#net ~options () in
+  Agent.set_consecutive_idle_turns agent 999;
+  check (option reject) "idle guard disabled" None
+    (Agent.check_loop_guard agent)
+
+let test_guard_token_budget () =
+  Eio_main.run @@ fun env ->
+  let config = { Types.default_config with max_total_tokens = Some 100 } in
+  let agent = Agent.create ~net:env#net ~config () in
+  let st = Agent.state agent in
+  Agent.set_state agent { st with usage =
+    { st.usage with total_input_tokens = 50; total_output_tokens = 60 } };
+  match Agent.check_loop_guard agent with
+  | Some (Error.Agent (Error.TokenBudgetExceeded _)) -> ()
+  | _ -> fail "expected TokenBudgetExceeded"
+
+let test_guard_cost_budget () =
+  Eio_main.run @@ fun env ->
+  let config = { Types.default_config with max_cost_usd = Some 1.0 } in
+  let agent = Agent.create ~net:env#net ~config () in
+  let st = Agent.state agent in
+  Agent.set_state agent { st with usage =
+    { st.usage with estimated_cost_usd = 1.5 } };
+  match Agent.check_loop_guard agent with
+  | Some (Error.Agent (Error.CostBudgetExceeded _)) -> ()
+  | _ -> fail "expected CostBudgetExceeded"
+
 let () =
   (* Mock server tests need a key in env but don't use it *)
   if Sys.getenv_opt "ANTHROPIC_API_KEY" = None then
@@ -208,5 +267,13 @@ let () =
         test_run_with_handoffs_intercepts_tool_use;
       test_case "reports unknown target" `Quick
         test_run_with_handoffs_reports_unknown_target;
+    ];
+    "loop_guard", [
+      test_case "none on fresh agent" `Quick test_guard_none_when_fresh;
+      test_case "max_turns fires" `Quick test_guard_max_turns;
+      test_case "idle detected fires" `Quick test_guard_idle_detected;
+      test_case "idle disabled when 0" `Quick test_guard_idle_disabled;
+      test_case "token budget fires" `Quick test_guard_token_budget;
+      test_case "cost budget fires" `Quick test_guard_cost_budget;
     ];
   ]

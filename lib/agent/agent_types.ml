@@ -101,6 +101,7 @@ let context t = t.context
 let options t = t.options
 let net t = t.net
 let set_state t s = t.state <- s
+let set_consecutive_idle_turns t n = t.consecutive_idle_turns <- n
 let description t = t.options.description
 let memory t = t.options.memory
 
