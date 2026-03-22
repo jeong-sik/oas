@@ -556,6 +556,66 @@ let test_gemini_stream_thinking_delta_index () =
         | _ -> fail "expected [ContentBlockStart text; ContentBlockDelta text]")
    | None -> fail "expected Some chunk")
 
+(** Regression test for issue #333: function call before text in Gemini
+    must not collide block indices. *)
+let test_gemini_stream_tool_first_then_text () =
+  let state = Streaming.create_openai_stream_state () in
+  (* Chunk 1: functionCall — gets block index 0 *)
+  let data1 = {|{
+    "candidates": [{
+      "content": {
+        "parts": [{"functionCall": {"name": "search", "args": {"q": "test"}}}],
+        "role": "model"
+      }
+    }]
+  }|} in
+  (match Streaming.parse_gemini_sse_chunk data1 with
+   | Some chunk ->
+       let events = Streaming.gemini_chunk_to_events state chunk in
+       (match events with
+        | [ContentBlockStart { index; content_type = "tool_use"; _ };
+           ContentBlockDelta { index = d_idx; delta = InputJsonDelta _; _ }] ->
+            check int "tool start index" 0 index;
+            check int "tool delta index" 0 d_idx
+        | _ -> fail "expected tool_use start + delta")
+   | None -> fail "expected Some chunk");
+  (* Chunk 2: text — must get index 1, not 0 *)
+  let data2 = {|{
+    "candidates": [{
+      "content": {
+        "parts": [{"text": "here are the results"}],
+        "role": "model"
+      }
+    }]
+  }|} in
+  (match Streaming.parse_gemini_sse_chunk data2 with
+   | Some chunk ->
+       let events = Streaming.gemini_chunk_to_events state chunk in
+       (match events with
+        | [ContentBlockStart { index = s_idx; content_type = "text"; _ };
+           ContentBlockDelta { index = d_idx; delta = TextDelta "here are the results"; _ }] ->
+            check int "text start index" 1 s_idx;
+            check int "text delta index" 1 d_idx
+        | _ -> fail "expected text start at index 1 + delta")
+   | None -> fail "expected Some chunk");
+  (* Chunk 3: more text — must reuse index 1 *)
+  let data3 = {|{
+    "candidates": [{
+      "content": {
+        "parts": [{"text": " for your query"}],
+        "role": "model"
+      }
+    }]
+  }|} in
+  (match Streaming.parse_gemini_sse_chunk data3 with
+   | Some chunk ->
+       let events = Streaming.gemini_chunk_to_events state chunk in
+       (match events with
+        | [ContentBlockDelta { index; delta = TextDelta " for your query"; _ }] ->
+            check int "subsequent text index" 1 index
+        | _ -> fail "expected delta only at index 1")
+   | None -> fail "expected Some chunk")
+
 (* ── Suite ────────────────────────────────────────── *)
 
 let () =
@@ -591,6 +651,7 @@ let () =
       test_case "function call chunk" `Quick test_gemini_stream_function_call;
       test_case "finish reason" `Quick test_gemini_stream_finish;
       test_case "thinking delta index (#332)" `Quick test_gemini_stream_thinking_delta_index;
+      test_case "tool-first then text (#333)" `Quick test_gemini_stream_tool_first_then_text;
     ];
     "cascade_config", [
       test_case "gemini kind" `Quick test_cascade_gemini_kind;
