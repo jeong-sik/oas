@@ -107,33 +107,33 @@ let parse_judgment text =
     let score = clamp_01 (json |> member "score" |> to_float) in
     let confidence = clamp_01
         (try json |> member "confidence" |> to_float
-         with _ -> 0.5) in
+         with Type_error _ -> 0.5) in
     let risk =
       try json |> member "risk" |> to_string |> String.lowercase_ascii |> risk_level_of_string
-      with _ -> risk_of_score score
+      with Type_error _ -> risk_of_score score
     in
     let summary =
       try json |> member "summary" |> to_string
-      with _ -> "No summary provided"
+      with Type_error _ -> "No summary provided"
     in
     let evidence =
       try json |> member "evidence" |> to_list |> List.filter_map (fun j ->
-        try Some (to_string j) with _ -> None)
-      with _ -> []
+        try Some (to_string j) with Type_error _ -> None)
+      with Type_error _ -> []
     in
     let recommended_action =
       try
         match json |> member "recommended_action" with
         | `Null -> None
         | j -> Some (to_string j)
-      with _ -> None
+      with Type_error _ -> None
     in
     Ok { score; confidence; risk; summary; evidence; recommended_action }
   with
   | Yojson.Json_error msg ->
     Error (Printf.sprintf "JSON parse error: %s" msg)
-  | exn ->
-    Error (Printf.sprintf "Parse error: %s" (Printexc.to_string exn))
+  | Yojson.Safe.Util.Type_error (msg, _) ->
+    Error (Printf.sprintf "JSON type error: %s" msg)
 
 (* ── LLM call ───────────────────────────────────────────── *)
 
