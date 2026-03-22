@@ -60,8 +60,15 @@ let aggregate_scores strategy scores =
 
 (* ── Fire callback safely ───────────────────────────────────────── *)
 
-let fire opt arg = match opt with Some f -> (try f arg with _ -> ()) | None -> ()
-let fire2 opt a b = match opt with Some f -> (try f a b with _ -> ()) | None -> ()
+let fire opt arg = match opt with
+  | Some f -> (try f arg with exn ->
+    Printf.eprintf "swarm callback raised: %s\n%!" (Printexc.to_string exn))
+  | None -> ()
+
+let fire2 opt a b = match opt with
+  | Some f -> (try f a b with exn ->
+    Printf.eprintf "swarm callback raised: %s\n%!" (Printexc.to_string exn))
+  | None -> ()
 
 (* ── Agent-level retry ──────────────────────────────────────────── *)
 
@@ -84,7 +91,9 @@ let run_one_agent ~sw ~clock ~callbacks ?(max_retries=default_agent_max_retries)
     let elapsed = Unix.gettimeofday () -. t0 in
     let telemetry =
       match entry.get_telemetry with
-      | Some f -> (try f () with _ -> empty_telemetry)
+      | Some f -> (try f () with exn ->
+        Printf.eprintf "get_telemetry raised: %s\n%!" (Printexc.to_string exn);
+        empty_telemetry)
       | None -> empty_telemetry
     in
     match result with
@@ -107,7 +116,9 @@ let run_one_agent ~sw ~clock ~callbacks ?(max_retries=default_agent_max_retries)
 let check_resource config =
   match config.resource_check with
   | None -> true
-  | Some f -> (try f () with _ -> false)
+  | Some f -> (try f () with exn ->
+    Printf.eprintf "resource_check raised: %s\n%!" (Printexc.to_string exn);
+    false)
 
 (* ── Run agents by mode (shared) ────────────────────────────────── *)
 
