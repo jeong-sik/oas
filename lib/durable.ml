@@ -188,7 +188,9 @@ let journal_entry_of_json json =
     let attempt = json |> member "attempt" |> to_int in
     Ok { step_name; started_at; completed_at; input_json; output_json;
          error; attempt }
-  with exn -> Error (Printexc.to_string exn)
+  with
+  | Eio.Cancel.Cancelled _ as e -> raise e
+  | exn -> Error (Printexc.to_string exn)
 
 let journal_list_to_json journal =
   `List (List.map journal_entry_to_json journal)
@@ -258,4 +260,6 @@ let execution_state_of_json json =
        | Ok journal -> Ok (Failed { at_step; journal; error })
        | Error e -> Error e)
     | unknown -> Error (Printf.sprintf "unknown execution state: %s" unknown)
-  with exn -> Error (Printexc.to_string exn)
+  with
+  | Eio.Cancel.Cancelled _ as e -> raise e
+  | exn -> Error (Printexc.to_string exn)

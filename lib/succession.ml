@@ -291,5 +291,7 @@ let dna_of_json json =
       warnings = str_list_of_json (json |> member "warnings");
       metrics = metrics_of_json (json |> member "metrics");
     }
-  with exn ->
+  with
+  | Eio.Cancel.Cancelled _ as e -> raise e
+  | exn ->
     Error (Printf.sprintf "DNA parse error: %s" (Printexc.to_string exn))

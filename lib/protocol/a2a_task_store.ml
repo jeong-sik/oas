@@ -28,7 +28,9 @@ let create base_dir =
   try
     Eio.Path.mkdirs ~exists_ok:true ~perm:0o755 base_dir;
     Ok { base_dir; cache = Hashtbl.create 64 }
-  with exn -> io_error_of_exn ~op:"create" ~path:"task_store_dir" exn
+  with
+  | Eio.Cancel.Cancelled _ as e -> raise e
+  | exn -> io_error_of_exn ~op:"create" ~path:"task_store_dir" exn
 
 let store_task store (task : A2a_task.task) =
   match validate_task_id task.id with
@@ -43,7 +45,9 @@ let store_task store (task : A2a_task.task) =
        Eio.Path.rename tmp target;
        Hashtbl.replace store.cache task.id task;
        Ok ()
-     with exn ->
+     with
+     | Eio.Cancel.Cancelled _ as e -> raise e
+     | exn ->
        (try Eio.Path.unlink tmp with Eio.Io _ | Unix.Unix_error _ -> ());
        io_error_of_exn ~op:"store_task" ~path:task.id exn)
 
@@ -62,7 +66,9 @@ let delete_task store id =
        Eio.Path.unlink path;
        Hashtbl.remove store.cache id;
        Ok ()
-     with exn -> io_error_of_exn ~op:"delete_task" ~path:id exn)
+     with
+     | Eio.Cancel.Cancelled _ as e -> raise e
+     | exn -> io_error_of_exn ~op:"delete_task" ~path:id exn)
 
 (** Reload all tasks from disk into the cache.
     Skips files that fail to parse (corrupted JSON). *)
@@ -88,7 +94,9 @@ let reload store =
       with Eio.Io _ | Yojson.Json_error _ -> ()  (* skip unreadable/corrupt files *)
     ) json_files;
     Ok ()
-  with exn -> io_error_of_exn ~op:"reload" ~path:"task_store_dir" exn
+  with
+  | Eio.Cancel.Cancelled _ as e -> raise e
+  | exn -> io_error_of_exn ~op:"reload" ~path:"task_store_dir" exn
 
 (** Garbage-collect terminal tasks older than [max_age_s] seconds.
     Returns the number of tasks removed. *)

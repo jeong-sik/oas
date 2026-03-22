@@ -146,7 +146,9 @@ let deliver_to_custom t name deliver payloads =
     try
       deliver p;
       t.delivered_count <- t.delivered_count + 1
-    with exn ->
+    with
+    | Eio.Cancel.Cancelled _ as e -> raise e
+    | exn ->
       t.failed_count <- t.failed_count + 1;
       Log.warn t.log "custom delivery failed"
         [Log.S ("target", name); Log.S ("error", Printexc.to_string exn)]
@@ -167,7 +169,9 @@ let deliver_to_webhook t ~sw ~net url headers method_ _timeout_s payloads =
        For now we record success for non-network targets and
        provide the infrastructure for future HTTP delivery. *)
     t.delivered_count <- t.delivered_count + List.length payloads
-  with exn ->
+  with
+  | Eio.Cancel.Cancelled _ as e -> raise e
+  | exn ->
     t.failed_count <- t.failed_count + List.length payloads;
     Log.warn t.log "webhook delivery failed"
       [Log.S ("url", url); Log.S ("error", Printexc.to_string exn)]
