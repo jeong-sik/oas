@@ -196,7 +196,7 @@ let test_card_with_config () =
 (* ── Help output ────────────────────────────────────────── *)
 
 let test_help () =
-  let cmd = Printf.sprintf "%s --help 2>&1" cli_exe in
+  let cmd = Printf.sprintf "%s --help=plain 2>&1" cli_exe in
   let ic = Unix.open_process_in cmd in
   let output = In_channel.input_all ic in
   let _ = Unix.close_process_in ic in
