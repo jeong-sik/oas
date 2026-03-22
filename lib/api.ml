@@ -136,7 +136,7 @@ let create_message ~sw ~net ?(base_url=default_base_url) ?provider ?clock ?retry
        | Error err -> Error (Error.Api err))
 
 (** Send a message with cascade failover across providers.
-    Tries primary provider first (with retries); on retryable failure,
+    Tries primary provider first (with retries); on any failure,
     tries each fallback provider in order. *)
 let create_message_cascade ~sw ~net ?clock ?retry_config
     ~cascade:(casc : Provider.cascade) ~config ~messages ?tools () =
@@ -159,26 +159,19 @@ let create_message_cascade ~sw ~net ?clock ?retry_config
      | Error err -> Error (Error.Api err))
   | None ->
     (* Without a clock, retries are disabled but we still try fallbacks
-       sequentially on retryable errors. *)
-    let rec try_providers = function
-      | [] -> fun last_err -> Error (Error.Api last_err)
+       sequentially on any error.  A non-retryable error on provider A
+       (e.g. AuthError) should still attempt provider B — the key may be
+       valid there.  Matches Retry.with_cascade semantics (PR #336). *)
+    let rec try_providers primary_err = function
+      | [] -> Error (Error.Api primary_err)
       | provider :: rest ->
-        fun _prev_err ->
           match make_f provider () with
           | Ok _ as success -> success
-          | Error err ->
-            if Retry.is_retryable err then
-              (try_providers rest) err
-            else
-              Error (Error.Api err)
+          | Error _err -> try_providers primary_err rest
     in
     (match make_f casc.primary () with
      | Ok _ as success -> success
-     | Error err ->
-       if Retry.is_retryable err && casc.fallbacks <> [] then
-         (try_providers casc.fallbacks) err
-       else
-         Error (Error.Api err))
+     | Error err -> try_providers err casc.fallbacks)
 
 let create_message_named ~sw ~net ?clock ~(named_cascade : named_cascade)
     ~config ~messages ?tools ?(temperature = 0.3)
