@@ -184,24 +184,63 @@ let test_events_reasoning_then_text () =
       delta_tool_calls = []; finish_reason = None; chunk_usage = None } in
   Alcotest.(check int) "2 events (start+delta)" 2 (List.length r_events);
   (match List.nth r_events 0 with
-   | ContentBlockStart { content_type; _ } ->
+   | ContentBlockStart { index = 0; content_type; _ } ->
        Alcotest.(check string) "thinking type" "thinking" content_type
-   | _ -> Alcotest.fail "expected ContentBlockStart thinking");
+   | _ -> Alcotest.fail "expected ContentBlockStart thinking at index 0");
   (match List.nth r_events 1 with
-   | ContentBlockDelta { delta = ThinkingDelta s; _ } ->
+   | ContentBlockDelta { index = 0; delta = ThinkingDelta s } ->
        Alcotest.(check string) "thinking text" "thinking..." s
-   | _ -> Alcotest.fail "expected ThinkingDelta");
+   | _ -> Alcotest.fail "expected ThinkingDelta at index 0");
   let t_events = S.openai_chunk_to_events state
     { chunk_id = "c"; chunk_model = "m"; delta_content = Some "answer";
       delta_reasoning = None; delta_tool_calls = []; finish_reason = None; chunk_usage = None } in
   Alcotest.(check int) "2 events (start+delta)" 2 (List.length t_events);
   (match List.nth t_events 0 with
-   | ContentBlockStart { content_type; _ } ->
+   | ContentBlockStart { index = 1; content_type; _ } ->
        Alcotest.(check string) "text type" "text" content_type
-   | _ -> Alcotest.fail "expected ContentBlockStart text");
+   | _ -> Alcotest.fail "expected ContentBlockStart text at index 1");
   (match List.nth t_events 1 with
    | ContentBlockDelta { index = 1; delta = TextDelta s } ->
        Alcotest.(check string) "text" "answer" s
+   | _ -> Alcotest.fail "expected TextDelta at index 1")
+
+(** Regression test for issue #332: thinking delta index must match
+    the assigned block index across multiple streaming chunks. *)
+let test_events_reasoning_delta_index_multi_chunk () =
+  let state = S.create_openai_stream_state () in
+  (* First reasoning chunk: starts block at index 0 *)
+  let r1 = S.openai_chunk_to_events state
+    { chunk_id = "c"; chunk_model = "m"; delta_content = None;
+      delta_reasoning = Some "step 1";
+      delta_tool_calls = []; finish_reason = None; chunk_usage = None } in
+  Alcotest.(check int) "2 events (start+delta)" 2 (List.length r1);
+  (match List.nth r1 0 with
+   | ContentBlockStart { index; content_type; _ } ->
+       Alcotest.(check int) "thinking start index" 0 index;
+       Alcotest.(check string) "thinking type" "thinking" content_type
+   | _ -> Alcotest.fail "expected ContentBlockStart thinking");
+  (match List.nth r1 1 with
+   | ContentBlockDelta { index; delta = ThinkingDelta _ } ->
+       Alcotest.(check int) "thinking delta index matches start" 0 index
+   | _ -> Alcotest.fail "expected ThinkingDelta");
+  (* Second reasoning chunk: must still use the same block index *)
+  let r2 = S.openai_chunk_to_events state
+    { chunk_id = "c"; chunk_model = "m"; delta_content = None;
+      delta_reasoning = Some "step 2";
+      delta_tool_calls = []; finish_reason = None; chunk_usage = None } in
+  Alcotest.(check int) "1 event (delta only)" 1 (List.length r2);
+  (match List.hd r2 with
+   | ContentBlockDelta { index; delta = ThinkingDelta s } ->
+       Alcotest.(check int) "subsequent thinking delta index" 0 index;
+       Alcotest.(check string) "text" "step 2" s
+   | _ -> Alcotest.fail "expected ThinkingDelta at index 0");
+  (* Text after thinking: must get index 1, not 0 *)
+  let t_events = S.openai_chunk_to_events state
+    { chunk_id = "c"; chunk_model = "m"; delta_content = Some "answer";
+      delta_reasoning = None; delta_tool_calls = []; finish_reason = None; chunk_usage = None } in
+  (match List.nth t_events 1 with
+   | ContentBlockDelta { index; delta = TextDelta _ } ->
+       Alcotest.(check int) "text delta index" 1 index
    | _ -> Alcotest.fail "expected TextDelta at index 1")
 
 let () =
@@ -227,5 +266,6 @@ let () =
       test_case "finish length" `Quick test_events_length_finish;
       test_case "empty content ignored" `Quick test_events_empty_content_ignored;
       test_case "reasoning then text" `Quick test_events_reasoning_then_text;
+      test_case "reasoning delta index multi-chunk (#332)" `Quick test_events_reasoning_delta_index_multi_chunk;
     ];
   ]
