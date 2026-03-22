@@ -176,12 +176,7 @@ let parse_usage json =
            cache_read_input_tokens = member_int "cache_read_input_tokens" u }
   | _ -> None
 
-let parse_stop_reason s =
-  match s with
-  | "end_turn" -> Types.EndTurn
-  | "tool_use" -> Types.StopToolUse
-  | "max_tokens" -> Types.MaxTokens
-  | _ -> Types.EndTurn
+let parse_stop_reason s = Types.stop_reason_of_string s
 
 (** Parse a sync JSON result into api_response. *)
 let parse_json_result json_str =
@@ -432,7 +427,8 @@ let%test "parse_stop_reason variants" =
   parse_stop_reason "end_turn" = Types.EndTurn
   && parse_stop_reason "tool_use" = Types.StopToolUse
   && parse_stop_reason "max_tokens" = Types.MaxTokens
-  && parse_stop_reason "unknown" = Types.EndTurn
+  && parse_stop_reason "stop_sequence" = Types.StopSequence
+  && parse_stop_reason "unknown" = Types.Unknown "unknown"
 
 let%test "parse_stream_result from result line" =
   let lines = [
