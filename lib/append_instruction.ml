@@ -32,8 +32,9 @@ let render_source ?context ~turn = function
     (match Fs_result.read_file path with
      | Ok content -> Some content
      | Error err ->
-       let _ = Printf.eprintf "[append_instruction] FromFile %s failed: %s\n%!"
-         path (Error.to_string err) in
+       let _log = Log.create ~module_name:"append_instruction" () in
+       Log.warn _log "FromFile failed"
+         [S ("path", path); S ("error", Error.to_string err)];
        None)
   | Dynamic f -> f turn
 

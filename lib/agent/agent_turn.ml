@@ -168,9 +168,10 @@ let apply_context_injection ~context ~messages ~injector ~tool_uses ~results =
       with
       | Eio.Cancel.Cancelled _ as e -> raise e
       | exn ->
-        Printf.eprintf
-          "[oas] context_injector for tool '%s' raised: %s\n%!"
-          name (Printexc.to_string exn))
+        let _log = Log.create ~module_name:"agent_turn" () in
+        Log.warn _log
+          "context_injector raised"
+          [S ("tool", name); S ("error", Printexc.to_string exn)])
     | _ -> ()
   ) tool_uses results;
   !current_messages

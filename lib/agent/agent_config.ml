@@ -269,7 +269,10 @@ let connect_mcp_servers_best_effort ~sw ~mgr ~net mcp_cfgs =
           | Stdio_mcp { name; _ } -> name
           | Http_mcp { name; _ } -> name
         in
-        Printf.eprintf "[oas] MCP server '%s' failed: %s\n%!" name (Error.to_string e);
+        let _log = Log.create ~module_name:"agent_config" () in
+        Log.warn _log
+          "MCP server failed"
+          [S ("server", name); S ("error", Error.to_string e)];
         acc
   ) [] mcp_cfgs
   |> List.rev
