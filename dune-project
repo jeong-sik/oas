@@ -1,6 +1,6 @@
 (lang dune 3.11)
 (name agent_sdk)
-(version 0.87.0)
+(version 0.88.0)
 
 (generate_opam_files true)
 
@@ -25,8 +25,8 @@
   (ppx_deriving_yojson (>= 3.7))
   (ppx_deriving (>= 5.2.1))
   (uri (>= 4.4))
-  (mcp_protocol (>= 0.10.0))
-  (mcp_protocol_eio (>= 0.10.0))
+  (mcp_protocol (>= 0.15.0))
+  (mcp_protocol_eio (>= 0.15.0))
   (cmdliner (>= 1.3.0))
   (alcotest (and :with-test (>= 1.7)))
   (qcheck-core (and :with-test (>= 0.21)))

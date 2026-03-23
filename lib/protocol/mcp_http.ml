@@ -161,8 +161,8 @@ let initialize t =
       ("protocolVersion", `String "2025-11-25");
       ("capabilities", `Assoc []);
       ("clientInfo", `Assoc [
-        ("name", `String "oas-sdk");
-        ("version", `String "0.37.0");
+        ("name", `String "oas-mcp-client");
+        ("version", `String "0.88.0");
       ]);
     ]) ()
   in

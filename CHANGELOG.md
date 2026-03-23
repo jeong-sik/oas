@@ -2,6 +2,25 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.88.0] - 2026-03-23
+
+### Added
+- **MCP Protocol SDK v0.15.0 integration**: upgrade from v0.14.0 (pinned at 0.10.0+).
+  - `Mcp_typed_client`: new typed MCP client module wrapping SDK's `Generic_client.Make(Stdio_transport)` functor. Provides type-safe access to tools, resources, prompts, tasks, resource subscriptions, and resource templates.
+  - Resource subscribe/unsubscribe operations in `Mcp` module (`subscribe_resource`, `unsubscribe_resource`).
+  - Resource template listing in `Mcp` module (`list_resource_templates`).
+  - `Tool_arg` re-exported through `Mcp_typed_client` for type-safe tool argument extraction.
+  - `connect_and_load_typed`: subprocess spawn + initialize + tool listing returning both `Mcp.managed` and typed client handle.
+  - `server_capabilities`: typed capability access after initialize handshake.
+  - `sdk_tools_to_oas`: SDK tool -> OAS `Tool.t` conversion through typed client.
+
+### Changed
+- MCP client version string updated from `0.10.0`/`0.37.0` to `0.87.0` in all initialize handshakes.
+- `dune-project` minimum `mcp_protocol`/`mcp_protocol_eio` version bumped from `0.10.0` to `0.15.0`.
+
+### Tests
+- `test_mcp_typed_client.ml`: 10 tests using in-memory transport (zero IO) covering typed capabilities, tool listing/calling, resource operations, resource templates, resource subscriptions, prompts, tasks, ping, Tool_arg extraction, and OAS bridge with v0.14.0+ fields.
+
 ## [0.78.0] - 2026-03-20
 
 ### Added

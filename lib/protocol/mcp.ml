@@ -173,7 +173,7 @@ let initialize t =
       ("capabilities", `Assoc []);
       ("clientInfo", `Assoc [
         ("name", `String "oas-mcp-client");
-        ("version", `String "0.10.0");
+        ("version", `String "0.88.0");
       ]);
     ]
   in
@@ -304,6 +304,43 @@ let get_prompt t ~name ?(arguments = []) () =
             (Error.Serialization
                (JsonParseError
                   { detail = Printf.sprintf "MCP prompt decode failed: %s" detail })))
+
+(** Subscribe to change notifications for a resource URI. *)
+let subscribe_resource t ~uri =
+  let params = `Assoc [("uri", `String uri)] in
+  match send_request t ~method_:"resources/subscribe" ~params () with
+  | Ok _ -> Ok ()
+  | Error msg ->
+    Error (Error.Mcp (ToolCallFailed { tool_name = uri; detail = msg }))
+
+(** Unsubscribe from change notifications for a resource URI. *)
+let unsubscribe_resource t ~uri =
+  let params = `Assoc [("uri", `String uri)] in
+  match send_request t ~method_:"resources/unsubscribe" ~params () with
+  | Ok _ -> Ok ()
+  | Error msg ->
+    Error (Error.Mcp (ToolCallFailed { tool_name = uri; detail = msg }))
+
+(** List available resource templates from the server. *)
+let list_resource_templates t =
+  let rec loop cursor acc =
+    let params =
+      match cursor with
+      | Some value -> Some (`Assoc [("cursor", `String value)])
+      | None -> None
+    in
+    match send_request t ~method_:"resources/templates/list" ?params () with
+    | Error msg -> Error (Error.Mcp (ToolListFailed { detail = msg }))
+    | Ok result ->
+        let open Yojson.Safe.Util in
+        let* page = decode_items "resourceTemplates" Sdk_types.resource_template_of_yojson result in
+        let next_cursor = result |> member "nextCursor" |> to_string_option in
+        let acc = acc @ page in
+        (match next_cursor with
+         | Some value when String.trim value <> "" -> loop (Some value) acc
+         | _ -> Ok acc)
+  in
+  loop None []
 
 (** Invoke a tool on the MCP server.
     Returns the concatenated text content on success. *)

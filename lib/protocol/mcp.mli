@@ -52,10 +52,22 @@ val list_tools : t -> (mcp_tool list, Error.sdk_error) result
 val call_tool : t -> name:string -> arguments:Yojson.Safe.t -> Types.tool_result
 val to_tools : t -> mcp_tool list -> Tool.t list
 
-(** {1 Resource and prompt operations} *)
+(** {1 Resource operations} *)
 
 val list_resources : t -> (Mcp_schema.mcp_resource list, Error.sdk_error) result
 val read_resource : t -> uri:string -> (Mcp_schema.mcp_resource_contents list, Error.sdk_error) result
+
+(** Subscribe to change notifications for a resource URI. *)
+val subscribe_resource : t -> uri:string -> (unit, Error.sdk_error) result
+
+(** Unsubscribe from change notifications for a resource URI. *)
+val unsubscribe_resource : t -> uri:string -> (unit, Error.sdk_error) result
+
+(** List available resource templates from the server. *)
+val list_resource_templates : t -> (Mcp_protocol.Mcp_types.resource_template list, Error.sdk_error) result
+
+(** {1 Prompt operations} *)
+
 val list_prompts : t -> (Mcp_schema.mcp_prompt list, Error.sdk_error) result
 val get_prompt :
   t ->
