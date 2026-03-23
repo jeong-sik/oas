@@ -279,9 +279,22 @@ let custom_provider ~name ?(model_id="custom") ?(api_key_env="DUMMY_KEY") () = {
   api_key_env;
 }
 
+(** Well-known env var names per provider kind.
+    Used as fallback when [Provider_config.t.api_key] is empty. *)
+let default_api_key_env_of_kind
+    (kind : Llm_provider.Provider_config.provider_kind) : string =
+  match kind with
+  | Anthropic -> "ANTHROPIC_API_KEY"
+  | Gemini -> "GEMINI_API_KEY"
+  | Glm -> "ZAI_API_KEY"
+  | OpenAI_compat | Claude_code -> ""
+
 (** Convert a [Provider_config.t] (from Cascade_config) into a
     [Provider.config] (for Agent Builder).  Keeps the conversion
-    internal to OAS so consumers don't need their own adapters. *)
+    internal to OAS so consumers don't need their own adapters.
+
+    When [api_key] is empty, falls back to the well-known env var
+    name for the provider kind (e.g. [ANTHROPIC_API_KEY]). *)
 let config_of_provider_config (pc : Llm_provider.Provider_config.t) : config =
   let is_local url =
     let len = String.length url in
@@ -304,4 +317,8 @@ let config_of_provider_config (pc : Llm_provider.Provider_config.t) : config =
       OpenAICompat { base_url = pc.base_url; auth_header = None;
                      path = pc.request_path; static_token = None }
   in
-  { provider; model_id = pc.model_id; api_key_env = pc.api_key }
+  let api_key_env =
+    if pc.api_key <> "" then pc.api_key
+    else default_api_key_env_of_kind pc.kind
+  in
+  { provider; model_id = pc.model_id; api_key_env }
