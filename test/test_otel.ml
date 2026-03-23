@@ -440,5 +440,27 @@ let () =
         let msg = json |> member "status" |> member "message" |> to_string in
         check int "error code 2" 2 code;
         check string "error message" "error" msg));
+
+      test_case "generated IDs are valid hex" `Quick (with_reset (fun () ->
+        let is_hex_char c = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') in
+        for _ = 1 to 20 do
+          let s = Otel_tracer.start_span (default_attrs ()) in
+          check int "trace_id length" 32 (String.length s.trace_id);
+          check int "span_id length" 16 (String.length s.span_id);
+          String.iter (fun c ->
+            check bool "trace_id hex char" true (is_hex_char c)) s.trace_id;
+          String.iter (fun c ->
+            check bool "span_id hex char" true (is_hex_char c)) s.span_id;
+          Otel_tracer.end_span s ~ok:true
+        done));
+
+      test_case "generated IDs are unique" `Quick (with_reset (fun () ->
+        let ids = List.init 50 (fun _ ->
+          let s = Otel_tracer.start_span (default_attrs ()) in
+          let id = s.span_id in
+          Otel_tracer.end_span s ~ok:true;
+          id) in
+        let unique = List.sort_uniq String.compare ids in
+        check int "all span_ids unique" (List.length ids) (List.length unique)));
     ];
   ]
