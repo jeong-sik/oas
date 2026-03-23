@@ -37,6 +37,7 @@ type approval_context = {
 type stage_result =
   | Decided of Hooks.approval_decision
   | Pass
+  | Pass_with_context of approval_context
 
 (* ── Approval stage ──────────────────────────────────────── *)
 
@@ -84,6 +85,8 @@ let evaluate t ~tool_name ~input ~agent_name ~turn =
         decision
       | Pass ->
         go ctx_acc rest
+      | Pass_with_context updated_ctx ->
+        go updated_ctx rest
   in
   go ctx t.stages
 
@@ -132,14 +135,13 @@ let reject_dangerous_patterns (patterns : (string * string) list) : approval_sta
 }
 
 (** Classify risk level for downstream stages.
-    Does not make approval decisions itself — just updates context. *)
+    Does not make approval decisions itself — updates context for
+    downstream stages via [Pass_with_context]. *)
 let risk_classifier (classify : string -> Yojson.Safe.t -> risk_level) : approval_stage = {
   name = "risk_classifier";
   evaluate = (fun ctx ->
-    let _level = classify ctx.tool_name ctx.input in
-    (* Risk classification is informational for now.
-       Future: pass risk_level through context for downstream stages. *)
-    Pass);
+    let level = classify ctx.tool_name ctx.input in
+    Pass_with_context { ctx with risk_level = level });
   timeout_s = None;
 }
 

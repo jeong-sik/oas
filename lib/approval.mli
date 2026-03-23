@@ -20,6 +20,9 @@ type approval_context = {
 type stage_result =
   | Decided of Hooks.approval_decision
   | Pass
+  | Pass_with_context of approval_context
+      (** Like [Pass] but replaces the context for downstream stages.
+          Used by context-enriching stages such as [risk_classifier]. *)
 
 type approval_stage = {
   name: string;
