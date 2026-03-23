@@ -127,8 +127,15 @@ val find_provider : string -> provider_impl option
 val registered_providers : unit -> string list
 val custom_provider : name:string -> ?model_id:string -> ?api_key_env:string -> unit -> config
 
+(** Well-known env var name for a provider kind.
+    Returns empty string for providers that don't need auth (Local, Claude_code).
+    @since 0.87.0 *)
+val default_api_key_env_of_kind :
+  Llm_provider.Provider_config.provider_kind -> string
+
 (** Convert a {!Llm_provider.Provider_config.t} (from Cascade_config)
-    into a {!config}.  Use this to avoid building adapter layers in
-    consuming projects (e.g. MASC).
-    @since 0.84.0 *)
+    into a {!config}.  Falls back to {!default_api_key_env_of_kind}
+    when [api_key] is empty.
+    @since 0.84.0
+    @since 0.87.0 — env var fallback *)
 val config_of_provider_config : Llm_provider.Provider_config.t -> config
