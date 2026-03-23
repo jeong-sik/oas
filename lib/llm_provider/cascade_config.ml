@@ -79,10 +79,17 @@ let parse_model_string ?(temperature = 0.3) ?(max_tokens = 500)
                   |> Option.value ~default:""
               in
               let headers = headers_with_auth ~kind:defaults.kind ~api_key in
+              (* For llama provider: round-robin across LLM_ENDPOINTS
+                 so multiple local servers share the load transparently. *)
+              let base_url =
+                if provider_name = "llama" then
+                  Provider_registry.next_llama_endpoint ()
+                else defaults.base_url
+              in
               Some (Provider_config.make
                       ~kind:defaults.kind
                       ~model_id
-                      ~base_url:defaults.base_url
+                      ~base_url
                       ~api_key ~headers
                       ~request_path:defaults.request_path
                       ~temperature

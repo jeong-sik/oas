@@ -49,15 +49,29 @@ let has_api_key env_name =
    | Some s -> String.trim s <> ""
    | None -> false)
 
+(** All LLM_ENDPOINTS URLs, parsed once at module init. *)
+let llama_all_endpoints =
+  match Sys.getenv_opt "LLM_ENDPOINTS" with
+  | Some s ->
+    let urls = s |> String.split_on_char ',' |> List.map String.trim
+               |> List.filter (fun s -> s <> "") in
+    if urls = [] then ["http://127.0.0.1:8085"] else urls
+  | None -> ["http://127.0.0.1:8085"]
+
+(** Round-robin counter for distributing calls across LLM_ENDPOINTS. *)
+let llama_rr_counter = Atomic.make 0
+
+(** Pick the next llama endpoint via round-robin.
+    Called by cascade_config when resolving "llama:*" provider. *)
+let next_llama_endpoint () =
+  let endpoints = Array.of_list llama_all_endpoints in
+  let n = Array.length endpoints in
+  let idx = Atomic.fetch_and_add llama_rr_counter 1 mod n in
+  endpoints.(idx)
+
 let llama_defaults = {
   kind = OpenAI_compat;
-  base_url =
-    (match Sys.getenv_opt "LLM_ENDPOINTS" with
-     | Some s ->
-       (match String.split_on_char ',' s with
-        | url :: _ -> String.trim url
-        | [] -> "http://127.0.0.1:8085")
-     | None -> "http://127.0.0.1:8085");
+  base_url = List.hd llama_all_endpoints;
   api_key_env = "";
   request_path = "/v1/chat/completions";
 }
