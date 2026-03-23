@@ -182,6 +182,7 @@ val complete_named :
   ?timeout_sec:int ->
   ?cache:Cache.t ->
   ?metrics:Metrics.t ->
+  ?throttle:Provider_throttle.t ->
   unit ->
   (Types.api_response, Http_client.http_error) result
 
