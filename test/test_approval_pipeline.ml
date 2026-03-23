@@ -126,7 +126,7 @@ let test_always_reject () =
   | Hooks.Reject r -> check string "reason" "locked down" r
   | _ -> fail "should reject"
 
-(* ── Risk classifier (passthrough) ──────────────────────── *)
+(* ── Risk classifier (context propagation) ─────────────── *)
 
 let test_risk_classifier () =
   let classify _name _input = Approval.High in
@@ -138,6 +138,31 @@ let test_risk_classifier () =
     ~tool_name:"test" ~input:(`Assoc [])
     ~agent_name:"a" ~turn:0 in
   match d with Hooks.Approve -> () | _ -> fail "should approve"
+
+(** Verify risk_classifier propagates the classified level to downstream stages. *)
+let test_risk_classifier_propagates_level () =
+  let classify _name _input = Approval.Critical in
+  (* Downstream stage rejects if risk_level = Critical *)
+  let reject_critical : Approval.approval_stage = {
+    name = "reject_critical";
+    evaluate = (fun ctx ->
+      if ctx.risk_level = Critical then
+        Approval.Decided (Hooks.Reject "critical risk")
+      else
+        Approval.Pass);
+    timeout_s = None;
+  } in
+  let pipeline = Approval.create [
+    Approval.risk_classifier classify;
+    reject_critical;
+    Approval.always_approve;
+  ] in
+  let d = Approval.evaluate pipeline
+    ~tool_name:"test" ~input:(`Assoc [])
+    ~agent_name:"a" ~turn:0 in
+  match d with
+  | Hooks.Reject r -> check string "critical propagated" "critical risk" r
+  | _ -> fail "should reject based on propagated risk level"
 
 (* ── as_callback compat ─────────────────────────────────── *)
 
@@ -187,6 +212,7 @@ let () =
       test_case "multi stage" `Quick test_multi_stage;
       test_case "first decided wins" `Quick test_first_decided_wins;
       test_case "risk classifier" `Quick test_risk_classifier;
+      test_case "risk classifier propagates level" `Quick test_risk_classifier_propagates_level;
     ];
     "human callback", [
       test_case "approve" `Quick test_human_callback;
