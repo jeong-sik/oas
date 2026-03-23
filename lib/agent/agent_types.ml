@@ -25,6 +25,7 @@ type options = {
   description: string option;
   periodic_callbacks: periodic_callback list;
   memory: Memory.t option;
+  allowed_paths: string list;
 }
 
 (* Re-export lifecycle types from Agent_lifecycle.
@@ -77,6 +78,7 @@ let default_options = {
   description = None;
   memory = None;
   periodic_callbacks = [];
+  allowed_paths = [];
 }
 
 type tool_call_fingerprint = Agent_turn.tool_call_fingerprint
@@ -121,6 +123,7 @@ let set_consecutive_idle_turns t n =
 
 let description t = t.options.description
 let memory t = t.options.memory
+let allowed_paths t = t.options.allowed_paths
 
 let sdk_version = Sdk_version.version
 

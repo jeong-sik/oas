@@ -31,6 +31,7 @@ type options = Agent_types.options = {
   description: string option;
   periodic_callbacks: periodic_callback list;
   memory: Memory.t option;
+  allowed_paths: string list;
 }
 
 type lifecycle_status = Agent_lifecycle.lifecycle_status =
@@ -57,6 +58,7 @@ val options : t -> options
 val net : t -> [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
 val description : t -> string option
 val memory : t -> Memory.t option
+val allowed_paths : t -> string list
 
 (** {1 Defaults} *)
 

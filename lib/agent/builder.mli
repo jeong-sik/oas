@@ -63,6 +63,7 @@ val with_max_idle_turns : int -> t -> t
 val with_elicitation : Hooks.elicitation_callback -> t -> t
 val with_description : string -> t -> t
 val with_memory : Memory.t -> t -> t
+val with_allowed_paths : string list -> t -> t
 val with_periodic_callback : Agent.periodic_callback -> t -> t
 val with_periodic_callbacks : Agent.periodic_callback list -> t -> t
 

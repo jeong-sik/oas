@@ -31,6 +31,7 @@ type options = {
   description: string option;
   periodic_callbacks: periodic_callback list;
   memory: Memory.t option;
+  allowed_paths: string list;
 }
 
 (** {1 Lifecycle re-exports} *)
@@ -103,6 +104,7 @@ val update_state : t -> (Types.agent_state -> Types.agent_state) -> unit
 val set_consecutive_idle_turns : t -> int -> unit
 val description : t -> string option
 val memory : t -> Memory.t option
+val allowed_paths : t -> string list
 
 (** {1 SDK version} *)
 
