@@ -326,19 +326,27 @@ let resolve_model_strings ?config_path ~name ~defaults () =
 
 (* ── Named cascade execution ───────────────────────────── *)
 
-(** Accept-aware cascade: try each provider, skip on failure or rejection. *)
+(** Accept-aware cascade: try each provider, skip on failure or rejection.
+    When [throttle] is provided, each provider call acquires a permit first,
+    blocking if the backend has no available capacity. *)
 let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
-    ~accept (providers : Provider_config.t list)
+    ?throttle ~accept (providers : Provider_config.t list)
     ~(messages : Types.message list) ~(tools : Yojson.Safe.t list) =
   let m = match metrics with Some m -> m | None -> Metrics.noop in
   let try_one cfg =
-    match clock with
-    | Some clock ->
-      Complete.complete_with_retry ~sw ~net ~clock ~config:cfg
-        ~messages ~tools ?cache ?metrics ()
-    | None ->
-      Complete.complete ~sw ~net ~config:cfg
-        ~messages ~tools ?cache ?metrics ()
+    let call () =
+      match clock with
+      | Some clock ->
+        Complete.complete_with_retry ~sw ~net ~clock ~config:cfg
+          ~messages ~tools ?cache ?metrics ()
+      | None ->
+        Complete.complete ~sw ~net ~config:cfg
+          ~messages ~tools ?cache ?metrics ()
+    in
+    match throttle with
+    | Some t when is_local_provider cfg ->
+      Provider_throttle.with_permit t call
+    | _ -> call ()
   in
   let rec try_next last_err = function
     | [] ->
@@ -397,7 +405,7 @@ let complete_named ~sw ~net ?clock ?config_path
     ~name ~defaults ~messages
     ?(tools = []) ?(temperature = 0.3) ?(max_tokens = 500)
     ?system_prompt ?(accept = fun _ -> true) ?(strict_name = false)
-    ?timeout_sec ?cache ?metrics () =
+    ?timeout_sec ?cache ?metrics ?throttle () =
   (* 1. Resolve: named profile → "default" profile → hardcoded defaults *)
   let model_strings, source =
     resolve_model_strings_traced ?config_path ~name ~defaults ()
@@ -437,7 +445,7 @@ let complete_named ~sw ~net ?clock ?config_path
       (* 4. Execute cascade with accept validation, enforcing timeout *)
       let run () =
         complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
-          ~accept healthy_providers ~messages ~tools
+          ?throttle ~accept healthy_providers ~messages ~tools
       in
       match clock, timeout_sec with
       | Some clk, Some secs when secs > 0 ->
