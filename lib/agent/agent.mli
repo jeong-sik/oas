@@ -131,7 +131,11 @@ val resume :
   ?config:Types.agent_config ->
   unit -> t
 
-val checkpoint : ?session_id:string -> ?working_context:Yojson.Safe.t -> t -> Checkpoint.t
+val checkpoint :
+  ?session_id:string ->
+  ?working_context:Yojson.Safe.t ->
+  t ->
+  Checkpoint.t
 
 (** {1 Lifecycle} *)
 
