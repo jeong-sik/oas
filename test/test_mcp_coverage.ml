@@ -243,12 +243,8 @@ let test_mcp_tool_to_sdk_tool_empty_schema () =
 
 let test_mcp_http_default_config_values () =
   let cfg = Mcp_http.default_config in
-  Alcotest.(check string) "default base_url" "http://localhost:8080" cfg.base_url;
-  Alcotest.(check (list (pair string string))) "no headers" [] cfg.headers;
-  Alcotest.(check bool) "reconnect positive" true (cfg.reconnect_max_s > 0.0);
-  Alcotest.(check bool) "timeout positive" true (cfg.request_timeout_s > 0.0);
-  Alcotest.(check bool) "reconnect = 30" true (cfg.reconnect_max_s = 30.0);
-  Alcotest.(check bool) "timeout = 30" true (cfg.request_timeout_s = 30.0)
+  Alcotest.(check string) "default base_url" "http://localhost:8080/mcp" cfg.base_url;
+  Alcotest.(check (list (pair string string))) "no headers" [] cfg.headers
 
 (* ── Server spec construction ─────────────────────────────── *)
 

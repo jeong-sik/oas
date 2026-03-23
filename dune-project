@@ -27,6 +27,7 @@
   (uri (>= 4.4))
   (mcp_protocol (>= 0.15.0))
   (mcp_protocol_eio (>= 0.15.0))
+  (mcp_protocol_http (>= 0.15.0))
   (cmdliner (>= 1.3.0))
   (alcotest (and :with-test (>= 1.7)))
   (qcheck-core (and :with-test (>= 0.21)))
