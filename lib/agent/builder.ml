@@ -50,6 +50,7 @@ type t = {
   periodic_callbacks: Agent.periodic_callback list;
   contract: Contract.t;
   memory: Memory.t option;
+  allowed_paths: string list;
   progressive_tools: Progressive_tools.disclosure_strategy option;
 }
 
@@ -100,6 +101,7 @@ let create ~net ~model =
     periodic_callbacks = [];
     contract = Contract.empty;
     memory = None;
+    allowed_paths = [];
     progressive_tools = None;
   }
 
@@ -163,6 +165,7 @@ let with_progressive_tools strategy b = { b with progressive_tools = Some strate
 let with_elicitation cb b = { b with elicitation = Some cb }
 let with_description desc b = { b with description = Some desc }
 let with_memory mem b = { b with memory = Some mem }
+let with_allowed_paths paths b = { b with allowed_paths = paths }
 let with_periodic_callback cb b =
   { b with periodic_callbacks = b.periodic_callbacks @ [cb] }
 let with_periodic_callbacks cbs b =
@@ -243,6 +246,7 @@ let build b =
     description = b.description;
     periodic_callbacks = b.periodic_callbacks;
     memory = b.memory;
+    allowed_paths = b.allowed_paths;
   } in
   Agent.create ~net:b.net ~config ~tools:(Tool_set.to_list tools) ?context
     ?named_cascade:b.named_cascade ~options ()
