@@ -53,3 +53,11 @@ val find_capable : t -> (Capabilities.capabilities -> bool) -> entry list
     (llama, claude, gemini, glm, openrouter).
     Availability is determined by checking the API key env var. *)
 val default : unit -> t
+
+(** All LLM_ENDPOINTS URLs parsed from the environment. *)
+val llama_all_endpoints : string list
+
+(** Pick the next llama endpoint via round-robin across LLM_ENDPOINTS.
+    Distributes load transparently when multiple local servers are running.
+    @since 0.78.0 *)
+val next_llama_endpoint : unit -> string
