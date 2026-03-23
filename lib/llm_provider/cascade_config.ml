@@ -344,9 +344,8 @@ let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
           ~messages ~tools ?cache ?metrics ()
     in
     match throttle with
-    | Some t when is_local_provider cfg ->
-      Provider_throttle.with_permit t call
-    | _ -> call ()
+    | Some t -> Provider_throttle.with_permit t call
+    | None -> call ()
   in
   let rec try_next last_err = function
     | [] ->

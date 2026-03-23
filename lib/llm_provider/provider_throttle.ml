@@ -24,13 +24,8 @@ let create ~max_concurrent ~provider_name =
 
 let with_permit t f =
   Eio.Semaphore.acquire t.semaphore;
-  match f () with
-  | result ->
-    Eio.Semaphore.release t.semaphore;
-    result
-  | exception exn ->
-    Eio.Semaphore.release t.semaphore;
-    raise exn
+  Fun.protect f
+    ~finally:(fun () -> Eio.Semaphore.release t.semaphore)
 
 let available t =
   Eio.Semaphore.get_value t.semaphore
