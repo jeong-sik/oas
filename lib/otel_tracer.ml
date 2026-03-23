@@ -69,24 +69,23 @@ type instance = {
 
 (* -- Random hex ID generation ----------------------------------------- *)
 
+(* Trace/span IDs need uniqueness, not cryptographic strength.
+   OCaml 5.x Random is domain-safe and self-seeded from OS entropy,
+   so we avoid opening /dev/urandom on every span start. *)
+
 let hex_chars = "0123456789abcdef"
 
-let hex_of_random n =
-  let ic = open_in_bin "/dev/urandom" in
-  Fun.protect
-    ~finally:(fun () -> close_in_noerr ic)
-    (fun () ->
-      let raw = Bytes.create n in
-      really_input ic raw 0 n;
-      let hex = Buffer.create (n * 2) in
-      Bytes.iter (fun c ->
-        let byte = Char.code c in
-        Buffer.add_char hex hex_chars.[byte lsr 4];
-        Buffer.add_char hex hex_chars.[byte land 0x0f]) raw;
-      Buffer.contents hex)
+let hex_of_prng n =
+  let buf = Buffer.create (n * 2) in
+  for _ = 1 to n do
+    let byte = Random.int 256 in
+    Buffer.add_char buf hex_chars.[byte lsr 4];
+    Buffer.add_char buf hex_chars.[byte land 0x0f]
+  done;
+  Buffer.contents buf
 
-let gen_trace_id () = hex_of_random 16  (* 32-char hex = 128-bit *)
-let gen_span_id () = hex_of_random 8    (* 16-char hex = 64-bit *)
+let gen_trace_id () = hex_of_prng 16  (* 32-char hex = 128-bit *)
+let gen_span_id () = hex_of_prng 8    (* 16-char hex = 64-bit *)
 
 (* -- Timestamp -------------------------------------------------------- *)
 
