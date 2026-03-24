@@ -64,16 +64,18 @@ type event =
 
 type journal = {
   mutable entries: event list;  (** Stored in reverse chronological order *)
+  mutable size: int;
 }
 
-let create () = { entries = [] }
+let create () = { entries = []; size = 0 }
 
 let append journal event =
-  journal.entries <- event :: journal.entries
+  journal.entries <- event :: journal.entries;
+  journal.size <- journal.size + 1
 
 let events journal = List.rev journal.entries
 
-let length journal = List.length journal.entries
+let length journal = journal.size
 
 (* ── Idempotency ──────────────────────────────────── *)
 
@@ -89,7 +91,7 @@ let fnv1a_hash (s : string) : int =
     h := !h lxor (Char.code c);
     h := !h * prime;
   ) s;
-  !h land 0x7FFFFFFF  (* ensure positive *)
+  !h land max_int  (* ensure positive, 63-bit on 64-bit OCaml *)
 
 let make_idempotency_key ~tool_name ~input =
   let input_str = Yojson.Safe.to_string input in
@@ -139,8 +141,8 @@ type replay_summary = {
   error_count: int;
 }
 
+(* Fold over entries directly (reverse chronological) — avoids List.rev allocation *)
 let replay_summary journal =
-  let evts = events journal in
   let last_turn = ref 0 in
   let completed_tools = ref [] in
   let last_state = ref "unknown" in
@@ -150,7 +152,7 @@ let replay_summary journal =
   List.iter (fun event ->
     match event with
     | Turn_started { turn; _ } ->
-      if turn > !last_turn then last_turn := turn
+      last_turn := max !last_turn turn
     | Llm_request { input_tokens = n; _ } ->
       input_tokens := !input_tokens + n
     | Llm_response { output_tokens = n; _ } ->
@@ -162,7 +164,7 @@ let replay_summary journal =
     | Error_occurred _ ->
       incr errors
     | Tool_called _ | Heartbeat _ | Checkpoint_saved _ -> ()
-  ) evts;
+  ) journal.entries;  (* entries is reverse-chronological; order doesn't matter for aggregation *)
   {
     last_turn = !last_turn;
     completed_tools = List.rev !completed_tools;
@@ -341,16 +343,15 @@ let journal_of_json json =
   let open Yojson.Safe.Util in
   try
     let items = to_list json in
-    let rec parse acc = function
+    (* acc accumulates in reverse — matches journal.entries internal format *)
+    let rec parse acc count = function
       | [] ->
-        let j = create () in
-        List.iter (append j) (List.rev acc);
-        Ok j
+        Ok { entries = acc; size = count }
       | item :: rest ->
         match event_of_json item with
-        | Ok evt -> parse (evt :: acc) rest
+        | Ok evt -> parse (evt :: acc) (count + 1) rest
         | Error e -> Error e
     in
-    parse [] items
+    parse [] 0 items
   with
   | Yojson.Safe.Util.Type_error (msg, _) -> Error msg

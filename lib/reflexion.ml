@@ -97,19 +97,19 @@ let store_reflection_episode
 
 (** {1 Core loop} *)
 
+let make_run_result acc response passed =
+  let attempts = List.rev acc in
+  Ok { final_response = response; attempts; passed;
+       total_attempts = List.length attempts }
+
 let run ~config ?memory ~run_agent () =
   let max = max 1 config.max_attempts in
   let rec loop attempt_number reflections acc =
     if attempt_number > max then
-      (* Exhausted all attempts — return the last one *)
-      let attempts = List.rev acc in
-      let last = List.hd (List.rev attempts) in
-      Ok {
-        final_response = last.response;
-        attempts;
-        passed = (match last.verdict with Pass -> true | Fail _ -> false);
-        total_attempts = List.length attempts;
-      }
+      (* Exhausted: acc is newest-first, so hd is the last attempt *)
+      let last = List.hd acc in
+      make_run_result acc last.response
+        (match last.verdict with Pass -> true | Fail _ -> false)
     else
       match run_agent ~reflections with
       | Error e -> Error e
@@ -120,7 +120,6 @@ let run ~config ?memory ~run_agent () =
           | Pass -> None
           | Fail _ ->
             let text = format_reflection ~attempt_number verdict in
-            (* Store in episodic memory if available *)
             (match memory with
              | Some mem ->
                store_reflection_episode mem
@@ -130,36 +129,19 @@ let run ~config ?memory ~run_agent () =
              | None -> ());
             Some text
         in
-        let attempt = {
-          attempt_number;
-          response;
-          verdict;
-          reflection_text;
-        } in
+        let attempt = { attempt_number; response; verdict; reflection_text } in
         let acc = attempt :: acc in
         match verdict with
-        | Pass ->
-          let attempts = List.rev acc in
-          Ok {
-            final_response = response;
-            attempts;
-            passed = true;
-            total_attempts = List.length attempts;
-          }
-        | Fail _ ->
+        | Pass -> make_run_result acc response true
+        | Fail { diagnosis; _ } ->
           let new_reflections =
             match reflection_text with
             | Some text ->
               if config.include_critique then reflections @ [text]
               else
-                (* Strip critique, keep only diagnosis.
-                 verdict is always Fail here (Pass exits early above). *)
                 let diag_only =
-                  match verdict with
-                  | Fail { diagnosis; _ } ->
-                    Printf.sprintf "[Reflection from attempt %d]\nDiagnosis: %s"
-                      attempt_number diagnosis
-                  | Pass -> assert false  (* unreachable: Pass exits loop *)
+                  Printf.sprintf "[Reflection from attempt %d]\nDiagnosis: %s"
+                    attempt_number diagnosis
                 in
                 reflections @ [diag_only]
             | None -> reflections
