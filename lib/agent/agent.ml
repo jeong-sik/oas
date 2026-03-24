@@ -197,8 +197,8 @@ let resume ~net ~(checkpoint : Checkpoint.t) ?(tools=[]) ?context
     consecutive_idle_turns = 0; named_cascade;
     tools = Tool_set.of_list tools; net; context = ctx; options }
 
-let checkpoint ?(session_id="") agent =
-  Agent_checkpoint.build_checkpoint ~session_id ~state:agent.state
+let checkpoint ?(session_id="") ?working_context agent =
+  Agent_checkpoint.build_checkpoint ~session_id ?working_context ~state:agent.state
     ~tools:agent.tools ~context:agent.context
     ~mcp_clients:agent.options.mcp_clients ()
 

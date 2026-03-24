@@ -670,5 +670,26 @@ let () =
           () in
         let cp = Agent.checkpoint agent in
         check int "no mcp sessions" 0 (List.length cp.mcp_sessions));
+
+      test_case "Agent.checkpoint passes working_context" `Quick (fun () ->
+        Eio_main.run @@ fun env ->
+        let net = Eio.Stdenv.net env in
+        let agent = Agent.create ~net
+          ~config:{ Types.default_config with name = "wc-test" }
+          () in
+        let wc = `Assoc [("kind", `String "keeper_v1"); ("max_tokens", `Int 4096)] in
+        let cp = Agent.checkpoint ~working_context:wc agent in
+        check (option (testable Yojson.Safe.pp Yojson.Safe.equal))
+          "working_context roundtrip" (Some wc) cp.working_context);
+
+      test_case "Agent.checkpoint omits working_context by default" `Quick (fun () ->
+        Eio_main.run @@ fun env ->
+        let net = Eio.Stdenv.net env in
+        let agent = Agent.create ~net
+          ~config:{ Types.default_config with name = "wc-none" }
+          () in
+        let cp = Agent.checkpoint agent in
+        check (option (testable Yojson.Safe.pp Yojson.Safe.equal))
+          "working_context absent" None cp.working_context);
     ];
   ]
