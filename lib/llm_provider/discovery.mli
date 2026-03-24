@@ -58,3 +58,14 @@ val summary_to_json : endpoint_status list -> Yojson.Safe.t
 (** Extract max context size from endpoint status.
     Returns [ctx_size] from [props] if available, else checks [capabilities.max_context_tokens]. *)
 val max_context_of_status : endpoint_status -> int option
+
+(** Scan local ports for healthy llama-server instances.
+    Probes each port via [/health] and returns URLs of healthy endpoints.
+    Default port range: 8085-8090.
+    @since 0.86.0 *)
+val scan_local_endpoints :
+  ?ports:int list ->
+  sw:Eio.Switch.t ->
+  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
+  unit ->
+  string list

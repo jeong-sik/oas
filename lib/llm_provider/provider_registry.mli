@@ -54,10 +54,26 @@ val find_capable : t -> (Capabilities.capabilities -> bool) -> entry list
     Availability is determined by checking the API key env var. *)
 val default : unit -> t
 
-(** All LLM_ENDPOINTS URLs parsed from the environment. *)
+(** Initial LLM_ENDPOINTS URLs parsed from the environment at module load.
+    For current active endpoints, use [active_llama_endpoints]. *)
 val llama_all_endpoints : string list
 
-(** Pick the next llama endpoint via round-robin across LLM_ENDPOINTS.
+(** Pick the next llama endpoint via round-robin.
     Distributes load transparently when multiple local servers are running.
+    After [refresh_llama_endpoints], rotates across discovered endpoints.
     @since 0.78.0 *)
 val next_llama_endpoint : unit -> string
+
+(** Refresh the llama endpoint list by scanning local ports 8085-8090.
+    If [LLM_ENDPOINTS] env var is set, uses that as source (no scan).
+    Otherwise probes ports and keeps only healthy endpoints.
+    Returns the new endpoint list. Call after Eio scheduler is available.
+    @since 0.86.0 *)
+val refresh_llama_endpoints :
+  sw:Eio.Switch.t ->
+  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
+  unit -> string list
+
+(** Current active endpoint list (snapshot after last refresh).
+    @since 0.86.0 *)
+val active_llama_endpoints : unit -> string list
