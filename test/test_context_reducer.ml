@@ -407,6 +407,102 @@ let test_summarize_old_all_recent () =
   (* All turns fit in keep_recent, no summarization *)
   Alcotest.(check int) "no change" 2 (List.length result)
 
+(* --- clear_tool_results --- *)
+
+let test_clear_tool_results_clears_old () =
+  (* 3 turns: turn1 has tool result, turn2 has tool result, turn3 is recent *)
+  let msgs = [
+    user_msg "turn1";
+    tool_use_msg "t1" "calc";
+    tool_result_msg "t1" (String.make 200 'x');  (* long result *)
+    asst_msg "r1";
+    user_msg "turn2";
+    tool_use_msg "t2" "search";
+    tool_result_msg "t2" (String.make 300 'y');  (* long result *)
+    asst_msg "r2";
+    user_msg "turn3";
+    asst_msg "r3";
+  ] in
+  let result = Context_reducer.reduce
+    (Context_reducer.clear_tool_results ~keep_recent:1) msgs in
+  (* Old turns' tool results should be cleared *)
+  let old_tool_results = List.filter_map (fun (m : Types.message) ->
+    List.find_map (function
+      | Types.ToolResult { content; _ } -> Some content
+      | _ -> None
+    ) m.content
+  ) result in
+  let cleared = List.filter (fun c ->
+    let len = String.length c in
+    len < 100 (* cleared results are short markers *)
+  ) old_tool_results in
+  Alcotest.(check int) "2 old results cleared" 2 (List.length cleared)
+
+let test_clear_tool_results_preserves_recent () =
+  let msgs = [
+    user_msg "turn1";
+    tool_use_msg "t1" "calc";
+    tool_result_msg "t1" (String.make 200 'x');
+    asst_msg "r1";
+  ] in
+  (* keep_recent:1 means all turns are recent — nothing cleared *)
+  let result = Context_reducer.reduce
+    (Context_reducer.clear_tool_results ~keep_recent:5) msgs in
+  let tool_results = List.filter_map (fun (m : Types.message) ->
+    List.find_map (function
+      | Types.ToolResult { content; _ } -> Some content
+      | _ -> None
+    ) m.content
+  ) result in
+  (match tool_results with
+   | [content] -> Alcotest.(check int) "preserved full length" 200 (String.length content)
+   | _ -> Alcotest.fail "expected 1 tool result")
+
+let test_clear_tool_results_short_untouched () =
+  (* Short tool results (<=50 chars) should NOT be cleared even in old turns *)
+  let msgs = [
+    user_msg "turn1";
+    tool_use_msg "t1" "calc";
+    tool_result_msg "t1" "42";  (* 2 chars, below 50 threshold *)
+    asst_msg "r1";
+    user_msg "turn2";
+    asst_msg "r2";
+  ] in
+  let result = Context_reducer.reduce
+    (Context_reducer.clear_tool_results ~keep_recent:1) msgs in
+  let tool_results = List.filter_map (fun (m : Types.message) ->
+    List.find_map (function
+      | Types.ToolResult { content; _ } -> Some content
+      | _ -> None
+    ) m.content
+  ) result in
+  (match tool_results with
+   | [content] -> Alcotest.(check string) "short preserved" "42" content
+   | _ -> Alcotest.fail "expected 1 tool result")
+
+let test_clear_tool_results_error_marker () =
+  (* Error tool results should get error-specific marker *)
+  let msgs = [
+    user_msg "turn1";
+    Types.{ role = Assistant; content = [ToolUse { id = "t1"; name = "fail"; input = `Null }];
+            name = None; tool_call_id = None };
+    Types.{ role = User; content = [ToolResult { tool_use_id = "t1";
+            content = String.make 100 'E'; is_error = true }];
+            name = None; tool_call_id = None };
+    asst_msg "r1";
+    user_msg "turn2"; asst_msg "r2";
+  ] in
+  let result = Context_reducer.reduce
+    (Context_reducer.clear_tool_results ~keep_recent:1) msgs in
+  let has_error_marker = List.exists (fun (m : Types.message) ->
+    List.exists (function
+      | Types.ToolResult { content; _ } ->
+        content = "[tool error result cleared]"
+      | _ -> false
+    ) m.content
+  ) result in
+  Alcotest.(check bool) "error marker present" true has_error_marker
+
 (* --- prune_tool_args --- *)
 
 (** Helper: build an assistant message with a ToolUse whose input has a long string arg. *)
@@ -628,6 +724,12 @@ let () =
     "summarize_old", [
       Alcotest.test_case "basic summarization" `Quick test_summarize_old_basic;
       Alcotest.test_case "all recent no-op" `Quick test_summarize_old_all_recent;
+    ];
+    "clear_tool_results", [
+      Alcotest.test_case "clears old results" `Quick test_clear_tool_results_clears_old;
+      Alcotest.test_case "preserves recent" `Quick test_clear_tool_results_preserves_recent;
+      Alcotest.test_case "short untouched" `Quick test_clear_tool_results_short_untouched;
+      Alcotest.test_case "error marker" `Quick test_clear_tool_results_error_marker;
     ];
     "prune_tool_args", [
       Alcotest.test_case "short args unchanged" `Quick test_prune_tool_args_short_unchanged;
