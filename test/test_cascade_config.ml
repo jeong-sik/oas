@@ -226,6 +226,38 @@ let test_filter_empty_passthrough () =
   let result = Cascade_config.filter_healthy ~sw ~net [] in
   check int "empty passthrough" 0 (List.length result)
 
+(* ── Auto model_id resolution ─────────────────────────── *)
+
+let test_auto_llama_passthrough () =
+  (* llama:auto should keep "auto" — local server accepts any model_id *)
+  match Cascade_config.parse_model_string "llama:auto" with
+  | Some cfg ->
+    check string "model_id stays auto" "auto" cfg.model_id
+  | None -> fail "expected Some for llama:auto"
+
+let test_auto_glm_resolved () =
+  (* glm:auto should resolve to a concrete model, not "auto" *)
+  match Sys.getenv_opt "ZAI_API_KEY" with
+  | None -> () (* skip: no API key *)
+  | Some _ ->
+    match Cascade_config.parse_model_string "glm:auto" with
+    | Some cfg ->
+      check bool "model_id not auto"
+        true (cfg.model_id <> "auto");
+      check bool "model_id non-empty"
+        true (String.length cfg.model_id > 0)
+    | None -> fail "expected Some for glm:auto with key"
+
+let test_auto_explicit_model_unchanged () =
+  (* glm:glm-4.7 should keep the explicit model_id *)
+  match Sys.getenv_opt "ZAI_API_KEY" with
+  | None -> ()
+  | Some _ ->
+    match Cascade_config.parse_model_string "glm:glm-4.7" with
+    | Some cfg ->
+      check string "explicit model_id" "glm-4.7" cfg.model_id
+    | None -> fail "expected Some for glm:glm-4.7"
+
 (* ── Suite ────────────────────────────────────────────── *)
 
 let () =
@@ -238,6 +270,11 @@ let () =
       test_case "malformed strings" `Quick test_parse_malformed;
       test_case "temperature + max_tokens" `Quick test_parse_with_temperature;
       test_case "parse_model_strings" `Quick test_parse_model_strings;
+    ];
+    "auto_resolve", [
+      test_case "llama:auto passthrough" `Quick test_auto_llama_passthrough;
+      test_case "glm:auto resolved" `Quick test_auto_glm_resolved;
+      test_case "explicit model unchanged" `Quick test_auto_explicit_model_unchanged;
     ];
     "config", [
       test_case "load profile found" `Quick test_load_profile_found;
