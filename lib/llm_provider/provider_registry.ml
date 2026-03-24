@@ -49,8 +49,8 @@ let has_api_key env_name =
    | Some s -> String.trim s <> ""
    | None -> false)
 
-(** All LLM_ENDPOINTS URLs, parsed once at module init. *)
-let llama_all_endpoints =
+(** Initial endpoints from LLM_ENDPOINTS env var. *)
+let initial_llama_endpoints =
   match Sys.getenv_opt "LLM_ENDPOINTS" with
   | Some s ->
     let urls = s |> String.split_on_char ',' |> List.map String.trim
@@ -58,16 +58,46 @@ let llama_all_endpoints =
     if urls = [] then ["http://127.0.0.1:8085"] else urls
   | None -> ["http://127.0.0.1:8085"]
 
-(** Round-robin counter for distributing calls across LLM_ENDPOINTS. *)
+(** Mutable endpoint list, protected by atomic snapshot swap.
+    Updated by [refresh_llama_endpoints]. *)
+let llama_endpoints_ref = Atomic.make (Array.of_list initial_llama_endpoints)
+
+let llama_all_endpoints = initial_llama_endpoints
+
+(** Round-robin counter for distributing calls across endpoints. *)
 let llama_rr_counter = Atomic.make 0
 
 (** Pick the next llama endpoint via round-robin.
+    Reads the current endpoint snapshot atomically.
     Called by cascade_config when resolving "llama:*" provider. *)
 let next_llama_endpoint () =
-  let endpoints = Array.of_list llama_all_endpoints in
+  let endpoints = Atomic.get llama_endpoints_ref in
   let n = Array.length endpoints in
   let idx = Atomic.fetch_and_add llama_rr_counter 1 mod n in
   endpoints.(idx)
+
+(** Refresh the llama endpoint list by scanning local ports.
+    If [LLM_ENDPOINTS] is set, uses that as the source (no scan).
+    Otherwise probes ports 8085-8090 and keeps only healthy endpoints.
+    Falls back to default 8085 if no healthy endpoints found.
+    Call this after Eio scheduler is available (e.g. at server startup). *)
+let refresh_llama_endpoints ~sw ~net () =
+  let endpoints =
+    match Sys.getenv_opt "LLM_ENDPOINTS" with
+    | Some s when String.trim s <> "" ->
+        let urls = s |> String.split_on_char ',' |> List.map String.trim
+                   |> List.filter (fun s -> s <> "") in
+        if urls = [] then ["http://127.0.0.1:8085"] else urls
+    | _ ->
+        let found = Discovery.scan_local_endpoints ~sw ~net () in
+        if found = [] then ["http://127.0.0.1:8085"] else found
+  in
+  Atomic.set llama_endpoints_ref (Array.of_list endpoints);
+  endpoints
+
+(** Current active endpoint list (snapshot). *)
+let active_llama_endpoints () =
+  Array.to_list (Atomic.get llama_endpoints_ref)
 
 let llama_defaults = {
   kind = OpenAI_compat;

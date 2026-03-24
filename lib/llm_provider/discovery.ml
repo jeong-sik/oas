@@ -192,6 +192,17 @@ let probe_endpoint ~sw ~net url =
 let discover ~sw ~net ~endpoints =
   Eio.Fiber.List.map (fun url -> probe_endpoint ~sw ~net url) endpoints
 
+let default_scan_ports = [ 8085; 8086; 8087; 8088; 8089; 8090 ]
+
+let scan_local_endpoints ?(ports = default_scan_ports) ~sw ~net () =
+  let candidates =
+    List.map (fun p -> Printf.sprintf "http://127.0.0.1:%d" p) ports
+  in
+  let statuses = discover ~sw ~net ~endpoints:candidates in
+  List.filter_map
+    (fun (s : endpoint_status) -> if s.healthy then Some s.url else None)
+    statuses
+
 (* ── JSON serialization ──────────────────────────────────── *)
 
 let model_info_to_json (m : model_info) =
