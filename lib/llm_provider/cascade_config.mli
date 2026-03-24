@@ -95,6 +95,35 @@ val resolve_model_strings_traced :
   unit ->
   string list * cascade_source
 
+(** {1 Raw JSON Access} *)
+
+(** Load and cache the raw JSON config file.
+    Cached with mtime-based hot-reload.
+    Exposed for consumers needing custom fields beyond model lists
+    (e.g., per-cascade temperature/max_tokens overrides).
+
+    @since 0.89.1 *)
+val load_json : string -> (Yojson.Safe.t, string) result
+
+(** {1 Inference Parameters} *)
+
+(** Per-cascade inference parameter overrides. *)
+type inference_params = {
+  temperature: float option;
+  max_tokens: int option;
+}
+
+(** Resolve inference parameters from cascade.json.
+
+    Resolution order:
+    1. ["{name}_temperature"] / ["{name}_max_tokens"]
+    2. ["default_temperature"] / ["default_max_tokens"]
+    3. [None] (caller uses own defaults)
+
+    @since 0.89.1 *)
+val resolve_inference_params :
+  config_path:string -> name:string -> inference_params
+
 (** {1 Discovery-Aware Health Filtering} *)
 
 (** Filter a provider list by local endpoint health.
