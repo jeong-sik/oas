@@ -9,11 +9,16 @@ All notable changes to `agent_sdk` are documented in this file.
 - **Clear_tool_results strategy** (`Context_reducer`): replaces processed tool results in older turns with short markers, preserving tool_use_id for API consistency. Safest and lightest form of context compaction (Anthropic recommendation).
 - **PreCompact hook event** (`Hooks`): new lifecycle event emitted before context compression. Carries `messages`, `estimated_tokens`, and `budget_tokens` for pre-compaction intervention.
 - `pre_compact` field in `Hooks.hooks` record.
+- **Tool_index module** (`Tool_index`): pure OCaml BM25 implementation for dynamic tool exposure. Indexes tool descriptions at startup, retrieves top-K relevant tools per query. Confidence gate for automatic fallback. Group co-retrieval. 8 inline tests.
+- **Retrieval_based strategy** (`Progressive_tools`): BM25-indexed tool retrieval per turn context. Extracts query from last user message. Falls back to full catalog below confidence threshold. `always_include` for essential tools.
+- **Durable_event module** (`Durable_event`): event-sourced agent loop journal. 9 event types (Turn_started, Llm_request/response, Tool_called/completed, State_transition, Heartbeat, Checkpoint_saved, Error_occurred). Idempotency keys for replay-safe tool execution. Heartbeat lease detection. Replay summary for crash recovery. Full JSON round-trip. 14 tests.
 
 ### References
 - MAR: Multi-Agent Reflexion (arxiv:2512.20845)
 - Anthropic "Effective Context Engineering" (tool result clearing)
 - ACON: Optimizing Context Compression (arxiv:2510.00615)
+- ITR: Dynamic Tool Exposure (arxiv:2602.17046)
+- Diagrid "Still Not Durable" (event sourcing gap analysis)
 
 ## [0.78.0] - 2026-03-20
 

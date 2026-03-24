@@ -116,6 +116,7 @@ module Audit = Audit
 module Plan = Plan
 module Reflexion = Reflexion
 module Tool_index = Tool_index
+module Durable_event = Durable_event
 module Checkpoint_validation = Checkpoint_validation
 module Judge = Judge
 
