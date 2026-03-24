@@ -2,6 +2,19 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.89.0] - 2026-03-24
+
+### Added
+- **Reflexion module** (`Reflexion`): act-evaluate-reflect-retry loop primitive based on MAR (Multi-Agent Reflexion) pattern. Separated concerns: Act/Diagnose/Critique/Aggregate. Integrates with Episodic memory for reflection persistence. `Reflexion.run` executes the loop, `format_reflection` formats failed verdicts, `on_stop_evaluator` wraps as hook adapter. 11 tests.
+- **Clear_tool_results strategy** (`Context_reducer`): replaces processed tool results in older turns with short markers, preserving tool_use_id for API consistency. Safest and lightest form of context compaction (Anthropic recommendation).
+- **PreCompact hook event** (`Hooks`): new lifecycle event emitted before context compression. Carries `messages`, `estimated_tokens`, and `budget_tokens` for pre-compaction intervention.
+- `pre_compact` field in `Hooks.hooks` record.
+
+### References
+- MAR: Multi-Agent Reflexion (arxiv:2512.20845)
+- Anthropic "Effective Context Engineering" (tool result clearing)
+- ACON: Optimizing Context Compression (arxiv:2510.00615)
+
 ## [0.78.0] - 2026-03-20
 
 ### Added

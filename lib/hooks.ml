@@ -92,6 +92,11 @@ type hook_event =
   | OnIdle of { consecutive_idle_turns: int; tool_names: string list }
   | OnError of { detail: string; context: string }
   | OnToolError of { tool_name: string; error: string }
+  | PreCompact of {
+      messages: message list;
+      estimated_tokens: int;
+      budget_tokens: int;
+    }
 
 (** Elicitation: structured request for user input during agent execution.
     Inspired by Claude SDK MCP Elicitation pattern. *)
@@ -146,6 +151,7 @@ type hooks = {
   on_idle: hook option;
   on_error: hook option;
   on_tool_error: hook option;
+  pre_compact: hook option;
 }
 
 (** Empty hooks -- no-op default *)
@@ -160,6 +166,7 @@ let empty = {
   on_idle = None;
   on_error = None;
   on_tool_error = None;
+  pre_compact = None;
 }
 
 (** Context injection: data returned by a context_injector after tool execution.

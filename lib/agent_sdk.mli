@@ -114,6 +114,7 @@ module Durable = Durable
 module Policy = Policy
 module Audit = Audit
 module Plan = Plan
+module Reflexion = Reflexion
 module Checkpoint_validation = Checkpoint_validation
 module Judge = Judge
 

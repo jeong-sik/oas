@@ -43,6 +43,11 @@ type hook_event =
   | OnIdle of { consecutive_idle_turns: int; tool_names: string list }
   | OnError of { detail: string; context: string }
   | OnToolError of { tool_name: string; error: string }
+  | PreCompact of {
+      messages: Types.message list;
+      estimated_tokens: int;
+      budget_tokens: int;
+    }
 
 (** Elicitation: structured request for user input during agent execution. *)
 type elicitation_request = {
@@ -91,6 +96,7 @@ type hooks = {
   on_idle: hook option;
   on_error: hook option;
   on_tool_error: hook option;
+  pre_compact: hook option;
 }
 
 (** Context injection: data returned by a context_injector after tool execution *)
