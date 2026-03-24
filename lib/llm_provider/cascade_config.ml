@@ -199,6 +199,46 @@ let load_profile ~config_path ~name =
         items
     | _ -> []
 
+(* ── Inference parameter resolution ─────────────────────
+   Per-cascade temperature/max_tokens from cascade.json.
+   Enables MASC and other consumers to delegate inference
+   parameter decisions to the same config file. *)
+
+type inference_params = {
+  temperature: float option;
+  max_tokens: int option;
+}
+
+let read_float_field json key =
+  let open Yojson.Safe.Util in
+  match json |> member key with
+  | `Float f -> Some f
+  | `Int i -> Some (float_of_int i)
+  | _ -> None
+
+let read_int_field json key =
+  let open Yojson.Safe.Util in
+  match json |> member key with
+  | `Int i -> Some i
+  | `Float f -> Some (int_of_float f)
+  | _ -> None
+
+let resolve_inference_params ~config_path ~name =
+  match load_json config_path with
+  | Error _ -> { temperature = None; max_tokens = None }
+  | Ok json ->
+    let temp =
+      match read_float_field json (name ^ "_temperature") with
+      | Some _ as v -> v
+      | None -> read_float_field json "default_temperature"
+    in
+    let max_tok =
+      match read_int_field json (name ^ "_max_tokens") with
+      | Some _ as v -> v
+      | None -> read_int_field json "default_max_tokens"
+    in
+    { temperature = temp; max_tokens = max_tok }
+
 (* ── Cascade-level error classification ────────────────── *)
 
 (** Decide whether an error should cascade to the next provider.
