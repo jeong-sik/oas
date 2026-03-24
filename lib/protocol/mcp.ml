@@ -7,15 +7,12 @@
 open Types
 include Mcp_schema
 
-let ( let* ) = Result.bind
+module Sdk_client = Mcp_protocol_eio.Client
 
 (* ── Eio stdio transport client ──────────────────────────────────── *)
 
 type t = {
-  reader: Eio.Buf_read.t;
-  writer: Eio.Flow.sink_ty Eio.Resource.t;
-  mutable next_id: int;
-  id_mu: Eio.Mutex.t;
+  client: Sdk_client.t;
   kill: unit -> unit;
 }
 
@@ -60,16 +57,17 @@ let connect ~sw ~(mgr : _ Eio.Process.mgr) ~command ~args ?env () =
     in
     Eio.Flow.close r_child_stdin;
     Eio.Flow.close w_child_stdout;
-    let reader =
-      Eio.Buf_read.of_flow (r_child_stdout :> _ Eio.Flow.source)
-        ~max_size:Llm_provider.Api_common.max_stdio_buffer
+    let client =
+      Sdk_client.create
+        ~stdin:(r_child_stdout :> _ Eio.Flow.source)
+        ~stdout:(w_child_stdin :> _ Eio.Flow.sink)
+        ()
     in
     let kill () =
       try Eio.Process.signal proc Sys.sigterm
       with Unix.Unix_error _ | Eio.Io _ | Sys_error _ -> ()
     in
-    Ok { reader; writer = (w_child_stdin :> Eio.Flow.sink_ty Eio.Resource.t);
-         next_id = 1; id_mu = Eio.Mutex.create (); kill }
+    Ok { client; kill }
   with
   | Eio.Io _ as exn ->
     Error (Error.Mcp (ServerStartFailed { command; detail = Printexc.to_string exn }))
@@ -77,70 +75,6 @@ let connect ~sw ~(mgr : _ Eio.Process.mgr) ~command ~args ?env () =
     Error (Error.Mcp (ServerStartFailed { command; detail = Printexc.to_string exn }))
   | Failure msg ->
     Error (Error.Mcp (ServerStartFailed { command; detail = msg }))
-
-(** Lightweight NDJSON request/response helpers. *)
-let send_raw t json =
-  Eio.Flow.copy_string (Yojson.Safe.to_string json ^ "\n") t.writer
-
-(** Read the next JSON-RPC response, skipping notifications (id = null)
-    and empty lines.  The recursive [loop] sits outside [try] so that
-    notification-skipping is tail-recursive — important for long-lived
-    MCP connections that receive many notifications. *)
-let read_response t =
-  let rec loop () =
-    let line = Eio.Buf_read.line t.reader |> String.trim in
-    if line = "" then loop ()
-    else
-      let json = Yojson.Safe.from_string line in
-      let open Yojson.Safe.Util in
-      match json |> member "id" with
-      | `Null -> loop ()  (* notification — skip *)
-      | _ ->
-          (match json |> member "error" with
-           | `Null -> Ok (json |> member "result")
-           | error_obj ->
-               let message =
-                 error_obj |> member "message" |> to_string_option
-                 |> Option.value ~default:"Unknown MCP error"
-               in
-               Error message)
-  in
-  try loop ()
-  with
-  | End_of_file -> Error "MCP server closed connection"
-  | Yojson.Json_error msg -> Error ("Invalid JSON from MCP server: " ^ msg)
-  | Eio.Io _ as exn -> Error (Printexc.to_string exn)
-
-let send_request t ~method_ ?params () =
-  let id = Eio.Mutex.use_rw ~protect:true t.id_mu (fun () ->
-    let id = t.next_id in
-    t.next_id <- t.next_id + 1;
-    id)
-  in
-  let fields = [
-    ("jsonrpc", `String "2.0");
-    ("id", `Int id);
-    ("method", `String method_);
-  ] in
-  let fields =
-    match params with
-    | Some json -> fields @ [("params", json)]
-    | None -> fields
-  in
-  send_raw t (`Assoc fields);
-  read_response t
-
-let send_notification t ~method_ ?params () =
-  let fields = [
-    ("jsonrpc", `String "2.0");
-    ("method", `String method_);
-  ] in
-  let fields =
-    match params with
-    | Some json -> fields @ [("params", json)]
-    | None -> fields
-  in
-  send_raw t (`Assoc fields)
 
 let mcp_tool_of_json = function
   | `Assoc fields ->
@@ -165,49 +99,20 @@ let mcp_tool_of_json = function
        | _ -> None)  (* skip tools without a valid name *)
   | _ -> None
 
-(** Send MCP initialize handshake. *)
 let initialize t =
-  let params =
-    `Assoc [
-      ("protocolVersion", `String "2025-11-25");
-      ("capabilities", `Assoc []);
-      ("clientInfo", `Assoc [
-        ("name", `String "oas-mcp-client");
-        ("version", `String "0.10.0");
-      ]);
-    ]
-  in
-  match send_request t ~method_:"initialize" ~params () with
-  | Ok _result ->
-      send_notification t ~method_:"notifications/initialized" ();
-      Ok ()
-  | Error msg -> Error (Error.Mcp (InitializeFailed { detail = msg }))
+  match
+    Sdk_client.initialize t.client
+      ~client_name:"oas-mcp-client"
+      ~client_version:"0.10.0"
+  with
+  | Ok _ -> Ok ()
+  | Error detail -> Error (Error.Mcp (InitializeFailed { detail }))
 
 (** Fetch tools from MCP server and return them. *)
 let list_tools t =
-  let rec loop cursor acc =
-    let params =
-      match cursor with
-      | Some value -> Some (`Assoc [("cursor", `String value)])
-      | None -> None
-    in
-    match send_request t ~method_:"tools/list" ?params () with
-    | Error msg ->
-        Error (Error.Mcp (ToolListFailed { detail = msg }))
-    | Ok result ->
-        let open Yojson.Safe.Util in
-        let page =
-          match result |> member "tools" with
-          | `List items -> List.filter_map mcp_tool_of_json items
-          | _ -> []
-        in
-        let next_cursor = result |> member "nextCursor" |> to_string_option in
-        let acc = acc @ page in
-        (match next_cursor with
-         | Some value when String.trim value <> "" -> loop (Some value) acc
-         | _ -> Ok acc)
-  in
-  loop None []
+  match Sdk_client.list_tools_all t.client with
+  | Error detail -> Error (Error.Mcp (ToolListFailed { detail }))
+  | Ok tools -> Ok (List.map mcp_tool_of_sdk_tool tools)
 
 let decode_items field decode result_json =
   let open Yojson.Safe.Util in
@@ -228,31 +133,15 @@ let decode_items field decode result_json =
   | _ -> Ok []
 
 let list_resources t =
-  let rec loop cursor acc =
-    let params =
-      match cursor with
-      | Some value -> Some (`Assoc [("cursor", `String value)])
-      | None -> None
-    in
-    match send_request t ~method_:"resources/list" ?params () with
-    | Error msg -> Error (Error.Mcp (ToolListFailed { detail = msg }))
-    | Ok result ->
-        let open Yojson.Safe.Util in
-        let* page = decode_items "resources" Sdk_types.resource_of_yojson result in
-        let next_cursor = result |> member "nextCursor" |> to_string_option in
-        let acc = acc @ page in
-        (match next_cursor with
-         | Some value when String.trim value <> "" -> loop (Some value) acc
-         | _ -> Ok acc)
-  in
-  loop None []
+  match Sdk_client.list_resources_all t.client with
+  | Error detail -> Error (Error.Mcp (ToolListFailed { detail }))
+  | Ok resources -> Ok resources
 
 let read_resource t ~uri =
-  let params = `Assoc [("uri", `String uri)] in
-  match send_request t ~method_:"resources/read" ~params () with
-  | Error msg -> Error (Error.Mcp (ToolCallFailed { tool_name = uri; detail = msg }))
-  | Ok result ->
-      let* contents = decode_items "contents" Sdk_types.resource_contents_of_yojson result in
+  match Sdk_client.read_resource t.client ~uri with
+  | Error detail ->
+      Error (Error.Mcp (ToolCallFailed { tool_name = uri; detail }))
+  | Ok contents ->
       Ok
         (List.map
            (fun (content : Sdk_types.resource_contents) ->
@@ -262,87 +151,32 @@ let read_resource t ~uri =
            contents)
 
 let list_prompts t =
-  let rec loop cursor acc =
-    let params =
-      match cursor with
-      | Some value -> Some (`Assoc [("cursor", `String value)])
-      | None -> None
-    in
-    match send_request t ~method_:"prompts/list" ?params () with
-    | Error msg -> Error (Error.Mcp (ToolListFailed { detail = msg }))
-    | Ok result ->
-        let open Yojson.Safe.Util in
-        let* page = decode_items "prompts" Sdk_types.prompt_of_yojson result in
-        let next_cursor = result |> member "nextCursor" |> to_string_option in
-        let acc = acc @ page in
-        (match next_cursor with
-         | Some value when String.trim value <> "" -> loop (Some value) acc
-         | _ -> Ok acc)
-  in
-  loop None []
+  match Sdk_client.list_prompts_all t.client with
+  | Error detail -> Error (Error.Mcp (ToolListFailed { detail }))
+  | Ok prompts -> Ok prompts
 
 let get_prompt t ~name ?(arguments = []) () =
-  let args_json =
-    arguments
-    |> List.map (fun (key, value) -> (key, `String value))
-    |> fun pairs -> `Assoc pairs
-  in
-  let params =
-    `Assoc
-      [
-        ("name", `String name);
-        ("arguments", args_json);
-      ]
-  in
-  match send_request t ~method_:"prompts/get" ~params () with
-  | Error msg -> Error (Error.Mcp (ToolCallFailed { tool_name = name; detail = msg }))
-  | Ok result -> (
-      match Sdk_types.prompt_result_of_yojson result with
-      | Ok prompt_result -> Ok prompt_result
-      | Error detail ->
-          Error
-            (Error.Serialization
-               (JsonParseError
-                  { detail = Printf.sprintf "MCP prompt decode failed: %s" detail })))
+  match Sdk_client.get_prompt t.client ~name ~arguments () with
+  | Ok prompt_result -> Ok prompt_result
+  | Error detail ->
+      Error (Error.Mcp (ToolCallFailed { tool_name = name; detail }))
 
 (** Invoke a tool on the MCP server.
     Returns the concatenated text content on success. *)
 let call_tool t ~name ~arguments : Types.tool_result =
-  let params =
-    `Assoc [
-      ("name", `String name);
-      ("arguments", arguments);
-    ]
-  in
-  match send_request t ~method_:"tools/call" ~params () with
-  | Error msg ->
-      Error { message = Printf.sprintf "MCP tools/call '%s' failed: %s" name msg; recoverable = true }
+  match Sdk_client.call_tool t.client ~name ~arguments () with
+  | Error detail ->
+      Error
+        {
+          message =
+            Printf.sprintf "MCP tools/call '%s' failed: %s" name detail;
+          recoverable = true;
+        }
   | Ok result ->
-      let open Yojson.Safe.Util in
-      let content =
-        match result |> member "content" with
-        | `List items -> items
-        | _ -> []
-      in
-      let text =
-        List.filter_map (fun item ->
-          if item |> member "type" |> to_string_option = Some "text" then
-            item |> member "text" |> to_string_option
-          else
-            None
-        ) content
-        |> String.concat "\n"
-      in
-      let is_error =
-        match result |> member "isError" with
-        | `Bool b -> b
-        | _ ->
-            (match result |> member "is_error" with
-             | `Bool b -> b
-             | _ -> false)
-      in
-      if is_error then Error { message = text; recoverable = true }
-      else Ok { content = truncate_output text }
+      let text = text_of_tool_result result in
+      if Option.value ~default:false result.Sdk_types.is_error then
+        Error { message = text; recoverable = true }
+      else Ok { content = text }
 
 (** Convert MCP tools to SDK [Tool.t] list.
     Each tool's handler delegates to {!call_tool} on [t]. *)
@@ -358,7 +192,7 @@ let to_tools t (tools : mcp_tool list) =
     Sends a [ping] request and returns [true] if a response arrives. *)
 let is_alive t =
   try
-    match send_request t ~method_:"ping" () with
+    match Sdk_client.ping t.client with
     | Ok _ -> true
     | Error _ -> false
   with
@@ -366,6 +200,7 @@ let is_alive t =
 
 (** Close the MCP client and terminate the subprocess. *)
 let close t =
+  Sdk_client.close t.client;
   t.kill ()
 
 (* ── Managed lifecycle ─────────────────────────────────────────── *)

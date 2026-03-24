@@ -13,10 +13,8 @@ open Agent_sdk
 
 let test_default_config () =
   let cfg = Mcp_http.default_config in
-  check string "base_url" "http://localhost:8080" cfg.base_url;
-  check (list (pair string string)) "headers" [] cfg.headers;
-  check bool "reconnect_max_s > 0" true (cfg.reconnect_max_s > 0.0);
-  check bool "request_timeout_s > 0" true (cfg.request_timeout_s > 0.0)
+  check string "base_url" "http://localhost:8080/mcp" cfg.base_url;
+  check (list (pair string string)) "headers" [] cfg.headers
 
 (* ── Connect to unreachable server ──────────────────────── *)
 
