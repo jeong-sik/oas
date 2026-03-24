@@ -355,6 +355,28 @@ let () =
           (match cp.tool_choice with
            | Some Types.Auto -> Some "auto"
            | _ -> None));
+
+      test_case "Agent.checkpoint preserves working_context sidecar" `Quick
+        (fun () ->
+          Eio_main.run @@ fun env ->
+          let net = Eio.Stdenv.net env in
+          let agent = Agent.create ~net () in
+          let sidecar =
+            `Assoc
+              [
+                ("kind", `String "keeper_context_v1");
+                ("max_tokens", `Int 4096);
+                ("generation", `Int 3);
+              ]
+          in
+          let cp =
+            Agent.checkpoint ~session_id:"sess-sidecar"
+              ~working_context:sidecar agent
+          in
+          Alcotest.(check bool) "sidecar preserved" true
+            (match cp.working_context with
+             | Some json -> json = sidecar
+             | None -> false));
     ];
 
     "build_resume", [
