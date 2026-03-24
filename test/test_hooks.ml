@@ -84,10 +84,37 @@ let test_invoke_approval_required () =
     (Hooks.PreToolUse { tool_name = "dangerous"; input = `Null; accumulated_cost_usd = 0.0; turn = 0 }) in
   check bool "hook returns ApprovalRequired" true (result = Hooks.ApprovalRequired)
 
+let test_pre_compact_event () =
+  let received_tokens = ref 0 in
+  let hook = function
+    | Hooks.PreCompact { estimated_tokens; _ } ->
+      received_tokens := estimated_tokens;
+      Hooks.Continue
+    | _ -> Hooks.Continue
+  in
+  let msgs = [Types.{ role = User; content = [Text "hello"]; name = None; tool_call_id = None }] in
+  let _result = Hooks.invoke (Some hook)
+    (Hooks.PreCompact { messages = msgs; estimated_tokens = 5000; budget_tokens = 8000 }) in
+  check int "hook received estimated_tokens" 5000 !received_tokens
+
+let test_pre_compact_skip () =
+  let hook = function
+    | Hooks.PreCompact _ -> Hooks.Skip
+    | _ -> Hooks.Continue
+  in
+  let result = Hooks.invoke (Some hook)
+    (Hooks.PreCompact { messages = []; estimated_tokens = 100; budget_tokens = 200 }) in
+  check bool "hook returns Skip" true (result = Hooks.Skip)
+
+let test_empty_hooks_pre_compact () =
+  let hooks = Hooks.empty in
+  check bool "pre_compact is None" true (hooks.pre_compact = None)
+
 let () =
   run "Hooks" [
     "empty", [
       test_case "empty hooks" `Quick test_empty_hooks;
+      test_case "pre_compact None" `Quick test_empty_hooks_pre_compact;
     ];
     "invoke", [
       test_case "invoke None" `Quick test_invoke_none;
@@ -99,5 +126,9 @@ let () =
       test_case "post_tool_use event" `Quick test_post_tool_use_event;
       test_case "post_tool_use_failure event" `Quick
         test_post_tool_use_failure_event;
+    ];
+    "pre_compact", [
+      test_case "receives tokens" `Quick test_pre_compact_event;
+      test_case "returns Skip" `Quick test_pre_compact_skip;
     ];
   ]
