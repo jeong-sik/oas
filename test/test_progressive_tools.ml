@@ -9,16 +9,16 @@ let check_bool = Alcotest.(check bool)
 
 let test_phase_based_empty_phases () =
   let strategy = Progressive_tools.Phase_based { phases = [] } in
-  let tools = Progressive_tools.tools_for_turn strategy 0 in
+  let tools = Progressive_tools.tools_for_turn strategy 0 () in
   check_int "no phases -> empty" 0 (List.length tools)
 
 let test_phase_based_single_phase () =
   let strategy = Progressive_tools.Phase_based {
     phases = [(0, ["read"; "search"])]
   } in
-  let tools = Progressive_tools.tools_for_turn strategy 0 in
+  let tools = Progressive_tools.tools_for_turn strategy 0 () in
   check_int "turn 0" 2 (List.length tools);
-  let tools5 = Progressive_tools.tools_for_turn strategy 5 in
+  let tools5 = Progressive_tools.tools_for_turn strategy 5 () in
   check_int "turn 5 same" 2 (List.length tools5)
 
 let test_phase_based_multi_phase () =
@@ -29,20 +29,20 @@ let test_phase_based_multi_phase () =
       (6, ["read"; "write"; "deploy"]);
     ]
   } in
-  let t0 = Progressive_tools.tools_for_turn strategy 0 in
+  let t0 = Progressive_tools.tools_for_turn strategy 0 () in
   check_int "turn 0: 1 tool" 1 (List.length t0);
-  let t3 = Progressive_tools.tools_for_turn strategy 3 in
+  let t3 = Progressive_tools.tools_for_turn strategy 3 () in
   check_int "turn 3: 2 tools" 2 (List.length t3);
-  let t6 = Progressive_tools.tools_for_turn strategy 6 in
+  let t6 = Progressive_tools.tools_for_turn strategy 6 () in
   check_int "turn 6: 3 tools" 3 (List.length t6);
-  let t10 = Progressive_tools.tools_for_turn strategy 10 in
+  let t10 = Progressive_tools.tools_for_turn strategy 10 () in
   check_int "turn 10: 3 tools (highest phase)" 3 (List.length t10)
 
 let test_phase_based_below_first_threshold () =
   let strategy = Progressive_tools.Phase_based {
     phases = [(5, ["a"; "b"])]
   } in
-  let tools = Progressive_tools.tools_for_turn strategy 2 in
+  let tools = Progressive_tools.tools_for_turn strategy 2 () in
   check_int "below threshold -> empty" 0 (List.length tools)
 
 (* ── Gather_act_verify ────────────────────────────────── *)
@@ -53,7 +53,7 @@ let test_gav_gather_phase () =
     act_tools = ["write"; "execute"];
     verify_tools = ["test"; "lint"];
   } in
-  let t1 = Progressive_tools.tools_for_turn strategy 1 in
+  let t1 = Progressive_tools.tools_for_turn strategy 1 () in
   check_int "turn 1: gather only" 2 (List.length t1);
   check_bool "has search" true (List.mem "search" t1);
   check_bool "has read" true (List.mem "read" t1)
@@ -64,7 +64,7 @@ let test_gav_act_phase () =
     act_tools = ["write"];
     verify_tools = ["test"];
   } in
-  let t3 = Progressive_tools.tools_for_turn strategy 3 in
+  let t3 = Progressive_tools.tools_for_turn strategy 3 () in
   check_int "turn 3: gather + act" 2 (List.length t3);
   check_bool "has search" true (List.mem "search" t3);
   check_bool "has write" true (List.mem "write" t3)
@@ -75,7 +75,7 @@ let test_gav_verify_phase () =
     act_tools = ["write"];
     verify_tools = ["test"];
   } in
-  let t6 = Progressive_tools.tools_for_turn strategy 6 in
+  let t6 = Progressive_tools.tools_for_turn strategy 6 () in
   check_int "turn 6: all" 3 (List.length t6);
   check_bool "has test" true (List.mem "test" t6)
 
@@ -86,13 +86,13 @@ let test_gav_boundary_turns () =
     verify_tools = ["v"];
   } in
   (* turn <= 2 = gather *)
-  let t2 = Progressive_tools.tools_for_turn strategy 2 in
+  let t2 = Progressive_tools.tools_for_turn strategy 2 () in
   check_int "turn 2: gather" 1 (List.length t2);
   (* turn 3-5 = gather + act *)
-  let t5 = Progressive_tools.tools_for_turn strategy 5 in
+  let t5 = Progressive_tools.tools_for_turn strategy 5 () in
   check_int "turn 5: gather+act" 2 (List.length t5);
   (* turn 6+ = all *)
-  let t6 = Progressive_tools.tools_for_turn strategy 6 in
+  let t6 = Progressive_tools.tools_for_turn strategy 6 () in
   check_int "turn 6: all" 3 (List.length t6)
 
 (* ── as_hook ──────────────────────────────────────────── *)

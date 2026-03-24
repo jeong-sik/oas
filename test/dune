@@ -781,3 +781,11 @@
 (test
  (name test_provider_config)
  (libraries llm_provider alcotest yojson))
+
+(test
+ (name test_reflexion)
+ (libraries agent_sdk alcotest yojson unix))
+
+(test
+ (name test_durable_event)
+ (libraries agent_sdk alcotest yojson unix))

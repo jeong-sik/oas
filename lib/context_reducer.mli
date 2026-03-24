@@ -23,6 +23,7 @@ type strategy =
   | Keep_first_and_last of { first_n: int; last_n: int }
   | Prune_by_role of { drop_roles: role list }
   | Summarize_old of { keep_recent: int; summarizer: message list -> string }
+  | Clear_tool_results of { keep_recent: int }
   | Compose of strategy list
   | Custom of (message list -> message list)
   | Dynamic of (turn:int -> messages:message list -> strategy)
@@ -69,6 +70,7 @@ val drop_thinking : t
 val keep_first_and_last : first_n:int -> last_n:int -> t
 val prune_by_role : drop_roles:role list -> t
 val summarize_old : keep_recent:int -> summarizer:(message list -> string) -> t
+val clear_tool_results : keep_recent:int -> t
 val compose : t list -> t
 val custom : (message list -> message list) -> t
 

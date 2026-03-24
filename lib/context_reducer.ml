@@ -24,6 +24,7 @@ type strategy =
   | Keep_first_and_last of { first_n: int; last_n: int }
   | Prune_by_role of { drop_roles: role list }
   | Summarize_old of { keep_recent: int; summarizer: message list -> string }
+  | Clear_tool_results of { keep_recent: int }
   | Compose of strategy list
   | Custom of (message list -> message list)
   | Dynamic of (turn:int -> messages:message list -> strategy)
@@ -301,6 +302,39 @@ let apply_prune_by_role ~drop_roles messages =
   in
   List.filter (fun msg -> not (should_drop msg)) messages
 
+(** Clear tool results from older turns.
+
+    Replaces ToolResult content in older turns (beyond [keep_recent])
+    with a short marker, preserving the tool_use_id for API consistency.
+    This is the safest and lightest form of context compaction
+    (Anthropic "Effective Context Engineering" recommendation).
+
+    ToolResult blocks in the most recent [keep_recent] turns are untouched. *)
+let apply_clear_tool_results ~keep_recent messages =
+  let turns = group_into_turns messages in
+  let total = List.length turns in
+  if total <= keep_recent then messages
+  else
+    let process_turn i turn =
+      if i >= total - keep_recent then turn
+      else
+        List.map (fun (msg : message) ->
+          let content = List.map (fun block ->
+            match block with
+            | ToolResult { tool_use_id; content; is_error } when String.length content > 50 ->
+              let summary =
+                if is_error then "[tool error result cleared]"
+                else Printf.sprintf "[tool result cleared: %d chars]" (String.length content)
+              in
+              ToolResult { tool_use_id; content = summary; is_error }
+            | other -> other
+          ) msg.content in
+          { msg with content }
+        ) turn
+    in
+    let processed = List.mapi process_turn turns in
+    List.concat processed
+
 (** Replace old messages with a summary, keeping the [keep_recent] most
     recent turns intact. The caller supplies a [summarizer] function
     that produces a summary string from the old messages.
@@ -335,6 +369,8 @@ and apply_strategy strategy messages =
   | Prune_by_role { drop_roles } -> apply_prune_by_role ~drop_roles messages
   | Summarize_old { keep_recent; summarizer } ->
     apply_summarize_old ~keep_recent ~summarizer messages
+  | Clear_tool_results { keep_recent } ->
+    apply_clear_tool_results ~keep_recent messages
   | Compose strategies ->
     List.fold_left (fun msgs s -> apply_strategy s msgs) messages strategies
   | Custom f -> f messages
@@ -358,6 +394,8 @@ let keep_first_and_last ~first_n ~last_n =
 let prune_by_role ~drop_roles = { strategy = Prune_by_role { drop_roles } }
 let summarize_old ~keep_recent ~summarizer =
   { strategy = Summarize_old { keep_recent; summarizer } }
+let clear_tool_results ~keep_recent =
+  { strategy = Clear_tool_results { keep_recent } }
 let compose strategies = { strategy = Compose (List.map (fun r -> r.strategy) strategies) }
 let custom f = { strategy = Custom f }
 
