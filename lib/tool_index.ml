@@ -109,7 +109,10 @@ let build ?(config = default_config) (entries : entry list) : t =
     if total_docs = 0 then 1.0
     else
       let sum = Array.fold_left (fun acc d -> acc + d.token_count) 0 docs in
-      float_of_int sum /. float_of_int total_docs
+      let raw = float_of_int sum /. float_of_int total_docs in
+      (* Guard: avg_dl must be > 0 to avoid division by zero in BM25.
+         Can be 0.0 if all documents tokenize to empty strings. *)
+      if raw < 1.0 then 1.0 else raw
   in
   let idf = compute_idf docs in
   let vocab_size = Hashtbl.length idf in

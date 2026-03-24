@@ -77,10 +77,24 @@ let length journal = List.length journal.entries
 
 (* ── Idempotency ──────────────────────────────────── *)
 
+(** Stable idempotency key using FNV-1a hash for better distribution.
+    Not cryptographic, but sufficient for deduplication within a single
+    journal. Collisions are theoretically possible but practically
+    unlikely for distinct tool inputs. *)
+let fnv1a_hash (s : string) : int =
+  let basis = 0x811c9dc5 in
+  let prime = 0x01000193 in
+  let h = ref basis in
+  String.iter (fun c ->
+    h := !h lxor (Char.code c);
+    h := !h * prime;
+  ) s;
+  !h land 0x7FFFFFFF  (* ensure positive *)
+
 let make_idempotency_key ~tool_name ~input =
   let input_str = Yojson.Safe.to_string input in
-  let hash = Hashtbl.hash input_str in
-  Printf.sprintf "%s:%d" tool_name hash
+  let hash = fnv1a_hash (tool_name ^ ":" ^ input_str) in
+  Printf.sprintf "%s:%08x" tool_name hash
 
 let find_completed_activity journal key =
   List.find_map (fun event ->

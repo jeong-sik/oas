@@ -152,13 +152,14 @@ let run ~config ?memory ~run_agent () =
             | Some text ->
               if config.include_critique then reflections @ [text]
               else
-                (* Strip critique, keep only diagnosis *)
+                (* Strip critique, keep only diagnosis.
+                 verdict is always Fail here (Pass exits early above). *)
                 let diag_only =
                   match verdict with
                   | Fail { diagnosis; _ } ->
                     Printf.sprintf "[Reflection from attempt %d]\nDiagnosis: %s"
                       attempt_number diagnosis
-                  | Pass -> text
+                  | Pass -> assert false  (* unreachable: Pass exits loop *)
                 in
                 reflections @ [diag_only]
             | None -> reflections
