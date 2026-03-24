@@ -62,6 +62,17 @@ val load_profile :
   name:string ->
   string list
 
+(** Load and cache a JSON config file with mtime-based hot-reload.
+
+    The loaded JSON is protected by an {!Eio.Mutex} and cached per path.
+    When the file mtime changes, re-reads and re-parses the file.
+
+    Consumers that need raw JSON access (e.g. for temperature/max_tokens
+    fields alongside model lists) can use this instead of {!load_profile}.
+
+    @since 0.89.0 *)
+val load_json : string -> (Yojson.Safe.t, string) result
+
 (** How a cascade name was resolved. *)
 type cascade_source =
   | Named              (** Found as "{name}_models" in config *)
