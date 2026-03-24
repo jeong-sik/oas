@@ -170,18 +170,23 @@ let retrieve (idx : t) (query : string) : (string * float) list =
       (* Take top_k *)
       let top = List.filteri (fun i _ -> i < idx.config.top_k) sorted in
       (* Expand groups: if a matched tool has a group, include all tools
-         in that group *)
-      let matched_groups = List.filter_map (fun (entry, _) ->
-        entry.group
-      ) top in
+         in that group. Uses Hashtbl for O(1) lookups instead of List.mem. *)
+      let group_set = Hashtbl.create 8 in
+      let matched_set = Hashtbl.create 16 in
+      List.iter (fun (entry, _) ->
+        Hashtbl.replace matched_set entry.name true;
+        match entry.group with
+        | Some g -> Hashtbl.replace group_set g true
+        | None -> ()
+      ) top;
       let group_additions =
-        if matched_groups = [] then []
+        if Hashtbl.length group_set = 0 then []
         else
           Array.to_list (Array.to_seq idx.docs
             |> Seq.filter (fun doc ->
               match doc.entry.group with
-              | Some g -> List.mem g matched_groups
-                          && not (List.exists (fun (e, _) -> e.name = doc.entry.name) top)
+              | Some g -> Hashtbl.mem group_set g
+                          && not (Hashtbl.mem matched_set doc.entry.name)
               | None -> false)
             |> Array.of_seq)
           |> List.map (fun doc -> (doc.entry, 0.0))

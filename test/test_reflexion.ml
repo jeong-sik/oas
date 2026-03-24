@@ -3,23 +3,10 @@
 open Alcotest
 open Agent_sdk
 
-(* ── String helpers (avoid external deps) ─────────── *)
+(* ── String helpers ────────────────────────────────── *)
 
-let contains_sub ~affix s =
-  let alen = String.length affix and slen = String.length s in
-  if alen = 0 then true
-  else if alen > slen then false
-  else
-    let rec check i =
-      if i > slen - alen then false
-      else if String.sub s i alen = affix then true
-      else check (i + 1)
-    in
-    check 0
-
-let starts_with_sub ~affix s =
-  let alen = String.length affix in
-  String.length s >= alen && String.sub s 0 alen = affix
+let contains_sub ~affix s = Util.string_contains ~needle:affix s
+let starts_with_sub ~affix s = String.starts_with ~prefix:affix s
 
 (* ── Helpers ──────────────────────────────────────── *)
 
