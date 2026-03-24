@@ -24,6 +24,25 @@ let headers_with_auth ~(kind : Provider_config.provider_kind) ~api_key =
 
 (* ── Model string parsing ──────────────────────────────── *)
 
+(** Resolve "auto" model_id to the provider's concrete default.
+    Cloud APIs (GLM, Gemini, Claude) reject unknown model names;
+    local servers (llama) accept any model_id so "auto" is kept as-is.
+    Override per provider via env var. *)
+let resolve_auto_model_id provider_name model_id =
+  if model_id <> "auto" then model_id
+  else
+    let env_or default var =
+      match Sys.getenv_opt var with
+      | Some m when String.trim m <> "" -> String.trim m
+      | _ -> default
+    in
+    match provider_name with
+    | "glm" -> env_or "glm-4.7" "ZAI_DEFAULT_MODEL"
+    | "gemini" -> env_or "gemini-2.5-flash" "GEMINI_DEFAULT_MODEL"
+    | "claude" -> env_or "claude-sonnet-4-6-20250514" "ANTHROPIC_DEFAULT_MODEL"
+    | "openrouter" -> env_or model_id "OPENROUTER_DEFAULT_MODEL"
+    | _ -> model_id
+
 let parse_custom_model model_id =
   match String.index_opt model_id '@' with
   | Some at_idx ->
@@ -86,9 +105,12 @@ let parse_model_string ?(temperature = 0.3) ?(max_tokens = 500)
                   Provider_registry.next_llama_endpoint ()
                 else defaults.base_url
               in
+              let resolved_model_id =
+                resolve_auto_model_id provider_name model_id
+              in
               Some (Provider_config.make
                       ~kind:defaults.kind
-                      ~model_id
+                      ~model_id:resolved_model_id
                       ~base_url
                       ~api_key ~headers
                       ~request_path:defaults.request_path
