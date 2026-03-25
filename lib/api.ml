@@ -33,7 +33,7 @@ let build_body_assoc = Api_anthropic.build_body_assoc
 let openai_messages_of_message = Api_openai.openai_messages_of_message
 let openai_content_parts_of_blocks = Api_openai.openai_content_parts_of_blocks
 let build_openai_body = Api_openai.build_openai_body
-let parse_openai_response = Api_openai.parse_openai_response
+let parse_openai_response_result = Llm_provider.Backend_openai_parse.parse_openai_response_result
 
 let map_named_cascade_error = function
   | Llm_provider.Http_client.HttpError { code; body } ->
@@ -97,18 +97,20 @@ let create_message ~sw ~net ?(base_url=default_base_url) ?provider ?clock ?retry
       match Cohttp.Response.status resp with
       | `OK ->
           let body_str = Eio.Buf_read.(of_flow ~max_size:max_response_body body |> take_all) in
-          let response =
-            match kind with
-            | Provider.Anthropic_messages ->
-                parse_response (Yojson.Safe.from_string body_str)
-            | Provider.Openai_chat_completions ->
-                parse_openai_response body_str
-            | Provider.Custom name ->
-                (match Provider.find_provider name with
-                 | Some impl -> impl.parse_response body_str
-                 | None -> parse_openai_response body_str)
-          in
-          Ok response
+          (match kind with
+           | Provider.Anthropic_messages ->
+               Ok (parse_response (Yojson.Safe.from_string body_str))
+           | Provider.Openai_chat_completions ->
+               (match parse_openai_response_result body_str with
+                | Ok resp -> Ok resp
+                | Error msg -> Error (Retry.InvalidRequest { message = msg }))
+           | Provider.Custom name ->
+               (match Provider.find_provider name with
+                | Some impl -> Ok (impl.parse_response body_str)
+                | None ->
+                    (match parse_openai_response_result body_str with
+                     | Ok resp -> Ok resp
+                     | Error msg -> Error (Retry.InvalidRequest { message = msg }))))
       | status ->
           let code = Cohttp.Code.code_of_status status in
           let body_str = Eio.Buf_read.(of_flow ~max_size:max_response_body body |> take_all) in
@@ -118,8 +120,6 @@ let create_message ~sw ~net ?(base_url=default_base_url) ?provider ?clock ?retry
       Error (Retry.NetworkError { message = Printexc.to_string exn })
     | Unix.Unix_error _ as exn ->
       Error (Retry.NetworkError { message = Printexc.to_string exn })
-    | Api_openai.Openai_api_error msg ->
-      Error (Retry.InvalidRequest { message = msg })
     | Llm_provider.Backend_gemini.Gemini_api_error msg ->
       Error (Retry.InvalidRequest { message = msg })
     | Llm_provider.Backend_glm.Glm_api_error msg ->

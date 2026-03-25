@@ -128,7 +128,8 @@ let test_openai_usage_with_cached_tokens () =
       }
     }
   }|} in
-  let resp = Agent_sdk.Api.parse_openai_response json_str in
+  let resp = match Agent_sdk.Api.parse_openai_response_result json_str with
+    | Ok r -> r | Error msg -> failwith msg in
   match resp.usage with
   | Some u ->
     Alcotest.(check int) "input_tokens" 500 u.input_tokens;
@@ -151,7 +152,8 @@ let test_openai_usage_without_cached_tokens () =
       "completion_tokens": 10
     }
   }|} in
-  let resp = Agent_sdk.Api.parse_openai_response json_str in
+  let resp = match Agent_sdk.Api.parse_openai_response_result json_str with
+    | Ok r -> r | Error msg -> failwith msg in
   match resp.usage with
   | Some u ->
     Alcotest.(check int) "input_tokens" 100 u.input_tokens;

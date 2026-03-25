@@ -9,9 +9,6 @@
 
 open Types
 
-(** Raised when the OpenAI-compatible API returns an error in the response body. *)
-exception Openai_api_error of string
-
 (* ── Re-exports from serialization ─────────────────────── *)
 
 let tool_calls_to_openai_json = Backend_openai_serialize.tool_calls_to_openai_json
@@ -25,13 +22,7 @@ let build_openai_tool_json = Backend_openai_serialize.build_openai_tool_json
 let strip_json_markdown_fences = Backend_openai_parse.strip_json_markdown_fences
 let usage_of_openai_json = Backend_openai_parse.usage_of_openai_json
 
-(** Parse an OpenAI-compatible JSON response.
-    Raises {!Openai_api_error} on API error for backward compatibility.
-    New code should prefer {!Backend_openai_parse.parse_openai_response_result}. *)
-let parse_openai_response json_str =
-  match Backend_openai_parse.parse_openai_response_result json_str with
-  | Ok resp -> resp
-  | Error msg -> raise (Openai_api_error msg)
+let parse_openai_response_result = Backend_openai_parse.parse_openai_response_result
 
 (* ── Request building ──────────────────────────────────── *)
 
@@ -197,7 +188,7 @@ let%test "usage_of_openai_json with cached_tokens" =
   | Some u -> u.cache_read_input_tokens = 30
   | None -> false
 
-let%test "parse_openai_response basic text response" =
+let%test "parse_openai_response_result basic text response" =
   let json_str = Yojson.Safe.to_string (`Assoc [
     ("id", `String "chatcmpl-1");
     ("model", `String "gpt-4");
@@ -210,12 +201,14 @@ let%test "parse_openai_response basic text response" =
       ];
     ]);
   ]) in
-  let resp = parse_openai_response json_str in
-  resp.id = "chatcmpl-1"
-  && resp.model = "gpt-4"
-  && resp.stop_reason = EndTurn
+  match parse_openai_response_result json_str with
+  | Ok resp ->
+    resp.id = "chatcmpl-1"
+    && resp.model = "gpt-4"
+    && resp.stop_reason = EndTurn
+  | Error _ -> false
 
-let%test "parse_openai_response tool calls" =
+let%test "parse_openai_response_result tool calls" =
   let json_str = Yojson.Safe.to_string (`Assoc [
     ("id", `String "cmpl-2");
     ("model", `String "gpt-4");
@@ -238,10 +231,11 @@ let%test "parse_openai_response tool calls" =
       ];
     ]);
   ]) in
-  let resp = parse_openai_response json_str in
-  resp.stop_reason = StopToolUse
+  match parse_openai_response_result json_str with
+  | Ok resp -> resp.stop_reason = StopToolUse
+  | Error _ -> false
 
-let%test "parse_openai_response max_tokens stop reason" =
+let%test "parse_openai_response_result max_tokens stop reason" =
   let json_str = Yojson.Safe.to_string (`Assoc [
     ("id", `String "cmpl-3");
     ("model", `String "m");
@@ -252,17 +246,17 @@ let%test "parse_openai_response max_tokens stop reason" =
       ];
     ]);
   ]) in
-  let resp = parse_openai_response json_str in
-  resp.stop_reason = MaxTokens
+  match parse_openai_response_result json_str with
+  | Ok resp -> resp.stop_reason = MaxTokens
+  | Error _ -> false
 
-let%test "parse_openai_response error raises exception" =
+let%test "parse_openai_response_result error returns Error" =
   let json_str = Yojson.Safe.to_string (`Assoc [
     ("error", `Assoc [("message", `String "rate limited")]);
   ]) in
-  try
-    ignore (parse_openai_response json_str);
-    false
-  with Openai_api_error msg -> msg = "rate limited"
+  match parse_openai_response_result json_str with
+  | Error msg -> msg = "rate limited"
+  | Ok _ -> false
 
 let%test "openai_messages_of_message user text" =
   let msg = { role = User; content = [Text "hello"]; name = None; tool_call_id = None } in
@@ -374,7 +368,7 @@ let%test "strip_json_markdown_fences no closing fence" =
 let%test "strip_json_markdown_fences empty content" =
   strip_json_markdown_fences "" = ""
 
-let%test "parse_openai_response unknown finish_reason" =
+let%test "parse_openai_response_result unknown finish_reason" =
   let json_str = Yojson.Safe.to_string (`Assoc [
     ("id", `String "c1");
     ("model", `String "m");
@@ -385,10 +379,11 @@ let%test "parse_openai_response unknown finish_reason" =
       ];
     ]);
   ]) in
-  let resp = parse_openai_response json_str in
-  resp.stop_reason = Unknown "something_new"
+  match parse_openai_response_result json_str with
+  | Ok resp -> resp.stop_reason = Unknown "something_new"
+  | Error _ -> false
 
-let%test "parse_openai_response end_turn finish_reason" =
+let%test "parse_openai_response_result end_turn finish_reason" =
   let json_str = Yojson.Safe.to_string (`Assoc [
     ("id", `String "c1");
     ("model", `String "m");
@@ -399,10 +394,11 @@ let%test "parse_openai_response end_turn finish_reason" =
       ];
     ]);
   ]) in
-  let resp = parse_openai_response json_str in
-  resp.stop_reason = EndTurn
+  match parse_openai_response_result json_str with
+  | Ok resp -> resp.stop_reason = EndTurn
+  | Error _ -> false
 
-let%test "parse_openai_response null content" =
+let%test "parse_openai_response_result null content" =
   let json_str = Yojson.Safe.to_string (`Assoc [
     ("id", `String "c1");
     ("model", `String "m");
@@ -413,10 +409,11 @@ let%test "parse_openai_response null content" =
       ];
     ]);
   ]) in
-  let resp = parse_openai_response json_str in
-  resp.stop_reason = EndTurn
+  match parse_openai_response_result json_str with
+  | Ok resp -> resp.stop_reason = EndTurn
+  | Error _ -> false
 
-let%test "parse_openai_response list content" =
+let%test "parse_openai_response_result list content" =
   let json_str = Yojson.Safe.to_string (`Assoc [
     ("id", `String "c1");
     ("model", `String "m");
@@ -429,12 +426,14 @@ let%test "parse_openai_response list content" =
       ];
     ]);
   ]) in
-  let resp = parse_openai_response json_str in
-  match resp.content with
-  | [Text t] -> String.length t > 0
-  | _ -> false
+  match parse_openai_response_result json_str with
+  | Ok resp ->
+    (match resp.content with
+     | [Text t] -> String.length t > 0
+     | _ -> false)
+  | Error _ -> false
 
-let%test "parse_openai_response list content with assoc text blocks" =
+let%test "parse_openai_response_result list content with assoc text blocks" =
   let json_str = Yojson.Safe.to_string (`Assoc [
     ("id", `String "c1");
     ("model", `String "m");
@@ -450,12 +449,14 @@ let%test "parse_openai_response list content with assoc text blocks" =
       ];
     ]);
   ]) in
-  let resp = parse_openai_response json_str in
-  match resp.content with
-  | [Text t] -> t = "block1block2"
-  | _ -> false
+  match parse_openai_response_result json_str with
+  | Ok resp ->
+    (match resp.content with
+     | [Text t] -> t = "block1block2"
+     | _ -> false)
+  | Error _ -> false
 
-let%test "parse_openai_response with reasoning_content" =
+let%test "parse_openai_response_result with reasoning_content" =
   let json_str = Yojson.Safe.to_string (`Assoc [
     ("id", `String "c1");
     ("model", `String "deepseek-r1");
@@ -469,12 +470,12 @@ let%test "parse_openai_response with reasoning_content" =
       ];
     ]);
   ]) in
-  let resp = parse_openai_response json_str in
-  let has_thinking = List.exists (function
-    | Thinking _ -> true | _ -> false) resp.content in
-  has_thinking
+  match parse_openai_response_result json_str with
+  | Ok resp ->
+    List.exists (function Thinking _ -> true | _ -> false) resp.content
+  | Error _ -> false
 
-let%test "parse_openai_response JSON list wrapping" =
+let%test "parse_openai_response_result JSON list wrapping" =
   let inner = `Assoc [
     ("id", `String "c1");
     ("model", `String "m");
@@ -486,17 +487,17 @@ let%test "parse_openai_response JSON list wrapping" =
     ]);
   ] in
   let json_str = Yojson.Safe.to_string (`List [inner]) in
-  let resp = parse_openai_response json_str in
-  resp.id = "c1"
+  match parse_openai_response_result json_str with
+  | Ok resp -> resp.id = "c1"
+  | Error _ -> false
 
-let%test "parse_openai_response error without message" =
+let%test "parse_openai_response_result error without message" =
   let json_str = Yojson.Safe.to_string (`Assoc [
     ("error", `Assoc []);
   ]) in
-  try
-    ignore (parse_openai_response json_str);
-    false
-  with Openai_api_error msg -> msg = "Unknown API error"
+  match parse_openai_response_result json_str with
+  | Error msg -> msg = "Unknown API error"
+  | Ok _ -> false
 
 let%test "usage_of_openai_json prompt_tokens_details null" =
   let json = `Assoc [

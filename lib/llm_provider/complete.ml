@@ -89,20 +89,21 @@ let complete_http ~sw ~net ~(config : Provider_config.t)
     | Error _ as e -> e
     | Ok (code, body) ->
         if code >= 200 && code < 300 then
-          let response = match config.kind with
-            | Provider_config.Anthropic ->
-                Backend_anthropic.parse_response
-                  (Yojson.Safe.from_string body)
-            | Provider_config.OpenAI_compat ->
-                Backend_openai.parse_openai_response body
-            | Provider_config.Gemini ->
-                Backend_gemini.parse_response
-                  (Yojson.Safe.from_string body)
-            | Provider_config.Glm ->
-                Backend_glm.parse_response body
-            | Provider_config.Claude_code -> assert false
-          in
-          Ok response
+          match config.kind with
+          | Provider_config.Anthropic ->
+              Ok (Backend_anthropic.parse_response
+                    (Yojson.Safe.from_string body))
+          | Provider_config.OpenAI_compat ->
+              (match Backend_openai_parse.parse_openai_response_result body with
+               | Ok resp -> Ok resp
+               | Error msg ->
+                   Error (Http_client.HttpError { code = 400; body = msg }))
+          | Provider_config.Gemini ->
+              Ok (Backend_gemini.parse_response
+                    (Yojson.Safe.from_string body))
+          | Provider_config.Glm ->
+              Ok (Backend_glm.parse_response body)
+          | Provider_config.Claude_code -> assert false
         else
           Error (Http_client.HttpError { code; body })
   in

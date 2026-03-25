@@ -86,12 +86,10 @@ let length journal = journal.size
 let fnv1a_hash (s : string) : int =
   let basis = 0x811c9dc5 in
   let prime = 0x01000193 in
-  let h = ref basis in
-  String.iter (fun c ->
-    h := !h lxor (Char.code c);
-    h := !h * prime;
-  ) s;
-  !h land max_int  (* ensure positive, 63-bit on 64-bit OCaml *)
+  String.fold_left (fun h c ->
+    (h lxor Char.code c) * prime
+  ) basis s
+  land max_int  (* ensure positive, 63-bit on 64-bit OCaml *)
 
 let make_idempotency_key ~tool_name ~input =
   let input_str = Yojson.Safe.to_string input in
@@ -143,35 +141,34 @@ type replay_summary = {
 
 (* Fold over entries directly (reverse chronological) — avoids List.rev allocation *)
 let replay_summary journal =
-  let last_turn = ref 0 in
-  let completed_tools = ref [] in
-  let last_state = ref "unknown" in
-  let input_tokens = ref 0 in
-  let output_tokens = ref 0 in
-  let errors = ref 0 in
-  List.iter (fun event ->
-    match event with
-    | Turn_started { turn; _ } ->
-      last_turn := max !last_turn turn
-    | Llm_request { input_tokens = n; _ } ->
-      input_tokens := !input_tokens + n
-    | Llm_response { output_tokens = n; _ } ->
-      output_tokens := !output_tokens + n
-    | Tool_completed { idempotency_key; output_json; _ } ->
-      completed_tools := (idempotency_key, output_json) :: !completed_tools
-    | State_transition { to_state; _ } ->
-      last_state := to_state
-    | Error_occurred _ ->
-      incr errors
-    | Tool_called _ | Heartbeat _ | Checkpoint_saved _ -> ()
-  ) journal.entries;  (* entries is reverse-chronological; order doesn't matter for aggregation *)
+  let acc =
+    List.fold_left (fun (lt, ct, ls, it, ot, ec) event ->
+      match event with
+      | Turn_started { turn; _ } ->
+        (max lt turn, ct, ls, it, ot, ec)
+      | Llm_request { input_tokens = n; _ } ->
+        (lt, ct, ls, it + n, ot, ec)
+      | Llm_response { output_tokens = n; _ } ->
+        (lt, ct, ls, it, ot + n, ec)
+      | Tool_completed { idempotency_key; output_json; _ } ->
+        (lt, (idempotency_key, output_json) :: ct, ls, it, ot, ec)
+      | State_transition { to_state; _ } ->
+        (lt, ct, to_state, it, ot, ec)
+      | Error_occurred _ ->
+        (lt, ct, ls, it, ot, ec + 1)
+      | Tool_called _ | Heartbeat _ | Checkpoint_saved _ ->
+        (lt, ct, ls, it, ot, ec)
+    ) (0, [], "unknown", 0, 0, 0) journal.entries
+  in
+  let (last_turn, completed_tools_rev, last_state,
+       total_input_tokens, total_output_tokens, error_count) = acc in
   {
-    last_turn = !last_turn;
-    completed_tools = List.rev !completed_tools;
-    last_state = !last_state;
-    total_input_tokens = !input_tokens;
-    total_output_tokens = !output_tokens;
-    error_count = !errors;
+    last_turn;
+    completed_tools = List.rev completed_tools_rev;
+    last_state;
+    total_input_tokens;
+    total_output_tokens;
+    error_count;
   }
 
 (* ── Queries ──────────────────────────────────────── *)
