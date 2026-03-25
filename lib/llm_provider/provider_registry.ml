@@ -189,10 +189,8 @@ let default () =
     request_path = "";
   } in
   let cc_available =
-    let cached = lazy (
-      command_in_path "claude"
-    ) in
-    fun () -> Lazy.force cached
+    let cached = command_in_path "claude" in
+    fun () -> cached
   in
   register t { name = "cc"; defaults = cc_defaults; max_context = 200_000;
                capabilities = Capabilities.claude_code_capabilities;
