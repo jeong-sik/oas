@@ -210,7 +210,7 @@ let inst_active_count inst =
 
 let _global : instance = {
   config = default_config;
-  mu = Eio_mu (Eio.Mutex.create ());
+  mu = Stdlib_mu (Mutex.create ());
   current_spans = [];
   completed_spans = [];
 }
