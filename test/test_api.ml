@@ -284,12 +284,14 @@ let test_parse_openai_response_strips_fenced_json () =
       }
     }]
   }|} in
-  let resp = Api.parse_openai_response json_str in
-  match resp.content with
-  | [Types.Text text] ->
-      Alcotest.(check string) "stripped json"
-        "{\"engine\":\"default\",\"tool_calling\":false}" text
-  | _ -> Alcotest.fail "expected stripped text block"
+  match Api.parse_openai_response_result json_str with
+  | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
+  | Ok resp ->
+    match resp.content with
+    | [Types.Text text] ->
+        Alcotest.(check string) "stripped json"
+          "{\"engine\":\"default\",\"tool_calling\":false}" text
+    | _ -> Alcotest.fail "expected stripped text block"
 
 let test_parse_openai_response_reasoning_content () =
   let json_str = {|{
@@ -306,15 +308,17 @@ let test_parse_openai_response_reasoning_content () =
     }],
     "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30}
   }|} in
-  let resp = Api.parse_openai_response json_str in
-  check int "2 content blocks" 2 (List.length resp.content);
-  (match resp.content with
-   | [Types.Thinking { thinking_type; content }; Types.Text text] ->
-       check string "thinking_type" "reasoning" thinking_type;
-       check string "thinking content"
-         "Let me think step by step about the meaning of life." content;
-       check string "text" "The answer is 42." text
-   | _ -> Alcotest.fail "expected [Thinking; Text]")
+  match Api.parse_openai_response_result json_str with
+  | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
+  | Ok resp ->
+    check int "2 content blocks" 2 (List.length resp.content);
+    (match resp.content with
+     | [Types.Thinking { thinking_type; content }; Types.Text text] ->
+         check string "thinking_type" "reasoning" thinking_type;
+         check string "thinking content"
+           "Let me think step by step about the meaning of life." content;
+         check string "text" "The answer is 42." text
+     | _ -> Alcotest.fail "expected [Thinking; Text]")
 
 let test_parse_openai_response_reasoning_with_tools () =
   let json_str = {|{
@@ -335,16 +339,18 @@ let test_parse_openai_response_reasoning_with_tools () =
       }
     }]
   }|} in
-  let resp = Api.parse_openai_response json_str in
-  check int "2 content blocks" 2 (List.length resp.content);
-  (match resp.content with
-   | [Types.Thinking { content; _ }; Types.ToolUse { name; _ }] ->
-       check string "thinking" "I need to call the calculator." content;
-       check string "tool name" "calc" name
-   | _ -> Alcotest.fail "expected [Thinking; ToolUse]");
-  (match resp.stop_reason with
-   | Types.StopToolUse -> ()
-   | sr -> Alcotest.fail (Printf.sprintf "expected StopToolUse, got %s" (Types.show_stop_reason sr)))
+  match Api.parse_openai_response_result json_str with
+  | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
+  | Ok resp ->
+    check int "2 content blocks" 2 (List.length resp.content);
+    (match resp.content with
+     | [Types.Thinking { content; _ }; Types.ToolUse { name; _ }] ->
+         check string "thinking" "I need to call the calculator." content;
+         check string "tool name" "calc" name
+     | _ -> Alcotest.fail "expected [Thinking; ToolUse]");
+    (match resp.stop_reason with
+     | Types.StopToolUse -> ()
+     | sr -> Alcotest.fail (Printf.sprintf "expected StopToolUse, got %s" (Types.show_stop_reason sr)))
 
 let test_parse_openai_response_blank_reasoning () =
   let json_str = {|{
@@ -360,11 +366,13 @@ let test_parse_openai_response_blank_reasoning () =
       }
     }]
   }|} in
-  let resp = Api.parse_openai_response json_str in
-  check int "1 content block (blank reasoning filtered)" 1 (List.length resp.content);
-  (match resp.content with
-   | [Types.Text "Just text"] -> ()
-   | _ -> Alcotest.fail "expected [Text] only, blank reasoning should be filtered")
+  match Api.parse_openai_response_result json_str with
+  | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
+  | Ok resp ->
+    check int "1 content block (blank reasoning filtered)" 1 (List.length resp.content);
+    (match resp.content with
+     | [Types.Text "Just text"] -> ()
+     | _ -> Alcotest.fail "expected [Text] only, blank reasoning should be filtered")
 
 let test_parse_openai_response_no_reasoning () =
   let json_str = {|{
@@ -379,11 +387,13 @@ let test_parse_openai_response_no_reasoning () =
       }
     }]
   }|} in
-  let resp = Api.parse_openai_response json_str in
-  check int "1 content block" 1 (List.length resp.content);
-  (match resp.content with
-   | [Types.Text "Hello world"] -> ()
-   | _ -> Alcotest.fail "expected [Text]")
+  match Api.parse_openai_response_result json_str with
+  | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
+  | Ok resp ->
+    check int "1 content block" 1 (List.length resp.content);
+    (match resp.content with
+     | [Types.Text "Hello world"] -> ()
+     | _ -> Alcotest.fail "expected [Text]")
 
 (* ------------------------------------------------------------------ *)
 (* message_to_json                                                      *)
@@ -584,33 +594,27 @@ let test_openai_messages_with_image () =
 (* F1: OpenAI API error → Openai_api_error exception                    *)
 (* ------------------------------------------------------------------ *)
 
-let test_openai_api_error_raises () =
+let test_openai_api_error_returns_error () =
   let error_json = {|{"error":{"message":"Invalid API key","type":"invalid_request_error"}}|} in
-  let raised = ref false in
-  (try ignore (Api.parse_openai_response error_json) with
-   | _ -> raised := true);
-  check bool "exception raised on API error" true !raised
+  match Api.parse_openai_response_result error_json with
+  | Error msg -> check string "error message" "Invalid API key" msg
+  | Ok _ -> Alcotest.fail "expected Error on API error"
 
 let test_openai_api_error_unknown_message () =
   let error_json = {|{"error":{}}|} in
-  let raised = ref false in
-  (try ignore (Api.parse_openai_response error_json) with
-   | _ -> raised := true);
-  check bool "exception raised on empty error" true !raised
+  match Api.parse_openai_response_result error_json with
+  | Error msg -> check string "unknown error" "Unknown API error" msg
+  | Ok _ -> Alcotest.fail "expected Error on empty error"
 
 (* ------------------------------------------------------------------ *)
-(* F2: OpenAI error type distinction                                    *)
+(* F2: OpenAI error returns structured Error, not exception              *)
 (* ------------------------------------------------------------------ *)
 
-let test_openai_error_not_failwith () =
-  (* Verify that the error is NOT a plain Failure (which would be misclassified
-     as NetworkError). It should be a distinct exception type. *)
+let test_openai_error_returns_result () =
   let error_json = {|{"error":{"message":"bad request"}}|} in
-  let is_failure = ref false in
-  (try ignore (Api.parse_openai_response error_json) with
-   | Failure _ -> is_failure := true
-   | _ -> ());
-  check bool "not a Failure exception" false !is_failure
+  match Api.parse_openai_response_result error_json with
+  | Error msg -> check string "error msg" "bad request" msg
+  | Ok _ -> Alcotest.fail "expected Error result"
 
 (* ------------------------------------------------------------------ *)
 (* Phase 6: additional api_common helpers                               *)
@@ -699,9 +703,9 @@ let () =
       test_case "no reasoning_content" `Quick test_parse_openai_response_no_reasoning;
     ];
     "error_handling", [
-      test_case "openai api error raises Openai_api_error" `Quick test_openai_api_error_raises;
+      test_case "openai api error returns Error" `Quick test_openai_api_error_returns_error;
       test_case "openai api error unknown message" `Quick test_openai_api_error_unknown_message;
-      test_case "openai error not Failure" `Quick test_openai_error_not_failwith;
+      test_case "openai error returns result" `Quick test_openai_error_returns_result;
     ];
     "parse_sse_event", [
       test_case "message_start" `Quick test_parse_sse_message_start;

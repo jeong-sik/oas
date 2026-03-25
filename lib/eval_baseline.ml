@@ -81,50 +81,51 @@ let compare ?(tolerance_pct = 5.0) ~baseline ~(current : Eval.run_metrics) () : 
     Hashtbl.replace current_map m.name m.value
   ) current.metrics;
 
-  let diffs = ref [] in
-
   (* Check baseline metrics against current *)
-  Hashtbl.iter (fun name bval ->
-    match Hashtbl.find_opt current_map name with
-    | None ->
-      diffs := Removed { name; value = bval } :: !diffs
-    | Some cval ->
-      match Eval.metric_value_to_float bval, Eval.metric_value_to_float cval with
-      | Some bf, Some cf ->
-        if Float.abs bf < 1e-10 then
-          (* Baseline near zero: use absolute comparison *)
-          if Float.abs (cf -. bf) < 1e-10 then
-            diffs := Unchanged :: !diffs
-          else if cf > bf then
-            diffs := Improved { name; baseline_val = bf; current_val = cf;
-                                delta_pct = 100.0 } :: !diffs
+  let diffs =
+    Hashtbl.fold (fun name bval acc ->
+      match Hashtbl.find_opt current_map name with
+      | None ->
+        Removed { name; value = bval } :: acc
+      | Some cval ->
+        match Eval.metric_value_to_float bval, Eval.metric_value_to_float cval with
+        | Some bf, Some cf ->
+          if Float.abs bf < 1e-10 then
+            (* Baseline near zero: use absolute comparison *)
+            if Float.abs (cf -. bf) < 1e-10 then
+              Unchanged :: acc
+            else if cf > bf then
+              Improved { name; baseline_val = bf; current_val = cf;
+                         delta_pct = 100.0 } :: acc
+            else
+              Regressed { name; baseline_val = bf; current_val = cf;
+                          delta_pct = -100.0 } :: acc
           else
-            diffs := Regressed { name; baseline_val = bf; current_val = cf;
-                                  delta_pct = -100.0 } :: !diffs
-        else
-          let delta_pct = (cf -. bf) /. Float.abs bf *. 100.0 in
-          if delta_pct < (-.tolerance_pct) then
-            diffs := Regressed { name; baseline_val = bf; current_val = cf;
-                                  delta_pct } :: !diffs
-          else if delta_pct > tolerance_pct then
-            diffs := Improved { name; baseline_val = bf; current_val = cf;
-                                delta_pct } :: !diffs
-          else
-            diffs := Unchanged :: !diffs
-      | _ ->
-        (* Non-numeric: just check equality *)
-        if bval = cval then diffs := Unchanged :: !diffs
-        else diffs := Regressed { name;
-          baseline_val = 0.0; current_val = 0.0; delta_pct = 0.0 } :: !diffs
-  ) baseline_map;
+            let delta_pct = (cf -. bf) /. Float.abs bf *. 100.0 in
+            if delta_pct < (-.tolerance_pct) then
+              Regressed { name; baseline_val = bf; current_val = cf;
+                          delta_pct } :: acc
+            else if delta_pct > tolerance_pct then
+              Improved { name; baseline_val = bf; current_val = cf;
+                         delta_pct } :: acc
+            else
+              Unchanged :: acc
+        | _ ->
+          (* Non-numeric: just check equality *)
+          if bval = cval then Unchanged :: acc
+          else Regressed { name;
+            baseline_val = 0.0; current_val = 0.0; delta_pct = 0.0 } :: acc
+    ) baseline_map []
+  in
 
   (* Check for new metrics *)
-  Hashtbl.iter (fun name cval ->
-    if not (Hashtbl.mem baseline_map name) then
-      diffs := Added { name; value = cval } :: !diffs
-  ) current_map;
-
-  let diffs = !diffs in
+  let diffs =
+    Hashtbl.fold (fun name cval acc ->
+      if not (Hashtbl.mem baseline_map name) then
+        Added { name; value = cval } :: acc
+      else acc
+    ) current_map diffs
+  in
   let regressions = List.length (List.filter (function Regressed _ -> true | _ -> false) diffs) in
   let improvements = List.length (List.filter (function Improved _ -> true | _ -> false) diffs) in
   { diffs; regressions; improvements; passed = regressions = 0 }

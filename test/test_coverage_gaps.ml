@@ -97,8 +97,9 @@ let test_api_openai_messages () =
 
 let test_api_parse_openai_response () =
   let body = {|{"id":"chatcmpl-1","model":"gpt-4o","choices":[{"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5}}|} in
-  let resp = Api.parse_openai_response body in
-  Alcotest.(check string) "id" "chatcmpl-1" resp.id
+  match Api.parse_openai_response_result body with
+  | Ok resp -> Alcotest.(check string) "id" "chatcmpl-1" resp.id
+  | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
 
 
 (* ================================================================== *)

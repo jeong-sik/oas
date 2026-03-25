@@ -122,7 +122,8 @@ let test_openai_parse_response () =
     "usage": {"prompt_tokens": 10, "completion_tokens": 5,
               "total_tokens": 15}
   }|} in
-  let resp = Api.parse_openai_response mock_body in
+  let resp = match Api.parse_openai_response_result mock_body with
+    | Ok r -> r | Error msg -> failwith msg in
   check string "model" "gpt-4o" resp.model;
   (match resp.stop_reason with
    | Types.EndTurn -> ()

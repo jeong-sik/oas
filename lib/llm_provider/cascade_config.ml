@@ -3,7 +3,31 @@
 
     Provider defaults are sourced from {!Provider_registry} (SSOT).
 
-    @since 0.59.0 *)
+    @since 0.59.0
+    @since 0.92.0 decomposed into Cascade_model_resolve, Cascade_throttle,
+    Cascade_config_loader *)
+
+(* ── Re-exports from extracted modules ─────────────── *)
+
+(* Model resolution *)
+let resolve_glm_model_id = Cascade_model_resolve.resolve_glm_model_id
+let resolve_auto_model_id = Cascade_model_resolve.resolve_auto_model_id
+let parse_custom_model = Cascade_model_resolve.parse_custom_model
+
+(* Throttle *)
+let populate_throttle_table = Cascade_throttle.populate
+let lookup_throttle = Cascade_throttle.lookup
+
+(* Config loader *)
+let load_json = Cascade_config_loader.load_json
+let load_profile = Cascade_config_loader.load_profile
+
+type inference_params = Cascade_config_loader.inference_params = {
+  temperature: float option;
+  max_tokens: int option;
+}
+
+let resolve_inference_params = Cascade_config_loader.resolve_inference_params
 
 (* ── Provider registry (SSOT: Provider_registry) ─────── *)
 
@@ -23,74 +47,6 @@ let headers_with_auth ~(kind : Provider_config.provider_kind) ~api_key =
         ("Authorization", "Bearer " ^ api_key) :: base
 
 (* ── Model string parsing ──────────────────────────────── *)
-
-(* ── GLM model catalog ──────────────────────────────── *)
-
-(** Resolve GLM alias to concrete model ID.
-    ZhipuAI serves all models on one endpoint; the "model" field
-    must be an exact ID from their catalog.
-
-    Catalog (2026-03):
-    {b Text}: glm-5, glm-5-turbo, glm-4.7, glm-4.7-flashx,
-              glm-4.6, glm-4.5, glm-4.5-air, glm-4.5-airx,
-              glm-4.5-flash, glm-4.5-x, glm-4-32b-0414-128k
-    {b Vision}: glm-4.6v, glm-4.6v-flashx, glm-4.6v-flash, glm-4.5v
-    {b Audio}: glm-asr-2512
-    {b Image gen}: cogview-4, glm-image
-
-    All text/vision models support function calling. *)
-let resolve_glm_model_id model_id =
-  let env_or default var =
-    match Sys.getenv_opt var with
-    | Some m when String.trim m <> "" -> String.trim m
-    | _ -> default
-  in
-  match String.lowercase_ascii model_id with
-  (* aliases → concrete IDs *)
-  | "auto" -> env_or "glm-5" "ZAI_DEFAULT_MODEL"
-  | "flash" -> "glm-4.7-flashx"
-  | "turbo" -> "glm-5-turbo"
-  | "vision" | "v" -> "glm-4.6v"
-  | "vision-flash" | "vf" -> "glm-4.6v-flashx"
-  | "air" -> "glm-4.5-air"
-  | "ocr" -> "glm-ocr"
-  (* already concrete → pass through *)
-  | _ -> model_id
-
-(** Resolve "auto" and aliases to concrete model IDs.
-    Cloud APIs reject unknown model names; local servers accept any. *)
-let resolve_auto_model_id provider_name model_id =
-  let env_or default var =
-    match Sys.getenv_opt var with
-    | Some m when String.trim m <> "" -> String.trim m
-    | _ -> default
-  in
-  match provider_name with
-  | "glm" -> resolve_glm_model_id model_id
-  | "gemini" ->
-    if model_id = "auto" then env_or "gemini-2.5-flash" "GEMINI_DEFAULT_MODEL"
-    else model_id
-  | "claude" ->
-    if model_id = "auto" then env_or "claude-sonnet-4-6-20250514" "ANTHROPIC_DEFAULT_MODEL"
-    else model_id
-  | "openrouter" ->
-    if model_id = "auto" then env_or model_id "OPENROUTER_DEFAULT_MODEL"
-    else model_id
-  | _ -> model_id
-
-let parse_custom_model model_id =
-  match String.index_opt model_id '@' with
-  | Some at_idx ->
-    let model = String.sub model_id 0 at_idx in
-    let url = String.sub model_id (at_idx + 1) (String.length model_id - at_idx - 1) in
-    (model, url)
-  | None ->
-    let url =
-      match Sys.getenv_opt "CUSTOM_LLM_BASE_URL" with
-      | Some u -> u
-      | None -> "http://127.0.0.1:8080"
-    in
-    (model_id, url)
 
 let parse_model_string ?(temperature = 0.3) ?(max_tokens = 500)
     ?system_prompt (s : string) : Provider_config.t option =
@@ -207,133 +163,9 @@ let parse_model_strings ?(temperature = 0.3) ?(max_tokens = 500)
     (parse_model_string ~temperature ~max_tokens ?system_prompt)
     strs
 
-(* ── Per-endpoint admission throttle ──────────────────── *)
-
-(** Shared throttle table: URL -> Provider_throttle.t.
-    All callers contending for the same local endpoint share one semaphore.
-    Populated lazily from Discovery slot data.
-
-    @since 0.91.0 *)
-let throttle_table : (string, Provider_throttle.t) Hashtbl.t =
-  Hashtbl.create 4
-let throttle_mu = Eio.Mutex.create ()
-
-let populate_throttle_table (statuses : Discovery.endpoint_status list) =
-  Eio.Mutex.use_rw ~protect:true throttle_mu (fun () ->
-    List.iter (fun (s : Discovery.endpoint_status) ->
-      if not s.healthy then
-        (* Evict stale entry so next healthy probe reinstalls a fresh semaphore.
-           Prevents permanent zero-permit after endpoint restart with in-flight requests. *)
-        Hashtbl.remove throttle_table s.url
-      else if not (Hashtbl.mem throttle_table s.url) then
-        let t = match Provider_throttle.of_discovery_status s with
-          | Some t -> t
-          | None -> Provider_throttle.default_for_kind Provider_config.OpenAI_compat
-        in
-        Hashtbl.replace throttle_table s.url t
-    ) statuses)
-
-let lookup_throttle url =
-  Eio.Mutex.use_ro throttle_mu (fun () ->
-    Hashtbl.find_opt throttle_table url)
-
-(* ── JSON config loading with mtime hot-reload ─────────── *)
-
-let config_cache : (string, float * Yojson.Safe.t) Hashtbl.t =
-  Hashtbl.create 4
-let config_cache_mu = Eio.Mutex.create ()
-
-let load_json path =
-  Eio.Mutex.use_rw ~protect:true config_cache_mu (fun () ->
-    try
-      let st = Unix.stat path in
-      let mtime = st.Unix.st_mtime in
-      match Hashtbl.find_opt config_cache path with
-      | Some (cached_mtime, json) when Float.equal cached_mtime mtime ->
-        Ok json
-      | _ ->
-        let ic = open_in path in
-        let content = Fun.protect
-            ~finally:(fun () -> close_in_noerr ic)
-            (fun () ->
-               let len = in_channel_length ic in
-               let buf = Bytes.create len in
-               really_input ic buf 0 len;
-               Bytes.to_string buf)
-        in
-        let json = Yojson.Safe.from_string content in
-        Hashtbl.replace config_cache path (mtime, json);
-        Ok json
-    with
-    | Sys_error msg -> Error msg
-    | Unix.Unix_error (err, fn, arg) ->
-      Error (Printf.sprintf "%s(%s): %s" fn arg (Unix.error_message err))
-    | Yojson.Json_error msg -> Error (Printf.sprintf "JSON error: %s" msg)
-    | End_of_file -> Error "unexpected end of file")
-
-let load_profile ~config_path ~name =
-  let key = name ^ "_models" in
-  match load_json config_path with
-  | Error _ -> []
-  | Ok json ->
-    let open Yojson.Safe.Util in
-    match json |> member key with
-    | `List items ->
-      List.filter_map
-        (function
-          | `String s -> Some (String.trim s)
-          | _ -> None)
-        items
-    | _ -> []
-
-(* ── Inference parameter resolution ─────────────────────
-   Per-cascade temperature/max_tokens from cascade.json.
-   Enables MASC and other consumers to delegate inference
-   parameter decisions to the same config file. *)
-
-type inference_params = {
-  temperature: float option;
-  max_tokens: int option;
-}
-
-let read_float_field json key =
-  let open Yojson.Safe.Util in
-  match json |> member key with
-  | `Float f -> Some f
-  | `Int i -> Some (float_of_int i)
-  | _ -> None
-
-let read_int_field json key =
-  let open Yojson.Safe.Util in
-  match json |> member key with
-  | `Int i -> Some i
-  | `Float f -> Some (int_of_float f)
-  | _ -> None
-
-let resolve_inference_params ~config_path ~name =
-  match load_json config_path with
-  | Error _ -> { temperature = None; max_tokens = None }
-  | Ok json ->
-    let temp =
-      match read_float_field json (name ^ "_temperature") with
-      | Some _ as v -> v
-      | None -> read_float_field json "default_temperature"
-    in
-    let max_tok =
-      match read_int_field json (name ^ "_max_tokens") with
-      | Some _ as v -> v
-      | None -> read_int_field json "default_max_tokens"
-    in
-    { temperature = temp; max_tokens = max_tok }
-
 (* ── Cascade-level error classification ────────────────── *)
 
-(** Decide whether an error should cascade to the next provider.
-    Different from {!Complete.is_retryable} which governs same-provider retry:
-    - Auth errors (401/403) are NOT retryable on the same provider but SHOULD
-      cascade to the next one (different provider may have valid credentials).
-    - Rate limits and server errors cascade as before.
-    - Network errors (connection refused, DNS) always cascade. *)
+(** Decide whether an error should cascade to the next provider. *)
 let should_cascade_to_next = function
   | Http_client.HttpError { code; _ } ->
     code = 401 || code = 403
@@ -354,15 +186,11 @@ let is_local_provider (cfg : Provider_config.t) =
   || starts_with "http://localhost/"
   || url = "http://localhost"
 
-(** Check whether a provider has credentials when required.
-    Local providers (llama on localhost) never need an API key.
-    Cloud providers with an empty [api_key] are filtered out. *)
+(** Check whether a provider has credentials when required. *)
 let has_required_api_key (cfg : Provider_config.t) =
   cfg.api_key <> "" || is_local_provider cfg
 
-(** Internal: filter healthy + return discovery statuses for throttle.
-    The statuses are used by {!populate_throttle_table} to create
-    per-endpoint semaphores without additional network calls. *)
+(** Internal: filter healthy + return discovery statuses for throttle. *)
 let filter_healthy_internal ~sw ~net (providers : Provider_config.t list) =
   (* Step 0: Remove cloud providers missing required API keys *)
   let providers =
@@ -377,10 +205,8 @@ let filter_healthy_internal ~sw ~net (providers : Provider_config.t list) =
     List.filter (fun cfg -> not (is_local_provider cfg)) providers
   in
   if local_providers = [] then
-    (* No local providers, nothing to filter *)
     (providers, [])
   else if cloud_providers = [] then
-    (* Only local providers — probe for throttle data but pass through *)
     let endpoints =
       local_providers
       |> List.map (fun (cfg : Provider_config.t) -> cfg.base_url)
@@ -389,7 +215,6 @@ let filter_healthy_internal ~sw ~net (providers : Provider_config.t list) =
     let statuses = Discovery.discover ~sw ~net ~endpoints in
     (providers, statuses)
   else
-    (* Mixed: probe local health, remove unhealthy locals *)
     let endpoints =
       local_providers
       |> List.map (fun (cfg : Provider_config.t) -> cfg.base_url)
@@ -400,9 +225,9 @@ let filter_healthy_internal ~sw ~net (providers : Provider_config.t list) =
       List.exists (fun (s : Discovery.endpoint_status) -> s.healthy) statuses
     in
     if any_healthy then
-      (providers, statuses)  (* At least one local is healthy — keep all *)
+      (providers, statuses)
     else
-      (cloud_providers, [])  (* All locals unhealthy — cloud only *)
+      (cloud_providers, [])
 
 let filter_healthy ~sw ~net providers =
   fst (filter_healthy_internal ~sw ~net providers)
@@ -417,13 +242,6 @@ let effective_max_context (entry : Provider_registry.entry)
 
 (* ── Capability-aware filtering ─────────────────────────── *)
 
-(** Filter providers by a capability predicate.
-    Uses {!Capabilities.for_model_id} to resolve model-specific capabilities,
-    falling back to the provider-level defaults from the registry.
-
-    Providers that do not satisfy [pred] are removed.
-    If all providers are filtered out, returns the original list
-    (let the provider return an API error rather than an empty cascade). *)
 let filter_by_capabilities ~(pred : Capabilities.capabilities -> bool)
     (providers : Provider_config.t list) =
   let satisfies (cfg : Provider_config.t) =
@@ -437,7 +255,7 @@ let filter_by_capabilities ~(pred : Capabilities.capabilities -> bool)
     pred caps
   in
   let filtered = List.filter satisfies providers in
-  if filtered = [] then providers  (* fallback: pass all through *)
+  if filtered = [] then providers
   else filtered
 
 (* ── Helpers ────────────────────────────────────────────── *)
@@ -449,9 +267,7 @@ let text_of_response (resp : Types.api_response) : string =
     | _ -> None)
   |> String.concat ""
 
-(* ── Model resolution: named → "default" → hardcoded ─── *)
-
-(* TODO: per-profile temperature / max_tokens overrides from JSON *)
+(* ── Model resolution: named -> "default" -> hardcoded ─── *)
 
 type cascade_source = Named | Default_fallback | Hardcoded_defaults
 
@@ -471,12 +287,6 @@ let resolve_model_strings ?config_path ~name ~defaults () =
 
 (* ── Named cascade execution ───────────────────────────── *)
 
-(** Accept-aware cascade: try each provider, skip on failure or rejection.
-    When [throttle] is provided, it overrides auto-admission for all providers.
-    Otherwise, local providers automatically use the shared throttle table
-    populated by {!filter_healthy_internal}.
-
-    @since 0.91.0 auto-admission for local providers *)
 let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
     ?throttle ~accept (providers : Provider_config.t list)
     ~(messages : Types.message list) ~(tools : Yojson.Safe.t list) =
@@ -492,7 +302,7 @@ let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
           ~messages ~tools ?cache ?metrics ()
     in
     let effective_throttle = match throttle with
-      | Some _ -> throttle  (* explicit override takes precedence *)
+      | Some _ -> throttle
       | None ->
         if is_local_provider cfg then lookup_throttle cfg.base_url
         else None
@@ -559,7 +369,6 @@ let complete_named ~sw ~net ?clock ?config_path
     ?(tools = []) ?(temperature = 0.3) ?(max_tokens = 500)
     ?system_prompt ?(accept = fun _ -> true) ?(strict_name = false)
     ?timeout_sec ?cache ?metrics ?throttle () =
-  (* 1. Resolve: named profile → "default" profile → hardcoded defaults *)
   let model_strings, source =
     resolve_model_strings_traced ?config_path ~name ~defaults ()
   in
@@ -574,7 +383,6 @@ let complete_named ~sw ~net ?clock ?config_path
                   | Hardcoded_defaults -> "hardcoded_defaults")
       })
   else
-  (* 2. Parse model strings → Provider_config.t list *)
   let providers =
     parse_model_strings ~temperature ~max_tokens ?system_prompt model_strings
   in
@@ -586,7 +394,6 @@ let complete_named ~sw ~net ?clock ?config_path
             name (String.concat "; " model_strings)
       })
   else
-    (* 3. Filter by local endpoint health + populate throttle table *)
     let healthy_providers, local_statuses =
       filter_healthy_internal ~sw ~net providers
     in
@@ -598,7 +405,6 @@ let complete_named ~sw ~net ?clock ?config_path
               "All providers unhealthy for cascade '%s'" name
         })
     else
-      (* 4. Execute cascade with accept validation, enforcing timeout *)
       let run () =
         complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
           ?throttle ~accept healthy_providers ~messages ~tools
@@ -616,16 +422,6 @@ let complete_named ~sw ~net ?clock ?config_path
 
 (* ── Streaming cascade (no accept, no cache) ──────── *)
 
-(** Streaming cascade: try each provider in order with streaming.
-    Failover on connection/HTTP errors only (before stream begins).
-    No [accept] validator — once streaming starts, events are already
-    emitted to [on_event] and the provider is committed.
-
-    The permit is held for the full stream duration since the llama-server
-    slot is occupied until streaming completes.
-
-    @since 0.61.0
-    @since 0.91.0 auto-admission for local providers *)
 let complete_cascade_stream ~sw ~net ?(metrics : Metrics.t option)
     (providers : Provider_config.t list)
     ~(messages : Types.message list) ~(tools : Yojson.Safe.t list)
@@ -679,16 +475,6 @@ let complete_cascade_stream ~sw ~net ?(metrics : Metrics.t option)
   in
   try_next None providers
 
-(** Execute a streaming cascade using a named profile.
-
-    Same resolution steps as {!complete_named}:
-    1. Load profile from [config_path], fall back to [defaults]
-    2. Filter by local endpoint health
-    3. Execute streaming cascade with failover
-
-    Unlike {!complete_named}, no [accept] validator or [cache].
-
-    @since 0.61.0 *)
 let complete_named_stream ~sw ~net ?clock ?config_path
     ~name ~defaults ~messages
     ?(tools = []) ?(temperature = 0.3) ?(max_tokens = 500)
@@ -744,7 +530,7 @@ let complete_named_stream ~sw ~net ?clock ?config_path
 
 let%test "populate_throttle_table creates entry from slots" =
   Eio_main.run (fun _env ->
-    Hashtbl.clear throttle_table;
+    Cascade_throttle.clear ();
     let status : Discovery.endpoint_status = {
       url = "http://127.0.0.1:9999"; healthy = true;
       models = []; props = None;
@@ -758,7 +544,7 @@ let%test "populate_throttle_table creates entry from slots" =
 
 let%test "populate_throttle_table reuses existing entry" =
   Eio_main.run (fun _env ->
-    Hashtbl.clear throttle_table;
+    Cascade_throttle.clear ();
     let status : Discovery.endpoint_status = {
       url = "http://127.0.0.1:9998"; healthy = true;
       models = []; props = None;
@@ -778,7 +564,7 @@ let%test "populate_throttle_table reuses existing entry" =
 
 let%test "populate_throttle_table skips unhealthy endpoints" =
   Eio_main.run (fun _env ->
-    Hashtbl.clear throttle_table;
+    Cascade_throttle.clear ();
     let status : Discovery.endpoint_status = {
       url = "http://127.0.0.1:9997"; healthy = false;
       models = []; props = None;
@@ -790,8 +576,7 @@ let%test "populate_throttle_table skips unhealthy endpoints" =
 
 let%test "populate_throttle_table evicts stale entry on unhealthy" =
   Eio_main.run (fun _env ->
-    Hashtbl.clear throttle_table;
-    (* first: healthy probe creates entry *)
+    Cascade_throttle.clear ();
     let healthy : Discovery.endpoint_status = {
       url = "http://127.0.0.1:9995"; healthy = true;
       models = []; props = None;
@@ -800,7 +585,6 @@ let%test "populate_throttle_table evicts stale entry on unhealthy" =
     } in
     populate_throttle_table [healthy];
     let has_entry = lookup_throttle "http://127.0.0.1:9995" <> None in
-    (* second: unhealthy probe evicts entry *)
     let unhealthy = { healthy with healthy = false } in
     populate_throttle_table [unhealthy];
     let evicted = lookup_throttle "http://127.0.0.1:9995" = None in
@@ -808,7 +592,7 @@ let%test "populate_throttle_table evicts stale entry on unhealthy" =
 
 let%test "populate_throttle_table fallback when no slot data" =
   Eio_main.run (fun _env ->
-    Hashtbl.clear throttle_table;
+    Cascade_throttle.clear ();
     let status : Discovery.endpoint_status = {
       url = "http://127.0.0.1:9996"; healthy = true;
       models = []; props = None; slots = None;
@@ -821,16 +605,16 @@ let%test "populate_throttle_table fallback when no slot data" =
 
 let%test "lookup_throttle returns None for unknown URL" =
   Eio_main.run (fun _env ->
-    Hashtbl.clear throttle_table;
+    Cascade_throttle.clear ();
     lookup_throttle "http://unknown:1234" = None)
 
 let%test "populate_throttle_table empty statuses is no-op" =
   Eio_main.run (fun _env ->
-    Hashtbl.clear throttle_table;
+    Cascade_throttle.clear ();
     populate_throttle_table [];
-    Hashtbl.length throttle_table = 0)
+    Cascade_throttle.length () = 0)
 
-(* has_api_key tests moved to test_provider_registry.ml — SSOT *)
+(* has_api_key tests moved to test_provider_registry.ml -- SSOT *)
 
 let%test "parse_custom_model with @ sign" =
   let (model, url) = parse_custom_model "mymodel@http://host:1234" in
@@ -1009,7 +793,6 @@ let%test "filter_by_capabilities keeps tool-supporting providers" =
   let result = filter_by_capabilities
     ~pred:(fun c -> c.Capabilities.supports_tools)
     [tool_cfg; no_tool_cfg] in
-  (* qwen3.5 has tools via for_model_id, unknown falls back to default (no tools) *)
   List.length result = 1
 
 let%test "filter_by_capabilities returns all if none match" =
@@ -1020,7 +803,6 @@ let%test "filter_by_capabilities returns all if none match" =
   let result = filter_by_capabilities
     ~pred:(fun c -> c.Capabilities.supports_computer_use)
     [cfg1; cfg2] in
-  (* Neither supports computer_use, fallback to all *)
   List.length result = 2
 
 let%test "effective_max_context uses capability when present" =

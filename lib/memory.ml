@@ -1,16 +1,17 @@
 (** Working memory: 5-tier facade over {!Context.t}.
 
     Tiers map to {!Context.scope}:
-    - Scratchpad → Temp
-    - Working → Session
-    - Episodic → Custom "ep"
-    - Procedural → Custom "pr"
-    - Long_term → Custom "lt"
+    - Scratchpad -> Temp
+    - Working -> Session
+    - Episodic -> Custom "ep"
+    - Procedural -> Custom "pr"
+    - Long_term -> Custom "lt"
 
     Episodic and Procedural store typed records as JSON.
 
     @since 0.65.0 (3-tier)
-    @since 0.75.0 (5-tier: Episodic + Procedural) *)
+    @since 0.75.0 (5-tier: Episodic + Procedural)
+    @since 0.92.0 decomposed into Memory_episodic, Memory_procedural *)
 
 type tier =
   | Scratchpad
@@ -152,14 +153,14 @@ let stats t =
 
 let context t = t.ctx
 
-(* ── Episodic memory ─────────────────────────────────────── *)
+(* ── Episodic memory (delegated to Memory_episodic) ───── *)
 
-type outcome =
+type outcome = Memory_episodic.outcome =
   | Success of string
   | Failure of string
   | Neutral
 
-type episode = {
+type episode = Memory_episodic.episode = {
   id: string;
   timestamp: float;
   participants: string list;
@@ -169,106 +170,27 @@ type episode = {
   metadata: (string * Yojson.Safe.t) list;
 }
 
-let outcome_to_json = function
-  | Success s -> `Assoc [("type", `String "success"); ("detail", `String s)]
-  | Failure s -> `Assoc [("type", `String "failure"); ("detail", `String s)]
-  | Neutral -> `Assoc [("type", `String "neutral")]
+let outcome_to_json = Memory_episodic.outcome_to_json
+let outcome_of_json = Memory_episodic.outcome_of_json
+let episode_to_json = Memory_episodic.episode_to_json
+let episode_of_json = Memory_episodic.episode_of_json
 
-let outcome_of_json = function
-  | `Assoc pairs ->
-    (match List.assoc_opt "type" pairs with
-     | Some (`String "success") ->
-       let detail = match List.assoc_opt "detail" pairs with
-         | Some (`String s) -> s | _ -> "" in
-       Success detail
-     | Some (`String "failure") ->
-       let detail = match List.assoc_opt "detail" pairs with
-         | Some (`String s) -> s | _ -> "" in
-       Failure detail
-     | _ -> Neutral)
-  | _ -> Neutral
+let store_episode t ep = Memory_episodic.store t.ctx ep
+let recall_episode t id = Memory_episodic.recall_one t.ctx id
+let all_episodes t = Memory_episodic.all t.ctx
 
-let episode_to_json (ep : episode) : Yojson.Safe.t =
-  `Assoc [
-    ("id", `String ep.id);
-    ("timestamp", `Float ep.timestamp);
-    ("participants", `List (List.map (fun s -> `String s) ep.participants));
-    ("action", `String ep.action);
-    ("outcome", outcome_to_json ep.outcome);
-    ("salience", `Float ep.salience);
-    ("metadata", `Assoc ep.metadata);
-  ]
+let decayed_salience = Memory_episodic.decayed_salience
 
-let episode_of_json (json : Yojson.Safe.t) : episode option =
-  let open Yojson.Safe.Util in
-  try
-    let id = json |> member "id" |> to_string in
-    let timestamp = json |> member "timestamp" |> to_float in
-    let participants = json |> member "participants" |> to_list
-      |> List.filter_map (function `String s -> Some s | _ -> None) in
-    let action = json |> member "action" |> to_string in
-    let outcome = outcome_of_json (json |> member "outcome") in
-    let salience = json |> member "salience" |> to_float in
-    let metadata = match json |> member "metadata" with
-      | `Assoc pairs -> pairs | _ -> [] in
-    Some { id; timestamp; participants; action; outcome; salience; metadata }
-  with Yojson.Safe.Util.Type_error _ | Not_found -> None
+let recall_episodes t ?now ?decay_rate ?min_salience ?limit ?filter () =
+  Memory_episodic.recall t.ctx ?now ?decay_rate ?min_salience ?limit ?filter ()
 
-let store_episode t (ep : episode) =
-  Context.set_scoped t.ctx (scope_of_tier Episodic) ep.id (episode_to_json ep)
+let boost_salience t id amount = Memory_episodic.boost_salience t.ctx id amount
+let forget_episode t id = Memory_episodic.forget t.ctx id
+let episode_count t = Memory_episodic.count t.ctx
 
-let recall_episode t id =
-  match Context.get_scoped t.ctx (scope_of_tier Episodic) id with
-  | Some json -> episode_of_json json
-  | None -> None
+(* ── Procedural memory (delegated to Memory_procedural) ── *)
 
-let all_episodes t =
-  keys_in_tier t Episodic
-  |> List.filter_map (fun key ->
-    match Context.get_scoped t.ctx (scope_of_tier Episodic) key with
-    | Some json -> episode_of_json json
-    | None -> None)
-
-let decayed_salience ~now ~decay_rate (ep : episode) =
-  let age = now -. ep.timestamp in
-  ep.salience *. exp (-. decay_rate *. age)
-
-let recall_episodes t ?(now = Unix.gettimeofday ()) ?(decay_rate = 0.01)
-    ?(min_salience = 0.1) ?(limit = 50) ?filter () =
-  all_episodes t
-  |> List.map (fun ep ->
-    let effective = decayed_salience ~now ~decay_rate ep in
-    ({ ep with salience = effective }, effective))
-  |> List.filter (fun (_, s) -> s >= min_salience)
-  |> List.filter (fun (ep, _) ->
-    match filter with
-    | Some predicate -> predicate ep
-    | None -> true)
-  |> List.sort (fun (_, a) (_, b) -> Float.compare b a)
-  |> (fun list ->
-    let rec take n acc = function
-      | [] -> List.rev acc
-      | _ when n <= 0 -> List.rev acc
-      | (ep, _) :: rest -> take (n - 1) (ep :: acc) rest
-    in
-    take limit [] list)
-
-let boost_salience t id amount =
-  match recall_episode t id with
-  | Some ep ->
-    let boosted = Float.min 1.0 (ep.salience +. amount) in
-    store_episode t { ep with salience = boosted }
-  | None -> ()
-
-let forget_episode t id =
-  Context.delete_scoped t.ctx (scope_of_tier Episodic) id
-
-let episode_count t =
-  List.length (keys_in_tier t Episodic)
-
-(* ── Procedural memory ──────────────────────────────────── *)
-
-type procedure = {
+type procedure = Memory_procedural.procedure = {
   id: string;
   pattern: string;
   action: string;
@@ -279,112 +201,36 @@ type procedure = {
   metadata: (string * Yojson.Safe.t) list;
 }
 
-let compute_confidence ~success_count ~failure_count =
-  let total = success_count + failure_count in
-  if total = 0 then 0.0
-  else Float.of_int success_count /. Float.of_int total
+let compute_confidence = Memory_procedural.compute_confidence
+let procedure_to_json = Memory_procedural.procedure_to_json
+let procedure_of_json = Memory_procedural.procedure_of_json
+let string_contains = Memory_procedural.string_contains
 
-let procedure_to_json (proc : procedure) : Yojson.Safe.t =
-  `Assoc [
-    ("id", `String proc.id);
-    ("pattern", `String proc.pattern);
-    ("action", `String proc.action);
-    ("success_count", `Int proc.success_count);
-    ("failure_count", `Int proc.failure_count);
-    ("confidence", `Float proc.confidence);
-    ("last_used", `Float proc.last_used);
-    ("metadata", `Assoc proc.metadata);
-  ]
+let store_procedure t proc = Memory_procedural.store t.ctx proc
+let all_procedures t = Memory_procedural.all t.ctx
 
-let procedure_of_json (json : Yojson.Safe.t) : procedure option =
-  let open Yojson.Safe.Util in
-  try
-    let id = json |> member "id" |> to_string in
-    let pattern = json |> member "pattern" |> to_string in
-    let action = json |> member "action" |> to_string in
-    let success_count = json |> member "success_count" |> to_int in
-    let failure_count = json |> member "failure_count" |> to_int in
-    let confidence = json |> member "confidence" |> to_float in
-    let last_used = json |> member "last_used" |> to_float in
-    let metadata = match json |> member "metadata" with
-      | `Assoc pairs -> pairs | _ -> [] in
-    Some { id; pattern; action; success_count; failure_count;
-           confidence; last_used; metadata }
-  with Yojson.Safe.Util.Type_error _ | Not_found -> None
+let matching_procedures t ~pattern ?min_confidence ?filter () =
+  Memory_procedural.matching t.ctx ~pattern ?min_confidence ?filter ()
 
-let store_procedure t (proc : procedure) =
-  Context.set_scoped t.ctx (scope_of_tier Procedural) proc.id (procedure_to_json proc)
+let find_procedure t ~pattern ?min_confidence ?filter ?touch () =
+  Memory_procedural.find t.ctx ~pattern ?min_confidence ?filter ?touch ()
 
-let all_procedures t =
-  keys_in_tier t Procedural
-  |> List.filter_map (fun key ->
-    match Context.get_scoped t.ctx (scope_of_tier Procedural) key with
-    | Some json -> procedure_of_json json
-    | None -> None)
-
-let string_contains ~needle haystack =
-  let nlen = String.length needle in
-  let hlen = String.length haystack in
-  if nlen = 0 then true
-  else
-    let rec loop i =
-      if i + nlen > hlen then false
-      else if String.sub haystack i nlen = needle then true
-      else loop (i + 1)
-    in
-    loop 0
-
-let matching_procedures t ~pattern ?(min_confidence = 0.0) ?filter () =
-  all_procedures t
-  |> List.filter (fun proc ->
-    string_contains ~needle:pattern proc.pattern
-    && proc.confidence >= min_confidence
-    &&
-    match filter with
-    | Some predicate -> predicate proc
-    | None -> true)
-  |> List.sort (fun a b -> Float.compare b.confidence a.confidence)
-
-let find_procedure t ~pattern ?(min_confidence = 0.0) ?filter ?(touch = false) () =
-  match matching_procedures t ~pattern ~min_confidence ?filter () with
-  | best :: _ ->
-    if touch then begin
-      let touched = { best with last_used = Unix.gettimeofday () } in
-      store_procedure t touched;
-      Some touched
-    end else Some best
-  | [] -> None
-
-let best_procedure t ~pattern =
-  find_procedure t ~pattern ()
+let best_procedure t ~pattern = Memory_procedural.best t.ctx ~pattern
 
 let update_procedure t id f =
   match Context.get_scoped t.ctx (scope_of_tier Procedural) id with
   | Some json ->
-    (match procedure_of_json json with
+    (match Memory_procedural.procedure_of_json json with
      | Some proc ->
        let updated = f proc in
-       store_procedure t updated
+       Memory_procedural.store t.ctx updated
      | None -> ())
   | None -> ()
 
-let record_success t id =
-  update_procedure t id (fun proc ->
-    let success_count = proc.success_count + 1 in
-    let confidence = compute_confidence ~success_count ~failure_count:proc.failure_count in
-    { proc with success_count; confidence; last_used = Unix.gettimeofday () })
-
-let record_failure t id =
-  update_procedure t id (fun proc ->
-    let failure_count = proc.failure_count + 1 in
-    let confidence = compute_confidence ~success_count:proc.success_count ~failure_count in
-    { proc with failure_count; confidence; last_used = Unix.gettimeofday () })
-
-let forget_procedure t id =
-  Context.delete_scoped t.ctx (scope_of_tier Procedural) id
-
-let procedure_count t =
-  List.length (keys_in_tier t Procedural)
+let record_success t id = Memory_procedural.record_success t.ctx id
+let record_failure t id = Memory_procedural.record_failure t.ctx id
+let forget_procedure t id = Memory_procedural.forget t.ctx id
+let procedure_count t = Memory_procedural.count t.ctx
 
 [@@@coverage off]
 (* === Inline tests === *)

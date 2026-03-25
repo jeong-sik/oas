@@ -79,18 +79,22 @@ let of_config (provider_cfg : Provider.config) : provider_module =
         match Cohttp.Response.status resp with
         | `OK ->
           let body_str = Eio.Buf_read.(of_flow ~max_size:Api_common.max_response_body body |> take_all) in
-          let response =
-            match kind with
-            | Provider.Anthropic_messages ->
-              Api_anthropic.parse_response (Yojson.Safe.from_string body_str)
-            | Provider.Openai_chat_completions ->
-              Api_openai.parse_openai_response body_str
-            | Provider.Custom name ->
-              (match Provider.find_provider name with
-               | Some impl -> impl.parse_response body_str
-               | None -> Api_openai.parse_openai_response body_str)
-          in
-          Ok response
+          (match kind with
+           | Provider.Anthropic_messages ->
+             Ok (Api_anthropic.parse_response (Yojson.Safe.from_string body_str))
+           | Provider.Openai_chat_completions ->
+             (match Llm_provider.Backend_openai_parse.parse_openai_response_result body_str with
+              | Ok resp -> Ok resp
+              | Error msg ->
+                Error (Error.Api (Retry.InvalidRequest { message = msg })))
+           | Provider.Custom name ->
+             (match Provider.find_provider name with
+              | Some impl -> Ok (impl.parse_response body_str)
+              | None ->
+                (match Llm_provider.Backend_openai_parse.parse_openai_response_result body_str with
+                 | Ok resp -> Ok resp
+                 | Error msg ->
+                   Error (Error.Api (Retry.InvalidRequest { message = msg })))))
         | status ->
           let code = Cohttp.Code.code_of_status status in
           let body_str = Eio.Buf_read.(of_flow ~max_size:Api_common.max_response_body body |> take_all) in

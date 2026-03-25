@@ -88,8 +88,9 @@ let parse_response body =
   match check_glm_error body with
   | Some msg -> raise (Glm_api_error msg)
   | None ->
-      let resp = Backend_openai.parse_openai_response body in
-      extract_reasoning_content resp body
+      (match Backend_openai_parse.parse_openai_response_result body with
+       | Error msg -> raise (Glm_api_error msg)
+       | Ok resp -> extract_reasoning_content resp body)
 
 (* ── Streaming ───────────────────────────────────── *)
 
