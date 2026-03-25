@@ -178,7 +178,7 @@ let create_message_cascade ~sw ~net ?clock ?retry_config
 let create_message_named ~sw ~net ?clock ~(named_cascade : named_cascade)
     ~config ~messages ?tools ?(temperature = 0.3)
     ?(max_tokens = config.config.max_tokens)
-    ?system_prompt ?(accept = fun _ -> true) ?timeout_sec () =
+    ?system_prompt ?(accept = fun _ -> true) ?timeout_sec ?metrics () =
   let system_prompt =
     match system_prompt with
     | Some _ -> system_prompt
@@ -188,7 +188,7 @@ let create_message_named ~sw ~net ?clock ~(named_cascade : named_cascade)
     Llm_provider.Cascade_config.complete_named ~sw ~net ?clock
       ?config_path:named_cascade.config_path ~name:named_cascade.name
       ~defaults:named_cascade.defaults ~messages ?tools ~temperature
-      ~max_tokens ?system_prompt ~accept ?timeout_sec ()
+      ~max_tokens ?system_prompt ~accept ?timeout_sec ?metrics ()
   with
   | Ok response -> Ok response
   | Error err -> Error (map_named_cascade_error err)
@@ -196,7 +196,7 @@ let create_message_named ~sw ~net ?clock ~(named_cascade : named_cascade)
 let create_message_named_stream ~sw ~net ?clock
     ~(named_cascade : named_cascade) ~config ~messages ?tools
     ?(temperature = 0.3) ?(max_tokens = config.config.max_tokens)
-    ?system_prompt ?timeout_sec ~on_event () =
+    ?system_prompt ?timeout_sec ?metrics ~on_event () =
   let system_prompt =
     match system_prompt with
     | Some _ -> system_prompt
@@ -206,7 +206,7 @@ let create_message_named_stream ~sw ~net ?clock
     Llm_provider.Cascade_config.complete_named_stream ~sw ~net ?clock
       ?config_path:named_cascade.config_path ~name:named_cascade.name
       ~defaults:named_cascade.defaults ~messages ?tools ~temperature
-      ~max_tokens ?system_prompt ?timeout_sec ~on_event ()
+      ~max_tokens ?system_prompt ?timeout_sec ?metrics ~on_event ()
   with
   | Ok response -> Ok response
   | Error err -> Error (map_named_cascade_error err)

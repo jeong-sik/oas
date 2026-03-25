@@ -95,6 +95,7 @@ val create_message_named :
   ?system_prompt:string ->
   ?accept:(Types.api_response -> bool) ->
   ?timeout_sec:int ->
+  ?metrics:Llm_provider.Metrics.t ->
   unit ->
   (Types.api_response, Error.sdk_error) result
 
@@ -110,6 +111,7 @@ val create_message_named_stream :
   ?max_tokens:int ->
   ?system_prompt:string ->
   ?timeout_sec:int ->
+  ?metrics:Llm_provider.Metrics.t ->
   on_event:(Types.sse_event -> unit) ->
   unit ->
   (Types.api_response, Error.sdk_error) result
