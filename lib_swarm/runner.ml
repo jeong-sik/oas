@@ -12,20 +12,17 @@ open Swarm_types
 
 (* ── Metric evaluation ──────────────────────────────────────────── *)
 
-let eval_metric = function
+let eval_metric ~mgr = function
   | Shell_command cmd ->
-    let ic = Unix.open_process_in cmd in
-    let output = In_channel.input_all ic in
-    let status = Unix.close_process_in ic in
-    (match status with
-     | Unix.WEXITED 0 ->
+    (try
+       let output = Eio.Process.parse_out mgr Eio.Buf_read.take_all ["bash"; "-c"; cmd] in
        let trimmed = String.trim output in
        (match float_of_string_opt trimmed with
         | Some v -> Ok v
         | None -> Error (Printf.sprintf "metric command output not a float: %S" trimmed))
-     | Unix.WEXITED code ->
-       Error (Printf.sprintf "metric command exited with code %d" code)
-     | _ -> Error "metric command killed by signal")
+     with
+     | exn ->
+       Error (Printf.sprintf "metric command failed: %s" (Printexc.to_string exn)))
   | Callback f ->
     (try Ok (f ())
      with exn -> Error (Printf.sprintf "metric callback raised: %s" (Printexc.to_string exn)))
@@ -382,7 +379,10 @@ let read_state h f =
 
 (* ── Convergence loop (Mutex-protected) ─────────────────────────── *)
 
-let run_convergence_loop ~sw ~clock ~callbacks config conv =
+let run_convergence_loop ~sw ~env ~callbacks config conv =
+  let clock = Eio.Stdenv.clock env in
+  let _ = clock in
+  let mgr = Eio.Stdenv.process_mgr env in
   let handle = {
     mu = Eio.Mutex.create ();
     state = create_state config;
@@ -412,7 +412,7 @@ let run_convergence_loop ~sw ~clock ~callbacks config conv =
     let results = run_agents_dispatch ~sw ~clock ~callbacks config in
     total_usage := collect_usage !total_usage results;
     (* Evaluate metric *)
-    let metric_value = match eval_metric conv.metric with
+    let metric_value = match eval_metric ~mgr conv.metric with
       | Ok v -> Some v
       | Error _ -> None
     in
@@ -482,7 +482,9 @@ let run_convergence_loop ~sw ~clock ~callbacks config conv =
 
 (* ── Main entry point ───────────────────────────────────────────── *)
 
-let run ~sw ~clock ?(callbacks = no_callbacks) config =
+let run ~sw ~env ?(callbacks = no_callbacks) config =
+  let clock = Eio.Stdenv.clock env in
+  let _ = clock in
   let effective_parallel =
     min config.max_parallel
       (Option.value ~default:config.max_parallel config.max_concurrent_agents)
@@ -502,7 +504,7 @@ let run ~sw ~clock ?(callbacks = no_callbacks) config =
          }
        | Error e -> Error e)
     | Some conv ->
-      run_convergence_loop ~sw ~clock ~callbacks config conv
+      run_convergence_loop ~sw ~env ~callbacks config conv
   in
   match config.timeout_sec with
   | Some timeout ->

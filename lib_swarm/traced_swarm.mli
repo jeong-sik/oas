@@ -25,7 +25,7 @@ type traced_run_result = {
     @param trace_dir Directory for JSONL trace files (default: temp dir) *)
 val run_traced :
   sw:Eio.Switch.t ->
-  clock:_ Eio.Time.clock ->
+  env:< clock : _ Eio.Time.clock ; process_mgr : _ Eio.Process.mgr ; .. > ->
   workers:int ->
   base_builder:Builder.t ->
   ?mode:Swarm_types.orchestration_mode ->

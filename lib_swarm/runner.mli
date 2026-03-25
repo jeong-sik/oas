@@ -31,7 +31,7 @@ open Agent_sdk
     @param callbacks Optional lifecycle callbacks (default: {!Swarm_types.no_callbacks}) *)
 val run :
   sw:Eio.Switch.t ->
-  clock:_ Eio.Time.clock ->
+  env:< clock : _ Eio.Time.clock ; process_mgr : _ Eio.Process.mgr ; .. > ->
   ?callbacks:Swarm_types.swarm_callbacks ->
   Swarm_types.swarm_config ->
   (Swarm_types.swarm_result, Error.sdk_error) result
@@ -40,7 +40,7 @@ val run :
 
 (** Evaluate a metric source. [Shell_command] runs a shell command and
     parses stdout as float. [Callback] invokes the function directly. *)
-val eval_metric : Swarm_types.metric_source -> (float, string) result
+val eval_metric : mgr:_ Eio.Process.mgr -> Swarm_types.metric_source -> (float, string) result
 
 (** Aggregate a list of scores using the given strategy. *)
 val aggregate_scores :

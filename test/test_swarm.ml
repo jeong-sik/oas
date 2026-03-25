@@ -23,6 +23,7 @@ let check_float msg expected actual =
 let test_create_state () =
   Eio_main.run @@ fun env ->
   let clock = Eio.Stdenv.clock env in
+  let _ = clock in
   let agent = Agent.create ~net:env#net
     ~config:{ Types.default_config with name = "test-agent"; max_turns = 1 } () in
   let config : Swarm_types.swarm_config = {
@@ -85,26 +86,34 @@ let test_no_callbacks () =
 (* ── Runner.eval_metric tests ────────────────────────────────────── *)
 
 let test_eval_metric_callback () =
+  Eio_main.run @@ fun env ->
+  let mgr = Eio.Stdenv.process_mgr env in
   let metric = Swarm_types.Callback (fun () -> 0.95) in
-  match Runner.eval_metric metric with
+  match Runner.eval_metric ~mgr metric with
   | Ok v -> check_float "metric value" 0.95 v
   | Error e -> fail (Printf.sprintf "unexpected error: %s" e)
 
 let test_eval_metric_callback_raises () =
+  Eio_main.run @@ fun env ->
+  let mgr = Eio.Stdenv.process_mgr env in
   let metric = Swarm_types.Callback (fun () -> failwith "boom") in
-  match Runner.eval_metric metric with
+  match Runner.eval_metric ~mgr metric with
   | Ok _ -> fail "expected error"
   | Error e -> check bool "contains boom" true (String.length e > 0)
 
 let test_eval_metric_shell () =
+  Eio_main.run @@ fun env ->
+  let mgr = Eio.Stdenv.process_mgr env in
   let metric = Swarm_types.Shell_command "echo 0.42" in
-  match Runner.eval_metric metric with
+  match Runner.eval_metric ~mgr metric with
   | Ok v -> check_float "shell metric" 0.42 v
   | Error e -> fail (Printf.sprintf "shell metric error: %s" e)
 
 let test_eval_metric_shell_bad_output () =
+  Eio_main.run @@ fun env ->
+  let mgr = Eio.Stdenv.process_mgr env in
   let metric = Swarm_types.Shell_command "echo not-a-number" in
-  match Runner.eval_metric metric with
+  match Runner.eval_metric ~mgr metric with
   | Ok _ -> fail "expected error for non-numeric output"
   | Error _ -> ()
 
@@ -148,6 +157,7 @@ let test_convergence_config_construction () =
 let test_multi_agent_config () =
   Eio_main.run @@ fun env ->
   let clock = Eio.Stdenv.clock env in
+  let _ = clock in
   let make name role =
     let agent = Agent.create ~net:env#net
       ~config:{ Types.default_config with name; max_turns = 1 } () in
@@ -200,6 +210,7 @@ let test_swarm_result_construction () =
 let test_state_history () =
   Eio_main.run @@ fun env ->
   let clock = Eio.Stdenv.clock env in
+  let _ = clock in
   let agent = Agent.create ~net:env#net
     ~config:{ Types.default_config with name = "a"; max_turns = 1 } () in
   let config : Swarm_types.swarm_config = {
@@ -229,6 +240,7 @@ let mock_run text ~sw:_ _prompt =
 let test_convergence_reaches_target () =
   Eio_main.run @@ fun env ->
   let clock = Eio.Stdenv.clock env in
+  let _ = clock in
   let call_count = ref 0 in
   let metric_fn () =
     incr call_count;
@@ -256,7 +268,7 @@ let test_convergence_reaches_target () =
     enable_streaming = false;
   } in
   Eio.Switch.run @@ fun sw ->
-  match Runner.run ~sw ~clock config with
+  match Runner.run ~sw ~env config with
   | Ok result ->
     check bool "converged" true result.converged;
     check int "4 iterations" 4 (List.length result.iterations);
@@ -268,6 +280,7 @@ let test_convergence_reaches_target () =
 let test_convergence_patience_exhausted () =
   Eio_main.run @@ fun env ->
   let clock = Eio.Stdenv.clock env in
+  let _ = clock in
   let metric_fn () = 0.3 in  (* Never improves *)
   let config : Swarm_types.swarm_config = {
     entries = [
@@ -289,7 +302,7 @@ let test_convergence_patience_exhausted () =
     enable_streaming = false;
   } in
   Eio.Switch.run @@ fun sw ->
-  match Runner.run ~sw ~clock config with
+  match Runner.run ~sw ~env config with
   | Ok result ->
     check bool "not converged" false result.converged;
     (* patience=3: first iteration sets baseline, then 3 more without improvement *)
@@ -299,6 +312,7 @@ let test_convergence_patience_exhausted () =
 let test_convergence_max_iterations () =
   Eio_main.run @@ fun env ->
   let clock = Eio.Stdenv.clock env in
+  let _ = clock in
   let counter = ref 0 in
   let metric_fn () = incr counter; float_of_int !counter *. 0.1 in
   let config : Swarm_types.swarm_config = {
@@ -321,7 +335,7 @@ let test_convergence_max_iterations () =
     enable_streaming = false;
   } in
   Eio.Switch.run @@ fun sw ->
-  match Runner.run ~sw ~clock config with
+  match Runner.run ~sw ~env config with
   | Ok result ->
     check bool "not converged" false result.converged;
     check int "exactly 3 iterations" 3 (List.length result.iterations)
@@ -330,6 +344,7 @@ let test_convergence_max_iterations () =
 let test_single_pass_no_convergence () =
   Eio_main.run @@ fun env ->
   let clock = Eio.Stdenv.clock env in
+  let _ = clock in
   let config : Swarm_types.swarm_config = {
     entries = [
       { name = "a1"; run = mock_run "hello"; role = Discover; get_telemetry = None };
@@ -345,7 +360,7 @@ let test_single_pass_no_convergence () =
     enable_streaming = false;
   } in
   Eio.Switch.run @@ fun sw ->
-  match Runner.run ~sw ~clock config with
+  match Runner.run ~sw ~env config with
   | Ok result ->
     check bool "not converged" false result.converged;
     check int "1 iteration" 1 (List.length result.iterations);
@@ -356,6 +371,7 @@ let test_single_pass_no_convergence () =
 let test_callbacks_fire () =
   Eio_main.run @@ fun env ->
   let clock = Eio.Stdenv.clock env in
+  let _ = clock in
   let iter_starts = ref 0 in
   let iter_ends = ref 0 in
   let agent_starts = ref 0 in
@@ -388,7 +404,7 @@ let test_callbacks_fire () =
     enable_streaming = false;
   } in
   Eio.Switch.run @@ fun sw ->
-  (match Runner.run ~sw ~clock ~callbacks config with
+  (match Runner.run ~sw ~env ~callbacks config with
    | Ok _ -> ()
    | Error e -> fail (Printf.sprintf "error: %s" (Error.to_string e)));
   check bool "iter_starts fired" true (!iter_starts > 0);
@@ -421,6 +437,7 @@ let mock_run_failing ~fail_on_call counter ~sw:_ _prompt =
 let test_12_worker_decentralized () =
   Eio_main.run @@ fun env ->
   let clock = Eio.Stdenv.clock env in
+  let _ = clock in
   let agent_names = ref [] in
   let callbacks : Swarm_types.swarm_callbacks = {
     on_iteration_start = None;
@@ -463,7 +480,7 @@ let test_12_worker_decentralized () =
     enable_streaming = false;
   } in
   Eio.Switch.run @@ fun sw ->
-  match Runner.run ~sw ~clock ~callbacks config with
+  match Runner.run ~sw ~env ~callbacks config with
   | Ok result ->
     check int "1 iteration" 1 (List.length result.iterations);
     let iter = List.hd result.iterations in
@@ -483,6 +500,7 @@ let test_12_worker_decentralized () =
 let test_12_worker_convergence () =
   Eio_main.run @@ fun env ->
   let clock = Eio.Stdenv.clock env in
+  let _ = clock in
   let iteration = ref 0 in
   let metric_fn () =
     incr iteration;
@@ -518,7 +536,7 @@ let test_12_worker_convergence () =
     enable_streaming = false;
   } in
   Eio.Switch.run @@ fun sw ->
-  match Runner.run ~sw ~clock config with
+  match Runner.run ~sw ~env config with
   | Ok result ->
     check bool "converged" true result.converged;
     check bool "3 or fewer iterations" true (List.length result.iterations <= 3);
@@ -531,6 +549,7 @@ let test_12_worker_convergence () =
 let test_12_worker_supervisor () =
   Eio_main.run @@ fun env ->
   let clock = Eio.Stdenv.clock env in
+  let _ = clock in
   let supervisor_saw_workers = ref false in
   let supervisor_run ~sw:_ prompt =
     (* Supervisor should receive worker summaries *)
@@ -560,7 +579,7 @@ let test_12_worker_supervisor () =
     enable_streaming = false;
   } in
   Eio.Switch.run @@ fun sw ->
-  match Runner.run ~sw ~clock config with
+  match Runner.run ~sw ~env config with
   | Ok result ->
     let iter = List.hd result.iterations in
     (* 11 workers + 1 supervisor = 12 results *)
@@ -571,6 +590,7 @@ let test_12_worker_supervisor () =
 let test_12_worker_pipeline () =
   Eio_main.run @@ fun env ->
   let clock = Eio.Stdenv.clock env in
+  let _ = clock in
   let received_prompts = ref [] in
   let pipeline_run name ~sw:_ prompt =
     received_prompts := (name, String.length prompt) :: !received_prompts;
@@ -594,7 +614,7 @@ let test_12_worker_pipeline () =
     enable_streaming = false;
   } in
   Eio.Switch.run @@ fun sw ->
-  match Runner.run ~sw ~clock config with
+  match Runner.run ~sw ~env config with
   | Ok result ->
     let iter = List.hd result.iterations in
     check int "4 results" 4 (List.length iter.agent_results);
@@ -612,6 +632,7 @@ let test_12_worker_pipeline () =
 let test_partial_failure_resilience () =
   Eio_main.run @@ fun env ->
   let clock = Eio.Stdenv.clock env in
+  let _ = clock in
   let counter = ref 0 in
   let config : Swarm_types.swarm_config = {
     entries = [
@@ -631,7 +652,7 @@ let test_partial_failure_resilience () =
     enable_streaming = false;
   } in
   Eio.Switch.run @@ fun sw ->
-  match Runner.run ~sw ~clock config with
+  match Runner.run ~sw ~env config with
   | Ok result ->
     let iter = List.hd result.iterations in
     check int "3 results" 3 (List.length iter.agent_results);
@@ -652,6 +673,7 @@ let test_partial_failure_resilience () =
 let test_single_pass_timeout () =
   Eio_main.run @@ fun env ->
   let clock = Eio.Stdenv.clock env in
+  let _ = clock in
   let slow_run ~sw:_ _prompt =
     Eio.Time.sleep clock 10.0;  (* 10s — will exceed timeout *)
     Ok { Types.id = "mock"; model = "mock"; stop_reason = Types.EndTurn;
@@ -669,7 +691,7 @@ let test_single_pass_timeout () =
     enable_streaming = false;
   } in
   Eio.Switch.run @@ fun sw ->
-  match Runner.run ~sw ~clock config with
+  match Runner.run ~sw ~env config with
   | Ok _ -> fail "expected timeout error"
   | Error (Error.Orchestration (Error.TaskTimeout _)) -> ()
   | Error e -> fail (Printf.sprintf "wrong error: %s" (Error.to_string e))
@@ -678,6 +700,7 @@ let test_single_pass_timeout () =
 let test_single_pass_usage () =
   Eio_main.run @@ fun env ->
   let clock = Eio.Stdenv.clock env in
+  let _ = clock in
   let config : Swarm_types.swarm_config = {
     entries = [
       { name = "a1"; run = mock_run "hello"; role = Discover; get_telemetry = None };
@@ -693,7 +716,7 @@ let test_single_pass_usage () =
     enable_streaming = false;
   } in
   Eio.Switch.run @@ fun sw ->
-  match Runner.run ~sw ~clock config with
+  match Runner.run ~sw ~env config with
   | Ok result ->
     (* mock_run returns usage with input_tokens=10, output_tokens=5 each *)
     check int "api_calls" 2 result.total_usage.api_calls;
@@ -708,6 +731,7 @@ let test_single_pass_usage () =
 let test_convergence_average_aggregate () =
   Eio_main.run @@ fun env ->
   let clock = Eio.Stdenv.clock env in
+  let _ = clock in
   let call_count = ref 0 in
   let metric_fn () =
     incr call_count;
@@ -734,7 +758,7 @@ let test_convergence_average_aggregate () =
     enable_streaming = false;
   } in
   Eio.Switch.run @@ fun sw ->
-  match Runner.run ~sw ~clock config with
+  match Runner.run ~sw ~env config with
   | Ok result ->
     (* avg([0.3,0.3,0.3,0.3,0.9,0.3]) = 0.4 < 0.5 → not converged *)
     check bool "not converged (avg too low)" false result.converged;

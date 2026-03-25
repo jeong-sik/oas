@@ -43,11 +43,12 @@ let live_smoke config_file workers prompt =
       Eio_main.run @@ fun env ->
       let net = Eio.Stdenv.net env in
       let clock = Eio.Stdenv.clock env in
+      let _ = clock in
       let base_builder = Agent_sdk.Agent_config.to_builder ~net cfg in
       Printf.eprintf "Spawning %d workers with prompt: %s\n" workers prompt;
       Eio.Switch.run @@ fun sw ->
       match
-        Traced_swarm.run_traced ~sw ~clock ~workers
+        Traced_swarm.run_traced ~sw ~env ~workers
           ~base_builder ~prompt ()
       with
       | Ok { summaries; trace_dir; _ } ->

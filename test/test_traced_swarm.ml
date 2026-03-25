@@ -46,6 +46,7 @@ let traced_mock_entry ~trace_dir ~name ~tool_names text =
 let test_collect_summaries () =
   Eio_main.run @@ fun env ->
   let clock = Eio.Stdenv.clock env in
+  let _ = clock in
   let trace_dir = Filename.temp_dir "test_traced" "" in
   let entries = [
     traced_mock_entry ~trace_dir ~name:"w1"
@@ -55,7 +56,7 @@ let test_collect_summaries () =
   ] in
   let config = Test_helpers.basic_config ~prompt:"test traced" entries in
   Eio.Switch.run @@ fun sw ->
-  (match Runner.run ~sw ~clock config with
+  (match Runner.run ~sw ~env config with
    | Ok _ -> ()
    | Error e -> fail (Printf.sprintf "run error: %s" (Error.to_string e)));
   match Traced_swarm.collect_summaries ~trace_dir with
@@ -71,6 +72,7 @@ let test_collect_summaries () =
 let test_summaries_count_equals_workers () =
   Eio_main.run @@ fun env ->
   let clock = Eio.Stdenv.clock env in
+  let _ = clock in
   let trace_dir = Filename.temp_dir "test_traced_n" "" in
   let n = 3 in
   let entries = List.init n (fun i ->
@@ -79,7 +81,7 @@ let test_summaries_count_equals_workers () =
   ) in
   let config = Test_helpers.basic_config ~prompt:"count test" entries in
   Eio.Switch.run @@ fun sw ->
-  (match Runner.run ~sw ~clock config with
+  (match Runner.run ~sw ~env config with
    | Ok _ -> ()
    | Error e -> fail (Printf.sprintf "error: %s" (Error.to_string e)));
   match Traced_swarm.collect_summaries ~trace_dir with
@@ -91,6 +93,7 @@ let test_summaries_count_equals_workers () =
 let test_trace_dir_contains_jsonl () =
   Eio_main.run @@ fun env ->
   let clock = Eio.Stdenv.clock env in
+  let _ = clock in
   let trace_dir = Filename.temp_dir "test_traced_files" "" in
   let entries = [
     traced_mock_entry ~trace_dir ~name:"agent-a"
@@ -98,7 +101,7 @@ let test_trace_dir_contains_jsonl () =
   ] in
   let config = Test_helpers.basic_config ~prompt:"file test" entries in
   Eio.Switch.run @@ fun sw ->
-  (match Runner.run ~sw ~clock config with
+  (match Runner.run ~sw ~env config with
    | Ok _ -> ()
    | Error e -> fail (Printf.sprintf "error: %s" (Error.to_string e)));
   let files = Sys.readdir trace_dir |> Array.to_list in
