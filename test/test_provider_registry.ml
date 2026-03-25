@@ -87,6 +87,33 @@ let test_available_filter () =
   check int "only 1 available" 1 (List.length avail);
   check string "the up one" "up" (List.hd avail).name
 
+let test_command_in_path_finds_binary () =
+  let tmp = Filename.temp_file "provider-registry" ".bin" in
+  Fun.protect
+    ~finally:(fun () -> try Sys.remove tmp with Sys_error _ -> ())
+    (fun () ->
+      let dir = Filename.dirname tmp in
+      let name = Filename.basename tmp in
+      check bool "binary found" true
+        (Provider_registry.command_in_path ~path:dir name))
+
+let test_command_in_path_rejects_directory () =
+  let dir = Filename.temp_file "provider-registry" ".dir" in
+  Sys.remove dir;
+  Unix.mkdir dir 0o755;
+  Fun.protect
+    ~finally:(fun () -> try Unix.rmdir dir with Unix.Unix_error _ -> ())
+    (fun () ->
+      let parent = Filename.dirname dir in
+      let name = Filename.basename dir in
+      check bool "directory is not runnable" false
+        (Provider_registry.command_in_path ~path:parent name))
+
+let test_command_in_path_misses_unknown_binary () =
+  let dir = Filename.get_temp_dir_name () in
+  check bool "missing binary" false
+    (Provider_registry.command_in_path ~path:dir "provider-registry-missing-binary")
+
 (* ── Capability queries ─────────────────────────────── *)
 
 let test_find_capable_tools () =
@@ -236,6 +263,9 @@ let () =
     ];
     "availability", [
       test_case "filter" `Quick test_available_filter;
+      test_case "command_in_path finds binary" `Quick test_command_in_path_finds_binary;
+      test_case "command_in_path rejects directory" `Quick test_command_in_path_rejects_directory;
+      test_case "command_in_path misses unknown binary" `Quick test_command_in_path_misses_unknown_binary;
     ];
     "capabilities", [
       test_case "find with tools" `Quick test_find_capable_tools;

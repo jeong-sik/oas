@@ -49,6 +49,31 @@ let has_api_key env_name =
    | Some s -> String.trim s <> ""
    | None -> false)
 
+let path_entries ?path () =
+  match path with
+  | Some value -> String.split_on_char ':' value
+  | None ->
+      (match Sys.getenv_opt "PATH" with
+       | Some value -> String.split_on_char ':' value
+       | None -> [])
+  |> List.filter (fun entry -> String.trim entry <> "")
+
+let command_candidates ~name =
+  if Filename.check_suffix name ".exe" then
+    [ name ]
+  else
+    [ name; name ^ ".exe" ]
+
+let is_runnable_path path =
+  Sys.file_exists path && not (Sys.is_directory path)
+
+let command_in_path ?path name =
+  path_entries ?path ()
+  |> List.exists (fun dir ->
+         command_candidates ~name
+         |> List.exists (fun candidate ->
+                is_runnable_path (Filename.concat dir candidate)))
+
 (** Initial endpoints from LLM_ENDPOINTS env var. *)
 let initial_llama_endpoints =
   match Sys.getenv_opt "LLM_ENDPOINTS" with
@@ -165,12 +190,7 @@ let default () =
   } in
   let cc_available =
     let cached = lazy (
-      try
-        let ic = Unix.open_process_in "which claude 2>/dev/null" in
-        let result = try input_line ic with End_of_file -> "" in
-        ignore (Unix.close_process_in ic);
-        String.length (String.trim result) > 0
-      with Unix.Unix_error _ | End_of_file -> false
+      command_in_path "claude"
     ) in
     fun () -> Lazy.force cached
   in

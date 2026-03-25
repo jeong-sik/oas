@@ -49,6 +49,9 @@ val available : t -> entry list
 (** Providers whose capabilities satisfy the given predicate. *)
 val find_capable : t -> (Capabilities.capabilities -> bool) -> entry list
 
+(** Check whether a command is discoverable from PATH without shelling out. *)
+val command_in_path : ?path:string -> string -> bool
+
 (** Default registry pre-populated with known providers
     (llama, claude, gemini, glm, openrouter).
     Availability is determined by checking the API key env var. *)
