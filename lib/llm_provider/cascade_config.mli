@@ -10,6 +10,22 @@
 
     @since 0.59.0 *)
 
+(** {1 Model Alias Resolution} *)
+
+(** Resolve a GLM model alias to the concrete API model ID.
+    - ["auto"] → env var [ZAI_DEFAULT_MODEL] or ["glm-5"]
+    - ["flash"] → ["glm-4.7-flashx"]
+    - ["turbo"] → ["glm-5-turbo"]
+    - ["vision"] → ["glm-4.6v"]
+    - Concrete IDs pass through unchanged.
+    @since 0.89.1 *)
+val resolve_glm_model_id : string -> string
+
+(** Resolve "auto" and aliases to concrete model IDs for any provider.
+    Cloud providers resolve aliases; local providers pass through.
+    @since 0.89.1 *)
+val resolve_auto_model_id : string -> string -> string
+
 (** {1 Model String Parsing} *)
 
 (** Parse a "provider:model_id" string into a {!Provider_config.t}.
