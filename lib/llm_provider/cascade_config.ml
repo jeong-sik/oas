@@ -24,24 +24,59 @@ let headers_with_auth ~(kind : Provider_config.provider_kind) ~api_key =
 
 (* ── Model string parsing ──────────────────────────────── *)
 
-(** Resolve "auto" model_id to the provider's concrete default.
-    Cloud APIs (GLM, Gemini, Claude) reject unknown model names;
-    local servers (llama) accept any model_id so "auto" is kept as-is.
-    Override per provider via env var. *)
+(* ── GLM model catalog ──────────────────────────────── *)
+
+(** Resolve GLM alias to concrete model ID.
+    ZhipuAI serves all models on one endpoint; the "model" field
+    must be an exact ID from their catalog.
+
+    Catalog (2026-03):
+    {b Text}: glm-5, glm-5-turbo, glm-4.7, glm-4.7-flashx,
+              glm-4.6, glm-4.5, glm-4.5-air, glm-4.5-airx,
+              glm-4.5-flash, glm-4.5-x, glm-4-32b-0414-128k
+    {b Vision}: glm-4.6v, glm-4.6v-flashx, glm-4.6v-flash, glm-4.5v
+    {b Audio}: glm-asr-2512
+    {b Image gen}: cogview-4, glm-image
+
+    All text/vision models support function calling. *)
+let resolve_glm_model_id model_id =
+  let env_or default var =
+    match Sys.getenv_opt var with
+    | Some m when String.trim m <> "" -> String.trim m
+    | _ -> default
+  in
+  match String.lowercase_ascii model_id with
+  (* aliases → concrete IDs *)
+  | "auto" -> env_or "glm-5" "ZAI_DEFAULT_MODEL"
+  | "flash" -> "glm-4.7-flashx"
+  | "turbo" -> "glm-5-turbo"
+  | "vision" | "v" -> "glm-4.6v"
+  | "vision-flash" | "vf" -> "glm-4.6v-flashx"
+  | "air" -> "glm-4.5-air"
+  | "ocr" -> "glm-ocr"
+  (* already concrete → pass through *)
+  | _ -> model_id
+
+(** Resolve "auto" and aliases to concrete model IDs.
+    Cloud APIs reject unknown model names; local servers accept any. *)
 let resolve_auto_model_id provider_name model_id =
-  if model_id <> "auto" then model_id
-  else
-    let env_or default var =
-      match Sys.getenv_opt var with
-      | Some m when String.trim m <> "" -> String.trim m
-      | _ -> default
-    in
-    match provider_name with
-    | "glm" -> env_or "glm-4.7" "ZAI_DEFAULT_MODEL"
-    | "gemini" -> env_or "gemini-2.5-flash" "GEMINI_DEFAULT_MODEL"
-    | "claude" -> env_or "claude-sonnet-4-6-20250514" "ANTHROPIC_DEFAULT_MODEL"
-    | "openrouter" -> env_or model_id "OPENROUTER_DEFAULT_MODEL"
-    | _ -> model_id
+  let env_or default var =
+    match Sys.getenv_opt var with
+    | Some m when String.trim m <> "" -> String.trim m
+    | _ -> default
+  in
+  match provider_name with
+  | "glm" -> resolve_glm_model_id model_id
+  | "gemini" ->
+    if model_id = "auto" then env_or "gemini-2.5-flash" "GEMINI_DEFAULT_MODEL"
+    else model_id
+  | "claude" ->
+    if model_id = "auto" then env_or "claude-sonnet-4-6-20250514" "ANTHROPIC_DEFAULT_MODEL"
+    else model_id
+  | "openrouter" ->
+    if model_id = "auto" then env_or model_id "OPENROUTER_DEFAULT_MODEL"
+    else model_id
+  | _ -> model_id
 
 let parse_custom_model model_id =
   match String.index_opt model_id '@' with
