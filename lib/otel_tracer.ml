@@ -296,12 +296,11 @@ let to_otlp_json (cfg : config) : Yojson.Safe.t =
 (* -- Instance creation ------------------------------------------------ *)
 
 let create_instance ?(config = default_config) () : instance =
-  { config; mu = Stdlib_mu (Mutex.create ());
+  { config; mu = Eio_mu (Eio.Mutex.create ());
     current_spans = []; completed_spans = [] }
 
 let create_instance_eio ?(config = default_config) () : instance =
-  { config; mu = Eio_mu (Eio.Mutex.create ());
-    current_spans = []; completed_spans = [] }
+  create_instance ~config ()
 
 let tracer_of_instance inst : Tracing.t =
   (module struct

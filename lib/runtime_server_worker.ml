@@ -164,9 +164,7 @@ let run_participant store state session_id
            | Error _ -> ())
        | None -> ());
       let half = String.length full / 2 in
-      Thread.delay 0.02;
       emit_delta_text (String.sub full 0 half);
-      Thread.delay 0.02;
       emit_delta_text (String.sub full half (String.length full - half));
       Ok full
   | _ ->

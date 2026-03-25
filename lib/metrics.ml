@@ -1,7 +1,7 @@
 (** SDK metrics collection — counters and histograms.
 
     Instance-based: each [create ()] returns independent state.
-    Thread-safe via Stdlib.Mutex (no Eio dependency needed). *)
+    Thread-safe via Eio.Mutex. *)
 
 (* -- Internal types --------------------------------------------------- *)
 
@@ -61,20 +61,19 @@ let histogram_count (h : histogram) = h.h_count
 (* -- Metrics instance ------------------------------------------------- *)
 
 type t = {
-  mu: Mutex.t;
+  mu: Eio.Mutex.t;
   mutable counters: counter_data list;
   mutable histograms: histogram_data list;
 }
 
 let create () = {
-  mu = Mutex.create ();
+  mu = Eio.Mutex.create ();
   counters = [];
   histograms = [];
 }
 
 let with_lock t f =
-  Mutex.lock t.mu;
-  Fun.protect f ~finally:(fun () -> Mutex.unlock t.mu)
+  Eio.Mutex.use_rw ~protect:true t.mu f
 
 let counter t ~name ~unit_ =
   with_lock t (fun () ->
