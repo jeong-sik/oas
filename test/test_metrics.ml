@@ -3,6 +3,8 @@
 open Alcotest
 open Agent_sdk
 
+let with_eio f () = Eio_main.run (fun _env -> f ())
+
 let test_counter_basic () =
   let m = Metrics.create () in
   let c = Metrics.counter m ~name:"test.counter" ~unit_:"1" in
@@ -66,15 +68,15 @@ let test_otlp_json_structure () =
 let () =
   run "Metrics" [
     "counter", [
-      test_case "basic increment" `Quick test_counter_basic;
-      test_case "labeled counters" `Quick test_counter_with_labels;
-      test_case "same name returns same" `Quick test_counter_same_name_returns_same;
+      test_case "basic increment" `Quick (with_eio test_counter_basic);
+      test_case "labeled counters" `Quick (with_eio test_counter_with_labels);
+      test_case "same name returns same" `Quick (with_eio test_counter_same_name_returns_same);
     ];
     "histogram", [
-      test_case "basic observe" `Quick test_histogram_basic;
+      test_case "basic observe" `Quick (with_eio test_histogram_basic);
     ];
     "lifecycle", [
-      test_case "reset clears all" `Quick test_reset;
-      test_case "otlp json structure" `Quick test_otlp_json_structure;
+      test_case "reset clears all" `Quick (with_eio test_reset);
+      test_case "otlp json structure" `Quick (with_eio test_otlp_json_structure);
     ];
   ]

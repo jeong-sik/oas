@@ -3,6 +3,8 @@
 open Alcotest
 open Agent_sdk
 
+let with_eio f () = Eio_main.run (fun _env -> f ())
+
 (* -- Helpers ------------------------------------------------------------ *)
 
 let default_attrs ?(name = "test_op") ?(agent = "test-agent") ?(turn = 1)
@@ -348,7 +350,7 @@ let () =
       test_case "status_to_json codes" `Quick test_status_to_json;
     ];
     "first_class_module", [
-      test_case "create produces valid tracer" `Quick test_create_produces_valid_tracer;
-      test_case "with_span helper" `Quick test_with_span_helper;
+      test_case "create produces valid tracer" `Quick (with_eio test_create_produces_valid_tracer);
+      test_case "with_span helper" `Quick (with_eio test_with_span_helper);
     ];
   ]
