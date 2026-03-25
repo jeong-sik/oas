@@ -249,14 +249,50 @@ let test_auto_glm_resolved () =
     | None -> fail "expected Some for glm:auto with key"
 
 let test_auto_explicit_model_unchanged () =
-  (* glm:glm-4.7 should keep the explicit model_id *)
+  (* glm:glm-5 should keep the explicit model_id *)
   match Sys.getenv_opt "ZAI_API_KEY" with
   | None -> ()
   | Some _ ->
-    match Cascade_config.parse_model_string "glm:glm-4.7" with
+    match Cascade_config.parse_model_string "glm:glm-5" with
     | Some cfg ->
-      check string "explicit model_id" "glm-4.7" cfg.model_id
-    | None -> fail "expected Some for glm:glm-4.7"
+      check string "explicit model_id" "glm-5" cfg.model_id
+    | None -> fail "expected Some for glm:glm-5"
+
+let test_glm_alias_flash () =
+  match Sys.getenv_opt "ZAI_API_KEY" with
+  | None -> ()
+  | Some _ ->
+    match Cascade_config.parse_model_string "glm:flash" with
+    | Some cfg ->
+      check string "flash alias" "glm-4.7-flashx" cfg.model_id
+    | None -> fail "expected Some for glm:flash"
+
+let test_glm_alias_turbo () =
+  match Sys.getenv_opt "ZAI_API_KEY" with
+  | None -> ()
+  | Some _ ->
+    match Cascade_config.parse_model_string "glm:turbo" with
+    | Some cfg ->
+      check string "turbo alias" "glm-5-turbo" cfg.model_id
+    | None -> fail "expected Some for glm:turbo"
+
+let test_glm_alias_vision () =
+  match Sys.getenv_opt "ZAI_API_KEY" with
+  | None -> ()
+  | Some _ ->
+    match Cascade_config.parse_model_string "glm:vision" with
+    | Some cfg ->
+      check string "vision alias" "glm-4.6v" cfg.model_id
+    | None -> fail "expected Some for glm:vision"
+
+let test_glm_concrete_passthrough () =
+  match Sys.getenv_opt "ZAI_API_KEY" with
+  | None -> ()
+  | Some _ ->
+    match Cascade_config.parse_model_string "glm:glm-4.5-air" with
+    | Some cfg ->
+      check string "concrete passthrough" "glm-4.5-air" cfg.model_id
+    | None -> fail "expected Some for glm:glm-4.5-air"
 
 (* ── Suite ────────────────────────────────────────────── *)
 
@@ -275,6 +311,10 @@ let () =
       test_case "llama:auto passthrough" `Quick test_auto_llama_passthrough;
       test_case "glm:auto resolved" `Quick test_auto_glm_resolved;
       test_case "explicit model unchanged" `Quick test_auto_explicit_model_unchanged;
+      test_case "glm:flash alias" `Quick test_glm_alias_flash;
+      test_case "glm:turbo alias" `Quick test_glm_alias_turbo;
+      test_case "glm:vision alias" `Quick test_glm_alias_vision;
+      test_case "glm concrete passthrough" `Quick test_glm_concrete_passthrough;
     ];
     "config", [
       test_case "load profile found" `Quick test_load_profile_found;

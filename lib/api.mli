@@ -6,10 +6,12 @@ type named_cascade = {
   name : string;
   defaults : string list;
   config_path : string option;
+  metrics : Llm_provider.Metrics.t;
 }
 
 val named_cascade :
-  ?config_path:string -> name:string -> defaults:string list ->
+  ?config_path:string -> ?metrics:Llm_provider.Metrics.t ->
+  name:string -> defaults:string list ->
   unit -> named_cascade
 
 (** {1 Re-exports from Api_common} *)
@@ -95,6 +97,7 @@ val create_message_named :
   ?system_prompt:string ->
   ?accept:(Types.api_response -> bool) ->
   ?timeout_sec:int ->
+  ?metrics:Llm_provider.Metrics.t ->
   unit ->
   (Types.api_response, Error.sdk_error) result
 
@@ -110,6 +113,7 @@ val create_message_named_stream :
   ?max_tokens:int ->
   ?system_prompt:string ->
   ?timeout_sec:int ->
+  ?metrics:Llm_provider.Metrics.t ->
   on_event:(Types.sse_event -> unit) ->
   unit ->
   (Types.api_response, Error.sdk_error) result
