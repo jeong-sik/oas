@@ -1,3 +1,7 @@
+(** Ready-made memory tools for attaching structured memory to agents.
+
+    @since 0.92.0 decomposed: parse helpers moved to Memory_tools_parse *)
+
 type backend =
   | Plain of Memory.t
   | Acl of { acl: Memory_access.t; agent_name: string }
@@ -6,13 +10,9 @@ let json_string value = Yojson.Safe.to_string value
 
 let ok_json value = Ok { Types.content = json_string value }
 
-let tool_error message =
-  Error { Types.message = message; recoverable = true }
+let tool_error = Memory_tools_parse.tool_error
 
-let bind result f =
-  match result with
-  | Ok value -> f value
-  | Error _ as err -> err
+let ( let* ) = Result.bind
 
 let tier_to_string = function
   | Memory.Scratchpad -> "scratchpad"
@@ -21,86 +21,16 @@ let tier_to_string = function
   | Memory.Procedural -> "procedural"
   | Memory.Long_term -> "long_term"
 
-let parse_string_field json name =
-  match Yojson.Safe.Util.member name json with
-  | `String value -> Ok value
-  | `Null -> tool_error (Printf.sprintf "missing '%s' parameter" name)
-  | _ -> tool_error (Printf.sprintf "expected '%s' to be a string" name)
-
-let parse_optional_string_field json name =
-  match Yojson.Safe.Util.member name json with
-  | `String value -> Ok (Some value)
-  | `Null -> Ok None
-  | _ -> tool_error (Printf.sprintf "expected '%s' to be a string" name)
-
-let parse_bool_field json name ~default =
-  match Yojson.Safe.Util.member name json with
-  | `Bool value -> Ok value
-  | `Null -> Ok default
-  | _ -> tool_error (Printf.sprintf "expected '%s' to be a boolean" name)
-
-let parse_float_field json name ~default =
-  match Yojson.Safe.Util.member name json with
-  | `Float value -> Ok value
-  | `Int value -> Ok (float_of_int value)
-  | `Null -> Ok default
-  | _ -> tool_error (Printf.sprintf "expected '%s' to be a number" name)
-
-let parse_generic_tier json ~default =
-  let parse value =
-    match String.lowercase_ascii value with
-    | "scratchpad" -> Ok Memory.Scratchpad
-    | "working" -> Ok Memory.Working
-    | "long_term" | "long-term" -> Ok Memory.Long_term
-    | "episodic" | "procedural" ->
-      tool_error
-        "generic memory tools only support scratchpad, working, and long_term"
-    | _ ->
-      tool_error
-        "invalid 'tier'; expected one of scratchpad, working, or long_term"
-  in
-  match Yojson.Safe.Util.member "tier" json with
-  | `String value -> parse value
-  | `Null -> Ok default
-  | _ -> tool_error "expected 'tier' to be a string"
-
-let parse_string_list_field json name =
-  match Yojson.Safe.Util.member name json with
-  | `Null -> Ok []
-  | `List values ->
-    let rec loop acc = function
-      | [] -> Ok (List.rev acc)
-      | `String value :: rest -> loop (value :: acc) rest
-      | _ -> tool_error (Printf.sprintf "expected '%s' to be an array of strings" name)
-    in
-    loop [] values
-  | _ -> tool_error (Printf.sprintf "expected '%s' to be an array of strings" name)
-
-let parse_metadata_field json =
-  match Yojson.Safe.Util.member "metadata" json with
-  | `Null -> Ok []
-  | `Assoc pairs -> Ok pairs
-  | _ -> tool_error "expected 'metadata' to be an object"
-
-let parse_value_json json =
-  bind (parse_string_field json "value_json") (fun raw ->
-      try Ok (Yojson.Safe.from_string raw)
-      with Yojson.Json_error _ -> Ok (`String raw))
-
-let parse_outcome json =
-  let detail_result = parse_optional_string_field json "detail" in
-  bind detail_result (fun detail ->
-      match Yojson.Safe.Util.member "outcome" json with
-      | `Null -> Ok Memory.Neutral
-      | `String "success" ->
-        Ok (Memory.Success (Option.value detail ~default:""))
-      | `String "failure" ->
-        Ok (Memory.Failure (Option.value detail ~default:""))
-      | `String "neutral" -> Ok Memory.Neutral
-      | `String _ ->
-        tool_error "expected 'outcome' to be success, failure, or neutral"
-      | _ ->
-        tool_error "expected 'outcome' to be a string")
+(* Re-export parse helpers for backward compatibility and inline tests *)
+let parse_string_field = Memory_tools_parse.parse_string_field
+let parse_optional_string_field = Memory_tools_parse.parse_optional_string_field
+let parse_bool_field = Memory_tools_parse.parse_bool_field
+let parse_float_field = Memory_tools_parse.parse_float_field
+let parse_generic_tier = Memory_tools_parse.parse_generic_tier
+let parse_string_list_field = Memory_tools_parse.parse_string_list_field
+let parse_metadata_field = Memory_tools_parse.parse_metadata_field
+let parse_value_json = Memory_tools_parse.parse_value_json
+let parse_outcome = Memory_tools_parse.parse_outcome
 
 let procedure_to_json (proc : Memory.procedure) =
   `Assoc
@@ -192,17 +122,17 @@ let remember_tool backend =
         };
       ]
     (fun input ->
-      bind (parse_generic_tier input ~default:Memory.Working) (fun tier ->
-          bind (parse_string_field input "key") (fun key ->
-              bind (parse_value_json input) (fun value ->
-                  bind (store_value backend ~tier key value) (fun () ->
-                      ok_json
-                        (`Assoc
-                          [
-                            ("ok", `Bool true);
-                            ("tier", `String (tier_to_string tier));
-                            ("key", `String key);
-                          ]))))))
+      let* tier = parse_generic_tier input ~default:Memory.Working in
+      let* key = parse_string_field input "key" in
+      let* value = parse_value_json input in
+      let* () = store_value backend ~tier key value in
+      ok_json
+        (`Assoc
+          [
+            ("ok", `Bool true);
+            ("tier", `String (tier_to_string tier));
+            ("key", `String key);
+          ]))
 
 let recall_tool backend =
   Tool.create ~name:"memory_recall"
@@ -230,20 +160,20 @@ let recall_tool backend =
         };
       ]
     (fun input ->
-      bind (parse_generic_tier input ~default:Memory.Working) (fun tier ->
-          bind (parse_string_field input "key") (fun key ->
-              bind (parse_bool_field input "exact" ~default:false) (fun exact ->
-                  bind (recall_value backend ~tier key ~exact) (fun value ->
-                      ok_json
-                        (`Assoc
-                          [
-                            ("found", `Bool (Option.is_some value));
-                            ("tier", `String (tier_to_string tier));
-                            ("key", `String key);
-                            ("exact", `Bool exact);
-                            ( "value",
-                              match value with Some value -> value | None -> `Null );
-                          ]))))))
+      let* tier = parse_generic_tier input ~default:Memory.Working in
+      let* key = parse_string_field input "key" in
+      let* exact = parse_bool_field input "exact" ~default:false in
+      let* value = recall_value backend ~tier key ~exact in
+      ok_json
+        (`Assoc
+          [
+            ("found", `Bool (Option.is_some value));
+            ("tier", `String (tier_to_string tier));
+            ("key", `String key);
+            ("exact", `Bool exact);
+            ( "value",
+              match value with Some value -> value | None -> `Null );
+          ]))
 
 let remember_episode_tool backend =
   Tool.create ~name:"memory_remember_episode"
@@ -294,31 +224,31 @@ let remember_episode_tool backend =
         };
       ]
     (fun input ->
-      bind (parse_optional_string_field input "id") (fun id ->
-          bind (parse_string_field input "action") (fun action ->
-              bind (parse_string_list_field input "participants") (fun participants ->
-                  bind (parse_outcome input) (fun outcome ->
-                      bind (parse_float_field input "salience" ~default:0.7) (fun salience ->
-                          bind (parse_metadata_field input) (fun metadata ->
-                              let episode : Memory.episode =
-                                {
-                                  id = Option.value id ~default:(generated_episode_id ());
-                                  timestamp = Unix.gettimeofday ();
-                                  participants;
-                                  action;
-                                  outcome;
-                                  salience;
-                                  metadata;
-                                }
-                              in
-                              bind (store_episode backend episode) (fun () ->
-                                  ok_json
-                                    (`Assoc
-                                      [
-                                        ("ok", `Bool true);
-                                        ("tier", `String "episodic");
-                                        ("id", `String episode.id);
-                                      ])))))))))
+      let* id = parse_optional_string_field input "id" in
+      let* action = parse_string_field input "action" in
+      let* participants = parse_string_list_field input "participants" in
+      let* outcome = parse_outcome input in
+      let* salience = parse_float_field input "salience" ~default:0.7 in
+      let* metadata = parse_metadata_field input in
+      let episode : Memory.episode =
+        {
+          id = Option.value id ~default:(generated_episode_id ());
+          timestamp = Unix.gettimeofday ();
+          participants;
+          action;
+          outcome;
+          salience;
+          metadata;
+        }
+      in
+      let* () = store_episode backend episode in
+      ok_json
+        (`Assoc
+          [
+            ("ok", `Bool true);
+            ("tier", `String "episodic");
+            ("id", `String episode.id);
+          ]))
 
 let find_procedure_tool backend =
   Tool.create ~name:"memory_find_procedure"
@@ -345,22 +275,22 @@ let find_procedure_tool backend =
         };
       ]
     (fun input ->
-      bind (parse_string_field input "pattern") (fun pattern ->
-          bind (parse_float_field input "min_confidence" ~default:0.0) (fun min_confidence ->
-              bind (parse_bool_field input "touch" ~default:false) (fun touch ->
-                  bind
-                    (find_procedure_backend backend ~pattern ~min_confidence ~touch)
-                    (fun procedure ->
-                      ok_json
-                        (`Assoc
-                          [
-                            ("found", `Bool (Option.is_some procedure));
-                            ("pattern", `String pattern);
-                            ( "procedure",
-                              match procedure with
-                              | Some procedure -> procedure_to_json procedure
-                              | None -> `Null );
-                          ]))))))
+      let* pattern = parse_string_field input "pattern" in
+      let* min_confidence = parse_float_field input "min_confidence" ~default:0.0 in
+      let* touch = parse_bool_field input "touch" ~default:false in
+      let* procedure =
+        find_procedure_backend backend ~pattern ~min_confidence ~touch
+      in
+      ok_json
+        (`Assoc
+          [
+            ("found", `Bool (Option.is_some procedure));
+            ("pattern", `String pattern);
+            ( "procedure",
+              match procedure with
+              | Some procedure -> procedure_to_json procedure
+              | None -> `Null );
+          ]))
 
 let remember mem = remember_tool (Plain mem)
 let recall mem = recall_tool (Plain mem)
@@ -407,11 +337,11 @@ let%test "tool_error returns recoverable error" =
 (* --- bind --- *)
 
 let%test "bind ok" =
-  bind (Ok 1) (fun x -> Ok (x + 1)) = Ok 2
+  Result.bind (Ok 1) (fun x -> Ok (x + 1)) = Ok 2
 
 let%test "bind error propagates" =
   let err = Error { Types.message = "fail"; recoverable = true } in
-  match bind err (fun _ -> Ok 0) with
+  match Result.bind err (fun _ -> Ok 0) with
   | Error { message = "fail"; _ } -> true
   | _ -> false
 
