@@ -6,10 +6,12 @@ type named_cascade = {
   name : string;
   defaults : string list;
   config_path : string option;
+  metrics : Llm_provider.Metrics.t;
 }
 
-let named_cascade ?config_path ~name ~defaults () =
-  { name; defaults; config_path }
+let named_cascade ?config_path ?metrics ~name ~defaults () =
+  let metrics = match metrics with Some m -> m | None -> Llm_provider.Metrics.noop in
+  { name; defaults; config_path; metrics }
 
 (* Re-export Api_common *)
 let default_base_url = Api_common.default_base_url

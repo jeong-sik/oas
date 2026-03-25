@@ -148,7 +148,7 @@ let stage_route ~sw ?clock ~api_strategy agent prep =
           Api.create_message_named ~sw ~net:agent.net ?clock
             ~named_cascade:named ~config:agent.state
             ~messages:prep.Agent_turn.effective_messages
-            ?tools:prep.tools_json ()
+            ?tools:prep.tools_json ~metrics:named.metrics ()
         | None ->
           (match agent.options.cascade with
            | Some casc ->
@@ -172,7 +172,7 @@ let stage_route ~sw ?clock ~api_strategy agent prep =
           Api.create_message_named_stream ~sw ~net:agent.net ?clock
             ~named_cascade:named ~config:agent.state
             ~messages:prep.effective_messages ?tools:prep.tools_json
-            ~on_event ()
+            ~metrics:named.metrics ~on_event ()
         | None ->
           let can_stream = match agent.options.provider with
             | Some p -> Provider_intf.supports_streaming p

@@ -6,10 +6,12 @@ type named_cascade = {
   name : string;
   defaults : string list;
   config_path : string option;
+  metrics : Llm_provider.Metrics.t;
 }
 
 val named_cascade :
-  ?config_path:string -> name:string -> defaults:string list ->
+  ?config_path:string -> ?metrics:Llm_provider.Metrics.t ->
+  name:string -> defaults:string list ->
   unit -> named_cascade
 
 (** {1 Re-exports from Api_common} *)
