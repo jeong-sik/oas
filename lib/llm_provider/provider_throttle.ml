@@ -29,9 +29,9 @@ let with_permit t f =
 
 let with_permit_timeout clock ~timeout_sec t f =
   Eio.Time.with_timeout_exn clock timeout_sec (fun () ->
-    Eio.Semaphore.acquire t.semaphore);
-  Fun.protect f
-    ~finally:(fun () -> Eio.Semaphore.release t.semaphore)
+    Eio.Semaphore.acquire t.semaphore;
+    Fun.protect f
+      ~finally:(fun () -> Eio.Semaphore.release t.semaphore))
 
 let available t =
   Eio.Semaphore.get_value t.semaphore

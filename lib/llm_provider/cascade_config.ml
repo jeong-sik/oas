@@ -221,7 +221,11 @@ let throttle_mu = Eio.Mutex.create ()
 let populate_throttle_table (statuses : Discovery.endpoint_status list) =
   Eio.Mutex.use_rw ~protect:true throttle_mu (fun () ->
     List.iter (fun (s : Discovery.endpoint_status) ->
-      if s.healthy && not (Hashtbl.mem throttle_table s.url) then
+      if not s.healthy then
+        (* Evict stale entry so next healthy probe reinstalls a fresh semaphore.
+           Prevents permanent zero-permit after endpoint restart with in-flight requests. *)
+        Hashtbl.remove throttle_table s.url
+      else if not (Hashtbl.mem throttle_table s.url) then
         let t = match Provider_throttle.of_discovery_status s with
           | Some t -> t
           | None -> Provider_throttle.default_for_kind Provider_config.OpenAI_compat
@@ -783,6 +787,24 @@ let%test "populate_throttle_table skips unhealthy endpoints" =
     } in
     populate_throttle_table [status];
     lookup_throttle "http://127.0.0.1:9997" = None)
+
+let%test "populate_throttle_table evicts stale entry on unhealthy" =
+  Eio_main.run (fun _env ->
+    Hashtbl.clear throttle_table;
+    (* first: healthy probe creates entry *)
+    let healthy : Discovery.endpoint_status = {
+      url = "http://127.0.0.1:9995"; healthy = true;
+      models = []; props = None;
+      slots = Some { total = 4; busy = 0; idle = 4 };
+      capabilities = Capabilities.default_capabilities;
+    } in
+    populate_throttle_table [healthy];
+    let has_entry = lookup_throttle "http://127.0.0.1:9995" <> None in
+    (* second: unhealthy probe evicts entry *)
+    let unhealthy = { healthy with healthy = false } in
+    populate_throttle_table [unhealthy];
+    let evicted = lookup_throttle "http://127.0.0.1:9995" = None in
+    has_entry && evicted)
 
 let%test "populate_throttle_table fallback when no slot data" =
   Eio_main.run (fun _env ->
