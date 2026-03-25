@@ -207,6 +207,32 @@ let parse_model_strings ?(temperature = 0.3) ?(max_tokens = 500)
     (parse_model_string ~temperature ~max_tokens ?system_prompt)
     strs
 
+(* ── Per-endpoint admission throttle ──────────────────── *)
+
+(** Shared throttle table: URL -> Provider_throttle.t.
+    All callers contending for the same local endpoint share one semaphore.
+    Populated lazily from Discovery slot data.
+
+    @since 0.91.0 *)
+let throttle_table : (string, Provider_throttle.t) Hashtbl.t =
+  Hashtbl.create 4
+let throttle_mu = Eio.Mutex.create ()
+
+let populate_throttle_table (statuses : Discovery.endpoint_status list) =
+  Eio.Mutex.use_rw ~protect:true throttle_mu (fun () ->
+    List.iter (fun (s : Discovery.endpoint_status) ->
+      if s.healthy && not (Hashtbl.mem throttle_table s.url) then
+        let t = match Provider_throttle.of_discovery_status s with
+          | Some t -> t
+          | None -> Provider_throttle.default_for_kind Provider_config.OpenAI_compat
+        in
+        Hashtbl.replace throttle_table s.url t
+    ) statuses)
+
+let lookup_throttle url =
+  Eio.Mutex.use_ro throttle_mu (fun () ->
+    Hashtbl.find_opt throttle_table url)
+
 (* ── JSON config loading with mtime hot-reload ─────────── *)
 
 let config_cache : (string, float * Yojson.Safe.t) Hashtbl.t =
@@ -330,7 +356,10 @@ let is_local_provider (cfg : Provider_config.t) =
 let has_required_api_key (cfg : Provider_config.t) =
   cfg.api_key <> "" || is_local_provider cfg
 
-let filter_healthy ~sw ~net (providers : Provider_config.t list) =
+(** Internal: filter healthy + return discovery statuses for throttle.
+    The statuses are used by {!populate_throttle_table} to create
+    per-endpoint semaphores without additional network calls. *)
+let filter_healthy_internal ~sw ~net (providers : Provider_config.t list) =
   (* Step 0: Remove cloud providers missing required API keys *)
   let providers =
     let with_keys = List.filter has_required_api_key providers in
@@ -345,11 +374,16 @@ let filter_healthy ~sw ~net (providers : Provider_config.t list) =
   in
   if local_providers = [] then
     (* No local providers, nothing to filter *)
-    providers
+    (providers, [])
   else if cloud_providers = [] then
-    (* Only local providers — pass through unchanged.
-       Let the provider return connection error rather than empty list. *)
-    providers
+    (* Only local providers — probe for throttle data but pass through *)
+    let endpoints =
+      local_providers
+      |> List.map (fun (cfg : Provider_config.t) -> cfg.base_url)
+      |> List.sort_uniq String.compare
+    in
+    let statuses = Discovery.discover ~sw ~net ~endpoints in
+    (providers, statuses)
   else
     (* Mixed: probe local health, remove unhealthy locals *)
     let endpoints =
@@ -362,9 +396,12 @@ let filter_healthy ~sw ~net (providers : Provider_config.t list) =
       List.exists (fun (s : Discovery.endpoint_status) -> s.healthy) statuses
     in
     if any_healthy then
-      providers  (* At least one local is healthy — keep all *)
+      (providers, statuses)  (* At least one local is healthy — keep all *)
     else
-      cloud_providers  (* All locals unhealthy — cloud only *)
+      (cloud_providers, [])  (* All locals unhealthy — cloud only *)
+
+let filter_healthy ~sw ~net providers =
+  fst (filter_healthy_internal ~sw ~net providers)
 
 (* ── Context window resolution ──────────────────────────── *)
 
@@ -431,13 +468,16 @@ let resolve_model_strings ?config_path ~name ~defaults () =
 (* ── Named cascade execution ───────────────────────────── *)
 
 (** Accept-aware cascade: try each provider, skip on failure or rejection.
-    When [throttle] is provided, each provider call acquires a permit first,
-    blocking if the backend has no available capacity. *)
+    When [throttle] is provided, it overrides auto-admission for all providers.
+    Otherwise, local providers automatically use the shared throttle table
+    populated by {!filter_healthy_internal}.
+
+    @since 0.91.0 auto-admission for local providers *)
 let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
     ?throttle ~accept (providers : Provider_config.t list)
     ~(messages : Types.message list) ~(tools : Yojson.Safe.t list) =
   let m = match metrics with Some m -> m | None -> Metrics.noop in
-  let try_one cfg =
+  let try_one (cfg : Provider_config.t) =
     let call () =
       match clock with
       | Some clock ->
@@ -447,7 +487,13 @@ let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
         Complete.complete ~sw ~net ~config:cfg
           ~messages ~tools ?cache ?metrics ()
     in
-    match throttle with
+    let effective_throttle = match throttle with
+      | Some _ -> throttle  (* explicit override takes precedence *)
+      | None ->
+        if is_local_provider cfg then lookup_throttle cfg.base_url
+        else None
+    in
+    match effective_throttle with
     | Some t -> Provider_throttle.with_permit t call
     | None -> call ()
   in
@@ -536,8 +582,11 @@ let complete_named ~sw ~net ?clock ?config_path
             name (String.concat "; " model_strings)
       })
   else
-    (* 3. Filter by local endpoint health *)
-    let healthy_providers = filter_healthy ~sw ~net providers in
+    (* 3. Filter by local endpoint health + populate throttle table *)
+    let healthy_providers, local_statuses =
+      filter_healthy_internal ~sw ~net providers
+    in
+    populate_throttle_table local_statuses;
     if healthy_providers = [] then
       Error (Http_client.NetworkError {
           message =
@@ -568,15 +617,28 @@ let complete_named ~sw ~net ?clock ?config_path
     No [accept] validator — once streaming starts, events are already
     emitted to [on_event] and the provider is committed.
 
-    @since 0.61.0 *)
+    The permit is held for the full stream duration since the llama-server
+    slot is occupied until streaming completes.
+
+    @since 0.61.0
+    @since 0.91.0 auto-admission for local providers *)
 let complete_cascade_stream ~sw ~net ?(metrics : Metrics.t option)
     (providers : Provider_config.t list)
     ~(messages : Types.message list) ~(tools : Yojson.Safe.t list)
     ~(on_event : Types.sse_event -> unit) =
   let m = match metrics with Some m -> m | None -> Metrics.noop in
-  let try_one cfg =
-    Complete.complete_stream ~sw ~net ~config:cfg
-      ~messages ~tools ~on_event ()
+  let try_one (cfg : Provider_config.t) =
+    let call () =
+      Complete.complete_stream ~sw ~net ~config:cfg
+        ~messages ~tools ~on_event ()
+    in
+    let throttle =
+      if is_local_provider cfg then lookup_throttle cfg.base_url
+      else None
+    in
+    match throttle with
+    | Some t -> Provider_throttle.with_permit t call
+    | None -> call ()
   in
   let rec try_next last_err = function
     | [] ->
@@ -649,7 +711,10 @@ let complete_named_stream ~sw ~net ?clock ?config_path
         "No callable models for streaming cascade '%s'. Tried: [%s]"
         name (String.concat "; " model_strings) })
   else
-    let healthy_providers = filter_healthy ~sw ~net providers in
+    let healthy_providers, local_statuses =
+      filter_healthy_internal ~sw ~net providers
+    in
+    populate_throttle_table local_statuses;
     if healthy_providers = [] then
       Error (Http_client.NetworkError {
         message = Printf.sprintf
@@ -670,6 +735,78 @@ let complete_named_stream ~sw ~net ?clock ?config_path
 
 [@@@coverage off]
 (* === Inline tests === *)
+
+(* ── Admission throttle table tests ──────────────────── *)
+
+let%test "populate_throttle_table creates entry from slots" =
+  Eio_main.run (fun _env ->
+    Hashtbl.clear throttle_table;
+    let status : Discovery.endpoint_status = {
+      url = "http://127.0.0.1:9999"; healthy = true;
+      models = []; props = None;
+      slots = Some { total = 4; busy = 0; idle = 4 };
+      capabilities = Capabilities.default_capabilities;
+    } in
+    populate_throttle_table [status];
+    match lookup_throttle "http://127.0.0.1:9999" with
+    | Some t -> Provider_throttle.available t = 4
+    | None -> false)
+
+let%test "populate_throttle_table reuses existing entry" =
+  Eio_main.run (fun _env ->
+    Hashtbl.clear throttle_table;
+    let status : Discovery.endpoint_status = {
+      url = "http://127.0.0.1:9998"; healthy = true;
+      models = []; props = None;
+      slots = Some { total = 4; busy = 0; idle = 4 };
+      capabilities = Capabilities.default_capabilities;
+    } in
+    populate_throttle_table [status];
+    let t1 = lookup_throttle "http://127.0.0.1:9998" in
+    (* second call with different slot count should not replace *)
+    let status2 = { status with
+      slots = Some { total = 8; busy = 0; idle = 8 } } in
+    populate_throttle_table [status2];
+    let t2 = lookup_throttle "http://127.0.0.1:9998" in
+    match t1, t2 with
+    | Some a, Some b -> Provider_throttle.available a = Provider_throttle.available b
+    | _ -> false)
+
+let%test "populate_throttle_table skips unhealthy endpoints" =
+  Eio_main.run (fun _env ->
+    Hashtbl.clear throttle_table;
+    let status : Discovery.endpoint_status = {
+      url = "http://127.0.0.1:9997"; healthy = false;
+      models = []; props = None;
+      slots = Some { total = 4; busy = 0; idle = 4 };
+      capabilities = Capabilities.default_capabilities;
+    } in
+    populate_throttle_table [status];
+    lookup_throttle "http://127.0.0.1:9997" = None)
+
+let%test "populate_throttle_table fallback when no slot data" =
+  Eio_main.run (fun _env ->
+    Hashtbl.clear throttle_table;
+    let status : Discovery.endpoint_status = {
+      url = "http://127.0.0.1:9996"; healthy = true;
+      models = []; props = None; slots = None;
+      capabilities = Capabilities.default_capabilities;
+    } in
+    populate_throttle_table [status];
+    match lookup_throttle "http://127.0.0.1:9996" with
+    | Some t -> Provider_throttle.available t = 4  (* default for OpenAI_compat *)
+    | None -> false)
+
+let%test "lookup_throttle returns None for unknown URL" =
+  Eio_main.run (fun _env ->
+    Hashtbl.clear throttle_table;
+    lookup_throttle "http://unknown:1234" = None)
+
+let%test "populate_throttle_table empty statuses is no-op" =
+  Eio_main.run (fun _env ->
+    Hashtbl.clear throttle_table;
+    populate_throttle_table [];
+    Hashtbl.length throttle_table = 0)
 
 (* has_api_key tests moved to test_provider_registry.ml — SSOT *)
 

@@ -27,6 +27,12 @@ let with_permit t f =
   Fun.protect f
     ~finally:(fun () -> Eio.Semaphore.release t.semaphore)
 
+let with_permit_timeout clock ~timeout_sec t f =
+  Eio.Time.with_timeout_exn clock timeout_sec (fun () ->
+    Eio.Semaphore.acquire t.semaphore);
+  Fun.protect f
+    ~finally:(fun () -> Eio.Semaphore.release t.semaphore)
+
 let available t =
   Eio.Semaphore.get_value t.semaphore
 
@@ -140,3 +146,18 @@ let%test "default_for_kind local" =
 let%test "default_for_kind anthropic" =
   let t = default_for_kind Provider_config.Anthropic in
   t.max_concurrent = 5
+
+let%test "with_permit_timeout returns result" =
+  Eio_main.run (fun env ->
+    let clock = Eio.Stdenv.clock env in
+    let t = create ~max_concurrent:2 ~provider_name:"test" in
+    let result = with_permit_timeout clock ~timeout_sec:5.0 t (fun () -> 99) in
+    result = 99)
+
+let%test "with_permit_timeout releases on exception" =
+  Eio_main.run (fun env ->
+    let clock = Eio.Stdenv.clock env in
+    let t = create ~max_concurrent:2 ~provider_name:"test" in
+    (try with_permit_timeout clock ~timeout_sec:5.0 t (fun () -> failwith "boom")
+     with Failure _ -> ());
+    available t = 2)

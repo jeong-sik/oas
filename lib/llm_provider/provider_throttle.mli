@@ -15,6 +15,11 @@ val with_permit : t -> (unit -> 'a) -> 'a
 (** Run [f] with a permit. Blocks if all permits are in use.
     Releases the permit when [f] returns or raises. *)
 
+val with_permit_timeout : _ Eio.Time.clock -> timeout_sec:float -> t -> (unit -> 'a) -> 'a
+(** Like {!with_permit} but with a timeout on acquire.
+    @raise Eio.Time.Timeout if permit is not acquired within [timeout_sec].
+    @since 0.91.0 *)
+
 val available : t -> int
 (** Number of permits currently available. *)
 
