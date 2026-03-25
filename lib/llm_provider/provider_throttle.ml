@@ -161,3 +161,15 @@ let%test "with_permit_timeout releases on exception" =
     (try with_permit_timeout clock ~timeout_sec:5.0 t (fun () -> failwith "boom")
      with Failure _ -> ());
     available t = 2)
+
+let%test "with_permit_timeout raises on timeout without leaking permit" =
+  Eio_main.run (fun env ->
+    let clock = Eio.Stdenv.clock env in
+    (* 1-permit semaphore, pre-acquire to force contention *)
+    let t = create ~max_concurrent:1 ~provider_name:"test" in
+    Eio.Semaphore.acquire t.semaphore;
+    let timed_out = ref false in
+    (try with_permit_timeout clock ~timeout_sec:0.05 t (fun () -> ())
+     with Eio.Time.Timeout -> timed_out := true);
+    Eio.Semaphore.release t.semaphore;
+    !timed_out && available t = 1)
