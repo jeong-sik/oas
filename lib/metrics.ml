@@ -10,53 +10,28 @@ type label_key = (string * string) list
 let label_key_of labels =
   List.sort (fun (a, _) (b, _) -> String.compare a b) labels
 
+module LabelMap = Map.Make(struct
+  type t = label_key
+  let compare = compare
+end)
+
 (* -- Counter ---------------------------------------------------------- *)
 
 type counter_data = {
   c_name: string;
   c_unit: string;
-  mutable c_values: (label_key * int) list;
+  c_values: int LabelMap.t;
 }
-
-type counter = counter_data
-
-let counter_find_or_init data labels =
-  let key = label_key_of labels in
-  match List.assoc_opt key data.c_values with
-  | Some _ -> ()
-  | None -> data.c_values <- (key, 0) :: data.c_values
-
-let incr (c : counter) ?(labels = []) n =
-  let key = label_key_of labels in
-  counter_find_or_init c labels;
-  c.c_values <- List.map (fun (k, v) ->
-    if k = key then (k, v + n) else (k, v)
-  ) c.c_values
-
-let counter_value (c : counter) ?(labels = []) () =
-  let key = label_key_of labels in
-  match List.assoc_opt key c.c_values with
-  | Some v -> v
-  | None -> 0
 
 (* -- Histogram -------------------------------------------------------- *)
 
 type histogram_data = {
   h_name: string;
   h_buckets: float list;
-  mutable h_observations: float list;
-  mutable h_sum: float;
-  mutable h_count: int;
+  h_observations: float list;
+  h_sum: float;
+  h_count: int;
 }
-
-type histogram = histogram_data
-
-let observe (h : histogram) value =
-  h.h_observations <- value :: h.h_observations;
-  h.h_sum <- h.h_sum +. value;
-  h.h_count <- h.h_count + 1
-
-let histogram_count (h : histogram) = h.h_count
 
 (* -- Metrics instance ------------------------------------------------- *)
 
@@ -65,6 +40,9 @@ type t = {
   mutable counters: counter_data list;
   mutable histograms: histogram_data list;
 }
+
+type counter = t * string
+type histogram = t * string
 
 let create () = {
   mu = Eio.Mutex.create ();
@@ -78,29 +56,65 @@ let with_lock t f =
 let counter t ~name ~unit_ =
   with_lock t (fun () ->
     match List.find_opt (fun c -> c.c_name = name) t.counters with
-    | Some c -> c
+    | Some _ -> (t, name)
     | None ->
-      let c = { c_name = name; c_unit = unit_; c_values = [] } in
+      let c = { c_name = name; c_unit = unit_; c_values = LabelMap.empty } in
       t.counters <- c :: t.counters;
-      c)
+      (t, name))
 
 let histogram t ~name ~buckets =
   with_lock t (fun () ->
     match List.find_opt (fun h -> h.h_name = name) t.histograms with
-    | Some h -> h
+    | Some _ -> (t, name)
     | None ->
       let h = { h_name = name; h_buckets = buckets;
                 h_observations = []; h_sum = 0.0; h_count = 0 } in
       t.histograms <- h :: t.histograms;
-      h)
+      (t, name))
+
+let incr (t, name) ?(labels = []) n =
+  let key = label_key_of labels in
+  with_lock t (fun () ->
+    t.counters <- List.map (fun c ->
+      if c.c_name = name then
+        let current = match LabelMap.find_opt key c.c_values with Some v -> v | None -> 0 in
+        { c with c_values = LabelMap.add key (current + n) c.c_values }
+      else c
+    ) t.counters
+  )
+
+let counter_value (t, name) ?(labels = []) () =
+  let key = label_key_of labels in
+  with_lock t (fun () ->
+    match List.find_opt (fun c -> c.c_name = name) t.counters with
+    | Some c -> (match LabelMap.find_opt key c.c_values with Some v -> v | None -> 0)
+    | None -> 0
+  )
+
+let observe (t, name) value =
+  with_lock t (fun () ->
+    t.histograms <- List.map (fun h ->
+      if h.h_name = name then
+        { h with
+          h_observations = value :: h.h_observations;
+          h_sum = h.h_sum +. value;
+          h_count = h.h_count + 1 }
+      else h
+    ) t.histograms
+  )
+
+let histogram_count (t, name) =
+  with_lock t (fun () ->
+    match List.find_opt (fun h -> h.h_name = name) t.histograms with
+    | Some h -> h.h_count
+    | None -> 0
+  )
 
 let reset t =
   with_lock t (fun () ->
-    List.iter (fun c -> c.c_values <- []) t.counters;
-    List.iter (fun h ->
-      h.h_observations <- [];
-      h.h_sum <- 0.0;
-      h.h_count <- 0
+    t.counters <- List.map (fun c -> { c with c_values = LabelMap.empty }) t.counters;
+    t.histograms <- List.map (fun h ->
+      { h with h_observations = []; h_sum = 0.0; h_count = 0 }
     ) t.histograms)
 
 (* -- OTLP JSON export ------------------------------------------------ *)
@@ -114,12 +128,12 @@ let labels_to_json labels : Yojson.Safe.t =
   ) labels)
 
 let counter_to_json (c : counter_data) : Yojson.Safe.t =
-  let data_points = List.map (fun (labels, value) ->
+  let data_points = LabelMap.fold (fun labels value acc ->
     `Assoc [
       ("attributes", labels_to_json labels);
       ("asInt", `String (string_of_int value));
-    ]
-  ) c.c_values in
+    ] :: acc
+  ) c.c_values [] in
   `Assoc [
     ("name", `String c.c_name);
     ("unit", `String c.c_unit);
@@ -149,28 +163,32 @@ let histogram_to_json (h : histogram_data) : Yojson.Safe.t =
           ("bucketCounts", `List (List.map (fun n -> `String (string_of_int n)) bc));
           ("explicitBounds", `List (List.map (fun b -> `Float b) h.h_buckets));
         ]
-      ]);
-    ]);
+      ])
+    ])
   ]
 
 let to_otlp_json t =
   with_lock t (fun () ->
-    let metrics =
-      List.rev_map counter_to_json t.counters
-      @ List.rev_map histogram_to_json t.histograms
-    in
+    let scope_metrics = `Assoc [
+      ("scope", `Assoc [("name", `String "agent_sdk.metrics")]);
+      ("metrics", `List (
+        List.map counter_to_json t.counters @
+        List.map histogram_to_json t.histograms
+      ))
+    ] in
     `Assoc [
       ("resourceMetrics", `List [
         `Assoc [
-          ("scopeMetrics", `List [
-            `Assoc [
-              ("scope", `Assoc [
-                ("name", `String "agent_sdk.metrics");
-                ("version", `String Sdk_version.version);
-              ]);
-              ("metrics", `List metrics);
-            ]
-          ])
+          ("resource", `Assoc [
+            ("attributes", `List [
+              `Assoc [
+                ("key", `String "service.name");
+                ("value", `Assoc [("stringValue", `String "agent_sdk")])
+              ]
+            ])
+          ]);
+          ("scopeMetrics", `List [scope_metrics])
         ]
       ])
-    ])
+    ]
+  )
