@@ -31,7 +31,10 @@ type aggregate_strategy =
   | Custom_agg of (float list -> float)
 
 type metric_source =
-  | Shell_command of string
+  (** Execute a metric command directly without shell expansion.
+      Migration from the old shell form:
+      [Shell_command "cmd --flag value"] -> [Argv_command ["cmd"; "--flag"; "value"]]. *)
+  | Argv_command of string list
   | Callback of (unit -> float)
 
 type convergence_config = {
