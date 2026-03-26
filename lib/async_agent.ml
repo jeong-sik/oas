@@ -105,7 +105,7 @@ let race ~sw ?clock agents =
         agents
     in
     let rec any_of = function
-      | [] -> assert false
+      | [] -> invalid_arg "any_of: empty list"
       | [f] -> f ()
       | f :: rest -> Eio.Fiber.first f (fun () -> any_of rest)
     in

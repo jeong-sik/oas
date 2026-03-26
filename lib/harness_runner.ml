@@ -30,7 +30,7 @@ let final_response_of_trajectory (trajectory : Trajectory.trajectory) =
   |> List.find_opt (function Trajectory.Respond _ -> true | _ -> false)
   |> Option.map (function
        | Trajectory.Respond { content; _ } -> content
-       | _ -> assert false)
+       | _ -> "")
   |> Option.value ~default:""
 
 let result_usage = function

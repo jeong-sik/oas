@@ -76,7 +76,7 @@ let complete_http ~sw ~net ~(config : Provider_config.t)
         Backend_gemini.build_request ~config ~messages ~tools ()
     | Provider_config.Glm ->
         Backend_glm.build_request ~config ~messages ~tools ()
-    | Provider_config.Claude_code -> assert false (* guarded above *)
+    | Provider_config.Claude_code -> "" (* guarded above *)
   in
   let url = match config.kind with
     | Provider_config.Gemini -> gemini_url ~config ~stream:false
@@ -103,7 +103,7 @@ let complete_http ~sw ~net ~(config : Provider_config.t)
                     (Yojson.Safe.from_string body))
           | Provider_config.Glm ->
               Ok (Backend_glm.parse_response body)
-          | Provider_config.Claude_code -> assert false
+          | Provider_config.Claude_code -> Error (Http_client.NetworkError { message = "Unreachable code" })
         else
           Error (Http_client.HttpError { code; body })
   in
@@ -285,7 +285,7 @@ let complete_stream_http ~sw ~net ~(config : Provider_config.t)
         Backend_gemini.build_request ~stream:true ~config ~messages ~tools ()
     | Provider_config.Glm ->
         Backend_glm.build_request ~stream:true ~config ~messages ~tools ()
-    | Provider_config.Claude_code -> assert false
+    | Provider_config.Claude_code -> ""
   in
   let url = match config.kind with
     | Provider_config.Gemini -> gemini_url ~config ~stream:true
