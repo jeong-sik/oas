@@ -103,27 +103,34 @@ let test_eval_metric_callback_exception () =
   | Ok _ -> fail "expected error"
   | Error e -> check bool "has message" true (String.length e > 0)
 
-let test_eval_metric_shell_success () =
+let test_eval_metric_argv_success () =
   Eio_main.run @@ fun env ->
   let mgr = Eio.Stdenv.process_mgr env in
-  let metric = Shell_command "echo 1.23" in
+  let metric = Argv_command ["/usr/bin/printf"; "1.23\n"] in
   match Runner.eval_metric ~mgr metric with
-  | Ok v -> check_float "shell" 1.23 v
+  | Ok v -> check_float "argv" 1.23 v
   | Error e -> fail e
 
-let test_eval_metric_shell_non_float () =
+let test_eval_metric_argv_non_float () =
   Eio_main.run @@ fun env ->
   let mgr = Eio.Stdenv.process_mgr env in
-  let metric = Shell_command "echo hello" in
+  let metric = Argv_command ["/usr/bin/printf"; "hello\n"] in
   match Runner.eval_metric ~mgr metric with
   | Ok _ -> fail "expected error"
   | Error _ -> ()
 
-let test_eval_metric_shell_failure () =
+let test_eval_metric_argv_failure () =
   Eio_main.run @@ fun env ->
   let mgr = Eio.Stdenv.process_mgr env in
-  let metric = Shell_command "false" in
+  let metric = Argv_command ["/usr/bin/false"] in
   match Runner.eval_metric ~mgr metric with
+  | Ok _ -> fail "expected error"
+  | Error _ -> ()
+
+let test_eval_metric_argv_empty () =
+  Eio_main.run @@ fun env ->
+  let mgr = Eio.Stdenv.process_mgr env in
+  match Runner.eval_metric ~mgr (Argv_command []) with
   | Ok _ -> fail "expected error"
   | Error _ -> ()
 
@@ -415,9 +422,10 @@ let () =
     "eval_metric", [
       test_case "callback value" `Quick test_eval_metric_callback_value;
       test_case "callback exception" `Quick test_eval_metric_callback_exception;
-      test_case "shell success" `Quick test_eval_metric_shell_success;
-      test_case "shell non-float" `Quick test_eval_metric_shell_non_float;
-      test_case "shell failure" `Quick test_eval_metric_shell_failure;
+      test_case "argv success" `Quick test_eval_metric_argv_success;
+      test_case "argv non-float" `Quick test_eval_metric_argv_non_float;
+      test_case "argv failure" `Quick test_eval_metric_argv_failure;
+      test_case "argv empty" `Quick test_eval_metric_argv_empty;
     ];
     "single_pass", [
       test_case "decentralized" `Quick test_single_pass_decentralized;

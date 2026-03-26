@@ -14,17 +14,30 @@ fi
 
 # Extract versions from canonical sources
 DUNE_VER=$(grep '(version' dune-project | head -1 | sed 's/.*version \(.*\))/\1/')
-SDK_VER=$(grep 'let version' lib/agent_sdk.ml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+SDK_VER=$(sed -n 's/^let version = "\(.*\)"$/\1/p' lib/sdk_version.ml | head -1)
+OPAM_VER=$(sed -n 's/^version: "\(.*\)"$/\1/p' agent_sdk.opam | head -1)
 LATEST_TAG=$(git tag -l 'v*' --sort=-v:refname | head -1)
 
 echo "dune-project version: $DUNE_VER"
-echo "agent_sdk.ml version: $SDK_VER"
+echo "sdk_version.ml version: $SDK_VER"
+echo "agent_sdk.opam version: $OPAM_VER"
 echo "Latest git tag:       $LATEST_TAG"
 echo ""
 
-# Check 1: dune-project == agent_sdk.ml
+# Check 0: version extraction succeeded
+if [[ -z "$DUNE_VER" || -z "$SDK_VER" || -z "$OPAM_VER" ]]; then
+  echo "ERROR: Failed to extract one or more version strings."
+  exit 1
+fi
+
+# Check 1: dune-project == sdk_version.ml == agent_sdk.opam
 if [[ "$DUNE_VER" != "$SDK_VER" ]]; then
-  echo "ERROR: dune-project ($DUNE_VER) != agent_sdk.ml ($SDK_VER)"
+  echo "ERROR: dune-project ($DUNE_VER) != sdk_version.ml ($SDK_VER)"
+  exit 1
+fi
+
+if [[ "$DUNE_VER" != "$OPAM_VER" ]]; then
+  echo "ERROR: dune-project ($DUNE_VER) != agent_sdk.opam ($OPAM_VER)"
   exit 1
 fi
 

@@ -2,6 +2,27 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.92.0] - 2026-03-26
+
+### Changed
+- `Swarm_types.metric_source` now uses `Argv_command of string list` for process metrics, and `Runner.eval_metric` executes argv directly via `Eio.Process.parse_out`.
+
+### Fixed
+- `scripts/release.sh` now validates version consistency against `lib/sdk_version.ml` and `agent_sdk.opam`, matching the current version single-source-of-truth layout.
+
+## [0.91.2] - 2026-03-26
+
+### Fixed
+- Guard `Fiber.fork` bodies against exception leaks in resilience paths.
+- Widen `cohttp-eio` 6.2 connect return typing and sync version metadata.
+- Isolate outbound HTTP connections with per-request `Switch.run`.
+- Replace `Unix.sleepf` with `Eio.Time.sleep` in tests.
+- Replace blocking swarm metric process handling with `Eio.Process`.
+
+### Changed
+- Eliminate `assert false` and `failwith` from strict error handling paths.
+- Remove mutable state and `ref` usage from trajectory and metrics.
+
 ## [0.91.1] - 2026-03-26
 
 ### Fixed

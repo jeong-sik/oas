@@ -12,17 +12,27 @@ open Swarm_types
 
 (* ── Metric evaluation ──────────────────────────────────────────── *)
 
+let command_to_string argv =
+  String.concat " " (List.map Filename.quote argv)
+
 let eval_metric ~mgr = function
-  | Shell_command cmd ->
+  | Argv_command [] ->
+    Error "metric command failed: empty argv"
+  | Argv_command argv ->
     (try
-       let output = Eio.Process.parse_out mgr Eio.Buf_read.take_all ["bash"; "-c"; cmd] in
+       let output = Eio.Process.parse_out mgr Eio.Buf_read.take_all argv in
        let trimmed = String.trim output in
        (match float_of_string_opt trimmed with
         | Some v -> Ok v
-        | None -> Error (Printf.sprintf "metric command output not a float: %S" trimmed))
+        | None ->
+          Error
+            (Printf.sprintf "metric command output not a float (%s): %S"
+               (command_to_string argv) trimmed))
      with
      | exn ->
-       Error (Printf.sprintf "metric command failed: %s" (Printexc.to_string exn)))
+       Error
+         (Printf.sprintf "metric command failed (%s): %s"
+            (command_to_string argv) (Printexc.to_string exn)))
   | Callback f ->
     (try Ok (f ())
      with exn -> Error (Printf.sprintf "metric callback raised: %s" (Printexc.to_string exn)))

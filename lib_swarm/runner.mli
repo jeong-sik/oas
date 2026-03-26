@@ -38,8 +38,9 @@ val run :
 
 (** {1 Metric utilities} *)
 
-(** Evaluate a metric source. [Shell_command] runs a shell command and
-    parses stdout as float. [Callback] invokes the function directly. *)
+(** Evaluate a metric source. [Argv_command] runs a process without shell
+    expansion and parses stdout as float. [Callback] invokes the function
+    directly. *)
 val eval_metric : mgr:_ Eio.Process.mgr -> Swarm_types.metric_source -> (float, string) result
 
 (** Aggregate a list of scores using the given strategy. *)
