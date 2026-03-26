@@ -11,12 +11,13 @@ let () = Printexc.record_backtrace true
 
 let tc name f = Alcotest.test_case name `Quick f
 
-let write_temp_file content =
+let with_temp_file content f =
   let path = Filename.temp_file "cascade_test_" ".json" in
   let oc = open_out path in
   output_string oc content;
   close_out oc;
-  path
+  Fun.protect ~finally:(fun () -> try Sys.remove path with _ -> ())
+    (fun () -> f path)
 
 (* ── parse_model_string ──────────────────────────────────────── *)
 
@@ -165,54 +166,43 @@ let test_load_json_nonexistent () =
 
 let test_load_json_invalid_json () =
   Eio_main.run @@ fun _env ->
-  let path = write_temp_file "not valid json {{{" in
-  let r = Cascade_config.load_profile ~config_path:path ~name:"test" in
-  Alcotest.(check int) "invalid json -> empty" 0 (List.length r);
-  Sys.remove path
+  with_temp_file "not valid json {{{" (fun path ->
+    let r = Cascade_config.load_profile ~config_path:path ~name:"test" in
+    Alcotest.(check int) "invalid json -> empty" 0 (List.length r))
 
 let test_load_profile_valid () =
   Eio_main.run @@ fun _env ->
-  let json = {|{"myprofile_models": ["llama:qwen", "custom:x@http://a.b"]}|} in
-  let path = write_temp_file json in
-  let r = Cascade_config.load_profile ~config_path:path ~name:"myprofile" in
-  Alcotest.(check int) "2 models" 2 (List.length r);
-  Alcotest.(check string) "first" "llama:qwen" (List.nth r 0);
-  Alcotest.(check string) "second" "custom:x@http://a.b" (List.nth r 1);
-  Sys.remove path
+  with_temp_file {|{"myprofile_models": ["llama:qwen", "custom:x@http://a.b"]}|} (fun path ->
+    let r = Cascade_config.load_profile ~config_path:path ~name:"myprofile" in
+    Alcotest.(check int) "2 models" 2 (List.length r);
+    Alcotest.(check string) "first" "llama:qwen" (List.nth r 0);
+    Alcotest.(check string) "second" "custom:x@http://a.b" (List.nth r 1))
 
 let test_load_profile_missing_key () =
   Eio_main.run @@ fun _env ->
-  let json = {|{"other_models": ["llama:qwen"]}|} in
-  let path = write_temp_file json in
-  let r = Cascade_config.load_profile ~config_path:path ~name:"myprofile" in
-  Alcotest.(check int) "missing key -> empty" 0 (List.length r);
-  Sys.remove path
+  with_temp_file {|{"other_models": ["llama:qwen"]}|} (fun path ->
+    let r = Cascade_config.load_profile ~config_path:path ~name:"myprofile" in
+    Alcotest.(check int) "missing key -> empty" 0 (List.length r))
 
 let test_load_profile_non_string_items () =
   Eio_main.run @@ fun _env ->
-  let json = {|{"test_models": ["llama:a", 42, "llama:b", null]}|} in
-  let path = write_temp_file json in
-  let r = Cascade_config.load_profile ~config_path:path ~name:"test" in
-  Alcotest.(check int) "filters non-strings" 2 (List.length r);
-  Sys.remove path
+  with_temp_file {|{"test_models": ["llama:a", 42, "llama:b", null]}|} (fun path ->
+    let r = Cascade_config.load_profile ~config_path:path ~name:"test" in
+    Alcotest.(check int) "filters non-strings" 2 (List.length r))
 
 let test_load_profile_not_a_list () =
   Eio_main.run @@ fun _env ->
-  let json = {|{"test_models": "not-a-list"}|} in
-  let path = write_temp_file json in
-  let r = Cascade_config.load_profile ~config_path:path ~name:"test" in
-  Alcotest.(check int) "not a list -> empty" 0 (List.length r);
-  Sys.remove path
+  with_temp_file {|{"test_models": "not-a-list"}|} (fun path ->
+    let r = Cascade_config.load_profile ~config_path:path ~name:"test" in
+    Alcotest.(check int) "not a list -> empty" 0 (List.length r))
 
 let test_load_json_caching () =
   Eio_main.run @@ fun _env ->
-  let json = {|{"cache_models": ["llama:m1"]}|} in
-  let path = write_temp_file json in
-  let r1 = Cascade_config.load_profile ~config_path:path ~name:"cache" in
-  let r2 = Cascade_config.load_profile ~config_path:path ~name:"cache" in
-  Alcotest.(check int) "first load" 1 (List.length r1);
-  Alcotest.(check int) "cached load" 1 (List.length r2);
-  Sys.remove path
+  with_temp_file {|{"cache_models": ["llama:m1"]}|} (fun path ->
+    let r1 = Cascade_config.load_profile ~config_path:path ~name:"cache" in
+    let r2 = Cascade_config.load_profile ~config_path:path ~name:"cache" in
+    Alcotest.(check int) "first load" 1 (List.length r1);
+    Alcotest.(check int) "cached load" 1 (List.length r2))
 
 (* ── text_of_response ─────────────────────────────────────────── *)
 
