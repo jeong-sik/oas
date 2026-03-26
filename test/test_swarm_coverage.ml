@@ -88,32 +88,42 @@ let test_aggregate_custom_min () =
 (* ── eval_metric extended ─────────────────────────────────── *)
 
 let test_eval_metric_callback_value () =
+  Eio_main.run @@ fun env ->
+  let mgr = Eio.Stdenv.process_mgr env in
   let metric = Callback (fun () -> 0.75) in
-  match Runner.eval_metric metric with
+  match Runner.eval_metric ~mgr metric with
   | Ok v -> check_float "callback metric" 0.75 v
   | Error e -> fail (Printf.sprintf "unexpected error: %s" e)
 
 let test_eval_metric_callback_exception () =
+  Eio_main.run @@ fun env ->
+  let mgr = Eio.Stdenv.process_mgr env in
   let metric = Callback (fun () -> raise (Invalid_argument "bad")) in
-  match Runner.eval_metric metric with
+  match Runner.eval_metric ~mgr metric with
   | Ok _ -> fail "expected error"
   | Error e -> check bool "has message" true (String.length e > 0)
 
 let test_eval_metric_shell_success () =
+  Eio_main.run @@ fun env ->
+  let mgr = Eio.Stdenv.process_mgr env in
   let metric = Shell_command "echo 1.23" in
-  match Runner.eval_metric metric with
+  match Runner.eval_metric ~mgr metric with
   | Ok v -> check_float "shell" 1.23 v
   | Error e -> fail e
 
 let test_eval_metric_shell_non_float () =
+  Eio_main.run @@ fun env ->
+  let mgr = Eio.Stdenv.process_mgr env in
   let metric = Shell_command "echo hello" in
-  match Runner.eval_metric metric with
+  match Runner.eval_metric ~mgr metric with
   | Ok _ -> fail "expected error"
   | Error _ -> ()
 
 let test_eval_metric_shell_failure () =
+  Eio_main.run @@ fun env ->
+  let mgr = Eio.Stdenv.process_mgr env in
   let metric = Shell_command "false" in
-  match Runner.eval_metric metric with
+  match Runner.eval_metric ~mgr metric with
   | Ok _ -> fail "expected error"
   | Error _ -> ()
 
@@ -137,7 +147,7 @@ let test_single_pass_decentralized () =
     enable_streaming = false;
   } in
   Eio.Switch.run @@ fun sw ->
-  match Runner.run ~sw ~clock config with
+  match Runner.run ~sw ~env config with
   | Ok result ->
     check int "one iteration" 1 (List.length result.iterations);
     check bool "not converged" false result.converged;
@@ -165,7 +175,7 @@ let test_single_pass_pipeline () =
     enable_streaming = false;
   } in
   Eio.Switch.run @@ fun sw ->
-  match Runner.run ~sw ~clock config with
+  match Runner.run ~sw ~env config with
   | Ok result ->
     check int "one iteration" 1 (List.length result.iterations)
   | Error e -> fail (Error.to_string e)
@@ -190,7 +200,7 @@ let test_single_pass_supervisor () =
     enable_streaming = false;
   } in
   Eio.Switch.run @@ fun sw ->
-  match Runner.run ~sw ~clock config with
+  match Runner.run ~sw ~env config with
   | Ok result ->
     check int "one iteration" 1 (List.length result.iterations);
     let iter = List.hd result.iterations in
@@ -218,7 +228,7 @@ let test_single_pass_with_error () =
     enable_streaming = false;
   } in
   Eio.Switch.run @@ fun sw ->
-  match Runner.run ~sw ~clock config with
+  match Runner.run ~sw ~env config with
   | Ok result ->
     let iter = List.hd result.iterations in
     check int "two results" 2 (List.length iter.agent_results)
@@ -249,7 +259,7 @@ let test_convergence_immediate () =
     enable_streaming = false;
   } in
   Eio.Switch.run @@ fun sw ->
-  match Runner.run ~sw ~clock config with
+  match Runner.run ~sw ~env config with
   | Ok result ->
     check bool "converged" true result.converged;
     check int "one iteration" 1 (List.length result.iterations)
@@ -279,7 +289,7 @@ let test_timeout () =
     enable_streaming = false;
   } in
   Eio.Switch.run @@ fun sw ->
-  match Runner.run ~sw ~clock config with
+  match Runner.run ~sw ~env config with
   | Error (Error.Orchestration (Error.TaskTimeout _)) -> ()
   | Error _ -> ()  (* Any error is acceptable *)
   | Ok _ -> fail "expected timeout"
@@ -313,7 +323,7 @@ let test_callbacks_fire () =
     enable_streaming = false;
   } in
   Eio.Switch.run @@ fun sw ->
-  (match Runner.run ~sw ~clock ~callbacks config with
+  (match Runner.run ~sw ~env ~callbacks config with
    | Ok _ ->
      check int "started count" 1 (List.length !started);
      check int "done count" 1 (List.length !done_list)
@@ -339,7 +349,7 @@ let test_resource_check_fail () =
     enable_streaming = false;
   } in
   Eio.Switch.run @@ fun sw ->
-  match Runner.run ~sw ~clock config with
+  match Runner.run ~sw ~env config with
   | Ok result ->
     let iter = List.hd result.iterations in
     let (_name, status) = List.hd iter.agent_results in
@@ -381,7 +391,7 @@ let test_max_concurrent_agents () =
     enable_streaming = false;
   } in
   Eio.Switch.run @@ fun sw ->
-  match Runner.run ~sw ~clock config with
+  match Runner.run ~sw ~env config with
   | Ok result ->
     let iter = List.hd result.iterations in
     check int "four results" 4 (List.length iter.agent_results)

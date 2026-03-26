@@ -162,7 +162,7 @@ Output as a numbered list with severity tags.|}
       Printf.eprintf "[swarm] agent %s finished (%s)\n%!" name tag);
   } in
 
-  match Runner.run ~sw ~clock ~callbacks config with
+  match Runner.run ~sw ~env ~callbacks config with
   | Ok result ->
     Printf.eprintf "[swarm] completed in %.1fs (%d iteration(s), converged=%b)\n%!"
       result.total_elapsed (List.length result.iterations) result.converged;

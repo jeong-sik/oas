@@ -65,10 +65,12 @@ let make_traced_entries ~clock ~trace_dir ~workers base_builder =
 
 (* ── Main entry point ─────────────────────────────────────── *)
 
-let run_traced ~sw ~clock ~workers ~base_builder
+let run_traced ~sw ~env ~workers ~base_builder
     ?(mode = Swarm_types.Decentralized)
     ?(callbacks = Swarm_types.no_callbacks)
     ?trace_dir ~prompt () =
+  let clock = Eio.Stdenv.clock env in
+  let _ = clock in
   let trace_dir =
     match trace_dir with
     | Some d -> d
@@ -90,6 +92,6 @@ let run_traced ~sw ~clock ~workers ~base_builder
       enable_streaming = false;
     }
   in
-  let* swarm_result = Runner.run ~sw ~clock ~callbacks config in
+  let* swarm_result = Runner.run ~sw ~env ~callbacks config in
   let* summaries = collect_summaries ~trace_dir in
   Ok { swarm_result; summaries; trace_dir }

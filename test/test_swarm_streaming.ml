@@ -132,7 +132,7 @@ let test_channel_mailbox_idempotent () =
 
 let test_streaming_supervisor () =
   Eio_main.run @@ fun env ->
-  let clock = Eio.Stdenv.clock env in
+
   let supervisor_saw_workers = ref false in
   let supervisor_run ~sw:_ prompt =
     if String.length prompt > 50 then
@@ -160,7 +160,7 @@ let test_streaming_supervisor () =
     enable_streaming = true;
   } in
   Eio.Switch.run @@ fun sw ->
-  match Runner.run ~sw ~clock config with
+  match Runner.run ~sw ~env config with
   | Ok result ->
     let iter = List.hd result.iterations in
     check int "3 results (2 workers + 1 supervisor)" 3
@@ -172,7 +172,7 @@ let test_streaming_supervisor () =
 
 let test_streaming_pipeline () =
   Eio_main.run @@ fun env ->
-  let clock = Eio.Stdenv.clock env in
+
   let received_prompts = ref [] in
   let pipeline_run name ~sw:_ prompt =
     received_prompts := (name, String.length prompt) :: !received_prompts;
@@ -196,7 +196,7 @@ let test_streaming_pipeline () =
     enable_streaming = true;
   } in
   Eio.Switch.run @@ fun sw ->
-  match Runner.run ~sw ~clock config with
+  match Runner.run ~sw ~env config with
   | Ok result ->
     let iter = List.hd result.iterations in
     check int "3 results" 3 (List.length iter.agent_results);
@@ -214,7 +214,7 @@ let test_streaming_pipeline () =
 
 let test_streaming_decentralized () =
   Eio_main.run @@ fun env ->
-  let clock = Eio.Stdenv.clock env in
+
   let config : swarm_config = {
     entries = [
       { name = "a1"; run = mock_run "hello"; role = Discover;
@@ -232,7 +232,7 @@ let test_streaming_decentralized () =
     enable_streaming = true;
   } in
   Eio.Switch.run @@ fun sw ->
-  match Runner.run ~sw ~clock config with
+  match Runner.run ~sw ~env config with
   | Ok result ->
     check int "1 iteration" 1 (List.length result.iterations);
     let iter = List.hd result.iterations in
@@ -249,7 +249,7 @@ let test_streaming_decentralized () =
 
 let test_streaming_partial_failure () =
   Eio_main.run @@ fun env ->
-  let clock = Eio.Stdenv.clock env in
+
   let config : swarm_config = {
     entries = [
       { name = "ok-1"; run = mock_run "fine"; role = Execute;
@@ -269,7 +269,7 @@ let test_streaming_partial_failure () =
     enable_streaming = true;
   } in
   Eio.Switch.run @@ fun sw ->
-  match Runner.run ~sw ~clock config with
+  match Runner.run ~sw ~env config with
   | Ok result ->
     let iter = List.hd result.iterations in
     check int "3 results" 3 (List.length iter.agent_results);
@@ -287,7 +287,7 @@ let test_streaming_partial_failure () =
 
 let test_streaming_disabled_unchanged () =
   Eio_main.run @@ fun env ->
-  let clock = Eio.Stdenv.clock env in
+
   let config : swarm_config = {
     entries = [
       { name = "a1"; run = mock_run "hello"; role = Discover;
@@ -303,7 +303,7 @@ let test_streaming_disabled_unchanged () =
     enable_streaming = false;
   } in
   Eio.Switch.run @@ fun sw ->
-  match Runner.run ~sw ~clock config with
+  match Runner.run ~sw ~env config with
   | Ok result ->
     check int "1 iteration" 1 (List.length result.iterations);
     let iter = List.hd result.iterations in
@@ -314,7 +314,7 @@ let test_streaming_disabled_unchanged () =
 
 let test_streaming_usage () =
   Eio_main.run @@ fun env ->
-  let clock = Eio.Stdenv.clock env in
+
   let config : swarm_config = {
     entries = [
       { name = "a1"; run = mock_run "hello"; role = Discover;
@@ -332,7 +332,7 @@ let test_streaming_usage () =
     enable_streaming = true;
   } in
   Eio.Switch.run @@ fun sw ->
-  match Runner.run ~sw ~clock config with
+  match Runner.run ~sw ~env config with
   | Ok result ->
     (* mock_run returns usage with input_tokens=10, output_tokens=5 each *)
     check int "api_calls" 2 result.total_usage.api_calls;
