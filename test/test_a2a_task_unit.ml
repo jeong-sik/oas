@@ -422,9 +422,11 @@ let test_store_get_nonexistent () =
     (A2a_task.get_task store "nonexistent" = None)
 
 let test_store_list () =
+  Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
   let store = A2a_task.create_store () in
   A2a_task.store_task store (A2a_task.create (mk_msg ()));
-  Unix.sleepf 0.002;  (* ensure different task IDs *)
+  Eio.Time.sleep clock 0.002;  (* ensure different task IDs *)
   A2a_task.store_task store (A2a_task.create (mk_msg ()));
   let tasks = A2a_task.list_tasks store in
   Alcotest.(check int) "2 tasks" 2 (List.length tasks)
@@ -443,6 +445,8 @@ let test_store_update () =
       (A2a_task.task_state_to_string t.state)
 
 let test_store_eviction () =
+  Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
   let store = A2a_task.create_store ~max_tasks:5 () in
   (* Fill with terminal tasks *)
   for _ = 1 to 5 do
@@ -452,7 +456,7 @@ let test_store_eviction () =
     let task = match A2a_task.transition task A2a_task.Completed with
       | Ok t -> t | Error _ -> Alcotest.fail "to completed" in
     A2a_task.store_task store task;
-    Unix.sleepf 0.001
+    Eio.Time.sleep clock 0.001
   done;
   (* Adding one more should trigger eviction *)
   let new_task = A2a_task.create (mk_msg ()) in
@@ -462,15 +466,17 @@ let test_store_eviction () =
   Alcotest.(check bool) "eviction happened" true (List.length tasks <= 5)
 
 let test_store_eviction_no_terminal () =
+  Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
   let store = A2a_task.create_store ~max_tasks:3 () in
   (* Fill with non-terminal tasks *)
   for _ = 1 to 3 do
     let task = A2a_task.create (mk_msg ()) in
     A2a_task.store_task store task;
-    Unix.sleepf 0.002
+    Eio.Time.sleep clock 0.002
   done;
   (* Adding one more: eviction runs but cannot evict non-terminal *)
-  Unix.sleepf 0.002;
+  Eio.Time.sleep clock 0.002;
   let new_task = A2a_task.create (mk_msg ()) in
   A2a_task.store_task store new_task;
   let tasks = A2a_task.list_tasks store in

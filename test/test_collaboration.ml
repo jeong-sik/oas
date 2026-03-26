@@ -335,16 +335,20 @@ let () =
         check int "still empty" 0 (List.length c.participants));
 
       test_case "touch updates timestamp" `Quick (fun () ->
+        Eio_main.run @@ fun env ->
+        let clock = Eio.Stdenv.clock env in
         let c = Collaboration.create ~goal:"test" () in
         let before = c.updated_at in
-        Unix.sleepf 0.01;
+        Eio.Time.sleep clock 0.01;
         let c = Collaboration.touch c in
         check bool "updated" true (c.updated_at > before));
 
       test_case "operations update timestamp" `Quick (fun () ->
+        Eio_main.run @@ fun env ->
+        let clock = Eio.Stdenv.clock env in
         let c = Collaboration.create ~goal:"test" () in
         let before = c.updated_at in
-        Unix.sleepf 0.01;
+        Eio.Time.sleep clock 0.01;
         let c = Collaboration.set_phase c Active in
         check bool "phase update touched" true (c.updated_at > before));
     ];

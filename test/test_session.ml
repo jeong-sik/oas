@@ -35,9 +35,11 @@ let () =
         check int "turn_count" 2 s.turn_count);
 
       test_case "touch updates last_active_at" `Quick (fun () ->
+        Eio_main.run @@ fun env ->
+        let clock = Eio.Stdenv.clock env in
         let s = Session.create () in
         let before = s.last_active_at in
-        Unix.sleepf 0.01;
+        Eio.Time.sleep clock 0.01;
         let s = Session.touch s in
         check bool "updated" true (s.last_active_at >= before));
 

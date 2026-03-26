@@ -108,7 +108,8 @@ let test_load_profile_missing_file () =
   check int "empty on missing file" 0 (List.length models)
 
 let test_load_profile_hot_reload () =
-  Eio_main.run @@ fun _env ->
+  Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
   let path = Filename.temp_file "cascade_reload_" ".json" in
   Fun.protect
     ~finally:(fun () -> try Sys.remove path with _ -> ())
@@ -123,7 +124,7 @@ let test_load_profile_hot_reload () =
        check int "initial" 1 (List.length m1);
        check string "v1" "llama:v1" (List.hd m1);
        (* Overwrite — need different mtime *)
-       Unix.sleepf 0.05;
+       Eio.Time.sleep clock 0.05;
        let oc2 = open_out path in
        output_string oc2 {|{"reload_models": ["llama:v2", "glm:auto"]}|};
        close_out oc2;
