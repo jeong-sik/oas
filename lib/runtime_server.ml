@@ -156,49 +156,55 @@ let apply_command ~sw state store (session : session) command =
       else
         let participant_name = detail.participant_name in
         Eio.Fiber.fork ~sw (fun () ->
-          ignore
-            (match
-               persist_event store state session_id
-                 (Agent_became_live
-                    {
-                      participant_name;
-                      summary = Some "runtime-started";
-                      provider = resolution.resolved_provider;
-                      model = resolution.resolved_model;
-                      error = None;
-                    })
-             with
-             | Error _ -> Ok ()
-             | Ok _ -> (
-                 match
-                   run_participant store state session_id resolution detail
-                 with
-                 | Ok summary ->
-                     let* _session, _ =
-                       persist_event store state session_id
-                         (Agent_completed
-                            {
-                              participant_name;
-                              summary = Some summary;
-                              provider = resolution.resolved_provider;
-                              model = resolution.resolved_model;
-                              error = None;
-                            })
-                     in
-                     Ok ()
-                 | Error err ->
-                     let* _session, _ =
-                       persist_event store state session_id
-                         (Agent_failed
-                            {
-                              participant_name;
-                              summary = None;
-                              provider = resolution.resolved_provider;
-                              model = resolution.resolved_model;
-                              error = Some (Error.to_string err);
-                            })
-                     in
-                     Ok ())));
+          try
+            ignore
+              (match
+                 persist_event store state session_id
+                   (Agent_became_live
+                      {
+                        participant_name;
+                        summary = Some "runtime-started";
+                        provider = resolution.resolved_provider;
+                        model = resolution.resolved_model;
+                        error = None;
+                      })
+               with
+               | Error _ -> Ok ()
+               | Ok _ -> (
+                   match
+                     run_participant store state session_id resolution detail
+                   with
+                   | Ok summary ->
+                       let* _session, _ =
+                         persist_event store state session_id
+                           (Agent_completed
+                              {
+                                participant_name;
+                                summary = Some summary;
+                                provider = resolution.resolved_provider;
+                                model = resolution.resolved_model;
+                                error = None;
+                              })
+                       in
+                       Ok ()
+                   | Error err ->
+                       let* _session, _ =
+                         persist_event store state session_id
+                           (Agent_failed
+                              {
+                                participant_name;
+                                summary = None;
+                                provider = resolution.resolved_provider;
+                                model = resolution.resolved_model;
+                                error = Some (Error.to_string err);
+                              })
+                       in
+                       Ok ()))
+          with
+          | Eio.Cancel.Cancelled _ as ex -> raise ex
+          | exn ->
+            Eio.traceln "Runtime_server: participant %s fork failed: %s"
+              participant_name (Printexc.to_string exn));
         Ok (Command_applied session)
   | Attach_artifact detail ->
       let* artifact =
