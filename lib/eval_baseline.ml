@@ -42,25 +42,25 @@ let save ~path (baseline : baseline) =
 
 (** Load a baseline from a JSON file. *)
 let load ~path : (baseline, string) result =
-  try
-    let content = match Fs_result.read_file path with
-      | Ok c -> c
-      | Error err -> failwith (Error.to_string err)
-    in
-    let json = Yojson.Safe.from_string content in
-    let open Yojson.Safe.Util in
-    let rm_json = json |> member "run_metrics" in
-    match Eval.run_metrics_of_yojson rm_json with
-    | Error e -> Error (Printf.sprintf "Failed to parse run_metrics: %s" e)
-    | Ok run_metrics ->
-      let created_at = json |> member "created_at" |> to_float in
-      let description = json |> member "description" |> to_string_option
-        |> Option.value ~default:"" in
-      Ok { run_metrics; created_at; description }
-  with
-  | Eio.Cancel.Cancelled _ as e -> raise e
-  | exn ->
-    Error (Printf.sprintf "Failed to load baseline: %s" (Printexc.to_string exn))
+  match Fs_result.read_file path with
+  | Error err ->
+    Error (Printf.sprintf "Failed to load baseline: %s" (Error.to_string err))
+  | Ok content ->
+    try
+      let json = Yojson.Safe.from_string content in
+      let open Yojson.Safe.Util in
+      let rm_json = json |> member "run_metrics" in
+      match Eval.run_metrics_of_yojson rm_json with
+      | Error e -> Error (Printf.sprintf "Failed to parse run_metrics: %s" e)
+      | Ok run_metrics ->
+        let created_at = json |> member "created_at" |> to_float in
+        let description = json |> member "description" |> to_string_option
+          |> Option.value ~default:"" in
+        Ok { run_metrics; created_at; description }
+    with
+    | Eio.Cancel.Cancelled _ as e -> raise e
+    | exn ->
+      Error (Printf.sprintf "Failed to load baseline: %s" (Printexc.to_string exn))
 
 (** Create a baseline from a run. *)
 let create ~description (run_metrics : Eval.run_metrics) : baseline =
