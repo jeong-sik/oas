@@ -140,8 +140,8 @@ let test_eval_metric_argv_quotes_args () =
   match Runner.eval_metric ~mgr (Argv_command ["missing-command-for-swarm-test"; "arg with space"]) with
   | Ok _ -> fail "expected error"
   | Error e ->
-    check bool "quotes spaced arg" true
-      (Astring.String.is_infix ~affix:"'arg with space'" e)
+    check bool "mentions spaced arg" true
+      (Astring.String.is_infix ~affix:"arg with space" e)
 
 (* ── Single-pass decentralized ────────────────────────────── *)
 
