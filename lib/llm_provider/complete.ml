@@ -268,7 +268,7 @@ let complete_cascade ~sw ~net ?transport ?clock ?retry_config
 include Complete_stream_acc
 
 (* Internal: HTTP-specific streaming implementation. *)
-let complete_stream_http ~sw ~net ~(config : Provider_config.t)
+let complete_stream_http ~sw:_ ~net ~(config : Provider_config.t)
     ~(messages : Types.message list) ~tools
     ~(on_event : Types.sse_event -> unit) =
   if config.kind = Provider_config.Claude_code then
@@ -295,61 +295,60 @@ let complete_stream_http ~sw ~net ~(config : Provider_config.t)
     | Provider_config.Gemini -> body_str
     | _ -> Http_client.inject_stream_param body_str
   in
-  match Http_client.post_stream ~sw ~net ~url
-          ~headers:config.headers ~body:body_with_stream with
+  match Http_client.with_post_stream ~net ~url
+          ~headers:config.headers ~body:body_with_stream
+          ~f:(fun reader ->
+            let acc = create_stream_acc () in
+            let openai_state = ref None in
+            Http_client.read_sse ~reader ~on_data:(fun ~event_type data ->
+              let events = match config.kind with
+                | Provider_config.Anthropic ->
+                    (match Streaming.parse_sse_event event_type data with
+                     | Some evt -> [evt]
+                     | None -> [])
+                | Provider_config.OpenAI_compat ->
+                    let state = match !openai_state with
+                      | Some s -> s
+                      | None ->
+                          let s = Streaming.create_openai_stream_state () in
+                          openai_state := Some s; s
+                    in
+                    (match Streaming.parse_openai_sse_chunk data with
+                     | Some chunk -> Streaming.openai_chunk_to_events state chunk
+                     | None -> [])
+                | Provider_config.Gemini ->
+                    let state = match !openai_state with
+                      | Some s -> s
+                      | None ->
+                          let s = Streaming.create_openai_stream_state () in
+                          openai_state := Some s; s
+                    in
+                    (match Streaming.parse_gemini_sse_chunk data with
+                     | Some chunk -> Streaming.gemini_chunk_to_events state chunk
+                     | None -> [])
+                | Provider_config.Glm ->
+                    let state = match !openai_state with
+                      | Some s -> s
+                      | None ->
+                          let s = Streaming.create_openai_stream_state () in
+                          openai_state := Some s; s
+                    in
+                    (match Backend_glm.parse_stream_chunk data with
+                     | Some chunk -> Streaming.openai_chunk_to_events state chunk
+                     | None -> [])
+                | Provider_config.Claude_code -> []
+              in
+              List.iter (fun evt ->
+                on_event evt;
+                accumulate_event acc evt
+              ) events
+            ) ();
+            finalize_stream_acc acc) with
   | Error _ as e -> e
-  | Ok reader ->
-      let acc = create_stream_acc () in
-      let openai_state = ref None in
-      Http_client.read_sse ~reader ~on_data:(fun ~event_type data ->
-        let events = match config.kind with
-          | Provider_config.Anthropic ->
-              (match Streaming.parse_sse_event event_type data with
-               | Some evt -> [evt]
-               | None -> [])
-          | Provider_config.OpenAI_compat ->
-              let state = match !openai_state with
-                | Some s -> s
-                | None ->
-                    let s = Streaming.create_openai_stream_state () in
-                    openai_state := Some s; s
-              in
-              (match Streaming.parse_openai_sse_chunk data with
-               | Some chunk -> Streaming.openai_chunk_to_events state chunk
-               | None -> [])
-          | Provider_config.Gemini ->
-              let state = match !openai_state with
-                | Some s -> s
-                | None ->
-                    let s = Streaming.create_openai_stream_state () in
-                    openai_state := Some s; s
-              in
-              (match Streaming.parse_gemini_sse_chunk data with
-               | Some chunk -> Streaming.gemini_chunk_to_events state chunk
-               | None -> [])
-          | Provider_config.Glm ->
-              (* GLM uses OpenAI-compatible SSE format *)
-              let state = match !openai_state with
-                | Some s -> s
-                | None ->
-                    let s = Streaming.create_openai_stream_state () in
-                    openai_state := Some s; s
-              in
-              (match Backend_glm.parse_stream_chunk data with
-               | Some chunk -> Streaming.openai_chunk_to_events state chunk
-               | None -> [])
-          | Provider_config.Claude_code -> []  (* guarded above *)
-        in
-        List.iter (fun evt ->
-          on_event evt;
-          accumulate_event acc evt
-        ) events
-      ) ();
-      match finalize_stream_acc acc with
-      | Ok resp -> Ok resp
-      | Error msg ->
-          Error (Http_client.NetworkError {
-            message = Printf.sprintf "SSE stream error: %s" msg })
+  | Ok (Ok resp) -> Ok resp
+  | Ok (Error msg) ->
+      Error (Http_client.NetworkError {
+        message = Printf.sprintf "SSE stream error: %s" msg })
 
 let complete_stream ~sw ~net ?(transport : Llm_transport.t option)
     ~(config : Provider_config.t)
