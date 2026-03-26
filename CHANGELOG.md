@@ -2,6 +2,20 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.92.1] - 2026-03-27
+
+### Added
+- `Autonomy_exec`: argv-only execution primitive with timeout, env allowlisting, bounded stdout/stderr capture, and wrapper-prefix support for external sandboxes/containers.
+- `Autonomy_diff_guard`: pure unified-diff validator for allowlisted paths plus banned additions.
+- `Metric_contract`: strict `<metric name="...">FLOAT</metric>` prompt helper and parser.
+- `Lesson_memory`: failure recording and lesson retrieval helpers for autonomy feedback loops.
+- `examples/autonomy_primitives_demo.ml`: composition example for execution, diff validation, lesson recording, and metric parsing.
+- `docs/analysis/AUTONOMY-PRIMITIVES-BOUNDARY.md`: boundary note explaining why OAS exports primitives rather than a full AutoResearch runner.
+
+### Changed
+- Export the new autonomy primitives from `Agent_sdk`.
+- Keep autonomy support orchestration-agnostic: OAS provides reusable primitives, while consumer runtimes own policy, ratcheting, git apply/revert, and loop orchestration.
+
 ## [0.92.0] - 2026-03-26
 
 ### Changed

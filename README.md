@@ -66,7 +66,7 @@ let agent =
     ~tools:[] ()
 ```
 
-See `examples/` for more: `basic_agent.ml`, `tool_use.ml`, `streaming.ml`, `review_agent.ml`, `swarm_review.ml`, `governance_demo.ml`, `plan_execute_demo.ml`.
+See `examples/` for more: `basic_agent.ml`, `tool_use.ml`, `streaming.ml`, `review_agent.ml`, `swarm_review.ml`, `governance_demo.ml`, `plan_execute_demo.ml`, `autonomy_primitives_demo.ml`.
 
 ## Provider support
 
@@ -152,7 +152,7 @@ Not all modules are equally stable. Use this to gauge risk when depending on a m
 
 **Experimental** -- may be redesigned or removed:
 
-`Runtime`, `Transport`, `Client`, `Sessions`, `Conformance`, `Direct_evidence`, `Raw_trace`, `Otel_tracer`, `Checkpoint_store`, `Swarm_checkpoint`, `Verified_output`, `Policy`, `Audit`, `Durable`, `Plan`
+`Runtime`, `Transport`, `Client`, `Sessions`, `Conformance`, `Direct_evidence`, `Raw_trace`, `Otel_tracer`, `Checkpoint_store`, `Swarm_checkpoint`, `Verified_output`, `Policy`, `Audit`, `Durable`, `Plan`, `Autonomy_exec`, `Autonomy_diff_guard`, `Metric_contract`, `Lesson_memory`
 
 ## Tool definition
 

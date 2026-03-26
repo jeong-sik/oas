@@ -77,3 +77,7 @@
 (executable
  (name plan_execute_demo)
  (libraries agent_sdk yojson unix))
+
+(executable
+ (name autonomy_primitives_demo)
+ (libraries agent_sdk eio eio_main yojson unix))
