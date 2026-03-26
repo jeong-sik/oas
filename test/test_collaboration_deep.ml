@@ -39,16 +39,20 @@ let () =
     (* ── touch ───────────────────────────────────────── *)
     "touch", [
       test_case "touch preserves id and goal" `Quick (fun () ->
+        Eio_main.run @@ fun env ->
+        let clock = Eio.Stdenv.clock env in
         let c = Collaboration.create ~id:"t1" ~goal:"g" () in
-        Unix.sleepf 0.01;
+        Eio.Time.sleep clock 0.01;
         let c2 = Collaboration.touch c in
         check string "id preserved" "t1" c2.id;
         check string "goal preserved" "g" c2.goal;
         check bool "updated_at changed" true (c2.updated_at > c.updated_at));
 
       test_case "touch preserves created_at" `Quick (fun () ->
+        Eio_main.run @@ fun env ->
+        let clock = Eio.Stdenv.clock env in
         let c = Collaboration.create ~goal:"g" () in
-        Unix.sleepf 0.01;
+        Eio.Time.sleep clock 0.01;
         let c2 = Collaboration.touch c in
         check (float 0.001) "created_at same" c.created_at c2.created_at);
     ];

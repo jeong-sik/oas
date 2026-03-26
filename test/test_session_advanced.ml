@@ -39,9 +39,11 @@ let test_multiple_record_turns () =
   check int "10 turns" 10 !s.turn_count
 
 let test_elapsed_increases () =
+  Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
   let s = Session.create () in
   let e1 = Session.elapsed s in
-  Unix.sleepf 0.02;
+  Eio.Time.sleep clock 0.02;
   let e2 = Session.elapsed s in
   check bool "elapsed increases" true (e2 > e1)
 
@@ -113,9 +115,11 @@ let test_empty_metadata_roundtrip () =
   | Error _ -> fail "empty metadata roundtrip failed"
 
 let test_touch_updates () =
+  Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
   let s = Session.create () in
   let t1 = s.last_active_at in
-  Unix.sleepf 0.01;
+  Eio.Time.sleep clock 0.01;
   let s = Session.touch s in
   check bool "touch updated" true (s.last_active_at >= t1)
 
