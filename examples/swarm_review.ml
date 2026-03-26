@@ -147,6 +147,7 @@ Output as a numbered list with severity tags.|}
     timeout_sec = Some 120.0;
     budget = no_budget; max_agent_retries = 0; collaboration = None;
     resource_check = None; max_concurrent_agents = None;
+    enable_streaming = false;
   } in
 
   let callbacks = Swarm_types.{

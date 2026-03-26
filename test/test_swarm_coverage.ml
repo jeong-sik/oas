@@ -134,6 +134,7 @@ let test_single_pass_decentralized () =
     timeout_sec = None;
     budget = no_budget; max_agent_retries = 0; collaboration = None;
     resource_check = None; max_concurrent_agents = None;
+    enable_streaming = false;
   } in
   Eio.Switch.run @@ fun sw ->
   match Runner.run ~sw ~clock config with
@@ -161,6 +162,7 @@ let test_single_pass_pipeline () =
     timeout_sec = None;
     budget = no_budget; max_agent_retries = 0; collaboration = None;
     resource_check = None; max_concurrent_agents = None;
+    enable_streaming = false;
   } in
   Eio.Switch.run @@ fun sw ->
   match Runner.run ~sw ~clock config with
@@ -185,6 +187,7 @@ let test_single_pass_supervisor () =
     timeout_sec = None;
     budget = no_budget; max_agent_retries = 0; collaboration = None;
     resource_check = None; max_concurrent_agents = None;
+    enable_streaming = false;
   } in
   Eio.Switch.run @@ fun sw ->
   match Runner.run ~sw ~clock config with
@@ -212,6 +215,7 @@ let test_single_pass_with_error () =
     timeout_sec = None;
     budget = no_budget; max_agent_retries = 0; collaboration = None;
     resource_check = None; max_concurrent_agents = None;
+    enable_streaming = false;
   } in
   Eio.Switch.run @@ fun sw ->
   match Runner.run ~sw ~clock config with
@@ -242,6 +246,7 @@ let test_convergence_immediate () =
     timeout_sec = None;
     budget = no_budget; max_agent_retries = 0; collaboration = None;
     resource_check = None; max_concurrent_agents = None;
+    enable_streaming = false;
   } in
   Eio.Switch.run @@ fun sw ->
   match Runner.run ~sw ~clock config with
@@ -271,6 +276,7 @@ let test_timeout () =
     timeout_sec = Some 0.1;
     budget = no_budget; max_agent_retries = 0; collaboration = None;
     resource_check = None; max_concurrent_agents = None;
+    enable_streaming = false;
   } in
   Eio.Switch.run @@ fun sw ->
   match Runner.run ~sw ~clock config with
@@ -304,6 +310,7 @@ let test_callbacks_fire () =
     timeout_sec = None;
     budget = no_budget; max_agent_retries = 0; collaboration = None;
     resource_check = None; max_concurrent_agents = None;
+    enable_streaming = false;
   } in
   Eio.Switch.run @@ fun sw ->
   (match Runner.run ~sw ~clock ~callbacks config with
@@ -329,6 +336,7 @@ let test_resource_check_fail () =
     budget = no_budget; max_agent_retries = 0; collaboration = None;
     resource_check = Some (fun () -> false);
     max_concurrent_agents = None;
+    enable_streaming = false;
   } in
   Eio.Switch.run @@ fun sw ->
   match Runner.run ~sw ~clock config with
@@ -370,6 +378,7 @@ let test_max_concurrent_agents () =
     budget = no_budget; max_agent_retries = 0; collaboration = None;
     resource_check = None;
     max_concurrent_agents = Some 2;  (* limit to 2 concurrent *)
+    enable_streaming = false;
   } in
   Eio.Switch.run @@ fun sw ->
   match Runner.run ~sw ~clock config with

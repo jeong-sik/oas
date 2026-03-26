@@ -103,6 +103,7 @@ type swarm_config = {
   collaboration: Collaboration.t option;
   resource_check: (unit -> bool) option;
   max_concurrent_agents: int option;
+  enable_streaming: bool;
 }
 
 (** {1 Execution State} *)

@@ -793,3 +793,7 @@
 (test
  (name test_tool_index)
  (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_swarm_streaming)
+ (libraries agent_sdk agent_sdk_swarm alcotest yojson eio eio_main unix))

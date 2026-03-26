@@ -194,11 +194,165 @@ let collect_usage acc results =
     | Error _ -> a
   ) acc results
 
+(* ── Streaming execution paths (opt-in via enable_streaming) ───── *)
+
+(** Run a single agent and write its result as messages to a channel.
+    Writes [Done resp] on success, [Swarm_channel.Error err] on failure. *)
+let run_one_agent_streaming ~sw ~clock ~callbacks ~channel
+    ?(max_retries=default_agent_max_retries) (entry : agent_entry) prompt =
+  fire callbacks.on_agent_start entry.name;
+  let t0 = Unix.gettimeofday () in
+  let rec attempt n delay =
+    let result = entry.run ~sw prompt in
+    let elapsed = Unix.gettimeofday () -. t0 in
+    let telemetry =
+      match entry.get_telemetry with
+      | Some f -> (try f () with exn ->
+        Printf.eprintf "get_telemetry raised: %s\n%!" (Printexc.to_string exn);
+        empty_telemetry)
+      | None -> empty_telemetry
+    in
+    match result with
+    | Ok resp ->
+      Swarm_channel.send channel ~from:entry.name ~to_:entry.name
+        (Swarm_channel.Done resp);
+      let status = Done_ok { elapsed; text = text_of_response resp; telemetry } in
+      fire2 callbacks.on_agent_done entry.name status;
+      (entry.name, status, result)
+    | Error err when is_retryable_agent_error err && n < max_retries ->
+      Eio.Time.sleep clock (delay *. (0.5 +. Random.float 1.0));
+      attempt (n + 1) (Float.min (delay *. default_agent_backoff) 30.0)
+    | Error err ->
+      Swarm_channel.send channel ~from:entry.name ~to_:entry.name
+        (Swarm_channel.Error err);
+      let status = Done_error { elapsed; error = Error.to_string err; telemetry } in
+      fire2 callbacks.on_agent_done entry.name status;
+      (entry.name, status, result)
+  in
+  attempt 0 default_agent_initial_delay
+
+(** Streaming Supervisor mode: workers write to channel, supervisor reads
+    from subscribe_all tap.  If any worker produces a conclusive Done,
+    the supervisor can act on partial results. *)
+let run_streaming_supervisor ~sw ~clock ~callbacks config =
+  match config.entries with
+  | [] -> []
+  | sup :: workers ->
+    let channel = Swarm_channel.create ~capacity:64 in
+    (* Pre-create mailboxes so broadcast reaches everyone *)
+    List.iter (fun (e : agent_entry) ->
+      ignore (Swarm_channel.mailbox channel ~agent_name:e.name)
+    ) (sup :: workers);
+    let worker_results = ref [] in
+    Eio.Switch.run @@ fun inner_sw ->
+    (* Fork workers, each writes results to channel *)
+    List.iter (fun (e : agent_entry) ->
+      Eio.Fiber.fork ~sw:inner_sw (fun () ->
+        let r = run_one_agent_streaming ~sw ~clock ~callbacks ~channel
+          ~max_retries:config.max_agent_retries e config.prompt in
+        worker_results := r :: !worker_results)
+    ) workers;
+    (* Wait for all workers (structured concurrency via inner_sw) *)
+    ();
+    Swarm_channel.close channel;
+    let wr = !worker_results in
+    (* Build summary from worker results *)
+    let summary =
+      List.map (fun (n, s, _) -> match s with
+        | Done_ok { text; _ } -> Printf.sprintf "=== %s ===\n%s" n text
+        | Done_error { error; _ } -> Printf.sprintf "=== %s (ERROR) ===\n%s" n error
+        | _ -> Printf.sprintf "=== %s (no result) ===" n
+      ) wr |> String.concat "\n\n"
+    in
+    let sr = run_one_agent ~sw ~clock ~callbacks sup
+      (config.prompt ^ "\n\nWorker results:\n" ^ summary) in
+    wr @ [sr]
+
+(** Streaming Pipeline mode: Agent N writes its result to the channel,
+    Agent N+1 reads from Agent N's mailbox to collect the output. *)
+let run_streaming_pipeline ~sw ~clock ~callbacks config =
+  let channel = Swarm_channel.create ~capacity:64 in
+  let rec go acc prev_name = function
+    | [] ->
+      Swarm_channel.close channel;
+      List.rev acc
+    | (entry : agent_entry) :: rest ->
+      let prompt =
+        match prev_name with
+        | None -> config.prompt
+        | Some pname ->
+          (* Read the Done message from previous agent's mailbox *)
+          let mbox = Swarm_channel.mailbox channel ~agent_name:pname in
+          let prev_text = ref "" in
+          let rec drain () =
+            match Eio.Stream.take_nonblocking mbox with
+            | Some (Swarm_channel.Done resp) ->
+              prev_text := text_of_response resp;
+              drain ()
+            | Some (Swarm_channel.Text t) ->
+              prev_text := !prev_text ^ t;
+              drain ()
+            | Some (Swarm_channel.Delta d) ->
+              prev_text := !prev_text ^ d;
+              drain ()
+            | Some _ -> drain ()
+            | None -> ()
+          in
+          drain ();
+          if !prev_text = "" then config.prompt
+          else config.prompt ^ "\n\nPrevious agent output:\n" ^ !prev_text
+      in
+      let (_name, status, _result) as triple =
+        run_one_agent_streaming ~sw ~clock ~callbacks ~channel
+          ~max_retries:config.max_agent_retries entry prompt
+      in
+      let next_name = match status with
+        | Done_ok _ -> Some entry.name
+        | _ -> prev_name
+      in
+      go (triple :: acc) next_name rest
+  in
+  go [] None config.entries
+
+(** Dispatch to streaming or non-streaming mode. *)
+let run_agents_dispatch ~sw ~clock ~callbacks config =
+  if config.enable_streaming then
+    match config.mode with
+    | Supervisor -> run_streaming_supervisor ~sw ~clock ~callbacks config
+    | Pipeline_mode -> run_streaming_pipeline ~sw ~clock ~callbacks config
+    | Decentralized ->
+      (* Decentralized streaming: workers write to channel, collect results *)
+      let channel = Swarm_channel.create ~capacity:64 in
+      List.iter (fun (e : agent_entry) ->
+        ignore (Swarm_channel.mailbox channel ~agent_name:e.name)
+      ) config.entries;
+      let run_with_check entry =
+        if check_resource config then
+          run_one_agent_streaming ~sw ~clock ~callbacks ~channel
+            ~max_retries:config.max_agent_retries entry config.prompt
+        else begin
+          let status = Done_error {
+            elapsed = 0.0; error = "resource check failed";
+            telemetry = empty_telemetry } in
+          fire2 callbacks.on_agent_done entry.name status;
+          (entry.name, status, Error (Error.Internal "resource check failed"))
+        end
+      in
+      let results =
+        Eio.Fiber.List.map ~max_fibers:config.max_parallel
+          (fun entry -> run_with_check entry)
+          config.entries
+      in
+      Swarm_channel.close channel;
+      results
+  else
+    run_agents_by_mode ~sw ~clock ~callbacks config
+
 (* ── Single pass (all agents once) ──────────────────────────────── *)
 
 let run_single_pass ~sw ~clock ?(callbacks = no_callbacks) config =
   let t0 = Unix.gettimeofday () in
-  let results = run_agents_by_mode ~sw ~clock ~callbacks config in
+  let results = run_agents_dispatch ~sw ~clock ~callbacks config in
   let elapsed = Unix.gettimeofday () -. t0 in
   let agent_results =
     List.map (fun (name, status, _) -> (name, status)) results
@@ -255,7 +409,7 @@ let run_convergence_loop ~sw ~clock ~callbacks config conv =
         && read_state handle (fun s -> s.current_iteration) < conv.max_iterations do
     let iter = read_state handle (fun s -> s.current_iteration) in
     fire callbacks.on_iteration_start iter;
-    let results = run_agents_by_mode ~sw ~clock ~callbacks config in
+    let results = run_agents_dispatch ~sw ~clock ~callbacks config in
     total_usage := collect_usage !total_usage results;
     (* Evaluate metric *)
     let metric_value = match eval_metric conv.metric with
