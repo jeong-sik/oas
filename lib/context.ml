@@ -1,12 +1,16 @@
 (** Cross-turn shared state for agent execution.
     Inspired by Google ADK's session.state pattern.
 
-    Uses Hashtbl internally, protected by Eio.Mutex for safe concurrent
+    Uses Hashtbl internally, protected by Mutex for safe concurrent
     access from parallel tool-execution fibers.
+    Stdlib.Mutex is used (not Eio.Mutex) so Context.t can be created
+    and used outside Eio context (tests, serialization, etc.).
+    Within a single Eio domain, Mutex sections are non-yielding
+    (pure Hashtbl ops), so Stdlib.Mutex is safe and sufficient.
     Values are Yojson.Safe.t for flexibility while maintaining serializability. *)
 
 type t = {
-  mu: Eio.Mutex.t;
+  mu: Mutex.t;
   tbl: (string, Yojson.Safe.t) Hashtbl.t;
 }
 type scope =
@@ -23,10 +27,11 @@ type diff = {
 }
 
 let create () : t =
-  { mu = Eio.Mutex.create (); tbl = Hashtbl.create 16 }
+  { mu = Mutex.create (); tbl = Hashtbl.create 16 }
 
 let with_lock ctx f =
-  Eio.Mutex.use_rw ~protect:true ctx.mu f
+  Mutex.lock ctx.mu;
+  Fun.protect f ~finally:(fun () -> Mutex.unlock ctx.mu)
 
 let get (ctx : t) key =
   with_lock ctx (fun () -> Hashtbl.find_opt ctx.tbl key)
