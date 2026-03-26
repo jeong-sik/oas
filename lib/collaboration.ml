@@ -168,7 +168,7 @@ let of_json json =
     let open Yojson.Safe.Util in
     let unwrap = function
       | Ok v -> v
-      | Error e -> failwith e
+      | Error e -> raise (Type_error (e, `Null))
     in
     let parse_list parser j =
       match j with

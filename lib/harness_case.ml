@@ -272,7 +272,7 @@ let final_response_text (trajectory : Trajectory.trajectory) =
   |> List.find_opt (function Trajectory.Respond _ -> true | _ -> false)
   |> Option.map (function
        | Trajectory.Respond { content; _ } -> content
-       | _ -> assert false)
+       | _ -> "")
 
 let tool_sequence_of_trajectory (trajectory : Trajectory.trajectory) =
   trajectory.steps
