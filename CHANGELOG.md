@@ -2,6 +2,14 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.91.1] - 2026-03-26
+
+### Fixed
+- Temp file resource leak in 6 cascade_config inline tests and 3 test files (Fun.protect pattern).
+- `eval_baseline.load` used failwith instead of direct Result return.
+- `event_forward` batch loop O(n) `List.length` check replaced with O(1) counter.
+- `succession.metrics_of_json` inconsistent float parsing (try-with to to_float_option).
+
 ## [0.89.0] - 2026-03-24
 
 ### Added
