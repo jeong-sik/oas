@@ -226,7 +226,8 @@ let make_config ?(entries=[make_entry "a1"; make_entry "a2"])
     () : Swarm_types.swarm_config =
   { entries; mode; convergence; max_parallel; prompt; timeout_sec;
     budget = Swarm_types.no_budget; max_agent_retries = 0;
-    collaboration = None; resource_check = None; max_concurrent_agents = None }
+    collaboration = None; resource_check = None; max_concurrent_agents = None;
+    enable_streaming = false }
 
 let make_iteration ~iteration ?(metric_value=None) ?(agent_results=[])
     ?(elapsed=1.0) ?(timestamp=100.0) () : Swarm_types.iteration_record =

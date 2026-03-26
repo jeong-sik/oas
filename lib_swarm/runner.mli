@@ -9,6 +9,11 @@
     reaches the target, patience is exhausted, or max_iterations is hit.
     Swarm state is protected by [Eio.Mutex] during convergence loops.
 
+    When [enable_streaming = true] in {!Swarm_types.swarm_config}, agents
+    communicate via {!Swarm_channel.t} message streams instead of
+    collecting batch results.  The external interface ({!run}) is
+    unchanged — streaming is an internal optimization.
+
     @since 0.42.0 *)
 
 open Agent_sdk
@@ -20,6 +25,8 @@ open Agent_sdk
     Without [convergence]: single pass, all agents run once.
     With [convergence]: iterative loop with metric evaluation.
     With [timeout_sec]: aborts with [TaskTimeout] if exceeded.
+    With [enable_streaming = true]: uses {!Swarm_channel}-based message
+    passing between agents (opt-in, backward compatible).
 
     @param callbacks Optional lifecycle callbacks (default: {!Swarm_types.no_callbacks}) *)
 val run :
