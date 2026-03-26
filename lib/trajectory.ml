@@ -88,28 +88,41 @@ type tool_acc = {
   started_at: float;
 }
 
+module StringMap = Map.Make(String)
+
+type parser_state = {
+  p_agent_name : string;
+  p_model : string;
+  p_prompt : string;
+  p_started_at : float;
+  p_finished_at : float option;
+  p_success : bool;
+  p_error_msg : string option;
+  p_pending_tools : tool_acc StringMap.t;
+  p_steps : step list;
+}
+
+let initial_state = {
+  p_agent_name = "unknown";
+  p_model = "unknown";
+  p_prompt = "";
+  p_started_at = 0.0;
+  p_finished_at = None;
+  p_success = true;
+  p_error_msg = None;
+  p_pending_tools = StringMap.empty;
+  p_steps = [];
+}
+
 let of_raw_trace_records (records : Raw_trace.record list) : trajectory =
-  let agent_name = ref "unknown" in
-  let model = ref "unknown" in
-  let prompt = ref "" in
-  let started_at = ref 0.0 in
-  let finished_at = ref None in
-  let success = ref true in
-  let error_msg = ref None in
-  (* Map from tool_use_id -> pending tool_acc *)
-  let pending_tools : (string, tool_acc) Hashtbl.t = Hashtbl.create 8 in
-  let steps = ref [] in
-  let add_step s = steps := s :: !steps in
-  List.iter (fun (r : Raw_trace.record) ->
+  let final_state = List.fold_left (fun st (r : Raw_trace.record) ->
     match r.record_type with
     | Run_started ->
-      agent_name := r.agent_name;
-      started_at := r.ts;
-      (match r.prompt with Some p -> prompt := p | None -> ())
+      let p_prompt = match r.prompt with Some p -> p | None -> st.p_prompt in
+      { st with p_agent_name = r.agent_name; p_started_at = r.ts; p_prompt }
     | Assistant_block ->
       (match r.block_kind with
        | Some "thinking" ->
-         (* Extract thinking content from assistant_block JSON *)
          let content = match r.assistant_block with
            | Some json ->
              (try Yojson.Safe.Util.(json |> member "content" |> to_string)
@@ -118,7 +131,7 @@ let of_raw_trace_records (records : Raw_trace.record list) : trajectory =
                 with Yojson.Safe.Util.Type_error _ | Not_found -> Yojson.Safe.to_string json)
            | None -> ""
          in
-         add_step (Think { content; ts = r.ts })
+         { st with p_steps = Think { content; ts = r.ts } :: st.p_steps }
        | Some "text" ->
          let content = match r.assistant_block with
            | Some json ->
@@ -126,25 +139,21 @@ let of_raw_trace_records (records : Raw_trace.record list) : trajectory =
               with Yojson.Safe.Util.Type_error _ | Not_found -> Yojson.Safe.to_string json)
            | None -> ""
          in
-         add_step (Respond { content; ts = r.ts })
+         { st with p_steps = Respond { content; ts = r.ts } :: st.p_steps }
        | Some "tool_use" ->
-         (* tool_use blocks from assistant are recorded as Act steps
-            when paired with tool_execution_started/finished.
-            Skip here to avoid duplication. *)
-         ()
-       | _ -> ())
+         st
+       | _ -> st)
     | Tool_execution_started ->
       let tool_use_id = Option.value ~default:"" r.tool_use_id in
       let tool_name = Option.value ~default:"unknown" r.tool_name in
       let tool_input = Option.value ~default:`Null r.tool_input in
-      Hashtbl.replace pending_tools tool_use_id
-        { id = tool_use_id; name = tool_name; input = tool_input;
-          started_at = r.ts }
+      let acc = { id = tool_use_id; name = tool_name; input = tool_input; started_at = r.ts } in
+      { st with p_pending_tools = StringMap.add tool_use_id acc st.p_pending_tools }
     | Tool_execution_finished ->
       let tool_use_id = Option.value ~default:"" r.tool_use_id in
       let is_error = Option.value ~default:false r.tool_error in
       let tool_result = r.tool_result in
-      (match Hashtbl.find_opt pending_tools tool_use_id with
+      (match StringMap.find_opt tool_use_id st.p_pending_tools with
        | Some acc ->
          let tc = {
            tool_use_id;
@@ -155,15 +164,16 @@ let of_raw_trace_records (records : Raw_trace.record list) : trajectory =
            started_at = acc.started_at;
            finished_at = Some r.ts;
          } in
-         add_step (Act { tool_call = tc; ts = acc.started_at });
-         (* Emit an Observe step for tool results *)
-         (match tool_result with
+         let act_step = Act { tool_call = tc; ts = acc.started_at } in
+         let obs_steps = match tool_result with
           | Some result when result <> "" ->
-            add_step (Observe { content = result; ts = r.ts })
-          | _ -> ());
-         Hashtbl.remove pending_tools tool_use_id
+            [Observe { content = result; ts = r.ts }]
+          | _ -> []
+         in
+         { st with 
+           p_steps = obs_steps @ act_step :: st.p_steps;
+           p_pending_tools = StringMap.remove tool_use_id st.p_pending_tools }
        | None ->
-         (* Orphan finish — create a partial Act *)
          let tool_name = Option.value ~default:"unknown" r.tool_name in
          let tc = {
            tool_use_id;
@@ -174,53 +184,52 @@ let of_raw_trace_records (records : Raw_trace.record list) : trajectory =
            started_at = r.ts;
            finished_at = Some r.ts;
          } in
-         add_step (Act { tool_call = tc; ts = r.ts }))
+         { st with p_steps = Act { tool_call = tc; ts = r.ts } :: st.p_steps })
     | Run_finished ->
-      finished_at := Some r.ts;
-      (match r.error with
-       | Some e -> success := false; error_msg := Some e
-       | None -> ());
+      let p_success, p_error_msg = match r.error with
+       | Some e -> false, Some e
+       | None -> st.p_success, st.p_error_msg
+      in
+      let st' = { st with p_finished_at = Some r.ts; p_success; p_error_msg } in
       (match r.final_text with
        | Some text when text <> "" ->
-         (* Only add final Respond if we haven't already captured it
-            from an assistant_block *)
          let already_has_final = List.exists (function
            | Respond { content; _ } -> content = text
            | _ -> false
-         ) !steps in
+         ) st.p_steps in
          if not already_has_final then
-           add_step (Respond { content = text; ts = r.ts })
-       | _ -> ())
-    | Hook_invoked -> ()
-  ) records;
-  (* Flush any pending (unfinished) tool calls *)
-  Hashtbl.iter (fun _id acc ->
-    let tc = {
-      tool_use_id = acc.id;
-      tool_name = acc.name;
-      tool_input = acc.input;
-      tool_result = None;
-      is_error = false;
-      started_at = acc.started_at;
-      finished_at = None;
-    } in
-    add_step (Act { tool_call = tc; ts = acc.started_at })
-  ) pending_tools;
-  (* Sort steps by timestamp, then reverse to get chronological order *)
+           { st' with p_steps = Respond { content = text; ts = r.ts } :: st'.p_steps }
+         else st'
+       | _ -> st')
+    | Hook_invoked -> st
+  ) initial_state records in
+  let pending_steps =
+    StringMap.fold (fun _id acc steps ->
+      let tc = {
+        tool_use_id = acc.id;
+        tool_name = acc.name;
+        tool_input = acc.input;
+        tool_result = None;
+        is_error = false;
+        started_at = acc.started_at;
+        finished_at = None;
+      } in
+      Act { tool_call = tc; ts = acc.started_at } :: steps
+    ) final_state.p_pending_tools final_state.p_steps
+  in
   let sorted_steps =
-    List.sort (fun a b -> Float.compare (step_ts a) (step_ts b))
-      (List.rev !steps)
+    List.sort (fun a b -> Float.compare (step_ts a) (step_ts b)) pending_steps
   in
   {
-    agent_name = !agent_name;
-    model = !model;
-    prompt = !prompt;
+    agent_name = final_state.p_agent_name;
+    model = final_state.p_model;
+    prompt = final_state.p_prompt;
     steps = sorted_steps;
-    started_at = !started_at;
-    finished_at = !finished_at;
-    success = !success;
+    started_at = final_state.p_started_at;
+    finished_at = final_state.p_finished_at;
+    success = final_state.p_success;
     metrics = None;
-    error = !error_msg;
+    error = final_state.p_error_msg;
   }
 
 (* ── JSON serialization ─────────────────────────────────────── *)
