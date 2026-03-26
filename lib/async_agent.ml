@@ -105,7 +105,7 @@ let race ~sw ?clock agents =
         agents
     in
     let rec any_of = function
-      | [] -> invalid_arg "any_of: empty list"
+      | [] -> ("", Error (Error.Internal "Async_agent.any: requires at least one agent"))
       | [f] -> f ()
       | f :: rest -> Eio.Fiber.first f (fun () -> any_of rest)
     in

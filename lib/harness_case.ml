@@ -269,10 +269,9 @@ let make_trace_replay ?(tags = []) ?(assertions = []) ?(artifacts = []) ~id ~pro
 let final_response_text (trajectory : Trajectory.trajectory) =
   trajectory.steps
   |> List.rev
-  |> List.find_opt (function Trajectory.Respond _ -> true | _ -> false)
-  |> Option.map (function
-       | Trajectory.Respond { content; _ } -> content
-       | _ -> "")
+  |> List.find_map (function
+       | Trajectory.Respond { content; _ } -> Some content
+       | _ -> None)
 
 let tool_sequence_of_trajectory (trajectory : Trajectory.trajectory) =
   trajectory.steps
