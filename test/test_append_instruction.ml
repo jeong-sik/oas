@@ -55,13 +55,14 @@ let test_from_file () =
   let oc = open_out path in
   output_string oc "File-based instruction.";
   close_out oc;
-  let config : Append_instruction.config = {
-    sources = [FromFile path];
-  } in
-  (match Append_instruction.render ~turn:0 config with
-   | Some text -> check string "from file" "File-based instruction." text
-   | None -> fail "expected Some");
-  Sys.remove path
+  Fun.protect ~finally:(fun () -> try Sys.remove path with _ -> ())
+    (fun () ->
+      let config : Append_instruction.config = {
+        sources = [FromFile path];
+      } in
+      match Append_instruction.render ~turn:0 config with
+      | Some text -> check string "from file" "File-based instruction." text
+      | None -> fail "expected Some")
 
 let test_from_file_missing () =
   let config : Append_instruction.config = {

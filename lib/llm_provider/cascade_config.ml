@@ -727,38 +727,31 @@ let%test "resolve_model_strings nonexistent file returns defaults" =
     resolve_model_strings ~config_path:"/nonexistent.json"
       ~name:"test" ~defaults:["llama:auto"] () = ["llama:auto"])
 
+let with_temp_cascade_json content f =
+  let tmp = Filename.temp_file "cascade" ".json" in
+  let oc = open_out tmp in
+  output_string oc content;
+  close_out oc;
+  Fun.protect ~finally:(fun () -> try Sys.remove tmp with _ -> ())
+    (fun () -> f tmp)
+
 let%test "resolve_model_strings named profile found" =
   Eio_main.run (fun _env ->
-    let tmp = Filename.temp_file "cascade" ".json" in
-    let oc = open_out tmp in
-    output_string oc {|{"foo_models": ["glm:flash"]}|};
-    close_out oc;
-    let result = resolve_model_strings ~config_path:tmp
-      ~name:"foo" ~defaults:["llama:auto"] () in
-    Sys.remove tmp;
-    result = ["glm:flash"])
+    with_temp_cascade_json {|{"foo_models": ["glm:flash"]}|} (fun tmp ->
+      resolve_model_strings ~config_path:tmp
+        ~name:"foo" ~defaults:["llama:auto"] () = ["glm:flash"]))
 
 let%test "resolve_model_strings falls back to default profile" =
   Eio_main.run (fun _env ->
-    let tmp = Filename.temp_file "cascade" ".json" in
-    let oc = open_out tmp in
-    output_string oc {|{"default_models": ["glm:auto", "llama:auto"]}|};
-    close_out oc;
-    let result = resolve_model_strings ~config_path:tmp
-      ~name:"nonexistent" ~defaults:["fallback:x"] () in
-    Sys.remove tmp;
-    result = ["glm:auto"; "llama:auto"])
+    with_temp_cascade_json {|{"default_models": ["glm:auto", "llama:auto"]}|} (fun tmp ->
+      resolve_model_strings ~config_path:tmp
+        ~name:"nonexistent" ~defaults:["fallback:x"] () = ["glm:auto"; "llama:auto"]))
 
 let%test "resolve_model_strings named takes priority over default" =
   Eio_main.run (fun _env ->
-    let tmp = Filename.temp_file "cascade" ".json" in
-    let oc = open_out tmp in
-    output_string oc {|{"named_models": ["glm:flash"], "default_models": ["llama:auto"]}|};
-    close_out oc;
-    let result = resolve_model_strings ~config_path:tmp
-      ~name:"named" ~defaults:["fallback:x"] () in
-    Sys.remove tmp;
-    result = ["glm:flash"])
+    with_temp_cascade_json {|{"named_models": ["glm:flash"], "default_models": ["llama:auto"]}|} (fun tmp ->
+      resolve_model_strings ~config_path:tmp
+        ~name:"named" ~defaults:["fallback:x"] () = ["glm:flash"]))
 
 let%test "default_registry has 6 providers" =
   List.length (Provider_registry.all default_registry) = 6
@@ -831,25 +824,17 @@ let%test "effective_max_context falls back to registry entry" =
 
 let%test "resolve_model_strings_traced returns Named for existing profile" =
   Eio_main.run (fun _env ->
-    let tmp = Filename.temp_file "cascade" ".json" in
-    let oc = open_out tmp in
-    output_string oc {|{"myname_models": ["llama:auto"]}|};
-    close_out oc;
-    let (_models, source) = resolve_model_strings_traced ~config_path:tmp
-      ~name:"myname" ~defaults:["fallback:x"] () in
-    Sys.remove tmp;
-    source = Named)
+    with_temp_cascade_json {|{"myname_models": ["llama:auto"]}|} (fun tmp ->
+      let (_models, source) = resolve_model_strings_traced ~config_path:tmp
+        ~name:"myname" ~defaults:["fallback:x"] () in
+      source = Named))
 
 let%test "resolve_model_strings_traced returns Default_fallback on missing name" =
   Eio_main.run (fun _env ->
-    let tmp = Filename.temp_file "cascade" ".json" in
-    let oc = open_out tmp in
-    output_string oc {|{"default_models": ["glm:auto"]}|};
-    close_out oc;
-    let (models, source) = resolve_model_strings_traced ~config_path:tmp
-      ~name:"typo_name" ~defaults:["fallback:x"] () in
-    Sys.remove tmp;
-    source = Default_fallback && models = ["glm:auto"])
+    with_temp_cascade_json {|{"default_models": ["glm:auto"]}|} (fun tmp ->
+      let (models, source) = resolve_model_strings_traced ~config_path:tmp
+        ~name:"typo_name" ~defaults:["fallback:x"] () in
+      source = Default_fallback && models = ["glm:auto"]))
 
 let%test "resolve_model_strings_traced returns Hardcoded_defaults when no config" =
   let (_models, source) = resolve_model_strings_traced
@@ -858,14 +843,10 @@ let%test "resolve_model_strings_traced returns Hardcoded_defaults when no config
 
 let%test "resolve_model_strings_traced returns Hardcoded_defaults on empty config" =
   Eio_main.run (fun _env ->
-    let tmp = Filename.temp_file "cascade" ".json" in
-    let oc = open_out tmp in
-    output_string oc {|{"other_models": ["glm:auto"]}|};
-    close_out oc;
-    let (_models, source) = resolve_model_strings_traced ~config_path:tmp
-      ~name:"missing" ~defaults:["fallback:x"] () in
-    Sys.remove tmp;
-    source = Hardcoded_defaults)
+    with_temp_cascade_json {|{"other_models": ["glm:auto"]}|} (fun tmp ->
+      let (_models, source) = resolve_model_strings_traced ~config_path:tmp
+        ~name:"missing" ~defaults:["fallback:x"] () in
+      source = Hardcoded_defaults))
 
 (* ── should_cascade_to_next tests ─────────────────────── *)
 

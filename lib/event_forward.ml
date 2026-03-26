@@ -196,15 +196,18 @@ let start ~sw ~(net : _ Eio.Net.t) ~bus t =
     let sub = Event_bus.subscribe bus in
     Eio.Fiber.fork ~sw (fun () ->
       let batch = ref [] in
+      let batch_len = ref 0 in
       while t.running do
         (* Drain available events *)
         let events = Event_bus.drain sub in
         let payloads = List.map event_to_payload events in
         batch := !batch @ payloads;
-        (* Flush if batch is full *)
-        if List.length !batch >= t.batch_size then begin
+        batch_len := !batch_len + List.length payloads;
+        (* Flush if batch is full — O(1) check via counter *)
+        if !batch_len >= t.batch_size then begin
           deliver_batch t ~sw ~net !batch;
-          batch := []
+          batch := [];
+          batch_len := 0
         end;
         (* Small yield to avoid busy-spinning *)
         Eio.Fiber.yield ()

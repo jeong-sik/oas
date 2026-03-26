@@ -8,12 +8,13 @@ let () = Printexc.record_backtrace true
 
 let tc name f = Alcotest.test_case name `Quick f
 
-let write_temp_file content =
+let with_temp_file content f =
   let path = Filename.temp_file "agent_cfg_" ".json" in
   let oc = open_out path in
   output_string oc content;
   close_out oc;
-  path
+  Fun.protect ~finally:(fun () -> try Sys.remove path with _ -> ())
+    (fun () -> f path)
 
 (* ── of_json: minimal / defaults ─────────────────────────────── *)
 
@@ -224,15 +225,12 @@ let test_mcp_http_non_string_header_value () =
 (* ── load from file ──────────────────────────────────────────── *)
 
 let test_load_valid_file () =
-  let content = {|{"name": "file-agent", "model": "test-model"}|} in
-  let path = write_temp_file content in
-  let r = Agent_config.load path in
-  Sys.remove path;
-  match r with
-  | Error e -> Alcotest.fail ("load: " ^ Error.to_string e)
-  | Ok cfg ->
-    Alcotest.(check string) "name" "file-agent" cfg.name;
-    Alcotest.(check string) "model" "test-model" cfg.model
+  with_temp_file {|{"name": "file-agent", "model": "test-model"}|} (fun path ->
+    match Agent_config.load path with
+    | Error e -> Alcotest.fail ("load: " ^ Error.to_string e)
+    | Ok cfg ->
+      Alcotest.(check string) "name" "file-agent" cfg.name;
+      Alcotest.(check string) "model" "test-model" cfg.model)
 
 let test_load_nonexistent () =
   match Agent_config.load "/tmp/nonexistent_agent_config_99999.json" with
@@ -240,12 +238,10 @@ let test_load_nonexistent () =
   | Ok _ -> Alcotest.fail "expected error for nonexistent file"
 
 let test_load_invalid_json () =
-  let path = write_temp_file "{{not json}" in
-  let r = Agent_config.load path in
-  Sys.remove path;
-  match r with
-  | Error _ -> ()
-  | Ok _ -> Alcotest.fail "expected error for invalid json"
+  with_temp_file "{{not json}" (fun path ->
+    match Agent_config.load path with
+    | Error _ -> ()
+    | Ok _ -> Alcotest.fail "expected error for invalid json")
 
 (* ── resolve_provider ────────────────────────────────────────── *)
 

@@ -222,76 +222,45 @@ let test_load_profile_nonexistent () =
       ~config_path:"/nonexistent/path.json" ~name:"test" in
     Alcotest.(check int) "empty on missing file" 0 (List.length result))
 
-let test_load_profile_valid_file () =
+let with_cascade_temp content f =
   let tmpfile = Filename.temp_file "cascade_test_" ".json" in
-  let json = {|{"my_test_models": ["llama:qwen3.5", "glm:auto"]}|} in
   let oc = open_out tmpfile in
-  output_string oc json;
+  output_string oc content;
   close_out oc;
-  Fun.protect
-    ~finally:(fun () -> try Sys.remove tmpfile with _ -> ())
-    (fun () ->
-      Eio_main.run (fun _env ->
-        let result = Cascade_config.load_profile
-          ~config_path:tmpfile ~name:"my_test" in
-        Alcotest.(check int) "2 models" 2 (List.length result);
-        Alcotest.(check string) "first" "llama:qwen3.5" (List.nth result 0);
-        Alcotest.(check string) "second" "glm:auto" (List.nth result 1)))
+  Fun.protect ~finally:(fun () -> try Sys.remove tmpfile with _ -> ())
+    (fun () -> f tmpfile)
+
+let test_load_profile_valid_file () =
+  with_cascade_temp {|{"my_test_models": ["llama:qwen3.5", "glm:auto"]}|} (fun path ->
+    Eio_main.run (fun _env ->
+      let result = Cascade_config.load_profile ~config_path:path ~name:"my_test" in
+      Alcotest.(check int) "2 models" 2 (List.length result);
+      Alcotest.(check string) "first" "llama:qwen3.5" (List.nth result 0);
+      Alcotest.(check string) "second" "glm:auto" (List.nth result 1)))
 
 let test_load_profile_missing_key () =
-  let tmpfile = Filename.temp_file "cascade_test_" ".json" in
-  let json = {|{"other_models": ["llama:qwen3.5"]}|} in
-  let oc = open_out tmpfile in
-  output_string oc json;
-  close_out oc;
-  Fun.protect
-    ~finally:(fun () -> try Sys.remove tmpfile with _ -> ())
-    (fun () ->
-      Eio_main.run (fun _env ->
-        let result = Cascade_config.load_profile
-          ~config_path:tmpfile ~name:"nonexistent" in
-        Alcotest.(check int) "empty on missing key" 0 (List.length result)))
+  with_cascade_temp {|{"other_models": ["llama:qwen3.5"]}|} (fun path ->
+    Eio_main.run (fun _env ->
+      let result = Cascade_config.load_profile ~config_path:path ~name:"nonexistent" in
+      Alcotest.(check int) "empty on missing key" 0 (List.length result)))
 
 let test_load_profile_non_string_items () =
-  let tmpfile = Filename.temp_file "cascade_test_" ".json" in
-  let json = {|{"mix_models": ["llama:qwen3.5", 42, true, "glm:auto"]}|} in
-  let oc = open_out tmpfile in
-  output_string oc json;
-  close_out oc;
-  Fun.protect
-    ~finally:(fun () -> try Sys.remove tmpfile with _ -> ())
-    (fun () ->
-      Eio_main.run (fun _env ->
-        let result = Cascade_config.load_profile
-          ~config_path:tmpfile ~name:"mix" in
-        Alcotest.(check int) "filters non-strings" 2 (List.length result)))
+  with_cascade_temp {|{"mix_models": ["llama:qwen3.5", 42, true, "glm:auto"]}|} (fun path ->
+    Eio_main.run (fun _env ->
+      let result = Cascade_config.load_profile ~config_path:path ~name:"mix" in
+      Alcotest.(check int) "filters non-strings" 2 (List.length result)))
 
 let test_load_profile_invalid_json () =
-  let tmpfile = Filename.temp_file "cascade_test_" ".json" in
-  let oc = open_out tmpfile in
-  output_string oc "not json at all {{{";
-  close_out oc;
-  Fun.protect
-    ~finally:(fun () -> try Sys.remove tmpfile with _ -> ())
-    (fun () ->
-      Eio_main.run (fun _env ->
-        let result = Cascade_config.load_profile
-          ~config_path:tmpfile ~name:"test" in
-        Alcotest.(check int) "empty on invalid json" 0 (List.length result)))
+  with_cascade_temp "not json at all {{{" (fun path ->
+    Eio_main.run (fun _env ->
+      let result = Cascade_config.load_profile ~config_path:path ~name:"test" in
+      Alcotest.(check int) "empty on invalid json" 0 (List.length result)))
 
 let test_load_profile_not_list () =
-  let tmpfile = Filename.temp_file "cascade_test_" ".json" in
-  let json = {|{"test_models": "not a list"}|} in
-  let oc = open_out tmpfile in
-  output_string oc json;
-  close_out oc;
-  Fun.protect
-    ~finally:(fun () -> try Sys.remove tmpfile with _ -> ())
-    (fun () ->
-      Eio_main.run (fun _env ->
-        let result = Cascade_config.load_profile
-          ~config_path:tmpfile ~name:"test" in
-        Alcotest.(check int) "empty on non-list" 0 (List.length result)))
+  with_cascade_temp {|{"test_models": "not a list"}|} (fun path ->
+    Eio_main.run (fun _env ->
+      let result = Cascade_config.load_profile ~config_path:path ~name:"test" in
+      Alcotest.(check int) "empty on non-list" 0 (List.length result)))
 
 (* ═══════════════════════════════════════════════════
    3. Api_common — constants, helpers, content block JSON

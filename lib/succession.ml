@@ -256,10 +256,10 @@ let metrics_of_json json =
   let open Yojson.Safe.Util in
   { total_turns = json |> member "total_turns" |> to_int_option |> Option.value ~default:0;
     total_tokens_used = json |> member "total_tokens_used" |> to_int_option |> Option.value ~default:0;
-    total_cost_usd = (try json |> member "total_cost_usd" |> to_float with Yojson.Safe.Util.Type_error _ | Not_found -> 0.0);
+    total_cost_usd = json |> member "total_cost_usd" |> to_float_option |> Option.value ~default:0.0;
     tasks_completed = json |> member "tasks_completed" |> to_int_option |> Option.value ~default:0;
     errors_encountered = json |> member "errors_encountered" |> to_int_option |> Option.value ~default:0;
-    elapsed_seconds = (try json |> member "elapsed_seconds" |> to_float with Yojson.Safe.Util.Type_error _ | Not_found -> 0.0);
+    elapsed_seconds = json |> member "elapsed_seconds" |> to_float_option |> Option.value ~default:0.0;
   }
 
 let dna_to_json dna : Yojson.Safe.t =
