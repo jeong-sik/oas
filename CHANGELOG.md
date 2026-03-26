@@ -6,6 +6,7 @@ All notable changes to `agent_sdk` are documented in this file.
 
 ### Changed
 - `Swarm_types.metric_source` now uses `Argv_command of string list` for process metrics, and `Runner.eval_metric` executes argv directly via `Eio.Process.parse_out`.
+  Migration: replace `Shell_command "cmd --flag value"` with `Argv_command ["cmd"; "--flag"; "value"]`.
 
 ### Fixed
 - `scripts/release.sh` now validates version consistency against `lib/sdk_version.ml` and `agent_sdk.opam`, matching the current version single-source-of-truth layout.

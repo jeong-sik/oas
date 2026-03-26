@@ -104,7 +104,7 @@ let test_eval_metric_callback_raises () =
 let test_eval_metric_argv () =
   Eio_main.run @@ fun env ->
   let mgr = Eio.Stdenv.process_mgr env in
-  let metric = Swarm_types.Argv_command ["/usr/bin/printf"; "0.42\n"] in
+  let metric = Swarm_types.Argv_command ["env"; "printf"; "0.42\n"] in
   match Runner.eval_metric ~mgr metric with
   | Ok v -> check_float "argv metric" 0.42 v
   | Error e -> fail (Printf.sprintf "argv metric error: %s" e)
@@ -112,7 +112,7 @@ let test_eval_metric_argv () =
 let test_eval_metric_argv_bad_output () =
   Eio_main.run @@ fun env ->
   let mgr = Eio.Stdenv.process_mgr env in
-  let metric = Swarm_types.Argv_command ["/usr/bin/printf"; "not-a-number\n"] in
+  let metric = Swarm_types.Argv_command ["env"; "printf"; "not-a-number\n"] in
   match Runner.eval_metric ~mgr metric with
   | Ok _ -> fail "expected error for non-numeric output"
   | Error _ -> ()
@@ -123,6 +123,16 @@ let test_eval_metric_argv_empty () =
   match Runner.eval_metric ~mgr (Swarm_types.Argv_command []) with
   | Ok _ -> fail "expected error for empty argv"
   | Error e -> check bool "mentions empty argv" true (String.length e > 0)
+
+let test_eval_metric_argv_quotes_args () =
+  Eio_main.run @@ fun env ->
+  let mgr = Eio.Stdenv.process_mgr env in
+  let metric = Swarm_types.Argv_command ["missing-command-for-swarm-test"; "arg with space"] in
+  match Runner.eval_metric ~mgr metric with
+  | Ok _ -> fail "expected missing command error"
+  | Error e ->
+    check bool "quotes spaced arg" true
+      (Astring.String.is_infix ~affix:"'arg with space'" e)
 
 (* ── Aggregate tests ─────────────────────────────────────────────── *)
 
@@ -793,6 +803,7 @@ let () =
       test_case "eval_argv" `Quick test_eval_metric_argv;
       test_case "eval_argv_bad_output" `Quick test_eval_metric_argv_bad_output;
       test_case "eval_argv_empty" `Quick test_eval_metric_argv_empty;
+      test_case "eval_argv_quotes_args" `Quick test_eval_metric_argv_quotes_args;
     ];
     "aggregate", [
       test_case "best_score" `Quick test_aggregate_best_score;

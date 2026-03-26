@@ -106,7 +106,7 @@ let test_eval_metric_callback_exception () =
 let test_eval_metric_argv_success () =
   Eio_main.run @@ fun env ->
   let mgr = Eio.Stdenv.process_mgr env in
-  let metric = Argv_command ["/usr/bin/printf"; "1.23\n"] in
+  let metric = Argv_command ["env"; "printf"; "1.23\n"] in
   match Runner.eval_metric ~mgr metric with
   | Ok v -> check_float "argv" 1.23 v
   | Error e -> fail e
@@ -114,7 +114,7 @@ let test_eval_metric_argv_success () =
 let test_eval_metric_argv_non_float () =
   Eio_main.run @@ fun env ->
   let mgr = Eio.Stdenv.process_mgr env in
-  let metric = Argv_command ["/usr/bin/printf"; "hello\n"] in
+  let metric = Argv_command ["env"; "printf"; "hello\n"] in
   match Runner.eval_metric ~mgr metric with
   | Ok _ -> fail "expected error"
   | Error _ -> ()
@@ -122,7 +122,7 @@ let test_eval_metric_argv_non_float () =
 let test_eval_metric_argv_failure () =
   Eio_main.run @@ fun env ->
   let mgr = Eio.Stdenv.process_mgr env in
-  let metric = Argv_command ["/usr/bin/false"] in
+  let metric = Argv_command ["env"; "false"] in
   match Runner.eval_metric ~mgr metric with
   | Ok _ -> fail "expected error"
   | Error _ -> ()
@@ -133,6 +133,15 @@ let test_eval_metric_argv_empty () =
   match Runner.eval_metric ~mgr (Argv_command []) with
   | Ok _ -> fail "expected error"
   | Error _ -> ()
+
+let test_eval_metric_argv_quotes_args () =
+  Eio_main.run @@ fun env ->
+  let mgr = Eio.Stdenv.process_mgr env in
+  match Runner.eval_metric ~mgr (Argv_command ["missing-command-for-swarm-test"; "arg with space"]) with
+  | Ok _ -> fail "expected error"
+  | Error e ->
+    check bool "quotes spaced arg" true
+      (Astring.String.is_infix ~affix:"'arg with space'" e)
 
 (* ── Single-pass decentralized ────────────────────────────── *)
 
@@ -426,6 +435,7 @@ let () =
       test_case "argv non-float" `Quick test_eval_metric_argv_non_float;
       test_case "argv failure" `Quick test_eval_metric_argv_failure;
       test_case "argv empty" `Quick test_eval_metric_argv_empty;
+      test_case "argv quotes args" `Quick test_eval_metric_argv_quotes_args;
     ];
     "single_pass", [
       test_case "decentralized" `Quick test_single_pass_decentralized;
