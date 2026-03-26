@@ -1,10 +1,14 @@
 (** Cross-turn shared state for agent execution.
     Inspired by Google ADK's session.state pattern.
 
-    Uses Hashtbl internally -- mutable, safe within a single Eio domain.
+    Uses Hashtbl internally, protected by Eio.Mutex for safe concurrent
+    access from parallel tool-execution fibers.
     Values are Yojson.Safe.t for flexibility while maintaining serializability. *)
 
-type t = (string, Yojson.Safe.t) Hashtbl.t
+type t = {
+  mu: Eio.Mutex.t;
+  tbl: (string, Yojson.Safe.t) Hashtbl.t;
+}
 type scope =
   | App
   | User
@@ -18,23 +22,29 @@ type diff = {
   changed: (string * Yojson.Safe.t) list;
 }
 
-let create () : t = Hashtbl.create 16
+let create () : t =
+  { mu = Eio.Mutex.create (); tbl = Hashtbl.create 16 }
+
+let with_lock ctx f =
+  Eio.Mutex.use_rw ~protect:true ctx.mu f
 
 let get (ctx : t) key =
-  Hashtbl.find_opt ctx key
+  with_lock ctx (fun () -> Hashtbl.find_opt ctx.tbl key)
 
 let set (ctx : t) key value =
-  Hashtbl.replace ctx key value
+  with_lock ctx (fun () -> Hashtbl.replace ctx.tbl key value)
 
 let delete (ctx : t) key =
-  Hashtbl.remove ctx key
+  with_lock ctx (fun () -> Hashtbl.remove ctx.tbl key)
 
 let keys (ctx : t) =
-  Hashtbl.fold (fun k _ acc -> k :: acc) ctx []
+  with_lock ctx (fun () ->
+    Hashtbl.fold (fun k _ acc -> k :: acc) ctx.tbl [])
 
 let snapshot (ctx : t) =
-  Hashtbl.fold (fun k v acc -> (k, v) :: acc) ctx []
-  |> List.sort (fun (a, _) (b, _) -> String.compare a b)
+  with_lock ctx (fun () ->
+    Hashtbl.fold (fun k v acc -> (k, v) :: acc) ctx.tbl []
+    |> List.sort (fun (a, _) (b, _) -> String.compare a b))
 
 let scope_prefix = function
   | App -> "app:"
@@ -62,18 +72,20 @@ let delete_scoped (ctx : t) scope key =
 let keys_in_scope (ctx : t) scope =
   let prefix = scope_prefix scope in
   let prefix_len = String.length prefix in
-  keys ctx
-  |> List.filter_map (fun key ->
-         if String.length key >= prefix_len
-            && String.sub key 0 prefix_len = prefix
-         then
-           Some (String.sub key prefix_len (String.length key - prefix_len))
-         else
-           None)
-  |> List.sort String.compare
+  with_lock ctx (fun () ->
+    Hashtbl.fold (fun k _ acc -> k :: acc) ctx.tbl []
+    |> List.filter_map (fun key ->
+           if String.length key >= prefix_len
+              && String.sub key 0 prefix_len = prefix
+           then
+             Some (String.sub key prefix_len (String.length key - prefix_len))
+           else
+             None)
+    |> List.sort String.compare)
 
 let merge (ctx : t) (pairs : (string * Yojson.Safe.t) list) =
-  List.iter (fun (k, v) -> Hashtbl.replace ctx k v) pairs
+  with_lock ctx (fun () ->
+    List.iter (fun (k, v) -> Hashtbl.replace ctx.tbl k v) pairs)
 
 let diff before after =
   let before_snapshot = snapshot before in
@@ -108,14 +120,16 @@ let to_json (ctx : t) : Yojson.Safe.t =
 let of_json (json : Yojson.Safe.t) : t =
   let ctx = create () in
   (match json with
-   | `Assoc pairs -> List.iter (fun (k, v) -> Hashtbl.replace ctx k v) pairs
+   | `Assoc pairs ->
+       List.iter (fun (k, v) -> Hashtbl.replace ctx.tbl k v) pairs
    | _ -> ());
   ctx
 
 let copy (ctx : t) : t =
-  let new_ctx = create () in
-  Hashtbl.iter (fun k v -> Hashtbl.replace new_ctx k v) ctx;
-  new_ctx
+  with_lock ctx (fun () ->
+    let new_ctx = create () in
+    Hashtbl.iter (fun k v -> Hashtbl.replace new_ctx.tbl k v) ctx.tbl;
+    new_ctx)
 
 (* ── Scoped isolation for sub-agent delegation ───────────────── *)
 
@@ -132,24 +146,33 @@ type isolated_scope = {
 }
 
 (** Create an isolated scope from a parent context.
-    Only keys listed in [propagate_down] are copied to the local context. *)
+    Only keys listed in [propagate_down] are copied to the local context.
+    Reads from parent under lock, then populates new local context. *)
 let create_scope ~parent ~propagate_down ~propagate_up =
   let local = create () in
-  List.iter (fun key ->
-    match get parent key with
-    | Some v -> set local key v
-    | None -> ()
-  ) propagate_down;
+  let pairs = with_lock parent (fun () ->
+    List.filter_map (fun key ->
+      match Hashtbl.find_opt parent.tbl key with
+      | Some v -> Some (key, v)
+      | None -> None
+    ) propagate_down) in
+  List.iter (fun (k, v) -> Hashtbl.replace local.tbl k v) pairs;
   { parent; local; propagate_up; propagate_down }
 
 (** Merge specified keys from the local context back into the parent.
-    Only keys listed in [propagate_up] are merged. *)
+    Only keys listed in [propagate_up] are merged.
+    Collects local values, then writes to parent under a single lock. *)
 let merge_back scope =
-  List.iter (fun key ->
-    match get scope.local key with
-    | Some v -> set scope.parent key v
-    | None -> ()
-  ) scope.propagate_up
+  let pairs = with_lock scope.local (fun () ->
+    List.filter_map (fun key ->
+      match Hashtbl.find_opt scope.local.tbl key with
+      | Some v -> Some (key, v)
+      | None -> None
+    ) scope.propagate_up) in
+  with_lock scope.parent (fun () ->
+    List.iter (fun (k, v) ->
+      Hashtbl.replace scope.parent.tbl k v
+    ) pairs)
 
 (* ── User data convenience API ─────────────────────────────── *)
 
@@ -165,11 +188,12 @@ let delete_user_data (ctx : t) key =
 let all_user_data (ctx : t) =
   let prefix = scope_prefix User in
   let prefix_len = String.length prefix in
-  snapshot ctx
-  |> List.filter_map (fun (key, value) ->
-       if String.length key >= prefix_len
-          && String.sub key 0 prefix_len = prefix
-       then
-         Some (String.sub key prefix_len (String.length key - prefix_len), value)
-       else
-         None)
+  with_lock ctx (fun () ->
+    Hashtbl.fold (fun k v acc -> (k, v) :: acc) ctx.tbl []
+    |> List.filter_map (fun (key, value) ->
+         if String.length key >= prefix_len
+            && String.sub key 0 prefix_len = prefix
+         then
+           Some (String.sub key prefix_len (String.length key - prefix_len), value)
+         else
+           None))
