@@ -3,6 +3,13 @@
     Wraps Eio + cohttp-eio with TLS. All network and HTTP-level errors
     are captured as {!http_error} so callers do not need [try/with].
 
+    Each synchronous request runs inside its own [Eio.Switch.run] scope
+    so the underlying TCP connection and its file descriptor are released
+    as soon as the response body is fully consumed.  Without this,
+    connections accumulate for the lifetime of the caller's switch —
+    typically the server's main switch — eventually exhausting OS file
+    descriptors.
+
     @since 0.45.0 *)
 
 type http_error =
@@ -27,11 +34,66 @@ let catch_network f =
 
 (* ── Public API ────────────────────────────────────────────── *)
 
-let get_sync ~sw ~net ~url ~headers =
+let add_connection_close headers =
+  ("connection", "close") :: headers
+
+(** Client wrapper that tracks the socket for explicit close.
+    cohttp-eio's [Eio.Switch] cleanup does not reliably call
+    [Unix.close] on the underlying socket fd (observed on macOS,
+    cohttp-eio 6.1.1).  We intercept the connection factory via
+    [make_generic] to capture the socket, then close it explicitly
+    when the switch exits. *)
+let make_closing_client ~sw ~net =
+  let net = (net :> [ `Generic ] Eio.Net.ty Eio.Resource.t) in
+  let https = Api_common.make_https () in
+  (* Track the raw socket separately for explicit close.
+     The socket fd is the resource that leaks; closing it releases the fd. *)
+  let last_sock :
+    [ `Generic ] Eio.Net.stream_socket_ty Eio.Resource.t option ref =
+    ref None
+  in
+  let connect ~sw:conn_sw uri =
+    let service =
+      match Uri.port uri with
+      | Some port -> Int.to_string port
+      | _ -> Uri.scheme uri |> Option.value ~default:"http"
+    in
+    let addr =
+      match
+        Eio.Net.getaddrinfo_stream ~service net
+          (Uri.host_with_default ~default:"localhost" uri)
+      with
+      | ip :: _ -> ip
+      | [] -> failwith "failed to resolve hostname"
+    in
+    let sock = Eio.Net.connect ~sw:conn_sw net addr in
+    last_sock := Some sock;
+    let result : Eio.Flow.two_way_ty Eio.Resource.t =
+      match Uri.scheme uri with
+      | Some "https" -> (
+          match https with
+          | Some wrap ->
+              (wrap uri sock :> Eio.Flow.two_way_ty Eio.Resource.t)
+          | None -> failwith "HTTPS not enabled")
+      | _ -> (sock :> Eio.Flow.two_way_ty Eio.Resource.t)
+    in
+    result
+  in
+  let client = Cohttp_eio.Client.make_generic connect in
+  Eio.Switch.on_release sw (fun () ->
+    match !last_sock with
+    | None -> ()
+    | Some sock ->
+        last_sock := None;
+        (try Eio.Net.close sock with _ -> ()));
+  client
+
+let get_sync ~sw:_ ~net ~url ~headers =
   catch_network (fun () ->
+    Eio.Switch.run @@ fun sw ->
+    let client = make_closing_client ~sw ~net in
     let uri = Uri.of_string url in
-    let client = make_client ~net in
-    let hdr = Http.Header.of_list headers in
+    let hdr = Http.Header.of_list (add_connection_close headers) in
     let resp, resp_body =
       Cohttp_eio.Client.get ~sw client ~headers:hdr uri
     in
@@ -42,11 +104,12 @@ let get_sync ~sw ~net ~url ~headers =
                        resp_body |> take_all) in
     Ok (code, body_str))
 
-let post_sync ~sw ~net ~url ~headers ~body =
+let post_sync ~sw:_ ~net ~url ~headers ~body =
   catch_network (fun () ->
+    Eio.Switch.run @@ fun sw ->
+    let client = make_closing_client ~sw ~net in
     let uri = Uri.of_string url in
-    let client = make_client ~net in
-    let hdr = Http.Header.of_list headers in
+    let hdr = Http.Header.of_list (add_connection_close headers) in
     let resp, resp_body =
       Cohttp_eio.Client.post ~sw client ~headers:hdr
         ~body:(Cohttp_eio.Body.of_string body) uri
@@ -70,6 +133,29 @@ let post_stream ~sw ~net ~url ~headers ~body =
     match Cohttp.Response.status resp with
     | `OK ->
         Ok (Eio.Buf_read.of_flow ~max_size:Api_common.max_response_body resp_body)
+    | status ->
+        let code = Cohttp.Code.code_of_status status in
+        let body_str =
+          Eio.Buf_read.(of_flow ~max_size:Api_common.max_response_body
+                           resp_body |> take_all) in
+        Error (HttpError { code; body = body_str }))
+
+let with_post_stream ~net ~url ~headers ~body ~f =
+  catch_network (fun () ->
+    Eio.Switch.run @@ fun sw ->
+    let client = make_closing_client ~sw ~net in
+    let uri = Uri.of_string url in
+    let hdr = Http.Header.of_list (add_connection_close headers) in
+    let resp, resp_body =
+      Cohttp_eio.Client.post ~sw client ~headers:hdr
+        ~body:(Cohttp_eio.Body.of_string body) uri
+    in
+    match Cohttp.Response.status resp with
+    | `OK ->
+        let reader =
+          Eio.Buf_read.of_flow ~max_size:Api_common.max_response_body resp_body
+        in
+        Ok (f reader)
     | status ->
         let code = Cohttp.Code.code_of_status status in
         let body_str =

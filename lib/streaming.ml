@@ -168,25 +168,25 @@ let create_message_stream ~sw ~net ?(base_url=Api.default_base_url)
                ~stream:true () in
            let body = Yojson.Safe.to_string (`Assoc body_assoc) in
            let url = base_url ^ "/v1/messages" in
-           (match Llm_provider.Http_client.post_stream
-                    ~sw ~net ~url ~headers ~body with
+           (match Llm_provider.Http_client.with_post_stream
+                    ~net ~url ~headers ~body
+                    ~f:(fun reader ->
+                      let acc = create_stream_acc () in
+                      Llm_provider.Http_client.read_sse ~reader
+                        ~on_data:(fun ~event_type data ->
+                          if data <> "[DONE]" then
+                            match parse_sse_event event_type data with
+                            | None -> ()
+                            | Some evt ->
+                                on_event evt; accumulate_event acc evt
+                        ) ();
+                      on_event MessageStop;
+                      finalize_stream_acc acc) with
             | Error e -> Error (map_http_error e)
-            | Ok reader ->
-                let acc = create_stream_acc () in
-                Llm_provider.Http_client.read_sse ~reader
-                  ~on_data:(fun ~event_type data ->
-                    if data <> "[DONE]" then
-                      match parse_sse_event event_type data with
-                      | None -> ()
-                      | Some evt ->
-                          on_event evt; accumulate_event acc evt
-                  ) ();
-                on_event MessageStop;
-                (match finalize_stream_acc acc with
-                | Ok resp -> Ok resp
-                | Error msg ->
-                    Error (Error.Api (Retry.NetworkError {
-                      message = Printf.sprintf "SSE stream error: %s" msg }))))
+            | Ok (Ok resp) -> Ok resp
+            | Ok (Error msg) ->
+                Error (Error.Api (Retry.NetworkError {
+                  message = Printf.sprintf "SSE stream error: %s" msg })))
        | Provider.Openai_chat_completions ->
            (* OpenAI-compatible SSE streaming. *)
            let headers = match Provider.resolve provider_cfg with
@@ -201,43 +201,43 @@ let create_message_stream ~sw ~net ?(base_url=Api.default_base_url)
              |> Llm_provider.Http_client.inject_stream_param
            in
            let url = base_url ^ stream_path in
-           (match Llm_provider.Http_client.post_stream
-                    ~sw ~net ~url ~headers ~body with
+           (match Llm_provider.Http_client.with_post_stream
+                    ~net ~url ~headers ~body
+                    ~f:(fun reader ->
+                      let acc = create_stream_acc () in
+                      let oai_state =
+                        Llm_provider.Streaming.create_openai_stream_state () in
+                      let msg_started = ref false in
+                      Llm_provider.Http_client.read_sse ~reader
+                        ~on_data:(fun ~event_type:_ data ->
+                          if data = "[DONE]" then ()
+                          else
+                            match Llm_provider.Streaming.parse_openai_sse_chunk
+                                    data with
+                            | None -> ()
+                            | Some chunk ->
+                                if not !msg_started then begin
+                                  msg_started := true;
+                                  let evt = MessageStart {
+                                    id = chunk.chunk_id;
+                                    model = chunk.chunk_model;
+                                    usage = None } in
+                                  on_event evt;
+                                  accumulate_event acc evt
+                                end;
+                                List.iter (fun evt ->
+                                  on_event evt;
+                                  accumulate_event acc evt
+                                ) (Llm_provider.Streaming.openai_chunk_to_events
+                                     oai_state chunk)
+                        ) ();
+                      on_event MessageStop;
+                      finalize_stream_acc acc) with
             | Error e -> Error (map_http_error e)
-            | Ok reader ->
-                let acc = create_stream_acc () in
-                let oai_state =
-                  Llm_provider.Streaming.create_openai_stream_state () in
-                let msg_started = ref false in
-                Llm_provider.Http_client.read_sse ~reader
-                  ~on_data:(fun ~event_type:_ data ->
-                    if data = "[DONE]" then ()
-                    else
-                      match Llm_provider.Streaming.parse_openai_sse_chunk
-                              data with
-                      | None -> ()
-                      | Some chunk ->
-                          if not !msg_started then begin
-                            msg_started := true;
-                            let evt = MessageStart {
-                              id = chunk.chunk_id;
-                              model = chunk.chunk_model;
-                              usage = None } in
-                            on_event evt;
-                            accumulate_event acc evt
-                          end;
-                          List.iter (fun evt ->
-                            on_event evt;
-                            accumulate_event acc evt
-                          ) (Llm_provider.Streaming.openai_chunk_to_events
-                               oai_state chunk)
-                  ) ();
-                on_event MessageStop;
-                (match finalize_stream_acc acc with
-                | Ok resp -> Ok resp
-                | Error msg ->
-                    Error (Error.Api (Retry.NetworkError {
-                      message = Printf.sprintf "SSE stream error: %s" msg }))))
+            | Ok (Ok resp) -> Ok resp
+            | Ok (Error msg) ->
+                Error (Error.Api (Retry.NetworkError {
+                  message = Printf.sprintf "SSE stream error: %s" msg })))
        | Provider.Custom _ ->
            (* Sync fallback: non-streaming call + synthetic events *)
            (match Api.create_message ~sw ~net ~base_url
