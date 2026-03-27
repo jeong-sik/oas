@@ -163,6 +163,7 @@ module Mode_resolver = Mode_resolver
 module Proof_store = Proof_store
 module Proof_capture = Proof_capture
 module Contract_runner = Contract_runner
+module Mode_enforcer = Mode_enforcer
 
 (** Quick start: create an agent with default config *)
 let create_agent ~net ?name ?model ?system_prompt ?max_tokens ?max_turns

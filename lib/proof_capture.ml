@@ -18,6 +18,7 @@ type state = {
   mutable provider_snapshot: Cdal_proof.provider_snapshot;
   mutable pending_tool: (float * string * Yojson.Safe.t) option;
   mutable trace_count: int;
+  mutable enforcer: Mode_enforcer.state option;
 }
 
 let generate_run_id () =
@@ -43,9 +44,11 @@ let create ~store ~contract ~mode_decision ~capability_snapshot =
     };
     pending_tool = None;
     trace_count = 0;
+    enforcer = None;
   }
 
 let run_id st = st.run_id
+let set_enforcer st e = st.enforcer <- Some e
 
 let flush_trace st entry =
   st.trace_count <- st.trace_count + 1;
@@ -145,6 +148,54 @@ let hooks st =
     pre_compact = None;
   }
 
+let collect_evidence_refs st =
+  match st.enforcer with
+  | None -> []
+  | Some enforcer ->
+    let refs = ref [] in
+    let violations = Mode_enforcer.violations enforcer in
+    if violations <> [] then begin
+      let json = `List (List.map (fun (v : Mode_enforcer.violation) ->
+        `Assoc [
+          "ts", `Float v.ts;
+          "tool_name", `String v.tool_name;
+          "input_summary", `String v.input_summary;
+          "effective_mode", Execution_mode.to_yojson v.effective_mode;
+          "violation_kind", `String v.violation_kind;
+        ]) violations) in
+      Proof_store.write_evidence st.store ~run_id:st.run_id
+        ~ref_id:"mode_violations" json;
+      refs := Proof_store.make_ref ~run_id:st.run_id
+        ~subpath:"evidence/mode_violations.json" :: !refs
+    end;
+    let snapshots = Mode_enforcer.token_snapshots enforcer in
+    if snapshots <> [] then begin
+      let json = `List (List.map (fun (s : Mode_enforcer.token_snapshot) ->
+        `Assoc [
+          "turn", `Int s.turn;
+          "input_tokens", `Int s.input_tokens;
+          "output_tokens", `Int s.output_tokens;
+          "cost_usd", (match s.cost_usd with Some c -> `Float c | None -> `Null);
+        ]) snapshots) in
+      Proof_store.write_evidence st.store ~run_id:st.run_id
+        ~ref_id:"token_usage" json;
+      refs := Proof_store.make_ref ~run_id:st.run_id
+        ~subpath:"evidence/token_usage.json" :: !refs
+    end;
+    (match Mode_enforcer.review_warning enforcer with
+     | Some warning ->
+       let json = `Assoc [
+         "warning", `String warning;
+         "effective_mode", Execution_mode.to_yojson
+           st.mode_decision.effective_mode;
+       ] in
+       Proof_store.write_evidence st.store ~run_id:st.run_id
+         ~ref_id:"review_warning" json;
+       refs := Proof_store.make_ref ~run_id:st.run_id
+         ~subpath:"evidence/review_warning.json" :: !refs
+     | None -> ());
+    List.rev !refs
+
 let finalize st ~result_status =
   complete_pending_tool st ~output:None ~error:None;
   let now = Unix.gettimeofday () in
@@ -169,7 +220,7 @@ let finalize st ~result_status =
     provider_snapshot = st.provider_snapshot;
     capability_snapshot = st.capability_snapshot;
     tool_trace_refs;
-    raw_evidence_refs = [];
+    raw_evidence_refs = collect_evidence_refs st;
     checkpoint_ref = None;
     result_status;
     started_at = st.started_at;
