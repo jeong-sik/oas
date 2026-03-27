@@ -19,6 +19,7 @@ let response_with_usage ?(id="resp-u") ?(model="test-model") content =
       input_tokens = 100; output_tokens = 50;
       cache_creation_input_tokens = 20;
       cache_read_input_tokens = 10;
+      cost_usd = None
     } }
 
 (* ── request_fingerprint ─────────────────────────────────── *)
@@ -171,6 +172,27 @@ let test_roundtrip_with_usage () =
        Alcotest.(check int) "cache_read" 10 u.cache_read_input_tokens
      | None -> Alcotest.fail "expected usage")
   | None -> Alcotest.fail "roundtrip failed"
+
+let test_roundtrip_with_usage_cost () =
+  let resp = {
+    id = "resp-cost";
+    model = "claude-sonnet-4-6";
+    stop_reason = EndTurn;
+    content = [Text "hi"];
+    usage = Some {
+      input_tokens = 100;
+      output_tokens = 50;
+      cache_creation_input_tokens = 20;
+      cache_read_input_tokens = 10;
+      cost_usd = Some 0.1234;
+    };
+  } in
+  let json = Cache.response_to_json resp in
+  match Cache.response_of_json json with
+  | Some { usage = Some u; _ } ->
+      Alcotest.(check (option (float 0.0001))) "cost roundtrip"
+        (Some 0.1234) u.cost_usd
+  | _ -> Alcotest.fail "expected usage with cost"
 
 let test_roundtrip_no_usage () =
   let resp = simple_response [Text "no usage"] in
@@ -425,6 +447,7 @@ let () =
     ];
     "roundtrip_usage", [
       Alcotest.test_case "with usage" `Quick test_roundtrip_with_usage;
+      Alcotest.test_case "with usage cost" `Quick test_roundtrip_with_usage_cost;
       Alcotest.test_case "no usage" `Quick test_roundtrip_no_usage;
     ];
     "deserialization_errors", [

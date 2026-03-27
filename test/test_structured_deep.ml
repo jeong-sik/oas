@@ -318,6 +318,7 @@ let test_retry_result_type () =
       output_tokens = 50;
       cache_creation_input_tokens = 10;
       cache_read_input_tokens = 5;
+      cost_usd = None
     };
     attempts = 2;
   } in

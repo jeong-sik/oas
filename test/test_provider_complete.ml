@@ -169,6 +169,25 @@ let test_cascade_type () =
   Alcotest.(check string) "fallback model" "qwen3.5"
     (List.hd casc.fallbacks).model_id
 
+let test_annotate_response_cost () =
+  let response : api_response = {
+    id = "resp-1";
+    model = "claude-sonnet-4-6";
+    stop_reason = EndTurn;
+    content = [Text "ok"];
+    usage = Some {
+      input_tokens = 1_000;
+      output_tokens = 500;
+      cache_creation_input_tokens = 0;
+      cache_read_input_tokens = 0;
+      cost_usd = None;
+    };
+  } in
+  match Llm_provider.Pricing.annotate_response_cost response with
+  | { usage = Some { cost_usd = Some cost; _ }; _ } ->
+      Alcotest.(check bool) "annotated cost" true (cost > 0.0)
+  | _ -> Alcotest.fail "expected annotated response cost"
+
 (* ── Stream accumulator ──────────────────────────────── *)
 
 let test_stream_acc_text () =
@@ -177,7 +196,7 @@ let test_stream_acc_text () =
     MessageStart { id = "msg_123"; model = "claude-sonnet-4-6";
                    usage = Some { input_tokens = 10; output_tokens = 0;
                                   cache_creation_input_tokens = 0;
-                                  cache_read_input_tokens = 0 } };
+                                  cache_read_input_tokens = 0 ; cost_usd = None } };
     ContentBlockStart { index = 0; content_type = "text";
                         tool_id = None; tool_name = None };
     ContentBlockDelta { index = 0; delta = TextDelta "Hello " };
@@ -186,7 +205,7 @@ let test_stream_acc_text () =
     MessageDelta { stop_reason = Some EndTurn;
                    usage = Some { input_tokens = 0; output_tokens = 5;
                                   cache_creation_input_tokens = 0;
-                                  cache_read_input_tokens = 0 } };
+                                  cache_read_input_tokens = 0 ; cost_usd = None } };
     MessageStop;
   ] in
   (* Use the internal accumulator via a module alias *)
@@ -303,6 +322,7 @@ let () =
     ];
     "cascade", [
       test_case "cascade type" `Quick test_cascade_type;
+      test_case "annotate response cost" `Quick test_annotate_response_cost;
     ];
     "stream_acc", [
       test_case "text events" `Quick test_stream_acc_text;

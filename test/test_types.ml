@@ -89,6 +89,7 @@ let test_add_usage () =
   let u : Types.api_usage = {
     input_tokens = 10; output_tokens = 20;
     cache_creation_input_tokens = 5; cache_read_input_tokens = 3;
+    cost_usd = None
   } in
   let result = Types.add_usage stats u in
   Alcotest.(check int) "input" 10 result.total_input_tokens;
@@ -101,10 +102,12 @@ let test_add_usage_accumulates () =
   let u1 : Types.api_usage = {
     input_tokens = 10; output_tokens = 5;
     cache_creation_input_tokens = 0; cache_read_input_tokens = 0;
+    cost_usd = None
   } in
   let u2 : Types.api_usage = {
     input_tokens = 20; output_tokens = 15;
     cache_creation_input_tokens = 3; cache_read_input_tokens = 7;
+    cost_usd = None
   } in
   let stats = Types.add_usage Types.empty_usage u1 in
   let stats = Types.add_usage stats u2 in

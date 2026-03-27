@@ -8,7 +8,7 @@ open Types
 let make_usage ?(cache_create=0) ?(cache_read=0) inp out =
   { input_tokens = inp; output_tokens = out;
     cache_creation_input_tokens = cache_create;
-    cache_read_input_tokens = cache_read }
+    cache_read_input_tokens = cache_read ; cost_usd = None }
 
 let acc_events acc events =
   List.iter (Streaming.accumulate_event acc) events
@@ -145,7 +145,7 @@ let test_accumulate_message_delta_cache_update () =
     (MessageDelta { stop_reason = Some EndTurn;
                     usage = Some { input_tokens = 0; output_tokens = 50;
                                    cache_creation_input_tokens = 25;
-                                   cache_read_input_tokens = 10 } });
+                                   cache_read_input_tokens = 10 ; cost_usd = None } });
   Alcotest.(check int) "cache_creation updated" 25 !(acc.cache_creation);
   Alcotest.(check int) "cache_read updated" 10 !(acc.cache_read)
 

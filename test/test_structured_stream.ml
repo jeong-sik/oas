@@ -44,7 +44,7 @@ let make_tool_response ~tool_id ~tool_name ~input_json =
     stop_reason = StopToolUse;
     content = [ToolUse { id = tool_id; name = tool_name; input = input_json }];
     usage = Some { input_tokens = 50; output_tokens = 20;
-                   cache_creation_input_tokens = 0; cache_read_input_tokens = 0 } }
+                   cache_creation_input_tokens = 0; cache_read_input_tokens = 0 ; cost_usd = None } }
 
 (** Build a proper SSE data JSON for an InputJsonDelta event.
     Uses Yojson to handle escaping correctly. *)
@@ -106,7 +106,7 @@ let test_on_event_callback_fires () =
       stop_reason = StopToolUse;
       content = [Text "thinking..."; ToolUse { id = "tu_2"; name = "extract_person"; input = input_json }];
       usage = Some { input_tokens = 100; output_tokens = 50;
-                     cache_creation_input_tokens = 0; cache_read_input_tokens = 0 } }
+                     cache_creation_input_tokens = 0; cache_read_input_tokens = 0 ; cost_usd = None } }
   in
   let event_types = ref [] in
   Streaming.emit_synthetic_events response (fun e ->

@@ -376,6 +376,7 @@ let test_accumulate_usage_with_response () =
   let resp_usage = Some {
     Types.input_tokens = 100; output_tokens = 50;
     cache_creation_input_tokens = 20; cache_read_input_tokens = 10;
+    cost_usd = None
   } in
   let result = Agent_turn.accumulate_usage
     ~current_usage:current ~provider:None ~response_usage:resp_usage in
@@ -396,10 +397,12 @@ let test_accumulate_usage_cumulative () =
   let u1 = Some {
     Types.input_tokens = 50; output_tokens = 20;
     cache_creation_input_tokens = 0; cache_read_input_tokens = 0;
+    cost_usd = None
   } in
   let u2 = Some {
     Types.input_tokens = 30; output_tokens = 10;
     cache_creation_input_tokens = 0; cache_read_input_tokens = 0;
+    cost_usd = None
   } in
   let after1 = Agent_turn.accumulate_usage
     ~current_usage:Types.empty_usage ~provider:None ~response_usage:u1 in

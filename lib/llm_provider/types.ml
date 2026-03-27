@@ -126,6 +126,7 @@ type api_usage = {
   output_tokens: int;
   cache_creation_input_tokens: int;
   cache_read_input_tokens: int;
+  cost_usd: float option;
 }
 [@@deriving show]
 
@@ -206,7 +207,8 @@ let zero_api_usage =
   { input_tokens = 0;
     output_tokens = 0;
     cache_creation_input_tokens = 0;
-    cache_read_input_tokens = 0 }
+    cache_read_input_tokens = 0;
+    cost_usd = None }
 
 let usage_of_response (resp : api_response) =
   match resp.usage with Some u -> u | None -> zero_api_usage

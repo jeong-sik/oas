@@ -37,7 +37,7 @@ let test_acc_message_start_with_usage () =
   let acc = Streaming.create_stream_acc () in
   let usage = Some { input_tokens = 100; output_tokens = 0;
                      cache_creation_input_tokens = 25;
-                     cache_read_input_tokens = 10 } in
+                     cache_read_input_tokens = 10 ; cost_usd = None } in
   Streaming.accumulate_event acc
     (MessageStart { id = "msg_1"; model = "claude-test"; usage });
   let resp = finalize_ok acc in
@@ -147,7 +147,7 @@ let test_acc_message_delta_with_usage () =
   let acc = Streaming.create_stream_acc () in
   let usage = Some { input_tokens = 0; output_tokens = 200;
                      cache_creation_input_tokens = 30;
-                     cache_read_input_tokens = 15 } in
+                     cache_read_input_tokens = 15 ; cost_usd = None } in
   Streaming.accumulate_event acc
     (MessageDelta { stop_reason = Some EndTurn; usage });
   let resp = finalize_ok acc in
@@ -162,7 +162,7 @@ let test_acc_message_delta_with_zero_cache () =
   let acc = Streaming.create_stream_acc () in
   let usage = Some { input_tokens = 0; output_tokens = 100;
                      cache_creation_input_tokens = 0;
-                     cache_read_input_tokens = 0 } in
+                     cache_read_input_tokens = 0 ; cost_usd = None } in
   Streaming.accumulate_event acc
     (MessageDelta { stop_reason = Some EndTurn; usage });
   let resp = finalize_ok acc in
@@ -316,7 +316,7 @@ let test_finalize_usage_only_cache_creation () =
   let acc = Streaming.create_stream_acc () in
   let usage = Some { input_tokens = 0; output_tokens = 0;
                      cache_creation_input_tokens = 50;
-                     cache_read_input_tokens = 0 } in
+                     cache_read_input_tokens = 0 ; cost_usd = None } in
   Streaming.accumulate_event acc
     (MessageStart { id = "m"; model = "m"; usage });
   let resp = finalize_ok acc in
@@ -328,7 +328,7 @@ let test_finalize_usage_only_cache_read () =
   let acc = Streaming.create_stream_acc () in
   let usage = Some { input_tokens = 0; output_tokens = 0;
                      cache_creation_input_tokens = 0;
-                     cache_read_input_tokens = 20 } in
+                     cache_read_input_tokens = 20 ; cost_usd = None } in
   Streaming.accumulate_event acc
     (MessageStart { id = "m"; model = "m"; usage });
   let resp = finalize_ok acc in
@@ -344,7 +344,7 @@ let test_full_anthropic_sequence () =
     MessageStart { id = "msg_full"; model = "claude-sonnet-4";
                    usage = Some { input_tokens = 50; output_tokens = 0;
                                   cache_creation_input_tokens = 0;
-                                  cache_read_input_tokens = 0 } };
+                                  cache_read_input_tokens = 0 ; cost_usd = None } };
     ContentBlockStart { index = 0; content_type = "thinking";
                         tool_id = None; tool_name = None };
     ContentBlockDelta { index = 0; delta = ThinkingDelta "analyzing..." };
@@ -357,7 +357,7 @@ let test_full_anthropic_sequence () =
     MessageDelta { stop_reason = Some EndTurn;
                    usage = Some { input_tokens = 0; output_tokens = 30;
                                   cache_creation_input_tokens = 0;
-                                  cache_read_input_tokens = 0 } };
+                                  cache_read_input_tokens = 0 ; cost_usd = None } };
     MessageStop;
   ] in
   List.iter (Streaming.accumulate_event acc) events;
@@ -385,7 +385,7 @@ let test_full_tool_use_sequence () =
     MessageStart { id = "msg_tu"; model = "claude-sonnet-4";
                    usage = Some { input_tokens = 80; output_tokens = 0;
                                   cache_creation_input_tokens = 0;
-                                  cache_read_input_tokens = 0 } };
+                                  cache_read_input_tokens = 0 ; cost_usd = None } };
     ContentBlockStart { index = 0; content_type = "text";
                         tool_id = None; tool_name = None };
     ContentBlockDelta { index = 0; delta = TextDelta "I'll use a tool." };
@@ -401,7 +401,7 @@ let test_full_tool_use_sequence () =
     MessageDelta { stop_reason = Some StopToolUse;
                    usage = Some { input_tokens = 0; output_tokens = 45;
                                   cache_creation_input_tokens = 0;
-                                  cache_read_input_tokens = 0 } };
+                                  cache_read_input_tokens = 0 ; cost_usd = None } };
     MessageStop;
   ] in
   List.iter (Streaming.accumulate_event acc) events;
@@ -463,13 +463,13 @@ let test_acc_message_delta_cache_update_nonzero () =
     (MessageStart { id = "m"; model = "m";
                     usage = Some { input_tokens = 50; output_tokens = 0;
                                    cache_creation_input_tokens = 10;
-                                   cache_read_input_tokens = 5 } });
+                                   cache_read_input_tokens = 5 ; cost_usd = None } });
   (* MessageDelta with nonzero cache values should update *)
   Streaming.accumulate_event acc
     (MessageDelta { stop_reason = Some EndTurn;
                     usage = Some { input_tokens = 0; output_tokens = 100;
                                    cache_creation_input_tokens = 20;
-                                   cache_read_input_tokens = 15 } });
+                                   cache_read_input_tokens = 15 ; cost_usd = None } });
   let resp = finalize_ok acc in
   (match resp.usage with
    | Some u ->
