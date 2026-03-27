@@ -28,3 +28,6 @@ val finalize :
   Cdal_proof.t
 
 val run_id : state -> string
+
+(** Attach an enforcer state for evidence enrichment at finalize time. *)
+val set_enforcer : state -> Mode_enforcer.state -> unit

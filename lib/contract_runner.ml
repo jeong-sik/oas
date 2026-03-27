@@ -68,9 +68,15 @@ let run ~sw ?clock ?(store = Proof_store.default_config)
   | Ok mode_decision ->
     let capture_state = Proof_capture.create
         ~store ~contract ~mode_decision ~capability_snapshot:capabilities in
+    let enforcer_state = Mode_enforcer.create
+        ~contract ~effective_mode:mode_decision.effective_mode in
+    Proof_capture.set_enforcer capture_state enforcer_state;
+    let enforcement_hooks = Mode_enforcer.hooks enforcer_state in
     let proof_hooks = Proof_capture.hooks capture_state in
     let user_hooks = (Agent.options agent).hooks in
-    let composed_hooks = Hooks.compose ~outer:proof_hooks ~inner:user_hooks in
+    let composed_hooks =
+      Hooks.compose ~outer:enforcement_hooks
+        ~inner:(Hooks.compose ~outer:proof_hooks ~inner:user_hooks) in
     let opts = Agent.options agent in
     let new_opts = { opts with hooks = composed_hooks } in
     let config = (Agent.state agent).config in

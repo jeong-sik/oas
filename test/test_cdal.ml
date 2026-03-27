@@ -452,6 +452,289 @@ let test_proof_capture_multiple_tools () =
   ignore (Sys.command (Printf.sprintf "rm -rf %s" tmpdir))
 
 (* ================================================================ *)
+(* Mode_enforcer tests                                               *)
+(* ================================================================ *)
+
+let make_enforcer_event tool_name input =
+  Hooks.PreToolUse { tool_name; input; accumulated_cost_usd = 0.0; turn = 1 }
+
+let diagnose_enforcer () =
+  let contract = make_contract ~mode:Execution_mode.Diagnose ~risk:Risk_class.Low () in
+  Mode_enforcer.create ~contract ~effective_mode:Execution_mode.Diagnose
+
+let draft_enforcer () =
+  let contract = make_contract ~mode:Execution_mode.Draft ~risk:Risk_class.Low () in
+  Mode_enforcer.create ~contract ~effective_mode:Execution_mode.Draft
+
+let execute_enforcer () =
+  let contract = Risk_contract.{
+    runtime_constraints = {
+      requested_execution_mode = Execution_mode.Execute;
+      risk_class = Risk_class.Low;
+      allowed_mutations = [];
+      review_requirement = None;
+    };
+    eval_criteria = `Null;
+  } in
+  Mode_enforcer.create ~contract ~effective_mode:Execution_mode.Execute
+
+let test_diagnose_blocks_write () =
+  let st = diagnose_enforcer () in
+  let h = Mode_enforcer.hooks st in
+  let d = Hooks.invoke h.pre_tool_use (make_enforcer_event "write" `Null) in
+  Alcotest.(check bool) "write blocked in diagnose" true
+    (match d with Hooks.Skip -> true | _ -> false);
+  Alcotest.(check int) "1 violation" 1 (List.length (Mode_enforcer.violations st))
+
+let test_diagnose_blocks_bash_rm () =
+  let st = diagnose_enforcer () in
+  let h = Mode_enforcer.hooks st in
+  let input = `Assoc ["command", `String "rm -rf /tmp/foo"] in
+  let d = Hooks.invoke h.pre_tool_use (make_enforcer_event "bash" input) in
+  Alcotest.(check bool) "bash rm blocked in diagnose" true
+    (match d with Hooks.Skip -> true | _ -> false)
+
+let test_diagnose_allows_read () =
+  let st = diagnose_enforcer () in
+  let h = Mode_enforcer.hooks st in
+  let d = Hooks.invoke h.pre_tool_use (make_enforcer_event "read" `Null) in
+  Alcotest.(check bool) "read allowed in diagnose" true
+    (match d with Hooks.Continue -> true | _ -> false);
+  Alcotest.(check int) "0 violations" 0 (List.length (Mode_enforcer.violations st))
+
+let test_diagnose_allows_bash_ls () =
+  let st = diagnose_enforcer () in
+  let h = Mode_enforcer.hooks st in
+  let input = `Assoc ["command", `String "ls -la /tmp"] in
+  let d = Hooks.invoke h.pre_tool_use (make_enforcer_event "bash" input) in
+  Alcotest.(check bool) "bash ls allowed in diagnose" true
+    (match d with Hooks.Continue -> true | _ -> false)
+
+let test_draft_allows_write () =
+  let st = draft_enforcer () in
+  let h = Mode_enforcer.hooks st in
+  let d = Hooks.invoke h.pre_tool_use (make_enforcer_event "edit" `Null) in
+  Alcotest.(check bool) "edit allowed in draft" true
+    (match d with Hooks.Continue -> true | _ -> false)
+
+let test_draft_blocks_bash_curl () =
+  let st = draft_enforcer () in
+  let h = Mode_enforcer.hooks st in
+  let input = `Assoc ["command", `String "curl https://example.com/api"] in
+  let d = Hooks.invoke h.pre_tool_use (make_enforcer_event "bash" input) in
+  Alcotest.(check bool) "bash curl blocked in draft" true
+    (match d with Hooks.Skip -> true | _ -> false)
+
+let test_execute_allows_all () =
+  let st = execute_enforcer () in
+  let h = Mode_enforcer.hooks st in
+  let d1 = Hooks.invoke h.pre_tool_use (make_enforcer_event "write" `Null) in
+  let input = `Assoc ["command", `String "curl https://example.com"] in
+  let d2 = Hooks.invoke h.pre_tool_use (make_enforcer_event "bash" input) in
+  Alcotest.(check bool) "write allowed" true
+    (match d1 with Hooks.Continue -> true | _ -> false);
+  Alcotest.(check bool) "bash curl allowed" true
+    (match d2 with Hooks.Continue -> true | _ -> false)
+
+let test_scope_violation () =
+  let contract = Risk_contract.{
+    runtime_constraints = {
+      requested_execution_mode = Execution_mode.Execute;
+      risk_class = Risk_class.Low;
+      allowed_mutations = ["workspace_only"];
+      review_requirement = None;
+    };
+    eval_criteria = `Null;
+  } in
+  let st = Mode_enforcer.create ~contract ~effective_mode:Execution_mode.Execute in
+  let h = Mode_enforcer.hooks st in
+  let input = `Assoc ["command", `String "curl https://api.example.com"] in
+  let d = Hooks.invoke h.pre_tool_use (make_enforcer_event "bash" input) in
+  Alcotest.(check bool) "scope violation" true
+    (match d with Hooks.Skip -> true | _ -> false);
+  let vs = Mode_enforcer.violations st in
+  Alcotest.(check string) "violation kind" "scope_violation"
+    (List.hd vs).violation_kind
+
+let test_violation_records_details () =
+  let st = diagnose_enforcer () in
+  let h = Mode_enforcer.hooks st in
+  let _ = Hooks.invoke h.pre_tool_use
+      (make_enforcer_event "edit" (`String "file.ml")) in
+  let vs = Mode_enforcer.violations st in
+  Alcotest.(check int) "1 violation" 1 (List.length vs);
+  let v = List.hd vs in
+  Alcotest.(check string) "tool_name" "edit" v.tool_name;
+  Alcotest.(check string) "kind" "mutating_in_diagnose" v.violation_kind;
+  Alcotest.(check bool) "ts > 0" true (v.ts > 0.0)
+
+(* ================================================================ *)
+(* Mode_resolver capability tests                                    *)
+(* ================================================================ *)
+
+let test_resolver_read_only_tools () =
+  let caps : Cdal_proof.capability_snapshot = {
+    tools = ["read"; "glob"; "grep"];
+    mcp_servers = []; max_turns = 10;
+    max_tokens = Some 4096; thinking_enabled = None;
+  } in
+  match Mode_resolver.resolve ~requested:Execution_mode.Execute
+          ~risk_class:Risk_class.Low ~capabilities:caps with
+  | Ok d ->
+    Alcotest.(check string) "downgraded to diagnose"
+      "diagnose" (Execution_mode.to_string d.effective_mode);
+    Alcotest.(check string) "source" "capability_limit" d.source
+  | Error e -> Alcotest.fail e
+
+let test_resolver_workspace_only_tools () =
+  let caps : Cdal_proof.capability_snapshot = {
+    tools = ["read"; "write"; "edit"];
+    mcp_servers = []; max_turns = 10;
+    max_tokens = Some 4096; thinking_enabled = None;
+  } in
+  match Mode_resolver.resolve ~requested:Execution_mode.Execute
+          ~risk_class:Risk_class.Low ~capabilities:caps with
+  | Ok d ->
+    Alcotest.(check string) "capped at draft"
+      "draft" (Execution_mode.to_string d.effective_mode);
+    Alcotest.(check string) "source" "capability_limit" d.source
+  | Error e -> Alcotest.fail e
+
+let test_resolver_mixed_tools () =
+  let caps : Cdal_proof.capability_snapshot = {
+    tools = ["read"; "write"; "bash"];
+    mcp_servers = []; max_turns = 10;
+    max_tokens = Some 4096; thinking_enabled = None;
+  } in
+  match Mode_resolver.resolve ~requested:Execution_mode.Execute
+          ~risk_class:Risk_class.Low ~capabilities:caps with
+  | Ok d ->
+    Alcotest.(check string) "stays execute"
+      "execute" (Execution_mode.to_string d.effective_mode);
+    Alcotest.(check string) "source" "passthrough" d.source
+  | Error e -> Alcotest.fail e
+
+let test_resolver_capability_vs_risk () =
+  (* High risk caps at Draft, read-only tools caps at Diagnose -> Diagnose wins *)
+  let caps : Cdal_proof.capability_snapshot = {
+    tools = ["read"; "grep"];
+    mcp_servers = []; max_turns = 10;
+    max_tokens = Some 4096; thinking_enabled = None;
+  } in
+  match Mode_resolver.resolve ~requested:Execution_mode.Execute
+          ~risk_class:Risk_class.High ~capabilities:caps with
+  | Ok d ->
+    Alcotest.(check string) "diagnose (capability tighter)"
+      "diagnose" (Execution_mode.to_string d.effective_mode);
+    Alcotest.(check string) "source" "capability_limit" d.source
+  | Error e -> Alcotest.fail e
+
+(* ================================================================ *)
+(* Evidence enrichment tests                                         *)
+(* ================================================================ *)
+
+let test_evidence_violations_in_proof () =
+  let store, tmpdir = make_test_store () in
+  let contract = make_contract ~mode:Execution_mode.Diagnose ~risk:Risk_class.Low () in
+  let mode_decision : Mode_resolver.decision = {
+    effective_mode = Execution_mode.Diagnose; source = "passthrough";
+  } in
+  let state = Proof_capture.create
+      ~store ~contract ~mode_decision ~capability_snapshot:test_caps in
+  let enforcer = Mode_enforcer.create
+      ~contract ~effective_mode:Execution_mode.Diagnose in
+  Proof_capture.set_enforcer state enforcer;
+  (* Fire enforcement hook that blocks a write *)
+  let eh = Mode_enforcer.hooks enforcer in
+  let _ = Hooks.invoke eh.pre_tool_use
+      (Hooks.PreToolUse { tool_name = "write"; input = `Null;
+                          accumulated_cost_usd = 0.0; turn = 1 }) in
+  let proof = Proof_capture.finalize state ~result_status:Cdal_proof.Completed in
+  Alcotest.(check bool) "raw_evidence_refs non-empty" true
+    (List.length proof.raw_evidence_refs > 0);
+  Alcotest.(check bool) "has violations ref" true
+    (List.exists (fun r -> try ignore (Str.search_forward
+       (Str.regexp_string "mode_violations") r 0); true
+       with Not_found -> false) proof.raw_evidence_refs);
+  ignore (Sys.command (Printf.sprintf "rm -rf %s" tmpdir))
+
+let test_evidence_token_usage () =
+  let store, tmpdir = make_test_store () in
+  let state = Proof_capture.create
+      ~store ~contract:test_contract
+      ~mode_decision:test_mode_decision
+      ~capability_snapshot:test_caps in
+  let enforcer = Mode_enforcer.create
+      ~contract:test_contract ~effective_mode:Execution_mode.Draft in
+  Proof_capture.set_enforcer state enforcer;
+  let eh = Mode_enforcer.hooks enforcer in
+  let resp : Types.api_response = {
+    id = "msg-1"; model = "test-model"; stop_reason = Types.EndTurn;
+    content = [Types.Text "done"];
+    usage = Some { input_tokens = 100; output_tokens = 50;
+                   cache_creation_input_tokens = 0; cache_read_input_tokens = 0;
+                   cost_usd = Some 0.001 };
+  } in
+  let _ = Hooks.invoke eh.after_turn (Hooks.AfterTurn { turn = 1; response = resp }) in
+  let proof = Proof_capture.finalize state ~result_status:Cdal_proof.Completed in
+  Alcotest.(check bool) "has token_usage ref" true
+    (List.exists (fun r -> try ignore (Str.search_forward
+       (Str.regexp_string "token_usage") r 0); true
+       with Not_found -> false) proof.raw_evidence_refs);
+  ignore (Sys.command (Printf.sprintf "rm -rf %s" tmpdir))
+
+let test_evidence_review_warning () =
+  let contract = Risk_contract.{
+    runtime_constraints = {
+      requested_execution_mode = Execution_mode.Execute;
+      risk_class = Risk_class.Low;
+      allowed_mutations = [];
+      review_requirement = Some "human_review";
+    };
+    eval_criteria = `Null;
+  } in
+  let store, tmpdir = make_test_store () in
+  let mode_decision : Mode_resolver.decision = {
+    effective_mode = Execution_mode.Execute; source = "passthrough";
+  } in
+  let state = Proof_capture.create
+      ~store ~contract ~mode_decision ~capability_snapshot:test_caps in
+  let enforcer = Mode_enforcer.create
+      ~contract ~effective_mode:Execution_mode.Execute in
+  Proof_capture.set_enforcer state enforcer;
+  let eh = Mode_enforcer.hooks enforcer in
+  let _ = Hooks.invoke eh.before_turn
+      (Hooks.BeforeTurn { turn = 1; messages = [] }) in
+  Alcotest.(check bool) "review warning set" true
+    (Mode_enforcer.review_warning enforcer <> None);
+  let proof = Proof_capture.finalize state ~result_status:Cdal_proof.Completed in
+  Alcotest.(check bool) "has review_warning ref" true
+    (List.exists (fun r -> try ignore (Str.search_forward
+       (Str.regexp_string "review_warning") r 0); true
+       with Not_found -> false) proof.raw_evidence_refs);
+  ignore (Sys.command (Printf.sprintf "rm -rf %s" tmpdir))
+
+(* ================================================================ *)
+(* Tool classification tests                                         *)
+(* ================================================================ *)
+
+let test_classify_known_tools () =
+  Alcotest.(check bool) "read is Read_only" true
+    (Mode_enforcer.classify_tool "read" = Mode_enforcer.Read_only);
+  Alcotest.(check bool) "glob is Read_only" true
+    (Mode_enforcer.classify_tool "glob" = Mode_enforcer.Read_only);
+  Alcotest.(check bool) "write is Workspace_mutating" true
+    (Mode_enforcer.classify_tool "write" = Mode_enforcer.Workspace_mutating);
+  Alcotest.(check bool) "edit is Workspace_mutating" true
+    (Mode_enforcer.classify_tool "edit" = Mode_enforcer.Workspace_mutating);
+  Alcotest.(check bool) "bash is External_effect" true
+    (Mode_enforcer.classify_tool "bash" = Mode_enforcer.External_effect);
+  Alcotest.(check bool) "mcp__foo is External_effect" true
+    (Mode_enforcer.classify_tool "mcp__foo__bar" = Mode_enforcer.External_effect);
+  Alcotest.(check bool) "unknown is External_effect" true
+    (Mode_enforcer.classify_tool "deploy_nuke" = Mode_enforcer.External_effect)
+
+(* ================================================================ *)
 (* Test runner                                                       *)
 (* ================================================================ *)
 
@@ -500,5 +783,30 @@ let () =
       Alcotest.test_case "full lifecycle" `Quick test_proof_capture_lifecycle;
       Alcotest.test_case "no hooks fired (guard)" `Quick test_proof_capture_no_hooks_fired;
       Alcotest.test_case "multiple tools" `Quick test_proof_capture_multiple_tools;
+    ];
+    "Mode_enforcer", [
+      Alcotest.test_case "diagnose blocks write" `Quick test_diagnose_blocks_write;
+      Alcotest.test_case "diagnose blocks bash rm" `Quick test_diagnose_blocks_bash_rm;
+      Alcotest.test_case "diagnose allows read" `Quick test_diagnose_allows_read;
+      Alcotest.test_case "diagnose allows bash ls" `Quick test_diagnose_allows_bash_ls;
+      Alcotest.test_case "draft allows write" `Quick test_draft_allows_write;
+      Alcotest.test_case "draft blocks bash curl" `Quick test_draft_blocks_bash_curl;
+      Alcotest.test_case "execute allows all" `Quick test_execute_allows_all;
+      Alcotest.test_case "scope violation" `Quick test_scope_violation;
+      Alcotest.test_case "violation records details" `Quick test_violation_records_details;
+    ];
+    "Mode_resolver capability", [
+      Alcotest.test_case "read-only tools" `Quick test_resolver_read_only_tools;
+      Alcotest.test_case "workspace-only tools" `Quick test_resolver_workspace_only_tools;
+      Alcotest.test_case "mixed tools" `Quick test_resolver_mixed_tools;
+      Alcotest.test_case "capability vs risk" `Quick test_resolver_capability_vs_risk;
+    ];
+    "Evidence enrichment", [
+      Alcotest.test_case "violations in proof" `Quick test_evidence_violations_in_proof;
+      Alcotest.test_case "token usage" `Quick test_evidence_token_usage;
+      Alcotest.test_case "review warning" `Quick test_evidence_review_warning;
+    ];
+    "Tool classification", [
+      Alcotest.test_case "known tools" `Quick test_classify_known_tools;
     ];
   ]
