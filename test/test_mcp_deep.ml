@@ -108,7 +108,8 @@ let test_text_single_text () =
       ];
       is_error = None;
       structured_content = None;
-    } in
+    _meta = None;
+  } in
     Alcotest.(check string) "single text" "hello world"
       (Mcp.text_of_tool_result result))
 
@@ -125,7 +126,8 @@ let test_text_multiple_text_blocks () =
       ];
       is_error = None;
       structured_content = None;
-    } in
+    _meta = None;
+  } in
     Alcotest.(check string) "multi text" "line1\nline2\nline3"
       (Mcp.text_of_tool_result result))
 
@@ -134,7 +136,8 @@ let test_text_empty_content () =
     content = [];
     is_error = None;
     structured_content = None;
-  } in
+    _meta = None;
+} in
   Alcotest.(check string) "empty" "" (Mcp.text_of_tool_result result)
 
 let test_text_image_only () =
@@ -146,7 +149,8 @@ let test_text_image_only () =
     ];
     is_error = None;
     structured_content = None;
-  } in
+    _meta = None;
+} in
   Alcotest.(check string) "image only" "" (Mcp.text_of_tool_result result)
 
 let test_text_with_truncation () =
@@ -160,7 +164,8 @@ let test_text_with_truncation () =
       ];
       is_error = None;
       structured_content = None;
-    } in
+    _meta = None;
+  } in
     let text = Mcp.text_of_tool_result result in
     Alcotest.(check bool) "truncated" true
       (contains_substring ~sub:"...[oas mcp output truncated]" text))

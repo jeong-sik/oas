@@ -144,7 +144,8 @@ let test_text_of_tool_result_resource_content () =
     ];
     is_error = None;
     structured_content = None;
-  } in
+    _meta = None;
+} in
   let text = Mcp.text_of_tool_result result in
   (* ResourceContent is filtered out by text_of_tool_result (only TextContent passes) *)
   Alcotest.(check string) "resource not included" "" text
@@ -157,7 +158,8 @@ let test_text_of_tool_result_single_text () =
     ];
     is_error = None;
     structured_content = None;
-  } in
+    _meta = None;
+} in
   let text = Mcp.text_of_tool_result result in
   Alcotest.(check string) "single text" "single line" text
 
