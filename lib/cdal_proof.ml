@@ -3,7 +3,21 @@ type result_status =
   | Errored
   | Timed_out
   | Cancelled
-[@@deriving yojson, show]
+[@@deriving show]
+
+let result_status_to_yojson = function
+  | Completed -> `String "completed"
+  | Errored -> `String "errored"
+  | Timed_out -> `String "timed_out"
+  | Cancelled -> `String "cancelled"
+
+let result_status_of_yojson = function
+  | `String "completed" -> Ok Completed
+  | `String "errored" -> Ok Errored
+  | `String "timed_out" -> Ok Timed_out
+  | `String "cancelled" -> Ok Cancelled
+  | j -> Error (Printf.sprintf "unknown result status: %s"
+                  (Yojson.Safe.to_string j))
 
 type provider_snapshot = {
   provider_name: string;

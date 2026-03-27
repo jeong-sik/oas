@@ -275,6 +275,72 @@ let test_contract_id_empty_eval_criteria () =
   Alcotest.(check bool) "non-empty id" true (String.length id > 4)
 
 (* ================================================================ *)
+(* JSON schema conformance -- enum values must be lowercase strings  *)
+(* ================================================================ *)
+
+let assert_json_string msg expected json =
+  match json with
+  | `String s -> Alcotest.(check string) msg expected s
+  | other -> Alcotest.fail
+      (Printf.sprintf "%s: expected string, got %s" msg
+         (Yojson.Safe.to_string other))
+
+let test_execution_mode_json_lowercase () =
+  assert_json_string "diagnose" "diagnose" (Execution_mode.to_yojson Diagnose);
+  assert_json_string "draft" "draft" (Execution_mode.to_yojson Draft);
+  assert_json_string "execute" "execute" (Execution_mode.to_yojson Execute)
+
+let test_risk_class_json_lowercase () =
+  assert_json_string "low" "low" (Risk_class.to_yojson Low);
+  assert_json_string "medium" "medium" (Risk_class.to_yojson Medium);
+  assert_json_string "high" "high" (Risk_class.to_yojson High);
+  assert_json_string "critical" "critical" (Risk_class.to_yojson Critical)
+
+let test_result_status_json_lowercase () =
+  assert_json_string "completed" "completed"
+    (Cdal_proof.result_status_to_yojson Completed);
+  assert_json_string "errored" "errored"
+    (Cdal_proof.result_status_to_yojson Errored);
+  assert_json_string "timed_out" "timed_out"
+    (Cdal_proof.result_status_to_yojson Timed_out);
+  assert_json_string "cancelled" "cancelled"
+    (Cdal_proof.result_status_to_yojson Cancelled)
+
+let test_proof_json_enum_fields () =
+  let proof : Cdal_proof.t = {
+    schema_version = 1;
+    run_id = "test-enum";
+    contract_id = "md5:abc";
+    requested_execution_mode = Execution_mode.Execute;
+    effective_execution_mode = Execution_mode.Draft;
+    mode_decision_source = "risk_class_downgrade";
+    risk_class = Risk_class.High;
+    provider_snapshot = {
+      provider_name = "test"; model_id = "m"; api_version = None;
+    };
+    capability_snapshot = test_caps;
+    tool_trace_refs = [];
+    raw_evidence_refs = [];
+    checkpoint_ref = None;
+    result_status = Cdal_proof.Completed;
+    started_at = 1000.0;
+    ended_at = 1001.0;
+  } in
+  let json = Cdal_proof.to_json proof in
+  let field name = match json with
+    | `Assoc fields -> List.assoc name fields
+    | _ -> Alcotest.fail "proof json is not an object"
+  in
+  assert_json_string "requested mode in proof" "execute"
+    (field "requested_execution_mode");
+  assert_json_string "effective mode in proof" "draft"
+    (field "effective_execution_mode");
+  assert_json_string "risk class in proof" "high"
+    (field "risk_class");
+  assert_json_string "result status in proof" "completed"
+    (field "result_status")
+
+(* ================================================================ *)
 (* Test runner                                                       *)
 (* ================================================================ *)
 
@@ -312,5 +378,11 @@ let () =
     ];
     "Risk_contract edge", [
       Alcotest.test_case "empty eval_criteria" `Quick test_contract_id_empty_eval_criteria;
+    ];
+    "JSON schema conformance", [
+      Alcotest.test_case "execution_mode lowercase" `Quick test_execution_mode_json_lowercase;
+      Alcotest.test_case "risk_class lowercase" `Quick test_risk_class_json_lowercase;
+      Alcotest.test_case "result_status lowercase" `Quick test_result_status_json_lowercase;
+      Alcotest.test_case "proof bundle enum fields" `Quick test_proof_json_enum_fields;
     ];
   ]

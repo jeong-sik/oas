@@ -2,7 +2,19 @@ type t =
   | Diagnose
   | Draft
   | Execute
-[@@deriving yojson, show]
+[@@deriving show]
+
+let to_yojson = function
+  | Diagnose -> `String "diagnose"
+  | Draft -> `String "draft"
+  | Execute -> `String "execute"
+
+let of_yojson = function
+  | `String "diagnose" -> Ok Diagnose
+  | `String "draft" -> Ok Draft
+  | `String "execute" -> Ok Execute
+  | j -> Error (Printf.sprintf "unknown execution mode: %s"
+                  (Yojson.Safe.to_string j))
 
 let to_string = function
   | Diagnose -> "diagnose"
