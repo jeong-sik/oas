@@ -213,18 +213,28 @@ let summarize_results results =
 (* ── Streaming execution paths (opt-in via enable_streaming) ───── *)
 
 let drain_mailbox_text mailbox =
-  let rec go parts =
+  let rec go budget parts =
     match Eio.Stream.take_nonblocking mailbox with
-    | Some (Swarm_channel.Done resp) -> go [text_of_response resp]
-    | Some (Swarm_channel.Text text) -> go (text :: parts)
-    | Some (Swarm_channel.Delta delta) -> go (delta :: parts)
-    | Some _ -> go parts
+    | Some message ->
+      let budget = budget - 1 in
+      let parts =
+        match message with
+        | Swarm_channel.Done resp -> [text_of_response resp]
+        | Swarm_channel.Text text -> text :: parts
+        | Swarm_channel.Delta delta -> delta :: parts
+        | _ -> parts
+      in
+      if budget = 0 then begin
+        Eio.Fiber.yield ();
+        go 64 parts
+      end else
+        go budget parts
     | None ->
       match List.rev parts with
       | [] -> None
       | ordered -> Some (String.concat "" ordered)
   in
-  go []
+  go 64 []
 
 (** Run a single agent and write its result as messages to a channel.
     Writes [Done resp] on success, [Swarm_channel.Error err] on failure. *)
@@ -381,14 +391,14 @@ type state_handle = {
   mutable state: swarm_state;
 }
 
-let update_state h f =
+let update_state_with_result h f =
   Eio.Mutex.use_rw ~protect:true h.mu (fun () ->
-    let next = f h.state in
+    let next, result = f h.state in
     h.state <- next;
-    next)
+    result)
 
 type state_transition = {
-  state: swarm_state;
+  callback_state: swarm_state;
   should_continue: bool;
   converged_now: bool;
 }
@@ -431,17 +441,23 @@ let apply_metric_feedback ~conv ~iter ~metric_value state =
         converged = state.converged || converged_now }
     in
     {
-      state = next_state;
+      callback_state = next_state;
       should_continue = (not converged_now) && patience_counter < conv.patience;
       converged_now;
     }
   | None ->
     let patience_counter = state.patience_counter + 1 in
     {
-      state = { state with patience_counter };
+      callback_state = { state with patience_counter };
       should_continue = patience_counter < conv.patience;
       converged_now = false;
     }
+
+let apply_iteration_transition ~conv ~iter ~record ~metric_value state =
+  let state = append_iteration_record state record in
+  let transition = apply_metric_feedback ~conv ~iter ~metric_value state in
+  let next_state = advance_iteration transition.callback_state in
+  (next_state, transition)
 
 (* ── Convergence loop (Mutex-protected) ─────────────────────────── *)
 
@@ -498,21 +514,13 @@ let run_convergence_loop ~sw ~env ~callbacks config conv =
         timestamp = Unix.gettimeofday ();
         trace_refs = collect_trace_refs agent_results;
       } in
-      let _ = update_state handle (fun current ->
-        append_iteration_record current record)
-      in
       fire callbacks.on_iteration_end record;
       let transition =
-        Eio.Mutex.use_rw ~protect:true handle.mu (fun () ->
-          let next =
-            apply_metric_feedback ~conv ~iter ~metric_value handle.state
-          in
-          handle.state <- next.state;
-          next)
+        update_state_with_result handle
+          (apply_iteration_transition ~conv ~iter ~record ~metric_value)
       in
       if transition.converged_now then
-        fire callbacks.on_converged transition.state;
-      let _ = update_state handle advance_iteration in
+        fire callbacks.on_converged transition.callback_state;
       if transition.should_continue then
         loop total_usage
       else

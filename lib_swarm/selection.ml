@@ -40,3 +40,6 @@ let%test "next_round_robin_index cycles deterministically" =
   && next_round_robin_index counter ~size:3 = 1
   && next_round_robin_index counter ~size:3 = 2
   && next_round_robin_index counter ~size:3 = 0
+
+let%test "positive_mod normalizes negative input" =
+  positive_mod (-1) 3 = 2
