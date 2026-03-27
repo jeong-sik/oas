@@ -105,6 +105,8 @@ let take_last n xs =
     aux 0 xs
 
 let detect_trend ~window data =
+  if window < 2 then Insufficient_data
+  else
   let xs = take_last window data in
   let n = List.length xs in
   if n < window then Insufficient_data
