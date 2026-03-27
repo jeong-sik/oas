@@ -245,7 +245,6 @@ for line in sys.stdin:
                     "name": "Guide",
                     "description": "A guide",
                     "mime_type": "text/plain",
-                    "icon": None,
                 }
             ]
         }
@@ -256,7 +255,6 @@ for line in sys.stdin:
                     "uri": req.get("params", {}).get("uri", "file://guide"),
                     "mime_type": "text/plain",
                     "text": "hello resource",
-                    "blob": None,
                 }
             ]
         }

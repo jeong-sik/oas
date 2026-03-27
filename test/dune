@@ -801,3 +801,7 @@
 (test
  (name test_swarm_streaming)
  (libraries agent_sdk agent_sdk_swarm alcotest yojson eio eio_main unix))
+
+(test
+ (name test_cdal)
+ (libraries agent_sdk alcotest yojson))

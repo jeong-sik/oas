@@ -59,6 +59,7 @@ val net : t -> [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
 val description : t -> string option
 val memory : t -> Memory.t option
 val allowed_paths : t -> string list
+val named_cascade : t -> Api.named_cascade option
 
 (** {1 Defaults} *)
 

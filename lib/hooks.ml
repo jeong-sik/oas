@@ -188,3 +188,30 @@ let invoke hook_opt event =
   match hook_opt with
   | None -> Continue
   | Some f -> f event
+
+(** Compose a single hook slot. [outer] fires first.
+    If outer returns a non-Continue decision, inner is bypassed. *)
+let compose_hook (outer : hook option) (inner : hook option) : hook option =
+  match outer, inner with
+  | None, None -> None
+  | Some _, None -> outer
+  | None, Some _ -> inner
+  | Some f_outer, Some f_inner ->
+    Some (fun event ->
+      match f_outer event with
+      | Continue -> f_inner event
+      | decision -> decision)
+
+let compose ~outer ~inner = {
+  before_turn = compose_hook outer.before_turn inner.before_turn;
+  before_turn_params = compose_hook outer.before_turn_params inner.before_turn_params;
+  after_turn = compose_hook outer.after_turn inner.after_turn;
+  pre_tool_use = compose_hook outer.pre_tool_use inner.pre_tool_use;
+  post_tool_use = compose_hook outer.post_tool_use inner.post_tool_use;
+  post_tool_use_failure = compose_hook outer.post_tool_use_failure inner.post_tool_use_failure;
+  on_stop = compose_hook outer.on_stop inner.on_stop;
+  on_idle = compose_hook outer.on_idle inner.on_idle;
+  on_error = compose_hook outer.on_error inner.on_error;
+  on_tool_error = compose_hook outer.on_tool_error inner.on_tool_error;
+  pre_compact = compose_hook outer.pre_compact inner.pre_compact;
+}

@@ -112,3 +112,8 @@ type context_injector =
 
 val empty : hooks
 val invoke : hook option -> hook_event -> hook_decision
+
+(** Compose two hook sets. [outer] fires first for each slot.
+    If [outer] returns a non-Continue decision, [inner] is bypassed.
+    If [outer] returns [Continue], [inner] fires and its decision is used. *)
+val compose : outer:hooks -> inner:hooks -> hooks
