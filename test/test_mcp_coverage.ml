@@ -26,7 +26,23 @@ let with_env key value f =
       | Some v -> Unix.putenv key v
       | None ->
         (try Unix.putenv key "" with _ -> ()))
-    f
+	    f
+
+let make_tool_result ?is_error ?structured_content content =
+  let fields = [("content", Mcp_protocol.Mcp_types.tool_content_list_to_yojson content)] in
+  let fields =
+    match is_error with
+    | Some b -> ("isError", `Bool b) :: fields
+    | None -> fields
+  in
+  let fields =
+    match structured_content with
+    | Some json -> ("structuredContent", json) :: fields
+    | None -> fields
+  in
+  match Mcp_protocol.Mcp_types.tool_result_of_yojson (`Assoc fields) with
+  | Ok result -> result
+  | Error detail -> failwith ("tool_result_of_yojson failed: " ^ detail)
 
 let contains_substring ~sub text =
   let sub_len = String.length sub in
@@ -129,8 +145,8 @@ let test_output_token_budget_non_numeric () =
 (* ── text_of_tool_result extended ─────────────────────────── *)
 
 let test_text_of_tool_result_resource_content () =
-  let result : Mcp_protocol.Mcp_types.tool_result = {
-    content = [
+  let result : Mcp_protocol.Mcp_types.tool_result =
+    make_tool_result [
       Mcp_protocol.Mcp_types.ResourceContent {
         type_ = "resource";
         resource = {
@@ -141,25 +157,19 @@ let test_text_of_tool_result_resource_content () =
         };
         annotations = None;
       };
-    ];
-    is_error = None;
-    structured_content = None;
-    _meta = None;
-} in
+    ]
+  in
   let text = Mcp.text_of_tool_result result in
   (* ResourceContent is filtered out by text_of_tool_result (only TextContent passes) *)
   Alcotest.(check string) "resource not included" "" text
 
 let test_text_of_tool_result_single_text () =
-  let result : Mcp_protocol.Mcp_types.tool_result = {
-    content = [
+  let result : Mcp_protocol.Mcp_types.tool_result =
+    make_tool_result [
       Mcp_protocol.Mcp_types.TextContent {
         type_ = "text"; text = "single line"; annotations = None };
-    ];
-    is_error = None;
-    structured_content = None;
-    _meta = None;
-} in
+    ]
+  in
   let text = Mcp.text_of_tool_result result in
   Alcotest.(check string) "single text" "single line" text
 

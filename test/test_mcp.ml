@@ -22,6 +22,22 @@ let with_env key value f =
       | None -> Unix.putenv key "")
     f
 
+let make_tool_result ?is_error ?structured_content content =
+  let fields = [("content", Mcp_protocol.Mcp_types.tool_content_list_to_yojson content)] in
+  let fields =
+    match is_error with
+    | Some b -> ("isError", `Bool b) :: fields
+    | None -> fields
+  in
+  let fields =
+    match structured_content with
+    | Some json -> ("structuredContent", json) :: fields
+    | None -> fields
+  in
+  match Mcp_protocol.Mcp_types.tool_result_of_yojson (`Assoc fields) with
+  | Ok result -> result
+  | Error detail -> failwith ("tool_result_of_yojson failed: " ^ detail)
+
 let contains_substring ~sub text =
   let sub_len = String.length sub in
   let text_len = String.length text in
@@ -186,47 +202,36 @@ let test_mcp_tool_of_sdk_tool_no_description () =
   Alcotest.(check string) "default desc" "" mcp_tool.description
 
 let test_text_of_tool_result () =
-  let result : Mcp_protocol.Mcp_types.tool_result = {
-    content = [
+  let result : Mcp_protocol.Mcp_types.tool_result =
+    make_tool_result [
       Mcp_protocol.Mcp_types.TextContent {
         type_ = "text"; text = "line1"; annotations = None };
       Mcp_protocol.Mcp_types.TextContent {
         type_ = "text"; text = "line2"; annotations = None };
-    ];
-    is_error = None;
-    structured_content = None;
-    _meta = None;
-} in
+    ]
+  in
   let text = Mcp.text_of_tool_result result in
   Alcotest.(check string) "concatenated" "line1\nline2" text
 
 let test_text_of_tool_result_empty () =
-  let result : Mcp_protocol.Mcp_types.tool_result = {
-    content = [];
-    is_error = None;
-    structured_content = None;
-    _meta = None;
-} in
+  let result : Mcp_protocol.Mcp_types.tool_result = make_tool_result [] in
   let text = Mcp.text_of_tool_result result in
   Alcotest.(check string) "empty content" "" text
 
 let test_text_of_tool_result_non_text_only () =
-  let result : Mcp_protocol.Mcp_types.tool_result = {
-    content = [
+  let result : Mcp_protocol.Mcp_types.tool_result =
+    make_tool_result [
       Mcp_protocol.Mcp_types.ImageContent {
         type_ = "image"; data = "base64..."; mime_type = "image/png";
         annotations = None };
-    ];
-    is_error = None;
-    structured_content = None;
-    _meta = None;
-} in
+    ]
+  in
   let text = Mcp.text_of_tool_result result in
   Alcotest.(check string) "non-text returns empty" "" text
 
 let test_text_of_tool_result_mixed () =
-  let result : Mcp_protocol.Mcp_types.tool_result = {
-    content = [
+  let result : Mcp_protocol.Mcp_types.tool_result =
+    make_tool_result [
       Mcp_protocol.Mcp_types.TextContent {
         type_ = "text"; text = "hello"; annotations = None };
       Mcp_protocol.Mcp_types.ImageContent {
@@ -234,28 +239,22 @@ let test_text_of_tool_result_mixed () =
         annotations = None };
       Mcp_protocol.Mcp_types.TextContent {
         type_ = "text"; text = "world"; annotations = None };
-    ];
-    is_error = None;
-    structured_content = None;
-    _meta = None;
-} in
+    ]
+  in
   let text = Mcp.text_of_tool_result result in
   Alcotest.(check string) "text only" "hello\nworld" text
 
 let test_text_of_tool_result_budget_truncates () =
   with_env "OAS_MCP_OUTPUT_MAX_TOKENS" (Some "1") (fun () ->
-      let result : Mcp_protocol.Mcp_types.tool_result = {
-        content = [
+      let result : Mcp_protocol.Mcp_types.tool_result =
+        make_tool_result [
           Mcp_protocol.Mcp_types.TextContent {
             type_ = "text";
             text = "0123456789";
             annotations = None;
           };
-        ];
-        is_error = None;
-        structured_content = None;
-        _meta = None;
-      } in
+        ]
+      in
       let text = Mcp.text_of_tool_result result in
       Alcotest.(check bool) "truncated" true
         (contains_substring ~sub:"...[oas mcp output truncated]" text))
