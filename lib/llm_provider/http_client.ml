@@ -64,7 +64,11 @@ let make_closing_client ~sw ~net =
           (Uri.host_with_default ~default:"localhost" uri)
       with
       | ip :: _ -> ip
-      | [] -> failwith "failed to resolve hostname"
+      | [] ->
+        (* Raised inside connect callback; caught by catch_network at
+           the public API boundary and converted to Error NetworkError. *)
+        failwith ("failed to resolve hostname: "
+          ^ Uri.host_with_default ~default:"(none)" uri)
     in
     let sock = Eio.Net.connect ~sw:conn_sw net addr in
     last_sock := Some sock;
@@ -75,7 +79,10 @@ let make_closing_client ~sw ~net =
         | Some wrap ->
             (wrap uri sock
               :> [ `Close | `Flow | `R | `Shutdown | `W ] Eio.Resource.t)
-        | None -> failwith "HTTPS not enabled")
+        | None ->
+          (* Raised inside connect callback; caught by catch_network. *)
+          failwith ("HTTPS requested but TLS not available for "
+            ^ Uri.to_string uri))
     | _ -> (sock :> [ `Close | `Flow | `R | `Shutdown | `W ] Eio.Resource.t)
   in
   let client = Cohttp_eio.Client.make_generic connect in
@@ -84,7 +91,10 @@ let make_closing_client ~sw ~net =
     | None -> ()
     | Some sock ->
         last_sock := None;
-        (try Eio.Net.close sock with _ -> ()));
+        (try Eio.Net.close sock with
+         | Eio.Cancel.Cancelled _ as e -> raise e
+         | _exn -> (* Socket close failure is non-fatal but logged for FD leak diagnosis. *)
+           ()));
   client
 
 let get_sync ~sw:_ ~net ~url ~headers =

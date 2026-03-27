@@ -114,30 +114,33 @@ type t = {
   targets: target list;
   batch_size: int;
   flush_interval_s: float; [@warning "-69"]
-  mutable delivered_count: int;
-  mutable failed_count: int;
-  mutable running: bool;
+  delivered_count: int Atomic.t;
+  failed_count: int Atomic.t;
+  running: bool Atomic.t;
   log: Log.t;
 }
 
 let create ~targets ?(batch_size = 10)
     ?(flush_interval_s = 1.0) () =
   { targets; batch_size; flush_interval_s;
-    delivered_count = 0; failed_count = 0; running = false;
+    delivered_count = Atomic.make 0;
+    failed_count = Atomic.make 0;
+    running = Atomic.make false;
     log = Log.create ~module_name:"event_forward" () }
 
 (* ── Delivery ─────────────────────────────────────────────────── *)
 
 let deliver_to_file t path payloads =
+  let n = List.length payloads in
   let content = String.concat ""
     (List.map (fun p ->
       Yojson.Safe.to_string (payload_to_json p) ^ "\n"
     ) payloads) in
   match Fs_result.append_file path content with
   | Ok () ->
-    t.delivered_count <- t.delivered_count + List.length payloads
+    ignore (Atomic.fetch_and_add t.delivered_count n)
   | Error err ->
-    t.failed_count <- t.failed_count + List.length payloads;
+    ignore (Atomic.fetch_and_add t.failed_count n);
     Log.warn t.log "file delivery failed"
       [Log.S ("path", path); Log.S ("error", Error.to_string err)]
 
@@ -145,36 +148,23 @@ let deliver_to_custom t name deliver payloads =
   List.iter (fun p ->
     try
       deliver p;
-      t.delivered_count <- t.delivered_count + 1
+      Atomic.incr t.delivered_count
     with
     | Eio.Cancel.Cancelled _ as e -> raise e
     | exn ->
-      t.failed_count <- t.failed_count + 1;
+      Atomic.incr t.failed_count;
       Log.warn t.log "custom delivery failed"
         [Log.S ("target", name); Log.S ("error", Printexc.to_string exn)]
   ) payloads
 
-let deliver_to_webhook t ~sw ~net url headers method_ _timeout_s payloads =
-  let body_json = `List (List.map payload_to_json payloads) in
-  let body = Yojson.Safe.to_string body_json in
-  let method_str = match method_ with `POST -> "POST" | `PUT -> "PUT" in
-  let all_headers = ("Content-Type", "application/json") :: headers in
-  try
-    let uri = Uri.of_string url in
-    let host = match Uri.host uri with Some h -> h | None -> "localhost" in
-    let port = match Uri.port uri with Some p -> p | None -> 443 in
-    let addr = `Tcp (Eio.Net.Ipaddr.V4.loopback, port) in
-    ignore (host, addr, method_str, all_headers, body, sw, net);
-    (* Simplified: actual HTTP via cohttp-eio would go here.
-       For now we record success for non-network targets and
-       provide the infrastructure for future HTTP delivery. *)
-    t.delivered_count <- t.delivered_count + List.length payloads
-  with
-  | Eio.Cancel.Cancelled _ as e -> raise e
-  | exn ->
-    t.failed_count <- t.failed_count + List.length payloads;
-    Log.warn t.log "webhook delivery failed"
-      [Log.S ("url", url); Log.S ("error", Printexc.to_string exn)]
+let deliver_to_webhook t ~sw:_ ~net:_ url _headers _method_ _timeout_s payloads =
+  (* Webhook HTTP delivery is not yet implemented.
+     Record as failed so operators can observe undelivered events
+     instead of silently counting them as successes. *)
+  let n = List.length payloads in
+  ignore (Atomic.fetch_and_add t.failed_count n);
+  Log.warn t.log "webhook delivery not implemented (events dropped)"
+    [Log.S ("url", url); Log.S ("count", string_of_int n)]
 
 let deliver_batch t ~sw ~net payloads =
   List.iter (fun target ->
@@ -190,20 +180,19 @@ let deliver_batch t ~sw ~net payloads =
 (* ── Event loop ───────────────────────────────────────────────── *)
 
 let start ~sw ~(net : _ Eio.Net.t) ~bus t =
-  if t.running then ()
+  if not (Atomic.compare_and_set t.running false true) then ()
   else begin
-    t.running <- true;
     let sub = Event_bus.subscribe bus in
     Eio.Fiber.fork ~sw (fun () ->
       Fun.protect
         ~finally:(fun () ->
-          t.running <- false;
+          Atomic.set t.running false;
           (try Event_bus.unsubscribe bus sub with _ -> ()))
         (fun () ->
           try
             let batch = ref [] in
             let batch_len = ref 0 in
-            while t.running do
+            while Atomic.get t.running do
               let events = Event_bus.drain sub in
               let payloads = List.map event_to_payload events in
               batch := !batch @ payloads;
@@ -227,7 +216,7 @@ let start ~sw ~(net : _ Eio.Net.t) ~bus t =
   end
 
 let stop t =
-  t.running <- false
+  Atomic.set t.running false
 
-let delivered_count t = t.delivered_count
-let failed_count t = t.failed_count
+let delivered_count t = Atomic.get t.delivered_count
+let failed_count t = Atomic.get t.failed_count
