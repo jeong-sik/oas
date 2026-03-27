@@ -45,9 +45,5 @@ type t = {
 
 let schema_version_current = 1
 
-let to_json t = to_yojson t
-
-let of_json json =
-  match of_yojson json with
-  | Ok t -> Ok t
-  | Error msg -> Error msg
+let to_json = to_yojson
+let of_json = of_yojson

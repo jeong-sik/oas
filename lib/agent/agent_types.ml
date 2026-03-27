@@ -124,6 +124,7 @@ let set_consecutive_idle_turns t n =
 let description t = t.options.description
 let memory t = t.options.memory
 let allowed_paths t = t.options.allowed_paths
+let named_cascade t = t.named_cascade
 
 let sdk_version = Sdk_version.version
 

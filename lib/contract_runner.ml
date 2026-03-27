@@ -77,7 +77,8 @@ let run ~sw ?clock ?(store = Proof_store.default_config)
     let context = Agent.context agent in
     let net = Agent.net agent in
     let new_agent = Agent.create ~net ~config ~tools
-        ~context ~options:new_opts () in
+        ~context ?named_cascade:(Agent.named_cascade agent)
+        ~options:new_opts () in
     let response = Agent.run ~sw ?clock new_agent prompt in
     let result_status = map_result_status response in
     let proof = Proof_capture.finalize capture_state ~result_status in

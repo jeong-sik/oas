@@ -11,13 +11,11 @@ type state = {
   run_id: string;
   store: Proof_store.config;
   contract: Risk_contract.t;
-  contract_id: string;
   mode_decision: Mode_resolver.decision;
   capability_snapshot: Cdal_proof.capability_snapshot;
   mutable started_at: float;
   mutable ended_at: float;
   mutable provider_snapshot: Cdal_proof.provider_snapshot;
-  mutable tool_traces: trace_entry list;
   mutable pending_tool: (float * string * Yojson.Safe.t) option;
   mutable trace_count: int;
 }
@@ -34,7 +32,6 @@ let create ~store ~contract ~mode_decision ~capability_snapshot =
     run_id;
     store;
     contract;
-    contract_id = Risk_contract.contract_id contract;
     mode_decision;
     capability_snapshot;
     started_at = 0.0;
@@ -44,7 +41,6 @@ let create ~store ~contract ~mode_decision ~capability_snapshot =
       model_id = "unknown";
       api_version = None;
     };
-    tool_traces = [];
     pending_tool = None;
     trace_count = 0;
   }
@@ -65,8 +61,7 @@ let flush_trace st entry =
     "duration_ms", (match entry.duration_ms with
                     | Some d -> `Int d | None -> `Null);
   ] in
-  Proof_store.append_tool_trace st.store ~run_id:st.run_id ~trace_id json;
-  st.tool_traces <- entry :: st.tool_traces
+  Proof_store.append_tool_trace st.store ~run_id:st.run_id ~trace_id json
 
 let complete_pending_tool st ~output ~error =
   match st.pending_tool with
@@ -162,7 +157,7 @@ let finalize st ~result_status =
   let proof : Cdal_proof.t = {
     schema_version = Cdal_proof.schema_version_current;
     run_id = st.run_id;
-    contract_id = st.contract_id;
+    contract_id = Risk_contract.contract_id st.contract;
     requested_execution_mode =
       st.contract.runtime_constraints.requested_execution_mode;
     effective_execution_mode = st.mode_decision.effective_mode;
