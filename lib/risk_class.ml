@@ -3,7 +3,21 @@ type t =
   | Medium
   | High
   | Critical
-[@@deriving yojson, show]
+[@@deriving show]
+
+let to_yojson = function
+  | Low -> `String "low"
+  | Medium -> `String "medium"
+  | High -> `String "high"
+  | Critical -> `String "critical"
+
+let of_yojson = function
+  | `String "low" -> Ok Low
+  | `String "medium" -> Ok Medium
+  | `String "high" -> Ok High
+  | `String "critical" -> Ok Critical
+  | j -> Error (Printf.sprintf "unknown risk class: %s"
+                  (Yojson.Safe.to_string j))
 
 let to_string = function
   | Low -> "low"
