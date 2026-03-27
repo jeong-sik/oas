@@ -26,8 +26,6 @@
   (ppx_deriving (>= 5.2.1))
   (uri (>= 4.4))
   (mcp_protocol (>= 1.0.0))
-  (mcp_protocol_eio (>= 1.0.0))
-  (mcp_protocol_http (>= 1.0.0))
   (cmdliner (>= 1.3.0))
   (alcotest (and :with-test (>= 1.7)))
   (qcheck-core (and :with-test (>= 0.21)))
