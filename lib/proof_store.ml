@@ -33,11 +33,14 @@ let init_run config ~run_id =
   ensure_dir (evidence_dir config ~run_id)
 
 let write_json path json =
-  let content = Yojson.Safe.pretty_to_string json in
-  let oc = open_out path in
-  Fun.protect ~finally:(fun () -> close_out oc) (fun () ->
-    output_string oc content;
-    output_char oc '\n')
+  try
+    let content = Yojson.Safe.pretty_to_string json in
+    let oc = open_out path in
+    Fun.protect ~finally:(fun () -> close_out oc) (fun () ->
+      output_string oc content;
+      output_char oc '\n')
+  with Sys_error msg ->
+    Printf.eprintf "proof_store: failed to write %s: %s\n%!" path msg
 
 let write_manifest config ~run_id proof =
   let path = manifest_path config ~run_id in
@@ -48,12 +51,15 @@ let write_contract config ~run_id contract =
   write_json path (Risk_contract.to_yojson contract)
 
 let append_tool_trace config ~run_id ~trace_id json =
-  let path = Filename.concat (traces_dir config ~run_id)
-      (trace_id ^ ".jsonl") in
-  let oc = open_out_gen [Open_append; Open_creat; Open_wronly] 0o644 path in
-  Fun.protect ~finally:(fun () -> close_out oc) (fun () ->
-    output_string oc (Yojson.Safe.to_string json);
-    output_char oc '\n')
+  try
+    let path = Filename.concat (traces_dir config ~run_id)
+        (trace_id ^ ".jsonl") in
+    let oc = open_out_gen [Open_append; Open_creat; Open_wronly] 0o644 path in
+    Fun.protect ~finally:(fun () -> close_out oc) (fun () ->
+      output_string oc (Yojson.Safe.to_string json);
+      output_char oc '\n')
+  with Sys_error msg ->
+    Printf.eprintf "proof_store: failed to append trace %s: %s\n%!" trace_id msg
 
 let write_evidence config ~run_id ~ref_id json =
   let path = Filename.concat (evidence_dir config ~run_id)

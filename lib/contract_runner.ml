@@ -22,7 +22,7 @@ let map_result_status (response : (Types.api_response, Error.sdk_error) result)
   | Ok resp ->
     match resp.stop_reason with
     | Types.EndTurn -> Cdal_proof.Completed
-    | Types.MaxTokens -> Cdal_proof.Timed_out
+    | Types.MaxTokens -> Cdal_proof.Completed
     | Types.StopSequence -> Cdal_proof.Completed
     | Types.StopToolUse -> Cdal_proof.Completed
     | Types.Unknown _ -> Cdal_proof.Errored

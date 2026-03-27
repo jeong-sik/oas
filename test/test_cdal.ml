@@ -218,6 +218,63 @@ let test_hooks_compose_both_continue () =
   Alcotest.(check bool) "inner called" true !inner_called
 
 (* ================================================================ *)
+(* Proof Store tests                                                 *)
+(* ================================================================ *)
+
+let test_proof_store_init_and_write () =
+  let tmpdir = Filename.concat
+      (Filename.get_temp_dir_name ()) "oas-test-proof-store" in
+  let config : Proof_store.config = { root = tmpdir } in
+  let run_id = "test-run-store-001" in
+  Proof_store.init_run config ~run_id;
+  let manifest_path = Proof_store.manifest_path config ~run_id in
+  let proof : Cdal_proof.t = {
+    schema_version = 1;
+    run_id;
+    contract_id = "md5:test123";
+    requested_execution_mode = Execution_mode.Draft;
+    effective_execution_mode = Execution_mode.Draft;
+    mode_decision_source = "passthrough";
+    risk_class = Risk_class.Low;
+    provider_snapshot = {
+      provider_name = "test"; model_id = "test-model"; api_version = None;
+    };
+    capability_snapshot = test_caps;
+    tool_trace_refs = [];
+    raw_evidence_refs = [];
+    checkpoint_ref = None;
+    result_status = Cdal_proof.Completed;
+    started_at = 1000.0;
+    ended_at = 1001.0;
+  } in
+  Proof_store.write_manifest config ~run_id proof;
+  Alcotest.(check bool) "manifest exists" true (Sys.file_exists manifest_path);
+  (* cleanup *)
+  ignore (Sys.command (Printf.sprintf "rm -rf %s" tmpdir))
+
+let test_proof_store_make_ref () =
+  let ref_str = Proof_store.make_ref ~run_id:"r1" ~subpath:"tool_traces/t.jsonl" in
+  Alcotest.(check string) "ref format"
+    "proof-store://r1/tool_traces/t.jsonl" ref_str
+
+(* ================================================================ *)
+(* Contract ID edge cases                                            *)
+(* ================================================================ *)
+
+let test_contract_id_empty_eval_criteria () =
+  let c = Risk_contract.{
+    runtime_constraints = {
+      requested_execution_mode = Execution_mode.Diagnose;
+      risk_class = Risk_class.Low;
+      allowed_mutations = [];
+      review_requirement = None;
+    };
+    eval_criteria = `Null;
+  } in
+  let id = Risk_contract.contract_id c in
+  Alcotest.(check bool) "non-empty id" true (String.length id > 4)
+
+(* ================================================================ *)
 (* Test runner                                                       *)
 (* ================================================================ *)
 
@@ -248,5 +305,12 @@ let () =
     "Hooks.compose", [
       Alcotest.test_case "outer skip bypasses inner" `Quick test_hooks_compose_outer_skip;
       Alcotest.test_case "both continue" `Quick test_hooks_compose_both_continue;
+    ];
+    "Proof_store", [
+      Alcotest.test_case "init and write" `Quick test_proof_store_init_and_write;
+      Alcotest.test_case "make_ref format" `Quick test_proof_store_make_ref;
+    ];
+    "Risk_contract edge", [
+      Alcotest.test_case "empty eval_criteria" `Quick test_contract_id_empty_eval_criteria;
     ];
   ]
