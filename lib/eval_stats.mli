@@ -33,3 +33,14 @@ val is_regression : baseline:float list -> current:float list -> bool
 (** Compute Cohen's d effect size between two samples.
     Returns [None] if either sample has fewer than 2 elements or pooled std_dev is 0. *)
 val effect_size : float list -> float list -> float option
+
+(** Direction of a sliding-window trend. *)
+type trend = Improving | Degrading | Stable | Insufficient_data
+
+(** Detect trend direction over the last [window] data points using linear regression.
+    Returns [Insufficient_data] if the list has fewer than [window] elements. *)
+val detect_trend : window:int -> float list -> trend
+
+(** Count consecutive transitions in the same direction from the end of a list.
+    Returns [(count, direction)]. An empty or single-element list returns [(0, `Flat)]. *)
+val consecutive_direction : float list -> int * [`Up | `Down | `Flat]
