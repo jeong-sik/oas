@@ -143,7 +143,7 @@ let test_text_of_tool_result_resource_content () =
       };
     ];
     is_error = None;
-    structured_content = None;
+    structured_content = None; _meta = None;
   } in
   let text = Mcp.text_of_tool_result result in
   (* ResourceContent is filtered out by text_of_tool_result (only TextContent passes) *)
@@ -156,7 +156,7 @@ let test_text_of_tool_result_single_text () =
         type_ = "text"; text = "single line"; annotations = None };
     ];
     is_error = None;
-    structured_content = None;
+    structured_content = None; _meta = None;
   } in
   let text = Mcp.text_of_tool_result result in
   Alcotest.(check string) "single text" "single line" text
