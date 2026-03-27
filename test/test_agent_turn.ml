@@ -90,6 +90,7 @@ let test_accumulate_usage_with_response () =
     output_tokens = 50;
     cache_creation_input_tokens = 0;
     cache_read_input_tokens = 0;
+    cost_usd = None
   } in
   let provider_cfg : Provider.config = {
     provider = Anthropic;
@@ -117,6 +118,7 @@ let test_accumulate_usage_local_pricing () =
   let response_usage : Types.api_usage = {
     input_tokens = 1000; output_tokens = 500;
     cache_creation_input_tokens = 0; cache_read_input_tokens = 0;
+    cost_usd = None
   } in
   let provider_cfg : Provider.config = {
     provider = Local { base_url = "http://localhost:8085" };
@@ -128,6 +130,28 @@ let test_accumulate_usage_local_pricing () =
     ~response_usage:(Some response_usage)
   in
   Alcotest.(check (float 0.001)) "local is free" 0.0 result.estimated_cost_usd
+
+let test_accumulate_usage_prefers_response_cost () =
+  let current = Types.empty_usage in
+  let response_usage : Types.api_usage = {
+    input_tokens = 100;
+    output_tokens = 50;
+    cache_creation_input_tokens = 0;
+    cache_read_input_tokens = 0;
+    cost_usd = Some 0.4321;
+  } in
+  let provider_cfg : Provider.config = {
+    provider = Anthropic;
+    model_id = "claude-sonnet-4-6";
+    api_key_env = "TEST";
+  } in
+  let result = Agent_turn.accumulate_usage
+    ~current_usage:current
+    ~provider:(Some provider_cfg)
+    ~response_usage:(Some response_usage)
+  in
+  Alcotest.(check (float 0.0001)) "uses response cost" 0.4321
+    result.estimated_cost_usd
 
 (* ── idle detection tests ────────────────────────────────── *)
 
@@ -260,6 +284,7 @@ let test_accumulate_usage_no_provider () =
   let response_usage : Types.api_usage = {
     input_tokens = 200; output_tokens = 100;
     cache_creation_input_tokens = 10; cache_read_input_tokens = 5;
+    cost_usd = None
   } in
   let result = Agent_turn.accumulate_usage
     ~current_usage:current ~provider:None
@@ -282,6 +307,7 @@ let test_accumulate_usage_cumulative () =
   let response_usage : Types.api_usage = {
     input_tokens = 200; output_tokens = 100;
     cache_creation_input_tokens = 0; cache_read_input_tokens = 0;
+    cost_usd = None
   } in
   let result = Agent_turn.accumulate_usage
     ~current_usage:current ~provider:None
@@ -486,6 +512,7 @@ let () =
       Alcotest.test_case "with response" `Quick test_accumulate_usage_with_response;
       Alcotest.test_case "none response" `Quick test_accumulate_usage_none_response;
       Alcotest.test_case "local pricing" `Quick test_accumulate_usage_local_pricing;
+      Alcotest.test_case "prefers response cost" `Quick test_accumulate_usage_prefers_response_cost;
       Alcotest.test_case "no provider" `Quick test_accumulate_usage_no_provider;
       Alcotest.test_case "cumulative" `Quick test_accumulate_usage_cumulative;
     ];

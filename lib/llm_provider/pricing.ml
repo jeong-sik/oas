@@ -75,6 +75,29 @@ let estimate_cost ~(pricing : pricing)
   let output_cost = Float.of_int output_tokens *. pricing.output_per_million /. 1_000_000.0 in
   input_cost +. cache_write_cost +. cache_read_cost +. output_cost
 
+let estimate_usage_cost ~model_id (usage : Types.api_usage) =
+  let pricing = pricing_for_model model_id in
+  estimate_cost ~pricing
+    ~input_tokens:usage.input_tokens
+    ~output_tokens:usage.output_tokens
+    ~cache_creation_input_tokens:usage.cache_creation_input_tokens
+    ~cache_read_input_tokens:usage.cache_read_input_tokens
+    ()
+
+let annotate_usage_cost ~model_id (usage : Types.api_usage) =
+  match usage.cost_usd with
+  | Some _ -> usage
+  | None ->
+      { usage with cost_usd = Some (estimate_usage_cost ~model_id usage) }
+
+let annotate_response_cost (response : Types.api_response) =
+  let usage =
+    Option.map (annotate_usage_cost ~model_id:response.model) response.usage
+  in
+  match usage with
+  | None -> response
+  | Some usage -> { response with usage = Some usage }
+
 [@@@coverage off]
 (* === Inline tests === *)
 
@@ -255,3 +278,33 @@ let%test "estimate_cost: free model is always zero" =
   let cost = estimate_cost ~pricing:p ~input_tokens:1_000_000 ~output_tokens:1_000_000
     ~cache_creation_input_tokens:500_000 ~cache_read_input_tokens:500_000 () in
   close_enough cost 0.0
+
+let%test "annotate_usage_cost fills missing cost" =
+  let usage : Types.api_usage = {
+    input_tokens = 1_000;
+    output_tokens = 500;
+    cache_creation_input_tokens = 0;
+    cache_read_input_tokens = 0;
+    cost_usd = None;
+  } in
+  match annotate_usage_cost ~model_id:"claude-sonnet-4-6" usage with
+  | { cost_usd = Some cost; _ } -> cost > 0.0
+  | _ -> false
+
+let%test "annotate_response_cost preserves measured cost" =
+  let response : Types.api_response = {
+    id = "resp-1";
+    model = "claude-sonnet-4-6";
+    stop_reason = Types.EndTurn;
+    content = [Types.Text "ok"];
+    usage = Some {
+      input_tokens = 100;
+      output_tokens = 20;
+      cache_creation_input_tokens = 0;
+      cache_read_input_tokens = 0;
+      cost_usd = Some 0.1234;
+    };
+  } in
+  match annotate_response_cost response with
+  | { usage = Some { cost_usd = Some cost; _ }; _ } -> close_enough cost 0.1234
+  | _ -> false

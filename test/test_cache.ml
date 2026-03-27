@@ -97,9 +97,9 @@ let test_parse_usage_without_cache_tokens () =
 
 let test_add_usage_cache_accumulation () =
   let u1 = { input_tokens = 100; output_tokens = 50;
-             cache_creation_input_tokens = 2000; cache_read_input_tokens = 0 } in
+             cache_creation_input_tokens = 2000; cache_read_input_tokens = 0 ; cost_usd = None } in
   let u2 = { input_tokens = 80; output_tokens = 30;
-             cache_creation_input_tokens = 0; cache_read_input_tokens = 1800 } in
+             cache_creation_input_tokens = 0; cache_read_input_tokens = 1800 ; cost_usd = None } in
   let stats = add_usage (add_usage empty_usage u1) u2 in
   Alcotest.(check int) "total_input" 180 stats.total_input_tokens;
   Alcotest.(check int) "total_output" 80 stats.total_output_tokens;

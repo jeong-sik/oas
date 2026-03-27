@@ -25,7 +25,8 @@ let parse_response json =
       let cache_read_input_tokens =
         u |> member "cache_read_input_tokens" |> to_int_option |> Option.value ~default:0 in
       Some { input_tokens; output_tokens;
-             cache_creation_input_tokens; cache_read_input_tokens }
+             cache_creation_input_tokens; cache_read_input_tokens;
+             cost_usd = None }
   in
   let stop_reason = stop_reason_of_string stop_reason_str in
   { id; model; stop_reason; content; usage }

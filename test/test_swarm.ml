@@ -252,7 +252,7 @@ let mock_run text ~sw:_ _prompt =
        content = [Types.Text text];
        usage = Some { Types.input_tokens = 10; output_tokens = 5;
                       cache_creation_input_tokens = 0;
-                      cache_read_input_tokens = 0 } }
+                      cache_read_input_tokens = 0 ; cost_usd = None } }
 
 let test_convergence_reaches_target () =
   Eio_main.run @@ fun env ->
@@ -439,7 +439,7 @@ let mock_run_with_latency ~clock ~latency_ms text ~sw:_ _prompt =
        content = [Types.Text text];
        usage = Some { Types.input_tokens = 50; output_tokens = 25;
                       cache_creation_input_tokens = 0;
-                      cache_read_input_tokens = 0 } }
+                      cache_read_input_tokens = 0 ; cost_usd = None } }
 
 (** Mock run that can fail on demand. *)
 let mock_run_failing ~fail_on_call counter ~sw:_ _prompt =

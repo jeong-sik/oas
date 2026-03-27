@@ -148,7 +148,13 @@ let extract_with_retry ~sw ~net ?base_url ?provider ?clock
              cache_creation_input_tokens =
                a.cache_creation_input_tokens + u.cache_creation_input_tokens;
              cache_read_input_tokens =
-               a.cache_read_input_tokens + u.cache_read_input_tokens }
+               a.cache_read_input_tokens + u.cache_read_input_tokens;
+             cost_usd =
+               (match a.cost_usd, u.cost_usd with
+                | Some left, Some right -> Some (left +. right)
+                | Some left, None -> Some left
+                | None, Some right -> Some right
+                | None, None -> None) }
   in
   let rec attempt n acc_usage messages =
     let state = { config = config_with_tool; messages = []; turn_count = 0;

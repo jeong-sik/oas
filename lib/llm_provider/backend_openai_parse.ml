@@ -40,6 +40,7 @@ let usage_of_openai_json json =
           usage |> member "completion_tokens" |> to_int_option |> Option.value ~default:0;
         cache_creation_input_tokens = 0;
         cache_read_input_tokens = cached_tokens;
+        cost_usd = None
       }
 
 (** Parse an OpenAI-compatible JSON response string into an [api_response].

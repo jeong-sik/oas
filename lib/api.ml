@@ -99,17 +99,24 @@ let create_message ~sw ~net ?(base_url=default_base_url) ?provider ?clock ?retry
           let body_str = Eio.Buf_read.(of_flow ~max_size:max_response_body body |> take_all) in
           (match kind with
            | Provider.Anthropic_messages ->
-               Ok (parse_response (Yojson.Safe.from_string body_str))
+               Ok
+                 (parse_response (Yojson.Safe.from_string body_str)
+                  |> Llm_provider.Pricing.annotate_response_cost)
            | Provider.Openai_chat_completions ->
                (match parse_openai_response_result body_str with
-                | Ok resp -> Ok resp
+                | Ok resp ->
+                    Ok (Llm_provider.Pricing.annotate_response_cost resp)
                 | Error msg -> Error (Retry.InvalidRequest { message = msg }))
            | Provider.Custom name ->
                (match Provider.find_provider name with
-                | Some impl -> Ok (impl.parse_response body_str)
+                | Some impl ->
+                    Ok
+                      (impl.parse_response body_str
+                       |> Llm_provider.Pricing.annotate_response_cost)
                 | None ->
                     (match parse_openai_response_result body_str with
-                     | Ok resp -> Ok resp
+                     | Ok resp ->
+                         Ok (Llm_provider.Pricing.annotate_response_cost resp)
                      | Error msg -> Error (Retry.InvalidRequest { message = msg }))))
       | status ->
           let code = Cohttp.Code.code_of_status status in

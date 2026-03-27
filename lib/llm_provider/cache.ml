@@ -94,6 +94,10 @@ let response_to_json (resp : Types.api_response) : Yojson.Safe.t =
         ("output_tokens", `Int u.output_tokens);
         ("cache_creation_input_tokens", `Int u.cache_creation_input_tokens);
         ("cache_read_input_tokens", `Int u.cache_read_input_tokens);
+        ("cost_usd",
+         match u.cost_usd with
+         | Some cost -> `Float cost
+         | None -> `Null);
       ]
     | None -> `Null
   in
@@ -121,6 +125,8 @@ let response_of_json (json : Yojson.Safe.t) : Types.api_response option =
               u |> member "cache_creation_input_tokens" |> to_int;
             cache_read_input_tokens =
               u |> member "cache_read_input_tokens" |> to_int;
+            cost_usd =
+              u |> member "cost_usd" |> to_float_option;
           }
       in
       let content =

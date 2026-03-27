@@ -16,7 +16,7 @@ let collect_events response =
 
 let make_usage ?(inp=0) ?(out=0) ?(cc=0) ?(cr=0) () : Types.api_usage =
   { input_tokens = inp; output_tokens = out;
-    cache_creation_input_tokens = cc; cache_read_input_tokens = cr }
+    cache_creation_input_tokens = cc; cache_read_input_tokens = cr ; cost_usd = None }
 
 let make_response ?(id="msg-1") ?(model="test-model") ?(stop_reason=Types.EndTurn)
     ?(usage=Some (make_usage ~inp:10 ~out:5 ())) content : Types.api_response =

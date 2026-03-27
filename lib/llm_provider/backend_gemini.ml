@@ -277,6 +277,7 @@ let parse_response json =
             cache_read_input_tokens =
               um |> member "cachedContentTokenCount" |> to_int_option
               |> Option.value ~default:0;
+            cost_usd = None;
           }
       in
       let model_str =

@@ -103,6 +103,7 @@ let finalize_stream_acc (acc : stream_acc) =
       output_tokens = !(acc.output_tokens);
       cache_creation_input_tokens = !(acc.cache_creation);
       cache_read_input_tokens = !(acc.cache_read);
+      cost_usd = None
     } }
 
 [@@@coverage off]
@@ -128,7 +129,7 @@ let%test "accumulate_event MessageStart with usage" =
   accumulate_event acc (Types.MessageStart {
     id = "msg-2"; model = "m";
     usage = Some { input_tokens = 100; output_tokens = 0;
-                   cache_creation_input_tokens = 5; cache_read_input_tokens = 10 }});
+                   cache_creation_input_tokens = 5; cache_read_input_tokens = 10 ; cost_usd = None }});
   !(acc.input_tokens) = 100
   && !(acc.cache_creation) = 5
   && !(acc.cache_read) = 10
@@ -150,7 +151,7 @@ let%test "accumulate_event MessageDelta sets stop_reason" =
   accumulate_event acc (Types.MessageDelta {
     stop_reason = Some Types.StopToolUse;
     usage = Some { input_tokens = 0; output_tokens = 50;
-                   cache_creation_input_tokens = 0; cache_read_input_tokens = 0 }});
+                   cache_creation_input_tokens = 0; cache_read_input_tokens = 0 ; cost_usd = None }});
   !(acc.stop_reason) = Types.StopToolUse
   && !(acc.output_tokens) = 50
 
@@ -366,9 +367,9 @@ let%test "accumulate_event multiple MessageDelta accumulates tokens" =
   accumulate_event acc (Types.MessageDelta {
     stop_reason = None;
     usage = Some { input_tokens = 0; output_tokens = 30;
-                   cache_creation_input_tokens = 0; cache_read_input_tokens = 0 }});
+                   cache_creation_input_tokens = 0; cache_read_input_tokens = 0 ; cost_usd = None }});
   accumulate_event acc (Types.MessageDelta {
     stop_reason = None;
     usage = Some { input_tokens = 0; output_tokens = 20;
-                   cache_creation_input_tokens = 0; cache_read_input_tokens = 0 }});
+                   cache_creation_input_tokens = 0; cache_read_input_tokens = 0 ; cost_usd = None }});
   !(acc.output_tokens) = 50

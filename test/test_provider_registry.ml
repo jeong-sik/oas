@@ -223,7 +223,7 @@ let test_zero_api_usage () =
 let test_usage_of_response_some () =
   let usage : Types.api_usage =
     { input_tokens = 100; output_tokens = 50;
-      cache_creation_input_tokens = 10; cache_read_input_tokens = 5 } in
+      cache_creation_input_tokens = 10; cache_read_input_tokens = 5 ; cost_usd = None } in
   let resp : Types.api_response =
     { id = "r1"; model = "m"; stop_reason = EndTurn;
       content = [Text "ok"]; usage = Some usage } in

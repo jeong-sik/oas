@@ -29,7 +29,8 @@ let parse_sse_event event_type data_str =
             let cache_read_input_tokens =
               u |> member "cache_read_input_tokens" |> to_int_option |> Option.value ~default:0 in
             Some { input_tokens; output_tokens = 0;
-                   cache_creation_input_tokens; cache_read_input_tokens }
+                   cache_creation_input_tokens; cache_read_input_tokens;
+                   cost_usd = None }
         in
         Some (MessageStart { id; model; usage })
     | "content_block_start" ->
@@ -75,7 +76,8 @@ let parse_sse_event event_type data_str =
               u |> member "cache_read_input_tokens" |> to_int_option
               |> Option.value ~default:0 in
             Some { input_tokens = 0; output_tokens;
-                   cache_creation_input_tokens; cache_read_input_tokens }
+                   cache_creation_input_tokens; cache_read_input_tokens;
+                   cost_usd = None }
         in
         Some (MessageDelta { stop_reason; usage })
     | "message_stop" ->
@@ -207,6 +209,7 @@ let parse_openai_sse_chunk data_str : openai_chunk option =
               |> Option.value ~default:0;
             cache_creation_input_tokens = 0;
             cache_read_input_tokens = cached;
+            cost_usd = None
           }
       in
       Some { chunk_id; chunk_model; delta_content; delta_reasoning;
@@ -351,6 +354,7 @@ let parse_gemini_sse_chunk data_str : gemini_chunk option =
           cache_read_input_tokens =
             um |> member "cachedContentTokenCount" |> to_int_option
             |> Option.value ~default:0;
+          cost_usd = None;
         }
     in
     Some { gem_model; gem_parts; gem_finish_reason; gem_usage }

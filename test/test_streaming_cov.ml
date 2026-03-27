@@ -34,6 +34,7 @@ let test_accumulate_message_start () =
     input_tokens = 10; output_tokens = 0;
     cache_creation_input_tokens = 2;
     cache_read_input_tokens = 3;
+    cost_usd = None
   } in
   Streaming.accumulate_event acc
     (Types.MessageStart { id = "msg_1"; model = "claude-3"; usage = Some usage });
@@ -127,6 +128,7 @@ let test_accumulate_message_delta () =
     input_tokens = 0; output_tokens = 50;
     cache_creation_input_tokens = 1;
     cache_read_input_tokens = 2;
+    cost_usd = None
   } in
   Streaming.accumulate_event acc
     (Types.MessageDelta {
@@ -211,6 +213,7 @@ let test_finalize_with_usage () =
     input_tokens = 100; output_tokens = 50;
     cache_creation_input_tokens = 0;
     cache_read_input_tokens = 0;
+    cost_usd = None
   } in
   Streaming.accumulate_event acc
     (Types.MessageStart { id = "m4"; model = "m"; usage = Some usage });
@@ -219,7 +222,7 @@ let test_finalize_with_usage () =
       stop_reason = Some Types.EndTurn;
       usage = Some { input_tokens = 0; output_tokens = 50;
                      cache_creation_input_tokens = 0;
-                     cache_read_input_tokens = 0 } });
+                     cache_read_input_tokens = 0 ; cost_usd = None } });
   let resp = finalize_ok acc in
   (match resp.usage with
    | Some u ->

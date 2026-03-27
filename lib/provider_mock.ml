@@ -53,6 +53,7 @@ let text_response ?(id="mock-id") ?(model="mock-model") text =
         output_tokens = 50;
         cache_creation_input_tokens = 0;
         cache_read_input_tokens = 0;
+        cost_usd = None
       };
     }
 
@@ -72,6 +73,7 @@ let tool_use_response ?(id="mock-id") ?(model="mock-model")
         output_tokens = 80;
         cache_creation_input_tokens = 0;
         cache_read_input_tokens = 0;
+        cost_usd = None
       };
     }
 
@@ -99,6 +101,7 @@ let thinking_response ?(id="mock-id") ?(model="mock-model")
         output_tokens = 150;
         cache_creation_input_tokens = 0;
         cache_read_input_tokens = 0;
+        cost_usd = None
       };
     }
 

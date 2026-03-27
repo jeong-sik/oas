@@ -154,6 +154,7 @@ let complete ~sw ~net ?(transport : Llm_transport.t option)
       in
       (match result with
        | Ok resp ->
+           let resp = Pricing.annotate_response_cost resp in
            m.on_request_end ~model_id ~latency_ms;
            (* Cache store — reuse pre-computed key *)
            (match cache, cache_key with
@@ -345,7 +346,7 @@ let complete_stream_http ~sw:_ ~net ~(config : Provider_config.t)
             ) ();
             finalize_stream_acc acc) with
   | Error _ as e -> e
-  | Ok (Ok resp) -> Ok resp
+  | Ok (Ok resp) -> Ok (Pricing.annotate_response_cost resp)
   | Ok (Error msg) ->
       Error (Http_client.NetworkError {
         message = Printf.sprintf "SSE stream error: %s" msg })
@@ -354,11 +355,13 @@ let complete_stream ~sw ~net ?(transport : Llm_transport.t option)
     ~(config : Provider_config.t)
     ~(messages : Types.message list) ?(tools=[])
     ~(on_event : Types.sse_event -> unit) () =
-  match transport with
+  let result = match transport with
   | Some t ->
     t.complete_stream ~on_event { Llm_transport.config; messages; tools }
   | None ->
     complete_stream_http ~sw ~net ~config ~messages ~tools ~on_event
+  in
+  Result.map (fun resp -> Pricing.annotate_response_cost resp) result
 
 (* ── HTTP Transport constructor ─────────────────────── *)
 

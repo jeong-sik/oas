@@ -75,15 +75,20 @@ let accumulate_usage ~current_usage ~provider ~response_usage =
   match response_usage with
   | Some u ->
     let base = add_usage current_usage u in
-    let model_id = match provider with
-      | Some (cfg : Provider.config) -> cfg.model_id
-      | None -> ""
+    let turn_cost =
+      match u.cost_usd with
+      | Some cost -> cost
+      | None ->
+          let model_id = match provider with
+            | Some (cfg : Provider.config) -> cfg.model_id
+            | None -> ""
+          in
+          let pricing = Provider.pricing_for_model model_id in
+          Provider.estimate_cost ~pricing
+            ~input_tokens:u.input_tokens ~output_tokens:u.output_tokens
+            ~cache_creation_input_tokens:u.cache_creation_input_tokens
+            ~cache_read_input_tokens:u.cache_read_input_tokens ()
     in
-    let pricing = Provider.pricing_for_model model_id in
-    let turn_cost = Provider.estimate_cost ~pricing
-      ~input_tokens:u.input_tokens ~output_tokens:u.output_tokens
-      ~cache_creation_input_tokens:u.cache_creation_input_tokens
-      ~cache_read_input_tokens:u.cache_read_input_tokens () in
     { base with estimated_cost_usd = base.estimated_cost_usd +. turn_cost }
   | None -> { current_usage with api_calls = current_usage.api_calls + 1 }
 

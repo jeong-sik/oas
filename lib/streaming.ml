@@ -112,7 +112,8 @@ let finalize_stream_acc (acc : stream_acc) =
     then Some { input_tokens = !(acc.input_tokens);
                 output_tokens = !(acc.output_tokens);
                 cache_creation_input_tokens = !(acc.cache_creation);
-                cache_read_input_tokens = !(acc.cache_read) }
+                cache_read_input_tokens = !(acc.cache_read);
+                cost_usd = None }
     else None
   in
   Ok { id = !(acc.msg_id); model = !(acc.msg_model);
@@ -183,7 +184,7 @@ let create_message_stream ~sw ~net ?(base_url=Api.default_base_url)
                       on_event MessageStop;
                       finalize_stream_acc acc) with
             | Error e -> Error (map_http_error e)
-            | Ok (Ok resp) -> Ok resp
+            | Ok (Ok resp) -> Ok (Llm_provider.Pricing.annotate_response_cost resp)
             | Ok (Error msg) ->
                 Error (Error.Api (Retry.NetworkError {
                   message = Printf.sprintf "SSE stream error: %s" msg })))
@@ -234,7 +235,7 @@ let create_message_stream ~sw ~net ?(base_url=Api.default_base_url)
                       on_event MessageStop;
                       finalize_stream_acc acc) with
             | Error e -> Error (map_http_error e)
-            | Ok (Ok resp) -> Ok resp
+            | Ok (Ok resp) -> Ok (Llm_provider.Pricing.annotate_response_cost resp)
             | Ok (Error msg) ->
                 Error (Error.Api (Retry.NetworkError {
                   message = Printf.sprintf "SSE stream error: %s" msg })))

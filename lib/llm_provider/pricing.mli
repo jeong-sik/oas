@@ -21,3 +21,17 @@ val estimate_cost :
   ?cache_creation_input_tokens:int ->
   ?cache_read_input_tokens:int ->
   unit -> float
+
+(** Estimate cost for a usage record from its model ID. *)
+val estimate_usage_cost :
+  model_id:string ->
+  Types.api_usage -> float
+
+(** Fill [usage.cost_usd] using the pricing table when absent. *)
+val annotate_usage_cost :
+  model_id:string ->
+  Types.api_usage -> Types.api_usage
+
+(** Fill [response.usage.cost_usd] using [response.model] when absent. *)
+val annotate_response_cost :
+  Types.api_response -> Types.api_response

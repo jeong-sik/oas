@@ -173,7 +173,7 @@ let parse_usage json =
     Some { Types.input_tokens = member_int "input_tokens" u;
            output_tokens = member_int "output_tokens" u;
            cache_creation_input_tokens = member_int "cache_creation_input_tokens" u;
-           cache_read_input_tokens = member_int "cache_read_input_tokens" u }
+           cache_read_input_tokens = member_int "cache_read_input_tokens" u ; cost_usd = None }
   | _ -> None
 
 let parse_stop_reason s = Types.stop_reason_of_string s

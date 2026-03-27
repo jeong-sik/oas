@@ -5,7 +5,7 @@ open Agent_sdk.Types
 (* Helper: create api_usage from input/output token counts *)
 let make_usage inp out =
   { input_tokens = inp; output_tokens = out;
-    cache_creation_input_tokens = 0; cache_read_input_tokens = 0 }
+    cache_creation_input_tokens = 0; cache_read_input_tokens = 0 ; cost_usd = None }
 
 (* ------------------------------------------------------------------ *)
 (* Usage tracking                                                       *)
@@ -49,7 +49,7 @@ let test_add_usage_immutable () =
 let test_sse_message_start () =
   let evt = MessageStart { id = "msg_abc"; model = "claude-sonnet-4";
     usage = Some { input_tokens = 100; output_tokens = 0;
-                   cache_creation_input_tokens = 0; cache_read_input_tokens = 0 } } in
+                   cache_creation_input_tokens = 0; cache_read_input_tokens = 0 ; cost_usd = None } } in
   match evt with
   | MessageStart { id; model; usage = Some u } ->
     Alcotest.(check string) "id" "msg_abc" id;
@@ -253,7 +253,7 @@ let test_synthetic_text_only () =
     content = [Text "hello"];
     usage = Some { input_tokens = 10; output_tokens = 5;
                    cache_creation_input_tokens = 0;
-                   cache_read_input_tokens = 0 };
+                   cache_read_input_tokens = 0 ; cost_usd = None };
   } in
   let events = collect_events response in
   (* MessageStart, ContentBlockStart, TextDelta, ContentBlockStop, MessageDelta, MessageStop *)
@@ -344,6 +344,7 @@ let test_synthetic_usage_propagation () =
   let usage : api_usage = {
     input_tokens = 100; output_tokens = 50;
     cache_creation_input_tokens = 10; cache_read_input_tokens = 5;
+    cost_usd = None
   } in
   let response : api_response = {
     id = "msg-u"; model = "test"; stop_reason = EndTurn;
