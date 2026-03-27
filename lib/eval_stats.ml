@@ -114,13 +114,13 @@ let detect_trend ~window data =
     let m = mean xs in
     let fn = float_of_int n in
     let x_mean = (fn -. 1.0) /. 2.0 in
+    let idx = ref 0 in
     let num, den =
-      List.fold_left (fun (num, den) (i, y) ->
-        let xi = float_of_int i in
-        let dx = xi -. x_mean in
+      List.fold_left (fun (num, den) y ->
+        let dx = float_of_int !idx -. x_mean in
+        incr idx;
         (num +. dx *. (y -. m), den +. dx *. dx))
-        (0.0, 0.0)
-        (List.mapi (fun i y -> (i, y)) xs)
+        (0.0, 0.0) xs
     in
     if den < 1e-12 then Stable
     else
