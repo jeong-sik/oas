@@ -2,6 +2,14 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.92.2] - 2026-03-27
+
+### Changed
+- Raise `mcp_protocol`, `mcp_protocol_eio`, and `mcp_protocol_http` minimum versions to `>= 1.0.0`, and pin CI's `mcp-protocol-sdk` checkout to the 1.0.1 SHA.
+
+### Fixed
+- Log swarm metric-evaluation failures to stderr and clarify ignored mailbox/usage paths in the runner to make convergence-loop debugging easier.
+
 ## [0.92.1] - 2026-03-27
 
 ### Fixed
