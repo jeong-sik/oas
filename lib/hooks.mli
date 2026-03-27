@@ -112,3 +112,10 @@ type context_injector =
 
 val empty : hooks
 val invoke : hook option -> hook_event -> hook_decision
+
+(** Compose two hook sets. [outer] observes all events first.
+    For hooks that return control decisions (Skip, Override, etc.),
+    if [outer] returns a non-Continue decision, [inner] is bypassed.
+    For observation-only hooks (PostToolUse, OnStop, etc.),
+    both hooks always fire. *)
+val compose : outer:hooks -> inner:hooks -> hooks

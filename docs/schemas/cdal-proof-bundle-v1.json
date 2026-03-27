@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CDAL Proof Bundle v1",
+  "description": "15-field contract-driven execution evidence manifest. Cross-repo schema for MASC consumption.",
+  "type": "object",
+  "required": [
+    "schema_version", "run_id", "contract_id",
+    "requested_execution_mode", "effective_execution_mode",
+    "mode_decision_source", "risk_class",
+    "provider_snapshot", "capability_snapshot",
+    "tool_trace_refs", "raw_evidence_refs",
+    "result_status", "started_at", "ended_at"
+  ],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "run_id": { "type": "string" },
+    "contract_id": {
+      "type": "string",
+      "pattern": "^(md5|sha256):[a-f0-9]+$"
+    },
+    "requested_execution_mode": {
+      "type": "string",
+      "enum": ["diagnose", "draft", "execute"]
+    },
+    "effective_execution_mode": {
+      "type": "string",
+      "enum": ["diagnose", "draft", "execute"]
+    },
+    "mode_decision_source": { "type": "string" },
+    "risk_class": {
+      "type": "string",
+      "enum": ["low", "medium", "high", "critical"]
+    },
+    "provider_snapshot": {
+      "type": "object",
+      "required": ["provider_name", "model_id"],
+      "properties": {
+        "provider_name": { "type": "string" },
+        "model_id": { "type": "string" },
+        "api_version": { "type": ["string", "null"] }
+      }
+    },
+    "capability_snapshot": {
+      "type": "object",
+      "required": ["tools", "mcp_servers", "max_turns"],
+      "properties": {
+        "tools": { "type": "array", "items": { "type": "string" } },
+        "mcp_servers": { "type": "array", "items": { "type": "string" } },
+        "max_turns": { "type": "integer" },
+        "max_tokens": { "type": ["integer", "null"] },
+        "thinking_enabled": { "type": ["boolean", "null"] }
+      }
+    },
+    "tool_trace_refs": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "raw_evidence_refs": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "checkpoint_ref": { "type": ["string", "null"] },
+    "result_status": {
+      "type": "string",
+      "enum": ["completed", "errored", "timed_out", "cancelled"]
+    },
+    "started_at": { "type": "number" },
+    "ended_at": { "type": "number" }
+  }
+}

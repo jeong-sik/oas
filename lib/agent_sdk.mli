@@ -125,6 +125,17 @@ module Durable_event = Durable_event
 module Checkpoint_validation = Checkpoint_validation
 module Judge = Judge
 
+(** {1 CDAL -- Contract-Driven Agent Loop PoC-1} *)
+
+module Execution_mode = Execution_mode
+module Risk_class = Risk_class
+module Risk_contract = Risk_contract
+module Cdal_proof = Cdal_proof
+module Mode_resolver = Mode_resolver
+module Proof_store = Proof_store
+module Proof_capture = Proof_capture
+module Contract_runner = Contract_runner
+
 (** {1 Quick Start} *)
 
 (** Create an agent with default config.
