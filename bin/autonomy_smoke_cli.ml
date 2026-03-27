@@ -40,13 +40,9 @@ let live_smoke config_file workers prompt =
       Printf.eprintf "Error loading config: %s\n" (Error.to_string e);
       exit 1
   | Ok cfg ->
-      Eio_main.run @@ fun env ->
-      let net = Eio.Stdenv.net env in
-      let clock = Eio.Stdenv.clock env in
-      let _ = clock in
+      Oas_cli_support.with_runtime @@ fun ~env ~sw ~net ~mgr:_ ~clock:_ ->
       let base_builder = Agent_sdk.Agent_config.to_builder ~net cfg in
       Printf.eprintf "Spawning %d workers with prompt: %s\n" workers prompt;
-      Eio.Switch.run @@ fun sw ->
       match
         Traced_swarm.run_traced ~sw ~env ~workers
           ~base_builder ~prompt ()

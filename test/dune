@@ -365,7 +365,7 @@
 
 (test
  (name test_review_agent)
- (libraries agent_sdk agent_sdk_swarm alcotest yojson eio eio_main str))
+ (libraries agent_sdk agent_sdk_swarm oas_cli_support alcotest yojson eio eio_main str))
 
 (test
  (name test_http_client)

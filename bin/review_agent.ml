@@ -10,24 +10,9 @@
 open Agent_sdk
 open Types
 
-(* ── Shell helper ──────────────────────────────────────────── *)
-
-let run_gh_command args =
-  let cmd = String.concat " " ("gh" :: List.map Filename.quote args) in
-  let ic = Unix.open_process_in cmd in
-  let buf = Buffer.create 4096 in
-  (try while true do
-     Buffer.add_string buf (input_line ic);
-     Buffer.add_char buf '\n'
-   done with End_of_file -> ());
-  match Unix.close_process_in ic with
-  | Unix.WEXITED 0 -> Ok (Buffer.contents buf)
-  | Unix.WEXITED n -> Error (Printf.sprintf "gh exited with code %d: %s" n (Buffer.contents buf))
-  | _ -> Error "gh process killed or stopped"
-
 (* ── Tools ─────────────────────────────────────────────────── *)
 
-let get_pr_info_tool =
+let get_pr_info_tool ~run_gh_command =
   Tool.create ~name:"get_pr_info"
     ~description:"Get PR metadata: title, body, files changed, additions/deletions"
     ~parameters:[
@@ -43,7 +28,7 @@ let get_pr_info_tool =
       | Ok output -> Ok { content = output }
       | Error msg -> Error { message = msg; recoverable = true })
 
-let get_pr_diff_tool =
+let get_pr_diff_tool ~run_gh_command =
   Tool.create ~name:"get_pr_diff"
     ~description:"Get the unified diff of a PR. For large PRs, use file_filter to limit."
     ~parameters:[
@@ -83,7 +68,7 @@ let get_pr_diff_tool =
       else filtered in
       Ok { content = result }))
 
-let post_review_tool =
+let post_review_tool ~run_gh_command =
   Tool.create ~name:"post_review"
     ~description:"Post a review comment on the PR"
     ~parameters:[
@@ -98,14 +83,17 @@ let post_review_tool =
       let pr_num = args |> member "pr_number" |> to_string in
       let body = args |> member "body" |> to_string in
       let tmp = Filename.temp_file "review" ".md" in
-      let oc = open_out tmp in
-      output_string oc body;
-      close_out oc;
-      let result = run_gh_command ["pr"; "comment"; pr_num; "--repo"; repo; "--body-file"; tmp] in
-      Sys.remove tmp;
-      match result with
-      | Ok output -> Ok { content = Printf.sprintf "Review posted. %s" (String.trim output) }
-      | Error msg -> Error { message = msg; recoverable = true })
+      Fun.protect
+        ~finally:(fun () -> if Sys.file_exists tmp then Sys.remove tmp)
+        (fun () ->
+          let oc = open_out tmp in
+          output_string oc body;
+          close_out oc;
+          match run_gh_command ["pr"; "comment"; pr_num; "--repo"; repo; "--body-file"; tmp] with
+          | Ok output ->
+            Ok { content = Printf.sprintf "Review posted. %s" (String.trim output) }
+          | Error msg ->
+            Error { message = msg; recoverable = true }))
 
 (* ── System prompt ─────────────────────────────────────────── *)
 
@@ -161,14 +149,23 @@ let rec resolve_provider name =
 (* ── Cmdliner ──────────────────────────────────────────────── *)
 
 let run repo pr_num should_post provider_name =
-  let tools = if should_post then
-    [get_pr_info_tool; get_pr_diff_tool; post_review_tool]
-  else
-    [get_pr_info_tool; get_pr_diff_tool]
+  Oas_cli_support.with_runtime @@ fun ~env:_ ~sw ~net ~mgr ~clock:_ ->
+  let run_gh_command args =
+    Oas_cli_support.run_process_capture_eio ~mgr "gh" args
   in
-  Eio_main.run @@ fun env ->
-  let net = Eio.Stdenv.net env in
-  Eio.Switch.run @@ fun sw ->
+  let tools =
+    if should_post then
+      [
+        get_pr_info_tool ~run_gh_command;
+        get_pr_diff_tool ~run_gh_command;
+        post_review_tool ~run_gh_command;
+      ]
+    else
+      [
+        get_pr_info_tool ~run_gh_command;
+        get_pr_diff_tool ~run_gh_command;
+      ]
+  in
   let provider_config = resolve_provider provider_name in
   let model_id = match provider_name with
     | "anthropic" -> "claude-sonnet-4-6"
