@@ -31,6 +31,9 @@ type strategy =
 
 type t = { strategy : strategy }
 
+type importance_scorer = index:int -> total:int -> message -> float
+type importance_boost = message -> float option
+
 (** CJK-aware token estimation.
     ASCII: ~4 chars per token. Multi-byte (CJK, emoji, etc.): ~2/3 token per character.
     Walks the string byte-by-byte using UTF-8 lead-byte classification. O(n), no allocation. *)
@@ -398,6 +401,24 @@ let clear_tool_results ~keep_recent =
   { strategy = Clear_tool_results { keep_recent } }
 let compose strategies = { strategy = Compose (List.map (fun r -> r.strategy) strategies) }
 let custom f = { strategy = Custom f }
+let clamp_score score = Float.min 1.0 (Float.max 0.0 score)
+
+let importance_scored ?(threshold=0.3) ?boost ~scorer () =
+  let threshold = clamp_score threshold in
+  custom (fun messages ->
+    let total = List.length messages in
+    List.filteri (fun index message ->
+      let base_score = clamp_score (scorer ~index ~total message) in
+      let final_score =
+        match boost with
+        | None -> base_score
+        | Some boost ->
+          (match boost message with
+           | None -> base_score
+           | Some boosted -> Float.max base_score (clamp_score boosted))
+      in
+      final_score >= threshold
+    ) messages)
 
 (** Dynamic strategy: selects a strategy per turn based on conversation state.
     Example: early turns get full context, later turns use token budget.

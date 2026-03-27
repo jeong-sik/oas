@@ -187,6 +187,54 @@ let test_custom () =
    | { Types.role = Types.Assistant; _ } :: _ -> ()
    | _ -> Alcotest.fail "expected reversed order")
 
+let test_importance_scored_drops_low_scores () =
+  let msgs = [
+    user_msg "goal";
+    asst_msg "low-value";
+    asst_msg "keep-me";
+  ] in
+  let reducer =
+    Context_reducer.importance_scored
+      ~threshold:0.5
+      ~scorer:(fun ~index ~total:_ _msg ->
+        match index with
+        | 0 -> 0.9
+        | 1 -> 0.2
+        | _ -> 0.8)
+      ()
+  in
+  let result = Context_reducer.reduce reducer msgs in
+  Alcotest.(check int) "drops one message" 2 (List.length result);
+  match result with
+  | [first; second] ->
+    Alcotest.(check string) "first kept" "goal" (Types.text_of_message first);
+    Alcotest.(check string) "second kept" "keep-me" (Types.text_of_message second)
+  | _ -> Alcotest.fail "unexpected filtered result"
+
+let test_importance_scored_boost_preserves_message () =
+  let msgs = [
+    user_msg "goal";
+    asst_msg "[KEEP] anchor";
+    asst_msg "low-value";
+  ] in
+  let reducer =
+    Context_reducer.importance_scored
+      ~threshold:0.5
+      ~scorer:(fun ~index:_ ~total:_ _msg -> 0.2)
+      ~boost:(fun msg ->
+        if Util.string_contains ~needle:"[KEEP]" (Types.text_of_message msg) then
+          Some 0.95
+        else
+          None)
+      ()
+  in
+  let result = Context_reducer.reduce reducer msgs in
+  Alcotest.(check int) "boost preserves one low score message" 1 (List.length result);
+  match result with
+  | [msg] ->
+    Alcotest.(check string) "boosted text kept" "[KEEP] anchor" (Types.text_of_message msg)
+  | _ -> Alcotest.fail "unexpected boosted result"
+
 (* --- edge cases --- *)
 
 let test_empty () =
@@ -697,6 +745,10 @@ let () =
     ];
     "custom", [
       Alcotest.test_case "custom fn called" `Quick test_custom;
+    ];
+    "importance_scored", [
+      Alcotest.test_case "drops low scores" `Quick test_importance_scored_drops_low_scores;
+      Alcotest.test_case "boost preserves message" `Quick test_importance_scored_boost_preserves_message;
     ];
     "prune_tool_outputs", [
       Alcotest.test_case "short outputs unchanged" `Quick test_prune_short_outputs;

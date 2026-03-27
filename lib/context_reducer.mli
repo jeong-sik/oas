@@ -31,6 +31,17 @@ type strategy =
 (** A configured reducer wrapping a strategy. *)
 type t = { strategy : strategy }
 
+(** Score a message for importance-aware filtering.
+    [index] is the zero-based position in the original list and [total]
+    is the list length. Return a score in [0.0, 1.0]; out-of-range values
+    are clamped. *)
+type importance_scorer = index:int -> total:int -> message -> float
+
+(** Optionally raise a message to a minimum importance score.
+    Return [Some score] to boost a message, or [None] to leave the
+    base score unchanged. Out-of-range values are clamped. *)
+type importance_boost = message -> float option
+
 (** {1 Token estimation} *)
 
 (** CJK-aware character-level token estimation.
@@ -73,6 +84,11 @@ val summarize_old : keep_recent:int -> summarizer:(message list -> string) -> t
 val clear_tool_results : keep_recent:int -> t
 val compose : t list -> t
 val custom : (message list -> message list) -> t
+val importance_scored :
+  ?threshold:float ->
+  ?boost:importance_boost ->
+  scorer:importance_scorer ->
+  unit -> t
 
 (** Dynamic strategy: selects a strategy per turn based on
     conversation state. *)
