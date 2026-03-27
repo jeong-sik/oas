@@ -362,7 +362,6 @@ let%test "text_of_tool_result extracts text content" =
     ];
     is_error = None;
     structured_content = None;
-    _meta = None;
   } in
   text_of_tool_result r = "hello\nworld"
 
@@ -506,7 +505,6 @@ let%test "text_of_tool_result skips non-text content" =
     ];
     is_error = None;
     structured_content = None;
-    _meta = None;
   } in
   let result = text_of_tool_result r in
   Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "";

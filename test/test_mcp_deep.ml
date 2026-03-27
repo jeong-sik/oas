@@ -107,7 +107,6 @@ let test_text_single_text () =
           type_ = "text"; text = "hello world"; annotations = None };
       ];
       is_error = None;
-      structured_content = None; _meta = None;
     } in
     Alcotest.(check string) "single text" "hello world"
       (Mcp.text_of_tool_result result))
@@ -124,7 +123,6 @@ let test_text_multiple_text_blocks () =
           type_ = "text"; text = "line3"; annotations = None };
       ];
       is_error = None;
-      structured_content = None; _meta = None;
     } in
     Alcotest.(check string) "multi text" "line1\nline2\nline3"
       (Mcp.text_of_tool_result result))
@@ -133,7 +131,6 @@ let test_text_empty_content () =
   let result : Sdk_types.tool_result = {
     content = [];
     is_error = None;
-    structured_content = None; _meta = None;
   } in
   Alcotest.(check string) "empty" "" (Mcp.text_of_tool_result result)
 
@@ -145,7 +142,6 @@ let test_text_image_only () =
         annotations = None };
     ];
     is_error = None;
-    structured_content = None; _meta = None;
   } in
   Alcotest.(check string) "image only" "" (Mcp.text_of_tool_result result)
 
@@ -159,7 +155,6 @@ let test_text_with_truncation () =
           annotations = None };
       ];
       is_error = None;
-      structured_content = None; _meta = None;
     } in
     let text = Mcp.text_of_tool_result result in
     Alcotest.(check bool) "truncated" true
