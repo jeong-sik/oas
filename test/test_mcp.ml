@@ -194,6 +194,7 @@ let test_text_of_tool_result () =
         type_ = "text"; text = "line2"; annotations = None };
     ];
     is_error = None;
+    structured_content = None;
   } in
   let text = Mcp.text_of_tool_result result in
   Alcotest.(check string) "concatenated" "line1\nline2" text
@@ -202,6 +203,7 @@ let test_text_of_tool_result_empty () =
   let result : Mcp_protocol.Mcp_types.tool_result = {
     content = [];
     is_error = None;
+    structured_content = None;
   } in
   let text = Mcp.text_of_tool_result result in
   Alcotest.(check string) "empty content" "" text
@@ -214,6 +216,7 @@ let test_text_of_tool_result_non_text_only () =
         annotations = None };
     ];
     is_error = None;
+    structured_content = None;
   } in
   let text = Mcp.text_of_tool_result result in
   Alcotest.(check string) "non-text returns empty" "" text
@@ -230,6 +233,7 @@ let test_text_of_tool_result_mixed () =
         type_ = "text"; text = "world"; annotations = None };
     ];
     is_error = None;
+    structured_content = None;
   } in
   let text = Mcp.text_of_tool_result result in
   Alcotest.(check string) "text only" "hello\nworld" text
@@ -245,6 +249,7 @@ let test_text_of_tool_result_budget_truncates () =
           };
         ];
         is_error = None;
+        structured_content = None;
       } in
       let text = Mcp.text_of_tool_result result in
       Alcotest.(check bool) "truncated" true

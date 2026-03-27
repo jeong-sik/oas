@@ -367,7 +367,7 @@ let%test "text_of_tool_result extracts text content" =
 
 let%test "text_of_tool_result empty content" =
   Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "10000";
-  let r : Sdk_types.tool_result = { content = []; is_error = None; structured_content = None; _meta = None } in
+  let r : Sdk_types.tool_result = { content = []; is_error = None; structured_content = None } in
   text_of_tool_result r = ""
 
 let%test "mcp_tool_of_json valid tool" =
