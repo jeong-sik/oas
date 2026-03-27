@@ -33,7 +33,7 @@ jobs:
 
       - name: Pin fork packages
         run: |
-          SDK_REF=63200cf423245b8f2db1c696e23fcd7aa1451d88
+          SDK_REF=079844bcaf651f95f0a9b99c15eb10dfa072a030
           # bisect_ppx fork only needed for 5.4.x (coverage); skip on 5.1.x
           # to avoid dependency resolution failures
           if [ "${{ matrix.ocaml-compiler }}" = "5.4.x" ]; then
@@ -121,7 +121,7 @@ jobs:
 
       - name: Pin fork packages
         run: |
-          SDK_REF=63200cf423245b8f2db1c696e23fcd7aa1451d88
+          SDK_REF=079844bcaf651f95f0a9b99c15eb10dfa072a030
           opam pin add bisect_ppx git+https://github.com/patricoferris/bisect_ppx.git#5.2 --no-action --yes
           opam pin add mcp_protocol git+https://github.com/jeong-sik/mcp-protocol-sdk.git#${SDK_REF} --no-action --yes
           opam pin add mcp_protocol_eio git+https://github.com/jeong-sik/mcp-protocol-sdk.git#${SDK_REF} --no-action --yes
