@@ -56,7 +56,8 @@ let api_usage_gen =
     let* cache_creation_input_tokens = int_range 0 10_000 in
     let* cache_read_input_tokens = int_range 0 10_000 in
     return { input_tokens; output_tokens;
-             cache_creation_input_tokens; cache_read_input_tokens }
+             cache_creation_input_tokens; cache_read_input_tokens;
+             cost_usd = None }
   )
 
 let tool_choice_gen =
