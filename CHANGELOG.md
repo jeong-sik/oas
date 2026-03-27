@@ -2,6 +2,13 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.92.1] - 2026-03-27
+
+### Fixed
+- Replace mutable `event_forward` counters/state with `Atomic.t` and stop reporting unimplemented webhook delivery as success.
+- Improve HTTP client error context for hostname/TLS setup failures and preserve `Eio.Cancel.Cancelled` during socket cleanup.
+- Build MCP tool-result test fixtures via JSON parsing so local newer MCP SDK pins and CI's older schema both pass.
+
 ## [0.92.0] - 2026-03-26
 
 ### Changed
