@@ -38,3 +38,9 @@ let run_process_capture ?env prog args =
     Error (Printf.sprintf "%s killed by signal %d" prog signal)
   | Unix.WSTOPPED signal ->
     Error (Printf.sprintf "%s stopped by signal %d" prog signal)
+
+let run_process_capture_eio ~mgr prog args =
+  let argv = prog :: args in
+  try Ok (Eio.Process.parse_out mgr Eio.Buf_read.take_all argv)
+  with exn ->
+    Error (Printf.sprintf "%s failed: %s" prog (Printexc.to_string exn))
