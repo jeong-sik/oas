@@ -353,21 +353,35 @@ let%test "truncate_output long string gets truncated" =
   String.length result <= 40 + String.length "\n...[oas mcp output truncated]"
   && String.length result > 0
 
+let test_tool_result ?is_error ?structured_content content =
+  let fields = [("content", Sdk_types.tool_content_list_to_yojson content)] in
+  let fields =
+    match is_error with
+    | Some b -> ("isError", `Bool b) :: fields
+    | None -> fields
+  in
+  let fields =
+    match structured_content with
+    | Some json -> ("structuredContent", json) :: fields
+    | None -> fields
+  in
+  match Sdk_types.tool_result_of_yojson (`Assoc fields) with
+  | Ok result -> result
+  | Error detail -> failwith ("tool_result_of_yojson failed: " ^ detail)
+
 let%test "text_of_tool_result extracts text content" =
   Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "10000";
-  let r : Sdk_types.tool_result = {
-    content = [
+  let r : Sdk_types.tool_result =
+    test_tool_result [
       Sdk_types.TextContent { type_ = "text"; text = "hello"; annotations = None };
       Sdk_types.TextContent { type_ = "text"; text = "world"; annotations = None };
-    ];
-    is_error = None;
-    structured_content = None;
-  } in
+    ]
+  in
   text_of_tool_result r = "hello\nworld"
 
 let%test "text_of_tool_result empty content" =
   Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "10000";
-  let r : Sdk_types.tool_result = { content = []; is_error = None; structured_content = None } in
+  let r : Sdk_types.tool_result = test_tool_result [] in
   text_of_tool_result r = ""
 
 let%test "mcp_tool_of_json valid tool" =
@@ -498,14 +512,12 @@ let%test "truncate_output one over boundary is truncated" =
 
 let%test "text_of_tool_result skips non-text content" =
   Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "10000";
-  let r : Sdk_types.tool_result = {
-    content = [
+  let r : Sdk_types.tool_result =
+    test_tool_result [
       Sdk_types.ImageContent { type_ = "image"; data = "abc"; mime_type = "image/png"; annotations = None };
       Sdk_types.TextContent { type_ = "text"; text = "only_text"; annotations = None };
-    ];
-    is_error = None;
-    structured_content = None;
-  } in
+    ]
+  in
   let result = text_of_tool_result r in
   Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "";
   result = "only_text"
