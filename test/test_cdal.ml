@@ -341,6 +341,117 @@ let test_proof_json_enum_fields () =
     (field "result_status")
 
 (* ================================================================ *)
+(* Proof_capture integration tests                                   *)
+(* ================================================================ *)
+
+let test_contract = make_contract ~mode:Execution_mode.Draft ~risk:Risk_class.Medium ()
+
+let test_mode_decision : Mode_resolver.decision = {
+  effective_mode = Execution_mode.Draft;
+  source = "passthrough";
+}
+
+let make_test_store () =
+  let tmpdir = Filename.concat
+      (Filename.get_temp_dir_name ())
+      (Printf.sprintf "oas-test-capture-%d" (Random.bits () land 0xFFFF)) in
+  (Proof_store.{ root = tmpdir }, tmpdir)
+
+let mock_response model : Types.api_response = {
+  id = "msg-test"; model;
+  stop_reason = Types.EndTurn;
+  content = [Types.Text "done"];
+  usage = None;
+}
+
+let test_proof_capture_lifecycle () =
+  let store, tmpdir = make_test_store () in
+  let state = Proof_capture.create
+      ~store ~contract:test_contract
+      ~mode_decision:test_mode_decision
+      ~capability_snapshot:test_caps in
+  let h = Proof_capture.hooks state in
+  (* Simulate: BeforeTurn 1, PreToolUse, PostToolUse, AfterTurn, OnStop *)
+  let _ = Hooks.invoke h.before_turn
+      (BeforeTurn { turn = 1; messages = [] }) in
+  let _ = Hooks.invoke h.pre_tool_use
+      (PreToolUse { tool_name = "bash"; input = `String "ls";
+                    accumulated_cost_usd = 0.0; turn = 1 }) in
+  let _ = Hooks.invoke h.post_tool_use
+      (PostToolUse { tool_name = "bash"; input = `String "ls";
+                     output = Ok { Types.content = "file.txt" };
+                     result_bytes = 8 }) in
+  let resp = mock_response "claude-test" in
+  let _ = Hooks.invoke h.after_turn
+      (AfterTurn { turn = 1; response = resp }) in
+  let _ = Hooks.invoke h.on_stop
+      (OnStop { reason = Types.EndTurn; response = resp }) in
+  let proof = Proof_capture.finalize state ~result_status:Cdal_proof.Completed in
+  (* Verify bundle fields *)
+  Alcotest.(check int) "schema_version" 1 proof.schema_version;
+  Alcotest.(check string) "mode source" "passthrough" proof.mode_decision_source;
+  Alcotest.(check string) "model captured" "claude-test" proof.provider_snapshot.model_id;
+  Alcotest.(check bool) "started_at > 0" true (proof.started_at > 0.0);
+  Alcotest.(check bool) "ended_at >= started_at" true (proof.ended_at >= proof.started_at);
+  Alcotest.(check int) "1 tool trace" 1 (List.length proof.tool_trace_refs);
+  Alcotest.(check bool) "trace ref has prefix" true
+    (String.length (List.hd proof.tool_trace_refs) > 15);
+  (* Verify files on disk *)
+  let manifest_path = Proof_store.manifest_path store ~run_id:proof.run_id in
+  Alcotest.(check bool) "manifest written" true (Sys.file_exists manifest_path);
+  ignore (Sys.command (Printf.sprintf "rm -rf %s" tmpdir))
+
+let test_proof_capture_no_hooks_fired () =
+  let store, tmpdir = make_test_store () in
+  let state = Proof_capture.create
+      ~store ~contract:test_contract
+      ~mode_decision:test_mode_decision
+      ~capability_snapshot:test_caps in
+  (* Finalize without firing any hooks -- tests started_at guard *)
+  let proof = Proof_capture.finalize state ~result_status:Cdal_proof.Cancelled in
+  Alcotest.(check bool) "started_at > 0 (guarded)" true (proof.started_at > 0.0);
+  Alcotest.(check bool) "ended_at > 0 (guarded)" true (proof.ended_at > 0.0);
+  Alcotest.(check int) "0 tool traces" 0 (List.length proof.tool_trace_refs);
+  Alcotest.(check string) "provider unknown" "unknown" proof.provider_snapshot.model_id;
+  ignore (Sys.command (Printf.sprintf "rm -rf %s" tmpdir))
+
+let test_proof_capture_multiple_tools () =
+  let store, tmpdir = make_test_store () in
+  let state = Proof_capture.create
+      ~store ~contract:test_contract
+      ~mode_decision:test_mode_decision
+      ~capability_snapshot:test_caps in
+  let h = Proof_capture.hooks state in
+  let _ = Hooks.invoke h.before_turn
+      (BeforeTurn { turn = 1; messages = [] }) in
+  (* Tool 1: success *)
+  let _ = Hooks.invoke h.pre_tool_use
+      (PreToolUse { tool_name = "read"; input = `String "a.ml";
+                    accumulated_cost_usd = 0.0; turn = 1 }) in
+  let _ = Hooks.invoke h.post_tool_use
+      (PostToolUse { tool_name = "read"; input = `String "a.ml";
+                     output = Ok { Types.content = "code" };
+                     result_bytes = 4 }) in
+  (* Tool 2: failure *)
+  let _ = Hooks.invoke h.pre_tool_use
+      (PreToolUse { tool_name = "bash"; input = `String "rm /";
+                    accumulated_cost_usd = 0.01; turn = 1 }) in
+  let _ = Hooks.invoke h.post_tool_use_failure
+      (PostToolUseFailure { tool_name = "bash"; input = `String "rm /";
+                            error = "permission denied" }) in
+  (* Tool 3: error result *)
+  let _ = Hooks.invoke h.pre_tool_use
+      (PreToolUse { tool_name = "edit"; input = `String "b.ml";
+                    accumulated_cost_usd = 0.02; turn = 1 }) in
+  let _ = Hooks.invoke h.post_tool_use
+      (PostToolUse { tool_name = "edit"; input = `String "b.ml";
+                     output = Error { Types.message = "conflict"; recoverable = true };
+                     result_bytes = 0 }) in
+  let proof = Proof_capture.finalize state ~result_status:Cdal_proof.Completed in
+  Alcotest.(check int) "3 tool traces" 3 (List.length proof.tool_trace_refs);
+  ignore (Sys.command (Printf.sprintf "rm -rf %s" tmpdir))
+
+(* ================================================================ *)
 (* Test runner                                                       *)
 (* ================================================================ *)
 
@@ -384,5 +495,10 @@ let () =
       Alcotest.test_case "risk_class lowercase" `Quick test_risk_class_json_lowercase;
       Alcotest.test_case "result_status lowercase" `Quick test_result_status_json_lowercase;
       Alcotest.test_case "proof bundle enum fields" `Quick test_proof_json_enum_fields;
+    ];
+    "Proof_capture", [
+      Alcotest.test_case "full lifecycle" `Quick test_proof_capture_lifecycle;
+      Alcotest.test_case "no hooks fired (guard)" `Quick test_proof_capture_no_hooks_fired;
+      Alcotest.test_case "multiple tools" `Quick test_proof_capture_multiple_tools;
     ];
   ]

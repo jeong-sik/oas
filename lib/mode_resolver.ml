@@ -6,6 +6,7 @@ type decision = {
 let min_mode a b =
   if Execution_mode.compare a b <= 0 then a else b
 
+(* TODO: use capabilities for tool-based mode downgrade (e.g. no-exec tools -> Diagnose) *)
 let resolve ~requested ~risk_class ~capabilities:_ =
   match Risk_class.max_mode risk_class with
   | None ->
