@@ -198,6 +198,7 @@ let collect_usage acc results =
     match r with
     | Ok (resp : Types.api_response) ->
       (match resp.usage with Some u -> Types.add_usage a u | None -> a)
+    (* Errored agent — no usage data to collect *)
     | Error _ -> a
   ) acc results
 
@@ -248,7 +249,8 @@ let run_streaming_supervisor ~sw ~clock ~callbacks config =
     let channel = Swarm_channel.create ~capacity:64 in
     (* Pre-create mailboxes so broadcast reaches everyone *)
     List.iter (fun (e : agent_entry) ->
-      ignore (Swarm_channel.mailbox channel ~agent_name:e.name)
+      (* Pre-create mailbox for broadcast delivery (return value unused) *)
+      let _ = Swarm_channel.mailbox channel ~agent_name:e.name in ()
     ) (sup :: workers);
     let worker_results = ref [] in
     Eio.Switch.run @@ fun inner_sw ->
@@ -331,7 +333,8 @@ let run_agents_dispatch ~sw ~clock ~callbacks config =
       (* Decentralized streaming: workers write to channel, collect results *)
       let channel = Swarm_channel.create ~capacity:64 in
       List.iter (fun (e : agent_entry) ->
-        ignore (Swarm_channel.mailbox channel ~agent_name:e.name)
+        (* Pre-create mailbox for broadcast delivery (return value unused) *)
+        let _ = Swarm_channel.mailbox channel ~agent_name:e.name in ()
       ) config.entries;
       let run_with_check entry =
         if check_resource config then
@@ -424,7 +427,9 @@ let run_convergence_loop ~sw ~env ~callbacks config conv =
     (* Evaluate metric *)
     let metric_value = match eval_metric ~mgr conv.metric with
       | Ok v -> Some v
-      | Error _ -> None
+      | Error msg ->
+        Printf.eprintf "metric eval failed (iteration %d): %s\n%!" iter msg;
+        None
     in
     let agent_results =
       List.map (fun (name, status, _) -> (name, status)) results
