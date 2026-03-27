@@ -105,15 +105,20 @@ let select_report_case ?case_id ~purpose (report : Agent_sdk.Harness_report.t) =
   let metric_results = run_metrics_of_report report in
   match case_id with
   | Some case_id ->
-    (match List.partition
-             (fun ((result, _) : Agent_sdk.Harness_report.case_result * Agent_sdk.Eval.run_metrics) ->
-               String.equal result.case_id case_id)
-             metric_results with
-     | [selected], rest -> Ok (selected, rest)
-     | [], _ ->
+    let selected, rest =
+      List.partition
+        (fun ((result, _) : Agent_sdk.Harness_report.case_result * Agent_sdk.Eval.run_metrics) ->
+          String.equal result.case_id case_id)
+        metric_results
+    in
+    (match selected with
+     | [selected] -> Ok (selected, rest)
+     | [] ->
        Error (Printf.sprintf
          "Case '%s' was not found while %s" case_id purpose)
-     | _ -> assert false)
+     | _ ->
+       Error (Printf.sprintf
+         "Case '%s' matched multiple evaluated runs while %s" case_id purpose))
   | None ->
     (match metric_results with
      | [] ->
@@ -156,11 +161,7 @@ let baseline_of_harness_report ?case_id ?description (report : Agent_sdk.Harness
 
 let run_dataset_with_config ?trace_dir cfg dataset =
   Option.iter ensure_out_dir trace_dir;
-  Eio_main.run @@ fun env ->
-  let net = Eio.Stdenv.net env in
-  let mgr = Eio.Stdenv.process_mgr env in
-  let clock = Eio.Stdenv.clock env in
-  Eio.Switch.run @@ fun sw ->
+  Oas_cli_support.with_runtime @@ fun ~env:_ ~sw ~net ~mgr ~clock ->
   let build_agent (case_ : Agent_sdk.Harness_case.t) =
     let builder = Agent_sdk.Agent_config.to_builder ~sw ~mgr ~net cfg in
     let builder =
@@ -197,17 +198,13 @@ let run_cmd config_file prompt =
     Printf.eprintf "Error loading config: %s\n" (Agent_sdk.Error.to_string e);
     exit 1
   | Ok cfg ->
-    Eio_main.run @@ fun env ->
-    let net = Eio.Stdenv.net env in
-    Eio.Switch.run @@ fun sw ->
-    let mgr = Eio.Stdenv.process_mgr env in
+    Oas_cli_support.with_runtime @@ fun ~env:_ ~sw ~net ~mgr ~clock ->
     let builder = Agent_sdk.Agent_config.to_builder ~sw ~mgr ~net cfg in
     match Agent_sdk.Builder.build_safe builder with
     | Error e ->
       Printf.eprintf "Error building agent: %s\n" (Agent_sdk.Error.to_string e);
       exit 1
     | Ok agent ->
-      let clock = Eio.Stdenv.clock env in
       match Agent_sdk.Agent.run ~sw ~clock agent prompt with
       | Ok response ->
         List.iter (function
@@ -278,8 +275,7 @@ let card_cmd config_file =
     Printf.eprintf "Error loading config: %s\n" (Agent_sdk.Error.to_string e);
     exit 1
   | Ok cfg ->
-    Eio_main.run @@ fun env ->
-    let net = Eio.Stdenv.net env in
+    Oas_cli_support.with_runtime @@ fun ~env:_ ~sw:_ ~net ~mgr:_ ~clock:_ ->
     let builder = Agent_sdk.Agent_config.to_builder ~net cfg in  (* no sw/mgr for card *)
     match Agent_sdk.Builder.build_safe builder with
     | Error e ->

@@ -51,10 +51,18 @@ let test_diff_truncation () =
     (try ignore (Str.search_forward (Str.regexp_string "[truncated]") truncated 0); true
      with Not_found -> false)
 
+let test_process_capture_uses_argv () =
+  match Oas_cli_support.run_process_capture "printf" ["%s"; "owner/repo with spaces"] with
+  | Ok output ->
+    check string "captured output" "owner/repo with spaces" output
+  | Error msg ->
+    fail msg
+
 let () =
   run "Review Agent" [
     "mock_flow", [
       test_case "review produces structured output" `Quick test_review_mock_flow;
       test_case "diff truncation" `Quick test_diff_truncation;
+      test_case "process capture uses argv" `Quick test_process_capture_uses_argv;
     ];
   ]

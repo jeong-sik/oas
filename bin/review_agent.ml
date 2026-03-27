@@ -13,17 +13,7 @@ open Types
 (* ── Shell helper ──────────────────────────────────────────── *)
 
 let run_gh_command args =
-  let cmd = String.concat " " ("gh" :: List.map Filename.quote args) in
-  let ic = Unix.open_process_in cmd in
-  let buf = Buffer.create 4096 in
-  (try while true do
-     Buffer.add_string buf (input_line ic);
-     Buffer.add_char buf '\n'
-   done with End_of_file -> ());
-  match Unix.close_process_in ic with
-  | Unix.WEXITED 0 -> Ok (Buffer.contents buf)
-  | Unix.WEXITED n -> Error (Printf.sprintf "gh exited with code %d: %s" n (Buffer.contents buf))
-  | _ -> Error "gh process killed or stopped"
+  Oas_cli_support.run_process_capture "gh" args
 
 (* ── Tools ─────────────────────────────────────────────────── *)
 
@@ -166,9 +156,7 @@ let run repo pr_num should_post provider_name =
   else
     [get_pr_info_tool; get_pr_diff_tool]
   in
-  Eio_main.run @@ fun env ->
-  let net = Eio.Stdenv.net env in
-  Eio.Switch.run @@ fun sw ->
+  Oas_cli_support.with_runtime @@ fun ~env:_ ~sw ~net ~mgr:_ ~clock:_ ->
   let provider_config = resolve_provider provider_name in
   let model_id = match provider_name with
     | "anthropic" -> "claude-sonnet-4-6"
