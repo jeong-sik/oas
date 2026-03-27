@@ -147,8 +147,11 @@ let hooks st =
 
 let finalize st ~result_status =
   complete_pending_tool st ~output:None ~error:None;
+  let now = Unix.gettimeofday () in
+  if st.started_at = 0.0 then
+    st.started_at <- now;
   if st.ended_at = 0.0 then
-    st.ended_at <- Unix.gettimeofday ();
+    st.ended_at <- now;
   let tool_trace_refs =
     List.init st.trace_count (fun i ->
       Proof_store.make_ref ~run_id:st.run_id

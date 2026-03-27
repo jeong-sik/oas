@@ -39,7 +39,8 @@ let run ~sw ?clock ?(store = Proof_store.default_config)
     let now = Unix.gettimeofday () in
     let proof : Cdal_proof.t = {
       schema_version = Cdal_proof.schema_version_current;
-      run_id = Printf.sprintf "cdal-rejected-%d" (int_of_float (now *. 1000.0));
+      run_id = Printf.sprintf "cdal-rejected-%d-%06x"
+        (int_of_float (now *. 1000.0)) (Random.bits () land 0xFFFFFF);
       contract_id = Risk_contract.contract_id contract;
       requested_execution_mode = requested;
       effective_execution_mode = Execution_mode.Diagnose;

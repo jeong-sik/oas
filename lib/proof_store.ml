@@ -17,34 +17,35 @@ let manifest_path config ~run_id =
 let contract_path config ~run_id =
   Filename.concat (run_dir config ~run_id) "contract.json"
 
-let ignore_error = function
+let log_error context = function
   | Ok () -> ()
-  | Error _ -> ()
+  | Error err ->
+    Printf.eprintf "[proof_store] %s: %s\n%!" context (Error.to_string err)
 
 let init_run config ~run_id =
-  ignore_error (Fs_result.ensure_dir (traces_dir config ~run_id));
-  ignore_error (Fs_result.ensure_dir (evidence_dir config ~run_id))
+  log_error "mkdir traces" (Fs_result.ensure_dir (traces_dir config ~run_id));
+  log_error "mkdir evidence" (Fs_result.ensure_dir (evidence_dir config ~run_id))
 
-let write_json path json =
+let write_json context path json =
   let content = Yojson.Safe.pretty_to_string json ^ "\n" in
-  ignore_error (Fs_result.write_file path content)
+  log_error context (Fs_result.write_file path content)
 
 let write_manifest config ~run_id proof =
-  write_json (manifest_path config ~run_id) (Cdal_proof.to_json proof)
+  write_json "write manifest" (manifest_path config ~run_id) (Cdal_proof.to_json proof)
 
 let write_contract config ~run_id contract =
-  write_json (contract_path config ~run_id) (Risk_contract.to_yojson contract)
+  write_json "write contract" (contract_path config ~run_id) (Risk_contract.to_yojson contract)
 
 let append_tool_trace config ~run_id ~trace_id json =
   let path = Filename.concat (traces_dir config ~run_id)
       (trace_id ^ ".jsonl") in
   let line = Yojson.Safe.to_string json ^ "\n" in
-  ignore_error (Fs_result.append_file path line)
+  log_error "append trace" (Fs_result.append_file path line)
 
 let write_evidence config ~run_id ~ref_id json =
   let path = Filename.concat (evidence_dir config ~run_id)
       (ref_id ^ ".json") in
-  write_json path json
+  write_json "write evidence" path json
 
 let make_ref ~run_id ~subpath =
   Printf.sprintf "proof-store://%s/%s" run_id subpath
