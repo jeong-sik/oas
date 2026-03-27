@@ -26,6 +26,22 @@ let with_env key value f =
       | None -> (try Unix.putenv key "" with _ -> ()))
     f
 
+let make_tool_result ?is_error ?structured_content content =
+  let fields = [("content", Sdk_types.tool_content_list_to_yojson content)] in
+  let fields =
+    match is_error with
+    | Some b -> ("isError", `Bool b) :: fields
+    | None -> fields
+  in
+  let fields =
+    match structured_content with
+    | Some json -> ("structuredContent", json) :: fields
+    | None -> fields
+  in
+  match Sdk_types.tool_result_of_yojson (`Assoc fields) with
+  | Ok result -> result
+  | Error detail -> failwith ("tool_result_of_yojson failed: " ^ detail)
+
 let contains_substring ~sub text =
   let sub_len = String.length sub in
   let text_len = String.length text in
@@ -101,71 +117,54 @@ let test_truncate_one_over () =
 
 let test_text_single_text () =
   with_env "OAS_MCP_OUTPUT_MAX_TOKENS" (Some "25000") (fun () ->
-    let result : Sdk_types.tool_result = {
-      content = [
+    let result : Sdk_types.tool_result =
+      make_tool_result [
         Sdk_types.TextContent {
           type_ = "text"; text = "hello world"; annotations = None };
-      ];
-      is_error = None;
-      structured_content = None;
-      _meta = None;
-    } in
+      ]
+    in
     Alcotest.(check string) "single text" "hello world"
       (Mcp.text_of_tool_result result))
 
 let test_text_multiple_text_blocks () =
   with_env "OAS_MCP_OUTPUT_MAX_TOKENS" (Some "25000") (fun () ->
-    let result : Sdk_types.tool_result = {
-      content = [
+    let result : Sdk_types.tool_result =
+      make_tool_result [
         Sdk_types.TextContent {
           type_ = "text"; text = "line1"; annotations = None };
         Sdk_types.TextContent {
           type_ = "text"; text = "line2"; annotations = None };
         Sdk_types.TextContent {
           type_ = "text"; text = "line3"; annotations = None };
-      ];
-      is_error = None;
-      structured_content = None;
-      _meta = None;
-    } in
+      ]
+    in
     Alcotest.(check string) "multi text" "line1\nline2\nline3"
       (Mcp.text_of_tool_result result))
 
 let test_text_empty_content () =
-  let result : Sdk_types.tool_result = {
-    content = [];
-    is_error = None;
-    structured_content = None;
-    _meta = None;
-  } in
+  let result : Sdk_types.tool_result = make_tool_result [] in
   Alcotest.(check string) "empty" "" (Mcp.text_of_tool_result result)
 
 let test_text_image_only () =
-  let result : Sdk_types.tool_result = {
-    content = [
+  let result : Sdk_types.tool_result =
+    make_tool_result [
       Sdk_types.ImageContent {
         type_ = "image"; data = "base64"; mime_type = "image/png";
         annotations = None };
-    ];
-    is_error = None;
-    structured_content = None;
-    _meta = None;
-  } in
+    ]
+  in
   Alcotest.(check string) "image only" "" (Mcp.text_of_tool_result result)
 
 let test_text_with_truncation () =
   with_env "OAS_MCP_OUTPUT_MAX_TOKENS" (Some "1") (fun () ->
-    let result : Sdk_types.tool_result = {
-      content = [
+    let result : Sdk_types.tool_result =
+      make_tool_result [
         Sdk_types.TextContent {
           type_ = "text";
           text = String.make 100 'x';
           annotations = None };
-      ];
-      is_error = None;
-      structured_content = None;
-      _meta = None;
-    } in
+      ]
+    in
     let text = Mcp.text_of_tool_result result in
     Alcotest.(check bool) "truncated" true
       (contains_substring ~sub:"...[oas mcp output truncated]" text))
