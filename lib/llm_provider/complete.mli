@@ -1,7 +1,7 @@
 (** Standalone LLM completion: build request, send via transport, parse response.
 
     Self-contained in llm_provider -- no agent_sdk dependency.
-    Both OAS and MASC can call these functions directly.
+    Consumers can call these functions directly.
 
     @since 0.46.0  Sync completion
     @since 0.53.0  Streaming, retry, cascade

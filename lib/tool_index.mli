@@ -4,7 +4,7 @@
     most relevant tools for a given query (turn context).
 
     Implements Okapi BM25 scoring with configurable k1 and b parameters.
-    Designed for MASC's 371-tool scale: O(n) build, O(n*q) query
+    Designed for large tool sets (hundreds of tools): O(n) build, O(n*q) query
     where n = tools, q = query terms.
 
     @since 0.89.0 *)

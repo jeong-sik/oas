@@ -1,6 +1,6 @@
 (** Lightweight provider configuration for standalone LLM calls.
 
-    Decoupled from agent_state/agent_config. Both OAS and MASC can
+    Decoupled from agent_state/agent_config. Consumers can
     construct this directly and pass it to {!Complete.complete}.
 
     @since 0.46.0 *)

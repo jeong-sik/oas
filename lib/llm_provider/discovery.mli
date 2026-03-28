@@ -1,7 +1,7 @@
 (** LLM endpoint discovery -- probes local llama-server instances.
 
     Queries OpenAI-compatible endpoints (/v1/models, /props, /slots, /health)
-    and returns typed status. Both OAS and MASC can use this to discover
+    and returns typed status. Consumers can use this to discover
     available LLM capacity.
 
     @since 0.53.0 *)

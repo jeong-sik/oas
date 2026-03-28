@@ -1,7 +1,6 @@
 (** Checkpoint_validation — Quality checks for checkpoint/DNA content.
 
-    Migrated from MASC tool_mitosis_utils.ml as part of MASC→OAS migration.
-    These functions are domain-independent and belong at the SDK level.
+    Domain-independent quality checks, extracted to SDK level.
 
     @since 0.78.0 *)
 

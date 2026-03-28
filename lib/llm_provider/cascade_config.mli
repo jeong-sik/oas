@@ -1,7 +1,7 @@
 (** Cascade configuration: named provider profiles with JSON hot-reload
     and discovery-aware health filtering.
 
-    Consumers (MASC, standalone agents) define named cascade profiles
+    Consumers define named cascade profiles
     mapping to ordered lists of providers. This module handles:
     - Parsing "provider:model" strings into {!Provider_config.t}
     - Loading profiles from a JSON config file (mtime-based hot-reload)

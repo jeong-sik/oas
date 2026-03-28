@@ -1,7 +1,7 @@
 (** Provider-level error types.
 
     Independent of the OAS sdk_error hierarchy. Can be mapped to
-    sdk_error at the boundary (in OAS) or used directly (in MASC).
+    sdk_error at the boundary or used directly by consumers.
 
     @since 0.42.0 *)
 

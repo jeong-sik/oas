@@ -4,7 +4,7 @@
 
     A risk contract has two surfaces:
     - [runtime_constraints]: enforced by OAS at execution time
-    - [eval_criteria]: opaque passthrough carried to proof bundle for MASC *)
+    - [eval_criteria]: opaque passthrough carried to the proof bundle *)
 
 (** Runtime constraints enforced by OAS. *)
 type runtime_constraints = {
@@ -15,7 +15,7 @@ type runtime_constraints = {
 }
 [@@deriving yojson, show]
 
-(** Eval criteria -- opaque to OAS, consumed by MASC post-eval. *)
+(** Eval criteria -- opaque to OAS, consumed by downstream coordinators post-eval. *)
 type eval_criteria = Yojson.Safe.t
 [@@deriving yojson, show]
 
