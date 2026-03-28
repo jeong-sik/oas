@@ -1,6 +1,6 @@
 (** Shared helpers, constants, and content-block serialization for API modules.
 
-    Extracted from agent_sdk for shared use by OAS and MASC.
+    Extracted from agent_sdk for shared use by consumers.
     All types are from {!Llm_provider.Types}. *)
 
 open Types

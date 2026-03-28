@@ -46,7 +46,7 @@ type convergence_config = {
 (* ── Agent Telemetry ────────────────────────────────────────────── *)
 
 (** Per-agent telemetry collected after each run.
-    Exposed to swarm consumers (e.g. MASC) so they don't need to
+    Exposed to swarm consumers so they don't need to
     re-query Layer 1 internals. *)
 type agent_telemetry = {
   trace_ref: Raw_trace.run_ref option;

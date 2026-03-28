@@ -4,8 +4,7 @@
     The LLM receives a system prompt and context, and returns
     a structured JSON response parsed into a {!judgment} record.
 
-    Designed to absorb MASC's inline governance/operator judge logic
-    into a reusable OAS module.
+    Reusable evaluation module for governance and operator judgment.
 
     @since 0.78.0 *)
 

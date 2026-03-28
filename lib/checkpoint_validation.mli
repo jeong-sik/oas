@@ -4,8 +4,6 @@
     contains meaningful, structured content and preserves key information
     across compression.
 
-    Migrated from MASC tool_mitosis_utils as part of MASC→OAS migration.
-
     @since 0.78.0 *)
 
 (** {1 DNA Validation} *)

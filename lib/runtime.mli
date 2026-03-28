@@ -1,7 +1,7 @@
 (** OAS Runtime wire protocol types.
 
     Defines the full request/response/event protocol between the OAS
-    runtime and its consumers (CLI, IDE, MASC).
+    runtime and its consumers (CLI, IDE, coordinators).
 
     {b Migration note}: [session] contains collaboration fields that
     are being migrated to {!Collaboration.t}. New code should use

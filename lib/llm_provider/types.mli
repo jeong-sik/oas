@@ -1,14 +1,14 @@
-(** Unified LLM provider types -- shared between OAS and MASC.
+(** Unified LLM provider types.
 
     Single source of truth for message, response, tool, and streaming types.
-    Both agent_sdk and masc-mcp consume these types directly.
+    Downstream consumers link against this module directly.
 
     @since 0.42.0 *)
 
 (** {1 Message Types} *)
 
 (** Role in a conversation.
-    4-variant superset: OAS uses User/Assistant, MASC uses all four. *)
+    4-variant superset covering the full LLM protocol surface. *)
 type role = System | User | Assistant | Tool
 [@@deriving yojson, show]
 

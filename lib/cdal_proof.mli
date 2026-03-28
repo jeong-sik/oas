@@ -4,7 +4,7 @@
 
     Distinct from {!Sessions_types.proof_bundle} which is a 25+ field
     internal conformance structure. This type is the cross-repo evidence
-    manifest consumed by MASC.
+    manifest consumed by downstream coordinators.
 
     Agent code is NOT proof-aware. Proof capture is performed
     entirely by middleware hooking into the agent lifecycle. *)

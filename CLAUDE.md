@@ -94,7 +94,7 @@ Configure via `LLM_ENDPOINTS` env var (comma-separated, default `http://127.0.0.
 ## Cascade Config (`lib/llm_provider/cascade_config.ml`)
 
 Named cascade profiles with JSON hot-reload and discovery-aware health filtering.
-Consumers (MASC, standalone agents) define cascade profiles; OAS handles routing.
+Consumers define named cascade profiles; OAS handles routing.
 
 ```ocaml
 (* Execute a named cascade: load config, filter health, failover *)
@@ -162,10 +162,11 @@ let config = { entries; mode = Decentralized; ...; collaboration = Some collab }
 새 코드는 `Collaboration.t`를 사용하고, 기존 코드는 `Runtime.session`을 유지한다.
 `Runtime.session`의 협업 필드에는 `(→ Collaboration.t)` 마이그레이션 주석이 있다.
 
-### 외부 소비자 (MASC)
+### 외부 소비자
 
-MASC는 `agent_sdk >= 0.57.0`에 의존하며, `team_context.collaboration_of_session`으로
-team_session (47필드) → Collaboration.t (12필드) lossy projection을 수행한다.
+Downstream coordinators depend on `agent_sdk` and perform lossy projection
+from their internal session types to `Collaboration.t` via
+`Runtime_projection.collaboration_of_session`.
 
 ## Dependencies
 

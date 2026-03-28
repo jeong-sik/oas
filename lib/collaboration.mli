@@ -54,7 +54,7 @@ type artifact = {
 
     Replaces the domain-specific [vote] type.  Agent state (participants,
     phase, contributions) belongs in OAS; domain-specific semantics
-    (governance votes, rulings) belong to consumers such as MASC.
+    (governance votes, rulings) belong to downstream consumers.
 
     The [kind] field distinguishes contribution types:
     - ["vote"]   — a governance decision

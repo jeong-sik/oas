@@ -2,7 +2,7 @@
 
     Maps token budget usage ratios to progressively aggressive
     context reduction strategies. Designed for integration with
-    external budget managers (e.g. MASC context_budget_manager). *)
+    external budget managers. *)
 
 open Types
 

@@ -29,7 +29,7 @@ let tool_choice_of_json json =
     Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Invalid tool_choice JSON: %s" msg }))
 
 (* ================================================================ *)
-(* Agent-specific types (not shared with MASC)                       *)
+(* Agent-specific types (internal to OAS)                             *)
 (* ================================================================ *)
 
 (** Model identifier — a plain string.

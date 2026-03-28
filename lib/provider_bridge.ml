@@ -1,6 +1,6 @@
 (** Bridge between legacy [Provider.config] and [Llm_provider.Provider_config.t].
 
-    Allows agent_sdk code and MASC to convert from the old 5-variant
+    Allows agent_sdk code and consumers to convert from the old 5-variant
     provider system to the new 2-kind standalone config.
 
     @since 0.53.0 *)
