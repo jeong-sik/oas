@@ -33,13 +33,13 @@ jobs:
 
       - name: Pin fork packages
         run: |
-          SDK_REF=e8fb2dc066c9ae008db2261db65811beeded477d
+          source scripts/mcp-sdk-pin.sh
           # bisect_ppx fork only needed for 5.4.x (coverage); skip on 5.1.x
           # to avoid dependency resolution failures
           if [ "${{ matrix.ocaml-compiler }}" = "5.4.x" ]; then
             opam pin add bisect_ppx git+https://github.com/patricoferris/bisect_ppx.git#5.2 --no-action --yes
           fi
-          opam pin add mcp_protocol git+https://github.com/jeong-sik/mcp-protocol-sdk.git#${SDK_REF} --no-action --yes
+          opam pin add mcp_protocol "git+${MCP_SDK_URL}#${MCP_SDK_SHA}" --no-action --yes
 
       - name: Install dependencies
         run: |
@@ -119,9 +119,9 @@ jobs:
 
       - name: Pin fork packages
         run: |
-          SDK_REF=e8fb2dc066c9ae008db2261db65811beeded477d
+          source scripts/mcp-sdk-pin.sh
           opam pin add bisect_ppx git+https://github.com/patricoferris/bisect_ppx.git#5.2 --no-action --yes
-          opam pin add mcp_protocol git+https://github.com/jeong-sik/mcp-protocol-sdk.git#${SDK_REF} --no-action --yes
+          opam pin add mcp_protocol "git+${MCP_SDK_URL}#${MCP_SDK_SHA}" --no-action --yes
 
       - name: Install dependencies
         run: |
