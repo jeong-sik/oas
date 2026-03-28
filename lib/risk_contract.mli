@@ -15,7 +15,7 @@ type runtime_constraints = {
 }
 [@@deriving yojson, show]
 
-(** Eval criteria -- opaque to OAS, consumed by the coordinator post-eval. *)
+(** Eval criteria -- opaque to OAS, consumed by downstream coordinators post-eval. *)
 type eval_criteria = Yojson.Safe.t
 [@@deriving yojson, show]
 

@@ -8,7 +8,8 @@
 (** {1 Message Types} *)
 
 (** Role in a conversation.
-    4-variant superset covering the full LLM protocol surface. *)
+    4-variant superset: System and Tool are required by multi-agent
+    coordinators that inject system prompts and relay tool results. *)
 type role = System | User | Assistant | Tool
 [@@deriving yojson, show]
 
