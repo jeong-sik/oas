@@ -76,6 +76,14 @@ let test_heuristic_coordination () =
     (Context_intent.intent_to_string classified.intent);
   check bool "depth" true (classified.depth = Context_intent.Light)
 
+let test_heuristic_coordination_generic () =
+  let classified =
+    Context_intent.heuristic_classify
+      "notify the team and reserve the next task for review"
+  in
+  check string "intent" "coordination"
+    (Context_intent.intent_to_string classified.intent)
+
 let test_prompt_mentions_all_categories () =
   let prompt = Context_intent.prompt_for_query "status?" in
   List.iter
@@ -107,6 +115,7 @@ let () =
           test_case "status check" `Quick test_heuristic_status_check;
           test_case "knowledge query" `Quick test_heuristic_knowledge_query;
           test_case "coordination" `Quick test_heuristic_coordination;
+          test_case "coordination generic" `Quick test_heuristic_coordination_generic;
         ] );
       ("prompt", [ test_case "mentions categories" `Quick test_prompt_mentions_all_categories ]);
     ]
