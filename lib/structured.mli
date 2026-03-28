@@ -1,7 +1,10 @@
 (** Structured output via tool_use pattern.
 
     Uses tool_choice=Tool(name) to force the model to call a specific tool,
-    then extracts the input JSON as structured output. *)
+    then extracts the input JSON as structured output.
+
+    @stability Evolving
+    @since 0.93.0 *)
 
 open Types
 

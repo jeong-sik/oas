@@ -5,7 +5,10 @@
     dependency) for test portability.
 
     This module records a single invocation of [run_fn]. For multi-case,
-    fresh-agent harness execution use {!Harness_runner}. *)
+    fresh-agent harness execution use {!Harness_runner}.
+
+    @stability Evolving
+    @since 0.93.0 *)
 
 (** {1 Configuration} *)
 

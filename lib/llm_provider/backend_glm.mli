@@ -10,7 +10,10 @@
 
     Ref: docs.z.ai/api-reference/llm/chat-completion
 
-    @since 0.83.0 *)
+    @since 0.83.0
+
+    @stability Internal
+    @since 0.93.0 *)
 
 open Types
 

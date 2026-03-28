@@ -7,7 +7,10 @@
     using [tool_filter_override] in [AdjustParams] to restrict
     tools per turn.
 
-    @since 0.43.0 *)
+    @since 0.43.0
+
+    @stability Evolving
+    @since 0.93.0 *)
 
 (** {1 Strategy} *)
 

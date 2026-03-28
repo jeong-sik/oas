@@ -6,7 +6,10 @@
 
     Reusable evaluation module for governance and operator judgment.
 
-    @since 0.78.0 *)
+    @since 0.78.0
+
+    @stability Evolving
+    @since 0.93.0 *)
 
 (** Risk classification derived from score. *)
 type risk_level = Low | Medium | High | Critical

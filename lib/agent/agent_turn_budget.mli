@@ -10,7 +10,10 @@
     Cost and idle checks are delegated to the caller via the
     agent ref (reads [agent_state.usage] and [consecutive_idle_turns]).
 
-    @since 0.78.0 *)
+    @since 0.78.0
+
+    @stability Internal
+    @since 0.93.0 *)
 
 type extension_result = {
   granted: int;

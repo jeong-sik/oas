@@ -4,7 +4,10 @@
     contains meaningful, structured content and preserves key information
     across compression.
 
-    @since 0.78.0 *)
+    @since 0.78.0
+
+    @stability Evolving
+    @since 0.93.0 *)
 
 (** {1 DNA Validation} *)
 

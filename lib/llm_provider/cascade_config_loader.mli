@@ -1,7 +1,10 @@
 (** JSON config loading with mtime-based hot-reload.
 
     @since 0.59.0
-    @since 0.92.0 extracted from Cascade_config *)
+    @since 0.92.0 extracted from Cascade_config
+
+    @stability Internal
+    @since 0.93.0 *)
 
 (** Load and cache a raw JSON config file.
     Cached with mtime-based hot-reload. *)

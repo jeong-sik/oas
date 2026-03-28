@@ -10,7 +10,10 @@
     - 0.7-0.85 Aggressive: prune + merge + drop thinking
     - 0.85+    Emergency: summarize old + all aggressive strategies
 
-    @since 0.78.0 *)
+    @since 0.78.0
+
+    @stability Evolving
+    @since 0.93.0 *)
 
 (** Compression phase, ordered from lightest to heaviest. *)
 type compression_phase =

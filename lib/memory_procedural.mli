@@ -1,7 +1,10 @@
 (** Procedural memory: learned action patterns with success/failure tracking.
 
     @since 0.75.0
-    @since 0.92.0 extracted from Memory *)
+    @since 0.92.0 extracted from Memory
+
+    @stability Evolving
+    @since 0.93.0 *)
 
 type procedure = {
   id: string;

@@ -2,7 +2,10 @@
 
     Spawns an MCP subprocess and communicates via JSON-RPC 2.0 NDJSON
     over stdin/stdout. Handles tool invocation, resource listing,
-    and prompt fetching. *)
+    and prompt fetching.
+
+    @stability Internal
+    @since 0.93.0 *)
 
 (** {1 Re-exported schema types} *)
 

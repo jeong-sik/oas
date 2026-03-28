@@ -2,7 +2,10 @@
 
     Provides pluggable verification layers inspired by the Swiss Cheese
     model: multiple independent layers, each catching different failure
-    modes. Compose layers via {!Swiss_cheese} for multi-layer checks. *)
+    modes. Compose layers via {!Swiss_cheese} for multi-layer checks.
+
+    @stability Evolving
+    @since 0.93.0 *)
 
 (** {1 Common types} *)
 

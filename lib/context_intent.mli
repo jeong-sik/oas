@@ -2,7 +2,10 @@
 
     This module owns the normalized intent taxonomy, retrieval-depth mapping,
     strict model-output parsing, and lightweight heuristic/model helpers.
-    Consumer-specific policy can stay outside OAS. *)
+    Consumer-specific policy can stay outside OAS.
+
+    @stability Evolving
+    @since 0.93.0 *)
 
 type intent =
   | Conversational

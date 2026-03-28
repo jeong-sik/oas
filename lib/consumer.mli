@@ -4,7 +4,10 @@
     {!run_result} record. Designed for swarm consumers that
     need response + trace + harness data in one call.
 
-    @since 0.55.0 *)
+    @since 0.55.0
+
+    @stability Evolving
+    @since 0.93.0 *)
 
 (** Result of running an agent with telemetry collection. *)
 type run_result = {

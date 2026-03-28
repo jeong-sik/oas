@@ -5,7 +5,10 @@
     env allowlisting, and optional wrapper prefixes for container/sandbox
     launchers such as Docker or Bubblewrap.
 
-    @since 0.92.1 *)
+    @since 0.92.1
+
+    @stability Evolving
+    @since 0.93.0 *)
 
 type backend =
   | Direct

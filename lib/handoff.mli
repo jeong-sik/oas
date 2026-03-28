@@ -5,7 +5,10 @@
     which intercepts [ToolUse] blocks matching ["transfer_to_*"] names.
 
     To avoid circular dependency with {!Agent}, this module only
-    defines types and builders. *)
+    defines types and builders.
+
+    @stability Evolving
+    @since 0.93.0 *)
 
 (** {1 Types} *)
 

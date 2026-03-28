@@ -1,7 +1,10 @@
 (** Checkpoint build/restore logic.
 
     Takes explicit parameters to avoid circular dependency with [Agent.t].
-    The caller wraps results into [Agent.t]. *)
+    The caller wraps results into [Agent.t].
+
+    @stability Evolving
+    @since 0.93.0 *)
 
 (** {1 Resume} *)
 

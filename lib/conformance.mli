@@ -2,7 +2,10 @@
 
     Transforms a {!Sessions.proof_bundle} into a structured report
     with 17 conformance checks covering lifecycle, identity, tracing,
-    and resolution. *)
+    and resolution.
+
+    @stability Evolving
+    @since 0.93.0 *)
 
 type check = {
   code: string;

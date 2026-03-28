@@ -8,7 +8,10 @@
     - Filtering providers by local endpoint health via {!Discovery}
     - Convenience cascade execution combining the above
 
-    @since 0.59.0 *)
+    @since 0.59.0
+
+    @stability Internal
+    @since 0.93.0 *)
 
 (** {1 Model Alias Resolution} *)
 

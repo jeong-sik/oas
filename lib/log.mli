@@ -5,7 +5,10 @@
 
     - [sink] is [record -> unit] -- composable and lightweight.
     - [field] is a closed variant for schema enforcement at call sites.
-    - Disabled levels skip record allocation entirely. *)
+    - Disabled levels skip record allocation entirely.
+
+    @stability Internal
+    @since 0.93.0 *)
 
 (** {2 Level} *)
 

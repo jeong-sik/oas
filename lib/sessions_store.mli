@@ -1,7 +1,10 @@
 (** Sessions store operations — file I/O, artifact retrieval, raw trace access.
 
     Read-from-store operations that bridge the runtime file layout
-    with the typed Sessions domain. *)
+    with the typed Sessions domain.
+
+    @stability Internal
+    @since 0.93.0 *)
 
 open Sessions_types
 

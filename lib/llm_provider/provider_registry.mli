@@ -4,7 +4,10 @@
     a mutable registry. Providers can be registered at startup and
     queried by name or capability predicate.
 
-    @since 0.69.0 *)
+    @since 0.69.0
+
+    @stability Internal
+    @since 0.93.0 *)
 
 (** Provider defaults: how to connect to a provider. *)
 type provider_defaults = {

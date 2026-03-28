@@ -1,4 +1,7 @@
-(** Provider resolution for the runtime server. *)
+(** Provider resolution for the runtime server.
+
+    @stability Internal
+    @since 0.93.0 *)
 
 type execution_resolution = {
   selected_provider: string;

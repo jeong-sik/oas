@@ -1,6 +1,9 @@
 (** Cross-turn shared state container.
     Values are [Yojson.Safe.t] for flexibility while maintaining
-    serializability. *)
+    serializability.
+
+    @stability Stable
+    @since 0.93.0 *)
 
 type t
 type scope =

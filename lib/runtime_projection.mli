@@ -5,7 +5,10 @@
     reports/proofs.
 
     Also provides lossy projections between {!Runtime.session} (18 fields)
-    and {!Collaboration.t} (12 fields) for the ongoing migration. *)
+    and {!Collaboration.t} (12 fields) for the ongoing migration.
+
+    @stability Internal
+    @since 0.93.0 *)
 
 (** {1 Session lifecycle} *)
 

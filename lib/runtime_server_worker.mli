@@ -1,4 +1,7 @@
-(** Runtime server worker — agent execution and event persistence. *)
+(** Runtime server worker — agent execution and event persistence.
+
+    @stability Internal
+    @since 0.93.0 *)
 
 open Runtime_server_types
 open Runtime_server_resolve

@@ -5,7 +5,10 @@
 
     Reuses the {!Eio.Process} pattern from {!Mcp.connect}.
 
-    @since 0.78.0 *)
+    @since 0.78.0
+
+    @stability Internal
+    @since 0.93.0 *)
 
 (** Configuration for the Claude Code subprocess. *)
 type config = {

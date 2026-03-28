@@ -1,4 +1,7 @@
-(** Lifecycle hooks for agent execution. *)
+(** Lifecycle hooks for agent execution.
+
+    @stability Stable
+    @since 0.93.0 *)
 
 (** Per-turn adjustable parameters.
     Returned via [AdjustParams] from [BeforeTurnParams] hook. *)

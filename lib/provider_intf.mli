@@ -1,7 +1,10 @@
 (** Provider interface module types.
 
     Defines PROVIDER and STREAMING_PROVIDER as first-class module types
-    for compile-time capability checking. *)
+    for compile-time capability checking.
+
+    @stability Evolving
+    @since 0.93.0 *)
 
 module type PROVIDER = sig
   type t

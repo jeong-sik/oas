@@ -1,7 +1,10 @@
 (** Internal one-shot query client.
 
     Connects to a runtime, sends a prompt, collects responses,
-    and disconnects. Used by {!Query.query}. *)
+    and disconnects. Used by {!Query.query}.
+
+    @stability Internal
+    @since 0.93.0 *)
 
 (** Execute a single query against the runtime.
     Connects, sends the prompt, finalizes, and returns all

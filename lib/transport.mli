@@ -3,7 +3,10 @@
     Spawns an oas_runtime subprocess, communicates via NDJSON over
     stdin/stdout pipes, and coordinates responses via [Eio.Promise].
 
-    All mutable state is protected by [Eio.Mutex]. *)
+    All mutable state is protected by [Eio.Mutex].
+
+    @stability Evolving
+    @since 0.93.0 *)
 
 (** {1 Configuration} *)
 

@@ -2,7 +2,10 @@
 
     Extracted from {!Raw_trace} to separate write-path (recording) from
     read-path (query/analysis).  All functions operate on JSONL files
-    written by {!Raw_trace} and return structured results. *)
+    written by {!Raw_trace} and return structured results.
+
+    @stability Evolving
+    @since 0.93.0 *)
 
 (** {1 Run Discovery} *)
 

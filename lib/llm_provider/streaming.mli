@@ -1,6 +1,9 @@
 (** SSE event parsing for Anthropic and OpenAI streaming APIs.
 
-    Pure functions — no I/O or agent_sdk coupling. *)
+    Pure functions — no I/O or agent_sdk coupling.
+
+    @stability Internal
+    @since 0.93.0 *)
 
 open Types
 

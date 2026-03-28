@@ -1,7 +1,10 @@
 (** Pure JSON decoders for session store artifacts.
 
     Stateless parsing functions bridging raw JSON to typed
-    {!Sessions_types} records.  No file I/O or store access. *)
+    {!Sessions_types} records.  No file I/O or store access.
+
+    @stability Internal
+    @since 0.93.0 *)
 
 (** {1 Generic JSON parsing} *)
 

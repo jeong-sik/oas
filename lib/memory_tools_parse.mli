@@ -1,6 +1,9 @@
 (** Memory tool JSON parameter parsing helpers.
 
-    @since 0.92.0 extracted from Memory_tools *)
+    @since 0.92.0 extracted from Memory_tools
+
+    @stability Evolving
+    @since 0.93.0 *)
 
 val tool_error : string -> ('a, Types.tool_error) result
 

@@ -4,7 +4,10 @@
     Populated lazily from {!Discovery} slot data.
 
     @since 0.91.0
-    @since 0.92.0 extracted from Cascade_config *)
+    @since 0.92.0 extracted from Cascade_config
+
+    @stability Internal
+    @since 0.93.0 *)
 
 (** Update the throttle table from discovery probe results.
     Creates entries for healthy endpoints with slot data.

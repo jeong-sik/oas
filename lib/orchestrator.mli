@@ -2,7 +2,10 @@
 
     Distributes tasks across named agents and collects results.
     External code decides the execution plan (Sequential, Parallel,
-    FanOut, Pipeline); the LLM does not participate in routing. *)
+    FanOut, Pipeline); the LLM does not participate in routing.
+
+    @stability Evolving
+    @since 0.93.0 *)
 
 (** {2 Core types} *)
 

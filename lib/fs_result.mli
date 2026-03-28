@@ -4,7 +4,10 @@
     Catches [Eio.Io], [Unix.Unix_error], [Sys_error], and [Failure].
     Non-recoverable exceptions (e.g. [Out_of_memory]) are re-raised.
 
-    @raises only truly non-recoverable exceptions *)
+    @raises only truly non-recoverable exceptions
+
+    @stability Evolving
+    @since 0.93.0 *)
 
 (** {1 Core I/O} *)
 

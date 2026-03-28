@@ -1,7 +1,10 @@
 (** Trace-level evaluation — aggregate span metrics and run health checks.
 
     Operates on {!Otel_tracer.span} lists produced by the OpenTelemetry
-    tracer.  Used by {!Eval} to attach trace summaries to run metrics. *)
+    tracer.  Used by {!Eval} to attach trace summaries to run metrics.
+
+    @stability Evolving
+    @since 0.93.0 *)
 
 (** {1 Types} *)
 

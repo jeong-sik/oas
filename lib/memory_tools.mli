@@ -10,7 +10,10 @@
     - procedural lookup
 
     ACL-aware variants bind [agent_name] at factory time so the model cannot
-    spoof an agent identity through tool parameters. *)
+    spoof an agent identity through tool parameters.
+
+    @stability Evolving
+    @since 0.93.0 *)
 
 (** {1 Plain memory factories} *)
 

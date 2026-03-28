@@ -3,7 +3,10 @@
     Consumers inject their own metrics backend (Prometheus, StatsD, log, etc.)
     via the [t] record. OAS never depends on a specific implementation.
 
-    @since 0.54.0 *)
+    @since 0.54.0
+
+    @stability Internal
+    @since 0.93.0 *)
 
 (** Metrics callback interface. All callbacks are optional — provide [noop]
     as a default that does nothing. *)

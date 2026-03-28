@@ -1,7 +1,10 @@
 (** Raw-trace integration helpers for the Agent module.
 
     Wraps [Raw_trace] calls with lifecycle updates and hook invocation
-    tracing.  These functions depend on [Agent_types.t] (mutable state). *)
+    tracing.  These functions depend on [Agent_types.t] (mutable state).
+
+    @stability Internal
+    @since 0.93.0 *)
 
 open Agent_types
 

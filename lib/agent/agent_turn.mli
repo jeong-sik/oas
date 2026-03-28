@@ -5,7 +5,10 @@
 
     These functions take explicit parameters (not [Agent.t]) to avoid
     circular module dependency: [Agent -> Agent_turn] is fine,
-    [Agent_turn -> Agent] is not. *)
+    [Agent_turn -> Agent] is not.
+
+    @stability Internal
+    @since 0.93.0 *)
 
 (** {1 Idle detection} *)
 

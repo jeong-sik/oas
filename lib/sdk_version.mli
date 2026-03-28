@@ -1,4 +1,7 @@
-(** Single source of truth for the SDK version string. *)
+(** Single source of truth for the SDK version string.
+
+    @stability Internal
+    @since 0.93.0 *)
 
 val version : string
 val sdk_name : string

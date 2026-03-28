@@ -1,7 +1,10 @@
 (** Episodic memory: interaction history with time-decaying salience.
 
     @since 0.75.0
-    @since 0.92.0 extracted from Memory *)
+    @since 0.92.0 extracted from Memory
+
+    @stability Evolving
+    @since 0.93.0 *)
 
 type outcome =
   | Success of string

@@ -3,7 +3,10 @@
     Decoupled from agent_state/agent_config. Consumers can
     construct this directly and pass it to {!Complete.complete}.
 
-    @since 0.46.0 *)
+    @since 0.46.0
+
+    @stability Internal
+    @since 0.93.0 *)
 
 (** Provider kind determines request/response wire format. *)
 type provider_kind =

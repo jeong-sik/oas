@@ -2,7 +2,10 @@
 
     Tracks turn count, timestamps, and cross-turn state via
     {!Context.t}. Each session has a unique ID and optional
-    resume lineage. *)
+    resume lineage.
+
+    @stability Evolving
+    @since 0.93.0 *)
 
 (** {1 Session type} *)
 

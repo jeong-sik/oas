@@ -1,7 +1,10 @@
 (** Agent Registry -- capability-based multi-agent discovery.
 
     Maintains a registry of local and remote agents, supporting
-    capability-based lookup for orchestration routing. *)
+    capability-based lookup for orchestration routing.
+
+    @stability Internal
+    @since 0.93.0 *)
 
 type agent_entry =
   | Local of { agent: Agent.t; card: Agent_card.agent_card }

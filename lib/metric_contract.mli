@@ -1,6 +1,9 @@
 (** Metric_contract — strict metric emission prompt and parser.
 
-    @since 0.92.1 *)
+    @since 0.92.1
+
+    @stability Evolving
+    @since 0.93.0 *)
 
 type metric = {
   name: string;

@@ -3,7 +3,10 @@
     Records a failed attempt into episodic + procedural memory and retrieves
     relevant lessons for prompt injection on the next attempt.
 
-    @since 0.92.1 *)
+    @since 0.92.1
+
+    @stability Evolving
+    @since 0.93.0 *)
 
 type failure_record = {
   pattern: string;

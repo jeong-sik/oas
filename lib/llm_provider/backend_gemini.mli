@@ -6,7 +6,10 @@
 
     Pure functions operating on {!Llm_provider.Types}.
 
-    @since 0.72.0 *)
+    @since 0.72.0
+
+    @stability Internal
+    @since 0.93.0 *)
 
 exception Gemini_api_error of string
 

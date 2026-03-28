@@ -2,7 +2,10 @@
     and message manipulation.
 
     These functions operate only on [Types.message] lists and have no
-    dependency on [Agent.t]. *)
+    dependency on [Agent.t].
+
+    @stability Internal
+    @since 0.93.0 *)
 
 (** {1 Handoff detection} *)
 

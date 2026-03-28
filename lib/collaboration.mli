@@ -4,7 +4,10 @@
     (personal runtime tracking) and orchestration strategy.
 
     Design: immutable record updates; {!shared_context} is the only
-    mutable component (it is a {!Context.t} reference, documented). *)
+    mutable component (it is a {!Context.t} reference, documented).
+
+    @stability Evolving
+    @since 0.93.0 *)
 
 (** {1 Phase lifecycle} *)
 

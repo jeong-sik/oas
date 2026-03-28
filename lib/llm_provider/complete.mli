@@ -6,7 +6,10 @@
     @since 0.46.0  Sync completion
     @since 0.53.0  Streaming, retry, cascade
     @since 0.54.0  Optional cache + metrics hooks
-    @since 0.78.0  Transport abstraction *)
+    @since 0.78.0  Transport abstraction
+
+    @stability Internal
+    @since 0.93.0 *)
 
 (** {1 Gemini URL Construction} *)
 

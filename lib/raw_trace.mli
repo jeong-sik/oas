@@ -1,3 +1,8 @@
+(** Raw trace.
+
+    @stability Stable
+    @since 0.93.0 *)
+
 type record_type =
   | Run_started
   | Assistant_block

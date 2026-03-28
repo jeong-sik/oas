@@ -1,7 +1,10 @@
 (** Mock provider for testing — eliminates network dependency.
 
     Supplies pre-programmed API responses in order.  When the response
-    list is exhausted the mock cycles back to the beginning. *)
+    list is exhausted the mock cycles back to the beginning.
+
+    @stability Internal
+    @since 0.93.0 *)
 
 (** {1 Types} *)
 

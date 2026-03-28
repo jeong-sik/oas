@@ -1,6 +1,9 @@
 (** OpenAI-compatible API response parsing and request building.
 
-    Pure functions operating on {!Llm_provider.Types}. *)
+    Pure functions operating on {!Llm_provider.Types}.
+
+    @stability Internal
+    @since 0.93.0 *)
 
 val tool_calls_to_openai_json : Types.content_block list -> Yojson.Safe.t list
 val openai_content_parts_of_blocks : Types.content_block list -> Yojson.Safe.t list

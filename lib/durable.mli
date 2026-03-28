@@ -8,7 +8,10 @@
     Inspired by LangGraph 1.0 durable execution, implemented with
     OCaml's type system for step chain safety.
 
-    @since 0.76.0 *)
+    @since 0.76.0
+
+    @stability Evolving
+    @since 0.93.0 *)
 
 (** {1 Journal} *)
 

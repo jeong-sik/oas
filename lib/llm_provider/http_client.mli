@@ -2,7 +2,10 @@
 
     Eio + cohttp-eio with TLS via {!Api_common.make_https}.
     Network and HTTP errors are captured as {!http_error},
-    so callers do not need [try/with] around HTTP operations. *)
+    so callers do not need [try/with] around HTTP operations.
+
+    @stability Internal
+    @since 0.93.0 *)
 
 (** Transport-level error. *)
 type http_error =

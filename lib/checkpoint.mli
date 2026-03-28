@@ -2,7 +2,10 @@
 
     Captures full conversation state (messages, usage, config) as a
     pure value for persist/restore. This module handles serialization
-    only; file I/O is left to the caller. *)
+    only; file I/O is left to the caller.
+
+    @stability Stable
+    @since 0.93.0 *)
 
 (** {1 Version} *)
 

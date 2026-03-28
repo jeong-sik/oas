@@ -14,7 +14,10 @@
     collecting batch results.  The external interface ({!run}) is
     unchanged — streaming is an internal optimization.
 
-    @since 0.42.0 *)
+    @since 0.42.0
+
+    @stability Evolving
+    @since 0.93.0 *)
 
 open Agent_sdk
 

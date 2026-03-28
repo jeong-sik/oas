@@ -1,4 +1,7 @@
-(** Structured API errors and retry logic with exponential backoff + jitter. *)
+(** Structured API errors and retry logic with exponential backoff + jitter.
+
+    @stability Internal
+    @since 0.93.0 *)
 
 (** {1 Error types} *)
 

@@ -1,7 +1,10 @@
 (** High-level SDK client — manages runtime connection, sessions,
     permission callbacks, and message buffering.
 
-    Re-exports types from {!Sdk_client_types} for convenience. *)
+    Re-exports types from {!Sdk_client_types} for convenience.
+
+    @stability Evolving
+    @since 0.93.0 *)
 
 (** {1 Types (re-exported from Sdk_client_types)} *)
 

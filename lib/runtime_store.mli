@@ -1,7 +1,10 @@
 (** File-based session store for the OAS runtime.
 
     Provides path construction, text I/O, and serialization for
-    sessions, events, artifacts, reports, and proofs. *)
+    sessions, events, artifacts, reports, and proofs.
+
+    @stability Internal
+    @since 0.93.0 *)
 
 (** Store handle wrapping a root directory. *)
 type t = { root: string }

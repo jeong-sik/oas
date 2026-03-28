@@ -2,7 +2,10 @@
 
     Provides span lifecycle management, event recording, and
     OTLP JSON serialization. Supports both Stdlib.Mutex (non-Eio)
-    and Eio.Mutex backends. *)
+    and Eio.Mutex backends.
+
+    @stability Evolving
+    @since 0.93.0 *)
 
 (** {1 Types} *)
 

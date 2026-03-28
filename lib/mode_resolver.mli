@@ -2,7 +2,10 @@
 
     Part of the Contract-Driven Agent Loop (CDAL) PoC-1.
     Computes [effective_execution_mode] from [requested] + [risk_class]
-    + [capabilities]. Never upgrades beyond requested mode. *)
+    + [capabilities]. Never upgrades beyond requested mode.
+
+    @stability Evolving
+    @since 0.93.0 *)
 
 type decision = {
   effective_mode: Execution_mode.t;

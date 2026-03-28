@@ -1,7 +1,10 @@
 (** Lifecycle types and pure helpers for the Agent module.
 
     Extracted from agent.ml to reduce file size.  No dependency on
-    [Agent.t] — all functions take explicit parameters. *)
+    [Agent.t] — all functions take explicit parameters.
+
+    @stability Internal
+    @since 0.93.0 *)
 
 (** {1 Lifecycle status} *)
 

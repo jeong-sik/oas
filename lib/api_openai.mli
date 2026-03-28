@@ -1,6 +1,9 @@
 (** OpenAI-compatible API request building and response parsing.
 
-    Includes re-exports from {!Llm_provider.Backend_openai}. *)
+    Includes re-exports from {!Llm_provider.Backend_openai}.
+
+    @stability Internal
+    @since 0.93.0 *)
 
 include module type of Llm_provider.Backend_openai
 

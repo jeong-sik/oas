@@ -1,7 +1,10 @@
 (** Direct evidence extraction from agent runs.
 
     Materializes worker run data, proof bundles, and conformance
-    reports from a live {!Agent.t} and its {!Raw_trace.t}. *)
+    reports from a live {!Agent.t} and its {!Raw_trace.t}.
+
+    @stability Evolving
+    @since 0.93.0 *)
 
 type options = {
   session_root: string option;

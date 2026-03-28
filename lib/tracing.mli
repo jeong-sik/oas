@@ -4,7 +4,10 @@
     - {!Null_tracer}: zero-allocation no-op (default)
     - {!Fmt_tracer}: stderr output for development/debugging
 
-    Uses first-class modules for runtime tracer selection. *)
+    Uses first-class modules for runtime tracer selection.
+
+    @stability Evolving
+    @since 0.93.0 *)
 
 (** {1 Types} *)
 

@@ -14,7 +14,10 @@
       Memory_access.grant acl
         { agent_name = "bob"; tier = Working; key_pattern = "shared_*"; permission = Read };
 
-      (* alice can write *)
+      (* alice can write
+
+    @stability Evolving
+    @since 0.93.0 *)
       Memory_access.store acl ~agent:"alice" ~tier:Working "shared_goal" value;  (* Ok *)
       (* bob can only read *)
       Memory_access.store acl ~agent:"bob" ~tier:Working "shared_goal" value;  (* Error *)

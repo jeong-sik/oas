@@ -2,7 +2,10 @@
 
     Transforms raw trace data and runtime participant metadata into
     structured {!Sessions_types.worker_run} records and assembles
-    the complete {!Sessions_types.proof_bundle}. *)
+    the complete {!Sessions_types.proof_bundle}.
+
+    @stability Evolving
+    @since 0.93.0 *)
 
 open Sessions_types
 

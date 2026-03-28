@@ -1,7 +1,10 @@
 (** Explicit runtime contract helpers.
 
     Packages system prompt, tools, MCP clients, guardrails, context,
-    and skill bundles into a first-class contract. *)
+    and skill bundles into a first-class contract.
+
+    @stability Evolving
+    @since 0.93.0 *)
 
 (** {1 Types} *)
 

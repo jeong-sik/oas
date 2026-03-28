@@ -1,7 +1,10 @@
 (** Evaluation framework for quantitative agent run assessment.
 
     Collects metrics, compares baselines vs candidates, and checks
-    thresholds for regression detection. *)
+    thresholds for regression detection.
+
+    @stability Evolving
+    @since 0.93.0 *)
 
 (** {1 Metric value} *)
 

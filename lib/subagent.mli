@@ -1,7 +1,10 @@
 (** Typed subagent specifications for delegation via Handoff.
 
     Loads subagent definitions from markdown frontmatter and converts
-    them into {!Handoff.handoff_target} values for the agent runner. *)
+    them into {!Handoff.handoff_target} values for the agent runner.
+
+    @stability Evolving
+    @since 0.93.0 *)
 
 (** {1 Types} *)
 

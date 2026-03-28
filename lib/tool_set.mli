@@ -8,7 +8,10 @@
     - [merge (merge a b) c = merge a (merge b c)]  (associativity)
     - [merge empty s = s]                           (left identity)
     - [merge s empty = s]                           (right identity)
-    - [merge s s = s]                               (idempotence) *)
+    - [merge s s = s]                               (idempotence)
+
+    @stability Stable
+    @since 0.93.0 *)
 
 type t
 

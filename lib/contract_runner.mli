@@ -3,7 +3,10 @@
     Wraps {!Agent.run} with contract enforcement and proof capture.
     The agent code remains completely unaware of contracts and proofs.
 
-    When not called, agent runs proceed with zero overhead. *)
+    When not called, agent runs proceed with zero overhead.
+
+    @stability Evolving
+    @since 0.93.0 *)
 
 type run_result = {
   response: (Types.api_response, Error.sdk_error) result;

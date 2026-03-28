@@ -7,7 +7,10 @@
     Thread safety: the mailbox registry is protected by {!Eio.Mutex}.
     Individual stream operations are fiber-safe by Eio's guarantees.
 
-    @since 0.91.0 *)
+    @since 0.91.0
+
+    @stability Evolving
+    @since 0.93.0 *)
 
 open Agent_sdk
 

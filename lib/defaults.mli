@@ -1,7 +1,10 @@
 (** Default configuration constants with environment variable overrides.
 
     Each value falls back to the compile-time default when the
-    corresponding [OAS_*] environment variable is unset or empty. *)
+    corresponding [OAS_*] environment variable is unset or empty.
+
+    @stability Internal
+    @since 0.93.0 *)
 
 (** Read an environment variable, falling back to [default]
     if the variable is unset or empty. *)

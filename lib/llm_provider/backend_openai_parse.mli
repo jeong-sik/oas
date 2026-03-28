@@ -1,6 +1,9 @@
 (** OpenAI-compatible response parsing.
 
-    @since 0.92.0 extracted from Backend_openai *)
+    @since 0.92.0 extracted from Backend_openai
+
+    @stability Internal
+    @since 0.93.0 *)
 
 val strip_json_markdown_fences : string -> string
 val usage_of_openai_json : Yojson.Safe.t -> Types.api_usage option

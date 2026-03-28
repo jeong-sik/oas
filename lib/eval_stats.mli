@@ -3,7 +3,10 @@
     Provides summary statistics, confidence intervals, and
     Welch's t-test for comparing two samples.
 
-    @since 0.79.0 *)
+    @since 0.79.0
+
+    @stability Evolving
+    @since 0.93.0 *)
 
 (** Summary statistics for a sample. *)
 type stats = {
