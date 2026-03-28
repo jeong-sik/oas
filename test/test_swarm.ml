@@ -267,7 +267,7 @@ let test_convergence_reaches_target () =
   in
   let config : Swarm_types.swarm_config = {
     entries = [
-      { name = "worker-1"; run = mock_run "result-1"; role = Execute; get_telemetry = None };
+      { name = "worker-1"; run = mock_run "result-1"; role = Execute; get_telemetry = None; extensions = [] };
     ];
     mode = Decentralized;
     convergence = Some {
@@ -301,7 +301,7 @@ let test_convergence_patience_exhausted () =
   let metric_fn () = 0.3 in  (* Never improves *)
   let config : Swarm_types.swarm_config = {
     entries = [
-      { name = "stuck"; run = mock_run "stuck"; role = Execute; get_telemetry = None };
+      { name = "stuck"; run = mock_run "stuck"; role = Execute; get_telemetry = None; extensions = [] };
     ];
     mode = Decentralized;
     convergence = Some {
@@ -334,7 +334,7 @@ let test_convergence_max_iterations () =
   let metric_fn () = incr counter; float_of_int !counter *. 0.1 in
   let config : Swarm_types.swarm_config = {
     entries = [
-      { name = "w"; run = mock_run "x"; role = Execute; get_telemetry = None };
+      { name = "w"; run = mock_run "x"; role = Execute; get_telemetry = None; extensions = [] };
     ];
     mode = Decentralized;
     convergence = Some {
@@ -364,8 +364,8 @@ let test_single_pass_no_convergence () =
   let _ = clock in
   let config : Swarm_types.swarm_config = {
     entries = [
-      { name = "a1"; run = mock_run "hello"; role = Discover; get_telemetry = None };
-      { name = "a2"; run = mock_run "world"; role = Verify; get_telemetry = None };
+      { name = "a1"; run = mock_run "hello"; role = Discover; get_telemetry = None; extensions = [] };
+      { name = "a2"; run = mock_run "world"; role = Verify; get_telemetry = None; extensions = [] };
     ];
     mode = Decentralized;
     convergence = None;
@@ -403,7 +403,7 @@ let test_callbacks_fire () =
   } in
   let config : Swarm_types.swarm_config = {
     entries = [
-      { name = "cb-agent"; run = mock_run "ok"; role = Execute; get_telemetry = None };
+      { name = "cb-agent"; run = mock_run "ok"; role = Execute; get_telemetry = None; extensions = [] };
     ];
     mode = Decentralized;
     convergence = Some {
@@ -470,7 +470,7 @@ let test_12_worker_decentralized () =
     { Swarm_types.name;
       run = mock_run_with_latency ~clock ~latency_ms:latency
               (Printf.sprintf "output-%s" name);
-      role; get_telemetry = None }
+      role; get_telemetry = None; extensions = [] }
   in
   let config : Swarm_types.swarm_config = {
     entries = [
@@ -528,7 +528,7 @@ let test_12_worker_convergence () =
     let name = Printf.sprintf "w%d" i in
     { Swarm_types.name;
       run = mock_run_with_latency ~clock ~latency_ms:5 (Printf.sprintf "r%d" i);
-      role; get_telemetry = None }
+      role; get_telemetry = None; extensions = [] }
   in
   let config : Swarm_types.swarm_config = {
     entries = List.init 12 (fun i ->
@@ -580,11 +580,11 @@ let test_12_worker_supervisor () =
     { Swarm_types.name = Printf.sprintf "worker-%d" i;
       run = mock_run_with_latency ~clock ~latency_ms:5
               (Printf.sprintf "worker-%d output" i);
-      role = Execute; get_telemetry = None }
+      role = Execute; get_telemetry = None; extensions = [] }
   in
   let config : Swarm_types.swarm_config = {
     entries =
-      { name = "supervisor"; run = supervisor_run; role = Summarize; get_telemetry = None }
+      { name = "supervisor"; run = supervisor_run; role = Summarize; get_telemetry = None; extensions = [] }
       :: List.init 11 (fun i -> make_worker (i + 1));
     mode = Supervisor;
     convergence = None;
@@ -620,7 +620,7 @@ let test_12_worker_pipeline () =
       let name = Printf.sprintf "stage-%d" i in
       { Swarm_types.name;
         run = pipeline_run name;
-        role = Execute; get_telemetry = None });
+        role = Execute; get_telemetry = None; extensions = [] });
     mode = Pipeline_mode;
     convergence = None;
     max_parallel = 1;
@@ -653,11 +653,11 @@ let test_partial_failure_resilience () =
   let counter = ref 0 in
   let config : Swarm_types.swarm_config = {
     entries = [
-      { name = "ok-1"; run = mock_run "fine"; role = Execute; get_telemetry = None };
+      { name = "ok-1"; run = mock_run "fine"; role = Execute; get_telemetry = None; extensions = [] };
       { name = "fail-1";
         run = mock_run_failing ~fail_on_call:1 counter;
-        role = Execute; get_telemetry = None };
-      { name = "ok-2"; run = mock_run "also-fine"; role = Execute; get_telemetry = None };
+        role = Execute; get_telemetry = None; extensions = [] };
+      { name = "ok-2"; run = mock_run "also-fine"; role = Execute; get_telemetry = None; extensions = [] };
     ];
     mode = Decentralized;
     convergence = None;
@@ -697,7 +697,7 @@ let test_single_pass_timeout () =
          content = [Types.Text "late"]; usage = None }
   in
   let config : Swarm_types.swarm_config = {
-    entries = [{ name = "slow"; run = slow_run; role = Execute; get_telemetry = None }];
+    entries = [{ name = "slow"; run = slow_run; role = Execute; get_telemetry = None; extensions = [] }];
     mode = Decentralized;
     convergence = None;
     max_parallel = 1;
@@ -720,8 +720,8 @@ let test_single_pass_usage () =
   let _ = clock in
   let config : Swarm_types.swarm_config = {
     entries = [
-      { name = "a1"; run = mock_run "hello"; role = Discover; get_telemetry = None };
-      { name = "a2"; run = mock_run "world"; role = Verify; get_telemetry = None };
+      { name = "a1"; run = mock_run "hello"; role = Discover; get_telemetry = None; extensions = [] };
+      { name = "a2"; run = mock_run "world"; role = Verify; get_telemetry = None; extensions = [] };
     ];
     mode = Decentralized;
     convergence = None;
@@ -757,7 +757,7 @@ let test_convergence_average_aggregate () =
   in
   let config : Swarm_types.swarm_config = {
     entries = [
-      { name = "w"; run = mock_run "x"; role = Execute; get_telemetry = None };
+      { name = "w"; run = mock_run "x"; role = Execute; get_telemetry = None; extensions = [] };
     ];
     mode = Decentralized;
     convergence = Some {

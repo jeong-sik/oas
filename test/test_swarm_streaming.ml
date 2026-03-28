@@ -144,11 +144,11 @@ let test_streaming_supervisor () =
   let config : swarm_config = {
     entries = [
       { name = "supervisor"; run = supervisor_run; role = Summarize;
-        get_telemetry = None };
+        get_telemetry = None; extensions = [] };
       { name = "w1"; run = mock_run "worker-1-output"; role = Execute;
-        get_telemetry = None };
+        get_telemetry = None; extensions = [] };
       { name = "w2"; run = mock_run "worker-2-output"; role = Execute;
-        get_telemetry = None };
+        get_telemetry = None; extensions = [] };
     ];
     mode = Supervisor;
     convergence = None;
@@ -185,7 +185,7 @@ let test_streaming_pipeline () =
       let name = Printf.sprintf "stage-%d" i in
       { Swarm_types.name;
         run = pipeline_run name;
-        role = Execute; get_telemetry = None });
+        role = Execute; get_telemetry = None; extensions = [] });
     mode = Pipeline_mode;
     convergence = None;
     max_parallel = 1;
@@ -218,9 +218,9 @@ let test_streaming_decentralized () =
   let config : swarm_config = {
     entries = [
       { name = "a1"; run = mock_run "hello"; role = Discover;
-        get_telemetry = None };
+        get_telemetry = None; extensions = [] };
       { name = "a2"; run = mock_run "world"; role = Verify;
-        get_telemetry = None };
+        get_telemetry = None; extensions = [] };
     ];
     mode = Decentralized;
     convergence = None;
@@ -253,11 +253,11 @@ let test_streaming_partial_failure () =
   let config : swarm_config = {
     entries = [
       { name = "ok-1"; run = mock_run "fine"; role = Execute;
-        get_telemetry = None };
+        get_telemetry = None; extensions = [] };
       { name = "fail-1"; run = mock_run_err "boom"; role = Execute;
-        get_telemetry = None };
+        get_telemetry = None; extensions = [] };
       { name = "ok-2"; run = mock_run "also-fine"; role = Execute;
-        get_telemetry = None };
+        get_telemetry = None; extensions = [] };
     ];
     mode = Decentralized;
     convergence = None;
@@ -291,7 +291,7 @@ let test_streaming_disabled_unchanged () =
   let config : swarm_config = {
     entries = [
       { name = "a1"; run = mock_run "hello"; role = Discover;
-        get_telemetry = None };
+        get_telemetry = None; extensions = [] };
     ];
     mode = Decentralized;
     convergence = None;
@@ -318,9 +318,9 @@ let test_streaming_usage () =
   let config : swarm_config = {
     entries = [
       { name = "a1"; run = mock_run "hello"; role = Discover;
-        get_telemetry = None };
+        get_telemetry = None; extensions = [] };
       { name = "a2"; run = mock_run "world"; role = Verify;
-        get_telemetry = None };
+        get_telemetry = None; extensions = [] };
     ];
     mode = Decentralized;
     convergence = None;

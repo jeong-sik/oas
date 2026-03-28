@@ -63,12 +63,16 @@ val empty_telemetry : agent_telemetry
 
 (** Closure-based agent entry. [run] captures the agent and clock
     so that the swarm runner only needs [sw] and [prompt].
-    [get_telemetry] optionally extracts Layer 1 telemetry after each run. *)
+    [get_telemetry] optionally extracts Layer 1 telemetry after each run.
+    [extensions] carries consumer-specific metadata that OAS does not
+    interpret — e.g. execution scope, routing hints, worker class.
+    Consumers populate it during projection; OAS passes it through. *)
 type agent_entry = {
   name: string;
   run: sw:Eio.Switch.t -> string -> (Types.api_response, Error.sdk_error) result;
   role: agent_role;
   get_telemetry: (unit -> agent_telemetry) option;
+  extensions: (string * Yojson.Safe.t) list;
 }
 
 (** Wrap an {!Agent.t} into an {!agent_entry}.
@@ -76,6 +80,7 @@ type agent_entry = {
 val make_entry :
   name:string ->
   role:agent_role ->
+  ?extensions:(string * Yojson.Safe.t) list ->
   clock:_ Eio.Time.clock ->
   Agent.t ->
   agent_entry
