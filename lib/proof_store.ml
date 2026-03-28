@@ -2,6 +2,14 @@ type config = {
   root: string;
 }
 
+type resolved_ref = {
+  run_id: string;
+  subpath: string;
+  path: string;
+}
+
+let ( let* ) = Result.bind
+
 let default_config =
   let home = try Sys.getenv "HOME" with Not_found -> "/tmp" in
   { root = Filename.concat home ".oas" }
@@ -10,12 +18,10 @@ let proofs_dir config = Filename.concat config.root "proofs"
 let run_dir config ~run_id = Filename.concat (proofs_dir config) run_id
 let traces_dir config ~run_id = Filename.concat (run_dir config ~run_id) "tool_traces"
 let evidence_dir config ~run_id = Filename.concat (run_dir config ~run_id) "evidence"
+let contract_path config ~run_id = Filename.concat (run_dir config ~run_id) "contract.json"
 
 let manifest_path config ~run_id =
   Filename.concat (run_dir config ~run_id) "manifest.json"
-
-let contract_path config ~run_id =
-  Filename.concat (run_dir config ~run_id) "contract.json"
 
 let log_error context = function
   | Ok () -> ()
@@ -49,3 +55,92 @@ let write_evidence config ~run_id ~ref_id json =
 
 let make_ref ~run_id ~subpath =
   Printf.sprintf "proof-store://%s/%s" run_id subpath
+
+let ref_prefix = "proof-store://"
+let ref_prefix_len = String.length ref_prefix
+
+let validate_ref_subpath subpath =
+  let segments = String.split_on_char '/' subpath in
+  if subpath = "" then
+    Error "artifact ref subpath is empty"
+  else if List.exists (fun seg -> seg = "" || seg = "." || seg = "..") segments then
+    Error (Printf.sprintf "artifact ref has invalid subpath: %s" subpath)
+  else
+    Ok ()
+
+let resolve_ref config (ref_ : Cdal_proof.artifact_ref) =
+  let len = String.length ref_ in
+  if len <= ref_prefix_len || String.sub ref_ 0 ref_prefix_len <> ref_prefix then
+    Error (Printf.sprintf "invalid proof-store ref: %s" ref_)
+  else
+    let rel = String.sub ref_ ref_prefix_len (len - ref_prefix_len) in
+    match String.index_opt rel '/' with
+    | None -> Error (Printf.sprintf "artifact ref missing subpath: %s" ref_)
+    | Some slash_idx ->
+      let run_id = String.sub rel 0 slash_idx in
+      let subpath =
+        String.sub rel (slash_idx + 1) (String.length rel - slash_idx - 1) in
+      if run_id = "" then
+        Error (Printf.sprintf "artifact ref missing run_id: %s" ref_)
+      else
+        match validate_ref_subpath subpath with
+        | Error _ as err -> err
+        | Ok () ->
+          Ok { run_id; subpath; path = Filename.concat (run_dir config ~run_id) subpath }
+
+let read_json_path path =
+  let open Result in
+  let* content = Fs_result.read_file path |> map_error Error.to_string in
+  try Ok (Yojson.Safe.from_string content)
+  with
+  | Yojson.Json_error msg ->
+    Error (Printf.sprintf "JSON parse error in %s: %s" path msg)
+
+let read_json config ref_ =
+  let* resolved = resolve_ref config ref_ in
+  read_json_path resolved.path
+
+let read_jsonl config ref_ =
+  let* resolved = resolve_ref config ref_ in
+  let* content = Fs_result.read_file resolved.path |> Result.map_error Error.to_string in
+  let lines = String.split_on_char '\n' content in
+  let rec parse acc line_no = function
+    | [] -> Ok (List.rev acc)
+    | line :: rest when String.trim line = "" ->
+      parse acc (line_no + 1) rest
+    | line :: rest ->
+      (try
+         let json = Yojson.Safe.from_string line in
+         parse (json :: acc) (line_no + 1) rest
+       with
+       | Yojson.Json_error msg ->
+         Error
+           (Printf.sprintf "JSONL parse error in %s at line %d: %s"
+              resolved.path line_no msg))
+  in
+  parse [] 1 lines
+
+let load_manifest config ~run_id =
+  let path = manifest_path config ~run_id in
+  let* json = read_json_path path in
+  Cdal_proof.of_json json
+  |> Result.map_error (fun msg -> Printf.sprintf "manifest decode error in %s: %s" path msg)
+  |> Result.map (fun proof -> (proof, json))
+
+let load_contract config ~run_id =
+  let path = contract_path config ~run_id in
+  let* json = read_json_path path in
+  Risk_contract.of_yojson json
+  |> Result.map_error (fun msg -> Printf.sprintf "contract decode error in %s: %s" path msg)
+  |> Result.map (fun contract -> (contract, json))
+
+let list_runs config =
+  if not (Sys.file_exists (proofs_dir config)) then
+    Ok []
+  else
+    Fs_result.read_dir (proofs_dir config)
+    |> Result.map_error Error.to_string
+    |> Result.map (fun entries ->
+         List.filter
+           (fun entry -> Sys.is_directory (run_dir config ~run_id:entry))
+           entries)

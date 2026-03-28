@@ -257,6 +257,109 @@ let test_proof_store_make_ref () =
   Alcotest.(check string) "ref format"
     "proof-store://r1/tool_traces/t.jsonl" ref_str
 
+let test_proof_store_resolve_ref () =
+  let config : Proof_store.config = { root = "/tmp/oas-proof-store" } in
+  let ref_str = Proof_store.make_ref ~run_id:"r1" ~subpath:"tool_traces/t.jsonl" in
+  match Proof_store.resolve_ref config ref_str with
+  | Ok resolved ->
+    Alcotest.(check string) "run_id" "r1" resolved.run_id;
+    Alcotest.(check string) "subpath" "tool_traces/t.jsonl" resolved.subpath;
+    Alcotest.(check string) "path"
+      "/tmp/oas-proof-store/proofs/r1/tool_traces/t.jsonl" resolved.path
+  | Error e -> Alcotest.fail e
+
+let test_proof_store_rejects_traversal_ref () =
+  let config : Proof_store.config = { root = "/tmp/oas-proof-store" } in
+  match Proof_store.resolve_ref config "proof-store://r1/../secret.json" with
+  | Ok _ -> Alcotest.fail "expected traversal ref to be rejected"
+  | Error _ -> ()
+
+let test_proof_store_read_json_and_jsonl () =
+  let tmpdir = Filename.concat
+      (Filename.get_temp_dir_name ()) "oas-test-proof-store-readers" in
+  let config : Proof_store.config = { root = tmpdir } in
+  let run_id = "test-run-readers-001" in
+  Proof_store.init_run config ~run_id;
+  Proof_store.write_evidence config ~run_id ~ref_id:"mode_violations"
+    (`List [`Assoc [("tool_name", `String "bash")]]);
+  Proof_store.append_tool_trace config ~run_id ~trace_id:"trace-0001"
+    (`Assoc [("tool_name", `String "read")]);
+  let json_ref =
+    Proof_store.make_ref ~run_id ~subpath:"evidence/mode_violations.json" in
+  let jsonl_ref =
+    Proof_store.make_ref ~run_id ~subpath:"tool_traces/trace-0001.jsonl" in
+  (match Proof_store.read_json config json_ref with
+   | Ok (`List [`Assoc fields]) ->
+     Alcotest.(check string) "tool_name" "bash"
+       (match List.assoc "tool_name" fields with `String s -> s | _ -> "")
+   | Ok other ->
+     Alcotest.fail (Printf.sprintf "unexpected json payload: %s"
+                      (Yojson.Safe.to_string other))
+   | Error e -> Alcotest.fail e);
+  (match Proof_store.read_jsonl config jsonl_ref with
+   | Ok [`Assoc fields] ->
+     Alcotest.(check string) "trace tool_name" "read"
+       (match List.assoc "tool_name" fields with `String s -> s | _ -> "")
+   | Ok other ->
+     Alcotest.fail (Printf.sprintf "unexpected jsonl payload count=%d"
+                      (List.length other))
+   | Error e -> Alcotest.fail e);
+  ignore (Sys.command (Printf.sprintf "rm -rf %s" tmpdir))
+
+let test_proof_store_load_manifest_and_contract () =
+  let tmpdir = Filename.concat
+      (Filename.get_temp_dir_name ()) "oas-test-proof-store-load" in
+  let config : Proof_store.config = { root = tmpdir } in
+  let run_id = "test-run-load-001" in
+  let contract = make_contract () in
+  let proof : Cdal_proof.t = {
+    schema_version = 1;
+    run_id;
+    contract_id = Risk_contract.contract_id contract;
+    requested_execution_mode = Execution_mode.Draft;
+    effective_execution_mode = Execution_mode.Draft;
+    mode_decision_source = "passthrough";
+    risk_class = Risk_class.Medium;
+    provider_snapshot = {
+      provider_name = "test"; model_id = "test-model"; api_version = None;
+    };
+    capability_snapshot = test_caps;
+    tool_trace_refs = [];
+    raw_evidence_refs = [];
+    checkpoint_ref = None;
+    result_status = Cdal_proof.Completed;
+    started_at = 1000.0;
+    ended_at = 1001.0;
+  } in
+  Proof_store.init_run config ~run_id;
+  Proof_store.write_manifest config ~run_id proof;
+  Proof_store.write_contract config ~run_id contract;
+  (match Proof_store.load_manifest config ~run_id with
+   | Ok (loaded, _json) ->
+     Alcotest.(check string) "loaded manifest run_id" run_id loaded.run_id
+   | Error e -> Alcotest.fail e);
+  (match Proof_store.load_contract config ~run_id with
+   | Ok (loaded, _json) ->
+     Alcotest.(check string) "loaded contract id"
+       (Risk_contract.contract_id contract)
+       (Risk_contract.contract_id loaded)
+   | Error e -> Alcotest.fail e);
+  ignore (Sys.command (Printf.sprintf "rm -rf %s" tmpdir))
+
+let test_proof_store_list_runs () =
+  let tmpdir = Filename.concat
+      (Filename.get_temp_dir_name ()) "oas-test-proof-store-list" in
+  let config : Proof_store.config = { root = tmpdir } in
+  Proof_store.init_run config ~run_id:"run-a";
+  Proof_store.init_run config ~run_id:"run-b";
+  match Proof_store.list_runs config with
+  | Ok runs ->
+    Alcotest.(check (list string)) "runs" ["run-a"; "run-b"] runs;
+    ignore (Sys.command (Printf.sprintf "rm -rf %s" tmpdir))
+  | Error e ->
+    ignore (Sys.command (Printf.sprintf "rm -rf %s" tmpdir));
+    Alcotest.fail e
+
 (* ================================================================ *)
 (* Contract ID edge cases                                            *)
 (* ================================================================ *)
@@ -770,6 +873,11 @@ let () =
     "Proof_store", [
       Alcotest.test_case "init and write" `Quick test_proof_store_init_and_write;
       Alcotest.test_case "make_ref format" `Quick test_proof_store_make_ref;
+      Alcotest.test_case "resolve_ref" `Quick test_proof_store_resolve_ref;
+      Alcotest.test_case "reject traversal ref" `Quick test_proof_store_rejects_traversal_ref;
+      Alcotest.test_case "read json and jsonl" `Quick test_proof_store_read_json_and_jsonl;
+      Alcotest.test_case "load manifest and contract" `Quick test_proof_store_load_manifest_and_contract;
+      Alcotest.test_case "list runs" `Quick test_proof_store_list_runs;
     ];
     "Risk_contract edge", [
       Alcotest.test_case "empty eval_criteria" `Quick test_contract_id_empty_eval_criteria;
