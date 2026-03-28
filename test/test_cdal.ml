@@ -554,7 +554,7 @@ let test_scope_violation () =
     (match d with Hooks.Skip -> true | _ -> false);
   let vs = Mode_enforcer.violations st in
   Alcotest.(check string) "violation kind" "scope_violation"
-    (List.hd vs).violation_kind
+    (Mode_enforcer.violation_kind_to_string (List.hd vs).violation_kind)
 
 let test_violation_records_details () =
   let st = diagnose_enforcer () in
@@ -565,7 +565,8 @@ let test_violation_records_details () =
   Alcotest.(check int) "1 violation" 1 (List.length vs);
   let v = List.hd vs in
   Alcotest.(check string) "tool_name" "edit" v.tool_name;
-  Alcotest.(check string) "kind" "mutating_in_diagnose" v.violation_kind;
+  Alcotest.(check string) "kind" "mutating_in_diagnose"
+    (Mode_enforcer.violation_kind_to_string v.violation_kind);
   Alcotest.(check bool) "ts > 0" true (v.ts > 0.0)
 
 (* ================================================================ *)

@@ -13,12 +13,19 @@ type mutation_class =
   | Workspace_mutating
   | External_effect
 
+type violation_kind =
+  | Mutating_in_diagnose
+  | External_in_draft
+  | Scope_violation
+
+val violation_kind_to_string : violation_kind -> string
+
 type violation = {
   ts: float;
   tool_name: string;
   input_summary: string;
   effective_mode: Execution_mode.t;
-  violation_kind: string;
+  violation_kind: violation_kind;
 }
 
 type token_snapshot = {

@@ -5,19 +5,23 @@ type result_status =
   | Cancelled
 [@@deriving show]
 
-let result_status_to_yojson = function
-  | Completed -> `String "completed"
-  | Errored -> `String "errored"
-  | Timed_out -> `String "timed_out"
-  | Cancelled -> `String "cancelled"
+let result_status_to_string = function
+  | Completed -> "completed"
+  | Errored -> "errored"
+  | Timed_out -> "timed_out"
+  | Cancelled -> "cancelled"
 
+let result_status_of_string = function
+  | "completed" -> Ok Completed
+  | "errored" -> Ok Errored
+  | "timed_out" -> Ok Timed_out
+  | "cancelled" -> Ok Cancelled
+  | s -> Error (Printf.sprintf "unknown result status: %s" s)
+
+let result_status_to_yojson v = `String (result_status_to_string v)
 let result_status_of_yojson = function
-  | `String "completed" -> Ok Completed
-  | `String "errored" -> Ok Errored
-  | `String "timed_out" -> Ok Timed_out
-  | `String "cancelled" -> Ok Cancelled
-  | j -> Error (Printf.sprintf "unknown result status: %s"
-                  (Yojson.Safe.to_string j))
+  | `String s -> result_status_of_string s
+  | j -> Error (Printf.sprintf "expected string, got %s" (Yojson.Safe.to_string j))
 
 type provider_snapshot = {
   provider_name: string;

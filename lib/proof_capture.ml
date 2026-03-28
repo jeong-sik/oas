@@ -161,7 +161,7 @@ let collect_evidence_refs st =
           "tool_name", `String v.tool_name;
           "input_summary", `String v.input_summary;
           "effective_mode", Execution_mode.to_yojson v.effective_mode;
-          "violation_kind", `String v.violation_kind;
+          "violation_kind", `String (Mode_enforcer.violation_kind_to_string v.violation_kind);
         ]) violations) in
       Proof_store.write_evidence st.store ~run_id:st.run_id
         ~ref_id:"mode_violations" json;
