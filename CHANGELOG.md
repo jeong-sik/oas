@@ -2,6 +2,12 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.93.1] - 2026-03-28
+
+### Fixed
+- Refactor swarm convergence bookkeeping into explicit state transitions so Eio async control flow no longer depends on ad-hoc `ref` accumulators.
+- Make streaming mailbox draining cooperative and replace swarm round-robin selection's global `ref` counter with `Atomic.t`.
+
 ## [0.92.2] - 2026-03-27
 
 ### Changed
