@@ -135,6 +135,7 @@ module Mode_resolver = Mode_resolver
 module Proof_store = Proof_store
 module Proof_capture = Proof_capture
 module Contract_runner = Contract_runner
+module Mode_enforcer = Mode_enforcer
 
 (** {1 Quick Start} *)
 
