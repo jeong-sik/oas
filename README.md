@@ -21,8 +21,7 @@ git clone https://github.com/jeong-sik/oas.git && cd oas
 
 # Required fork pins (OCaml 5.4 compat)
 opam pin add bisect_ppx git+https://github.com/patricoferris/bisect_ppx.git#5.2 --no-action --yes
-opam pin add mcp_protocol git+https://github.com/jeong-sik/mcp-protocol-sdk.git#main --no-action --yes
-opam pin add mcp_protocol_eio git+https://github.com/jeong-sik/mcp-protocol-sdk.git#main --no-action --yes
+opam pin add mcp_protocol git+https://github.com/jeong-sik/mcp-protocol-sdk.git#v1.2.0 --no-action --yes
 
 opam install . --deps-only --with-test --yes
 dune build @all
