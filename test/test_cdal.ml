@@ -274,6 +274,12 @@ let test_proof_store_rejects_traversal_ref () =
   | Ok _ -> Alcotest.fail "expected traversal ref to be rejected"
   | Error _ -> ()
 
+let test_proof_store_rejects_traversal_run_id () =
+  let config : Proof_store.config = { root = "/tmp/oas-proof-store" } in
+  match Proof_store.resolve_ref config "proof-store://../tool_traces/trace.jsonl" with
+  | Ok _ -> Alcotest.fail "expected traversal run_id to be rejected"
+  | Error _ -> ()
+
 let test_proof_store_read_json_and_jsonl () =
   let tmpdir = Filename.concat
       (Filename.get_temp_dir_name ()) "oas-test-proof-store-readers" in
@@ -875,6 +881,7 @@ let () =
       Alcotest.test_case "make_ref format" `Quick test_proof_store_make_ref;
       Alcotest.test_case "resolve_ref" `Quick test_proof_store_resolve_ref;
       Alcotest.test_case "reject traversal ref" `Quick test_proof_store_rejects_traversal_ref;
+      Alcotest.test_case "reject traversal run_id" `Quick test_proof_store_rejects_traversal_run_id;
       Alcotest.test_case "read json and jsonl" `Quick test_proof_store_read_json_and_jsonl;
       Alcotest.test_case "load manifest and contract" `Quick test_proof_store_load_manifest_and_contract;
       Alcotest.test_case "list runs" `Quick test_proof_store_list_runs;

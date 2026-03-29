@@ -59,6 +59,14 @@ let make_ref ~run_id ~subpath =
 let ref_prefix = "proof-store://"
 let ref_prefix_len = String.length ref_prefix
 
+let validate_ref_run_id run_id =
+  if run_id = "" then
+    Error "artifact ref run_id is empty"
+  else if run_id = "." || run_id = ".." then
+    Error (Printf.sprintf "artifact ref has invalid run_id: %s" run_id)
+  else
+    Ok ()
+
 let validate_ref_subpath subpath =
   let segments = String.split_on_char '/' subpath in
   if subpath = "" then
@@ -80,13 +88,11 @@ let resolve_ref config (ref_ : Cdal_proof.artifact_ref) =
       let run_id = String.sub rel 0 slash_idx in
       let subpath =
         String.sub rel (slash_idx + 1) (String.length rel - slash_idx - 1) in
-      if run_id = "" then
-        Error (Printf.sprintf "artifact ref missing run_id: %s" ref_)
-      else
-        match validate_ref_subpath subpath with
-        | Error _ as err -> err
-        | Ok () ->
-          Ok { run_id; subpath; path = Filename.concat (run_dir config ~run_id) subpath }
+      let* () = validate_ref_run_id run_id in
+      match validate_ref_subpath subpath with
+      | Error _ as err -> err
+      | Ok () ->
+        Ok { run_id; subpath; path = Filename.concat (run_dir config ~run_id) subpath }
 
 let read_json_path path =
   let open Result in
