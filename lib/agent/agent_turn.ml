@@ -40,7 +40,10 @@ type turn_preparation = {
 }
 
 let prepare_tools ~guardrails ~operator_policy ~(tools : Tool_set.t) ~turn_params =
-  (* Priority: turn_params > operator > agent *)
+  (* Precedence chain: turn_params > operator > agent.
+     An operator who needs absolute control should use hooks
+     (before_turn_params) to prevent turn_params from overriding
+     its policy. *)
   let merged, source =
     Guardrails.merge_operator_policy ~operator:operator_policy ~agent:guardrails
   in

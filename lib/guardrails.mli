@@ -25,7 +25,9 @@ val filter_tools : t -> Tool.t list -> Tool.t list
 val exceeds_limit : t -> int -> bool
 
 (** Merge an operator-level tool policy with agent-level guardrails.
-    When [operator] is [Some], it overrides the agent's [tool_filter].
+    When [operator] is [Some], it {b replaces} (not intersects) the
+    agent's [tool_filter].  This is intentional: operators have full
+    override authority over agent-level filtering.
     Returns the merged guardrails and the source that determined the
     effective [tool_filter].
 
