@@ -231,6 +231,7 @@ val complete_named :
   ?cache:Cache.t ->
   ?metrics:Metrics.t ->
   ?throttle:Provider_throttle.t ->
+  ?priority:Request_priority.t ->
   unit ->
   (Types.api_response, Http_client.http_error) result
 
@@ -267,6 +268,7 @@ val complete_named_stream :
   ?strict_name:bool ->
   ?timeout_sec:int ->
   ?metrics:Metrics.t ->
+  ?priority:Request_priority.t ->
   on_event:(Types.sse_event -> unit) ->
   unit ->
   (Types.api_response, Http_client.http_error) result

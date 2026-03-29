@@ -7,6 +7,7 @@
     @since 0.53.0  Streaming, retry, cascade
     @since 0.54.0  Optional cache + metrics hooks
     @since 0.78.0  Transport abstraction
+    @since 0.95.0  Optional request priority
 
     @stability Internal
     @since 0.93.1 *)
@@ -70,6 +71,7 @@ val complete :
   ?tools:Yojson.Safe.t list ->
   ?cache:Cache.t ->
   ?metrics:Metrics.t ->
+  ?priority:Request_priority.t ->
   unit ->
   (Types.api_response, Http_client.http_error) result
 
@@ -103,6 +105,7 @@ val complete_with_retry :
   ?retry_config:retry_config ->
   ?cache:Cache.t ->
   ?metrics:Metrics.t ->
+  ?priority:Request_priority.t ->
   unit ->
   (Types.api_response, Http_client.http_error) result
 
@@ -129,6 +132,7 @@ val complete_cascade :
   ?tools:Yojson.Safe.t list ->
   ?cache:Cache.t ->
   ?metrics:Metrics.t ->
+  ?priority:Request_priority.t ->
   unit ->
   (Types.api_response, Http_client.http_error) result
 
@@ -154,6 +158,7 @@ val complete_stream :
   messages:Types.message list ->
   ?tools:Yojson.Safe.t list ->
   on_event:(Types.sse_event -> unit) ->
+  ?priority:Request_priority.t ->
   unit ->
   (Types.api_response, Http_client.http_error) result
 
@@ -180,5 +185,6 @@ val complete_stream_cascade :
   ?tools:Yojson.Safe.t list ->
   on_event:(Types.sse_event -> unit) ->
   ?metrics:Metrics.t ->
+  ?priority:Request_priority.t ->
   unit ->
   (Types.api_response, Http_client.http_error) result
