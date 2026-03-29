@@ -13,6 +13,10 @@ type tool_filter =
   | DenyList of string list
   | Custom of (tool_schema -> bool)
 
+(** Source of a tool policy, for audit logging. *)
+type policy_source = Agent | Operator
+[@@deriving show]
+
 (** Guardrail configuration *)
 type t = {
   tool_filter: tool_filter;
@@ -41,3 +45,10 @@ let exceeds_limit guardrails count =
   match guardrails.max_tool_calls_per_turn with
   | None -> false
   | Some max -> count > max
+
+(** Merge operator-level tool policy with agent-level guardrails.
+    Operator policy takes precedence over agent policy when present. *)
+let merge_operator_policy ~operator ~agent =
+  match operator with
+  | Some filter -> ({ agent with tool_filter = filter }, Operator)
+  | None -> (agent, Agent)

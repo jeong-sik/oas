@@ -39,11 +39,25 @@ type turn_preparation = {
   effective_guardrails: Guardrails.t;
 }
 
-let prepare_tools ~guardrails ~(tools : Tool_set.t) ~turn_params =
-  let effective_guardrails = match turn_params.Hooks.tool_filter_override with
-    | Some filter -> { guardrails with Guardrails.tool_filter = filter }
-    | None -> guardrails
+let prepare_tools ~guardrails ~operator_policy ~(tools : Tool_set.t) ~turn_params =
+  (* Precedence chain: turn_params > operator > agent.
+     An operator who needs absolute control should use hooks
+     (before_turn_params) to prevent turn_params from overriding
+     its policy. *)
+  let merged, source =
+    Guardrails.merge_operator_policy ~operator:operator_policy ~agent:guardrails
   in
+  let effective_guardrails = match turn_params.Hooks.tool_filter_override with
+    | Some filter -> { merged with Guardrails.tool_filter = filter }
+    | None -> merged
+  in
+  (* Audit log when operator policy is active *)
+  (match source with
+   | Guardrails.Operator ->
+     let _log = Log.create ~module_name:"agent_turn" () in
+     Log.info _log "operator policy applied to tool filter"
+       [S ("source", Guardrails.show_policy_source source)]
+   | Guardrails.Agent -> ());
   let visible = Tool_set.filter effective_guardrails tools in
   let tool_schemas = List.map Tool.schema_to_json (Tool_set.to_list visible) in
   let tools_json = if tool_schemas = [] then None else Some tool_schemas in
@@ -60,9 +74,9 @@ let prepare_messages ~messages ~context_reducer ~turn_params =
     let system_msg = { role = User; content = [Text ("[system context] " ^ ctx)]; name = None; tool_call_id = None } in
     system_msg :: effective
 
-let prepare_turn ~guardrails ~tools ~messages ~context_reducer ~turn_params =
+let prepare_turn ~guardrails ~operator_policy ~tools ~messages ~context_reducer ~turn_params =
   let tools_json, effective_guardrails =
-    prepare_tools ~guardrails ~tools ~turn_params
+    prepare_tools ~guardrails ~operator_policy ~tools ~turn_params
   in
   let effective_messages =
     prepare_messages ~messages ~context_reducer ~turn_params

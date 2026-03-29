@@ -44,6 +44,15 @@ val with_mcp_clients : Mcp.managed list -> t -> t
 val with_hooks : Hooks.hooks -> t -> t
 val with_guardrails : Guardrails.t -> t -> t
 val with_guardrails_async : Guardrails_async.t -> t -> t
+
+(** Set operator-level tool policy.
+    Takes precedence over agent-level [guardrails.tool_filter].
+    Logged for auditability when applied.
+
+    Priority: turn_params.tool_filter_override > operator_policy > agent guardrails
+
+    @since 0.94.0 *)
+val with_operator_policy : Guardrails.tool_filter -> t -> t
 val with_tracer : Tracing.t -> t -> t
 val with_raw_trace : Raw_trace.t -> t -> t
 val with_approval : Hooks.approval_callback -> t -> t

@@ -264,6 +264,21 @@ dune exec examples/review_agent.exe -- jeong-sik/oas 123
 - Prompt caching tracks `cache_creation_input_tokens` and `cache_read_input_tokens` in both streaming and non-streaming modes (since v0.4.0).
 - Swarm convergence loop is cooperative — if an agent blocks indefinitely, the loop stalls.
 
+## Scope limitations
+
+OAS is a single-process agent runtime and swarm engine. The following concerns are explicitly out of scope.
+
+| What | Owner | Why not here |
+|------|-------|-------------|
+| Worktree / filesystem coordination | `masc-mcp` | Multi-process file locking and git worktree lifecycle are coordinator concerns, not SDK concerns. |
+| MCP transport implementation | `mcp-protocol-sdk` | OAS consumes `mcp_protocol` as an opam dependency. Transport details (NDJSON framing, stdio management) live there. |
+| Operator dashboard / visibility | `masc-mcp` | Real-time agent status, room views, and keeper dashboards belong to the coordination layer that aggregates across processes. |
+| Repo-level task and room management | `masc-mcp` | Task queues, claim semantics, and room state are coordination-plane concepts that span multiple agents and sessions. |
+| Workflow scheduling / SaaS isolation | Application layer | Cron triggers, tenant isolation, and multi-user access control are problems for the system that embeds OAS. |
+| Long-term persistence / vector storage | Application layer | Session state, memory backends, and embedding indexes are injected via callbacks, not owned by the SDK. |
+
+If you find yourself pulling one of these responsibilities into `agent_sdk` or `agent_sdk_swarm`, that is a sign the change belongs in a different repository.
+
 ## Versioning
 
 0.77.0

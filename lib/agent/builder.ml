@@ -52,6 +52,7 @@ type t = {
   memory: Memory.t option;
   allowed_paths: string list;
   progressive_tools: Progressive_tools.disclosure_strategy option;
+  operator_policy: Guardrails.tool_filter option;
 }
 
 let create ~net ~model =
@@ -103,6 +104,7 @@ let create ~net ~model =
     memory = None;
     allowed_paths = [];
     progressive_tools = None;
+    operator_policy = None;
   }
 
 let with_system_prompt prompt b = { b with system_prompt = Some prompt }
@@ -136,6 +138,7 @@ let with_base_url url b = { b with base_url = url }
 let with_mcp_clients clients b = { b with mcp_clients = clients }
 let with_guardrails guardrails b = { b with guardrails }
 let with_guardrails_async guardrails_async b = { b with guardrails_async }
+let with_operator_policy policy b = { b with operator_policy = Some policy }
 let with_contract contract b =
   { b with contract = Contract.merge b.contract contract }
 let with_skill skill b =
@@ -247,6 +250,7 @@ let build b =
     periodic_callbacks = b.periodic_callbacks;
     memory = b.memory;
     allowed_paths = b.allowed_paths;
+    operator_policy = b.operator_policy;
   } in
   Agent.create ~net:b.net ~config ~tools:(Tool_set.to_list tools) ?context
     ?named_cascade:b.named_cascade ~options ()
