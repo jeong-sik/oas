@@ -215,7 +215,7 @@ let mock_run _text ~sw:_ _prompt =
 
 let make_entry name =
   { Swarm_types.name; run = mock_run "ok"; role = Swarm_types.Execute;
-    get_telemetry = None }
+    get_telemetry = None; extensions = [] }
 
 let make_config ?(entries=[make_entry "a1"; make_entry "a2"])
     ?(mode=Swarm_types.Pipeline_mode)

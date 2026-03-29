@@ -38,6 +38,7 @@ let traced_mock_entry ~trace_dir ~name ~tool_names text =
            content = [Text text]; usage = None });
     role = Execute;
     get_telemetry = None;
+    extensions = [];
   }
 
 (* ── Tests ────────────────────────────────────────────────── *)

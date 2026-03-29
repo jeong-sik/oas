@@ -64,12 +64,13 @@ type agent_entry = {
   run: sw:Eio.Switch.t -> string -> (Types.api_response, Error.sdk_error) result;
   role: agent_role;
   get_telemetry: (unit -> agent_telemetry) option;
+  extensions: (string * Yojson.Safe.t) list;
 }
 
 
 (** Wrap an [Agent.t] into an [agent_entry]. Clock is captured via closure.
     Automatically wires [get_telemetry] to extract [Agent.last_raw_trace_run]. *)
-let make_entry ~name ~role ~(clock : _ Eio.Time.clock) (agent : Agent.t) =
+let make_entry ~name ~role ?(extensions = []) ~(clock : _ Eio.Time.clock) (agent : Agent.t) =
   { name;
     run = (fun ~sw prompt -> Agent.run ~sw ~clock agent prompt);
     role;
@@ -77,7 +78,8 @@ let make_entry ~name ~role ~(clock : _ Eio.Time.clock) (agent : Agent.t) =
       let state = Agent.state agent in
       { trace_ref = Agent.last_raw_trace_run agent;
         usage = Some state.usage;
-        turn_count = state.turn_count }) }
+        turn_count = state.turn_count });
+    extensions }
 
 type resource_budget = {
   max_total_tokens: int option;
