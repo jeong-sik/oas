@@ -87,6 +87,10 @@ let run ~sw ?clock ?(store = Proof_store.default_config)
         ~context ?named_cascade:(Agent.named_cascade agent)
         ~options:new_opts () in
     let response = Agent.run ~sw ?clock new_agent prompt in
+    (* Sync execution state back to the original agent so that
+       downstream checkpoint capture sees the post-run messages,
+       turn_count, and usage — not the pre-run empty state. *)
+    Agent.set_state agent (Agent.state new_agent);
     let result_status = map_result_status response in
     let proof = Proof_capture.finalize capture_state ~result_status in
     { response; proof }
