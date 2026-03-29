@@ -2,6 +2,20 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.93.2] - 2026-03-29
+
+### Added
+- Add `Swarm_types.agent_entry.extensions` so downstream consumers can attach explicit pass-through metadata to swarm entries.
+- Add read-side `Proof_store` APIs for artifact ref resolution, JSON/JSONL reads, manifest/contract loading, and run listing.
+- Annotate all 186 `.mli` files with explicit stability tiers and document the tier policy in `docs/api-stability.md`.
+
+### Changed
+- Move GitHub Actions off Node 20 by upgrading `actions/checkout` to `v5` and `actions/upload-artifact` to `v6`.
+
+### Fixed
+- Replace MASC-specific coordination keywords in `Context_intent` with coordinator-agnostic generic terms.
+- Make `Fs_result.ensure_dir` recursive as documented and reject proof-store artifact refs with traversal-style `run_id` values.
+
 ## [0.93.1] - 2026-03-28
 
 ### Fixed
