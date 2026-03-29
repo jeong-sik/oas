@@ -13,6 +13,18 @@ let violation_kind_to_string = function
   | External_in_draft -> "external_in_draft"
   | Scope_violation -> "scope_violation"
 
+let violation_kind_of_string = function
+  | "mutating_in_diagnose" -> Ok Mutating_in_diagnose
+  | "external_in_draft" -> Ok External_in_draft
+  | "scope_violation" -> Ok Scope_violation
+  | s -> Error (Printf.sprintf "unknown violation_kind: %s" s)
+
+let violation_kind_to_yojson v = `String (violation_kind_to_string v)
+
+let violation_kind_of_yojson = function
+  | `String s -> violation_kind_of_string s
+  | j -> Error (Printf.sprintf "expected string, got %s" (Yojson.Safe.to_string j))
+
 type violation = {
   ts: float;
   tool_name: string;
@@ -20,6 +32,33 @@ type violation = {
   effective_mode: Execution_mode.t;
   violation_kind: violation_kind;
 }
+
+let violation_to_yojson v =
+  `Assoc [
+    "ts", `Float v.ts;
+    "tool_name", `String v.tool_name;
+    "input_summary", `String v.input_summary;
+    "effective_mode", Execution_mode.to_yojson v.effective_mode;
+    "violation_kind", violation_kind_to_yojson v.violation_kind;
+  ]
+
+let violation_of_yojson = function
+  | `Assoc fields ->
+    (match
+       List.assoc_opt "ts" fields,
+       List.assoc_opt "tool_name" fields,
+       List.assoc_opt "input_summary" fields,
+       List.assoc_opt "effective_mode" fields,
+       List.assoc_opt "violation_kind" fields
+     with
+     | Some (`Float ts), Some (`String tool_name),
+       Some (`String input_summary), Some mode_json, Some kind_json ->
+       (match Execution_mode.of_yojson mode_json, violation_kind_of_yojson kind_json with
+        | Ok effective_mode, Ok violation_kind ->
+          Ok { ts; tool_name; input_summary; effective_mode; violation_kind }
+        | Error e, _ | _, Error e -> Error e)
+     | _ -> Error "missing or invalid fields in violation")
+  | _ -> Error "violation: expected JSON object"
 
 type token_snapshot = {
   input_tokens: int;

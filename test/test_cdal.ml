@@ -678,6 +678,41 @@ let test_violation_records_details () =
     (Mode_enforcer.violation_kind_to_string v.violation_kind);
   Alcotest.(check bool) "ts > 0" true (v.ts > 0.0)
 
+let test_violation_json_roundtrip () =
+  let st = diagnose_enforcer () in
+  let h = Mode_enforcer.hooks st in
+  let _ = Hooks.invoke h.pre_tool_use
+      (make_enforcer_event "edit" (`String "file.ml")) in
+  let v = List.hd (Mode_enforcer.violations st) in
+  let json = Mode_enforcer.violation_to_yojson v in
+  match Mode_enforcer.violation_of_yojson json with
+  | Error e -> Alcotest.fail (Printf.sprintf "round-trip failed: %s" e)
+  | Ok v' ->
+    Alcotest.(check string) "tool_name" v.tool_name v'.tool_name;
+    Alcotest.(check string) "input_summary" v.input_summary v'.input_summary;
+    Alcotest.(check string) "kind"
+      (Mode_enforcer.violation_kind_to_string v.violation_kind)
+      (Mode_enforcer.violation_kind_to_string v'.violation_kind);
+    Alcotest.(check string) "mode"
+      (Execution_mode.to_string v.effective_mode)
+      (Execution_mode.to_string v'.effective_mode)
+
+let test_violation_kind_roundtrip () =
+  let kinds = [
+    Mode_enforcer.Mutating_in_diagnose;
+    Mode_enforcer.External_in_draft;
+    Mode_enforcer.Scope_violation;
+  ] in
+  List.iter (fun k ->
+    let s = Mode_enforcer.violation_kind_to_string k in
+    match Mode_enforcer.violation_kind_of_string s with
+    | Ok k' ->
+      Alcotest.(check string) "round-trip"
+        (Mode_enforcer.violation_kind_to_string k)
+        (Mode_enforcer.violation_kind_to_string k')
+    | Error e -> Alcotest.fail e
+  ) kinds
+
 (* ================================================================ *)
 (* Mode_resolver capability tests                                    *)
 (* ================================================================ *)
@@ -910,6 +945,8 @@ let () =
       Alcotest.test_case "execute allows all" `Quick test_execute_allows_all;
       Alcotest.test_case "scope violation" `Quick test_scope_violation;
       Alcotest.test_case "violation records details" `Quick test_violation_records_details;
+      Alcotest.test_case "violation JSON roundtrip" `Quick test_violation_json_roundtrip;
+      Alcotest.test_case "violation_kind roundtrip" `Quick test_violation_kind_roundtrip;
     ];
     "Mode_resolver capability", [
       Alcotest.test_case "read-only tools" `Quick test_resolver_read_only_tools;
