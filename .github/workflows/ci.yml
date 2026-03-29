@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 60
     strategy:
       matrix:
-        ocaml-compiler: ['5.1.x', '5.4.x']
+        ocaml-compiler: ['5.4.1']
       fail-fast: false
 
     steps:
@@ -34,11 +34,7 @@ jobs:
       - name: Pin fork packages
         run: |
           source scripts/mcp-sdk-pin.sh
-          # bisect_ppx fork only needed for 5.4.x (coverage); skip on 5.1.x
-          # to avoid dependency resolution failures
-          if [ "${{ matrix.ocaml-compiler }}" = "5.4.x" ]; then
-            opam pin add bisect_ppx git+https://github.com/patricoferris/bisect_ppx.git#5.2 --no-action --yes
-          fi
+          opam pin add bisect_ppx git+https://github.com/patricoferris/bisect_ppx.git#5.2 --no-action --yes
           opam pin add mcp_protocol "git+${MCP_SDK_URL}#${MCP_SDK_SHA}" --no-action --yes
 
       - name: Install dependencies
@@ -77,7 +73,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Coverage report
-        if: matrix.ocaml-compiler == '5.4.x'
+        if: matrix.ocaml-compiler == '5.4.1'
         env:
           BISECT_ENABLE: "yes"
         run: |
@@ -97,7 +93,7 @@ jobs:
           fi
 
       - name: Build documentation (odoc)
-        if: matrix.ocaml-compiler == '5.4.x'
+        if: matrix.ocaml-compiler == '5.4.1'
         run: |
           opam install odoc --yes
           opam exec -- dune build @doc
@@ -114,7 +110,7 @@ jobs:
       - name: Setup OCaml
         uses: ocaml/setup-ocaml@v3
         with:
-          ocaml-compiler: 5.4.x
+          ocaml-compiler: 5.4.1
           dune-cache: true
 
       - name: Pin fork packages
