@@ -206,14 +206,6 @@ let filter_healthy_internal ~sw ~net (providers : Provider_config.t list) =
   in
   if local_providers = [] then
     (providers, [])
-  else if cloud_providers = [] then
-    let endpoints =
-      local_providers
-      |> List.map (fun (cfg : Provider_config.t) -> cfg.base_url)
-      |> List.sort_uniq String.compare
-    in
-    let statuses = Discovery.discover ~sw ~net ~endpoints in
-    (providers, statuses)
   else
     let endpoints =
       local_providers
@@ -221,13 +213,16 @@ let filter_healthy_internal ~sw ~net (providers : Provider_config.t list) =
       |> List.sort_uniq String.compare
     in
     let statuses = Discovery.discover ~sw ~net ~endpoints in
-    let any_healthy =
-      List.exists (fun (s : Discovery.endpoint_status) -> s.healthy) statuses
-    in
-    if any_healthy then
+    if cloud_providers = [] then
       (providers, statuses)
     else
-      (cloud_providers, [])
+      let any_healthy =
+        List.exists (fun (s : Discovery.endpoint_status) -> s.healthy) statuses
+      in
+      if any_healthy then
+        (providers, statuses)
+      else
+        (cloud_providers, [])
 
 let filter_healthy ~sw ~net providers =
   fst (filter_healthy_internal ~sw ~net providers)
