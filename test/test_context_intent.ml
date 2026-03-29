@@ -79,7 +79,7 @@ let test_heuristic_coordination () =
 let test_heuristic_coordination_generic () =
   let classified =
     Context_intent.heuristic_classify
-      "notify the team and reserve the next task for review"
+      "notify the monitor group and reserve the next task for the team"
   in
   check string "intent" "coordination"
     (Context_intent.intent_to_string classified.intent)
