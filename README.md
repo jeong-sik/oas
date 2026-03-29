@@ -274,7 +274,8 @@ OAS is a single-process agent runtime and swarm engine. The following concerns a
 | MCP transport implementation | `mcp-protocol-sdk` | OAS consumes `mcp_protocol` as an opam dependency. Transport details (NDJSON framing, stdio management) live there. |
 | Operator dashboard / visibility | `masc-mcp` | Real-time agent status, room views, and keeper dashboards belong to the coordination layer that aggregates across processes. |
 | Repo-level task and room management | `masc-mcp` | Task queues, claim semantics, and room state are coordination-plane concepts that span multiple agents and sessions. |
-| Workflow scheduling / SaaS isolation | (none) | Cron triggers, tenant isolation, and multi-user access control are application-layer problems. OAS provides no opinions here. |
+| Workflow scheduling / SaaS isolation | Application layer | Cron triggers, tenant isolation, and multi-user access control are problems for the system that embeds OAS. |
+| Long-term persistence / vector storage | Application layer | Session state, memory backends, and embedding indexes are injected via callbacks, not owned by the SDK. |
 
 If you find yourself pulling one of these responsibilities into `agent_sdk` or `agent_sdk_swarm`, that is a sign the change belongs in a different repository.
 
