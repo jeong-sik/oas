@@ -114,15 +114,12 @@ let reject_dangerous_patterns (patterns : (string * string) list) : approval_sta
   evaluate = (fun ctx ->
     let matches = List.exists (fun (name_pat, input_pat) ->
       let name_match =
-        try ignore (Str.search_forward (Str.regexp name_pat) ctx.tool_name 0); true
-        with Not_found -> false
+        Str_match.contains (Str.regexp name_pat) ctx.tool_name
       in
       let input_str = Yojson.Safe.to_string ctx.input in
       let input_match =
         if input_pat = "" then true
-        else
-          try ignore (Str.search_forward (Str.regexp input_pat) input_str 0); true
-          with Not_found -> false
+        else Str_match.contains (Str.regexp input_pat) input_str
       in
       name_match && input_match
     ) patterns in

@@ -45,7 +45,7 @@ let intent_of_string raw =
   | "task_command" | "task" | "command" -> Ok Task_command
   | "status_check" | "status" | "progress" -> Ok Status_check
   | "knowledge_query" | "knowledge" | "query" | "question" -> Ok Knowledge_query
-  | "coordination" | "coordinate" | "handoff" -> Ok Coordination
+  | "coordination" | "coordinate" | "transfer" | "handoff" -> Ok Coordination
   | other ->
       Error
         (Printf.sprintf
@@ -164,7 +164,7 @@ let heuristic_classify query =
   in
   let coordination_hits =
     matched_keywords
-      [ "assign"; "delegate"; "handoff"; "notify"; "group"; "agent"; "team"; "monitor"; "coordinate"; "sync"; "reserve"; "parallel" ]
+      [ "assign"; "route"; "transfer"; "notify"; "group"; "actor"; "monitor"; "coordinate"; "sync"; "reserve"; "parallel" ]
       lowered
   in
   let conversational_score =
@@ -192,7 +192,7 @@ let heuristic_classify query =
   let coordination_score =
     (float_of_int (List.length coordination_hits) *. 0.50)
     +. if starts_with_any
-         ~prefixes:[ "assign"; "delegate"; "handoff"; "coordinate"; "sync"; "reserve" ]
+         ~prefixes:[ "assign"; "route"; "transfer"; "coordinate"; "sync"; "reserve" ]
          lowered
       then 0.20
       else 0.0
@@ -293,7 +293,7 @@ let prompt_for_query query =
      - task_command: a direct request to do, change, run, create, fix, review, or update something.\n\
      - status_check: asks about current state, progress, remaining work, or what is open/blocked.\n\
      - knowledge_query: asks for explanation, lookup, facts, docs, or analysis.\n\
-     - coordination: asks to assign, delegate, hand off, sync, notify, or coordinate across agents/actors.\n\n\
+     - coordination: asks to assign, route, transfer, sync, notify, or coordinate across actors.\n\n\
      Return only the tool input.\n\
      Set confidence to a number between 0.0 and 1.0.\n\n\
      Query:\n%s"
