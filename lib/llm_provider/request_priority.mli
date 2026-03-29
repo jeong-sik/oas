@@ -22,3 +22,6 @@ val compare : t -> t -> int
 
 val to_int : t -> int
 (** Numeric rank: 0=Interactive, 1=Proactive, 2=Background. *)
+
+val to_yojson : t -> Yojson.Safe.t
+val of_yojson : Yojson.Safe.t -> (t, string) result

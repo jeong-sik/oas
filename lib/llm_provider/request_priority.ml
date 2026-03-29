@@ -27,6 +27,15 @@ let of_string = function
   | "background" -> Some Background
   | _ -> None
 
+let to_yojson v = `String (to_string v)
+
+let of_yojson = function
+  | `String s ->
+    (match of_string s with
+     | Some v -> Ok v
+     | None -> Error (Printf.sprintf "unknown priority: %s" s))
+  | j -> Error (Printf.sprintf "expected string, got %s" (Yojson.Safe.to_string j))
+
 [@@@coverage off]
 (* === Inline tests === *)
 

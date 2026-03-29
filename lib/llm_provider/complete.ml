@@ -395,10 +395,9 @@ let complete_stream_cascade ~sw ~net ?transport
     ~(on_event : Types.sse_event -> unit)
     ?(metrics : Metrics.t option)
     ?(priority : Request_priority.t option) () =
-  let _priority = priority in
   let m = match metrics with Some m -> m | None -> Metrics.noop in
   let try_provider cfg =
-    complete_stream ~sw ~net ?transport ~config:cfg ~messages ~tools ~on_event ()
+    complete_stream ~sw ~net ?transport ~config:cfg ~messages ~tools ~on_event ?priority ()
   in
   match try_provider cascade.primary with
   | Ok _ as success -> success
