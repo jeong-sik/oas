@@ -2,6 +2,19 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.94.0] - 2026-03-29
+
+### Added
+- Single-agent vs swarm baseline evaluation harness for comparing agent performance (#474).
+- Operator-level tool policy — declarative allow/deny rules applied before tool dispatch (#473).
+
+### Changed
+- Pin CI and MCP SDK to OCaml 5.4.1 rollout (#472).
+- Declare explicit scope limitations in project documentation (#471).
+
+### Fixed
+- Sync execution state back to original agent after contract runner handoff (#467).
+
 ## [0.93.2] - 2026-03-29
 
 ### Added
