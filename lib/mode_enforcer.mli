@@ -22,6 +22,9 @@ type violation_kind =
   | Scope_violation
 
 val violation_kind_to_string : violation_kind -> string
+val violation_kind_of_string : string -> (violation_kind, string) result
+val violation_kind_to_yojson : violation_kind -> Yojson.Safe.t
+val violation_kind_of_yojson : Yojson.Safe.t -> (violation_kind, string) result
 
 type violation = {
   ts: float;
@@ -30,6 +33,12 @@ type violation = {
   effective_mode: Execution_mode.t;
   violation_kind: violation_kind;
 }
+
+(** Canonical JSON serialization for violation records.
+    Downstream consumers (e.g. MASC Violation_record) should use these
+    instead of manual JSON parsing. *)
+val violation_to_yojson : violation -> Yojson.Safe.t
+val violation_of_yojson : Yojson.Safe.t -> (violation, string) result
 
 type token_snapshot = {
   input_tokens: int;

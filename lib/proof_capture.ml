@@ -155,14 +155,7 @@ let collect_evidence_refs st =
     let refs = ref [] in
     let violations = Mode_enforcer.violations enforcer in
     if violations <> [] then begin
-      let json = `List (List.map (fun (v : Mode_enforcer.violation) ->
-        `Assoc [
-          "ts", `Float v.ts;
-          "tool_name", `String v.tool_name;
-          "input_summary", `String v.input_summary;
-          "effective_mode", Execution_mode.to_yojson v.effective_mode;
-          "violation_kind", `String (Mode_enforcer.violation_kind_to_string v.violation_kind);
-        ]) violations) in
+      let json = `List (List.map Mode_enforcer.violation_to_yojson violations) in
       Proof_store.write_evidence st.store ~run_id:st.run_id
         ~ref_id:"mode_violations" json;
       refs := Proof_store.make_ref ~run_id:st.run_id
