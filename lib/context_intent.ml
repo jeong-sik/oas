@@ -45,7 +45,7 @@ let intent_of_string raw =
   | "task_command" | "task" | "command" -> Ok Task_command
   | "status_check" | "status" | "progress" -> Ok Status_check
   | "knowledge_query" | "knowledge" | "query" | "question" -> Ok Knowledge_query
-  | "coordination" | "coordinate" | "transfer" -> Ok Coordination
+  | "coordination" | "coordinate" | "transfer" | "handoff" -> Ok Coordination
   | other ->
       Error
         (Printf.sprintf
