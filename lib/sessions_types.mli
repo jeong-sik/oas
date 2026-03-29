@@ -1,6 +1,9 @@
 (** Sessions type definitions — pure data structures.
 
-    All types carry [@@deriving yojson, show] for serialisation. *)
+    All types carry [@@deriving yojson, show] for serialisation.
+
+    @stability Internal
+    @since 0.93.1 *)
 
 type trace_capability =
   | Raw [@name "raw"]

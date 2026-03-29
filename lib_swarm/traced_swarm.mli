@@ -5,7 +5,10 @@
     sink to each, runs them via {!Runner.run}, and collects
     {!Raw_trace.run_summary} values from the resulting trace files.
 
-    @since 0.51.0 *)
+    @since 0.51.0
+
+    @stability Evolving
+    @since 0.93.1 *)
 
 open Agent_sdk
 

@@ -8,6 +8,9 @@
 
     Valid UTF-8 is passed through unchanged.  The function runs
     in O(n) with a fast-path that avoids allocation when the
-    input is already valid. *)
+    input is already valid.
+
+    @stability Internal
+    @since 0.93.1 *)
 
 val sanitize : string -> string

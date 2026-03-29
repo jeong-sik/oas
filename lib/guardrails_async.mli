@@ -3,7 +3,10 @@
     All validators run concurrently inside a dedicated [Eio.Switch].
     Cancellation propagates correctly (no exception swallowing).
 
-    @since 0.67.0 *)
+    @since 0.67.0
+
+    @stability Evolving
+    @since 0.93.1 *)
 
 (** Input validator: checks messages before the LLM call. *)
 type input_validator = {

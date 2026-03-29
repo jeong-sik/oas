@@ -1,7 +1,10 @@
 (** Markdown skill loading with lightweight frontmatter support.
 
     Parses YAML-like frontmatter (---/--- delimited) into key-value pairs
-    and extracts the body for prompt composition. *)
+    and extracts the body for prompt composition.
+
+    @stability Evolving
+    @since 0.93.1 *)
 
 (** {1 Types} *)
 

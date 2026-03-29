@@ -3,7 +3,10 @@
     Single source of truth for message, response, tool, and streaming types.
     Downstream consumers link against this module directly.
 
-    @since 0.42.0 *)
+    @since 0.42.0
+
+    @stability Internal
+    @since 0.93.1 *)
 
 (** {1 Message Types} *)
 

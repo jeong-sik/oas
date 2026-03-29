@@ -7,7 +7,10 @@
     (goal decomposition, re-planning), while Durable handles
     {i how} to execute reliably (crash recovery, journaling).
 
-    @since 0.77.0 *)
+    @since 0.77.0
+
+    @stability Evolving
+    @since 0.93.1 *)
 
 (** {1 Step status} *)
 

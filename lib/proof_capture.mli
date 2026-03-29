@@ -4,7 +4,10 @@
 
     Creates hooks that observe agent lifecycle events and accumulate
     proof data. Agent code is completely unaware of proof capture.
-    Call [finalize] after agent run to write manifest and return proof. *)
+    Call [finalize] after agent run to write manifest and return proof.
+
+    @stability Evolving
+    @since 0.93.1 *)
 
 type state
 (** Opaque mutable accumulator. One per agent run, not shared. *)

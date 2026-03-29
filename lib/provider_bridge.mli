@@ -4,7 +4,10 @@
     Local, Custom_registered) to the new 2-kind standalone config
     (Anthropic, OpenAI_compat).
 
-    @since 0.53.0 *)
+    @since 0.53.0
+
+    @stability Internal
+    @since 0.93.1 *)
 
 (** Convert a single legacy provider config.
     Calls {!Provider.resolve} to obtain base_url, api_key, and headers.

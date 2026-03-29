@@ -3,7 +3,10 @@
     Supports Anthropic (native SSE) and OpenAI-compatible (SSE).
     Pure SSE event parsing and synthetic emission are delegated to
     {!Llm_provider.Streaming}.  The HTTP streaming client remains here
-    due to agent_state/Provider/Error coupling. *)
+    due to agent_state/Provider/Error coupling.
+
+    @stability Evolving
+    @since 0.93.1 *)
 
 (** {1 Re-exported Pure Functions} *)
 

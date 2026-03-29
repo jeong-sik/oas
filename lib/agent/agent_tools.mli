@@ -2,7 +2,10 @@
 
     These functions are parameterized by explicit fields rather than [Agent.t]
     to avoid circular module dependencies ([Agent_tools] is compiled before
-    [Agent]). *)
+    [Agent]).
+
+    @stability Internal
+    @since 0.93.1 *)
 
 (** {1 Hook invocation} *)
 

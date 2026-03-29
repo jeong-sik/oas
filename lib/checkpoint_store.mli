@@ -1,7 +1,10 @@
 (** File-backed checkpoint persistence using [Eio.Path].
 
     Layout: [<base_dir>/<session_id>.json].
-    Atomic writes via [.tmp] + rename. *)
+    Atomic writes via [.tmp] + rename.
+
+    @stability Stable
+    @since 0.93.1 *)
 
 (** {1 Types} *)
 

@@ -10,7 +10,10 @@
     beyond the generic key-value store of Scratchpad/Working/Long_term.
 
     @since 0.65.0 (3-tier)
-    @since 0.75.0 (5-tier: Episodic + Procedural) *)
+    @since 0.75.0 (5-tier: Episodic + Procedural)
+
+    @stability Evolving
+    @since 0.93.1 *)
 
 (** {1 Tiers} *)
 

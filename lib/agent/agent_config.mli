@@ -1,7 +1,10 @@
 (** Agent configuration file parsing and MCP server connection.
 
     Loads agent configuration from JSON files, resolves providers,
-    and connects MCP servers. *)
+    and connects MCP servers.
+
+    @stability Internal
+    @since 0.93.1 *)
 
 type tool_file_config = {
   name: string;

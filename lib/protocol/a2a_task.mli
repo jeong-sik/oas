@@ -2,7 +2,10 @@
 
     Tasks flow through a well-defined state machine:
     Submitted -> Working -> Completed/Failed/Canceled.
-    Illegal transitions return [Error]. *)
+    Illegal transitions return [Error].
+
+    @stability Internal
+    @since 0.93.1 *)
 
 (** {1 State machine} *)
 

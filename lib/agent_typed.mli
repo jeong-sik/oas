@@ -12,7 +12,10 @@
       let agent = Agent_typed.create ~net () in
       let completed = Agent_typed.run ~sw agent "hello" in
       Agent_typed.close completed
-      (* Agent_typed.run ~sw completed "again"  -- TYPE ERROR *)
+      (* Agent_typed.run ~sw completed "again"  -- TYPE ERROR
+
+    @stability Evolving
+    @since 0.93.1 *)
     ]}
 
     @since 0.55.0 *)

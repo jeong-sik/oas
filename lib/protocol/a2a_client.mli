@@ -4,7 +4,10 @@
     sends tasks via JSON-RPC 2.0, and optionally wraps a remote
     agent as a {!Swarm_types.agent_entry} for swarm execution.
 
-    @since 0.55.0 *)
+    @since 0.55.0
+
+    @stability Internal
+    @since 0.93.1 *)
 
 (** A discovered remote agent endpoint. *)
 type remote_agent = {

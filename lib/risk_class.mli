@@ -1,7 +1,10 @@
 (** Risk classification for contract-driven agent runs.
 
     Part of the Contract-Driven Agent Loop (CDAL) PoC-1.
-    Three-axis model: blast_radius x irreversibility x recovery_cost. *)
+    Three-axis model: blast_radius x irreversibility x recovery_cost.
+
+    @stability Evolving
+    @since 0.93.1 *)
 
 type t =
   | Low       (** Small radius, easy rollback, low recovery cost *)

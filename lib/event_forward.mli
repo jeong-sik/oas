@@ -4,7 +4,10 @@
     Delivery is best-effort: failures log a warning but never block
     the agent.  Batching reduces HTTP round-trips.
 
-    Runs in a separate Eio fiber (non-blocking to agent). *)
+    Runs in a separate Eio fiber (non-blocking to agent).
+
+    @stability Evolving
+    @since 0.93.1 *)
 
 (** {1 Payload} *)
 

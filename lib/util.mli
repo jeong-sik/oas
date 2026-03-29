@@ -1,7 +1,10 @@
 (** Shared utility functions.
 
     Small helpers extracted from multiple modules to eliminate
-    duplication. *)
+    duplication.
+
+    @stability Internal
+    @since 0.93.1 *)
 
 (** Return [a] if [Some], otherwise [b]. *)
 val first_some : 'a option -> 'a option -> 'a option

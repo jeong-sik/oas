@@ -2,7 +2,10 @@
 
     Replaces [(_, string) result] with [(_, sdk_error) result] across the SDK.
     Provides human-readable [to_string] for backward-compatible error messages
-    and [is_retryable] for automated retry decisions. *)
+    and [is_retryable] for automated retry decisions.
+
+    @stability Stable
+    @since 0.93.1 *)
 
 (** {1 Domain error types} *)
 

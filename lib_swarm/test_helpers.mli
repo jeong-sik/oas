@@ -3,7 +3,10 @@
     All helpers create {!Swarm_types.agent_entry} values with closure-based
     run functions that return immediate results without LLM calls.
 
-    @since 0.43.0 *)
+    @since 0.43.0
+
+    @stability Internal
+    @since 0.93.1 *)
 
 open Agent_sdk
 

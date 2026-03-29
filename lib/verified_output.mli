@@ -12,7 +12,10 @@
 
     Usage:
     {[
-      (* Producer creates unverified output *)
+      (* Producer creates unverified output
+
+    @stability Evolving
+    @since 0.93.1 *)
       let raw = Verified_output.of_response ~producer:"alice" response in
 
       (* Verifier checks and marks as verified *)

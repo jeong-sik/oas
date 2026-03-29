@@ -1,4 +1,7 @@
-(** JSONL-backed harness datasets. *)
+(** JSONL-backed harness datasets.
+
+    @stability Evolving
+    @since 0.93.1 *)
 
 type t = Harness_case.t list
 

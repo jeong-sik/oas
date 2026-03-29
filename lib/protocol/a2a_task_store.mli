@@ -1,7 +1,10 @@
 (** File-backed A2A task persistence.
 
     Layout: [<base_dir>/<task_id>.json].
-    Atomic writes via .tmp + rename. In-memory Hashtbl cache for fast lookups. *)
+    Atomic writes via .tmp + rename. In-memory Hashtbl cache for fast lookups.
+
+    @stability Internal
+    @since 0.93.1 *)
 
 type t
 

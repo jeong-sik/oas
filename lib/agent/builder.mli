@@ -1,7 +1,10 @@
 (** Builder pattern for Agent creation.
 
     Provides a flat, chainable API as an alternative to nested
-    [Agent.create] params. Use [build_safe] for validated construction. *)
+    [Agent.create] params. Use [build_safe] for validated construction.
+
+    @stability Stable
+    @since 0.93.1 *)
 
 type t
 

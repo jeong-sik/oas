@@ -7,7 +7,10 @@
     manifest consumed by downstream coordinators.
 
     Agent code is NOT proof-aware. Proof capture is performed
-    entirely by middleware hooking into the agent lifecycle. *)
+    entirely by middleware hooking into the agent lifecycle.
+
+    @stability Evolving
+    @since 0.93.1 *)
 
 type result_status =
   | Completed   (** Agent reached EndTurn *)

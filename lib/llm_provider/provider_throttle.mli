@@ -3,7 +3,10 @@
     Limits concurrent LLM requests per provider to avoid overwhelming
     backends with limited capacity (e.g. llama-server with N slots).
 
-    @since 0.84.0 *)
+    @since 0.84.0
+
+    @stability Internal
+    @since 0.93.1 *)
 
 type t
 

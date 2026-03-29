@@ -1,6 +1,9 @@
 (** Eval baseline: golden-file comparison for regression detection.
 
-    @since 0.68.0 *)
+    @since 0.68.0
+
+    @stability Evolving
+    @since 0.93.1 *)
 
 type baseline = {
   run_metrics: Eval.run_metrics;

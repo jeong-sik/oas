@@ -3,7 +3,10 @@
     Closures ([agent_entry.run]) are not serializable, so we save entry
     names and rebind via [agent_lookup] on restore.
 
-    @since 0.43.0 *)
+    @since 0.43.0
+
+    @stability Evolving
+    @since 0.93.1 *)
 
 open Agent_sdk
 

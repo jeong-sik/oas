@@ -1,4 +1,7 @@
-(** Tool definition and execution. *)
+(** Tool definition and execution.
+
+    @stability Stable
+    @since 0.93.1 *)
 
 type tool_handler = Yojson.Safe.t -> Types.tool_result
 type context_tool_handler = Context.t -> Yojson.Safe.t -> Types.tool_result

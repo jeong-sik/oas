@@ -1,7 +1,10 @@
 (** Wire types for the SDK client protocol.
 
     Defines options, messages, permission callbacks, and hook callbacks
-    used by {!Client} and {!Internal_query_engine}. *)
+    used by {!Client} and {!Internal_query_engine}.
+
+    @stability Internal
+    @since 0.93.1 *)
 
 (** {1 Permission Mode} *)
 

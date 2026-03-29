@@ -13,7 +13,10 @@
     - Heartbeat lease detects stale/crashed agents
     - Full journal is JSON-serializable for persistence
 
-    @since 0.89.0 *)
+    @since 0.89.0
+
+    @stability Evolving
+    @since 0.93.1 *)
 
 (** {1 Event types} *)
 

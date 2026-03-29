@@ -1,6 +1,9 @@
 (** Provider-level error types.
 
-    Independent of the OAS [Error.sdk_error] hierarchy. *)
+    Independent of the OAS [Error.sdk_error] hierarchy.
+
+    @stability Internal
+    @since 0.93.1 *)
 
 type provider_error =
   | MissingApiKey of { var_name: string }

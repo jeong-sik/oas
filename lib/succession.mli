@@ -7,7 +7,10 @@
     DNA (goal, progress, decisions, pending actions), hand off to a new
     agent instance, and continue with compressed history.
 
-    @since 0.79.0 *)
+    @since 0.79.0
+
+    @stability Evolving
+    @since 0.93.1 *)
 
 (** {1 Metrics} *)
 

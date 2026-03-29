@@ -1,7 +1,10 @@
 (** Execution mode for contract-driven agent runs.
 
     Part of the Contract-Driven Agent Loop (CDAL) PoC-1.
-    Ordering: [Diagnose < Draft < Execute]. *)
+    Ordering: [Diagnose < Draft < Execute].
+
+    @stability Evolving
+    @since 0.93.1 *)
 
 type t =
   | Diagnose  (** Read-only analysis, no mutations *)

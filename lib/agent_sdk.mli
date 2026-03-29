@@ -3,7 +3,10 @@
     A type-safe, Eio-based implementation of the Anthropic Agent SDK.
 
     This is the top-level module that re-exports all sub-modules
-    in dependency-safe order. *)
+    in dependency-safe order.
+
+    @stability Evolving
+    @since 0.93.1 *)
 
 (** {1 Core Modules} *)
 

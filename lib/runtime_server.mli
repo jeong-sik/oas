@@ -2,7 +2,10 @@
 
     Entry point for the oas_runtime binary. Integrates with
     {!Runtime_server_types}, {!Runtime_server_resolve}, and
-    {!Runtime_server_worker} for request handling. *)
+    {!Runtime_server_worker} for request handling.
+
+    @stability Internal
+    @since 0.93.1 *)
 
 open Runtime
 open Runtime_server_types

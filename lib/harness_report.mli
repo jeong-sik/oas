@@ -1,4 +1,7 @@
-(** Structured reports for harness runs. *)
+(** Structured reports for harness runs.
+
+    @stability Evolving
+    @since 0.93.1 *)
 
 type case_status =
   | Pass

@@ -1,3 +1,8 @@
+(** Artifact service.
+
+    @stability Evolving
+    @since 0.93.1 *)
+
 type descriptor = Runtime.artifact
 
 val extension_of_kind : string -> string

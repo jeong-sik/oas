@@ -1,7 +1,10 @@
 (** Internal query engine: SDK-side event loop over runtime transport.
 
     Manages runtime connection, event synchronization, message buffering,
-    and permission/hook callbacks. Used by {!Client} and {!Internal_client}. *)
+    and permission/hook callbacks. Used by {!Client} and {!Internal_client}.
+
+    @stability Internal
+    @since 0.93.1 *)
 
 type t = {
   runtime: Runtime_client.t;

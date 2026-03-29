@@ -8,7 +8,10 @@
       let m = Metrics.create ()
       let tok = Metrics.counter m ~name:"gen_ai.client.token.usage" ~unit_:"token"
       Metrics.incr tok ~labels:[("gen_ai.token.type", "input")] 150
-      Metrics.to_otlp_json m  (* export all collected metrics *)
+      Metrics.to_otlp_json m  (* export all collected metrics
+
+    @stability Evolving
+    @since 0.93.1 *)
     ]} *)
 
 (** {1 Types} *)

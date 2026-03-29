@@ -4,7 +4,10 @@
 
     A risk contract has two surfaces:
     - [runtime_constraints]: enforced by OAS at execution time
-    - [eval_criteria]: opaque passthrough carried to the proof bundle *)
+    - [eval_criteria]: opaque passthrough carried to the proof bundle
+
+    @stability Evolving
+    @since 0.93.1 *)
 
 (** Runtime constraints enforced by OAS. *)
 type runtime_constraints = {

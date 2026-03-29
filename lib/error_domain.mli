@@ -5,7 +5,10 @@
 
     Usage:
     {[
-      (* Provider function: only produces provider errors *)
+      (* Provider function: only produces provider errors
+
+    @stability Internal
+    @since 0.93.1 *)
       val create_message : ... -> (api_response, [> provider_error]) result
 
       (* Callers only handle relevant variants *)

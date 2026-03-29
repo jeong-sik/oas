@@ -1,7 +1,10 @@
 (** Model registry: alias resolution and model ID normalization.
 
     The single source of truth for model alias → canonical API ID mapping.
-    New models are added here only. *)
+    New models are added here only.
+
+    @stability Evolving
+    @since 0.93.1 *)
 
 (** The default model ID, overridable via OAS_DEFAULT_MODEL env var. *)
 val default_model_id : string

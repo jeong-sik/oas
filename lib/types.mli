@@ -1,7 +1,10 @@
 (** Core types for Anthropic Agent SDK.
 
     LLM-level types (role, message, content_block, etc.) are re-exported from
-    {!Llm_provider.Types}. Agent-specific types remain local. *)
+    {!Llm_provider.Types}. Agent-specific types remain local.
+
+    @stability Stable
+    @since 0.93.1 *)
 
 (* ================================================================ *)
 (* Re-export all LLM provider types                                  *)

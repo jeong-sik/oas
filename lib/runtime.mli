@@ -8,7 +8,10 @@
     {!Runtime_projection.collaboration_of_session} instead of reading
     these fields directly.
 
-    @since 0.50.0 *)
+    @since 0.50.0
+
+    @stability Evolving
+    @since 0.93.1 *)
 
 (** {1 Session State} *)
 

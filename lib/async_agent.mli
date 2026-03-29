@@ -7,7 +7,10 @@
     Cancellation is cooperative: [cancel] resolves the promise with
     an error but does not forcibly terminate the running fiber.
 
-    @since 0.55.0 *)
+    @since 0.55.0
+
+    @stability Evolving
+    @since 0.93.1 *)
 
 (** {1 Future type} *)
 

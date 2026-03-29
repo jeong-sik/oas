@@ -5,7 +5,10 @@
 
     Fail-open design: on write failure, original content is preserved.
 
-    @since 0.62.0 *)
+    @since 0.62.0
+
+    @stability Evolving
+    @since 0.93.1 *)
 
 (** Offload configuration. *)
 type config = {

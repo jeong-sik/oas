@@ -1,6 +1,9 @@
 (** Agent Card — self-describing metadata for agent capability negotiation.
 
-    Inspired by the A2A (Agent-to-Agent) protocol. *)
+    Inspired by the A2A (Agent-to-Agent) protocol.
+
+    @stability Internal
+    @since 0.93.1 *)
 
 (** {1 Capability} *)
 

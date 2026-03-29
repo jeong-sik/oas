@@ -3,7 +3,10 @@
     Decouples the completion logic (cache, retry, cascade) from
     the underlying I/O mechanism (HTTP, subprocess, etc.).
 
-    @since 0.78.0 *)
+    @since 0.78.0
+
+    @stability Internal
+    @since 0.93.1 *)
 
 (** A completion request: everything needed to produce a response. *)
 type completion_request = {

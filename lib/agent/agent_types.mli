@@ -2,7 +2,10 @@
 
     [Agent_types.t] exposes record fields for library-internal code.
     External consumers should use the abstract [Agent.t] and its
-    accessor functions instead. *)
+    accessor functions instead.
+
+    @stability Internal
+    @since 0.93.1 *)
 
 (** {1 Configuration} *)
 

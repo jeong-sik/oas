@@ -1,7 +1,10 @@
 (** SSE (Server-Sent Events) line-level parser.
 
     Follows the SSE spec: event/data/id/retry fields,
-    blank line = dispatch. *)
+    blank line = dispatch.
+
+    @stability Internal
+    @since 0.93.1 *)
 
 type raw_sse_event = {
   event_type: string option;

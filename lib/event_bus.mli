@@ -2,7 +2,10 @@
 
     Each subscriber gets its own bounded {!Eio.Stream.t}; [publish]
     copies each event to every matching subscriber. All state is
-    internal to [t] -- no globals. *)
+    internal to [t] -- no globals.
+
+    @stability Evolving
+    @since 0.93.1 *)
 
 (** {2 Event types} *)
 

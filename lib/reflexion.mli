@@ -9,7 +9,10 @@
     Integrates with {!Memory.t} Episodic tier for reflection storage
     and {!Hooks} for optional hook-based integration.
 
-    @since 0.89.0 *)
+    @since 0.89.0
+
+    @stability Evolving
+    @since 0.93.1 *)
 
 (** {1 Verdict} *)
 

@@ -5,7 +5,10 @@
     and JSON round-trip for persistence / agent card export.
 
     Thread-safety note: single-writer assumed (no [Eio.Mutex] needed).
-    The registry is always owned by a single {!Agent.t} instance. *)
+    The registry is always owned by a single {!Agent.t} instance.
+
+    @stability Evolving
+    @since 0.93.1 *)
 
 (** {1 Types} *)
 

@@ -140,18 +140,20 @@ Layer 1: agent_sdk  (lib/)
 ## Module stability tiers
 
 Not all modules are equally stable. Use this to gauge risk when depending on a module.
+Every `.mli` now carries an explicit `@stability` tag and `@since` marker.
+For the full 186-file classification, see `docs/api-stability.md`.
 
 **Stable** -- safe to depend on, breaking changes only on minor version bumps:
 
-`Types`, `Error`, `Provider`, `Api`, `Agent`, `Tool`, `Tool_set`, `Hooks`, `Guardrails`, `Context`, `Builder`, `Log`
+`Types`, `Error`, `Agent`, `Builder`, `Tool`, `Tool_set`, `Hooks`, `Provider`, `Guardrails`, `Raw_trace`, `Checkpoint`, `Checkpoint_store`, `Context`, `Context_reducer`
 
 **Evolving** -- API may change between minor versions:
 
-`Streaming`, `Structured`, `Orchestrator`, `Checkpoint`, `Mcp`, `Session`, `Skill`, `Subagent`, `Handoff`, `Contract`, `Context_reducer`, `Event_bus`, `Pipeline`, `Error_domain`, `Provider_intf`, `Memory`, `Memory_access`, `Collaboration`
+`Streaming`, `Structured`, `Orchestrator`, `Collaboration`, `Memory`, `Policy`, `Proof_store`, `Cdal_proof`, `Swarm_types`, `Runner`
 
-**Experimental** -- may be redesigned or removed:
+**Internal** -- implementation details with no compatibility promise:
 
-`Runtime`, `Transport`, `Client`, `Sessions`, `Conformance`, `Direct_evidence`, `Raw_trace`, `Otel_tracer`, `Checkpoint_store`, `Swarm_checkpoint`, `Verified_output`, `Policy`, `Audit`, `Durable`, `Plan`, `Autonomy_exec`, `Autonomy_diff_guard`, `Metric_contract`, `Lesson_memory`
+`lib/agent/*` submodules, `lib/protocol/*`, `lib/llm_provider/*` backends, parser/transport helpers, and other implementation-specific support modules
 
 ## Tool definition
 

@@ -1,6 +1,9 @@
 (** Per-agent cost tracking and budget enforcement.
 
-    @since 0.62.0 *)
+    @since 0.62.0
+
+    @stability Evolving
+    @since 0.93.1 *)
 
 (** Structured cost report. *)
 type cost_report = {

@@ -7,7 +7,10 @@
     Designed for large tool sets (hundreds of tools): O(n) build, O(n*q) query
     where n = tools, q = query terms.
 
-    @since 0.89.0 *)
+    @since 0.89.0
+
+    @stability Evolving
+    @since 0.93.1 *)
 
 (** {1 Index} *)
 

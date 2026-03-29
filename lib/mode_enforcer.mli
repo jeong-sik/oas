@@ -6,7 +6,10 @@
     Tool classification:
     - Read-only: read, glob, grep, search, etc.
     - Workspace-mutating: write, edit, create_text_file, etc.
-    - External-effect: bash (with input analysis), mcp__*, unknown tools *)
+    - External-effect: bash (with input analysis), mcp__*, unknown tools
+
+    @stability Evolving
+    @since 0.93.1 *)
 
 type mutation_class =
   | Read_only

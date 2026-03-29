@@ -4,7 +4,10 @@
 
     Each stage is a well-defined function.  The pipeline coordinates
     them, threading agent state through mutable updates.  This module
-    replaces the monolithic [run_turn_core] in agent.ml. *)
+    replaces the monolithic [run_turn_core] in agent.ml.
+
+    @stability Evolving
+    @since 0.93.1 *)
 
 type api_strategy =
   | Sync

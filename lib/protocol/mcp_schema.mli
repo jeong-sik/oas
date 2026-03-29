@@ -1,4 +1,7 @@
-(** MCP schema bridge — converts between MCP SDK types and OAS types. *)
+(** MCP schema bridge — converts between MCP SDK types and OAS types.
+
+    @stability Internal
+    @since 0.93.1 *)
 
 module Sdk_types = Mcp_protocol.Mcp_types
 

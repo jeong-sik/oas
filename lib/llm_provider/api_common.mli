@@ -1,4 +1,7 @@
-(** Shared helpers, constants, and content-block serialization. *)
+(** Shared helpers, constants, and content-block serialization.
+
+    @stability Internal
+    @since 0.93.1 *)
 
 val default_base_url : string
 val api_version : string

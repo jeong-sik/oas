@@ -3,7 +3,10 @@
 
     Layer 1 (pure OCaml, no LLM required): computes diversity,
     divergence, and relevance metrics from {!Raw_trace.run_summary}
-    values produced by {!Raw_trace_query.summarize_run}. *)
+    values produced by {!Raw_trace_query.summarize_run}.
+
+    @stability Evolving
+    @since 0.93.1 *)
 
 (** {2 Metrics} *)
 

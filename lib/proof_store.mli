@@ -2,7 +2,10 @@
 
     Part of the Contract-Driven Agent Loop (CDAL) PoC-1.
     Stores proof manifests, contract snapshots, tool traces,
-    and evidence artifacts under [{root}/proofs/{run_id}/]. *)
+    and evidence artifacts under [{root}/proofs/{run_id}/].
+
+    @stability Evolving
+    @since 0.93.1 *)
 
 type config = {
   root: string;  (** Default: [~/.oas] *)

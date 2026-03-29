@@ -1,7 +1,10 @@
 (** Composable multi-stage approval pipeline for tool execution.
 
     Stages evaluate sequentially; first {!Decided} wins.
-    If all stages return {!Pass}, the default is {!Hooks.Approve}. *)
+    If all stages return {!Pass}, the default is {!Hooks.Approve}.
+
+    @stability Evolving
+    @since 0.93.1 *)
 
 (** {1 Types} *)
 

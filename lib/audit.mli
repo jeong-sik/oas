@@ -3,7 +3,10 @@
     Records every decision point evaluation, providing accountability
     and transparency for agent behavior in a society.
 
-    @since 0.76.0 *)
+    @since 0.76.0
+
+    @stability Evolving
+    @since 0.93.1 *)
 
 (** {1 Audit entries} *)
 

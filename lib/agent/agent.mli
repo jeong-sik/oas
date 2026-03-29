@@ -2,7 +2,10 @@
 
     {b type t is abstract.}  Use accessor functions below to inspect
     agent state.  Direct record field access is restricted to
-    library-internal code via [Agent_types.t]. *)
+    library-internal code via [Agent_types.t].
+
+    @stability Stable
+    @since 0.93.1 *)
 
 (** {1 Types (re-exported from Agent_types)} *)
 

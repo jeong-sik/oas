@@ -4,7 +4,10 @@
     a patch stays within explicit file boundaries and whether added lines
     contain banned patterns.
 
-    @since 0.92.1 *)
+    @since 0.92.1
+
+    @stability Evolving
+    @since 0.93.1 *)
 
 type issue =
   | Empty_patch

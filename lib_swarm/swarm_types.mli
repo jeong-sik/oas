@@ -2,7 +2,10 @@
 
     Part of the [agent_sdk_swarm] library (Layer 2).
 
-    @since 0.42.0 *)
+    @since 0.42.0
+
+    @stability Evolving
+    @since 0.93.1 *)
 
 open Agent_sdk
 

@@ -7,7 +7,10 @@
     Usage:
     {[
       let collector = Eval_collector.wrap_run ~bus ~agent_name ~run_id () in
-      (* ... run agent ... *)
+      (* ... run agent ...
+
+    @stability Evolving
+    @since 0.93.1 *)
       let metrics = Eval_collector.finalize collector
     ]} *)
 

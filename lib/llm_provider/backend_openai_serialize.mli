@@ -1,6 +1,9 @@
 (** OpenAI-compatible request serialization.
 
-    @since 0.92.0 extracted from Backend_openai *)
+    @since 0.92.0 extracted from Backend_openai
+
+    @stability Internal
+    @since 0.93.1 *)
 
 val tool_calls_to_openai_json : Types.content_block list -> Yojson.Safe.t list
 val openai_content_parts_of_blocks : Types.content_block list -> Yojson.Safe.t list

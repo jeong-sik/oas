@@ -1,6 +1,9 @@
 (** One-shot runtime query.
 
-    Alias for {!Internal_client.process_query}. *)
+    Alias for {!Internal_client.process_query}.
+
+    @stability Evolving
+    @since 0.93.1 *)
 
 val query :
   sw:Eio.Switch.t ->
