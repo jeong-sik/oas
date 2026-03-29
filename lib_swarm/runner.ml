@@ -67,21 +67,26 @@ let aggregate_scores strategy scores =
 
 (* ── Fire callback safely ───────────────────────────────────────── *)
 
-let fire opt arg = match opt with
-  | Some f -> (try f arg with exn ->
-    Printf.eprintf "swarm callback raised: %s\n%!" (Printexc.to_string exn))
+(** Execute an optional callback safely, catching and logging any exceptions. *)
+let fire_callback (type a) ?callback (arg : a) =
+  match callback with
+  | Some f ->
+    (try f arg with exn ->
+      Printf.eprintf "swarm callback raised: %s\n%!" (Printexc.to_string exn))
   | None -> ()
 
-let fire2 opt a b = match opt with
-  | Some f -> (try f a b with exn ->
-    Printf.eprintf "swarm callback raised: %s\n%!" (Printexc.to_string exn))
+(** Legacy single-argument callback wrapper for compatibility. *)
+let fire opt arg = fire_callback ?callback:opt arg
+
+(** Legacy two-argument callback wrapper for compatibility. *)
+let fire2 opt a b =
+  match opt with
+  | Some f ->
+    (try f a b with exn ->
+      Printf.eprintf "swarm callback raised: %s\n%!" (Printexc.to_string exn))
   | None -> ()
 
 (* ── Agent-level retry ──────────────────────────────────────────── *)
-
-let default_agent_max_retries = 2
-let default_agent_initial_delay = 1.0
-let default_agent_backoff = 2.0
 
 let is_retryable_agent_error = function
   | Error.Api _ -> true
@@ -90,7 +95,9 @@ let is_retryable_agent_error = function
 
 (* ── Single agent run ───────────────────────────────────────────── *)
 
-let run_one_agent ~sw ~clock ~callbacks ?(max_retries=default_agent_max_retries) (entry : agent_entry) prompt =
+let run_one_agent ~sw ~clock ~callbacks
+    ?(max_retries = Agent_sdk.Constants.Retry.default_agent_max_retries)
+    (entry : agent_entry) prompt =
   fire callbacks.on_agent_start entry.name;
   let t0 = Unix.gettimeofday () in
   let rec attempt n delay =
@@ -109,14 +116,17 @@ let run_one_agent ~sw ~clock ~callbacks ?(max_retries=default_agent_max_retries)
         fire2 callbacks.on_agent_done entry.name status;
         (entry.name, status, result)
     | Error err when is_retryable_agent_error err && n < max_retries ->
-        Eio.Time.sleep clock (delay *. (0.5 +. Random.float 1.0));
-        attempt (n + 1) (Float.min (delay *. default_agent_backoff) 30.0)
+        let jitter = Agent_sdk.Constants.Retry.backoff_jitter_min +.
+                     Random.float (Agent_sdk.Constants.Retry.backoff_jitter_max -.
+                                   Agent_sdk.Constants.Retry.backoff_jitter_min) in
+        Eio.Time.sleep clock (delay *. jitter);
+        attempt (n + 1) (Float.min (delay *. Agent_sdk.Constants.Retry.default_agent_backoff) 30.0)
     | Error err ->
         let status = Done_error { elapsed; error = Error.to_string err; telemetry } in
         fire2 callbacks.on_agent_done entry.name status;
         (entry.name, status, result)
   in
-  attempt 0 default_agent_initial_delay
+  attempt 0 Agent_sdk.Constants.Retry.default_agent_initial_delay
 
 (* ── Resource check filter ──────────────────────────────────────── *)
 

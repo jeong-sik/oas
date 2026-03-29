@@ -39,7 +39,7 @@ type sampling_defaults = {
 let provider_sampling_defaults (kind : Provider_config.provider_kind) : sampling_defaults =
   match kind with
   | Provider_config.OpenAI_compat ->
-    { default_min_p = Some 0.05; default_top_p = None; default_top_k = None }
+    { default_min_p = Some Constants.Sampling.local_min_p; default_top_p = None; default_top_k = None }
   | Provider_config.Anthropic ->
     { default_min_p = None; default_top_p = None; default_top_k = None }
   | Provider_config.Gemini ->
@@ -160,7 +160,7 @@ let complete ~sw ~net ?(transport : Llm_transport.t option)
            (match cache, cache_key with
             | Some c, Some key ->
                 let json = Cache.response_to_json resp in
-                (try c.set ~key ~ttl_sec:300 json
+                (try c.set ~key ~ttl_sec:Constants.default_cache_ttl_sec json
                  with Eio.Io _ | Sys_error _ -> ())
             | _, _ -> ());
            Ok resp
@@ -201,7 +201,8 @@ let complete_with_retry ~sw ~net ?transport ~clock
     ?cache ?metrics () =
   (* Jitter: randomize delay by 0.5x-1.5x to prevent thundering herd *)
   let jittered delay =
-    let factor = 0.5 +. Random.float 1.0 in
+    let factor = Constants.Retry.backoff_jitter_min +.
+                 Random.float (Constants.Retry.backoff_jitter_max -. Constants.Retry.backoff_jitter_min) in
     delay *. factor
   in
   let rec attempt n delay =
