@@ -805,3 +805,7 @@
 (test
  (name test_cdal)
  (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_operator_policy)
+ (libraries agent_sdk alcotest yojson eio eio_main))
