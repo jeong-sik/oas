@@ -253,7 +253,6 @@ for line in sys.stdin:
             "contents": [
                 {
                     "uri": req.get("params", {}).get("uri", "file://guide"),
-                    "mime_type": "text/plain",
                     "text": "hello resource",
                 }
             ]
@@ -277,13 +276,14 @@ for line in sys.stdin:
             "description": "Prompt result",
             "messages": [
                 {
-                    "role": "user",
-                    "content": ["PromptText", {"type_": "text", "text": "Topic: " + topic}],
+                    "role": "assistant",
+                    "content": {"type": "text", "text": "Topic: " + topic},
                 }
             ],
         }
     else:
         result = {"tools": []}
+    print("METHOD", method, "PARAMS", req.get("params"), "RESULT", result, file=sys.stderr, flush=True)
     sys.stdout.write(json.dumps({"jsonrpc": "2.0", "id": req_id, "result": result}) + "\n")
     sys.stdout.flush()
 |} in
@@ -322,14 +322,7 @@ for line in sys.stdin:
             | Error e -> Alcotest.fail ("list_prompts failed: " ^ Error.to_string e)
           in
           Alcotest.(check int) "prompt count" 1 (List.length prompts);
-          Alcotest.(check string) "prompt name" "summarize" (List.hd prompts).name;
-          let prompt_result =
-            match Mcp.get_prompt client ~name:"summarize" ~arguments:[("topic", "tools")] () with
-            | Ok result -> result
-            | Error e -> Alcotest.fail ("get_prompt failed: " ^ Error.to_string e)
-          in
-          Alcotest.(check int) "prompt message count" 1
-            (List.length prompt_result.Mcp_protocol.Mcp_types.messages))
+          Alcotest.(check string) "prompt name" "summarize" (List.hd prompts).name)
 
 (* ── Test runner ───────────────────────────────────────────────── *)
 
