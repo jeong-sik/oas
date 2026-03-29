@@ -4,7 +4,7 @@
     [Agent.create] params. Use [build_safe] for validated construction.
 
     @stability Stable
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 type t
 

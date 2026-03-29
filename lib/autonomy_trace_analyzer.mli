@@ -6,7 +6,7 @@
     values produced by {!Raw_trace_query.summarize_run}.
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** {2 Metrics} *)
 

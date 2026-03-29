@@ -6,7 +6,7 @@
     @since 0.46.0
 
     @stability Internal
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** Provider kind determines request/response wire format. *)
 type provider_kind =

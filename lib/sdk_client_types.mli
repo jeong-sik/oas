@@ -4,7 +4,7 @@
     used by {!Client} and {!Internal_query_engine}.
 
     @stability Internal
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** {1 Permission Mode} *)
 

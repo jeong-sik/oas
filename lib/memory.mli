@@ -13,7 +13,7 @@
     @since 0.75.0 (5-tier: Episodic + Procedural)
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** {1 Tiers} *)
 

@@ -4,7 +4,7 @@
     for checkpoint/resume cycles.
 
     @stability Internal
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 open Types
 

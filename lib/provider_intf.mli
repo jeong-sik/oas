@@ -4,7 +4,7 @@
     for compile-time capability checking.
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 module type PROVIDER = sig
   type t

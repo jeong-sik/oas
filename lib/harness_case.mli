@@ -1,7 +1,7 @@
 (** First-class harness cases for fixture and trace-derived evals.
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 type kind =
   | Fixture

@@ -5,7 +5,7 @@
     internal to [t] -- no globals.
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** {2 Event types} *)
 

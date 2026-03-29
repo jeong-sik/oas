@@ -8,7 +8,7 @@
     and {!Collaboration.t} (12 fields) for the ongoing migration.
 
     @stability Internal
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** {1 Session lifecycle} *)
 

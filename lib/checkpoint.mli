@@ -5,7 +5,7 @@
     only; file I/O is left to the caller.
 
     @stability Stable
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** {1 Version} *)
 

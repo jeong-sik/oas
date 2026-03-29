@@ -7,7 +7,7 @@
     @since 0.55.0
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** Result of running an agent with telemetry collection. *)
 type run_result = {

@@ -4,7 +4,7 @@
     task lifecycle via callback functions.
 
     @stability Internal
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 type config = {
   port: int;

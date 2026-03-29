@@ -1,7 +1,7 @@
 (** API dispatch — routes requests to provider-specific backends.
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** {1 Named cascade} *)
 

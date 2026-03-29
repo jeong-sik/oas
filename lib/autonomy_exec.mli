@@ -8,7 +8,7 @@
     @since 0.92.1
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 type backend =
   | Direct

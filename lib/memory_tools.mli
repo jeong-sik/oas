@@ -13,7 +13,7 @@
     spoof an agent identity through tool parameters.
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** {1 Plain memory factories} *)
 

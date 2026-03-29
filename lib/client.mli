@@ -4,7 +4,7 @@
     Re-exports types from {!Sdk_client_types} for convenience.
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** {1 Types (re-exported from Sdk_client_types)} *)
 

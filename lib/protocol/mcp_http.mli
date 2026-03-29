@@ -1,7 +1,7 @@
 (** Thin OAS facade over {!Mcp_protocol_http.Http_client}.
 
     @stability Internal
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 type config = {
   base_url: string;

@@ -5,7 +5,7 @@
     library-internal code via [Agent_types.t].
 
     @stability Stable
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** {1 Types (re-exported from Agent_types)} *)
 

@@ -1,7 +1,7 @@
 (** Execute harness cases against fresh agents and emit structured reports.
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 val grade_case :
   agent_name:string ->

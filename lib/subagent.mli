@@ -4,7 +4,7 @@
     them into {!Handoff.handoff_target} values for the agent runner.
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** {1 Types} *)
 

@@ -7,7 +7,7 @@
     replaces the monolithic [run_turn_core] in agent.ml.
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 type api_strategy =
   | Sync

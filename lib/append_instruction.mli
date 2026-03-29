@@ -8,7 +8,7 @@
     @since 0.55.0
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** Instruction source — where to read instruction text from. *)
 type instruction_source =

@@ -7,7 +7,7 @@
     Call [finalize] after agent run to write manifest and return proof.
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 type state
 (** Opaque mutable accumulator. One per agent run, not shared. *)

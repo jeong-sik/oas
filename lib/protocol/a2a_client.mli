@@ -7,7 +7,7 @@
     @since 0.55.0
 
     @stability Internal
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** A discovered remote agent endpoint. *)
 type remote_agent = {

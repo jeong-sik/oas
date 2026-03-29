@@ -5,7 +5,7 @@
     and evidence artifacts under [{root}/proofs/{run_id}/].
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 type config = {
   root: string;  (** Default: [~/.oas] *)

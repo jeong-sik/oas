@@ -6,7 +6,7 @@
     @since 0.54.0
 
     @stability Internal
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** Cache backend interface. Implementations must be fiber-safe. *)
 type t = {

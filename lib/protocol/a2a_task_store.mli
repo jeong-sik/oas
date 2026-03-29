@@ -4,7 +4,7 @@
     Atomic writes via .tmp + rename. In-memory Hashtbl cache for fast lookups.
 
     @stability Internal
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 type t
 

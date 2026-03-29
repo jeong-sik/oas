@@ -4,7 +4,7 @@
     Three-axis model: blast_radius x irreversibility x recovery_cost.
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 type t =
   | Low       (** Small radius, easy rollback, low recovery cost *)

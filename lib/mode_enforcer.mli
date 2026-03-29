@@ -9,7 +9,7 @@
     - External-effect: bash (with input analysis), mcp__*, unknown tools
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 type mutation_class =
   | Read_only

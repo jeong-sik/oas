@@ -5,7 +5,7 @@
     @since 0.42.0
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 open Agent_sdk
 

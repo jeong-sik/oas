@@ -5,7 +5,7 @@
     @since 0.79.0
 
     @stability Internal
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** Mutable accumulator that collects SSE stream events into content blocks.
     Use {!create_stream_acc} to create, {!accumulate_event} to feed events,

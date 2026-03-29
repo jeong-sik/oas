@@ -3,7 +3,7 @@
     @since 0.68.0
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 type t = {
   agent_name: string;

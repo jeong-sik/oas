@@ -5,7 +5,7 @@
     This module is the single entry point for session access.
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 include module type of Sessions_types
 include module type of Sessions_store

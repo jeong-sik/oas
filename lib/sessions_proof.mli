@@ -5,7 +5,7 @@
     the complete {!Sessions_types.proof_bundle}.
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 open Sessions_types
 

@@ -5,7 +5,7 @@
     Consumer-specific policy can stay outside OAS.
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 type intent =
   | Conversational

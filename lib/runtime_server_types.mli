@@ -1,7 +1,7 @@
 (** Server-side state and helpers for the runtime server.
 
     @stability Internal
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 type state = {
   net: [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t;

@@ -4,7 +4,7 @@
     @since 0.92.0 extracted from Memory
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 type outcome =
   | Success of string

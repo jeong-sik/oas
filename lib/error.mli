@@ -5,7 +5,7 @@
     and [is_retryable] for automated retry decisions.
 
     @stability Stable
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** {1 Domain error types} *)
 

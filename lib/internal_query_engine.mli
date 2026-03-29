@@ -4,7 +4,7 @@
     and permission/hook callbacks. Used by {!Client} and {!Internal_client}.
 
     @stability Internal
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 type t = {
   runtime: Runtime_client.t;

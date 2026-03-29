@@ -10,7 +10,7 @@
     entirely by middleware hooking into the agent lifecycle.
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 type result_status =
   | Completed   (** Agent reached EndTurn *)

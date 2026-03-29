@@ -1,7 +1,7 @@
 (** Per-model cost estimation.
 
     @stability Internal
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 type pricing = {
   input_per_million: float;

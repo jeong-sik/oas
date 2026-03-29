@@ -4,7 +4,7 @@
     reports from a live {!Agent.t} and its {!Raw_trace.t}.
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 type options = {
   session_root: string option;

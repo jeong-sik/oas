@@ -7,7 +7,7 @@
     @since 0.78.0
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** {1 DNA Validation} *)
 

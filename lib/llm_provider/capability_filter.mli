@@ -7,7 +7,7 @@
     @since 0.72.0 — added limit checks, thinking, structured output
 
     @stability Internal
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** {2 Feature predicates} *)
 

@@ -4,7 +4,7 @@
     sessions, events, artifacts, reports, and proofs.
 
     @stability Internal
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** Store handle wrapping a root directory. *)
 type t = { root: string }

@@ -1,7 +1,7 @@
 (** Guardrails for tool filtering and execution limits.
 
     @stability Stable
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** Tool filter: controls which tools are visible to the LLM *)
 type tool_filter =

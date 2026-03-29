@@ -13,7 +13,7 @@
     @since 0.78.0
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** Compression phase, ordered from lightest to heaviest. *)
 type compression_phase =

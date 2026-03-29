@@ -8,7 +8,7 @@
     fresh-agent harness execution use {!Harness_runner}.
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** {1 Configuration} *)
 

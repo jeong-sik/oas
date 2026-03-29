@@ -4,7 +4,7 @@
     The caller wraps results into [Agent.t].
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** {1 Resume} *)
 

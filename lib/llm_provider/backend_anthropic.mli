@@ -3,7 +3,7 @@
     Pure functions operating on {!Llm_provider.Types}.
 
     @stability Internal
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 val parse_response : Yojson.Safe.t -> Types.api_response
 

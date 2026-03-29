@@ -6,7 +6,7 @@
     @since 0.42.0
 
     @stability Internal
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** {1 Message Types} *)
 

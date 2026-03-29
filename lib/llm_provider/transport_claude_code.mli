@@ -8,7 +8,7 @@
     @since 0.78.0
 
     @stability Internal
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** Configuration for the Claude Code subprocess. *)
 type config = {

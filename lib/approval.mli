@@ -4,7 +4,7 @@
     If all stages return {!Pass}, the default is {!Hooks.Approve}.
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** {1 Types} *)
 

@@ -6,7 +6,7 @@
     When not called, agent runs proceed with zero overhead.
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 type run_result = {
   response: (Types.api_response, Error.sdk_error) result;

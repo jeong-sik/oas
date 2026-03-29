@@ -1,7 +1,7 @@
 (** LLM Provider abstraction.
 
     @stability Stable
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 type provider =
   | Local of { base_url: string }

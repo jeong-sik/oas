@@ -8,7 +8,7 @@
     ~2/3 token per character for multi-byte (CJK, emoji).
 
     @stability Stable
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 open Types
 

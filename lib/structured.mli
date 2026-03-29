@@ -4,7 +4,7 @@
     then extracts the input JSON as structured output.
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 open Types
 

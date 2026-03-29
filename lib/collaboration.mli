@@ -7,7 +7,7 @@
     mutable component (it is a {!Context.t} reference, documented).
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** {1 Phase lifecycle} *)
 

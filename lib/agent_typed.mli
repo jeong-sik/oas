@@ -15,7 +15,7 @@
       (* Agent_typed.run ~sw completed "again"  -- TYPE ERROR
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
     ]}
 
     @since 0.55.0 *)

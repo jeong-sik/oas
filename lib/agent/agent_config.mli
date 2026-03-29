@@ -4,7 +4,7 @@
     and connects MCP servers.
 
     @stability Internal
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 type tool_file_config = {
   name: string;

@@ -11,7 +11,7 @@
       Metrics.to_otlp_json m  (* export all collected metrics
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
     ]} *)
 
 (** {1 Types} *)

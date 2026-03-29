@@ -9,7 +9,7 @@
     @since 0.78.0
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** Risk classification derived from score. *)
 type risk_level = Low | Medium | High | Critical

@@ -4,7 +4,7 @@
     blank line = dispatch.
 
     @stability Internal
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 type raw_sse_event = {
   event_type: string option;

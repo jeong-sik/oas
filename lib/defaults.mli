@@ -4,7 +4,7 @@
     corresponding [OAS_*] environment variable is unset or empty.
 
     @stability Internal
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** Read an environment variable, falling back to [default]
     if the variable is unset or empty. *)

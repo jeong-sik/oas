@@ -4,7 +4,7 @@
     and disconnects. Used by {!Query.query}.
 
     @stability Internal
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** Execute a single query against the runtime.
     Connects, sends the prompt, finalizes, and returns all

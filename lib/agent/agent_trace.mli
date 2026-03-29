@@ -4,7 +4,7 @@
     tracing.  These functions depend on [Agent_types.t] (mutable state).
 
     @stability Internal
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 open Agent_types
 

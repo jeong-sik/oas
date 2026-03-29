@@ -10,7 +10,7 @@
       (* ... run agent ...
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
       let metrics = Eval_collector.finalize collector
     ]} *)
 

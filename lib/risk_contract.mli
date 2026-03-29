@@ -7,7 +7,7 @@
     - [eval_criteria]: opaque passthrough carried to the proof bundle
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** Runtime constraints enforced by OAS. *)
 type runtime_constraints = {

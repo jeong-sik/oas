@@ -13,7 +13,7 @@
     @since 0.78.0
 
     @stability Internal
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 type extension_result = {
   granted: int;

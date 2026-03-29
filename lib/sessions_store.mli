@@ -4,7 +4,7 @@
     with the typed Sessions domain.
 
     @stability Internal
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 open Sessions_types
 

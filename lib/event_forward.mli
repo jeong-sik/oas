@@ -7,7 +7,7 @@
     Runs in a separate Eio fiber (non-blocking to agent).
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** {1 Payload} *)
 

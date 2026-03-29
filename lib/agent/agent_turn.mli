@@ -8,7 +8,7 @@
     [Agent_turn -> Agent] is not.
 
     @stability Internal
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** {1 Idle detection} *)
 

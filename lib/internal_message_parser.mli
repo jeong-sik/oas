@@ -3,7 +3,7 @@
     Converts runtime types into {!Sdk_client_types.message} values.
 
     @stability Internal
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 val status : Runtime.session -> Sdk_client_types.message
 val events : Runtime.event list -> Sdk_client_types.message

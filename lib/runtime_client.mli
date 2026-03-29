@@ -1,7 +1,7 @@
 (** Client for the runtime protocol over stdio transport.
 
     @stability Internal
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** {1 Options} *)
 

@@ -6,7 +6,7 @@
     @since 0.79.0
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** Summary statistics for a sample. *)
 type stats = {

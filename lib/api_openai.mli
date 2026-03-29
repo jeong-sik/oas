@@ -3,7 +3,7 @@
     Includes re-exports from {!Llm_provider.Backend_openai}.
 
     @stability Internal
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 include module type of Llm_provider.Backend_openai
 

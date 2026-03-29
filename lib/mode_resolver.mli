@@ -5,7 +5,7 @@
     + [capabilities]. Never upgrades beyond requested mode.
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 type decision = {
   effective_mode: Execution_mode.t;

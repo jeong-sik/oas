@@ -5,7 +5,7 @@
     @since 0.92.0 extracted from Cascade_config
 
     @stability Internal
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** Resolve a GLM model alias to the concrete API model ID.
     - ["auto"] -> env var [ZAI_DEFAULT_MODEL] or ["glm-5"]

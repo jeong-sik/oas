@@ -5,7 +5,7 @@
     FanOut, Pipeline); the LLM does not participate in routing.
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** {2 Core types} *)
 

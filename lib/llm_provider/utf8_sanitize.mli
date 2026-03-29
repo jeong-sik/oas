@@ -11,6 +11,6 @@
     input is already valid.
 
     @stability Internal
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 val sanitize : string -> string

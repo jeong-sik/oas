@@ -6,7 +6,7 @@
     due to agent_state/Provider/Error coupling.
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** {1 Re-exported Pure Functions} *)
 

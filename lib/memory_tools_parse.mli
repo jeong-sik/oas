@@ -3,7 +3,7 @@
     @since 0.92.0 extracted from Memory_tools
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 val tool_error : string -> ('a, Types.tool_error) result
 

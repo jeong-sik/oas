@@ -7,7 +7,7 @@
     @since 0.69.0
 
     @stability Internal
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** Provider defaults: how to connect to a provider. *)
 type provider_defaults = {

@@ -5,7 +5,7 @@
     and resolution.
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 type check = {
   code: string;

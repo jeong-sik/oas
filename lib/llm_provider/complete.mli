@@ -9,7 +9,7 @@
     @since 0.78.0  Transport abstraction
 
     @stability Internal
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** {1 Gemini URL Construction} *)
 

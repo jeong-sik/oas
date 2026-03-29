@@ -12,7 +12,7 @@
     @since 0.89.0
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** {1 Verdict} *)
 

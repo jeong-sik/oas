@@ -4,7 +4,7 @@
     @since 0.92.0 extracted from Cascade_config
 
     @stability Internal
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** Load and cache a raw JSON config file.
     Cached with mtime-based hot-reload. *)

@@ -1,7 +1,7 @@
 (** Anthropic Claude API request building and response parsing.
 
     @stability Internal
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** Parse Anthropic API response JSON. *)
 val parse_response : Yojson.Safe.t -> Types.api_response

@@ -5,7 +5,7 @@
     so callers do not need [try/with] around HTTP operations.
 
     @stability Internal
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** Transport-level error. *)
 type http_error =

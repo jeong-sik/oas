@@ -4,7 +4,7 @@
     New models are added here only.
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** The default model ID, overridable via OAS_DEFAULT_MODEL env var. *)
 val default_model_id : string

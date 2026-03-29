@@ -4,7 +4,7 @@
     {!Sessions_types} records.  No file I/O or store access.
 
     @stability Internal
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** {1 Generic JSON parsing} *)
 

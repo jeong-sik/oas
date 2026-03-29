@@ -1,7 +1,7 @@
 (** Artifact service.
 
     @stability Evolving
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 type descriptor = Runtime.artifact
 

@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 VALID_TIERS = {"Stable", "Evolving", "Internal"}
-SINCE_VERSION = "0.93.0"
+SINCE_VERSION = "0.93.1"
 
 
 def add_annotation(filepath: Path, tier: str) -> bool:

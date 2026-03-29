@@ -10,7 +10,7 @@
     @since 0.86.0
 
     @stability Internal
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** Configuration for an OpenAI-compatible endpoint. *)
 type config = {

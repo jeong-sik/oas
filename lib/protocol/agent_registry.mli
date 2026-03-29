@@ -4,7 +4,7 @@
     capability-based lookup for orchestration routing.
 
     @stability Internal
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 type agent_entry =
   | Local of { agent: Agent.t; card: Agent_card.agent_card }

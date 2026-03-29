@@ -39,7 +39,7 @@ Every `.mli` file has a top-level doc comment with the `@stability` tag:
 (** Context management for agent conversations.
 
     @stability Stable
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 ```
 
 Rules:
@@ -51,7 +51,12 @@ Rules:
 
 ## Current classification
 
-As of v0.93.1, MASC imports 32 OAS modules. Classification:
+As of v0.93.1, all 186 `.mli` files in `lib/` and `lib_swarm/` carry an
+explicit stability tier:
+
+- Stable: 14
+- Evolving: 94
+- Internal: 78
 
 ### Stable (14 modules)
 
@@ -74,35 +79,29 @@ Core types and interfaces that MASC and external consumers depend on.
 | Context | `lib/context.mli` |
 | Context_reducer | `lib/context_reducer.mli` |
 
-### Evolving (18 modules)
+### Evolving (94 modules)
 
-Actively developed modules with external consumers. API may change.
+Public modules with downstream consumers that are still settling. This tier
+includes most top-level SDK surfaces outside the stable core and selected swarm
+interfaces.
+
+Representative modules:
 
 | Module | File | Reason |
 |--------|------|--------|
-| Collaboration | `lib/collaboration.mli` | Swarm collaboration, actively evolving |
-| Memory | `lib/memory.mli` | Memory system under development |
-| Lesson_memory | `lib/lesson_memory.mli` | Lesson extraction, new feature |
-| Event_bus | `lib/event_bus.mli` | Event routing, evolving |
-| Execution_mode | `lib/execution_mode.mli` | Execution modes, evolving |
-| Harness | `lib/harness.mli` | Testing harness, evolving |
-| Policy | `lib/policy.mli` | Policy system, evolving |
-| Swarm_types | `lib_swarm/swarm_types.mli` | Swarm types, evolving |
-| Runner | `lib_swarm/runner.mli` | Swarm runner, evolving |
-| Autonomy_diff_guard | `lib/autonomy_diff_guard.mli` | Autonomy, new feature |
-| Autonomy_exec | `lib/autonomy_exec.mli` | Autonomy, new feature |
-| Cdal_proof | `lib/cdal_proof.mli` | CDAL proof system, new |
-| Metric_contract | `lib/metric_contract.mli` | Metric contracts, new |
-| Proof_store | `lib/proof_store.mli` | Proof storage, new |
-| Risk_class | `lib/risk_class.mli` | Risk classification, new |
-| Risk_contract | `lib/risk_contract.mli` | Risk contracts, new |
-| Agent_checkpoint | `lib/agent/agent_checkpoint.mli` | Agent checkpoint, evolving |
-| Consumer | `lib/consumer.mli` | Consumer bridge, evolving |
+| Collaboration | `lib/collaboration.mli` | Shared collaboration state is still evolving |
+| Memory | `lib/memory.mli` | Memory system is under active development |
+| Policy | `lib/policy.mli` | Rule engine surface is still settling |
+| Proof_store | `lib/proof_store.mli` | CDAL storage API is newly added |
+| Swarm_types | `lib_swarm/swarm_types.mli` | Swarm API remains consumer-facing but not stable |
+| Runner | `lib_swarm/runner.mli` | Orchestration behavior is still being refined |
 
-### Internal (154 modules)
+### Internal (78 modules)
 
-All remaining `.mli` files. Implementation details of the SDK.
-Consumers should use Stable or Evolving modules instead.
+Implementation-detail modules with no compatibility promise. Most entries in
+this tier live under internal subdirectories such as `lib/agent/`,
+`lib/protocol/`, and `lib/llm_provider/`, plus parser/transport helpers that
+external consumers should not depend on directly.
 
 ## Verification
 

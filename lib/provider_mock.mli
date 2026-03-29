@@ -4,7 +4,7 @@
     list is exhausted the mock cycles back to the beginning.
 
     @stability Internal
-    @since 0.93.0 *)
+    @since 0.93.1 *)
 
 (** {1 Types} *)
 
