@@ -148,5 +148,7 @@ let list_runs config =
     |> Result.map_error Error.to_string
     |> Result.map (fun entries ->
          List.filter
-           (fun entry -> Sys.is_directory (run_dir config ~run_id:entry))
+           (fun entry ->
+              try Sys.is_directory (run_dir config ~run_id:entry)
+              with Sys_error _ -> false)
            entries)
