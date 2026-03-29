@@ -35,6 +35,10 @@ type options = {
   periodic_callbacks: periodic_callback list;
   memory: Memory.t option;
   allowed_paths: string list;
+  operator_policy: Guardrails.tool_filter option;
+    (** Operator-level tool policy.  When [Some], overrides the agent-level
+        [guardrails.tool_filter].  Injected at agent creation time.
+        @since 0.94.0 *)
 }
 
 (** {1 Lifecycle re-exports} *)

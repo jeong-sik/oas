@@ -26,6 +26,7 @@ type options = {
   periodic_callbacks: periodic_callback list;
   memory: Memory.t option;
   allowed_paths: string list;
+  operator_policy: Guardrails.tool_filter option;
 }
 
 (* Re-export lifecycle types from Agent_lifecycle.
@@ -79,6 +80,7 @@ let default_options = {
   memory = None;
   periodic_callbacks = [];
   allowed_paths = [];
+  operator_policy = None;
 }
 
 type tool_call_fingerprint = Agent_turn.tool_call_fingerprint

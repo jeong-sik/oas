@@ -35,6 +35,7 @@ type options = Agent_types.options = {
   periodic_callbacks: periodic_callback list;
   memory: Memory.t option;
   allowed_paths: string list;
+  operator_policy: Guardrails.tool_filter option;
 }
 
 type lifecycle_status = Agent_lifecycle.lifecycle_status =

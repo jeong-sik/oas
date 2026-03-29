@@ -33,9 +33,15 @@ type turn_preparation = {
   effective_guardrails: Guardrails.t;
 }
 
-(** Prepare tool schemas, applying optional [tool_filter_override]. *)
+(** Prepare tool schemas, applying operator policy and optional
+    [tool_filter_override].
+
+    Priority: [turn_params.tool_filter_override] > [operator_policy] > [guardrails]
+
+    @since 0.94.0 added [operator_policy] parameter *)
 val prepare_tools :
   guardrails:Guardrails.t ->
+  operator_policy:Guardrails.tool_filter option ->
   tools:Tool_set.t ->
   turn_params:Hooks.turn_params ->
   Yojson.Safe.t list option * Guardrails.t
@@ -47,9 +53,12 @@ val prepare_messages :
   turn_params:Hooks.turn_params ->
   Types.message list
 
-(** Full turn preparation: tools + messages + guardrails. *)
+(** Full turn preparation: tools + messages + guardrails.
+
+    @since 0.94.0 added [operator_policy] parameter *)
 val prepare_turn :
   guardrails:Guardrails.t ->
+  operator_policy:Guardrails.tool_filter option ->
   tools:Tool_set.t ->
   messages:Types.message list ->
   context_reducer:Context_reducer.t option ->

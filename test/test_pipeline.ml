@@ -99,6 +99,7 @@ let test_agent_turn_preparation () =
   let messages = [{ Types.role = User; content = [Text "hello"]; name = None; tool_call_id = None }] in
   let prep = Agent_turn.prepare_turn
     ~guardrails:Guardrails.default
+    ~operator_policy:None
     ~tools ~messages
     ~context_reducer:None
     ~turn_params:Hooks.default_turn_params in
@@ -267,6 +268,7 @@ let test_prepare_turn_no_tools () =
   let messages = [{ Types.role = User; content = [Text "hi"]; name = None; tool_call_id = None }] in
   let prep = Agent_turn.prepare_turn
     ~guardrails:Guardrails.default
+    ~operator_policy:None
     ~tools:Tool_set.empty ~messages
     ~context_reducer:None
     ~turn_params:Hooks.default_turn_params in
@@ -283,6 +285,7 @@ let test_prepare_turn_preserves_messages () =
   ] in
   let prep = Agent_turn.prepare_turn
     ~guardrails:Guardrails.default
+    ~operator_policy:None
     ~tools:Tool_set.empty ~messages
     ~context_reducer:None
     ~turn_params:Hooks.default_turn_params in
@@ -481,6 +484,7 @@ let test_prepare_turn_extra_context () =
     extra_system_context = Some "You are in debug mode." } in
   let prep = Agent_turn.prepare_turn
     ~guardrails:Guardrails.default
+    ~operator_policy:None
     ~tools:Tool_set.empty ~messages
     ~context_reducer:None
     ~turn_params in
@@ -508,6 +512,7 @@ let test_prepare_turn_tool_filter_override () =
     tool_filter_override = Some (AllowList ["allowed"]) } in
   let prep = Agent_turn.prepare_turn
     ~guardrails:Guardrails.default
+    ~operator_policy:None
     ~tools ~messages
     ~context_reducer:None
     ~turn_params in
