@@ -11,6 +11,12 @@ type config = {
   root: string;  (** Default: [~/.oas] *)
 }
 
+type resolved_ref = {
+  run_id: string;
+  subpath: string;
+  path: string;
+}
+
 val default_config : config
 
 (** Create directory structure for a new run. *)
@@ -35,3 +41,36 @@ val make_ref : run_id:string -> subpath:string -> Cdal_proof.artifact_ref
 
 (** Path to manifest.json for a run. *)
 val manifest_path : config -> run_id:string -> string
+
+(** Resolve a [proof-store://] artifact reference into its run-scoped path. *)
+val resolve_ref :
+  config ->
+  Cdal_proof.artifact_ref ->
+  (resolved_ref, string) result
+
+(** Read a JSON artifact referenced by [proof-store://]. *)
+val read_json :
+  config ->
+  Cdal_proof.artifact_ref ->
+  (Yojson.Safe.t, string) result
+
+(** Read a JSONL artifact referenced by [proof-store://]. *)
+val read_jsonl :
+  config ->
+  Cdal_proof.artifact_ref ->
+  (Yojson.Safe.t list, string) result
+
+(** Load and decode a stored proof manifest by [run_id]. *)
+val load_manifest :
+  config ->
+  run_id:string ->
+  (Cdal_proof.t * Yojson.Safe.t, string) result
+
+(** Load and decode a stored contract snapshot by [run_id]. *)
+val load_contract :
+  config ->
+  run_id:string ->
+  (Risk_contract.t * Yojson.Safe.t, string) result
+
+(** List known proof-store run IDs. *)
+val list_runs : config -> (string list, string) result

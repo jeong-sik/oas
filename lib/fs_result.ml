@@ -26,15 +26,6 @@ let read_file path =
   | Eio.Cancel.Cancelled _ as e -> raise e
   | exn -> io_error_of_exn ~op:"read" ~path exn
 
-let ensure_dir path =
-  try
-    if not (Sys.file_exists path) then
-      Sys.mkdir path 0o755;
-    Ok ()
-  with
-  | Eio.Cancel.Cancelled _ as e -> raise e
-  | exn -> io_error_of_exn ~op:"mkdir" ~path exn
-
 let ensure_dir_recursive path =
   let rec aux p =
     if Sys.file_exists p then ()
@@ -43,10 +34,14 @@ let ensure_dir_recursive path =
       (try Sys.mkdir p 0o755 with Sys_error _ -> ())
     end
   in
-  try aux path; Ok ()
+  try
+    aux path;
+    Ok ()
   with
   | Eio.Cancel.Cancelled _ as e -> raise e
   | exn -> io_error_of_exn ~op:"mkdir_p" ~path exn
+
+let ensure_dir path = ensure_dir_recursive path
 
 let write_file path content =
   try
