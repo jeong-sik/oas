@@ -809,3 +809,7 @@
 (test
  (name test_operator_policy)
  (libraries agent_sdk alcotest yojson eio eio_main))
+
+(test
+ (name test_eval_harness)
+ (libraries agent_sdk agent_sdk_swarm alcotest yojson eio eio_main unix))
