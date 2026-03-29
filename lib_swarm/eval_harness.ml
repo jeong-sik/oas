@@ -44,6 +44,10 @@ let check_completed ~expected_output output =
 
 (* ── run_single ─────────────────────────────────────────────────── *)
 
+(** Run a single-turn LLM call (no tool loop).  Token count reflects
+    exactly one API round-trip, so comparisons with swarm mode (which
+    accumulates across agents and iterations) measure single-turn vs
+    multi-agent cost, not single-agent-multi-turn vs swarm. *)
 let run_single ~sw ~clock:_ ~task ~run =
   let t0 = Unix.gettimeofday () in
   let result = run ~sw task.prompt in
