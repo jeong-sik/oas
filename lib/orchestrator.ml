@@ -222,8 +222,7 @@ let rec eval_condition (last_result : task_result option) cond =
     (match last_result with
      | Some { result = Ok resp; _ } ->
        let text = text_of_response resp in
-       (try let _ = Str.search_forward (Str.regexp_string needle) text 0 in true
-        with Not_found -> false)
+       Str_match.contains (Str.regexp_string needle) text
      | _ -> false)
   | Custom_cond pred ->
     (match last_result with
