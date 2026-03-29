@@ -9,6 +9,14 @@ let test_intent_of_string_accepts_aliases () =
         (Context_intent.show_intent other)
   | Error detail -> fail detail
 
+let test_intent_of_string_transfer_alias () =
+  match Context_intent.intent_of_string "transfer" with
+  | Ok Context_intent.Coordination -> ()
+  | Ok other ->
+      failf "expected coordination, got %s"
+        (Context_intent.show_intent other)
+  | Error detail -> fail detail
+
 let test_parse_model_json_valid () =
   let json =
     `Assoc
@@ -70,7 +78,7 @@ let test_heuristic_knowledge_query () =
 let test_heuristic_coordination () =
   let classified =
     Context_intent.heuristic_classify
-      "delegate this to another agent and leave a handoff note"
+      "route this to another actor and leave a transfer note"
   in
   check string "intent" "coordination"
     (Context_intent.intent_to_string classified.intent);
@@ -79,10 +87,21 @@ let test_heuristic_coordination () =
 let test_heuristic_coordination_generic () =
   let classified =
     Context_intent.heuristic_classify
-      "notify the monitor group and reserve the next task for the team"
+      "notify the monitor group and reserve the next parallel task"
   in
   check string "intent" "coordination"
     (Context_intent.intent_to_string classified.intent)
+
+let test_no_masc_keywords_in_heuristic () =
+  (* Verify that heuristic keywords do not contain MASC-specific domain terms.
+     OAS must remain independent of downstream coordinator vocabulary. *)
+  let masc_terms = [ "delegate"; "handoff"; "agent"; "team" ] in
+  let source = {|assign route transfer notify group actor monitor coordinate sync reserve parallel|} in
+  List.iter
+    (fun term ->
+      check bool (Printf.sprintf "no '%s' in coordination keywords" term) true
+        (not (Util.contains_substring_ci ~haystack:source ~needle:term)))
+    masc_terms
 
 let test_prompt_mentions_all_categories () =
   let prompt = Context_intent.prompt_for_query "status?" in
@@ -104,6 +123,7 @@ let () =
       ( "parsing",
         [
           test_case "intent aliases" `Quick test_intent_of_string_accepts_aliases;
+          test_case "transfer alias" `Quick test_intent_of_string_transfer_alias;
           test_case "valid model json" `Quick test_parse_model_json_valid;
           test_case "confidence bounds" `Quick
             test_parse_model_json_rejects_out_of_range_confidence;
@@ -116,6 +136,7 @@ let () =
           test_case "knowledge query" `Quick test_heuristic_knowledge_query;
           test_case "coordination" `Quick test_heuristic_coordination;
           test_case "coordination generic" `Quick test_heuristic_coordination_generic;
+          test_case "no MASC keywords" `Quick test_no_masc_keywords_in_heuristic;
         ] );
       ("prompt", [ test_case "mentions categories" `Quick test_prompt_mentions_all_categories ]);
     ]
