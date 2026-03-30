@@ -103,6 +103,7 @@ val create_message_named :
   ?accept:(Types.api_response -> bool) ->
   ?timeout_sec:int ->
   ?metrics:Llm_provider.Metrics.t ->
+  ?priority:Llm_provider.Request_priority.t ->
   unit ->
   (Types.api_response, Error.sdk_error) result
 
@@ -120,5 +121,6 @@ val create_message_named_stream :
   ?timeout_sec:int ->
   ?metrics:Llm_provider.Metrics.t ->
   on_event:(Types.sse_event -> unit) ->
+  ?priority:Llm_provider.Request_priority.t ->
   unit ->
   (Types.api_response, Error.sdk_error) result

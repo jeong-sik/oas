@@ -138,6 +138,7 @@ let stage_parse ?raw_trace_run agent =
 
 (** Dispatch the API call via the chosen strategy (sync or stream). *)
 let stage_route ~sw ?clock ~api_strategy agent prep =
+  let priority = agent.state.config.priority in
   match api_strategy with
   | Sync ->
     Tracing.with_span agent.options.tracer
@@ -150,7 +151,7 @@ let stage_route ~sw ?clock ~api_strategy agent prep =
           Api.create_message_named ~sw ~net:agent.net ?clock
             ~named_cascade:named ~config:agent.state
             ~messages:prep.Agent_turn.effective_messages
-            ?tools:prep.tools_json ~metrics:named.metrics ()
+            ?tools:prep.tools_json ~metrics:named.metrics ?priority ()
         | None ->
           (match agent.options.cascade with
            | Some casc ->
@@ -174,7 +175,7 @@ let stage_route ~sw ?clock ~api_strategy agent prep =
           Api.create_message_named_stream ~sw ~net:agent.net ?clock
             ~named_cascade:named ~config:agent.state
             ~messages:prep.effective_messages ?tools:prep.tools_json
-            ~metrics:named.metrics ~on_event ()
+            ~metrics:named.metrics ~on_event ?priority ()
         | None ->
           let can_stream = match agent.options.provider with
             | Some p -> Provider_intf.supports_streaming p

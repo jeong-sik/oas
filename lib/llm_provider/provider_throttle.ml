@@ -1,12 +1,11 @@
-(** Provider-level concurrency throttle using Eio.Semaphore.
+(** Provider-level concurrency throttle with priority-aware scheduling.
 
-    Limits concurrent LLM requests per provider to avoid overwhelming
-    backends with limited capacity (e.g. llama-server with N slots).
+    Internally delegates to {!Slot_scheduler} for priority queue management.
 
     @since 0.84.0 *)
 
 type t = {
-  semaphore : Eio.Semaphore.t;
+  scheduler : Slot_scheduler.t;
   provider_name : string; [@warning "-69"]
   max_concurrent : int;
 }
@@ -17,27 +16,26 @@ let create ~max_concurrent ~provider_name =
       (Printf.sprintf "Provider_throttle.create: max_concurrent must be >= 1, got %d"
          max_concurrent);
   {
-    semaphore = Eio.Semaphore.make max_concurrent;
+    scheduler = Slot_scheduler.create ~max_slots:max_concurrent;
     provider_name;
     max_concurrent;
   }
 
-let with_permit t f =
-  Eio.Semaphore.acquire t.semaphore;
-  Fun.protect f
-    ~finally:(fun () -> Eio.Semaphore.release t.semaphore)
+let with_permit_priority ~priority t f =
+  Slot_scheduler.with_permit ~priority t.scheduler f
 
-let with_permit_timeout clock ~timeout_sec t f =
+let with_permit t f =
+  with_permit_priority ~priority:Request_priority.Background t f
+
+let with_permit_timeout clock ~timeout_sec ?(priority = Request_priority.Background) t f =
   Eio.Time.with_timeout_exn clock timeout_sec (fun () ->
-    Eio.Semaphore.acquire t.semaphore;
-    Fun.protect f
-      ~finally:(fun () -> Eio.Semaphore.release t.semaphore))
+    with_permit_priority ~priority t f)
 
 let available t =
-  Eio.Semaphore.get_value t.semaphore
+  Slot_scheduler.available t.scheduler
 
 let in_use t =
-  t.max_concurrent - available t
+  Slot_scheduler.in_use t.scheduler
 
 (** Create a throttle from discovery slot information.
     Uses [total_slots] as the semaphore count.
@@ -88,12 +86,14 @@ let%test "create rejects negative" =
   with Invalid_argument _ -> true
 
 let%test "available equals max_concurrent initially" =
-  let t = create ~max_concurrent:4 ~provider_name:"test" in
-  available t = 4
+  Eio_main.run (fun _env ->
+    let t = create ~max_concurrent:4 ~provider_name:"test" in
+    available t = 4)
 
 let%test "in_use is zero initially" =
-  let t = create ~max_concurrent:4 ~provider_name:"test" in
-  in_use t = 0
+  Eio_main.run (fun _env ->
+    let t = create ~max_concurrent:4 ~provider_name:"test" in
+    in_use t = 0)
 
 let%test "with_permit returns result" =
   Eio_main.run (fun _env ->
@@ -108,36 +108,45 @@ let%test "with_permit releases on exception" =
      with Failure _ -> ());
     available t = 2)
 
+let%test "with_permit_priority Interactive" =
+  Eio_main.run (fun _env ->
+    let t = create ~max_concurrent:2 ~provider_name:"test" in
+    let result = with_permit_priority ~priority:Interactive t (fun () -> 99) in
+    result = 99)
+
 let%test "of_discovery_status with slots" =
-  let status : Discovery.endpoint_status = {
-    url = "http://localhost:8085"; healthy = true;
-    models = []; props = None;
-    slots = Some { total = 4; busy = 1; idle = 3 };
-    capabilities = Capabilities.default_capabilities;
-  } in
-  match of_discovery_status status with
-  | Some t -> t.max_concurrent = 4
-  | None -> false
+  Eio_main.run (fun _env ->
+    let status : Discovery.endpoint_status = {
+      url = "http://localhost:8085"; healthy = true;
+      models = []; props = None;
+      slots = Some { total = 4; busy = 1; idle = 3 };
+      capabilities = Capabilities.default_capabilities;
+    } in
+    match of_discovery_status status with
+    | Some t -> t.max_concurrent = 4
+    | None -> false)
 
 let%test "of_discovery_status with props only" =
-  let status : Discovery.endpoint_status = {
-    url = "http://localhost:8085"; healthy = true;
-    models = [];
-    props = Some { total_slots = 8; ctx_size = 4096; model = "m" };
-    slots = None;
-    capabilities = Capabilities.default_capabilities;
-  } in
-  match of_discovery_status status with
-  | Some t -> t.max_concurrent = 8
-  | None -> false
+  Eio_main.run (fun _env ->
+    let status : Discovery.endpoint_status = {
+      url = "http://localhost:8085"; healthy = true;
+      models = [];
+      props = Some { total_slots = 8; ctx_size = 4096; model = "m" };
+      slots = None;
+      capabilities = Capabilities.default_capabilities;
+    } in
+    match of_discovery_status status with
+    | Some t -> t.max_concurrent = 8
+    | None -> false)
 
 let%test "of_discovery_status without info returns None" =
-  let status : Discovery.endpoint_status = {
-    url = "http://localhost:8085"; healthy = true;
-    models = []; props = None; slots = None;
-    capabilities = Capabilities.default_capabilities;
-  } in
-  of_discovery_status status = None
+  Eio_main.run (fun _env ->
+    let status : Discovery.endpoint_status = {
+      url = "http://localhost:8085"; healthy = true;
+      models = []; props = None; slots = None;
+      capabilities = Capabilities.default_capabilities;
+    } in
+    of_discovery_status status = None)
 
 let%test "default_for_kind local" =
   let t = default_for_kind Provider_config.OpenAI_compat in
@@ -165,11 +174,10 @@ let%test "with_permit_timeout releases on exception" =
 let%test "with_permit_timeout raises on timeout without leaking permit" =
   Eio_main.run (fun env ->
     let clock = Eio.Stdenv.clock env in
-    (* 1-permit semaphore, pre-acquire to force contention *)
     let t = create ~max_concurrent:1 ~provider_name:"test" in
-    Eio.Semaphore.acquire t.semaphore;
-    let timed_out = ref false in
-    (try with_permit_timeout clock ~timeout_sec:0.05 t (fun () -> ())
-     with Eio.Time.Timeout -> timed_out := true);
-    Eio.Semaphore.release t.semaphore;
-    !timed_out && available t = 1)
+    (* Pre-acquire to force contention *)
+    with_permit_priority ~priority:Interactive t (fun () ->
+      let timed_out = ref false in
+      (try with_permit_timeout clock ~timeout_sec:0.05 t (fun () -> ())
+       with Eio.Time.Timeout -> timed_out := true);
+      !timed_out))

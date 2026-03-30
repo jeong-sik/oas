@@ -303,7 +303,9 @@ let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
         else None
     in
     match effective_throttle with
-    | Some t -> Provider_throttle.with_permit t call
+    | Some t ->
+      let p = match priority with Some p -> p | None -> Request_priority.Unspecified in
+      Provider_throttle.with_permit_priority ~priority:p t call
     | None -> call ()
   in
   let rec try_next last_err = function
@@ -433,7 +435,9 @@ let complete_cascade_stream ~sw ~net ?(metrics : Metrics.t option)
       else None
     in
     match throttle with
-    | Some t -> Provider_throttle.with_permit t call
+    | Some t ->
+      let p = match priority with Some p -> p | None -> Request_priority.Unspecified in
+      Provider_throttle.with_permit_priority ~priority:p t call
     | None -> call ()
   in
   let rec try_next last_err = function

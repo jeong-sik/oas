@@ -2,6 +2,20 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.96.0] - 2026-03-30
+
+### Added
+- `Slot_scheduler` module — priority-aware slot scheduling with Eio.Mutex + Eio.Promise (#483).
+- `Provider_throttle.with_permit_priority` — priority-aware permit acquisition.
+- `Unspecified` variant in `Request_priority` — logs warning, dispatched as Proactive.
+- `Request_priority.resolve` — resolves Unspecified to Proactive with warning.
+- `priority` field in `Types.agent_config` — flows through Agent.run pipeline to cascade throttle.
+- `?priority` parameter in `Api.create_message_named` and `create_message_named_stream`.
+
+### Changed
+- `Provider_throttle` now uses `Slot_scheduler` internally instead of `Eio.Semaphore`.
+- Higher priority requests (Interactive) are dequeued before lower priority (Background) when slots are full.
+
 ## [0.95.0] - 2026-03-30
 
 ### Added
