@@ -282,27 +282,36 @@ let test_delta_json_rejects_malformed_context_removed () =
     | `Assoc fields ->
       let operations =
         match List.assoc_opt "operations" fields with
-        | Some (`List (`Assoc op_fields :: rest)) ->
-          let patched_op =
-            `Assoc
-              (List.map
-                 (fun (key, value) ->
-                   if key = "diff" then
-                     match value with
-                     | `Assoc diff_fields ->
-                       let patched_diff =
-                         List.map
-                           (fun (diff_key, diff_value) ->
-                             if diff_key = "removed" then (diff_key, `String "bad")
-                             else (diff_key, diff_value))
-                           diff_fields
-                       in
-                       (key, `Assoc patched_diff)
-                     | _ -> (key, value)
-                   else (key, value))
-                 op_fields)
-          in
-          `List (patched_op :: rest)
+        | Some (`List ops) ->
+          `List
+            (List.map
+               (function
+                 | `Assoc op_fields as op_json ->
+                   let is_patch_context =
+                     List.assoc_opt "kind" op_fields = Some (`String "patch_context")
+                   in
+                   if not is_patch_context then op_json
+                   else
+                     `Assoc
+                       (List.map
+                          (fun (key, value) ->
+                            if key = "diff" then
+                              match value with
+                              | `Assoc diff_fields ->
+                                let patched_diff =
+                                  List.map
+                                    (fun (diff_key, diff_value) ->
+                                      if diff_key = "removed" then
+                                        (diff_key, `String "bad")
+                                      else (diff_key, diff_value))
+                                    diff_fields
+                                in
+                                (key, `Assoc patched_diff)
+                              | _ -> (key, value)
+                            else (key, value))
+                          op_fields)
+                 | op_json -> op_json)
+               ops)
         | _ -> List.assoc "operations" fields
       in
       `Assoc
