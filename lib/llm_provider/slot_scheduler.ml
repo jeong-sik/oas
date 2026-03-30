@@ -171,3 +171,26 @@ let%test "Unspecified treated as Proactive" =
     let t = create ~max_slots:2 in
     let result = with_permit ~priority:Unspecified t (fun () -> "ok") in
     result = "ok")
+
+let%test "cancel does not leak slot" =
+  Eio_main.run (fun _env ->
+    let t = create ~max_slots:1 in
+    let hold, release_hold = Eio.Promise.create () in
+    Eio.Fiber.both
+      (fun () ->
+        with_permit ~priority:Interactive t (fun () ->
+          Eio.Promise.await hold))
+      (fun () ->
+        Eio.Fiber.both
+          (fun () ->
+            (* This fiber will be cancelled when the other arm completes *)
+            Eio.Fiber.yield ();
+            (try with_permit ~priority:Background t (fun () -> ())
+             with Eio.Cancel.Cancelled _ -> ()))
+          (fun () ->
+            (* Release blocker after waiter enqueues *)
+            Eio.Fiber.yield ();
+            Eio.Fiber.yield ();
+            Eio.Promise.resolve release_hold ()));
+    (* After everything settles, slot should be available *)
+    available t = 1)

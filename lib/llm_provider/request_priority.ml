@@ -14,8 +14,8 @@ let default = Background
 let to_int = function
   | Interactive -> 0
   | Proactive -> 1
+  | Unspecified -> 1
   | Background -> 2
-  | Unspecified -> 3
 
 let resolve = function
   | Unspecified ->
@@ -97,8 +97,8 @@ let%test "default is Background" =
 let%test "to_int values" =
   to_int Interactive = 0
   && to_int Proactive = 1
+  && to_int Unspecified = 1
   && to_int Background = 2
-  && to_int Unspecified = 3
 
 let%test "resolve Unspecified returns Proactive" =
   Eio_main.run (fun _env ->
