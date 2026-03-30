@@ -385,7 +385,7 @@ let%test "to_json preserves all top-level fields" =
   let cp = of_state state in
   let json = to_json cp in
   let open Yojson.Safe.Util in
-  (json |> member "version" |> to_int) = 1
+  (json |> member "version" |> to_int) = checkpoint_version
   && (json |> member "iteration" |> to_int) = 7
   && (json |> member "best_iteration" |> to_int) = 5
   && (json |> member "patience_counter" |> to_int) = 2
