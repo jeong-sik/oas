@@ -180,11 +180,13 @@ let with_env key value f =
   let restore () =
     match original with
     | Some previous -> Unix.putenv key previous
-    | None -> Unix.unsetenv key
+    | None -> Unix.putenv key ""
   in
+  (* OCaml's Unix module on our supported switches does not provide unsetenv.
+     For this feature flag helper, the empty string is equivalent to "off". *)
   (match value with
    | Some next -> Unix.putenv key next
-   | None -> Unix.unsetenv key);
+   | None -> Unix.putenv key "");
   Fun.protect f ~finally:restore
 
 let make_unit_checkpoint ?(messages = []) ?(session_id = "sess-a")
