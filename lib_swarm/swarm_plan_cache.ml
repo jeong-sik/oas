@@ -771,7 +771,12 @@ let%test "make_recording_callbacks: composes with base" =
     resource_check = None; max_concurrent_agents = None;
     enable_streaming = false;
   } in
-  let state = { (create_state config) with converged = true } in
+  let state = create_state config in
+  state.converged <- true;
+  state.history <- [{
+    iteration = 0; metric_value = Some 1.0; elapsed = 0.1;
+    timestamp = 0.0; trace_refs = []; agent_results = [];
+  }];
   (match cbs.on_converged with Some f -> f state | None -> ());
   (* Both base and recording should have been called *)
   !called && !store_called
