@@ -2,6 +2,25 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.99.0] - 2026-03-31
+
+### Added
+- `Swarm_plan_cache` module — convergence trajectory caching and warm-start for swarm runs (#508).
+  - `structural_fingerprint` — deterministic hash of config structure (agents, roles, mode, convergence params).
+  - `template_of_state` — captures quality signals and per-agent scores from converged runs.
+  - `hints_of_template` / `apply_hints` — tighter iteration bounds and agent reordering (Decentralized only).
+  - `make_recording_callbacks` — opt-in integration via `on_converged` callback composition.
+  - `fs_backend` — filesystem-backed cache with atomic writes.
+- `Swarm_plan_cache.agent_score_to_json` / `agent_score_of_json` — public score serialization.
+- `Checkpoint` delta support (#498) — `compute_delta` / `apply_delta` with full restore fallback.
+- `Stub_tool_results` reducer strategy for observation masking (#500).
+- Swarm checkpoint fidelity gate — `converged` flag preserved in checkpoint v2 (#499, #505).
+
+### Fixed
+- `Custom_role` JSON roundtrip — strip inner quotes from `ppx_deriving.show` output (#508).
+- GLM default base URL changed to `api.z.ai` (#501).
+- Provider mock token counts made explicit (#507).
+
 ## [0.98.0] - 2026-03-30
 
 ### Added
