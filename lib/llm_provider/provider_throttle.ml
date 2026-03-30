@@ -4,10 +4,15 @@
 
     @since 0.84.0 *)
 
+type capacity_source =
+  | Discovered
+  | Fallback
+
 type t = {
   scheduler : Slot_scheduler.t;
   provider_name : string; [@warning "-69"]
   max_concurrent : int;
+  source : capacity_source;
 }
 
 let create ~max_concurrent ~provider_name =
@@ -19,6 +24,7 @@ let create ~max_concurrent ~provider_name =
     scheduler = Slot_scheduler.create ~max_slots:max_concurrent;
     provider_name;
     max_concurrent;
+    source = Fallback;
   }
 
 let with_permit_priority ~priority t f =
@@ -37,22 +43,35 @@ let available t =
 let in_use t =
   Slot_scheduler.in_use t.scheduler
 
+let create_with_source ~max_concurrent ~provider_name ~source =
+  if max_concurrent < 1 then
+    invalid_arg
+      (Printf.sprintf "Provider_throttle.create: max_concurrent must be >= 1, got %d"
+         max_concurrent);
+  {
+    scheduler = Slot_scheduler.create ~max_slots:max_concurrent;
+    provider_name;
+    max_concurrent;
+    source;
+  }
+
 (** Create a throttle from discovery slot information.
     Uses [total_slots] as the semaphore count.
     Returns [None] if slot info is unavailable. *)
 let of_discovery_status (status : Discovery.endpoint_status) =
   match status.slots with
   | Some s when s.total > 0 ->
-    Some (create ~max_concurrent:s.total ~provider_name:status.url)
+    Some (create_with_source ~max_concurrent:s.total ~provider_name:status.url ~source:Discovered)
   | _ ->
     match status.props with
     | Some p when p.total_slots > 0 ->
-      Some (create ~max_concurrent:p.total_slots ~provider_name:status.url)
+      Some (create_with_source ~max_concurrent:p.total_slots ~provider_name:status.url ~source:Discovered)
     | _ -> None
 
 (** Default throttle limits per provider kind.
     Local providers default to 4 (llama-server typical).
-    Cloud providers default to higher limits. *)
+    Cloud providers default to higher limits.
+    All created with [source = Fallback]. *)
 let default_for_kind (kind : Provider_config.provider_kind) =
   match kind with
   | Provider_config.OpenAI_compat ->
@@ -65,6 +84,14 @@ let default_for_kind (kind : Provider_config.provider_kind) =
     create ~max_concurrent:10 ~provider_name:"glm"
   | Provider_config.Claude_code ->
     create ~max_concurrent:2 ~provider_name:"claude_code"
+
+(* ── Capacity Query ────────────────────────────────────── *)
+
+let snapshot t = Slot_scheduler.snapshot t.scheduler
+let source t = t.source
+let try_permit ~priority t f = Slot_scheduler.try_with_permit ~priority t.scheduler f
+let queue_length t = Slot_scheduler.queue_length t.scheduler
+let max_concurrent t = t.max_concurrent
 
 [@@@coverage off]
 (* === Inline tests === *)

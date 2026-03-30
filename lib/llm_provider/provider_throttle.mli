@@ -9,6 +9,11 @@
     @stability Internal
     @since 0.93.1 *)
 
+(** How the throttle's slot count was determined. *)
+type capacity_source =
+  | Discovered   (** Slot count from [GET /slots] or [GET /props] endpoint data. *)
+  | Fallback     (** Default slot count; no slot data was available at creation time. *)
+
 type t
 
 val create : max_concurrent:int -> provider_name:string -> t
@@ -43,4 +48,27 @@ val of_discovery_status : Discovery.endpoint_status -> t option
     Returns [None] if no slot/props data is available. *)
 
 val default_for_kind : Provider_config.provider_kind -> t
-(** Default throttle limits per provider kind. *)
+(** Default throttle limits per provider kind.
+    Created with [source = Fallback]. *)
+
+(** {2 Capacity Query}
+
+    All counts reflect this OAS process only — other clients
+    sharing the same LLM server are not visible. *)
+
+val snapshot : t -> Slot_scheduler.snapshot
+(** Non-blocking point-in-time capacity snapshot. *)
+
+val source : t -> capacity_source
+(** How the slot count was determined. *)
+
+val try_permit : priority:Request_priority.t -> t -> (unit -> 'a) -> 'a option
+(** Run [f] if a permit is immediately available, returning [Some result].
+    Returns [None] without blocking if all permits are in use.
+    @since 0.97.0 *)
+
+val queue_length : t -> int
+(** Number of fibers waiting for a permit. *)
+
+val max_concurrent : t -> int
+(** Maximum concurrent permits configured for this throttle. *)

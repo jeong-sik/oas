@@ -523,6 +523,70 @@ let complete_named_stream ~sw ~net ?clock ?config_path
                "Streaming cascade '%s' timed out after %ds" name secs }))
       | _ -> run ()
 
+(* ── Local Capacity Query ──────────────────────────────── *)
+
+type local_capacity = {
+  total : int;
+  process_active : int;
+  process_available : int;
+  process_queue_length : int;
+  all_discovered : bool;
+  endpoints_found : int;
+}
+
+let empty_capacity = {
+  total = 0; process_active = 0; process_available = 0;
+  process_queue_length = 0; all_discovered = true; endpoints_found = 0;
+}
+
+let local_capacity_for_selections ~sw ~net ?config_path selections =
+  (* 1. Resolve each selection through the same path as complete_named *)
+  let model_strings =
+    selections
+    |> List.concat_map (fun s ->
+         resolve_model_strings ?config_path ~name:s ~defaults:[s] ())
+    |> List.sort_uniq String.compare
+  in
+  (* 2. Parse to provider configs *)
+  let providers = parse_model_strings model_strings in
+  (* 3. Filter to local providers *)
+  let local_urls =
+    providers
+    |> List.filter is_local_provider
+    |> List.map (fun (cfg : Provider_config.t) -> cfg.base_url)
+    |> List.sort_uniq String.compare
+  in
+  if local_urls = [] then
+    empty_capacity
+  else begin
+    (* 4. Probe endpoints not yet in throttle table (cold start) *)
+    let need_probe =
+      List.filter (fun url -> Cascade_throttle.lookup url = None) local_urls
+    in
+    if need_probe <> [] then begin
+      let statuses = Discovery.discover ~sw ~net ~endpoints:need_probe in
+      Cascade_throttle.populate statuses
+    end;
+    (* 5. Aggregate capacity from throttle table *)
+    let infos =
+      List.filter_map (fun url -> Cascade_throttle.capacity url) local_urls
+    in
+    match infos with
+    | [] -> empty_capacity
+    | _ ->
+      List.fold_left (fun acc (info : Cascade_throttle.capacity_info) ->
+        { total = acc.total + info.total;
+          process_active = acc.process_active + info.process_active;
+          process_available = acc.process_available + info.process_available;
+          process_queue_length = acc.process_queue_length + info.process_queue_length;
+          all_discovered = acc.all_discovered
+            && info.source = Provider_throttle.Discovered;
+          endpoints_found = acc.endpoints_found + 1;
+        })
+        { empty_capacity with all_discovered = true }
+        infos
+  end
+
 [@@@coverage off]
 (* === Inline tests === *)
 

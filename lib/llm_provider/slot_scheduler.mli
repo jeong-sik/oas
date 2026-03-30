@@ -28,3 +28,25 @@ val in_use : t -> int
 
 val queue_length : t -> int
 (** Number of fibers waiting for a slot. *)
+
+(** {2 Capacity Query} *)
+
+(** Point-in-time snapshot of scheduler state.
+    All counts reflect this OAS process only — other clients
+    sharing the same server are not visible. *)
+type snapshot = {
+  max_slots : int;
+  active : int;
+  available : int;
+  queue_length : int;
+}
+
+val snapshot : t -> snapshot
+(** Non-blocking point-in-time capacity snapshot. *)
+
+(** {2 Non-blocking Acquisition} *)
+
+val try_with_permit : priority:Request_priority.t -> t -> (unit -> 'a) -> 'a option
+(** Run [f] if a slot is immediately available, returning [Some result].
+    Returns [None] without blocking if all slots are in use.
+    The slot is released automatically when [f] returns or raises. *)
