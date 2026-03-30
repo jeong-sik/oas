@@ -259,6 +259,79 @@ let test_delta_json_roundtrip () =
      | Ok rebuilt -> checkpoint_equal rebuilt target
      | Error _ -> false)
 
+let test_empty_delta_roundtrip () =
+  let checkpoint =
+    make_unit_checkpoint
+      ~session_id:"sess-a"
+      ~agent_name:"agent-a"
+      ~turn_count:3
+      ~messages:
+        [
+          { role = User; content = [ Text "steady" ]; name = None; tool_call_id = None };
+        ]
+      ()
+  in
+  let delta = Checkpoint.compute_delta checkpoint checkpoint in
+  Alcotest.(check int) "no operations" 0 (List.length delta.operations);
+  Alcotest.(check bool) "noop delta applies cleanly" true
+    (match Checkpoint.apply_delta checkpoint delta with
+     | Ok rebuilt -> checkpoint_equal rebuilt checkpoint
+     | Error _ -> false)
+
+let test_apply_delta_rejects_version_and_hash_mismatch () =
+  let base = make_unit_checkpoint () in
+  let target = make_unit_checkpoint ~session_id:"sess-b" () in
+  let delta = Checkpoint.compute_delta base target in
+  let bad_version = { delta with delta_version = delta.delta_version + 1 } in
+  let bad_checkpoint_version =
+    {
+      delta with
+      base_checkpoint_version = delta.base_checkpoint_version + 1;
+    }
+  in
+  let bad_base_hash = { delta with base_checkpoint_hash = "bad-hash" } in
+  let bad_result_hash = { delta with result_checkpoint_hash = "bad-result-hash" } in
+  Alcotest.(check bool) "delta version mismatch" true
+    (Result.is_error (Checkpoint.apply_delta base bad_version));
+  Alcotest.(check bool) "checkpoint version mismatch" true
+    (Result.is_error (Checkpoint.apply_delta base bad_checkpoint_version));
+  Alcotest.(check bool) "base hash mismatch" true
+    (Result.is_error (Checkpoint.apply_delta base bad_base_hash));
+  Alcotest.(check bool) "result hash mismatch" true
+    (Result.is_error (Checkpoint.apply_delta base bad_result_hash))
+
+let test_apply_delta_rejects_invalid_splice () =
+  let base =
+    make_unit_checkpoint
+      ~messages:
+        [
+          { role = User; content = [ Text "a" ]; name = None; tool_call_id = None };
+        ]
+      ()
+  in
+  let target =
+    make_unit_checkpoint
+      ~messages:
+        [
+          { role = User; content = [ Text "a" ]; name = None; tool_call_id = None };
+          { role = Assistant; content = [ Text "b" ]; name = None; tool_call_id = None };
+        ]
+      ()
+  in
+  let delta = Checkpoint.compute_delta base target in
+  let invalid_delta =
+    {
+      delta with
+      operations =
+        [
+          Checkpoint.Splice_messages
+            { start_index = 3; delete_count = 1; insert = [] };
+        ];
+    }
+  in
+  Alcotest.(check bool) "invalid splice rejected" true
+    (Result.is_error (Checkpoint.apply_delta base invalid_delta))
+
 let test_restore_with_delta_fallback_disabled () =
   let base = make_unit_checkpoint () in
   let target =
@@ -353,6 +426,11 @@ let () =
       ( "unit",
         [
           Alcotest.test_case "delta JSON roundtrip" `Quick test_delta_json_roundtrip;
+          Alcotest.test_case "empty delta roundtrip" `Quick test_empty_delta_roundtrip;
+          Alcotest.test_case "apply_delta rejects version/hash mismatch" `Quick
+            test_apply_delta_rejects_version_and_hash_mismatch;
+          Alcotest.test_case "apply_delta rejects invalid splice" `Quick
+            test_apply_delta_rejects_invalid_splice;
           Alcotest.test_case "feature flag disabled falls back" `Quick
             test_restore_with_delta_fallback_disabled;
           Alcotest.test_case "bad delta records failure metrics" `Quick
