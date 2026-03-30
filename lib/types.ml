@@ -66,6 +66,7 @@ type agent_config = {
   context_compact_ratio: float option;   (** Ratio of context budget at which to compact. Default 0.8 *)
   context_prepare_ratio: float option;   (** Ratio at which to start preparing for compaction. Default 0.6 *)
   context_handoff_ratio: float option;   (** Ratio at which to trigger handoff. Default 0.95 *)
+  priority: Llm_provider.Request_priority.t option;   (** Scheduling priority for LLM requests. @since 0.96.0 *)
 }
 [@@deriving show]
 
@@ -92,6 +93,7 @@ let default_config = {
   context_compact_ratio = None;
   context_prepare_ratio = None;
   context_handoff_ratio = None;
+  priority = None;
 }
 
 (* Usage tracking *)

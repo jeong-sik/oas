@@ -53,6 +53,7 @@ type t = {
   allowed_paths: string list;
   progressive_tools: Progressive_tools.disclosure_strategy option;
   operator_policy: Guardrails.tool_filter option;
+  priority: Llm_provider.Request_priority.t option;
 }
 
 let create ~net ~model =
@@ -105,6 +106,7 @@ let create ~net ~model =
     allowed_paths = [];
     progressive_tools = None;
     operator_policy = None;
+    priority = None;
   }
 
 let with_system_prompt prompt b = { b with system_prompt = Some prompt }
@@ -218,6 +220,7 @@ let build b =
     context_compact_ratio = b.context_compact_ratio;
     context_prepare_ratio = b.context_prepare_ratio;
     context_handoff_ratio = b.context_handoff_ratio;
+    priority = b.priority;
   } in
   let options = {
     Agent_types.base_url = b.base_url;

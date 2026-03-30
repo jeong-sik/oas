@@ -6,6 +6,8 @@ type t =
   | Interactive
   | Proactive
   | Background
+  | Unspecified
+[@@deriving show]
 
 let default = Background
 
@@ -13,18 +15,33 @@ let to_int = function
   | Interactive -> 0
   | Proactive -> 1
   | Background -> 2
+  | Unspecified -> 3
 
-let compare a b = Int.compare (to_int a) (to_int b)
+let resolve = function
+  | Unspecified ->
+    Eio.traceln "WARN request_priority: Unspecified priority, treating as Proactive";
+    Proactive
+  | p -> p
+
+let compare a b =
+  let rank = function
+    | Interactive -> 0
+    | Proactive | Unspecified -> 1
+    | Background -> 2
+  in
+  Int.compare (rank a) (rank b)
 
 let to_string = function
   | Interactive -> "interactive"
   | Proactive -> "proactive"
   | Background -> "background"
+  | Unspecified -> "unspecified"
 
 let of_string = function
   | "interactive" -> Some Interactive
   | "proactive" -> Some Proactive
   | "background" -> Some Background
+  | "unspecified" -> Some Unspecified
   | _ -> None
 
 let to_yojson v = `String (to_string v)
@@ -48,6 +65,9 @@ let%test "to_string / of_string roundtrip Proactive" =
 let%test "to_string / of_string roundtrip Background" =
   of_string (to_string Background) = Some Background
 
+let%test "to_string / of_string roundtrip Unspecified" =
+  of_string (to_string Unspecified) = Some Unspecified
+
 let%test "of_string unknown returns None" =
   of_string "urgent" = None
 
@@ -63,6 +83,9 @@ let%test "compare Proactive < Background" =
 let%test "compare Interactive < Background" =
   compare Interactive Background < 0
 
+let%test "compare Unspecified equals Proactive" =
+  compare Unspecified Proactive = 0
+
 let%test "compare same is zero" =
   compare Interactive Interactive = 0
   && compare Proactive Proactive = 0
@@ -75,3 +98,12 @@ let%test "to_int values" =
   to_int Interactive = 0
   && to_int Proactive = 1
   && to_int Background = 2
+  && to_int Unspecified = 3
+
+let%test "resolve Unspecified returns Proactive" =
+  Eio_main.run (fun _env ->
+    resolve Unspecified = Proactive)
+
+let%test "resolve Interactive is identity" =
+  Eio_main.run (fun _env ->
+    resolve Interactive = Interactive)
