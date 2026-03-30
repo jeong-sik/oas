@@ -53,7 +53,7 @@ type agent_telemetry = {
   usage: Types.usage_stats option;
   turn_count: int;
 }
-[@@deriving show]
+[@@deriving yojson, show]
 
 let empty_telemetry = { trace_ref = None; usage = None; turn_count = 0 }
 
@@ -123,7 +123,7 @@ type agent_status =
                  telemetry: agent_telemetry }
   | Done_error of { elapsed: float; error: string;
                     telemetry: agent_telemetry }
-[@@deriving show]
+[@@deriving yojson, show]
 
 type iteration_record = {
   iteration: int;

@@ -67,7 +67,7 @@ type usage_stats = {
   api_calls: int;
   estimated_cost_usd: float;
 }
-[@@deriving show]
+[@@deriving yojson, show]
 
 val empty_usage : usage_stats
 val add_usage : usage_stats -> api_usage -> usage_stats

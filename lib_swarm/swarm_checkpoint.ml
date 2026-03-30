@@ -31,7 +31,7 @@ type t = {
   created_at: float;
 }
 
-let checkpoint_version = 1
+let checkpoint_version = 2
 
 (* ── Snapshot helpers ────────────────────────────────────────── *)
 
@@ -70,35 +70,56 @@ let iteration_record_to_json (r : Swarm_types.iteration_record) : Yojson.Safe.t 
   let agent_results = List.map (fun (name, status) ->
     `Assoc [
       ("name", `String name);
-      ("status", `String (Swarm_types.show_agent_status status));
+      ("status", Swarm_types.agent_status_to_yojson status);
     ]
   ) r.agent_results in
+  let trace_refs = `List (List.map Raw_trace.run_ref_to_yojson r.trace_refs) in
   `Assoc [
     ("iteration", `Int r.iteration);
     ("metric_value", match r.metric_value with Some v -> `Float v | None -> `Null);
     ("agent_results", `List agent_results);
     ("elapsed", `Float r.elapsed);
     ("timestamp", `Float r.timestamp);
+    ("trace_refs", trace_refs);
   ]
 
-(** Reconstruct an iteration_record from JSON.
-    agent_results statuses are restored as Idle (the original status
-    text is preserved in JSON but parsing show-format back is fragile).
-    Core fields (iteration, metric_value, elapsed, timestamp) are exact. *)
-let iteration_record_of_json (json : Yojson.Safe.t) : Swarm_types.iteration_record =
+(** Reconstruct an iteration_record from JSON with full fidelity.
+    Version 2: All fields are preserved including agent_status variants and trace_refs.
+    Version 1: Falls back to Idle status and empty trace_refs for backward compatibility. *)
+let iteration_record_of_json ~version (json : Yojson.Safe.t) : Swarm_types.iteration_record =
   let open Yojson.Safe.Util in
   let agent_results =
     json |> member "agent_results" |> to_list
     |> List.map (fun ar ->
       let name = ar |> member "name" |> to_string in
-      (name, Swarm_types.Idle))
+      let status =
+        if version >= 2 then
+          match Swarm_types.agent_status_of_yojson (ar |> member "status") with
+          | Ok s -> s
+          | Error _ -> Swarm_types.Idle  (* Fallback on parse error *)
+        else
+          Swarm_types.Idle  (* Version 1: always Idle *)
+      in
+      (name, status))
+  in
+  let trace_refs =
+    if version >= 2 then
+      try
+        json |> member "trace_refs" |> to_list
+        |> List.filter_map (fun tr ->
+          match Raw_trace.run_ref_of_yojson tr with
+          | Ok ref -> Some ref
+          | Error _ -> None)
+      with _ -> []
+    else
+      []  (* Version 1: empty trace_refs *)
   in
   { iteration = json |> member "iteration" |> to_int;
     metric_value = json |> member "metric_value" |> to_float_option;
     agent_results;
     elapsed = json |> member "elapsed" |> to_float;
     timestamp = json |> member "timestamp" |> to_float;
-    trace_refs = [];
+    trace_refs;
   }
 
 let config_snapshot_to_json (s : config_snapshot) : Yojson.Safe.t =
@@ -148,7 +169,8 @@ let load ~path : (t, Error.sdk_error) result =
       let json = Yojson.Safe.from_string content in
       let open Yojson.Safe.Util in
       let version = json |> member "version" |> to_int in
-      if version <> checkpoint_version then
+      (* Support both version 1 and 2 *)
+      if version < 1 || version > checkpoint_version then
         Error (Error.Serialization (VersionMismatch { expected = checkpoint_version; got = version }))
       else
         let cs = json |> member "config_snapshot" in
@@ -174,7 +196,7 @@ let load ~path : (t, Error.sdk_error) result =
           patience_counter = json |> member "patience_counter" |> to_int;
           history =
             json |> member "history" |> to_list
-            |> List.map iteration_record_of_json;
+            |> List.map (iteration_record_of_json ~version);
           created_at = json |> member "created_at" |> to_float;
         }
     with
@@ -235,8 +257,8 @@ let make_iteration ~iteration ?(metric_value=None) ?(agent_results=[])
 
 (* --- checkpoint_version --- *)
 
-let%test "checkpoint_version is 1" =
-  checkpoint_version = 1
+let%test "checkpoint_version is 2" =
+  checkpoint_version = 2
 
 (* --- snapshot_of_config --- *)
 
@@ -318,7 +340,7 @@ let%test "iteration_record_to_json then of_json: core fields preserved" =
     ~agent_results:[("a1", Swarm_types.Idle); ("a2", Swarm_types.Idle)]
     ~elapsed:2.5 ~timestamp:12345.0 () in
   let json = iteration_record_to_json rec_ in
-  let restored = iteration_record_of_json json in
+  let restored = iteration_record_of_json ~version:checkpoint_version json in
   restored.iteration = 3
   && restored.metric_value = Some 0.75
   && restored.elapsed = 2.5
@@ -328,7 +350,7 @@ let%test "iteration_record_to_json then of_json: core fields preserved" =
 let%test "iteration_record_to_json: None metric_value" =
   let rec_ = make_iteration ~iteration:1 ~metric_value:None () in
   let json = iteration_record_to_json rec_ in
-  let restored = iteration_record_of_json json in
+  let restored = iteration_record_of_json ~version:checkpoint_version json in
   restored.metric_value = None
 
 (* --- config_snapshot JSON roundtrip --- *)
@@ -491,8 +513,9 @@ let%test "iteration_record_of_json preserves agent names" =
     ]);
     ("elapsed", `Float 1.0);
     ("timestamp", `Float 200.0);
+    ("trace_refs", `List []);
   ] in
-  let rec_ = iteration_record_of_json json in
+  let rec_ = iteration_record_of_json ~version:checkpoint_version json in
   rec_.iteration = 1
   && List.length rec_.agent_results = 1
   && fst (List.hd rec_.agent_results) = "worker1"
@@ -565,3 +588,111 @@ let%test "to_json created_at is positive" =
   let json = to_json cp in
   let open Yojson.Safe.Util in
   json |> member "created_at" |> to_float > 0.0
+
+(* --- Version 2 roundtrip tests: agent_status variants --- *)
+
+let%test "roundtrip: agent_status Idle" =
+  let status = Swarm_types.Idle in
+  let json = Swarm_types.agent_status_to_yojson status in
+  match Swarm_types.agent_status_of_yojson json with
+  | Ok restored -> restored = status
+  | Error _ -> false
+
+let%test "roundtrip: agent_status Working" =
+  let status = Swarm_types.Working in
+  let json = Swarm_types.agent_status_to_yojson status in
+  match Swarm_types.agent_status_of_yojson json with
+  | Ok restored -> restored = status
+  | Error _ -> false
+
+let%test "roundtrip: agent_status Done_ok" =
+  let telemetry = { Swarm_types.trace_ref = None; usage = None; turn_count = 3 } in
+  let status = Swarm_types.Done_ok { elapsed = 1.5; text = "success"; telemetry } in
+  let json = Swarm_types.agent_status_to_yojson status in
+  match Swarm_types.agent_status_of_yojson json with
+  | Ok (Done_ok { elapsed; text; telemetry = t }) ->
+      elapsed = 1.5 && text = "success" && t.turn_count = 3
+  | _ -> false
+
+let%test "roundtrip: agent_status Done_error" =
+  let telemetry = { Swarm_types.trace_ref = None; usage = None; turn_count = 2 } in
+  let status = Swarm_types.Done_error { elapsed = 0.5; error = "failed"; telemetry } in
+  let json = Swarm_types.agent_status_to_yojson status in
+  match Swarm_types.agent_status_of_yojson json with
+  | Ok (Done_error { elapsed; error; telemetry = t }) ->
+      elapsed = 0.5 && error = "failed" && t.turn_count = 2
+  | _ -> false
+
+(* --- Version 2 roundtrip tests: trace_refs --- *)
+
+let%test "roundtrip: iteration_record with trace_refs" =
+  let run_ref = {
+    Raw_trace.worker_run_id = "run123";
+    path = "/tmp/trace.jsonl";
+    start_seq = 1;
+    end_seq = 10;
+    agent_name = "test_agent";
+    session_id = Some "session456";
+  } in
+  let rec_ = make_iteration ~iteration:1 ~metric_value:(Some 0.8)
+    ~agent_results:[("a1", Swarm_types.Idle)] ~elapsed:1.0 ~timestamp:100.0 () in
+  let rec_with_traces = { rec_ with trace_refs = [run_ref] } in
+  let json = iteration_record_to_json rec_with_traces in
+  let restored = iteration_record_of_json ~version:checkpoint_version json in
+  List.length restored.trace_refs = 1
+  && (List.hd restored.trace_refs).worker_run_id = "run123"
+  && (List.hd restored.trace_refs).agent_name = "test_agent"
+
+(* --- Version 2 roundtrip tests: Done_ok with full telemetry --- *)
+
+let%test "roundtrip: iteration_record with Done_ok status and usage" =
+  let usage = {
+    Types.total_input_tokens = 100;
+    total_output_tokens = 50;
+    total_cache_creation_input_tokens = 0;
+    total_cache_read_input_tokens = 20;
+    api_calls = 1;
+    estimated_cost_usd = 0.05;
+  } in
+  let telemetry = { Swarm_types.trace_ref = None; usage = Some usage; turn_count = 2 } in
+  let status = Swarm_types.Done_ok { elapsed = 2.5; text = "completed"; telemetry } in
+  let rec_ = make_iteration ~iteration:5 ~metric_value:(Some 0.9)
+    ~agent_results:[("agent1", status)] ~elapsed:3.0 ~timestamp:200.0 () in
+  let json = iteration_record_to_json rec_ in
+  let restored = iteration_record_of_json ~version:checkpoint_version json in
+  match List.assoc_opt "agent1" restored.agent_results with
+  | Some (Done_ok { elapsed; text; telemetry = t }) ->
+      elapsed = 2.5 && text = "completed" && t.turn_count = 2
+      && (match t.usage with
+          | Some u -> u.total_input_tokens = 100 && u.total_output_tokens = 50
+          | None -> false)
+  | _ -> false
+
+(* --- Version 1 compatibility tests --- *)
+
+let%test "version 1 compatibility: agent_results restored as Idle" =
+  let json = `Assoc [
+    ("iteration", `Int 1);
+    ("metric_value", `Float 0.5);
+    ("agent_results", `List [
+      `Assoc [("name", `String "w1"); ("status", `String "Done_ok { elapsed = 1.5; text = \"ok\"; telemetry = {...} }")];
+    ]);
+    ("elapsed", `Float 1.0);
+    ("timestamp", `Float 100.0);
+  ] in
+  let restored = iteration_record_of_json ~version:1 json in
+  match List.assoc_opt "w1" restored.agent_results with
+  | Some Idle -> true
+  | _ -> false
+
+let%test "version 1 compatibility: trace_refs restored as empty" =
+  let json = `Assoc [
+    ("iteration", `Int 1);
+    ("metric_value", `Null);
+    ("agent_results", `List []);
+    ("elapsed", `Float 1.0);
+    ("timestamp", `Float 100.0);
+  ] in
+  let restored = iteration_record_of_json ~version:1 json in
+  restored.trace_refs = []
+
