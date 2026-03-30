@@ -30,6 +30,7 @@ type t = {
   best_metric: float option;
   best_iteration: int;
   patience_counter: int;
+  converged: bool;
   history: Swarm_types.iteration_record list;
   created_at: float;
 }

@@ -27,11 +27,12 @@ type t = {
   best_metric: float option;
   best_iteration: int;
   patience_counter: int;
+  converged: bool;
   history: Swarm_types.iteration_record list;
   created_at: float;
 }
 
-let checkpoint_version = 1
+let checkpoint_version = 2
 
 (* ── Snapshot helpers ────────────────────────────────────────── *)
 
@@ -60,6 +61,7 @@ let of_state (state : Swarm_types.swarm_state) : t =
     best_metric = state.best_metric;
     best_iteration = state.best_iteration;
     patience_counter = state.patience_counter;
+    converged = state.converged;
     history = state.history;
     created_at = Unix.gettimeofday ();
   }
@@ -121,6 +123,7 @@ let to_json (cp : t) : Yojson.Safe.t =
     ("best_metric", match cp.best_metric with Some v -> `Float v | None -> `Null);
     ("best_iteration", `Int cp.best_iteration);
     ("patience_counter", `Int cp.patience_counter);
+    ("converged", `Bool cp.converged);
     ("history", `List (List.map iteration_record_to_json cp.history));
     ("created_at", `Float cp.created_at);
   ]
@@ -148,7 +151,7 @@ let load ~path : (t, Error.sdk_error) result =
       let json = Yojson.Safe.from_string content in
       let open Yojson.Safe.Util in
       let version = json |> member "version" |> to_int in
-      if version <> checkpoint_version then
+      if version <> checkpoint_version && version <> 1 then
         Error (Error.Serialization (VersionMismatch { expected = checkpoint_version; got = version }))
       else
         let cs = json |> member "config_snapshot" in
@@ -166,12 +169,15 @@ let load ~path : (t, Error.sdk_error) result =
           convergence_patience = cs |> member "convergence_patience" |> to_int_option;
         } in
         Ok {
-          version;
+          version = checkpoint_version;
           config_snapshot;
           iteration = json |> member "iteration" |> to_int;
           best_metric = json |> member "best_metric" |> to_float_option;
           best_iteration = json |> member "best_iteration" |> to_int;
           patience_counter = json |> member "patience_counter" |> to_int;
+          converged =
+            json |> member "converged" |> to_bool_option
+            |> Option.value ~default:false;  (* v1 backward compat *)
           history =
             json |> member "history" |> to_list
             |> List.map iteration_record_of_json;
@@ -201,6 +207,7 @@ let restore (cp : t) ~agent_lookup
     state.best_metric <- cp.best_metric;
     state.best_iteration <- cp.best_iteration;
     state.patience_counter <- cp.patience_counter;
+    state.converged <- cp.converged;
     state.history <- cp.history;
     Ok state
 
@@ -235,8 +242,8 @@ let make_iteration ~iteration ?(metric_value=None) ?(agent_results=[])
 
 (* --- checkpoint_version --- *)
 
-let%test "checkpoint_version is 1" =
-  checkpoint_version = 1
+let%test "checkpoint_version is 2" =
+  checkpoint_version = 2
 
 (* --- snapshot_of_config --- *)
 
@@ -363,7 +370,7 @@ let%test "to_json preserves all top-level fields" =
   let cp = of_state state in
   let json = to_json cp in
   let open Yojson.Safe.Util in
-  (json |> member "version" |> to_int) = 1
+  (json |> member "version" |> to_int) = 2
   && (json |> member "iteration" |> to_int) = 7
   && (json |> member "best_iteration" |> to_int) = 5
   && (json |> member "patience_counter" |> to_int) = 2
@@ -565,3 +572,63 @@ let%test "to_json created_at is positive" =
   let json = to_json cp in
   let open Yojson.Safe.Util in
   json |> member "created_at" |> to_float > 0.0
+
+(* --- converged field (v2) --- *)
+
+let%test "of_state: converged false by default" =
+  let cfg = make_config () in
+  let state = Swarm_types.create_state cfg in
+  let cp = of_state state in
+  cp.converged = false
+
+let%test "of_state: converged true preserved" =
+  let cfg = make_config () in
+  let state = Swarm_types.create_state cfg in
+  state.converged <- true;
+  let cp = of_state state in
+  cp.converged = true
+
+let%test "to_json: converged field present" =
+  let cfg = make_config () in
+  let state = Swarm_types.create_state cfg in
+  state.converged <- true;
+  let cp = of_state state in
+  let json = to_json cp in
+  let open Yojson.Safe.Util in
+  json |> member "converged" |> to_bool = true
+
+let%test "restore: converged preserved" =
+  let cfg = make_config () in
+  let state = Swarm_types.create_state cfg in
+  state.converged <- true;
+  let cp = of_state state in
+  let lookup name =
+    if name = "a1" || name = "a2" then Some (make_entry name) else None in
+  match restore cp ~agent_lookup:lookup ~base_config:cfg with
+  | Ok restored -> restored.converged = true
+  | Error _ -> false
+
+let%test "v1 backward compat: converged defaults to false" =
+  (* Simulate a v1 checkpoint JSON without converged field *)
+  let cfg = make_config () in
+  let state = Swarm_types.create_state cfg in
+  let cp = of_state state in
+  let json = to_json cp in
+  (* Remove converged field to simulate v1 *)
+  let json_v1 = match json with
+    | `Assoc pairs ->
+      `Assoc (("version", `Int 1) ::
+        List.filter (fun (k, _) -> k <> "version" && k <> "converged") pairs)
+    | _ -> json
+  in
+  let path = Filename.temp_file "swarm_cp_v1" ".json" in
+  let oc = open_out path in
+  output_string oc (Yojson.Safe.pretty_to_string json_v1);
+  close_out oc;
+  match load ~path with
+  | Ok loaded ->
+    Sys.remove path;
+    loaded.converged = false
+  | Error _ ->
+    Sys.remove path;
+    false
