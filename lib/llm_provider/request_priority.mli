@@ -1,16 +1,17 @@
 (** Request priority for LLM completion scheduling.
 
     Consumers attach a priority to each completion request.
-    The provider layer uses this to order concurrent requests
-    when capacity is constrained.
+    The provider layer will use this to order concurrent requests
+    when capacity is constrained (not yet active — reserved for
+    Phase 1 slot scheduler).
 
     @since 0.95.0
     @stability Unstable *)
 
 type t =
-  | Interactive  (** P0: user-facing chat, tool calls. Dispatched immediately. *)
-  | Proactive    (** P1: agent turns, board replies. Dispatched when slots available. *)
-  | Background   (** P2: heartbeat, status ticks. Dispatched on remaining capacity. *)
+  | Interactive  (** P0: user-facing chat, tool calls. *)
+  | Proactive    (** P1: agent turns, board replies. *)
+  | Background   (** P2: heartbeat, status ticks. *)
 
 val default : t
 (** [Background] — safe default that won't starve interactive requests. *)

@@ -7,7 +7,7 @@
     @since 0.53.0  Streaming, retry, cascade
     @since 0.54.0  Optional cache + metrics hooks
     @since 0.78.0  Transport abstraction
-    @since 0.95.0  Optional request priority
+    @since 0.95.0  Optional request priority (accepted, not yet used for scheduling)
 
     @stability Internal
     @since 0.93.1 *)

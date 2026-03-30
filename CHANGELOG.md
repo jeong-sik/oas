@@ -9,8 +9,8 @@ All notable changes to `agent_sdk` are documented in this file.
 - `?priority` parameter added to all completion and cascade functions.
 - `to_yojson`/`of_yojson` converters for `Request_priority`.
 
-### Fixed
-- `complete_stream_cascade` now passes `?priority` through to `complete_stream` (was silently dropping it).
+### Changed
+- `complete_stream_cascade` now correctly threads `?priority` through to `complete_stream`.
 
 ## [0.94.0] - 2026-03-29
 
