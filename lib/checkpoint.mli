@@ -42,6 +42,68 @@ type t = {
   working_context: Yojson.Safe.t option;
 }
 
+type message_splice = {
+  start_index: int;
+  delete_count: int;
+  insert: Types.message list;
+}
+
+type identity_patch = {
+  session_id: string;
+  agent_name: string;
+  model: Types.model;
+  created_at: float;
+}
+
+type sampling_patch = {
+  temperature: float option;
+  top_p: float option;
+  top_k: int option;
+  min_p: float option;
+  enable_thinking: bool option;
+  thinking_budget: int option;
+}
+
+type limits_patch = {
+  disable_parallel_tool_use: bool;
+  response_format_json: bool;
+  cache_system_prompt: bool;
+  max_input_tokens: int option;
+  max_total_tokens: int option;
+}
+
+type delta_op =
+  | Replace_identity of identity_patch
+  | Replace_system_prompt of string option
+  | Splice_messages of message_splice
+  | Replace_usage of Types.usage_stats
+  | Replace_turn_count of int
+  | Replace_tools of Types.tool_schema list
+  | Replace_tool_choice of Types.tool_choice option
+  | Replace_sampling of sampling_patch
+  | Replace_limits of limits_patch
+  | Patch_context of Context.diff
+  | Replace_mcp_sessions of Mcp_session.info list
+  | Replace_working_context of Yojson.Safe.t option
+
+type delta = {
+  delta_version: int;
+  base_checkpoint_version: int;
+  base_checkpoint_hash: string;
+  result_checkpoint_hash: string;
+  created_at: float;
+  operations: delta_op list;
+}
+
+type delta_restore_mode =
+  | Delta_applied
+  | Full_restore
+
+type delta_restore_result = {
+  checkpoint: t;
+  mode: delta_restore_mode;
+}
+
 (** {1 Serialization} *)
 
 (** Serialize checkpoint to JSON. *)
@@ -55,6 +117,30 @@ val to_string : t -> string
 
 (** Deserialize checkpoint from a JSON string. *)
 val of_string : string -> (t, Error.sdk_error) result
+
+(** Serialize a checkpoint delta sidecar to JSON. *)
+val delta_to_json : delta -> Yojson.Safe.t
+
+(** Deserialize a checkpoint delta sidecar from JSON. *)
+val delta_of_json : Yojson.Safe.t -> (delta, Error.sdk_error) result
+
+(** Whether the `MASC_DELTA_CHECKPOINT` feature flag is enabled. *)
+val delta_enabled : unit -> bool
+
+(** Compute a delta from a base checkpoint to a target checkpoint. *)
+val compute_delta : t -> t -> delta
+
+(** Apply a delta to a base checkpoint. *)
+val apply_delta : t -> delta -> (t, Error.sdk_error) result
+
+(** Apply delta when enabled and valid, otherwise fall back to the full checkpoint. *)
+val restore_with_delta_fallback :
+  ?metrics:Metrics.t ->
+  base:t ->
+  delta:delta ->
+  full_checkpoint:t ->
+  unit ->
+  (delta_restore_result, Error.sdk_error) result
 
 (** {1 Queries} *)
 
