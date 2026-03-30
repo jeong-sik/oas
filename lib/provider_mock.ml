@@ -40,8 +40,10 @@ let call_count mock = mock.index
 
 (* ── Convenience builders ─────────────────────────────────────── *)
 
-(** Build a simple text response. *)
-let text_response ?(id="mock-id") ?(model="mock-model") text =
+(** Build a simple text response.
+    Token counts default to 0; set explicitly when testing budget/cost logic. *)
+let text_response ?(id="mock-id") ?(model="mock-model")
+    ?(input_tokens=0) ?(output_tokens=0) text =
   fun (_messages : message list) ->
     {
       id;
@@ -49,16 +51,18 @@ let text_response ?(id="mock-id") ?(model="mock-model") text =
       stop_reason = EndTurn;
       content = [Text text];
       usage = Some {
-        input_tokens = 100;
-        output_tokens = 50;
+        input_tokens;
+        output_tokens;
         cache_creation_input_tokens = 0;
         cache_read_input_tokens = 0;
         cost_usd = None
       };
     }
 
-(** Build a tool-use response. *)
+(** Build a tool-use response.
+    Token counts default to 0; set explicitly when testing budget/cost logic. *)
 let tool_use_response ?(id="mock-id") ?(model="mock-model")
+    ?(input_tokens=0) ?(output_tokens=0)
     ~tool_name ~tool_input () =
   fun (_messages : message list) ->
     let tool_use_id = Printf.sprintf "toolu_%s_%d"
@@ -69,8 +73,8 @@ let tool_use_response ?(id="mock-id") ?(model="mock-model")
       stop_reason = StopToolUse;
       content = [ToolUse { id = tool_use_id; name = tool_name; input = tool_input }];
       usage = Some {
-        input_tokens = 150;
-        output_tokens = 80;
+        input_tokens;
+        output_tokens;
         cache_creation_input_tokens = 0;
         cache_read_input_tokens = 0;
         cost_usd = None
@@ -84,8 +88,10 @@ let tool_then_text ~tool_name ~tool_input ~final_text () =
     text_response final_text;
   ]
 
-(** Build a response with thinking block followed by text. *)
+(** Build a response with thinking block followed by text.
+    Token counts default to 0; set explicitly when testing budget/cost logic. *)
 let thinking_response ?(id="mock-id") ?(model="mock-model")
+    ?(input_tokens=0) ?(output_tokens=0)
     ~thinking ~text () =
   fun (_messages : message list) ->
     {
@@ -97,8 +103,8 @@ let thinking_response ?(id="mock-id") ?(model="mock-model")
         Text text;
       ];
       usage = Some {
-        input_tokens = 200;
-        output_tokens = 150;
+        input_tokens;
+        output_tokens;
         cache_creation_input_tokens = 0;
         cache_read_input_tokens = 0;
         cost_usd = None
