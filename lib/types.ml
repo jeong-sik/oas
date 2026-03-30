@@ -105,7 +105,7 @@ type usage_stats = {
   api_calls: int;
   estimated_cost_usd: float;
 }
-[@@deriving show]
+[@@deriving yojson, show]
 
 let empty_usage = {
   total_input_tokens = 0;

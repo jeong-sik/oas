@@ -72,7 +72,7 @@ let iteration_record_to_json (r : Swarm_types.iteration_record) : Yojson.Safe.t 
   let agent_results = List.map (fun (name, status) ->
     `Assoc [
       ("name", `String name);
-      ("status", `String (Swarm_types.show_agent_status status));
+      ("status", Swarm_types.agent_status_to_yojson status);
     ]
   ) r.agent_results in
   `Assoc [
@@ -84,16 +84,24 @@ let iteration_record_to_json (r : Swarm_types.iteration_record) : Yojson.Safe.t 
   ]
 
 (** Reconstruct an iteration_record from JSON.
-    agent_results statuses are restored as Idle (the original status
-    text is preserved in JSON but parsing show-format back is fragile).
+    Version 2+ preserves full agent_status variants with telemetry.
+    Version 1 falls back to Idle for backward compatibility.
     Core fields (iteration, metric_value, elapsed, timestamp) are exact. *)
-let iteration_record_of_json (json : Yojson.Safe.t) : Swarm_types.iteration_record =
+let iteration_record_of_json ~version (json : Yojson.Safe.t) : Swarm_types.iteration_record =
   let open Yojson.Safe.Util in
   let agent_results =
     json |> member "agent_results" |> to_list
     |> List.map (fun ar ->
       let name = ar |> member "name" |> to_string in
-      (name, Swarm_types.Idle))
+      let status =
+        if version >= 2 then
+          match Swarm_types.agent_status_of_yojson (ar |> member "status") with
+          | Ok s -> s
+          | Error _ -> Swarm_types.Idle
+        else
+          Swarm_types.Idle
+      in
+      (name, status))
   in
   { iteration = json |> member "iteration" |> to_int;
     metric_value = json |> member "metric_value" |> to_float_option;
@@ -180,7 +188,7 @@ let load ~path : (t, Error.sdk_error) result =
             |> Option.value ~default:false;  (* v1 backward compat *)
           history =
             json |> member "history" |> to_list
-            |> List.map iteration_record_of_json;
+            |> List.map (iteration_record_of_json ~version);
           created_at = json |> member "created_at" |> to_float;
         }
     with
@@ -632,3 +640,88 @@ let%test "v1 backward compat: converged defaults to false" =
   | Error _ ->
     Sys.remove path;
     false
+
+(* ── Version 2: Agent status roundtrip tests ──────────────────── *)
+
+let%test "v2 agent_status roundtrip: Idle" =
+  let status = Swarm_types.Idle in
+  let json = Swarm_types.agent_status_to_yojson status in
+  match Swarm_types.agent_status_of_yojson json with
+  | Ok restored -> restored = status
+  | Error _ -> false
+
+let%test "v2 agent_status roundtrip: Working" =
+  let status = Swarm_types.Working in
+  let json = Swarm_types.agent_status_to_yojson status in
+  match Swarm_types.agent_status_of_yojson json with
+  | Ok restored -> restored = status
+  | Error _ -> false
+
+let%test "v2 agent_status roundtrip: Done_ok with telemetry" =
+  let telemetry = {
+    Swarm_types.trace_ref = None;
+    usage = Some Types.empty_usage;
+    turn_count = 3;
+  } in
+  let status = Swarm_types.Done_ok { elapsed = 1.5; text = "result text"; telemetry } in
+  let json = Swarm_types.agent_status_to_yojson status in
+  match Swarm_types.agent_status_of_yojson json with
+  | Ok restored -> restored = status
+  | Error _ -> false
+
+let%test "v2 agent_status roundtrip: Done_error with telemetry" =
+  let telemetry = {
+    Swarm_types.trace_ref = None;
+    usage = Some { Types.empty_usage with total_input_tokens = 100 };
+    turn_count = 2;
+  } in
+  let status = Swarm_types.Done_error { elapsed = 2.3; error = "test error"; telemetry } in
+  let json = Swarm_types.agent_status_to_yojson status in
+  match Swarm_types.agent_status_of_yojson json with
+  | Ok restored -> restored = status
+  | Error _ -> false
+
+let%test "v2 iteration_record preserves agent_status" =
+  let telemetry = {
+    Swarm_types.trace_ref = None;
+    usage = Some Types.empty_usage;
+    turn_count = 1;
+  } in
+  let record = {
+    Swarm_types.iteration = 1;
+    metric_value = Some 0.95;
+    agent_results = [
+      ("agent1", Swarm_types.Idle);
+      ("agent2", Swarm_types.Done_ok { elapsed = 1.2; text = "ok"; telemetry });
+      ("agent3", Swarm_types.Done_error { elapsed = 0.8; error = "fail"; telemetry });
+    ];
+    elapsed = 2.0;
+    timestamp = Unix.gettimeofday ();
+    trace_refs = [];
+  } in
+  let json = iteration_record_to_json record in
+  let restored = iteration_record_of_json ~version:2 json in
+  restored.agent_results = record.agent_results
+
+let%test "v1 backward compat: agent_status defaults to Idle" =
+  let record = {
+    Swarm_types.iteration = 1;
+    metric_value = Some 0.95;
+    agent_results = [
+      ("agent1", Swarm_types.Done_ok {
+        elapsed = 1.0;
+        text = "result";
+        telemetry = Swarm_types.empty_telemetry
+      });
+    ];
+    elapsed = 1.0;
+    timestamp = Unix.gettimeofday ();
+    trace_refs = [];
+  } in
+  let json = iteration_record_to_json record in
+  (* Load with version 1 to test backward compat *)
+  let restored = iteration_record_of_json ~version:1 json in
+  match restored.agent_results with
+  | [("agent1", Swarm_types.Idle)] -> true
+  | _ -> false
+
