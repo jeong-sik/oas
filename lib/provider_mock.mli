@@ -32,13 +32,18 @@ val call_count : t -> int
 
 (** {1 Convenience Builders} *)
 
-(** Build a simple text response function. *)
+(** Build a simple text response function.
+    Token counts default to 0; set explicitly when testing budget/cost logic. *)
 val text_response :
-  ?id:string -> ?model:string -> string -> response_fn
+  ?id:string -> ?model:string ->
+  ?input_tokens:int -> ?output_tokens:int ->
+  string -> response_fn
 
-(** Build a tool-use response function. *)
+(** Build a tool-use response function.
+    Token counts default to 0; set explicitly when testing budget/cost logic. *)
 val tool_use_response :
   ?id:string -> ?model:string ->
+  ?input_tokens:int -> ?output_tokens:int ->
   tool_name:string -> tool_input:Yojson.Safe.t ->
   unit -> response_fn
 
@@ -47,9 +52,11 @@ val tool_then_text :
   tool_name:string -> tool_input:Yojson.Safe.t ->
   final_text:string -> unit -> response_fn list
 
-(** Build a thinking + text response function. *)
+(** Build a thinking + text response function.
+    Token counts default to 0; set explicitly when testing budget/cost logic. *)
 val thinking_response :
   ?id:string -> ?model:string ->
+  ?input_tokens:int -> ?output_tokens:int ->
   thinking:string -> text:string ->
   unit -> response_fn
 
