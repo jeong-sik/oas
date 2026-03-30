@@ -141,6 +141,7 @@ let with_mcp_clients clients b = { b with mcp_clients = clients }
 let with_guardrails guardrails b = { b with guardrails }
 let with_guardrails_async guardrails_async b = { b with guardrails_async }
 let with_operator_policy policy b = { b with operator_policy = Some policy }
+let with_priority priority b = { b with priority = Some priority }
 let with_contract contract b =
   { b with contract = Contract.merge b.contract contract }
 let with_skill skill b =

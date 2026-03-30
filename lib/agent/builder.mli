@@ -53,6 +53,11 @@ val with_guardrails_async : Guardrails_async.t -> t -> t
 
     @since 0.94.0 *)
 val with_operator_policy : Guardrails.tool_filter -> t -> t
+
+(** Set scheduling priority for LLM requests made by this agent.
+    @since 0.96.0 *)
+val with_priority : Llm_provider.Request_priority.t -> t -> t
+
 val with_tracer : Tracing.t -> t -> t
 val with_raw_trace : Raw_trace.t -> t -> t
 val with_approval : Hooks.approval_callback -> t -> t
