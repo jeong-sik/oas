@@ -610,7 +610,7 @@ let%test "roundtrip: agent_status Done_ok" =
   let status = Swarm_types.Done_ok { elapsed = 1.5; text = "success"; telemetry } in
   let json = Swarm_types.agent_status_to_yojson status in
   match Swarm_types.agent_status_of_yojson json with
-  | Ok (Done_ok { elapsed; text; telemetry = t }) ->
+  | Ok (Swarm_types.Done_ok { elapsed; text; telemetry = t }) ->
       elapsed = 1.5 && text = "success" && t.turn_count = 3
   | _ -> false
 
@@ -619,7 +619,7 @@ let%test "roundtrip: agent_status Done_error" =
   let status = Swarm_types.Done_error { elapsed = 0.5; error = "failed"; telemetry } in
   let json = Swarm_types.agent_status_to_yojson status in
   match Swarm_types.agent_status_of_yojson json with
-  | Ok (Done_error { elapsed; error; telemetry = t }) ->
+  | Ok (Swarm_types.Done_error { elapsed; error; telemetry = t }) ->
       elapsed = 0.5 && error = "failed" && t.turn_count = 2
   | _ -> false
 
@@ -661,7 +661,7 @@ let%test "roundtrip: iteration_record with Done_ok status and usage" =
   let json = iteration_record_to_json rec_ in
   let restored = iteration_record_of_json ~version:checkpoint_version json in
   match List.assoc_opt "agent1" restored.agent_results with
-  | Some (Done_ok { elapsed; text; telemetry = t }) ->
+  | Some (Swarm_types.Done_ok { elapsed; text; telemetry = t }) ->
       elapsed = 2.5 && text = "completed" && t.turn_count = 2
       && (match t.usage with
           | Some u -> u.total_input_tokens = 100 && u.total_output_tokens = 50
@@ -682,7 +682,7 @@ let%test "version 1 compatibility: agent_results restored as Idle" =
   ] in
   let restored = iteration_record_of_json ~version:1 json in
   match List.assoc_opt "w1" restored.agent_results with
-  | Some Idle -> true
+  | Some Swarm_types.Idle -> true
   | _ -> false
 
 let%test "version 1 compatibility: trace_refs restored as empty" =
@@ -695,4 +695,3 @@ let%test "version 1 compatibility: trace_refs restored as empty" =
   ] in
   let restored = iteration_record_of_json ~version:1 json in
   restored.trace_refs = []
-
