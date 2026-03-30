@@ -149,3 +149,12 @@ val message_count : t -> int
 
 (** Usage stats from the checkpoint. *)
 val token_usage : t -> Types.usage_stats
+
+(** {1 Usage stats JSON helpers} *)
+
+(** Serialize usage_stats to JSON. Reusable by downstream modules
+    (e.g., swarm checkpoint telemetry). *)
+val usage_to_json : Types.usage_stats -> Yojson.Safe.t
+
+(** Deserialize usage_stats from JSON. *)
+val usage_of_json : Yojson.Safe.t -> Types.usage_stats
