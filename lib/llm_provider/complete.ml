@@ -39,7 +39,8 @@ type sampling_defaults = {
 let provider_sampling_defaults (kind : Provider_config.provider_kind) : sampling_defaults =
   match kind with
   | Provider_config.OpenAI_compat ->
-    { default_min_p = Some 0.05; default_top_p = None; default_top_k = None }
+    { default_min_p = Some Constants.Sampling.openai_compat_min_p;
+      default_top_p = None; default_top_k = None }
   | Provider_config.Anthropic ->
     { default_min_p = None; default_top_p = None; default_top_k = None }
   | Provider_config.Gemini ->
@@ -162,7 +163,7 @@ let complete ~sw ~net ?(transport : Llm_transport.t option)
            (match cache, cache_key with
             | Some c, Some key ->
                 let json = Cache.response_to_json resp in
-                (try c.set ~key ~ttl_sec:300 json
+                (try c.set ~key ~ttl_sec:Constants.Cache.default_ttl_sec json
                  with Eio.Io _ | Sys_error _ -> ())
             | _, _ -> ());
            Ok resp
@@ -185,15 +186,15 @@ type retry_config = {
 }
 
 let default_retry_config = {
-  max_retries = 3;
-  initial_delay_sec = 1.0;
-  max_delay_sec = 30.0;
-  backoff_multiplier = 2.0;
+  max_retries = Constants.Retry.max_retries;
+  initial_delay_sec = Constants.Retry.initial_delay_sec;
+  max_delay_sec = Constants.Retry.max_delay_sec;
+  backoff_multiplier = Constants.Retry.backoff_multiplier;
 }
 
 let is_retryable = function
   | Http_client.HttpError { code; _ } ->
-      code = 429 || code = 500 || code = 502 || code = 503 || code = 529
+      List.mem code Constants.Http.retryable_codes
   | Http_client.NetworkError _ -> true
 
 let complete_with_retry ~sw ~net ?transport ~clock
@@ -201,9 +202,8 @@ let complete_with_retry ~sw ~net ?transport ~clock
     ~(messages : Types.message list) ?(tools=[])
     ?(retry_config=default_retry_config)
     ?cache ?metrics ?priority () =
-  (* Jitter: randomize delay by 0.5x-1.5x to prevent thundering herd *)
   let jittered delay =
-    let factor = 0.5 +. Random.float 1.0 in
+    let factor = Constants.Retry.jitter_min +. Random.float Constants.Retry.jitter_range in
     delay *. factor
   in
   let rec attempt n delay =

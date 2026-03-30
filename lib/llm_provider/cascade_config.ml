@@ -46,118 +46,112 @@ let headers_with_auth ~(kind : Provider_config.provider_kind) ~api_key =
     | OpenAI_compat | Gemini | Glm | Claude_code ->
         ("Authorization", "Bearer " ^ api_key) :: base
 
-(* ── Model string parsing ──────────────────────────────── *)
+(* ── String splitting helper ──────────────────────────────── *)
 
-let parse_model_string ?(temperature = 0.3) ?(max_tokens = 500)
-    ?system_prompt (s : string) : Provider_config.t option =
-  let s = String.trim s in
+(** Split a "provider:model_id" string at the first colon.
+    Returns [None] if the colon is missing, at position 0, or at the end. *)
+let split_provider_model (s : string) : (string * string) option =
   match String.index_opt s ':' with
   | None -> None
   | Some idx ->
     if idx = 0 || idx >= String.length s - 1 then None
     else
-      let provider_name = String.sub s 0 idx |> String.trim |> String.lowercase_ascii in
+      let provider_name =
+        String.sub s 0 idx |> String.trim |> String.lowercase_ascii
+      in
       let model_id =
         String.sub s (idx + 1) (String.length s - idx - 1) |> String.trim
       in
       if model_id = "" then None
-      else
-        match provider_name with
-        | "custom" ->
-          let actual_model, base_url = parse_custom_model model_id in
-          if actual_model = "" then None
-          else Some (Provider_config.make
-                  ~kind:OpenAI_compat
-                  ~model_id:actual_model
-                  ~base_url
-                  ~request_path:"/v1/chat/completions"
-                  ~temperature
-                  ~max_tokens
-                  ?system_prompt
-                  ())
-        | _ ->
-          match Provider_registry.find default_registry provider_name with
-          | None -> None
-          | Some entry ->
-            if not (entry.is_available ()) then None
-            else
-              let defaults = entry.defaults in
-              let api_key =
-                if defaults.api_key_env = "" then ""
-                else
-                  Sys.getenv_opt defaults.api_key_env
-                  |> Option.value ~default:""
-              in
-              let headers = headers_with_auth ~kind:defaults.kind ~api_key in
-              (* For llama provider: round-robin across LLM_ENDPOINTS
-                 so multiple local servers share the load transparently. *)
-              let base_url =
-                if provider_name = "llama" then
-                  Provider_registry.next_llama_endpoint ()
-                else defaults.base_url
-              in
-              let resolved_model_id =
-                resolve_auto_model_id provider_name model_id
-              in
-              Some (Provider_config.make
-                      ~kind:defaults.kind
-                      ~model_id:resolved_model_id
-                      ~base_url
-                      ~api_key ~headers
-                      ~request_path:defaults.request_path
-                      ~temperature
-                      ~max_tokens
-                      ?system_prompt
-                      ())
+      else Some (provider_name, model_id)
 
-let parse_model_string_exn ?(temperature = 0.3) ?(max_tokens = 500)
+(* ── Shared config construction helpers ──────────────────── *)
+
+(** Build a {!Provider_config.t} for "custom:model@url" specs. *)
+let make_custom_config ~temperature ~max_tokens ?system_prompt model_id =
+  let actual_model, base_url = parse_custom_model model_id in
+  if actual_model = "" then None
+  else Some (Provider_config.make
+               ~kind:OpenAI_compat
+               ~model_id:actual_model
+               ~base_url
+               ~request_path:"/v1/chat/completions"
+               ~temperature
+               ~max_tokens
+               ?system_prompt
+               ())
+
+(** Build a {!Provider_config.t} from a registry entry. *)
+let make_registry_config ~temperature ~max_tokens ?system_prompt
+    ~provider_name ~model_id (entry : Provider_registry.entry) =
+  let defaults = entry.defaults in
+  let api_key =
+    if defaults.api_key_env = "" then ""
+    else Sys.getenv_opt defaults.api_key_env |> Option.value ~default:""
+  in
+  let headers = headers_with_auth ~kind:defaults.kind ~api_key in
+  let base_url =
+    if provider_name = "llama" then
+      Provider_registry.next_llama_endpoint ()
+    else defaults.base_url
+  in
+  let resolved_model_id = resolve_auto_model_id provider_name model_id in
+  Provider_config.make
+    ~kind:defaults.kind
+    ~model_id:resolved_model_id
+    ~base_url
+    ~api_key ~headers
+    ~request_path:defaults.request_path
+    ~temperature
+    ~max_tokens
+    ?system_prompt
+    ()
+
+(* ── Model string parsing ──────────────────────────────── *)
+
+let parse_model_string
+    ?(temperature = Constants.Inference.default_temperature)
+    ?(max_tokens = Constants.Inference.default_max_tokens)
+    ?system_prompt (s : string) : Provider_config.t option =
+  match split_provider_model (String.trim s) with
+  | None -> None
+  | Some ("custom", model_id) ->
+    make_custom_config ~temperature ~max_tokens ?system_prompt model_id
+  | Some (provider_name, model_id) ->
+    match Provider_registry.find default_registry provider_name with
+    | None -> None
+    | Some entry when not (entry.is_available ()) -> None
+    | Some entry ->
+      Some (make_registry_config ~temperature ~max_tokens ?system_prompt
+              ~provider_name ~model_id entry)
+
+let parse_model_string_exn
+    ?(temperature = Constants.Inference.default_temperature)
+    ?(max_tokens = Constants.Inference.default_max_tokens)
     ?system_prompt (s : string) : (Provider_config.t, string) result =
   let s = String.trim s in
-  match String.index_opt s ':' with
+  match split_provider_model s with
   | None ->
     Error (Printf.sprintf "invalid model spec %S: expected \"provider:model_id\"" s)
-  | Some idx ->
-    if idx = 0 || idx >= String.length s - 1 then
-      Error (Printf.sprintf "invalid model spec %S: empty provider or model_id" s)
-    else
-      let provider_name = String.sub s 0 idx |> String.trim |> String.lowercase_ascii in
-      let model_id =
-        String.sub s (idx + 1) (String.length s - idx - 1) |> String.trim
-      in
-      if model_id = "" then
-        Error (Printf.sprintf "invalid model spec %S: empty model_id" s)
-      else
-        match provider_name with
-        | "custom" ->
-          let actual_model, base_url = parse_custom_model model_id in
-          if actual_model = "" then
-            Error (Printf.sprintf "invalid custom model spec %S: empty model after @" s)
-          else
-            Ok (Provider_config.make
-                  ~kind:OpenAI_compat ~model_id:actual_model ~base_url
-                  ~request_path:"/v1/chat/completions"
-                  ~temperature ~max_tokens ?system_prompt ())
-        | _ ->
-          (match Provider_registry.find default_registry provider_name with
-          | None ->
-            Error (Printf.sprintf "unknown provider %S in model spec %S" provider_name s)
-          | Some entry ->
-            if not (entry.is_available ()) then
-              Error (Printf.sprintf "provider %S unavailable (missing env var %S)"
-                       provider_name entry.defaults.api_key_env)
-            else
-              let defaults = entry.defaults in
-              let api_key =
-                if defaults.api_key_env = "" then ""
-                else Sys.getenv_opt defaults.api_key_env |> Option.value ~default:""
-              in
-              let headers = headers_with_auth ~kind:defaults.kind ~api_key in
-              Ok (Provider_config.make
-                    ~kind:defaults.kind ~model_id ~base_url:defaults.base_url
-                    ~api_key ~headers ~request_path:defaults.request_path
-                    ~temperature ~max_tokens ?system_prompt ()))
+  | Some ("custom", model_id) ->
+    (match make_custom_config ~temperature ~max_tokens ?system_prompt model_id with
+     | Some cfg -> Ok cfg
+     | None ->
+       Error (Printf.sprintf "invalid custom model spec %S: empty model after @" s))
+  | Some (provider_name, model_id) ->
+    match Provider_registry.find default_registry provider_name with
+    | None ->
+      Error (Printf.sprintf "unknown provider %S in model spec %S" provider_name s)
+    | Some entry when not (entry.is_available ()) ->
+      Error (Printf.sprintf "provider %S unavailable (missing env var %S)"
+               provider_name entry.defaults.api_key_env)
+    | Some entry ->
+      Ok (make_registry_config ~temperature ~max_tokens ?system_prompt
+            ~provider_name ~model_id entry)
 
-let parse_model_strings ?(temperature = 0.3) ?(max_tokens = 500)
+let parse_model_strings
+    ?(temperature = Constants.Inference.default_temperature)
+    ?(max_tokens = Constants.Inference.default_max_tokens)
     ?system_prompt (strs : string list) : Provider_config.t list =
   List.filter_map
     (parse_model_string ~temperature ~max_tokens ?system_prompt)
@@ -168,8 +162,7 @@ let parse_model_strings ?(temperature = 0.3) ?(max_tokens = 500)
 (** Decide whether an error should cascade to the next provider. *)
 let should_cascade_to_next = function
   | Http_client.HttpError { code; _ } ->
-    code = 401 || code = 403
-    || code = 429 || code = 500 || code = 502 || code = 503 || code = 529
+    List.mem code Constants.Http.cascadable_codes
   | Http_client.NetworkError _ -> true
 
 (* ── Discovery-aware health filtering ──────────────────── *)
@@ -313,8 +306,8 @@ let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
       let msg = match last_err with
         | Some (Http_client.HttpError { code; body }) ->
           Printf.sprintf "HTTP %d: %s" code
-            (if String.length body > 200
-             then String.sub body 0 200 ^ "..."
+            (if String.length body > Constants.Truncation.max_error_body_length
+             then String.sub body 0 Constants.Truncation.max_error_body_length ^ "..."
              else body)
         | Some (Http_client.NetworkError { message }) -> message
         | None -> "No providers available"
@@ -363,7 +356,9 @@ let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
 
 let complete_named ~sw ~net ?clock ?config_path
     ~name ~defaults ~messages
-    ?(tools = []) ?(temperature = 0.3) ?(max_tokens = 500)
+    ?(tools = [])
+    ?(temperature = Constants.Inference.default_temperature)
+    ?(max_tokens = Constants.Inference.default_max_tokens)
     ?system_prompt ?(accept = fun _ -> true) ?(strict_name = false)
     ?timeout_sec ?cache ?metrics ?throttle ?priority () =
   let model_strings, source =
@@ -445,8 +440,8 @@ let complete_cascade_stream ~sw ~net ?(metrics : Metrics.t option)
       let msg = match last_err with
         | Some (Http_client.HttpError { code; body }) ->
           Printf.sprintf "HTTP %d: %s" code
-            (if String.length body > 200
-             then String.sub body 0 200 ^ "..."
+            (if String.length body > Constants.Truncation.max_error_body_length
+             then String.sub body 0 Constants.Truncation.max_error_body_length ^ "..."
              else body)
         | Some (Http_client.NetworkError { message }) -> message
         | None -> "No providers available"
@@ -477,7 +472,9 @@ let complete_cascade_stream ~sw ~net ?(metrics : Metrics.t option)
 
 let complete_named_stream ~sw ~net ?clock ?config_path
     ~name ~defaults ~messages
-    ?(tools = []) ?(temperature = 0.3) ?(max_tokens = 500)
+    ?(tools = [])
+    ?(temperature = Constants.Inference.default_temperature)
+    ?(max_tokens = Constants.Inference.default_max_tokens)
     ?system_prompt ?(strict_name = false)
     ?timeout_sec ?metrics ?priority ~on_event () =
   let model_strings, source =

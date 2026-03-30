@@ -17,10 +17,10 @@ type retry_config = {
 }
 
 let default_config = {
-  max_retries = 3;
-  initial_delay = 1.0;
-  max_delay = 60.0;
-  backoff_factor = 2.0;
+  max_retries = Constants.Structured_retry.max_retries;
+  initial_delay = Constants.Structured_retry.initial_delay;
+  max_delay = Constants.Structured_retry.max_delay;
+  backoff_factor = Constants.Structured_retry.backoff_factor;
 }
 
 let is_retryable = function
@@ -67,8 +67,8 @@ let classify_error ~status ~body : api_error =
 let calculate_delay config attempt =
   let base_delay = config.initial_delay *. (config.backoff_factor ** Float.of_int attempt) in
   let capped = Float.min base_delay config.max_delay in
-  (* Add jitter: 0.5x to 1.5x *)
-  let jitter = 0.5 +. Random.float 1.0 in
+  let jitter = Constants.Structured_retry.jitter_min
+    +. Random.float Constants.Structured_retry.jitter_range in
   capped *. jitter
 
 (** Retry a function with exponential backoff.
