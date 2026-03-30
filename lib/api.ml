@@ -194,11 +194,19 @@ let create_message_named ~sw ~net ?clock ~(named_cascade : named_cascade)
     | Some _ -> system_prompt
     | None -> config.config.system_prompt
   in
+  (* Fall back to named_cascade.metrics when caller does not provide ?metrics.
+     This lets downstream consumers (e.g. MASC oas_worker) wire Prometheus
+     counters once via named_cascade and get cache hit/miss callbacks
+     without threading ?metrics through every call site. *)
+  let metrics = match metrics with
+    | Some m -> m
+    | None -> named_cascade.metrics
+  in
   match
     Llm_provider.Cascade_config.complete_named ~sw ~net ?clock
       ?config_path:named_cascade.config_path ~name:named_cascade.name
       ~defaults:named_cascade.defaults ~messages ?tools ~temperature
-      ~max_tokens ?system_prompt ~accept ?timeout_sec ?metrics ?priority ()
+      ~max_tokens ?system_prompt ~accept ?timeout_sec ~metrics ?priority ()
   with
   | Ok response -> Ok response
   | Error err -> Error (map_named_cascade_error err)
@@ -212,11 +220,15 @@ let create_message_named_stream ~sw ~net ?clock
     | Some _ -> system_prompt
     | None -> config.config.system_prompt
   in
+  let metrics = match metrics with
+    | Some m -> m
+    | None -> named_cascade.metrics
+  in
   match
     Llm_provider.Cascade_config.complete_named_stream ~sw ~net ?clock
       ?config_path:named_cascade.config_path ~name:named_cascade.name
       ~defaults:named_cascade.defaults ~messages ?tools ~temperature
-      ~max_tokens ?system_prompt ?timeout_sec ?metrics ~on_event ?priority ()
+      ~max_tokens ?system_prompt ?timeout_sec ~metrics ~on_event ?priority ()
   with
   | Ok response -> Ok response
   | Error err -> Error (map_named_cascade_error err)
