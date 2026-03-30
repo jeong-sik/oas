@@ -118,21 +118,22 @@ val to_string : t -> string
 (** Deserialize checkpoint from a JSON string. *)
 val of_string : string -> (t, Error.sdk_error) result
 
-val delta_to_json : delta -> Yojson.Safe.t
 (** Serialize a checkpoint delta sidecar to JSON. *)
+val delta_to_json : delta -> Yojson.Safe.t
 
-val delta_of_json : Yojson.Safe.t -> (delta, Error.sdk_error) result
 (** Deserialize a checkpoint delta sidecar from JSON. *)
+val delta_of_json : Yojson.Safe.t -> (delta, Error.sdk_error) result
 
-val delta_enabled : unit -> bool
 (** Whether the `MASC_DELTA_CHECKPOINT` feature flag is enabled. *)
+val delta_enabled : unit -> bool
 
-val compute_delta : t -> t -> delta
 (** Compute a delta from a base checkpoint to a target checkpoint. *)
+val compute_delta : t -> t -> delta
 
-val apply_delta : t -> delta -> (t, Error.sdk_error) result
 (** Apply a delta to a base checkpoint. *)
+val apply_delta : t -> delta -> (t, Error.sdk_error) result
 
+(** Apply delta when enabled and valid, otherwise fall back to the full checkpoint. *)
 val restore_with_delta_fallback :
   ?metrics:Metrics.t ->
   base:t ->
@@ -140,7 +141,6 @@ val restore_with_delta_fallback :
   full_checkpoint:t ->
   unit ->
   (delta_restore_result, Error.sdk_error) result
-(** Apply delta when enabled and valid, otherwise fall back to the full checkpoint. *)
 
 (** {1 Queries} *)
 

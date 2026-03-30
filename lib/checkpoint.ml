@@ -282,10 +282,21 @@ let context_diff_is_empty diff =
 let list_sub lst start len =
   if len <= 0 then []
   else
-    lst
-    |> List.mapi (fun i item -> (i, item))
-    |> List.filter_map (fun (i, item) ->
-         if i >= start && i < start + len then Some item else None)
+    let rec drop n rest =
+      if n <= 0 then rest
+      else
+        match rest with
+        | [] -> []
+        | _ :: tail -> drop (n - 1) tail
+    in
+    let rec take n rest acc =
+      if n <= 0 then List.rev acc
+      else
+        match rest with
+        | [] -> List.rev acc
+        | item :: tail -> take (n - 1) tail (item :: acc)
+    in
+    take len (drop start lst) []
 
 let common_prefix_len left right =
   let rec loop n = function
@@ -376,16 +387,30 @@ let context_diff_of_json json =
                      })))
     |> result_all
   in
-  match parse_kvs "added", parse_kvs "changed" with
-  | Ok added, Ok changed ->
+  let parse_removed () =
+    try Ok (json |> member "removed" |> to_list |> List.map to_string)
+    with
+    | Type_error (msg, _) ->
+      Error
+        (Error.Serialization
+           (JsonParseError
+              {
+                detail =
+                  Printf.sprintf
+                    "Checkpoint.delta context diff removed: %s" msg;
+              }))
+  in
+  match parse_kvs "added", parse_kvs "changed", parse_removed () with
+  | Ok added, Ok changed, Ok removed ->
     Ok
       {
         Context.added;
-        removed = json |> member "removed" |> to_list |> List.map to_string;
+        removed;
         changed;
       }
-  | Error e, _ -> Error e
-  | _, Error e -> Error e
+  | Error e, _, _ -> Error e
+  | _, Error e, _ -> Error e
+  | _, _, Error e -> Error e
 
 let sampling_patch_changed (before : t) (after : t) =
   before.temperature <> after.temperature
@@ -856,38 +881,7 @@ let restore_with_delta_fallback ?metrics ~base ~delta ~full_checkpoint () =
 
 (* ── Public API ─────────────────────────────────────────────────── *)
 
-let to_json cp =
-  `Assoc [
-    ("version", `Int cp.version);
-    ("session_id", `String cp.session_id);
-    ("agent_name", `String cp.agent_name);
-    ("model", model_to_yojson cp.model);
-    ("system_prompt",
-      (match cp.system_prompt with Some s -> `String s | None -> `Null));
-    ("messages", `List (List.map Api.message_to_json cp.messages));
-    ("usage", usage_to_json cp.usage);
-    ("turn_count", `Int cp.turn_count);
-    ("created_at", `Float cp.created_at);
-    ("tools", `List (List.map tool_schema_to_json cp.tools));
-    ("tool_choice",
-      (match cp.tool_choice with
-       | Some tc -> tool_choice_to_json tc
-       | None -> `Null));
-    ("temperature", Option.value ~default:`Null (Option.map (fun v -> `Float v) cp.temperature));
-    ("top_p", Option.value ~default:`Null (Option.map (fun v -> `Float v) cp.top_p));
-    ("top_k", Option.value ~default:`Null (Option.map (fun v -> `Int v) cp.top_k));
-    ("min_p", Option.value ~default:`Null (Option.map (fun v -> `Float v) cp.min_p));
-    ("enable_thinking", Option.value ~default:`Null (Option.map (fun v -> `Bool v) cp.enable_thinking));
-    ("response_format_json", `Bool cp.response_format_json);
-    ("thinking_budget", Option.value ~default:`Null (Option.map (fun v -> `Int v) cp.thinking_budget));
-    ("disable_parallel_tool_use", `Bool cp.disable_parallel_tool_use);
-    ("cache_system_prompt", `Bool cp.cache_system_prompt);
-    ("max_input_tokens", Option.value ~default:`Null (Option.map (fun v -> `Int v) cp.max_input_tokens));
-    ("max_total_tokens", Option.value ~default:`Null (Option.map (fun v -> `Int v) cp.max_total_tokens));
-    ("context", Context.to_json cp.context);
-    ("mcp_sessions", Mcp_session.info_list_to_json cp.mcp_sessions);
-    ("working_context", Option.value ~default:`Null cp.working_context);
-  ]
+let to_json = checkpoint_to_json
 
 let of_json json =
   try

@@ -180,11 +180,11 @@ let with_env key value f =
   let restore () =
     match original with
     | Some previous -> Unix.putenv key previous
-    | None -> Unix.putenv key ""
+    | None -> Unix.unsetenv key
   in
   (match value with
    | Some next -> Unix.putenv key next
-   | None -> Unix.putenv key "");
+   | None -> Unix.unsetenv key);
   Fun.protect f ~finally:restore
 
 let make_unit_checkpoint ?(messages = []) ?(session_id = "sess-a")
@@ -258,6 +258,56 @@ let test_delta_json_roundtrip () =
     (match Checkpoint.apply_delta base decoded with
      | Ok rebuilt -> checkpoint_equal rebuilt target
      | Error _ -> false)
+
+let test_delta_json_rejects_malformed_context_removed () =
+  let base = make_unit_checkpoint () in
+  let target =
+    make_unit_checkpoint
+      ~messages:
+        [
+          { role = User; content = [ Text "hello" ]; name = None; tool_call_id = None };
+        ]
+      ()
+  in
+  let malformed_json =
+    Checkpoint.compute_delta base target
+    |> Checkpoint.delta_to_json
+    |> function
+    | `Assoc fields ->
+      let operations =
+        match List.assoc_opt "operations" fields with
+        | Some (`List (`Assoc op_fields :: rest)) ->
+          let patched_op =
+            `Assoc
+              (List.map
+                 (fun (key, value) ->
+                   if key = "diff" then
+                     match value with
+                     | `Assoc diff_fields ->
+                       let patched_diff =
+                         List.map
+                           (fun (diff_key, diff_value) ->
+                             if diff_key = "removed" then (diff_key, `String "bad")
+                             else (diff_key, diff_value))
+                           diff_fields
+                       in
+                       (key, `Assoc patched_diff)
+                     | _ -> (key, value)
+                   else (key, value))
+                 op_fields)
+          in
+          `List (patched_op :: rest)
+        | _ -> List.assoc "operations" fields
+      in
+      `Assoc
+        (List.map
+           (fun (key, value) ->
+             if key = "operations" then (key, operations) else (key, value))
+           fields)
+    | json -> json
+  in
+  Alcotest.(check bool) "malformed removed field rejected" true
+    (Result.is_error (Checkpoint.delta_of_json malformed_json))
 
 let test_empty_delta_roundtrip () =
   let checkpoint =
@@ -426,6 +476,8 @@ let () =
       ( "unit",
         [
           Alcotest.test_case "delta JSON roundtrip" `Quick test_delta_json_roundtrip;
+          Alcotest.test_case "delta JSON rejects malformed context removed" `Quick
+            test_delta_json_rejects_malformed_context_removed;
           Alcotest.test_case "empty delta roundtrip" `Quick test_empty_delta_roundtrip;
           Alcotest.test_case "apply_delta rejects version/hash mismatch" `Quick
             test_apply_delta_rejects_version_and_hash_mismatch;
