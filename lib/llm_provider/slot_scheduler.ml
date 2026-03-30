@@ -132,25 +132,32 @@ let%test "higher priority waiter goes first" =
   Eio_main.run (fun _env ->
     let t = create ~max_slots:1 in
     let order = ref [] in
-    (* Fill the single slot *)
+    let hold, release_hold = Eio.Promise.create () in
     Eio.Fiber.both
       (fun () ->
+        (* Blocker: hold the slot until release_hold is resolved *)
         with_permit ~priority:Background t (fun () ->
-          (* While we hold the slot, spawn two waiters *)
-          Eio.Fiber.both
-            (fun () ->
-              Eio.Fiber.both
-                (fun () ->
-                  with_permit ~priority:Background t (fun () ->
-                    order := "bg" :: !order))
-                (fun () ->
-                  with_permit ~priority:Interactive t (fun () ->
-                    order := "int" :: !order)))
-            (fun () ->
-              (* Give waiters time to enqueue *)
-              Eio.Fiber.yield ();
-              Eio.Fiber.yield ())))
-      (fun () -> ());
+          Eio.Promise.await hold))
+      (fun () ->
+        Eio.Fiber.both
+          (fun () ->
+            Eio.Fiber.both
+              (fun () ->
+                (* Waiter: Background priority *)
+                Eio.Fiber.yield ();
+                with_permit ~priority:Background t (fun () ->
+                  order := "bg" :: !order))
+              (fun () ->
+                (* Waiter: Interactive priority *)
+                Eio.Fiber.yield ();
+                with_permit ~priority:Interactive t (fun () ->
+                  order := "int" :: !order)))
+          (fun () ->
+            (* Let waiters enqueue, then release blocker *)
+            Eio.Fiber.yield ();
+            Eio.Fiber.yield ();
+            Eio.Fiber.yield ();
+            Eio.Promise.resolve release_hold ()));
     (* Interactive should have been served first *)
     !order = ["bg"; "int"])
 
