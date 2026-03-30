@@ -157,14 +157,14 @@ let deliver_to_custom t name deliver payloads =
         [Log.S ("target", name); Log.S ("error", Printexc.to_string exn)]
   ) payloads
 
-let deliver_to_webhook t ~sw:_ ~net:_ url _headers _method_ _timeout_s payloads =
-  (* Webhook HTTP delivery is not yet implemented.
-     Record as failed so operators can observe undelivered events
-     instead of silently counting them as successes. *)
-  let n = List.length payloads in
-  ignore (Atomic.fetch_and_add t.failed_count n);
-  Log.warn t.log "webhook delivery not implemented (events dropped)"
-    [Log.S ("url", url); Log.S ("count", string_of_int n)]
+(* TODO: implement HTTP POST delivery — see issue tracker *)
+let deliver_to_webhook _t ~sw:_ ~net:_ url _headers _method_ _timeout_s _payloads =
+  Log.error _t.log "webhook delivery not implemented"
+    [Log.S ("url", url)];
+  failwith
+    (Printf.sprintf
+       "Webhook delivery not implemented for %s: configure file or SSE targets instead"
+       url)
 
 let deliver_batch t ~sw ~net payloads =
   List.iter (fun target ->
