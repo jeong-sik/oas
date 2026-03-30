@@ -124,3 +124,5 @@ val fs_backend : cache_dir:string -> cache_backend
 
 val template_to_json : template -> Yojson.Safe.t
 val template_of_json : Yojson.Safe.t -> (template, string) result
+val agent_score_to_json : agent_score -> Yojson.Safe.t
+val agent_score_of_json : Yojson.Safe.t -> (agent_score, string) result

@@ -199,8 +199,33 @@ let test_template_json_roundtrip () =
        check string "structural key" tmpl.structural_key restored.structural_key;
        check_float "final metric"
          tmpl.quality.final_metric restored.quality.final_metric;
+       check int "total iterations"
+         tmpl.quality.total_iterations restored.quality.total_iterations;
+       check_float "total elapsed"
+         tmpl.quality.total_elapsed restored.quality.total_elapsed;
+       check int "total tokens"
+         tmpl.quality.total_tokens restored.quality.total_tokens;
        check int "agent scores count"
-         (List.length tmpl.agent_scores) (List.length restored.agent_scores))
+         (List.length tmpl.agent_scores) (List.length restored.agent_scores);
+       let sa = List.hd tmpl.agent_scores in
+       let ra = List.hd restored.agent_scores in
+       check string "agent name" sa.name ra.name;
+       check_float "agent avg_elapsed" sa.avg_elapsed ra.avg_elapsed;
+       check_float "agent score" sa.score ra.score)
+
+let test_custom_role_json_roundtrip () =
+  let score : Swarm_plan_cache.agent_score = {
+    name = "custom_agent"; role = Custom_role "reviewer";
+    success_rate = 0.75; avg_elapsed = 2.0; score = 0.675 } in
+  let json = Swarm_plan_cache.agent_score_to_json score in
+  match Swarm_plan_cache.agent_score_of_json json with
+  | Error e -> fail (Printf.sprintf "custom role roundtrip: %s" e)
+  | Ok restored ->
+    check string "name" score.name restored.name;
+    check_float "success_rate" score.success_rate restored.success_rate;
+    (match restored.role with
+     | Custom_role s -> check string "custom role value" "reviewer" s
+     | _ -> fail "expected Custom_role")
 
 (* ── Warm-start ───────────────────────────────────────────────────── *)
 
@@ -404,6 +429,7 @@ let () =
       test_case "from unconverged" `Quick test_template_from_unconverged;
       test_case "from converged" `Quick test_template_from_converged;
       test_case "json roundtrip" `Quick test_template_json_roundtrip;
+      test_case "custom role roundtrip" `Quick test_custom_role_json_roundtrip;
     ];
     "warm_start", [
       test_case "hints iterations" `Quick test_hints_iterations;

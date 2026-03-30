@@ -147,6 +147,7 @@ let find_convergence_iteration ~target history =
 
 let template_of_state (state : swarm_state) =
   if not state.converged then None
+  else if state.history = [] then None  (* guard: converged with no history is vacuous *)
   else
     let config = state.config in
     let key = structural_fingerprint config in
@@ -214,12 +215,19 @@ let agent_score_of_json (json : Yojson.Safe.t) : (agent_score, string) result =
       | "Swarm_types.Execute" | "Execute" -> Execute
       | "Swarm_types.Summarize" | "Summarize" -> Summarize
       | s ->
-        (* Custom_role: strip prefix if present *)
+        (* Custom_role: strip prefix and surrounding quotes if present *)
+        let strip_quotes s =
+          let len = String.length s in
+          if len >= 2 && s.[0] = '"' && s.[len - 1] = '"'
+          then String.sub s 1 (len - 2)
+          else s
+        in
         let prefix = "(Swarm_types.Custom_role " in
         if String.length s > String.length prefix
            && String.sub s 0 (String.length prefix) = prefix then
-          Custom_role (String.sub s (String.length prefix)
-                         (String.length s - String.length prefix - 1))
+          let inner = String.sub s (String.length prefix)
+                        (String.length s - String.length prefix - 1) in
+          Custom_role (strip_quotes inner)
         else Custom_role s
     in
     Ok {
