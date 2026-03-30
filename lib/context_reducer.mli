@@ -27,6 +27,7 @@ type strategy =
   | Prune_by_role of { drop_roles: role list }
   | Summarize_old of { keep_recent: int; summarizer: message list -> string }
   | Clear_tool_results of { keep_recent: int }
+  | Stub_tool_results of { keep_recent: int }
   | Compose of strategy list
   | Custom of (message list -> message list)
   | Dynamic of (turn:int -> messages:message list -> strategy)
@@ -85,6 +86,15 @@ val keep_first_and_last : first_n:int -> last_n:int -> t
 val prune_by_role : drop_roles:role list -> t
 val summarize_old : keep_recent:int -> summarizer:(message list -> string) -> t
 val clear_tool_results : keep_recent:int -> t
+
+(** Replace tool result content in older turns with a structured stub
+    that preserves tool name, line count, and error status.
+    More informative than [clear_tool_results]: the stub format is
+    [[tool: <name>, <N> lines, <ok|error>]].
+    ToolUse/ToolResult pairing is preserved.
+    @since 0.98.0 *)
+val stub_tool_results : keep_recent:int -> t
+
 val compose : t list -> t
 val custom : (message list -> message list) -> t
 val importance_scored :
