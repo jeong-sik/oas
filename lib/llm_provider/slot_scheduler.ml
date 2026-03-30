@@ -99,6 +99,39 @@ let available t = t.max_slots - t.active
 let in_use t = t.active
 let queue_length t = List.length t.waiters
 
+(* ── Capacity Query ────────────────────────────────────── *)
+
+type snapshot = {
+  max_slots : int;
+  active : int;
+  available : int;
+  queue_length : int;
+}
+
+let snapshot t =
+  Eio.Mutex.use_ro t.mutex (fun () ->
+    { max_slots = t.max_slots;
+      active = t.active;
+      available = t.max_slots - t.active;
+      queue_length = List.length t.waiters })
+
+(* ── Non-blocking Acquisition ──────────────────────────── *)
+
+let try_with_permit ~priority t f =
+  let _resolved = Request_priority.resolve priority in
+  let got =
+    Eio.Mutex.use_rw ~protect:true t.mutex (fun () ->
+      if t.active < t.max_slots then (
+        t.active <- t.active + 1;
+        true
+      ) else
+        false)
+  in
+  if got then
+    Some (Fun.protect f ~finally:(fun () -> release_slot t))
+  else
+    None
+
 [@@@coverage off]
 (* === Inline tests === *)
 
@@ -171,6 +204,39 @@ let%test "Unspecified treated as Proactive" =
     let t = create ~max_slots:2 in
     let result = with_permit ~priority:Unspecified t (fun () -> "ok") in
     result = "ok")
+
+let%test "snapshot reflects current state" =
+  Eio_main.run (fun _env ->
+    let t = create ~max_slots:4 in
+    let s = snapshot t in
+    s.max_slots = 4 && s.active = 0 && s.available = 4 && s.queue_length = 0)
+
+let%test "snapshot during active permit" =
+  Eio_main.run (fun _env ->
+    let t = create ~max_slots:2 in
+    with_permit ~priority:Interactive t (fun () ->
+      let s = snapshot t in
+      s.active = 1 && s.available = 1))
+
+let%test "try_with_permit succeeds when available" =
+  Eio_main.run (fun _env ->
+    let t = create ~max_slots:2 in
+    let result = try_with_permit ~priority:Interactive t (fun () -> 42) in
+    result = Some 42 && available t = 2)
+
+let%test "try_with_permit returns None when full" =
+  Eio_main.run (fun _env ->
+    let t = create ~max_slots:1 in
+    with_permit ~priority:Interactive t (fun () ->
+      let result = try_with_permit ~priority:Background t (fun () -> 99) in
+      result = None))
+
+let%test "try_with_permit releases on exception" =
+  Eio_main.run (fun _env ->
+    let t = create ~max_slots:2 in
+    (try ignore (try_with_permit ~priority:Interactive t (fun () -> failwith "boom"))
+     with Failure _ -> ());
+    available t = 2)
 
 let%test "cancel does not leak slot" =
   Eio_main.run (fun _env ->

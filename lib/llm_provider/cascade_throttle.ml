@@ -11,19 +11,30 @@ let throttle_table : (string, Provider_throttle.t) Hashtbl.t =
   Hashtbl.create 4
 let throttle_mu = Eio.Mutex.create ()
 
+let has_slot_data (s : Discovery.endpoint_status) =
+  (match s.slots with Some ss -> ss.total > 0 | None -> false)
+  || (match s.props with Some p -> p.total_slots > 0 | None -> false)
+
 let populate (statuses : Discovery.endpoint_status list) =
   Eio.Mutex.use_rw ~protect:true throttle_mu (fun () ->
     List.iter (fun (s : Discovery.endpoint_status) ->
       if not s.healthy then
-        (* Evict stale entry so next healthy probe reinstalls a fresh semaphore.
-           Prevents permanent zero-permit after endpoint restart with in-flight requests. *)
+        (* Evict stale entry so next healthy probe reinstalls a fresh semaphore. *)
         Hashtbl.remove throttle_table s.url
-      else if not (Hashtbl.mem throttle_table s.url) then
-        let t = match Provider_throttle.of_discovery_status s with
-          | Some t -> t
-          | None -> Provider_throttle.default_for_kind Provider_config.OpenAI_compat
+      else
+        let existing = Hashtbl.find_opt throttle_table s.url in
+        let should_install = match existing with
+          | None -> true
+          | Some t ->
+            (* Promote Fallback → Discovered when better data arrives *)
+            Provider_throttle.source t = Fallback && has_slot_data s
         in
-        Hashtbl.replace throttle_table s.url t
+        if should_install then
+          let t = match Provider_throttle.of_discovery_status s with
+            | Some t -> t
+            | None -> Provider_throttle.default_for_kind Provider_config.OpenAI_compat
+          in
+          Hashtbl.replace throttle_table s.url t
     ) statuses)
 
 let lookup url =
@@ -37,3 +48,27 @@ let clear () =
 let length () =
   Eio.Mutex.use_ro throttle_mu (fun () ->
     Hashtbl.length throttle_table)
+
+(* ── Capacity Query ────────────────────────────────────── *)
+
+type capacity_info = {
+  total : int;
+  process_active : int;
+  process_available : int;
+  process_queue_length : int;
+  source : Provider_throttle.capacity_source;
+}
+
+let capacity url =
+  Eio.Mutex.use_ro throttle_mu (fun () ->
+    match Hashtbl.find_opt throttle_table url with
+    | None -> None
+    | Some t ->
+      let snap = Provider_throttle.snapshot t in
+      Some {
+        total = snap.max_slots;
+        process_active = snap.active;
+        process_available = snap.available;
+        process_queue_length = snap.queue_length;
+        source = Provider_throttle.source t;
+      })

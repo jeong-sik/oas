@@ -272,3 +272,43 @@ val complete_named_stream :
   on_event:(Types.sse_event -> unit) ->
   unit ->
   (Types.api_response, Http_client.http_error) result
+
+(** {1 Local Capacity Query} *)
+
+(** Point-in-time capacity for local LLM endpoints.
+    All [process_*] counts reflect this OAS process only —
+    other clients sharing the same server are not visible.
+    @since 0.97.0 *)
+type local_capacity = {
+  total : int;
+  (** Server slot count from discovery. *)
+  process_active : int;
+  (** Slots held by this process. *)
+  process_available : int;
+  (** [total - process_active]. May overestimate if other consumers exist. *)
+  process_queue_length : int;
+  (** Fibers waiting for a slot in this process. *)
+  all_discovered : bool;
+  (** [true] only when every contributing endpoint has [Discovered] source.
+      When [false], slot count may be a guessed default. *)
+  endpoints_found : int;
+  (** Number of local endpoints found. 0 means cloud-only selection. *)
+}
+
+val local_capacity_for_selections :
+  sw:Eio.Switch.t ->
+  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
+  ?config_path:string ->
+  string list ->
+  local_capacity
+(** Query local endpoint capacity for cascade selection strings.
+
+    Each selection string is resolved through the same path as
+    [complete_named]: named profile lookup, then model string parsing.
+    Only local endpoints are considered; cloud providers are ignored.
+
+    Probes endpoints not yet in the throttle table via {!Discovery}
+    (~10ms on localhost), populating the table as a side-effect.
+    Returns [endpoints_found = 0] for cloud-only selections.
+
+    @since 0.97.0 *)

@@ -2,6 +2,23 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.98.0] - 2026-03-30
+
+### Added
+- `Slot_scheduler.snapshot` — non-blocking point-in-time capacity snapshot.
+- `Slot_scheduler.try_with_permit` — non-blocking slot acquisition returning `'a option`.
+- `Provider_throttle.capacity_source` type — `Discovered | Fallback` discriminator.
+- `Provider_throttle.source`, `snapshot`, `try_permit`, `queue_length`, `max_concurrent` getters.
+- `Cascade_throttle.capacity_info` type with `process_*` prefix for process-scoped counts.
+- `Cascade_throttle.capacity` — single-endpoint capacity query.
+- `Cascade_config.local_capacity_for_selections` — cascade-selection-scoped capacity query with cold start probe via `~sw ~net`.
+
+### Changed
+- `Provider_throttle.of_discovery_status` now tags result with `source = Discovered`.
+- `Cascade_throttle.populate` promotes Fallback entries to Discovered when probe returns slot data.
+
+## [0.97.0] - 2026-03-30
+
 ## [0.96.0] - 2026-03-30
 
 ### Added
