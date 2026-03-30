@@ -262,9 +262,13 @@ let test_delta_json_roundtrip () =
      | Error _ -> false)
 
 let test_delta_json_rejects_malformed_context_removed () =
-  let base = make_unit_checkpoint () in
+  let base_context = Context.create () in
+  let target_context = Context.create () in
+  Context.set target_context "trace_id" (`String "abc");
+  let base = make_unit_checkpoint ~context:base_context () in
   let target =
     make_unit_checkpoint
+      ~context:target_context
       ~messages:
         [
           { role = User; content = [ Text "hello" ]; name = None; tool_call_id = None };
