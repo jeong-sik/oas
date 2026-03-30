@@ -68,11 +68,88 @@ let of_state (state : Swarm_types.swarm_state) : t =
 
 (* ── JSON serialization ──────────────────────────────────────── *)
 
+(** Serialize agent_telemetry to structured JSON.
+    trace_ref uses ppx_deriving_yojson; usage reuses Checkpoint helpers. *)
+let agent_telemetry_to_json (t : Swarm_types.agent_telemetry) : Yojson.Safe.t =
+  `Assoc [
+    ("trace_ref",
+      match t.trace_ref with
+      | Some r -> Raw_trace.run_ref_to_yojson r
+      | None -> `Null);
+    ("usage",
+      match t.usage with
+      | Some u -> Checkpoint.usage_to_json u
+      | None -> `Null);
+    ("turn_count", `Int t.turn_count);
+  ]
+
+let agent_telemetry_of_json (json : Yojson.Safe.t) : Swarm_types.agent_telemetry =
+  let open Yojson.Safe.Util in
+  let trace_ref =
+    match json |> member "trace_ref" with
+    | `Null -> None
+    | j -> (match Raw_trace.run_ref_of_yojson j with Ok r -> Some r | Error _ -> None)
+  in
+  let usage =
+    match json |> member "usage" with
+    | `Null -> None
+    | j -> Some (Checkpoint.usage_of_json j)
+  in
+  { trace_ref; usage; turn_count = json |> member "turn_count" |> to_int_option |> Option.value ~default:0 }
+
+(** Serialize agent_status to structured JSON preserving variant data. *)
+let agent_status_to_json (status : Swarm_types.agent_status) : Yojson.Safe.t =
+  match status with
+  | Idle -> `Assoc [("status", `String "Idle")]
+  | Working -> `Assoc [("status", `String "Working")]
+  | Done_ok { elapsed; text; telemetry } ->
+    `Assoc [
+      ("status", `String "Done_ok");
+      ("elapsed", `Float elapsed);
+      ("text", `String text);
+      ("telemetry", agent_telemetry_to_json telemetry);
+    ]
+  | Done_error { elapsed; error; telemetry } ->
+    `Assoc [
+      ("status", `String "Done_error");
+      ("elapsed", `Float elapsed);
+      ("error", `String error);
+      ("telemetry", agent_telemetry_to_json telemetry);
+    ]
+
+(** Deserialize agent_status from structured JSON.
+    v1 backward compat: if only a "status" string field exists
+    (from show_agent_status), fall back to Idle. *)
+let agent_status_of_json (json : Yojson.Safe.t) : Swarm_types.agent_status =
+  let open Yojson.Safe.Util in
+  match json |> member "status" |> to_string with
+  | "Idle" -> Idle
+  | "Working" -> Working
+  | "Done_ok" ->
+    let elapsed = json |> member "elapsed" |> to_float_option |> Option.value ~default:0.0 in
+    let text = json |> member "text" |> to_string_option |> Option.value ~default:"" in
+    let telemetry =
+      match json |> member "telemetry" with
+      | `Null -> Swarm_types.empty_telemetry
+      | j -> agent_telemetry_of_json j
+    in
+    Done_ok { elapsed; text; telemetry }
+  | "Done_error" ->
+    let elapsed = json |> member "elapsed" |> to_float_option |> Option.value ~default:0.0 in
+    let error = json |> member "error" |> to_string_option |> Option.value ~default:"" in
+    let telemetry =
+      match json |> member "telemetry" with
+      | `Null -> Swarm_types.empty_telemetry
+      | j -> agent_telemetry_of_json j
+    in
+    Done_error { elapsed; error; telemetry }
+  | _ -> Idle  (* v1 compat: unknown status string → Idle *)
+
 let iteration_record_to_json (r : Swarm_types.iteration_record) : Yojson.Safe.t =
   let agent_results = List.map (fun (name, status) ->
     `Assoc [
       ("name", `String name);
-      ("status", `String (Swarm_types.show_agent_status status));
+      ("status", agent_status_to_json status);
     ]
   ) r.agent_results in
   `Assoc [
@@ -84,16 +161,21 @@ let iteration_record_to_json (r : Swarm_types.iteration_record) : Yojson.Safe.t 
   ]
 
 (** Reconstruct an iteration_record from JSON.
-    agent_results statuses are restored as Idle (the original status
-    text is preserved in JSON but parsing show-format back is fragile).
-    Core fields (iteration, metric_value, elapsed, timestamp) are exact. *)
+    v2: parses structured agent_status from JSON.
+    v1 backward compat: if status is a plain string, falls back to Idle. *)
 let iteration_record_of_json (json : Yojson.Safe.t) : Swarm_types.iteration_record =
   let open Yojson.Safe.Util in
   let agent_results =
     json |> member "agent_results" |> to_list
     |> List.map (fun ar ->
       let name = ar |> member "name" |> to_string in
-      (name, Swarm_types.Idle))
+      let status =
+        match ar |> member "status" with
+        | `String _ -> Swarm_types.Idle  (* v1: show_agent_status string *)
+        | `Assoc _ as j -> agent_status_of_json j  (* v2: structured *)
+        | _ -> Swarm_types.Idle
+      in
+      (name, status))
   in
   { iteration = json |> member "iteration" |> to_int;
     metric_value = json |> member "metric_value" |> to_float_option;
@@ -632,3 +714,72 @@ let%test "v1 backward compat: converged defaults to false" =
   | Error _ ->
     Sys.remove path;
     false
+
+(* --- agent_status structured serialization (Fix 2) --- *)
+
+let%test "agent_status_to_json: Idle" =
+  let json = agent_status_to_json Swarm_types.Idle in
+  let open Yojson.Safe.Util in
+  json |> member "status" |> to_string = "Idle"
+
+let%test "agent_status_to_json: Working" =
+  let json = agent_status_to_json Swarm_types.Working in
+  let open Yojson.Safe.Util in
+  json |> member "status" |> to_string = "Working"
+
+let%test "agent_status roundtrip: Done_ok" =
+  let tel = Swarm_types.empty_telemetry in
+  let orig = Swarm_types.Done_ok { elapsed = 1.5; text = "result text"; telemetry = { tel with turn_count = 3 } } in
+  let json = agent_status_to_json orig in
+  let restored = agent_status_of_json json in
+  match restored with
+  | Swarm_types.Done_ok { elapsed; text; telemetry } ->
+    elapsed = 1.5 && text = "result text" && telemetry.turn_count = 3
+  | _ -> false
+
+let%test "agent_status roundtrip: Done_error" =
+  let tel = Swarm_types.empty_telemetry in
+  let orig = Swarm_types.Done_error { elapsed = 2.0; error = "failed"; telemetry = tel } in
+  let json = agent_status_to_json orig in
+  let restored = agent_status_of_json json in
+  match restored with
+  | Swarm_types.Done_error { elapsed; error; _ } ->
+    elapsed = 2.0 && error = "failed"
+  | _ -> false
+
+let%test "agent_status_of_json: v1 compat (plain string)" =
+  (* v1 used show_agent_status → plain string. iteration_record_of_json handles this. *)
+  let status = agent_status_of_json (`Assoc [("status", `String "Swarm_types.Idle")]) in
+  status = Swarm_types.Idle  (* unknown string → Idle *)
+
+let%test "iteration_record roundtrip preserves Done_ok status" =
+  let tel = Swarm_types.empty_telemetry in
+  let rec_ = make_iteration ~iteration:2
+    ~agent_results:[
+      ("w1", Swarm_types.Done_ok { elapsed = 1.0; text = "ok"; telemetry = tel });
+      ("w2", Swarm_types.Done_error { elapsed = 0.5; error = "err"; telemetry = tel });
+    ]
+    ~elapsed:3.0 ~timestamp:100.0 () in
+  let json = iteration_record_to_json rec_ in
+  let restored = iteration_record_of_json json in
+  match List.assoc_opt "w1" restored.agent_results,
+        List.assoc_opt "w2" restored.agent_results with
+  | Some (Swarm_types.Done_ok { text; _ }), Some (Swarm_types.Done_error { error; _ }) ->
+    text = "ok" && error = "err"
+  | _ -> false
+
+let%test "iteration_record_of_json: v1 string status → Idle" =
+  (* v1 format: status was a plain string from show_agent_status *)
+  let json = `Assoc [
+    ("iteration", `Int 1);
+    ("metric_value", `Null);
+    ("agent_results", `List [
+      `Assoc [("name", `String "w1"); ("status", `String "Idle")];
+    ]);
+    ("elapsed", `Float 1.0);
+    ("timestamp", `Float 200.0);
+  ] in
+  let rec_ = iteration_record_of_json json in
+  match List.assoc_opt "w1" rec_.agent_results with
+  | Some Swarm_types.Idle -> true
+  | _ -> false

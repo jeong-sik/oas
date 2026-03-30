@@ -31,8 +31,8 @@ Full roundtrip path: `swarm_state` -> `of_state` -> `to_json` -> JSON -> `load` 
 | Field | Serialized as | Restored as | Impact | Decision |
 | --- | --- | --- | --- | --- |
 | `agent_statuses` | not saved | `create_state` -> all `Idle` | **Medium** | Accept: current statuses are ephemeral runtime state |
-| `converged` | not saved | `create_state` -> `false` | **Medium** | Fix: add to checkpoint, restore on load |
-| `history[].agent_results` status | `show_agent_status` string | all -> `Idle` | **Medium** | Fix: parse `agent_status` from string |
+| `converged` | not saved | `create_state` -> `false` | **Medium** | **Fixed** (checkpoint v2, oas#499) |
+| `history[].agent_results` status | `show_agent_status` string | all -> `Idle` | **Medium** | **Fixed** (structured JSON serialization, this PR) |
 | `history[].trace_refs` | not saved | `[]` | **Low** | Accept: debug links, no runtime impact |
 
 ### Details
