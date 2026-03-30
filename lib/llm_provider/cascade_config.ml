@@ -283,7 +283,7 @@ let resolve_model_strings ?config_path ~name ~defaults () =
 (* ── Named cascade execution ───────────────────────────── *)
 
 let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
-    ?throttle ~accept (providers : Provider_config.t list)
+    ?throttle ?priority ~accept (providers : Provider_config.t list)
     ~(messages : Types.message list) ~(tools : Yojson.Safe.t list) =
   let m = match metrics with Some m -> m | None -> Metrics.noop in
   let try_one (cfg : Provider_config.t) =
@@ -291,10 +291,10 @@ let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
       match clock with
       | Some clock ->
         Complete.complete_with_retry ~sw ~net ~clock ~config:cfg
-          ~messages ~tools ?cache ?metrics ()
+          ~messages ~tools ?cache ?metrics ?priority ()
       | None ->
         Complete.complete ~sw ~net ~config:cfg
-          ~messages ~tools ?cache ?metrics ()
+          ~messages ~tools ?cache ?metrics ?priority ()
     in
     let effective_throttle = match throttle with
       | Some _ -> throttle
@@ -363,7 +363,7 @@ let complete_named ~sw ~net ?clock ?config_path
     ~name ~defaults ~messages
     ?(tools = []) ?(temperature = 0.3) ?(max_tokens = 500)
     ?system_prompt ?(accept = fun _ -> true) ?(strict_name = false)
-    ?timeout_sec ?cache ?metrics ?throttle () =
+    ?timeout_sec ?cache ?metrics ?throttle ?priority () =
   let model_strings, source =
     resolve_model_strings_traced ?config_path ~name ~defaults ()
   in
@@ -402,7 +402,7 @@ let complete_named ~sw ~net ?clock ?config_path
     else
       let run () =
         complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
-          ?throttle ~accept healthy_providers ~messages ~tools
+          ?throttle ?priority ~accept healthy_providers ~messages ~tools
       in
       match clock, timeout_sec with
       | Some clk, Some secs when secs > 0 ->
@@ -418,6 +418,7 @@ let complete_named ~sw ~net ?clock ?config_path
 (* ── Streaming cascade (no accept, no cache) ──────── *)
 
 let complete_cascade_stream ~sw ~net ?(metrics : Metrics.t option)
+    ?(priority : Request_priority.t option)
     (providers : Provider_config.t list)
     ~(messages : Types.message list) ~(tools : Yojson.Safe.t list)
     ~(on_event : Types.sse_event -> unit) =
@@ -425,7 +426,7 @@ let complete_cascade_stream ~sw ~net ?(metrics : Metrics.t option)
   let try_one (cfg : Provider_config.t) =
     let call () =
       Complete.complete_stream ~sw ~net ~config:cfg
-        ~messages ~tools ~on_event ()
+        ~messages ~tools ~on_event ?priority ()
     in
     let throttle =
       if is_local_provider cfg then lookup_throttle cfg.base_url
@@ -474,7 +475,7 @@ let complete_named_stream ~sw ~net ?clock ?config_path
     ~name ~defaults ~messages
     ?(tools = []) ?(temperature = 0.3) ?(max_tokens = 500)
     ?system_prompt ?(strict_name = false)
-    ?timeout_sec ?metrics ~on_event () =
+    ?timeout_sec ?metrics ?priority ~on_event () =
   let model_strings, source =
     resolve_model_strings_traced ?config_path ~name ~defaults ()
   in
@@ -506,7 +507,7 @@ let complete_named_stream ~sw ~net ?clock ?config_path
           "All providers unhealthy for streaming cascade '%s'" name })
     else
       let run () =
-        complete_cascade_stream ~sw ~net ?metrics
+        complete_cascade_stream ~sw ~net ?metrics ?priority
           healthy_providers ~messages ~tools ~on_event
       in
       match clock, timeout_sec with

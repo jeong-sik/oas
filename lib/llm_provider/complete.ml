@@ -115,7 +115,9 @@ let complete_http ~sw ~net ~(config : Provider_config.t)
 let complete ~sw ~net ?(transport : Llm_transport.t option)
     ~(config : Provider_config.t)
     ~(messages : Types.message list) ?(tools=[])
-    ?(cache : Cache.t option) ?(metrics : Metrics.t option) () =
+    ?(cache : Cache.t option) ?(metrics : Metrics.t option)
+    ?(priority : Request_priority.t option) () =
+  let _priority = priority in
   let m = match metrics with Some m -> m | None -> Metrics.noop in
   let model_id = config.model_id in
   (* Cache lookup *)
@@ -198,14 +200,14 @@ let complete_with_retry ~sw ~net ?transport ~clock
     ~(config : Provider_config.t)
     ~(messages : Types.message list) ?(tools=[])
     ?(retry_config=default_retry_config)
-    ?cache ?metrics () =
+    ?cache ?metrics ?priority () =
   (* Jitter: randomize delay by 0.5x-1.5x to prevent thundering herd *)
   let jittered delay =
     let factor = 0.5 +. Random.float 1.0 in
     delay *. factor
   in
   let rec attempt n delay =
-    match complete ~sw ~net ?transport ~config ~messages ~tools ?cache ?metrics () with
+    match complete ~sw ~net ?transport ~config ~messages ~tools ?cache ?metrics ?priority () with
     | Ok _ as success -> success
     | Error err when is_retryable err && n < retry_config.max_retries ->
         Eio.Time.sleep clock (jittered delay);
@@ -229,15 +231,15 @@ type cascade = {
 let complete_cascade ~sw ~net ?transport ?clock ?retry_config
     ~(cascade : cascade)
     ~(messages : Types.message list) ?(tools=[])
-    ?cache ?metrics () =
+    ?cache ?metrics ?priority () =
   let m = match metrics with Some m -> m | None -> Metrics.noop in
   let try_provider cfg =
     match clock with
     | Some clock ->
         complete_with_retry ~sw ~net ?transport ~clock ~config:cfg
-          ~messages ~tools ?retry_config ?cache ?metrics ()
+          ~messages ~tools ?retry_config ?cache ?metrics ?priority ()
     | None ->
-        complete ~sw ~net ?transport ~config:cfg ~messages ~tools ?cache ?metrics ()
+        complete ~sw ~net ?transport ~config:cfg ~messages ~tools ?cache ?metrics ?priority ()
   in
   match try_provider cascade.primary with
   | Ok _ as success -> success
@@ -354,7 +356,9 @@ let complete_stream_http ~sw:_ ~net ~(config : Provider_config.t)
 let complete_stream ~sw ~net ?(transport : Llm_transport.t option)
     ~(config : Provider_config.t)
     ~(messages : Types.message list) ?(tools=[])
-    ~(on_event : Types.sse_event -> unit) () =
+    ~(on_event : Types.sse_event -> unit)
+    ?(priority : Request_priority.t option) () =
+  let _priority = priority in
   let result = match transport with
   | Some t ->
     t.complete_stream ~on_event { Llm_transport.config; messages; tools }
@@ -389,10 +393,11 @@ let complete_stream_cascade ~sw ~net ?transport
     ~(cascade : cascade)
     ~(messages : Types.message list) ?(tools=[])
     ~(on_event : Types.sse_event -> unit)
-    ?(metrics : Metrics.t option) () =
+    ?(metrics : Metrics.t option)
+    ?(priority : Request_priority.t option) () =
   let m = match metrics with Some m -> m | None -> Metrics.noop in
   let try_provider cfg =
-    complete_stream ~sw ~net ?transport ~config:cfg ~messages ~tools ~on_event ()
+    complete_stream ~sw ~net ?transport ~config:cfg ~messages ~tools ~on_event ?priority ()
   in
   match try_provider cascade.primary with
   | Ok _ as success -> success

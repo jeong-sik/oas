@@ -2,6 +2,16 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.95.0] - 2026-03-30
+
+### Added
+- `Request_priority` module — `Interactive | Proactive | Background` priority type for LLM completion scheduling (#478).
+- `?priority` parameter added to all completion and cascade functions.
+- `to_yojson`/`of_yojson` converters for `Request_priority`.
+
+### Changed
+- `complete_stream_cascade` now correctly threads `?priority` through to `complete_stream`.
+
 ## [0.94.0] - 2026-03-29
 
 ### Added
