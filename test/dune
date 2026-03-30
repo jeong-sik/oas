@@ -372,6 +372,10 @@
  (libraries agent_sdk agent_sdk_swarm alcotest yojson eio eio_main unix))
 
 (test
+ (name test_swarm_plan_cache)
+ (libraries agent_sdk agent_sdk_swarm alcotest yojson eio eio_main unix))
+
+(test
  (name test_review_agent)
  (libraries agent_sdk agent_sdk_swarm oas_cli_support alcotest yojson eio eio_main str))
 
