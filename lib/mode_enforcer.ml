@@ -105,6 +105,12 @@ let classify_tool name =
   | "rename_symbol" | "insert_after_symbol" | "insert_before_symbol"
   | "replace_symbol_body" | "notebook_edit" ->
     Workspace_mutating
+  | n when String.length n > 7
+           && String.sub n 0 7 = "keeper_" ->
+    Workspace_mutating
+  | n when String.length n > 5
+           && String.sub n 0 5 = "masc_" ->
+    Workspace_mutating
   | n when String.length n > 5
            && String.sub n 0 5 = "mcp__" ->
     External_effect
