@@ -64,7 +64,7 @@ type message_splice = {
 }
 
 type delta_op =
-  | Splice_messages of message_splice
+  | Splice_messages of message_splice list
   | Patch_context of Context.diff
   | Replace_system_prompt of string option
   | Replace_usage of Types.usage_stats
@@ -101,36 +101,48 @@ type delta = {
 
 ### Design choices
 
-- `Splice_messages` is the only message-level primitive in v1.
+- `Splice_messages` uses a list of splices, not a single splice. This handles disjoint edits (e.g., `Drop_thinking` removing blocks at multiple positions while `replace_tool_result` modifies a different region).
 - non-message fields use whole-field replacement, not nested patch trees.
 - `Patch_context` reuses the existing `Context.diff` abstraction instead of inventing a second metadata diff format.
 - v1 delta is defined only for canonical checkpoint version 4. Older checkpoint versions must first be rebaselined through a full load and full save.
+
+## Canonical form and hashing
+
+Hash-based integrity checking requires deterministic serialization. The canonical form is:
+
+- JSON keys sorted alphabetically at every nesting level
+- floats rendered with `Printf.sprintf "%.17g"` (IEEE 754 round-trip)
+- no trailing whitespace or indentation
+- hash algorithm: SHA-256 over the canonical JSON byte string
+
+Both `compute_delta` and `apply_delta` must use the same canonical form. Any change to the canonical form requires a new `delta_version`.
 
 ## Compute algorithm
 
 `Checkpoint.compute_delta : t -> t -> delta option`
 
 1. Reject non-v4 inputs. Older checkpoints must rebaseline to a full v4 checkpoint first.
-2. Canonicalize both checkpoints with stable JSON encoding, then hash them.
-3. Build one message splice using common-prefix/common-suffix detection.
+2. Canonicalize both checkpoints with stable JSON encoding, then SHA-256 hash them.
+3. Build message splices using LCS-based diff (common-prefix/common-suffix detection, then minimal splice set for disjoint edits).
 4. Emit replace operations for any non-message field whose value changed.
 5. If the delta would be larger than the target full checkpoint, return `None` and keep the full checkpoint path.
 
 ### Message diff rule
 
-The v1 algorithm emits at most one `Splice_messages` operation:
+The v1 algorithm emits a `message_splice list`:
 
-- `start_index`: first differing message index
+Each splice has:
+- `start_index`: position in the base message list
 - `delete_count`: number of messages removed from the base checkpoint
 - `insert`: replacement slice from the target checkpoint
 
-One splice is enough for the current mutation set because every known writer either:
+Splices are ordered by `start_index` descending (apply from end to avoid index shifting). Multiple splices are needed because:
 
-- rewrites a local contiguous region
-- inserts a contiguous repair region
-- replaces a long prefix or middle range during reduction
+- `Drop_thinking` can remove Thinking blocks at arbitrary positions
+- `replace_tool_result` can modify a ToolResult independently of other changes
+- `context_reducer` strategies can drop middle ranges while keeping first and last
 
-If future writers need multiple disjoint edits, the safe fallback is still one wide splice that replaces the full differing window.
+A single wide splice that replaces the entire differing window is always valid as a fallback, but wastes space when edits are sparse. The compute algorithm should prefer minimal splice sets when possible, falling back to a single wide splice when the diff is too complex.
 
 ## Apply algorithm
 
@@ -208,12 +220,16 @@ No read path switches to delta in this phase.
 
 ### Semantic gate
 
-Raw text equality is advisory only. The release gate should check behavior, not byte-for-byte text.
+The semantic gate operates during shadow phase (Phase 1) to validate that delta-rebuilt checkpoints produce equivalent agent behavior. This is separate from the hash-based structural gate:
 
+- **Hash gate** (apply path): exact canonical JSON equality. Ensures the delta reconstruction is bit-identical to the original checkpoint. This is the production correctness gate.
+- **Semantic gate** (shadow phase): behavioral equivalence. Validates that even if a future delta format produces structurally different but semantically equivalent checkpoints, the agent behavior is preserved.
+
+Semantic checks:
 - for turns with `ToolUse`: preserve tool-call fingerprint equality
 - for turns without `ToolUse`: preserve structure checks that matter for resume quality
 - reuse [`lib/checkpoint_validation.ml`](../../lib/checkpoint_validation.ml) as a partial validator, but do not treat its current `continuity_check` as sufficient by itself
-- borrow test fixtures and replay patterns from [`test/test_session_resume.ml`](../../test/test_session_resume.ml)
+- raw text similarity score is advisory, not a gate
 
 ## Version skew with MASC
 
