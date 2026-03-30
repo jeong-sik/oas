@@ -25,6 +25,7 @@ type strategy =
   | Prune_by_role of { drop_roles: role list }
   | Summarize_old of { keep_recent: int; summarizer: message list -> string }
   | Clear_tool_results of { keep_recent: int }
+  | Stub_tool_results of { keep_recent: int }
   | Compose of strategy list
   | Custom of (message list -> message list)
   | Dynamic of (turn:int -> messages:message list -> strategy)
@@ -338,6 +339,56 @@ let apply_clear_tool_results ~keep_recent messages =
     let processed = List.mapi process_turn turns in
     List.concat processed
 
+(** Stub tool results in older turns with structured metadata.
+
+    Like [Clear_tool_results], but produces an informative stub that
+    preserves the tool name (from the matching ToolUse), line count,
+    and error status. This lets the LLM track what tools were used
+    without consuming tokens for the full output.
+
+    Stub format: [[tool: <name>, <N> lines, <ok|error>]]
+
+    ToolResult blocks in the most recent [keep_recent] turns are untouched.
+    ToolUse/ToolResult pairing is preserved (the stub is still a ToolResult). *)
+let apply_stub_tool_results ~keep_recent messages =
+  let turns = group_into_turns messages in
+  let total = List.length turns in
+  if total <= keep_recent then messages
+  else
+    (* Build a map from tool_use_id -> tool name across all messages *)
+    let tool_names = Hashtbl.create 32 in
+    List.iter (fun (msg : message) ->
+      List.iter (function
+        | ToolUse { id; name; _ } -> Hashtbl.replace tool_names id name
+        | _ -> ()
+      ) msg.content
+    ) messages;
+    let process_turn i turn =
+      if i >= total - keep_recent then turn
+      else
+        List.map (fun (msg : message) ->
+          let content = List.map (fun block ->
+            match block with
+            | ToolResult { tool_use_id; content; is_error } when String.length content > 50 ->
+              let tool_name =
+                match Hashtbl.find_opt tool_names tool_use_id with
+                | Some n -> n
+                | None -> "unknown"
+              in
+              let line_count =
+                1 + String.fold_left (fun acc c -> if c = '\n' then acc + 1 else acc) 0 content
+              in
+              let status = if is_error then "error" else "ok" in
+              let stub = Printf.sprintf "[tool: %s, %d lines, %s]" tool_name line_count status in
+              ToolResult { tool_use_id; content = stub; is_error }
+            | other -> other
+          ) msg.content in
+          { msg with content }
+        ) turn
+    in
+    let processed = List.mapi process_turn turns in
+    List.concat processed
+
 (** Replace old messages with a summary, keeping the [keep_recent] most
     recent turns intact. The caller supplies a [summarizer] function
     that produces a summary string from the old messages.
@@ -374,6 +425,8 @@ and apply_strategy strategy messages =
     apply_summarize_old ~keep_recent ~summarizer messages
   | Clear_tool_results { keep_recent } ->
     apply_clear_tool_results ~keep_recent messages
+  | Stub_tool_results { keep_recent } ->
+    apply_stub_tool_results ~keep_recent messages
   | Compose strategies ->
     List.fold_left (fun msgs s -> apply_strategy s msgs) messages strategies
   | Custom f -> f messages
@@ -399,6 +452,8 @@ let summarize_old ~keep_recent ~summarizer =
   { strategy = Summarize_old { keep_recent; summarizer } }
 let clear_tool_results ~keep_recent =
   { strategy = Clear_tool_results { keep_recent } }
+let stub_tool_results ~keep_recent =
+  { strategy = Stub_tool_results { keep_recent } }
 let compose strategies = { strategy = Compose (List.map (fun r -> r.strategy) strategies) }
 let custom f = { strategy = Custom f }
 let clamp_score score = Float.min 1.0 (Float.max 0.0 score)
