@@ -153,7 +153,7 @@ let glm_defaults = {
   base_url =
     (match Sys.getenv_opt "ZAI_BASE_URL" with
      | Some url -> url
-     | None -> "https://open.bigmodel.cn/api/paas/v4");
+     | None -> "https://api.z.ai/api/coding/paas/v4");
   api_key_env = "ZAI_API_KEY";
   request_path = "/chat/completions";
 }

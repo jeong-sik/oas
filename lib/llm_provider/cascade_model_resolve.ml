@@ -11,15 +11,16 @@
     ZhipuAI serves all models on one endpoint; the "model" field
     must be an exact ID from their catalog.
 
-    Catalog (2026-03):
-    {b Text}: glm-5, glm-5-turbo, glm-4.7, glm-4.7-flashx,
+    Catalog (2026-03, updated):
+    {b Text}: glm-5.1, glm-5, glm-5-turbo, glm-4.7, glm-4.7-flashx,
               glm-4.6, glm-4.5, glm-4.5-air, glm-4.5-airx,
               glm-4.5-flash, glm-4.5-x, glm-4-32b-0414-128k
     {b Vision}: glm-4.6v, glm-4.6v-flashx, glm-4.6v-flash, glm-4.5v
     {b Audio}: glm-asr-2512
     {b Image gen}: cogview-4, glm-image
 
-    All text/vision models support function calling. *)
+    All text/vision models support function calling.
+    glm-5.1 supports reasoning (reasoning_content field). *)
 let resolve_glm_model_id model_id =
   let env_or default var =
     match Sys.getenv_opt var with
@@ -28,7 +29,7 @@ let resolve_glm_model_id model_id =
   in
   match String.lowercase_ascii model_id with
   (* aliases -> concrete IDs *)
-  | "auto" -> env_or "glm-5" "ZAI_DEFAULT_MODEL"
+  | "auto" -> env_or "glm-5.1" "ZAI_DEFAULT_MODEL"
   | "flash" -> "glm-4.7-flashx"
   | "turbo" -> "glm-5-turbo"
   | "vision" | "v" -> "glm-4.6v"
