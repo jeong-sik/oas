@@ -77,6 +77,15 @@ let fire2 opt a b = match opt with
     Printf.eprintf "swarm callback raised: %s\n%!" (Printexc.to_string exn))
   | None -> ()
 
+(* ── Telemetry extraction ───────────────────────────────────────── *)
+
+let extract_telemetry (entry : agent_entry) =
+  match entry.get_telemetry with
+  | Some f -> (try f () with exn ->
+    Printf.eprintf "get_telemetry raised: %s\n%!" (Printexc.to_string exn);
+    empty_telemetry)
+  | None -> empty_telemetry
+
 (* ── Agent-level retry ──────────────────────────────────────────── *)
 
 let default_agent_max_retries = 2
