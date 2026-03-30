@@ -2,6 +2,13 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.97.1] - 2026-03-30
+
+### Added
+- Delta checkpoints for `Checkpoint` with JSON codecs, message/context patch operations, and hash-based validation (#488).
+- `restore_with_delta_fallback` plus `MASC_DELTA_CHECKPOINT` feature gating to shadow-apply deltas and fall back to full checkpoints safely.
+- Delta checkpoint metrics and property/integration coverage for malformed payloads, invalid splices, and restore fallback paths.
+
 ## [0.96.0] - 2026-03-30
 
 ### Added
