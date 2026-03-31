@@ -59,18 +59,22 @@ let rpc_error ~id ~code ~message =
 
 type t = {
   config: config;
+  listen_addr: [ `Loopback | `Any ];
   store: A2a_task.store;
   persistent_store: A2a_task_store.t option;
   mutable running: bool;
   mutable stop_server: (unit -> unit) option;
+  mutable bound_port: int option;
   log: Log.t;
   event_bus: Event_bus.t option;
 } [@@warning "-69"]
 
-let create ?(event_bus : Event_bus.t option) ?persistent_store config =
-  { config; store = A2a_task.create_store (); persistent_store;
+let create ?(listen_addr = `Loopback)
+    ?(event_bus : Event_bus.t option) ?persistent_store config =
+  { config; listen_addr; store = A2a_task.create_store (); persistent_store;
     running = false;
     stop_server = None;
+    bound_port = None;
     log = Log.create ~module_name:"a2a_server" ();
     event_bus }
 
@@ -178,30 +182,54 @@ let handle_request t ~meth ~path ~body =
 let start ~sw ~net t =
   if t.running then ()
   else
+    let bind_ip =
+      match t.listen_addr with
+      | `Loopback -> Eio.Net.Ipaddr.V4.loopback
+      | `Any -> Eio.Net.Ipaddr.V4.any
+    in
     let socket =
       Eio.Net.listen net ~sw ~backlog:128 ~reuse_addr:true
-        (`Tcp (Eio.Net.Ipaddr.V4.loopback, t.config.port))
+        (`Tcp (bind_ip, t.config.port))
+    in
+    let bound_port =
+      match Eio.Net.listening_addr socket with
+      | `Tcp (_, port) -> port
+      | _ -> t.config.port
     in
     let callback _conn req body =
       let meth = req |> Cohttp.Request.meth |> Cohttp.Code.string_of_method in
       let path = req |> Cohttp.Request.uri |> Uri.path in
-      let body = Eio.Buf_read.(of_flow ~max_size:max_int body |> take_all) in
-      let (status_code, response_body) = handle_request t ~meth ~path ~body in
-      Cohttp_eio.Server.respond_string
-        ~status:(Cohttp.Code.status_of_code status_code)
-        ~body:response_body ()
+      try
+        let body =
+          Eio.Buf_read.(
+            of_flow ~max_size:Llm_provider.Api_common.max_response_body body
+            |> take_all)
+        in
+        let (status_code, response_body) = handle_request t ~meth ~path ~body in
+        Cohttp_eio.Server.respond_string
+          ~status:(Cohttp.Code.status_of_code status_code)
+          ~body:response_body ()
+      with
+      | Eio.Buf_read.Buffer_limit_exceeded ->
+        Cohttp_eio.Server.respond_string
+          ~status:`Request_entity_too_large
+          ~body:(Yojson.Safe.to_string
+                   (`Assoc [("error", `String "request body too large")]))
+          ()
     in
     let server = Cohttp_eio.Server.make ~callback () in
     t.running <- true;
+    t.bound_port <- Some bound_port;
     t.stop_server <- Some (fun () -> Eio.Flow.close socket);
     Eio.Fiber.fork ~sw (fun () ->
       Fun.protect
         (fun () -> Cohttp_eio.Server.run socket server ~on_error:(fun _ -> ()))
         ~finally:(fun () ->
           t.running <- false;
-          t.stop_server <- None));
+          t.stop_server <- None;
+          t.bound_port <- None));
     Log.info t.log "A2A server started"
-      [Log.I ("port", t.config.port)]
+      [Log.I ("port", bound_port)]
 
 let stop t =
   (match t.stop_server with
@@ -213,6 +241,7 @@ let stop t =
   Log.info t.log "A2A server stopped" []
 
 let is_running t = t.running
+let bound_port t = t.bound_port
 
 (* ── Direct request processing (for testing without HTTP) ────── *)
 

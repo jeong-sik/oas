@@ -16,6 +16,7 @@ type config = {
 type t
 
 val create :
+  ?listen_addr:[ `Loopback | `Any ] ->
   ?event_bus:Event_bus.t ->
   ?persistent_store:A2a_task_store.t ->
   config -> t
@@ -23,6 +24,7 @@ val create :
 val start : sw:Eio.Switch.t -> net:_ Eio.Net.t -> t -> unit
 val stop : t -> unit
 val is_running : t -> bool
+val bound_port : t -> int option
 
 val process_request :
   t -> meth:string -> path:string -> body:string ->

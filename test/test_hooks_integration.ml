@@ -8,17 +8,6 @@
 open Agent_sdk
 open Types
 
-let contains_substring haystack needle =
-  let needle_len = String.length needle in
-  let haystack_len = String.length haystack in
-  let rec loop idx =
-    if needle_len = 0 then true
-    else if idx + needle_len > haystack_len then false
-    else if String.sub haystack idx needle_len = needle then true
-    else loop (idx + 1)
-  in
-  loop 0
-
 (* ── Mock HTTP Server ────────────────────────────────── *)
 
 let text_body text =
@@ -78,7 +67,7 @@ let test_before_turn_skip_fails_closed () =
     | Ok _ -> Alcotest.fail "expected invalid before_turn decision"
     | Error (Error.Internal msg) ->
       Alcotest.(check bool) "mentions unsupported decision" true
-        (contains_substring msg "unsupported decision")
+        (Util.string_contains ~needle:"unsupported decision" msg)
     | Error e -> Alcotest.fail (Error.to_string e))
 
 let test_before_turn_elicitation_requires_callback () =
@@ -93,7 +82,7 @@ let test_before_turn_elicitation_requires_callback () =
     | Ok _ -> Alcotest.fail "expected missing elicitation callback error"
     | Error (Error.Internal msg) ->
       Alcotest.(check bool) "mentions elicitation" true
-        (contains_substring msg "elicitation")
+        (Util.string_contains ~needle:"elicitation" msg)
     | Error e -> Alcotest.fail (Error.to_string e))
 
 let test_before_turn_continue_proceeds () =
@@ -123,7 +112,7 @@ let test_before_turn_params_invalid_decision_fails_closed () =
     | Ok _ -> Alcotest.fail "expected invalid before_turn_params decision"
     | Error (Error.Internal msg) ->
       Alcotest.(check bool) "mentions unsupported decision" true
-        (contains_substring msg "unsupported decision")
+        (Util.string_contains ~needle:"unsupported decision" msg)
     | Error e -> Alcotest.fail (Error.to_string e))
 
 let test_before_turn_receives_turn_number () =

@@ -130,8 +130,8 @@ let load ?(skill_roots = []) path =
       in
       Error (Error.Io (ValidationFailed {
         detail =
-          Printf.sprintf "Subagent.load: unresolved skill refs: %s"
-            (String.concat ", " unresolved);
+          Printf.sprintf "Subagent.load(%s): unresolved skill refs: %s"
+            path (String.concat ", " unresolved);
       }))
     else
       Ok { initial with skills = List.map snd resolved }

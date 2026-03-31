@@ -297,10 +297,9 @@ let test_server_start_discover_and_send () =
   Eio_main.run @@ fun env ->
   try
     Eio.Switch.run @@ fun sw ->
-      let port = 21221 in
       let canceled = ref [] in
       let server =
-        mk_server ~port
+        mk_server ~port:0
           ~on_task_cancel:(fun task_id ->
             canceled := task_id :: !canceled;
             Ok ())
@@ -308,6 +307,11 @@ let test_server_start_discover_and_send () =
       in
       A2a_server.start ~sw ~net:env#net server;
       Alcotest.(check bool) "running after start" true (A2a_server.is_running server);
+      let port =
+        match A2a_server.bound_port server with
+        | Some port -> port
+        | None -> Alcotest.fail "expected bound port after start"
+      in
       let url = Printf.sprintf "http://127.0.0.1:%d" port in
       (match A2a_client.discover ~sw ~net:env#net url with
        | Error e -> Alcotest.fail (Error.to_string e)
@@ -330,6 +334,8 @@ let test_server_start_discover_and_send () =
       Alcotest.(check int) "cancel callback called" 1 (List.length !canceled);
       A2a_server.stop server;
       Alcotest.(check bool) "stopped" false (A2a_server.is_running server);
+      Alcotest.(check (option int)) "bound port cleared" None
+        (A2a_server.bound_port server);
       Eio.Switch.fail sw Exit
   with Exit -> ()
 
