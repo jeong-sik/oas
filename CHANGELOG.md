@@ -2,6 +2,11 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.99.6] - 2026-03-31
+
+### Changed
+- Extract `Cascade_health_filter` and `Cascade_executor` from `cascade_config.ml` (983 → 721 lines). No public API changes.
+
 ## [0.99.5] - 2026-03-31
 
 ### Fixed
