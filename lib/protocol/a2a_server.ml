@@ -238,6 +238,7 @@ let stop t =
      t.stop_server <- None
    | None -> ());
   t.running <- false;
+  t.bound_port <- None;
   Log.info t.log "A2A server stopped" []
 
 let is_running t = t.running
