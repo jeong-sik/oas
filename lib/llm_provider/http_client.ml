@@ -53,6 +53,7 @@ let is_local_resource_exhaustion = function
     || has_substr m "no buffer space available"     (* ENOBUFS *)
     || has_substr m "eaddrnotavail"
     || has_substr m "emfile"
+    || has_substr m "enfile"
   | HttpError _ -> false
 
 (* ── Public API ────────────────────────────────────────────── *)
@@ -222,6 +223,7 @@ let inject_stream_param body_str =
   | other -> Yojson.Safe.to_string other
   | exception Yojson.Json_error _ -> body_str
 
+[@@@coverage off]
 (* ── is_local_resource_exhaustion tests ──────────────── *)
 
 let%test "resource exhaustion: EADDRNOTAVAIL via Eio" =
@@ -242,6 +244,11 @@ let%test "resource exhaustion: EMFILE constant" =
 let%test "resource exhaustion: ENOBUFS" =
   is_local_resource_exhaustion (NetworkError {
     message = "No buffer space available"
+  })
+
+let%test "resource exhaustion: ENFILE constant" =
+  is_local_resource_exhaustion (NetworkError {
+    message = "Unix.Unix_error(Unix.ENFILE, \"socket\", \"\")"
   })
 
 let%test "resource exhaustion: normal connection refused is not" =
