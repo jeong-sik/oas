@@ -137,7 +137,7 @@ let rec resolve_provider name =
         path = "/v1/chat/completions";
         static_token = None;
       };
-      model_id = Defaults.env_or "qwen3.5" "OAS_REVIEW_MODEL";
+      model_id = "qwen3.5";
       api_key_env = "";
     })
   | "openrouter" ->

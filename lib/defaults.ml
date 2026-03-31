@@ -8,6 +8,18 @@ let env_or default var =
   | Some v when String.trim v <> "" -> String.trim v
   | _ -> default
 
+let int_env_or default var =
+  match Sys.getenv_opt var with
+  | Some raw -> (match int_of_string_opt (String.trim raw) with
+    | Some v when v > 0 -> v | _ -> default)
+  | None -> default
+
+let float_env_or default var =
+  match Sys.getenv_opt var with
+  | Some raw -> (match float_of_string_opt (String.trim raw) with
+    | Some v when v > 0.0 -> v | _ -> default)
+  | None -> default
+
 let local_llm_url =
   (* Backward compat: OAS_LOCAL_QWEN_URL still works as fallback *)
   let primary = Sys.getenv_opt "OAS_LOCAL_LLM_URL" in

@@ -10,6 +10,14 @@
     if the variable is unset or empty. *)
 val env_or : string -> string -> string
 
+(** Read an integer environment variable, falling back to [default]
+    if the variable is unset, empty, non-numeric, or non-positive. *)
+val int_env_or : int -> string -> int
+
+(** Read a float environment variable, falling back to [default]
+    if the variable is unset, empty, non-numeric, or non-positive. *)
+val float_env_or : float -> string -> float
+
 (** Local LLM server URL.
     Reads [OAS_LOCAL_LLM_URL], falling back to [OAS_LOCAL_QWEN_URL],
     then ["http://127.0.0.1:8085"]. *)

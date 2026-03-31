@@ -79,22 +79,10 @@ let fire2 opt a b = match opt with
 
 (* ── Agent-level retry ──────────────────────────────────────────── *)
 
-let int_env_or default var =
-  match Sys.getenv_opt var with
-  | Some raw -> (match int_of_string_opt (String.trim raw) with
-    | Some v when v > 0 -> v | _ -> default)
-  | None -> default
-
-let float_env_or default var =
-  match Sys.getenv_opt var with
-  | Some raw -> (match float_of_string_opt (String.trim raw) with
-    | Some v when v > 0.0 -> v | _ -> default)
-  | None -> default
-
-let default_agent_max_retries = int_env_or 2 "OAS_AGENT_MAX_RETRIES"
-let default_agent_initial_delay = float_env_or 1.0 "OAS_AGENT_INITIAL_DELAY"
+let default_agent_max_retries = Defaults.int_env_or 2 "OAS_AGENT_MAX_RETRIES"
+let default_agent_initial_delay = Defaults.float_env_or 1.0 "OAS_AGENT_INITIAL_DELAY"
 let default_agent_backoff = 2.0
-let default_agent_max_delay = float_env_or 30.0 "OAS_AGENT_MAX_DELAY"
+let default_agent_max_delay = Defaults.float_env_or 30.0 "OAS_AGENT_MAX_DELAY"
 
 let is_retryable_agent_error = function
   | Error.Api _ -> true
