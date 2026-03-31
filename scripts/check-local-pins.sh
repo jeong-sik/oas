@@ -19,7 +19,11 @@ check_pin() {
   local_info="$(opam pin list 2>/dev/null | grep "^${pkg}\." || true)"
 
   if [[ -z "$local_info" ]]; then
-    echo -e "${YELLOW}[WARN]${NC} ${label}: not pinned locally (opam default)"
+    echo -e "${RED}[DRIFT]${NC} ${label}: not pinned locally"
+    echo "  expected: ${expected_sha:0:12} (from scripts/mcp-sdk-pin.sh)"
+    echo "  local:    opam default / no pin"
+    echo "  fix: opam pin add ${pkg} \"git+${MCP_SDK_URL}#${expected_sha}\" --no-action --yes"
+    drift=1
     return
   fi
 
@@ -31,7 +35,7 @@ check_pin() {
     echo -e "${RED}[DRIFT]${NC} ${label}"
     echo "  expected: ${expected_sha:0:12} (from scripts/mcp-sdk-pin.sh)"
     echo "  local:    ${actual:-unknown}"
-    echo "  fix: opam pin ${pkg} \"git+${MCP_SDK_URL}#${expected_sha}\" --yes"
+    echo "  fix: opam pin add ${pkg} \"git+${MCP_SDK_URL}#${expected_sha}\" --no-action --yes"
     drift=1
   fi
 }
@@ -46,4 +50,4 @@ if [[ $drift -ne 0 ]]; then
   exit 1
 fi
 
-echo -e "${GREEN}All pins match CI.${NC}"
+echo -e "${GREEN}All local pins match CI SSOT.${NC}"

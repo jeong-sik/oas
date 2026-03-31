@@ -8,8 +8,9 @@ git clone https://github.com/jeong-sik/oas.git
 cd oas
 
 # Pin fork dependencies (required for OCaml 5.4)
+source scripts/mcp-sdk-pin.sh
 opam pin add bisect_ppx git+https://github.com/patricoferris/bisect_ppx.git#5.2 --no-action --yes
-opam pin add mcp_protocol git+https://github.com/jeong-sik/mcp-protocol-sdk.git#v1.2.0 --no-action --yes
+opam pin add mcp_protocol "git+${MCP_SDK_URL}#${MCP_SDK_SHA}" --no-action --yes
 
 # Install dependencies
 opam install . --deps-only --with-test --yes
@@ -68,7 +69,7 @@ Two dependencies are pinned to forks. Both are temporary.
 | Package | Fork | Why | Upstream status |
 |---------|------|-----|-----------------|
 | `bisect_ppx` | `patricoferris/bisect_ppx#5.2` | Upstream 2.8.x fails on OCaml 5.4. This fork adds 5.4 compat. | PR pending upstream. Remove pin when bisect_ppx >= 2.9 ships. |
-| `mcp_protocol` | `jeong-sik/mcp-protocol-sdk#v1.2.0` | OCaml MCP bindings are pinned to the current single-package release line. | Move to opam package releases when installation no longer depends on a git pin. |
+| `mcp_protocol` | `jeong-sik/mcp-protocol-sdk` at the SHA from `scripts/mcp-sdk-pin.sh` | OCaml MCP bindings are pinned to the CI SSOT so local and CI installs stay identical. | Move to opam package releases when installation no longer depends on a git pin. |
 
 These pins are set in CI (`ci.yml`) and in the build instructions above.
 When upstream releases resolve the issue, remove the pin and use the opam version.

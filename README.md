@@ -20,8 +20,9 @@ For development (with test dependencies):
 git clone https://github.com/jeong-sik/oas.git && cd oas
 
 # Required fork pins (OCaml 5.4 compat)
+source scripts/mcp-sdk-pin.sh
 opam pin add bisect_ppx git+https://github.com/patricoferris/bisect_ppx.git#5.2 --no-action --yes
-opam pin add mcp_protocol git+https://github.com/jeong-sik/mcp-protocol-sdk.git#v1.2.0 --no-action --yes
+opam pin add mcp_protocol "git+${MCP_SDK_URL}#${MCP_SDK_SHA}" --no-action --yes
 
 opam install . --deps-only --with-test --yes
 dune build @all
