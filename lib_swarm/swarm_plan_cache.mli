@@ -8,7 +8,7 @@
     Integration is opt-in via {!make_recording_callbacks} — no changes
     to {!Runner.run} or {!Swarm_types.swarm_config} are required.
 
-    @since 0.99.0 *)
+    @since 0.99.1 *)
 
 (** {1 Types} *)
 

@@ -2,7 +2,7 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
-## [0.99.0] - 2026-03-31
+## [0.99.1] - 2026-03-31
 
 ### Added
 - `Swarm_plan_cache` module — convergence trajectory caching and warm-start for swarm runs (#508).

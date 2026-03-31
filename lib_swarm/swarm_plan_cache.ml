@@ -1,6 +1,6 @@
 (** Swarm plan cache — store and reuse proven convergence templates.
 
-    @since 0.99.0 *)
+    @since 0.99.1 *)
 
 open Swarm_types
 
