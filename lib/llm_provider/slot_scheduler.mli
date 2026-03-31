@@ -50,3 +50,37 @@ val try_with_permit : priority:Request_priority.t -> t -> (unit -> 'a) -> 'a opt
 (** Run [f] if a slot is immediately available, returning [Some result].
     Returns [None] without blocking if all slots are in use.
     The slot is released automatically when [f] returns or raises. *)
+
+(** {2 Explicit Handle API — Turn-Level Slot Yielding}
+
+    Supports the OpenClaw "Agent exists != LLM slot held" pattern.
+    Agents acquire a permit, yield it during tool execution (releasing
+    the slot for other agents), then resume before the next LLM turn.
+
+    Lifecycle: [acquire_permit] -> [yield_permit] -> [resume_permit] -> [release_permit]
+
+    @since 0.100.0 *)
+
+type permit
+(** Opaque handle representing a held slot permit. *)
+
+val acquire_permit : priority:Request_priority.t -> t -> permit
+(** Acquire a slot at the given priority. Blocks if all slots are in use.
+    The caller is responsible for calling [release_permit] when done. *)
+
+val yield_permit : t -> permit -> unit
+(** Yield a held permit. Releases the slot so other agents can use it.
+    The permit transitions to a yielded state. Call [resume_permit]
+    to re-acquire before the next LLM turn. *)
+
+val resume_permit : t -> permit -> unit
+(** Re-acquire a previously yielded permit at [Resume] priority
+    (higher than Interactive) to prevent starvation of tool-heavy agents.
+    Blocks until a slot is available. *)
+
+val release_permit : t -> permit -> unit
+(** Permanently release a permit. Must be called exactly once per
+    [acquire_permit], whether the permit is held or yielded. *)
+
+val permit_is_held : permit -> bool
+(** [true] if the permit currently holds a slot. *)

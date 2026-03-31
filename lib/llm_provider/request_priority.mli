@@ -8,6 +8,7 @@
     @stability Unstable *)
 
 type t =
+  | Resume        (** P-1: resuming a yielded slot. Higher than Interactive to prevent starvation. *)
   | Interactive   (** P0: user-facing chat, tool calls. *)
   | Proactive     (** P1: agent turns, board replies. *)
   | Background    (** P2: heartbeat, status ticks. *)
@@ -24,10 +25,10 @@ val resolve : t -> t
 val to_string : t -> string
 val of_string : string -> t option
 val compare : t -> t -> int
-(** [Interactive < Proactive < Background < Unspecified] — lower = higher priority. *)
+(** [Resume < Interactive < Proactive < Background < Unspecified] — lower = higher priority. *)
 
 val to_int : t -> int
-(** Numeric rank: 0=Interactive, 1=Proactive, 2=Background, 3=Unspecified. *)
+(** Numeric rank: -1=Resume, 0=Interactive, 1=Proactive, 2=Background, 3=Unspecified. *)
 
 val to_yojson : t -> Yojson.Safe.t
 val of_yojson : Yojson.Safe.t -> (t, string) result
