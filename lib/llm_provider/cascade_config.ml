@@ -159,8 +159,12 @@ let parse_model_strings
 
 (* ── Cascade-level error classification ────────────────── *)
 
-(** Decide whether an error should cascade to the next provider. *)
-let should_cascade_to_next = function
+(** Decide whether an error should cascade to the next provider.
+    Local resource exhaustion (port/FD limits) stops the cascade
+    because every subsequent provider will hit the same bottleneck. *)
+let should_cascade_to_next err =
+  if Http_client.is_local_resource_exhaustion err then false
+  else match err with
   | Http_client.HttpError { code; _ } ->
     List.mem code Constants.Http.cascadable_codes
   | Http_client.NetworkError _ -> true
@@ -940,6 +944,21 @@ let%test "should_cascade_to_next 400 bad request stops" =
 
 let%test "should_cascade_to_next 404 not found stops" =
   should_cascade_to_next (Http_client.HttpError { code = 404; body = "" }) = false
+
+let%test "should_cascade_to_next EADDRNOTAVAIL stops" =
+  should_cascade_to_next (Http_client.NetworkError {
+    message = "Eio.Io Unix_error (Can't assign requested address, \"connect\", \"\"), connecting to tcp:128.14.69.121:443"
+  }) = false
+
+let%test "should_cascade_to_next EMFILE stops" =
+  should_cascade_to_next (Http_client.NetworkError {
+    message = "Unix.Unix_error(Unix.EMFILE, \"socket\", \"\")"
+  }) = false
+
+let%test "should_cascade_to_next too many open files stops" =
+  should_cascade_to_next (Http_client.NetworkError {
+    message = "Too many open files"
+  }) = false
 
 (* ── has_required_api_key tests ───────────────────────── *)
 

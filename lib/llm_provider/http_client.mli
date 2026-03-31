@@ -65,5 +65,10 @@ val read_sse :
   on_data:(event_type:string option -> string -> unit) ->
   unit -> unit
 
+(** [true] when the error indicates local resource exhaustion
+    (ephemeral port depletion, FD limit).  Cascading to another
+    provider cannot help — the bottleneck is the local machine. *)
+val is_local_resource_exhaustion : http_error -> bool
+
 (** Inject ["stream": true] into a JSON body string. *)
 val inject_stream_param : string -> string
