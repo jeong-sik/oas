@@ -96,13 +96,22 @@ type api_strategy =
 val run :
   sw:Eio.Switch.t ->
   ?clock:_ Eio.Time.clock ->
+  ?on_yield:(unit -> unit) ->
+  ?on_resume:(unit -> unit) ->
   t -> string ->
   (Types.api_response, Error.sdk_error) result
+(** Run agent to completion. [on_yield] is called when the agent enters
+    tool execution and [on_resume] before the next LLM turn, allowing
+    callers to release/re-acquire provider capacity.
+    Only invoked when [agent_config.yield_on_tool = true].
+    @since 0.100.0 *)
 
 val run_stream :
   sw:Eio.Switch.t ->
   ?clock:_ Eio.Time.clock ->
   on_event:(Types.sse_event -> unit) ->
+  ?on_yield:(unit -> unit) ->
+  ?on_resume:(unit -> unit) ->
   t -> string ->
   (Types.api_response, Error.sdk_error) result
 
