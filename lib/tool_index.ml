@@ -7,26 +7,53 @@
 
 (* ── Tokenization ─────────────────────────────────── *)
 
-(** Simple whitespace + punctuation tokenizer.
-    Lowercases and splits on non-alphanumeric boundaries.
-    Filters tokens shorter than 2 characters. *)
+(** UTF-8-aware tokenizer.
+    ASCII: lowercase, split on non-alphanumeric, min-length 2 (unchanged).
+    Non-ASCII: accumulate contiguous non-ASCII bytes into a word token,
+    flush on ASCII/whitespace boundary. Korean uses spaces between words,
+    so space-based splitting produces meaningful word tokens.
+    Single-codepoint non-ASCII tokens are kept (no min-length filter). *)
 let tokenize (s : string) : string list =
-  let buf = Buffer.create 32 in
+  let ascii_buf = Buffer.create 32 in
+  let utf8_buf = Buffer.create 32 in
   let tokens = ref [] in
-  let flush () =
-    if Buffer.length buf >= 2 then
-      tokens := Buffer.contents buf :: !tokens;
-    Buffer.clear buf
+  let flush_ascii () =
+    if Buffer.length ascii_buf >= 2 then
+      tokens := Buffer.contents ascii_buf :: !tokens;
+    Buffer.clear ascii_buf
   in
-  String.iter (fun c ->
-    if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') then
-      Buffer.add_char buf c
-    else if c >= 'A' && c <= 'Z' then
-      Buffer.add_char buf (Char.lowercase_ascii c)
-    else
-      flush ()
-  ) s;
-  flush ();
+  let flush_utf8 () =
+    if Buffer.length utf8_buf > 0 then
+      tokens := Buffer.contents utf8_buf :: !tokens;
+    Buffer.clear utf8_buf
+  in
+  let len = String.length s in
+  let i = ref 0 in
+  while !i < len do
+    let byte = Char.code (String.unsafe_get s !i) in
+    if byte < 0x80 then begin
+      flush_utf8 ();
+      let c = Char.chr byte in
+      if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') then
+        Buffer.add_char ascii_buf c
+      else if c >= 'A' && c <= 'Z' then
+        Buffer.add_char ascii_buf (Char.lowercase_ascii c)
+      else
+        flush_ascii ();
+      incr i
+    end else begin
+      flush_ascii ();
+      let decode = String.get_utf_8_uchar s !i in
+      let seq_len = Uchar.utf_decode_length decode in
+      if Uchar.utf_decode_is_valid decode && !i + seq_len <= len then begin
+        Buffer.add_string utf8_buf (String.sub s !i seq_len);
+        i := !i + seq_len
+      end else
+        incr i
+    end
+  done;
+  flush_ascii ();
+  flush_utf8 ();
   List.rev !tokens
 
 (* ── Types ────────────────────────────────────────── *)
@@ -268,3 +295,48 @@ let%test "min_score filtering" =
     { name = "tool"; description = "a tool"; group = None };
   ] in
   retrieve idx "something" = []
+
+(* ── UTF-8 / Korean tokenization tests ────────── *)
+
+let%test "tokenize korean words" =
+  (* Korean uses spaces between words — each becomes a token *)
+  tokenize "게시판에 글 올려줘" = ["게시판에"; "글"; "올려줘"]
+
+let%test "tokenize mixed korean english" =
+  tokenize "보드에 post 하기" = ["보드에"; "post"; "하기"]
+
+let%test "tokenize single korean word" =
+  tokenize "검색" = ["검색"]
+
+let%test "tokenize korean preserves ascii behavior" =
+  tokenize "Hello World" = ["hello"; "world"]
+  && tokenize "read_file(path)" = ["read"; "file"; "path"]
+  && tokenize "a b cd ef" = ["cd"; "ef"]
+
+let%test "korean query retrieves korean-aliased tool" =
+  let idx = build [
+    { name = "keeper_board_post";
+      description = "Create a new post on the MASC Board 게시판 글 올리기 작성";
+      group = Some "board" };
+    { name = "keeper_fs_read";
+      description = "Read a file from the project 파일 읽기";
+      group = Some "filesystem" };
+  ] in
+  let results = retrieve_names idx "게시판에 글 올려줘" in
+  List.mem "keeper_board_post" results
+
+let%test "korean group co-retrieval" =
+  let idx = build [
+    { name = "keeper_board_post";
+      description = "Create post 게시판 글 올리기";
+      group = Some "board" };
+    { name = "keeper_board_comment";
+      description = "Add comment 게시판 댓글";
+      group = Some "board" };
+    { name = "keeper_fs_read";
+      description = "Read file 파일 읽기";
+      group = None };
+  ] in
+  let results = retrieve_names idx "게시판 글" in
+  List.mem "keeper_board_post" results
+  && List.mem "keeper_board_comment" results
