@@ -212,7 +212,12 @@ let spawn_child config effective =
 let spawn_result_promise ~sw fn =
   let promise, resolver = Eio.Promise.create () in
   Eio.Fiber.fork ~sw (fun () ->
-    let result = try Ok (fn ()) with exn -> Error exn in
+    let result =
+      try Ok (fn ())
+      with
+      | Eio.Cancel.Cancelled _ as exn -> raise exn
+      | exn -> Error exn
+    in
     Eio.Promise.resolve resolver result);
   promise
 
@@ -364,3 +369,38 @@ let%test_unit "run times out and returns Timed_out" =
      | status -> failwith ("expected timeout, got " ^ status_to_string status))
   | Error err ->
     failwith (Error.to_string err)
+
+let%test_unit "run preserves switch cancellation" =
+  with_eio @@ fun ~sw:_ ~clock ->
+  let run_outcome = ref None in
+  (try
+     Eio.Switch.run @@ fun child_sw ->
+     Eio.Fiber.fork ~sw:child_sw (fun () ->
+       Eio.Time.sleep clock 0.05;
+       Eio.Switch.fail child_sw Exit);
+     run_outcome :=
+       Some
+         (try
+            match
+              run ~sw:child_sw ~clock ~config:default_config
+                ~argv:
+                  [ "/usr/bin/env"; "python3"; "-c";
+                    "import time; time.sleep(0.5)" ]
+                ~timeout_s:2.0
+            with
+            | Ok _ -> `Returned_ok
+            | Error err -> `Returned_error (Error.to_string err)
+          with
+          | Eio.Cancel.Cancelled _ -> `Cancelled
+          | exn -> `Raised (Printexc.to_string exn))
+   with Exit -> ());
+  match !run_outcome with
+  | Some `Cancelled -> ()
+  | Some `Returned_ok ->
+    failwith "expected switch cancellation, got normal return"
+  | Some (`Returned_error err) ->
+    failwith ("expected switch cancellation, got error: " ^ err)
+  | Some (`Raised exn) ->
+    failwith ("expected switch cancellation, got exception: " ^ exn)
+  | None ->
+    failwith "run outcome was not recorded before switch failure"

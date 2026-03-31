@@ -258,7 +258,7 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
     }
     ~tool_uses
   in
-  Eio.Mutex.use_rw ~protect:false agent.mu (fun () ->
+  Eio.Mutex.use_rw ~protect:true agent.mu (fun () ->
     agent.last_tool_calls <- idle_result.new_state.last_tool_calls;
     agent.consecutive_idle_turns <-
       idle_result.new_state.consecutive_idle_turns);
