@@ -32,6 +32,29 @@ let catch_network f =
   | Failure msg ->
       Error (NetworkError { message = msg })
 
+(* Substring check on already-lowered strings. *)
+let has_substr haystack needle =
+  let hlen = String.length haystack and nlen = String.length needle in
+  if nlen > hlen then false
+  else let rec check i =
+    if i > hlen - nlen then false
+    else if String.sub haystack i nlen = needle then true
+    else check (i + 1)
+  in check 0
+
+(** Detect errors caused by local resource exhaustion (port/FD limits).
+    Cascading to another provider cannot help — the local machine is
+    the bottleneck, not the remote server. *)
+let is_local_resource_exhaustion = function
+  | NetworkError { message } ->
+    let m = String.lowercase_ascii message in
+    has_substr m "can't assign requested address"  (* EADDRNOTAVAIL *)
+    || has_substr m "too many open files"           (* EMFILE / ENFILE *)
+    || has_substr m "no buffer space available"     (* ENOBUFS *)
+    || has_substr m "eaddrnotavail"
+    || has_substr m "emfile"
+  | HttpError _ -> false
+
 (* ── Public API ────────────────────────────────────────────── *)
 
 let add_connection_close headers =
@@ -198,3 +221,40 @@ let inject_stream_param body_str =
       Yojson.Safe.to_string (`Assoc (("stream", `Bool true) :: fields))
   | other -> Yojson.Safe.to_string other
   | exception Yojson.Json_error _ -> body_str
+
+(* ── is_local_resource_exhaustion tests ──────────────── *)
+
+let%test "resource exhaustion: EADDRNOTAVAIL via Eio" =
+  is_local_resource_exhaustion (NetworkError {
+    message = "Eio.Io Unix_error (Can't assign requested address, \"connect\", \"\"), connecting to tcp:128.14.69.121:443"
+  })
+
+let%test "resource exhaustion: too many open files" =
+  is_local_resource_exhaustion (NetworkError {
+    message = "Too many open files"
+  })
+
+let%test "resource exhaustion: EMFILE constant" =
+  is_local_resource_exhaustion (NetworkError {
+    message = "Unix.Unix_error(Unix.EMFILE, \"socket\", \"\")"
+  })
+
+let%test "resource exhaustion: ENOBUFS" =
+  is_local_resource_exhaustion (NetworkError {
+    message = "No buffer space available"
+  })
+
+let%test "resource exhaustion: normal connection refused is not" =
+  not (is_local_resource_exhaustion (NetworkError {
+    message = "Connection refused"
+  }))
+
+let%test "resource exhaustion: HTTP error is not" =
+  not (is_local_resource_exhaustion (HttpError {
+    code = 500; body = "internal"
+  }))
+
+let%test "resource exhaustion: DNS failure is not" =
+  not (is_local_resource_exhaustion (NetworkError {
+    message = "failed to resolve hostname: example.com"
+  }))
