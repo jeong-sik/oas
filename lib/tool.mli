@@ -24,6 +24,7 @@ type shell_constraints = {
 
 type descriptor = {
   kind: string option;
+  mutation_class: string option;
   shell: shell_constraints option;
   notes: string list;
   examples: string list;

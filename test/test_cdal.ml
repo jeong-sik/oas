@@ -569,11 +569,11 @@ let make_enforcer_event tool_name input =
 
 let diagnose_enforcer () =
   let contract = make_contract ~mode:Execution_mode.Diagnose ~risk:Risk_class.Low () in
-  Mode_enforcer.create ~contract ~effective_mode:Execution_mode.Diagnose
+  Mode_enforcer.create ~contract ~effective_mode:Execution_mode.Diagnose ()
 
 let draft_enforcer () =
   let contract = make_contract ~mode:Execution_mode.Draft ~risk:Risk_class.Low () in
-  Mode_enforcer.create ~contract ~effective_mode:Execution_mode.Draft
+  Mode_enforcer.create ~contract ~effective_mode:Execution_mode.Draft ()
 
 let execute_enforcer () =
   let contract = Risk_contract.{
@@ -585,7 +585,7 @@ let execute_enforcer () =
     };
     eval_criteria = `Null;
   } in
-  Mode_enforcer.create ~contract ~effective_mode:Execution_mode.Execute
+  Mode_enforcer.create ~contract ~effective_mode:Execution_mode.Execute ()
 
 let test_diagnose_blocks_write () =
   let st = diagnose_enforcer () in
@@ -655,7 +655,7 @@ let test_scope_violation () =
     };
     eval_criteria = `Null;
   } in
-  let st = Mode_enforcer.create ~contract ~effective_mode:Execution_mode.Execute in
+  let st = Mode_enforcer.create ~contract ~effective_mode:Execution_mode.Execute () in
   let h = Mode_enforcer.hooks st in
   let input = `Assoc ["command", `String "curl https://api.example.com"] in
   let d = Hooks.invoke h.pre_tool_use (make_enforcer_event "bash" input) in
@@ -787,7 +787,7 @@ let test_evidence_violations_in_proof () =
   let state = Proof_capture.create
       ~store ~contract ~mode_decision ~capability_snapshot:test_caps in
   let enforcer = Mode_enforcer.create
-      ~contract ~effective_mode:Execution_mode.Diagnose in
+      ~contract ~effective_mode:Execution_mode.Diagnose () in
   Proof_capture.set_enforcer state enforcer;
   (* Fire enforcement hook that blocks a write *)
   let eh = Mode_enforcer.hooks enforcer in
@@ -810,7 +810,7 @@ let test_evidence_token_usage () =
       ~mode_decision:test_mode_decision
       ~capability_snapshot:test_caps in
   let enforcer = Mode_enforcer.create
-      ~contract:test_contract ~effective_mode:Execution_mode.Draft in
+      ~contract:test_contract ~effective_mode:Execution_mode.Draft () in
   Proof_capture.set_enforcer state enforcer;
   let eh = Mode_enforcer.hooks enforcer in
   let resp : Types.api_response = {
@@ -845,7 +845,7 @@ let test_evidence_review_warning () =
   let state = Proof_capture.create
       ~store ~contract ~mode_decision ~capability_snapshot:test_caps in
   let enforcer = Mode_enforcer.create
-      ~contract ~effective_mode:Execution_mode.Execute in
+      ~contract ~effective_mode:Execution_mode.Execute () in
   Proof_capture.set_enforcer state enforcer;
   let eh = Mode_enforcer.hooks enforcer in
   let _ = Hooks.invoke eh.before_turn

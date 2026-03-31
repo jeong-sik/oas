@@ -163,6 +163,7 @@ let () =
       ~descriptor:
         {
           Tool.kind = Some "shell";
+          mutation_class = None;
           shell =
             Some
               {

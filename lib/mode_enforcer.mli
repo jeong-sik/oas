@@ -52,6 +52,8 @@ type state
 val create :
   contract:Risk_contract.t ->
   effective_mode:Execution_mode.t ->
+  ?tool_classifications:(string * mutation_class) list ->
+  unit ->
   state
 
 (** Returns hooks that enforce mode constraints.
@@ -62,8 +64,13 @@ val violations : state -> violation list
 val token_snapshots : state -> token_snapshot list
 val review_warning : state -> string option
 
-(** Classify a tool by name. Exported for Mode_resolver reuse. *)
+(** Classify a tool by name. Uses built-in name-based heuristics only. *)
 val classify_tool : string -> mutation_class
+
+(** Parse a mutation_class from a tool descriptor string.
+    Accepted values: "read_only", "workspace", "workspace_mutating",
+    "external", "external_effect". *)
+val mutation_class_of_string : string -> mutation_class option
 
 (** Check if all tools in a list are read-only. *)
 val all_read_only : string list -> bool
