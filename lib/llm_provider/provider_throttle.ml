@@ -93,6 +93,30 @@ let try_permit ~priority t f = Slot_scheduler.try_with_permit ~priority t.schedu
 let queue_length t = Slot_scheduler.queue_length t.scheduler
 let max_concurrent t = t.max_concurrent
 
+(* ── Turn-Level Yield API ─────────────────────────────── *)
+
+type yield_capability =
+  | Explicit_slot_yield
+  | Prefix_hint_yield
+  | Replay_yield
+
+let yield_capability t =
+  match t.source with
+  | Discovered -> Explicit_slot_yield  (* local llama-server with slot data *)
+  | Fallback -> Replay_yield           (* no slot data = cloud or unknown *)
+
+let acquire_permit ~priority t =
+  Slot_scheduler.acquire_permit ~priority t.scheduler
+
+let yield_permit t permit =
+  Slot_scheduler.yield_permit t.scheduler permit
+
+let resume_permit t permit =
+  Slot_scheduler.resume_permit t.scheduler permit
+
+let release_permit t permit =
+  Slot_scheduler.release_permit t.scheduler permit
+
 [@@@coverage off]
 (* === Inline tests === *)
 
