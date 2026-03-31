@@ -179,18 +179,17 @@ let start ~sw ~(net : _ Eio.Net.t) ~bus t =
             while Atomic.get t.running do
               let events = Event_bus.drain sub in
               let payloads = List.map event_to_payload events in
-              batch := !batch @ payloads;
+              batch := List.rev_append payloads !batch;
               batch_len := !batch_len + List.length payloads;
-              (* Flush if batch is full — O(1) check via counter *)
               if !batch_len >= t.batch_size then begin
-                deliver_batch t !batch;
+                deliver_batch t (List.rev !batch);
                 batch := [];
                 batch_len := 0
               end;
               Eio.Fiber.yield ()
             done;
             if !batch <> [] then
-              deliver_batch t !batch
+              deliver_batch t (List.rev !batch)
           with
           | Eio.Cancel.Cancelled _ as ex -> raise ex
           | exn ->
