@@ -72,3 +72,31 @@ val queue_length : t -> int
 
 val max_concurrent : t -> int
 (** Maximum concurrent permits configured for this throttle. *)
+
+(** {2 Turn-Level Yield API}
+
+    Supports the "Agent exists != LLM slot held" pattern.
+    Agents acquire a permit, yield it during tool execution,
+    then resume before the next LLM turn.
+
+    @since 0.100.0 *)
+
+type yield_capability =
+  | Explicit_slot_yield  (** llama.cpp: KV cache save/restore guaranteed. *)
+  | Prefix_hint_yield    (** vLLM/SGLang: prefix re-send, best-effort cache hit. *)
+  | Replay_yield         (** Ollama/cloud: full history re-send. *)
+
+val yield_capability : t -> yield_capability
+(** Yield capability based on the provider kind. *)
+
+val acquire_permit : priority:Request_priority.t -> t -> Slot_scheduler.permit
+(** Acquire a slot permit at the given priority. *)
+
+val yield_permit : t -> Slot_scheduler.permit -> unit
+(** Yield a held permit (release slot for other agents). *)
+
+val resume_permit : t -> Slot_scheduler.permit -> unit
+(** Re-acquire a yielded permit at [Resume] priority. *)
+
+val release_permit : t -> Slot_scheduler.permit -> unit
+(** Permanently release a permit. *)
