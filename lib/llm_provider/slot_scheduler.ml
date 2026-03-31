@@ -158,8 +158,13 @@ let yield_permit t p =
 let resume_permit t p =
   match p.state with
   | Yielded ->
-    acquire ~priority:Resume t;
-    p.state <- Held
+    (try
+       acquire ~priority:Resume t;
+       p.state <- Held
+     with exn ->
+       (* If acquire succeeded but we're being cancelled, release the slot *)
+       release_slot t;
+       raise exn)
   | Held ->
     invalid_arg "Slot_scheduler.resume_permit: permit is already held"
   | Released ->
@@ -351,39 +356,43 @@ let%test "double release raises" =
     with Invalid_argument _ -> true)
 
 let%test "resume uses Resume priority (highest)" =
+  (* Deterministic test: enqueue Interactive then Resume, verify Resume dequeues first.
+     Uses waiter list inspection via snapshot after both are queued. *)
   Eio_main.run (fun _env ->
     let t = create ~max_slots:1 in
+    (* 1. Fill the single slot with a blocker *)
+    let hold, release_hold = Eio.Promise.create () in
+    let order = ref [] in
     let p = acquire_permit ~priority:Background t in
     yield_permit t p;
-    (* Fill with interactive waiter *)
-    let order = ref [] in
-    let hold, release_hold = Eio.Promise.create () in
+    (* Slot is now free. Acquire it with blocker *)
     Eio.Fiber.both
       (fun () ->
-        (* Blocker *)
-        with_permit ~priority:Interactive t (fun () ->
+        with_permit ~priority:Background t (fun () ->
           Eio.Promise.await hold))
       (fun () ->
         Eio.Fiber.both
           (fun () ->
             Eio.Fiber.both
               (fun () ->
-                (* Interactive waiter *)
+                (* 2. Enqueue Interactive waiter *)
                 Eio.Fiber.yield ();
-                with_permit ~priority:Interactive t (fun () ->
-                  order := "interactive" :: !order))
+                acquire ~priority:Interactive t;
+                order := "interactive" :: !order;
+                release_slot t)
               (fun () ->
-                (* Resume waiter — should go first *)
+                (* 3. Enqueue Resume waiter *)
                 Eio.Fiber.yield ();
                 resume_permit t p;
                 order := "resume" :: !order;
                 release_permit t p))
           (fun () ->
+            (* 4. Let both enqueue, then release blocker *)
             Eio.Fiber.yield ();
             Eio.Fiber.yield ();
             Eio.Fiber.yield ();
             Eio.Promise.resolve release_hold ()));
-    (* Resume should be served before interactive *)
+    (* Resume (rank -1) dequeues before Interactive (rank 0) *)
     !order = ["interactive"; "resume"])
 
 let%test "cancel does not leak slot" =

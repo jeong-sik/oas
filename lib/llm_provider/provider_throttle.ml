@@ -8,11 +8,17 @@ type capacity_source =
   | Discovered
   | Fallback
 
+type yield_capability =
+  | Explicit_slot_yield
+  | Prefix_hint_yield
+  | Replay_yield
+
 type t = {
   scheduler : Slot_scheduler.t;
   provider_name : string; [@warning "-69"]
   max_concurrent : int;
   source : capacity_source;
+  yield_cap : yield_capability;
 }
 
 let create ~max_concurrent ~provider_name =
@@ -25,6 +31,7 @@ let create ~max_concurrent ~provider_name =
     provider_name;
     max_concurrent;
     source = Fallback;
+    yield_cap = Replay_yield;
   }
 
 let with_permit_priority ~priority t f =
@@ -43,7 +50,8 @@ let available t =
 let in_use t =
   Slot_scheduler.in_use t.scheduler
 
-let create_with_source ~max_concurrent ~provider_name ~source =
+let create_with_source ~max_concurrent ~provider_name ~source
+    ?(yield_cap = Replay_yield) () =
   if max_concurrent < 1 then
     invalid_arg
       (Printf.sprintf "Provider_throttle.create: max_concurrent must be >= 1, got %d"
@@ -53,6 +61,7 @@ let create_with_source ~max_concurrent ~provider_name ~source =
     provider_name;
     max_concurrent;
     source;
+    yield_cap;
   }
 
 (** Create a throttle from discovery slot information.
@@ -61,11 +70,13 @@ let create_with_source ~max_concurrent ~provider_name ~source =
 let of_discovery_status (status : Discovery.endpoint_status) =
   match status.slots with
   | Some s when s.total > 0 ->
-    Some (create_with_source ~max_concurrent:s.total ~provider_name:status.url ~source:Discovered)
+    Some (create_with_source ~max_concurrent:s.total ~provider_name:status.url
+            ~source:Discovered ~yield_cap:Explicit_slot_yield ())
   | _ ->
     match status.props with
     | Some p when p.total_slots > 0 ->
-      Some (create_with_source ~max_concurrent:p.total_slots ~provider_name:status.url ~source:Discovered)
+      Some (create_with_source ~max_concurrent:p.total_slots ~provider_name:status.url
+              ~source:Discovered ~yield_cap:Explicit_slot_yield ())
     | _ -> None
 
 (** Default throttle limits per provider kind.
@@ -95,15 +106,7 @@ let max_concurrent t = t.max_concurrent
 
 (* ── Turn-Level Yield API ─────────────────────────────── *)
 
-type yield_capability =
-  | Explicit_slot_yield
-  | Prefix_hint_yield
-  | Replay_yield
-
-let yield_capability t =
-  match t.source with
-  | Discovered -> Explicit_slot_yield  (* local llama-server with slot data *)
-  | Fallback -> Replay_yield           (* no slot data = cloud or unknown *)
+let yield_capability t = t.yield_cap
 
 let acquire_permit ~priority t =
   Slot_scheduler.acquire_permit ~priority t.scheduler
