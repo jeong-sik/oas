@@ -56,6 +56,69 @@ let tokenize (s : string) : string list =
   flush_utf8 ();
   List.rev !tokens
 
+(* ── Korean particle stripping ───────────────────── *)
+
+(** Strip common Korean particles (조사) from a UTF-8 token.
+    Korean syllables occupy U+AC00..U+D7A3 (Hangul Syllables block).
+    Particles like 은/는/이/가/을/를/에/의/로/와/과/도/만 attach to the
+    preceding word without a space. We strip known suffix patterns to
+    produce the stem, improving BM25 recall for Korean queries.
+
+    Returns [Some stem] if a particle was stripped, [None] otherwise.
+    Only the longest matching suffix is stripped (greedy). *)
+let strip_korean_particle (token : string) : string option =
+  (* Suffix patterns ordered longest-first for greedy match.
+     Multi-syllable suffixes: 에서, 으로, 해줘, 해봐, 이나, 에게, 까지, 부터, 처럼, 만큼 *)
+  let suffixes = [
+    "\xec\x97\x90\xec\x84\x9c";  (* 에서 *)
+    "\xec\x9c\xbc\xeb\xa1\x9c";  (* 으로 *)
+    "\xed\x95\xb4\xec\xa4\x98";  (* 해줘 *)
+    "\xed\x95\xb4\xeb\xb4\x90";  (* 해봐 *)
+    "\xec\x9d\xb4\xeb\x82\x98";  (* 이나 *)
+    "\xec\x97\x90\xea\xb2\x8c";  (* 에게 *)
+    "\xea\xb9\x8c\xec\xa7\x80";  (* 까지 *)
+    "\xeb\xb6\x80\xed\x84\xb0";  (* 부터 *)
+    "\xec\xb2\x98\xeb\x9f\xbc";  (* 처럼 *)
+    "\xeb\xa7\x8c\xed\x81\xbc";  (* 만큼 *)
+    (* Single-syllable suffixes *)
+    "\xec\x9d\x80";  (* 은 *)
+    "\xeb\x8a\x94";  (* 는 *)
+    "\xec\x9d\xb4";  (* 이 *)
+    "\xea\xb0\x80";  (* 가 *)
+    "\xec\x9d\x84";  (* 을 *)
+    "\xeb\xa5\xbc";  (* 를 *)
+    "\xec\x97\x90";  (* 에 *)
+    "\xec\x9d\x98";  (* 의 *)
+    "\xeb\xa1\x9c";  (* 로 *)
+    "\xec\x99\x80";  (* 와 *)
+    "\xea\xb3\xbc";  (* 과 *)
+    "\xeb\x8f\x84";  (* 도 *)
+    "\xeb\xa7\x8c";  (* 만 *)
+  ] in
+  let tlen = String.length token in
+  (* Token must be longer than the suffix to have a stem *)
+  let rec try_suffixes = function
+    | [] -> None
+    | suffix :: rest ->
+      let slen = String.length suffix in
+      if tlen > slen
+         && String.sub token (tlen - slen) slen = suffix then
+        Some (String.sub token 0 (tlen - slen))
+      else
+        try_suffixes rest
+  in
+  try_suffixes suffixes
+
+(** Expand Korean tokens: for each token that contains non-ASCII chars,
+    try stripping Korean particles. Emits both original and stemmed
+    tokens to maximize BM25 recall. *)
+let expand_korean (tokens : string list) : string list =
+  List.concat_map (fun token ->
+    match strip_korean_particle token with
+    | Some stem when String.length stem > 0 -> [token; stem]
+    | _ -> [token]
+  ) tokens
+
 (* ── Types ────────────────────────────────────────── *)
 
 type entry = {
@@ -128,7 +191,7 @@ let compute_idf (docs : doc array) : (string, float) Hashtbl.t =
 let build ?(config = default_config) (entries : entry list) : t =
   let docs = Array.of_list (List.map (fun entry ->
     let text = entry.name ^ " " ^ entry.description in
-    let tokens = tokenize text in
+    let tokens = expand_korean (tokenize text) in
     { entry; tokens; token_count = List.length tokens }
   ) entries) in
   let total_docs = Array.length docs in
@@ -179,7 +242,7 @@ let score_doc (idx : t) (query_tokens : string list) (doc : doc) : float =
 let retrieve (idx : t) (query : string) : (string * float) list =
   if idx.total_docs = 0 then []
   else
-    let query_tokens = tokenize query in
+    let query_tokens = expand_korean (tokenize query) in
     if query_tokens = [] then []
     else
       (* Score all documents *)
@@ -340,3 +403,34 @@ let%test "korean group co-retrieval" =
   let results = retrieve_names idx "게시판 글" in
   List.mem "keeper_board_post" results
   && List.mem "keeper_board_comment" results
+
+let%test "strip_korean_particle removes common particles" =
+  strip_korean_particle "게시판에" = Some "게시판"
+  && strip_korean_particle "파일을" = Some "파일"
+  && strip_korean_particle "내용의" = Some "내용"
+  && strip_korean_particle "확인해봐" = Some "확인"
+  && strip_korean_particle "코드에서" = Some "코드"
+
+let%test "strip_korean_particle returns None for no particle" =
+  strip_korean_particle "게시판" = None
+  && strip_korean_particle "검색" = None
+  && strip_korean_particle "hello" = None
+
+let%test "expand_korean adds stems" =
+  let tokens = expand_korean ["게시판에"; "글"; "올려줘"] in
+  List.mem "게시판에" tokens   (* original kept *)
+  && List.mem "게시판" tokens  (* stem added *)
+
+let%test "korean particle stripping improves retrieval" =
+  (* Without stripping: "게시판에" doesn't match "게시판".
+     With stripping: "게시판" stem matches description. *)
+  let idx = build [
+    { name = "board_post";
+      description = "게시판 글 올리기";
+      group = None };
+    { name = "file_read";
+      description = "파일 읽기";
+      group = None };
+  ] in
+  let results = retrieve_names idx "게시판에 올려줘" in
+  List.mem "board_post" results
