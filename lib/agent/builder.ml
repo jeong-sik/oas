@@ -278,10 +278,21 @@ let build_safe b =
           detail = "thinking_budget requires enable_thinking = true";
         }))
     | _ ->
-      match b.max_cost_usd with
-      | Some v when v < 0.0 ->
+      if Option.is_some b.context_prepare_ratio then
         Error (Error.Config (Error.InvalidConfig {
-          field = "max_cost_usd";
-          detail = Printf.sprintf "must be >= 0.0, got %.4f" v;
+          field = "context_prepare_ratio";
+          detail = "prepare_ratio is not implemented in the single-agent runtime";
         }))
-      | _ -> Ok (build b)
+      else if Option.is_some b.context_handoff_ratio then
+        Error (Error.Config (Error.InvalidConfig {
+          field = "context_handoff_ratio";
+          detail = "handoff_ratio is not implemented in the single-agent runtime";
+        }))
+      else
+        match b.max_cost_usd with
+        | Some v when v < 0.0 ->
+          Error (Error.Config (Error.InvalidConfig {
+            field = "max_cost_usd";
+            detail = Printf.sprintf "must be >= 0.0, got %.4f" v;
+          }))
+        | _ -> Ok (build b)

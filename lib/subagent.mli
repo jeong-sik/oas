@@ -13,11 +13,6 @@ type model_override =
   | Use_model of Types.model
 [@@deriving show]
 
-type isolation =
-  | Shared
-  | Worktree
-[@@deriving show]
-
 type state_isolation =
   | Inherit_all
   | Isolated
@@ -34,9 +29,7 @@ type t = {
   max_turns: int option;
   skill_refs: string list;
   skills: Skill.t list;
-  isolation: isolation;
   state_isolation: state_isolation;
-  background: bool;
   path: string option;
   metadata: (string * string list) list;
 }
@@ -45,7 +38,6 @@ type t = {
 (** {1 Parsing helpers} *)
 
 val model_override_of_string : string -> model_override
-val isolation_of_string : string -> isolation
 val state_isolation_of_string : string -> state_isolation
 
 (** {1 Constructors} *)

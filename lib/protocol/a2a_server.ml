@@ -62,6 +62,7 @@ type t = {
   store: A2a_task.store;
   persistent_store: A2a_task_store.t option;
   mutable running: bool;
+  mutable stop_server: (unit -> unit) option;
   log: Log.t;
   event_bus: Event_bus.t option;
 } [@@warning "-69"]
@@ -69,6 +70,7 @@ type t = {
 let create ?(event_bus : Event_bus.t option) ?persistent_store config =
   { config; store = A2a_task.create_store (); persistent_store;
     running = false;
+    stop_server = None;
     log = Log.create ~module_name:"a2a_server" ();
     event_bus }
 
@@ -173,12 +175,40 @@ let handle_request t ~meth ~path ~body =
 
 (* ── Start / Stop ─────────────────────────────────────────────── *)
 
-let start ~sw:_ ~net:(_ : _ Eio.Net.t) t =
-  t.running <- true;
-  Log.info t.log "A2A server started"
-    [Log.I ("port", t.config.port)]
+let start ~sw ~net t =
+  if t.running then ()
+  else
+    let socket =
+      Eio.Net.listen net ~sw ~backlog:128 ~reuse_addr:true
+        (`Tcp (Eio.Net.Ipaddr.V4.loopback, t.config.port))
+    in
+    let callback _conn req body =
+      let meth = req |> Cohttp.Request.meth |> Cohttp.Code.string_of_method in
+      let path = req |> Cohttp.Request.uri |> Uri.path in
+      let body = Eio.Buf_read.(of_flow ~max_size:max_int body |> take_all) in
+      let (status_code, response_body) = handle_request t ~meth ~path ~body in
+      Cohttp_eio.Server.respond_string
+        ~status:(Cohttp.Code.status_of_code status_code)
+        ~body:response_body ()
+    in
+    let server = Cohttp_eio.Server.make ~callback () in
+    t.running <- true;
+    t.stop_server <- Some (fun () -> Eio.Flow.close socket);
+    Eio.Fiber.fork ~sw (fun () ->
+      Fun.protect
+        (fun () -> Cohttp_eio.Server.run socket server ~on_error:(fun _ -> ()))
+        ~finally:(fun () ->
+          t.running <- false;
+          t.stop_server <- None));
+    Log.info t.log "A2A server started"
+      [Log.I ("port", t.config.port)]
 
 let stop t =
+  (match t.stop_server with
+   | Some stop_server ->
+     (try stop_server () with _ -> ());
+     t.stop_server <- None
+   | None -> ());
   t.running <- false;
   Log.info t.log "A2A server stopped" []
 

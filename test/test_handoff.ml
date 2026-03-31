@@ -29,6 +29,7 @@ let test_make_handoff_tool_name () =
     description = "Research specialist";
     config = default_config;
     tools = [];
+    context_policy = Handoff.Inherit_all;
   } in
   let tool = Handoff.make_handoff_tool target in
   check string "tool name" "transfer_to_researcher" tool.schema.name
@@ -39,6 +40,7 @@ let test_make_handoff_tool_description () =
     description = "Writes code";
     config = default_config;
     tools = [];
+    context_policy = Handoff.Inherit_all;
   } in
   let tool = Handoff.make_handoff_tool target in
   check bool "description contains name" true
@@ -50,6 +52,7 @@ let test_make_handoff_tool_parameters () =
     description = "General helper";
     config = default_config;
     tools = [];
+    context_policy = Handoff.Inherit_all;
   } in
   let tool = Handoff.make_handoff_tool target in
   check int "has prompt parameter" 1 (List.length tool.schema.parameters);
@@ -63,6 +66,7 @@ let test_make_handoff_tool_handler_is_sentinel () =
     description = "Intercept-only test target";
     config = default_config;
     tools = [];
+    context_policy = Handoff.Inherit_all;
   } in
   let tool = Handoff.make_handoff_tool target in
   match Tool.execute tool `Null with
@@ -92,8 +96,16 @@ let response_for_message body_str =
         {|{"id":"chatcmpl-handoff","object":"chat.completion","model":"c","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"handoff-1","type":"function","function":{"name":"transfer_to_researcher","arguments":"{\"prompt\":\"sub_prompt\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}|}
       else if text = "delegate_unknown" then
         {|{"id":"chatcmpl-handoff-unknown","object":"chat.completion","model":"c","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"handoff-2","type":"function","function":{"name":"transfer_to_unknown","arguments":"{\"prompt\":\"sub_prompt\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}|}
+      else if text = "delegate_inherit_all" then
+        {|{"id":"chatcmpl-handoff-inherit","object":"chat.completion","model":"c","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"handoff-3","type":"function","function":{"name":"transfer_to_researcher","arguments":"{\"prompt\":\"child_inherit_all\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}|}
+      else if text = "delegate_isolated" then
+        {|{"id":"chatcmpl-handoff-isolated","object":"chat.completion","model":"c","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"handoff-4","type":"function","function":{"name":"transfer_to_researcher","arguments":"{\"prompt\":\"child_isolated\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}|}
+      else if text = "delegate_selective" then
+        {|{"id":"chatcmpl-handoff-selective","object":"chat.completion","model":"c","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"handoff-5","type":"function","function":{"name":"transfer_to_researcher","arguments":"{\"prompt\":\"child_selective\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}|}
       else if text = "sub_prompt" then
         {|{"id":"chatcmpl-child","object":"chat.completion","model":"c","choices":[{"index":0,"message":{"role":"assistant","content":"delegated response"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}|}
+      else if text = "child_inherit_all" || text = "child_isolated" || text = "child_selective" then
+        {|{"id":"chatcmpl-child-context","object":"chat.completion","model":"c","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"ctx-1","type":"function","function":{"name":"context_roundtrip","arguments":"{\"read_keys\":[\"shared\",\"other\"],\"write\":{\"shared\":\"child-shared\",\"other\":\"child-other\"}}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}|}
       else if text = "" then
         (* Empty content — could be system or other message, check deeper *)
         {|{"id":"chatcmpl-empty","object":"chat.completion","model":"c","choices":[{"index":0,"message":{"role":"assistant","content":"empty"},"finish_reason":"stop"}],"usage":{"prompt_tokens":0,"completion_tokens":0,"total_tokens":0}}|}
@@ -127,6 +139,7 @@ let test_run_with_handoffs_intercepts_tool_use () =
         description = "Research specialist";
         config = { default_config with name = "researcher" };
         tools = [];
+        context_policy = Handoff.Inherit_all;
       } in
       let provider : Provider.config = {
         provider = Provider.Local { base_url };
@@ -165,6 +178,7 @@ let test_run_with_handoffs_reports_unknown_target () =
         description = "Research specialist";
         config = { default_config with name = "researcher" };
         tools = [];
+        context_policy = Handoff.Inherit_all;
       } in
       let provider : Provider.config = {
         provider = Provider.Local { base_url };
@@ -184,6 +198,126 @@ let test_run_with_handoffs_reports_unknown_target () =
       | Error e ->
           fail (Error.to_string e)
   with Exit -> ()
+
+let context_string_or_missing ctx key =
+  match Context.get ctx key with
+  | Some (`String value) -> value
+  | Some json -> Yojson.Safe.to_string json
+  | None -> "<missing>"
+
+let context_roundtrip_tool () =
+  Tool.create_with_context
+    ~name:"context_roundtrip"
+    ~description:"Read and update context keys"
+    ~parameters:[
+      { name = "read_keys"; description = "Keys to read"; param_type = Array; required = true };
+      { name = "write"; description = "String values to write"; param_type = Object; required = true };
+    ]
+    (fun ctx input ->
+      let open Yojson.Safe.Util in
+      let read_keys =
+        input
+        |> member "read_keys"
+        |> to_list
+        |> List.filter_map to_string_option
+      in
+      let writes =
+        input
+        |> member "write"
+        |> to_assoc
+        |> List.filter_map (fun (key, value) ->
+             match value with
+             | `String text -> Some (key, text)
+             | _ -> None)
+      in
+      let reads =
+        read_keys
+        |> List.map (fun key ->
+             Printf.sprintf "%s=%s" key (context_string_or_missing ctx key))
+        |> String.concat ","
+      in
+      List.iter (fun (key, value) -> Context.set ctx key (`String value)) writes;
+      Ok { Types.content = "read:" ^ reads })
+
+let run_context_policy_case ~user_prompt ~policy
+    ~expected_text ~expected_shared ~expected_other () =
+  Eio_main.run @@ fun env ->
+  try
+    Eio.Switch.run @@ fun sw ->
+      let socket =
+        Eio.Net.listen env#net ~sw ~backlog:128 ~reuse_addr:true
+          (`Tcp (Eio.Net.Ipaddr.V4.loopback, 0))
+      in
+      let port =
+        match Eio.Net.listening_addr socket with
+        | `Tcp (_, port) -> port
+        | _ -> fail "expected TCP listening socket"
+      in
+      let base_url = Printf.sprintf "http://127.0.0.1:%d" port in
+      let server = Cohttp_eio.Server.make ~callback:handoff_mock_handler () in
+      Eio.Fiber.fork ~sw (fun () ->
+        Cohttp_eio.Server.run socket server ~on_error:(fun _ -> ()));
+      let provider : Provider.config = {
+        provider = Provider.Local { base_url };
+        model_id = "mock"; api_key_env = "";
+      } in
+      let options = { Agent.default_options with base_url; provider = Some provider } in
+      let parent_context = Context.create () in
+      Context.set parent_context "shared" (`String "parent-shared");
+      Context.set parent_context "other" (`String "parent-other");
+      let target : Handoff.handoff_target = {
+        name = "researcher";
+        description = "Research specialist";
+        config = { default_config with name = "researcher" };
+        tools = [context_roundtrip_tool ()];
+        context_policy = policy;
+      } in
+      let agent = Agent.create ~net:env#net ~context:parent_context ~options () in
+      match Agent.run_with_handoffs ~sw agent ~targets:[target] user_prompt with
+      | Ok response ->
+          let text =
+            List.filter_map (function Text s -> Some s | _ -> None) response.content
+            |> String.concat ""
+          in
+          check string "child context view" expected_text text;
+          check string "shared after merge" expected_shared
+            (context_string_or_missing parent_context "shared");
+          check string "other after merge" expected_other
+            (context_string_or_missing parent_context "other");
+          Eio.Switch.fail sw Exit
+      | Error e ->
+          fail (Error.to_string e)
+  with Exit -> ()
+
+let test_run_with_handoffs_inherit_all_merges_context () =
+  run_context_policy_case
+    ~user_prompt:"delegate_inherit_all"
+    ~policy:Handoff.Inherit_all
+    ~expected_text:
+      "handoff complete: handoff complete: read:shared=parent-shared,other=parent-other"
+    ~expected_shared:"child-shared"
+    ~expected_other:"child-other"
+    ()
+
+let test_run_with_handoffs_isolated_keeps_parent_context () =
+  run_context_policy_case
+    ~user_prompt:"delegate_isolated"
+    ~policy:Handoff.Isolated
+    ~expected_text:
+      "handoff complete: handoff complete: read:shared=<missing>,other=<missing>"
+    ~expected_shared:"parent-shared"
+    ~expected_other:"parent-other"
+    ()
+
+let test_run_with_handoffs_selective_merges_allowed_keys_only () =
+  run_context_policy_case
+    ~user_prompt:"delegate_selective"
+    ~policy:(Handoff.Selective ["shared"])
+    ~expected_text:
+      "handoff complete: handoff complete: read:shared=parent-shared,other=<missing>"
+    ~expected_shared:"child-shared"
+    ~expected_other:"parent-other"
+    ()
 
 (* ── check_loop_guard unit tests ──────────────────────────────── *)
 
@@ -267,6 +401,12 @@ let () =
         test_run_with_handoffs_intercepts_tool_use;
       test_case "reports unknown target" `Quick
         test_run_with_handoffs_reports_unknown_target;
+      test_case "inherit_all merges context" `Quick
+        test_run_with_handoffs_inherit_all_merges_context;
+      test_case "isolated keeps parent context" `Quick
+        test_run_with_handoffs_isolated_keeps_parent_context;
+      test_case "selective merges allowed keys only" `Quick
+        test_run_with_handoffs_selective_merges_allowed_keys_only;
     ];
     "loop_guard", [
       test_case "none on fresh agent" `Quick test_guard_none_when_fresh;

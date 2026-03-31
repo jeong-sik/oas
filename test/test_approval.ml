@@ -29,15 +29,17 @@ let run_execute ~hooks ?approval tool_uses =
 (* --- Test cases --- *)
 
 let test_approval_required_no_callback () =
-  (* ApprovalRequired with no callback registered: permissive fallthrough *)
+  (* ApprovalRequired with no callback registered: fail closed. *)
   let hooks = { Hooks.empty with
     pre_tool_use = Some (fun _event -> Hooks.ApprovalRequired) } in
   let results = run_execute ~hooks [ToolUse { id = "t1"; name = "safe"; input = `String "hello" }] in
   match results with
   | [(id, content, is_error)] ->
     check string "id" "t1" id;
-    check string "content" {|"hello"|} content;
-    check bool "no error" false is_error
+    check string "content"
+      "Tool 'safe' requires approval but no approval callback is configured"
+      content;
+    check bool "is error" true is_error
   | _ -> fail "expected exactly one result"
 
 let test_approval_approve () =
@@ -168,7 +170,7 @@ let test_only_non_tool_use_blocks () =
 let () =
   run "Approval" [
     "approval_required", [
-      test_case "no callback = fallthrough" `Quick test_approval_required_no_callback;
+      test_case "no callback = error" `Quick test_approval_required_no_callback;
       test_case "Approve = normal execution" `Quick test_approval_approve;
       test_case "Reject with reason" `Quick test_approval_reject;
       test_case "Edit modifies input" `Quick test_approval_edit;

@@ -7,11 +7,17 @@
     which intercepts ToolUse blocks matching "transfer_to_*" names. *)
 
 (** Handoff target definition *)
+type context_policy =
+  | Inherit_all
+  | Isolated
+  | Selective of string list
+
 type handoff_target = {
   name: string;
   description: string;
   config: Types.agent_config;
   tools: Tool.t list;
+  context_policy: context_policy;
 }
 
 (** Result of a handoff execution *)

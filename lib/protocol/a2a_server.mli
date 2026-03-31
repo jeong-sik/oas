@@ -1,7 +1,7 @@
 (** A2A Server -- JSON-RPC server for Agent-to-Agent protocol.
 
     Handles incoming task requests, serves the agent card, and manages
-    task lifecycle via callback functions.
+    task lifecycle via callback functions over an HTTP listener.
 
     @stability Internal
     @since 0.93.1 *)

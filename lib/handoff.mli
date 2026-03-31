@@ -12,12 +12,19 @@
 
 (** {1 Types} *)
 
+(** Context propagation policy for handoff children. *)
+type context_policy =
+  | Inherit_all
+  | Isolated
+  | Selective of string list
+
 (** Handoff target definition. *)
 type handoff_target = {
   name: string;
   description: string;
   config: Types.agent_config;
   tools: Tool.t list;
+  context_policy: context_policy;
 }
 
 (** Result of a handoff execution. *)

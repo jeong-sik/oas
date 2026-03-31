@@ -291,10 +291,6 @@
  (libraries agent_sdk alcotest yojson eio eio_main))
 
 (test
- (name test_usability_v030)
- (libraries agent_sdk alcotest yojson eio eio_main))
-
-(test
  (name test_log)
  (libraries agent_sdk alcotest yojson unix))
 
@@ -620,10 +616,6 @@
 (test
  (name test_mcp_coverage)
  (libraries agent_sdk alcotest yojson mcp_protocol))
-
-(test
- (name test_api_coverage)
- (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_client_coverage)

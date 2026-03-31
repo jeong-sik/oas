@@ -120,6 +120,20 @@ let run_stream ~sw ?clock ~on_event agent user_prompt =
 let find_handoff_in_messages = Agent_handoff.find_handoff_in_messages
 let replace_tool_result = Agent_handoff.replace_tool_result
 
+let child_context_for_handoff parent_context (target : Handoff.handoff_target) =
+  match target.context_policy with
+  | Handoff.Inherit_all ->
+      let child = Context.copy parent_context in
+      (child, Some (fun () -> Context.merge parent_context (Context.snapshot child)))
+  | Handoff.Isolated ->
+      (Context.create (), None)
+  | Handoff.Selective keys ->
+      let scope =
+        Context.create_scope ~parent:parent_context
+          ~propagate_down:keys ~propagate_up:keys
+      in
+      (scope.local, Some (fun () -> Context.merge_back scope))
+
 let run_with_handoffs ~sw ?clock agent ~targets user_prompt =
   let handoff_tools = List.map Handoff.make_handoff_tool targets in
   let all_tools = Tool_set.merge agent.tools (Tool_set.of_list handoff_tools) in
@@ -155,10 +169,17 @@ let run_with_handoffs ~sw ?clock agent ~targets user_prompt =
                       ~tool_id ~content:err_msg ~is_error:true });
               loop ()
             | Some target ->
+              let child_context, merge_back =
+                child_context_for_handoff agent.context target
+              in
+              let child_options = {
+                agent.options with
+                description = Some target.description;
+                periodic_callbacks = [];
+              } in
               let sub = create ~net:agent.net ~config:target.config
-                ~tools:target.tools ~options:{ default_options with
-                  base_url = agent.options.base_url;
-                  provider = agent.options.provider } () in
+                ~tools:target.tools ~context:child_context
+                ~options:child_options () in
               (match run ~sw ?clock sub prompt with
                | Error e ->
                  let err_msg = Printf.sprintf
@@ -170,6 +191,9 @@ let run_with_handoffs ~sw ?clock agent ~targets user_prompt =
                          ~tool_id ~content:err_msg ~is_error:true });
                  loop ()
                | Ok sub_response ->
+                 (match merge_back with
+                  | Some f -> f ()
+                  | None -> ());
                  let text = List.fold_left (fun acc block ->
                    match block with
                    | Text s ->

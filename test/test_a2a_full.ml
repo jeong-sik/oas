@@ -22,11 +22,11 @@ let mk_message text =
     parts = [Text_part text];
     metadata = [] }
 
-let mk_agent_card () =
+let mk_agent_card ?(port = 8080) () =
   { Agent_card.name = "test-agent";
     description = Some "test";
     version = "1.0";
-    url = Some "http://localhost:8080";
+    url = Some (Printf.sprintf "http://127.0.0.1:%d" port);
     authentication = None;
     capabilities = [];
     tools = [];
@@ -34,12 +34,13 @@ let mk_agent_card () =
     supported_providers = [];
     metadata = [] }
 
-let mk_server ?(on_task_send = fun msg -> Ok (A2a_task.create msg))
+let mk_server ?(port = 8080)
+    ?(on_task_send = fun msg -> Ok (A2a_task.create msg))
     ?(on_task_cancel = fun _ -> Ok ())
     () =
   let config : A2a_server.config = {
-    port = 8080;
-    agent_card = mk_agent_card ();
+    port;
+    agent_card = mk_agent_card ~port ();
     on_task_send;
     on_task_cancel;
   } in
@@ -292,6 +293,46 @@ let test_create_with_event_bus () =
   let server = A2a_server.create ~event_bus:(Event_bus.create ()) config in
   Alcotest.(check bool) "created" true (not (A2a_server.is_running server))
 
+let test_server_start_discover_and_send () =
+  Eio_main.run @@ fun env ->
+  try
+    Eio.Switch.run @@ fun sw ->
+      let port = 21221 in
+      let canceled = ref [] in
+      let server =
+        mk_server ~port
+          ~on_task_cancel:(fun task_id ->
+            canceled := task_id :: !canceled;
+            Ok ())
+          ()
+      in
+      A2a_server.start ~sw ~net:env#net server;
+      Alcotest.(check bool) "running after start" true (A2a_server.is_running server);
+      let url = Printf.sprintf "http://127.0.0.1:%d" port in
+      (match A2a_client.discover ~sw ~net:env#net url with
+       | Error e -> Alcotest.fail (Error.to_string e)
+       | Ok remote ->
+         let msg = mk_message "hello over http" in
+         match A2a_client.send_task ~sw ~net:env#net remote msg with
+         | Error e -> Alcotest.fail (Error.to_string e)
+         | Ok task ->
+           Alcotest.(check string) "submitted" "submitted"
+             (A2a_task.task_state_to_string task.state);
+           (match A2a_client.get_task ~sw ~net:env#net remote task.id with
+            | Error e -> Alcotest.fail (Error.to_string e)
+            | Ok fetched ->
+              Alcotest.(check string) "same task" task.id fetched.id);
+           (match A2a_client.cancel_task ~sw ~net:env#net remote task.id with
+            | Error e -> Alcotest.fail (Error.to_string e)
+            | Ok canceled_task ->
+              Alcotest.(check string) "canceled" "canceled"
+                (A2a_task.task_state_to_string canceled_task.state)));
+      Alcotest.(check int) "cancel callback called" 1 (List.length !canceled);
+      A2a_server.stop server;
+      Alcotest.(check bool) "stopped" false (A2a_server.is_running server);
+      Eio.Switch.fail sw Exit
+  with Exit -> ()
+
 (* ── Runner ───────────────────────────────────────────────────── *)
 
 let () =
@@ -323,5 +364,6 @@ let () =
       Alcotest.test_case "not running initially" `Quick test_server_not_running_initially;
       Alcotest.test_case "stop" `Quick test_server_stop;
       Alcotest.test_case "create with event_bus" `Quick test_create_with_event_bus;
+      Alcotest.test_case "start/discover/send" `Quick test_server_start_discover_and_send;
     ];
   ]

@@ -122,9 +122,11 @@ let execute_tools ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tracer
               | Hooks.ApprovalRequired ->
                 (match approval with
                 | None ->
-                  (* No callback registered: permissive default, execute normally *)
-                  find_and_execute_tool ~context ~tools ~hooks ~event_bus
-                    ~tracer ~agent_name ~turn_count ?on_hook_invoked name input id
+                  (id,
+                   Printf.sprintf
+                     "Tool '%s' requires approval but no approval callback is configured"
+                     name,
+                   true)
                 | Some approve_fn ->
                   (match approve_fn ~tool_name:name ~input with
                   | Hooks.Approve ->
@@ -141,15 +143,13 @@ let execute_tools ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tracer
                     ~tracer ~agent_name ~turn_count ?on_hook_invoked name
                     input id
               | Hooks.AdjustParams _ ->
-                  (* AdjustParams is only valid for BeforeTurnParams; treat as Continue here *)
-                  find_and_execute_tool ~context ~tools ~hooks ~event_bus
-                    ~tracer ~agent_name ~turn_count ?on_hook_invoked name
-                    input id
+                  (id,
+                   "Hook decision adjust_params is not valid for pre_tool_use",
+                   true)
               | Hooks.ElicitInput _ ->
-                  (* ElicitInput is handled at the agent loop level; treat as Continue here *)
-                  find_and_execute_tool ~context ~tools ~hooks ~event_bus
-                    ~tracer ~agent_name ~turn_count ?on_hook_invoked name
-                    input id)
+                  (id,
+                   "Hook decision elicit_input is not valid for pre_tool_use",
+                   true))
             with
             | Out_of_memory -> raise Out_of_memory
             | Stack_overflow -> raise Stack_overflow

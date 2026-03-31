@@ -139,6 +139,17 @@ let test_build_safe_negative_max_cost () =
   | Error _ -> Alcotest.fail "expected InvalidConfig for max_cost_usd"
   | Ok _ -> Alcotest.fail "expected Error for negative max_cost_usd"
 
+let test_build_safe_unimplemented_prepare_ratio () =
+  Eio_main.run @@ fun env ->
+  let b = Builder.create ~net:env#net ~model:Types.default_config.model
+    |> Builder.with_context_thresholds ~compact_ratio:0.8 ~prepare_ratio:0.6
+  in
+  match Builder.build_safe b with
+  | Error (Error.Config (Error.InvalidConfig { field; _ })) ->
+    Alcotest.(check string) "field" "context_prepare_ratio" field
+  | Error _ -> Alcotest.fail "expected InvalidConfig for context_prepare_ratio"
+  | Ok _ -> Alcotest.fail "expected Error for unimplemented prepare_ratio"
+
 (* ── Agent accessors ──────────────────────────────────────── *)
 
 let test_agent_accessors () =
@@ -284,6 +295,8 @@ let () =
       Alcotest.test_case "invalid max_tokens" `Quick test_build_safe_invalid_max_tokens;
       Alcotest.test_case "thinking without enable" `Quick test_build_safe_thinking_budget_without_enable;
       Alcotest.test_case "negative max_cost" `Quick test_build_safe_negative_max_cost;
+      Alcotest.test_case "unimplemented prepare_ratio" `Quick
+        test_build_safe_unimplemented_prepare_ratio;
     ];
     "agent_accessors", [
       Alcotest.test_case "state/tools/context/desc" `Quick test_agent_accessors;

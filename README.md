@@ -226,6 +226,17 @@ let guardrails = {
 }
 ```
 
+Notes:
+- `before_turn` is observational except for `Hooks.ElicitInput`. Other
+  control decisions fail closed.
+- `pre_tool_use` is the only stage that accepts `Skip`, `Override`, and
+  `ApprovalRequired`.
+- `Builder.with_skill_registry` affects agent-card discovery metadata only.
+  Use `Builder.with_skill` or `Builder.with_skills` to inject runtime skill
+  prompts.
+- `Agent.run_with_handoffs` now applies an explicit context policy per
+  target: inherit all, isolate completely, or propagate a selected key set.
+
 ## Build and test
 
 ```bash

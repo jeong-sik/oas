@@ -65,7 +65,9 @@ val with_context_reducer : Context_reducer.t -> t -> t
 
 (** Set context reduction thresholds.
     [compact_ratio] determines when to compact (default 0.8).
-    [prepare_ratio] and [handoff_ratio] are stored for future use.
+    [prepare_ratio] and [handoff_ratio] are currently unsupported by the
+    single-agent runtime; [build_safe] rejects builders that set them so the
+    API does not silently promise behavior that does not exist.
 
     @since 0.79.0 *)
 val with_context_thresholds :
@@ -106,6 +108,10 @@ val with_mcp_tool_allowlist : string list -> t -> t
 val with_log_level : Log.level -> t -> t
 val with_log_sink : Log.sink -> t -> t
 val with_event_targets : Event_forward.target list -> t -> t
+
+(** Register skills for agent-card export and discovery metadata.
+    This does not inject skill text into the runtime prompt; use
+    [with_skill] or [with_skills] for runtime behavior. *)
 val with_skill_registry : Skill_registry.t -> t -> t
 
 (** Set progressive tool disclosure strategy.

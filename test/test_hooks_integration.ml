@@ -8,6 +8,17 @@
 open Agent_sdk
 open Types
 
+let contains_substring haystack needle =
+  let needle_len = String.length needle in
+  let haystack_len = String.length haystack in
+  let rec loop idx =
+    if needle_len = 0 then true
+    else if idx + needle_len > haystack_len then false
+    else if String.sub haystack idx needle_len = needle then true
+    else loop (idx + 1)
+  in
+  loop 0
+
 (* ── Mock HTTP Server ────────────────────────────────── *)
 
 let text_body text =
@@ -56,21 +67,34 @@ let fresh_echo_tool () =
 
 (* ── before_turn tests ───────────────────────────────── *)
 
-(* NOTE: before_turn hook Skip does NOT prevent the LLM call —
-   pipeline.ml stage_input only handles ElicitInput.
-   Skip is informational at this stage. Test verifies the hook fires. *)
-let test_before_turn_skip_fires_but_proceeds () =
+let test_before_turn_skip_fails_closed () =
   with_mock_server ~port:18101 text_only_handler (fun ~sw ~net ~base_url ->
-    let skip_fired = ref false in
+    let options = { Agent.default_options with
+      base_url;
+      hooks = { Hooks.empty with
+        before_turn = Some (fun _event -> Hooks.Skip) } } in
+    let agent = Agent.create ~net ~options () in
+    match Agent.run ~sw agent "test" with
+    | Ok _ -> Alcotest.fail "expected invalid before_turn decision"
+    | Error (Error.Internal msg) ->
+      Alcotest.(check bool) "mentions unsupported decision" true
+        (contains_substring msg "unsupported decision")
+    | Error e -> Alcotest.fail (Error.to_string e))
+
+let test_before_turn_elicitation_requires_callback () =
+  with_mock_server ~port:18110 text_only_handler (fun ~sw ~net ~base_url ->
     let options = { Agent.default_options with
       base_url;
       hooks = { Hooks.empty with
         before_turn = Some (fun _event ->
-          skip_fired := true; Hooks.Skip) } } in
+          Hooks.ElicitInput { question = "Need answer"; schema = None; timeout_s = None }) } } in
     let agent = Agent.create ~net ~options () in
-    (match Agent.run ~sw agent "test" with
-     | Ok _ | Error _ -> ());
-    Alcotest.(check bool) "hook fired" true !skip_fired)
+    match Agent.run ~sw agent "test" with
+    | Ok _ -> Alcotest.fail "expected missing elicitation callback error"
+    | Error (Error.Internal msg) ->
+      Alcotest.(check bool) "mentions elicitation" true
+        (contains_substring msg "elicitation")
+    | Error e -> Alcotest.fail (Error.to_string e))
 
 let test_before_turn_continue_proceeds () =
   with_mock_server ~port:18102 text_only_handler (fun ~sw ~net ~base_url ->
@@ -228,8 +252,10 @@ let () =
   let open Alcotest in
   run "Hooks_Integration" [
     "before_turn", [
-      test_case "skip fires but proceeds" `Quick
-        test_before_turn_skip_fires_but_proceeds;
+      test_case "skip fails closed" `Quick
+        test_before_turn_skip_fails_closed;
+      test_case "elicitation without callback fails" `Quick
+        test_before_turn_elicitation_requires_callback;
       test_case "continue proceeds" `Quick test_before_turn_continue_proceeds;
       test_case "receives turn number" `Quick
         test_before_turn_receives_turn_number;

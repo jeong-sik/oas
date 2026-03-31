@@ -7,11 +7,6 @@ type model_override =
   | Use_model of Types.model
 [@@deriving show]
 
-type isolation =
-  | Shared
-  | Worktree
-[@@deriving show]
-
 type state_isolation =
   | Inherit_all
   | Isolated
@@ -28,9 +23,7 @@ type t = {
   max_turns: int option;
   skill_refs: string list;
   skills: Skill.t list;
-  isolation: isolation;
   state_isolation: state_isolation;
-  background: bool;
   path: string option;
   metadata: (string * string list) list;
 }
@@ -42,11 +35,6 @@ let model_override_of_string s =
   match String.lowercase_ascii s with
   | "inherit" -> Inherit_model
   | other -> Use_model (Model_registry.resolve_model_id other)
-
-let isolation_of_string s =
-  match String.lowercase_ascii s with
-  | "worktree" -> Worktree
-  | _ -> Shared
 
 let state_isolation_of_string s =
   match String.lowercase_ascii (String.trim s) with
@@ -95,11 +83,6 @@ let of_markdown ?path ?(skills = []) markdown =
     );
     skill_refs = Skill.frontmatter_values fm "skills";
     skills;
-    isolation = (
-      Skill.frontmatter_value fm "isolation"
-      |> Option.map isolation_of_string
-      |> Option.value ~default:Shared
-    );
     state_isolation = (
       let mode =
         Skill.frontmatter_value fm "state-isolation"
@@ -115,10 +98,6 @@ let of_markdown ?path ?(skills = []) markdown =
         Selective keys
       | other -> other
     );
-    background =
-      List.exists
-        (fun v -> String.lowercase_ascii v = "true")
-        (Skill.frontmatter_values fm "background");
     path;
     metadata = fm;
   }
@@ -138,12 +117,24 @@ let load ?(skill_roots = []) path =
       match List.find_opt Sys.file_exists candidates with
       | Some p ->
         (match Skill.load p with
-         | Ok skill -> Some skill
+         | Ok skill -> Some (ref_name, skill)
          | Error _ -> None)
       | None -> None
     in
     let resolved = List.filter_map resolve initial.skill_refs in
-    Ok { initial with skills = resolved }
+    if List.length resolved <> List.length initial.skill_refs then
+      let unresolved =
+        List.filter (fun ref_name ->
+          not (List.exists (fun (resolved_ref, _) -> resolved_ref = ref_name) resolved)
+        ) initial.skill_refs
+      in
+      Error (Error.Io (ValidationFailed {
+        detail =
+          Printf.sprintf "Subagent.load: unresolved skill refs: %s"
+            (String.concat ", " unresolved);
+      }))
+    else
+      Ok { initial with skills = List.map snd resolved }
 
 (* --- Prompt composition --- *)
 
@@ -214,4 +205,10 @@ let to_handoff_target ~(parent_config : Types.agent_config) ~base_tools spec =
     description = Option.value spec.description ~default:"Subagent";
     config;
     tools;
+    context_policy = (
+      match spec.state_isolation with
+      | Inherit_all -> Handoff.Inherit_all
+      | Isolated -> Handoff.Isolated
+      | Selective keys -> Handoff.Selective keys
+    );
   }

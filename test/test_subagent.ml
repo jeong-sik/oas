@@ -65,34 +65,6 @@ let () =
         let spec = Subagent.of_markdown md in
         check (option int) "max_turns" None spec.max_turns);
 
-      test_case "isolation worktree" `Quick (fun () ->
-        let md = "---\nisolation: worktree\n---\nbody" in
-        let spec = Subagent.of_markdown md in
-        check bool "worktree" true (spec.isolation = Subagent.Worktree));
-
-      test_case "isolation shared default" `Quick (fun () ->
-        let spec = Subagent.of_markdown "no isolation" in
-        check bool "shared" true (spec.isolation = Subagent.Shared));
-
-      test_case "isolation unknown -> shared" `Quick (fun () ->
-        let md = "---\nisolation: container\n---\nbody" in
-        let spec = Subagent.of_markdown md in
-        check bool "shared" true (spec.isolation = Subagent.Shared));
-
-      test_case "background" `Quick (fun () ->
-        let md = "---\nbackground: true\n---\nbody" in
-        let spec = Subagent.of_markdown md in
-        check bool "background" true spec.background);
-
-      test_case "background false" `Quick (fun () ->
-        let md = "---\nbackground: false\n---\nbody" in
-        let spec = Subagent.of_markdown md in
-        check bool "not background" false spec.background);
-
-      test_case "background missing" `Quick (fun () ->
-        let spec = Subagent.of_markdown "body" in
-        check bool "not background" false spec.background);
-
       test_case "skill_refs" `Quick (fun () ->
         let md = "---\nskills: helper.md, reviewer.md\n---\nbody" in
         let spec = Subagent.of_markdown md in
@@ -233,21 +205,6 @@ let () =
         | _ -> fail "expected Custom");
     ];
 
-    "isolation_of_string", [
-      test_case "worktree" `Quick (fun () ->
-        check bool "worktree" true
-          (Subagent.isolation_of_string "worktree" = Subagent.Worktree));
-      test_case "Worktree uppercase" `Quick (fun () ->
-        check bool "Worktree" true
-          (Subagent.isolation_of_string "Worktree" = Subagent.Worktree));
-      test_case "other -> Shared" `Quick (fun () ->
-        check bool "shared" true
-          (Subagent.isolation_of_string "anything" = Subagent.Shared));
-      test_case "empty -> Shared" `Quick (fun () ->
-        check bool "shared" true
-          (Subagent.isolation_of_string "" = Subagent.Shared));
-    ];
-
     "state_isolation_of_string", [
       test_case "inherit by default" `Quick (fun () ->
         check bool "inherit" true
@@ -370,11 +327,6 @@ let () =
         check bool "non-empty" true (String.length s1 > 0);
         let s2 = Subagent.show_model_override (Subagent.Use_model "claude-sonnet-4-6") in
         check bool "non-empty" true (String.length s2 > 0));
-      test_case "show_isolation" `Quick (fun () ->
-        let s1 = Subagent.show_isolation Subagent.Shared in
-        check bool "non-empty" true (String.length s1 > 0);
-        let s2 = Subagent.show_isolation Subagent.Worktree in
-        check bool "non-empty" true (String.length s2 > 0));
       test_case "show_state_isolation" `Quick (fun () ->
         let s1 = Subagent.show_state_isolation Subagent.Inherit_all in
         check bool "non-empty" true (String.length s1 > 0);
@@ -393,6 +345,17 @@ let () =
         match Subagent.load "/nonexistent/path/agent.md" with
         | Error _ -> ()
         | Ok _ -> fail "expected error for missing file");
+      test_case "load unresolved skill refs -> Error" `Quick (fun () ->
+        let agent_path = Filename.temp_file "oas_subagent_" ".md" in
+        Fun.protect
+          ~finally:(fun () -> try Sys.remove agent_path with _ -> ())
+          (fun () ->
+            let oc = open_out agent_path in
+            output_string oc "---\nname: reviewer\nskills: missing.md\n---\nReview";
+            close_out oc;
+            match Subagent.load agent_path with
+            | Error _ -> ()
+            | Ok _ -> fail "expected unresolved skill ref error"));
     ];
 
     "handoff", [
@@ -406,7 +369,8 @@ let () =
         check string "desc" "Helps out" target.description;
         check bool "model" true (target.config.model = "claude-haiku-4-5-20251001");
         check int "max_turns" 3 target.config.max_turns;
-        check (option string) "system_prompt" (Some "You help.") target.config.system_prompt);
+        check (option string) "system_prompt" (Some "You help.") target.config.system_prompt;
+        check bool "context policy" true (target.context_policy = Handoff.Inherit_all));
 
       test_case "to_handoff_target inherit model" `Quick (fun () ->
         let md = "---\nname: worker\n---\nDo work." in
@@ -434,5 +398,16 @@ let () =
         let target = Subagent.to_handoff_target
           ~parent_config:parent ~base_tools:[] spec in
         check int "parent turns" 20 target.config.max_turns);
+
+      test_case "to_handoff_target selective state isolation" `Quick (fun () ->
+        let spec =
+          Subagent.of_markdown
+            "---\nname: scoped\nstate-isolation: selective\nstate-keys: session_id, user_id\n---\nbody"
+        in
+        let target = Subagent.to_handoff_target
+          ~parent_config:Types.default_config ~base_tools:[] spec in
+        match target.context_policy with
+        | Handoff.Selective ["session_id"; "user_id"] -> ()
+        | _ -> fail "expected selective context policy");
     ];
   ]

@@ -35,28 +35,36 @@ let stage_input ?raw_trace_run agent =
       (Hooks.BeforeTurn { turn = agent.state.turn_count;
                           messages = agent.state.messages })
   in
-  (match before_decision with
-   | Hooks.ElicitInput req ->
-     (match agent.options.elicitation with
-      | Some cb ->
-        let response = cb req in
-        (match agent.options.event_bus with
-         | Some bus -> Event_bus.publish bus
-             (ElicitationCompleted {
-                agent_name = agent.state.config.name;
-                question = req.question;
-                response })
-         | None -> ());
-        (match response with
-         | Hooks.Answer json ->
-           let text = Printf.sprintf "[User input] %s: %s"
-             req.question (Yojson.Safe.to_string json) in
-           update_state agent (fun s ->
-             { s with messages = Util.snoc s.messages
-                 { role = User; content = [Text text]; name = None; tool_call_id = None } })
-         | Hooks.Declined | Hooks.Timeout -> ())
-      | None -> ())
-   | _ -> ())
+  match before_decision with
+  | Hooks.Continue -> Ok ()
+  | Hooks.ElicitInput req ->
+    (match agent.options.elicitation with
+     | Some cb ->
+       let response = cb req in
+       (match agent.options.event_bus with
+        | Some bus -> Event_bus.publish bus
+            (ElicitationCompleted {
+               agent_name = agent.state.config.name;
+               question = req.question;
+               response })
+        | None -> ());
+       (match response with
+        | Hooks.Answer json ->
+          let text = Printf.sprintf "[User input] %s: %s"
+            req.question (Yojson.Safe.to_string json) in
+          update_state agent (fun s ->
+            { s with messages = Util.snoc s.messages
+                { role = User; content = [Text text]; name = None; tool_call_id = None } })
+        | Hooks.Declined | Hooks.Timeout -> ());
+       Ok ()
+     | None ->
+       Error (Error.Internal
+         (Printf.sprintf "before_turn requested elicitation for '%s' but no elicitation callback is configured"
+            req.question)))
+  | decision ->
+    Error (Error.Internal
+      (Printf.sprintf "before_turn hook returned unsupported decision: %s"
+         (Agent_lifecycle.hook_decision_to_string decision)))
 
 (* ── Stage 2: Parse ──────────────────────────────────────── *)
 
@@ -82,8 +90,9 @@ let last_tool_results_from messages =
 (** Invoke BeforeTurnParams hook, apply turn params, prepare tools.
     Returns (turn_preparation, original_config). *)
 let stage_parse ?raw_trace_run agent =
-  let turn_params = match agent.options.hooks.before_turn_params with
-    | None -> Hooks.default_turn_params
+  let* turn_params =
+    match agent.options.hooks.before_turn_params with
+    | None -> Ok Hooks.default_turn_params
     | Some _ ->
       let last_results = last_tool_results_from agent.state.messages in
       let reasoning = Hooks.extract_reasoning agent.state.messages in
@@ -99,9 +108,13 @@ let stage_parse ?raw_trace_run agent =
             reasoning;
           })
       in
-      match decision with
-      | Hooks.AdjustParams params -> params
-      | _ -> Hooks.default_turn_params
+      (match decision with
+       | Hooks.Continue -> Ok Hooks.default_turn_params
+       | Hooks.AdjustParams params -> Ok params
+       | other ->
+         Error (Error.Internal
+           (Printf.sprintf "before_turn_params hook returned unsupported decision: %s"
+              (Agent_lifecycle.hook_decision_to_string other))))
   in
 
   (* Apply ephemeral turn params, save original for restoration *)
@@ -132,7 +145,7 @@ let stage_parse ?raw_trace_run agent =
     ~messages:agent.state.messages
     ~context_reducer:agent.options.context_reducer ~turn_params
   in
-  (prep, original_config)
+  Ok (prep, original_config)
 
 (* ── Stage 3: Route ──────────────────────────────────────── *)
 
@@ -337,10 +350,10 @@ let tag_error stage result =
 
 let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
   (* Stage 1: Input *)
-  stage_input ?raw_trace_run agent;
+  let* () = stage_input ?raw_trace_run agent |> tag_error "input" in
 
   (* Stage 2: Parse *)
-  let (prep, original_config) = stage_parse ?raw_trace_run agent in
+  let* (prep, original_config) = stage_parse ?raw_trace_run agent |> tag_error "parse" in
 
   (* Stage 2.5: Async input validation *)
   let async_guard = agent.options.guardrails_async in
