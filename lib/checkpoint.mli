@@ -124,7 +124,9 @@ val delta_to_json : delta -> Yojson.Safe.t
 (** Deserialize a checkpoint delta sidecar from JSON. *)
 val delta_of_json : Yojson.Safe.t -> (delta, Error.sdk_error) result
 
-(** Whether the `MASC_DELTA_CHECKPOINT` feature flag is enabled. *)
+(** Whether the delta checkpoint feature flag is enabled.
+    Checks [OAS_DELTA_CHECKPOINT] first, falls back to the deprecated
+    [MASC_DELTA_CHECKPOINT] for backward compatibility. *)
 val delta_enabled : unit -> bool
 
 (** Compute a delta from a base checkpoint to a target checkpoint. *)
