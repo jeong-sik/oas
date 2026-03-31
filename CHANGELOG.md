@@ -2,6 +2,13 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.99.4] - 2026-03-31
+
+### Fixed
+- Deduplicated `env_or` in `cascade_model_resolve.ml` (2 inline closures → 1 module-level function).
+- Event forward idle-path optimization: skip `List.map`/`rev_append` on empty drain.
+- Replace O(n) structural list comparison with O(1) counter check at loop exit.
+
 ## [0.99.3] - 2026-03-31
 
 ### Fixed
