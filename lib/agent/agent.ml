@@ -93,12 +93,14 @@ let start_periodic_callbacks ~sw ?clock (cbs : periodic_callback list) =
             Eio.Time.sleep clock cb.interval_sec;
             if !active then
               (try cb.callback ()
-               with Eio.Cancel.Cancelled _ as ex -> raise ex | _ -> ());
+               with Eio.Cancel.Cancelled _ as ex -> raise ex
+                  | exn -> Printf.eprintf "periodic callback raised: %s\n%!" (Printexc.to_string exn));
             tick ()
           end
         in
         (try tick ()
-         with Eio.Cancel.Cancelled _ as ex -> raise ex | _ -> ()));
+         with Eio.Cancel.Cancelled _ as ex -> raise ex
+            | exn -> Printf.eprintf "periodic tick crashed: %s\n%!" (Printexc.to_string exn)));
       fun () -> active := false
     ) cbs in
     fun () -> List.iter (fun stop -> stop ()) stops

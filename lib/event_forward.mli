@@ -1,6 +1,6 @@
 (** Event Forwarding — deliver {!Event_bus} events to external targets.
 
-    Supports HTTP webhooks, file append, and custom transports.
+    Supports file append and custom transports.
     Delivery is best-effort: failures log a warning but never block
     the agent.  Batching reduces HTTP round-trips.
 
@@ -33,14 +33,9 @@ val event_to_payload : Event_bus.event -> event_payload
 
 (** {1 Targets} *)
 
-(** Delivery target for forwarded events. *)
+(** Delivery target for forwarded events.
+    For HTTP delivery, use {!Custom_target} with an HTTP client callback. *)
 type target =
-  | Webhook of {
-      url: string;
-      headers: (string * string) list;
-      method_: [ `POST | `PUT ];
-      timeout_s: float;
-    }
   | File_append of { path: string }
   | Custom_target of { name: string; deliver: event_payload -> unit }
 

@@ -79,9 +79,22 @@ let fire2 opt a b = match opt with
 
 (* ── Agent-level retry ──────────────────────────────────────────── *)
 
-let default_agent_max_retries = 2
-let default_agent_initial_delay = 1.0
+let int_env_or default var =
+  match Sys.getenv_opt var with
+  | Some raw -> (match int_of_string_opt (String.trim raw) with
+    | Some v when v > 0 -> v | _ -> default)
+  | None -> default
+
+let float_env_or default var =
+  match Sys.getenv_opt var with
+  | Some raw -> (match float_of_string_opt (String.trim raw) with
+    | Some v when v > 0.0 -> v | _ -> default)
+  | None -> default
+
+let default_agent_max_retries = int_env_or 2 "OAS_AGENT_MAX_RETRIES"
+let default_agent_initial_delay = float_env_or 1.0 "OAS_AGENT_INITIAL_DELAY"
 let default_agent_backoff = 2.0
+let default_agent_max_delay = float_env_or 30.0 "OAS_AGENT_MAX_DELAY"
 
 let is_retryable_agent_error = function
   | Error.Api _ -> true
@@ -110,7 +123,7 @@ let run_one_agent ~sw ~clock ~callbacks ?(max_retries=default_agent_max_retries)
         (entry.name, status, result)
     | Error err when is_retryable_agent_error err && n < max_retries ->
         Eio.Time.sleep clock (delay *. (0.5 +. Random.float 1.0));
-        attempt (n + 1) (Float.min (delay *. default_agent_backoff) 30.0)
+        attempt (n + 1) (Float.min (delay *. default_agent_backoff) default_agent_max_delay)
     | Error err ->
         let status = Done_error { elapsed; error = Error.to_string err; telemetry } in
         fire2 callbacks.on_agent_done entry.name status;

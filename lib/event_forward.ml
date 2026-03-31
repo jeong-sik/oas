@@ -1,6 +1,6 @@
 (** Event Forwarding — deliver Event_bus events to external targets.
 
-    Supports HTTP webhooks, file append, and custom transports.
+    Supports file append and custom transports.
     Delivery is best-effort: failures log a warning but never block
     the agent. Batching reduces HTTP round-trips.
 
@@ -99,12 +99,6 @@ let event_to_payload (event : Event_bus.event) : event_payload =
 (* ── Targets ──────────────────────────────────────────────────── *)
 
 type target =
-  | Webhook of {
-      url: string;
-      headers: (string * string) list;
-      method_: [ `POST | `PUT ];
-      timeout_s: float;
-    }
   | File_append of { path: string }
   | Custom_target of { name: string; deliver: event_payload -> unit }
 
@@ -157,29 +151,19 @@ let deliver_to_custom t name deliver payloads =
         [Log.S ("target", name); Log.S ("error", Printexc.to_string exn)]
   ) payloads
 
-(* TODO: implement HTTP POST delivery — see issue tracker *)
-let deliver_to_webhook _t ~sw:_ ~net:_ url _headers _method_ _timeout_s _payloads =
-  Log.error _t.log "webhook delivery not implemented"
-    [Log.S ("url", url)];
-  failwith
-    (Printf.sprintf
-       "Webhook delivery not implemented for %s: configure file or SSE targets instead"
-       url)
-
-let deliver_batch t ~sw ~net payloads =
+let deliver_batch t payloads =
   List.iter (fun target ->
     match target with
     | File_append { path } ->
       deliver_to_file t path payloads
     | Custom_target { name; deliver } ->
       deliver_to_custom t name deliver payloads
-    | Webhook { url; headers; method_; timeout_s } ->
-      deliver_to_webhook t ~sw ~net url headers method_ timeout_s payloads
   ) t.targets
 
 (* ── Event loop ───────────────────────────────────────────────── *)
 
 let start ~sw ~(net : _ Eio.Net.t) ~bus t =
+  let _ = net in
   if not (Atomic.compare_and_set t.running false true) then ()
   else begin
     let sub = Event_bus.subscribe bus in
@@ -199,14 +183,14 @@ let start ~sw ~(net : _ Eio.Net.t) ~bus t =
               batch_len := !batch_len + List.length payloads;
               (* Flush if batch is full — O(1) check via counter *)
               if !batch_len >= t.batch_size then begin
-                deliver_batch t ~sw ~net !batch;
+                deliver_batch t !batch;
                 batch := [];
                 batch_len := 0
               end;
               Eio.Fiber.yield ()
             done;
             if !batch <> [] then
-              deliver_batch t ~sw ~net !batch
+              deliver_batch t !batch
           with
           | Eio.Cancel.Cancelled _ as ex -> raise ex
           | exn ->

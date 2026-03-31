@@ -137,7 +137,7 @@ let rec resolve_provider name =
         path = "/v1/chat/completions";
         static_token = None;
       };
-      model_id = "qwen3.5";
+      model_id = Defaults.env_or "qwen3.5" "OAS_REVIEW_MODEL";
       api_key_env = "";
     })
   | "openrouter" ->
@@ -167,9 +167,11 @@ let run repo pr_num should_post provider_name =
       ]
   in
   let provider_config = resolve_provider provider_name in
-  let model_id = match provider_name with
-    | "anthropic" -> "claude-sonnet-4-6"
-    | _ -> "qwen3.5"
+  let model_id = match Sys.getenv_opt "OAS_REVIEW_MODEL" with
+    | Some m when String.trim m <> "" -> String.trim m
+    | _ -> (match provider_name with
+      | "anthropic" -> "claude-sonnet-4-6"
+      | _ -> "qwen3.5")
   in
   let config = {
     default_config with

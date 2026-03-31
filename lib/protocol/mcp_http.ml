@@ -8,7 +8,7 @@ type config = {
 }
 
 let default_config = {
-  base_url = "http://localhost:8080/mcp";
+  base_url = Defaults.env_or "http://localhost:8080/mcp" "OAS_MCP_HTTP_URL";
   headers = [];
 }
 
