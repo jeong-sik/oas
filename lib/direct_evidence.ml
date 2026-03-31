@@ -123,12 +123,18 @@ let tool_contracts_to_json tools =
            |> Option.map (fun (d : Tool.descriptor) -> d.examples)
            |> Option.value ~default:[]
          in
+         let mutation_class =
+           match Option.bind descriptor (fun d -> d.mutation_class) with
+           | Some value -> `String value
+           | None -> `Null
+         in
          `Assoc
            [
              ("name", `String tool.schema.name);
              ("description", `String tool.schema.description);
              ("origin", `String "local");
              ("kind", kind);
+             ("mutation_class", mutation_class);
              ("shell", shell);
              ("notes", `List (List.map (fun v -> `String v) notes));
              ("examples", `List (List.map (fun v -> `String v) examples));

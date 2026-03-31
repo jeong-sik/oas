@@ -245,7 +245,13 @@ let hooks st =
       match event with
       | PreToolUse { tool_name; input; _ } ->
         (match check_violation st tool_name input with
-         | Some _ -> Skip
+         | Some v ->
+           Format.eprintf
+             "[mode_enforcer] SKIP tool=%s kind=%s mode=%s@."
+             tool_name
+             (violation_kind_to_string v.violation_kind)
+             (Execution_mode.to_string v.effective_mode);
+           Skip
          | None -> Continue)
       | _ -> Continue);
 
