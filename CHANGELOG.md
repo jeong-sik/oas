@@ -2,6 +2,21 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.99.2] - 2026-03-31
+
+### Added
+- `Defaults.int_env_or` / `Defaults.float_env_or` — typed env var helpers for int and float values.
+- `OAS_MCP_HTTP_URL` env var — configurable MCP HTTP default endpoint.
+- `OAS_REVIEW_MODEL` env var — configurable review agent model selection.
+- `OAS_AGENT_MAX_RETRIES`, `OAS_AGENT_INITIAL_DELAY`, `OAS_AGENT_MAX_DELAY` env vars — configurable swarm retry policy.
+
+### Removed
+- `Event_forward.Webhook` variant — was unimplemented (always `failwith`). Use `Custom_target` for HTTP delivery.
+
+### Fixed
+- Periodic callback exceptions now logged via `Printf.eprintf` instead of silently swallowed.
+- Fatal exceptions (`Out_of_memory`, `Stack_overflow`, `Sys.Break`) re-raised in periodic callbacks.
+
 ## [0.99.1] - 2026-03-31
 
 ### Added
