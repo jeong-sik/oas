@@ -18,12 +18,7 @@ type t = {
 
 (** Extract concatenated text content from a {!Sdk_types.tool_result}. *)
 let output_token_budget () =
-  match Sys.getenv_opt "OAS_MCP_OUTPUT_MAX_TOKENS" with
-  | Some raw -> (
-      match int_of_string_opt (String.trim raw) with
-      | Some value when value > 0 -> value
-      | _ -> 25_000)
-  | None -> 25_000
+  Defaults.int_env_or 25_000 "OAS_MCP_OUTPUT_MAX_TOKENS"
 
 let truncate_output text =
   let max_chars = output_token_budget () * 4 in

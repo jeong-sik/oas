@@ -2,6 +2,12 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.99.3] - 2026-03-31
+
+### Fixed
+- O(n²) batch accumulation in `event_forward.ml` — `(@)` replaced with `List.rev_append`.
+- Consolidated duplicate `Sys.getenv_opt` patterns in `review_agent.ml` and `mcp.ml` to use `Defaults` helpers.
+
 ## [0.99.2] - 2026-03-31
 
 ### Added
