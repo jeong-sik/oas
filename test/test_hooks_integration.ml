@@ -112,6 +112,20 @@ let test_before_turn_continue_proceeds () =
       Alcotest.(check string) "got response" "hello" text
     | Error e -> Alcotest.fail (Error.to_string e))
 
+let test_before_turn_params_invalid_decision_fails_closed () =
+  with_mock_server ~port:18111 text_only_handler (fun ~sw ~net ~base_url ->
+    let options = { Agent.default_options with
+      base_url;
+      hooks = { Hooks.empty with
+        before_turn_params = Some (fun _event -> Hooks.Skip) } } in
+    let agent = Agent.create ~net ~options () in
+    match Agent.run ~sw agent "test" with
+    | Ok _ -> Alcotest.fail "expected invalid before_turn_params decision"
+    | Error (Error.Internal msg) ->
+      Alcotest.(check bool) "mentions unsupported decision" true
+        (contains_substring msg "unsupported decision")
+    | Error e -> Alcotest.fail (Error.to_string e))
+
 let test_before_turn_receives_turn_number () =
   with_mock_server ~port:18103 text_only_handler (fun ~sw ~net ~base_url ->
     let received_turn = ref (-1) in
@@ -257,6 +271,8 @@ let () =
       test_case "elicitation without callback fails" `Quick
         test_before_turn_elicitation_requires_callback;
       test_case "continue proceeds" `Quick test_before_turn_continue_proceeds;
+      test_case "before_turn_params invalid decision fails" `Quick
+        test_before_turn_params_invalid_decision_fails_closed;
       test_case "receives turn number" `Quick
         test_before_turn_receives_turn_number;
     ];

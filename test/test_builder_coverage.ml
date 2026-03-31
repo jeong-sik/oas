@@ -150,6 +150,17 @@ let test_build_safe_unimplemented_prepare_ratio () =
   | Error _ -> Alcotest.fail "expected InvalidConfig for context_prepare_ratio"
   | Ok _ -> Alcotest.fail "expected Error for unimplemented prepare_ratio"
 
+let test_build_safe_unimplemented_handoff_ratio () =
+  Eio_main.run @@ fun env ->
+  let b = Builder.create ~net:env#net ~model:Types.default_config.model
+    |> Builder.with_context_thresholds ~compact_ratio:0.8 ~handoff_ratio:0.5
+  in
+  match Builder.build_safe b with
+  | Error (Error.Config (Error.InvalidConfig { field; _ })) ->
+    Alcotest.(check string) "field" "context_handoff_ratio" field
+  | Error _ -> Alcotest.fail "expected InvalidConfig for context_handoff_ratio"
+  | Ok _ -> Alcotest.fail "expected Error for unimplemented handoff_ratio"
+
 (* ── Agent accessors ──────────────────────────────────────── *)
 
 let test_agent_accessors () =
@@ -297,6 +308,8 @@ let () =
       Alcotest.test_case "negative max_cost" `Quick test_build_safe_negative_max_cost;
       Alcotest.test_case "unimplemented prepare_ratio" `Quick
         test_build_safe_unimplemented_prepare_ratio;
+      Alcotest.test_case "unimplemented handoff_ratio" `Quick
+        test_build_safe_unimplemented_handoff_ratio;
     ];
     "agent_accessors", [
       Alcotest.test_case "state/tools/context/desc" `Quick test_agent_accessors;
