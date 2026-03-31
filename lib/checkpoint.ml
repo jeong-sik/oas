@@ -435,10 +435,15 @@ let delta_metrics_names =
     "checkpoint_delta_size_bytes",
     "checkpoint_full_restore_fallback_total" )
 
-let delta_enabled () =
-  match Sys.getenv_opt "OAS_DELTA_CHECKPOINT" with
+let is_truthy = function
   | Some ("1" | "true" | "TRUE" | "yes" | "on") -> true
   | _ -> false
+
+let delta_enabled () =
+  (* Prefer OAS_DELTA_CHECKPOINT; fall back to deprecated MASC_DELTA_CHECKPOINT
+     for backward compatibility during the migration window. *)
+  is_truthy (Sys.getenv_opt "OAS_DELTA_CHECKPOINT")
+  || is_truthy (Sys.getenv_opt "MASC_DELTA_CHECKPOINT")
 
 let register_delta_metrics metrics =
   let apply_total_name, apply_failures_name, size_name, fallback_name =

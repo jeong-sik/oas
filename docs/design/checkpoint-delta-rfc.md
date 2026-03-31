@@ -273,7 +273,7 @@ Delta read path is controlled by `OAS_DELTA_CHECKPOINT` environment variable:
 2. Consumer deploys second: shadow write, metrics bridge, feature flag
 3. Phase 2 activation: flip `OAS_DELTA_CHECKPOINT=true` after shadow mismatch rate is below threshold
 
-This ordering preserves backward compatibility. MASC with old OAS ignores delta. New MASC with new OAS runs shadow mode until validated.
+This ordering preserves backward compatibility. A consumer running against old OAS ignores delta. A consumer running against new OAS enters shadow mode until validated.
 
 ## Follow-up work
 
