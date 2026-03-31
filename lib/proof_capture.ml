@@ -13,6 +13,7 @@ type state = {
   contract: Risk_contract.t;
   mode_decision: Mode_resolver.decision;
   capability_snapshot: Cdal_proof.capability_snapshot;
+  scope: string option;
   mutable started_at: float;
   mutable ended_at: float;
   mutable provider_snapshot: Cdal_proof.provider_snapshot;
@@ -26,7 +27,7 @@ let generate_run_id () =
   let rand = Random.bits () land 0xFFFFFF in
   Printf.sprintf "cdal-%d-%06x" (int_of_float (now *. 1000.0)) rand
 
-let create ~store ~contract ~mode_decision ~capability_snapshot =
+let create ~store ~contract ~mode_decision ~capability_snapshot ?scope () =
   let run_id = generate_run_id () in
   Proof_store.init_run store ~run_id;
   {
@@ -35,6 +36,7 @@ let create ~store ~contract ~mode_decision ~capability_snapshot =
     contract;
     mode_decision;
     capability_snapshot;
+    scope;
     started_at = 0.0;
     ended_at = 0.0;
     provider_snapshot = {
@@ -218,6 +220,7 @@ let finalize st ~result_status =
     result_status;
     started_at = st.started_at;
     ended_at = st.ended_at;
+    scope = st.scope;
   } in
   Proof_store.write_manifest st.store ~run_id:st.run_id proof;
   Proof_store.write_contract st.store ~run_id:st.run_id st.contract;

@@ -17,6 +17,8 @@ val create :
   contract:Risk_contract.t ->
   mode_decision:Mode_resolver.decision ->
   capability_snapshot:Cdal_proof.capability_snapshot ->
+  ?scope:string ->
+  unit ->
   state
 
 (** Returns hooks that intercept lifecycle events for proof capture.

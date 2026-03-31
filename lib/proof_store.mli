@@ -74,3 +74,45 @@ val load_contract :
 
 (** List known proof-store run IDs. *)
 val list_runs : config -> (string list, string) result
+
+(** {1 Cross-run window support}
+
+    @since cross-run-temporal *)
+
+(** Run metadata for ordering and filtering. *)
+type run_info = {
+  run_id: string;
+  ended_at: float;
+  schema_version: int;
+  scope: string option;
+}
+
+(** Resource bounds for cross-run queries. *)
+type window_bounds = {
+  max_runs: int;
+  max_bytes: int;
+}
+
+val default_window_bounds : window_bounds
+
+(** List runs with metadata, ordered by [ended_at] ascending,
+    tie-broken by [run_id].
+    Corrupted manifests are excluded from the result and reported
+    in the second element of the tuple.
+    @since cross-run-temporal *)
+val list_runs_ordered :
+  config ->
+  ?scope:string ->
+  ?bounds:window_bounds ->
+  unit ->
+  (run_info list * string list, string) result
+
+(** Load manifests for a window of runs.
+    Readable runs are returned; unreadable runs are reported as errors.
+    @since cross-run-temporal *)
+val load_window :
+  config ->
+  run_ids:string list ->
+  ?bounds:window_bounds ->
+  unit ->
+  ((Cdal_proof.t * Yojson.Safe.t) list * string list, string) result

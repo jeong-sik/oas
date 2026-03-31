@@ -152,3 +152,87 @@ let list_runs config =
               try Sys.is_directory (run_dir config ~run_id:entry)
               with Sys_error _ -> false)
            entries)
+
+(* ================================================================ *)
+(* Cross-run window support                                          *)
+(* ================================================================ *)
+
+type run_info = {
+  run_id: string;
+  ended_at: float;
+  schema_version: int;
+  scope: string option;
+}
+
+type window_bounds = {
+  max_runs: int;
+  max_bytes: int;
+}
+
+let default_window_bounds = {
+  max_runs = 50;
+  max_bytes = 50 * 1024 * 1024;
+}
+
+let list_runs_ordered config ?scope ?(bounds = default_window_bounds) () =
+  let* run_ids = list_runs config in
+  let infos = ref [] in
+  let errors = ref [] in
+  List.iter (fun run_id ->
+    match load_manifest config ~run_id with
+    | Ok (proof, _json) ->
+      let matches_scope = match scope with
+        | None -> true
+        | Some s -> proof.Cdal_proof.scope = Some s
+      in
+      if matches_scope then
+        infos := {
+          run_id;
+          ended_at = proof.Cdal_proof.ended_at;
+          schema_version = proof.Cdal_proof.schema_version;
+          scope = proof.Cdal_proof.scope;
+        } :: !infos
+    | Error msg ->
+      errors := (Printf.sprintf "run %s: %s" run_id msg) :: !errors
+  ) run_ids;
+  let sorted =
+    List.sort (fun a b ->
+      let c = Float.compare a.ended_at b.ended_at in
+      if c <> 0 then c else String.compare a.run_id b.run_id
+    ) !infos
+  in
+  if List.length sorted > bounds.max_runs then
+    Error (Printf.sprintf "run count %d exceeds max_runs %d"
+             (List.length sorted) bounds.max_runs)
+  else
+    Ok (sorted, List.rev !errors)
+
+let load_window config ~run_ids ?(bounds = default_window_bounds) () =
+  let loaded = ref [] in
+  let errors = ref [] in
+  let bytes_total = ref 0 in
+  let check_bounds () =
+    if !bytes_total > bounds.max_bytes then
+      Some (Printf.sprintf "total bytes %d exceeds max_bytes %d"
+              !bytes_total bounds.max_bytes)
+    else None
+  in
+  let rec process = function
+    | [] -> Ok ()
+    | run_id :: rest ->
+      match check_bounds () with
+      | Some msg -> Error msg
+      | None ->
+        (match load_manifest config ~run_id with
+         | Ok (proof, json) ->
+           let json_str = Yojson.Safe.to_string json in
+           bytes_total := !bytes_total + String.length json_str;
+           loaded := (proof, json) :: !loaded;
+           process rest
+         | Error msg ->
+           errors := (Printf.sprintf "run %s: %s" run_id msg) :: !errors;
+           process rest)
+  in
+  match process run_ids with
+  | Error msg -> Error msg
+  | Ok () -> Ok (List.rev !loaded, List.rev !errors)

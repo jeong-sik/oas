@@ -164,6 +164,7 @@ let test_cdal_proof_roundtrip () =
     result_status = Cdal_proof.Completed;
     started_at = 1000.0;
     ended_at = 1005.0;
+    scope = None;
   } in
   let json = Cdal_proof.to_json proof in
   match Cdal_proof.of_json json with
@@ -246,6 +247,7 @@ let test_proof_store_init_and_write () =
     result_status = Cdal_proof.Completed;
     started_at = 1000.0;
     ended_at = 1001.0;
+    scope = None;
   } in
   Proof_store.write_manifest config ~run_id proof;
   Alcotest.(check bool) "manifest exists" true (Sys.file_exists manifest_path);
@@ -336,6 +338,7 @@ let test_proof_store_load_manifest_and_contract () =
     result_status = Cdal_proof.Completed;
     started_at = 1000.0;
     ended_at = 1001.0;
+    scope = None;
   } in
   Proof_store.init_run config ~run_id;
   Proof_store.write_manifest config ~run_id proof;
@@ -434,6 +437,7 @@ let test_proof_json_enum_fields () =
     result_status = Cdal_proof.Completed;
     started_at = 1000.0;
     ended_at = 1001.0;
+    scope = None;
   } in
   let json = Cdal_proof.to_json proof in
   let field name = match json with
@@ -478,7 +482,7 @@ let test_proof_capture_lifecycle () =
   let state = Proof_capture.create
       ~store ~contract:test_contract
       ~mode_decision:test_mode_decision
-      ~capability_snapshot:test_caps in
+      ~capability_snapshot:test_caps () in
   let h = Proof_capture.hooks state in
   (* Simulate: BeforeTurn 1, PreToolUse, PostToolUse, AfterTurn, OnStop *)
   let _ = Hooks.invoke h.before_turn
@@ -515,7 +519,7 @@ let test_proof_capture_no_hooks_fired () =
   let state = Proof_capture.create
       ~store ~contract:test_contract
       ~mode_decision:test_mode_decision
-      ~capability_snapshot:test_caps in
+      ~capability_snapshot:test_caps () in
   (* Finalize without firing any hooks -- tests started_at guard *)
   let proof = Proof_capture.finalize state ~result_status:Cdal_proof.Cancelled in
   Alcotest.(check bool) "started_at > 0 (guarded)" true (proof.started_at > 0.0);
@@ -529,7 +533,7 @@ let test_proof_capture_multiple_tools () =
   let state = Proof_capture.create
       ~store ~contract:test_contract
       ~mode_decision:test_mode_decision
-      ~capability_snapshot:test_caps in
+      ~capability_snapshot:test_caps () in
   let h = Proof_capture.hooks state in
   let _ = Hooks.invoke h.before_turn
       (BeforeTurn { turn = 1; messages = [] }) in
@@ -785,7 +789,7 @@ let test_evidence_violations_in_proof () =
     effective_mode = Execution_mode.Diagnose; source = "passthrough";
   } in
   let state = Proof_capture.create
-      ~store ~contract ~mode_decision ~capability_snapshot:test_caps in
+      ~store ~contract ~mode_decision ~capability_snapshot:test_caps () in
   let enforcer = Mode_enforcer.create
       ~contract ~effective_mode:Execution_mode.Diagnose () in
   Proof_capture.set_enforcer state enforcer;
@@ -808,7 +812,7 @@ let test_evidence_token_usage () =
   let state = Proof_capture.create
       ~store ~contract:test_contract
       ~mode_decision:test_mode_decision
-      ~capability_snapshot:test_caps in
+      ~capability_snapshot:test_caps () in
   let enforcer = Mode_enforcer.create
       ~contract:test_contract ~effective_mode:Execution_mode.Draft () in
   Proof_capture.set_enforcer state enforcer;
@@ -843,7 +847,7 @@ let test_evidence_review_warning () =
     effective_mode = Execution_mode.Execute; source = "passthrough";
   } in
   let state = Proof_capture.create
-      ~store ~contract ~mode_decision ~capability_snapshot:test_caps in
+      ~store ~contract ~mode_decision ~capability_snapshot:test_caps () in
   let enforcer = Mode_enforcer.create
       ~contract ~effective_mode:Execution_mode.Execute () in
   Proof_capture.set_enforcer state enforcer;

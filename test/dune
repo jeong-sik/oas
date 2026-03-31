@@ -815,6 +815,10 @@
  (libraries agent_sdk alcotest yojson))
 
 (test
+ (name test_proof_store_cross_run)
+ (libraries agent_sdk alcotest yojson))
+
+(test
  (name test_operator_policy)
  (libraries agent_sdk alcotest yojson eio eio_main))
 
