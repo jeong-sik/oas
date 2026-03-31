@@ -157,72 +157,10 @@ let parse_model_strings
     (parse_model_string ~temperature ~max_tokens ?system_prompt)
     strs
 
-(* ── Cascade-level error classification ────────────────── *)
-
-(** Decide whether an error should cascade to the next provider.
-    Local resource exhaustion (port/FD limits) stops the cascade
-    because every subsequent provider will hit the same bottleneck. *)
-let should_cascade_to_next err =
-  if Http_client.is_local_resource_exhaustion err then false
-  else match err with
-  | Http_client.HttpError { code; _ } ->
-    List.mem code Constants.Http.cascadable_codes
-  | Http_client.NetworkError _ -> true
-
-(* ── Discovery-aware health filtering ──────────────────── *)
-
-let is_local_provider (cfg : Provider_config.t) =
-  let url = String.lowercase_ascii cfg.base_url in
-  let len = String.length url in
-  let starts_with prefix =
-    let plen = String.length prefix in
-    len >= plen && String.sub url 0 plen = prefix
-  in
-  starts_with "http://127.0.0.1"
-  || starts_with "http://localhost:"
-  || starts_with "http://localhost/"
-  || url = "http://localhost"
-
-(** Check whether a provider has credentials when required. *)
-let has_required_api_key (cfg : Provider_config.t) =
-  cfg.api_key <> "" || is_local_provider cfg
-
-(** Internal: filter healthy + return discovery statuses for throttle. *)
-let filter_healthy_internal ~sw ~net (providers : Provider_config.t list) =
-  (* Step 0: Remove cloud providers missing required API keys *)
-  let providers =
-    let with_keys = List.filter has_required_api_key providers in
-    if with_keys = [] then providers  (* keep all rather than empty *)
-    else with_keys
-  in
-  let local_providers =
-    List.filter is_local_provider providers
-  in
-  let cloud_providers =
-    List.filter (fun cfg -> not (is_local_provider cfg)) providers
-  in
-  if local_providers = [] then
-    (providers, [])
-  else
-    let endpoints =
-      local_providers
-      |> List.map (fun (cfg : Provider_config.t) -> cfg.base_url)
-      |> List.sort_uniq String.compare
-    in
-    let statuses = Discovery.discover ~sw ~net ~endpoints in
-    if cloud_providers = [] then
-      (providers, statuses)
-    else
-      let any_healthy =
-        List.exists (fun (s : Discovery.endpoint_status) -> s.healthy) statuses
-      in
-      if any_healthy then
-        (providers, statuses)
-      else
-        (cloud_providers, [])
-
-let filter_healthy ~sw ~net providers =
-  fst (filter_healthy_internal ~sw ~net providers)
+(* Health filtering (extracted to Cascade_health_filter) *)
+let is_local_provider = Cascade_health_filter.is_local_provider
+let filter_healthy_internal = Cascade_health_filter.filter_healthy_internal
+let filter_healthy = Cascade_health_filter.filter_healthy
 
 (* ── Context window resolution ──────────────────────────── *)
 
@@ -277,86 +215,8 @@ let resolve_model_strings_traced ?config_path ~name ~defaults () =
 let resolve_model_strings ?config_path ~name ~defaults () =
   fst (resolve_model_strings_traced ?config_path ~name ~defaults ())
 
-(* ── Named cascade execution ───────────────────────────── *)
-
-let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
-    ?throttle ?priority ~accept (providers : Provider_config.t list)
-    ~(messages : Types.message list) ~(tools : Yojson.Safe.t list) =
-  let m = match metrics with Some m -> m | None -> Metrics.noop in
-  let try_one (cfg : Provider_config.t) =
-    let call () =
-      match clock with
-      | Some clock ->
-        Complete.complete_with_retry ~sw ~net ~clock ~config:cfg
-          ~messages ~tools ?cache ?metrics ?priority ()
-      | None ->
-        Complete.complete ~sw ~net ~config:cfg
-          ~messages ~tools ?cache ?metrics ?priority ()
-    in
-    let effective_throttle = match throttle with
-      | Some _ -> throttle
-      | None ->
-        if is_local_provider cfg then lookup_throttle cfg.base_url
-        else None
-    in
-    match effective_throttle with
-    | Some t ->
-      let p = match priority with Some p -> p | None -> Request_priority.Unspecified in
-      Provider_throttle.with_permit_priority ~priority:p t call
-    | None -> call ()
-  in
-  let rec try_next last_err = function
-    | [] ->
-      let msg = match last_err with
-        | Some (Http_client.HttpError { code; body }) ->
-          Printf.sprintf "HTTP %d: %s" code
-            (if String.length body > Constants.Truncation.max_error_body_length
-             then String.sub body 0 Constants.Truncation.max_error_body_length ^ "..."
-             else body)
-        | Some (Http_client.NetworkError { message }) -> message
-        | None -> "No providers available"
-      in
-      Error (Http_client.NetworkError {
-          message = Printf.sprintf "All models failed: %s" msg
-        })
-    | (cfg : Provider_config.t) :: rest ->
-      match try_one cfg with
-      | Ok resp ->
-        if accept resp then Ok resp
-        else begin
-          (match last_err with
-           | Some (Http_client.HttpError { code; _ }) ->
-             m.on_cascade_fallback
-               ~from_model:cfg.model_id ~to_model:"next"
-               ~reason:(Printf.sprintf "rejected (prev HTTP %d)" code)
-           | _ ->
-             m.on_cascade_fallback
-               ~from_model:cfg.model_id ~to_model:"next"
-               ~reason:"rejected by accept validator");
-          try_next
-            (Some (Http_client.NetworkError {
-                 message = "response rejected by accept validator"
-               }))
-            rest
-        end
-      | Error err ->
-        let err_str = match err with
-          | Http_client.HttpError { code; _ } ->
-            Printf.sprintf "HTTP %d" code
-          | Http_client.NetworkError { message } -> message
-        in
-        (match rest with
-         | (next_cfg : Provider_config.t) :: _ ->
-           m.on_cascade_fallback
-             ~from_model:cfg.model_id ~to_model:next_cfg.model_id
-             ~reason:err_str
-         | [] -> ());
-        if should_cascade_to_next err then
-          try_next (Some err) rest
-        else
-          Error err
-  in
-  try_next None providers
+(* Cascade execution (extracted to Cascade_executor) *)
+let complete_cascade_with_accept = Cascade_executor.complete_cascade_with_accept
 
 let complete_named ~sw ~net ?clock ?config_path
     ~name ~defaults ~messages
@@ -416,63 +276,7 @@ let complete_named ~sw ~net ?clock ?config_path
              }))
       | _ -> run ()
 
-(* ── Streaming cascade (no accept, no cache) ──────── *)
-
-let complete_cascade_stream ~sw ~net ?(metrics : Metrics.t option)
-    ?(priority : Request_priority.t option)
-    (providers : Provider_config.t list)
-    ~(messages : Types.message list) ~(tools : Yojson.Safe.t list)
-    ~(on_event : Types.sse_event -> unit) =
-  let m = match metrics with Some m -> m | None -> Metrics.noop in
-  let try_one (cfg : Provider_config.t) =
-    let call () =
-      Complete.complete_stream ~sw ~net ~config:cfg
-        ~messages ~tools ~on_event ?priority ()
-    in
-    let throttle =
-      if is_local_provider cfg then lookup_throttle cfg.base_url
-      else None
-    in
-    match throttle with
-    | Some t ->
-      let p = match priority with Some p -> p | None -> Request_priority.Unspecified in
-      Provider_throttle.with_permit_priority ~priority:p t call
-    | None -> call ()
-  in
-  let rec try_next last_err = function
-    | [] ->
-      let msg = match last_err with
-        | Some (Http_client.HttpError { code; body }) ->
-          Printf.sprintf "HTTP %d: %s" code
-            (if String.length body > Constants.Truncation.max_error_body_length
-             then String.sub body 0 Constants.Truncation.max_error_body_length ^ "..."
-             else body)
-        | Some (Http_client.NetworkError { message }) -> message
-        | None -> "No providers available"
-      in
-      Error (Http_client.NetworkError {
-        message = Printf.sprintf "All models failed (stream): %s" msg })
-    | (cfg : Provider_config.t) :: rest ->
-      match try_one cfg with
-      | Ok _ as success -> success
-      | Error err ->
-        let err_str = match err with
-          | Http_client.HttpError { code; _ } ->
-            Printf.sprintf "HTTP %d" code
-          | Http_client.NetworkError { message } -> message
-        in
-        (match rest with
-         | (next_cfg : Provider_config.t) :: _ ->
-           m.on_cascade_fallback
-             ~from_model:cfg.model_id ~to_model:next_cfg.model_id
-             ~reason:err_str
-         | [] -> ());
-        if should_cascade_to_next err then
-          try_next (Some err) rest
-        else
-          Error err
-  in
-  try_next None providers
+let complete_cascade_stream = Cascade_executor.complete_cascade_stream
 
 let complete_named_stream ~sw ~net ?clock ?config_path
     ~name ~defaults ~messages
@@ -913,71 +717,5 @@ let%test "resolve_model_strings_traced returns Hardcoded_defaults on empty confi
         ~name:"missing" ~defaults:["fallback:x"] () in
       source = Hardcoded_defaults))
 
-(* ── should_cascade_to_next tests ─────────────────────── *)
-
-let%test "should_cascade_to_next 401 auth error" =
-  should_cascade_to_next (Http_client.HttpError { code = 401; body = "" }) = true
-
-let%test "should_cascade_to_next 403 forbidden" =
-  should_cascade_to_next (Http_client.HttpError { code = 403; body = "" }) = true
-
-let%test "should_cascade_to_next 429 rate limit" =
-  should_cascade_to_next (Http_client.HttpError { code = 429; body = "" }) = true
-
-let%test "should_cascade_to_next 500 server error" =
-  should_cascade_to_next (Http_client.HttpError { code = 500; body = "" }) = true
-
-let%test "should_cascade_to_next 502 bad gateway" =
-  should_cascade_to_next (Http_client.HttpError { code = 502; body = "" }) = true
-
-let%test "should_cascade_to_next 503 service unavailable" =
-  should_cascade_to_next (Http_client.HttpError { code = 503; body = "" }) = true
-
-let%test "should_cascade_to_next 529 overloaded" =
-  should_cascade_to_next (Http_client.HttpError { code = 529; body = "" }) = true
-
-let%test "should_cascade_to_next network error" =
-  should_cascade_to_next (Http_client.NetworkError { message = "refused" }) = true
-
-let%test "should_cascade_to_next 400 bad request stops" =
-  should_cascade_to_next (Http_client.HttpError { code = 400; body = "" }) = false
-
-let%test "should_cascade_to_next 404 not found stops" =
-  should_cascade_to_next (Http_client.HttpError { code = 404; body = "" }) = false
-
-let%test "should_cascade_to_next EADDRNOTAVAIL stops" =
-  should_cascade_to_next (Http_client.NetworkError {
-    message = "Eio.Io Unix_error (Can't assign requested address, \"connect\", \"\"), connecting to tcp:128.14.69.121:443"
-  }) = false
-
-let%test "should_cascade_to_next EMFILE stops" =
-  should_cascade_to_next (Http_client.NetworkError {
-    message = "Unix.Unix_error(Unix.EMFILE, \"socket\", \"\")"
-  }) = false
-
-let%test "should_cascade_to_next too many open files stops" =
-  should_cascade_to_next (Http_client.NetworkError {
-    message = "Too many open files"
-  }) = false
-
-(* ── has_required_api_key tests ───────────────────────── *)
-
-let%test "has_required_api_key with key present" =
-  let cfg = Provider_config.make ~kind:OpenAI_compat ~model_id:"m"
-    ~base_url:"https://api.example.com" ~api_key:"sk-123" () in
-  has_required_api_key cfg = true
-
-let%test "has_required_api_key local no key is ok" =
-  let cfg = Provider_config.make ~kind:OpenAI_compat ~model_id:"m"
-    ~base_url:"http://127.0.0.1:8085" () in
-  has_required_api_key cfg = true
-
-let%test "has_required_api_key localhost no key is ok" =
-  let cfg = Provider_config.make ~kind:OpenAI_compat ~model_id:"m"
-    ~base_url:"http://localhost:8085" () in
-  has_required_api_key cfg = true
-
-let%test "has_required_api_key cloud no key is rejected" =
-  let cfg = Provider_config.make ~kind:Anthropic ~model_id:"m"
-    ~base_url:"https://api.anthropic.com" () in
-  has_required_api_key cfg = false
+(* should_cascade_to_next + has_required_api_key tests
+   moved to Cascade_health_filter *)
