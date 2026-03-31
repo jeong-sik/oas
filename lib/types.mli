@@ -54,6 +54,7 @@ type agent_config = {
   context_prepare_ratio: float option;
   context_handoff_ratio: float option;
   priority: Llm_provider.Request_priority.t option;  (** @since 0.96.0 *)
+  yield_on_tool: bool;  (** Release LLM slot during tool execution. @since 0.100.0 *)
 }
 [@@deriving show]
 

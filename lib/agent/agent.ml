@@ -64,21 +64,30 @@ let base_messages agent =
   | [] -> agent.state.config.initial_messages
   | msgs -> msgs
 
-let run_loop ~sw ?clock ~api_strategy agent user_prompt =
+let run_loop ~sw ?clock ~api_strategy ?on_yield ?on_resume agent user_prompt =
   let user_msg = { role = User; content = [Text user_prompt]; name = None; tool_call_id = None } in
   update_state agent (fun s ->
     { s with messages = Util.snoc (base_messages agent) user_msg });
   with_raw_trace_run agent user_prompt @@ fun raw_trace_run ->
-  let rec loop () =
+  let yield_enabled = agent.state.config.yield_on_tool in
+  let do_yield () = match on_yield with Some f -> f () | None -> () in
+  let do_resume () = match on_resume with Some f -> f () | None -> () in
+  (* First turn: caller already holds slot, no resume needed *)
+  let rec loop ~is_first_turn =
     match check_loop_guard agent with
     | Some err -> Error err
     | None ->
+      (* Resume slot before LLM turn (skip on first turn) *)
+      if yield_enabled && not is_first_turn then do_resume ();
       match run_turn_core ~sw ?clock ~api_strategy ?raw_trace_run agent with
       | Error e -> Error e
       | Ok `Complete response -> Ok response
-      | Ok `ToolsExecuted -> loop ()
+      | Ok `ToolsExecuted ->
+        (* Yield slot during tool execution gap *)
+        if yield_enabled then do_yield ();
+        loop ~is_first_turn:false
   in
-  loop ()
+  loop ~is_first_turn:true
 
 (* Start periodic callback fibers, return a stop function *)
 let start_periodic_callbacks ~sw ?clock (cbs : periodic_callback list) =
@@ -105,17 +114,17 @@ let start_periodic_callbacks ~sw ?clock (cbs : periodic_callback list) =
     ) cbs in
     fun () -> List.iter (fun stop -> stop ()) stops
 
-let run ~sw ?clock agent user_prompt =
+let run ~sw ?clock ?on_yield ?on_resume agent user_prompt =
   let stop = start_periodic_callbacks ~sw ?clock agent.options.periodic_callbacks in
   Fun.protect
     ~finally:stop
-    (fun () -> run_loop ~sw ?clock ~api_strategy:Sync agent user_prompt)
+    (fun () -> run_loop ~sw ?clock ~api_strategy:Sync ?on_yield ?on_resume agent user_prompt)
 
-let run_stream ~sw ?clock ~on_event agent user_prompt =
+let run_stream ~sw ?clock ~on_event ?on_yield ?on_resume agent user_prompt =
   let stop = start_periodic_callbacks ~sw ?clock agent.options.periodic_callbacks in
   Fun.protect
     ~finally:stop
-    (fun () -> run_loop ~sw ?clock ~api_strategy:(Stream { on_event }) agent user_prompt)
+    (fun () -> run_loop ~sw ?clock ~api_strategy:(Stream { on_event }) ?on_yield ?on_resume agent user_prompt)
 
 (* ── Handoff support ─────────────────────────────────────────── *)
 

@@ -67,6 +67,7 @@ type agent_config = {
   context_prepare_ratio: float option;   (** Ratio at which to start preparing for compaction. Default 0.6 *)
   context_handoff_ratio: float option;   (** Ratio at which to trigger handoff. Default 0.95 *)
   priority: Llm_provider.Request_priority.t option;   (** Scheduling priority for LLM requests. @since 0.96.0 *)
+  yield_on_tool: bool;   (** Release LLM slot during tool execution, re-acquire before next turn. @since 0.100.0 *)
 }
 [@@deriving show]
 
@@ -94,6 +95,7 @@ let default_config = {
   context_prepare_ratio = None;
   context_handoff_ratio = None;
   priority = None;
+  yield_on_tool = false;
 }
 
 (* Usage tracking *)

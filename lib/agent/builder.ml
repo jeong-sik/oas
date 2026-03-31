@@ -54,6 +54,7 @@ type t = {
   progressive_tools: Progressive_tools.disclosure_strategy option;
   operator_policy: Guardrails.tool_filter option;
   priority: Llm_provider.Request_priority.t option;
+  yield_on_tool: bool;
 }
 
 let create ~net ~model =
@@ -107,6 +108,7 @@ let create ~net ~model =
     progressive_tools = None;
     operator_policy = None;
     priority = None;
+    yield_on_tool = false;
   }
 
 let with_system_prompt prompt b = { b with system_prompt = Some prompt }
@@ -222,6 +224,7 @@ let build b =
     context_prepare_ratio = b.context_prepare_ratio;
     context_handoff_ratio = b.context_handoff_ratio;
     priority = b.priority;
+    yield_on_tool = b.yield_on_tool;
   } in
   let options = {
     Agent_types.base_url = b.base_url;

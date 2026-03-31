@@ -193,6 +193,7 @@ let create_agent ~net ?name ?model ?system_prompt ?max_tokens ?max_turns
     context_prepare_ratio = default_config.context_prepare_ratio;
     context_handoff_ratio = default_config.context_handoff_ratio;
     priority = default_config.priority;
+    yield_on_tool = default_config.yield_on_tool;
   } in
   let options = match provider, raw_trace with
     | None, None -> Agent.default_options
