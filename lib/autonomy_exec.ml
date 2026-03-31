@@ -212,18 +212,14 @@ let spawn_child config effective =
 let spawn_result_promise ~sw fn =
   let promise, resolver = Eio.Promise.create () in
   Eio.Fiber.fork ~sw (fun () ->
-    let result =
-      try Ok (fn ())
-      with
-      | Eio.Cancel.Cancelled _ as exn -> raise exn
-      | exn -> Error exn
-    in
+    let result = try Ok (fn ()) with exn -> Error exn in
     Eio.Promise.resolve resolver result);
   promise
 
 let await_result promise map_exn =
   match Eio.Promise.await promise with
   | Ok value -> Ok value
+  | Error (Eio.Cancel.Cancelled _ as exn) -> raise exn
   | Error exn -> Error (map_exn exn)
 
 let run ~sw ~clock ~config ~argv ~timeout_s =
@@ -386,7 +382,7 @@ let%test_unit "run preserves switch cancellation" =
                 ~argv:
                   [ "/usr/bin/env"; "python3"; "-c";
                     "import time; time.sleep(0.5)" ]
-                ~timeout_s:2.0
+                ~timeout_s:0.2
             with
             | Ok _ -> `Returned_ok
             | Error err -> `Returned_error (Error.to_string err)
