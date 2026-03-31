@@ -2,6 +2,12 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.99.7] - 2026-03-31
+
+### Changed
+- Remove 586 lines of redundant inline tests from `memory.ml` (821 → 209 lines). Covered by alcotest suites.
+- Remove 8 dead re-exports and 1 internal-only function that were only consumed by the removed inline tests.
+
 ## [0.99.6] - 2026-03-31
 
 ### Changed
