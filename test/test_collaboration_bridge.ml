@@ -27,7 +27,7 @@ let () =
             updated_at = 2.0; provider = None; model = None;
             system_prompt = None; max_turns = 8; workdir = None;
             planned_participants = []; participants = [];
-            artifacts = []; votes = []; turn_count = 0;
+            artifacts = []; turn_count = 0;
             last_seq = 0; outcome = None;
           } in
           let collab = Runtime_projection.collaboration_of_session session in
@@ -43,7 +43,7 @@ let () =
           created_at = 1.0; updated_at = 2.0; provider = None;
           model = None; system_prompt = None; max_turns = 8;
           workdir = None; planned_participants = []; participants = [];
-          artifacts = []; votes = []; turn_count = 0;
+          artifacts = []; turn_count = 0;
           last_seq = 0; outcome = None;
         } in
         let collab = Runtime_projection.collaboration_of_session session in
@@ -81,7 +81,7 @@ let () =
           model = None; system_prompt = None; max_turns = 8;
           workdir = None; planned_participants = ["alice"];
           participants = [rt_participant];
-          artifacts = []; votes = []; turn_count = 0;
+          artifacts = []; turn_count = 0;
           last_seq = 0; outcome = None;
         } in
         let collab = Runtime_projection.collaboration_of_session session in
@@ -113,7 +113,7 @@ let () =
             started_at = None; finished_at = None;
             last_progress_at = None; last_error = None;
           }];
-          artifacts = []; votes = []; turn_count = 0;
+          artifacts = []; turn_count = 0;
           last_seq = 0; outcome = None;
         } in
         let pairs = [
@@ -151,7 +151,7 @@ let () =
             path = Some "/tmp/report.md"; inline_content = None;
             size_bytes = 1024; created_at = 1.5;
           }];
-          votes = []; turn_count = 0;
+          turn_count = 0;
           last_seq = 0; outcome = None;
         } in
         let collab = Runtime_projection.collaboration_of_session session in
@@ -162,7 +162,7 @@ let () =
         check string "kind" "document" a.kind;
         check string "producer is empty (lossy)" "" a.producer);
 
-      test_case "vote projects as contribution" `Quick (fun () ->
+      test_case "collaboration omits runtime vote state" `Quick (fun () ->
         let session = {
           Runtime.session_id = "s6"; goal = "g"; title = None;
           tag = None; permission_mode = None; phase = Completed;
@@ -170,35 +170,10 @@ let () =
           model = None; system_prompt = None; max_turns = 8;
           workdir = None; planned_participants = [];
           participants = []; artifacts = [];
-          votes = [{
-            topic = "merge?"; options = ["yes"; "no"];
-            choice = "yes"; actor = Some "bob"; created_at = 1.8;
-          }];
           turn_count = 0; last_seq = 0; outcome = None;
         } in
         let collab = Runtime_projection.collaboration_of_session session in
-        check int "1 contribution" 1 (List.length collab.contributions);
-        let c = List.hd collab.contributions in
-        check string "agent" "bob" c.agent;
-        check string "kind" "vote" c.kind;
-        check string "content" "merge?: yes" c.content);
-
-      test_case "vote with no actor defaults to anonymous" `Quick (fun () ->
-        let session = {
-          Runtime.session_id = "s7"; goal = "g"; title = None;
-          tag = None; permission_mode = None; phase = Running;
-          created_at = 1.0; updated_at = 2.0; provider = None;
-          model = None; system_prompt = None; max_turns = 8;
-          workdir = None; planned_participants = [];
-          participants = []; artifacts = [];
-          votes = [{
-            topic = "q"; options = []; choice = "y";
-            actor = None; created_at = 1.0;
-          }];
-          turn_count = 0; last_seq = 0; outcome = None;
-        } in
-        let collab = Runtime_projection.collaboration_of_session session in
-        check string "agent" "anonymous" (List.hd collab.contributions).agent);
+        check int "no contributions" 0 (List.length collab.contributions));
     ];
 
     "collaboration_of_session", [
@@ -209,7 +184,7 @@ let () =
           created_at = 100.0; updated_at = 200.0; provider = None;
           model = None; system_prompt = None; max_turns = 8;
           workdir = None; planned_participants = [];
-          participants = []; artifacts = []; votes = [];
+          participants = []; artifacts = [];
           turn_count = 5; last_seq = 10; outcome = None;
         } in
         let collab = Runtime_projection.collaboration_of_session session in
@@ -226,7 +201,7 @@ let () =
           created_at = 1.0; updated_at = 2.0; provider = None;
           model = None; system_prompt = None; max_turns = 8;
           workdir = None; planned_participants = [];
-          participants = []; artifacts = []; votes = [];
+          participants = []; artifacts = [];
           turn_count = 0; last_seq = 0; outcome = None;
         } in
         let collab = Runtime_projection.collaboration_of_session session in
@@ -242,7 +217,7 @@ let () =
           created_at = 1.0; updated_at = 2.0; provider = Some "p";
           model = Some "m"; system_prompt = None; max_turns = 8;
           workdir = None; planned_participants = [];
-          participants = []; artifacts = []; votes = [];
+          participants = []; artifacts = [];
           turn_count = 3; last_seq = 5; outcome = None;
         } in
         let collab =
@@ -277,7 +252,7 @@ let () =
           model = None; system_prompt = None; max_turns = 8;
           workdir = None; planned_participants = ["x"];
           participants = [rt_participant];
-          artifacts = []; votes = [];
+          artifacts = [];
           turn_count = 0; last_seq = 0; outcome = None;
         } in
         let collab = Collaboration.create ~id:"s10" ~goal:"g" () in

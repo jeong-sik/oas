@@ -5,7 +5,6 @@
     - participant_state_to_collaboration all 7 variants
     - participant_to_collaboration field mapping
     - artifact_to_collaboration
-    - contribution_of_runtime_vote
     - collaboration_of_session / update_session_from_collaboration
 
     This file targets uncovered paths in:
@@ -38,7 +37,6 @@ let mk_session
     ?(phase = Runtime.Running)
     ?(participants = [])
     ?(artifacts = [])
-    ?(votes = [])
     ?(outcome = None)
     ?(turn_count = 0)
     ?(last_seq = 0)
@@ -51,7 +49,7 @@ let mk_session
     system_prompt = Some "sys"; max_turns = 10;
     workdir = Some "/tmp";
     planned_participants = List.map (fun (p : Runtime.participant) -> p.name) participants;
-    participants; artifacts; votes;
+    participants; artifacts;
     turn_count; last_seq; outcome;
   }
 
@@ -296,7 +294,7 @@ let test_apply_vote_recorded () =
   } in
   let event = mk_event (Vote_recorded vote) in
   match Runtime_projection.apply_event session event with
-  | Ok s -> Alcotest.(check int) "1 vote" 1 (List.length s.votes)
+  | Ok s -> Alcotest.(check int) "turn_count unchanged" 0 s.turn_count
   | Error e -> Alcotest.fail (Error.to_string e)
 
 (* ── apply_event: Checkpoint_saved ────────────────────── *)

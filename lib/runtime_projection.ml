@@ -56,7 +56,6 @@ let initial_session (request : start_request) =
     planned_participants = request.participants;
     participants = List.map make_planned_participant request.participants;
     artifacts = [];
-    votes = [];
     turn_count = 0;
     last_seq = 0;
     outcome = None;
@@ -275,7 +274,8 @@ let apply_event (session : session) (event : event) =
       Ok { session with artifacts = Util.snoc session.artifacts artifact }
   | Vote_recorded vote ->
       let* session = ensure_active_phase session in
-      Ok { session with votes = Util.snoc session.votes vote }
+      let _ = vote in
+      Ok session
   | Checkpoint_saved _ ->
       let* session = ensure_active_phase session in
       Ok session
@@ -491,14 +491,6 @@ let artifact_to_collaboration (a : artifact) : Collaboration.artifact =
     created_at = a.created_at;
   }
 
-let contribution_of_runtime_vote (v : vote) : Collaboration.contribution =
-  {
-    agent = Option.value v.actor ~default:"anonymous";
-    kind = "vote";
-    content = v.topic ^ ": " ^ v.choice;
-    created_at = v.created_at;
-  }
-
 (** Extract a {!Collaboration.t} from a {!Runtime.session}.
 
     This is a lossy projection: Runtime.participant (21 fields) is
@@ -513,7 +505,7 @@ let collaboration_of_session (session : session) : Collaboration.t =
     participants =
       List.map participant_to_collaboration session.participants;
     artifacts = List.map artifact_to_collaboration session.artifacts;
-    contributions = List.map contribution_of_runtime_vote session.votes;
+    contributions = [];
     shared_context = Context.create ();
     created_at = session.created_at;
     updated_at = session.updated_at;

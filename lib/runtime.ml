@@ -92,7 +92,6 @@ type session = {
   planned_participants: string list;  (** (→ Collaboration.t) *)
   participants: participant list;     (** (→ Collaboration.t) *)
   artifacts: artifact list;           (** (→ Collaboration.t) *)
-  votes: vote list;                   (** (→ Collaboration.t) *)
   turn_count: int;
   last_seq: int;
   outcome: string option;             (** (→ Collaboration.t) *)
