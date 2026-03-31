@@ -71,17 +71,19 @@ type state = {
   effective_mode: Execution_mode.t;
   allowed_mutations: string list;
   review_requirement: string option;
+  tool_classifications: (string * mutation_class) list;
   mutable violations: violation list;
   mutable token_snapshots: token_snapshot list;
   mutable review_warning: string option;
 }
 
-let create ~contract ~effective_mode =
+let create ~contract ~effective_mode ?(tool_classifications = []) () =
   let rc = contract.Risk_contract.runtime_constraints in
   {
     effective_mode;
     allowed_mutations = rc.allowed_mutations;
     review_requirement = rc.review_requirement;
+    tool_classifications;
     violations = [];
     token_snapshots = [];
     review_warning = None;
@@ -167,6 +169,17 @@ let effective_class tool_name input =
     classify_bash_tool input
   | c -> c
 
+let mutation_class_of_string = function
+  | "read_only" -> Some Read_only
+  | "workspace" | "workspace_mutating" -> Some Workspace_mutating
+  | "external" | "external_effect" -> Some External_effect
+  | _ -> None
+
+let effective_class_with_hints ~tool_classifications tool_name input =
+  match List.assoc_opt tool_name tool_classifications with
+  | Some cls -> cls
+  | None -> effective_class tool_name input
+
 let all_read_only tools =
   List.for_all (fun name -> classify_tool name = Read_only) tools
 
@@ -183,7 +196,8 @@ let truncate_input input =
   Util.clip (Yojson.Safe.to_string input) 200
 
 let check_violation st tool_name input =
-  let cls = effective_class tool_name input in
+  let cls = effective_class_with_hints
+      ~tool_classifications:st.tool_classifications tool_name input in
   let kind = match st.effective_mode, cls with
     | Execution_mode.Diagnose, (Workspace_mutating | External_effect) ->
       Some Mutating_in_diagnose

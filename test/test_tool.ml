@@ -127,7 +127,7 @@ let test_descriptor_preserved_and_not_in_schema () =
     Tool.create
       ~descriptor:
         {
-          Tool.kind = Some "shell";
+          Tool.kind = Some "shell"; mutation_class = None;
           shell =
             Some
               {

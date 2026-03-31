@@ -68,8 +68,18 @@ let run ~sw ?clock ?(store = Proof_store.default_config)
   | Ok mode_decision ->
     let capture_state = Proof_capture.create
         ~store ~contract ~mode_decision ~capability_snapshot:capabilities in
+    let tool_classifications =
+      Agent.tools agent |> Tool_set.to_list
+      |> List.filter_map (fun (t : Tool.t) ->
+        match t.descriptor with
+        | Some d ->
+          Option.bind d.Tool.mutation_class Mode_enforcer.mutation_class_of_string
+          |> Option.map (fun cls -> (t.schema.name, cls))
+        | None -> None)
+    in
     let enforcer_state = Mode_enforcer.create
-        ~contract ~effective_mode:mode_decision.effective_mode in
+        ~contract ~effective_mode:mode_decision.effective_mode
+        ~tool_classifications () in
     Proof_capture.set_enforcer capture_state enforcer_state;
     let enforcement_hooks = Mode_enforcer.hooks enforcer_state in
     let proof_hooks = Proof_capture.hooks capture_state in
