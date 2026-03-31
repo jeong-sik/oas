@@ -87,6 +87,7 @@ type doc = {
 
 type t = {
   config: config;
+  tokenizer: string -> string list;
   docs: doc array;
   avg_dl: float;              (** Average document length *)
   idf: (string, float) Hashtbl.t;  (** Inverse document frequency *)
@@ -125,10 +126,10 @@ let compute_idf (docs : doc array) : (string, float) Hashtbl.t =
 
 (* ── Build ────────────────────────────────────────── *)
 
-let build ?(config = default_config) (entries : entry list) : t =
+let build ?(config = default_config) ?(tokenizer = tokenize) (entries : entry list) : t =
   let docs = Array.of_list (List.map (fun entry ->
     let text = entry.name ^ " " ^ entry.description in
-    let tokens = tokenize text in
+    let tokens = tokenizer text in
     { entry; tokens; token_count = List.length tokens }
   ) entries) in
   let total_docs = Array.length docs in
@@ -143,15 +144,15 @@ let build ?(config = default_config) (entries : entry list) : t =
   in
   let idf = compute_idf docs in
   let vocab_size = Hashtbl.length idf in
-  { config; docs; avg_dl; idf; total_docs; vocab_size }
+  { config; tokenizer; docs; avg_dl; idf; total_docs; vocab_size }
 
-let of_tools ?(config = default_config) (tools : Tool.t list) : t =
+let of_tools ?(config = default_config) ?tokenizer (tools : Tool.t list) : t =
   let entries = List.map (fun (tool : Tool.t) ->
     { name = tool.schema.name;
       description = tool.schema.description;
       group = None }
   ) tools in
-  build ~config entries
+  build ~config ?tokenizer entries
 
 (* ── BM25 scoring ─────────────────────────────────── *)
 
@@ -179,7 +180,7 @@ let score_doc (idx : t) (query_tokens : string list) (doc : doc) : float =
 let retrieve (idx : t) (query : string) : (string * float) list =
   if idx.total_docs = 0 then []
   else
-    let query_tokens = tokenize query in
+    let query_tokens = idx.tokenizer query in
     if query_tokens = [] then []
     else
       (* Score all documents *)
