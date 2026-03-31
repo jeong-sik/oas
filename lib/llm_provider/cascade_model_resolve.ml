@@ -21,12 +21,12 @@
 
     All text/vision models support function calling.
     glm-5.1 supports reasoning (reasoning_content field). *)
+let env_or default var =
+  match Sys.getenv_opt var with
+  | Some v when String.trim v <> "" -> String.trim v
+  | _ -> default
+
 let resolve_glm_model_id model_id =
-  let env_or default var =
-    match Sys.getenv_opt var with
-    | Some m when String.trim m <> "" -> String.trim m
-    | _ -> default
-  in
   match String.lowercase_ascii model_id with
   (* aliases -> concrete IDs *)
   | "auto" -> env_or "glm-5.1" "ZAI_DEFAULT_MODEL"
@@ -42,11 +42,6 @@ let resolve_glm_model_id model_id =
 (** Resolve "auto" and aliases to concrete model IDs.
     Cloud APIs reject unknown model names; local servers accept any. *)
 let resolve_auto_model_id provider_name model_id =
-  let env_or default var =
-    match Sys.getenv_opt var with
-    | Some m when String.trim m <> "" -> String.trim m
-    | _ -> default
-  in
   match provider_name with
   | "glm" -> resolve_glm_model_id model_id
   | "gemini" ->
