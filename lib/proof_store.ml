@@ -208,31 +208,38 @@ let list_runs_ordered config ?scope ?(bounds = default_window_bounds) () =
     Ok (sorted, List.rev !errors)
 
 let load_window config ~run_ids ?(bounds = default_window_bounds) () =
-  let loaded = ref [] in
-  let errors = ref [] in
-  let bytes_total = ref 0 in
-  let check_bounds () =
-    if !bytes_total > bounds.max_bytes then
-      Some (Printf.sprintf "total bytes %d exceeds max_bytes %d"
-              !bytes_total bounds.max_bytes)
-    else None
-  in
-  let rec process = function
-    | [] -> Ok ()
-    | run_id :: rest ->
-      match check_bounds () with
-      | Some msg -> Error msg
-      | None ->
-        (match load_manifest config ~run_id with
-         | Ok (proof, json) ->
-           let json_str = Yojson.Safe.to_string json in
-           bytes_total := !bytes_total + String.length json_str;
-           loaded := (proof, json) :: !loaded;
-           process rest
-         | Error msg ->
-           errors := (Printf.sprintf "run %s: %s" run_id msg) :: !errors;
-           process rest)
-  in
-  match process run_ids with
-  | Error msg -> Error msg
-  | Ok () -> Ok (List.rev !loaded, List.rev !errors)
+  if List.length run_ids > bounds.max_runs then
+    Error (Printf.sprintf "run count %d exceeds max_runs %d"
+             (List.length run_ids) bounds.max_runs)
+  else
+    let loaded = ref [] in
+    let errors = ref [] in
+    let bytes_total = ref 0 in
+    let check_bytes () =
+      if !bytes_total > bounds.max_bytes then
+        Some (Printf.sprintf "total bytes %d exceeds max_bytes %d"
+                !bytes_total bounds.max_bytes)
+      else None
+    in
+    let rec process = function
+      | [] -> Ok ()
+      | run_id :: rest ->
+        match check_bytes () with
+        | Some msg -> Error msg
+        | None ->
+          (match load_manifest config ~run_id with
+           | Ok (proof, json) ->
+             let json_str = Yojson.Safe.to_string json in
+             bytes_total := !bytes_total + String.length json_str;
+             (match check_bytes () with
+              | Some msg -> Error msg
+              | None ->
+                loaded := (proof, json) :: !loaded;
+                process rest)
+           | Error msg ->
+             errors := (Printf.sprintf "run %s: %s" run_id msg) :: !errors;
+             process rest)
+    in
+    match process run_ids with
+    | Error msg -> Error msg
+    | Ok () -> Ok (List.rev !loaded, List.rev !errors)

@@ -99,6 +99,8 @@ val default_window_bounds : window_bounds
     tie-broken by [run_id].
     Corrupted manifests are excluded from the result and reported
     in the second element of the tuple.
+    Returns [Error] when the number of matching runs exceeds
+    [bounds.max_runs].
     @since cross-run-temporal *)
 val list_runs_ordered :
   config ->
@@ -108,7 +110,10 @@ val list_runs_ordered :
   (run_info list * string list, string) result
 
 (** Load manifests for a window of runs.
-    Readable runs are returned; unreadable runs are reported as errors.
+    Readable runs are returned; unreadable runs are reported
+    in the second element of the tuple.
+    Returns [Error] when [run_ids] length exceeds [bounds.max_runs]
+    or when accumulated manifest bytes exceed [bounds.max_bytes].
     @since cross-run-temporal *)
 val load_window :
   config ->

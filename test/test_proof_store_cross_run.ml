@@ -164,19 +164,43 @@ let test_load_window_partial_failure () =
    | Error e -> Alcotest.fail e);
   cleanup tmpdir
 
+let contains_substring haystack needle =
+  let nlen = String.length needle in
+  let hlen = String.length haystack in
+  if nlen > hlen then false
+  else
+    let found = ref false in
+    for i = 0 to hlen - nlen do
+      if not !found && String.sub haystack i nlen = needle then found := true
+    done;
+    !found
+
 let test_load_window_max_bytes_exceeded () =
   let config, tmpdir = make_test_store () in
   write_proof config (make_proof ~run_id:"big" ~ended_at:1000.0 ());
   let bounds : Proof_store.window_bounds = { max_runs = 50; max_bytes = 10 } in
   let result = Proof_store.load_window config ~run_ids:["big"] ~bounds () in
-  (* First manifest loads OK, but bytes check happens after accumulation *)
+  (* Single manifest exceeds 10 bytes, so post-load check triggers Error *)
   (match result with
-   | Ok (loaded, _) ->
-     (* The first manifest may still load since check is pre-iteration *)
-     Alcotest.(check bool) "loaded something" true (List.length loaded >= 0)
-   | Error _msg ->
-     (* Also acceptable if bytes exceeded *)
-     ());
+   | Ok _ ->
+     Alcotest.fail "expected Error for max_bytes exceeded"
+   | Error msg ->
+     Alcotest.(check bool) "error mentions max_bytes" true
+       (contains_substring msg "max_bytes"));
+  cleanup tmpdir
+
+let test_load_window_max_runs_exceeded () =
+  let config, tmpdir = make_test_store () in
+  write_proof config (make_proof ~run_id:"r1" ~ended_at:1000.0 ());
+  write_proof config (make_proof ~run_id:"r2" ~ended_at:2000.0 ());
+  write_proof config (make_proof ~run_id:"r3" ~ended_at:3000.0 ());
+  let bounds : Proof_store.window_bounds = { max_runs = 2; max_bytes = 50_000_000 } in
+  let result = Proof_store.load_window config ~run_ids:["r1"; "r2"; "r3"] ~bounds () in
+  (match result with
+   | Ok _ -> Alcotest.fail "expected Error for max_runs exceeded"
+   | Error msg ->
+     Alcotest.(check bool) "error mentions max_runs" true
+       (contains_substring msg "max_runs"));
   cleanup tmpdir
 
 (* ================================================================ *)
@@ -256,6 +280,7 @@ let () =
           Alcotest.test_case "basic" `Quick test_load_window_basic;
           Alcotest.test_case "partial failure" `Quick test_load_window_partial_failure;
           Alcotest.test_case "max_bytes exceeded" `Quick test_load_window_max_bytes_exceeded;
+          Alcotest.test_case "max_runs exceeded" `Quick test_load_window_max_runs_exceeded;
         ] );
       ( "scope",
         [
