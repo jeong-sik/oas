@@ -3,6 +3,7 @@
     @since 0.95.0 *)
 
 type t =
+  | Resume
   | Interactive
   | Proactive
   | Background
@@ -12,6 +13,7 @@ type t =
 let default = Background
 
 let to_int = function
+  | Resume -> -1
   | Interactive -> 0
   | Proactive -> 1
   | Unspecified -> 1
@@ -25,6 +27,7 @@ let resolve = function
 
 let compare a b =
   let rank = function
+    | Resume -> -1
     | Interactive -> 0
     | Proactive | Unspecified -> 1
     | Background -> 2
@@ -32,12 +35,14 @@ let compare a b =
   Int.compare (rank a) (rank b)
 
 let to_string = function
+  | Resume -> "resume"
   | Interactive -> "interactive"
   | Proactive -> "proactive"
   | Background -> "background"
   | Unspecified -> "unspecified"
 
 let of_string = function
+  | "resume" -> Some Resume
   | "interactive" -> Some Interactive
   | "proactive" -> Some Proactive
   | "background" -> Some Background
@@ -55,6 +60,9 @@ let of_yojson = function
 
 [@@@coverage off]
 (* === Inline tests === *)
+
+let%test "to_string / of_string roundtrip Resume" =
+  of_string (to_string Resume) = Some Resume
 
 let%test "to_string / of_string roundtrip Interactive" =
   of_string (to_string Interactive) = Some Interactive
@@ -74,6 +82,9 @@ let%test "of_string unknown returns None" =
 let%test "of_string empty returns None" =
   of_string "" = None
 
+let%test "compare Resume < Interactive" =
+  compare Resume Interactive < 0
+
 let%test "compare Interactive < Proactive" =
   compare Interactive Proactive < 0
 
@@ -87,7 +98,8 @@ let%test "compare Unspecified equals Proactive" =
   compare Unspecified Proactive = 0
 
 let%test "compare same is zero" =
-  compare Interactive Interactive = 0
+  compare Resume Resume = 0
+  && compare Interactive Interactive = 0
   && compare Proactive Proactive = 0
   && compare Background Background = 0
 
@@ -95,7 +107,8 @@ let%test "default is Background" =
   default = Background
 
 let%test "to_int values" =
-  to_int Interactive = 0
+  to_int Resume = -1
+  && to_int Interactive = 0
   && to_int Proactive = 1
   && to_int Unspecified = 1
   && to_int Background = 2
