@@ -2,6 +2,11 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.99.5] - 2026-03-31
+
+### Fixed
+- Cascade no longer tries remaining providers on local resource exhaustion (EADDRNOTAVAIL, EMFILE, ENOBUFS). Saves wasted connection attempts when ephemeral ports or FDs are depleted.
+
 ## [0.99.4] - 2026-03-31
 
 ### Fixed
