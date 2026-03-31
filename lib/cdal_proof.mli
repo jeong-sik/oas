@@ -55,6 +55,7 @@ type t = {
   result_status: result_status;
   started_at: float;
   ended_at: float;
+  scope: string option;
 }
 [@@deriving yojson, show]
 

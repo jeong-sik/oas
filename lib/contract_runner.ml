@@ -56,6 +56,7 @@ let run ~sw ?clock ?(store = Proof_store.default_config)
       result_status = Cancelled;
       started_at = now;
       ended_at = now;
+      scope = None;
     } in
     Proof_store.init_run store ~run_id:proof.run_id;
     Proof_store.write_manifest store ~run_id:proof.run_id proof;
@@ -67,7 +68,7 @@ let run ~sw ?clock ?(store = Proof_store.default_config)
     }
   | Ok mode_decision ->
     let capture_state = Proof_capture.create
-        ~store ~contract ~mode_decision ~capability_snapshot:capabilities in
+        ~store ~contract ~mode_decision ~capability_snapshot:capabilities () in
     let tool_classifications =
       Agent.tools agent |> Tool_set.to_list
       |> List.filter_map (fun (t : Tool.t) ->
