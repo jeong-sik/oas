@@ -430,13 +430,13 @@ let limits_patch_changed (before : t) (after : t) =
 let delta_version = 1
 
 let delta_metrics_names =
-  ( "masc_delta_apply_total",
-    "masc_delta_apply_failures_total",
-    "masc_delta_size_bytes",
-    "masc_full_restore_fallback_total" )
+  ( "checkpoint_delta_apply_total",
+    "checkpoint_delta_apply_failures_total",
+    "checkpoint_delta_size_bytes",
+    "checkpoint_full_restore_fallback_total" )
 
 let delta_enabled () =
-  match Sys.getenv_opt "MASC_DELTA_CHECKPOINT" with
+  match Sys.getenv_opt "OAS_DELTA_CHECKPOINT" with
   | Some ("1" | "true" | "TRUE" | "yes" | "on") -> true
   | _ -> false
 

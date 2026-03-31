@@ -410,7 +410,7 @@ let test_restore_with_delta_fallback_disabled () =
   in
   let delta = Checkpoint.compute_delta base target in
   let result =
-    with_env "MASC_DELTA_CHECKPOINT" None (fun () ->
+    with_env "OAS_DELTA_CHECKPOINT" None (fun () ->
         Checkpoint.restore_with_delta_fallback ~base ~delta ~full_checkpoint:target ()
         |> Result.get_ok)
   in
@@ -425,22 +425,22 @@ let test_restore_with_delta_fallback_records_failure_metrics () =
     { (Checkpoint.compute_delta base target) with base_checkpoint_hash = "bad-hash" }
   in
   let result =
-    with_env "MASC_DELTA_CHECKPOINT" (Some "1") (fun () ->
+    with_env "OAS_DELTA_CHECKPOINT" (Some "1") (fun () ->
         Checkpoint.restore_with_delta_fallback ~metrics ~base ~delta
           ~full_checkpoint:target ()
         |> Result.get_ok)
   in
   let apply_total =
-    Metrics.counter metrics ~name:"masc_delta_apply_total" ~unit_:"1"
+    Metrics.counter metrics ~name:"checkpoint_delta_apply_total" ~unit_:"1"
   in
   let apply_failures =
-    Metrics.counter metrics ~name:"masc_delta_apply_failures_total" ~unit_:"1"
+    Metrics.counter metrics ~name:"checkpoint_delta_apply_failures_total" ~unit_:"1"
   in
   let fallback_total =
-    Metrics.counter metrics ~name:"masc_full_restore_fallback_total" ~unit_:"1"
+    Metrics.counter metrics ~name:"checkpoint_full_restore_fallback_total" ~unit_:"1"
   in
   let size_histogram =
-    Metrics.histogram metrics ~name:"masc_delta_size_bytes"
+    Metrics.histogram metrics ~name:"checkpoint_delta_size_bytes"
       ~buckets:[ 128.; 512.; 1024.; 4096.; 16384.; 65536. ]
   in
   Alcotest.(check bool) "fallback used" true
@@ -459,22 +459,22 @@ let test_restore_with_delta_fallback_gate_skips_after_failure () =
   in
   let good_delta = Checkpoint.compute_delta base target in
   let first =
-    with_env "MASC_DELTA_CHECKPOINT" (Some "1") (fun () ->
+    with_env "OAS_DELTA_CHECKPOINT" (Some "1") (fun () ->
         Checkpoint.restore_with_delta_fallback ~metrics ~base ~delta:bad_delta
           ~full_checkpoint:target ()
         |> Result.get_ok)
   in
   let second =
-    with_env "MASC_DELTA_CHECKPOINT" (Some "1") (fun () ->
+    with_env "OAS_DELTA_CHECKPOINT" (Some "1") (fun () ->
         Checkpoint.restore_with_delta_fallback ~metrics ~base ~delta:good_delta
           ~full_checkpoint:target ()
         |> Result.get_ok)
   in
   let apply_total =
-    Metrics.counter metrics ~name:"masc_delta_apply_total" ~unit_:"1"
+    Metrics.counter metrics ~name:"checkpoint_delta_apply_total" ~unit_:"1"
   in
   let fallback_total =
-    Metrics.counter metrics ~name:"masc_full_restore_fallback_total" ~unit_:"1"
+    Metrics.counter metrics ~name:"checkpoint_full_restore_fallback_total" ~unit_:"1"
   in
   Alcotest.(check bool) "first fallback" true (first.mode = Checkpoint.Full_restore);
   Alcotest.(check bool) "gate fallback" true (second.mode = Checkpoint.Full_restore);

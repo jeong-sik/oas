@@ -241,24 +241,22 @@ MASC consumes OAS checkpoints but should not assume delta support implicitly.
 
 ## Operational metrics
 
-MASC Prometheus counters for observing delta behavior in production:
+OAS-level metrics for observing delta behavior. Consumers (e.g. coordinators) may bridge these to their own metrics systems.
 
 | Metric | Type | Purpose |
 | --- | --- | --- |
-| `masc_delta_apply_total` | Counter | delta apply attempts |
-| `masc_delta_apply_failures_total` | Counter | delta apply failures that triggered full-restore fallback |
-| `masc_delta_size_bytes` | Histogram | delta payload size distribution |
-| `masc_full_restore_fallback_total` | Counter | fallback occurrences from any cause (bad hash, validation failure, chain depth exceeded) |
+| `checkpoint_delta_apply_total` | Counter | delta apply attempts |
+| `checkpoint_delta_apply_failures_total` | Counter | delta apply failures that triggered full-restore fallback |
+| `checkpoint_delta_size_bytes` | Histogram | delta payload size distribution |
+| `checkpoint_full_restore_fallback_total` | Counter | fallback occurrences from any cause (bad hash, validation failure, chain depth exceeded) |
 
-These counters are MASC-owned (not OAS), because metrics collection is an operational concern of the consuming coordinator.
-
-OAS provides the delta compute/apply API. MASC instruments it.
+OAS provides both the delta compute/apply API and the metrics. Consumers instrument and aggregate as needed.
 
 ## Release gate and feature flag
 
 ### Feature flag
 
-Delta read path is controlled by `MASC_DELTA_CHECKPOINT` environment variable:
+Delta read path is controlled by `OAS_DELTA_CHECKPOINT` environment variable:
 
 - `false` (default): full checkpoint restore only, delta sidecar computed for shadow comparison
 - `true`: delta read path active, with automatic fallback on apply failure
@@ -267,13 +265,13 @@ Delta read path is controlled by `MASC_DELTA_CHECKPOINT` environment variable:
 
 - delta apply failure rate > 5% over a rolling 1-hour window: delta read path auto-disabled, reverts to full restore
 - mismatch rate during shadow phase > 1% over a rolling 1-hour window: blocks Phase 2 activation
-- both thresholds are evaluated against `masc_delta_apply_failures_total / masc_delta_apply_total`
+- both thresholds are evaluated against `checkpoint_delta_apply_failures_total / checkpoint_delta_apply_total`
 
 ### Deployment order
 
 1. OAS deploys first: new `Checkpoint.delta` type, `compute_delta`, `apply_delta`
-2. MASC deploys second: shadow write, metrics, feature flag
-3. Phase 2 activation: flip `MASC_DELTA_CHECKPOINT=true` after shadow mismatch rate is below threshold
+2. Consumer deploys second: shadow write, metrics bridge, feature flag
+3. Phase 2 activation: flip `OAS_DELTA_CHECKPOINT=true` after shadow mismatch rate is below threshold
 
 This ordering preserves backward compatibility. MASC with old OAS ignores delta. New MASC with new OAS runs shadow mode until validated.
 
