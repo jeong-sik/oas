@@ -36,14 +36,23 @@ type config = {
 
 val default_config : config
 
+(** {1 Tokenization} *)
+
+(** Default tokenizer: UTF-8 aware, splits on whitespace/punctuation,
+    lowercases ASCII, min-length 2 for ASCII tokens.
+    Exposed so callers can compose: [fun s -> tokenize s |> my_filter]. *)
+val tokenize : string -> string list
+
 (** {1 Construction} *)
 
 (** Build an index from a list of tool entries.
-    Tokenizes descriptions and computes IDF for each term. *)
-val build : ?config:config -> entry list -> t
+    Tokenizes descriptions and computes IDF for each term.
+    Pass [~tokenizer] to override the default tokenizer (e.g. for
+    language-specific stemming or particle stripping). *)
+val build : ?config:config -> ?tokenizer:(string -> string list) -> entry list -> t
 
 (** Build from [Tool.t list], extracting name and description from schemas. *)
-val of_tools : ?config:config -> Tool.t list -> t
+val of_tools : ?config:config -> ?tokenizer:(string -> string list) -> Tool.t list -> t
 
 (** {1 Query} *)
 
