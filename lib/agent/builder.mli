@@ -33,6 +33,16 @@ val with_max_cost_usd : float -> t -> t
 val with_response_format_json : bool -> t -> t
 val with_cache_system_prompt : bool -> t -> t
 
+(** Enable or disable yielding when the agent is about to call a tool.
+
+    When [true], the agent yields before invoking a tool, triggering
+    any [on_yield] hooks and requiring a corresponding [on_resume] to
+    continue execution. Only affects [on_yield]/[on_resume] hook
+    behavior; does not change model or tool semantics.
+
+    @since 0.99.7 *)
+val with_yield_on_tool : bool -> t -> t
+
 (** {2 Tools and MCP} *)
 
 val with_tools : Tool.t list -> t -> t
