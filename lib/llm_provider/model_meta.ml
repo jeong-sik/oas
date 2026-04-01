@@ -24,23 +24,12 @@ let local_model_fragments =
   [ "qwen"; "llama"; "ollama"; "deepseek"; "phi-"; "mistral";
     "gemma"; "yi-"; "internlm"; "codestral" ]
 
-let string_contains ~needle haystack =
-  let nlen = String.length needle in
-  let hlen = String.length haystack in
-  if nlen > hlen then false
-  else
-    let rec scan i =
-      if i > hlen - nlen then false
-      else if String.sub haystack i nlen = needle then true
-      else scan (i + 1)
-    in scan 0
-
 let is_local_heuristic ~pricing model_id =
-  (* Must have zero cost (both directions) AND match a known local pattern *)
+  (* Must have zero cost (both directions) AND match a known local fragment *)
   pricing.Pricing.input_per_million = 0.0 &&
   pricing.Pricing.output_per_million = 0.0 &&
   let id = String.lowercase_ascii model_id in
-  List.exists (fun frag -> string_contains ~needle:frag id)
+  List.exists (fun frag -> Pricing.string_contains ~needle:frag id)
     local_model_fragments
 
 (* ── Constructors ────────────────────────────────────── *)

@@ -13,7 +13,8 @@ type t = {
   pricing : Pricing.pricing;
   is_local : bool;
     (** Whether the model likely runs locally (llama.cpp, Ollama, etc.).
-        Determined by known local model prefixes AND zero pricing.
+        Determined by known local model name fragments (substring match)
+        AND zero pricing (both input and output).
         Unknown models default to [false] (conservative). *)
   context_window : int;
     (** Effective context window in tokens. Resolved from
