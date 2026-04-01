@@ -50,6 +50,9 @@ let resolve_auto_model_id provider_name model_id =
   | "claude" ->
     if model_id = "auto" then env_or "claude-sonnet-4-6-20250514" "ANTHROPIC_DEFAULT_MODEL"
     else model_id
+  | "openai" ->
+    if model_id = "auto" then env_or "gpt-4.1" "OPENAI_DEFAULT_MODEL"
+    else model_id
   | "openrouter" ->
     if model_id = "auto" then env_or model_id "OPENROUTER_DEFAULT_MODEL"
     else model_id
