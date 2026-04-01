@@ -2,6 +2,17 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.99.8] - 2026-04-01
+
+### Added
+- Turn-level slot yielding for swarm efficiency (#538).
+- Explicit permit API for turn-level slot yielding (#536).
+- Custom tokenizer support for BM25 tool index (#540).
+- OpenAI `auto` model resolution in cascade config (#541).
+
+### Changed
+- `Log` module globals use `Atomic.t` for data-race-free reads (#543).
+
 ## [0.99.7] - 2026-03-31
 
 ### Changed
