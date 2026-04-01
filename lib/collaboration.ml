@@ -221,12 +221,13 @@ let int_option_field what fields key =
     | `Int i -> Ok i
     | _ -> Error (Printf.sprintf "%s.%s must be an int" what key))
 
-let shared_context_json () = Context.to_json (Context.create ())
+let shared_context_default = `Assoc []
 
 let vote_to_contribution idx json =
-  let* fields = expect_object (Printf.sprintf "legacy vote[%d]" idx) json in
-  let* topic = string_field "legacy vote" fields "topic" in
-  let* choice = string_field "legacy vote" fields "choice" in
+  let what = Printf.sprintf "legacy vote[%d]" idx in
+  let* fields = expect_object what json in
+  let* topic = string_field what fields "topic" in
+  let* choice = string_field what fields "choice" in
   let voter =
     match List.assoc_opt "voter" fields with
     | Some (`String s) -> Ok s
@@ -277,7 +278,7 @@ let normalize_legacy_json = function
       let shared_context_value =
         match List.assoc_opt "shared_context" fields with
         | Some (`Assoc _ as value) -> Ok value
-        | Some `Null | None -> Ok (shared_context_json ())
+        | Some `Null | None -> Ok (shared_context_default)
         | Some _ -> decode_error "shared_context must be an object"
       in
       let* shared_context_value = shared_context_value in
@@ -324,10 +325,10 @@ let of_json json =
     parse_list_field "root" fields "contributions" contribution_of_yojson
   in
   let* shared_context_json = required_field "root" fields "shared_context" in
-  let shared_context =
+  let* shared_context =
     match shared_context_json with
-    | `Assoc _ as value -> Context.of_json value
-    | _ -> Context.create ()
+    | `Assoc _ as value -> Ok (Context.of_json value)
+    | _ -> decode_error "root.shared_context must be an object"
   in
   let* created_at = float_field "root" fields "created_at" in
   let* updated_at = float_field "root" fields "updated_at" in
