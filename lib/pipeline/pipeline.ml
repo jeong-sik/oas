@@ -343,9 +343,9 @@ let tag_error stage result =
   | Ok _ as ok -> ok
   | Error e ->
     let poly = Error_domain.of_sdk_error e in
-    let _ctx = Error_domain.with_stage stage poly in
-    (* Stage context is created for diagnostics;
-       we still propagate sdk_error for backward compat *)
+    let ctx = Error_domain.with_stage stage poly in
+    Eio.traceln "[pipeline] stage=%s error=%s"
+      stage (Error_domain.ctx_to_string ctx);
     Error e
 
 let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =

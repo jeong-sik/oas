@@ -110,6 +110,7 @@ let load ?(skill_roots = []) path =
   | Ok content ->
     let initial = of_markdown ~path content in
     let base_dirs = (Filename.dirname path) :: skill_roots in
+    (* Resolve each skill ref, distinguishing "not found" from "load failed" *)
     let resolve ref_name =
       let candidates =
         ref_name :: List.map (fun d -> Filename.concat d ref_name) base_dirs
@@ -117,24 +118,25 @@ let load ?(skill_roots = []) path =
       match List.find_opt Sys.file_exists candidates with
       | Some p ->
         (match Skill.load p with
-         | Ok skill -> Some (ref_name, skill)
-         | Error _ -> None)
-      | None -> None
+         | Ok skill -> Ok (ref_name, skill)
+         | Error e ->
+           Error (Printf.sprintf "%s (found at %s, load failed: %s)"
+             ref_name p (Error.to_string e)))
+      | None ->
+        Error (Printf.sprintf "%s (not found)" ref_name)
     in
-    let resolved = List.filter_map resolve initial.skill_refs in
-    if List.length resolved <> List.length initial.skill_refs then
-      let unresolved =
-        List.filter (fun ref_name ->
-          not (List.exists (fun (resolved_ref, _) -> resolved_ref = ref_name) resolved)
-        ) initial.skill_refs
-      in
+    let results = List.map resolve initial.skill_refs in
+    let errors = List.filter_map (function Error e -> Some e | Ok _ -> None) results in
+    if errors <> [] then
       Error (Error.Io (ValidationFailed {
         detail =
-          Printf.sprintf "Subagent.load(%s): unresolved skill refs: %s"
-            path (String.concat ", " unresolved);
+          Printf.sprintf "Subagent.load(%s): failed skill refs: %s"
+            path (String.concat "; " errors);
       }))
     else
-      Ok { initial with skills = List.map snd resolved }
+      let skills = List.filter_map
+        (function Ok (_, skill) -> Some skill | Error _ -> None) results in
+      Ok { initial with skills }
 
 (* --- Prompt composition --- *)
 
