@@ -36,8 +36,9 @@ let string_contains ~needle haystack =
     in scan 0
 
 let is_local_heuristic ~pricing model_id =
-  (* Must have zero cost AND match a known local pattern *)
+  (* Must have zero cost (both directions) AND match a known local pattern *)
   pricing.Pricing.input_per_million = 0.0 &&
+  pricing.Pricing.output_per_million = 0.0 &&
   let id = String.lowercase_ascii model_id in
   List.exists (fun frag -> string_contains ~needle:frag id)
     local_model_fragments
@@ -69,8 +70,11 @@ let for_model_id model_id =
   }
 
 let for_model_id_with_ctx model_id ~ctx_size =
+  let ctx_size = max 1 ctx_size in  (* guard against zero/negative *)
   let meta = for_model_id model_id in
+  let max_out = min meta.max_output_tokens ctx_size in
   { meta with context_window = ctx_size;
+              max_output_tokens = max_out;
               capabilities =
                 Capabilities.with_context_size meta.capabilities ~ctx_size }
 
@@ -135,3 +139,12 @@ let%test "is_free for local models" =
 let%test "glm-5 is cloud" =
   let m = for_model_id "glm-5" in
   not m.is_local  (* GLM is cloud, not local *)
+
+let%test "for_model_id_with_ctx clamps max_output" =
+  let m = for_model_id_with_ctx "claude-opus-4-6" ~ctx_size:2000 in
+  m.context_window = 2000
+  && m.max_output_tokens <= 2000
+
+let%test "for_model_id_with_ctx guards zero" =
+  let m = for_model_id_with_ctx "qwen3.5-35b" ~ctx_size:0 in
+  m.context_window = 1
