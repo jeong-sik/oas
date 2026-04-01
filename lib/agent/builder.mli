@@ -32,6 +32,7 @@ val with_initial_messages : Types.message list -> t -> t
 val with_max_cost_usd : float -> t -> t
 val with_response_format_json : bool -> t -> t
 val with_cache_system_prompt : bool -> t -> t
+val with_yield_on_tool : bool -> t -> t
 
 (** {2 Tools and MCP} *)
 
