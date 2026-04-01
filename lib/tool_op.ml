@@ -46,11 +46,21 @@ let rec apply op current =
 
 let apply_to_tool_set op ts =
   let result_names = apply op (Tool_set.names ts) in
-  let result_set = set_of result_names in
-  let filtered = List.filter (fun (tool : Tool.t) ->
-    Hashtbl.mem result_set tool.schema.Types.name
-  ) (Tool_set.to_list ts) in
-  Tool_set.of_list filtered
+  (* Build a lookup table from tool name to tool, based on the original set. *)
+  let by_name = Hashtbl.create (List.length result_names) in
+  List.iter (fun (tool : Tool.t) ->
+    Hashtbl.replace by_name tool.schema.Types.name tool
+  ) (Tool_set.to_list ts);
+  (* Construct the resulting tool list in the order given by [result_names]. *)
+  let rec collect acc = function
+    | [] -> List.rev acc
+    | name :: rest ->
+      (match Hashtbl.find_opt by_name name with
+       | Some tool -> collect (tool :: acc) rest
+       | None -> collect acc rest)
+  in
+  let ordered_tools = collect [] result_names in
+  Tool_set.of_list ordered_tools
 
 (* ── compose ──────────────────────────────────────────────── *)
 
