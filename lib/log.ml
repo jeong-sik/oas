@@ -102,19 +102,20 @@ type sink = record -> unit
 (* ── Global state ─────────────────────────────────────────────── *)
 
 (* Set-once at startup before any fibers are spawned.
-   Not protected by a mutex: callers must configure level and sinks
-   before concurrent logging begins. Do not mutate at runtime. *)
-let global_level = ref Info
-let global_sinks : sink list ref = ref []
+   Atomic.t makes readers data-race-free after initialization.
+   Setters perform read-modify-write and are intended only for
+   single-threaded init, not concurrent reconfiguration. *)
+let global_level = Atomic.make Info
+let global_sinks : sink list Atomic.t = Atomic.make []
 
 let set_global_level level =
-  global_level := level
+  Atomic.set global_level level
 
 let add_sink sink =
-  global_sinks := sink :: !global_sinks
+  Atomic.set global_sinks (sink :: Atomic.get global_sinks)
 
 let clear_sinks () =
-  global_sinks := []
+  Atomic.set global_sinks []
 
 (* ── Logger instance ──────────────────────────────────────────── *)
 
@@ -137,7 +138,7 @@ let with_span_id t ~span_id =
 
 let emit t level message fields =
   (* Zero-cost: skip record allocation if level is below threshold *)
-  if level_to_int level >= level_to_int !global_level then begin
+  if level_to_int level >= level_to_int (Atomic.get global_level) then begin
     let record = {
       ts = Unix.gettimeofday ();
       level;
@@ -147,7 +148,7 @@ let emit t level message fields =
       trace_id = t.trace_id;
       span_id = t.span_id;
     } in
-    List.iter (fun sink -> sink record) !global_sinks
+    List.iter (fun sink -> sink record) (Atomic.get global_sinks)
   end
 
 let debug t message fields = emit t Debug message fields
