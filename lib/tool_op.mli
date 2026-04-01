@@ -33,9 +33,11 @@
           parent_tool_set
     ]}
 
-    {b Add constraint}: [apply_to_tool_set (Add names)] can only retain
-    tools already present in the original [Tool_set.t]. To introduce
-    entirely new tools, callers must use [Tool_set.merge] first.
+    {b Closed-set constraint}: [apply_to_tool_set] always returns a subset
+    of the original [Tool_set.t]. Names not present in the original set are
+    silently ignored by {i all} ops (including [Add] and [Replace_with]).
+    To introduce entirely new tools, callers must use [Tool_set.merge]
+    on the input set first.
 
     @since 0.100.0
     @stability Evolving *)
@@ -57,8 +59,10 @@ val apply : t -> string list -> string list
     preserving first-occurrence order. *)
 
 val apply_to_tool_set : t -> Tool_set.t -> Tool_set.t
-(** Apply [op] to a {!Tool_set.t}. Operates on tool names internally;
-    tools not in the original set cannot be added via [Add]. *)
+(** Apply [op] to a {!Tool_set.t}. Result is always a subset of the
+    original set — names not present in [ts] are silently ignored
+    by all ops. Output order follows [apply] semantics (first-occurrence
+    in the op result), not the original [Tool_set.t] order. *)
 
 (** {1 Composition} *)
 
@@ -84,7 +88,8 @@ val is_identity : t -> bool
 val is_destructive : t -> bool
 (** [true] for [Clear_all], [Replace_with], [Intersect_with],
     or [Seq] containing any destructive op.
-    "Destructive" means information about the previous set is lost. *)
+    "Destructive" means the op can drop tools implicitly, without
+    enumerating them (e.g. clear, replace, or intersect with a subset). *)
 
 (** {1 Serialization} *)
 
