@@ -102,9 +102,9 @@ type sink = record -> unit
 (* ── Global state ─────────────────────────────────────────────── *)
 
 (* Set-once at startup before any fibers are spawned.
-   Atomic.t documents the set-once contract in the type system and
-   provides safe publication if OAS ever adopts multi-domain parallelism.
-   Callers must configure level and sinks before concurrent logging. *)
+   Atomic.t makes readers data-race-free after initialization.
+   Setters perform read-modify-write and are intended only for
+   single-threaded init, not concurrent reconfiguration. *)
 let global_level = Atomic.make Info
 let global_sinks : sink list Atomic.t = Atomic.make []
 

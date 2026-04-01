@@ -56,8 +56,10 @@ type sink = record -> unit
 
 (** {2 Global configuration}
 
-    Set level and sinks at startup before spawning fibers.
-    Backed by [Atomic.t] for safe publication; call only during init. *)
+    Underlying globals use [Atomic.t] so readers are data-race-free
+    after initialization. Setters perform read-modify-write and are
+    intended only for single-threaded init, not concurrent
+    reconfiguration. *)
 
 val set_global_level : level -> unit
 val add_sink : sink -> unit
