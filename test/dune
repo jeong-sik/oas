@@ -825,3 +825,7 @@
 (test
  (name test_eval_harness)
  (libraries agent_sdk agent_sdk_swarm alcotest yojson eio eio_main unix))
+
+(test
+ (name test_tool_op)
+ (libraries agent_sdk alcotest qcheck-core qcheck-alcotest yojson))
