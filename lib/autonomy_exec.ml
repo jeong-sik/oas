@@ -288,6 +288,9 @@ let run ~sw ~clock ~config ~argv ~timeout_s =
       | Error _ -> None
     in
     capture_and_finish (Timed_out timed_out_signal)
+  | Eio.Cancel.Cancelled _ as exn ->
+    kill_child config pid;
+    raise exn
 
 [@@@coverage off]
 (* === Inline tests === *)

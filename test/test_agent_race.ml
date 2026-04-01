@@ -74,19 +74,20 @@ let test_set_state_protected () =
 
 let test_update_state_cancellation_does_not_poison_mutex () =
   Eio_main.run @@ fun env ->
-  let clock = Eio.Stdenv.clock env in
   let agent = make_agent env in
+  let entered_lock, signal_entered = Eio.Promise.create () in
   (try
      Eio.Switch.run @@ fun sw ->
      Eio.Fiber.fork ~sw (fun () ->
        ignore
          (try
             Agent.update_state agent (fun s ->
-              Eio.Time.sleep clock 0.1;
+              Eio.Promise.resolve signal_entered ();
+              Eio.Fiber.yield ();
               { s with turn_count = s.turn_count + 1 });
             Ok ()
           with _ -> Error ()));
-     Eio.Time.sleep clock 0.01;
+     Eio.Promise.await entered_lock;
      Eio.Switch.fail sw Exit
    with Exit -> ());
   let st = Agent.state agent in

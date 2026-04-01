@@ -247,8 +247,8 @@ let test_with_store_lock_sequential () =
 let test_with_store_lock_cancellation_does_not_poison_mutex () =
   Eio_main.run @@ fun env ->
   let net = Eio.Stdenv.net env in
-  let clock = Eio.Stdenv.clock env in
   let state = Runtime_server_types.create ~net () in
+  let entered_lock, signal_entered = Eio.Promise.create () in
   (try
      Eio.Switch.run @@ fun sw ->
      Eio.Fiber.fork ~sw (fun () ->
@@ -256,11 +256,12 @@ let test_with_store_lock_cancellation_does_not_poison_mutex () =
          (try
             ignore
               (Runtime_server_worker.with_store_lock state (fun () ->
-                 Eio.Time.sleep clock 0.1;
+                 Eio.Promise.resolve signal_entered ();
+                 Eio.Fiber.yield ();
                  1));
             Ok ()
           with _ -> Error ()));
-     Eio.Time.sleep clock 0.01;
+     Eio.Promise.await entered_lock;
      Eio.Switch.fail sw Exit
    with Exit -> ());
   let result =

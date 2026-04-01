@@ -7,7 +7,7 @@ type state = {
   net: [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t;
   event_bus: Event_bus.t;
   mutable session_root: string option;
-  mutable next_control_id: int Atomic.t;
+  next_control_id: int Atomic.t;
   stdout_mu: Eio.Mutex.t;
   store_mu: Eio.Mutex.t;
 }
