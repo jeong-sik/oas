@@ -27,7 +27,7 @@ let () =
             updated_at = 2.0; provider = None; model = None;
             system_prompt = None; max_turns = 8; workdir = None;
             planned_participants = []; participants = [];
-            artifacts = []; turn_count = 0;
+            artifacts = []; votes = []; turn_count = 0;
             last_seq = 0; outcome = None;
           } in
           let collab = Runtime_projection.collaboration_of_session session in
@@ -43,7 +43,7 @@ let () =
           created_at = 1.0; updated_at = 2.0; provider = None;
           model = None; system_prompt = None; max_turns = 8;
           workdir = None; planned_participants = []; participants = [];
-          artifacts = []; turn_count = 0;
+          artifacts = []; votes = []; turn_count = 0;
           last_seq = 0; outcome = None;
         } in
         let collab = Runtime_projection.collaboration_of_session session in
@@ -81,7 +81,7 @@ let () =
           model = None; system_prompt = None; max_turns = 8;
           workdir = None; planned_participants = ["alice"];
           participants = [rt_participant];
-          artifacts = []; turn_count = 0;
+          artifacts = []; votes = []; turn_count = 0;
           last_seq = 0; outcome = None;
         } in
         let collab = Runtime_projection.collaboration_of_session session in
@@ -113,7 +113,7 @@ let () =
             started_at = None; finished_at = None;
             last_progress_at = None; last_error = None;
           }];
-          artifacts = []; turn_count = 0;
+          artifacts = []; votes = []; turn_count = 0;
           last_seq = 0; outcome = None;
         } in
         let pairs = [
@@ -151,6 +151,7 @@ let () =
             path = Some "/tmp/report.md"; inline_content = None;
             size_bytes = 1024; created_at = 1.5;
           }];
+          votes = [];
           turn_count = 0;
           last_seq = 0; outcome = None;
         } in
@@ -169,7 +170,7 @@ let () =
           created_at = 1.0; updated_at = 2.0; provider = None;
           model = None; system_prompt = None; max_turns = 8;
           workdir = None; planned_participants = [];
-          participants = []; artifacts = [];
+          participants = []; artifacts = []; votes = [];
           turn_count = 0; last_seq = 0; outcome = None;
         } in
         let collab = Runtime_projection.collaboration_of_session session in
@@ -184,7 +185,7 @@ let () =
           created_at = 100.0; updated_at = 200.0; provider = None;
           model = None; system_prompt = None; max_turns = 8;
           workdir = None; planned_participants = [];
-          participants = []; artifacts = [];
+          participants = []; artifacts = []; votes = [];
           turn_count = 5; last_seq = 10; outcome = None;
         } in
         let collab = Runtime_projection.collaboration_of_session session in
@@ -201,7 +202,7 @@ let () =
           created_at = 1.0; updated_at = 2.0; provider = None;
           model = None; system_prompt = None; max_turns = 8;
           workdir = None; planned_participants = [];
-          participants = []; artifacts = [];
+          participants = []; artifacts = []; votes = [];
           turn_count = 0; last_seq = 0; outcome = None;
         } in
         let collab = Runtime_projection.collaboration_of_session session in
@@ -217,7 +218,7 @@ let () =
           created_at = 1.0; updated_at = 2.0; provider = Some "p";
           model = Some "m"; system_prompt = None; max_turns = 8;
           workdir = None; planned_participants = [];
-          participants = []; artifacts = [];
+          participants = []; artifacts = []; votes = [];
           turn_count = 3; last_seq = 5; outcome = None;
         } in
         let collab =
@@ -252,7 +253,7 @@ let () =
           model = None; system_prompt = None; max_turns = 8;
           workdir = None; planned_participants = ["x"];
           participants = [rt_participant];
-          artifacts = [];
+          artifacts = []; votes = [];
           turn_count = 0; last_seq = 0; outcome = None;
         } in
         let collab = Collaboration.create ~id:"s10" ~goal:"g" () in

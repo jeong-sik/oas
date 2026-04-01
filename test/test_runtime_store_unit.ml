@@ -120,6 +120,7 @@ let mk_session ?(session_id = "test-sess") () : Runtime.session =
     planned_participants = ["agent-1"];
     participants = [];
     artifacts = [];
+    votes = [];
     turn_count = 0;
     last_seq = 0;
     outcome = None }

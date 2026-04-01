@@ -23,6 +23,7 @@ let mk_session
     ?(phase = Runtime.Running)
     ?(participants = [])
     ?(artifacts = [])
+    ?(votes = [])
     ?(outcome = None)
     () : Runtime.session =
   {
@@ -42,6 +43,7 @@ let mk_session
     planned_participants = List.map (fun (p : Runtime.participant) -> p.name) participants;
     participants;
     artifacts;
+    votes;
     turn_count = 5;
     last_seq = 12;
     outcome;

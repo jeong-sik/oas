@@ -37,6 +37,7 @@ let mk_session
     ?(phase = Runtime.Running)
     ?(participants = [])
     ?(artifacts = [])
+    ?(votes = [])
     ?(outcome = None)
     ?(turn_count = 0)
     ?(last_seq = 0)
@@ -49,7 +50,7 @@ let mk_session
     system_prompt = Some "sys"; max_turns = 10;
     workdir = Some "/tmp";
     planned_participants = List.map (fun (p : Runtime.participant) -> p.name) participants;
-    participants; artifacts;
+    participants; artifacts; votes;
     turn_count; last_seq; outcome;
   }
 

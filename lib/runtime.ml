@@ -92,6 +92,7 @@ type session = {
   planned_participants: string list;  (** (→ Collaboration.t) *)
   participants: participant list;     (** (→ Collaboration.t) *)
   artifacts: artifact list;           (** (→ Collaboration.t) *)
+  votes: vote list; [@default []]     (** (→ Collaboration.t, deprecated) Wire-compat: kept with default for decode. *)
   turn_count: int;
   last_seq: int;
   outcome: string option;             (** (→ Collaboration.t) *)

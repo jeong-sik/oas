@@ -16,7 +16,7 @@ let make_session ?(session_id = "sess-c2") ?(goal = "cov2") () : Runtime.session
     provider = None; model = None; system_prompt = None;
     max_turns = 10; workdir = None;
     planned_participants = []; participants = [];
-    artifacts = []; turn_count = 0;
+    artifacts = []; votes = []; turn_count = 0;
     last_seq = 0; outcome = None;
   }
 
