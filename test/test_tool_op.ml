@@ -235,6 +235,36 @@ let test_yojson_invalid () =
   | Error _ -> ()
   | Ok _ -> fail "expected error"
 
+let test_yojson_missing_names () =
+  match Tool_op.of_yojson (`Assoc [("op", `String "add")]) with
+  | Error _ -> ()
+  | Ok _ -> fail "expected error for missing names"
+
+let test_yojson_unknown_op () =
+  match Tool_op.of_yojson (`Assoc [("op", `String "explode")]) with
+  | Error _ -> ()
+  | Ok _ -> fail "expected error for unknown op"
+
+let test_yojson_malformed_seq () =
+  match Tool_op.of_yojson (`Assoc [("op", `String "seq"); ("ops", `String "bad")]) with
+  | Error _ -> ()
+  | Ok _ -> fail "expected error for malformed seq"
+
+(* ── additional edge cases (GLM review) ──────────────────── *)
+
+let test_replace_with_empty_eq_clear_all () =
+  let a = Tool_op.apply (Replace_with []) ["a"; "b"; "c"] in
+  let b = Tool_op.apply Clear_all ["a"; "b"; "c"] in
+  check sl "same result" a b
+
+let test_is_identity_seq_empty () =
+  check bool "Seq [] is identity" true
+    (Tool_op.is_identity (Seq []))
+
+let test_is_identity_nested_empty_seq () =
+  check bool "Seq [Seq []] is identity" true
+    (Tool_op.is_identity (Seq [Seq []]))
+
 (* ── QCheck properties ────────────────────────────────────── *)
 
 let gen_name = QCheck.Gen.(
@@ -427,6 +457,15 @@ let () =
           test_case "roundtrip Keep_all" `Quick test_yojson_roundtrip_keep_all;
           test_case "roundtrip Seq" `Quick test_yojson_roundtrip_seq;
           test_case "invalid input" `Quick test_yojson_invalid;
+          test_case "missing names" `Quick test_yojson_missing_names;
+          test_case "unknown op" `Quick test_yojson_unknown_op;
+          test_case "malformed seq" `Quick test_yojson_malformed_seq;
+        ] );
+      ( "edge_cases",
+        [
+          test_case "Replace_with [] = Clear_all" `Quick test_replace_with_empty_eq_clear_all;
+          test_case "is_identity Seq []" `Quick test_is_identity_seq_empty;
+          test_case "is_identity Seq [Seq []]" `Quick test_is_identity_nested_empty_seq;
         ] );
       ( "properties",
         List.map QCheck_alcotest.to_alcotest [
