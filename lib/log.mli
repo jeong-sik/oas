@@ -57,7 +57,7 @@ type sink = record -> unit
 (** {2 Global configuration}
 
     Set level and sinks at startup before spawning fibers.
-    Not thread-safe -- call only during initialization. *)
+    Backed by [Atomic.t] for safe publication; call only during init. *)
 
 val set_global_level : level -> unit
 val add_sink : sink -> unit
