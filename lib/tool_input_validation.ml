@@ -74,6 +74,15 @@ let try_coerce (expected : Types.param_type) (value : Yojson.Safe.t)
   | Types.String, `Int i -> Some (`String (string_of_int i))
   (* number → string *)
   | Types.String, `Float f -> Some (`String (Printf.sprintf "%g" f))
+  (* Intlit normalization — downstream handlers typically match `Int only *)
+  | Types.Integer, `Intlit s ->
+    (match int_of_string_opt s with
+     | Some i -> Some (`Int i)
+     | None -> None)
+  | Types.Number, `Intlit s ->
+    (match float_of_string_opt s with
+     | Some f -> Some (`Float f)
+     | None -> None)
   (* already correct type — no coercion needed *)
   | _ -> None
 
@@ -128,6 +137,15 @@ let validate (schema : Types.tool_schema) (input : Yojson.Safe.t)
               expected = string_of_param_type p.param_type;
               actual = describe_json_value value;
             } :: !errors
+        end else begin
+          (* Type matches, but try normalization (e.g. Intlit -> Int) *)
+          match try_coerce p.param_type value with
+          | Some normalized when not (Yojson.Safe.equal normalized value) ->
+            coerced_fields :=
+              List.map (fun (k, v) ->
+                if k = p.name then (k, normalized) else (k, v)
+              ) !coerced_fields
+          | _ -> ()
         end
     ) params;
     match List.rev !errors with
