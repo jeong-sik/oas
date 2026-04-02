@@ -34,9 +34,7 @@ let text_blocks_to_string blocks =
          | ToolUse _ | ToolResult _ | Image _ | Document _ | Audio _ -> None)
   |> String.concat "\n"
 
-let json_of_string_or_raw s =
-  try Yojson.Safe.from_string s
-  with Yojson.Json_error _ -> `Assoc [("raw", `String s)]
+let json_of_string_or_raw s = Lenient_json.parse s
 
 (** Content block <-> JSON *)
 let content_block_to_json = function
