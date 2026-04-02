@@ -829,3 +829,7 @@
 (test
  (name test_tool_op)
  (libraries agent_sdk alcotest qcheck-core qcheck-alcotest yojson))
+
+(test
+ (name test_tool_input_validation)
+ (libraries agent_sdk alcotest yojson re))

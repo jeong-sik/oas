@@ -44,7 +44,19 @@ let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tra
   let tool_opt = List.find_opt (fun (tool: Tool.t) -> tool.schema.name = name) tools in
   let triple = match tool_opt with
   | Some tool ->
-    let result = Tool.execute ~context tool input in
+    (* Validate input against schema; coerce types before execution.
+       Invalid inputs get structured feedback instead of handler errors. *)
+    begin match Tool_input_validation.validate tool.schema input with
+    | Tool_input_validation.Invalid errors ->
+      let msg = Tool_input_validation.format_errors ~tool_name:name errors in
+      ignore
+        (invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count
+           ~hook_name:"post_tool_use_failure" hooks.post_tool_use_failure
+           (Hooks.PostToolUseFailure { tool_name = name; input; error = msg })
+         : Hooks.hook_decision);
+      (id, msg, true)
+    | Tool_input_validation.Valid coerced_input ->
+    let result = Tool.execute ~context tool coerced_input in
     let result_bytes = match result with
       | Ok { content } -> String.length content
       | Error { message; _ } -> String.length message
@@ -68,6 +80,7 @@ let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tra
       | Error { message; _ } -> message, true
     in
     (id, content, is_error)
+    end (* Tool_input_validation match *)
   | None -> (id, "Tool not found", true)
   in
   (* ToolCompleted event *)
