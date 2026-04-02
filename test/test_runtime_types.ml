@@ -110,7 +110,8 @@ let test_session () =
       finished_at = None; last_progress_at = None;
       last_error = None;
     }];
-    artifacts = []; votes = [];
+    artifacts = [];
+    votes = [];
     turn_count = 0; last_seq = 0;
     outcome = None;
   } in

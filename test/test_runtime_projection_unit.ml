@@ -8,11 +8,10 @@
     - participant_state_to_collaboration (all 7 variants)
     - participant_to_collaboration (21-field -> 6-field lossy projection)
     - artifact_to_collaboration (8-field -> 5-field lossy projection)
-    - contribution_of_runtime_vote (actor Some/None)
     - collaboration_of_session (full end-to-end)
     - update_session_from_collaboration (selective sync)
     - Roundtrip: session -> collab -> session preserves synced fields
-    - Edge cases: empty participants, empty artifacts, empty votes *)
+    - Edge cases: empty participants and empty artifacts *)
 
 open Agent_sdk
 
@@ -92,15 +91,6 @@ let mk_artifact ?(artifact_id = "art-001") () : Runtime.artifact =
     inline_content = None;
     size_bytes = 2048;
     created_at = 150.0;
-  }
-
-let mk_vote ?(actor = Some "bob") () : Runtime.vote =
-  {
-    topic = "merge-ready";
-    options = ["yes"; "no"; "abstain"];
-    choice = "yes";
-    actor;
-    created_at = 180.0;
   }
 
 (* ── phase_to_collaboration: all 7 variants ─────────────────────── *)
@@ -229,40 +219,18 @@ let test_artifact_multiple () =
   Alcotest.(check bool) "art-1 present" true (List.mem "art-1" ids);
   Alcotest.(check bool) "art-2 present" true (List.mem "art-2" ids)
 
-(* ── contribution_of_runtime_vote ───────────────────────────────── *)
-
-let test_vote_with_actor () =
-  let v = mk_vote ~actor:(Some "carol") () in
-  let session = mk_session ~votes:[v] () in
-  let collab = Runtime_projection.collaboration_of_session session in
-  Alcotest.(check int) "1 contribution" 1 (List.length collab.contributions);
-  let c = List.hd collab.contributions in
-  Alcotest.(check string) "agent" "carol" c.agent;
-  Alcotest.(check string) "kind" "vote" c.kind;
-  Alcotest.(check string) "content" "merge-ready: yes" c.content;
-  Alcotest.(check bool) "created_at" true (c.created_at = 180.0)
-
-let test_vote_no_actor () =
-  let v = mk_vote ~actor:None () in
-  let session = mk_session ~votes:[v] () in
-  let collab = Runtime_projection.collaboration_of_session session in
-  let c = List.hd collab.contributions in
-  Alcotest.(check string) "anonymous agent" "anonymous" c.agent
-
 (* ── collaboration_of_session: full end-to-end ──────────────────── *)
 
 let test_collaboration_of_session_full () =
   let p1 = mk_participant ~name:"alice" ~state:Runtime.Done ~finished_at:(Some 155.0) () in
   let p2 = mk_participant ~name:"bob" ~state:Runtime.Live ~role:(Some "exec") () in
   let a = mk_artifact () in
-  let v = mk_vote () in
   let session = mk_session
     ~session_id:"rt-full-001"
     ~goal:"deploy v2"
     ~phase:Runtime.Completed
     ~participants:[p1; p2]
     ~artifacts:[a]
-    ~votes:[v]
     ~outcome:(Some "deployed successfully")
     () in
   let collab = Runtime_projection.collaboration_of_session session in
@@ -272,7 +240,7 @@ let test_collaboration_of_session_full () =
     (collab.phase = Collaboration.Completed);
   Alcotest.(check int) "2 participants" 2 (List.length collab.participants);
   Alcotest.(check int) "1 artifact" 1 (List.length collab.artifacts);
-  Alcotest.(check int) "1 contribution" 1 (List.length collab.contributions);
+  Alcotest.(check int) "0 contributions" 0 (List.length collab.contributions);
   Alcotest.(check bool) "created_at" true (collab.created_at = 100.0);
   Alcotest.(check bool) "updated_at" true (collab.updated_at = 200.0);
   Alcotest.(check (option string)) "outcome" (Some "deployed successfully") collab.outcome;
@@ -286,7 +254,6 @@ let test_collaboration_of_session_empty () =
   let session = mk_session
     ~participants:[]
     ~artifacts:[]
-    ~votes:[]
     ~outcome:None
     () in
   let collab = Runtime_projection.collaboration_of_session session in
@@ -370,10 +337,6 @@ let () =
     "artifact_projection", [
       Alcotest.test_case "single" `Quick test_artifact_projection;
       Alcotest.test_case "multiple" `Quick test_artifact_multiple;
-    ];
-    "vote_projection", [
-      Alcotest.test_case "with actor" `Quick test_vote_with_actor;
-      Alcotest.test_case "no actor (anonymous)" `Quick test_vote_no_actor;
     ];
     "collaboration_of_session", [
       Alcotest.test_case "full" `Quick test_collaboration_of_session_full;

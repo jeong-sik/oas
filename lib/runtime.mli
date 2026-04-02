@@ -87,7 +87,6 @@ type vote = {
     - [planned_participants] {i (-> Collaboration.t)}
     - [participants] {i (-> Collaboration.t)}
     - [artifacts] {i (-> Collaboration.t)}
-    - [votes] {i (-> Collaboration.t)}
     - [outcome] {i (-> Collaboration.t)} *)
 type session = {
   session_id: string;
@@ -106,7 +105,7 @@ type session = {
   planned_participants: string list;
   participants: participant list;
   artifacts: artifact list;
-  votes: vote list;
+  votes: vote list; (** (-> Collaboration.t, deprecated) Wire-compat: kept with default for decode. *)
   turn_count: int;
   last_seq: int;
   outcome: string option;
