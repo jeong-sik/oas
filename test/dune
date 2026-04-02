@@ -833,3 +833,7 @@
 (test
  (name test_tool_input_validation)
  (libraries agent_sdk alcotest yojson re))
+
+(test
+ (name test_lenient_json)
+ (libraries agent_sdk alcotest yojson))
