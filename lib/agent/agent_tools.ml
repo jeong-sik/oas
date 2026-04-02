@@ -64,15 +64,16 @@ let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tra
     let _post =
       invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count
         ~hook_name:"post_tool_use" hooks.post_tool_use
-        (Hooks.PostToolUse { tool_name = name; input; output = result;
-                             result_bytes })
+        (Hooks.PostToolUse { tool_name = name; input = coerced_input;
+                             output = result; result_bytes })
     in
     (match result with
      | Error { message; _ } ->
          ignore
            (invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count
               ~hook_name:"post_tool_use_failure" hooks.post_tool_use_failure
-              (Hooks.PostToolUseFailure { tool_name = name; input; error = message })
+              (Hooks.PostToolUseFailure { tool_name = name; input = coerced_input;
+                                         error = message })
             : Hooks.hook_decision)
      | Ok _ -> ());
     let content, is_error = match result with
