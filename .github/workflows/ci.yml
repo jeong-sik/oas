@@ -77,6 +77,9 @@ jobs:
         env:
           BISECT_ENABLE: "yes"
         run: |
+          # Raise memlock limit for io_uring — bisect-instrumented tests
+          # create more io_uring instances, exhausting the default limit.
+          ulimit -l unlimited || true
           opam exec -- dune clean
           opam exec -- dune runtest --force
           COVERAGE=$(opam exec -- bisect-ppx-report summary 2>/dev/null | grep -oP '\d+\.\d+(?=%)' | head -1 || echo "0")
