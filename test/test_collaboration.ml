@@ -283,6 +283,56 @@ let () =
         check bool "is error" true
           (Result.is_error (Collaboration.of_json bad)));
 
+      test_case "legacy votes are normalized into contributions" `Quick (fun () ->
+        let json =
+          `Assoc [
+            ("id", `String "legacy-1");
+            ("goal", `String "normalize");
+            ("phase", Collaboration.phase_to_yojson Collaboration.Active);
+            ("participants", `List []);
+            ("artifacts", `List []);
+            ("votes", `List [
+              `Assoc [
+                ("topic", `String "merge?");
+                ("choice", `String "yes");
+                ("voter", `String "zoe");
+                ("cast_at", `Float 42.0);
+              ];
+            ]);
+            ("shared_context", `Assoc []);
+            ("created_at", `Float 1.0);
+            ("updated_at", `Float 2.0);
+          ]
+        in
+        let c = Result.get_ok (Collaboration.of_json json) in
+        check int "one contribution" 1 (List.length c.contributions);
+        let contribution = List.hd c.contributions in
+        check string "agent" "zoe" contribution.agent;
+        check string "kind" "vote" contribution.kind;
+        check string "content" "merge?: yes" contribution.content);
+
+      test_case "malformed legacy vote returns Error" `Quick (fun () ->
+        let json =
+          `Assoc [
+            ("id", `String "legacy-2");
+            ("goal", `String "normalize");
+            ("phase", Collaboration.phase_to_yojson Collaboration.Active);
+            ("participants", `List []);
+            ("artifacts", `List []);
+            ("votes", `List [
+              `Assoc [
+                ("topic", `Int 1);
+                ("choice", `String "yes");
+              ];
+            ]);
+            ("shared_context", `Assoc []);
+            ("created_at", `Float 1.0);
+            ("updated_at", `Float 2.0);
+          ]
+        in
+        check bool "legacy vote rejected" true
+          (Result.is_error (Collaboration.of_json json)));
+
       test_case "completely invalid json" `Quick (fun () ->
         let bad = `String "nope" in
         check bool "is error" true

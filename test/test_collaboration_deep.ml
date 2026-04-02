@@ -206,7 +206,7 @@ let () =
         check string "content is topic: choice" "merge: yes" first.content;
         check (float 0.1) "cast_at preserved" 99.0 first.created_at);
 
-      test_case "votes with missing fields fallback" `Quick (fun () ->
+      test_case "votes with missing fields return Error" `Quick (fun () ->
         let json = `Assoc [
           ("id", `String "legacy-2");
           ("goal", `String "vote fallback");
@@ -227,12 +227,8 @@ let () =
           ("max_participants", `Null);
           ("metadata", `Null);
         ] in
-        let c = Result.get_ok (Collaboration.of_json json) in
-        check int "1 contribution" 1 (List.length c.contributions);
-        let v = List.hd c.contributions in
-        check string "agent fallback" "anonymous" v.agent;
-        check string "content fallback" ": " v.content;
-        check (float 0.1) "cast_at fallback" 0.0 v.created_at);
+        let result = Collaboration.of_json json in
+        check bool "legacy vote rejected" true (Result.is_error result));
 
       test_case "contributions Null and votes Null yields empty" `Quick (fun () ->
         let json = `Assoc [
@@ -253,7 +249,7 @@ let () =
         let c = Result.get_ok (Collaboration.of_json json) in
         check int "empty contributions" 0 (List.length c.contributions));
 
-      test_case "contributions Null and votes non-list yields empty" `Quick (fun () ->
+      test_case "contributions Null and votes non-list returns Error" `Quick (fun () ->
         let json = `Assoc [
           ("id", `String "legacy-4");
           ("goal", `String "bad votes");
@@ -269,8 +265,8 @@ let () =
           ("max_participants", `Null);
           ("metadata", `Null);
         ] in
-        let c = Result.get_ok (Collaboration.of_json json) in
-        check int "empty contributions" 0 (List.length c.contributions));
+        let result = Collaboration.of_json json in
+        check bool "bad votes rejected" true (Result.is_error result));
     ];
 
     (* ── of_json error paths ─────────────────────────── *)
@@ -349,7 +345,7 @@ let () =
         let c = Result.get_ok (Collaboration.of_json json) in
         check int "metadata len" 1 (List.length c.metadata));
 
-      test_case "metadata as non-Assoc non-Null falls back to empty" `Quick (fun () ->
+      test_case "metadata as non-Assoc non-Null returns Error" `Quick (fun () ->
         let json = `Assoc [
           ("id", `String "m2");
           ("goal", `String "meta test2");
@@ -364,8 +360,8 @@ let () =
           ("max_participants", `Null);
           ("metadata", `List [`Int 1]);
         ] in
-        let c = Result.get_ok (Collaboration.of_json json) in
-        check int "metadata empty" 0 (List.length c.metadata));
+        let result = Collaboration.of_json json in
+        check bool "metadata rejected" true (Result.is_error result));
     ];
 
     (* ── to_json field presence ──────────────────────── *)

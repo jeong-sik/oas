@@ -156,6 +156,9 @@ let extract_with_retry ~sw ~net ?base_url ?provider ?clock
                 | None, Some right -> Some right
                 | None, None -> None) }
   in
+  let initial_message =
+    { role = User; content = [Text prompt]; name = None; tool_call_id = None }
+  in
   let rec attempt n acc_usage messages =
     let state = { config = config_with_tool; messages = []; turn_count = 0;
                   usage = empty_usage } in
@@ -179,7 +182,7 @@ let extract_with_retry ~sw ~net ?base_url ?provider ?clock
                Previous failed attempts are dropped to avoid unbounded
                token growth across retries. *)
             let retry_messages = [
-              List.hd messages;  (* original user prompt *)
+              initial_message;
               { role = Assistant; content = response.content; name = None; tool_call_id = None };
               { role = User; content = [
                   ToolResult {
@@ -194,7 +197,7 @@ let extract_with_retry ~sw ~net ?base_url ?provider ?clock
             attempt (n + 1) total retry_messages
         | Error e -> Error e
   in
-  let initial_messages = [{ role = User; content = [Text prompt]; name = None; tool_call_id = None }] in
+  let initial_messages = [ initial_message ] in
   attempt 0 None initial_messages
 
 (** Extract structured output with SSE streaming.
