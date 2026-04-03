@@ -215,45 +215,52 @@ type pricing = {
   cache_read_multiplier: float;   (* cache read tokens cost input_rate * this *)
 }
 
-let pricing_for_model model_id =
+let zero_pricing =
+  { input_per_million = 0.0; output_per_million = 0.0;
+    cache_write_multiplier = 1.0; cache_read_multiplier = 1.0 }
+
+let pricing_for_model_opt model_id =
   let normalized = String.lowercase_ascii (String.trim model_id) in
   (* Anthropic cache pricing: write = 1.25x input, read = 0.1x input.
      OpenAI/local: no cache pricing (multipliers are 1.0 and 1.0 for no-op). *)
   let anthropic_cache = (1.25, 0.1) in
   let no_cache = (1.0, 1.0) in
-  let base, (cw, cr) =
+  let result =
     if string_contains ~needle:"opus-4-6" normalized then
-      (15.0, 75.0), anthropic_cache
+      Some ((15.0, 75.0), anthropic_cache)
     else if string_contains ~needle:"opus-4-5" normalized then
-      (15.0, 75.0), anthropic_cache
+      Some ((15.0, 75.0), anthropic_cache)
     else if string_contains ~needle:"sonnet-4-6" normalized then
-      (3.0, 15.0), anthropic_cache
+      Some ((3.0, 15.0), anthropic_cache)
     else if string_contains ~needle:"sonnet-4" normalized then
-      (3.0, 15.0), anthropic_cache
+      Some ((3.0, 15.0), anthropic_cache)
     else if string_contains ~needle:"haiku-4-5" normalized then
-      (0.8, 4.0), anthropic_cache
+      Some ((0.8, 4.0), anthropic_cache)
     else if string_contains ~needle:"claude-3-7-sonnet" normalized then
-      (3.0, 15.0), anthropic_cache
+      Some ((3.0, 15.0), anthropic_cache)
     else if string_contains ~needle:"gpt-4o-mini" normalized then
-      (0.15, 0.6), no_cache
+      Some ((0.15, 0.6), no_cache)
     else if string_contains ~needle:"gpt-4o" normalized then
-      (2.5, 10.0), no_cache
+      Some ((2.5, 10.0), no_cache)
     else if string_contains ~needle:"gpt-4.1" normalized then
-      (2.0, 8.0), no_cache
+      Some ((2.0, 8.0), no_cache)
     else if string_contains ~needle:"o3-mini" normalized then
-      (1.1, 4.4), no_cache
+      Some ((1.1, 4.4), no_cache)
     else
-      (0.0, 0.0), no_cache
+      None
   in
-  let input_per_million, output_per_million = base in
-  { input_per_million; output_per_million;
-    cache_write_multiplier = cw; cache_read_multiplier = cr }
+  match result with
+  | Some ((input_per_million, output_per_million), (cw, cr)) ->
+    Some { input_per_million; output_per_million;
+           cache_write_multiplier = cw; cache_read_multiplier = cr }
+  | None -> None
+
+let pricing_for_model model_id =
+  Option.value ~default:zero_pricing (pricing_for_model_opt model_id)
 
 let pricing_for_provider ~(provider : provider) ~(model_id : string) =
   match provider with
-  | Local _ ->
-    { input_per_million = 0.0; output_per_million = 0.0;
-      cache_write_multiplier = 1.0; cache_read_multiplier = 1.0 }
+  | Local _ -> zero_pricing
   | _ -> pricing_for_model model_id
 
 let estimate_cost ~(pricing : pricing)
