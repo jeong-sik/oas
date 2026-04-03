@@ -999,7 +999,7 @@ let test_requires_system_prompt () =
     (Capability_filter.requires_system_prompt Capabilities.default_capabilities)
 
 let test_fits_context_none () =
-  Alcotest.(check bool) "None -> fits" true
+  Alcotest.(check bool) "None -> fail closed" false
     (Capability_filter.fits_context ~tokens:999999 Capabilities.default_capabilities)
 
 let test_fits_context_within () =
@@ -1011,7 +1011,7 @@ let test_fits_context_over () =
     (Capability_filter.fits_context ~tokens:999999 Capabilities.anthropic_capabilities)
 
 let test_fits_output_none () =
-  Alcotest.(check bool) "None -> fits" true
+  Alcotest.(check bool) "None -> fail closed" false
     (Capability_filter.fits_output ~tokens:999999 Capabilities.default_capabilities)
 
 let test_fits_output_within () =
@@ -1021,6 +1021,35 @@ let test_fits_output_within () =
 let test_fits_output_over () =
   Alcotest.(check bool) "over limit" false
     (Capability_filter.fits_output ~tokens:999999 Capabilities.anthropic_capabilities)
+
+let fit_result_testable =
+  let pp fmt = function
+    | Capability_filter.Fits -> Format.pp_print_string fmt "Fits"
+    | Capability_filter.Does_not_fit -> Format.pp_print_string fmt "Does_not_fit"
+    | Capability_filter.Unknown_limit -> Format.pp_print_string fmt "Unknown_limit"
+  in
+  let eq a b = a = b in
+  Alcotest.testable pp eq
+
+let test_check_context_unknown () =
+  Alcotest.(check fit_result_testable) "None -> Unknown_limit"
+    Capability_filter.Unknown_limit
+    (Capability_filter.check_context ~tokens:999999 Capabilities.default_capabilities)
+
+let test_check_context_fits () =
+  Alcotest.(check fit_result_testable) "within -> Fits"
+    Capability_filter.Fits
+    (Capability_filter.check_context ~tokens:100000 Capabilities.anthropic_capabilities)
+
+let test_check_context_over () =
+  Alcotest.(check fit_result_testable) "over -> Does_not_fit"
+    Capability_filter.Does_not_fit
+    (Capability_filter.check_context ~tokens:999999 Capabilities.anthropic_capabilities)
+
+let test_check_output_unknown () =
+  Alcotest.(check fit_result_testable) "None -> Unknown_limit"
+    Capability_filter.Unknown_limit
+    (Capability_filter.check_output ~tokens:999999 Capabilities.default_capabilities)
 
 (* requires_code_execution helper -- not exported from Capability_filter *)
 let requires_code_execution (c : Capabilities.capabilities) = c.supports_code_execution
@@ -1410,6 +1439,10 @@ let () =
       Alcotest.test_case "fits_output none" `Quick test_fits_output_none;
       Alcotest.test_case "fits_output within" `Quick test_fits_output_within;
       Alcotest.test_case "fits_output over" `Quick test_fits_output_over;
+      Alcotest.test_case "check_context unknown" `Quick test_check_context_unknown;
+      Alcotest.test_case "check_context fits" `Quick test_check_context_fits;
+      Alcotest.test_case "check_context over" `Quick test_check_context_over;
+      Alcotest.test_case "check_output unknown" `Quick test_check_output_unknown;
     ]);
     ("capability_filter.combinators", [
       Alcotest.test_case "requires_all" `Quick test_requires_all;

@@ -53,7 +53,7 @@ let test_filter_fits_context () =
     (Capability_filter.fits_context ~tokens:100_000 caps);
   check bool "exceeds 128K" false
     (Capability_filter.fits_context ~tokens:200_000 caps);
-  check bool "unknown = fits" true
+  check bool "unknown = fail closed" false
     (Capability_filter.fits_context ~tokens:999_999
        Capabilities.default_capabilities)
 

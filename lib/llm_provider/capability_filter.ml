@@ -21,15 +21,27 @@ let requires_system_prompt (c : Capabilities.capabilities) = c.supports_system_p
 
 (* ── Limit checks ────────────────────────────────────── *)
 
-let fits_context ~tokens (c : Capabilities.capabilities) =
-  match c.max_context_tokens with
-  | None -> true  (* unknown = assume fits *)
-  | Some max -> tokens <= max
+type fit_result = Fits | Does_not_fit | Unknown_limit
 
-let fits_output ~tokens (c : Capabilities.capabilities) =
+let check_context ~tokens (c : Capabilities.capabilities) =
+  match c.max_context_tokens with
+  | None -> Unknown_limit
+  | Some max -> if tokens <= max then Fits else Does_not_fit
+
+let check_output ~tokens (c : Capabilities.capabilities) =
   match c.max_output_tokens with
-  | None -> true
-  | Some max -> tokens <= max
+  | None -> Unknown_limit
+  | Some max -> if tokens <= max then Fits else Does_not_fit
+
+let fits_context ~tokens c =
+  match check_context ~tokens c with
+  | Fits -> true
+  | Does_not_fit | Unknown_limit -> false
+
+let fits_output ~tokens c =
+  match check_output ~tokens c with
+  | Fits -> true
+  | Does_not_fit | Unknown_limit -> false
 
 (* ── Combinators ─────────────────────────────────────── *)
 
