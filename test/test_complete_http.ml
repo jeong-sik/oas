@@ -18,8 +18,19 @@ let openai_response text =
     {|{"id":"chatcmpl-1","object":"chat.completion","model":"gpt-4","choices":[{"index":0,"message":{"role":"assistant","content":"%s"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5}}|}
     text
 
-let start_mock_server ~sw ~net ~port ?(status = `OK) ?(delay_sec = 0.0)
+let fresh_port () =
+  let s = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
+  Unix.setsockopt s Unix.SO_REUSEADDR true;
+  Unix.bind s (Unix.ADDR_INET (Unix.inet_addr_loopback, 0));
+  let port = match Unix.getsockname s with
+    | Unix.ADDR_INET (_, p) -> p
+    | _ -> failwith "not inet" in
+  Unix.close s;
+  port
+
+let start_mock_server ~sw ~net ?(status = `OK) ?(delay_sec = 0.0)
     ?clock response_body =
+  let port = fresh_port () in
   let handler _conn _req body =
     let _ = Eio.Buf_read.(of_flow ~max_size:max_int body |> take_all) in
     (match clock with
@@ -57,7 +68,7 @@ let test_complete_anthropic_ok () =
   Eio_main.run @@ fun env ->
   try
     Eio.Switch.run @@ fun sw ->
-    let url = start_mock_server ~sw ~net:env#net ~port:19001
+    let url = start_mock_server ~sw ~net:env#net
         (anthropic_response "mock response") in
     let config = make_config url in
     (match Complete.complete ~sw ~net:env#net ~config ~messages () with
@@ -77,7 +88,7 @@ let test_complete_http_error () =
   Eio_main.run @@ fun env ->
   try
     Eio.Switch.run @@ fun sw ->
-    let url = start_mock_server ~sw ~net:env#net ~port:19002
+    let url = start_mock_server ~sw ~net:env#net
         ~status:`Bad_request "bad request body" in
     let config = make_config url in
     (match Complete.complete ~sw ~net:env#net ~config ~messages () with
@@ -94,7 +105,7 @@ let test_complete_openai_ok () =
   Eio_main.run @@ fun env ->
   try
     Eio.Switch.run @@ fun sw ->
-    let url = start_mock_server ~sw ~net:env#net ~port:19003
+    let url = start_mock_server ~sw ~net:env#net
         (openai_response "openai reply") in
     let config = make_openai_config url in
     (match Complete.complete ~sw ~net:env#net ~config ~messages () with
@@ -113,7 +124,7 @@ let test_complete_cache_store_and_hit () =
   Eio_main.run @@ fun env ->
   try
     Eio.Switch.run @@ fun sw ->
-    let url = start_mock_server ~sw ~net:env#net ~port:19004
+    let url = start_mock_server ~sw ~net:env#net
         (anthropic_response "cached") in
     let config = make_config url in
     let store : (string, Yojson.Safe.t) Hashtbl.t = Hashtbl.create 4 in
@@ -143,7 +154,7 @@ let test_complete_metrics () =
   Eio_main.run @@ fun env ->
   try
     Eio.Switch.run @@ fun sw ->
-    let url = start_mock_server ~sw ~net:env#net ~port:19005
+    let url = start_mock_server ~sw ~net:env#net
         (anthropic_response "metrics test") in
     let config = make_config url in
     let hit_count = ref 0 in
@@ -176,7 +187,7 @@ let test_retry_first_try () =
   let clock = Eio.Stdenv.clock env in
   try
     Eio.Switch.run @@ fun sw ->
-    let url = start_mock_server ~sw ~net:env#net ~port:19006
+    let url = start_mock_server ~sw ~net:env#net
         (anthropic_response "first try ok") in
     let config = make_config url in
     (match Complete.complete_with_retry ~sw ~net:env#net ~clock
@@ -196,7 +207,7 @@ let test_cascade_primary_ok () =
   Eio_main.run @@ fun env ->
   try
     Eio.Switch.run @@ fun sw ->
-    let url = start_mock_server ~sw ~net:env#net ~port:19007
+    let url = start_mock_server ~sw ~net:env#net
         (anthropic_response "primary ok") in
     let primary = make_config url in
     let cascade : Complete.cascade = { primary; fallbacks = [] } in
@@ -218,12 +229,12 @@ let test_cascade_fallback () =
   try
     Eio.Switch.run @@ fun sw ->
     (* Primary: returns 500 (retryable) *)
-    let _bad_url = start_mock_server ~sw ~net:env#net ~port:19008
+    let bad_url = start_mock_server ~sw ~net:env#net
         ~status:`Internal_server_error "fail" in
     (* Fallback: returns 200 *)
-    let good_url = start_mock_server ~sw ~net:env#net ~port:19009
+    let good_url = start_mock_server ~sw ~net:env#net
         (anthropic_response "fallback ok") in
-    let primary = make_config (Printf.sprintf "http://127.0.0.1:%d" 19008) in
+    let primary = make_config bad_url in
     let fallback = make_config good_url in
     let cascade : Complete.cascade = { primary; fallbacks = [fallback] } in
     (match Complete.complete_cascade ~sw ~net:env#net
@@ -243,7 +254,7 @@ let test_complete_non_retryable () =
   Eio_main.run @@ fun env ->
   try
     Eio.Switch.run @@ fun sw ->
-    let url = start_mock_server ~sw ~net:env#net ~port:19010
+    let url = start_mock_server ~sw ~net:env#net
         ~status:`Unauthorized "unauthorized" in
     let config = make_config url in
     (match Complete.complete ~sw ~net:env#net ~config ~messages () with
@@ -260,7 +271,7 @@ let test_complete_error_metrics () =
   Eio_main.run @@ fun env ->
   try
     Eio.Switch.run @@ fun sw ->
-    let url = start_mock_server ~sw ~net:env#net ~port:19011
+    let url = start_mock_server ~sw ~net:env#net
         ~status:`Bad_request "bad" in
     let config = make_config url in
     let error_count = ref 0 in
@@ -286,7 +297,8 @@ let anthropic_sse_response text =
     "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg-1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"mock\",\"content\":[],\"stop_reason\":null,\"usage\":{\"input_tokens\":10,\"output_tokens\":0,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"%s\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":5}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
     text
 
-let start_sse_server ~sw ~net ~port response_body =
+let start_sse_server ~sw ~net response_body =
+  let port = fresh_port () in
   let handler _conn _req body =
     let _ = Eio.Buf_read.(of_flow ~max_size:max_int body |> take_all) in
     let headers = Cohttp.Header.of_list [("content-type", "text/event-stream")] in
@@ -306,7 +318,7 @@ let test_complete_stream_ok () =
   Eio_main.run @@ fun env ->
   try
     Eio.Switch.run @@ fun sw ->
-    let url = start_sse_server ~sw ~net:env#net ~port:19012
+    let url = start_sse_server ~sw ~net:env#net
         (anthropic_sse_response "streamed text") in
     let config = make_config url in
     let events = ref [] in
@@ -329,7 +341,7 @@ let test_stream_cascade_ok () =
   Eio_main.run @@ fun env ->
   try
     Eio.Switch.run @@ fun sw ->
-    let url = start_sse_server ~sw ~net:env#net ~port:19013
+    let url = start_sse_server ~sw ~net:env#net
         (anthropic_sse_response "cascade stream") in
     let primary = make_config url in
     let cascade : Complete.cascade = { primary; fallbacks = [] } in
@@ -353,12 +365,11 @@ let test_complete_named_llama () =
   let clock = Eio.Stdenv.clock env in
   try
     Eio.Switch.run @@ fun sw ->
-    (* Start a server on the llama default port *)
-    let _url = start_mock_server ~sw ~net:env#net ~port:19014
+    let url = start_mock_server ~sw ~net:env#net
         (openai_response "named cascade") in
     (* custom: provider uses OpenAI compat format *)
     let defaults = [
-      Printf.sprintf "custom:qwen@http://127.0.0.1:%d" 19014
+      Printf.sprintf "custom:qwen@%s" url
     ] in
     (match Cascade_config.complete_named ~sw ~net:env#net ~clock
              ~name:"test" ~defaults
@@ -396,11 +407,11 @@ let test_complete_named_timeout () =
   let clock = Eio.Stdenv.clock env in
   try
     Eio.Switch.run @@ fun sw ->
-    let _url = start_mock_server ~sw ~net:env#net ~port:19015
+    let url = start_mock_server ~sw ~net:env#net
         ~delay_sec:5.0 ~clock
         (openai_response "too slow") in
     let defaults = [
-      Printf.sprintf "custom:slow@http://127.0.0.1:%d" 19015
+      Printf.sprintf "custom:slow@%s" url
     ] in
     (match Cascade_config.complete_named ~sw ~net:env#net ~clock
              ~name:"timeout" ~defaults
@@ -420,10 +431,10 @@ let test_complete_named_reject () =
   let clock = Eio.Stdenv.clock env in
   try
     Eio.Switch.run @@ fun sw ->
-    let _url = start_mock_server ~sw ~net:env#net ~port:19016
+    let url = start_mock_server ~sw ~net:env#net
         (openai_response "rejected") in
     let defaults = [
-      Printf.sprintf "custom:r@http://127.0.0.1:%d" 19016
+      Printf.sprintf "custom:r@%s" url
     ] in
     (* Reject all responses *)
     let accept _resp = false in
@@ -442,13 +453,13 @@ let test_complete_named_from_config () =
   let clock = Eio.Stdenv.clock env in
   try
     Eio.Switch.run @@ fun sw ->
-    let _url = start_mock_server ~sw ~net:env#net ~port:19017
+    let url = start_mock_server ~sw ~net:env#net
         (openai_response "from config") in
     (* Write a temp config file *)
     let config_path = Filename.temp_file "oas_test_" ".json" in
     let oc = open_out config_path in
     Printf.fprintf oc
-      {|{"mytest_models": ["custom:m@http://127.0.0.1:19017"]}|};
+      {|{"mytest_models": ["custom:m@%s"]}|} url;
     close_out oc;
     Fun.protect
       ~finally:(fun () -> Sys.remove config_path)
@@ -476,10 +487,10 @@ let test_complete_named_stream_ok () =
   let clock = Eio.Stdenv.clock env in
   try
     Eio.Switch.run @@ fun sw ->
-    let _url = start_sse_server ~sw ~net:env#net ~port:19018
+    let url = start_sse_server ~sw ~net:env#net
         (openai_sse_response "named stream") in
     let defaults = [
-      Printf.sprintf "custom:s@http://127.0.0.1:%d" 19018
+      Printf.sprintf "custom:s@%s" url
     ] in
     let events = ref [] in
     (match Cascade_config.complete_named_stream ~sw ~net:env#net ~clock
