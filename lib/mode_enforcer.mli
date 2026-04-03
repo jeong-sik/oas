@@ -35,8 +35,7 @@ type violation = {
 }
 
 (** Canonical JSON serialization for violation records.
-    Downstream consumers (e.g. MASC Violation_record) should use these
-    instead of manual JSON parsing. *)
+    Downstream consumers should use these instead of manual JSON parsing. *)
 val violation_to_yojson : violation -> Yojson.Safe.t
 val violation_of_yojson : Yojson.Safe.t -> (violation, string) result
 
