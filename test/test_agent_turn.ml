@@ -248,8 +248,20 @@ let test_token_budget_total_exceeded () =
 
 let test_make_tool_results () =
   let results = [
-    ("t1", "success output", false);
-    ("t2", "error msg", true);
+    {
+      Agent_tools.tool_use_id = "t1";
+      tool_name = "tool-1";
+      content = "success output";
+      is_error = false;
+      failure_kind = None;
+    };
+    {
+      tool_use_id = "t2";
+      tool_name = "tool-2";
+      content = "error msg";
+      is_error = true;
+      failure_kind = Some Agent_tools.Recoverable_tool_error;
+    };
   ] in
   let blocks = Agent_turn.make_tool_results results in
   Alcotest.(check int) "2 results" 2 (List.length blocks);
@@ -415,7 +427,17 @@ let test_apply_context_injection_no_injector () =
   let context = Context.create () in
   let messages = [{ Types.role = Types.User; content = [Types.Text "hi"]; name = None; tool_call_id = None }] in
   let tool_uses = [make_tool_use "search" {|{"q":"test"}|}] in
-  let results = [("t1", "result", false)] in
+  let results =
+    [
+      {
+        Agent_tools.tool_use_id = "t1";
+        tool_name = "search";
+        content = "result";
+        is_error = false;
+        failure_kind = None;
+      };
+    ]
+  in
   let injector ~tool_name:_ ~input:_ ~output:_ = None in
   let new_msgs = Agent_turn.apply_context_injection
     ~context ~messages ~injector ~tool_uses ~results
@@ -426,7 +448,17 @@ let test_apply_context_injection_with_context_update () =
   let context = Context.create () in
   let messages = [{ Types.role = Types.User; content = [Types.Text "hi"]; name = None; tool_call_id = None }] in
   let tool_uses = [make_tool_use "search" {|{"q":"test"}|}] in
-  let results = [("t1", "found it", false)] in
+  let results =
+    [
+      {
+        Agent_tools.tool_use_id = "t1";
+        tool_name = "search";
+        content = "found it";
+        is_error = false;
+        failure_kind = None;
+      };
+    ]
+  in
   let injector ~tool_name:_ ~input:_ ~output:_ =
     Some {
       Hooks.context_updates = [("last_result", `String "found it")];
@@ -447,7 +479,17 @@ let test_apply_context_injection_with_extra_messages () =
     { Types.role = Types.User; content = [Types.Text "hi"]; name = None; tool_call_id = None };
   ] in
   let tool_uses = [make_tool_use "search" {|{"q":"test"}|}] in
-  let results = [("t1", "result", false)] in
+  let results =
+    [
+      {
+        Agent_tools.tool_use_id = "t1";
+        tool_name = "search";
+        content = "result";
+        is_error = false;
+        failure_kind = None;
+      };
+    ]
+  in
   let injector ~tool_name:_ ~input:_ ~output:_ =
     Some {
       Hooks.context_updates = [];
@@ -465,7 +507,17 @@ let test_apply_context_injection_exception_handled () =
   let context = Context.create () in
   let messages = [{ Types.role = Types.User; content = [Types.Text "hi"]; name = None; tool_call_id = None }] in
   let tool_uses = [make_tool_use "search" {|{"q":"test"}|}] in
-  let results = [("t1", "result", false)] in
+  let results =
+    [
+      {
+        Agent_tools.tool_use_id = "t1";
+        tool_name = "search";
+        content = "result";
+        is_error = false;
+        failure_kind = None;
+      };
+    ]
+  in
   let injector ~tool_name:_ ~input:_ ~output:_ =
     failwith "injector crashed"
   in

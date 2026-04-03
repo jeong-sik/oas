@@ -5,6 +5,19 @@
 
 open Types
 
+type tool_failure_kind =
+  | Validation_error
+  | Recoverable_tool_error
+  | Non_retryable_tool_error
+
+type tool_execution_result = {
+  tool_use_id: string;
+  tool_name: string;
+  content: string;
+  is_error: bool;
+  failure_kind: tool_failure_kind option;
+}
+
 type scheduled_tool_use = {
   index: int;
   id: string;
@@ -107,7 +120,7 @@ let invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count ~hook_name
       decision)
 
 (** Find and execute a single tool, invoking PostToolUse hook.
-    Returns (id, content, is_error) triple. *)
+    Returns a structured execution result. *)
 let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tracer
     ~agent_name ~turn_count ?on_hook_invoked ~schedule name input id =
   (* ToolCalled event *)
@@ -116,7 +129,7 @@ let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tra
        (ToolCalled { agent_name; tool_name = name; input })
    | None -> ());
   let tool_opt = List.find_opt (fun (tool: Tool.t) -> tool.schema.name = name) tools in
-  let triple = match tool_opt with
+  let result = match tool_opt with
   | Some tool ->
     (* Validate input against schema; coerce types before execution.
        Invalid inputs get structured feedback instead of handler errors. *)
@@ -135,7 +148,13 @@ let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tra
                    schedule;
                  })
             : Hooks.hook_decision);
-      (id, msg, true)
+      {
+        tool_use_id = id;
+        tool_name = name;
+        content = msg;
+        is_error = true;
+        failure_kind = Some Validation_error;
+      }
     | Tool_input_validation.Valid coerced_input ->
     let result = Tool.execute ~context tool coerced_input in
     let result_bytes = match result with
@@ -170,26 +189,46 @@ let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tra
                  })
             : Hooks.hook_decision)
      | Ok _ -> ());
-    let content, is_error = match result with
-      | Ok { content } -> content, false
-      | Error { message; _ } -> message, true
+    let content, is_error, failure_kind = match result with
+      | Ok { content } -> (content, false, None)
+      | Error { message; recoverable } ->
+          let failure_kind =
+            Some
+              (if recoverable then Recoverable_tool_error
+               else Non_retryable_tool_error)
+          in
+          (message, true, failure_kind)
     in
-    (id, content, is_error)
+    {
+      tool_use_id = id;
+      tool_name = name;
+      content;
+      is_error;
+      failure_kind;
+    }
     end (* Tool_input_validation match *)
-  | None -> (id, "Tool not found", true)
+  | None ->
+      {
+        tool_use_id = id;
+        tool_name = name;
+        content = "Tool not found";
+        is_error = true;
+        failure_kind = Some Non_retryable_tool_error;
+      }
   in
   (* ToolCompleted event *)
   (match event_bus with
    | Some bus ->
-     let (_, content, is_error) = triple in
+     let output_content = result.content in
+     let is_error = result.is_error in
      let output : Types.tool_result =
-       if is_error then Error { message = content; recoverable = true }
-       else Ok { content }
+       if is_error then Error { message = output_content; recoverable = true }
+       else Ok { content = output_content }
      in
      Event_bus.publish bus
        (ToolCompleted { agent_name; tool_name = name; output })
    | None -> ());
-  triple
+  result
 
 let execute_scheduled_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus
     ~tracer ~agent_name ~turn_count ~(usage : Types.usage_stats) ~approval
@@ -218,8 +257,22 @@ let execute_scheduled_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus
                  })
           in
           match decision with
-          | Hooks.Skip -> (id, "Tool execution skipped by hook", false)
-          | Hooks.Override value -> (id, value, false)
+          | Hooks.Skip ->
+              {
+                tool_use_id = id;
+                tool_name = name;
+                content = "Tool execution skipped by hook";
+                is_error = false;
+                failure_kind = None;
+              }
+          | Hooks.Override value ->
+              {
+                tool_use_id = id;
+                tool_name = name;
+                content = value;
+                is_error = false;
+                failure_kind = None;
+              }
           | Hooks.ApprovalRequired -> (
               match approval with
               | None ->
@@ -233,7 +286,13 @@ let execute_scheduled_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus
                         ~tracer ~agent_name ~turn_count ?on_hook_invoked
                         ~schedule name input id
                   | Hooks.Reject reason ->
-                      (id, "Tool rejected: " ^ reason, true)
+                      {
+                        tool_use_id = id;
+                        tool_name = name;
+                        content = "Tool rejected: " ^ reason;
+                        is_error = true;
+                        failure_kind = Some Non_retryable_tool_error;
+                      }
                   | Hooks.Edit new_input ->
                       find_and_execute_tool ~context ~tools ~hooks ~event_bus
                         ~tracer ~agent_name ~turn_count ?on_hook_invoked
@@ -257,12 +316,18 @@ let execute_scheduled_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus
               Printf.sprintf "Tool '%s' raised: %s" name
                 (Printexc.to_string exn)
             in
-            (id, msg, true))
+            {
+              tool_use_id = id;
+              tool_name = name;
+              content = msg;
+              is_error = true;
+              failure_kind = Some Non_retryable_tool_error;
+            })
   in
   (match on_tool_execution_finished with
    | Some callback ->
-       let (_, content, is_error) = triple in
-       callback ~tool_use_id:id ~tool_name:name ~content ~is_error
+       callback ~tool_use_id:id ~tool_name:name ~content:triple.content
+         ~is_error:triple.is_error
    | None -> ());
   (index, triple)
 

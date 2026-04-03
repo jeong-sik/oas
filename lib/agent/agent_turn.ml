@@ -165,12 +165,13 @@ let filter_valid_messages ~messages extra_messages =
 
 let apply_context_injection ~context ~messages ~injector ~tool_uses ~results =
   let current_messages = ref messages in
-  List.iter2 (fun block (_, content, is_error) ->
+  List.iter2 (fun block (result : Agent_tools.tool_execution_result) ->
     match block with
     | ToolUse { name; input; _ } ->
       let output : tool_result =
-        if is_error then Error { message = content; recoverable = true }
-        else Ok { content }
+        if result.is_error then
+          Error { message = result.content; recoverable = true }
+        else Ok { content = result.content }
       in
       (try
         match injector ~tool_name:name ~input ~output with
@@ -248,6 +249,10 @@ let update_idle_detection ~idle_state ~tool_uses =
     All entries are valid ToolUse results — non-ToolUse blocks are filtered
     upstream in {!Agent_tools.execute_tools}. *)
 let make_tool_results results =
-  List.map (fun (tool_use_id, content, is_error) ->
-    ToolResult { tool_use_id; content; is_error }
+  List.map (fun (result : Agent_tools.tool_execution_result) ->
+    ToolResult {
+      tool_use_id = result.tool_use_id;
+      content = result.content;
+      is_error = result.is_error;
+    }
   ) results

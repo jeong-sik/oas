@@ -186,7 +186,27 @@ let test_with_approval () =
   Alcotest.(check bool) "approval set" true
     (Option.is_some (Agent.options agent).approval)
 
-(* --- 12. with_context_reducer --- *)
+(* --- 12. with_tool_retry_policy --- *)
+
+let test_with_tool_retry_policy () =
+  with_net @@ fun net ->
+  let policy = {
+    Agent_sdk.Tool_retry_policy.max_retries = 2;
+    retry_on_validation_error = true;
+    retry_on_recoverable_tool_error = false;
+    feedback_style = Agent_sdk.Tool_retry_policy.Structured_tool_result;
+  } in
+  let agent =
+    Builder.create ~net ~model:"claude-sonnet-4-6"
+    |> Builder.with_tool_retry_policy policy
+    |> Builder.build_safe |> Result.get_ok
+  in
+  Alcotest.(check bool) "tool_retry_policy set" true
+    (match (Agent.options agent).tool_retry_policy with
+     | Some actual -> actual.Agent_sdk.Tool_retry_policy.max_retries = 2
+     | None -> false)
+
+(* --- 13. with_context_reducer --- *)
 
 let test_with_context_reducer () =
   with_net @@ fun net ->
@@ -586,6 +606,7 @@ let () =
       Alcotest.test_case "hooks" `Quick test_with_hooks;
       Alcotest.test_case "tracer" `Quick test_with_tracer;
       Alcotest.test_case "approval" `Quick test_with_approval;
+      Alcotest.test_case "tool retry policy" `Quick test_with_tool_retry_policy;
       Alcotest.test_case "context_reducer" `Quick test_with_context_reducer;
       Alcotest.test_case "context" `Quick test_with_context;
       Alcotest.test_case "provider" `Quick test_with_provider;

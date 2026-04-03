@@ -37,6 +37,7 @@ type t = {
   tracer: Tracing.t;
   raw_trace: Raw_trace.t option;
   approval: Hooks.approval_callback option;
+  tool_retry_policy: Tool_retry_policy.t option;
   context_reducer: Context_reducer.t option;
   context_compact_ratio: float option;
   context_prepare_ratio: float option;
@@ -91,6 +92,7 @@ let create ~net ~model =
     tracer = Tracing.null;
     raw_trace = None;
     approval = None;
+    tool_retry_policy = None;
     context_reducer = None;
     context_compact_ratio = None;
     context_prepare_ratio = None;
@@ -126,6 +128,8 @@ let with_hooks hooks b = { b with hooks }
 let with_tracer tracer b = { b with tracer }
 let with_raw_trace raw_trace b = { b with raw_trace = Some raw_trace }
 let with_approval approval b = { b with approval = Some approval }
+let with_tool_retry_policy tool_retry_policy b =
+  { b with tool_retry_policy = Some tool_retry_policy }
 let with_context_reducer reducer b = { b with context_reducer = Some reducer }
 let with_context_thresholds ~compact_ratio ?prepare_ratio ?handoff_ratio b =
   let reducer = Context_reducer.from_context_config ~compact_ratio
@@ -248,6 +252,7 @@ let build b =
     tracer = b.tracer;
     raw_trace = b.raw_trace;
     approval = b.approval;
+    tool_retry_policy = b.tool_retry_policy;
     context_reducer = b.context_reducer;
     context_injector = b.context_injector;
     mcp_clients;

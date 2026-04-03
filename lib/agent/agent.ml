@@ -66,6 +66,7 @@ let base_messages agent =
 
 let run_loop ~sw ?clock ~api_strategy ?on_yield ?on_resume agent user_prompt =
   let user_msg = { role = User; content = [Text user_prompt]; name = None; tool_call_id = None } in
+  Tool_retry_policy.clear_context_retry_count agent.context;
   update_state agent (fun s ->
     { s with messages = Util.snoc (base_messages agent) user_msg });
   with_raw_trace_run agent user_prompt @@ fun raw_trace_run ->
@@ -137,6 +138,7 @@ let run_with_handoffs ~sw ?clock agent ~targets user_prompt =
   let agent_with_handoffs = { agent with tools = all_tools } in
 
   let user_msg = { role = User; content = [Text user_prompt]; name = None; tool_call_id = None } in
+  Tool_retry_policy.clear_context_retry_count agent_with_handoffs.context;
   update_state agent_with_handoffs (fun s ->
     { s with messages = Util.snoc (base_messages agent_with_handoffs) user_msg });
 

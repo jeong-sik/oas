@@ -100,7 +100,7 @@ val apply_context_injection :
   messages:Types.message list ->
   injector:Hooks.context_injector ->
   tool_uses:Types.content_block list ->
-  results:(string * string * bool) list ->
+  results:Agent_tools.tool_execution_result list ->
   Types.message list
 
 (** {1 Token budget} *)
@@ -129,6 +129,6 @@ val update_idle_detection :
 
 (** {1 Tool result construction} *)
 
-(** Convert [(id, content, is_error)] triples into [ToolResult] content blocks. *)
+(** Convert tool execution results into [ToolResult] content blocks. *)
 val make_tool_results :
-  (string * string * bool) list -> Types.content_block list
+  Agent_tools.tool_execution_result list -> Types.content_block list
