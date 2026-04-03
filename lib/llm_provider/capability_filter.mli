@@ -26,10 +26,21 @@ val requires_system_prompt : Capabilities.capabilities -> bool
 
 (** {2 Limit checks} *)
 
-(** Does the model's context window fit the given token count? *)
+(** Result of a limit check against capability metadata. *)
+type fit_result = Fits | Does_not_fit | Unknown_limit
+
+(** Check context window fit with explicit unknown representation. *)
+val check_context : tokens:int -> Capabilities.capabilities -> fit_result
+
+(** Check output limit fit with explicit unknown representation. *)
+val check_output : tokens:int -> Capabilities.capabilities -> fit_result
+
+(** Fail-closed context check: unknown limits return [false].
+    Use {!check_context} when callers need to handle uncertainty. *)
 val fits_context : tokens:int -> Capabilities.capabilities -> bool
 
-(** Does the model's output limit fit the given token count? *)
+(** Fail-closed output check: unknown limits return [false].
+    Use {!check_output} when callers need to handle uncertainty. *)
 val fits_output : tokens:int -> Capabilities.capabilities -> bool
 
 (** {2 Combinators} *)
