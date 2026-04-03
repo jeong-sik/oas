@@ -11,13 +11,31 @@
     an immediate "all failed" error when the system is simply at capacity.
 
     @since 0.99.5
-    @since 0.99.6 slot-full fallthrough for load distribution *)
+    @since 0.100.3 slot-full fallthrough for load distribution *)
+
+(* ── Shared cloud throttle table ─────────────────────── *)
+
+(** Per-kind cloud throttle singletons.  All callers contending for the
+    same cloud provider kind share one semaphore, just like local providers
+    share the Cascade_throttle table keyed by URL. *)
+let cloud_throttle_table : (Provider_config.provider_kind, Provider_throttle.t) Hashtbl.t =
+  Hashtbl.create 4
+let cloud_throttle_mu = Eio.Mutex.create ()
+
+let cloud_throttle_for_kind (kind : Provider_config.provider_kind) =
+  Eio.Mutex.use_rw ~protect:true cloud_throttle_mu (fun () ->
+    match Hashtbl.find_opt cloud_throttle_table kind with
+    | Some t -> t
+    | None ->
+      let t = Provider_throttle.default_for_kind kind in
+      Hashtbl.replace cloud_throttle_table kind t;
+      t)
 
 (* ── Shared throttle resolution ──────────────────────── *)
 
 (** Resolve the throttle for a provider.  Local providers use the shared
     Cascade_throttle table (populated from Discovery).  Cloud providers
-    use a per-kind default throttle so that concurrent callers contend
+    use a per-kind singleton throttle so that concurrent callers contend
     on a shared semaphore rather than issuing unlimited parallel requests. *)
 let resolve_throttle ~throttle_override (cfg : Provider_config.t) =
   match throttle_override with
@@ -26,10 +44,7 @@ let resolve_throttle ~throttle_override (cfg : Provider_config.t) =
     if Cascade_health_filter.is_local_provider cfg then
       Cascade_throttle.lookup cfg.base_url
     else
-      (* Cloud providers: use a shared per-kind default throttle.
-         Without this, N concurrent callers all bypass throttling
-         and overwhelm the provider (and the local Eio scheduler). *)
-      Some (Provider_throttle.default_for_kind cfg.kind)
+      Some (cloud_throttle_for_kind cfg.kind)
 
 (* ── Synchronous cascade with accept validator ─────────── *)
 
