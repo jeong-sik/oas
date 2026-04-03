@@ -40,15 +40,17 @@ type turn_preparation = {
 }
 
 let prepare_tools ~guardrails ~operator_policy ~(tools : Tool_set.t) ~turn_params =
-  (* Precedence chain: turn_params > operator > agent.
-     An operator who needs absolute control should use hooks
-     (before_turn_params) to prevent turn_params from overriding
-     its policy. *)
+  (* Precedence: operator > hook > agent.
+     Operator policy is the hard ceiling.  Hook tool_filter_override
+     is intersected with the merged result, so it can only narrow
+     the visible tool set — never re-grant a tool the operator denied. *)
   let merged, source =
     Guardrails.merge_operator_policy ~operator:operator_policy ~agent:guardrails
   in
   let effective_guardrails = match turn_params.Hooks.tool_filter_override with
-    | Some filter -> { merged with Guardrails.tool_filter = filter }
+    | Some filter ->
+      let intersected = Guardrails.intersect_filters merged.tool_filter filter in
+      { merged with Guardrails.tool_filter = intersected }
     | None -> merged
   in
   (* Audit log when operator policy is active *)
