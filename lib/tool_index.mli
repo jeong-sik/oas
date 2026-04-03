@@ -54,6 +54,20 @@ val build : ?config:config -> ?tokenizer:(string -> string list) -> entry list -
 (** Build from [Tool.t list], extracting name and description from schemas. *)
 val of_tools : ?config:config -> ?tokenizer:(string -> string list) -> Tool.t list -> t
 
+(** {1 Rebuild} *)
+
+(** Rebuild the index from a new tool list, recalculating IDF scores.
+    Preserves the config and tokenizer from the original index.
+    Use when tools are dynamically filtered and you want BM25 scoring
+    to reflect only the active set. *)
+val rebuild : t -> Tool.t list -> t
+
+(** Remove specific tool names from the index, returning a new index
+    with recalculated IDF scores. Equivalent to rebuilding with the
+    remaining entries, but accepts names to remove rather than the
+    full replacement list. *)
+val remove_entries : t -> string list -> t
+
 (** {1 Query} *)
 
 (** Retrieve top-K tool names matching a query string.

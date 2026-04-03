@@ -154,6 +154,26 @@ let of_tools ?(config = default_config) ?tokenizer (tools : Tool.t list) : t =
   ) tools in
   build ~config ?tokenizer entries
 
+(* ── Rebuild ─────────────────────────────────────── *)
+
+let rebuild (idx : t) (tools : Tool.t list) : t =
+  let entries = List.map (fun (tool : Tool.t) ->
+    { name = tool.schema.name;
+      description = tool.schema.description;
+      group = None }
+  ) tools in
+  build ~config:idx.config ~tokenizer:idx.tokenizer entries
+
+let remove_entries (idx : t) (names_to_remove : string list) : t =
+  let remove_set = Hashtbl.create (List.length names_to_remove) in
+  List.iter (fun n -> Hashtbl.replace remove_set n true) names_to_remove;
+  let remaining = Array.to_list idx.docs
+    |> List.filter (fun (doc : doc) ->
+      not (Hashtbl.mem remove_set doc.entry.name))
+    |> List.map (fun (doc : doc) -> doc.entry)
+  in
+  build ~config:idx.config ~tokenizer:idx.tokenizer remaining
+
 (* ── BM25 scoring ─────────────────────────────────── *)
 
 (** Count occurrences of a term in a token list. *)
@@ -403,3 +423,95 @@ let%test "retrieve_within excludes confiscated tools" =
   let names = List.map fst results in
   List.mem "safe_tool" names
   && not (List.mem "dangerous_tool" names)
+
+(* ── Rebuild / remove_entries tests ──────────────── *)
+
+let _dummy_handler : Tool.tool_handler =
+  fun _args -> Ok { Types.content = "ok" }
+
+let _mk_tool name desc : Tool.t =
+  { schema = { name; description = desc; parameters = [] };
+    descriptor = None;
+    handler = Simple _dummy_handler }
+
+let%test "rebuild with subset returns only those tools" =
+  let mk name desc : entry =
+    { name; description = desc; group = None }
+  in
+  let idx = build [
+    mk "read_file" "Read contents of a file";
+    mk "write_file" "Write content to a file";
+    mk "delete_file" "Delete a file from disk";
+  ] in
+  let subset = [
+    _mk_tool "read_file" "Read contents of a file";
+    _mk_tool "write_file" "Write content to a file";
+  ] in
+  let rebuilt = rebuild idx subset in
+  size rebuilt = 2
+  && List.mem "read_file" (retrieve_names rebuilt "read file")
+  && retrieve_names rebuilt "delete" = []
+
+let%test "rebuild recalculates IDF" =
+  (* Build with 3 tools that all mention "file" — IDF for "file" is low *)
+  let all_tools = [
+    _mk_tool "read_file" "Read a file from disk";
+    _mk_tool "write_file" "Write a file to disk";
+    _mk_tool "delete_file" "Delete a file from disk";
+  ] in
+  let idx_full = of_tools all_tools in
+  let score_full = match retrieve idx_full "read" with
+    | (_, s) :: _ -> s | [] -> 0.0
+  in
+  (* Rebuild with only read_file — IDF for shared terms changes *)
+  let idx_one = rebuild idx_full [
+    _mk_tool "read_file" "Read a file from disk";
+  ] in
+  let score_one = match retrieve idx_one "read" with
+    | (_, s) :: _ -> s | [] -> 0.0
+  in
+  (* With fewer docs, IDF changes, so scores differ *)
+  score_full > 0.0 && score_one > 0.0
+  && Float.abs (score_full -. score_one) > 0.001
+
+let%test "rebuild with empty list returns empty index" =
+  let idx = of_tools [_mk_tool "search" "Search for files"] in
+  let empty = rebuild idx [] in
+  size empty = 0 && retrieve empty "search" = []
+
+let%test "remove_entries removes specified tools" =
+  let mk name desc : entry =
+    { name; description = desc; group = None }
+  in
+  let idx = build [
+    mk "read_file" "Read contents of a file";
+    mk "write_file" "Write content to a file";
+    mk "delete_file" "Delete a file from disk";
+  ] in
+  let pruned = remove_entries idx ["delete_file"; "write_file"] in
+  size pruned = 1
+  && List.mem "read_file" (retrieve_names pruned "read file")
+  && retrieve_names pruned "delete" = []
+  && retrieve_names pruned "write" = []
+
+let%test "remove_entries with nonexistent name is no-op" =
+  let mk name desc : entry =
+    { name; description = desc; group = None }
+  in
+  let idx = build [
+    mk "read_file" "Read a file";
+    mk "write_file" "Write a file";
+  ] in
+  let same = remove_entries idx ["no_such_tool"] in
+  size same = 2
+
+let%test "remove_entries with all names returns empty" =
+  let mk name desc : entry =
+    { name; description = desc; group = None }
+  in
+  let idx = build [
+    mk "tool_a" "Alpha tool";
+    mk "tool_b" "Beta tool";
+  ] in
+  let empty = remove_entries idx ["tool_a"; "tool_b"] in
+  size empty = 0 && retrieve empty "alpha" = []
