@@ -56,6 +56,11 @@ let expected_concurrency_class_of_mutation_class = function
   | "external" | "external_effect" -> Some Exclusive_external
   | _ -> None
 
+let concurrency_class_name = function
+  | Parallel_read -> "parallel_read"
+  | Sequential_workspace -> "sequential_workspace"
+  | Exclusive_external -> "exclusive_external"
+
 let validate_descriptor (descriptor : descriptor) =
   match descriptor.mutation_class, descriptor.concurrency_class with
   | Some mutation_class, Some concurrency_class -> (
@@ -64,7 +69,7 @@ let validate_descriptor (descriptor : descriptor) =
           Error
             (Printf.sprintf
                "descriptor mismatch: mutation_class=%s requires concurrency_class=%s"
-               mutation_class (show_concurrency_class expected))
+               mutation_class (concurrency_class_name expected))
       | _ -> Ok ())
   | _ -> Ok ()
 

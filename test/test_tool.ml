@@ -229,7 +229,7 @@ let test_create_rejects_inconsistent_descriptor () =
   check_raises
     "invalid descriptor"
     (Invalid_argument
-       "Tool.create: descriptor mismatch: mutation_class=read_only requires concurrency_class=Tool.Parallel_read")
+       "Tool.create: descriptor mismatch: mutation_class=read_only requires concurrency_class=parallel_read")
     (fun () ->
        ignore
          (Tool.create
