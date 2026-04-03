@@ -64,6 +64,17 @@ val retrieve : t -> string -> (string * float) list
 (** Retrieve tool names only (no scores). *)
 val retrieve_names : t -> string -> string list
 
+(** Like [retrieve] but only returns results where the tool name is in [active].
+    Useful when callers have a pre-selected set of allowed tools.
+    Implementation: calls [retrieve] then post-filters. O(k) where k = result size. *)
+val retrieve_within : t -> active:string list -> string -> (string * float) list
+
+(** Like [retrieve] but only returns results where [filter name] is true.
+    Generalizes [retrieve_within] for arbitrary predicates (e.g. prefix match,
+    capability check).
+    Implementation: calls [retrieve] then post-filters. O(k) where k = result size. *)
+val retrieve_filtered : t -> filter:(string -> bool) -> string -> (string * float) list
+
 (** {1 Confidence gate} *)
 
 (** Check if the top result exceeds a confidence threshold.
