@@ -1,4 +1,5 @@
-(** Tool execution helpers — lookup, hooks, event bus, parallel Eio fibers.
+(** Tool execution helpers — lookup, hooks, event bus, and effect-aware
+    Eio scheduling.
 
     These functions are parameterized by explicit fields rather than [Agent.t]
     to avoid circular module dependencies ([Agent_tools] is compiled before
@@ -43,20 +44,26 @@ val find_and_execute_tool :
   string -> Yojson.Safe.t -> string ->
   string * string * bool
 
-(** {1 Parallel tool execution} *)
+(** {1 Tool scheduling and execution} *)
 
-(** Execute tool-use content blocks in parallel using Eio fibers.
+(** Execute tool-use content blocks using declared concurrency classes.
 
     Non-[ToolUse] blocks in the input list are filtered out before
     execution — only [ToolUse] blocks produce result triples.
+
+    Scheduling is deterministic:
+    - [Tool.Parallel_read] blocks are executed together in a parallel batch.
+    - [Tool.Sequential_workspace] and [Tool.Exclusive_external] blocks run
+      one-at-a-time in input order.
+    - Tools without a declared descriptor default to sequential execution.
 
     For each [ToolUse] block, applies the [PreToolUse] hook before execution.
     Supports approval flow: if the hook returns [ApprovalRequired], the
     [approval] callback is invoked.
 
-    Each fiber catches exceptions to prevent one tool failure from
-    canceling siblings (except [Out_of_memory], [Stack_overflow],
-    [Sys.Break]).
+    Parallel batches catch exceptions per fiber to prevent one tool failure
+    from canceling siblings (except [Out_of_memory], [Stack_overflow],
+    [Sys.Break], and cancellation).
 
     Returns [(tool_use_id, content, is_error)] triples, one per [ToolUse]
     block, in the same relative order as the input. *)

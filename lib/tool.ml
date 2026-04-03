@@ -14,6 +14,12 @@ type workdir_policy =
   | None_expected
 [@@deriving yojson, show]
 
+type concurrency_class =
+  | Parallel_read
+  | Sequential_workspace
+  | Exclusive_external
+[@@deriving yojson, show]
+
 type shell_constraints = {
   single_command_only: bool;
   shell_metacharacters_allowed: bool;
@@ -27,6 +33,7 @@ type shell_constraints = {
 type descriptor = {
   kind: string option;
   mutation_class: string option;
+  concurrency_class: concurrency_class option;
   shell: shell_constraints option;
   notes: string list;
   examples: string list;
@@ -43,13 +50,40 @@ type t = {
   handler: handler_kind;
 }
 
+let expected_concurrency_class_of_mutation_class = function
+  | "read_only" -> Some Parallel_read
+  | "workspace" | "workspace_mutating" -> Some Sequential_workspace
+  | "external" | "external_effect" -> Some Exclusive_external
+  | _ -> None
+
+let validate_descriptor (descriptor : descriptor) =
+  match descriptor.mutation_class, descriptor.concurrency_class with
+  | Some mutation_class, Some concurrency_class -> (
+      match expected_concurrency_class_of_mutation_class mutation_class with
+      | Some expected when expected <> concurrency_class ->
+          Error
+            (Printf.sprintf
+               "descriptor mismatch: mutation_class=%s requires concurrency_class=%s"
+               mutation_class (show_concurrency_class expected))
+      | _ -> Ok ())
+  | _ -> Ok ()
+
+let validate_descriptor_opt = function
+  | None -> ()
+  | Some descriptor -> (
+      match validate_descriptor descriptor with
+      | Ok () -> ()
+      | Error msg -> invalid_arg ("Tool.create: " ^ msg))
+
 (** Create a tool with a simple handler *)
 let create ?descriptor ~name ~description ~parameters handler =
+  validate_descriptor_opt descriptor;
   let schema = { name; description; parameters } in
   { schema; descriptor; handler = Simple handler }
 
 (** Create a tool with a context-aware handler *)
 let create_with_context ?descriptor ~name ~description ~parameters handler =
+  validate_descriptor_opt descriptor;
   let schema = { name; description; parameters } in
   { schema; descriptor; handler = WithContext handler }
 
@@ -98,6 +132,16 @@ let descriptor_to_yojson = function
             Option.value
               ~default:`Null
               (Option.map (fun value -> `String value) descriptor.kind) );
+          ( "mutation_class",
+            Option.value
+              ~default:`Null
+              (Option.map (fun value -> `String value) descriptor.mutation_class)
+          );
+          ( "concurrency_class",
+            Option.value
+              ~default:`Null
+              (Option.map concurrency_class_to_yojson descriptor.concurrency_class)
+          );
           ("shell", shell_json);
           ("notes", `List (List.map (fun note -> `String note) descriptor.notes));
           ( "examples",

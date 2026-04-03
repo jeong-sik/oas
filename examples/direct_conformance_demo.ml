@@ -164,6 +164,7 @@ let () =
         {
           Tool.kind = Some "shell";
           mutation_class = None;
+          concurrency_class = Some Tool.Exclusive_external;
           shell =
             Some
               {
