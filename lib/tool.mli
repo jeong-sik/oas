@@ -12,6 +12,12 @@ type workdir_policy =
   | None_expected
 [@@deriving yojson, show]
 
+type concurrency_class =
+  | Parallel_read
+  | Sequential_workspace
+  | Exclusive_external
+[@@deriving yojson, show]
+
 type shell_constraints = {
   single_command_only: bool;
   shell_metacharacters_allowed: bool;
@@ -25,6 +31,7 @@ type shell_constraints = {
 type descriptor = {
   kind: string option;
   mutation_class: string option;
+  concurrency_class: concurrency_class option;
   shell: shell_constraints option;
   notes: string list;
   examples: string list;
@@ -52,6 +59,7 @@ val create_with_context :
 
 val execute : ?context:Context.t -> t -> Yojson.Safe.t -> Types.tool_result
 val descriptor : t -> descriptor option
+val validate_descriptor : descriptor -> (unit, string) result
 val descriptor_to_yojson : descriptor option -> Yojson.Safe.t
 val schema_to_json : t -> Yojson.Safe.t
 

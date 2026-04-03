@@ -83,7 +83,9 @@ let test_direct_evidence_materializes_bundle () =
     Tool.create
       ~descriptor:
         {
-          Tool.kind = Some "shell"; mutation_class = None;
+          Tool.kind = Some "shell";
+          mutation_class = None;
+          concurrency_class = Some Tool.Exclusive_external;
           shell =
             Some
               {

@@ -127,7 +127,9 @@ let test_descriptor_preserved_and_not_in_schema () =
     Tool.create
       ~descriptor:
         {
-          Tool.kind = Some "shell"; mutation_class = None;
+          Tool.kind = Some "shell";
+          mutation_class = None;
+          concurrency_class = Some Tool.Exclusive_external;
           shell =
             Some
               {
@@ -161,6 +163,9 @@ let test_descriptor_preserved_and_not_in_schema () =
   let open Yojson.Safe.Util in
   check bool "descriptor not in wire schema" true
     (json |> member "descriptor" = `Null);
+  check string "descriptor json has concurrency_class"
+    (Yojson.Safe.to_string (`List [ `String "Exclusive_external" ]))
+    (Yojson.Safe.to_string (descriptor_json |> member "concurrency_class"));
   check bool "descriptor json has shell" true
     (descriptor_json |> member "shell" <> `Null);
   check bool "descriptor json has examples" true
@@ -203,6 +208,45 @@ let test_descriptor_to_yojson_none () =
   let json = Tool.descriptor_to_yojson None in
   check string "null" (Yojson.Safe.to_string `Null) (Yojson.Safe.to_string json)
 
+let test_concurrency_class_yojson_roundtrip () =
+  let variants = [
+    Tool.Parallel_read;
+    Tool.Sequential_workspace;
+    Tool.Exclusive_external;
+  ] in
+  List.iter (fun value ->
+    let json = Tool.concurrency_class_to_yojson value in
+    match Tool.concurrency_class_of_yojson json with
+    | Ok decoded ->
+        check string "concurrency roundtrip"
+          (Tool.show_concurrency_class value)
+          (Tool.show_concurrency_class decoded)
+    | Error msg ->
+        fail ("concurrency_class roundtrip: " ^ msg)
+  ) variants
+
+let test_create_rejects_inconsistent_descriptor () =
+  check_raises
+    "invalid descriptor"
+    (Invalid_argument
+       "Tool.create: descriptor mismatch: mutation_class=read_only requires concurrency_class=parallel_read")
+    (fun () ->
+       ignore
+         (Tool.create
+            ~descriptor:
+              {
+                Tool.kind = None;
+                mutation_class = Some "read_only";
+                concurrency_class = Some Tool.Sequential_workspace;
+                shell = None;
+                notes = [];
+                examples = [];
+              }
+            ~name:"bad"
+            ~description:"bad"
+            ~parameters:[]
+            (fun _ -> Ok { Types.content = "ok" })))
+
 let () =
   run "Tool" [
     "simple_handler", [
@@ -223,7 +267,12 @@ let () =
     "yojson_roundtrip", [
       test_case "workdir_policy" `Quick test_workdir_policy_yojson_roundtrip;
       test_case "shell_constraints" `Quick test_shell_constraints_yojson_roundtrip;
+      test_case "concurrency_class" `Quick test_concurrency_class_yojson_roundtrip;
       test_case "descriptor None" `Quick test_descriptor_to_yojson_none;
+    ];
+    "validation", [
+      test_case "create rejects inconsistent descriptor" `Quick
+        test_create_rejects_inconsistent_descriptor;
     ];
     "with_defaults", [
       test_case "injects missing args" `Quick (fun () ->

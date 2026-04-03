@@ -4,17 +4,23 @@ open Alcotest
 open Agent_sdk
 open Types
 
+let descriptor_with ?mutation_class concurrency_class =
+  {
+    Tool.kind = None;
+    mutation_class;
+    concurrency_class = Some concurrency_class;
+    shell = None;
+    notes = [];
+    examples = [];
+  }
+
 (** Helper: create a simple tool that echoes its input as JSON string *)
-let make_echo_tool name =
-  Tool.create ~name ~description:"echo" ~parameters:[] (fun input ->
+let make_echo_tool ?descriptor name =
+  Tool.create ?descriptor ~name ~description:"echo" ~parameters:[] (fun input ->
     Ok { Types.content = Yojson.Safe.to_string input })
 
-(** Helper: create a minimal agent inside Eio with given hooks and approval.
-    Returns execute_tools results for the given tool_uses. *)
-let run_execute ~hooks ?approval tool_uses =
-  Eio_main.run @@ fun env ->
+let execute_with_tools_in_env env ~tools ~hooks ?approval tool_uses =
   let net = Eio.Stdenv.net env in
-  let tools = [make_echo_tool "safe"; make_echo_tool "dangerous"] in
   let options = { Agent.default_options with hooks; approval } in
   let agent = Agent.create ~net ~tools ~options () in
   let opts = Agent.options agent in
@@ -25,6 +31,17 @@ let run_execute ~hooks ?approval tool_uses =
     ~turn_count:(Agent.state agent).turn_count ~usage:(Agent.state agent).usage
     ~approval:opts.approval
     tool_uses
+
+(** Helper: create a minimal agent inside Eio with given hooks and approval.
+    Returns execute_tools results for the given tool_uses. *)
+let run_execute_with_tools ~tools ~hooks ?approval tool_uses =
+  Eio_main.run @@ fun env ->
+  execute_with_tools_in_env env ~tools ~hooks ?approval tool_uses
+
+let run_execute ~hooks ?approval tool_uses =
+  run_execute_with_tools
+    ~tools:[ make_echo_tool "safe"; make_echo_tool "dangerous" ]
+    ~hooks ?approval tool_uses
 
 (* --- Test cases --- *)
 
@@ -165,6 +182,164 @@ let test_only_non_tool_use_blocks () =
   ] in
   check int "empty results" 0 (List.length results)
 
+let test_parallel_read_tools_share_batch () =
+  Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  let started_a, resolve_a = Eio.Promise.create () in
+  let started_b, resolve_b = Eio.Promise.create () in
+  let make_barrier_tool name resolve_self await_other =
+    make_echo_tool
+      ~descriptor:
+        (descriptor_with ~mutation_class:"read_only" Tool.Parallel_read)
+      name
+    |> fun tool ->
+    { tool with
+      Tool.handler =
+        Tool.Simple
+          (fun input ->
+            Eio.Promise.resolve resolve_self ();
+            Eio.Time.with_timeout_exn clock 0.05 (fun () ->
+                Eio.Promise.await await_other);
+            Ok { Types.content = Yojson.Safe.to_string input }) }
+  in
+  let tools =
+    [
+      make_barrier_tool "read_a" resolve_a started_b;
+      make_barrier_tool "read_b" resolve_b started_a;
+    ]
+  in
+  let results =
+    execute_with_tools_in_env env ~tools ~hooks:Hooks.empty
+      [
+        ToolUse { id = "t1"; name = "read_a"; input = `String "a" };
+        ToolUse { id = "t2"; name = "read_b"; input = `String "b" };
+      ]
+  in
+  match results with
+  | [ (_, _, false); (_, _, false) ] -> ()
+  | _ -> fail "parallel read batch should allow both tools to start"
+
+let test_workspace_tools_run_sequentially () =
+  Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  let running = ref false in
+  let make_guarded_tool name =
+    make_echo_tool
+      ~descriptor:
+        (descriptor_with ~mutation_class:"workspace_mutating"
+           Tool.Sequential_workspace)
+      name
+    |> fun tool ->
+    { tool with
+      Tool.handler =
+        Tool.Simple
+          (fun _ ->
+            if !running then failwith "workspace overlap detected";
+            running := true;
+            Eio.Time.sleep clock 0.01;
+            running := false;
+            Ok { Types.content = name }) }
+  in
+  let results =
+    execute_with_tools_in_env env
+      ~tools:[ make_guarded_tool "write_a"; make_guarded_tool "write_b" ]
+      ~hooks:Hooks.empty
+      [
+        ToolUse { id = "t1"; name = "write_a"; input = `Null };
+        ToolUse { id = "t2"; name = "write_b"; input = `Null };
+      ]
+  in
+  match results with
+  | [ (_, "write_a", false); (_, "write_b", false) ] -> ()
+  | _ -> fail "workspace tools should execute sequentially"
+
+let test_undeclared_tools_default_to_sequential () =
+  Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  let running = ref false in
+  let make_guarded_tool name =
+    make_echo_tool name
+    |> fun tool ->
+    { tool with
+      Tool.handler =
+        Tool.Simple
+          (fun _ ->
+            if !running then failwith "undeclared tool overlap detected";
+            running := true;
+            Eio.Time.sleep clock 0.01;
+            running := false;
+            Ok { Types.content = name }) }
+  in
+  let results =
+    execute_with_tools_in_env env
+      ~tools:[ make_guarded_tool "implicit_a"; make_guarded_tool "implicit_b" ]
+      ~hooks:Hooks.empty
+      [
+        ToolUse { id = "t1"; name = "implicit_a"; input = `Null };
+        ToolUse { id = "t2"; name = "implicit_b"; input = `Null };
+      ]
+  in
+  match results with
+  | [ (_, "implicit_a", false); (_, "implicit_b", false) ] -> ()
+  | _ -> fail "undeclared tools should stay sequential by default"
+
+let test_workspace_barrier_splits_parallel_read_batches () =
+  Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  let read_running = ref 0 in
+  let workspace_running = ref false in
+  let make_read_tool name =
+    make_echo_tool
+      ~descriptor:
+        (descriptor_with ~mutation_class:"read_only" Tool.Parallel_read)
+      name
+    |> fun tool ->
+    { tool with
+      Tool.handler =
+        Tool.Simple
+          (fun _ ->
+            if !workspace_running then failwith "read overlapped with workspace";
+            incr read_running;
+            Eio.Time.sleep clock 0.02;
+            decr read_running;
+            Ok { Types.content = name }) }
+  in
+  let make_workspace_tool name =
+    make_echo_tool
+      ~descriptor:
+        (descriptor_with ~mutation_class:"workspace_mutating"
+           Tool.Sequential_workspace)
+      name
+    |> fun tool ->
+    { tool with
+      Tool.handler =
+        Tool.Simple
+          (fun _ ->
+            if !read_running > 0 then failwith "workspace overlapped with read";
+            workspace_running := true;
+            Eio.Time.sleep clock 0.02;
+            workspace_running := false;
+            Ok { Types.content = name }) }
+  in
+  let tools =
+    [
+      make_read_tool "read_before";
+      make_workspace_tool "write_mid";
+      make_read_tool "read_after";
+    ]
+  in
+  let results =
+    execute_with_tools_in_env env ~tools ~hooks:Hooks.empty
+      [
+        ToolUse { id = "t1"; name = "read_before"; input = `Null };
+        ToolUse { id = "t2"; name = "write_mid"; input = `Null };
+        ToolUse { id = "t3"; name = "read_after"; input = `Null };
+      ]
+  in
+  match results with
+  | [ (_, "read_before", false); (_, "write_mid", false); (_, "read_after", false) ] -> ()
+  | _ -> fail "workspace tool should form a sequential barrier between read batches"
+
 let () =
   run "Approval" [
     "approval_required", [
@@ -178,5 +353,15 @@ let () =
     "non_tool_use_filtering", [
       test_case "mixed blocks filtered (#327)" `Quick test_non_tool_use_blocks_filtered;
       test_case "only non-ToolUse = empty" `Quick test_only_non_tool_use_blocks;
+    ];
+    "scheduling", [
+      test_case "parallel read batch" `Quick
+        test_parallel_read_tools_share_batch;
+      test_case "workspace tools stay sequential" `Quick
+        test_workspace_tools_run_sequentially;
+      test_case "undeclared tools default sequential" `Quick
+        test_undeclared_tools_default_to_sequential;
+      test_case "workspace barrier splits read batches" `Quick
+        test_workspace_barrier_splits_parallel_read_batches;
     ];
   ]

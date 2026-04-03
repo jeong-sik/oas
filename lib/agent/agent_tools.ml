@@ -5,6 +5,66 @@
 
 open Types
 
+type scheduled_tool_use = {
+  index: int;
+  id: string;
+  name: string;
+  input: Yojson.Safe.t;
+  concurrency_class: Tool.concurrency_class;
+}
+
+type execution_batch =
+  | Parallel_batch of scheduled_tool_use list
+  | Sequential_batch of scheduled_tool_use
+
+let inferred_concurrency_class_of_mutation_class = function
+  | "read_only" -> Some Tool.Parallel_read
+  | "workspace" | "workspace_mutating" -> Some Tool.Sequential_workspace
+  | "external" | "external_effect" -> Some Tool.Exclusive_external
+  | _ -> None
+
+let concurrency_class_of_tool tool =
+  match Tool.descriptor tool with
+  | Some descriptor -> (
+      match descriptor.Tool.concurrency_class with
+      | Some concurrency_class -> concurrency_class
+      | None -> (
+          match
+            Option.bind descriptor.Tool.mutation_class
+              inferred_concurrency_class_of_mutation_class
+          with
+          | Some inferred -> inferred
+          | None -> Tool.Sequential_workspace))
+  | None -> Tool.Sequential_workspace
+
+let find_tool_by_name tools name =
+  List.find_opt (fun (tool : Tool.t) -> tool.schema.name = name) tools
+
+let schedule_tool_use ~tools index (id, name, input) =
+  let concurrency_class =
+    match find_tool_by_name tools name with
+    | Some tool -> concurrency_class_of_tool tool
+    | None -> Tool.Sequential_workspace
+  in
+  { index; id; name; input; concurrency_class }
+
+let execution_batches tool_uses =
+  let flush_parallel acc = function
+    | [] -> acc
+    | parallel_tools -> Parallel_batch (List.rev parallel_tools) :: acc
+  in
+  let rec build acc current_parallel = function
+    | [] -> List.rev (flush_parallel acc current_parallel)
+    | tool_use :: rest -> (
+        match tool_use.concurrency_class with
+        | Tool.Parallel_read ->
+            build acc (tool_use :: current_parallel) rest
+        | Tool.Sequential_workspace | Tool.Exclusive_external ->
+            let acc = flush_parallel acc current_parallel in
+            build (Sequential_batch tool_use :: acc) [] rest)
+  in
+  build [] [] tool_uses
+
 let invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count ~hook_name
     hook_opt event =
   Tracing.with_span tracer
@@ -97,10 +157,79 @@ let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tra
    | None -> ());
   triple
 
-(** Execute tools in parallel using Eio fibers.
-    Applies PreToolUse/PostToolUse hooks and passes context to context-aware handlers.
-    Each fiber catches exceptions to prevent one tool failure from canceling siblings.
-    Non-ToolUse blocks are filtered out before execution. *)
+let execute_scheduled_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus
+    ~tracer ~agent_name ~turn_count ~(usage : Types.usage_stats) ~approval
+    ?on_tool_execution_started ?on_tool_execution_finished ?on_hook_invoked
+    (tool_use : scheduled_tool_use) =
+  let { index; id; name; input; _ } = tool_use in
+  (match on_tool_execution_started with
+   | Some callback -> callback ~tool_use_id:id ~tool_name:name ~input
+   | None -> ());
+  let triple =
+    Tracing.with_span tracer
+      { kind = Tool_exec; name; agent_name; turn = turn_count; extra = [] }
+      (fun _tracer ->
+        try
+          let decision =
+            invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count
+              ~hook_name:"pre_tool_use" hooks.pre_tool_use
+              (Hooks.PreToolUse
+                 {
+                   tool_name = name;
+                   input;
+                   accumulated_cost_usd = usage.Types.estimated_cost_usd;
+                   turn = turn_count;
+                 })
+          in
+          match decision with
+          | Hooks.Skip -> (id, "Tool execution skipped by hook", false)
+          | Hooks.Override value -> (id, value, false)
+          | Hooks.ApprovalRequired -> (
+              match approval with
+              | None ->
+                  find_and_execute_tool ~context ~tools ~hooks ~event_bus
+                    ~tracer ~agent_name ~turn_count ?on_hook_invoked name input
+                    id
+              | Some approve_fn -> (
+                  match approve_fn ~tool_name:name ~input with
+                  | Hooks.Approve ->
+                      find_and_execute_tool ~context ~tools ~hooks ~event_bus
+                        ~tracer ~agent_name ~turn_count ?on_hook_invoked name
+                        input id
+                  | Hooks.Reject reason ->
+                      (id, "Tool rejected: " ^ reason, true)
+                  | Hooks.Edit new_input ->
+                      find_and_execute_tool ~context ~tools ~hooks ~event_bus
+                        ~tracer ~agent_name ~turn_count ?on_hook_invoked name
+                        new_input id))
+          | Hooks.Continue ->
+              find_and_execute_tool ~context ~tools ~hooks ~event_bus ~tracer
+                ~agent_name ~turn_count ?on_hook_invoked name input id
+          | Hooks.AdjustParams _ ->
+              find_and_execute_tool ~context ~tools ~hooks ~event_bus ~tracer
+                ~agent_name ~turn_count ?on_hook_invoked name input id
+          | Hooks.ElicitInput _ ->
+              find_and_execute_tool ~context ~tools ~hooks ~event_bus ~tracer
+                ~agent_name ~turn_count ?on_hook_invoked name input id
+        with
+        | Out_of_memory -> raise Out_of_memory
+        | Stack_overflow -> raise Stack_overflow
+        | Sys.Break -> raise Sys.Break
+        | Eio.Cancel.Cancelled _ as ex -> raise ex
+        | exn ->
+            let msg =
+              Printf.sprintf "Tool '%s' raised: %s" name
+                (Printexc.to_string exn)
+            in
+            (id, msg, true))
+  in
+  (match on_tool_execution_finished with
+   | Some callback ->
+       let (_, content, is_error) = triple in
+       callback ~tool_use_id:id ~tool_name:name ~content ~is_error
+   | None -> ());
+  (index, triple)
+
 let execute_tools ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tracer
     ~agent_name ~turn_count ~(usage : Types.usage_stats) ~approval
     ?on_tool_execution_started
@@ -112,71 +241,18 @@ let execute_tools ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tracer
     | ToolUse { id; name; input } -> Some (id, name, input)
     | _ -> None
   ) tool_uses in
-  Eio.Fiber.List.map (fun (id, name, input) ->
-        (match on_tool_execution_started with
-         | Some callback -> callback ~tool_use_id:id ~tool_name:name ~input
-         | None -> ());
-        Tracing.with_span tracer
-          { kind = Tool_exec; name;
-            agent_name;
-            turn = turn_count; extra = [] }
-          (fun _tracer ->
-            (try
-              (* PreToolUse hook *)
-              let decision =
-                invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count
-                  ~hook_name:"pre_tool_use" hooks.pre_tool_use
-                  (Hooks.PreToolUse { tool_name = name; input;
-                                     accumulated_cost_usd = usage.Types.estimated_cost_usd;
-                                     turn = turn_count })
-              in
-              (match decision with
-              | Hooks.Skip -> (id, "Tool execution skipped by hook", false)
-              | Hooks.Override value -> (id, value, false)
-              | Hooks.ApprovalRequired ->
-                (match approval with
-                | None ->
-                  (* No callback registered: permissive default, execute normally *)
-                  find_and_execute_tool ~context ~tools ~hooks ~event_bus
-                    ~tracer ~agent_name ~turn_count ?on_hook_invoked name input id
-                | Some approve_fn ->
-                  (match approve_fn ~tool_name:name ~input with
-                  | Hooks.Approve ->
-                      find_and_execute_tool ~context ~tools ~hooks ~event_bus
-                        ~tracer ~agent_name ~turn_count ?on_hook_invoked name
-                        input id
-                  | Hooks.Reject reason -> (id, "Tool rejected: " ^ reason, true)
-                  | Hooks.Edit new_input ->
-                      find_and_execute_tool ~context ~tools ~hooks ~event_bus
-                        ~tracer ~agent_name ~turn_count ?on_hook_invoked name
-                        new_input id))
-              | Hooks.Continue ->
-                  find_and_execute_tool ~context ~tools ~hooks ~event_bus
-                    ~tracer ~agent_name ~turn_count ?on_hook_invoked name
-                    input id
-              | Hooks.AdjustParams _ ->
-                  (* AdjustParams is only valid for BeforeTurnParams; treat as Continue here *)
-                  find_and_execute_tool ~context ~tools ~hooks ~event_bus
-                    ~tracer ~agent_name ~turn_count ?on_hook_invoked name
-                    input id
-              | Hooks.ElicitInput _ ->
-                  (* ElicitInput is handled at the agent loop level; treat as Continue here *)
-                  find_and_execute_tool ~context ~tools ~hooks ~event_bus
-                    ~tracer ~agent_name ~turn_count ?on_hook_invoked name
-                    input id)
-            with
-            | Out_of_memory -> raise Out_of_memory
-            | Stack_overflow -> raise Stack_overflow
-            | Sys.Break -> raise Sys.Break
-            | Eio.Cancel.Cancelled _ as ex -> raise ex
-            | exn ->
-              let msg = Printf.sprintf "Tool '%s' raised: %s" name (Printexc.to_string exn) in
-              (id, msg, true)))
-        |> fun triple ->
-        (match on_tool_execution_finished with
-         | Some callback ->
-             let (_, content, is_error) = triple in
-             callback ~tool_use_id:id ~tool_name:name ~content ~is_error
-         | None -> ());
-        triple
-  ) tool_use_blocks
+  let scheduled =
+    List.mapi (schedule_tool_use ~tools) tool_use_blocks
+  in
+  let run_one =
+    execute_scheduled_tool ~context ~tools ~hooks ~event_bus ~tracer
+      ~agent_name ~turn_count ~usage ~approval ?on_tool_execution_started
+      ?on_tool_execution_finished ?on_hook_invoked
+  in
+  execution_batches scheduled
+  |> List.concat_map (function
+         | Sequential_batch tool_use -> [ run_one tool_use ]
+         | Parallel_batch tool_uses -> Eio.Fiber.List.map run_one tool_uses)
+  |> List.sort (fun (left_index, _) (right_index, _) ->
+         Int.compare left_index right_index)
+  |> List.map snd
