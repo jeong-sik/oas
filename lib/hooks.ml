@@ -40,6 +40,13 @@ let empty_reasoning_summary = {
   tool_rationale = None;
 }
 
+type tool_schedule = {
+  planned_index: int;
+  batch_index: int;
+  batch_size: int;
+  concurrency_class: string;
+}
+
 (** Extract reasoning summary from message list.
     Scans for Thinking blocks and heuristically detects uncertainty
     markers like "I'm not sure", "uncertain", "unclear". *)
@@ -81,11 +88,29 @@ type hook_event =
       reasoning: reasoning_summary;
     }
   | AfterTurn of { turn: int; response: api_response }
-  | PreToolUse of { tool_name: string; input: Yojson.Safe.t;
-                    accumulated_cost_usd: float; turn: int }
-  | PostToolUse of { tool_name: string; input: Yojson.Safe.t;
-                     output: Types.tool_result; result_bytes: int }
-  | PostToolUseFailure of { tool_name: string; input: Yojson.Safe.t; error: string }
+  | PreToolUse of {
+      tool_use_id: string;
+      tool_name: string;
+      input: Yojson.Safe.t;
+      accumulated_cost_usd: float;
+      turn: int;
+      schedule: tool_schedule;
+    }
+  | PostToolUse of {
+      tool_use_id: string;
+      tool_name: string;
+      input: Yojson.Safe.t;
+      output: Types.tool_result;
+      result_bytes: int;
+      schedule: tool_schedule;
+    }
+  | PostToolUseFailure of {
+      tool_use_id: string;
+      tool_name: string;
+      input: Yojson.Safe.t;
+      error: string;
+      schedule: tool_schedule;
+    }
   | OnStop of { reason: stop_reason; response: api_response }
   | OnIdle of { consecutive_idle_turns: int; tool_names: string list }
   | OnError of { detail: string; context: string }

@@ -26,7 +26,8 @@ let traced_mock_entry ~trace_dir ~name ~tool_names text =
             List.iter (fun tool_name ->
               ignore (Raw_trace.record_tool_execution_started active
                 ~tool_use_id:("tu-" ^ tool_name) ~tool_name
-                ~tool_input:(`Assoc []));
+                ~tool_input:(`Assoc []) ~planned_index:0 ~batch_index:0
+                ~batch_size:1 ~concurrency_class:"sequential_workspace");
               ignore (Raw_trace.record_tool_execution_finished active
                 ~tool_use_id:("tu-" ^ tool_name) ~tool_name
                 ~tool_result:"ok" ~tool_error:false)

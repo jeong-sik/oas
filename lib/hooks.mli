@@ -25,6 +25,14 @@ type reasoning_summary = {
 val empty_reasoning_summary : reasoning_summary
 val extract_reasoning : Types.message list -> reasoning_summary
 
+(** Deterministic scheduling metadata attached to a tool execution plan. *)
+type tool_schedule = {
+  planned_index: int;
+  batch_index: int;
+  batch_size: int;
+  concurrency_class: string;
+}
+
 (** Events emitted during agent execution *)
 type hook_event =
   | BeforeTurn of { turn: int; messages: Types.message list }
@@ -36,12 +44,29 @@ type hook_event =
       reasoning: reasoning_summary;
     }
   | AfterTurn of { turn: int; response: Types.api_response }
-  | PreToolUse of { tool_name: string; input: Yojson.Safe.t;
-                    accumulated_cost_usd: float; turn: int }
-  | PostToolUse of { tool_name: string; input: Yojson.Safe.t;
-                     output: Types.tool_result; result_bytes: int }
-  | PostToolUseFailure of { tool_name: string; input: Yojson.Safe.t;
-                            error: string }
+  | PreToolUse of {
+      tool_use_id: string;
+      tool_name: string;
+      input: Yojson.Safe.t;
+      accumulated_cost_usd: float;
+      turn: int;
+      schedule: tool_schedule;
+    }
+  | PostToolUse of {
+      tool_use_id: string;
+      tool_name: string;
+      input: Yojson.Safe.t;
+      output: Types.tool_result;
+      result_bytes: int;
+      schedule: tool_schedule;
+    }
+  | PostToolUseFailure of {
+      tool_use_id: string;
+      tool_name: string;
+      input: Yojson.Safe.t;
+      error: string;
+      schedule: tool_schedule;
+    }
   | OnStop of { reason: Types.stop_reason; response: Types.api_response }
   | OnIdle of { consecutive_idle_turns: int; tool_names: string list }
   | OnError of { detail: string; context: string }

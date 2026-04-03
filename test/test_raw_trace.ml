@@ -312,6 +312,34 @@ let test_agent_run_stream_append_only_raw_trace () =
       Alcotest.(check (list string)) "tool finish names"
         [ "file_read"; "shell_exec"; "file_write"; "shell_exec" ]
         (tool_names_of_records run1_records Raw_trace.Tool_execution_finished);
+      let started_records =
+        List.filter
+          (fun (record : Raw_trace.record) ->
+            record.record_type = Raw_trace.Tool_execution_started)
+          run1_records
+      in
+      Alcotest.(check (list (option int))) "planned indices"
+        [ Some 0; Some 0; Some 0; Some 0 ]
+        (List.map (fun (record : Raw_trace.record) -> record.tool_planned_index)
+           started_records);
+      Alcotest.(check (list (option int))) "batch indices"
+        [ Some 0; Some 0; Some 0; Some 0 ]
+        (List.map (fun (record : Raw_trace.record) -> record.tool_batch_index)
+           started_records);
+      Alcotest.(check (list (option int))) "batch sizes"
+        [ Some 1; Some 1; Some 1; Some 1 ]
+        (List.map (fun (record : Raw_trace.record) -> record.tool_batch_size)
+           started_records);
+      Alcotest.(check (list (option string))) "concurrency classes"
+        [
+          Some "sequential_workspace";
+          Some "sequential_workspace";
+          Some "sequential_workspace";
+          Some "sequential_workspace";
+        ]
+        (List.map
+           (fun (record : Raw_trace.record) -> record.tool_concurrency_class)
+           started_records);
       let first_record = List.hd run1_records in
       Alcotest.(check (option string)) "prompt stored"
         (Some "trace chain") first_record.prompt;
@@ -388,7 +416,9 @@ let test_record_to_json_roundtrip () =
     session_id = Some "sess-1"; record_type = Raw_trace.Run_started;
     prompt = Some "hello"; block_index = None; block_kind = None;
     assistant_block = None; tool_use_id = None; tool_name = None;
-    tool_input = None; tool_result = None; tool_error = None;
+    tool_input = None; tool_planned_index = None; tool_batch_index = None;
+    tool_batch_size = None; tool_concurrency_class = None;
+    tool_result = None; tool_error = None;
     hook_name = None; hook_decision = None; hook_detail = None;
     final_text = None; stop_reason = None; error = None;
   } in
@@ -411,6 +441,8 @@ let test_record_to_json_full () =
     assistant_block = Some (`String "block-data");
     tool_use_id = Some "tu-1"; tool_name = Some "read_file";
     tool_input = Some (`Assoc [("path", `String "/tmp/x")]);
+    tool_planned_index = Some 0; tool_batch_index = Some 1;
+    tool_batch_size = Some 1; tool_concurrency_class = Some "sequential_workspace";
     tool_result = Some "file content"; tool_error = Some false;
     hook_name = Some "pre_tool"; hook_decision = Some "allow";
     hook_detail = Some "passed"; final_text = Some "done";
@@ -421,6 +453,7 @@ let test_record_to_json_full () =
   | Ok decoded ->
     Alcotest.(check (option string)) "tool_name" (Some "read_file") decoded.tool_name;
     Alcotest.(check (option int)) "block_index" (Some 2) decoded.block_index;
+    Alcotest.(check (option int)) "planned_index" (Some 0) decoded.tool_planned_index;
     Alcotest.(check (option bool)) "tool_error" (Some false) decoded.tool_error;
     Alcotest.(check (option string)) "hook_name" (Some "pre_tool") decoded.hook_name
   | Error e -> Alcotest.fail (Error.to_string e)

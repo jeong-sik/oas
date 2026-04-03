@@ -96,6 +96,8 @@ let test_read_all_invalid_json () =
 let mk_record ?(record_type = Raw_trace.Run_started) ?(seq = 1)
     ?(prompt = Some "hello") ?(tool_use_id = None) ?(tool_name = None)
     ?(tool_input = None) ?(tool_result = None) ?(tool_error = None)
+    ?(tool_planned_index = None) ?(tool_batch_index = None)
+    ?(tool_batch_size = None) ?(tool_concurrency_class = None)
     ?(hook_name = None) ?(hook_decision = None) ?(hook_detail = None)
     ?(final_text = None) ?(stop_reason = None) ?(error = None)
     ?(block_index = None) ?(block_kind = None) ?(assistant_block = None)
@@ -115,6 +117,10 @@ let mk_record ?(record_type = Raw_trace.Run_started) ?(seq = 1)
     tool_use_id;
     tool_name;
     tool_input;
+    tool_planned_index;
+    tool_batch_index;
+    tool_batch_size;
+    tool_concurrency_class;
     tool_result;
     tool_error;
     hook_name;
@@ -145,6 +151,10 @@ let test_record_to_json_roundtrip_tool_exec () =
     ~tool_use_id:(Some "tu-abc")
     ~tool_name:(Some "bash")
     ~tool_input:(Some (`Assoc [("cmd", `String "ls")]))
+    ~tool_planned_index:(Some 1)
+    ~tool_batch_index:(Some 0)
+    ~tool_batch_size:(Some 2)
+    ~tool_concurrency_class:(Some "parallel_read")
     ~tool_result:(Some "output")
     ~tool_error:(Some false)
     () in
@@ -153,6 +163,9 @@ let test_record_to_json_roundtrip_tool_exec () =
   | Ok decoded ->
     Alcotest.(check (option string)) "tool_use_id" (Some "tu-abc") decoded.tool_use_id;
     Alcotest.(check (option string)) "tool_name" (Some "bash") decoded.tool_name;
+    Alcotest.(check (option int)) "tool_batch_size" (Some 2) decoded.tool_batch_size;
+    Alcotest.(check (option string)) "tool_concurrency_class"
+      (Some "parallel_read") decoded.tool_concurrency_class;
     Alcotest.(check (option string)) "tool_result" (Some "output") decoded.tool_result;
     Alcotest.(check (option bool)) "tool_error" (Some false) decoded.tool_error
   | Error _ -> Alcotest.fail "record_of_json failed for tool_exec"
@@ -226,6 +239,10 @@ let test_record_to_json_all_none_optionals () =
     tool_use_id = None;
     tool_name = None;
     tool_input = None;
+    tool_planned_index = None;
+    tool_batch_index = None;
+    tool_batch_size = None;
+    tool_concurrency_class = None;
     tool_result = None;
     tool_error = None;
     hook_name = None;
@@ -331,6 +348,10 @@ let test_record_json_all_fields_populated () =
     tool_use_id = Some "tu-999";
     tool_name = Some "complex_tool";
     tool_input = Some (`Assoc [("x", `Int 42)]);
+    tool_planned_index = Some 4;
+    tool_batch_index = Some 2;
+    tool_batch_size = Some 1;
+    tool_concurrency_class = Some "sequential_workspace";
     tool_result = Some "result text";
     tool_error = Some true;
     hook_name = Some "validator";

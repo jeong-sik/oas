@@ -3,6 +3,10 @@
 open Alcotest
 open Agent_sdk
 
+let default_schedule ?(planned_index = 0) ?(batch_index = 0) ?(batch_size = 1)
+    ?(concurrency_class = "sequential_workspace") () =
+  Hooks.{ planned_index; batch_index; batch_size; concurrency_class }
+
 let test_empty_hooks () =
   let hooks = Hooks.empty in
   check bool "before_turn is None" true (hooks.before_turn = None);
@@ -25,13 +29,27 @@ let test_invoke_continue () =
 let test_invoke_skip () =
   let hook _event = Hooks.Skip in
   let result = Hooks.invoke (Some hook)
-    (Hooks.PreToolUse { tool_name = "echo"; input = `Null; accumulated_cost_usd = 0.0; turn = 0 }) in
+    (Hooks.PreToolUse {
+       tool_use_id = "tu-echo";
+       tool_name = "echo";
+       input = `Null;
+       accumulated_cost_usd = 0.0;
+       turn = 0;
+       schedule = default_schedule ();
+     }) in
   check bool "hook returns Skip" true (result = Hooks.Skip)
 
 let test_invoke_override () =
   let hook _event = Hooks.Override "custom value" in
   let result = Hooks.invoke (Some hook)
-    (Hooks.PreToolUse { tool_name = "echo"; input = `Null; accumulated_cost_usd = 0.0; turn = 0 }) in
+    (Hooks.PreToolUse {
+       tool_use_id = "tu-echo";
+       tool_name = "echo";
+       input = `Null;
+       accumulated_cost_usd = 0.0;
+       turn = 0;
+       schedule = default_schedule ();
+     }) in
   check bool "hook returns Override" true (result = Hooks.Override "custom value")
 
 let test_hook_receives_event () =
@@ -43,7 +61,14 @@ let test_hook_receives_event () =
     | _ -> Hooks.Continue
   in
   let _result = Hooks.invoke (Some hook)
-    (Hooks.PreToolUse { tool_name = "test_tool"; input = `Null; accumulated_cost_usd = 0.0; turn = 0 }) in
+    (Hooks.PreToolUse {
+       tool_use_id = "tu-test";
+       tool_name = "test_tool";
+       input = `Null;
+       accumulated_cost_usd = 0.0;
+       turn = 0;
+       schedule = default_schedule ();
+     }) in
   check string "hook received tool_name" "test_tool" !received
 
 let test_post_tool_use_event () =
@@ -56,10 +81,12 @@ let test_post_tool_use_event () =
   in
   let _result = Hooks.invoke (Some hook)
     (Hooks.PostToolUse {
+      tool_use_id = "tu-echo";
       tool_name = "echo";
       input = `Null;
       output = Ok { Types.content = "hello" };
-      result_bytes = 5
+      result_bytes = 5;
+      schedule = default_schedule ();
     }) in
   check string "hook received output" "hello" !received_output
 
@@ -74,14 +101,27 @@ let test_post_tool_use_failure_event () =
   let _result =
     Hooks.invoke (Some hook)
       (Hooks.PostToolUseFailure
-         { tool_name = "echo"; input = `Null; error = "boom" })
+         {
+           tool_use_id = "tu-echo";
+           tool_name = "echo";
+           input = `Null;
+           error = "boom";
+           schedule = default_schedule ();
+         })
   in
   check string "hook received error" "boom" !received_error
 
 let test_invoke_approval_required () =
   let hook _event = Hooks.ApprovalRequired in
   let result = Hooks.invoke (Some hook)
-    (Hooks.PreToolUse { tool_name = "dangerous"; input = `Null; accumulated_cost_usd = 0.0; turn = 0 }) in
+    (Hooks.PreToolUse {
+       tool_use_id = "tu-danger";
+       tool_name = "dangerous";
+       input = `Null;
+       accumulated_cost_usd = 0.0;
+       turn = 0;
+       schedule = default_schedule ();
+     }) in
   check bool "hook returns ApprovalRequired" true (result = Hooks.ApprovalRequired)
 
 let test_pre_compact_event () =

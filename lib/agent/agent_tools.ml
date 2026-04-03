@@ -17,6 +17,11 @@ type execution_batch =
   | Parallel_batch of scheduled_tool_use list
   | Sequential_batch of scheduled_tool_use
 
+let concurrency_class_to_string = function
+  | Tool.Parallel_read -> "parallel_read"
+  | Tool.Sequential_workspace -> "sequential_workspace"
+  | Tool.Exclusive_external -> "exclusive_external"
+
 let inferred_concurrency_class_of_mutation_class = function
   | "read_only" -> Some Tool.Parallel_read
   | "workspace" | "workspace_mutating" -> Some Tool.Sequential_workspace
@@ -65,6 +70,15 @@ let execution_batches tool_uses =
   in
   build [] [] tool_uses
 
+let hook_schedule_of_tool_use ~batch_index ~batch_size (tool_use : scheduled_tool_use)
+    : Hooks.tool_schedule =
+  {
+    planned_index = tool_use.index;
+    batch_index;
+    batch_size;
+    concurrency_class = concurrency_class_to_string tool_use.concurrency_class;
+  }
+
 let invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count ~hook_name
     hook_opt event =
   Tracing.with_span tracer
@@ -95,7 +109,7 @@ let invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count ~hook_name
 (** Find and execute a single tool, invoking PostToolUse hook.
     Returns (id, content, is_error) triple. *)
 let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tracer
-    ~agent_name ~turn_count ?on_hook_invoked name input id =
+    ~agent_name ~turn_count ?on_hook_invoked ~schedule name input id =
   (* ToolCalled event *)
   (match event_bus with
    | Some bus -> Event_bus.publish bus
@@ -110,10 +124,17 @@ let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tra
     | Tool_input_validation.Invalid errors ->
       let msg = Tool_input_validation.format_errors ~tool_name:name errors in
       ignore
-        (invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count
-           ~hook_name:"post_tool_use_failure" hooks.post_tool_use_failure
-           (Hooks.PostToolUseFailure { tool_name = name; input; error = msg })
-         : Hooks.hook_decision);
+           (invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count
+              ~hook_name:"post_tool_use_failure" hooks.post_tool_use_failure
+              (Hooks.PostToolUseFailure
+                 {
+                   tool_use_id = id;
+                   tool_name = name;
+                   input;
+                   error = msg;
+                   schedule;
+                 })
+            : Hooks.hook_decision);
       (id, msg, true)
     | Tool_input_validation.Valid coerced_input ->
     let result = Tool.execute ~context tool coerced_input in
@@ -124,16 +145,29 @@ let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tra
     let _post =
       invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count
         ~hook_name:"post_tool_use" hooks.post_tool_use
-        (Hooks.PostToolUse { tool_name = name; input = coerced_input;
-                             output = result; result_bytes })
+        (Hooks.PostToolUse
+           {
+             tool_use_id = id;
+             tool_name = name;
+             input = coerced_input;
+             output = result;
+             result_bytes;
+             schedule;
+           })
     in
     (match result with
      | Error { message; _ } ->
          ignore
            (invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count
               ~hook_name:"post_tool_use_failure" hooks.post_tool_use_failure
-              (Hooks.PostToolUseFailure { tool_name = name; input = coerced_input;
-                                         error = message })
+              (Hooks.PostToolUseFailure
+                 {
+                   tool_use_id = id;
+                   tool_name = name;
+                   input = coerced_input;
+                   error = message;
+                   schedule;
+                 })
             : Hooks.hook_decision)
      | Ok _ -> ());
     let content, is_error = match result with
@@ -160,10 +194,10 @@ let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tra
 let execute_scheduled_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus
     ~tracer ~agent_name ~turn_count ~(usage : Types.usage_stats) ~approval
     ?on_tool_execution_started ?on_tool_execution_finished ?on_hook_invoked
-    (tool_use : scheduled_tool_use) =
+    ~schedule (tool_use : scheduled_tool_use) =
   let { index; id; name; input; _ } = tool_use in
   (match on_tool_execution_started with
-   | Some callback -> callback ~tool_use_id:id ~tool_name:name ~input
+   | Some callback -> callback ~tool_use_id:id ~tool_name:name ~input ~schedule
    | None -> ());
   let triple =
     Tracing.with_span tracer
@@ -175,10 +209,12 @@ let execute_scheduled_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus
               ~hook_name:"pre_tool_use" hooks.pre_tool_use
               (Hooks.PreToolUse
                  {
+                   tool_use_id = id;
                    tool_name = name;
                    input;
                    accumulated_cost_usd = usage.Types.estimated_cost_usd;
                    turn = turn_count;
+                   schedule;
                  })
           in
           match decision with
@@ -188,29 +224,29 @@ let execute_scheduled_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus
               match approval with
               | None ->
                   find_and_execute_tool ~context ~tools ~hooks ~event_bus
-                    ~tracer ~agent_name ~turn_count ?on_hook_invoked name input
-                    id
+                    ~tracer ~agent_name ~turn_count ?on_hook_invoked ~schedule
+                    name input id
               | Some approve_fn -> (
                   match approve_fn ~tool_name:name ~input with
                   | Hooks.Approve ->
                       find_and_execute_tool ~context ~tools ~hooks ~event_bus
-                        ~tracer ~agent_name ~turn_count ?on_hook_invoked name
-                        input id
+                        ~tracer ~agent_name ~turn_count ?on_hook_invoked
+                        ~schedule name input id
                   | Hooks.Reject reason ->
                       (id, "Tool rejected: " ^ reason, true)
                   | Hooks.Edit new_input ->
                       find_and_execute_tool ~context ~tools ~hooks ~event_bus
-                        ~tracer ~agent_name ~turn_count ?on_hook_invoked name
-                        new_input id))
+                        ~tracer ~agent_name ~turn_count ?on_hook_invoked
+                        ~schedule name new_input id))
           | Hooks.Continue ->
               find_and_execute_tool ~context ~tools ~hooks ~event_bus ~tracer
-                ~agent_name ~turn_count ?on_hook_invoked name input id
+                ~agent_name ~turn_count ?on_hook_invoked ~schedule name input id
           | Hooks.AdjustParams _ ->
               find_and_execute_tool ~context ~tools ~hooks ~event_bus ~tracer
-                ~agent_name ~turn_count ?on_hook_invoked name input id
+                ~agent_name ~turn_count ?on_hook_invoked ~schedule name input id
           | Hooks.ElicitInput _ ->
               find_and_execute_tool ~context ~tools ~hooks ~event_bus ~tracer
-                ~agent_name ~turn_count ?on_hook_invoked name input id
+                ~agent_name ~turn_count ?on_hook_invoked ~schedule name input id
         with
         | Out_of_memory -> raise Out_of_memory
         | Stack_overflow -> raise Stack_overflow
@@ -250,9 +286,25 @@ let execute_tools ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tracer
       ?on_tool_execution_finished ?on_hook_invoked
   in
   execution_batches scheduled
-  |> List.concat_map (function
-         | Sequential_batch tool_use -> [ run_one tool_use ]
-         | Parallel_batch tool_uses -> Eio.Fiber.List.map run_one tool_uses)
+  |> List.mapi (fun batch_index batch ->
+         match batch with
+         | Sequential_batch tool_use ->
+             let schedule =
+               hook_schedule_of_tool_use ~batch_index ~batch_size:1 tool_use
+             in
+             [ run_one ~schedule tool_use ]
+         | Parallel_batch tool_uses ->
+             let batch_size = List.length tool_uses in
+             tool_uses
+             |> List.map (fun tool_use ->
+                    let schedule =
+                      hook_schedule_of_tool_use ~batch_index ~batch_size
+                        tool_use
+                    in
+                    (tool_use, schedule))
+             |> Eio.Fiber.List.map (fun (tool_use, schedule) ->
+                    run_one ~schedule tool_use))
+  |> List.concat
   |> List.sort (fun (left_index, _) (right_index, _) ->
          Int.compare left_index right_index)
   |> List.map snd

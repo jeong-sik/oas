@@ -19,6 +19,10 @@ let mk_record ~seq ~ts ~record_type ?prompt ?final_text ?error () : Raw_trace.re
     tool_use_id = None;
     tool_name = None;
     tool_input = None;
+    tool_planned_index = None;
+    tool_batch_index = None;
+    tool_batch_size = None;
+    tool_concurrency_class = None;
     tool_result = None;
     tool_error = None;
     hook_name = None;

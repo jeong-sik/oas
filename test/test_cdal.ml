@@ -98,6 +98,10 @@ let test_caps : Cdal_proof.capability_snapshot = {
   thinking_enabled = None;
 }
 
+let default_schedule ?(planned_index = 0) ?(batch_index = 0) ?(batch_size = 1)
+    ?(concurrency_class = "sequential_workspace") () =
+  Hooks.{ planned_index; batch_index; batch_size; concurrency_class }
+
 let test_mode_resolver_passthrough () =
   let result = Mode_resolver.resolve
       ~requested:Execution_mode.Draft
@@ -190,8 +194,10 @@ let test_hooks_compose_outer_skip () =
   } in
   let composed = Hooks.compose ~outer ~inner in
   let event = Hooks.PreToolUse {
+    tool_use_id = "tu-bash";
     tool_name = "bash"; input = `Null;
     accumulated_cost_usd = 0.0; turn = 1;
+    schedule = default_schedule ();
   } in
   let decision = Hooks.invoke composed.pre_tool_use event in
   Alcotest.(check bool) "outer skip bypasses inner" false !inner_called;
@@ -211,8 +217,10 @@ let test_hooks_compose_both_continue () =
   } in
   let composed = Hooks.compose ~outer ~inner in
   let event = Hooks.PreToolUse {
+    tool_use_id = "tu-bash";
     tool_name = "bash"; input = `Null;
     accumulated_cost_usd = 0.0; turn = 1;
+    schedule = default_schedule ();
   } in
   let _ = Hooks.invoke composed.pre_tool_use event in
   Alcotest.(check bool) "outer called" true !outer_called;
@@ -488,12 +496,23 @@ let test_proof_capture_lifecycle () =
   let _ = Hooks.invoke h.before_turn
       (BeforeTurn { turn = 1; messages = [] }) in
   let _ = Hooks.invoke h.pre_tool_use
-      (PreToolUse { tool_name = "bash"; input = `String "ls";
-                    accumulated_cost_usd = 0.0; turn = 1 }) in
+      (PreToolUse {
+         tool_use_id = "tu-bash";
+         tool_name = "bash";
+         input = `String "ls";
+         accumulated_cost_usd = 0.0;
+         turn = 1;
+         schedule = default_schedule ();
+       }) in
   let _ = Hooks.invoke h.post_tool_use
-      (PostToolUse { tool_name = "bash"; input = `String "ls";
-                     output = Ok { Types.content = "file.txt" };
-                     result_bytes = 8 }) in
+      (PostToolUse {
+         tool_use_id = "tu-bash";
+         tool_name = "bash";
+         input = `String "ls";
+         output = Ok { Types.content = "file.txt" };
+         result_bytes = 8;
+         schedule = default_schedule ();
+       }) in
   let resp = mock_response "claude-test" in
   let _ = Hooks.invoke h.after_turn
       (AfterTurn { turn = 1; response = resp }) in
@@ -509,6 +528,19 @@ let test_proof_capture_lifecycle () =
   Alcotest.(check int) "1 tool trace" 1 (List.length proof.tool_trace_refs);
   Alcotest.(check bool) "trace ref has prefix" true
     (String.length (List.hd proof.tool_trace_refs) > 15);
+  (match Proof_store.read_jsonl store (List.hd proof.tool_trace_refs) with
+   | Ok [`Assoc fields] ->
+       Alcotest.(check string) "trace tool_use_id" "tu-bash"
+         (match List.assoc "tool_use_id" fields with `String value -> value | _ -> "");
+       Alcotest.(check int) "trace planned_index" 0
+         (match List.assoc "planned_index" fields with `Int value -> value | _ -> -1);
+       Alcotest.(check string) "trace concurrency_class" "sequential_workspace"
+         (match List.assoc "concurrency_class" fields with `String value -> value | _ -> "")
+   | Ok other ->
+       Alcotest.fail
+         (Printf.sprintf "unexpected tool trace payload: %s"
+            (Yojson.Safe.to_string (`List other)))
+   | Error e -> Alcotest.fail e);
   (* Verify files on disk *)
   let manifest_path = Proof_store.manifest_path store ~run_id:proof.run_id in
   Alcotest.(check bool) "manifest written" true (Sys.file_exists manifest_path);
@@ -539,29 +571,77 @@ let test_proof_capture_multiple_tools () =
       (BeforeTurn { turn = 1; messages = [] }) in
   (* Tool 1: success *)
   let _ = Hooks.invoke h.pre_tool_use
-      (PreToolUse { tool_name = "read"; input = `String "a.ml";
-                    accumulated_cost_usd = 0.0; turn = 1 }) in
+      (PreToolUse {
+         tool_use_id = "tu-read";
+         tool_name = "read";
+         input = `String "a.ml";
+         accumulated_cost_usd = 0.0;
+         turn = 1;
+         schedule =
+           default_schedule ~planned_index:0 ~batch_index:0
+             ~concurrency_class:"parallel_read" ();
+       }) in
   let _ = Hooks.invoke h.post_tool_use
-      (PostToolUse { tool_name = "read"; input = `String "a.ml";
-                     output = Ok { Types.content = "code" };
-                     result_bytes = 4 }) in
+      (PostToolUse {
+         tool_use_id = "tu-read";
+         tool_name = "read";
+         input = `String "a.ml";
+         output = Ok { Types.content = "code" };
+         result_bytes = 4;
+         schedule =
+           default_schedule ~planned_index:0 ~batch_index:0
+             ~concurrency_class:"parallel_read" ();
+       }) in
   (* Tool 2: failure *)
   let _ = Hooks.invoke h.pre_tool_use
-      (PreToolUse { tool_name = "bash"; input = `String "rm /";
-                    accumulated_cost_usd = 0.01; turn = 1 }) in
+      (PreToolUse {
+         tool_use_id = "tu-bash";
+         tool_name = "bash";
+         input = `String "rm /";
+         accumulated_cost_usd = 0.01;
+         turn = 1;
+         schedule = default_schedule ~planned_index:1 ~batch_index:1 ();
+       }) in
   let _ = Hooks.invoke h.post_tool_use_failure
-      (PostToolUseFailure { tool_name = "bash"; input = `String "rm /";
-                            error = "permission denied" }) in
+      (PostToolUseFailure {
+         tool_use_id = "tu-bash";
+         tool_name = "bash";
+         input = `String "rm /";
+         error = "permission denied";
+         schedule = default_schedule ~planned_index:1 ~batch_index:1 ();
+       }) in
   (* Tool 3: error result *)
   let _ = Hooks.invoke h.pre_tool_use
-      (PreToolUse { tool_name = "edit"; input = `String "b.ml";
-                    accumulated_cost_usd = 0.02; turn = 1 }) in
+      (PreToolUse {
+         tool_use_id = "tu-edit";
+         tool_name = "edit";
+         input = `String "b.ml";
+         accumulated_cost_usd = 0.02;
+         turn = 1;
+         schedule = default_schedule ~planned_index:2 ~batch_index:2 ();
+       }) in
   let _ = Hooks.invoke h.post_tool_use
-      (PostToolUse { tool_name = "edit"; input = `String "b.ml";
-                     output = Error { Types.message = "conflict"; recoverable = true };
-                     result_bytes = 0 }) in
+      (PostToolUse {
+         tool_use_id = "tu-edit";
+         tool_name = "edit";
+         input = `String "b.ml";
+         output = Error { Types.message = "conflict"; recoverable = true };
+         result_bytes = 0;
+         schedule = default_schedule ~planned_index:2 ~batch_index:2 ();
+       }) in
   let proof = Proof_capture.finalize state ~result_status:Cdal_proof.Completed in
   Alcotest.(check int) "3 tool traces" 3 (List.length proof.tool_trace_refs);
+  (match Proof_store.read_jsonl store (List.hd proof.tool_trace_refs) with
+   | Ok [`Assoc fields] ->
+       Alcotest.(check string) "first trace concurrency_class" "parallel_read"
+         (match List.assoc "concurrency_class" fields with `String value -> value | _ -> "");
+       Alcotest.(check int) "first trace planned_index" 0
+         (match List.assoc "planned_index" fields with `Int value -> value | _ -> -1)
+   | Ok other ->
+       Alcotest.fail
+         (Printf.sprintf "unexpected first trace payload: %s"
+            (Yojson.Safe.to_string (`List other)))
+   | Error e -> Alcotest.fail e);
   ignore (Sys.command (Printf.sprintf "rm -rf %s" tmpdir))
 
 (* ================================================================ *)
@@ -569,7 +649,14 @@ let test_proof_capture_multiple_tools () =
 (* ================================================================ *)
 
 let make_enforcer_event tool_name input =
-  Hooks.PreToolUse { tool_name; input; accumulated_cost_usd = 0.0; turn = 1 }
+  Hooks.PreToolUse {
+    tool_use_id = "tu-enforcer";
+    tool_name;
+    input;
+    accumulated_cost_usd = 0.0;
+    turn = 1;
+    schedule = default_schedule ();
+  }
 
 let diagnose_enforcer () =
   let contract = make_contract ~mode:Execution_mode.Diagnose ~risk:Risk_class.Low () in
@@ -796,8 +883,14 @@ let test_evidence_violations_in_proof () =
   (* Fire enforcement hook that blocks a write *)
   let eh = Mode_enforcer.hooks enforcer in
   let _ = Hooks.invoke eh.pre_tool_use
-      (Hooks.PreToolUse { tool_name = "write"; input = `Null;
-                          accumulated_cost_usd = 0.0; turn = 1 }) in
+      (Hooks.PreToolUse {
+         tool_use_id = "tu-write";
+         tool_name = "write";
+         input = `Null;
+         accumulated_cost_usd = 0.0;
+         turn = 1;
+         schedule = default_schedule ();
+       }) in
   let proof = Proof_capture.finalize state ~result_status:Cdal_proof.Completed in
   Alcotest.(check bool) "raw_evidence_refs non-empty" true
     (List.length proof.raw_evidence_refs > 0);
