@@ -2,9 +2,25 @@ type trace_entry = {
   ts: float;
   tool_name: string;
   input: Yojson.Safe.t;
+  tool_use_id: string;
+  planned_index: int;
+  batch_index: int;
+  batch_size: int;
+  concurrency_class: string;
   output: string option;
   error: string option;
   duration_ms: int option;
+}
+
+type pending_tool = {
+  start_ts: float;
+  tool_use_id: string;
+  tool_name: string;
+  input: Yojson.Safe.t;
+  planned_index: int;
+  batch_index: int;
+  batch_size: int;
+  concurrency_class: string;
 }
 
 type state = {
@@ -17,7 +33,7 @@ type state = {
   mutable started_at: float;
   mutable ended_at: float;
   mutable provider_snapshot: Cdal_proof.provider_snapshot;
-  mutable pending_tool: (float * string * Yojson.Safe.t) option;
+  mutable pending_tool: pending_tool option;
   mutable trace_count: int;
   mutable enforcer: Mode_enforcer.state option;
 }
@@ -57,8 +73,13 @@ let flush_trace st entry =
   let trace_id = Printf.sprintf "trace-%04d" st.trace_count in
   let json = `Assoc [
     "ts", `Float entry.ts;
+    "tool_use_id", `String entry.tool_use_id;
     "tool_name", `String entry.tool_name;
     "input", entry.input;
+    "planned_index", `Int entry.planned_index;
+    "batch_index", `Int entry.batch_index;
+    "batch_size", `Int entry.batch_size;
+    "concurrency_class", `String entry.concurrency_class;
     "output", (match entry.output with
                | Some s -> `String s | None -> `Null);
     "error", (match entry.error with
@@ -71,11 +92,18 @@ let flush_trace st entry =
 let complete_pending_tool st ~output ~error =
   match st.pending_tool with
   | None -> ()
-  | Some (start_ts, tool_name, input) ->
+  | Some pending ->
     let now = Unix.gettimeofday () in
-    let duration_ms = int_of_float ((now -. start_ts) *. 1000.0) in
+    let duration_ms = int_of_float ((now -. pending.start_ts) *. 1000.0) in
     flush_trace st {
-      ts = start_ts; tool_name; input;
+      ts = pending.start_ts;
+      tool_use_id = pending.tool_use_id;
+      tool_name = pending.tool_name;
+      input = pending.input;
+      planned_index = pending.planned_index;
+      batch_index = pending.batch_index;
+      batch_size = pending.batch_size;
+      concurrency_class = pending.concurrency_class;
       output; error; duration_ms = Some duration_ms;
     };
     st.pending_tool <- None
@@ -108,9 +136,20 @@ let hooks st =
 
     pre_tool_use = Some (fun event ->
       (match event with
-       | PreToolUse { tool_name; input; _ } ->
+       | PreToolUse { tool_use_id; tool_name; input; schedule; _ } ->
          complete_pending_tool st ~output:None ~error:None;
-         st.pending_tool <- Some (Unix.gettimeofday (), tool_name, input)
+         st.pending_tool <-
+           Some
+             {
+               start_ts = Unix.gettimeofday ();
+               tool_use_id;
+               tool_name;
+               input;
+               planned_index = schedule.planned_index;
+               batch_index = schedule.batch_index;
+               batch_size = schedule.batch_size;
+               concurrency_class = schedule.concurrency_class;
+             }
        | _ -> ());
       Continue);
 

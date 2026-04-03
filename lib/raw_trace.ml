@@ -74,6 +74,10 @@ type record = {
   tool_use_id: string option;
   tool_name: string option;
   tool_input: Yojson.Safe.t option;
+  tool_planned_index: int option;
+  tool_batch_index: int option;
+  tool_batch_size: int option;
+  tool_concurrency_class: string option;
   tool_result: string option;
   tool_error: bool option;
   hook_name: string option;
@@ -178,6 +182,10 @@ let record_to_json (record : record) =
     @ option_string "tool_use_id" record.tool_use_id
     @ option_string "tool_name" record.tool_name
     @ option_json "tool_input" record.tool_input
+    @ option_int "tool_planned_index" record.tool_planned_index
+    @ option_int "tool_batch_index" record.tool_batch_index
+    @ option_int "tool_batch_size" record.tool_batch_size
+    @ option_string "tool_concurrency_class" record.tool_concurrency_class
     @ option_string "tool_result" record.tool_result
     @ option_bool "tool_error" record.tool_error
     @ option_string "hook_name" record.hook_name
@@ -210,6 +218,12 @@ let record_of_json json =
       tool_name = json |> member "tool_name" |> to_string_option;
       tool_input =
         (match json |> member "tool_input" with `Null -> None | value -> Some value);
+      tool_planned_index =
+        json |> member "tool_planned_index" |> to_int_option;
+      tool_batch_index = json |> member "tool_batch_index" |> to_int_option;
+      tool_batch_size = json |> member "tool_batch_size" |> to_int_option;
+      tool_concurrency_class =
+        json |> member "tool_concurrency_class" |> to_string_option;
       tool_result = json |> member "tool_result" |> to_string_option;
       tool_error = json |> member "tool_error" |> to_bool_option;
       hook_name = json |> member "hook_name" |> to_string_option;
@@ -295,7 +309,8 @@ let append_locked sink (record : record) =
   Fs_result.append_file sink.path line
 
 let append_record active ~record_type ?prompt ?block_index ?block_kind
-    ?assistant_block ?tool_use_id ?tool_name ?tool_input ?tool_result ?tool_error
+    ?assistant_block ?tool_use_id ?tool_name ?tool_input ?tool_planned_index
+    ?tool_batch_index ?tool_batch_size ?tool_concurrency_class ?tool_result ?tool_error
     ?hook_name ?hook_decision ?hook_detail ?final_text ?stop_reason ?error () =
   Eio.Mutex.use_rw ~protect:true active.sink.lock (fun () ->
     let seq = active.sink.next_seq in
@@ -315,6 +330,10 @@ let append_record active ~record_type ?prompt ?block_index ?block_kind
         tool_use_id;
         tool_name;
         tool_input;
+        tool_planned_index;
+        tool_batch_index;
+        tool_batch_size;
+        tool_concurrency_class;
         tool_result;
         tool_error;
         hook_name;
@@ -373,9 +392,12 @@ let record_assistant_block active ~block_index block =
     ~block_index ~block_kind ~assistant_block:json ()
   |> Result.map (fun _ -> ())
 
-let record_tool_execution_started active ~tool_use_id ~tool_name ~tool_input =
+let record_tool_execution_started active ~tool_use_id ~tool_name ~tool_input
+    ~planned_index ~batch_index ~batch_size ~concurrency_class =
   append_record active ~record_type:Tool_execution_started
-    ~tool_use_id ~tool_name ~tool_input ()
+    ~tool_use_id ~tool_name ~tool_input
+    ~tool_planned_index:planned_index ~tool_batch_index:batch_index
+    ~tool_batch_size:batch_size ~tool_concurrency_class:concurrency_class ()
   |> Result.map (fun _ -> ())
 
 let record_tool_execution_finished active ~tool_use_id ~tool_name ~tool_result

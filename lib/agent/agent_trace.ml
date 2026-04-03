@@ -27,13 +27,17 @@ let execute_tools_with_trace agent active_run tool_uses =
     match active_run with
     | None -> None
     | Some active ->
-        Some (fun ~tool_use_id ~tool_name ~input ->
+        Some (fun ~tool_use_id ~tool_name ~input ~schedule ->
             let ts = Unix.gettimeofday () in
             set_lifecycle agent ~current_run_id:(Raw_trace.active_run_id active)
               ~first_progress_at:ts ~last_progress_at:ts Running;
             Raw_trace.raise_if_error
               (Raw_trace.record_tool_execution_started active ~tool_use_id
-                 ~tool_name ~tool_input:input))
+                 ~tool_name ~tool_input:input
+                 ~planned_index:schedule.Hooks.planned_index
+                 ~batch_index:schedule.batch_index
+                 ~batch_size:schedule.batch_size
+                 ~concurrency_class:schedule.concurrency_class))
   in
   let on_tool_execution_finished =
     match active_run with

@@ -2,6 +2,15 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.100.2] - 2026-04-03
+
+### Added
+- Tool execution scheduling metadata is now recorded in raw traces and CDAL proof-store tool traces.
+
+### Changed
+- `Hooks.PreToolUse`, `Hooks.PostToolUse`, and `Hooks.PostToolUseFailure` now carry `tool_use_id` plus deterministic schedule metadata.
+- `Raw_trace.Tool_execution_started` records `planned_index`, `batch_index`, `batch_size`, and `concurrency_class`.
+
 ## [0.100.1] - 2026-04-03
 
 ### Added

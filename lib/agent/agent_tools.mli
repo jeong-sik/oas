@@ -41,6 +41,7 @@ val find_and_execute_tool :
   ?on_hook_invoked:(hook_name:string ->
     decision:Hooks.hook_decision ->
     detail:string option -> unit) ->
+  schedule:Hooks.tool_schedule ->
   string -> Yojson.Safe.t -> string ->
   string * string * bool
 
@@ -78,7 +79,7 @@ val execute_tools :
   usage:Types.usage_stats ->
   approval:Hooks.approval_callback option ->
   ?on_tool_execution_started:(tool_use_id:string ->
-    tool_name:string -> input:Yojson.Safe.t -> unit) ->
+    tool_name:string -> input:Yojson.Safe.t -> schedule:Hooks.tool_schedule -> unit) ->
   ?on_tool_execution_finished:(tool_use_id:string ->
     tool_name:string -> content:string -> is_error:bool -> unit) ->
   ?on_hook_invoked:(hook_name:string ->
