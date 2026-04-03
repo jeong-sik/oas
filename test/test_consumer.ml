@@ -12,7 +12,18 @@ let quick_response text =
     {|{"id":"m","type":"message","role":"assistant","model":"m","content":[{"type":"text","text":"%s"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}|}
     text
 
-let start_mock ~sw ~net ~clock ~port response_text =
+let fresh_port () =
+  let s = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
+  Unix.setsockopt s Unix.SO_REUSEADDR true;
+  Unix.bind s (Unix.ADDR_INET (Unix.inet_addr_loopback, 0));
+  let port = match Unix.getsockname s with
+    | Unix.ADDR_INET (_, p) -> p
+    | _ -> failwith "not inet" in
+  Unix.close s;
+  port
+
+let start_mock ~sw ~net ~clock response_text =
+  let port = fresh_port () in
   let handler _conn _req body =
     let _ = Eio.Buf_read.(of_flow ~max_size:max_int body |> take_all) in
     ignore clock;
@@ -40,7 +51,7 @@ let test_run_agent_basic () =
   let clock = Eio.Stdenv.clock env in
   try
     Eio.Switch.run @@ fun sw ->
-    let url = start_mock ~sw ~net:env#net ~clock ~port:19001 "consumer-ok" in
+    let url = start_mock ~sw ~net:env#net ~clock "consumer-ok" in
     let agent = make_agent ~net:env#net url "consumer-agent" in
     let result = Consumer.run_agent ~sw ~clock agent "test" in
     (match result.response with
@@ -58,7 +69,7 @@ let test_run_agent_with_harness () =
   let clock = Eio.Stdenv.clock env in
   try
     Eio.Switch.run @@ fun sw ->
-    let url = start_mock ~sw ~net:env#net ~clock ~port:19002 "hello world" in
+    let url = start_mock ~sw ~net:env#net ~clock "hello world" in
     let agent = make_agent ~net:env#net url "harness-agent" in
     let harness = Harness.Behavioral.ContainsText "hello" in
     let result = Consumer.run_agent ~sw ~clock ~harness agent "test" in
@@ -73,7 +84,7 @@ let test_run_agent_harness_fails () =
   let clock = Eio.Stdenv.clock env in
   try
     Eio.Switch.run @@ fun sw ->
-    let url = start_mock ~sw ~net:env#net ~clock ~port:19003 "goodbye" in
+    let url = start_mock ~sw ~net:env#net ~clock "goodbye" in
     let agent = make_agent ~net:env#net url "harness-fail" in
     let harness = Harness.Behavioral.ContainsText "hello" in
     let result = Consumer.run_agent ~sw ~clock ~harness agent "test" in
@@ -90,8 +101,8 @@ let test_run_agents_multiple () =
   let clock = Eio.Stdenv.clock env in
   try
     Eio.Switch.run @@ fun sw ->
-    let url1 = start_mock ~sw ~net:env#net ~clock ~port:19004 "res-1" in
-    let url2 = start_mock ~sw ~net:env#net ~clock ~port:19005 "res-2" in
+    let url1 = start_mock ~sw ~net:env#net ~clock "res-1" in
+    let url2 = start_mock ~sw ~net:env#net ~clock "res-2" in
     let a1 = make_agent ~net:env#net url1 "multi-1" in
     let a2 = make_agent ~net:env#net url2 "multi-2" in
     let results = Consumer.run_agents ~sw ~clock ~max_fibers:2
