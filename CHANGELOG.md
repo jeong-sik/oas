@@ -2,6 +2,15 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.100.1] - 2026-04-03
+
+### Added
+- `Tool.concurrency_class` metadata for explicit tool execution contracts.
+
+### Changed
+- `Agent_tools.execute_tools` now schedules `Parallel_read` tools in parallel batches and runs workspace or external tools sequentially.
+- Tools without declared concurrency metadata now default to conservative sequential execution.
+
 ## [0.99.8] - 2026-04-01
 
 ### Added
