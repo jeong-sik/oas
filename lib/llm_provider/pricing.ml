@@ -22,43 +22,52 @@ let string_contains ~needle haystack =
   in
   if needle_len = 0 then true else loop 0
 
-let pricing_for_model model_id =
+let pricing_for_model_opt model_id =
   let normalized = String.lowercase_ascii (String.trim model_id) in
   (* Anthropic cache pricing: write = 1.25x input, read = 0.1x input.
      OpenAI/local: no cache pricing (multipliers are 1.0 for no-op). *)
   let anthropic_cache = (1.25, 0.1) in
   let no_cache = (1.0, 1.0) in
-  let base, (cw, cr) =
+  let result =
     if string_contains ~needle:"opus-4-6" normalized then
-      (15.0, 75.0), anthropic_cache
+      Some ((15.0, 75.0), anthropic_cache)
     else if string_contains ~needle:"opus-4-5" normalized then
-      (15.0, 75.0), anthropic_cache
+      Some ((15.0, 75.0), anthropic_cache)
     else if string_contains ~needle:"sonnet-4-6" normalized then
-      (3.0, 15.0), anthropic_cache
+      Some ((3.0, 15.0), anthropic_cache)
     else if string_contains ~needle:"sonnet-4" normalized then
-      (3.0, 15.0), anthropic_cache
+      Some ((3.0, 15.0), anthropic_cache)
     else if string_contains ~needle:"haiku-4-5" normalized then
-      (0.8, 4.0), anthropic_cache
+      Some ((0.8, 4.0), anthropic_cache)
     else if string_contains ~needle:"claude-3-7-sonnet" normalized then
-      (3.0, 15.0), anthropic_cache
+      Some ((3.0, 15.0), anthropic_cache)
     else if string_contains ~needle:"gpt-4o-mini" normalized then
-      (0.15, 0.6), no_cache
+      Some ((0.15, 0.6), no_cache)
     else if string_contains ~needle:"gpt-4o" normalized then
-      (2.5, 10.0), no_cache
+      Some ((2.5, 10.0), no_cache)
     else if string_contains ~needle:"gpt-4.1" normalized then
-      (2.0, 8.0), no_cache
+      Some ((2.0, 8.0), no_cache)
     else if string_contains ~needle:"o3-mini" normalized then
-      (1.1, 4.4), no_cache
+      Some ((1.1, 4.4), no_cache)
     else if string_contains ~needle:"ollama" normalized
          || string_contains ~needle:"qwen" normalized
          || string_contains ~needle:"llama" normalized then
-      (0.0, 0.0), no_cache
+      Some ((0.0, 0.0), no_cache)
     else
-      (0.0, 0.0), no_cache
+      None
   in
-  let input_per_million, output_per_million = base in
-  { input_per_million; output_per_million;
-    cache_write_multiplier = cw; cache_read_multiplier = cr }
+  match result with
+  | Some ((input_per_million, output_per_million), (cw, cr)) ->
+    Some { input_per_million; output_per_million;
+           cache_write_multiplier = cw; cache_read_multiplier = cr }
+  | None -> None
+
+let zero_pricing =
+  { input_per_million = 0.0; output_per_million = 0.0;
+    cache_write_multiplier = 1.0; cache_read_multiplier = 1.0 }
+
+let pricing_for_model model_id =
+  Option.value ~default:zero_pricing (pricing_for_model_opt model_id)
 
 let estimate_cost ~(pricing : pricing)
     ~input_tokens ~output_tokens
@@ -88,7 +97,16 @@ let annotate_usage_cost ~model_id (usage : Types.api_usage) =
   match usage.cost_usd with
   | Some _ -> usage
   | None ->
-      { usage with cost_usd = Some (estimate_usage_cost ~model_id usage) }
+    match pricing_for_model_opt model_id with
+    | Some pricing ->
+      let cost = estimate_cost ~pricing
+        ~input_tokens:usage.input_tokens
+        ~output_tokens:usage.output_tokens
+        ~cache_creation_input_tokens:usage.cache_creation_input_tokens
+        ~cache_read_input_tokens:usage.cache_read_input_tokens () in
+      { usage with cost_usd = Some cost }
+    | None ->
+      usage  (* unknown model: leave cost_usd as None *)
 
 let annotate_response_cost (response : Types.api_response) =
   let usage =
@@ -208,10 +226,37 @@ let%test "pricing llama is free" =
   let p = pricing_for_model "llama-3.1-70b" in
   close_enough p.input_per_million 0.0
 
-let%test "pricing unknown model is free" =
+let%test "pricing_for_model: unknown model falls back to zero" =
   let p = pricing_for_model "some-random-model" in
   close_enough p.input_per_million 0.0
   && close_enough p.output_per_million 0.0
+
+(* --- pricing_for_model_opt: distinguishes unknown from free --- *)
+
+let%test "pricing_for_model_opt: known cloud model returns Some" =
+  match pricing_for_model_opt "claude-opus-4-6" with
+  | Some p -> p.input_per_million > 0.0
+  | None -> false
+
+let%test "pricing_for_model_opt: known local model returns Some with zero pricing" =
+  match pricing_for_model_opt "ollama/llama3" with
+  | Some p -> close_enough p.input_per_million 0.0
+  | None -> false
+
+let%test "pricing_for_model_opt: qwen returns Some" =
+  match pricing_for_model_opt "qwen3.5-35b" with
+  | Some _ -> true
+  | None -> false
+
+let%test "pricing_for_model_opt: unknown model returns None" =
+  match pricing_for_model_opt "some-random-model" with
+  | Some _ -> false
+  | None -> true
+
+let%test "pricing_for_model_opt: cloud-style unknown returns None" =
+  match pricing_for_model_opt "future-cloud-provider/fancy-model-v9" with
+  | Some _ -> false
+  | None -> true
 
 (* --- pricing_for_model: case insensitivity --- *)
 
@@ -279,7 +324,7 @@ let%test "estimate_cost: free model is always zero" =
     ~cache_creation_input_tokens:500_000 ~cache_read_input_tokens:500_000 () in
   close_enough cost 0.0
 
-let%test "annotate_usage_cost fills missing cost" =
+let%test "annotate_usage_cost fills missing cost for known model" =
   let usage : Types.api_usage = {
     input_tokens = 1_000;
     output_tokens = 500;
@@ -289,6 +334,30 @@ let%test "annotate_usage_cost fills missing cost" =
   } in
   match annotate_usage_cost ~model_id:"claude-sonnet-4-6" usage with
   | { cost_usd = Some cost; _ } -> cost > 0.0
+  | _ -> false
+
+let%test "annotate_usage_cost leaves cost_usd None for unknown model" =
+  let usage : Types.api_usage = {
+    input_tokens = 1_000;
+    output_tokens = 500;
+    cache_creation_input_tokens = 0;
+    cache_read_input_tokens = 0;
+    cost_usd = None;
+  } in
+  match annotate_usage_cost ~model_id:"totally-unknown-cloud-model" usage with
+  | { cost_usd = None; _ } -> true
+  | _ -> false
+
+let%test "annotate_usage_cost fills zero cost for known free model" =
+  let usage : Types.api_usage = {
+    input_tokens = 1_000;
+    output_tokens = 500;
+    cache_creation_input_tokens = 0;
+    cache_read_input_tokens = 0;
+    cost_usd = None;
+  } in
+  match annotate_usage_cost ~model_id:"qwen3.5-35b" usage with
+  | { cost_usd = Some cost; _ } -> close_enough cost 0.0
   | _ -> false
 
 let%test "annotate_response_cost preserves measured cost" =

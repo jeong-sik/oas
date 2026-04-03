@@ -13,8 +13,18 @@ type pricing = {
 (** Substring match helper. *)
 val string_contains : needle:string -> string -> bool
 
-(** Look up pricing for a model ID (case-insensitive, prefix-matched). *)
+(** Look up pricing for a model ID (case-insensitive, prefix-matched).
+    Returns [None] when the model is not in the pricing catalog.
+    Use this to distinguish unknown models from genuinely free ones. *)
+val pricing_for_model_opt : string -> pricing option
+
+(** Like [pricing_for_model_opt] but returns zero pricing for unknown models.
+    Backward-compatible: callers that do not need to distinguish
+    unknown from free should use this. *)
 val pricing_for_model : string -> pricing
+
+(** Zero-cost pricing constant for local/free models. *)
+val zero_pricing : pricing
 
 (** Estimate USD cost from token counts. *)
 val estimate_cost :

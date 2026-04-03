@@ -99,6 +99,8 @@ type pricing = {
   cache_read_multiplier: float;
 }
 
+val zero_pricing : pricing
+val pricing_for_model_opt : string -> pricing option
 val pricing_for_model : string -> pricing
 val pricing_for_provider : provider:provider -> model_id:string -> pricing
 val estimate_cost :
