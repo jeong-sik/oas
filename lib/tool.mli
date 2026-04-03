@@ -59,6 +59,8 @@ val create_with_context :
 
 val execute : ?context:Context.t -> t -> Yojson.Safe.t -> Types.tool_result
 val descriptor : t -> descriptor option
+val expected_concurrency_class_of_mutation_class :
+  string -> concurrency_class option
 val validate_descriptor : descriptor -> (unit, string) result
 val descriptor_to_yojson : descriptor option -> Yojson.Safe.t
 val schema_to_json : t -> Yojson.Safe.t

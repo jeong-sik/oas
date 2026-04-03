@@ -73,22 +73,22 @@ let validate_descriptor (descriptor : descriptor) =
       | _ -> Ok ())
   | _ -> Ok ()
 
-let validate_descriptor_opt = function
+let validate_descriptor_opt caller = function
   | None -> ()
   | Some descriptor -> (
       match validate_descriptor descriptor with
       | Ok () -> ()
-      | Error msg -> invalid_arg ("Tool.create: " ^ msg))
+      | Error msg -> invalid_arg (caller ^ ": " ^ msg))
 
 (** Create a tool with a simple handler *)
 let create ?descriptor ~name ~description ~parameters handler =
-  validate_descriptor_opt descriptor;
+  validate_descriptor_opt "Tool.create" descriptor;
   let schema = { name; description; parameters } in
   { schema; descriptor; handler = Simple handler }
 
 (** Create a tool with a context-aware handler *)
 let create_with_context ?descriptor ~name ~description ~parameters handler =
-  validate_descriptor_opt descriptor;
+  validate_descriptor_opt "Tool.create_with_context" descriptor;
   let schema = { name; description; parameters } in
   { schema; descriptor; handler = WithContext handler }
 

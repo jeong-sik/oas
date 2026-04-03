@@ -219,6 +219,52 @@ let test_parallel_read_tools_share_batch () =
   | [ (_, _, false); (_, _, false) ] -> ()
   | _ -> fail "parallel read batch should allow both tools to start"
 
+let test_read_only_tools_infer_parallel_batch () =
+  Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  let started_a, resolve_a = Eio.Promise.create () in
+  let started_b, resolve_b = Eio.Promise.create () in
+  let descriptor =
+    {
+      Tool.kind = None;
+      mutation_class = Some "read_only";
+      concurrency_class = None;
+      shell = None;
+      notes = [];
+      examples = [];
+    }
+  in
+  let make_barrier_tool name resolve_self await_other =
+    make_echo_tool ~descriptor name
+    |> fun tool ->
+    {
+      tool with
+      Tool.handler =
+        Tool.Simple
+          (fun input ->
+            Eio.Promise.resolve resolve_self ();
+            Eio.Time.with_timeout_exn clock 0.05 (fun () ->
+                Eio.Promise.await await_other);
+            Ok { Types.content = Yojson.Safe.to_string input });
+    }
+  in
+  let tools =
+    [
+      make_barrier_tool "read_a" resolve_a started_b;
+      make_barrier_tool "read_b" resolve_b started_a;
+    ]
+  in
+  let results =
+    execute_with_tools_in_env env ~tools ~hooks:Hooks.empty
+      [
+        ToolUse { id = "t1"; name = "read_a"; input = `String "a" };
+        ToolUse { id = "t2"; name = "read_b"; input = `String "b" };
+      ]
+  in
+  match results with
+  | [ (_, _, false); (_, _, false) ] -> ()
+  | _ -> fail "read_only mutation_class should infer a parallel batch"
+
 let test_workspace_tools_run_sequentially () =
   Eio_main.run @@ fun env ->
   let clock = Eio.Stdenv.clock env in
@@ -357,6 +403,8 @@ let () =
     "scheduling", [
       test_case "parallel read batch" `Quick
         test_parallel_read_tools_share_batch;
+      test_case "read_only mutation infers parallel batch" `Quick
+        test_read_only_tools_infer_parallel_batch;
       test_case "workspace tools stay sequential" `Quick
         test_workspace_tools_run_sequentially;
       test_case "undeclared tools default sequential" `Quick

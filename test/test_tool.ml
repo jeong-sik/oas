@@ -226,26 +226,60 @@ let test_concurrency_class_yojson_roundtrip () =
   ) variants
 
 let test_create_rejects_inconsistent_descriptor () =
+  let descriptor =
+    {
+      Tool.kind = None;
+      mutation_class = Some "read_only";
+      concurrency_class = Some Tool.Sequential_workspace;
+      shell = None;
+      notes = [];
+      examples = [];
+    }
+  in
+  let expected =
+    match Tool.validate_descriptor descriptor with
+    | Error msg -> Invalid_argument ("Tool.create: " ^ msg)
+    | Ok () -> fail "descriptor should be invalid"
+  in
   check_raises
     "invalid descriptor"
-    (Invalid_argument
-       "Tool.create: descriptor mismatch: mutation_class=read_only requires concurrency_class=parallel_read")
+    expected
     (fun () ->
        ignore
          (Tool.create
-            ~descriptor:
-              {
-                Tool.kind = None;
-                mutation_class = Some "read_only";
-                concurrency_class = Some Tool.Sequential_workspace;
-                shell = None;
-                notes = [];
-                examples = [];
-              }
+            ~descriptor
             ~name:"bad"
             ~description:"bad"
             ~parameters:[]
             (fun _ -> Ok { Types.content = "ok" })))
+
+let test_create_with_context_rejects_inconsistent_descriptor () =
+  let descriptor =
+    {
+      Tool.kind = None;
+      mutation_class = Some "read_only";
+      concurrency_class = Some Tool.Sequential_workspace;
+      shell = None;
+      notes = [];
+      examples = [];
+    }
+  in
+  let expected =
+    match Tool.validate_descriptor descriptor with
+    | Error msg -> Invalid_argument ("Tool.create_with_context: " ^ msg)
+    | Ok () -> fail "descriptor should be invalid"
+  in
+  check_raises
+    "invalid descriptor for create_with_context"
+    expected
+    (fun () ->
+       ignore
+         (Tool.create_with_context
+            ~descriptor
+            ~name:"bad_ctx"
+            ~description:"bad"
+            ~parameters:[]
+            (fun _ _ -> Ok { Types.content = "ok" })))
 
 let () =
   run "Tool" [
@@ -273,6 +307,8 @@ let () =
     "validation", [
       test_case "create rejects inconsistent descriptor" `Quick
         test_create_rejects_inconsistent_descriptor;
+      test_case "create_with_context rejects inconsistent descriptor" `Quick
+        test_create_with_context_rejects_inconsistent_descriptor;
     ];
     "with_defaults", [
       test_case "injects missing args" `Quick (fun () ->

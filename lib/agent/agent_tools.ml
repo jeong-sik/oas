@@ -17,12 +17,6 @@ type execution_batch =
   | Parallel_batch of scheduled_tool_use list
   | Sequential_batch of scheduled_tool_use
 
-let inferred_concurrency_class_of_mutation_class = function
-  | "read_only" -> Some Tool.Parallel_read
-  | "workspace" | "workspace_mutating" -> Some Tool.Sequential_workspace
-  | "external" | "external_effect" -> Some Tool.Exclusive_external
-  | _ -> None
-
 let concurrency_class_of_tool tool =
   match Tool.descriptor tool with
   | Some descriptor -> (
@@ -31,7 +25,7 @@ let concurrency_class_of_tool tool =
       | None -> (
           match
             Option.bind descriptor.Tool.mutation_class
-              inferred_concurrency_class_of_mutation_class
+              Tool.expected_concurrency_class_of_mutation_class
           with
           | Some inferred -> inferred
           | None -> Tool.Sequential_workspace))
