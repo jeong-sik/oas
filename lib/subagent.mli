@@ -13,17 +13,31 @@ type model_override =
   | Use_model of Types.model
 [@@deriving show]
 
-type isolation =
-  | Shared
-  | Worktree
-[@@deriving show]
-
 type state_isolation =
   | Inherit_all
   | Isolated
   | Selective of string list
 [@@deriving show]
 
+(** Subagent specification parsed from markdown frontmatter.
+
+    {b Runtime-enforced fields} (these affect agent execution):
+    - [name]: sets the agent identity and handoff target name
+    - [description]: handoff target description shown to the LLM
+    - [prompt]: becomes the sub-agent's system_prompt via {!compose_prompt}
+    - [tools]: tool allowlist applied by {!filter_tools}
+    - [disallowed_tools]: tool blocklist applied by {!filter_tools}
+    - [model]: determines which LLM model the sub-agent uses
+    - [max_turns]: enforced turn limit for the sub-agent run loop
+    - [skill_refs]: resolved to [Skill.t] list during {!load}
+    - [skills]: rendered into the prompt by {!compose_prompt}
+
+    {b Prompt-only fields} (injected into prompt text, not enforced):
+    - [state_isolation]: adds a preamble to the system prompt describing
+      isolation intent; no actual state filtering is performed
+
+    {b Diagnostic fields} (stored for introspection, not consumed at runtime):
+    - [path]: source file path, used for name derivation in {!of_markdown} *)
 type t = {
   name: string;
   description: string option;
@@ -34,18 +48,14 @@ type t = {
   max_turns: int option;
   skill_refs: string list;
   skills: Skill.t list;
-  isolation: isolation;
   state_isolation: state_isolation;
-  background: bool;
   path: string option;
-  metadata: (string * string list) list;
 }
 [@@deriving show]
 
 (** {1 Parsing helpers} *)
 
 val model_override_of_string : string -> model_override
-val isolation_of_string : string -> isolation
 val state_isolation_of_string : string -> state_isolation
 
 (** {1 Constructors} *)

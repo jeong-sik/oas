@@ -65,43 +65,10 @@ let () =
         let spec = Subagent.of_markdown md in
         check (option int) "max_turns" None spec.max_turns);
 
-      test_case "isolation worktree" `Quick (fun () ->
-        let md = "---\nisolation: worktree\n---\nbody" in
-        let spec = Subagent.of_markdown md in
-        check bool "worktree" true (spec.isolation = Subagent.Worktree));
-
-      test_case "isolation shared default" `Quick (fun () ->
-        let spec = Subagent.of_markdown "no isolation" in
-        check bool "shared" true (spec.isolation = Subagent.Shared));
-
-      test_case "isolation unknown -> shared" `Quick (fun () ->
-        let md = "---\nisolation: container\n---\nbody" in
-        let spec = Subagent.of_markdown md in
-        check bool "shared" true (spec.isolation = Subagent.Shared));
-
-      test_case "background" `Quick (fun () ->
-        let md = "---\nbackground: true\n---\nbody" in
-        let spec = Subagent.of_markdown md in
-        check bool "background" true spec.background);
-
-      test_case "background false" `Quick (fun () ->
-        let md = "---\nbackground: false\n---\nbody" in
-        let spec = Subagent.of_markdown md in
-        check bool "not background" false spec.background);
-
-      test_case "background missing" `Quick (fun () ->
-        let spec = Subagent.of_markdown "body" in
-        check bool "not background" false spec.background);
-
       test_case "skill_refs" `Quick (fun () ->
         let md = "---\nskills: helper.md, reviewer.md\n---\nbody" in
         let spec = Subagent.of_markdown md in
         check int "skill_refs" 2 (List.length spec.skill_refs));
-
-      test_case "metadata preserved" `Quick (fun () ->
-        let md = "---\nname: test\ncustom-key: value\n---\nbody" in
-        let spec = Subagent.of_markdown md in
-        check bool "has metadata" true (List.length spec.metadata > 0));
 
       test_case "description None" `Quick (fun () ->
         let spec = Subagent.of_markdown "body" in
@@ -233,21 +200,6 @@ let () =
         | _ -> fail "expected Custom");
     ];
 
-    "isolation_of_string", [
-      test_case "worktree" `Quick (fun () ->
-        check bool "worktree" true
-          (Subagent.isolation_of_string "worktree" = Subagent.Worktree));
-      test_case "Worktree uppercase" `Quick (fun () ->
-        check bool "Worktree" true
-          (Subagent.isolation_of_string "Worktree" = Subagent.Worktree));
-      test_case "other -> Shared" `Quick (fun () ->
-        check bool "shared" true
-          (Subagent.isolation_of_string "anything" = Subagent.Shared));
-      test_case "empty -> Shared" `Quick (fun () ->
-        check bool "shared" true
-          (Subagent.isolation_of_string "" = Subagent.Shared));
-    ];
-
     "state_isolation_of_string", [
       test_case "inherit by default" `Quick (fun () ->
         check bool "inherit" true
@@ -369,11 +321,6 @@ let () =
         let s1 = Subagent.show_model_override Subagent.Inherit_model in
         check bool "non-empty" true (String.length s1 > 0);
         let s2 = Subagent.show_model_override (Subagent.Use_model "claude-sonnet-4-6") in
-        check bool "non-empty" true (String.length s2 > 0));
-      test_case "show_isolation" `Quick (fun () ->
-        let s1 = Subagent.show_isolation Subagent.Shared in
-        check bool "non-empty" true (String.length s1 > 0);
-        let s2 = Subagent.show_isolation Subagent.Worktree in
         check bool "non-empty" true (String.length s2 > 0));
       test_case "show_state_isolation" `Quick (fun () ->
         let s1 = Subagent.show_state_isolation Subagent.Inherit_all in
