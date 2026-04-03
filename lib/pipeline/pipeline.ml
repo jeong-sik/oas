@@ -320,7 +320,9 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
   | false ->
     let results =
       try Ok (execute_tools_with_trace agent raw_trace_run tool_uses)
-      with Raw_trace.Trace_error err -> Error err
+      with Raw_trace.Trace_error err ->
+        Tool_retry_policy.clear_context_retry_count agent.context;
+        Error err
     in
     let* results = results in
     let tool_results = Agent_turn.make_tool_results results in
