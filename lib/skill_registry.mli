@@ -1,4 +1,10 @@
-(** Runtime skill registry — discover and manage skills at runtime.
+(** Skill registry for discovery and metadata export.
+
+    Holds skills for Agent Card generation, A2A capability negotiation,
+    and skill inventory queries.  Skills in the registry are {b not}
+    injected into the agent's system prompt — they exist purely as
+    metadata.  To compose a skill into the runtime prompt, use
+    {!Contract.with_skill} (or {!Builder.with_skill}).
 
     Wraps a [Hashtbl.t] keyed by skill name.  Unlike {!Skill} which is
     pure data, the registry provides CRUD, bulk loading from a directory,

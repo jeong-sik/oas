@@ -106,8 +106,20 @@ val with_fallback : Provider.config -> t -> t
 (** {2 Contract} *)
 
 val with_contract : Contract.t -> t -> t
+
+(** {3 Runtime skill composition}
+
+    Skills added via [with_skill] / [with_skills] are composed into the
+    agent's system prompt at build time.  Each skill body is rendered as
+    a [\[Skill: <name>\]] section appended to the base system prompt.
+
+    This is the {b runtime path}: it affects what the LLM sees on every
+    turn.  For metadata-only registration (Agent Card export, A2A
+    discovery, skill inventory) use {!with_skill_registry} instead. *)
+
 val with_skill : Skill.t -> t -> t
 val with_skills : Skill.t list -> t -> t
+
 val with_tool_grants : string list -> t -> t
 val with_mcp_tool_allowlist : string list -> t -> t
 
@@ -116,6 +128,19 @@ val with_mcp_tool_allowlist : string list -> t -> t
 val with_log_level : Log.level -> t -> t
 val with_log_sink : Log.sink -> t -> t
 val with_event_targets : Event_forward.target list -> t -> t
+
+(** {3 Discovery / metadata skill registry}
+
+    Attach a {!Skill_registry.t} for discovery and metadata export only.
+    Skills in the registry are surfaced via {!Agent.card} (Agent Card)
+    for A2A negotiation, capability queries, and skill inventory.
+
+    {b Does NOT affect runtime prompt composition.}  The registry
+    contents are never injected into the agent's system prompt.  To make
+    a skill influence LLM behavior, use {!with_skill} / {!with_skills}.
+
+    An agent can use both paths simultaneously: registry skills for
+    external discovery, and contract skills for prompt composition. *)
 val with_skill_registry : Skill_registry.t -> t -> t
 
 (** Set progressive tool disclosure strategy.
