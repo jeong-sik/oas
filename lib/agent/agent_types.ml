@@ -111,16 +111,16 @@ let net t = t.net
     tool-execution fibers or periodic callbacks yield between read and
     write. *)
 let set_state t s =
-  Eio.Mutex.use_rw ~protect:false t.mu (fun () -> t.state <- s)
+  Eio.Mutex.use_rw ~protect:true t.mu (fun () -> t.state <- s)
 
 (** Read-modify-write [state] under the mutex.  Callers pass a pure
     function [f : agent_state -> agent_state]; the read + write happen
     inside a single critical section so no concurrent update is lost. *)
 let update_state t f =
-  Eio.Mutex.use_rw ~protect:false t.mu (fun () -> t.state <- f t.state)
+  Eio.Mutex.use_rw ~protect:true t.mu (fun () -> t.state <- f t.state)
 
 let set_consecutive_idle_turns t n =
-  Eio.Mutex.use_rw ~protect:false t.mu (fun () ->
+  Eio.Mutex.use_rw ~protect:true t.mu (fun () ->
     t.consecutive_idle_turns <- n)
 
 let description t = t.options.description
@@ -152,7 +152,7 @@ let card t =
 let set_lifecycle agent ?current_run_id ?worker_id ?runtime_actor ?last_error
     ?accepted_at ?ready_at ?first_progress_at ?started_at ?last_progress_at
     ?finished_at status =
-  Eio.Mutex.use_rw ~protect:false agent.mu (fun () ->
+  Eio.Mutex.use_rw ~protect:true agent.mu (fun () ->
     agent.lifecycle <- Some (Agent_lifecycle.build_snapshot
       ~agent_name:agent.state.config.name
       ~provider:agent.options.provider

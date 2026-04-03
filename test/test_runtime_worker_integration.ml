@@ -244,6 +244,40 @@ let test_with_store_lock_sequential () =
   Runtime_server_worker.with_store_lock state (fun () -> r := !r + 10);
   Alcotest.(check int) "sequential locks" 11 !r
 
+let test_with_store_lock_cancellation_does_not_poison_mutex () =
+  Eio_main.run @@ fun env ->
+  let net = Eio.Stdenv.net env in
+  let state = Runtime_server_types.create ~net () in
+  let entered_lock, signal_entered = Eio.Promise.create () in
+  (try
+     Eio.Switch.run @@ fun sw ->
+     Eio.Fiber.fork ~sw (fun () ->
+       ignore
+         (try
+            ignore
+              (Runtime_server_worker.with_store_lock state (fun () ->
+                 Eio.Promise.resolve signal_entered ();
+                 Eio.Fiber.yield ();
+                 1));
+            Ok ()
+          with _ -> Error ()));
+     Eio.Promise.await entered_lock;
+     Eio.Switch.fail sw Exit
+   with Exit -> ());
+  let result =
+    try Ok (Runtime_server_worker.with_store_lock state (fun () -> 42))
+    with
+    | Eio.Mutex.Poisoned exn ->
+      Error ("store mutex was poisoned by cancellation: " ^ Printexc.to_string exn)
+    | exn ->
+      Error ("unexpected exception after cancellation: " ^ Printexc.to_string exn)
+  in
+  match result with
+  | Ok value ->
+    Alcotest.(check int) "store mutex usable after cancellation" 42 value
+  | Error msg ->
+    Alcotest.fail msg
+
 (* ── persist_event_locked tests ────────────────────────────────── *)
 
 let test_persist_event_locked_basic () =
@@ -841,6 +875,8 @@ let () =
           Alcotest.test_case "basic" `Quick test_with_store_lock_basic;
           Alcotest.test_case "exception passthrough" `Quick test_with_store_lock_exception_passthrough;
           Alcotest.test_case "sequential" `Quick test_with_store_lock_sequential;
+          Alcotest.test_case "cancellation does not poison mutex" `Quick
+            test_with_store_lock_cancellation_does_not_poison_mutex;
         ] );
       ( "persist_event_locked",
         [

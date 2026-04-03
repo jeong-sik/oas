@@ -4,7 +4,7 @@ type state = {
   net: [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t;
   event_bus: Event_bus.t;
   mutable session_root: string option;
-  mutable next_control_id: int;
+  next_control_id: int Atomic.t;
   stdout_mu: Eio.Mutex.t;
   store_mu: Eio.Mutex.t;
 }
@@ -16,7 +16,7 @@ let create ~net () =
     net;
     event_bus = Event_bus.create ();
     session_root = None;
-    next_control_id = 1;
+    next_control_id = Atomic.make 1;
     stdout_mu = Eio.Mutex.create ();
     store_mu = Eio.Mutex.create ();
   }
@@ -29,14 +29,13 @@ let session_root_request_path = function
   | _ -> None
 
 let write_protocol_message state message =
-  Eio.Mutex.use_rw ~protect:false state.stdout_mu (fun () ->
+  Eio.Mutex.use_rw ~protect:true state.stdout_mu (fun () ->
     output_string stdout (protocol_message_to_string message);
     output_char stdout '\n';
     flush stdout)
 
 let next_control_id state =
-  let id = state.next_control_id in
-  state.next_control_id <- id + 1;
+  let id = Atomic.fetch_and_add state.next_control_id 1 in
   Printf.sprintf "ctrl-%06d" id
 
 let emit_event state session_id (event : event) =

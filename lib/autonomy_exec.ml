@@ -219,74 +219,97 @@ let spawn_result_promise ~sw fn =
 let await_result promise map_exn =
   match Eio.Promise.await promise with
   | Ok value -> Ok value
+  | Error (Eio.Cancel.Cancelled _ as exn) -> raise exn
   | Error exn -> Error (map_exn exn)
 
 let run ~sw ~clock ~config ~argv ~timeout_s =
   let t0 = Unix.gettimeofday () in
   let* effective = effective_argv ~config ~argv in
   let* pid, stdout_r, stderr_r = spawn_child config effective in
-  let wait_promise =
-    spawn_result_promise ~sw (fun () ->
-      Eio_unix.run_in_systhread ~label:"autonomy-exec-waitpid" (fun () ->
-        snd (Unix.waitpid [] pid)))
+  let close_quietly fd =
+    try Unix.close fd with Unix.Unix_error _ -> ()
   in
-  let stdout_promise =
-    spawn_result_promise ~sw (fun () ->
-      drain_fd ~limit:config.stdout_limit_bytes stdout_r)
-  in
-  let stderr_promise =
-    spawn_result_promise ~sw (fun () ->
-      drain_fd ~limit:config.stderr_limit_bytes stderr_r)
-  in
-  let capture_and_finish status =
-    let* stdout_capture =
-      await_result stdout_promise (fun exn ->
-        file_op_error
-          ~op:"read"
-          ~path:"stdout"
-          ~detail:(Printexc.to_string exn))
-    in
-    let* stderr_capture =
-      await_result stderr_promise (fun exn ->
-        file_op_error
-          ~op:"read"
-          ~path:"stderr"
-          ~detail:(Printexc.to_string exn))
-    in
-    Ok {
-      effective_argv = effective;
-      status;
-      stdout = stdout_capture.text;
-      stderr = stderr_capture.text;
-      stdout_truncated = stdout_capture.truncated;
-      stderr_truncated = stderr_capture.truncated;
-      elapsed_s = Unix.gettimeofday () -. t0;
-    }
-  in
-  try
-    let* unix_status =
-      Eio.Time.with_timeout_exn clock timeout_s (fun () ->
-        await_result wait_promise (fun exn ->
-          file_op_error
-            ~op:"waitpid"
-            ~path:(string_of_int pid)
-            ~detail:(Printexc.to_string exn)))
-    in
-    capture_and_finish (status_of_unix_status unix_status)
-  with
-  | Eio.Time.Timeout ->
-    kill_child config pid;
-    let timed_out_signal =
-      match await_result wait_promise (fun exn ->
-        file_op_error
-          ~op:"waitpid"
-          ~path:(string_of_int pid)
-          ~detail:(Printexc.to_string exn)) with
-      | Ok (Unix.WSIGNALED signal | Unix.WSTOPPED signal) -> Some signal
-      | Ok (Unix.WEXITED _) -> None
-      | Error _ -> None
-    in
-    capture_and_finish (Timed_out timed_out_signal)
+  let stdout_reader_started = ref false in
+  let stderr_reader_started = ref false in
+  let completed = ref false in
+  Fun.protect
+    ~finally:(fun () ->
+      if not !completed then begin
+        kill_child config pid;
+        if not !stdout_reader_started then close_quietly stdout_r;
+        if not !stderr_reader_started then close_quietly stderr_r
+      end)
+    (fun () ->
+      let wait_promise =
+        spawn_result_promise ~sw (fun () ->
+          Eio_unix.run_in_systhread ~label:"autonomy-exec-waitpid" (fun () ->
+            snd (Unix.waitpid [] pid)))
+      in
+      stdout_reader_started := true;
+      let stdout_promise =
+        spawn_result_promise ~sw (fun () ->
+          drain_fd ~limit:config.stdout_limit_bytes stdout_r)
+      in
+      stderr_reader_started := true;
+      let stderr_promise =
+        spawn_result_promise ~sw (fun () ->
+          drain_fd ~limit:config.stderr_limit_bytes stderr_r)
+      in
+      let capture_and_finish status =
+        let* stdout_capture =
+          await_result stdout_promise (fun exn ->
+            file_op_error
+              ~op:"read"
+              ~path:"stdout"
+              ~detail:(Printexc.to_string exn))
+        in
+        let* stderr_capture =
+          await_result stderr_promise (fun exn ->
+            file_op_error
+              ~op:"read"
+              ~path:"stderr"
+              ~detail:(Printexc.to_string exn))
+        in
+        Ok {
+          effective_argv = effective;
+          status;
+          stdout = stdout_capture.text;
+          stderr = stderr_capture.text;
+          stdout_truncated = stdout_capture.truncated;
+          stderr_truncated = stderr_capture.truncated;
+          elapsed_s = Unix.gettimeofday () -. t0;
+        }
+      in
+      try
+        let* unix_status =
+          Eio.Time.with_timeout_exn clock timeout_s (fun () ->
+            await_result wait_promise (fun exn ->
+              file_op_error
+                ~op:"waitpid"
+                ~path:(string_of_int pid)
+                ~detail:(Printexc.to_string exn)))
+        in
+        let result = capture_and_finish (status_of_unix_status unix_status) in
+        completed := true;
+        result
+      with
+      | Eio.Time.Timeout ->
+        kill_child config pid;
+        let timed_out_signal =
+          match await_result wait_promise (fun exn ->
+            file_op_error
+              ~op:"waitpid"
+              ~path:(string_of_int pid)
+              ~detail:(Printexc.to_string exn)) with
+          | Ok (Unix.WSIGNALED signal | Unix.WSTOPPED signal) -> Some signal
+          | Ok (Unix.WEXITED _) -> None
+          | Error _ -> None
+        in
+        let result = capture_and_finish (Timed_out timed_out_signal) in
+        completed := true;
+        result
+      | Eio.Cancel.Cancelled _ as exn ->
+        raise exn)
 
 [@@@coverage off]
 (* === Inline tests === *)
@@ -364,3 +387,38 @@ let%test_unit "run times out and returns Timed_out" =
      | status -> failwith ("expected timeout, got " ^ status_to_string status))
   | Error err ->
     failwith (Error.to_string err)
+
+let%test_unit "run preserves switch cancellation" =
+  with_eio @@ fun ~sw:_ ~clock ->
+  let run_outcome = ref None in
+  (try
+     Eio.Switch.run @@ fun child_sw ->
+     Eio.Fiber.fork ~sw:child_sw (fun () ->
+       Eio.Time.sleep clock 0.05;
+       Eio.Switch.fail child_sw Exit);
+     run_outcome :=
+       Some
+         (try
+            match
+              run ~sw:child_sw ~clock ~config:default_config
+                ~argv:
+                  [ "/usr/bin/env"; "python3"; "-c";
+                    "import time; time.sleep(0.5)" ]
+                ~timeout_s:0.2
+            with
+            | Ok _ -> `Returned_ok
+            | Error err -> `Returned_error (Error.to_string err)
+          with
+          | Eio.Cancel.Cancelled _ -> `Cancelled
+          | exn -> `Raised (Printexc.to_string exn))
+   with Exit -> ());
+  match !run_outcome with
+  | Some `Cancelled -> ()
+  | Some `Returned_ok ->
+    failwith "expected switch cancellation, got normal return"
+  | Some (`Returned_error err) ->
+    failwith ("expected switch cancellation, got error: " ^ err)
+  | Some (`Raised exn) ->
+    failwith ("expected switch cancellation, got exception: " ^ exn)
+  | None ->
+    failwith "run outcome was not recorded before switch failure"

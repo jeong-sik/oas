@@ -17,7 +17,7 @@ let make_event (session : session) kind =
   }
 
 let with_store_lock state f =
-  Eio.Mutex.use_rw ~protect:false state.store_mu f
+  Eio.Mutex.use_rw ~protect:true state.store_mu f
 
 let persist_event_locked store state (session : session) kind =
   let event = make_event session kind in
