@@ -16,8 +16,8 @@ val provider_runtime_name :
 
 val resolve_provider :
   ?provider:string -> ?model:string -> unit ->
-  Provider.config option
+  (Provider.config option, Error.sdk_error) result
 
 val resolve_execution :
   Runtime.session -> Runtime.spawn_agent_request ->
-  execution_resolution
+  (execution_resolution, Error.sdk_error) result
