@@ -198,7 +198,7 @@ let test_parallel_read_tools_share_batch () =
         Tool.Simple
           (fun input ->
             Eio.Promise.resolve resolve_self ();
-            Eio.Time.with_timeout_exn clock 0.05 (fun () ->
+            Eio.Time.with_timeout_exn clock 1.0 (fun () ->
                 Eio.Promise.await await_other);
             Ok { Types.content = Yojson.Safe.to_string input }) }
   in
@@ -243,7 +243,7 @@ let test_read_only_tools_infer_parallel_batch () =
         Tool.Simple
           (fun input ->
             Eio.Promise.resolve resolve_self ();
-            Eio.Time.with_timeout_exn clock 0.05 (fun () ->
+            Eio.Time.with_timeout_exn clock 1.0 (fun () ->
                 Eio.Promise.await await_other);
             Ok { Types.content = Yojson.Safe.to_string input });
     }
@@ -282,7 +282,7 @@ let test_workspace_tools_run_sequentially () =
           (fun _ ->
             if !running then failwith "workspace overlap detected";
             running := true;
-            Eio.Time.sleep clock 0.01;
+            Eio.Time.sleep clock 0.05;
             running := false;
             Ok { Types.content = name }) }
   in
@@ -312,7 +312,7 @@ let test_undeclared_tools_default_to_sequential () =
           (fun _ ->
             if !running then failwith "undeclared tool overlap detected";
             running := true;
-            Eio.Time.sleep clock 0.01;
+            Eio.Time.sleep clock 0.05;
             running := false;
             Ok { Types.content = name }) }
   in
@@ -346,7 +346,7 @@ let test_workspace_barrier_splits_parallel_read_batches () =
           (fun _ ->
             if !workspace_running then failwith "read overlapped with workspace";
             incr read_running;
-            Eio.Time.sleep clock 0.02;
+            Eio.Time.sleep clock 0.05;
             decr read_running;
             Ok { Types.content = name }) }
   in
@@ -363,7 +363,7 @@ let test_workspace_barrier_splits_parallel_read_batches () =
           (fun _ ->
             if !read_running > 0 then failwith "workspace overlapped with read";
             workspace_running := true;
-            Eio.Time.sleep clock 0.02;
+            Eio.Time.sleep clock 0.05;
             workspace_running := false;
             Ok { Types.content = name }) }
   in

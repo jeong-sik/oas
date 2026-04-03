@@ -68,8 +68,9 @@ let validate_descriptor (descriptor : descriptor) =
       | Some expected when expected <> concurrency_class ->
           Error
             (Printf.sprintf
-               "descriptor mismatch: mutation_class=%s requires concurrency_class=%s"
-               mutation_class (concurrency_class_name expected))
+               "descriptor mismatch: mutation_class=%s requires concurrency_class=%s (snake_case alias: %s)"
+               mutation_class (show_concurrency_class expected)
+               (concurrency_class_name expected))
       | _ -> Ok ())
   | _ -> Ok ()
 

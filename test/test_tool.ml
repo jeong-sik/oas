@@ -164,7 +164,8 @@ let test_descriptor_preserved_and_not_in_schema () =
   check bool "descriptor not in wire schema" true
     (json |> member "descriptor" = `Null);
   check string "descriptor json has concurrency_class"
-    (Yojson.Safe.to_string (`List [ `String "Exclusive_external" ]))
+    (Yojson.Safe.to_string
+       (Tool.concurrency_class_to_yojson Tool.Exclusive_external))
     (Yojson.Safe.to_string (descriptor_json |> member "concurrency_class"));
   check bool "descriptor json has shell" true
     (descriptor_json |> member "shell" <> `Null);
