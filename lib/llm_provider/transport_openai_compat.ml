@@ -12,7 +12,7 @@ type config = {
 }
 
 let default_config = {
-  base_url = "http://127.0.0.1:8085";
+  base_url = Discovery.default_endpoint;
   api_key = "";
   model_id = "";
   request_path = "/v1/chat/completions";

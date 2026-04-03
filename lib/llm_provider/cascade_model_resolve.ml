@@ -68,6 +68,6 @@ let parse_custom_model model_id =
     let url =
       match Sys.getenv_opt "CUSTOM_LLM_BASE_URL" with
       | Some u -> u
-      | None -> "http://127.0.0.1:8080"
+      | None -> Discovery.default_endpoint
     in
     (model_id, url)

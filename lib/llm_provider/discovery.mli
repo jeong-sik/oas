@@ -48,8 +48,14 @@ val discover :
   endpoints:string list ->
   endpoint_status list
 
-(** Parse LLM_ENDPOINTS env var (comma-separated) or return default
-    [["http://127.0.0.1:8085"]]. *)
+(** Canonical local LLM endpoint default.
+    Reads OAS_LOCAL_LLM_URL / OAS_LOCAL_QWEN_URL env vars,
+    falls back to ["http://127.0.0.1:8085"].
+    All local endpoint defaults in llm_provider reference this value. *)
+val default_endpoint : string
+
+(** Parse LLM_ENDPOINTS env var (comma-separated) or return
+    [[default_endpoint]]. *)
 val endpoints_from_env : unit -> string list
 
 (** JSON serialization for endpoint_status. *)

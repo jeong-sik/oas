@@ -28,7 +28,13 @@ type endpoint_status = {
   capabilities: Capabilities.capabilities;
 }
 
-let default_endpoint = "http://127.0.0.1:8085"
+let default_endpoint =
+  let primary = Sys.getenv_opt "OAS_LOCAL_LLM_URL" in
+  let legacy = Sys.getenv_opt "OAS_LOCAL_QWEN_URL" in
+  match primary, legacy with
+  | Some v, _ when String.trim v <> "" -> String.trim v
+  | _, Some v when String.trim v <> "" -> String.trim v
+  | _ -> "http://127.0.0.1:8085"
 
 let endpoints_from_env () =
   match Sys.getenv_opt "LLM_ENDPOINTS" with
