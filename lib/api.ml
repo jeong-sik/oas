@@ -195,9 +195,9 @@ let create_message_named ~sw ~net ?clock ~(named_cascade : named_cascade)
     | None -> config.config.system_prompt
   in
   (* Fall back to named_cascade.metrics when caller does not provide ?metrics.
-     This lets downstream consumers (e.g. MASC oas_worker) wire Prometheus
-     counters once via named_cascade and get cache hit/miss callbacks
-     without threading ?metrics through every call site. *)
+     This lets downstream consumers wire Prometheus counters once via
+     named_cascade and get cache hit/miss callbacks without threading
+     ?metrics through every call site. *)
   let metrics = match metrics with
     | Some m -> m
     | None -> named_cascade.metrics
