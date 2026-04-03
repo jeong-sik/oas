@@ -80,8 +80,8 @@ let initial_llama_endpoints =
   | Some s ->
     let urls = s |> String.split_on_char ',' |> List.map String.trim
                |> List.filter (fun s -> s <> "") in
-    if urls = [] then ["http://127.0.0.1:8085"] else urls
-  | None -> ["http://127.0.0.1:8085"]
+    if urls = [] then [Discovery.default_endpoint] else urls
+  | None -> [Discovery.default_endpoint]
 
 (** Mutable endpoint list, protected by atomic snapshot swap.
     Updated by [refresh_llama_endpoints]. *)
@@ -112,10 +112,10 @@ let refresh_llama_endpoints ~sw ~net () =
     | Some s when String.trim s <> "" ->
         let urls = s |> String.split_on_char ',' |> List.map String.trim
                    |> List.filter (fun s -> s <> "") in
-        if urls = [] then ["http://127.0.0.1:8085"] else urls
+        if urls = [] then [Discovery.default_endpoint] else urls
     | _ ->
         let found = Discovery.scan_local_endpoints ~sw ~net () in
-        if found = [] then ["http://127.0.0.1:8085"] else found
+        if found = [] then [Discovery.default_endpoint] else found
   in
   Atomic.set llama_endpoints_ref (Array.of_list endpoints);
   endpoints

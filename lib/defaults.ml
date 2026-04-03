@@ -20,14 +20,7 @@ let float_env_or default var =
     | Some v when v > 0.0 -> v | _ -> default)
   | None -> default
 
-let local_llm_url =
-  (* Backward compat: OAS_LOCAL_QWEN_URL still works as fallback *)
-  let primary = Sys.getenv_opt "OAS_LOCAL_LLM_URL" in
-  let legacy = Sys.getenv_opt "OAS_LOCAL_QWEN_URL" in
-  match primary, legacy with
-  | Some v, _ when String.trim v <> "" -> String.trim v
-  | _, Some v when String.trim v <> "" -> String.trim v
-  | _ -> "http://127.0.0.1:8085"
+let local_llm_url = Llm_provider.Discovery.default_endpoint
 
 let fallback_provider =
   env_or "local" "OAS_FALLBACK_PROVIDER"
