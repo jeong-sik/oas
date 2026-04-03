@@ -22,6 +22,10 @@ let make_record ~seq ~ts ~agent_name ~record_type
     tool_use_id;
     tool_name;
     tool_input;
+    tool_planned_index = None;
+    tool_batch_index = None;
+    tool_batch_size = None;
+    tool_concurrency_class = None;
     tool_result;
     tool_error;
     hook_name = None;
