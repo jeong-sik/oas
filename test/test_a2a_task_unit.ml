@@ -28,6 +28,7 @@ let test_state_of_string_valid () =
     "submitted";
     "working";
     "input-required";
+    "input_required";
     "completed";
     "failed";
     "canceled";
@@ -233,6 +234,20 @@ let test_task_role_unknown_via_deser () =
   match A2a_task.task_message_of_yojson json with
   | Error _ -> ()
   | Ok _ -> Alcotest.fail "expected error for unknown role"
+
+let test_task_role_legacy_via_deser () =
+  let check role_s expected =
+    let json = `Assoc [
+      ("role", `String role_s);
+      ("parts", `List []);
+      ("metadata", `Assoc [])
+    ] in
+    match A2a_task.task_message_of_yojson json with
+    | Ok msg -> Alcotest.(check bool) role_s true (msg.role = expected)
+    | Error e -> Alcotest.fail e
+  in
+  check "user" A2a_task.TaskUser;
+  check "agent" A2a_task.TaskAgent
 
 (* ── Task message ────────────────────────────────────────────── *)
 
@@ -558,6 +573,7 @@ let () =
       tc "user via message" test_task_role_user_via_message;
       tc "agent via message" test_task_role_agent_via_message;
       tc "unknown via deser" test_task_role_unknown_via_deser;
+      tc "legacy via deser" test_task_role_legacy_via_deser;
     ]);
     ("task_message", [
       tc "json roundtrip" test_task_message_json_roundtrip;
