@@ -18,7 +18,7 @@ let invoke_hook_with_trace agent ?raw_trace_run ~hook_name hook_opt event =
       agent_name = agent.state.config.name;
       turn = agent.state.turn_count; extra = [] }
     (fun _ ->
-      let decision = Hooks.invoke hook_opt event in
+      let decision = Hooks.invoke_validated hook_opt event in
       record_hook_invocation raw_trace_run ~hook_name ~decision ();
       decision)
 

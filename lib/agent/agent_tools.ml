@@ -90,7 +90,7 @@ let invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count ~hook_name
       extra = [];
     }
     (fun _ ->
-      let decision = Hooks.invoke hook_opt event in
+      let decision = Hooks.invoke_validated hook_opt event in
       (match on_hook_invoked with
       | Some callback ->
           callback ~hook_name ~decision
