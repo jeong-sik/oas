@@ -2,6 +2,10 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
+backfilled on 2026-04-04 from existing git tags. The dates below reflect the
+original tag dates. `0.100.4` was never tagged or released.
+
 ## [0.100.7] - 2026-04-04
 
 ### Added
