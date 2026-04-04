@@ -16,6 +16,7 @@ type scheduled_tool_use = {
 type execution_batch =
   | Parallel_batch of scheduled_tool_use list
   | Sequential_batch of scheduled_tool_use
+  | Exclusive_batch of scheduled_tool_use
 
 let concurrency_class_to_string = function
   | Tool.Parallel_read -> "parallel_read"
@@ -64,19 +65,23 @@ let execution_batches tool_uses =
         match tool_use.concurrency_class with
         | Tool.Parallel_read ->
             build acc (tool_use :: current_parallel) rest
-        | Tool.Sequential_workspace | Tool.Exclusive_external ->
+        | Tool.Sequential_workspace ->
             let acc = flush_parallel acc current_parallel in
-            build (Sequential_batch tool_use :: acc) [] rest)
+            build (Sequential_batch tool_use :: acc) [] rest
+        | Tool.Exclusive_external ->
+            let acc = flush_parallel acc current_parallel in
+            build (Exclusive_batch tool_use :: acc) [] rest)
   in
   build [] [] tool_uses
 
-let hook_schedule_of_tool_use ~batch_index ~batch_size (tool_use : scheduled_tool_use)
-    : Hooks.tool_schedule =
+let hook_schedule_of_tool_use ~batch_index ~batch_size ~batch_kind
+    (tool_use : scheduled_tool_use) : Hooks.tool_schedule =
   {
     planned_index = tool_use.index;
     batch_index;
     batch_size;
     concurrency_class = concurrency_class_to_string tool_use.concurrency_class;
+    batch_kind;
   }
 
 let invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count ~hook_name
@@ -290,7 +295,14 @@ let execute_tools ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tracer
          match batch with
          | Sequential_batch tool_use ->
              let schedule =
-               hook_schedule_of_tool_use ~batch_index ~batch_size:1 tool_use
+               hook_schedule_of_tool_use ~batch_index ~batch_size:1
+                 ~batch_kind:"sequential" tool_use
+             in
+             [ run_one ~schedule tool_use ]
+         | Exclusive_batch tool_use ->
+             let schedule =
+               hook_schedule_of_tool_use ~batch_index ~batch_size:1
+                 ~batch_kind:"exclusive" tool_use
              in
              [ run_one ~schedule tool_use ]
          | Parallel_batch tool_uses ->
@@ -299,7 +311,7 @@ let execute_tools ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tracer
              |> List.map (fun tool_use ->
                     let schedule =
                       hook_schedule_of_tool_use ~batch_index ~batch_size
-                        tool_use
+                        ~batch_kind:"parallel" tool_use
                     in
                     (tool_use, schedule))
              |> Eio.Fiber.List.map (fun (tool_use, schedule) ->
