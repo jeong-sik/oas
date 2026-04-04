@@ -243,8 +243,28 @@ let probe_endpoint ~sw ~net url =
     let capabilities = infer_capabilities models props in
     { url = base; healthy; models; props; slots; capabilities }
 
+(* ── Shared discovered context state ──────────────────────── *)
+
+let _discovered_per_slot_ctx : int option Atomic.t = Atomic.make None
+
+let discovered_per_slot_context () = Atomic.get _discovered_per_slot_ctx
+
 let discover ~sw ~net ~endpoints =
   Eio.Fiber.List.map (fun url -> probe_endpoint ~sw ~net url) endpoints
+
+let refresh_and_sync ~sw ~net ~endpoints =
+  let statuses = discover ~sw ~net ~endpoints in
+  let healthy = List.filter (fun (s : endpoint_status) -> s.healthy) statuses in
+  let per_slot_contexts = List.filter_map (fun (s : endpoint_status) ->
+    match s.props with
+    | Some p when p.total_slots > 0 && p.ctx_size > 0 ->
+      Some (p.ctx_size / p.total_slots)
+    | _ -> None
+  ) healthy in
+  (match per_slot_contexts with
+   | [] -> ()
+   | ctxs -> Atomic.set _discovered_per_slot_ctx (Some (List.fold_left min max_int ctxs)));
+  statuses
 
 let default_scan_ports = [ 8085; 8086; 8087; 8088; 8089; 8090; 11434 ]
 

@@ -107,22 +107,39 @@ let next_llama_endpoint () =
     Falls back to default 8085 if no healthy endpoints found.
     Call this after Eio scheduler is available (e.g. at server startup). *)
 let refresh_llama_endpoints ~sw ~net () =
-  let endpoints =
+  let endpoint_urls =
     match Sys.getenv_opt "LLM_ENDPOINTS" with
     | Some s when String.trim s <> "" ->
         let urls = s |> String.split_on_char ',' |> List.map String.trim
                    |> List.filter (fun s -> s <> "") in
         if urls = [] then [Discovery.default_endpoint] else urls
     | _ ->
-        let found = Discovery.scan_local_endpoints ~sw ~net () in
+        (* scan_local_endpoints only returns healthy URLs; we need full statuses
+           for context sync, so probe the default + scanned ports. *)
+        let candidates =
+          List.map (fun p -> Printf.sprintf "http://127.0.0.1:%d" p)
+            Discovery.default_scan_ports
+        in
+        let statuses = Discovery.refresh_and_sync ~sw ~net ~endpoints:candidates in
+        let found = List.filter_map (fun (s : Discovery.endpoint_status) ->
+          if s.healthy then Some s.url else None
+        ) statuses in
         if found = [] then [Discovery.default_endpoint] else found
   in
-  Atomic.set llama_endpoints_ref (Array.of_list endpoints);
-  endpoints
+  (* When LLM_ENDPOINTS is explicit, still probe for context sync *)
+  (match Sys.getenv_opt "LLM_ENDPOINTS" with
+   | Some s when String.trim s <> "" ->
+     ignore (Discovery.refresh_and_sync ~sw ~net ~endpoints:endpoint_urls)
+   | _ -> () (* already synced above *));
+  Atomic.set llama_endpoints_ref (Array.of_list endpoint_urls);
+  endpoint_urls
 
 (** Current active endpoint list (snapshot). *)
 let active_llama_endpoints () =
   Array.to_list (Atomic.get llama_endpoints_ref)
+
+let discovered_max_context () =
+  Discovery.discovered_per_slot_context ()
 
 let llama_defaults = {
   kind = OpenAI_compat;

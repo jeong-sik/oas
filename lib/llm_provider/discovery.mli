@@ -72,9 +72,34 @@ val max_context_of_status : endpoint_status -> int option
     Probes each port via [/health] and returns URLs of healthy endpoints.
     Default port range: 8085-8090.
     @since 0.86.0 *)
+(** Default ports to scan for local llama-server instances. *)
+val default_scan_ports : int list
+
 val scan_local_endpoints :
   ?ports:int list ->
   sw:Eio.Switch.t ->
   net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
   unit ->
   string list
+
+(** {1 Discovered Context State}
+
+    Shared state updated by probing.  Consumers read
+    [discovered_per_slot_context] to get the effective per-request
+    context limit derived from the last successful probe.
+
+    @since 0.100.8 *)
+
+val discovered_per_slot_context : unit -> int option
+(** Per-slot context tokens from the last probe.
+    Computed as [ctx_size / total_slots] (conservative: min across
+    all healthy endpoints).  Returns [None] if no probe completed. *)
+
+val refresh_and_sync :
+  sw:Eio.Switch.t ->
+  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
+  endpoints:string list ->
+  endpoint_status list
+(** Probe [endpoints], update the shared per-slot context state,
+    and return the full status list.  Replaces [discover] when
+    the caller also wants the context state kept current. *)

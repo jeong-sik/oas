@@ -83,3 +83,9 @@ val refresh_llama_endpoints :
 (** Current active endpoint list (snapshot after last refresh).
     @since 0.86.0 *)
 val active_llama_endpoints : unit -> string list
+
+(** Per-slot context tokens from the last discovery probe.
+    Returns [None] if no probe has completed yet.
+    Delegates to {!Discovery.discovered_per_slot_context}.
+    @since 0.100.8 *)
+val discovered_max_context : unit -> int option
