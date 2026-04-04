@@ -72,6 +72,37 @@ let test_set_state_protected () =
   Agent.set_state agent { st with turn_count = 42 };
   Alcotest.(check int) "turn_count set" 42 (Agent.state agent).turn_count
 
+let test_update_state_cancellation_does_not_poison_mutex () =
+  Eio_main.run @@ fun env ->
+  let agent = make_agent env in
+  let entered_lock, signal_entered = Eio.Promise.create () in
+  (try
+     Eio.Switch.run @@ fun sw ->
+     Eio.Fiber.fork ~sw (fun () ->
+       ignore
+         (try
+            Agent.update_state agent (fun s ->
+              Eio.Promise.resolve signal_entered ();
+              Eio.Fiber.yield ();
+              { s with turn_count = s.turn_count + 1 });
+            Ok ()
+          with _ -> Error ()));
+     Eio.Promise.await entered_lock;
+     Eio.Switch.fail sw Exit
+   with Exit -> ());
+  let st = Agent.state agent in
+  (try
+     Agent.set_state agent { st with turn_count = 7 }
+   with
+   | Eio.Mutex.Poisoned exn ->
+     Alcotest.failf "agent mutex was poisoned by cancellation: %s"
+       (Printexc.to_string exn)
+   | exn ->
+     Alcotest.failf "unexpected exception after cancellation: %s"
+       (Printexc.to_string exn));
+  Alcotest.(check int) "mutex usable after cancellation" 7
+    (Agent.state agent).turn_count
+
 (* ── Test: set_consecutive_idle_turns is protected ──────── *)
 
 let test_set_consecutive_idle_protected () =
@@ -130,6 +161,8 @@ let () =
         test_concurrent_update_state;
       Alcotest.test_case "set_state protected" `Quick
         test_set_state_protected;
+      Alcotest.test_case "update_state cancellation does not poison mutex" `Quick
+        test_update_state_cancellation_does_not_poison_mutex;
       Alcotest.test_case "set_consecutive_idle protected" `Quick
         test_set_consecutive_idle_protected;
       Alcotest.test_case "lifecycle transition order" `Quick

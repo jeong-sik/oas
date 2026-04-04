@@ -171,7 +171,8 @@ let run_with_handoffs ~sw ?clock agent ~targets user_prompt =
               let sub = create ~net:agent.net ~config:target.config
                 ~tools:target.tools ~options:{ default_options with
                   base_url = agent.options.base_url;
-                  provider = agent.options.provider } () in
+                  provider = agent.options.provider;
+                  policy_channel = agent.options.policy_channel } () in
               (match run ~sw ?clock sub prompt with
                | Error e ->
                  let err_msg = Printf.sprintf

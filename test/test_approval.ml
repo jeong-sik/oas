@@ -366,6 +366,147 @@ let test_workspace_barrier_splits_parallel_read_batches () =
          && (not third.is_error) -> ()
   | _ -> fail "workspace tool should form a sequential barrier between read batches"
 
+let test_exclusive_external_barrier_isolation () =
+  (* Exclusive_external tools must not overlap with any other tool.
+     Schedule: [read, workspace, exclusive, read_after]
+     Expected batches:
+       Parallel_batch [read]
+       Sequential_batch workspace
+       Exclusive_batch exclusive   (barrier: no overlap before or after)
+       Parallel_batch [read_after]
+     Overlap detection uses mutable flags checked at runtime. *)
+  Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  let any_running = ref false in
+  let exclusive_running = ref false in
+  let make_read_tool name =
+    make_echo_tool
+      ~descriptor:
+        (descriptor_with ~mutation_class:"read_only" Tool.Parallel_read)
+      name
+    |> fun tool ->
+    { tool with
+      Tool.handler =
+        Tool.Simple
+          (fun _ ->
+            if !exclusive_running then
+              failwith "read overlapped with exclusive";
+            any_running := true;
+            Eio.Time.sleep clock 0.02;
+            any_running := false;
+            Ok { Types.content = name }) }
+  in
+  let make_workspace_tool name =
+    make_echo_tool
+      ~descriptor:
+        (descriptor_with ~mutation_class:"workspace_mutating"
+           Tool.Sequential_workspace)
+      name
+    |> fun tool ->
+    { tool with
+      Tool.handler =
+        Tool.Simple
+          (fun _ ->
+            if !exclusive_running then
+              failwith "workspace overlapped with exclusive";
+            any_running := true;
+            Eio.Time.sleep clock 0.02;
+            any_running := false;
+            Ok { Types.content = name }) }
+  in
+  let make_exclusive_tool name =
+    make_echo_tool
+      ~descriptor:
+        (descriptor_with ~mutation_class:"external_effect"
+           Tool.Exclusive_external)
+      name
+    |> fun tool ->
+    { tool with
+      Tool.handler =
+        Tool.Simple
+          (fun _ ->
+            if !any_running then
+              failwith "exclusive overlapped with another tool";
+            exclusive_running := true;
+            Eio.Time.sleep clock 0.02;
+            exclusive_running := false;
+            Ok { Types.content = name }) }
+  in
+  let tools =
+    [
+      make_read_tool "read_first";
+      make_workspace_tool "write_mid";
+      make_exclusive_tool "ext_call";
+      make_read_tool "read_last";
+    ]
+  in
+  let results =
+    execute_with_tools_in_env env ~tools ~hooks:Hooks.empty
+      [
+        ToolUse { id = "t1"; name = "read_first"; input = `Null };
+        ToolUse { id = "t2"; name = "write_mid"; input = `Null };
+        ToolUse { id = "t3"; name = "ext_call"; input = `Null };
+        ToolUse { id = "t4"; name = "read_last"; input = `Null };
+      ]
+  in
+  match results with
+  | [ (_, "read_first", false);
+      (_, "write_mid", false);
+      (_, "ext_call", false);
+      (_, "read_last", false) ] -> ()
+  | _ -> fail "exclusive external tool must run in complete isolation"
+
+let test_exclusive_batch_kind_metadata () =
+  (* Verify the schedule.batch_kind field is "exclusive" for Exclusive_external
+     tools. Capture it via the PreToolUse hook. *)
+  Eio_main.run @@ fun env ->
+  let captured_kinds = ref [] in
+  let hooks =
+    { Hooks.empty with
+      pre_tool_use =
+        Some (fun event ->
+          (match event with
+          | Hooks.PreToolUse { tool_name; schedule; _ } ->
+            captured_kinds :=
+              (tool_name, schedule.batch_kind) :: !captured_kinds
+          | _ -> ());
+          Hooks.Continue) }
+  in
+  let read_tool =
+    make_echo_tool
+      ~descriptor:
+        (descriptor_with ~mutation_class:"read_only" Tool.Parallel_read)
+      "reader"
+  in
+  let seq_tool =
+    make_echo_tool
+      ~descriptor:
+        (descriptor_with ~mutation_class:"workspace_mutating"
+           Tool.Sequential_workspace)
+      "writer"
+  in
+  let excl_tool =
+    make_echo_tool
+      ~descriptor:
+        (descriptor_with ~mutation_class:"external_effect"
+           Tool.Exclusive_external)
+      "ext"
+  in
+  let _results =
+    execute_with_tools_in_env env
+      ~tools:[ read_tool; seq_tool; excl_tool ]
+      ~hooks
+      [
+        ToolUse { id = "t1"; name = "reader"; input = `Null };
+        ToolUse { id = "t2"; name = "writer"; input = `Null };
+        ToolUse { id = "t3"; name = "ext"; input = `Null };
+      ]
+  in
+  let kinds = List.rev !captured_kinds in
+  check (list (pair string string)) "batch_kind metadata"
+    [ ("reader", "parallel"); ("writer", "sequential"); ("ext", "exclusive") ]
+    kinds
+
 let () =
   run "Approval" [
     "approval_required", [
@@ -389,5 +530,9 @@ let () =
         test_undeclared_tools_default_to_sequential;
       test_case "workspace barrier splits read batches" `Quick
         test_workspace_barrier_splits_parallel_read_batches;
+      test_case "exclusive external barrier isolation (#589)" `Quick
+        test_exclusive_external_barrier_isolation;
+      test_case "exclusive batch_kind metadata (#589)" `Quick
+        test_exclusive_batch_kind_metadata;
     ];
   ]

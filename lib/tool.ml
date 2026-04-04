@@ -52,7 +52,7 @@ type t = {
 
 let expected_concurrency_class_of_mutation_class = function
   | "read_only" -> Some Parallel_read
-  | "workspace" | "workspace_mutating" -> Some Sequential_workspace
+  | "workspace" | "workspace_mutating" | "local_mutation" -> Some Sequential_workspace
   | "external" | "external_effect" -> Some Exclusive_external
   | _ -> None
 

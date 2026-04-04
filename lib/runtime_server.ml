@@ -135,7 +135,21 @@ let apply_command ~sw state store (session : session) command =
         | Hook_response result -> (result.continue_, result.message)
         | Permission_response _ -> (true, None)
       in
-      let resolution = resolve_execution session detail in
+      begin match resolve_execution session detail with
+      | Error err ->
+        let* session, _ =
+          persist_event store state session_id
+            (Agent_failed
+               {
+                 participant_name = detail.participant_name;
+                 summary = None;
+                 provider = detail.provider;
+                 model = detail.model;
+                 error = Some (Error.to_string err);
+               })
+        in
+        Ok (Command_applied session)
+      | Ok resolution ->
       if not permission_allowed || not hook_allowed then
         let* session, _ =
           persist_event store state session_id
@@ -206,6 +220,7 @@ let apply_command ~sw state store (session : session) command =
             Eio.traceln "Runtime_server: participant %s fork failed: %s"
               participant_name (Printexc.to_string exn));
         Ok (Command_applied session)
+      end
   | Attach_artifact detail ->
       let* artifact =
         Artifact_service.save_text_internal store ~session_id:session.session_id

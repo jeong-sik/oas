@@ -42,6 +42,7 @@ type turn_preparation = {
 val prepare_tools :
   guardrails:Guardrails.t ->
   operator_policy:Guardrails.tool_filter option ->
+  policy_channel:Policy_channel.t option ->
   tools:Tool_set.t ->
   turn_params:Hooks.turn_params ->
   Yojson.Safe.t list option * Guardrails.t
@@ -59,6 +60,7 @@ val prepare_messages :
 val prepare_turn :
   guardrails:Guardrails.t ->
   operator_policy:Guardrails.tool_filter option ->
+  policy_channel:Policy_channel.t option ->
   tools:Tool_set.t ->
   messages:Types.message list ->
   context_reducer:Context_reducer.t option ->

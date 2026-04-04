@@ -67,6 +67,10 @@
  (libraries agent_sdk llm_provider alcotest yojson))
 
 (test
+ (name test_runtime_server_types)
+ (libraries agent_sdk alcotest eio eio_main))
+
+(test
  (name test_provider_complete)
  (libraries llm_provider alcotest yojson))
 
@@ -310,9 +314,7 @@
  (name test_a2a)
  (libraries agent_sdk alcotest yojson unix))
 
-(test
- (name test_coverage_gaps)
- (libraries agent_sdk alcotest yojson))
+
 
 (test
  (name test_a2a_task_store)
@@ -489,7 +491,7 @@
 
 (test
  (name test_complete_http)
- (libraries agent_sdk llm_provider alcotest yojson eio eio_main cohttp-eio))
+ (libraries agent_sdk llm_provider alcotest yojson eio eio_main cohttp-eio unix))
 
 (test
  (name test_agent_pipeline)
@@ -621,13 +623,6 @@
  (name test_mcp_coverage)
  (libraries agent_sdk alcotest yojson mcp_protocol))
 
-(test
- (name test_api_coverage)
- (libraries agent_sdk alcotest yojson))
-
-(test
- (name test_client_coverage)
- (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_builder_coverage)
@@ -704,6 +699,10 @@
 (test
  (name test_policy)
  (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_policy_decision)
+ (libraries agent_sdk alcotest yojson unix))
 
 (test
  (name test_audit)
@@ -836,4 +835,12 @@
 
 (test
  (name test_lenient_json)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_skill_discovery)
+ (libraries agent_sdk alcotest yojson eio eio_main))
+
+(test
+ (name test_policy_channel)
  (libraries agent_sdk alcotest yojson))

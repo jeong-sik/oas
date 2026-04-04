@@ -115,6 +115,7 @@ let test_resolve_params_adjust () =
     thinking_budget = Some 1000;
     tool_choice = None;
     extra_system_context = Some "Debug mode";
+    system_prompt_override = None;
     tool_filter_override = None;
   } in
   let hooks = { Hooks.empty with
@@ -135,6 +136,40 @@ let test_resolve_params_adjust () =
     (Some 1000) params.thinking_budget;
   Alcotest.(check (option string)) "adjusted context"
     (Some "Debug mode") params.extra_system_context
+
+(** resolve_turn_params with system_prompt_override preserves the override. *)
+let test_resolve_params_system_prompt_override () =
+  let adjusted = { Hooks.default_turn_params with
+    system_prompt_override = Some "You are a code reviewer.";
+  } in
+  let hooks = { Hooks.empty with
+    before_turn_params = Some (fun _ -> Hooks.AdjustParams adjusted)
+  } in
+  let messages : Types.message list = [
+    { role = User; content = [Text "review this"]; name = None; tool_call_id = None };
+  ] in
+  let invoke_hook ~hook_name:_ hook event =
+    match hook with
+    | Some h -> h event
+    | None -> Hooks.Continue
+  in
+  let params = Agent_turn.resolve_turn_params ~hooks ~messages ~invoke_hook in
+  Alcotest.(check (option string)) "system_prompt_override applied"
+    (Some "You are a code reviewer.") params.system_prompt_override;
+  (* Original config fields remain default *)
+  Alcotest.(check bool) "temperature unchanged" true
+    (Option.is_none params.temperature)
+
+(** resolve_turn_params with system_prompt_override = None preserves original. *)
+let test_resolve_params_no_system_prompt_override () =
+  let hooks = Hooks.empty in
+  let messages : Types.message list = [
+    { role = User; content = [Text "hello"]; name = None; tool_call_id = None };
+  ] in
+  let invoke_hook ~hook_name:_ _hook _event = Hooks.Continue in
+  let params = Agent_turn.resolve_turn_params ~hooks ~messages ~invoke_hook in
+  Alcotest.(check (option string)) "no system_prompt_override"
+    None params.system_prompt_override
 
 (** resolve_turn_params extracts last_tool_results from messages. *)
 let test_resolve_params_with_tool_results () =
@@ -445,6 +480,10 @@ let () =
     "resolve_turn_params", [
       Alcotest.test_case "no hook" `Quick test_resolve_params_no_hook;
       Alcotest.test_case "adjust params" `Quick test_resolve_params_adjust;
+      Alcotest.test_case "system_prompt_override applied" `Quick
+        test_resolve_params_system_prompt_override;
+      Alcotest.test_case "no system_prompt_override" `Quick
+        test_resolve_params_no_system_prompt_override;
       Alcotest.test_case "tool results captured" `Quick
         test_resolve_params_with_tool_results;
       Alcotest.test_case "error tool results" `Quick

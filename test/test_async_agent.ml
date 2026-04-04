@@ -15,7 +15,18 @@ let quick_response text =
 
 (** Start a mock Anthropic API server. Returns base_url.
     Optionally delays [delay_sec] before responding. *)
-let start_mock ~sw ~net ~clock ~port ?(delay_sec = 0.0) response_text =
+let fresh_port () =
+  let s = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
+  Unix.setsockopt s Unix.SO_REUSEADDR true;
+  Unix.bind s (Unix.ADDR_INET (Unix.inet_addr_loopback, 0));
+  let port = match Unix.getsockname s with
+    | Unix.ADDR_INET (_, p) -> p
+    | _ -> failwith "not inet" in
+  Unix.close s;
+  port
+
+let start_mock ~sw ~net ~clock ?(delay_sec = 0.0) response_text =
+  let port = fresh_port () in
   let handler _conn _req body =
     let _ = Eio.Buf_read.(of_flow ~max_size:max_int body |> take_all) in
     if delay_sec > 0.0 then Eio.Time.sleep clock delay_sec;
@@ -49,7 +60,7 @@ let test_spawn_and_await () =
   let clock = Eio.Stdenv.clock env in
   try
     Eio.Switch.run @@ fun sw ->
-    let url = start_mock ~sw ~net:env#net ~clock ~port:18001 "hello-async" in
+    let url = start_mock ~sw ~net:env#net ~clock "hello-async" in
     let agent = make_agent ~net:env#net url "async-1" in
     let future = Async_agent.spawn ~sw ~clock agent "test" in
     (match Async_agent.await future with
@@ -68,7 +79,7 @@ let test_is_ready () =
     Eio.Switch.run @@ fun sw ->
     (* Use a short delay so we can check is_ready before completion *)
     let url =
-      start_mock ~sw ~net:env#net ~clock ~port:18002
+      start_mock ~sw ~net:env#net ~clock
         ~delay_sec:0.1 "ready-test"
     in
     let agent = make_agent ~net:env#net url "ready-agent" in
@@ -94,7 +105,7 @@ let test_cancel () =
     Eio.Switch.run @@ fun sw ->
     (* Slow server: 5s delay *)
     let url =
-      start_mock ~sw ~net:env#net ~clock ~port:18003
+      start_mock ~sw ~net:env#net ~clock
         ~delay_sec:5.0 "slow-result"
     in
     let agent = make_agent ~net:env#net url "cancel-agent" in
@@ -119,7 +130,7 @@ let test_cancel_fiber_stops_before_resolve () =
     Eio.Switch.run @@ fun sw ->
     (* Slow server: 5s delay — ensures the fiber is blocked in I/O *)
     let url =
-      start_mock ~sw ~net:env#net ~clock ~port:18020
+      start_mock ~sw ~net:env#net ~clock
         ~delay_sec:5.0 "slow-cancel"
     in
     let agent = make_agent ~net:env#net url "cancel-order-agent" in
@@ -150,11 +161,11 @@ let test_race_first_wins () =
   try
     Eio.Switch.run @@ fun sw ->
     let url_fast =
-      start_mock ~sw ~net:env#net ~clock ~port:18004
+      start_mock ~sw ~net:env#net ~clock
         ~delay_sec:0.01 "fast-agent"
     in
     let url_slow =
-      start_mock ~sw ~net:env#net ~clock ~port:18005
+      start_mock ~sw ~net:env#net ~clock
         ~delay_sec:2.0 "slow-agent"
     in
     let fast = make_agent ~net:env#net url_fast "racer-fast" in
@@ -187,7 +198,7 @@ let test_race_single () =
   try
     Eio.Switch.run @@ fun sw ->
     let url =
-      start_mock ~sw ~net:env#net ~clock ~port:18006 "solo"
+      start_mock ~sw ~net:env#net ~clock "solo"
     in
     let agent = make_agent ~net:env#net url "solo-racer" in
     (match Async_agent.race ~sw ~clock [(agent, "go")] with
@@ -206,13 +217,13 @@ let test_all_collects () =
   try
     Eio.Switch.run @@ fun sw ->
     let url1 =
-      start_mock ~sw ~net:env#net ~clock ~port:18007 "result-1"
+      start_mock ~sw ~net:env#net ~clock "result-1"
     in
     let url2 =
-      start_mock ~sw ~net:env#net ~clock ~port:18008 "result-2"
+      start_mock ~sw ~net:env#net ~clock "result-2"
     in
     let url3 =
-      start_mock ~sw ~net:env#net ~clock ~port:18009 "result-3"
+      start_mock ~sw ~net:env#net ~clock "result-3"
     in
     let a1 = make_agent ~net:env#net url1 "agent-1" in
     let a2 = make_agent ~net:env#net url2 "agent-2" in
@@ -245,11 +256,11 @@ let test_all_order () =
     Eio.Switch.run @@ fun sw ->
     (* Agents with different delays — output order should match input *)
     let url1 =
-      start_mock ~sw ~net:env#net ~clock ~port:18010
+      start_mock ~sw ~net:env#net ~clock
         ~delay_sec:0.05 "first"
     in
     let url2 =
-      start_mock ~sw ~net:env#net ~clock ~port:18011
+      start_mock ~sw ~net:env#net ~clock
         ~delay_sec:0.01 "second"
     in
     let a1 = make_agent ~net:env#net url1 "ordered-1" in

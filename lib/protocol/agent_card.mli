@@ -60,6 +60,9 @@ type agent_info = {
   mcp_clients_count: int;
   has_elicitation: bool;
   skill_registry: Skill_registry.t option;
+      (** Discovery-only skill source.  When present, skills from the
+          registry are listed in the generated agent card.  These skills
+          are {b not} composed into the system prompt. *)
 }
 
 val provider_name : Provider.config -> string

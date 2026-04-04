@@ -38,6 +38,18 @@ type rule = {
   evaluate: decision_point -> verdict;
 }
 
+(** {1 Structured decision} *)
+
+(** A structured decision with full lineage of matched rules.
+    @since 0.99.2 *)
+type decision = {
+  verdict: verdict;
+  matched_rules: rule list;
+  first_match: rule option;
+  policy_source: string;
+  evaluated_at: float;
+}
+
 (** {1 Policy engine} *)
 
 type t
@@ -50,6 +62,13 @@ val create : rule list -> t
     Returns [Allow] if no rule matches. *)
 val evaluate : t -> decision_point -> verdict
 
+(** Evaluate a decision point and return a structured [decision]
+    with matched-rule lineage for audit.
+    [policy_source] defaults to ["default"].
+    @since 0.99.2 *)
+val evaluate_with_lineage :
+  ?policy_source:string -> t -> decision_point -> decision
+
 (** {1 Rule management} *)
 
 val add_rule : t -> rule -> t
@@ -61,3 +80,7 @@ val rule_count : t -> int
 
 val verdict_to_string : verdict -> string
 val decision_point_to_string : decision_point -> string
+
+(** Serialize a [decision] to JSON for audit/logging.
+    @since 0.99.2 *)
+val decision_to_json : decision -> Yojson.Safe.t

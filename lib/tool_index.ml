@@ -154,6 +154,26 @@ let of_tools ?(config = default_config) ?tokenizer (tools : Tool.t list) : t =
   ) tools in
   build ~config ?tokenizer entries
 
+(* ── Rebuild ─────────────────────────────────────── *)
+
+let rebuild (idx : t) (tools : Tool.t list) : t =
+  let entries = List.map (fun (tool : Tool.t) ->
+    { name = tool.schema.name;
+      description = tool.schema.description;
+      group = None }
+  ) tools in
+  build ~config:idx.config ~tokenizer:idx.tokenizer entries
+
+let remove_entries (idx : t) (names_to_remove : string list) : t =
+  let remove_set = Hashtbl.create (List.length names_to_remove) in
+  List.iter (fun n -> Hashtbl.replace remove_set n true) names_to_remove;
+  let remaining = Array.to_list idx.docs
+    |> List.filter (fun (doc : doc) ->
+      not (Hashtbl.mem remove_set doc.entry.name))
+    |> List.map (fun (doc : doc) -> doc.entry)
+  in
+  build ~config:idx.config ~tokenizer:idx.tokenizer remaining
+
 (* ── BM25 scoring ─────────────────────────────────── *)
 
 (** Count occurrences of a term in a token list. *)
@@ -223,6 +243,20 @@ let retrieve (idx : t) (query : string) : (string * float) list =
 
 let retrieve_names (idx : t) (query : string) : string list =
   List.map fst (retrieve idx query)
+
+(* ── Scoped retrieval ────────────────────────────── *)
+
+let retrieve_within (idx : t) ~(active : string list) (query : string)
+    : (string * float) list =
+  let set = Hashtbl.create (List.length active) in
+  List.iter (fun name -> Hashtbl.replace set name true) active;
+  retrieve idx query
+  |> List.filter (fun (name, _) -> Hashtbl.mem set name)
+
+let retrieve_filtered (idx : t) ~(filter : string -> bool) (query : string)
+    : (string * float) list =
+  retrieve idx query
+  |> List.filter (fun (name, _) -> filter name)
 
 (* ── Confidence gate ──────────────────────────────── *)
 
@@ -316,28 +350,168 @@ let%test "tokenize korean preserves ascii behavior" =
 
 let%test "korean query retrieves korean-aliased tool" =
   let idx = build [
-    { name = "keeper_board_post";
-      description = "Create a new post on the MASC Board 게시판 글 올리기 작성";
+    { name = "board_create_post";
+      description = "Create a new post on the board 게시판 글 올리기 작성";
       group = Some "board" };
-    { name = "keeper_fs_read";
+    { name = "fs_read_file";
       description = "Read a file from the project 파일 읽기";
       group = Some "filesystem" };
   ] in
   let results = retrieve_names idx "게시판에 글 올려줘" in
-  List.mem "keeper_board_post" results
+  List.mem "board_create_post" results
 
 let%test "korean group co-retrieval" =
   let idx = build [
-    { name = "keeper_board_post";
+    { name = "board_create_post";
       description = "Create post 게시판 글 올리기";
       group = Some "board" };
-    { name = "keeper_board_comment";
+    { name = "board_add_comment";
       description = "Add comment 게시판 댓글";
       group = Some "board" };
-    { name = "keeper_fs_read";
+    { name = "fs_read_file";
       description = "Read file 파일 읽기";
       group = None };
   ] in
   let results = retrieve_names idx "게시판 글" in
-  List.mem "keeper_board_post" results
-  && List.mem "keeper_board_comment" results
+  List.mem "board_create_post" results
+  && List.mem "board_add_comment" results
+
+(* ── Scoped retrieval tests ──────────────────────── *)
+
+let%test "retrieve_within returns only active tools" =
+  let idx = build [
+    { name = "read_file"; description = "Read contents of a file"; group = None };
+    { name = "write_file"; description = "Write content to a file"; group = None };
+    { name = "delete_file"; description = "Delete a file from disk"; group = None };
+  ] in
+  let results = retrieve_within idx ~active:["read_file"; "delete_file"] "file" in
+  let names = List.map fst results in
+  List.mem "read_file" names
+  && List.mem "delete_file" names
+  && not (List.mem "write_file" names)
+
+let%test "retrieve_within with empty active returns empty" =
+  let idx = build [
+    { name = "read_file"; description = "Read contents of a file"; group = None };
+    { name = "write_file"; description = "Write content to a file"; group = None };
+  ] in
+  retrieve_within idx ~active:[] "file" = []
+
+let%test "retrieve_filtered with predicate" =
+  let idx = build [
+    { name = "git_commit"; description = "Create a git commit"; group = None };
+    { name = "git_push"; description = "Push commits to remote"; group = None };
+    { name = "read_file"; description = "Read a file from disk"; group = None };
+  ] in
+  let results =
+    retrieve_filtered idx ~filter:(fun name ->
+      String.length name >= 4
+      && String.sub name 0 4 = "git_"
+    ) "commit push"
+  in
+  let names = List.map fst results in
+  List.mem "git_commit" names
+  && not (List.mem "read_file" names)
+
+let%test "retrieve_within excludes confiscated tools" =
+  (* Tools not in the active set are excluded even if they score high *)
+  let idx = build [
+    { name = "dangerous_tool"; description = "Execute arbitrary code run"; group = None };
+    { name = "safe_tool"; description = "Execute safe operation run"; group = None };
+  ] in
+  let results = retrieve_within idx ~active:["safe_tool"] "execute run" in
+  let names = List.map fst results in
+  List.mem "safe_tool" names
+  && not (List.mem "dangerous_tool" names)
+
+(* ── Rebuild / remove_entries tests ──────────────── *)
+
+let _dummy_handler : Tool.tool_handler =
+  fun _args -> Ok { Types.content = "ok" }
+
+let _mk_tool name desc : Tool.t =
+  { schema = { name; description = desc; parameters = [] };
+    descriptor = None;
+    handler = Simple _dummy_handler }
+
+let%test "rebuild with subset returns only those tools" =
+  let mk name desc : entry =
+    { name; description = desc; group = None }
+  in
+  let idx = build [
+    mk "read_file" "Read contents of a file";
+    mk "write_file" "Write content to a file";
+    mk "delete_file" "Delete a file from disk";
+  ] in
+  let subset = [
+    _mk_tool "read_file" "Read contents of a file";
+    _mk_tool "write_file" "Write content to a file";
+  ] in
+  let rebuilt = rebuild idx subset in
+  size rebuilt = 2
+  && List.mem "read_file" (retrieve_names rebuilt "read file")
+  && retrieve_names rebuilt "delete" = []
+
+let%test "rebuild recalculates IDF" =
+  (* Build with 3 tools that all mention "file" — IDF for "file" is low *)
+  let all_tools = [
+    _mk_tool "read_file" "Read a file from disk";
+    _mk_tool "write_file" "Write a file to disk";
+    _mk_tool "delete_file" "Delete a file from disk";
+  ] in
+  let idx_full = of_tools all_tools in
+  let score_full = match retrieve idx_full "read" with
+    | (_, s) :: _ -> s | [] -> 0.0
+  in
+  (* Rebuild with only read_file — IDF for shared terms changes *)
+  let idx_one = rebuild idx_full [
+    _mk_tool "read_file" "Read a file from disk";
+  ] in
+  let score_one = match retrieve idx_one "read" with
+    | (_, s) :: _ -> s | [] -> 0.0
+  in
+  (* With fewer docs, IDF changes, so scores differ *)
+  score_full > 0.0 && score_one > 0.0
+  && Float.abs (score_full -. score_one) > 0.001
+
+let%test "rebuild with empty list returns empty index" =
+  let idx = of_tools [_mk_tool "search" "Search for files"] in
+  let empty = rebuild idx [] in
+  size empty = 0 && retrieve empty "search" = []
+
+let%test "remove_entries removes specified tools" =
+  let mk name desc : entry =
+    { name; description = desc; group = None }
+  in
+  let idx = build [
+    mk "read_file" "Read contents of a file";
+    mk "write_file" "Write content to a file";
+    mk "delete_file" "Delete a file from disk";
+  ] in
+  let pruned = remove_entries idx ["delete_file"; "write_file"] in
+  size pruned = 1
+  && List.mem "read_file" (retrieve_names pruned "read file")
+  && retrieve_names pruned "delete" = []
+  && retrieve_names pruned "write" = []
+
+let%test "remove_entries with nonexistent name is no-op" =
+  let mk name desc : entry =
+    { name; description = desc; group = None }
+  in
+  let idx = build [
+    mk "read_file" "Read a file";
+    mk "write_file" "Write a file";
+  ] in
+  let same = remove_entries idx ["no_such_tool"] in
+  size same = 2
+
+let%test "remove_entries with all names returns empty" =
+  let mk name desc : entry =
+    { name; description = desc; group = None }
+  in
+  let idx = build [
+    mk "tool_a" "Alpha tool";
+    mk "tool_b" "Beta tool";
+  ] in
+  let empty = remove_entries idx ["tool_a"; "tool_b"] in
+  size empty = 0 && retrieve empty "alpha" = []

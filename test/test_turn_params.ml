@@ -9,6 +9,7 @@ let test_default_turn_params () =
   Alcotest.(check (option (float 0.01))) "no temperature" None p.temperature;
   Alcotest.(check (option int)) "no thinking_budget" None p.thinking_budget;
   Alcotest.(check bool) "no extra context" true (p.extra_system_context = None);
+  Alcotest.(check bool) "no system prompt override" true (p.system_prompt_override = None);
   Alcotest.(check bool) "no tool filter" true (p.tool_filter_override = None)
 
 (* ── Reasoning extraction ────────────────────────────────────── *)
@@ -70,6 +71,21 @@ let test_adjust_params_decision () =
   | Hooks.AdjustParams p ->
     Alcotest.(check (option (float 0.01))) "temperature" (Some 0.9) p.temperature;
     Alcotest.(check (option int)) "thinking_budget" (Some 8000) p.thinking_budget
+  | _ -> Alcotest.fail "wrong decision type"
+
+let test_adjust_params_system_prompt_override () =
+  let params = { Hooks.default_turn_params with
+    system_prompt_override = Some "You are a code reviewer.";
+  } in
+  let decision = Hooks.AdjustParams params in
+  match decision with
+  | Hooks.AdjustParams p ->
+    Alcotest.(check (option string)) "system_prompt_override"
+      (Some "You are a code reviewer.") p.system_prompt_override;
+    (* Other fields remain default *)
+    Alcotest.(check (option (float 0.01))) "temperature unchanged" None p.temperature;
+    Alcotest.(check bool) "extra_system_context unchanged" true
+      (p.extra_system_context = None)
   | _ -> Alcotest.fail "wrong decision type"
 
 (* ── Provider mock ───────────────────────────────────────────── *)
@@ -180,6 +196,7 @@ let () =
       Alcotest.test_case "default" `Quick test_default_turn_params;
       Alcotest.test_case "before_turn_params_event" `Quick test_before_turn_params_event;
       Alcotest.test_case "adjust_params_decision" `Quick test_adjust_params_decision;
+      Alcotest.test_case "system_prompt_override" `Quick test_adjust_params_system_prompt_override;
     ]);
     ("reasoning", [
       Alcotest.test_case "empty" `Quick test_empty_reasoning;

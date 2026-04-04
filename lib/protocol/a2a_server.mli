@@ -24,6 +24,13 @@ val start : sw:Eio.Switch.t -> net:_ Eio.Net.t -> t -> unit
 val stop : t -> unit
 val is_running : t -> bool
 
+(** Actual port the server is listening on.
+    Useful when [config.port = 0] (ephemeral port). *)
+val actual_port : t -> int
+
+(** Direct request processing (for testing without real HTTP).
+    Note: [tasks/sendSubscribe] returns the initial task JSON
+    when called via this function (no SSE stream). *)
 val process_request :
   t -> meth:string -> path:string -> body:string ->
   int * string

@@ -114,6 +114,8 @@ let stage_parse ?raw_trace_run agent =
       (match turn_params.thinking_budget with Some _ as t -> t | None -> original_config.thinking_budget);
     tool_choice =
       (match turn_params.tool_choice with Some _ as t -> t | None -> original_config.tool_choice);
+    system_prompt =
+      (match turn_params.system_prompt_override with Some _ as s -> s | None -> original_config.system_prompt);
   } in
   update_state agent (fun s -> { s with config = new_config });
   let original_config = original_config in
@@ -128,6 +130,7 @@ let stage_parse ?raw_trace_run agent =
   let prep = Agent_turn.prepare_turn
     ~guardrails:agent.options.guardrails
     ~operator_policy:agent.options.operator_policy
+    ~policy_channel:agent.options.policy_channel
     ~tools:agent.tools
     ~messages:agent.state.messages
     ~context_reducer:agent.options.context_reducer ~turn_params
@@ -290,7 +293,7 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
     }
     ~tool_uses
   in
-  Eio.Mutex.use_rw ~protect:false agent.mu (fun () ->
+  Eio.Mutex.use_rw ~protect:true agent.mu (fun () ->
     agent.last_tool_calls <- idle_result.new_state.last_tool_calls;
     agent.consecutive_idle_turns <-
       idle_result.new_state.consecutive_idle_turns);
@@ -372,6 +375,22 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
          ~injector ~tool_uses ~results
        in
        update_state agent (fun s -> { s with messages = new_messages }));
+    (* In-memory message hygiene after each tool execution round.
+       Without this, agent.state.messages grows unbounded across turns —
+       context_reducer only trims before API calls, not in the stored state.
+
+       Two-step pruning (Claude Code Tier 1 pattern):
+       1. Stub old tool results: keep 2 most recent in full, replace older
+          with short stubs. Tool results are the largest allocation source.
+       2. Hard message cap: keep last 100 messages. Prevents unbounded growth
+          in long-running agents (600+ turns). *)
+    let pruner = Context_reducer.compose [
+      Context_reducer.stub_tool_results ~keep_recent:2;
+      Context_reducer.keep_last 100;
+    ] in
+    update_state agent (fun s ->
+      { s with messages =
+          Context_reducer.reduce pruner s.messages });
     Ok ToolsExecuted
 
 (* ── Stage 6: Output ─────────────────────────────────────── *)

@@ -18,11 +18,32 @@ module Http = struct
   let cascadable_codes = [401; 403; 429; 500; 502; 503; 529]
 end
 
-(* ── Inference defaults ──────────────────────────── *)
+(* ── Inference profiles ─────────────────────────── *)
 
+(** Named inference parameter profiles.  Single source of truth for
+    temperature / max_tokens defaults used by both the SDK and
+    downstream coordinators (e.g. MASC).
+
+    - [cascade_default]: lightweight cascade calls (health, routing).
+    - [agent_default]: full agent turn execution.
+    - [low_variance]: evaluation, judging, deterministic extraction. *)
+module Inference_profile = struct
+  type t = {
+    temperature : float;
+    max_tokens : int;
+  }
+
+  let cascade_default = { temperature = 0.3; max_tokens = 500 }
+  let agent_default   = { temperature = 0.7; max_tokens = 4096 }
+  let low_variance    = { temperature = 0.1; max_tokens = 2048 }
+end
+
+(** Backward-compatible aliases — existing callers of
+    [Constants.Inference.default_temperature] continue to compile.
+    New code should prefer {!Inference_profile}. *)
 module Inference = struct
-  let default_temperature = 0.3
-  let default_max_tokens = 500
+  let default_temperature = Inference_profile.cascade_default.temperature
+  let default_max_tokens  = Inference_profile.cascade_default.max_tokens
 end
 
 (* ── Cache ───────────────────────────────────────── *)

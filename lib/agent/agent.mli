@@ -31,12 +31,15 @@ type options = Agent_types.options = {
   mcp_clients: Mcp.managed list;
   event_bus: Event_bus.t option;
   skill_registry: Skill_registry.t option;
+      (** Discovery/metadata path only.  Surfaced via {!Agent.card} for
+          A2A negotiation.  Does not affect runtime prompt composition. *)
   elicitation: Hooks.elicitation_callback option;
   description: string option;
   periodic_callbacks: periodic_callback list;
   memory: Memory.t option;
   allowed_paths: string list;
   operator_policy: Guardrails.tool_filter option;
+  policy_channel: Policy_channel.t option;
 }
 
 type lifecycle_status = Agent_lifecycle.lifecycle_status =

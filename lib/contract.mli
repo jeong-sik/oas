@@ -37,8 +37,19 @@ val empty : t
 val with_runtime_awareness : string -> t -> t
 val with_trigger : ?source:string -> ?reason:string -> ?payload:Yojson.Safe.t -> string -> t -> t
 val add_instruction_layer : ?label:string -> string -> t -> t
+
+(** Add a skill to the contract for {b runtime prompt composition}.
+    The skill body is rendered as a [\[Skill: <name>\]] section inside the
+    system prompt produced by {!compose_system_prompt}.
+
+    This is distinct from {!Skill_registry.t}, which holds skills for
+    discovery/metadata export only and never touches the system prompt. *)
 val with_skill : Skill.t -> t -> t
+
+(** Batch variant of {!with_skill}.  All skills are appended (deduped by
+    path or name) and rendered into the system prompt. *)
 val with_skills : Skill.t list -> t -> t
+
 val with_tool_grants : string list -> t -> t
 val with_mcp_tool_allowlist : string list -> t -> t
 

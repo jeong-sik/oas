@@ -483,19 +483,13 @@ let test_restore_with_delta_fallback_gate_skips_after_failure () =
   Alcotest.(check int) "fallback total counts both" 2
     (Metrics.counter_value fallback_total ())
 
-let test_delta_enabled_legacy_env_var () =
-  (* OAS_DELTA_CHECKPOINT takes precedence *)
+let test_delta_enabled_env_var () =
+  (* OAS_DELTA_CHECKPOINT enables *)
   with_env "OAS_DELTA_CHECKPOINT" (Some "1") (fun () ->
-      with_env "MASC_DELTA_CHECKPOINT" None (fun () ->
-          Alcotest.(check bool) "OAS var enables" true (Checkpoint.delta_enabled ())));
-  (* Legacy MASC_DELTA_CHECKPOINT still works as fallback *)
+      Alcotest.(check bool) "OAS var enables" true (Checkpoint.delta_enabled ()));
+  (* Not set: disabled *)
   with_env "OAS_DELTA_CHECKPOINT" None (fun () ->
-      with_env "MASC_DELTA_CHECKPOINT" (Some "true") (fun () ->
-          Alcotest.(check bool) "legacy var enables" true (Checkpoint.delta_enabled ())));
-  (* Neither set: disabled *)
-  with_env "OAS_DELTA_CHECKPOINT" None (fun () ->
-      with_env "MASC_DELTA_CHECKPOINT" None (fun () ->
-          Alcotest.(check bool) "neither set" false (Checkpoint.delta_enabled ())))
+      Alcotest.(check bool) "not set" false (Checkpoint.delta_enabled ()))
 
 let () =
   Alcotest.run "Checkpoint_delta"
@@ -514,8 +508,8 @@ let () =
             test_apply_delta_rejects_invalid_splice;
           Alcotest.test_case "feature flag disabled falls back" `Quick
             test_restore_with_delta_fallback_disabled;
-          Alcotest.test_case "legacy MASC env var fallback" `Quick
-            test_delta_enabled_legacy_env_var;
+          Alcotest.test_case "delta env var" `Quick
+            test_delta_enabled_env_var;
           Alcotest.test_case "bad delta records failure metrics" `Quick
             (with_eio test_restore_with_delta_fallback_records_failure_metrics);
           Alcotest.test_case "failure gate skips later delta path" `Quick

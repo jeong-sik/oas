@@ -99,8 +99,8 @@ let test_caps : Cdal_proof.capability_snapshot = {
 }
 
 let default_schedule ?(planned_index = 0) ?(batch_index = 0) ?(batch_size = 1)
-    ?(concurrency_class = "sequential_workspace") () =
-  Hooks.{ planned_index; batch_index; batch_size; concurrency_class }
+    ?(concurrency_class = "sequential_workspace") ?(batch_kind = "sequential") () =
+  Hooks.{ planned_index; batch_index; batch_size; concurrency_class; batch_kind }
 
 let test_mode_resolver_passthrough () =
   let result = Mode_resolver.resolve
@@ -965,16 +965,67 @@ let test_classify_known_tools () =
     (Mode_enforcer.classify_tool "read" = Mode_enforcer.Read_only);
   Alcotest.(check bool) "glob is Read_only" true
     (Mode_enforcer.classify_tool "glob" = Mode_enforcer.Read_only);
-  Alcotest.(check bool) "write is Workspace_mutating" true
-    (Mode_enforcer.classify_tool "write" = Mode_enforcer.Workspace_mutating);
-  Alcotest.(check bool) "edit is Workspace_mutating" true
-    (Mode_enforcer.classify_tool "edit" = Mode_enforcer.Workspace_mutating);
-  Alcotest.(check bool) "bash is External_effect" true
-    (Mode_enforcer.classify_tool "bash" = Mode_enforcer.External_effect);
+  Alcotest.(check bool) "write is Local_mutation" true
+    (Mode_enforcer.classify_tool "write" = Mode_enforcer.Local_mutation);
+  Alcotest.(check bool) "edit is Local_mutation" true
+    (Mode_enforcer.classify_tool "edit" = Mode_enforcer.Local_mutation);
+  Alcotest.(check bool) "bash is Shell_dynamic" true
+    (Mode_enforcer.classify_tool "bash" = Mode_enforcer.Shell_dynamic);
+  Alcotest.(check bool) "execute_shell_command is Shell_dynamic" true
+    (Mode_enforcer.classify_tool "execute_shell_command" = Mode_enforcer.Shell_dynamic);
   Alcotest.(check bool) "mcp__foo is External_effect" true
     (Mode_enforcer.classify_tool "mcp__foo__bar" = Mode_enforcer.External_effect);
   Alcotest.(check bool) "unknown is External_effect" true
     (Mode_enforcer.classify_tool "deploy_nuke" = Mode_enforcer.External_effect)
+
+let test_classify_via_registry_override () =
+  (* Register a custom tool classification *)
+  Mode_enforcer.register_tool_class "my_custom_tool" Mode_enforcer.Read_only;
+  Alcotest.(check bool) "custom tool is Read_only" true
+    (Mode_enforcer.classify_tool "my_custom_tool" = Mode_enforcer.Read_only);
+  (* Override an existing classification *)
+  Mode_enforcer.register_tool_class "bash" Mode_enforcer.Read_only;
+  Alcotest.(check bool) "overridden bash is Read_only" true
+    (Mode_enforcer.classify_tool "bash" = Mode_enforcer.Read_only);
+  (* Restore original *)
+  Mode_enforcer.register_tool_class "bash" Mode_enforcer.Shell_dynamic
+
+let test_tool_effect_class_of_string () =
+  Alcotest.(check bool) "read_only parses" true
+    (Mode_enforcer.tool_effect_class_of_string "read_only" = Some Mode_enforcer.Read_only);
+  Alcotest.(check bool) "workspace parses (compat)" true
+    (Mode_enforcer.tool_effect_class_of_string "workspace" = Some Mode_enforcer.Local_mutation);
+  Alcotest.(check bool) "workspace_mutating parses (compat)" true
+    (Mode_enforcer.tool_effect_class_of_string "workspace_mutating" = Some Mode_enforcer.Local_mutation);
+  Alcotest.(check bool) "local_mutation parses" true
+    (Mode_enforcer.tool_effect_class_of_string "local_mutation" = Some Mode_enforcer.Local_mutation);
+  Alcotest.(check bool) "external parses" true
+    (Mode_enforcer.tool_effect_class_of_string "external" = Some Mode_enforcer.External_effect);
+  Alcotest.(check bool) "external_effect parses" true
+    (Mode_enforcer.tool_effect_class_of_string "external_effect" = Some Mode_enforcer.External_effect);
+  Alcotest.(check bool) "shell_dynamic parses" true
+    (Mode_enforcer.tool_effect_class_of_string "shell_dynamic" = Some Mode_enforcer.Shell_dynamic);
+  Alcotest.(check bool) "unknown returns None" true
+    (Mode_enforcer.tool_effect_class_of_string "nonsense" = None)
+
+let test_shell_pattern_classification () =
+  (* bash ls -> read-only via shell analysis *)
+  let st = diagnose_enforcer () in
+  let h = Mode_enforcer.hooks st in
+  let input_ls = `Assoc ["command", `String "ls -la /tmp"] in
+  let d1 = Hooks.invoke h.pre_tool_use (make_enforcer_event "bash" input_ls) in
+  Alcotest.(check bool) "bash ls allowed in diagnose" true
+    (match d1 with Hooks.Continue -> true | _ -> false);
+  (* bash rm -> local mutation via shell analysis *)
+  let input_rm = `Assoc ["command", `String "rm -rf /tmp/foo"] in
+  let d2 = Hooks.invoke h.pre_tool_use (make_enforcer_event "bash" input_rm) in
+  Alcotest.(check bool) "bash rm blocked in diagnose" true
+    (match d2 with Hooks.Skip -> true | _ -> false);
+  (* bash curl -> external via shell analysis *)
+  let input_curl = `Assoc ["command", `String "curl https://example.com"] in
+  let d3 = Hooks.invoke h.pre_tool_use (make_enforcer_event "bash" input_curl) in
+  Alcotest.(check bool) "bash curl blocked in diagnose" true
+    (match d3 with Hooks.Skip -> true | _ -> false)
 
 (* ================================================================ *)
 (* Test runner                                                       *)
@@ -1058,5 +1109,8 @@ let () =
     ];
     "Tool classification", [
       Alcotest.test_case "known tools" `Quick test_classify_known_tools;
+      Alcotest.test_case "registry override" `Quick test_classify_via_registry_override;
+      Alcotest.test_case "tool_effect_class_of_string" `Quick test_tool_effect_class_of_string;
+      Alcotest.test_case "shell pattern classification" `Quick test_shell_pattern_classification;
     ];
   ]

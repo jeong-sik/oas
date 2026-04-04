@@ -100,6 +100,7 @@ let test_agent_turn_preparation () =
   let prep = Agent_turn.prepare_turn
     ~guardrails:Guardrails.default
     ~operator_policy:None
+    ~policy_channel:None
     ~tools ~messages
     ~context_reducer:None
     ~turn_params:Hooks.default_turn_params in
@@ -269,6 +270,7 @@ let test_prepare_turn_no_tools () =
   let prep = Agent_turn.prepare_turn
     ~guardrails:Guardrails.default
     ~operator_policy:None
+    ~policy_channel:None
     ~tools:Tool_set.empty ~messages
     ~context_reducer:None
     ~turn_params:Hooks.default_turn_params in
@@ -286,6 +288,7 @@ let test_prepare_turn_preserves_messages () =
   let prep = Agent_turn.prepare_turn
     ~guardrails:Guardrails.default
     ~operator_policy:None
+    ~policy_channel:None
     ~tools:Tool_set.empty ~messages
     ~context_reducer:None
     ~turn_params:Hooks.default_turn_params in
@@ -515,6 +518,7 @@ let test_prepare_turn_extra_context () =
   let prep = Agent_turn.prepare_turn
     ~guardrails:Guardrails.default
     ~operator_policy:None
+    ~policy_channel:None
     ~tools:Tool_set.empty ~messages
     ~context_reducer:None
     ~turn_params in
@@ -543,6 +547,7 @@ let test_prepare_turn_tool_filter_override () =
   let prep = Agent_turn.prepare_turn
     ~guardrails:Guardrails.default
     ~operator_policy:None
+    ~policy_channel:None
     ~tools ~messages
     ~context_reducer:None
     ~turn_params in

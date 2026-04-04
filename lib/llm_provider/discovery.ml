@@ -28,7 +28,13 @@ type endpoint_status = {
   capabilities: Capabilities.capabilities;
 }
 
-let default_endpoint = "http://127.0.0.1:8085"
+let default_endpoint =
+  let primary = Sys.getenv_opt "OAS_LOCAL_LLM_URL" in
+  let legacy = Sys.getenv_opt "OAS_LOCAL_QWEN_URL" in
+  match primary, legacy with
+  | Some v, _ when String.trim v <> "" -> String.trim v
+  | _, Some v when String.trim v <> "" -> String.trim v
+  | _ -> "http://127.0.0.1:8085"
 
 let endpoints_from_env () =
   match Sys.getenv_opt "LLM_ENDPOINTS" with
@@ -117,6 +123,46 @@ let parse_slots json =
     ) 0 in
     Some { total; busy; idle = total - busy }
 
+(* ── Ollama fallback ────────────────────────────────────── *)
+
+(** Try to detect Ollama via /api/tags and retrieve actual context size
+    via /api/show. Returns synthetic server_props on success. *)
+let probe_ollama_context ~sw ~net base_url =
+  match get_json ~sw ~net (base_url ^ "/api/tags") with
+  | Error _ -> None
+  | Ok tags_json ->
+    let open Yojson.Safe.Util in
+    let models = match member "models" tags_json with
+      | `List items -> items
+      | _ -> []
+    in
+    let first_name = List.find_map (fun item ->
+      match member "name" item |> to_string_option with
+      | Some name when name <> "" -> Some name
+      | _ -> None
+    ) models in
+    match first_name with
+    | None -> None
+    | Some model_name ->
+      let body = Yojson.Safe.to_string (`Assoc [("name", `String model_name)]) in
+      let headers = [("content-type", "application/json")] in
+      match Http_client.post_sync ~sw ~net
+              ~url:(base_url ^ "/api/show") ~headers ~body with
+      | Ok (code, resp_body) when code >= 200 && code < 300 ->
+        (try
+           let json = Yojson.Safe.from_string resp_body in
+           let model_info = member "model_info" json in
+           let ctx = match member "general.context_length" model_info with
+             | `Int n -> n
+             | `Float f -> int_of_float f
+             | _ -> 0
+           in
+           if ctx > 0 then
+             Some { total_slots = 1; ctx_size = ctx; model = model_name }
+           else None
+         with _ -> None)
+      | _ -> None
+
 (* ── Capability inference ────────────────────────────────── *)
 
 let string_contains_ci ~haystack ~needle =
@@ -162,7 +208,11 @@ let infer_capabilities models props =
 
 let probe_endpoint ~sw ~net url =
   let base = String.trim url in
-  let healthy = get_ok ~sw ~net (base ^ "/health") in
+  (* Try /health first (llama.cpp), fall back to / (Ollama returns 200) *)
+  let healthy =
+    get_ok ~sw ~net (base ^ "/health")
+    || get_ok ~sw ~net base
+  in
   if not healthy then
     { url = base; healthy = false;
       models = []; props = None; slots = None;
@@ -184,15 +234,19 @@ let probe_endpoint ~sw ~net url =
           | Ok json -> parse_slots json | Error _ -> None);
     ];
     let models = !models_ref in
-    let props = !props_ref in
     let slots = !slots_ref in
+    (* Ollama fallback: if /props failed, try /api/tags + /api/show *)
+    let props = match !props_ref with
+      | Some _ as p -> p
+      | None -> probe_ollama_context ~sw ~net base
+    in
     let capabilities = infer_capabilities models props in
     { url = base; healthy; models; props; slots; capabilities }
 
 let discover ~sw ~net ~endpoints =
   Eio.Fiber.List.map (fun url -> probe_endpoint ~sw ~net url) endpoints
 
-let default_scan_ports = [ 8085; 8086; 8087; 8088; 8089; 8090 ]
+let default_scan_ports = [ 8085; 8086; 8087; 8088; 8089; 8090; 11434 ]
 
 let scan_local_endpoints ?(ports = default_scan_ports) ~sw ~net () =
   let candidates =
@@ -596,3 +650,21 @@ let%test "max_context_of_status prefers props over capabilities" =
     slots = None; capabilities = caps;
   } in
   max_context_of_status status = Some 65536
+
+(* --- default_scan_ports --- *)
+
+let%test "default_scan_ports includes Ollama 11434" =
+  List.mem 11434 default_scan_ports
+
+(* --- probe_ollama_context parser (unit, no network) --- *)
+
+let%test "infer_capabilities uses ollama context when props present" =
+  let models = [{ id = "qwen3.5-35b"; owned_by = "ollama" }] in
+  let props = Some { total_slots = 1; ctx_size = 8192; model = "qwen3.5:latest" } in
+  let caps = infer_capabilities models props in
+  caps.max_context_tokens = Some 8192
+
+let%test "infer_capabilities defaults to 262K when no props for qwen" =
+  let models = [{ id = "qwen3.5-35b"; owned_by = "ollama" }] in
+  let caps = infer_capabilities models None in
+  caps.max_context_tokens = Some 262_144

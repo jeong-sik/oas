@@ -66,8 +66,11 @@ val find_and_execute_tool :
 
     Scheduling is deterministic:
     - [Tool.Parallel_read] blocks are executed together in a parallel batch.
-    - [Tool.Sequential_workspace] and [Tool.Exclusive_external] blocks run
-      one-at-a-time in input order.
+    - [Tool.Sequential_workspace] blocks run one-at-a-time in input order.
+    - [Tool.Exclusive_external] blocks flush all pending batches before
+      executing and run in complete isolation (no overlap with any other
+      tool call).  The schedule metadata carries [batch_kind = "exclusive"]
+      for audit purposes.
     - Tools without a declared descriptor default to sequential execution.
 
     For each [ToolUse] block, applies the [PreToolUse] hook before execution.
