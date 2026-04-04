@@ -22,24 +22,96 @@ type request_kind =
   | Openai_chat_completions
   | Custom of string
 
+type modality =
+  | Text
+  | Image
+  | Audio
+  | Video
+  | Multimodal
+
 include Llm_provider.Capabilities
+
+type inference_contract = {
+  provider: provider;
+  model_id: string;
+  modality: modality;
+  task: string option;
+}
 
 type model_spec = {
   provider: provider;
   model_id: string;
   api_key_env: string;
+  inference_contract: inference_contract;
   request_kind: request_kind;
   request_path: string;
   capabilities: capabilities;
 }
 
 let string_contains = Util.string_contains
+let contains_substring_ci = Util.contains_substring_ci
 
 (** Check if a model needs extended OpenAI capabilities
     (reasoning, top_k, min_p). Currently triggers on qwen family models. *)
 let needs_extended_capabilities model_id =
   let normalized = String.lowercase_ascii (String.trim model_id) in
   string_contains ~needle:"qwen" normalized
+
+let provider_name = function
+  | Local _ -> "local"
+  | Anthropic -> "anthropic"
+  | OpenAICompat _ -> "openai_compat"
+  | Custom_registered { name } -> "custom:" ^ name
+
+let modality_to_string = function
+  | Text -> "text"
+  | Image -> "image"
+  | Audio -> "audio"
+  | Video -> "video"
+  | Multimodal -> "multimodal"
+
+let modality_of_capabilities (caps : capabilities) =
+  let non_text_count =
+    List.fold_left (fun acc supported -> if supported then acc + 1 else acc) 0 [
+      caps.supports_image_input;
+      caps.supports_audio_input;
+      caps.supports_video_input;
+    ]
+  in
+  if caps.supports_multimodal_inputs || non_text_count > 1 then Multimodal
+  else if caps.supports_image_input then Image
+  else if caps.supports_audio_input then Audio
+  else if caps.supports_video_input then Video
+  else Text
+
+let task_of_model_id model_id =
+  let has needle = contains_substring_ci ~haystack:model_id ~needle in
+  if has "whisper" || has "transcribe" || has "transcription" || has "stt" then
+    Some "transcription"
+  else if has "tts" || has "text-to-speech" || has "voice" then
+    Some "speech"
+  else if has "imagegen" || has "image-gen" || has "gpt-image" || has "cogview"
+          || has "seedream" || has "flux" then
+    Some "image_generation"
+  else if has "video-gen" || has "video" || has "veo" || has "kling" then
+    Some "video_generation"
+  else
+    None
+
+let modality_supported (caps : capabilities) = function
+  | Text -> true
+  | Image -> caps.supports_image_input
+  | Audio -> caps.supports_audio_input
+  | Video -> caps.supports_video_input
+  | Multimodal ->
+    let non_text_count =
+      List.fold_left (fun acc supported -> if supported then acc + 1 else acc) 0 [
+        caps.supports_image_input;
+        caps.supports_audio_input;
+        caps.supports_video_input;
+      ]
+    in
+    caps.supports_multimodal_inputs || non_text_count > 1
 
 (* ── Provider Registry: runtime registration for custom providers ── *)
 
@@ -109,14 +181,37 @@ let request_path = function
 let capabilities_for_config (cfg : config) =
   capabilities_for_model ~provider:cfg.provider ~model_id:cfg.model_id
 
+let inference_contract_of_config (cfg : config) =
+  let capabilities = capabilities_for_config cfg in
+  {
+    provider = cfg.provider;
+    model_id = cfg.model_id;
+    modality = modality_of_capabilities capabilities;
+    task = task_of_model_id cfg.model_id;
+  }
+
+let validate_inference_contract ~capabilities (contract : inference_contract) =
+  if modality_supported capabilities contract.modality then Ok ()
+  else
+    Error (Error.Config (InvalidConfig {
+      field = "modality";
+      detail =
+        Printf.sprintf "Model '%s' for provider '%s' does not support modality '%s'"
+          contract.model_id
+          (provider_name contract.provider)
+          (modality_to_string contract.modality);
+    }))
+
 let model_spec_of_config (cfg : config) =
+  let capabilities = capabilities_for_config cfg in
   {
     provider = cfg.provider;
     model_id = cfg.model_id;
     api_key_env = cfg.api_key_env;
+    inference_contract = inference_contract_of_config cfg;
     request_kind = request_kind cfg.provider;
     request_path = request_path cfg.provider;
-    capabilities = capabilities_for_config cfg;
+    capabilities;
   }
 
 let resolve (cfg : config) =

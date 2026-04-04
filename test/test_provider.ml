@@ -144,12 +144,55 @@ let test_model_spec_openrouter_capabilities () =
       (Provider.openrouter ~model_id:"anthropic/claude-sonnet-4-6" ())
   in
   Alcotest.(check string) "request path" "/chat/completions" spec.request_path;
+  Alcotest.(check string) "contract modality" "multimodal"
+    (Provider.modality_to_string spec.inference_contract.modality);
+  Alcotest.(check (option string)) "contract task" None
+    spec.inference_contract.task;
   Alcotest.(check bool) "supports tools" true spec.capabilities.supports_tools;
   Alcotest.(check bool) "supports reasoning" false
     spec.capabilities.supports_reasoning;
   Alcotest.(check bool) "supports top_k" false spec.capabilities.supports_top_k;
   Alcotest.(check bool) "supports json response" true
     spec.capabilities.supports_response_format_json
+
+let test_inference_contract_local_qwen () =
+  let cfg : Provider.config = {
+    provider = Local { base_url = "http://127.0.0.1:8085" };
+    model_id = "qwen3.5-35b-a3b-ud-q8-xl";
+    api_key_env = "DUMMY_KEY";
+  } in
+  let contract = Provider.inference_contract_of_config cfg in
+  Alcotest.(check string) "model_id" "qwen3.5-35b-a3b-ud-q8-xl" contract.model_id;
+  Alcotest.(check string) "modality" "text"
+    (Provider.modality_to_string contract.modality);
+  Alcotest.(check (option string)) "task" None contract.task
+
+let test_validate_inference_contract_rejects_unsupported_modality () =
+  let cfg : Provider.config = {
+    provider = Local { base_url = "http://127.0.0.1:8085" };
+    model_id = "qwen3.5-35b-a3b-ud-q8-xl";
+    api_key_env = "DUMMY_KEY";
+  } in
+  let contract : Provider.inference_contract = {
+    provider = cfg.provider;
+    model_id = cfg.model_id;
+    modality = Provider.Image;
+    task = None;
+  } in
+  match
+    Provider.validate_inference_contract
+      ~capabilities:(Provider.capabilities_for_config cfg)
+      contract
+  with
+  | Error (Error.Config (InvalidConfig { field; detail })) ->
+    Alcotest.(check string) "field" "modality" field;
+    Alcotest.(check string) "detail"
+      "Model 'qwen3.5-35b-a3b-ud-q8-xl' for provider 'local' does not support modality 'image'"
+      detail
+  | Error e ->
+    Alcotest.fail (Printf.sprintf "unexpected error variant: %s" (Error.to_string e))
+  | Ok () ->
+    Alcotest.fail "expected unsupported modality validation to fail"
 
 let test_extended_openai_capabilities () =
   let capabilities =
@@ -251,6 +294,10 @@ let () =
         test_model_spec_local_llm_capabilities;
       Alcotest.test_case "openrouter model spec capabilities" `Quick
         test_model_spec_openrouter_capabilities;
+      Alcotest.test_case "inference contract local qwen" `Quick
+        test_inference_contract_local_qwen;
+      Alcotest.test_case "invalid modality gets actionable error" `Quick
+        test_validate_inference_contract_rejects_unsupported_modality;
       Alcotest.test_case "extended openai capabilities" `Quick
         test_extended_openai_capabilities;
     ];
