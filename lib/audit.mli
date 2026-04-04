@@ -31,6 +31,13 @@ val create : ?max_entries:int -> unit -> t
 (** Record an entry. *)
 val record : t -> entry -> unit
 
+(** Record a structured [Policy.decision] as an audit entry.
+    The decision's lineage is stored in the [detail] field as JSON.
+    @since 0.99.2 *)
+val record_decision :
+  t -> id:string -> agent_name:string -> action:string ->
+  decision_point:Policy.decision_point -> Policy.decision -> unit
+
 (** {1 Queries} *)
 
 val query :

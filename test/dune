@@ -701,6 +701,10 @@
  (libraries agent_sdk alcotest yojson))
 
 (test
+ (name test_policy_decision)
+ (libraries agent_sdk alcotest yojson unix))
+
+(test
  (name test_audit)
  (libraries agent_sdk alcotest yojson))
 
