@@ -29,12 +29,30 @@ type rule = {
 
 type t = { rules: rule list }
 
+type decision = {
+  verdict: verdict;
+  matched_rules: rule list;
+  first_match: rule option;
+  policy_source: string;
+  evaluated_at: float;
+}
+
 (** Sort rules by priority descending. *)
 let sort_rules rules =
   List.sort (fun a b -> Int.compare b.priority a.priority) rules
 
 let create rules =
   { rules = sort_rules rules }
+
+let evaluate_with_lineage ?(policy_source = "default") t dp =
+  let matched = List.filter (fun r -> r.applies_to dp) t.rules in
+  let first = match matched with [] -> None | r :: _ -> Some r in
+  let verdict = match first with
+    | None -> Allow
+    | Some r -> r.evaluate dp
+  in
+  { verdict; matched_rules = matched; first_match = first;
+    policy_source; evaluated_at = Unix.gettimeofday () }
 
 let evaluate t dp =
   let rec find = function
@@ -75,3 +93,22 @@ let decision_point_to_string = function
       agent_name tier key
   | Custom { name; detail } ->
     Printf.sprintf "Custom(%s: %s)" name detail
+
+let decision_to_json d =
+  let rule_to_json r =
+    `Assoc [
+      ("name", `String r.name);
+      ("priority", `Int r.priority);
+    ]
+  in
+  let first_match_json = match d.first_match with
+    | None -> `Null
+    | Some r -> rule_to_json r
+  in
+  `Assoc [
+    ("verdict", `String (verdict_to_string d.verdict));
+    ("matched_rules", `List (List.map rule_to_json d.matched_rules));
+    ("first_match", first_match_json);
+    ("policy_source", `String d.policy_source);
+    ("evaluated_at", `Float d.evaluated_at);
+  ]

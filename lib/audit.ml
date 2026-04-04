@@ -34,6 +34,19 @@ let record t entry =
     t.size <- max
   | Some _ -> ()
 
+let record_decision t ~id ~agent_name ~action ~decision_point
+    (d : Policy.decision) =
+  let entry : entry = {
+    id;
+    timestamp = d.evaluated_at;
+    agent_name;
+    action;
+    decision_point = Some decision_point;
+    verdict = Some d.verdict;
+    detail = Policy.decision_to_json d;
+  } in
+  record t entry
+
 let query t ?agent ?action ?since () =
   t.entries
   |> List.filter (fun e ->
