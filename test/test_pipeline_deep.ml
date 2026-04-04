@@ -250,7 +250,17 @@ let test_context_injection_sets_values () =
   let tool_uses = [
     Types.ToolUse { id = "tu_1"; name = "search"; input = `Assoc [] };
   ] in
-  let results = [("tu_1", "result text", false)] in
+  let results =
+    [
+      {
+        Agent_tools.tool_use_id = "tu_1";
+        tool_name = "search";
+        content = "result text";
+        is_error = false;
+        failure_kind = None;
+      };
+    ]
+  in
   let _new_messages = Agent_turn.apply_context_injection
     ~context ~messages ~injector ~tool_uses ~results in
   Alcotest.(check (option string)) "key1 set"
@@ -272,7 +282,17 @@ let test_context_injection_none () =
   let tool_uses = [
     Types.ToolUse { id = "tu_n"; name = "tool"; input = `Assoc [] };
   ] in
-  let results = [("tu_n", "ok", false)] in
+  let results =
+    [
+      {
+        Agent_tools.tool_use_id = "tu_n";
+        tool_name = "tool";
+        content = "ok";
+        is_error = false;
+        failure_kind = None;
+      };
+    ]
+  in
   let new_messages = Agent_turn.apply_context_injection
     ~context ~messages ~injector ~tool_uses ~results in
   (* No extra messages appended *)
@@ -299,7 +319,17 @@ let test_context_injection_extra_messages () =
   let tool_uses = [
     Types.ToolUse { id = "tu_m"; name = "tool"; input = `Assoc [] };
   ] in
-  let results = [("tu_m", "ok", false)] in
+  let results =
+    [
+      {
+        Agent_tools.tool_use_id = "tu_m";
+        tool_name = "tool";
+        content = "ok";
+        is_error = false;
+        failure_kind = None;
+      };
+    ]
+  in
   let new_messages = Agent_turn.apply_context_injection
     ~context ~messages ~injector ~tool_uses ~results in
   (* Original 2 + injected 1 *)
@@ -319,7 +349,17 @@ let test_context_injection_error_result () =
   let tool_uses = [
     Types.ToolUse { id = "tu_err"; name = "tool"; input = `Assoc [] };
   ] in
-  let results = [("tu_err", "something went wrong", true)] in
+  let results =
+    [
+      {
+        Agent_tools.tool_use_id = "tu_err";
+        tool_name = "tool";
+        content = "something went wrong";
+        is_error = true;
+        failure_kind = Some Agent_tools.Recoverable_tool_error;
+      };
+    ]
+  in
   let _new_messages = Agent_turn.apply_context_injection
     ~context ~messages ~injector ~tool_uses ~results in
   (match !received_output with
@@ -341,7 +381,17 @@ let test_context_injection_raises () =
   let tool_uses = [
     Types.ToolUse { id = "tu_ex"; name = "tool"; input = `Assoc [] };
   ] in
-  let results = [("tu_ex", "ok", false)] in
+  let results =
+    [
+      {
+        Agent_tools.tool_use_id = "tu_ex";
+        tool_name = "tool";
+        content = "ok";
+        is_error = false;
+        failure_kind = None;
+      };
+    ]
+  in
   (* Should not raise - exception is caught internally *)
   let new_messages = Agent_turn.apply_context_injection
     ~context ~messages ~injector ~tool_uses ~results in

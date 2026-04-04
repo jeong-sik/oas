@@ -23,6 +23,21 @@ let escape_json_string s =
     | _ -> Buffer.add_char buf c) s;
   Buffer.contents buf
 
+let contains_substring ~needle haystack =
+  let needle_len = String.length needle in
+  let haystack_len = String.length haystack in
+  let rec loop idx =
+    if needle_len = 0 then
+      true
+    else if idx + needle_len > haystack_len then
+      false
+    else if String.sub haystack idx needle_len = needle then
+      true
+    else
+      loop (idx + 1)
+  in
+  loop 0
+
 let openai_tool_use_response tool_name input_json =
   Printf.sprintf
     {|{"id":"chatcmpl-t","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"%s","arguments":"%s"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":15,"completion_tokens":10,"total_tokens":25}}|}
@@ -48,7 +63,7 @@ let start_multi_mock ~sw ~net ~port (responses : string list) =
   Printf.sprintf "http://127.0.0.1:%d" port
 
 let make_agent ~net ?(max_turns = 3) ?(tools = []) ?hooks ?context_reducer
-    ?guardrails base_url =
+    ?guardrails ?tool_retry_policy base_url =
   let config = { Types.default_config with
     name = "test-agent"; max_turns;
   } in
@@ -63,6 +78,7 @@ let make_agent ~net ?(max_turns = 3) ?(tools = []) ?hooks ?context_reducer
     hooks = (match hooks with Some h -> h | None -> Hooks.empty);
     context_reducer;
     guardrails = (match guardrails with Some g -> g | None -> Guardrails.default);
+    tool_retry_policy;
   } in
   Agent.create ~net ~config ~tools ~options ()
 
@@ -255,6 +271,81 @@ let test_agent_run_tool_error () =
      | Error e -> fail (Error.to_string e))
   with Exit -> ()
 
+let test_agent_run_validation_retry_success () =
+  Eio_main.run @@ fun env ->
+  try
+    Eio.Switch.run @@ fun sw ->
+    let responses = [
+      openai_tool_use_response "get_time" {|{}|};
+      openai_tool_use_response "get_time" {|{"timezone":"UTC"}|};
+      openai_text_response "The time is 12:00 UTC";
+    ] in
+    let url = start_multi_mock ~sw ~net:env#net ~port:20011 responses in
+    let time_tool = Tool.create
+        ~name:"get_time"
+        ~description:"Get current time"
+        ~parameters:[
+          { name = "timezone"; param_type = Types.String;
+            description = "tz"; required = true };
+        ]
+        (fun _input -> Ok { Types.content = "12:00 UTC" })
+    in
+    let policy = {
+      Agent_sdk.Tool_retry_policy.max_retries = 1;
+      retry_on_validation_error = true;
+      retry_on_recoverable_tool_error = false;
+      feedback_style = Agent_sdk.Tool_retry_policy.Structured_tool_result;
+    } in
+    let agent =
+      make_agent ~net:env#net ~tools:[time_tool] ~max_turns:5
+        ~tool_retry_policy:policy url
+    in
+    (match Agent.run ~sw agent "what time is it?" with
+     | Ok resp ->
+         check string "final text" "The time is 12:00 UTC" (extract_text resp);
+         Eio.Switch.fail sw Exit
+     | Error e -> fail (Error.to_string e))
+  with Exit -> ()
+
+let test_agent_run_validation_retry_exhausted () =
+  Eio_main.run @@ fun env ->
+  try
+    Eio.Switch.run @@ fun sw ->
+    let responses = [
+      openai_tool_use_response "get_time" {|{}|};
+      openai_tool_use_response "get_time" {|{}|};
+      openai_text_response "should not happen";
+    ] in
+    let url = start_multi_mock ~sw ~net:env#net ~port:20012 responses in
+    let time_tool = Tool.create
+        ~name:"get_time"
+        ~description:"Get current time"
+        ~parameters:[
+          { name = "timezone"; param_type = Types.String;
+            description = "tz"; required = true };
+        ]
+        (fun _input -> Ok { Types.content = "12:00 UTC" })
+    in
+    let policy = {
+      Agent_sdk.Tool_retry_policy.max_retries = 1;
+      retry_on_validation_error = true;
+      retry_on_recoverable_tool_error = false;
+      feedback_style = Agent_sdk.Tool_retry_policy.Structured_tool_result;
+    } in
+    let agent =
+      make_agent ~net:env#net ~tools:[time_tool] ~max_turns:5
+        ~tool_retry_policy:policy url
+    in
+    (match Agent.run ~sw agent "what time is it?" with
+     | Ok _ -> fail "expected retry exhaustion error"
+     | Error (Error.Agent (Error.ToolRetryExhausted { attempts; limit; detail })) ->
+         check int "attempts" 1 attempts;
+         check int "limit" 1 limit;
+         check bool "detail mentions tool" true (contains_substring ~needle:"get_time" detail);
+         Eio.Switch.fail sw Exit
+     | Error e -> fail (Error.to_string e))
+  with Exit -> ()
+
 (* ── Test 8: PreToolUse hook blocks tool ─────────────── *)
 
 let test_agent_run_pre_tool_hook () =
@@ -348,6 +439,8 @@ let () =
     "tools", [
       test_case "tool use cycle" `Quick test_agent_run_tool_use;
       test_case "tool error" `Quick test_agent_run_tool_error;
+      test_case "validation retry success" `Quick test_agent_run_validation_retry_success;
+      test_case "validation retry exhausted" `Quick test_agent_run_validation_retry_exhausted;
       test_case "pre_tool hook" `Quick test_agent_run_pre_tool_hook;
     ];
     "streaming", [

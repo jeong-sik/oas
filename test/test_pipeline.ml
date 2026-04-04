@@ -344,8 +344,20 @@ let test_idle_detection_empty_tools () =
 
 let test_make_tool_results_ok () =
   let results = [
-    ("tu1", "result1", false);
-    ("tu2", "result2", false);
+    {
+      Agent_tools.tool_use_id = "tu1";
+      tool_name = "tool-1";
+      content = "result1";
+      is_error = false;
+      failure_kind = None;
+    };
+    {
+      tool_use_id = "tu2";
+      tool_name = "tool-2";
+      content = "result2";
+      is_error = false;
+      failure_kind = None;
+    };
   ] in
   let tool_results = Agent_turn.make_tool_results results in
   Alcotest.(check int) "2 tool results" 2 (List.length tool_results);
@@ -358,7 +370,13 @@ let test_make_tool_results_ok () =
 
 let test_make_tool_results_error () =
   let results = [
-    ("tu1", "failed", true);
+    {
+      Agent_tools.tool_use_id = "tu1";
+      tool_name = "tool-1";
+      content = "failed";
+      is_error = true;
+      failure_kind = Some Agent_tools.Recoverable_tool_error;
+    };
   ] in
   let tool_results = Agent_turn.make_tool_results results in
   Alcotest.(check int) "1 tool result" 1 (List.length tool_results);
@@ -369,8 +387,20 @@ let test_make_tool_results_error () =
 
 let test_make_tool_results_mixed () =
   let results = [
-    ("tu1", "good", false);
-    ("tu2", "bad", true);
+    {
+      Agent_tools.tool_use_id = "tu1";
+      tool_name = "tool-1";
+      content = "good";
+      is_error = false;
+      failure_kind = None;
+    };
+    {
+      tool_use_id = "tu2";
+      tool_name = "tool-2";
+      content = "bad";
+      is_error = true;
+      failure_kind = Some Agent_tools.Recoverable_tool_error;
+    };
   ] in
   let tool_results = Agent_turn.make_tool_results results in
   Alcotest.(check int) "2 results" 2 (List.length tool_results)

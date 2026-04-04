@@ -51,10 +51,10 @@ let test_approval_required_no_callback () =
     pre_tool_use = Some (fun _event -> Hooks.ApprovalRequired) } in
   let results = run_execute ~hooks [ToolUse { id = "t1"; name = "safe"; input = `String "hello" }] in
   match results with
-  | [(id, content, is_error)] ->
-    check string "id" "t1" id;
-    check string "content" {|"hello"|} content;
-    check bool "no error" false is_error
+  | [result] ->
+    check string "id" "t1" result.tool_use_id;
+    check string "content" {|"hello"|} result.content;
+    check bool "no error" false result.is_error
   | _ -> fail "expected exactly one result"
 
 let test_approval_approve () =
@@ -64,10 +64,10 @@ let test_approval_approve () =
   let results = run_execute ~hooks ~approval
     [ToolUse { id = "t1"; name = "safe"; input = `String "data" }] in
   match results with
-  | [(id, content, is_error)] ->
-    check string "id" "t1" id;
-    check string "content" {|"data"|} content;
-    check bool "no error" false is_error
+  | [result] ->
+    check string "id" "t1" result.tool_use_id;
+    check string "content" {|"data"|} result.content;
+    check bool "no error" false result.is_error
   | _ -> fail "expected exactly one result"
 
 let test_approval_reject () =
@@ -77,10 +77,10 @@ let test_approval_reject () =
   let results = run_execute ~hooks ~approval
     [ToolUse { id = "t1"; name = "dangerous"; input = `String "rm -rf" }] in
   match results with
-  | [(id, content, is_error)] ->
-    check string "id" "t1" id;
-    check string "content" "Tool rejected: too dangerous" content;
-    check bool "is error" true is_error
+  | [result] ->
+    check string "id" "t1" result.tool_use_id;
+    check string "content" "Tool rejected: too dangerous" result.content;
+    check bool "is error" true result.is_error
   | _ -> fail "expected exactly one result"
 
 let test_approval_edit () =
@@ -91,10 +91,10 @@ let test_approval_edit () =
   let results = run_execute ~hooks ~approval
     [ToolUse { id = "t1"; name = "dangerous"; input = `String "original" }] in
   match results with
-  | [(id, content, is_error)] ->
-    check string "id" "t1" id;
-    check string "content uses edited input" {|"sanitized"|} content;
-    check bool "no error" false is_error
+  | [result] ->
+    check string "id" "t1" result.tool_use_id;
+    check string "content uses edited input" {|"sanitized"|} result.content;
+    check bool "no error" false result.is_error
   | _ -> fail "expected exactly one result"
 
 let test_selective_approval () =
@@ -114,15 +114,19 @@ let test_selective_approval () =
     ToolUse { id = "t2"; name = "dangerous"; input = `String "bad" };
   ] in
   (* Results may be in any order due to Eio.Fiber.List.map, so sort by id *)
-  let sorted = List.sort (fun (a, _, _) (b, _, _) -> String.compare a b) results in
+  let sorted =
+    List.sort
+      (fun a b -> String.compare a.Agent_tools.tool_use_id b.tool_use_id)
+      results
+  in
   (match sorted with
-  | [(id1, content1, err1); (id2, content2, err2)] ->
-    check string "safe id" "t1" id1;
-    check string "safe executed" {|"ok"|} content1;
-    check bool "safe no error" false err1;
-    check string "dangerous id" "t2" id2;
-    check string "dangerous rejected" "Tool rejected: blocked" content2;
-    check bool "dangerous is error" true err2
+  | [safe; dangerous] ->
+    check string "safe id" "t1" safe.tool_use_id;
+    check string "safe executed" {|"ok"|} safe.content;
+    check bool "safe no error" false safe.is_error;
+    check string "dangerous id" "t2" dangerous.tool_use_id;
+    check string "dangerous rejected" "Tool rejected: blocked" dangerous.content;
+    check bool "dangerous is error" true dangerous.is_error
   | _ -> fail "expected exactly two results")
 
 let test_skip_override_unaffected () =
@@ -142,16 +146,20 @@ let test_skip_override_unaffected () =
     ToolUse { id = "t1"; name = "safe"; input = `Null };
     ToolUse { id = "t2"; name = "dangerous"; input = `Null };
   ] in
-  let sorted = List.sort (fun (a, _, _) (b, _, _) -> String.compare a b) results in
+  let sorted =
+    List.sort
+      (fun a b -> String.compare a.Agent_tools.tool_use_id b.tool_use_id)
+      results
+  in
   check bool "approval callback not called" false !approval_called;
   (match sorted with
-  | [(id1, content1, err1); (id2, content2, err2)] ->
-    check string "skip id" "t1" id1;
-    check string "skipped" "Tool execution skipped by hook" content1;
-    check bool "skip not error" false err1;
-    check string "override id" "t2" id2;
-    check string "overridden" "overridden" content2;
-    check bool "override not error" false err2
+  | [skip; override] ->
+    check string "skip id" "t1" skip.tool_use_id;
+    check string "skipped" "Tool execution skipped by hook" skip.content;
+    check bool "skip not error" false skip.is_error;
+    check string "override id" "t2" override.tool_use_id;
+    check string "overridden" "overridden" override.content;
+    check bool "override not error" false override.is_error
   | _ -> fail "expected exactly two results")
 
 let test_non_tool_use_blocks_filtered () =
@@ -166,11 +174,15 @@ let test_non_tool_use_blocks_filtered () =
   ] in
   (* Only the 2 ToolUse blocks should produce results *)
   check int "result count" 2 (List.length results);
-  let sorted = List.sort (fun (a, _, _) (b, _, _) -> String.compare a b) results in
+  let sorted =
+    List.sort
+      (fun a b -> String.compare a.Agent_tools.tool_use_id b.tool_use_id)
+      results
+  in
   (match sorted with
-  | [(id1, _, _); (id2, _, _)] ->
-    check string "first id" "t1" id1;
-    check string "second id" "t2" id2
+  | [first; second] ->
+    check string "first id" "t1" first.tool_use_id;
+    check string "second id" "t2" second.tool_use_id
   | _ -> fail "expected exactly two results")
 
 let test_only_non_tool_use_blocks () =
@@ -216,7 +228,7 @@ let test_parallel_read_tools_share_batch () =
       ]
   in
   match results with
-  | [ (_, _, false); (_, _, false) ] -> ()
+  | [ first; second ] when (not first.is_error) && (not second.is_error) -> ()
   | _ -> fail "parallel read batch should allow both tools to start"
 
 let test_workspace_tools_run_sequentially () =
@@ -250,7 +262,11 @@ let test_workspace_tools_run_sequentially () =
       ]
   in
   match results with
-  | [ (_, "write_a", false); (_, "write_b", false) ] -> ()
+  | [ first; second ]
+    when first.content = "write_a"
+         && (not first.is_error)
+         && second.content = "write_b"
+         && (not second.is_error) -> ()
   | _ -> fail "workspace tools should execute sequentially"
 
 let test_undeclared_tools_default_to_sequential () =
@@ -280,7 +296,11 @@ let test_undeclared_tools_default_to_sequential () =
       ]
   in
   match results with
-  | [ (_, "implicit_a", false); (_, "implicit_b", false) ] -> ()
+  | [ first; second ]
+    when first.content = "implicit_a"
+         && (not first.is_error)
+         && second.content = "implicit_b"
+         && (not second.is_error) -> ()
   | _ -> fail "undeclared tools should stay sequential by default"
 
 let test_workspace_barrier_splits_parallel_read_batches () =
@@ -337,7 +357,13 @@ let test_workspace_barrier_splits_parallel_read_batches () =
       ]
   in
   match results with
-  | [ (_, "read_before", false); (_, "write_mid", false); (_, "read_after", false) ] -> ()
+  | [ first; second; third ]
+    when first.content = "read_before"
+         && (not first.is_error)
+         && second.content = "write_mid"
+         && (not second.is_error)
+         && third.content = "read_after"
+         && (not third.is_error) -> ()
   | _ -> fail "workspace tool should form a sequential barrier between read batches"
 
 let test_exclusive_external_barrier_isolation () =
@@ -424,10 +450,12 @@ let test_exclusive_external_barrier_isolation () =
       ]
   in
   match results with
-  | [ (_, "read_first", false);
-      (_, "write_mid", false);
-      (_, "ext_call", false);
-      (_, "read_last", false) ] -> ()
+  | [
+      { Agent_tools.tool_name = "read_first"; is_error = false; _ };
+      { tool_name = "write_mid"; is_error = false; _ };
+      { tool_name = "ext_call"; is_error = false; _ };
+      { tool_name = "read_last"; is_error = false; _ };
+    ] -> ()
   | _ -> fail "exclusive external tool must run in complete isolation"
 
 let test_exclusive_batch_kind_metadata () =

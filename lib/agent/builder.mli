@@ -71,6 +71,7 @@ val with_priority : Llm_provider.Request_priority.t -> t -> t
 val with_tracer : Tracing.t -> t -> t
 val with_raw_trace : Raw_trace.t -> t -> t
 val with_approval : Hooks.approval_callback -> t -> t
+val with_tool_retry_policy : Tool_retry_policy.t -> t -> t
 val with_context_reducer : Context_reducer.t -> t -> t
 
 (** Set context reduction thresholds.
