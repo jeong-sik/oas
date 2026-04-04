@@ -2,6 +2,56 @@
 
 All notable changes to `agent_sdk` are documented in this file.
 
+## [0.100.7] - 2026-04-04
+
+### Added
+- Shared inference-contract helpers in `Provider` for provider/model/modality/task resolution without forcing existing `model_spec` callers to migrate.
+- `Context_overflow` CDAL result status for infra-level provider errors.
+
+### Fixed
+- Internal tool retry policy now preserves non-recoverable failures and clamps invalid retry counts before retry scheduling.
+
+## [0.100.6] - 2026-04-04
+
+### Added
+- `PolicyChannel` for lazy tool policy propagation to spawned agents.
+
+### Fixed
+- Removed MASC-specific tool names from `tool_index` test fixtures to keep OAS boundary tests SDK-local.
+
+## [0.100.5] - 2026-04-04
+
+### Added
+- `Response_harness` for deterministic text and tool-output extraction from model responses.
+- Real A2A HTTP binding with `tasks/sendSubscribe` SSE streaming.
+- `Inference_profile` as the single source of truth for inference defaults.
+- `Tool_index` scoped retrieval and rebuild APIs for dynamic tool-set updates.
+- Hook-level `system_prompt_override`, policy decision lineage, and a fail-closed decision validity matrix.
+
+### Changed
+- `Agent_tools` now treats `Exclusive_external` tool batches as a barrier-separated execution class.
+- CDAL mode enforcement uses descriptor-driven classification instead of hardcoded heuristics.
+- Turn pipeline now prunes in-memory tool results and enforces a message cap between turns.
+
+### Fixed
+- Hook tool-filter overrides are intersected with operator policy instead of widening access.
+- Discovery now reports actual Ollama context size, and SDK-facing surfaces no longer leak MASC-specific references.
+
+## [0.100.3] - 2026-04-04
+
+### Added
+- Cascade slot-full fallthrough for load distribution across providers.
+
+### Changed
+- Local endpoint defaults are consolidated behind `Discovery.default_endpoint`.
+- HTTP mock servers in tests now use ephemeral ports instead of fixed allocations.
+
+### Fixed
+- Capability filtering fails closed on unknown limits instead of silently allowing them.
+- Runtime rejects unknown provider names instead of coercing them to `Local`.
+- Pricing distinguishes unknown models from genuinely free providers.
+- Eio cancellation and runtime mutex handling were hardened around shutdown paths.
+
 ## [0.100.2] - 2026-04-03
 
 ### Added
