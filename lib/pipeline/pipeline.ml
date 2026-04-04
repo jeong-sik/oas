@@ -302,6 +302,22 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
          ~injector ~tool_uses ~results
        in
        update_state agent (fun s -> { s with messages = new_messages }));
+    (* In-memory message hygiene after each tool execution round.
+       Without this, agent.state.messages grows unbounded across turns —
+       context_reducer only trims before API calls, not in the stored state.
+
+       Two-step pruning (Claude Code Tier 1 pattern):
+       1. Stub old tool results: keep 2 most recent in full, replace older
+          with short stubs. Tool results are the largest allocation source.
+       2. Hard message cap: keep last 100 messages. Prevents unbounded growth
+          in long-running agents (600+ turns). *)
+    let pruner = Context_reducer.compose [
+      Context_reducer.stub_tool_results ~keep_recent:2;
+      Context_reducer.keep_last 100;
+    ] in
+    update_state agent (fun s ->
+      { s with messages =
+          Context_reducer.reduce pruner s.messages });
     Ok ToolsExecuted
 
 (* ── Stage 6: Output ─────────────────────────────────────── *)
