@@ -7,11 +7,6 @@ type model_override =
   | Use_model of Types.model
 [@@deriving show]
 
-type isolation =
-  | Shared
-  | Worktree
-[@@deriving show]
-
 type state_isolation =
   | Inherit_all
   | Isolated
@@ -28,11 +23,8 @@ type t = {
   max_turns: int option;
   skill_refs: string list;
   skills: Skill.t list;
-  isolation: isolation;
   state_isolation: state_isolation;
-  background: bool;
   path: string option;
-  metadata: (string * string list) list;
 }
 [@@deriving show]
 
@@ -42,11 +34,6 @@ let model_override_of_string s =
   match String.lowercase_ascii s with
   | "inherit" -> Inherit_model
   | other -> Use_model (Model_registry.resolve_model_id other)
-
-let isolation_of_string s =
-  match String.lowercase_ascii s with
-  | "worktree" -> Worktree
-  | _ -> Shared
 
 let state_isolation_of_string s =
   match String.lowercase_ascii (String.trim s) with
@@ -95,11 +82,6 @@ let of_markdown ?path ?(skills = []) markdown =
     );
     skill_refs = Skill.frontmatter_values fm "skills";
     skills;
-    isolation = (
-      Skill.frontmatter_value fm "isolation"
-      |> Option.map isolation_of_string
-      |> Option.value ~default:Shared
-    );
     state_isolation = (
       let mode =
         Skill.frontmatter_value fm "state-isolation"
@@ -115,12 +97,7 @@ let of_markdown ?path ?(skills = []) markdown =
         Selective keys
       | other -> other
     );
-    background =
-      List.exists
-        (fun v -> String.lowercase_ascii v = "true")
-        (Skill.frontmatter_values fm "background");
     path;
-    metadata = fm;
   }
 
 (* --- File loading with skill resolution --- *)
