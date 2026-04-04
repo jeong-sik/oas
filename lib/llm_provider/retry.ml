@@ -36,15 +36,42 @@ let error_message = function
   | NetworkError r -> Printf.sprintf "Network error: %s" r.message
   | Timeout r -> Printf.sprintf "Timeout: %s" r.message
 
+let extract_error_message (body : string) : string =
+  try
+    let json = Yojson.Safe.from_string body in
+    let open Yojson.Safe.Util in
+    json |> member "error" |> member "message" |> to_string
+  with Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ | Yojson.Safe.Util.Undefined _ ->
+    body
+
+let string_contains_ci ~(haystack : string) ~(needle : string) : bool =
+  let haystack = String.lowercase_ascii haystack in
+  let needle = String.lowercase_ascii needle in
+  let hay_len = String.length haystack in
+  let needle_len = String.length needle in
+  let rec loop idx =
+    if needle_len = 0 then true
+    else if idx + needle_len > hay_len then false
+    else if String.sub haystack idx needle_len = needle then true
+    else loop (idx + 1)
+  in
+  loop 0
+
+let is_context_overflow_message (body : string) : bool =
+  let message = extract_error_message body in
+  List.exists
+    (fun needle -> string_contains_ci ~haystack:message ~needle)
+    [
+      "available context size (";
+      "context window";
+      "context length exceeded";
+      "maximum context length";
+      "input is too long";
+    ]
+
 (** Classify HTTP status + body into structured api_error *)
 let classify_error ~status ~body : api_error =
-  let message =
-    try
-      let json = Yojson.Safe.from_string body in
-      let open Yojson.Safe.Util in
-      json |> member "error" |> member "message" |> to_string
-    with Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ | Yojson.Safe.Util.Undefined _ -> body
-  in
+  let message = extract_error_message body in
   match status with
   | 401 -> AuthError { message }
   | 400 | 422 -> InvalidRequest { message }
@@ -100,6 +127,17 @@ let with_retry ~clock ?(config=default_config) (f : unit -> ('a, api_error) resu
     sleep_for err 0;
     loop 1 err
   | Error _ as non_retryable -> non_retryable
+
+let%test "is_context_overflow_message detects raw message" =
+  is_context_overflow_message
+    "Invalid request: request (11447 tokens) exceeds the available context size (8192 tokens), try increasing it"
+
+let%test "is_context_overflow_message detects json body" =
+  is_context_overflow_message
+    {|{"error":{"message":"This model's maximum context length is 128000 tokens. available context size (32768)"}}|}
+
+let%test "is_context_overflow_message ignores generic invalid request" =
+  not (is_context_overflow_message {|{"error":{"message":"bad tool schema"}}|})
 
 (** Retry with cascade: try [primary] first (with retries), then each
     fallback in order. Each attempt gets its own full retry budget.

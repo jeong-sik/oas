@@ -13,6 +13,8 @@
 let should_cascade_to_next err =
   if Http_client.is_local_resource_exhaustion err then false
   else match err with
+  | Http_client.HttpError { body; _ } when Retry.is_context_overflow_message body ->
+    true
   | Http_client.HttpError { code; _ } ->
     List.mem code Constants.Http.cascadable_codes
   | Http_client.NetworkError _ -> true
@@ -119,6 +121,14 @@ let%test "should_cascade_to_next too many open files stops" =
 
 let%test "should_cascade_to_next 400 bad request stops" =
   should_cascade_to_next (Http_client.HttpError { code = 400; body = "" }) = false
+
+let%test "should_cascade_to_next overflow 400 cascades" =
+  should_cascade_to_next
+    (Http_client.HttpError {
+       code = 400;
+       body =
+         {|{"error":{"message":"request (11447 tokens) exceeds the available context size (8192 tokens), try increasing it"}}|};
+    })
 
 let%test "should_cascade_to_next 404 not found stops" =
   should_cascade_to_next (Http_client.HttpError { code = 404; body = "" }) = false

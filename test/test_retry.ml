@@ -97,6 +97,17 @@ let test_error_message_all_variants () =
     check string "error_message" expected (Retry.error_message err)
   ) cases
 
+let test_is_context_overflow_message () =
+  check bool "raw overflow message" true
+    (Retry.is_context_overflow_message
+       "Invalid request: request (11447 tokens) exceeds the available context size (8192 tokens), try increasing it");
+  check bool "json overflow message" true
+    (Retry.is_context_overflow_message
+       {|{"error":{"message":"This model's maximum context length is 128000 tokens. available context size (32768)"}}|});
+  check bool "generic bad request" false
+    (Retry.is_context_overflow_message
+       {|{"error":{"message":"bad tool schema"}}|})
+
 let test_calculate_delay_ranges () =
   Random.init 0;
   let config = Retry.default_config in
@@ -242,6 +253,8 @@ let () =
     "retryability", [
       test_case "retryable predicates" `Quick test_is_retryable;
       test_case "error_message all variants" `Quick test_error_message_all_variants;
+      test_case "context overflow classification" `Quick
+        test_is_context_overflow_message;
       test_case "delay ranges" `Quick test_calculate_delay_ranges;
       test_case "delay cap" `Quick test_calculate_delay_cap;
     ];

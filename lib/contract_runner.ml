@@ -17,14 +17,7 @@ let extract_capability_snapshot (agent : Agent.t) : Cdal_proof.capability_snapsh
 
 (** Detect context window exhaustion from provider error messages. *)
 let is_context_overflow_error (err : Error.sdk_error) : bool =
-  let msg = Error.to_string err in
-  List.exists (fun p -> Util.contains_substring_ci ~haystack:msg ~needle:p) [
-    "available context size (";
-    "context window";
-    "context length exceeded";
-    "maximum context length";
-    "input is too long";
-  ]
+  Retry.is_context_overflow_message (Error.to_string err)
 
 let map_result_status (response : (Types.api_response, Error.sdk_error) result)
     : Cdal_proof.result_status =

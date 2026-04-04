@@ -227,6 +227,21 @@ let test_filter_empty_passthrough () =
   let result = Cascade_config.filter_healthy ~sw ~net [] in
   check int "empty passthrough" 0 (List.length result)
 
+let test_context_overflow_bad_request_cascades () =
+  check bool "overflow 400 should cascade" true
+    (Cascade_health_filter.should_cascade_to_next
+       (Http_client.HttpError {
+          code = 400;
+          body =
+            {|{"error":{"message":"request (11447 tokens) exceeds the available context size (8192 tokens), try increasing it"}}|};
+        }));
+  check bool "generic 400 should still stop" false
+    (Cascade_health_filter.should_cascade_to_next
+       (Http_client.HttpError {
+          code = 400;
+          body = {|{"error":{"message":"bad tool schema"}}|};
+        }))
+
 (* ── Auto model_id resolution ─────────────────────────── *)
 
 let test_auto_llama_passthrough () =
@@ -334,5 +349,7 @@ let () =
       test_case "local detection" `Quick test_is_local_detection;
       test_case "cloud passthrough" `Quick test_filter_cloud_only_passthrough;
       test_case "empty passthrough" `Quick test_filter_empty_passthrough;
+      test_case "context overflow 400 cascades" `Quick
+        test_context_overflow_bad_request_cascades;
     ];
   ]
