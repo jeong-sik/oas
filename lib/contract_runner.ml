@@ -15,23 +15,10 @@ let extract_capability_snapshot (agent : Agent.t) : Cdal_proof.capability_snapsh
     thinking_enabled = config.enable_thinking;
   }
 
-let contains_substring ~needle haystack =
-  let nlen = String.length needle in
-  let hlen = String.length haystack in
-  if nlen > hlen then false
-  else
-    let found = ref false in
-    let i = ref 0 in
-    while !i <= hlen - nlen && not !found do
-      if String.sub haystack !i nlen = needle then found := true
-      else incr i
-    done;
-    !found
-
 (** Detect context window exhaustion from provider error messages. *)
 let is_context_overflow_error (err : Error.sdk_error) : bool =
-  let msg = String.lowercase_ascii (Error.to_string err) in
-  List.exists (fun p -> contains_substring ~needle:p msg) [
+  let msg = Error.to_string err in
+  List.exists (fun p -> Util.contains_substring_ci ~haystack:msg ~needle:p) [
     "available context size (";
     "context window";
     "context length exceeded";
