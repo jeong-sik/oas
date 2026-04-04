@@ -165,7 +165,7 @@ let test_cdal_proof_roundtrip () =
     tool_trace_refs = ["proof-store://test-run-001/tool_traces/trace-0001.jsonl"];
     raw_evidence_refs = [];
     checkpoint_ref = None;
-    result_status = Cdal_proof.Completed;
+    result_status = Cdal_proof.Context_overflow;
     started_at = 1000.0;
     ended_at = 1005.0;
     scope = None;
@@ -175,7 +175,10 @@ let test_cdal_proof_roundtrip () =
   | Ok decoded ->
     Alcotest.(check string) "run_id" proof.run_id decoded.run_id;
     Alcotest.(check string) "contract_id" proof.contract_id decoded.contract_id;
-    Alcotest.(check int) "schema_version" 1 decoded.schema_version
+    Alcotest.(check int) "schema_version" 1 decoded.schema_version;
+    Alcotest.(check string) "result_status" "\"context_overflow\""
+      (Yojson.Safe.to_string
+         (Cdal_proof.result_status_to_yojson decoded.result_status))
   | Error e -> Alcotest.fail (Printf.sprintf "decode failed: %s" e)
 
 (* ================================================================ *)
@@ -424,7 +427,9 @@ let test_result_status_json_lowercase () =
   assert_json_string "timed_out" "timed_out"
     (Cdal_proof.result_status_to_yojson Timed_out);
   assert_json_string "cancelled" "cancelled"
-    (Cdal_proof.result_status_to_yojson Cancelled)
+    (Cdal_proof.result_status_to_yojson Cancelled);
+  assert_json_string "context_overflow" "context_overflow"
+    (Cdal_proof.result_status_to_yojson Context_overflow)
 
 let test_proof_json_enum_fields () =
   let proof : Cdal_proof.t = {
