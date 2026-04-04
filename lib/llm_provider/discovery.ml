@@ -263,7 +263,7 @@ let refresh_and_sync ~sw ~net ~endpoints =
   ) healthy in
   (match per_slot_contexts with
    | [] -> ()
-   | ctxs -> Atomic.set _discovered_per_slot_ctx (Some (List.fold_left min max_int ctxs)));
+   | ctxs -> Atomic.set _discovered_per_slot_ctx (Some (List.fold_left max 0 ctxs)));
   statuses
 
 let default_scan_ports = [ 8085; 8086; 8087; 8088; 8089; 8090; 11434 ]
