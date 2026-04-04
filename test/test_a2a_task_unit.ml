@@ -64,6 +64,11 @@ let test_state_yojson_roundtrip () =
     | Error e -> Alcotest.fail e
   ) states
 
+let test_state_yojson_wire_value () =
+  Alcotest.(check yojson) "wire enum"
+    (`String "TASK_STATE_WORKING")
+    (A2a_task.task_state_to_yojson A2a_task.Working)
+
 let test_state_of_yojson_non_string () =
   match A2a_task.task_state_of_yojson (`Int 42) with
   | Error _ -> ()
@@ -169,6 +174,25 @@ let test_message_part_unknown () =
   match A2a_task.message_part_of_yojson json with
   | Error _ -> ()
   | Ok _ -> Alcotest.fail "expected error"
+
+let test_legacy_file_part_json () =
+  let legacy_json =
+    `Assoc [
+      ("type", `String "file");
+      ("file", `Assoc [
+        ("name", `String "legacy.txt");
+        ("mimeType", `String "text/plain");
+        ("bytes", `String "YWJj");
+      ]);
+    ]
+  in
+  match A2a_task.message_part_of_yojson legacy_json with
+  | Ok (A2a_task.File_part { name; mime_type; data }) ->
+    Alcotest.(check string) "name" "legacy.txt" name;
+    Alcotest.(check string) "mime" "text/plain" mime_type;
+    Alcotest.(check string) "data" "YWJj" data
+  | Ok _ -> Alcotest.fail "wrong variant"
+  | Error e -> Alcotest.fail e
 
 let test_pp_message_part () =
   let cases : (A2a_task.message_part * string) list = [
@@ -508,6 +532,7 @@ let () =
       tc "of_string valid" test_state_of_string_valid;
       tc "of_string invalid" test_state_of_string_invalid;
       tc "yojson roundtrip" test_state_yojson_roundtrip;
+      tc "yojson wire value" test_state_yojson_wire_value;
       tc "of_yojson non-string" test_state_of_yojson_non_string;
       tc "pp_task_state" test_pp_task_state;
       tc "show_task_state" test_show_task_state;
@@ -525,6 +550,7 @@ let () =
       tc "file part" test_file_part_json;
       tc "data part" test_data_part_json;
       tc "unknown part" test_message_part_unknown;
+      tc "legacy file part" test_legacy_file_part_json;
       tc "pp/show" test_pp_message_part;
     ]);
     ("task_role", [
