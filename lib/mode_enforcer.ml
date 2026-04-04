@@ -1,7 +1,11 @@
-type mutation_class =
+type tool_effect_class =
   | Read_only
-  | Workspace_mutating
+  | Local_mutation
   | External_effect
+  | Shell_dynamic
+
+(* Backward-compatible alias. *)
+type mutation_class = tool_effect_class
 
 type violation_kind =
   | Mutating_in_diagnose
@@ -67,11 +71,58 @@ type token_snapshot = {
   turn: int;
 }
 
+(* ── Tool classification registry ────────────────────────────────── *)
+
+(** Default tool-name -> effect-class mappings. Data, not inline code. *)
+let default_tool_entries : (string * tool_effect_class) list = [
+  (* Read-only tools *)
+  "read", Read_only;
+  "glob", Read_only;
+  "grep", Read_only;
+  "search", Read_only;
+  "list_dir", Read_only;
+  "find_file", Read_only;
+  "read_file", Read_only;
+  "find_symbol", Read_only;
+  "get_symbols_overview", Read_only;
+  "find_referencing_symbols", Read_only;
+  "search_for_pattern", Read_only;
+  "read_console_messages", Read_only;
+  "read_network_requests", Read_only;
+  "get_page_text", Read_only;
+  "read_page", Read_only;
+  "tabs_context_mcp", Read_only;
+  (* Local-mutation tools *)
+  "write", Local_mutation;
+  "edit", Local_mutation;
+  "create_text_file", Local_mutation;
+  "replace_content", Local_mutation;
+  "rename_symbol", Local_mutation;
+  "insert_after_symbol", Local_mutation;
+  "insert_before_symbol", Local_mutation;
+  "replace_symbol_body", Local_mutation;
+  "notebook_edit", Local_mutation;
+  (* Shell-dynamic tools (require input analysis at runtime) *)
+  "bash", Shell_dynamic;
+  "execute_shell_command", Shell_dynamic;
+]
+
+(** Global mutable registry seeded from [default_tool_entries].
+    Supports runtime extension via [register_tool_class]. *)
+let tool_registry : (string, tool_effect_class) Hashtbl.t =
+  let tbl = Hashtbl.create (List.length default_tool_entries) in
+  List.iter (fun (name, cls) -> Hashtbl.replace tbl name cls)
+    default_tool_entries;
+  tbl
+
+let register_tool_class name cls =
+  Hashtbl.replace tool_registry (String.lowercase_ascii name) cls
+
 type state = {
   effective_mode: Execution_mode.t;
   allowed_mutations: string list;
   review_requirement: string option;
-  tool_classifications: (string * mutation_class) list;
+  tool_classifications: (string * tool_effect_class) list;
   mutable violations: violation list;
   mutable token_snapshots: token_snapshot list;
   mutable review_warning: string option;
@@ -96,42 +147,89 @@ let review_warning st = st.review_warning
 (* ── Tool classification ─────────────────────────────────────────── *)
 
 let classify_tool name =
-  match String.lowercase_ascii name with
-  | "read" | "glob" | "grep" | "search" | "list_dir" | "find_file"
-  | "read_file" | "find_symbol" | "get_symbols_overview"
-  | "find_referencing_symbols" | "search_for_pattern"
-  | "read_console_messages" | "read_network_requests"
-  | "get_page_text" | "read_page" | "tabs_context_mcp" ->
-    Read_only
-  | "write" | "edit" | "create_text_file" | "replace_content"
-  | "rename_symbol" | "insert_after_symbol" | "insert_before_symbol"
-  | "replace_symbol_body" | "notebook_edit" ->
-    Workspace_mutating
-  | n when String.length n > 5
-           && String.sub n 0 5 = "mcp__" ->
-    External_effect
-  | _ -> External_effect
+  let key = String.lowercase_ascii name in
+  match Hashtbl.find_opt tool_registry key with
+  | Some cls -> cls
+  | None ->
+    (* Fail closed: MCP tools and anything unknown -> External_effect *)
+    if String.length key > 5 && String.sub key 0 5 = "mcp__" then
+      External_effect
+    else
+      External_effect
 
-let has_any_pattern patterns haystack =
-  List.exists (fun pat -> Util.string_contains ~needle:pat haystack) patterns
+(** Structured shell-command pattern entries.
+    Each pair maps a substring pattern to the effect class it implies.
+    Order does not matter -- [classify_bash_tool] checks external patterns
+    first (fail closed) and falls back to mutating, then read-only. *)
 
-let mutating_patterns = [
-  "rm "; "rm\t"; "rmdir "; "mv "; "cp "; "mkdir ";
-  "touch "; "chmod "; "chown "; "dd "; "mkfs";
-  "apt "; "brew "; "pip "; "npm "; "yarn "; "cargo ";
-  "git push"; "git commit"; "git add"; "git reset";
-  "git rebase"; "git merge"; "git checkout";
-  "docker "; "kubectl "; "systemctl ";
-  "curl "; "wget ";
+type shell_pattern_entry = {
+  pattern: string;
+  effect_class: tool_effect_class;
+}
+
+let shell_pattern_entries : shell_pattern_entry list = [
+  (* External-effect patterns (network, remote, deploy) *)
+  { pattern = "curl "; effect_class = External_effect };
+  { pattern = "wget "; effect_class = External_effect };
+  { pattern = "ssh "; effect_class = External_effect };
+  { pattern = "scp "; effect_class = External_effect };
+  { pattern = "rsync "; effect_class = External_effect };
+  { pattern = "git push"; effect_class = External_effect };
+  { pattern = "git fetch"; effect_class = External_effect };
+  { pattern = "git pull"; effect_class = External_effect };
+  { pattern = "git clone"; effect_class = External_effect };
+  { pattern = "docker "; effect_class = External_effect };
+  { pattern = "kubectl "; effect_class = External_effect };
+  { pattern = "helm "; effect_class = External_effect };
+  { pattern = "npm publish"; effect_class = External_effect };
+  { pattern = "pip install"; effect_class = External_effect };
+  { pattern = "cargo publish"; effect_class = External_effect };
+  { pattern = "systemctl "; effect_class = External_effect };
+  { pattern = "launchctl "; effect_class = External_effect };
+  (* Local-mutation patterns (filesystem, vcs local, package managers) *)
+  { pattern = "rm "; effect_class = Local_mutation };
+  { pattern = "rm\t"; effect_class = Local_mutation };
+  { pattern = "rmdir "; effect_class = Local_mutation };
+  { pattern = "mv "; effect_class = Local_mutation };
+  { pattern = "cp "; effect_class = Local_mutation };
+  { pattern = "mkdir "; effect_class = Local_mutation };
+  { pattern = "touch "; effect_class = Local_mutation };
+  { pattern = "chmod "; effect_class = Local_mutation };
+  { pattern = "chown "; effect_class = Local_mutation };
+  { pattern = "dd "; effect_class = Local_mutation };
+  { pattern = "mkfs"; effect_class = Local_mutation };
+  { pattern = "apt "; effect_class = Local_mutation };
+  { pattern = "brew "; effect_class = Local_mutation };
+  { pattern = "pip "; effect_class = Local_mutation };
+  { pattern = "npm "; effect_class = Local_mutation };
+  { pattern = "yarn "; effect_class = Local_mutation };
+  { pattern = "cargo "; effect_class = Local_mutation };
+  { pattern = "git commit"; effect_class = Local_mutation };
+  { pattern = "git add"; effect_class = Local_mutation };
+  { pattern = "git reset"; effect_class = Local_mutation };
+  { pattern = "git rebase"; effect_class = Local_mutation };
+  { pattern = "git merge"; effect_class = Local_mutation };
+  { pattern = "git checkout"; effect_class = Local_mutation };
 ]
 
-let external_patterns = [
-  "curl "; "wget "; "ssh "; "scp "; "rsync ";
-  "git push"; "git fetch"; "git pull"; "git clone";
-  "docker "; "kubectl "; "helm ";
-  "npm publish"; "pip install"; "cargo publish";
-  "systemctl "; "launchctl ";
-]
+(** Collect the highest-severity effect class from all matching patterns.
+    External_effect > Local_mutation > Read_only. *)
+let classify_shell_command cmd =
+  let has_redirect =
+    String.contains cmd '>'
+    || Util.string_contains ~needle:"tee " cmd
+  in
+  let max_effect = ref Read_only in
+  List.iter (fun entry ->
+    if Util.string_contains ~needle:entry.pattern cmd then
+      match entry.effect_class, !max_effect with
+      | External_effect, _ -> max_effect := External_effect
+      | Local_mutation, Read_only -> max_effect := Local_mutation
+      | _ -> ()
+  ) shell_pattern_entries;
+  if has_redirect && !max_effect = Read_only then
+    max_effect := Local_mutation;
+  !max_effect
 
 let extract_bash_command (input : Yojson.Safe.t) =
   match input with
@@ -141,39 +239,25 @@ let extract_bash_command (input : Yojson.Safe.t) =
      | _ -> None)
   | _ -> None
 
-let is_bash_read_only input =
-  match extract_bash_command input with
-  | None -> false
-  | Some cmd ->
-    let has_redirect =
-      String.contains cmd '>'
-      || Util.string_contains ~needle:"tee " cmd
-    in
-    not (has_any_pattern mutating_patterns cmd) && not has_redirect
-
-let is_bash_workspace_only input =
-  match extract_bash_command input with
-  | None -> false
-  | Some cmd -> not (has_any_pattern external_patterns cmd)
-
 let classify_bash_tool input =
-  if is_bash_read_only input then Read_only
-  else if is_bash_workspace_only input then Workspace_mutating
-  else External_effect
+  match extract_bash_command input with
+  | None -> External_effect  (* fail closed: unparseable -> external *)
+  | Some cmd -> classify_shell_command cmd
 
 let effective_class tool_name input =
   match classify_tool tool_name with
-  | External_effect
-    when String.lowercase_ascii tool_name = "bash"
-      || String.lowercase_ascii tool_name = "execute_shell_command" ->
-    classify_bash_tool input
+  | Shell_dynamic -> classify_bash_tool input
   | c -> c
 
-let mutation_class_of_string = function
+let tool_effect_class_of_string = function
   | "read_only" -> Some Read_only
-  | "workspace" | "workspace_mutating" -> Some Workspace_mutating
+  | "workspace" | "workspace_mutating" | "local_mutation" -> Some Local_mutation
   | "external" | "external_effect" -> Some External_effect
+  | "shell_dynamic" -> Some Shell_dynamic
   | _ -> None
+
+(* Backward-compatible alias *)
+let mutation_class_of_string = tool_effect_class_of_string
 
 let effective_class_with_hints ~tool_classifications tool_name input =
   match List.assoc_opt tool_name tool_classifications with
@@ -186,8 +270,8 @@ let all_read_only tools =
 let all_workspace_only tools =
   List.for_all (fun name ->
     match classify_tool name with
-    | Read_only | Workspace_mutating -> true
-    | External_effect -> false
+    | Read_only | Local_mutation -> true
+    | External_effect | Shell_dynamic -> false
   ) tools
 
 (* ── Enforcement check ───────────────────────────────────────────── *)
@@ -199,7 +283,7 @@ let check_violation st tool_name input =
   let cls = effective_class_with_hints
       ~tool_classifications:st.tool_classifications tool_name input in
   let kind = match st.effective_mode, cls with
-    | Execution_mode.Diagnose, (Workspace_mutating | External_effect) ->
+    | Execution_mode.Diagnose, (Local_mutation | External_effect) ->
       Some Mutating_in_diagnose
     | Execution_mode.Draft, External_effect ->
       Some External_in_draft
