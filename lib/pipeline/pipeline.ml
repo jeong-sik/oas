@@ -114,6 +114,8 @@ let stage_parse ?raw_trace_run agent =
       (match turn_params.thinking_budget with Some _ as t -> t | None -> original_config.thinking_budget);
     tool_choice =
       (match turn_params.tool_choice with Some _ as t -> t | None -> original_config.tool_choice);
+    system_prompt =
+      (match turn_params.system_prompt_override with Some _ as s -> s | None -> original_config.system_prompt);
   } in
   update_state agent (fun s -> { s with config = new_config });
   let original_config = original_config in
