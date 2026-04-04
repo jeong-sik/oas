@@ -34,3 +34,10 @@ val exceeds_limit : t -> int -> bool
     @since 0.94.0 *)
 val merge_operator_policy :
   operator:tool_filter option -> agent:t -> t * policy_source
+
+(** Intersect two tool filters: the result only allows tools permitted
+    by {b both} inputs.  Used to ensure hook [tool_filter_override]
+    can narrow but never widen the operator policy.
+
+    @since 0.99.2 *)
+val intersect_filters : tool_filter -> tool_filter -> tool_filter

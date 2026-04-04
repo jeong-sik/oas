@@ -4,7 +4,7 @@
     - merge_operator_policy semantics
     - Operator AllowList restricts agent's AllowAll
     - Operator DenyList adds to agent's filter
-    - turn_params override still works on top of operator policy
+    - turn_params override intersects with (never widens) operator policy
     - No operator policy = existing behavior
     - Builder integration *)
 
@@ -100,9 +100,24 @@ let test_no_operator_is_noop () =
   let count = match tools_json with Some l -> List.length l | None -> 0 in
   check int "agent filter applies" 1 count
 
-let test_turn_override_beats_operator () =
+let test_turn_override_intersects_operator () =
+  (* Operator: AllowList ["a"; "b"], turn_params override: AllowList ["b"; "c"]
+     -> intersect = only "b" visible.  Hook can narrow but not widen. *)
+  let tools = Tool_set.of_list [make_tool "a"; make_tool "b"; make_tool "c"] in
+  let turn_params = { Hooks.default_turn_params with
+    tool_filter_override = Some (Guardrails.AllowList ["b"; "c"]) } in
+  let tools_json, _ = Agent_turn.prepare_tools
+    ~guardrails:Guardrails.default
+    ~operator_policy:(Some (Guardrails.AllowList ["a"; "b"]))
+    ~tools
+    ~turn_params
+  in
+  let count = match tools_json with Some l -> List.length l | None -> 0 in
+  check int "intersect yields 1" 1 count
+
+let test_turn_override_cannot_widen_operator () =
   (* Operator: AllowList ["a"], turn_params override: AllowList ["b"]
-     -> turn_params wins, only "b" visible *)
+     -> intersect = empty.  Hook cannot re-grant what operator denied. *)
   let tools = Tool_set.of_list [make_tool "a"; make_tool "b"; make_tool "c"] in
   let turn_params = { Hooks.default_turn_params with
     tool_filter_override = Some (Guardrails.AllowList ["b"]) } in
@@ -113,7 +128,7 @@ let test_turn_override_beats_operator () =
     ~turn_params
   in
   let count = match tools_json with Some l -> List.length l | None -> 0 in
-  check int "turn_params wins" 1 count
+  check int "no tools visible" 0 count
 
 let test_full_prepare_turn_with_operator () =
   (* End-to-end: prepare_turn includes operator policy *)
@@ -180,7 +195,8 @@ let () =
       test_case "operator restricts AllowAll" `Quick test_operator_restricts_allow_all;
       test_case "operator DenyList" `Quick test_operator_denylist_on_allowall;
       test_case "no operator is noop" `Quick test_no_operator_is_noop;
-      test_case "turn override beats operator" `Quick test_turn_override_beats_operator;
+      test_case "turn override intersects operator" `Quick test_turn_override_intersects_operator;
+      test_case "turn override cannot widen operator" `Quick test_turn_override_cannot_widen_operator;
       test_case "full prepare_turn" `Quick test_full_prepare_turn_with_operator;
     ];
     "policy_source", [

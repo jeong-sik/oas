@@ -52,3 +52,51 @@ let merge_operator_policy ~operator ~agent =
   match operator with
   | Some filter -> ({ agent with tool_filter = filter }, Operator)
   | None -> (agent, Agent)
+
+(** Intersect two tool filters, producing a filter that only allows
+    tools permitted by {b both} inputs.  This ensures that a hook
+    [tool_filter_override] can narrow — but never widen — the
+    effective operator policy. *)
+let intersect_filters a b =
+  match a, b with
+  | AllowAll, f | f, AllowAll -> f
+  | AllowList x, AllowList y ->
+    AllowList (List.filter (fun name -> List.mem name y) x)
+  | AllowList x, DenyList y ->
+    AllowList (List.filter (fun name -> not (List.mem name y)) x)
+  | DenyList x, AllowList y ->
+    AllowList (List.filter (fun name -> not (List.mem name x)) y)
+  | DenyList x, DenyList y ->
+    DenyList (List.sort_uniq String.compare (x @ y))
+  | Custom f, Custom g -> Custom (fun s -> f s && g s)
+  | Custom f, other ->
+    Custom (fun s -> f s && is_allowed { default with tool_filter = other } s)
+  | other, Custom f ->
+    Custom (fun s -> f s && is_allowed { default with tool_filter = other } s)
+
+[@@@coverage off]
+(* === Inline tests === *)
+
+let _ts name : tool_schema = { name; description = ""; parameters = [] }
+
+let%test "intersect AllowAll with AllowList yields AllowList" =
+  match intersect_filters AllowAll (AllowList ["a"; "b"]) with
+  | AllowList l -> l = ["a"; "b"]
+  | _ -> false
+
+let%test "intersect AllowList with AllowList yields intersection" =
+  match intersect_filters (AllowList ["a"; "b"; "c"]) (AllowList ["b"; "c"; "d"]) with
+  | AllowList l -> l = ["b"; "c"]
+  | _ -> false
+
+let%test "intersect DenyList [shell] with AllowList [shell; read] yields AllowList [read]" =
+  (* Security case: operator denies shell, hook requests shell + read.
+     Result must exclude shell. *)
+  match intersect_filters (DenyList ["shell"]) (AllowList ["shell"; "read"]) with
+  | AllowList l -> l = ["read"]
+  | _ -> false
+
+let%test "intersect DenyList with DenyList yields union" =
+  match intersect_filters (DenyList ["a"; "b"]) (DenyList ["b"; "c"]) with
+  | DenyList l -> l = ["a"; "b"; "c"]
+  | _ -> false
