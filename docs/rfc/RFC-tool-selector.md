@@ -3,7 +3,7 @@
 - **Status**: Draft
 - **Author**: Vincent (jeong-sik)
 - **Created**: 2026-04-04
-- **OAS Version**: v0.99.1
+- **OAS Version**: v0.100.7
 - **Related**: Samchon Rank 3, Tool Selection Benchmark (2026-04-01/02)
 
 ---
@@ -18,10 +18,10 @@ MASC essential tool 21개에 대한 벤치마크 (2026-04-01/02):
 
 | 조건 | Selection Accuracy | 비고 |
 |------|-------------------|------|
-| 21 tools, tool_choice=required | **42.9%** | 9B, 35B-A3B 동일 |
-| 21 tools, required + system prompt | 42.9% | prompt 개선 무효 |
-| 21 tools, required + few-shot | 42.9% | few-shot 무효 |
-| 21 tools, required + description 개선 | 42.9% | description 개선 무효 |
+| 21 tools, tool_choice=Any (OpenAI wire: `required`) | **42.9%** | 9B, 35B-A3B 동일 |
+| 21 tools, tool_choice=Any + system prompt | 42.9% | prompt 개선 무효 |
+| 21 tools, tool_choice=Any + few-shot | 42.9% | few-shot 무효 |
+| 21 tools, tool_choice=Any + description 개선 | 42.9% | description 개선 무효 |
 | **2 tools, 고유 이름** | **100%** | 모델 능력 자체는 충분 |
 | 27B dense, 21 tools | 60.7% | 모델 크기 +17pp |
 
@@ -124,7 +124,7 @@ module Tool_selector : sig
         always_include: string list;
         selector_config: Types.agent_config option;
           (** Optional separate config for the selector LLM call.
-              If None, uses lightweight defaults (low max_tokens, high temp=0). *)
+              If None, uses lightweight defaults (low max_tokens, temp=0). *)
       }
       (** LLM-based selection: a lightweight LLM call that receives
           tool names + one-line descriptions, returns top-K names.
@@ -171,27 +171,29 @@ end
 
 ### 3.2 Pipeline 통합 지점
 
-현재 OAS turn pipeline (6-stage):
+현재 OAS turn pipeline (6-stage, codebase terminology):
 
 ```
-Stage 1: Hooks (BeforeTurn, BeforeTurnParams)
-Stage 2: Prepare (prepare_tools, prepare_messages)
-Stage 3: Route (API call with tools_json)
-Stage 4: Collect (usage, AfterTurn)
-Stage 5: Execute (tool execution)
-Stage 6: Loop/Stop
+Stage 1: Input   (lifecycle, BeforeTurn, elicitation)
+Stage 2: Parse   (BeforeTurnParams, context reduction, tool preparation)
+Stage 3: Route   (provider selection, API call dispatch)
+Stage 4: Collect (usage accumulation, AfterTurn, message append)
+Stage 5: Execute (tool execution on StopToolUse)
+Stage 6: Output  (stop reason -> turn_outcome)
 ```
 
-Tool_selector는 **Stage 2 (Prepare)** 에 삽입된다:
+Tool_selector는 **Stage 2 (Parse)** 안의 tool preparation 단계에 삽입된다:
 
 ```
-Stage 2: Prepare
-  2a. prepare_tools (guardrails, operator_policy, policy_channel 적용)
-  2b. [NEW] Tool_selector.select (strategy, context, visible_tools)
-  2c. tools_json = filtered tools -> JSON schema
+Stage 2: Parse
+  2a. resolve turn params
+  2b. prepare_tools (guardrails, operator_policy, policy_channel 적용)
+  2c. [NEW] Tool_selector.select (strategy, context, visible_tools)
+  2d. tools_json = filtered tools -> JSON schema
 ```
 
-구체적으로 `Agent_turn.prepare_tools`가 반환하는 `Tool_set.t`에서:
+구체적으로는 `Agent_turn.prepare_tools` 내부에서 `Tool_set.filter`로 visible tools를 계산한 뒤,
+`tool_schemas`를 만들기 전에 선택된 tool list로 한 번 더 좁히는 방식이다:
 
 ```ocaml
 (* Before: agent_turn.ml *)
@@ -564,10 +566,10 @@ let test_case = Harness_case.create
 ## 12. References
 
 1. Samchon, "Function Calling Harness: From 6.75% to 100%", Qwen Meetup 2026. dev.to/samchon
-2. MASC Tool Selection Benchmark, 2026-04-01/02. `memory/research-tool-selection-benchmark-9b.md`
-3. Samchon Function Calling Harness Research. `memory/research-function-calling-harness-samchon.md`
+2. MASC Tool Selection Benchmark, 2026-04-01/02. Internal benchmark notes referenced by this RFC.
+3. Samchon Function Calling Harness Research. Internal research notes referenced by this RFC.
 4. ToolLLM, Qin et al., 2023. arxiv.org/abs/2307.16789
 5. Open-Source LLM Tool Manipulation, 2023. arxiv.org/abs/2305.16504
 6. OAS Tool_index (BM25), v0.89.0. `lib/tool_index.ml`
 7. OAS Progressive_tools, v0.43.0/v0.89.0. `lib/progressive_tools.ml`
-8. RFC-0001 Det/NonDet Boundary. `memory/project_rfc-0001-det-nondet-boundary.md`
+8. RFC-0001 Det/NonDet Boundary. Internal RFC note referenced by this document.
