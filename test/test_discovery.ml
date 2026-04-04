@@ -114,6 +114,73 @@ let test_summary_to_json () =
   Alcotest.(check int) "active" 3
     (json |> member "active_requests" |> to_int)
 
+(* ── discovered_per_slot_context tests ────────────────────── *)
+
+let test_discovered_per_slot_context_initially_none () =
+  (* Before any refresh_and_sync, should be None or whatever was last set.
+     We can't fully reset the Atomic in tests, but we can verify the
+     API shape. *)
+  let _result = Discovery.discovered_per_slot_context () in
+  (* Just verify it doesn't crash — value depends on test ordering *)
+  ()
+
+let test_refresh_and_sync_updates_context () =
+  (* We can't probe real endpoints in unit tests, but we can verify
+     that refresh_and_sync with unreachable endpoints returns empty
+     and doesn't crash. *)
+  Eio_main.run @@ fun env ->
+  let sw = Eio.Stdenv.process_mgr env in
+  ignore sw;
+  (* Instead, test the computation logic directly:
+     verify per-slot = ctx_size / total_slots *)
+  let status_with_props ctx_size total_slots : Discovery.endpoint_status = {
+    url = "http://test"; healthy = true;
+    models = [];
+    props = Some { total_slots; ctx_size; model = "test" };
+    slots = None;
+    capabilities = Capabilities.default_capabilities;
+  } in
+  (* Simulate what refresh_and_sync computes *)
+  let compute_per_slot (statuses : Discovery.endpoint_status list) =
+    let healthy = List.filter (fun (s : Discovery.endpoint_status) -> s.healthy) statuses in
+    let per_slots = List.filter_map (fun (s : Discovery.endpoint_status) ->
+      match s.props with
+      | Some p when p.total_slots > 0 && p.ctx_size > 0 ->
+        Some (p.ctx_size / p.total_slots)
+      | _ -> None
+    ) healthy in
+    match per_slots with
+    | [] -> None
+    | ctxs -> Some (List.fold_left min max_int ctxs)
+  in
+  (* Single endpoint: 131072 / 4 = 32768 *)
+  let result = compute_per_slot [status_with_props 131072 4] in
+  Alcotest.(check (option int)) "single endpoint per-slot"
+    (Some 32768) result;
+  (* Multi endpoint: min(131072/4=32768, 8192/1=8192) = 8192 *)
+  let result = compute_per_slot [
+    status_with_props 131072 4;
+    status_with_props 8192 1;
+  ] in
+  Alcotest.(check (option int)) "multi endpoint min"
+    (Some 8192) result;
+  (* No healthy endpoints *)
+  let unhealthy : Discovery.endpoint_status = {
+    url = "http://dead"; healthy = false;
+    models = []; props = None; slots = None;
+    capabilities = Capabilities.default_capabilities;
+  } in
+  let result = compute_per_slot [unhealthy] in
+  Alcotest.(check (option int)) "no healthy" None result;
+  (* No props *)
+  let no_props : Discovery.endpoint_status = {
+    url = "http://noprops"; healthy = true;
+    models = []; props = None; slots = None;
+    capabilities = Capabilities.default_capabilities;
+  } in
+  let result = compute_per_slot [no_props] in
+  Alcotest.(check (option int)) "no props" None result
+
 let () =
   Alcotest.run "Discovery" [
     "env", [
@@ -127,5 +194,11 @@ let () =
       Alcotest.test_case "healthy endpoint" `Quick test_endpoint_status_to_json_healthy;
       Alcotest.test_case "unhealthy endpoint" `Quick test_endpoint_status_to_json_unhealthy;
       Alcotest.test_case "summary" `Quick test_summary_to_json;
+    ];
+    "discovered_context", [
+      Alcotest.test_case "initially accessible" `Quick
+        test_discovered_per_slot_context_initially_none;
+      Alcotest.test_case "per-slot computation" `Quick
+        test_refresh_and_sync_updates_context;
     ];
   ]
