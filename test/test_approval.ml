@@ -450,10 +450,12 @@ let test_exclusive_external_barrier_isolation () =
       ]
   in
   match results with
-  | [ (_, "read_first", false);
-      (_, "write_mid", false);
-      (_, "ext_call", false);
-      (_, "read_last", false) ] -> ()
+  | [
+      { Agent_tools.tool_name = "read_first"; is_error = false; _ };
+      { tool_name = "write_mid"; is_error = false; _ };
+      { tool_name = "ext_call"; is_error = false; _ };
+      { tool_name = "read_last"; is_error = false; _ };
+    ] -> ()
   | _ -> fail "exclusive external tool must run in complete isolation"
 
 let test_exclusive_batch_kind_metadata () =

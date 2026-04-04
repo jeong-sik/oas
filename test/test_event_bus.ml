@@ -214,6 +214,7 @@ let test_tool_completed_preserves_non_retryable_flag () =
       batch_index = 0;
       batch_size = 1;
       concurrency_class = "sequential_workspace";
+      batch_kind = "sequential";
     }
   in
   let _result =
