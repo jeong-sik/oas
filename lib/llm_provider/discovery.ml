@@ -144,7 +144,7 @@ let probe_ollama_context ~sw ~net base_url =
     match first_name with
     | None -> None
     | Some model_name ->
-      let body = Printf.sprintf {|{"name":"%s"}|} model_name in
+      let body = Yojson.Safe.to_string (`Assoc [("name", `String model_name)]) in
       let headers = [("content-type", "application/json")] in
       match Http_client.post_sync ~sw ~net
               ~url:(base_url ^ "/api/show") ~headers ~body with
