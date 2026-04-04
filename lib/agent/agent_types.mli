@@ -48,6 +48,12 @@ type options = {
         and applies any accumulated {!Tool_op.t} to its operator policy.
         Parent and children share the same channel reference.
         @since 0.100.0 *)
+  tool_selector: Tool_selector.strategy option;
+    (** Tool selection strategy for large tool catalogs (20+ tools).
+        When [Some], narrows the visible tool set per turn based on the
+        user's query, improving selection accuracy from ~42% to 83-100%.
+        Applied after guardrails and operator policy filtering.
+        @since 0.100.0 *)
 }
 
 (** {1 Lifecycle re-exports} *)

@@ -56,6 +56,7 @@ type t = {
   operator_policy: Guardrails.tool_filter option;
   priority: Llm_provider.Request_priority.t option;
   yield_on_tool: bool;
+  tool_selector: Tool_selector.strategy option;
 }
 
 let create ~net ~model =
@@ -111,6 +112,7 @@ let create ~net ~model =
     operator_policy = None;
     priority = None;
     yield_on_tool = false;
+    tool_selector = None;
   }
 
 let with_system_prompt prompt b = { b with system_prompt = Some prompt }
@@ -175,6 +177,7 @@ let with_max_idle_turns n b = { b with max_idle_turns = n }
 let with_context_injector injector b = { b with context_injector = Some injector }
 let with_skill_registry reg b = { b with skill_registry = Some reg }
 let with_progressive_tools strategy b = { b with progressive_tools = Some strategy }
+let with_tool_selector strategy b = { b with tool_selector = Some strategy }
 let with_elicitation cb b = { b with elicitation = Some cb }
 let with_description desc b = { b with description = Some desc }
 let with_memory mem b = { b with memory = Some mem }
@@ -265,6 +268,7 @@ let build b =
     allowed_paths = b.allowed_paths;
     operator_policy = b.operator_policy;
     policy_channel = None;
+    tool_selector = b.tool_selector;
   } in
   Agent.create ~net:b.net ~config ~tools:(Tool_set.to_list tools) ?context
     ?named_cascade:b.named_cascade ~options ()

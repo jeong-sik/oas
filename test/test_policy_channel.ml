@@ -69,6 +69,7 @@ let test_channel_restricts_tools () =
     ~policy_channel:(Some ch)
     ~tools
     ~turn_params:Hooks.default_turn_params
+    ()
   in
   let count = match tools_json with Some l -> List.length l | None -> 0 in
   check int "shell removed, 2 remain" 2 count
@@ -81,6 +82,7 @@ let test_channel_none_is_noop () =
     ~policy_channel:None
     ~tools
     ~turn_params:Hooks.default_turn_params
+    ()
   in
   let count = match tools_json with Some l -> List.length l | None -> 0 in
   check int "all tools visible" 2 count
@@ -94,6 +96,7 @@ let test_channel_empty_is_noop () =
     ~policy_channel:(Some ch)
     ~tools
     ~turn_params:Hooks.default_turn_params
+    ()
   in
   let count = match tools_json with Some l -> List.length l | None -> 0 in
   check int "no ops, all visible" 2 count
@@ -111,6 +114,7 @@ let test_channel_overrides_operator_policy () =
     ~policy_channel:(Some ch)
     ~tools
     ~turn_params:Hooks.default_turn_params
+    ()
   in
   let count = match tools_json with Some l -> List.length l | None -> 0 in
   check int "channel narrows to a" 1 count
@@ -133,6 +137,7 @@ let test_multiple_updates_compose_correctly () =
     ~policy_channel:(Some ch)
     ~tools
     ~turn_params:Hooks.default_turn_params
+    ()
   in
   let count = match tools_json with Some l -> List.length l | None -> 0 in
   check int "only read, write" 2 count
@@ -149,6 +154,7 @@ let test_shared_channel_between_agents () =
     ~policy_channel:(Some ch)
     ~tools
     ~turn_params:Hooks.default_turn_params
+    ()
   in
   let count_before = match tools_json_before with Some l -> List.length l | None -> 0 in
   check int "before: 2 tools" 2 count_before;
@@ -161,6 +167,7 @@ let test_shared_channel_between_agents () =
     ~policy_channel:(Some ch)
     ~tools
     ~turn_params:Hooks.default_turn_params
+    ()
   in
   let count_after = match tools_json_after with Some l -> List.length l | None -> 0 in
   check int "after: 1 tool" 1 count_after

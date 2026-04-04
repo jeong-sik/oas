@@ -36,15 +36,24 @@ type turn_preparation = {
 (** Prepare tool schemas, applying operator policy and optional
     [tool_filter_override].
 
-    Priority: [turn_params.tool_filter_override] > [operator_policy] > [guardrails]
+    When [tool_selector] is provided, the visible tool set is narrowed
+    by [Tool_selector.select] using the last user message as context
+    before converting to JSON schemas.
 
-    @since 0.94.0 added [operator_policy] parameter *)
+    Priority: [turn_params.tool_filter_override] > [operator_policy] > [guardrails]
+    Then: [tool_selector] narrows the guardrails-filtered set.
+
+    @since 0.94.0 added [operator_policy] parameter
+    @since 0.100.0 added [tool_selector] and [messages] parameters *)
 val prepare_tools :
   guardrails:Guardrails.t ->
   operator_policy:Guardrails.tool_filter option ->
   policy_channel:Policy_channel.t option ->
   tools:Tool_set.t ->
   turn_params:Hooks.turn_params ->
+  ?tool_selector:Tool_selector.strategy ->
+  ?messages:Types.message list ->
+  unit ->
   Yojson.Safe.t list option * Guardrails.t
 
 (** Reduce messages and inject extra system context. *)
@@ -56,7 +65,8 @@ val prepare_messages :
 
 (** Full turn preparation: tools + messages + guardrails.
 
-    @since 0.94.0 added [operator_policy] parameter *)
+    @since 0.94.0 added [operator_policy] parameter
+    @since 0.100.0 added [tool_selector] parameter *)
 val prepare_turn :
   guardrails:Guardrails.t ->
   operator_policy:Guardrails.tool_filter option ->
@@ -65,6 +75,8 @@ val prepare_turn :
   messages:Types.message list ->
   context_reducer:Context_reducer.t option ->
   turn_params:Hooks.turn_params ->
+  ?tool_selector:Tool_selector.strategy ->
+  unit ->
   turn_preparation
 
 (** {1 Usage accumulation} *)
