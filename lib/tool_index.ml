@@ -330,31 +330,31 @@ let%test "tokenize korean preserves ascii behavior" =
 
 let%test "korean query retrieves korean-aliased tool" =
   let idx = build [
-    { name = "keeper_board_post";
+    { name = "board_create_post";
       description = "Create a new post on the board 게시판 글 올리기 작성";
       group = Some "board" };
-    { name = "keeper_fs_read";
+    { name = "fs_read_file";
       description = "Read a file from the project 파일 읽기";
       group = Some "filesystem" };
   ] in
   let results = retrieve_names idx "게시판에 글 올려줘" in
-  List.mem "keeper_board_post" results
+  List.mem "board_create_post" results
 
 let%test "korean group co-retrieval" =
   let idx = build [
-    { name = "keeper_board_post";
+    { name = "board_create_post";
       description = "Create post 게시판 글 올리기";
       group = Some "board" };
-    { name = "keeper_board_comment";
+    { name = "board_add_comment";
       description = "Add comment 게시판 댓글";
       group = Some "board" };
-    { name = "keeper_fs_read";
+    { name = "fs_read_file";
       description = "Read file 파일 읽기";
       group = None };
   ] in
   let results = retrieve_names idx "게시판 글" in
-  List.mem "keeper_board_post" results
-  && List.mem "keeper_board_comment" results
+  List.mem "board_create_post" results
+  && List.mem "board_add_comment" results
 
 (* ── Scoped retrieval tests ──────────────────────── *)
 
