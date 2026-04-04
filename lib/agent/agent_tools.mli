@@ -26,10 +26,22 @@ val invoke_hook :
 
 (** {1 Single tool execution} *)
 
+type tool_failure_kind =
+  | Validation_error
+  | Recoverable_tool_error
+  | Non_retryable_tool_error
+
+type tool_execution_result = {
+  tool_use_id: string;
+  tool_name: string;
+  content: string;
+  is_error: bool;
+  failure_kind: tool_failure_kind option;
+}
+
 (** Find a tool by name and execute it, invoking [PostToolUse] (and
     [PostToolUseFailure] on error) hooks.  Publishes [ToolCalled] and
-    [ToolCompleted] events to the event bus.
-    Returns [(tool_use_id, content, is_error)]. *)
+    [ToolCompleted] events to the event bus. *)
 val find_and_execute_tool :
   context:Context.t ->
   tools:Tool.t list ->
@@ -43,7 +55,7 @@ val find_and_execute_tool :
     detail:string option -> unit) ->
   schedule:Hooks.tool_schedule ->
   string -> Yojson.Safe.t -> string ->
-  string * string * bool
+  tool_execution_result
 
 (** {1 Tool scheduling and execution} *)
 
@@ -69,8 +81,8 @@ val find_and_execute_tool :
     from canceling siblings (except [Out_of_memory], [Stack_overflow],
     [Sys.Break], and cancellation).
 
-    Returns [(tool_use_id, content, is_error)] triples, one per [ToolUse]
-    block, in the same relative order as the input. *)
+    Returns one [tool_execution_result] per [ToolUse] block in the same
+    relative order as the input. *)
 val execute_tools :
   context:Context.t ->
   tools:Tool.t list ->
@@ -89,4 +101,4 @@ val execute_tools :
     decision:Hooks.hook_decision ->
     detail:string option -> unit) ->
   Types.content_block list ->
-  (string * string * bool) list
+  tool_execution_result list

@@ -250,6 +250,38 @@ let stage_collect ?raw_trace_run agent ~original_config response =
       usage });
   Ok ()
 
+let retry_failures_of_results
+    (results : Agent_tools.tool_execution_result list) :
+    Tool_retry_policy.failure list =
+  results
+  |> List.filter_map (fun (result : Agent_tools.tool_execution_result) ->
+         match result.failure_kind with
+         | Some Agent_tools.Validation_error ->
+             Some
+               {
+                 Tool_retry_policy.tool_name = result.tool_name;
+                 detail = result.content;
+                 kind = Tool_retry_policy.Validation_error;
+               }
+         | Some Agent_tools.Recoverable_tool_error ->
+             Some
+               {
+                 Tool_retry_policy.tool_name = result.tool_name;
+                 detail = result.content;
+                 kind = Tool_retry_policy.Recoverable_tool_error;
+               }
+         | Some Agent_tools.Non_retryable_tool_error | None -> None)
+
+let retry_feedback_blocks ~(policy : Tool_retry_policy.t) ~(retry_count : int)
+    ~(summary : string) ~(tool_results : Types.content_block list) =
+  match policy.feedback_style with
+  | Tool_retry_policy.Structured_tool_result -> tool_results
+  | Tool_retry_policy.Plain_error_text ->
+      [
+        Tool_retry_policy.plain_feedback_block ~retry_count
+          ~max_retries:policy.max_retries ~summary;
+      ]
+
 (* ── Stage 5: Execute ────────────────────────────────────── *)
 
 (** Handle tool execution: idle detection, guardrails, context injection. *)
@@ -281,6 +313,7 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
   let count = List.length tool_uses in
   match Guardrails.exceeds_limit effective_guardrails count with
   | true ->
+    Tool_retry_policy.clear_context_retry_count agent.context;
     let msg = Printf.sprintf
       "Tool call limit exceeded: %d calls in one turn" count in
     update_state agent (fun s ->
@@ -290,13 +323,50 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
   | false ->
     let results =
       try Ok (execute_tools_with_trace agent raw_trace_run tool_uses)
-      with Raw_trace.Trace_error err -> Error err
+      with Raw_trace.Trace_error err ->
+        Tool_retry_policy.clear_context_retry_count agent.context;
+        Error err
     in
     let* results = results in
     let tool_results = Agent_turn.make_tool_results results in
+    let* tool_feedback =
+      match agent.options.tool_retry_policy with
+      | None ->
+          Tool_retry_policy.clear_context_retry_count agent.context;
+          Ok tool_results
+      | Some policy -> (
+          match
+            Tool_retry_policy.decide ~policy
+              ~prior_retries:
+                (Tool_retry_policy.context_retry_count agent.context)
+              (retry_failures_of_results results)
+          with
+          | Tool_retry_policy.No_retry ->
+              Tool_retry_policy.clear_context_retry_count agent.context;
+              Ok tool_results
+          | Tool_retry_policy.Retry { retry_count; summary } ->
+              Tool_retry_policy.set_context_retry_count agent.context retry_count;
+              Ok
+                (retry_feedback_blocks ~policy ~retry_count ~summary
+                   ~tool_results)
+          | Tool_retry_policy.Exhausted { attempts; limit; summary } ->
+              Tool_retry_policy.clear_context_retry_count agent.context;
+              Error
+                (Error.Agent
+                   (ToolRetryExhausted { attempts; limit; detail = summary })))
+    in
     update_state agent (fun s ->
-      { s with messages = Util.snoc s.messages
-          { role = User; content = tool_results; name = None; tool_call_id = None } });
+      {
+        s with
+        messages =
+          Util.snoc s.messages
+            {
+              role = User;
+              content = tool_feedback;
+              name = None;
+              tool_call_id = None;
+            };
+      });
     (match agent.options.context_injector with
      | None -> ()
      | Some injector ->
@@ -333,6 +403,7 @@ let stage_output ?raw_trace_run agent ~effective_guardrails response =
       (function ToolUse _ -> true | _ -> false) response.content in
     stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses
   | EndTurn | MaxTokens | StopSequence ->
+    Tool_retry_policy.clear_context_retry_count agent.context;
     let _stop =
       invoke_hook_with_trace agent ?raw_trace_run ~hook_name:"on_stop"
         agent.options.hooks.on_stop

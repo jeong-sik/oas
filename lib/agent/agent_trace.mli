@@ -36,7 +36,7 @@ val execute_tools_with_trace :
   t ->
   Raw_trace.active_run option ->
   Types.content_block list ->
-  (string * string * bool) list
+  Agent_tools.tool_execution_result list
 
 (** {1 Assistant block recording} *)
 

@@ -159,6 +159,14 @@ let extract_with_retry ~sw ~net ?base_url ?provider ?clock
   let initial_message =
     { role = User; content = [Text prompt]; name = None; tool_call_id = None }
   in
+  let retry_policy =
+    {
+      Tool_retry_policy.max_retries = max_retries;
+      retry_on_validation_error = true;
+      retry_on_recoverable_tool_error = false;
+      feedback_style = Tool_retry_policy.Structured_tool_result;
+    }
+  in
   let rec attempt n acc_usage messages =
     let state = { config = config_with_tool; messages = []; turn_count = 0;
                   usage = empty_usage } in
@@ -169,33 +177,57 @@ let extract_with_retry ~sw ~net ?base_url ?provider ?clock
         let total = add_usage acc_usage response.usage in
         match extract_tool_input ~schema response.content with
         | Ok v -> Ok { value = v; total_usage = total; attempts = n + 1 }
-        | Error e when n < max_retries ->
+        | Error e ->
             let error_msg = Error.to_string e in
-            (match on_validation_error with
-             | Some cb -> cb (n + 1) error_msg
-             | None -> ());
-            let tool_use_id = List.find_map (function
-              | ToolUse { id; name; _ } when name = schema.name -> Some id
-              | _ -> None) response.content
-              |> Option.value ~default:"structured_retry" in
-            (* Keep only the original user message + latest error feedback.
-               Previous failed attempts are dropped to avoid unbounded
-               token growth across retries. *)
-            let retry_messages = [
-              initial_message;
-              { role = Assistant; content = response.content; name = None; tool_call_id = None };
-              { role = User; content = [
-                  ToolResult {
-                    tool_use_id;
-                    content = Printf.sprintf
-                      "Validation error (attempt %d/%d): %s. Please fix the output and try again."
-                      (n + 1) (max_retries + 1) error_msg;
-                    is_error = true;
-                  }
-                ]; name = None; tool_call_id = None };
-            ] in
-            attempt (n + 1) total retry_messages
-        | Error e -> Error e
+            let decision =
+              Tool_retry_policy.decide ~policy:retry_policy ~prior_retries:n
+                [
+                  {
+                    Tool_retry_policy.tool_name = schema.name;
+                    detail = error_msg;
+                    kind = Tool_retry_policy.Validation_error;
+                  };
+                ]
+            in
+            (match decision with
+             | Tool_retry_policy.Retry { retry_count; summary } ->
+                 (match on_validation_error with
+                  | Some cb -> cb retry_count error_msg
+                  | None -> ());
+                 let tool_use_id =
+                   List.find_map
+                     (function
+                       | ToolUse { id; name; _ } when name = schema.name ->
+                           Some id
+                       | _ -> None)
+                     response.content
+                   |> Option.value ~default:"structured_retry"
+                 in
+                 let retry_messages =
+                   [
+                     initial_message;
+                     {
+                       role = Assistant;
+                       content = response.content;
+                       name = None;
+                       tool_call_id = None;
+                     };
+                     {
+                       role = User;
+                       content =
+                         [
+                           Tool_retry_policy.structured_feedback_block
+                             ~tool_use_id ~retry_count
+                             ~max_retries:retry_policy.max_retries ~summary;
+                         ];
+                       name = None;
+                       tool_call_id = None;
+                     };
+                   ]
+                 in
+                 attempt retry_count total retry_messages
+             | Tool_retry_policy.Exhausted _
+             | Tool_retry_policy.No_retry -> Error e)
   in
   let initial_messages = [ initial_message ] in
   attempt 0 None initial_messages
