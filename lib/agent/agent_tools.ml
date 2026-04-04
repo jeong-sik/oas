@@ -140,23 +140,30 @@ let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tra
   let tool_opt = List.find_opt (fun (tool: Tool.t) -> tool.schema.name = name) tools in
   let result = match tool_opt with
   | Some tool ->
-    (* Validate input against schema; coerce types before execution.
-       Invalid inputs get structured feedback instead of handler errors. *)
-    begin match Tool_input_validation.validate tool.schema input with
-    | Tool_input_validation.Invalid errors ->
-      let msg = Tool_input_validation.format_errors ~tool_name:name errors in
-      ignore
-           (invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count
-              ~hook_name:"post_tool_use_failure" hooks.post_tool_use_failure
-              (Hooks.PostToolUseFailure
-                 {
-                   tool_use_id = id;
-                   tool_name = name;
-                   input;
-                   error = msg;
-                   schedule;
-                 })
-            : Hooks.hook_decision);
+    (* Validate input against schema via Tool_middleware; coerce types
+       before execution. Invalid inputs get structured feedback. *)
+    let validated_input =
+      match Tool_middleware.validate_and_coerce ~tool_name:name
+              ~schema:tool.schema input with
+      | Tool_middleware.Reject { message; _ } ->
+        ignore
+             (invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count
+                ~hook_name:"post_tool_use_failure" hooks.post_tool_use_failure
+                (Hooks.PostToolUseFailure
+                   {
+                     tool_use_id = id;
+                     tool_name = name;
+                     input;
+                     error = message;
+                     schedule;
+                   })
+              : Hooks.hook_decision);
+        Error message
+      | Tool_middleware.Proceed coerced -> Ok coerced
+      | Tool_middleware.Pass -> Ok input
+    in
+    begin match validated_input with
+    | Error msg ->
       {
         tool_use_id = id;
         tool_name = name;
@@ -164,7 +171,7 @@ let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tra
         is_error = true;
         failure_kind = Some Validation_error;
       }
-    | Tool_input_validation.Valid coerced_input ->
+    | Ok coerced_input ->
     let result = Tool.execute ~context tool coerced_input in
     let result_bytes = match result with
       | Ok { content } -> String.length content
@@ -215,7 +222,7 @@ let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tra
       is_error;
       failure_kind;
     }
-    end (* Tool_input_validation match *)
+    end (* Tool_middleware validation match *)
   | None ->
       {
         tool_use_id = id;
