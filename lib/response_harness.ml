@@ -15,21 +15,24 @@ open Types
 
 (* ── Telemetry ──────────────────────────────────────────────── *)
 
+(** Atomic counters for domain-safe telemetry (OCaml 5 multicore). *)
 type telemetry_counters = {
-  mutable parse_success : int;
-  mutable parse_failure : int;
-  mutable recovery_applied : int;
-  mutable tool_use_extraction : int;
-  mutable text_extraction : int;
+  parse_success : int Atomic.t;
+  parse_failure : int Atomic.t;
+  recovery_applied : int Atomic.t;
+  tool_use_extraction : int Atomic.t;
+  text_extraction : int Atomic.t;
 }
 
 let global_telemetry = {
-  parse_success = 0;
-  parse_failure = 0;
-  recovery_applied = 0;
-  tool_use_extraction = 0;
-  text_extraction = 0;
+  parse_success = Atomic.make 0;
+  parse_failure = Atomic.make 0;
+  recovery_applied = Atomic.make 0;
+  tool_use_extraction = Atomic.make 0;
+  text_extraction = Atomic.make 0;
 }
+
+let bump c = Atomic.incr c
 
 type telemetry_snapshot = {
   parse_success : int;
@@ -41,24 +44,24 @@ type telemetry_snapshot = {
 }
 
 let snapshot () : telemetry_snapshot =
-  let total = global_telemetry.parse_success + global_telemetry.parse_failure in
-  let rate = if total = 0 then 1.0 else
-    Float.of_int global_telemetry.parse_success /. Float.of_int total
-  in
-  { parse_success = global_telemetry.parse_success;
-    parse_failure = global_telemetry.parse_failure;
-    recovery_applied = global_telemetry.recovery_applied;
-    tool_use_extraction = global_telemetry.tool_use_extraction;
-    text_extraction = global_telemetry.text_extraction;
+  let ps = Atomic.get global_telemetry.parse_success in
+  let pf = Atomic.get global_telemetry.parse_failure in
+  let total = ps + pf in
+  let rate = if total = 0 then 1.0 else Float.of_int ps /. Float.of_int total in
+  { parse_success = ps;
+    parse_failure = pf;
+    recovery_applied = Atomic.get global_telemetry.recovery_applied;
+    tool_use_extraction = Atomic.get global_telemetry.tool_use_extraction;
+    text_extraction = Atomic.get global_telemetry.text_extraction;
     success_rate = rate;
   }
 
 let reset_telemetry () =
-  global_telemetry.parse_success <- 0;
-  global_telemetry.parse_failure <- 0;
-  global_telemetry.recovery_applied <- 0;
-  global_telemetry.tool_use_extraction <- 0;
-  global_telemetry.text_extraction <- 0
+  Atomic.set global_telemetry.parse_success 0;
+  Atomic.set global_telemetry.parse_failure 0;
+  Atomic.set global_telemetry.recovery_applied 0;
+  Atomic.set global_telemetry.tool_use_extraction 0;
+  Atomic.set global_telemetry.text_extraction 0
 
 (* ── Metric schema (tool_use-based extraction) ────────────── *)
 
@@ -84,7 +87,7 @@ let metric_schema ?(metric_name = "score") () : Metric_contract.metric Structure
          | FP_normal | FP_subnormal | FP_zero ->
            Ok { Metric_contract.name; value }
          | FP_infinite | FP_nan ->
-           Error (Printf.sprintf "metric value must be finite: %f" value))
+           Error (Printf.sprintf "metric value must be finite: %g" value))
       with
       | Type_error (msg, _) -> Error (Printf.sprintf "metric schema type error: %s" msg)
       | Failure msg -> Error (Printf.sprintf "metric schema parse error: %s" msg));
@@ -127,8 +130,28 @@ let extract_first_float (text : string) : float option =
            in
            Some value
          | _ -> scan (!j + 1))
-      else if c = '-' && i + 1 < len && text.[i+1] >= '0' && text.[i+1] <= '9' then
-        scan (i + 1)  (* skip negative sign, look at digits *)
+      else if c = '-' && i + 1 < len &&
+              ((text.[i+1] >= '0' && text.[i+1] <= '9') ||
+               (text.[i+1] = '.' && i + 2 < len && text.[i+2] >= '0' && text.[i+2] <= '9')) then
+        (* Negative number: parse from the minus sign *)
+        let j = ref (i + 1) in
+        let has_dot = ref (text.[i+1] = '.') in
+        while !j + 1 < len && (
+          let next = text.[!j + 1] in
+          (next >= '0' && next <= '9') ||
+          (next = '.' && not !has_dot && (has_dot := true; true))
+        ) do
+          incr j
+        done;
+        let num_str = String.sub text i (!j - i + 1) in
+        (match float_of_string_opt num_str with
+         | Some f when Float.is_finite f ->
+           let value =
+             if !j + 1 < len && text.[!j + 1] = '%' then f /. 100.0
+             else f
+           in
+           Some value
+         | _ -> scan (!j + 1))
       else
         scan (i + 1)
   in
@@ -143,11 +166,11 @@ let extract_score_from_text (text : string) : float option =
   match extract_first_float text with
   | Some f ->
     let clamped = Float.min 1.0 (Float.max 0.0 f) in
-    global_telemetry.parse_success <- global_telemetry.parse_success + 1;
-    global_telemetry.text_extraction <- global_telemetry.text_extraction + 1;
+    bump global_telemetry.parse_success;
+    bump global_telemetry.text_extraction;
     Some clamped
   | None ->
-    global_telemetry.parse_failure <- global_telemetry.parse_failure + 1;
+    bump global_telemetry.parse_failure;
     None
 
 (* ── Metric extraction from text (lenient) ────────────────── *)
@@ -160,8 +183,8 @@ let parse_metric_from_text ?expected_name (text : string)
   (* Try direct parse first *)
   match Metric_contract.parse ?expected_name text with
   | Ok _ as ok ->
-    global_telemetry.parse_success <- global_telemetry.parse_success + 1;
-    global_telemetry.text_extraction <- global_telemetry.text_extraction + 1;
+    bump global_telemetry.parse_success;
+    bump global_telemetry.text_extraction;
     ok
   | Error _ ->
     (* Apply lenient recovery: strip fences, trim *)
@@ -171,12 +194,12 @@ let parse_metric_from_text ?expected_name (text : string)
     in
     (match Metric_contract.parse ?expected_name cleaned with
      | Ok _ as ok ->
-       global_telemetry.parse_success <- global_telemetry.parse_success + 1;
-       global_telemetry.recovery_applied <- global_telemetry.recovery_applied + 1;
-       global_telemetry.text_extraction <- global_telemetry.text_extraction + 1;
+       bump global_telemetry.parse_success;
+       bump global_telemetry.recovery_applied;
+       bump global_telemetry.text_extraction;
        ok
      | Error _ as err ->
-       global_telemetry.parse_failure <- global_telemetry.parse_failure + 1;
+       bump global_telemetry.parse_failure;
        err)
 
 (* ── Tool-use metric extraction from response ─────────────── *)
@@ -190,11 +213,11 @@ let extract_metric_from_response ?(metric_name = "score")
   let schema = metric_schema ~metric_name () in
   match Structured.extract_tool_input ~schema content with
   | Ok metric ->
-    global_telemetry.parse_success <- global_telemetry.parse_success + 1;
-    global_telemetry.tool_use_extraction <- global_telemetry.tool_use_extraction + 1;
+    bump global_telemetry.parse_success;
+    bump global_telemetry.tool_use_extraction;
     Ok metric
   | Error e ->
-    global_telemetry.parse_failure <- global_telemetry.parse_failure + 1;
+    bump global_telemetry.parse_failure;
     Error (Error.to_string e)
 
 (* ── Inline tests ──────────────────────────────────────────── *)
