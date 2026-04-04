@@ -147,6 +147,33 @@ let test_to_json_structure () =
   Alcotest.(check int) "1 tool" 1 (List.length tools);
   Alcotest.(check int) "no interfaces by default" 0 (List.length interfaces)
 
+let test_to_json_synthesizes_supported_interface () =
+  let card : Agent_card.agent_card = {
+    name = "synth-agent";
+    description = None;
+    protocol_version = "1.0";
+    version = "1.0";
+    url = Some "http://agent.local/a2a";
+    authentication = None;
+    supported_interfaces = [];
+    capabilities = [];
+    tools = [];
+    skills = [];
+    supported_providers = [];
+    metadata = [];
+  } in
+  let json = Agent_card.to_json card in
+  let open Yojson.Safe.Util in
+  let interfaces = json |> member "supportedInterfaces" |> to_list in
+  Alcotest.(check int) "synthesized interface count" 1 (List.length interfaces);
+  let iface = List.hd interfaces in
+  Alcotest.(check string) "url"
+    "http://agent.local/a2a" (iface |> member "url" |> to_string);
+  Alcotest.(check string) "binding"
+    "JSONRPC" (iface |> member "protocolBinding" |> to_string);
+  Alcotest.(check string) "protocol version"
+    "1.0" (iface |> member "protocolVersion" |> to_string)
+
 let test_of_json_invalid () =
   match Agent_card.of_json (`String "bad") with
   | Error _ -> ()
@@ -324,6 +351,8 @@ let () =
     "json", [
       test_case "roundtrip" `Quick test_json_roundtrip;
       test_case "to_json structure" `Quick test_to_json_structure;
+      test_case "to_json synthesizes supported interface" `Quick
+        test_to_json_synthesizes_supported_interface;
       test_case "of_json invalid" `Quick test_of_json_invalid;
       test_case "with auth" `Quick test_json_with_authentication;
       test_case "no auth no meta" `Quick test_json_no_auth_no_metadata;

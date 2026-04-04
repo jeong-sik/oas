@@ -65,9 +65,10 @@ let test_state_yojson_roundtrip () =
   ) states
 
 let test_state_yojson_wire_value () =
-  Alcotest.(check yojson) "wire enum"
-    (`String "TASK_STATE_WORKING")
-    (A2a_task.task_state_to_yojson A2a_task.Working)
+  Alcotest.(check string) "wire enum"
+    "\"TASK_STATE_WORKING\""
+    (Yojson.Safe.to_string
+       (A2a_task.task_state_to_yojson A2a_task.Working))
 
 let test_state_of_yojson_non_string () =
   match A2a_task.task_state_of_yojson (`Int 42) with
