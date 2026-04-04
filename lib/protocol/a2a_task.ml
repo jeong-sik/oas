@@ -89,18 +89,26 @@ let transition_error_to_string = function
 
 type message_part =
   | Text_part of string
-  | File_part of { name: string; mime_type: string; data: string }
+  | File_part of {
+      name: string;
+      mime_type: string;
+      data: string;
+      location: [ `Raw | `Url ];
+    }
   | Data_part of Yojson.Safe.t
 
 let message_part_to_yojson = function
   | Text_part s ->
     `Assoc [("text", `String s)]
-  | File_part { name; mime_type; data } ->
-    `Assoc [
-      ("raw", `String data);
-      ("filename", `String name);
-      ("mediaType", `String mime_type);
-    ]
+  | File_part { name; mime_type; data; location } ->
+    `Assoc
+      ((match location with
+        | `Raw -> [("raw", `String data)]
+        | `Url -> [("url", `String data)])
+       @ [
+           ("filename", `String name);
+           ("mediaType", `String mime_type);
+         ])
   | Data_part json ->
     `Assoc [("data", json)]
 
@@ -117,7 +125,7 @@ let message_part_of_yojson json =
        let name = file |> member "name" |> to_string in
        let mime_type = file |> member "mimeType" |> to_string in
        let data = file |> member "bytes" |> to_string in
-       Ok (File_part { name; mime_type; data })
+       Ok (File_part { name; mime_type; data; location = `Raw })
      | Some (`String "data") ->
        let data = json |> member "data" in
        Ok (Data_part data)
@@ -138,7 +146,7 @@ let message_part_of_yojson json =
                | Some (`String m) -> m
                | _ -> "application/octet-stream"
              in
-             Ok (File_part { name; mime_type; data = raw })
+             Ok (File_part { name; mime_type; data = raw; location = `Raw })
            | _ ->
              (match List.assoc_opt "url" fields with
               | Some (`String url) ->
@@ -152,7 +160,7 @@ let message_part_of_yojson json =
                   | Some (`String m) -> m
                   | _ -> "application/octet-stream"
                 in
-                Ok (File_part { name; mime_type; data = url })
+                Ok (File_part { name; mime_type; data = url; location = `Url })
               | _ ->
                 match List.assoc_opt "data" fields with
                 | Some data -> Ok (Data_part data)

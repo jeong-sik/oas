@@ -323,6 +323,32 @@ let test_legacy_json_backfills_interfaces () =
       (List.length card.supported_interfaces)
   | Error e -> Alcotest.fail (Error.to_string e)
 
+let test_interface_protocol_version_inherits_card_version () =
+  let json =
+    `Assoc [
+      ("name", `String "v1-agent");
+      ("version", `String "1.2.3");
+      ("protocolVersion", `String "1.0");
+      ("supportedInterfaces", `List [
+        `Assoc [
+          ("url", `String "http://agent.local/a2a");
+          ("protocolBinding", `String "JSONRPC");
+        ]
+      ]);
+      ("capabilities", `List []);
+      ("tools", `List []);
+      ("skills", `List []);
+      ("supported_providers", `List []);
+    ]
+  in
+  match Agent_card.of_json json with
+  | Ok card ->
+    Alcotest.(check string) "card protocol version" "1.0" card.protocol_version;
+    let iface = List.hd card.supported_interfaces in
+    Alcotest.(check string) "interface protocol version"
+      "1.0" iface.protocol_version
+  | Error e -> Alcotest.fail (Error.to_string e)
+
 let () =
   let open Alcotest in
   run "Agent_card" [
@@ -360,6 +386,8 @@ let () =
       test_case "with skills" `Quick test_to_json_with_skills;
       test_case "legacy json backfills interfaces" `Quick
         test_legacy_json_backfills_interfaces;
+      test_case "interface protocol version inherits card version" `Quick
+        test_interface_protocol_version_inherits_card_version;
     ];
     "provider_name", [
       test_case "local" `Quick test_provider_name_local;

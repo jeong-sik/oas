@@ -226,7 +226,12 @@ let test_text_of_task_file_parts_ignored () =
   let msg : A2a_task.task_message = {
     role = TaskAgent;
     parts = [
-      A2a_task.File_part { name = "f.txt"; mime_type = "text/plain"; data = "data" };
+      A2a_task.File_part {
+        name = "f.txt";
+        mime_type = "text/plain";
+        data = "data";
+        location = `Raw;
+      };
       A2a_task.Data_part (`Assoc [("k", `String "v")]);
     ];
     metadata = [];
@@ -263,7 +268,7 @@ let test_text_of_task_mixed_parts () =
     role = TaskAgent;
     parts = [
       A2a_task.Text_part "line1";
-      A2a_task.File_part { name = "f"; mime_type = "x"; data = "d" };
+      A2a_task.File_part { name = "f"; mime_type = "x"; data = "d"; location = `Raw };
       A2a_task.Text_part "line2";
     ];
     metadata = [];

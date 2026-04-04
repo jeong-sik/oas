@@ -130,7 +130,12 @@ let test_add_artifact () =
 let test_message_part_roundtrip () =
   let parts = [
     A2a_task.Text_part "hello";
-    File_part { name = "test.txt"; mime_type = "text/plain"; data = "abc" };
+    File_part {
+      name = "test.txt";
+      mime_type = "text/plain";
+      data = "abc";
+      location = `Raw;
+    };
     Data_part (`Assoc [("n", `Int 42)]);
   ] in
   List.iter (fun p ->

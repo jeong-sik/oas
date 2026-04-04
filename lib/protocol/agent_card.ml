@@ -153,6 +153,9 @@ let of_json (json : Yojson.Safe.t) : (agent_card, Error.sdk_error) result =
       | v -> Some (to_string v)
     in
     let version = json |> member "version" |> to_string in
+    let top_level_protocol_version =
+      json |> member "protocolVersion" |> to_string_option
+    in
     let url = match json |> member "url" with
       | `Null -> None
       | v -> Some (to_string v)
@@ -174,7 +177,10 @@ let of_json (json : Yojson.Safe.t) : (agent_card, Error.sdk_error) result =
                  let protocol_version =
                    match item |> member "protocolVersion" |> to_string_option with
                    | Some v -> v
-                   | None -> "0.1"
+                   | None ->
+                     (match top_level_protocol_version with
+                      | Some v -> v
+                      | None -> "0.1")
                  in
                  let tenant = item |> member "tenant" |> to_string_option in
                  Some
@@ -185,9 +191,9 @@ let of_json (json : Yojson.Safe.t) : (agent_card, Error.sdk_error) result =
       | _ -> []
     in
     let protocol_version =
-      match json |> member "protocolVersion" with
-      | `String v -> v
-      | _ ->
+      match top_level_protocol_version with
+      | Some v -> v
+      | None ->
         (match raw_supported_interfaces with
          | first :: _ -> first.protocol_version
          | [] -> "0.1")

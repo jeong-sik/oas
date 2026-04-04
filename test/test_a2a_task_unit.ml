@@ -149,15 +149,42 @@ let test_text_part_json () =
   | Error e -> Alcotest.fail e
 
 let test_file_part_json () =
-  let p = A2a_task.File_part { name = "test.txt"; mime_type = "text/plain"; data = "YWJj" } in
+  let p = A2a_task.File_part {
+    name = "test.txt";
+    mime_type = "text/plain";
+    data = "YWJj";
+    location = `Raw;
+  } in
   let json = A2a_task.message_part_to_yojson p in
   Alcotest.(check bool) "wire shape has raw" true
     (match Yojson.Safe.Util.member "raw" json with `String "YWJj" -> true | _ -> false);
   match A2a_task.message_part_of_yojson json with
-  | Ok (A2a_task.File_part { name; mime_type; data }) ->
+  | Ok (A2a_task.File_part { name; mime_type; data; location }) ->
     Alcotest.(check string) "name" "test.txt" name;
     Alcotest.(check string) "mime" "text/plain" mime_type;
-    Alcotest.(check string) "data" "YWJj" data
+    Alcotest.(check string) "data" "YWJj" data;
+    Alcotest.(check bool) "raw location" true (location = `Raw)
+  | Ok _ -> Alcotest.fail "wrong variant"
+  | Error e -> Alcotest.fail e
+
+let test_url_file_part_json () =
+  let p = A2a_task.File_part {
+    name = "remote.txt";
+    mime_type = "text/plain";
+    data = "https://example.com/remote.txt";
+    location = `Url;
+  } in
+  let json = A2a_task.message_part_to_yojson p in
+  Alcotest.(check bool) "wire shape has url" true
+    (match Yojson.Safe.Util.member "url" json with
+     | `String "https://example.com/remote.txt" -> true
+     | _ -> false);
+  match A2a_task.message_part_of_yojson json with
+  | Ok (A2a_task.File_part { name; mime_type; data; location }) ->
+    Alcotest.(check string) "name" "remote.txt" name;
+    Alcotest.(check string) "mime" "text/plain" mime_type;
+    Alcotest.(check string) "data" "https://example.com/remote.txt" data;
+    Alcotest.(check bool) "url location" true (location = `Url)
   | Ok _ -> Alcotest.fail "wrong variant"
   | Error e -> Alcotest.fail e
 
@@ -189,17 +216,18 @@ let test_legacy_file_part_json () =
     ]
   in
   match A2a_task.message_part_of_yojson legacy_json with
-  | Ok (A2a_task.File_part { name; mime_type; data }) ->
+  | Ok (A2a_task.File_part { name; mime_type; data; location }) ->
     Alcotest.(check string) "name" "legacy.txt" name;
     Alcotest.(check string) "mime" "text/plain" mime_type;
-    Alcotest.(check string) "data" "YWJj" data
+    Alcotest.(check string) "data" "YWJj" data;
+    Alcotest.(check bool) "legacy raw location" true (location = `Raw)
   | Ok _ -> Alcotest.fail "wrong variant"
   | Error e -> Alcotest.fail e
 
 let test_pp_message_part () =
   let cases : (A2a_task.message_part * string) list = [
     (A2a_task.Text_part "hi", "Text");
-    (A2a_task.File_part { name = "f"; mime_type = "m"; data = "d" }, "File");
+    (A2a_task.File_part { name = "f"; mime_type = "m"; data = "d"; location = `Raw }, "File");
     (A2a_task.Data_part `Null, "Data");
   ] in
   List.iter (fun (part, _expected_prefix) ->
@@ -564,6 +592,7 @@ let () =
     ("message_parts", [
       tc "text part" test_text_part_json;
       tc "file part" test_file_part_json;
+      tc "url file part" test_url_file_part_json;
       tc "data part" test_data_part_json;
       tc "unknown part" test_message_part_unknown;
       tc "legacy file part" test_legacy_file_part_json;
