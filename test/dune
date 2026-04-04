@@ -852,3 +852,7 @@
 (test
  (name test_policy_channel)
  (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_tool_selector)
+ (libraries agent_sdk alcotest yojson))

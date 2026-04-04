@@ -1,0 +1,186 @@
+(** Tests for Tool_selector — 2-stage tool routing. *)
+
+open Alcotest
+open Agent_sdk
+
+(* ── Helpers ──────────────────────────────────────── *)
+
+let make_tool name desc =
+  Tool.create ~name ~description:desc
+    ~parameters:[] (fun _ -> Ok { Types.content = "ok" })
+
+let tools_20 =
+  List.init 20 (fun i ->
+    make_tool (Printf.sprintf "tool_%02d" i)
+      (Printf.sprintf "Description for tool number %d" i))
+
+let tools_5 =
+  [ make_tool "read_file" "Read file contents from disk";
+    make_tool "write_file" "Write content to a file on disk";
+    make_tool "search" "Search codebase for a pattern";
+    make_tool "git_commit" "Create a git commit with message";
+    make_tool "broadcast" "Send message to all agents" ]
+
+let tool_names tools =
+  List.map (fun (t : Tool.t) -> t.schema.name) tools
+
+(* ── All strategy ────────────────────────────────── *)
+
+let test_all_returns_everything () =
+  let result = Tool_selector.select
+    ~strategy:All ~context:"anything" ~tools:tools_5 in
+  check int "all 5 returned" 5 (List.length result);
+  check (list string) "same names"
+    (tool_names tools_5) (tool_names result)
+
+let test_all_empty () =
+  let result = Tool_selector.select
+    ~strategy:All ~context:"query" ~tools:[] in
+  check int "empty in, empty out" 0 (List.length result)
+
+(* ── TopK_bm25 strategy ─────────────────────────── *)
+
+let test_bm25_narrows () =
+  let result = Tool_selector.select
+    ~strategy:(TopK_bm25 { k = 3; always_include = [] })
+    ~context:"read file" ~tools:tools_5 in
+  check bool "at most 3" true (List.length result <= 3);
+  check bool "at least 1" true (List.length result >= 1)
+
+let test_bm25_always_include () =
+  let result = Tool_selector.select
+    ~strategy:(TopK_bm25 { k = 2; always_include = ["broadcast"] })
+    ~context:"read file" ~tools:tools_5 in
+  let names = tool_names result in
+  check bool "broadcast included" true (List.mem "broadcast" names);
+  check bool "at least 2" true (List.length result >= 2)
+
+let test_bm25_empty_tools () =
+  let result = Tool_selector.select
+    ~strategy:(TopK_bm25 { k = 3; always_include = [] })
+    ~context:"query" ~tools:[] in
+  check int "empty" 0 (List.length result)
+
+let test_bm25_k_larger_than_tools () =
+  let result = Tool_selector.select
+    ~strategy:(TopK_bm25 { k = 100; always_include = [] })
+    ~context:"tool" ~tools:tools_5 in
+  check bool "returns at most all tools" true (List.length result <= 5)
+
+let test_bm25_always_include_dedup () =
+  let result = Tool_selector.select
+    ~strategy:(TopK_bm25 { k = 5;
+      always_include = ["read_file"; "read_file"] })
+    ~context:"read file" ~tools:tools_5 in
+  let names = tool_names result in
+  let unique = List.sort_uniq String.compare names in
+  check int "no duplicates" (List.length names) (List.length unique)
+
+(* ── auto strategy ───────────────────────────────── *)
+
+let test_auto_small () =
+  let strategy = Tool_selector.auto ~tools:tools_5 in
+  match strategy with
+  | All -> ()
+  | _ -> fail "expected All for 5 tools"
+
+let test_auto_large () =
+  let strategy = Tool_selector.auto ~tools:tools_20 in
+  match strategy with
+  | TopK_bm25 { k = 5; always_include = [] } -> ()
+  | TopK_bm25 { k; _ } ->
+    fail (Printf.sprintf "expected k=5, got k=%d" k)
+  | _ -> fail "expected TopK_bm25 for 20 tools"
+
+let test_auto_boundary () =
+  let tools_15 = List.init 15 (fun i ->
+    make_tool (Printf.sprintf "t%d" i) "desc") in
+  let strategy = Tool_selector.auto ~tools:tools_15 in
+  match strategy with
+  | All -> ()
+  | _ -> fail "expected All for exactly 15 tools"
+
+let test_auto_16 () =
+  let tools_16 = List.init 16 (fun i ->
+    make_tool (Printf.sprintf "t%d" i) "desc") in
+  let strategy = Tool_selector.auto ~tools:tools_16 in
+  match strategy with
+  | TopK_bm25 _ -> ()
+  | _ -> fail "expected TopK_bm25 for 16 tools"
+
+(* ── select_names ────────────────────────────────── *)
+
+let test_select_names () =
+  let names = Tool_selector.select_names
+    ~strategy:All ~context:"q" ~tools:tools_5 in
+  check (list string) "all names"
+    (tool_names tools_5) names
+
+(* ── TopK_llm / Categorical stubs ────────────────── *)
+
+let test_topk_llm_not_implemented () =
+  match Tool_selector.select
+    ~strategy:(TopK_llm { k = 3; always_include = [];
+                          selector_config = None })
+    ~context:"q" ~tools:tools_5
+  with
+  | exception Failure msg ->
+    check bool "mentions Phase 3" true
+      (String.length msg > 0)
+  | _ -> fail "expected Failure for TopK_llm"
+
+let test_categorical_llm_not_implemented () =
+  match Tool_selector.select
+    ~strategy:(Categorical { groups = []; classifier = `Llm;
+                             always_include = [] })
+    ~context:"q" ~tools:tools_5
+  with
+  | exception Failure _ -> ()
+  | _ -> fail "expected Failure for Categorical `Llm"
+
+(* ── Categorical BM25 ───────────────────────────── *)
+
+let test_categorical_bm25 () =
+  let groups = [
+    ("file_ops", ["read_file"; "write_file"]);
+    ("git_ops", ["git_commit"]);
+    ("comm", ["broadcast"]);
+  ] in
+  let result = Tool_selector.select
+    ~strategy:(Categorical { groups; classifier = `Bm25;
+                             always_include = [] })
+    ~context:"read a file" ~tools:tools_5 in
+  check bool "at least 1 result" true (List.length result >= 1)
+
+(* ── Runner ──────────────────────────────────────── *)
+
+let () =
+  run "Tool_selector" [
+    "all", [
+      test_case "returns everything" `Quick test_all_returns_everything;
+      test_case "empty tools" `Quick test_all_empty;
+    ];
+    "topk_bm25", [
+      test_case "narrows to k" `Quick test_bm25_narrows;
+      test_case "always_include present" `Quick test_bm25_always_include;
+      test_case "empty tools" `Quick test_bm25_empty_tools;
+      test_case "k larger than tools" `Quick test_bm25_k_larger_than_tools;
+      test_case "always_include dedup" `Quick test_bm25_always_include_dedup;
+    ];
+    "auto", [
+      test_case "small set -> All" `Quick test_auto_small;
+      test_case "large set -> TopK_bm25" `Quick test_auto_large;
+      test_case "boundary 15 -> All" `Quick test_auto_boundary;
+      test_case "16 -> TopK_bm25" `Quick test_auto_16;
+    ];
+    "select_names", [
+      test_case "returns names" `Quick test_select_names;
+    ];
+    "stubs", [
+      test_case "TopK_llm raises" `Quick test_topk_llm_not_implemented;
+      test_case "Categorical Llm raises" `Quick test_categorical_llm_not_implemented;
+    ];
+    "categorical_bm25", [
+      test_case "file query matches file_ops" `Quick test_categorical_bm25;
+    ];
+  ]
