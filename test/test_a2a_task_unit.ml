@@ -24,7 +24,20 @@ let test_state_to_string () =
   ) cases
 
 let test_state_of_string_valid () =
-  let cases = ["submitted"; "working"; "input-required"; "completed"; "failed"; "canceled"] in
+  let cases = [
+    "submitted";
+    "working";
+    "input-required";
+    "completed";
+    "failed";
+    "canceled";
+    "TASK_STATE_SUBMITTED";
+    "TASK_STATE_WORKING";
+    "TASK_STATE_INPUT_REQUIRED";
+    "TASK_STATE_COMPLETED";
+    "TASK_STATE_FAILED";
+    "TASK_STATE_CANCELED";
+  ] in
   List.iter (fun s ->
     match A2a_task.task_state_of_string s with
     | Ok _ -> ()
@@ -121,6 +134,8 @@ let test_transition_error_to_string () =
 let test_text_part_json () =
   let p = A2a_task.Text_part "hello" in
   let json = A2a_task.message_part_to_yojson p in
+  Alcotest.(check bool) "wire shape has text" true
+    (match json with `Assoc [("text", `String "hello")] -> true | _ -> false);
   match A2a_task.message_part_of_yojson json with
   | Ok (A2a_task.Text_part s) -> Alcotest.(check string) "text" "hello" s
   | Ok _ -> Alcotest.fail "wrong variant"
@@ -129,6 +144,8 @@ let test_text_part_json () =
 let test_file_part_json () =
   let p = A2a_task.File_part { name = "test.txt"; mime_type = "text/plain"; data = "YWJj" } in
   let json = A2a_task.message_part_to_yojson p in
+  Alcotest.(check bool) "wire shape has raw" true
+    (match Yojson.Safe.Util.member "raw" json with `String "YWJj" -> true | _ -> false);
   match A2a_task.message_part_of_yojson json with
   | Ok (A2a_task.File_part { name; mime_type; data }) ->
     Alcotest.(check string) "name" "test.txt" name;
@@ -172,7 +189,7 @@ let test_task_role_user_via_message () =
   } in
   let json = A2a_task.task_message_to_yojson msg in
   let role_s = Yojson.Safe.Util.(json |> member "role" |> to_string) in
-  Alcotest.(check string) "user role" "user" role_s
+  Alcotest.(check string) "user role" "ROLE_USER" role_s
 
 let test_task_role_agent_via_message () =
   let msg : A2a_task.task_message = {
@@ -180,7 +197,7 @@ let test_task_role_agent_via_message () =
   } in
   let json = A2a_task.task_message_to_yojson msg in
   let role_s = Yojson.Safe.Util.(json |> member "role" |> to_string) in
-  Alcotest.(check string) "agent role" "agent" role_s
+  Alcotest.(check string) "agent role" "ROLE_AGENT" role_s
 
 let test_task_role_unknown_via_deser () =
   let json = `Assoc [
@@ -222,7 +239,7 @@ let test_task_message_agent_role () =
     (* Verify agent role by re-serializing and checking JSON *)
     let json2 = A2a_task.task_message_to_yojson msg2 in
     let role_s = Yojson.Safe.Util.(json2 |> member "role" |> to_string) in
-    Alcotest.(check string) "agent role" "agent" role_s
+    Alcotest.(check string) "agent role" "ROLE_AGENT" role_s
 
 let test_task_message_bad_role () =
   let json = `Assoc [

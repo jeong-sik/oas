@@ -11,9 +11,16 @@ open Alcotest
 let test_card : Agent_card.agent_card = {
   name = "test-remote";
   description = Some "Test agent";
+  protocol_version = "1.0";
   version = "1.0";
   url = Some "http://localhost:9999";
   authentication = None;
+  supported_interfaces = [{
+    url = "http://localhost:9999";
+    protocol_binding = "JSONRPC";
+    protocol_version = "1.0";
+    tenant = None;
+  }];
   capabilities = [];
   tools = [];
   skills = [];

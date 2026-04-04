@@ -29,12 +29,21 @@ type authentication = {
   credentials: string option;
 }
 
+type supported_interface = {
+  url: string;
+  protocol_binding: string;
+  protocol_version: string;
+  tenant: string option;
+}
+
 type agent_card = {
   name: string;
   description: string option;
+  protocol_version: string;
   version: string;
   url: string option;
   authentication: authentication option;
+  supported_interfaces: supported_interface list;
   capabilities: capability list;
   tools: Types.tool_schema list;
   skills: Skill.t list;

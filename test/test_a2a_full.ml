@@ -25,9 +25,16 @@ let mk_message text =
 let mk_agent_card () =
   { Agent_card.name = "test-agent";
     description = Some "test";
+    protocol_version = "1.0";
     version = "1.0";
     url = Some "http://localhost:8080";
     authentication = None;
+    supported_interfaces = [{
+      url = "http://localhost:8080";
+      protocol_binding = "JSONRPC";
+      protocol_version = "1.0";
+      tenant = None;
+    }];
     capabilities = [];
     tools = [];
     skills = [];
@@ -85,7 +92,7 @@ let test_tasks_cancel_success () =
   Alcotest.(check int) "status" 200 code;
   let json = Yojson.Safe.from_string cancel_resp in
   let result = Yojson.Safe.Util.(json |> member "result") in
-  Alcotest.(check string) "state" "canceled"
+  Alcotest.(check string) "state" "TASK_STATE_CANCELED"
     Yojson.Safe.Util.(result |> member "state" |> to_string);
   Alcotest.(check bool) "callback called" true
     (List.mem task_id !canceled_ids)
