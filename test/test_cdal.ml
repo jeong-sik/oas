@@ -165,7 +165,7 @@ let test_cdal_proof_roundtrip () =
     tool_trace_refs = ["proof-store://test-run-001/tool_traces/trace-0001.jsonl"];
     raw_evidence_refs = [];
     checkpoint_ref = None;
-    result_status = Cdal_proof.Completed;
+    result_status = Cdal_proof.Context_overflow;
     started_at = 1000.0;
     ended_at = 1005.0;
     scope = None;
@@ -175,7 +175,42 @@ let test_cdal_proof_roundtrip () =
   | Ok decoded ->
     Alcotest.(check string) "run_id" proof.run_id decoded.run_id;
     Alcotest.(check string) "contract_id" proof.contract_id decoded.contract_id;
-    Alcotest.(check int) "schema_version" 1 decoded.schema_version
+    Alcotest.(check int) "schema_version" 1 decoded.schema_version;
+    Alcotest.(check string) "result_status" "\"context_overflow\""
+      (Yojson.Safe.to_string
+         (Cdal_proof.result_status_to_yojson decoded.result_status))
+  | Error e -> Alcotest.fail (Printf.sprintf "decode failed: %s" e)
+
+let test_cdal_proof_roundtrip_completed () =
+  let proof : Cdal_proof.t = {
+    schema_version = 1;
+    run_id = "test-run-completed";
+    contract_id = "md5:def456";
+    requested_execution_mode = Execution_mode.Draft;
+    effective_execution_mode = Execution_mode.Diagnose;
+    mode_decision_source = "risk_class_downgrade";
+    risk_class = Risk_class.High;
+    provider_snapshot = {
+      provider_name = "anthropic";
+      model_id = "claude-sonnet";
+      api_version = Some "2025-01-01";
+    };
+    capability_snapshot = test_caps;
+    tool_trace_refs = [];
+    raw_evidence_refs = [];
+    checkpoint_ref = None;
+    result_status = Cdal_proof.Completed;
+    started_at = 2000.0;
+    ended_at = 2001.0;
+    scope = None;
+  } in
+  let json = Cdal_proof.to_json proof in
+  match Cdal_proof.of_json json with
+  | Ok decoded ->
+      Alcotest.(check string) "run_id" proof.run_id decoded.run_id;
+      Alcotest.(check string) "result_status" "\"completed\""
+        (Yojson.Safe.to_string
+           (Cdal_proof.result_status_to_yojson decoded.result_status))
   | Error e -> Alcotest.fail (Printf.sprintf "decode failed: %s" e)
 
 (* ================================================================ *)
@@ -424,7 +459,9 @@ let test_result_status_json_lowercase () =
   assert_json_string "timed_out" "timed_out"
     (Cdal_proof.result_status_to_yojson Timed_out);
   assert_json_string "cancelled" "cancelled"
-    (Cdal_proof.result_status_to_yojson Cancelled)
+    (Cdal_proof.result_status_to_yojson Cancelled);
+  assert_json_string "context_overflow" "context_overflow"
+    (Cdal_proof.result_status_to_yojson Context_overflow)
 
 let test_proof_json_enum_fields () =
   let proof : Cdal_proof.t = {
@@ -1054,6 +1091,8 @@ let () =
     ];
     "Cdal_proof", [
       Alcotest.test_case "JSON round-trip" `Quick test_cdal_proof_roundtrip;
+      Alcotest.test_case "JSON round-trip completed" `Quick
+        test_cdal_proof_roundtrip_completed;
     ];
     "Hooks.compose", [
       Alcotest.test_case "outer skip bypasses inner" `Quick test_hooks_compose_outer_skip;

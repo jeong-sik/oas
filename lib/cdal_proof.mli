@@ -13,10 +13,11 @@
     @since 0.93.1 *)
 
 type result_status =
-  | Completed   (** Agent reached EndTurn *)
-  | Errored     (** Hook crash, verifier crash, unexpected runtime failure *)
-  | Timed_out   (** max_turns exceeded or wall-clock timeout *)
-  | Cancelled   (** Hook/policy gate intentionally blocked continuation *)
+  | Completed        (** Agent reached EndTurn *)
+  | Errored          (** Hook crash, verifier crash, unexpected runtime failure *)
+  | Timed_out        (** max_turns exceeded or wall-clock timeout *)
+  | Cancelled        (** Hook/policy gate intentionally blocked continuation *)
+  | Context_overflow (** Provider rejected request due to context window exhaustion *)
 [@@deriving yojson, show]
 
 type provider_snapshot = {

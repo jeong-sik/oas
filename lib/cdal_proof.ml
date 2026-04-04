@@ -3,6 +3,7 @@ type result_status =
   | Errored
   | Timed_out
   | Cancelled
+  | Context_overflow
 [@@deriving show]
 
 let result_status_to_string = function
@@ -10,12 +11,14 @@ let result_status_to_string = function
   | Errored -> "errored"
   | Timed_out -> "timed_out"
   | Cancelled -> "cancelled"
+  | Context_overflow -> "context_overflow"
 
 let result_status_of_string = function
   | "completed" -> Ok Completed
   | "errored" -> Ok Errored
   | "timed_out" -> Ok Timed_out
   | "cancelled" -> Ok Cancelled
+  | "context_overflow" -> Ok Context_overflow
   | s -> Error (Printf.sprintf "unknown result status: %s" s)
 
 let result_status_to_yojson v = `String (result_status_to_string v)
