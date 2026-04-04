@@ -141,6 +141,62 @@ type context_injector =
 val empty : hooks
 val invoke : hook option -> hook_event -> hook_decision
 
+(** {2 Decision validity matrix}
+
+    Each hook stage accepts only a subset of decisions.
+    Returning an unlisted decision is a programming error.
+
+    {v
+    Stage                | Continue | Skip | Override | ApprovalRequired | AdjustParams | ElicitInput
+    ---------------------+----------+------+----------+------------------+--------------+------------
+    before_turn          |    Y     |      |          |                  |              |      Y
+    before_turn_params   |    Y     |      |          |                  |      Y       |
+    after_turn           |    Y     |      |          |                  |              |
+    pre_tool_use         |    Y     |  Y   |    Y     |        Y         |              |
+    post_tool_use        |    Y     |      |          |                  |              |
+    post_tool_use_failure|    Y     |      |          |                  |              |
+    on_stop              |    Y     |      |          |                  |              |
+    on_idle              |    Y     |      |          |                  |              |
+    on_error             |    Y     |      |          |                  |              |
+    on_tool_error        |    Y     |      |          |                  |              |
+    pre_compact          |    Y     |  Y   |          |                  |              |
+    v}
+
+    Fail-closed: unknown stages reject all decisions. *)
+
+(** Classification tag for hook_decision, without payload. *)
+type hook_decision_kind =
+  | K_Continue
+  | K_Skip
+  | K_Override
+  | K_ApprovalRequired
+  | K_AdjustParams
+  | K_ElicitInput
+
+(** Extract the kind tag from a decision value. *)
+val classify_decision : hook_decision -> hook_decision_kind
+
+(** Human-readable name for a decision kind. *)
+val decision_kind_to_string : hook_decision_kind -> string
+
+(** Extract the stage name from a hook_event. *)
+val stage_of_event : hook_event -> string
+
+(** Return the list of legal decision kinds for the named stage.
+    Returns empty list for unknown stages (fail-closed). *)
+val legal_decisions_for_stage : string -> hook_decision_kind list
+
+(** Validate a decision against the matrix for the given stage.
+    Returns [Ok decision] when legal, [Error msg] otherwise. *)
+val validate_decision : stage:string -> hook_decision -> (hook_decision, string) result
+
+(** Like [invoke], but validates the decision against the matrix.
+    Illegal decisions fall back to [Continue]; [on_illegal] is called
+    with diagnostics when a violation is detected. *)
+val invoke_validated :
+  ?on_illegal:(stage:string -> decision:hook_decision -> msg:string -> unit) ->
+  hook option -> hook_event -> hook_decision
+
 (** Compose two hook sets. [outer] fires first for each slot.
     If [outer] returns a non-Continue decision, [inner] is bypassed.
     If [outer] returns [Continue], [inner] fires and its decision is used. *)

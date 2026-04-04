@@ -206,11 +206,119 @@ type context_injector =
   tool_name:string -> input:Yojson.Safe.t -> output:Types.tool_result ->
   injection option
 
+(** Classification of hook_decision variants for the decision matrix.
+    Using a separate type avoids comparing functional values
+    (AdjustParams, ElicitInput carry payloads). *)
+type hook_decision_kind =
+  | K_Continue
+  | K_Skip
+  | K_Override
+  | K_ApprovalRequired
+  | K_AdjustParams
+  | K_ElicitInput
+
+let classify_decision = function
+  | Continue -> K_Continue
+  | Skip -> K_Skip
+  | Override _ -> K_Override
+  | ApprovalRequired -> K_ApprovalRequired
+  | AdjustParams _ -> K_AdjustParams
+  | ElicitInput _ -> K_ElicitInput
+
+let decision_kind_to_string = function
+  | K_Continue -> "Continue"
+  | K_Skip -> "Skip"
+  | K_Override -> "Override"
+  | K_ApprovalRequired -> "ApprovalRequired"
+  | K_AdjustParams -> "AdjustParams"
+  | K_ElicitInput -> "ElicitInput"
+
+(** Extract a stage name string from a hook_event. *)
+let stage_of_event = function
+  | BeforeTurn _ -> "before_turn"
+  | BeforeTurnParams _ -> "before_turn_params"
+  | AfterTurn _ -> "after_turn"
+  | PreToolUse _ -> "pre_tool_use"
+  | PostToolUse _ -> "post_tool_use"
+  | PostToolUseFailure _ -> "post_tool_use_failure"
+  | OnStop _ -> "on_stop"
+  | OnIdle _ -> "on_idle"
+  | OnError _ -> "on_error"
+  | OnToolError _ -> "on_tool_error"
+  | PreCompact _ -> "pre_compact"
+
+(** Legal decision matrix.
+
+    {v
+    Stage                | Continue | Skip | Override | ApprovalRequired | AdjustParams | ElicitInput
+    ---------------------+----------+------+----------+------------------+--------------+------------
+    before_turn          |    Y     |      |          |                  |              |      Y
+    before_turn_params   |    Y     |      |          |                  |      Y       |
+    after_turn           |    Y     |      |          |                  |              |
+    pre_tool_use         |    Y     |  Y   |    Y     |        Y         |              |
+    post_tool_use        |    Y     |      |          |                  |              |
+    post_tool_use_failure|    Y     |      |          |                  |              |
+    on_stop              |    Y     |      |          |                  |              |
+    on_idle              |    Y     |      |          |                  |              |
+    on_error             |    Y     |      |          |                  |              |
+    on_tool_error        |    Y     |      |          |                  |              |
+    pre_compact          |    Y     |  Y   |          |                  |              |
+    v}
+
+    Fail-closed: any decision not explicitly listed is rejected. *)
+let legal_decisions_for_stage stage =
+  match stage with
+  | "before_turn"           -> [K_Continue; K_ElicitInput]
+  | "before_turn_params"    -> [K_Continue; K_AdjustParams]
+  | "after_turn"            -> [K_Continue]
+  | "pre_tool_use"          -> [K_Continue; K_Skip; K_Override; K_ApprovalRequired]
+  | "post_tool_use"         -> [K_Continue]
+  | "post_tool_use_failure" -> [K_Continue]
+  | "on_stop"               -> [K_Continue]
+  | "on_idle"               -> [K_Continue]
+  | "on_error"              -> [K_Continue]
+  | "on_tool_error"         -> [K_Continue]
+  | "pre_compact"           -> [K_Continue; K_Skip]
+  | _                       -> []   (* unknown stage: nothing is legal *)
+
+(** Validate that a hook_decision is legal for a given stage.
+    Fail-closed: unknown stages and unlisted decisions return Error. *)
+let validate_decision ~stage decision =
+  let kind = classify_decision decision in
+  let legal = legal_decisions_for_stage stage in
+  if List.mem kind legal then
+    Ok decision
+  else
+    let msg = Printf.sprintf
+      "illegal hook decision %s at stage %s; legal: [%s]"
+      (decision_kind_to_string kind)
+      stage
+      (String.concat ", " (List.map decision_kind_to_string legal))
+    in
+    Error msg
+
 (** Invoke a hook if present, returning Continue if absent *)
 let invoke hook_opt event =
   match hook_opt with
   | None -> Continue
   | Some f -> f event
+
+(** Invoke a hook with decision validation.
+    If the hook returns an illegal decision for the stage,
+    falls back to [Continue] and calls [on_illegal] (if provided). *)
+let invoke_validated ?on_illegal hook_opt event =
+  match hook_opt with
+  | None -> Continue
+  | Some f ->
+    let decision = f event in
+    let stage = stage_of_event event in
+    match validate_decision ~stage decision with
+    | Ok d -> d
+    | Error msg ->
+      (match on_illegal with
+       | Some cb -> cb ~stage ~decision ~msg
+       | None -> ());
+      Continue
 
 (** Compose a single hook slot. [outer] fires first.
     If outer returns a non-Continue decision, inner is bypassed. *)
