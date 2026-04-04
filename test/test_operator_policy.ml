@@ -71,6 +71,7 @@ let test_operator_restricts_allow_all () =
     ~policy_channel:None
     ~tools
     ~turn_params:Hooks.default_turn_params
+    ()
   in
   let count = match tools_json with Some l -> List.length l | None -> 0 in
   check int "only 1 tool visible" 1 count
@@ -84,6 +85,7 @@ let test_operator_denylist_on_allowall () =
     ~policy_channel:None
     ~tools
     ~turn_params:Hooks.default_turn_params
+    ()
   in
   let count = match tools_json with Some l -> List.length l | None -> 0 in
   check int "2 tools visible" 2 count
@@ -99,6 +101,7 @@ let test_no_operator_is_noop () =
     ~policy_channel:None
     ~tools
     ~turn_params:Hooks.default_turn_params
+    ()
   in
   let count = match tools_json with Some l -> List.length l | None -> 0 in
   check int "agent filter applies" 1 count
@@ -115,6 +118,7 @@ let test_turn_override_intersects_operator () =
     ~policy_channel:None
     ~tools
     ~turn_params
+    ()
   in
   let count = match tools_json with Some l -> List.length l | None -> 0 in
   check int "intersect yields 1" 1 count
@@ -131,6 +135,7 @@ let test_turn_override_cannot_widen_operator () =
     ~policy_channel:None
     ~tools
     ~turn_params
+    ()
   in
   let count = match tools_json with Some l -> List.length l | None -> 0 in
   check int "no tools visible" 0 count
@@ -146,6 +151,7 @@ let test_full_prepare_turn_with_operator () =
     ~messages:[]
     ~context_reducer:None
     ~turn_params:Hooks.default_turn_params
+    ()
   in
   let count = match prep.tools_json with Some l -> List.length l | None -> 0 in
   check int "y denied" 2 count

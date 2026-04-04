@@ -13,6 +13,7 @@ let test_prepare_turn_empty_tools () =
     ~messages:[]
     ~context_reducer:None
     ~turn_params:Hooks.default_turn_params
+    ()
   in
   Alcotest.(check (option (list reject))) "no tools" None prep.tools_json
 
@@ -32,6 +33,7 @@ let test_prepare_turn_with_tools () =
     ~messages:[]
     ~context_reducer:None
     ~turn_params:Hooks.default_turn_params
+    ()
   in
   Alcotest.(check bool) "tools present" true
     (match prep.tools_json with Some (_::_) -> true | _ -> false)
@@ -51,6 +53,7 @@ let test_prepare_turn_with_guardrails_filter () =
     ~messages:[]
     ~context_reducer:None
     ~turn_params:Hooks.default_turn_params
+    ()
   in
   let count = match prep.tools_json with Some l -> List.length l | None -> 0 in
   Alcotest.(check int) "only tool a" 1 count
@@ -334,6 +337,7 @@ let test_prepare_turn_filter_override () =
     ~messages:[]
     ~context_reducer:None
     ~turn_params
+    ()
   in
   let count = match prep.tools_json with Some l -> List.length l | None -> 0 in
   Alcotest.(check int) "override filters b" 1 count

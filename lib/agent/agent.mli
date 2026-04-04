@@ -40,6 +40,7 @@ type options = Agent_types.options = {
   allowed_paths: string list;
   operator_policy: Guardrails.tool_filter option;
   policy_channel: Policy_channel.t option;
+  tool_selector: Tool_selector.strategy option;
 }
 
 type lifecycle_status = Agent_lifecycle.lifecycle_status =

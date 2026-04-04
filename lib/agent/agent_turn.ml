@@ -39,7 +39,26 @@ type turn_preparation = {
   effective_guardrails: Guardrails.t;
 }
 
-let prepare_tools ~guardrails ~operator_policy ~policy_channel ~(tools : Tool_set.t) ~turn_params =
+(* ── Extract last user text from messages (for Tool_selector context) ── *)
+
+let extract_last_user_text (messages : message list) : string =
+  let rec find_last = function
+    | [] -> ""
+    | msg :: rest ->
+      if msg.role = User then
+        let texts = List.filter_map (function
+          | Text s -> Some s
+          | _ -> None
+        ) msg.content in
+        match texts with
+        | [] -> find_last rest
+        | _ -> String.concat " " texts
+      else find_last rest
+  in
+  find_last (List.rev messages)
+
+let prepare_tools ~guardrails ~operator_policy ~policy_channel ~(tools : Tool_set.t) ~turn_params
+    ?tool_selector ?messages () =
   (* Precedence: policy_channel > operator > hook > agent.
      Policy channel accumulates Tool_op.t pushed by a parent agent.
      Operator policy is the hard ceiling after channel resolution.
@@ -79,7 +98,17 @@ let prepare_tools ~guardrails ~operator_policy ~policy_channel ~(tools : Tool_se
        [S ("source", Guardrails.show_policy_source source)]
    | Guardrails.Agent -> ());
   let visible = Tool_set.filter effective_guardrails tools in
-  let tool_schemas = List.map Tool.schema_to_json (Tool_set.to_list visible) in
+  (* Apply tool selector to narrow visible tools *)
+  let selected = match tool_selector with
+    | None -> Tool_set.to_list visible
+    | Some strategy ->
+      let context = match messages with
+        | Some msgs -> extract_last_user_text msgs
+        | None -> ""
+      in
+      Tool_selector.select ~strategy ~context ~tools:(Tool_set.to_list visible)
+  in
+  let tool_schemas = List.map Tool.schema_to_json selected in
   let tools_json = if tool_schemas = [] then None else Some tool_schemas in
   (tools_json, effective_guardrails)
 
@@ -94,9 +123,11 @@ let prepare_messages ~messages ~context_reducer ~turn_params =
     let system_msg = { role = User; content = [Text ("[system context] " ^ ctx)]; name = None; tool_call_id = None } in
     system_msg :: effective
 
-let prepare_turn ~guardrails ~operator_policy ~policy_channel ~tools ~messages ~context_reducer ~turn_params =
+let prepare_turn ~guardrails ~operator_policy ~policy_channel ~tools ~messages ~context_reducer ~turn_params
+    ?tool_selector () =
   let tools_json, effective_guardrails =
     prepare_tools ~guardrails ~operator_policy ~policy_channel ~tools ~turn_params
+      ?tool_selector ~messages ()
   in
   let effective_messages =
     prepare_messages ~messages ~context_reducer ~turn_params

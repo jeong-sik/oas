@@ -134,6 +134,8 @@ let stage_parse ?raw_trace_run agent =
     ~tools:agent.tools
     ~messages:agent.state.messages
     ~context_reducer:agent.options.context_reducer ~turn_params
+    ?tool_selector:agent.options.tool_selector
+    ()
   in
   (prep, original_config)
 

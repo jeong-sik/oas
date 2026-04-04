@@ -150,6 +150,17 @@ val with_skill_registry : Skill_registry.t -> t -> t
     @since 0.81.0 *)
 val with_progressive_tools : Progressive_tools.disclosure_strategy -> t -> t
 
+(** Set tool selection strategy for large tool catalogs.
+    When tool count > 15, selector narrows candidates per turn
+    before sending schemas to the LLM.
+
+    Can be combined with [with_progressive_tools]: progressive disclosure
+    determines the available pool, then selector narrows further
+    within that pool.
+
+    @since 0.100.0 *)
+val with_tool_selector : Tool_selector.strategy -> t -> t
+
 (** {2 Build} *)
 
 (** Build the agent. May raise on invalid config.
