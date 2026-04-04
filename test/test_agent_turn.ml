@@ -527,6 +527,38 @@ let test_apply_context_injection_exception_handled () =
   in
   Alcotest.(check int) "unchanged on error" 1 (List.length new_msgs)
 
+let test_apply_context_injection_preserves_non_retryable_error () =
+  let context = Context.create () in
+  let messages =
+    [{ Types.role = Types.User; content = [Types.Text "hi"]; name = None; tool_call_id = None }]
+  in
+  let tool_uses = [make_tool_use "search" {|{"q":"test"}|}] in
+  let received_output = ref None in
+  let results =
+    [
+      {
+        Agent_tools.tool_use_id = "t1";
+        tool_name = "search";
+        content = "fatal";
+        is_error = true;
+        failure_kind = Some Agent_tools.Non_retryable_tool_error;
+      };
+    ]
+  in
+  let injector ~tool_name:_ ~input:_ ~output =
+    received_output := Some output;
+    None
+  in
+  let _new_msgs = Agent_turn.apply_context_injection
+    ~context ~messages ~injector ~tool_uses ~results
+  in
+  match !received_output with
+  | Some (Error { message; recoverable }) ->
+      Alcotest.(check string) "message" "fatal" message;
+      Alcotest.(check bool) "recoverable false" false recoverable
+  | Some (Ok _) -> Alcotest.fail "expected Error output"
+  | None -> Alcotest.fail "injector not called"
+
 (* ── resolve_turn_params ──────────────────────────────────── *)
 
 let test_resolve_turn_params_no_hook () =
@@ -601,6 +633,8 @@ let () =
       Alcotest.test_case "context update" `Quick test_apply_context_injection_with_context_update;
       Alcotest.test_case "extra messages" `Quick test_apply_context_injection_with_extra_messages;
       Alcotest.test_case "exception handled" `Quick test_apply_context_injection_exception_handled;
+      Alcotest.test_case "preserves non-retryable error" `Quick
+        test_apply_context_injection_preserves_non_retryable_error;
     ];
     "resolve_turn_params", [
       Alcotest.test_case "no hook" `Quick test_resolve_turn_params_no_hook;

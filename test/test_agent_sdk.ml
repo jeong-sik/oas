@@ -145,6 +145,34 @@ let test_create_agent_with_cache () =
   let config = (Agent.state agent).config in
   Alcotest.(check bool) "cache enabled" true config.cache_system_prompt
 
+let test_tool_retry_policy_clamps_negative_max_retries () =
+  let policy = {
+    Tool_retry_policy.default_internal with
+    max_retries = -3;
+  } in
+  let failures = [
+    {
+      Tool_retry_policy.tool_name = "tool";
+      detail = "bad output";
+      kind = Tool_retry_policy.Recoverable_tool_error;
+    };
+  ] in
+  match Tool_retry_policy.decide ~policy ~prior_retries:0 failures with
+  | Tool_retry_policy.Exhausted { attempts; limit; summary } ->
+      Alcotest.(check int) "attempts" 0 attempts;
+      Alcotest.(check int) "clamped limit" 0 limit;
+      Alcotest.(check bool) "summary mentions tool" true
+        (String.length summary > 0)
+  | _ -> Alcotest.fail "expected immediate exhaustion with clamped limit"
+
+let test_tool_retry_policy_feedback_uses_retry_counts () =
+  let text =
+    Tool_retry_policy.retry_feedback_text ~retry_count:1 ~max_retries:2
+      ~summary:"- tool: bad output"
+  in
+  Alcotest.(check bool) "uses retry label" true
+    (Util.string_contains ~needle:"retry 1/2" text)
+
 let () =
   run "Agent SDK" [
     "types", [
@@ -175,5 +203,11 @@ let () =
       test_case "with raw_trace" `Quick test_create_agent_with_raw_trace;
       test_case "with provider+trace" `Quick test_create_agent_with_provider_and_trace;
       test_case "with cache" `Quick test_create_agent_with_cache;
+    ];
+    "tool_retry_policy", [
+      test_case "clamps negative max_retries" `Quick
+        test_tool_retry_policy_clamps_negative_max_retries;
+      test_case "feedback uses retry counts" `Quick
+        test_tool_retry_policy_feedback_uses_retry_counts;
     ];
   ]

@@ -199,6 +199,34 @@ let test_turn_started_fields () =
     check int "turn" 5 r.turn
   | _ -> fail "expected TurnStarted"
 
+let test_tool_completed_preserves_non_retryable_flag () =
+  Eio_main.run @@ fun _env ->
+  let context = Context.create () in
+  let bus = Event_bus.create () in
+  let sub = Event_bus.subscribe ~filter:Event_bus.filter_tools_only bus in
+  let tool =
+    Tool.create ~name:"fail" ~description:"Always fails" ~parameters:[]
+      (fun _ -> Error { Types.message = "boom"; recoverable = false })
+  in
+  let schedule : Hooks.tool_schedule =
+    {
+      planned_index = 0;
+      batch_index = 0;
+      batch_size = 1;
+      concurrency_class = "sequential_workspace";
+    }
+  in
+  let _result =
+    Agent_tools.find_and_execute_tool ~context ~tools:[tool] ~hooks:Hooks.empty
+      ~event_bus:(Some bus) ~tracer:Tracing.null ~agent_name:"agent"
+      ~turn_count:0 ~schedule "fail" (`Assoc []) "tool-1"
+  in
+  match Event_bus.drain sub with
+  | [ToolCalled _; ToolCompleted { output = Error { message; recoverable }; _ }] ->
+      check string "message" "boom" message;
+      check bool "non-retryable preserved" false recoverable
+  | _ -> fail "expected tool called/completed events"
+
 (* ── Suite ────────────────────────────────────────────────────────── *)
 
 let () =
@@ -234,5 +262,7 @@ let () =
       test_case "agent_started" `Quick test_agent_started_fields;
       test_case "tool_called" `Quick test_tool_called_fields;
       test_case "turn_started" `Quick test_turn_started_fields;
+      test_case "tool_completed preserves non-retryable flag" `Quick
+        test_tool_completed_preserves_non_retryable_flag;
     ];
   ]

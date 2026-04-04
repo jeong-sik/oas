@@ -163,6 +163,11 @@ let filter_valid_messages ~messages extra_messages =
     in
     filter_valid last_role extra_messages
 
+let recoverable_of_failure_kind = function
+  | Some Agent_tools.Validation_error | Some Agent_tools.Recoverable_tool_error ->
+      true
+  | Some Agent_tools.Non_retryable_tool_error | None -> false
+
 let apply_context_injection ~context ~messages ~injector ~tool_uses ~results =
   let current_messages = ref messages in
   List.iter2 (fun block (result : Agent_tools.tool_execution_result) ->
@@ -170,7 +175,11 @@ let apply_context_injection ~context ~messages ~injector ~tool_uses ~results =
     | ToolUse { name; input; _ } ->
       let output : tool_result =
         if result.is_error then
-          Error { message = result.content; recoverable = true }
+          Error
+            {
+              message = result.content;
+              recoverable = recoverable_of_failure_kind result.failure_kind;
+            }
         else Ok { content = result.content }
       in
       (try

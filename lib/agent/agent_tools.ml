@@ -58,6 +58,10 @@ let concurrency_class_of_tool tool =
 let find_tool_by_name tools name =
   List.find_opt (fun (tool : Tool.t) -> tool.schema.name = name) tools
 
+let recoverable_of_failure_kind = function
+  | Some Validation_error | Some Recoverable_tool_error -> true
+  | Some Non_retryable_tool_error | None -> false
+
 let schedule_tool_use ~tools index (id, name, input) =
   let concurrency_class =
     match find_tool_by_name tools name with
@@ -222,7 +226,12 @@ let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tra
      let output_content = result.content in
      let is_error = result.is_error in
      let output : Types.tool_result =
-       if is_error then Error { message = output_content; recoverable = true }
+       if is_error then
+         Error
+           {
+             message = output_content;
+             recoverable = recoverable_of_failure_kind result.failure_kind;
+           }
        else Ok { content = output_content }
      in
      Event_bus.publish bus

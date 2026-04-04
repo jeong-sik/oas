@@ -76,7 +76,10 @@ let summary_of_failures failures =
   |> dedup_preserve_order
   |> String.concat "\n"
 
+let normalized_max_retries max_retries = max 0 max_retries
+
 let decide ~policy ~prior_retries failures =
+  let max_retries = normalized_max_retries policy.max_retries in
   let retryable =
     failures
     |> List.filter (fun failure -> failure_enabled policy failure.kind)
@@ -86,18 +89,19 @@ let decide ~policy ~prior_retries failures =
   | _ ->
       let retry_count = prior_retries + 1 in
       let summary = summary_of_failures retryable in
-      if retry_count > policy.max_retries then
+      if retry_count > max_retries then
         Exhausted {
           attempts = prior_retries;
-          limit = policy.max_retries;
+          limit = max_retries;
           summary;
         }
       else Retry { retry_count; summary }
 
 let retry_feedback_text ~retry_count ~max_retries ~summary =
+  let retry_limit = max retry_count (normalized_max_retries max_retries) in
   Printf.sprintf
-    "Retryable tool error (attempt %d/%d): %s\nPlease fix the output and try again."
-    retry_count (max_retries + 1) summary
+    "Retryable tool error (retry %d/%d): %s\nPlease fix the output and try again."
+    retry_count retry_limit summary
 
 let structured_feedback_block ~tool_use_id ~retry_count ~max_retries ~summary =
   ToolResult {
