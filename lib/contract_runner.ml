@@ -15,10 +15,36 @@ let extract_capability_snapshot (agent : Agent.t) : Cdal_proof.capability_snapsh
     thinking_enabled = config.enable_thinking;
   }
 
+let contains_substring ~needle haystack =
+  let nlen = String.length needle in
+  let hlen = String.length haystack in
+  if nlen > hlen then false
+  else
+    let found = ref false in
+    let i = ref 0 in
+    while !i <= hlen - nlen && not !found do
+      if String.sub haystack !i nlen = needle then found := true
+      else incr i
+    done;
+    !found
+
+(** Detect context window exhaustion from provider error messages. *)
+let is_context_overflow_error (err : Error.sdk_error) : bool =
+  let msg = String.lowercase_ascii (Error.to_string err) in
+  List.exists (fun p -> contains_substring ~needle:p msg) [
+    "available context size (";
+    "context window";
+    "context length exceeded";
+    "maximum context length";
+    "input is too long";
+  ]
+
 let map_result_status (response : (Types.api_response, Error.sdk_error) result)
     : Cdal_proof.result_status =
   match response with
-  | Error _ -> Cdal_proof.Errored
+  | Error err ->
+    if is_context_overflow_error err then Cdal_proof.Context_overflow
+    else Cdal_proof.Errored
   | Ok resp ->
     match resp.stop_reason with
     | Types.EndTurn -> Cdal_proof.Completed
