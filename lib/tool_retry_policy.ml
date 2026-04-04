@@ -98,7 +98,11 @@ let decide ~policy ~prior_retries failures =
       else Retry { retry_count; summary }
 
 let retry_feedback_text ~retry_count ~max_retries ~summary =
-  let retry_limit = max retry_count (normalized_max_retries max_retries) in
+  let retry_limit =
+    match normalized_max_retries max_retries with
+    | 0 -> retry_count
+    | limit -> limit
+  in
   Printf.sprintf
     "Retryable tool error (retry %d/%d): %s\nPlease fix the output and try again."
     retry_count retry_limit summary

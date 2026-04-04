@@ -173,6 +173,14 @@ let test_tool_retry_policy_feedback_uses_retry_counts () =
   Alcotest.(check bool) "uses retry label" true
     (Util.string_contains ~needle:"retry 1/2" text)
 
+let test_tool_retry_policy_feedback_preserves_positive_limit () =
+  let text =
+    Tool_retry_policy.retry_feedback_text ~retry_count:5 ~max_retries:3
+      ~summary:"- tool: bad output"
+  in
+  Alcotest.(check bool) "shows actual positive limit" true
+    (Util.string_contains ~needle:"retry 5/3" text)
+
 let () =
   run "Agent SDK" [
     "types", [
@@ -209,5 +217,7 @@ let () =
         test_tool_retry_policy_clamps_negative_max_retries;
       test_case "feedback uses retry counts" `Quick
         test_tool_retry_policy_feedback_uses_retry_counts;
+      test_case "feedback preserves positive limit" `Quick
+        test_tool_retry_policy_feedback_preserves_positive_limit;
     ];
   ]
