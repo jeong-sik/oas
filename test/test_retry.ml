@@ -101,6 +101,9 @@ let test_is_context_overflow_message () =
   check bool "raw overflow message" true
     (Retry.is_context_overflow_message
        "Invalid request: request (11447 tokens) exceeds the available context size (8192 tokens), try increasing it");
+  check bool "raw non-overflow message" false
+    (Retry.is_context_overflow_message
+       "Invalid request: bad tool schema");
   check bool "json overflow message" true
     (Retry.is_context_overflow_message
        {|{"error":{"message":"This model's maximum context length is 128000 tokens. available context size (32768)"}}|});
