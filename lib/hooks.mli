@@ -25,12 +25,14 @@ type reasoning_summary = {
 val empty_reasoning_summary : reasoning_summary
 val extract_reasoning : Types.message list -> reasoning_summary
 
-(** Deterministic scheduling metadata attached to a tool execution plan. *)
+(** Deterministic scheduling metadata attached to a tool execution plan.
+    [batch_kind] is one of ["parallel"], ["sequential"], or ["exclusive"]. *)
 type tool_schedule = {
   planned_index: int;
   batch_index: int;
   batch_size: int;
   concurrency_class: string;
+  batch_kind: string;
 }
 
 (** Events emitted during agent execution *)

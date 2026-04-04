@@ -4,8 +4,8 @@ open Alcotest
 open Agent_sdk
 
 let default_schedule ?(planned_index = 0) ?(batch_index = 0) ?(batch_size = 1)
-    ?(concurrency_class = "sequential_workspace") () =
-  Hooks.{ planned_index; batch_index; batch_size; concurrency_class }
+    ?(concurrency_class = "sequential_workspace") ?(batch_kind = "sequential") () =
+  Hooks.{ planned_index; batch_index; batch_size; concurrency_class; batch_kind }
 
 let test_empty_hooks () =
   let hooks = Hooks.empty in

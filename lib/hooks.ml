@@ -45,6 +45,7 @@ type tool_schedule = {
   batch_index: int;
   batch_size: int;
   concurrency_class: string;
+  batch_kind: string;
 }
 
 (** Extract reasoning summary from message list.

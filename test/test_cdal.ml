@@ -99,8 +99,8 @@ let test_caps : Cdal_proof.capability_snapshot = {
 }
 
 let default_schedule ?(planned_index = 0) ?(batch_index = 0) ?(batch_size = 1)
-    ?(concurrency_class = "sequential_workspace") () =
-  Hooks.{ planned_index; batch_index; batch_size; concurrency_class }
+    ?(concurrency_class = "sequential_workspace") ?(batch_kind = "sequential") () =
+  Hooks.{ planned_index; batch_index; batch_size; concurrency_class; batch_kind }
 
 let test_mode_resolver_passthrough () =
   let result = Mode_resolver.resolve
