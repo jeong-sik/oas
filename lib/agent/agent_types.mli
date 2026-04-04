@@ -41,6 +41,12 @@ type options = {
     (** Operator-level tool policy.  When [Some], overrides the agent-level
         [guardrails.tool_filter].  Injected at agent creation time.
         @since 0.94.0 *)
+  policy_channel: Policy_channel.t option;
+    (** Shared channel for lazy tool policy propagation to spawned agents.
+        When [Some], the agent polls this channel at each turn boundary
+        and applies any accumulated {!Tool_op.t} to its operator policy.
+        Parent and children share the same channel reference.
+        @since 0.100.0 *)
 }
 
 (** {1 Lifecycle re-exports} *)

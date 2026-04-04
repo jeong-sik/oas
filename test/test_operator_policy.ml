@@ -68,6 +68,7 @@ let test_operator_restricts_allow_all () =
   let tools_json, _ = Agent_turn.prepare_tools
     ~guardrails:Guardrails.default
     ~operator_policy:(Some (Guardrails.AllowList ["a"]))
+    ~policy_channel:None
     ~tools
     ~turn_params:Hooks.default_turn_params
   in
@@ -80,6 +81,7 @@ let test_operator_denylist_on_allowall () =
   let tools_json, _ = Agent_turn.prepare_tools
     ~guardrails:Guardrails.default
     ~operator_policy:(Some (Guardrails.DenyList ["b"]))
+    ~policy_channel:None
     ~tools
     ~turn_params:Hooks.default_turn_params
   in
@@ -94,6 +96,7 @@ let test_no_operator_is_noop () =
   let tools_json, _ = Agent_turn.prepare_tools
     ~guardrails
     ~operator_policy:None
+    ~policy_channel:None
     ~tools
     ~turn_params:Hooks.default_turn_params
   in
@@ -109,6 +112,7 @@ let test_turn_override_intersects_operator () =
   let tools_json, _ = Agent_turn.prepare_tools
     ~guardrails:Guardrails.default
     ~operator_policy:(Some (Guardrails.AllowList ["a"; "b"]))
+    ~policy_channel:None
     ~tools
     ~turn_params
   in
@@ -124,6 +128,7 @@ let test_turn_override_cannot_widen_operator () =
   let tools_json, _ = Agent_turn.prepare_tools
     ~guardrails:Guardrails.default
     ~operator_policy:(Some (Guardrails.AllowList ["a"]))
+    ~policy_channel:None
     ~tools
     ~turn_params
   in
@@ -136,6 +141,7 @@ let test_full_prepare_turn_with_operator () =
   let prep = Agent_turn.prepare_turn
     ~guardrails:Guardrails.default
     ~operator_policy:(Some (Guardrails.DenyList ["y"]))
+    ~policy_channel:None
     ~tools
     ~messages:[]
     ~context_reducer:None

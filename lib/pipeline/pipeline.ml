@@ -130,6 +130,7 @@ let stage_parse ?raw_trace_run agent =
   let prep = Agent_turn.prepare_turn
     ~guardrails:agent.options.guardrails
     ~operator_policy:agent.options.operator_policy
+    ~policy_channel:agent.options.policy_channel
     ~tools:agent.tools
     ~messages:agent.state.messages
     ~context_reducer:agent.options.context_reducer ~turn_params

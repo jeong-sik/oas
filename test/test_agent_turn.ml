@@ -8,6 +8,7 @@ let test_prepare_turn_empty_tools () =
   let prep = Agent_turn.prepare_turn
     ~guardrails:Guardrails.default
     ~operator_policy:None
+    ~policy_channel:None
     ~tools:Tool_set.empty
     ~messages:[]
     ~context_reducer:None
@@ -26,6 +27,7 @@ let test_prepare_turn_with_tools () =
   let prep = Agent_turn.prepare_turn
     ~guardrails:Guardrails.default
     ~operator_policy:None
+    ~policy_channel:None
     ~tools:(Tool_set.of_list [tool])
     ~messages:[]
     ~context_reducer:None
@@ -44,6 +46,7 @@ let test_prepare_turn_with_guardrails_filter () =
   let prep = Agent_turn.prepare_turn
     ~guardrails
     ~operator_policy:None
+    ~policy_channel:None
     ~tools:(Tool_set.of_list [tool_a; tool_b])
     ~messages:[]
     ~context_reducer:None
@@ -314,6 +317,7 @@ let test_prepare_turn_filter_override () =
   let prep = Agent_turn.prepare_turn
     ~guardrails:Guardrails.default
     ~operator_policy:None
+    ~policy_channel:None
     ~tools:(Tool_set.of_list [tool_a; tool_b])
     ~messages:[]
     ~context_reducer:None
