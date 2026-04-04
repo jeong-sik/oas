@@ -139,17 +139,84 @@ let test_model_spec_local_llm_capabilities () =
   Alcotest.(check bool) "supports tools" true spec.capabilities.supports_tools
 
 let test_model_spec_openrouter_capabilities () =
+  let cfg = Provider.openrouter ~model_id:"anthropic/claude-sonnet-4-6" () in
   let spec =
-    Provider.model_spec_of_config
-      (Provider.openrouter ~model_id:"anthropic/claude-sonnet-4-6" ())
+    Provider.model_spec_of_config cfg
+  in
+  let contract =
+    Provider.inference_contract_of_config cfg
   in
   Alcotest.(check string) "request path" "/chat/completions" spec.request_path;
+  Alcotest.(check string) "contract modality" "multimodal"
+    (Provider.modality_to_string contract.modality);
+  Alcotest.(check (option string)) "contract task" None
+    contract.task;
   Alcotest.(check bool) "supports tools" true spec.capabilities.supports_tools;
   Alcotest.(check bool) "supports reasoning" false
     spec.capabilities.supports_reasoning;
   Alcotest.(check bool) "supports top_k" false spec.capabilities.supports_top_k;
   Alcotest.(check bool) "supports json response" true
     spec.capabilities.supports_response_format_json
+
+let test_inference_contract_local_qwen () =
+  let cfg : Provider.config = {
+    provider = Local { base_url = "http://127.0.0.1:8085" };
+    model_id = "qwen3.5-35b-a3b-ud-q8-xl";
+    api_key_env = "DUMMY_KEY";
+  } in
+  let contract = Provider.inference_contract_of_config cfg in
+  Alcotest.(check string) "model_id" "qwen3.5-35b-a3b-ud-q8-xl" contract.model_id;
+  Alcotest.(check string) "modality" "text"
+    (Provider.modality_to_string contract.modality);
+  Alcotest.(check (option string)) "task" None contract.task
+
+let test_inference_contract_anthropic_multimodal () =
+  let contract =
+    Provider.inference_contract_of_config (Provider.anthropic_sonnet ())
+  in
+  Alcotest.(check string) "modality" "multimodal"
+    (Provider.modality_to_string contract.modality)
+
+let test_inference_contract_task_transcription () =
+  let cfg : Provider.config = {
+    provider = OpenAICompat {
+      base_url = "https://api.openai.com/v1";
+      auth_header = Some "Authorization";
+      path = "/audio/transcriptions";
+      static_token = None;
+    };
+    model_id = "whisper-1";
+    api_key_env = "OPENAI_API_KEY";
+  } in
+  let contract = Provider.inference_contract_of_config cfg in
+  Alcotest.(check (option string)) "task" (Some "transcription") contract.task
+
+let test_validate_inference_contract_rejects_unsupported_modality () =
+  let cfg : Provider.config = {
+    provider = Local { base_url = "http://127.0.0.1:8085" };
+    model_id = "qwen3.5-35b-a3b-ud-q8-xl";
+    api_key_env = "DUMMY_KEY";
+  } in
+  let contract : Provider.inference_contract = {
+    provider = cfg.provider;
+    model_id = cfg.model_id;
+    modality = Provider.Image;
+    task = None;
+  } in
+  match
+    Provider.validate_inference_contract
+      ~capabilities:(Provider.capabilities_for_config cfg)
+      contract
+  with
+  | Error (Error.Config (InvalidConfig { field; detail })) ->
+    Alcotest.(check string) "field" "modality" field;
+    Alcotest.(check string) "detail"
+      "Model 'qwen3.5-35b-a3b-ud-q8-xl' for provider 'local' does not support modality 'image'"
+      detail
+  | Error e ->
+    Alcotest.fail (Printf.sprintf "unexpected error variant: %s" (Error.to_string e))
+  | Ok () ->
+    Alcotest.fail "expected unsupported modality validation to fail"
 
 let test_extended_openai_capabilities () =
   let capabilities =
@@ -251,6 +318,14 @@ let () =
         test_model_spec_local_llm_capabilities;
       Alcotest.test_case "openrouter model spec capabilities" `Quick
         test_model_spec_openrouter_capabilities;
+      Alcotest.test_case "inference contract local qwen" `Quick
+        test_inference_contract_local_qwen;
+      Alcotest.test_case "inference contract anthropic multimodal" `Quick
+        test_inference_contract_anthropic_multimodal;
+      Alcotest.test_case "task inference transcription" `Quick
+        test_inference_contract_task_transcription;
+      Alcotest.test_case "invalid modality gets actionable error" `Quick
+        test_validate_inference_contract_rejects_unsupported_modality;
       Alcotest.test_case "extended openai capabilities" `Quick
         test_extended_openai_capabilities;
     ];

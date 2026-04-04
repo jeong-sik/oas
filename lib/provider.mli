@@ -25,6 +25,13 @@ type request_kind =
   | Openai_chat_completions
   | Custom of string
 
+type modality =
+  | Text
+  | Image
+  | Audio
+  | Video
+  | Multimodal
+
 type capabilities = {
   max_context_tokens: int option;
   max_output_tokens: int option;
@@ -49,6 +56,13 @@ type capabilities = {
   supports_code_execution: bool;
 }
 
+type inference_contract = {
+  provider: provider;
+  model_id: string;
+  modality: modality;
+  task: string option;
+}
+
 type model_spec = {
   provider: provider;
   model_id: string;
@@ -60,9 +74,17 @@ type model_spec = {
 
 val request_kind : provider -> request_kind
 val request_path : provider -> string
+val modality_to_string : modality -> string
+val modality_of_capabilities : capabilities -> modality
 val default_capabilities : capabilities
 val capabilities_for_model : provider:provider -> model_id:string -> capabilities
 val capabilities_for_config : config -> capabilities
+val inference_contract_of_model_spec : model_spec -> inference_contract
+val inference_contract_of_config : config -> inference_contract
+val validate_inference_contract :
+  capabilities:capabilities ->
+  inference_contract ->
+  (unit, Error.sdk_error) result
 val model_spec_of_config : config -> model_spec
 
 (** Resolve provider config to (base_url, api_key, headers) *)
