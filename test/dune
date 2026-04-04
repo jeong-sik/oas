@@ -836,3 +836,7 @@
 (test
  (name test_lenient_json)
  (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_skill_discovery)
+ (libraries agent_sdk alcotest yojson eio eio_main))
