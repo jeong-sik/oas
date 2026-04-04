@@ -139,15 +139,18 @@ let test_model_spec_local_llm_capabilities () =
   Alcotest.(check bool) "supports tools" true spec.capabilities.supports_tools
 
 let test_model_spec_openrouter_capabilities () =
+  let cfg = Provider.openrouter ~model_id:"anthropic/claude-sonnet-4-6" () in
   let spec =
-    Provider.model_spec_of_config
-      (Provider.openrouter ~model_id:"anthropic/claude-sonnet-4-6" ())
+    Provider.model_spec_of_config cfg
+  in
+  let contract =
+    Provider.inference_contract_of_config cfg
   in
   Alcotest.(check string) "request path" "/chat/completions" spec.request_path;
   Alcotest.(check string) "contract modality" "multimodal"
-    (Provider.modality_to_string spec.inference_contract.modality);
+    (Provider.modality_to_string contract.modality);
   Alcotest.(check (option string)) "contract task" None
-    spec.inference_contract.task;
+    contract.task;
   Alcotest.(check bool) "supports tools" true spec.capabilities.supports_tools;
   Alcotest.(check bool) "supports reasoning" false
     spec.capabilities.supports_reasoning;
@@ -166,6 +169,27 @@ let test_inference_contract_local_qwen () =
   Alcotest.(check string) "modality" "text"
     (Provider.modality_to_string contract.modality);
   Alcotest.(check (option string)) "task" None contract.task
+
+let test_inference_contract_anthropic_multimodal () =
+  let contract =
+    Provider.inference_contract_of_config (Provider.anthropic_sonnet ())
+  in
+  Alcotest.(check string) "modality" "multimodal"
+    (Provider.modality_to_string contract.modality)
+
+let test_inference_contract_task_transcription () =
+  let cfg : Provider.config = {
+    provider = OpenAICompat {
+      base_url = "https://api.openai.com/v1";
+      auth_header = Some "Authorization";
+      path = "/audio/transcriptions";
+      static_token = None;
+    };
+    model_id = "whisper-1";
+    api_key_env = "OPENAI_API_KEY";
+  } in
+  let contract = Provider.inference_contract_of_config cfg in
+  Alcotest.(check (option string)) "task" (Some "transcription") contract.task
 
 let test_validate_inference_contract_rejects_unsupported_modality () =
   let cfg : Provider.config = {
@@ -296,6 +320,10 @@ let () =
         test_model_spec_openrouter_capabilities;
       Alcotest.test_case "inference contract local qwen" `Quick
         test_inference_contract_local_qwen;
+      Alcotest.test_case "inference contract anthropic multimodal" `Quick
+        test_inference_contract_anthropic_multimodal;
+      Alcotest.test_case "task inference transcription" `Quick
+        test_inference_contract_task_transcription;
       Alcotest.test_case "invalid modality gets actionable error" `Quick
         test_validate_inference_contract_rejects_unsupported_modality;
       Alcotest.test_case "extended openai capabilities" `Quick

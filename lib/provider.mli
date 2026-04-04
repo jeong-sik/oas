@@ -67,7 +67,6 @@ type model_spec = {
   provider: provider;
   model_id: string;
   api_key_env: string;
-  inference_contract: inference_contract;
   request_kind: request_kind;
   request_path: string;
   capabilities: capabilities;
@@ -80,6 +79,7 @@ val modality_of_capabilities : capabilities -> modality
 val default_capabilities : capabilities
 val capabilities_for_model : provider:provider -> model_id:string -> capabilities
 val capabilities_for_config : config -> capabilities
+val inference_contract_of_model_spec : model_spec -> inference_contract
 val inference_contract_of_config : config -> inference_contract
 val validate_inference_contract :
   capabilities:capabilities ->

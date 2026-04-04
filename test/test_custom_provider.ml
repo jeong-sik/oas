@@ -144,12 +144,13 @@ let test_model_spec_registered () =
   Provider.register_provider impl;
   let cfg = Provider.custom_provider ~name:"spec-test" ~model_id:"my-model" () in
   let spec = Provider.model_spec_of_config cfg in
+  let contract = Provider.inference_contract_of_config cfg in
   Alcotest.(check string) "request_path" "/v1/custom" spec.request_path;
   Alcotest.(check string) "model_id" "my-model" spec.model_id;
   Alcotest.(check string) "contract modality" "text"
-    (Provider.modality_to_string spec.inference_contract.modality);
+    (Provider.modality_to_string contract.modality);
   Alcotest.(check (option string)) "contract task" None
-    spec.inference_contract.task;
+    contract.task;
   Alcotest.(check bool) "supports_tools" true spec.capabilities.supports_tools
 
 (* ── provider_runtime_name ──────────────────────────────── *)

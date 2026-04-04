@@ -42,7 +42,6 @@ type model_spec = {
   provider: provider;
   model_id: string;
   api_key_env: string;
-  inference_contract: inference_contract;
   request_kind: request_kind;
   request_path: string;
   capabilities: capabilities;
@@ -93,7 +92,7 @@ let task_of_model_id model_id =
   else if has "imagegen" || has "image-gen" || has "gpt-image" || has "cogview"
           || has "seedream" || has "flux" then
     Some "image_generation"
-  else if has "video-gen" || has "video" || has "veo" || has "kling" then
+  else if has "video-gen" || has "veo" || has "kling" || has "sora" || has "wan" then
     Some "video_generation"
   else
     None
@@ -181,15 +180,6 @@ let request_path = function
 let capabilities_for_config (cfg : config) =
   capabilities_for_model ~provider:cfg.provider ~model_id:cfg.model_id
 
-let inference_contract_of_config (cfg : config) =
-  let capabilities = capabilities_for_config cfg in
-  {
-    provider = cfg.provider;
-    model_id = cfg.model_id;
-    modality = modality_of_capabilities capabilities;
-    task = task_of_model_id cfg.model_id;
-  }
-
 let validate_inference_contract ~capabilities (contract : inference_contract) =
   if modality_supported capabilities contract.modality then Ok ()
   else
@@ -202,17 +192,44 @@ let validate_inference_contract ~capabilities (contract : inference_contract) =
           (modality_to_string contract.modality);
     }))
 
+let build_inference_contract ~provider ~model_id ~(capabilities : capabilities) =
+  let contract = {
+    provider;
+    model_id;
+    modality = modality_of_capabilities capabilities;
+    task = task_of_model_id model_id;
+  } in
+  match validate_inference_contract ~capabilities contract with
+  | Ok () -> contract
+  | Error err ->
+    invalid_arg
+      ("BUG: inferred invalid inference contract: " ^ Error.to_string err)
+
+let inference_contract_of_model_spec (spec : model_spec) =
+  build_inference_contract
+    ~provider:spec.provider
+    ~model_id:spec.model_id
+    ~capabilities:spec.capabilities
+
+let inference_contract_of_config (cfg : config) =
+  let capabilities = capabilities_for_config cfg in
+  build_inference_contract
+    ~provider:cfg.provider
+    ~model_id:cfg.model_id
+    ~capabilities
+
 let model_spec_of_config (cfg : config) =
   let capabilities = capabilities_for_config cfg in
-  {
+  let spec = {
     provider = cfg.provider;
     model_id = cfg.model_id;
     api_key_env = cfg.api_key_env;
-    inference_contract = inference_contract_of_config cfg;
     request_kind = request_kind cfg.provider;
     request_path = request_path cfg.provider;
     capabilities;
-  }
+  } in
+  let _ = inference_contract_of_model_spec spec in
+  spec
 
 let resolve (cfg : config) =
   match cfg.provider with
