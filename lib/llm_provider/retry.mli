@@ -27,6 +27,7 @@ val default_config : retry_config
 
 val is_retryable : api_error -> bool
 val error_message : api_error -> string
+val is_context_overflow_message : string -> bool
 val classify_error : status:int -> body:string -> api_error
 
 (** {1 Retry execution} *)
