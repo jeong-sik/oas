@@ -99,7 +99,7 @@ let heal_tool_call ~tool_name ~schema ~tool_use_id ~args
           match extract_tool_args ~tool_name response.content with
           | None ->
             Error (Exhausted {
-              attempts = attempt + 2; limit = max_retries;
+              attempts = attempt + 1; limit = max_retries;
               last_error =
                 Printf.sprintf "LLM response contained no '%s' tool call"
                   tool_name })
