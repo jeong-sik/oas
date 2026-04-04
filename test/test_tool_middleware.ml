@@ -143,6 +143,106 @@ let test_hook_rejection () =
   | Tool_middleware.Reject _ -> ()
   | _ -> Alcotest.fail "expected Reject"
 
+(* ── heal_tool_call ─────────────────────────────────────── *)
+
+let int_schema = tool_schema "calc"
+  (make_schema ~required:["n"] [("n", "integer")])
+
+let mock_response ?(tool_name = "calc") ?(id = "fix1") input =
+  Ok { Types.id = "m1"; model = "mock"; stop_reason = StopToolUse;
+       content = [ToolUse { id; name = tool_name; input }];
+       usage = None }
+
+let mock_llm_fixes _msgs =
+  mock_response (`Assoc [("n", `Int 42)])
+
+let mock_llm_text_only _msgs =
+  Ok { Types.id = "m1"; model = "mock"; stop_reason = EndTurn;
+       content = [Text "I cannot fix this"]; usage = None }
+
+let mock_llm_fails _msgs =
+  Error (Error.Internal "network timeout")
+
+let test_heal_valid_first_try () =
+  let args = `Assoc [("n", `Int 7)] in
+  match Tool_middleware.heal_tool_call ~tool_name:"calc" ~schema:int_schema
+    ~tool_use_id:"tu1" ~args ~prior_messages:[] ~llm:mock_llm_fails () with
+  | Ok r ->
+    Alcotest.(check int) "attempts" 1 r.attempts;
+    Alcotest.(check bool) "not healed" false r.healed
+  | Error _ -> Alcotest.fail "should succeed without calling LLM"
+
+let test_heal_coerced_first_try () =
+  let args = `Assoc [("n", `String "7")] in
+  match Tool_middleware.heal_tool_call ~tool_name:"calc" ~schema:int_schema
+    ~tool_use_id:"tu1" ~args ~prior_messages:[] ~llm:mock_llm_fails () with
+  | Ok r ->
+    Alcotest.(check int) "attempts" 1 r.attempts;
+    Alcotest.(check bool) "not healed" false r.healed;
+    let v = Yojson.Safe.Util.member "n" r.value in
+    Alcotest.(check int) "coerced" 7 (match v with `Int i -> i | _ -> -1)
+  | Error _ -> Alcotest.fail "coercion should succeed"
+
+let test_heal_retry_fixes () =
+  let args = `Assoc [("n", `String "bad")] in
+  match Tool_middleware.heal_tool_call ~tool_name:"calc" ~schema:int_schema
+    ~tool_use_id:"tu1" ~args ~prior_messages:[] ~llm:mock_llm_fixes () with
+  | Ok r ->
+    Alcotest.(check int) "attempts" 2 r.attempts;
+    Alcotest.(check bool) "healed" true r.healed;
+    let v = Yojson.Safe.Util.member "n" r.value in
+    Alcotest.(check int) "fixed" 42 (match v with `Int i -> i | _ -> -1)
+  | Error _ -> Alcotest.fail "should heal after 1 retry"
+
+let test_heal_exhausted () =
+  let always_bad _msgs = mock_response (`Assoc [("n", `String "still_bad")]) in
+  let args = `Assoc [("n", `String "bad")] in
+  match Tool_middleware.heal_tool_call ~tool_name:"calc" ~schema:int_schema
+    ~tool_use_id:"tu1" ~args ~prior_messages:[] ~llm:always_bad
+    ~max_retries:2 () with
+  | Error (Tool_middleware.Exhausted { attempts; limit; _ }) ->
+    Alcotest.(check int) "attempts" 3 attempts;
+    Alcotest.(check int) "limit" 2 limit
+  | Error _ -> Alcotest.fail "wrong error type"
+  | Ok _ -> Alcotest.fail "should exhaust retries"
+
+let test_heal_llm_no_tool_call () =
+  let args = `Assoc [("n", `String "bad")] in
+  match Tool_middleware.heal_tool_call ~tool_name:"calc" ~schema:int_schema
+    ~tool_use_id:"tu1" ~args ~prior_messages:[] ~llm:mock_llm_text_only () with
+  | Error (Tool_middleware.Exhausted { last_error; _ }) ->
+    Alcotest.(check bool) "mentions tool name" true
+      (String.length last_error > 0)
+  | Error _ -> Alcotest.fail "wrong error type"
+  | Ok _ -> Alcotest.fail "should fail when LLM returns no tool call"
+
+let test_heal_llm_error () =
+  let args = `Assoc [("n", `String "bad")] in
+  match Tool_middleware.heal_tool_call ~tool_name:"calc" ~schema:int_schema
+    ~tool_use_id:"tu1" ~args ~prior_messages:[] ~llm:mock_llm_fails () with
+  | Error (Tool_middleware.Llm_error _) -> ()
+  | Error _ -> Alcotest.fail "wrong error type"
+  | Ok _ -> Alcotest.fail "should fail on LLM error"
+
+let test_heal_on_retry_called () =
+  let count = ref 0 in
+  let on_retry ~attempt:_ ~error:_ = incr count in
+  let always_bad _msgs = mock_response (`Assoc [("n", `String "x")]) in
+  let args = `Assoc [("n", `String "bad")] in
+  ignore (Tool_middleware.heal_tool_call ~tool_name:"calc" ~schema:int_schema
+    ~tool_use_id:"tu1" ~args ~prior_messages:[] ~llm:always_bad
+    ~max_retries:2 ~on_retry ());
+  Alcotest.(check int) "on_retry called" 2 !count
+
+let test_heal_max_retries_zero () =
+  let args = `Assoc [("n", `String "bad")] in
+  match Tool_middleware.heal_tool_call ~tool_name:"calc" ~schema:int_schema
+    ~tool_use_id:"tu1" ~args ~prior_messages:[] ~llm:mock_llm_fixes
+    ~max_retries:0 () with
+  | Error (Tool_middleware.Exhausted { attempts; _ }) ->
+    Alcotest.(check int) "attempts" 1 attempts
+  | _ -> Alcotest.fail "max_retries=0 should exhaust immediately"
+
 (* ── Runner ──────────────────────────────────────────────── *)
 
 let () =
@@ -164,5 +264,15 @@ let () =
       Alcotest.test_case "valid tool -> Pass" `Quick test_hook_valid_tool;
       Alcotest.test_case "coercion -> Proceed" `Quick test_hook_coercion;
       Alcotest.test_case "invalid -> Reject" `Quick test_hook_rejection;
+    ]);
+    ("heal_tool_call", [
+      Alcotest.test_case "valid first try" `Quick test_heal_valid_first_try;
+      Alcotest.test_case "coerced first try" `Quick test_heal_coerced_first_try;
+      Alcotest.test_case "retry fixes" `Quick test_heal_retry_fixes;
+      Alcotest.test_case "exhausted" `Quick test_heal_exhausted;
+      Alcotest.test_case "LLM returns no tool call" `Quick test_heal_llm_no_tool_call;
+      Alcotest.test_case "LLM error" `Quick test_heal_llm_error;
+      Alcotest.test_case "on_retry callback" `Quick test_heal_on_retry_called;
+      Alcotest.test_case "max_retries=0" `Quick test_heal_max_retries_zero;
     ]);
   ]

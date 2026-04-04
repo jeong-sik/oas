@@ -62,3 +62,57 @@ val make_validation_hook :
 
     The [lookup] function resolves tool names to schemas.
     Unknown tools (when [lookup] returns [None]) get [Pass]. *)
+
+(** {1 Self-Healing Retry Loop}
+
+    Deterministic wrapper around non-deterministic LLM output.
+    Validates tool call args, and on failure re-prompts the LLM
+    with error feedback until the call is valid or retries exhaust.
+
+    @since 0.102.0 *)
+
+(** Result of a healing attempt. *)
+type healing_result = {
+  value: Yojson.Safe.t;
+  attempts: int;  (** Total attempts (1 = first try succeeded) *)
+  healed: bool;   (** Whether any retry was needed *)
+}
+
+(** Reason the healing loop terminated without success. *)
+type healing_failure =
+  | Exhausted of {
+      attempts: int;
+      limit: int;
+      last_error: string;
+    }
+  | Llm_error of Error.sdk_error
+
+(** LLM re-prompt callback.
+
+    Given conversation history including error feedback,
+    return a new response.  The callback owns API dispatch. *)
+type llm_callback =
+  Types.message list -> (Types.api_response, Error.sdk_error) result
+
+val heal_tool_call :
+  tool_name:string ->
+  schema:Types.tool_schema ->
+  tool_use_id:string ->
+  args:Yojson.Safe.t ->
+  prior_messages:Types.message list ->
+  llm:llm_callback ->
+  ?max_retries:int ->
+  ?on_retry:(attempt:int -> error:string -> unit) ->
+  unit ->
+  (healing_result, healing_failure) result
+(** Run the self-healing validation loop.
+
+    1. Validate [args] against [schema] via {!validate_and_coerce}.
+    2. If [Pass] or [Proceed]: return immediately.
+    3. If [Reject]: construct error feedback, call [llm], extract the
+       corrected tool call, and repeat from (1).
+
+    @param max_retries Maximum re-prompts (default 3).
+    @param on_retry Observability callback, invoked before each retry.
+    @param tool_use_id ID of the original tool_use block.
+    @param prior_messages Conversation context preceding the tool call. *)
