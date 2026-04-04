@@ -107,6 +107,9 @@ let test_is_context_overflow_message () =
   check bool "json overflow message" true
     (Retry.is_context_overflow_message
        {|{"error":{"message":"This model's maximum context length is 128000 tokens. available context size (32768)"}}|});
+  check bool "malformed json falls back to raw body" true
+    (Retry.is_context_overflow_message
+       {|{"error":"available context size (4096)"|});
   check bool "generic bad request" false
     (Retry.is_context_overflow_message
        {|{"error":{"message":"bad tool schema"}}|})

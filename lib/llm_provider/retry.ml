@@ -36,31 +36,57 @@ let error_message = function
   | NetworkError r -> Printf.sprintf "Network error: %s" r.message
   | Timeout r -> Printf.sprintf "Timeout: %s" r.message
 
-let extract_error_message (body : string) : string =
-  try
-    let json = Yojson.Safe.from_string body in
-    let open Yojson.Safe.Util in
-    json |> member "error" |> member "message" |> to_string
-  with Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ | Yojson.Safe.Util.Undefined _ ->
-    body
+let overflow_message_scan_limit = 16_384
 
-let string_contains_ci ~(haystack : string) ~(needle : string) : bool =
-  let haystack = String.lowercase_ascii haystack in
-  let needle = String.lowercase_ascii needle in
-  let hay_len = String.length haystack in
-  let needle_len = String.length needle in
+let body_looks_like_json (body : string) : bool =
   let rec loop idx =
-    if needle_len = 0 then true
-    else if idx + needle_len > hay_len then false
-    else if String.sub haystack idx needle_len = needle then true
-    else loop (idx + 1)
+    if idx >= String.length body then false
+    else
+      match body.[idx] with
+      | ' ' | '\n' | '\r' | '\t' -> loop (idx + 1)
+      | '{' | '[' -> true
+      | _ -> false
   in
   loop 0
+
+let safe_prefix (body : string) ~(max_len : int) : string =
+  if max_len <= 0 then ""
+  else if String.length body <= max_len then body
+  else String.sub body 0 max_len
+
+let contains_substring_ci ~(haystack : string) ~(needle : string) : bool =
+  let h = String.lowercase_ascii haystack in
+  let n = String.lowercase_ascii needle in
+  let h_len = String.length h in
+  let n_len = String.length n in
+  let rec matches_at start offset =
+    if offset = n_len then true
+    else if h.[start + offset] <> n.[offset] then false
+    else matches_at start (offset + 1)
+  in
+  let rec loop start =
+    if n_len = 0 then true
+    else if start + n_len > h_len then false
+    else if matches_at start 0 then true
+    else loop (start + 1)
+  in
+  loop 0
+
+let extract_error_message (body : string) : string =
+  if body_looks_like_json body then
+    try
+      let json = Yojson.Safe.from_string body in
+      let open Yojson.Safe.Util in
+      json |> member "error" |> member "message" |> to_string
+    with Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ | Yojson.Safe.Util.Undefined _ ->
+      safe_prefix body ~max_len:overflow_message_scan_limit
+  else
+    safe_prefix body ~max_len:overflow_message_scan_limit
 
 let is_context_overflow_message (body : string) : bool =
   let message = extract_error_message body in
   List.exists
-    (fun needle -> string_contains_ci ~haystack:message ~needle)
+    (fun needle -> contains_substring_ci ~haystack:message ~needle)
     [
       "available context size (";
       "context window";
@@ -127,6 +153,8 @@ let with_retry ~clock ?(config=default_config) (f : unit -> ('a, api_error) resu
     sleep_for err 0;
     loop 1 err
   | Error _ as non_retryable -> non_retryable
+
+[@@@coverage off]
 
 let%test "is_context_overflow_message detects raw message" =
   is_context_overflow_message
