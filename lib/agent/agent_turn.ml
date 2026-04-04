@@ -39,13 +39,31 @@ type turn_preparation = {
   effective_guardrails: Guardrails.t;
 }
 
-let prepare_tools ~guardrails ~operator_policy ~(tools : Tool_set.t) ~turn_params =
-  (* Precedence: operator > hook > agent.
-     Operator policy is the hard ceiling.  Hook tool_filter_override
-     is intersected with the merged result, so it can only narrow
-     the visible tool set — never re-grant a tool the operator denied. *)
+let prepare_tools ~guardrails ~operator_policy ~policy_channel ~(tools : Tool_set.t) ~turn_params =
+  (* Precedence: policy_channel > operator > hook > agent.
+     Policy channel accumulates Tool_op.t pushed by a parent agent.
+     Operator policy is the hard ceiling after channel resolution.
+     Hook tool_filter_override is intersected with the merged result,
+     so it can only narrow — never re-grant a denied tool. *)
+  let effective_operator = match policy_channel with
+    | None -> operator_policy
+    | Some ch ->
+      match Policy_channel.poll ch with
+      | None -> operator_policy
+      | Some op ->
+        let current_names = Tool_set.names tools in
+        let channel_filter = Guardrails.AllowList (Tool_op.apply op current_names) in
+        (* Intersect channel result with operator policy so the channel
+           can only narrow — never widen — the operator ceiling. *)
+        let constrained = match operator_policy with
+          | None -> channel_filter
+          | Some op_filter ->
+            Guardrails.intersect_filters op_filter channel_filter
+        in
+        Some constrained
+  in
   let merged, source =
-    Guardrails.merge_operator_policy ~operator:operator_policy ~agent:guardrails
+    Guardrails.merge_operator_policy ~operator:effective_operator ~agent:guardrails
   in
   let effective_guardrails = match turn_params.Hooks.tool_filter_override with
     | Some filter ->
@@ -76,9 +94,9 @@ let prepare_messages ~messages ~context_reducer ~turn_params =
     let system_msg = { role = User; content = [Text ("[system context] " ^ ctx)]; name = None; tool_call_id = None } in
     system_msg :: effective
 
-let prepare_turn ~guardrails ~operator_policy ~tools ~messages ~context_reducer ~turn_params =
+let prepare_turn ~guardrails ~operator_policy ~policy_channel ~tools ~messages ~context_reducer ~turn_params =
   let tools_json, effective_guardrails =
-    prepare_tools ~guardrails ~operator_policy ~tools ~turn_params
+    prepare_tools ~guardrails ~operator_policy ~policy_channel ~tools ~turn_params
   in
   let effective_messages =
     prepare_messages ~messages ~context_reducer ~turn_params

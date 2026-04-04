@@ -259,6 +259,7 @@ let build b =
     memory = b.memory;
     allowed_paths = b.allowed_paths;
     operator_policy = b.operator_policy;
+    policy_channel = None;
   } in
   Agent.create ~net:b.net ~config ~tools:(Tool_set.to_list tools) ?context
     ?named_cascade:b.named_cascade ~options ()

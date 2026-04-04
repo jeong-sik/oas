@@ -120,6 +120,7 @@ module Runtime_server_resolve = Runtime_server_resolve
 module Runtime_evidence = Runtime_evidence
 module Durable = Durable
 module Policy = Policy
+module Policy_channel = Policy_channel
 module Audit = Audit
 module Plan = Plan
 module Reflexion = Reflexion
