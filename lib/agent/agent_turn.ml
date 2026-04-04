@@ -52,8 +52,15 @@ let prepare_tools ~guardrails ~operator_policy ~policy_channel ~(tools : Tool_se
       | None -> operator_policy
       | Some op ->
         let current_names = Tool_set.names tools in
-        let filtered = Tool_op.apply op current_names in
-        Some (Guardrails.AllowList filtered)
+        let channel_filter = Guardrails.AllowList (Tool_op.apply op current_names) in
+        (* Intersect channel result with operator policy so the channel
+           can only narrow — never widen — the operator ceiling. *)
+        let constrained = match operator_policy with
+          | None -> channel_filter
+          | Some op_filter ->
+            Guardrails.intersect_filters op_filter channel_filter
+        in
+        Some constrained
   in
   let merged, source =
     Guardrails.merge_operator_policy ~operator:effective_operator ~agent:guardrails

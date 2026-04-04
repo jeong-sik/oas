@@ -99,8 +99,9 @@ let test_channel_empty_is_noop () =
   check int "no ops, all visible" 2 count
 
 let test_channel_overrides_operator_policy () =
-  (* When both operator_policy and policy_channel exist,
-     channel ops take precedence by replacing operator_policy *)
+  (* Channel narrows operator policy via intersect.
+     Operator: AllowList ["a";"b"], Channel: Intersect_with ["a"]
+     -> intersect yields AllowList ["a"] *)
   let ch = Policy_channel.create () in
   Policy_channel.push ch (Tool_op.Intersect_with ["a"]);
   let tools = Tool_set.of_list [make_tool "a"; make_tool "b"; make_tool "c"] in
@@ -112,7 +113,7 @@ let test_channel_overrides_operator_policy () =
     ~turn_params:Hooks.default_turn_params
   in
   let count = match tools_json with Some l -> List.length l | None -> 0 in
-  check int "channel wins, only a" 1 count
+  check int "channel narrows to a" 1 count
 
 let test_multiple_updates_compose_correctly () =
   let ch = Policy_channel.create () in

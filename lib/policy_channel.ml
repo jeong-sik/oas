@@ -24,7 +24,7 @@ let push (ch : t) new_op =
     in
     let next = { op = Some composed; version = old.version + 1 } in
     if Atomic.compare_and_set ch old next then ()
-    else cas ()
+    else (Domain.cpu_relax (); cas ())
   in
   cas ()
 
