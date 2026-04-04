@@ -1,5 +1,12 @@
 open Agent_sdk
 
+let jsonrpc_interface url : Agent_card.supported_interface = {
+  url;
+  protocol_binding = "JSONRPC";
+  protocol_version = "1.0";
+  tenant = None;
+}
+
 let base_info : Agent_card.agent_info = {
   agent_name = "test-agent";
   agent_description = Some "A test agent";
@@ -26,6 +33,7 @@ let test_of_info_basic () =
   Alcotest.(check string) "name" "test-agent" card.name;
   Alcotest.(check (option string)) "description"
     (Some "A test agent") card.description;
+  Alcotest.(check string) "protocol version" "1.0" card.protocol_version;
   Alcotest.(check string) "version" Agent_sdk.Sdk_version.version card.version
 
 let test_capabilities_tools () =
@@ -117,6 +125,8 @@ let test_json_roundtrip () =
   match Agent_card.of_json json with
   | Ok card2 ->
     Alcotest.(check string) "name preserved" card.name card2.name;
+    Alcotest.(check string) "protocol preserved"
+      card.protocol_version card2.protocol_version;
     Alcotest.(check string) "version preserved" card.version card2.version;
     Alcotest.(check int) "caps count"
       (List.length card.capabilities) (List.length card2.capabilities)
@@ -127,11 +137,42 @@ let test_to_json_structure () =
   let json = Agent_card.to_json card in
   let open Yojson.Safe.Util in
   let name = json |> member "name" |> to_string in
+  let protocol_version = json |> member "protocolVersion" |> to_string in
   let caps = json |> member "capabilities" |> to_list in
   let tools = json |> member "tools" |> to_list in
+  let interfaces = json |> member "supportedInterfaces" |> to_list in
   Alcotest.(check string) "json name" "test-agent" name;
+  Alcotest.(check string) "json protocol version" "1.0" protocol_version;
   Alcotest.(check bool) "has caps" true (List.length caps > 0);
-  Alcotest.(check int) "1 tool" 1 (List.length tools)
+  Alcotest.(check int) "1 tool" 1 (List.length tools);
+  Alcotest.(check int) "no interfaces by default" 0 (List.length interfaces)
+
+let test_to_json_synthesizes_supported_interface () =
+  let card : Agent_card.agent_card = {
+    name = "synth-agent";
+    description = None;
+    protocol_version = "1.0";
+    version = "1.0";
+    url = Some "http://agent.local/a2a";
+    authentication = None;
+    supported_interfaces = [];
+    capabilities = [];
+    tools = [];
+    skills = [];
+    supported_providers = [];
+    metadata = [];
+  } in
+  let json = Agent_card.to_json card in
+  let open Yojson.Safe.Util in
+  let interfaces = json |> member "supportedInterfaces" |> to_list in
+  Alcotest.(check int) "synthesized interface count" 1 (List.length interfaces);
+  let iface = List.hd interfaces in
+  Alcotest.(check string) "url"
+    "http://agent.local/a2a" (iface |> member "url" |> to_string);
+  Alcotest.(check string) "binding"
+    "JSONRPC" (iface |> member "protocolBinding" |> to_string);
+  Alcotest.(check string) "protocol version"
+    "1.0" (iface |> member "protocolVersion" |> to_string)
 
 let test_of_json_invalid () =
   match Agent_card.of_json (`String "bad") with
@@ -155,9 +196,11 @@ let test_capability_roundtrip () =
 
 let test_json_with_authentication () =
   let card : Agent_card.agent_card = {
-    name = "auth-agent"; description = Some "with auth"; version = "1.0";
+    name = "auth-agent"; description = Some "with auth";
+    protocol_version = "1.0"; version = "1.0";
     url = Some "http://agent.local:8080";
     authentication = Some { schemes = ["bearer"; "api-key"]; credentials = Some "secret" };
+    supported_interfaces = [jsonrpc_interface "http://agent.local:8080"];
     capabilities = [Tools; Streaming];
     tools = []; skills = []; supported_providers = ["anthropic"];
     metadata = [("env", `String "test")];
@@ -166,19 +209,22 @@ let test_json_with_authentication () =
   match Agent_card.of_json json with
   | Ok card2 ->
     Alcotest.(check string) "name" "auth-agent" card2.name;
+    Alcotest.(check string) "protocol version" "1.0" card2.protocol_version;
     Alcotest.(check (option string)) "url" (Some "http://agent.local:8080") card2.url;
     (match card2.authentication with
      | Some auth ->
        Alcotest.(check (list string)) "schemes" ["bearer"; "api-key"] auth.schemes;
        Alcotest.(check (option string)) "creds" (Some "secret") auth.credentials
      | None -> Alcotest.fail "expected auth");
+    Alcotest.(check int) "interface count" 1 (List.length card2.supported_interfaces);
     Alcotest.(check int) "metadata" 1 (List.length card2.metadata)
   | Error e -> Alcotest.fail (Error.to_string e)
 
 let test_json_no_auth_no_metadata () =
   let card : Agent_card.agent_card = {
-    name = "simple"; description = None; version = "0.1";
+    name = "simple"; description = None; protocol_version = "1.0"; version = "0.1";
     url = None; authentication = None;
+    supported_interfaces = [];
     capabilities = []; tools = []; skills = [];
     supported_providers = []; metadata = [];
   } in
@@ -193,9 +239,10 @@ let test_json_no_auth_no_metadata () =
 
 let test_json_auth_no_credentials () =
   let card : Agent_card.agent_card = {
-    name = "auth-noc"; description = None; version = "1.0";
+    name = "auth-noc"; description = None; protocol_version = "1.0"; version = "1.0";
     url = None;
     authentication = Some { schemes = ["oauth"]; credentials = None };
+    supported_interfaces = [];
     capabilities = []; tools = []; skills = [];
     supported_providers = []; metadata = [];
   } in
@@ -238,8 +285,9 @@ let test_has_skill_false () =
 
 let test_to_json_with_skills () =
   let card : Agent_card.agent_card = {
-    name = "skill-agent"; description = None; version = "1.0";
+    name = "skill-agent"; description = None; protocol_version = "1.0"; version = "1.0";
     url = None; authentication = None;
+    supported_interfaces = [];
     capabilities = [];
     tools = [];
     skills = [
@@ -254,6 +302,52 @@ let test_to_json_with_skills () =
   Alcotest.(check int) "2 skills" 2 (List.length skills);
   let first = List.hd skills in
   Alcotest.(check string) "skill name" "greet" (first |> member "name" |> to_string)
+
+let test_legacy_json_backfills_interfaces () =
+  let legacy_json =
+    `Assoc [
+      ("name", `String "legacy-agent");
+      ("description", `String "legacy");
+      ("version", `String "0.9");
+      ("url", `String "http://legacy.local/a2a");
+      ("capabilities", `List []);
+      ("tools", `List []);
+      ("skills", `List []);
+      ("supported_providers", `List []);
+    ]
+  in
+  match Agent_card.of_json legacy_json with
+  | Ok card ->
+    Alcotest.(check string) "default protocol version" "0.1" card.protocol_version;
+    Alcotest.(check int) "synthesized interface" 1
+      (List.length card.supported_interfaces)
+  | Error e -> Alcotest.fail (Error.to_string e)
+
+let test_interface_protocol_version_inherits_card_version () =
+  let json =
+    `Assoc [
+      ("name", `String "v1-agent");
+      ("version", `String "1.2.3");
+      ("protocolVersion", `String "1.0");
+      ("supportedInterfaces", `List [
+        `Assoc [
+          ("url", `String "http://agent.local/a2a");
+          ("protocolBinding", `String "JSONRPC");
+        ]
+      ]);
+      ("capabilities", `List []);
+      ("tools", `List []);
+      ("skills", `List []);
+      ("supported_providers", `List []);
+    ]
+  in
+  match Agent_card.of_json json with
+  | Ok card ->
+    Alcotest.(check string) "card protocol version" "1.0" card.protocol_version;
+    let iface = List.hd card.supported_interfaces in
+    Alcotest.(check string) "interface protocol version"
+      "1.0" iface.protocol_version
+  | Error e -> Alcotest.fail (Error.to_string e)
 
 let () =
   let open Alcotest in
@@ -283,11 +377,17 @@ let () =
     "json", [
       test_case "roundtrip" `Quick test_json_roundtrip;
       test_case "to_json structure" `Quick test_to_json_structure;
+      test_case "to_json synthesizes supported interface" `Quick
+        test_to_json_synthesizes_supported_interface;
       test_case "of_json invalid" `Quick test_of_json_invalid;
       test_case "with auth" `Quick test_json_with_authentication;
       test_case "no auth no meta" `Quick test_json_no_auth_no_metadata;
       test_case "auth no creds" `Quick test_json_auth_no_credentials;
       test_case "with skills" `Quick test_to_json_with_skills;
+      test_case "legacy json backfills interfaces" `Quick
+        test_legacy_json_backfills_interfaces;
+      test_case "interface protocol version inherits card version" `Quick
+        test_interface_protocol_version_inherits_card_version;
     ];
     "provider_name", [
       test_case "local" `Quick test_provider_name_local;

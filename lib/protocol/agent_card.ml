@@ -29,12 +29,21 @@ type authentication = {
   credentials: string option;
 }
 
+type supported_interface = {
+  url: string;
+  protocol_binding: string;
+  protocol_version: string;
+  tenant: string option;
+}
+
 type agent_card = {
   name: string;
   description: string option;
-  version: string;
+  protocol_version: string;   (** A2A protocol version, e.g. "1.0" *)
+  version: string;            (** Agent implementation version *)
   url: string option;
   authentication: authentication option;
+  supported_interfaces: supported_interface list;
   capabilities: capability list;
   tools: Types.tool_schema list;
   skills: Skill.t list;
@@ -66,6 +75,17 @@ let capability_of_string = function
   | "elicitation" -> Elicitation
   | s -> Custom_cap s
 
+let default_supported_interfaces (card : agent_card) =
+  match card.supported_interfaces, card.url with
+  | [], Some url ->
+    [ {
+        url;
+        protocol_binding = "JSONRPC";
+        protocol_version = card.protocol_version;
+        tenant = None;
+      } ]
+  | interfaces, _ -> interfaces
+
 let to_json (card : agent_card) : Yojson.Safe.t =
   let opt key = function
     | Some v -> [(key, `String v)]
@@ -80,11 +100,28 @@ let to_json (card : agent_card) : Yojson.Safe.t =
            | Some c -> [("credentials", `String c)]
            | None -> [])))]
   in
+  let interfaces_json =
+    ("supportedInterfaces",
+     `List
+       (List.map
+          (fun (si : supported_interface) ->
+            `Assoc
+              ([ ("url", `String si.url);
+                 ("protocolBinding", `String si.protocol_binding);
+                 ("protocolVersion", `String si.protocol_version) ]
+               @
+               match si.tenant with
+               | Some tenant -> [ ("tenant", `String tenant) ]
+               | None -> []))
+          (default_supported_interfaces card)))
+  in
   `Assoc ([
     ("name", `String card.name);
   ] @ opt "description" card.description
+    @ [("protocolVersion", `String card.protocol_version)]
     @ opt "url" card.url
     @ opt_auth
+    @ [interfaces_json]
     @ [
     ("version", `String card.version);
     ("capabilities",
@@ -116,6 +153,62 @@ let of_json (json : Yojson.Safe.t) : (agent_card, Error.sdk_error) result =
       | v -> Some (to_string v)
     in
     let version = json |> member "version" |> to_string in
+    let top_level_protocol_version =
+      json |> member "protocolVersion" |> to_string_option
+    in
+    let url = match json |> member "url" with
+      | `Null -> None
+      | v -> Some (to_string v)
+    in
+    let raw_supported_interfaces =
+      match json |> member "supportedInterfaces" with
+      | `List items ->
+        List.filter_map
+          (fun item ->
+            match item |> member "url" |> to_string_option with
+            | Some iface_url ->
+              let protocol_binding =
+                match item |> member "protocolBinding" |> to_string_option with
+                | Some binding -> Some binding
+                | None -> item |> member "type" |> to_string_option
+              in
+              (match protocol_binding with
+               | Some binding ->
+                 let protocol_version =
+                   match item |> member "protocolVersion" |> to_string_option with
+                   | Some v -> v
+                   | None ->
+                     (match top_level_protocol_version with
+                      | Some v -> v
+                      | None -> "0.1")
+                 in
+                 let tenant = item |> member "tenant" |> to_string_option in
+                 Some
+                   { url = iface_url; protocol_binding = binding; protocol_version; tenant }
+               | None -> None)
+            | None -> None)
+          items
+      | _ -> []
+    in
+    let protocol_version =
+      match top_level_protocol_version with
+      | Some v -> v
+      | None ->
+        (match raw_supported_interfaces with
+         | first :: _ -> first.protocol_version
+         | [] -> "0.1")
+    in
+    let supported_interfaces =
+      match raw_supported_interfaces, url with
+      | [], Some card_url ->
+        [ {
+            url = card_url;
+            protocol_binding = "JSONRPC";
+            protocol_version;
+            tenant = None;
+          } ]
+      | interfaces, _ -> interfaces
+    in
     let capabilities =
       json |> member "capabilities" |> to_list
       |> List.map (fun j -> capability_of_string (to_string j))
@@ -124,18 +217,13 @@ let of_json (json : Yojson.Safe.t) : (agent_card, Error.sdk_error) result =
       json |> member "supported_providers" |> to_list
       |> List.filter_map (function `String s -> Some s | _ -> None)
     in
-    let metadata =
-      match json |> member "metadata" with
+    let metadata = match json |> member "metadata" with
       | `Assoc pairs -> pairs
       | _ -> []
     in
     (* tools and skills contain runtime objects (functions) that cannot
        be fully restored from JSON.  Callers must re-attach them after
        deserializing the card skeleton. *)
-    let url = match json |> member "url" with
-      | `Null -> None
-      | v -> Some (to_string v)
-    in
     let authentication = match json |> member "authentication" with
       | `Assoc _ as auth_json ->
         let schemes = auth_json |> member "schemes" |> to_list
@@ -147,7 +235,8 @@ let of_json (json : Yojson.Safe.t) : (agent_card, Error.sdk_error) result =
         Some { schemes; credentials }
       | _ -> None
     in
-    Ok { name; description; version; url; authentication; capabilities;
+    Ok { name; description; protocol_version; version; url; authentication;
+         supported_interfaces; capabilities;
          tools = []; skills = [];
          supported_providers; metadata }
   with
@@ -211,9 +300,11 @@ let of_info (info : agent_info) : agent_card =
   {
     name = info.agent_name;
     description = info.agent_description;
+    protocol_version = "1.0";
     version = info.version;
     url = None;
     authentication = None;
+    supported_interfaces = [];
     capabilities = List.rev !caps;
     tools = info.tool_schemas;
     skills;

@@ -12,9 +12,16 @@ let mk_message text =
 let mk_agent_card () =
   { Agent_card.name = "test-agent";
     description = Some "test agent";
+    protocol_version = "1.0";
     version = Agent_sdk.Sdk_version.version;
     url = Some "http://localhost:8080";
     authentication = None;
+    supported_interfaces = [{
+      url = "http://localhost:8080";
+      protocol_binding = "JSONRPC";
+      protocol_version = "1.0";
+      tenant = None;
+    }];
     capabilities = [Tools];
     tools = [];
     skills = [];
@@ -123,7 +130,12 @@ let test_add_artifact () =
 let test_message_part_roundtrip () =
   let parts = [
     A2a_task.Text_part "hello";
-    File_part { name = "test.txt"; mime_type = "text/plain"; data = "abc" };
+    File_part {
+      name = "test.txt";
+      mime_type = "text/plain";
+      data = "abc";
+      location = `Raw;
+    };
     Data_part (`Assoc [("n", `Int 42)]);
   ] in
   List.iter (fun p ->
@@ -251,7 +263,7 @@ let test_tasks_send () =
   let json = Yojson.Safe.from_string body in
   let open Yojson.Safe.Util in
   let result = json |> member "result" in
-  Alcotest.(check string) "state" "submitted"
+  Alcotest.(check string) "state" "TASK_STATE_SUBMITTED"
     (result |> member "state" |> to_string)
 
 let test_tasks_get () =

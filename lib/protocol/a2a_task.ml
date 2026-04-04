@@ -20,6 +20,14 @@ type task_state =
   | Failed
   | Canceled
 
+let task_state_to_wire_string = function
+  | Submitted -> "TASK_STATE_SUBMITTED"
+  | Working -> "TASK_STATE_WORKING"
+  | Input_required -> "TASK_STATE_INPUT_REQUIRED"
+  | Completed -> "TASK_STATE_COMPLETED"
+  | Failed -> "TASK_STATE_FAILED"
+  | Canceled -> "TASK_STATE_CANCELED"
+
 let task_state_to_string = function
   | Submitted -> "submitted"
   | Working -> "working"
@@ -29,15 +37,15 @@ let task_state_to_string = function
   | Canceled -> "canceled"
 
 let task_state_of_string = function
-  | "submitted" -> Ok Submitted
-  | "working" -> Ok Working
-  | "input-required" -> Ok Input_required
-  | "completed" -> Ok Completed
-  | "failed" -> Ok Failed
-  | "canceled" -> Ok Canceled
+  | "submitted" | "TASK_STATE_SUBMITTED" -> Ok Submitted
+  | "working" | "TASK_STATE_WORKING" -> Ok Working
+  | "input-required" | "input_required" | "TASK_STATE_INPUT_REQUIRED" -> Ok Input_required
+  | "completed" | "TASK_STATE_COMPLETED" -> Ok Completed
+  | "failed" | "TASK_STATE_FAILED" -> Ok Failed
+  | "canceled" | "TASK_STATE_CANCELED" -> Ok Canceled
   | s -> Error (Printf.sprintf "unknown task state: %s" s)
 
-let task_state_to_yojson s = `String (task_state_to_string s)
+let task_state_to_yojson s = `String (task_state_to_wire_string s)
 
 let task_state_of_yojson = function
   | `String s ->
@@ -81,39 +89,82 @@ let transition_error_to_string = function
 
 type message_part =
   | Text_part of string
-  | File_part of { name: string; mime_type: string; data: string }
+  | File_part of {
+      name: string;
+      mime_type: string;
+      data: string;
+      location: [ `Raw | `Url ];
+    }
   | Data_part of Yojson.Safe.t
 
 let message_part_to_yojson = function
   | Text_part s ->
-    `Assoc [("type", `String "text"); ("text", `String s)]
-  | File_part { name; mime_type; data } ->
-    `Assoc [
-      ("type", `String "file");
-      ("file", `Assoc [
-        ("name", `String name);
-        ("mimeType", `String mime_type);
-        ("bytes", `String data);
-      ]);
-    ]
+    `Assoc [("text", `String s)]
+  | File_part { name; mime_type; data; location } ->
+    `Assoc
+      ((match location with
+        | `Raw -> [("raw", `String data)]
+        | `Url -> [("url", `String data)])
+       @ [
+           ("filename", `String name);
+           ("mediaType", `String mime_type);
+         ])
   | Data_part json ->
-    `Assoc [("type", `String "data"); ("data", json)]
+    `Assoc [("data", json)]
 
 let message_part_of_yojson json =
   let open Yojson.Safe.Util in
-  match json |> member "type" |> to_string_option with
-  | Some "text" ->
-    let text = json |> member "text" |> to_string in
-    Ok (Text_part text)
-  | Some "file" ->
-    let file = json |> member "file" in
-    let name = file |> member "name" |> to_string in
-    let mime_type = file |> member "mimeType" |> to_string in
-    let data = file |> member "bytes" |> to_string in
-    Ok (File_part { name; mime_type; data })
-  | Some "data" ->
-    let data = json |> member "data" in
-    Ok (Data_part data)
+  match json with
+  | `Assoc fields ->
+    (match List.assoc_opt "type" fields with
+     | Some (`String "text") ->
+       let text = json |> member "text" |> to_string in
+       Ok (Text_part text)
+     | Some (`String "file") ->
+       let file = json |> member "file" in
+       let name = file |> member "name" |> to_string in
+       let mime_type = file |> member "mimeType" |> to_string in
+       let data = file |> member "bytes" |> to_string in
+       Ok (File_part { name; mime_type; data; location = `Raw })
+     | Some (`String "data") ->
+       let data = json |> member "data" in
+       Ok (Data_part data)
+     | Some _ -> Error "unknown message_part type"
+     | None ->
+       (match List.assoc_opt "text" fields with
+        | Some (`String text) -> Ok (Text_part text)
+        | _ ->
+          (match List.assoc_opt "raw" fields with
+           | Some (`String raw) ->
+             let name =
+               match List.assoc_opt "filename" fields with
+               | Some (`String n) -> n
+               | _ -> ""
+             in
+             let mime_type =
+               match List.assoc_opt "mediaType" fields with
+               | Some (`String m) -> m
+               | _ -> "application/octet-stream"
+             in
+             Ok (File_part { name; mime_type; data = raw; location = `Raw })
+           | _ ->
+             (match List.assoc_opt "url" fields with
+              | Some (`String url) ->
+                let name =
+                  match List.assoc_opt "filename" fields with
+                  | Some (`String n) -> n
+                  | _ -> ""
+                in
+                let mime_type =
+                  match List.assoc_opt "mediaType" fields with
+                  | Some (`String m) -> m
+                  | _ -> "application/octet-stream"
+                in
+                Ok (File_part { name; mime_type; data = url; location = `Url })
+              | _ ->
+                match List.assoc_opt "data" fields with
+                | Some data -> Ok (Data_part data)
+                | None -> Error "unknown message_part type"))))
   | _ -> Error "unknown message_part type"
 
 let pp_message_part fmt = function
@@ -128,13 +179,13 @@ let show_message_part mp =
 
 type task_role = TaskUser | TaskAgent
 
-let task_role_to_string = function
-  | TaskUser -> "user"
-  | TaskAgent -> "agent"
+let task_role_to_wire_string = function
+  | TaskUser -> "ROLE_USER"
+  | TaskAgent -> "ROLE_AGENT"
 
 let task_role_of_string = function
-  | "user" -> Ok TaskUser
-  | "agent" -> Ok TaskAgent
+  | "user" | "ROLE_USER" -> Ok TaskUser
+  | "agent" | "ROLE_AGENT" -> Ok TaskAgent
   | s -> Error (Printf.sprintf "unknown task_role: %s" s)
 
 type task_message = {
@@ -145,7 +196,7 @@ type task_message = {
 
 let task_message_to_yojson m =
   `Assoc [
-    ("role", `String (task_role_to_string m.role));
+    ("role", `String (task_role_to_wire_string m.role));
     ("parts", `List (List.map message_part_to_yojson m.parts));
     ("metadata", `Assoc m.metadata);
   ]

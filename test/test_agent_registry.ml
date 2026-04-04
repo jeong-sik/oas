@@ -25,9 +25,16 @@ let test_register_remote () =
   let card : Agent_card.agent_card = {
     name = "remote-agent";
     description = Some "A remote agent";
+    protocol_version = "1.0";
     version = "1.0.0";
     url = Some "http://example.com";
     authentication = None;
+    supported_interfaces = [{
+      url = "http://example.com";
+      protocol_binding = "JSONRPC";
+      protocol_version = "1.0";
+      tenant = None;
+    }];
     capabilities = [Tools; Streaming];
     tools = [];
     skills = [];
@@ -68,14 +75,16 @@ let test_count () =
 let test_list_by_capability () =
   let reg = Agent_registry.create () in
   let card_tools : Agent_card.agent_card = {
-    name = "tools-agent"; description = None; version = "1.0";
+    name = "tools-agent"; description = None; protocol_version = "1.0"; version = "1.0";
     url = None; authentication = None;
+    supported_interfaces = [];
     capabilities = [Tools]; tools = []; skills = [];
     supported_providers = []; metadata = [];
   } in
   let card_thinking : Agent_card.agent_card = {
-    name = "think-agent"; description = None; version = "1.0";
+    name = "think-agent"; description = None; protocol_version = "1.0"; version = "1.0";
     url = None; authentication = None;
+    supported_interfaces = [];
     capabilities = [Thinking]; tools = []; skills = [];
     supported_providers = []; metadata = [];
   } in
@@ -90,8 +99,9 @@ let test_list_by_capability () =
 let test_list_by_tool () =
   let reg = Agent_registry.create () in
   let card : Agent_card.agent_card = {
-    name = "tool-owner"; description = None; version = "1.0";
+    name = "tool-owner"; description = None; protocol_version = "1.0"; version = "1.0";
     url = None; authentication = None;
+    supported_interfaces = [];
     capabilities = [Tools];
     tools = [{ name = "get_weather"; description = "Weather"; parameters = [] }];
     skills = [];
@@ -117,8 +127,9 @@ let test_unregister () =
 
 let test_card_of_entry () =
   let card : Agent_card.agent_card = {
-    name = "test"; description = None; version = "1.0";
+    name = "test"; description = None; protocol_version = "1.0"; version = "1.0";
     url = None; authentication = None;
+    supported_interfaces = [];
     capabilities = []; tools = []; skills = [];
     supported_providers = []; metadata = [];
   } in
@@ -151,8 +162,9 @@ let test_fetch_card_unreachable () =
 let test_overwrite () =
   let reg = Agent_registry.create () in
   let card1 : Agent_card.agent_card = {
-    name = "v1"; description = None; version = "1.0";
+    name = "v1"; description = None; protocol_version = "1.0"; version = "1.0";
     url = None; authentication = None;
+    supported_interfaces = [];
     capabilities = []; tools = []; skills = [];
     supported_providers = []; metadata = [];
   } in

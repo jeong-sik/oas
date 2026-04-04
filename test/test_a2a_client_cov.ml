@@ -257,7 +257,14 @@ let test_text_of_task_multi () =
 let test_text_of_task_file_only () =
   let msg : A2a_task.task_message = {
     role = TaskAgent;
-    parts = [A2a_task.File_part { name = "f.txt"; mime_type = "text/plain"; data = "data" }];
+    parts = [
+      A2a_task.File_part {
+        name = "f.txt";
+        mime_type = "text/plain";
+        data = "data";
+        location = `Raw;
+      }
+    ];
     metadata = [];
   } in
   let task : A2a_task.task = {

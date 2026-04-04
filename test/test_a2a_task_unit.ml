@@ -24,7 +24,21 @@ let test_state_to_string () =
   ) cases
 
 let test_state_of_string_valid () =
-  let cases = ["submitted"; "working"; "input-required"; "completed"; "failed"; "canceled"] in
+  let cases = [
+    "submitted";
+    "working";
+    "input-required";
+    "input_required";
+    "completed";
+    "failed";
+    "canceled";
+    "TASK_STATE_SUBMITTED";
+    "TASK_STATE_WORKING";
+    "TASK_STATE_INPUT_REQUIRED";
+    "TASK_STATE_COMPLETED";
+    "TASK_STATE_FAILED";
+    "TASK_STATE_CANCELED";
+  ] in
   List.iter (fun s ->
     match A2a_task.task_state_of_string s with
     | Ok _ -> ()
@@ -50,6 +64,12 @@ let test_state_yojson_roundtrip () =
         (A2a_task.task_state_to_string s2)
     | Error e -> Alcotest.fail e
   ) states
+
+let test_state_yojson_wire_value () =
+  Alcotest.(check string) "wire enum"
+    "\"TASK_STATE_WORKING\""
+    (Yojson.Safe.to_string
+       (A2a_task.task_state_to_yojson A2a_task.Working))
 
 let test_state_of_yojson_non_string () =
   match A2a_task.task_state_of_yojson (`Int 42) with
@@ -121,19 +141,50 @@ let test_transition_error_to_string () =
 let test_text_part_json () =
   let p = A2a_task.Text_part "hello" in
   let json = A2a_task.message_part_to_yojson p in
+  Alcotest.(check bool) "wire shape has text" true
+    (match json with `Assoc [("text", `String "hello")] -> true | _ -> false);
   match A2a_task.message_part_of_yojson json with
   | Ok (A2a_task.Text_part s) -> Alcotest.(check string) "text" "hello" s
   | Ok _ -> Alcotest.fail "wrong variant"
   | Error e -> Alcotest.fail e
 
 let test_file_part_json () =
-  let p = A2a_task.File_part { name = "test.txt"; mime_type = "text/plain"; data = "YWJj" } in
+  let p = A2a_task.File_part {
+    name = "test.txt";
+    mime_type = "text/plain";
+    data = "YWJj";
+    location = `Raw;
+  } in
   let json = A2a_task.message_part_to_yojson p in
+  Alcotest.(check bool) "wire shape has raw" true
+    (match Yojson.Safe.Util.member "raw" json with `String "YWJj" -> true | _ -> false);
   match A2a_task.message_part_of_yojson json with
-  | Ok (A2a_task.File_part { name; mime_type; data }) ->
+  | Ok (A2a_task.File_part { name; mime_type; data; location }) ->
     Alcotest.(check string) "name" "test.txt" name;
     Alcotest.(check string) "mime" "text/plain" mime_type;
-    Alcotest.(check string) "data" "YWJj" data
+    Alcotest.(check string) "data" "YWJj" data;
+    Alcotest.(check bool) "raw location" true (location = `Raw)
+  | Ok _ -> Alcotest.fail "wrong variant"
+  | Error e -> Alcotest.fail e
+
+let test_url_file_part_json () =
+  let p = A2a_task.File_part {
+    name = "remote.txt";
+    mime_type = "text/plain";
+    data = "https://example.com/remote.txt";
+    location = `Url;
+  } in
+  let json = A2a_task.message_part_to_yojson p in
+  Alcotest.(check bool) "wire shape has url" true
+    (match Yojson.Safe.Util.member "url" json with
+     | `String "https://example.com/remote.txt" -> true
+     | _ -> false);
+  match A2a_task.message_part_of_yojson json with
+  | Ok (A2a_task.File_part { name; mime_type; data; location }) ->
+    Alcotest.(check string) "name" "remote.txt" name;
+    Alcotest.(check string) "mime" "text/plain" mime_type;
+    Alcotest.(check string) "data" "https://example.com/remote.txt" data;
+    Alcotest.(check bool) "url location" true (location = `Url)
   | Ok _ -> Alcotest.fail "wrong variant"
   | Error e -> Alcotest.fail e
 
@@ -153,10 +204,30 @@ let test_message_part_unknown () =
   | Error _ -> ()
   | Ok _ -> Alcotest.fail "expected error"
 
+let test_legacy_file_part_json () =
+  let legacy_json =
+    `Assoc [
+      ("type", `String "file");
+      ("file", `Assoc [
+        ("name", `String "legacy.txt");
+        ("mimeType", `String "text/plain");
+        ("bytes", `String "YWJj");
+      ]);
+    ]
+  in
+  match A2a_task.message_part_of_yojson legacy_json with
+  | Ok (A2a_task.File_part { name; mime_type; data; location }) ->
+    Alcotest.(check string) "name" "legacy.txt" name;
+    Alcotest.(check string) "mime" "text/plain" mime_type;
+    Alcotest.(check string) "data" "YWJj" data;
+    Alcotest.(check bool) "legacy raw location" true (location = `Raw)
+  | Ok _ -> Alcotest.fail "wrong variant"
+  | Error e -> Alcotest.fail e
+
 let test_pp_message_part () =
   let cases : (A2a_task.message_part * string) list = [
     (A2a_task.Text_part "hi", "Text");
-    (A2a_task.File_part { name = "f"; mime_type = "m"; data = "d" }, "File");
+    (A2a_task.File_part { name = "f"; mime_type = "m"; data = "d"; location = `Raw }, "File");
     (A2a_task.Data_part `Null, "Data");
   ] in
   List.iter (fun (part, _expected_prefix) ->
@@ -172,7 +243,7 @@ let test_task_role_user_via_message () =
   } in
   let json = A2a_task.task_message_to_yojson msg in
   let role_s = Yojson.Safe.Util.(json |> member "role" |> to_string) in
-  Alcotest.(check string) "user role" "user" role_s
+  Alcotest.(check string) "user role" "ROLE_USER" role_s
 
 let test_task_role_agent_via_message () =
   let msg : A2a_task.task_message = {
@@ -180,7 +251,7 @@ let test_task_role_agent_via_message () =
   } in
   let json = A2a_task.task_message_to_yojson msg in
   let role_s = Yojson.Safe.Util.(json |> member "role" |> to_string) in
-  Alcotest.(check string) "agent role" "agent" role_s
+  Alcotest.(check string) "agent role" "ROLE_AGENT" role_s
 
 let test_task_role_unknown_via_deser () =
   let json = `Assoc [
@@ -191,6 +262,20 @@ let test_task_role_unknown_via_deser () =
   match A2a_task.task_message_of_yojson json with
   | Error _ -> ()
   | Ok _ -> Alcotest.fail "expected error for unknown role"
+
+let test_task_role_legacy_via_deser () =
+  let check role_s expected =
+    let json = `Assoc [
+      ("role", `String role_s);
+      ("parts", `List []);
+      ("metadata", `Assoc [])
+    ] in
+    match A2a_task.task_message_of_yojson json with
+    | Ok msg -> Alcotest.(check bool) role_s true (msg.role = expected)
+    | Error e -> Alcotest.fail e
+  in
+  check "user" A2a_task.TaskUser;
+  check "agent" A2a_task.TaskAgent
 
 (* ── Task message ────────────────────────────────────────────── *)
 
@@ -222,7 +307,7 @@ let test_task_message_agent_role () =
     (* Verify agent role by re-serializing and checking JSON *)
     let json2 = A2a_task.task_message_to_yojson msg2 in
     let role_s = Yojson.Safe.Util.(json2 |> member "role" |> to_string) in
-    Alcotest.(check string) "agent role" "agent" role_s
+    Alcotest.(check string) "agent role" "ROLE_AGENT" role_s
 
 let test_task_message_bad_role () =
   let json = `Assoc [
@@ -491,6 +576,7 @@ let () =
       tc "of_string valid" test_state_of_string_valid;
       tc "of_string invalid" test_state_of_string_invalid;
       tc "yojson roundtrip" test_state_yojson_roundtrip;
+      tc "yojson wire value" test_state_yojson_wire_value;
       tc "of_yojson non-string" test_state_of_yojson_non_string;
       tc "pp_task_state" test_pp_task_state;
       tc "show_task_state" test_show_task_state;
@@ -506,14 +592,17 @@ let () =
     ("message_parts", [
       tc "text part" test_text_part_json;
       tc "file part" test_file_part_json;
+      tc "url file part" test_url_file_part_json;
       tc "data part" test_data_part_json;
       tc "unknown part" test_message_part_unknown;
+      tc "legacy file part" test_legacy_file_part_json;
       tc "pp/show" test_pp_message_part;
     ]);
     ("task_role", [
       tc "user via message" test_task_role_user_via_message;
       tc "agent via message" test_task_role_agent_via_message;
       tc "unknown via deser" test_task_role_unknown_via_deser;
+      tc "legacy via deser" test_task_role_legacy_via_deser;
     ]);
     ("task_message", [
       tc "json roundtrip" test_task_message_json_roundtrip;

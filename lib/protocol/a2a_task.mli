@@ -36,7 +36,12 @@ val transition_error_to_string : transition_error -> string
 
 type message_part =
   | Text_part of string
-  | File_part of { name: string; mime_type: string; data: string }
+  | File_part of {
+      name: string;
+      mime_type: string;
+      data: string;
+      location: [ `Raw | `Url ];
+    }
   | Data_part of Yojson.Safe.t
 
 val message_part_to_yojson : message_part -> Yojson.Safe.t

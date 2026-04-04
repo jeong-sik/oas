@@ -25,9 +25,16 @@ let mk_message text =
 let mk_agent_card () =
   { Agent_card.name = "test-agent";
     description = Some "test";
+    protocol_version = "1.0";
     version = "1.0";
     url = Some "http://localhost:8080";
     authentication = None;
+    supported_interfaces = [{
+      url = "http://localhost:8080";
+      protocol_binding = "JSONRPC";
+      protocol_version = "1.0";
+      tenant = None;
+    }];
     capabilities = [];
     tools = [];
     skills = [];
@@ -85,7 +92,7 @@ let test_tasks_cancel_success () =
   Alcotest.(check int) "status" 200 code;
   let json = Yojson.Safe.from_string cancel_resp in
   let result = Yojson.Safe.Util.(json |> member "result") in
-  Alcotest.(check string) "state" "canceled"
+  Alcotest.(check string) "state" "TASK_STATE_CANCELED"
     Yojson.Safe.Util.(result |> member "state" |> to_string);
   Alcotest.(check bool) "callback called" true
     (List.mem task_id !canceled_ids)
@@ -219,7 +226,12 @@ let test_text_of_task_file_parts_ignored () =
   let msg : A2a_task.task_message = {
     role = TaskAgent;
     parts = [
-      A2a_task.File_part { name = "f.txt"; mime_type = "text/plain"; data = "data" };
+      A2a_task.File_part {
+        name = "f.txt";
+        mime_type = "text/plain";
+        data = "data";
+        location = `Raw;
+      };
       A2a_task.Data_part (`Assoc [("k", `String "v")]);
     ];
     metadata = [];
@@ -256,7 +268,7 @@ let test_text_of_task_mixed_parts () =
     role = TaskAgent;
     parts = [
       A2a_task.Text_part "line1";
-      A2a_task.File_part { name = "f"; mime_type = "x"; data = "d" };
+      A2a_task.File_part { name = "f"; mime_type = "x"; data = "d"; location = `Raw };
       A2a_task.Text_part "line2";
     ];
     metadata = [];
