@@ -10,6 +10,7 @@ type turn_params = {
   thinking_budget: int option;
   tool_choice: Types.tool_choice option;
   extra_system_context: string option;
+  system_prompt_override: string option;
   tool_filter_override: Guardrails.tool_filter option;
 }
 

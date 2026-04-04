@@ -15,6 +15,7 @@ type turn_params = {
   thinking_budget: int option;
   tool_choice: tool_choice option;
   extra_system_context: string option;
+  system_prompt_override: string option;
   tool_filter_override: Guardrails.tool_filter option;
 }
 
@@ -23,6 +24,7 @@ let default_turn_params = {
   thinking_budget = None;
   tool_choice = None;
   extra_system_context = None;
+  system_prompt_override = None;
   tool_filter_override = None;
 }
 

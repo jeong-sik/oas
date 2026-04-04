@@ -84,6 +84,47 @@ let test_prepare_messages_extra_context () =
       (Util.string_contains ~needle:"test mode" t)
   | _ -> Alcotest.fail "expected Text"
 
+(* ── system_prompt_override does not affect prepare_messages ── *)
+
+let test_prepare_messages_system_prompt_override_noop () =
+  let msgs = [
+    { Types.role = Types.User; content = [Types.Text "hello"]; name = None; tool_call_id = None };
+  ] in
+  let turn_params = {
+    Hooks.default_turn_params with
+    system_prompt_override = Some "Custom system prompt";
+  } in
+  let result = Agent_turn.prepare_messages
+    ~messages:msgs ~context_reducer:None ~turn_params
+  in
+  (* system_prompt_override is handled in pipeline stage_parse, not
+     in prepare_messages. Message count should remain unchanged. *)
+  Alcotest.(check int) "no extra message from override" 1 (List.length result)
+
+let test_prepare_messages_both_override_and_extra_context () =
+  let msgs = [
+    { Types.role = Types.User; content = [Types.Text "hello"]; name = None; tool_call_id = None };
+  ] in
+  let turn_params = {
+    Hooks.default_turn_params with
+    extra_system_context = Some "Debug mode on.";
+    system_prompt_override = Some "You are a reviewer.";
+  } in
+  let result = Agent_turn.prepare_messages
+    ~messages:msgs ~context_reducer:None ~turn_params
+  in
+  (* extra_system_context injects a User message; system_prompt_override
+     is applied separately in pipeline. So only extra_system_context
+     adds a message here. *)
+  Alcotest.(check int) "extra context adds 1 message" 2 (List.length result);
+  let first = List.hd result in
+  Alcotest.(check bool) "injected msg is User" true (first.role = Types.User);
+  match List.hd first.content with
+  | Types.Text t ->
+    Alcotest.(check bool) "contains debug mode" true
+      (Util.string_contains ~needle:"Debug mode" t)
+  | _ -> Alcotest.fail "expected Text"
+
 (* ── accumulate_usage tests ──────────────────────────────── *)
 
 let test_accumulate_usage_with_response () =
@@ -511,6 +552,10 @@ let () =
     "prepare_messages", [
       Alcotest.test_case "no reducer" `Quick test_prepare_messages_no_reducer;
       Alcotest.test_case "extra context" `Quick test_prepare_messages_extra_context;
+      Alcotest.test_case "system_prompt_override noop" `Quick
+        test_prepare_messages_system_prompt_override_noop;
+      Alcotest.test_case "both override and extra_context" `Quick
+        test_prepare_messages_both_override_and_extra_context;
     ];
     "accumulate_usage", [
       Alcotest.test_case "with response" `Quick test_accumulate_usage_with_response;
