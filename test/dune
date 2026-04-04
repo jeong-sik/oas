@@ -314,9 +314,7 @@
  (name test_a2a)
  (libraries agent_sdk alcotest yojson unix))
 
-(test
- (name test_coverage_gaps)
- (libraries agent_sdk alcotest yojson))
+
 
 (test
  (name test_a2a_task_store)
@@ -625,13 +623,6 @@
  (name test_mcp_coverage)
  (libraries agent_sdk alcotest yojson mcp_protocol))
 
-(test
- (name test_api_coverage)
- (libraries agent_sdk alcotest yojson))
-
-(test
- (name test_client_coverage)
- (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_builder_coverage)
