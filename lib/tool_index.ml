@@ -224,6 +224,20 @@ let retrieve (idx : t) (query : string) : (string * float) list =
 let retrieve_names (idx : t) (query : string) : string list =
   List.map fst (retrieve idx query)
 
+(* ── Scoped retrieval ────────────────────────────── *)
+
+let retrieve_within (idx : t) ~(active : string list) (query : string)
+    : (string * float) list =
+  let set = Hashtbl.create (List.length active) in
+  List.iter (fun name -> Hashtbl.replace set name true) active;
+  retrieve idx query
+  |> List.filter (fun (name, _) -> Hashtbl.mem set name)
+
+let retrieve_filtered (idx : t) ~(filter : string -> bool) (query : string)
+    : (string * float) list =
+  retrieve idx query
+  |> List.filter (fun (name, _) -> filter name)
+
 (* ── Confidence gate ──────────────────────────────── *)
 
 let confident (idx : t) (query : string) ~threshold : bool =
@@ -341,3 +355,51 @@ let%test "korean group co-retrieval" =
   let results = retrieve_names idx "게시판 글" in
   List.mem "keeper_board_post" results
   && List.mem "keeper_board_comment" results
+
+(* ── Scoped retrieval tests ──────────────────────── *)
+
+let%test "retrieve_within returns only active tools" =
+  let idx = build [
+    { name = "read_file"; description = "Read contents of a file"; group = None };
+    { name = "write_file"; description = "Write content to a file"; group = None };
+    { name = "delete_file"; description = "Delete a file from disk"; group = None };
+  ] in
+  let results = retrieve_within idx ~active:["read_file"; "delete_file"] "file" in
+  let names = List.map fst results in
+  List.mem "read_file" names
+  && List.mem "delete_file" names
+  && not (List.mem "write_file" names)
+
+let%test "retrieve_within with empty active returns empty" =
+  let idx = build [
+    { name = "read_file"; description = "Read contents of a file"; group = None };
+    { name = "write_file"; description = "Write content to a file"; group = None };
+  ] in
+  retrieve_within idx ~active:[] "file" = []
+
+let%test "retrieve_filtered with predicate" =
+  let idx = build [
+    { name = "git_commit"; description = "Create a git commit"; group = None };
+    { name = "git_push"; description = "Push commits to remote"; group = None };
+    { name = "read_file"; description = "Read a file from disk"; group = None };
+  ] in
+  let results =
+    retrieve_filtered idx ~filter:(fun name ->
+      String.length name >= 4
+      && String.sub name 0 4 = "git_"
+    ) "commit push"
+  in
+  let names = List.map fst results in
+  List.mem "git_commit" names
+  && not (List.mem "read_file" names)
+
+let%test "retrieve_within excludes confiscated tools" =
+  (* Tools not in the active set are excluded even if they score high *)
+  let idx = build [
+    { name = "dangerous_tool"; description = "Execute arbitrary code run"; group = None };
+    { name = "safe_tool"; description = "Execute safe operation run"; group = None };
+  ] in
+  let results = retrieve_within idx ~active:["safe_tool"] "execute run" in
+  let names = List.map fst results in
+  List.mem "safe_tool" names
+  && not (List.mem "dangerous_tool" names)
