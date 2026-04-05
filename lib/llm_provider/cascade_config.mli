@@ -69,8 +69,8 @@ val parse_model_strings :
 
     The JSON file maps "{name}_models" keys to string arrays:
     {[
-      { "heartbeat_action_models": ["llama:qwen3.5", "glm:auto"],
-        "sentinel_board_models":   ["llama:qwen3.5", "glm:glm-4.5"] }
+      { "primary_models":    ["llama:qwen3.5", "glm:auto"],
+        "evaluation_models": ["llama:qwen3.5", "glm:glm-4.5"] }
     ]}
 
     Results are cached and hot-reloaded when the file mtime changes.

@@ -99,7 +99,7 @@ Consumers define named cascade profiles; OAS handles routing.
 ```ocaml
 (* Execute a named cascade: load config, filter health, failover *)
 Cascade_config.complete_named ~sw ~net ~clock
-  ~name:"heartbeat_action"
+  ~name:"primary"
   ~defaults:["llama:qwen3.5-35b"; "glm:auto"]
   ~messages ~temperature:0.3 ~max_tokens:500 ()
 

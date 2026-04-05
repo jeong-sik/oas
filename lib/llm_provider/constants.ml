@@ -22,7 +22,7 @@ end
 
 (** Named inference parameter profiles.  Single source of truth for
     temperature / max_tokens defaults used by both the SDK and
-    downstream coordinators (e.g. MASC).
+    downstream coordinators.
 
     - [cascade_default]: lightweight cascade calls (health, routing).
     - [agent_default]: full agent turn execution.
