@@ -278,7 +278,7 @@ let legal_decisions_for_stage stage =
   | "post_tool_use"         -> [K_Continue]
   | "post_tool_use_failure" -> [K_Continue]
   | "on_stop"               -> [K_Continue]
-  | "on_idle"               -> [K_Continue]
+  | "on_idle"               -> [K_Continue; K_Skip]
   | "on_error"              -> [K_Continue]
   | "on_tool_error"         -> [K_Continue]
   | "pre_compact"           -> [K_Continue; K_Skip]

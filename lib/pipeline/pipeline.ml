@@ -299,8 +299,9 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
     agent.last_tool_calls <- idle_result.new_state.last_tool_calls;
     agent.consecutive_idle_turns <-
       idle_result.new_state.consecutive_idle_turns);
+  let idle_stop = ref false in
   if idle_result.is_idle then begin
-    let _idle =
+    let idle_decision =
       invoke_hook_with_trace agent ?raw_trace_run ~hook_name:"on_idle"
         agent.options.hooks.on_idle
         (Hooks.OnIdle {
@@ -309,8 +310,12 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
             | ToolUse { name; _ } -> Some name | _ -> None
           ) tool_uses })
     in
-    ()
+    if idle_decision = Hooks.Skip then idle_stop := true
   end;
+  if !idle_stop then
+    Error (Error.Agent (IdleDetected {
+      consecutive_idle_turns = agent.consecutive_idle_turns }))
+  else
 
   let count = List.length tool_uses in
   match Guardrails.exceeds_limit effective_guardrails count with
