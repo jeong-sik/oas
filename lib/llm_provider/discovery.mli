@@ -96,7 +96,8 @@ val scan_local_endpoints :
 val discovered_per_slot_context : unit -> int option
 (** Max per-slot context tokens across all healthy endpoints.
     Computed as [ctx_size / total_slots] for each endpoint, then
-    takes the max.  Returns [None] if no probe completed. *)
+    takes the max.  Returns [None] if no probe completed or the
+    latest probe yielded no valid slot/context data. *)
 
 val discovered_endpoint_contexts : unit -> (string * int) list
 (** Per-endpoint per-slot context from last probe.

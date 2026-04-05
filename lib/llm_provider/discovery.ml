@@ -245,23 +245,29 @@ let probe_endpoint ~sw ~net url =
 
 (* ── Shared discovered context state ──────────────────────── *)
 
-(** Per-endpoint per-slot context.  Keyed by base URL. *)
-let _discovered_endpoint_ctxs : (string * int) list Atomic.t = Atomic.make []
+(** Snapshot of per-endpoint and global per-slot context, stored as a
+    single atomic to prevent tearing between readers and writers. *)
+type _discovered_ctx_snapshot = {
+  endpoint_ctxs: (string * int) list;
+  per_slot_ctx: int option;
+}
 
-(** Legacy: max across all endpoints.  Kept for backward compat. *)
-let _discovered_per_slot_ctx : int option Atomic.t = Atomic.make None
+let _discovered_ctx : _discovered_ctx_snapshot Atomic.t =
+  Atomic.make { endpoint_ctxs = []; per_slot_ctx = None }
 
-let discovered_per_slot_context () = Atomic.get _discovered_per_slot_ctx
+let discovered_per_slot_context () =
+  (Atomic.get _discovered_ctx).per_slot_ctx
 
 (** Per-endpoint per-slot context map from last probe.
     Returns [(url, per_slot_ctx)] for each healthy endpoint. *)
-let discovered_endpoint_contexts () = Atomic.get _discovered_endpoint_ctxs
+let discovered_endpoint_contexts () =
+  (Atomic.get _discovered_ctx).endpoint_ctxs
 
 (** Look up per-slot context for a specific endpoint URL.
     Returns [None] if the endpoint was not probed or has no props. *)
 let discovered_context_for_url (url : string) : int option =
   let normalized = String.trim url in
-  List.assoc_opt normalized (Atomic.get _discovered_endpoint_ctxs)
+  List.assoc_opt normalized (Atomic.get _discovered_ctx).endpoint_ctxs
 
 let discover ~sw ~net ~endpoints =
   Eio.Fiber.List.map (fun url -> probe_endpoint ~sw ~net url) endpoints
@@ -275,11 +281,13 @@ let refresh_and_sync ~sw ~net ~endpoints =
       Some (s.url, p.ctx_size / p.total_slots)
     | _ -> None
   ) healthy in
-  Atomic.set _discovered_endpoint_ctxs per_slot_contexts;
   let ctx_values = List.map snd per_slot_contexts in
-  (match ctx_values with
-   | [] -> ()
-   | ctxs -> Atomic.set _discovered_per_slot_ctx (Some (List.fold_left max 0 ctxs)));
+  let per_slot = match ctx_values with
+    | [] -> None
+    | ctxs -> Some (List.fold_left max 0 ctxs)
+  in
+  Atomic.set _discovered_ctx
+    { endpoint_ctxs = per_slot_contexts; per_slot_ctx = per_slot };
   statuses
 
 let default_scan_ports = [ 8085; 8086; 8087; 8088; 8089; 8090; 11434 ]
@@ -704,3 +712,52 @@ let%test "infer_capabilities defaults to 262K when no props for qwen" =
   let models = [{ id = "qwen3.5-35b"; owned_by = "ollama" }] in
   let caps = infer_capabilities models None in
   caps.max_context_tokens = Some 262_144
+
+(* --- discovered context state (atomic snapshot) --- *)
+
+let%test "discovered_ctx snapshot: set and read both fields atomically" =
+  let snap = { endpoint_ctxs = [("http://a:8085", 4096)]; per_slot_ctx = Some 4096 } in
+  Atomic.set _discovered_ctx snap;
+  discovered_per_slot_context () = Some 4096
+  && discovered_endpoint_contexts () = [("http://a:8085", 4096)]
+
+let%test "discovered_ctx snapshot: empty endpoints clears per_slot_ctx" =
+  (* Simulate a probe that previously found endpoints *)
+  Atomic.set _discovered_ctx
+    { endpoint_ctxs = [("http://a:8085", 8192)]; per_slot_ctx = Some 8192 };
+  (* Simulate a probe with no valid results *)
+  Atomic.set _discovered_ctx
+    { endpoint_ctxs = []; per_slot_ctx = None };
+  discovered_per_slot_context () = None
+  && discovered_endpoint_contexts () = []
+
+let%test "discovered_ctx snapshot: max across multiple endpoints" =
+  Atomic.set _discovered_ctx
+    { endpoint_ctxs = [("http://a:8085", 4096); ("http://b:8086", 8192)];
+      per_slot_ctx = Some 8192 };
+  discovered_per_slot_context () = Some 8192
+  && List.length (discovered_endpoint_contexts ()) = 2
+
+let%test "discovered_context_for_url returns per-endpoint value" =
+  Atomic.set _discovered_ctx
+    { endpoint_ctxs = [("http://a:8085", 4096); ("http://b:8086", 8192)];
+      per_slot_ctx = Some 8192 };
+  discovered_context_for_url "http://a:8085" = Some 4096
+  && discovered_context_for_url "http://b:8086" = Some 8192
+
+let%test "discovered_context_for_url returns None for unknown endpoint" =
+  Atomic.set _discovered_ctx
+    { endpoint_ctxs = [("http://a:8085", 4096)]; per_slot_ctx = Some 4096 };
+  discovered_context_for_url "http://unknown:9999" = None
+
+let%test "discovered_context_for_url trims whitespace" =
+  Atomic.set _discovered_ctx
+    { endpoint_ctxs = [("http://a:8085", 4096)]; per_slot_ctx = Some 4096 };
+  discovered_context_for_url "  http://a:8085  " = Some 4096
+
+let%test "discovered_ctx initial state is empty" =
+  (* Reset to initial state *)
+  Atomic.set _discovered_ctx { endpoint_ctxs = []; per_slot_ctx = None };
+  discovered_per_slot_context () = None
+  && discovered_endpoint_contexts () = []
+  && discovered_context_for_url "http://any:8085" = None

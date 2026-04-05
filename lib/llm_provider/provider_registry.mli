@@ -100,4 +100,5 @@ val discovered_max_context : unit -> int option
 val discovered_endpoint_max_context : string -> int option
 (** Per-slot context for a specific endpoint URL.
     Delegates to {!Discovery.discovered_context_for_url}.
-    Returns [None] if the endpoint was not probed. *)
+    Returns [None] if the endpoint was not probed.
+    @since 0.100.8 *)
