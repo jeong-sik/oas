@@ -402,6 +402,16 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
          ~injector ~tool_uses ~results
        in
        update_state agent (fun s -> { s with messages = new_messages }));
+    (* Anti-repetition hint: when idle is detected but below skip threshold,
+       inject a warning so the LLM tries a different approach next turn. *)
+    (if idle_result.is_idle then
+       update_state agent (fun s ->
+         { s with messages = Util.snoc s.messages
+           { role = User;
+             content = [Text (Printf.sprintf
+               "[Idle warning: You called the same tool(s) with identical arguments %d time(s) in a row. Try a different tool or change your arguments to make progress.]"
+               agent.consecutive_idle_turns)];
+             name = None; tool_call_id = None } }));
     (* In-memory message hygiene after each tool execution round.
        Without this, agent.state.messages grows unbounded across turns —
        context_reducer only trims before API calls, not in the stored state.
