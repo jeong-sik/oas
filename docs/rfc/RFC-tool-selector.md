@@ -434,7 +434,7 @@ Selector LLM call (optional, lightweight)
   -> output: tool name list
 
 Main Agent LLM call (existing)
-  -> cascade: "heartbeat_action" or agent's named cascade
+  -> cascade: "primary" or agent's named cascade
   -> input: selected tool schemas only
   -> output: tool_use blocks
 ```
