@@ -224,7 +224,10 @@ let test_heal_llm_no_tool_call () =
     ~tool_use_id:"tu1" ~args ~prior_messages:[] ~llm:mock_llm_text_only () with
   | Error (Tool_middleware.Exhausted { last_error; _ }) ->
     Alcotest.(check bool) "mentions tool name" true
-      (string_contains ~sub:"calc" last_error)
+      (string_contains ~sub:"calc" last_error);
+    Alcotest.(check bool) "mentions missing tool call" true
+      (string_contains ~sub:"no" last_error &&
+       string_contains ~sub:"tool call" last_error)
   | Error _ -> Alcotest.fail "wrong error type"
   | Ok _ -> Alcotest.fail "should fail when LLM returns no tool call"
 
