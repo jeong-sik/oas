@@ -23,12 +23,12 @@ let options = { Agent.default_options with base_url; provider = Some provider }
 let masc_mcp_command () =
   match Sys.getenv_opt "MASC_MCP_COMMAND" with
   | Some path when String.trim path <> "" -> path
-  | _ -> "/Users/dancer/me/workspace/yousleepwhen/masc-mcp/start-masc-mcp.sh"
+  | _ -> failwith "MASC_MCP_COMMAND env var required for MASC integration tests"
 
 let masc_mcp_base_path () =
   match Sys.getenv_opt "MASC_MCP_BASE_PATH" with
   | Some path when String.trim path <> "" -> path
-  | _ -> "/Users/dancer/me"
+  | _ -> failwith "MASC_MCP_BASE_PATH env var required for MASC integration tests"
 
 let qwen_config name system_prompt max_tokens max_turns =
   {

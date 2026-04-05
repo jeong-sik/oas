@@ -261,7 +261,7 @@ let test_http_mcp_config () =
     ("mcp_servers", `List [
       `Assoc [
         ("url", `String "http://localhost:8935/mcp");
-        ("name", `String "masc");
+        ("name", `String "example_mcp");
         ("headers", `Assoc [("Authorization", `String "Bearer tok")]);
       ]
     ]);
@@ -272,7 +272,7 @@ let test_http_mcp_config () =
     (match List.hd cfg.mcp_servers with
      | Agent_config.Http_mcp { url; name; headers } ->
          check string "url" "http://localhost:8935/mcp" url;
-         check string "name" "masc" name;
+         check string "name" "example_mcp" name;
          check int "1 header" 1 (List.length headers);
          let (hk, hv) = List.hd headers in
          check string "header key" "Authorization" hk;

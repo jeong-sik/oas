@@ -59,3 +59,9 @@ val make :
   ?response_format_json:bool ->
   ?cache_system_prompt:bool ->
   unit -> t
+
+(** Lowercase string representation of the wire-format kind.
+    Returns the variant name in lowercase (e.g. [Anthropic] -> ["anthropic"]).
+    Exhaustive match: adding a new variant triggers a compile error.
+    @since 0.100.0 *)
+val string_of_provider_kind : provider_kind -> string
