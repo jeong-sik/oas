@@ -16,6 +16,8 @@ type api_strategy =
 type turn_outcome =
   | Complete of Types.api_response
   | ToolsExecuted
+  | IdleSkipped
+      (** on_idle hook returned Skip — agent should stop gracefully. *)
 
 (** Run a single agent turn through the 6-stage pipeline.
     Equivalent to the previous [run_turn_core]. *)

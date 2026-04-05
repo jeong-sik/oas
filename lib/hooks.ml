@@ -145,7 +145,7 @@ type elicitation_callback =
 (** Decision returned by a hook *)
 type hook_decision =
   | Continue
-  | Skip           (** PreToolUse only: skip this tool execution *)
+  | Skip           (** PreToolUse: skip this tool execution; OnIdle: gracefully stop the agent run *)
   | Override of string  (** PreToolUse only: return this value instead *)
   | ApprovalRequired  (** PreToolUse only: signals that tool needs approval before execution *)
   | AdjustParams of turn_params  (** BeforeTurnParams only: override params for this turn *)
@@ -262,7 +262,7 @@ let stage_of_event = function
     post_tool_use        |    Y     |      |          |                  |              |
     post_tool_use_failure|    Y     |      |          |                  |              |
     on_stop              |    Y     |      |          |                  |              |
-    on_idle              |    Y     |      |          |                  |              |
+    on_idle              |    Y     |  Y   |          |                  |              |
     on_error             |    Y     |      |          |                  |              |
     on_tool_error        |    Y     |      |          |                  |              |
     pre_compact          |    Y     |  Y   |          |                  |              |
@@ -278,7 +278,7 @@ let legal_decisions_for_stage stage =
   | "post_tool_use"         -> [K_Continue]
   | "post_tool_use_failure" -> [K_Continue]
   | "on_stop"               -> [K_Continue]
-  | "on_idle"               -> [K_Continue]
+  | "on_idle"               -> [K_Continue; K_Skip]
   | "on_error"              -> [K_Continue]
   | "on_tool_error"         -> [K_Continue]
   | "pre_compact"           -> [K_Continue; K_Skip]
