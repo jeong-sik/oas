@@ -212,6 +212,10 @@ in
 let tool_schemas = List.map Tool.schema_to_json selected in
 ```
 
+> **NOTE**: `prepare_tools`의 현재 시그니처에는 `messages`가 없으므로,
+> `prepare_turn`에서 context를 추출하여 `prepare_tools`에 전달하는 방식으로 구현한다.
+> 즉 `prepare_tools` 시그니처에 `~context:string option` 파라미터를 추가한다.
+
 ### 3.3 Builder API
 
 ```ocaml
@@ -275,9 +279,14 @@ let select_bm25 ~k ~always_include ~context ~tools =
   List.iter add always_include;
   List.iter add top_names;
   let selected_names = List.rev !result in
-  List.filter (fun (t : Tool.t) ->
-    List.mem t.schema.name selected_names
-  ) tools
+  (* Preserve BM25 ranking order, not original catalog order *)
+  let tool_by_name = Hashtbl.create (List.length tools) in
+  List.iter (fun (t : Tool.t) ->
+    Hashtbl.replace tool_by_name t.schema.name t
+  ) tools;
+  List.filter_map (fun name ->
+    Hashtbl.find_opt tool_by_name name
+  ) selected_names
 ```
 
 장점: LLM 호출 없음, 결정론적, < 1ms.
@@ -359,7 +368,8 @@ Query가 "task" 그룹에 매칭되면 해당 그룹 전체를 노출.
 ```
 
 원칙 (RFC-0001 Det/NonDet Boundary 확장):
-- **Selector 출력은 항상 deterministic validation을 거친다**: 선택된 tool 이름이 실제 tool catalog에 존재하는지 검증. 존재하지 않는 이름은 silent drop.
+- **Selector 출력은 항상 deterministic validation을 거친다**: 선택된 tool 이름이 실제 tool catalog에 존재하는지 검증. 존재하지 않는 이름은 drop하되, dropped name을 debug log로 남긴다.
+- **Validation 결과가 empty이면 fallback**: `always_include` tool로 fallback하고, 그것도 비어 있으면 `All` 전략으로 fallback한다.
 - **BM25 selector는 완전 결정론적**: 동일 입력 -> 동일 출력. 테스트에서 정확한 assertion 가능.
 - **LLM selector는 비결정론적이지만 bounded**: always_include가 최소 보장. 선택 실패 시 fallback to All.
 - **Caller (기존 pipeline)의 비결정론적 행동은 변경하지 않는다**: Tool_middleware가 argument validation을 수행.
