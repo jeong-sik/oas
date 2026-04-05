@@ -170,6 +170,29 @@ let effective_max_context (entry : Provider_registry.entry)
   | Some n -> n
   | None -> entry.max_context
 
+(** Resolve a model label to the per-slot context of the endpoint
+    that would serve it.  Uses the same resolution logic as
+    [make_registry_config]: [current_llama_endpoint] for "llama:*",
+    parsed URL for "custom:*".  Cloud providers return [None].
+
+    Does NOT advance the round-robin counter — safe to call for
+    prompt sizing before the actual cascade request.
+
+    @since 0.100.8 *)
+let resolve_label_context (label : string) : int option =
+  match split_provider_model (String.trim label) with
+  | None -> None
+  | Some ("custom", model_id) ->
+    let _, url = parse_custom_model model_id in
+    Discovery.discovered_context_for_url url
+  | Some ("llama", _) ->
+    let url = Provider_registry.current_llama_endpoint () in
+    if url = "" then None
+    else Discovery.discovered_context_for_url url
+  | Some (_, _) ->
+    (* Cloud providers: no discovery-based per-slot context *)
+    None
+
 (* ── Capability-aware filtering ─────────────────────────── *)
 
 let filter_by_capabilities ~(pred : Capabilities.capabilities -> bool)

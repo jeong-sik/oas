@@ -172,6 +172,20 @@ val filter_healthy :
 val effective_max_context :
   Provider_registry.entry -> Capabilities.capabilities -> int
 
+(** Resolve a model label to the per-slot context of the endpoint
+    that would serve it.
+
+    Uses the same resolution path as [make_registry_config]:
+    - ["llama:*"] → peeks at current round-robin endpoint (no advance)
+    - ["custom:model@url"] → looks up the parsed URL
+    - Cloud providers → [None] (use static {!effective_max_context} instead)
+
+    This is the SSOT for "how much context does this label have?"
+    Consumers should call this instead of guessing from endpoint lists.
+
+    @since 0.100.8 *)
+val resolve_label_context : string -> int option
+
 (** {1 Capability-Aware Filtering} *)
 
 (** Filter providers by a capability predicate.

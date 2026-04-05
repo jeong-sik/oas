@@ -88,12 +88,24 @@ val scan_local_endpoints :
     [discovered_per_slot_context] to get the effective per-request
     context limit derived from the last successful probe.
 
+    Per-endpoint tracking: [discovered_endpoint_contexts] and
+    [discovered_context_for_url] provide URL-specific context sizes.
+
     @since 0.100.8 *)
 
 val discovered_per_slot_context : unit -> int option
-(** Per-slot context tokens from the last probe.
-    Computed as [ctx_size / total_slots] (conservative: min across
-    all healthy endpoints).  Returns [None] if no probe completed. *)
+(** Max per-slot context tokens across all healthy endpoints.
+    Computed as [ctx_size / total_slots] for each endpoint, then
+    takes the max.  Returns [None] if no probe completed. *)
+
+val discovered_endpoint_contexts : unit -> (string * int) list
+(** Per-endpoint per-slot context from last probe.
+    Returns [(url, per_slot_ctx)] for each healthy endpoint
+    that reported valid slot/context info. *)
+
+val discovered_context_for_url : string -> int option
+(** Look up per-slot context for a specific endpoint URL.
+    URL is trimmed before lookup.  Returns [None] if not found. *)
 
 val refresh_and_sync :
   sw:Eio.Switch.t ->

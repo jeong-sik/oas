@@ -70,6 +70,13 @@ val llama_all_endpoints : string list
     @since 0.78.0 *)
 val next_llama_endpoint : unit -> string
 
+(** Peek at the current llama endpoint without advancing the round-robin.
+    Returns the endpoint that [next_llama_endpoint] will return on its
+    next call, but without the [fetch_and_add] side effect.
+    Returns [""] when no endpoints are configured.
+    @since 0.100.8 *)
+val current_llama_endpoint : unit -> string
+
 (** Refresh the llama endpoint list by scanning local ports 8085-8090.
     If [LLM_ENDPOINTS] env var is set, uses that as source (no scan).
     Otherwise probes ports and keeps only healthy endpoints.
@@ -89,3 +96,8 @@ val active_llama_endpoints : unit -> string list
     Delegates to {!Discovery.discovered_per_slot_context}.
     @since 0.100.8 *)
 val discovered_max_context : unit -> int option
+
+val discovered_endpoint_max_context : string -> int option
+(** Per-slot context for a specific endpoint URL.
+    Delegates to {!Discovery.discovered_context_for_url}.
+    Returns [None] if the endpoint was not probed. *)
