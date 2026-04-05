@@ -122,18 +122,73 @@ let test_select_names () =
   check (list string) "all names"
     (tool_names tools_5) names
 
-(* ── TopK_llm / Categorical stubs ────────────────── *)
+(* ── TopK_llm ───────────────────────────────────── *)
 
-let test_topk_llm_not_implemented () =
-  match Tool_selector.select
-    ~strategy:(TopK_llm { k = 3; always_include = [];
-                          selector_config = None })
-    ~context:"q" ~tools:tools_5
-  with
-  | exception Failure msg ->
-    check bool "mentions Phase 3" true
-      (String.length msg > 0)
-  | _ -> fail "expected Failure for TopK_llm"
+let mock_rerank ~k =
+  fun ~context:_ ~candidates ->
+    List.filteri (fun i _ -> i < k) (List.map fst candidates)
+
+let test_topk_llm_with_mock () =
+  let result = Tool_selector.select
+    ~strategy:(TopK_llm { k = 2; bm25_prefilter_n = 5;
+      always_include = []; confidence_threshold = 0.0;
+      rerank_fn = mock_rerank ~k:2 })
+    ~context:"read file" ~tools:tools_5 in
+  check bool "at most 2" true (List.length result <= 2);
+  check bool "at least 1" true (List.length result >= 1)
+
+let test_topk_llm_fallback_on_failure () =
+  let failing_rerank ~context:_ ~candidates:_ =
+    failwith "LLM unavailable" in
+  let result = Tool_selector.select
+    ~strategy:(TopK_llm { k = 3; bm25_prefilter_n = 5;
+      always_include = []; confidence_threshold = 0.0;
+      rerank_fn = failing_rerank })
+    ~context:"read file" ~tools:tools_5 in
+  check bool "at least 1 (BM25 fallback)" true (List.length result >= 1)
+
+let test_topk_llm_always_include () =
+  let result = Tool_selector.select
+    ~strategy:(TopK_llm { k = 2; bm25_prefilter_n = 5;
+      always_include = ["broadcast"]; confidence_threshold = 0.0;
+      rerank_fn = mock_rerank ~k:1 })
+    ~context:"read file" ~tools:tools_5 in
+  let names = tool_names result in
+  check bool "broadcast always included" true (List.mem "broadcast" names)
+
+let test_topk_llm_low_confidence_skips_llm () =
+  let call_count = ref 0 in
+  let counting_rerank ~context:_ ~candidates =
+    incr call_count;
+    List.map fst candidates
+  in
+  let _result = Tool_selector.select
+    ~strategy:(TopK_llm { k = 3; bm25_prefilter_n = 5;
+      always_include = []; confidence_threshold = 999.0;
+      rerank_fn = counting_rerank })
+    ~context:"completely unrelated quantum physics" ~tools:tools_5 in
+  check int "rerank not called" 0 !call_count
+
+let test_topk_llm_empty_tools () =
+  let result = Tool_selector.select
+    ~strategy:(TopK_llm { k = 3; bm25_prefilter_n = 5;
+      always_include = []; confidence_threshold = 0.0;
+      rerank_fn = mock_rerank ~k:3 })
+    ~context:"q" ~tools:[] in
+  check int "empty" 0 (List.length result)
+
+let test_topk_llm_invalid_names_dropped () =
+  let bad_rerank ~context:_ ~candidates:_ =
+    ["nonexistent_tool"; "also_fake"] in
+  let result = Tool_selector.select
+    ~strategy:(TopK_llm { k = 3; bm25_prefilter_n = 5;
+      always_include = []; confidence_threshold = 0.0;
+      rerank_fn = bad_rerank })
+    ~context:"read file" ~tools:tools_5 in
+  (* Invalid names dropped, only always_include survives (empty here) *)
+  check int "no tools from invalid rerank" 0 (List.length result)
+
+(* ── Categorical stubs ──────────────────────────── *)
 
 let test_categorical_llm_not_implemented () =
   match Tool_selector.select
@@ -220,8 +275,15 @@ let () =
       test_case "no fallback above threshold" `Quick test_bm25_confidence_above;
       test_case "None disables fallback" `Quick test_bm25_confidence_none_disables;
     ];
+    "topk_llm", [
+      test_case "mock rerank selects" `Quick test_topk_llm_with_mock;
+      test_case "fallback on failure" `Quick test_topk_llm_fallback_on_failure;
+      test_case "always_include" `Quick test_topk_llm_always_include;
+      test_case "low confidence skips LLM" `Quick test_topk_llm_low_confidence_skips_llm;
+      test_case "empty tools" `Quick test_topk_llm_empty_tools;
+      test_case "invalid names dropped" `Quick test_topk_llm_invalid_names_dropped;
+    ];
     "stubs", [
-      test_case "TopK_llm raises" `Quick test_topk_llm_not_implemented;
       test_case "Categorical Llm raises" `Quick test_categorical_llm_not_implemented;
     ];
     "categorical_bm25", [

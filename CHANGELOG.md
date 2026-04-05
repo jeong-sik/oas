@@ -15,6 +15,9 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ### Changed
 - `Tool_index.entry` record now requires `aliases` field (source-breaking for direct record construction).
+- **BREAKING**: `TopK_llm` variant now uses `rerank_fn` closure instead of `selector_config`. The stub (`failwith "Phase 3"`) has been replaced with a working 2-stage implementation: BM25 pre-filter then LLM reranking via caller-injected closure.
+- `TopK_llm` strategy: `select` may perform I/O via `rerank_fn`. Not idempotent for this strategy. `always_include` provides deterministic lower bound.
+- `default_rerank_fn` provided for `Cascade_config`-based LLM reranking. Captures Eio resources in closure.
 
 ## [0.100.7] - 2026-04-04
 

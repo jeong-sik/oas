@@ -40,13 +40,37 @@ type strategy =
         Suitable for keyword-matchable tool descriptions. *)
   | TopK_llm of {
       k: int;
+      (** Number of tools to select after LLM reranking. *)
+      bm25_prefilter_n: int;
+      (** Stage 1: pass this many BM25 top candidates to [rerank_fn].
+          Recommended: 10-30. Higher = better recall, more LLM tokens. *)
       always_include: string list;
-      selector_config: Types.agent_config option;
-      (** Optional separate config for the selector LLM call.
-          If [None], uses lightweight defaults (low max_tokens, temperature=0). *)
+      (** Tool names always included regardless of rerank result. *)
+      confidence_threshold: float;
+      (** BM25 top score below this threshold skips the LLM call
+          and returns BM25 top-k directly.
+          Avoids wasting LLM calls on queries with no good match. *)
+      rerank_fn:
+        (context:string ->
+         candidates:(string * string) list ->
+         string list);
+      (** LLM reranking closure. Receives [(name, description)] pairs
+          from BM25 pre-filter. Returns selected names in priority order.
+
+          If this function raises, the selector falls back to BM25 top-k
+          (self-healing). Invalid names in the return are silently dropped.
+
+          Use {!default_rerank_fn} for a ready-made implementation via
+          {!Cascade_config.complete_named}. *)
     }
-    (** LLM-based selection. Not yet implemented (Phase 3).
-        @raises Failure when called. *)
+    (** 2-stage LLM-based selection: BM25 pre-filter then LLM reranking.
+
+        For [TopK_llm], {!select} may perform I/O via [rerank_fn].
+        The function is not idempotent for this strategy -- callers must
+        not cache or retry based on output equality assumptions.
+        [always_include] provides a deterministic lower bound.
+
+        @since 0.101.0 *)
   | Categorical of {
       groups: (string * string list) list;
       (** [(group_name, tool_name list)] pairs.
@@ -81,3 +105,39 @@ val select_names :
     - [<= 15] tools -> [All]
     - [> 15] tools  -> [TopK_bm25 { k = 5; always_include = \[\] }] *)
 val auto : tools:Tool.t list -> strategy
+
+(** {1 Default LLM reranker} *)
+
+(** Construct a rerank closure for use with [TopK_llm].
+
+    Uses {!Cascade_config.complete_named} for the LLM call.
+    Captures [sw] and [net] in the closure -- must be called inside
+    [Eio.Switch.run]. On LLM failure, returns candidates in BM25
+    score order (graceful degradation).
+
+    Usage:
+    {[
+      Eio.Switch.run @@ fun sw ->
+        let nc = Api.named_cascade ~name:"tool_selector"
+          ~defaults:["llama:auto"] () in
+        let rerank = Tool_selector.default_rerank_fn
+          ~sw ~net ~named_cascade:nc ~k:5 in
+        let agent = Builder.create ~net ~model
+          |> Builder.with_tool_selector
+               (TopK_llm { k = 5; bm25_prefilter_n = 20;
+                 always_include = ["heartbeat"];
+                 confidence_threshold = 0.5;
+                 rerank_fn = rerank })
+          |> Builder.build_safe |> Result.get_ok in
+        Agent.run ~sw agent
+    ]}
+
+    @since 0.101.0 *)
+val default_rerank_fn :
+  sw:Eio.Switch.t ->
+  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
+  ?clock:_ Eio.Time.clock ->
+  named_cascade:Api.named_cascade ->
+  k:int ->
+  unit ->
+  (context:string -> candidates:(string * string) list -> string list)
