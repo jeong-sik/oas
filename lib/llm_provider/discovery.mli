@@ -108,6 +108,17 @@ val discovered_context_for_url : string -> int option
 (** Look up per-slot context for a specific endpoint URL.
     URL is trimmed before lookup.  Returns [None] if not found. *)
 
+val endpoint_for_model : string -> string option
+(** Look up the endpoint URL that has [model_id] loaded.
+    Uses the model-to-endpoint index from the last {!refresh_and_sync}.
+    Returns [None] if the model was not found on any probed endpoint. *)
+
+val context_for_model : string -> (string * int) option
+(** Look up [model_id] and return [(url, per_slot_ctx)].
+    Combines the model-to-endpoint index with per-endpoint context data.
+    Returns [None] if the model is not found or its endpoint has no
+    context data in the current snapshot. *)
+
 val refresh_and_sync :
   sw:Eio.Switch.t ->
   net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->

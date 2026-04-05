@@ -92,7 +92,10 @@ let make_registry_config ~temperature ~max_tokens ?system_prompt
   let headers = headers_with_auth ~kind:defaults.kind ~api_key in
   let base_url =
     if provider_name = "llama" then
-      Provider_registry.next_llama_endpoint ()
+      (* Route to the endpoint that has this model; round-robin fallback *)
+      match Discovery.endpoint_for_model model_id with
+      | Some url -> url
+      | None -> Provider_registry.next_llama_endpoint ()
     else defaults.base_url
   in
   let resolved_model_id = resolve_auto_model_id provider_name model_id in
@@ -185,10 +188,15 @@ let resolve_label_context (label : string) : int option =
   | Some ("custom", model_id) ->
     let _, url = parse_custom_model model_id in
     Discovery.discovered_context_for_url url
-  | Some ("llama", _) ->
-    let url = Provider_registry.current_llama_endpoint () in
-    if url = "" then None
-    else Discovery.discovered_context_for_url url
+  | Some ("llama", model_id) ->
+    (* Model-aware: find the endpoint that has this model loaded *)
+    (match Discovery.context_for_model model_id with
+     | Some (_url, ctx) -> Some ctx
+     | None ->
+       (* Fallback: round-robin endpoint (backward compat for "auto" etc.) *)
+       let url = Provider_registry.current_llama_endpoint () in
+       if url = "" then None
+       else Discovery.discovered_context_for_url url)
   | Some (_, _) ->
     (* Cloud providers: no discovery-based per-slot context *)
     None
