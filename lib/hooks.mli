@@ -159,7 +159,7 @@ val invoke : hook option -> hook_event -> hook_decision
     post_tool_use        |    Y     |      |          |                  |              |
     post_tool_use_failure|    Y     |      |          |                  |              |
     on_stop              |    Y     |      |          |                  |              |
-    on_idle              |    Y     |      |          |                  |              |
+    on_idle              |    Y     |  Y   |          |                  |              |
     on_error             |    Y     |      |          |                  |              |
     on_tool_error        |    Y     |      |          |                  |              |
     pre_compact          |    Y     |  Y   |          |                  |              |

@@ -21,6 +21,7 @@ type api_strategy =
 type turn_outcome =
   | Complete of Types.api_response
   | ToolsExecuted
+  | IdleSkipped
 
 (* ── Stage 1: Input ──────────────────────────────────────── *)
 
@@ -299,8 +300,9 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
     agent.last_tool_calls <- idle_result.new_state.last_tool_calls;
     agent.consecutive_idle_turns <-
       idle_result.new_state.consecutive_idle_turns);
+  let idle_skip = ref false in
   if idle_result.is_idle then begin
-    let _idle =
+    let idle_decision =
       invoke_hook_with_trace agent ?raw_trace_run ~hook_name:"on_idle"
         agent.options.hooks.on_idle
         (Hooks.OnIdle {
@@ -309,7 +311,9 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
             | ToolUse { name; _ } -> Some name | _ -> None
           ) tool_uses })
     in
-    ()
+    match idle_decision with
+    | Hooks.Skip -> idle_skip := true
+    | _ -> ()
   end;
 
   let count = List.length tool_uses in
@@ -321,7 +325,7 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
     update_state agent (fun s ->
       { s with messages = Util.snoc s.messages
           { role = User; content = [Text msg]; name = None; tool_call_id = None } });
-    Ok ToolsExecuted
+    Ok (if !idle_skip then IdleSkipped else ToolsExecuted)
   | false ->
     let results =
       try Ok (execute_tools_with_trace agent raw_trace_run tool_uses)
@@ -393,7 +397,7 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
     update_state agent (fun s ->
       { s with messages =
           Context_reducer.reduce pruner s.messages });
-    Ok ToolsExecuted
+    Ok (if !idle_skip then IdleSkipped else ToolsExecuted)
 
 (* ── Stage 6: Output ─────────────────────────────────────── *)
 
@@ -403,7 +407,12 @@ let stage_output ?raw_trace_run agent ~effective_guardrails response =
   | StopToolUse ->
     let tool_uses = List.filter
       (function ToolUse _ -> true | _ -> false) response.content in
-    stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses
+    let result = stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses in
+    (match result with
+     | Ok IdleSkipped ->
+       (* on_idle hook returned Skip: stop gracefully with the current response *)
+       Ok (Complete response)
+     | other -> other)
   | EndTurn | MaxTokens | StopSequence ->
     Tool_retry_policy.clear_context_retry_count agent.context;
     let _stop =
