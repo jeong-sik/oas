@@ -313,6 +313,15 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
     in
     match idle_decision with
     | Hooks.Skip -> idle_skip := true
+    | Hooks.Nudge nudge_msg ->
+      (* Inject a nudge message into conversation and reset idle counter
+         so the model gets a chance to try a different approach. *)
+      update_state agent (fun s ->
+        { s with messages = Util.snoc s.messages
+            { role = User; content = [Text nudge_msg];
+              name = None; tool_call_id = None } });
+      Eio.Mutex.use_rw ~protect:true agent.mu (fun () ->
+        agent.consecutive_idle_turns <- 0)
     | _ -> ()
   end;
 
