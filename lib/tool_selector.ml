@@ -7,7 +7,12 @@
 
 type strategy =
   | All
-  | TopK_bm25 of { k: int; always_include: string list }
+  | TopK_bm25 of {
+      k: int;
+      always_include: string list;
+      confidence_threshold: float option;
+      fallback_tools: string list;
+    }
   | TopK_llm of {
       k: int;
       always_include: string list;
@@ -49,16 +54,26 @@ let filter_by_names names tools =
 
 let select_all tools = tools
 
-let select_bm25 ~k ~always_include ~context ~tools =
+let select_bm25 ~k ~always_include ~confidence_threshold ~fallback_tools
+    ~context ~tools =
   if tools = [] then []
   else
     let index = Tool_index.of_tools tools in
     let retrieved = Tool_index.retrieve index context in
+    let top_score = match retrieved with
+      | (_, s) :: _ -> s
+      | [] -> 0.0
+    in
+    let use_fallback = match confidence_threshold with
+      | Some t -> top_score < t
+      | None -> false
+    in
     let top_names =
       List.filteri (fun i _ -> i < k) retrieved
       |> List.map fst
     in
-    let selected_names = merge_names ~always_include ~top_names in
+    let extra = if use_fallback then fallback_tools else [] in
+    let selected_names = merge_names ~always_include ~top_names:(top_names @ extra) in
     filter_by_names selected_names tools
 
 (* ── Public API ──────────────────────────────────────────── *)
@@ -66,8 +81,9 @@ let select_bm25 ~k ~always_include ~context ~tools =
 let select ~strategy ~context ~tools =
   match strategy with
   | All -> select_all tools
-  | TopK_bm25 { k; always_include } ->
-    select_bm25 ~k ~always_include ~context ~tools
+  | TopK_bm25 { k; always_include; confidence_threshold; fallback_tools } ->
+    select_bm25 ~k ~always_include ~confidence_threshold ~fallback_tools
+      ~context ~tools
   | TopK_llm _ ->
     failwith "Tool_selector: TopK_llm not yet implemented (Phase 3)"
   | Categorical { classifier = `Llm; _ } ->
@@ -79,7 +95,8 @@ let select ~strategy ~context ~tools =
     else
       let group_entries = List.map (fun (group_name, tool_names) ->
         let desc = String.concat " " tool_names in
-        { Tool_index.name = group_name; description = desc; group = None }
+        { Tool_index.name = group_name; description = desc;
+          group = None; aliases = [] }
       ) groups in
       let group_index = Tool_index.build group_entries in
       let matched_groups =
@@ -100,4 +117,5 @@ let select_names ~strategy ~context ~tools =
 
 let auto ~tools =
   if List.length tools <= 15 then All
-  else TopK_bm25 { k = 5; always_include = [] }
+  else TopK_bm25 { k = 5; always_include = [];
+    confidence_threshold = None; fallback_tools = [] }

@@ -42,14 +42,16 @@ let test_all_empty () =
 
 let test_bm25_narrows () =
   let result = Tool_selector.select
-    ~strategy:(TopK_bm25 { k = 3; always_include = [] })
+    ~strategy:(TopK_bm25 { k = 3; always_include = [];
+                       confidence_threshold = None; fallback_tools = [] })
     ~context:"read file" ~tools:tools_5 in
   check bool "at most 3" true (List.length result <= 3);
   check bool "at least 1" true (List.length result >= 1)
 
 let test_bm25_always_include () =
   let result = Tool_selector.select
-    ~strategy:(TopK_bm25 { k = 2; always_include = ["broadcast"] })
+    ~strategy:(TopK_bm25 { k = 2; always_include = ["broadcast"];
+                       confidence_threshold = None; fallback_tools = [] })
     ~context:"read file" ~tools:tools_5 in
   let names = tool_names result in
   check bool "broadcast included" true (List.mem "broadcast" names);
@@ -57,20 +59,23 @@ let test_bm25_always_include () =
 
 let test_bm25_empty_tools () =
   let result = Tool_selector.select
-    ~strategy:(TopK_bm25 { k = 3; always_include = [] })
+    ~strategy:(TopK_bm25 { k = 3; always_include = [];
+                       confidence_threshold = None; fallback_tools = [] })
     ~context:"query" ~tools:[] in
   check int "empty" 0 (List.length result)
 
 let test_bm25_k_larger_than_tools () =
   let result = Tool_selector.select
-    ~strategy:(TopK_bm25 { k = 100; always_include = [] })
+    ~strategy:(TopK_bm25 { k = 100; always_include = [];
+                       confidence_threshold = None; fallback_tools = [] })
     ~context:"tool" ~tools:tools_5 in
   check bool "returns at most all tools" true (List.length result <= 5)
 
 let test_bm25_always_include_dedup () =
   let result = Tool_selector.select
     ~strategy:(TopK_bm25 { k = 5;
-      always_include = ["read_file"; "read_file"] })
+      always_include = ["read_file"; "read_file"];
+      confidence_threshold = None; fallback_tools = [] })
     ~context:"read file" ~tools:tools_5 in
   let names = tool_names result in
   let unique = List.sort_uniq String.compare names in
@@ -87,7 +92,8 @@ let test_auto_small () =
 let test_auto_large () =
   let strategy = Tool_selector.auto ~tools:tools_20 in
   match strategy with
-  | TopK_bm25 { k = 5; always_include = [] } -> ()
+  | TopK_bm25 { k = 5; always_include = [];
+               confidence_threshold = None; fallback_tools = [] } -> ()
   | TopK_bm25 { k; _ } ->
     fail (Printf.sprintf "expected k=5, got k=%d" k)
   | _ -> fail "expected TopK_bm25 for 20 tools"
@@ -138,6 +144,39 @@ let test_categorical_llm_not_implemented () =
   | exception Failure _ -> ()
   | _ -> fail "expected Failure for Categorical `Llm"
 
+(* ── Confidence threshold ───────────────────────── *)
+
+let test_bm25_confidence_fallback () =
+  (* With a very high threshold, BM25 top score will be below it,
+     so fallback_tools should be included *)
+  let result = Tool_selector.select
+    ~strategy:(TopK_bm25 { k = 2; always_include = [];
+      confidence_threshold = Some 999.0;
+      fallback_tools = ["broadcast"; "git_commit"] })
+    ~context:"completely unrelated quantum physics" ~tools:tools_5 in
+  let names = tool_names result in
+  check bool "broadcast in fallback" true (List.mem "broadcast" names);
+  check bool "git_commit in fallback" true (List.mem "git_commit" names)
+
+let test_bm25_confidence_above () =
+  (* With threshold=0.0, BM25 top score will be above it,
+     so fallback_tools should NOT be included *)
+  let result = Tool_selector.select
+    ~strategy:(TopK_bm25 { k = 2; always_include = [];
+      confidence_threshold = Some 0.0;
+      fallback_tools = ["broadcast"] })
+    ~context:"read file" ~tools:tools_5 in
+  check bool "at most 2" true (List.length result <= 2)
+
+let test_bm25_confidence_none_disables () =
+  (* With threshold=None, fallback is disabled regardless *)
+  let result = Tool_selector.select
+    ~strategy:(TopK_bm25 { k = 1; always_include = [];
+      confidence_threshold = None;
+      fallback_tools = ["broadcast"; "git_commit"; "search"] })
+    ~context:"completely unrelated" ~tools:tools_5 in
+  check bool "at most 1 (no fallback)" true (List.length result <= 1)
+
 (* ── Categorical BM25 ───────────────────────────── *)
 
 let test_categorical_bm25 () =
@@ -175,6 +214,11 @@ let () =
     ];
     "select_names", [
       test_case "returns names" `Quick test_select_names;
+    ];
+    "confidence", [
+      test_case "fallback on low confidence" `Quick test_bm25_confidence_fallback;
+      test_case "no fallback above threshold" `Quick test_bm25_confidence_above;
+      test_case "None disables fallback" `Quick test_bm25_confidence_none_disables;
     ];
     "stubs", [
       test_case "TopK_llm raises" `Quick test_topk_llm_not_implemented;

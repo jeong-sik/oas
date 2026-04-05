@@ -6,6 +6,16 @@ Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
 backfilled on 2026-04-04 from existing git tags. The dates below reflect the
 original tag dates. `0.100.4` was never tagged or released.
 
+## [0.101.0] - 2026-04-05
+
+### Added
+- `Tool_index.entry.aliases` field for additional BM25 tokens (e.g. Korean keywords). Aliases are appended to name+description during tokenization. Existing code using `{ name; description; group }` must add `aliases = []`.
+- `TopK_bm25.confidence_threshold` parameter. When the top BM25 score falls below this threshold, `fallback_tools` are unioned with the results. `None` disables fallback. Distinct from `Tool_index.config.min_score` which filters individual documents.
+- `TopK_bm25.fallback_tools` parameter for curated tool subsets to include on low-confidence queries.
+
+### Changed
+- `Tool_index.entry` record now requires `aliases` field (source-breaking for direct record construction).
+
 ## [0.100.7] - 2026-04-04
 
 ### Added

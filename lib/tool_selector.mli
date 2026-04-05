@@ -24,6 +24,16 @@ type strategy =
       (** Tool names always included regardless of score.
           Use for essential tools (e.g., "done", "handoff").
           Recommendation: keep [always_include] < k/2. *)
+      confidence_threshold: float option;
+      (** If the top BM25 score is below this threshold, union
+          [fallback_tools] with the BM25 results.
+          Distinct from {!Tool_index.config.min_score}: [min_score] filters
+          individual docs from results, while [confidence_threshold] triggers
+          a fallback when the best match is weak.
+          [None] disables fallback. *)
+      fallback_tools: string list;
+      (** Tools to include when BM25 confidence is low (top score < threshold).
+          Typically set to a curated policy-allowed subset. *)
     }
     (** BM25-based deterministic selection.
         Uses [Tool_index] internally. No LLM call, < 1ms latency.

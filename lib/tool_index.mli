@@ -23,6 +23,10 @@ type entry = {
   name: string;
   description: string;
   group: string option;  (** Tools in the same group are co-retrieved *)
+  aliases: string list;
+    (** Additional tokens for BM25 matching (e.g. Korean keywords).
+        Appended to name+description during tokenization.
+        Use [[]] when no aliases are needed. *)
 }
 
 (** {1 Configuration} *)
