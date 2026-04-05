@@ -6,10 +6,10 @@ open Agent_sdk
 (* ── Helpers ──────────────────────────────────────── *)
 
 let entry name desc =
-  Tool_index.{ name; description = desc; group = None }
+  Tool_index.{ name; description = desc; group = None; aliases = [] }
 
 let grouped name desc group =
-  Tool_index.{ name; description = desc; group = Some group }
+  Tool_index.{ name; description = desc; group = Some group; aliases = [] }
 
 (* ── Construction ─────────────────────────────────── *)
 

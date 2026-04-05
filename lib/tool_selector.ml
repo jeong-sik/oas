@@ -7,11 +7,21 @@
 
 type strategy =
   | All
-  | TopK_bm25 of { k: int; always_include: string list }
-  | TopK_llm of {
+  | TopK_bm25 of {
       k: int;
       always_include: string list;
-      selector_config: Types.agent_config option;
+      confidence_threshold: float option;
+      fallback_tools: string list;
+    }
+  | TopK_llm of {
+      k: int;
+      bm25_prefilter_n: int;
+      always_include: string list;
+      confidence_threshold: float;
+      rerank_fn:
+        (context:string ->
+         candidates:(string * string) list ->
+         string list);
     }
   | Categorical of {
       groups: (string * string list) list;
@@ -49,16 +59,76 @@ let filter_by_names names tools =
 
 let select_all tools = tools
 
-let select_bm25 ~k ~always_include ~context ~tools =
+let select_llm ~k ~bm25_prefilter_n ~always_include ~confidence_threshold
+    ~rerank_fn ~context ~tools =
   if tools = [] then []
   else
     let index = Tool_index.of_tools tools in
     let retrieved = Tool_index.retrieve index context in
+    let top_score = match retrieved with
+      | (_, s) :: _ -> s
+      | [] -> 0.0
+    in
+    (* Confidence gate: low score -> skip LLM, use BM25 top-k directly *)
+    if top_score < confidence_threshold then
+      let top_names =
+        List.filteri (fun i _ -> i < k) retrieved |> List.map fst
+      in
+      let selected = merge_names ~always_include ~top_names in
+      filter_by_names selected tools
+    else
+      (* Stage 1: BM25 pre-filter *)
+      let bm25_top =
+        List.filteri (fun i _ -> i < bm25_prefilter_n) retrieved
+      in
+      (* Build (name, description) candidates for reranker *)
+      let candidates =
+        List.filter_map (fun (name, _score) ->
+          match List.find_opt (fun (t : Tool.t) ->
+            t.schema.name = name) tools with
+          | Some t -> Some (name, t.schema.description)
+          | None -> None
+        ) bm25_top
+      in
+      (* Stage 2: LLM rerank with self-healing fallback *)
+      let llm_selected =
+        try rerank_fn ~context ~candidates
+        with
+        | Out_of_memory | Stack_overflow | Sys.Break as exn -> raise exn
+        | _exn ->
+          (* Self-healing: LLM/network failure -> BM25 top-k *)
+          List.filteri (fun i _ -> i < k) bm25_top |> List.map fst
+      in
+      (* Validate: only keep names that exist in candidates *)
+      let candidate_set = Hashtbl.create (List.length candidates) in
+      List.iter (fun (n, _) -> Hashtbl.replace candidate_set n true) candidates;
+      let valid_names =
+        List.filter (fun n -> Hashtbl.mem candidate_set n) llm_selected
+      in
+      let top_names = List.filteri (fun i _ -> i < k) valid_names in
+      let selected = merge_names ~always_include ~top_names in
+      filter_by_names selected tools
+
+let select_bm25 ~k ~always_include ~confidence_threshold ~fallback_tools
+    ~context ~tools =
+  if tools = [] then []
+  else
+    let index = Tool_index.of_tools tools in
+    let retrieved = Tool_index.retrieve index context in
+    let top_score = match retrieved with
+      | (_, s) :: _ -> s
+      | [] -> 0.0
+    in
+    let use_fallback = match confidence_threshold with
+      | Some t -> top_score < t
+      | None -> false
+    in
     let top_names =
       List.filteri (fun i _ -> i < k) retrieved
       |> List.map fst
     in
-    let selected_names = merge_names ~always_include ~top_names in
+    let extra = if use_fallback then fallback_tools else [] in
+    let selected_names = merge_names ~always_include ~top_names:(top_names @ extra) in
     filter_by_names selected_names tools
 
 (* ── Public API ──────────────────────────────────────────── *)
@@ -66,10 +136,13 @@ let select_bm25 ~k ~always_include ~context ~tools =
 let select ~strategy ~context ~tools =
   match strategy with
   | All -> select_all tools
-  | TopK_bm25 { k; always_include } ->
-    select_bm25 ~k ~always_include ~context ~tools
-  | TopK_llm _ ->
-    failwith "Tool_selector: TopK_llm not yet implemented (Phase 3)"
+  | TopK_bm25 { k; always_include; confidence_threshold; fallback_tools } ->
+    select_bm25 ~k ~always_include ~confidence_threshold ~fallback_tools
+      ~context ~tools
+  | TopK_llm { k; bm25_prefilter_n; always_include; confidence_threshold;
+               rerank_fn } ->
+    select_llm ~k ~bm25_prefilter_n ~always_include ~confidence_threshold
+      ~rerank_fn ~context ~tools
   | Categorical { classifier = `Llm; _ } ->
     failwith "Tool_selector: Categorical with `Llm classifier not yet implemented (Phase 3)"
   | Categorical { groups; classifier = `Bm25; always_include } ->
@@ -79,7 +152,8 @@ let select ~strategy ~context ~tools =
     else
       let group_entries = List.map (fun (group_name, tool_names) ->
         let desc = String.concat " " tool_names in
-        { Tool_index.name = group_name; description = desc; group = None }
+        { Tool_index.name = group_name; description = desc;
+          group = None; aliases = [] }
       ) groups in
       let group_index = Tool_index.build group_entries in
       let matched_groups =
@@ -100,4 +174,57 @@ let select_names ~strategy ~context ~tools =
 
 let auto ~tools =
   if List.length tools <= 15 then All
-  else TopK_bm25 { k = 5; always_include = [] }
+  else TopK_bm25 { k = 5; always_include = [];
+    confidence_threshold = None; fallback_tools = [] }
+
+(* ── Default rerank function ───────────────────────────── *)
+
+let default_rerank_fn ~sw ~net ?clock ~(named_cascade : Api.named_cascade) ~k () =
+  fun ~context ~candidates ->
+    let tool_list = List.mapi (fun i (name, desc) ->
+      Printf.sprintf "%d. %s: %s" (i + 1) name desc
+    ) candidates |> String.concat "\n" in
+    let prompt = Printf.sprintf
+      "Given the user query below, select the %d most relevant tools \
+       from the list. Return ONLY tool names, one per line, in order \
+       of relevance. No numbering, no explanation.\n\n\
+       Query: %s\n\nAvailable tools:\n%s" k context tool_list in
+    let messages = [
+      { Types.role = Types.User;
+        content = [Types.Text prompt];
+        name = None; tool_call_id = None }
+    ] in
+    match Llm_provider.Cascade_config.complete_named ~sw ~net ?clock
+        ?config_path:named_cascade.config_path
+        ~name:named_cascade.name
+        ~defaults:named_cascade.defaults
+        ~messages ~temperature:0.0 ~max_tokens:200 () with
+    | Ok response ->
+      let text = Types.text_of_response response in
+      String.split_on_char '\n' text
+      |> List.filter_map (fun line ->
+        let trimmed = String.trim line in
+        if trimmed = "" then None
+        else
+          (* Strip leading "1. " or "- " if present *)
+          let name =
+            if String.length trimmed > 2 then
+              match trimmed.[0] with
+              | '0'..'9' ->
+                (match String.index_opt trimmed '.' with
+                 | Some i when i < 4 ->
+                   String.trim (String.sub trimmed (i + 1)
+                     (String.length trimmed - i - 1))
+                 | _ -> trimmed)
+              | '-' ->
+                String.trim (String.sub trimmed 1
+                  (String.length trimmed - 1))
+              | _ -> trimmed
+            else trimmed
+          in
+          if List.exists (fun (n, _) -> n = name) candidates
+          then Some name
+          else None)
+    | Error _ ->
+      (* Graceful degradation: return candidates in BM25 order *)
+      List.filteri (fun i _ -> i < k) (List.map fst candidates)

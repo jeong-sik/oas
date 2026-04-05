@@ -62,6 +62,7 @@ type entry = {
   name: string;
   description: string;
   group: string option;
+  aliases: string list;
 }
 
 type config = {
@@ -128,7 +129,10 @@ let compute_idf (docs : doc array) : (string, float) Hashtbl.t =
 
 let build ?(config = default_config) ?(tokenizer = tokenize) (entries : entry list) : t =
   let docs = Array.of_list (List.map (fun entry ->
-    let text = entry.name ^ " " ^ entry.description in
+    let text = match entry.aliases with
+      | [] -> entry.name ^ " " ^ entry.description
+      | kws -> entry.name ^ " " ^ entry.description ^ " " ^ String.concat " " kws
+    in
     let tokens = tokenizer text in
     { entry; tokens; token_count = List.length tokens }
   ) entries) in
@@ -150,7 +154,8 @@ let of_tools ?(config = default_config) ?tokenizer (tools : Tool.t list) : t =
   let entries = List.map (fun (tool : Tool.t) ->
     { name = tool.schema.name;
       description = tool.schema.description;
-      group = None }
+      group = None;
+      aliases = [] }
   ) tools in
   build ~config ?tokenizer entries
 
@@ -160,7 +165,8 @@ let rebuild (idx : t) (tools : Tool.t list) : t =
   let entries = List.map (fun (tool : Tool.t) ->
     { name = tool.schema.name;
       description = tool.schema.description;
-      group = None }
+      group = None;
+      aliases = [] }
   ) tools in
   build ~config:idx.config ~tokenizer:idx.tokenizer entries
 
@@ -292,7 +298,7 @@ let%test "empty index" =
 
 let%test "single tool retrieval" =
   let idx = build [
-    { name = "read_file"; description = "Read contents of a file from disk"; group = None };
+    { name = "read_file"; description = "Read contents of a file from disk"; group = None; aliases = [] };
   ] in
   match retrieve idx "read file" with
   | [(name, score)] -> name = "read_file" && score > 0.0
@@ -300,9 +306,9 @@ let%test "single tool retrieval" =
 
 let%test "ranking order" =
   let idx = build [
-    { name = "write_file"; description = "Write content to a file"; group = None };
-    { name = "read_file"; description = "Read contents of a file from disk"; group = None };
-    { name = "delete_file"; description = "Delete a file from disk"; group = None };
+    { name = "write_file"; description = "Write content to a file"; group = None; aliases = [] };
+    { name = "read_file"; description = "Read contents of a file from disk"; group = None; aliases = [] };
+    { name = "delete_file"; description = "Delete a file from disk"; group = None; aliases = [] };
   ] in
   match retrieve idx "read file contents" with
   | (first, _) :: _ -> first = "read_file"
@@ -310,16 +316,16 @@ let%test "ranking order" =
 
 let%test "group co-retrieval" =
   let idx = build [
-    { name = "git_commit"; description = "Create a git commit"; group = Some "git" };
-    { name = "git_push"; description = "Push commits to remote"; group = Some "git" };
-    { name = "read_file"; description = "Read a file"; group = None };
+    { name = "git_commit"; description = "Create a git commit"; group = Some "git"; aliases = [] };
+    { name = "git_push"; description = "Push commits to remote"; group = Some "git"; aliases = [] };
+    { name = "read_file"; description = "Read a file"; group = None; aliases = [] };
   ] in
   let results = retrieve_names idx "commit changes" in
   List.mem "git_commit" results && List.mem "git_push" results
 
 let%test "confident gate" =
   let idx = build [
-    { name = "search"; description = "Search for files"; group = None };
+    { name = "search"; description = "Search for files"; group = None; aliases = [] };
   ] in
   confident idx "search files" ~threshold:0.01
   && not (confident idx "completely unrelated quantum physics" ~threshold:10.0)
@@ -327,7 +333,7 @@ let%test "confident gate" =
 let%test "min_score filtering" =
   let config = { default_config with min_score = 100.0 } in
   let idx = build ~config [
-    { name = "tool"; description = "a tool"; group = None };
+    { name = "tool"; description = "a tool"; group = None; aliases = [] };
   ] in
   retrieve idx "something" = []
 
@@ -352,10 +358,10 @@ let%test "korean query retrieves korean-aliased tool" =
   let idx = build [
     { name = "board_create_post";
       description = "Create a new post on the board 게시판 글 올리기 작성";
-      group = Some "board" };
+      group = Some "board"; aliases = [] };
     { name = "fs_read_file";
       description = "Read a file from the project 파일 읽기";
-      group = Some "filesystem" };
+      group = Some "filesystem"; aliases = [] };
   ] in
   let results = retrieve_names idx "게시판에 글 올려줘" in
   List.mem "board_create_post" results
@@ -364,13 +370,13 @@ let%test "korean group co-retrieval" =
   let idx = build [
     { name = "board_create_post";
       description = "Create post 게시판 글 올리기";
-      group = Some "board" };
+      group = Some "board"; aliases = [] };
     { name = "board_add_comment";
       description = "Add comment 게시판 댓글";
-      group = Some "board" };
+      group = Some "board"; aliases = [] };
     { name = "fs_read_file";
       description = "Read file 파일 읽기";
-      group = None };
+      group = None; aliases = [] };
   ] in
   let results = retrieve_names idx "게시판 글" in
   List.mem "board_create_post" results
@@ -380,9 +386,9 @@ let%test "korean group co-retrieval" =
 
 let%test "retrieve_within returns only active tools" =
   let idx = build [
-    { name = "read_file"; description = "Read contents of a file"; group = None };
-    { name = "write_file"; description = "Write content to a file"; group = None };
-    { name = "delete_file"; description = "Delete a file from disk"; group = None };
+    { name = "read_file"; description = "Read contents of a file"; group = None; aliases = [] };
+    { name = "write_file"; description = "Write content to a file"; group = None; aliases = [] };
+    { name = "delete_file"; description = "Delete a file from disk"; group = None; aliases = [] };
   ] in
   let results = retrieve_within idx ~active:["read_file"; "delete_file"] "file" in
   let names = List.map fst results in
@@ -392,16 +398,16 @@ let%test "retrieve_within returns only active tools" =
 
 let%test "retrieve_within with empty active returns empty" =
   let idx = build [
-    { name = "read_file"; description = "Read contents of a file"; group = None };
-    { name = "write_file"; description = "Write content to a file"; group = None };
+    { name = "read_file"; description = "Read contents of a file"; group = None; aliases = [] };
+    { name = "write_file"; description = "Write content to a file"; group = None; aliases = [] };
   ] in
   retrieve_within idx ~active:[] "file" = []
 
 let%test "retrieve_filtered with predicate" =
   let idx = build [
-    { name = "git_commit"; description = "Create a git commit"; group = None };
-    { name = "git_push"; description = "Push commits to remote"; group = None };
-    { name = "read_file"; description = "Read a file from disk"; group = None };
+    { name = "git_commit"; description = "Create a git commit"; group = None; aliases = [] };
+    { name = "git_push"; description = "Push commits to remote"; group = None; aliases = [] };
+    { name = "read_file"; description = "Read a file from disk"; group = None; aliases = [] };
   ] in
   let results =
     retrieve_filtered idx ~filter:(fun name ->
@@ -416,8 +422,8 @@ let%test "retrieve_filtered with predicate" =
 let%test "retrieve_within excludes confiscated tools" =
   (* Tools not in the active set are excluded even if they score high *)
   let idx = build [
-    { name = "dangerous_tool"; description = "Execute arbitrary code run"; group = None };
-    { name = "safe_tool"; description = "Execute safe operation run"; group = None };
+    { name = "dangerous_tool"; description = "Execute arbitrary code run"; group = None; aliases = [] };
+    { name = "safe_tool"; description = "Execute safe operation run"; group = None; aliases = [] };
   ] in
   let results = retrieve_within idx ~active:["safe_tool"] "execute run" in
   let names = List.map fst results in
@@ -436,7 +442,7 @@ let _mk_tool name desc : Tool.t =
 
 let%test "rebuild with subset returns only those tools" =
   let mk name desc : entry =
-    { name; description = desc; group = None }
+    { name; description = desc; group = None; aliases = [] }
   in
   let idx = build [
     mk "read_file" "Read contents of a file";
@@ -481,7 +487,7 @@ let%test "rebuild with empty list returns empty index" =
 
 let%test "remove_entries removes specified tools" =
   let mk name desc : entry =
-    { name; description = desc; group = None }
+    { name; description = desc; group = None; aliases = [] }
   in
   let idx = build [
     mk "read_file" "Read contents of a file";
@@ -496,7 +502,7 @@ let%test "remove_entries removes specified tools" =
 
 let%test "remove_entries with nonexistent name is no-op" =
   let mk name desc : entry =
-    { name; description = desc; group = None }
+    { name; description = desc; group = None; aliases = [] }
   in
   let idx = build [
     mk "read_file" "Read a file";
@@ -505,9 +511,27 @@ let%test "remove_entries with nonexistent name is no-op" =
   let same = remove_entries idx ["no_such_tool"] in
   size same = 2
 
+let%test "aliases boost retrieval" =
+  let idx = build [
+    { name = "board_post"; description = "Create a post on the board";
+      group = None; aliases = ["게시판"; "글"; "올리기"] };
+    { name = "read_file"; description = "Read a file from disk";
+      group = None; aliases = [] };
+  ] in
+  let results = retrieve_names idx "게시판에 글 올려줘" in
+  List.mem "board_post" results
+
+let%test "aliases do not interfere when empty" =
+  let idx = build [
+    { name = "search"; description = "Search for files";
+      group = None; aliases = [] };
+  ] in
+  let results = retrieve_names idx "search files" in
+  List.mem "search" results
+
 let%test "remove_entries with all names returns empty" =
   let mk name desc : entry =
-    { name; description = desc; group = None }
+    { name; description = desc; group = None; aliases = [] }
   in
   let idx = build [
     mk "tool_a" "Alpha tool";
