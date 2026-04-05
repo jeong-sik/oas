@@ -51,3 +51,13 @@ let make ~kind ~model_id ~base_url
     system_prompt; enable_thinking; thinking_budget;
     tool_choice; disable_parallel_tool_use; response_format_json;
     cache_system_prompt }
+
+(** Lowercase string representation of the wire-format kind.
+    Exhaustive match: adding a new variant triggers a compile error.
+    @since 0.100.0 *)
+let string_of_provider_kind = function
+  | Anthropic -> "anthropic"
+  | OpenAI_compat -> "openai_compat"
+  | Gemini -> "gemini"
+  | Glm -> "glm"
+  | Claude_code -> "claude_code"
