@@ -716,48 +716,62 @@ let%test "infer_capabilities defaults to 262K when no props for qwen" =
 (* --- discovered context state (atomic snapshot) --- *)
 
 let%test "discovered_ctx snapshot: set and read both fields atomically" =
-  let snap = { endpoint_ctxs = [("http://a:8085", 4096)]; per_slot_ctx = Some 4096 } in
-  Atomic.set _discovered_ctx snap;
-  discovered_per_slot_context () = Some 4096
-  && discovered_endpoint_contexts () = [("http://a:8085", 4096)]
+  let old = Atomic.get _discovered_ctx in
+  Fun.protect ~finally:(fun () -> Atomic.set _discovered_ctx old) (fun () ->
+    let snap = { endpoint_ctxs = [("http://a:8085", 4096)]; per_slot_ctx = Some 4096 } in
+    Atomic.set _discovered_ctx snap;
+    discovered_per_slot_context () = Some 4096
+    && discovered_endpoint_contexts () = [("http://a:8085", 4096)])
 
 let%test "discovered_ctx snapshot: empty endpoints clears per_slot_ctx" =
-  (* Simulate a probe that previously found endpoints *)
-  Atomic.set _discovered_ctx
-    { endpoint_ctxs = [("http://a:8085", 8192)]; per_slot_ctx = Some 8192 };
-  (* Simulate a probe with no valid results *)
-  Atomic.set _discovered_ctx
-    { endpoint_ctxs = []; per_slot_ctx = None };
-  discovered_per_slot_context () = None
-  && discovered_endpoint_contexts () = []
+  let old = Atomic.get _discovered_ctx in
+  Fun.protect ~finally:(fun () -> Atomic.set _discovered_ctx old) (fun () ->
+    (* Simulate a probe that previously found endpoints *)
+    Atomic.set _discovered_ctx
+      { endpoint_ctxs = [("http://a:8085", 8192)]; per_slot_ctx = Some 8192 };
+    (* Simulate a probe with no valid results *)
+    Atomic.set _discovered_ctx
+      { endpoint_ctxs = []; per_slot_ctx = None };
+    discovered_per_slot_context () = None
+    && discovered_endpoint_contexts () = [])
 
 let%test "discovered_ctx snapshot: max across multiple endpoints" =
-  Atomic.set _discovered_ctx
-    { endpoint_ctxs = [("http://a:8085", 4096); ("http://b:8086", 8192)];
-      per_slot_ctx = Some 8192 };
-  discovered_per_slot_context () = Some 8192
-  && List.length (discovered_endpoint_contexts ()) = 2
+  let old = Atomic.get _discovered_ctx in
+  Fun.protect ~finally:(fun () -> Atomic.set _discovered_ctx old) (fun () ->
+    Atomic.set _discovered_ctx
+      { endpoint_ctxs = [("http://a:8085", 4096); ("http://b:8086", 8192)];
+        per_slot_ctx = Some 8192 };
+    discovered_per_slot_context () = Some 8192
+    && List.length (discovered_endpoint_contexts ()) = 2)
 
 let%test "discovered_context_for_url returns per-endpoint value" =
-  Atomic.set _discovered_ctx
-    { endpoint_ctxs = [("http://a:8085", 4096); ("http://b:8086", 8192)];
-      per_slot_ctx = Some 8192 };
-  discovered_context_for_url "http://a:8085" = Some 4096
-  && discovered_context_for_url "http://b:8086" = Some 8192
+  let old = Atomic.get _discovered_ctx in
+  Fun.protect ~finally:(fun () -> Atomic.set _discovered_ctx old) (fun () ->
+    Atomic.set _discovered_ctx
+      { endpoint_ctxs = [("http://a:8085", 4096); ("http://b:8086", 8192)];
+        per_slot_ctx = Some 8192 };
+    discovered_context_for_url "http://a:8085" = Some 4096
+    && discovered_context_for_url "http://b:8086" = Some 8192)
 
 let%test "discovered_context_for_url returns None for unknown endpoint" =
-  Atomic.set _discovered_ctx
-    { endpoint_ctxs = [("http://a:8085", 4096)]; per_slot_ctx = Some 4096 };
-  discovered_context_for_url "http://unknown:9999" = None
+  let old = Atomic.get _discovered_ctx in
+  Fun.protect ~finally:(fun () -> Atomic.set _discovered_ctx old) (fun () ->
+    Atomic.set _discovered_ctx
+      { endpoint_ctxs = [("http://a:8085", 4096)]; per_slot_ctx = Some 4096 };
+    discovered_context_for_url "http://unknown:9999" = None)
 
 let%test "discovered_context_for_url trims whitespace" =
-  Atomic.set _discovered_ctx
-    { endpoint_ctxs = [("http://a:8085", 4096)]; per_slot_ctx = Some 4096 };
-  discovered_context_for_url "  http://a:8085  " = Some 4096
+  let old = Atomic.get _discovered_ctx in
+  Fun.protect ~finally:(fun () -> Atomic.set _discovered_ctx old) (fun () ->
+    Atomic.set _discovered_ctx
+      { endpoint_ctxs = [("http://a:8085", 4096)]; per_slot_ctx = Some 4096 };
+    discovered_context_for_url "  http://a:8085  " = Some 4096)
 
 let%test "discovered_ctx initial state is empty" =
-  (* Reset to initial state *)
-  Atomic.set _discovered_ctx { endpoint_ctxs = []; per_slot_ctx = None };
-  discovered_per_slot_context () = None
-  && discovered_endpoint_contexts () = []
-  && discovered_context_for_url "http://any:8085" = None
+  let old = Atomic.get _discovered_ctx in
+  Fun.protect ~finally:(fun () -> Atomic.set _discovered_ctx old) (fun () ->
+    (* Reset to initial state *)
+    Atomic.set _discovered_ctx { endpoint_ctxs = []; per_slot_ctx = None };
+    discovered_per_slot_context () = None
+    && discovered_endpoint_contexts () = []
+    && discovered_context_for_url "http://any:8085" = None)
