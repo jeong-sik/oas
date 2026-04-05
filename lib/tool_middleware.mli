@@ -69,13 +69,14 @@ val make_validation_hook :
     Validates tool call args, and on failure re-prompts the LLM
     with error feedback until the call is valid or retries exhaust.
 
-    @since 0.102.0 *)
+    @since 0.100.7 *)
 
 (** Result of a healing attempt. *)
 type healing_result = {
   value: Yojson.Safe.t;
   attempts: int;  (** Total attempts (1 = first try succeeded) *)
   healed: bool;   (** Whether any retry was needed *)
+  final_tool_use_id: string;  (** ToolUse ID to use for the final ToolResult *)
 }
 
 (** Reason the healing loop terminated without success. *)
@@ -111,6 +112,8 @@ val heal_tool_call :
     2. If [Pass] or [Proceed]: return immediately.
     3. If [Reject]: construct error feedback, call [llm], extract the
        corrected tool call, and repeat from (1).
+
+    Negative [max_retries] values are clamped to [0].
 
     @param max_retries Maximum re-prompts (default 3).
     @param on_retry Observability callback, invoked before each retry.

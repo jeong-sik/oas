@@ -44,6 +44,7 @@ type healing_result = {
   value: Yojson.Safe.t;
   attempts: int;
   healed: bool;
+  final_tool_use_id: string;
 }
 
 type healing_failure =
@@ -63,14 +64,15 @@ let extract_tool_args ~tool_name (content : Types.content_block list) =
 
 let heal_tool_call ~tool_name ~schema ~tool_use_id ~args
     ~prior_messages ~llm ?(max_retries = 3) ?on_retry () =
+  let max_retries = max 0 max_retries in
   let rec loop attempt current_args current_id messages =
     match validate_and_coerce ~tool_name ~schema current_args with
     | Pass ->
       Ok { value = current_args; attempts = attempt + 1;
-           healed = attempt > 0 }
+           healed = attempt > 0; final_tool_use_id = current_id }
     | Proceed coerced ->
       Ok { value = coerced; attempts = attempt + 1;
-           healed = attempt > 0 }
+           healed = attempt > 0; final_tool_use_id = current_id }
     | Reject { message; _ } ->
       if attempt >= max_retries then
         Error (Exhausted {

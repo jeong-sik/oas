@@ -20,6 +20,15 @@ let make_schema ?(required = []) (props : (string * string) list)
 let tool_schema name json_schema : Types.tool_schema =
   Tool_middleware.tool_schema_of_json ~name json_schema
 
+let string_contains ~sub s =
+  let len = String.length s
+  and sub_len = String.length sub in
+  let rec loop i =
+    i + sub_len <= len &&
+    (String.sub s i sub_len = sub || loop (i + 1))
+  in
+  sub_len = 0 || loop 0
+
 (* ── validate_and_coerce ─────────────────────────────────── *)
 
 let test_pass_no_params () =
@@ -169,7 +178,8 @@ let test_heal_valid_first_try () =
     ~tool_use_id:"tu1" ~args ~prior_messages:[] ~llm:mock_llm_fails () with
   | Ok r ->
     Alcotest.(check int) "attempts" 1 r.attempts;
-    Alcotest.(check bool) "not healed" false r.healed
+    Alcotest.(check bool) "not healed" false r.healed;
+    Alcotest.(check string) "final tool_use_id" "tu1" r.final_tool_use_id
   | Error _ -> Alcotest.fail "should succeed without calling LLM"
 
 let test_heal_coerced_first_try () =
@@ -179,6 +189,7 @@ let test_heal_coerced_first_try () =
   | Ok r ->
     Alcotest.(check int) "attempts" 1 r.attempts;
     Alcotest.(check bool) "not healed" false r.healed;
+    Alcotest.(check string) "final tool_use_id" "tu1" r.final_tool_use_id;
     let v = Yojson.Safe.Util.member "n" r.value in
     Alcotest.(check int) "coerced" 7 (match v with `Int i -> i | _ -> -1)
   | Error _ -> Alcotest.fail "coercion should succeed"
@@ -190,6 +201,7 @@ let test_heal_retry_fixes () =
   | Ok r ->
     Alcotest.(check int) "attempts" 2 r.attempts;
     Alcotest.(check bool) "healed" true r.healed;
+    Alcotest.(check string) "final tool_use_id" "fix1" r.final_tool_use_id;
     let v = Yojson.Safe.Util.member "n" r.value in
     Alcotest.(check int) "fixed" 42 (match v with `Int i -> i | _ -> -1)
   | Error _ -> Alcotest.fail "should heal after 1 retry"
@@ -212,7 +224,7 @@ let test_heal_llm_no_tool_call () =
     ~tool_use_id:"tu1" ~args ~prior_messages:[] ~llm:mock_llm_text_only () with
   | Error (Tool_middleware.Exhausted { last_error; _ }) ->
     Alcotest.(check bool) "mentions tool name" true
-      (String.length last_error > 0)
+      (string_contains ~sub:"calc" last_error)
   | Error _ -> Alcotest.fail "wrong error type"
   | Ok _ -> Alcotest.fail "should fail when LLM returns no tool call"
 
@@ -243,6 +255,16 @@ let test_heal_max_retries_zero () =
     Alcotest.(check int) "attempts" 1 attempts
   | _ -> Alcotest.fail "max_retries=0 should exhaust immediately"
 
+let test_heal_negative_max_retries_clamped () =
+  let args = `Assoc [("n", `String "bad")] in
+  match Tool_middleware.heal_tool_call ~tool_name:"calc" ~schema:int_schema
+    ~tool_use_id:"tu1" ~args ~prior_messages:[] ~llm:mock_llm_fixes
+    ~max_retries:(-3) () with
+  | Error (Tool_middleware.Exhausted { attempts; limit; _ }) ->
+    Alcotest.(check int) "attempts" 1 attempts;
+    Alcotest.(check int) "limit" 0 limit
+  | _ -> Alcotest.fail "negative max_retries should clamp to zero"
+
 (* ── Runner ──────────────────────────────────────────────── *)
 
 let () =
@@ -271,8 +293,10 @@ let () =
       Alcotest.test_case "retry fixes" `Quick test_heal_retry_fixes;
       Alcotest.test_case "exhausted" `Quick test_heal_exhausted;
       Alcotest.test_case "LLM returns no tool call" `Quick test_heal_llm_no_tool_call;
-      Alcotest.test_case "LLM error" `Quick test_heal_llm_error;
-      Alcotest.test_case "on_retry callback" `Quick test_heal_on_retry_called;
-      Alcotest.test_case "max_retries=0" `Quick test_heal_max_retries_zero;
-    ]);
-  ]
+       Alcotest.test_case "LLM error" `Quick test_heal_llm_error;
+       Alcotest.test_case "on_retry callback" `Quick test_heal_on_retry_called;
+       Alcotest.test_case "max_retries=0" `Quick test_heal_max_retries_zero;
+       Alcotest.test_case "negative max_retries clamps to 0" `Quick
+         test_heal_negative_max_retries_clamped;
+     ]);
+   ]
