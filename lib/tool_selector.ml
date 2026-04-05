@@ -93,8 +93,10 @@ let select_llm ~k ~bm25_prefilter_n ~always_include ~confidence_threshold
       (* Stage 2: LLM rerank with self-healing fallback *)
       let llm_selected =
         try rerank_fn ~context ~candidates
-        with _exn ->
-          (* Self-healing: LLM failure -> BM25 top-k *)
+        with
+        | Out_of_memory | Stack_overflow | Sys.Break as exn -> raise exn
+        | _exn ->
+          (* Self-healing: LLM/network failure -> BM25 top-k *)
           List.filteri (fun i _ -> i < k) bm25_top |> List.map fst
       in
       (* Validate: only keep names that exist in candidates *)

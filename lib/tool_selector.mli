@@ -33,7 +33,9 @@ type strategy =
           [None] disables fallback. *)
       fallback_tools: string list;
       (** Tools to include when BM25 confidence is low (top score < threshold).
-          Typically set to a curated policy-allowed subset. *)
+          Typically set to a curated policy-allowed subset.
+          Note: fallback tools are unioned with the top-k results, so the
+          total result count may exceed [k] when fallback is triggered. *)
     }
     (** BM25-based deterministic selection.
         Uses [Tool_index] internally. No LLM call, < 1ms latency.
@@ -83,6 +85,11 @@ type strategy =
         @raises Failure when called with [`Llm] classifier. *)
 
 (** Select tools relevant to the current turn context.
+
+    Internally builds a {!Tool_index} via [of_tools], which sets
+    [aliases = \[\]]. To use aliases for BM25 augmentation, build
+    the index via {!Tool_index.build} directly and use the lower-level
+    {!Tool_index.retrieve} API.
 
     @param strategy How to select
     @param context The user's current query/message text
