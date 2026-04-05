@@ -324,7 +324,7 @@ let execute_scheduled_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus
           | Hooks.AdjustParams _ ->
               find_and_execute_tool ~context ~tools ~hooks ~event_bus ~tracer
                 ~agent_name ~turn_count ?on_hook_invoked ~schedule name input id
-          | Hooks.ElicitInput _ ->
+          | Hooks.ElicitInput _ | Hooks.Nudge _ ->
               find_and_execute_tool ~context ~tools ~hooks ~event_bus ~tracer
                 ~agent_name ~turn_count ?on_hook_invoked ~schedule name input id
         with

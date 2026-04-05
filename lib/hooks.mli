@@ -102,6 +102,7 @@ type hook_decision =
   | ApprovalRequired
   | AdjustParams of turn_params
   | ElicitInput of elicitation_request
+  | Nudge of string  (** OnIdle only: inject message, reset idle counter, continue *)
 
 (** Decision from approval callback *)
 type approval_decision =
@@ -150,8 +151,8 @@ val invoke : hook option -> hook_event -> hook_decision
     Returning an unlisted decision is a programming error.
 
     {v
-    Stage                | Continue | Skip | Override | ApprovalRequired | AdjustParams | ElicitInput
-    ---------------------+----------+------+----------+------------------+--------------+------------
+    Stage                | Continue | Skip | Override | ApprovalRequired | AdjustParams | ElicitInput | Nudge
+    ---------------------+----------+------+----------+------------------+--------------+-------------+-------
     before_turn          |    Y     |      |          |                  |              |      Y
     before_turn_params   |    Y     |      |          |                  |      Y       |
     after_turn           |    Y     |      |          |                  |              |
@@ -159,7 +160,7 @@ val invoke : hook option -> hook_event -> hook_decision
     post_tool_use        |    Y     |      |          |                  |              |
     post_tool_use_failure|    Y     |      |          |                  |              |
     on_stop              |    Y     |      |          |                  |              |
-    on_idle              |    Y     |  Y   |          |                  |              |
+    on_idle              |    Y     |  Y   |          |                  |              |             |   Y
     on_error             |    Y     |      |          |                  |              |
     on_tool_error        |    Y     |      |          |                  |              |
     pre_compact          |    Y     |  Y   |          |                  |              |
@@ -175,6 +176,7 @@ type hook_decision_kind =
   | K_ApprovalRequired
   | K_AdjustParams
   | K_ElicitInput
+  | K_Nudge
 
 (** Extract the kind tag from a decision value. *)
 val classify_decision : hook_decision -> hook_decision_kind
