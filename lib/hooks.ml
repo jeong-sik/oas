@@ -150,6 +150,7 @@ type hook_decision =
   | ApprovalRequired  (** PreToolUse only: signals that tool needs approval before execution *)
   | AdjustParams of turn_params  (** BeforeTurnParams only: override params for this turn *)
   | ElicitInput of elicitation_request  (** Request user input before proceeding *)
+  | Nudge of string  (** OnIdle only: inject a nudge message into conversation, reset idle counter, continue execution *)
 
 (** Decision from approval callback *)
 type approval_decision =
@@ -219,6 +220,7 @@ type hook_decision_kind =
   | K_ApprovalRequired
   | K_AdjustParams
   | K_ElicitInput
+  | K_Nudge
 
 let classify_decision = function
   | Continue -> K_Continue
@@ -227,6 +229,7 @@ let classify_decision = function
   | ApprovalRequired -> K_ApprovalRequired
   | AdjustParams _ -> K_AdjustParams
   | ElicitInput _ -> K_ElicitInput
+  | Nudge _ -> K_Nudge
 
 let decision_kind_to_string = function
   | K_Continue -> "Continue"
@@ -235,6 +238,7 @@ let decision_kind_to_string = function
   | K_ApprovalRequired -> "ApprovalRequired"
   | K_AdjustParams -> "AdjustParams"
   | K_ElicitInput -> "ElicitInput"
+  | K_Nudge -> "Nudge"
 
 (** Extract a stage name string from a hook_event. *)
 let stage_of_event = function
@@ -253,19 +257,19 @@ let stage_of_event = function
 (** Legal decision matrix.
 
     {v
-    Stage                | Continue | Skip | Override | ApprovalRequired | AdjustParams | ElicitInput
-    ---------------------+----------+------+----------+------------------+--------------+------------
-    before_turn          |    Y     |      |          |                  |              |      Y
-    before_turn_params   |    Y     |      |          |                  |      Y       |
-    after_turn           |    Y     |      |          |                  |              |
-    pre_tool_use         |    Y     |  Y   |    Y     |        Y         |              |
-    post_tool_use        |    Y     |      |          |                  |              |
-    post_tool_use_failure|    Y     |      |          |                  |              |
-    on_stop              |    Y     |      |          |                  |              |
-    on_idle              |    Y     |  Y   |          |                  |              |
-    on_error             |    Y     |      |          |                  |              |
-    on_tool_error        |    Y     |      |          |                  |              |
-    pre_compact          |    Y     |  Y   |          |                  |              |
+    Stage                | Continue | Skip | Override | ApprovalRequired | AdjustParams | ElicitInput | Nudge
+    ---------------------+----------+------+----------+------------------+--------------+-------------+-------
+    before_turn          |    Y     |      |          |                  |              |      Y      |
+    before_turn_params   |    Y     |      |          |                  |      Y       |             |
+    after_turn           |    Y     |      |          |                  |              |             |
+    pre_tool_use         |    Y     |  Y   |    Y     |        Y         |              |             |
+    post_tool_use        |    Y     |      |          |                  |              |             |
+    post_tool_use_failure|    Y     |      |          |                  |              |             |
+    on_stop              |    Y     |      |          |                  |              |             |
+    on_idle              |    Y     |  Y   |          |                  |              |             |   Y
+    on_error             |    Y     |      |          |                  |              |             |
+    on_tool_error        |    Y     |      |          |                  |              |             |
+    pre_compact          |    Y     |  Y   |          |                  |              |             |
     v}
 
     Fail-closed: any decision not explicitly listed is rejected. *)
@@ -278,7 +282,7 @@ let legal_decisions_for_stage stage =
   | "post_tool_use"         -> [K_Continue]
   | "post_tool_use_failure" -> [K_Continue]
   | "on_stop"               -> [K_Continue]
-  | "on_idle"               -> [K_Continue; K_Skip]
+  | "on_idle"               -> [K_Continue; K_Skip; K_Nudge]
   | "on_error"              -> [K_Continue]
   | "on_tool_error"         -> [K_Continue]
   | "pre_compact"           -> [K_Continue; K_Skip]
