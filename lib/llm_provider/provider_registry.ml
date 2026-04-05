@@ -101,6 +101,17 @@ let next_llama_endpoint () =
   let idx = Atomic.fetch_and_add llama_rr_counter 1 mod n in
   endpoints.(idx)
 
+(** Peek at the current llama endpoint without advancing the round-robin.
+    Used by context resolution to match the endpoint that will serve
+    the next request, without side effects. *)
+let current_llama_endpoint () =
+  let endpoints = Atomic.get llama_endpoints_ref in
+  let n = Array.length endpoints in
+  if n = 0 then ""
+  else
+    let idx = Atomic.get llama_rr_counter mod n in
+    endpoints.(idx)
+
 (** Refresh the llama endpoint list by scanning local ports.
     If [LLM_ENDPOINTS] is set, uses that as the source (no scan).
     Otherwise probes ports 8085-8090 and keeps only healthy endpoints.
@@ -140,6 +151,9 @@ let active_llama_endpoints () =
 
 let discovered_max_context () =
   Discovery.discovered_per_slot_context ()
+
+let discovered_endpoint_max_context (url : string) =
+  Discovery.discovered_context_for_url url
 
 let llama_defaults = {
   kind = OpenAI_compat;

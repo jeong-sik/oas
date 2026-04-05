@@ -245,9 +245,23 @@ let probe_endpoint ~sw ~net url =
 
 (* ── Shared discovered context state ──────────────────────── *)
 
+(** Per-endpoint per-slot context.  Keyed by base URL. *)
+let _discovered_endpoint_ctxs : (string * int) list Atomic.t = Atomic.make []
+
+(** Legacy: max across all endpoints.  Kept for backward compat. *)
 let _discovered_per_slot_ctx : int option Atomic.t = Atomic.make None
 
 let discovered_per_slot_context () = Atomic.get _discovered_per_slot_ctx
+
+(** Per-endpoint per-slot context map from last probe.
+    Returns [(url, per_slot_ctx)] for each healthy endpoint. *)
+let discovered_endpoint_contexts () = Atomic.get _discovered_endpoint_ctxs
+
+(** Look up per-slot context for a specific endpoint URL.
+    Returns [None] if the endpoint was not probed or has no props. *)
+let discovered_context_for_url (url : string) : int option =
+  let normalized = String.trim url in
+  List.assoc_opt normalized (Atomic.get _discovered_endpoint_ctxs)
 
 let discover ~sw ~net ~endpoints =
   Eio.Fiber.List.map (fun url -> probe_endpoint ~sw ~net url) endpoints
@@ -258,10 +272,12 @@ let refresh_and_sync ~sw ~net ~endpoints =
   let per_slot_contexts = List.filter_map (fun (s : endpoint_status) ->
     match s.props with
     | Some p when p.total_slots > 0 && p.ctx_size > 0 ->
-      Some (p.ctx_size / p.total_slots)
+      Some (s.url, p.ctx_size / p.total_slots)
     | _ -> None
   ) healthy in
-  (match per_slot_contexts with
+  Atomic.set _discovered_endpoint_ctxs per_slot_contexts;
+  let ctx_values = List.map snd per_slot_contexts in
+  (match ctx_values with
    | [] -> ()
    | ctxs -> Atomic.set _discovered_per_slot_ctx (Some (List.fold_left max 0 ctxs)));
   statuses
