@@ -295,10 +295,14 @@ let discover ~sw ~net ~endpoints =
 let refresh_and_sync ~sw ~net ~endpoints =
   let statuses = discover ~sw ~net ~endpoints in
   let healthy = List.filter (fun (s : endpoint_status) -> s.healthy) statuses in
+  (* llama-server /props reports n_ctx as the per-slot context
+     (server total / n_parallel), not the server total. Do NOT divide
+     by total_slots again — that was a double-division bug that caused
+     context to appear 4x smaller than actual (e.g. 65K → 16K). *)
   let per_slot_contexts = List.filter_map (fun (s : endpoint_status) ->
     match s.props with
-    | Some p when p.total_slots > 0 && p.ctx_size > 0 ->
-      Some (s.url, p.ctx_size / p.total_slots)
+    | Some p when p.ctx_size > 0 ->
+      Some (s.url, p.ctx_size)
     | _ -> None
   ) healthy in
   let ctx_values = List.map snd per_slot_contexts in
