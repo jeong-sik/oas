@@ -122,6 +122,16 @@ val set_phase : t -> phase -> t
 val set_outcome : t -> string -> t
 val is_terminal : t -> bool
 
+(** {1 Phase transition guards} *)
+
+type phase_transition_error =
+  | InvalidPhaseTransition of { from_phase: phase; to_phase: phase }
+  | PhaseAlreadyTerminal of { phase: phase }
+
+val valid_phase_transitions : phase -> phase list
+val transition_phase : t -> phase -> (t, phase_transition_error) result
+val phase_transition_error_to_string : phase_transition_error -> string
+
 (** {1 Timestamp} *)
 
 val touch : t -> t

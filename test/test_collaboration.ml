@@ -339,6 +339,163 @@ let () =
           (Result.is_error (Collaboration.of_json bad)));
     ];
 
+    "transition_guards", [
+      test_case "valid: Bootstrapping -> Active" `Quick (fun () ->
+        let c = Collaboration.create ~goal:"test" () in
+        match Collaboration.transition_phase c Active with
+        | Ok c2 -> check bool "is Active" true (c2.phase = Collaboration.Active)
+        | Error _ -> Alcotest.fail "expected Ok");
+
+      test_case "valid: Bootstrapping -> Failed" `Quick (fun () ->
+        let c = Collaboration.create ~goal:"test" () in
+        match Collaboration.transition_phase c Failed with
+        | Ok c2 -> check bool "is Failed" true (c2.phase = Collaboration.Failed)
+        | Error _ -> Alcotest.fail "expected Ok");
+
+      test_case "valid: Bootstrapping -> Cancelled" `Quick (fun () ->
+        let c = Collaboration.create ~goal:"test" () in
+        match Collaboration.transition_phase c Cancelled with
+        | Ok c2 -> check bool "is Cancelled" true (c2.phase = Collaboration.Cancelled)
+        | Error _ -> Alcotest.fail "expected Ok");
+
+      test_case "valid: Active -> Waiting_on_participants" `Quick (fun () ->
+        let c = Collaboration.create ~goal:"test" () in
+        let c = Collaboration.set_phase c Active in
+        match Collaboration.transition_phase c Waiting_on_participants with
+        | Ok c2 -> check bool "is Waiting" true (c2.phase = Collaboration.Waiting_on_participants)
+        | Error _ -> Alcotest.fail "expected Ok");
+
+      test_case "valid: Active -> Finalizing" `Quick (fun () ->
+        let c = Collaboration.create ~goal:"test" () in
+        let c = Collaboration.set_phase c Active in
+        match Collaboration.transition_phase c Finalizing with
+        | Ok c2 -> check bool "is Finalizing" true (c2.phase = Collaboration.Finalizing)
+        | Error _ -> Alcotest.fail "expected Ok");
+
+      test_case "valid: Active -> Failed" `Quick (fun () ->
+        let c = Collaboration.create ~goal:"test" () in
+        let c = Collaboration.set_phase c Active in
+        match Collaboration.transition_phase c Failed with
+        | Ok c2 -> check bool "is Failed" true (c2.phase = Collaboration.Failed)
+        | Error _ -> Alcotest.fail "expected Ok");
+
+      test_case "valid: Active -> Cancelled" `Quick (fun () ->
+        let c = Collaboration.create ~goal:"test" () in
+        let c = Collaboration.set_phase c Active in
+        match Collaboration.transition_phase c Cancelled with
+        | Ok c2 -> check bool "is Cancelled" true (c2.phase = Collaboration.Cancelled)
+        | Error _ -> Alcotest.fail "expected Ok");
+
+      test_case "valid: Waiting_on_participants -> Active" `Quick (fun () ->
+        let c = Collaboration.create ~goal:"test" () in
+        let c = Collaboration.set_phase c Waiting_on_participants in
+        match Collaboration.transition_phase c Active with
+        | Ok c2 -> check bool "is Active" true (c2.phase = Collaboration.Active)
+        | Error _ -> Alcotest.fail "expected Ok");
+
+      test_case "valid: Finalizing -> Completed" `Quick (fun () ->
+        let c = Collaboration.create ~goal:"test" () in
+        let c = Collaboration.set_phase c Finalizing in
+        match Collaboration.transition_phase c Completed with
+        | Ok c2 -> check bool "is Completed" true (c2.phase = Collaboration.Completed)
+        | Error _ -> Alcotest.fail "expected Ok");
+
+      test_case "invalid: Bootstrapping -> Completed" `Quick (fun () ->
+        let c = Collaboration.create ~goal:"test" () in
+        match Collaboration.transition_phase c Completed with
+        | Ok _ -> Alcotest.fail "expected Error"
+        | Error (InvalidPhaseTransition { from_phase; to_phase }) ->
+          check bool "from" true (from_phase = Collaboration.Bootstrapping);
+          check bool "to" true (to_phase = Collaboration.Completed)
+        | Error _ -> Alcotest.fail "expected InvalidPhaseTransition");
+
+      test_case "invalid: Bootstrapping -> Finalizing" `Quick (fun () ->
+        let c = Collaboration.create ~goal:"test" () in
+        match Collaboration.transition_phase c Finalizing with
+        | Ok _ -> Alcotest.fail "expected Error"
+        | Error (InvalidPhaseTransition _) -> ()
+        | Error _ -> Alcotest.fail "expected InvalidPhaseTransition");
+
+      test_case "invalid: Waiting_on_participants -> Completed" `Quick (fun () ->
+        let c = Collaboration.create ~goal:"test" () in
+        let c = Collaboration.set_phase c Waiting_on_participants in
+        match Collaboration.transition_phase c Completed with
+        | Ok _ -> Alcotest.fail "expected Error"
+        | Error (InvalidPhaseTransition _) -> ()
+        | Error _ -> Alcotest.fail "expected InvalidPhaseTransition");
+
+      test_case "terminal: Completed rejects transition" `Quick (fun () ->
+        let c = Collaboration.create ~goal:"test" () in
+        let c = Collaboration.set_phase c Completed in
+        match Collaboration.transition_phase c Active with
+        | Ok _ -> Alcotest.fail "expected Error"
+        | Error (PhaseAlreadyTerminal { phase }) ->
+          check bool "phase" true (phase = Collaboration.Completed)
+        | Error _ -> Alcotest.fail "expected PhaseAlreadyTerminal");
+
+      test_case "terminal: Failed rejects transition" `Quick (fun () ->
+        let c = Collaboration.create ~goal:"test" () in
+        let c = Collaboration.set_phase c Failed in
+        match Collaboration.transition_phase c Active with
+        | Ok _ -> Alcotest.fail "expected Error"
+        | Error (PhaseAlreadyTerminal _) -> ()
+        | Error _ -> Alcotest.fail "expected PhaseAlreadyTerminal");
+
+      test_case "terminal: Cancelled rejects transition" `Quick (fun () ->
+        let c = Collaboration.create ~goal:"test" () in
+        let c = Collaboration.set_phase c Cancelled in
+        match Collaboration.transition_phase c Active with
+        | Ok _ -> Alcotest.fail "expected Error"
+        | Error (PhaseAlreadyTerminal _) -> ()
+        | Error _ -> Alcotest.fail "expected PhaseAlreadyTerminal");
+
+      test_case "same-state transition returns Ok" `Quick (fun () ->
+        let c = Collaboration.create ~goal:"test" () in
+        match Collaboration.transition_phase c Bootstrapping with
+        | Ok c2 -> check bool "still Bootstrapping" true (c2.phase = Collaboration.Bootstrapping)
+        | Error _ -> Alcotest.fail "same-state should return Ok");
+
+      test_case "same-state Active returns Ok" `Quick (fun () ->
+        let c = Collaboration.create ~goal:"test" () in
+        let c = Collaboration.set_phase c Active in
+        match Collaboration.transition_phase c Active with
+        | Ok c2 -> check bool "still Active" true (c2.phase = Collaboration.Active)
+        | Error _ -> Alcotest.fail "same-state should return Ok");
+
+      test_case "error message format: InvalidPhaseTransition" `Quick (fun () ->
+        let err = Collaboration.InvalidPhaseTransition
+          { from_phase = Bootstrapping; to_phase = Completed } in
+        let msg = Collaboration.phase_transition_error_to_string err in
+        check bool "contains 'invalid'" true
+          (String.length msg > 0
+           && try ignore (Str.search_forward (Str.regexp "invalid phase transition") msg 0); true
+              with Not_found -> false));
+
+      test_case "error message format: PhaseAlreadyTerminal" `Quick (fun () ->
+        let err = Collaboration.PhaseAlreadyTerminal { phase = Completed } in
+        let msg = Collaboration.phase_transition_error_to_string err in
+        check bool "contains 'terminal'" true
+          (String.length msg > 0
+           && try ignore (Str.search_forward (Str.regexp "terminal") msg 0); true
+              with Not_found -> false));
+
+      test_case "valid_phase_transitions exhaustive" `Quick (fun () ->
+        check int "Bootstrapping has 3" 3
+          (List.length (Collaboration.valid_phase_transitions Bootstrapping));
+        check int "Active has 4" 4
+          (List.length (Collaboration.valid_phase_transitions Active));
+        check int "Waiting has 3" 3
+          (List.length (Collaboration.valid_phase_transitions Waiting_on_participants));
+        check int "Finalizing has 3" 3
+          (List.length (Collaboration.valid_phase_transitions Finalizing));
+        check int "Completed has 0" 0
+          (List.length (Collaboration.valid_phase_transitions Completed));
+        check int "Failed has 0" 0
+          (List.length (Collaboration.valid_phase_transitions Failed));
+        check int "Cancelled has 0" 0
+          (List.length (Collaboration.valid_phase_transitions Cancelled)));
+    ];
+
     "edge_cases", [
       test_case "duplicate participant name — find returns first" `Quick (fun () ->
         let c = Collaboration.create ~goal:"test" () in
