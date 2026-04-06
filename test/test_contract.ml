@@ -228,6 +228,22 @@ let test_context_with_contract_non_empty () =
     check_bool "has value" true (value <> None)
   | None -> Alcotest.fail "expected context"
 
+let test_context_with_contract_preserves_identity () =
+  let original = Context.create () in
+  Context.set original "user_data" (`String "hello");
+  let c = Contract.with_runtime_awareness "test" Contract.empty in
+  match Contract.context_with_contract ~context:original c with
+  | Some ctx ->
+    (* returned context IS the original, not a copy *)
+    Context.set ctx "injected" (`String "world");
+    let from_original = Context.get original "injected" in
+    check_bool "write to returned ctx visible in original"
+      true (from_original = Some (`String "world"));
+    let from_ctx = Context.get ctx "user_data" in
+    check_bool "original data in returned ctx"
+      true (from_ctx = Some (`String "hello"))
+  | None -> Alcotest.fail "expected context"
+
 (* ── Suite ────────────────────────────────────────────── *)
 
 let () =
@@ -282,5 +298,6 @@ let () =
     "context", [
       Alcotest.test_case "empty contract" `Quick test_context_with_contract_empty;
       Alcotest.test_case "non-empty contract" `Quick test_context_with_contract_non_empty;
+      Alcotest.test_case "preserves identity" `Quick test_context_with_contract_preserves_identity;
     ];
   ]
