@@ -6,11 +6,15 @@ Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
 backfilled on 2026-04-04 from existing git tags. The dates below reflect the
 original tag dates. `0.100.4` was never tagged or released.
 
-## [0.105.0] - 2026-04-06
+## [0.106.0] - 2026-04-06
 
 ### Added
 - `Constants.Inference_profile.worker_default` (temp=0.2, max_tokens=4096) and `deterministic` (temp=0.0, max_tokens=4096) inference profiles for downstream coordinators.
 - `Budget_strategy.context_metrics` type and constructor — aggregates usage ratio, compression phase, and limit proximity into a single value.
+- Lifecycle transition guards (A2A pattern): `Lifecycle.validate_transition` enforces valid state machine transitions.
+- Collaboration and Plan transition guards with typed error reporting.
+
+## [0.105.0] - 2026-04-06
 
 ### Changed
 - Consolidated hardcoded endpoint URLs (`http://127.0.0.1:8085`, `http://localhost:8085`) into `Constants.Endpoints` module. All production and test code references the SSOT constants instead of string literals. Prevents port drift across files (prior art: #557).
