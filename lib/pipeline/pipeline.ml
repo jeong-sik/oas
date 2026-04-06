@@ -317,14 +317,14 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
       idle_skip := true;
       idle_handled := true
     | Hooks.Nudge nudge_msg ->
-      (* Inject a nudge message into conversation and reset idle counter
-         so the model gets a chance to try a different approach. *)
+      (* Inject a nudge message but keep idle counter accumulating.
+         Resetting to 0 caused an infinite nudge loop: model repeats
+         the same tool, counter resets, never reaches Skip threshold.
+         With accumulation: nudge at 1, nudge at 2, Skip at 3. *)
       update_state agent (fun s ->
         { s with messages = Util.snoc s.messages
             { role = User; content = [Text nudge_msg];
               name = None; tool_call_id = None } });
-      Eio.Mutex.use_rw ~protect:true agent.mu (fun () ->
-        agent.consecutive_idle_turns <- 0);
       idle_handled := true
     | _ -> ()
   end;
