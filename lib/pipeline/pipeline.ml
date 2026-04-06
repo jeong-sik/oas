@@ -80,6 +80,21 @@ let last_tool_results_from messages =
     | results -> results
   ) [] messages
 
+(** Prepare the turn using current [agent.state.messages] and the given
+    [turn_params].  Centralises the [Agent_turn.prepare_turn] parameter
+    list to avoid duplication between [stage_parse] and post-compaction
+    re-preparation (Stage 2.3). *)
+let prepare_turn_for_agent agent ~turn_params =
+  Agent_turn.prepare_turn
+    ~guardrails:agent.options.guardrails
+    ~operator_policy:agent.options.operator_policy
+    ~policy_channel:agent.options.policy_channel
+    ~tools:agent.tools
+    ~messages:agent.state.messages
+    ~context_reducer:agent.options.context_reducer ~turn_params
+    ?tool_selector:agent.options.tool_selector
+    ()
+
 (** Invoke BeforeTurnParams hook, apply turn params, prepare tools.
     Returns (turn_preparation, original_config, turn_params). *)
 let stage_parse ?raw_trace_run agent =
@@ -128,16 +143,7 @@ let stage_parse ?raw_trace_run agent =
                        turn = agent.state.turn_count })
    | None -> ());
 
-  let prep = Agent_turn.prepare_turn
-    ~guardrails:agent.options.guardrails
-    ~operator_policy:agent.options.operator_policy
-    ~policy_channel:agent.options.policy_channel
-    ~tools:agent.tools
-    ~messages:agent.state.messages
-    ~context_reducer:agent.options.context_reducer ~turn_params
-    ?tool_selector:agent.options.tool_selector
-    ()
-  in
+  let prep = prepare_turn_for_agent agent ~turn_params in
   (prep, original_config, turn_params)
 
 (* ── Stage 3: Route ──────────────────────────────────────── *)
@@ -458,8 +464,10 @@ let stage_output ?raw_trace_run agent ~effective_guardrails response =
 
 (** Conservative context-window size for proactive compaction.  Proactive
     compaction needs a context-window denominator, not the cumulative
-    input-token budget in [config.max_input_tokens].  Use a conservative
-    default when no explicit context-window metadata is available. *)
+    input-token budget in [config.max_input_tokens].  The [agent] parameter
+    is reserved for future extension (e.g., deriving the window from
+    model/provider capability metadata); for now a conservative default is
+    returned unconditionally. *)
 let proactive_context_window_tokens _agent = 128_000
 
 (** Apply proactive compaction when context usage exceeds the configured
@@ -491,9 +499,9 @@ let proactive_compact ?raw_trace_run agent ~watermark () =
        this, a watermark < 0.5 would never trigger Budget_strategy because
        phase_of_usage_ratio returns Full for ratios below 0.5. *)
     let scaled_ratio =
-      let denom = 1.0 -. watermark in
-      if denom <= 0.0 then 1.0
-      else 0.5 +. 0.5 *. (usage_ratio -. watermark) /. denom
+      let watermark_range = 1.0 -. watermark in
+      if watermark_range <= 0.0 then 1.0
+      else 0.5 +. 0.5 *. (usage_ratio -. watermark) /. watermark_range
     in
     let hook_decision =
       invoke_hook_with_trace agent ?raw_trace_run ~hook_name:"pre_compact"
@@ -599,15 +607,7 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
     | Some watermark when watermark > 0.0 && watermark < 1.0 ->
       let compacted = proactive_compact ?raw_trace_run agent ~watermark () in
       if compacted then
-        Agent_turn.prepare_turn
-          ~guardrails:agent.options.guardrails
-          ~operator_policy:agent.options.operator_policy
-          ~policy_channel:agent.options.policy_channel
-          ~tools:agent.tools
-          ~messages:agent.state.messages
-          ~context_reducer:agent.options.context_reducer ~turn_params
-          ?tool_selector:agent.options.tool_selector
-          ()
+        prepare_turn_for_agent agent ~turn_params
       else prep
     | _ -> prep
   in
