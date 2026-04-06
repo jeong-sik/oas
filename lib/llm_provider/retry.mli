@@ -11,6 +11,7 @@ type api_error =
   | ServerError of { status: int; message: string }
   | AuthError of { message: string }
   | InvalidRequest of { message: string }
+  | ContextOverflow of { message: string; limit: int option }
   | NetworkError of { message: string }
   | Timeout of { message: string }
 

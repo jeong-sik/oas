@@ -6,6 +6,7 @@ type api_error =
   | ServerError of { status: int; message: string }
   | AuthError of { message: string }
   | InvalidRequest of { message: string }
+  | ContextOverflow of { message: string; limit: int option }
   | NetworkError of { message: string }
   | Timeout of { message: string }
 
@@ -25,7 +26,7 @@ let default_config = {
 
 let is_retryable = function
   | RateLimited _ | Overloaded _ | ServerError _ | NetworkError _ | Timeout _ -> true
-  | AuthError _ | InvalidRequest _ -> false
+  | AuthError _ | InvalidRequest _ | ContextOverflow _ -> false
 
 let error_message = function
   | RateLimited r -> Printf.sprintf "Rate limited: %s" r.message
@@ -33,6 +34,12 @@ let error_message = function
   | ServerError r -> Printf.sprintf "Server error %d: %s" r.status r.message
   | AuthError r -> Printf.sprintf "Auth error: %s" r.message
   | InvalidRequest r -> Printf.sprintf "Invalid request: %s" r.message
+  | ContextOverflow r ->
+    let limit_str = match r.limit with
+      | Some n -> Printf.sprintf " (limit: %d)" n
+      | None -> ""
+    in
+    Printf.sprintf "Context overflow%s: %s" limit_str r.message
   | NetworkError r -> Printf.sprintf "Network error: %s" r.message
   | Timeout r -> Printf.sprintf "Timeout: %s" r.message
 
@@ -160,7 +167,11 @@ let classify_error ~status ~body : api_error =
   let message = extract_error_message body in
   match status with
   | 401 -> AuthError { message }
-  | 400 | 422 -> InvalidRequest { message }
+  | 400 | 422 ->
+    if is_context_overflow_message body then
+      ContextOverflow { message; limit = parse_context_overflow_limit body }
+    else
+      InvalidRequest { message }
   | 429 ->
     let retry_after =
       try
@@ -248,6 +259,21 @@ let%test "parse_context_overflow_limit: non-overflow returns None" =
 
 let%test "parse_context_overflow_limit: empty string" =
   parse_context_overflow_limit "" = None
+
+let%test "classify_error returns ContextOverflow for overflow body" =
+  let body = {|{"error":{"message":"request exceeds the available context size (8192)"}}|} in
+  match classify_error ~status:400 ~body with
+  | ContextOverflow { limit = Some 8192; _ } -> true
+  | _ -> false
+
+let%test "classify_error returns InvalidRequest for non-overflow 400" =
+  let body = {|{"error":{"message":"bad tool schema"}}|} in
+  match classify_error ~status:400 ~body with
+  | InvalidRequest _ -> true
+  | _ -> false
+
+let%test "ContextOverflow is not retryable" =
+  not (is_retryable (ContextOverflow { message = "overflow"; limit = Some 8192 }))
 
 (** Retry with cascade: try [primary] first (with retries), then each
     fallback in order. Each attempt gets its own full retry budget.

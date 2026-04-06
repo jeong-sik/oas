@@ -21,6 +21,8 @@ type event =
   | ElicitationCompleted of { agent_name: string; question: string;
                               response: Hooks.elicitation_response }
   | TaskStateChanged of { task_id: string; from_state: string; to_state: string }
+  | ContextCompacted of { agent_name: string; before_tokens: int;
+                          after_tokens: int; phase: string }
   | Custom of string * Yojson.Safe.t
 
 (** {2 Bus} *)
