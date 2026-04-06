@@ -270,6 +270,16 @@ let complete_named ~sw ~net ?clock ?config_path
                   | Hardcoded_defaults -> "hardcoded_defaults")
       })
   else
+  (* Sync discovery state before parsing so that endpoint_for_model can
+     route llama:model_id to the correct endpoint. Without this, the
+     model_endpoints atomic is empty and all llama models fall back to
+     round-robin, which may route to a server without that model. #677 *)
+  let _discovery_statuses =
+    let endpoints = Discovery.endpoints_from_env () in
+    if endpoints <> [] then
+      Discovery.refresh_and_sync ~sw ~net ~endpoints
+    else []
+  in
   let providers =
     parse_model_strings ~temperature ~max_tokens ?system_prompt model_strings
   in
