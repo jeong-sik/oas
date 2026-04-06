@@ -1,10 +1,22 @@
-(** Lifecycle types and pure helpers for the Agent module.
+(** Lifecycle types, transition guards, and pure helpers for the Agent module.
 
     Extracted from agent.ml to reduce file size.  No dependency on
     [Agent.t] — all functions take explicit parameters.
 
+    {2 Transition Guards}
+
+    The [transition] function enforces a valid state machine:
+    - [Accepted] -> [Ready | Failed]
+    - [Ready]    -> [Running | Failed]
+    - [Running]  -> [Completed | Failed]
+    - [Completed] and [Failed] are terminal (no outgoing transitions).
+    - Same-state transitions on non-terminal states are allowed (reaffirm).
+
+    Follows the pattern established by {!A2a_task.transition}.
+
     @stability Evolving
-    @since 0.93.1 *)
+    @since 0.93.1
+    @since 0.105.0 transition guards *)
 
 (** {1 Lifecycle status} *)
 
@@ -15,6 +27,31 @@ type lifecycle_status =
   | Completed
   | Failed
 [@@deriving show]
+
+(** {1 Transition guards} *)
+
+type transition_error =
+  | InvalidTransition of { from_status: lifecycle_status; to_status: lifecycle_status }
+  | AlreadyTerminal of { status: lifecycle_status }
+
+(** [is_terminal status] returns [true] for [Completed] and [Failed]. *)
+val is_terminal : lifecycle_status -> bool
+
+(** [valid_transitions status] returns the list of statuses reachable
+    from [status]. Terminal states return the empty list. *)
+val valid_transitions : lifecycle_status -> lifecycle_status list
+
+(** [transition ~from ~to_] validates a state transition.
+    Returns [Ok to_] on success, [Error _] on invalid transition.
+    Same-state transitions on non-terminal states return [Ok] (reaffirm). *)
+val transition :
+  from:lifecycle_status -> to_:lifecycle_status ->
+  (lifecycle_status, transition_error) result
+
+(** Human-readable description of a transition error. *)
+val transition_error_to_string : transition_error -> string
+
+(** {1 Snapshot} *)
 
 (** Snapshot of an agent's lifecycle at a given moment. *)
 type lifecycle_snapshot = {
