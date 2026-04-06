@@ -207,6 +207,37 @@ let test_reduce_custom_summarizer () =
   Alcotest.(check bool) "contains custom summary"
     true has_custom
 
+(* --- context_metrics --- *)
+
+let test_context_metrics_full () =
+  let m = Budget_strategy.context_metrics ~estimated_tokens:1000 ~context_window:10000 in
+  Alcotest.(check (float 0.01)) "ratio" 0.1 m.usage_ratio;
+  Alcotest.(check bool) "phase Full" true (m.phase = Budget_strategy.Full);
+  Alcotest.(check bool) "not near limit" false m.is_near_limit
+
+let test_context_metrics_emergency () =
+  let m = Budget_strategy.context_metrics ~estimated_tokens:9000 ~context_window:10000 in
+  Alcotest.(check (float 0.01)) "ratio" 0.9 m.usage_ratio;
+  Alcotest.(check bool) "phase Emergency" true (m.phase = Budget_strategy.Emergency);
+  Alcotest.(check bool) "near limit" true m.is_near_limit
+
+let test_context_metrics_zero_window () =
+  let m = Budget_strategy.context_metrics ~estimated_tokens:1000 ~context_window:0 in
+  Alcotest.(check (float 0.01)) "ratio" 0.0 m.usage_ratio;
+  Alcotest.(check bool) "phase Full" true (m.phase = Budget_strategy.Full)
+
+(* --- inference profiles --- *)
+
+let test_worker_default_profile () =
+  let p = Llm_provider.Constants.Inference_profile.worker_default in
+  Alcotest.(check (float 0.001)) "temp" 0.2 p.temperature;
+  Alcotest.(check int) "max_tokens" 4096 p.max_tokens
+
+let test_deterministic_profile () =
+  let p = Llm_provider.Constants.Inference_profile.deterministic in
+  Alcotest.(check (float 0.001)) "temp" 0.0 p.temperature;
+  Alcotest.(check int) "max_tokens" 4096 p.max_tokens
+
 (* --- show_phase --- *)
 
 let test_show_phase_values () =
@@ -249,6 +280,15 @@ let () =
       Alcotest.test_case "Aggressive drops thinking" `Quick test_reduce_aggressive_drops_thinking;
       Alcotest.test_case "Emergency summarizes" `Quick test_reduce_emergency_summarizes;
       Alcotest.test_case "custom summarizer" `Quick test_reduce_custom_summarizer;
+    ];
+    "context_metrics", [
+      Alcotest.test_case "Full phase metrics" `Quick test_context_metrics_full;
+      Alcotest.test_case "Emergency phase metrics" `Quick test_context_metrics_emergency;
+      Alcotest.test_case "zero window" `Quick test_context_metrics_zero_window;
+    ];
+    "inference_profiles", [
+      Alcotest.test_case "worker_default" `Quick test_worker_default_profile;
+      Alcotest.test_case "deterministic" `Quick test_deterministic_profile;
     ];
     "show_phase", [
       Alcotest.test_case "all values" `Quick test_show_phase_values;
