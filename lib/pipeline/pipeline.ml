@@ -454,6 +454,61 @@ let stage_output ?raw_trace_run agent ~effective_guardrails response =
   | Unknown reason ->
     Error (Error.Agent (UnrecognizedStopReason { reason }))
 
+(* ── Proactive watermark compaction (Phase 2) ───────────── *)
+
+(** Apply proactive compaction when context usage exceeds the configured
+    watermark ratio, BEFORE hitting the provider limit.  Uses
+    [Budget_strategy.phase_of_usage_ratio] to pick the lightest phase
+    that matches the current usage.  Fires PreCompact hook; respects
+    Skip.  Returns [true] if messages were actually reduced.
+
+    @param watermark  Ratio (0.0-1.0) at which to begin compacting.
+                      Typical value: 0.7 (= 70 % of context window).
+    @since Phase 2 — proactive compaction *)
+let proactive_compact ?raw_trace_run agent ~watermark () =
+  let messages = agent.state.messages in
+  let est_tokens = List.fold_left (fun acc msg ->
+    acc + Context_reducer.estimate_message_tokens msg) 0 messages in
+  let max_tokens = match agent.state.config.max_input_tokens with
+    | Some t when t > 0 -> t
+    | _ -> 0
+  in
+  if max_tokens = 0 then false
+  else
+    let usage_ratio = float_of_int est_tokens /. float_of_int max_tokens in
+    if usage_ratio < watermark then false
+    else
+      let hook_decision =
+        invoke_hook_with_trace agent ?raw_trace_run ~hook_name:"pre_compact"
+          agent.options.hooks.pre_compact
+          (Hooks.PreCompact { messages; estimated_tokens = est_tokens;
+                              budget_tokens = max_tokens })
+      in
+      match hook_decision with
+      | Hooks.Skip -> false
+      | _ ->
+        let reduced = Budget_strategy.reduce_for_budget
+          ~usage_ratio ~messages () in
+        let reduced = match agent.options.context_reducer with
+          | Some reducer -> Context_reducer.reduce reducer reduced
+          | None -> reduced
+        in
+        let after_tokens = List.fold_left (fun acc msg ->
+          acc + Context_reducer.estimate_message_tokens msg) 0 reduced in
+        if after_tokens >= est_tokens then false
+        else begin
+          update_state agent (fun s -> { s with messages = reduced });
+          (match agent.options.event_bus with
+           | Some bus -> Event_bus.publish bus
+               (ContextCompacted {
+                 agent_name = agent.state.config.name;
+                 before_tokens = est_tokens;
+                 after_tokens;
+                 phase = Printf.sprintf "proactive(%.0f%%)" (usage_ratio *. 100.0) })
+           | None -> ());
+          true
+        end
+
 (* ── Emergency compaction ────────────────────────────────── *)
 
 (** Apply emergency compaction to stored messages when context overflow
@@ -527,6 +582,21 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
      Error (Error.Agent (GuardrailViolation {
        validator = validator_name; reason }))
    | Guardrails_async.Pass ->
+
+  (* Stage 2.7: Proactive watermark compaction — compact before overflow.
+     When context_compact_ratio is configured, check current usage and
+     apply Budget_strategy-based compaction if over the watermark.
+     Re-parses prep after compaction to reflect reduced messages. *)
+  let prep = match agent.state.config.context_compact_ratio with
+    | Some watermark when watermark > 0.0 && watermark < 1.0 ->
+      let compacted = proactive_compact ?raw_trace_run agent ~watermark () in
+      if compacted then begin
+        update_state agent (fun s -> { s with config = original_config });
+        let (prep', _) = stage_parse ?raw_trace_run agent in
+        prep'
+      end else prep
+    | _ -> prep
+  in
 
   (* Stage 3: Route — with compact-and-retry on context overflow *)
   let rec attempt_route ~prep ~compact_attempts =
@@ -724,3 +794,7 @@ let%test "tag_error Ok unit" =
 
 let%test "tag_error Ok list" =
   tag_error "output" (Ok [1; 2; 3]) = Ok [1; 2; 3]
+
+(* --- Proactive compaction: phase selection is tested via
+   Budget_strategy inline tests; integration tested via keeper
+   turns that set context_compact_ratio in agent config. --- *)
