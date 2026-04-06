@@ -68,6 +68,10 @@ val with_operator_policy : Guardrails.tool_filter -> t -> t
     @since 0.96.0 *)
 val with_priority : Llm_provider.Request_priority.t -> t -> t
 
+(** Pin LLM requests to a specific llama-server slot for KV cache reuse.
+    @since 0.109.0 *)
+val with_slot_id : int -> t -> t
+
 val with_tracer : Tracing.t -> t -> t
 val with_raw_trace : Raw_trace.t -> t -> t
 val with_approval : Hooks.approval_callback -> t -> t

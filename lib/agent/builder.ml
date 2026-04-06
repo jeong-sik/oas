@@ -57,6 +57,7 @@ type t = {
   priority: Llm_provider.Request_priority.t option;
   yield_on_tool: bool;
   tool_selector: Tool_selector.strategy option;
+  slot_id: int option;
 }
 
 let create ~net ~model =
@@ -113,6 +114,7 @@ let create ~net ~model =
     priority = None;
     yield_on_tool = false;
     tool_selector = None;
+    slot_id = None;
   }
 
 let with_system_prompt prompt b = { b with system_prompt = Some prompt }
@@ -150,6 +152,7 @@ let with_guardrails guardrails b = { b with guardrails }
 let with_guardrails_async guardrails_async b = { b with guardrails_async }
 let with_operator_policy policy b = { b with operator_policy = Some policy }
 let with_priority priority b = { b with priority = Some priority }
+let with_slot_id slot_id b = { b with slot_id = Some slot_id }
 let with_contract contract b =
   { b with contract = Contract.merge b.contract contract }
 let with_skill skill b =
@@ -282,6 +285,7 @@ let build b =
     policy_channel = None;
     tool_selector = b.tool_selector;
     priority = b.priority;
+    slot_id = b.slot_id;
   } in
   Agent.create ~net:b.net ~config ~tools:(Tool_set.to_list tools) ?context
     ?named_cascade:b.named_cascade ~options ()

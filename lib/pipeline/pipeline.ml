@@ -176,7 +176,8 @@ let stage_route ~sw ?clock ~api_strategy agent prep =
              Api.create_message ~sw ~net:agent.net
                ~base_url:agent.options.base_url
                ?provider:agent.options.provider ?clock ~config:agent.state
-               ~messages:prep.effective_messages ?tools:prep.tools_json ()))
+               ~messages:prep.effective_messages ?tools:prep.tools_json
+               ?slot_id:agent.options.slot_id ()))
   | Stream { on_event } ->
     Tracing.with_span agent.options.tracer
       { kind = Api_call; name = "create_message_stream";

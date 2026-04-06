@@ -29,7 +29,7 @@ let capabilities_for_request ?provider_config (config : agent_state) =
              })
         ~model_id:(model_to_string config.config.model)
 
-let build_openai_body ?provider_config ~config ~messages ?tools () =
+let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
   let model_str = model_to_string config.config.model in
   let capabilities = capabilities_for_request ?provider_config config in
   let provider_messages =
@@ -100,5 +100,10 @@ let build_openai_body ?provider_config ~config ~messages ?tools () =
       ("response_format", `Assoc [("type", `String "json_object")]) :: body_assoc
     else
       body_assoc
+  in
+  let body_assoc =
+    match slot_id with
+    | Some id -> ("id_slot", `Int id) :: body_assoc
+    | None -> body_assoc
   in
   Yojson.Safe.to_string (`Assoc body_assoc)
