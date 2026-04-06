@@ -65,3 +65,23 @@ val reduce_for_budget :
 
 (** String representation of a compression phase for logging. *)
 val show_phase : compression_phase -> string
+
+(** Aggregate context budget metrics.
+    Convenience type combining ratio, phase, and limit proximity into
+    a single value that downstream coordinators can consume without
+    performing raw arithmetic on token counts.
+    @since 0.105.0 *)
+type context_metrics = {
+  usage_ratio : float;       (** 0.0 to 1.0+. *)
+  phase : compression_phase; (** Compression phase for this ratio. *)
+  is_near_limit : bool;      (** [true] when [usage_ratio >= 0.85]. *)
+  estimated_tokens : int;    (** Estimated tokens in context. *)
+  context_window : int;      (** Total context window size. *)
+}
+
+(** Build context metrics from estimated token count and context window size.
+    Returns a pre-computed [context_metrics] record with phase and limit
+    proximity derived from the usage ratio.
+    @since 0.105.0 *)
+val context_metrics :
+  estimated_tokens:int -> context_window:int -> context_metrics

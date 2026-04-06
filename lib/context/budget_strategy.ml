@@ -70,6 +70,24 @@ let strategies_for_phase ?(summarizer = default_summarizer) (phase : compression
       Drop_thinking;
       Merge_contiguous ]
 
+type context_metrics = {
+  usage_ratio : float;
+  phase : compression_phase;
+  is_near_limit : bool;
+  estimated_tokens : int;
+  context_window : int;
+}
+
+let context_metrics ~estimated_tokens ~context_window =
+  let usage_ratio =
+    if context_window <= 0 then 0.0
+    else float_of_int estimated_tokens /. float_of_int context_window
+  in
+  { usage_ratio;
+    phase = phase_of_usage_ratio usage_ratio;
+    is_near_limit = usage_ratio >= 0.85;
+    estimated_tokens; context_window }
+
 let reduce_for_budget ?(summarizer = default_summarizer) ~usage_ratio
     ~messages () : message list =
   let phase = phase_of_usage_ratio usage_ratio in

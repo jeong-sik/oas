@@ -36,6 +36,8 @@ module Inference_profile = struct
   let cascade_default = { temperature = 0.3; max_tokens = 500 }
   let agent_default   = { temperature = 0.7; max_tokens = 4096 }
   let low_variance    = { temperature = 0.1; max_tokens = 2048 }
+  let worker_default  = { temperature = 0.2; max_tokens = 4096 }
+  let deterministic   = { temperature = 0.0; max_tokens = 4096 }
 end
 
 (** Backward-compatible aliases — existing callers of

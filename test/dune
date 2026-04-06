@@ -762,7 +762,7 @@
 
 (test
  (name test_budget_strategy)
- (libraries agent_sdk alcotest yojson str))
+ (libraries agent_sdk llm_provider alcotest yojson str))
 
 (test
  (name test_contract)
