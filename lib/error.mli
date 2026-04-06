@@ -20,6 +20,7 @@ type agent_error =
   | IdleDetected of { consecutive_idle_turns: int }
   | ToolRetryExhausted of { attempts: int; limit: int; detail: string }
   | GuardrailViolation of { validator: string; reason: string }
+  | TripwireViolation of { tripwire: string; reason: string }
 
 type mcp_error =
   | ServerStartFailed of { command: string; detail: string }
