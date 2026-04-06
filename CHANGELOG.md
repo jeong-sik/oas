@@ -6,6 +6,13 @@ Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
 backfilled on 2026-04-04 from existing git tags. The dates below reflect the
 original tag dates. `0.100.4` was never tagged or released.
 
+## [0.103.0] - 2026-04-06
+
+### Added
+- `Tool.permission` type (`ReadOnly | Write | Destructive`) for per-tool side-effect metadata. Added as optional field on `Tool.descriptor`. Consumers use this to decide approval policy per tool instead of applying uniform approval to all tools.
+- `Tool.permission` and `Tool.is_read_only` accessor functions.
+- `permission` included in `descriptor_to_yojson` output.
+
 ## [0.102.0] - 2026-04-06
 
 ### Added

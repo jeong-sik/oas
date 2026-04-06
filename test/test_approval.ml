@@ -9,6 +9,7 @@ let descriptor_with ?mutation_class concurrency_class =
     Tool.kind = None;
     mutation_class;
     concurrency_class = Some concurrency_class;
+    permission = None;
     shell = None;
     notes = [];
     examples = [];

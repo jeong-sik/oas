@@ -130,6 +130,7 @@ let test_descriptor_preserved_and_not_in_schema () =
           Tool.kind = Some "shell";
           mutation_class = None;
           concurrency_class = Some Tool.Exclusive_external;
+          permission = Some Tool.Destructive;
           shell =
             Some
               {
@@ -238,6 +239,7 @@ let test_create_rejects_inconsistent_descriptor () =
                 Tool.kind = None;
                 mutation_class = Some "read_only";
                 concurrency_class = Some Tool.Sequential_workspace;
+                permission = None;
                 shell = None;
                 notes = [];
                 examples = [];
