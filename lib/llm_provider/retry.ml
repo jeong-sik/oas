@@ -93,6 +93,7 @@ let is_context_overflow_message (body : string) : bool =
       "context length exceeded";
       "maximum context length";
       "input is too long";
+      "token budget exceeded:";
     ]
 
 (* Parse an integer starting at [start] in [text]. Returns (value, end_index). *)
@@ -149,6 +150,10 @@ let parse_context_overflow_limit (body : string) : int option =
       else find_pos (i + 1)
     in
     find_pos 0
+
+(** Alias for {!parse_context_overflow_limit}.  Preferred name for
+    downstream consumers (MASC, etc.) to emphasize SSOT ownership. *)
+let extract_context_limit = parse_context_overflow_limit
 
 (** Classify HTTP status + body into structured api_error *)
 let classify_error ~status ~body : api_error =

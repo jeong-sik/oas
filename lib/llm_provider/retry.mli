@@ -37,6 +37,9 @@ val is_context_overflow_message : string -> bool
     @since 0.102.0 *)
 val parse_context_overflow_limit : string -> int option
 
+(** Alias for {!parse_context_overflow_limit}.  Preferred name for SSOT consumers. *)
+val extract_context_limit : string -> int option
+
 val classify_error : status:int -> body:string -> api_error
 
 (** {1 Retry execution} *)
