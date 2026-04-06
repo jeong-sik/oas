@@ -301,6 +301,7 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
     agent.consecutive_idle_turns <-
       idle_result.new_state.consecutive_idle_turns);
   let idle_skip = ref false in
+  let idle_handled = ref false in  (* true when Nudge or Skip handled idle *)
   if idle_result.is_idle then begin
     let idle_decision =
       invoke_hook_with_trace agent ?raw_trace_run ~hook_name:"on_idle"
@@ -312,7 +313,9 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
           ) tool_uses })
     in
     match idle_decision with
-    | Hooks.Skip -> idle_skip := true
+    | Hooks.Skip ->
+      idle_skip := true;
+      idle_handled := true
     | Hooks.Nudge nudge_msg ->
       (* Inject a nudge message into conversation and reset idle counter
          so the model gets a chance to try a different approach. *)
@@ -321,7 +324,8 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
             { role = User; content = [Text nudge_msg];
               name = None; tool_call_id = None } });
       Eio.Mutex.use_rw ~protect:true agent.mu (fun () ->
-        agent.consecutive_idle_turns <- 0)
+        agent.consecutive_idle_turns <- 0);
+      idle_handled := true
     | _ -> ()
   end;
   (* Early exit: skip tool execution when on_idle hook says Skip.
@@ -374,9 +378,10 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
                    (ToolRetryExhausted { attempts; limit; detail = summary })))
     in
     (* Anti-repetition hint: append warning to tool feedback when idle detected
-       but below skip threshold, so LLM sees it in the same message. *)
+       but not already handled by Nudge or Skip. Nudge injects its own message
+       and resets the counter; Skip causes early return above. *)
     let effective_feedback =
-      if idle_result.is_idle then
+      if idle_result.is_idle && not !idle_handled then
         tool_feedback @ [Text (Printf.sprintf
           "[Idle warning: You called the same tool(s) with identical arguments %d time(s) in a row. Try a different tool or change your arguments to make progress.]"
           agent.consecutive_idle_turns)]
@@ -402,16 +407,9 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
          ~injector ~tool_uses ~results
        in
        update_state agent (fun s -> { s with messages = new_messages }));
-    (* Anti-repetition hint: when idle is detected but below skip threshold,
-       inject a warning so the LLM tries a different approach next turn. *)
-    (if idle_result.is_idle then
-       update_state agent (fun s ->
-         { s with messages = Util.snoc s.messages
-           { role = User;
-             content = [Text (Printf.sprintf
-               "[Idle warning: You called the same tool(s) with identical arguments %d time(s) in a row. Try a different tool or change your arguments to make progress.]"
-               agent.consecutive_idle_turns)];
-             name = None; tool_call_id = None } }));
+    (* Anti-repetition hint is now in effective_feedback above.
+       Removed duplicate User message injection (Copilot review #3). *)
+    ignore idle_handled;  (* suppress unused warning after dedup *)
     (* In-memory message hygiene after each tool execution round.
        Without this, agent.state.messages grows unbounded across turns —
        context_reducer only trims before API calls, not in the stored state.
