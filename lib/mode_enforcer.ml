@@ -75,7 +75,8 @@ type token_snapshot = {
 
 (** Default tool-name -> effect-class mappings. Data, not inline code. *)
 let default_tool_entries : (string * tool_effect_class) list = [
-  (* Read-only tools *)
+  (* ── Read-only tools ─────────────────────────────────────── *)
+  (* File & code navigation *)
   "read", Read_only;
   "glob", Read_only;
   "grep", Read_only;
@@ -87,12 +88,21 @@ let default_tool_entries : (string * tool_effect_class) list = [
   "get_symbols_overview", Read_only;
   "find_referencing_symbols", Read_only;
   "search_for_pattern", Read_only;
+  (* Notebook *)
+  "notebook_read", Read_only;
+  (* Browser observation *)
   "read_console_messages", Read_only;
   "read_network_requests", Read_only;
   "get_page_text", Read_only;
   "read_page", Read_only;
   "tabs_context_mcp", Read_only;
-  (* Local-mutation tools *)
+  (* Task queries *)
+  "task_list", Read_only;
+  "task_get", Read_only;
+  "task_output", Read_only;
+
+  (* ── Local-mutation tools ────────────────────────────────── *)
+  (* File editing *)
   "write", Local_mutation;
   "edit", Local_mutation;
   "create_text_file", Local_mutation;
@@ -102,7 +112,29 @@ let default_tool_entries : (string * tool_effect_class) list = [
   "insert_before_symbol", Local_mutation;
   "replace_symbol_body", Local_mutation;
   "notebook_edit", Local_mutation;
-  (* Shell-dynamic tools (require input analysis at runtime) *)
+  (* Task & team management *)
+  "task_create", Local_mutation;
+  "task_update", Local_mutation;
+  "task_stop", Local_mutation;
+  "team_create", Local_mutation;
+  "team_delete", Local_mutation;
+
+  (* ── External-effect tools ───────────────────────────────── *)
+  (* HITL *)
+  "ask_user_question", External_effect;
+  (* Web & research *)
+  "web_fetch", External_effect;
+  "web_search", External_effect;
+  (* Browser interaction *)
+  "navigate", External_effect;
+  "computer", External_effect;
+  "find", External_effect;
+  "form_input", External_effect;
+  "javascript_tool", External_effect;
+  "tabs_create_mcp", External_effect;
+  "upload_image", External_effect;
+
+  (* ── Shell-dynamic tools (require input analysis at runtime) *)
   "bash", Shell_dynamic;
   "execute_shell_command", Shell_dynamic;
 ]
@@ -395,3 +427,57 @@ let hooks st =
        | _ -> ());
       Continue);
   }
+
+(* ── Inline tests ──────────────────────────────────────────────── *)
+[@@@coverage off]
+
+let%test "builtin_descriptor returns Some for read-only tools" =
+  match builtin_descriptor "read" with
+  | Some d -> d.mutation_class = Some "read_only"
+              && d.concurrency_class = Some Tool.Parallel_read
+              && d.permission = Some Tool.ReadOnly
+  | None -> false
+
+let%test "builtin_descriptor returns Some for mutation tools" =
+  match builtin_descriptor "edit" with
+  | Some d -> d.mutation_class = Some "local_mutation"
+              && d.concurrency_class = Some Tool.Sequential_workspace
+              && d.permission = Some Tool.Write
+  | None -> false
+
+let%test "builtin_descriptor returns Some for external tools" =
+  match builtin_descriptor "web_fetch" with
+  | Some d -> d.mutation_class = Some "external_effect"
+              && d.concurrency_class = Some Tool.Exclusive_external
+              && d.permission = Some Tool.Destructive
+  | None -> false
+
+let%test "builtin_descriptor returns Some for ask_user_question" =
+  match builtin_descriptor "ask_user_question" with
+  | Some d -> d.concurrency_class = Some Tool.Exclusive_external
+  | None -> false
+
+let%test "builtin_descriptor returns Some for task tools" =
+  match builtin_descriptor "task_list" with
+  | Some d -> d.concurrency_class = Some Tool.Parallel_read
+  | None -> false
+
+let%test "builtin_descriptor returns Some for task_create" =
+  match builtin_descriptor "task_create" with
+  | Some d -> d.concurrency_class = Some Tool.Sequential_workspace
+  | None -> false
+
+let%test "builtin_descriptor returns Some for shell tools" =
+  match builtin_descriptor "bash" with
+  | Some d -> d.mutation_class = Some "external_effect"
+              && d.shell <> None
+  | None -> false
+
+let%test "builtin_descriptor returns None for unknown tools" =
+  builtin_descriptor "nonexistent_tool_xyz" = None
+
+let%test "register_tool_class extends registry" =
+  register_tool_class "my_custom_tool" Read_only;
+  match builtin_descriptor "my_custom_tool" with
+  | Some d -> d.mutation_class = Some "read_only"
+  | None -> false
