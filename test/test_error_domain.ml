@@ -240,6 +240,32 @@ let test_roundtrip_api_invalid_request () =
    | Error.Api (Retry.InvalidRequest _) -> ()
    | _ -> Alcotest.fail "roundtrip mismatch for InvalidRequest")
 
+let test_roundtrip_api_context_overflow () =
+  let orig = Error.Api (Retry.ContextOverflow { message = "too big"; limit = Some 8192 }) in
+  let poly = Error_domain.of_sdk_error orig in
+  (match poly with
+   | `Context_overflow ("too big", Some 8192) -> ()
+   | _ -> Alcotest.fail "expected Context_overflow");
+  let back = Error_domain.to_sdk_error poly in
+  (match back with
+   | Error.Api (Retry.ContextOverflow { message = "too big"; limit = Some 8192 }) -> ()
+   | _ -> Alcotest.fail "roundtrip mismatch for ContextOverflow")
+
+let test_roundtrip_api_context_overflow_no_limit () =
+  let orig = Error.Api (Retry.ContextOverflow { message = "overflow"; limit = None }) in
+  let poly = Error_domain.of_sdk_error orig in
+  (match poly with
+   | `Context_overflow ("overflow", None) -> ()
+   | _ -> Alcotest.fail "expected Context_overflow None");
+  let back = Error_domain.to_sdk_error poly in
+  (match back with
+   | Error.Api (Retry.ContextOverflow { limit = None; _ }) -> ()
+   | _ -> Alcotest.fail "roundtrip mismatch for ContextOverflow None")
+
+let test_retryable_context_overflow () =
+  Alcotest.(check bool) "context_overflow not retryable" false
+    (Error_domain.is_retryable (`Context_overflow ("overflow", Some 8192)))
+
 let test_roundtrip_agent_token_budget () =
   let orig = Error.Agent (TokenBudgetExceeded { kind = "total"; used = 500; limit = 100 }) in
   let poly = Error_domain.of_sdk_error orig in
@@ -552,6 +578,8 @@ let () =
       Alcotest.test_case "api timeout" `Quick test_roundtrip_api_timeout;
       Alcotest.test_case "api overloaded" `Quick test_roundtrip_api_overloaded;
       Alcotest.test_case "api invalid_request" `Quick test_roundtrip_api_invalid_request;
+      Alcotest.test_case "api context_overflow" `Quick test_roundtrip_api_context_overflow;
+      Alcotest.test_case "api context_overflow_no_limit" `Quick test_roundtrip_api_context_overflow_no_limit;
       Alcotest.test_case "agent max_turns" `Quick test_roundtrip_agent_max_turns;
       Alcotest.test_case "agent token_budget" `Quick test_roundtrip_agent_token_budget;
       Alcotest.test_case "agent idle_detected" `Quick test_roundtrip_agent_idle_detected;
@@ -578,6 +606,7 @@ let () =
       Alcotest.test_case "network_error" `Quick test_retryable_network_error;
       Alcotest.test_case "auth_error" `Quick test_retryable_auth_error;
       Alcotest.test_case "invalid_request" `Quick test_retryable_invalid_request;
+      Alcotest.test_case "context_overflow" `Quick test_retryable_context_overflow;
       Alcotest.test_case "max_turns" `Quick test_retryable_max_turns;
       Alcotest.test_case "token_budget" `Quick test_retryable_token_budget;
       Alcotest.test_case "idle_detected" `Quick test_retryable_idle_detected;

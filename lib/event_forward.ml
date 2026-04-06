@@ -41,6 +41,7 @@ let event_type_name : Event_bus.event -> string = function
   | TurnCompleted _ -> "turn.completed"
   | ElicitationCompleted _ -> "elicitation.completed"
   | TaskStateChanged _ -> "task.state_changed"
+  | ContextCompacted _ -> "context.compacted"
   | Custom (name, _) -> "custom." ^ name
 
 let agent_name_of_event : Event_bus.event -> string option = function
@@ -51,6 +52,7 @@ let agent_name_of_event : Event_bus.event -> string option = function
   | TurnStarted r -> Some r.agent_name
   | TurnCompleted r -> Some r.agent_name
   | ElicitationCompleted r -> Some r.agent_name
+  | ContextCompacted r -> Some r.agent_name
   | TaskStateChanged _ -> None
   | Custom _ -> None
 
@@ -90,6 +92,13 @@ let event_to_payload (event : Event_bus.event) : event_payload =
         ("task_id", `String r.task_id);
         ("from_state", `String r.from_state);
         ("to_state", `String r.to_state);
+      ]
+    | ContextCompacted r ->
+      `Assoc [
+        ("agent_name", `String r.agent_name);
+        ("before_tokens", `Int r.before_tokens);
+        ("after_tokens", `Int r.after_tokens);
+        ("phase", `String r.phase);
       ]
     | Custom (name, data) ->
       `Assoc [("name", `String name); ("data", data)]

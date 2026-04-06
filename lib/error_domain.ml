@@ -8,6 +8,7 @@ type provider_error = [
   | `Provider_timeout of string
   | `Overloaded
   | `Invalid_request of string
+  | `Context_overflow of string * int option
 ]
 
 type tool_error = [
@@ -68,6 +69,7 @@ let of_api_error (err : Retry.api_error) : provider_error =
   | Retry.Timeout r -> `Provider_timeout r.message
   | Retry.Overloaded _ -> `Overloaded
   | Retry.InvalidRequest r -> `Invalid_request r.message
+  | Retry.ContextOverflow r -> `Context_overflow (r.message, r.limit)
 
 let of_sdk_error (err : Error.sdk_error) : sdk_error_poly =
   match err with
@@ -109,6 +111,7 @@ let provider_to_api : provider_error -> Retry.api_error = function
   | `Provider_timeout msg -> Retry.Timeout { message = msg }
   | `Overloaded -> Retry.Overloaded { message = "overloaded" }
   | `Invalid_request msg -> Retry.InvalidRequest { message = msg }
+  | `Context_overflow (msg, limit) -> Retry.ContextOverflow { message = msg; limit }
 
 let to_sdk_error (err : sdk_error_poly) : Error.sdk_error =
   match err with

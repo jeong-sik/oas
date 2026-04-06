@@ -454,6 +454,51 @@ let stage_output ?raw_trace_run agent ~effective_guardrails response =
   | Unknown reason ->
     Error (Error.Agent (UnrecognizedStopReason { reason }))
 
+(* ── Emergency compaction ────────────────────────────────── *)
+
+(** Apply emergency compaction to stored messages when context overflow
+    is detected. Uses Budget_strategy Emergency phase (Summarize_old +
+    aggressive tool pruning). Fires PreCompact hook; respects Skip.
+    Returns [true] if messages were actually reduced. *)
+let emergency_compact ?raw_trace_run agent ?limit () =
+  let messages = agent.state.messages in
+  let est_tokens = List.fold_left (fun acc msg ->
+    acc + Context_reducer.estimate_message_tokens msg) 0 messages in
+  let budget = match limit with
+    | Some l -> l
+    | None -> est_tokens
+  in
+  let hook_decision =
+    invoke_hook_with_trace agent ?raw_trace_run ~hook_name:"pre_compact"
+      agent.options.hooks.pre_compact
+      (Hooks.PreCompact { messages; estimated_tokens = est_tokens;
+                          budget_tokens = budget })
+  in
+  match hook_decision with
+  | Hooks.Skip -> false
+  | _ ->
+    let reduced = Budget_strategy.reduce_for_budget
+      ~usage_ratio:1.0 ~messages () in
+    let reduced = match agent.options.context_reducer with
+      | Some reducer -> Context_reducer.reduce reducer reduced
+      | None -> reduced
+    in
+    let after_tokens = List.fold_left (fun acc msg ->
+      acc + Context_reducer.estimate_message_tokens msg) 0 reduced in
+    if after_tokens >= est_tokens then false
+    else begin
+      update_state agent (fun s -> { s with messages = reduced });
+      (match agent.options.event_bus with
+       | Some bus -> Event_bus.publish bus
+           (ContextCompacted {
+             agent_name = agent.state.config.name;
+             before_tokens = est_tokens;
+             after_tokens;
+             phase = "emergency" })
+       | None -> ());
+      true
+    end
+
 (* ── Pipeline coordinator ────────────────────────────────── *)
 
 let tag_error stage result =
@@ -483,9 +528,23 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
        validator = validator_name; reason }))
    | Guardrails_async.Pass ->
 
-  (* Stage 3: Route *)
-  let api_result = stage_route ~sw ?clock ~api_strategy agent prep
-    |> tag_error "route" in
+  (* Stage 3: Route — with compact-and-retry on context overflow *)
+  let rec attempt_route ~prep ~compact_attempts =
+    let api_result = stage_route ~sw ?clock ~api_strategy agent prep
+      |> tag_error "route" in
+    match api_result with
+    | Error (Error.Api (Retry.ContextOverflow { limit; _ }))
+      when compact_attempts < 2 ->
+      let compacted = emergency_compact ?raw_trace_run agent ?limit () in
+      if not compacted then api_result
+      else begin
+        update_state agent (fun s -> { s with config = original_config });
+        let (prep', _) = stage_parse ?raw_trace_run agent in
+        attempt_route ~prep:prep' ~compact_attempts:(compact_attempts + 1)
+      end
+    | other -> other
+  in
+  let api_result = attempt_route ~prep ~compact_attempts:0 in
 
   (* Stage 4+5+6: Collect, Execute/Output *)
   match api_result with

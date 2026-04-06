@@ -23,6 +23,8 @@ type event =
   | ElicitationCompleted of { agent_name: string; question: string;
                               response: Hooks.elicitation_response }
   | TaskStateChanged of { task_id: string; from_state: string; to_state: string }
+  | ContextCompacted of { agent_name: string; before_tokens: int;
+                          after_tokens: int; phase: string }
   | Custom of string * Yojson.Safe.t
 
 (* ── Subscription ──────────────────────────────────────────────────── *)
@@ -64,6 +66,7 @@ let filter_agent name : filter = fun event ->
   | TurnStarted r -> r.agent_name = name
   | TurnCompleted r -> r.agent_name = name
   | ElicitationCompleted r -> r.agent_name = name
+  | ContextCompacted r -> r.agent_name = name
   | TaskStateChanged _ -> true  (* Task events are not agent-scoped *)
   | Custom _ -> true  (* Custom events are not agent-scoped; always pass *)
 
