@@ -63,7 +63,11 @@ let filter_healthy_internal ~sw ~net (providers : Provider_config.t list) =
       |> List.map (fun (cfg : Provider_config.t) -> cfg.base_url)
       |> List.sort_uniq String.compare
     in
-    let statuses = Discovery.discover ~sw ~net ~endpoints in
+    (* Use refresh_and_sync instead of discover so that the shared
+       model_endpoints index is populated. Without this, endpoint_for_model
+       always returns None and model-specific routing in
+       make_registry_config falls back to round-robin. See #677. *)
+    let statuses = Discovery.refresh_and_sync ~sw ~net ~endpoints in
     if cloud_providers = [] then
       (providers, statuses)
     else
