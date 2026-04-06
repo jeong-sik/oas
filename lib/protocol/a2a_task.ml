@@ -99,18 +99,18 @@ type message_part =
 
 let message_part_to_yojson = function
   | Text_part s ->
-    `Assoc [("text", `String s)]
+    `Assoc [("type", `String "text"); ("text", `String s)]
   | File_part { name; mime_type; data; location } ->
-    `Assoc
-      ((match location with
-        | `Raw -> [("raw", `String data)]
-        | `Url -> [("url", `String data)])
-       @ [
-           ("filename", `String name);
-           ("mediaType", `String mime_type);
-         ])
+    let file_obj = `Assoc ([
+      ("name", `String name);
+      ("mimeType", `String mime_type);
+    ] @ (match location with
+         | `Raw -> [("bytes", `String data)]
+         | `Url -> [("uri", `String data)]))
+    in
+    `Assoc [("type", `String "file"); ("file", file_obj)]
   | Data_part json ->
-    `Assoc [("data", json)]
+    `Assoc [("type", `String "data"); ("data", json)]
 
 let message_part_of_yojson json =
   let open Yojson.Safe.Util in
@@ -124,8 +124,12 @@ let message_part_of_yojson json =
        let file = json |> member "file" in
        let name = file |> member "name" |> to_string in
        let mime_type = file |> member "mimeType" |> to_string in
-       let data = file |> member "bytes" |> to_string in
-       Ok (File_part { name; mime_type; data; location = `Raw })
+       (match file |> member "bytes" |> to_string_option with
+        | Some data -> Ok (File_part { name; mime_type; data; location = `Raw })
+        | None ->
+          match file |> member "uri" |> to_string_option with
+          | Some uri -> Ok (File_part { name; mime_type; data = uri; location = `Url })
+          | None -> Error "file part requires bytes or uri")
      | Some (`String "data") ->
        let data = json |> member "data" in
        Ok (Data_part data)
