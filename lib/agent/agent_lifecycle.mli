@@ -8,9 +8,12 @@
     The [transition] function enforces a valid state machine:
     - [Accepted] -> [Ready | Failed]
     - [Ready]    -> [Running | Failed]
-    - [Running]  -> [Completed | Failed]
+    - [Running]  -> [Ready | Completed | Failed]
     - [Completed] and [Failed] are terminal (no outgoing transitions).
     - Same-state transitions on non-terminal states are allowed (reaffirm).
+
+    [Running -> Ready] models a multi-turn agent returning to input-wait
+    state between turns (pipeline stage_input sets Ready each turn).
 
     Follows the pattern established by {!A2a_task.transition}.
 
