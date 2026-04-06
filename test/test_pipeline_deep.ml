@@ -100,7 +100,7 @@ let test_resolve_params_no_hook () =
     { role = User; content = [Text "hello"]; name = None; tool_call_id = None };
   ] in
   let invoke_hook ~hook_name:_ _hook _event = Hooks.Continue in
-  let params = Agent_turn.resolve_turn_params ~hooks ~messages ~invoke_hook in
+  let params = Agent_turn.resolve_turn_params ~hooks ~messages ~max_turns:10 ~invoke_hook in
   Alcotest.(check bool) "default temperature" true
     (Option.is_none params.temperature);
   Alcotest.(check bool) "default thinking_budget" true
@@ -129,7 +129,7 @@ let test_resolve_params_adjust () =
     | Some h -> h event
     | None -> Hooks.Continue
   in
-  let params = Agent_turn.resolve_turn_params ~hooks ~messages ~invoke_hook in
+  let params = Agent_turn.resolve_turn_params ~hooks ~messages ~max_turns:10 ~invoke_hook in
   Alcotest.(check (option (float 0.01))) "adjusted temperature"
     (Some 0.7) params.temperature;
   Alcotest.(check (option int)) "adjusted thinking_budget"
@@ -153,7 +153,7 @@ let test_resolve_params_system_prompt_override () =
     | Some h -> h event
     | None -> Hooks.Continue
   in
-  let params = Agent_turn.resolve_turn_params ~hooks ~messages ~invoke_hook in
+  let params = Agent_turn.resolve_turn_params ~hooks ~messages ~max_turns:10 ~invoke_hook in
   Alcotest.(check (option string)) "system_prompt_override applied"
     (Some "You are a code reviewer.") params.system_prompt_override;
   (* Original config fields remain default *)
@@ -167,7 +167,7 @@ let test_resolve_params_no_system_prompt_override () =
     { role = User; content = [Text "hello"]; name = None; tool_call_id = None };
   ] in
   let invoke_hook ~hook_name:_ _hook _event = Hooks.Continue in
-  let params = Agent_turn.resolve_turn_params ~hooks ~messages ~invoke_hook in
+  let params = Agent_turn.resolve_turn_params ~hooks ~messages ~max_turns:10 ~invoke_hook in
   Alcotest.(check (option string)) "no system_prompt_override"
     None params.system_prompt_override
 
@@ -196,7 +196,7 @@ let test_resolve_params_with_tool_results () =
     | Some h -> h event
     | None -> Hooks.Continue
   in
-  let _params = Agent_turn.resolve_turn_params ~hooks ~messages ~invoke_hook in
+  let _params = Agent_turn.resolve_turn_params ~hooks ~messages ~max_turns:10 ~invoke_hook in
   Alcotest.(check int) "1 tool result captured" 1 (List.length !captured_results);
   (match List.hd !captured_results with
    | Ok { content } -> Alcotest.(check string) "content" "found it" content
@@ -225,13 +225,33 @@ let test_resolve_params_error_tool_results () =
   let invoke_hook ~hook_name:_ hook event =
     match hook with Some h -> h event | None -> Hooks.Continue
   in
-  let _params = Agent_turn.resolve_turn_params ~hooks ~messages ~invoke_hook in
+  let _params = Agent_turn.resolve_turn_params ~hooks ~messages ~max_turns:10 ~invoke_hook in
   Alcotest.(check int) "1 error result" 1 (List.length !captured_results);
   (match List.hd !captured_results with
    | Error { message; recoverable } ->
      Alcotest.(check string) "error message" "permission denied" message;
      Alcotest.(check bool) "recoverable" true recoverable
    | Ok _ -> Alcotest.fail "expected Error result")
+
+(** resolve_turn_params passes max_turns to hook event. *)
+let test_resolve_params_max_turns_passed () =
+  let captured_max_turns = ref 0 in
+  let hooks = { Hooks.empty with
+    before_turn_params = Some (fun event ->
+      (match event with
+       | Hooks.BeforeTurnParams { max_turns; _ } ->
+         captured_max_turns := max_turns
+       | _ -> ());
+      Hooks.Continue)
+  } in
+  let messages : Types.message list = [
+    { role = User; content = [Text "hi"]; name = None; tool_call_id = None };
+  ] in
+  let invoke_hook ~hook_name:_ hook event =
+    match hook with Some h -> h event | None -> Hooks.Continue
+  in
+  let _params = Agent_turn.resolve_turn_params ~hooks ~messages ~max_turns:42 ~invoke_hook in
+  Alcotest.(check int) "max_turns passed" 42 !captured_max_turns
 
 (* ── Agent_turn.apply_context_injection ───────────────────── *)
 
@@ -488,6 +508,8 @@ let () =
         test_resolve_params_with_tool_results;
       Alcotest.test_case "error tool results" `Quick
         test_resolve_params_error_tool_results;
+      Alcotest.test_case "max_turns passed" `Quick
+        test_resolve_params_max_turns_passed;
     ];
     "context_injection", [
       Alcotest.test_case "sets values" `Quick

@@ -164,7 +164,7 @@ let dummy_before_turn =
 
 let dummy_before_turn_params =
   Hooks.BeforeTurnParams {
-    turn = 1; messages = [];
+    turn = 1; max_turns = 10; messages = [];
     last_tool_results = [];
     current_params = Hooks.default_turn_params;
     reasoning = Hooks.empty_reasoning_summary;

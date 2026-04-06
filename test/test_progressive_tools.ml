@@ -104,6 +104,7 @@ let test_as_hook_returns_adjust_params () =
   let hook = Progressive_tools.as_hook strategy in
   let event = Hooks.BeforeTurnParams {
     turn = 0;
+    max_turns = 10;
     messages = [];
     last_tool_results = [];
     current_params = Hooks.default_turn_params;

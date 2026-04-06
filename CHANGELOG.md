@@ -6,6 +6,11 @@ Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
 backfilled on 2026-04-04 from existing git tags. The dates below reflect the
 original tag dates. `0.100.4` was never tagged or released.
 
+## [0.108.0] - 2026-04-06
+
+### Added
+- `max_turns` field in `BeforeTurnParams` hook event. Consumers can compute remaining turns without duplicating max_turns tracking. Closes #658.
+
 ## [0.107.0] - 2026-04-06
 
 ### Changed

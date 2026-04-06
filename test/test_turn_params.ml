@@ -50,6 +50,7 @@ let test_before_turn_params_event () =
   let reasoning = Hooks.empty_reasoning_summary in
   let event = Hooks.BeforeTurnParams {
     turn = 0;
+    max_turns = 10;
     messages = [];
     last_tool_results = [];
     current_params = params;
@@ -57,8 +58,9 @@ let test_before_turn_params_event () =
   } in
   (* Just verify the event constructs correctly *)
   match event with
-  | Hooks.BeforeTurnParams { turn; _ } ->
-    Alcotest.(check int) "turn 0" 0 turn
+  | Hooks.BeforeTurnParams { turn; max_turns; _ } ->
+    Alcotest.(check int) "turn 0" 0 turn;
+    Alcotest.(check int) "max_turns 10" 10 max_turns
   | _ -> Alcotest.fail "wrong event type"
 
 let test_adjust_params_decision () =
