@@ -28,6 +28,15 @@ val default_config : retry_config
 val is_retryable : api_error -> bool
 val error_message : api_error -> string
 val is_context_overflow_message : string -> bool
+
+(** Extract the available context token limit from a context overflow error message.
+    Parses both "available context size (N)" and "input token budget exceeded: U/N"
+    formats. Returns [None] if the message is not an overflow error or the limit
+    cannot be parsed.
+
+    @since 0.102.0 *)
+val parse_context_overflow_limit : string -> int option
+
 val classify_error : status:int -> body:string -> api_error
 
 (** {1 Retry execution} *)

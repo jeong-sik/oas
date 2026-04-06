@@ -95,6 +95,61 @@ let is_context_overflow_message (body : string) : bool =
       "input is too long";
     ]
 
+(* Parse an integer starting at [start] in [text]. Returns (value, end_index). *)
+let int_run_from (text : string) start : (int * int) option =
+  let len = String.length text in
+  let rec consume i =
+    if i >= len then i
+    else match text.[i] with '0'..'9' -> consume (i + 1) | _ -> i
+  in
+  let stop = consume start in
+  if stop = start then None
+  else String.sub text start (stop - start) |> int_of_string_opt
+       |> Option.map (fun v -> (v, stop))
+
+let skip_ws text i =
+  let len = String.length text in
+  let rec loop j = if j >= len then j else match text.[j] with ' '|'\n'|'\r'|'\t' -> loop (j+1) | _ -> j in
+  loop i
+
+let parse_context_overflow_limit (body : string) : int option =
+  let msg = String.lowercase_ascii (extract_error_message body) in
+  (* Pattern 1: "available context size (N)" *)
+  let anchor1 = "available context size (" in
+  let r1 =
+    match contains_substring_ci ~haystack:msg ~needle:anchor1 with
+    | false -> None
+    | true ->
+      (* Find the anchor position *)
+      let rec find_pos i =
+        if i + String.length anchor1 > String.length msg then None
+        else if String.sub msg i (String.length anchor1) = anchor1 then
+          int_run_from msg (i + String.length anchor1) |> Option.map fst
+        else find_pos (i + 1)
+      in
+      find_pos 0
+  in
+  match r1 with
+  | Some _ -> r1
+  | None ->
+    (* Pattern 2: "input token budget exceeded: U / N" *)
+    let anchor2 = "input token budget exceeded:" in
+    let rec find_pos i =
+      if i + String.length anchor2 > String.length msg then None
+      else if String.sub msg i (String.length anchor2) = anchor2 then
+        let used_start = skip_ws msg (i + String.length anchor2) in
+        (match int_run_from msg used_start with
+         | None -> None
+         | Some (_, used_end) ->
+           let slash_idx = skip_ws msg used_end in
+           if slash_idx >= String.length msg || msg.[slash_idx] <> '/' then None
+           else
+             let limit_start = skip_ws msg (slash_idx + 1) in
+             int_run_from msg limit_start |> Option.map fst)
+      else find_pos (i + 1)
+    in
+    find_pos 0
+
 (** Classify HTTP status + body into structured api_error *)
 let classify_error ~status ~body : api_error =
   let message = extract_error_message body in
@@ -166,6 +221,28 @@ let%test "is_context_overflow_message detects json body" =
 
 let%test "is_context_overflow_message ignores generic invalid request" =
   not (is_context_overflow_message {|{"error":{"message":"bad tool schema"}}|})
+
+let%test "parse_context_overflow_limit: available context size" =
+  parse_context_overflow_limit
+    "Invalid request: request (11447 tokens) exceeds the available context size (8192 tokens)"
+  = Some 8192
+
+let%test "parse_context_overflow_limit: json body" =
+  parse_context_overflow_limit
+    {|{"error":{"message":"available context size (32768)"}}|}
+  = Some 32768
+
+let%test "parse_context_overflow_limit: budget exceeded format" =
+  parse_context_overflow_limit
+    "input token budget exceeded: 15000 / 8192"
+  = Some 8192
+
+let%test "parse_context_overflow_limit: non-overflow returns None" =
+  parse_context_overflow_limit {|{"error":{"message":"bad tool schema"}}|}
+  = None
+
+let%test "parse_context_overflow_limit: empty string" =
+  parse_context_overflow_limit "" = None
 
 (** Retry with cascade: try [primary] first (with retries), then each
     fallback in order. Each attempt gets its own full retry budget.
