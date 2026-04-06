@@ -34,7 +34,7 @@ let default_endpoint =
   match primary, legacy with
   | Some v, _ when String.trim v <> "" -> String.trim v
   | _, Some v when String.trim v <> "" -> String.trim v
-  | _ -> "http://127.0.0.1:8085"
+  | _ -> Constants.Endpoints.default_url
 
 let endpoints_from_env () =
   match Sys.getenv_opt "LLM_ENDPOINTS" with
@@ -409,7 +409,7 @@ let max_context_of_status (status : endpoint_status) =
 (* --- default_endpoint --- *)
 
 let%test "default_endpoint is localhost:8085" =
-  default_endpoint = "http://127.0.0.1:8085"
+  default_endpoint = Constants.Endpoints.default_url
 
 (* --- endpoints_from_env --- *)
 
@@ -633,18 +633,18 @@ let%test "capabilities_to_json" =
 
 let%test "endpoint_status_to_json without props and slots" =
   let es = {
-    url = "http://localhost:8085"; healthy = true;
+    url = Constants.Endpoints.default_url_localhost; healthy = true;
     models = []; props = None; slots = None;
     capabilities = Capabilities.default_capabilities;
   } in
   let json = endpoint_status_to_json es in
   let open Yojson.Safe.Util in
-  json |> member "url" |> to_string = "http://localhost:8085"
+  json |> member "url" |> to_string = Constants.Endpoints.default_url_localhost
   && json |> member "healthy" |> to_bool = true
 
 let%test "endpoint_status_to_json with props and slots" =
   let es = {
-    url = "http://localhost:8085"; healthy = true;
+    url = Constants.Endpoints.default_url_localhost; healthy = true;
     models = [{ id = "m1"; owned_by = "local" }];
     props = Some { total_slots = 4; ctx_size = 8192; model = "m1" };
     slots = Some { total = 4; busy = 1; idle = 3 };

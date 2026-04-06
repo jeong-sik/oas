@@ -46,8 +46,9 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
   let body = match config.system_prompt with
     | Some s when not (Api_common.string_is_blank s) ->
         let s = Utf8_sanitize.sanitize s in
-        if config.cache_system_prompt && String.length s >= 3500 then
-          (* Anthropic prompt caching: requires ~1024+ tokens (~3500 chars).
+        if config.cache_system_prompt
+           && String.length s >= Constants.Anthropic.prompt_cache_min_chars then
+          (* Anthropic prompt caching: requires ~1024+ tokens.
              Send system as content block array with cache_control breakpoint. *)
           let block = `Assoc [
             ("type", `String "text");

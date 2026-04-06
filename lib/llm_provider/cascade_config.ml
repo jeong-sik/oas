@@ -571,12 +571,12 @@ let%test "parse_model_strings filters unavailable" =
 
 let%test "is_local_provider 127.0.0.1" =
   let cfg = Provider_config.make ~kind:OpenAI_compat ~model_id:"m"
-    ~base_url:"http://127.0.0.1:8085" () in
+    ~base_url:Constants.Endpoints.default_url () in
   is_local_provider cfg = true
 
 let%test "is_local_provider localhost with port" =
   let cfg = Provider_config.make ~kind:OpenAI_compat ~model_id:"m"
-    ~base_url:"http://localhost:8085" () in
+    ~base_url:Constants.Endpoints.default_url_localhost () in
   is_local_provider cfg = true
 
 let%test "is_local_provider localhost bare" =
@@ -680,9 +680,9 @@ let%test "parse_model_string case-insensitive provider" =
 
 let%test "filter_by_capabilities keeps tool-supporting providers" =
   let tool_cfg = Provider_config.make ~kind:OpenAI_compat ~model_id:"qwen3.5"
-    ~base_url:"http://localhost:8085" () in
+    ~base_url:Constants.Endpoints.default_url_localhost () in
   let no_tool_cfg = Provider_config.make ~kind:OpenAI_compat ~model_id:"unknown-no-tools"
-    ~base_url:"http://localhost:8085" () in
+    ~base_url:Constants.Endpoints.default_url_localhost () in
   let result = filter_by_capabilities
     ~pred:(fun c -> c.Capabilities.supports_tools)
     [tool_cfg; no_tool_cfg] in
@@ -690,9 +690,9 @@ let%test "filter_by_capabilities keeps tool-supporting providers" =
 
 let%test "filter_by_capabilities returns all if none match" =
   let cfg1 = Provider_config.make ~kind:OpenAI_compat ~model_id:"unknown-a"
-    ~base_url:"http://localhost:8085" () in
+    ~base_url:Constants.Endpoints.default_url_localhost () in
   let cfg2 = Provider_config.make ~kind:OpenAI_compat ~model_id:"unknown-b"
-    ~base_url:"http://localhost:8085" () in
+    ~base_url:Constants.Endpoints.default_url_localhost () in
   let result = filter_by_capabilities
     ~pred:(fun c -> c.Capabilities.supports_computer_use)
     [cfg1; cfg2] in

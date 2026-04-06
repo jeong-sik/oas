@@ -81,7 +81,7 @@ let create ~sw ~net ~(config : config) : Llm_transport.t =
 [@@@coverage off]
 
 let%test "default_config base_url" =
-  default_config.base_url = "http://127.0.0.1:8085"
+  default_config.base_url = Constants.Endpoints.default_url
 
 let%test "default_config request_path" =
   default_config.request_path = "/v1/chat/completions"
