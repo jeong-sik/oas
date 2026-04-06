@@ -127,10 +127,11 @@ let test_split_batches_empty () =
 let test_flush_empty_instance () =
   Eio_main.run @@ fun env ->
   let net = Eio.Stdenv.net env in
+  let clock = Eio.Stdenv.clock env in
   Eio.Switch.run @@ fun sw ->
   let instance = make_instance () in
   let config = default_export_config ~endpoint:"http://localhost:19999/v1/traces" in
-  let result = flush_to_collector ~sw ~net ~config instance in
+  let result = flush_to_collector ~sw ~clock ~net ~config instance in
   match result with
   | Exported { span_count } ->
     Alcotest.(check int) "0 spans exported" 0 span_count

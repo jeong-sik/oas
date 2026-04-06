@@ -399,7 +399,8 @@ let rec execute_step_plan ~sw plan ~input =
       | Ok prev_output -> execute_step_plan ~sw plan ~input:prev_output
     ) (Ok input) plans
   | Step_parallel { plans; max_concurrency } ->
-    let results = Eio.Fiber.List.map ~max_fibers:max_concurrency
+    let max_fibers = if max_concurrency < 1 then 1 else max_concurrency in
+    let results = Eio.Fiber.List.map ~max_fibers
       (fun plan -> execute_step_plan ~sw plan ~input)
       plans
     in

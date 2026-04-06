@@ -36,9 +36,15 @@ type export_result =
 (** {1 One-shot export} *)
 
 (** Flush all completed spans from [instance] and POST them to the
-    configured OTLP endpoint. Does not start a background fiber. *)
+    configured OTLP endpoint. Does not start a background fiber.
+
+    Spans are dequeued from the tracer before export. On partial or
+    total export failure the affected spans are dropped (not re-queued);
+    callers should treat [Partial_failure] and [Failed] as permanent
+    span loss for those batches. *)
 val flush_to_collector :
   sw:Eio.Switch.t ->
+  clock:_ Eio.Time.clock ->
   net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
   config:export_config ->
   Otel_tracer.instance ->
@@ -63,6 +69,7 @@ val start_daemon :
 (** Force an immediate flush outside the periodic schedule. *)
 val force_flush :
   sw:Eio.Switch.t ->
+  clock:_ Eio.Time.clock ->
   net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
   t ->
   export_result

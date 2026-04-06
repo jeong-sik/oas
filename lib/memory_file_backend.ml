@@ -8,8 +8,10 @@ type t = { base_dir: Eio.Fs.dir_ty Eio.Path.t }
 
 (* ── Key encoding ────────────────────────────────────────────── *)
 
-(** Encode a key as hex string for filesystem safety.
-    Avoids special chars, path traversal, and length issues. *)
+(** Encode a key as a hex string for filesystem safety.
+    Avoids special characters and path traversal in filenames, but does
+    not remove filesystem filename length limits (hex encoding doubles
+    the key length). *)
 let hex_encode s =
   let buf = Buffer.create (String.length s * 2) in
   String.iter (fun c ->

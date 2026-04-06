@@ -70,7 +70,7 @@ let build_otlp_body ~service_name (spans : Otel_tracer.span list) : string =
 
 (* ── HTTP POST via cohttp-eio ───────────────────────────────── *)
 
-let post_otlp ~sw ~client ~config body =
+let post_otlp ~sw ~clock ~client ~config body =
   let uri = Uri.of_string config.endpoint in
   let base_headers =
     Cohttp.Header.of_list
@@ -78,28 +78,31 @@ let post_otlp ~sw ~client ~config body =
   in
   let body_s = Cohttp_eio.Body.of_string body in
   try
-    let resp, resp_body =
-      Cohttp_eio.Client.post ~sw ~headers:base_headers ~body:body_s
-        client uri
-    in
-    let status = Cohttp.Response.status resp in
-    let code = Cohttp.Code.code_of_status status in
-    let _ = Eio.Buf_read.of_flow ~max_size:(1024 * 64) resp_body
-            |> Eio.Buf_read.take_all in
-    if code >= 200 && code < 300 then Ok ()
-    else Error (Printf.sprintf "HTTP %d" code)
+    Eio.Time.with_timeout_exn clock config.timeout_sec (fun () ->
+      let resp, resp_body =
+        Cohttp_eio.Client.post ~sw ~headers:base_headers ~body:body_s
+          client uri
+      in
+      let status = Cohttp.Response.status resp in
+      let code = Cohttp.Code.code_of_status status in
+      let _ = Eio.Buf_read.of_flow ~max_size:(1024 * 64) resp_body
+              |> Eio.Buf_read.take_all in
+      if code >= 200 && code < 300 then Ok ()
+      else Error (Printf.sprintf "HTTP %d" code))
   with
+  | Eio.Time.Timeout -> Error (Printf.sprintf "timeout after %.1fs" config.timeout_sec)
   | exn -> Error (Printexc.to_string exn)
 
 (* ── Batch + retry logic ────────────────────────────────────── *)
 
-let export_batch ~sw ~client ~config ~service_name spans =
+let export_batch ~sw ~clock ~client ~config ~service_name spans =
   let body = build_otlp_body ~service_name spans in
   let rec attempt n =
-    match post_otlp ~sw ~client ~config body with
+    match post_otlp ~sw ~clock ~client ~config body with
     | Ok () -> Ok (List.length spans)
     | Error _ when n < config.max_retries ->
-      Unix.sleepf (Float.pow 2.0 (Float.of_int n) *. 0.5);
+      let delay = Float.pow 2.0 (Float.of_int n) *. 0.5 in
+      Eio.Time.sleep clock delay;
       attempt (n + 1)
     | Error reason -> Error reason
   in
@@ -120,7 +123,10 @@ let rec split_batches max_size acc = function
     let batch, rest = take_batch max_size spans in
     split_batches max_size (batch :: acc) rest
 
-let flush_to_collector ~sw ~net ~config instance =
+let flush_to_collector ~sw ~clock ~net ~config instance =
+  (* Spans are flushed from the tracer upfront. If export fails, spans are
+     dropped (not re-queued). Callers should treat [Partial_failure] and
+     [Failed] as permanent span loss for the affected batches. *)
   let spans = Otel_tracer.inst_flush instance in
   if spans = [] then Exported { span_count = 0 }
   else
@@ -131,7 +137,7 @@ let flush_to_collector ~sw ~net ~config instance =
     let exported = ref 0 in
     let last_error = ref "" in
     List.iter (fun batch ->
-      match export_batch ~sw ~client ~config ~service_name batch with
+      match export_batch ~sw ~clock ~client ~config ~service_name batch with
       | Ok count -> exported := !exported + count
       | Error reason -> last_error := reason
     ) batches;
@@ -161,7 +167,7 @@ let start_daemon ~sw ~clock ~net ~config ?on_export instance =
   Eio.Fiber.fork_daemon ~sw (fun () ->
     while true do
       Eio.Time.sleep clock config.flush_interval_sec;
-      let result = flush_to_collector ~sw ~net ~config instance in
+      let result = flush_to_collector ~sw ~clock ~net ~config instance in
       (match result with
        | Exported { span_count } ->
          state.total_exported <- state.total_exported + span_count
@@ -174,8 +180,8 @@ let start_daemon ~sw ~clock ~net ~config ?on_export instance =
   );
   state
 
-let force_flush ~sw ~net t =
-  let result = flush_to_collector ~sw ~net ~config:t.config t.instance in
+let force_flush ~sw ~clock ~net t =
+  let result = flush_to_collector ~sw ~clock ~net ~config:t.config t.instance in
   (match result with
    | Exported { span_count } ->
      t.total_exported <- t.total_exported + span_count

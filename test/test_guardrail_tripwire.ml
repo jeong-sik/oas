@@ -64,8 +64,8 @@ let test_tripwire_fires_immediate () =
     ~tripwires:[fail_tripwire "safety" "PII detected"]
     ~messages:(make_messages ["my SSN is 123"])
     ~action:(fun () ->
-      (* Slow action: sleep so tripwire fires first *)
-      Eio.Time.sleep clock 10.0;
+      (* Briefly yield so the immediate tripwire can win without a long test delay. *)
+      Eio.Time.sleep clock 0.05;
       action_ran := true;
       Ok "should not reach")
   in
@@ -113,7 +113,7 @@ let test_multiple_one_fires () =
       pass_tripwire "ok2";
     ]
     ~messages:(make_messages ["test"])
-    ~action:(fun () -> Eio.Time.sleep clock 10.0; Ok "slow")
+    ~action:(fun () -> Eio.Time.sleep clock 0.05; Ok "slow")
   in
   match result with
   | Error (`Tripped (Guardrail_tripwire.Tripped { tripwire_name; _ })) ->
