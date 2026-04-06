@@ -317,14 +317,15 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
       idle_skip := true;
       idle_handled := true
     | Hooks.Nudge nudge_msg ->
-      (* Inject a nudge message into conversation and reset idle counter
-         so the model gets a chance to try a different approach. *)
+      (* Inject a nudge message and leave the idle counter unchanged,
+         so repeated idle turns continue to accumulate toward later
+         escalation. With accumulation, repeated idle turns can
+         continue to nudge until the on_idle hook eventually decides
+         to Skip (for example, at a configured threshold). *)
       update_state agent (fun s ->
         { s with messages = Util.snoc s.messages
             { role = User; content = [Text nudge_msg];
               name = None; tool_call_id = None } });
-      Eio.Mutex.use_rw ~protect:true agent.mu (fun () ->
-        agent.consecutive_idle_turns <- 0);
       idle_handled := true
     | _ -> ()
   end;
@@ -379,7 +380,7 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
     in
     (* Anti-repetition hint: append warning to tool feedback when idle detected
        but not already handled by Nudge or Skip. Nudge injects its own message
-       and resets the counter; Skip causes early return above. *)
+       and injects its own message; Skip causes early return above. *)
     let effective_feedback =
       if idle_result.is_idle && not !idle_handled then
         tool_feedback @ [Text (Printf.sprintf
