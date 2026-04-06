@@ -485,7 +485,7 @@ let emergency_compact ?raw_trace_run agent ?limit () =
     in
     let after_tokens = List.fold_left (fun acc msg ->
       acc + Context_reducer.estimate_message_tokens msg) 0 reduced in
-    if List.length reduced >= List.length messages then false
+    if after_tokens >= est_tokens then false
     else begin
       update_state agent (fun s -> { s with messages = reduced });
       (match agent.options.event_bus with
