@@ -147,6 +147,10 @@ let test_transition_ready_to_running () =
   check_ok "Ready->Running"
     (Agent_lifecycle.transition ~from:Ready ~to_:Running)
 
+let test_transition_running_to_ready () =
+  check_ok "Running->Ready (multi-turn)"
+    (Agent_lifecycle.transition ~from:Running ~to_:Ready)
+
 let test_transition_running_to_completed () =
   check_ok "Running->Completed"
     (Agent_lifecycle.transition ~from:Running ~to_:Completed)
@@ -211,7 +215,7 @@ let test_valid_transitions_exhaustive () =
     (List.length (Agent_lifecycle.valid_transitions Accepted));
   Alcotest.(check int) "Ready has 2" 2
     (List.length (Agent_lifecycle.valid_transitions Ready));
-  Alcotest.(check int) "Running has 2" 2
+  Alcotest.(check int) "Running has 3" 3
     (List.length (Agent_lifecycle.valid_transitions Running));
   Alcotest.(check int) "Completed has 0" 0
     (List.length (Agent_lifecycle.valid_transitions Completed));
@@ -251,6 +255,7 @@ let () =
     "transition_guards", [
       Alcotest.test_case "Accepted -> Ready" `Quick test_transition_accepted_to_ready;
       Alcotest.test_case "Ready -> Running" `Quick test_transition_ready_to_running;
+      Alcotest.test_case "Running -> Ready (multi-turn)" `Quick test_transition_running_to_ready;
       Alcotest.test_case "Running -> Completed" `Quick test_transition_running_to_completed;
       Alcotest.test_case "Running -> Failed" `Quick test_transition_running_to_failed;
       Alcotest.test_case "Accepted -> Failed" `Quick test_transition_accepted_to_failed;

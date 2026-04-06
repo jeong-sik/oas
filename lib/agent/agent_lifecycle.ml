@@ -25,7 +25,7 @@ let is_terminal = function
 let valid_transitions = function
   | Accepted -> [Ready; Failed]
   | Ready    -> [Running; Failed]
-  | Running  -> [Completed; Failed]
+  | Running  -> [Ready; Completed; Failed]
   | Completed -> []
   | Failed    -> []
 

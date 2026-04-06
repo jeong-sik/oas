@@ -159,30 +159,32 @@ let card t =
     write could interleave, losing an update.
 
     Validates the transition against {!Agent_lifecycle.valid_transitions}.
-    Invalid transitions log a warning but still proceed for backward
-    compatibility.  Callers that need strict enforcement should use
-    {!Agent_lifecycle.transition} directly. *)
+    Invalid transitions are rejected: the state is not updated and an
+    error is logged to stderr. *)
 let set_lifecycle agent ?current_run_id ?worker_id ?runtime_actor ?last_error
     ?accepted_at ?ready_at ?first_progress_at ?started_at ?last_progress_at
     ?finished_at status =
   Eio.Mutex.use_rw ~protect:true agent.mu (fun () ->
-    (match agent.lifecycle with
-     | Some prev ->
-       (match Agent_lifecycle.transition ~from:prev.status ~to_:status with
-        | Error e ->
-          Printf.eprintf "[WARN] %s (agent=%s)\n%!"
-            (Agent_lifecycle.transition_error_to_string e)
-            agent.state.config.name
-        | Ok _ -> ())
-     | None -> ());
-    agent.lifecycle <- Some (Agent_lifecycle.build_snapshot
-      ~agent_name:agent.state.config.name
-      ~provider:agent.options.provider
-      ~model:agent.state.config.model
-      ?previous:agent.lifecycle
-      ?current_run_id ?worker_id ?runtime_actor ?last_error
-      ?accepted_at ?ready_at ?first_progress_at ?started_at
-      ?last_progress_at ?finished_at status))
+    let allowed = match agent.lifecycle with
+      | Some prev ->
+        (match Agent_lifecycle.transition ~from:prev.status ~to_:status with
+         | Error e ->
+           Printf.eprintf "[ERROR] %s (agent=%s)\n%!"
+             (Agent_lifecycle.transition_error_to_string e)
+             agent.state.config.name;
+           false
+         | Ok _ -> true)
+      | None -> true
+    in
+    if allowed then
+      agent.lifecycle <- Some (Agent_lifecycle.build_snapshot
+        ~agent_name:agent.state.config.name
+        ~provider:agent.options.provider
+        ~model:agent.state.config.model
+        ?previous:agent.lifecycle
+        ?current_run_id ?worker_id ?runtime_actor ?last_error
+        ?accepted_at ?ready_at ?first_progress_at ?started_at
+        ?last_progress_at ?finished_at status))
 
 let create ~net ?(config=default_config) ?(tools=[]) ?context ?named_cascade
     ?(options=default_options) () =
