@@ -380,7 +380,7 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
     in
     (* Anti-repetition hint: append warning to tool feedback when idle detected
        but not already handled by Nudge or Skip. Nudge injects its own message
-       and resets the counter; Skip causes early return above. *)
+       and injects its own message; Skip causes early return above. *)
     let effective_feedback =
       if idle_result.is_idle && not !idle_handled then
         tool_feedback @ [Text (Printf.sprintf
