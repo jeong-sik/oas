@@ -115,3 +115,41 @@ val execute_hierarchical :
   ?max_parallel:int ->
   (string * t * plan) list ->
   task_result list
+
+(** {2 Closure-based Step Execution} *)
+
+(** A generic step: takes input text, returns output text or error.
+    Can wrap an agent runner, a pure function, or any computation. *)
+type step = string -> (string, Error.sdk_error) result
+
+(** Composable step plan — nest arbitrarily for workflows. *)
+type step_plan =
+  | Step_run of step
+  | Step_sequence of step_plan list
+  | Step_parallel of { plans: step_plan list; max_concurrency: int }
+  | Step_loop of { body: step_plan; until: string -> bool; max_iterations: int }
+
+(** Execute a step plan with the given input.
+    - [Step_sequence]: threads output of each step to the next.
+    - [Step_parallel]: all steps receive same input; results concatenated.
+    - [Step_loop]: repeats body until [until output] returns [true]
+      or [max_iterations] reached. *)
+val execute_step_plan :
+  sw:Eio.Switch.t ->
+  step_plan ->
+  input:string ->
+  (string, Error.sdk_error) result
+
+(** Wrap a step as a {!Tool.t} for agent integration. *)
+val step_as_tool :
+  name:string ->
+  description:string ->
+  step ->
+  Tool.t
+
+(** Wrap an {!Agent.t} as a step via {!Agent_tool.agent_runner}. *)
+val agent_as_step :
+  sw:Eio.Switch.t ->
+  ?clock:_ Eio.Time.clock ->
+  Agent.t ->
+  step

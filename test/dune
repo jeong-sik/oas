@@ -856,3 +856,27 @@
 (test
  (name test_tool_selector)
  (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_otel_export)
+ (libraries agent_sdk alcotest yojson eio eio_main))
+
+(test
+ (name test_memory_file_backend)
+ (libraries agent_sdk alcotest yojson eio eio_main unix))
+
+(test
+ (name test_guardrail_llm)
+ (libraries agent_sdk alcotest eio eio_main str))
+
+(test
+ (name test_guardrail_tripwire)
+ (libraries agent_sdk alcotest eio eio_main unix))
+
+(test
+ (name test_agent_tool)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_orchestrator_steps)
+ (libraries agent_sdk alcotest yojson eio eio_main))

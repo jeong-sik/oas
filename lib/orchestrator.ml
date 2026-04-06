@@ -378,3 +378,74 @@ let execute_hierarchical ~sw ?clock ?(max_parallel = 4) sub_plans =
       result = Ok combined_response;
       elapsed }
   ) sub_plans
+
+(* ── Closure-based Step Execution ──────────────────────────────── *)
+
+type step = string -> (string, Error.sdk_error) result
+
+type step_plan =
+  | Step_run of step
+  | Step_sequence of step_plan list
+  | Step_parallel of { plans: step_plan list; max_concurrency: int }
+  | Step_loop of { body: step_plan; until: string -> bool; max_iterations: int }
+
+let rec execute_step_plan ~sw plan ~input =
+  match plan with
+  | Step_run step -> step input
+  | Step_sequence plans ->
+    List.fold_left (fun acc plan ->
+      match acc with
+      | Error _ -> acc
+      | Ok prev_output -> execute_step_plan ~sw plan ~input:prev_output
+    ) (Ok input) plans
+  | Step_parallel { plans; max_concurrency } ->
+    let max_fibers = if max_concurrency < 1 then 1 else max_concurrency in
+    let results = Eio.Fiber.List.map ~max_fibers
+      (fun plan -> execute_step_plan ~sw plan ~input)
+      plans
+    in
+    let texts = List.filter_map (function Ok s -> Some s | Error _ -> None) results in
+    let errors = List.filter_map (function Error e -> Some e | Ok _ -> None) results in
+    if texts = [] && errors <> [] then Error (List.hd errors)
+    else Ok (String.concat "\n\n" texts)
+  | Step_loop { body; until; max_iterations } ->
+    let rec loop n current =
+      if n >= max_iterations then Ok current
+      else
+        match execute_step_plan ~sw body ~input:current with
+        | Error e -> Error e
+        | Ok output ->
+          if until output then Ok output
+          else loop (n + 1) output
+    in
+    loop 0 input
+
+let step_as_tool ~name ~description (step : step) : Tool.t =
+  Tool.create ~name ~description
+    ~parameters:[
+      { name = "input"; description = "Input text";
+        param_type = String; required = true }
+    ]
+    (fun input ->
+      let text = match input with
+        | `Assoc fields ->
+          (match List.assoc_opt "input" fields with
+           | Some (`String s) -> s
+           | _ -> Yojson.Safe.to_string input)
+        | `String s -> s
+        | _ -> Yojson.Safe.to_string input
+      in
+      match step text with
+      | Ok output -> Ok { content = output }
+      | Error e -> Error { message = Error.to_string e; recoverable = false })
+
+let agent_as_step ~sw ?clock (agent : Agent.t) : step =
+  fun prompt ->
+    match Agent.run ~sw ?clock agent prompt with
+    | Ok response ->
+      let text = List.filter_map
+        (function Text s -> Some s | _ -> None) response.content
+        |> String.concat "\n"
+      in
+      Ok text
+    | Error e -> Error e

@@ -21,6 +21,7 @@ type agent_error =
   | IdleDetected of { consecutive_idle_turns: int }
   | ToolRetryExhausted of { attempts: int; limit: int; detail: string }
   | GuardrailViolation of { validator: string; reason: string }
+  | TripwireViolation of { tripwire: string; reason: string }
 
 (** MCP client errors. *)
 type mcp_error =
@@ -91,6 +92,8 @@ let agent_error_to_string = function
       r.attempts r.limit r.detail
   | GuardrailViolation r ->
     Printf.sprintf "Guardrail violation [%s]: %s" r.validator r.reason
+  | TripwireViolation r ->
+    Printf.sprintf "Tripwire violation [%s]: %s" r.tripwire r.reason
 
 let mcp_error_to_string = function
   | ServerStartFailed r ->
