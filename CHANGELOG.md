@@ -6,6 +6,14 @@ Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
 backfilled on 2026-04-04 from existing git tags. The dates below reflect the
 original tag dates. `0.100.4` was never tagged or released.
 
+## [0.102.0] - 2026-04-06
+
+### Added
+- `Agent_types.options.priority` field (`Request_priority.t option`). Enables the resume path to set scheduling priority without requiring a full `agent_config` override. When set, overrides `config.priority` on the resumed agent. Builder path already uses `Builder.with_priority`.
+
+### Fixed
+- Resume path no longer defaults to `Unspecified` priority when the caller intends a specific scheduling class (fixes #616).
+
 ## [0.101.0] - 2026-04-05
 
 ### Added

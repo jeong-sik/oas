@@ -269,6 +269,7 @@ let build b =
     operator_policy = b.operator_policy;
     policy_channel = None;
     tool_selector = b.tool_selector;
+    priority = b.priority;
   } in
   Agent.create ~net:b.net ~config ~tools:(Tool_set.to_list tools) ?context
     ?named_cascade:b.named_cascade ~options ()

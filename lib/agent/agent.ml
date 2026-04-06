@@ -209,6 +209,11 @@ let resume ~net ~(checkpoint : Checkpoint.t) ?(tools=[]) ?context
   let { Agent_checkpoint.state; context = ctx } =
     Agent_checkpoint.build_resume ~checkpoint ?config ?context ()
   in
+  (* Apply options-level priority override to config *)
+  let state = match options.priority with
+    | Some p -> { state with config = { state.config with priority = Some p } }
+    | None -> state
+  in
   { mu = Eio.Mutex.create ();
     state; lifecycle = None; last_tool_calls = None;
     consecutive_idle_turns = 0; named_cascade;
