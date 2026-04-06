@@ -142,7 +142,7 @@ let%test "has_required_api_key with key present" =
 
 let%test "has_required_api_key local no key is ok" =
   let cfg = Provider_config.make ~kind:OpenAI_compat ~model_id:"m"
-    ~base_url:"http://127.0.0.1:8085" ~api_key:"" () in
+    ~base_url:Constants.Endpoints.default_url ~api_key:"" () in
   has_required_api_key cfg = true
 
 let%test "has_required_api_key cloud no key fails" =

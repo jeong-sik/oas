@@ -90,3 +90,25 @@ end
 module Truncation = struct
   let max_error_body_length = 200
 end
+
+(* ── Endpoints ──────────────────────────────────── *)
+
+(** Default endpoint URLs for local LLM servers.
+    Single source of truth — all code should reference these
+    constants instead of hardcoding URL literals.
+    @since 0.105.0 *)
+module Endpoints = struct
+  let default_llama_port = 8085
+  let default_url = "http://127.0.0.1:" ^ string_of_int default_llama_port
+  let default_url_localhost = "http://localhost:" ^ string_of_int default_llama_port
+  let local_prefix = "http://127.0.0.1"
+  let localhost_prefix = "http://localhost"
+end
+
+(* ── Anthropic ──────────────────────────────────── *)
+
+module Anthropic = struct
+  (** Minimum system prompt length (chars) to enable prompt caching.
+      Approximation: ~1024 tokens at ~3.4 chars/token. *)
+  let prompt_cache_min_chars = 3500
+end

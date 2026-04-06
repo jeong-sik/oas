@@ -15,7 +15,7 @@
 (** Configuration for an OpenAI-compatible endpoint. *)
 type config = {
   base_url: string;
-    (** Base URL (e.g. ["http://127.0.0.1:8085"]). *)
+    (** Base URL (e.g. {!Constants.Endpoints.default_url}). *)
   api_key: string;
     (** API key. Empty string when no auth is needed (local servers). *)
   model_id: string;

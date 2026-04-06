@@ -101,7 +101,7 @@ let%test "provider_runtime_name: None cfg returns selected" =
   provider_runtime_name "my-provider" None = "my-provider"
 
 let%test "provider_runtime_name: Local provider" =
-  let cfg = Some { Provider.provider = Local { base_url = "http://localhost:8085" };
+  let cfg = Some { Provider.provider = Local { base_url = Llm_provider.Constants.Endpoints.default_url_localhost };
                    model_id = "test"; api_key_env = "K" } in
   provider_runtime_name "local" cfg = "local"
 

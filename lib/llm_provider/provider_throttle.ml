@@ -171,7 +171,7 @@ let%test "with_permit_priority Interactive" =
 let%test "of_discovery_status with slots" =
   Eio_main.run (fun _env ->
     let status : Discovery.endpoint_status = {
-      url = "http://localhost:8085"; healthy = true;
+      url = Constants.Endpoints.default_url_localhost; healthy = true;
       models = []; props = None;
       slots = Some { total = 4; busy = 1; idle = 3 };
       capabilities = Capabilities.default_capabilities;
@@ -183,7 +183,7 @@ let%test "of_discovery_status with slots" =
 let%test "of_discovery_status with props only" =
   Eio_main.run (fun _env ->
     let status : Discovery.endpoint_status = {
-      url = "http://localhost:8085"; healthy = true;
+      url = Constants.Endpoints.default_url_localhost; healthy = true;
       models = [];
       props = Some { total_slots = 8; ctx_size = 4096; model = "m" };
       slots = None;
@@ -196,7 +196,7 @@ let%test "of_discovery_status with props only" =
 let%test "of_discovery_status without info returns None" =
   Eio_main.run (fun _env ->
     let status : Discovery.endpoint_status = {
-      url = "http://localhost:8085"; healthy = true;
+      url = Constants.Endpoints.default_url_localhost; healthy = true;
       models = []; props = None; slots = None;
       capabilities = Capabilities.default_capabilities;
     } in

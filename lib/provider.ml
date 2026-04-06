@@ -416,9 +416,12 @@ let default_api_key_env_of_kind
     name for the provider kind (e.g. [ANTHROPIC_API_KEY]). *)
 let config_of_provider_config (pc : Llm_provider.Provider_config.t) : config =
   let is_local url =
-    let len = String.length url in
-    len >= 16 && (String.sub url 0 16 = "http://127.0.0.1"
-                  || String.sub url 0 (min 16 len) = "http://localhost")
+    let starts p =
+      String.length url >= String.length p
+      && String.sub url 0 (String.length p) = p
+    in
+    starts Llm_provider.Constants.Endpoints.local_prefix
+    || starts Llm_provider.Constants.Endpoints.localhost_prefix
   in
   let provider = match pc.kind with
     | Anthropic -> Anthropic
