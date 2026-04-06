@@ -142,7 +142,9 @@ let test_text_part_json () =
   let p = A2a_task.Text_part "hello" in
   let json = A2a_task.message_part_to_yojson p in
   Alcotest.(check bool) "wire shape has text" true
-    (match json with `Assoc [("text", `String "hello")] -> true | _ -> false);
+    (match json with
+     | `Assoc [("type", `String "text"); ("text", `String "hello")] -> true
+     | _ -> false);
   match A2a_task.message_part_of_yojson json with
   | Ok (A2a_task.Text_part s) -> Alcotest.(check string) "text" "hello" s
   | Ok _ -> Alcotest.fail "wrong variant"
@@ -156,8 +158,13 @@ let test_file_part_json () =
     location = `Raw;
   } in
   let json = A2a_task.message_part_to_yojson p in
-  Alcotest.(check bool) "wire shape has raw" true
-    (match Yojson.Safe.Util.member "raw" json with `String "YWJj" -> true | _ -> false);
+  Alcotest.(check bool) "wire shape has file.bytes" true
+    (let open Yojson.Safe.Util in
+     match json |> member "type" |> to_string_option,
+           json |> member "file" with
+     | Some "file", (`Assoc _ as file) ->
+       file |> member "bytes" |> to_string_option = Some "YWJj"
+     | _ -> false);
   match A2a_task.message_part_of_yojson json with
   | Ok (A2a_task.File_part { name; mime_type; data; location }) ->
     Alcotest.(check string) "name" "test.txt" name;
@@ -175,9 +182,12 @@ let test_url_file_part_json () =
     location = `Url;
   } in
   let json = A2a_task.message_part_to_yojson p in
-  Alcotest.(check bool) "wire shape has url" true
-    (match Yojson.Safe.Util.member "url" json with
-     | `String "https://example.com/remote.txt" -> true
+  Alcotest.(check bool) "wire shape has file.uri" true
+    (let open Yojson.Safe.Util in
+     match json |> member "type" |> to_string_option,
+           json |> member "file" with
+     | Some "file", (`Assoc _ as file) ->
+       file |> member "uri" |> to_string_option = Some "https://example.com/remote.txt"
      | _ -> false);
   match A2a_task.message_part_of_yojson json with
   | Ok (A2a_task.File_part { name; mime_type; data; location }) ->
