@@ -329,7 +329,7 @@ let test_context_reducer () =
   Eio_main.run @@ fun env ->
   try
     Eio.Switch.run @@ fun sw ->
-    let url = start_multi ~sw ~net:env#net ~port:21011
+    let url = start_multi ~sw ~net:env#net ~port:21019
         [openai_text_response "reduced"] in
     let reducer = Context_reducer.compose [
       Context_reducer.repair_dangling_tool_calls;

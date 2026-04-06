@@ -57,10 +57,40 @@ let mcp_tool_of_sdk_tool (t : Sdk_types.tool) : mcp_tool =
     description = Option.value ~default:"" t.description;
     input_schema = t.input_schema }
 
+let descriptor_for_builtin_tool name =
+  let empty = {
+    Tool.kind = None;
+    mutation_class = None;
+    concurrency_class = None;
+    permission = None;
+    shell = None;
+    notes = [];
+    examples = [];
+  } in
+  match String.lowercase_ascii name with
+  | "read" | "glob" | "grep" | "search" | "list_dir" | "find_file"
+  | "read_file" | "find_symbol" | "get_symbols_overview"
+  | "find_referencing_symbols" | "search_for_pattern" ->
+      Some { empty with
+             mutation_class = Some "read_only";
+             concurrency_class = Some Tool.Parallel_read }
+  | "write" | "edit" | "create_text_file" | "replace_content"
+  | "rename_symbol" | "insert_after_symbol" | "insert_before_symbol"
+  | "replace_symbol_body" ->
+      Some { empty with
+             mutation_class = Some "workspace_mutating";
+             concurrency_class = Some Tool.Sequential_workspace }
+  | "bash" | "execute_shell_command" ->
+      Some { empty with
+             mutation_class = Some "external_effect";
+             concurrency_class = Some Tool.Exclusive_external }
+  | _ -> None
+
 (** Convert {!mcp_tool} to SDK {!Tool.t} with the given call handler. *)
 let mcp_tool_to_sdk_tool ~call_fn mcp_tool =
   let params = json_schema_to_params mcp_tool.input_schema in
   Tool.create
+    ?descriptor:(descriptor_for_builtin_tool mcp_tool.name)
     ~name:mcp_tool.name
     ~description:mcp_tool.description
     ~parameters:params
