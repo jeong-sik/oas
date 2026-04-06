@@ -109,6 +109,7 @@ let stage_parse ?raw_trace_run agent =
           agent.options.hooks.before_turn_params
           (Hooks.BeforeTurnParams {
             turn = agent.state.turn_count;
+            max_turns = agent.state.config.max_turns;
             messages = agent.state.messages;
             last_tool_results = last_results;
             current_params = Hooks.default_turn_params;

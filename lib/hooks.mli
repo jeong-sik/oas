@@ -41,6 +41,7 @@ type hook_event =
   | BeforeTurn of { turn: int; messages: Types.message list }
   | BeforeTurnParams of {
       turn: int;
+      max_turns: int;
       messages: Types.message list;
       last_tool_results: Types.tool_result list;
       current_params: turn_params;
