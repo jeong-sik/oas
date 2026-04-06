@@ -317,10 +317,11 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
       idle_skip := true;
       idle_handled := true
     | Hooks.Nudge nudge_msg ->
-      (* Inject a nudge message but keep idle counter accumulating.
-         Resetting to 0 caused an infinite nudge loop: model repeats
-         the same tool, counter resets, never reaches Skip threshold.
-         With accumulation: nudge at 1, nudge at 2, Skip at 3. *)
+      (* Inject a nudge message and leave the idle counter unchanged,
+         so repeated idle turns continue to accumulate toward later
+         escalation. With accumulation, repeated idle turns can
+         continue to nudge until the on_idle hook eventually decides
+         to Skip (for example, at a configured threshold). *)
       update_state agent (fun s ->
         { s with messages = Util.snoc s.messages
             { role = User; content = [Text nudge_msg];
