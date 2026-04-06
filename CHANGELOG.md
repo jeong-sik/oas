@@ -6,6 +6,12 @@ Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
 backfilled on 2026-04-04 from existing git tags. The dates below reflect the
 original tag dates. `0.100.4` was never tagged or released.
 
+## [0.109.0] - 2026-04-06
+
+### Added
+- 17 new tool descriptor mappings for HITL (`ask_user_question`), web (`web_fetch`, `web_search`), task management (`task_create/update/list/get/output/stop`), team (`team_create/delete`), browser interaction (`navigate`, `computer`, `find`, `form_input`, `javascript_tool`, `tabs_create_mcp`, `upload_image`), and notebook (`notebook_read`). Addresses #646.
+- Inline tests for `Mode_enforcer.builtin_descriptor` and `Mcp_schema.descriptor_for_builtin_tool`.
+
 ## [0.108.0] - 2026-04-06
 
 ### Added
