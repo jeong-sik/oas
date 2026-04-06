@@ -423,7 +423,7 @@
 
 (test
  (name test_collaboration)
- (libraries agent_sdk alcotest yojson eio eio_main))
+ (libraries agent_sdk alcotest yojson eio eio_main str))
 
 (test
  (name test_collaboration_bridge)
@@ -718,7 +718,7 @@
 
 (test
  (name test_plan)
- (libraries agent_sdk alcotest yojson unix))
+ (libraries agent_sdk alcotest yojson unix str))
 
 (test
  (name test_memory_coverage)

@@ -132,16 +132,46 @@ let add_contribution t c =
 
 (* --- Phase and outcome --- *)
 
-let set_phase t phase =
-  { t with phase } |> touch
-
-let set_outcome t outcome =
-  { t with outcome = Some outcome } |> touch
-
 let is_terminal t =
   match t.phase with
   | Completed | Failed | Cancelled -> true
   | Bootstrapping | Active | Waiting_on_participants | Finalizing -> false
+
+type phase_transition_error =
+  | InvalidPhaseTransition of { from_phase: phase; to_phase: phase }
+  | PhaseAlreadyTerminal of { phase: phase }
+
+let valid_phase_transitions = function
+  | Bootstrapping           -> [Active; Failed; Cancelled]
+  | Active                  -> [Waiting_on_participants; Finalizing; Failed; Cancelled]
+  | Waiting_on_participants -> [Active; Failed; Cancelled]
+  | Finalizing              -> [Completed; Failed; Cancelled]
+  | Completed | Failed | Cancelled -> []
+
+let transition_phase t new_phase =
+  if t.phase = new_phase then Ok (touch t)
+  else if is_terminal t then Error (PhaseAlreadyTerminal { phase = t.phase })
+  else if List.mem new_phase (valid_phase_transitions t.phase) then
+    Ok ({ t with phase = new_phase } |> touch)
+  else Error (InvalidPhaseTransition { from_phase = t.phase; to_phase = new_phase })
+
+let phase_transition_error_to_string = function
+  | InvalidPhaseTransition { from_phase; to_phase } ->
+    Printf.sprintf "invalid phase transition: %s -> %s"
+      (show_phase from_phase) (show_phase to_phase)
+  | PhaseAlreadyTerminal { phase } ->
+    Printf.sprintf "phase already terminal: %s" (show_phase phase)
+
+let set_phase t phase =
+  (match transition_phase t phase with
+   | Error e ->
+     Printf.eprintf "[WARN] Collaboration: %s\n%!"
+       (phase_transition_error_to_string e)
+   | Ok _ -> ());
+  { t with phase } |> touch
+
+let set_outcome t outcome =
+  { t with outcome = Some outcome } |> touch
 
 (* --- Serialization --- *)
 

@@ -75,11 +75,73 @@ let replan t ~new_steps =
   ) t.steps in
   { t with steps = kept @ new_steps; status = Replanning }
 
+(* ── Status to string (needed by transition guards and serialization) ── *)
+
+let plan_status_to_string = function
+  | Planning -> "Planning"
+  | Executing -> "Executing"
+  | Replanning -> "Replanning"
+  | Completed -> "Completed"
+  | Abandoned reason -> Printf.sprintf "Abandoned(%s)" reason
+
+(* ── Transition guards ────────────────────────────── *)
+
+type plan_transition_error =
+  | InvalidPlanTransition of { from_status: plan_status; to_status: plan_status }
+  | PlanAlreadyTerminal of { status: plan_status }
+
+let is_terminal_status = function
+  | Completed | Abandoned _ -> true
+  | Planning | Executing | Replanning -> false
+
+let valid_plan_transitions = function
+  | Planning   -> [Executing]
+  | Executing  -> [Replanning; Completed]
+  | Replanning -> [Executing]
+  | Completed  -> []
+  | Abandoned _ -> []
+
+let can_transition_to from to_ =
+  if is_terminal_status from then false
+  else match to_ with
+  | Abandoned _ ->
+    not (is_terminal_status from)
+  | other -> List.mem other (valid_plan_transitions from)
+
+let transition_plan t new_status =
+  if is_terminal_status t.status then
+    Error (PlanAlreadyTerminal { status = t.status })
+  else if can_transition_to t.status new_status then
+    Ok { t with status = new_status }
+  else
+    Error (InvalidPlanTransition { from_status = t.status; to_status = new_status })
+
+let plan_transition_error_to_string = function
+  | InvalidPlanTransition { from_status; to_status } ->
+    Printf.sprintf "invalid plan transition: %s -> %s"
+      (plan_status_to_string from_status) (plan_status_to_string to_status)
+  | PlanAlreadyTerminal { status } ->
+    Printf.sprintf "plan already terminal: %s" (plan_status_to_string status)
+
 (* ── Lifecycle ────────────────────────────────────── *)
 
-let start t = { t with status = Executing }
-let finish t = { t with status = Completed }
-let abandon t ~reason = { t with status = Abandoned reason }
+let start t =
+  (match transition_plan t Executing with
+   | Error e -> Printf.eprintf "[WARN] Plan: %s\n%!" (plan_transition_error_to_string e)
+   | Ok _ -> ());
+  { t with status = Executing }
+
+let finish t =
+  (match transition_plan t Completed with
+   | Error e -> Printf.eprintf "[WARN] Plan: %s\n%!" (plan_transition_error_to_string e)
+   | Ok _ -> ());
+  { t with status = Completed }
+
+let abandon t ~reason =
+  (match transition_plan t (Abandoned reason) with
+   | Error e -> Printf.eprintf "[WARN] Plan: %s\n%!" (plan_transition_error_to_string e)
+   | Ok _ -> ());
+  { t with status = Abandoned reason }
 
 (* ── Queries ──────────────────────────────────────── *)
 
@@ -134,12 +196,7 @@ let step_status_to_string = function
   | Failed reason -> Printf.sprintf "Failed(%s)" reason
   | Skipped -> "Skipped"
 
-let plan_status_to_string = function
-  | Planning -> "Planning"
-  | Executing -> "Executing"
-  | Replanning -> "Replanning"
-  | Completed -> "Completed"
-  | Abandoned reason -> Printf.sprintf "Abandoned(%s)" reason
+(* plan_status_to_string is defined above transition guards *)
 
 let step_status_to_json = function
   | Pending -> `Assoc [("status", `String "Pending")]

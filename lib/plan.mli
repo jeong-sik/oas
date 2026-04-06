@@ -73,6 +73,18 @@ val skip_step : t -> string -> t
     Plan status transitions to [Replanning] then back to [Executing]. *)
 val replan : t -> new_steps:step list -> t
 
+(** {1 Plan transition guards} *)
+
+type plan_transition_error =
+  | InvalidPlanTransition of { from_status: plan_status; to_status: plan_status }
+  | PlanAlreadyTerminal of { status: plan_status }
+
+val is_terminal_status : plan_status -> bool
+val valid_plan_transitions : plan_status -> plan_status list
+val can_transition_to : plan_status -> plan_status -> bool
+val transition_plan : t -> plan_status -> (t, plan_transition_error) result
+val plan_transition_error_to_string : plan_transition_error -> string
+
 (** {1 Plan lifecycle} *)
 
 (** Transition plan to Executing. *)

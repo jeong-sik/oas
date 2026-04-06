@@ -247,6 +247,169 @@ let test_status_strings () =
   check string "Abandoned" "Abandoned(x)"
     (Plan.plan_status_to_string (Abandoned "x"))
 
+(* ── Transition guards ──────────────────────────────── *)
+
+let test_valid_planning_to_executing () =
+  let p = Plan.create ~goal:"g" ~planner:"a" () in
+  match Plan.transition_plan p Executing with
+  | Ok p2 ->
+    (match Plan.status p2 with
+     | Executing -> ()
+     | _ -> fail "expected Executing")
+  | Error _ -> fail "expected Ok"
+
+let test_valid_executing_to_replanning () =
+  let p = Plan.create ~goal:"g" ~planner:"a" () |> Plan.start in
+  match Plan.transition_plan p Replanning with
+  | Ok p2 ->
+    (match Plan.status p2 with
+     | Replanning -> ()
+     | _ -> fail "expected Replanning")
+  | Error _ -> fail "expected Ok"
+
+let test_valid_executing_to_completed () =
+  let p = Plan.create ~goal:"g" ~planner:"a" () |> Plan.start in
+  match Plan.transition_plan p Completed with
+  | Ok p2 ->
+    (match Plan.status p2 with
+     | Completed -> ()
+     | _ -> fail "expected Completed")
+  | Error _ -> fail "expected Ok"
+
+let test_valid_replanning_to_executing () =
+  let p = Plan.create ~goal:"g" ~planner:"a" ()
+    |> Plan.start
+    |> fun p -> Plan.replan p ~new_steps:[] in
+  match Plan.transition_plan p Executing with
+  | Ok p2 ->
+    (match Plan.status p2 with
+     | Executing -> ()
+     | _ -> fail "expected Executing")
+  | Error _ -> fail "expected Ok"
+
+let test_valid_abandon_from_planning () =
+  let p = Plan.create ~goal:"g" ~planner:"a" () in
+  match Plan.transition_plan p (Abandoned "changed mind") with
+  | Ok p2 ->
+    (match Plan.status p2 with
+     | Abandoned "changed mind" -> ()
+     | _ -> fail "expected Abandoned")
+  | Error _ -> fail "expected Ok"
+
+let test_valid_abandon_from_executing () =
+  let p = Plan.create ~goal:"g" ~planner:"a" () |> Plan.start in
+  match Plan.transition_plan p (Abandoned "budget") with
+  | Ok p2 ->
+    (match Plan.status p2 with
+     | Abandoned "budget" -> ()
+     | _ -> fail "expected Abandoned")
+  | Error _ -> fail "expected Ok"
+
+let test_valid_abandon_from_replanning () =
+  let p = Plan.create ~goal:"g" ~planner:"a" ()
+    |> Plan.start
+    |> fun p -> Plan.replan p ~new_steps:[] in
+  match Plan.transition_plan p (Abandoned "stale") with
+  | Ok p2 ->
+    (match Plan.status p2 with
+     | Abandoned "stale" -> ()
+     | _ -> fail "expected Abandoned")
+  | Error _ -> fail "expected Ok"
+
+let test_invalid_planning_to_completed () =
+  let p = Plan.create ~goal:"g" ~planner:"a" () in
+  match Plan.transition_plan p Completed with
+  | Ok _ -> fail "expected Error"
+  | Error (InvalidPlanTransition { from_status; to_status }) ->
+    (match from_status, to_status with
+     | Planning, Completed -> ()
+     | _ -> fail "wrong error fields")
+  | Error _ -> fail "expected InvalidPlanTransition"
+
+let test_invalid_planning_to_replanning () =
+  let p = Plan.create ~goal:"g" ~planner:"a" () in
+  match Plan.transition_plan p Replanning with
+  | Ok _ -> fail "expected Error"
+  | Error (InvalidPlanTransition _) -> ()
+  | Error _ -> fail "expected InvalidPlanTransition"
+
+let test_invalid_executing_to_planning () =
+  let p = Plan.create ~goal:"g" ~planner:"a" () |> Plan.start in
+  match Plan.transition_plan p Planning with
+  | Ok _ -> fail "expected Error"
+  | Error (InvalidPlanTransition _) -> ()
+  | Error _ -> fail "expected InvalidPlanTransition"
+
+let test_terminal_completed_rejects () =
+  let p = Plan.create ~goal:"g" ~planner:"a" () |> Plan.start |> Plan.finish in
+  match Plan.transition_plan p Executing with
+  | Ok _ -> fail "expected Error"
+  | Error (PlanAlreadyTerminal { status }) ->
+    (match status with Completed -> () | _ -> fail "wrong status")
+  | Error _ -> fail "expected PlanAlreadyTerminal"
+
+let test_terminal_abandoned_rejects () =
+  let p = Plan.create ~goal:"g" ~planner:"a" ()
+    |> fun p -> Plan.abandon p ~reason:"done" in
+  match Plan.transition_plan p Executing with
+  | Ok _ -> fail "expected Error"
+  | Error (PlanAlreadyTerminal _) -> ()
+  | Error _ -> fail "expected PlanAlreadyTerminal"
+
+let test_terminal_abandoned_rejects_abandon () =
+  let p = Plan.create ~goal:"g" ~planner:"a" ()
+    |> fun p -> Plan.abandon p ~reason:"first" in
+  match Plan.transition_plan p (Abandoned "second") with
+  | Ok _ -> fail "expected Error"
+  | Error (PlanAlreadyTerminal _) -> ()
+  | Error _ -> fail "expected PlanAlreadyTerminal"
+
+let test_is_terminal_status () =
+  check bool "Planning not terminal" false (Plan.is_terminal_status Planning);
+  check bool "Executing not terminal" false (Plan.is_terminal_status Executing);
+  check bool "Replanning not terminal" false (Plan.is_terminal_status Replanning);
+  check bool "Completed terminal" true (Plan.is_terminal_status Completed);
+  check bool "Abandoned terminal" true (Plan.is_terminal_status (Abandoned "x"))
+
+let test_valid_plan_transitions_exhaustive () =
+  check int "Planning has 1" 1
+    (List.length (Plan.valid_plan_transitions Planning));
+  check int "Executing has 2" 2
+    (List.length (Plan.valid_plan_transitions Executing));
+  check int "Replanning has 1" 1
+    (List.length (Plan.valid_plan_transitions Replanning));
+  check int "Completed has 0" 0
+    (List.length (Plan.valid_plan_transitions Completed));
+  check int "Abandoned has 0" 0
+    (List.length (Plan.valid_plan_transitions (Abandoned "x")))
+
+let test_can_transition_to () =
+  check bool "Planning->Executing" true
+    (Plan.can_transition_to Planning Executing);
+  check bool "Planning->Completed" false
+    (Plan.can_transition_to Planning Completed);
+  check bool "Planning->Abandoned" true
+    (Plan.can_transition_to Planning (Abandoned "x"));
+  check bool "Completed->Executing" false
+    (Plan.can_transition_to Completed Executing);
+  check bool "Abandoned->Executing" false
+    (Plan.can_transition_to (Abandoned "x") Executing)
+
+let test_plan_error_message_invalid () =
+  let err = Plan.InvalidPlanTransition
+    { from_status = Planning; to_status = Completed } in
+  let msg = Plan.plan_transition_error_to_string err in
+  check bool "contains invalid" true
+    (try ignore (Str.search_forward (Str.regexp "invalid plan transition") msg 0); true
+     with Not_found -> false)
+
+let test_plan_error_message_terminal () =
+  let err = Plan.PlanAlreadyTerminal { status = Completed } in
+  let msg = Plan.plan_transition_error_to_string err in
+  check bool "contains terminal" true
+    (try ignore (Str.search_forward (Str.regexp "terminal") msg 0); true
+     with Not_found -> false)
+
 (* ── Suite ────────────────────────────────────────── *)
 
 let () =
@@ -284,5 +447,25 @@ let () =
       test_case "abandoned" `Quick test_serialization_abandoned;
       test_case "invalid json" `Quick test_deserialization_invalid;
       test_case "status strings" `Quick test_status_strings;
+    ];
+    "transition_guards", [
+      test_case "valid: Planning -> Executing" `Quick test_valid_planning_to_executing;
+      test_case "valid: Executing -> Replanning" `Quick test_valid_executing_to_replanning;
+      test_case "valid: Executing -> Completed" `Quick test_valid_executing_to_completed;
+      test_case "valid: Replanning -> Executing" `Quick test_valid_replanning_to_executing;
+      test_case "valid: abandon from Planning" `Quick test_valid_abandon_from_planning;
+      test_case "valid: abandon from Executing" `Quick test_valid_abandon_from_executing;
+      test_case "valid: abandon from Replanning" `Quick test_valid_abandon_from_replanning;
+      test_case "invalid: Planning -> Completed" `Quick test_invalid_planning_to_completed;
+      test_case "invalid: Planning -> Replanning" `Quick test_invalid_planning_to_replanning;
+      test_case "invalid: Executing -> Planning" `Quick test_invalid_executing_to_planning;
+      test_case "terminal: Completed rejects" `Quick test_terminal_completed_rejects;
+      test_case "terminal: Abandoned rejects" `Quick test_terminal_abandoned_rejects;
+      test_case "terminal: Abandoned rejects abandon" `Quick test_terminal_abandoned_rejects_abandon;
+      test_case "is_terminal_status" `Quick test_is_terminal_status;
+      test_case "valid_plan_transitions exhaustive" `Quick test_valid_plan_transitions_exhaustive;
+      test_case "can_transition_to" `Quick test_can_transition_to;
+      test_case "error message: InvalidPlanTransition" `Quick test_plan_error_message_invalid;
+      test_case "error message: PlanAlreadyTerminal" `Quick test_plan_error_message_terminal;
     ];
   ]
