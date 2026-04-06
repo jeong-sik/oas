@@ -128,7 +128,7 @@ val with_mcp_tool_allowlist : string list -> t -> t
 
 val with_log_level : Log.level -> t -> t
 val with_log_sink : Log.sink -> t -> t
-val with_event_targets : Event_forward.target list -> t -> t
+(* with_event_targets removed — was a no-op.  See oas#669. *)
 
 (** {3 Discovery / metadata skill registry}
 

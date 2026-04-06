@@ -1040,13 +1040,6 @@ let test_builder_with_mcp_tool_allowlist () =
   | Ok _ -> ()
   | Error e -> fail (Printf.sprintf "allowlist: %s" (Error.to_string e))
 
-let test_builder_with_event_targets () =
-  with_net @@ fun net ->
-  match Builder.create ~net ~model:"claude-sonnet-4-6"
-    |> Builder.with_event_targets [Event_forward.File_append { path = "/tmp/test.jsonl" }]
-    |> Builder.build_safe with
-  | Ok _ -> ()
-  | Error e -> fail (Printf.sprintf "event_targets: %s" (Error.to_string e))
 
 let test_builder_with_periodic_callback () =
   with_net @@ fun net ->
@@ -1342,7 +1335,6 @@ let () =
       test_case "contract/skill" `Quick test_builder_with_contract;
       test_case "skills list" `Quick test_builder_with_skills_list;
       test_case "mcp tool allowlist" `Quick test_builder_with_mcp_tool_allowlist;
-      test_case "event targets" `Quick test_builder_with_event_targets;
       test_case "periodic callback" `Quick test_builder_with_periodic_callback;
       test_case "tools list" `Quick test_builder_with_tools_list;
       test_case "initial messages" `Quick test_builder_with_initial_messages;

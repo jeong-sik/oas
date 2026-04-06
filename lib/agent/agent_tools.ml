@@ -303,6 +303,10 @@ let execute_scheduled_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus
           | Hooks.ApprovalRequired -> (
               match approval with
               | None ->
+                  let _log = Log.create ~module_name:"agent_tools" () in
+                  Log.warn _log
+                    "ApprovalRequired but no approval callback — executing"
+                    [Log.S ("tool", name); Log.S ("agent", agent_name)];
                   find_and_execute_tool ~context ~tools ~hooks ~event_bus
                     ~tracer ~agent_name ~turn_count ?on_hook_invoked ~schedule
                     name input id

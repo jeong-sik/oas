@@ -95,6 +95,7 @@ val resolve_turn_params :
   hooks:Hooks.hooks ->
   messages:Types.message list ->
   max_turns:int ->
+  turn:int ->
   invoke_hook:(hook_name:string ->
     (Hooks.hook_event -> Hooks.hook_decision) option ->
     Hooks.hook_event ->

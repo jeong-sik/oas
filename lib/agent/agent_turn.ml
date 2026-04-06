@@ -159,7 +159,7 @@ let accumulate_usage ~current_usage ~provider ~response_usage =
 
 (* ── Turn params resolution ───────────────────────────────────── *)
 
-let resolve_turn_params ~hooks ~messages ~max_turns ~invoke_hook =
+let resolve_turn_params ~hooks ~messages ~max_turns ~turn ~invoke_hook =
   match hooks.Hooks.before_turn_params with
   | None -> Hooks.default_turn_params
   | Some _ ->
@@ -185,7 +185,7 @@ let resolve_turn_params ~hooks ~messages ~max_turns ~invoke_hook =
       invoke_hook ~hook_name:"before_turn_params"
         hooks.Hooks.before_turn_params
         (Hooks.BeforeTurnParams {
-          turn = 0;  (* overridden by caller *)
+          turn;
           max_turns;
           messages;
           last_tool_results = last_results;
