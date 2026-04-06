@@ -12,6 +12,41 @@ type lifecycle_status =
   | Failed
 [@@deriving show]
 
+(* ── Transition guards ─────────────────────────── *)
+
+type transition_error =
+  | InvalidTransition of { from_status: lifecycle_status; to_status: lifecycle_status }
+  | AlreadyTerminal of { status: lifecycle_status }
+
+let is_terminal = function
+  | Completed | Failed -> true
+  | Accepted | Ready | Running -> false
+
+let valid_transitions = function
+  | Accepted -> [Ready; Failed]
+  | Ready    -> [Running; Failed]
+  | Running  -> [Completed; Failed]
+  | Completed -> []
+  | Failed    -> []
+
+let transition ~from ~to_ =
+  if from = to_ && not (is_terminal from) then
+    Ok to_
+  else if is_terminal from then
+    Error (AlreadyTerminal { status = from })
+  else if List.mem to_ (valid_transitions from) then
+    Ok to_
+  else
+    Error (InvalidTransition { from_status = from; to_status = to_ })
+
+let transition_error_to_string = function
+  | InvalidTransition { from_status; to_status } ->
+    Printf.sprintf "invalid lifecycle transition: %s -> %s"
+      (show_lifecycle_status from_status) (show_lifecycle_status to_status)
+  | AlreadyTerminal { status } ->
+    Printf.sprintf "lifecycle already terminal: %s"
+      (show_lifecycle_status status)
+
 type lifecycle_snapshot = {
   current_run_id: string option;
   agent_name: string;

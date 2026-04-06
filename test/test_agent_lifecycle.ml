@@ -125,6 +125,109 @@ let test_hook_decision_strings () =
   Alcotest.(check string) "skip" "skip"
     (Agent_lifecycle.hook_decision_to_string Hooks.Skip)
 
+(* ── transition guard tests ───────────────────────────── *)
+
+let check_ok msg = function
+  | Ok _ -> ()
+  | Error e ->
+    Alcotest.fail (Printf.sprintf "%s: unexpected error: %s"
+      msg (Agent_lifecycle.transition_error_to_string e))
+
+let check_error msg = function
+  | Error _ -> ()
+  | Ok s ->
+    Alcotest.fail (Printf.sprintf "%s: expected error but got Ok %s"
+      msg (Agent_lifecycle.show_lifecycle_status s))
+
+let test_transition_accepted_to_ready () =
+  check_ok "Accepted->Ready"
+    (Agent_lifecycle.transition ~from:Accepted ~to_:Ready)
+
+let test_transition_ready_to_running () =
+  check_ok "Ready->Running"
+    (Agent_lifecycle.transition ~from:Ready ~to_:Running)
+
+let test_transition_running_to_completed () =
+  check_ok "Running->Completed"
+    (Agent_lifecycle.transition ~from:Running ~to_:Completed)
+
+let test_transition_running_to_failed () =
+  check_ok "Running->Failed"
+    (Agent_lifecycle.transition ~from:Running ~to_:Failed)
+
+let test_transition_accepted_to_failed () =
+  check_ok "Accepted->Failed"
+    (Agent_lifecycle.transition ~from:Accepted ~to_:Failed)
+
+let test_transition_self_running () =
+  check_ok "Running->Running (self)"
+    (Agent_lifecycle.transition ~from:Running ~to_:Running)
+
+let test_transition_self_accepted () =
+  check_ok "Accepted->Accepted (self)"
+    (Agent_lifecycle.transition ~from:Accepted ~to_:Accepted)
+
+let test_transition_invalid_accepted_to_running () =
+  check_error "Accepted->Running (skip Ready)"
+    (Agent_lifecycle.transition ~from:Accepted ~to_:Running)
+
+let test_transition_invalid_accepted_to_completed () =
+  check_error "Accepted->Completed (skip Ready,Running)"
+    (Agent_lifecycle.transition ~from:Accepted ~to_:Completed)
+
+let test_transition_invalid_ready_to_completed () =
+  check_error "Ready->Completed (skip Running)"
+    (Agent_lifecycle.transition ~from:Ready ~to_:Completed)
+
+let test_transition_terminal_completed () =
+  let r = Agent_lifecycle.transition ~from:Completed ~to_:Running in
+  (match r with
+   | Error (AlreadyTerminal { status }) ->
+     Alcotest.(check bool) "terminal status" true
+       (status = Agent_lifecycle.Completed)
+   | _ -> Alcotest.fail "expected AlreadyTerminal")
+
+let test_transition_terminal_failed () =
+  let r = Agent_lifecycle.transition ~from:Failed ~to_:Accepted in
+  (match r with
+   | Error (AlreadyTerminal { status }) ->
+     Alcotest.(check bool) "terminal status" true
+       (status = Agent_lifecycle.Failed)
+   | _ -> Alcotest.fail "expected AlreadyTerminal")
+
+let test_transition_terminal_self () =
+  check_error "Completed->Completed (terminal self)"
+    (Agent_lifecycle.transition ~from:Completed ~to_:Completed)
+
+let test_is_terminal () =
+  Alcotest.(check bool) "Completed" true (Agent_lifecycle.is_terminal Completed);
+  Alcotest.(check bool) "Failed" true (Agent_lifecycle.is_terminal Failed);
+  Alcotest.(check bool) "Accepted" false (Agent_lifecycle.is_terminal Accepted);
+  Alcotest.(check bool) "Ready" false (Agent_lifecycle.is_terminal Ready);
+  Alcotest.(check bool) "Running" false (Agent_lifecycle.is_terminal Running)
+
+let test_valid_transitions_exhaustive () =
+  Alcotest.(check int) "Accepted has 2" 2
+    (List.length (Agent_lifecycle.valid_transitions Accepted));
+  Alcotest.(check int) "Ready has 2" 2
+    (List.length (Agent_lifecycle.valid_transitions Ready));
+  Alcotest.(check int) "Running has 2" 2
+    (List.length (Agent_lifecycle.valid_transitions Running));
+  Alcotest.(check int) "Completed has 0" 0
+    (List.length (Agent_lifecycle.valid_transitions Completed));
+  Alcotest.(check int) "Failed has 0" 0
+    (List.length (Agent_lifecycle.valid_transitions Failed))
+
+let test_transition_error_to_string () =
+  let s = Agent_lifecycle.transition_error_to_string
+    (InvalidTransition { from_status = Accepted; to_status = Running }) in
+  Alcotest.(check bool) "contains 'invalid'" true
+    (String.length s > 0);
+  let s2 = Agent_lifecycle.transition_error_to_string
+    (AlreadyTerminal { status = Completed }) in
+  Alcotest.(check bool) "contains 'terminal'" true
+    (String.length s2 > 0)
+
 (* ── Test runner ────────────────────────────────────────── *)
 
 let () =
@@ -144,5 +247,23 @@ let () =
     ];
     "hook_decision", [
       Alcotest.test_case "string conversion" `Quick test_hook_decision_strings;
+    ];
+    "transition_guards", [
+      Alcotest.test_case "Accepted -> Ready" `Quick test_transition_accepted_to_ready;
+      Alcotest.test_case "Ready -> Running" `Quick test_transition_ready_to_running;
+      Alcotest.test_case "Running -> Completed" `Quick test_transition_running_to_completed;
+      Alcotest.test_case "Running -> Failed" `Quick test_transition_running_to_failed;
+      Alcotest.test_case "Accepted -> Failed" `Quick test_transition_accepted_to_failed;
+      Alcotest.test_case "self Running -> Running" `Quick test_transition_self_running;
+      Alcotest.test_case "self Accepted -> Accepted" `Quick test_transition_self_accepted;
+      Alcotest.test_case "invalid Accepted -> Running" `Quick test_transition_invalid_accepted_to_running;
+      Alcotest.test_case "invalid Accepted -> Completed" `Quick test_transition_invalid_accepted_to_completed;
+      Alcotest.test_case "invalid Ready -> Completed" `Quick test_transition_invalid_ready_to_completed;
+      Alcotest.test_case "terminal Completed -> Running" `Quick test_transition_terminal_completed;
+      Alcotest.test_case "terminal Failed -> Accepted" `Quick test_transition_terminal_failed;
+      Alcotest.test_case "terminal self Completed" `Quick test_transition_terminal_self;
+      Alcotest.test_case "is_terminal" `Quick test_is_terminal;
+      Alcotest.test_case "valid_transitions exhaustive" `Quick test_valid_transitions_exhaustive;
+      Alcotest.test_case "error_to_string" `Quick test_transition_error_to_string;
     ];
   ]
