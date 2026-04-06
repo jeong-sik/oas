@@ -219,6 +219,9 @@ let resume ~net ~(checkpoint : Checkpoint.t) ?(tools=[]) ?context
     consecutive_idle_turns = 0; named_cascade;
     tools = Tool_set.of_list tools; net; context = ctx; options }
 
+let make_extend_turns_tool ~agent_ref ~budget ?max_idle_before_extend () =
+  Agent_turn_budget.make_tool ~agent_ref ~budget ?max_idle_before_extend ()
+
 let checkpoint ?(session_id="") ?working_context agent =
   Agent_checkpoint.build_checkpoint ~session_id ?working_context ~state:agent.state
     ~tools:agent.tools ~context:agent.context

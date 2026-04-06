@@ -157,6 +157,23 @@ val checkpoint :
   t ->
   Checkpoint.t
 
+(** {1 Turn Budget} *)
+
+(** Build an [extend_turns] tool for external consumers.
+
+    Wraps {!Agent_turn_budget.make_tool} with the public [Agent.t] type
+    so downstream coordinators (MASC, etc.) can use it without accessing
+    the internal [Agent_types.t].
+
+    @param agent_ref Set to [Some agent] after {!run} begins.
+    @param budget Created via {!Agent_turn_budget.create}.
+    @since 0.109.0 *)
+val make_extend_turns_tool :
+  agent_ref:t option ref ->
+  budget:Agent_turn_budget.t ->
+  ?max_idle_before_extend:int ->
+  unit -> Tool.t
+
 (** {1 Lifecycle} *)
 
 val last_raw_trace_run : t -> Raw_trace.run_ref option
