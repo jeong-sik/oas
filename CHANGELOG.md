@@ -6,6 +6,11 @@ Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
 backfilled on 2026-04-04 from existing git tags. The dates below reflect the
 original tag dates. `0.100.4` was never tagged or released.
 
+## [0.107.0] - 2026-04-06
+
+### Changed
+- A2A `message_part_to_yojson` outputs v1.0 Part shape with `type` discriminator field. Text: `{"type":"text","text":"..."}`. File: nested `{"type":"file","file":{...}}` with `bytes`/`uri`. Data: `{"type":"data","data":{...}}`. Legacy format parsing preserved in `of_yojson`. Closes #591.
+
 ## [0.106.0] - 2026-04-06
 
 ### Added
