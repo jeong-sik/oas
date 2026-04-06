@@ -54,6 +54,11 @@ type options = {
         user's query, improving selection accuracy from ~42% to 83-100%.
         Applied after guardrails and operator policy filtering.
         @since 0.100.0 *)
+  priority: Llm_provider.Request_priority.t option;
+    (** Scheduling priority for LLM requests at the options level.
+        When [Some], overrides [agent_config.priority] on the resume path.
+        For the Builder path, use {!Builder.with_priority} instead.
+        @since 0.102.0 *)
 }
 
 (** {1 Lifecycle re-exports} *)

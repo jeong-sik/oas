@@ -41,6 +41,7 @@ type options = Agent_types.options = {
   operator_policy: Guardrails.tool_filter option;
   policy_channel: Policy_channel.t option;
   tool_selector: Tool_selector.strategy option;
+  priority: Llm_provider.Request_priority.t option;
 }
 
 type lifecycle_status = Agent_lifecycle.lifecycle_status =

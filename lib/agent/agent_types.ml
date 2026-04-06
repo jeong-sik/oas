@@ -30,6 +30,7 @@ type options = {
   operator_policy: Guardrails.tool_filter option;
   policy_channel: Policy_channel.t option;
   tool_selector: Tool_selector.strategy option;
+  priority: Llm_provider.Request_priority.t option;
 }
 
 (* Re-export lifecycle types from Agent_lifecycle.
@@ -87,6 +88,7 @@ let default_options = {
   operator_policy = None;
   policy_channel = None;
   tool_selector = None;
+  priority = None;
 }
 
 type tool_call_fingerprint = Agent_turn.tool_call_fingerprint
