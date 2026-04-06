@@ -84,6 +84,13 @@ val tool_effect_class_of_string : string -> tool_effect_class option
 (** Backward-compatible alias for [tool_effect_class_of_string]. *)
 val mutation_class_of_string : string -> mutation_class option
 
+(** Derive a [Tool.descriptor] from the builtin registry for a given tool name.
+    Returns [None] for unknown tools.
+    Read-only tools get [Parallel_read], mutation tools get [Sequential_workspace],
+    external/shell tools get [Exclusive_external].
+    @since 0.104.0 *)
+val builtin_descriptor : string -> Tool.descriptor option
+
 (** Check if all tools in a list are read-only. *)
 val all_read_only : string list -> bool
 

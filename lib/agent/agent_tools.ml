@@ -42,19 +42,25 @@ let inferred_concurrency_class_of_mutation_class = function
   | "external" | "external_effect" -> Some Tool.Exclusive_external
   | _ -> None
 
+let concurrency_class_from_descriptor (descriptor : Tool.descriptor) =
+  match descriptor.Tool.concurrency_class with
+  | Some cc -> cc
+  | None -> (
+      match
+        Option.bind descriptor.Tool.mutation_class
+          inferred_concurrency_class_of_mutation_class
+      with
+      | Some inferred -> inferred
+      | None -> Tool.Sequential_workspace)
+
 let concurrency_class_of_tool tool =
   match Tool.descriptor tool with
-  | Some descriptor -> (
-      match descriptor.Tool.concurrency_class with
-      | Some concurrency_class -> concurrency_class
-      | None -> (
-          match
-            Option.bind descriptor.Tool.mutation_class
-              inferred_concurrency_class_of_mutation_class
-          with
-          | Some inferred -> inferred
-          | None -> Tool.Sequential_workspace))
-  | None -> Tool.Sequential_workspace
+  | Some descriptor -> concurrency_class_from_descriptor descriptor
+  | None ->
+    (* Fallback: check builtin descriptor registry before defaulting *)
+    match Mode_enforcer.builtin_descriptor tool.schema.name with
+    | Some descriptor -> concurrency_class_from_descriptor descriptor
+    | None -> Tool.Sequential_workspace
 
 let find_tool_by_name tools name =
   List.find_opt (fun (tool : Tool.t) -> tool.schema.name = name) tools

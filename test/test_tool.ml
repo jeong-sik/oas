@@ -324,4 +324,45 @@ let () =
         | Error _ -> fail "expected Ok"
       );
     ];
+    "builtin_descriptor", [
+      test_case "read is Parallel_read" `Quick (fun () ->
+        match Mode_enforcer.builtin_descriptor "read" with
+        | None -> fail "expected Some descriptor for read"
+        | Some d ->
+          check (option string) "mutation_class" (Some "read_only") d.Tool.mutation_class;
+          check bool "concurrency is Parallel_read" true
+            (d.Tool.concurrency_class = Some Tool.Parallel_read);
+          check bool "permission is ReadOnly" true
+            (d.Tool.permission = Some Tool.ReadOnly)
+      );
+      test_case "write is Sequential_workspace" `Quick (fun () ->
+        match Mode_enforcer.builtin_descriptor "write" with
+        | None -> fail "expected Some descriptor for write"
+        | Some d ->
+          check (option string) "mutation_class" (Some "local_mutation") d.Tool.mutation_class;
+          check bool "concurrency is Sequential_workspace" true
+            (d.Tool.concurrency_class = Some Tool.Sequential_workspace);
+          check bool "permission is Write" true
+            (d.Tool.permission = Some Tool.Write)
+      );
+      test_case "bash is Exclusive_external with shell constraints" `Quick (fun () ->
+        match Mode_enforcer.builtin_descriptor "bash" with
+        | None -> fail "expected Some descriptor for bash"
+        | Some d ->
+          check (option string) "mutation_class" (Some "external_effect") d.Tool.mutation_class;
+          check bool "concurrency is Exclusive_external" true
+            (d.Tool.concurrency_class = Some Tool.Exclusive_external);
+          check bool "permission is Destructive" true
+            (d.Tool.permission = Some Tool.Destructive);
+          check bool "has shell constraints" true (Option.is_some d.Tool.shell)
+      );
+      test_case "unknown tool returns None" `Quick (fun () ->
+        check bool "no descriptor" true
+          (Mode_enforcer.builtin_descriptor "nonexistent_tool_xyz" = None)
+      );
+      test_case "case insensitive" `Quick (fun () ->
+        check bool "READ returns Some" true
+          (Option.is_some (Mode_enforcer.builtin_descriptor "READ"))
+      );
+    ];
   ]

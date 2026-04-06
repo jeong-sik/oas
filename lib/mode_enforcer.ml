@@ -259,6 +259,46 @@ let tool_effect_class_of_string = function
 (* Backward-compatible alias *)
 let mutation_class_of_string = tool_effect_class_of_string
 
+(* ── Builtin descriptor derivation ─────────────────────────────── *)
+
+let effect_class_to_mutation_class = function
+  | Read_only -> "read_only"
+  | Local_mutation -> "local_mutation"
+  | External_effect -> "external_effect"
+  | Shell_dynamic -> "external_effect"
+
+let effect_class_to_concurrency_class = function
+  | Read_only -> Tool.Parallel_read
+  | Local_mutation -> Tool.Sequential_workspace
+  | External_effect | Shell_dynamic -> Tool.Exclusive_external
+
+let effect_class_to_permission = function
+  | Read_only -> Tool.ReadOnly
+  | Local_mutation -> Tool.Write
+  | External_effect | Shell_dynamic -> Tool.Destructive
+
+let builtin_descriptor name : Tool.descriptor option =
+  let key = String.lowercase_ascii name in
+  match Hashtbl.find_opt tool_registry key with
+  | None -> None
+  | Some cls ->
+    Some {
+      Tool.kind = Some "builtin";
+      mutation_class = Some (effect_class_to_mutation_class cls);
+      concurrency_class = Some (effect_class_to_concurrency_class cls);
+      permission = Some (effect_class_to_permission cls);
+      shell = (if cls = Shell_dynamic then Some {
+        single_command_only = false;
+        shell_metacharacters_allowed = true;
+        chaining_allowed = true;
+        redirection_allowed = true;
+        pipes_allowed = true;
+        workdir_policy = None;
+      } else None);
+      notes = [];
+      examples = [];
+    }
+
 let effective_class_with_hints ~tool_classifications tool_name input =
   match List.assoc_opt tool_name tool_classifications with
   | Some cls -> cls
