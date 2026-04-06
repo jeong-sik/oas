@@ -18,6 +18,15 @@ type concurrency_class =
   | Exclusive_external
 [@@deriving yojson, show]
 
+(** Permission level for tool execution.
+    Consumers use this to decide approval policy per tool.
+    @since 0.103.0 *)
+type permission =
+  | ReadOnly       (** No side effects. Safe to execute without confirmation. *)
+  | Write          (** Local workspace mutations. Policy-dependent approval. *)
+  | Destructive    (** External effects or irreversible operations. *)
+[@@deriving yojson, show]
+
 type shell_constraints = {
   single_command_only: bool;
   shell_metacharacters_allowed: bool;
@@ -32,6 +41,11 @@ type descriptor = {
   kind: string option;
   mutation_class: string option;
   concurrency_class: concurrency_class option;
+  permission: permission option;
+      (** When [Some], indicates the tool's side-effect level.
+          Approval hooks can use this to skip confirmation for [ReadOnly]
+          tools or require explicit approval for [Destructive] ones.
+          [None] means unclassified (legacy tools). *)
   shell: shell_constraints option;
   notes: string list;
   examples: string list;
@@ -59,6 +73,11 @@ val create_with_context :
 
 val execute : ?context:Context.t -> t -> Yojson.Safe.t -> Types.tool_result
 val descriptor : t -> descriptor option
+val permission : t -> permission option
+  (** Extract permission from a tool's descriptor. [None] if no descriptor
+      or no permission set. *)
+val is_read_only : t -> bool
+  (** [true] when [permission t = Some ReadOnly]. *)
 val validate_descriptor : descriptor -> (unit, string) result
 val descriptor_to_yojson : descriptor option -> Yojson.Safe.t
 val schema_to_json : t -> Yojson.Safe.t

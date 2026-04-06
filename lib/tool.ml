@@ -20,6 +20,12 @@ type concurrency_class =
   | Exclusive_external
 [@@deriving yojson, show]
 
+type permission =
+  | ReadOnly
+  | Write
+  | Destructive
+[@@deriving yojson, show]
+
 type shell_constraints = {
   single_command_only: bool;
   shell_metacharacters_allowed: bool;
@@ -34,6 +40,7 @@ type descriptor = {
   kind: string option;
   mutation_class: string option;
   concurrency_class: concurrency_class option;
+  permission: permission option;
   shell: shell_constraints option;
   notes: string list;
   examples: string list;
@@ -105,6 +112,14 @@ let execute ?context tool input =
 
 let descriptor tool = tool.descriptor
 
+let permission tool =
+  match tool.descriptor with
+  | Some d -> d.permission
+  | None -> None
+
+let is_read_only tool =
+  permission tool = Some ReadOnly
+
 let workdir_policy_to_json = function
   | Required -> `String "required"
   | Recommended -> `String "recommended"
@@ -146,6 +161,11 @@ let descriptor_to_yojson = function
             Option.value
               ~default:`Null
               (Option.map concurrency_class_to_yojson descriptor.concurrency_class)
+          );
+          ( "permission",
+            Option.value
+              ~default:`Null
+              (Option.map permission_to_yojson descriptor.permission)
           );
           ("shell", shell_json);
           ("notes", `List (List.map (fun note -> `String note) descriptor.notes));
