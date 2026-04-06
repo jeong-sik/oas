@@ -613,7 +613,7 @@ let test_apply_context_injection_preserves_non_retryable_error () =
 let test_resolve_turn_params_no_hook () =
   let hooks = Hooks.empty in
   let invoke_hook ~hook_name:_ _h _input = Hooks.Continue in
-  let params = Agent_turn.resolve_turn_params ~hooks ~messages:[] ~max_turns:10 ~invoke_hook in
+  let params = Agent_turn.resolve_turn_params ~hooks ~messages:[] ~max_turns:10 ~turn:0 ~invoke_hook in
   Alcotest.(check (option reject)) "default temperature" None params.temperature
 
 let test_resolve_turn_params_with_hook () =
@@ -628,7 +628,7 @@ let test_resolve_turn_params_with_hook () =
     | Some f -> f input
     | None -> Hooks.Continue
   in
-  let params = Agent_turn.resolve_turn_params ~hooks ~messages:[] ~max_turns:10 ~invoke_hook in
+  let params = Agent_turn.resolve_turn_params ~hooks ~messages:[] ~max_turns:10 ~turn:0 ~invoke_hook in
   Alcotest.(check (option (float 0.01))) "custom temp" (Some 0.5) params.temperature
 
 (* ── Test runner ────────────────────────────────────────── *)

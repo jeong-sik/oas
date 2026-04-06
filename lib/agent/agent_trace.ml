@@ -79,6 +79,10 @@ let trace_assistant_blocks active_run blocks =
            (Ok ())
 
 let with_raw_trace_run agent user_prompt f =
+  (* Reset lifecycle so each run() starts fresh — allows agent reuse
+     after Completed/Failed without hitting invalid transition. *)
+  Eio.Mutex.use_rw ~protect:true agent.mu (fun () ->
+    agent.lifecycle <- None);
   match agent.options.raw_trace with
   | None ->
       let ts = Unix.gettimeofday () in

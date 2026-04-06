@@ -101,6 +101,9 @@ type hook_decision =
   | Skip
   | Override of string
   | ApprovalRequired
+      (** Signals that the tool needs external approval.  If an
+          {!approval_callback} is registered the callback is invoked;
+          otherwise the tool is executed with a warning log. *)
   | AdjustParams of turn_params
   | ElicitInput of elicitation_request
   | Nudge of string  (** OnIdle only: inject message, reset idle counter, continue *)
