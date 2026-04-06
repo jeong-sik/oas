@@ -127,6 +127,104 @@ let test_as_hook_non_before_turn_params () =
   | Hooks.Continue -> ()
   | _ -> Alcotest.fail "expected Continue for non-BeforeTurnParams events"
 
+(* ── Builder integration ──────────────────────────────── *)
+
+(** Verify that Builder wires progressive_tools into before_turn_params,
+    not pre_tool_use. This is the integration test that catches the slot
+    mismatch bug (oas#664). *)
+let test_builder_wires_to_before_turn_params () =
+  let strategy = Progressive_tools.Phase_based {
+    phases = [(0, ["tool_a"; "tool_b"])]
+  } in
+  Eio_main.run @@ fun env ->
+  let net = Eio.Stdenv.net env in
+  let agent = Builder.create ~net ~model:"test-model"
+    |> Builder.with_max_turns 10
+    |> Builder.with_progressive_tools strategy
+    |> Builder.build
+  in
+  let hooks = (Agent.options agent).hooks in
+  (* before_turn_params must be Some — that's where disclosure lives *)
+  check_bool "before_turn_params is Some" true
+    (Option.is_some hooks.before_turn_params);
+  (* Fire BeforeTurnParams and expect AdjustParams with AllowList *)
+  let btp_hook = Option.get hooks.before_turn_params in
+  let event = Hooks.BeforeTurnParams {
+    turn = 0; max_turns = 10; messages = [];
+    last_tool_results = [];
+    current_params = Hooks.default_turn_params;
+    reasoning = Hooks.empty_reasoning_summary;
+  } in
+  (match btp_hook event with
+   | Hooks.AdjustParams params ->
+     (match params.tool_filter_override with
+      | Some (Guardrails.AllowList lst) ->
+        check_int "2 tools via builder" 2 (List.length lst);
+        check_bool "tool_a present" true (List.mem "tool_a" lst);
+        check_bool "tool_b present" true (List.mem "tool_b" lst)
+      | _ -> Alcotest.fail "expected AllowList in tool_filter_override")
+   | _ -> Alcotest.fail "expected AdjustParams from before_turn_params")
+
+(** Verify that pre_tool_use is NOT set when only progressive_tools is used. *)
+let test_builder_does_not_pollute_pre_tool_use () =
+  let strategy = Progressive_tools.Phase_based {
+    phases = [(0, ["tool_a"])]
+  } in
+  Eio_main.run @@ fun env ->
+  let net = Eio.Stdenv.net env in
+  let agent = Builder.create ~net ~model:"test-model"
+    |> Builder.with_max_turns 10
+    |> Builder.with_progressive_tools strategy
+    |> Builder.build
+  in
+  let hooks = (Agent.options agent).hooks in
+  check_bool "pre_tool_use is None" true
+    (Option.is_none hooks.pre_tool_use)
+
+(** Verify progressive_tools composes with existing before_turn_params hook. *)
+let test_builder_composes_with_existing_btp () =
+  let strategy = Progressive_tools.Phase_based {
+    phases = [(0, ["tool_a"])]
+  } in
+  let custom_temp = 0.42 in
+  let existing_btp : Hooks.hook = fun event ->
+    match event with
+    | Hooks.BeforeTurnParams _ ->
+      Hooks.AdjustParams { Hooks.default_turn_params with
+        temperature = Some custom_temp }
+    | _ -> Hooks.Continue
+  in
+  Eio_main.run @@ fun env ->
+  let net = Eio.Stdenv.net env in
+  let agent = Builder.create ~net ~model:"test-model"
+    |> Builder.with_max_turns 10
+    |> Builder.with_hooks { Hooks.empty with
+         before_turn_params = Some existing_btp }
+    |> Builder.with_progressive_tools strategy
+    |> Builder.build
+  in
+  let hooks = (Agent.options agent).hooks in
+  let btp_hook = Option.get hooks.before_turn_params in
+  let event = Hooks.BeforeTurnParams {
+    turn = 0; max_turns = 10; messages = [];
+    last_tool_results = [];
+    current_params = Hooks.default_turn_params;
+    reasoning = Hooks.empty_reasoning_summary;
+  } in
+  match btp_hook event with
+  | Hooks.AdjustParams params ->
+    (* Progressive tool_filter_override takes priority *)
+    (match params.tool_filter_override with
+     | Some (Guardrails.AllowList lst) ->
+       check_int "1 tool" 1 (List.length lst);
+       check_bool "tool_a" true (List.mem "tool_a" lst)
+     | _ -> Alcotest.fail "expected AllowList from progressive");
+    (* Existing hook's temperature is preserved *)
+    (match params.temperature with
+     | Some t when Float.equal t custom_temp -> ()
+     | _ -> Alcotest.fail "expected existing hook's temperature to be preserved")
+  | _ -> Alcotest.fail "expected AdjustParams"
+
 (* ── Suite ────────────────────────────────────────────── *)
 
 let () =
@@ -146,5 +244,13 @@ let () =
     "as_hook", [
       Alcotest.test_case "returns AdjustParams" `Quick test_as_hook_returns_adjust_params;
       Alcotest.test_case "non-BeforeTurnParams" `Quick test_as_hook_non_before_turn_params;
+    ];
+    "builder_integration", [
+      Alcotest.test_case "wires to before_turn_params" `Quick
+        test_builder_wires_to_before_turn_params;
+      Alcotest.test_case "does not pollute pre_tool_use" `Quick
+        test_builder_does_not_pollute_pre_tool_use;
+      Alcotest.test_case "composes with existing btp" `Quick
+        test_builder_composes_with_existing_btp;
     ];
   ]

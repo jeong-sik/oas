@@ -243,13 +243,27 @@ let build b =
       | None -> b.hooks
       | Some strategy ->
         let prog_hook = Progressive_tools.as_hook strategy in
-        let existing_pre = b.hooks.pre_tool_use in
-        { b.hooks with pre_tool_use = Some (fun event ->
+        let existing_btp = b.hooks.before_turn_params in
+        { b.hooks with before_turn_params = Some (fun event ->
           match prog_hook event with
-          | Hooks.Skip as d -> d
-          | _ -> (match existing_pre with
-                  | Some h -> h event
-                  | None -> Hooks.Continue)) });
+          | Hooks.AdjustParams prog_params -> (
+            match existing_btp with
+            | Some h -> (
+              match h event with
+              | Hooks.AdjustParams existing_params ->
+                (* Merge: progressive tool_filter_override takes priority *)
+                let merged = { existing_params with
+                  Hooks.tool_filter_override =
+                    (match prog_params.tool_filter_override with
+                     | Some _ as override -> override
+                     | None -> existing_params.tool_filter_override) } in
+                Hooks.AdjustParams merged
+              | _ -> Hooks.AdjustParams prog_params)
+            | None -> Hooks.AdjustParams prog_params)
+          | other -> (
+            match existing_btp with
+            | Some h -> h event
+            | None -> other)) });
     guardrails = b.guardrails;
     guardrails_async = b.guardrails_async;
     tracer = b.tracer;
