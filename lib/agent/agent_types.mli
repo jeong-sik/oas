@@ -59,6 +59,10 @@ type options = {
         When [Some], overrides [agent_config.priority] on the resume path.
         For the Builder path, use {!Builder.with_priority} instead.
         @since 0.102.0 *)
+  slot_id: int option;
+    (** Pin LLM requests to a specific llama-server slot for KV cache reuse.
+        When [Some n], adds ["id_slot": n] to OpenAI-compat request body.
+        @since 0.109.0 *)
 }
 
 (** {1 Lifecycle re-exports} *)

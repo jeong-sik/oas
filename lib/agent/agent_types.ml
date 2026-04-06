@@ -31,6 +31,7 @@ type options = {
   policy_channel: Policy_channel.t option;
   tool_selector: Tool_selector.strategy option;
   priority: Llm_provider.Request_priority.t option;
+  slot_id: int option;
 }
 
 (* Re-export lifecycle types from Agent_lifecycle.
@@ -89,6 +90,7 @@ let default_options = {
   policy_channel = None;
   tool_selector = None;
   priority = None;
+  slot_id = None;
 }
 
 type tool_call_fingerprint = Agent_turn.tool_call_fingerprint

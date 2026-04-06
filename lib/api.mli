@@ -53,6 +53,7 @@ val build_openai_body :
   config:Types.agent_state ->
   messages:Types.message list ->
   ?tools:Yojson.Safe.t list ->
+  ?slot_id:int ->
   unit -> string
 (** Parse an OpenAI-compatible JSON response.
     Returns [Ok api_response] on success, [Error msg] on API error. *)
@@ -70,6 +71,7 @@ val create_message :
   config:Types.agent_state ->
   messages:Types.message list ->
   ?tools:Yojson.Safe.t list ->
+  ?slot_id:int ->
   unit ->
   (Types.api_response, Error.sdk_error) result
 

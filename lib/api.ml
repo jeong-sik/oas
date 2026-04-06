@@ -42,7 +42,7 @@ let map_named_cascade_error = function
       Error.Api (Retry.NetworkError { message })
 
 (** Send a non-streaming message to the API, dispatching by provider *)
-let create_message ~sw ~net ?(base_url=default_base_url) ?provider ?clock ?retry_config ~config ~messages ?tools () =
+let create_message ~sw ~net ?(base_url=default_base_url) ?provider ?clock ?retry_config ~config ~messages ?tools ?slot_id () =
   let resolve_result = match provider with
     | Some p ->
         (match Provider.resolve p with
@@ -81,7 +81,7 @@ let create_message ~sw ~net ?(base_url=default_base_url) ?provider ?clock ?retry
         Yojson.Safe.to_string (`Assoc (build_body_assoc ~config ~messages ?tools ~stream:false ()))
     | Provider.Openai_chat_completions ->
         Api_openai.build_openai_body ~provider_config:provider_cfg ~config
-          ~messages ?tools ()
+          ~messages ?tools ?slot_id ()
     | Provider.Custom name ->
         (match Provider.find_provider name with
          | Some impl -> impl.build_body ~config ~messages ?tools ()

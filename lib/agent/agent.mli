@@ -42,6 +42,7 @@ type options = Agent_types.options = {
   policy_channel: Policy_channel.t option;
   tool_selector: Tool_selector.strategy option;
   priority: Llm_provider.Request_priority.t option;
+  slot_id: int option;
 }
 
 type lifecycle_status = Agent_lifecycle.lifecycle_status =
