@@ -243,7 +243,7 @@ let context_with_contract ?context contract =
   else
     let ctx =
       match context with
-      | Some value -> Context.copy value
+      | Some value -> value
       | None -> Context.create ()
     in
     Context.set ctx context_key (to_json contract);
