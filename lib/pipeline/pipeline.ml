@@ -80,8 +80,23 @@ let last_tool_results_from messages =
     | results -> results
   ) [] messages
 
+(** Prepare the turn using current [agent.state.messages] and the given
+    [turn_params].  Centralises the [Agent_turn.prepare_turn] parameter
+    list to avoid duplication between [stage_parse] and post-compaction
+    re-preparation (Stage 2.3). *)
+let prepare_turn_for_agent agent ~turn_params =
+  Agent_turn.prepare_turn
+    ~guardrails:agent.options.guardrails
+    ~operator_policy:agent.options.operator_policy
+    ~policy_channel:agent.options.policy_channel
+    ~tools:agent.tools
+    ~messages:agent.state.messages
+    ~context_reducer:agent.options.context_reducer ~turn_params
+    ?tool_selector:agent.options.tool_selector
+    ()
+
 (** Invoke BeforeTurnParams hook, apply turn params, prepare tools.
-    Returns (turn_preparation, original_config). *)
+    Returns (turn_preparation, original_config, turn_params). *)
 let stage_parse ?raw_trace_run agent =
   let turn_params = match agent.options.hooks.before_turn_params with
     | None -> Hooks.default_turn_params
@@ -128,17 +143,8 @@ let stage_parse ?raw_trace_run agent =
                        turn = agent.state.turn_count })
    | None -> ());
 
-  let prep = Agent_turn.prepare_turn
-    ~guardrails:agent.options.guardrails
-    ~operator_policy:agent.options.operator_policy
-    ~policy_channel:agent.options.policy_channel
-    ~tools:agent.tools
-    ~messages:agent.state.messages
-    ~context_reducer:agent.options.context_reducer ~turn_params
-    ?tool_selector:agent.options.tool_selector
-    ()
-  in
-  (prep, original_config)
+  let prep = prepare_turn_for_agent agent ~turn_params in
+  (prep, original_config, turn_params)
 
 (* ── Stage 3: Route ──────────────────────────────────────── *)
 
@@ -454,6 +460,80 @@ let stage_output ?raw_trace_run agent ~effective_guardrails response =
   | Unknown reason ->
     Error (Error.Agent (UnrecognizedStopReason { reason }))
 
+(* ── Proactive watermark compaction (Phase 2) ───────────── *)
+
+(** Conservative context-window size for proactive compaction.  Proactive
+    compaction needs a context-window denominator, not the cumulative
+    input-token budget in [config.max_input_tokens].  The [agent] parameter
+    is reserved for future extension (e.g., deriving the window from
+    model/provider capability metadata); for now a conservative default is
+    returned unconditionally. *)
+let proactive_context_window_tokens _agent = 128_000
+
+(** Apply proactive compaction when context usage exceeds the configured
+    watermark ratio, BEFORE hitting the provider limit.  Uses
+    [Budget_strategy.phase_of_usage_ratio] to pick the lightest phase
+    that matches the current usage.  Fires PreCompact hook; respects
+    Skip.  Returns [true] if messages were actually reduced.
+
+    The raw usage ratio is remapped from [watermark, 1.0] → [0.5, 1.0]
+    before being passed to [Budget_strategy], so that crossing the
+    watermark always corresponds to the Compact phase (≥ 0.5) regardless
+    of how low the configured watermark is.
+
+    @param watermark  Ratio (0.0-1.0) at which to begin compacting.
+                      Typical value: 0.7 (= 70 % of context window).
+    @since Phase 2 — proactive compaction *)
+let proactive_compact ?raw_trace_run agent ~watermark () =
+  let messages = agent.state.messages in
+  let est_tokens = List.fold_left (fun acc msg ->
+    acc + Context_reducer.estimate_message_tokens msg) 0 messages in
+  let context_window_tokens = proactive_context_window_tokens agent in
+  let usage_ratio =
+    float_of_int est_tokens /. float_of_int context_window_tokens
+  in
+  if usage_ratio < watermark then false
+  else
+    (* Remap [watermark, 1.0] → [0.5, 1.0] so Budget_strategy always picks
+       at least the Compact phase when the watermark is crossed.  Without
+       this, a watermark < 0.5 would never trigger Budget_strategy because
+       phase_of_usage_ratio returns Full for ratios below 0.5. *)
+    let scaled_ratio =
+      let watermark_range = 1.0 -. watermark in
+      if watermark_range <= 0.0 then 1.0
+      else 0.5 +. 0.5 *. (usage_ratio -. watermark) /. watermark_range
+    in
+    let hook_decision =
+      invoke_hook_with_trace agent ?raw_trace_run ~hook_name:"pre_compact"
+        agent.options.hooks.pre_compact
+        (Hooks.PreCompact { messages; estimated_tokens = est_tokens;
+                            budget_tokens = context_window_tokens })
+    in
+    match hook_decision with
+    | Hooks.Skip -> false
+    | _ ->
+      let reduced = Budget_strategy.reduce_for_budget
+        ~usage_ratio:scaled_ratio ~messages () in
+      let reduced = match agent.options.context_reducer with
+        | Some reducer -> Context_reducer.reduce reducer reduced
+        | None -> reduced
+      in
+      let after_tokens = List.fold_left (fun acc msg ->
+        acc + Context_reducer.estimate_message_tokens msg) 0 reduced in
+      if after_tokens >= est_tokens then false
+      else begin
+        update_state agent (fun s -> { s with messages = reduced });
+        (match agent.options.event_bus with
+         | Some bus -> Event_bus.publish bus
+             (ContextCompacted {
+               agent_name = agent.state.config.name;
+               before_tokens = est_tokens;
+               after_tokens;
+               phase = Printf.sprintf "proactive(%.0f%%)" (usage_ratio *. 100.0) })
+         | None -> ());
+        true
+      end
+
 (* ── Emergency compaction ────────────────────────────────── *)
 
 (** Apply emergency compaction to stored messages when context overflow
@@ -516,7 +596,21 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
   stage_input ?raw_trace_run agent;
 
   (* Stage 2: Parse *)
-  let (prep, original_config) = stage_parse ?raw_trace_run agent in
+  let (prep, original_config, turn_params) = stage_parse ?raw_trace_run agent in
+
+  (* Stage 2.3: Proactive watermark compaction — compact before overflow.
+     Runs before async input validation so that validators operate on the
+     already-compacted message set.  Re-prepares the turn via
+     Agent_turn.prepare_turn directly (not stage_parse) to avoid emitting
+     TurnStarted a second time or re-invoking before_turn_params. *)
+  let prep = match agent.state.config.context_compact_ratio with
+    | Some watermark when watermark > 0.0 && watermark < 1.0 ->
+      let compacted = proactive_compact ?raw_trace_run agent ~watermark () in
+      if compacted then
+        prepare_turn_for_agent agent ~turn_params
+      else prep
+    | _ -> prep
+  in
 
   (* Stage 2.5: Async input validation *)
   let async_guard = agent.options.guardrails_async in
@@ -539,7 +633,7 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
       if not compacted then api_result
       else begin
         update_state agent (fun s -> { s with config = original_config });
-        let (prep', _) = stage_parse ?raw_trace_run agent in
+        let (prep', _, _) = stage_parse ?raw_trace_run agent in
         attempt_route ~prep:prep' ~compact_attempts:(compact_attempts + 1)
       end
     | other -> other
@@ -724,3 +818,7 @@ let%test "tag_error Ok unit" =
 
 let%test "tag_error Ok list" =
   tag_error "output" (Ok [1; 2; 3]) = Ok [1; 2; 3]
+
+(* --- Proactive compaction: phase selection is tested via
+   Budget_strategy inline tests; integration tested via keeper
+   turns that set context_compact_ratio in agent config. --- *)
