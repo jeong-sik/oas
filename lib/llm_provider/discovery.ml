@@ -308,6 +308,15 @@ let first_discovered_model_id () : string option =
   | (model_id, _) :: _ -> Some model_id
   | [] -> None
 
+(** Return the first model_id discovered on a specific endpoint URL.
+    Prevents cross-provider contamination: e.g. ollama:auto should only
+    resolve models found on the Ollama endpoint, not llama-server models. *)
+let first_discovered_model_id_for_url (url : string) : string option =
+  let snap = Atomic.get _discovered_ctx in
+  List.find_map (fun (model_id, ep_url) ->
+    if ep_url = url then Some model_id else None
+  ) snap.model_endpoints
+
 let discover ~sw ~net ~endpoints =
   Eio.Fiber.List.map (fun url -> probe_endpoint ~sw ~net url) endpoints
 
@@ -894,3 +903,40 @@ let%test "first_discovered_model_id returns first model_id from snapshot" =
             ("model-b", "http://localhost:8086") ];
         per_slot_ctx = Some 8192 };
     first_discovered_model_id () = Some "model-a")
+
+let%test "first_discovered_model_id_for_url filters by endpoint" =
+  let old = Atomic.get _discovered_ctx in
+  Fun.protect ~finally:(fun () -> Atomic.set _discovered_ctx old) (fun () ->
+    Atomic.set _discovered_ctx
+      { endpoint_ctxs = [];
+        model_endpoints =
+          [ ("llama-model", "http://127.0.0.1:8085");
+            ("ollama-model", "http://127.0.0.1:11434") ];
+        per_slot_ctx = None };
+    first_discovered_model_id_for_url "http://127.0.0.1:11434"
+    = Some "ollama-model")
+
+let%test "first_discovered_model_id_for_url returns None for unknown url" =
+  let old = Atomic.get _discovered_ctx in
+  Fun.protect ~finally:(fun () -> Atomic.set _discovered_ctx old) (fun () ->
+    Atomic.set _discovered_ctx
+      { endpoint_ctxs = [];
+        model_endpoints =
+          [ ("llama-model", "http://127.0.0.1:8085") ];
+        per_slot_ctx = None };
+    first_discovered_model_id_for_url "http://127.0.0.1:11434" = None)
+
+let%test "first_discovered_model_id_for_url prevents cross-provider" =
+  let old = Atomic.get _discovered_ctx in
+  Fun.protect ~finally:(fun () -> Atomic.set _discovered_ctx old) (fun () ->
+    Atomic.set _discovered_ctx
+      { endpoint_ctxs = [];
+        model_endpoints =
+          [ ("qwen3.5-9b-local", "http://127.0.0.1:8085");
+            ("qwen3.5:9b-nvfp4", "http://127.0.0.1:11434") ];
+        per_slot_ctx = None };
+    (* ollama endpoint must NOT return the llama-server model *)
+    first_discovered_model_id_for_url "http://127.0.0.1:8085"
+    = Some "qwen3.5-9b-local"
+    && first_discovered_model_id_for_url "http://127.0.0.1:11434"
+    = Some "qwen3.5:9b-nvfp4")
