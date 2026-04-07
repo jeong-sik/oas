@@ -10,8 +10,20 @@
     sit idle.  The last provider in the list falls back to blocking to avoid
     an immediate "all failed" error when the system is simply at capacity.
 
+    Per-model timeout: non-last providers are cancelled after
+    [OAS_CASCADE_MODEL_TIMEOUT_SEC] (default 1200s / 20 min) to prevent
+    a single slow model from blocking the entire cascade for hours.
+
     @since 0.99.5
-    @since 0.100.3 slot-full fallthrough for load distribution *)
+    @since 0.100.3 slot-full fallthrough for load distribution
+    @since 0.101.0 per-model timeout for non-last providers *)
+
+(* ── Per-model timeout ──────────────────────────────────── *)
+
+let cascade_model_timeout_sec : float =
+  match Sys.getenv_opt "OAS_CASCADE_MODEL_TIMEOUT_SEC" with
+  | Some s -> (try Float.of_string s with _ -> 1200.0)
+  | None -> 1200.0
 
 (* ── Shared cloud throttle table ─────────────────────── *)
 
@@ -62,6 +74,25 @@ let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
         Complete.complete ~sw ~net ~config:cfg
           ~messages ~tools ?cache ?metrics ?priority ()
     in
+    (* Wrap non-last providers with a timeout to prevent a single slow
+       model from blocking the cascade for hours.  Last provider has no
+       timeout — it is the final fallback. *)
+    let call_with_timeout () =
+      match clock with
+      | Some clock when not is_last && cascade_model_timeout_sec > 0.0 ->
+        let wrapped () =
+          match call () with
+          | Ok v -> Ok (Ok v)
+          | Error e -> Ok (Error e)
+        in
+        (match Eio.Time.with_timeout clock cascade_model_timeout_sec wrapped with
+         | Ok inner -> inner
+         | Error `Timeout ->
+           Error (Http_client.NetworkError {
+               message = Printf.sprintf "timeout after %.0fs, cascading to next provider"
+                 cascade_model_timeout_sec }))
+      | _ -> call ()
+    in
     let effective_throttle = resolve_throttle ~throttle_override:throttle cfg in
     match effective_throttle with
     | Some t ->
@@ -71,12 +102,12 @@ let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
         Provider_throttle.with_permit_priority ~priority:p t call
       else
         (* Non-last: try non-blocking, cascade on slot full *)
-        (match Provider_throttle.try_permit ~priority:p t call with
+        (match Provider_throttle.try_permit ~priority:p t (fun () -> call_with_timeout ()) with
          | Some result -> result
          | None ->
            Error (Http_client.NetworkError {
                message = "slot full, cascading to next provider" }))
-    | None -> call ()
+    | None -> call_with_timeout ()
   in
   let rec try_next last_err = function
     | [] ->
