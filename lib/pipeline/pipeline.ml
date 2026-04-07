@@ -163,18 +163,21 @@ let stage_route ~sw ?clock ~api_strategy agent prep =
            the cascade falls back to the next provider.  This prevents weak
            models (e.g. 9B) from "succeeding" with text_response when tools
            were mandatory, starving the fallback provider of a chance. *)
-        let accept = match agent.state.config.tool_choice with
+        let accept, accept_on_exhaustion =
+          match agent.state.config.tool_choice with
           | Some (Types.Any | Types.Tool _) ->
             (fun (resp : Types.api_response) ->
-              List.exists (function Types.ToolUse _ -> true | _ -> false) resp.content)
-          | _ -> fun _ -> true
+              List.exists (function Types.ToolUse _ -> true | _ -> false) resp.content),
+            true  (* accept text on exhaustion rather than hard-fail *)
+          | _ -> (fun _ -> true), false
         in
         match agent.named_cascade with
         | Some named ->
           Api.create_message_named ~sw ~net:agent.net ?clock
             ~named_cascade:named ~config:agent.state
             ~messages:prep.Agent_turn.effective_messages
-            ?tools:prep.tools_json ~metrics:named.metrics ~accept ?priority ()
+            ?tools:prep.tools_json ~metrics:named.metrics
+            ~accept ~accept_on_exhaustion ?priority ()
         | None ->
           (match agent.options.cascade with
            | Some casc ->

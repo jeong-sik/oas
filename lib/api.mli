@@ -103,6 +103,7 @@ val create_message_named :
   ?max_tokens:int ->
   ?system_prompt:string ->
   ?accept:(Types.api_response -> bool) ->
+  ?accept_on_exhaustion:bool ->
   ?timeout_sec:int ->
   ?metrics:Llm_provider.Metrics.t ->
   ?priority:Llm_provider.Request_priority.t ->

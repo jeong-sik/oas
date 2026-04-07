@@ -61,7 +61,8 @@ let resolve_throttle ~throttle_override (cfg : Provider_config.t) =
 (* ── Synchronous cascade with accept validator ─────────── *)
 
 let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
-    ?throttle ?priority ~accept (providers : Provider_config.t list)
+    ?throttle ?priority ?(accept_on_exhaustion = false)
+    ~accept (providers : Provider_config.t list)
     ~(messages : Types.message list) ~(tools : Yojson.Safe.t list) =
   let m = match metrics with Some m -> m | None -> Metrics.noop in
   let try_one ~is_last (cfg : Provider_config.t) =
@@ -128,6 +129,18 @@ let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
       (match try_one ~is_last cfg with
       | Ok resp ->
         if accept resp then Ok resp
+        else if is_last && accept_on_exhaustion then begin
+          (* Graceful degradation: all models rejected by accept.
+             Return the last valid response rather than failing.
+             Based on constrained decoding fallback pattern:
+             when all constrained attempts fail, accept unconstrained.
+             Deterministic gate: accept_on_exhaustion flag.
+             Non-deterministic: content of the accepted response. *)
+          m.on_cascade_fallback
+            ~from_model:cfg.model_id ~to_model:"(accepted on exhaustion)"
+            ~reason:"accept relaxed: all models rejected";
+          Ok resp
+        end
         else begin
           (match last_err with
            | Some (Http_client.HttpError { code; _ }) ->

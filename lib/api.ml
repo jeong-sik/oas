@@ -187,8 +187,8 @@ let create_message_cascade ~sw ~net ?clock ?retry_config
 let create_message_named ~sw ~net ?clock ~(named_cascade : named_cascade)
     ~config ~messages ?tools ?(temperature = 0.3)
     ?(max_tokens = config.config.max_tokens)
-    ?system_prompt ?(accept = fun _ -> true) ?timeout_sec ?metrics
-    ?priority () =
+    ?system_prompt ?(accept = fun _ -> true) ?(accept_on_exhaustion = false)
+    ?timeout_sec ?metrics ?priority () =
   let system_prompt =
     match system_prompt with
     | Some _ -> system_prompt
@@ -207,7 +207,7 @@ let create_message_named ~sw ~net ?clock ~(named_cascade : named_cascade)
       ?config_path:named_cascade.config_path ~name:named_cascade.name
       ~defaults:named_cascade.defaults ~messages ?tools ~temperature
       ~max_tokens ?system_prompt ?tool_choice:config.config.tool_choice
-      ~accept ?timeout_sec ~metrics ?priority ()
+      ~accept ~accept_on_exhaustion ?timeout_sec ~metrics ?priority ()
   with
   | Ok response -> Ok response
   | Error err -> Error (map_named_cascade_error err)
