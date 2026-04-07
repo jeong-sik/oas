@@ -458,6 +458,107 @@ let test_with_max_total_tokens () =
   Alcotest.(check (option int)) "max_total_tokens"
     (Some 100000) (Agent.state agent).config.max_total_tokens
 
+(** Extract the Token_budget value from a Compose strategy produced by
+    [Context_reducer.from_context_config]. Returns [None] if not found. *)
+let extract_token_budget reducer =
+  match reducer.Context_reducer.strategy with
+  | Context_reducer.Compose strategies ->
+    List.find_map (function
+      | Context_reducer.Token_budget n -> Some n
+      | _ -> None) strategies
+  | _ -> None
+
+(* --- 26. with_context_thresholds: explicit context_window_tokens --- *)
+
+let test_with_context_thresholds_explicit () =
+  with_net @@ fun net ->
+  let agent =
+    Builder.create ~net ~model:"claude-sonnet-4-6"
+    |> Builder.with_context_thresholds ~compact_ratio:0.5
+         ~context_window_tokens:262144
+    |> Builder.build_safe |> Result.get_ok
+  in
+  let reducer = Option.get (Agent.options agent).context_reducer in
+  (* budget = 262144 * 0.5 = 131072 *)
+  Alcotest.(check (option int)) "explicit context_window_tokens budget"
+    (Some 131072) (extract_token_budget reducer)
+
+(* --- 27. with_context_thresholds: fallback to max_input_tokens --- *)
+
+let test_with_context_thresholds_fallback_max_input () =
+  with_net @@ fun net ->
+  let agent =
+    Builder.create ~net ~model:"claude-sonnet-4-6"
+    |> Builder.with_max_input_tokens 100000
+    |> Builder.with_context_thresholds ~compact_ratio:0.5
+    |> Builder.build_safe |> Result.get_ok
+  in
+  let reducer = Option.get (Agent.options agent).context_reducer in
+  (* budget = 100000 * 0.5 = 50000 *)
+  Alcotest.(check (option int)) "fallback max_input_tokens budget"
+    (Some 50000) (extract_token_budget reducer)
+
+(* --- 28. with_context_thresholds: max_input_tokens beats max_total_tokens --- *)
+
+let test_with_context_thresholds_input_beats_total () =
+  with_net @@ fun net ->
+  let agent =
+    Builder.create ~net ~model:"claude-sonnet-4-6"
+    |> Builder.with_max_input_tokens 80000
+    |> Builder.with_max_total_tokens 200000
+    |> Builder.with_context_thresholds ~compact_ratio:0.5
+    |> Builder.build_safe |> Result.get_ok
+  in
+  let reducer = Option.get (Agent.options agent).context_reducer in
+  (* max_input_tokens (80000) preferred over max_total_tokens; budget = 80000 * 0.5 = 40000 *)
+  Alcotest.(check (option int)) "max_input_tokens beats max_total_tokens"
+    (Some 40000) (extract_token_budget reducer)
+
+(* --- 29. with_context_thresholds: fallback to max_total_tokens --- *)
+
+let test_with_context_thresholds_fallback_max_total () =
+  with_net @@ fun net ->
+  let agent =
+    Builder.create ~net ~model:"claude-sonnet-4-6"
+    |> Builder.with_max_total_tokens 60000
+    |> Builder.with_context_thresholds ~compact_ratio:0.5
+    |> Builder.build_safe |> Result.get_ok
+  in
+  let reducer = Option.get (Agent.options agent).context_reducer in
+  (* budget = 60000 * 0.5 = 30000 *)
+  Alcotest.(check (option int)) "fallback max_total_tokens budget"
+    (Some 30000) (extract_token_budget reducer)
+
+(* --- 30. with_context_thresholds: default fallback 200_000 --- *)
+
+let test_with_context_thresholds_default_fallback () =
+  with_net @@ fun net ->
+  let agent =
+    Builder.create ~net ~model:"claude-sonnet-4-6"
+    |> Builder.with_context_thresholds ~compact_ratio:0.5
+    |> Builder.build_safe |> Result.get_ok
+  in
+  let reducer = Option.get (Agent.options agent).context_reducer in
+  (* budget = 200_000 * 0.5 = 100_000 *)
+  Alcotest.(check (option int)) "default fallback 200_000 budget"
+    (Some 100_000) (extract_token_budget reducer)
+
+(* --- 31. with_context_thresholds: zero/negative context_window_tokens ignored --- *)
+
+let test_with_context_thresholds_invalid_ignored () =
+  with_net @@ fun net ->
+  let agent =
+    Builder.create ~net ~model:"claude-sonnet-4-6"
+    |> Builder.with_max_input_tokens 50000
+    |> Builder.with_context_thresholds ~compact_ratio:0.5
+         ~context_window_tokens:0
+    |> Builder.build_safe |> Result.get_ok
+  in
+  let reducer = Option.get (Agent.options agent).context_reducer in
+  (* context_window_tokens:0 is ignored; falls back to max_input_tokens 50000; budget = 25000 *)
+  Alcotest.(check (option int)) "zero context_window_tokens ignored"
+    (Some 25000) (extract_token_budget reducer)
+
 (* --- 26. build produces valid agent --- *)
 
 let test_build_produces_valid_agent () =
@@ -626,6 +727,12 @@ let () =
       Alcotest.test_case "thinking_budget" `Quick test_with_thinking_budget;
       Alcotest.test_case "max_input_tokens" `Quick test_with_max_input_tokens;
       Alcotest.test_case "max_total_tokens" `Quick test_with_max_total_tokens;
+      Alcotest.test_case "context_thresholds explicit" `Quick test_with_context_thresholds_explicit;
+      Alcotest.test_case "context_thresholds fallback max_input" `Quick test_with_context_thresholds_fallback_max_input;
+      Alcotest.test_case "context_thresholds input beats total" `Quick test_with_context_thresholds_input_beats_total;
+      Alcotest.test_case "context_thresholds fallback max_total" `Quick test_with_context_thresholds_fallback_max_total;
+      Alcotest.test_case "context_thresholds default fallback" `Quick test_with_context_thresholds_default_fallback;
+      Alcotest.test_case "context_thresholds invalid ignored" `Quick test_with_context_thresholds_invalid_ignored;
     ];
     "build", [
       Alcotest.test_case "valid agent" `Quick test_build_produces_valid_agent;

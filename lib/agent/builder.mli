@@ -80,11 +80,19 @@ val with_context_reducer : Context_reducer.t -> t -> t
 
 (** Set context reduction thresholds.
     [compact_ratio] determines when to compact (default 0.8).
+    [?context_window_tokens] overrides the reducer's context-window budget basis.
+    This is used to estimate available input/context capacity for reduction
+    decisions, and is distinct from [with_max_tokens], which controls the
+    agent's per-response output token limit.
+    When omitted, derives from [max_input_tokens], then [max_total_tokens],
+    then falls back to 200_000.  Values <= 0 are ignored.
     [prepare_ratio] and [handoff_ratio] are stored for future use.
 
-    @since 0.79.0 *)
+    @since 0.79.0
+    @since 0.110.0 [?context_window_tokens] parameter *)
 val with_context_thresholds :
   compact_ratio:float ->
+  ?context_window_tokens:int ->
   ?prepare_ratio:float ->
   ?handoff_ratio:float ->
   t -> t
