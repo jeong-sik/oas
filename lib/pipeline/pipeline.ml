@@ -846,5 +846,5 @@ let%test "tag_error Ok list" =
   tag_error "output" (Ok [1; 2; 3]) = Ok [1; 2; 3]
 
 (* --- Proactive compaction: phase selection is tested via
-   Budget_strategy inline tests; integration tested via keeper
+   Budget_strategy inline tests; integration tested via consumer agent
    turns that set context_compact_ratio in agent config. --- *)

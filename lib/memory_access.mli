@@ -69,12 +69,22 @@ val policies_for : t -> string -> policy list
 
 (** {1 Access-controlled operations} *)
 
-(** Access error returned when an operation is denied. *)
+(** Access error returned when an operation is denied due to insufficient
+    permissions, or when the underlying storage backend fails. *)
 type access_error =
   | Denied of { agent_name: string; tier: Memory.tier; key: string; needed: permission }
+  | Backend_failed of { agent_name: string; tier: Memory.tier; key: string; op: string; detail: string }
 
 (** Store a value, checking Write permission.
-    Returns [Error (Denied _)] if the agent lacks write access. *)
+    Returns [Error (Denied _)] if the agent lacks write access,
+    or [Error (Backend_failed _)] if the underlying store operation fails.
+
+    Note: [Backend_failed] reports a failure in the underlying store/persistence
+    step; it does not guarantee that the operation was fully rolled back. In
+    particular, for tiers such as [Long_term], the value may already be
+    visible in the local in-memory context even though persistence failed.
+    Similarly, for [forget], the key may already be removed from the local
+    in-memory context even though the backend removal failed. *)
 val store :
   t -> agent:string -> tier:Memory.tier -> string -> Yojson.Safe.t ->
   (unit, access_error) result

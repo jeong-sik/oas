@@ -159,7 +159,7 @@ let parse_context_overflow_limit (body : string) : int option =
     find_pos 0
 
 (** Alias for {!parse_context_overflow_limit}.  Preferred name for
-    downstream consumers (MASC, etc.) to emphasize SSOT ownership. *)
+    downstream consumers to emphasize SSOT ownership. *)
 let extract_context_limit = parse_context_overflow_limit
 
 (** Classify HTTP status + body into structured api_error *)
