@@ -43,6 +43,36 @@ let usage_of_openai_json json =
         cost_usd = None
       }
 
+(** Extract provider-reported inference telemetry from the raw JSON.
+    llama-server populates [timings] and [system_fingerprint];
+    cloud providers return [None] for those fields. *)
+let telemetry_of_openai_json json =
+  let open Yojson.Safe.Util in
+  let system_fingerprint =
+    json |> member "system_fingerprint" |> to_string_option in
+  let timings =
+    let t = json |> member "timings" in
+    if t = `Null then None
+    else Some {
+      Types.prompt_n = t |> member "prompt_n" |> to_int_option;
+      prompt_ms = t |> member "prompt_ms" |> to_float_option;
+      prompt_per_second = t |> member "prompt_per_second" |> to_float_option;
+      predicted_n = t |> member "predicted_n" |> to_int_option;
+      predicted_ms = t |> member "predicted_ms" |> to_float_option;
+      predicted_per_second = t |> member "predicted_per_second" |> to_float_option;
+      cache_n = t |> member "cache_n" |> to_int_option;
+    }
+  in
+  let reasoning_tokens =
+    let usage = json |> member "usage" in
+    if usage = `Null then None
+    else
+      let details = usage |> member "completion_tokens_details" in
+      if details = `Null then None
+      else details |> member "reasoning_tokens" |> to_int_option
+  in
+  Some { Types.system_fingerprint; timings; reasoning_tokens; request_latency_ms = 0 }
+
 (** Parse an OpenAI-compatible JSON response string into an [api_response].
     Returns [Error msg] when the response body contains an API error. *)
 let parse_openai_response_result json_str =
@@ -125,7 +155,7 @@ let parse_openai_response_result json_str =
         stop_reason;
         content = thinking_blocks @ (if Api_common.string_is_blank text_content then [] else [Text text_content]) @ tool_blocks;
         usage = usage_of_openai_json json;
-      telemetry = None;
+        telemetry = telemetry_of_openai_json json;
       }
   | err ->
       let msg =
