@@ -135,6 +135,39 @@ let parse_slots json =
 
 (* ── Ollama fallback ────────────────────────────────────── *)
 
+(** Search for context_length in an Ollama model_info JSON object.
+    Ollama uses model-specific key prefixes (e.g. "qwen3_5.context_length")
+    rather than the generic "general.context_length".  Apply deterministic
+    precedence when multiple keys are present: prefer "context_length",
+    then "general.context_length", then take the maximum value across any
+    remaining keys ending with ".context_length".  Returns 0 if none. *)
+let find_context_length (model_info : Yojson.Safe.t) : int =
+  let int_value = function
+    | `Int n -> Some n
+    | `Float f -> Some (int_of_float f)
+    | _ -> None
+  in
+  match model_info with
+  | `Assoc pairs ->
+    let preferred key =
+      List.find_map (fun (k, value) ->
+        if k = key then int_value value else None
+      ) pairs
+    in
+    (match preferred "context_length" with
+     | Some n -> n
+     | None ->
+       match preferred "general.context_length" with
+       | Some n -> n
+       | None ->
+         pairs
+         |> List.filter_map (fun (key, value) ->
+              if String.ends_with ~suffix:".context_length" key
+              then int_value value
+              else None)
+         |> List.fold_left max 0)
+  | _ -> 0
+
 (** Try to detect Ollama via /api/tags and retrieve actual context size
     via /api/show. Returns synthetic server_props on success. *)
 let probe_ollama_context ~sw ~net base_url =
@@ -162,11 +195,7 @@ let probe_ollama_context ~sw ~net base_url =
         (try
            let json = Yojson.Safe.from_string resp_body in
            let model_info = member "model_info" json in
-           let ctx = match member "general.context_length" model_info with
-             | `Int n -> n
-             | `Float f -> int_of_float f
-             | _ -> 0
-           in
+           let ctx = find_context_length model_info in
            if ctx > 0 then
              Some { total_slots = 1; ctx_size = ctx; model = model_name }
            else None
@@ -768,6 +797,55 @@ let%test "max_context_of_status prefers props over capabilities" =
 
 let%test "default_scan_ports includes Ollama 11434" =
   List.mem 11434 default_scan_ports
+
+(* --- find_context_length --- *)
+
+let%test "find_context_length with general.context_length" =
+  let mi = `Assoc [("general.context_length", `Int 131072)] in
+  find_context_length mi = 131072
+
+let%test "find_context_length with model-specific prefix" =
+  let mi = `Assoc [
+    ("qwen3_5.embedding_length", `Int 3584);
+    ("qwen3_5.context_length", `Int 262144);
+  ] in
+  find_context_length mi = 262144
+
+let%test "find_context_length prefers context_length over general" =
+  let mi = `Assoc [
+    ("general.context_length", `Int 8192);
+    ("context_length", `Int 4096);
+  ] in
+  find_context_length mi = 4096
+
+let%test "find_context_length prefers general.context_length over model-specific" =
+  let mi = `Assoc [
+    ("qwen3_5.context_length", `Int 262144);
+    ("general.context_length", `Int 8192);
+  ] in
+  find_context_length mi = 8192
+
+let%test "find_context_length takes max of model-specific keys" =
+  let mi = `Assoc [
+    ("llama.context_length", `Int 8192);
+    ("qwen3_5.context_length", `Int 262144);
+  ] in
+  find_context_length mi = 262144
+
+let%test "find_context_length with float value" =
+  let mi = `Assoc [("llama.context_length", `Float 131072.0)] in
+  find_context_length mi = 131072
+
+let%test "find_context_length returns 0 when no matching key" =
+  let mi = `Assoc [("qwen3_5.embedding_length", `Int 3584)] in
+  find_context_length mi = 0
+
+let%test "find_context_length returns 0 for non-assoc" =
+  find_context_length `Null = 0
+
+let%test "find_context_length bare key without prefix" =
+  let mi = `Assoc [("context_length", `Int 4096)] in
+  find_context_length mi = 4096
 
 (* --- probe_ollama_context parser (unit, no network) --- *)
 
