@@ -80,9 +80,11 @@ type access_error =
     or [Error (Backend_failed _)] if the underlying store operation fails.
 
     Note: [Backend_failed] reports a failure in the underlying store/persistence
-    step; it does not guarantee that the store was fully rolled back. In
+    step; it does not guarantee that the operation was fully rolled back. In
     particular, for tiers such as [Long_term], the value may already be
-    visible in the local in-memory context even though persistence failed. *)
+    visible in the local in-memory context even though persistence failed.
+    Similarly, for [forget], the key may already be removed from the local
+    in-memory context even though the backend removal failed. *)
 val store :
   t -> agent:string -> tier:Memory.tier -> string -> Yojson.Safe.t ->
   (unit, access_error) result
