@@ -4,6 +4,8 @@
     Atomic writes via .tmp + rename (same pattern as checkpoint_store.ml).
     In-memory Hashtbl cache for fast lookups; file I/O for durability. *)
 
+let _log = Log.create ~module_name:"a2a_task_store" ()
+
 type t = {
   base_dir: Eio.Fs.dir_ty Eio.Path.t;
   cache: (A2a_task.task_id, A2a_task.task) Hashtbl.t;
@@ -83,7 +85,6 @@ let reload store =
              && String.sub name (len - 5) 5 = ".json"
              && not (len > 9 && String.sub name (len - 9) 9 = ".json.tmp"))
     in
-    let log = Log.create ~module_name:"a2a_task_store" () in
     List.iter (fun filename ->
       let path = Eio.Path.(store.base_dir / filename) in
       try
@@ -92,10 +93,10 @@ let reload store =
         match A2a_task.task_of_yojson json with
         | Ok task -> Hashtbl.replace store.cache task.id task
         | Error e ->
-          Log.warn log "skipping corrupted task file during reload"
+          Log.warn _log "skipping corrupted task file during reload"
             [Log.S ("file", filename); Log.S ("error", e)]
       with (Eio.Io _ | Yojson.Json_error _) as exn ->
-        Log.warn log "skipping unreadable task file during reload"
+        Log.warn _log "skipping unreadable task file during reload"
           [Log.S ("file", filename); Log.S ("error", Printexc.to_string exn)]
     ) json_files;
     Ok ()
@@ -113,7 +114,6 @@ let gc ?(max_age_s = 86400.0) store =
     then id :: acc
     else acc
   ) store.cache [] in
-  let _log = Log.create ~module_name:"a2a_task_store" () in
   let errors = List.filter_map (fun id ->
     match delete_task store id with
     | Ok () -> None

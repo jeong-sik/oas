@@ -3,6 +3,7 @@ open Runtime_server_types
 open Runtime_server_resolve
 
 let ( let* ) = Result.bind
+let _log = Log.create ~module_name:"runtime_server_worker" ()
 
 let extract_text (resp : Types.api_response) =
   resp.content
@@ -136,7 +137,7 @@ let run_participant store state session_id
     | Error e ->
       if not !delta_warn_logged then begin
         delta_warn_logged := true;
-        let _log = Log.create ~module_name:"runtime_server_worker" () in
+
         Log.warn _log "output delta emission failed"
           [Log.S ("session_id", session_id);
            Log.S ("participant", detail.participant_name);
@@ -177,7 +178,7 @@ let run_participant store state session_id
                  (Raw_trace.finish_run active ~final_text:(Some full)
                     ~stop_reason:(Some "EndTurn") ~error:None)
            | Error e ->
-               let _log = Log.create ~module_name:"runtime_server_worker" () in
+       
                Log.warn _log "trace start_run failed for mock provider"
                  [Log.S ("session_id", session_id);
                   Log.S ("agent", detail.participant_name);

@@ -30,8 +30,9 @@ type export_result =
 
 (* ── TLS helper (self-contained, no llm_provider dep) ───────── *)
 
+let _log = Log.create ~module_name:"otel_export" ()
+
 let make_https () =
-  let _log = Log.create ~module_name:"otel_export" () in
   match Ca_certs.authenticator () with
   | Error (`Msg msg) ->
     Log.warn _log "TLS CA certificate loading failed"

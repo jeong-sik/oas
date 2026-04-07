@@ -7,6 +7,7 @@
 
 open Types
 
+let _log = Log.create ~module_name:"checkpoint" ()
 let checkpoint_version = 4
 
 type t = {
@@ -873,7 +874,6 @@ let restore_with_delta_fallback ?metrics ~base ~delta ~full_checkpoint () =
     match apply_delta base delta with
     | Ok checkpoint -> Ok { checkpoint; mode = Delta_applied }
     | Error e ->
-      let _log = Log.create ~module_name:"checkpoint" () in
       Log.warn _log "delta application failed, falling back to full restore"
         [Log.S ("error", Error.to_string e);
          Log.S ("base_hash", delta.base_checkpoint_hash)];
