@@ -254,7 +254,7 @@ let complete_named ~sw ~net ?clock ?config_path
     ?(tools = [])
     ?(temperature = Constants.Inference.default_temperature)
     ?(max_tokens = Constants.Inference.default_max_tokens)
-    ?system_prompt ?(accept = fun _ -> true) ?(strict_name = false)
+    ?system_prompt ?tool_choice ?(accept = fun _ -> true) ?(strict_name = false)
     ?timeout_sec ?cache ?metrics ?throttle ?priority () =
   let model_strings, source =
     resolve_model_strings_traced ?config_path ~name ~defaults ()
@@ -281,7 +281,13 @@ let complete_named ~sw ~net ?clock ?config_path
     else []
   in
   let providers =
-    parse_model_strings ~temperature ~max_tokens ?system_prompt model_strings
+    let parsed = parse_model_strings ~temperature ~max_tokens ?system_prompt model_strings in
+    (* Propagate tool_choice to each provider config so it reaches the
+       HTTP body (e.g. "tool_choice": "required" for OpenAI-compatible).
+       Without this, tool_choice from Agent hooks is lost in cascade. *)
+    match tool_choice with
+    | Some tc -> List.map (fun (p : Provider_config.t) -> { p with tool_choice = Some tc }) parsed
+    | None -> parsed
   in
   if providers = [] then
     Error (Http_client.NetworkError {
@@ -324,7 +330,7 @@ let complete_named_stream ~sw ~net ?clock ?config_path
     ?(tools = [])
     ?(temperature = Constants.Inference.default_temperature)
     ?(max_tokens = Constants.Inference.default_max_tokens)
-    ?system_prompt ?(strict_name = false)
+    ?system_prompt ?tool_choice ?(strict_name = false)
     ?timeout_sec ?metrics ?priority ~on_event () =
   let model_strings, source =
     resolve_model_strings_traced ?config_path ~name ~defaults ()
@@ -339,7 +345,10 @@ let complete_named_stream ~sw ~net ?clock ?config_path
               | Hardcoded_defaults -> "hardcoded_defaults") })
   else
   let providers =
-    parse_model_strings ~temperature ~max_tokens ?system_prompt model_strings
+    let parsed = parse_model_strings ~temperature ~max_tokens ?system_prompt model_strings in
+    match tool_choice with
+    | Some tc -> List.map (fun (p : Provider_config.t) -> { p with tool_choice = Some tc }) parsed
+    | None -> parsed
   in
   if providers = [] then
     Error (Http_client.NetworkError {

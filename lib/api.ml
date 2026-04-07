@@ -206,7 +206,8 @@ let create_message_named ~sw ~net ?clock ~(named_cascade : named_cascade)
     Llm_provider.Cascade_config.complete_named ~sw ~net ?clock
       ?config_path:named_cascade.config_path ~name:named_cascade.name
       ~defaults:named_cascade.defaults ~messages ?tools ~temperature
-      ~max_tokens ?system_prompt ~accept ?timeout_sec ~metrics ?priority ()
+      ~max_tokens ?system_prompt ?tool_choice:config.config.tool_choice
+      ~accept ?timeout_sec ~metrics ?priority ()
   with
   | Ok response -> Ok response
   | Error err -> Error (map_named_cascade_error err)
@@ -228,7 +229,8 @@ let create_message_named_stream ~sw ~net ?clock
     Llm_provider.Cascade_config.complete_named_stream ~sw ~net ?clock
       ?config_path:named_cascade.config_path ~name:named_cascade.name
       ~defaults:named_cascade.defaults ~messages ?tools ~temperature
-      ~max_tokens ?system_prompt ?timeout_sec ~metrics ~on_event ?priority ()
+      ~max_tokens ?system_prompt ?tool_choice:config.config.tool_choice
+      ?timeout_sec ~metrics ~on_event ?priority ()
   with
   | Ok response -> Ok response
   | Error err -> Error (map_named_cascade_error err)
