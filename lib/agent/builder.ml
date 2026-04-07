@@ -135,8 +135,8 @@ let with_approval approval b = { b with approval = Some approval }
 let with_tool_retry_policy tool_retry_policy b =
   { b with tool_retry_policy = Some tool_retry_policy }
 let with_context_reducer reducer b = { b with context_reducer = Some reducer }
-let with_context_thresholds ~compact_ratio ?max_tokens ?prepare_ratio ?handoff_ratio b =
-  let effective_max = match max_tokens with
+let with_context_thresholds ~compact_ratio ?context_window_tokens ?prepare_ratio ?handoff_ratio b =
+  let effective_max = match context_window_tokens with
     | Some n when n > 0 -> n
     | _ ->
       match b.max_input_tokens with
