@@ -245,12 +245,20 @@ let test_context_overflow_bad_request_cascades () =
 (* ── Auto model_id resolution ─────────────────────────── *)
 
 let test_auto_llama_passthrough () =
-  (* llama:auto keeps "auto" when no discovery is available (test environment);
-     actual resolution to a concrete model_id happens in make_registry_config
-     before endpoint selection when Discovery has a snapshot. *)
+  (* llama:auto resolves via Discovery or OLLAMA_DEFAULT_MODEL env var.
+     Only falls back to "auto" when neither is available.
+     Ollama rejects literal "auto" — resolution is required. *)
   match Cascade_config.parse_model_string "llama:auto" with
   | Some cfg ->
-    check string "model_id stays auto" "auto" cfg.model_id
+    (* If Discovery found models or OLLAMA_DEFAULT_MODEL is set,
+       model_id should NOT be "auto".  In bare CI without either,
+       "auto" is the last-resort default. *)
+    let has_discovery = Discovery.first_discovered_model_id () <> None in
+    let has_env = Sys.getenv_opt "OLLAMA_DEFAULT_MODEL" <> None in
+    if has_discovery || has_env then
+      check bool "model_id resolved (not auto)" true (cfg.model_id <> "auto")
+    else
+      check string "model_id fallback auto" "auto" cfg.model_id
   | None -> fail "expected Some for llama:auto"
 
 let test_auto_glm_resolved () =

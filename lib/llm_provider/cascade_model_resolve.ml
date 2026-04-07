@@ -51,9 +51,11 @@ let resolve_auto_model_id provider_name model_id =
   match provider_name with
   | "llama" | "ollama" ->
     (* Local providers: "auto" resolved earlier via Discovery in
-       cascade_config.ml.  If still "auto" here, try discovery fallback. *)
+       cascade_config.ml.  If still "auto" here, try discovery then env var. *)
     if model_id = "auto" then
-      Discovery.first_discovered_model_id () |> Option.value ~default:model_id
+      match Discovery.first_discovered_model_id () with
+      | Some id -> id
+      | None -> env_or model_id "OLLAMA_DEFAULT_MODEL"
     else model_id
   | "glm" -> resolve_glm_model_id model_id
   | "gemini" ->
