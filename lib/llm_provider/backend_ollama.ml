@@ -59,7 +59,7 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
    | Some p -> options := ("top_p", `Float p) :: !options
    | None -> ());
   (match config.top_k with
-   | Some k -> options := ("num_ctx", `Int k) :: !options
+   | Some k -> options := ("top_k", `Int k) :: !options
    | None -> ());
   (match config.min_p with
    | Some p -> options := ("min_p", `Float p) :: !options
@@ -75,13 +75,8 @@ let parse_ollama_response json_str =
   let json = Yojson.Safe.from_string json_str in
 
   match json |> member "error" with
-  | `Assoc _ ->
-      let msg =
-        match json |> member "error" with
-        | `String s -> s
-        | err -> Yojson.Safe.to_string err
-      in
-      Error msg
+  | `String s -> Error s
+  | `Assoc _ as err -> Error (Yojson.Safe.to_string err)
   | _ ->
 
   let message = json |> member "message" in
