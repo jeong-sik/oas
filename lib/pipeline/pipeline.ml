@@ -632,7 +632,7 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
       let compacted = proactive_compact ?raw_trace_run agent ~watermark () in
       if compacted then begin
         update_state agent (fun s -> { s with config = original_config });
-        let (prep', _) = stage_parse ?raw_trace_run agent in
+        let (prep', _, _) = stage_parse ?raw_trace_run agent in
         prep'
       end else prep
     | _ -> prep
