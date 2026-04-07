@@ -369,7 +369,6 @@ let complete_stream_http ~sw:_ ~net ~(config : Provider_config.t)
   | Error _ as e -> e
   | Ok (Ok resp) ->
       let latency_ms = int_of_float ((Unix.gettimeofday () -. t0) *. 1000.0) in
-      let resp = Pricing.annotate_response_cost resp in
       Ok (patch_telemetry_latency resp latency_ms)
   | Ok (Error msg) ->
       Error (Http_client.NetworkError {
