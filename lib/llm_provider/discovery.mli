@@ -113,6 +113,12 @@ val endpoint_for_model : string -> string option
     Uses the model-to-endpoint index from the last {!refresh_and_sync}.
     Returns [None] if the model was not found on any probed endpoint. *)
 
+val first_discovered_model_id : unit -> string option
+(** Return the first model_id from the discovered model_endpoints index.
+    Useful for resolving "auto" model IDs to concrete names discovered
+    from the server's /v1/models endpoint.  Returns [None] if no models
+    have been discovered yet. *)
+
 val context_for_model : string -> (string * int) option
 (** Look up [model_id] and return [(url, per_slot_ctx)].
     Combines the model-to-endpoint index with per-endpoint context data.

@@ -289,6 +289,15 @@ let context_for_model (model_id : string) : (string * int) option =
     | Some ctx -> Some (url, ctx)
     | None -> None
 
+(** Return the first model_id from the discovered model_endpoints index.
+    Useful for resolving "auto" model IDs to concrete names discovered
+    from the server's /v1/models endpoint. *)
+let first_discovered_model_id () : string option =
+  let snap = Atomic.get _discovered_ctx in
+  match snap.model_endpoints with
+  | (model_id, _) :: _ -> Some model_id
+  | [] -> None
+
 let discover ~sw ~net ~endpoints =
   Eio.Fiber.List.map (fun url -> probe_endpoint ~sw ~net url) endpoints
 
