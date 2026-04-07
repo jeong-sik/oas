@@ -395,6 +395,56 @@ let test_parse_openai_response_no_reasoning () =
      | [Types.Text "Hello world"] -> ()
      | _ -> Alcotest.fail "expected [Text]")
 
+let test_parse_openai_response_ollama_reasoning () =
+  let json_str = {|{
+    "id": "chatcmpl_ollama",
+    "model": "qwen3.5:35b-a3b-nvfp4",
+    "choices": [{
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "The answer is 42.",
+        "reasoning": "Ollama uses reasoning field instead of reasoning_content."
+      }
+    }],
+    "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30}
+  }|} in
+  match Api.parse_openai_response_result json_str with
+  | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
+  | Ok resp ->
+    check int "2 content blocks (thinking + text)" 2 (List.length resp.content);
+    (match resp.content with
+     | [Types.Thinking { content = t; _ }; Types.Text text] ->
+       check string "reasoning text"
+         "Ollama uses reasoning field instead of reasoning_content." t;
+       check string "content text" "The answer is 42." text
+     | _ -> Alcotest.fail "expected [Thinking; Text]")
+
+let test_parse_openai_response_reasoning_content_preferred () =
+  let json_str = {|{
+    "id": "chatcmpl_both",
+    "model": "qwen3.5-35b",
+    "choices": [{
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "Answer.",
+        "reasoning_content": "preferred field",
+        "reasoning": "fallback field"
+      }
+    }],
+    "usage": {"prompt_tokens": 5, "completion_tokens": 5, "total_tokens": 10}
+  }|} in
+  match Api.parse_openai_response_result json_str with
+  | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
+  | Ok resp ->
+    (match resp.content with
+     | [Types.Thinking { content = t; _ }; _] ->
+       check string "reasoning_content wins" "preferred field" t
+     | _ -> Alcotest.fail "expected [Thinking; Text]")
+
 (* ------------------------------------------------------------------ *)
 (* message_to_json                                                      *)
 (* ------------------------------------------------------------------ *)
@@ -701,6 +751,8 @@ let () =
       test_case "reasoning_content with tools" `Quick test_parse_openai_response_reasoning_with_tools;
       test_case "blank reasoning_content" `Quick test_parse_openai_response_blank_reasoning;
       test_case "no reasoning_content" `Quick test_parse_openai_response_no_reasoning;
+      test_case "ollama reasoning field" `Quick test_parse_openai_response_ollama_reasoning;
+      test_case "reasoning_content preferred over reasoning" `Quick test_parse_openai_response_reasoning_content_preferred;
     ];
     "error_handling", [
       test_case "openai api error returns Error" `Quick test_openai_api_error_returns_error;
