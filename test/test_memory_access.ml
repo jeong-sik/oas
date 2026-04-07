@@ -8,7 +8,7 @@ let () = Alcotest.run "Memory_Access" [
       match Memory_access.store acl ~agent:"alice" ~tier:Working "key" (`String "v") with
       | Ok () -> Alcotest.fail "should be denied"
       | Error (Denied _) -> ()
-      | Error (Store_failed _) -> Alcotest.fail "unexpected store failure"
+      | Error (Backend_failed _) -> Alcotest.fail "unexpected store failure"
     );
 
     Alcotest.test_case "recall denied without grant" `Quick (fun () ->
@@ -17,7 +17,7 @@ let () = Alcotest.run "Memory_Access" [
       match Memory_access.recall acl ~agent:"alice" ~tier:Working "key" with
       | Ok _ -> Alcotest.fail "should be denied"
       | Error (Denied _) -> ()
-      | Error (Store_failed _) -> Alcotest.fail "unexpected store failure"
+      | Error (Backend_failed _) -> Alcotest.fail "unexpected store failure"
     );
   ];
 
@@ -48,7 +48,7 @@ let () = Alcotest.run "Memory_Access" [
       match Memory_access.store acl ~agent:"alice" ~tier:Working "key" (`String "v") with
       | Ok () -> Alcotest.fail "should be denied after revoke"
       | Error (Denied _) -> ()
-      | Error (Store_failed _) -> Alcotest.fail "unexpected store failure"
+      | Error (Backend_failed _) -> Alcotest.fail "unexpected store failure"
     );
 
     Alcotest.test_case "revoke_all clears everything" `Quick (fun () ->
@@ -84,7 +84,7 @@ let () = Alcotest.run "Memory_Access" [
       match Memory_access.store acl ~agent:"bob" ~tier:Working "key" (`String "v2") with
       | Ok () -> Alcotest.fail "read-only should not write"
       | Error (Denied _) -> ()
-      | Error (Store_failed _) -> Alcotest.fail "unexpected store failure"
+      | Error (Backend_failed _) -> Alcotest.fail "unexpected store failure"
     );
 
     Alcotest.test_case "write-only cannot read" `Quick (fun () ->
@@ -100,7 +100,7 @@ let () = Alcotest.run "Memory_Access" [
       match Memory_access.recall acl ~agent:"charlie" ~tier:Working "key" with
       | Ok _ -> Alcotest.fail "write-only should not read"
       | Error (Denied _) -> ()
-      | Error (Store_failed _) -> Alcotest.fail "unexpected store failure"
+      | Error (Backend_failed _) -> Alcotest.fail "unexpected store failure"
     );
   ];
 
@@ -118,7 +118,7 @@ let () = Alcotest.run "Memory_Access" [
       match Memory_access.store acl ~agent:"alice" ~tier:Working "private_key" (`String "v") with
       | Ok () -> Alcotest.fail "non-matching prefix should be denied"
       | Error (Denied _) -> ()
-      | Error (Store_failed _) -> Alcotest.fail "unexpected store failure"
+      | Error (Backend_failed _) -> Alcotest.fail "unexpected store failure"
     );
   ];
 
@@ -141,7 +141,7 @@ let () = Alcotest.run "Memory_Access" [
       match Memory_access.recall_episodes acl ~agent:"bob" ~now:200.0 () with
       | Ok _ -> Alcotest.fail "bob should be denied"
       | Error (Denied _) -> ()
-      | Error (Store_failed _) -> Alcotest.fail "unexpected store failure"
+      | Error (Backend_failed _) -> Alcotest.fail "unexpected store failure"
     );
 
     Alcotest.test_case "procedural access control" `Quick (fun () ->
@@ -170,7 +170,7 @@ let () = Alcotest.run "Memory_Access" [
       match Memory_access.best_procedure acl ~agent:"bob" ~pattern:"deploy" with
       | Ok _ -> Alcotest.fail "bob should be denied"
       | Error (Denied _) -> ()
-      | Error (Store_failed _) -> Alcotest.fail "unexpected store failure"
+      | Error (Backend_failed _) -> Alcotest.fail "unexpected store failure"
     );
 
     Alcotest.test_case "find_procedure denied without read access" `Quick (fun () ->
@@ -179,7 +179,7 @@ let () = Alcotest.run "Memory_Access" [
       match Memory_access.find_procedure acl ~agent:"bob" ~pattern:"deploy" () with
       | Ok _ -> Alcotest.fail "bob should be denied"
       | Error (Denied _) -> ()
-      | Error (Store_failed _) -> Alcotest.fail "unexpected store failure"
+      | Error (Backend_failed _) -> Alcotest.fail "unexpected store failure"
     );
   ];
 
@@ -207,6 +207,63 @@ let () = Alcotest.run "Memory_Access" [
       Alcotest.(check bool) "contains agent" true (String.length s > 0);
       Alcotest.(check bool) "contains bob" true
         (Util.string_contains ~needle:"bob" s)
+    );
+
+    Alcotest.test_case "backend_failed string includes op" `Quick (fun () ->
+      let err = Memory_access.Backend_failed {
+        agent_name = "alice"; tier = Long_term; key = "k"; op = "store"; detail = "disk full";
+      } in
+      let s = Memory_access.access_error_to_string err in
+      Alcotest.(check bool) "contains op" true
+        (Util.string_contains ~needle:"store" s);
+      Alcotest.(check bool) "contains detail" true
+        (Util.string_contains ~needle:"disk full" s)
+    );
+  ];
+
+  "backend_failure", [
+    Alcotest.test_case "store propagates backend error" `Quick (fun () ->
+      let failing_backend : Memory.long_term_backend = {
+        persist = (fun ~key:_ _ -> Error "disk full");
+        retrieve = (fun ~key:_ -> None);
+        remove = (fun ~key:_ -> Error "disk full");
+        batch_persist = (fun _ -> Error "disk full");
+        query = (fun ~prefix:_ ~limit:_ -> []);
+      } in
+      let mem = Memory.create ~long_term:failing_backend () in
+      let acl = Memory_access.create mem in
+      Memory_access.grant acl {
+        agent_name = "alice"; tier = Long_term;
+        key_pattern = "*"; permission = ReadWrite;
+      };
+      match Memory_access.store acl ~agent:"alice" ~tier:Long_term "k" (`String "v") with
+      | Error (Backend_failed { op; detail; _ }) ->
+        Alcotest.(check string) "op is store" "store" op;
+        Alcotest.(check bool) "detail non-empty" true (String.length detail > 0)
+      | Ok () -> Alcotest.fail "expected backend failure"
+      | Error (Denied _) -> Alcotest.fail "unexpected denied"
+    );
+
+    Alcotest.test_case "forget propagates backend error" `Quick (fun () ->
+      let failing_backend : Memory.long_term_backend = {
+        persist = (fun ~key:_ _ -> Ok ());
+        retrieve = (fun ~key:_ -> None);
+        remove = (fun ~key:_ -> Error "permission denied");
+        batch_persist = (fun _ -> Ok ());
+        query = (fun ~prefix:_ ~limit:_ -> []);
+      } in
+      let mem = Memory.create ~long_term:failing_backend () in
+      let acl = Memory_access.create mem in
+      Memory_access.grant acl {
+        agent_name = "alice"; tier = Long_term;
+        key_pattern = "*"; permission = ReadWrite;
+      };
+      match Memory_access.forget acl ~agent:"alice" ~tier:Long_term "k" with
+      | Error (Backend_failed { op; detail; _ }) ->
+        Alcotest.(check string) "op is forget" "forget" op;
+        Alcotest.(check bool) "detail non-empty" true (String.length detail > 0)
+      | Ok () -> Alcotest.fail "expected backend failure"
+      | Error (Denied _) -> Alcotest.fail "unexpected denied"
     );
   ];
 ]

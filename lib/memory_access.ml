@@ -16,7 +16,7 @@ type policy = {
 
 type access_error =
   | Denied of { agent_name: string; tier: Memory.tier; key: string; needed: permission }
-  | Store_failed of { agent_name: string; tier: Memory.tier; key: string; detail: string }
+  | Backend_failed of { agent_name: string; tier: Memory.tier; key: string; op: string; detail: string }
 
 type t = {
   mem: Memory.t;
@@ -82,7 +82,7 @@ let store t ~agent ~tier key value =
   | Ok () ->
     (match Memory.store t.mem ~tier key value with
      | Ok () -> Ok ()
-     | Error msg -> Error (Store_failed { agent_name = agent; tier; key; detail = msg }))
+     | Error msg -> Error (Backend_failed { agent_name = agent; tier; key; op = "store"; detail = msg }))
   | Error _ as err -> err
 
 let recall t ~agent ~tier key =
@@ -100,7 +100,7 @@ let forget t ~agent ~tier key =
   | Ok () ->
     (match Memory.forget t.mem ~tier key with
      | Ok () -> Ok ()
-     | Error msg -> Error (Store_failed { agent_name = agent; tier; key; detail = msg }))
+     | Error msg -> Error (Backend_failed { agent_name = agent; tier; key; op = "forget"; detail = msg }))
   | Error _ as err -> err
 
 let store_episode t ~agent (ep : Memory.episode) =
@@ -140,6 +140,6 @@ let access_error_to_string = function
     in
     Printf.sprintf "Access denied: agent '%s' needs %s on %s:%s"
       agent_name perm_str (tier_to_string tier) key
-  | Store_failed { agent_name; tier; key; detail } ->
-    Printf.sprintf "Store failed: agent '%s' on %s:%s — %s"
-      agent_name (tier_to_string tier) key detail
+  | Backend_failed { agent_name; tier; key; op; detail } ->
+    Printf.sprintf "Memory operation failed: agent '%s' on %s:%s (%s) — %s"
+      agent_name (tier_to_string tier) key op detail
