@@ -72,9 +72,11 @@ val policies_for : t -> string -> policy list
 (** Access error returned when an operation is denied. *)
 type access_error =
   | Denied of { agent_name: string; tier: Memory.tier; key: string; needed: permission }
+  | Store_failed of { agent_name: string; tier: Memory.tier; key: string; detail: string }
 
 (** Store a value, checking Write permission.
-    Returns [Error (Denied _)] if the agent lacks write access. *)
+    Returns [Error (Denied _)] if the agent lacks write access,
+    or [Error (Store_failed _)] if the underlying store operation fails. *)
 val store :
   t -> agent:string -> tier:Memory.tier -> string -> Yojson.Safe.t ->
   (unit, access_error) result

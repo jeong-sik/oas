@@ -16,6 +16,7 @@ type policy = {
 
 type access_error =
   | Denied of { agent_name: string; tier: Memory.tier; key: string; needed: permission }
+  | Store_failed of { agent_name: string; tier: Memory.tier; key: string; detail: string }
 
 type t = {
   mem: Memory.t;
@@ -78,7 +79,10 @@ let require t ~agent ~tier ~key needed =
 
 let store t ~agent ~tier key value =
   match require t ~agent ~tier ~key Write with
-  | Ok () -> ignore (Memory.store t.mem ~tier key value : (unit, string) result); Ok ()
+  | Ok () ->
+    (match Memory.store t.mem ~tier key value with
+     | Ok () -> Ok ()
+     | Error msg -> Error (Store_failed { agent_name = agent; tier; key; detail = msg }))
   | Error _ as err -> err
 
 let recall t ~agent ~tier key =
@@ -93,7 +97,10 @@ let recall_exact t ~agent ~tier key =
 
 let forget t ~agent ~tier key =
   match require t ~agent ~tier ~key Write with
-  | Ok () -> ignore (Memory.forget t.mem ~tier key : (unit, string) result); Ok ()
+  | Ok () ->
+    (match Memory.forget t.mem ~tier key with
+     | Ok () -> Ok ()
+     | Error msg -> Error (Store_failed { agent_name = agent; tier; key; detail = msg }))
   | Error _ as err -> err
 
 let store_episode t ~agent (ep : Memory.episode) =
@@ -119,17 +126,20 @@ let find_procedure t ~agent ~pattern ?min_confidence ?(touch = false) () =
 let best_procedure t ~agent ~pattern =
   find_procedure t ~agent ~pattern ()
 
+let tier_to_string = function
+  | Memory.Scratchpad -> "Scratchpad"
+  | Memory.Working -> "Working"
+  | Memory.Episodic -> "Episodic"
+  | Memory.Procedural -> "Procedural"
+  | Memory.Long_term -> "Long_term"
+
 let access_error_to_string = function
   | Denied { agent_name; tier; key; needed } ->
-    let tier_str = match tier with
-      | Memory.Scratchpad -> "Scratchpad"
-      | Memory.Working -> "Working"
-      | Memory.Episodic -> "Episodic"
-      | Memory.Procedural -> "Procedural"
-      | Memory.Long_term -> "Long_term"
-    in
     let perm_str = match needed with
       | Read -> "Read" | Write -> "Write" | ReadWrite -> "ReadWrite"
     in
     Printf.sprintf "Access denied: agent '%s' needs %s on %s:%s"
-      agent_name perm_str tier_str key
+      agent_name perm_str (tier_to_string tier) key
+  | Store_failed { agent_name; tier; key; detail } ->
+    Printf.sprintf "Store failed: agent '%s' on %s:%s — %s"
+      agent_name (tier_to_string tier) key detail

@@ -163,7 +163,7 @@ val checkpoint :
 (** Build an [extend_turns] tool for external consumers.
 
     Wraps {!Agent_turn_budget.make_tool} with the public [Agent.t] type
-    so downstream coordinators (MASC, etc.) can use it without accessing
+    so downstream coordinators can use it without accessing
     the internal [Agent_types.t].
 
     @param agent_ref Set to [Some agent] after {!run} begins.

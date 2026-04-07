@@ -8,6 +8,7 @@ let () = Alcotest.run "Memory_Access" [
       match Memory_access.store acl ~agent:"alice" ~tier:Working "key" (`String "v") with
       | Ok () -> Alcotest.fail "should be denied"
       | Error (Denied _) -> ()
+      | Error (Store_failed _) -> Alcotest.fail "unexpected store failure"
     );
 
     Alcotest.test_case "recall denied without grant" `Quick (fun () ->
@@ -16,6 +17,7 @@ let () = Alcotest.run "Memory_Access" [
       match Memory_access.recall acl ~agent:"alice" ~tier:Working "key" with
       | Ok _ -> Alcotest.fail "should be denied"
       | Error (Denied _) -> ()
+      | Error (Store_failed _) -> Alcotest.fail "unexpected store failure"
     );
   ];
 
@@ -46,6 +48,7 @@ let () = Alcotest.run "Memory_Access" [
       match Memory_access.store acl ~agent:"alice" ~tier:Working "key" (`String "v") with
       | Ok () -> Alcotest.fail "should be denied after revoke"
       | Error (Denied _) -> ()
+      | Error (Store_failed _) -> Alcotest.fail "unexpected store failure"
     );
 
     Alcotest.test_case "revoke_all clears everything" `Quick (fun () ->
@@ -81,6 +84,7 @@ let () = Alcotest.run "Memory_Access" [
       match Memory_access.store acl ~agent:"bob" ~tier:Working "key" (`String "v2") with
       | Ok () -> Alcotest.fail "read-only should not write"
       | Error (Denied _) -> ()
+      | Error (Store_failed _) -> Alcotest.fail "unexpected store failure"
     );
 
     Alcotest.test_case "write-only cannot read" `Quick (fun () ->
@@ -96,6 +100,7 @@ let () = Alcotest.run "Memory_Access" [
       match Memory_access.recall acl ~agent:"charlie" ~tier:Working "key" with
       | Ok _ -> Alcotest.fail "write-only should not read"
       | Error (Denied _) -> ()
+      | Error (Store_failed _) -> Alcotest.fail "unexpected store failure"
     );
   ];
 
@@ -113,6 +118,7 @@ let () = Alcotest.run "Memory_Access" [
       match Memory_access.store acl ~agent:"alice" ~tier:Working "private_key" (`String "v") with
       | Ok () -> Alcotest.fail "non-matching prefix should be denied"
       | Error (Denied _) -> ()
+      | Error (Store_failed _) -> Alcotest.fail "unexpected store failure"
     );
   ];
 
@@ -135,6 +141,7 @@ let () = Alcotest.run "Memory_Access" [
       match Memory_access.recall_episodes acl ~agent:"bob" ~now:200.0 () with
       | Ok _ -> Alcotest.fail "bob should be denied"
       | Error (Denied _) -> ()
+      | Error (Store_failed _) -> Alcotest.fail "unexpected store failure"
     );
 
     Alcotest.test_case "procedural access control" `Quick (fun () ->
@@ -163,6 +170,7 @@ let () = Alcotest.run "Memory_Access" [
       match Memory_access.best_procedure acl ~agent:"bob" ~pattern:"deploy" with
       | Ok _ -> Alcotest.fail "bob should be denied"
       | Error (Denied _) -> ()
+      | Error (Store_failed _) -> Alcotest.fail "unexpected store failure"
     );
 
     Alcotest.test_case "find_procedure denied without read access" `Quick (fun () ->
@@ -171,6 +179,7 @@ let () = Alcotest.run "Memory_Access" [
       match Memory_access.find_procedure acl ~agent:"bob" ~pattern:"deploy" () with
       | Ok _ -> Alcotest.fail "bob should be denied"
       | Error (Denied _) -> ()
+      | Error (Store_failed _) -> Alcotest.fail "unexpected store failure"
     );
   ];
 
