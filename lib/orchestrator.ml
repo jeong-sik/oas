@@ -169,10 +169,16 @@ let pipeline ~sw ?clock orch tasks =
 (* ── Utilities ────────────────────────────────────────────────────── *)
 
 let collect_text results =
+  let _log = Log.create ~module_name:"orchestrator" () in
   List.filter_map (fun tr ->
     match tr.result with
     | Ok resp -> Some (text_of_response resp)
-    | Error _ -> None
+    | Error e ->
+      Log.warn _log "task result discarded in collect_text"
+        [Log.S ("task_id", tr.task_id);
+         Log.S ("agent", tr.agent_name);
+         Log.S ("error", Error.to_string e)];
+      None
   ) results
   |> String.concat "\n"
 
@@ -293,6 +299,7 @@ type selection_strategy =
 
 (** Select the winning result from a list using the given strategy. *)
 let select_winner strategy results =
+  let _log = Log.create ~module_name:"orchestrator" () in
   match strategy with
   | FirstOk ->
     List.find_opt (fun tr ->
@@ -303,7 +310,12 @@ let select_winner strategy results =
       List.filter_map (fun tr ->
         match tr.result with
         | Ok _ -> Some (tr, score_fn tr)
-        | Error _ -> None
+        | Error e ->
+          Log.warn _log "task result excluded from BestBy scoring"
+            [Log.S ("task_id", tr.task_id);
+             Log.S ("agent", tr.agent_name);
+             Log.S ("error", Error.to_string e)];
+          None
       ) results
     in
     (match scored with
@@ -317,7 +329,12 @@ let select_winner strategy results =
       List.filter_map (fun tr ->
         match tr.result with
         | Ok resp -> Some (tr, text_of_response resp)
-        | Error _ -> None
+        | Error e ->
+          Log.warn _log "task result excluded from MajorityText voting"
+            [Log.S ("task_id", tr.task_id);
+             Log.S ("agent", tr.agent_name);
+             Log.S ("error", Error.to_string e)];
+          None
       ) results
     in
     let counts =

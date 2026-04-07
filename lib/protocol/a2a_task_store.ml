@@ -90,8 +90,14 @@ let reload store =
         let json = Yojson.Safe.from_string data in
         match A2a_task.task_of_yojson json with
         | Ok task -> Hashtbl.replace store.cache task.id task
-        | Error _ -> ()  (* skip corrupted files *)
-      with Eio.Io _ | Yojson.Json_error _ -> ()  (* skip unreadable/corrupt files *)
+        | Error e ->
+          let _log = Log.create ~module_name:"a2a_task_store" () in
+          Log.warn _log "skipping corrupted task file during reload"
+            [Log.S ("file", filename); Log.S ("error", e)]
+      with Eio.Io _ | Yojson.Json_error _ ->
+        let _log = Log.create ~module_name:"a2a_task_store" () in
+        Log.warn _log "skipping unreadable task file during reload"
+          [Log.S ("file", filename)]
     ) json_files;
     Ok ()
   with
@@ -108,10 +114,14 @@ let gc ?(max_age_s = 86400.0) store =
     then id :: acc
     else acc
   ) store.cache [] in
+  let _log = Log.create ~module_name:"a2a_task_store" () in
   let errors = List.filter_map (fun id ->
     match delete_task store id with
     | Ok () -> None
-    | Error _ -> Some id
+    | Error e ->
+      Log.warn _log "gc failed to delete task"
+        [Log.S ("task_id", id); Log.S ("error", Error.to_string e)];
+      Some id
   ) to_remove in
   let removed = List.length to_remove - List.length errors in
   if errors = [] then Ok removed
