@@ -84,10 +84,10 @@ let telemetry_of_openai_json json =
         in
         let reasoning_text =
           match msg |> member "reasoning_content" with
-          | `String s when String.length s > 0 -> Some s
+          | `String s when not (Api_common.string_is_blank s) -> Some s
           | _ ->
             (match msg |> member "reasoning" with
-             | `String s when String.length s > 0 -> Some s
+             | `String s when not (Api_common.string_is_blank s) -> Some s
              | _ -> None)
         in
         (match reasoning_text with
