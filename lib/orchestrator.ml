@@ -6,6 +6,8 @@
 
 open Types
 
+let _log = Log.create ~module_name:"orchestrator" ()
+
 (* ── Types ────────────────────────────────────────────────────────── *)
 
 type task = {
@@ -169,7 +171,7 @@ let pipeline ~sw ?clock orch tasks =
 (* ── Utilities ────────────────────────────────────────────────────── *)
 
 let collect_text results =
-  let _log = Log.create ~module_name:"orchestrator" () in
+
   List.filter_map (fun tr ->
     match tr.result with
     | Ok resp -> Some (text_of_response resp)
@@ -299,7 +301,7 @@ type selection_strategy =
 
 (** Select the winning result from a list using the given strategy. *)
 let select_winner strategy results =
-  let _log = Log.create ~module_name:"orchestrator" () in
+
   match strategy with
   | FirstOk ->
     List.find_opt (fun tr ->
