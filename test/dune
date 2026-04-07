@@ -39,6 +39,10 @@
  (libraries agent_sdk alcotest yojson))
 
 (test
+ (name test_context_properties)
+ (libraries agent_sdk alcotest yojson qcheck-core qcheck-alcotest))
+
+(test
  (name test_guardrails)
  (libraries agent_sdk alcotest yojson))
 
