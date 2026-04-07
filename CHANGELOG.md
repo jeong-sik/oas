@@ -6,6 +6,19 @@ Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
 backfilled on 2026-04-04 from existing git tags. The dates below reflect the
 original tag dates. `0.100.4` was never tagged or released.
 
+## [0.110.0] - 2026-04-07
+
+### Added
+- `Agent.make_extend_turns_tool` with public `Agent.t` type for runtime turn extension. Closes #674.
+- Slot pinning for llama-server KV cache reuse via `slot_id` parameter in sync and streaming paths. Closes #672.
+- Per-model timeout for non-last cascade providers (default 1200s). Closes #679.
+- End-to-end test proving context_injector to LLM delivery chain. Closes #673.
+
+### Fixed
+- 4 design debt items from boundary audit: removed stale references, aligned provider abstractions. Closes #667, #668, #669, #670.
+- Preserve `Context.t` identity in `context_with_contract` to prevent hooks from reading empty data on resume. Closes #676.
+- Sync `model_endpoints` before cascade parsing so `endpoint_for_model` can route `llama:model_id` correctly. Closes #677.
+
 ## [0.109.0] - 2026-04-06
 
 ### Added
