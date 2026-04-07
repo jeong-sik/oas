@@ -173,8 +173,8 @@ let parse_openai_sse_chunk data_str : openai_chunk option =
       let delta_content = delta |> member "content" |> to_string_option in
       let delta_reasoning =
         match delta |> member "reasoning_content" |> to_string_option with
-        | Some _ as r -> r
-        | None -> delta |> member "reasoning" |> to_string_option
+        | Some s when String.trim s <> "" -> Some s
+        | Some _ | None -> delta |> member "reasoning" |> to_string_option
       in
       let delta_tool_calls =
         match delta |> member "tool_calls" with

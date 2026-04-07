@@ -176,6 +176,31 @@ let test_parse_reasoning_chunk () =
       Alcotest.(check (option string)) "no content" None chunk.delta_content
   | None -> Alcotest.fail "expected Some chunk"
 
+let test_parse_ollama_reasoning_fallback () =
+  (* Ollama returns "reasoning" instead of "reasoning_content" *)
+  let data = {|{"id":"c-ollama","model":"qwen3.5:35b","choices":[{"index":0,"delta":{"reasoning":"Ollama thinking"},"finish_reason":null}]}|} in
+  match S.parse_openai_sse_chunk data with
+  | Some chunk ->
+      Alcotest.(check (option string)) "reasoning fallback" (Some "Ollama thinking") chunk.delta_reasoning;
+      Alcotest.(check (option string)) "no content" None chunk.delta_content
+  | None -> Alcotest.fail "expected Some chunk"
+
+let test_parse_reasoning_content_preferred () =
+  (* reasoning_content wins over reasoning when both present and non-blank *)
+  let data = {|{"id":"c-both","model":"qwen","choices":[{"index":0,"delta":{"reasoning_content":"preferred","reasoning":"fallback"},"finish_reason":null}]}|} in
+  match S.parse_openai_sse_chunk data with
+  | Some chunk ->
+      Alcotest.(check (option string)) "reasoning_content wins" (Some "preferred") chunk.delta_reasoning
+  | None -> Alcotest.fail "expected Some chunk"
+
+let test_parse_blank_reasoning_content_falls_back () =
+  (* blank reasoning_content should fall back to reasoning *)
+  let data = {|{"id":"c-blank","model":"qwen","choices":[{"index":0,"delta":{"reasoning_content":"  ","reasoning":"actual thinking"},"finish_reason":null}]}|} in
+  match S.parse_openai_sse_chunk data with
+  | Some chunk ->
+      Alcotest.(check (option string)) "blank falls back" (Some "actual thinking") chunk.delta_reasoning
+  | None -> Alcotest.fail "expected Some chunk"
+
 let test_events_reasoning_then_text () =
   let state = S.create_openai_stream_state () in
   let r_events = S.openai_chunk_to_events state
@@ -373,6 +398,9 @@ let () =
       test_case "invalid JSON" `Quick test_parse_invalid_json;
       test_case "empty choices" `Quick test_parse_empty_choices;
       test_case "reasoning_content" `Quick test_parse_reasoning_chunk;
+      test_case "ollama reasoning fallback" `Quick test_parse_ollama_reasoning_fallback;
+      test_case "reasoning_content preferred" `Quick test_parse_reasoning_content_preferred;
+      test_case "blank reasoning_content falls back" `Quick test_parse_blank_reasoning_content_falls_back;
     ];
     "openai_chunk_to_events", [
       test_case "text first chunk" `Quick test_events_text_first_chunk;

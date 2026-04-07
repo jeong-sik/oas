@@ -441,8 +441,9 @@ let test_parse_openai_response_reasoning_content_preferred () =
   | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
   | Ok resp ->
     (match resp.content with
-     | [Types.Thinking { content = t; _ }; _] ->
-       check string "reasoning_content wins" "preferred field" t
+     | [Types.Thinking { content = t; _ }; Types.Text text] ->
+       check string "reasoning_content wins" "preferred field" t;
+       check string "content text" "Answer." text
      | _ -> Alcotest.fail "expected [Thinking; Text]")
 
 (* ------------------------------------------------------------------ *)
