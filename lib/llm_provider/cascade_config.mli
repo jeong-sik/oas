@@ -242,6 +242,7 @@ val complete_named :
   ?tool_choice:Types.tool_choice ->
   ?accept:(Types.api_response -> bool) ->
   ?strict_name:bool ->
+  ?accept_on_exhaustion:bool ->
   ?timeout_sec:int ->
   ?cache:Cache.t ->
   ?metrics:Metrics.t ->
