@@ -44,6 +44,9 @@ type capabilities = {
   (* ── Advanced modalities ───────────────────────────── *)
   supports_computer_use: bool;
   supports_code_execution: bool;
+
+  (* ── Provider identity ───────────────────────────────── *)
+  is_ollama: bool;
 }
 
 let default_capabilities = {
@@ -68,6 +71,7 @@ let default_capabilities = {
   supports_min_p = false;
   supports_computer_use = false;
   supports_code_execution = false;
+  is_ollama = false;
 }
 
 let anthropic_capabilities = {
@@ -113,7 +117,8 @@ let openai_chat_extended_capabilities = {
 
 let ollama_capabilities = {
   openai_chat_extended_capabilities with
-  supports_tool_choice = false;  (* Ollama ignores tool_choice per docs *)
+  supports_tool_choice = true;  (* Ollama 0.19+: supports tool_choice in OpenAI compat endpoint *)
+  is_ollama = true;
 }
 
 let glm_capabilities = {
