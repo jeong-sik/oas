@@ -92,7 +92,7 @@ let test_swarm_completes () =
     prompt = "";  (* overridden by run_swarm *)
     timeout_sec = None;
     budget = Swarm_types.no_budget; max_agent_retries = 0;
-    collaboration = None; resource_check = None;
+    collaboration_context = None; resource_check = None;
     max_concurrent_agents = None; enable_streaming = false;
   } in
   let result = Eval_harness.run_swarm ~sw ~env
@@ -125,7 +125,7 @@ let test_swarm_with_convergence () =
     prompt = "";
     timeout_sec = None;
     budget = Swarm_types.no_budget; max_agent_retries = 0;
-    collaboration = None; resource_check = None;
+    collaboration_context = None; resource_check = None;
     max_concurrent_agents = None; enable_streaming = false;
   } in
   let result = Eval_harness.run_swarm ~sw ~env
@@ -147,7 +147,7 @@ let test_swarm_fails () =
     prompt = "";
     timeout_sec = None;
     budget = Swarm_types.no_budget; max_agent_retries = 0;
-    collaboration = None; resource_check = None;
+    collaboration_context = None; resource_check = None;
     max_concurrent_agents = None; enable_streaming = false;
   } in
   let result = Eval_harness.run_swarm ~sw ~env
@@ -305,7 +305,7 @@ let test_end_to_end_comparison () =
     prompt = "";
     timeout_sec = None;
     budget = Swarm_types.no_budget; max_agent_retries = 0;
-    collaboration = None; resource_check = None;
+    collaboration_context = None; resource_check = None;
     max_concurrent_agents = None; enable_streaming = false;
   } in
   let swarm = Eval_harness.run_swarm ~sw ~env ~task ~config:swarm_config in

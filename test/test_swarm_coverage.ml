@@ -158,7 +158,7 @@ let test_single_pass_decentralized () =
     max_parallel = 4;
     prompt = "test prompt";
     timeout_sec = None;
-    budget = no_budget; max_agent_retries = 0; collaboration = None;
+    budget = no_budget; max_agent_retries = 0; collaboration_context = None;
     resource_check = None; max_concurrent_agents = None;
     enable_streaming = false;
   } in
@@ -186,7 +186,7 @@ let test_single_pass_pipeline () =
     max_parallel = 1;
     prompt = "start";
     timeout_sec = None;
-    budget = no_budget; max_agent_retries = 0; collaboration = None;
+    budget = no_budget; max_agent_retries = 0; collaboration_context = None;
     resource_check = None; max_concurrent_agents = None;
     enable_streaming = false;
   } in
@@ -211,7 +211,7 @@ let test_single_pass_supervisor () =
     max_parallel = 4;
     prompt = "analyze";
     timeout_sec = None;
-    budget = no_budget; max_agent_retries = 0; collaboration = None;
+    budget = no_budget; max_agent_retries = 0; collaboration_context = None;
     resource_check = None; max_concurrent_agents = None;
     enable_streaming = false;
   } in
@@ -239,7 +239,7 @@ let test_single_pass_with_error () =
     max_parallel = 4;
     prompt = "test";
     timeout_sec = None;
-    budget = no_budget; max_agent_retries = 0; collaboration = None;
+    budget = no_budget; max_agent_retries = 0; collaboration_context = None;
     resource_check = None; max_concurrent_agents = None;
     enable_streaming = false;
   } in
@@ -270,7 +270,7 @@ let test_convergence_immediate () =
     max_parallel = 4;
     prompt = "test";
     timeout_sec = None;
-    budget = no_budget; max_agent_retries = 0; collaboration = None;
+    budget = no_budget; max_agent_retries = 0; collaboration_context = None;
     resource_check = None; max_concurrent_agents = None;
     enable_streaming = false;
   } in
@@ -300,7 +300,7 @@ let test_timeout () =
     max_parallel = 1;
     prompt = "test";
     timeout_sec = Some 0.1;
-    budget = no_budget; max_agent_retries = 0; collaboration = None;
+    budget = no_budget; max_agent_retries = 0; collaboration_context = None;
     resource_check = None; max_concurrent_agents = None;
     enable_streaming = false;
   } in
@@ -334,7 +334,7 @@ let test_callbacks_fire () =
     max_parallel = 4;
     prompt = "test";
     timeout_sec = None;
-    budget = no_budget; max_agent_retries = 0; collaboration = None;
+    budget = no_budget; max_agent_retries = 0; collaboration_context = None;
     resource_check = None; max_concurrent_agents = None;
     enable_streaming = false;
   } in
@@ -359,7 +359,7 @@ let test_resource_check_fail () =
     max_parallel = 4;
     prompt = "test";
     timeout_sec = None;
-    budget = no_budget; max_agent_retries = 0; collaboration = None;
+    budget = no_budget; max_agent_retries = 0; collaboration_context = None;
     resource_check = Some (fun () -> false);
     max_concurrent_agents = None;
     enable_streaming = false;
@@ -401,7 +401,7 @@ let test_max_concurrent_agents () =
     max_parallel = 8;
     prompt = "test";
     timeout_sec = None;
-    budget = no_budget; max_agent_retries = 0; collaboration = None;
+    budget = no_budget; max_agent_retries = 0; collaboration_context = None;
     resource_check = None;
     max_concurrent_agents = Some 2;  (* limit to 2 concurrent *)
     enable_streaming = false;

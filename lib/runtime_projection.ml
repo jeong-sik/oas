@@ -274,8 +274,8 @@ let apply_event (session : session) (event : event) =
       in
       Ok { session with artifacts = Util.snoc session.artifacts artifact }
   | Vote_recorded _ ->
-      (* Vote events are intentionally ignored here;
-         vote state is owned by Collaboration.t downstream. *)
+      (* Vote events are intentionally ignored in projection;
+         vote state is handled by downstream consumers. *)
       let* session = ensure_active_phase session in
       Ok session
   | Checkpoint_saved _ ->
@@ -438,96 +438,3 @@ let build_proof (session : session) (events : event list) =
     generated_at;
   }
 
-(* ── Collaboration bridge ────────────────────────────────────────
-   Lossy projection: Runtime.session (18 fields) → Collaboration.t (12 fields).
-   Runtime.participant has 21 fields; Collaboration.participant has 6.
-   The reverse direction fills defaults — not a true round-trip.
-
-   New code should operate on Collaboration.t directly.
-   Existing code can call [collaboration_of_session] as a migration step. *)
-
-let phase_to_collaboration : phase -> Collaboration.phase = function
-  | Bootstrapping -> Bootstrapping
-  | Running -> Active
-  | Waiting_on_workers -> Waiting_on_participants
-  | Finalizing -> Finalizing
-  | Completed -> Completed
-  | Failed -> Failed
-  | Cancelled -> Cancelled
-
-let phase_of_collaboration : Collaboration.phase -> phase = function
-  | Bootstrapping -> Bootstrapping
-  | Active -> Running
-  | Waiting_on_participants -> Waiting_on_workers
-  | Finalizing -> Finalizing
-  | Completed -> Completed
-  | Failed -> Failed
-  | Cancelled -> Cancelled
-
-let participant_state_to_collaboration
-    : participant_state -> Collaboration.participant_state = function
-  | Planned -> Planned
-  | Starting -> Joined
-  | Live -> Working
-  | Idle -> Joined
-  | Done -> Done
-  | Failed_participant -> Failed_participant
-  | Detached -> Left
-
-let participant_to_collaboration (p : participant) : Collaboration.participant =
-  {
-    name = p.name;
-    role = p.role;
-    state = participant_state_to_collaboration p.state;
-    joined_at = p.started_at;
-    finished_at = p.finished_at;
-    summary = p.summary;
-  }
-
-let artifact_to_collaboration (a : artifact) : Collaboration.artifact =
-  {
-    id = a.artifact_id;
-    name = a.name;
-    kind = a.kind;
-    producer = "";  (* Runtime.artifact has no producer field *)
-    created_at = a.created_at;
-  }
-
-(** Extract a {!Collaboration.t} from a {!Runtime.session}.
-
-    This is a lossy projection: Runtime.participant (21 fields) is
-    compressed to Collaboration.participant (6 fields).
-    [shared_context] is set to a fresh empty context since
-    Runtime.session does not carry one. *)
-let collaboration_of_session (session : session) : Collaboration.t =
-  {
-    id = session.session_id;
-    goal = session.goal;
-    phase = phase_to_collaboration session.phase;
-    participants =
-      List.map participant_to_collaboration session.participants;
-    artifacts = List.map artifact_to_collaboration session.artifacts;
-    contributions = [];
-    shared_context = Context.create ();
-    created_at = session.created_at;
-    updated_at = session.updated_at;
-    outcome = session.outcome;
-    max_participants = None;
-    metadata = [];
-  }
-
-(** Sync collaboration-owned fields back into a {!Runtime.session}.
-
-    Only updates: [goal], [phase], [outcome], [updated_at].
-    Does {b not} touch [participants], [artifacts], or [contributions]
-    because Runtime versions of these carry richer data (21-field
-    participant vs 6-field).  Use per-field update functions for those. *)
-let update_session_from_collaboration
-    (session : session) (collab : Collaboration.t) : session =
-  {
-    session with
-    goal = collab.goal;
-    phase = phase_of_collaboration collab.phase;
-    outcome = collab.outcome;
-    updated_at = collab.updated_at;
-  }

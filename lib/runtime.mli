@@ -3,11 +3,6 @@
     Defines the full request/response/event protocol between the OAS
     runtime and its consumers (CLI, IDE, coordinators).
 
-    {b Migration note}: [session] contains collaboration fields that
-    are being migrated to {!Collaboration.t}. New code should use
-    {!Runtime_projection.collaboration_of_session} instead of reading
-    these fields directly.
-
     @since 0.50.0
 
     @stability Evolving
@@ -75,19 +70,7 @@ type vote = {
 }
 [@@deriving yojson, show]
 
-(** Runtime session — wire protocol record.
-
-    {b Migration}: Fields marked {i (-> Collaboration.t)} are duplicated
-    from {!Collaboration.t} for backward compatibility. New consumers
-    should use {!Runtime_projection.collaboration_of_session} to obtain
-    a [Collaboration.t] value instead.
-
-    - [goal] {i (-> Collaboration.t)}
-    - [phase] {i (-> Collaboration.t)}
-    - [planned_participants] {i (-> Collaboration.t)}
-    - [participants] {i (-> Collaboration.t)}
-    - [artifacts] {i (-> Collaboration.t)}
-    - [outcome] {i (-> Collaboration.t)} *)
+(** Runtime session — wire protocol record. *)
 type session = {
   session_id: string;
   goal: string;
@@ -105,7 +88,7 @@ type session = {
   planned_participants: string list;
   participants: participant list;
   artifacts: artifact list;
-  votes: vote list; (** (-> Collaboration.t, deprecated) Wire-compat: kept with default for decode. *)
+  votes: vote list; (** Deprecated. Wire-compat: kept with default for decode. *)
   turn_count: int;
   last_seq: int;
   outcome: string option;

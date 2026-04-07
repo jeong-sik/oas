@@ -1,12 +1,5 @@
 (** Extended coverage for runtime_projection.ml — targeting remaining uncovered paths.
 
-    Existing test_runtime_projection_unit.ml covers:
-    - phase_to/of_collaboration all 7 variants
-    - participant_state_to_collaboration all 7 variants
-    - participant_to_collaboration field mapping
-    - artifact_to_collaboration
-    - collaboration_of_session / update_session_from_collaboration
-
     This file targets uncovered paths in:
     - apply_event: all 14 event_kind branches
     - initial_session: construction from start_request
