@@ -31,11 +31,18 @@ type export_result =
 (* ── TLS helper (self-contained, no llm_provider dep) ───────── *)
 
 let make_https () =
+  let _log = Log.create ~module_name:"otel_export" () in
   match Ca_certs.authenticator () with
-  | Error _ -> None
+  | Error (`Msg msg) ->
+    Log.warn _log "TLS CA certificate loading failed"
+      [Log.S ("error", msg)];
+    None
   | Ok authenticator ->
     match Tls.Config.client ~authenticator () with
-    | Error _ -> None
+    | Error (`Msg msg) ->
+      Log.warn _log "TLS client configuration failed"
+        [Log.S ("error", msg)];
+      None
     | Ok tls_config ->
       Some (fun _uri socket ->
         Tls_eio.client_of_flow tls_config socket)
