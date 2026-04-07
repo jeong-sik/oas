@@ -300,7 +300,7 @@ let restore (cp : t) ~agent_lookup
 
 let mock_run _text ~sw:_ _prompt =
   Ok { Types.id = "m"; model = "m"; stop_reason = Types.EndTurn;
-       content = [Types.Text "ok"]; usage = None }
+       content = [Types.Text "ok"]; usage = None; telemetry = None }
 
 let make_entry name =
   { Swarm_types.name; run = mock_run "ok"; role = Swarm_types.Execute;

@@ -372,6 +372,7 @@ let execute_hierarchical ~sw ?clock ?(max_parallel = 4) sub_plans =
       stop_reason = EndTurn;
       content = [Text combined_text];
       usage = None;
+      telemetry = None;
     } in
     { task_id = label;
       agent_name = label;

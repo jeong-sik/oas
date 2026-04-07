@@ -24,7 +24,7 @@ let make_messages texts =
 
 let make_response text =
   Types.{ id = "r1"; model = "m"; stop_reason = EndTurn;
-    content = [Text text]; usage = None }
+    content = [Text text]; usage = None; telemetry = None }
 
 (* ── Parse judge response ────────────────────────────────────── *)
 

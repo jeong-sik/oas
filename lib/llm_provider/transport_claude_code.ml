@@ -196,7 +196,7 @@ let parse_json_result json_str =
            model;
            stop_reason;
            content = [Text result_text];
-           usage }
+           usage; telemetry = None }
   with
   | Yojson.Json_error msg ->
     Error (Http_client.NetworkError {
@@ -281,7 +281,7 @@ let parse_stream_result lines =
          in
          let model = member_str "model" msg in
          let id = member_str "id" msg in
-         Ok { Types.id; model; stop_reason = EndTurn; content; usage = parse_usage msg }
+         Ok { Types.id; model; stop_reason = EndTurn; content; usage = parse_usage msg; telemetry = None }
        with Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ ->
          Error (Http_client.NetworkError {
            message = "Failed to parse assistant message" }))

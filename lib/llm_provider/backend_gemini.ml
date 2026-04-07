@@ -284,7 +284,7 @@ let parse_response json =
         json |> member "modelVersion" |> to_string_option
         |> Option.value ~default:""
       in
-      { id = ""; model = model_str; stop_reason; content; usage }
+      { id = ""; model = model_str; stop_reason; content; usage; telemetry = None }
   | err ->
       let msg =
         err |> member "message" |> to_string_option

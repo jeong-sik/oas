@@ -616,13 +616,13 @@ let%test "is_local_provider remote is false" =
 let%test "text_of_response empty content" =
   let resp : Types.api_response = {
     id = ""; model = ""; stop_reason = EndTurn;
-    content = []; usage = None } in
+    content = []; usage = None; telemetry = None } in
   text_of_response resp = ""
 
 let%test "text_of_response text blocks concatenated" =
   let resp : Types.api_response = {
     id = ""; model = ""; stop_reason = EndTurn;
-    content = [Types.Text "hello"; Types.Text " world"]; usage = None } in
+    content = [Types.Text "hello"; Types.Text " world"]; usage = None; telemetry = None } in
   text_of_response resp = "hello world"
 
 let%test "text_of_response non-text blocks ignored" =
@@ -631,7 +631,7 @@ let%test "text_of_response non-text blocks ignored" =
     content = [
       Types.ToolUse { id = "t1"; name = "tool"; input = `Null };
       Types.Text "only this";
-    ]; usage = None } in
+    ]; usage = None; telemetry = None } in
   text_of_response resp = "only this"
 
 let%test "load_profile nonexistent file returns empty" =

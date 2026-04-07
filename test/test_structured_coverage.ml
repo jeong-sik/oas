@@ -13,7 +13,7 @@ let check_string = Alcotest.(check string)
 let check_bool = Alcotest.(check bool)
 
 let make_response content : Types.api_response =
-  { id = "m"; model = "m"; stop_reason = EndTurn; content; usage = None }
+  { id = "m"; model = "m"; stop_reason = EndTurn; content; usage = None; telemetry = None }
 
 let person_schema : (string * int) Structured.schema = {
   name = "extract_person";

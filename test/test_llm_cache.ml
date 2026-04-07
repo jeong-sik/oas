@@ -11,7 +11,7 @@ let make_config ?(model_id="test-model") () =
   PC.make ~kind:Anthropic ~model_id ~base_url:"http://localhost" ()
 
 let simple_response ?(id="resp-1") ?(model="test-model") content =
-  { id; model; stop_reason = EndTurn; content; usage = None }
+  { id; model; stop_reason = EndTurn; content; usage = None; telemetry = None }
 
 let response_with_usage ?(id="resp-u") ?(model="test-model") content =
   { id; model; stop_reason = EndTurn; content;
@@ -20,7 +20,7 @@ let response_with_usage ?(id="resp-u") ?(model="test-model") content =
       cache_creation_input_tokens = 20;
       cache_read_input_tokens = 10;
       cost_usd = None
-    } }
+    }; telemetry = None }
 
 (* ── request_fingerprint ─────────────────────────────────── *)
 
@@ -186,6 +186,7 @@ let test_roundtrip_with_usage_cost () =
       cache_read_input_tokens = 10;
       cost_usd = Some 0.1234;
     };
+    telemetry = None;
   } in
   let json = Cache.response_to_json resp in
   match Cache.response_of_json json with

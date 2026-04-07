@@ -685,7 +685,7 @@ let test_durable_serialization_journal_with_output () =
 let test_event_forward_all_event_types () =
   let ok_result : (Types.api_response, Error.sdk_error) result =
     Ok { id = "r1"; model = "m"; stop_reason = Types.EndTurn;
-         content = []; usage = None }
+         content = []; usage = None; telemetry = None }
   in
   let tool_ok : Types.tool_result = Ok { content = "done" } in
   let events : Event_bus.event list = [

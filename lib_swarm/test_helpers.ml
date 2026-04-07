@@ -12,6 +12,7 @@ let text_response text : (Types.api_response, Error.sdk_error) result =
     stop_reason = EndTurn;
     content = [Text text];
     usage = None;
+    telemetry = None;
   }
 
 (** Create a mock api_response that returns an error. *)

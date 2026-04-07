@@ -23,7 +23,7 @@ let mock_run text ~sw:_ _prompt =
        content = [Types.Text text];
        usage = Some { Types.input_tokens = 10; output_tokens = 5;
                       cache_creation_input_tokens = 0;
-                      cache_read_input_tokens = 0 ; cost_usd = None } }
+                      cache_read_input_tokens = 0 ; cost_usd = None }; telemetry = None }
 
 let mock_run_err msg ~sw:_ _prompt =
   Error (Error.Internal msg)
@@ -139,7 +139,7 @@ let test_streaming_supervisor () =
       supervisor_saw_workers := true;
     Ok { Types.id = "mock"; model = "mock"; stop_reason = Types.EndTurn;
          content = [Types.Text "supervisor synthesis"];
-         usage = None }
+         usage = None; telemetry = None }
   in
   let config : swarm_config = {
     entries = [
@@ -178,7 +178,7 @@ let test_streaming_pipeline () =
     received_prompts := (name, String.length prompt) :: !received_prompts;
     Ok { Types.id = "mock"; model = "mock"; stop_reason = Types.EndTurn;
          content = [Types.Text (Printf.sprintf "stage-%s-output" name)];
-         usage = None }
+         usage = None; telemetry = None }
   in
   let config : swarm_config = {
     entries = List.init 3 (fun i ->

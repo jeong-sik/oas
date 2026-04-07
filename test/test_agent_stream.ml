@@ -20,7 +20,7 @@ let make_usage ?(inp=0) ?(out=0) ?(cc=0) ?(cr=0) () : Types.api_usage =
 
 let make_response ?(id="msg-1") ?(model="test-model") ?(stop_reason=Types.EndTurn)
     ?(usage=Some (make_usage ~inp:10 ~out:5 ())) content : Types.api_response =
-  { id; model; stop_reason; content; usage }
+  { id; model; stop_reason; content; usage; telemetry = None }
 
 (** Count events of a specific kind. *)
 let count_kind events pred = List.length (List.filter pred events)

@@ -117,7 +117,7 @@ let finalize_stream_acc (acc : stream_acc) =
     else None
   in
   Ok { id = !(acc.msg_id); model = !(acc.msg_model);
-    stop_reason = !(acc.stop_reason); content; usage }
+    stop_reason = !(acc.stop_reason); content; usage; telemetry = None }
 
 (* ── HTTP error mapping ─────────────────────────────────────── *)
 

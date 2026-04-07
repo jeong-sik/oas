@@ -50,7 +50,7 @@ let make_ok_result text : Orchestrator.task_result =
   { task_id = "t"; agent_name = "a"; elapsed = 0.1;
     result = Ok {
       Types.id = "r"; model = "m"; stop_reason = Types.EndTurn;
-      content = [Types.Text text]; usage = None } }
+      content = [Types.Text text]; usage = None; telemetry = None } }
 
 let make_err_result () : Orchestrator.task_result =
   { task_id = "t"; agent_name = "a"; elapsed = 0.1;

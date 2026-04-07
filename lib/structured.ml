@@ -344,7 +344,7 @@ let%test "json_extractor parses json from text block" =
   let extractor = json_extractor (fun j ->
     Yojson.Safe.Util.(j |> member "key" |> to_string)) in
   let resp = { id = ""; model = ""; stop_reason = EndTurn;
-    content = [Text "{\"key\":\"val\"}"]; usage = None } in
+    content = [Text "{\"key\":\"val\"}"]; usage = None; telemetry = None } in
   match extractor resp with
   | Ok "val" -> true
   | _ -> false
@@ -352,7 +352,7 @@ let%test "json_extractor parses json from text block" =
 let%test "json_extractor returns error on empty content" =
   let extractor = json_extractor (fun _ -> "x") in
   let resp = { id = ""; model = ""; stop_reason = EndTurn;
-    content = []; usage = None } in
+    content = []; usage = None; telemetry = None } in
   match extractor resp with
   | Error _ -> true
   | Ok _ -> false
@@ -360,7 +360,7 @@ let%test "json_extractor returns error on empty content" =
 let%test "json_extractor returns error on invalid json" =
   let extractor = json_extractor (fun _ -> "x") in
   let resp = { id = ""; model = ""; stop_reason = EndTurn;
-    content = [Text "not json"]; usage = None } in
+    content = [Text "not json"]; usage = None; telemetry = None } in
   match extractor resp with
   | Error _ -> true
   | Ok _ -> false
@@ -369,7 +369,7 @@ let%test "text_extractor parses text content" =
   let extractor = text_extractor (fun s ->
     if s = "yes" then Some true else None) in
   let resp = { id = ""; model = ""; stop_reason = EndTurn;
-    content = [Text "yes"]; usage = None } in
+    content = [Text "yes"]; usage = None; telemetry = None } in
   match extractor resp with
   | Ok true -> true
   | _ -> false
@@ -377,7 +377,7 @@ let%test "text_extractor parses text content" =
 let%test "text_extractor returns error when parse returns None" =
   let extractor = text_extractor (fun _ -> None) in
   let resp = { id = ""; model = ""; stop_reason = EndTurn;
-    content = [Text "anything"]; usage = None } in
+    content = [Text "anything"]; usage = None; telemetry = None } in
   match extractor resp with
   | Error _ -> true
   | Ok _ -> false
@@ -420,7 +420,7 @@ let%test "json_extractor type error produces descriptive message" =
   let extractor = json_extractor (fun j ->
     Yojson.Safe.Util.(j |> member "key" |> to_int)) in
   let resp = { id = ""; model = ""; stop_reason = EndTurn;
-    content = [Text "{\"key\":\"not_int\"}"]; usage = None } in
+    content = [Text "{\"key\":\"not_int\"}"]; usage = None; telemetry = None } in
   match extractor resp with
   | Error msg -> String.length msg > 0
   | Ok _ -> false
@@ -428,7 +428,7 @@ let%test "json_extractor type error produces descriptive message" =
 let%test "json_extractor Failure propagation" =
   let extractor = json_extractor (fun _ -> failwith "custom fail") in
   let resp = { id = ""; model = ""; stop_reason = EndTurn;
-    content = [Text "{}"]; usage = None } in
+    content = [Text "{}"]; usage = None; telemetry = None } in
   match extractor resp with
   | Error msg -> String.length msg > 0
   | Ok _ -> false
@@ -439,7 +439,7 @@ let%test "text_extractor skips non-text blocks" =
     content = [
       ToolUse { id = "tu"; name = "t"; input = `Null };
       Text "target";
-    ]; usage = None } in
+    ]; usage = None; telemetry = None } in
   match extractor resp with
   | Ok "target" -> true
   | _ -> false
@@ -447,7 +447,7 @@ let%test "text_extractor skips non-text blocks" =
 let%test "text_extractor empty content" =
   let extractor = text_extractor (fun s -> Some s) in
   let resp = { id = ""; model = ""; stop_reason = EndTurn;
-    content = []; usage = None } in
+    content = []; usage = None; telemetry = None } in
   match extractor resp with
   | Error "no text content in response" -> true
   | _ -> false
@@ -455,7 +455,7 @@ let%test "text_extractor empty content" =
 let%test "json_extractor non-text content only" =
   let extractor = json_extractor (fun _ -> "x") in
   let resp = { id = ""; model = ""; stop_reason = EndTurn;
-    content = [ToolUse { id = "tu"; name = "t"; input = `Null }]; usage = None } in
+    content = [ToolUse { id = "tu"; name = "t"; input = `Null }]; usage = None; telemetry = None } in
   match extractor resp with
   | Error "no text content in response" -> true
   | _ -> false

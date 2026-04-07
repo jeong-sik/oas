@@ -6,11 +6,11 @@ open Agent_sdk
 
 let mock_runner text _prompt : (Types.api_response, Error.sdk_error) result =
   Ok { id = "r1"; model = "test"; stop_reason = EndTurn;
-       content = [Text text]; usage = None }
+       content = [Text text]; usage = None; telemetry = None }
 
 let echo_runner prompt : (Types.api_response, Error.sdk_error) result =
   Ok { id = "r1"; model = "test"; stop_reason = EndTurn;
-       content = [Text (Printf.sprintf "echo: %s" prompt)]; usage = None }
+       content = [Text (Printf.sprintf "echo: %s" prompt)]; usage = None; telemetry = None }
 
 let error_runner _prompt : (Types.api_response, Error.sdk_error) result =
   Error (Error.Internal "agent crashed")
@@ -89,7 +89,7 @@ let test_multi_content () =
   let runner _prompt : (Types.api_response, Error.sdk_error) result =
     Ok { id = "r1"; model = "test"; stop_reason = EndTurn;
          content = [Text "line 1"; Text "line 2"; Text "line 3"];
-         usage = None }
+         usage = None; telemetry = None }
   in
   let tool = Agent_tool.create_simple ~name:"multi" ~description:"d" runner in
   match Tool.execute tool (`Assoc [("prompt", `String "test")]) with

@@ -29,7 +29,7 @@ let parse_response json =
              cost_usd = None }
   in
   let stop_reason = stop_reason_of_string stop_reason_str in
-  { id; model; stop_reason; content; usage }
+  { id; model; stop_reason; content; usage; telemetry = None }
 
 (** Build Anthropic Messages API request body from {!Provider_config.t}.
     Returns a JSON string ready for HTTP POST. *)

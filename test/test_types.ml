@@ -226,6 +226,7 @@ let test_show_api_response () =
   let r : Types.api_response = {
     id = "msg-1"; model = "test"; stop_reason = Types.EndTurn;
     content = [Types.Text "hi"]; usage = None;
+    telemetry = None;
   } in
   let s = Types.show_api_response r in
   Alcotest.(check bool) "show_api_response non-empty" true (String.length s > 0)

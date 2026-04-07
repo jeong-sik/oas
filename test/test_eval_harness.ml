@@ -15,7 +15,7 @@ let mock_run_with_usage text ~input_tokens ~output_tokens ~sw:_ _prompt =
        content = [Types.Text text];
        usage = Some { Types.input_tokens; output_tokens;
                       cache_creation_input_tokens = 0;
-                      cache_read_input_tokens = 0; cost_usd = None } }
+                      cache_read_input_tokens = 0; cost_usd = None }; telemetry = None }
 
 let mock_run text =
   mock_run_with_usage text ~input_tokens:10 ~output_tokens:5

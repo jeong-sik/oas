@@ -182,6 +182,7 @@ let test_annotate_response_cost () =
       cache_read_input_tokens = 0;
       cost_usd = None;
     };
+    telemetry = None;
   } in
   match Llm_provider.Pricing.annotate_response_cost response with
   | { usage = Some { cost_usd = Some cost; _ }; _ } ->

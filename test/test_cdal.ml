@@ -520,6 +520,7 @@ let mock_response model : Types.api_response = {
   stop_reason = Types.EndTurn;
   content = [Types.Text "done"];
   usage = None;
+  telemetry = None;
 }
 
 let test_proof_capture_lifecycle () =
@@ -953,6 +954,7 @@ let test_evidence_token_usage () =
     usage = Some { input_tokens = 100; output_tokens = 50;
                    cache_creation_input_tokens = 0; cache_read_input_tokens = 0;
                    cost_usd = Some 0.001 };
+    telemetry = None;
   } in
   let _ = Hooks.invoke eh.after_turn (Hooks.AfterTurn { turn = 1; response = resp }) in
   let proof = Proof_capture.finalize state ~result_status:Cdal_proof.Completed in

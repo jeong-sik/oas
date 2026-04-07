@@ -151,14 +151,14 @@ let int_schema = tool_schema "calc"
 let mock_response ?(tool_name = "calc") ?(id = "fix1") input =
   Ok { Types.id = "m1"; model = "mock"; stop_reason = StopToolUse;
        content = [ToolUse { id; name = tool_name; input }];
-       usage = None }
+       usage = None; telemetry = None }
 
 let mock_llm_fixes _msgs =
   mock_response (`Assoc [("n", `Int 42)])
 
 let mock_llm_text_only _msgs =
   Ok { Types.id = "m1"; model = "mock"; stop_reason = EndTurn;
-       content = [Text "I cannot fix this"]; usage = None }
+       content = [Text "I cannot fix this"]; usage = None; telemetry = None }
 
 let mock_llm_fails _msgs =
   Error (Error.Internal "network timeout")

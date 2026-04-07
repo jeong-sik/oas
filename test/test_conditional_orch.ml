@@ -9,6 +9,7 @@ let make_result ?(ok=true) task_id agent_name =
       Types.id = "r-1"; model = "mock"; stop_reason = Types.EndTurn;
       content = [Types.Text (Printf.sprintf "result from %s" agent_name)];
       usage = None;
+      telemetry = None;
     }
   else
     Error (Error.Internal "task failed")

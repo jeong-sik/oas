@@ -373,6 +373,7 @@ let%test "annotate_response_cost preserves measured cost" =
       cache_read_input_tokens = 0;
       cost_usd = Some 0.1234;
     };
+    telemetry = None;
   } in
   match annotate_response_cost response with
   | { usage = Some { cost_usd = Some cost; _ }; _ } -> close_enough cost 0.1234
