@@ -60,6 +60,23 @@ let apply_sampling_defaults (config : Provider_config.t) : Provider_config.t =
     top_k = (match config.top_k with Some _ -> config.top_k | None -> defaults.default_top_k);
   }
 
+(** Patch {!Types.api_response} telemetry with measured request latency.
+    The JSON parser sets [request_latency_ms = 0] because it cannot see the
+    HTTP round-trip time; this function fills the actual value after the
+    request completes. *)
+let patch_telemetry_latency (resp : Types.api_response) (latency_ms : int)
+    : Types.api_response =
+  let telemetry = match resp.telemetry with
+    | Some t -> Some { t with Types.request_latency_ms = latency_ms }
+    | None -> Some {
+        Types.system_fingerprint = None;
+        timings = None;
+        reasoning_tokens = None;
+        request_latency_ms = latency_ms;
+      }
+  in
+  { resp with telemetry }
+
 let complete_http ~sw ~net ~(config : Provider_config.t)
     ~(messages : Types.message list) ~tools =
   if config.kind = Provider_config.Claude_code then
@@ -158,6 +175,7 @@ let complete ~sw ~net ?(transport : Llm_transport.t option)
       (match result with
        | Ok resp ->
            let resp = Pricing.annotate_response_cost resp in
+           let resp = patch_telemetry_latency resp latency_ms in
            m.on_request_end ~model_id ~latency_ms;
            (* Cache store — reuse pre-computed key *)
            (match cache, cache_key with
@@ -298,6 +316,7 @@ let complete_stream_http ~sw:_ ~net ~(config : Provider_config.t)
     | Provider_config.Gemini -> body_str
     | _ -> Http_client.inject_stream_param body_str
   in
+  let t0 = Unix.gettimeofday () in
   match Http_client.with_post_stream ~net ~url
           ~headers:config.headers ~body:body_with_stream
           ~f:(fun reader ->
@@ -348,7 +367,9 @@ let complete_stream_http ~sw:_ ~net ~(config : Provider_config.t)
             ) ();
             finalize_stream_acc acc) with
   | Error _ as e -> e
-  | Ok (Ok resp) -> Ok (Pricing.annotate_response_cost resp)
+  | Ok (Ok resp) ->
+      let latency_ms = int_of_float ((Unix.gettimeofday () -. t0) *. 1000.0) in
+      Ok (patch_telemetry_latency resp latency_ms)
   | Ok (Error msg) ->
       Error (Http_client.NetworkError {
         message = Printf.sprintf "SSE stream error: %s" msg })
@@ -575,3 +596,32 @@ let%test "apply_sampling_defaults Anthropic preserves explicit top_p" =
     ~top_p:0.95 () in
   let applied = apply_sampling_defaults config in
   applied.top_p = Some 0.95
+
+let%test "patch_telemetry_latency fills latency on existing telemetry" =
+  let resp = {
+    Types.id = "test"; model = "m"; stop_reason = Types.EndTurn;
+    content = []; usage = None;
+    telemetry = Some {
+      Types.system_fingerprint = Some "fp-1";
+      timings = None; reasoning_tokens = Some 10;
+      request_latency_ms = 0;
+    };
+  } in
+  let patched = patch_telemetry_latency resp 42 in
+  match patched.telemetry with
+  | Some t -> t.request_latency_ms = 42
+              && t.system_fingerprint = Some "fp-1"
+              && t.reasoning_tokens = Some 10
+  | None -> false
+
+let%test "patch_telemetry_latency creates telemetry when None" =
+  let resp = {
+    Types.id = "test"; model = "m"; stop_reason = Types.EndTurn;
+    content = []; usage = None; telemetry = None;
+  } in
+  let patched = patch_telemetry_latency resp 100 in
+  match patched.telemetry with
+  | Some t -> t.request_latency_ms = 100
+              && t.system_fingerprint = None
+              && t.timings = None
+  | None -> false

@@ -86,6 +86,7 @@ let test_post_tool_use_event () =
       input = `Null;
       output = Ok { Types.content = "hello" };
       result_bytes = 5;
+      duration_ms = 1.0;
       schedule = default_schedule ();
     }) in
   check string "hook received output" "hello" !received_output
@@ -184,6 +185,7 @@ let dummy_post_tool_use =
   Hooks.PostToolUse {
     tool_use_id = "tu-1"; tool_name = "t"; input = `Null;
     output = Ok { Types.content = "ok" }; result_bytes = 2;
+    duration_ms = 1.0;
     schedule = default_schedule ();
   }
 

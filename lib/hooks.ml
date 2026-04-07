@@ -106,6 +106,7 @@ type hook_event =
       input: Yojson.Safe.t;
       output: Types.tool_result;
       result_bytes: int;
+      duration_ms: float;
       schedule: tool_schedule;
     }
   | PostToolUseFailure of {

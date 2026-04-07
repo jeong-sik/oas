@@ -178,7 +178,9 @@ let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tra
         failure_kind = Some Validation_error;
       }
     | Ok coerced_input ->
+    let t0 = Unix.gettimeofday () in
     let result = Tool.execute ~context tool coerced_input in
+    let duration_ms = (Unix.gettimeofday () -. t0) *. 1000.0 in
     let result_bytes = match result with
       | Ok { content } -> String.length content
       | Error { message; _ } -> String.length message
@@ -193,6 +195,7 @@ let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tra
              input = coerced_input;
              output = result;
              result_bytes;
+             duration_ms;
              schedule;
            })
     in
