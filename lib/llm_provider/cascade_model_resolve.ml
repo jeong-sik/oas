@@ -40,15 +40,21 @@ let resolve_glm_model_id model_id =
   | _ -> model_id
 
 (** Resolve "auto" and aliases to concrete model IDs.
-    Cloud APIs generally require concrete model names, and the local
-    llama provider also cannot accept the literal "auto" model ID.
+    Cloud APIs generally require concrete model names, and local
+    providers (llama, ollama) also cannot accept the literal "auto" model ID.
 
-    For local providers (llama), "auto" must be resolved before endpoint
-    selection — callers should resolve the model_id before invoking
-    [Discovery.endpoint_for_model] to avoid routing mismatches. *)
+    For local providers, "auto" is resolved via {!Discovery.first_discovered_model_id}
+    which returns models from the last endpoint probe.  Callers should
+    resolve the model_id before invoking [Discovery.endpoint_for_model]
+    to avoid routing mismatches. *)
 let resolve_auto_model_id provider_name model_id =
   match provider_name with
-  | "llama" -> model_id
+  | "llama" | "ollama" ->
+    (* Local providers: "auto" resolved earlier via Discovery in
+       cascade_config.ml.  If still "auto" here, try discovery fallback. *)
+    if model_id = "auto" then
+      Discovery.first_discovered_model_id () |> Option.value ~default:model_id
+    else model_id
   | "glm" -> resolve_glm_model_id model_id
   | "gemini" ->
     if model_id = "auto" then env_or "gemini-2.5-flash" "GEMINI_DEFAULT_MODEL"
