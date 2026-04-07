@@ -190,7 +190,7 @@ let glm_defaults = {
 }
 
 let ollama_defaults = {
-  kind = OpenAI_compat;
+  kind = Ollama;
   base_url =
     (match Sys.getenv_opt "OLLAMA_HOST" with
      | Some url when String.trim url <> "" -> String.trim url
@@ -224,7 +224,7 @@ let default () =
     Capabilities.openai_chat_extended_capabilities;
   register t { name = "ollama"; defaults = ollama_defaults;
                max_context = 262_144;
-               capabilities = Capabilities.openai_chat_extended_capabilities;
+               capabilities = Capabilities.ollama_capabilities;
                is_available = (fun () -> true) };
   (* Claude Code subprocess — always available if claude is in PATH *)
   let cc_defaults = {

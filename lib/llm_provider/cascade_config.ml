@@ -43,7 +43,7 @@ let headers_with_auth ~(kind : Provider_config.provider_kind) ~api_key =
         ("x-api-key", api_key)
         :: ("anthropic-version", "2023-06-01")
         :: base
-    | OpenAI_compat | Gemini | Glm | Claude_code ->
+    | OpenAI_compat | Ollama | Gemini | Glm | Claude_code ->
         ("Authorization", "Bearer " ^ api_key) :: base
 
 (* ── String splitting helper ──────────────────────────────── *)
@@ -91,14 +91,20 @@ let make_registry_config ~temperature ~max_tokens ?system_prompt
   in
   let headers = headers_with_auth ~kind:defaults.kind ~api_key in
   (* For local providers, resolve "auto" before endpoint selection so that
-     routing uses the concrete model name discovered from the server. *)
+     routing uses the concrete model name discovered from the server.
+     Filter by provider's own endpoint to prevent cross-provider
+     contamination (e.g. ollama:auto must not pick up llama-server models). *)
   let is_local_auto =
     (provider_name = "llama" || provider_name = "ollama")
     && model_id = "auto"
   in
   let effective_model_id =
     if is_local_auto then
-      Discovery.first_discovered_model_id () |> Option.value ~default:model_id
+      (if provider_name = "ollama" then
+         Discovery.first_discovered_model_id_for_url defaults.base_url
+       else
+         Discovery.first_discovered_model_id ())
+      |> Option.value ~default:model_id
     else model_id
   in
   let base_url =

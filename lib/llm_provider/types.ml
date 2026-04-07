@@ -150,6 +150,8 @@ type inference_telemetry = {
   timings: inference_timings option;
   reasoning_tokens: int option;
   request_latency_ms: int;
+  provider_kind: string option;
+  reasoning_effort: string option;
 }
 [@@deriving show, yojson]
 

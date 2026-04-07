@@ -124,6 +124,12 @@ val first_discovered_model_id : unit -> string option
     from the server's /v1/models endpoint.  Returns [None] if no models
     have been discovered yet. *)
 
+val first_discovered_model_id_for_url : string -> string option
+(** Return the first model_id discovered on a specific endpoint [url].
+    Prevents cross-provider contamination when resolving "auto" model IDs:
+    e.g. [ollama:auto] resolves only from the Ollama endpoint, not from
+    llama-server models that happen to appear first in the global index. *)
+
 val context_for_model : string -> (string * int) option
 (** Look up [model_id] and return [(url, per_slot_ctx)].
     Combines the model-to-endpoint index with per-endpoint context data.

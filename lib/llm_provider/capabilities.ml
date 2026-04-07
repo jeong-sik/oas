@@ -111,6 +111,11 @@ let openai_chat_extended_capabilities = {
   supports_min_p = true;
 }
 
+let ollama_capabilities = {
+  openai_chat_extended_capabilities with
+  supports_tool_choice = false;  (* Ollama ignores tool_choice per docs *)
+}
+
 let glm_capabilities = {
   default_capabilities with
   max_context_tokens = Some 200_000;

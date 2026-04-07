@@ -406,7 +406,7 @@ let default_api_key_env_of_kind
   | Anthropic -> "ANTHROPIC_API_KEY"
   | Gemini -> "GEMINI_API_KEY"
   | Glm -> "ZAI_API_KEY"
-  | OpenAI_compat | Claude_code -> ""
+  | OpenAI_compat | Ollama | Claude_code -> ""
 
 (** Convert a [Provider_config.t] (from Cascade_config) into a
     [Provider.config] (for Agent Builder).  Keeps the conversion
@@ -431,7 +431,7 @@ let config_of_provider_config (pc : Llm_provider.Provider_config.t) : config =
     | Glm ->
       OpenAICompat { base_url = pc.base_url; auth_header = None;
                      path = pc.request_path; static_token = None }
-    | OpenAI_compat ->
+    | OpenAI_compat | Ollama ->
       if is_local pc.base_url then Local { base_url = pc.base_url }
       else OpenAICompat { base_url = pc.base_url; auth_header = None;
                           path = pc.request_path; static_token = None }
