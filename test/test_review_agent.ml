@@ -18,10 +18,10 @@ let test_review_mock_flow () =
       (* First turn: agent requests tools *)
       Ok { Types.id = "m1"; model = "mock"; stop_reason = EndTurn;
            content = [Text (Printf.sprintf "Reviewing: %s\n\n## Review\n**Verdict**: LGTM\nNo issues found." prompt)];
-           usage = None }
+           usage = None; telemetry = None }
     | _ ->
       Ok { Types.id = "m2"; model = "mock"; stop_reason = EndTurn;
-           content = [Text "Review complete."]; usage = None }
+           content = [Text "Review complete."]; usage = None; telemetry = None }
   in
   let entry = { Swarm_types.name = "reviewer"; run = mock_run; role = Execute; get_telemetry = None; extensions = [] } in
   let config = Test_helpers.basic_config ~prompt:"Review PR #1 in test/repo" [entry] in

@@ -275,7 +275,7 @@ let test_schema_mixed_required () =
 (* --- Extractors --- *)
 
 let make_response content : Types.api_response =
-  { id = "m"; model = "m"; stop_reason = EndTurn; content; usage = None }
+  { id = "m"; model = "m"; stop_reason = EndTurn; content; usage = None; telemetry = None }
 
 let test_json_extractor_success () =
   let extract = Structured.json_extractor (fun json ->

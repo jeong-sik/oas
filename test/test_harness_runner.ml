@@ -16,6 +16,7 @@ let ok_response text : Types.api_response =
       cache_read_input_tokens = 0;
       cost_usd = None
     };
+    telemetry = None;
   }
 
 let mk_observation ?(tools_called = []) ?(turn_count = 1) ?(final_response = "done") () :

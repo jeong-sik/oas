@@ -68,6 +68,7 @@ let response_of_trajectory (trajectory : Trajectory.trajectory) =
       stop_reason = Types.EndTurn;
       content = [Types.Text response_text];
       usage = None;
+      telemetry = None;
     }
   else
     Error (Error.Internal (Option.value ~default:"trace replay failed" trajectory.error))

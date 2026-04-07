@@ -24,7 +24,7 @@ let check_float msg expected actual =
 
 let mock_run text ~sw:_ _prompt =
   Ok { Types.id = "m"; model = "m"; stop_reason = EndTurn;
-       content = [Text text]; usage = None }
+       content = [Text text]; usage = None; telemetry = None }
 
 let mock_run_err msg ~sw:_ _prompt =
   Error (Error.Internal msg)
@@ -40,21 +40,21 @@ let make_mock_entry ~net ~name ~role ~clock run_fn =
 let test_text_of_response_single () =
   let resp : Types.api_response = {
     id = "r"; model = "m"; stop_reason = EndTurn;
-    content = [Text "hello"]; usage = None } in
+    content = [Text "hello"]; usage = None; telemetry = None } in
   let text = Runner.text_of_response resp in
   check string "single" "hello" text
 
 let test_text_of_response_multi () =
   let resp : Types.api_response = {
     id = "r"; model = "m"; stop_reason = EndTurn;
-    content = [Text "a"; Text "b"]; usage = None } in
+    content = [Text "a"; Text "b"]; usage = None; telemetry = None } in
   let text = Runner.text_of_response resp in
   check string "joined" "a\nb" text
 
 let test_text_of_response_empty () =
   let resp : Types.api_response = {
     id = "r"; model = "m"; stop_reason = EndTurn;
-    content = []; usage = None } in
+    content = []; usage = None; telemetry = None } in
   let text = Runner.text_of_response resp in
   check string "empty" "" text
 
@@ -65,7 +65,7 @@ let test_text_of_response_mixed () =
       Text "text";
       ToolUse { id = "t"; name = "tool"; input = `Null };
       Text "more";
-    ]; usage = None } in
+    ]; usage = None; telemetry = None } in
   let text = Runner.text_of_response resp in
   check string "text only" "text\nmore" text
 
@@ -289,7 +289,7 @@ let test_timeout () =
   let slow_run ~sw:_ _prompt =
     Eio.Time.sleep clock 10.0;
     Ok { Types.id = "m"; model = "m"; stop_reason = EndTurn;
-         content = [Text "late"]; usage = None }
+         content = [Text "late"]; usage = None; telemetry = None }
   in
   let config : swarm_config = {
     entries = [

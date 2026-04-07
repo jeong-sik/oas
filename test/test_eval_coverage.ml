@@ -440,6 +440,7 @@ let test_eval_collector_agent_completed () =
   let ok_response : Types.api_response = {
     id = "r1"; model = "m"; stop_reason = EndTurn;
     content = [Text "done"]; usage = None;
+    telemetry = None;
   } in
   Event_bus.publish bus (AgentCompleted {
     agent_name = "bot"; task_id = "t1"; elapsed = 2.5; result = Ok ok_response;

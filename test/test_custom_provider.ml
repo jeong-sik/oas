@@ -18,7 +18,7 @@ let make_test_impl ?(name="test-provider") ?(request_path="/v1/test") () : Provi
   parse_response = (fun body_str ->
     let _json = Yojson.Safe.from_string body_str in
     { Types.id = "test-id"; model = "test"; stop_reason = Types.EndTurn;
-      content = [Types.Text "test response"]; usage = None });
+      content = [Types.Text "test response"]; usage = None; telemetry = None });
   resolve = (fun _cfg ->
     Ok ("http://localhost:9999", "dummy",
         [("Content-Type", "application/json")]));

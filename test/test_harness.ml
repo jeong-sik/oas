@@ -73,6 +73,7 @@ let test_adversarial_no_tool_execution () =
     result = Ok {
       id = "test"; model = "test"; stop_reason = Types.EndTurn;
       content = [Types.Text "ok"]; usage = None;
+      telemetry = None;
     };
     tools_executed = [];
     error_message = None;

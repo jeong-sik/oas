@@ -128,7 +128,30 @@ type api_usage = {
   cache_read_input_tokens: int;
   cost_usd: float option;
 }
-[@@deriving show]
+[@@deriving show, yojson]
+
+(** Provider-reported inference timing from a single API call.
+    llama-server populates all fields; cloud providers return [None]. *)
+type inference_timings = {
+  prompt_n: int option;
+  prompt_ms: float option;
+  prompt_per_second: float option;
+  predicted_n: int option;
+  predicted_ms: float option;
+  predicted_per_second: float option;
+  cache_n: int option;
+}
+[@@deriving show, yojson]
+
+(** Per-call inference telemetry.
+    Parsed from the raw API response; never computed by downstream. *)
+type inference_telemetry = {
+  system_fingerprint: string option;
+  timings: inference_timings option;
+  reasoning_tokens: int option;
+  request_latency_ms: int;
+}
+[@@deriving show, yojson]
 
 (** API response *)
 type api_response = {
@@ -137,6 +160,7 @@ type api_response = {
   stop_reason: stop_reason;
   content: content_block list;
   usage: api_usage option;
+  telemetry: inference_telemetry option;
 }
 [@@deriving show]
 

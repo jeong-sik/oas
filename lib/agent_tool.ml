@@ -70,7 +70,7 @@ let create_simple ~name ~description runner =
 
 let mock_runner text _prompt =
   Ok { id = "m"; model = "m"; stop_reason = EndTurn;
-       content = [Text text]; usage = None }
+       content = [Text text]; usage = None; telemetry = None }
 
 let failing_runner _prompt =
   Error (Error.Internal "agent failed")

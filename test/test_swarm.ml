@@ -252,7 +252,7 @@ let mock_run text ~sw:_ _prompt =
        content = [Types.Text text];
        usage = Some { Types.input_tokens = 10; output_tokens = 5;
                       cache_creation_input_tokens = 0;
-                      cache_read_input_tokens = 0 ; cost_usd = None } }
+                      cache_read_input_tokens = 0 ; cost_usd = None }; telemetry = None }
 
 let test_convergence_reaches_target () =
   Eio_main.run @@ fun env ->
@@ -439,7 +439,7 @@ let mock_run_with_latency ~clock ~latency_ms text ~sw:_ _prompt =
        content = [Types.Text text];
        usage = Some { Types.input_tokens = 50; output_tokens = 25;
                       cache_creation_input_tokens = 0;
-                      cache_read_input_tokens = 0 ; cost_usd = None } }
+                      cache_read_input_tokens = 0 ; cost_usd = None }; telemetry = None }
 
 (** Mock run that can fail on demand. *)
 let mock_run_failing ~fail_on_call counter ~sw:_ _prompt =
@@ -449,7 +449,7 @@ let mock_run_failing ~fail_on_call counter ~sw:_ _prompt =
   else
     Ok { Types.id = "mock"; model = "mock"; stop_reason = Types.EndTurn;
          content = [Types.Text (Printf.sprintf "result-%d" !counter)];
-         usage = None }
+         usage = None; telemetry = None }
 
 let test_12_worker_decentralized () =
   Eio_main.run @@ fun env ->
@@ -574,7 +574,7 @@ let test_12_worker_supervisor () =
       supervisor_saw_workers := true;
     Ok { Types.id = "mock"; model = "mock"; stop_reason = Types.EndTurn;
          content = [Types.Text "supervisor synthesis"];
-         usage = None }
+         usage = None; telemetry = None }
   in
   let make_worker i =
     { Swarm_types.name = Printf.sprintf "worker-%d" i;
@@ -613,7 +613,7 @@ let test_12_worker_pipeline () =
     received_prompts := (name, String.length prompt) :: !received_prompts;
     Ok { Types.id = "mock"; model = "mock"; stop_reason = Types.EndTurn;
          content = [Types.Text (Printf.sprintf "stage-%s-output" name)];
-         usage = None }
+         usage = None; telemetry = None }
   in
   let config : Swarm_types.swarm_config = {
     entries = List.init 4 (fun i ->
@@ -694,7 +694,7 @@ let test_single_pass_timeout () =
   let slow_run ~sw:_ _prompt =
     Eio.Time.sleep clock 10.0;  (* 10s — will exceed timeout *)
     Ok { Types.id = "mock"; model = "mock"; stop_reason = Types.EndTurn;
-         content = [Types.Text "late"]; usage = None }
+         content = [Types.Text "late"]; usage = None; telemetry = None }
   in
   let config : Swarm_types.swarm_config = {
     entries = [{ name = "slow"; run = slow_run; role = Execute; get_telemetry = None; extensions = [] }];

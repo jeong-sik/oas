@@ -86,21 +86,21 @@ let make_state net dir =
 let test_extract_text_empty () =
   let resp : Types.api_response =
     { id = "r1"; model = "m"; stop_reason = EndTurn;
-      content = []; usage = None }
+      content = []; usage = None; telemetry = None }
   in
   Alcotest.(check string) "empty content" "" (Runtime_server_worker.extract_text resp)
 
 let test_extract_text_single () =
   let resp : Types.api_response =
     { id = "r1"; model = "m"; stop_reason = EndTurn;
-      content = [ Types.Text "hello" ]; usage = None }
+      content = [ Types.Text "hello" ]; usage = None; telemetry = None }
   in
   Alcotest.(check string) "single text" "hello" (Runtime_server_worker.extract_text resp)
 
 let test_extract_text_multiple () =
   let resp : Types.api_response =
     { id = "r1"; model = "m"; stop_reason = EndTurn;
-      content = [ Types.Text "line1"; Types.Text "line2" ]; usage = None }
+      content = [ Types.Text "line1"; Types.Text "line2" ]; usage = None; telemetry = None }
   in
   Alcotest.(check string) "multi text" "line1\nline2"
     (Runtime_server_worker.extract_text resp)
@@ -113,7 +113,7 @@ let test_extract_text_filters_non_text () =
         Types.ToolUse { id = "t1"; name = "fn"; input = `Null };
         Types.Thinking { thinking_type = "thinking"; content = "hmm" };
         Types.Text "after";
-      ]; usage = None }
+      ]; usage = None; telemetry = None }
   in
   Alcotest.(check string) "filters non-text" "before\nafter"
     (Runtime_server_worker.extract_text resp)
@@ -123,7 +123,7 @@ let test_extract_text_only_non_text () =
     { id = "r1"; model = "m"; stop_reason = EndTurn;
       content = [
         Types.ToolUse { id = "t1"; name = "fn"; input = `Null };
-      ]; usage = None }
+      ]; usage = None; telemetry = None }
   in
   Alcotest.(check string) "only non-text" "" (Runtime_server_worker.extract_text resp)
 
@@ -134,7 +134,7 @@ let test_extract_text_tool_result () =
         Types.Text "x";
         Types.ToolResult { tool_use_id = "t1"; content = "result"; is_error = false };
         Types.Text "y";
-      ]; usage = None }
+      ]; usage = None; telemetry = None }
   in
   Alcotest.(check string) "tool result filtered" "x\ny"
     (Runtime_server_worker.extract_text resp)

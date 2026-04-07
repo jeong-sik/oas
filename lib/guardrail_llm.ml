@@ -111,5 +111,5 @@ let%test "messages_to_text extracts text blocks" =
 
 let%test "response_to_text extracts text" =
   let resp = { id = ""; model = ""; stop_reason = EndTurn;
-    content = [Text "line1"; Text "line2"]; usage = None } in
+    content = [Text "line1"; Text "line2"]; usage = None; telemetry = None } in
   response_to_text resp = "line1\nline2"

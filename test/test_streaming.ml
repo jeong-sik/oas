@@ -254,6 +254,7 @@ let test_synthetic_text_only () =
     usage = Some { input_tokens = 10; output_tokens = 5;
                    cache_creation_input_tokens = 0;
                    cache_read_input_tokens = 0 ; cost_usd = None };
+    telemetry = None;
   } in
   let events = collect_events response in
   (* MessageStart, ContentBlockStart, TextDelta, ContentBlockStop, MessageDelta, MessageStop *)
@@ -279,6 +280,7 @@ let test_synthetic_thinking () =
     id = "msg-t"; model = "test"; stop_reason = EndTurn;
     content = [Thinking { thinking_type = "sig"; content = "I think..." }];
     usage = None;
+    telemetry = None;
   } in
   let events = collect_events response in
   (match List.nth events 2 with
@@ -291,6 +293,7 @@ let test_synthetic_tool_use () =
     id = "msg-tu"; model = "test"; stop_reason = StopToolUse;
     content = [ToolUse { id = "tu1"; name = "calc"; input = `Assoc [("x", `Int 1)] }];
     usage = None;
+    telemetry = None;
   } in
   let events = collect_events response in
   (match List.nth events 1 with
@@ -309,6 +312,7 @@ let test_synthetic_image_no_delta () =
     id = "msg-img"; model = "test"; stop_reason = EndTurn;
     content = [Image { media_type = "image/png"; data = "abc"; source_type = "base64" }];
     usage = None;
+    telemetry = None;
   } in
   let events = collect_events response in
   (* MessageStart, ContentBlockStart, ContentBlockStop, MessageDelta, MessageStop *)
@@ -324,6 +328,7 @@ let test_synthetic_multi_block () =
       ToolUse { id = "tu2"; name = "read"; input = `Assoc [] };
     ];
     usage = None;
+    telemetry = None;
   } in
   let events = collect_events response in
   (* For each block: Start+Delta+Stop (Thinking, Text) or Start+Delta+Stop (ToolUse) *)
@@ -348,7 +353,7 @@ let test_synthetic_usage_propagation () =
   } in
   let response : api_response = {
     id = "msg-u"; model = "test"; stop_reason = EndTurn;
-    content = [Text "x"]; usage = Some usage;
+    content = [Text "x"]; usage = Some usage; telemetry = None;
   } in
   let events = collect_events response in
   (match List.hd events with

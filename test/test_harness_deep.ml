@@ -44,6 +44,7 @@ let test_adversarial_error_contains_none () =
             stop_reason = Types.EndTurn;
             content = [ Types.Text "fine" ];
             usage = None;
+            telemetry = None;
           };
       tools_executed = [];
       error_message = None;
@@ -63,6 +64,7 @@ let test_adversarial_graceful_error_ok_result () =
             stop_reason = Types.EndTurn;
             content = [ Types.Text "ok" ];
             usage = None;
+            telemetry = None;
           };
       tools_executed = [];
       error_message = None;

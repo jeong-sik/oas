@@ -12,7 +12,7 @@ let starts_with_sub ~affix s = String.starts_with ~prefix:affix s
 
 let make_response ?(content = [Types.Text "ok"]) () : Types.api_response =
   { id = "r1"; model = "test"; stop_reason = Types.EndTurn;
-    content; usage = None }
+    content; usage = None; telemetry = None }
 
 let pass_evaluator _response = Reflexion.Pass
 

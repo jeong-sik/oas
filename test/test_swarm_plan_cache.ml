@@ -15,7 +15,7 @@ let mock_entry name role : agent_entry =
   { name;
     run = (fun ~sw:_ _prompt ->
       Ok { Types.id = "m"; model = "m"; stop_reason = EndTurn;
-           content = [Text "ok"]; usage = None });
+           content = [Text "ok"]; usage = None; telemetry = None });
     role; get_telemetry = None; extensions = [] }
 
 let base_config ?(entries=[mock_entry "a" Discover])

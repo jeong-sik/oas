@@ -29,7 +29,7 @@ let run_turn_core ~sw ?clock ~api_strategy ?raw_trace_run agent =
   | Ok Pipeline.ToolsExecuted -> Ok `ToolsExecuted
   | Ok Pipeline.IdleSkipped -> Ok (`Complete {
       Types.id = "idle-skipped"; model = ""; stop_reason = EndTurn;
-      content = []; usage = None })
+      content = []; usage = None; telemetry = None })
   | Error e -> Error e
 
 (* Original run_turn_core implementation removed — now in Pipeline.run_turn.

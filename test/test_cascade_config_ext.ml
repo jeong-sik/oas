@@ -11,6 +11,7 @@ let test_text_of_response_single () =
     Types.id = "r1"; model = "m"; stop_reason = Types.EndTurn;
     content = [Types.Text "hello world"];
     usage = None;
+    telemetry = None;
   } in
   check string "single text" "hello world"
     (Cascade_config.text_of_response resp)
@@ -24,6 +25,7 @@ let test_text_of_response_multi () =
       Types.Text "world";
     ];
     usage = None;
+    telemetry = None;
   } in
   check string "multi text concat" "hello world"
     (Cascade_config.text_of_response resp)
@@ -33,6 +35,7 @@ let test_text_of_response_empty () =
     Types.id = "r1"; model = "m"; stop_reason = Types.EndTurn;
     content = [];
     usage = None;
+    telemetry = None;
   } in
   check string "empty content" ""
     (Cascade_config.text_of_response resp)
@@ -44,6 +47,7 @@ let test_text_of_response_no_text () =
       Types.ToolUse { id = "t1"; name = "bash"; input = `Null };
     ];
     usage = None;
+    telemetry = None;
   } in
   check string "no text blocks" ""
     (Cascade_config.text_of_response resp)
@@ -55,6 +59,7 @@ let test_text_of_response_thinking_only () =
       Types.Thinking { thinking_type = "thinking"; content = "deep thought" };
     ];
     usage = None;
+    telemetry = None;
   } in
   check string "thinking only" ""
     (Cascade_config.text_of_response resp)

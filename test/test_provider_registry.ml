@@ -226,7 +226,7 @@ let test_usage_of_response_some () =
       cache_creation_input_tokens = 10; cache_read_input_tokens = 5 ; cost_usd = None } in
   let resp : Types.api_response =
     { id = "r1"; model = "m"; stop_reason = EndTurn;
-      content = [Text "ok"]; usage = Some usage } in
+      content = [Text "ok"]; usage = Some usage; telemetry = None } in
   let u = Types.usage_of_response resp in
   check int "input" 100 u.input_tokens;
   check int "output" 50 u.output_tokens
@@ -234,7 +234,7 @@ let test_usage_of_response_some () =
 let test_usage_of_response_none () =
   let resp : Types.api_response =
     { id = "r2"; model = "m"; stop_reason = EndTurn;
-      content = [Text "ok"]; usage = None } in
+      content = [Text "ok"]; usage = None; telemetry = None } in
   let u = Types.usage_of_response resp in
   check int "input fallback" 0 u.input_tokens;
   check int "output fallback" 0 u.output_tokens

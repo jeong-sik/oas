@@ -19,6 +19,7 @@ let mock_response text = {
     cache_read_input_tokens = 0;
     cost_usd = None
   };
+  telemetry = None;
 }
 
 let _mock_error_response = {
@@ -27,6 +28,7 @@ let _mock_error_response = {
   stop_reason = EndTurn;
   content = [Text "error"];
   usage = None;
+  telemetry = None;
 }
 
 (** Build a task_result from an Ok response. *)
@@ -211,6 +213,7 @@ let test_collect_text_multiblock () =
   let resp = {
     id = "r"; model = "m"; stop_reason = EndTurn;
     content = [Text "line1"; Text "line2"]; usage = None;
+    telemetry = None;
   } in
   let tr = { Orchestrator.task_id = "t"; agent_name = "a";
              result = Ok resp; elapsed = 0.0 } in
@@ -524,6 +527,7 @@ let test_collect_text_with_tool_use () =
       ToolUse { id = "tu1"; name = "search"; input = `Null };
       Text "after";
     ]; usage = None;
+    telemetry = None;
   } in
   let tr = { Orchestrator.task_id = "t"; agent_name = "a";
              result = Ok resp; elapsed = 0.0 } in

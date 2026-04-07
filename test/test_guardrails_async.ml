@@ -7,7 +7,7 @@ open Agent_sdk
 
 let make_response text : Types.api_response =
   { id = "m"; model = "m"; stop_reason = EndTurn;
-    content = [Text text]; usage = None }
+    content = [Text text]; usage = None; telemetry = None }
 
 let dummy_messages : Types.message list =
   [{ role = User; content = [Text "hello"]; name = None; tool_call_id = None }]

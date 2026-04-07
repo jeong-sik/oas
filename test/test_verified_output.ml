@@ -2,7 +2,7 @@ open Agent_sdk
 
 let mock_response text =
   { Types.id = "r1"; model = "test"; stop_reason = Types.EndTurn;
-    content = [Types.Text text]; usage = None }
+    content = [Types.Text text]; usage = None; telemetry = None }
 
 let () = Alcotest.run "Verified_Output" [
   "phantom_safety", [

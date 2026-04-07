@@ -140,5 +140,6 @@ let response_of_json (json : Yojson.Safe.t) : Types.api_response option =
           json |> member "stop_reason" |> to_string |> stop_reason_of_string;
         content;
         usage;
+        telemetry = None;
       }
   with Yojson.Safe.Util.Type_error _ | Not_found | Yojson.Json_error _ -> None

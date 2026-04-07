@@ -214,17 +214,17 @@ let run_participant store state session_id
 
 let%test "extract_text: empty content" =
   let resp = { Types.id = "r1"; model = "m"; stop_reason = Types.EndTurn;
-               content = []; usage = None } in
+               content = []; usage = None; telemetry = None } in
   extract_text resp = ""
 
 let%test "extract_text: single Text block" =
   let resp = { Types.id = "r1"; model = "m"; stop_reason = Types.EndTurn;
-               content = [Types.Text "hello"]; usage = None } in
+               content = [Types.Text "hello"]; usage = None; telemetry = None } in
   extract_text resp = "hello"
 
 let%test "extract_text: multiple Text blocks joined by newline" =
   let resp = { Types.id = "r1"; model = "m"; stop_reason = Types.EndTurn;
-               content = [Types.Text "hello"; Types.Text "world"]; usage = None } in
+               content = [Types.Text "hello"; Types.Text "world"]; usage = None; telemetry = None } in
   extract_text resp = "hello\nworld"
 
 let%test "extract_text: non-Text blocks filtered out" =
@@ -233,7 +233,7 @@ let%test "extract_text: non-Text blocks filtered out" =
                  Types.Text "before";
                  Types.ToolUse { id = "t1"; name = "fn"; input = `Null };
                  Types.Text "after";
-               ]; usage = None } in
+               ]; usage = None; telemetry = None } in
   extract_text resp = "before\nafter"
 
 let%test "extract_text: only non-Text blocks returns empty" =
@@ -241,7 +241,7 @@ let%test "extract_text: only non-Text blocks returns empty" =
                content = [
                  Types.ToolUse { id = "t1"; name = "fn"; input = `Null };
                  Types.Thinking { thinking_type = "thinking"; content = "hmm" };
-               ]; usage = None } in
+               ]; usage = None; telemetry = None } in
   extract_text resp = ""
 
 (* --- make_event --- *)

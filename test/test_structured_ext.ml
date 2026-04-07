@@ -123,6 +123,7 @@ let test_json_extractor_valid () =
     Types.id = "r"; model = "m"; stop_reason = Types.EndTurn;
     content = [Types.Text {|{"x": 99}|}];
     usage = None;
+    telemetry = None;
   } in
   match extract resp with
   | Ok v -> check int "x" 99 v
@@ -134,6 +135,7 @@ let test_json_extractor_invalid_json () =
     Types.id = "r"; model = "m"; stop_reason = Types.EndTurn;
     content = [Types.Text "not json"];
     usage = None;
+    telemetry = None;
   } in
   match extract resp with
   | Ok _ -> fail "expected Error"
@@ -147,6 +149,7 @@ let test_json_extractor_empty_content () =
     Types.id = "r"; model = "m"; stop_reason = Types.EndTurn;
     content = [];
     usage = None;
+    telemetry = None;
   } in
   match extract resp with
   | Ok _ -> fail "expected Error"
@@ -161,6 +164,7 @@ let test_json_extractor_type_error () =
     Types.id = "r"; model = "m"; stop_reason = Types.EndTurn;
     content = [Types.Text {|{"x": "not_int"}|}];
     usage = None;
+    telemetry = None;
   } in
   match extract resp with
   | Ok _ -> fail "expected Error"
@@ -175,6 +179,7 @@ let test_text_extractor_some () =
     Types.id = "r"; model = "m"; stop_reason = Types.EndTurn;
     content = [Types.Text "hello"];
     usage = None;
+    telemetry = None;
   } in
   match extract resp with
   | Ok v -> check int "length" 5 v
@@ -186,6 +191,7 @@ let test_text_extractor_none () =
     Types.id = "r"; model = "m"; stop_reason = Types.EndTurn;
     content = [Types.Text "anything"];
     usage = None;
+    telemetry = None;
   } in
   match extract resp with
   | Ok _ -> fail "expected Error"
@@ -197,6 +203,7 @@ let test_text_extractor_empty () =
     Types.id = "r"; model = "m"; stop_reason = Types.EndTurn;
     content = [];
     usage = None;
+    telemetry = None;
   } in
   match extract resp with
   | Ok _ -> fail "expected Error"

@@ -125,6 +125,7 @@ let parse_openai_response_result json_str =
         stop_reason;
         content = thinking_blocks @ (if Api_common.string_is_blank text_content then [] else [Text text_content]) @ tool_blocks;
         usage = usage_of_openai_json json;
+      telemetry = None;
       }
   | err ->
       let msg =

@@ -209,16 +209,14 @@ let test_load_json_caching () =
 let test_text_of_response_empty () =
   let resp : Types.api_response = {
     id = "r1"; model = "m"; stop_reason = EndTurn;
-    content = []; usage = None
-  } in
+    content = []; usage = None; telemetry = None } in
   let r = Cascade_config.text_of_response resp in
   Alcotest.(check string) "empty content" "" r
 
 let test_text_of_response_text_only () =
   let resp : Types.api_response = {
     id = "r1"; model = "m"; stop_reason = EndTurn;
-    content = [Text "hello"; Text " world"]; usage = None
-  } in
+    content = [Text "hello"; Text " world"]; usage = None; telemetry = None } in
   let r = Cascade_config.text_of_response resp in
   Alcotest.(check string) "concatenated" "hello world" r
 
@@ -229,8 +227,7 @@ let test_text_of_response_mixed () =
       Text "a";
       ToolUse { id = "t1"; name = "fn"; input = `Null };
       Text "b"
-    ]; usage = None
-  } in
+    ]; usage = None; telemetry = None } in
   let r = Cascade_config.text_of_response resp in
   Alcotest.(check string) "skips non-text" "ab" r
 

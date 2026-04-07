@@ -173,6 +173,7 @@ let test_agent_completed_payload () =
       content = [Text "done"];
       stop_reason = EndTurn;
       usage = None;
+      telemetry = None;
     };
     elapsed = 2.5;
   } in

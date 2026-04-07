@@ -155,7 +155,7 @@ let%test "check_glm_error handles int code" =
 
 let%test "extract_reasoning_content prepends thinking block" =
   let resp = { id = "x"; model = "glm-4.7"; stop_reason = EndTurn;
-               content = [Text "answer"]; usage = None } in
+               content = [Text "answer"]; usage = None; telemetry = None } in
   let body = {|{"choices":[{"message":{"content":"answer","reasoning_content":"step by step"}}]}|} in
   let result = extract_reasoning_content resp body in
   match result.content with
@@ -164,7 +164,7 @@ let%test "extract_reasoning_content prepends thinking block" =
 
 let%test "extract_reasoning_content skips empty reasoning" =
   let resp = { id = "x"; model = "glm-4.7"; stop_reason = EndTurn;
-               content = [Text "answer"]; usage = None } in
+               content = [Text "answer"]; usage = None; telemetry = None } in
   let body = {|{"choices":[{"message":{"content":"answer"}}]}|} in
   let result = extract_reasoning_content resp body in
   List.length result.content = 1

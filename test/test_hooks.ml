@@ -176,6 +176,7 @@ let dummy_after_turn =
     response = {
       Types.id = "r"; model = "m"; stop_reason = EndTurn;
       content = []; usage = None;
+      telemetry = None;
     };
   }
 
@@ -198,6 +199,7 @@ let dummy_on_stop =
     response = {
       Types.id = "r"; model = "m"; stop_reason = EndTurn;
       content = []; usage = None;
+      telemetry = None;
     };
   }
 

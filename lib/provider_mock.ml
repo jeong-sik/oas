@@ -57,6 +57,7 @@ let text_response ?(id="mock-id") ?(model="mock-model")
         cache_read_input_tokens = 0;
         cost_usd = None
       };
+      telemetry = None;
     }
 
 (** Build a tool-use response.
@@ -79,6 +80,7 @@ let tool_use_response ?(id="mock-id") ?(model="mock-model")
         cache_read_input_tokens = 0;
         cost_usd = None
       };
+      telemetry = None;
     }
 
 (** Build a response that uses a tool then ends with text on the next call. *)
@@ -109,6 +111,7 @@ let thinking_response ?(id="mock-id") ?(model="mock-model")
         cache_read_input_tokens = 0;
         cost_usd = None
       };
+      telemetry = None;
     }
 
 (** Create a Provider.config that routes through this mock.

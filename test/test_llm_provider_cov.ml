@@ -39,7 +39,7 @@ let system_msg s : Types.message =
 let mk_response ?(id = "r1") ?(model = "m1")
     ?(stop_reason = Types.EndTurn) ?(content = [Types.Text "ok"])
     ?usage () : Types.api_response =
-  { id; model; stop_reason; content; usage }
+  { id; model; stop_reason; content; usage; telemetry = None }
 
 (* ═══════════════════════════════════════════════════
    1. Complete — gemini_url, is_retryable, default_retry_config

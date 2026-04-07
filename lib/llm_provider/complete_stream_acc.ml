@@ -104,7 +104,7 @@ let finalize_stream_acc (acc : stream_acc) =
       cache_creation_input_tokens = !(acc.cache_creation);
       cache_read_input_tokens = !(acc.cache_read);
       cost_usd = None
-    } }
+    }; telemetry = None }
 
 [@@@coverage off]
 (* === Inline tests === *)

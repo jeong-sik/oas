@@ -253,7 +253,7 @@ let test_elapsed_s_none () =
 
 let mock_response text : Types.api_response =
   { id = "msg-test"; model = "mock"; stop_reason = EndTurn;
-    content = [Text text]; usage = None }
+    content = [Text text]; usage = None; telemetry = None }
 
 let test_sandbox_basic () =
   let call_count = ref 0 in
@@ -305,7 +305,7 @@ let test_sandbox_tool_counting () =
            ToolUse { id = "tu-1"; name = "bash"; input = `Null };
            ToolUse { id = "tu-2"; name = "read"; input = `Null };
            Text "done";
-         ]; usage = None }
+         ]; usage = None; telemetry = None }
   in
   let config : Sandbox_runner.sandbox_config = {
     timeout_s = 10.0;
