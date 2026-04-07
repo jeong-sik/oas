@@ -239,6 +239,7 @@ val complete_named :
   ?temperature:float ->
   ?max_tokens:int ->
   ?system_prompt:string ->
+  ?tool_choice:Types.tool_choice ->
   ?accept:(Types.api_response -> bool) ->
   ?strict_name:bool ->
   ?timeout_sec:int ->
@@ -279,6 +280,7 @@ val complete_named_stream :
   ?temperature:float ->
   ?max_tokens:int ->
   ?system_prompt:string ->
+  ?tool_choice:Types.tool_choice ->
   ?strict_name:bool ->
   ?timeout_sec:int ->
   ?metrics:Metrics.t ->
