@@ -189,6 +189,16 @@ let glm_defaults = {
   request_path = "/chat/completions";
 }
 
+let ollama_defaults = {
+  kind = OpenAI_compat;
+  base_url =
+    (match Sys.getenv_opt "OLLAMA_HOST" with
+     | Some url when String.trim url <> "" -> String.trim url
+     | _ -> "http://127.0.0.1:11434");
+  api_key_env = "";
+  request_path = "/v1/chat/completions";
+}
+
 let openrouter_defaults = {
   kind = OpenAI_compat;
   base_url = "https://openrouter.ai/api/v1";
@@ -212,6 +222,10 @@ let default () =
     Capabilities.glm_capabilities;
   reg "openrouter" openrouter_defaults ~max_context:128_000
     Capabilities.openai_chat_extended_capabilities;
+  register t { name = "ollama"; defaults = ollama_defaults;
+               max_context = 262_144;
+               capabilities = Capabilities.openai_chat_extended_capabilities;
+               is_available = (fun () -> true) };
   (* Claude Code subprocess — always available if claude is in PATH *)
   let cc_defaults = {
     kind = Claude_code;
