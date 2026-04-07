@@ -139,10 +139,10 @@ let with_context_thresholds ~compact_ratio ?max_tokens ?prepare_ratio ?handoff_r
   let effective_max = match max_tokens with
     | Some n when n > 0 -> n
     | _ ->
-      match b.max_total_tokens with
+      match b.max_input_tokens with
       | Some n when n > 0 -> n
       | _ ->
-        match b.max_input_tokens with
+        match b.max_total_tokens with
         | Some n when n > 0 -> n
         | _ -> 200_000
   in
