@@ -545,7 +545,6 @@ let proactive_compact ?raw_trace_run agent ~watermark () =
          | None -> ());
         true
       end
-
 (* ── Emergency compaction ────────────────────────────────── *)
 
 (** Apply emergency compaction to stored messages when context overflow
@@ -633,6 +632,21 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
      Error (Error.Agent (GuardrailViolation {
        validator = validator_name; reason }))
    | Guardrails_async.Pass ->
+
+  (* Stage 2.7: Proactive watermark compaction — compact before overflow.
+     When context_compact_ratio is configured, check current usage and
+     apply Budget_strategy-based compaction if over the watermark.
+     Re-parses prep after compaction to reflect reduced messages. *)
+  let prep = match agent.state.config.context_compact_ratio with
+    | Some watermark when watermark > 0.0 && watermark < 1.0 ->
+      let compacted = proactive_compact ?raw_trace_run agent ~watermark () in
+      if compacted then begin
+        update_state agent (fun s -> { s with config = original_config });
+        let (prep', _, _) = stage_parse ?raw_trace_run agent in
+        prep'
+      end else prep
+    | _ -> prep
+  in
 
   (* Stage 3: Route — with compact-and-retry on context overflow *)
   let rec attempt_route ~prep ~compact_attempts =
