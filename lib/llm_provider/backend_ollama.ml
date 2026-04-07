@@ -39,10 +39,8 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
   in
   let body = ("think", `Bool think) :: body in
 
-  let body =
-    if stream then ("stream", `Bool true) :: body
-    else body
-  in
+  (* Ollama defaults to stream=true, so always send explicit value *)
+  let body = ("stream", `Bool stream) :: body in
 
   let body = match tools with
     | [] -> body
