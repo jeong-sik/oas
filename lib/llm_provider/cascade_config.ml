@@ -672,8 +672,8 @@ let%test "resolve_model_strings named takes priority over default" =
       resolve_model_strings ~config_path:tmp
         ~name:"named" ~defaults:["fallback:x"] () = ["glm:flash"]))
 
-let%test "default_registry has 6 providers" =
-  List.length (Provider_registry.all default_registry) = 6
+let%test "default_registry has 7 providers" =
+  List.length (Provider_registry.all default_registry) = 7
 
 let%test "default_registry llama is OpenAI_compat" =
   match Provider_registry.find default_registry "llama" with
