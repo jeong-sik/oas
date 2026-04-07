@@ -510,7 +510,7 @@ let%test "structural_fingerprint: deterministic" =
       metric = Callback (fun () -> 0.0); target = 0.9;
       max_iterations = 10; patience = 3; aggregate = Best_score };
     max_parallel = 4; prompt = "test"; timeout_sec = None;
-    budget = no_budget; max_agent_retries = 0; collaboration = None;
+    budget = no_budget; max_agent_retries = 0; collaboration_context = None;
     resource_check = None; max_concurrent_agents = None;
     enable_streaming = false;
   } in
@@ -529,7 +529,7 @@ let%test "structural_fingerprint: prompt independent" =
       metric = Callback (fun () -> 0.0); target = 0.8;
       max_iterations = 5; patience = 2; aggregate = Best_score };
     max_parallel = 2; prompt; timeout_sec = None;
-    budget = no_budget; max_agent_retries = 0; collaboration = None;
+    budget = no_budget; max_agent_retries = 0; collaboration_context = None;
     resource_check = None; max_concurrent_agents = None;
     enable_streaming = false;
   } in
@@ -545,7 +545,7 @@ let%test "structural_fingerprint: mode sensitive" =
     mode;
     convergence = None;
     max_parallel = 2; prompt = "test"; timeout_sec = None;
-    budget = no_budget; max_agent_retries = 0; collaboration = None;
+    budget = no_budget; max_agent_retries = 0; collaboration_context = None;
     resource_check = None; max_concurrent_agents = None;
     enable_streaming = false;
   } in
@@ -587,7 +587,7 @@ let%test "template_of_state: unconverged returns None" =
   let config : swarm_config = {
     entries = []; mode = Decentralized; convergence = None;
     max_parallel = 1; prompt = "x"; timeout_sec = None;
-    budget = no_budget; max_agent_retries = 0; collaboration = None;
+    budget = no_budget; max_agent_retries = 0; collaboration_context = None;
     resource_check = None; max_concurrent_agents = None;
     enable_streaming = false;
   } in
@@ -665,7 +665,7 @@ let%test "apply_hints: preserves prompt and mode" =
       metric = Callback (fun () -> 0.0); target = 0.9;
       max_iterations = 20; patience = 10; aggregate = Best_score };
     max_parallel = 4; prompt = "my prompt"; timeout_sec = None;
-    budget = no_budget; max_agent_retries = 0; collaboration = None;
+    budget = no_budget; max_agent_retries = 0; collaboration_context = None;
     resource_check = None; max_concurrent_agents = None;
     enable_streaming = false;
   } in
@@ -690,7 +690,7 @@ let%test "apply_hints: does not reorder Pipeline entries" =
       metric = Callback (fun () -> 0.0); target = 0.9;
       max_iterations = 20; patience = 10; aggregate = Best_score };
     max_parallel = 4; prompt = "test"; timeout_sec = None;
-    budget = no_budget; max_agent_retries = 0; collaboration = None;
+    budget = no_budget; max_agent_retries = 0; collaboration_context = None;
     resource_check = None; max_concurrent_agents = None;
     enable_streaming = false;
   } in
@@ -716,7 +716,7 @@ let%test "apply_hints: reorders Decentralized entries" =
       metric = Callback (fun () -> 0.0); target = 0.9;
       max_iterations = 20; patience = 10; aggregate = Best_score };
     max_parallel = 4; prompt = "test"; timeout_sec = None;
-    budget = no_budget; max_agent_retries = 0; collaboration = None;
+    budget = no_budget; max_agent_retries = 0; collaboration_context = None;
     resource_check = None; max_concurrent_agents = None;
     enable_streaming = false;
   } in
@@ -737,7 +737,7 @@ let%test "apply_hints: max_iterations clamped to original" =
       metric = Callback (fun () -> 0.0); target = 0.9;
       max_iterations = 3; patience = 2; aggregate = Best_score };
     max_parallel = 1; prompt = "test"; timeout_sec = None;
-    budget = no_budget; max_agent_retries = 0; collaboration = None;
+    budget = no_budget; max_agent_retries = 0; collaboration_context = None;
     resource_check = None; max_concurrent_agents = None;
     enable_streaming = false;
   } in
@@ -767,7 +767,7 @@ let%test "make_recording_callbacks: composes with base" =
   let config : swarm_config = {
     entries = []; mode = Decentralized; convergence = None;
     max_parallel = 1; prompt = "x"; timeout_sec = None;
-    budget = no_budget; max_agent_retries = 0; collaboration = None;
+    budget = no_budget; max_agent_retries = 0; collaboration_context = None;
     resource_check = None; max_concurrent_agents = None;
     enable_streaming = false;
   } in

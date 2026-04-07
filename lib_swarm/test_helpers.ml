@@ -59,7 +59,7 @@ let basic_config ~prompt entries : Swarm_types.swarm_config =
     max_parallel = List.length entries;
     prompt;
     timeout_sec = None;
-    budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration = None;
+    budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration_context = None;
     resource_check = None; max_concurrent_agents = None;
     enable_streaming = false;
   }

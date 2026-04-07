@@ -71,7 +71,6 @@ module Structured = Structured
 module Checkpoint = Checkpoint
 module Checkpoint_store = Checkpoint_store
 module Session = Session
-module Collaboration = Collaboration
 module Raw_trace = Raw_trace
 module Raw_trace_query = Raw_trace_query
 module Agent_types = Agent_types

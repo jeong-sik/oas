@@ -95,10 +95,10 @@ let no_budget = {
 
 (** Swarm configuration.
 
-    [collaboration] optionally attaches a {!Collaboration.t} to track
-    shared state across the swarm.  When present, the runner updates
-    participant states as agents start/complete.  Defaults to [None]
-    for backward compatibility — existing call sites are unaffected. *)
+    [collaboration_context] optionally carries opaque JSON from
+    upstream coordinators (e.g. MASC room state).  OAS does not
+    interpret the payload — it is passed through as-is.
+    Defaults to [None]. *)
 type swarm_config = {
   entries: agent_entry list;
   mode: orchestration_mode;
@@ -108,7 +108,7 @@ type swarm_config = {
   timeout_sec: float option;
   budget: resource_budget;
   max_agent_retries: int;
-  collaboration: Collaboration.t option;
+  collaboration_context: Yojson.Safe.t option;
   resource_check: (unit -> bool) option;
   max_concurrent_agents: int option;
   enable_streaming: bool;

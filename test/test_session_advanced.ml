@@ -1,7 +1,6 @@
-(** Advanced tests for Session module — collaboration, checkpoint, edge cases.
+(** Advanced tests for Session module — checkpoint, metadata, edge cases.
 
     Extends test_session.ml with:
-    - Session + Collaboration integration
     - Checkpoint roundtrip and resume lineage
     - Metadata evolution across turns
     - JSON edge cases *)
@@ -9,16 +8,7 @@
 open Alcotest
 open Agent_sdk
 
-(* ── Session + Collaboration ─────────────────────────── *)
-
-let test_session_with_collaboration () =
-  let s = Session.create ~id:"collab-test" () in
-  let collab = Collaboration.create ~goal:"test goal" () in
-  (* Store collaboration reference in session metadata *)
-  Context.set s.metadata "collab_id" (`String collab.id);
-  match Context.get s.metadata "collab_id" with
-  | Some (`String id) -> check string "collab id" collab.id id
-  | _ -> fail "collab_id missing from metadata"
+(* ── Session metadata ────────────────────────────────── *)
 
 let test_metadata_survives_record_turn () =
   let s = Session.create ~id:"meta-test" () in
@@ -127,9 +117,7 @@ let test_touch_updates () =
 
 let () =
   run "session_advanced" [
-    "collaboration", [
-      test_case "session with collaboration" `Quick
-        test_session_with_collaboration;
+    "session_metadata", [
       test_case "metadata survives record_turn" `Quick
         test_metadata_survives_record_turn;
       test_case "multiple record turns" `Quick test_multiple_record_turns;

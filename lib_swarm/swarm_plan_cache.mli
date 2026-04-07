@@ -61,7 +61,7 @@ type cache_backend = {
 
 (** Structural cache key from a swarm config.
     Includes: sorted agent (name, role) pairs, mode, convergence params.
-    Excludes: prompt, closures, timeout, collaboration. *)
+    Excludes: prompt, closures, timeout, collaboration_context. *)
 val structural_fingerprint : Swarm_types.swarm_config -> string
 
 (** Normalized prompt class — rough shape match, not exact string. *)

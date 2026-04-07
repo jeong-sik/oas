@@ -33,7 +33,7 @@ let test_create_state () =
     max_parallel = 4;
     prompt = "test prompt";
     timeout_sec = None;
-    budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration = None;
+    budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration_context = None;
     resource_check = None; max_concurrent_agents = None;
     enable_streaming = false;
   } in
@@ -198,7 +198,7 @@ let test_multi_agent_config () =
     max_parallel = 4;
     prompt = "Analyze the codebase";
     timeout_sec = Some 60.0;
-    budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration = None;
+    budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration_context = None;
     resource_check = None; max_concurrent_agents = None;
     enable_streaming = false;
   } in
@@ -237,7 +237,7 @@ let test_state_history () =
     max_parallel = 2;
     prompt = "test";
     timeout_sec = None;
-    budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration = None;
+    budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration_context = None;
     resource_check = None; max_concurrent_agents = None;
     enable_streaming = false;
   } in
@@ -280,7 +280,7 @@ let test_convergence_reaches_target () =
     max_parallel = 2;
     prompt = "test convergence";
     timeout_sec = None;
-    budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration = None;
+    budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration_context = None;
     resource_check = None; max_concurrent_agents = None;
     enable_streaming = false;
   } in
@@ -314,7 +314,7 @@ let test_convergence_patience_exhausted () =
     max_parallel = 1;
     prompt = "patience test";
     timeout_sec = None;
-    budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration = None;
+    budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration_context = None;
     resource_check = None; max_concurrent_agents = None;
     enable_streaming = false;
   } in
@@ -347,7 +347,7 @@ let test_convergence_max_iterations () =
     max_parallel = 1;
     prompt = "max iter test";
     timeout_sec = None;
-    budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration = None;
+    budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration_context = None;
     resource_check = None; max_concurrent_agents = None;
     enable_streaming = false;
   } in
@@ -372,7 +372,7 @@ let test_single_pass_no_convergence () =
     max_parallel = 4;
     prompt = "single pass";
     timeout_sec = None;
-    budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration = None;
+    budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration_context = None;
     resource_check = None; max_concurrent_agents = None;
     enable_streaming = false;
   } in
@@ -416,7 +416,7 @@ let test_callbacks_fire () =
     max_parallel = 1;
     prompt = "callback test";
     timeout_sec = None;
-    budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration = None;
+    budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration_context = None;
     resource_check = None; max_concurrent_agents = None;
     enable_streaming = false;
   } in
@@ -492,7 +492,7 @@ let test_12_worker_decentralized () =
     max_parallel = 6;
     prompt = "12-worker harness test";
     timeout_sec = None;
-    budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration = None;
+    budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration_context = None;
     resource_check = None; max_concurrent_agents = None;
     enable_streaming = false;
   } in
@@ -548,7 +548,7 @@ let test_12_worker_convergence () =
     max_parallel = 12;
     prompt = "12-worker convergence";
     timeout_sec = Some 30.0;
-    budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration = None;
+    budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration_context = None;
     resource_check = None; max_concurrent_agents = None;
     enable_streaming = false;
   } in
@@ -591,7 +591,7 @@ let test_12_worker_supervisor () =
     max_parallel = 6;
     prompt = "supervisor test";
     timeout_sec = None;
-    budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration = None;
+    budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration_context = None;
     resource_check = None; max_concurrent_agents = None;
     enable_streaming = false;
   } in
@@ -626,7 +626,7 @@ let test_12_worker_pipeline () =
     max_parallel = 1;
     prompt = "base prompt";
     timeout_sec = None;
-    budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration = None;
+    budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration_context = None;
     resource_check = None; max_concurrent_agents = None;
     enable_streaming = false;
   } in
@@ -664,7 +664,7 @@ let test_partial_failure_resilience () =
     max_parallel = 3;
     prompt = "resilience test";
     timeout_sec = None;
-    budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration = None;
+    budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration_context = None;
     resource_check = None; max_concurrent_agents = None;
     enable_streaming = false;
   } in
@@ -703,7 +703,7 @@ let test_single_pass_timeout () =
     max_parallel = 1;
     prompt = "timeout test";
     timeout_sec = Some 0.05;  (* 50ms timeout *)
-    budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration = None;
+    budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration_context = None;
     resource_check = None; max_concurrent_agents = None;
     enable_streaming = false;
   } in
@@ -728,7 +728,7 @@ let test_single_pass_usage () =
     max_parallel = 4;
     prompt = "usage test";
     timeout_sec = None;
-    budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration = None;
+    budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration_context = None;
     resource_check = None; max_concurrent_agents = None;
     enable_streaming = false;
   } in
@@ -770,7 +770,7 @@ let test_convergence_average_aggregate () =
     max_parallel = 1;
     prompt = "aggregate test";
     timeout_sec = None;
-    budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration = None;
+    budget = Swarm_types.no_budget; max_agent_retries = 0; collaboration_context = None;
     resource_check = None; max_concurrent_agents = None;
     enable_streaming = false;
   } in

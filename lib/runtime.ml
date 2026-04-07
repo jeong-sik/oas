@@ -64,24 +64,14 @@ type vote = {
 }
 [@@deriving yojson, show]
 
-(** Runtime session — wire protocol record.
-
-    {b Migration note}: The collaboration fields below are being migrated
-    to {!Collaboration.t}.  New code should prefer
-    {!Runtime_projection.collaboration_of_session} to extract a
-    [Collaboration.t] rather than reading these fields directly.
-
-    Fields marked {i (→ Collaboration.t)} will eventually be removed
-    once all consumers are migrated.
-
-    @see {!Collaboration} for the target type. *)
+(** Runtime session — wire protocol record. *)
 type session = {
   session_id: string;
-  goal: string;                       (** (→ Collaboration.t) *)
+  goal: string;
   title: string option;
   tag: string option;
   permission_mode: string option;
-  phase: phase;                       (** (→ Collaboration.t) *)
+  phase: phase;
   created_at: float;
   updated_at: float;
   provider: string option;
@@ -89,13 +79,13 @@ type session = {
   system_prompt: string option;
   max_turns: int;
   workdir: string option;
-  planned_participants: string list;  (** (→ Collaboration.t) *)
-  participants: participant list;     (** (→ Collaboration.t) *)
-  artifacts: artifact list;           (** (→ Collaboration.t) *)
-  votes: vote list; [@default []]     (** (→ Collaboration.t, deprecated) Wire-compat: kept with default for decode. *)
+  planned_participants: string list;
+  participants: participant list;
+  artifacts: artifact list;
+  votes: vote list; [@default []]     (** Deprecated. Wire-compat: kept with default for decode. *)
   turn_count: int;
   last_seq: int;
-  outcome: string option;             (** (→ Collaboration.t) *)
+  outcome: string option;
 }
 [@@deriving yojson, show]
 

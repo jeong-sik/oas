@@ -22,7 +22,7 @@ let base_config ?(entries=[mock_entry "a" Discover])
     ?(mode=Decentralized) ?(convergence=None) ?(prompt="test") () : swarm_config =
   { entries; mode; convergence;
     max_parallel = 4; prompt; timeout_sec = None;
-    budget = no_budget; max_agent_retries = 0; collaboration = None;
+    budget = no_budget; max_agent_retries = 0; collaboration_context = None;
     resource_check = None; max_concurrent_agents = None;
     enable_streaming = false }
 

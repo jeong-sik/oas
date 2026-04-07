@@ -155,7 +155,7 @@ let test_streaming_supervisor () =
     max_parallel = 4;
     prompt = "streaming supervisor test";
     timeout_sec = None;
-    budget = no_budget; max_agent_retries = 0; collaboration = None;
+    budget = no_budget; max_agent_retries = 0; collaboration_context = None;
     resource_check = None; max_concurrent_agents = None;
     enable_streaming = true;
   } in
@@ -191,7 +191,7 @@ let test_streaming_pipeline () =
     max_parallel = 1;
     prompt = "base prompt";
     timeout_sec = None;
-    budget = no_budget; max_agent_retries = 0; collaboration = None;
+    budget = no_budget; max_agent_retries = 0; collaboration_context = None;
     resource_check = None; max_concurrent_agents = None;
     enable_streaming = true;
   } in
@@ -227,7 +227,7 @@ let test_streaming_decentralized () =
     max_parallel = 4;
     prompt = "streaming decentral";
     timeout_sec = None;
-    budget = no_budget; max_agent_retries = 0; collaboration = None;
+    budget = no_budget; max_agent_retries = 0; collaboration_context = None;
     resource_check = None; max_concurrent_agents = None;
     enable_streaming = true;
   } in
@@ -264,7 +264,7 @@ let test_streaming_partial_failure () =
     max_parallel = 3;
     prompt = "streaming failure test";
     timeout_sec = None;
-    budget = no_budget; max_agent_retries = 0; collaboration = None;
+    budget = no_budget; max_agent_retries = 0; collaboration_context = None;
     resource_check = None; max_concurrent_agents = None;
     enable_streaming = true;
   } in
@@ -298,7 +298,7 @@ let test_streaming_disabled_unchanged () =
     max_parallel = 4;
     prompt = "non-streaming";
     timeout_sec = None;
-    budget = no_budget; max_agent_retries = 0; collaboration = None;
+    budget = no_budget; max_agent_retries = 0; collaboration_context = None;
     resource_check = None; max_concurrent_agents = None;
     enable_streaming = false;
   } in
@@ -327,7 +327,7 @@ let test_streaming_usage () =
     max_parallel = 4;
     prompt = "usage test";
     timeout_sec = None;
-    budget = no_budget; max_agent_retries = 0; collaboration = None;
+    budget = no_budget; max_agent_retries = 0; collaboration_context = None;
     resource_check = None; max_concurrent_agents = None;
     enable_streaming = true;
   } in

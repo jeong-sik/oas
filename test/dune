@@ -421,13 +421,6 @@
  (name test_a2a_client)
  (libraries agent_sdk alcotest yojson unix))
 
-(test
- (name test_collaboration)
- (libraries agent_sdk alcotest yojson eio eio_main str))
-
-(test
- (name test_collaboration_bridge)
- (libraries agent_sdk alcotest yojson unix))
 
 (test
  (name test_agent_typed)
@@ -510,9 +503,6 @@
  (name test_sessions_proof_unit)
  (libraries agent_sdk alcotest yojson unix))
 
-(test
- (name test_collaboration_deep)
- (libraries agent_sdk alcotest yojson eio eio_main))
 
 (test
  (name test_eval_report_full)
@@ -550,9 +540,6 @@
  (name test_raw_trace_deep)
  (libraries agent_sdk alcotest yojson unix))
 
-(test
- (name test_runtime_projection_unit)
- (libraries agent_sdk alcotest yojson unix))
 
 (test
  (name test_cascade_deep)
