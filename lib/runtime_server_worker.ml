@@ -129,15 +129,19 @@ let emit_output_delta store state session_id participant_name delta =
 
 let run_participant store state session_id
     (resolution : execution_resolution) (detail : spawn_agent_request) =
+  let delta_warn_logged = ref false in
   let emit_delta_text text =
     match emit_output_delta store state session_id detail.participant_name text with
     | Ok () -> ()
     | Error e ->
-      let _log = Log.create ~module_name:"runtime_server_worker" () in
-      Log.warn _log "output delta emission failed"
-        [Log.S ("session_id", session_id);
-         Log.S ("participant", detail.participant_name);
-         Log.S ("error", Error.to_string e)]
+      if not !delta_warn_logged then begin
+        delta_warn_logged := true;
+        let _log = Log.create ~module_name:"runtime_server_worker" () in
+        Log.warn _log "output delta emission failed"
+          [Log.S ("session_id", session_id);
+           Log.S ("participant", detail.participant_name);
+           Log.S ("error", Error.to_string e)]
+      end
   in
   let trace_sink =
     match
@@ -175,7 +179,8 @@ let run_participant store state session_id
            | Error e ->
                let _log = Log.create ~module_name:"runtime_server_worker" () in
                Log.warn _log "trace start_run failed for mock provider"
-                 [Log.S ("agent", detail.participant_name);
+                 [Log.S ("session_id", session_id);
+                  Log.S ("agent", detail.participant_name);
                   Log.S ("error", Error.to_string e)])
        | None -> ());
       let half = String.length full / 2 in
