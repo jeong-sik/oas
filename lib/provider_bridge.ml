@@ -26,9 +26,20 @@ let to_provider_config (legacy : Provider.config) : (Llm_provider.Provider_confi
             else Llm_provider.Provider_config.OpenAI_compat
       in
       let request_path = Provider.request_path legacy.provider in
+      let provider_name = match kind with
+        | Llm_provider.Provider_config.Anthropic -> "claude"
+        | Claude_code -> "claude"
+        | Gemini -> "gemini"
+        | Glm -> "glm"
+        | OpenAI_compat -> "llama"
+      in
+      let resolved_model_id =
+        Llm_provider.Cascade_model_resolve.resolve_auto_model_id
+          provider_name legacy.model_id
+      in
       Ok (Llm_provider.Provider_config.make
             ~kind
-            ~model_id:legacy.model_id
+            ~model_id:resolved_model_id
             ~base_url
             ~api_key
             ~headers
