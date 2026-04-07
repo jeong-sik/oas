@@ -64,3 +64,29 @@ let string_of_provider_kind = function
   | Gemini -> "gemini"
   | Glm -> "glm"
   | Claude_code -> "claude_code"
+
+(** Map thinking configuration to reasoning_effort string.
+    Four levels: "none", "low" (≤2048), "medium" (≤8192), "high" (>8192).
+    Shared by Ollama backends and api_openai request building.
+    @since 0.114.0 *)
+let effort_of_thinking_config ~(enable_thinking : bool option)
+    ~(thinking_budget : int option) : string =
+  match enable_thinking with
+  | Some false | None -> "none"
+  | Some true ->
+      match thinking_budget with
+      | Some n when n <= 0 -> "none"
+      | Some n when n <= 2048 -> "low"
+      | Some n when n <= 8192 -> "medium"
+      | Some _ -> "high"
+      | None -> "medium"
+
+(** Compute reasoning_effort for a provider config.
+    Returns [None] for non-Ollama providers.
+    @since 0.114.0 *)
+let reasoning_effort_of_config (config : t) : string option =
+  match config.kind with
+  | Ollama -> Some (effort_of_thinking_config
+                      ~enable_thinking:config.enable_thinking
+                      ~thinking_budget:config.thinking_budget)
+  | _ -> None

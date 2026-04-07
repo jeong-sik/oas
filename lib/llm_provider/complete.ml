@@ -61,22 +61,8 @@ let apply_sampling_defaults (config : Provider_config.t) : Provider_config.t =
   }
 
 (** Compute the reasoning_effort string that was sent for the given config.
-    Returns [None] for non-Ollama providers. *)
-let reasoning_effort_of_config (config : Provider_config.t) : string option =
-  match config.kind with
-  | Provider_config.Ollama ->
-      let effort = match config.enable_thinking with
-        | Some false | None -> "none"
-        | Some true ->
-            match config.thinking_budget with
-            | Some n when n <= 0 -> "none"
-            | Some n when n <= 2048 -> "low"
-            | Some n when n <= 8192 -> "medium"
-            | Some _ -> "high"
-            | None -> "medium"
-      in
-      Some effort
-  | _ -> None
+    Delegates to {!Provider_config.reasoning_effort_of_config}. *)
+let reasoning_effort_of_config = Provider_config.reasoning_effort_of_config
 
 (** Patch {!Types.api_response} telemetry with measured request latency
     and provider metadata.

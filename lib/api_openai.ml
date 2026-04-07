@@ -74,7 +74,9 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
     match config.config.enable_thinking with
     | Some enabled when capabilities.supports_reasoning ->
         if is_ollama_like then
-          let effort = if enabled then "medium" else "none" in
+          let effort = Llm_provider.Provider_config.effort_of_thinking_config
+              ~enable_thinking:(Some enabled)
+              ~thinking_budget:config.config.thinking_budget in
           ("reasoning_effort", `String effort) :: body_assoc
         else
           ("chat_template_kwargs", `Assoc [("enable_thinking", `Bool enabled)]) :: body_assoc

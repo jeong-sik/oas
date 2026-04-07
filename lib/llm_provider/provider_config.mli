@@ -66,3 +66,14 @@ val make :
     Exhaustive match: adding a new variant triggers a compile error.
     @since 0.100.0 *)
 val string_of_provider_kind : provider_kind -> string
+
+(** Map thinking configuration fields to reasoning_effort string.
+    Returns "none", "low", "medium", or "high".
+    @since 0.114.0 *)
+val effort_of_thinking_config :
+  enable_thinking:bool option -> thinking_budget:int option -> string
+
+(** Compute reasoning_effort for a provider config.
+    Returns [None] for non-Ollama providers.
+    @since 0.114.0 *)
+val reasoning_effort_of_config : t -> string option
