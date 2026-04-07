@@ -58,20 +58,25 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
     | Some p -> ("min_p", `Float p) :: body
     | None -> body
   in
-  let body = match config.enable_thinking with
-    | Some enabled ->
+  let body = match config.kind, config.enable_thinking with
+    | Ollama, Some true ->
+        ("reasoning_effort", `String "medium") :: body
+    | Ollama, (Some false | None) ->
+        ("reasoning_effort", `String "none") :: body
+    | _, Some enabled ->
         ("chat_template_kwargs",
          `Assoc [("enable_thinking", `Bool enabled)]) :: body
-    | None -> body
+    | _, None -> body
+  in
+  let body = match config.kind, config.tool_choice with
+    | Ollama, _ -> body  (* Ollama does not support tool_choice *)
+    | _, Some choice -> ("tool_choice", tool_choice_to_openai_json choice) :: body
+    | _, None -> body
   in
   let body = match tools with
     | [] -> body
     | ts ->
         ("tools", `List (List.map build_openai_tool_json ts)) :: body
-  in
-  let body = match config.tool_choice with
-    | Some choice -> ("tool_choice", tool_choice_to_openai_json choice) :: body
-    | None -> body
   in
   let body =
     if config.disable_parallel_tool_use && tools <> [] then

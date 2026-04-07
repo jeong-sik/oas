@@ -67,10 +67,19 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
     | None -> body_assoc
     | Some _ -> body_assoc
   in
+  let is_ollama_like =
+    capabilities.supports_reasoning && not capabilities.supports_tool_choice
+  in
   let body_assoc =
     match config.config.enable_thinking with
     | Some enabled when capabilities.supports_reasoning ->
-        ("chat_template_kwargs", `Assoc [("enable_thinking", `Bool enabled)]) :: body_assoc
+        if is_ollama_like then
+          let effort = if enabled then "medium" else "none" in
+          ("reasoning_effort", `String effort) :: body_assoc
+        else
+          ("chat_template_kwargs", `Assoc [("enable_thinking", `Bool enabled)]) :: body_assoc
+    | None when is_ollama_like ->
+        ("reasoning_effort", `String "none") :: body_assoc
     | None -> body_assoc
     | Some _ -> body_assoc
   in

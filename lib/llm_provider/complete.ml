@@ -38,7 +38,7 @@ type sampling_defaults = {
 
 let provider_sampling_defaults (kind : Provider_config.provider_kind) : sampling_defaults =
   match kind with
-  | Provider_config.OpenAI_compat ->
+  | Provider_config.OpenAI_compat | Provider_config.Ollama ->
     { default_min_p = Some Constants.Sampling.openai_compat_min_p;
       default_top_p = None; default_top_k = None }
   | Provider_config.Anthropic ->
@@ -88,7 +88,7 @@ let complete_http ~sw ~net ~(config : Provider_config.t)
   let body_str = match config.kind with
     | Provider_config.Anthropic ->
         Backend_anthropic.build_request ~config ~messages ~tools ()
-    | Provider_config.OpenAI_compat ->
+    | Provider_config.OpenAI_compat | Provider_config.Ollama ->
         Backend_openai.build_request ~config ~messages ~tools ()
     | Provider_config.Gemini ->
         Backend_gemini.build_request ~config ~messages ~tools ()
@@ -111,7 +111,7 @@ let complete_http ~sw ~net ~(config : Provider_config.t)
           | Provider_config.Anthropic ->
               Ok (Backend_anthropic.parse_response
                     (Yojson.Safe.from_string body))
-          | Provider_config.OpenAI_compat ->
+          | Provider_config.OpenAI_compat | Provider_config.Ollama ->
               (match Backend_openai_parse.parse_openai_response_result body with
                | Ok resp -> Ok resp
                | Error msg ->
@@ -300,7 +300,7 @@ let complete_stream_http ~sw:_ ~net ~(config : Provider_config.t)
   let body_str = match config.kind with
     | Provider_config.Anthropic ->
         Backend_anthropic.build_request ~stream:true ~config ~messages ~tools ()
-    | Provider_config.OpenAI_compat ->
+    | Provider_config.OpenAI_compat | Provider_config.Ollama ->
         Backend_openai.build_request ~stream:true ~config ~messages ~tools ()
     | Provider_config.Gemini ->
         Backend_gemini.build_request ~stream:true ~config ~messages ~tools ()
@@ -328,7 +328,7 @@ let complete_stream_http ~sw:_ ~net ~(config : Provider_config.t)
                     (match Streaming.parse_sse_event event_type data with
                      | Some evt -> [evt]
                      | None -> [])
-                | Provider_config.OpenAI_compat ->
+                | Provider_config.OpenAI_compat | Provider_config.Ollama ->
                     let state = match !openai_state with
                       | Some s -> s
                       | None ->
