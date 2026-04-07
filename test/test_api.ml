@@ -418,7 +418,15 @@ let test_parse_openai_response_ollama_reasoning () =
      | [Types.Thinking { content = t; _ }; Types.Text text] ->
        check string "reasoning text"
          "Ollama uses reasoning field instead of reasoning_content." t;
-       check string "content text" "The answer is 42." text
+       check string "content text" "The answer is 42." text;
+       (* Verify telemetry estimates reasoning_tokens from content length *)
+       (match resp.telemetry with
+        | Some tel ->
+          (match tel.reasoning_tokens with
+           | Some n ->
+             check bool "estimated reasoning_tokens > 0" true (n > 0)
+           | None -> Alcotest.fail "reasoning_tokens should be estimated from reasoning text")
+        | None -> Alcotest.fail "telemetry should be present")
      | _ -> Alcotest.fail "expected [Thinking; Text]")
 
 let test_parse_openai_response_reasoning_content_preferred () =
@@ -443,7 +451,16 @@ let test_parse_openai_response_reasoning_content_preferred () =
     (match resp.content with
      | [Types.Thinking { content = t; _ }; Types.Text text] ->
        check string "reasoning_content wins" "preferred field" t;
-       check string "content text" "Answer." text
+       check string "content text" "Answer." text;
+       (* Verify telemetry picks up reasoning_tokens from preferred field *)
+       (match resp.telemetry with
+        | Some tel ->
+          (match tel.reasoning_tokens with
+           | Some n ->
+             (* "preferred field" = 15 chars → ~3-4 tokens *)
+             check bool "estimated reasoning_tokens > 0" true (n > 0)
+           | None -> Alcotest.fail "reasoning_tokens should be estimated")
+        | None -> Alcotest.fail "telemetry should be present")
      | _ -> Alcotest.fail "expected [Thinking; Text]")
 
 (* ------------------------------------------------------------------ *)
