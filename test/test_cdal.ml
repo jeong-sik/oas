@@ -549,6 +549,7 @@ let test_proof_capture_lifecycle () =
          input = `String "ls";
          output = Ok { Types.content = "file.txt" };
          result_bytes = 8;
+         duration_ms = 5.0;
          schedule = default_schedule ();
        }) in
   let resp = mock_response "claude-test" in
@@ -626,6 +627,7 @@ let test_proof_capture_multiple_tools () =
          input = `String "a.ml";
          output = Ok { Types.content = "code" };
          result_bytes = 4;
+         duration_ms = 2.0;
          schedule =
            default_schedule ~planned_index:0 ~batch_index:0
              ~concurrency_class:"parallel_read" ();
@@ -665,6 +667,7 @@ let test_proof_capture_multiple_tools () =
          input = `String "b.ml";
          output = Error { Types.message = "conflict"; recoverable = true };
          result_bytes = 0;
+         duration_ms = 3.0;
          schedule = default_schedule ~planned_index:2 ~batch_index:2 ();
        }) in
   let proof = Proof_capture.finalize state ~result_status:Cdal_proof.Completed in
