@@ -16,7 +16,8 @@
 val resolve_glm_model_id : string -> string
 
 (** Resolve "auto" and aliases to concrete model IDs for any provider.
-    Cloud providers resolve aliases; local providers pass through. *)
+    Cloud providers resolve aliases; local providers (llama, ollama) resolve
+    "auto" via {!Discovery.first_discovered_model_id}. *)
 val resolve_auto_model_id : string -> string -> string
 
 (** Parse a "model@url" custom model spec.

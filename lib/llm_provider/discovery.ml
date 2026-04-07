@@ -36,14 +36,24 @@ let default_endpoint =
   | _, Some v when String.trim v <> "" -> String.trim v
   | _ -> Constants.Endpoints.default_url
 
+let ollama_endpoint =
+  match Sys.getenv_opt "OLLAMA_HOST" with
+  | Some url when String.trim url <> "" -> String.trim url
+  | _ -> "http://127.0.0.1:11434"
+
 let endpoints_from_env () =
-  match Sys.getenv_opt "LLM_ENDPOINTS" with
-  | None | Some "" -> [default_endpoint]
-  | Some value ->
-    value
-    |> String.split_on_char ','
-    |> List.map String.trim
-    |> List.filter (fun s -> s <> "")
+  let explicit = match Sys.getenv_opt "LLM_ENDPOINTS" with
+    | None | Some "" -> [default_endpoint]
+    | Some value ->
+      value
+      |> String.split_on_char ','
+      |> List.map String.trim
+      |> List.filter (fun s -> s <> "")
+  in
+  (* Include Ollama endpoint if not already listed.
+     Discovery handles both llama-server and Ollama probe paths. *)
+  if List.mem ollama_endpoint explicit then explicit
+  else explicit @ [ollama_endpoint]
 
 (* ── HTTP helpers ────────────────────────────────────────── *)
 
@@ -426,30 +436,41 @@ let%test "endpoints_from_env default when unset" =
   (match Sys.getenv_opt "LLM_ENDPOINTS" with
    | Some _ -> Unix.putenv "LLM_ENDPOINTS" ""
    | None -> ());
-  endpoints_from_env () = [default_endpoint]
+  let eps = endpoints_from_env () in
+  List.hd eps = default_endpoint
+  && List.mem ollama_endpoint eps
 
 let%test "endpoints_from_env parses comma-separated" =
   Unix.putenv "LLM_ENDPOINTS" "http://a:8080,http://b:8081";
   let eps = endpoints_from_env () in
   Unix.putenv "LLM_ENDPOINTS" "";
-  eps = ["http://a:8080"; "http://b:8081"]
+  List.mem "http://a:8080" eps
+  && List.mem "http://b:8081" eps
+  && List.mem ollama_endpoint eps
 
 let%test "endpoints_from_env trims whitespace" =
   Unix.putenv "LLM_ENDPOINTS" "  http://a:8080 , http://b:8081  ";
   let eps = endpoints_from_env () in
   Unix.putenv "LLM_ENDPOINTS" "";
-  eps = ["http://a:8080"; "http://b:8081"]
+  List.mem "http://a:8080" eps
+  && List.mem "http://b:8081" eps
 
 let%test "endpoints_from_env filters empty parts" =
   Unix.putenv "LLM_ENDPOINTS" "http://a,,http://b,";
   let eps = endpoints_from_env () in
   Unix.putenv "LLM_ENDPOINTS" "";
-  eps = ["http://a"; "http://b"]
+  List.mem "http://a" eps && List.mem "http://b" eps
 
 let%test "endpoints_from_env empty string returns default" =
   Unix.putenv "LLM_ENDPOINTS" "";
   let eps = endpoints_from_env () in
-  eps = [default_endpoint]
+  List.hd eps = default_endpoint
+
+let%test "endpoints_from_env does not duplicate ollama" =
+  Unix.putenv "LLM_ENDPOINTS" (ollama_endpoint ^ ",http://a:8085");
+  let eps = endpoints_from_env () in
+  Unix.putenv "LLM_ENDPOINTS" "";
+  List.length (List.filter ((=) ollama_endpoint) eps) = 1
 
 (* --- parse_models --- *)
 

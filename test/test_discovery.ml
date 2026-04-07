@@ -11,7 +11,7 @@ let test_endpoints_from_env_default () =
   let result = Discovery.endpoints_from_env () in
   (match saved with Some v -> Unix.putenv "LLM_ENDPOINTS" v | None -> ());
   Alcotest.(check (list string)) "default endpoint"
-    ["http://127.0.0.1:8085"] result
+    ["http://127.0.0.1:8085"; Discovery.ollama_endpoint] result
 
 let test_endpoints_from_env_custom () =
   let saved = Sys.getenv_opt "LLM_ENDPOINTS" in
@@ -19,7 +19,7 @@ let test_endpoints_from_env_custom () =
   let result = Discovery.endpoints_from_env () in
   (match saved with Some v -> Unix.putenv "LLM_ENDPOINTS" v | None -> ());
   Alcotest.(check (list string)) "parsed endpoints"
-    ["http://a:8085"; "http://b:8086"; "http://c:8087"] result
+    ["http://a:8085"; "http://b:8086"; "http://c:8087"; Discovery.ollama_endpoint] result
 
 let test_parse_models_json () =
   let json = Yojson.Safe.from_string {|{

@@ -90,10 +90,14 @@ let make_registry_config ~temperature ~max_tokens ?system_prompt
     else Sys.getenv_opt defaults.api_key_env |> Option.value ~default:""
   in
   let headers = headers_with_auth ~kind:defaults.kind ~api_key in
-  (* For llama, resolve "auto" before endpoint selection so that routing
-     uses the concrete model name and avoids round-robin mismatches. *)
+  (* For local providers, resolve "auto" before endpoint selection so that
+     routing uses the concrete model name discovered from the server. *)
+  let is_local_auto =
+    (provider_name = "llama" || provider_name = "ollama")
+    && model_id = "auto"
+  in
   let effective_model_id =
-    if provider_name = "llama" && model_id = "auto" then
+    if is_local_auto then
       Discovery.first_discovered_model_id () |> Option.value ~default:model_id
     else model_id
   in
