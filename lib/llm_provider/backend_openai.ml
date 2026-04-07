@@ -58,11 +58,21 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
     | Some p -> ("min_p", `Float p) :: body
     | None -> body
   in
+  let ollama_reasoning_effort config =
+    match config.Provider_config.enable_thinking with
+    | Some false | None -> "none"
+    | Some true ->
+        match config.thinking_budget with
+        | Some n when n <= 0 -> "none"
+        | Some n when n <= 2048 -> "low"
+        | Some n when n <= 8192 -> "medium"
+        | Some _ -> "high"
+        | None -> "medium"
+  in
   let body = match config.kind, config.enable_thinking with
-    | Ollama, Some true ->
-        ("reasoning_effort", `String "medium") :: body
-    | Ollama, (Some false | None) ->
-        ("reasoning_effort", `String "none") :: body
+    | Ollama, _ ->
+        let effort = ollama_reasoning_effort config in
+        ("reasoning_effort", `String effort) :: body
     | _, Some enabled ->
         ("chat_template_kwargs",
          `Assoc [("enable_thinking", `Bool enabled)]) :: body

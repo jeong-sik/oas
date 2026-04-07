@@ -60,19 +60,43 @@ let apply_sampling_defaults (config : Provider_config.t) : Provider_config.t =
     top_k = (match config.top_k with Some _ -> config.top_k | None -> defaults.default_top_k);
   }
 
-(** Patch {!Types.api_response} telemetry with measured request latency.
+(** Compute the reasoning_effort string that was sent for the given config.
+    Returns [None] for non-Ollama providers. *)
+let reasoning_effort_of_config (config : Provider_config.t) : string option =
+  match config.kind with
+  | Provider_config.Ollama ->
+      let effort = match config.enable_thinking with
+        | Some false | None -> "none"
+        | Some true ->
+            match config.thinking_budget with
+            | Some n when n <= 0 -> "none"
+            | Some n when n <= 2048 -> "low"
+            | Some n when n <= 8192 -> "medium"
+            | Some _ -> "high"
+            | None -> "medium"
+      in
+      Some effort
+  | _ -> None
+
+(** Patch {!Types.api_response} telemetry with measured request latency
+    and provider metadata.
     The JSON parser sets [request_latency_ms = 0] because it cannot see the
     HTTP round-trip time; this function fills the actual value after the
     request completes. *)
-let patch_telemetry_latency (resp : Types.api_response) (latency_ms : int)
-    : Types.api_response =
+let patch_telemetry (resp : Types.api_response) ~(config : Provider_config.t)
+    (latency_ms : int) : Types.api_response =
+  let pk = Some (Provider_config.string_of_provider_kind config.kind) in
+  let re = reasoning_effort_of_config config in
   let telemetry = match resp.telemetry with
-    | Some t -> Some { t with Types.request_latency_ms = latency_ms }
+    | Some t -> Some { t with Types.request_latency_ms = latency_ms;
+                               provider_kind = pk; reasoning_effort = re }
     | None -> Some {
         Types.system_fingerprint = None;
         timings = None;
         reasoning_tokens = None;
         request_latency_ms = latency_ms;
+        provider_kind = pk;
+        reasoning_effort = re;
       }
   in
   { resp with telemetry }
@@ -175,7 +199,7 @@ let complete ~sw ~net ?(transport : Llm_transport.t option)
       (match result with
        | Ok resp ->
            let resp = Pricing.annotate_response_cost resp in
-           let resp = patch_telemetry_latency resp latency_ms in
+           let resp = patch_telemetry resp ~config latency_ms in
            m.on_request_end ~model_id ~latency_ms;
            (* Cache store — reuse pre-computed key *)
            (match cache, cache_key with
@@ -369,7 +393,7 @@ let complete_stream_http ~sw:_ ~net ~(config : Provider_config.t)
   | Error _ as e -> e
   | Ok (Ok resp) ->
       let latency_ms = int_of_float ((Unix.gettimeofday () -. t0) *. 1000.0) in
-      Ok (patch_telemetry_latency resp latency_ms)
+      Ok (patch_telemetry resp ~config latency_ms)
   | Ok (Error msg) ->
       Error (Http_client.NetworkError {
         message = Printf.sprintf "SSE stream error: %s" msg })
@@ -597,7 +621,9 @@ let%test "apply_sampling_defaults Anthropic preserves explicit top_p" =
   let applied = apply_sampling_defaults config in
   applied.top_p = Some 0.95
 
-let%test "patch_telemetry_latency fills latency on existing telemetry" =
+let%test "patch_telemetry fills latency and provider on existing telemetry" =
+  let config = Provider_config.make ~kind:Ollama ~model_id:"qwen3.5:9b"
+    ~base_url:"http://localhost:11434" () in
   let resp = {
     Types.id = "test"; model = "m"; stop_reason = Types.EndTurn;
     content = []; usage = None;
@@ -605,23 +631,50 @@ let%test "patch_telemetry_latency fills latency on existing telemetry" =
       Types.system_fingerprint = Some "fp-1";
       timings = None; reasoning_tokens = Some 10;
       request_latency_ms = 0;
+      provider_kind = None; reasoning_effort = None;
     };
   } in
-  let patched = patch_telemetry_latency resp 42 in
+  let patched = patch_telemetry resp ~config 42 in
   match patched.telemetry with
   | Some t -> t.request_latency_ms = 42
               && t.system_fingerprint = Some "fp-1"
               && t.reasoning_tokens = Some 10
+              && t.provider_kind = Some "ollama"
+              && t.reasoning_effort = Some "none"
   | None -> false
 
-let%test "patch_telemetry_latency creates telemetry when None" =
+let%test "patch_telemetry creates telemetry when None" =
+  let config = Provider_config.make ~kind:OpenAI_compat ~model_id:"gpt-4"
+    ~base_url:"https://api.openai.com" () in
   let resp = {
     Types.id = "test"; model = "m"; stop_reason = Types.EndTurn;
     content = []; usage = None; telemetry = None;
   } in
-  let patched = patch_telemetry_latency resp 100 in
+  let patched = patch_telemetry resp ~config 100 in
   match patched.telemetry with
   | Some t -> t.request_latency_ms = 100
-              && t.system_fingerprint = None
-              && t.timings = None
+              && t.provider_kind = Some "openai_compat"
+              && t.reasoning_effort = None
   | None -> false
+
+let%test "reasoning_effort_of_config Ollama default is none" =
+  let config = Provider_config.make ~kind:Ollama ~model_id:"m"
+    ~base_url:"http://localhost:11434" () in
+  reasoning_effort_of_config config = Some "none"
+
+let%test "reasoning_effort_of_config Ollama thinking=true budget=4096 is medium" =
+  let config = Provider_config.make ~kind:Ollama ~model_id:"m"
+    ~base_url:"http://localhost:11434"
+    ~enable_thinking:true ~thinking_budget:4096 () in
+  reasoning_effort_of_config config = Some "medium"
+
+let%test "reasoning_effort_of_config Ollama thinking=true budget=16384 is high" =
+  let config = Provider_config.make ~kind:Ollama ~model_id:"m"
+    ~base_url:"http://localhost:11434"
+    ~enable_thinking:true ~thinking_budget:16384 () in
+  reasoning_effort_of_config config = Some "high"
+
+let%test "reasoning_effort_of_config non-Ollama is None" =
+  let config = Provider_config.make ~kind:Anthropic ~model_id:"m"
+    ~base_url:"https://api.anthropic.com" () in
+  reasoning_effort_of_config config = None
