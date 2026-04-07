@@ -80,8 +80,13 @@ let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
     let call_with_timeout () =
       match clock with
       | Some clock when not is_last && cascade_model_timeout_sec > 0.0 ->
-        (match Eio.Time.with_timeout clock cascade_model_timeout_sec call with
-         | Ok result -> result
+        let wrapped () =
+          match call () with
+          | Ok v -> Ok (Ok v)
+          | Error e -> Ok (Error e)
+        in
+        (match Eio.Time.with_timeout clock cascade_model_timeout_sec wrapped with
+         | Ok inner -> inner
          | Error `Timeout ->
            Error (Http_client.NetworkError {
                message = Printf.sprintf "timeout after %.0fs, cascading to next provider"
