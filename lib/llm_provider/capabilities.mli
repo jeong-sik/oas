@@ -36,6 +36,8 @@ type capabilities = {
   (* Advanced modalities *)
   supports_computer_use: bool;
   supports_code_execution: bool;
+  (* Provider identity *)
+  is_ollama: bool;
 }
 
 val default_capabilities : capabilities

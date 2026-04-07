@@ -54,6 +54,8 @@ type capabilities = {
   supports_min_p: bool;
   supports_computer_use: bool;
   supports_code_execution: bool;
+  (* Provider identity *)
+  is_ollama: bool;
 }
 
 type inference_contract = {
