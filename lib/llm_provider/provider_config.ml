@@ -4,6 +4,7 @@
 type provider_kind =
   | Anthropic
   | OpenAI_compat
+  | Ollama
   | Gemini
   | Glm
   | Claude_code
@@ -42,6 +43,7 @@ let make ~kind ~model_id ~base_url
     | None -> match kind with
       | Anthropic -> "/v1/messages"
       | OpenAI_compat -> "/v1/chat/completions"
+      | Ollama -> "/api/chat"
       | Gemini -> ""
       | Glm -> "/chat/completions"
       | Claude_code -> ""
@@ -58,6 +60,7 @@ let make ~kind ~model_id ~base_url
 let string_of_provider_kind = function
   | Anthropic -> "anthropic"
   | OpenAI_compat -> "openai_compat"
+  | Ollama -> "ollama"
   | Gemini -> "gemini"
   | Glm -> "glm"
   | Claude_code -> "claude_code"

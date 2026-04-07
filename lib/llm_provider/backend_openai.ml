@@ -64,14 +64,14 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
          `Assoc [("enable_thinking", `Bool enabled)]) :: body
     | None -> body
   in
+  let body = match config.tool_choice with
+    | Some choice -> ("tool_choice", tool_choice_to_openai_json choice) :: body
+    | None -> body
+  in
   let body = match tools with
     | [] -> body
     | ts ->
         ("tools", `List (List.map build_openai_tool_json ts)) :: body
-  in
-  let body = match config.tool_choice with
-    | Some choice -> ("tool_choice", tool_choice_to_openai_json choice) :: body
-    | None -> body
   in
   let body =
     if config.disable_parallel_tool_use && tools <> [] then
