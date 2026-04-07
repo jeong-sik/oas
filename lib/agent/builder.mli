@@ -80,11 +80,16 @@ val with_context_reducer : Context_reducer.t -> t -> t
 
 (** Set context reduction thresholds.
     [compact_ratio] determines when to compact (default 0.8).
+    [?max_tokens] overrides the context window size for the reducer budget.
+    When omitted, derives from [max_total_tokens], then [max_input_tokens],
+    then falls back to 200_000.  Values <= 0 are ignored.
     [prepare_ratio] and [handoff_ratio] are stored for future use.
 
-    @since 0.79.0 *)
+    @since 0.79.0
+    @since 0.111.0 [?max_tokens] parameter *)
 val with_context_thresholds :
   compact_ratio:float ->
+  ?max_tokens:int ->
   ?prepare_ratio:float ->
   ?handoff_ratio:float ->
   t -> t

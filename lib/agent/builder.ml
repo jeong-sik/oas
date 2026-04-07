@@ -135,9 +135,19 @@ let with_approval approval b = { b with approval = Some approval }
 let with_tool_retry_policy tool_retry_policy b =
   { b with tool_retry_policy = Some tool_retry_policy }
 let with_context_reducer reducer b = { b with context_reducer = Some reducer }
-let with_context_thresholds ~compact_ratio ?prepare_ratio ?handoff_ratio b =
+let with_context_thresholds ~compact_ratio ?max_tokens ?prepare_ratio ?handoff_ratio b =
+  let effective_max = match max_tokens with
+    | Some n when n > 0 -> n
+    | _ ->
+      match b.max_total_tokens with
+      | Some n when n > 0 -> n
+      | _ ->
+        match b.max_input_tokens with
+        | Some n when n > 0 -> n
+        | _ -> 200_000
+  in
   let reducer = Context_reducer.from_context_config ~compact_ratio
-    ~max_tokens:(match b.max_total_tokens with Some n -> n | None -> 200_000) () in
+    ~max_tokens:effective_max () in
   { b with context_reducer = Some reducer;
     context_compact_ratio = Some compact_ratio;
     context_prepare_ratio = prepare_ratio;

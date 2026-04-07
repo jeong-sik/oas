@@ -474,13 +474,18 @@ let stage_output ?raw_trace_run agent ~effective_guardrails response =
 
 (* ── Proactive watermark compaction (Phase 2) ───────────── *)
 
-(** Conservative context-window size for proactive compaction.  Proactive
-    compaction needs a context-window denominator, not the cumulative
-    input-token budget in [config.max_input_tokens].  The [agent] parameter
-    is reserved for future extension (e.g., deriving the window from
-    model/provider capability metadata); for now a conservative default is
-    returned unconditionally. *)
-let proactive_context_window_tokens _agent = 128_000
+(** Context-window size for proactive compaction.  Derives from the
+    agent's configured token limits; falls back to 128_000 when no
+    limit is configured.  Prefers [max_total_tokens] (if set) over
+    [max_input_tokens] since proactive compaction operates on messages,
+    not cumulative usage. *)
+let proactive_context_window_tokens agent =
+  match agent.state.config.max_total_tokens with
+  | Some n when n > 0 -> n
+  | _ ->
+    match agent.state.config.max_input_tokens with
+    | Some n when n > 0 -> n
+    | _ -> 128_000
 
 (** Apply proactive compaction when context usage exceeds the configured
     watermark ratio, BEFORE hitting the provider limit.  Uses
