@@ -855,3 +855,21 @@ let%test "context_for_model returns None when model not indexed" =
         model_endpoints = [];
         per_slot_ctx = Some 32768 };
     context_for_model "any-model" = None)
+
+let%test "first_discovered_model_id returns None for empty snapshot" =
+  let old = Atomic.get _discovered_ctx in
+  Fun.protect ~finally:(fun () -> Atomic.set _discovered_ctx old) (fun () ->
+    Atomic.set _discovered_ctx
+      { endpoint_ctxs = []; model_endpoints = []; per_slot_ctx = None };
+    first_discovered_model_id () = None)
+
+let%test "first_discovered_model_id returns first model_id from snapshot" =
+  let old = Atomic.get _discovered_ctx in
+  Fun.protect ~finally:(fun () -> Atomic.set _discovered_ctx old) (fun () ->
+    Atomic.set _discovered_ctx
+      { endpoint_ctxs = [("http://localhost:8085", 8192)];
+        model_endpoints =
+          [ ("model-a", "http://localhost:8085");
+            ("model-b", "http://localhost:8086") ];
+        per_slot_ctx = Some 8192 };
+    first_discovered_model_id () = Some "model-a")

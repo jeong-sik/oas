@@ -40,19 +40,15 @@ let resolve_glm_model_id model_id =
   | _ -> model_id
 
 (** Resolve "auto" and aliases to concrete model IDs.
-    Cloud APIs reject unknown model names; local servers accept any.
+    Cloud APIs generally require concrete model names, and the local
+    llama provider also cannot accept the literal "auto" model ID.
 
-    For local providers (llama), "auto" is resolved via Discovery —
-    the actual model name is queried from the server's /v1/models endpoint.
-    This keeps OAS model-agnostic: no hardcoded local model names. *)
+    For local providers (llama), "auto" must be resolved before endpoint
+    selection — callers should resolve the model_id before invoking
+    [Discovery.endpoint_for_model] to avoid routing mismatches. *)
 let resolve_auto_model_id provider_name model_id =
   match provider_name with
-  | "llama" ->
-    if model_id = "auto" then
-      match Discovery.first_discovered_model_id () with
-      | Some concrete -> concrete
-      | None -> model_id (* Discovery not ready yet — keep "auto" *)
-    else model_id
+  | "llama" -> model_id
   | "glm" -> resolve_glm_model_id model_id
   | "gemini" ->
     if model_id = "auto" then env_or "gemini-2.5-flash" "GEMINI_DEFAULT_MODEL"

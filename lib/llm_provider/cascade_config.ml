@@ -90,15 +90,22 @@ let make_registry_config ~temperature ~max_tokens ?system_prompt
     else Sys.getenv_opt defaults.api_key_env |> Option.value ~default:""
   in
   let headers = headers_with_auth ~kind:defaults.kind ~api_key in
+  (* For llama, resolve "auto" before endpoint selection so that routing
+     uses the concrete model name and avoids round-robin mismatches. *)
+  let effective_model_id =
+    if provider_name = "llama" && model_id = "auto" then
+      Discovery.first_discovered_model_id () |> Option.value ~default:model_id
+    else model_id
+  in
   let base_url =
     if provider_name = "llama" then
       (* Route to the endpoint that has this model; round-robin fallback *)
-      match Discovery.endpoint_for_model model_id with
+      match Discovery.endpoint_for_model effective_model_id with
       | Some url -> url
       | None -> Provider_registry.next_llama_endpoint ()
     else defaults.base_url
   in
-  let resolved_model_id = resolve_auto_model_id provider_name model_id in
+  let resolved_model_id = resolve_auto_model_id provider_name effective_model_id in
   Provider_config.make
     ~kind:defaults.kind
     ~model_id:resolved_model_id

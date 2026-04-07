@@ -245,7 +245,9 @@ let test_context_overflow_bad_request_cascades () =
 (* ── Auto model_id resolution ─────────────────────────── *)
 
 let test_auto_llama_passthrough () =
-  (* llama:auto should keep "auto" — local server accepts any model_id *)
+  (* llama:auto keeps "auto" when no discovery is available (test environment);
+     actual resolution to a concrete model_id happens in make_registry_config
+     before endpoint selection when Discovery has a snapshot. *)
   match Cascade_config.parse_model_string "llama:auto" with
   | Some cfg ->
     check string "model_id stays auto" "auto" cfg.model_id
