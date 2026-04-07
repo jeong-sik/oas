@@ -54,9 +54,10 @@ val discover :
     All local endpoint defaults in llm_provider reference this value. *)
 val default_endpoint : string
 
-(** Ollama endpoint.  Reads OLLAMA_HOST env var,
-    falls back to ["http://127.0.0.1:11434"]. *)
-val ollama_endpoint : string
+(** Ollama endpoint.  Reads OLLAMA_HOST env var on each call,
+    falls back to ["http://127.0.0.1:11434"].
+    Evaluated lazily so tests can override OLLAMA_HOST at runtime. *)
+val ollama_endpoint : unit -> string
 
 (** Parse LLM_ENDPOINTS env var (comma-separated) and append
     {!ollama_endpoint} if not already included.

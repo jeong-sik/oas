@@ -36,7 +36,7 @@ let default_endpoint =
   | _, Some v when String.trim v <> "" -> String.trim v
   | _ -> Constants.Endpoints.default_url
 
-let ollama_endpoint =
+let ollama_endpoint () =
   match Sys.getenv_opt "OLLAMA_HOST" with
   | Some url when String.trim url <> "" -> String.trim url
   | _ -> "http://127.0.0.1:11434"
@@ -52,8 +52,9 @@ let endpoints_from_env () =
   in
   (* Include Ollama endpoint if not already listed.
      Discovery handles both llama-server and Ollama probe paths. *)
-  if List.mem ollama_endpoint explicit then explicit
-  else explicit @ [ollama_endpoint]
+  let ollama = ollama_endpoint () in
+  if List.mem ollama explicit then explicit
+  else explicit @ [ollama]
 
 (* ── HTTP helpers ────────────────────────────────────────── *)
 
@@ -438,7 +439,7 @@ let%test "endpoints_from_env default when unset" =
    | None -> ());
   let eps = endpoints_from_env () in
   List.hd eps = default_endpoint
-  && List.mem ollama_endpoint eps
+  && List.mem (ollama_endpoint ()) eps
 
 let%test "endpoints_from_env parses comma-separated" =
   Unix.putenv "LLM_ENDPOINTS" "http://a:8080,http://b:8081";
@@ -446,7 +447,7 @@ let%test "endpoints_from_env parses comma-separated" =
   Unix.putenv "LLM_ENDPOINTS" "";
   List.mem "http://a:8080" eps
   && List.mem "http://b:8081" eps
-  && List.mem ollama_endpoint eps
+  && List.mem (ollama_endpoint ()) eps
 
 let%test "endpoints_from_env trims whitespace" =
   Unix.putenv "LLM_ENDPOINTS" "  http://a:8080 , http://b:8081  ";
@@ -467,10 +468,18 @@ let%test "endpoints_from_env empty string returns default" =
   List.hd eps = default_endpoint
 
 let%test "endpoints_from_env does not duplicate ollama" =
-  Unix.putenv "LLM_ENDPOINTS" (ollama_endpoint ^ ",http://a:8085");
+  let ollama = ollama_endpoint () in
+  Unix.putenv "LLM_ENDPOINTS" (ollama ^ ",http://a:8085");
   let eps = endpoints_from_env () in
   Unix.putenv "LLM_ENDPOINTS" "";
-  List.length (List.filter ((=) ollama_endpoint) eps) = 1
+  List.length (List.filter ((=) ollama) eps) = 1
+
+let%test "ollama_endpoint respects OLLAMA_HOST at call time" =
+  let saved = Sys.getenv_opt "OLLAMA_HOST" in
+  Unix.putenv "OLLAMA_HOST" "http://custom:9999";
+  let ep = ollama_endpoint () in
+  (match saved with Some v -> Unix.putenv "OLLAMA_HOST" v | None -> Unix.putenv "OLLAMA_HOST" "");
+  ep = "http://custom:9999"
 
 (* --- parse_models --- *)
 
