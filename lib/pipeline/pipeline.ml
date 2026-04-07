@@ -164,7 +164,7 @@ let stage_route ~sw ?clock ~api_strategy agent prep =
            models (e.g. 9B) from "succeeding" with text_response when tools
            were mandatory, starving the fallback provider of a chance. *)
         let accept = match agent.state.config.tool_choice with
-          | Some Types.Any ->
+          | Some (Types.Any | Types.Tool _) ->
             (fun (resp : Types.api_response) ->
               List.exists (function Types.ToolUse _ -> true | _ -> false) resp.content)
           | _ -> fun _ -> true
