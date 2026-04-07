@@ -159,12 +159,22 @@ let stage_route ~sw ?clock ~api_strategy agent prep =
         agent_name = agent.state.config.name;
         turn = agent.state.turn_count; extra = [] }
       (fun _tracer ->
+        (* When tool_choice=Any (required), reject text-only responses so
+           the cascade falls back to the next provider.  This prevents weak
+           models (e.g. 9B) from "succeeding" with text_response when tools
+           were mandatory, starving the fallback provider of a chance. *)
+        let accept = match agent.state.config.tool_choice with
+          | Some Types.Any ->
+            (fun (resp : Types.api_response) ->
+              List.exists (function Types.ToolUse _ -> true | _ -> false) resp.content)
+          | _ -> fun _ -> true
+        in
         match agent.named_cascade with
         | Some named ->
           Api.create_message_named ~sw ~net:agent.net ?clock
             ~named_cascade:named ~config:agent.state
             ~messages:prep.Agent_turn.effective_messages
-            ?tools:prep.tools_json ~metrics:named.metrics ?priority ()
+            ?tools:prep.tools_json ~metrics:named.metrics ~accept ?priority ()
         | None ->
           (match agent.options.cascade with
            | Some casc ->
