@@ -166,9 +166,11 @@ let test_find_capable_composite () =
 let test_default_has_6 () =
   let reg = Provider_registry.default () in
   let all = Provider_registry.all reg in
-  check int "6 known providers" 6 (List.length all);
+  check int "7 known providers" 7 (List.length all);
   check bool "llama exists" true
     (Option.is_some (Provider_registry.find reg "llama"));
+  check bool "ollama exists" true
+    (Option.is_some (Provider_registry.find reg "ollama"));
   check bool "claude exists" true
     (Option.is_some (Provider_registry.find reg "claude"));
   check bool "gemini exists" true
@@ -273,7 +275,7 @@ let () =
       test_case "requires_any" `Quick test_requires_any;
     ];
     "default", [
-      test_case "has 6 providers" `Quick test_default_has_6;
+      test_case "has 7 providers" `Quick test_default_has_6;
       test_case "correct capabilities" `Quick test_default_capabilities;
       test_case "max_context values" `Quick test_default_max_context;
     ];

@@ -6,6 +6,13 @@ Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
 backfilled on 2026-04-04 from existing git tags. The dates below reflect the
 original tag dates. `0.100.4` was never tagged or released.
 
+## [0.111.0] - 2026-04-07
+
+### Added
+- `ollama` provider in cascade registry. `ollama:auto` routes to Ollama MLX
+  server at `OLLAMA_HOST` or `http://127.0.0.1:11434`. Always available (no
+  API key required). OpenAI-compatible endpoint, 262k max context.
+
 ## [0.110.0] - 2026-04-07
 
 ### Added
