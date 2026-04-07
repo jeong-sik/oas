@@ -171,7 +171,11 @@ let parse_openai_sse_chunk data_str : openai_chunk option =
       let choice = json |> member "choices" |> index 0 in
       let delta = choice |> member "delta" in
       let delta_content = delta |> member "content" |> to_string_option in
-      let delta_reasoning = delta |> member "reasoning_content" |> to_string_option in
+      let delta_reasoning =
+        match delta |> member "reasoning_content" |> to_string_option with
+        | Some s when String.trim s <> "" -> Some s
+        | Some _ | None -> delta |> member "reasoning" |> to_string_option
+      in
       let delta_tool_calls =
         match delta |> member "tool_calls" with
         | `List calls ->

@@ -64,12 +64,35 @@ let telemetry_of_openai_json json =
     }
   in
   let reasoning_tokens =
-    let usage = json |> member "usage" in
-    if usage = `Null then None
-    else
-      let details = usage |> member "completion_tokens_details" in
-      if details = `Null then None
-      else details |> member "reasoning_tokens" |> to_int_option
+    let from_details =
+      let usage = json |> member "usage" in
+      if usage = `Null then None
+      else
+        let details = usage |> member "completion_tokens_details" in
+        if details = `Null then None
+        else details |> member "reasoning_tokens" |> to_int_option
+    in
+    match from_details with
+    | Some _ -> from_details
+    | None ->
+        (* Fallback: estimate from message.reasoning content length.
+           Ollama provides reasoning text but not completion_tokens_details.
+           ~4 chars per token is a standard approximation. *)
+        let msg =
+          try json |> member "choices" |> index 0 |> member "message"
+          with _ -> `Null
+        in
+        let reasoning_text =
+          match msg |> member "reasoning_content" with
+          | `String s when not (Api_common.string_is_blank s) -> Some s
+          | _ ->
+            (match msg |> member "reasoning" with
+             | `String s when not (Api_common.string_is_blank s) -> Some s
+             | _ -> None)
+        in
+        (match reasoning_text with
+         | Some s -> Some (max 1 (String.length s / 4))
+         | None -> None)
   in
   Some { Types.system_fingerprint; timings; reasoning_tokens; request_latency_ms = 0 }
 
@@ -136,10 +159,19 @@ let parse_openai_response_result json_str =
         | _ -> []
       in
       let thinking_blocks =
-        match msg |> member "reasoning_content" with
-        | `String s when not (Api_common.string_is_blank s) ->
-            [Thinking { thinking_type = "reasoning"; content = s }]
-        | _ -> []
+        (* Ollama uses "reasoning" field; OpenAI/DeepSeek use "reasoning_content".
+           Check both, preferring reasoning_content. *)
+        let reasoning_text =
+          match msg |> member "reasoning_content" with
+          | `String s when not (Api_common.string_is_blank s) -> Some s
+          | _ ->
+            match msg |> member "reasoning" with
+            | `String s when not (Api_common.string_is_blank s) -> Some s
+            | _ -> None
+        in
+        match reasoning_text with
+        | Some s -> [Thinking { thinking_type = "reasoning"; content = s }]
+        | None -> []
       in
       let stop_reason =
         match String.lowercase_ascii finish_reason with
