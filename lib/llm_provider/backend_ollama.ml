@@ -81,37 +81,41 @@ let parse_ollama_response json_str =
 
   let message = json |> member "message" in
 
-  let text_content =
-    match message |> member "content" with
-    | `String s -> s
-    | _ -> ""
-  in
-
-  let tool_blocks =
-    match message |> member "tool_calls" with
-    | `List calls ->
-        List.filter_map
-          (fun tc ->
-            try
-              let fn = tc |> member "function" in
-              let arguments =
-                fn |> member "arguments" |> to_string_option |> Option.value ~default:"{}"
-              in
-              Some
-                (ToolUse
-                   { id = tc |> member "id" |> to_string_option |> Option.value ~default:"ollama-call";
-                     name = fn |> member "name" |> to_string;
-                     input = Api_common.json_of_string_or_raw arguments })
-            with Yojson.Safe.Util.Type_error _ | Yojson.Safe.Util.Undefined _ | Yojson.Json_error _ -> None)
-          calls
-    | _ -> []
-  in
-
-  let thinking_blocks =
-    match message |> member "thinking" with
-    | `String s when not (Api_common.string_is_blank s) ->
-        [Thinking { thinking_type = "thinking"; content = s }]
-    | _ -> []
+  let text_content, tool_blocks, thinking_blocks =
+    match message with
+    | `Assoc _ ->
+        let txt =
+          match message |> member "content" with
+          | `String s -> s
+          | _ -> ""
+        in
+        let tools =
+          match message |> member "tool_calls" with
+          | `List calls ->
+              List.filter_map
+                (fun tc ->
+                  try
+                    let fn = tc |> member "function" in
+                    let arguments =
+                      fn |> member "arguments" |> to_string_option |> Option.value ~default:"{}"
+                    in
+                    Some
+                      (ToolUse
+                         { id = tc |> member "id" |> to_string_option |> Option.value ~default:"ollama-call";
+                           name = fn |> member "name" |> to_string;
+                           input = Api_common.json_of_string_or_raw arguments })
+                  with Yojson.Safe.Util.Type_error _ | Yojson.Safe.Util.Undefined _ | Yojson.Json_error _ -> None)
+                calls
+          | _ -> []
+        in
+        let thinking =
+          match message |> member "thinking" with
+          | `String s when not (Api_common.string_is_blank s) ->
+              [Thinking { thinking_type = "thinking"; content = s }]
+          | _ -> []
+        in
+        (txt, tools, thinking)
+    | _ -> ("", [], [])
   in
 
   let done_reason =
