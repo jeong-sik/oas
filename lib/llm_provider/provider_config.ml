@@ -42,7 +42,8 @@ let make ~kind ~model_id ~base_url
     | Some p -> p
     | None -> match kind with
       | Anthropic -> "/v1/messages"
-      | OpenAI_compat | Ollama -> "/v1/chat/completions"
+      | OpenAI_compat -> "/v1/chat/completions"
+      | Ollama -> "/api/chat"
       | Gemini -> ""
       | Glm -> "/chat/completions"
       | Claude_code -> ""

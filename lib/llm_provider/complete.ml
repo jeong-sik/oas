@@ -112,7 +112,9 @@ let complete_http ~sw ~net ~(config : Provider_config.t)
   let body_str = match config.kind with
     | Provider_config.Anthropic ->
         Backend_anthropic.build_request ~config ~messages ~tools ()
-    | Provider_config.OpenAI_compat | Provider_config.Ollama ->
+    | Provider_config.Ollama ->
+        Backend_ollama.build_request ~config ~messages ~tools ()
+    | Provider_config.OpenAI_compat ->
         Backend_openai.build_request ~config ~messages ~tools ()
     | Provider_config.Gemini ->
         Backend_gemini.build_request ~config ~messages ~tools ()
@@ -135,7 +137,12 @@ let complete_http ~sw ~net ~(config : Provider_config.t)
           | Provider_config.Anthropic ->
               Ok (Backend_anthropic.parse_response
                     (Yojson.Safe.from_string body))
-          | Provider_config.OpenAI_compat | Provider_config.Ollama ->
+          | Provider_config.Ollama ->
+              (match Backend_ollama.parse_ollama_response body with
+               | Ok resp -> Ok resp
+               | Error msg ->
+                   Error (Http_client.HttpError { code = 400; body = msg }))
+          | Provider_config.OpenAI_compat ->
               (match Backend_openai_parse.parse_openai_response_result body with
                | Ok resp -> Ok resp
                | Error msg ->
@@ -324,7 +331,11 @@ let complete_stream_http ~sw:_ ~net ~(config : Provider_config.t)
   let body_str = match config.kind with
     | Provider_config.Anthropic ->
         Backend_anthropic.build_request ~stream:true ~config ~messages ~tools ()
-    | Provider_config.OpenAI_compat | Provider_config.Ollama ->
+    | Provider_config.Ollama ->
+        (* Streaming: fall back to OpenAI compat format — native API
+           uses NDJSON, not SSE, which requires separate parsing. *)
+        Backend_openai.build_request ~stream:true ~config ~messages ~tools ()
+    | Provider_config.OpenAI_compat ->
         Backend_openai.build_request ~stream:true ~config ~messages ~tools ()
     | Provider_config.Gemini ->
         Backend_gemini.build_request ~stream:true ~config ~messages ~tools ()
@@ -332,8 +343,12 @@ let complete_stream_http ~sw:_ ~net ~(config : Provider_config.t)
         Backend_glm.build_request ~stream:true ~config ~messages ~tools ()
     | Provider_config.Claude_code -> ""
   in
+  (* Ollama streaming: uses OpenAI compat body format, so must hit
+     the OpenAI compat endpoint (/v1/chat/completions), not native
+     (/api/chat). Non-streaming uses the native endpoint. *)
   let url = match config.kind with
     | Provider_config.Gemini -> gemini_url ~config ~stream:true
+    | Provider_config.Ollama -> config.base_url ^ "/v1/chat/completions"
     | _ -> config.base_url ^ config.request_path
   in
   let body_with_stream = match config.kind with
