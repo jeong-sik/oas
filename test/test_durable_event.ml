@@ -29,7 +29,7 @@ let test_append_and_events () =
 let test_last_timestamp () =
   let j = Durable_event.create () in
   Durable_event.append j (Turn_started { turn = 1; timestamp = ts });
-  Durable_event.append j (Heartbeat { agent_id = "a"; timestamp = ts +. 5.0; context_tokens = 100 });
+  Durable_event.append j (Checkpoint_saved { checkpoint_id = "cp1"; timestamp = ts +. 5.0 });
   (match Durable_event.last_timestamp j with
    | Some t -> check (float 0.01) "last ts" (ts +. 5.0) t
    | None -> fail "expected timestamp")
@@ -64,34 +64,6 @@ let test_find_completed_activity () =
   (* Non-existent key *)
   check bool "missing key" true
     (Option.is_none (Durable_event.find_completed_activity j "nonexistent"))
-
-(* ── Heartbeat lease ──────────────────────────────── *)
-
-let test_no_heartbeat () =
-  let j = Durable_event.create () in
-  match Durable_event.check_lease j ~agent_id:"a" () with
-  | No_heartbeat -> ()
-  | _ -> fail "expected No_heartbeat"
-
-let test_active_lease () =
-  let j = Durable_event.create () in
-  let now = Unix.gettimeofday () in
-  Durable_event.append j (Heartbeat {
-    agent_id = "a"; timestamp = now; context_tokens = 500
-  });
-  match Durable_event.check_lease j ~timeout_s:60.0 ~agent_id:"a" () with
-  | Active { age_s; _ } -> check bool "recent" true (age_s < 5.0)
-  | _ -> fail "expected Active"
-
-let test_expired_lease () =
-  let j = Durable_event.create () in
-  Durable_event.append j (Heartbeat {
-    agent_id = "a"; timestamp = ts; context_tokens = 500
-  });
-  (* ts is in the past, so lease should be expired *)
-  match Durable_event.check_lease j ~timeout_s:60.0 ~agent_id:"a" () with
-  | Expired _ -> ()
-  | _ -> fail "expected Expired"
 
 (* ── Replay summary ───────────────────────────────── *)
 
@@ -131,7 +103,6 @@ let test_json_roundtrip () =
   let j = Durable_event.create () in
   Durable_event.append j (Turn_started { turn = 1; timestamp = ts });
   Durable_event.append j (Tool_completed { turn = 1; tool_name = "read"; idempotency_key = "k"; output_json = `String "ok"; is_error = false; duration_ms = 5.0; timestamp = ts });
-  Durable_event.append j (Heartbeat { agent_id = "a"; timestamp = ts; context_tokens = 100 });
   Durable_event.append j (Error_occurred { turn = 1; error_domain = "Api"; detail = "err"; timestamp = ts });
   let json = Durable_event.journal_to_json j in
   match Durable_event.journal_of_json json with
@@ -147,7 +118,6 @@ let test_event_json_roundtrip_all_types () =
     Tool_called { turn = 1; tool_name = "t"; idempotency_key = "k"; input_hash = "h"; timestamp = ts };
     Tool_completed { turn = 1; tool_name = "t"; idempotency_key = "k"; output_json = `Null; is_error = false; duration_ms = 1.0; timestamp = ts };
     State_transition { from_state = "a"; to_state = "b"; reason = "r"; timestamp = ts };
-    Heartbeat { agent_id = "a"; timestamp = ts; context_tokens = 0 };
     Checkpoint_saved { checkpoint_id = "c"; timestamp = ts };
     Error_occurred { turn = 1; error_domain = "d"; detail = "e"; timestamp = ts };
   ] in
@@ -181,11 +151,6 @@ let () =
       test_case "deterministic key" `Quick test_idempotency_key_deterministic;
       test_case "unique keys" `Quick test_idempotency_key_unique;
       test_case "find completed" `Quick test_find_completed_activity;
-    ];
-    "heartbeat", [
-      test_case "no heartbeat" `Quick test_no_heartbeat;
-      test_case "active lease" `Quick test_active_lease;
-      test_case "expired lease" `Quick test_expired_lease;
     ];
     "replay", [
       test_case "summary" `Quick test_replay_summary;

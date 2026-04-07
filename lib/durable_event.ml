@@ -44,11 +44,6 @@ type event =
       reason: string;
       timestamp: float;
     }
-  | Heartbeat of {
-      agent_id: string;
-      timestamp: float;
-      context_tokens: int;
-    }
   | Checkpoint_saved of {
       checkpoint_id: string;
       timestamp: float;
@@ -104,30 +99,6 @@ let find_completed_activity journal key =
     | _ -> None
   ) journal.entries  (* entries is reversed, so finds most recent first *)
 
-(* ── Heartbeat lease ──────────────────────────────── *)
-
-type lease_status =
-  | Active of { last_heartbeat: float; age_s: float }
-  | Expired of { last_heartbeat: float; age_s: float }
-  | No_heartbeat
-
-let check_lease journal ?(timeout_s = 60.0) ~agent_id () =
-  let now = Unix.gettimeofday () in
-  let last = List.find_map (fun event ->
-    match event with
-    | Heartbeat { agent_id = aid; timestamp; _ }
-      when aid = agent_id -> Some timestamp
-    | _ -> None
-  ) journal.entries in
-  match last with
-  | None -> No_heartbeat
-  | Some ts ->
-    let age = now -. ts in
-    if age <= timeout_s then
-      Active { last_heartbeat = ts; age_s = age }
-    else
-      Expired { last_heartbeat = ts; age_s = age }
-
 (* ── Replay ───────────────────────────────────────── *)
 
 type replay_summary = {
@@ -156,7 +127,7 @@ let replay_summary journal =
         (lt, ct, to_state, it, ot, ec)
       | Error_occurred _ ->
         (lt, ct, ls, it, ot, ec + 1)
-      | Tool_called _ | Heartbeat _ | Checkpoint_saved _ ->
+      | Tool_called _ | Checkpoint_saved _ ->
         (lt, ct, ls, it, ot, ec)
     ) (0, [], "unknown", 0, 0, 0) journal.entries
   in
@@ -182,7 +153,7 @@ let events_for_turn journal turn =
     | Tool_called { turn = t; _ }
     | Tool_completed { turn = t; _ }
     | Error_occurred { turn = t; _ } -> t = turn
-    | State_transition _ | Heartbeat _ | Checkpoint_saved _ -> false
+    | State_transition _ | Checkpoint_saved _ -> false
   ) (events journal)
 
 let last_timestamp journal =
@@ -196,7 +167,6 @@ let last_timestamp journal =
       | Tool_called { timestamp; _ }
       | Tool_completed { timestamp; _ }
       | State_transition { timestamp; _ }
-      | Heartbeat { timestamp; _ }
       | Checkpoint_saved { timestamp; _ }
       | Error_occurred { timestamp; _ } -> timestamp
     in
@@ -247,11 +217,6 @@ let event_to_json = function
             ("to_state", `String to_state);
             ("reason", `String reason);
             ("timestamp", `Float timestamp)]
-  | Heartbeat { agent_id; timestamp; context_tokens } ->
-    `Assoc [("type", `String "heartbeat");
-            ("agent_id", `String agent_id);
-            ("timestamp", `Float timestamp);
-            ("context_tokens", `Int context_tokens)]
   | Checkpoint_saved { checkpoint_id; timestamp } ->
     `Assoc [("type", `String "checkpoint_saved");
             ("checkpoint_id", `String checkpoint_id);
@@ -310,12 +275,6 @@ let event_of_json json =
         to_state = json |> member "to_state" |> to_string;
         reason = json |> member "reason" |> to_string;
         timestamp = json |> member "timestamp" |> to_float;
-      })
-    | "heartbeat" ->
-      Ok (Heartbeat {
-        agent_id = json |> member "agent_id" |> to_string;
-        timestamp = json |> member "timestamp" |> to_float;
-        context_tokens = json |> member "context_tokens" |> to_int;
       })
     | "checkpoint_saved" ->
       Ok (Checkpoint_saved {

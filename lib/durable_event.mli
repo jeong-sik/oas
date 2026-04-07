@@ -10,7 +10,6 @@
     Key properties:
     - Events are append-only (immutable journal)
     - Side-effectful activities use idempotency keys to skip on replay
-    - Heartbeat lease detects stale/crashed agents
     - Full journal is JSON-serializable for persistence
 
     @since 0.89.0
@@ -59,11 +58,6 @@ type event =
       reason: string;
       timestamp: float;
     }
-  | Heartbeat of {
-      agent_id: string;
-      timestamp: float;
-      context_tokens: int;
-    }
   | Checkpoint_saved of {
       checkpoint_id: string;
       timestamp: float;
@@ -100,17 +94,6 @@ val make_idempotency_key : tool_name:string -> input:Yojson.Safe.t -> string
 (** Check if an activity with this key has already completed.
     Returns [Some output_json] if found, [None] if not. *)
 val find_completed_activity : journal -> string -> Yojson.Safe.t option
-
-(** {1 Heartbeat lease} *)
-
-type lease_status =
-  | Active of { last_heartbeat: float; age_s: float }
-  | Expired of { last_heartbeat: float; age_s: float }
-  | No_heartbeat
-
-(** Check lease status.
-    [timeout_s] is the maximum age of the last heartbeat (default: 60s). *)
-val check_lease : journal -> ?timeout_s:float -> agent_id:string -> unit -> lease_status
 
 (** {1 Replay} *)
 
