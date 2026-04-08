@@ -70,10 +70,11 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
     | None -> true  (* unknown model — assume support for backward compat *)
   in
   let body = match config.tool_choice with
-    | Some choice when supports_tool_choice ->
-        ("tool_choice", tool_choice_to_openai_json choice) :: body
+    | Some choice ->
+        if supports_tool_choice
+        then ("tool_choice", tool_choice_to_openai_json choice) :: body
+        else body  (* tool_choice set but provider does not support it *)
     | None -> body
-    | Some _ -> body  (* tool_choice set but provider does not support it *)
   in
   let body = match tools with
     | [] -> body
