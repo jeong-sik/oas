@@ -364,7 +364,7 @@ let () =
           let sidecar =
             `Assoc
               [
-                ("kind", `String "keeper_context_v1");
+                ("kind", `String "test_context_v1");
                 ("max_tokens", `Int 4096);
                 ("generation", `Int 3);
               ]
@@ -699,7 +699,7 @@ let () =
         let agent = Agent.create ~net
           ~config:{ Types.default_config with name = "wc-test" }
           () in
-        let wc = `Assoc [("kind", `String "keeper_v1"); ("max_tokens", `Int 4096)] in
+        let wc = `Assoc [("kind", `String "test_context_v1"); ("max_tokens", `Int 4096)] in
         let cp = Agent.checkpoint ~working_context:wc agent in
         check (option (testable Yojson.Safe.pp Yojson.Safe.equal))
           "working_context roundtrip" (Some wc) cp.working_context);

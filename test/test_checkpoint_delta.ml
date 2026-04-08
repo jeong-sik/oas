@@ -246,7 +246,7 @@ let test_delta_json_roundtrip () =
       ~turn_count:2
       ~context:ctx
       ~tool_choice:(Some Auto)
-      ~working_context:(Some (`Assoc [ ("kind", `String "keeper_v1") ]))
+      ~working_context:(Some (`Assoc [ ("kind", `String "test_context_v1") ]))
       ~messages:
         [
           { role = User; content = [ Text "hello" ]; name = None; tool_call_id = None };

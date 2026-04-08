@@ -92,16 +92,16 @@ let test_heuristic_coordination_generic () =
   check string "intent" "coordination"
     (Context_intent.intent_to_string classified.intent)
 
-let test_no_masc_keywords_in_heuristic () =
-  (* Verify that heuristic keywords do not contain MASC-specific domain terms.
-     OAS must remain independent of downstream coordinator vocabulary. *)
-  let masc_terms = [ "delegate"; "handoff"; "agent"; "team" ] in
+let test_no_reserved_keywords_in_heuristic () =
+  (* Verify that heuristic keywords do not contain domain-specific terms
+     that would couple OAS to any particular downstream consumer. *)
+  let reserved_terms = [ "delegate"; "handoff"; "agent"; "team" ] in
   let source = {|assign route transfer notify group actor monitor coordinate sync reserve parallel|} in
   List.iter
     (fun term ->
       check bool (Printf.sprintf "no '%s' in coordination keywords" term) true
         (not (Util.contains_substring_ci ~haystack:source ~needle:term)))
-    masc_terms
+    reserved_terms
 
 let test_prompt_mentions_all_categories () =
   let prompt = Context_intent.prompt_for_query "status?" in
@@ -136,7 +136,7 @@ let () =
           test_case "knowledge query" `Quick test_heuristic_knowledge_query;
           test_case "coordination" `Quick test_heuristic_coordination;
           test_case "coordination generic" `Quick test_heuristic_coordination_generic;
-          test_case "no MASC keywords" `Quick test_no_masc_keywords_in_heuristic;
+          test_case "no reserved keywords" `Quick test_no_reserved_keywords_in_heuristic;
         ] );
       ("prompt", [ test_case "mentions categories" `Quick test_prompt_mentions_all_categories ]);
     ]
