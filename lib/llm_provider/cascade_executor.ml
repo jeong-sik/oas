@@ -58,6 +58,19 @@ let resolve_throttle ~throttle_override (cfg : Provider_config.t) =
     else
       Some (cloud_throttle_for_kind cfg.kind)
 
+(* ── Diagnostic logging ──────────────────────────────────── *)
+
+(** [diag level msg fields] emits a structured diagnostic line to stderr.
+    Used for cascade accept/reject debugging.  [fields] is a list of
+    [(key, value)] string pairs. *)
+let diag (level : string) (msg : string) (fields : (string * string) list) =
+  let fields_str = match fields with
+    | [] -> ""
+    | fs ->
+      " " ^ String.concat " " (List.map (fun (k, v) -> k ^ "=" ^ v) fs)
+  in
+  Printf.eprintf "[cascade_executor] [%s] %s%s\n%!" level msg fields_str
+
 (* ── Synchronous cascade with accept validator ─────────── *)
 
 let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
@@ -65,6 +78,9 @@ let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
     ~accept (providers : Provider_config.t list)
     ~(messages : Types.message list) ~(tools : Yojson.Safe.t list) =
   let m = match metrics with Some m -> m | None -> Metrics.noop in
+  diag "debug" "cascade_accept_start"
+    [("providers", string_of_int (List.length providers));
+     ("accept_on_exhaustion", string_of_bool accept_on_exhaustion)];
   let try_one ~is_last (cfg : Provider_config.t) =
     let call () =
       match clock with
@@ -128,8 +144,15 @@ let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
       let is_last = rest = [] in
       (match try_one ~is_last cfg with
       | Ok resp ->
-        if accept resp then Ok resp
+        if accept resp then begin
+          diag "debug" "cascade_accept_passed"
+            [("model_id", cfg.model_id)];
+          Ok resp
+        end
         else if is_last && accept_on_exhaustion then begin
+          diag "info" "cascade_accept_on_exhaustion"
+            [("model_id", cfg.model_id);
+             ("is_last", string_of_bool is_last)];
           (* Graceful degradation: all models rejected by accept.
              Return the last valid response rather than failing.
              Based on constrained decoding fallback pattern:
@@ -142,6 +165,10 @@ let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
           Ok resp
         end
         else begin
+          diag "warn" "cascade_accept_rejected"
+            [("model_id", cfg.model_id);
+             ("is_last", string_of_bool is_last);
+             ("accept_on_exhaustion", string_of_bool accept_on_exhaustion)];
           (match last_err with
            | Some (Http_client.HttpError { code; _ }) ->
              m.on_cascade_fallback
@@ -163,13 +190,18 @@ let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
             Printf.sprintf "HTTP %d" code
           | Http_client.NetworkError { message } -> message
         in
+        let should_cascade = Cascade_health_filter.should_cascade_to_next err in
+        diag "debug" "cascade_provider_error"
+          [("model_id", cfg.model_id);
+           ("error", err_str);
+           ("should_cascade", string_of_bool should_cascade)];
         (match rest with
          | (next_cfg : Provider_config.t) :: _ ->
            m.on_cascade_fallback
              ~from_model:cfg.model_id ~to_model:next_cfg.model_id
              ~reason:err_str
          | [] -> ());
-        if Cascade_health_filter.should_cascade_to_next err then
+        if should_cascade then
           try_next (Some err) rest
         else
           Error err)
