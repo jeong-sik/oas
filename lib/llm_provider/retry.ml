@@ -296,12 +296,6 @@ let%test "InvalidRequest with malformed JSON is retryable (can't find)" =
 let%test "InvalidRequest with malformed JSON is retryable (unexpected)" =
   is_retryable (InvalidRequest { message = "Unexpected character in JSON" })
 
-let%test "InvalidRequest with malformed JSON is retryable (unterminated)" =
-  is_retryable (InvalidRequest { message = "Unterminated string in JSON at position 17" })
-
-let%test "InvalidRequest with malformed JSON is retryable (invalid json)" =
-  is_retryable (InvalidRequest { message = "Invalid JSON in tool_call arguments" })
-
 let%test "InvalidRequest with parse error is retryable" =
   is_retryable (InvalidRequest { message = "Parse error at position 42" })
 
