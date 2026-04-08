@@ -81,87 +81,85 @@ let parse_ollama_response json_str =
 
   let message = json |> member "message" in
 
-  let text_content, tool_blocks, thinking_blocks =
-    match message with
-    | `Assoc _ ->
-        let txt =
-          match message |> member "content" with
-          | `String s -> s
-          | _ -> ""
-        in
-        let tools =
-          match message |> member "tool_calls" with
-          | `List calls ->
-              List.filter_map
-                (fun tc ->
-                  try
-                    let fn = tc |> member "function" in
-                    let arguments =
-                      fn |> member "arguments" |> to_string_option |> Option.value ~default:"{}"
-                    in
-                    Some
-                      (ToolUse
-                         { id = tc |> member "id" |> to_string_option |> Option.value ~default:"ollama-call";
-                           name = fn |> member "name" |> to_string;
-                           input = Api_common.json_of_string_or_raw arguments })
-                  with Yojson.Safe.Util.Type_error _ | Yojson.Safe.Util.Undefined _ | Yojson.Json_error _ -> None)
-                calls
-          | _ -> []
-        in
-        let thinking =
-          match message |> member "thinking" with
-          | `String s when not (Api_common.string_is_blank s) ->
-              [Thinking { thinking_type = "thinking"; content = s }]
-          | _ -> []
-        in
-        (txt, tools, thinking)
-    | _ -> ("", [], [])
-  in
+  match message with
+  | `Null -> Error "Invalid Ollama response: message field is null"
+  | `Assoc _ ->
+      let text_content =
+        match message |> member "content" with
+        | `String s -> s
+        | _ -> ""
+      in
+      let tool_blocks =
+        match message |> member "tool_calls" with
+        | `List calls ->
+            List.filter_map
+              (fun tc ->
+                try
+                  let fn = tc |> member "function" in
+                  let arguments =
+                    fn |> member "arguments" |> to_string_option |> Option.value ~default:"{}"
+                  in
+                  Some
+                    (ToolUse
+                       { id = tc |> member "id" |> to_string_option |> Option.value ~default:"ollama-call";
+                         name = fn |> member "name" |> to_string;
+                         input = Api_common.json_of_string_or_raw arguments })
+                with Yojson.Safe.Util.Type_error _ | Yojson.Safe.Util.Undefined _ | Yojson.Json_error _ -> None)
+              calls
+        | _ -> []
+      in
+      let thinking_blocks =
+        match message |> member "thinking" with
+        | `String s when not (Api_common.string_is_blank s) ->
+            [Thinking { thinking_type = "thinking"; content = s }]
+        | _ -> []
+      in
 
-  let done_reason =
-    json |> member "done_reason" |> to_string_option |> Option.value ~default:"stop"
-  in
+      let done_reason =
+        json |> member "done_reason" |> to_string_option |> Option.value ~default:"stop"
+      in
 
-  let stop_reason =
-    match String.lowercase_ascii done_reason with
-    | "tool_calls" when tool_blocks <> [] -> StopToolUse
-    | "length" -> MaxTokens
-    | "stop" -> EndTurn
-    | _other when tool_blocks <> [] -> StopToolUse
-    | other -> Unknown other
-  in
+      let stop_reason =
+        match String.lowercase_ascii done_reason with
+        | "tool_calls" when tool_blocks <> [] -> StopToolUse
+        | "length" -> MaxTokens
+        | "stop" -> EndTurn
+        | _other when tool_blocks <> [] -> StopToolUse
+        | other -> Unknown other
+      in
 
-  let input_tokens =
-    json |> member "prompt_eval_count" |> to_int_option |> Option.value ~default:0
-  in
-  let output_tokens =
-    json |> member "eval_count" |> to_int_option |> Option.value ~default:0
-  in
+      let input_tokens =
+        json |> member "prompt_eval_count" |> to_int_option |> Option.value ~default:0
+      in
+      let output_tokens =
+        json |> member "eval_count" |> to_int_option |> Option.value ~default:0
+      in
 
-  let usage =
-    if input_tokens = 0 && output_tokens = 0 then None
-    else Some {
-      input_tokens;
-      output_tokens;
-      cache_creation_input_tokens = 0;
-      cache_read_input_tokens = 0;
-      cost_usd = None;
-    }
-  in
+      let usage =
+        if input_tokens = 0 && output_tokens = 0 then None
+        else Some {
+          input_tokens;
+          output_tokens;
+          cache_creation_input_tokens = 0;
+          cache_read_input_tokens = 0;
+          cost_usd = None;
+        }
+      in
 
-  let telemetry =
-    let system_fingerprint = None in
-    let timings = None in
-    let reasoning_tokens = None in
-    Some { Types.system_fingerprint; timings; reasoning_tokens; request_latency_ms = 0;
-            provider_kind = None; reasoning_effort = None }
-  in
+      let telemetry =
+        let system_fingerprint = None in
+        let timings = None in
+        let reasoning_tokens = None in
+        Some { Types.system_fingerprint; timings; reasoning_tokens; request_latency_ms = 0;
+                provider_kind = None; reasoning_effort = None }
+      in
 
-  Ok {
-    id = json |> member "model" |> to_string_option |> Option.value ~default:"ollama";
-    model = json |> member "model" |> to_string_option |> Option.value ~default:"";
-    stop_reason;
-    content = thinking_blocks @ (if Api_common.string_is_blank text_content then [] else [Text text_content]) @ tool_blocks;
-    usage;
-    telemetry;
-  }
+      Ok {
+        id = json |> member "model" |> to_string_option |> Option.value ~default:"ollama";
+        model = json |> member "model" |> to_string_option |> Option.value ~default:"";
+        stop_reason;
+        content = thinking_blocks @ (if Api_common.string_is_blank text_content then [] else [Text text_content]) @ tool_blocks;
+        usage;
+        telemetry;
+      }
+  | _ -> Error "Invalid Ollama response: message field is missing or invalid type"
