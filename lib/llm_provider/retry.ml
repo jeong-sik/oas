@@ -77,8 +77,8 @@ let contains_substring_ci ~(haystack : string) ~(needle : string) : bool =
 
 (** Substrings indicating the InvalidRequest stems from malformed JSON in the
     request body (e.g., the model generated invalid tool_call JSON that
-    llama-server rejected).  These are transient — a retry with a fresh
-    prompt may produce valid output. *)
+    llama-server rejected).  These are transient — retrying the same request
+    may produce valid output due to model nondeterminism. *)
 let malformed_json_indicators =
   [ "closing"; "can't find"; "unexpected"; "unterminated"; "invalid json"; "parse error" ]
 
@@ -208,7 +208,9 @@ let calculate_delay config attempt =
 (** Retry a function with exponential backoff.
     [f] should return [Ok result] on success or [Error api_error] on failure.
     Uses Eio.Time for sleeping between retries.
-    Non-retryable errors (AuthError, InvalidRequest) are returned immediately. *)
+    Non-retryable errors (AuthError, ContextOverflow, and most InvalidRequest)
+    are returned immediately.  InvalidRequest caused by malformed JSON in the
+    model output is treated as retryable. *)
 let with_retry ~clock ?(config=default_config) (f : unit -> ('a, api_error) result) : ('a, api_error) result =
   let sleep_for err attempt =
     let delay = match err with
@@ -293,6 +295,12 @@ let%test "InvalidRequest with malformed JSON is retryable (can't find)" =
 
 let%test "InvalidRequest with malformed JSON is retryable (unexpected)" =
   is_retryable (InvalidRequest { message = "Unexpected character in JSON" })
+
+let%test "InvalidRequest with malformed JSON is retryable (unterminated)" =
+  is_retryable (InvalidRequest { message = "Unterminated string in JSON at position 17" })
+
+let%test "InvalidRequest with malformed JSON is retryable (invalid json)" =
+  is_retryable (InvalidRequest { message = "Invalid JSON in tool_call arguments" })
 
 let%test "InvalidRequest with parse error is retryable" =
   is_retryable (InvalidRequest { message = "Parse error at position 42" })
