@@ -20,7 +20,7 @@ let validate_and_coerce ~tool_name ~(schema : Types.tool_schema) args =
       else Proceed coerced
     | Tool_input_validation.Invalid errors ->
       let message =
-        Tool_input_validation.format_errors ~tool_name errors
+        Tool_input_validation.format_errors_inline ~tool_name ~args errors
       in
       Reject { is_error = true; message }
 
