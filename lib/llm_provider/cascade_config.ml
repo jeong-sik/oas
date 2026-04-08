@@ -278,6 +278,30 @@ let resolve_model_strings_traced ?config_path ~name ~defaults () =
 let resolve_model_strings ?config_path ~name ~defaults () =
   fst (resolve_model_strings_traced ?config_path ~name ~defaults ())
 
+let dedupe_stable (items : string list) =
+  let rec loop seen acc = function
+    | [] -> List.rev acc
+    | item :: rest ->
+      if List.mem item seen then loop seen acc rest
+      else loop (item :: seen) (item :: acc) rest
+  in
+  loop [] [] items
+
+let expand_model_strings_for_execution (items : string list) =
+  let expand_one raw =
+    let item = String.trim raw in
+    if item = "" then []
+    else
+      match split_provider_model item with
+      | Some ("glm", model_id)
+        when String.lowercase_ascii model_id = "auto" ->
+        [item; "glm:turbo"; "glm:flash"]
+      | _ -> [item]
+  in
+  items
+  |> List.concat_map expand_one
+  |> dedupe_stable
+
 (* Cascade execution (extracted to Cascade_executor) *)
 let complete_cascade_with_accept = Cascade_executor.complete_cascade_with_accept
 
@@ -292,6 +316,7 @@ let complete_named ~sw ~net ?clock ?config_path
   let model_strings, source =
     resolve_model_strings_traced ?config_path ~name ~defaults ()
   in
+  let model_strings = expand_model_strings_for_execution model_strings in
   if strict_name && source <> Named then
     Error (Http_client.NetworkError {
         message =
@@ -369,6 +394,7 @@ let complete_named_stream ~sw ~net ?clock ?config_path
   let model_strings, source =
     resolve_model_strings_traced ?config_path ~name ~defaults ()
   in
+  let model_strings = expand_model_strings_for_execution model_strings in
   if strict_name && source <> Named then
     Error (Http_client.NetworkError {
       message = Printf.sprintf
@@ -434,6 +460,7 @@ let local_capacity_for_selections ~sw ~net ?config_path selections =
     selections
     |> List.concat_map (fun s ->
          resolve_model_strings ?config_path ~name:s ~defaults:[s] ())
+    |> expand_model_strings_for_execution
     |> List.sort_uniq String.compare
   in
   (* 2. Parse to provider configs *)
