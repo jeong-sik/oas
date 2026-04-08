@@ -389,12 +389,38 @@ let%test "build_openai_tool_json converts legacy parameter list to json schema" 
   && parameters |> member "properties" |> member "limit" |> member "type" |> to_string = "integer"
   && List.mem "query" (parameters |> member "required" |> to_list |> List.map to_string)
 
+let%test "build_openai_tool_json skips malformed legacy parameter entries" =
+  let tool_json = `Assoc [
+    ("name", `String "my_fn");
+    ("parameters", `List [
+      `Assoc [
+        ("description", `String "missing name");
+        ("param_type", `String "string");
+        ("required", `Bool true);
+      ];
+      `Assoc [
+        ("name", `String "query");
+        ("description", `String "search query");
+        ("required", `Bool true);
+      ];
+    ]);
+  ] in
+  let result = build_openai_tool_json tool_json in
+  let open Yojson.Safe.Util in
+  let parameters = result |> member "function" |> member "parameters" in
+  parameters |> member "properties" |> member "query" |> member "type" |> to_string = "string"
+  && (parameters |> member "properties" |> member "" = `Null)
+  && List.mem "query" (parameters |> member "required" |> to_list |> List.map to_string)
+
 let%test "build_openai_tool_json missing all optional fields" =
   let tool_json = `Assoc [] in
   let result = build_openai_tool_json tool_json in
   let open Yojson.Safe.Util in
   result |> member "function" |> member "name" |> to_string = "tool"
   && result |> member "function" |> member "description" |> to_string = ""
+
+let%test "build_openai_tool_json list passthrough" =
+  build_openai_tool_json (`List [`String "bad"]) = `List [`String "bad"]
 
 let%test "strip_json_markdown_fences no closing fence" =
   let input = "```json\n{\"key\":\"value\"}" in
