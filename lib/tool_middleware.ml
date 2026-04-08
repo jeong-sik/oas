@@ -89,6 +89,7 @@ let heal_tool_call ~tool_name ~schema ~tool_use_id ~args
                   "Validation failed (attempt %d/%d):\n%s\nFix the parameters and call the tool again."
                   (attempt + 1) (max_retries + 1) message;
                 is_error = true;
+                json = None;
               }];
             name = None; tool_call_id = None }
         in

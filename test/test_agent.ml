@@ -71,12 +71,12 @@ let test_replace_existing () =
   let msgs = [
     { role = User; content = [Text "hello"]; name = None; tool_call_id = None };
     { role = Assistant; content = [ToolUse { id = "t1"; name = "calc"; input = `Null }]; name = None; tool_call_id = None };
-    { role = User; content = [ToolResult { tool_use_id = "t1"; content = "old result"; is_error = false }]; name = None; tool_call_id = None };
+    { role = User; content = [ToolResult { tool_use_id = "t1"; content = "old result"; is_error = false; json = None }]; name = None; tool_call_id = None };
   ] in
   let updated = Agent_handoff.replace_tool_result msgs ~tool_id:"t1" ~content:"new result" ~is_error:false in
   let last = List.nth updated (List.length updated - 1) in
   match last.content with
-  | [ToolResult { tool_use_id; content; is_error }] ->
+  | [ToolResult { tool_use_id; content; is_error; _ }] ->
       Alcotest.(check string) "id preserved" "t1" tool_use_id;
       Alcotest.(check string) "content replaced" "new result" content;
       Alcotest.(check bool) "not error" false is_error
@@ -90,7 +90,7 @@ let test_replace_missing_appends () =
   let updated = Agent_handoff.replace_tool_result msgs ~tool_id:"t99" ~content:"injected" ~is_error:true in
   let last = List.nth updated (List.length updated - 1) in
   match last.content with
-  | [ToolResult { tool_use_id; content; is_error }] ->
+  | [ToolResult { tool_use_id; content; is_error; _ }] ->
       Alcotest.(check string) "id" "t99" tool_use_id;
       Alcotest.(check string) "content" "injected" content;
       Alcotest.(check bool) "is error" true is_error
@@ -100,14 +100,14 @@ let test_replace_missing_appends () =
 let test_replace_preserves_other_results () =
   let msgs = [
     { role = User; content = [
-        ToolResult { tool_use_id = "t1"; content = "keep"; is_error = false };
-        ToolResult { tool_use_id = "t2"; content = "replace me"; is_error = false };
+        ToolResult { tool_use_id = "t1"; content = "keep"; is_error = false; json = None };
+        ToolResult { tool_use_id = "t2"; content = "replace me"; is_error = false; json = None };
     ]; name = None; tool_call_id = None };
   ] in
   let updated = Agent_handoff.replace_tool_result msgs ~tool_id:"t2" ~content:"replaced" ~is_error:true in
   let last = List.nth updated (List.length updated - 1) in
   match last.content with
-  | [ToolResult { tool_use_id = "t1"; content = c1; is_error = e1 }; ToolResult { tool_use_id = "t2"; content = c2; is_error = e2 }] ->
+  | [ToolResult { tool_use_id = "t1"; content = c1; is_error = e1; _ }; ToolResult { tool_use_id = "t2"; content = c2; is_error = e2; _ }] ->
       Alcotest.(check string) "t1 unchanged" "keep" c1;
       Alcotest.(check bool) "t1 no error" false e1;
       Alcotest.(check string) "t2 replaced" "replaced" c2;

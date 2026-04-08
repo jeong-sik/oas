@@ -146,10 +146,10 @@ let apply_prune_tool_outputs ~max_output_len messages =
   List.map (fun (msg : message) ->
     let content = List.map (fun block ->
       match block with
-      | ToolResult { tool_use_id; content; is_error } when String.length content > max_output_len ->
+      | ToolResult { tool_use_id; content; is_error; _ } when String.length content > max_output_len ->
         let truncated = String.sub content 0 max_output_len in
         let marker = Printf.sprintf "\n[truncated: %d chars]" (String.length content) in
-        ToolResult { tool_use_id; content = truncated ^ marker; is_error }
+        ToolResult { tool_use_id; content = truncated ^ marker; is_error; json = None }
       | other -> other
     ) msg.content in
     { msg with content }
@@ -239,7 +239,7 @@ let apply_repair_dangling_tool_calls messages =
         (* Insert msg, then synthetic ToolResult for each orphan *)
         let repairs = List.map (fun id ->
           { role = User; content = [
-            ToolResult { tool_use_id = id; content = "Tool call cancelled before completion."; is_error = true }
+            ToolResult { tool_use_id = id; content = "Tool call cancelled before completion."; is_error = true; json = None }
           ]; name = None; tool_call_id = None }
         ) orphan_ids in
         aux (List.rev_append repairs (msg :: acc)) rest
@@ -325,12 +325,12 @@ let apply_clear_tool_results ~keep_recent messages =
         List.map (fun (msg : message) ->
           let content = List.map (fun block ->
             match block with
-            | ToolResult { tool_use_id; content; is_error } when String.length content > 50 ->
+            | ToolResult { tool_use_id; content; is_error; _ } when String.length content > 50 ->
               let summary =
                 if is_error then "[tool error result cleared]"
                 else Printf.sprintf "[tool result cleared: %d chars]" (String.length content)
               in
-              ToolResult { tool_use_id; content = summary; is_error }
+              ToolResult { tool_use_id; content = summary; is_error; json = None }
             | other -> other
           ) msg.content in
           { msg with content }
@@ -369,7 +369,7 @@ let apply_stub_tool_results ~keep_recent messages =
         List.map (fun (msg : message) ->
           let content = List.map (fun block ->
             match block with
-            | ToolResult { tool_use_id; content; is_error } when String.length content > 50 ->
+            | ToolResult { tool_use_id; content; is_error; _ } when String.length content > 50 ->
               let tool_name =
                 match Hashtbl.find_opt tool_names tool_use_id with
                 | Some n -> n
@@ -380,7 +380,7 @@ let apply_stub_tool_results ~keep_recent messages =
               in
               let status = if is_error then "error" else "ok" in
               let stub = Printf.sprintf "[tool: %s, %d lines, %s]" tool_name line_count status in
-              ToolResult { tool_use_id; content = stub; is_error }
+              ToolResult { tool_use_id; content = stub; is_error; json = None }
             | other -> other
           ) msg.content in
           { msg with content }
@@ -583,6 +583,6 @@ let%test "estimate_block_tokens Thinking uses CJK-aware estimation" =
   tokens >= 1
 
 let%test "estimate_block_tokens ToolResult uses CJK-aware estimation" =
-  let block = ToolResult { tool_use_id = "t1"; content = "\xEA\xB2\xB0\xEA\xB3\xBC\xEC\x9E\x85\xEB\x8B\x88\xEB\x8B\xA4"; is_error = false } in
+  let block = ToolResult { tool_use_id = "t1"; content = "\xEA\xB2\xB0\xEA\xB3\xBC\xEC\x9E\x85\xEB\x8B\x88\xEB\x8B\xA4"; is_error = false; json = None } in
   let tokens = estimate_block_tokens block in
   tokens >= 1

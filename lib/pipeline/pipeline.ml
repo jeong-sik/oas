@@ -706,8 +706,8 @@ let%test "last_tool_results_from finds tool results in last user message" =
   let msgs = [
     { role = Assistant; content = [Text "thinking..."]; name = None; tool_call_id = None };
     { role = User; content = [
-        ToolResult { tool_use_id = "t1"; content = "result1"; is_error = false };
-        ToolResult { tool_use_id = "t2"; content = "error msg"; is_error = true };
+        ToolResult { tool_use_id = "t1"; content = "result1"; is_error = false; json = None };
+        ToolResult { tool_use_id = "t2"; content = "error msg"; is_error = true; json = None };
       ]; name = None; tool_call_id = None };
   ] in
   match last_tool_results_from msgs with
@@ -717,7 +717,7 @@ let%test "last_tool_results_from finds tool results in last user message" =
 let%test "last_tool_results_from skips non-tool user messages" =
   let msgs = [
     { role = User; content = [
-        ToolResult { tool_use_id = "t1"; content = "first"; is_error = false };
+        ToolResult { tool_use_id = "t1"; content = "first"; is_error = false; json = None };
       ]; name = None; tool_call_id = None };
     { role = Assistant; content = [Text "response"]; name = None; tool_call_id = None };
     { role = User; content = [Text "follow up"]; name = None; tool_call_id = None };
@@ -750,11 +750,11 @@ let%test "last_tool_results_from assistant-only messages" =
 let%test "last_tool_results_from picks last user with tool results" =
   let msgs = [
     { role = User; content = [
-        ToolResult { tool_use_id = "t1"; content = "first"; is_error = false };
+        ToolResult { tool_use_id = "t1"; content = "first"; is_error = false; json = None };
       ]; name = None; tool_call_id = None };
     { role = Assistant; content = [Text "mid"]; name = None; tool_call_id = None };
     { role = User; content = [
-        ToolResult { tool_use_id = "t2"; content = "second"; is_error = false };
+        ToolResult { tool_use_id = "t2"; content = "second"; is_error = false; json = None };
       ]; name = None; tool_call_id = None };
   ] in
   match last_tool_results_from msgs with
@@ -765,7 +765,7 @@ let%test "last_tool_results_from mixed content in user message" =
   let msgs = [
     { role = User; content = [
         Text "some text";
-        ToolResult { tool_use_id = "t1"; content = "ok"; is_error = false };
+        ToolResult { tool_use_id = "t1"; content = "ok"; is_error = false; json = None };
         Text "more text";
       ]; name = None; tool_call_id = None };
   ] in
@@ -776,7 +776,7 @@ let%test "last_tool_results_from mixed content in user message" =
 let%test "last_tool_results_from error tool result" =
   let msgs = [
     { role = User; content = [
-        ToolResult { tool_use_id = "t1"; content = "fail msg"; is_error = true };
+        ToolResult { tool_use_id = "t1"; content = "fail msg"; is_error = true; json = None };
       ]; name = None; tool_call_id = None };
   ] in
   match last_tool_results_from msgs with
@@ -810,9 +810,9 @@ let%test "last_tool_results_from only non-user roles" =
 let%test "last_tool_results_from multiple tool results in one message" =
   let msgs = [
     { role = User; content = [
-        ToolResult { tool_use_id = "t1"; content = "r1"; is_error = false };
-        ToolResult { tool_use_id = "t2"; content = "r2"; is_error = false };
-        ToolResult { tool_use_id = "t3"; content = "r3"; is_error = true };
+        ToolResult { tool_use_id = "t1"; content = "r1"; is_error = false; json = None };
+        ToolResult { tool_use_id = "t2"; content = "r2"; is_error = false; json = None };
+        ToolResult { tool_use_id = "t3"; content = "r3"; is_error = true; json = None };
       ]; name = None; tool_call_id = None };
   ] in
   List.length (last_tool_results_from msgs) = 3

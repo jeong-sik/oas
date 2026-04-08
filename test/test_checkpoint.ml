@@ -162,13 +162,13 @@ let () =
       test_case "ToolResult message roundtrip" `Quick (fun () ->
         let msgs = [
           { Types.role = Types.User;
-            content = [Types.ToolResult { tool_use_id = "id1"; content = "Sunny 22C"; is_error = false }];
+            content = [Types.ToolResult { tool_use_id = "id1"; content = "Sunny 22C"; is_error = false; json = None }];
             name = None; tool_call_id = None };
         ] in
         let cp = make_checkpoint ~messages:msgs () in
         let cp2 = Result.get_ok (Checkpoint.of_json (Checkpoint.to_json cp)) in
         match (List.hd cp2.messages).content with
-        | [Types.ToolResult { tool_use_id; content; is_error }] ->
+        | [Types.ToolResult { tool_use_id; content; is_error; _ }] ->
           check string "id" "id1" tool_use_id;
           check string "content" "Sunny 22C" content;
           check bool "is_error" false is_error
@@ -187,7 +187,7 @@ let () =
               Types.ToolUse { id = "t1"; name = "search"; input = `Assoc [("q", `String "test")] };
             ]; name = None; tool_call_id = None };
           { Types.role = Types.User;
-            content = [Types.ToolResult { tool_use_id = "t1"; content = "found it"; is_error = false }];
+            content = [Types.ToolResult { tool_use_id = "t1"; content = "found it"; is_error = false; json = None }];
             name = None; tool_call_id = None };
         ] in
         let cp = make_checkpoint ~messages:msgs () in

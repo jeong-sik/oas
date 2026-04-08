@@ -22,7 +22,7 @@ let content_block_gen =
       QCheck.Gen.string_printable
       (QCheck.Gen.return (`Assoc [("key", `String "value")]));
     QCheck.Gen.map3 (fun id content is_error ->
-      ToolResult { tool_use_id = id; content; is_error })
+      ToolResult { tool_use_id = id; content; is_error; json = None })
       QCheck.Gen.string_printable
       QCheck.Gen.string_printable
       QCheck.Gen.bool;

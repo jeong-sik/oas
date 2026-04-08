@@ -369,7 +369,7 @@ let test_content_block_to_json_tool_use () =
 
 let test_content_block_to_json_tool_result () =
   let json = Api_common.content_block_to_json
-    (ToolResult { tool_use_id = "tu1"; content = "done"; is_error = true }) in
+    (ToolResult { tool_use_id = "tu1"; content = "done"; is_error = true; json = None }) in
   let open Yojson.Safe.Util in
   Alcotest.(check string) "type" "tool_result" (json |> member "type" |> to_string);
   Alcotest.(check bool) "is_error" true (json |> member "is_error" |> to_bool)
@@ -439,7 +439,7 @@ let test_content_block_of_json_tool_result () =
     ("is_error", `Bool false)
   ] in
   match Api_common.content_block_of_json json with
-  | Some (ToolResult { tool_use_id = "tu1"; content = "done"; is_error = false }) -> ()
+  | Some (ToolResult { tool_use_id = "tu1"; content = "done"; is_error = false; _ }) -> ()
   | _ -> Alcotest.fail "tool_result roundtrip"
 
 let test_content_block_of_json_tool_result_no_is_error () =
@@ -568,7 +568,7 @@ let test_contents_of_messages_tool_use () =
       content = [ToolUse { id = "tu1"; name = "my_fn"; input = `Assoc [("x", `Int 1)] }];
       name = None; tool_call_id = None };
     { role = Tool;
-      content = [ToolResult { tool_use_id = "tu1"; content = "result42"; is_error = false }];
+      content = [ToolResult { tool_use_id = "tu1"; content = "result42"; is_error = false; json = None }];
       name = None; tool_call_id = None };
   ] in
   let (contents, _sys) = Backend_gemini.contents_of_messages msgs in

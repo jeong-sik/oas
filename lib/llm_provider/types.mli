@@ -62,7 +62,8 @@ type content_block =
   | Thinking of { thinking_type: string; content: string }
   | RedactedThinking of string
   | ToolUse of { id: string; name: string; input: Yojson.Safe.t }
-  | ToolResult of { tool_use_id: string; content: string; is_error: bool }
+  | ToolResult of { tool_use_id: string; content: string; is_error: bool;
+                    json: Yojson.Safe.t option; (** Structured payload when parseable. *)}
   | Image of { media_type: string; data: string; source_type: string }
   | Document of { media_type: string; data: string; source_type: string }
   | Audio of { media_type: string; data: string; source_type: string }
@@ -153,7 +154,9 @@ val text_message : role -> string -> message
 val system_msg : string -> message
 val user_msg : string -> message
 val assistant_msg : string -> message
-val tool_result_msg : tool_use_id:string -> content:string -> ?is_error:bool -> unit -> message
+val try_parse_json : string -> Yojson.Safe.t option
+
+val tool_result_msg : tool_use_id:string -> content:string -> ?is_error:bool -> ?json:Yojson.Safe.t -> unit -> message
 val text_of_content : content_block list -> string
 val text_of_message : message -> string
 val text_of_response : api_response -> string

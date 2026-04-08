@@ -130,7 +130,7 @@ let test_tool_result () =
       ]; name = None; tool_call_id = None };
     { role = User; content = [
         ToolResult { tool_use_id = "call_123"; content = "Sunny, 25C";
-                     is_error = false }
+                     is_error = false; json = None }
       ]; name = None; tool_call_id = None };
   ] in
   let body = Backend_gemini.build_request ~config ~messages () in

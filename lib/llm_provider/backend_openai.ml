@@ -266,7 +266,7 @@ let%test "openai_messages_of_message user text" =
 let%test "openai_messages_of_message user with tool_result" =
   let msg = { role = User; content = [
     Text "follow up";
-    ToolResult { tool_use_id = "tc1"; content = "result"; is_error = false };
+    ToolResult { tool_use_id = "tc1"; content = "result"; is_error = false; json = None };
   ]; name = None; tool_call_id = None } in
   let result = openai_messages_of_message msg in
   List.length result = 2
@@ -329,7 +329,7 @@ let%test "openai_messages_of_message assistant blank text with tool_calls" =
 
 let%test "openai_messages_of_message Tool role with ToolResult" =
   let msg = { role = Tool; content = [
-    ToolResult { tool_use_id = "tc1"; content = "result data"; is_error = false };
+    ToolResult { tool_use_id = "tc1"; content = "result data"; is_error = false; json = None };
   ]; name = None; tool_call_id = None } in
   let result = openai_messages_of_message msg in
   List.length result = 1
@@ -542,6 +542,6 @@ let%test "openai_content_parts_of_blocks redacted thinking filtered" =
 
 let%test "openai_content_parts_of_blocks tool_result filtered" =
   let blocks = [
-    ToolResult { tool_use_id = "t1"; content = "result"; is_error = false };
+    ToolResult { tool_use_id = "t1"; content = "result"; is_error = false; json = None };
   ] in
   openai_content_parts_of_blocks blocks = []

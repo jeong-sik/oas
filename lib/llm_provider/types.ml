@@ -85,7 +85,10 @@ type content_block =
   | Thinking of { thinking_type: string; content: string }
   | RedactedThinking of string
   | ToolUse of { id: string; name: string; input: Yojson.Safe.t }
-  | ToolResult of { tool_use_id: string; content: string; is_error: bool }
+  | ToolResult of { tool_use_id: string; content: string; is_error: bool;
+                    json: Yojson.Safe.t option; (** Parsed JSON payload when available. Consumers
+                        should prefer [json] over [content] for structured access.
+                        [content] remains the canonical string for API serialization. *) }
   | Image of { media_type: string; data: string; source_type: string }
   | Document of { media_type: string; data: string; source_type: string }
   | Audio of { media_type: string; data: string; source_type: string }
@@ -205,10 +208,23 @@ let user_msg text = text_message User text
 (** Create an assistant message. *)
 let assistant_msg text = text_message Assistant text
 
-(** Create a tool result message. *)
-let tool_result_msg ~tool_use_id ~content ?(is_error=false) () =
+(** Try to parse content as JSON, returning None on failure. *)
+let try_parse_json (s : string) : Yojson.Safe.t option =
+  if String.length s = 0 then None
+  else match Yojson.Safe.from_string s with
+    | json -> Some json
+    | exception Yojson.Json_error _ -> None
+
+(** Create a tool result message.
+    When [json] is not provided, attempts to parse [content] as JSON
+    so downstream consumers can access structured data without re-parsing. *)
+let tool_result_msg ~tool_use_id ~content ?(is_error=false) ?json () =
+  let json = match json with
+    | Some _ -> json
+    | None -> try_parse_json content
+  in
   make_message ~tool_call_id:tool_use_id ~role:Tool
-    [ToolResult { tool_use_id; content; is_error }]
+    [ToolResult { tool_use_id; content; is_error; json }]
 
 (** Extract text from content blocks, concatenating with newlines.
     Drops Thinking, Image, ToolUse, etc. *)

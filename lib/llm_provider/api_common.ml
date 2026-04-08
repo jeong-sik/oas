@@ -54,7 +54,7 @@ let content_block_to_json = function
         ("name", `String name);
         ("input", input);
       ]
-  | ToolResult { tool_use_id; content; is_error } ->
+  | ToolResult { tool_use_id; content; is_error; _ } ->
       `Assoc [
         ("type", `String "tool_result");
         ("tool_use_id", `String tool_use_id);
@@ -111,7 +111,8 @@ let content_block_of_json json =
       let tool_use_id = json |> member "tool_use_id" |> to_string in
       let content = json |> member "content" |> to_string in
       let is_error = json |> member "is_error" |> to_bool_option |> Option.value ~default:false in
-      Some (ToolResult { tool_use_id; content; is_error })
+      let json = Types.try_parse_json content in
+      Some (ToolResult { tool_use_id; content; is_error; json })
   | Some "image" ->
       let source = json |> member "source" in
       let source_type = source |> member "type" |> to_string in

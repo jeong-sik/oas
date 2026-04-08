@@ -82,7 +82,7 @@ let test_b3_injection_role_validation () =
       ToolUse { id = "t1"; name = "calc"; input = `Null }
     ]; name = None; tool_call_id = None};
     Types.{ role = User; content = [
-      ToolResult { tool_use_id = "t1"; content = "42"; is_error = false }
+      ToolResult { tool_use_id = "t1"; content = "42"; is_error = false; json = None }
     ]; name = None; tool_call_id = None};
   ] in
   let extra = [
