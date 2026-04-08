@@ -26,6 +26,18 @@ let env_or default var =
   | Some v when String.trim v <> "" -> String.trim v
   | _ -> default
 
+(** Default GLM auto-cascade order: quality-first, then speed.
+    glm-5.1 = best quality (reasoning), glm-5-turbo = fast tool calling,
+    glm-4.7 = stable general, glm-4.7-flashx = fastest/cheapest.
+    Configurable via ZAI_AUTO_MODELS env var (comma-separated). *)
+let glm_auto_models () : string list =
+  match Sys.getenv_opt "ZAI_AUTO_MODELS" with
+  | Some v when String.trim v <> "" ->
+    String.split_on_char ',' v
+    |> List.map String.trim
+    |> List.filter (fun s -> s <> "")
+  | _ -> [ "glm-5.1"; "glm-5-turbo"; "glm-4.7"; "glm-4.7-flashx" ]
+
 let resolve_glm_model_id model_id =
   match String.lowercase_ascii model_id with
   (* aliases -> concrete IDs *)

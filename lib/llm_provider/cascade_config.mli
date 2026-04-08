@@ -56,7 +56,13 @@ val parse_model_string_exn :
   ?system_prompt:string ->
   string -> (Provider_config.t, string) result
 
-(** Parse multiple model strings, skipping unavailable ones. *)
+(** Expand provider:auto specs that map to multiple models.
+    ["glm:auto"] expands to ["glm:glm-5.1"; "glm:glm-5-turbo"; ...].
+    Other specs pass through unchanged. *)
+val expand_auto_models : string list -> string list
+
+(** Parse multiple model strings, skipping unavailable ones.
+    Internally calls {!expand_auto_models} before parsing. *)
 val parse_model_strings :
   ?temperature:float ->
   ?max_tokens:int ->
