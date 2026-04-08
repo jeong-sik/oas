@@ -166,7 +166,7 @@ let format_errors ~tool_name errors =
 
     Output example:
     {[
-      Your call to "keeper_shell_readonly":
+      Your call to "read_file":
       {"op": "find", "pattern": "*.ml"}
 
       Errors (fix these and call again):

@@ -255,7 +255,7 @@ let test_accumulation_across_tool_calls () =
 
 (** Proves that the Context.t passed to Agent.create is the SAME object
     that context_injector writes to and hooks read from.
-    This catches the bug fixed in masc-mcp#5547 where resume created
+    This catches the resume context identity bug where resume created
     a different Context.t instance. *)
 let test_context_identity () =
   let call_count = ref 0 in

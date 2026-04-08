@@ -1,4 +1,4 @@
-(** Minimal LLM call test — no MASC, no tools, just one API round-trip *)
+(** Minimal LLM call test — no tools, just one API round-trip *)
 open Agent_sdk
 
 let () =

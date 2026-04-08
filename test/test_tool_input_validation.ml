@@ -188,9 +188,9 @@ let test_format_errors_inline_missing () =
   ] in
   let args = `Assoc [ ("op", `String "find"); ("pattern", `String "*.ml") ] in
   let msg = Tool_input_validation.format_errors_inline
-    ~tool_name:"keeper_shell_readonly" ~args errors in
+    ~tool_name:"read_file" ~args errors in
   check bool "contains tool name" true
-    (let re = Re.(compile (str "keeper_shell_readonly")) in Re.execp re msg);
+    (let re = Re.(compile (str "read_file")) in Re.execp re msg);
   check bool "contains original JSON" true
     (let re = Re.(compile (str "find")) in Re.execp re msg);
   check bool "contains MISSING marker" true
