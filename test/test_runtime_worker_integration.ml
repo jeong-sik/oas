@@ -132,7 +132,7 @@ let test_extract_text_tool_result () =
     { id = "r1"; model = "m"; stop_reason = EndTurn;
       content = [
         Types.Text "x";
-        Types.ToolResult { tool_use_id = "t1"; content = "result"; is_error = false };
+        Types.ToolResult { tool_use_id = "t1"; content = "result"; is_error = false; json = None };
         Types.Text "y";
       ]; usage = None; telemetry = None }
   in

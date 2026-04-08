@@ -133,13 +133,13 @@ let test_roundtrip_tool_use () =
 
 let test_roundtrip_tool_result () =
   let resp = simple_response [
-    ToolResult { tool_use_id = "tu_1"; content = "result data"; is_error = false }
+    ToolResult { tool_use_id = "tu_1"; content = "result data"; is_error = false; json = None }
   ] in
   let json = Cache.response_to_json resp in
   match Cache.response_of_json json with
   | Some r ->
     (match r.content with
-     | [ToolResult { tool_use_id; content; is_error }] ->
+     | [ToolResult { tool_use_id; content; is_error; _ }] ->
        Alcotest.(check string) "tool_use_id" "tu_1" tool_use_id;
        Alcotest.(check string) "content" "result data" content;
        Alcotest.(check bool) "not error" false is_error
@@ -148,7 +148,7 @@ let test_roundtrip_tool_result () =
 
 let test_roundtrip_tool_result_error () =
   let resp = simple_response [
-    ToolResult { tool_use_id = "tu_2"; content = "failed"; is_error = true }
+    ToolResult { tool_use_id = "tu_2"; content = "failed"; is_error = true; json = None }
   ] in
   let json = Cache.response_to_json resp in
   match Cache.response_of_json json with

@@ -15,7 +15,7 @@ let tool_use_msg id name =
 
 let tool_result_msg id content =
   Types.{ role = User;
-          content = [ToolResult { tool_use_id = id; content; is_error = false }];
+          content = [ToolResult { tool_use_id = id; content; is_error = false; json = None }];
           name = None; tool_call_id = None }
 
 (* --- phase_of_usage_ratio boundary tests --- *)

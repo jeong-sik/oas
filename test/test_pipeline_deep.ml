@@ -188,7 +188,7 @@ let test_resolve_params_with_tool_results () =
         ToolUse { id = "tu_1"; name = "search"; input = `Assoc [] };
       ]; name = None; tool_call_id = None };
     { role = User; content = [
-        ToolResult { tool_use_id = "tu_1"; content = "found it"; is_error = false };
+        ToolResult { tool_use_id = "tu_1"; content = "found it"; is_error = false; json = None };
       ]; name = None; tool_call_id = None };
   ] in
   let invoke_hook ~hook_name:_ hook event =
@@ -219,7 +219,7 @@ let test_resolve_params_error_tool_results () =
         ToolUse { id = "tu_e"; name = "risky"; input = `Assoc [] };
       ]; name = None; tool_call_id = None };
     { role = User; content = [
-        ToolResult { tool_use_id = "tu_e"; content = "permission denied"; is_error = true };
+        ToolResult { tool_use_id = "tu_e"; content = "permission denied"; is_error = true; json = None };
       ]; name = None; tool_call_id = None };
   ] in
   let invoke_hook ~hook_name:_ hook event =

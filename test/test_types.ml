@@ -189,7 +189,7 @@ let test_show_content_block_variants () =
     Types.Thinking { thinking_type = "sig"; content = "hmm" };
     Types.RedactedThinking "redacted";
     Types.ToolUse { id = "tu1"; name = "read"; input = `Null };
-    Types.ToolResult { tool_use_id = "tu1"; content = "ok"; is_error = false };
+    Types.ToolResult { tool_use_id = "tu1"; content = "ok"; is_error = false; json = None };
     Types.Image { media_type = "image/png"; data = "abc"; source_type = "base64" };
     Types.Document { media_type = "application/pdf"; data = "pdf"; source_type = "base64" };
   ] in
@@ -290,7 +290,7 @@ let test_tool_result_msg () =
   let m = Types.tool_result_msg ~tool_use_id:"tu1" ~content:"result" () in
   Alcotest.(check string) "role" "tool" (Types.role_to_string m.role);
   (match m.content with
-   | [Types.ToolResult { tool_use_id = "tu1"; content = "result"; is_error = false }] -> ()
+   | [Types.ToolResult { tool_use_id = "tu1"; content = "result"; is_error = false; _ }] -> ()
    | _ -> Alcotest.fail "expected ToolResult")
 
 let test_tool_result_msg_error () =
@@ -316,7 +316,7 @@ let test_text_of_content_mixed () =
 
 let test_text_of_content_tool_result () =
   let content = [
-    Types.ToolResult { tool_use_id = "tu1"; content = "result text"; is_error = false };
+    Types.ToolResult { tool_use_id = "tu1"; content = "result text"; is_error = false; json = None };
   ] in
   Alcotest.(check string) "includes tool result" "result text" (Types.text_of_content content)
 

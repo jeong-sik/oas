@@ -217,7 +217,7 @@ let test_normalize_preserves_matched_tool_calls () =
       name = None; tool_call_id = None };
     { Types.role = Types.User;
       content = [
-        Types.ToolResult { tool_use_id = "t1"; content = "result"; is_error = false };
+        Types.ToolResult { tool_use_id = "t1"; content = "result"; is_error = false; json = None };
       ];
       name = None; tool_call_id = None };
   ] in

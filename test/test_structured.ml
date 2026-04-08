@@ -240,7 +240,7 @@ let test_extract_missing_tool_is_internal () =
 let test_extract_ignores_tool_result () =
   let input_json = `Assoc [("name", `String "Carol"); ("age", `Int 40)] in
   let content = [
-    ToolResult { tool_use_id = "old"; content = "previous result"; is_error = false };
+    ToolResult { tool_use_id = "old"; content = "previous result"; is_error = false; json = None };
     ToolUse { id = "tu_r"; name = "extract_person"; input = input_json };
   ] in
   match Structured.extract_tool_input ~schema:person_schema content with
@@ -338,7 +338,7 @@ let test_retry_message_construction () =
        let tool_use_id = "tu_r1" in
        let error_msg = "Validation error: parse failed" in
        let retry_msg = { role = User; content = [
-         ToolResult { tool_use_id; content = error_msg; is_error = true }
+         ToolResult { tool_use_id; content = error_msg; is_error = true; json = None }
        ]; name = None; tool_call_id = None } in
        Alcotest.(check string) "retry role" "User"
          (match retry_msg.role with User -> "User" | _ -> "other");

@@ -5,7 +5,7 @@ open Agent_sdk
 let user_msg text = Types.{ role = User; content = [Text text]; name = None; tool_call_id = None }
 let asst_msg text = Types.{ role = Assistant; content = [Text text]; name = None; tool_call_id = None }
 let tool_use_msg id name = Types.{ role = Assistant; content = [ToolUse { id; name; input = `Null }]; name = None; tool_call_id = None }
-let tool_result_msg id content = Types.{ role = User; content = [ToolResult { tool_use_id = id; content; is_error = false }]; name = None; tool_call_id = None }
+let tool_result_msg id content = Types.{ role = User; content = [ToolResult { tool_use_id = id; content; is_error = false; json = None }]; name = None; tool_call_id = None }
 
 (* --- keep_last_n --- *)
 
@@ -109,7 +109,7 @@ let test_estimate_tool_use () =
   Alcotest.(check bool) "tool_use > 0" true (tokens > 0)
 
 let test_estimate_tool_result () =
-  let msg = Types.{ role = User; content = [ToolResult { tool_use_id = "id1"; content = "result text"; is_error = false }]; name = None; tool_call_id = None } in
+  let msg = Types.{ role = User; content = [ToolResult { tool_use_id = "id1"; content = "result text"; is_error = false; json = None }]; name = None; tool_call_id = None } in
   let tokens = Context_reducer.estimate_message_tokens msg in
   (* "result text" = 11 chars -> (11+3)/4 = 3 *)
   Alcotest.(check int) "tool_result estimation" 3 tokens
@@ -535,7 +535,7 @@ let test_clear_tool_results_error_marker () =
     Types.{ role = Assistant; content = [ToolUse { id = "t1"; name = "fail"; input = `Null }];
             name = None; tool_call_id = None };
     Types.{ role = User; content = [ToolResult { tool_use_id = "t1";
-            content = String.make 100 'E'; is_error = true }];
+            content = String.make 100 'E'; is_error = true; json = None }];
             name = None; tool_call_id = None };
     asst_msg "r1";
     user_msg "turn2"; asst_msg "r2";

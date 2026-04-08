@@ -40,7 +40,7 @@ let content_block_to_json = function
         ("name", `String name);
         ("input", input);
       ]
-  | Types.ToolResult { tool_use_id; content; is_error } ->
+  | Types.ToolResult { tool_use_id; content; is_error; _ } ->
       `Assoc [
         ("type", `String "tool_result");
         ("tool_use_id", `String tool_use_id);
@@ -66,10 +66,13 @@ let content_block_of_json json =
         input = json |> member "input";
       })
   | "tool_result" ->
+      let content = json |> member "content" |> to_string in
+      let parsed_json = Types.try_parse_json content in
       Some (Types.ToolResult {
         tool_use_id = json |> member "tool_use_id" |> to_string;
-        content = json |> member "content" |> to_string;
+        content;
         is_error = json |> member "is_error" |> to_bool_option |> Option.value ~default:false;
+        json = parsed_json;
       })
   | _ -> None
 

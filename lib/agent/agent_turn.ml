@@ -315,5 +315,6 @@ let make_tool_results results =
       tool_use_id = result.tool_use_id;
       content = result.content;
       is_error = result.is_error;
+      json = None;
     }
   ) results

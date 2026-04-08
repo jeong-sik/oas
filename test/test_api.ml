@@ -42,14 +42,14 @@ let test_tool_use_round_trip () =
   | None -> fail "returned None"
 
 let test_tool_result_round_trip () =
-  let block = Types.ToolResult { tool_use_id = "tu_001"; content = "4"; is_error = false } in
+  let block = Types.ToolResult { tool_use_id = "tu_001"; content = "4"; is_error = false; json = Types.try_parse_json "4" } in
   let json = Api.content_block_to_json block in
   match Api.content_block_of_json json with
   | Some parsed -> check_block "tool_result" block parsed
   | None -> fail "returned None"
 
 let test_tool_result_error_round_trip () =
-  let block = Types.ToolResult { tool_use_id = "tu_002"; content = "failed"; is_error = true } in
+  let block = Types.ToolResult { tool_use_id = "tu_002"; content = "failed"; is_error = true; json = None } in
   let json = Api.content_block_to_json block in
   match Api.content_block_of_json json with
   | Some parsed -> check_block "tool_result_error" block parsed
@@ -694,7 +694,7 @@ let test_text_blocks_to_string () =
     Types.Thinking { thinking_type = "s"; content = "hmm" };
     Types.RedactedThinking "r";
     Types.ToolUse { id = "t"; name = "n"; input = `Null };
-    Types.ToolResult { tool_use_id = "t"; content = "ok"; is_error = false };
+    Types.ToolResult { tool_use_id = "t"; content = "ok"; is_error = false; json = None };
     Types.Image { media_type = "image/png"; data = ""; source_type = "base64" };
     Types.Text "world";
   ] in
