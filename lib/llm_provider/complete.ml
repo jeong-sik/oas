@@ -142,17 +142,24 @@ let complete_http ~sw ~net ~(config : Provider_config.t)
             | Provider_config.Claude_code -> Error (Http_client.NetworkError { message = "Unreachable code" })
           with
           | Yojson.Json_error msg ->
+              Printf.eprintf "[ERROR] [Llm_provider] JSON parse error: %s\n%!" msg;
               Error (Http_client.HttpError { code = 400; body = "JSON parse error: " ^ msg })
           | Yojson.Safe.Util.Type_error (msg, _) ->
+              Printf.eprintf "[ERROR] [Llm_provider] JSON type error: %s\n%!" msg;
               Error (Http_client.HttpError { code = 400; body = "JSON type error: " ^ msg })
           | Yojson.Safe.Util.Undefined (msg, _) ->
+              Printf.eprintf "[ERROR] [Llm_provider] JSON undefined field error: %s\n%!" msg;
               Error (Http_client.HttpError { code = 400; body = "JSON undefined field error: " ^ msg })
           | Backend_gemini.Gemini_api_error msg ->
+              Printf.eprintf "[ERROR] [Llm_provider] Gemini API error: %s\n%!" msg;
               Error (Http_client.HttpError { code = 400; body = "Gemini API error: " ^ msg })
           | Backend_glm.Glm_api_error msg ->
+              Printf.eprintf "[ERROR] [Llm_provider] GLM API error: %s\n%!" msg;
               Error (Http_client.HttpError { code = 400; body = "GLM API error: " ^ msg })
           | exn ->
-              Error (Http_client.HttpError { code = 500; body = "Unexpected parsing exception: " ^ Printexc.to_string exn })
+              let exn_str = Printexc.to_string exn in
+              Printf.eprintf "[ERROR] [Llm_provider] Unexpected parsing exception: %s\n%!" exn_str;
+              Error (Http_client.HttpError { code = 500; body = "Unexpected parsing exception: " ^ exn_str })
         else
           Error (Http_client.HttpError { code; body })
   in
