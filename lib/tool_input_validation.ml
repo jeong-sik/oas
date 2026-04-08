@@ -121,7 +121,7 @@ let validate (schema : Types.tool_schema) (input : Yojson.Safe.t)
       match List.assoc_opt p.name fields with
       | None | Some `Null ->
         if p.required then
-          errors := { path; expected = "required"; actual = "missing" } :: !errors
+          errors := { path; expected = string_of_param_type p.param_type; actual = "missing" } :: !errors
       | Some value ->
         if not (matches_type p.param_type value) then begin
           (* Try coercion before failing *)
