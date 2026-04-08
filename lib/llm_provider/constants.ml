@@ -34,9 +34,9 @@ module Inference_profile = struct
   }
 
   let cascade_default = { temperature = 0.3; max_tokens = 500 }
-  let agent_default   = { temperature = 0.7; max_tokens = 4096 }
+  let agent_default   = { temperature = 0.7; max_tokens = 16_384 }
   let low_variance    = { temperature = 0.1; max_tokens = 2048 }
-  let worker_default  = { temperature = 0.2; max_tokens = 4096 }
+  let worker_default  = { temperature = 0.2; max_tokens = 16_384 }
   let deterministic   = { temperature = 0.0; max_tokens = 4096 }
 end
 
@@ -100,6 +100,8 @@ end
     constants instead of hardcoding URL literals.
     @since 0.105.0 *)
 module Endpoints = struct
+  (** Default port for llama.cpp servers.
+      Ollama uses 11434 — configure via cascade endpoint or LLM_ENDPOINTS env. *)
   let default_llama_port = 8085
   let default_url = "http://127.0.0.1:" ^ string_of_int default_llama_port
   let default_url_localhost = "http://localhost:" ^ string_of_int default_llama_port

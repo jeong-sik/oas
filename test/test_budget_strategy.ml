@@ -231,7 +231,7 @@ let test_context_metrics_zero_window () =
 let test_worker_default_profile () =
   let p = Llm_provider.Constants.Inference_profile.worker_default in
   Alcotest.(check (float 0.001)) "temp" 0.2 p.temperature;
-  Alcotest.(check int) "max_tokens" 4096 p.max_tokens
+  Alcotest.(check int) "max_tokens" 16_384 p.max_tokens
 
 let test_deterministic_profile () =
   let p = Llm_provider.Constants.Inference_profile.deterministic in
