@@ -60,16 +60,33 @@ let resolve_throttle ~throttle_override (cfg : Provider_config.t) =
 
 (* ── Diagnostic logging ──────────────────────────────────── *)
 
+(** [true] when the [OAS_CASCADE_DIAG] env var is set to [1], [true], or [yes].
+    Controls whether debug-level diagnostic lines are emitted.  Warn/info
+    lines are always emitted regardless of this flag. *)
+let cascade_diag_enabled : bool =
+  match Sys.getenv_opt "OAS_CASCADE_DIAG" with
+  | Some "1" | Some "true" | Some "yes" -> true
+  | _ -> false
+
+let diag_field_value (v : string) : string =
+  Printf.sprintf "%S" v
+
 (** [diag level msg fields] emits a structured diagnostic line to stderr.
     Used for cascade accept/reject debugging.  [fields] is a list of
-    [(key, value)] string pairs. *)
+    [(key, value)] string pairs.  Field values are quoted/escaped so that
+    spaces, [=], and newlines cannot make the output ambiguous.
+    Debug-level lines are gated behind [OAS_CASCADE_DIAG=1] (default off);
+    warn/info lines are always emitted. *)
 let diag (level : string) (msg : string) (fields : (string * string) list) =
-  let fields_str = match fields with
-    | [] -> ""
-    | fs ->
-      " " ^ String.concat " " (List.map (fun (k, v) -> k ^ "=" ^ v) fs)
-  in
-  Printf.eprintf "[cascade_executor] [%s] %s%s\n%!" level msg fields_str
+  if level = "debug" && not cascade_diag_enabled then ()
+  else
+    let fields_str = match fields with
+      | [] -> ""
+      | fs ->
+        " " ^ String.concat " "
+          (List.map (fun (k, v) -> k ^ "=" ^ diag_field_value v) fs)
+    in
+    Printf.eprintf "[cascade_executor] [%s] %s%s\n%!" level msg fields_str
 
 (* ── Synchronous cascade with accept validator ─────────── *)
 
