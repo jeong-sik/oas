@@ -16,7 +16,7 @@
 (** {1 Model Alias Resolution} *)
 
 (** Resolve a GLM model alias to the concrete API model ID.
-    - ["auto"] → env var [ZAI_DEFAULT_MODEL] or ["glm-5"]
+    - ["auto"] → env var [ZAI_DEFAULT_MODEL] or ["glm-5.1"]
     - ["flash"] → ["glm-4.7-flashx"]
     - ["turbo"] → ["glm-5-turbo"]
     - ["vision"] → ["glm-4.6v"]
@@ -107,6 +107,20 @@ val resolve_model_strings :
   defaults:string list ->
   unit ->
   string list
+
+(** Expand execution-time convenience fallbacks while preserving stable order.
+
+    Currently ["glm:auto"] expands to:
+    {[
+      ["glm:auto"; "glm:turbo"; "glm:flash"]
+    ]}
+
+    Duplicate entries are removed after expansion, keeping the first
+    appearance. This lets callers keep config concise while still
+    getting automatic GLM failover at execution time.
+
+    @since 0.116.2 *)
+val expand_model_strings_for_execution : string list -> string list
 
 (** Like {!resolve_model_strings} but also returns which resolution
     path was taken. Use this to detect typos: if [source <> Named]

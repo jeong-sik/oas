@@ -180,6 +180,24 @@ let test_resolve_hardcoded_when_no_profiles () =
     check int "count" 1 (List.length result);
     check string "hardcoded fallback" "hardcoded:x" (List.hd result))
 
+let test_expand_glm_auto_for_execution () =
+  let result =
+    Cascade_config.expand_model_strings_for_execution
+      ["llama:qwen3.5-35b"; "glm:auto"]
+  in
+  check (list string) "expanded"
+    ["llama:qwen3.5-35b"; "glm:auto"; "glm:turbo"; "glm:flash"]
+    result
+
+let test_expand_glm_auto_dedupes_explicit_fallbacks () =
+  let result =
+    Cascade_config.expand_model_strings_for_execution
+      ["glm:auto"; "glm:flash"; "glm:turbo"; "glm:glm-4.5"]
+  in
+  check (list string) "deduped"
+    ["glm:auto"; "glm:turbo"; "glm:flash"; "glm:glm-4.5"]
+    result
+
 (* ── Health filtering ─────────────────────────────────── *)
 
 let test_is_local_detection () =
@@ -354,6 +372,10 @@ let () =
       test_case "falls back to default" `Quick test_resolve_falls_back_to_default;
       test_case "named over default" `Quick test_resolve_named_over_default;
       test_case "hardcoded when no profiles" `Quick test_resolve_hardcoded_when_no_profiles;
+      test_case "glm:auto expands for execution" `Quick
+        test_expand_glm_auto_for_execution;
+      test_case "glm:auto dedupes explicit fallbacks" `Quick
+        test_expand_glm_auto_dedupes_explicit_fallbacks;
     ];
     "health", [
       test_case "local detection" `Quick test_is_local_detection;
