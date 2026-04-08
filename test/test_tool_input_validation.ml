@@ -18,7 +18,7 @@ let test_required_missing () =
   | Tool_input_validation.Invalid errors ->
     check int "one error" 1 (List.length errors);
     check string "path" "/room" (List.hd errors).path;
-    check string "expected" "required" (List.hd errors).expected;
+    check string "expected" "string" (List.hd errors).expected;
     check string "actual" "missing" (List.hd errors).actual
   | Tool_input_validation.Valid _ ->
     fail "expected Invalid for missing required field"
@@ -184,7 +184,7 @@ let test_format_errors () =
 
 let test_format_errors_inline_missing () =
   let errors : Tool_input_validation.field_error list = [
-    { path = "/name"; expected = "required"; actual = "missing" };
+    { path = "/name"; expected = "string"; actual = "missing" };
   ] in
   let args = `Assoc [ ("op", `String "find"); ("pattern", `String "*.ml") ] in
   let msg = Tool_input_validation.format_errors_inline
@@ -195,6 +195,8 @@ let test_format_errors_inline_missing () =
     (let re = Re.(compile (str "find")) in Re.execp re msg);
   check bool "contains MISSING marker" true
     (let re = Re.(compile (str "MISSING")) in Re.execp re msg);
+  check bool "contains actual type" true
+    (let re = Re.(compile (str "string")) in Re.execp re msg);
   check bool "contains field name" true
     (let re = Re.(compile (str "\"name\"")) in Re.execp re msg)
 
@@ -214,7 +216,7 @@ let test_format_errors_inline_type_error () =
 
 let test_format_errors_inline_multiple () =
   let errors : Tool_input_validation.field_error list = [
-    { path = "/name"; expected = "required"; actual = "missing" };
+    { path = "/name"; expected = "string"; actual = "missing" };
     { path = "/timeout"; expected = "number"; actual = "string(\"fast\")" };
   ] in
   let args = `Assoc [ ("timeout", `String "fast") ] in
