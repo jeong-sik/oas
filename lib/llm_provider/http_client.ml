@@ -142,7 +142,14 @@ let post_sync ~sw:_ ~net ~url ~headers ~body =
     Eio.Switch.run @@ fun sw ->
     let client = make_closing_client ~sw ~net in
     let uri = Uri.of_string url in
-    let hdr = Http.Header.of_list (add_connection_close headers) in
+    (* Explicitly set Content-Length to prevent chunked transfer encoding.
+       Ollama's yyjson parser rejects chunked bodies with
+       "Value looks like object, but can't find closing '}' symbol". *)
+    let headers_with_length =
+      ("content-length", string_of_int (String.length body))
+      :: add_connection_close headers
+    in
+    let hdr = Http.Header.of_list headers_with_length in
     let resp, resp_body =
       Cohttp_eio.Client.post ~sw client ~headers:hdr
         ~body:(Cohttp_eio.Body.of_string body) uri
@@ -178,7 +185,11 @@ let with_post_stream ~net ~url ~headers ~body ~f =
     Eio.Switch.run @@ fun sw ->
     let client = make_closing_client ~sw ~net in
     let uri = Uri.of_string url in
-    let hdr = Http.Header.of_list (add_connection_close headers) in
+    let headers_with_length =
+      ("content-length", string_of_int (String.length body))
+      :: add_connection_close headers
+    in
+    let hdr = Http.Header.of_list headers_with_length in
     let resp, resp_body =
       Cohttp_eio.Client.post ~sw client ~headers:hdr
         ~body:(Cohttp_eio.Body.of_string body) uri
