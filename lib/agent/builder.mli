@@ -43,6 +43,16 @@ val with_cache_system_prompt : bool -> t -> t
     @since 0.99.7 *)
 val with_yield_on_tool : bool -> t -> t
 
+(** Set a custom exit predicate evaluated before each turn.
+
+    The predicate receives the current [turn_count].  When it returns
+    [true], the agent loop exits with {!Error.ExitConditionMet}.
+    Consumers can close over any external state they need (e.g.
+    elapsed time, external budget signals).
+
+    @since 0.115.0 *)
+val with_exit_condition : (int -> bool) -> t -> t
+
 (** {2 Tools and MCP} *)
 
 val with_tools : Tool.t list -> t -> t

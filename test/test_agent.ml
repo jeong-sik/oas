@@ -192,4 +192,37 @@ let () =
       Alcotest.test_case "total within" `Quick test_budget_total_within;
       Alcotest.test_case "input priority" `Quick test_budget_input_priority;
     ];
+    "exit_condition", [
+      Alcotest.test_case "error type round-trip" `Quick (fun () ->
+        let err = Error.Agent (Error.ExitConditionMet { turn = 7 }) in
+        let msg = Error.to_string err in
+        Alcotest.(check bool) "contains turn" true
+          (String.length msg > 0 && msg <> ""));
+      Alcotest.test_case "error_domain poly variant" `Quick (fun () ->
+        let err = Error.Agent (Error.ExitConditionMet { turn = 3 }) in
+        let poly = Error_domain.of_sdk_error err in
+        match poly with
+        | `Exit_condition_met 3 -> ()
+        | _ -> Alcotest.fail "expected Exit_condition_met 3");
+      Alcotest.test_case "error_domain back to sdk_error" `Quick (fun () ->
+        let poly : Error_domain.sdk_error_poly = `Exit_condition_met 5 in
+        let sdk = Error_domain.to_sdk_error poly in
+        match sdk with
+        | Error.Agent (Error.ExitConditionMet { turn = 5 }) -> ()
+        | _ -> Alcotest.fail "expected ExitConditionMet turn=5");
+      Alcotest.test_case "config default is None" `Quick (fun () ->
+        Alcotest.(check bool) "exit_condition is None" true
+          (Types.default_config.exit_condition = None));
+      Alcotest.test_case "builder with_exit_condition" `Quick (fun () ->
+        let pred turn = turn >= 3 in
+        Eio_main.run @@ fun env ->
+        let net = Eio.Stdenv.net env in
+        let agent = Builder.create ~net ~model:"test" |>
+          Builder.with_exit_condition pred |>
+          Builder.build in
+        match (Agent.state agent).config.exit_condition with
+        | Some f -> Alcotest.(check bool) "pred(2)=false" false (f 2);
+                    Alcotest.(check bool) "pred(3)=true" true (f 3)
+        | None -> Alcotest.fail "expected Some exit_condition");
+    ];
   ]

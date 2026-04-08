@@ -46,6 +46,11 @@ let check_token_budget = Agent_turn.check_token_budget
 (** Check max_turns, idle detection, and token/cost budget.
     Returns [Some error] when any guard fires, [None] to proceed. *)
 let check_loop_guard agent =
+  match agent.state.config.exit_condition with
+  | Some pred when pred agent.state.turn_count ->
+    Some (Error.Agent (Error.ExitConditionMet {
+      turn = agent.state.turn_count }))
+  | _ ->
   if agent.state.turn_count >= agent.state.config.max_turns then
     Some (Error.Agent (Error.MaxTurnsExceeded {
       turns = agent.state.turn_count;

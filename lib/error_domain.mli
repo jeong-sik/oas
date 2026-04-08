@@ -50,6 +50,7 @@ type agent_error = [
   | `Guardrail_violation of string * string  (** validator, reason *)
   | `Tripwire_violation of string * string  (** tripwire, reason *)
   | `Unrecognized_stop_reason of string
+  | `Exit_condition_met of int  (** turn at which exit condition triggered *)
 ]
 
 (** {1 Infrastructure errors} *)
