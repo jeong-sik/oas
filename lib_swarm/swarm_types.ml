@@ -96,7 +96,7 @@ let no_budget = {
 (** Swarm configuration.
 
     [collaboration_context] optionally carries opaque JSON from
-    upstream coordinators (e.g. upstream coordinator state).  OAS does not
+    upstream coordinators.  OAS does not
     interpret the payload — it is passed through as-is.
     Defaults to [None]. *)
 type swarm_config = {
