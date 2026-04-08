@@ -135,6 +135,56 @@ let tool_choice_to_openai_json = function
         ]
   | None_ -> `String "none"
 
+let legacy_parameters_to_json_schema params =
+  let properties, required =
+    List.fold_left
+      (fun (props_acc, req_acc) param ->
+         match param with
+         | `Assoc fields ->
+             let name =
+               match List.assoc_opt "name" fields with
+               | Some (`String s) -> s
+               | _ -> ""
+             in
+             if name = "" then
+               (props_acc, req_acc)
+             else
+               let description =
+                 match List.assoc_opt "description" fields with
+                 | Some (`String s) -> s
+                 | _ -> ""
+               in
+               let type_name =
+                 match List.assoc_opt "param_type" fields with
+                 | Some (`String s) -> s
+                 | _ ->
+                     (match List.assoc_opt "type" fields with
+                      | Some (`String s) -> s
+                      | _ -> "string")
+               in
+               let prop =
+                 `Assoc
+                   [
+                     ("type", `String type_name);
+                     ("description", `String description);
+                   ]
+               in
+               let req_acc =
+                 match List.assoc_opt "required" fields with
+                 | Some (`Bool true) -> `String name :: req_acc
+                 | _ -> req_acc
+               in
+               ((name, prop) :: props_acc, req_acc)
+         | _ -> (props_acc, req_acc))
+      ([], []) params
+  in
+  `Assoc
+    [
+      ("type", `String "object");
+      ("properties", `Assoc (List.rev properties));
+      ("required", `List (List.rev required));
+    ]
+
 let build_openai_tool_json = function
   | `Assoc fields ->
       let name =
@@ -152,6 +202,7 @@ let build_openai_tool_json = function
         | Some schema -> schema
         | None ->
             (match List.assoc_opt "parameters" fields with
+             | Some (`List params) -> legacy_parameters_to_json_schema params
              | Some schema -> schema
              | None -> `Assoc [])
       in

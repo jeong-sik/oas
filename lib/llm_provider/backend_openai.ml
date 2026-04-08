@@ -362,6 +362,33 @@ let%test "build_openai_tool_json with parameters field" =
   let open Yojson.Safe.Util in
   result |> member "function" |> member "parameters" |> member "type" |> to_string = "object"
 
+let%test "build_openai_tool_json converts legacy parameter list to json schema" =
+  let tool_json = `Assoc [
+    ("name", `String "my_fn");
+    ("description", `String "does stuff");
+    ("parameters", `List [
+      `Assoc [
+        ("name", `String "query");
+        ("description", `String "search query");
+        ("param_type", `String "string");
+        ("required", `Bool true);
+      ];
+      `Assoc [
+        ("name", `String "limit");
+        ("description", `String "max results");
+        ("param_type", `String "integer");
+        ("required", `Bool false);
+      ];
+    ]);
+  ] in
+  let result = build_openai_tool_json tool_json in
+  let open Yojson.Safe.Util in
+  let parameters = result |> member "function" |> member "parameters" in
+  parameters |> member "type" |> to_string = "object"
+  && parameters |> member "properties" |> member "query" |> member "type" |> to_string = "string"
+  && parameters |> member "properties" |> member "limit" |> member "type" |> to_string = "integer"
+  && List.mem "query" (parameters |> member "required" |> to_list |> List.map to_string)
+
 let%test "build_openai_tool_json missing all optional fields" =
   let tool_json = `Assoc [] in
   let result = build_openai_tool_json tool_json in
