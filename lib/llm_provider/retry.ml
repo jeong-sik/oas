@@ -24,10 +24,6 @@ let default_config = {
   backoff_factor = Constants.Structured_retry.backoff_factor;
 }
 
-let is_retryable = function
-  | RateLimited _ | Overloaded _ | ServerError _ | NetworkError _ | Timeout _ -> true
-  | AuthError _ | InvalidRequest _ | ContextOverflow _ -> false
-
 let error_message = function
   | RateLimited r -> Printf.sprintf "Rate limited: %s" r.message
   | Overloaded r -> Printf.sprintf "Overloaded: %s" r.message
@@ -78,6 +74,21 @@ let contains_substring_ci ~(haystack : string) ~(needle : string) : bool =
     else loop (start + 1)
   in
   loop 0
+
+(** Substrings indicating the InvalidRequest stems from malformed JSON in the
+    request body (e.g., the model generated invalid tool_call JSON that
+    llama-server rejected).  These are transient — a retry with a fresh
+    prompt may produce valid output. *)
+let malformed_json_indicators =
+  [ "closing"; "can't find"; "unexpected"; "unterminated"; "invalid json"; "parse error" ]
+
+let is_retryable = function
+  | RateLimited _ | Overloaded _ | ServerError _ | NetworkError _ | Timeout _ -> true
+  | InvalidRequest { message } ->
+    (* Malformed JSON from model output is transient — retry may produce valid JSON. *)
+    let lower = String.lowercase_ascii message in
+    List.exists (fun needle -> contains_substring_ci ~haystack:lower ~needle) malformed_json_indicators
+  | AuthError _ | ContextOverflow _ -> false
 
 let extract_error_message (body : string) : string =
   if body_looks_like_json body then
@@ -274,6 +285,24 @@ let%test "classify_error returns InvalidRequest for non-overflow 400" =
 
 let%test "ContextOverflow is not retryable" =
   not (is_retryable (ContextOverflow { message = "overflow"; limit = Some 8192 }))
+
+let%test "InvalidRequest with malformed JSON is retryable (closing)" =
+  is_retryable (InvalidRequest { message = "Value looks like object, but can't find closing '}' symbol" })
+
+let%test "InvalidRequest with malformed JSON is retryable (can't find)" =
+  is_retryable (InvalidRequest { message = "Can't find end of string" })
+
+let%test "InvalidRequest with malformed JSON is retryable (unexpected)" =
+  is_retryable (InvalidRequest { message = "Unexpected character in JSON" })
+
+let%test "InvalidRequest with parse error is retryable" =
+  is_retryable (InvalidRequest { message = "Parse error at position 42" })
+
+let%test "InvalidRequest with generic message is NOT retryable" =
+  not (is_retryable (InvalidRequest { message = "bad tool schema" }))
+
+let%test "InvalidRequest with unknown field is NOT retryable" =
+  not (is_retryable (InvalidRequest { message = "Unknown field 'foo'" }))
 
 (** Retry with cascade: try [primary] first (with retries), then each
     fallback in order. Each attempt gets its own full retry budget.
