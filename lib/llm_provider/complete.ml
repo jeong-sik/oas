@@ -112,6 +112,21 @@ let complete_http ~sw ~net ~(config : Provider_config.t)
     | Provider_config.Gemini -> gemini_url ~config ~stream:false
     | _ -> config.base_url ^ config.request_path
   in
+  (* Pre-flight body validation: detect truncated JSON before sending.
+     Yojson.Safe.to_string should always produce balanced JSON, but if it
+     doesn't, catching it here gives us the full body for diagnosis. *)
+  let body_len = String.length body_str in
+  let body_balanced =
+    body_len >= 2
+    && body_str.[0] = '{'
+    && body_str.[body_len - 1] = '}'
+  in
+  if not body_balanced && body_len > 0 then
+    Printf.eprintf
+      "[WARN] [Complete] pre-flight: unbalanced JSON body (%d bytes, \
+       first=%C last=%C) for %s %s\n%!"
+      body_len body_str.[0] body_str.[body_len - 1]
+      (match config.kind with Ollama -> "ollama" | Anthropic -> "anthropic" | OpenAI_compat -> "openai" | Gemini -> "gemini" | Glm -> "glm" | Claude_code -> "claude_code") config.model_id;
   let t0 = Unix.gettimeofday () in
   let result =
     match Http_client.post_sync ~sw ~net ~url
@@ -160,8 +175,19 @@ let complete_http ~sw ~net ~(config : Provider_config.t)
               let exn_str = Printexc.to_string exn in
               Printf.eprintf "[ERROR] [Llm_provider] Unexpected parsing exception: %s\n%!" exn_str;
               Error (Http_client.HttpError { code = 500; body = "Unexpected parsing exception: " ^ exn_str })
-        else
+        else begin
+          (* Log request body diagnostics on error responses to help debug
+             Ollama "closing '}' symbol" and similar body-rejection errors. *)
+          if code >= 400 then
+            Printf.eprintf
+              "[WARN] [Complete] HTTP %d from %s (model=%s): \
+               req_body=%d bytes balanced=%b resp_body=%s\n%!"
+              code (match config.kind with Ollama -> "ollama" | Anthropic -> "anthropic" | OpenAI_compat -> "openai" | Gemini -> "gemini" | Glm -> "glm" | Claude_code -> "claude_code") config.model_id
+              body_len body_balanced
+              (if String.length body <= 200 then body
+               else String.sub body 0 200 ^ "...");
           Error (Http_client.HttpError { code; body })
+        end
   in
   let latency_ms = int_of_float ((Unix.gettimeofday () -. t0) *. 1000.0) in
   (result, latency_ms)
