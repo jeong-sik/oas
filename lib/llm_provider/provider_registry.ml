@@ -196,7 +196,7 @@ let ollama_defaults = {
      | Some url when String.trim url <> "" -> String.trim url
      | _ -> "http://127.0.0.1:11434");
   api_key_env = "";
-  request_path = "/v1/chat/completions";
+  request_path = "/api/chat";
 }
 
 let openrouter_defaults = {
