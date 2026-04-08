@@ -119,26 +119,47 @@ let complete_http ~sw ~net ~(config : Provider_config.t)
     | Error _ as e -> e
     | Ok (code, body) ->
         if code >= 200 && code < 300 then
-          match config.kind with
-          | Provider_config.Anthropic ->
-              Ok (Backend_anthropic.parse_response
-                    (Yojson.Safe.from_string body))
-          | Provider_config.Ollama ->
-              (match Backend_ollama.parse_ollama_response body with
-               | Ok resp -> Ok resp
-               | Error msg ->
-                   Error (Http_client.HttpError { code = 400; body = msg }))
-          | Provider_config.OpenAI_compat ->
-              (match Backend_openai_parse.parse_openai_response_result body with
-               | Ok resp -> Ok resp
-               | Error msg ->
-                   Error (Http_client.HttpError { code = 400; body = msg }))
-          | Provider_config.Gemini ->
-              Ok (Backend_gemini.parse_response
-                    (Yojson.Safe.from_string body))
-          | Provider_config.Glm ->
-              Ok (Backend_glm.parse_response body)
-          | Provider_config.Claude_code -> Error (Http_client.NetworkError { message = "Unreachable code" })
+          try
+            match config.kind with
+            | Provider_config.Anthropic ->
+                Ok (Backend_anthropic.parse_response
+                      (Yojson.Safe.from_string body))
+            | Provider_config.Ollama ->
+                (match Backend_ollama.parse_ollama_response body with
+                 | Ok resp -> Ok resp
+                 | Error msg ->
+                     Error (Http_client.HttpError { code = 400; body = msg }))
+            | Provider_config.OpenAI_compat ->
+                (match Backend_openai_parse.parse_openai_response_result body with
+                 | Ok resp -> Ok resp
+                 | Error msg ->
+                     Error (Http_client.HttpError { code = 400; body = msg }))
+            | Provider_config.Gemini ->
+                Ok (Backend_gemini.parse_response
+                      (Yojson.Safe.from_string body))
+            | Provider_config.Glm ->
+                Ok (Backend_glm.parse_response body)
+            | Provider_config.Claude_code -> Error (Http_client.NetworkError { message = "Unreachable code" })
+          with
+          | Yojson.Json_error msg ->
+              Printf.eprintf "[ERROR] [Llm_provider] JSON parse error: %s\n%!" msg;
+              Error (Http_client.HttpError { code = 400; body = "JSON parse error: " ^ msg })
+          | Yojson.Safe.Util.Type_error (msg, _) ->
+              Printf.eprintf "[ERROR] [Llm_provider] JSON type error: %s\n%!" msg;
+              Error (Http_client.HttpError { code = 400; body = "JSON type error: " ^ msg })
+          | Yojson.Safe.Util.Undefined (msg, _) ->
+              Printf.eprintf "[ERROR] [Llm_provider] JSON undefined field error: %s\n%!" msg;
+              Error (Http_client.HttpError { code = 400; body = "JSON undefined field error: " ^ msg })
+          | Backend_gemini.Gemini_api_error msg ->
+              Printf.eprintf "[ERROR] [Llm_provider] Gemini API error: %s\n%!" msg;
+              Error (Http_client.HttpError { code = 400; body = "Gemini API error: " ^ msg })
+          | Backend_glm.Glm_api_error msg ->
+              Printf.eprintf "[ERROR] [Llm_provider] GLM API error: %s\n%!" msg;
+              Error (Http_client.HttpError { code = 400; body = "GLM API error: " ^ msg })
+          | exn ->
+              let exn_str = Printexc.to_string exn in
+              Printf.eprintf "[ERROR] [Llm_provider] Unexpected parsing exception: %s\n%!" exn_str;
+              Error (Http_client.HttpError { code = 500; body = "Unexpected parsing exception: " ^ exn_str })
         else
           Error (Http_client.HttpError { code; body })
   in
