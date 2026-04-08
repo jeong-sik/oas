@@ -160,3 +160,32 @@ let format_errors ~tool_name errors =
   ) errors in
   Printf.sprintf "Tool '%s' parameter errors:\n%s\nFix the parameters and try again."
     tool_name (String.concat "\n" lines)
+
+(** Samchon-style inline error feedback: show the LLM's own JSON
+    with error annotations, so the retry prompt gives surgical guidance.
+
+    Output example:
+    {[
+      Your call to "keeper_shell_readonly":
+      {"op": "find", "pattern": "*.ml"}
+
+      Errors (fix these and call again):
+        "name": MISSING (required: string)
+        "op": wrong type — expected: integer, got: string("find")
+    ]}
+*)
+let format_errors_inline ~tool_name ~(args : Yojson.Safe.t) errors =
+  let json_str = Yojson.Safe.to_string args in
+  let error_lines = List.map (fun e ->
+    let field_name = match String.index_opt e.path '/' with
+      | Some i -> String.sub e.path (i + 1) (String.length e.path - i - 1)
+      | None -> e.path
+    in
+    if e.actual = "missing" then
+      Printf.sprintf "  \"%s\": MISSING (required: %s)" field_name e.expected
+    else
+      Printf.sprintf "  \"%s\": wrong type — expected: %s, got: %s"
+        field_name e.expected e.actual
+  ) errors in
+  Printf.sprintf "Your call to \"%s\":\n%s\n\nErrors (fix these and call again):\n%s"
+    tool_name json_str (String.concat "\n" error_lines)

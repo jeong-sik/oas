@@ -182,6 +182,49 @@ let test_format_errors () =
   check bool "contains fix instruction" true
     (let re = Re.(compile (str "Fix the parameters")) in Re.execp re msg)
 
+let test_format_errors_inline_missing () =
+  let errors : Tool_input_validation.field_error list = [
+    { path = "/name"; expected = "required"; actual = "missing" };
+  ] in
+  let args = `Assoc [ ("op", `String "find"); ("pattern", `String "*.ml") ] in
+  let msg = Tool_input_validation.format_errors_inline
+    ~tool_name:"keeper_shell_readonly" ~args errors in
+  check bool "contains tool name" true
+    (let re = Re.(compile (str "keeper_shell_readonly")) in Re.execp re msg);
+  check bool "contains original JSON" true
+    (let re = Re.(compile (str "find")) in Re.execp re msg);
+  check bool "contains MISSING marker" true
+    (let re = Re.(compile (str "MISSING")) in Re.execp re msg);
+  check bool "contains field name" true
+    (let re = Re.(compile (str "\"name\"")) in Re.execp re msg)
+
+let test_format_errors_inline_type_error () =
+  let errors : Tool_input_validation.field_error list = [
+    { path = "/count"; expected = "integer"; actual = "string(\"sixty\")" };
+  ] in
+  let args = `Assoc [ ("count", `String "sixty") ] in
+  let msg = Tool_input_validation.format_errors_inline
+    ~tool_name:"test_tool" ~args errors in
+  check bool "contains wrong type" true
+    (let re = Re.(compile (str "wrong type")) in Re.execp re msg);
+  check bool "contains expected" true
+    (let re = Re.(compile (str "integer")) in Re.execp re msg);
+  check bool "contains actual value" true
+    (let re = Re.(compile (str "sixty")) in Re.execp re msg)
+
+let test_format_errors_inline_multiple () =
+  let errors : Tool_input_validation.field_error list = [
+    { path = "/name"; expected = "required"; actual = "missing" };
+    { path = "/timeout"; expected = "number"; actual = "string(\"fast\")" };
+  ] in
+  let args = `Assoc [ ("timeout", `String "fast") ] in
+  let msg = Tool_input_validation.format_errors_inline
+    ~tool_name:"test_tool" ~args errors in
+  check bool "contains both errors" true
+    (let re1 = Re.(compile (str "MISSING")) in
+     let re2 = Re.(compile (str "wrong type")) in
+     Re.execp re1 msg && Re.execp re2 msg)
+
 (* ── Test runner ──────────────────────────────────────── *)
 
 let () =
@@ -218,5 +261,8 @@ let () =
       ( "format",
         [
           test_case "format_errors output" `Quick test_format_errors;
+          test_case "inline: missing field" `Quick test_format_errors_inline_missing;
+          test_case "inline: type error" `Quick test_format_errors_inline_type_error;
+          test_case "inline: multiple errors" `Quick test_format_errors_inline_multiple;
         ] );
     ]
