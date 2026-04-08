@@ -25,6 +25,7 @@ type agent_error = [
   | `Guardrail_violation of string * string
   | `Tripwire_violation of string * string
   | `Unrecognized_stop_reason of string
+  | `Exit_condition_met of int
 ]
 
 type config_error = [
@@ -83,6 +84,7 @@ let of_sdk_error (err : Error.sdk_error) : sdk_error_poly =
   | Error.Agent (GuardrailViolation r) -> `Guardrail_violation (r.validator, r.reason)
   | Error.Agent (TripwireViolation r) -> `Tripwire_violation (r.tripwire, r.reason)
   | Error.Agent (UnrecognizedStopReason r) -> `Unrecognized_stop_reason r.reason
+  | Error.Agent (ExitConditionMet r) -> `Exit_condition_met r.turn
   | Error.Config (MissingEnvVar r) -> `Missing_env_var r.var_name
   | Error.Config (UnsupportedProvider r) -> `Unsupported_provider r.detail
   | Error.Config (InvalidConfig r) -> `Invalid_config (r.field, r.detail)
@@ -132,6 +134,8 @@ let to_sdk_error (err : sdk_error_poly) : Error.sdk_error =
     Error.Agent (TripwireViolation { tripwire; reason })
   | `Unrecognized_stop_reason reason ->
     Error.Agent (UnrecognizedStopReason { reason })
+  | `Exit_condition_met turn ->
+    Error.Agent (ExitConditionMet { turn })
   | `Missing_env_var var ->
     Error.Config (MissingEnvVar { var_name = var })
   | `Unsupported_provider detail ->

@@ -56,6 +56,7 @@ type t = {
   operator_policy: Guardrails.tool_filter option;
   priority: Llm_provider.Request_priority.t option;
   yield_on_tool: bool;
+  exit_condition: (int -> bool) option;
   tool_selector: Tool_selector.strategy option;
   slot_id: int option;
 }
@@ -113,6 +114,7 @@ let create ~net ~model =
     operator_policy = None;
     priority = None;
     yield_on_tool = false;
+    exit_condition = None;
     tool_selector = None;
     slot_id = None;
   }
@@ -183,6 +185,7 @@ let with_max_cost_usd v b = { b with max_cost_usd = Some v }
 let with_response_format_json v b = { b with response_format_json = v }
 let with_cache_system_prompt v b = { b with cache_system_prompt = v }
 let with_yield_on_tool v b = { b with yield_on_tool = v }
+let with_exit_condition pred b = { b with exit_condition = Some pred }
 let with_event_bus bus b = { b with event_bus = Some bus }
 let with_cascade cascade b = { b with cascade = Some cascade }
 let with_named_cascade named_cascade b = { b with named_cascade = Some named_cascade }
@@ -244,6 +247,7 @@ let build b =
     context_handoff_ratio = b.context_handoff_ratio;
     priority = b.priority;
     yield_on_tool = b.yield_on_tool;
+    exit_condition = b.exit_condition;
   } in
   let options = {
     Agent_types.base_url = b.base_url;

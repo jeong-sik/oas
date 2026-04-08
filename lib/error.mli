@@ -21,6 +21,7 @@ type agent_error =
   | ToolRetryExhausted of { attempts: int; limit: int; detail: string }
   | GuardrailViolation of { validator: string; reason: string }
   | TripwireViolation of { tripwire: string; reason: string }
+  | ExitConditionMet of { turn: int }
 
 type mcp_error =
   | ServerStartFailed of { command: string; detail: string }

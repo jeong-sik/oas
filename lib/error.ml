@@ -22,6 +22,7 @@ type agent_error =
   | ToolRetryExhausted of { attempts: int; limit: int; detail: string }
   | GuardrailViolation of { validator: string; reason: string }
   | TripwireViolation of { tripwire: string; reason: string }
+  | ExitConditionMet of { turn: int }
 
 (** MCP client errors. *)
 type mcp_error =
@@ -94,6 +95,8 @@ let agent_error_to_string = function
     Printf.sprintf "Guardrail violation [%s]: %s" r.validator r.reason
   | TripwireViolation r ->
     Printf.sprintf "Tripwire violation [%s]: %s" r.tripwire r.reason
+  | ExitConditionMet r ->
+    Printf.sprintf "Exit condition met at turn %d" r.turn
 
 let mcp_error_to_string = function
   | ServerStartFailed r ->
