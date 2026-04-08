@@ -7,6 +7,12 @@
     @stability Internal
     @since 0.93.1 *)
 
+(** GLM auto-cascade model list: quality-first, then speed.
+    Returns the ordered list of models to try when [glm:auto] is specified.
+    Configurable via [ZAI_AUTO_MODELS] env var (comma-separated).
+    Default: [\["glm-5.1"; "glm-5-turbo"; "glm-4.7"; "glm-4.7-flashx"\]]. *)
+val glm_auto_models : unit -> string list
+
 (** Resolve a GLM model alias to the concrete API model ID.
     - ["auto"] -> env var [ZAI_DEFAULT_MODEL] or ["glm-5"]
     - ["flash"] -> ["glm-4.7-flashx"]

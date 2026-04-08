@@ -169,13 +169,28 @@ let parse_model_string_exn
       Ok (make_registry_config ~temperature ~max_tokens ?system_prompt
             ~provider_name ~model_id entry)
 
+(** Expand provider:auto specs that map to multiple models.
+    "glm:auto" expands to ["glm:glm-5.1"; "glm:glm-5-turbo"; ...].
+    Other specs pass through as-is. *)
+let expand_auto_models (strs : string list) : string list =
+  List.concat_map (fun s ->
+    let trimmed = String.trim s in
+    match split_provider_model trimmed with
+    | Some ("glm", model_id)
+      when String.lowercase_ascii model_id = "auto" ->
+      Cascade_model_resolve.glm_auto_models ()
+      |> List.map (fun m -> "glm:" ^ m)
+    | _ -> [ trimmed ]
+  ) strs
+
 let parse_model_strings
     ?(temperature = Constants.Inference.default_temperature)
     ?(max_tokens = Constants.Inference.default_max_tokens)
     ?system_prompt (strs : string list) : Provider_config.t list =
+  let expanded = expand_auto_models strs in
   List.filter_map
     (parse_model_string ~temperature ~max_tokens ?system_prompt)
-    strs
+    expanded
 
 (* Health filtering (extracted to Cascade_health_filter) *)
 let is_local_provider = Cascade_health_filter.is_local_provider
@@ -599,6 +614,22 @@ let%test "parse_model_string system_prompt forwarded" =
   match parse_model_string ~system_prompt:"test prompt" "llama:m1" with
   | Some cfg -> cfg.system_prompt = Some "test prompt"
   | None -> false
+
+let%test "expand_auto_models glm:auto expands" =
+  let expanded = expand_auto_models ["glm:auto"] in
+  List.length expanded >= 2
+  && List.hd expanded = "glm:glm-5.1"
+  && List.exists (fun s -> s = "glm:glm-5-turbo") expanded
+
+let%test "expand_auto_models non-auto passes through" =
+  expand_auto_models ["glm:glm-5.1"; "ollama:auto"] =
+    ["glm:glm-5.1"; "ollama:auto"]
+
+let%test "expand_auto_models mixed" =
+  let expanded = expand_auto_models ["glm:auto"; "ollama:auto"] in
+  List.length expanded >= 3
+  && List.hd expanded = "glm:glm-5.1"
+  && List.nth expanded (List.length expanded - 1) = "ollama:auto"
 
 let%test "parse_model_strings empty list" =
   parse_model_strings [] = []
