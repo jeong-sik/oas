@@ -64,9 +64,16 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
          `Assoc [("enable_thinking", `Bool enabled)]) :: body
     | None -> body
   in
+  let supports_tool_choice =
+    match Capabilities.for_model_id config.model_id with
+    | Some caps -> caps.supports_tool_choice
+    | None -> true  (* unknown model — assume support for backward compat *)
+  in
   let body = match config.tool_choice with
-    | Some choice -> ("tool_choice", tool_choice_to_openai_json choice) :: body
+    | Some choice when supports_tool_choice ->
+        ("tool_choice", tool_choice_to_openai_json choice) :: body
     | None -> body
+    | Some _ -> body  (* tool_choice set but provider does not support it *)
   in
   let body = match tools with
     | [] -> body
@@ -545,3 +552,28 @@ let%test "openai_content_parts_of_blocks tool_result filtered" =
     ToolResult { tool_use_id = "t1"; content = "result"; is_error = false; json = None };
   ] in
   openai_content_parts_of_blocks blocks = []
+
+let%test "build_request includes tool_choice for model with supports_tool_choice=true" =
+  let config = Provider_config.make ~kind:OpenAI_compat ~model_id:"gpt-4o"
+      ~base_url:"http://localhost" ~tool_choice:Any () in
+  let body = build_request ~config ~messages:[] () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  json |> member "tool_choice" |> to_string = "required"
+
+let%test "build_request includes tool_choice for unknown model (backward compat)" =
+  let config = Provider_config.make ~kind:OpenAI_compat ~model_id:"mystery-xyz-v1"
+      ~base_url:"http://localhost" ~tool_choice:Any () in
+  let body = build_request ~config ~messages:[] () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  json |> member "tool_choice" |> to_string = "required"
+
+let%test "build_request omits tool_choice when tool_choice=None" =
+  let config = Provider_config.make ~kind:OpenAI_compat ~model_id:"gpt-4o"
+      ~base_url:"http://localhost" () in
+  let body = build_request ~config ~messages:[] () in
+  let json = Yojson.Safe.from_string body in
+  match json with
+  | `Assoc fields -> not (List.exists (fun (k, _) -> k = "tool_choice") fields)
+  | _ -> false
