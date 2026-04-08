@@ -86,8 +86,7 @@ let is_retryable = function
   | RateLimited _ | Overloaded _ | ServerError _ | NetworkError _ | Timeout _ -> true
   | InvalidRequest { message } ->
     (* Malformed JSON from model output is transient — retry may produce valid JSON. *)
-    let lower = String.lowercase_ascii message in
-    List.exists (fun needle -> contains_substring_ci ~haystack:lower ~needle) malformed_json_indicators
+    List.exists (fun needle -> contains_substring_ci ~haystack:message ~needle) malformed_json_indicators
   | AuthError _ | ContextOverflow _ -> false
 
 let extract_error_message (body : string) : string =
@@ -303,6 +302,21 @@ let%test "InvalidRequest with generic message is NOT retryable" =
 
 let%test "InvalidRequest with unknown field is NOT retryable" =
   not (is_retryable (InvalidRequest { message = "Unknown field 'foo'" }))
+
+let%test "InvalidRequest with uppercase PARSE ERROR is retryable" =
+  is_retryable (InvalidRequest { message = "PARSE ERROR at position 42" })
+
+let%test "InvalidRequest with MixedCase is retryable" =
+  is_retryable (InvalidRequest { message = "Unexpected Character In JSON" })
+
+let%test "InvalidRequest with unterminated string is retryable" =
+  is_retryable (InvalidRequest { message = "Unterminated string literal" })
+
+let%test "InvalidRequest with invalid json is retryable" =
+  is_retryable (InvalidRequest { message = "invalid json in tool call arguments" })
+
+let%test "InvalidRequest with empty message is NOT retryable" =
+  not (is_retryable (InvalidRequest { message = "" }))
 
 (** Retry with cascade: try [primary] first (with retries), then each
     fallback in order. Each attempt gets its own full retry budget.
