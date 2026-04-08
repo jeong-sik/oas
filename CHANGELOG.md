@@ -6,6 +6,23 @@ Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
 backfilled on 2026-04-04 from existing git tags. The dates below reflect the
 original tag dates. `0.100.4` was never tagged or released.
 
+## [0.117.0] - 2026-04-09
+
+### Added
+- Runtime `glm:auto` expansion now yields ordered GLM execution fallbacks for named completions, streaming completions, and local capacity selection. Closes #738.
+- `glm:auto` now expands to a multi-model GLM cascade during config/model resolution instead of a single default model. Closes #736.
+
+### Changed
+- `Constants.Inference_profile.agent_default` and `worker_default` now use `max_tokens = 16_384`; endpoint docs also clarify that port `8085` is the llama.cpp default. Closes #737.
+
+### Fixed
+- OpenAI-compatible requests now send explicit `Content-Length` headers to avoid chunked-encoding rejection by strict upstreams. Closes #735.
+- `backend_openai` omits `tool_choice` for models that do not advertise tool-choice support, preserving backward compatibility for unknown models. Closes #725.
+- Legacy tool parameter lists are normalized into JSON Schema before OpenAI-compatible/Ollama tool serialization. Closes #734.
+- `complete_http` adds pre-flight JSON-body validation and richer 4xx diagnostics for malformed provider payloads. Closes #726.
+- Cascade diagnostic logs now quote field values and gate debug output behind `OAS_CASCADE_DIAG`. Closes #724.
+- Retry follow-up cleanup tightened wording, allocation behavior, and inline coverage around `retry.ml`. Closes #723.
+
 ## [0.111.0] - 2026-04-07
 
 ### Added
