@@ -247,6 +247,13 @@ val text_of_response : Types.api_response -> string
 
     @return [Ok api_response] on success
     @return [Error http_error] when all providers fail or are rejected *)
+
+val apply_provider_filter :
+  provider_filter:string list option ->
+  label:string ->
+  Provider_config.t list ->
+  Provider_config.t list
+
 val complete_named :
   sw:Eio.Switch.t ->
   net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->

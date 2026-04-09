@@ -139,33 +139,45 @@ let test_builder_with_fallback () =
     check int "fallbacks" 1 (List.length casc.fallbacks)
   | None -> fail "expected cascade to be set"
 
+(* Test apply_provider_filter directly using mock Provider_config.t values.
+   Avoids parse_model_strings dependency on API key env vars in CI. *)
+let mock_provider kind model_id : Llm_provider.Provider_config.t =
+  { kind; model_id; base_url = ""; api_key = ""; headers = [];
+    request_path = ""; max_tokens = 4096; temperature = None;
+    top_p = None; top_k = None; min_p = None; system_prompt = None;
+    enable_thinking = None; thinking_budget = None; tool_choice = None;
+    disable_parallel_tool_use = false; response_format_json = false;
+    cache_system_prompt = false }
+
 let test_provider_filter_ollama_only () =
-  let models = [ "glm:auto"; "glm:glm-5-turbo"; "ollama:auto" ] in
-  let parsed = Llm_provider.Cascade_config.parse_model_strings models in
-  let lc_filters = [ "ollama" ] in
-  let matches (p : Llm_provider.Provider_config.t) =
-    List.mem (Llm_provider.Provider_config.string_of_provider_kind p.kind) lc_filters
-  in
-  let filtered = List.filter matches parsed in
-  check int "one ollama provider" 1 (List.length filtered);
+  let providers = [
+    mock_provider Llm_provider.Provider_config.Glm "glm-5.1";
+    mock_provider Llm_provider.Provider_config.Glm "glm-5-turbo";
+    mock_provider Llm_provider.Provider_config.Ollama "qwen3.5";
+  ] in
+  let filtered = Llm_provider.Cascade_config.apply_provider_filter
+    ~provider_filter:(Some ["ollama"]) ~label:"test" providers in
+  check int "one ollama" 1 (List.length filtered);
   check string "kind" "ollama"
     (Llm_provider.Provider_config.string_of_provider_kind (List.hd filtered).kind)
 
 let test_provider_filter_none_passes_all () =
-  (* Use cloud-only model IDs that resolve without local discovery *)
-  let models = [ "glm:glm-5.1"; "glm:glm-5-turbo" ] in
-  let parsed = Llm_provider.Cascade_config.parse_model_strings models in
-  check int "all pass through" 2 (List.length parsed)
+  let providers = [
+    mock_provider Llm_provider.Provider_config.Glm "glm-5.1";
+    mock_provider Llm_provider.Provider_config.Ollama "qwen3.5";
+  ] in
+  let result = Llm_provider.Cascade_config.apply_provider_filter
+    ~provider_filter:None ~label:"test" providers in
+  check int "all pass" 2 (List.length result)
 
 let test_provider_filter_no_match_fallback () =
-  let models = [ "glm:auto"; "ollama:auto" ] in
-  let parsed = Llm_provider.Cascade_config.parse_model_strings models in
-  let lc_filters = [ "nonexistent" ] in
-  let matches (p : Llm_provider.Provider_config.t) =
-    List.mem (Llm_provider.Provider_config.string_of_provider_kind p.kind) lc_filters
-  in
-  let filtered = List.filter matches parsed in
-  check int "no match" 0 (List.length filtered)
+  let providers = [
+    mock_provider Llm_provider.Provider_config.Glm "glm-5.1";
+    mock_provider Llm_provider.Provider_config.Ollama "qwen3.5";
+  ] in
+  let result = Llm_provider.Cascade_config.apply_provider_filter
+    ~provider_filter:(Some ["nonexistent"]) ~label:"test" providers in
+  check int "fallback to all" 2 (List.length result)
 
 let () =
   run "cascade" [
