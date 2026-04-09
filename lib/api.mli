@@ -10,10 +10,12 @@ type named_cascade = {
   defaults : string list;
   config_path : string option;
   metrics : Llm_provider.Metrics.t;
+  provider_filter : string list option;
 }
 
 val named_cascade :
   ?config_path:string -> ?metrics:Llm_provider.Metrics.t ->
+  ?provider_filter:string list ->
   name:string -> defaults:string list ->
   unit -> named_cascade
 
