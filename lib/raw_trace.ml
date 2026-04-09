@@ -182,8 +182,10 @@ let tool_choice_to_json_opt value =
 
 let tool_choice_of_json_opt json =
   match Yojson.Safe.Util.member "tool_choice" json with
-  | `Null -> None
-  | value -> Some value
+  | `Null -> Ok None
+  | value ->
+      let* tool_choice = Types.tool_choice_of_json value in
+      Ok (Some (Types.tool_choice_to_json tool_choice))
 
 let record_to_json (record : record) =
   `Assoc
@@ -228,6 +230,7 @@ let record_of_json json =
   let* record_type =
     json |> member "record_type" |> to_string |> record_type_of_string
   in
+  let* tool_choice = tool_choice_of_json_opt json in
   Ok
     {
       trace_version = json |> member "trace_version" |> to_int;
@@ -239,7 +242,7 @@ let record_of_json json =
       record_type;
       prompt = json |> member "prompt" |> to_string_option;
       model = json |> member "model" |> to_string_option;
-      tool_choice = tool_choice_of_json_opt json;
+      tool_choice;
       enable_thinking = json |> member "enable_thinking" |> to_bool_option;
       thinking_budget = json |> member "thinking_budget" |> to_int_option;
       block_index = json |> member "block_index" |> to_int_option;

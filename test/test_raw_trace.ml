@@ -457,8 +457,28 @@ let test_record_to_json_roundtrip () =
        | Some value -> Yojson.Safe.to_string value
        | None -> "");
     Alcotest.(check (option bool)) "enable_thinking" (Some false)
-      decoded.enable_thinking
+      decoded.enable_thinking;
+    Alcotest.(check (option int)) "thinking_budget" (Some 2048)
+      decoded.thinking_budget
   | Error e -> Alcotest.fail (Error.to_string e)
+
+let test_record_of_json_rejects_invalid_tool_choice () =
+  let json =
+    `Assoc
+      [
+        ("trace_version", `Int 1);
+        ("worker_run_id", `String "wr-invalid");
+        ("seq", `Int 1);
+        ("ts", `Float 1700000000.0);
+        ("agent_name", `String "test-agent");
+        ("session_id", `Null);
+        ("record_type", `String "run_started");
+        ("prompt", `String "hello");
+        ("tool_choice", `Assoc [("type", `String "bogus")]);
+      ]
+  in
+  Alcotest.(check bool) "invalid tool_choice rejected" true
+    (Result.is_error (Raw_trace.record_of_json json))
 
 let test_record_to_json_full () =
   let record : Raw_trace.record = {
@@ -550,6 +570,36 @@ let test_run_validation_yojson () =
       (Raw_trace.show_run_validation decoded)
   | Error msg -> Alcotest.fail ("run_validation_of_yojson: " ^ msg)
 
+let test_tool_result_assistant_block_summary () =
+  with_temp_dir @@ fun root ->
+  let sink =
+    unwrap
+      (Raw_trace.create_for_session ~session_root:root ~session_id:"sess-tool-result"
+         ~agent_name:"raw-worker" ())
+  in
+  let active =
+    unwrap
+      (Raw_trace.start_run sink ~agent_name:"raw-worker"
+         ~prompt:"tool result summary" ())
+  in
+  unwrap
+    (Raw_trace.record_assistant_block active ~block_index:0
+       (Types.ToolResult
+          {
+            tool_use_id = "tool-1";
+            content = "ok";
+            is_error = false;
+            json = None;
+          }));
+  ignore
+    (unwrap
+       (Raw_trace.finish_run active ~final_text:(Some "done")
+          ~stop_reason:(Some "EndTurn") ~error:None));
+  let runs = unwrap (Raw_trace_query.read_runs ~path:(Raw_trace.file_path sink) ()) in
+  let summary = unwrap (Raw_trace_query.summarize_run (List.hd runs)) in
+  Alcotest.(check int) "assistant blocks" 1 summary.assistant_block_count;
+  Alcotest.(check int) "tool_result blocks" 1 summary.tool_result_block_count
+
 let () =
   Random.self_init ();
   Alcotest.run "Raw Trace"
@@ -568,6 +618,8 @@ let () =
       ( "record_json",
         [
           Alcotest.test_case "minimal roundtrip" `Quick test_record_to_json_roundtrip;
+          Alcotest.test_case "invalid tool_choice rejected" `Quick
+            test_record_of_json_rejects_invalid_tool_choice;
           Alcotest.test_case "full roundtrip" `Quick test_record_to_json_full;
         ] );
       ( "type_yojson",
@@ -575,5 +627,7 @@ let () =
           Alcotest.test_case "run_ref" `Quick test_run_ref_yojson;
           Alcotest.test_case "run_summary" `Quick test_run_summary_yojson;
           Alcotest.test_case "run_validation" `Quick test_run_validation_yojson;
+          Alcotest.test_case "tool_result assistant block summary" `Quick
+            test_tool_result_assistant_block_summary;
         ] );
     ]

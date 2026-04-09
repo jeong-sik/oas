@@ -55,7 +55,8 @@ let make_summary ~tool_names ~tool_execution_started_count
        else if assistant_block_count > 0 then Some "text"
        else None);
     selection_outcome =
-      (if tool_execution_started_count > 0 then "mixed"
+      (if tool_execution_started_count > 0 && assistant_block_count > 0 then "mixed"
+       else if tool_execution_started_count > 0 then "tool_only"
        else if assistant_block_count > 0 then "text_only"
        else "empty");
     saw_tool_use = tool_execution_started_count > 0;
