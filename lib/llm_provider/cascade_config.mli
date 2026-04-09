@@ -247,6 +247,13 @@ val text_of_response : Types.api_response -> string
 
     @return [Ok api_response] on success
     @return [Error http_error] when all providers fail or are rejected *)
+
+val apply_provider_filter :
+  provider_filter:string list option ->
+  label:string ->
+  Provider_config.t list ->
+  Provider_config.t list
+
 val complete_named :
   sw:Eio.Switch.t ->
   net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
@@ -268,6 +275,7 @@ val complete_named :
   ?metrics:Metrics.t ->
   ?throttle:Provider_throttle.t ->
   ?priority:Request_priority.t ->
+  ?provider_filter:string list ->
   unit ->
   (Types.api_response, Http_client.http_error) result
 
@@ -306,6 +314,7 @@ val complete_named_stream :
   ?timeout_sec:int ->
   ?metrics:Metrics.t ->
   ?priority:Request_priority.t ->
+  ?provider_filter:string list ->
   on_event:(Types.sse_event -> unit) ->
   unit ->
   (Types.api_response, Http_client.http_error) result

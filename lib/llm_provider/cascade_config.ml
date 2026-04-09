@@ -305,6 +305,27 @@ let expand_model_strings_for_execution (items : string list) =
 (* Cascade execution (extracted to Cascade_executor) *)
 let complete_cascade_with_accept = Cascade_executor.complete_cascade_with_accept
 
+(* Filter providers by kind name (exact, case-insensitive).
+   Valid filter values: "ollama", "glm", "anthropic", "gemini", "openai_compat", "claude_code".
+   Empty/None filter passes through unchanged. No-match falls back to unfiltered. *)
+let apply_provider_filter ~provider_filter ~label providers =
+  match provider_filter with
+  | None | Some [] -> providers
+  | Some filters ->
+    let lc_filters = List.map String.lowercase_ascii filters in
+    let matches (p : Provider_config.t) =
+      List.mem (Provider_config.string_of_provider_kind p.kind) lc_filters
+    in
+    let filtered = List.filter matches providers in
+    if filtered = [] then (
+      Eio.traceln "[CascadeConfig] provider_filter matched no providers (%s); \
+        falling back to unfiltered (filter=[%s] providers=[%s])"
+        label (String.concat "," filters)
+        (String.concat "," (List.map (fun (p : Provider_config.t) ->
+          Provider_config.string_of_provider_kind p.kind) providers));
+      providers)
+    else filtered
+
 let complete_named ~sw ~net ?clock ?config_path
     ~name ~defaults ~messages
     ?(tools = [])
@@ -312,7 +333,7 @@ let complete_named ~sw ~net ?clock ?config_path
     ?(max_tokens = Constants.Inference.default_max_tokens)
     ?system_prompt ?tool_choice ?(accept = fun _ -> true) ?(strict_name = false)
     ?(accept_on_exhaustion = false)
-    ?timeout_sec ?cache ?metrics ?throttle ?priority () =
+    ?timeout_sec ?cache ?metrics ?throttle ?priority ?provider_filter () =
   let model_strings, source =
     resolve_model_strings_traced ?config_path ~name ~defaults ()
   in
@@ -343,9 +364,11 @@ let complete_named ~sw ~net ?clock ?config_path
     (* Propagate tool_choice to each provider config so it reaches the
        HTTP body (e.g. "tool_choice": "required" for OpenAI-compatible).
        Without this, tool_choice from Agent hooks is lost in cascade. *)
-    match tool_choice with
-    | Some tc -> List.map (fun (p : Provider_config.t) -> { p with tool_choice = Some tc }) parsed
-    | None -> parsed
+    let with_tc = match tool_choice with
+      | Some tc -> List.map (fun (p : Provider_config.t) -> { p with tool_choice = Some tc }) parsed
+      | None -> parsed
+    in
+    apply_provider_filter ~provider_filter ~label:"named" with_tc
   in
   if providers = [] then
     Error (Http_client.NetworkError {
@@ -390,7 +413,7 @@ let complete_named_stream ~sw ~net ?clock ?config_path
     ?(temperature = Constants.Inference.default_temperature)
     ?(max_tokens = Constants.Inference.default_max_tokens)
     ?system_prompt ?tool_choice ?(strict_name = false)
-    ?timeout_sec ?metrics ?priority ~on_event () =
+    ?timeout_sec ?metrics ?priority ?provider_filter ~on_event () =
   let model_strings, source =
     resolve_model_strings_traced ?config_path ~name ~defaults ()
   in
@@ -406,9 +429,11 @@ let complete_named_stream ~sw ~net ?clock ?config_path
   else
   let providers =
     let parsed = parse_model_strings ~temperature ~max_tokens ?system_prompt model_strings in
-    match tool_choice with
-    | Some tc -> List.map (fun (p : Provider_config.t) -> { p with tool_choice = Some tc }) parsed
-    | None -> parsed
+    let with_tc = match tool_choice with
+      | Some tc -> List.map (fun (p : Provider_config.t) -> { p with tool_choice = Some tc }) parsed
+      | None -> parsed
+    in
+    apply_provider_filter ~provider_filter ~label:"stream" with_tc
   in
   if providers = [] then
     Error (Http_client.NetworkError {

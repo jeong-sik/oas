@@ -7,11 +7,12 @@ type named_cascade = {
   defaults : string list;
   config_path : string option;
   metrics : Llm_provider.Metrics.t;
+  provider_filter : string list option;
 }
 
-let named_cascade ?config_path ?metrics ~name ~defaults () =
+let named_cascade ?config_path ?metrics ?provider_filter ~name ~defaults () =
   let metrics = match metrics with Some m -> m | None -> Llm_provider.Metrics.noop in
-  { name; defaults; config_path; metrics }
+  { name; defaults; config_path; metrics; provider_filter }
 
 (* Re-export Api_common *)
 let default_base_url = Api_common.default_base_url
@@ -207,7 +208,8 @@ let create_message_named ~sw ~net ?clock ~(named_cascade : named_cascade)
       ?config_path:named_cascade.config_path ~name:named_cascade.name
       ~defaults:named_cascade.defaults ~messages ?tools ~temperature
       ~max_tokens ?system_prompt ?tool_choice:config.config.tool_choice
-      ~accept ~accept_on_exhaustion ?timeout_sec ~metrics ?priority ()
+      ~accept ~accept_on_exhaustion ?timeout_sec ~metrics ?priority
+      ?provider_filter:named_cascade.provider_filter ()
   with
   | Ok response -> Ok response
   | Error err -> Error (map_named_cascade_error err)
@@ -230,7 +232,8 @@ let create_message_named_stream ~sw ~net ?clock
       ?config_path:named_cascade.config_path ~name:named_cascade.name
       ~defaults:named_cascade.defaults ~messages ?tools ~temperature
       ~max_tokens ?system_prompt ?tool_choice:config.config.tool_choice
-      ?timeout_sec ~metrics ~on_event ?priority ()
+      ?timeout_sec ~metrics ~on_event ?priority
+      ?provider_filter:named_cascade.provider_filter ()
   with
   | Ok response -> Ok response
   | Error err -> Error (map_named_cascade_error err)
