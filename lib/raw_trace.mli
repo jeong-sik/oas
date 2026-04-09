@@ -31,6 +31,18 @@ type run_summary = {
   hook_invoked_count: int;
   hook_names: string list;
   tool_names: string list;
+  model: string option;
+  tool_choice: Yojson.Safe.t option;
+  enable_thinking: bool option;
+  thinking_budget: int option;
+  thinking_block_count: int;
+  text_block_count: int;
+  tool_use_block_count: int;
+  tool_result_block_count: int;
+  first_assistant_block_kind: string option;
+  selection_outcome: string;
+  saw_tool_use: bool;
+  saw_thinking: bool;
   final_text: string option;
   stop_reason: string option;
   error: string option;
@@ -69,6 +81,10 @@ type record = {
   session_id: string option;
   record_type: record_type;
   prompt: string option;
+  model: string option;
+  tool_choice: Yojson.Safe.t option;
+  enable_thinking: bool option;
+  thinking_budget: int option;
   block_index: int option;
   block_kind: string option;
   assistant_block: Yojson.Safe.t option;
@@ -115,7 +131,14 @@ val record_to_json : record -> Yojson.Safe.t
 
 (** Internal append helpers used by the direct Agent loop. *)
 val start_run :
-  t -> agent_name:string -> prompt:string ->
+  t ->
+  agent_name:string ->
+  prompt:string ->
+  ?model:string ->
+  ?tool_choice:Types.tool_choice ->
+  ?enable_thinking:bool ->
+  ?thinking_budget:int ->
+  unit ->
   (active_run, Error.sdk_error) result
 val record_assistant_block :
   active_run -> block_index:int -> Types.content_block ->

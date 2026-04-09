@@ -169,6 +169,8 @@ let run_participant store state session_id
            match
              Raw_trace.start_run sink ~agent_name:detail.participant_name
                ~prompt:detail.prompt
+               ?model:resolution.resolved_model
+               ()
            with
            | Ok active ->
                ignore

@@ -119,7 +119,8 @@ let of_raw_trace_records (records : Raw_trace.record list) : trajectory =
     match r.record_type with
     | Run_started ->
       let p_prompt = match r.prompt with Some p -> p | None -> st.p_prompt in
-      { st with p_agent_name = r.agent_name; p_started_at = r.ts; p_prompt }
+      let p_model = match r.model with Some model -> model | None -> st.p_model in
+      { st with p_agent_name = r.agent_name; p_model; p_started_at = r.ts; p_prompt }
     | Assistant_block ->
       (match r.block_kind with
        | Some "thinking" ->

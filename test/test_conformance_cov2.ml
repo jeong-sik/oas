@@ -76,6 +76,13 @@ let make_summary ?(worker_run_id = "run-c2") ?(agent_name = "agent-c2") ()
     record_count = 5; assistant_block_count = 1;
     tool_execution_started_count = 0; tool_execution_finished_count = 0;
     hook_invoked_count = 0; hook_names = []; tool_names = [];
+    model = None; tool_choice = None;
+    enable_thinking = None; thinking_budget = None;
+    thinking_block_count = 0; text_block_count = 0;
+    tool_use_block_count = 0; tool_result_block_count = 0;
+    first_assistant_block_kind = None;
+    selection_outcome = "empty";
+    saw_tool_use = false; saw_thinking = false;
     final_text = None; stop_reason = None; error = None;
     started_at = Some 100.0; finished_at = Some 200.0 }
 

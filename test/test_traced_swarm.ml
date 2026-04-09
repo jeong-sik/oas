@@ -20,7 +20,7 @@ let traced_mock_entry ~trace_dir ~name ~tool_names text =
       (match Raw_trace.create ~path:trace_path () with
        | Error _ -> ()
        | Ok sink ->
-         (match Raw_trace.start_run sink ~agent_name:name ~prompt with
+         (match Raw_trace.start_run sink ~agent_name:name ~prompt () with
           | Error _ -> ()
           | Ok active ->
             List.iter (fun tool_name ->

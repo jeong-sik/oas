@@ -111,6 +111,10 @@ let mk_record ?(record_type = Raw_trace.Run_started) ?(seq = 1)
     session_id = Some "s-test-001";
     record_type;
     prompt;
+    model = Some "glm-5.1";
+    tool_choice = Some (Agent_sdk.Types.tool_choice_to_json Agent_sdk.Types.Any);
+    enable_thinking = Some false;
+    thinking_budget = Some 2048;
     block_index;
     block_kind;
     assistant_block;
@@ -233,6 +237,10 @@ let test_record_to_json_all_none_optionals () =
     session_id = None;
     record_type = Raw_trace.Run_started;
     prompt = None;
+    model = None;
+    tool_choice = None;
+    enable_thinking = None;
+    thinking_budget = None;
     block_index = None;
     block_kind = None;
     assistant_block = None;
@@ -342,6 +350,13 @@ let test_record_json_all_fields_populated () =
     session_id = Some "s-full";
     record_type = Raw_trace.Assistant_block;
     prompt = Some "test prompt";
+    model = Some "glm-5.1";
+    tool_choice =
+      Some
+        (Agent_sdk.Types.tool_choice_to_json
+           (Agent_sdk.Types.Tool "complex_tool"));
+    enable_thinking = Some true;
+    thinking_budget = Some 8192;
     block_index = Some 3;
     block_kind = Some "thinking";
     assistant_block = Some (`Assoc [("type", `String "thinking"); ("thinking", `String "hmm")]);
