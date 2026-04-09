@@ -268,6 +268,7 @@ val complete_named :
   ?metrics:Metrics.t ->
   ?throttle:Provider_throttle.t ->
   ?priority:Request_priority.t ->
+  ?provider_filter:string list ->
   unit ->
   (Types.api_response, Http_client.http_error) result
 

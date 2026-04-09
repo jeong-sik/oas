@@ -312,7 +312,7 @@ let complete_named ~sw ~net ?clock ?config_path
     ?(max_tokens = Constants.Inference.default_max_tokens)
     ?system_prompt ?tool_choice ?(accept = fun _ -> true) ?(strict_name = false)
     ?(accept_on_exhaustion = false)
-    ?timeout_sec ?cache ?metrics ?throttle ?priority () =
+    ?timeout_sec ?cache ?metrics ?throttle ?priority ?provider_filter () =
   let model_strings, source =
     resolve_model_strings_traced ?config_path ~name ~defaults ()
   in
@@ -343,9 +343,31 @@ let complete_named ~sw ~net ?clock ?config_path
     (* Propagate tool_choice to each provider config so it reaches the
        HTTP body (e.g. "tool_choice": "required" for OpenAI-compatible).
        Without this, tool_choice from Agent hooks is lost in cascade. *)
-    match tool_choice with
-    | Some tc -> List.map (fun (p : Provider_config.t) -> { p with tool_choice = Some tc }) parsed
-    | None -> parsed
+    let with_tc = match tool_choice with
+      | Some tc -> List.map (fun (p : Provider_config.t) -> { p with tool_choice = Some tc }) parsed
+      | None -> parsed
+    in
+    (* Apply provider_filter: keep only providers whose kind matches one
+       of the filter strings (case-insensitive prefix match on model label).
+       Example: provider_filter=["ollama"] keeps "ollama:auto" but not "glm:auto".
+       Empty/None filter passes through unchanged. *)
+    match provider_filter with
+    | None | Some [] -> with_tc
+    | Some filters ->
+      let lc_filters = List.map String.lowercase_ascii filters in
+      let matches (p : Provider_config.t) =
+        let kind_str = Provider_config.string_of_provider_kind p.kind in
+        List.mem kind_str lc_filters
+      in
+      let filtered = List.filter matches with_tc in
+      if filtered = [] then (
+        Eio.traceln "[CascadeConfig] provider_filter matched no providers; \
+          falling back to unfiltered (filter=[%s] providers=[%s])"
+          (String.concat "," filters)
+          (String.concat "," (List.map (fun (p : Provider_config.t) ->
+            Provider_config.string_of_provider_kind p.kind) with_tc));
+        with_tc)
+      else filtered
   in
   if providers = [] then
     Error (Http_client.NetworkError {

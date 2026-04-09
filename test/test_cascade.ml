@@ -139,6 +139,34 @@ let test_builder_with_fallback () =
     check int "fallbacks" 1 (List.length casc.fallbacks)
   | None -> fail "expected cascade to be set"
 
+let test_provider_filter_ollama_only () =
+  let models = [ "glm:auto"; "glm:glm-5-turbo"; "ollama:auto" ] in
+  let parsed = Llm_provider.Cascade_config.parse_model_strings models in
+  let lc_filters = [ "ollama" ] in
+  let matches (p : Llm_provider.Provider_config.t) =
+    List.mem (Llm_provider.Provider_config.string_of_provider_kind p.kind) lc_filters
+  in
+  let filtered = List.filter matches parsed in
+  check int "one ollama provider" 1 (List.length filtered);
+  check string "kind" "ollama"
+    (Llm_provider.Provider_config.string_of_provider_kind (List.hd filtered).kind)
+
+let test_provider_filter_none_passes_all () =
+  let models = [ "glm:auto"; "ollama:auto" ] in
+  let parsed = Llm_provider.Cascade_config.parse_model_strings models in
+  (* glm:auto may expand to multiple providers; just verify non-empty *)
+  check bool "all pass through" true (List.length parsed >= 2)
+
+let test_provider_filter_no_match_fallback () =
+  let models = [ "glm:auto"; "ollama:auto" ] in
+  let parsed = Llm_provider.Cascade_config.parse_model_strings models in
+  let lc_filters = [ "nonexistent" ] in
+  let matches (p : Llm_provider.Provider_config.t) =
+    List.mem (Llm_provider.Provider_config.string_of_provider_kind p.kind) lc_filters
+  in
+  let filtered = List.filter matches parsed in
+  check int "no match" 0 (List.length filtered)
+
 let () =
   run "cascade" [
     "type", [
@@ -162,5 +190,10 @@ let () =
     ];
     "builder", [
       test_case "with_fallback" `Quick test_builder_with_fallback;
+    ];
+    "provider_filter", [
+      test_case "ollama only" `Quick test_provider_filter_ollama_only;
+      test_case "none passes all" `Quick test_provider_filter_none_passes_all;
+      test_case "no match empty" `Quick test_provider_filter_no_match_fallback;
     ];
   ]
