@@ -152,8 +152,8 @@ let test_provider_filter_ollama_only () =
     (Llm_provider.Provider_config.string_of_provider_kind (List.hd filtered).kind)
 
 let test_provider_filter_none_passes_all () =
-  (* Use concrete model IDs to avoid auto-expansion differences across envs *)
-  let models = [ "glm:glm-5.1"; "ollama:qwen3.5" ] in
+  (* Use cloud-only model IDs that resolve without local discovery *)
+  let models = [ "glm:glm-5.1"; "glm:glm-5-turbo" ] in
   let parsed = Llm_provider.Cascade_config.parse_model_strings models in
   check int "all pass through" 2 (List.length parsed)
 
