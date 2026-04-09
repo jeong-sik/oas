@@ -10,6 +10,11 @@ let setup () =
   Log.clear_sinks ();
   Log.set_global_level Debug
 
+let wait_until predicate =
+  while not (predicate ()) do
+    Domain.cpu_relax ()
+  done
+
 (* ── Tests ────────────────────────────────────────────────────── *)
 
 let test_level_roundtrip () =
@@ -105,6 +110,36 @@ let test_multiple_sinks () =
   Log.info log "fanout" [];
   Alcotest.(check int) "sink1" 1 (List.length (get1 ()));
   Alcotest.(check int) "sink2" 1 (List.length (get2 ()))
+
+let test_concurrent_add_sink_keeps_all_registrations () =
+  setup ();
+  let domain_count = max 2 (min 8 (Domain.recommended_domain_count ())) in
+  let rounds = 32 in
+  for round = 1 to rounds do
+    Log.clear_sinks ();
+    let ready = Atomic.make 0 in
+    let go = Atomic.make false in
+    let counters = Array.init domain_count (fun _ -> Atomic.make 0) in
+    let domains =
+      List.init domain_count (fun i ->
+        Domain.spawn (fun () ->
+          ignore (Atomic.fetch_and_add ready 1);
+          wait_until (fun () -> Atomic.get go);
+          let sink (_record : Log.record) =
+            ignore (Atomic.fetch_and_add counters.(i) 1)
+          in
+          Log.add_sink sink))
+    in
+    wait_until (fun () -> Atomic.get ready = domain_count);
+    Atomic.set go true;
+    List.iter Domain.join domains;
+    Log.info log "fanout-concurrent" [Log.I ("round", round)];
+    Array.iteri (fun i counter ->
+      Alcotest.(check int)
+        (Printf.sprintf "round %d sink %d invoked once" round i)
+        1 (Atomic.get counter))
+      counters
+  done
 
 let test_with_trace_context () =
   setup ();
@@ -220,6 +255,8 @@ let () =
       Alcotest.test_case "collector" `Quick test_collector_sink;
       Alcotest.test_case "level filtering" `Quick test_level_filtering;
       Alcotest.test_case "multiple sinks" `Quick test_multiple_sinks;
+      Alcotest.test_case "concurrent add_sink keeps all registrations" `Quick
+        test_concurrent_add_sink_keeps_all_registrations;
       Alcotest.test_case "stderr sink" `Quick test_stderr_sink;
     ];
     "field", [

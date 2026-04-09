@@ -101,18 +101,23 @@ type sink = record -> unit
 
 (* ── Global state ─────────────────────────────────────────────── *)
 
-(* Set-once at startup before any fibers are spawned.
-   Atomic.t makes readers data-race-free after initialization.
-   Setters perform read-modify-write and are intended only for
-   single-threaded init, not concurrent reconfiguration. *)
+(* Global logger configuration is shared across domains.
+   Atomic.t keeps reads lock-free, and sink registration uses
+   a CAS loop so concurrent add_sink calls do not lose updates. *)
 let global_level = Atomic.make Info
 let global_sinks : sink list Atomic.t = Atomic.make []
+
+let rec atomic_update atom ~f =
+  let current = Atomic.get atom in
+  let next = f current in
+  if not (Atomic.compare_and_set atom current next) then
+    atomic_update atom ~f
 
 let set_global_level level =
   Atomic.set global_level level
 
 let add_sink sink =
-  Atomic.set global_sinks (sink :: Atomic.get global_sinks)
+  atomic_update global_sinks ~f:(fun sinks -> sink :: sinks)
 
 let clear_sinks () =
   Atomic.set global_sinks []
