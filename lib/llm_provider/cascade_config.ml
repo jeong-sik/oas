@@ -412,7 +412,7 @@ let complete_named_stream ~sw ~net ?clock ?config_path
     ?(temperature = Constants.Inference.default_temperature)
     ?(max_tokens = Constants.Inference.default_max_tokens)
     ?system_prompt ?tool_choice ?(strict_name = false)
-    ?timeout_sec ?metrics ?priority ~on_event () =
+    ?timeout_sec ?metrics ?priority ?provider_filter ~on_event () =
   let model_strings, source =
     resolve_model_strings_traced ?config_path ~name ~defaults ()
   in
@@ -428,9 +428,25 @@ let complete_named_stream ~sw ~net ?clock ?config_path
   else
   let providers =
     let parsed = parse_model_strings ~temperature ~max_tokens ?system_prompt model_strings in
-    match tool_choice with
-    | Some tc -> List.map (fun (p : Provider_config.t) -> { p with tool_choice = Some tc }) parsed
-    | None -> parsed
+    let with_tc = match tool_choice with
+      | Some tc -> List.map (fun (p : Provider_config.t) -> { p with tool_choice = Some tc }) parsed
+      | None -> parsed
+    in
+    match provider_filter with
+    | None | Some [] -> with_tc
+    | Some filters ->
+      let lc_filters = List.map String.lowercase_ascii filters in
+      let matches (p : Provider_config.t) =
+        let kind_str = Provider_config.string_of_provider_kind p.kind in
+        List.mem kind_str lc_filters
+      in
+      let filtered = List.filter matches with_tc in
+      if filtered = [] then (
+        Eio.traceln "[CascadeConfig] provider_filter matched no providers (stream); \
+          falling back to unfiltered (filter=[%s])"
+          (String.concat "," lc_filters);
+        with_tc)
+      else filtered
   in
   if providers = [] then
     Error (Http_client.NetworkError {

@@ -307,6 +307,7 @@ val complete_named_stream :
   ?timeout_sec:int ->
   ?metrics:Metrics.t ->
   ?priority:Request_priority.t ->
+  ?provider_filter:string list ->
   on_event:(Types.sse_event -> unit) ->
   unit ->
   (Types.api_response, Http_client.http_error) result
