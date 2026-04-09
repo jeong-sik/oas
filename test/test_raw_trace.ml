@@ -451,6 +451,11 @@ let test_record_to_json_roundtrip () =
     Alcotest.(check (option string)) "session_id" (Some "sess-1") decoded.session_id;
     Alcotest.(check (option string)) "prompt" (Some "hello") decoded.prompt;
     Alcotest.(check (option string)) "model" (Some "glm-5.1") decoded.model;
+    Alcotest.(check string) "tool_choice"
+      (Yojson.Safe.to_string (Types.tool_choice_to_json Types.Any))
+      (match decoded.tool_choice with
+       | Some value -> Yojson.Safe.to_string value
+       | None -> "");
     Alcotest.(check (option bool)) "enable_thinking" (Some false)
       decoded.enable_thinking
   | Error e -> Alcotest.fail (Error.to_string e)

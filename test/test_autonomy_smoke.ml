@@ -49,7 +49,7 @@ let make_summary ~tool_names ~tool_execution_started_count
     thinking_block_count = 0;
     text_block_count = assistant_block_count;
     tool_use_block_count = tool_execution_started_count;
-    tool_result_block_count = tool_execution_started_count;
+    tool_result_block_count = 0;
     first_assistant_block_kind =
       (if tool_execution_started_count > 0 then Some "tool_use"
        else if assistant_block_count > 0 then Some "text"
