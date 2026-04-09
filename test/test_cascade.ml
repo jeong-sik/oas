@@ -152,10 +152,10 @@ let test_provider_filter_ollama_only () =
     (Llm_provider.Provider_config.string_of_provider_kind (List.hd filtered).kind)
 
 let test_provider_filter_none_passes_all () =
-  let models = [ "glm:auto"; "ollama:auto" ] in
+  (* Use concrete model IDs to avoid auto-expansion differences across envs *)
+  let models = [ "glm:glm-5.1"; "ollama:qwen3.5" ] in
   let parsed = Llm_provider.Cascade_config.parse_model_strings models in
-  (* glm:auto may expand to multiple providers; just verify non-empty *)
-  check bool "all pass through" true (List.length parsed >= 2)
+  check int "all pass through" 2 (List.length parsed)
 
 let test_provider_filter_no_match_fallback () =
   let models = [ "glm:auto"; "ollama:auto" ] in
