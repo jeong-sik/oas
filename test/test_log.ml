@@ -141,6 +141,49 @@ let test_concurrent_add_sink_keeps_all_registrations () =
       counters
   done
 
+let test_clear_sinks_racing_add_sink_removes_stale_sinks () =
+  setup ();
+  let rounds = 64 in
+  for round = 1 to rounds do
+    Log.clear_sinks ();
+    let old_hits = Atomic.make 0 in
+    let new_hits = Atomic.make 0 in
+    let old_sink (_record : Log.record) =
+      ignore (Atomic.fetch_and_add old_hits 1)
+    in
+    let new_sink (_record : Log.record) =
+      ignore (Atomic.fetch_and_add new_hits 1)
+    in
+    Log.add_sink old_sink;
+    let ready = Atomic.make 0 in
+    let go = Atomic.make false in
+    let clear_domain =
+      Domain.spawn (fun () ->
+        ignore (Atomic.fetch_and_add ready 1);
+        wait_until (fun () -> Atomic.get go);
+        Log.clear_sinks ())
+    in
+    let add_domain =
+      Domain.spawn (fun () ->
+        ignore (Atomic.fetch_and_add ready 1);
+        wait_until (fun () -> Atomic.get go);
+        Log.add_sink new_sink)
+    in
+    wait_until (fun () -> Atomic.get ready = 2);
+    Atomic.set go true;
+    Domain.join clear_domain;
+    Domain.join add_domain;
+    Log.info log "clear-vs-add" [Log.I ("round", round)];
+    Alcotest.(check int)
+      (Printf.sprintf "round %d old sink should stay cleared" round)
+      0 (Atomic.get old_hits);
+    Alcotest.(check bool)
+      (Printf.sprintf "round %d new sink is either kept or cleared" round)
+      true
+      (let hits = Atomic.get new_hits in
+       hits = 0 || hits = 1)
+  done
+
 let test_with_trace_context () =
   setup ();
   let (sink, get) = Log.collector_sink () in
@@ -257,6 +300,8 @@ let () =
       Alcotest.test_case "multiple sinks" `Quick test_multiple_sinks;
       Alcotest.test_case "concurrent add_sink keeps all registrations" `Quick
         test_concurrent_add_sink_keeps_all_registrations;
+      Alcotest.test_case "clear_sinks racing add_sink removes stale sinks" `Quick
+        test_clear_sinks_racing_add_sink_removes_stale_sinks;
       Alcotest.test_case "stderr sink" `Quick test_stderr_sink;
     ];
     "field", [
