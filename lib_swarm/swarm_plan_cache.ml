@@ -238,6 +238,7 @@ let agent_score_of_json (json : Yojson.Safe.t) : (agent_score, string) result =
       score = json |> member "score" |> to_float;
     }
   with
+  | Failure msg -> Error msg
   | Yojson.Safe.Util.Type_error (msg, _) -> Error msg
 
 let quality_signal_to_json (q : quality_signal) : Yojson.Safe.t =
@@ -285,34 +286,36 @@ let config_snapshot_to_json (cs : Swarm_checkpoint.config_snapshot)
      | Some v -> `Int v | None -> `Null);
   ]
 
+let orchestration_mode_of_string = function
+  | "Swarm_types.Decentralized" | "Decentralized" -> Ok Decentralized
+  | "Swarm_types.Supervisor" | "Supervisor" -> Ok Supervisor
+  | "Swarm_types.Pipeline_mode" | "Pipeline_mode" -> Ok Pipeline_mode
+  | mode -> Error (Printf.sprintf "unknown mode: %s" mode)
+
 let config_snapshot_of_json (json : Yojson.Safe.t)
     : (Swarm_checkpoint.config_snapshot, string) result =
   let open Yojson.Safe.Util in
   try
     let mode_str = json |> member "mode" |> to_string in
-    let mode = match mode_str with
-      | "Swarm_types.Decentralized" | "Decentralized" -> Decentralized
-      | "Swarm_types.Supervisor" | "Supervisor" -> Supervisor
-      | "Swarm_types.Pipeline_mode" | "Pipeline_mode" -> Pipeline_mode
-      | s -> failwith (Printf.sprintf "unknown mode: %s" s)
-    in
-    Ok {
-      Swarm_checkpoint.entry_names =
-        json |> member "entry_names" |> to_list
-        |> List.map to_string;
-      mode;
-      max_parallel = json |> member "max_parallel" |> to_int;
-      prompt = json |> member "prompt" |> to_string;
-      timeout_sec = json |> member "timeout_sec" |> to_float_option;
-      convergence_target =
-        json |> member "convergence_target" |> to_float_option;
-      convergence_max_iterations =
-        json |> member "convergence_max_iterations" |> to_int_option;
-      convergence_patience =
-        json |> member "convergence_patience" |> to_int_option;
-    }
+    match orchestration_mode_of_string mode_str with
+    | Error _ as err -> err
+    | Ok mode ->
+      Ok {
+        Swarm_checkpoint.entry_names =
+          json |> member "entry_names" |> to_list
+          |> List.map to_string;
+        mode;
+        max_parallel = json |> member "max_parallel" |> to_int;
+        prompt = json |> member "prompt" |> to_string;
+        timeout_sec = json |> member "timeout_sec" |> to_float_option;
+        convergence_target =
+          json |> member "convergence_target" |> to_float_option;
+        convergence_max_iterations =
+          json |> member "convergence_max_iterations" |> to_int_option;
+        convergence_patience =
+          json |> member "convergence_patience" |> to_int_option;
+      }
   with
-  | Failure msg -> Error msg
   | Yojson.Safe.Util.Type_error (msg, _) -> Error msg
 
 let template_to_json (t : template) : Yojson.Safe.t =

@@ -44,6 +44,46 @@ let in_memory_backend () =
       Hashtbl.fold (fun k _ acc -> k :: acc) tbl []);
   })
 
+let set_config_snapshot_mode mode json =
+  match json with
+  | `Assoc fields ->
+    `Assoc
+      (List.map
+         (function
+           | ("config_snapshot", `Assoc config_fields) ->
+             ("config_snapshot",
+              `Assoc
+                (List.map
+                   (function
+                     | ("mode", _) -> ("mode", `String mode)
+                     | field -> field)
+                   config_fields))
+           | field -> field)
+         fields)
+  | _ -> fail "expected template JSON object"
+
+let sample_template () =
+  let config =
+    base_config
+      ~entries:[mock_entry "a" Discover; mock_entry "b" Verify]
+      ~convergence:(Some (make_convergence ())) ()
+  in
+  let state = create_state config in
+  state.converged <- true;
+  state.best_metric <- Some 0.95;
+  state.best_iteration <- 2;
+  state.current_iteration <- 3;
+  state.history <- [
+    make_iteration ~iter:0 ~metric:(Some 0.95)
+      [("a", Done_ok { elapsed = 0.5; text = "ok";
+                        telemetry = empty_telemetry });
+       ("b", Done_ok { elapsed = 1.0; text = "ok";
+                        telemetry = empty_telemetry })];
+  ];
+  match Swarm_plan_cache.template_of_state state with
+  | None -> fail "expected template"
+  | Some tmpl -> tmpl
+
 (* ── Fingerprinting ───────────────────────────────────────────────── *)
 
 let test_fingerprint_deterministic () =
@@ -174,44 +214,65 @@ let test_template_from_converged () =
     check int "one agent score" 1 (List.length tmpl.agent_scores)
 
 let test_template_json_roundtrip () =
-  let config = base_config
-    ~entries:[mock_entry "a" Discover; mock_entry "b" Verify]
-    ~convergence:(Some (make_convergence ())) () in
-  let state = create_state config in
-  state.converged <- true;
-  state.best_metric <- Some 0.95;
-  state.best_iteration <- 2;
-  state.current_iteration <- 3;
-  state.history <- [
-    make_iteration ~iter:0 ~metric:(Some 0.95)
-      [("a", Done_ok { elapsed = 0.5; text = "ok";
-                        telemetry = empty_telemetry });
-       ("b", Done_ok { elapsed = 1.0; text = "ok";
-                        telemetry = empty_telemetry })];
-  ];
-  match Swarm_plan_cache.template_of_state state with
-  | None -> fail "expected template"
-  | Some tmpl ->
-    let json = Swarm_plan_cache.template_to_json tmpl in
-    (match Swarm_plan_cache.template_of_json json with
-     | Error e -> fail (Printf.sprintf "roundtrip failed: %s" e)
-     | Ok restored ->
-       check string "structural key" tmpl.structural_key restored.structural_key;
-       check_float "final metric"
-         tmpl.quality.final_metric restored.quality.final_metric;
-       check int "total iterations"
-         tmpl.quality.total_iterations restored.quality.total_iterations;
-       check_float "total elapsed"
-         tmpl.quality.total_elapsed restored.quality.total_elapsed;
-       check int "total tokens"
-         tmpl.quality.total_tokens restored.quality.total_tokens;
-       check int "agent scores count"
-         (List.length tmpl.agent_scores) (List.length restored.agent_scores);
-       let sa = List.hd tmpl.agent_scores in
-       let ra = List.hd restored.agent_scores in
-       check string "agent name" sa.name ra.name;
-       check_float "agent avg_elapsed" sa.avg_elapsed ra.avg_elapsed;
-       check_float "agent score" sa.score ra.score)
+  let tmpl = sample_template () in
+  let json = Swarm_plan_cache.template_to_json tmpl in
+  (match Swarm_plan_cache.template_of_json json with
+   | Error e -> fail (Printf.sprintf "roundtrip failed: %s" e)
+   | Ok restored ->
+     check string "structural key" tmpl.structural_key restored.structural_key;
+     check_float "final metric"
+       tmpl.quality.final_metric restored.quality.final_metric;
+     check int "total iterations"
+       tmpl.quality.total_iterations restored.quality.total_iterations;
+     check_float "total elapsed"
+       tmpl.quality.total_elapsed restored.quality.total_elapsed;
+     check int "total tokens"
+       tmpl.quality.total_tokens restored.quality.total_tokens;
+     check int "agent scores count"
+       (List.length tmpl.agent_scores) (List.length restored.agent_scores);
+     let sa = List.hd tmpl.agent_scores in
+     let ra = List.hd restored.agent_scores in
+     check string "agent name" sa.name ra.name;
+     check_float "agent avg_elapsed" sa.avg_elapsed ra.avg_elapsed;
+     check_float "agent score" sa.score ra.score)
+
+let test_template_json_accepts_legacy_mode_names () =
+  let json =
+    sample_template ()
+    |> Swarm_plan_cache.template_to_json
+    |> set_config_snapshot_mode "Swarm_types.Supervisor"
+  in
+  match Swarm_plan_cache.template_of_json json with
+  | Error e -> fail (Printf.sprintf "legacy mode parse failed: %s" e)
+  | Ok restored ->
+    (match restored.config_snapshot.mode with
+     | Supervisor -> ()
+     | _ -> fail "expected supervisor mode")
+
+let test_template_json_accepts_current_mode_names () =
+  let json =
+    sample_template ()
+    |> Swarm_plan_cache.template_to_json
+    |> set_config_snapshot_mode "Supervisor"
+  in
+  match Swarm_plan_cache.template_of_json json with
+  | Error e -> fail (Printf.sprintf "current mode parse failed: %s" e)
+  | Ok restored ->
+    (match restored.config_snapshot.mode with
+     | Supervisor -> ()
+     | _ -> fail "expected supervisor mode")
+
+let test_template_json_rejects_unknown_mode () =
+  let json =
+    sample_template ()
+    |> Swarm_plan_cache.template_to_json
+    |> set_config_snapshot_mode "Totally_new_mode"
+  in
+  match Swarm_plan_cache.template_of_json json with
+  | Ok _ -> fail "expected mode parse failure"
+  | Error e ->
+    check string "unknown mode error"
+      "unknown mode: Totally_new_mode" e
 
 let test_custom_role_json_roundtrip () =
   let score : Swarm_plan_cache.agent_score = {
@@ -429,6 +490,12 @@ let () =
       test_case "from unconverged" `Quick test_template_from_unconverged;
       test_case "from converged" `Quick test_template_from_converged;
       test_case "json roundtrip" `Quick test_template_json_roundtrip;
+      test_case "accepts legacy mode names" `Quick
+        test_template_json_accepts_legacy_mode_names;
+      test_case "accepts current mode names" `Quick
+        test_template_json_accepts_current_mode_names;
+      test_case "rejects unknown mode" `Quick
+        test_template_json_rejects_unknown_mode;
       test_case "custom role roundtrip" `Quick test_custom_role_json_roundtrip;
     ];
     "warm_start", [

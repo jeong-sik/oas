@@ -10,6 +10,8 @@
 open Agent_sdk
 open Types
 
+let version = Agent_sdk.version
+
 (* ── Tools ─────────────────────────────────────────────────── *)
 
 let get_pr_info_tool ~run_gh_command =
@@ -212,7 +214,7 @@ let () =
   in
   let cmd =
     Cmd.v (Cmd.info "oas-review" ~doc:"AI-powered PR code review"
-             ~version:"0.46.0")
+             ~version)
       Term.(const run $ repo $ pr_num $ post $ provider)
   in
   exit (Cmd.eval cmd)

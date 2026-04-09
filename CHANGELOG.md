@@ -6,6 +6,12 @@ Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
 backfilled on 2026-04-04 from existing git tags. The dates below reflect the
 original tag dates. `0.100.4` was never tagged or released.
 
+## [0.118.1] - 2026-04-09
+
+### Changed
+- `oas-review` now reports the shared SDK version instead of a stale hardcoded `0.46.0` string.
+- `swarm_plan_cache` mode decoding now uses explicit `result` handling instead of exception-driven control flow while preserving legacy serialized mode names.
+
 ## [0.117.0] - 2026-04-09
 
 ### Added
