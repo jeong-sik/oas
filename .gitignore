@@ -29,3 +29,5 @@ _coverage/
 # Local working documents
 REFACTORING-PLAN*.md
 .mcp.json
+
+# End of file
