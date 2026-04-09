@@ -102,8 +102,11 @@ type sink = record -> unit
 (* ── Global state ─────────────────────────────────────────────── *)
 
 (* Global logger configuration is shared across domains.
-   Atomic.t keeps reads lock-free, and sink registration uses
-   a CAS loop so concurrent add_sink calls do not lose updates. *)
+   Atomic.t keeps reads lock-free. [add_sink] linearizes through a CAS
+   loop and [clear_sinks] publishes an empty sink set with a single
+   atomic store. When they race, the final sink set reflects whichever
+   operation linearizes last; sinks removed by [clear_sinks] do not
+   reappear. *)
 let global_level = Atomic.make Info
 let global_sinks : sink list Atomic.t = Atomic.make []
 

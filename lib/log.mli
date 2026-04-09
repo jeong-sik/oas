@@ -58,7 +58,9 @@ type sink = record -> unit
 
     Underlying globals use [Atomic.t]. Concurrent sink registration is
     linearized with a CAS loop so [add_sink] does not lose updates
-    across domains. *)
+    across domains. [clear_sinks] publishes an empty sink set with a
+    single atomic store, so a race between [add_sink] and [clear_sinks]
+    resolves to whichever operation linearizes last. *)
 
 val set_global_level : level -> unit
 val add_sink : sink -> unit
