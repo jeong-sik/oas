@@ -498,6 +498,45 @@ let test_build_body_with_cache () =
   let cc = block |> member "cache_control" in
   check string "cache_control type" "ephemeral" (cc |> member "type" |> to_string)
 
+let test_build_body_tools_cache_control () =
+  (* When cache_system_prompt is true, last tool gets cache_control *)
+  let config = { Types.default_config with
+    system_prompt = Some "You are helpful.";
+    cache_system_prompt = true;
+  } in
+  let state = { Types.config; messages = []; turn_count = 0; usage = Types.empty_usage } in
+  let tool1 = `Assoc [("name", `String "t1"); ("description", `String "first")] in
+  let tool2 = `Assoc [("name", `String "t2"); ("description", `String "second")] in
+  let assoc = Api.build_body_assoc ~config:state ~messages:[]
+    ~tools:[tool1; tool2] ~stream:false () in
+  let json = `Assoc assoc in
+  let open Yojson.Safe.Util in
+  let tools = json |> member "tools" |> to_list in
+  check int "2 tools" 2 (List.length tools);
+  (* First tool has no cache_control *)
+  let first = List.hd tools in
+  (match first |> member "cache_control" with
+   | `Null -> ()
+   | _ -> fail "first tool should not have cache_control");
+  (* Last tool has cache_control *)
+  let last = List.nth tools 1 in
+  let cc = last |> member "cache_control" in
+  check string "cache_control type" "ephemeral" (cc |> member "type" |> to_string)
+
+let test_build_body_tools_no_cache_without_flag () =
+  (* When cache_system_prompt is false, tools have no cache_control *)
+  let state = make_state () in
+  let tool1 = `Assoc [("name", `String "t1"); ("description", `String "first")] in
+  let assoc = Api.build_body_assoc ~config:state ~messages:[]
+    ~tools:[tool1] ~stream:false () in
+  let json = `Assoc assoc in
+  let open Yojson.Safe.Util in
+  let tools = json |> member "tools" |> to_list in
+  let last = List.hd tools in
+  (match last |> member "cache_control" with
+   | `Null -> ()
+   | _ -> fail "tools should not have cache_control without flag")
+
 let test_build_body_no_system_prompt () =
   let state = { Types.config = Types.default_config;
                 messages = []; turn_count = 0; usage = Types.empty_usage } in
@@ -757,6 +796,8 @@ let () =
       test_case "generic compat omits qwen-only fields" `Quick
         test_build_openai_body_omits_qwen_only_fields_for_generic_compat;
       test_case "with cache_system_prompt" `Quick test_build_body_with_cache;
+      test_case "tools cache_control with flag" `Quick test_build_body_tools_cache_control;
+      test_case "tools no cache_control without flag" `Quick test_build_body_tools_no_cache_without_flag;
       test_case "no system prompt" `Quick test_build_body_no_system_prompt;
     ];
     "parse_response", [

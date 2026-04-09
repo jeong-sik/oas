@@ -34,6 +34,22 @@ let build_body_assoc ~config ~messages ?tools ~stream () =
     | None -> body_assoc
   in
   let body_assoc = match tools with
+    | Some t when config.config.cache_system_prompt ->
+        (* Anthropic prompt caching: place cache_control on the last tool
+           so the entire prefix (system + tools) is cached together.
+           Same gate as system prompt caching — both are prefix components. *)
+        let cached_tools = match List.rev t with
+          | [] -> t
+          | last :: rest ->
+            let cached_last = match last with
+              | `Assoc fields ->
+                `Assoc (("cache_control",
+                         `Assoc [("type", `String "ephemeral")]) :: fields)
+              | other -> other
+            in
+            List.rev (cached_last :: rest)
+        in
+        ("tools", `List cached_tools) :: body_assoc
     | Some t -> ("tools", `List t) :: body_assoc
     | None -> body_assoc
   in
