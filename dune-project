@@ -32,3 +32,4 @@
   (qcheck-alcotest (and :with-test (>= 0.21)))
   (bisect_ppx (and :with-test (>= 2.8)))
   (ppx_inline_test (>= 0.17))))
+; Formatting
