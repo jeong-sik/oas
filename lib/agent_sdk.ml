@@ -38,6 +38,7 @@
 (** Re-export all modules (dependency-safe order) *)
 module Sdk_version = Sdk_version
 module Types = Types
+module Uncertain = Uncertain
 module Util = Util
 module Fs_result = Fs_result
 module Context = Context
