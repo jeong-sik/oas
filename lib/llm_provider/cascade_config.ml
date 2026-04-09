@@ -305,6 +305,27 @@ let expand_model_strings_for_execution (items : string list) =
 (* Cascade execution (extracted to Cascade_executor) *)
 let complete_cascade_with_accept = Cascade_executor.complete_cascade_with_accept
 
+(* Filter providers by kind name (exact, case-insensitive).
+   Valid filter values: "ollama", "glm", "anthropic", "gemini", "openai_compat", "claude_code".
+   Empty/None filter passes through unchanged. No-match falls back to unfiltered. *)
+let apply_provider_filter ~provider_filter ~label providers =
+  match provider_filter with
+  | None | Some [] -> providers
+  | Some filters ->
+    let lc_filters = List.map String.lowercase_ascii filters in
+    let matches (p : Provider_config.t) =
+      List.mem (Provider_config.string_of_provider_kind p.kind) lc_filters
+    in
+    let filtered = List.filter matches providers in
+    if filtered = [] then (
+      Eio.traceln "[CascadeConfig] provider_filter matched no providers (%s); \
+        falling back to unfiltered (filter=[%s] providers=[%s])"
+        label (String.concat "," filters)
+        (String.concat "," (List.map (fun (p : Provider_config.t) ->
+          Provider_config.string_of_provider_kind p.kind) providers));
+      providers)
+    else filtered
+
 let complete_named ~sw ~net ?clock ?config_path
     ~name ~defaults ~messages
     ?(tools = [])
@@ -347,27 +368,7 @@ let complete_named ~sw ~net ?clock ?config_path
       | Some tc -> List.map (fun (p : Provider_config.t) -> { p with tool_choice = Some tc }) parsed
       | None -> parsed
     in
-    (* Apply provider_filter: keep only providers whose kind matches one
-       of the filter strings (case-insensitive prefix match on model label).
-       Example: provider_filter=["ollama"] keeps "ollama:auto" but not "glm:auto".
-       Empty/None filter passes through unchanged. *)
-    match provider_filter with
-    | None | Some [] -> with_tc
-    | Some filters ->
-      let lc_filters = List.map String.lowercase_ascii filters in
-      let matches (p : Provider_config.t) =
-        let kind_str = Provider_config.string_of_provider_kind p.kind in
-        List.mem kind_str lc_filters
-      in
-      let filtered = List.filter matches with_tc in
-      if filtered = [] then (
-        Eio.traceln "[CascadeConfig] provider_filter matched no providers; \
-          falling back to unfiltered (filter=[%s] providers=[%s])"
-          (String.concat "," filters)
-          (String.concat "," (List.map (fun (p : Provider_config.t) ->
-            Provider_config.string_of_provider_kind p.kind) with_tc));
-        with_tc)
-      else filtered
+    apply_provider_filter ~provider_filter ~label:"named" with_tc
   in
   if providers = [] then
     Error (Http_client.NetworkError {
@@ -432,21 +433,7 @@ let complete_named_stream ~sw ~net ?clock ?config_path
       | Some tc -> List.map (fun (p : Provider_config.t) -> { p with tool_choice = Some tc }) parsed
       | None -> parsed
     in
-    match provider_filter with
-    | None | Some [] -> with_tc
-    | Some filters ->
-      let lc_filters = List.map String.lowercase_ascii filters in
-      let matches (p : Provider_config.t) =
-        let kind_str = Provider_config.string_of_provider_kind p.kind in
-        List.mem kind_str lc_filters
-      in
-      let filtered = List.filter matches with_tc in
-      if filtered = [] then (
-        Eio.traceln "[CascadeConfig] provider_filter matched no providers (stream); \
-          falling back to unfiltered (filter=[%s])"
-          (String.concat "," lc_filters);
-        with_tc)
-      else filtered
+    apply_provider_filter ~provider_filter ~label:"stream" with_tc
   in
   if providers = [] then
     Error (Http_client.NetworkError {
