@@ -4,8 +4,9 @@
     for running agents concurrently without blocking the caller.
 
     All operations require an Eio switch for structured concurrency.
-    Cancellation is cooperative: [cancel] resolves the promise with
-    an error but does not forcibly terminate the running fiber.
+    Cancellation is best-effort: once the spawned fiber installs its
+    sub-switch, [cancel] fails that switch to interrupt in-flight I/O
+    and also resolves the future as cancelled.
 
     @since 0.55.0
 
@@ -42,14 +43,13 @@ val is_ready : 'a future -> bool
 
 (** {1 Cancellation} *)
 
-(** [cancel future] terminates the agent's execution by:
-    1. Failing the agent's sub-switch, cancelling all in-flight I/O
-    2. Resolving the promise with [Error (Internal "cancelled")] (fallback)
+(** [cancel future] marks the future as cancelled immediately and, if the
+    spawned fiber has already installed its sub-switch, fails that switch
+    so in-flight I/O can be interrupted.
 
-    The fiber is stopped before the future is resolved so that callers
-    observing [is_ready] = [true] can rely on the fiber having received
-    the cancellation signal.
-    If the agent has already completed, this is a no-op. *)
+    This makes cancellation idempotent and visible to callers right away,
+    while still propagating the cancellation signal into the running fiber
+    when possible. *)
 val cancel : 'a future -> unit
 
 (** {1 Combinators} *)

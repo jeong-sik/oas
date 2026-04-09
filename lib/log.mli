@@ -56,10 +56,9 @@ type sink = record -> unit
 
 (** {2 Global configuration}
 
-    Underlying globals use [Atomic.t] so readers are data-race-free
-    after initialization. Setters perform read-modify-write and are
-    intended only for single-threaded init, not concurrent
-    reconfiguration. *)
+    Underlying globals use [Atomic.t]. Concurrent sink registration is
+    linearized with a CAS loop so [add_sink] does not lose updates
+    across domains. *)
 
 val set_global_level : level -> unit
 val add_sink : sink -> unit
