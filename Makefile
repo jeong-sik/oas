@@ -21,3 +21,4 @@ coverage-html: coverage-clean
 coverage-clean:
 	rm -f bisect*.coverage
 	rm -rf _coverage
+# Formatting
