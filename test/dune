@@ -875,3 +875,7 @@
 (test
  (name test_context_flow_proof)
  (libraries agent_sdk alcotest yojson eio eio_main cohttp-eio unix))
+
+(test
+ (name test_uncertain)
+ (libraries agent_sdk alcotest yojson))
