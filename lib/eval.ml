@@ -339,7 +339,7 @@ let check_thresholds (rm : run_metrics) (thresholds : threshold list) : Harness.
           th.metric_name (show_metric_value m.value) (show_metric_value (Option.get th.min_value)))
       else None
   ) thresholds in
-  let passed = List.length violations = 0 in
+  let passed = violations = [] in
   {
     passed;
     score = Some (if passed then 1.0 else 0.0);
