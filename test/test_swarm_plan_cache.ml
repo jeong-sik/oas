@@ -249,6 +249,19 @@ let test_template_json_accepts_legacy_mode_names () =
      | Supervisor -> ()
      | _ -> fail "expected supervisor mode")
 
+let test_template_json_accepts_current_mode_names () =
+  let json =
+    sample_template ()
+    |> Swarm_plan_cache.template_to_json
+    |> set_config_snapshot_mode "Supervisor"
+  in
+  match Swarm_plan_cache.template_of_json json with
+  | Error e -> fail (Printf.sprintf "current mode parse failed: %s" e)
+  | Ok restored ->
+    (match restored.config_snapshot.mode with
+     | Supervisor -> ()
+     | _ -> fail "expected supervisor mode")
+
 let test_template_json_rejects_unknown_mode () =
   let json =
     sample_template ()
@@ -479,6 +492,8 @@ let () =
       test_case "json roundtrip" `Quick test_template_json_roundtrip;
       test_case "accepts legacy mode names" `Quick
         test_template_json_accepts_legacy_mode_names;
+      test_case "accepts current mode names" `Quick
+        test_template_json_accepts_current_mode_names;
       test_case "rejects unknown mode" `Quick
         test_template_json_rejects_unknown_mode;
       test_case "custom role roundtrip" `Quick test_custom_role_json_roundtrip;

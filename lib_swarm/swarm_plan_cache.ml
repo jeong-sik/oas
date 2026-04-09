@@ -238,6 +238,7 @@ let agent_score_of_json (json : Yojson.Safe.t) : (agent_score, string) result =
       score = json |> member "score" |> to_float;
     }
   with
+  | Failure msg -> Error msg
   | Yojson.Safe.Util.Type_error (msg, _) -> Error msg
 
 let quality_signal_to_json (q : quality_signal) : Yojson.Safe.t =
