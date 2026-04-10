@@ -78,6 +78,9 @@ let with_temp_json content f =
     ~finally:(fun () -> try Sys.remove path with _ -> ())
     (fun () -> f path)
 
+(* OCaml's Unix module does not expose unsetenv on our supported toolchain.
+   This helper stays file-local and is only used with vars whose blank value
+   is treated as missing in the exercised code paths. *)
 let with_env key value f =
   let previous = Sys.getenv_opt key in
   let restore () =
@@ -92,6 +95,9 @@ let with_env key value f =
        | Some v -> Unix.putenv key v
        | None -> Unix.putenv key "";
        f ())
+
+let with_dummy_zai_api_key f =
+  with_env "ZAI_API_KEY" (Some "test-zai-api-key") f
 
 let test_load_profile_found () =
   Eio_main.run @@ fun _env ->
@@ -306,67 +312,53 @@ let test_auto_llama_passthrough () =
 
 let test_auto_glm_resolved () =
   (* glm:auto should resolve to a concrete model, not "auto" *)
-  match Sys.getenv_opt "ZAI_API_KEY" with
-  | None -> () (* skip: no API key *)
-  | Some _ ->
+  with_dummy_zai_api_key (fun () ->
     match Cascade_config.parse_model_string "glm:auto" with
     | Some cfg ->
       check bool "model_id not auto"
         true (cfg.model_id <> "auto");
       check bool "model_id non-empty"
         true (String.length cfg.model_id > 0)
-    | None -> fail "expected Some for glm:auto with key"
+    | None -> fail "expected Some for glm:auto with key")
 
 let test_auto_explicit_model_unchanged () =
   (* glm:glm-5 should keep the explicit model_id *)
-  match Sys.getenv_opt "ZAI_API_KEY" with
-  | None -> ()
-  | Some _ ->
+  with_dummy_zai_api_key (fun () ->
     match Cascade_config.parse_model_string "glm:glm-5" with
     | Some cfg ->
       check string "explicit model_id" "glm-5" cfg.model_id
-    | None -> fail "expected Some for glm:glm-5"
+    | None -> fail "expected Some for glm:glm-5")
 
 let test_glm_alias_flash () =
-  match Sys.getenv_opt "ZAI_API_KEY" with
-  | None -> ()
-  | Some _ ->
+  with_dummy_zai_api_key (fun () ->
     match Cascade_config.parse_model_string "glm:flash" with
     | Some cfg ->
       check string "flash alias" "glm-4.7-flashx" cfg.model_id
-    | None -> fail "expected Some for glm:flash"
+    | None -> fail "expected Some for glm:flash")
 
 let test_glm_alias_turbo () =
-  match Sys.getenv_opt "ZAI_API_KEY" with
-  | None -> ()
-  | Some _ ->
+  with_dummy_zai_api_key (fun () ->
     match Cascade_config.parse_model_string "glm:turbo" with
     | Some cfg ->
       check string "turbo alias" "glm-5-turbo" cfg.model_id
-    | None -> fail "expected Some for glm:turbo"
+    | None -> fail "expected Some for glm:turbo")
 
 let test_glm_alias_vision () =
-  match Sys.getenv_opt "ZAI_API_KEY" with
-  | None -> ()
-  | Some _ ->
+  with_dummy_zai_api_key (fun () ->
     match Cascade_config.parse_model_string "glm:vision" with
     | Some cfg ->
       check string "vision alias" "glm-4.6v" cfg.model_id
-    | None -> fail "expected Some for glm:vision"
+    | None -> fail "expected Some for glm:vision")
 
 let test_glm_concrete_passthrough () =
-  match Sys.getenv_opt "ZAI_API_KEY" with
-  | None -> ()
-  | Some _ ->
+  with_dummy_zai_api_key (fun () ->
     match Cascade_config.parse_model_string "glm:glm-4.5-air" with
     | Some cfg ->
       check string "concrete passthrough" "glm-4.5-air" cfg.model_id
-    | None -> fail "expected Some for glm:glm-4.5-air"
+    | None -> fail "expected Some for glm:glm-4.5-air")
 
 let test_glm_coding_auto_resolved () =
-  match Sys.getenv_opt "ZAI_API_KEY" with
-  | None -> ()
-  | Some _ ->
+  with_dummy_zai_api_key (fun () ->
     match Cascade_config.parse_model_string "glm-coding:auto" with
     | Some cfg ->
       let expected_base_url =
@@ -375,7 +367,7 @@ let test_glm_coding_auto_resolved () =
       in
       check bool "model_id not auto" true (cfg.model_id <> "auto");
       check string "coding base" expected_base_url cfg.base_url
-    | None -> fail "expected Some for glm-coding:auto"
+    | None -> fail "expected Some for glm-coding:auto")
 
 let test_zai_base_url_classifiers () =
   check bool "general endpoint" true
