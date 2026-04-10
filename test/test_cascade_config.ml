@@ -96,7 +96,7 @@ let with_env key value f =
     (fun () ->
        match value with
        | Some v -> Unix.putenv key v
-       | None -> restore_default ();
+       | None -> Unix.putenv key "";
        f ())
 
 let with_dummy_zai_api_key f =
