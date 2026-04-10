@@ -123,7 +123,10 @@ let wait_for_messages ?timeout state =
                  | None ->
                      if Unix.gettimeofday () >= deadline then []
                      else (
-                       Unix.sleepf 0.01;
+                       (* No Eio clock was supplied, so fall back to a
+                          cooperative poll instead of blocking the runtime
+                          thread with Unix.sleepf. *)
+                       Eio.Fiber.yield ();
                        await_without_clock ())
                in
                await_without_clock ()))

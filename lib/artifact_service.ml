@@ -74,9 +74,11 @@ let persisted_path (artifact : descriptor) =
         (Error.Io
            (FileOpFailed
               {
-                op = "read";
+                op = "persisted_path";
                 path = artifact.artifact_id;
-                detail = "Artifact has no persisted file path";
+                detail =
+                  Printf.sprintf "Artifact %S (%s) has no persisted file path"
+                    artifact.name artifact.artifact_id;
               }))
 
 let overwrite_text_internal artifact ~content =
