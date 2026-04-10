@@ -64,20 +64,21 @@ let extract_tool_args ~tool_name (content : Types.content_block list) =
 let heal_tool_call ~tool_name ~schema ~tool_use_id ~args
     ~prior_messages ~llm ?(max_retries = 3) ?on_retry () =
   let rec loop attempt current_args current_id messages =
-    (* Run deterministic correction pipeline on EVERY attempt (idempotent).
-       This catches LLM retries that are still det-fixable. *)
+    (* Correction_pipeline.run validates internally — Fixed means already valid.
+       Only fall through to validate_and_coerce on Still_invalid. *)
     let det_result = Correction_pipeline.run ~schema current_args in
-    let effective_args = match det_result with
-      | Correction_pipeline.Fixed { corrected; _ } -> corrected
-      | Correction_pipeline.Still_invalid _ -> current_args
-    in
-    match validate_and_coerce ~tool_name ~schema effective_args with
+    match det_result with
+    | Correction_pipeline.Fixed { corrected; corrections } ->
+      Ok { value = corrected; attempts = attempt + 1;
+           healed = attempt > 0 || corrections <> [] }
+    | Correction_pipeline.Still_invalid { errors = _; attempted = _ } ->
+    (match validate_and_coerce ~tool_name ~schema current_args with
     | Pass ->
-      Ok { value = effective_args; attempts = attempt + 1;
-           healed = attempt > 0 || not (Yojson.Safe.equal effective_args current_args) }
+      Ok { value = current_args; attempts = attempt + 1;
+           healed = attempt > 0 }
     | Proceed coerced ->
       Ok { value = coerced; attempts = attempt + 1;
-           healed = attempt > 0 || not (Yojson.Safe.equal coerced current_args) }
+           healed = true }
     | Reject { message; _ } ->
       if attempt >= max_retries then
         Error (Exhausted {
@@ -126,7 +127,7 @@ let heal_tool_call ~tool_name ~schema ~tool_use_id ~args
             loop (attempt + 1) new_args new_id
               (retry_messages @ [assistant_msg])
         end
-      end
+      end)
   in
   let initial_assistant : Types.message =
     { role = Assistant;

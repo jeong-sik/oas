@@ -18,21 +18,20 @@ type ('input, 'output) t = {
 
 (* ── Construction ───────────────────────────────────────── *)
 
+let check_descriptor = function
+  | None -> ()
+  | Some d ->
+    match Tool.validate_descriptor d with
+    | Ok () -> ()
+    | Error msg -> invalid_arg ("Typed_tool: " ^ msg)
+
 let create ~name ~description ~params ~parse ~handler ~encode ?descriptor () =
-  (match descriptor with
-   | None -> ()
-   | Some d -> match Tool.validate_descriptor d with
-     | Ok () -> ()
-     | Error msg -> invalid_arg ("Typed_tool.create: " ^ msg));
+  check_descriptor descriptor;
   let schema : Types.tool_schema = { name; description; parameters = params } in
   { schema; descriptor; parse; handler = Simple handler; encode }
 
 let create_with_context ~name ~description ~params ~parse ~handler ~encode ?descriptor () =
-  (match descriptor with
-   | None -> ()
-   | Some d -> match Tool.validate_descriptor d with
-     | Ok () -> ()
-     | Error msg -> invalid_arg ("Typed_tool.create: " ^ msg));
+  check_descriptor descriptor;
   let schema : Types.tool_schema = { name; description; parameters = params } in
   { schema; descriptor; parse; handler = WithContext handler; encode }
 

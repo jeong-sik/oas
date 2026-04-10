@@ -53,8 +53,14 @@ let coercion_stage = {
 
 (* ── Stage 2: Default Injection ─────────────────────────── *)
 
-(** Fills missing optional fields with type-appropriate defaults.
-    Only applies to optional (not required) parameters that are absent. *)
+let default_for_type = function
+  | Types.String -> `String ""
+  | Types.Integer -> `Int 0
+  | Types.Number -> `Float 0.0
+  | Types.Boolean -> `Bool false
+  | Types.Array -> `List []
+  | Types.Object -> `Assoc []
+
 let default_injection_apply (schema : Types.tool_schema) (input : Yojson.Safe.t) : Yojson.Safe.t =
   match input with
   | `Assoc fields ->
@@ -63,31 +69,13 @@ let default_injection_apply (schema : Types.tool_schema) (input : Yojson.Safe.t)
       && not (List.mem_assoc p.name fields)
     ) schema.parameters in
     let defaults = List.map (fun (p : Types.tool_param) ->
-      let default_value = match p.param_type with
-        | Types.String -> `String ""
-        | Types.Integer -> `Int 0
-        | Types.Number -> `Float 0.0
-        | Types.Boolean -> `Bool false
-        | Types.Array -> `List []
-        | Types.Object -> `Assoc []
-      in
-      (p.name, default_value)
+      (p.name, default_for_type p.param_type)
     ) missing_optionals in
     `Assoc (fields @ defaults)
   | `Null ->
-    (* Treat null as empty object with defaults *)
     let defaults = List.filter_map (fun (p : Types.tool_param) ->
       if p.required then None
-      else
-        let default_value = match p.param_type with
-          | Types.String -> `String ""
-          | Types.Integer -> `Int 0
-          | Types.Number -> `Float 0.0
-          | Types.Boolean -> `Bool false
-          | Types.Array -> `List []
-          | Types.Object -> `Assoc []
-        in
-        Some (p.name, default_value)
+      else Some (p.name, default_for_type p.param_type)
     ) schema.parameters in
     `Assoc defaults
   | other -> other
@@ -103,14 +91,17 @@ let default_injection_stage = {
 let format_normalization_apply (_schema : Types.tool_schema) (input : Yojson.Safe.t) : Yojson.Safe.t =
   match input with
   | `Assoc fields ->
+    let changed = ref false in
     let fields' = List.map (fun (k, v) ->
       match v with
       | `String s ->
         let trimmed = String.trim s in
-        (k, `String trimmed)
-      | other -> (k, other)
+        if not (String.equal trimmed s) then
+          (changed := true; (k, `String trimmed))
+        else (k, v)
+      | _ -> (k, v)
     ) fields in
-    `Assoc fields'
+    if !changed then `Assoc fields' else input
   | other -> other
 
 let format_normalization_stage = {

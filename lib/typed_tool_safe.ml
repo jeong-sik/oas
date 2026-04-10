@@ -7,18 +7,18 @@ type read_only
 type write
 type destructive
 
-(* The phantom parameter is erased at runtime.
-   The .mli hides the constructor, so callers cannot forge permissions. *)
+type perm_label = Perm_read_only | Perm_write | Perm_destructive
+
 type ('perm, 'input, 'output) t = {
   tool : ('input, 'output) Typed_tool.t;
-  perm_name : string;
+  perm : perm_label;
 }
 
 (* ── Construction ───────────────────────────────────────── *)
 
-let read_only tool = { tool; perm_name = "read_only" }
-let write tool = { tool; perm_name = "write" }
-let destructive tool = { tool; perm_name = "destructive" }
+let read_only tool = { tool; perm = Perm_read_only }
+let write tool = { tool; perm = Perm_write }
+let destructive tool = { tool; perm = Perm_destructive }
 
 (* ── Permission-gated execution ─────────────────────────── *)
 
@@ -48,4 +48,7 @@ let to_untyped safe_tool = Typed_tool.to_untyped safe_tool.tool
 (* ── Introspection ──────────────────────────────────────── *)
 
 let name safe_tool = Typed_tool.name safe_tool.tool
-let permission_name safe_tool = safe_tool.perm_name
+let permission_name safe_tool = match safe_tool.perm with
+  | Perm_read_only -> "read_only"
+  | Perm_write -> "write"
+  | Perm_destructive -> "destructive"

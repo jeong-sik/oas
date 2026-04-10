@@ -15,11 +15,11 @@
       (* parse returns: (string * string option, string) result *)
     ]}
 
-    Each field type is mapped to a specific OCaml type:
-    - String -> string (required) or string option (optional)
-    - Integer -> int (required) or int option (optional)
-    - Number -> float (required) or float option (optional)
-    - Boolean -> bool (required) or bool option (optional)
+    Each field type maps to a single OCaml type with zero-default for optional:
+    - String -> string (optional: [""])
+    - Integer -> int (optional: [0])
+    - Number -> float (optional: [0.0])
+    - Boolean -> bool (optional: [false])
 
     @stability Experimental
     @since 0.120.0 *)
