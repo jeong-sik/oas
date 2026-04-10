@@ -28,8 +28,6 @@ let parse_openai_response_result = Backend_openai_parse.parse_openai_response_re
 
 let effective_tool_choice (config : Provider_config.t) =
   match config.kind, config.tool_choice with
-  | Provider_config.Glm, Some Auto -> Some (tool_choice_to_openai_json Auto)
-  | Provider_config.Glm, Some (Any | Tool _) -> Some (tool_choice_to_openai_json Auto)
   | Provider_config.Glm, Some None_ -> None
   | _, Some choice -> Some (tool_choice_to_openai_json choice)
   | _, None -> None
@@ -129,13 +127,25 @@ let%test "tool_choice_to_openai_json Tool name" =
   result |> member "type" |> to_string = "function"
   && result |> member "function" |> member "name" |> to_string = "my_tool"
 
-let%test "glm coerces named tool_choice to auto" =
+let%test "glm preserves named tool_choice" =
   let cfg = Provider_config.make
     ~kind:Provider_config.Glm ~model_id:"glm-5"
     ~base_url:Zai_catalog.general_base_url
     ~tool_choice:(Tool "calculator") () in
   match effective_tool_choice cfg with
-  | Some (`String "auto") -> true
+  | Some (`Assoc _ as json) ->
+    let open Yojson.Safe.Util in
+    json |> member "type" |> to_string = "function"
+    && json |> member "function" |> member "name" |> to_string = "calculator"
+  | _ -> false
+
+let%test "glm preserves tool_choice any as required" =
+  let cfg = Provider_config.make
+    ~kind:Provider_config.Glm ~model_id:"glm-5"
+    ~base_url:Zai_catalog.general_base_url
+    ~tool_choice:Any () in
+  match effective_tool_choice cfg with
+  | Some (`String "required") -> true
   | _ -> false
 
 let%test "glm drops tool_choice none" =
