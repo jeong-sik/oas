@@ -165,6 +165,66 @@ let test_agent_run_requires_tool_use_when_tool_choice_is_any () =
      | Error e -> fail (Error.to_string e))
   with Exit -> ()
 
+let test_agent_run_requires_specific_tool_when_tool_choice_is_tool () =
+  Eio_main.run @@ fun env ->
+  try
+    Eio.Switch.run @@ fun sw ->
+    let url = start_multi_mock ~sw ~net:env#net ~port:20014
+        [openai_tool_use_response "other_tool" {|{}|}] in
+    let requested_tool = Tool.create
+        ~name:"get_time"
+        ~description:"Get current time"
+        ~parameters:[]
+        (fun _input -> Ok { Types.content = "12:00 UTC" })
+    in
+    let other_tool = Tool.create
+        ~name:"other_tool"
+        ~description:"Other tool"
+        ~parameters:[]
+        (fun _input -> Ok { Types.content = "other" })
+    in
+    let agent =
+      make_agent ~net:env#net ~tools:[requested_tool; other_tool]
+        ~tool_choice:(Types.Tool "get_time") url
+    in
+    (match Agent.run ~sw agent "what time is it?" with
+     | Ok _ -> fail "expected specific-tool contract failure"
+     | Error (Error.Agent (Error.CompletionContractViolation { contract; reason })) ->
+       check string "contract" "require_specific_tool(get_time)" contract;
+       check bool "reason mentions requested tool" true
+         (contains_substring ~needle:"get_time" reason);
+       check bool "reason mentions called tool" true
+         (contains_substring ~needle:"other_tool" reason);
+       Eio.Switch.fail sw Exit
+     | Error e -> fail (Error.to_string e))
+  with Exit -> ()
+
+let test_agent_run_rejects_tool_use_when_tool_choice_is_none () =
+  Eio_main.run @@ fun env ->
+  try
+    Eio.Switch.run @@ fun sw ->
+    let url = start_multi_mock ~sw ~net:env#net ~port:20015
+        [openai_tool_use_response "other_tool" {|{}|}] in
+    let other_tool = Tool.create
+        ~name:"other_tool"
+        ~description:"Other tool"
+        ~parameters:[]
+        (fun _input -> Ok { Types.content = "other" })
+    in
+    let agent =
+      make_agent ~net:env#net ~tools:[other_tool]
+        ~tool_choice:Types.None_ url
+    in
+    (match Agent.run ~sw agent "do not use tools" with
+     | Ok _ -> fail "expected no-tool contract failure"
+     | Error (Error.Agent (Error.CompletionContractViolation { contract; reason })) ->
+       check string "contract" "require_no_tool_use" contract;
+       check bool "reason mentions called tool" true
+         (contains_substring ~needle:"other_tool" reason);
+       Eio.Switch.fail sw Exit
+     | Error e -> fail (Error.to_string e))
+  with Exit -> ()
+
 (* ── Test 3: Max turns exhaustion ────────────────────── *)
 
 let test_agent_run_max_turns () =
@@ -470,6 +530,10 @@ let () =
       test_case "tool use cycle" `Quick test_agent_run_tool_use;
       test_case "tool_choice any requires tool use" `Quick
         test_agent_run_requires_tool_use_when_tool_choice_is_any;
+      test_case "tool_choice tool requires specific tool" `Quick
+        test_agent_run_requires_specific_tool_when_tool_choice_is_tool;
+      test_case "tool_choice none rejects tool use" `Quick
+        test_agent_run_rejects_tool_use_when_tool_choice_is_none;
       test_case "tool error" `Quick test_agent_run_tool_error;
       test_case "validation retry success" `Quick test_agent_run_validation_retry_success;
       test_case "validation retry exhausted" `Quick test_agent_run_validation_retry_exhausted;
