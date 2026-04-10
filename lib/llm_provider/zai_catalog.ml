@@ -8,6 +8,11 @@ let general_base_url = "https://api.z.ai/api/paas/v4"
 let coding_base_url = "https://api.z.ai/api/coding/paas/v4"
 let anthropic_base_url = "https://api.z.ai/api/anthropic"
 
+let is_glm_model_id model_id =
+  let m = String.lowercase_ascii (String.trim model_id) in
+  m = "glm"
+  || (String.length m > 4 && String.sub m 0 4 = "glm-")
+
 let contains_substring haystack needle =
   let hlen = String.length haystack in
   let nlen = String.length needle in

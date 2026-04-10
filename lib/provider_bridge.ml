@@ -14,7 +14,7 @@ let to_provider_config (legacy : Provider.config) : (Llm_provider.Provider_confi
         String.length m_lower >= 6 && String.sub m_lower 0 6 = "gemini"
       in
       let is_glm_model =
-        String.length m_lower >= 3 && String.sub m_lower 0 3 = "glm"
+        Llm_provider.Zai_catalog.is_glm_model_id m_lower
       in
       let kind = match Provider.request_kind legacy.provider with
         | Provider.Anthropic_messages ->

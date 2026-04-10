@@ -13,6 +13,8 @@ val general_base_url : string
 val coding_base_url : string
 val anthropic_base_url : string
 
+val is_glm_model_id : string -> bool
+
 val is_coding_base_url : string -> bool
 val is_anthropic_base_url : string -> bool
 val mode_of_base_url : string -> api_mode

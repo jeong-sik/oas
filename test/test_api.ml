@@ -256,6 +256,48 @@ let test_build_openai_body_uses_glm_thinking_and_auto_tool_choice () =
   check string "glm tool choice coerced" "auto"
     (json |> member "tool_choice" |> to_string)
 
+let test_build_openai_body_does_not_treat_glmock_as_glm () =
+  let provider_config = {
+    Provider.provider = Provider.OpenAICompat {
+      base_url = "https://example.invalid/v1";
+      auth_header = None;
+      path = "/chat/completions";
+      static_token = None;
+    };
+    model_id = "glmock-1";
+    api_key_env = "";
+  } in
+  let state = {
+    Types.config = {
+      Types.default_config with
+      model = provider_config.model_id;
+      enable_thinking = Some true;
+      tool_choice = Some (Types.Tool "calculator");
+    };
+    messages = [];
+    turn_count = 0;
+    usage = Types.empty_usage;
+  } in
+  let tool_json =
+    `Assoc [
+      ("name", `String "calculator");
+      ("description", `String "math");
+      ("input_schema", `Assoc [("type", `String "object")]);
+    ]
+  in
+  let json =
+    Api.build_openai_body ~provider_config ~config:state ~messages:[]
+      ~tools:[tool_json] ()
+    |> Yojson.Safe.from_string
+  in
+  let open Yojson.Safe.Util in
+  let assoc = to_assoc json in
+  check bool "thinking omitted for non-glm prefix" false
+    (List.mem_assoc "thinking" assoc);
+  match json |> member "tool_choice" with
+  | `Assoc _ -> ()
+  | _ -> fail "non-glm tool_choice should preserve named function form"
+
 (* ------------------------------------------------------------------ *)
 (* parse_response                                                       *)
 (* ------------------------------------------------------------------ *)
@@ -840,6 +882,8 @@ let () =
         test_build_openai_body_omits_qwen_only_fields_for_generic_compat;
       test_case "glm thinking + auto tool choice" `Quick
         test_build_openai_body_uses_glm_thinking_and_auto_tool_choice;
+      test_case "non-glm prefix avoids glm path" `Quick
+        test_build_openai_body_does_not_treat_glmock_as_glm;
       test_case "with cache_system_prompt" `Quick test_build_body_with_cache;
       test_case "tools cache_control with flag" `Quick test_build_body_tools_cache_control;
       test_case "tools no cache_control without flag" `Quick test_build_body_tools_no_cache_without_flag;

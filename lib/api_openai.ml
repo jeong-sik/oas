@@ -34,14 +34,10 @@ let effective_tool_choice_json (capabilities : Provider.capabilities)
   let is_glm =
     match provider_config with
     | Some (cfg : Provider.config) ->
-        let is_glm_model =
-          let m = String.lowercase_ascii cfg.model_id in
-          String.length m >= 3 && String.sub m 0 3 = "glm"
-        in
-        is_glm_model
+        Llm_provider.Zai_catalog.is_glm_model_id cfg.model_id
     | None ->
-        let m = String.lowercase_ascii (model_to_string config.config.model) in
-        String.length m >= 3 && String.sub m 0 3 = "glm"
+        Llm_provider.Zai_catalog.is_glm_model_id
+          (model_to_string config.config.model)
   in
   match config.config.tool_choice with
   | Some Types.Auto when capabilities.supports_tool_choice ->
@@ -56,11 +52,10 @@ let effective_tool_choice_json (capabilities : Provider.capabilities)
 let is_glm_request ?provider_config (config : agent_state) =
   match provider_config with
   | Some (cfg : Provider.config) ->
-      let m = String.lowercase_ascii cfg.model_id in
-      String.length m >= 3 && String.sub m 0 3 = "glm"
+      Llm_provider.Zai_catalog.is_glm_model_id cfg.model_id
   | None ->
-      let m = String.lowercase_ascii (model_to_string config.config.model) in
-      String.length m >= 3 && String.sub m 0 3 = "glm"
+      Llm_provider.Zai_catalog.is_glm_model_id
+        (model_to_string config.config.model)
 
 let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
   let model_str = model_to_string config.config.model in
