@@ -1254,12 +1254,21 @@ let test_for_model_id_grok () =
   | None -> Alcotest.fail "expected Some for grok"
 
 let test_for_model_id_glm () =
-  match Capabilities.for_model_id "glm-4.5-flash" with
+  (* glm-4.5-flash now matches the flash-specific entry (128K ctx, 16K out) *)
+  (match Capabilities.for_model_id "glm-4.5-flash" with
+  | Some c ->
+    Alcotest.(check (option int)) "128K context" (Some 128_000) c.max_context_tokens;
+    Alcotest.(check (option int)) "16K output" (Some 16_384) c.max_output_tokens;
+    Alcotest.(check bool) "tools" true c.supports_tools;
+    Alcotest.(check bool) "no reasoning" false c.supports_reasoning
+  | None -> Alcotest.fail "expected Some for glm-4.5-flash");
+  (* glm-5.1 should still get full capabilities *)
+  match Capabilities.for_model_id "glm-5.1" with
   | Some c ->
     Alcotest.(check (option int)) "200K context" (Some 200_000) c.max_context_tokens;
     Alcotest.(check (option int)) "128K output" (Some 128_000) c.max_output_tokens;
-    Alcotest.(check bool) "tools" true c.supports_tools
-  | None -> Alcotest.fail "expected Some for glm"
+    Alcotest.(check bool) "reasoning" true c.supports_reasoning
+  | None -> Alcotest.fail "expected Some for glm-5.1"
 
 let test_for_model_id_unknown () =
   Alcotest.(check bool) "unknown -> None" true
