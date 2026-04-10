@@ -16,13 +16,16 @@ let to_provider_config (legacy : Provider.config) : (Llm_provider.Provider_confi
       let is_glm_model =
         Llm_provider.Zai_catalog.is_glm_model_id m_lower
       in
+      let is_zai_provider =
+        Llm_provider.Zai_catalog.is_zai_base_url base_url
+      in
       let kind = match Provider.request_kind legacy.provider with
         | Provider.Anthropic_messages ->
             Llm_provider.Provider_config.Anthropic
         | Provider.Openai_chat_completions
         | Provider.Custom _ ->
             if is_gemini_model then Llm_provider.Provider_config.Gemini
-            else if is_glm_model then Llm_provider.Provider_config.Glm
+            else if is_zai_provider && is_glm_model then Llm_provider.Provider_config.Glm
             else Llm_provider.Provider_config.OpenAI_compat
       in
       let request_path = Provider.request_path legacy.provider in

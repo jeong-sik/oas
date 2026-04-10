@@ -48,6 +48,10 @@ type audio_source =
   | File_path of string
   | File_base64 of string
 
+let max_multipart_file_size = 25 * 1024 * 1024
+
+let multipart_random = Random.State.make_self_init ()
+
 let auth_headers ?api_key content_type =
   let api_key =
     match api_key with
@@ -150,6 +154,27 @@ let post_json ~sw ~net ~url ~headers body parse =
       if code >= 200 && code < 300 then parse body
       else Error (Http_client.HttpError { code; body })
 
+let encode_path_segment value =
+  let buf = Buffer.create (String.length value * 3) in
+  String.iter (fun ch ->
+    match ch with
+    | 'A' .. 'Z'
+    | 'a' .. 'z'
+    | '0' .. '9'
+    | '-'
+    | '_'
+    | '.'
+    | '~' -> Buffer.add_char buf ch
+    | _ -> Buffer.add_string buf (Printf.sprintf "%%%02X" (Char.code ch))
+  ) value;
+  Buffer.contents buf
+
+let media_async_result_url ~base_url ~id =
+  let base_uri = Uri.of_string base_url in
+  let encoded_id = encode_path_segment id in
+  let path = Uri.path base_uri ^ "/async-result/" ^ encoded_id in
+  Uri.to_string (Uri.with_path base_uri path)
+
 let generate_image ~sw ~net
     ?(base_url = Zai_catalog.general_base_url) ?api_key ?size
     ~model ~prompt () =
@@ -199,7 +224,7 @@ let generate_video_async ~sw ~net
 let get_media_async_result ~sw ~net
     ?(base_url = Zai_catalog.general_base_url) ?api_key ~id () =
   match Http_client.get_sync ~sw ~net
-          ~url:(base_url ^ "/async-result/" ^ id)
+          ~url:(media_async_result_url ~base_url ~id)
           ~headers:(auth_headers ?api_key "application/json") with
   | Error _ as err -> err
   | Ok (code, body) ->
@@ -207,15 +232,33 @@ let get_media_async_result ~sw ~net
       else Error (Http_client.HttpError { code; body })
 
 let read_file path =
-  let ic = open_in_bin path in
-  Fun.protect
-    ~finally:(fun () -> close_in_noerr ic)
-    (fun () ->
-      let len = in_channel_length ic in
-      really_input_string ic len)
+  try
+    let ic = open_in_bin path in
+    Fun.protect
+      ~finally:(fun () -> close_in_noerr ic)
+      (fun () ->
+        let len = in_channel_length ic in
+        if len > max_multipart_file_size then
+          Error (Http_client.HttpError {
+            code = 400;
+            body =
+              Printf.sprintf
+                "File %S is too large for in-memory multipart upload (%d bytes > %d bytes)"
+                path len max_multipart_file_size;
+          })
+        else
+          Ok (really_input_string ic len))
+  with Sys_error msg ->
+    Error (Http_client.HttpError { code = 400; body = "File error: " ^ msg })
+
+let generate_multipart_boundary () =
+  Printf.sprintf "----oas-zai-boundary-%08x%08x%08x"
+    (Random.State.bits multipart_random)
+    (Random.State.bits multipart_random)
+    (Random.State.bits multipart_random)
 
 let multipart_body ?prompt ?language ~model ~source () =
-  let boundary = "----oas-zai-boundary" in
+  let boundary = generate_multipart_boundary () in
   let buf = Buffer.create 4096 in
   let add_line line =
     Buffer.add_string buf line;
@@ -230,34 +273,45 @@ let multipart_body ?prompt ?language ~model ~source () =
   add_field "model" model;
   (match prompt with Some value -> add_field "prompt" value | None -> ());
   (match language with Some value -> add_field "language" value | None -> ());
-  (match source with
-   | File_base64 data ->
-       add_field "file_base64" data
-   | File_path path ->
-       let filename = Filename.basename path in
-       let content = read_file path in
-       add_line ("--" ^ boundary);
-       add_line
-         (Printf.sprintf
-            "Content-Disposition: form-data; name=\"file\"; filename=%S"
-            filename);
-       add_line "Content-Type: application/octet-stream";
-       add_line "";
-       Buffer.add_string buf content;
-       Buffer.add_string buf "\r\n");
-  add_line ("--" ^ boundary ^ "--");
-  (boundary, Buffer.contents buf)
+  let source_result =
+    match source with
+    | File_base64 data ->
+        add_field "file_base64" data;
+        Ok ()
+    | File_path path ->
+        let filename = Filename.basename path in
+        (match read_file path with
+         | Error _ as err -> err
+         | Ok content ->
+             add_line ("--" ^ boundary);
+             add_line
+               (Printf.sprintf
+                  "Content-Disposition: form-data; name=\"file\"; filename=%S"
+                  filename);
+             add_line "Content-Type: application/octet-stream";
+             add_line "";
+             Buffer.add_string buf content;
+             Buffer.add_string buf "\r\n";
+             Ok ())
+  in
+  match source_result with
+  | Error _ as err -> err
+  | Ok () ->
+      add_line ("--" ^ boundary ^ "--");
+      Ok (boundary, Buffer.contents buf)
 
 let transcribe_audio ~sw ~net
     ?(base_url = Zai_catalog.general_base_url) ?api_key
     ?prompt ?language ~model ~source () =
-  let boundary, body = multipart_body ?prompt ?language ~model ~source () in
-  let headers =
-    auth_headers ?api_key ("multipart/form-data; boundary=" ^ boundary)
-  in
-  post_json ~sw ~net
-    ~url:(base_url ^ "/audio/transcriptions")
-    ~headers body parse_transcription
+  match multipart_body ?prompt ?language ~model ~source () with
+  | Error _ as err -> err
+  | Ok (boundary, body) ->
+      let headers =
+        auth_headers ?api_key ("multipart/form-data; boundary=" ^ boundary)
+      in
+      post_json ~sw ~net
+        ~url:(base_url ^ "/audio/transcriptions")
+        ~headers body parse_transcription
 
 [@@@coverage off]
 
@@ -277,8 +331,21 @@ let%test "parse_media_async_result handles published schema" =
       && List.length result.results = 1
   | Error _ -> false
 
+let%test "media_async_result_url encodes task id path segment" =
+  let url =
+    media_async_result_url
+      ~base_url:"https://api.z.ai/api/paas/v4"
+      ~id:"job/1 ?x#y"
+  in
+  String.contains url '%'
+
 let%test "parse_transcription handles sync response" =
   match parse_transcription
           {|{"id":"tr-1","created":1,"model":"glm-asr-2512","text":"hello"}|} with
   | Ok result -> result.text = "hello"
   | Error _ -> false
+
+let%test "multipart_body reports missing file path" =
+  match multipart_body ~model:"glm-asr-2512" ~source:(File_path "/nonexistent/file.wav") () with
+  | Error _ -> true
+  | Ok _ -> false

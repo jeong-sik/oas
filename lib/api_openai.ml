@@ -29,16 +29,25 @@ let capabilities_for_request ?provider_config (config : agent_state) =
              })
         ~model_id:(model_to_string config.config.model)
 
+let is_zai_provider_config (cfg : Provider.config) =
+  match cfg.provider with
+  | Provider.OpenAICompat { base_url; _ }
+  | Provider.Local { base_url } ->
+      Llm_provider.Zai_catalog.is_zai_base_url base_url
+  | _ -> false
+
+let is_glm_request ?provider_config (config : agent_state) =
+  match provider_config with
+  | Some (cfg : Provider.config) ->
+      is_zai_provider_config cfg
+      && Llm_provider.Zai_catalog.is_glm_model_id cfg.model_id
+  | None ->
+      Llm_provider.Zai_catalog.is_glm_model_id
+        (model_to_string config.config.model)
+
 let effective_tool_choice_json (capabilities : Provider.capabilities)
     ?provider_config (config : agent_state) =
-  let is_glm =
-    match provider_config with
-    | Some (cfg : Provider.config) ->
-        Llm_provider.Zai_catalog.is_glm_model_id cfg.model_id
-    | None ->
-        Llm_provider.Zai_catalog.is_glm_model_id
-          (model_to_string config.config.model)
-  in
+  let is_glm = is_glm_request ?provider_config config in
   match config.config.tool_choice with
   | Some Types.Auto when capabilities.supports_tool_choice ->
       Some (tool_choice_to_openai_json Types.Auto)
@@ -48,14 +57,6 @@ let effective_tool_choice_json (capabilities : Provider.capabilities)
   | Some choice when capabilities.supports_tool_choice ->
       Some (tool_choice_to_openai_json choice)
   | _ -> None
-
-let is_glm_request ?provider_config (config : agent_state) =
-  match provider_config with
-  | Some (cfg : Provider.config) ->
-      Llm_provider.Zai_catalog.is_glm_model_id cfg.model_id
-  | None ->
-      Llm_provider.Zai_catalog.is_glm_model_id
-        (model_to_string config.config.model)
 
 let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
   let model_str = model_to_string config.config.model in

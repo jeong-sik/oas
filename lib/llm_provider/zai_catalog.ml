@@ -29,6 +29,11 @@ let is_coding_base_url base_url =
 let is_anthropic_base_url base_url =
   contains_substring base_url "/api/anthropic"
 
+let is_zai_base_url base_url =
+  contains_substring base_url "/api/paas/"
+  || is_coding_base_url base_url
+  || is_anthropic_base_url base_url
+
 let mode_of_base_url base_url =
   if is_coding_base_url base_url || is_anthropic_base_url base_url then
     Coding_plan
