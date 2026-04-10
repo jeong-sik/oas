@@ -18,24 +18,10 @@ type 'a schema = {
 
 (** Build the tool_schema JSON for an extraction schema *)
 let schema_to_tool_json (s : _ schema) : Yojson.Safe.t =
-  let properties = List.fold_left (fun acc param ->
-    let prop = `Assoc [
-      ("type", `String (param_type_to_string param.param_type));
-      ("description", `String param.description);
-    ] in
-    (param.name, prop) :: acc
-  ) [] s.params in
-  let required = List.filter_map (fun p ->
-    if p.required then Some (`String p.name) else None
-  ) s.params in
   `Assoc [
     ("name", `String s.name);
     ("description", `String s.description);
-    ("input_schema", `Assoc [
-      ("type", `String "object");
-      ("properties", `Assoc (List.rev properties));
-      ("required", `List required);
-    ]);
+    ("input_schema", Types.params_to_input_schema s.params);
   ]
 
 (** Extract a tool_use input JSON from an API response's content blocks.
