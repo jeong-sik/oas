@@ -155,6 +155,7 @@ let judge ~sw ~net ?clock ?config_path ~config ~context () =
           (if String.length body > 200
            then String.sub body 0 200 ^ "..."
            else body)
+      | Http_client.AcceptRejected { reason } -> reason
       | Http_client.NetworkError { message } -> message
     in
     Error (Printf.sprintf "Judge LLM call failed: %s" msg)

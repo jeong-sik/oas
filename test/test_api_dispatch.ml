@@ -34,6 +34,36 @@ let json_get key json =
   | `Assoc pairs -> List.assoc_opt key pairs
   | _ -> None
 
+let openai_text_response text =
+  Printf.sprintf
+    {|{"id":"chatcmpl-1","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":"%s"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}|}
+    text
+
+let find_free_port () =
+  let sock = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
+  Fun.protect
+    ~finally:(fun () -> Unix.close sock)
+    (fun () ->
+      Unix.bind sock (Unix.ADDR_INET (Unix.inet_addr_loopback, 0));
+      match Unix.getsockname sock with
+      | Unix.ADDR_INET (_, port) -> port
+      | Unix.ADDR_UNIX _ -> fail "expected INET socket")
+
+let start_mock_server ~sw ~net body =
+  let port = find_free_port () in
+  let handler _conn _req req_body =
+    let _ = Eio.Buf_read.(of_flow ~max_size:max_int req_body |> take_all) in
+    Cohttp_eio.Server.respond_string ~status:`OK ~body ()
+  in
+  let socket =
+    Eio.Net.listen net ~sw ~backlog:8 ~reuse_addr:true
+      (`Tcp (Eio.Net.Ipaddr.V4.loopback, port))
+  in
+  let server = Cohttp_eio.Server.make ~callback:handler () in
+  Eio.Fiber.fork ~sw (fun () ->
+    Cohttp_eio.Server.run socket server ~on_error:(fun _ -> ()));
+  Printf.sprintf "http://127.0.0.1:%d" port
+
 (* ── Anthropic body shape ────────────────────────────────────── *)
 
 let test_anthropic_body_shape () =
@@ -161,6 +191,40 @@ let test_named_cascade_no_models () =
   | Ok _ -> fail "expected missing named cascade models to fail"
   | Error err ->
       fail ("unexpected error: " ^ Error.to_string err)
+
+let test_named_cascade_contract_rejection_maps_to_agent_error () =
+  with_net @@ fun net ->
+  try
+    Eio.Switch.run @@ fun sw ->
+    let url =
+      start_mock_server ~sw ~net (openai_text_response "no tool call")
+    in
+    let named =
+      Api.named_cascade
+        ~name:"contract"
+        ~defaults:[Printf.sprintf "custom:r@%s" url]
+        ()
+    in
+    let config =
+      { base_state with
+        Types.config =
+          { base_state.config with tool_choice = Some Types.Any }
+      }
+    in
+    (match
+       Api.create_message_named ~sw ~net ~named_cascade:named ~config
+         ~messages:base_state.messages ()
+     with
+     | Error
+         (Error.Agent
+            (Error.CompletionContractViolation { contract; reason })) ->
+       check string "contract" "require_tool_use" contract;
+       check bool "reason mentions tool contract" true
+         (String.length reason > 0);
+       Eio.Switch.fail sw Exit
+     | Ok _ -> fail "expected completion contract violation"
+     | Error err -> fail ("unexpected error: " ^ Error.to_string err))
+  with Exit -> ()
 
 let test_named_cascade_stream_no_models () =
   with_net @@ fun net ->
@@ -300,6 +364,8 @@ let () =
     "routing", [
       test_case "request_kind" `Quick test_request_kind_routing;
       test_case "named cascade no models" `Quick test_named_cascade_no_models;
+      test_case "named cascade contract rejection maps to agent error" `Quick
+        test_named_cascade_contract_rejection_maps_to_agent_error;
       test_case "named cascade stream no models" `Quick
         test_named_cascade_stream_no_models;
     ];

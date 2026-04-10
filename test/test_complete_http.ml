@@ -459,11 +459,15 @@ let test_complete_named_reject () =
      | Ok _ -> fail "expected rejection"
      | Error (Http_client.NetworkError { message }) ->
        check bool "reason preserved" true
-         (String.starts_with ~prefix:"All models failed:" message);
+         (message = "intentional reject from test validator");
        check bool "validator reason preserved" true
          (contains_substring
             ~needle:"intentional reject from test validator"
             message);
+       Eio.Switch.fail sw Exit
+     | Error (Http_client.AcceptRejected { reason }) ->
+       check string "reject reason" "intentional reject from test validator"
+         reason;
        Eio.Switch.fail sw Exit
      | Error _ -> fail "expected NetworkError")
   with Exit -> ()
@@ -488,6 +492,12 @@ let test_complete_named_reject_legacy_bool_accept () =
          (contains_substring
             ~needle:"response rejected by accept validator"
             message);
+       Eio.Switch.fail sw Exit
+     | Error (Http_client.AcceptRejected { reason }) ->
+       check bool "legacy reject reason preserved" true
+         (contains_substring
+            ~needle:"response rejected by accept validator"
+            reason);
        Eio.Switch.fail sw Exit
      | Error _ -> fail "expected NetworkError")
   with Exit -> ()

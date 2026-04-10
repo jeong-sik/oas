@@ -65,6 +65,8 @@ let get_json ~sw ~net url =
   | Ok (code, _) -> Error (Printf.sprintf "HTTP %d" code)
   | Error (Http_client.HttpError { code; _ }) ->
     Error (Printf.sprintf "HTTP %d" code)
+  | Error (Http_client.AcceptRejected { reason }) ->
+    Error reason
   | Error (Http_client.NetworkError { message }) ->
     Error message
 

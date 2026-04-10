@@ -253,6 +253,7 @@ let complete ~sw ~net ?(transport : Llm_transport.t option)
            let err_str = match err with
              | Http_client.HttpError { code; _ } ->
                  Printf.sprintf "HTTP %d" code
+             | Http_client.AcceptRejected { reason } -> reason
              | Http_client.NetworkError { message } -> message
            in
            m.on_error ~model_id ~error:err_str;
@@ -277,6 +278,7 @@ let default_retry_config = {
 let is_retryable = function
   | Http_client.HttpError { code; _ } ->
       List.mem code Constants.Http.retryable_codes
+  | Http_client.AcceptRejected _ -> false
   | Http_client.NetworkError _ -> true
 
 let complete_with_retry ~sw ~net ?transport ~clock
@@ -334,6 +336,7 @@ let complete_cascade ~sw ~net ?transport ?clock ?retry_config
               let err_str = match last_err with
                 | Http_client.HttpError { code; _ } ->
                     Printf.sprintf "HTTP %d" code
+                | Http_client.AcceptRejected { reason } -> reason
                 | Http_client.NetworkError { message } -> message
               in
               m.on_cascade_fallback
@@ -501,6 +504,7 @@ let complete_stream_cascade ~sw ~net ?transport
         let err_str = match last_err with
           | Http_client.HttpError { code; _ } ->
             Printf.sprintf "HTTP %d" code
+          | Http_client.AcceptRejected { reason } -> reason
           | Http_client.NetworkError { message } -> message
         in
         m.on_cascade_fallback

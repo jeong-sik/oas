@@ -25,6 +25,8 @@ let slot_action ~sw ~net ~endpoint ~slot_id ~action ~body_fields =
     Error msg
   | Error (Http_client.HttpError { code; body }) ->
     Error (Printf.sprintf "slot %s HTTP error %d: %s" action code body)
+  | Error (Http_client.AcceptRejected { reason }) ->
+    Error (Printf.sprintf "slot %s rejected: %s" action reason)
   | Error (Http_client.NetworkError { message }) ->
     Error (Printf.sprintf "slot %s network error: %s" action message)
 
