@@ -18,6 +18,21 @@ let openai_response text =
     {|{"id":"chatcmpl-1","object":"chat.completion","model":"gpt-4","choices":[{"index":0,"message":{"role":"assistant","content":"%s"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5}}|}
     text
 
+let contains_substring ~needle haystack =
+  let needle_len = String.length needle in
+  let haystack_len = String.length haystack in
+  let rec loop idx =
+    if needle_len = 0 then
+      true
+    else if idx + needle_len > haystack_len then
+      false
+    else if String.sub haystack idx needle_len = needle then
+      true
+    else
+      loop (idx + 1)
+  in
+  loop 0
+
 let fresh_port () =
   let s = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
   Unix.setsockopt s Unix.SO_REUSEADDR true;
@@ -437,13 +452,20 @@ let test_complete_named_reject () =
       Printf.sprintf "custom:r@%s" url
     ] in
     (* Reject all responses *)
-    let accept _resp = false in
+    let accept _resp = Error "intentional reject from test validator" in
     (match Cascade_config.complete_named ~sw ~net:env#net ~clock
              ~name:"reject" ~defaults
              ~messages ~accept () with
      | Ok _ -> fail "expected rejection"
-     | Error _ ->
-       Eio.Switch.fail sw Exit)
+     | Error (Http_client.NetworkError { message }) ->
+       check bool "reason preserved" true
+         (String.starts_with ~prefix:"All models failed:" message);
+       check bool "validator reason preserved" true
+         (contains_substring
+            ~needle:"intentional reject from test validator"
+            message);
+       Eio.Switch.fail sw Exit
+     | Error _ -> fail "expected NetworkError")
   with Exit -> ()
 
 (* ── cascade_config.complete_named: config file ──────── *)

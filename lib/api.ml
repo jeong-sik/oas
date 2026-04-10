@@ -10,6 +10,8 @@ type named_cascade = {
   provider_filter : string list option;
 }
 
+type response_accept = Types.api_response -> (unit, string) result
+
 let named_cascade ?config_path ?metrics ?provider_filter ~name ~defaults () =
   let metrics = match metrics with Some m -> m | None -> Llm_provider.Metrics.noop in
   { name; defaults; config_path; metrics; provider_filter }
@@ -188,7 +190,7 @@ let create_message_cascade ~sw ~net ?clock ?retry_config
 let create_message_named ~sw ~net ?clock ~(named_cascade : named_cascade)
     ~config ~messages ?tools ?(temperature = 0.3)
     ?(max_tokens = config.config.max_tokens)
-    ?system_prompt ?(accept = fun _ -> true) ?(accept_on_exhaustion = false)
+    ?system_prompt ?(accept = fun _ -> Ok ()) ?(accept_on_exhaustion = false)
     ?timeout_sec ?metrics ?priority () =
   let system_prompt =
     match system_prompt with

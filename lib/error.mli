@@ -19,6 +19,7 @@ type agent_error =
   | UnrecognizedStopReason of { reason: string }
   | IdleDetected of { consecutive_idle_turns: int }
   | ToolRetryExhausted of { attempts: int; limit: int; detail: string }
+  | CompletionContractViolation of { contract: string; reason: string }
   | GuardrailViolation of { validator: string; reason: string }
   | TripwireViolation of { tripwire: string; reason: string }
   | ExitConditionMet of { turn: int }

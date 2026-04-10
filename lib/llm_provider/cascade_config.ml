@@ -331,7 +331,7 @@ let complete_named ~sw ~net ?clock ?config_path
     ?(tools = [])
     ?(temperature = Constants.Inference.default_temperature)
     ?(max_tokens = Constants.Inference.default_max_tokens)
-    ?system_prompt ?tool_choice ?(accept = fun _ -> true) ?(strict_name = false)
+    ?system_prompt ?tool_choice ?(accept = fun _ -> Ok ()) ?(strict_name = false)
     ?(accept_on_exhaustion = false)
     ?timeout_sec ?cache ?metrics ?throttle ?priority ?provider_filter () =
   let model_strings, source =

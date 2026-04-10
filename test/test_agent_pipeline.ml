@@ -63,9 +63,9 @@ let start_multi_mock ~sw ~net ~port (responses : string list) =
   Printf.sprintf "http://127.0.0.1:%d" port
 
 let make_agent ~net ?(max_turns = 3) ?(tools = []) ?hooks ?context_reducer
-    ?guardrails ?tool_retry_policy base_url =
+    ?guardrails ?tool_retry_policy ?tool_choice base_url =
   let config = { Types.default_config with
-    name = "test-agent"; max_turns;
+    name = "test-agent"; max_turns; tool_choice;
   } in
   let provider : Provider.config = {
     provider = Provider.Local { base_url };
@@ -131,6 +131,36 @@ let test_agent_run_tool_use () =
     (match Agent.run ~sw agent "what time is it?" with
      | Ok resp ->
        check string "final text" "The time is 12:00 UTC" (extract_text resp);
+       Eio.Switch.fail sw Exit
+     | Error e -> fail (Error.to_string e))
+  with Exit -> ()
+
+let test_agent_run_requires_tool_use_when_tool_choice_is_any () =
+  Eio_main.run @@ fun env ->
+  try
+    Eio.Switch.run @@ fun sw ->
+    let url = start_multi_mock ~sw ~net:env#net ~port:20013
+        [openai_text_response "I ignored the tool requirement"] in
+    let time_tool = Tool.create
+        ~name:"get_time"
+        ~description:"Get current time"
+        ~parameters:[
+          { name = "timezone"; param_type = Types.String;
+            description = "tz"; required = true };
+        ]
+        (fun _input -> Ok { Types.content = "12:00 UTC" })
+    in
+    let agent =
+      make_agent ~net:env#net ~tools:[time_tool]
+        ~tool_choice:Types.Any url
+    in
+    (match Agent.run ~sw agent "what time is it?" with
+     | Ok _ -> fail "expected required tool contract failure"
+     | Error (Error.Agent (Error.CompletionContractViolation { contract; reason })) ->
+       check string "contract" "require_tool_use" contract;
+       check bool "reason mentions tool contract" true
+         (contains_substring
+            ~needle:"required tool contract unsatisfied" reason);
        Eio.Switch.fail sw Exit
      | Error e -> fail (Error.to_string e))
   with Exit -> ()
@@ -438,6 +468,8 @@ let () =
     ];
     "tools", [
       test_case "tool use cycle" `Quick test_agent_run_tool_use;
+      test_case "tool_choice any requires tool use" `Quick
+        test_agent_run_requires_tool_use_when_tool_choice_is_any;
       test_case "tool error" `Quick test_agent_run_tool_error;
       test_case "validation retry success" `Quick test_agent_run_validation_retry_success;
       test_case "validation retry exhausted" `Quick test_agent_run_validation_retry_exhausted;

@@ -59,6 +59,7 @@ module Mcp_session = Mcp_session
 module Sse_parser = Sse_parser
 module Guardrails = Guardrails
 module Tool_set = Tool_set
+module Completion_contract = Completion_contract
 module Log = Log
 module Event_bus = Event_bus
 module Skill = Skill

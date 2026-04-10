@@ -161,15 +161,17 @@ let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
       let is_last = rest = [] in
       (match try_one ~is_last cfg with
       | Ok resp ->
-        if accept resp then begin
+        (match accept resp with
+        | Ok () -> begin
           diag "debug" "cascade_accept_passed"
             [("model_id", cfg.model_id)];
           Ok resp
         end
-        else if is_last && accept_on_exhaustion then begin
+        | Error reason when is_last && accept_on_exhaustion -> begin
           diag "info" "cascade_accept_on_exhaustion"
             [("model_id", cfg.model_id);
-             ("is_last", string_of_bool is_last)];
+             ("is_last", string_of_bool is_last);
+             ("reason", reason)];
           (* Graceful degradation: all models rejected by accept.
              Return the last valid response rather than failing.
              Based on constrained decoding fallback pattern:
@@ -181,11 +183,12 @@ let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
             ~reason:"accept relaxed: all models rejected";
           Ok resp
         end
-        else begin
+        | Error reason -> begin
           diag "warn" "cascade_accept_rejected"
             [("model_id", cfg.model_id);
              ("is_last", string_of_bool is_last);
-             ("accept_on_exhaustion", string_of_bool accept_on_exhaustion)];
+             ("accept_on_exhaustion", string_of_bool accept_on_exhaustion);
+             ("reason", reason)];
           (match last_err with
            | Some (Http_client.HttpError { code; _ }) ->
              m.on_cascade_fallback
@@ -194,13 +197,13 @@ let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
            | _ ->
              m.on_cascade_fallback
                ~from_model:cfg.model_id ~to_model:"next"
-               ~reason:"rejected by accept validator");
+               ~reason);
           try_next
             (Some (Http_client.NetworkError {
-                 message = "response rejected by accept validator"
+                 message = reason
                }))
             rest
-        end
+        end)
       | Error err ->
         let err_str = match err with
           | Http_client.HttpError { code; _ } ->
