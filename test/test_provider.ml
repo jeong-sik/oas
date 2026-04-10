@@ -191,6 +191,53 @@ let test_inference_contract_task_transcription () =
   let contract = Provider.inference_contract_of_config cfg in
   Alcotest.(check (option string)) "task" (Some "transcription") contract.task
 
+let test_inference_contract_task_image_generation () =
+  let cfg : Provider.config = {
+    provider = OpenAICompat {
+      base_url = Llm_provider.Zai_catalog.general_base_url;
+      auth_header = None;
+      path = "/images/generations";
+      static_token = None;
+    };
+    model_id = "glm-image";
+    api_key_env = "";
+  } in
+  let contract = Provider.inference_contract_of_config cfg in
+  Alcotest.(check (option string)) "task" (Some "image_generation")
+    contract.task
+
+let test_inference_contract_task_video_generation () =
+  let cfg : Provider.config = {
+    provider = OpenAICompat {
+      base_url = Llm_provider.Zai_catalog.general_base_url;
+      auth_header = None;
+      path = "/videos/generations";
+      static_token = None;
+    };
+    model_id = "cogvideox-2";
+    api_key_env = "";
+  } in
+  let contract = Provider.inference_contract_of_config cfg in
+  Alcotest.(check (option string)) "task" (Some "video_generation")
+    contract.task
+
+let test_zai_glm5v_capabilities_include_image_input () =
+  let cfg : Provider.config = {
+    provider = OpenAICompat {
+      base_url = Llm_provider.Zai_catalog.general_base_url;
+      auth_header = None;
+      path = "/chat/completions";
+      static_token = None;
+    };
+    model_id = "glm-5v-turbo";
+    api_key_env = "";
+  } in
+  let capabilities = Provider.capabilities_for_config cfg in
+  Alcotest.(check bool) "supports image input" true
+    capabilities.supports_image_input;
+  Alcotest.(check bool) "supports multimodal inputs" true
+    capabilities.supports_multimodal_inputs
+
 let test_validate_inference_contract_rejects_unsupported_modality () =
   let cfg : Provider.config = {
     provider = Local { base_url = "http://127.0.0.1:8085" };
@@ -383,6 +430,12 @@ let () =
         test_inference_contract_anthropic_multimodal;
       Alcotest.test_case "task inference transcription" `Quick
         test_inference_contract_task_transcription;
+      Alcotest.test_case "task inference image generation" `Quick
+        test_inference_contract_task_image_generation;
+      Alcotest.test_case "task inference video generation" `Quick
+        test_inference_contract_task_video_generation;
+      Alcotest.test_case "zai glm-5v image capabilities" `Quick
+        test_zai_glm5v_capabilities_include_image_input;
       Alcotest.test_case "invalid modality gets actionable error" `Quick
         test_validate_inference_contract_rejects_unsupported_modality;
       Alcotest.test_case "extended openai capabilities" `Quick

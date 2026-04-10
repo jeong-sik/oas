@@ -132,6 +132,22 @@ let test_lookup_glm5v_vision () =
     check bool "multimodal" true c.supports_multimodal_inputs
   | None -> fail "should match glm-5v"
 
+let test_lookup_glm46v_vision () =
+  match Capabilities.for_model_id "glm-4.6v-flashx" with
+  | Some c ->
+    check bool "has image input" true c.supports_image_input;
+    check bool "multimodal" true c.supports_multimodal_inputs;
+    check bool "reasoning" true c.supports_reasoning
+  | None -> fail "should match glm-4.6v"
+
+let test_lookup_glm_ocr () =
+  match Capabilities.for_model_id "glm-ocr" with
+  | Some c ->
+    check bool "has image input" true c.supports_image_input;
+    check bool "multimodal" true c.supports_multimodal_inputs;
+    check bool "no tools" false c.supports_tools
+  | None -> fail "should match glm-ocr"
+
 (* ── with_context_size ───────────────────────────────── *)
 
 let test_with_context_size () =
@@ -163,6 +179,8 @@ let () =
       test_case "grok 2M context" `Quick test_lookup_grok;
       test_case "glm-5 text only" `Quick test_lookup_glm5_text_only;
       test_case "glm-5v vision" `Quick test_lookup_glm5v_vision;
+      test_case "glm-4.6v vision" `Quick test_lookup_glm46v_vision;
+      test_case "glm-ocr vision" `Quick test_lookup_glm_ocr;
       test_case "unknown" `Quick test_lookup_unknown;
       test_case "case insensitive" `Quick test_lookup_case_insensitive;
     ];

@@ -63,6 +63,30 @@ let test_non_zai_glm_stays_openai_compat () =
          | Ollama -> "ollama"
          | Claude_code -> "claude_code")
 
+let test_zai_glm_becomes_glm_provider_config () =
+  let legacy = {
+    Agent_sdk.Provider.provider = OpenAICompat {
+      base_url = Llm_provider.Zai_catalog.general_base_url;
+      auth_header = None;
+      path = "/chat/completions";
+      static_token = None;
+    };
+    model_id = "glm-5";
+    api_key_env = "";
+  } in
+  match Agent_sdk.Provider_bridge.to_provider_config legacy with
+  | Error _ ->
+      Alcotest.fail "z.ai glm provider should resolve without env var"
+  | Ok cfg ->
+      Alcotest.(check string) "kind becomes glm" "glm"
+        (match cfg.kind with
+         | Llm_provider.Provider_config.OpenAI_compat -> "openai_compat"
+         | Anthropic -> "anthropic"
+         | Gemini -> "gemini"
+         | Glm -> "glm"
+         | Ollama -> "ollama"
+         | Claude_code -> "claude_code")
+
 let () =
   let open Alcotest in
   run "provider_bridge" [
@@ -72,6 +96,8 @@ let () =
       test_case "local" `Quick test_local_provider_bridge;
       test_case "non-zai glm stays openai compat" `Quick
         test_non_zai_glm_stays_openai_compat;
+      test_case "zai glm becomes glm" `Quick
+        test_zai_glm_becomes_glm_provider_config;
     ];
     "cascade", [
       test_case "cascade bridge" `Quick test_cascade_bridge;

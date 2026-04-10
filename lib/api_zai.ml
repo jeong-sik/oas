@@ -329,6 +329,12 @@ let%test "parse_image_generation filters entries without urls" =
   | Ok result -> result.created = 42 && List.length result.data = 1
   | Error _ -> false
 
+let%test "parse_image_generation rejects malformed json" =
+  match parse_image_generation "{" with
+  | Error (Http_client.HttpError { code; body }) ->
+      code = 400 && String.length body > 0
+  | _ -> false
+
 let%test "parse_async_submit handles basic body" =
   match parse_async_submit {|{"model":"glm-image","id":"job-1","task_status":"PROCESSING"}|} with
   | Ok result -> result.id = "job-1" && result.task_status = Processing
@@ -341,6 +347,12 @@ let%test "parse_async_submit keeps unknown statuses" =
       result.request_id = Some "req-1"
       && result.task_status = Unknown "QUEUED"
   | Error _ -> false
+
+let%test "parse_async_submit rejects missing required fields" =
+  match parse_async_submit {|{"task_status":"PROCESSING"}|} with
+  | Error (Http_client.HttpError { code; body }) ->
+      code = 400 && String.length body > 0
+  | _ -> false
 
 let%test "parse_media_async_result handles published schema" =
   match parse_media_async_result
@@ -388,3 +400,16 @@ let%test "multipart_body supports base64 source with optional fields" =
       String.contains body 'h'
       && String.contains body 'k'
       && String.contains body 'Z'
+
+let%test "multipart_body supports file path source" =
+  let path = Filename.temp_file "api-zai" ".wav" in
+  Fun.protect
+    ~finally:(fun () -> try Sys.remove path with Sys_error _ -> ())
+    (fun () ->
+      let oc = open_out_bin path in
+      output_string oc "wavdata";
+      close_out oc;
+      match multipart_body ~model:"glm-asr-2512" ~source:(File_path path) () with
+      | Error _ -> false
+      | Ok (_boundary, body) ->
+          String.contains body 'w' && String.contains body 'a')
