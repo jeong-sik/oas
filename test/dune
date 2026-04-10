@@ -51,6 +51,10 @@
  (libraries agent_sdk alcotest yojson))
 
 (test
+ (name test_tool_schema_gen)
+ (libraries agent_sdk alcotest yojson))
+
+(test
  (name test_context_properties)
  (libraries agent_sdk alcotest yojson qcheck-core qcheck-alcotest))
 
