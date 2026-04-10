@@ -106,7 +106,8 @@ val create_message_named :
   ?temperature:float ->
   ?max_tokens:int ->
   ?system_prompt:string ->
-  ?accept:response_accept ->
+  ?accept:(Types.api_response -> bool) ->
+  ?accept_reason:response_accept ->
   ?accept_on_exhaustion:bool ->
   ?timeout_sec:int ->
   ?metrics:Llm_provider.Metrics.t ->

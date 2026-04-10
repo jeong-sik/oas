@@ -37,6 +37,26 @@ let%test "of_tool_choice requires tools for Any" =
   | Require_tool_use -> true
   | Allow_text_or_tool -> false
 
+let%test "of_tool_choice allows text for None and Auto and explicit none" =
+  of_tool_choice None = Allow_text_or_tool
+  && of_tool_choice (Some Auto) = Allow_text_or_tool
+  && of_tool_choice (Some None_) = Allow_text_or_tool
+
+let%test "of_tool_choice requires tools for explicit Tool" =
+  of_tool_choice (Some (Tool "calculator")) = Require_tool_use
+
+let%test "validate_response allows text for Allow_text_or_tool" =
+  validate_response
+    ~contract:Allow_text_or_tool
+    { id = "r";
+      model = "m";
+      stop_reason = EndTurn;
+      content = [ Text "hello" ];
+      usage = None;
+      telemetry = None;
+    }
+  = Ok ()
+
 let%test "validate_response accepts ToolUse for Require_tool_use" =
   validate_response
     ~contract:Require_tool_use

@@ -192,7 +192,7 @@ let stage_route ~sw ?clock ~api_strategy agent prep =
             ~named_cascade:named ~config:agent.state
             ~messages:prep.Agent_turn.effective_messages
             ?tools:prep.tools_json ~metrics:named.metrics
-            ~accept ~accept_on_exhaustion ?priority ()
+            ~accept_reason:accept ~accept_on_exhaustion ?priority ()
         | None ->
           (match agent.options.cascade with
            | Some casc ->

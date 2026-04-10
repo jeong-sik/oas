@@ -267,7 +267,8 @@ val complete_named :
   ?max_tokens:int ->
   ?system_prompt:string ->
   ?tool_choice:Types.tool_choice ->
-  ?accept:(Types.api_response -> (unit, string) result) ->
+  ?accept:(Types.api_response -> bool) ->
+  ?accept_reason:(Types.api_response -> (unit, string) result) ->
   ?strict_name:bool ->
   ?accept_on_exhaustion:bool ->
   ?timeout_sec:int ->

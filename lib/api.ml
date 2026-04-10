@@ -190,7 +190,8 @@ let create_message_cascade ~sw ~net ?clock ?retry_config
 let create_message_named ~sw ~net ?clock ~(named_cascade : named_cascade)
     ~config ~messages ?tools ?(temperature = 0.3)
     ?(max_tokens = config.config.max_tokens)
-    ?system_prompt ?(accept = fun _ -> Ok ()) ?(accept_on_exhaustion = false)
+    ?system_prompt ?(accept = fun _ -> true) ?accept_reason
+    ?(accept_on_exhaustion = false)
     ?timeout_sec ?metrics ?priority () =
   let system_prompt =
     match system_prompt with
@@ -205,12 +206,21 @@ let create_message_named ~sw ~net ?clock ~(named_cascade : named_cascade)
     | Some m -> m
     | None -> named_cascade.metrics
   in
+  let accept =
+    match accept_reason with
+    | Some validator -> validator
+    | None ->
+      fun response ->
+        if accept response
+        then Ok ()
+        else Error "response rejected by accept validator"
+  in
   match
     Llm_provider.Cascade_config.complete_named ~sw ~net ?clock
       ?config_path:named_cascade.config_path ~name:named_cascade.name
       ~defaults:named_cascade.defaults ~messages ?tools ~temperature
       ~max_tokens ?system_prompt ?tool_choice:config.config.tool_choice
-      ~accept ~accept_on_exhaustion ?timeout_sec ~metrics ?priority
+      ~accept_reason:accept ~accept_on_exhaustion ?timeout_sec ~metrics ?priority
       ?provider_filter:named_cascade.provider_filter ()
   with
   | Ok response -> Ok response

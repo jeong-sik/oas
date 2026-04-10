@@ -452,10 +452,10 @@ let test_complete_named_reject () =
       Printf.sprintf "custom:r@%s" url
     ] in
     (* Reject all responses *)
-    let accept _resp = Error "intentional reject from test validator" in
+    let accept_reason _resp = Error "intentional reject from test validator" in
     (match Cascade_config.complete_named ~sw ~net:env#net ~clock
              ~name:"reject" ~defaults
-             ~messages ~accept () with
+             ~messages ~accept_reason () with
      | Ok _ -> fail "expected rejection"
      | Error (Http_client.NetworkError { message }) ->
        check bool "reason preserved" true
@@ -463,6 +463,30 @@ let test_complete_named_reject () =
        check bool "validator reason preserved" true
          (contains_substring
             ~needle:"intentional reject from test validator"
+            message);
+       Eio.Switch.fail sw Exit
+     | Error _ -> fail "expected NetworkError")
+  with Exit -> ()
+
+let test_complete_named_reject_legacy_bool_accept () =
+  Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  try
+    Eio.Switch.run @@ fun sw ->
+    let url = start_mock_server ~sw ~net:env#net
+        (openai_response "rejected") in
+    let defaults = [
+      Printf.sprintf "custom:r@%s" url
+    ] in
+    let accept _resp = false in
+    (match Cascade_config.complete_named ~sw ~net:env#net ~clock
+             ~name:"reject-legacy" ~defaults
+             ~messages ~accept () with
+     | Ok _ -> fail "expected rejection"
+     | Error (Http_client.NetworkError { message }) ->
+       check bool "generic legacy reason" true
+         (contains_substring
+            ~needle:"response rejected by accept validator"
             message);
        Eio.Switch.fail sw Exit
      | Error _ -> fail "expected NetworkError")
@@ -558,6 +582,8 @@ let () =
       test_case "no providers" `Quick test_complete_named_no_providers;
       test_case "timeout" `Quick test_complete_named_timeout;
       test_case "reject" `Quick test_complete_named_reject;
+      test_case "reject legacy bool accept" `Quick
+        test_complete_named_reject_legacy_bool_accept;
       test_case "from config" `Quick test_complete_named_from_config;
       test_case "stream" `Quick test_complete_named_stream_ok;
     ];
