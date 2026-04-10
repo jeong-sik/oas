@@ -56,7 +56,7 @@ type tool_param = {
 [@@deriving yojson, show]
 
 let params_to_input_schema (params : tool_param list) : Yojson.Safe.t =
-  let properties = List.rev_map (fun (p : tool_param) ->
+  let properties = List.map (fun (p : tool_param) ->
     (p.name, `Assoc [
       ("type", `String (param_type_to_string p.param_type));
       ("description", `String p.description);
@@ -67,7 +67,7 @@ let params_to_input_schema (params : tool_param list) : Yojson.Safe.t =
   ) params in
   `Assoc [
     ("type", `String "object");
-    ("properties", `Assoc (List.rev properties));
+    ("properties", `Assoc properties);
     ("required", `List required);
   ]
 
