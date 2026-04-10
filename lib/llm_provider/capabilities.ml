@@ -291,7 +291,7 @@ let for_model_id model_id =
            supports_structured_output = true;
            supports_response_format_json = true;
            supports_native_streaming = true }
-  (* GLM 5-turbo: tool-calling optimized, fast, no extended thinking *)
+  (* GLM 5-turbo: tool-calling optimized, fast, reasoning but no extended thinking *)
   else if starts_with "glm-5-turbo" then
     Some { default_capabilities with
            max_context_tokens = Some 128_000;
@@ -370,4 +370,43 @@ let%test "for_model_id glm-4-flash basic" =
 let%test "for_model_id glm-5 advanced" =
   match for_model_id "glm-5" with
   | Some c -> c.supports_reasoning && c.supports_image_input
+  | None -> false
+
+let%test "for_model_id glm-4.7-flashx is flash (no reasoning, 16K output)" =
+  match for_model_id "glm-4.7-flashx" with
+  | Some c ->
+    not c.supports_reasoning
+    && c.max_output_tokens = Some 16_384
+    && c.supports_tools
+  | None -> false
+
+let%test "for_model_id glm-4.7-flash is flash (not broad glm-4.7)" =
+  match for_model_id "glm-4.7-flash" with
+  | Some c ->
+    not c.supports_reasoning
+    && c.max_output_tokens = Some 16_384
+  | None -> false
+
+let%test "for_model_id glm-4.5-flash is flash (not broad glm-4.5)" =
+  match for_model_id "glm-4.5-flash" with
+  | Some c ->
+    not c.supports_reasoning
+    && c.max_output_tokens = Some 16_384
+    && c.supports_tools
+  | None -> false
+
+let%test "for_model_id glm-5-turbo has reasoning but not extended thinking" =
+  match for_model_id "glm-5-turbo" with
+  | Some c ->
+    c.supports_reasoning
+    && not c.supports_extended_thinking
+    && c.max_output_tokens = Some 16_384
+  | None -> false
+
+let%test "for_model_id glm-5.1 full model (reasoning + extended thinking)" =
+  match for_model_id "glm-5.1" with
+  | Some c ->
+    c.supports_reasoning
+    && c.supports_extended_thinking
+    && c.max_output_tokens = Some 128_000
   | None -> false
