@@ -8,10 +8,15 @@
 
 let config_cache : (string, float * Yojson.Safe.t) Hashtbl.t =
   Hashtbl.create 4
-let config_cache_mu = Eio.Mutex.create ()
+
+(** Stdlib Mutex — no Eio dependency.  The critical section performs
+    only blocking I/O (Unix.stat, file read, JSON parse) with no fiber
+    yields, so a standard mutex is correct and works outside Eio context. *)
+let config_cache_mu = Mutex.create ()
 
 let load_json path =
-  Eio.Mutex.use_rw ~protect:true config_cache_mu (fun () ->
+  Mutex.lock config_cache_mu;
+  Fun.protect ~finally:(fun () -> Mutex.unlock config_cache_mu) (fun () ->
     try
       let st = Unix.stat path in
       let mtime = st.Unix.st_mtime in

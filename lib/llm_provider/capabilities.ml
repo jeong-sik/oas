@@ -279,6 +279,30 @@ let for_model_id model_id =
            supports_structured_output = true;
            supports_native_streaming = true;
            supports_caching = true }
+  (* GLM flash/air variants: faster, no reasoning, smaller output.
+     Must precede the broad glm-4.5/4.6/4.7/5 match below. *)
+  else if starts_with "glm-4.7-flash" || starts_with "glm-4.5-flash"
+          || starts_with "glm-4.5-air" then
+    Some { default_capabilities with
+           max_context_tokens = Some 128_000;
+           max_output_tokens = Some 16_384;
+           supports_tools = true;
+           supports_tool_choice = true;
+           supports_structured_output = true;
+           supports_response_format_json = true;
+           supports_native_streaming = true }
+  (* GLM 5-turbo: tool-calling optimized, fast, no extended thinking *)
+  else if starts_with "glm-5-turbo" then
+    Some { default_capabilities with
+           max_context_tokens = Some 128_000;
+           max_output_tokens = Some 16_384;
+           supports_tools = true;
+           supports_tool_choice = true;
+           supports_reasoning = true;
+           supports_structured_output = true;
+           supports_response_format_json = true;
+           supports_native_streaming = true }
+  (* GLM full models: reasoning, large context/output *)
   else if starts_with "glm-4.5" || starts_with "glm-4.6" || starts_with "glm-4.7"
           || starts_with "glm-5" then
     Some { default_capabilities with
