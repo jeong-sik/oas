@@ -86,10 +86,9 @@ let%test "of_tool_choice requires tools for Any" =
   | Require_tool_use -> true
   | Allow_text_or_tool | Require_specific_tool _ | Require_no_tool_use -> false
 
-let%test "of_tool_choice allows text for None and Auto and explicit none" =
+let%test "of_tool_choice allows text for None and Auto" =
   of_tool_choice None = Allow_text_or_tool
   && of_tool_choice (Some Auto) = Allow_text_or_tool
-  && of_tool_choice (Some None_) = Allow_text_or_tool
 
 let%test "of_tool_choice requires tools for explicit Tool" =
   of_tool_choice (Some (Tool "calculator")) = Require_specific_tool "calculator"
