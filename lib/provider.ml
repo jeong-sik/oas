@@ -90,9 +90,11 @@ let task_of_model_id model_id =
   else if has "tts" || has "text-to-speech" || has "voice" then
     Some "speech"
   else if has "imagegen" || has "image-gen" || has "gpt-image" || has "cogview"
+          || has "glm-image"
           || has "seedream" || has "flux" then
     Some "image_generation"
-  else if has "video-gen" || has "veo" || has "kling" || has "sora" || has "wan" then
+  else if has "video-gen" || has "veo" || has "kling" || has "sora" || has "wan"
+          || has "cogvideox" || has "vidu" then
     Some "video_generation"
   else
     None
@@ -153,8 +155,11 @@ let capabilities_for_model ~(provider : provider) ~(model_id : string) =
        | Some caps -> caps
        | None -> openai_chat_capabilities)
   | OpenAICompat _ ->
-      if needs_extended_capabilities model_id then openai_chat_extended_capabilities
-      else openai_chat_capabilities
+      (match Llm_provider.Capabilities.for_model_id model_id with
+       | Some caps -> caps
+       | None ->
+           if needs_extended_capabilities model_id then openai_chat_extended_capabilities
+           else openai_chat_capabilities)
   | Custom_registered { name } ->
       (match find_provider name with
        | Some impl -> impl.capabilities

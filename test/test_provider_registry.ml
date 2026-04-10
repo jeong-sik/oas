@@ -163,10 +163,10 @@ let test_find_capable_composite () =
 
 (* ── Default registry ───────────────────────────────── *)
 
-let test_default_has_6 () =
+let test_default_has_8 () =
   let reg = Provider_registry.default () in
   let all = Provider_registry.all reg in
-  check int "7 known providers" 7 (List.length all);
+  check int "8 known providers" 8 (List.length all);
   check bool "llama exists" true
     (Option.is_some (Provider_registry.find reg "llama"));
   check bool "ollama exists" true
@@ -177,6 +177,8 @@ let test_default_has_6 () =
     (Option.is_some (Provider_registry.find reg "gemini"));
   check bool "glm exists" true
     (Option.is_some (Provider_registry.find reg "glm"));
+  check bool "glm-coding exists" true
+    (Option.is_some (Provider_registry.find reg "glm-coding"));
   check bool "openrouter exists" true
     (Option.is_some (Provider_registry.find reg "openrouter"));
   check bool "cc exists" true
@@ -275,7 +277,7 @@ let () =
       test_case "requires_any" `Quick test_requires_any;
     ];
     "default", [
-      test_case "has 7 providers" `Quick test_default_has_6;
+      test_case "has 8 providers" `Quick test_default_has_8;
       test_case "correct capabilities" `Quick test_default_capabilities;
       test_case "max_context values" `Quick test_default_max_context;
     ];

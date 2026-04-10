@@ -24,6 +24,8 @@ type t = {
   system_prompt: string option;
   enable_thinking: bool option;
   thinking_budget: int option;
+  clear_thinking: bool option;
+  tool_stream: bool;
   tool_choice: Types.tool_choice option;
   disable_parallel_tool_use: bool;
   response_format_json: bool;
@@ -35,6 +37,7 @@ let make ~kind ~model_id ~base_url
     ?request_path ?(max_tokens=4096)
     ?temperature ?top_p ?top_k ?min_p
     ?system_prompt ?enable_thinking ?thinking_budget
+    ?clear_thinking ?(tool_stream=false)
     ?tool_choice ?(disable_parallel_tool_use=false)
     ?(response_format_json=false)
     ?(cache_system_prompt=false) () =
@@ -50,7 +53,8 @@ let make ~kind ~model_id ~base_url
   in
   { kind; model_id; base_url; api_key; headers; request_path;
     max_tokens; temperature; top_p; top_k; min_p;
-    system_prompt; enable_thinking; thinking_budget;
+    system_prompt; enable_thinking; thinking_budget; clear_thinking;
+    tool_stream;
     tool_choice; disable_parallel_tool_use; response_format_json;
     cache_system_prompt }
 

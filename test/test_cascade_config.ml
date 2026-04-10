@@ -198,6 +198,16 @@ let test_expand_glm_auto_dedupes_explicit_fallbacks () =
     ["glm:auto"; "glm:turbo"; "glm:flash"; "glm:glm-4.5"]
     result
 
+let test_expand_glm_coding_auto_for_execution () =
+  let result =
+    Cascade_config.expand_model_strings_for_execution
+      ["glm-coding:auto"]
+  in
+  check (list string) "expanded"
+    ["glm-coding:auto"; "glm-coding:glm-5-turbo";
+     "glm-coding:glm-5.1"; "glm-coding:glm-4.5-air"]
+    result
+
 (* ── Health filtering ─────────────────────────────────── *)
 
 let test_is_local_detection () =
@@ -338,6 +348,16 @@ let test_glm_concrete_passthrough () =
       check string "concrete passthrough" "glm-4.5-air" cfg.model_id
     | None -> fail "expected Some for glm:glm-4.5-air"
 
+let test_glm_coding_auto_resolved () =
+  match Sys.getenv_opt "ZAI_API_KEY" with
+  | None -> ()
+  | Some _ ->
+    match Cascade_config.parse_model_string "glm-coding:auto" with
+    | Some cfg ->
+      check bool "model_id not auto" true (cfg.model_id <> "auto");
+      check string "coding base" Zai_catalog.coding_base_url cfg.base_url
+    | None -> fail "expected Some for glm-coding:auto"
+
 (* ── Suite ────────────────────────────────────────────── *)
 
 let () =
@@ -359,6 +379,7 @@ let () =
       test_case "glm:turbo alias" `Quick test_glm_alias_turbo;
       test_case "glm:vision alias" `Quick test_glm_alias_vision;
       test_case "glm concrete passthrough" `Quick test_glm_concrete_passthrough;
+      test_case "glm-coding:auto resolved" `Quick test_glm_coding_auto_resolved;
     ];
     "config", [
       test_case "load profile found" `Quick test_load_profile_found;
@@ -376,6 +397,8 @@ let () =
         test_expand_glm_auto_for_execution;
       test_case "glm:auto dedupes explicit fallbacks" `Quick
         test_expand_glm_auto_dedupes_explicit_fallbacks;
+      test_case "glm-coding:auto expands" `Quick
+        test_expand_glm_coding_auto_for_execution;
     ];
     "health", [
       test_case "local detection" `Quick test_is_local_detection;

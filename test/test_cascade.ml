@@ -145,7 +145,8 @@ let mock_provider kind model_id : Llm_provider.Provider_config.t =
   { kind; model_id; base_url = ""; api_key = ""; headers = [];
     request_path = ""; max_tokens = 4096; temperature = None;
     top_p = None; top_k = None; min_p = None; system_prompt = None;
-    enable_thinking = None; thinking_budget = None; tool_choice = None;
+    enable_thinking = None; thinking_budget = None;
+    clear_thinking = None; tool_stream = false; tool_choice = None;
     disable_parallel_tool_use = false; response_format_json = false;
     cache_system_prompt = false }
 

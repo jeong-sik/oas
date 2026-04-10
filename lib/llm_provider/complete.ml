@@ -566,6 +566,7 @@ let%test "gemini_url sync no api_key" =
     system_prompt = None; temperature = None; max_tokens = 1024;
     top_p = None; top_k = None; min_p = None;
     enable_thinking = None; thinking_budget = None;
+    clear_thinking = None; tool_stream = false;
     tool_choice = None; disable_parallel_tool_use = false;
     response_format_json = false; cache_system_prompt = false;
   } in
@@ -580,6 +581,7 @@ let%test "gemini_url sync with api_key" =
     system_prompt = None; temperature = None; max_tokens = 1024;
     top_p = None; top_k = None; min_p = None;
     enable_thinking = None; thinking_budget = None;
+    clear_thinking = None; tool_stream = false;
     tool_choice = None; disable_parallel_tool_use = false;
     response_format_json = false; cache_system_prompt = false;
   } in
@@ -594,6 +596,7 @@ let%test "gemini_url stream with api_key" =
     system_prompt = None; temperature = None; max_tokens = 1024;
     top_p = None; top_k = None; min_p = None;
     enable_thinking = None; thinking_budget = None;
+    clear_thinking = None; tool_stream = false;
     tool_choice = None; disable_parallel_tool_use = false;
     response_format_json = false; cache_system_prompt = false;
   } in
@@ -608,6 +611,7 @@ let%test "gemini_url stream no api_key" =
     system_prompt = None; temperature = None; max_tokens = 1024;
     top_p = None; top_k = None; min_p = None;
     enable_thinking = None; thinking_budget = None;
+    clear_thinking = None; tool_stream = false;
     tool_choice = None; disable_parallel_tool_use = false;
     response_format_json = false; cache_system_prompt = false;
   } in

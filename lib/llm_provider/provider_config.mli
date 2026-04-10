@@ -32,6 +32,8 @@ type t = {
   system_prompt: string option;
   enable_thinking: bool option;
   thinking_budget: int option;
+  clear_thinking: bool option;
+  tool_stream: bool;
   tool_choice: Types.tool_choice option;
   disable_parallel_tool_use: bool;
   response_format_json: bool;
@@ -55,6 +57,8 @@ val make :
   ?system_prompt:string ->
   ?enable_thinking:bool ->
   ?thinking_budget:int ->
+  ?clear_thinking:bool ->
+  ?tool_stream:bool ->
   ?tool_choice:Types.tool_choice ->
   ?disable_parallel_tool_use:bool ->
   ?response_format_json:bool ->

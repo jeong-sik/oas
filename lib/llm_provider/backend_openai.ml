@@ -26,6 +26,14 @@ let parse_openai_response_result = Backend_openai_parse.parse_openai_response_re
 
 (* ── Request building ──────────────────────────────────── *)
 
+let effective_tool_choice (config : Provider_config.t) =
+  match config.kind, config.tool_choice with
+  | Provider_config.Glm, Some Auto -> Some (tool_choice_to_openai_json Auto)
+  | Provider_config.Glm, Some (Any | Tool _) -> Some (tool_choice_to_openai_json Auto)
+  | Provider_config.Glm, Some None_ -> None
+  | _, Some choice -> Some (tool_choice_to_openai_json choice)
+  | _, None -> None
+
 (** Build OpenAI Chat Completions request body from {!Provider_config.t}.
     Returns a JSON string ready for HTTP POST. *)
 let build_request ?(stream=false) ~(config : Provider_config.t)
@@ -69,12 +77,11 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
     | Some caps -> caps.supports_tool_choice
     | None -> true  (* unknown model — assume support for backward compat *)
   in
-  let body = match config.tool_choice with
-    | Some choice ->
-        if supports_tool_choice
-        then ("tool_choice", tool_choice_to_openai_json choice) :: body
-        else body  (* tool_choice set but provider does not support it *)
+  let body = match effective_tool_choice config with
+    | Some choice_json when supports_tool_choice ->
+        ("tool_choice", choice_json) :: body
     | None -> body
+    | Some _ -> body
   in
   let body = match tools with
     | [] -> body
@@ -115,6 +122,22 @@ let%test "tool_choice_to_openai_json Tool name" =
   let open Yojson.Safe.Util in
   result |> member "type" |> to_string = "function"
   && result |> member "function" |> member "name" |> to_string = "my_tool"
+
+let%test "glm coerces named tool_choice to auto" =
+  let cfg = Provider_config.make
+    ~kind:Provider_config.Glm ~model_id:"glm-5"
+    ~base_url:Zai_catalog.general_base_url
+    ~tool_choice:(Tool "calculator") () in
+  match effective_tool_choice cfg with
+  | Some (`String "auto") -> true
+  | _ -> false
+
+let%test "glm drops tool_choice none" =
+  let cfg = Provider_config.make
+    ~kind:Provider_config.Glm ~model_id:"glm-5"
+    ~base_url:Zai_catalog.general_base_url
+    ~tool_choice:None_ () in
+  effective_tool_choice cfg = None
 
 let%test "strip_json_markdown_fences plain text unchanged" =
   strip_json_markdown_fences "{\"key\":\"value\"}" = "{\"key\":\"value\"}"

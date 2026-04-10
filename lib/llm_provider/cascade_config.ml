@@ -180,6 +180,10 @@ let expand_auto_models (strs : string list) : string list =
       when String.lowercase_ascii model_id = "auto" ->
       Cascade_model_resolve.glm_auto_models ()
       |> List.map (fun m -> "glm:" ^ m)
+    | Some ("glm-coding", model_id)
+      when String.lowercase_ascii model_id = "auto" ->
+      Cascade_model_resolve.glm_coding_auto_models ()
+      |> List.map (fun m -> "glm-coding:" ^ m)
     | _ -> [ trimmed ]
   ) strs
 
@@ -296,6 +300,10 @@ let expand_model_strings_for_execution (items : string list) =
       | Some ("glm", model_id)
         when String.lowercase_ascii model_id = "auto" ->
         [item; "glm:turbo"; "glm:flash"]
+      | Some ("glm-coding", model_id)
+        when String.lowercase_ascii model_id = "auto" ->
+        [item; "glm-coding:glm-5-turbo"; "glm-coding:glm-5.1";
+         "glm-coding:glm-4.5-air"]
       | _ -> [item]
   in
   items
@@ -784,8 +792,8 @@ let%test "resolve_model_strings named takes priority over default" =
       resolve_model_strings ~config_path:tmp
         ~name:"named" ~defaults:["fallback:x"] () = ["glm:flash"]))
 
-let%test "default_registry has 7 providers" =
-  List.length (Provider_registry.all default_registry) = 7
+let%test "default_registry has 8 providers" =
+  List.length (Provider_registry.all default_registry) = 8
 
 let%test "default_registry llama is OpenAI_compat" =
   match Provider_registry.find default_registry "llama" with
