@@ -16,8 +16,6 @@ type ('input, 'output) t = {
   encode : 'output -> Yojson.Safe.t;
 }
 
-(* ── Construction ───────────────────────────────────────── *)
-
 let check_descriptor = function
   | None -> ()
   | Some d ->
@@ -35,18 +33,14 @@ let create_with_context ~name ~description ~params ~parse ~handler ~encode ?desc
   let schema : Types.tool_schema = { name; description; parameters = params } in
   { schema; descriptor; parse; handler = WithContext handler; encode }
 
-(* ── Execution ──────────────────────────────────────────── *)
-
 let run_handler : type i o. ?context:Context.t -> (i, o) handler_kind -> i -> (o, string) result =
   fun ?context handler input ->
   match handler with
   | Simple f -> f input
   | WithContext f ->
-    let ctx = match context with
-      | Some c -> c
-      | None -> Context.create ()
-    in
-    f ctx input
+    match context with
+    | Some c -> f c input
+    | None -> Error "WithContext handler requires a context argument"
 
 let execute_parsed ?context tool json =
   match tool.parse json with
@@ -68,8 +62,6 @@ let execute ?context tool json =
     | Error e ->
       Error { Types.message = e; recoverable = false }
 
-(* ── Backward compatibility ─────────────────────────────── *)
-
 let to_untyped tool =
   let untyped_handler : Tool.handler_kind =
     match tool.handler with
@@ -81,8 +73,6 @@ let to_untyped tool =
   { Tool.schema = tool.schema;
     descriptor = tool.descriptor;
     handler = untyped_handler }
-
-(* ── Introspection ──────────────────────────────────────── *)
 
 let schema tool = tool.schema
 let name tool = tool.schema.name
