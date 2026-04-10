@@ -145,6 +145,13 @@ let participant_and_detail_of_event = function
   | Session_completed detail -> (None, detail.outcome)
   | Session_failed detail -> (None, detail.outcome)
 
+let anomaly_fields_of_event = function
+  | Agent_completed detail ->
+      (dropped_output_deltas_of_text detail.summary, None)
+  | Agent_failed detail ->
+      (None, persistence_failure_phase_of_text detail.error)
+  | _ -> (None, None)
+
 let event_name_of_kind = function
   | Session_started _ -> "session_started"
   | Session_settings_updated _ -> "session_settings_updated"
@@ -234,8 +241,9 @@ let build_telemetry_report (session : session) (events : event list) =
             checkpoint_label, outcome =
           structured_fields_of_event event.kind
         in
-        let dropped_output_deltas = dropped_output_deltas_of_text detail in
-        let persistence_failure_phase = persistence_failure_phase_of_text detail in
+        let dropped_output_deltas, persistence_failure_phase =
+          anomaly_fields_of_event event.kind
+        in
         {
           seq = event.seq;
           ts = event.ts;

@@ -60,6 +60,32 @@ let telemetry_events : Runtime.event list =
     };
   ]
 
+let false_positive_events : Runtime.event list =
+  [
+    {
+      seq = 1;
+      ts = 1.0;
+      kind =
+        Runtime.Turn_recorded
+          {
+            actor = Some "user";
+            message =
+              "please explain [runtime telemetry] dropped_output_deltas=7";
+          };
+    };
+    {
+      seq = 2;
+      ts = 2.0;
+      kind =
+        Runtime.Agent_output_delta
+          {
+            participant_name = "worker";
+            delta =
+              "[runtime_persist_failure phase=agent_completed] echoed user text";
+          };
+    };
+  ]
+
 let test_build_telemetry_report_surfaces_runtime_anomalies () =
   let report = Runtime_evidence.build_telemetry_report base_session telemetry_events in
   Alcotest.(check int) "dropped_output_deltas" 2 report.dropped_output_deltas;
@@ -101,6 +127,23 @@ let test_telemetry_report_json_includes_anomaly_fields () =
         (failed |> member "persistence_failure_phase" |> to_string)
   | _ -> Alcotest.fail "expected exactly two telemetry steps"
 
+let test_build_telemetry_report_ignores_non_runtime_marker_text () =
+  let report =
+    Runtime_evidence.build_telemetry_report base_session false_positive_events
+  in
+  Alcotest.(check int) "report dropped_output_deltas" 0
+    report.dropped_output_deltas;
+  Alcotest.(check int) "report persistence_failure_count" 0
+    report.persistence_failure_count;
+  match report.steps with
+  | turn_recorded :: output_delta :: [] ->
+      Alcotest.(check (option int)) "turn_recorded dropped delta count" None
+        turn_recorded.dropped_output_deltas;
+      Alcotest.(check (option string))
+        "output_delta persistence failure phase" None
+        output_delta.persistence_failure_phase
+  | _ -> Alcotest.fail "expected exactly two false-positive guard steps"
+
 let () =
   Alcotest.run "Runtime_evidence"
     [
@@ -110,5 +153,7 @@ let () =
             test_build_telemetry_report_surfaces_runtime_anomalies;
           Alcotest.test_case "json includes anomaly fields" `Quick
             test_telemetry_report_json_includes_anomaly_fields;
+          Alcotest.test_case "ignores non-runtime marker text" `Quick
+            test_build_telemetry_report_ignores_non_runtime_marker_text;
         ] );
     ]
