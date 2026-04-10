@@ -228,6 +228,32 @@ let test_default_zai_base_urls () =
          e.defaults.base_url
    | None -> fail "glm-coding should exist")
 
+let test_blank_zai_base_urls_fall_back () =
+  let prev_general = Sys.getenv_opt "ZAI_BASE_URL" in
+  let prev_coding = Sys.getenv_opt "ZAI_CODING_BASE_URL" in
+  let restore key = function
+    | Some v -> Unix.putenv key v
+    | None -> Unix.putenv key ""
+  in
+  Fun.protect
+    ~finally:(fun () ->
+      restore "ZAI_BASE_URL" prev_general;
+      restore "ZAI_CODING_BASE_URL" prev_coding)
+    (fun () ->
+      Unix.putenv "ZAI_BASE_URL" "   ";
+      Unix.putenv "ZAI_CODING_BASE_URL" "\t";
+      let reg = Provider_registry.default () in
+      (match Provider_registry.find reg "glm" with
+       | Some e ->
+           check string "glm blank fallback" Zai_catalog.general_base_url
+             e.defaults.base_url
+       | None -> fail "glm should exist");
+      (match Provider_registry.find reg "glm-coding" with
+       | Some e ->
+           check string "glm-coding blank fallback" Zai_catalog.coding_base_url
+             e.defaults.base_url
+       | None -> fail "glm-coding should exist"))
+
 (* ── Types usage helpers ───────────────────────────── *)
 
 let test_zero_api_usage () =
@@ -294,6 +320,7 @@ let () =
       test_case "correct capabilities" `Quick test_default_capabilities;
       test_case "max_context values" `Quick test_default_max_context;
       test_case "zai base urls" `Quick test_default_zai_base_urls;
+      test_case "blank zai base urls fall back" `Quick test_blank_zai_base_urls_fall_back;
     ];
     "types_usage", [
       test_case "zero_api_usage" `Quick test_zero_api_usage;

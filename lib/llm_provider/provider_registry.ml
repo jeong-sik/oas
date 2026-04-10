@@ -183,8 +183,8 @@ let glm_defaults = {
   kind = Glm;
   base_url =
     (match Sys.getenv_opt "ZAI_BASE_URL" with
-     | Some url -> url
-     | None -> Zai_catalog.general_base_url);
+     | Some url when String.trim url <> "" -> String.trim url
+     | _ -> Zai_catalog.general_base_url);
   api_key_env = "ZAI_API_KEY";
   request_path = "/chat/completions";
 }
@@ -193,8 +193,8 @@ let glm_coding_defaults = {
   kind = Glm;
   base_url =
     (match Sys.getenv_opt "ZAI_CODING_BASE_URL" with
-     | Some url -> url
-     | None -> Zai_catalog.coding_base_url);
+     | Some url when String.trim url <> "" -> String.trim url
+     | _ -> Zai_catalog.coding_base_url);
   api_key_env = "ZAI_API_KEY";
   request_path = "/chat/completions";
 }

@@ -50,8 +50,6 @@ type audio_source =
 
 let max_multipart_file_size = 25 * 1024 * 1024
 
-let multipart_random = Random.State.make_self_init ()
-
 let auth_headers ?api_key content_type =
   let api_key =
     match api_key with
@@ -252,6 +250,7 @@ let read_file path =
     Error (Http_client.HttpError { code = 400; body = "File error: " ^ msg })
 
 let generate_multipart_boundary () =
+  let multipart_random = Random.State.make_self_init () in
   Printf.sprintf "----oas-zai-boundary-%08x%08x%08x"
     (Random.State.bits multipart_random)
     (Random.State.bits multipart_random)
