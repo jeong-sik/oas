@@ -96,6 +96,8 @@ let test_post_stream_invalid_url_returns_network_error () =
   | Error (Http_client.NetworkError { message }) ->
       Alcotest.(check bool) "mentions missing host" true
         (Util.contains_substring_ci ~haystack:message ~needle:"missing host")
+  | Error (Http_client.AcceptRejected _) ->
+      Alcotest.fail "expected invalid URL to fail before headers are accepted"
   | Error (Http_client.HttpError _) ->
       Alcotest.fail "expected network error for invalid URL"
   | Ok _ ->

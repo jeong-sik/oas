@@ -235,6 +235,7 @@ let probe_ollama_context ~sw ~net base_url =
             | Http_client.HttpError { code; body } ->
                 Printf.sprintf "HTTP %d: %s" code body
             | Http_client.NetworkError { message } -> message
+            | Http_client.AcceptRejected { reason } -> reason
           in
           warn_probe_failure ~url:base_url ~phase:"ollama_show_http" detail;
           None
