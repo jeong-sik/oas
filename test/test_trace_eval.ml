@@ -5,7 +5,6 @@ let default_attrs ?(name = "test") ?(agent = "agent") ?(turn = 1)
   { kind; name; agent_name = agent; turn; extra = [] }
 
 let with_reset f =
-  Eio_main.run @@ fun _env ->
   Otel_tracer.reset ();
   Fun.protect ~finally:(fun () -> Otel_tracer.reset ()) f
 
