@@ -18,6 +18,21 @@ let openai_response text =
     {|{"id":"chatcmpl-1","object":"chat.completion","model":"gpt-4","choices":[{"index":0,"message":{"role":"assistant","content":"%s"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5}}|}
     text
 
+let contains_substring ~needle haystack =
+  let needle_len = String.length needle in
+  let haystack_len = String.length haystack in
+  let rec loop idx =
+    if needle_len = 0 then
+      true
+    else if idx + needle_len > haystack_len then
+      false
+    else if String.sub haystack idx needle_len = needle then
+      true
+    else
+      loop (idx + 1)
+  in
+  loop 0
+
 let fresh_port () =
   let s = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
   Unix.setsockopt s Unix.SO_REUSEADDR true;
@@ -437,13 +452,54 @@ let test_complete_named_reject () =
       Printf.sprintf "custom:r@%s" url
     ] in
     (* Reject all responses *)
-    let accept _resp = false in
+    let accept_reason _resp = Error "intentional reject from test validator" in
     (match Cascade_config.complete_named ~sw ~net:env#net ~clock
              ~name:"reject" ~defaults
+             ~messages ~accept_reason () with
+     | Ok _ -> fail "expected rejection"
+     | Error (Http_client.NetworkError { message }) ->
+       check bool "reason preserved" true
+         (message = "intentional reject from test validator");
+       check bool "validator reason preserved" true
+         (contains_substring
+            ~needle:"intentional reject from test validator"
+            message);
+       Eio.Switch.fail sw Exit
+     | Error (Http_client.AcceptRejected { reason }) ->
+       check string "reject reason" "intentional reject from test validator"
+         reason;
+       Eio.Switch.fail sw Exit
+     | Error _ -> fail "expected NetworkError")
+  with Exit -> ()
+
+let test_complete_named_reject_legacy_bool_accept () =
+  Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  try
+    Eio.Switch.run @@ fun sw ->
+    let url = start_mock_server ~sw ~net:env#net
+        (openai_response "rejected") in
+    let defaults = [
+      Printf.sprintf "custom:r@%s" url
+    ] in
+    let accept _resp = false in
+    (match Cascade_config.complete_named ~sw ~net:env#net ~clock
+             ~name:"reject-legacy" ~defaults
              ~messages ~accept () with
      | Ok _ -> fail "expected rejection"
-     | Error _ ->
-       Eio.Switch.fail sw Exit)
+     | Error (Http_client.NetworkError { message }) ->
+       check bool "generic legacy reason" true
+         (contains_substring
+            ~needle:"response rejected by accept validator"
+            message);
+       Eio.Switch.fail sw Exit
+     | Error (Http_client.AcceptRejected { reason }) ->
+       check bool "legacy reject reason preserved" true
+         (contains_substring
+            ~needle:"response rejected by accept validator"
+            reason);
+       Eio.Switch.fail sw Exit
+     | Error _ -> fail "expected NetworkError")
   with Exit -> ()
 
 (* ── cascade_config.complete_named: config file ──────── *)
@@ -536,6 +592,8 @@ let () =
       test_case "no providers" `Quick test_complete_named_no_providers;
       test_case "timeout" `Quick test_complete_named_timeout;
       test_case "reject" `Quick test_complete_named_reject;
+      test_case "reject legacy bool accept" `Quick
+        test_complete_named_reject_legacy_bool_accept;
       test_case "from config" `Quick test_complete_named_from_config;
       test_case "stream" `Quick test_complete_named_stream_ok;
     ];

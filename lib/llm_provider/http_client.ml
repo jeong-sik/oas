@@ -15,6 +15,7 @@
 type http_error =
   | HttpError of { code: int; body: string }
   | NetworkError of { message: string }
+  | AcceptRejected of { reason: string }
 
 (* ── Internal helpers ──────────────────────────────────────── *)
 
@@ -54,6 +55,7 @@ let is_local_resource_exhaustion = function
     || has_substr m "eaddrnotavail"
     || has_substr m "emfile"
     || has_substr m "enfile"
+  | AcceptRejected _ -> false
   | HttpError _ -> false
 
 (* ── Public API ────────────────────────────────────────────── *)

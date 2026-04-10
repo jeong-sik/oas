@@ -19,6 +19,7 @@ let should_cascade_to_next err =
     true
   | Http_client.HttpError { code; _ } ->
     List.mem code Constants.Http.cascadable_codes
+  | Http_client.AcceptRejected _ -> false
   | Http_client.NetworkError _ -> true
 
 (* ── Local provider detection ──────────────────────────── *)

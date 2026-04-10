@@ -20,6 +20,8 @@ let http_get ~sw ~net url =
   | Error (Llm_provider.Http_client.HttpError { code; body }) ->
     Error (Error.Orchestration
       (DiscoveryFailed { url; detail = Printf.sprintf "HTTP %d: %s" code body }))
+  | Error (Llm_provider.Http_client.AcceptRejected { reason }) ->
+    Error (Error.Orchestration (DiscoveryFailed { url; detail = reason }))
   | Error (Llm_provider.Http_client.NetworkError { message }) ->
     Error (Error.Orchestration (DiscoveryFailed { url; detail = message }))
 
@@ -33,6 +35,8 @@ let http_post ~sw ~net ~url ~body =
   | Error (Llm_provider.Http_client.HttpError { code; body = err_body }) ->
     Error (Error.A2a (ProtocolError {
       detail = Printf.sprintf "HTTP %d: %s" code err_body }))
+  | Error (Llm_provider.Http_client.AcceptRejected { reason }) ->
+    Error (Error.A2a (ProtocolError { detail = reason }))
   | Error (Llm_provider.Http_client.NetworkError { message }) ->
     Error (Error.A2a (ProtocolError { detail = message }))
 

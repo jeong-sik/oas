@@ -11,6 +11,7 @@
 type http_error =
   | HttpError of { code: int; body: string }
   | NetworkError of { message: string }
+  | AcceptRejected of { reason: string }
 
 (** GET a URL synchronously, returning the full response.
     Returns [(status_code, body_string)] on success. *)

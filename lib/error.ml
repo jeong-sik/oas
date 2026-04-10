@@ -20,6 +20,7 @@ type agent_error =
   | UnrecognizedStopReason of { reason: string }
   | IdleDetected of { consecutive_idle_turns: int }
   | ToolRetryExhausted of { attempts: int; limit: int; detail: string }
+  | CompletionContractViolation of { contract: string; reason: string }
   | GuardrailViolation of { validator: string; reason: string }
   | TripwireViolation of { tripwire: string; reason: string }
   | ExitConditionMet of { turn: int }
@@ -91,6 +92,9 @@ let agent_error_to_string = function
   | ToolRetryExhausted r ->
     Printf.sprintf "Tool retry budget exhausted after %d/%d retries: %s"
       r.attempts r.limit r.detail
+  | CompletionContractViolation r ->
+    Printf.sprintf "Completion contract [%s] violated: %s"
+      r.contract r.reason
   | GuardrailViolation r ->
     Printf.sprintf "Guardrail violation [%s]: %s" r.validator r.reason
   | TripwireViolation r ->

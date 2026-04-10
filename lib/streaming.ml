@@ -124,6 +124,8 @@ let finalize_stream_acc (acc : stream_acc) =
 let map_http_error = function
   | Llm_provider.Http_client.HttpError { code; body } ->
       Error.Api (Retry.classify_error ~status:code ~body)
+  | Llm_provider.Http_client.AcceptRejected { reason } ->
+      Error.Api (Retry.NetworkError { message = reason })
   | Llm_provider.Http_client.NetworkError { message } ->
       Error.Api (Retry.NetworkError { message })
 

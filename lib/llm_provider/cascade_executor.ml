@@ -151,25 +151,31 @@ let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
             (if String.length body > Constants.Truncation.max_error_body_length
              then String.sub body 0 Constants.Truncation.max_error_body_length ^ "..."
              else body)
+        | Some (Http_client.AcceptRejected { reason }) -> reason
         | Some (Http_client.NetworkError { message }) -> message
         | None -> "No providers available"
       in
-      Error (Http_client.NetworkError {
-          message = Printf.sprintf "All models failed: %s" msg
-        })
+      (match last_err with
+       | Some (Http_client.AcceptRejected _ as err) -> Error err
+       | _ ->
+         Error (Http_client.NetworkError {
+             message = Printf.sprintf "All models failed: %s" msg
+           }))
     | (cfg : Provider_config.t) :: rest ->
       let is_last = rest = [] in
       (match try_one ~is_last cfg with
       | Ok resp ->
-        if accept resp then begin
+        (match accept resp with
+        | Ok () -> begin
           diag "debug" "cascade_accept_passed"
             [("model_id", cfg.model_id)];
           Ok resp
         end
-        else if is_last && accept_on_exhaustion then begin
+        | Error reason when is_last && accept_on_exhaustion -> begin
           diag "info" "cascade_accept_on_exhaustion"
             [("model_id", cfg.model_id);
-             ("is_last", string_of_bool is_last)];
+             ("is_last", string_of_bool is_last);
+             ("reason", reason)];
           (* Graceful degradation: all models rejected by accept.
              Return the last valid response rather than failing.
              Based on constrained decoding fallback pattern:
@@ -181,11 +187,12 @@ let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
             ~reason:"accept relaxed: all models rejected";
           Ok resp
         end
-        else begin
+        | Error reason -> begin
           diag "warn" "cascade_accept_rejected"
             [("model_id", cfg.model_id);
              ("is_last", string_of_bool is_last);
-             ("accept_on_exhaustion", string_of_bool accept_on_exhaustion)];
+             ("accept_on_exhaustion", string_of_bool accept_on_exhaustion);
+             ("reason", reason)];
           (match last_err with
            | Some (Http_client.HttpError { code; _ }) ->
              m.on_cascade_fallback
@@ -194,17 +201,16 @@ let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
            | _ ->
              m.on_cascade_fallback
                ~from_model:cfg.model_id ~to_model:"next"
-               ~reason:"rejected by accept validator");
+               ~reason);
           try_next
-            (Some (Http_client.NetworkError {
-                 message = "response rejected by accept validator"
-               }))
+            (Some (Http_client.AcceptRejected { reason }))
             rest
-        end
+        end)
       | Error err ->
         let err_str = match err with
           | Http_client.HttpError { code; _ } ->
             Printf.sprintf "HTTP %d" code
+          | Http_client.AcceptRejected { reason } -> reason
           | Http_client.NetworkError { message } -> message
         in
         let should_cascade = Cascade_health_filter.should_cascade_to_next err in
@@ -260,6 +266,7 @@ let complete_cascade_stream ~sw ~net ?(metrics : Metrics.t option)
             (if String.length body > Constants.Truncation.max_error_body_length
              then String.sub body 0 Constants.Truncation.max_error_body_length ^ "..."
              else body)
+        | Some (Http_client.AcceptRejected { reason }) -> reason
         | Some (Http_client.NetworkError { message }) -> message
         | None -> "No providers available"
       in
@@ -273,6 +280,7 @@ let complete_cascade_stream ~sw ~net ?(metrics : Metrics.t option)
         let err_str = match err with
           | Http_client.HttpError { code; _ } ->
             Printf.sprintf "HTTP %d" code
+          | Http_client.AcceptRejected { reason } -> reason
           | Http_client.NetworkError { message } -> message
         in
         (match rest with

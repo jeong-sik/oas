@@ -331,9 +331,19 @@ let complete_named ~sw ~net ?clock ?config_path
     ?(tools = [])
     ?(temperature = Constants.Inference.default_temperature)
     ?(max_tokens = Constants.Inference.default_max_tokens)
-    ?system_prompt ?tool_choice ?(accept = fun _ -> true) ?(strict_name = false)
+    ?system_prompt ?tool_choice ?(accept = fun _ -> true) ?accept_reason
+    ?(strict_name = false)
     ?(accept_on_exhaustion = false)
     ?timeout_sec ?cache ?metrics ?throttle ?priority ?provider_filter () =
+  let accept_result =
+    match accept_reason with
+    | Some validator -> validator
+    | None ->
+      fun response ->
+        if accept response
+        then Ok ()
+        else Error "response rejected by accept validator"
+  in
   let model_strings, source =
     resolve_model_strings_traced ?config_path ~name ~defaults ()
   in
@@ -391,7 +401,7 @@ let complete_named ~sw ~net ?clock ?config_path
     else
       let run () =
         complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
-          ?throttle ?priority ~accept ~accept_on_exhaustion
+          ?throttle ?priority ~accept:accept_result ~accept_on_exhaustion
           healthy_providers ~messages ~tools
       in
       match clock, timeout_sec with

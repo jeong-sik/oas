@@ -13,6 +13,8 @@ type named_cascade = {
   provider_filter : string list option;
 }
 
+type response_accept = Types.api_response -> (unit, string) result
+
 val named_cascade :
   ?config_path:string -> ?metrics:Llm_provider.Metrics.t ->
   ?provider_filter:string list ->
@@ -105,6 +107,7 @@ val create_message_named :
   ?max_tokens:int ->
   ?system_prompt:string ->
   ?accept:(Types.api_response -> bool) ->
+  ?accept_reason:response_accept ->
   ?accept_on_exhaustion:bool ->
   ?timeout_sec:int ->
   ?metrics:Llm_provider.Metrics.t ->

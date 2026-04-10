@@ -23,6 +23,18 @@ type turn_outcome =
   | ToolsExecuted
   | IdleSkipped
 
+let validate_completion_contract agent (response : Types.api_response) =
+  let contract =
+    Completion_contract.of_tool_choice agent.state.config.tool_choice
+  in
+  match Completion_contract.validate_response ~contract response with
+  | Ok () -> Ok ()
+  | Error reason ->
+    Error
+      (Error.Agent
+         (CompletionContractViolation
+            { contract = Completion_contract.to_string contract; reason }))
+
 (* ── Stage 1: Input ──────────────────────────────────────── *)
 
 (** Set lifecycle to Ready, invoke BeforeTurn hook, handle elicitation. *)
@@ -159,17 +171,20 @@ let stage_route ~sw ?clock ~api_strategy agent prep =
         agent_name = agent.state.config.name;
         turn = agent.state.turn_count; extra = [] }
       (fun _tracer ->
-        (* When tool_choice=Any (required), reject text-only responses so
-           the cascade falls back to the next provider.  This prevents weak
-           models (e.g. 9B) from "succeeding" with text_response when tools
-           were mandatory, starving the fallback provider of a chance. *)
-        let accept, accept_on_exhaustion =
-          match agent.state.config.tool_choice with
-          | Some (Types.Any | Types.Tool _) ->
-            (fun (resp : Types.api_response) ->
-              List.exists (function Types.ToolUse _ -> true | _ -> false) resp.content),
-            true  (* accept text on exhaustion rather than hard-fail *)
-          | _ -> (fun _ -> true), false
+        (* Enforce the semantic contract of tool_choice at the cascade layer.
+           When tool_choice requires tools, text-only responses are rejected
+           so the next provider gets a chance. If every provider violates the
+           contract, the turn fails with the last rejection reason instead of
+           being silently relaxed. *)
+        let completion_contract =
+          Completion_contract.of_tool_choice agent.state.config.tool_choice
+        in
+        let accept =
+          Completion_contract.validator ~contract:completion_contract
+        in
+        let accept_on_exhaustion =
+          Completion_contract.accept_on_exhaustion
+            ~contract:completion_contract
         in
         match agent.named_cascade with
         | Some named ->
@@ -177,7 +192,7 @@ let stage_route ~sw ?clock ~api_strategy agent prep =
             ~named_cascade:named ~config:agent.state
             ~messages:prep.Agent_turn.effective_messages
             ?tools:prep.tools_json ~metrics:named.metrics
-            ~accept ~accept_on_exhaustion ?priority ()
+            ~accept_reason:accept ~accept_on_exhaustion ?priority ()
         | None ->
           (match agent.options.cascade with
            | Some casc ->
@@ -677,6 +692,10 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
     update_state agent (fun s -> { s with config = original_config });
     Error e
   | Ok response ->
+    let* () =
+      validate_completion_contract agent response
+      |> tag_error "route_contract"
+    in
     (* Stage 3.5: Async output validation *)
     (match Guardrails_async.run_output async_guard.output_validators response with
      | Guardrails_async.Fail { validator_name; reason } ->

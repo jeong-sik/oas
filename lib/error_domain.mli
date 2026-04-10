@@ -47,6 +47,7 @@ type agent_error = [
   | `Cost_budget_exceeded
   | `Idle_detected of int  (** consecutive_idle_turns *)
   | `Tool_retry_exhausted of int * int * string  (** attempts, limit, detail *)
+  | `Completion_contract_violation of string * string  (** contract, reason *)
   | `Guardrail_violation of string * string  (** validator, reason *)
   | `Tripwire_violation of string * string  (** tripwire, reason *)
   | `Unrecognized_stop_reason of string
