@@ -23,33 +23,45 @@ let uri_host base_url =
   |> Uri.host
   |> Option.map String.lowercase_ascii
 
-let configured_zai_hosts () =
-  [ general_base_url;
-    coding_base_url;
-    anthropic_base_url;
-    Sys.getenv_opt "ZAI_BASE_URL" |> Option.value ~default:"";
-    Sys.getenv_opt "ZAI_CODING_BASE_URL" |> Option.value ~default:""; ]
-  |> List.filter_map (fun url ->
-         match String.trim url with
-         | "" -> None
-         | value -> uri_host value)
-  |> List.sort_uniq String.compare
+let configured_base_urls defaults env_var =
+  defaults
+  @
+  match env_var with
+  | Some var ->
+      (match Sys.getenv_opt var with
+       | Some value ->
+           let trimmed = String.trim value in
+           if trimmed = "" then [] else [ trimmed ]
+       | None -> [])
+  | None -> []
 
-let zai_path_prefix_matches base_url path_prefix =
+let base_url_matches_configured_base base_url configured_base_url =
   let uri = Uri.of_string base_url in
-  match Uri.host uri |> Option.map String.lowercase_ascii with
-  | Some host when List.mem host (configured_zai_hosts ()) ->
-      has_prefix (Uri.path uri) path_prefix
+  let configured_uri = Uri.of_string configured_base_url in
+  match uri_host base_url, uri_host configured_base_url with
+  | Some host, Some configured_host when host = configured_host ->
+      has_prefix (Uri.path uri) (Uri.path configured_uri)
   | _ -> false
 
+let zai_path_prefix_matches configured_base_urls base_url path_prefix =
+  let uri = Uri.of_string base_url in
+  has_prefix (Uri.path uri) path_prefix
+  && List.exists (base_url_matches_configured_base base_url) configured_base_urls
+
 let is_coding_base_url base_url =
-  zai_path_prefix_matches base_url "/api/coding/paas/"
+  zai_path_prefix_matches
+    (configured_base_urls [ coding_base_url ] (Some "ZAI_CODING_BASE_URL"))
+    base_url "/api/coding/paas/"
 
 let is_anthropic_base_url base_url =
-  zai_path_prefix_matches base_url "/api/anthropic"
+  zai_path_prefix_matches
+    (configured_base_urls [ anthropic_base_url ] None)
+    base_url "/api/anthropic"
 
 let is_zai_base_url base_url =
-  zai_path_prefix_matches base_url "/api/paas/"
+  zai_path_prefix_matches
+    (configured_base_urls [ general_base_url ] (Some "ZAI_BASE_URL"))
+    base_url "/api/paas/"
   || is_coding_base_url base_url
   || is_anthropic_base_url base_url
 

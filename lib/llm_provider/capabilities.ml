@@ -313,6 +313,17 @@ let for_model_id model_id =
            supports_multimodal_inputs = true;
            supports_image_input = true;
            supports_native_streaming = true }
+  else if starts_with "glm-4.6v" || starts_with "glm-4.5v" then
+    Some { default_capabilities with
+           max_context_tokens = Some 128_000;
+           max_output_tokens = Some 32_768;
+           supports_tools = true;
+           supports_tool_choice = true;
+           supports_reasoning = true;
+           supports_extended_thinking = true;
+           supports_multimodal_inputs = true;
+           supports_image_input = true;
+           supports_native_streaming = true }
   (* GLM full text models: reasoning, large context/output, but no vision. *)
   else if starts_with "glm-4.5" || starts_with "glm-4.6" || starts_with "glm-4.7"
           || starts_with "glm-5" then
@@ -332,29 +343,6 @@ let for_model_id model_id =
            max_output_tokens = Some 16_384;
            supports_multimodal_inputs = true;
            supports_image_input = true;
-           supports_native_streaming = true }
-  else if starts_with "glm-4.6v" || starts_with "glm-4.5v" then
-    Some { default_capabilities with
-           max_context_tokens = Some 128_000;
-           max_output_tokens = Some 32_768;
-           supports_tools = true;
-           supports_tool_choice = true;
-           supports_reasoning = true;
-           supports_extended_thinking = true;
-           supports_multimodal_inputs = true;
-           supports_image_input = true;
-           supports_native_streaming = true }
-  else if starts_with "glm-4.5" || starts_with "glm-4.6" || starts_with "glm-4.7"
-          || starts_with "glm-5" then
-    Some { default_capabilities with
-           max_context_tokens = Some 200_000;
-           max_output_tokens = Some 128_000;
-           supports_tools = true;
-           supports_tool_choice = true;
-           supports_reasoning = true;
-           supports_extended_thinking = true;
-           supports_structured_output = true;
-           supports_response_format_json = true;
            supports_native_streaming = true }
   else if starts_with "glm-4-flash" then
     Some { default_capabilities with
@@ -414,6 +402,22 @@ let%test "for_model_id glm-5 is text only" =
 let%test "for_model_id glm-5v has vision" =
   match for_model_id "glm-5v-turbo" with
   | Some c -> c.supports_reasoning && c.supports_image_input
+  | None -> false
+
+let%test "for_model_id glm-4.6v stays vision-capable" =
+  match for_model_id "glm-4.6v" with
+  | Some c ->
+      c.supports_reasoning
+      && c.supports_image_input
+      && c.max_output_tokens = Some 32_768
+  | None -> false
+
+let%test "for_model_id glm-4.5v stays vision-capable" =
+  match for_model_id "glm-4.5v" with
+  | Some c ->
+      c.supports_reasoning
+      && c.supports_image_input
+      && c.max_output_tokens = Some 32_768
   | None -> false
 
 let%test "for_model_id glm-4.7-flashx is flash (no reasoning, 16K output)" =
