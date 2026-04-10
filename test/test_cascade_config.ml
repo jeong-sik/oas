@@ -78,6 +78,21 @@ let with_temp_json content f =
     ~finally:(fun () -> try Sys.remove path with _ -> ())
     (fun () -> f path)
 
+let with_env key value f =
+  let previous = Sys.getenv_opt key in
+  let restore () =
+    match previous with
+    | Some v -> Unix.putenv key v
+    | None -> Unix.putenv key ""
+  in
+  Fun.protect
+    ~finally:restore
+    (fun () ->
+       match value with
+       | Some v -> Unix.putenv key v
+       | None -> Unix.putenv key "";
+       f ())
+
 let test_load_profile_found () =
   Eio_main.run @@ fun _env ->
   with_temp_json
@@ -354,9 +369,31 @@ let test_glm_coding_auto_resolved () =
   | Some _ ->
     match Cascade_config.parse_model_string "glm-coding:auto" with
     | Some cfg ->
+      let expected_base_url =
+        Sys.getenv_opt "ZAI_CODING_BASE_URL"
+        |> Option.value ~default:Zai_catalog.coding_base_url
+      in
       check bool "model_id not auto" true (cfg.model_id <> "auto");
-      check string "coding base" Zai_catalog.coding_base_url cfg.base_url
+      check string "coding base" expected_base_url cfg.base_url
     | None -> fail "expected Some for glm-coding:auto"
+
+let test_zai_base_url_classifiers () =
+  check bool "general endpoint" true
+    (Zai_catalog.is_zai_base_url Zai_catalog.general_base_url);
+  check bool "coding endpoint" true
+    (Zai_catalog.is_coding_base_url Zai_catalog.coding_base_url);
+  check bool "anthropic endpoint" true
+    (Zai_catalog.is_anthropic_base_url Zai_catalog.anthropic_base_url);
+  check bool "untrusted host rejected" false
+    (Zai_catalog.is_zai_base_url "https://proxy.example.com/api/paas/v4")
+
+let test_zai_base_url_respects_override_host () =
+  with_env "ZAI_CODING_BASE_URL" (Some "https://proxy.example.com/api/coding/paas/v4")
+    (fun () ->
+       check bool "override coding host accepted" true
+         (Zai_catalog.is_coding_base_url "https://proxy.example.com/api/coding/paas/v4");
+       check bool "override host still rejected for general path" false
+         (Zai_catalog.is_zai_base_url "https://proxy.example.com/api/paas/v4"))
 
 (* ── Suite ────────────────────────────────────────────── *)
 
@@ -380,6 +417,8 @@ let () =
       test_case "glm:vision alias" `Quick test_glm_alias_vision;
       test_case "glm concrete passthrough" `Quick test_glm_concrete_passthrough;
       test_case "glm-coding:auto resolved" `Quick test_glm_coding_auto_resolved;
+      test_case "zai base url classifiers" `Quick test_zai_base_url_classifiers;
+      test_case "zai override host respected" `Quick test_zai_base_url_respects_override_host;
     ];
     "config", [
       test_case "load profile found" `Quick test_load_profile_found;

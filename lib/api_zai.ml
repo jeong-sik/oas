@@ -318,9 +318,28 @@ let transcribe_audio ~sw ~net
 let%test "status_of_string parses known values" =
   status_of_string "SUCCESS" = Success
 
+let%test "auth_headers uses explicit api key when provided" =
+  let headers = auth_headers ~api_key:"secret" "application/json" in
+  List.mem ("Authorization", "Bearer secret") headers
+  && List.mem ("Content-Type", "application/json") headers
+
+let%test "parse_image_generation filters entries without urls" =
+  match parse_image_generation
+          {|{"created":42,"data":[{"url":"https://example.com/a.png"},{"x":1}]}|} with
+  | Ok result -> result.created = 42 && List.length result.data = 1
+  | Error _ -> false
+
 let%test "parse_async_submit handles basic body" =
   match parse_async_submit {|{"model":"glm-image","id":"job-1","task_status":"PROCESSING"}|} with
   | Ok result -> result.id = "job-1" && result.task_status = Processing
+  | Error _ -> false
+
+let%test "parse_async_submit keeps unknown statuses" =
+  match parse_async_submit
+          {|{"model":"glm-image","id":"job-1","task_status":"QUEUED","request_id":"req-1"}|} with
+  | Ok result ->
+      result.request_id = Some "req-1"
+      && result.task_status = Unknown "QUEUED"
   | Error _ -> false
 
 let%test "parse_media_async_result handles published schema" =
@@ -329,6 +348,15 @@ let%test "parse_media_async_result handles published schema" =
   | Ok result ->
       result.task_status = Success
       && List.length result.results = 1
+  | Error _ -> false
+
+let%test "parse_media_async_result defaults unknown status and filters bad items" =
+  match parse_media_async_result
+          {|{"model":"glm-video","task_status":"QUEUED","video_result":[{"cover_image_url":"https://example.com/c.png"},{"url":"https://example.com/a.mp4"}]}|} with
+  | Ok result ->
+      result.task_status = Unknown "QUEUED"
+      && List.length result.results = 1
+      && List.hd result.results = { url = "https://example.com/a.mp4"; cover_image_url = None }
   | Error _ -> false
 
 let%test "media_async_result_url encodes task id path segment" =
@@ -349,3 +377,14 @@ let%test "multipart_body reports missing file path" =
   match multipart_body ~model:"glm-asr-2512" ~source:(File_path "/nonexistent/file.wav") () with
   | Error _ -> true
   | Ok _ -> false
+
+let%test "multipart_body supports base64 source with optional fields" =
+  match
+    multipart_body ~model:"glm-asr-2512" ~source:(File_base64 "Zm9v")
+      ~prompt:"hello" ~language:"ko" ()
+  with
+  | Error _ -> false
+  | Ok (_boundary, body) ->
+      String.contains body 'h'
+      && String.contains body 'k'
+      && String.contains body 'Z'

@@ -13,24 +13,43 @@ let is_glm_model_id model_id =
   m = "glm"
   || (String.length m > 4 && String.sub m 0 4 = "glm-")
 
-let contains_substring haystack needle =
-  let hlen = String.length haystack in
-  let nlen = String.length needle in
-  let rec loop i =
-    if i + nlen > hlen then false
-    else if String.sub haystack i nlen = needle then true
-    else loop (i + 1)
-  in
-  nlen > 0 && loop 0
+let has_prefix value prefix =
+  let vlen = String.length value in
+  let plen = String.length prefix in
+  plen <= vlen && String.sub value 0 plen = prefix
+
+let uri_host base_url =
+  Uri.of_string base_url
+  |> Uri.host
+  |> Option.map String.lowercase_ascii
+
+let configured_zai_hosts () =
+  [ general_base_url;
+    coding_base_url;
+    anthropic_base_url;
+    Sys.getenv_opt "ZAI_BASE_URL" |> Option.value ~default:"";
+    Sys.getenv_opt "ZAI_CODING_BASE_URL" |> Option.value ~default:""; ]
+  |> List.filter_map (fun url ->
+         match String.trim url with
+         | "" -> None
+         | value -> uri_host value)
+  |> List.sort_uniq String.compare
+
+let zai_path_prefix_matches base_url path_prefix =
+  let uri = Uri.of_string base_url in
+  match Uri.host uri |> Option.map String.lowercase_ascii with
+  | Some host when List.mem host (configured_zai_hosts ()) ->
+      has_prefix (Uri.path uri) path_prefix
+  | _ -> false
 
 let is_coding_base_url base_url =
-  contains_substring base_url "/api/coding/paas/"
+  zai_path_prefix_matches base_url "/api/coding/paas/"
 
 let is_anthropic_base_url base_url =
-  contains_substring base_url "/api/anthropic"
+  zai_path_prefix_matches base_url "/api/anthropic"
 
 let is_zai_base_url base_url =
-  contains_substring base_url "/api/paas/"
+  zai_path_prefix_matches base_url "/api/paas/"
   || is_coding_base_url base_url
   || is_anthropic_base_url base_url
 
@@ -101,3 +120,55 @@ let throttle_key_for_chat ~base_url ~model_id =
   | General_api ->
       Printf.sprintf "zai/general/chat/%s"
         (String.lowercase_ascii (String.trim model_id))
+
+[@@@coverage off]
+
+let%test "is_glm_model_id accepts glm prefixes only" =
+  is_glm_model_id "glm-5"
+  && is_glm_model_id "glm"
+  && not (is_glm_model_id "gpt-5")
+
+let%test "base_url classifiers distinguish general coding and anthropic" =
+  is_zai_base_url general_base_url
+  && is_zai_base_url coding_base_url
+  && is_zai_base_url anthropic_base_url
+  && is_coding_base_url coding_base_url
+  && not (is_coding_base_url general_base_url)
+  && is_anthropic_base_url anthropic_base_url
+  && not (is_anthropic_base_url general_base_url)
+
+let%test "mode_of_base_url maps coding and anthropic to coding plan" =
+  mode_of_base_url general_base_url = General_api
+  && mode_of_base_url coding_base_url = Coding_plan
+  && mode_of_base_url anthropic_base_url = Coding_plan
+
+let%test "resolve_glm_alias covers common aliases" =
+  resolve_glm_alias ~default_model:"glm-5.1" "auto" = "glm-5.1"
+  && resolve_glm_alias ~default_model:"glm-5.1" "flash" = "glm-4.7-flashx"
+  && resolve_glm_alias ~default_model:"glm-5.1" "vf" = "glm-4.6v-flashx"
+  && resolve_glm_alias ~default_model:"glm-5.1" "air" = "glm-4.5-air"
+  && resolve_glm_alias ~default_model:"glm-5.1" "glm-5-turbo" = "glm-5-turbo"
+
+let%test "general_concurrency_for_model hits key glm families" =
+  general_concurrency_for_model "glm-4.5" = 10
+  && general_concurrency_for_model "glm-4.5-flash" = 1
+  && general_concurrency_for_model "glm-4.6v-flashx" = 3
+  && general_concurrency_for_model "glm-4.7" = 2
+  && general_concurrency_for_model "glm-5v-turbo" = 1
+  && general_concurrency_for_model "glm-ocr" = 2
+  && general_concurrency_for_model "unknown-model" = 1
+
+let%test "throttle_key_for_chat separates coding and general plans" =
+  throttle_key_for_chat ~base_url:general_base_url ~model_id:" GLM-5 " =
+    "zai/general/chat/glm-5"
+  && throttle_key_for_chat ~base_url:coding_base_url ~model_id:"glm-5" =
+       "zai/coding/chat"
+
+let%test "is_zai_base_url rejects untrusted host lookalikes" =
+  not (is_zai_base_url "https://proxy.example.com/api/paas/v4")
+
+let%test "is_zai_base_url accepts official endpoint" =
+  is_zai_base_url general_base_url
+
+let%test "mode_of_base_url keeps coding endpoint on coding plan" =
+  mode_of_base_url coding_base_url = Coding_plan
