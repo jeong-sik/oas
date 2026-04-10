@@ -30,6 +30,18 @@ type run_summary = {
   hook_invoked_count: int;
   hook_names: string list;
   tool_names: string list;
+  model: string option;
+  tool_choice: Yojson.Safe.t option;
+  enable_thinking: bool option;
+  thinking_budget: int option;
+  thinking_block_count: int;
+  text_block_count: int;
+  tool_use_block_count: int;
+  tool_result_block_count: int;
+  first_assistant_block_kind: string option;
+  selection_outcome: string;
+  saw_tool_use: bool;
+  saw_thinking: bool;
   final_text: string option;
   stop_reason: string option;
   error: string option;
@@ -68,6 +80,10 @@ type record = {
   session_id: string option;
   record_type: record_type;
   prompt: string option;
+  model: string option;
+  tool_choice: Yojson.Safe.t option;
+  enable_thinking: bool option;
+  thinking_budget: int option;
   block_index: int option;
   block_kind: string option;
   assistant_block: Yojson.Safe.t option;
@@ -161,6 +177,16 @@ let option_bool name value =
 let option_json name value =
   option_assoc name value
 
+let tool_choice_to_json_opt value =
+  Option.map Types.tool_choice_to_json value
+
+let tool_choice_of_json_opt json =
+  match Yojson.Safe.Util.member "tool_choice" json with
+  | `Null -> Ok None
+  | value ->
+      let* tool_choice = Types.tool_choice_of_json value in
+      Ok (Some (Types.tool_choice_to_json tool_choice))
+
 let record_to_json (record : record) =
   `Assoc
     ([
@@ -176,6 +202,10 @@ let record_to_json (record : record) =
          | None -> `Null );
      ]
     @ option_string "prompt" record.prompt
+    @ option_string "model" record.model
+    @ option_json "tool_choice" record.tool_choice
+    @ option_bool "enable_thinking" record.enable_thinking
+    @ option_int "thinking_budget" record.thinking_budget
     @ option_int "block_index" record.block_index
     @ option_string "block_kind" record.block_kind
     @ option_json "assistant_block" record.assistant_block
@@ -200,6 +230,7 @@ let record_of_json json =
   let* record_type =
     json |> member "record_type" |> to_string |> record_type_of_string
   in
+  let* tool_choice = tool_choice_of_json_opt json in
   Ok
     {
       trace_version = json |> member "trace_version" |> to_int;
@@ -210,6 +241,10 @@ let record_of_json json =
       session_id = json |> member "session_id" |> to_string_option;
       record_type;
       prompt = json |> member "prompt" |> to_string_option;
+      model = json |> member "model" |> to_string_option;
+      tool_choice;
+      enable_thinking = json |> member "enable_thinking" |> to_bool_option;
+      thinking_budget = json |> member "thinking_budget" |> to_int_option;
       block_index = json |> member "block_index" |> to_int_option;
       block_kind = json |> member "block_kind" |> to_string_option;
       assistant_block =
@@ -309,6 +344,7 @@ let append_locked sink (record : record) =
   Fs_result.append_file sink.path line
 
 let append_record active ~record_type ?prompt ?block_index ?block_kind
+    ?model ?tool_choice ?enable_thinking ?thinking_budget
     ?assistant_block ?tool_use_id ?tool_name ?tool_input ?tool_planned_index
     ?tool_batch_index ?tool_batch_size ?tool_concurrency_class ?tool_result ?tool_error
     ?hook_name ?hook_decision ?hook_detail ?final_text ?stop_reason ?error () =
@@ -324,6 +360,10 @@ let append_record active ~record_type ?prompt ?block_index ?block_kind
         session_id = active.session_id;
         record_type;
         prompt;
+        model;
+        tool_choice;
+        enable_thinking;
+        thinking_budget;
         block_index;
         block_kind;
         assistant_block;
@@ -353,7 +393,8 @@ let append_record active ~record_type ?prompt ?block_index ?block_kind
      | Error _ -> ());
     Result.map (fun () -> seq) result)
 
-let start_run sink ~agent_name ~prompt =
+let start_run sink ~agent_name ~prompt ?model ?tool_choice ?enable_thinking
+    ?thinking_budget () =
   let worker_run_id =
     Eio.Mutex.use_rw ~protect:true sink.lock (fun () ->
       next_worker_run_id sink)
@@ -369,7 +410,9 @@ let start_run sink ~agent_name ~prompt =
     }
   in
   let result =
-    append_record active ~record_type:Run_started ~prompt ()
+    append_record active ~record_type:Run_started ~prompt ?model
+      ?tool_choice:(tool_choice_to_json_opt tool_choice)
+      ?enable_thinking ?thinking_budget ()
   in
   match result with
     | Ok _ -> Ok active

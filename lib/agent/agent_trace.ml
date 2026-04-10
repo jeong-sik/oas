@@ -99,7 +99,11 @@ let with_raw_trace_run agent user_prompt f =
   | Some sink ->
       let* active =
         Raw_trace.start_run sink ~agent_name:agent.state.config.name
-          ~prompt:user_prompt
+          ~prompt:user_prompt ~model:agent.state.config.model
+          ?tool_choice:agent.state.config.tool_choice
+          ?enable_thinking:agent.state.config.enable_thinking
+          ?thinking_budget:agent.state.config.thinking_budget
+          ()
       in
       let ts = Unix.gettimeofday () in
       set_lifecycle agent ~current_run_id:(Raw_trace.active_run_id active)

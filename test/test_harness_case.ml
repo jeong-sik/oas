@@ -13,6 +13,10 @@ let mk_record ~seq ~ts ~record_type ?prompt ?final_text ?error () : Raw_trace.re
     session_id = None;
     record_type;
     prompt;
+    model = None;
+    tool_choice = None;
+    enable_thinking = None;
+    thinking_budget = None;
     block_index = None;
     block_kind = None;
     assistant_block = None;

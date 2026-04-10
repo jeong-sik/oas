@@ -5,7 +5,7 @@ open Agent_sdk
 (* ── Test helpers ────────────────────────────────────────────── *)
 
 let make_record ~seq ~ts ~agent_name ~record_type
-    ?prompt ?block_kind ?assistant_block
+    ?prompt ?model ?block_kind ?assistant_block
     ?tool_use_id ?tool_name ?tool_input ?tool_result ?tool_error
     ?final_text ?stop_reason ?error () : Raw_trace.record =
   { trace_version = 1;
@@ -16,6 +16,10 @@ let make_record ~seq ~ts ~agent_name ~record_type
     session_id = None;
     record_type;
     prompt;
+    model;
+    tool_choice = None;
+    enable_thinking = None;
+    thinking_budget = None;
     block_index = None;
     block_kind;
     assistant_block;
@@ -41,7 +45,7 @@ let make_record ~seq ~ts ~agent_name ~record_type
 let test_basic_trajectory () =
   let records = [
     make_record ~seq:1 ~ts:100.0 ~agent_name:"test-agent"
-      ~record_type:Run_started ~prompt:"hello" ();
+      ~record_type:Run_started ~prompt:"hello" ~model:"glm-5.1" ();
     make_record ~seq:2 ~ts:100.1 ~agent_name:"test-agent"
       ~record_type:Assistant_block ~block_kind:"thinking"
       ~assistant_block:(`Assoc [("content", `String "let me think")]) ();
@@ -53,6 +57,7 @@ let test_basic_trajectory () =
   ] in
   let traj = Trajectory.of_raw_trace_records records in
   Alcotest.(check string) "agent_name" "test-agent" traj.agent_name;
+  Alcotest.(check string) "model" "glm-5.1" traj.model;
   Alcotest.(check string) "prompt" "hello" traj.prompt;
   Alcotest.(check bool) "success" true traj.success;
   let (think, _act, _obs, respond) = Trajectory.count_steps traj in

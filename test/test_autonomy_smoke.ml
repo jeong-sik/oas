@@ -42,6 +42,25 @@ let make_summary ~tool_names ~tool_execution_started_count
     hook_invoked_count = 0;
     hook_names = [];
     tool_names;
+    model = None;
+    tool_choice = None;
+    enable_thinking = None;
+    thinking_budget = None;
+    thinking_block_count = 0;
+    text_block_count = assistant_block_count;
+    tool_use_block_count = tool_execution_started_count;
+    tool_result_block_count = 0;
+    first_assistant_block_kind =
+      (if tool_execution_started_count > 0 then Some "tool_use"
+       else if assistant_block_count > 0 then Some "text"
+       else None);
+    selection_outcome =
+      (if tool_execution_started_count > 0 && assistant_block_count > 0 then "mixed"
+       else if tool_execution_started_count > 0 then "tool_only"
+       else if assistant_block_count > 0 then "text_only"
+       else "empty");
+    saw_tool_use = tool_execution_started_count > 0;
+    saw_thinking = false;
     final_text = Some "done";
     stop_reason = Some "EndTurn";
     error = None;

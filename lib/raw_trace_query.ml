@@ -53,6 +53,13 @@ let read_run (run_ref : Raw_trace.run_ref) =
 
 let summarize_run run_ref =
   let* records = read_run run_ref in
+  let count_block_kind kind =
+    records
+    |> List.filter (fun (record : Raw_trace.record) ->
+         record.record_type = Assistant_block
+         && record.block_kind = Some kind)
+    |> List.length
+  in
   let assistant_block_count =
     List.filter
       (fun (record : Raw_trace.record) -> record.record_type = Assistant_block)
@@ -87,11 +94,41 @@ let summarize_run run_ref =
     |> List.filter_map (fun (record : Raw_trace.record) -> record.tool_name)
     |> List.sort_uniq String.compare
   in
+  let start_record =
+    records
+    |> List.find_opt (fun (record : Raw_trace.record) ->
+           record.record_type = Run_started)
+  in
   let final_record =
     records
     |> List.rev
     |> List.find_opt (fun (record : Raw_trace.record) ->
            record.record_type = Run_finished)
+  in
+  let thinking_block_count = count_block_kind "thinking" in
+  let text_block_count = count_block_kind "text" in
+  let tool_use_block_count = count_block_kind "tool_use" in
+  let tool_result_block_count = count_block_kind "tool_result" in
+  let first_assistant_block_kind =
+    match
+      List.find_opt
+        (fun (record : Raw_trace.record) ->
+          record.record_type = Assistant_block)
+        records
+    with
+    | Some record -> record.block_kind
+    | None -> None
+  in
+  let saw_tool_use =
+    tool_use_block_count > 0 || tool_execution_started_count > 0
+  in
+  let saw_thinking = thinking_block_count > 0 in
+  let selection_outcome =
+    match saw_tool_use, text_block_count > 0 with
+    | true, true -> "mixed"
+    | true, false -> "tool_only"
+    | false, true -> "text_only"
+    | false, false -> "empty"
   in
   let started_at =
     match records with
@@ -113,6 +150,20 @@ let summarize_run run_ref =
       hook_invoked_count;
       hook_names;
       tool_names;
+      model = Option.bind start_record (fun record -> record.model);
+      tool_choice = Option.bind start_record (fun record -> record.tool_choice);
+      enable_thinking =
+        Option.bind start_record (fun record -> record.enable_thinking);
+      thinking_budget =
+        Option.bind start_record (fun record -> record.thinking_budget);
+      thinking_block_count;
+      text_block_count;
+      tool_use_block_count;
+      tool_result_block_count;
+      first_assistant_block_kind;
+      selection_outcome;
+      saw_tool_use;
+      saw_thinking;
       final_text = Option.bind final_record (fun record -> record.final_text);
       stop_reason = Option.bind final_record (fun record -> record.stop_reason);
       error = Option.bind final_record (fun record -> record.error);
@@ -230,6 +281,30 @@ let validate_run run_ref =
       Printf.sprintf "hooks=%d" summary.hook_invoked_count;
       Printf.sprintf "hook_names=%s" (String.concat "," summary.hook_names);
       Printf.sprintf "tool_names=%s" (String.concat "," summary.tool_names);
+      Printf.sprintf "model=%s"
+        (Option.value summary.model ~default:"");
+      Printf.sprintf "tool_choice=%s"
+        (match summary.tool_choice with
+         | Some json -> Yojson.Safe.to_string json
+         | None -> "");
+      Printf.sprintf "enable_thinking=%s"
+        (match summary.enable_thinking with
+         | Some true -> "true"
+         | Some false -> "false"
+         | None -> "");
+      Printf.sprintf "thinking_budget=%s"
+        (match summary.thinking_budget with
+         | Some value -> string_of_int value
+         | None -> "");
+      Printf.sprintf "thinking_blocks=%d" summary.thinking_block_count;
+      Printf.sprintf "text_blocks=%d" summary.text_block_count;
+      Printf.sprintf "tool_use_blocks=%d" summary.tool_use_block_count;
+      Printf.sprintf "tool_result_blocks=%d" summary.tool_result_block_count;
+      Printf.sprintf "first_assistant_block_kind=%s"
+        (Option.value summary.first_assistant_block_kind ~default:"");
+      Printf.sprintf "selection_outcome=%s" summary.selection_outcome;
+      Printf.sprintf "saw_tool_use=%b" summary.saw_tool_use;
+      Printf.sprintf "saw_thinking=%b" summary.saw_thinking;
       Printf.sprintf "final_text=%s"
         (Option.value summary.final_text ~default:"");
       Printf.sprintf "stop_reason=%s"

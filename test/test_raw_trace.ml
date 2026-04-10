@@ -343,6 +343,8 @@ let test_agent_run_stream_append_only_raw_trace () =
       let first_record = List.hd run1_records in
       Alcotest.(check (option string)) "prompt stored"
         (Some "trace chain") first_record.prompt;
+      Alcotest.(check bool) "model captured at run start" true
+        (Option.is_some first_record.model);
       let last_record = List.hd (List.rev run1_records) in
       Alcotest.(check (option string)) "final text stored"
         (Some "trace complete") last_record.final_text;
@@ -352,6 +354,22 @@ let test_agent_run_stream_append_only_raw_trace () =
         run1_summary.record_count;
       Alcotest.(check int) "summary tool start count" 4
         run1_summary.tool_execution_started_count;
+      Alcotest.(check int) "summary thinking block count" 0
+        run1_summary.thinking_block_count;
+      Alcotest.(check int) "summary text block count" 1
+        run1_summary.text_block_count;
+      Alcotest.(check int) "summary tool use block count" 4
+        run1_summary.tool_use_block_count;
+      Alcotest.(check int) "summary tool result block count" 0
+        run1_summary.tool_result_block_count;
+      Alcotest.(check (option string)) "summary first assistant block kind"
+        (Some "tool_use") run1_summary.first_assistant_block_kind;
+      Alcotest.(check string) "summary selection outcome"
+        "mixed" run1_summary.selection_outcome;
+      Alcotest.(check bool) "summary saw_tool_use" true
+        run1_summary.saw_tool_use;
+      Alcotest.(check bool) "summary saw_thinking" false
+        run1_summary.saw_thinking;
       Alcotest.(check int) "two summaries" 2 (List.length summaries);
       Alcotest.(check int) "two validations" 2 (List.length validations);
       Alcotest.(check bool) "validation ok" true run1_validation.ok;
@@ -414,7 +432,10 @@ let test_record_to_json_roundtrip () =
     trace_version = 1; worker_run_id = "wr-test"; seq = 1;
     ts = 1700000000.0; agent_name = "test-agent";
     session_id = Some "sess-1"; record_type = Raw_trace.Run_started;
-    prompt = Some "hello"; block_index = None; block_kind = None;
+    prompt = Some "hello"; model = Some "glm-5.1";
+    tool_choice = Some (Types.tool_choice_to_json Types.Any);
+    enable_thinking = Some false; thinking_budget = Some 2048;
+    block_index = None; block_kind = None;
     assistant_block = None; tool_use_id = None; tool_name = None;
     tool_input = None; tool_planned_index = None; tool_batch_index = None;
     tool_batch_size = None; tool_concurrency_class = None;
@@ -428,8 +449,36 @@ let test_record_to_json_roundtrip () =
     Alcotest.(check string) "worker_run_id" "wr-test" decoded.worker_run_id;
     Alcotest.(check int) "seq" 1 decoded.seq;
     Alcotest.(check (option string)) "session_id" (Some "sess-1") decoded.session_id;
-    Alcotest.(check (option string)) "prompt" (Some "hello") decoded.prompt
+    Alcotest.(check (option string)) "prompt" (Some "hello") decoded.prompt;
+    Alcotest.(check (option string)) "model" (Some "glm-5.1") decoded.model;
+    Alcotest.(check string) "tool_choice"
+      (Yojson.Safe.to_string (Types.tool_choice_to_json Types.Any))
+      (match decoded.tool_choice with
+       | Some value -> Yojson.Safe.to_string value
+       | None -> "");
+    Alcotest.(check (option bool)) "enable_thinking" (Some false)
+      decoded.enable_thinking;
+    Alcotest.(check (option int)) "thinking_budget" (Some 2048)
+      decoded.thinking_budget
   | Error e -> Alcotest.fail (Error.to_string e)
+
+let test_record_of_json_rejects_invalid_tool_choice () =
+  let json =
+    `Assoc
+      [
+        ("trace_version", `Int 1);
+        ("worker_run_id", `String "wr-invalid");
+        ("seq", `Int 1);
+        ("ts", `Float 1700000000.0);
+        ("agent_name", `String "test-agent");
+        ("session_id", `Null);
+        ("record_type", `String "run_started");
+        ("prompt", `String "hello");
+        ("tool_choice", `Assoc [("type", `String "bogus")]);
+      ]
+  in
+  Alcotest.(check bool) "invalid tool_choice rejected" true
+    (Result.is_error (Raw_trace.record_of_json json))
 
 let test_record_to_json_full () =
   let record : Raw_trace.record = {
@@ -437,7 +486,9 @@ let test_record_to_json_full () =
     ts = 1700000005.0; agent_name = "worker";
     session_id = Some "sess-2";
     record_type = Raw_trace.Tool_execution_finished;
-    prompt = None; block_index = Some 2; block_kind = Some "tool_use";
+    prompt = None; model = None; tool_choice = None;
+    enable_thinking = None; thinking_budget = None;
+    block_index = Some 2; block_kind = Some "tool_use";
     assistant_block = Some (`String "block-data");
     tool_use_id = Some "tu-1"; tool_name = Some "read_file";
     tool_input = Some (`Assoc [("path", `String "/tmp/x")]);
@@ -480,6 +531,14 @@ let test_run_summary_yojson () =
     run_ref = ref_; record_count = 6; assistant_block_count = 2;
     tool_execution_started_count = 2; tool_execution_finished_count = 2;
     hook_invoked_count = 0; hook_names = []; tool_names = ["read"; "write"];
+    model = Some "glm-5.1";
+    tool_choice = Some (Types.tool_choice_to_json Types.Any);
+    enable_thinking = Some true; thinking_budget = Some 4096;
+    thinking_block_count = 1; text_block_count = 1;
+    tool_use_block_count = 2; tool_result_block_count = 2;
+    first_assistant_block_kind = Some "thinking";
+    selection_outcome = "mixed";
+    saw_tool_use = true; saw_thinking = true;
     final_text = Some "done"; stop_reason = Some "end_turn"; error = None;
     started_at = Some 1.7e9; finished_at = Some 1.7e9;
   } in
@@ -511,6 +570,37 @@ let test_run_validation_yojson () =
       (Raw_trace.show_run_validation decoded)
   | Error msg -> Alcotest.fail ("run_validation_of_yojson: " ^ msg)
 
+let test_tool_result_assistant_block_summary () =
+  Eio_main.run @@ fun _env ->
+  with_temp_dir @@ fun root ->
+  let sink =
+    unwrap
+      (Raw_trace.create_for_session ~session_root:root ~session_id:"sess-tool-result"
+         ~agent_name:"raw-worker" ())
+  in
+  let active =
+    unwrap
+      (Raw_trace.start_run sink ~agent_name:"raw-worker"
+         ~prompt:"tool result summary" ())
+  in
+  unwrap
+    (Raw_trace.record_assistant_block active ~block_index:0
+       (Types.ToolResult
+          {
+            tool_use_id = "tool-1";
+            content = "ok";
+            is_error = false;
+            json = None;
+          }));
+  ignore
+    (unwrap
+       (Raw_trace.finish_run active ~final_text:(Some "done")
+          ~stop_reason:(Some "EndTurn") ~error:None));
+  let runs = unwrap (Raw_trace_query.read_runs ~path:(Raw_trace.file_path sink) ()) in
+  let summary = unwrap (Raw_trace_query.summarize_run (List.hd runs)) in
+  Alcotest.(check int) "assistant blocks" 1 summary.assistant_block_count;
+  Alcotest.(check int) "tool_result blocks" 1 summary.tool_result_block_count
+
 let () =
   Random.self_init ();
   Alcotest.run "Raw Trace"
@@ -529,6 +619,8 @@ let () =
       ( "record_json",
         [
           Alcotest.test_case "minimal roundtrip" `Quick test_record_to_json_roundtrip;
+          Alcotest.test_case "invalid tool_choice rejected" `Quick
+            test_record_of_json_rejects_invalid_tool_choice;
           Alcotest.test_case "full roundtrip" `Quick test_record_to_json_full;
         ] );
       ( "type_yojson",
@@ -536,5 +628,7 @@ let () =
           Alcotest.test_case "run_ref" `Quick test_run_ref_yojson;
           Alcotest.test_case "run_summary" `Quick test_run_summary_yojson;
           Alcotest.test_case "run_validation" `Quick test_run_validation_yojson;
+          Alcotest.test_case "tool_result assistant block summary" `Quick
+            test_tool_result_assistant_block_summary;
         ] );
     ]
