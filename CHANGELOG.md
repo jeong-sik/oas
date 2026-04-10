@@ -1422,3 +1422,4 @@ match Builder.build_safe builder with
 
 ### Added
 - Initial release: Types, API client, basic agent loop
+ 
