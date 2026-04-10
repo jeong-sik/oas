@@ -32,6 +32,15 @@ let accept_on_exhaustion ~(contract : t) =
   | Allow_text_or_tool -> false
   | Require_tool_use -> false
 
+let resolve_accept ?accept_reason ~(accept : api_response -> bool) =
+  match accept_reason with
+  | Some validator -> validator
+  | None ->
+    fun response ->
+      if accept response
+      then Ok ()
+      else Error "response rejected by accept validator"
+
 let%test "of_tool_choice requires tools for Any" =
   match of_tool_choice (Some Any) with
   | Require_tool_use -> true

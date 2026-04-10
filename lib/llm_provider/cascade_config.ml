@@ -335,7 +335,7 @@ let complete_named ~sw ~net ?clock ?config_path
     ?(strict_name = false)
     ?(accept_on_exhaustion = false)
     ?timeout_sec ?cache ?metrics ?throttle ?priority ?provider_filter () =
-  let accept =
+  let accept_result =
     match accept_reason with
     | Some validator -> validator
     | None ->
@@ -401,7 +401,7 @@ let complete_named ~sw ~net ?clock ?config_path
     else
       let run () =
         complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
-          ?throttle ?priority ~accept ~accept_on_exhaustion
+          ?throttle ?priority ~accept:accept_result ~accept_on_exhaustion
           healthy_providers ~messages ~tools
       in
       match clock, timeout_sec with

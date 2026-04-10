@@ -206,21 +206,15 @@ let create_message_named ~sw ~net ?clock ~(named_cascade : named_cascade)
     | Some m -> m
     | None -> named_cascade.metrics
   in
-  let accept =
-    match accept_reason with
-    | Some validator -> validator
-    | None ->
-      fun response ->
-        if accept response
-        then Ok ()
-        else Error "response rejected by accept validator"
+  let accept_result =
+    Completion_contract.resolve_accept ~accept ?accept_reason
   in
   match
     Llm_provider.Cascade_config.complete_named ~sw ~net ?clock
       ?config_path:named_cascade.config_path ~name:named_cascade.name
       ~defaults:named_cascade.defaults ~messages ?tools ~temperature
       ~max_tokens ?system_prompt ?tool_choice:config.config.tool_choice
-      ~accept_reason:accept ~accept_on_exhaustion ?timeout_sec ~metrics ?priority
+      ~accept_reason:accept_result ~accept_on_exhaustion ?timeout_sec ~metrics ?priority
       ?provider_filter:named_cascade.provider_filter ()
   with
   | Ok response -> Ok response
