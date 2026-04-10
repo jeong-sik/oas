@@ -29,6 +29,40 @@ let capabilities_for_request ?provider_config (config : agent_state) =
              })
         ~model_id:(model_to_string config.config.model)
 
+let is_zai_provider_config (cfg : Provider.config) =
+  match cfg.provider with
+  | Provider.OpenAICompat { base_url; _ }
+  | Provider.Local { base_url } ->
+      Llm_provider.Zai_catalog.is_zai_base_url base_url
+  | _ -> false
+
+let is_glm_request ?provider_config (config : agent_state) =
+  match provider_config with
+  | Some (cfg : Provider.config) ->
+      is_zai_provider_config cfg
+      && Llm_provider.Zai_catalog.is_glm_model_id cfg.model_id
+  | None ->
+      Llm_provider.Zai_catalog.is_glm_model_id
+        (model_to_string config.config.model)
+
+let effective_tool_choice_json (capabilities : Provider.capabilities)
+    ?provider_config (config : agent_state) =
+  let is_glm = is_glm_request ?provider_config config in
+  match config.config.tool_choice with
+  | Some Types.Auto when capabilities.supports_tool_choice ->
+      Some (tool_choice_to_openai_json Types.Auto)
+  | Some (Types.Any | Types.Tool _) when is_glm && capabilities.supports_tool_choice ->
+      Some (tool_choice_to_openai_json Types.Auto)
+  | Some Types.None_ when is_glm -> None
+  | Some choice when capabilities.supports_tool_choice ->
+      Some (tool_choice_to_openai_json choice)
+  | _ -> None
+
+let should_include_tools ?provider_config (config : agent_state) =
+  match config.config.tool_choice with
+  | Some Types.None_ when is_glm_request ?provider_config config -> false
+  | _ -> true
+
 let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
   let model_str = model_to_string config.config.model in
   let capabilities = capabilities_for_request ?provider_config config in
@@ -75,6 +109,15 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
               ~enable_thinking:(Some enabled)
               ~thinking_budget:config.config.thinking_budget in
           ("reasoning_effort", `String effort) :: body_assoc
+        else if is_glm_request ?provider_config config then
+          let thinking =
+            if enabled then
+              `Assoc [("type", `String "enabled");
+                      ("clear_thinking", `Bool true)]
+            else
+              `Assoc [("type", `String "disabled")]
+          in
+          ("thinking", thinking) :: body_assoc
         else
           ("chat_template_kwargs", `Assoc [("enable_thinking", `Bool enabled)]) :: body_assoc
     | None when capabilities.is_ollama ->
@@ -84,16 +127,17 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
   in
   let body_assoc =
     match tools with
-    | Some entries when entries <> [] && capabilities.supports_tools ->
+    | Some entries
+      when entries <> []
+           && capabilities.supports_tools
+           && should_include_tools ?provider_config config ->
         ("tools", `List (List.map build_openai_tool_json entries)) :: body_assoc
     | _ -> body_assoc
   in
   let body_assoc =
-    match config.config.tool_choice with
-    | Some choice when capabilities.supports_tool_choice ->
-        ("tool_choice", tool_choice_to_openai_json choice) :: body_assoc
+    match effective_tool_choice_json capabilities ?provider_config config with
+    | Some choice_json -> ("tool_choice", choice_json) :: body_assoc
     | None -> body_assoc
-    | Some _ -> body_assoc
   in
   let body_assoc =
     if config.config.disable_parallel_tool_use && capabilities.supports_tools then

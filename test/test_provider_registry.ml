@@ -163,10 +163,10 @@ let test_find_capable_composite () =
 
 (* ── Default registry ───────────────────────────────── *)
 
-let test_default_has_6 () =
+let test_default_has_8 () =
   let reg = Provider_registry.default () in
   let all = Provider_registry.all reg in
-  check int "7 known providers" 7 (List.length all);
+  check int "8 known providers" 8 (List.length all);
   check bool "llama exists" true
     (Option.is_some (Provider_registry.find reg "llama"));
   check bool "ollama exists" true
@@ -177,6 +177,8 @@ let test_default_has_6 () =
     (Option.is_some (Provider_registry.find reg "gemini"));
   check bool "glm exists" true
     (Option.is_some (Provider_registry.find reg "glm"));
+  check bool "glm-coding exists" true
+    (Option.is_some (Provider_registry.find reg "glm-coding"));
   check bool "openrouter exists" true
     (Option.is_some (Provider_registry.find reg "openrouter"));
   check bool "cc exists" true
@@ -212,6 +214,45 @@ let test_default_max_context () =
   (match Provider_registry.find reg "cc" with
    | Some e -> check int "cc 200K" 200_000 e.max_context
    | None -> fail "cc should exist")
+
+let test_default_zai_base_urls () =
+  let reg = Provider_registry.default () in
+  (match Provider_registry.find reg "glm" with
+   | Some e ->
+       check string "glm base_url" Zai_catalog.general_base_url
+         e.defaults.base_url
+   | None -> fail "glm should exist");
+  (match Provider_registry.find reg "glm-coding" with
+   | Some e ->
+       check string "glm-coding base_url" Zai_catalog.coding_base_url
+         e.defaults.base_url
+   | None -> fail "glm-coding should exist")
+
+let test_blank_zai_base_urls_fall_back () =
+  let prev_general = Sys.getenv_opt "ZAI_BASE_URL" in
+  let prev_coding = Sys.getenv_opt "ZAI_CODING_BASE_URL" in
+  let restore key = function
+    | Some v -> Unix.putenv key v
+    | None -> Unix.putenv key ""
+  in
+  Fun.protect
+    ~finally:(fun () ->
+      restore "ZAI_BASE_URL" prev_general;
+      restore "ZAI_CODING_BASE_URL" prev_coding)
+    (fun () ->
+      Unix.putenv "ZAI_BASE_URL" "   ";
+      Unix.putenv "ZAI_CODING_BASE_URL" "\t";
+      let reg = Provider_registry.default () in
+      (match Provider_registry.find reg "glm" with
+       | Some e ->
+           check string "glm blank fallback" Zai_catalog.general_base_url
+             e.defaults.base_url
+       | None -> fail "glm should exist");
+      (match Provider_registry.find reg "glm-coding" with
+       | Some e ->
+           check string "glm-coding blank fallback" Zai_catalog.coding_base_url
+             e.defaults.base_url
+       | None -> fail "glm-coding should exist"))
 
 (* ── Types usage helpers ───────────────────────────── *)
 
@@ -275,9 +316,11 @@ let () =
       test_case "requires_any" `Quick test_requires_any;
     ];
     "default", [
-      test_case "has 7 providers" `Quick test_default_has_6;
+      test_case "has 8 providers" `Quick test_default_has_8;
       test_case "correct capabilities" `Quick test_default_capabilities;
       test_case "max_context values" `Quick test_default_max_context;
+      test_case "zai base urls" `Quick test_default_zai_base_urls;
+      test_case "blank zai base urls fall back" `Quick test_blank_zai_base_urls_fall_back;
     ];
     "types_usage", [
       test_case "zero_api_usage" `Quick test_zero_api_usage;

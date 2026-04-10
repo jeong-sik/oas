@@ -5,6 +5,22 @@
 
     @since 0.53.0 *)
 
+let is_glm_model_or_alias model_id =
+  let normalized = String.lowercase_ascii (String.trim model_id) in
+  Llm_provider.Zai_catalog.is_glm_model_id normalized
+  ||
+  match normalized with
+  | "auto"
+  | "flash"
+  | "turbo"
+  | "vision"
+  | "v"
+  | "vision-flash"
+  | "vf"
+  | "air"
+  | "ocr" -> true
+  | _ -> false
+
 let to_provider_config (legacy : Provider.config) : (Llm_provider.Provider_config.t, Error.sdk_error) result =
   match Provider.resolve legacy with
   | Error e -> Error e
@@ -14,7 +30,10 @@ let to_provider_config (legacy : Provider.config) : (Llm_provider.Provider_confi
         String.length m_lower >= 6 && String.sub m_lower 0 6 = "gemini"
       in
       let is_glm_model =
-        String.length m_lower >= 3 && String.sub m_lower 0 3 = "glm"
+        is_glm_model_or_alias m_lower
+      in
+      let is_zai_provider =
+        Llm_provider.Zai_catalog.is_zai_base_url base_url
       in
       let kind = match Provider.request_kind legacy.provider with
         | Provider.Anthropic_messages ->
@@ -22,7 +41,7 @@ let to_provider_config (legacy : Provider.config) : (Llm_provider.Provider_confi
         | Provider.Openai_chat_completions
         | Provider.Custom _ ->
             if is_gemini_model then Llm_provider.Provider_config.Gemini
-            else if is_glm_model then Llm_provider.Provider_config.Glm
+            else if is_zai_provider && is_glm_model then Llm_provider.Provider_config.Glm
             else Llm_provider.Provider_config.OpenAI_compat
       in
       let request_path = Provider.request_path legacy.provider in
@@ -30,7 +49,11 @@ let to_provider_config (legacy : Provider.config) : (Llm_provider.Provider_confi
         | Llm_provider.Provider_config.Anthropic -> "claude"
         | Claude_code -> "claude"
         | Gemini -> "gemini"
-        | Glm -> "glm"
+        | Glm ->
+            if Llm_provider.Zai_catalog.is_coding_base_url base_url then
+              "glm-coding"
+            else
+              "glm"
         | OpenAI_compat -> "llama"
         | Ollama -> "ollama"
       in

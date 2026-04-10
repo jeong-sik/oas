@@ -22,6 +22,8 @@ let test_make_defaults () =
   check_bool "system_prompt None" true (cfg.system_prompt = None);
   check_bool "enable_thinking None" true (cfg.enable_thinking = None);
   check_bool "thinking_budget None" true (cfg.thinking_budget = None);
+  check_bool "clear_thinking None" true (cfg.clear_thinking = None);
+  check_bool "tool_stream false" false cfg.tool_stream;
   check_bool "tool_choice None" true (cfg.tool_choice = None);
   check_bool "no parallel tool use" false cfg.disable_parallel_tool_use;
   check_bool "no json format" false cfg.response_format_json;
@@ -74,6 +76,8 @@ let test_make_with_all_options () =
     ~system_prompt:"system"
     ~enable_thinking:true
     ~thinking_budget:1000
+    ~clear_thinking:false
+    ~tool_stream:true
     ~disable_parallel_tool_use:true
     ~response_format_json:true
     ~cache_system_prompt:true () in
@@ -86,6 +90,8 @@ let test_make_with_all_options () =
   check_bool "system_prompt" true (cfg.system_prompt = Some "system");
   check_bool "enable_thinking" true (cfg.enable_thinking = Some true);
   check_bool "thinking_budget" true (cfg.thinking_budget = Some 1000);
+  check_bool "clear_thinking" true (cfg.clear_thinking = Some false);
+  check_bool "tool_stream" true cfg.tool_stream;
   check_bool "disable_parallel" true cfg.disable_parallel_tool_use;
   check_bool "json format" true cfg.response_format_json;
   check_bool "cache prompt" true cfg.cache_system_prompt

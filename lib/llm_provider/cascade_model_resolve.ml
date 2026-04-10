@@ -30,26 +30,18 @@ let env_or default var =
     glm-5.1 = best quality (reasoning), glm-5-turbo = fast tool calling,
     glm-4.7 = stable general, glm-4.7-flashx = fastest/cheapest.
     Configurable via ZAI_AUTO_MODELS env var (comma-separated). *)
-let glm_auto_models () : string list =
-  match Sys.getenv_opt "ZAI_AUTO_MODELS" with
-  | Some v when String.trim v <> "" ->
-    String.split_on_char ',' v
-    |> List.map String.trim
-    |> List.filter (fun s -> s <> "")
-  | _ -> [ "glm-5.1"; "glm-5-turbo"; "glm-4.7"; "glm-4.7-flashx" ]
+let glm_auto_models = Zai_catalog.glm_auto_models
+let glm_coding_auto_models = Zai_catalog.glm_coding_auto_models
 
 let resolve_glm_model_id model_id =
-  match String.lowercase_ascii model_id with
-  (* aliases -> concrete IDs *)
-  | "auto" -> env_or "glm-5.1" "ZAI_DEFAULT_MODEL"
-  | "flash" -> "glm-4.7-flashx"
-  | "turbo" -> "glm-5-turbo"
-  | "vision" | "v" -> "glm-4.6v"
-  | "vision-flash" | "vf" -> "glm-4.6v-flashx"
-  | "air" -> "glm-4.5-air"
-  | "ocr" -> "glm-ocr"
-  (* already concrete -> pass through *)
-  | _ -> model_id
+  Zai_catalog.resolve_glm_alias
+    ~default_model:(env_or "glm-5.1" "ZAI_DEFAULT_MODEL")
+    model_id
+
+let resolve_glm_coding_model_id model_id =
+  Zai_catalog.resolve_glm_coding_alias
+    ~default_model:(env_or "glm-4.7" "ZAI_CODING_DEFAULT_MODEL")
+    model_id
 
 (** Resolve "auto" and aliases to concrete model IDs.
     Cloud APIs generally require concrete model names, and local
@@ -70,6 +62,7 @@ let resolve_auto_model_id provider_name model_id =
       | None -> env_or model_id "OLLAMA_DEFAULT_MODEL"
     else model_id
   | "glm" -> resolve_glm_model_id model_id
+  | "glm-coding" -> resolve_glm_coding_model_id model_id
   | "gemini" ->
     if model_id = "auto" then env_or "gemini-2.5-flash" "GEMINI_DEFAULT_MODEL"
     else model_id

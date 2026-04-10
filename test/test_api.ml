@@ -213,6 +213,133 @@ let test_build_openai_body_omits_qwen_only_fields_for_generic_compat () =
   check bool "tools preserved" true
     (List.mem_assoc "tools" assoc)
 
+let test_build_openai_body_uses_glm_thinking_and_auto_tool_choice () =
+  let provider_config = {
+    Provider.provider = Provider.OpenAICompat {
+      base_url = Llm_provider.Zai_catalog.general_base_url;
+      auth_header = None;
+      path = "/chat/completions";
+      static_token = None;
+    };
+    model_id = "glm-5";
+    api_key_env = "";
+  } in
+  let state = {
+    Types.config = {
+      Types.default_config with
+      model = provider_config.model_id;
+      enable_thinking = Some true;
+      tool_choice = Some (Types.Tool "calculator");
+    };
+    messages = [];
+    turn_count = 0;
+    usage = Types.empty_usage;
+  } in
+  let tool_json =
+    `Assoc [
+      ("name", `String "calculator");
+      ("description", `String "math");
+      ("input_schema", `Assoc [("type", `String "object")]);
+    ]
+  in
+  let json =
+    Api.build_openai_body ~provider_config ~config:state ~messages:[]
+      ~tools:[tool_json] ()
+    |> Yojson.Safe.from_string
+  in
+  let open Yojson.Safe.Util in
+  let thinking = json |> member "thinking" in
+  check string "thinking enabled" "enabled"
+    (thinking |> member "type" |> to_string);
+  check bool "clear_thinking default true" true
+    (thinking |> member "clear_thinking" |> to_bool);
+  check string "glm tool choice coerced" "auto"
+    (json |> member "tool_choice" |> to_string)
+
+let test_build_openai_body_does_not_treat_non_zai_glm_as_glm () =
+  let provider_config = {
+    Provider.provider = Provider.OpenAICompat {
+      base_url = "https://openrouter.ai/api/v1";
+      auth_header = None;
+      path = "/chat/completions";
+      static_token = None;
+    };
+    model_id = "glm-5";
+    api_key_env = "";
+  } in
+  let state = {
+    Types.config = {
+      Types.default_config with
+      model = provider_config.model_id;
+      enable_thinking = Some true;
+      tool_choice = Some (Types.Tool "calculator");
+    };
+    messages = [];
+    turn_count = 0;
+    usage = Types.empty_usage;
+  } in
+  let tool_json =
+    `Assoc [
+      ("name", `String "calculator");
+      ("description", `String "math");
+      ("input_schema", `Assoc [("type", `String "object")]);
+    ]
+  in
+  let json =
+    Api.build_openai_body ~provider_config ~config:state ~messages:[]
+      ~tools:[tool_json] ()
+    |> Yojson.Safe.from_string
+  in
+  let open Yojson.Safe.Util in
+  let assoc = to_assoc json in
+  check bool "thinking omitted for non-zai glm" false
+    (List.mem_assoc "thinking" assoc);
+  check bool "chat_template_kwargs omitted for non-zai glm" false
+    (List.mem_assoc "chat_template_kwargs" assoc);
+  match json |> member "tool_choice" with
+  | `Assoc _ -> ()
+  | _ -> fail "non-zai glm tool_choice should preserve named function form"
+
+let test_build_openai_body_glm_tool_choice_none_omits_tools () =
+  let provider_config = {
+    Provider.provider = Provider.OpenAICompat {
+      base_url = Llm_provider.Zai_catalog.general_base_url;
+      auth_header = None;
+      path = "/chat/completions";
+      static_token = None;
+    };
+    model_id = "glm-5";
+    api_key_env = "";
+  } in
+  let state = {
+    Types.config = {
+      Types.default_config with
+      model = provider_config.model_id;
+      tool_choice = Some Types.None_;
+    };
+    messages = [];
+    turn_count = 0;
+    usage = Types.empty_usage;
+  } in
+  let tool_json =
+    `Assoc [
+      ("name", `String "calculator");
+      ("description", `String "math");
+      ("input_schema", `Assoc [("type", `String "object")]);
+    ]
+  in
+  let json =
+    Api.build_openai_body ~provider_config ~config:state ~messages:[]
+      ~tools:[tool_json] ()
+    |> Yojson.Safe.from_string
+  in
+  let open Yojson.Safe.Util in
+  let assoc = to_assoc json in
+  check bool "tool_choice omitted for glm none" false
+    (List.mem_assoc "tool_choice" assoc);
+  check bool "tools omitted for glm none" false
+    (List.mem_assoc "tools" assoc)
+
 (* ------------------------------------------------------------------ *)
 (* parse_response                                                       *)
 (* ------------------------------------------------------------------ *)
@@ -795,6 +922,12 @@ let () =
       test_case "with qwen sampling" `Quick test_build_openai_body_with_qwen_sampling;
       test_case "generic compat omits qwen-only fields" `Quick
         test_build_openai_body_omits_qwen_only_fields_for_generic_compat;
+      test_case "glm thinking + auto tool choice" `Quick
+        test_build_openai_body_uses_glm_thinking_and_auto_tool_choice;
+      test_case "non-zai glm avoids glm path" `Quick
+        test_build_openai_body_does_not_treat_non_zai_glm_as_glm;
+      test_case "glm none tool_choice omits tools" `Quick
+        test_build_openai_body_glm_tool_choice_none_omits_tools;
       test_case "with cache_system_prompt" `Quick test_build_body_with_cache;
       test_case "tools cache_control with flag" `Quick test_build_body_tools_cache_control;
       test_case "tools no cache_control without flag" `Quick test_build_body_tools_no_cache_without_flag;

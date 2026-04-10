@@ -30,17 +30,39 @@ let cascade_model_timeout_sec : float =
 (** Per-kind cloud throttle singletons.  All callers contending for the
     same cloud provider kind share one semaphore, just like local providers
     share the Cascade_throttle table keyed by URL. *)
-let cloud_throttle_table : (Provider_config.provider_kind, Provider_throttle.t) Hashtbl.t =
+let cloud_throttle_table : (string, Provider_throttle.t) Hashtbl.t =
   Hashtbl.create 4
 let cloud_throttle_mu = Eio.Mutex.create ()
 
-let cloud_throttle_for_kind (kind : Provider_config.provider_kind) =
+let cloud_throttle_limit (cfg : Provider_config.t) =
+  match cfg.kind with
+  | Provider_config.Glm ->
+      if Zai_catalog.mode_of_base_url cfg.base_url = Zai_catalog.Coding_plan then
+        Zai_catalog.coding_concurrency_default
+      else
+        Zai_catalog.general_concurrency_for_model cfg.model_id
+  | kind ->
+      Provider_throttle.max_concurrent (Provider_throttle.default_for_kind kind)
+
+let cloud_throttle_key (cfg : Provider_config.t) =
+  match cfg.kind with
+  | Provider_config.Glm ->
+      Zai_catalog.throttle_key_for_chat
+        ~base_url:cfg.base_url ~model_id:cfg.model_id
+  | kind -> Provider_config.string_of_provider_kind kind
+
+let cloud_throttle_for_config (cfg : Provider_config.t) =
   Eio.Mutex.use_rw ~protect:true cloud_throttle_mu (fun () ->
-    match Hashtbl.find_opt cloud_throttle_table kind with
+    let key = cloud_throttle_key cfg in
+    match Hashtbl.find_opt cloud_throttle_table key with
     | Some t -> t
     | None ->
-      let t = Provider_throttle.default_for_kind kind in
-      Hashtbl.replace cloud_throttle_table kind t;
+      let t =
+        Provider_throttle.create
+          ~max_concurrent:(cloud_throttle_limit cfg)
+          ~provider_name:key
+      in
+      Hashtbl.replace cloud_throttle_table key t;
       t)
 
 (* ── Shared throttle resolution ──────────────────────── *)
@@ -56,7 +78,7 @@ let resolve_throttle ~throttle_override (cfg : Provider_config.t) =
     if Cascade_health_filter.is_local_provider cfg then
       Cascade_throttle.lookup cfg.base_url
     else
-      Some (cloud_throttle_for_kind cfg.kind)
+      Some (cloud_throttle_for_config cfg)
 
 (* ── Diagnostic logging ──────────────────────────────────── *)
 

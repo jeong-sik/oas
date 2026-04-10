@@ -11,9 +11,13 @@ let default_attrs ?(kind = Tracing.Agent_run) ?(name = "test")
   { kind; name; agent_name; turn; extra }
 
 let with_reset f () =
+  Otel_tracer.reset ();
+  Fun.protect ~finally:(fun () -> Otel_tracer.reset ()) f
+
+let with_eio_reset f () =
   Eio_main.run @@ fun _env ->
   Otel_tracer.reset ();
-  f ()
+  Fun.protect ~finally:(fun () -> Otel_tracer.reset ()) f
 
 (* -- span_lifecycle --------------------------------------------------- *)
 
@@ -360,9 +364,12 @@ let () =
       test_case "reset clears everything" `Quick (with_reset test_reset_clears_everything);
     ];
     "integration", [
-      test_case "create returns valid tracer" `Quick (with_reset test_create_returns_valid_tracer);
-      test_case "with_span works with otel" `Quick (with_reset test_with_span_works_with_otel);
-      test_case "interchangeable with null" `Quick (with_reset test_interchangeable_with_null);
+      test_case "create returns valid tracer" `Quick
+        (with_eio_reset test_create_returns_valid_tracer);
+      test_case "with_span works with otel" `Quick
+        (with_eio_reset test_with_span_works_with_otel);
+      test_case "interchangeable with null" `Quick
+        (with_eio_reset test_interchangeable_with_null);
     ];
 
     "edge_cases", [
@@ -403,8 +410,8 @@ let () =
         check int "active after reset" 0 (Otel_tracer.active_count ());
         check int "completed after reset" 0 (Otel_tracer.completed_count ())));
 
-      test_case "concurrent with_span via Eio fibers" `Quick (with_reset (fun () ->
-        (* Already inside Eio_main.run via with_reset *)
+      test_case "concurrent with_span via Eio fibers" `Quick (with_eio_reset (fun () ->
+        (* Already inside Eio_main.run via with_eio_reset *)
         let tracer = Otel_tracer.create_eio () in
         let results = Array.make 4 "" in
         Eio.Fiber.all (List.init 4 (fun i () ->

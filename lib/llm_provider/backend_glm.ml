@@ -19,28 +19,32 @@ exception Glm_api_error of string
 let build_request ?(stream=false) ~(config : Provider_config.t)
     ~(messages : message list) ?(tools : Yojson.Safe.t list = []) () =
   let base_body = Backend_openai.build_request ~stream ~config ~messages ~tools () in
-  match config.enable_thinking with
-  | Some true ->
-      (* GLM thinking uses a top-level "thinking" parameter:
-         {"thinking": {"type": "enabled", "clear_thinking": true}}
-         clear_thinking=true removes prior reasoning from context (saves tokens). *)
-      (match Yojson.Safe.from_string base_body with
-       | `Assoc fields ->
-           let thinking = `Assoc [
-             ("type", `String "enabled");
-             ("clear_thinking", `Bool true);
-           ] in
-           let fields = ("thinking", thinking) :: fields in
-           Yojson.Safe.to_string (`Assoc fields)
-       | _ -> base_body)
-  | Some false ->
-      (match Yojson.Safe.from_string base_body with
-       | `Assoc fields ->
-           let thinking = `Assoc [("type", `String "disabled")] in
-           let fields = ("thinking", thinking) :: fields in
-           Yojson.Safe.to_string (`Assoc fields)
-       | _ -> base_body)
-  | None -> base_body
+  match Yojson.Safe.from_string base_body with
+  | `Assoc fields ->
+      let fields =
+        match config.enable_thinking with
+        | Some true ->
+            let clear_thinking =
+              Option.value ~default:true config.clear_thinking
+            in
+            let thinking = `Assoc [
+              ("type", `String "enabled");
+              ("clear_thinking", `Bool clear_thinking);
+            ] in
+            ("thinking", thinking) :: fields
+        | Some false ->
+            let thinking = `Assoc [("type", `String "disabled")] in
+            ("thinking", thinking) :: fields
+        | None -> fields
+      in
+      let fields =
+        if stream && config.tool_stream then
+          ("tool_stream", `Bool true) :: fields
+        else
+          fields
+      in
+      Yojson.Safe.to_string (`Assoc fields)
+  | _ -> base_body
 
 (* ── Response parsing ────────────────────────────── *)
 
@@ -125,6 +129,17 @@ let%test "build_request with thinking injects correct format" =
   thinking |> member "type" |> to_string = "enabled"
   && thinking |> member "clear_thinking" |> to_bool = true
 
+let%test "build_request can preserve reasoning on demand" =
+  let config = Provider_config.make
+    ~kind:Glm ~model_id:"glm-5"
+    ~base_url:"https://api.z.ai/api/coding/paas/v4"
+    ~enable_thinking:true ~clear_thinking:false () in
+  let messages = [{ role = User; content = [Text "reason"]; name = None; tool_call_id = None }] in
+  let body = build_request ~config ~messages () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  json |> member "thinking" |> member "clear_thinking" |> to_bool = false
+
 let%test "build_request with thinking=false injects disabled" =
   let config = Provider_config.make
     ~kind:Glm ~model_id:"glm-4.5"
@@ -174,3 +189,14 @@ let%test "parse_stream_chunk delegates to openai" =
   match parse_stream_chunk data with
   | Some chunk -> chunk.delta_content = Some "hi"
   | None -> false
+
+let%test "build_request adds tool_stream when enabled" =
+  let config = Provider_config.make
+    ~kind:Glm ~model_id:"glm-5.1"
+    ~base_url:"https://api.z.ai/api/paas/v4"
+    ~tool_stream:true () in
+  let messages = [{ role = User; content = [Text "weather"]; name = None; tool_call_id = None }] in
+  let body = build_request ~stream:true ~config ~messages ~tools:[`Assoc [("name", `String "weather")]] () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  json |> member "tool_stream" |> to_bool
