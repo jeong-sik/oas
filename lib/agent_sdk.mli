@@ -28,6 +28,7 @@ module Context_intent = Context_intent
 module Budget_strategy = Budget_strategy
 module Tool = Tool
 module Typed_tool = Typed_tool
+module Correction_pipeline = Correction_pipeline
 module Mcp = Mcp
 module Mcp_http = Mcp_http
 module Mcp_session = Mcp_session
