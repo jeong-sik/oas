@@ -5,6 +5,22 @@
 
     @since 0.53.0 *)
 
+let is_glm_model_or_alias model_id =
+  let normalized = String.lowercase_ascii (String.trim model_id) in
+  Llm_provider.Zai_catalog.is_glm_model_id normalized
+  ||
+  match normalized with
+  | "auto"
+  | "flash"
+  | "turbo"
+  | "vision"
+  | "v"
+  | "vision-flash"
+  | "vf"
+  | "air"
+  | "ocr" -> true
+  | _ -> false
+
 let to_provider_config (legacy : Provider.config) : (Llm_provider.Provider_config.t, Error.sdk_error) result =
   match Provider.resolve legacy with
   | Error e -> Error e
@@ -14,7 +30,7 @@ let to_provider_config (legacy : Provider.config) : (Llm_provider.Provider_confi
         String.length m_lower >= 6 && String.sub m_lower 0 6 = "gemini"
       in
       let is_glm_model =
-        Llm_provider.Zai_catalog.is_glm_model_id m_lower
+        is_glm_model_or_alias m_lower
       in
       let is_zai_provider =
         Llm_provider.Zai_catalog.is_zai_base_url base_url
@@ -33,7 +49,11 @@ let to_provider_config (legacy : Provider.config) : (Llm_provider.Provider_confi
         | Llm_provider.Provider_config.Anthropic -> "claude"
         | Claude_code -> "claude"
         | Gemini -> "gemini"
-        | Glm -> "glm"
+        | Glm ->
+            if Llm_provider.Zai_catalog.is_coding_base_url base_url then
+              "glm-coding"
+            else
+              "glm"
         | OpenAI_compat -> "llama"
         | Ollama -> "ollama"
       in

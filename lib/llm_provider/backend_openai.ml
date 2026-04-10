@@ -34,10 +34,16 @@ let effective_tool_choice (config : Provider_config.t) =
   | _, Some choice -> Some (tool_choice_to_openai_json choice)
   | _, None -> None
 
+let effective_tools (config : Provider_config.t) tools =
+  match config.kind, config.tool_choice with
+  | Provider_config.Glm, Some None_ -> []
+  | _ -> tools
+
 (** Build OpenAI Chat Completions request body from {!Provider_config.t}.
     Returns a JSON string ready for HTTP POST. *)
 let build_request ?(stream=false) ~(config : Provider_config.t)
     ~(messages : message list) ?(tools : Yojson.Safe.t list = []) () =
+  let tools = effective_tools config tools in
   let provider_messages =
     (match config.system_prompt with
      | Some s when not (Api_common.string_is_blank s) ->
@@ -138,6 +144,25 @@ let%test "glm drops tool_choice none" =
     ~base_url:Zai_catalog.general_base_url
     ~tool_choice:None_ () in
   effective_tool_choice cfg = None
+
+let%test "glm drops tools when tool_choice none" =
+  let cfg = Provider_config.make
+    ~kind:Provider_config.Glm ~model_id:"glm-5"
+    ~base_url:Zai_catalog.general_base_url
+    ~tool_choice:None_ () in
+  let tool_json =
+    `Assoc [
+      ("name", `String "calculator");
+      ("description", `String "math");
+      ("input_schema", `Assoc [("type", `String "object")]);
+    ]
+  in
+  let json = build_request ~config:cfg ~messages:[] ~tools:[tool_json] ()
+             |> Yojson.Safe.from_string in
+  let open Yojson.Safe.Util in
+  let assoc = to_assoc json in
+  not (List.mem_assoc "tool_choice" assoc)
+  && not (List.mem_assoc "tools" assoc)
 
 let%test "strip_json_markdown_fences plain text unchanged" =
   strip_json_markdown_fences "{\"key\":\"value\"}" = "{\"key\":\"value\"}"

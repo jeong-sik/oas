@@ -238,6 +238,23 @@ let test_zai_glm5v_capabilities_include_image_input () =
   Alcotest.(check bool) "supports multimodal inputs" true
     capabilities.supports_multimodal_inputs
 
+let test_non_zai_glm_capabilities_stay_openai_compat () =
+  let cfg : Provider.config = {
+    provider = OpenAICompat {
+      base_url = "https://openrouter.ai/api/v1";
+      auth_header = None;
+      path = "/chat/completions";
+      static_token = None;
+    };
+    model_id = "glm-5";
+    api_key_env = "";
+  } in
+  let capabilities = Provider.capabilities_for_config cfg in
+  Alcotest.(check bool) "reasoning disabled" false
+    capabilities.supports_reasoning;
+  Alcotest.(check bool) "extended thinking disabled" false
+    capabilities.supports_extended_thinking
+
 let test_validate_inference_contract_rejects_unsupported_modality () =
   let cfg : Provider.config = {
     provider = Local { base_url = "http://127.0.0.1:8085" };
@@ -436,6 +453,8 @@ let () =
         test_inference_contract_task_video_generation;
       Alcotest.test_case "zai glm-5v image capabilities" `Quick
         test_zai_glm5v_capabilities_include_image_input;
+      Alcotest.test_case "non-zai glm stays openai compat" `Quick
+        test_non_zai_glm_capabilities_stay_openai_compat;
       Alcotest.test_case "invalid modality gets actionable error" `Quick
         test_validate_inference_contract_rejects_unsupported_modality;
       Alcotest.test_case "extended openai capabilities" `Quick

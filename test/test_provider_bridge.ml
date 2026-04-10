@@ -1,5 +1,18 @@
 (** Tests for Provider_bridge: legacy Provider.config -> Provider_config.t *)
 
+let with_env key value f =
+  let previous = Sys.getenv_opt key in
+  let restore () =
+    match previous with
+    | Some current -> Unix.putenv key current
+    | None -> Unix.putenv key ""
+  in
+  Fun.protect
+    ~finally:restore
+    (fun () ->
+      Unix.putenv key value;
+      f ())
+
 let test_anthropic_bridge () =
   let legacy = Agent_sdk.Provider.anthropic_sonnet () in
   match Agent_sdk.Provider_bridge.to_provider_config legacy with
@@ -87,6 +100,26 @@ let test_zai_glm_becomes_glm_provider_config () =
          | Ollama -> "ollama"
          | Claude_code -> "claude_code")
 
+let test_zai_coding_auto_uses_coding_default_model () =
+  with_env "ZAI_DEFAULT_MODEL" "glm-5.1" (fun () ->
+    with_env "ZAI_CODING_DEFAULT_MODEL" "glm-4.5-air" (fun () ->
+      let legacy = {
+        Agent_sdk.Provider.provider = OpenAICompat {
+          base_url = Llm_provider.Zai_catalog.coding_base_url;
+          auth_header = None;
+          path = "/chat/completions";
+          static_token = None;
+        };
+        model_id = "auto";
+        api_key_env = "";
+      } in
+      match Agent_sdk.Provider_bridge.to_provider_config legacy with
+      | Error _ ->
+          Alcotest.fail "z.ai coding provider should resolve without env var"
+      | Ok cfg ->
+          Alcotest.(check string) "coding auto model" "glm-4.5-air"
+            cfg.model_id))
+
 let () =
   let open Alcotest in
   run "provider_bridge" [
@@ -98,6 +131,8 @@ let () =
         test_non_zai_glm_stays_openai_compat;
       test_case "zai glm becomes glm" `Quick
         test_zai_glm_becomes_glm_provider_config;
+      test_case "zai coding auto uses coding default model" `Quick
+        test_zai_coding_auto_uses_coding_default_model;
     ];
     "cascade", [
       test_case "cascade bridge" `Quick test_cascade_bridge;

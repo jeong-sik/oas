@@ -58,6 +58,11 @@ let effective_tool_choice_json (capabilities : Provider.capabilities)
       Some (tool_choice_to_openai_json choice)
   | _ -> None
 
+let should_include_tools ?provider_config (config : agent_state) =
+  match config.config.tool_choice with
+  | Some Types.None_ when is_glm_request ?provider_config config -> false
+  | _ -> true
+
 let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
   let model_str = model_to_string config.config.model in
   let capabilities = capabilities_for_request ?provider_config config in
@@ -122,7 +127,10 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
   in
   let body_assoc =
     match tools with
-    | Some entries when entries <> [] && capabilities.supports_tools ->
+    | Some entries
+      when entries <> []
+           && capabilities.supports_tools
+           && should_include_tools ?provider_config config ->
         ("tools", `List (List.map build_openai_tool_json entries)) :: body_assoc
     | _ -> body_assoc
   in
