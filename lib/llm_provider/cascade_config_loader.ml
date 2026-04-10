@@ -8,35 +8,60 @@
 
 let config_cache : (string, float * Yojson.Safe.t) Hashtbl.t =
   Hashtbl.create 4
-let config_cache_mu = Eio.Mutex.create ()
+
+(** Stdlib Mutex — no Eio dependency. Keep the critical section limited to
+    cache access so file I/O and JSON parsing do not block unrelated fibers
+    longer than necessary when called from an Eio domain. *)
+let config_cache_mu = Mutex.create ()
+
+let with_cache_lock f =
+  Mutex.lock config_cache_mu;
+  Fun.protect ~finally:(fun () -> Mutex.unlock config_cache_mu) f
+
+let read_json_file path =
+  let ic = open_in path in
+  let content =
+    Fun.protect
+      ~finally:(fun () -> close_in_noerr ic)
+      (fun () ->
+         let len = in_channel_length ic in
+         let buf = Bytes.create len in
+         really_input ic buf 0 len;
+         Bytes.to_string buf)
+  in
+  Yojson.Safe.from_string content
 
 let load_json path =
-  Eio.Mutex.use_rw ~protect:true config_cache_mu (fun () ->
-    try
-      let st = Unix.stat path in
-      let mtime = st.Unix.st_mtime in
-      match Hashtbl.find_opt config_cache path with
-      | Some (cached_mtime, json) when Float.equal cached_mtime mtime ->
-        Ok json
-      | _ ->
-        let ic = open_in path in
-        let content = Fun.protect
-            ~finally:(fun () -> close_in_noerr ic)
-            (fun () ->
-               let len = in_channel_length ic in
-               let buf = Bytes.create len in
-               really_input ic buf 0 len;
-               Bytes.to_string buf)
-        in
-        let json = Yojson.Safe.from_string content in
-        Hashtbl.replace config_cache path (mtime, json);
-        Ok json
+  let rec load_current () =
+    let mtime = (Unix.stat path).Unix.st_mtime in
+    match with_cache_lock (fun () ->
+        match Hashtbl.find_opt config_cache path with
+        | Some (cached_mtime, json) when Float.equal cached_mtime mtime ->
+          Some json
+        | _ -> None)
     with
-    | Sys_error msg -> Error msg
-    | Unix.Unix_error (err, fn, arg) ->
-      Error (Printf.sprintf "%s(%s): %s" fn arg (Unix.error_message err))
-    | Yojson.Json_error msg -> Error (Printf.sprintf "JSON error: %s" msg)
-    | End_of_file -> Error "unexpected end of file")
+    | Some json -> Ok json
+    | None ->
+      let json = read_json_file path in
+      let refreshed_mtime = (Unix.stat path).Unix.st_mtime in
+      if not (Float.equal refreshed_mtime mtime) then
+        load_current ()
+      else
+        with_cache_lock (fun () ->
+            match Hashtbl.find_opt config_cache path with
+            | Some (cached_mtime, cached_json)
+              when Float.equal cached_mtime refreshed_mtime ->
+              Ok cached_json
+            | _ ->
+              Hashtbl.replace config_cache path (refreshed_mtime, json);
+              Ok json)
+  in
+  try load_current () with
+  | Sys_error msg -> Error msg
+  | Unix.Unix_error (err, fn, arg) ->
+    Error (Printf.sprintf "%s(%s): %s" fn arg (Unix.error_message err))
+  | Yojson.Json_error msg -> Error (Printf.sprintf "JSON error: %s" msg)
+  | End_of_file -> Error "unexpected end of file"
 
 let load_profile ~config_path ~name =
   let key = name ^ "_models" in
