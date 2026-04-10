@@ -64,13 +64,20 @@ let extract_tool_args ~tool_name (content : Types.content_block list) =
 let heal_tool_call ~tool_name ~schema ~tool_use_id ~args
     ~prior_messages ~llm ?(max_retries = 3) ?on_retry () =
   let rec loop attempt current_args current_id messages =
-    match validate_and_coerce ~tool_name ~schema current_args with
+    (* Run deterministic correction pipeline on EVERY attempt (idempotent).
+       This catches LLM retries that are still det-fixable. *)
+    let det_result = Correction_pipeline.run ~schema current_args in
+    let effective_args = match det_result with
+      | Correction_pipeline.Fixed { corrected; _ } -> corrected
+      | Correction_pipeline.Still_invalid _ -> current_args
+    in
+    match validate_and_coerce ~tool_name ~schema effective_args with
     | Pass ->
-      Ok { value = current_args; attempts = attempt + 1;
-           healed = attempt > 0 }
+      Ok { value = effective_args; attempts = attempt + 1;
+           healed = attempt > 0 || not (Yojson.Safe.equal effective_args current_args) }
     | Proceed coerced ->
       Ok { value = coerced; attempts = attempt + 1;
-           healed = attempt > 0 }
+           healed = attempt > 0 || not (Yojson.Safe.equal coerced current_args) }
     | Reject { message; _ } ->
       if attempt >= max_retries then
         Error (Exhausted {
@@ -80,6 +87,13 @@ let heal_tool_call ~tool_name ~schema ~tool_use_id ~args
         (match on_retry with
          | Some cb -> cb ~attempt:(attempt + 1) ~error:message
          | None -> ());
+        (* Reuse det_result from above — no duplicate pipeline run *)
+        let enriched_message = match det_result with
+          | Correction_pipeline.Still_invalid { errors; attempted } ->
+            Correction_pipeline.build_nondet_feedback
+              ~tool_name ~args:current_args ~still_invalid:errors ~attempted
+          | _ -> message
+        in
         let error_feedback : Types.message =
           { role = User;
             content = [
@@ -87,7 +101,7 @@ let heal_tool_call ~tool_name ~schema ~tool_use_id ~args
                 tool_use_id = current_id;
                 content = Printf.sprintf
                   "Validation failed (attempt %d/%d):\n%s\nFix the parameters and call the tool again."
-                  (attempt + 1) (max_retries + 1) message;
+                  (attempt + 1) (max_retries + 1) enriched_message;
                 is_error = true;
                 json = None;
               }];
