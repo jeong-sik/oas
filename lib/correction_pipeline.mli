@@ -2,13 +2,12 @@
 
     Exhausts all deterministic corrections before yielding to non-deterministic
     LLM retry. Enforces the Det/NonDet boundary at the function signature level:
-    {!nondet_retry} requires errors from a failed deterministic run.
+    {!build_nondet_feedback} requires errors from a failed deterministic run.
 
     Stage ordering (most specific first):
     1. Type coercion — delegates to {!Tool_input_validation.try_coerce}
     2. Default injection — fills missing optional fields from schema
-    3. Format normalization — trims whitespace, normalizes enum casing
-    4. Alias resolution — maps common field name misspellings
+    3. Format normalization — trims whitespace from string values
 
     Inspired by Typia's 3-layer harness (lenient parse → coercion → feedback).
 

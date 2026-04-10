@@ -2,8 +2,8 @@
 
     @since 0.120.0 *)
 
-(** Internal handler representation. The GADT preserves the type parameter
-    while allowing both simple and context-aware variants. *)
+(** Internal handler representation. Parametric variant — the type parameters
+    ['input] and ['output] are threaded through both constructors. *)
 type ('input, 'output) handler_kind =
   | Simple of ('input -> ('output, string) result)
   | WithContext of (Context.t -> 'input -> ('output, string) result)
@@ -19,10 +19,20 @@ type ('input, 'output) t = {
 (* ── Construction ───────────────────────────────────────── *)
 
 let create ~name ~description ~params ~parse ~handler ~encode ?descriptor () =
+  (match descriptor with
+   | None -> ()
+   | Some d -> match Tool.validate_descriptor d with
+     | Ok () -> ()
+     | Error msg -> invalid_arg ("Typed_tool.create: " ^ msg));
   let schema : Types.tool_schema = { name; description; parameters = params } in
   { schema; descriptor; parse; handler = Simple handler; encode }
 
 let create_with_context ~name ~description ~params ~parse ~handler ~encode ?descriptor () =
+  (match descriptor with
+   | None -> ()
+   | Some d -> match Tool.validate_descriptor d with
+     | Ok () -> ()
+     | Error msg -> invalid_arg ("Typed_tool.create: " ^ msg));
   let schema : Types.tool_schema = { name; description; parameters = params } in
   { schema; descriptor; parse; handler = WithContext handler; encode }
 

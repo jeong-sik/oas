@@ -64,14 +64,12 @@ let extract_tool_args ~tool_name (content : Types.content_block list) =
 let heal_tool_call ~tool_name ~schema ~tool_use_id ~args
     ~prior_messages ~llm ?(max_retries = 3) ?on_retry () =
   let rec loop attempt current_args current_id messages =
-    (* Phase 2: Run deterministic correction pipeline BEFORE validation.
-       This exhausts all det corrections before any NonDet LLM retry. *)
-    let effective_args = match attempt with
-      | 0 -> (
-        match Correction_pipeline.run ~schema current_args with
-        | Correction_pipeline.Fixed { corrected; _ } -> corrected
-        | Correction_pipeline.Still_invalid _ -> current_args)
-      | _ -> current_args  (* retries already have LLM-corrected args *)
+    (* Run deterministic correction pipeline on EVERY attempt (idempotent).
+       This catches LLM retries that are still det-fixable. *)
+    let det_result = Correction_pipeline.run ~schema current_args in
+    let effective_args = match det_result with
+      | Correction_pipeline.Fixed { corrected; _ } -> corrected
+      | Correction_pipeline.Still_invalid _ -> current_args
     in
     match validate_and_coerce ~tool_name ~schema effective_args with
     | Pass ->
@@ -89,8 +87,8 @@ let heal_tool_call ~tool_name ~schema ~tool_use_id ~args
         (match on_retry with
          | Some cb -> cb ~attempt:(attempt + 1) ~error:message
          | None -> ());
-        (* Enrich error feedback with correction pipeline context *)
-        let enriched_message = match Correction_pipeline.run ~schema current_args with
+        (* Reuse det_result from above — no duplicate pipeline run *)
+        let enriched_message = match det_result with
           | Correction_pipeline.Still_invalid { errors; attempted } ->
             Correction_pipeline.build_nondet_feedback
               ~tool_name ~args:current_args ~still_invalid:errors ~attempted

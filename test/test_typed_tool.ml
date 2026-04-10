@@ -94,8 +94,9 @@ let test_execute_handler_error () =
   | Ok _ -> Alcotest.fail "expected handler error"
   | Error e ->
     Alcotest.(check bool) "not recoverable" false e.recoverable;
-    Alcotest.(check bool) "mentions empty" true
-      (String.length e.message > 0)
+    Alcotest.(check bool) "contains 'empty'" true
+      (try let _ = Str.search_forward (Str.regexp_string "empty") e.message 0 in true
+       with Not_found -> false)
 
 let test_execute_parsed_success () =
   let input = `Assoc [("name", `String "OCaml")] in

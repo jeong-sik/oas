@@ -36,11 +36,11 @@ let coercion_apply (schema : Types.tool_schema) (input : Yojson.Safe.t) : Yojson
     let fields' = List.map (fun (k, v) ->
       match List.find_opt (fun (p : Types.tool_param) -> p.name = k) schema.parameters with
       | Some p ->
-        if Tool_input_validation.matches_type p.param_type v then (k, v)
-        else (
-          match Tool_input_validation.try_coerce p.param_type v with
-          | Some coerced -> (k, coerced)
-          | None -> (k, v))
+        (* Always attempt coercion — handles both type mismatches AND
+           normalizations like Intlit→Int even when matches_type is true. *)
+        (match Tool_input_validation.try_coerce p.param_type v with
+         | Some coerced when not (Yojson.Safe.equal coerced v) -> (k, coerced)
+         | _ -> (k, v))
       | None -> (k, v)
     ) fields in
     `Assoc fields'

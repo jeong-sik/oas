@@ -40,7 +40,7 @@
 
 (test
  (name test_typed_tool)
- (libraries agent_sdk alcotest yojson))
+ (libraries agent_sdk alcotest yojson str))
 
 (test
  (name test_correction_pipeline)
