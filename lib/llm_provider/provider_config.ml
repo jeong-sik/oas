@@ -99,7 +99,7 @@ let has_host_prefix ~url ~prefix =
   let next_index = prefix_len in
   String.length url = prefix_len
   || match url.[next_index] with
-     | ':' | '/' -> true
+     | ':' | '/' | '?' | '#' -> true
      | _ -> false
 
 let is_local (config : t) =

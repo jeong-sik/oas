@@ -128,6 +128,11 @@ let test_is_local_host_boundary_false () =
     ~model_id:"m" ~base_url:"http://localhostevil.com" () in
   check_bool "hostname boundary respected" false (Provider_config.is_local cfg)
 
+let test_is_local_localhost_query_true () =
+  let cfg = Provider_config.make ~kind:OpenAI_compat
+    ~model_id:"m" ~base_url:"http://localhost?foo=bar" () in
+  check_bool "localhost query is local" true (Provider_config.is_local cfg)
+
 (* ── Suite ────────────────────────────────────────────── *)
 
 let () =
@@ -153,5 +158,7 @@ let () =
       Alcotest.test_case "localhost" `Quick test_is_local_localhost;
       Alcotest.test_case "remote false" `Quick test_is_local_remote_false;
       Alcotest.test_case "host boundary false" `Quick test_is_local_host_boundary_false;
+      Alcotest.test_case "localhost query true" `Quick
+        test_is_local_localhost_query_true;
     ];
   ]

@@ -7,10 +7,6 @@ let ( let* ) = Result.bind
 
 let first_some = Util.first_some
 let _log = Log.create ~module_name:"runtime_server" ()
-let runtime_persist_failure_prefix = "[runtime_persist_failure phase="
-
-let encode_persist_failure_detail ~phase message =
-  Printf.sprintf "%s%s] %s" runtime_persist_failure_prefix phase message
 
 let log_participant_persist_failure ~session_id ~participant_name ~phase err =
   Log.error _log "participant event persistence failed"
@@ -214,7 +210,7 @@ let apply_command ~sw state store (session : session) command =
              with
              | Error err ->
                  let detail =
-                   encode_persist_failure_detail ~phase:"agent_became_live"
+                   Runtime_evidence.encode_persist_failure_detail ~phase:"agent_became_live"
                      (Printf.sprintf "failed to persist runtime-started event: %s"
                         (Error.to_string err))
                  in
@@ -240,7 +236,7 @@ let apply_command ~sw state store (session : session) command =
                      | Ok _ -> ()
                      | Error err ->
                          let detail =
-                           encode_persist_failure_detail ~phase:"agent_completed"
+                           Runtime_evidence.encode_persist_failure_detail ~phase:"agent_completed"
                              (Printf.sprintf
                                 "participant completed but completion event could not be persisted: %s"
                                 (Error.to_string err))

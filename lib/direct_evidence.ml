@@ -308,27 +308,6 @@ let apply_events initial_session (events : event list) =
 
 let make_event seq ts kind = { seq; ts; kind }
 
-let artifact_attached_event (artifact : Runtime.artifact) =
-  Artifact_attached
-    {
-      artifact_id = artifact.artifact_id;
-      name = artifact.name;
-      kind = artifact.kind;
-      mime_type = artifact.mime_type;
-      path = Option.value ~default:"" artifact.path;
-      size_bytes = artifact.size_bytes;
-    }
-
-let base_evidence_file_specs store session_id =
-  [
-    ("session_json", Runtime_store.session_path store session_id);
-    ("events_jsonl", Runtime_store.events_path store session_id);
-    ("report_json", Runtime_store.report_json_path store session_id);
-    ("report_md", Runtime_store.report_md_path store session_id);
-    ("proof_json", Runtime_store.proof_json_path store session_id);
-    ("proof_md", Runtime_store.proof_md_path store session_id);
-  ]
-
 let persist ~agent ~raw_trace ~(options : options) () =
   let cfg = (Agent.state agent).config in
   let snapshot = lifecycle_snapshot_or_default agent in
@@ -535,7 +514,7 @@ let persist ~agent ~raw_trace ~(options : options) () =
       in
       let evidence =
         Runtime_evidence.build_evidence_bundle ~session_id:options.session_id
-          (base_evidence_file_specs store options.session_id
+          (Runtime_evidence.base_evidence_file_specs store options.session_id
            @
            [
              ("telemetry_json", telemetry_json_path);
@@ -561,7 +540,7 @@ let persist ~agent ~raw_trace ~(options : options) () =
         |> List.mapi (fun index (artifact : Runtime.artifact) ->
                make_event (8 + List.length deltas + index)
                  (finished_at +. 0.003 +. (float_of_int index *. 0.001))
-                 (artifact_attached_event artifact))
+                 (Runtime_evidence.artifact_attached_event artifact))
       in
       let all_events = base_events @ artifact_events in
       let* final_session = apply_events initial_session all_events in
@@ -591,7 +570,7 @@ let persist ~agent ~raw_trace ~(options : options) () =
       in
       let final_evidence =
         Runtime_evidence.build_evidence_bundle ~session_id:options.session_id
-          (base_evidence_file_specs store options.session_id
+          (Runtime_evidence.base_evidence_file_specs store options.session_id
            @
            [
              ("telemetry_json", telemetry_json_path);

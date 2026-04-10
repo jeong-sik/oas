@@ -52,6 +52,34 @@ type evidence_bundle = {
 
 let now () = Unix.gettimeofday ()
 
+let encode_persist_failure_detail ~phase message =
+  Printf.sprintf "%s%s] %s" runtime_persist_failure_prefix phase message
+
+let append_dropped_output_deltas_summary ~summary ~dropped_output_deltas =
+  Printf.sprintf "%s\n\n%s%d" summary dropped_output_deltas_marker
+    dropped_output_deltas
+
+let artifact_attached_event (artifact : Runtime.artifact) =
+  Artifact_attached
+    {
+      artifact_id = artifact.artifact_id;
+      name = artifact.name;
+      kind = artifact.kind;
+      mime_type = artifact.mime_type;
+      path = Option.value ~default:"" artifact.path;
+      size_bytes = artifact.size_bytes;
+    }
+
+let base_evidence_file_specs store session_id =
+  [
+    ("session_json", Runtime_store.session_path store session_id);
+    ("events_jsonl", Runtime_store.events_path store session_id);
+    ("report_json", Runtime_store.report_json_path store session_id);
+    ("report_md", Runtime_store.report_md_path store session_id);
+    ("proof_json", Runtime_store.proof_json_path store session_id);
+    ("proof_md", Runtime_store.proof_md_path store session_id);
+  ]
+
 let find_last_substring_index ~needle haystack =
   let needle_len = String.length needle in
   let haystack_len = String.length haystack in

@@ -4,7 +4,6 @@ open Runtime_server_resolve
 
 let ( let* ) = Result.bind
 let _log = Log.create ~module_name:"runtime_server_worker" ()
-let dropped_output_deltas_marker = "[runtime telemetry] dropped_output_deltas="
 
 let unsupported_test_provider provider =
   Error.Config
@@ -31,27 +30,6 @@ let make_event (session : session) kind =
 let with_store_lock state f =
   Eio.Mutex.use_rw ~protect:true state.store_mu f
 
-let artifact_attached_event (artifact : Runtime.artifact) =
-  Artifact_attached
-    {
-      artifact_id = artifact.artifact_id;
-      name = artifact.name;
-      kind = artifact.kind;
-      mime_type = artifact.mime_type;
-      path = Option.value ~default:"" artifact.path;
-      size_bytes = artifact.size_bytes;
-    }
-
-let base_evidence_file_specs store session_id =
-  [
-    ("session_json", Runtime_store.session_path store session_id);
-    ("events_jsonl", Runtime_store.events_path store session_id);
-    ("report_json", Runtime_store.report_json_path store session_id);
-    ("report_md", Runtime_store.report_md_path store session_id);
-    ("proof_json", Runtime_store.proof_json_path store session_id);
-    ("proof_md", Runtime_store.proof_md_path store session_id);
-  ]
-
 let persist_event_locked store state (session : session) kind =
   let event = make_event session kind in
   let* projected = Runtime_projection.apply_event session event in
@@ -71,7 +49,8 @@ let persist_artifact_events_locked store state session
     (fun acc artifact ->
       let* session = acc in
       let* session, _ =
-        persist_event_locked store state session (artifact_attached_event artifact)
+        persist_event_locked store state session
+          (Runtime_evidence.artifact_attached_event artifact)
       in
       Ok session)
     (Ok session) artifacts
@@ -112,7 +91,7 @@ let generate_report_and_proof store state session_id =
       in
       let evidence =
         Runtime_evidence.build_evidence_bundle ~session_id
-          (base_evidence_file_specs store session_id
+          (Runtime_evidence.base_evidence_file_specs store session_id
            @
            [
              ("telemetry_json", telemetry_json_path);
@@ -163,7 +142,7 @@ let generate_report_and_proof store state session_id =
       in
       let final_evidence =
         Runtime_evidence.build_evidence_bundle ~session_id
-          (base_evidence_file_specs store session_id
+          (Runtime_evidence.base_evidence_file_specs store session_id
            @
            [
              ("telemetry_json", telemetry_json_path);
@@ -224,8 +203,8 @@ let run_participant store state session_id
   let finalize_summary summary =
     if !delta_error_count = 0 then summary
     else
-      Printf.sprintf "%s\n\n%s%d" summary dropped_output_deltas_marker
-        !delta_error_count
+      Runtime_evidence.append_dropped_output_deltas_summary ~summary
+        ~dropped_output_deltas:!delta_error_count
   in
   match resolution.selected_provider with
   | "mock" | "echo" ->

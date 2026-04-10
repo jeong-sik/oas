@@ -307,6 +307,21 @@ let test_config_of_provider_config_uppercase_localhost_delegates_to_ssot () =
   | _ ->
       Alcotest.fail "expected uppercase localhost config to resolve as local"
 
+let test_config_of_provider_config_localhost_query_delegates_to_ssot () =
+  let cfg =
+    Llm_provider.Provider_config.make
+      ~kind:Llm_provider.Provider_config.OpenAI_compat
+      ~model_id:"test-model"
+      ~base_url:"http://localhost?foo=bar"
+      ()
+  in
+  match Provider.config_of_provider_config cfg with
+  | { provider = Provider.Local { base_url }; _ } ->
+      Alcotest.(check string) "base_url preserved" "http://localhost?foo=bar"
+        base_url
+  | _ ->
+      Alcotest.fail "expected localhost query config to resolve as local"
+
 let test_openai_compat_static_token () =
   let cfg : Provider.config = {
     provider = OpenAICompat {
@@ -384,6 +399,8 @@ let () =
         test_config_of_provider_config_local_ollama_delegates_to_ssot;
       Alcotest.test_case "provider_config uppercase localhost" `Quick
         test_config_of_provider_config_uppercase_localhost_delegates_to_ssot;
+      Alcotest.test_case "provider_config localhost query" `Quick
+        test_config_of_provider_config_localhost_query_delegates_to_ssot;
     ];
     "openai_compat", [
       Alcotest.test_case "static token" `Quick test_openai_compat_static_token;
