@@ -16,6 +16,11 @@ val save_text_internal :
   content:string ->
   (descriptor, Error.sdk_error) result
 
+val persisted_path : descriptor -> (string, Error.sdk_error) result
+
+val overwrite_text_internal :
+  descriptor -> content:string -> (unit, Error.sdk_error) result
+
 val list :
   ?session_root:string ->
   session_id:string ->

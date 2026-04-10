@@ -308,6 +308,27 @@ let apply_events initial_session (events : event list) =
 
 let make_event seq ts kind = { seq; ts; kind }
 
+let artifact_attached_event (artifact : Runtime.artifact) =
+  Artifact_attached
+    {
+      artifact_id = artifact.artifact_id;
+      name = artifact.name;
+      kind = artifact.kind;
+      mime_type = artifact.mime_type;
+      path = Option.value ~default:"" artifact.path;
+      size_bytes = artifact.size_bytes;
+    }
+
+let base_evidence_file_specs store session_id =
+  [
+    ("session_json", Runtime_store.session_path store session_id);
+    ("events_jsonl", Runtime_store.events_path store session_id);
+    ("report_json", Runtime_store.report_json_path store session_id);
+    ("report_md", Runtime_store.report_md_path store session_id);
+    ("proof_json", Runtime_store.proof_json_path store session_id);
+    ("proof_md", Runtime_store.proof_md_path store session_id);
+  ]
+
 let persist ~agent ~raw_trace ~(options : options) () =
   let cfg = (Agent.state agent).config in
   let snapshot = lifecycle_snapshot_or_default agent in
@@ -503,16 +524,24 @@ let persist ~agent ~raw_trace ~(options : options) () =
         Artifact_service.save_text_internal store ~session_id:options.session_id
           ~name:"tool-catalog" ~kind:"json" ~content:tool_catalog_json
       in
+      let* telemetry_json_path =
+        Artifact_service.persisted_path telemetry_json_artifact
+      in
+      let* telemetry_md_path =
+        Artifact_service.persisted_path telemetry_md_artifact
+      in
+      let* tool_catalog_path =
+        Artifact_service.persisted_path tool_catalog_artifact
+      in
       let evidence =
         Runtime_evidence.build_evidence_bundle ~session_id:options.session_id
-          [
-            ("session_json", Runtime_store.session_path store options.session_id);
-            ("events_jsonl", Runtime_store.events_path store options.session_id);
-            ("report_json", Runtime_store.report_json_path store options.session_id);
-            ("report_md", Runtime_store.report_md_path store options.session_id);
-            ("proof_json", Runtime_store.proof_json_path store options.session_id);
-            ("proof_md", Runtime_store.proof_md_path store options.session_id);
-          ]
+          (base_evidence_file_specs store options.session_id
+           @
+           [
+             ("telemetry_json", telemetry_json_path);
+             ("telemetry_md", telemetry_md_path);
+             ("tool_catalog_json", tool_catalog_path);
+           ])
       in
       let evidence_json =
         Runtime_evidence.evidence_bundle_to_json evidence
@@ -532,24 +561,52 @@ let persist ~agent ~raw_trace ~(options : options) () =
         |> List.mapi (fun index (artifact : Runtime.artifact) ->
                make_event (8 + List.length deltas + index)
                  (finished_at +. 0.003 +. (float_of_int index *. 0.001))
-                 (Artifact_attached
-                    {
-                      artifact_id = artifact.artifact_id;
-                      name = artifact.name;
-                      kind = artifact.kind;
-                      mime_type = artifact.mime_type;
-                      path = Option.value ~default:"" artifact.path;
-                      size_bytes = artifact.size_bytes;
-                    }))
+                 (artifact_attached_event artifact))
       in
       let all_events = base_events @ artifact_events in
       let* final_session = apply_events initial_session all_events in
       let final_report = Runtime_projection.build_report final_session all_events in
       let final_proof = Runtime_projection.build_proof final_session all_events in
+      let final_telemetry =
+        Runtime_evidence.build_telemetry_report final_session all_events
+      in
+      let final_telemetry_json =
+        Runtime_evidence.telemetry_report_to_json final_telemetry
+        |> Yojson.Safe.pretty_to_string
+      in
+      let final_telemetry_md =
+        Runtime_evidence.telemetry_report_to_markdown final_telemetry
+      in
       let* () = Runtime_store.save_session store final_session in
       let* () = save_events store options.session_id all_events in
       let* () = Runtime_store.save_report store final_report in
       let* () = Runtime_store.save_proof store final_proof in
+      let* () =
+        Artifact_service.overwrite_text_internal telemetry_json_artifact
+          ~content:final_telemetry_json
+      in
+      let* () =
+        Artifact_service.overwrite_text_internal telemetry_md_artifact
+          ~content:final_telemetry_md
+      in
+      let final_evidence =
+        Runtime_evidence.build_evidence_bundle ~session_id:options.session_id
+          (base_evidence_file_specs store options.session_id
+           @
+           [
+             ("telemetry_json", telemetry_json_path);
+             ("telemetry_md", telemetry_md_path);
+             ("tool_catalog_json", tool_catalog_path);
+           ])
+      in
+      let final_evidence_json =
+        Runtime_evidence.evidence_bundle_to_json final_evidence
+        |> Yojson.Safe.pretty_to_string
+      in
+      let* () =
+        Artifact_service.overwrite_text_internal evidence_artifact
+          ~content:final_evidence_json
+      in
         Sessions.get_proof_bundle ?session_root:options.session_root
           ~session_id:options.session_id ()
 

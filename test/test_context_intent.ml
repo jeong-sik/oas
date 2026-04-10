@@ -117,6 +117,43 @@ let test_prompt_mentions_all_categories () =
       "coordination";
     ]
 
+let test_classify_hybrid_requires_explicit_fallback () =
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  let provider =
+    {
+      Provider.provider =
+        Provider.OpenAICompat
+          {
+            base_url = "http://";
+            auth_header = None;
+            path = "/v1/chat/completions";
+            static_token = None;
+          };
+      model_id = "gpt-4.1";
+      api_key_env = "";
+    }
+  in
+  let fallback _query =
+    {
+      Context_intent.intent = Context_intent.Coordination;
+      depth = Context_intent.Light;
+      confidence = 0.37;
+      rationale = Some "explicit fallback";
+    }
+  in
+  match
+    Context_intent.classify_hybrid ~sw ~net:env#net ~provider
+      ~config:Types.default_config ~fallback "status?"
+  with
+  | Ok classified ->
+      check string "intent" "coordination"
+        (Context_intent.intent_to_string classified.intent);
+      check (float 0.0001) "confidence" 0.37 classified.confidence;
+      check (option string) "rationale" (Some "explicit fallback")
+        classified.rationale
+  | Error detail -> fail (Error.to_string detail)
+
 let () =
   run "Context_intent"
     [
@@ -138,5 +175,11 @@ let () =
           test_case "coordination generic" `Quick test_heuristic_coordination_generic;
           test_case "no reserved keywords" `Quick test_no_reserved_keywords_in_heuristic;
         ] );
-      ("prompt", [ test_case "mentions categories" `Quick test_prompt_mentions_all_categories ]);
+      ( "prompt",
+        [
+          test_case "mentions categories" `Quick
+            test_prompt_mentions_all_categories;
+          test_case "explicit fallback required" `Quick
+            test_classify_hybrid_requires_explicit_fallback;
+        ] );
     ]

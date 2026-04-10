@@ -22,6 +22,8 @@ type telemetry_step = {
   artifact_kind: string option;
   checkpoint_label: string option;
   outcome: string option;
+  dropped_output_deltas: int option;
+  persistence_failure_phase: string option;
 }
 
 type telemetry_report = {
@@ -30,6 +32,10 @@ type telemetry_report = {
   step_count: int;
   event_counts: (string * int) list;
   event_name_counts: (string * int) list;
+  dropped_output_deltas: int;
+  persistence_failure_count: int;
+  participants_with_dropped_output_deltas: string list;
+  participants_with_persistence_failures: string list;
   steps: telemetry_step list;
 }
 

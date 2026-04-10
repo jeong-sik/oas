@@ -1,5 +1,7 @@
 open Agent_sdk
 
+let () = Unix.putenv "OAS_ALLOW_TEST_PROVIDERS" "1"
+
 let runtime_path () =
   match Sys.getenv_opt "OAS_RUNTIME_PATH" with
   | Some value when String.trim value <> "" -> String.trim value

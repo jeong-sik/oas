@@ -6,6 +6,14 @@
 
 type t = { base_dir: Eio.Fs.dir_ty Eio.Path.t }
 
+let _log = Log.create ~module_name:"memory_file_backend" ()
+
+let warn_backend_issue ~op ~path exn =
+  Log.warn _log "memory backend operation failed"
+    [ Log.S ("op", op);
+      Log.S ("path", path);
+      Log.S ("error", Printexc.to_string exn) ]
+
 (* ── Key encoding ────────────────────────────────────────────── *)
 
 (** Encode a key as a hex string for filesystem safety.
@@ -74,7 +82,17 @@ let retrieve t ~key =
     let data = Eio.Path.load path in
     Some (Yojson.Safe.from_string data)
   with
-  | _ -> None
+  | Eio.Cancel.Cancelled _ as e -> raise e
+  | Eio.Io (Eio.Fs.E (Not_found _), _) -> None
+  | Yojson.Json_error _ as exn ->
+      warn_backend_issue ~op:"retrieve_parse" ~path:key exn;
+      None
+  | Eio.Io _ as exn ->
+      warn_backend_issue ~op:"retrieve" ~path:key exn;
+      None
+  | Unix.Unix_error _ as exn ->
+      warn_backend_issue ~op:"retrieve" ~path:key exn;
+      None
 
 let remove t ~key =
   let path = file_path t key in
@@ -126,7 +144,11 @@ let query t ~prefix ~limit =
         in
         take limit [] lst
       else lst)
-  with _ -> []
+  with
+  | Eio.Cancel.Cancelled _ as e -> raise e
+  | exn ->
+      warn_backend_issue ~op:"query" ~path:prefix exn;
+      []
 
 (* ── Backend conversion ──────────────────────────────────────── *)
 
@@ -152,18 +174,42 @@ let keys t =
         hex_decode (String.sub name 0 (len - 5))
       else None)
     |> List.sort String.compare
-  with _ -> []
+  with
+  | Eio.Cancel.Cancelled _ as e -> raise e
+  | exn ->
+      warn_backend_issue ~op:"keys" ~path:"memory_dir" exn;
+      []
 
 let entry_count t = List.length (keys t)
 
 let clear t =
   try
     let entries = Eio.Path.read_dir t.base_dir in
-    List.iter (fun name ->
-      let path = Eio.Path.(t.base_dir / name) in
-      (try Eio.Path.unlink path with _ -> ())
-    ) entries;
-    Ok ()
+    let failures =
+      List.filter_map
+        (fun name ->
+          let path = Eio.Path.(t.base_dir / name) in
+          try
+            Eio.Path.unlink path;
+            None
+          with
+          | Eio.Cancel.Cancelled _ as e -> raise e
+          | exn ->
+              warn_backend_issue ~op:"clear_entry" ~path:name exn;
+              Some (Printf.sprintf "%s: %s" name (Printexc.to_string exn)))
+        entries
+    in
+    (match failures with
+     | [] -> Ok ()
+     | errs ->
+         Error
+           (Error.Io
+              (FileOpFailed
+                 {
+                   op = "clear";
+                   path = "memory_dir";
+                   detail = String.concat "; " errs;
+                 })))
   with
   | Eio.Cancel.Cancelled _ as e -> raise e
   | exn ->

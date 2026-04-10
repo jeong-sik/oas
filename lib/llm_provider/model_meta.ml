@@ -14,27 +14,13 @@ type t = {
   cost_per_1k_output : float;
 }
 
-(* ── Locality heuristic ──────────────────────────────── *)
-
-(** Known local model name fragments.
-    A model is considered local when its pricing is zero AND its
-    name matches one of these prefixes/fragments.  Unknown models
-    with zero pricing default to [false] (conservative). *)
-let local_model_fragments =
-  [ "qwen"; "llama"; "ollama"; "deepseek"; "phi-"; "mistral";
-    "gemma"; "yi-"; "internlm"; "codestral" ]
-
-let is_local_heuristic ~pricing model_id =
-  (* Must have zero cost (both directions) AND match a known local fragment *)
-  pricing.Pricing.input_per_million = 0.0 &&
-  pricing.Pricing.output_per_million = 0.0 &&
-  let id = String.lowercase_ascii model_id in
-  List.exists (fun frag -> Pricing.string_contains ~needle:frag id)
-    local_model_fragments
+let is_local = function
+  | `Local -> true
+  | `Remote -> false
 
 (* ── Constructors ────────────────────────────────────── *)
 
-let for_model_id model_id =
+let for_model_id ?(locality = `Remote) model_id =
   let caps = match Capabilities.for_model_id model_id with
     | Some c -> c
     | None -> Capabilities.default_capabilities
@@ -51,16 +37,22 @@ let for_model_id model_id =
   { model_id;
     capabilities = caps;
     pricing;
-    is_local = is_local_heuristic ~pricing model_id;
+    is_local = is_local locality;
     context_window;
     max_output_tokens;
     cost_per_1k_input = pricing.input_per_million /. 1000.0;
     cost_per_1k_output = pricing.output_per_million /. 1000.0;
   }
 
-let for_model_id_with_ctx model_id ~ctx_size =
+let for_provider_config (config : Provider_config.t) =
+  let locality =
+    if Provider_config.is_local config then `Local else `Remote
+  in
+  for_model_id ~locality config.model_id
+
+let for_model_id_with_ctx ?(locality = `Remote) model_id ~ctx_size =
   let ctx_size = max 1 ctx_size in  (* guard against zero/negative *)
-  let meta = for_model_id model_id in
+  let meta = for_model_id ~locality model_id in
   let max_out = min meta.max_output_tokens ctx_size in
   { meta with context_window = ctx_size;
               max_output_tokens = max_out;
@@ -82,8 +74,14 @@ let%test "claude-opus-4-6 is cloud with 1M context" =
   && not m.is_local
   && m.cost_per_1k_input > 0.0
 
-let%test "qwen3.5-35b is local with 262K context" =
+let%test "locality defaults to remote even for local-looking model ids" =
   let m = for_model_id "qwen3.5-35b" in
+  m.context_window = 262_144
+  && not m.is_local
+  && m.cost_per_1k_input = 0.0
+
+let%test "qwen3.5-35b can be marked local explicitly" =
+  let m = for_model_id ~locality:`Local "qwen3.5-35b" in
   m.context_window = 262_144
   && m.is_local
   && m.cost_per_1k_input = 0.0
@@ -107,17 +105,35 @@ let%test "gemini-2.5-flash has 1M context" =
   let m = for_model_id "gemini-2.5-flash" in
   m.context_window = 1_000_000
 
-let%test "deepseek-v3 is local" =
-  let m = for_model_id "deepseek-v3" in
+let%test "deepseek-v3 can be marked local explicitly" =
+  let m = for_model_id ~locality:`Local "deepseek-v3" in
   m.is_local
   && m.context_window = 128_000
 
-let%test "llama-4-maverick is local" =
-  let m = for_model_id "llama-4-maverick" in
+let%test "llama-4-maverick can be marked local explicitly" =
+  let m = for_model_id ~locality:`Local "llama-4-maverick" in
   m.is_local
 
+let%test "for_provider_config uses provider locality" =
+  let config =
+    Provider_config.make ~kind:OpenAI_compat ~model_id:"qwen3.5-35b"
+      ~base_url:Constants.Endpoints.default_url ()
+  in
+  let meta = for_provider_config config in
+  meta.is_local
+
+let%test "for_provider_config keeps remote local-looking model ids remote" =
+  let config =
+    Provider_config.make ~kind:OpenAI_compat ~model_id:"qwen3.5-35b"
+      ~base_url:"https://api.example.com" ()
+  in
+  let meta = for_provider_config config in
+  not meta.is_local
+
 let%test "for_model_id_with_ctx overrides context_window" =
-  let m = for_model_id_with_ctx "qwen3.5-35b" ~ctx_size:131_072 in
+  let m =
+    for_model_id_with_ctx ~locality:`Local "qwen3.5-35b" ~ctx_size:131_072
+  in
   m.context_window = 131_072
   && m.capabilities.max_context_tokens = Some 131_072
 
@@ -135,5 +151,5 @@ let%test "for_model_id_with_ctx clamps max_output" =
   && m.max_output_tokens <= 2000
 
 let%test "for_model_id_with_ctx guards zero" =
-  let m = for_model_id_with_ctx "qwen3.5-35b" ~ctx_size:0 in
+  let m = for_model_id_with_ctx ~locality:`Local "qwen3.5-35b" ~ctx_size:0 in
   m.context_window = 1

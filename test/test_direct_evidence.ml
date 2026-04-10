@@ -177,6 +177,27 @@ let test_direct_evidence_materializes_bundle () =
        (fun (hook : Sessions.hook_summary) ->
          String.equal hook.hook_name "on_stop")
        bundle.hook_summary);
+  Alcotest.(check bool) "structured telemetry tracks tool catalog artifact" true
+    (List.exists
+       (fun (step : Sessions.structured_telemetry_step) ->
+         String.equal step.event_name "artifact_attached"
+         && step.artifact_name = Some "tool-catalog")
+       bundle.structured_telemetry.steps);
+  Alcotest.(check bool) "evidence includes telemetry_json" true
+    (List.exists
+       (fun (file : Sessions.evidence_file) ->
+         String.equal file.label "telemetry_json")
+       bundle.evidence.files);
+  Alcotest.(check bool) "evidence includes telemetry_md" true
+    (List.exists
+       (fun (file : Sessions.evidence_file) ->
+         String.equal file.label "telemetry_md")
+       bundle.evidence.files);
+  Alcotest.(check bool) "evidence includes tool_catalog_json" true
+    (List.exists
+       (fun (file : Sessions.evidence_file) ->
+         String.equal file.label "tool_catalog_json")
+       bundle.evidence.files);
   let report =
     unwrap (Direct_evidence.get_conformance ~agent ~raw_trace ~options:(direct_options root) ())
   in

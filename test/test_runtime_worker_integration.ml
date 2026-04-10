@@ -18,6 +18,8 @@
 
 open Agent_sdk
 
+let () = Unix.putenv "OAS_ALLOW_TEST_PROVIDERS" "1"
+
 (* ── Temp dir helper ───────────────────────────────────────────── *)
 
 let with_temp_dir f =
@@ -464,7 +466,39 @@ let test_generate_report_and_proof_basic () =
       Alcotest.(check bool) "session has artifacts"
         true (List.length final_session.artifacts > 0);
       Alcotest.(check bool) "at least 3 artifacts"
-        true (List.length final_session.artifacts >= 3)
+        true (List.length final_session.artifacts >= 3);
+      let structured =
+        match Sessions.get_telemetry_structured ~session_root:dir ~session_id () with
+        | Ok telemetry -> telemetry
+        | Error e ->
+          Alcotest.fail
+            (Printf.sprintf "structured telemetry failed: %s"
+               (Error.to_string e))
+      in
+      Alcotest.(check bool) "telemetry tracks telemetry artifact attachment"
+        true
+        (List.exists
+           (fun (step : Sessions.structured_telemetry_step) ->
+             String.equal step.event_name "artifact_attached"
+             && step.artifact_name = Some "runtime-telemetry-json")
+           structured.steps);
+      let evidence =
+        match Sessions.get_evidence ~session_root:dir ~session_id () with
+        | Ok bundle -> bundle
+        | Error e ->
+          Alcotest.fail
+            (Printf.sprintf "evidence read failed: %s" (Error.to_string e))
+      in
+      Alcotest.(check bool) "evidence includes telemetry_json" true
+        (List.exists
+           (fun (file : Sessions.evidence_file) ->
+             String.equal file.label "telemetry_json")
+           evidence.files);
+      Alcotest.(check bool) "evidence includes telemetry_md" true
+        (List.exists
+           (fun (file : Sessions.evidence_file) ->
+             String.equal file.label "telemetry_md")
+           evidence.files)
     | Error e ->
       Alcotest.fail
         (Printf.sprintf "generate_report_and_proof failed: %s"

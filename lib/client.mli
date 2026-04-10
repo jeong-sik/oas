@@ -87,6 +87,7 @@ val default_options : options
 (** Connect to an OAS runtime process. *)
 val connect :
   sw:Eio.Switch.t ->
+  ?clock:float Eio.Time.clock_ty Eio.Resource.t ->
   mgr:_ Eio.Process.mgr ->
   ?options:options ->
   unit ->

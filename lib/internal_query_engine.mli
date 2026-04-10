@@ -8,6 +8,7 @@
 
 type t = {
   runtime: Runtime_client.t;
+  clock: float Eio.Time.clock_ty Eio.Resource.t option;
   mutable options: Sdk_client_types.options;
   mutable session_id: string option;
   mutable last_event_seq: int;
@@ -22,6 +23,7 @@ type t = {
 
 val connect :
   sw:Eio.Switch.t ->
+  ?clock:float Eio.Time.clock_ty Eio.Resource.t ->
   mgr:_ Eio.Process.mgr ->
   ?options:Sdk_client_types.options ->
   unit ->

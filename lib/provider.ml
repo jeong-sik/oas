@@ -415,14 +415,6 @@ let default_api_key_env_of_kind
     When [api_key] is empty, falls back to the well-known env var
     name for the provider kind (e.g. [ANTHROPIC_API_KEY]). *)
 let config_of_provider_config (pc : Llm_provider.Provider_config.t) : config =
-  let is_local url =
-    let starts p =
-      String.length url >= String.length p
-      && String.sub url 0 (String.length p) = p
-    in
-    starts Llm_provider.Constants.Endpoints.local_prefix
-    || starts Llm_provider.Constants.Endpoints.localhost_prefix
-  in
   let provider = match pc.kind with
     | Anthropic -> Anthropic
     | Gemini ->
@@ -432,7 +424,8 @@ let config_of_provider_config (pc : Llm_provider.Provider_config.t) : config =
       OpenAICompat { base_url = pc.base_url; auth_header = None;
                      path = pc.request_path; static_token = None }
     | OpenAI_compat | Ollama ->
-      if is_local pc.base_url then Local { base_url = pc.base_url }
+      if Llm_provider.Provider_config.is_local pc
+      then Local { base_url = pc.base_url }
       else OpenAICompat { base_url = pc.base_url; auth_header = None;
                           path = pc.request_path; static_token = None }
     | Claude_code ->

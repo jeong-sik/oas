@@ -90,3 +90,19 @@ let reasoning_effort_of_config (config : t) : string option =
                       ~enable_thinking:config.enable_thinking
                       ~thinking_budget:config.thinking_budget)
   | _ -> None
+
+let has_host_prefix ~url ~prefix =
+  let prefix_len = String.length prefix in
+  String.length url >= prefix_len
+  && String.sub url 0 prefix_len = prefix
+  &&
+  let next_index = prefix_len in
+  String.length url = prefix_len
+  || match url.[next_index] with
+     | ':' | '/' -> true
+     | _ -> false
+
+let is_local (config : t) =
+  let url = String.lowercase_ascii (String.trim config.base_url) in
+  has_host_prefix ~url ~prefix:Constants.Endpoints.local_prefix
+  || has_host_prefix ~url ~prefix:Constants.Endpoints.localhost_prefix

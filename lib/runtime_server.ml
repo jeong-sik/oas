@@ -6,6 +6,36 @@ open Runtime_server_worker
 let ( let* ) = Result.bind
 
 let first_some = Util.first_some
+let _log = Log.create ~module_name:"runtime_server" ()
+let runtime_persist_failure_prefix = "[runtime_persist_failure phase="
+
+let encode_persist_failure_detail ~phase message =
+  Printf.sprintf "%s%s] %s" runtime_persist_failure_prefix phase message
+
+let log_participant_persist_failure ~session_id ~participant_name ~phase err =
+  Log.error _log "participant event persistence failed"
+    [ Log.S ("session_id", session_id);
+      Log.S ("participant", participant_name);
+      Log.S ("phase", phase);
+      Log.S ("error", Error.to_string err) ]
+
+let persist_participant_failure store state ~session_id ~participant_name
+    ~provider ~model ~detail =
+  match
+    persist_event store state session_id
+      (Agent_failed
+         {
+           participant_name;
+           summary = None;
+           provider;
+           model;
+           error = Some detail;
+         })
+  with
+  | Ok _ -> ()
+  | Error err ->
+      log_participant_persist_failure ~session_id ~participant_name
+        ~phase:"agent_failed" err
 
 let rec read_control_response state control_id =
   match input_line stdin with
@@ -171,54 +201,69 @@ let apply_command ~sw state store (session : session) command =
         let participant_name = detail.participant_name in
         Eio.Fiber.fork ~sw (fun () ->
           try
-            ignore
-              (match
-                 persist_event store state session_id
-                   (Agent_became_live
-                      {
-                        participant_name;
-                        summary = Some "runtime-started";
-                        provider = resolution.resolved_provider;
-                        model = resolution.resolved_model;
-                        error = None;
-                      })
-               with
-               | Error _ -> Ok ()
-               | Ok _ -> (
-                   match
-                     run_participant store state session_id resolution detail
-                   with
-                   | Ok summary ->
-                       let* _session, _ =
-                         persist_event store state session_id
-                           (Agent_completed
-                              {
-                                participant_name;
-                                summary = Some summary;
-                                provider = resolution.resolved_provider;
-                                model = resolution.resolved_model;
-                                error = None;
-                              })
-                       in
-                       Ok ()
-                   | Error err ->
-                       let* _session, _ =
-                         persist_event store state session_id
-                           (Agent_failed
-                              {
-                                participant_name;
-                                summary = None;
-                                provider = resolution.resolved_provider;
-                                model = resolution.resolved_model;
-                                error = Some (Error.to_string err);
-                              })
-                       in
-                       Ok ()))
+            (match
+               persist_event store state session_id
+                 (Agent_became_live
+                    {
+                      participant_name;
+                      summary = Some "runtime-started";
+                      provider = resolution.resolved_provider;
+                      model = resolution.resolved_model;
+                      error = None;
+                    })
+             with
+             | Error err ->
+                 let detail =
+                   encode_persist_failure_detail ~phase:"agent_became_live"
+                     (Printf.sprintf "failed to persist runtime-started event: %s"
+                        (Error.to_string err))
+                 in
+                 log_participant_persist_failure ~session_id ~participant_name
+                   ~phase:"agent_became_live" err;
+                 persist_participant_failure store state ~session_id
+                   ~participant_name ~provider:resolution.resolved_provider
+                   ~model:resolution.resolved_model ~detail
+             | Ok _ -> (
+                 match run_participant store state session_id resolution detail with
+                 | Ok summary -> (
+                     match
+                       persist_event store state session_id
+                         (Agent_completed
+                            {
+                              participant_name;
+                              summary = Some summary;
+                              provider = resolution.resolved_provider;
+                              model = resolution.resolved_model;
+                              error = None;
+                            })
+                     with
+                     | Ok _ -> ()
+                     | Error err ->
+                         let detail =
+                           encode_persist_failure_detail ~phase:"agent_completed"
+                             (Printf.sprintf
+                                "participant completed but completion event could not be persisted: %s"
+                                (Error.to_string err))
+                         in
+                         log_participant_persist_failure ~session_id
+                           ~participant_name ~phase:"agent_completed" err;
+                         persist_participant_failure store state ~session_id
+                           ~participant_name
+                           ~provider:resolution.resolved_provider
+                           ~model:resolution.resolved_model ~detail)
+                 | Error err ->
+                     persist_participant_failure store state ~session_id
+                       ~participant_name ~provider:resolution.resolved_provider
+                       ~model:resolution.resolved_model
+                       ~detail:(Error.to_string err)))
           with
           | Eio.Cancel.Cancelled _ as ex -> raise ex
           | exn ->
-            Eio.traceln "Runtime_server: participant %s fork failed: %s"
-              participant_name (Printexc.to_string exn));
+              persist_participant_failure store state ~session_id
+                ~participant_name ~provider:resolution.resolved_provider
+                ~model:resolution.resolved_model
+                ~detail:(Printf.sprintf "participant fiber crashed: %s"
+                           (Printexc.to_string exn)));
         Ok (Command_applied session)
       end
   | Attach_artifact detail ->
