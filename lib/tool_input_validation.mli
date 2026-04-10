@@ -40,3 +40,14 @@ val format_errors : tool_name:string -> field_error list -> string
     Use this in heal_tool_call retry loops for higher recovery rates. *)
 val format_errors_inline :
   tool_name:string -> args:Yojson.Safe.t -> field_error list -> string
+
+(** {1 Low-level helpers (for Correction_pipeline)} *)
+
+(** Try to coerce a JSON value to the expected param_type.
+    Returns [Some coerced] on success, [None] if not coercible.
+    @since 0.120.0 *)
+val try_coerce : Types.param_type -> Yojson.Safe.t -> Yojson.Safe.t option
+
+(** Check if a JSON value matches the expected param_type.
+    @since 0.120.0 *)
+val matches_type : Types.param_type -> Yojson.Safe.t -> bool
