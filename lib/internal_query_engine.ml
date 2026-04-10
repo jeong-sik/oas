@@ -1,5 +1,6 @@
 type t = {
   runtime: Runtime_client.t;
+  clock: float Eio.Time.clock_ty Eio.Resource.t option;
   mutable options: Sdk_client_types.options;
   mutable session_id: string option;
   mutable last_event_seq: int;
@@ -37,11 +38,12 @@ let runtime_options options =
     cwd = options.cwd;
   }
 
-let connect ~sw ~mgr ?(options = Sdk_client_types.default_options) () =
+let connect ~sw ?clock ~mgr ?(options = Sdk_client_types.default_options) () =
   let* runtime = Runtime_client.connect ~sw ~mgr ~options:(runtime_options options) () in
   let state =
     {
       runtime;
+      clock;
       options;
       session_id = None;
       last_event_seq = 0;
@@ -83,6 +85,15 @@ let has_pending_messages state =
   Eio.Mutex.use_ro state.message_mu (fun () ->
     state.buffered_messages <> [])
 
+let wait_blocking state =
+  Eio.Mutex.use_rw ~protect:true state.message_mu (fun () ->
+    while state.buffered_messages = [] do
+      Eio.Condition.await state.message_cv state.message_mu
+    done;
+    let messages = state.buffered_messages in
+    state.buffered_messages <- [];
+    messages)
+
 let wait_for_messages ?timeout state =
   let drain_if_any () =
     Eio.Mutex.use_rw ~protect:true state.message_mu (fun () ->
@@ -95,26 +106,30 @@ let wait_for_messages ?timeout state =
   | Some messages -> messages
   | None -> (
       match timeout with
-      | None ->
-          Eio.Mutex.use_rw ~protect:true state.message_mu (fun () ->
-            while state.buffered_messages = [] do
-              Eio.Condition.await state.message_cv state.message_mu
-            done;
-            let messages = state.buffered_messages in
-            state.buffered_messages <- [];
-            messages)
+      | None -> wait_blocking state
+      | Some timeout_s when timeout_s <= 0.0 -> []
       | Some timeout_s ->
-          let deadline = Unix.gettimeofday () +. max 0.0 timeout_s in
-          let rec loop () =
-            match drain_if_any () with
-            | Some messages -> messages
-            | None ->
-                if Unix.gettimeofday () >= deadline then []
-                else (
-                  Eio.Fiber.yield ();
-                  loop ())
-          in
-          loop ())
+          (match state.clock with
+           | Some clock -> (
+               try
+                 Eio.Time.with_timeout_exn clock timeout_s (fun () ->
+                   wait_blocking state)
+               with Eio.Time.Timeout -> [])
+           | None ->
+               let deadline = Unix.gettimeofday () +. timeout_s in
+               let rec await_without_clock () =
+                 match drain_if_any () with
+                 | Some messages -> messages
+                 | None ->
+                     if Unix.gettimeofday () >= deadline then []
+                     else (
+                       (* No Eio clock was supplied, so fall back to a
+                          cooperative poll instead of blocking the runtime
+                          thread with Unix.sleepf. *)
+                       Eio.Fiber.yield ();
+                       await_without_clock ())
+               in
+               await_without_clock ()))
 
 let current_session_id state = state.session_id
 

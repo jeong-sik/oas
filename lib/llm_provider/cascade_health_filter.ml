@@ -25,16 +25,7 @@ let should_cascade_to_next err =
 (* ── Local provider detection ──────────────────────────── *)
 
 let is_local_provider (cfg : Provider_config.t) =
-  let url = String.lowercase_ascii cfg.base_url in
-  let len = String.length url in
-  let starts_with prefix =
-    let plen = String.length prefix in
-    len >= plen && String.sub url 0 plen = prefix
-  in
-  starts_with "http://127.0.0.1"
-  || starts_with "http://localhost:"
-  || starts_with "http://localhost/"
-  || url = "http://localhost"
+  Provider_config.is_local cfg
 
 (** Check whether a provider has credentials when required. *)
 let has_required_api_key (cfg : Provider_config.t) =

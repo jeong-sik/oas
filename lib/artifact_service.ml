@@ -66,6 +66,25 @@ let save_text_internal store ~session_id ~name ~kind ~content =
       created_at = Unix.gettimeofday ();
     }
 
+let persisted_path (artifact : descriptor) =
+  match artifact.path with
+  | Some path -> Ok path
+  | None ->
+      Error
+        (Error.Io
+           (FileOpFailed
+              {
+                op = "persisted_path";
+                path = artifact.artifact_id;
+                detail =
+                  Printf.sprintf "Artifact %S (%s) has no persisted file path"
+                    artifact.name artifact.artifact_id;
+              }))
+
+let overwrite_text_internal artifact ~content =
+  let* path = persisted_path artifact in
+  Runtime_store.save_text path content
+
 let list ?session_root ~session_id () =
   let* store = make_store ?session_root () in
   let* session = Runtime_store.load_session store session_id in

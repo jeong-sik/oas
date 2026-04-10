@@ -1,5 +1,8 @@
 open Runtime
 
+let runtime_persist_failure_prefix = "[runtime_persist_failure phase="
+let dropped_output_deltas_marker = "[runtime telemetry] dropped_output_deltas="
+
 type telemetry_step = {
   seq: int;
   ts: float;
@@ -16,6 +19,8 @@ type telemetry_step = {
   artifact_kind: string option;
   checkpoint_label: string option;
   outcome: string option;
+  dropped_output_deltas: int option;
+  persistence_failure_phase: string option;
 }
 
 type telemetry_report = {
@@ -24,6 +29,10 @@ type telemetry_report = {
   step_count: int;
   event_counts: (string * int) list;
   event_name_counts: (string * int) list;
+  dropped_output_deltas: int;
+  persistence_failure_count: int;
+  participants_with_dropped_output_deltas: string list;
+  participants_with_persistence_failures: string list;
   steps: telemetry_step list;
 }
 
@@ -42,6 +51,77 @@ type evidence_bundle = {
 }
 
 let now () = Unix.gettimeofday ()
+
+let encode_persist_failure_detail ~phase message =
+  Printf.sprintf "%s%s] %s" runtime_persist_failure_prefix phase message
+
+let append_dropped_output_deltas_summary ~summary ~dropped_output_deltas =
+  Printf.sprintf "%s\n\n%s%d" summary dropped_output_deltas_marker
+    dropped_output_deltas
+
+let artifact_attached_event (artifact : Runtime.artifact) =
+  Artifact_attached
+    {
+      artifact_id = artifact.artifact_id;
+      name = artifact.name;
+      kind = artifact.kind;
+      mime_type = artifact.mime_type;
+      path = Option.value ~default:"" artifact.path;
+      size_bytes = artifact.size_bytes;
+    }
+
+let base_evidence_file_specs store session_id =
+  [
+    ("session_json", Runtime_store.session_path store session_id);
+    ("events_jsonl", Runtime_store.events_path store session_id);
+    ("report_json", Runtime_store.report_json_path store session_id);
+    ("report_md", Runtime_store.report_md_path store session_id);
+    ("proof_json", Runtime_store.proof_json_path store session_id);
+    ("proof_md", Runtime_store.proof_md_path store session_id);
+  ]
+
+let find_last_substring_index ~needle haystack =
+  let needle_len = String.length needle in
+  let haystack_len = String.length haystack in
+  let rec loop idx =
+    if idx < 0 then None
+    else if String.sub haystack idx needle_len = needle then Some idx
+    else loop (idx - 1)
+  in
+  if needle_len = 0 || haystack_len < needle_len then None
+  else loop (haystack_len - needle_len)
+
+let dropped_output_deltas_of_text = function
+  | None -> None
+  | Some text ->
+      let text = String.trim text in
+      begin match find_last_substring_index ~needle:dropped_output_deltas_marker text with
+      | None -> None
+      | Some idx ->
+          let start = idx + String.length dropped_output_deltas_marker in
+          if start >= String.length text then None
+          else
+            let raw =
+              String.sub text start (String.length text - start) |> String.trim
+            in
+            match int_of_string_opt raw with
+            | Some n when n > 0 -> Some n
+            | _ -> None
+      end
+
+let persistence_failure_phase_of_text = function
+  | None -> None
+  | Some text ->
+      let text = String.trim text in
+      if not (String.starts_with ~prefix:runtime_persist_failure_prefix text)
+      then None
+      else
+        let start = String.length runtime_persist_failure_prefix in
+        match String.index_from_opt text start ']' with
+        | None -> None
+        | Some stop when stop > start ->
+            Some (String.sub text start (stop - start))
+        | Some _ -> None
 
 let participant_and_detail_of_event = function
   | Session_started _ -> (None, Some "session_started")
@@ -154,6 +234,8 @@ let build_telemetry_report (session : session) (events : event list) =
             checkpoint_label, outcome =
           structured_fields_of_event event.kind
         in
+        let dropped_output_deltas = dropped_output_deltas_of_text detail in
+        let persistence_failure_phase = persistence_failure_phase_of_text detail in
         {
           seq = event.seq;
           ts = event.ts;
@@ -170,8 +252,40 @@ let build_telemetry_report (session : session) (events : event list) =
           artifact_kind;
           checkpoint_label;
           outcome;
+          dropped_output_deltas;
+          persistence_failure_phase;
         })
       events
+  in
+  let dropped_output_deltas =
+    List.fold_left
+      (fun acc (step : telemetry_step) ->
+        acc + Option.value step.dropped_output_deltas ~default:0)
+      0 steps
+  in
+  let participants_with_dropped_output_deltas =
+    steps
+    |> List.filter_map (fun (step : telemetry_step) ->
+         match step.participant, step.dropped_output_deltas with
+         | Some participant, Some n when n > 0 -> Some participant
+         | _ -> None)
+    |> List.sort_uniq String.compare
+  in
+  let participants_with_persistence_failures =
+    steps
+    |> List.filter_map (fun (step : telemetry_step) ->
+         match step.participant, step.persistence_failure_phase with
+         | Some participant, Some _ -> Some participant
+         | _ -> None)
+    |> List.sort_uniq String.compare
+  in
+  let persistence_failure_count =
+    List.fold_left
+      (fun acc (step : telemetry_step) ->
+        match step.persistence_failure_phase with
+        | Some _ -> acc + 1
+        | None -> acc)
+      0 steps
   in
   {
     session_id = session.session_id;
@@ -179,6 +293,10 @@ let build_telemetry_report (session : session) (events : event list) =
     step_count = List.length steps;
     event_counts;
     event_name_counts;
+    dropped_output_deltas;
+    persistence_failure_count;
+    participants_with_dropped_output_deltas;
+    participants_with_persistence_failures;
     steps;
   }
 
@@ -188,6 +306,18 @@ let telemetry_report_to_json (report : telemetry_report) =
       ("session_id", `String report.session_id);
       ("generated_at", `Float report.generated_at);
       ("step_count", `Int report.step_count);
+      ("dropped_output_deltas", `Int report.dropped_output_deltas);
+      ("persistence_failure_count", `Int report.persistence_failure_count);
+      ( "participants_with_dropped_output_deltas",
+        `List
+          (List.map
+             (fun participant -> `String participant)
+             report.participants_with_dropped_output_deltas) );
+      ( "participants_with_persistence_failures",
+        `List
+          (List.map
+             (fun participant -> `String participant)
+             report.participants_with_persistence_failures) );
       ( "event_counts",
         `Assoc
           (List.map (fun (name, count) -> (name, `Int count)) report.event_counts)
@@ -256,6 +386,14 @@ let telemetry_report_to_json (report : telemetry_report) =
                      match step.outcome with
                      | Some value -> `String value
                      | None -> `Null );
+                   ( "dropped_output_deltas",
+                     match step.dropped_output_deltas with
+                     | Some value -> `Int value
+                     | None -> `Null );
+                   ( "persistence_failure_phase",
+                     match step.persistence_failure_phase with
+                     | Some value -> `String value
+                     | None -> `Null );
                  ])
              report.steps) );
     ]
@@ -279,9 +417,38 @@ let telemetry_report_to_markdown (report : telemetry_report) =
              | Some value when String.trim value <> "" -> value
              | _ -> "-"
            in
-           Printf.sprintf "- #%d %s participant=%s detail=%s"
-             step.seq step.kind participant detail)
+           let anomalies =
+             [
+               (match step.dropped_output_deltas with
+                | Some count ->
+                    Some (Printf.sprintf " dropped_output_deltas=%d" count)
+                | None -> None);
+               (match step.persistence_failure_phase with
+                | Some phase ->
+                    Some (Printf.sprintf " persistence_failure_phase=%s" phase)
+                | None -> None);
+             ]
+             |> List.filter_map (fun item -> item)
+             |> String.concat ""
+           in
+           Printf.sprintf "- #%d %s participant=%s detail=%s%s"
+             step.seq step.kind participant detail anomalies)
     |> String.concat "\n"
+  in
+  let anomaly_lines =
+    [
+      Printf.sprintf "- Dropped Output Deltas: %d" report.dropped_output_deltas;
+      Printf.sprintf "- Persistence Failures: %d"
+        report.persistence_failure_count;
+    ]
+    @
+    (report.participants_with_dropped_output_deltas
+    |> List.map (fun participant ->
+           Printf.sprintf "- dropped_output_deltas participant=%s" participant))
+    @
+    (report.participants_with_persistence_failures
+    |> List.map (fun participant ->
+           Printf.sprintf "- persistence_failure participant=%s" participant))
   in
   String.concat "\n"
     [
@@ -289,6 +456,9 @@ let telemetry_report_to_markdown (report : telemetry_report) =
       "";
       Printf.sprintf "- Session ID: %s" report.session_id;
       Printf.sprintf "- Step Count: %d" report.step_count;
+      "";
+      "## Anomalies";
+      String.concat "\n" anomaly_lines;
       "";
       "## Event Name Counts";
       (report.event_name_counts

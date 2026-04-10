@@ -22,6 +22,8 @@ type telemetry_step = {
   artifact_kind: string option;
   checkpoint_label: string option;
   outcome: string option;
+  dropped_output_deltas: int option;
+  persistence_failure_phase: string option;
 }
 
 type telemetry_report = {
@@ -30,6 +32,10 @@ type telemetry_report = {
   step_count: int;
   event_counts: (string * int) list;
   event_name_counts: (string * int) list;
+  dropped_output_deltas: int;
+  persistence_failure_count: int;
+  participants_with_dropped_output_deltas: string list;
+  participants_with_persistence_failures: string list;
   steps: telemetry_step list;
 }
 
@@ -48,6 +54,14 @@ type evidence_bundle = {
 }
 
 val now : unit -> float
+val runtime_persist_failure_prefix : string
+val dropped_output_deltas_marker : string
+val encode_persist_failure_detail : phase:string -> string -> string
+val append_dropped_output_deltas_summary :
+  summary:string -> dropped_output_deltas:int -> string
+val artifact_attached_event : Runtime.artifact -> Runtime.event_kind
+val base_evidence_file_specs :
+  Runtime_store.t -> string -> (string * string) list
 val build_telemetry_report : Runtime.session -> Runtime.event list -> telemetry_report
 val telemetry_report_to_json : telemetry_report -> Yojson.Safe.t
 val telemetry_report_to_markdown : telemetry_report -> string

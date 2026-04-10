@@ -19,9 +19,7 @@ type http_error =
 
 (* ── Internal helpers ──────────────────────────────────────── *)
 
-let make_client ~net =
-  let https = Api_common.make_https () in
-  Cohttp_eio.Client.make ~https net
+let ( let* ) = Result.bind
 
 let catch_network f =
   try f ()
@@ -32,6 +30,22 @@ let catch_network f =
       Error (NetworkError { message = Printexc.to_string exn })
   | Failure msg ->
       Error (NetworkError { message = msg })
+
+let parse_uri url =
+  try Ok (Uri.of_string url)
+  with Invalid_argument msg ->
+    Error (NetworkError { message = Printf.sprintf "invalid URL %S: %s" url msg })
+
+let log_close_failure ~url ~message =
+  let json =
+    `Assoc
+      [
+        ("event", `String "http_client_socket_close_failed");
+        ("url", `String url);
+        ("error", `String message);
+      ]
+  in
+  Printf.eprintf "%s\n%!" (Yojson.Safe.to_string json)
 
 (* Substring check on already-lowered strings. *)
 let has_substr haystack needle =
@@ -64,70 +78,97 @@ let add_connection_close headers =
   ("connection", "close") :: headers
 
 (** Client wrapper that tracks the socket for explicit close.
-    cohttp-eio's [Eio.Switch] cleanup does not reliably call
-    [Unix.close] on the underlying socket fd (observed on macOS,
-    cohttp-eio 6.1.1).  We intercept the connection factory via
-    [make_generic] to capture the socket, then close it explicitly
-    when the switch exits. *)
-let make_closing_client ~sw ~net =
+    The caller provides the concrete URI so host resolution and TLS
+    availability can be checked up front and reported as typed errors. *)
+let make_closing_client ~sw ~net ~uri =
   let net = (net :> [ `Generic ] Eio.Net.ty Eio.Resource.t) in
   let https = Api_common.make_https () in
-  (* Track the raw socket separately for explicit close.
-     The socket fd is the resource that leaks; closing it releases the fd. *)
-  let last_sock :
-    [ `Generic ] Eio.Net.stream_socket_ty Eio.Resource.t option ref =
-    ref None
+  let* host =
+    match Uri.host uri with
+    | Some host when String.trim host <> "" -> Ok host
+    | _ ->
+        Error
+          (NetworkError
+             {
+               message =
+                 Printf.sprintf "invalid URL %S: missing host" (Uri.to_string uri);
+             })
   in
-  let connect ~sw:conn_sw uri =
-    let service =
-      match Uri.port uri with
-      | Some port -> Int.to_string port
-      | _ -> Uri.scheme uri |> Option.value ~default:"http"
-    in
-    let addr =
-      match
-        Eio.Net.getaddrinfo_stream ~service net
-          (Uri.host_with_default ~default:"localhost" uri)
-      with
-      | ip :: _ -> ip
+  let service =
+    match Uri.port uri with
+    | Some port -> Int.to_string port
+    | None -> Uri.scheme uri |> Option.value ~default:"http"
+  in
+  let addr =
+    try
+      match Eio.Net.getaddrinfo_stream ~service net host with
+      | ip :: _ -> Ok ip
       | [] ->
-        (* Raised inside connect callback; caught by catch_network at
-           the public API boundary and converted to Error NetworkError. *)
-        failwith ("failed to resolve hostname: "
-          ^ Uri.host_with_default ~default:"(none)" uri)
-    in
-    let sock = Eio.Net.connect ~sw:conn_sw net addr in
-    last_sock := Some sock;
-    (* Return type must include `Close for cohttp-eio >= 6.2 make_generic *)
+          Error
+            (NetworkError
+               {
+                 message =
+                   Printf.sprintf "failed to resolve hostname: %s" host;
+               })
+    with
+    | Eio.Io _ as exn ->
+        Error (NetworkError { message = Printexc.to_string exn })
+    | Unix.Unix_error _ as exn ->
+        Error (NetworkError { message = Printexc.to_string exn })
+    | Failure msg -> Error (NetworkError { message = msg })
+  in
+  let tls_wrap =
     match Uri.scheme uri with
     | Some "https" -> (
         match https with
+        | Some wrap -> Ok (Some wrap)
+        | None ->
+            Error
+              (NetworkError
+                 {
+                   message =
+                     Printf.sprintf "HTTPS requested but TLS not available for %s"
+                       (Uri.to_string uri);
+                 }))
+    | _ -> Ok None
+  in
+  match addr, tls_wrap with
+  | Error _ as e, _ -> e
+  | _, (Error _ as e) -> e
+  | Ok addr, Ok tls_wrap ->
+      (* Track the raw socket separately for explicit close.
+         The socket fd is the resource that leaks; closing it releases the fd. *)
+      let last_sock :
+        [ `Generic ] Eio.Net.stream_socket_ty Eio.Resource.t option ref =
+        ref None
+      in
+      let connect ~sw:conn_sw _uri =
+        let sock = Eio.Net.connect ~sw:conn_sw net addr in
+        last_sock := Some sock;
+        match tls_wrap with
         | Some wrap ->
             (wrap uri sock
               :> [ `Close | `Flow | `R | `Shutdown | `W ] Eio.Resource.t)
-        | None ->
-          (* Raised inside connect callback; caught by catch_network. *)
-          failwith ("HTTPS requested but TLS not available for "
-            ^ Uri.to_string uri))
-    | _ -> (sock :> [ `Close | `Flow | `R | `Shutdown | `W ] Eio.Resource.t)
-  in
-  let client = Cohttp_eio.Client.make_generic connect in
-  Eio.Switch.on_release sw (fun () ->
-    match !last_sock with
-    | None -> ()
-    | Some sock ->
-        last_sock := None;
-        (try Eio.Net.close sock with
-         | Eio.Cancel.Cancelled _ as e -> raise e
-         | _exn -> (* Socket close failure is non-fatal but logged for FD leak diagnosis. *)
-           ()));
-  client
+        | None -> (sock :> [ `Close | `Flow | `R | `Shutdown | `W ] Eio.Resource.t)
+      in
+      let client = Cohttp_eio.Client.make_generic connect in
+      Eio.Switch.on_release sw (fun () ->
+        match !last_sock with
+        | None -> ()
+        | Some sock ->
+            last_sock := None;
+            (try Eio.Net.close sock with
+             | Eio.Cancel.Cancelled _ as e -> raise e
+             | exn ->
+                 log_close_failure ~url:(Uri.to_string uri)
+                   ~message:(Printexc.to_string exn)));
+      Ok client
 
 let get_sync ~sw:_ ~net ~url ~headers =
   catch_network (fun () ->
     Eio.Switch.run @@ fun sw ->
-    let client = make_closing_client ~sw ~net in
-    let uri = Uri.of_string url in
+    let* uri = parse_uri url in
+    let* client = make_closing_client ~sw ~net ~uri in
     let hdr = Http.Header.of_list (add_connection_close headers) in
     let resp, resp_body =
       Cohttp_eio.Client.get ~sw client ~headers:hdr uri
@@ -142,8 +183,8 @@ let get_sync ~sw:_ ~net ~url ~headers =
 let post_sync ~sw:_ ~net ~url ~headers ~body =
   catch_network (fun () ->
     Eio.Switch.run @@ fun sw ->
-    let client = make_closing_client ~sw ~net in
-    let uri = Uri.of_string url in
+    let* uri = parse_uri url in
+    let* client = make_closing_client ~sw ~net ~uri in
     (* Explicitly set Content-Length to prevent chunked transfer encoding.
        Ollama's yyjson parser rejects chunked bodies with
        "Value looks like object, but can't find closing '}' symbol". *)
@@ -165,9 +206,13 @@ let post_sync ~sw:_ ~net ~url ~headers ~body =
 
 let post_stream ~sw ~net ~url ~headers ~body =
   catch_network (fun () ->
-    let uri = Uri.of_string url in
-    let client = make_client ~net in
-    let hdr = Http.Header.of_list headers in
+    let* uri = parse_uri url in
+    let* client = make_closing_client ~sw ~net ~uri in
+    let headers_with_length =
+      ("content-length", string_of_int (String.length body))
+      :: add_connection_close headers
+    in
+    let hdr = Http.Header.of_list headers_with_length in
     let resp, resp_body =
       Cohttp_eio.Client.post ~sw client ~headers:hdr
         ~body:(Cohttp_eio.Body.of_string body) uri
@@ -185,8 +230,8 @@ let post_stream ~sw ~net ~url ~headers ~body =
 let with_post_stream ~net ~url ~headers ~body ~f =
   catch_network (fun () ->
     Eio.Switch.run @@ fun sw ->
-    let client = make_closing_client ~sw ~net in
-    let uri = Uri.of_string url in
+    let* uri = parse_uri url in
+    let* client = make_closing_client ~sw ~net ~uri in
     let headers_with_length =
       ("content-length", string_of_int (String.length body))
       :: add_connection_close headers

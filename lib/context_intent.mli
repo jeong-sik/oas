@@ -1,8 +1,8 @@
 (** Reusable query intent classification for OAS consumers.
 
     This module owns the normalized intent taxonomy, retrieval-depth mapping,
-    strict model-output parsing, and lightweight heuristic/model helpers.
-    Consumer-specific policy can stay outside OAS.
+    strict model-output parsing, and explicit model/fallback routing helpers.
+    Consumer-specific policy stays outside OAS.
 
     @stability Evolving
     @since 0.93.1 *)
@@ -33,7 +33,8 @@ val intent_to_string : intent -> string
 val intent_of_string : string -> (intent, string) result
 val depth_for_intent : intent -> retrieval_depth
 
-(** Fast zero-network classifier suitable for default routing gates. *)
+(** Explicit zero-network classifier suitable when the caller intentionally
+    wants heuristic routing without model assistance. *)
 val heuristic_classify : string -> classification
 
 (** Strict parser for model-produced JSON. *)
@@ -57,8 +58,9 @@ val classify_model :
   string ->
   (classification Structured.retry_result, Error.sdk_error) result
 
-(** Try model-assisted classification first, then fall back to heuristics on
-    any model/path failure. *)
+(** Try model-assisted classification first, then use a caller-supplied
+    fallback on any model/path failure. This function no longer applies
+    heuristic fallback implicitly. *)
 val classify_hybrid :
   sw:Eio.Switch.t ->
   net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
@@ -67,5 +69,6 @@ val classify_hybrid :
   ?clock:float Eio.Time.clock_ty Eio.Resource.t ->
   config:Types.agent_config ->
   ?max_retries:int ->
+  fallback:(string -> classification) ->
   string ->
   (classification, Error.sdk_error) result

@@ -141,6 +141,18 @@
 
 (test
  (name test_context_intent)
+ (libraries agent_sdk alcotest yojson eio eio_main))
+
+(test
+ (name test_runtime_server_resolve)
+ (libraries agent_sdk alcotest))
+
+(test
+ (name test_runtime_server_worker)
+ (libraries agent_sdk alcotest))
+
+(test
+ (name test_runtime_evidence)
  (libraries agent_sdk alcotest yojson))
 
 (test

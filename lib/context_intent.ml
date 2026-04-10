@@ -304,10 +304,10 @@ let classify_model ~sw ~net ?base_url ?provider ?clock ~config ?(max_retries = 2
     ~schema ~max_retries (prompt_for_query query)
 
 let classify_hybrid ~sw ~net ?base_url ?provider ?clock ~config
-    ?(max_retries = 2) query =
+    ?(max_retries = 2) ~fallback query =
   match
     classify_model ~sw ~net ?base_url ?provider ?clock ~config ~max_retries
       query
   with
   | Ok result -> Ok result.value
-  | Error _ -> Ok (heuristic_classify query)
+  | Error _ -> Ok (fallback query)

@@ -86,6 +86,23 @@ let test_read_sse_done_marker () =
   Alcotest.(check int) "1 event (DONE)" 1 (List.length !events);
   Alcotest.(check string) "data is DONE" "[DONE]" (snd (List.hd !events))
 
+let test_post_stream_invalid_url_returns_network_error () =
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  match
+    Http_client.post_stream ~sw ~net:env#net ~url:"http://"
+      ~headers:[ ("Content-Type", "application/json") ] ~body:"{}"
+  with
+  | Error (Http_client.NetworkError { message }) ->
+      Alcotest.(check bool) "mentions missing host" true
+        (Util.contains_substring_ci ~haystack:message ~needle:"missing host")
+  | Error (Http_client.AcceptRejected _) ->
+      Alcotest.fail "expected invalid URL to fail before headers are accepted"
+  | Error (Http_client.HttpError _) ->
+      Alcotest.fail "expected network error for invalid URL"
+  | Ok _ ->
+      Alcotest.fail "expected invalid URL to fail before opening a stream"
+
 let test_api_common_string_is_blank () =
   Alcotest.(check bool) "empty is blank" true (Api_common.string_is_blank "");
   Alcotest.(check bool) "spaces is blank" true (Api_common.string_is_blank "   ");
@@ -189,6 +206,8 @@ let () =
       Alcotest.test_case "basic events" `Quick test_read_sse_basic;
       Alcotest.test_case "empty lines" `Quick test_read_sse_empty_lines;
       Alcotest.test_case "DONE marker" `Quick test_read_sse_done_marker;
+      Alcotest.test_case "invalid url returns network error" `Quick
+        test_post_stream_invalid_url_returns_network_error;
     ]);
     ("api_common", [
       Alcotest.test_case "string_is_blank" `Quick test_api_common_string_is_blank;

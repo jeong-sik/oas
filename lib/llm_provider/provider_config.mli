@@ -77,3 +77,7 @@ val effort_of_thinking_config :
     Returns [None] for non-Ollama providers.
     @since 0.114.0 *)
 val reasoning_effort_of_config : t -> string option
+
+(** Whether the provider config points at a local loopback endpoint.
+    This is the SSOT for locality checks derived from runtime configuration. *)
+val is_local : t -> bool

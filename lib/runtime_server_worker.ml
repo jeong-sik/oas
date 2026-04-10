@@ -5,6 +5,16 @@ open Runtime_server_resolve
 let ( let* ) = Result.bind
 let _log = Log.create ~module_name:"runtime_server_worker" ()
 
+let unsupported_test_provider provider =
+  Error.Config
+    (Error.UnsupportedProvider
+       {
+         detail =
+           Printf.sprintf
+             "provider %S is test-only; set OAS_ALLOW_TEST_PROVIDERS=1 to enable it explicitly"
+             provider;
+       })
+
 let extract_text (resp : Types.api_response) =
   resp.content
   |> List.filter_map (function Types.Text s -> Some s | _ -> None)
@@ -33,6 +43,18 @@ let persist_event store state session_id kind =
       let* session = Runtime_store.load_session store session_id in
       persist_event_locked store state session kind)
 
+let persist_artifact_events_locked store state session
+    (artifacts : Runtime.artifact list) =
+  List.fold_left
+    (fun acc artifact ->
+      let* session = acc in
+      let* session, _ =
+        persist_event_locked store state session
+          (Runtime_evidence.artifact_attached_event artifact)
+      in
+      Ok session)
+    (Ok session) artifacts
+
 let generate_report_and_proof store state session_id =
   with_store_lock state (fun () ->
       let* session = Runtime_store.load_session store session_id in
@@ -51,21 +73,6 @@ let generate_report_and_proof store state session_id =
       let telemetry_md =
         Runtime_evidence.telemetry_report_to_markdown telemetry
       in
-      let evidence =
-        Runtime_evidence.build_evidence_bundle ~session_id
-          [
-            ("session_json", Runtime_store.session_path store session_id);
-            ("events_jsonl", Runtime_store.events_path store session_id);
-            ("report_json", Runtime_store.report_json_path store session_id);
-            ("report_md", Runtime_store.report_md_path store session_id);
-            ("proof_json", Runtime_store.proof_json_path store session_id);
-            ("proof_md", Runtime_store.proof_md_path store session_id);
-          ]
-      in
-      let evidence_json =
-        Runtime_evidence.evidence_bundle_to_json evidence
-        |> Yojson.Safe.pretty_to_string
-      in
       let* telemetry_json_artifact =
         Artifact_service.save_text_internal store ~session_id
           ~name:"runtime-telemetry-json" ~kind:"json"
@@ -76,48 +83,81 @@ let generate_report_and_proof store state session_id =
           ~name:"runtime-telemetry" ~kind:"markdown"
           ~content:telemetry_md
       in
+      let* telemetry_json_path =
+        Artifact_service.persisted_path telemetry_json_artifact
+      in
+      let* telemetry_md_path =
+        Artifact_service.persisted_path telemetry_md_artifact
+      in
+      let evidence =
+        Runtime_evidence.build_evidence_bundle ~session_id
+          (Runtime_evidence.base_evidence_file_specs store session_id
+           @
+           [
+             ("telemetry_json", telemetry_json_path);
+             ("telemetry_md", telemetry_md_path);
+           ])
+      in
+      let evidence_json =
+        Runtime_evidence.evidence_bundle_to_json evidence
+        |> Yojson.Safe.pretty_to_string
+      in
       let* evidence_artifact =
         Artifact_service.save_text_internal store ~session_id
           ~name:"runtime-evidence" ~kind:"json"
           ~content:evidence_json
       in
-      let* session, _ =
-        persist_event_locked store state session
-          (Artifact_attached
-             {
-               artifact_id = telemetry_json_artifact.artifact_id;
-               name = telemetry_json_artifact.name;
-               kind = telemetry_json_artifact.kind;
-               mime_type = telemetry_json_artifact.mime_type;
-               path = Option.value ~default:"" telemetry_json_artifact.path;
-               size_bytes = telemetry_json_artifact.size_bytes;
-             })
+      let artifacts =
+        [ telemetry_json_artifact; telemetry_md_artifact; evidence_artifact ]
       in
-      let* session, _ =
-        persist_event_locked store state session
-          (Artifact_attached
-             {
-               artifact_id = telemetry_md_artifact.artifact_id;
-               name = telemetry_md_artifact.name;
-               kind = telemetry_md_artifact.kind;
-               mime_type = telemetry_md_artifact.mime_type;
-               path = Option.value ~default:"" telemetry_md_artifact.path;
-               size_bytes = telemetry_md_artifact.size_bytes;
-             })
+      let* final_session =
+        persist_artifact_events_locked store state session artifacts
       in
-      let* session, _ =
-        persist_event_locked store state session
-          (Artifact_attached
-             {
-               artifact_id = evidence_artifact.artifact_id;
-               name = evidence_artifact.name;
-               kind = evidence_artifact.kind;
-               mime_type = evidence_artifact.mime_type;
-               path = Option.value ~default:"" evidence_artifact.path;
-               size_bytes = evidence_artifact.size_bytes;
-             })
+      let* final_events = Runtime_store.read_events store session_id () in
+      let final_report =
+        Runtime_projection.build_report final_session final_events
       in
-      Ok (session, report, proof))
+      let final_proof =
+        Runtime_projection.build_proof final_session final_events
+      in
+      let final_telemetry =
+        Runtime_evidence.build_telemetry_report final_session final_events
+      in
+      let final_telemetry_json =
+        Runtime_evidence.telemetry_report_to_json final_telemetry
+        |> Yojson.Safe.pretty_to_string
+      in
+      let final_telemetry_md =
+        Runtime_evidence.telemetry_report_to_markdown final_telemetry
+      in
+      let* () = Runtime_store.save_report store final_report in
+      let* () = Runtime_store.save_proof store final_proof in
+      let* () =
+        Artifact_service.overwrite_text_internal telemetry_json_artifact
+          ~content:final_telemetry_json
+      in
+      let* () =
+        Artifact_service.overwrite_text_internal telemetry_md_artifact
+          ~content:final_telemetry_md
+      in
+      let final_evidence =
+        Runtime_evidence.build_evidence_bundle ~session_id
+          (Runtime_evidence.base_evidence_file_specs store session_id
+           @
+           [
+             ("telemetry_json", telemetry_json_path);
+             ("telemetry_md", telemetry_md_path);
+           ])
+      in
+      let final_evidence_json =
+        Runtime_evidence.evidence_bundle_to_json final_evidence
+        |> Yojson.Safe.pretty_to_string
+      in
+      let* () =
+        Artifact_service.overwrite_text_internal evidence_artifact
+          ~content:final_evidence_json
+      in
+      Ok (final_session, final_report, final_proof))
 
 let emit_output_delta store state session_id participant_name delta =
   if String.trim delta = "" then Ok ()
@@ -131,10 +171,12 @@ let emit_output_delta store state session_id participant_name delta =
 let run_participant store state session_id
     (resolution : execution_resolution) (detail : spawn_agent_request) =
   let delta_warn_logged = ref false in
+  let delta_error_count = ref 0 in
   let emit_delta_text text =
     match emit_output_delta store state session_id detail.participant_name text with
     | Ok () -> ()
     | Error e ->
+      incr delta_error_count;
       if not !delta_warn_logged then begin
         delta_warn_logged := true;
 
@@ -158,8 +200,17 @@ let run_participant store state session_id
          Log.S ("error", Error.to_string e)];
       None
   in
+  let finalize_summary summary =
+    if !delta_error_count = 0 then summary
+    else
+      Runtime_evidence.append_dropped_output_deltas_summary ~summary
+        ~dropped_output_deltas:!delta_error_count
+  in
   match resolution.selected_provider with
   | "mock" | "echo" ->
+      if not (Defaults.allow_test_providers ()) then
+        Error (unsupported_test_provider resolution.selected_provider)
+      else
       let full =
         Printf.sprintf "Mock runtime response for %s: %s" detail.participant_name
           detail.prompt
@@ -187,7 +238,12 @@ let run_participant store state session_id
       let half = String.length full / 2 in
       emit_delta_text (String.sub full 0 half);
       emit_delta_text (String.sub full half (String.length full - half));
-      Ok full
+      if !delta_error_count > 0 then
+        Log.warn _log "participant completed with dropped output deltas"
+          [ Log.S ("session_id", session_id);
+            Log.S ("participant", detail.participant_name);
+            Log.I ("dropped_output_deltas", !delta_error_count) ];
+      Ok (finalize_summary full)
   | _ ->
       Eio.Switch.run @@ fun sw ->
       match Runtime_store.load_session store session_id with
@@ -225,84 +281,11 @@ let run_participant store state session_id
         | _ -> ()
       in
       match Agent.run_stream ~sw ~on_event agent detail.prompt with
-      | Ok response -> Ok (extract_text response)
+      | Ok response ->
+          if !delta_error_count > 0 then
+            Log.warn _log "participant completed with dropped output deltas"
+              [ Log.S ("session_id", session_id);
+                Log.S ("participant", detail.participant_name);
+                Log.I ("dropped_output_deltas", !delta_error_count) ];
+          Ok (finalize_summary (extract_text response))
       | Error err -> Error err
-
-[@@@coverage off]
-(* === Inline tests === *)
-
-(* --- extract_text --- *)
-
-let%test "extract_text: empty content" =
-  let resp = { Types.id = "r1"; model = "m"; stop_reason = Types.EndTurn;
-               content = []; usage = None; telemetry = None } in
-  extract_text resp = ""
-
-let%test "extract_text: single Text block" =
-  let resp = { Types.id = "r1"; model = "m"; stop_reason = Types.EndTurn;
-               content = [Types.Text "hello"]; usage = None; telemetry = None } in
-  extract_text resp = "hello"
-
-let%test "extract_text: multiple Text blocks joined by newline" =
-  let resp = { Types.id = "r1"; model = "m"; stop_reason = Types.EndTurn;
-               content = [Types.Text "hello"; Types.Text "world"]; usage = None; telemetry = None } in
-  extract_text resp = "hello\nworld"
-
-let%test "extract_text: non-Text blocks filtered out" =
-  let resp = { Types.id = "r1"; model = "m"; stop_reason = Types.EndTurn;
-               content = [
-                 Types.Text "before";
-                 Types.ToolUse { id = "t1"; name = "fn"; input = `Null };
-                 Types.Text "after";
-               ]; usage = None; telemetry = None } in
-  extract_text resp = "before\nafter"
-
-let%test "extract_text: only non-Text blocks returns empty" =
-  let resp = { Types.id = "r1"; model = "m"; stop_reason = Types.EndTurn;
-               content = [
-                 Types.ToolUse { id = "t1"; name = "fn"; input = `Null };
-                 Types.Thinking { thinking_type = "thinking"; content = "hmm" };
-               ]; usage = None; telemetry = None } in
-  extract_text resp = ""
-
-(* --- make_event --- *)
-
-let dummy_session : Runtime.session = {
-  session_id = "s1";
-  goal = "test";
-  title = None;
-  tag = None;
-  permission_mode = None;
-  phase = Runtime.Running;
-  created_at = 0.0;
-  updated_at = 0.0;
-  provider = None;
-  model = None;
-  system_prompt = None;
-  max_turns = 10;
-  workdir = None;
-  planned_participants = [];
-  participants = [];
-  artifacts = [];
-  votes = [];
-  turn_count = 0;
-  last_seq = 5;
-  outcome = None;
-}
-
-let%test "make_event: seq is last_seq + 1" =
-  let event = make_event dummy_session
-    (Session_started { goal = "test"; participants = [] }) in
-  event.seq = 6
-
-let%test "make_event: ts is positive" =
-  let event = make_event dummy_session
-    (Session_started { goal = "test"; participants = [] }) in
-  event.ts > 0.0
-
-let%test "make_event: kind is preserved" =
-  let event = make_event dummy_session
-    (Turn_recorded { actor = Some "alice"; message = "hi" }) in
-  match event.kind with
-  | Turn_recorded { actor = Some "alice"; message = "hi" } -> true
-  | _ -> false

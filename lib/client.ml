@@ -68,7 +68,7 @@ type t = Internal_query_engine.t
 
 let default_options = Sdk_client_types.default_options
 
-let connect ~sw ~mgr = Internal_query_engine.connect ~sw ~mgr
+let connect ~sw ?clock ~mgr = Internal_query_engine.connect ~sw ?clock ~mgr
 let query = Internal_query_engine.query_turn
 let has_pending_messages = Internal_query_engine.has_pending_messages
 let receive_messages = Internal_query_engine.receive_messages

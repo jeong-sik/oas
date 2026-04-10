@@ -106,6 +106,33 @@ let test_custom_headers () =
     ~headers:[("Auth", "Bearer x"); ("X-Custom", "val")] () in
   check_int "2 custom headers" 2 (List.length cfg.headers)
 
+(* ── locality ────────────────────────────────────────── *)
+
+let test_is_local_loopback_ip () =
+  let cfg = Provider_config.make ~kind:OpenAI_compat
+    ~model_id:"m" ~base_url:"http://127.0.0.1:8085" () in
+  check_bool "loopback ip is local" true (Provider_config.is_local cfg)
+
+let test_is_local_localhost () =
+  let cfg = Provider_config.make ~kind:OpenAI_compat
+    ~model_id:"m" ~base_url:"http://localhost/v1" () in
+  check_bool "localhost is local" true (Provider_config.is_local cfg)
+
+let test_is_local_remote_false () =
+  let cfg = Provider_config.make ~kind:OpenAI_compat
+    ~model_id:"m" ~base_url:"https://api.example.com" () in
+  check_bool "remote is not local" false (Provider_config.is_local cfg)
+
+let test_is_local_host_boundary_false () =
+  let cfg = Provider_config.make ~kind:OpenAI_compat
+    ~model_id:"m" ~base_url:"http://localhostevil.com" () in
+  check_bool "hostname boundary respected" false (Provider_config.is_local cfg)
+
+let test_is_local_localhost_query_true () =
+  let cfg = Provider_config.make ~kind:OpenAI_compat
+    ~model_id:"m" ~base_url:"http://localhost?foo=bar" () in
+  check_bool "localhost query is local" true (Provider_config.is_local cfg)
+
 (* ── Suite ────────────────────────────────────────────── *)
 
 let () =
@@ -125,5 +152,13 @@ let () =
     "explicit_values", [
       Alcotest.test_case "all options" `Quick test_make_with_all_options;
       Alcotest.test_case "custom headers" `Quick test_custom_headers;
+    ];
+    "locality", [
+      Alcotest.test_case "loopback ip" `Quick test_is_local_loopback_ip;
+      Alcotest.test_case "localhost" `Quick test_is_local_localhost;
+      Alcotest.test_case "remote false" `Quick test_is_local_remote_false;
+      Alcotest.test_case "host boundary false" `Quick test_is_local_host_boundary_false;
+      Alcotest.test_case "localhost query true" `Quick
+        test_is_local_localhost_query_true;
     ];
   ]

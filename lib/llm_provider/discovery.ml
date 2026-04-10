@@ -2,6 +2,18 @@
 
     @since 0.53.0 *)
 
+let warn_probe_failure ~url ~phase detail =
+  let json =
+    `Assoc
+      [
+        ("event", `String "llm_provider_discovery_probe_failed");
+        ("url", `String url);
+        ("phase", `String phase);
+        ("detail", `String detail);
+      ]
+  in
+  Printf.eprintf "%s\n%!" (Yojson.Safe.to_string json)
+
 type model_info = {
   id: string;
   owned_by: string;
@@ -174,7 +186,9 @@ let find_context_length (model_info : Yojson.Safe.t) : int =
     via /api/show. Returns synthetic server_props on success. *)
 let probe_ollama_context ~sw ~net base_url =
   match get_json ~sw ~net (base_url ^ "/api/tags") with
-  | Error _ -> None
+  | Error detail ->
+    warn_probe_failure ~url:base_url ~phase:"ollama_tags" detail;
+    None
   | Ok tags_json ->
     let open Yojson.Safe.Util in
     let models = match member "models" tags_json with
@@ -200,9 +214,31 @@ let probe_ollama_context ~sw ~net base_url =
            let ctx = find_context_length model_info in
            if ctx > 0 then
              Some { total_slots = 1; ctx_size = ctx; model = model_name }
-           else None
-         with _ -> None)
-      | _ -> None
+           else (
+             warn_probe_failure ~url:base_url ~phase:"ollama_show"
+               "model_info contained no usable context length";
+             None)
+         with
+         | Yojson.Json_error msg ->
+             warn_probe_failure ~url:base_url ~phase:"ollama_show_json" msg;
+             None
+         | Yojson.Safe.Util.Type_error (msg, _) ->
+             warn_probe_failure ~url:base_url ~phase:"ollama_show_parse" msg;
+             None)
+      | Ok (code, _) ->
+          warn_probe_failure ~url:base_url ~phase:"ollama_show_http"
+            (Printf.sprintf "HTTP %d" code);
+          None
+      | Error err ->
+          let detail =
+            match err with
+            | Http_client.HttpError { code; body } ->
+                Printf.sprintf "HTTP %d: %s" code body
+            | Http_client.NetworkError { message } -> message
+            | Http_client.AcceptRejected { reason } -> reason
+          in
+          warn_probe_failure ~url:base_url ~phase:"ollama_show_http" detail;
+          None
 
 (* ── Capability inference ────────────────────────────────── *)
 
@@ -249,6 +285,16 @@ let infer_capabilities models props =
 
 let probe_endpoint ~sw ~net url =
   let base = String.trim url in
+  let warn phase detail =
+    warn_probe_failure ~url:base ~phase detail
+  in
+  let capture_json phase parse target =
+    match get_json ~sw ~net target with
+    | Ok json -> parse json
+    | Error detail ->
+        warn phase detail;
+        None
+  in
   (* Try /health first (llama.cpp), fall back to / (Ollama returns 200) *)
   let healthy =
     get_ok ~sw ~net (base ^ "/health")
@@ -265,14 +311,16 @@ let probe_endpoint ~sw ~net url =
     let slots_ref = ref None in
     Eio.Fiber.all [
       (fun () ->
-        models_ref := match get_json ~sw ~net (base ^ "/v1/models") with
-          | Ok json -> parse_models json | Error _ -> []);
+        models_ref :=
+          (match get_json ~sw ~net (base ^ "/v1/models") with
+           | Ok json -> parse_models json
+           | Error detail ->
+               warn "models" detail;
+               []));
       (fun () ->
-        props_ref := match get_json ~sw ~net (base ^ "/props") with
-          | Ok json -> parse_props json | Error _ -> None);
+        props_ref := capture_json "props" parse_props (base ^ "/props"));
       (fun () ->
-        slots_ref := match get_json ~sw ~net (base ^ "/slots") with
-          | Ok json -> parse_slots json | Error _ -> None);
+        slots_ref := capture_json "slots" parse_slots (base ^ "/slots"));
     ];
     let models = !models_ref in
     let slots = !slots_ref in
