@@ -3,19 +3,6 @@
 open Alcotest
 open Llm_provider
 
-let with_env key value f =
-  let previous = Sys.getenv_opt key in
-  let restore () =
-    match previous with
-    | Some v -> Unix.putenv key v
-    | None -> Unix.putenv key ""
-  in
-  Fun.protect
-    ~finally:restore
-    (fun () ->
-      Unix.putenv key value;
-      f ())
-
 (* ── Registry CRUD ──────────────────────────────────── *)
 
 let test_empty_registry () =
@@ -228,23 +215,18 @@ let test_default_max_context () =
    | Some e -> check int "cc 200K" 200_000 e.max_context
    | None -> fail "cc should exist")
 
-let test_default_zai_base_url_override () =
-  with_env "ZAI_BASE_URL" "https://proxy.example.com/api/paas/v4" (fun () ->
-    let reg = Provider_registry.default () in
-    match Provider_registry.find reg "glm" with
-    | Some e ->
-        check string "glm base_url override"
-          "https://proxy.example.com/api/paas/v4" e.defaults.base_url
-    | None -> fail "glm should exist")
-
-let test_default_zai_coding_base_url_override () =
-  with_env "ZAI_CODING_BASE_URL" "https://proxy.example.com/api/coding/paas/v4" (fun () ->
-    let reg = Provider_registry.default () in
-    match Provider_registry.find reg "glm-coding" with
-    | Some e ->
-        check string "glm-coding base_url override"
-          "https://proxy.example.com/api/coding/paas/v4" e.defaults.base_url
-    | None -> fail "glm-coding should exist")
+let test_default_zai_base_urls () =
+  let reg = Provider_registry.default () in
+  (match Provider_registry.find reg "glm" with
+   | Some e ->
+       check string "glm base_url" Zai_catalog.general_base_url
+         e.defaults.base_url
+   | None -> fail "glm should exist");
+  (match Provider_registry.find reg "glm-coding" with
+   | Some e ->
+       check string "glm-coding base_url" Zai_catalog.coding_base_url
+         e.defaults.base_url
+   | None -> fail "glm-coding should exist")
 
 (* ── Types usage helpers ───────────────────────────── *)
 
@@ -311,10 +293,7 @@ let () =
       test_case "has 8 providers" `Quick test_default_has_8;
       test_case "correct capabilities" `Quick test_default_capabilities;
       test_case "max_context values" `Quick test_default_max_context;
-      test_case "zai base_url override" `Quick
-        test_default_zai_base_url_override;
-      test_case "zai coding base_url override" `Quick
-        test_default_zai_coding_base_url_override;
+      test_case "zai base urls" `Quick test_default_zai_base_urls;
     ];
     "types_usage", [
       test_case "zero_api_usage" `Quick test_zero_api_usage;
