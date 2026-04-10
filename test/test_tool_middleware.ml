@@ -178,7 +178,8 @@ let test_heal_coerced_first_try () =
     ~tool_use_id:"tu1" ~args ~prior_messages:[] ~llm:mock_llm_fails () with
   | Ok r ->
     Alcotest.(check int) "attempts" 1 r.attempts;
-    Alcotest.(check bool) "not healed" false r.healed;
+    (* healed=true because Correction_pipeline applied det coercion *)
+    Alcotest.(check bool) "det-healed" true r.healed;
     let v = Yojson.Safe.Util.member "n" r.value in
     Alcotest.(check int) "coerced" 7 (match v with `Int i -> i | _ -> -1)
   | Error _ -> Alcotest.fail "coercion should succeed"
