@@ -125,19 +125,4 @@ let parse : type a. a schema -> Yojson.Safe.t -> (a, string) result =
      | _ -> Error (Option.get (collect_errors [Result.map ignore ra; Result.map ignore rb; Result.map ignore rc; Result.map ignore rd])))
 
 let to_json_schema : type a. a schema -> Yojson.Safe.t =
-  fun schema ->
-  let params = to_params schema in
-  let properties = List.map (fun (p : Types.tool_param) ->
-    (p.name, `Assoc [
-      ("type", `String (Types.param_type_to_string p.param_type));
-      ("description", `String p.description);
-    ])
-  ) params in
-  let required = List.filter_map (fun (p : Types.tool_param) ->
-    if p.required then Some (`String p.name) else None
-  ) params in
-  `Assoc [
-    ("type", `String "object");
-    ("properties", `Assoc properties);
-    ("required", `List required);
-  ]
+  fun schema -> Types.params_to_input_schema (to_params schema)

@@ -39,6 +39,8 @@ type tool_param = {
 }
 [@@deriving yojson, show]
 
+val params_to_input_schema : tool_param list -> Yojson.Safe.t
+
 type tool_schema = {
   name: string;
   description: string;

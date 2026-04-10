@@ -176,24 +176,10 @@ let descriptor_to_yojson = function
 
 (** Schema to JSON *)
 let schema_to_json tool =
-  let properties = List.fold_left (fun acc param ->
-    let prop = `Assoc [
-      ("type", `String (param_type_to_string param.param_type));
-      ("description", `String param.description);
-    ] in
-    (param.name, prop) :: acc
-  ) [] tool.schema.parameters in
-  let required = List.filter_map (fun p ->
-    if p.required then Some (`String p.name) else None
-  ) tool.schema.parameters in
   `Assoc [
     ("name", `String tool.schema.name);
     ("description", `String tool.schema.description);
-    ("input_schema", `Assoc [
-      ("type", `String "object");
-      ("properties", `Assoc (List.rev properties));
-      ("required", `List required);
-    ]);
+    ("input_schema", Types.params_to_input_schema tool.schema.parameters);
   ]
 
 (** Wrap a tool to inject default arguments when not provided by the LLM.
