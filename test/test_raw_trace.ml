@@ -571,6 +571,7 @@ let test_run_validation_yojson () =
   | Error msg -> Alcotest.fail ("run_validation_of_yojson: " ^ msg)
 
 let test_tool_result_assistant_block_summary () =
+  Eio_main.run @@ fun _env ->
   with_temp_dir @@ fun root ->
   let sink =
     unwrap
