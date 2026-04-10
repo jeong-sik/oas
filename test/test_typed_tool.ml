@@ -173,11 +173,9 @@ let test_context_handler () =
 let test_context_handler_no_context () =
   let input = `Assoc [("name", `String "Admin")] in
   match Typed_tool.execute greet_ctx_tool input with
-  | Ok { content } ->
-    let json = Yojson.Safe.from_string content in
-    let greeting = Yojson.Safe.Util.(json |> member "greeting" |> to_string) in
-    Alcotest.(check string) "no prefix" "Hello, Admin" greeting
-  | Error e -> Alcotest.fail e.message
+  | Ok _ -> Alcotest.fail "expected error when context missing"
+  | Error e ->
+    Alcotest.(check bool) "not recoverable" false e.recoverable
 
 let test_to_untyped_context_bridge () =
   let untyped = Typed_tool.to_untyped greet_ctx_tool in

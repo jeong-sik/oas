@@ -146,15 +146,16 @@ let diff_corrections ~stage_name (original : Yojson.Safe.t) (corrected : Yojson.
 (* ── Pipeline execution ─────────────────────────────────── *)
 
 let run ~schema ?(stages = default_stages) input =
-  (* Apply all stages sequentially, collecting corrections *)
-  let corrected, all_corrections =
-    List.fold_left (fun (current_input, acc_corrections) stage ->
+  let corrected, rev_corrections =
+    List.fold_left (fun (current_input, acc_rev) stage ->
       let result = stage.apply schema current_input in
-      let new_corrections = diff_corrections ~stage_name:stage.name current_input result in
-      (result, acc_corrections @ new_corrections)
+      if result == current_input then (result, acc_rev)
+      else
+        let new_corrections = diff_corrections ~stage_name:stage.name current_input result in
+        (result, List.rev_append new_corrections acc_rev)
     ) (input, []) stages
   in
-  (* Validate the corrected input *)
+  let all_corrections = List.rev rev_corrections in
   match Tool_input_validation.validate schema corrected with
   | Tool_input_validation.Valid final ->
     Fixed { corrected = final; corrections = all_corrections }

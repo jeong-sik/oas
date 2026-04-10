@@ -59,7 +59,7 @@ val execute_read_only :
                    [false] to reject with "approval denied" error. *)
 val execute_write :
   ?context:Context.t ->
-  approve:(tool_name:string -> input_desc:string -> bool) ->
+  approve:(tool_name:string -> input_desc:string Lazy.t -> bool) ->
   (write, 'input, 'output) t ->
   Yojson.Safe.t ->
   Types.tool_result
@@ -68,7 +68,7 @@ val execute_write :
     Same as {!execute_write} but semantically distinct for auditing. *)
 val execute_destructive :
   ?context:Context.t ->
-  approve:(tool_name:string -> input_desc:string -> bool) ->
+  approve:(tool_name:string -> input_desc:string Lazy.t -> bool) ->
   (destructive, 'input, 'output) t ->
   Yojson.Safe.t ->
   Types.tool_result

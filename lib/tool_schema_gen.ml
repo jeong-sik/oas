@@ -98,25 +98,31 @@ let to_params : type a. a schema -> Types.tool_param list = function
   | Three (a, b, c) -> [field_to_param a; field_to_param b; field_to_param c]
   | Four (a, b, c, d) -> [field_to_param a; field_to_param b; field_to_param c; field_to_param d]
 
+let collect_errors results =
+  let errors = List.filter_map (function Error e -> Some e | Ok _ -> None) results in
+  match errors with
+  | [] -> None
+  | es -> Some (String.concat "; " es)
+
 let parse : type a. a schema -> Yojson.Safe.t -> (a, string) result =
   fun schema json ->
   match schema with
-  | One a ->
-    (match a.extract json with
-     | Ok va -> Ok va
-     | Error e -> Error e)
+  | One a -> a.extract json
   | Two (a, b) ->
-    (match a.extract json, b.extract json with
+    let ra = a.extract json and rb = b.extract json in
+    (match ra, rb with
      | Ok va, Ok vb -> Ok (va, vb)
-     | Error e, _ | _, Error e -> Error e)
+     | _ -> Error (Option.get (collect_errors [Result.map ignore ra; Result.map ignore rb])))
   | Three (a, b, c) ->
-    (match a.extract json, b.extract json, c.extract json with
+    let ra = a.extract json and rb = b.extract json and rc = c.extract json in
+    (match ra, rb, rc with
      | Ok va, Ok vb, Ok vc -> Ok (va, vb, vc)
-     | Error e, _, _ | _, Error e, _ | _, _, Error e -> Error e)
+     | _ -> Error (Option.get (collect_errors [Result.map ignore ra; Result.map ignore rb; Result.map ignore rc])))
   | Four (a, b, c, d) ->
-    (match a.extract json, b.extract json, c.extract json, d.extract json with
+    let ra = a.extract json and rb = b.extract json and rc = c.extract json and rd = d.extract json in
+    (match ra, rb, rc, rd with
      | Ok va, Ok vb, Ok vc, Ok vd -> Ok (va, vb, vc, vd)
-     | Error e, _, _, _ | _, Error e, _, _ | _, _, Error e, _ | _, _, _, Error e -> Error e)
+     | _ -> Error (Option.get (collect_errors [Result.map ignore ra; Result.map ignore rb; Result.map ignore rc; Result.map ignore rd])))
 
 let to_json_schema : type a. a schema -> Yojson.Safe.t =
   fun schema ->
