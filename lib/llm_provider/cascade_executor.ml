@@ -22,8 +22,16 @@
 
 let cascade_model_timeout_sec : float =
   match Sys.getenv_opt "OAS_CASCADE_MODEL_TIMEOUT_SEC" with
-  | Some s -> (try Float.of_string s with _ -> 1200.0)
-  | None -> 1200.0
+  | Some s -> (try Float.of_string s with _ -> 30.0)
+  | None -> 30.0
+
+(* Cascade uses minimal retries — the next provider IS the retry. *)
+let cascade_retry_config : Complete.retry_config = {
+  max_retries = 1;
+  initial_delay_sec = 0.5;
+  max_delay_sec = 2.0;
+  backoff_multiplier = 2.0;
+}
 
 (* ── Shared cloud throttle table ─────────────────────── *)
 
@@ -125,7 +133,8 @@ let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
       match clock with
       | Some clock ->
         Complete.complete_with_retry ~sw ~net ~clock ~config:cfg
-          ~messages ~tools ?cache ?metrics ?priority ()
+          ~messages ~tools ~retry_config:cascade_retry_config
+          ?cache ?metrics ?priority ()
       | None ->
         Complete.complete ~sw ~net ~config:cfg
           ~messages ~tools ?cache ?metrics ?priority ()

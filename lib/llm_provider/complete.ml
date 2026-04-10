@@ -312,7 +312,14 @@ type cascade = {
   fallbacks: Provider_config.t list;
 }
 
-let complete_cascade ~sw ~net ?transport ?clock ?retry_config
+let cascade_retry_config = {
+  max_retries = 1;
+  initial_delay_sec = 0.5;
+  max_delay_sec = 2.0;
+  backoff_multiplier = 2.0;
+}
+
+let complete_cascade ~sw ~net ?transport ?clock ?retry_config:_
     ~(cascade : cascade)
     ~(messages : Types.message list) ?(tools=[])
     ?cache ?metrics ?priority () =
@@ -321,7 +328,8 @@ let complete_cascade ~sw ~net ?transport ?clock ?retry_config
     match clock with
     | Some clock ->
         complete_with_retry ~sw ~net ?transport ~clock ~config:cfg
-          ~messages ~tools ?retry_config ?cache ?metrics ?priority ()
+          ~messages ~tools ~retry_config:cascade_retry_config
+          ?cache ?metrics ?priority ()
     | None ->
         complete ~sw ~net ?transport ~config:cfg ~messages ~tools ?cache ?metrics ?priority ()
   in
