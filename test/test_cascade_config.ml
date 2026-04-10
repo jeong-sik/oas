@@ -78,22 +78,25 @@ let with_temp_json content f =
     ~finally:(fun () -> try Sys.remove path with _ -> ())
     (fun () -> f path)
 
-(* OCaml's Unix module does not expose unsetenv on our supported toolchain.
-   This helper stays file-local and is only used with vars whose blank value
-   is treated as missing in the exercised code paths. *)
 let with_env key value f =
+  let restore_default () =
+    match key with
+    | "ZAI_BASE_URL" -> Unix.putenv key Zai_catalog.general_base_url
+    | "ZAI_CODING_BASE_URL" -> Unix.putenv key Zai_catalog.coding_base_url
+    | _ -> Unix.putenv key ""
+  in
   let previous = Sys.getenv_opt key in
   let restore () =
     match previous with
     | Some v -> Unix.putenv key v
-    | None -> Unix.putenv key ""
+    | None -> restore_default ()
   in
   Fun.protect
     ~finally:restore
     (fun () ->
        match value with
        | Some v -> Unix.putenv key v
-       | None -> Unix.putenv key "";
+       | None -> restore_default ();
        f ())
 
 let with_dummy_zai_api_key f =
