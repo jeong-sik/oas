@@ -94,13 +94,11 @@ let with_env key value f =
   Fun.protect
     ~finally:restore
     (fun () ->
-       match value with
-       | Some v -> Unix.putenv key v
-       | None -> Unix.putenv key "";
+       Unix.putenv key value;
        f ())
 
 let with_dummy_zai_api_key f =
-  with_env "ZAI_API_KEY" (Some "test-zai-api-key") f
+  with_env "ZAI_API_KEY" "test-zai-api-key" f
 
 let test_load_profile_found () =
   Eio_main.run @@ fun _env ->
@@ -383,7 +381,7 @@ let test_zai_base_url_classifiers () =
     (Zai_catalog.is_zai_base_url "https://proxy.example.com/api/paas/v4")
 
 let test_zai_base_url_respects_override_host () =
-  with_env "ZAI_CODING_BASE_URL" (Some "https://proxy.example.com/api/coding/paas/v4")
+  with_env "ZAI_CODING_BASE_URL" "https://proxy.example.com/api/coding/paas/v4"
     (fun () ->
        check bool "override coding host accepted" true
          (Zai_catalog.is_coding_base_url "https://proxy.example.com/api/coding/paas/v4");
