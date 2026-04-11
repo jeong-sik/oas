@@ -250,9 +250,13 @@ let filter_healthy = Cascade_health_filter.filter_healthy
 
 let effective_max_context (entry : Provider_registry.entry)
     (caps : Capabilities.capabilities) =
+  (* Defensive unwrap: treat [Some 0] / negative as absent rather than
+     handing a broken value to downstream budget arithmetic. Aligns with
+     the same guard in [Pipeline.proactive_context_window_tokens] (#815)
+     and [Provider.resolve_max_context_tokens] (#823). *)
   match caps.max_context_tokens with
-  | Some n -> n
-  | None -> entry.max_context
+  | Some n when n > 0 -> n
+  | _ -> entry.max_context
 
 (** Resolve a model label to the per-slot context of the endpoint
     that would serve it.  Uses the same resolution logic as
@@ -956,6 +960,30 @@ let%test "effective_max_context falls back to registry entry" =
   } in
   let caps = { Capabilities.default_capabilities with
                max_context_tokens = None } in
+  effective_max_context entry caps = 128_000
+
+let%test "effective_max_context treats Some 0 as absent and falls back" =
+  let entry : Provider_registry.entry = {
+    name = "test"; max_context = 128_000;
+    defaults = { kind = OpenAI_compat; base_url = ""; api_key_env = "";
+                 request_path = "" };
+    capabilities = Capabilities.default_capabilities;
+    is_available = (fun () -> true);
+  } in
+  let caps = { Capabilities.default_capabilities with
+               max_context_tokens = Some 0 } in
+  effective_max_context entry caps = 128_000
+
+let%test "effective_max_context treats negative as absent and falls back" =
+  let entry : Provider_registry.entry = {
+    name = "test"; max_context = 128_000;
+    defaults = { kind = OpenAI_compat; base_url = ""; api_key_env = "";
+                 request_path = "" };
+    capabilities = Capabilities.default_capabilities;
+    is_available = (fun () -> true);
+  } in
+  let caps = { Capabilities.default_capabilities with
+               max_context_tokens = Some (-1) } in
   effective_max_context entry caps = 128_000
 
 let%test "resolve_model_strings_traced returns Named for existing profile" =
