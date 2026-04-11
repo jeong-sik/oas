@@ -117,7 +117,7 @@ let openai_chat_extended_capabilities = {
 
 let ollama_capabilities = {
   openai_chat_extended_capabilities with
-  supports_tool_choice = true;  (* Ollama 0.19+: supports tool_choice in OpenAI compat endpoint *)
+  supports_tool_choice = false;  (* Ollama does NOT support tool_choice — silently ignored. See docs.ollama.com/capabilities/tool-calling *)
   is_ollama = true;
 }
 

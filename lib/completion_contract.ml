@@ -12,10 +12,16 @@ let to_string = function
   | Require_specific_tool name -> Printf.sprintf "require_specific_tool(%s)" name
   | Require_no_tool_use -> "require_no_tool_use"
 
-let of_tool_choice = function
-  | Some Any -> Require_tool_use
-  | Some (Tool name) -> Require_specific_tool name
-  | Some None_ -> Require_no_tool_use
+let of_tool_choice ?(supports_tool_choice = true) = function
+  | Some Any ->
+    if supports_tool_choice then Require_tool_use
+    else Allow_text_or_tool
+  | Some (Tool name) ->
+    if supports_tool_choice then Require_specific_tool name
+    else Allow_text_or_tool
+  | Some None_ ->
+    if supports_tool_choice then Require_no_tool_use
+    else Allow_text_or_tool
   | Some Auto | None -> Allow_text_or_tool
 
 let tool_use_names (response : api_response) =

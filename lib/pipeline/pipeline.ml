@@ -24,8 +24,13 @@ type turn_outcome =
   | IdleSkipped
 
 let validate_completion_contract agent (response : Types.api_response) =
+  let supports_tool_choice =
+    match agent.options.provider with
+    | Some cfg -> (Provider.capabilities_for_config cfg).supports_tool_choice
+    | None -> true
+  in
   let contract =
-    Completion_contract.of_tool_choice agent.state.config.tool_choice
+    Completion_contract.of_tool_choice ~supports_tool_choice agent.state.config.tool_choice
   in
   match Completion_contract.validate_response ~contract response with
   | Ok () -> Ok ()
@@ -176,8 +181,13 @@ let stage_route ~sw ?clock ~api_strategy agent prep =
            so the next provider gets a chance. If every provider violates the
            contract, the turn fails with the last rejection reason instead of
            being silently relaxed. *)
+        let supports_tool_choice =
+          match agent.options.provider with
+          | Some cfg -> (Provider.capabilities_for_config cfg).supports_tool_choice
+          | None -> true
+        in
         let completion_contract =
-          Completion_contract.of_tool_choice agent.state.config.tool_choice
+          Completion_contract.of_tool_choice ~supports_tool_choice agent.state.config.tool_choice
         in
         let accept =
           Completion_contract.validator ~contract:completion_contract
