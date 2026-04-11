@@ -60,7 +60,12 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
     | Some v when String.trim v <> "" -> v
     | _ -> "-1"
   in
-  let body = ("keep_alive", `String keep_alive) :: body in
+  let keep_alive_json =
+    match int_of_string_opt keep_alive with
+    | Some n -> `Int n
+    | None -> `String keep_alive
+  in
+  let body = ("keep_alive", keep_alive_json) :: body in
 
   let body = match tools with
     | [] -> body
@@ -213,7 +218,7 @@ let%test "build_request pins keep_alive=-1 by default" =
     let body = build_request ~config ~messages () in
     let json = Yojson.Safe.from_string body in
     let open Yojson.Safe.Util in
-    json |> member "keep_alive" |> to_string = "-1")
+    json |> member "keep_alive" |> to_int = (-1))
 
 let%test "build_request honors OAS_OLLAMA_KEEP_ALIVE override" =
   with_keep_alive_env "30m" (fun () ->
@@ -235,4 +240,4 @@ let%test "build_request whitespace-only env falls back to default" =
     let body = build_request ~config ~messages () in
     let json = Yojson.Safe.from_string body in
     let open Yojson.Safe.Util in
-    json |> member "keep_alive" |> to_string = "-1")
+    json |> member "keep_alive" |> to_int = (-1))
