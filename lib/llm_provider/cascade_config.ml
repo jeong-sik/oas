@@ -744,6 +744,44 @@ let%test "parse_model_string system_prompt forwarded" =
   | Some cfg -> cfg.system_prompt = Some "test prompt"
   | None -> false
 
+(* --- parse_model_string_exn error-path contracts ---
+
+   Downstream consumers (masc-mcp test_cascade_config_validity among others)
+   use parse_model_string_exn to distinguish "unknown provider / malformed
+   spec" (real typo, hard fail) from "provider unavailable" (missing API key,
+   soft pass). That distinction relies on two stable substrings in the Error
+   strings: "unknown provider " and " unavailable". Pin both as a semi-public
+   contract so a refactor here breaks OAS tests before it silently breaks
+   consumer tests downstream. *)
+
+let _contains_substring ~needle msg =
+  let nl = String.length needle in
+  let sl = String.length msg in
+  if nl = 0 || nl > sl then false
+  else
+    let limit = sl - nl in
+    let rec scan i =
+      if i > limit then false
+      else if String.sub msg i nl = needle then true
+      else scan (i + 1)
+    in
+    scan 0
+
+let%test "parse_model_string_exn Error on no colon carries 'invalid model spec'" =
+  match parse_model_string_exn "nocolon" with
+  | Error msg -> _contains_substring ~needle:"invalid model spec" msg
+  | Ok _ -> false
+
+let%test "parse_model_string_exn Error on unknown provider carries 'unknown provider'" =
+  match parse_model_string_exn "__nonexistent_provider_sentinel__:foo" with
+  | Error msg -> _contains_substring ~needle:"unknown provider" msg
+  | Ok _ -> false
+
+let%test "parse_model_string_exn valid llama spec is Ok" =
+  match parse_model_string_exn "llama:qwen3.5" with
+  | Ok cfg -> cfg.model_id = "qwen3.5"
+  | Error _ -> false
+
 let%test "expand_auto_models glm:auto expands" =
   let expanded = expand_auto_models ["glm:auto"] in
   List.length expanded >= 2

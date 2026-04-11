@@ -115,9 +115,45 @@ let openai_chat_extended_capabilities = {
   supports_min_p = true;
 }
 
+(* Ollama OpenAI-compat endpoint behavior on tool_choice is model-dependent:
+   - Upstream docs (docs.ollama.com/capabilities/tool-calling) state the
+     parameter is silently ignored for some models.
+   - Qwen3.5 w/ native Jinja chat template DOES honor tool_choice:required
+     in practice (measured: memory/research-9b-jinja-native-benchmark 100%
+     on 21-tool suite).
+
+   Default stays conservative (false → contract relaxes to
+   Allow_text_or_tool), but operators who verified their model-side support
+   can opt in via OAS_OLLAMA_SUPPORTS_TOOL_CHOICE without a rebuild.
+
+   Lifecycle: the env var is read ONCE when this module is loaded (see
+   [ollama_supports_tool_choice_default] below). Changing the value at
+   runtime requires a process restart — this is not a hot-reload knob.
+
+   Scope: this is a process-wide default for every Ollama-served model.
+   Cascades that mix a tool-choice-honoring model (Qwen3.5 + Jinja) with
+   one that ignores it (generic llama/gemma) cannot currently pick per
+   entry. A cleaner per-cascade-entry override in cascade.json (mirroring
+   the [api_key_env] pattern from #817) is the intended follow-up. *)
+
+(** Pure parser for the [OAS_OLLAMA_SUPPORTS_TOOL_CHOICE] env value. Split
+    out from the module-init binding below so inline tests can exercise
+    each return path without reloading the module. *)
+let parse_ollama_supports_tool_choice_env (env_value : string option) : bool =
+  match env_value with
+  | Some v ->
+    (match String.trim v |> String.lowercase_ascii with
+     | "1" | "true" | "yes" | "on" -> true
+     | _ -> false)
+  | None -> false
+
+let ollama_supports_tool_choice_default =
+  parse_ollama_supports_tool_choice_env
+    (Sys.getenv_opt "OAS_OLLAMA_SUPPORTS_TOOL_CHOICE")
+
 let ollama_capabilities = {
   openai_chat_extended_capabilities with
-  supports_tool_choice = false;  (* Ollama does NOT support tool_choice — silently ignored. See docs.ollama.com/capabilities/tool-calling *)
+  supports_tool_choice = ollama_supports_tool_choice_default;
   is_ollama = true;
 }
 
@@ -458,3 +494,45 @@ let%test "for_model_id glm-5.1 full model (reasoning + extended thinking)" =
     && c.supports_extended_thinking
     && c.max_output_tokens = Some 128_000
   | None -> false
+
+(* --- parse_ollama_supports_tool_choice_env tests ---
+
+   Pure parser for the OAS_OLLAMA_SUPPORTS_TOOL_CHOICE env knob. All branches
+   of the match must be exercised so the default-false invariant is
+   mechanically protected. *)
+
+let%test "parse_ollama_supports_tool_choice_env None is false" =
+  parse_ollama_supports_tool_choice_env None = false
+
+let%test "parse_ollama_supports_tool_choice_env empty string is false" =
+  parse_ollama_supports_tool_choice_env (Some "") = false
+
+let%test "parse_ollama_supports_tool_choice_env whitespace is false" =
+  parse_ollama_supports_tool_choice_env (Some "   ") = false
+
+let%test "parse_ollama_supports_tool_choice_env '1' is true" =
+  parse_ollama_supports_tool_choice_env (Some "1") = true
+
+let%test "parse_ollama_supports_tool_choice_env 'true' is true" =
+  parse_ollama_supports_tool_choice_env (Some "true") = true
+
+let%test "parse_ollama_supports_tool_choice_env 'TRUE' is true (case-insensitive)" =
+  parse_ollama_supports_tool_choice_env (Some "TRUE") = true
+
+let%test "parse_ollama_supports_tool_choice_env 'yes' is true" =
+  parse_ollama_supports_tool_choice_env (Some "yes") = true
+
+let%test "parse_ollama_supports_tool_choice_env 'on' is true" =
+  parse_ollama_supports_tool_choice_env (Some "on") = true
+
+let%test "parse_ollama_supports_tool_choice_env ' true ' trims whitespace" =
+  parse_ollama_supports_tool_choice_env (Some " true ") = true
+
+let%test "parse_ollama_supports_tool_choice_env '0' is false" =
+  parse_ollama_supports_tool_choice_env (Some "0") = false
+
+let%test "parse_ollama_supports_tool_choice_env 'false' is false" =
+  parse_ollama_supports_tool_choice_env (Some "false") = false
+
+let%test "parse_ollama_supports_tool_choice_env unknown value is false" =
+  parse_ollama_supports_tool_choice_env (Some "maybe") = false
