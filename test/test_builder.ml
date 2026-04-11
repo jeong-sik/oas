@@ -539,9 +539,40 @@ let test_with_context_thresholds_default_fallback () =
     |> Builder.build_safe |> Result.get_ok
   in
   let reducer = Option.get (Agent.options agent).context_reducer in
-  (* budget = 200_000 * 0.5 = 100_000 *)
+  (* No provider set and no explicit tokens — falls through to the
+     literal 200_000 final fallback. budget = 200_000 * 0.5 = 100_000 *)
   Alcotest.(check (option int)) "default fallback 200_000 budget"
     (Some 100_000) (extract_token_budget reducer)
+
+(* --- 30b. with_context_thresholds: fallback via provider capabilities --- *)
+
+let test_with_context_thresholds_fallback_from_provider () =
+  with_net @@ fun net ->
+  (* Construct a Provider.config whose model_id triggers a distinctive
+     max_context_tokens via [Llm_provider.Capabilities.for_model_id].
+     [Local] + [qwen3-35b] routes through the Local branch of
+     [Provider.capabilities_for_model], which calls [for_model_id] and
+     returns [max_context_tokens = Some 262_144] for any [qwen3*]
+     prefix. We deliberately avoid the [Anthropic] branch because it
+     returns the base [anthropic_capabilities] record regardless of
+     [model_id] (separate issue — see capabilities_for_model). *)
+  let provider : Provider.config = {
+    provider = Local { base_url = "http://localhost:11434" };
+    model_id = "qwen3-35b";
+    api_key_env = "DUMMY";
+  } in
+  let agent =
+    Builder.create ~net ~model:"claude-sonnet-4-6"
+    |> Builder.with_provider provider
+    |> Builder.with_context_thresholds ~compact_ratio:0.5
+    |> Builder.build_safe |> Result.get_ok
+  in
+  let reducer = Option.get (Agent.options agent).context_reducer in
+  (* No explicit input/total tokens on the builder, so resolution
+     falls through to the provider-capability branch. qwen3 →
+     max_context_tokens = 262_144, budget = 262_144 * 0.5 = 131_072 *)
+  Alcotest.(check (option int)) "provider-derived fallback budget"
+    (Some 131_072) (extract_token_budget reducer)
 
 (* --- 31. with_context_thresholds: zero/negative context_window_tokens ignored --- *)
 
@@ -732,6 +763,7 @@ let () =
       Alcotest.test_case "context_thresholds input beats total" `Quick test_with_context_thresholds_input_beats_total;
       Alcotest.test_case "context_thresholds fallback max_total" `Quick test_with_context_thresholds_fallback_max_total;
       Alcotest.test_case "context_thresholds default fallback" `Quick test_with_context_thresholds_default_fallback;
+      Alcotest.test_case "context_thresholds fallback from provider" `Quick test_with_context_thresholds_fallback_from_provider;
       Alcotest.test_case "context_thresholds invalid ignored" `Quick test_with_context_thresholds_invalid_ignored;
     ];
     "build", [

@@ -511,13 +511,7 @@ let stage_output ?raw_trace_run agent ~effective_guardrails response =
     available from configuration or provider/model capabilities, use a
     conservative default. *)
 let proactive_context_window_tokens agent =
-  match agent.options.provider with
-  | Some cfg ->
-    let caps = Provider.capabilities_for_config cfg in
-    (match caps.max_context_tokens with
-     | Some n when n > 0 -> n
-     | _ -> 128_000)
-  | None -> 128_000
+  Provider.resolve_max_context_tokens ~fallback:128_000 agent.options.provider
 
 (** Apply proactive compaction when context usage exceeds the configured
     watermark ratio, BEFORE hitting the provider limit.  Uses
