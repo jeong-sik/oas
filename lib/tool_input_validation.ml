@@ -11,6 +11,8 @@ type field_error = {
   actual: string;
 }
 
+let missing_actual = "missing"
+
 type validation_result =
   | Valid of Yojson.Safe.t
   | Invalid of field_error list
@@ -115,7 +117,7 @@ let validate (schema : Types.tool_schema) (input : Yojson.Safe.t)
       match List.assoc_opt p.name fields with
       | None | Some `Null ->
         if p.required then
-          errors := { path; expected = string_of_param_type p.param_type; actual = "missing" } :: !errors
+          errors := { path; expected = string_of_param_type p.param_type; actual = missing_actual } :: !errors
       | Some value ->
         if not (matches_type p.param_type value) then begin
           (* Try coercion before failing *)
@@ -175,7 +177,7 @@ let format_errors_inline ~tool_name ~(args : Yojson.Safe.t) errors =
       | Some i -> String.sub e.path (i + 1) (String.length e.path - i - 1)
       | None -> e.path
     in
-    if e.actual = "missing" then
+    if e.actual = missing_actual then
       Printf.sprintf "  \"%s\": MISSING (required: %s)" field_name e.expected
     else
       Printf.sprintf "  \"%s\": wrong type — expected: %s, got: %s"

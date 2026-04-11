@@ -84,27 +84,27 @@ let default_injection_stage = make_default_injection_stage ()
 
 (* ── Stage 3: Format Normalization ──────────────────────── *)
 
-(** Trims whitespace from string values and normalizes empty strings. *)
-let format_normalization_apply (_schema : Types.tool_schema) (input : Yojson.Safe.t) : Yojson.Safe.t =
-  match input with
-  | `Assoc fields ->
-    let changed = ref false in
-    let fields' = List.map (fun (k, v) ->
-      match v with
-      | `String s ->
-        let trimmed = String.trim s in
-        if not (String.equal trimmed s) then
-          (changed := true; (k, `String trimmed))
-        else (k, v)
-      | _ -> (k, v)
-    ) fields in
-    if !changed then `Assoc fields' else input
-  | other -> other
+let make_format_normalization_stage
+    ?(normalize = fun _name s -> String.trim s) () =
+  let apply (_schema : Types.tool_schema) (input : Yojson.Safe.t) : Yojson.Safe.t =
+    match input with
+    | `Assoc fields ->
+      let changed = ref false in
+      let fields' = List.map (fun (k, v) ->
+        match v with
+        | `String s ->
+          let result = normalize k s in
+          if not (String.equal result s) then
+            (changed := true; (k, `String result))
+          else (k, v)
+        | _ -> (k, v)
+      ) fields in
+      if !changed then `Assoc fields' else input
+    | other -> other
+  in
+  { name = "format_normalization"; apply }
 
-let format_normalization_stage = {
-  name = "format_normalization";
-  apply = format_normalization_apply;
-}
+let format_normalization_stage = make_format_normalization_stage ()
 
 (* ── Default pipeline ───────────────────────────────────── *)
 

@@ -78,6 +78,13 @@ val permission : t -> permission option
       or no permission set. *)
 val is_read_only : t -> bool
   (** [true] when [permission t = Some ReadOnly]. *)
+val permission_to_string : permission -> string
+  (** Snake_case string for a permission value.
+      [ReadOnly -> "read_only"], [Write -> "write"], [Destructive -> "destructive"].
+      Use this for stable consumer-facing output; [show_permission] from
+      [\[@@deriving show\]] produces module-qualified CamelCase and is intended
+      for diagnostics only.
+      @since 0.120.0 *)
 val validate_descriptor : descriptor -> (unit, string) result
 val descriptor_to_yojson : descriptor option -> Yojson.Safe.t
 val schema_to_json : t -> Yojson.Safe.t
