@@ -7,7 +7,7 @@
 type correction = {
   stage : string;
   field : string;
-  from_value : string;
+  from_value : string option;
   to_value : string;
 }
 
@@ -129,14 +129,14 @@ let diff_corrections ~stage_name (original : Yojson.Safe.t) (corrected : Yojson.
         Some {
           stage = stage_name;
           field = k;
-          from_value = Yojson.Safe.to_string old_v;
+          from_value = Some (Yojson.Safe.to_string old_v);
           to_value = Yojson.Safe.to_string new_v;
         }
       | None ->
         Some {
           stage = stage_name;
           field = k;
-          from_value = "(missing)";
+          from_value = None;
           to_value = Yojson.Safe.to_string new_v;
         }
       | _ -> None
@@ -169,7 +169,8 @@ let build_nondet_feedback ~tool_name ~args ~still_invalid ~attempted =
   if attempted = [] then base_errors
   else
     let correction_lines = List.map (fun c ->
-      Printf.sprintf "  [%s] %s: %s -> %s" c.stage c.field c.from_value c.to_value
+      let from = match c.from_value with Some v -> v | None -> "(added)" in
+      Printf.sprintf "  [%s] %s: %s -> %s" c.stage c.field from c.to_value
     ) attempted in
     Printf.sprintf "%s\n\nDeterministic corrections attempted (still insufficient):\n%s"
       base_errors (String.concat "\n" correction_lines)
