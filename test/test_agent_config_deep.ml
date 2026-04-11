@@ -299,6 +299,32 @@ let test_resolve_other_custom_url () =
     Alcotest.(check string) "custom url" "http://custom:5000" base_url
   | _ -> Alcotest.fail "expected OpenAICompat"
 
+let test_resolve_groq () =
+  let cfg = Agent_config.resolve_provider ~model_id:"qwen/qwen3-32b" "groq" None in
+  match cfg.provider with
+  | Provider.OpenAICompat { base_url; path; _ } ->
+    Alcotest.(check string) "groq url" "https://api.groq.com/openai/v1" base_url;
+    Alcotest.(check string) "groq path" "/chat/completions" path;
+    Alcotest.(check string) "groq api_key_env" "GROQ_API_KEY" cfg.api_key_env;
+    Alcotest.(check string) "groq model_id" "qwen/qwen3-32b" cfg.model_id
+  | _ -> Alcotest.fail "expected OpenAICompat for groq"
+
+let test_resolve_groq_custom_url () =
+  let cfg = Agent_config.resolve_provider ~model_id:"qwen/qwen3-32b" "groq"
+      (Some "http://proxy:8080") in
+  match cfg.provider with
+  | Provider.OpenAICompat { base_url; _ } ->
+    Alcotest.(check string) "overridden url" "http://proxy:8080" base_url
+  | _ -> Alcotest.fail "expected OpenAICompat for groq custom url"
+
+let test_resolve_deepseek () =
+  let cfg = Agent_config.resolve_provider ~model_id:"deepseek-chat" "deepseek" None in
+  match cfg.provider with
+  | Provider.OpenAICompat { base_url; _ } ->
+    Alcotest.(check string) "deepseek url" "https://api.deepseek.com" base_url;
+    Alcotest.(check string) "deepseek api_key_env" "DEEPSEEK_API_KEY" cfg.api_key_env
+  | _ -> Alcotest.fail "expected OpenAICompat for deepseek"
+
 (* ── of_json error cases ─────────────────────────────────────── *)
 
 let test_of_json_bad_param () =
@@ -379,5 +405,8 @@ let () =
       tc "openai custom url" test_resolve_openai_custom_url;
       tc "other" test_resolve_other;
       tc "other custom url" test_resolve_other_custom_url;
+      tc "groq" test_resolve_groq;
+      tc "groq custom url" test_resolve_groq_custom_url;
+      tc "deepseek" test_resolve_deepseek;
     ]);
   ]

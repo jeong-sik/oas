@@ -163,10 +163,10 @@ let test_find_capable_composite () =
 
 (* ── Default registry ───────────────────────────────── *)
 
-let test_default_has_8 () =
+let test_default_has_12 () =
   let reg = Provider_registry.default () in
   let all = Provider_registry.all reg in
-  check int "8 known providers" 8 (List.length all);
+  check int "12 known providers" 12 (List.length all);
   check bool "llama exists" true
     (Option.is_some (Provider_registry.find reg "llama"));
   check bool "ollama exists" true
@@ -181,6 +181,14 @@ let test_default_has_8 () =
     (Option.is_some (Provider_registry.find reg "glm-coding"));
   check bool "openrouter exists" true
     (Option.is_some (Provider_registry.find reg "openrouter"));
+  check bool "groq exists" true
+    (Option.is_some (Provider_registry.find reg "groq"));
+  check bool "deepseek exists" true
+    (Option.is_some (Provider_registry.find reg "deepseek"));
+  check bool "alibaba exists" true
+    (Option.is_some (Provider_registry.find reg "alibaba"));
+  check bool "siliconflow exists" true
+    (Option.is_some (Provider_registry.find reg "siliconflow"));
   check bool "cc exists" true
     (Option.is_some (Provider_registry.find reg "cc"))
 
@@ -213,7 +221,19 @@ let test_default_max_context () =
    | None -> fail "glm should exist");
   (match Provider_registry.find reg "cc" with
    | Some e -> check int "cc 200K" 200_000 e.max_context
-   | None -> fail "cc should exist")
+   | None -> fail "cc should exist");
+  (match Provider_registry.find reg "groq" with
+   | Some e -> check int "groq 131K" 131_072 e.max_context
+   | None -> fail "groq should exist");
+  (match Provider_registry.find reg "deepseek" with
+   | Some e -> check int "deepseek 128K" 128_000 e.max_context
+   | None -> fail "deepseek should exist");
+  (match Provider_registry.find reg "alibaba" with
+   | Some e -> check int "alibaba 131K" 131_072 e.max_context
+   | None -> fail "alibaba should exist");
+  (match Provider_registry.find reg "siliconflow" with
+   | Some e -> check int "siliconflow 128K" 128_000 e.max_context
+   | None -> fail "siliconflow should exist")
 
 let test_default_zai_base_urls () =
   let reg = Provider_registry.default () in
@@ -316,7 +336,7 @@ let () =
       test_case "requires_any" `Quick test_requires_any;
     ];
     "default", [
-      test_case "has 8 providers" `Quick test_default_has_8;
+      test_case "has 12 providers" `Quick test_default_has_12;
       test_case "correct capabilities" `Quick test_default_capabilities;
       test_case "max_context values" `Quick test_default_max_context;
       test_case "zai base urls" `Quick test_default_zai_base_urls;

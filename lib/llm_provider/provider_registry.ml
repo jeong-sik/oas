@@ -216,6 +216,41 @@ let openrouter_defaults = {
   request_path = "/chat/completions";
 }
 
+let env_or_default env_name default_url =
+  match Sys.getenv_opt env_name with
+  | Some url when String.trim url <> "" -> String.trim url
+  | _ -> default_url
+
+let groq_defaults = {
+  kind = OpenAI_compat;
+  base_url = env_or_default "GROQ_BASE_URL" "https://api.groq.com/openai/v1";
+  api_key_env = "GROQ_API_KEY";
+  request_path = "/chat/completions";
+}
+
+let deepseek_defaults = {
+  kind = OpenAI_compat;
+  base_url = env_or_default "DEEPSEEK_BASE_URL" "https://api.deepseek.com";
+  api_key_env = "DEEPSEEK_API_KEY";
+  request_path = "/chat/completions";
+}
+
+let alibaba_defaults = {
+  kind = OpenAI_compat;
+  base_url = env_or_default "DASHSCOPE_BASE_URL"
+    "https://dashscope-intl.aliyuncs.com/compatible-mode/v1";
+  api_key_env = "DASHSCOPE_API_KEY";
+  request_path = "/chat/completions";
+}
+
+let siliconflow_defaults = {
+  kind = OpenAI_compat;
+  base_url = env_or_default "SILICONFLOW_BASE_URL"
+    "https://api.siliconflow.cn/v1";
+  api_key_env = "SILICONFLOW_API_KEY";
+  request_path = "/chat/completions";
+}
+
 let default () =
   let t = create () in
   let reg name defaults ~max_context caps =
@@ -234,6 +269,14 @@ let default () =
     Capabilities.glm_capabilities;
   reg "openrouter" openrouter_defaults ~max_context:128_000
     Capabilities.openai_chat_extended_capabilities;
+  reg "groq" groq_defaults ~max_context:131_072
+    Capabilities.openai_chat_capabilities;
+  reg "deepseek" deepseek_defaults ~max_context:128_000
+    Capabilities.openai_chat_capabilities;
+  reg "alibaba" alibaba_defaults ~max_context:131_072
+    Capabilities.openai_chat_capabilities;
+  reg "siliconflow" siliconflow_defaults ~max_context:128_000
+    Capabilities.openai_chat_capabilities;
   register t { name = "ollama"; defaults = ollama_defaults;
                max_context = 262_144;
                capabilities = Capabilities.ollama_capabilities;
