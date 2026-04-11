@@ -7,7 +7,7 @@
 type correction = {
   stage : string;
   field : string;
-  from_value : string;
+  from_value : string option;
   to_value : string;
 }
 
@@ -53,7 +53,7 @@ let coercion_stage = {
 
 (* ── Stage 2: Default Injection ─────────────────────────── *)
 
-let default_for_type = function
+let zero_default = function
   | Types.String -> `String ""
   | Types.Integer -> `Int 0
   | Types.Number -> `Float 0.0
@@ -61,29 +61,26 @@ let default_for_type = function
   | Types.Array -> `List []
   | Types.Object -> `Assoc []
 
-let default_injection_apply (schema : Types.tool_schema) (input : Yojson.Safe.t) : Yojson.Safe.t =
-  match input with
-  | `Assoc fields ->
-    let missing_optionals = List.filter (fun (p : Types.tool_param) ->
-      (not p.required)
-      && not (List.mem_assoc p.name fields)
-    ) schema.parameters in
-    let defaults = List.map (fun (p : Types.tool_param) ->
-      (p.name, default_for_type p.param_type)
-    ) missing_optionals in
-    `Assoc (fields @ defaults)
-  | `Null ->
-    let defaults = List.filter_map (fun (p : Types.tool_param) ->
-      if p.required then None
-      else Some (p.name, default_for_type p.param_type)
-    ) schema.parameters in
-    `Assoc defaults
-  | other -> other
+let make_default_injection_stage
+    ?(default_for = fun (p : Types.tool_param) -> zero_default p.param_type) () =
+  let apply (schema : Types.tool_schema) (input : Yojson.Safe.t) : Yojson.Safe.t =
+    match input with
+    | `Assoc fields ->
+      let missing_optionals = List.filter (fun (p : Types.tool_param) ->
+        (not p.required) && not (List.mem_assoc p.name fields)
+      ) schema.parameters in
+      let defaults = List.map (fun (p : Types.tool_param) -> (p.name, default_for p)) missing_optionals in
+      `Assoc (fields @ defaults)
+    | `Null ->
+      let defaults = List.filter_map (fun (p : Types.tool_param) ->
+        if p.required then None else Some (p.name, default_for p)
+      ) schema.parameters in
+      `Assoc defaults
+    | other -> other
+  in
+  { name = "default_injection"; apply }
 
-let default_injection_stage = {
-  name = "default_injection";
-  apply = default_injection_apply;
-}
+let default_injection_stage = make_default_injection_stage ()
 
 (* ── Stage 3: Format Normalization ──────────────────────── *)
 
@@ -129,14 +126,14 @@ let diff_corrections ~stage_name (original : Yojson.Safe.t) (corrected : Yojson.
         Some {
           stage = stage_name;
           field = k;
-          from_value = Yojson.Safe.to_string old_v;
+          from_value = Some (Yojson.Safe.to_string old_v);
           to_value = Yojson.Safe.to_string new_v;
         }
       | None ->
         Some {
           stage = stage_name;
           field = k;
-          from_value = "(missing)";
+          from_value = None;
           to_value = Yojson.Safe.to_string new_v;
         }
       | _ -> None
@@ -169,7 +166,8 @@ let build_nondet_feedback ~tool_name ~args ~still_invalid ~attempted =
   if attempted = [] then base_errors
   else
     let correction_lines = List.map (fun c ->
-      Printf.sprintf "  [%s] %s: %s -> %s" c.stage c.field c.from_value c.to_value
+      let from = match c.from_value with Some v -> v | None -> "(added)" in
+      Printf.sprintf "  [%s] %s: %s -> %s" c.stage c.field from c.to_value
     ) attempted in
     Printf.sprintf "%s\n\nDeterministic corrections attempted (still insufficient):\n%s"
       base_errors (String.concat "\n" correction_lines)

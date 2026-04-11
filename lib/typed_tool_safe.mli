@@ -55,11 +55,11 @@ val execute_read_only :
     Passing a [read_only] tool here is a compile error —
     use {!execute_read_only} instead.
 
-    @param approve Called before execution. Returns [true] to proceed,
-                   [false] to reject with "approval denied" error. *)
+    @param approve Called before execution. Returns [Ok ()] to proceed,
+                   [Error reason] to reject with the given reason. *)
 val execute_write :
   ?context:Context.t ->
-  approve:(tool_name:string -> input_desc:string Lazy.t -> bool) ->
+  approve:(tool_name:string -> input_desc:string Lazy.t -> (unit, string) result) ->
   (write, 'input, 'output) t ->
   Yojson.Safe.t ->
   Types.tool_result
@@ -68,7 +68,7 @@ val execute_write :
     Same as {!execute_write} but semantically distinct for auditing. *)
 val execute_destructive :
   ?context:Context.t ->
-  approve:(tool_name:string -> input_desc:string Lazy.t -> bool) ->
+  approve:(tool_name:string -> input_desc:string Lazy.t -> (unit, string) result) ->
   (destructive, 'input, 'output) t ->
   Yojson.Safe.t ->
   Types.tool_result

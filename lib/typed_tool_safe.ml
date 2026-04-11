@@ -6,33 +6,28 @@ type read_only
 type write
 type destructive
 
-type perm_label = Perm_read_only | Perm_write | Perm_destructive
-
 type ('perm, 'input, 'output) t = {
   tool : ('input, 'output) Typed_tool.t;
-  perm : perm_label;
+  perm : Tool.permission;
 }
-
-(* ── Construction ───────────────────────────────────────── *)
 
 let check_perm_compat ~expected tool =
   match Typed_tool.descriptor tool with
   | None -> ()
   | Some d ->
-    match d.Tool.permission, expected with
-    | None, _ | Some Tool.ReadOnly, Perm_read_only
-    | Some Tool.Write, Perm_write | Some Tool.Destructive, Perm_destructive -> ()
-    | Some actual, _ ->
+    match d.Tool.permission with
+    | None -> ()
+    | Some actual when actual = expected -> ()
+    | Some actual ->
       invalid_arg (Printf.sprintf
         "Typed_tool_safe: tool %s descriptor permission %s incompatible with %s"
-        (Typed_tool.name tool) (Tool.show_permission actual)
-        (match expected with
-         | Perm_read_only -> "read_only" | Perm_write -> "write"
-         | Perm_destructive -> "destructive"))
+        (Typed_tool.name tool)
+        (Tool.show_permission actual)
+        (Tool.show_permission expected))
 
-let read_only tool = check_perm_compat ~expected:Perm_read_only tool; { tool; perm = Perm_read_only }
-let write tool = check_perm_compat ~expected:Perm_write tool; { tool; perm = Perm_write }
-let destructive tool = check_perm_compat ~expected:Perm_destructive tool; { tool; perm = Perm_destructive }
+let read_only tool = check_perm_compat ~expected:Tool.ReadOnly tool; { tool; perm = Tool.ReadOnly }
+let write tool = check_perm_compat ~expected:Tool.Write tool; { tool; perm = Tool.Write }
+let destructive tool = check_perm_compat ~expected:Tool.Destructive tool; { tool; perm = Tool.Destructive }
 
 (* ── Permission-gated execution ─────────────────────────── *)
 
@@ -42,11 +37,10 @@ let execute_read_only ?context safe_tool args =
 let execute_with_approval ?context ~approve safe_tool args =
   let tool_name = Typed_tool.name safe_tool.tool in
   let input_desc = lazy (Yojson.Safe.to_string args) in
-  if approve ~tool_name ~input_desc then
-    Typed_tool.execute ?context safe_tool.tool args
-  else
-    Error { Types.message = "Approval denied for " ^ tool_name;
-            recoverable = false }
+  match approve ~tool_name ~input_desc with
+  | Ok () -> Typed_tool.execute ?context safe_tool.tool args
+  | Error reason ->
+    Error { Types.message = reason; recoverable = false }
 
 let execute_write ?context ~approve tool args =
   execute_with_approval ?context ~approve tool args
@@ -63,6 +57,6 @@ let to_untyped safe_tool = Typed_tool.to_untyped safe_tool.tool
 
 let name safe_tool = Typed_tool.name safe_tool.tool
 let permission_name safe_tool = match safe_tool.perm with
-  | Perm_read_only -> "read_only"
-  | Perm_write -> "write"
-  | Perm_destructive -> "destructive"
+  | Tool.ReadOnly -> "read_only"
+  | Tool.Write -> "write"
+  | Tool.Destructive -> "destructive"

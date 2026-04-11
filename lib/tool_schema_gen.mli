@@ -36,19 +36,19 @@ type done_t
 
 val string_field :
   string -> required:bool -> desc:string ->
-  (string, 'rest) field_spec
+  ?default:string -> unit -> (string, 'rest) field_spec
 
 val int_field :
   string -> required:bool -> desc:string ->
-  (int, 'rest) field_spec
+  ?default:int -> unit -> (int, 'rest) field_spec
 
 val float_field :
   string -> required:bool -> desc:string ->
-  (float, 'rest) field_spec
+  ?default:float -> unit -> (float, 'rest) field_spec
 
 val bool_field :
   string -> required:bool -> desc:string ->
-  (bool, 'rest) field_spec
+  ?default:bool -> unit -> (bool, 'rest) field_spec
 
 (** {1 Schema construction} *)
 

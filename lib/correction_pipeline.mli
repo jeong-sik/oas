@@ -20,7 +20,7 @@
 type correction = {
   stage : string;     (** Which correction stage applied *)
   field : string;     (** Which field was corrected *)
-  from_value : string;  (** Original value description *)
+  from_value : string option;  (** Original value, or [None] if field was missing *)
   to_value : string;    (** Corrected value description *)
 }
 
@@ -51,6 +51,14 @@ type stage = {
 val coercion_stage : stage
 val default_injection_stage : stage
 val format_normalization_stage : stage
+
+(** Zero-value default for a param_type (e.g. String → [""], Integer → [0]). *)
+val zero_default : Types.param_type -> Yojson.Safe.t
+
+(** Build a default injection stage with custom per-field defaults.
+    [?default_for] receives the full [tool_param] so it can branch on name or type. *)
+val make_default_injection_stage :
+  ?default_for:(Types.tool_param -> Yojson.Safe.t) -> unit -> stage
 
 (** The default pipeline: [coercion; default_injection; format_normalization]. *)
 val default_stages : stage list
