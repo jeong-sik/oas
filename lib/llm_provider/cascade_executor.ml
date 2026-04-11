@@ -102,24 +102,12 @@ let default_image_max_tokens = 1600
 let default_document_max_tokens = 3000
 let default_audio_max_tokens = 5000
 
-(** CJK-aware token estimation for a string.  Mirrors
-    [Context_reducer.estimate_char_tokens] — duplicated here because
-    [llm_provider] cannot depend on [agent_sdk] (lib/).
-    ASCII: ~4 chars/token.  Multi-byte (CJK, emoji): ~2/3 token/char. *)
-let estimate_char_tokens (s : string) : int =
-  let len = String.length s in
-  let rec loop i ascii multi =
-    if i >= len then max 1 ((ascii + 3) / 4 + (multi * 2 + 2) / 3)
-    else
-      let byte = Char.code (String.unsafe_get s i) in
-      if byte < 0x80 then loop (i + 1) (ascii + 1) multi
-      else
-        let skip = if byte >= 0xF0 then 4
-                   else if byte >= 0xE0 then 3 else 2 in
-        loop (i + skip) ascii (multi + 1)
-  in
-  if len = 0 then 1
-  else loop 0 0 0
+(** CJK-aware token estimation. Delegates to the canonical
+    implementation in [Text_estimate], same llm_provider library.
+    Shared with [Context_reducer] (lib/) and [Mcp.truncate_output]
+    (lib/protocol/) so every OAS budget calculator uses the same
+    heuristic. *)
+let estimate_char_tokens = Text_estimate.estimate_char_tokens
 
 (** Estimate tokens for a single content block. *)
 let estimate_block_tokens = function
