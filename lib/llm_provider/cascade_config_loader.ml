@@ -52,8 +52,21 @@ let load_json path =
             | Some (cached_mtime, cached_json)
               when Float.equal cached_mtime refreshed_mtime ->
               Ok cached_json
-            | _ ->
+            | prior ->
               Hashtbl.replace config_cache path (refreshed_mtime, json);
+              (* Observability: trace first-load vs reload so operators
+                 editing cascade.json can verify their change took effect.
+                 Keeping this at traceln (stderr) matches existing OAS
+                 convention (see Cascade_config.apply_provider_filter). *)
+              (match prior with
+               | None ->
+                 Eio.traceln
+                   "[CascadeConfig] loaded %s mtime=%.0f"
+                   path refreshed_mtime
+               | Some (old_mtime, _) ->
+                 Eio.traceln
+                   "[CascadeConfig] reloaded %s old_mtime=%.0f new_mtime=%.0f"
+                   path old_mtime refreshed_mtime);
               Ok json)
   in
   try load_current () with
