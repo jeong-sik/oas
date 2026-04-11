@@ -88,6 +88,139 @@ let resolve_throttle ~throttle_override (cfg : Provider_config.t) =
     else
       Some (cloud_throttle_for_config cfg)
 
+(* ── Context truncation for cascade fallback ──────────────── *)
+
+let default_context_margin = 0.9
+let default_redacted_thinking_tokens = 50
+let default_image_max_tokens = 1600
+let default_document_max_tokens = 3000
+let default_audio_max_tokens = 5000
+
+(** CJK-aware token estimation for a string.  Mirrors
+    [Context_reducer.estimate_char_tokens] — duplicated here because
+    [llm_provider] cannot depend on [agent_sdk] (lib/).
+    ASCII: ~4 chars/token.  Multi-byte (CJK, emoji): ~2/3 token/char. *)
+let estimate_char_tokens (s : string) : int =
+  let len = String.length s in
+  let rec loop i ascii multi =
+    if i >= len then max 1 ((ascii + 3) / 4 + (multi * 2 + 2) / 3)
+    else
+      let byte = Char.code (String.unsafe_get s i) in
+      if byte < 0x80 then loop (i + 1) (ascii + 1) multi
+      else
+        let skip = if byte >= 0xF0 then 4
+                   else if byte >= 0xE0 then 3 else 2 in
+        loop (i + skip) ascii (multi + 1)
+  in
+  if len = 0 then 1
+  else loop 0 0 0
+
+(** Estimate tokens for a single content block. *)
+let estimate_block_tokens = function
+  | Types.Text s -> estimate_char_tokens s
+  | Thinking { content; _ } -> estimate_char_tokens content
+  | RedactedThinking _ -> default_redacted_thinking_tokens
+  | ToolUse { name; input; _ } ->
+    let input_str = Yojson.Safe.to_string input in
+    estimate_char_tokens (name ^ input_str)
+  | ToolResult { content; json; _ } ->
+    let base = estimate_char_tokens content in
+    (match json with
+     | Some j -> base + estimate_char_tokens (Yojson.Safe.to_string j)
+     | None -> base)
+  | Image { data; _ } -> min ((String.length data * 3 / 4 / 750) + 1) default_image_max_tokens
+  | Document { data; _ } -> min ((String.length data * 3 / 4 / 500) + 1) default_document_max_tokens
+  | Audio { data; _ } -> min ((String.length data * 3 / 4 / 320) + 1) default_audio_max_tokens
+
+(** Estimate tokens for a message. *)
+let estimate_message_tokens (msg : Types.message) : int =
+  List.fold_left (fun acc block -> acc + estimate_block_tokens block) 0 msg.content
+
+(** Group messages into turns.  A turn starts with a non-ToolResult User
+    message.  User messages containing ToolResult belong to the preceding
+    turn (Anthropic ToolUse/ToolResult pairing constraint).
+
+    The first group may start with an Assistant message when the
+    conversation does not begin with a User message (e.g. Agent.resume).
+    An Assistant message also starts a new turn when the current turn
+    already contains both a User and an Assistant message (i.e. a
+    complete exchange has occurred). *)
+let group_into_turns (messages : Types.message list) : Types.message list list =
+  let open Types in
+  let turn_has_assistant turn =
+    List.exists (fun m -> m.role = Assistant) turn
+  in
+  let turn_has_user turn =
+    List.exists (fun m -> m.role = User) turn
+  in
+  let rec aux current_turn acc = function
+    | [] ->
+      if current_turn = [] then List.rev acc
+      else List.rev (List.rev current_turn :: acc)
+    | msg :: rest ->
+      if msg.role = User && current_turn <> [] then
+        let has_tool_result =
+          List.exists (function ToolResult _ -> true | _ -> false) msg.content
+        in
+        if has_tool_result then aux (msg :: current_turn) acc rest
+        else aux [msg] (List.rev current_turn :: acc) rest
+      else if msg.role = Assistant && current_turn <> []
+              && turn_has_user current_turn
+              && turn_has_assistant current_turn then
+        (* Current turn already has a complete User+Assistant exchange.
+           Start a new turn for this Assistant to avoid silently extending
+           a completed exchange -- can happen with Agent.resume injecting
+           context or mid-conversation assistant messages. *)
+        aux [msg] (List.rev current_turn :: acc) rest
+      else
+        aux (msg :: current_turn) acc rest
+  in
+  aux [] [] messages
+
+(** Keep as many recent turns as fit within [budget] tokens.
+    Always keeps at least the most recent turn. *)
+let apply_token_budget budget messages =
+  let turns = group_into_turns messages in
+  let reversed = List.rev turns in
+  let rec take_turns acc remaining = function
+    | [] -> acc
+    | turn :: rest ->
+      let turn_tokens =
+        List.fold_left (fun sum msg -> sum + estimate_message_tokens msg) 0 turn
+      in
+      if remaining >= turn_tokens then
+        take_turns (turn :: acc) (remaining - turn_tokens) rest
+      else acc
+  in
+  let kept = take_turns [] budget reversed in
+  match kept, reversed with
+  | [], most_recent :: _ -> most_recent
+  | _ -> List.concat kept
+
+(** Truncate messages to fit within a provider's context window.
+    Drops oldest turns while preserving turn boundaries and
+    ToolUse/ToolResult pairs.  Returns the original messages unchanged
+    when no truncation is needed or when [max_context] is [None]. *)
+let truncate_to_context ?(context_margin = default_context_margin)
+    (cfg : Provider_config.t)
+    (messages : Types.message list) : Types.message list =
+  match cfg.max_context with
+  | None -> messages
+  | Some max_ctx ->
+    let budget = int_of_float (float_of_int max_ctx *. context_margin) in
+    let estimated =
+      List.fold_left
+        (fun acc msg -> acc + estimate_message_tokens msg) 0 messages
+    in
+    if estimated <= budget then messages
+    else begin
+      Printf.eprintf
+        "[cascade_executor] [warn] context truncation: \
+         estimated=%d budget=%d max_context=%d model=%s\n%!"
+        estimated budget max_ctx cfg.model_id;
+      apply_token_budget budget messages
+    end
+
 (* ── Diagnostic logging ──────────────────────────────────── *)
 
 (** [true] when the [OAS_CASCADE_DIAG] env var is set to [1], [true], or [yes].
@@ -129,15 +262,16 @@ let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
     [("providers", string_of_int (List.length providers));
      ("accept_on_exhaustion", string_of_bool accept_on_exhaustion)];
   let try_one ~is_last (cfg : Provider_config.t) =
+    let effective_messages = truncate_to_context cfg messages in
     let call () =
       match clock with
       | Some clock ->
         Complete.complete_with_retry ~sw ~net ~clock ~config:cfg
-          ~messages ~tools ~retry_config:cascade_retry_config
+          ~messages:effective_messages ~tools ~retry_config:cascade_retry_config
           ?cache ?metrics ?priority ()
       | None ->
         Complete.complete ~sw ~net ~config:cfg
-          ~messages ~tools ?cache ?metrics ?priority ()
+          ~messages:effective_messages ~tools ?cache ?metrics ?priority ()
     in
     (* Wrap non-last providers with a timeout to prevent a single slow
        model from blocking the cascade for hours.  Last provider has no
@@ -271,9 +405,10 @@ let complete_cascade_stream ~sw ~net ?(metrics : Metrics.t option)
     ~(on_event : Types.sse_event -> unit) =
   let m = match metrics with Some m -> m | None -> Metrics.get_global () in
   let try_one ~is_last (cfg : Provider_config.t) =
+    let effective_messages = truncate_to_context cfg messages in
     let call () =
       Complete.complete_stream ~sw ~net ~config:cfg
-        ~messages ~tools ~on_event ?priority ()
+        ~messages:effective_messages ~tools ~on_event ?priority ()
     in
     let effective_throttle = resolve_throttle ~throttle_override:None cfg in
     match effective_throttle with
@@ -326,3 +461,91 @@ let complete_cascade_stream ~sw ~net ?(metrics : Metrics.t option)
           Error err)
   in
   try_next None providers
+
+(* ── Inline tests ──────────────────────────────────────────── *)
+[@@@coverage off]
+
+let make_msg text : Types.message =
+  { role = Types.User; content = [Types.Text text]; name = None; tool_call_id = None }
+
+let make_assistant_msg text : Types.message =
+  { role = Types.Assistant; content = [Types.Text text]; name = None; tool_call_id = None }
+
+let make_cfg ?max_context model_id : Provider_config.t =
+  Provider_config.make ~kind:OpenAI_compat ~model_id ~base_url:"http://test" ?max_context ()
+
+(* --- estimate_message_tokens --- *)
+
+let%test "estimate_message_tokens ASCII text" =
+  let msg = make_msg (String.make 400 'x') in
+  let tokens = estimate_message_tokens msg in
+  tokens = 100  (* 400 / 4 *)
+
+let%test "estimate_message_tokens empty returns 1" =
+  let msg = make_msg "" in
+  estimate_message_tokens msg >= 1
+
+(* --- truncate_to_context: no truncation when within limit --- *)
+
+let%test "truncate_to_context no-op when within budget" =
+  let cfg = make_cfg ~max_context:10000 "m" in
+  let msgs = [make_msg "short message"] in
+  let result = truncate_to_context cfg msgs in
+  List.length result = List.length msgs
+
+(* --- truncate_to_context: no-op when max_context is None --- *)
+
+let%test "truncate_to_context no-op when max_context None" =
+  let cfg = make_cfg "m" in
+  let big_msg = make_msg (String.make 100_000 'x') in
+  let msgs = [big_msg] in
+  let result = truncate_to_context cfg msgs in
+  List.length result = 1
+
+(* --- truncate_to_context: truncation occurs when exceeding limit --- *)
+
+let%test "truncate_to_context truncates when exceeding budget" =
+  (* 50 messages * 400 chars each = ~5000 tokens.
+     max_context = 1000 * 0.9 = 900 token budget.
+     Should keep far fewer messages. *)
+  let cfg = make_cfg ~max_context:1000 "m" in
+  let msgs = List.init 50 (fun i ->
+    let role_msg = if i mod 2 = 0 then make_msg else make_assistant_msg in
+    role_msg (String.make 400 (Char.chr (65 + (i mod 26))))
+  ) in
+  let result = truncate_to_context cfg msgs in
+  List.length result < List.length msgs
+
+(* --- truncate_to_context: system message preserved --- *)
+
+let%test "truncate_to_context preserves most recent turn" =
+  (* Even when budget is very small, at least the most recent turn survives. *)
+  let cfg = make_cfg ~max_context:10 "m" in
+  let msgs = [
+    make_msg (String.make 10000 'a');
+    make_assistant_msg (String.make 10000 'b');
+    make_msg "final question";
+  ] in
+  let result = truncate_to_context cfg msgs in
+  List.length result >= 1
+  && (let last = List.nth result (List.length result - 1) in
+      match last.content with
+      | [Types.Text s] -> s = "final question"
+      | _ -> false)
+
+(* --- group_into_turns preserves ToolUse/ToolResult pairing --- *)
+
+let%test "group_into_turns keeps ToolResult with preceding turn" =
+  let open Types in
+  let msgs = [
+    make_msg "hello";
+    make_assistant_msg "let me use a tool";
+    { role = User; content = [ToolResult { tool_use_id = "t1"; content = "result"; is_error = false; json = None }]; name = None; tool_call_id = None };
+    make_msg "thanks";
+  ] in
+  let turns = group_into_turns msgs in
+  (* First turn: "hello" + assistant + tool result = 3 messages.
+     Second turn: "thanks" = 1 message.
+     Total: 2 turns. *)
+  List.length turns = 2
+  && List.length (List.hd turns) = 3

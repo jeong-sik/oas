@@ -62,7 +62,11 @@ let estimate_block_tokens = function
   | ToolUse { name; input; _ } ->
     let input_str = Yojson.Safe.to_string input in
     estimate_char_tokens (name ^ input_str)
-  | ToolResult { content; _ } -> estimate_char_tokens content
+  | ToolResult { content; json; _ } ->
+    let base = estimate_char_tokens content in
+    (match json with
+     | Some j -> base + estimate_char_tokens (Yojson.Safe.to_string j)
+     | None -> base)
   | Image { data; _ } ->
     (* Approximate: base64 data length * 3/4 / 750 tokens, capped at 1600.
        Avoids base64 decoding; uses length as proxy for byte size. *)

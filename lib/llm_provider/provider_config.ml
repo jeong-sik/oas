@@ -17,6 +17,7 @@ type t = {
   headers: (string * string) list;
   request_path: string;
   max_tokens: int;
+  max_context: int option;
   temperature: float option;
   top_p: float option;
   top_k: int option;
@@ -34,7 +35,7 @@ type t = {
 
 let make ~kind ~model_id ~base_url
     ?(api_key="") ?(headers=[("Content-Type", "application/json")])
-    ?request_path ?(max_tokens=4096)
+    ?request_path ?(max_tokens=4096) ?max_context
     ?temperature ?top_p ?top_k ?min_p
     ?system_prompt ?enable_thinking ?thinking_budget
     ?clear_thinking ?(tool_stream=false)
@@ -52,7 +53,7 @@ let make ~kind ~model_id ~base_url
       | Claude_code -> ""
   in
   { kind; model_id; base_url; api_key; headers; request_path;
-    max_tokens; temperature; top_p; top_k; min_p;
+    max_tokens; max_context; temperature; top_p; top_k; min_p;
     system_prompt; enable_thinking; thinking_budget; clear_thinking;
     tool_stream;
     tool_choice; disable_parallel_tool_use; response_format_json;
