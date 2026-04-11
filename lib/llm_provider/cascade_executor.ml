@@ -123,7 +123,11 @@ let estimate_block_tokens = function
   | ToolUse { name; input; _ } ->
     let input_str = Yojson.Safe.to_string input in
     estimate_char_tokens (name ^ input_str)
-  | ToolResult { content; _ } -> estimate_char_tokens content
+  | ToolResult { content; json; _ } ->
+    let base = estimate_char_tokens content in
+    (match json with
+     | Some j -> base + estimate_char_tokens (Yojson.Safe.to_string j)
+     | None -> base)
   | Image { data; _ } -> min ((String.length data * 3 / 4 / 750) + 1) default_image_max_tokens
   | Document { data; _ } -> min ((String.length data * 3 / 4 / 500) + 1) default_document_max_tokens
   | Audio { data; _ } -> min ((String.length data * 3 / 4 / 320) + 1) default_audio_max_tokens
@@ -132,11 +136,23 @@ let estimate_block_tokens = function
 let estimate_message_tokens (msg : Types.message) : int =
   List.fold_left (fun acc block -> acc + estimate_block_tokens block) 0 msg.content
 
-(** Group messages into turns.  A turn starts with a User message;
-    User messages containing ToolResult belong to the preceding turn
-    (Anthropic ToolUse/ToolResult pairing constraint). *)
+(** Group messages into turns.  A turn starts with a non-ToolResult User
+    message.  User messages containing ToolResult belong to the preceding
+    turn (Anthropic ToolUse/ToolResult pairing constraint).
+
+    The first group may start with an Assistant message when the
+    conversation does not begin with a User message (e.g. Agent.resume).
+    An Assistant message also starts a new turn when the current turn
+    already contains both a User and an Assistant message (i.e. a
+    complete exchange has occurred). *)
 let group_into_turns (messages : Types.message list) : Types.message list list =
   let open Types in
+  let turn_has_assistant turn =
+    List.exists (fun m -> m.role = Assistant) turn
+  in
+  let turn_has_user turn =
+    List.exists (fun m -> m.role = User) turn
+  in
   let rec aux current_turn acc = function
     | [] ->
       if current_turn = [] then List.rev acc
@@ -148,6 +164,14 @@ let group_into_turns (messages : Types.message list) : Types.message list list =
         in
         if has_tool_result then aux (msg :: current_turn) acc rest
         else aux [msg] (List.rev current_turn :: acc) rest
+      else if msg.role = Assistant && current_turn <> []
+              && turn_has_user current_turn
+              && turn_has_assistant current_turn then
+        (* Current turn already has a complete User+Assistant exchange.
+           Start a new turn for this Assistant to avoid silently extending
+           a completed exchange -- can happen with Agent.resume injecting
+           context or mid-conversation assistant messages. *)
+        aux [msg] (List.rev current_turn :: acc) rest
       else
         aux (msg :: current_turn) acc rest
   in
