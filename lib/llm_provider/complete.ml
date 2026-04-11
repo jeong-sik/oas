@@ -234,9 +234,9 @@ let complete_http ~sw ~net
               with _ -> false
             in
             Printf.eprintf
-              "[WARN] [Complete] HTTP %d from %s (model=%s): \
+              "[WARN] [Complete] HTTP %d from %s (model=%s base_url=%s): \
                req_body=%d bytes balanced=%b parse_ok=%b resp_body=%s\n%!"
-              code provider_name config.model_id
+              code provider_name config.model_id config.base_url
               body_len body_balanced parse_ok
               (if String.length body <= 200 then body
                else String.sub body 0 200 ^ "...");
@@ -262,6 +262,13 @@ let complete_http ~sw ~net
               List.exists (fun n -> contains_substring lower_resp n)
                 ["closing"; "can't find"; "cant find"; "unterminated"; "unexpected character"]
             in
+            (* Any HTTP 5xx is also a strong signal that the request body is
+               worth capturing — the provider accepted the request for
+               parsing but failed to produce a response.  Generic 500s like
+               ZAI's "Operation failed" don't match the parse-complaint
+               substrings above but still indicate content-specific
+               triggers that are only reproducible with the exact payload. *)
+            let server_5xx = code >= 500 && code < 600 in
             (* Body dumps are gated behind an explicit env var because the
                serialized request contains the full prompt + tool context +
                injected memory.  Default OFF — operators must opt in by
@@ -273,7 +280,7 @@ let complete_http ~sw ~net
               | Some v when String.trim v <> "" && String.trim v <> "0" -> true
               | _ -> false
             in
-            if dump_enabled && ((not parse_ok) || server_parse_complaint) then begin
+            if dump_enabled && ((not parse_ok) || server_parse_complaint || server_5xx) then begin
               let now = Unix.gettimeofday () in
               let minute_bucket = int_of_float (now /. 60.0) in
               let safe_model =
