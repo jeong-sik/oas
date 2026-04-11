@@ -148,7 +148,7 @@ let test_nondet_feedback () =
   ] in
   let attempted = [
     { Correction_pipeline.stage = "coercion"; field = "count";
-      from_value = "\"abc\""; to_value = "(failed)" }
+      from_value = Some "\"abc\""; to_value = "(failed)" }
   ] in
   let feedback = Correction_pipeline.build_nondet_feedback
     ~tool_name:"test" ~args:(`Assoc [("count", `String "abc")])
