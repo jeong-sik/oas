@@ -41,7 +41,12 @@ val format_errors : tool_name:string -> field_error list -> string
 val format_errors_inline :
   tool_name:string -> args:Yojson.Safe.t -> field_error list -> string
 
-(** {1 Low-level helpers (for Correction_pipeline)} *)
+(** {1 Low-level helpers (for Correction_pipeline, Tool_schema_gen)} *)
+
+(** Human-readable description of a JSON value for error messages.
+    E.g. [null], [integer(42)], [string("hello")].
+    @since 0.120.0 *)
+val describe_json_value : Yojson.Safe.t -> string
 
 (** Try to coerce a JSON value to the expected param_type.
     Returns [Some coerced] on success, [None] if not coercible.

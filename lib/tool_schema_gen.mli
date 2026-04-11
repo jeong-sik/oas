@@ -12,7 +12,7 @@
 
       let params = Tool_schema_gen.to_params schema
       let parse json = Tool_schema_gen.parse schema json
-      (* parse returns: (string * string option, string) result *)
+      (* parse returns: (string * string option, field_error list) result *)
     ]}
 
     Each field type maps to a single OCaml type with zero-default for optional:
@@ -86,8 +86,8 @@ val to_params : _ schema -> Types.tool_param list
 
 (** Parse JSON input according to schema.
     Required fields must be present; optional fields default to [None]/zero.
-    Returns typed tuple or error string. *)
-val parse : 'a schema -> Yojson.Safe.t -> ('a, string) result
+    Returns typed tuple or structured field errors. *)
+val parse : 'a schema -> Yojson.Safe.t -> ('a, Tool_input_validation.field_error list) result
 
 (** Generate JSON Schema object for MCP tool registration. *)
 val to_json_schema : _ schema -> Yojson.Safe.t
