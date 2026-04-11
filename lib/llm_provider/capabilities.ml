@@ -89,6 +89,17 @@ let anthropic_capabilities = {
   supports_native_streaming = true;
   supports_caching = true;
   supports_computer_use = true;
+  (* Anthropic Messages API documents [top_k] as a valid sampling
+     parameter ("Only sample from the top K options for each
+     subsequent token", docs.anthropic.com/en/api/messages body
+     params). [backend_anthropic.build_request] already serializes
+     [config.top_k] unconditionally when [Some]; the capability record
+     must match so cross-layer consumers (the #831 Api_openai gate,
+     the #830 Backend_openai gate, and the capability_filter passes)
+     do not silently drop top_k when the caller routes an Anthropic
+     config through a capability-checking path. [supports_min_p]
+     remains [false] — Anthropic does not accept min_p. *)
+  supports_top_k = true;
 }
 
 let openai_chat_capabilities = {

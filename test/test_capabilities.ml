@@ -36,6 +36,11 @@ let test_anthropic_capabilities () =
   check bool "has caching" true c.supports_caching;
   check bool "has computer use" true c.supports_computer_use;
   check bool "no audio" false c.supports_audio_input;
+  (* Anthropic Messages API accepts top_k per its documented body
+     params; pin the field so the #830/#831 capability-gated
+     serializer paths do not silently drop it for claude configs. *)
+  check bool "supports top_k" true c.supports_top_k;
+  check bool "no min_p" false c.supports_min_p;
   check bool "context 200K" true (c.max_context_tokens = Some 200_000)
 
 let test_openai_capabilities () =
