@@ -40,6 +40,12 @@ let validate_completion_contract agent (response : Types.api_response) =
          (CompletionContractViolation
             { contract = Completion_contract.to_string contract; reason }))
 
+let event_session_id agent =
+  Option.bind agent.options.raw_trace Raw_trace.session_id
+
+let event_worker_run_id agent =
+  Option.bind (lifecycle_snapshot agent) (fun snapshot -> snapshot.current_run_id)
+
 (* ── Stage 1: Input ──────────────────────────────────────── *)
 
 (** Set lifecycle to Ready, invoke BeforeTurn hook, handle elicitation. *)
@@ -158,8 +164,13 @@ let stage_parse ?raw_trace_run agent =
   (* TurnStarted event *)
   (match agent.options.event_bus with
    | Some bus -> Event_bus.publish bus
-       (TurnStarted { agent_name = agent.state.config.name;
-                       turn = agent.state.turn_count })
+       (TurnStarted
+          {
+            agent_name = agent.state.config.name;
+            turn = agent.state.turn_count;
+            session_id = event_session_id agent;
+            worker_run_id = event_worker_run_id agent;
+          })
    | None -> ());
 
   let prep = prepare_turn_for_agent agent ~turn_params in
@@ -288,8 +299,13 @@ let stage_collect ?raw_trace_run agent ~original_config response =
 
   (match agent.options.event_bus with
    | Some bus -> Event_bus.publish bus
-       (TurnCompleted { agent_name = agent.state.config.name;
-                        turn = agent.state.turn_count })
+       (TurnCompleted
+          {
+            agent_name = agent.state.config.name;
+            turn = agent.state.turn_count;
+            session_id = event_session_id agent;
+            worker_run_id = event_worker_run_id agent;
+          })
    | None -> ());
 
   update_state agent (fun s ->
@@ -572,7 +588,10 @@ let proactive_compact ?raw_trace_run agent ~watermark () =
                agent_name = agent.state.config.name;
                before_tokens = est_tokens;
                after_tokens;
-               phase = Printf.sprintf "proactive(%.0f%%)" (usage_ratio *. 100.0) })
+               phase = Printf.sprintf "proactive(%.0f%%)" (usage_ratio *. 100.0);
+               session_id = event_session_id agent;
+               worker_run_id = event_worker_run_id agent;
+             })
          | None -> ());
         true
       end
@@ -616,7 +635,10 @@ let emergency_compact ?raw_trace_run agent ?limit () =
              agent_name = agent.state.config.name;
              before_tokens = est_tokens;
              after_tokens;
-             phase = "emergency" })
+             phase = "emergency";
+             session_id = event_session_id agent;
+             worker_run_id = event_worker_run_id agent;
+           })
        | None -> ());
       true
     end

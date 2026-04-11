@@ -444,6 +444,7 @@ let test_eval_collector_agent_completed () =
   } in
   Event_bus.publish bus (AgentCompleted {
     agent_name = "bot"; task_id = "t1"; elapsed = 2.5; result = Ok ok_response;
+    session_id = None; worker_run_id = None;
   });
   let rm = Eval_collector.finalize ec in
   (match Eval.find_metric_value rm "elapsed_s" with
@@ -460,6 +461,7 @@ let test_eval_collector_agent_completed_error () =
   Event_bus.publish bus (AgentCompleted {
     agent_name = "bot"; task_id = "t1"; elapsed = 1.0;
     result = Error (Error.Internal "fail");
+    session_id = None; worker_run_id = None;
   });
   let rm = Eval_collector.finalize ec in
   (match Eval.find_metric_value rm "success" with

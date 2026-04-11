@@ -30,17 +30,17 @@ let print_event (event : Event_bus.event) =
   let ts = Unix.gettimeofday () in
   let t = Printf.sprintf "%.3f" (Float.rem ts 1000.0) in
   match event with
-  | TurnStarted { agent_name; turn } ->
+  | TurnStarted { agent_name; turn; _ } ->
     Printf.eprintf "%s %s turn %d started\n%!"
       (dim t) (cyan agent_name) turn
-  | TurnCompleted { agent_name; turn } ->
+  | TurnCompleted { agent_name; turn; _ } ->
     Printf.eprintf "%s %s turn %d completed\n%!"
       (dim t) (cyan agent_name) turn
-  | ToolCalled { agent_name; tool_name; input } ->
+  | ToolCalled { agent_name; tool_name; input; _ } ->
     Printf.eprintf "%s %s %s called: %s\n%!"
       (dim t) (cyan agent_name) (yellow tool_name)
       (Yojson.Safe.to_string input)
-  | ToolCompleted { agent_name; tool_name; output } ->
+  | ToolCompleted { agent_name; tool_name; output; _ } ->
     let status = match output with
       | Ok { content } -> green (Printf.sprintf "ok: %s" content)
       | Error { message; _ } -> Printf.sprintf "\027[31merr: %s\027[0m" message

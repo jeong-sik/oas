@@ -137,11 +137,19 @@ let invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count ~hook_name
 (** Find and execute a single tool, invoking PostToolUse hook.
     Returns a structured execution result. *)
 let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tracer
-    ~agent_name ~turn_count ?on_hook_invoked ~schedule name input id =
+    ~agent_name ~turn_count ?session_id ?worker_run_id ?on_hook_invoked
+    ~schedule name input id =
   (* ToolCalled event *)
   (match event_bus with
    | Some bus -> Event_bus.publish bus
-       (ToolCalled { agent_name; tool_name = name; input })
+       (ToolCalled
+          {
+            agent_name;
+            tool_name = name;
+            input;
+            session_id;
+            worker_run_id;
+          })
    | None -> ());
   let tool_opt = List.find_opt (fun (tool: Tool.t) -> tool.schema.name = name) tools in
   let result = match tool_opt with
@@ -256,12 +264,20 @@ let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tra
        else Ok { content = output_content }
      in
      Event_bus.publish bus
-       (ToolCompleted { agent_name; tool_name = name; output })
+       (ToolCompleted
+          {
+            agent_name;
+            tool_name = name;
+            output;
+            session_id;
+            worker_run_id;
+          })
    | None -> ());
   result
 
 let execute_scheduled_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus
     ~tracer ~agent_name ~turn_count ~(usage : Types.usage_stats) ~approval
+    ?session_id ?worker_run_id
     ?on_tool_execution_started ?on_tool_execution_finished ?on_hook_invoked
     ~schedule (tool_use : scheduled_tool_use) =
   let { index; id; name; input; _ } = tool_use in
@@ -311,14 +327,16 @@ let execute_scheduled_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus
                     "ApprovalRequired but no approval callback — executing"
                     [Log.S ("tool", name); Log.S ("agent", agent_name)];
                   find_and_execute_tool ~context ~tools ~hooks ~event_bus
-                    ~tracer ~agent_name ~turn_count ?on_hook_invoked ~schedule
+                    ~tracer ~agent_name ~turn_count ?session_id
+                    ?worker_run_id ?on_hook_invoked ~schedule
                     name input id
               | Some approve_fn -> (
                   match approve_fn ~tool_name:name ~input with
                   | Hooks.Approve ->
                       find_and_execute_tool ~context ~tools ~hooks ~event_bus
-                        ~tracer ~agent_name ~turn_count ?on_hook_invoked
-                        ~schedule name input id
+                        ~tracer ~agent_name ~turn_count ?session_id
+                        ?worker_run_id ?on_hook_invoked ~schedule name input
+                        id
                   | Hooks.Reject reason ->
                       {
                         tool_use_id = id;
@@ -329,17 +347,21 @@ let execute_scheduled_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus
                       }
                   | Hooks.Edit new_input ->
                       find_and_execute_tool ~context ~tools ~hooks ~event_bus
-                        ~tracer ~agent_name ~turn_count ?on_hook_invoked
-                        ~schedule name new_input id))
+                        ~tracer ~agent_name ~turn_count ?session_id
+                        ?worker_run_id ?on_hook_invoked ~schedule name
+                        new_input id))
           | Hooks.Continue ->
               find_and_execute_tool ~context ~tools ~hooks ~event_bus ~tracer
-                ~agent_name ~turn_count ?on_hook_invoked ~schedule name input id
+                ~agent_name ~turn_count ?session_id ?worker_run_id
+                ?on_hook_invoked ~schedule name input id
           | Hooks.AdjustParams _ ->
               find_and_execute_tool ~context ~tools ~hooks ~event_bus ~tracer
-                ~agent_name ~turn_count ?on_hook_invoked ~schedule name input id
+                ~agent_name ~turn_count ?session_id ?worker_run_id
+                ?on_hook_invoked ~schedule name input id
           | Hooks.ElicitInput _ | Hooks.Nudge _ ->
               find_and_execute_tool ~context ~tools ~hooks ~event_bus ~tracer
-                ~agent_name ~turn_count ?on_hook_invoked ~schedule name input id
+                ~agent_name ~turn_count ?session_id ?worker_run_id
+                ?on_hook_invoked ~schedule name input id
         with
         | Out_of_memory -> raise Out_of_memory
         | Stack_overflow -> raise Stack_overflow
@@ -367,6 +389,7 @@ let execute_scheduled_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus
 
 let execute_tools ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tracer
     ~agent_name ~turn_count ~(usage : Types.usage_stats) ~approval
+    ?session_id ?worker_run_id
     ?on_tool_execution_started
     ?on_tool_execution_finished ?on_hook_invoked tool_uses =
   (* Filter to ToolUse blocks only — prevents bogus result triples for
@@ -381,8 +404,8 @@ let execute_tools ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tracer
   in
   let run_one =
     execute_scheduled_tool ~context ~tools ~hooks ~event_bus ~tracer
-      ~agent_name ~turn_count ~usage ~approval ?on_tool_execution_started
-      ?on_tool_execution_finished ?on_hook_invoked
+      ~agent_name ~turn_count ~usage ~approval ?session_id ?worker_run_id
+      ?on_tool_execution_started ?on_tool_execution_finished ?on_hook_invoked
   in
   execution_batches scheduled
   |> List.mapi (fun batch_index batch ->

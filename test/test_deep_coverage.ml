@@ -689,13 +689,19 @@ let test_event_forward_all_event_types () =
   in
   let tool_ok : Types.tool_result = Ok { content = "done" } in
   let events : Event_bus.event list = [
-    AgentStarted { agent_name = "a"; task_id = "t1" };
+    AgentStarted { agent_name = "a"; task_id = "t1"; session_id = None;
+                   worker_run_id = None };
     AgentCompleted { agent_name = "a"; task_id = "t1";
-                     result = ok_result; elapsed = 1.5 };
-    ToolCalled { agent_name = "a"; tool_name = "shell"; input = `String "ls" };
-    ToolCompleted { agent_name = "a"; tool_name = "shell"; output = tool_ok };
-    TurnStarted { agent_name = "a"; turn = 0 };
-    TurnCompleted { agent_name = "a"; turn = 0 };
+                     result = ok_result; elapsed = 1.5; session_id = None;
+                     worker_run_id = None };
+    ToolCalled { agent_name = "a"; tool_name = "shell"; input = `String "ls";
+                 session_id = None; worker_run_id = None };
+    ToolCompleted { agent_name = "a"; tool_name = "shell"; output = tool_ok;
+                    session_id = None; worker_run_id = None };
+    TurnStarted { agent_name = "a"; turn = 0; session_id = None;
+                  worker_run_id = None };
+    TurnCompleted { agent_name = "a"; turn = 0; session_id = None;
+                    worker_run_id = None };
     ElicitationCompleted { agent_name = "a"; question = "continue?";
                            response = Hooks.Declined };
     TaskStateChanged { task_id = "t1"; from_state = "submitted"; to_state = "working" };
@@ -725,10 +731,14 @@ let test_event_forward_agent_name_none_cases () =
 
 let test_event_forward_agent_name_some_cases () =
   let events = [
-    Event_bus.AgentStarted { agent_name = "a"; task_id = "t" };
-    Event_bus.ToolCalled { agent_name = "c"; tool_name = "t"; input = `Null };
-    Event_bus.TurnStarted { agent_name = "e"; turn = 0 };
-    Event_bus.TurnCompleted { agent_name = "f"; turn = 0 };
+    Event_bus.AgentStarted { agent_name = "a"; task_id = "t"; session_id = None;
+                             worker_run_id = None };
+    Event_bus.ToolCalled { agent_name = "c"; tool_name = "t"; input = `Null;
+                           session_id = None; worker_run_id = None };
+    Event_bus.TurnStarted { agent_name = "e"; turn = 0; session_id = None;
+                            worker_run_id = None };
+    Event_bus.TurnCompleted { agent_name = "f"; turn = 0; session_id = None;
+                              worker_run_id = None };
   ] in
   List.iter (fun event ->
     match Event_forward.agent_name_of_event event with
@@ -809,7 +819,10 @@ let test_event_forward_file_append () =
   let fwd = Event_forward.create
     ~targets:[File_append { path }] ~batch_size:1 () in
   Event_forward.start ~sw ~net:(Eio.Stdenv.net env) ~bus fwd;
-  Event_bus.publish bus (TurnStarted { agent_name = "a"; turn = 1 });
+  Event_bus.publish bus
+    (TurnStarted
+       { agent_name = "a"; turn = 1; session_id = None;
+         worker_run_id = None });
   Eio.Fiber.yield ();
   Eio.Fiber.yield ();
   Event_forward.stop fwd;

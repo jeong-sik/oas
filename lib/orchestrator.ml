@@ -70,6 +70,13 @@ let text_of_response (resp : api_response) =
   List.filter_map (function Text s -> Some s | _ -> None) resp.content
   |> String.concat "\n"
 
+let event_session_id agent =
+  Option.bind (Agent.options agent).raw_trace Raw_trace.session_id
+
+let event_worker_run_id agent =
+  Option.bind (Agent.lifecycle_snapshot agent) (fun snapshot ->
+      snapshot.current_run_id)
+
 (** Run Agent.run with optional timeout.
     Uses [Eio.Time.with_timeout_exn] which raises [Eio.Time.Timeout]
     if the deadline expires. *)
@@ -90,7 +97,16 @@ let run_task ~sw ?clock orch task =
   (* AgentStarted event *)
   (match orch.config.event_bus with
    | Some bus -> Event_bus.publish bus
-       (AgentStarted { agent_name = task.agent_name; task_id = task.id })
+       (AgentStarted
+          {
+            agent_name = task.agent_name;
+            task_id = task.id;
+            session_id =
+              (match find_agent orch task.agent_name with
+               | Some agent -> event_session_id agent
+               | None -> None);
+            worker_run_id = None;
+          })
    | None -> ());
   let t0 = Unix.gettimeofday () in
   let result =
@@ -109,8 +125,21 @@ let run_task ~sw ?clock orch task =
   (* AgentCompleted event *)
   (match orch.config.event_bus with
    | Some bus -> Event_bus.publish bus
-       (AgentCompleted { agent_name = task.agent_name; task_id = task.id;
-                         result; elapsed })
+       (AgentCompleted
+          {
+            agent_name = task.agent_name;
+            task_id = task.id;
+            result;
+            elapsed;
+            session_id =
+              (match find_agent orch task.agent_name with
+               | Some agent -> event_session_id agent
+               | None -> None);
+            worker_run_id =
+              (match find_agent orch task.agent_name with
+               | Some agent -> event_worker_run_id agent
+               | None -> None);
+          })
    | None -> ());
   Option.iter (fun cb -> cb tr) orch.config.on_task_complete;
   tr

@@ -161,11 +161,40 @@ let test_eval_collector_basic () =
   Eio_main.run @@ fun _env ->
   let bus = Event_bus.create () in
   let ec = Eval_collector.wrap_run ~bus ~agent_name:"test" ~run_id:"r1" () in
-  Event_bus.publish bus (TurnStarted { agent_name = "test"; turn = 0 });
-  Event_bus.publish bus (TurnStarted { agent_name = "test"; turn = 1 });
-  Event_bus.publish bus (ToolCalled { agent_name = "test"; tool_name = "t1"; input = `Null });
-  Event_bus.publish bus (ToolCompleted { agent_name = "test"; tool_name = "t1";
-    output = Ok { Types.content = "done" } });
+  Event_bus.publish bus
+    (TurnStarted
+       {
+         agent_name = "test";
+         turn = 0;
+         session_id = None;
+         worker_run_id = None;
+       });
+  Event_bus.publish bus
+    (TurnStarted
+       {
+         agent_name = "test";
+         turn = 1;
+         session_id = None;
+         worker_run_id = None;
+       });
+  Event_bus.publish bus
+    (ToolCalled
+       {
+         agent_name = "test";
+         tool_name = "t1";
+         input = `Null;
+         session_id = None;
+         worker_run_id = None;
+       });
+  Event_bus.publish bus
+    (ToolCompleted
+       {
+         agent_name = "test";
+         tool_name = "t1";
+         output = Ok { Types.content = "done" };
+         session_id = None;
+         worker_run_id = None;
+       });
   let rm = Eval_collector.finalize ec in
   (* Check auto-collected metrics *)
   (match Eval.find_metric_value rm "turn_count" with
