@@ -19,10 +19,16 @@ let to_int = function
   | Unspecified -> 1
   | Background -> 2
 
+(* [Unspecified] silently maps to [Proactive]. Previously emitted an
+   [Eio.traceln] warning, but that polluted ppx_inline_test stderr capture
+   in the [resolve Unspecified returns Proactive] test, causing
+   [dune runtest] to detect an unexpected stderr diff and exit with code 1.
+   The fallback is the intentional behavior (see [to_int] and [compare],
+   which both treat [Unspecified] as [Proactive]). For observability use
+   a one-time counter or structured [Log.warn] rather than stderr trace,
+   since this code runs per-LLM-request and a warn-per-request is spam. *)
 let resolve = function
-  | Unspecified ->
-    Eio.traceln "WARN request_priority: Unspecified priority, treating as Proactive";
-    Proactive
+  | Unspecified -> Proactive
   | p -> p
 
 let compare a b =
