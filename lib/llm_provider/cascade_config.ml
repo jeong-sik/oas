@@ -84,16 +84,25 @@ let make_custom_config ~temperature ~max_tokens ?system_prompt model_id =
 
 (** Resolve the effective API key env var name for a provider.
 
-    Checks [api_key_env_overrides] first (wildcard ["*"] then provider name),
-    then falls back to the provider registry default. *)
+    Checks [api_key_env_overrides] first (exact provider name, then
+    wildcard ["*"]), then falls back to the provider registry default.
+
+    Empty-string entries are treated as absent so a user-provided
+    [{"glm": ""}] falls through to the wildcard and registry default
+    instead of silently disabling auth. *)
 let resolve_effective_api_key_env
     ~(api_key_env_overrides : (string * string) list)
     ~(provider_name : string)
     ~(registry_default : string) =
-  match List.assoc_opt provider_name api_key_env_overrides with
+  let find_non_empty key =
+    match List.assoc_opt key api_key_env_overrides with
+    | Some v when v <> "" -> Some v
+    | _ -> None
+  in
+  match find_non_empty provider_name with
   | Some env -> env
   | None ->
-    match List.assoc_opt "*" api_key_env_overrides with
+    match find_non_empty "*" with
     | Some env -> env
     | None -> registry_default
 
@@ -165,7 +174,8 @@ let make_registry_config ~temperature ~max_tokens ?system_prompt
 let parse_model_string
     ?(temperature = Constants.Inference.default_temperature)
     ?(max_tokens = Constants.Inference.default_max_tokens)
-    ?system_prompt (s : string) : Provider_config.t option =
+    ?system_prompt ?(api_key_env_overrides = [])
+    (s : string) : Provider_config.t option =
   match split_provider_model (String.trim s) with
   | None -> None
   | Some ("custom", model_id) ->
@@ -176,7 +186,7 @@ let parse_model_string
     | Some entry when not (entry.is_available ()) -> None
     | Some entry ->
       Some (make_registry_config ~temperature ~max_tokens ?system_prompt
-              ~provider_name ~model_id entry)
+              ~api_key_env_overrides ~provider_name ~model_id entry)
 
 let parse_model_string_exn
     ?(temperature = Constants.Inference.default_temperature)
@@ -220,39 +230,16 @@ let expand_auto_models (strs : string list) : string list =
     | _ -> [ trimmed ]
   ) strs
 
-(** Internal: parse model string with api_key_env override support.
-    Used by cascade execution paths that have resolved overrides from config. *)
-let parse_model_string_with_overrides
-    ~(api_key_env_overrides : (string * string) list)
-    ~temperature ~max_tokens ?system_prompt (s : string)
-    : Provider_config.t option =
-  match split_provider_model (String.trim s) with
-  | None -> None
-  | Some ("custom", model_id) ->
-    make_custom_config ~temperature ~max_tokens ?system_prompt model_id
-  | Some (provider_name, model_id) ->
-    match Provider_registry.find default_registry provider_name with
-    | None -> None
-    | Some entry when not (entry.is_available ()) -> None
-    | Some entry ->
-      Some (make_registry_config ~temperature ~max_tokens ?system_prompt
-              ~api_key_env_overrides ~provider_name ~model_id entry)
-
 let parse_model_strings
     ?(temperature = Constants.Inference.default_temperature)
     ?(max_tokens = Constants.Inference.default_max_tokens)
-    ?system_prompt ?(api_key_env_overrides=[])
+    ?system_prompt ?(api_key_env_overrides = [])
     (strs : string list) : Provider_config.t list =
   let expanded = expand_auto_models strs in
-  if api_key_env_overrides = [] then
-    List.filter_map
-      (parse_model_string ~temperature ~max_tokens ?system_prompt)
-      expanded
-  else
-    List.filter_map
-      (parse_model_string_with_overrides ~api_key_env_overrides
-         ~temperature ~max_tokens ?system_prompt)
-      expanded
+  List.filter_map
+    (parse_model_string ~temperature ~max_tokens ?system_prompt
+       ~api_key_env_overrides)
+    expanded
 
 (* Health filtering (extracted to Cascade_health_filter) *)
 let is_local_provider = Cascade_health_filter.is_local_provider
@@ -992,6 +979,27 @@ let%test "resolve_effective_api_key_env no match uses registry default" =
 let%test "resolve_effective_api_key_env empty overrides uses registry default" =
   resolve_effective_api_key_env
     ~api_key_env_overrides:[]
+    ~provider_name:"glm"
+    ~registry_default:"ZAI_API_KEY"
+  = "ZAI_API_KEY"
+
+let%test "resolve_effective_api_key_env empty-string provider override falls through to wildcard" =
+  resolve_effective_api_key_env
+    ~api_key_env_overrides:[("glm", ""); ("*", "WILDCARD_KEY")]
+    ~provider_name:"glm"
+    ~registry_default:"ZAI_API_KEY"
+  = "WILDCARD_KEY"
+
+let%test "resolve_effective_api_key_env empty-string wildcard falls through to registry default" =
+  resolve_effective_api_key_env
+    ~api_key_env_overrides:[("*", "")]
+    ~provider_name:"glm"
+    ~registry_default:"ZAI_API_KEY"
+  = "ZAI_API_KEY"
+
+let%test "resolve_effective_api_key_env both empty falls through to registry default" =
+  resolve_effective_api_key_env
+    ~api_key_env_overrides:[("glm", ""); ("*", "")]
     ~provider_name:"glm"
     ~registry_default:"ZAI_API_KEY"
   = "ZAI_API_KEY"

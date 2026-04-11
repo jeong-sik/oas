@@ -42,7 +42,14 @@ val parse_model_string :
   ?temperature:float ->
   ?max_tokens:int ->
   ?system_prompt:string ->
+  ?api_key_env_overrides:(string * string) list ->
   string -> Provider_config.t option
+(** [api_key_env_overrides] defaults to [[]]. When non-empty, it overrides
+    the registry default API key env var for matching providers; see
+    {!parse_model_strings} for format details. Empty-string entries fall
+    through to the next level of the resolution chain.
+
+    @since 0.122.0 api_key_env_overrides parameter added *)
 
 (** Like {!parse_model_string} but returns a [Result] with a diagnostic
     error message explaining why parsing failed (unknown provider, missing
