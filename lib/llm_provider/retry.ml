@@ -134,12 +134,28 @@ let is_retryable = function
     List.exists (fun needle -> contains_substring_ci ~haystack:message ~needle) malformed_json_indicators
   | AuthError _ | ContextOverflow _ -> false
 
+(** Extract a human-readable error message from a provider error body.
+
+    Supports three common shapes:
+    - OpenAI/Anthropic style: [{"error": {"message": "...", ...}}]
+    - Ollama/llama.cpp style: [{"error": "..."}] (error is a flat string)
+    - ZAI/GLM style with nested code: [{"error": {"code": "1113", "message": "..."}}]
+
+    Falls back to [safe_prefix body] when parsing fails or the shape
+    does not match — this preserves the raw body for diagnosis while
+    bounding its length. *)
 let extract_error_message (body : string) : string =
   if body_looks_like_json body then
     try
       let json = Yojson.Safe.from_string body in
       let open Yojson.Safe.Util in
-      json |> member "error" |> member "message" |> to_string
+      match json |> member "error" with
+      | `String s -> s
+      | `Assoc _ as err ->
+          (match err |> member "message" with
+           | `String s -> s
+           | _ -> safe_prefix body ~max_len:overflow_message_scan_limit)
+      | _ -> safe_prefix body ~max_len:overflow_message_scan_limit
     with Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ | Yojson.Safe.Util.Undefined _ ->
       safe_prefix body ~max_len:overflow_message_scan_limit
   else
@@ -319,6 +335,37 @@ let%test "parse_context_overflow_limit: budget exceeded format" =
   parse_context_overflow_limit
     "input token budget exceeded: 15000 / 8192"
   = Some 8192
+
+let%test "extract_error_message: nested error.message (OpenAI shape)" =
+  extract_error_message
+    {|{"error":{"message":"invalid tool schema","code":400}}|}
+  = "invalid tool schema"
+
+let%test "extract_error_message: flat error string (Ollama/llama.cpp shape)" =
+  extract_error_message
+    {|{"error":"Value looks like object, but can't find closing '}' symbol"}|}
+  = "Value looks like object, but can't find closing '}' symbol"
+
+let%test "extract_error_message: ZAI GLM quota shape with string code" =
+  extract_error_message
+    {|{"error":{"code":"1113","message":"Insufficient balance or no resource package. Please recharge."}}|}
+  = "Insufficient balance or no resource package. Please recharge."
+
+let%test "extract_error_message: malformed body falls back to prefix" =
+  let result = extract_error_message "not json at all" in
+  result = "not json at all"
+
+let%test "is_retryable: flat Ollama error string (regression for #6474)" =
+  (* Before the extract_error_message fix, Ollama's flat-string error
+     body was returned verbatim as the full JSON blob, and only matched
+     malformed_json_indicators by accident.  After the fix, the message
+     is the clean yyjson string and should still be retryable. *)
+  let body =
+    {|{"error":"Value looks like object, but can't find closing '}' symbol"}|}
+  in
+  match classify_error ~status:400 ~body with
+  | InvalidRequest _ as err -> is_retryable err
+  | _ -> false
 
 let%test "parse_context_overflow_limit: non-overflow returns None" =
   parse_context_overflow_limit {|{"error":{"message":"bad tool schema"}}|}
