@@ -72,6 +72,28 @@ let base_messages agent =
   | [] -> agent.state.config.initial_messages
   | msgs -> msgs
 
+(** Per-turn timing observability helper. Emits one line per turn to
+    stderr so the cumulative and per-turn elapsed seconds, model, and
+    stop reason are visible when diagnosing wall-clock budget timeouts.
+    Logged unconditionally — one line per turn is negligible overhead. *)
+let stop_reason_label : Types.stop_reason -> string = function
+  | EndTurn -> "end_turn"
+  | StopToolUse -> "stop_tool_use"
+  | MaxTokens -> "max_tokens"
+  | StopSequence -> "stop_sequence"
+  | Unknown s -> "unknown:" ^ s
+
+let log_turn ~run_start ~turn_start ~turn_count ~max_turns ~model ~stop =
+  let now = Unix.gettimeofday () in
+  Printf.eprintf
+    "[INFO] [Agent] turn=%d/%d elapsed_run=%.1fs turn_duration=%.1fs \
+     model=%s stop=%s\n%!"
+    turn_count max_turns
+    (now -. run_start)
+    (now -. turn_start)
+    (if String.length model = 0 then "-" else model)
+    stop
+
 let run_loop ~sw ?clock ~api_strategy ?on_yield ?on_resume agent user_prompt =
   let user_prompt = Llm_provider.Utf8_sanitize.sanitize user_prompt in
   let user_msg = { role = User; content = [Text user_prompt]; name = None; tool_call_id = None } in
@@ -82,6 +104,12 @@ let run_loop ~sw ?clock ~api_strategy ?on_yield ?on_resume agent user_prompt =
   let yield_enabled = agent.state.config.yield_on_tool in
   let do_yield () = match on_yield with Some f -> f () | None -> () in
   let do_resume () = match on_resume with Some f -> f () | None -> () in
+  (* Per-turn timing snapshot: capture when the run started so each turn
+     log line carries both per-turn duration and the cumulative elapsed
+     time against the agent's OAS budget.  Diagnosing wall-clock
+     timeouts requires knowing whether the budget was spent on many
+     moderate turns or a single slow one. *)
+  let run_start = Unix.gettimeofday () in
   (* First turn: caller already holds slot, no resume needed *)
   let rec loop ~is_first_turn =
     match check_loop_guard agent with
@@ -89,13 +117,28 @@ let run_loop ~sw ?clock ~api_strategy ?on_yield ?on_resume agent user_prompt =
     | None ->
       (* Resume slot before LLM turn (skip on first turn) *)
       if yield_enabled && not is_first_turn then do_resume ();
-      match run_turn_core ~sw ?clock ~api_strategy ?raw_trace_run agent with
-      | Error e -> Error e
-      | Ok `Complete response -> Ok response
-      | Ok `ToolsExecuted ->
-        (* Yield slot during tool execution gap *)
-        if yield_enabled then do_yield ();
-        loop ~is_first_turn:false
+      let turn_start = Unix.gettimeofday () in
+      let result = run_turn_core ~sw ?clock ~api_strategy ?raw_trace_run agent in
+      let turn_count = agent.state.turn_count in
+      let max_turns = agent.state.config.max_turns in
+      (match result with
+       | Error e ->
+         log_turn ~run_start ~turn_start ~turn_count ~max_turns
+           ~model:agent.state.config.model
+           ~stop:("error:" ^ Error.to_string e);
+         Error e
+       | Ok `Complete response ->
+         log_turn ~run_start ~turn_start ~turn_count ~max_turns
+           ~model:response.model
+           ~stop:(stop_reason_label response.stop_reason);
+         Ok response
+       | Ok `ToolsExecuted ->
+         log_turn ~run_start ~turn_start ~turn_count ~max_turns
+           ~model:agent.state.config.model
+           ~stop:"tools_executed";
+         (* Yield slot during tool execution gap *)
+         if yield_enabled then do_yield ();
+         loop ~is_first_turn:false)
   in
   loop ~is_first_turn:true
 
