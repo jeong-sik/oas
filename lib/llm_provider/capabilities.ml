@@ -200,6 +200,16 @@ let gemini_capabilities = {
   supports_native_streaming = true;
   supports_caching = true;
   supports_code_execution = true;
+  (* Google Gemini's generateContent API documents [topK] as part of
+     generationConfig (ai.google.dev/api/generate-content). The
+     [backend_gemini.build_request] serializer already emits it at
+     lib/llm_provider/backend_gemini.ml:162-164, so the capability
+     record must match. Same discrepancy story as anthropic_capabilities
+     (#832) — OpenAI-compat consumers that route a Gemini config
+     through a capability-checking path were silently dropping top_k.
+     [supports_min_p] stays false; Gemini's generationConfig has no
+     min_p field. *)
+  supports_top_k = true;
 }
 
 let claude_code_capabilities = {
