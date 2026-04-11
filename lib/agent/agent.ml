@@ -83,12 +83,11 @@ let stop_reason_label : Types.stop_reason -> string = function
   | StopSequence -> "stop_sequence"
   | Unknown s -> "unknown:" ^ s
 
-let log_turn ~run_start ~turn_start ~turn_count ~max_turns ~model ~stop =
+let log_turn ~run_start ~turn_start ~turn_index ~max_turns ~model ~stop =
   let now = Unix.gettimeofday () in
   Printf.eprintf
-    "[INFO] [Agent] turn=%d/%d elapsed_run=%.1fs turn_duration=%.1fs \
-     model=%s stop=%s\n%!"
-    turn_count max_turns
+    "[INFO] [Agent] turn=%d/%d elapsed_run=%.1fs turn_duration=%.1fs model=%s stop=%s\n%!"
+    turn_index max_turns
     (now -. run_start)
     (now -. turn_start)
     (if String.length model = 0 then "-" else model)
@@ -117,23 +116,28 @@ let run_loop ~sw ?clock ~api_strategy ?on_yield ?on_resume agent user_prompt =
     | None ->
       (* Resume slot before LLM turn (skip on first turn) *)
       if yield_enabled && not is_first_turn then do_resume ();
+      (* Snapshot turn_count BEFORE run_turn_core — Pipeline.stage_collect
+         increments it (pipeline.ml:299) before returning, so reading
+         agent.state.turn_count afterwards would yield the NEXT turn's
+         index, not the one that just finished.  We display as 1-based
+         ("turn 1/15" = the 1st of 15) for human readability. *)
+      let turn_index = agent.state.turn_count + 1 in
+      let max_turns = agent.state.config.max_turns in
       let turn_start = Unix.gettimeofday () in
       let result = run_turn_core ~sw ?clock ~api_strategy ?raw_trace_run agent in
-      let turn_count = agent.state.turn_count in
-      let max_turns = agent.state.config.max_turns in
       (match result with
        | Error e ->
-         log_turn ~run_start ~turn_start ~turn_count ~max_turns
+         log_turn ~run_start ~turn_start ~turn_index ~max_turns
            ~model:agent.state.config.model
            ~stop:("error:" ^ Error.to_string e);
          Error e
        | Ok `Complete response ->
-         log_turn ~run_start ~turn_start ~turn_count ~max_turns
+         log_turn ~run_start ~turn_start ~turn_index ~max_turns
            ~model:response.model
            ~stop:(stop_reason_label response.stop_reason);
          Ok response
        | Ok `ToolsExecuted ->
-         log_turn ~run_start ~turn_start ~turn_count ~max_turns
+         log_turn ~run_start ~turn_start ~turn_index ~max_turns
            ~model:agent.state.config.model
            ~stop:"tools_executed";
          (* Yield slot during tool execution gap *)
