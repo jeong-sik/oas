@@ -13,8 +13,11 @@
 type field_error = {
   path: string;      (** JSON path, e.g. ["/room"], ["/interval_seconds"] *)
   expected: string;  (** Expected type or constraint, e.g. ["integer"], ["required"] *)
-  actual: string;    (** What was received, e.g. ["string(\"sixty\")"], ["missing"] *)
+  actual: string;    (** What was received, e.g. ["string(\"sixty\")"], [{!missing_actual}] *)
 }
+
+(** Sentinel value for [field_error.actual] when the field is absent. *)
+val missing_actual : string
 
 (** Validation outcome: either coerced input or a list of errors. *)
 type validation_result =
