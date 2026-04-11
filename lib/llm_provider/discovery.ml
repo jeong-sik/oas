@@ -283,6 +283,66 @@ let infer_capabilities models props =
 
 (* ── Probe ───────────────────────────────────────────────── *)
 
+(** Extract the [host:port] authority from a URL string, ignoring
+    userinfo, path, query, and fragment.  Returns [Some port] only when
+    a numeric port is present in the authority section.  Used by
+    {!url_is_ollama}; see that function for the matching contract. *)
+let port_of_url (url : string) : int option =
+  let s = String.trim url in
+  let len = String.length s in
+  (* Skip scheme:// if present *)
+  let start =
+    match String.index_opt s ':' with
+    | Some i when i + 2 < len && s.[i+1] = '/' && s.[i+2] = '/' -> i + 3
+    | _ -> 0
+  in
+  (* Authority ends at first '/', '?' or '#'. *)
+  let stop =
+    let rec scan i =
+      if i >= len then len
+      else match s.[i] with
+        | '/' | '?' | '#' -> i
+        | _ -> scan (i + 1)
+    in
+    scan start
+  in
+  let authority = String.sub s start (stop - start) in
+  (* Strip userinfo (everything before the LAST '@' inside authority). *)
+  let host_port =
+    match String.rindex_opt authority '@' with
+    | Some i -> String.sub authority (i + 1) (String.length authority - i - 1)
+    | None -> authority
+  in
+  (* IPv6 literal: [::1]:11434 — host is in brackets, port follows ']'. *)
+  let port_str =
+    if String.length host_port > 0 && host_port.[0] = '[' then
+      match String.index_opt host_port ']' with
+      | Some i when i + 1 < String.length host_port && host_port.[i+1] = ':' ->
+          Some (String.sub host_port (i + 2)
+                  (String.length host_port - i - 2))
+      | _ -> None
+    else
+      match String.rindex_opt host_port ':' with
+      | Some i -> Some (String.sub host_port (i + 1)
+                          (String.length host_port - i - 1))
+      | None -> None
+  in
+  Option.bind port_str int_of_string_opt
+
+(** Heuristic: does this URL look like an Ollama endpoint?
+    Used to skip llama.cpp-only probe paths (/props, /slots) that always
+    return 404 on Ollama and pollute logs. Matches when:
+    - the URL's authority port is exactly 11434 (Ollama default), OR
+    - the trimmed URL equals the configured [ollama_endpoint]
+      (env [OLLAMA_HOST] or default)
+    The port match is intentionally strict — substring matching on
+    ":11434" gives false positives on userinfo (user:11434@host),
+    paths (/api/:11434), and query strings (?p=:11434). *)
+let url_is_ollama (url : string) : bool =
+  match port_of_url url with
+  | Some 11434 -> true
+  | _ -> String.equal (String.trim url) (String.trim ollama_endpoint)
+
 let probe_endpoint ~sw ~net url =
   let base = String.trim url in
   let warn phase detail =
@@ -305,26 +365,36 @@ let probe_endpoint ~sw ~net url =
       models = []; props = None; slots = None;
       capabilities = Capabilities.default_capabilities }
   else
-    (* Fetch models, props, and slots concurrently via Eio fibers *)
+    let is_ollama = url_is_ollama base in
+    (* Fetch models, props, and slots concurrently via Eio fibers.
+       Skip /props and /slots probes for Ollama endpoints — those are
+       llama.cpp-only paths and always 404 on Ollama, polluting logs.
+       Ollama context is recovered via probe_ollama_context below. *)
     let models_ref = ref [] in
     let props_ref = ref None in
     let slots_ref = ref None in
-    Eio.Fiber.all [
-      (fun () ->
-        models_ref :=
-          (match get_json ~sw ~net (base ^ "/v1/models") with
-           | Ok json -> parse_models json
-           | Error detail ->
-               warn "models" detail;
-               []));
-      (fun () ->
-        props_ref := capture_json "props" parse_props (base ^ "/props"));
-      (fun () ->
-        slots_ref := capture_json "slots" parse_slots (base ^ "/slots"));
-    ];
+    let fibers =
+      [
+        (fun () ->
+          models_ref :=
+            (match get_json ~sw ~net (base ^ "/v1/models") with
+             | Ok json -> parse_models json
+             | Error detail ->
+                 warn "models" detail;
+                 []));
+      ]
+      @ (if is_ollama then []
+         else [
+           (fun () ->
+             props_ref := capture_json "props" parse_props (base ^ "/props"));
+           (fun () ->
+             slots_ref := capture_json "slots" parse_slots (base ^ "/slots"));
+         ])
+    in
+    Eio.Fiber.all fibers;
     let models = !models_ref in
     let slots = !slots_ref in
-    (* Ollama fallback: if /props failed, try /api/tags + /api/show *)
+    (* Ollama fallback: if /props failed (or was skipped), try /api/tags + /api/show *)
     let props = match !props_ref with
       | Some _ as p -> p
       | None -> probe_ollama_context ~sw ~net base
@@ -553,6 +623,72 @@ let%test "endpoints_from_env empty string returns default" =
   Unix.putenv "LLM_ENDPOINTS" "";
   let eps = endpoints_from_env () in
   List.hd eps = default_endpoint
+
+(* --- url_is_ollama --- *)
+
+let%test "url_is_ollama matches default ollama port" =
+  url_is_ollama "http://127.0.0.1:11434"
+
+let%test "url_is_ollama matches localhost variant" =
+  url_is_ollama "http://localhost:11434"
+
+let%test "url_is_ollama trims whitespace" =
+  url_is_ollama "  http://127.0.0.1:11434  "
+
+let%test "url_is_ollama matches IPv6 literal" =
+  url_is_ollama "http://[::1]:11434"
+
+let%test "url_is_ollama matches with trailing path" =
+  url_is_ollama "http://127.0.0.1:11434/api/tags"
+
+let%test "url_is_ollama rejects llama-server port" =
+  not (url_is_ollama "http://127.0.0.1:8085")
+
+let%test "url_is_ollama rejects unrelated port" =
+  not (url_is_ollama "http://127.0.0.1:8086")
+
+(* Codex review #793: confirm false-positive substring matches no longer fire. *)
+let%test "url_is_ollama rejects :11434 in userinfo" =
+  not (url_is_ollama "http://user:11434@example.com/v1")
+
+let%test "url_is_ollama rejects :11434 in path" =
+  not (url_is_ollama "http://example.com/api/:11434")
+
+let%test "url_is_ollama rejects :11434 in query" =
+  not (url_is_ollama "http://example.com:8080/?next=:11434")
+
+(* Codex review: cover the bare ":11434 in query" case with no other port. *)
+let%test "url_is_ollama rejects :11434 in query (no other port)" =
+  not (url_is_ollama "http://example.com/?next=:11434")
+
+let%test "url_is_ollama rejects :11434 in fragment" =
+  not (url_is_ollama "http://example.com:8080/path#:11434")
+
+let%test "url_is_ollama rejects :11434 in fragment (no other port)" =
+  not (url_is_ollama "http://example.com/path#frag:11434")
+
+let%test "url_is_ollama rejects port suffix collision (:111434)" =
+  not (url_is_ollama "http://example.com:111434/")
+
+let%test "url_is_ollama rejects hostname starting with 11434" =
+  not (url_is_ollama "http://11434.example.com/api")
+
+(* --- port_of_url --- *)
+
+let%test "port_of_url default scheme://host:port" =
+  port_of_url "http://127.0.0.1:8085" = Some 8085
+
+let%test "port_of_url no port returns None" =
+  port_of_url "http://example.com/path" = None
+
+let%test "port_of_url skips userinfo" =
+  port_of_url "http://user:pass@example.com:9000/api" = Some 9000
+
+let%test "port_of_url ipv6 literal" =
+  port_of_url "http://[::1]:8086" = Some 8086
+
+let%test "port_of_url stops at path" =
+  port_of_url "http://h:8085/x:9999" = Some 8085
 
 let%test "endpoints_from_env does not duplicate ollama" =
   Unix.putenv "LLM_ENDPOINTS" (ollama_endpoint ^ ",http://a:8085");
