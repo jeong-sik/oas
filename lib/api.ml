@@ -214,8 +214,17 @@ let create_message_named ~sw ~net ?clock ~(named_cascade : named_cascade)
     | Some m -> m
     | None -> named_cascade.metrics
   in
+  (* Cascade entry uses relaxed completion contract: providers in a cascade
+     have heterogeneous tool_choice support (e.g. Ollama silently downgrades
+     [Any] to [Auto] and may return text-only). Strict per-provider validation
+     belongs in [Pipeline.validate_completion_contract] where the actual
+     responding provider is known. Mirrors PR #6455 (Ollama tool_choice
+     contract relaxation) which fixed [pipeline.ml] but missed this call site,
+     causing 270+ require_tool_use violations/day in masc-mcp keepers. *)
   let completion_contract =
-    Completion_contract.of_tool_choice config.config.tool_choice
+    Completion_contract.of_tool_choice
+      ~supports_tool_choice:false
+      config.config.tool_choice
   in
   let caller_accept =
     Completion_contract.resolve_accept ~accept ?accept_reason
@@ -249,8 +258,12 @@ let create_message_named_stream ~sw ~net ?clock
     | Some m -> m
     | None -> named_cascade.metrics
   in
+  (* See [create_message_named] above for the cascade-relaxed contract
+     rationale. Same fix needs to apply to the streaming path. *)
   let completion_contract =
-    Completion_contract.of_tool_choice config.config.tool_choice
+    Completion_contract.of_tool_choice
+      ~supports_tool_choice:false
+      config.config.tool_choice
   in
   match
     Llm_provider.Cascade_config.complete_named_stream ~sw ~net ?clock
