@@ -237,17 +237,14 @@ let resolve_provider ~model_id provider_str base_url =
       let registry = Llm_provider.Provider_registry.default () in
       match Llm_provider.Provider_registry.find registry other with
       | Some entry ->
-          let pc = Llm_provider.Provider_config.make
-            ~kind:entry.defaults.kind
-            ~model_id
-            ~base_url:(match base_url with
-              | Some u -> u
-              | None -> entry.defaults.base_url)
-            ~api_key:(match Sys.getenv_opt entry.defaults.api_key_env with
-              | Some k when String.trim k <> "" -> String.trim k
-              | _ -> "")
-            ~request_path:entry.defaults.request_path () in
-          Provider.config_of_provider_config pc
+          let url = match base_url with
+            | Some u -> u
+            | None -> entry.defaults.base_url
+          in
+          { Provider.provider = OpenAICompat {
+              base_url = url; auth_header = None;
+              path = entry.defaults.request_path; static_token = None };
+            model_id; api_key_env = entry.defaults.api_key_env }
       | None ->
           let url = match base_url with
             | Some u -> u
