@@ -35,23 +35,13 @@ type t = { strategy : strategy }
 type importance_scorer = index:int -> total:int -> message -> float
 type importance_boost = message -> float option
 
-(** CJK-aware token estimation.
-    ASCII: ~4 chars per token. Multi-byte (CJK, emoji, etc.): ~2/3 token per character.
-    Walks the string byte-by-byte using UTF-8 lead-byte classification. O(n), no allocation. *)
-let estimate_char_tokens (s : string) : int =
-  let len = String.length s in
-  let rec loop i ascii multi =
-    if i >= len then max 1 ((ascii + 3) / 4 + (multi * 2 + 2) / 3)
-    else
-      let byte = Char.code (String.unsafe_get s i) in
-      if byte < 0x80 then loop (i + 1) (ascii + 1) multi
-      else
-        let skip = if byte >= 0xF0 then 4
-                   else if byte >= 0xE0 then 3 else 2 in
-        loop (i + skip) ascii (multi + 1)
-  in
-  if len = 0 then 1
-  else loop 0 0 0
+(** CJK-aware token estimation. Delegates to
+    {!Llm_provider.Text_estimate.estimate_char_tokens}, which is the
+    canonical implementation shared with [Cascade_executor] and
+    [Mcp.truncate_output]. Kept as a top-level binding here so existing
+    call sites like [Context_reducer.estimate_char_tokens] continue to
+    work without renaming. *)
+let estimate_char_tokens = Llm_provider.Text_estimate.estimate_char_tokens
 
 (** Estimate tokens for a single content block.
     Uses CJK-aware estimation for text-based blocks. *)
