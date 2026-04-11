@@ -1,5 +1,7 @@
 open Types
 
+let _log = Log.create ~module_name:"completion_contract" ()
+
 type t =
   | Allow_text_or_tool
   | Require_tool_use
@@ -12,11 +14,21 @@ let to_string = function
   | Require_specific_tool name -> Printf.sprintf "require_specific_tool(%s)" name
   | Require_no_tool_use -> "require_no_tool_use"
 
-let of_tool_choice = function
-  | Some Any -> Require_tool_use
-  | Some (Tool name) -> Require_specific_tool name
-  | Some None_ -> Require_no_tool_use
-  | Some Auto | None -> Allow_text_or_tool
+let of_tool_choice ?(supports_tool_choice = true) choice =
+  let requested = match choice with
+    | Some Any -> Some Require_tool_use
+    | Some (Tool name) -> Some (Require_specific_tool name)
+    | Some None_ -> Some Require_no_tool_use
+    | Some Auto | None -> None
+  in
+  match requested with
+  | None -> Allow_text_or_tool
+  | Some contract when supports_tool_choice -> contract
+  | Some contract ->
+    Log.info _log "tool_choice contract relaxed (provider does not support tool_choice)"
+      [ Log.S ("requested", to_string contract);
+        Log.S ("effective", "allow_text_or_tool") ];
+    Allow_text_or_tool
 
 let tool_use_names (response : api_response) =
   List.filter_map
@@ -202,3 +214,35 @@ let%test "validate_response rejects text-only for Require_tool_use" =
     String.contains msg 't'
     && String.length msg > 10
   | Ok () -> false
+
+(* --- supports_tool_choice=false tests --- *)
+
+let%test "of_tool_choice relaxes Any when supports_tool_choice=false" =
+  of_tool_choice ~supports_tool_choice:false (Some Any) = Allow_text_or_tool
+
+let%test "of_tool_choice relaxes Tool when supports_tool_choice=false" =
+  of_tool_choice ~supports_tool_choice:false (Some (Tool "voice")) = Allow_text_or_tool
+
+let%test "of_tool_choice relaxes None_ when supports_tool_choice=false" =
+  of_tool_choice ~supports_tool_choice:false (Some None_) = Allow_text_or_tool
+
+let%test "of_tool_choice keeps Auto as Allow_text_or_tool regardless" =
+  of_tool_choice ~supports_tool_choice:false (Some Auto) = Allow_text_or_tool
+  && of_tool_choice ~supports_tool_choice:true (Some Auto) = Allow_text_or_tool
+
+let%test "of_tool_choice enforces Any when supports_tool_choice=true (default)" =
+  of_tool_choice (Some Any) = Require_tool_use
+  && of_tool_choice ~supports_tool_choice:true (Some Any) = Require_tool_use
+
+let%test "text-only response passes when contract relaxed for unsupported provider" =
+  let contract = of_tool_choice ~supports_tool_choice:false (Some Any) in
+  validate_response
+    ~contract
+    { id = "r";
+      model = "m";
+      stop_reason = EndTurn;
+      content = [ Text "hello" ];
+      usage = None;
+      telemetry = None;
+    }
+  = Ok ()
