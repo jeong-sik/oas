@@ -55,6 +55,29 @@ type tool_param = {
 }
 [@@deriving yojson, show]
 
+let param_type_of_string = function
+  | "string" -> Ok String | "integer" -> Ok Integer
+  | "number" -> Ok Number | "boolean" -> Ok Boolean
+  | "array" -> Ok Array  | "object" -> Ok Object
+  | other -> Error other
+
+let tool_param_to_json (p : tool_param) : Yojson.Safe.t =
+  `Assoc [
+    ("name", `String p.name);
+    ("description", `String p.description);
+    ("param_type", `String (param_type_to_string p.param_type));
+    ("required", `Bool p.required);
+  ]
+
+let tool_param_of_json (json : Yojson.Safe.t) : (tool_param, string) result =
+  let open Yojson.Safe.Util in
+  match param_type_of_string (json |> member "param_type" |> to_string) with
+  | Error s -> Error (Printf.sprintf "unknown param_type: %s" s)
+  | Ok param_type ->
+    Ok { name = json |> member "name" |> to_string;
+         description = json |> member "description" |> to_string;
+         param_type; required = json |> member "required" |> to_bool }
+
 let params_to_input_schema (params : tool_param list) : Yojson.Safe.t =
   let properties = List.map (fun (p : tool_param) ->
     (p.name, `Assoc [
@@ -78,6 +101,31 @@ type tool_schema = {
   parameters: tool_param list;
 }
 [@@deriving yojson, show]
+
+let tool_schema_to_json (s : tool_schema) : Yojson.Safe.t =
+  `Assoc [
+    ("name", `String s.name);
+    ("description", `String s.description);
+    ("parameters", `List (List.map tool_param_to_json s.parameters));
+  ]
+
+let result_all items =
+  let rec loop acc = function
+    | [] -> Ok (List.rev acc)
+    | Ok item :: rest -> loop (item :: acc) rest
+    | Error e :: _ -> Error e
+  in
+  loop [] items
+
+let tool_schema_of_json (json : Yojson.Safe.t) : (tool_schema, string) result =
+  let open Yojson.Safe.Util in
+  match json |> member "parameters" |> to_list
+        |> List.map tool_param_of_json |> result_all with
+  | Error e -> Error e
+  | Ok parameters ->
+    Ok { name = json |> member "name" |> to_string;
+         description = json |> member "description" |> to_string;
+         parameters }
 
 (** Tool choice mode *)
 type tool_choice =

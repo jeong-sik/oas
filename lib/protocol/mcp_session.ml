@@ -96,6 +96,14 @@ let env_pair_of_json json =
   | exn ->
     Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Invalid env pair: %s" (Printexc.to_string exn) }))
 
+let tool_schema_to_json = Types.tool_schema_to_json
+
+let map_str_err r =
+  Result.map_error (fun s ->
+    Error.Serialization (UnknownVariant { type_name = "param_type"; value = s })) r
+
+let tool_schema_of_json json = map_str_err (Types.tool_schema_of_json json)
+
 let result_all items =
   let rec loop acc = function
     | [] -> Ok (List.rev acc)
@@ -103,51 +111,6 @@ let result_all items =
     | Error e :: _ -> Error e
   in
   loop [] items
-
-(* ── Tool schema serialization (self-contained to avoid Checkpoint cycle) ── *)
-
-let tool_param_to_json (p : tool_param) =
-  `Assoc [
-    ("name", `String p.name);
-    ("description", `String p.description);
-    ("param_type", `String (param_type_to_string p.param_type));
-    ("required", `Bool p.required);
-  ]
-
-let tool_param_of_json json =
-  let open Yojson.Safe.Util in
-  let type_str = json |> member "param_type" |> to_string in
-  let param_type =
-    match type_str with
-    | "string" -> Ok String | "integer" -> Ok Integer
-    | "number" -> Ok Number | "boolean" -> Ok Boolean
-    | "array" -> Ok Array  | "object" -> Ok Object
-    | other -> Error (Error.Serialization (UnknownVariant { type_name = "param_type"; value = other }))
-  in
-  Result.map (fun param_type ->
-    { name = json |> member "name" |> to_string;
-      description = json |> member "description" |> to_string;
-      param_type; required = json |> member "required" |> to_bool })
-    param_type
-
-let tool_schema_to_json (s : tool_schema) =
-  `Assoc [
-    ("name", `String s.name);
-    ("description", `String s.description);
-    ("parameters", `List (List.map tool_param_to_json s.parameters));
-  ]
-
-let tool_schema_of_json json =
-  let open Yojson.Safe.Util in
-  let parameters =
-    json |> member "parameters" |> to_list
-    |> List.map tool_param_of_json |> result_all
-  in
-  Result.map (fun parameters ->
-    { name = json |> member "name" |> to_string;
-      description = json |> member "description" |> to_string;
-      parameters })
-    parameters
 
 (* ── info JSON ─────────────────────────────────────────────────── *)
 
