@@ -114,3 +114,36 @@ let resolve_inference_params ~config_path ~name =
       | None -> read_int_field json "default_max_tokens"
     in
     { temperature = temp; max_tokens = max_tok }
+
+(* ── Per-cascade API key env override ────────────────── *)
+
+(** Read an api_key_env override object from JSON.
+
+    The JSON value can be:
+    - A string: applies to all providers in the cascade.
+      [{"{name}_api_key_env": "ZAI_API_KEY_SB"}]
+    - An object mapping provider names to env var names:
+      [{"{name}_api_key_env": {"glm": "ZAI_API_KEY_SB", "glm-coding": "ZAI_API_KEY_SB"}}]
+
+    Returns an association list of [(provider_name, env_var_name)].
+    The special key ["*"] means "all providers". *)
+let read_api_key_env_field json key =
+  let open Yojson.Safe.Util in
+  match json |> member key with
+  | `String s when String.trim s <> "" -> [("*", String.trim s)]
+  | `Assoc pairs ->
+    List.filter_map (fun (k, v) ->
+      match v with
+      | `String s when String.trim s <> "" ->
+        Some (String.lowercase_ascii (String.trim k), String.trim s)
+      | _ -> None
+    ) pairs
+  | _ -> []
+
+let resolve_api_key_env ~config_path ~name =
+  match load_json config_path with
+  | Error _ -> []
+  | Ok json ->
+    match read_api_key_env_field json (name ^ "_api_key_env") with
+    | [] -> read_api_key_env_field json "default_api_key_env"
+    | overrides -> overrides
