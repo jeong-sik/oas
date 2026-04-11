@@ -299,6 +299,44 @@ let test_extended_openai_capabilities () =
   Alcotest.(check bool) "supports top_k" true capabilities.supports_top_k;
   Alcotest.(check bool) "supports min_p" true capabilities.supports_min_p
 
+let test_anthropic_capabilities_consults_for_model_id () =
+  (* Regression for #824: the Anthropic branch of capabilities_for_model
+     was returning the base anthropic_capabilities (200K window)
+     regardless of model_id, bypassing the per-model overrides in
+     Llm_provider.Capabilities.for_model_id. Opus 4 / Sonnet 4 advertise
+     a 1M window in that table; this test pins that the config path
+     now picks them up. *)
+  let opus = Provider.anthropic_opus () in
+  let sonnet = Provider.anthropic_sonnet () in
+  let haiku = Provider.anthropic_haiku () in
+  let opus_caps = Provider.capabilities_for_config opus in
+  let sonnet_caps = Provider.capabilities_for_config sonnet in
+  let haiku_caps = Provider.capabilities_for_config haiku in
+  Alcotest.(check (option int)) "opus-4-6 context = 1M"
+    (Some 1_000_000) opus_caps.max_context_tokens;
+  Alcotest.(check (option int)) "opus-4-6 output = 128K"
+    (Some 128_000) opus_caps.max_output_tokens;
+  Alcotest.(check (option int)) "sonnet-4-6 context = 1M"
+    (Some 1_000_000) sonnet_caps.max_context_tokens;
+  Alcotest.(check (option int)) "sonnet-4-6 output = 64K"
+    (Some 64_000) sonnet_caps.max_output_tokens;
+  (* haiku-4 explicitly stays at 200K in for_model_id *)
+  Alcotest.(check (option int)) "haiku-4-5 context = 200K"
+    (Some 200_000) haiku_caps.max_context_tokens
+
+let test_anthropic_capabilities_unknown_model_id_falls_back () =
+  (* Unknown Anthropic model_ids still fall back to the conservative
+     base anthropic_capabilities rather than failing hard. *)
+  let cfg : Provider.config = {
+    provider = Anthropic;
+    model_id = "claude-nonexistent-future-model";
+    api_key_env = "ANTHROPIC_API_KEY";
+  } in
+  let caps = Provider.capabilities_for_config cfg in
+  (* Base anthropic_capabilities has max_context_tokens = Some 200_000 *)
+  Alcotest.(check (option int)) "unknown anthropic model falls back to base 200K"
+    (Some 200_000) caps.max_context_tokens
+
 (* ── Phase 6: pricing, ollama, static_token ─────────────────────── *)
 
 let test_pricing_sonnet () =
@@ -459,6 +497,10 @@ let () =
         test_validate_inference_contract_rejects_unsupported_modality;
       Alcotest.test_case "extended openai capabilities" `Quick
         test_extended_openai_capabilities;
+      Alcotest.test_case "anthropic consults for_model_id (#824)" `Quick
+        test_anthropic_capabilities_consults_for_model_id;
+      Alcotest.test_case "anthropic unknown model falls back to base" `Quick
+        test_anthropic_capabilities_unknown_model_id_falls_back;
     ];
     "pricing", [
       Alcotest.test_case "sonnet pricing" `Quick test_pricing_sonnet;
