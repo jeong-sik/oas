@@ -124,7 +124,7 @@ let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
     ?throttle ?priority ?(accept_on_exhaustion = false)
     ~accept (providers : Provider_config.t list)
     ~(messages : Types.message list) ~(tools : Yojson.Safe.t list) =
-  let m = match metrics with Some m -> m | None -> Metrics.noop in
+  let m = match metrics with Some m -> m | None -> Metrics.get_global () in
   diag "debug" "cascade_accept_start"
     [("providers", string_of_int (List.length providers));
      ("accept_on_exhaustion", string_of_bool accept_on_exhaustion)];
@@ -269,7 +269,7 @@ let complete_cascade_stream ~sw ~net ?(metrics : Metrics.t option)
     (providers : Provider_config.t list)
     ~(messages : Types.message list) ~(tools : Yojson.Safe.t list)
     ~(on_event : Types.sse_event -> unit) =
-  let m = match metrics with Some m -> m | None -> Metrics.noop in
+  let m = match metrics with Some m -> m | None -> Metrics.get_global () in
   let try_one ~is_last (cfg : Provider_config.t) =
     let call () =
       Complete.complete_stream ~sw ~net ~config:cfg

@@ -322,6 +322,58 @@ let test_complete_error_metrics () =
        Eio.Switch.fail sw Exit)
   with Exit -> ()
 
+(* ── Global metrics registry ──────────────────────────── *)
+
+let test_metrics_global_default_is_noop () =
+  let g = Metrics.get_global () in
+  (* Default state: the noop callbacks should not raise and should be
+     distinguishable by reference from a custom instance below. *)
+  g.on_cache_hit ~model_id:"m";
+  g.on_request_end ~model_id:"m" ~latency_ms:1;
+  g.on_http_status ~provider:"ollama" ~model_id:"m" ~status:200;
+  (* No side effects observable. *)
+  check bool "default global accepts noop calls" true true
+
+let test_metrics_global_set_and_get () =
+  let hits = ref 0 in
+  let previous = Metrics.get_global () in
+  let custom : Metrics.t = {
+    Metrics.noop with
+    on_http_status = (fun ~provider:_ ~model_id:_ ~status:_ -> incr hits);
+  } in
+  Metrics.set_global custom;
+  let g = Metrics.get_global () in
+  g.on_http_status ~provider:"ollama" ~model_id:"m" ~status:429;
+  g.on_http_status ~provider:"glm" ~model_id:"m" ~status:429;
+  check int "global metric fired twice" 2 !hits;
+  (* Restore to noop so other tests in the same process see a clean slate. *)
+  Metrics.set_global previous
+
+let test_metrics_global_used_when_no_per_call_metrics () =
+  Eio_main.run @@ fun env ->
+  try
+    Eio.Switch.run @@ fun sw ->
+    let url = start_mock_server ~sw ~net:env#net
+        (anthropic_response "global metrics test") in
+    let config = make_config url in
+    let status_calls = ref [] in
+    let previous = Metrics.get_global () in
+    let bridge : Metrics.t = {
+      Metrics.noop with
+      on_http_status = (fun ~provider ~model_id ~status ->
+        status_calls := (provider, model_id, status) :: !status_calls);
+    } in
+    Metrics.set_global bridge;
+    Fun.protect ~finally:(fun () -> Metrics.set_global previous)
+      (fun () ->
+        (* Deliberately do NOT pass ~metrics — global should take effect. *)
+        match Complete.complete ~sw ~net:env#net ~config ~messages () with
+        | Ok _ ->
+          check int "global on_http_status fired once" 1 (List.length !status_calls);
+          Eio.Switch.fail sw Exit
+        | Error _ -> fail "expected Ok")
+  with Exit -> ()
+
 (* ── complete_stream: SSE ─────────────────────────────── *)
 
 let anthropic_sse_response text =
@@ -592,6 +644,10 @@ let () =
     "metrics", [
       test_case "callbacks" `Quick test_complete_metrics;
       test_case "error callback" `Quick test_complete_error_metrics;
+      test_case "global default is noop" `Quick test_metrics_global_default_is_noop;
+      test_case "global set and get" `Quick test_metrics_global_set_and_get;
+      test_case "global used when no per-call metrics" `Quick
+        test_metrics_global_used_when_no_per_call_metrics;
     ];
     "retry", [
       test_case "first try ok" `Quick test_retry_first_try;

@@ -13,7 +13,7 @@ type named_cascade = {
 type response_accept = Types.api_response -> (unit, string) result
 
 let named_cascade ?config_path ?metrics ?provider_filter ~name ~defaults () =
-  let metrics = match metrics with Some m -> m | None -> Llm_provider.Metrics.noop in
+  let metrics = match metrics with Some m -> m | None -> Llm_provider.Metrics.get_global () in
   { name; defaults; config_path; metrics; provider_filter }
 
 (* Re-export Api_common *)

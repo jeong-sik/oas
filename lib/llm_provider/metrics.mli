@@ -29,3 +29,18 @@ type t = {
 
 (** No-op metrics — all callbacks do nothing. *)
 val noop : t
+
+(** Install a process-wide metrics sink.  When a caller invokes
+    {!Complete.complete} (or a wrapper) without passing [~metrics]
+    explicitly, the value installed here is used instead of {!noop}.
+
+    Intended to be called once at startup from the host application
+    (e.g. masc-mcp installs a Prometheus-backed instance). Thread-safe:
+    a concurrent [set_global] is published atomically; fibers already
+    holding the previous reference continue to use it until their
+    current call returns. *)
+val set_global : t -> unit
+
+(** Read the current process-wide metrics sink.  Returns {!noop}
+    unless {!set_global} has been called. *)
+val get_global : unit -> t
