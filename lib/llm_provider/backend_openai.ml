@@ -62,13 +62,25 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
     | Some p -> ("top_p", `Float p) :: body
     | None -> body
   in
+  (* Look up per-model capabilities once — the sampling params below
+     rely on [supports_top_k] / [supports_min_p] to decide whether the
+     server will accept the field.  If no capability record exists for
+     the model, default to NOT sending the non-standard sampling
+     params; conservative because misclassified providers (GLM, Gemini,
+     ...) previously silently inherited [config.min_p]/[config.top_k]
+     from the agent config and triggered hard 400s at the server. *)
+  let caps =
+    match Capabilities.for_model_id config.model_id with
+    | Some c -> c
+    | None -> Capabilities.default_capabilities
+  in
   let body = match config.top_k with
-    | Some k -> ("top_k", `Int k) :: body
-    | None -> body
+    | Some k when caps.supports_top_k -> ("top_k", `Int k) :: body
+    | _ -> body
   in
   let body = match config.min_p with
-    | Some p -> ("min_p", `Float p) :: body
-    | None -> body
+    | Some p when caps.supports_min_p -> ("min_p", `Float p) :: body
+    | _ -> body
   in
   let body = match config.enable_thinking with
     | Some enabled ->
@@ -173,6 +185,48 @@ let%test "glm drops tools when tool_choice none" =
   let assoc = to_assoc json in
   not (List.mem_assoc "tool_choice" assoc)
   && not (List.mem_assoc "tools" assoc)
+
+(* === Capability-gated sampling param tests (oas#827) === *)
+
+let%test "glm drops min_p when model does not support it" =
+  (* GLM's glm_capabilities inherits supports_min_p = false from
+     default_capabilities.  Even when the caller sets min_p explicitly
+     (via cascade inheritance or agent default), backend_openai must
+     omit it from the wire body — ZAI rejects the request with
+     "property 'min_p' is unsupported". *)
+  let cfg = Provider_config.make
+    ~kind:Provider_config.Glm ~model_id:"glm-5.1"
+    ~base_url:Zai_catalog.general_base_url
+    ~min_p:0.05 () in
+  let json = build_request ~config:cfg ~messages:[] ()
+             |> Yojson.Safe.from_string in
+  let open Yojson.Safe.Util in
+  not (List.mem_assoc "min_p" (to_assoc json))
+
+let%test "glm drops top_k when model does not support it" =
+  let cfg = Provider_config.make
+    ~kind:Provider_config.Glm ~model_id:"glm-5.1"
+    ~base_url:Zai_catalog.general_base_url
+    ~top_k:40 () in
+  let json = build_request ~config:cfg ~messages:[] ()
+             |> Yojson.Safe.from_string in
+  let open Yojson.Safe.Util in
+  not (List.mem_assoc "top_k" (to_assoc json))
+
+let%test "ollama preserves min_p (llama.cpp supports it)" =
+  (* qwen3 via Ollama has supports_min_p = true in qwen_capabilities.
+     The capability-gated path must still pass min_p through for
+     providers that do support it. *)
+  let cfg = Provider_config.make
+    ~kind:Provider_config.Ollama ~model_id:"qwen3.5:35b-a3b-nvfp4"
+    ~base_url:"http://127.0.0.1:11434"
+    ~min_p:0.05 () in
+  let json = build_request ~config:cfg ~messages:[] ()
+             |> Yojson.Safe.from_string in
+  let open Yojson.Safe.Util in
+  match json |> member "min_p" with
+  | `Float f -> Float.abs (f -. 0.05) < 1e-6
+  | _ -> false
 
 let%test "strip_json_markdown_fences plain text unchanged" =
   strip_json_markdown_fences "{\"key\":\"value\"}" = "{\"key\":\"value\"}"
