@@ -137,6 +137,46 @@ let test_build_body_with_tools () =
   let tools = json |> member "tools" |> to_list in
   check int "1 tool" 1 (List.length tools)
 
+let test_build_body_sampling_params_anthropic () =
+  (* Regression: the Anthropic agent_sdk request path previously omitted
+     temperature/top_p/top_k entirely, silently defaulting every Claude
+     agent to Anthropic's server-side temperature = 1.0 + top_p = 1. *)
+  let state = {
+    Types.config = {
+      Types.default_config with
+      temperature = Some 0.3;
+      top_p = Some 0.85;
+      top_k = Some 20;
+    };
+    messages = [];
+    turn_count = 0;
+    usage = Types.empty_usage;
+  } in
+  let assoc = Api.build_body_assoc ~config:state ~messages:[] ~stream:false () in
+  let json = `Assoc assoc in
+  let open Yojson.Safe.Util in
+  check (float 1e-6) "temperature 0.3" 0.3
+    (json |> member "temperature" |> to_number);
+  check (float 1e-6) "top_p 0.85" 0.85
+    (json |> member "top_p" |> to_number);
+  check int "top_k 20" 20
+    (json |> member "top_k" |> to_int)
+
+let test_build_body_sampling_params_omitted_when_none () =
+  (* When the caller does not set a sampling param, the Anthropic body
+     must not carry the key at all — relying on Anthropic's server-side
+     defaults rather than encoding some OAS-layer default. *)
+  let state = make_state () in
+  let assoc = Api.build_body_assoc ~config:state ~messages:[] ~stream:false () in
+  check bool "no temperature key" false
+    (List.exists (fun (k, _) -> k = "temperature") assoc);
+  check bool "no top_p key" false
+    (List.exists (fun (k, _) -> k = "top_p") assoc);
+  check bool "no top_k key" false
+    (List.exists (fun (k, _) -> k = "top_k") assoc);
+  check bool "no min_p key" false
+    (List.exists (fun (k, _) -> k = "min_p") assoc)
+
 let test_build_openai_body_with_qwen_sampling () =
   let state = {
     Types.config = {
@@ -919,6 +959,10 @@ let () =
       test_case "without thinking" `Quick test_build_body_without_thinking;
       test_case "with tool_choice" `Quick test_build_body_with_tool_choice;
       test_case "with tools" `Quick test_build_body_with_tools;
+      test_case "anthropic sampling params serialized" `Quick
+        test_build_body_sampling_params_anthropic;
+      test_case "anthropic sampling params omitted when None" `Quick
+        test_build_body_sampling_params_omitted_when_none;
       test_case "with qwen sampling" `Quick test_build_openai_body_with_qwen_sampling;
       test_case "generic compat omits qwen-only fields" `Quick
         test_build_openai_body_omits_qwen_only_fields_for_generic_compat;

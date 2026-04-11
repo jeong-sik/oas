@@ -81,4 +81,28 @@ let build_body_assoc ~config ~messages ?tools ~stream () =
         ("thinking", `Assoc [("type", `String "enabled"); ("budget_tokens", `Int budget)]) :: body_assoc
     | None -> body_assoc
   in
+  (* Sampling parameters were previously omitted entirely from the
+     Anthropic agent_sdk request path — any [temperature], [top_p],
+     or [top_k] the caller set on the agent config was silently
+     dropped, so Anthropic defaulted to temperature = 1.0 + top_p = 1.
+     Serialise them here so Claude agents honour deterministic
+     configs (e.g. temperature = 0.0 for coding assistants).
+
+     Anthropic Messages API body params (docs.anthropic.com/en/api/
+     messages): [temperature] float 0-1, [top_p] float 0-1, [top_k]
+     int >= 1. No [min_p] field — we intentionally do not serialise
+     it so a caller who sets [min_p] on a cross-provider config gets
+     the same silent-omit behaviour Anthropic itself enforces. *)
+  let body_assoc = match config.config.temperature with
+    | Some t -> ("temperature", `Float t) :: body_assoc
+    | None -> body_assoc
+  in
+  let body_assoc = match config.config.top_p with
+    | Some p -> ("top_p", `Float p) :: body_assoc
+    | None -> body_assoc
+  in
+  let body_assoc = match config.config.top_k with
+    | Some k -> ("top_k", `Int k) :: body_assoc
+    | None -> body_assoc
+  in
   body_assoc
