@@ -138,6 +138,28 @@ let with_tool_retry_policy tool_retry_policy b =
   { b with tool_retry_policy = Some tool_retry_policy }
 let with_context_reducer reducer b = { b with context_reducer = Some reducer }
 let with_context_thresholds ~compact_ratio ?context_window_tokens ?prepare_ratio ?handoff_ratio b =
+  (* Resolution chain for the context window used by the reducer:
+     1. explicit [?context_window_tokens] argument (caller knows the
+        per-agent override),
+     2. builder's [max_input_tokens] (whole-run input cap),
+     3. builder's [max_total_tokens] (whole-run total cap),
+     4. provider capabilities for [b.provider] when set
+        (e.g. claude-opus-4-6 → 1_000_000, glm → 200_000) — this mirrors
+        the [Pipeline.proactive_context_window_tokens] resolution chain
+        added in #815 so the reducer budget agrees with the compaction
+        watermark for the same agent.
+     5. conservative 200_000 literal as final fallback when nothing is
+        known — better to under-report than to assume a giant window
+        and skip compaction. *)
+  let from_provider () =
+    match b.provider with
+    | Some cfg ->
+      let caps = Provider.capabilities_for_config cfg in
+      (match caps.max_context_tokens with
+       | Some n when n > 0 -> n
+       | _ -> 200_000)
+    | None -> 200_000
+  in
   let effective_max = match context_window_tokens with
     | Some n when n > 0 -> n
     | _ ->
@@ -146,7 +168,7 @@ let with_context_thresholds ~compact_ratio ?context_window_tokens ?prepare_ratio
       | _ ->
         match b.max_total_tokens with
         | Some n when n > 0 -> n
-        | _ -> 200_000
+        | _ -> from_provider ()
   in
   let reducer = Context_reducer.from_context_config ~compact_ratio
     ~max_tokens:effective_max () in
