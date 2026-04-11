@@ -6,6 +6,20 @@ Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
 backfilled on 2026-04-04 from existing git tags. The dates below reflect the
 original tag dates. `0.100.4` was never tagged or released.
 
+## [0.122.0] - 2026-04-12
+
+### Added
+- Capabilities: OAS_OLLAMA_SUPPORTS_TOOL_CHOICE env override (#801)
+- Cascade: per-entry api_key_env override in cascade config (#817)
+- Agent: emit per-turn timing line to stderr for budget diagnosis (#816)
+- Complete: log base_url + capture body on HTTP 5xx (#814)
+- Ollama: pin keep_alive=-1 by default to prevent model eviction (#813)
+
+### Fixed
+- Test: silence resolve Unspecified stderr to unblock CI (#799)
+- Pipeline: derive proactive_context_window from model capabilities (#815)
+- Cascade: apply per-model timeout to last provider (#805)
+
 ## [0.121.0] - 2026-04-11
 
 ### Added
