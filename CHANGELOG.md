@@ -6,6 +6,19 @@ Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
 backfilled on 2026-04-04 from existing git tags. The dates below reflect the
 original tag dates. `0.100.4` was never tagged or released.
 
+## [0.121.0] - 2026-04-11
+
+### Added
+- Multi-vendor inference providers: Groq, DeepSeek, Alibaba, SiliconFlow (#789)
+- Process-wide global registry for Metrics.t (#807)
+- on_http_status hook for provider response counters (#804)
+
+## [0.120.0] - 2026-04-11
+
+### Fixed
+- Retry: treat hard-quota 429s as non-retryable (#798)
+- Retry: flat-error-string extraction (#795)
+
 ## [0.118.1] - 2026-04-09
 
 ### Changed
