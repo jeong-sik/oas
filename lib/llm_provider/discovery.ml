@@ -41,11 +41,8 @@ type endpoint_status = {
 }
 
 let default_endpoint =
-  let primary = Sys.getenv_opt "OAS_LOCAL_LLM_URL" in
-  let legacy = Sys.getenv_opt "OAS_LOCAL_QWEN_URL" in
-  match primary, legacy with
-  | Some v, _ when String.trim v <> "" -> String.trim v
-  | _, Some v when String.trim v <> "" -> String.trim v
+  match Sys.getenv_opt "OAS_LOCAL_LLM_URL" with
+  | Some v when String.trim v <> "" -> String.trim v
   | _ -> Constants.Endpoints.default_url
 
 let ollama_endpoint =

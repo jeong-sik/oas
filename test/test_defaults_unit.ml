@@ -45,9 +45,9 @@ let () =
     "local_llm_url", [
       test_case "default value is localhost:8085" `Quick (fun () ->
         (* local_llm_url is evaluated at module load time, so we check
-           the default value assuming OAS_LOCAL_LLM_URL and OAS_LOCAL_QWEN_URL
-           are not set in the test environment. If they are, this test
-           verifies the actual resolved value is non-empty. *)
+           the default value assuming OAS_LOCAL_LLM_URL is not set in
+           the test environment. If it is, this test verifies the
+           actual resolved value is non-empty. *)
         let url = Defaults.local_llm_url in
         check bool "non-empty" true (String.length url > 0);
         (* Verify it looks like a URL *)
