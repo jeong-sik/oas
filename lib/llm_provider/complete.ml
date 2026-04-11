@@ -178,14 +178,77 @@ let complete_http ~sw ~net ~(config : Provider_config.t)
         else begin
           (* Log request body diagnostics on error responses to help debug
              Ollama "closing '}' symbol" and similar body-rejection errors. *)
-          if code >= 400 then
+          let provider_name = match config.kind with
+            | Ollama -> "ollama" | Anthropic -> "anthropic"
+            | OpenAI_compat -> "openai" | Gemini -> "gemini"
+            | Glm -> "glm" | Claude_code -> "claude_code"
+          in
+          if code >= 400 then begin
+            (* Strong validation: round-trip parse the body we sent.  The
+               cheap balanced=true check only inspects first/last char and
+               misses internal corruption.  When the body is well-formed
+               JSON locally yet the server rejects it as "can't find closing
+               '}' symbol", that points at server-side parser limits and we
+               want the *exact* body for offline reproduction. *)
+            let parse_ok =
+              try
+                let _ = Yojson.Safe.from_string body_str in true
+              with _ -> false
+            in
             Printf.eprintf
               "[WARN] [Complete] HTTP %d from %s (model=%s): \
-               req_body=%d bytes balanced=%b resp_body=%s\n%!"
-              code (match config.kind with Ollama -> "ollama" | Anthropic -> "anthropic" | OpenAI_compat -> "openai" | Gemini -> "gemini" | Glm -> "glm" | Claude_code -> "claude_code") config.model_id
-              body_len body_balanced
+               req_body=%d bytes balanced=%b parse_ok=%b resp_body=%s\n%!"
+              code provider_name config.model_id
+              body_len body_balanced parse_ok
               (if String.length body <= 200 then body
                else String.sub body 0 200 ^ "...");
+            (* Dump the rejected body when the failure looks like a JSON
+               parse complaint from the server, or when our own round-trip
+               parse fails.  Bounded: at most one dump per
+               provider+model+minute keeps /tmp from filling during
+               sustained outages. *)
+            let lower_resp = String.lowercase_ascii body in
+            let contains_substring h n =
+              let nl = String.length n in
+              let hl = String.length h in
+              if nl = 0 || nl > hl then false
+              else
+                let rec scan i =
+                  if i + nl > hl then false
+                  else if String.sub h i nl = n then true
+                  else scan (i + 1)
+                in
+                scan 0
+            in
+            let server_parse_complaint =
+              List.exists (fun n -> contains_substring lower_resp n)
+                ["closing"; "can't find"; "cant find"; "unterminated"; "unexpected character"]
+            in
+            if (not parse_ok) || server_parse_complaint then begin
+              let now = Unix.gettimeofday () in
+              let minute_bucket = int_of_float (now /. 60.0) in
+              let safe_model =
+                String.map
+                  (fun c -> match c with
+                    | 'a'..'z' | 'A'..'Z' | '0'..'9' | '-' | '_' -> c
+                    | _ -> '_')
+                  config.model_id
+              in
+              let path =
+                Printf.sprintf "/tmp/oas-bad-body-%s-%s-%d.json"
+                  provider_name safe_model minute_bucket
+              in
+              if not (Sys.file_exists path) then
+                try
+                  let oc = open_out path in
+                  Fun.protect ~finally:(fun () -> close_out_noerr oc)
+                    (fun () -> output_string oc body_str);
+                  Printf.eprintf
+                    "[WARN] [Complete] dumped rejected request body: %s (%d bytes)\n%!"
+                    path body_len
+                with _ -> ()
+            end
+          end;
           Error (Http_client.HttpError { code; body })
         end
   in
