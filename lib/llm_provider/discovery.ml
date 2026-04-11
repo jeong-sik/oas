@@ -283,6 +283,29 @@ let infer_capabilities models props =
 
 (* ── Probe ───────────────────────────────────────────────── *)
 
+(** Heuristic: does this URL look like an Ollama endpoint?
+    Used to skip llama.cpp-only probe paths (/props, /slots) that always
+    return 404 on Ollama and pollute logs. Matches:
+    - port 11434 (Ollama default)
+    - host equals the configured ollama_endpoint (env OLLAMA_HOST or default)
+*)
+let url_is_ollama (url : string) : bool =
+  let needle_port = ":11434" in
+  let contains_substring h n =
+    let hl = String.length h in
+    let nl = String.length n in
+    if nl = 0 || nl > hl then false
+    else
+      let rec loop i =
+        if i + nl > hl then false
+        else if String.sub h i nl = n then true
+        else loop (i + 1)
+      in
+      loop 0
+  in
+  contains_substring url needle_port
+  || String.equal (String.trim url) (String.trim ollama_endpoint)
+
 let probe_endpoint ~sw ~net url =
   let base = String.trim url in
   let warn phase detail =
@@ -305,26 +328,36 @@ let probe_endpoint ~sw ~net url =
       models = []; props = None; slots = None;
       capabilities = Capabilities.default_capabilities }
   else
-    (* Fetch models, props, and slots concurrently via Eio fibers *)
+    let is_ollama = url_is_ollama base in
+    (* Fetch models, props, and slots concurrently via Eio fibers.
+       Skip /props and /slots probes for Ollama endpoints — those are
+       llama.cpp-only paths and always 404 on Ollama, polluting logs.
+       Ollama context is recovered via probe_ollama_context below. *)
     let models_ref = ref [] in
     let props_ref = ref None in
     let slots_ref = ref None in
-    Eio.Fiber.all [
-      (fun () ->
-        models_ref :=
-          (match get_json ~sw ~net (base ^ "/v1/models") with
-           | Ok json -> parse_models json
-           | Error detail ->
-               warn "models" detail;
-               []));
-      (fun () ->
-        props_ref := capture_json "props" parse_props (base ^ "/props"));
-      (fun () ->
-        slots_ref := capture_json "slots" parse_slots (base ^ "/slots"));
-    ];
+    let fibers =
+      [
+        (fun () ->
+          models_ref :=
+            (match get_json ~sw ~net (base ^ "/v1/models") with
+             | Ok json -> parse_models json
+             | Error detail ->
+                 warn "models" detail;
+                 []));
+      ]
+      @ (if is_ollama then []
+         else [
+           (fun () ->
+             props_ref := capture_json "props" parse_props (base ^ "/props"));
+           (fun () ->
+             slots_ref := capture_json "slots" parse_slots (base ^ "/slots"));
+         ])
+    in
+    Eio.Fiber.all fibers;
     let models = !models_ref in
     let slots = !slots_ref in
-    (* Ollama fallback: if /props failed, try /api/tags + /api/show *)
+    (* Ollama fallback: if /props failed (or was skipped), try /api/tags + /api/show *)
     let props = match !props_ref with
       | Some _ as p -> p
       | None -> probe_ollama_context ~sw ~net base
@@ -553,6 +586,23 @@ let%test "endpoints_from_env empty string returns default" =
   Unix.putenv "LLM_ENDPOINTS" "";
   let eps = endpoints_from_env () in
   List.hd eps = default_endpoint
+
+(* --- url_is_ollama --- *)
+
+let%test "url_is_ollama matches default ollama port" =
+  url_is_ollama "http://127.0.0.1:11434"
+
+let%test "url_is_ollama matches localhost variant" =
+  url_is_ollama "http://localhost:11434"
+
+let%test "url_is_ollama trims whitespace" =
+  url_is_ollama "  http://127.0.0.1:11434  "
+
+let%test "url_is_ollama rejects llama-server port" =
+  not (url_is_ollama "http://127.0.0.1:8085")
+
+let%test "url_is_ollama rejects unrelated port" =
+  not (url_is_ollama "http://127.0.0.1:8086")
 
 let%test "endpoints_from_env does not duplicate ollama" =
   Unix.putenv "LLM_ENDPOINTS" (ollama_endpoint ^ ",http://a:8085");
