@@ -57,4 +57,4 @@ let to_untyped safe_tool = Typed_tool.to_untyped safe_tool.tool
 
 let name safe_tool = Typed_tool.name safe_tool.tool
 let permission safe_tool = safe_tool.perm
-let permission_name safe_tool = Tool.show_permission safe_tool.perm
+let permission_name safe_tool = Tool.permission_to_string safe_tool.perm
