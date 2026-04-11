@@ -13,8 +13,11 @@
 type field_error = {
   path: string;      (** JSON path, e.g. ["/room"], ["/interval_seconds"] *)
   expected: string;  (** Expected type or constraint, e.g. ["integer"], ["required"] *)
-  actual: string;    (** What was received, e.g. ["string(\"sixty\")"], ["missing"] *)
+  actual: string;    (** What was received, e.g. ["string(\"sixty\")"], [{!missing_actual}] *)
 }
+
+(** Sentinel value for [field_error.actual] when the field is absent. *)
+val missing_actual : string
 
 (** Validation outcome: either coerced input or a list of errors. *)
 type validation_result =
@@ -41,7 +44,12 @@ val format_errors : tool_name:string -> field_error list -> string
 val format_errors_inline :
   tool_name:string -> args:Yojson.Safe.t -> field_error list -> string
 
-(** {1 Low-level helpers (for Correction_pipeline)} *)
+(** {1 Low-level helpers (for Correction_pipeline, Tool_schema_gen)} *)
+
+(** Human-readable description of a JSON value for error messages.
+    E.g. [null], [integer(42)], [string("hello")].
+    @since 0.120.0 *)
+val describe_json_value : Yojson.Safe.t -> string
 
 (** Try to coerce a JSON value to the expected param_type.
     Returns [Some coerced] on success, [None] if not coercible.

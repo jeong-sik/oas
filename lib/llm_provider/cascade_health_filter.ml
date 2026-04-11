@@ -87,6 +87,9 @@ let%test "should_cascade_to_next 403 forbidden" =
 let%test "should_cascade_to_next 429 rate limit" =
   should_cascade_to_next (Http_client.HttpError { code = 429; body = "" }) = true
 
+let%test "should_cascade_to_next 498 groq flex capacity" =
+  should_cascade_to_next (Http_client.HttpError { code = 498; body = "" }) = true
+
 let%test "should_cascade_to_next 500 server error" =
   should_cascade_to_next (Http_client.HttpError { code = 500; body = "" }) = true
 

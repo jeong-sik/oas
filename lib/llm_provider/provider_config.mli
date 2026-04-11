@@ -25,6 +25,7 @@ type t = {
   headers: (string * string) list;
   request_path: string;
   max_tokens: int;
+  max_context: int option;  (** Provider's context window limit in tokens. When set, cascade executor truncates messages to fit before dispatch. @since 0.120.0 *)
   temperature: float option;
   top_p: float option;
   top_k: int option;
@@ -50,6 +51,7 @@ val make :
   ?headers:(string * string) list ->
   ?request_path:string ->
   ?max_tokens:int ->
+  ?max_context:int ->
   ?temperature:float ->
   ?top_p:float ->
   ?top_k:int ->

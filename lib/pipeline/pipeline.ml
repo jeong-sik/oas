@@ -149,7 +149,8 @@ let stage_parse ?raw_trace_run agent =
     tool_choice =
       (match turn_params.tool_choice with Some _ as t -> t | None -> original_config.tool_choice);
     system_prompt =
-      (match turn_params.system_prompt_override with Some _ as s -> s | None -> original_config.system_prompt);
+      (match turn_params.system_prompt_override with Some _ as s -> s | None -> original_config.system_prompt)
+      |> Option.map Llm_provider.Utf8_sanitize.sanitize;
   } in
   update_state agent (fun s -> { s with config = new_config });
   let original_config = original_config in
@@ -509,8 +510,14 @@ let stage_output ?raw_trace_run agent ~effective_guardrails response =
     context-window size.  Until an explicit context-window value is
     available from configuration or provider/model capabilities, use a
     conservative default. *)
-let proactive_context_window_tokens _agent =
-  128_000
+let proactive_context_window_tokens agent =
+  match agent.options.provider with
+  | Some cfg ->
+    let caps = Provider.capabilities_for_config cfg in
+    (match caps.max_context_tokens with
+     | Some n when n > 0 -> n
+     | _ -> 128_000)
+  | None -> 128_000
 
 (** Apply proactive compaction when context usage exceeds the configured
     watermark ratio, BEFORE hitting the provider limit.  Uses

@@ -120,6 +120,11 @@ let permission tool =
 let is_read_only tool =
   permission tool = Some ReadOnly
 
+let permission_to_string = function
+  | ReadOnly -> "read_only"
+  | Write -> "write"
+  | Destructive -> "destructive"
+
 let workdir_policy_to_json = function
   | Required -> `String "required"
   | Recommended -> `String "recommended"

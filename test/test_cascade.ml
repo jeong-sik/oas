@@ -143,7 +143,8 @@ let test_builder_with_fallback () =
    Avoids parse_model_strings dependency on API key env vars in CI. *)
 let mock_provider kind model_id : Llm_provider.Provider_config.t =
   { kind; model_id; base_url = ""; api_key = ""; headers = [];
-    request_path = ""; max_tokens = 4096; temperature = None;
+    request_path = ""; max_tokens = 4096; max_context = None;
+    temperature = None;
     top_p = None; top_k = None; min_p = None; system_prompt = None;
     enable_thinking = None; thinking_budget = None;
     clear_thinking = None; tool_stream = false; tool_choice = None;

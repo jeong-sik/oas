@@ -84,4 +84,5 @@ val to_untyped : (_, _, _) t -> Tool.t
 (** {1 Introspection} *)
 
 val name : (_, _, _) t -> string
+val permission : ('perm, _, _) t -> Tool.permission
 val permission_name : ('perm, _, _) t -> string

@@ -42,6 +42,26 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
   (* Ollama defaults to stream=true, so always send explicit value *)
   let body = ("stream", `Bool stream) :: body in
 
+  (* keep_alive: controls how long the model stays loaded in memory after
+     the request. Ollama's default is 5 minutes, which causes models to be
+     unloaded between keeper cycles and re-loaded on demand — slow and
+     eviction-prone when other processes ping different models.
+
+     We default to "-1" (permanent) so the caller's pinned model stays
+     resident. Override via OAS_OLLAMA_KEEP_ALIVE env var ("5m", "0",
+     "-1", duration strings — Ollama accepts any of these).
+
+     Empirical rationale: 2026-04-11 incident where masc-mcp's 35b-a3b
+     model was evicted ~every 30 min because each keeper turn reset
+     keep_alive to the 5m default; concurrent probes from other processes
+     then triggered swap-induced JSON truncation errors. *)
+  let keep_alive =
+    match Sys.getenv_opt "OAS_OLLAMA_KEEP_ALIVE" with
+    | Some v when String.trim v <> "" -> v
+    | _ -> "-1"
+  in
+  let body = ("keep_alive", `String keep_alive) :: body in
+
   let body = match tools with
     | [] -> body
     | ts ->
@@ -154,7 +174,8 @@ let parse_ollama_response json_str =
     let timings = None in
     let reasoning_tokens = None in
     Some { Types.system_fingerprint; timings; reasoning_tokens; request_latency_ms = 0;
-            provider_kind = None; reasoning_effort = None }
+            provider_kind = None; reasoning_effort = None;
+            canonical_model_id = None; effective_context_window = None }
   in
 
   Ok {
@@ -165,3 +186,53 @@ let parse_ollama_response json_str =
     usage;
     telemetry;
   }
+
+(* ── Inline tests ────────────────────────────────── *)
+
+[@@@coverage off]
+
+(** Run [f] with the [OAS_OLLAMA_KEEP_ALIVE] env var set to [value], then
+    restore the caller's original setting. Guaranteed restore on exception. *)
+let with_keep_alive_env value f =
+  let orig = Sys.getenv_opt "OAS_OLLAMA_KEEP_ALIVE" in
+  let restore () =
+    match orig with
+    | None -> Unix.putenv "OAS_OLLAMA_KEEP_ALIVE" ""
+    | Some v -> Unix.putenv "OAS_OLLAMA_KEEP_ALIVE" v
+  in
+  Fun.protect ~finally:restore (fun () ->
+    Unix.putenv "OAS_OLLAMA_KEEP_ALIVE" value;
+    f ())
+
+let%test "build_request pins keep_alive=-1 by default" =
+  with_keep_alive_env "" (fun () ->
+    let config = Provider_config.make
+      ~kind:Ollama ~model_id:"qwen3.5:35b-a3b-nvfp4"
+      ~base_url:"http://127.0.0.1:11434" () in
+    let messages = [{ role = User; content = [Text "hi"]; name = None; tool_call_id = None }] in
+    let body = build_request ~config ~messages () in
+    let json = Yojson.Safe.from_string body in
+    let open Yojson.Safe.Util in
+    json |> member "keep_alive" |> to_string = "-1")
+
+let%test "build_request honors OAS_OLLAMA_KEEP_ALIVE override" =
+  with_keep_alive_env "30m" (fun () ->
+    let config = Provider_config.make
+      ~kind:Ollama ~model_id:"qwen3.5:35b-a3b-nvfp4"
+      ~base_url:"http://127.0.0.1:11434" () in
+    let messages = [{ role = User; content = [Text "hi"]; name = None; tool_call_id = None }] in
+    let body = build_request ~config ~messages () in
+    let json = Yojson.Safe.from_string body in
+    let open Yojson.Safe.Util in
+    json |> member "keep_alive" |> to_string = "30m")
+
+let%test "build_request whitespace-only env falls back to default" =
+  with_keep_alive_env "   " (fun () ->
+    let config = Provider_config.make
+      ~kind:Ollama ~model_id:"qwen3.5:35b-a3b-nvfp4"
+      ~base_url:"http://127.0.0.1:11434" () in
+    let messages = [{ role = User; content = [Text "hi"]; name = None; tool_call_id = None }] in
+    let body = build_request ~config ~messages () in
+    let json = Yojson.Safe.from_string body in
+    let open Yojson.Safe.Util in
+    json |> member "keep_alive" |> to_string = "-1")

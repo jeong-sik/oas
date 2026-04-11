@@ -15,13 +15,16 @@ let test_to_params () =
   Alcotest.(check string) "name" "message" p0.name;
   Alcotest.(check bool) "required" true p0.required
 
+let format_errors errs =
+  Tool_input_validation.format_errors ~tool_name:"test" errs
+
 let test_parse_valid () =
   let json = `Assoc [("message", `String "hello"); ("format", `String "compact")] in
   match Tool_schema_gen.parse broadcast_schema json with
   | Ok (msg, fmt) ->
     Alcotest.(check string) "message" "hello" msg;
     Alcotest.(check string) "format" "compact" fmt
-  | Error e -> Alcotest.fail e
+  | Error errs -> Alcotest.fail (format_errors errs)
 
 let test_parse_optional_missing () =
   let json = `Assoc [("message", `String "hello")] in
@@ -29,13 +32,17 @@ let test_parse_optional_missing () =
   | Ok (msg, fmt) ->
     Alcotest.(check string) "message" "hello" msg;
     Alcotest.(check string) "default format" "" fmt
-  | Error e -> Alcotest.fail e
+  | Error errs -> Alcotest.fail (format_errors errs)
 
 let test_parse_required_missing () =
   let json = `Assoc [("format", `String "compact")] in
   match Tool_schema_gen.parse broadcast_schema json with
   | Ok _ -> Alcotest.fail "expected error"
-  | Error e -> Alcotest.(check bool) "mentions message" true (String.length e > 0)
+  | Error errs ->
+    Alcotest.(check bool) "at least one error" true (List.length errs > 0);
+    let e = List.hd errs in
+    Alcotest.(check string) "path" "message" e.Tool_input_validation.path;
+    Alcotest.(check string) "actual" "missing" e.Tool_input_validation.actual
 
 let test_to_json_schema () =
   let schema_json = Tool_schema_gen.to_json_schema broadcast_schema in
@@ -53,12 +60,12 @@ let int_schema = Tool_schema_gen.(one (int_field "count" ~required:true ~desc:"C
 let test_int_parse () =
   match Tool_schema_gen.parse int_schema (`Assoc [("count", `Int 42)]) with
   | Ok n -> Alcotest.(check int) "count" 42 n
-  | Error e -> Alcotest.fail e
+  | Error errs -> Alcotest.fail (format_errors errs)
 
 let test_int_coercion () =
   match Tool_schema_gen.parse int_schema (`Assoc [("count", `String "7")]) with
   | Ok n -> Alcotest.(check int) "coerced" 7 n
-  | Error e -> Alcotest.fail e
+  | Error errs -> Alcotest.fail (format_errors errs)
 
 (* ── Three-field schema ─────────────────────────────────── *)
 
@@ -74,7 +81,7 @@ let test_triple_parse () =
     Alcotest.(check string) "name" "Alice" name;
     Alcotest.(check int) "age" 30 age;
     Alcotest.(check bool) "active" true active
-  | Error e -> Alcotest.fail e
+  | Error errs -> Alcotest.fail (format_errors errs)
 
 let test_triple_params () =
   Alcotest.(check int) "3 params" 3 (List.length (Tool_schema_gen.to_params triple))
@@ -83,7 +90,11 @@ let test_triple_params () =
 
 let test_typed_tool_integration () =
   let params = Tool_schema_gen.to_params broadcast_schema in
-  let parse = Tool_schema_gen.parse broadcast_schema in
+  let parse json =
+    Tool_schema_gen.parse broadcast_schema json
+    |> Result.map_error (fun errs ->
+      Tool_input_validation.format_errors ~tool_name:"gen_broadcast" errs)
+  in
   let tool = Typed_tool.create
     ~name:"gen_broadcast" ~description:"Generated schema"
     ~params

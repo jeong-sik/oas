@@ -12,7 +12,7 @@ type ('a, _) field_spec = {
   param_type : Types.param_type;
   required : bool;
   description : string;
-  extract : Yojson.Safe.t -> ('a, string) result;
+  extract : Yojson.Safe.t -> ('a, Tool_input_validation.field_error) result;
 }
 
 let make_field name ~typ ~required ~desc ~extract =
@@ -25,14 +25,17 @@ let extract_with_coerce ~name ~typ ~required ~default ~unwrap json =
   let raw = member name json in
   match raw with
   | `Null when not required -> Ok default
-  | `Null -> Error (Printf.sprintf "missing required field: %s" name)
+  | `Null -> Error { Tool_input_validation.path = name;
+                     expected = Types.param_type_to_string typ;
+                     actual = "missing" }
   | v ->
     let coerced = match Tool_input_validation.try_coerce typ v with
       | Some c -> c | None -> v in
     match unwrap coerced with
     | Some a -> Ok a
-    | None -> Error (Printf.sprintf "%s: expected %s, got %s" name
-                       (Types.param_type_to_string typ) (Yojson.Safe.to_string v))
+    | None -> Error { Tool_input_validation.path = name;
+                      expected = Types.param_type_to_string typ;
+                      actual = Tool_input_validation.describe_json_value v }
 
 let string_field name ~required ~desc ?(default = "") () =
   make_field name ~typ:Types.String ~required ~desc
@@ -82,30 +85,28 @@ let to_params : type a. a schema -> Types.tool_param list = function
   | Four (a, b, c, d) -> [field_to_param a; field_to_param b; field_to_param c; field_to_param d]
 
 let collect_errors results =
-  let errors = List.filter_map (function Error e -> Some e | Ok _ -> None) results in
-  match errors with
-  | [] -> None
-  | es -> Some (String.concat "; " es)
+  List.filter_map (function Error e -> Some e | Ok _ -> None) results
 
-let parse : type a. a schema -> Yojson.Safe.t -> (a, string) result =
+let parse : type a. a schema -> Yojson.Safe.t -> (a, Tool_input_validation.field_error list) result =
   fun schema json ->
   match schema with
-  | One a -> a.extract json
+  | One a ->
+    a.extract json |> Result.map_error (fun e -> [e])
   | Two (a, b) ->
     let ra = a.extract json and rb = b.extract json in
     (match ra, rb with
      | Ok va, Ok vb -> Ok (va, vb)
-     | _ -> Error (Option.get (collect_errors [Result.map ignore ra; Result.map ignore rb])))
+     | _ -> Error (collect_errors [Result.map ignore ra; Result.map ignore rb]))
   | Three (a, b, c) ->
     let ra = a.extract json and rb = b.extract json and rc = c.extract json in
     (match ra, rb, rc with
      | Ok va, Ok vb, Ok vc -> Ok (va, vb, vc)
-     | _ -> Error (Option.get (collect_errors [Result.map ignore ra; Result.map ignore rb; Result.map ignore rc])))
+     | _ -> Error (collect_errors [Result.map ignore ra; Result.map ignore rb; Result.map ignore rc]))
   | Four (a, b, c, d) ->
     let ra = a.extract json and rb = b.extract json and rc = c.extract json and rd = d.extract json in
     (match ra, rb, rc, rd with
      | Ok va, Ok vb, Ok vc, Ok vd -> Ok (va, vb, vc, vd)
-     | _ -> Error (Option.get (collect_errors [Result.map ignore ra; Result.map ignore rb; Result.map ignore rc; Result.map ignore rd])))
+     | _ -> Error (collect_errors [Result.map ignore ra; Result.map ignore rb; Result.map ignore rc; Result.map ignore rd]))
 
 let to_json_schema : type a. a schema -> Yojson.Safe.t =
   fun schema -> Types.params_to_input_schema (to_params schema)

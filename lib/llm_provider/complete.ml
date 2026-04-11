@@ -73,9 +73,24 @@ let patch_telemetry (resp : Types.api_response) ~(config : Provider_config.t)
     (latency_ms : int) : Types.api_response =
   let pk = Some (Provider_config.string_of_provider_kind config.kind) in
   let re = reasoning_effort_of_config config in
+  let base_caps = match config.kind with
+    | Ollama -> Capabilities.ollama_capabilities
+    | Anthropic -> Capabilities.anthropic_capabilities
+    | Glm -> Capabilities.glm_capabilities
+    | Gemini -> Capabilities.gemini_capabilities
+    | OpenAI_compat -> Capabilities.openai_chat_capabilities
+    | Claude_code -> Capabilities.claude_code_capabilities
+  in
+  let caps = match Capabilities.for_model_id config.model_id with
+    | Some c -> c | None -> base_caps
+  in
+  let ctx_window = caps.max_context_tokens in
+  let canonical = Some config.model_id in
   let telemetry = match resp.telemetry with
     | Some t -> Some { t with Types.request_latency_ms = latency_ms;
-                               provider_kind = pk; reasoning_effort = re }
+                               provider_kind = pk; reasoning_effort = re;
+                               canonical_model_id = canonical;
+                               effective_context_window = ctx_window }
     | None -> Some {
         Types.system_fingerprint = None;
         timings = None;
@@ -83,6 +98,8 @@ let patch_telemetry (resp : Types.api_response) ~(config : Provider_config.t)
         request_latency_ms = latency_ms;
         provider_kind = pk;
         reasoning_effort = re;
+        canonical_model_id = canonical;
+        effective_context_window = ctx_window;
       }
   in
   { resp with telemetry }
@@ -691,6 +708,7 @@ let%test "gemini_url sync no api_key" =
     base_url = "https://gen.googleapis.com/v1beta";
     api_key = ""; request_path = ""; headers = [];
     system_prompt = None; temperature = None; max_tokens = 1024;
+    max_context = None;
     top_p = None; top_k = None; min_p = None;
     enable_thinking = None; thinking_budget = None;
     clear_thinking = None; tool_stream = false;
@@ -706,6 +724,7 @@ let%test "gemini_url sync with api_key" =
     base_url = "https://gen.googleapis.com/v1beta";
     api_key = "mykey"; request_path = ""; headers = [];
     system_prompt = None; temperature = None; max_tokens = 1024;
+    max_context = None;
     top_p = None; top_k = None; min_p = None;
     enable_thinking = None; thinking_budget = None;
     clear_thinking = None; tool_stream = false;
@@ -721,6 +740,7 @@ let%test "gemini_url stream with api_key" =
     base_url = "https://gen.googleapis.com/v1beta";
     api_key = "mykey"; request_path = ""; headers = [];
     system_prompt = None; temperature = None; max_tokens = 1024;
+    max_context = None;
     top_p = None; top_k = None; min_p = None;
     enable_thinking = None; thinking_budget = None;
     clear_thinking = None; tool_stream = false;
@@ -736,6 +756,7 @@ let%test "gemini_url stream no api_key" =
     base_url = "https://gen.googleapis.com/v1beta";
     api_key = ""; request_path = ""; headers = [];
     system_prompt = None; temperature = None; max_tokens = 1024;
+    max_context = None;
     top_p = None; top_k = None; min_p = None;
     enable_thinking = None; thinking_budget = None;
     clear_thinking = None; tool_stream = false;
@@ -815,6 +836,7 @@ let%test "patch_telemetry fills latency and provider on existing telemetry" =
       timings = None; reasoning_tokens = Some 10;
       request_latency_ms = 0;
       provider_kind = None; reasoning_effort = None;
+      canonical_model_id = None; effective_context_window = None;
     };
   } in
   let patched = patch_telemetry resp ~config 42 in
@@ -824,6 +846,8 @@ let%test "patch_telemetry fills latency and provider on existing telemetry" =
               && t.reasoning_tokens = Some 10
               && t.provider_kind = Some "ollama"
               && t.reasoning_effort = Some "none"
+              && t.canonical_model_id = Some "qwen3.5:9b"
+              && t.effective_context_window = Some 262_144
   | None -> false
 
 let%test "patch_telemetry creates telemetry when None" =
@@ -837,6 +861,8 @@ let%test "patch_telemetry creates telemetry when None" =
   match patched.telemetry with
   | Some t -> t.request_latency_ms = 100
               && t.provider_kind = Some "openai_compat"
+              && t.canonical_model_id = Some "gpt-4"
+              && t.effective_context_window = Some 128_000
               && t.reasoning_effort = None
   | None -> false
 
