@@ -87,13 +87,32 @@ let patch_telemetry (resp : Types.api_response) ~(config : Provider_config.t)
   in
   { resp with telemetry }
 
-let complete_http ~sw ~net ~(config : Provider_config.t)
-    ~(messages : Types.message list) ~tools =
+(** Internal helper: canonical provider name for metric labels.
+    Kept in sync with the log tag used by the [WARN Complete] line. *)
+let provider_name_of_kind : Provider_config.provider_kind -> string = function
+  | Ollama -> "ollama"
+  | Anthropic -> "anthropic"
+  | OpenAI_compat -> "openai"
+  | Gemini -> "gemini"
+  | Glm -> "glm"
+  | Claude_code -> "claude_code"
+
+let complete_http ~sw ~net
+    ?(on_http_status : (provider:string -> model_id:string -> status:int -> unit) option)
+    ~(config : Provider_config.t)
+    ~(messages : Types.message list) ~tools () =
   if config.kind = Provider_config.Claude_code then
     (Error (Http_client.NetworkError {
        message = "Claude_code provider requires a transport (use Transport_claude_code.create)" }),
      0)
   else
+  let emit_status code =
+    match on_http_status with
+    | Some cb ->
+      cb ~provider:(provider_name_of_kind config.kind)
+        ~model_id:config.model_id ~status:code
+    | None -> ()
+  in
   let config = apply_sampling_defaults config in
   let body_str = match config.kind with
     | Provider_config.Anthropic ->
@@ -126,13 +145,19 @@ let complete_http ~sw ~net ~(config : Provider_config.t)
       "[WARN] [Complete] pre-flight: unbalanced JSON body (%d bytes, \
        first=%C last=%C) for %s %s\n%!"
       body_len body_str.[0] body_str.[body_len - 1]
-      (match config.kind with Ollama -> "ollama" | Anthropic -> "anthropic" | OpenAI_compat -> "openai" | Gemini -> "gemini" | Glm -> "glm" | Claude_code -> "claude_code") config.model_id;
+      (provider_name_of_kind config.kind) config.model_id;
   let t0 = Unix.gettimeofday () in
   let result =
     match Http_client.post_sync ~sw ~net ~url
             ~headers:config.headers ~body:body_str with
     | Error _ as e -> e
     | Ok (code, body) ->
+        (* Emit status counter as soon as we have a raw HTTP code from
+           the provider, before any body-parse or retry decision. This
+           gives downstream metrics an accurate count of provider
+           responses (success and failure) without inflating from
+           internal retries or body-parse fallbacks. *)
+        emit_status code;
         if code >= 200 && code < 300 then
           try
             match config.kind with
@@ -178,11 +203,7 @@ let complete_http ~sw ~net ~(config : Provider_config.t)
         else begin
           (* Log request body diagnostics on error responses to help debug
              Ollama "closing '}' symbol" and similar body-rejection errors. *)
-          let provider_name = match config.kind with
-            | Ollama -> "ollama" | Anthropic -> "anthropic"
-            | OpenAI_compat -> "openai" | Gemini -> "gemini"
-            | Glm -> "glm" | Claude_code -> "claude_code"
-          in
+          let provider_name = provider_name_of_kind config.kind in
           if code >= 400 then begin
             (* Strong validation: round-trip parse the body we sent.  The
                cheap balanced=true check only inspects first/last char and
@@ -327,7 +348,11 @@ let complete ~sw ~net ?(transport : Llm_transport.t option)
         | Some t ->
           t.complete_sync { Llm_transport.config; messages; tools }
         | None ->
-          let (resp, lat) = complete_http ~sw ~net ~config ~messages ~tools in
+          let (resp, lat) =
+            complete_http ~sw ~net
+              ~on_http_status:m.on_http_status
+              ~config ~messages ~tools ()
+          in
           { Llm_transport.response = resp; latency_ms = lat }
       in
       (match result with
@@ -571,7 +596,7 @@ let make_http_transport ~sw ~net : Llm_transport.t = {
   complete_sync = (fun (req : Llm_transport.completion_request) ->
     let (response, latency_ms) =
       complete_http ~sw ~net ~config:req.config
-        ~messages:req.messages ~tools:req.tools
+        ~messages:req.messages ~tools:req.tools ()
     in
     { Llm_transport.response; latency_ms });
   complete_stream = (fun ~on_event (req : Llm_transport.completion_request) ->
