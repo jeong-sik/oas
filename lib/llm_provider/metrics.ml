@@ -7,6 +7,7 @@ type t = {
   on_request_end: model_id:string -> latency_ms:int -> unit;
   on_error: model_id:string -> error:string -> unit;
   on_cascade_fallback: from_model:string -> to_model:string -> reason:string -> unit;
+  on_http_status: provider:string -> model_id:string -> status:int -> unit;
 }
 
 let noop = {
@@ -16,4 +17,5 @@ let noop = {
   on_request_end = (fun ~model_id:_ ~latency_ms:_ -> ());
   on_error = (fun ~model_id:_ ~error:_ -> ());
   on_cascade_fallback = (fun ~from_model:_ ~to_model:_ ~reason:_ -> ());
+  on_http_status = (fun ~provider:_ ~model_id:_ ~status:_ -> ());
 }

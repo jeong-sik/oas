@@ -176,6 +176,7 @@ let test_complete_metrics () =
     let miss_count = ref 0 in
     let start_count = ref 0 in
     let end_count = ref 0 in
+    let status_calls = ref [] in
     let metrics : Metrics.t = {
       on_cache_hit = (fun ~model_id:_ -> incr hit_count);
       on_cache_miss = (fun ~model_id:_ -> incr miss_count);
@@ -183,6 +184,8 @@ let test_complete_metrics () =
       on_request_end = (fun ~model_id:_ ~latency_ms:_ -> incr end_count);
       on_error = (fun ~model_id:_ ~error:_ -> ());
       on_cascade_fallback = (fun ~from_model:_ ~to_model:_ ~reason:_ -> ());
+      on_http_status = (fun ~provider ~model_id ~status ->
+        status_calls := (provider, model_id, status) :: !status_calls);
     } in
     (* No cache provided → on_cache_miss not called *)
     (match Complete.complete ~sw ~net:env#net ~config ~messages ~metrics () with
@@ -191,6 +194,11 @@ let test_complete_metrics () =
        check int "start" 1 !start_count;
        check int "end" 1 !end_count;
        check int "no hit" 0 !hit_count;
+       (* on_http_status fired once with the actual 200 code *)
+       check int "status callback count" 1 (List.length !status_calls);
+       (match !status_calls with
+        | [(_, _, code)] -> check int "status code" 200 code
+        | _ -> fail "expected exactly one status call");
        Eio.Switch.fail sw Exit
      | Error _ -> fail "expected Ok")
   with Exit -> ()
@@ -290,6 +298,7 @@ let test_complete_error_metrics () =
         ~status:`Bad_request "bad" in
     let config = make_config url in
     let error_count = ref 0 in
+    let status_calls = ref [] in
     let metrics : Metrics.t = {
       on_cache_hit = (fun ~model_id:_ -> ());
       on_cache_miss = (fun ~model_id:_ -> ());
@@ -297,11 +306,19 @@ let test_complete_error_metrics () =
       on_request_end = (fun ~model_id:_ ~latency_ms:_ -> ());
       on_error = (fun ~model_id:_ ~error:_ -> incr error_count);
       on_cascade_fallback = (fun ~from_model:_ ~to_model:_ ~reason:_ -> ());
+      on_http_status = (fun ~provider ~model_id ~status ->
+        status_calls := (provider, model_id, status) :: !status_calls);
     } in
     (match Complete.complete ~sw ~net:env#net ~config ~messages ~metrics () with
      | Ok _ -> fail "expected Error"
      | Error _ ->
        check int "error callback" 1 !error_count;
+       (* 400 HTTP response must also emit on_http_status before error fires *)
+       check int "status callback count" 1 (List.length !status_calls);
+       (match !status_calls with
+        | [(_, _, 400)] -> ()
+        | [(_, _, code)] -> fail (Printf.sprintf "expected 400, got %d" code)
+        | _ -> fail "expected exactly one status call");
        Eio.Switch.fail sw Exit)
   with Exit -> ()
 
