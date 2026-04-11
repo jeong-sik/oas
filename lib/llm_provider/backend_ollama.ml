@@ -55,12 +55,28 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
      model was evicted ~every 30 min because each keeper turn reset
      keep_alive to the 5m default; concurrent probes from other processes
      then triggered swap-induced JSON truncation errors. *)
-  let keep_alive =
+  let keep_alive_raw =
     match Sys.getenv_opt "OAS_OLLAMA_KEEP_ALIVE" with
-    | Some v when String.trim v <> "" -> v
+    | Some v when String.trim v <> "" -> String.trim v
     | _ -> "-1"
   in
-  let body = ("keep_alive", `String keep_alive) :: body in
+  (* Ollama accepts either a bare integer (seconds; -1 = forever, 0 =
+     unload immediately) or a duration string ("30m", "5m0s", ...).
+     The Go server parses string values via [time.ParseDuration], which
+     REJECTS bare integers-as-strings like "-1" with
+     [time: missing unit in duration "-1"] — the exact error we saw
+     1149 times/day in masc-mcp after oas#813 landed.
+
+     So serialise integer-parseable values as JSON ints (including the
+     negative path), and everything else as strings.  Preserves
+     compatibility for "30m"/"5m" etc. while keeping "-1" / "0" /
+     "300" working. *)
+  let keep_alive_json =
+    match int_of_string_opt keep_alive_raw with
+    | Some n -> `Int n
+    | None -> `String keep_alive_raw
+  in
+  let body = ("keep_alive", keep_alive_json) :: body in
 
   let body = match tools with
     | [] -> body
@@ -204,7 +220,7 @@ let with_keep_alive_env value f =
     Unix.putenv "OAS_OLLAMA_KEEP_ALIVE" value;
     f ())
 
-let%test "build_request pins keep_alive=-1 by default" =
+let%test "build_request pins keep_alive=-1 as JSON int by default" =
   with_keep_alive_env "" (fun () ->
     let config = Provider_config.make
       ~kind:Ollama ~model_id:"qwen3.5:35b-a3b-nvfp4"
@@ -213,9 +229,9 @@ let%test "build_request pins keep_alive=-1 by default" =
     let body = build_request ~config ~messages () in
     let json = Yojson.Safe.from_string body in
     let open Yojson.Safe.Util in
-    json |> member "keep_alive" |> to_string = "-1")
+    json |> member "keep_alive" |> to_int = -1)
 
-let%test "build_request honors OAS_OLLAMA_KEEP_ALIVE override" =
+let%test "build_request honors OAS_OLLAMA_KEEP_ALIVE duration string override" =
   with_keep_alive_env "30m" (fun () ->
     let config = Provider_config.make
       ~kind:Ollama ~model_id:"qwen3.5:35b-a3b-nvfp4"
@@ -226,7 +242,18 @@ let%test "build_request honors OAS_OLLAMA_KEEP_ALIVE override" =
     let open Yojson.Safe.Util in
     json |> member "keep_alive" |> to_string = "30m")
 
-let%test "build_request whitespace-only env falls back to default" =
+let%test "build_request honors OAS_OLLAMA_KEEP_ALIVE integer override as JSON int" =
+  with_keep_alive_env "300" (fun () ->
+    let config = Provider_config.make
+      ~kind:Ollama ~model_id:"qwen3.5:35b-a3b-nvfp4"
+      ~base_url:"http://127.0.0.1:11434" () in
+    let messages = [{ role = User; content = [Text "hi"]; name = None; tool_call_id = None }] in
+    let body = build_request ~config ~messages () in
+    let json = Yojson.Safe.from_string body in
+    let open Yojson.Safe.Util in
+    json |> member "keep_alive" |> to_int = 300)
+
+let%test "build_request whitespace-only env falls back to default (-1 as int)" =
   with_keep_alive_env "   " (fun () ->
     let config = Provider_config.make
       ~kind:Ollama ~model_id:"qwen3.5:35b-a3b-nvfp4"
@@ -235,4 +262,4 @@ let%test "build_request whitespace-only env falls back to default" =
     let body = build_request ~config ~messages () in
     let json = Yojson.Safe.from_string body in
     let open Yojson.Safe.Util in
-    json |> member "keep_alive" |> to_string = "-1")
+    json |> member "keep_alive" |> to_int = -1)
