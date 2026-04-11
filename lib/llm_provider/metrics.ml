@@ -19,3 +19,19 @@ let noop = {
   on_cascade_fallback = (fun ~from_model:_ ~to_model:_ ~reason:_ -> ());
   on_http_status = (fun ~provider:_ ~model_id:_ ~status:_ -> ());
 }
+
+(* ── Global registry ────────────────────────────────── *)
+
+(** Process-wide metrics sink used when a caller does not pass [~metrics]
+    explicitly.  Initialised to [noop].  Consumers (masc-mcp, custom
+    deployments) can install their own instance once at startup via
+    [set_global].
+
+    Access is guarded by an atomic so reads from a fiber holding the
+    cached reference race-cleanly with a concurrent [set_global]; the
+    reference itself is immutable once published. *)
+let _global : t Atomic.t = Atomic.make noop
+
+let set_global (m : t) : unit = Atomic.set _global m
+
+let get_global () : t = Atomic.get _global

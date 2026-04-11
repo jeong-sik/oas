@@ -315,7 +315,7 @@ let complete ~sw ~net ?(transport : Llm_transport.t option)
     ?(cache : Cache.t option) ?(metrics : Metrics.t option)
     ?(priority : Request_priority.t option) () =
   let _priority = priority in
-  let m = match metrics with Some m -> m | None -> Metrics.noop in
+  let m = match metrics with Some m -> m | None -> Metrics.get_global () in
   let model_id = config.model_id in
   (* Cache lookup *)
   (* Compute fingerprint once; reuse for both lookup and store *)
@@ -442,7 +442,7 @@ let complete_cascade ~sw ~net ?transport ?clock ?retry_config:_
     ~(cascade : cascade)
     ~(messages : Types.message list) ?(tools=[])
     ?cache ?metrics ?priority () =
-  let m = match metrics with Some m -> m | None -> Metrics.noop in
+  let m = match metrics with Some m -> m | None -> Metrics.get_global () in
   let try_provider cfg =
     match clock with
     | Some clock ->
@@ -618,7 +618,7 @@ let complete_stream_cascade ~sw ~net ?transport
     ~(on_event : Types.sse_event -> unit)
     ?(metrics : Metrics.t option)
     ?(priority : Request_priority.t option) () =
-  let m = match metrics with Some m -> m | None -> Metrics.noop in
+  let m = match metrics with Some m -> m | None -> Metrics.get_global () in
   let try_provider cfg =
     complete_stream ~sw ~net ?transport ~config:cfg ~messages ~tools ~on_event ?priority ()
   in
