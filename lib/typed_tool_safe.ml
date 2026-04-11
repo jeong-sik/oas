@@ -56,7 +56,5 @@ let to_untyped safe_tool = Typed_tool.to_untyped safe_tool.tool
 (* ── Introspection ──────────────────────────────────────── *)
 
 let name safe_tool = Typed_tool.name safe_tool.tool
-let permission_name safe_tool = match safe_tool.perm with
-  | Tool.ReadOnly -> "read_only"
-  | Tool.Write -> "write"
-  | Tool.Destructive -> "destructive"
+let permission safe_tool = safe_tool.perm
+let permission_name safe_tool = Tool.show_permission safe_tool.perm
