@@ -115,9 +115,26 @@ let openai_chat_extended_capabilities = {
   supports_min_p = true;
 }
 
+(* Ollama OpenAI-compat endpoint behavior on tool_choice is model-dependent:
+   - Upstream docs (docs.ollama.com/capabilities/tool-calling) state the
+     parameter is silently ignored for some models.
+   - Qwen3.5 w/ native Jinja chat template DOES honor tool_choice:required
+     in practice (measured: memory/research-9b-jinja-native-benchmark 100%
+     on 21-tool suite).
+   Default stays conservative (false → contract relaxes to
+   Allow_text_or_tool), but operators who verified their model-side support
+   can flip this via env var WITHOUT a rebuild. *)
+let ollama_supports_tool_choice_default =
+  match Sys.getenv_opt "OAS_OLLAMA_SUPPORTS_TOOL_CHOICE" with
+  | Some v ->
+    (match String.trim v |> String.lowercase_ascii with
+     | "1" | "true" | "yes" | "on" -> true
+     | _ -> false)
+  | None -> false
+
 let ollama_capabilities = {
   openai_chat_extended_capabilities with
-  supports_tool_choice = false;  (* Ollama does NOT support tool_choice — silently ignored. See docs.ollama.com/capabilities/tool-calling *)
+  supports_tool_choice = ollama_supports_tool_choice_default;
   is_ollama = true;
 }
 
