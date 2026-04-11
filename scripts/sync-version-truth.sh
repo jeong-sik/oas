@@ -22,7 +22,10 @@
 #
 # Exit codes:
 #   0  already in sync / dry-run OK / apply OK
-#   1  file read/write error, or release.sh dry-run still fails after apply
+#   1  file read/write error, missing required surface (dune-project /
+#      opam / sdk_version.ml), or internal 3-axis verification failed
+#      after --apply. This script does NOT invoke scripts/release.sh;
+#      the post-apply check is its own re-read of the three surfaces.
 #   2  usage error
 #
 # Motivation: OAS has had the exact "dune-project bumped in isolation, but

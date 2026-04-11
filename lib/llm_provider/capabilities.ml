@@ -121,9 +121,20 @@ let openai_chat_extended_capabilities = {
    - Qwen3.5 w/ native Jinja chat template DOES honor tool_choice:required
      in practice (measured: memory/research-9b-jinja-native-benchmark 100%
      on 21-tool suite).
+
    Default stays conservative (false → contract relaxes to
    Allow_text_or_tool), but operators who verified their model-side support
-   can flip this via env var WITHOUT a rebuild. *)
+   can opt in via OAS_OLLAMA_SUPPORTS_TOOL_CHOICE without a rebuild.
+
+   Lifecycle: the env var is read ONCE when this module is loaded (see
+   [ollama_supports_tool_choice_default] below). Changing the value at
+   runtime requires a process restart — this is not a hot-reload knob.
+
+   Scope: this is a process-wide default for every Ollama-served model.
+   Cascades that mix a tool-choice-honoring model (Qwen3.5 + Jinja) with
+   one that ignores it (generic llama/gemma) cannot currently pick per
+   entry. A cleaner per-cascade-entry override in cascade.json (mirroring
+   the [api_key_env] pattern from #817) is the intended follow-up. *)
 
 (** Pure parser for the [OAS_OLLAMA_SUPPORTS_TOOL_CHOICE] env value. Split
     out from the module-init binding below so inline tests can exercise
