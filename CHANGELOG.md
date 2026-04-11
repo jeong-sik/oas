@@ -16,9 +16,12 @@ original tag dates. `0.100.4` was never tagged or released.
 - Ollama: pin keep_alive=-1 by default to prevent model eviction (#813)
 
 ### Fixed
-- Test: silence resolve Unspecified stderr to unblock CI (#799)
 - Pipeline: derive proactive_context_window from model capabilities (#815)
+- Pipeline: remove per-LLM-request Eio.traceln spam for Unspecified priority default (#799)
 - Cascade: apply per-model timeout to last provider (#805)
+
+### Changed
+- Discovery: drop legacy `OAS_LOCAL_QWEN_URL` env fallback; emits a one-time migration warning when the legacy var is set (#818)
 
 ## [0.121.0] - 2026-04-11
 
