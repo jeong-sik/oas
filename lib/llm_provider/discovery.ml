@@ -657,8 +657,15 @@ let%test "url_is_ollama rejects :11434 in path" =
 let%test "url_is_ollama rejects :11434 in query" =
   not (url_is_ollama "http://example.com:8080/?next=:11434")
 
+(* Codex review: cover the bare ":11434 in query" case with no other port. *)
+let%test "url_is_ollama rejects :11434 in query (no other port)" =
+  not (url_is_ollama "http://example.com/?next=:11434")
+
 let%test "url_is_ollama rejects :11434 in fragment" =
   not (url_is_ollama "http://example.com:8080/path#:11434")
+
+let%test "url_is_ollama rejects :11434 in fragment (no other port)" =
+  not (url_is_ollama "http://example.com/path#frag:11434")
 
 let%test "url_is_ollama rejects port suffix collision (:111434)" =
   not (url_is_ollama "http://example.com:111434/")
