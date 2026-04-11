@@ -116,6 +116,16 @@ let make_registry_config ~temperature ~max_tokens ?system_prompt
     else defaults.base_url
   in
   let resolved_model_id = resolve_auto_model_id provider_name effective_model_id in
+  (* Resolve max_context: per-model capabilities override registry default *)
+  let max_context =
+    let caps =
+      Option.value ~default:entry.capabilities
+        (Capabilities.for_model_id resolved_model_id)
+    in
+    match caps.max_context_tokens with
+    | Some n -> n
+    | None -> entry.max_context
+  in
   Provider_config.make
     ~kind:defaults.kind
     ~model_id:resolved_model_id
@@ -124,6 +134,7 @@ let make_registry_config ~temperature ~max_tokens ?system_prompt
     ~request_path:defaults.request_path
     ~temperature
     ~max_tokens
+    ~max_context
     ?system_prompt
     ()
 
