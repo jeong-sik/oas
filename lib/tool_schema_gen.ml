@@ -18,58 +18,41 @@ type ('a, _) field_spec = {
 let make_field name ~typ ~required ~desc ~extract =
   { name; param_type = typ; required; description = desc; extract }
 
+(** Extract a field value, applying try_coerce for type normalization.
+    Returns [default] for missing optional fields, error for missing required. *)
+let extract_with_coerce ~name ~typ ~required ~default ~unwrap json =
+  let open Yojson.Safe.Util in
+  let raw = member name json in
+  match raw with
+  | `Null when not required -> Ok default
+  | `Null -> Error (Printf.sprintf "missing required field: %s" name)
+  | v ->
+    let coerced = match Tool_input_validation.try_coerce typ v with
+      | Some c -> c | None -> v in
+    match unwrap coerced with
+    | Some a -> Ok a
+    | None -> Error (Printf.sprintf "%s: expected %s, got %s" name
+                       (Types.param_type_to_string typ) (Yojson.Safe.to_string v))
+
 let string_field name ~required ~desc =
   make_field name ~typ:Types.String ~required ~desc
-    ~extract:(fun json ->
-      let open Yojson.Safe.Util in
-      match member name json with
-      | `Null when not required -> Ok ""
-      | `Null -> Error (Printf.sprintf "missing required field: %s" name)
-      | `String s -> Ok s
-      | v -> Error (Printf.sprintf "%s: expected string, got %s" name
-                      (Yojson.Safe.to_string v)))
+    ~extract:(extract_with_coerce ~name ~typ:Types.String ~required ~default:""
+      ~unwrap:(function `String s -> Some s | _ -> None))
 
 let int_field name ~required ~desc =
   make_field name ~typ:Types.Integer ~required ~desc
-    ~extract:(fun json ->
-      let open Yojson.Safe.Util in
-      match member name json with
-      | `Null when not required -> Ok 0
-      | `Null -> Error (Printf.sprintf "missing required field: %s" name)
-      | `Int i -> Ok i
-      | `String s -> (match int_of_string_opt s with
-        | Some i -> Ok i
-        | None -> Error (Printf.sprintf "%s: cannot parse integer from %S" name s))
-      | v -> Error (Printf.sprintf "%s: expected integer, got %s" name
-                      (Yojson.Safe.to_string v)))
+    ~extract:(extract_with_coerce ~name ~typ:Types.Integer ~required ~default:0
+      ~unwrap:(function `Int i -> Some i | _ -> None))
 
 let float_field name ~required ~desc =
   make_field name ~typ:Types.Number ~required ~desc
-    ~extract:(fun json ->
-      let open Yojson.Safe.Util in
-      match member name json with
-      | `Null when not required -> Ok 0.0
-      | `Null -> Error (Printf.sprintf "missing required field: %s" name)
-      | `Float f -> Ok f
-      | `Int i -> Ok (float_of_int i)
-      | `String s -> (match float_of_string_opt s with
-        | Some f -> Ok f
-        | None -> Error (Printf.sprintf "%s: cannot parse number from %S" name s))
-      | v -> Error (Printf.sprintf "%s: expected number, got %s" name
-                      (Yojson.Safe.to_string v)))
+    ~extract:(extract_with_coerce ~name ~typ:Types.Number ~required ~default:0.0
+      ~unwrap:(function `Float f -> Some f | `Int i -> Some (float_of_int i) | _ -> None))
 
 let bool_field name ~required ~desc =
   make_field name ~typ:Types.Boolean ~required ~desc
-    ~extract:(fun json ->
-      let open Yojson.Safe.Util in
-      match member name json with
-      | `Null when not required -> Ok false
-      | `Null -> Error (Printf.sprintf "missing required field: %s" name)
-      | `Bool b -> Ok b
-      | `String "true" -> Ok true
-      | `String "false" -> Ok false
-      | v -> Error (Printf.sprintf "%s: expected boolean, got %s" name
-                      (Yojson.Safe.to_string v)))
+    ~extract:(extract_with_coerce ~name ~typ:Types.Boolean ~required ~default:false
+      ~unwrap:(function `Bool b -> Some b | _ -> None))
 
 (* ── Schema type ────────────────────────────────────────── *)
 
