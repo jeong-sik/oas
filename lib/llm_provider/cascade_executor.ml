@@ -90,9 +90,11 @@ let resolve_throttle ~throttle_override (cfg : Provider_config.t) =
 
 (* ── Context truncation for cascade fallback ──────────────── *)
 
-(** Safety margin: use 90% of max_context to leave room for
-    system prompt overhead, tool schemas, and estimation error. *)
-let context_margin = 0.9
+let default_context_margin = 0.9
+let default_redacted_thinking_tokens = 50
+let default_image_max_tokens = 1600
+let default_document_max_tokens = 3000
+let default_audio_max_tokens = 5000
 
 (** CJK-aware token estimation for a string.  Mirrors
     [Context_reducer.estimate_char_tokens] — duplicated here because
@@ -117,14 +119,14 @@ let estimate_char_tokens (s : string) : int =
 let estimate_block_tokens = function
   | Types.Text s -> estimate_char_tokens s
   | Thinking { content; _ } -> estimate_char_tokens content
-  | RedactedThinking _ -> 50
+  | RedactedThinking _ -> default_redacted_thinking_tokens
   | ToolUse { name; input; _ } ->
     let input_str = Yojson.Safe.to_string input in
     estimate_char_tokens (name ^ input_str)
   | ToolResult { content; _ } -> estimate_char_tokens content
-  | Image { data; _ } -> min ((String.length data * 3 / 4 / 750) + 1) 1600
-  | Document { data; _ } -> min ((String.length data * 3 / 4 / 500) + 1) 3000
-  | Audio { data; _ } -> min ((String.length data * 3 / 4 / 320) + 1) 5000
+  | Image { data; _ } -> min ((String.length data * 3 / 4 / 750) + 1) default_image_max_tokens
+  | Document { data; _ } -> min ((String.length data * 3 / 4 / 500) + 1) default_document_max_tokens
+  | Audio { data; _ } -> min ((String.length data * 3 / 4 / 320) + 1) default_audio_max_tokens
 
 (** Estimate tokens for a message. *)
 let estimate_message_tokens (msg : Types.message) : int =
@@ -175,7 +177,8 @@ let apply_token_budget budget messages =
     Drops oldest turns while preserving turn boundaries and
     ToolUse/ToolResult pairs.  Returns the original messages unchanged
     when no truncation is needed or when [max_context] is [None]. *)
-let truncate_to_context (cfg : Provider_config.t)
+let truncate_to_context ?(context_margin = default_context_margin)
+    (cfg : Provider_config.t)
     (messages : Types.message list) : Types.message list =
   match cfg.max_context with
   | None -> messages
