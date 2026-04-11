@@ -10,6 +10,8 @@ open Types
 include Agent_types
 open Agent_trace
 
+let _log = Log.create ~module_name:"agent" ()
+
 (* ── Unified turn execution (delegated to Pipeline) ──────────── *)
 
 type api_strategy = Pipeline.api_strategy =
@@ -72,10 +74,15 @@ let base_messages agent =
   | [] -> agent.state.config.initial_messages
   | msgs -> msgs
 
-(** Per-turn timing observability helper. Emits one line per turn to
-    stderr so the cumulative and per-turn elapsed seconds, model, and
-    stop reason are visible when diagnosing wall-clock budget timeouts.
-    Logged unconditionally — one line per turn is negligible overhead. *)
+(** Per-turn timing observability helper. Emits one structured record
+    per turn so operators diagnosing wall-clock budget timeouts can see
+    whether the budget was spent on many moderate turns or a single
+    slow one.  Goes through {!Log.info} rather than [Printf.eprintf]
+    so [ppx_inline_test] does not capture the line as an unexpected
+    stderr diff (raw eprintf during tests makes CI fail even when every
+    test asserts green; see #799).  When no sink is registered the call
+    is a no-op, so hosts that do not care about Agent telemetry pay
+    nothing. *)
 let stop_reason_label : Types.stop_reason -> string = function
   | EndTurn -> "end_turn"
   | StopToolUse -> "stop_tool_use"
@@ -85,13 +92,15 @@ let stop_reason_label : Types.stop_reason -> string = function
 
 let log_turn ~run_start ~turn_start ~turn_index ~max_turns ~model ~stop =
   let now = Unix.gettimeofday () in
-  Printf.eprintf
-    "[INFO] [Agent] turn=%d/%d elapsed_run=%.1fs turn_duration=%.1fs model=%s stop=%s\n%!"
-    turn_index max_turns
-    (now -. run_start)
-    (now -. turn_start)
-    (if String.length model = 0 then "-" else model)
-    stop
+  let model_field = if String.length model = 0 then "-" else model in
+  Log.info _log "turn completed"
+    [ Log.I ("turn", turn_index);
+      Log.I ("max_turns", max_turns);
+      Log.F ("elapsed_run_sec", now -. run_start);
+      Log.F ("turn_duration_sec", now -. turn_start);
+      Log.S ("model", model_field);
+      Log.S ("stop", stop);
+    ]
 
 let run_loop ~sw ?clock ~api_strategy ?on_yield ?on_resume agent user_prompt =
   let user_prompt = Llm_provider.Utf8_sanitize.sanitize user_prompt in
