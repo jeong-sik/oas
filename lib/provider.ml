@@ -198,6 +198,24 @@ let request_path = function
 let capabilities_for_config (cfg : config) =
   capabilities_for_model ~provider:cfg.provider ~model_id:cfg.model_id
 
+(** Resolve a positive [max_context_tokens] from an optional provider
+    config, falling back to [fallback] when the config is [None] or
+    the capability reports [None]/[<= 0]. Shared by
+    [Pipeline.proactive_context_window_tokens] and
+    [Builder.with_context_thresholds] so both call sites agree on the
+    "provider → capabilities → max_context_tokens" resolution step.
+    Callers still own the literal fallback value because the two sites
+    disagree on it intentionally (Pipeline uses a stricter 128K; Builder
+    uses a looser 200K that plays well with broader token caps). *)
+let resolve_max_context_tokens ~fallback (cfg_opt : config option) =
+  match cfg_opt with
+  | Some cfg ->
+    let caps = capabilities_for_config cfg in
+    (match caps.max_context_tokens with
+     | Some n when n > 0 -> n
+     | _ -> fallback)
+  | None -> fallback
+
 let validate_inference_contract ~capabilities (contract : inference_contract) =
   if modality_supported capabilities contract.modality then Ok ()
   else
