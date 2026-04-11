@@ -157,7 +157,18 @@ let registered_providers () =
 
 let capabilities_for_model ~(provider : provider) ~(model_id : string) =
   match provider with
-  | Anthropic -> anthropic_capabilities
+  | Anthropic ->
+      (* Base [anthropic_capabilities] is a conservative 200K record;
+         the per-model overrides (claude-opus-4, claude-sonnet-4, etc.)
+         live in [Llm_provider.Capabilities.for_model_id] and carry the
+         real 1M windows and output-token ceilings. The [Local] and
+         [OpenAICompat] branches already consult that table; the
+         Anthropic branch must too, otherwise every Sonnet/Opus 4 agent
+         resolves to the wrong window and proactive compaction fires at
+         ~150K instead of ~750K. *)
+      (match Llm_provider.Capabilities.for_model_id model_id with
+       | Some caps -> caps
+       | None -> anthropic_capabilities)
   | Local _ ->
       (* Local (llama-server) uses OpenAI-compatible API.
          Resolve capabilities by model_id, fall back to openai_chat. *)
