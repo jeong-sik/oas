@@ -82,8 +82,39 @@ let contains_substring_ci ~(haystack : string) ~(needle : string) : bool =
 let malformed_json_indicators =
   [ "closing"; "can't find"; "unexpected"; "unterminated"; "invalid json"; "parse error" ]
 
+(** Substrings and error codes indicating the 429 is a hard account-level
+    quota exhaustion (not a transient throttle).  Retrying will never
+    succeed without operator action (recharge / new key).  Treat these as
+    non-retryable so cascades fall through to the next provider
+    immediately instead of burning [max_retries] wasted calls per turn.
+
+    Examples:
+    - GLM / z.ai: [{"error":{"code":"1113","message":"Insufficient balance or
+      no resource package. Please recharge."}}]
+    - Anthropic: ["You have insufficient credits"] in error.message
+    - OpenAI: ["You exceeded your current quota"] in error.message *)
+let hard_quota_indicators =
+  [ "insufficient balance";
+    "insufficient credit";
+    "exceeded your current quota";
+    "no resource package";
+    "please recharge";
+    "quota exceeded";
+    "billing_hard_limit";
+    "1113" ]
+
+let is_hard_quota_message (message : string) : bool =
+  List.exists
+    (fun needle -> contains_substring_ci ~haystack:message ~needle)
+    hard_quota_indicators
+
 let is_retryable = function
-  | RateLimited _ | Overloaded _ | ServerError _ | NetworkError _ | Timeout _ -> true
+  | RateLimited { message; _ } ->
+    (* Most 429s are transient throttles — retry with backoff.
+       But hard account-level quota exhaustion (balance 0, credit 0) will
+       never succeed on retry; fall through to the next cascade step. *)
+    not (is_hard_quota_message message)
+  | Overloaded _ | ServerError _ | NetworkError _ | Timeout _ -> true
   | InvalidRequest { message } ->
     (* Malformed JSON from model output is transient — retry may produce valid JSON. *)
     List.exists (fun needle -> contains_substring_ci ~haystack:message ~needle) malformed_json_indicators
@@ -319,6 +350,46 @@ let%test "InvalidRequest with invalid json is retryable" =
 
 let%test "InvalidRequest with empty message is NOT retryable" =
   not (is_retryable (InvalidRequest { message = "" }))
+
+(* --- hard-quota detection on RateLimited --- *)
+
+let%test "RateLimited transient 429 is retryable" =
+  is_retryable (RateLimited { retry_after = Some 1.0; message = "Too many requests, please slow down" })
+
+let%test "RateLimited glm 1113 Insufficient balance is NOT retryable" =
+  not (is_retryable (RateLimited { retry_after = None;
+    message = "Insufficient balance or no resource package. Please recharge." }))
+
+let%test "RateLimited anthropic insufficient credit is NOT retryable" =
+  not (is_retryable (RateLimited { retry_after = None;
+    message = "You have insufficient credits on your account" }))
+
+let%test "RateLimited openai exceeded quota is NOT retryable" =
+  not (is_retryable (RateLimited { retry_after = None;
+    message = "You exceeded your current quota, please check your plan and billing details" }))
+
+let%test "RateLimited code 1113 substring is NOT retryable" =
+  not (is_retryable (RateLimited { retry_after = None;
+    message = {|{"error":{"code":"1113","message":"quota"}}|} }))
+
+let%test "RateLimited mixed-case hard quota is NOT retryable" =
+  not (is_retryable (RateLimited { retry_after = None;
+    message = "INSUFFICIENT BALANCE — please recharge" }))
+
+let%test "RateLimited billing hard limit is NOT retryable" =
+  not (is_retryable (RateLimited { retry_after = None;
+    message = "{\"type\":\"billing_hard_limit_reached\"}" }))
+
+let%test "is_hard_quota_message positive cases" =
+  is_hard_quota_message "Insufficient balance"
+  && is_hard_quota_message "insufficient credit balance"
+  && is_hard_quota_message "You exceeded your current quota"
+  && is_hard_quota_message "quota exceeded"
+
+let%test "is_hard_quota_message negative cases" =
+  not (is_hard_quota_message "rate limit, retry in 1s")
+  && not (is_hard_quota_message "too many requests")
+  && not (is_hard_quota_message "")
 
 (** Retry with cascade: try [primary] first (with retries), then each
     fallback in order. Each attempt gets its own full retry budget.
