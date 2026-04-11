@@ -28,6 +28,7 @@ type inference_params = Cascade_config_loader.inference_params = {
 }
 
 let resolve_inference_params = Cascade_config_loader.resolve_inference_params
+let resolve_api_key_env = Cascade_config_loader.resolve_api_key_env
 
 (* ── Provider registry (SSOT: Provider_registry) ─────── *)
 
@@ -81,13 +82,43 @@ let make_custom_config ~temperature ~max_tokens ?system_prompt model_id =
                ?system_prompt
                ())
 
+(** Resolve the effective API key env var name for a provider.
+
+    Checks [api_key_env_overrides] first (exact provider name, then
+    wildcard ["*"]), then falls back to the provider registry default.
+
+    Empty-string entries are treated as absent so a user-provided
+    [{"glm": ""}] falls through to the wildcard and registry default
+    instead of silently disabling auth. *)
+let resolve_effective_api_key_env
+    ~(api_key_env_overrides : (string * string) list)
+    ~(provider_name : string)
+    ~(registry_default : string) =
+  let find_non_empty key =
+    match List.assoc_opt key api_key_env_overrides with
+    | Some v when v <> "" -> Some v
+    | _ -> None
+  in
+  match find_non_empty provider_name with
+  | Some env -> env
+  | None ->
+    match find_non_empty "*" with
+    | Some env -> env
+    | None -> registry_default
+
 (** Build a {!Provider_config.t} from a registry entry. *)
 let make_registry_config ~temperature ~max_tokens ?system_prompt
+    ?(api_key_env_overrides=[])
     ~provider_name ~model_id (entry : Provider_registry.entry) =
   let defaults = entry.defaults in
+  let effective_api_key_env =
+    resolve_effective_api_key_env
+      ~api_key_env_overrides ~provider_name
+      ~registry_default:defaults.api_key_env
+  in
   let api_key =
-    if defaults.api_key_env = "" then ""
-    else Sys.getenv_opt defaults.api_key_env |> Option.value ~default:""
+    if effective_api_key_env = "" then ""
+    else Sys.getenv_opt effective_api_key_env |> Option.value ~default:""
   in
   let headers = headers_with_auth ~kind:defaults.kind ~api_key in
   (* For local providers, resolve "auto" before endpoint selection so that
@@ -143,7 +174,8 @@ let make_registry_config ~temperature ~max_tokens ?system_prompt
 let parse_model_string
     ?(temperature = Constants.Inference.default_temperature)
     ?(max_tokens = Constants.Inference.default_max_tokens)
-    ?system_prompt (s : string) : Provider_config.t option =
+    ?system_prompt ?(api_key_env_overrides = [])
+    (s : string) : Provider_config.t option =
   match split_provider_model (String.trim s) with
   | None -> None
   | Some ("custom", model_id) ->
@@ -154,7 +186,7 @@ let parse_model_string
     | Some entry when not (entry.is_available ()) -> None
     | Some entry ->
       Some (make_registry_config ~temperature ~max_tokens ?system_prompt
-              ~provider_name ~model_id entry)
+              ~api_key_env_overrides ~provider_name ~model_id entry)
 
 let parse_model_string_exn
     ?(temperature = Constants.Inference.default_temperature)
@@ -201,10 +233,12 @@ let expand_auto_models (strs : string list) : string list =
 let parse_model_strings
     ?(temperature = Constants.Inference.default_temperature)
     ?(max_tokens = Constants.Inference.default_max_tokens)
-    ?system_prompt (strs : string list) : Provider_config.t list =
+    ?system_prompt ?(api_key_env_overrides = [])
+    (strs : string list) : Provider_config.t list =
   let expanded = expand_auto_models strs in
   List.filter_map
-    (parse_model_string ~temperature ~max_tokens ?system_prompt)
+    (parse_model_string ~temperature ~max_tokens ?system_prompt
+       ~api_key_env_overrides)
     expanded
 
 (* Health filtering (extracted to Cascade_health_filter) *)
@@ -388,8 +422,15 @@ let complete_named ~sw ~net ?clock ?config_path
       Discovery.refresh_and_sync ~sw ~net ~endpoints
     else []
   in
+  (* Resolve per-cascade api_key_env overrides from config *)
+  let api_key_env_overrides =
+    match config_path with
+    | Some path -> resolve_api_key_env ~config_path:path ~name
+    | None -> []
+  in
   let providers =
-    let parsed = parse_model_strings ~temperature ~max_tokens ?system_prompt model_strings in
+    let parsed = parse_model_strings ~temperature ~max_tokens ?system_prompt
+        ~api_key_env_overrides model_strings in
     (* Propagate tool_choice to each provider config so it reaches the
        HTTP body (e.g. "tool_choice": "required" for OpenAI-compatible).
        Without this, tool_choice from Agent hooks is lost in cascade. *)
@@ -456,8 +497,15 @@ let complete_named_stream ~sw ~net ?clock ?config_path
               | Default_fallback -> "default_fallback"
               | Hardcoded_defaults -> "hardcoded_defaults") })
   else
+  (* Resolve per-cascade api_key_env overrides from config *)
+  let api_key_env_overrides =
+    match config_path with
+    | Some path -> resolve_api_key_env ~config_path:path ~name
+    | None -> []
+  in
   let providers =
-    let parsed = parse_model_strings ~temperature ~max_tokens ?system_prompt model_strings in
+    let parsed = parse_model_strings ~temperature ~max_tokens ?system_prompt
+        ~api_key_env_overrides model_strings in
     let with_tc = match tool_choice with
       | Some tc -> List.map (fun (p : Provider_config.t) -> { p with tool_choice = Some tc }) parsed
       | None -> parsed
@@ -897,6 +945,97 @@ let%test "resolve_model_strings_traced returns Hardcoded_defaults on empty confi
       let (_models, source) = resolve_model_strings_traced ~config_path:tmp
         ~name:"missing" ~defaults:["fallback:x"] () in
       source = Hardcoded_defaults))
+
+(* ── resolve_effective_api_key_env inline tests ──────── *)
+
+let%test "resolve_effective_api_key_env provider match" =
+  resolve_effective_api_key_env
+    ~api_key_env_overrides:[("glm", "CUSTOM_KEY")]
+    ~provider_name:"glm"
+    ~registry_default:"ZAI_API_KEY"
+  = "CUSTOM_KEY"
+
+let%test "resolve_effective_api_key_env wildcard match" =
+  resolve_effective_api_key_env
+    ~api_key_env_overrides:[("*", "WILDCARD_KEY")]
+    ~provider_name:"glm"
+    ~registry_default:"ZAI_API_KEY"
+  = "WILDCARD_KEY"
+
+let%test "resolve_effective_api_key_env provider over wildcard" =
+  resolve_effective_api_key_env
+    ~api_key_env_overrides:[("glm", "SPECIFIC"); ("*", "WILDCARD")]
+    ~provider_name:"glm"
+    ~registry_default:"DEFAULT"
+  = "SPECIFIC"
+
+let%test "resolve_effective_api_key_env no match uses registry default" =
+  resolve_effective_api_key_env
+    ~api_key_env_overrides:[("claude", "CLAUDE_KEY")]
+    ~provider_name:"glm"
+    ~registry_default:"ZAI_API_KEY"
+  = "ZAI_API_KEY"
+
+let%test "resolve_effective_api_key_env empty overrides uses registry default" =
+  resolve_effective_api_key_env
+    ~api_key_env_overrides:[]
+    ~provider_name:"glm"
+    ~registry_default:"ZAI_API_KEY"
+  = "ZAI_API_KEY"
+
+let%test "resolve_effective_api_key_env empty-string provider override falls through to wildcard" =
+  resolve_effective_api_key_env
+    ~api_key_env_overrides:[("glm", ""); ("*", "WILDCARD_KEY")]
+    ~provider_name:"glm"
+    ~registry_default:"ZAI_API_KEY"
+  = "WILDCARD_KEY"
+
+let%test "resolve_effective_api_key_env empty-string wildcard falls through to registry default" =
+  resolve_effective_api_key_env
+    ~api_key_env_overrides:[("*", "")]
+    ~provider_name:"glm"
+    ~registry_default:"ZAI_API_KEY"
+  = "ZAI_API_KEY"
+
+let%test "resolve_effective_api_key_env both empty falls through to registry default" =
+  resolve_effective_api_key_env
+    ~api_key_env_overrides:[("glm", ""); ("*", "")]
+    ~provider_name:"glm"
+    ~registry_default:"ZAI_API_KEY"
+  = "ZAI_API_KEY"
+
+let%test "parse_model_strings with empty overrides same as without" =
+  let with_ov = parse_model_strings ~api_key_env_overrides:[] ["llama:qwen"] in
+  let without = parse_model_strings ["llama:qwen"] in
+  List.length with_ov = List.length without
+
+let%test "resolve_api_key_env string format" =
+  Eio_main.run (fun _env ->
+    with_temp_cascade_json {|{"test_api_key_env": "MY_KEY"}|} (fun tmp ->
+      let overrides = resolve_api_key_env ~config_path:tmp ~name:"test" in
+      overrides = [("*", "MY_KEY")]))
+
+let%test "resolve_api_key_env object format" =
+  Eio_main.run (fun _env ->
+    with_temp_cascade_json
+      {|{"test_api_key_env": {"glm": "GLM_KEY", "claude": "CLAUDE_KEY"}}|}
+      (fun tmp ->
+        let overrides = resolve_api_key_env ~config_path:tmp ~name:"test" in
+        List.length overrides = 2
+        && List.assoc_opt "glm" overrides = Some "GLM_KEY"
+        && List.assoc_opt "claude" overrides = Some "CLAUDE_KEY"))
+
+let%test "resolve_api_key_env falls back to default" =
+  Eio_main.run (fun _env ->
+    with_temp_cascade_json {|{"default_api_key_env": "FALLBACK"}|} (fun tmp ->
+      let overrides = resolve_api_key_env ~config_path:tmp ~name:"missing" in
+      overrides = [("*", "FALLBACK")]))
+
+let%test "resolve_api_key_env empty on no match" =
+  Eio_main.run (fun _env ->
+    with_temp_cascade_json {|{"other_field": "x"}|} (fun tmp ->
+      let overrides = resolve_api_key_env ~config_path:tmp ~name:"test" in
+      overrides = []))
 
 (* should_cascade_to_next + has_required_api_key tests
    moved to Cascade_health_filter *)
