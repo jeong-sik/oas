@@ -10,13 +10,19 @@
     sit idle.  The last provider in the list falls back to blocking to avoid
     an immediate "all failed" error when the system is simply at capacity.
 
-    Per-model timeout: non-last providers are cancelled after
-    [OAS_CASCADE_MODEL_TIMEOUT_SEC] (default 1200s / 20 min) to prevent
-    a single slow model from blocking the entire cascade for hours.
+    Per-model timeout: every provider — including the last — is cancelled
+    after [OAS_CASCADE_MODEL_TIMEOUT_SEC] (default 30s) to prevent a single
+    slow model from blocking the entire cascade. The last provider used to
+    be exempt under the assumption that it was the "final fallback", but
+    that allowed silent hangs of up to the outer adaptive timeout (~1113s
+    for 262K context) when the last provider stalled at the TCP layer. The
+    consumer should set its own wall-clock as the safety net, not rely on
+    the cascade to wait forever.
 
     @since 0.99.5
     @since 0.100.3 slot-full fallthrough for load distribution
-    @since 0.101.0 per-model timeout for non-last providers *)
+    @since 0.101.0 per-model timeout for non-last providers
+    @since 0.119.3 per-model timeout extended to last provider *)
 
 (* ── Per-model timeout ──────────────────────────────────── *)
 
@@ -273,12 +279,20 @@ let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
         Complete.complete ~sw ~net ~config:cfg
           ~messages:effective_messages ~tools ?cache ?metrics ?priority ()
     in
-    (* Wrap non-last providers with a timeout to prevent a single slow
-       model from blocking the cascade for hours.  Last provider has no
-       timeout — it is the final fallback. *)
+    (* Wrap every provider — including the last — with a per-model
+       timeout. The last provider used to be exempt on the theory that
+       it was the "final fallback" and should be allowed to take its
+       time, but in practice an Ollama TCP stall on the last rung
+       blocked masc-mcp keepers for ~1113s (the outer adaptive OAS
+       timeout) before the consumer's wall-clock could fire, producing
+       hundreds of silent 1200s "Turn wall-clock timeout" errors per
+       day. Fast-failing on the last rung surfaces the failure as a
+       cascade NetworkError instead of a 20-minute hang. Set
+       OAS_CASCADE_MODEL_TIMEOUT_SEC=0 to opt out. [is_last] is still
+       used below for the throttle blocking-vs-try-permit decision. *)
     let call_with_timeout () =
       match clock with
-      | Some clock when not is_last && cascade_model_timeout_sec > 0.0 ->
+      | Some clock when cascade_model_timeout_sec > 0.0 ->
         let wrapped () =
           match call () with
           | Ok v -> Ok (Ok v)
