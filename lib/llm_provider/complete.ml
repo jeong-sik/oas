@@ -114,6 +114,67 @@ let provider_name_of_kind : Provider_config.provider_kind -> string = function
   | Glm -> "glm"
   | Claude_code -> "claude_code"
 
+(** Strip query string and userinfo from a URL before logging.  Built-in
+    providers use clean URLs, but [custom:model@url] accepts arbitrary
+    user-supplied URLs; a misconfigured one like
+    [https://user:token@api.example.com/v1?token=abc] must not leak the
+    secret to stderr. *)
+let sanitize_url_for_log url =
+  let strip_query s =
+    match String.index_opt s '?' with
+    | Some i -> String.sub s 0 i
+    | None -> s
+  in
+  let strip_userinfo s =
+    (* Only consider the authority segment (between :// and the next /).
+       A literal '@' inside a path is allowed and must not be stripped. *)
+    match String.index_opt s '/' with
+    | None -> s
+    | Some i1 when i1 + 2 > String.length s || s.[i1 + 1] <> '/' -> s
+    | Some i1 ->
+      let authority_start = i1 + 2 in
+      let authority_end =
+        match String.index_from_opt s authority_start '/' with
+        | Some j -> j
+        | None -> String.length s
+      in
+      let authority =
+        String.sub s authority_start (authority_end - authority_start)
+      in
+      (match String.rindex_opt authority '@' with
+       | None -> s
+       | Some k ->
+         let host = String.sub authority (k + 1) (String.length authority - k - 1) in
+         let prefix = String.sub s 0 authority_start in
+         let suffix = String.sub s authority_end (String.length s - authority_end) in
+         prefix ^ host ^ suffix)
+  in
+  strip_query (strip_userinfo url)
+
+let%test "sanitize_url_for_log passthrough plain https" =
+  sanitize_url_for_log "https://api.z.ai/api/coding/paas/v4"
+  = "https://api.z.ai/api/coding/paas/v4"
+
+let%test "sanitize_url_for_log strips query string" =
+  sanitize_url_for_log "https://api.example.com/v1?token=abc"
+  = "https://api.example.com/v1"
+
+let%test "sanitize_url_for_log strips userinfo" =
+  sanitize_url_for_log "https://user:secret@api.example.com/v1"
+  = "https://api.example.com/v1"
+
+let%test "sanitize_url_for_log strips both userinfo and query" =
+  sanitize_url_for_log "https://user:token@api.example.com/v1?key=abc"
+  = "https://api.example.com/v1"
+
+let%test "sanitize_url_for_log preserves path with literal at-sign" =
+  sanitize_url_for_log "https://api.example.com/users/me@org/v1"
+  = "https://api.example.com/users/me@org/v1"
+
+let%test "sanitize_url_for_log handles missing path" =
+  sanitize_url_for_log "https://api.example.com"
+  = "https://api.example.com"
+
 let complete_http ~sw ~net
     ?(on_http_status : (provider:string -> model_id:string -> status:int -> unit) option)
     ~(config : Provider_config.t)
@@ -236,7 +297,8 @@ let complete_http ~sw ~net
             Printf.eprintf
               "[WARN] [Complete] HTTP %d from %s (model=%s base_url=%s): \
                req_body=%d bytes balanced=%b parse_ok=%b resp_body=%s\n%!"
-              code provider_name config.model_id config.base_url
+              code provider_name config.model_id
+              (sanitize_url_for_log config.base_url)
               body_len body_balanced parse_ok
               (if String.length body <= 200 then body
                else String.sub body 0 200 ^ "...");
