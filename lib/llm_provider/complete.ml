@@ -224,7 +224,18 @@ let complete_http ~sw ~net ~(config : Provider_config.t)
               List.exists (fun n -> contains_substring lower_resp n)
                 ["closing"; "can't find"; "cant find"; "unterminated"; "unexpected character"]
             in
-            if (not parse_ok) || server_parse_complaint then begin
+            (* Body dumps are gated behind an explicit env var because the
+               serialized request contains the full prompt + tool context +
+               injected memory.  Default OFF — operators must opt in by
+               setting OAS_DEBUG_BODY_DUMP=1 (or any non-empty value).
+               Even then, files are written with mode 0o600 so only the
+               server's UID can read them. *)
+            let dump_enabled =
+              match Sys.getenv_opt "OAS_DEBUG_BODY_DUMP" with
+              | Some v when String.trim v <> "" && String.trim v <> "0" -> true
+              | _ -> false
+            in
+            if dump_enabled && ((not parse_ok) || server_parse_complaint) then begin
               let now = Unix.gettimeofday () in
               let minute_bucket = int_of_float (now /. 60.0) in
               let safe_model =
@@ -234,19 +245,38 @@ let complete_http ~sw ~net ~(config : Provider_config.t)
                     | _ -> '_')
                   config.model_id
               in
+              let dir =
+                match Sys.getenv_opt "OAS_DEBUG_BODY_DIR" with
+                | Some v when String.trim v <> "" -> String.trim v
+                | _ -> Filename.get_temp_dir_name ()
+              in
               let path =
-                Printf.sprintf "/tmp/oas-bad-body-%s-%s-%d.json"
-                  provider_name safe_model minute_bucket
+                Filename.concat dir
+                  (Printf.sprintf "oas-bad-body-%s-%s-%d.json"
+                     provider_name safe_model minute_bucket)
               in
               if not (Sys.file_exists path) then
                 try
-                  let oc = open_out path in
-                  Fun.protect ~finally:(fun () -> close_out_noerr oc)
-                    (fun () -> output_string oc body_str);
+                  (* Open with O_EXCL so a concurrent fiber that won the
+                     TOCTOU race causes us to skip silently rather than
+                     truncate its dump.  Mode 0o600 = owner read/write only. *)
+                  let fd =
+                    Unix.openfile path
+                      [Unix.O_WRONLY; Unix.O_CREAT; Unix.O_EXCL] 0o600
+                  in
+                  Fun.protect ~finally:(fun () ->
+                    try Unix.close fd with _ -> ())
+                    (fun () ->
+                      let oc = Unix.out_channel_of_descr fd in
+                      output_string oc body_str;
+                      flush oc);
                   Printf.eprintf
-                    "[WARN] [Complete] dumped rejected request body: %s (%d bytes)\n%!"
+                    "[WARN] [Complete] dumped rejected request body: %s \
+                     (%d bytes, mode 0600)\n%!"
                     path body_len
-                with _ -> ()
+                with
+                | Unix.Unix_error (Unix.EEXIST, _, _) -> ()
+                | _ -> ()
             end
           end;
           Error (Http_client.HttpError { code; body })
