@@ -39,6 +39,9 @@ type tool_param = {
 }
 [@@deriving yojson, show]
 
+val param_type_of_string : string -> (param_type, string) result
+val tool_param_to_json : tool_param -> Yojson.Safe.t
+val tool_param_of_json : Yojson.Safe.t -> (tool_param, string) result
 val params_to_input_schema : tool_param list -> Yojson.Safe.t
 
 type tool_schema = {
@@ -47,6 +50,10 @@ type tool_schema = {
   parameters: tool_param list;
 }
 [@@deriving yojson, show]
+
+val tool_schema_to_json : tool_schema -> Yojson.Safe.t
+val tool_schema_of_json : Yojson.Safe.t -> (tool_schema, string) result
+val result_all : ('a, 'e) result list -> ('a list, 'e) result
 
 type tool_choice =
   | Auto
