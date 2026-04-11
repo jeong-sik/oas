@@ -337,17 +337,20 @@ let test_metrics_global_default_is_noop () =
 let test_metrics_global_set_and_get () =
   let hits = ref 0 in
   let previous = Metrics.get_global () in
-  let custom : Metrics.t = {
-    Metrics.noop with
-    on_http_status = (fun ~provider:_ ~model_id:_ ~status:_ -> incr hits);
-  } in
-  Metrics.set_global custom;
-  let g = Metrics.get_global () in
-  g.on_http_status ~provider:"ollama" ~model_id:"m" ~status:429;
-  g.on_http_status ~provider:"glm" ~model_id:"m" ~status:429;
-  check int "global metric fired twice" 2 !hits;
-  (* Restore to noop so other tests in the same process see a clean slate. *)
-  Metrics.set_global previous
+  (* Fun.protect guarantees the global is restored even if a check
+     assertion raises inside the body, preventing cross-test pollution
+     through the shared process-wide sink. *)
+  Fun.protect ~finally:(fun () -> Metrics.set_global previous)
+    (fun () ->
+      let custom : Metrics.t = {
+        Metrics.noop with
+        on_http_status = (fun ~provider:_ ~model_id:_ ~status:_ -> incr hits);
+      } in
+      Metrics.set_global custom;
+      let g = Metrics.get_global () in
+      g.on_http_status ~provider:"ollama" ~model_id:"m" ~status:429;
+      g.on_http_status ~provider:"glm" ~model_id:"m" ~status:429;
+      check int "global metric fired twice" 2 !hits)
 
 let test_metrics_global_used_when_no_per_call_metrics () =
   Eio_main.run @@ fun env ->
