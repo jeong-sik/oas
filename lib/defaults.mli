@@ -23,8 +23,8 @@ val float_env_or : float -> string -> float
 val bool_env_or : bool -> string -> bool
 
 (** Local LLM server URL.
-    Reads [OAS_LOCAL_LLM_URL], falling back to [OAS_LOCAL_QWEN_URL],
-    then {!Llm_provider.Constants.Endpoints.default_url}. *)
+    Reads [OAS_LOCAL_LLM_URL], falling back to
+    {!Llm_provider.Constants.Endpoints.default_url}. *)
 val local_llm_url : string
 
 (** Fallback provider name.

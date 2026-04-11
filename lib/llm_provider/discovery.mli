@@ -49,8 +49,8 @@ val discover :
   endpoint_status list
 
 (** Canonical local LLM endpoint default.
-    Reads OAS_LOCAL_LLM_URL / OAS_LOCAL_QWEN_URL env vars,
-    falls back to {!Constants.Endpoints.default_url}.
+    Reads [OAS_LOCAL_LLM_URL], falls back to
+    {!Constants.Endpoints.default_url}.
     All local endpoint defaults in llm_provider reference this value. *)
 val default_endpoint : string
 

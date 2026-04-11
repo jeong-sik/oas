@@ -40,12 +40,27 @@ type endpoint_status = {
   capabilities: Capabilities.capabilities;
 }
 
+(* [OAS_LOCAL_QWEN_URL] was the original model-specific name for this
+   knob. It was superseded by [OAS_LOCAL_LLM_URL] (same shape, neutral
+   name). If a deployment still has the legacy var set we emit a
+   one-time migration warning to stderr at module-init time so the
+   operator sees it on the next process start, but we do not route to
+   the legacy URL — that would couple the public SDK contract to a
+   model name that isn't part of the endpoint's meaning. Operators
+   should rename their env var; the migration is mechanical. *)
+let () =
+  match Sys.getenv_opt "OAS_LOCAL_QWEN_URL" with
+  | Some v when String.trim v <> "" ->
+    Printf.eprintf
+      "[WARN] [Discovery] OAS_LOCAL_QWEN_URL is set (%s) but has been \
+       removed in favor of OAS_LOCAL_LLM_URL. The legacy value will be \
+       ignored. Rename the env var to migrate.\n%!"
+      (String.trim v)
+  | _ -> ()
+
 let default_endpoint =
-  let primary = Sys.getenv_opt "OAS_LOCAL_LLM_URL" in
-  let legacy = Sys.getenv_opt "OAS_LOCAL_QWEN_URL" in
-  match primary, legacy with
-  | Some v, _ when String.trim v <> "" -> String.trim v
-  | _, Some v when String.trim v <> "" -> String.trim v
+  match Sys.getenv_opt "OAS_LOCAL_LLM_URL" with
+  | Some v when String.trim v <> "" -> String.trim v
   | _ -> Constants.Endpoints.default_url
 
 let ollama_endpoint =
