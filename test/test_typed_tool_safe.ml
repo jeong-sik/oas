@@ -44,7 +44,7 @@ let test_read_only_permission_name () =
 
 let test_write_approved () =
   let safe = Typed_tool_safe.write base_tool in
-  let approve ~tool_name:_ ~input_desc:(_:_ Lazy.t) = true in
+  let approve ~tool_name:_ ~input_desc:(_:_ Lazy.t) = Ok () in
   match Typed_tool_safe.execute_write ~approve safe valid_input with
   | Ok { content } ->
     let json = Yojson.Safe.from_string content in
@@ -54,7 +54,7 @@ let test_write_approved () =
 
 let test_write_denied () =
   let safe = Typed_tool_safe.write base_tool in
-  let approve ~tool_name:_ ~input_desc:(_:_ Lazy.t) = false in
+  let approve ~tool_name:_ ~input_desc:(_:_ Lazy.t) = Error "denied by test" in
   match Typed_tool_safe.execute_write ~approve safe valid_input with
   | Ok _ -> Alcotest.fail "expected denial"
   | Error e ->
@@ -70,14 +70,14 @@ let test_write_permission_name () =
 
 let test_destructive_approved () =
   let safe = Typed_tool_safe.destructive base_tool in
-  let approve ~tool_name:_ ~input_desc:(_:_ Lazy.t) = true in
+  let approve ~tool_name:_ ~input_desc:(_:_ Lazy.t) = Ok () in
   match Typed_tool_safe.execute_destructive ~approve safe valid_input with
   | Ok _ -> ()
   | Error e -> Alcotest.fail e.message
 
 let test_destructive_denied () =
   let safe = Typed_tool_safe.destructive base_tool in
-  let approve ~tool_name:_ ~input_desc:(_:_ Lazy.t) = false in
+  let approve ~tool_name:_ ~input_desc:(_:_ Lazy.t) = Error "denied by test" in
   match Typed_tool_safe.execute_destructive ~approve safe valid_input with
   | Ok _ -> Alcotest.fail "expected denial"
   | Error e ->

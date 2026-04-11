@@ -34,24 +34,24 @@ let extract_with_coerce ~name ~typ ~required ~default ~unwrap json =
     | None -> Error (Printf.sprintf "%s: expected %s, got %s" name
                        (Types.param_type_to_string typ) (Yojson.Safe.to_string v))
 
-let string_field name ~required ~desc =
+let string_field name ~required ~desc ?(default = "") () =
   make_field name ~typ:Types.String ~required ~desc
-    ~extract:(extract_with_coerce ~name ~typ:Types.String ~required ~default:""
+    ~extract:(extract_with_coerce ~name ~typ:Types.String ~required ~default
       ~unwrap:(function `String s -> Some s | _ -> None))
 
-let int_field name ~required ~desc =
+let int_field name ~required ~desc ?(default = 0) () =
   make_field name ~typ:Types.Integer ~required ~desc
-    ~extract:(extract_with_coerce ~name ~typ:Types.Integer ~required ~default:0
+    ~extract:(extract_with_coerce ~name ~typ:Types.Integer ~required ~default
       ~unwrap:(function `Int i -> Some i | _ -> None))
 
-let float_field name ~required ~desc =
+let float_field name ~required ~desc ?(default = 0.0) () =
   make_field name ~typ:Types.Number ~required ~desc
-    ~extract:(extract_with_coerce ~name ~typ:Types.Number ~required ~default:0.0
+    ~extract:(extract_with_coerce ~name ~typ:Types.Number ~required ~default
       ~unwrap:(function `Float f -> Some f | `Int i -> Some (float_of_int i) | _ -> None))
 
-let bool_field name ~required ~desc =
+let bool_field name ~required ~desc ?(default = false) () =
   make_field name ~typ:Types.Boolean ~required ~desc
-    ~extract:(extract_with_coerce ~name ~typ:Types.Boolean ~required ~default:false
+    ~extract:(extract_with_coerce ~name ~typ:Types.Boolean ~required ~default
       ~unwrap:(function `Bool b -> Some b | _ -> None))
 
 (* ── Schema type ────────────────────────────────────────── *)

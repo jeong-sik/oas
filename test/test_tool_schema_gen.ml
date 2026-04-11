@@ -5,8 +5,8 @@ open Agent_sdk
 (* ── Two-field schema (broadcast-like) ──────────────────── *)
 
 let broadcast_schema = Tool_schema_gen.(two
-  (string_field "message" ~required:true ~desc:"Content")
-  (string_field "format" ~required:false ~desc:"Output format"))
+  (string_field "message" ~required:true ~desc:"Content" ())
+  (string_field "format" ~required:false ~desc:"Output format" ()))
 
 let test_to_params () =
   let params = Tool_schema_gen.to_params broadcast_schema in
@@ -48,7 +48,7 @@ let test_to_json_schema () =
 
 (* ── Single-field schema ────────────────────────────────── *)
 
-let int_schema = Tool_schema_gen.(one (int_field "count" ~required:true ~desc:"Count"))
+let int_schema = Tool_schema_gen.(one (int_field "count" ~required:true ~desc:"Count" ()))
 
 let test_int_parse () =
   match Tool_schema_gen.parse int_schema (`Assoc [("count", `Int 42)]) with
@@ -63,9 +63,9 @@ let test_int_coercion () =
 (* ── Three-field schema ─────────────────────────────────── *)
 
 let triple = Tool_schema_gen.(three
-  (string_field "name" ~required:true ~desc:"Name")
-  (int_field "age" ~required:true ~desc:"Age")
-  (bool_field "active" ~required:false ~desc:"Active"))
+  (string_field "name" ~required:true ~desc:"Name" ())
+  (int_field "age" ~required:true ~desc:"Age" ())
+  (bool_field "active" ~required:false ~desc:"Active" ()))
 
 let test_triple_parse () =
   let json = `Assoc [("name", `String "Alice"); ("age", `Int 30); ("active", `Bool true)] in

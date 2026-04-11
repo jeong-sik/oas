@@ -20,7 +20,7 @@
 type correction = {
   stage : string;     (** Which correction stage applied *)
   field : string;     (** Which field was corrected *)
-  from_value : string;  (** Original value description *)
+  from_value : string option;  (** Original value, or [None] if field was missing *)
   to_value : string;    (** Corrected value description *)
 }
 

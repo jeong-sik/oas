@@ -42,11 +42,10 @@ let execute_read_only ?context safe_tool args =
 let execute_with_approval ?context ~approve safe_tool args =
   let tool_name = Typed_tool.name safe_tool.tool in
   let input_desc = lazy (Yojson.Safe.to_string args) in
-  if approve ~tool_name ~input_desc then
-    Typed_tool.execute ?context safe_tool.tool args
-  else
-    Error { Types.message = "Approval denied for " ^ tool_name;
-            recoverable = false }
+  match approve ~tool_name ~input_desc with
+  | Ok () -> Typed_tool.execute ?context safe_tool.tool args
+  | Error reason ->
+    Error { Types.message = reason; recoverable = false }
 
 let execute_write ?context ~approve tool args =
   execute_with_approval ?context ~approve tool args
