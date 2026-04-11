@@ -149,7 +149,8 @@ let stage_parse ?raw_trace_run agent =
     tool_choice =
       (match turn_params.tool_choice with Some _ as t -> t | None -> original_config.tool_choice);
     system_prompt =
-      (match turn_params.system_prompt_override with Some _ as s -> s | None -> original_config.system_prompt);
+      (match turn_params.system_prompt_override with Some _ as s -> s | None -> original_config.system_prompt)
+      |> Option.map Llm_provider.Utf8_sanitize.sanitize;
   } in
   update_state agent (fun s -> { s with config = new_config });
   let original_config = original_config in

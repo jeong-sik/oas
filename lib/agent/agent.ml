@@ -73,6 +73,7 @@ let base_messages agent =
   | msgs -> msgs
 
 let run_loop ~sw ?clock ~api_strategy ?on_yield ?on_resume agent user_prompt =
+  let user_prompt = Llm_provider.Utf8_sanitize.sanitize user_prompt in
   let user_msg = { role = User; content = [Text user_prompt]; name = None; tool_call_id = None } in
   Tool_retry_policy.clear_context_retry_count agent.context;
   update_state agent (fun s ->

@@ -313,7 +313,7 @@ let make_tool_results results =
   List.map (fun (result : Agent_tools.tool_execution_result) ->
     ToolResult {
       tool_use_id = result.tool_use_id;
-      content = result.content;
+      content = Llm_provider.Utf8_sanitize.sanitize result.content;
       is_error = result.is_error;
       json = None;
     }
