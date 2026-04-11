@@ -214,3 +214,35 @@ let%test "validate_response rejects text-only for Require_tool_use" =
     String.contains msg 't'
     && String.length msg > 10
   | Ok () -> false
+
+(* --- supports_tool_choice=false tests --- *)
+
+let%test "of_tool_choice relaxes Any when supports_tool_choice=false" =
+  of_tool_choice ~supports_tool_choice:false (Some Any) = Allow_text_or_tool
+
+let%test "of_tool_choice relaxes Tool when supports_tool_choice=false" =
+  of_tool_choice ~supports_tool_choice:false (Some (Tool "voice")) = Allow_text_or_tool
+
+let%test "of_tool_choice relaxes None_ when supports_tool_choice=false" =
+  of_tool_choice ~supports_tool_choice:false (Some None_) = Allow_text_or_tool
+
+let%test "of_tool_choice keeps Auto as Allow_text_or_tool regardless" =
+  of_tool_choice ~supports_tool_choice:false (Some Auto) = Allow_text_or_tool
+  && of_tool_choice ~supports_tool_choice:true (Some Auto) = Allow_text_or_tool
+
+let%test "of_tool_choice enforces Any when supports_tool_choice=true (default)" =
+  of_tool_choice (Some Any) = Require_tool_use
+  && of_tool_choice ~supports_tool_choice:true (Some Any) = Require_tool_use
+
+let%test "text-only response passes when contract relaxed for unsupported provider" =
+  let contract = of_tool_choice ~supports_tool_choice:false (Some Any) in
+  validate_response
+    ~contract
+    { id = "r";
+      model = "m";
+      stop_reason = EndTurn;
+      content = [ Text "hello" ];
+      usage = None;
+      telemetry = None;
+    }
+  = Ok ()
