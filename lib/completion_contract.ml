@@ -1,5 +1,7 @@
 open Types
 
+let _log = Log.create ~module_name:"completion_contract" ()
+
 type t =
   | Allow_text_or_tool
   | Require_tool_use
@@ -12,17 +14,21 @@ let to_string = function
   | Require_specific_tool name -> Printf.sprintf "require_specific_tool(%s)" name
   | Require_no_tool_use -> "require_no_tool_use"
 
-let of_tool_choice ?(supports_tool_choice = true) = function
-  | Some Any ->
-    if supports_tool_choice then Require_tool_use
-    else Allow_text_or_tool
-  | Some (Tool name) ->
-    if supports_tool_choice then Require_specific_tool name
-    else Allow_text_or_tool
-  | Some None_ ->
-    if supports_tool_choice then Require_no_tool_use
-    else Allow_text_or_tool
-  | Some Auto | None -> Allow_text_or_tool
+let of_tool_choice ?(supports_tool_choice = true) choice =
+  let requested = match choice with
+    | Some Any -> Some Require_tool_use
+    | Some (Tool name) -> Some (Require_specific_tool name)
+    | Some None_ -> Some Require_no_tool_use
+    | Some Auto | None -> None
+  in
+  match requested with
+  | None -> Allow_text_or_tool
+  | Some contract when supports_tool_choice -> contract
+  | Some contract ->
+    Log.info _log "tool_choice contract relaxed (provider does not support tool_choice)"
+      [ Log.S ("requested", to_string contract);
+        Log.S ("effective", "allow_text_or_tool") ];
+    Allow_text_or_tool
 
 let tool_use_names (response : api_response) =
   List.filter_map
