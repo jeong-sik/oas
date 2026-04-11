@@ -31,13 +31,7 @@ let describe_json_value = function
   | `Tuple _ -> "tuple"
   | `Variant _ -> "variant"
 
-let string_of_param_type = function
-  | Types.String -> "string"
-  | Types.Integer -> "integer"
-  | Types.Number -> "number"
-  | Types.Boolean -> "boolean"
-  | Types.Array -> "array"
-  | Types.Object -> "object"
+let string_of_param_type = Types.param_type_to_string
 
 (* ── Type coercion ───────────────────────────────────────── *)
 
