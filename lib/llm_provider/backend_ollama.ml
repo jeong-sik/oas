@@ -191,26 +191,48 @@ let parse_ollama_response json_str =
 
 [@@@coverage off]
 
+(** Run [f] with the [OAS_OLLAMA_KEEP_ALIVE] env var set to [value], then
+    restore the caller's original setting. Guaranteed restore on exception. *)
+let with_keep_alive_env value f =
+  let orig = Sys.getenv_opt "OAS_OLLAMA_KEEP_ALIVE" in
+  let restore () =
+    match orig with
+    | None -> Unix.putenv "OAS_OLLAMA_KEEP_ALIVE" ""
+    | Some v -> Unix.putenv "OAS_OLLAMA_KEEP_ALIVE" v
+  in
+  Fun.protect ~finally:restore (fun () ->
+    Unix.putenv "OAS_OLLAMA_KEEP_ALIVE" value;
+    f ())
+
 let%test "build_request pins keep_alive=-1 by default" =
-  Unix.putenv "OAS_OLLAMA_KEEP_ALIVE" "";
-  let config = Provider_config.make
-    ~kind:Ollama ~model_id:"qwen3.5:35b-a3b-nvfp4"
-    ~base_url:"http://127.0.0.1:11434" () in
-  let messages = [{ role = User; content = [Text "hi"]; name = None; tool_call_id = None }] in
-  let body = build_request ~config ~messages () in
-  let json = Yojson.Safe.from_string body in
-  let open Yojson.Safe.Util in
-  json |> member "keep_alive" |> to_string = "-1"
+  with_keep_alive_env "" (fun () ->
+    let config = Provider_config.make
+      ~kind:Ollama ~model_id:"qwen3.5:35b-a3b-nvfp4"
+      ~base_url:"http://127.0.0.1:11434" () in
+    let messages = [{ role = User; content = [Text "hi"]; name = None; tool_call_id = None }] in
+    let body = build_request ~config ~messages () in
+    let json = Yojson.Safe.from_string body in
+    let open Yojson.Safe.Util in
+    json |> member "keep_alive" |> to_string = "-1")
 
 let%test "build_request honors OAS_OLLAMA_KEEP_ALIVE override" =
-  Unix.putenv "OAS_OLLAMA_KEEP_ALIVE" "30m";
-  let config = Provider_config.make
-    ~kind:Ollama ~model_id:"qwen3.5:35b-a3b-nvfp4"
-    ~base_url:"http://127.0.0.1:11434" () in
-  let messages = [{ role = User; content = [Text "hi"]; name = None; tool_call_id = None }] in
-  let body = build_request ~config ~messages () in
-  let json = Yojson.Safe.from_string body in
-  let open Yojson.Safe.Util in
-  let result = json |> member "keep_alive" |> to_string = "30m" in
-  Unix.putenv "OAS_OLLAMA_KEEP_ALIVE" "";
-  result
+  with_keep_alive_env "30m" (fun () ->
+    let config = Provider_config.make
+      ~kind:Ollama ~model_id:"qwen3.5:35b-a3b-nvfp4"
+      ~base_url:"http://127.0.0.1:11434" () in
+    let messages = [{ role = User; content = [Text "hi"]; name = None; tool_call_id = None }] in
+    let body = build_request ~config ~messages () in
+    let json = Yojson.Safe.from_string body in
+    let open Yojson.Safe.Util in
+    json |> member "keep_alive" |> to_string = "30m")
+
+let%test "build_request whitespace-only env falls back to default" =
+  with_keep_alive_env "   " (fun () ->
+    let config = Provider_config.make
+      ~kind:Ollama ~model_id:"qwen3.5:35b-a3b-nvfp4"
+      ~base_url:"http://127.0.0.1:11434" () in
+    let messages = [{ role = User; content = [Text "hi"]; name = None; tool_call_id = None }] in
+    let body = build_request ~config ~messages () in
+    let json = Yojson.Safe.from_string body in
+    let open Yojson.Safe.Util in
+    json |> member "keep_alive" |> to_string = "-1")
