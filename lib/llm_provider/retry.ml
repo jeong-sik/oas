@@ -82,8 +82,53 @@ let contains_substring_ci ~(haystack : string) ~(needle : string) : bool =
 let malformed_json_indicators =
   [ "closing"; "can't find"; "unexpected"; "unterminated"; "invalid json"; "parse error" ]
 
+(** Substrings inside the extracted [error.message] text indicating the 429
+    is a hard account-level quota exhaustion (not a transient throttle).
+    Retrying will never succeed without operator action (recharge / new
+    key).  Treat these as non-retryable so cascades fall through to the
+    next provider immediately instead of burning [max_retries] wasted
+    calls per turn.
+
+    Scope note: matches are applied after [extract_error_message] pulls
+    the [.error.message] field from the JSON body, so fields like
+    [.error.code] are NOT in scope here — do not add bare numeric codes.
+
+    Provider coverage (examples seen in the wild):
+    - z.ai / GLM: "Insufficient balance or no resource package. Please
+      recharge."
+    - Anthropic: "You have insufficient credits"; "billing_hard_limit"
+    - OpenAI: "You exceeded your current quota, please check your plan
+      and billing details"
+    - Google / Gemini: "Resource exhausted"
+    - Mistral: "insufficient_quota"
+    - Together.ai: "insufficient_funds"
+    - z.ai CJK: "余额不足" / "额度不足" *)
+let hard_quota_indicators =
+  [ "insufficient balance";
+    "insufficient credit";
+    "insufficient_quota";
+    "insufficient_funds";
+    "exceeded your current quota";
+    "no resource package";
+    "quota exceeded";
+    "billing_hard_limit";
+    "resource exhausted";
+    "resource_exhausted";
+    "余额不足";
+    "额度不足" ]
+
+let is_hard_quota_message (message : string) : bool =
+  List.exists
+    (fun needle -> contains_substring_ci ~haystack:message ~needle)
+    hard_quota_indicators
+
 let is_retryable = function
-  | RateLimited _ | Overloaded _ | ServerError _ | NetworkError _ | Timeout _ -> true
+  | RateLimited { message; _ } ->
+    (* Most 429s are transient throttles — retry with backoff.
+       But hard account-level quota exhaustion (balance 0, credit 0) will
+       never succeed on retry; fall through to the next cascade step. *)
+    not (is_hard_quota_message message)
+  | Overloaded _ | ServerError _ | NetworkError _ | Timeout _ -> true
   | InvalidRequest { message } ->
     (* Malformed JSON from model output is transient — retry may produce valid JSON. *)
     List.exists (fun needle -> contains_substring_ci ~haystack:message ~needle) malformed_json_indicators
@@ -199,12 +244,22 @@ let classify_error ~status ~body : api_error =
     else
       InvalidRequest { message }
   | 429 ->
-    let retry_after =
+    let parsed_retry_after =
       try
         let json = Yojson.Safe.from_string body in
         let open Yojson.Safe.Util in
         Some (json |> member "error" |> member "retry_after" |> to_float)
       with Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ | Yojson.Safe.Util.Undefined _ -> None
+    in
+    (* Hard-quota 429s (balance 0, credit 0) will never succeed on retry.
+       Clear any [retry_after] the server might have echoed so downstream
+       consumers (metrics, cascade backoff) see a consistent signal with
+       [is_retryable] returning false.  Without this, a caller that
+       trusts [retry_after] alone would still back off and retry, while
+       [is_retryable] says no — contradictory. *)
+    let retry_after =
+      if is_hard_quota_message message then None
+      else parsed_retry_after
     in
     RateLimited { retry_after; message }
   | 529 -> Overloaded { message }
@@ -366,6 +421,106 @@ let%test "InvalidRequest with invalid json is retryable" =
 
 let%test "InvalidRequest with empty message is NOT retryable" =
   not (is_retryable (InvalidRequest { message = "" }))
+
+(* --- hard-quota detection on RateLimited --- *)
+
+let%test "RateLimited transient 429 is retryable" =
+  is_retryable (RateLimited { retry_after = Some 1.0; message = "Too many requests, please slow down" })
+
+(* Provider-specific hard-quota messages: all non-retryable. *)
+
+let%test "RateLimited glm insufficient balance (z.ai) is NOT retryable" =
+  not (is_retryable (RateLimited { retry_after = None;
+    message = "Insufficient balance or no resource package. Please recharge." }))
+
+let%test "RateLimited anthropic insufficient credit is NOT retryable" =
+  not (is_retryable (RateLimited { retry_after = None;
+    message = "You have insufficient credits on your account" }))
+
+let%test "RateLimited anthropic billing_hard_limit is NOT retryable" =
+  not (is_retryable (RateLimited { retry_after = None;
+    message = "billing_hard_limit exceeded for this workspace" }))
+
+let%test "RateLimited openai exceeded quota is NOT retryable" =
+  not (is_retryable (RateLimited { retry_after = None;
+    message = "You exceeded your current quota, please check your plan and billing details" }))
+
+let%test "RateLimited gemini resource exhausted is NOT retryable" =
+  not (is_retryable (RateLimited { retry_after = None;
+    message = "Resource exhausted: generativelanguage.googleapis.com" }))
+
+let%test "RateLimited gemini resource_exhausted snake_case is NOT retryable" =
+  not (is_retryable (RateLimited { retry_after = None;
+    message = "{\"code\":8,\"status\":\"RESOURCE_EXHAUSTED\"}" }))
+
+let%test "RateLimited mistral insufficient_quota is NOT retryable" =
+  not (is_retryable (RateLimited { retry_after = None;
+    message = "{\"type\":\"insufficient_quota\",\"details\":\"monthly quota reached\"}" }))
+
+let%test "RateLimited together.ai insufficient_funds is NOT retryable" =
+  not (is_retryable (RateLimited { retry_after = None;
+    message = "insufficient_funds: account balance below minimum" }))
+
+let%test "RateLimited CJK yuebu buzu is NOT retryable" =
+  not (is_retryable (RateLimited { retry_after = None;
+    message = "余额不足，请充值后重试" }))
+
+let%test "RateLimited CJK edu buzu is NOT retryable" =
+  not (is_retryable (RateLimited { retry_after = None;
+    message = "额度不足，本月配额已用完" }))
+
+let%test "RateLimited mixed-case hard quota is NOT retryable" =
+  not (is_retryable (RateLimited { retry_after = None;
+    message = "INSUFFICIENT BALANCE — please top up" }))
+
+(* False-positive defense: GLM review flagged these as risky earlier
+   versions of the indicator list.  The current list is strict enough
+   that benign messages stay retryable. *)
+
+let%test "RateLimited benign 1113 substring timestamp is retryable" =
+  (* Bare "1113" appeared in a prior version of the indicator list and
+     collided with numeric timestamps / request IDs.  Now removed —
+     this message should retry. *)
+  is_retryable (RateLimited { retry_after = Some 1.0;
+    message = "request 1711130123 rate-limited, retry in 1s" })
+
+let%test "RateLimited benign please recharge context is retryable" =
+  (* "please recharge" on its own was too loose (would match e.g. an
+     OAuth-token refresh message).  Removed from the indicator list. *)
+  is_retryable (RateLimited { retry_after = Some 2.0;
+    message = "please recharge your OAuth token and retry" })
+
+let%test "is_hard_quota_message positive cases" =
+  is_hard_quota_message "Insufficient balance"
+  && is_hard_quota_message "insufficient credit balance"
+  && is_hard_quota_message "You exceeded your current quota"
+  && is_hard_quota_message "quota exceeded"
+  && is_hard_quota_message "insufficient_quota"
+  && is_hard_quota_message "resource exhausted"
+  && is_hard_quota_message "余额不足"
+
+let%test "is_hard_quota_message negative cases" =
+  not (is_hard_quota_message "rate limit, retry in 1s")
+  && not (is_hard_quota_message "too many requests")
+  && not (is_hard_quota_message "credit balance OK, 100 tokens remaining")
+  && not (is_hard_quota_message "request 1711130000 throttled")
+  && not (is_hard_quota_message "")
+
+(* classify_error / retry_after alignment: hard-quota 429s must clear
+   retry_after so downstream consumers that trust the type field see a
+   consistent signal with [is_retryable] returning false. *)
+
+let%test "classify_error 429 hard-quota clears retry_after" =
+  let body = {|{"error":{"retry_after":5.0,"message":"Insufficient balance or no resource package"}}|} in
+  match classify_error ~status:429 ~body with
+  | RateLimited { retry_after = None; _ } -> true
+  | _ -> false
+
+let%test "classify_error 429 transient preserves retry_after" =
+  let body = {|{"error":{"retry_after":3.0,"message":"Too many requests, please slow down"}}|} in
+  match classify_error ~status:429 ~body with
+  | RateLimited { retry_after = Some ra; _ } -> Float.equal ra 3.0
+  | _ -> false
 
 (** Retry with cascade: try [primary] first (with retries), then each
     fallback in order. Each attempt gets its own full retry budget.
