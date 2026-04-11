@@ -76,10 +76,31 @@ let build_body_assoc ~config ~messages ?tools ~stream () =
         else
           body_assoc
   in
-  let body_assoc = match config.config.thinking_budget with
-    | Some budget ->
-        ("thinking", `Assoc [("type", `String "enabled"); ("budget_tokens", `Int budget)]) :: body_assoc
-    | None -> body_assoc
+  (* Thinking gate keys on [enable_thinking], not on [thinking_budget].
+     Previously the match was on [thinking_budget = Some _], which
+     meant:
+       (a) [enable_thinking = Some true, thinking_budget = None]
+           → no thinking block emitted (wrong — operator asked for
+             thinking, got none)
+       (b) [enable_thinking = Some false, thinking_budget = Some n]
+           → thinking block emitted anyway (wrong — operator disabled
+             thinking but a stray budget turned it back on)
+     Match the llm_provider backend's semantics from
+     lib/llm_provider/backend_anthropic.ml:75-83: gate on
+     [enable_thinking = Some true] and fall back to a 10_000-token
+     default budget if the caller did not specify one. *)
+  let body_assoc = match config.config.enable_thinking with
+    | Some true ->
+      let budget =
+        match config.config.thinking_budget with
+        | Some b -> b
+        | None -> 10_000
+      in
+      ("thinking", `Assoc [
+        ("type", `String "enabled");
+        ("budget_tokens", `Int budget)
+      ]) :: body_assoc
+    | _ -> body_assoc
   in
   (* Sampling parameters were previously omitted entirely from the
      Anthropic agent_sdk request path — any [temperature], [top_p],
