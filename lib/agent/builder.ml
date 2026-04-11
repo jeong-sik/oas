@@ -143,23 +143,14 @@ let with_context_thresholds ~compact_ratio ?context_window_tokens ?prepare_ratio
         per-agent override),
      2. builder's [max_input_tokens] (whole-run input cap),
      3. builder's [max_total_tokens] (whole-run total cap),
-     4. provider capabilities for [b.provider] when set
-        (e.g. claude-opus-4-6 → 1_000_000, glm → 200_000) — this mirrors
-        the [Pipeline.proactive_context_window_tokens] resolution chain
-        added in #815 so the reducer budget agrees with the compaction
-        watermark for the same agent.
-     5. conservative 200_000 literal as final fallback when nothing is
-        known — better to under-report than to assume a giant window
+     4. [Provider.resolve_max_context_tokens] on [b.provider] when set
+        (e.g. a [qwen3*] model_id → 262_144) — this shares the
+        "provider → capabilities → max_context_tokens" resolution with
+        [Pipeline.proactive_context_window_tokens] so the reducer budget
+        and the compaction watermark agree for the same agent.
+     5. conservative 200_000 literal as the final fallback when nothing
+        is known — better to under-report than to assume a giant window
         and skip compaction. *)
-  let from_provider () =
-    match b.provider with
-    | Some cfg ->
-      let caps = Provider.capabilities_for_config cfg in
-      (match caps.max_context_tokens with
-       | Some n when n > 0 -> n
-       | _ -> 200_000)
-    | None -> 200_000
-  in
   let effective_max = match context_window_tokens with
     | Some n when n > 0 -> n
     | _ ->
@@ -168,7 +159,8 @@ let with_context_thresholds ~compact_ratio ?context_window_tokens ?prepare_ratio
       | _ ->
         match b.max_total_tokens with
         | Some n when n > 0 -> n
-        | _ -> from_provider ()
+        | _ ->
+          Provider.resolve_max_context_tokens ~fallback:200_000 b.provider
   in
   let reducer = Context_reducer.from_context_config ~compact_ratio
     ~max_tokens:effective_max () in
