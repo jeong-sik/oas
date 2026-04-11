@@ -259,17 +259,18 @@ let complete_http ~sw ~net ~(config : Provider_config.t)
                 try
                   (* Open with O_EXCL so a concurrent fiber that won the
                      TOCTOU race causes us to skip silently rather than
-                     truncate its dump.  Mode 0o600 = owner read/write only. *)
+                     truncate its dump.  Mode 0o600 = owner read/write only.
+                     [Unix.out_channel_of_descr] transfers fd ownership to
+                     the channel, so close_out_noerr alone closes the fd —
+                     calling Unix.close on it as well would double-close
+                     (unix.mli:462). *)
                   let fd =
                     Unix.openfile path
                       [Unix.O_WRONLY; Unix.O_CREAT; Unix.O_EXCL] 0o600
                   in
-                  Fun.protect ~finally:(fun () ->
-                    try Unix.close fd with _ -> ())
-                    (fun () ->
-                      let oc = Unix.out_channel_of_descr fd in
-                      output_string oc body_str;
-                      flush oc);
+                  let oc = Unix.out_channel_of_descr fd in
+                  Fun.protect ~finally:(fun () -> close_out_noerr oc)
+                    (fun () -> output_string oc body_str);
                   Printf.eprintf
                     "[WARN] [Complete] dumped rejected request body: %s \
                      (%d bytes, mode 0600)\n%!"
