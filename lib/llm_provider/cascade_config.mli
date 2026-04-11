@@ -42,7 +42,14 @@ val parse_model_string :
   ?temperature:float ->
   ?max_tokens:int ->
   ?system_prompt:string ->
+  ?api_key_env_overrides:(string * string) list ->
   string -> Provider_config.t option
+(** [api_key_env_overrides] defaults to [[]]. When non-empty, it overrides
+    the registry default API key env var for matching providers; see
+    {!parse_model_strings} for format details. Empty-string entries fall
+    through to the next level of the resolution chain.
+
+    @since 0.122.0 api_key_env_overrides parameter added *)
 
 (** Like {!parse_model_string} but returns a [Result] with a diagnostic
     error message explaining why parsing failed (unknown provider, missing
@@ -62,11 +69,19 @@ val parse_model_string_exn :
 val expand_auto_models : string list -> string list
 
 (** Parse multiple model strings, skipping unavailable ones.
-    Internally calls {!expand_auto_models} before parsing. *)
+    Internally calls {!expand_auto_models} before parsing.
+
+    When [api_key_env_overrides] is provided, it overrides the default
+    API key env var for matching providers. The list maps provider names
+    (or ["*"] for all) to env var names. Used by cascade execution paths
+    to apply per-cascade key configuration from cascade.json.
+
+    @since 0.122.0 api_key_env_overrides parameter added *)
 val parse_model_strings :
   ?temperature:float ->
   ?max_tokens:int ->
   ?system_prompt:string ->
+  ?api_key_env_overrides:(string * string) list ->
   string list -> Provider_config.t list
 
 (** {1 JSON Config Loading} *)
@@ -162,6 +177,20 @@ type inference_params = {
     @since 0.89.1 *)
 val resolve_inference_params :
   config_path:string -> name:string -> inference_params
+
+(** Resolve per-cascade API key env var overrides from cascade.json.
+
+    Supports two formats:
+    - String: applies to all providers.
+      [{"{name}_api_key_env": "ZAI_API_KEY_SB"}]
+    - Object: per-provider mapping.
+      [{"{name}_api_key_env": {"glm": "ZAI_API_KEY_SB", "glm-coding": "ZAI_API_KEY_SB"}}]
+
+    Falls back to ["default_api_key_env"], then empty list (use registry defaults).
+
+    @since 0.122.0 *)
+val resolve_api_key_env :
+  config_path:string -> name:string -> (string * string) list
 
 (** {1 Discovery-Aware Health Filtering} *)
 
