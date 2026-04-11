@@ -6,6 +6,23 @@ Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
 backfilled on 2026-04-04 from existing git tags. The dates below reflect the
 original tag dates. `0.100.4` was never tagged or released.
 
+## [0.122.0] - 2026-04-12
+
+### Added
+- Capabilities: OAS_OLLAMA_SUPPORTS_TOOL_CHOICE env override (#801)
+- Cascade: per-entry api_key_env override in cascade config (#817)
+- Agent: emit per-turn timing line to stderr for budget diagnosis (#816)
+- Complete: log base_url + capture body on HTTP 5xx (#814)
+- Ollama: pin keep_alive=-1 by default to prevent model eviction (#813)
+
+### Fixed
+- Pipeline: derive proactive_context_window from model capabilities (#815)
+- Pipeline: remove per-LLM-request Eio.traceln spam for Unspecified priority default (#799)
+- Cascade: apply per-model timeout to last provider (#805)
+
+### Changed
+- Discovery: drop legacy `OAS_LOCAL_QWEN_URL` env fallback; emits a one-time migration warning when the legacy var is set (#818)
+
 ## [0.121.0] - 2026-04-11
 
 ### Added
