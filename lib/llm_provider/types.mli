@@ -125,6 +125,8 @@ type inference_telemetry = {
   request_latency_ms: int;
   provider_kind: string option;        (** e.g. "ollama", "anthropic", "openai_compat" *)
   reasoning_effort: string option;     (** e.g. "none", "low", "medium", "high" — as sent to provider *)
+  canonical_model_id: string option;   (** Model ID used for the API request, without cascade prefix (e.g. "glm-4.7") *)
+  effective_context_window: int option; (** Model's context window in tokens, from capabilities *)
 }
 [@@deriving show, yojson]
 

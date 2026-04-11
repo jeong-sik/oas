@@ -154,7 +154,8 @@ let parse_ollama_response json_str =
     let timings = None in
     let reasoning_tokens = None in
     Some { Types.system_fingerprint; timings; reasoning_tokens; request_latency_ms = 0;
-            provider_kind = None; reasoning_effort = None }
+            provider_kind = None; reasoning_effort = None;
+            canonical_model_id = None; effective_context_window = None }
   in
 
   Ok {

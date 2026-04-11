@@ -219,6 +219,8 @@ type inference_telemetry = {
   request_latency_ms: int;
   provider_kind: string option;
   reasoning_effort: string option;
+  canonical_model_id: string option;
+  effective_context_window: int option;
 }
 [@@deriving show, yojson]
 

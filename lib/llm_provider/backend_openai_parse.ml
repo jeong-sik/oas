@@ -95,7 +95,8 @@ let telemetry_of_openai_json json =
          | None -> None)
   in
   Some { Types.system_fingerprint; timings; reasoning_tokens; request_latency_ms = 0;
-         provider_kind = None; reasoning_effort = None }
+         provider_kind = None; reasoning_effort = None;
+         canonical_model_id = None; effective_context_window = None }
 
 (** Parse an OpenAI-compatible JSON response string into an [api_response].
     Returns [Error msg] when the response body contains an API error. *)
