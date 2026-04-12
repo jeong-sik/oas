@@ -221,12 +221,23 @@ let complete_http ~sw ~net
     && body_str.[0] = '{'
     && body_str.[body_len - 1] = '}'
   in
-  if not body_balanced && body_len > 0 then
+  if not body_balanced && body_len > 0 then begin
     Printf.eprintf
-      "[WARN] [Complete] pre-flight: unbalanced JSON body (%d bytes, \
-       first=%C last=%C) for %s %s\n%!"
+      "[ERROR] [Complete] pre-flight: unbalanced JSON body (%d bytes, \
+       first=%C last=%C) for %s %s — request blocked\n%!"
       body_len body_str.[0] body_str.[body_len - 1]
       (provider_name_of_kind config.kind) config.model_id;
+    (* Fail-closed: do not send a body the provider will reject.
+       Previously this was WARN-and-continue, which let malformed
+       payloads through to produce cryptic server-side errors
+       (e.g. Ollama yyjson "can't find closing '}' symbol"). *)
+    (Error (Http_client.HttpError {
+       code = 0;
+       body = Printf.sprintf
+         "pre-flight: unbalanced JSON body (%d bytes, first=%C last=%C)"
+         body_len body_str.[0] body_str.[body_len - 1]
+     }), 0)
+  end else begin
   (* Request body diagnostic dump.  Controlled by OAS_DEBUG_REQUEST_BODY:
        "full"    — dump complete body to /tmp/oas-request-<ts>.json + stderr summary
        "summary" — stderr one-liner: provider, model, url, byte count
@@ -427,6 +438,7 @@ let complete_http ~sw ~net
   in
   let latency_ms = int_of_float ((Unix.gettimeofday () -. t0) *. 1000.0) in
   (result, latency_ms)
+  end (* body_balanced else-branch *)
 
 (* ── Sync completion ─────────────────────────────────── *)
 
