@@ -23,7 +23,7 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
      | Some s when not (Api_common.string_is_blank s) ->
          [`Assoc [("role", `String "system"); ("content", `String (Utf8_sanitize.sanitize s))]]
      | _ -> [])
-    @ List.concat_map Backend_openai_serialize.openai_messages_of_message messages
+    @ List.concat_map Backend_openai_serialize.ollama_messages_of_message messages
   in
 
   let body =

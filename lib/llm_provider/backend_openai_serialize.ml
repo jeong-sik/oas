@@ -25,6 +25,27 @@ let tool_calls_to_openai_json blocks =
                   ])
          | _ -> None)
 
+(** Ollama variant: arguments as raw JSON object, not string.
+    Ollama's yyjson parser treats a stringified object as literal text
+    and fails with "can't find closing '}' symbol" on subsequent turns. *)
+let tool_calls_to_ollama_json blocks =
+  blocks
+  |> List.filter_map (function
+         | ToolUse { id; name; input } ->
+             Some
+               (`Assoc
+                  [
+                    ("id", `String id);
+                    ("type", `String "function");
+                    ( "function",
+                      `Assoc
+                        [
+                          ("name", `String name);
+                          ("arguments", input);
+                        ] );
+                  ])
+         | _ -> None)
+
 let openai_content_parts_of_blocks blocks =
   blocks
   |> List.filter_map (function
@@ -54,7 +75,7 @@ let openai_content_parts_of_blocks blocks =
              ])
          | Thinking _ | RedactedThinking _ | ToolUse _ | ToolResult _ -> None)
 
-let openai_messages_of_message (msg : message) : Yojson.Safe.t list =
+let messages_of_message_with ?(tool_calls_fn = tool_calls_to_openai_json) (msg : message) : Yojson.Safe.t list =
   match msg.role with
   | User ->
       let content_parts = openai_content_parts_of_blocks msg.content in
@@ -91,7 +112,7 @@ let openai_messages_of_message (msg : message) : Yojson.Safe.t list =
       user_msgs @ tool_msgs
   | Assistant ->
       let text_content = Api_common.text_blocks_to_string msg.content in
-      let tool_calls = tool_calls_to_openai_json msg.content in
+      let tool_calls = tool_calls_fn msg.content in
       let fields =
         [
           ("role", `String "assistant");
@@ -123,6 +144,12 @@ let openai_messages_of_message (msg : message) : Yojson.Safe.t list =
               let text = Api_common.text_blocks_to_string msg.content in
               [`Assoc [("role", `String "user"); ("content", `String text)]]
           | tool_msgs -> tool_msgs)
+
+let openai_messages_of_message msg =
+  messages_of_message_with ~tool_calls_fn:tool_calls_to_openai_json msg
+
+let ollama_messages_of_message msg =
+  messages_of_message_with ~tool_calls_fn:tool_calls_to_ollama_json msg
 
 let tool_choice_to_openai_json = function
   | Auto -> `String "auto"
