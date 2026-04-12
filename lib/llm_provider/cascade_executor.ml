@@ -771,3 +771,41 @@ let%test "apply_token_budget triggers intra-turn for oversized single turn" =
   let result = apply_token_budget 500 messages in
   List.length result < List.length messages
   && List.length result >= 3
+
+(* --- group_into_rounds: assistant-first turn preserves pairing --- *)
+
+let%test "group_into_rounds assistant-first preserves ToolResult pairing" =
+  (* When a turn starts with Assistant (e.g. Agent.resume),
+     the first round should include Assistant + its ToolResult. *)
+  let msgs = [
+    make_tool_use_msg "t0" "first call";
+    make_tool_result_msg "t0" "first result";
+    make_tool_use_msg "t1" "second call";
+    make_tool_result_msg "t1" "second result";
+  ] in
+  let rounds = group_into_rounds msgs in
+  (* Round 0 (preamble): [Asst(t0), User(TR0)]
+     Round 1: [Asst(t1), User(TR1)] *)
+  List.length rounds = 2
+  && List.length (List.hd rounds) = 2
+  && List.length (List.nth rounds 1) = 2
+
+(* --- truncate_within_turn: result fits within budget (strict check) --- *)
+
+let%test "truncate_within_turn result tokens within budget" =
+  let preamble = make_msg (String.make 100 'p') in  (* ~25 tokens *)
+  let rounds = List.init 10 (fun i ->
+    let id = Printf.sprintf "t%d" i in
+    [make_tool_use_msg id (String.make 400 'x');
+     make_tool_result_msg id (String.make 400 'y')]
+  ) in
+  let messages = preamble :: List.concat rounds in
+  let budget = 500 in
+  let result = truncate_within_turn budget messages in
+  let result_tokens =
+    List.fold_left (fun acc m -> acc + estimate_message_tokens m) 0 result
+  in
+  (* Result should be within budget, or at most preamble + 1 round
+     in the fallback case *)
+  result_tokens <= budget
+  || List.length result = 3  (* fallback: preamble + last round *)
