@@ -138,10 +138,14 @@ let create_message ~sw ~net ?(base_url=default_base_url) ?provider ?clock ?retry
       Error (Retry.NetworkError { message = Printexc.to_string exn })
     | Unix.Unix_error _ as exn ->
       Error (Retry.NetworkError { message = Printexc.to_string exn })
-    | Llm_provider.Backend_gemini.Gemini_api_error msg ->
-      Error (Retry.InvalidRequest { message = msg })
-    | Llm_provider.Backend_glm.Glm_api_error msg ->
-      Error (Retry.InvalidRequest { message = msg })
+    (* Backend_gemini.Gemini_api_error and Backend_glm.Glm_api_error
+       are intentionally NOT caught here: this function only
+       dispatches [Anthropic_messages | Openai_chat_completions |
+       Custom] (see the match on [kind] above), so the Gemini/GLM
+       response parsers are never invoked on this path and those
+       exceptions cannot reach here. They are caught at their real
+       live site in [Llm_provider.Complete] — see
+       lib/llm_provider/complete.ml:271,274. *)
     | Failure msg ->
       Error (Retry.NetworkError { message = msg })
     | Yojson.Json_error msg ->
