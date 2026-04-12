@@ -221,12 +221,55 @@ let complete_http ~sw ~net
     && body_str.[0] = '{'
     && body_str.[body_len - 1] = '}'
   in
-  if not body_balanced && body_len > 0 then
+  if not body_balanced && body_len > 0 then begin
     Printf.eprintf
-      "[WARN] [Complete] pre-flight: unbalanced JSON body (%d bytes, \
-       first=%C last=%C) for %s %s\n%!"
+      "[ERROR] [Complete] pre-flight: unbalanced JSON body (%d bytes, \
+       first=%C last=%C) for %s %s — request blocked\n%!"
       body_len body_str.[0] body_str.[body_len - 1]
       (provider_name_of_kind config.kind) config.model_id;
+    (* Fail-closed: do not send a body the provider will reject.
+       Previously this was WARN-and-continue, which let malformed
+       payloads through to produce cryptic server-side errors
+       (e.g. Ollama yyjson "can't find closing '}' symbol"). *)
+    (Error (Http_client.HttpError {
+       code = 0;
+       body = Printf.sprintf
+         "pre-flight: unbalanced JSON body (%d bytes, first=%C last=%C)"
+         body_len body_str.[0] body_str.[body_len - 1]
+     }), 0)
+  end else begin
+  (* Request body diagnostic dump.  Controlled by OAS_DEBUG_REQUEST_BODY:
+       "full"    — dump complete body to /tmp/oas-request-<ts>.json + stderr summary
+       "summary" — stderr one-liner: provider, model, url, byte count
+       unset/""  — silent (default, zero overhead)
+     Useful for diagnosing provider-side parse errors (e.g. Ollama yyjson
+     rejecting a body that Yojson.Safe considers valid). *)
+  let debug_request_body =
+    Sys.getenv_opt "OAS_DEBUG_REQUEST_BODY"
+    |> Option.value ~default:""
+    |> String.lowercase_ascii
+  in
+  let provider_label = provider_name_of_kind config.kind in
+  (match debug_request_body with
+   | "full" ->
+     let ts = Printf.sprintf "%.0f" (Unix.gettimeofday () *. 1000.0) in
+     let dump_path = Printf.sprintf "/tmp/oas-request-%s-%s.json" provider_label ts in
+     (try
+        let oc = open_out dump_path in
+        output_string oc body_str;
+        close_out oc;
+        Printf.eprintf
+          "[DEBUG] [Complete] %s %s → %s (%d bytes) dumped to %s\n%!"
+          provider_label config.model_id url body_len dump_path
+      with exn ->
+        Printf.eprintf
+          "[DEBUG] [Complete] %s %s → %s (%d bytes) dump failed: %s\n%!"
+          provider_label config.model_id url body_len (Printexc.to_string exn))
+   | "summary" ->
+     Printf.eprintf
+       "[DEBUG] [Complete] %s %s → %s (%d bytes)\n%!"
+       provider_label config.model_id url body_len
+   | _ -> ());
   let t0 = Unix.gettimeofday () in
   let result =
     match Http_client.post_sync ~sw ~net ~url
@@ -395,6 +438,7 @@ let complete_http ~sw ~net
   in
   let latency_ms = int_of_float ((Unix.gettimeofday () -. t0) *. 1000.0) in
   (result, latency_ms)
+  end (* body_balanced else-branch *)
 
 (* ── Sync completion ─────────────────────────────────── *)
 
@@ -584,8 +628,21 @@ let complete_stream_http ~sw:_ ~net ~(config : Provider_config.t)
     | Provider_config.Anthropic ->
         Backend_anthropic.build_request ~stream:true ~config ~messages ~tools ()
     | Provider_config.Ollama ->
-        (* Streaming: fall back to OpenAI compat format — native API
-           uses NDJSON, not SSE, which requires separate parsing. *)
+        (* DIVERGENCE: Ollama streaming uses OpenAI compat format + endpoint
+           (/v1/chat/completions with SSE), while non-streaming uses the native
+           Ollama format + endpoint (/api/chat with single JSON response).
+
+           This means: body builder, endpoint URL, and response parser are ALL
+           different between streaming and non-streaming for Ollama.
+
+           Consequence: a bug fix in Backend_ollama.build_request only affects
+           non-streaming; streaming goes through Backend_openai.build_request
+           with its own serialization path.
+
+           Rationale: Ollama's native /api/chat uses NDJSON (newline-delimited
+           JSON) for streaming, not SSE. Implementing an NDJSON parser was
+           deferred in favor of reusing the OpenAI compat endpoint which
+           speaks SSE natively. See oas#849 for unification tracking. *)
         Backend_openai.build_request ~stream:true ~config ~messages ~tools ()
     | Provider_config.OpenAI_compat ->
         Backend_openai.build_request ~stream:true ~config ~messages ~tools ()
