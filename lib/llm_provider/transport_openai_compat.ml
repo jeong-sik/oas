@@ -47,8 +47,9 @@ let merge_config ~(transport_cfg : config)
     else transport_cfg.request_path
   in
   let max_tokens =
-    if req_cfg.max_tokens > 0 then req_cfg.max_tokens
-    else transport_cfg.max_tokens
+    match req_cfg.max_tokens with
+    | Some n when n > 0 -> Some n
+    | _ -> Some transport_cfg.max_tokens
   in
   (* Always append transport extra_headers after request headers. *)
   let headers = req_cfg.headers @ transport_cfg.extra_headers in
@@ -87,7 +88,7 @@ let%test "default_config request_path" =
   default_config.request_path = "/v1/chat/completions"
 
 let%test "default_config max_tokens" =
-  default_config.max_tokens = 4096
+  default_config.max_tokens = 4096  (* transport config is int, not option *)
 
 let%test "default_config api_key empty" =
   default_config.api_key = ""
@@ -184,14 +185,14 @@ let%test "merge_config uses transport max_tokens when req zero" =
   let req_cfg = Provider_config.make
     ~kind:OpenAI_compat ~model_id:"m" ~base_url:"" ~max_tokens:0 () in
   let merged = merge_config ~transport_cfg req_cfg in
-  merged.max_tokens = 8192
+  merged.max_tokens = Some 8192
 
 let%test "merge_config preserves req max_tokens when positive" =
   let transport_cfg = { default_config with max_tokens = 8192 } in
   let req_cfg = Provider_config.make
     ~kind:OpenAI_compat ~model_id:"m" ~base_url:"" ~max_tokens:2048 () in
   let merged = merge_config ~transport_cfg req_cfg in
-  merged.max_tokens = 2048
+  merged.max_tokens = Some 2048
 
 let%test "merge_config preserves req temperature" =
   let transport_cfg = default_config in

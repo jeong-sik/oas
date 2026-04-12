@@ -171,7 +171,7 @@ let test_parse_model_string_temperature () =
   match Cascade_config.parse_model_string ~temperature:0.7 ~max_tokens:100 "llama:m1" with
   | Some cfg ->
     Alcotest.(check (option (float 0.01))) "temp" (Some 0.7) cfg.temperature;
-    Alcotest.(check int) "max_tokens" 100 cfg.max_tokens
+    Alcotest.(check (option int)) "max_tokens" (Some 100) cfg.max_tokens
   | None -> Alcotest.fail "expected Some"
 
 let test_parse_model_string_system_prompt () =

@@ -190,7 +190,7 @@ let create_agent ~net ?name ?model ?system_prompt ?max_tokens ?max_turns
     name = Option.value name ~default:default_config.name;
     model = Option.value model ~default:default_config.model;
     system_prompt;
-    max_tokens = Option.value max_tokens ~default:default_config.max_tokens;
+    max_tokens;
     max_turns = Option.value max_turns ~default:default_config.max_turns;
     temperature = default_config.temperature;
     top_p = default_config.top_p;

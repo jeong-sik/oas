@@ -57,7 +57,7 @@ let test_parse_with_temperature () =
   | Some cfg ->
     check (float 0.01) "temperature" 0.7
       (Option.value ~default:0.0 cfg.temperature);
-    check int "max_tokens" 1000 cfg.max_tokens
+    check (option int) "max_tokens" (Some 1000) cfg.max_tokens
   | None -> fail "expected Some"
 
 let test_parse_model_strings () =

@@ -17,7 +17,7 @@ let base_state = {
     name = "test-dispatch";
     model = "test-model";
     system_prompt = Some "You are a test assistant.";
-    max_tokens = 1024;
+    max_tokens = Some 1024;
   };
   messages = [{ Types.role = User; content = [Text "Hello"]; name = None; tool_call_id = None }];
   turn_count = 0;

@@ -39,7 +39,7 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
     List.map Api_common.message_to_json messages in
   let body =
     [ ("model", `String config.model_id);
-      ("max_tokens", `Int config.max_tokens);
+      ("max_tokens", `Int (Option.value ~default:4096 config.max_tokens));
       ("messages", `List msgs_json);
       ("stream", `Bool stream) ]
   in

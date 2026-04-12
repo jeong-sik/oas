@@ -41,7 +41,7 @@ let () =
       default_config with
       model = provider.model_id;
       system_prompt = Some "You are a helpful assistant.";
-      max_tokens = 1024;
+      max_tokens = Some 1024;
     }
   in
   let messages =

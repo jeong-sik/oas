@@ -8,7 +8,7 @@ type t = {
   model: model;
   name: string;
   system_prompt: string option;
-  max_tokens: int;
+  max_tokens: int option;
   max_turns: int;
   temperature: float option;
   top_p: float option;
@@ -121,7 +121,7 @@ let create ~net ~model =
 
 let with_system_prompt prompt b = { b with system_prompt = Some prompt }
 let with_name name b = { b with name }
-let with_max_tokens n b = { b with max_tokens = n }
+let with_max_tokens n b = { b with max_tokens = Some n }
 let with_max_turns n b = { b with max_turns = n }
 let with_temperature t b = { b with temperature = Some t }
 let with_top_p p b = { b with top_p = Some p }
@@ -324,12 +324,13 @@ let build_safe b =
       field = "max_turns";
       detail = Printf.sprintf "must be > 0, got %d" b.max_turns;
     }))
-  else if b.max_tokens <= 0 then
+  else match b.max_tokens with
+  | Some n when n <= 0 ->
     Error (Error.Config (Error.InvalidConfig {
       field = "max_tokens";
-      detail = Printf.sprintf "must be > 0, got %d" b.max_tokens;
+      detail = Printf.sprintf "must be > 0, got %d" n;
     }))
-  else
+  | _ ->
     match b.thinking_budget, b.enable_thinking with
     | Some _, (None | Some false) ->
         Error (Error.Config (Error.InvalidConfig {

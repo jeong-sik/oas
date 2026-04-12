@@ -11,7 +11,7 @@ let extract_capability_snapshot (agent : Agent.t) : Cdal_proof.capability_snapsh
     tools = tool_names;
     mcp_servers = [];
     max_turns = config.max_turns;
-    max_tokens = Some config.max_tokens;
+    max_tokens = config.max_tokens;
     thinking_enabled = config.enable_thinking;
   }
 

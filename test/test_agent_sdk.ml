@@ -104,7 +104,7 @@ let test_create_agent_with_name_model () =
   Alcotest.(check string) "name" "test-agent" config.name;
   Alcotest.(check string) "model" "claude-haiku-4-5" config.model;
   Alcotest.(check (option string)) "prompt" (Some "You are helpful.") config.system_prompt;
-  Alcotest.(check int) "max_tokens" 2048 config.max_tokens;
+  Alcotest.(check (option int)) "max_tokens" (Some 2048) config.max_tokens;
   Alcotest.(check int) "max_turns" 5 config.max_turns
 
 let test_create_agent_with_provider () =

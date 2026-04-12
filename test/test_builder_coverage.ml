@@ -30,7 +30,7 @@ let test_builder_chain () =
   | Ok agent ->
     let st = Agent.state agent in
     Alcotest.(check string) "name" "test-chain" st.config.name;
-    Alcotest.(check int) "max_tokens" 200 st.config.max_tokens;
+    Alcotest.(check (option int)) "max_tokens" (Some 200) st.config.max_tokens;
     Alcotest.(check int) "max_turns" 3 st.config.max_turns;
     (match Agent.description agent with
      | Some d -> Alcotest.(check string) "desc" "A test builder" d

@@ -47,7 +47,7 @@ type agent_config = {
   name: string;
   model: model;
   system_prompt: string option;
-  max_tokens: int;
+  max_tokens: int option;  (** [None] = resolve from model capabilities at request time *)
   max_turns: int;
   temperature: float option;
   top_p: float option;
@@ -76,7 +76,7 @@ let default_config = {
   name = "agent";
   model = Model_registry.default_model_id;
   system_prompt = None;
-  max_tokens = 4096;
+  max_tokens = None;
   max_turns = 10;
   temperature = None;
   top_p = None;

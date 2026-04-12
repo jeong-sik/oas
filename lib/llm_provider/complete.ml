@@ -836,7 +836,7 @@ let%test "gemini_url sync no api_key" =
     model_id = "gemini-2.5-flash";
     base_url = "https://gen.googleapis.com/v1beta";
     api_key = ""; request_path = ""; headers = [];
-    system_prompt = None; temperature = None; max_tokens = 1024;
+    system_prompt = None; temperature = None; max_tokens = Some 1024;
     max_context = None;
     top_p = None; top_k = None; min_p = None;
     enable_thinking = None; thinking_budget = None;
@@ -852,7 +852,7 @@ let%test "gemini_url sync with api_key" =
     kind = Gemini; model_id = "gemini-2.5-flash";
     base_url = "https://gen.googleapis.com/v1beta";
     api_key = "mykey"; request_path = ""; headers = [];
-    system_prompt = None; temperature = None; max_tokens = 1024;
+    system_prompt = None; temperature = None; max_tokens = Some 1024;
     max_context = None;
     top_p = None; top_k = None; min_p = None;
     enable_thinking = None; thinking_budget = None;
@@ -868,7 +868,7 @@ let%test "gemini_url stream with api_key" =
     kind = Gemini; model_id = "gemini-2.5-flash";
     base_url = "https://gen.googleapis.com/v1beta";
     api_key = "mykey"; request_path = ""; headers = [];
-    system_prompt = None; temperature = None; max_tokens = 1024;
+    system_prompt = None; temperature = None; max_tokens = Some 1024;
     max_context = None;
     top_p = None; top_k = None; min_p = None;
     enable_thinking = None; thinking_budget = None;
@@ -884,7 +884,7 @@ let%test "gemini_url stream no api_key" =
     kind = Gemini; model_id = "gemini-2.5-flash";
     base_url = "https://gen.googleapis.com/v1beta";
     api_key = ""; request_path = ""; headers = [];
-    system_prompt = None; temperature = None; max_tokens = 1024;
+    system_prompt = None; temperature = None; max_tokens = Some 1024;
     max_context = None;
     top_p = None; top_k = None; min_p = None;
     enable_thinking = None; thinking_budget = None;

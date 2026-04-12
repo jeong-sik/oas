@@ -14,7 +14,7 @@ let build_body_assoc ~config ~messages ?tools ~stream () =
   let model_str = model_to_string config.config.model in
   let body_assoc = [
     ("model", `String model_str);
-    ("max_tokens", `Int config.config.max_tokens);
+    ("max_tokens", `Int (Option.value ~default:4096 config.config.max_tokens));
     ("messages", `List (List.map Api_common.message_to_json messages));
     ("stream", `Bool stream);
   ] in

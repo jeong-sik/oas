@@ -740,7 +740,7 @@ let%test "parse_model_string custom with empty model after @" =
 
 let%test "parse_model_string temperature and max_tokens forwarded" =
   match parse_model_string ~temperature:0.7 ~max_tokens:100 "llama:m1" with
-  | Some cfg -> cfg.temperature = Some 0.7 && cfg.max_tokens = 100
+  | Some cfg -> cfg.temperature = Some 0.7 && cfg.max_tokens = Some 100
   | None -> false
 
 let%test "parse_model_string system_prompt forwarded" =

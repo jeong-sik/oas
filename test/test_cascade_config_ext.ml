@@ -119,7 +119,7 @@ let test_parse_with_params () =
   | Some cfg ->
     check (float 0.01) "temperature" 0.7
       (Option.value ~default:0.0 cfg.temperature);
-    check int "max_tokens" 1000 cfg.max_tokens;
+    check (option int) "max_tokens" (Some 1000) cfg.max_tokens;
     check (option string) "system" (Some "You are helpful") cfg.system_prompt
   | None -> fail "expected Some"
 

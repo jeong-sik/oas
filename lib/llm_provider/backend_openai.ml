@@ -83,19 +83,25 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
     | Some c -> c
     | None -> Capabilities.default_capabilities
   in
-  (* Clamp [max_tokens] to [caps.max_output_tokens] when the cap is
-     known. The advertised cap is the upper bound the backend will
-     accept; exceeding it returns a 400 and — for callers that run
-     mutating tools inside the turn — corrupts partial-commit state,
-     because tool side effects persist even though the LLM final
-     response fails. [None] = "unknown model" → pass through rather
-     than imposing an arbitrary ceiling. *)
+  (* Resolve [max_tokens] from three layers:
+     1. Caller override ([config.max_tokens = Some n]) — explicit request
+     2. Model capability ([caps.max_output_tokens]) — provider's ceiling
+     3. Fallback 4096 — last resort when both are unknown
+
+     When the caller sends [None], they want the model's own maximum.
+     When the caller sends [Some n], we clamp to the capability ceiling
+     to avoid 400 errors that corrupt partial-commit state.
+
+     The resolved value is always emitted — Anthropic and most
+     OpenAI-compat endpoints REQUIRE the field. *)
   let effective_max_tokens =
-    match caps.max_output_tokens with
-    | Some cap when config.max_tokens > cap ->
+    match config.max_tokens, caps.max_output_tokens with
+    | None, Some cap -> cap  (* caller deferred → use model cap *)
+    | None, None -> 4096     (* unknown model, safe fallback *)
+    | Some n, Some cap when n > cap ->
       warn_capability_drop ~model_id:config.model_id ~field:"max_tokens:clamp";
       cap
-    | _ -> config.max_tokens
+    | Some n, _ -> n         (* caller explicit, within cap or cap unknown *)
   in
   let body =
     [ ("model", `String config.model_id);
