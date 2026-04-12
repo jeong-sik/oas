@@ -70,12 +70,15 @@ let text_of_response (resp : api_response) =
   List.filter_map (function Text s -> Some s | _ -> None) resp.content
   |> String.concat "\n"
 
-let event_session_id agent =
-  Option.bind (Agent.options agent).raw_trace Raw_trace.session_id
+let orch_correlation_id agent =
+  match Option.bind (Agent.options agent).raw_trace Raw_trace.session_id with
+  | Some s -> s
+  | None -> Event_bus.fresh_id ()
 
-let event_worker_run_id agent =
-  Option.bind (Agent.lifecycle_snapshot agent) (fun snapshot ->
-      snapshot.current_run_id)
+let orch_run_id agent =
+  match Option.bind (Agent.lifecycle_snapshot agent) (fun s -> s.current_run_id) with
+  | Some r -> r
+  | None -> Event_bus.fresh_id ()
 
 (** Run Agent.run with optional timeout.
     Uses [Eio.Time.with_timeout_exn] which raises [Eio.Time.Timeout]
@@ -96,17 +99,15 @@ let run_task ~sw ?clock orch task =
   Option.iter (fun cb -> cb task) orch.config.on_task_start;
   (* AgentStarted event *)
   (match orch.config.event_bus with
-   | Some bus -> Event_bus.publish bus
-       (AgentStarted
-          {
-            agent_name = task.agent_name;
-            task_id = task.id;
-            session_id =
-              (match find_agent orch task.agent_name with
-               | Some agent -> event_session_id agent
-               | None -> None);
-            worker_run_id = None;
-          })
+   | Some bus ->
+     let correlation_id = match find_agent orch task.agent_name with
+       | Some agent -> orch_correlation_id agent
+       | None -> task.id
+     in
+     let run_id = Event_bus.fresh_id () in
+     Event_bus.publish bus
+       (Event_bus.mk_event ~correlation_id ~run_id
+          (AgentStarted { agent_name = task.agent_name; task_id = task.id }))
    | None -> ());
   let t0 = Unix.gettimeofday () in
   let result =
@@ -124,22 +125,22 @@ let run_task ~sw ?clock orch task =
   let tr = { task_id = task.id; agent_name = task.agent_name; result; elapsed } in
   (* AgentCompleted event *)
   (match orch.config.event_bus with
-   | Some bus -> Event_bus.publish bus
-       (AgentCompleted
-          {
-            agent_name = task.agent_name;
-            task_id = task.id;
-            result;
-            elapsed;
-            session_id =
-              (match find_agent orch task.agent_name with
-               | Some agent -> event_session_id agent
-               | None -> None);
-            worker_run_id =
-              (match find_agent orch task.agent_name with
-               | Some agent -> event_worker_run_id agent
-               | None -> None);
-          })
+   | Some bus ->
+     let correlation_id = match find_agent orch task.agent_name with
+       | Some agent -> orch_correlation_id agent
+       | None -> task.id
+     in
+     let run_id = match find_agent orch task.agent_name with
+       | Some agent -> orch_run_id agent
+       | None -> Event_bus.fresh_id ()
+     in
+     Event_bus.publish bus
+       (Event_bus.mk_event ~correlation_id ~run_id
+          (AgentCompleted
+             { agent_name = task.agent_name;
+               task_id = task.id;
+               result;
+               elapsed }))
    | None -> ());
   Option.iter (fun cb -> cb tr) orch.config.on_task_complete;
   tr

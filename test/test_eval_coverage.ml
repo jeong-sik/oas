@@ -442,10 +442,9 @@ let test_eval_collector_agent_completed () =
     content = [Text "done"]; usage = None;
     telemetry = None;
   } in
-  Event_bus.publish bus (AgentCompleted {
+  Event_bus.publish bus (Event_bus.mk_event (AgentCompleted {
     agent_name = "bot"; task_id = "t1"; elapsed = 2.5; result = Ok ok_response;
-    session_id = None; worker_run_id = None;
-  });
+  }));
   let rm = Eval_collector.finalize ec in
   (match Eval.find_metric_value rm "elapsed_s" with
    | Some (Float_val f) -> Alcotest.(check (float 0.1)) "elapsed" 2.5 f
@@ -458,11 +457,10 @@ let test_eval_collector_agent_completed_error () =
   Eio_main.run @@ fun _env ->
   let bus = Event_bus.create () in
   let ec = Eval_collector.wrap_run ~bus ~agent_name:"bot" ~run_id:"r1" () in
-  Event_bus.publish bus (AgentCompleted {
+  Event_bus.publish bus (Event_bus.mk_event (AgentCompleted {
     agent_name = "bot"; task_id = "t1"; elapsed = 1.0;
     result = Error (Error.Internal "fail");
-    session_id = None; worker_run_id = None;
-  });
+  }));
   let rm = Eval_collector.finalize ec in
   (match Eval.find_metric_value rm "success" with
    | Some (Bool_val false) -> ()

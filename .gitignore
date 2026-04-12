@@ -32,6 +32,9 @@ _coverage/
 .env
 .env.*
 
+# TLA+ generated state files
+specs/states/
+
 # Local working documents
 REFACTORING-PLAN*.md
 .mcp.json

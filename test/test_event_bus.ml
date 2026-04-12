@@ -11,6 +11,9 @@ let mock_response text = {
   telemetry = None;
 }
 
+(** Shorthand: wrap a payload into an event with a fresh envelope. *)
+let ev payload = Event_bus.mk_event payload
+
 (* ── create ───────────────────────────────────────────────────────── *)
 
 let test_create_default () =
@@ -45,9 +48,7 @@ let test_publish_received () =
   let bus = Event_bus.create () in
   let sub = Event_bus.subscribe bus in
   Event_bus.publish bus
-    (TurnStarted
-       { agent_name = "a"; turn = 0; session_id = None;
-         worker_run_id = None });
+    (ev (TurnStarted { agent_name = "a"; turn = 0 }));
   let events = Event_bus.drain sub in
   check int "one event" 1 (List.length events)
 
@@ -57,9 +58,7 @@ let test_publish_multiple_subscribers () =
   let sub1 = Event_bus.subscribe bus in
   let sub2 = Event_bus.subscribe bus in
   Event_bus.publish bus
-    (TurnStarted
-       { agent_name = "a"; turn = 0; session_id = None;
-         worker_run_id = None });
+    (ev (TurnStarted { agent_name = "a"; turn = 0 }));
   let e1 = Event_bus.drain sub1 in
   let e2 = Event_bus.drain sub2 in
   check int "sub1 got event" 1 (List.length e1);
@@ -71,9 +70,7 @@ let test_unsubscribed_no_receive () =
   let sub = Event_bus.subscribe bus in
   Event_bus.unsubscribe bus sub;
   Event_bus.publish bus
-    (TurnStarted
-       { agent_name = "a"; turn = 0; session_id = None;
-         worker_run_id = None });
+    (ev (TurnStarted { agent_name = "a"; turn = 0 }));
   let events = Event_bus.drain sub in
   check int "no events after unsub" 0 (List.length events)
 
@@ -84,21 +81,15 @@ let test_drain_fifo () =
   let bus = Event_bus.create () in
   let sub = Event_bus.subscribe bus in
   Event_bus.publish bus
-    (TurnStarted
-       { agent_name = "a"; turn = 0; session_id = None;
-         worker_run_id = None });
+    (ev (TurnStarted { agent_name = "a"; turn = 0 }));
   Event_bus.publish bus
-    (TurnStarted
-       { agent_name = "a"; turn = 1; session_id = None;
-         worker_run_id = None });
+    (ev (TurnStarted { agent_name = "a"; turn = 1 }));
   Event_bus.publish bus
-    (TurnStarted
-       { agent_name = "a"; turn = 2; session_id = None;
-         worker_run_id = None });
+    (ev (TurnStarted { agent_name = "a"; turn = 2 }));
   let events = Event_bus.drain sub in
   check int "three events" 3 (List.length events);
   (* Verify FIFO order *)
-  (match events with
+  (match List.map (fun (e : Event_bus.event) -> e.payload) events with
    | [TurnStarted r0; TurnStarted r1; TurnStarted r2] ->
      check int "first turn" 0 r0.turn;
      check int "second turn" 1 r1.turn;
@@ -119,17 +110,11 @@ let test_filter_agent_name () =
   let bus = Event_bus.create () in
   let sub = Event_bus.subscribe ~filter:(Event_bus.filter_agent "alpha") bus in
   Event_bus.publish bus
-    (TurnStarted
-       { agent_name = "alpha"; turn = 0; session_id = None;
-         worker_run_id = None });
+    (ev (TurnStarted { agent_name = "alpha"; turn = 0 }));
   Event_bus.publish bus
-    (TurnStarted
-       { agent_name = "beta"; turn = 0; session_id = None;
-         worker_run_id = None });
+    (ev (TurnStarted { agent_name = "beta"; turn = 0 }));
   Event_bus.publish bus
-    (TurnCompleted
-       { agent_name = "alpha"; turn = 0; session_id = None;
-         worker_run_id = None });
+    (ev (TurnCompleted { agent_name = "alpha"; turn = 0 }));
   let events = Event_bus.drain sub in
   check int "only alpha events" 2 (List.length events)
 
@@ -138,31 +123,16 @@ let test_filter_tools_only () =
   let bus = Event_bus.create () in
   let sub = Event_bus.subscribe ~filter:Event_bus.filter_tools_only bus in
   Event_bus.publish bus
-    (TurnStarted
-       { agent_name = "a"; turn = 0; session_id = None;
-         worker_run_id = None });
+    (ev (TurnStarted { agent_name = "a"; turn = 0 }));
   Event_bus.publish bus
-    (ToolCalled
-       {
-         agent_name = "a";
-         tool_name = "calc";
-         input = `Null;
-         session_id = None;
-         worker_run_id = None;
-       });
+    (ev (ToolCalled
+       { agent_name = "a"; tool_name = "calc"; input = `Null }));
   Event_bus.publish bus
-    (ToolCompleted
-       {
-         agent_name = "a";
-         tool_name = "calc";
-         output = Ok { Types.content = "42" };
-         session_id = None;
-         worker_run_id = None;
-       });
+    (ev (ToolCompleted
+       { agent_name = "a"; tool_name = "calc";
+         output = Ok { Types.content = "42" } }));
   Event_bus.publish bus
-    (TurnCompleted
-       { agent_name = "a"; turn = 0; session_id = None;
-         worker_run_id = None });
+    (ev (TurnCompleted { agent_name = "a"; turn = 0 }));
   let events = Event_bus.drain sub in
   check int "only tool events" 2 (List.length events)
 
@@ -170,7 +140,7 @@ let test_filter_agent_passes_custom () =
   Eio_main.run @@ fun _env ->
   let bus = Event_bus.create () in
   let sub = Event_bus.subscribe ~filter:(Event_bus.filter_agent "alpha") bus in
-  Event_bus.publish bus (Custom ("my_event", `Null));
+  Event_bus.publish bus (ev (Custom ("my_event", `Null)));
   let events = Event_bus.drain sub in
   check int "custom passes through agent filter" 1 (List.length events)
 
@@ -179,19 +149,11 @@ let test_accept_all () =
   let bus = Event_bus.create () in
   let sub = Event_bus.subscribe ~filter:Event_bus.accept_all bus in
   Event_bus.publish bus
-    (TurnStarted
-       { agent_name = "a"; turn = 0; session_id = None;
-         worker_run_id = None });
+    (ev (TurnStarted { agent_name = "a"; turn = 0 }));
   Event_bus.publish bus
-    (ToolCalled
-       {
-         agent_name = "a";
-         tool_name = "x";
-         input = `Null;
-         session_id = None;
-         worker_run_id = None;
-       });
-  Event_bus.publish bus (Custom ("test", `Null));
+    (ev (ToolCalled
+       { agent_name = "a"; tool_name = "x"; input = `Null }));
+  Event_bus.publish bus (ev (Custom ("test", `Null)));
   let events = Event_bus.drain sub in
   check int "all three events" 3 (List.length events)
 
@@ -202,11 +164,11 @@ let test_custom_event () =
   let bus = Event_bus.create () in
   let sub = Event_bus.subscribe bus in
   let payload = `Assoc [("key", `String "value")] in
-  Event_bus.publish bus (Custom ("my_event", payload));
+  Event_bus.publish bus (ev (Custom ("my_event", payload)));
   let events = Event_bus.drain sub in
   check int "one event" 1 (List.length events);
-  match events with
-  | [Custom (name, _)] -> check string "event name" "my_event" name
+  match (List.hd events).payload with
+  | Custom (name, _) -> check string "event name" "my_event" name
   | _ -> fail "expected Custom event"
 
 let test_multiple_event_types () =
@@ -214,45 +176,22 @@ let test_multiple_event_types () =
   let bus = Event_bus.create () in
   let sub = Event_bus.subscribe bus in
   Event_bus.publish bus
-    (AgentStarted
-       { agent_name = "a"; task_id = "t1"; session_id = None;
-         worker_run_id = None });
+    (ev (AgentStarted { agent_name = "a"; task_id = "t1" }));
   Event_bus.publish bus
-    (TurnStarted
-       { agent_name = "a"; turn = 0; session_id = None;
-         worker_run_id = None });
+    (ev (TurnStarted { agent_name = "a"; turn = 0 }));
   Event_bus.publish bus
-    (ToolCalled
-       {
-         agent_name = "a";
-         tool_name = "f";
-         input = `Null;
-         session_id = None;
-         worker_run_id = None;
-       });
+    (ev (ToolCalled
+       { agent_name = "a"; tool_name = "f"; input = `Null }));
   Event_bus.publish bus
-    (ToolCompleted
-       {
-         agent_name = "a";
-         tool_name = "f";
-         output = Ok { Types.content = "ok" };
-         session_id = None;
-         worker_run_id = None;
-       });
+    (ev (ToolCompleted
+       { agent_name = "a"; tool_name = "f";
+         output = Ok { Types.content = "ok" } }));
   Event_bus.publish bus
-    (TurnCompleted
-       { agent_name = "a"; turn = 0; session_id = None;
-         worker_run_id = None });
+    (ev (TurnCompleted { agent_name = "a"; turn = 0 }));
   Event_bus.publish bus
-    (AgentCompleted
-       {
-         agent_name = "a";
-         task_id = "t1";
-         result = Ok (mock_response "done");
-         elapsed = 0.1;
-         session_id = None;
-         worker_run_id = None;
-       });
+    (ev (AgentCompleted
+       { agent_name = "a"; task_id = "t1";
+         result = Ok (mock_response "done"); elapsed = 0.1 }));
   let events = Event_bus.drain sub in
   check int "six events" 6 (List.length events)
 
@@ -263,11 +202,9 @@ let test_agent_started_fields () =
   let bus = Event_bus.create () in
   let sub = Event_bus.subscribe bus in
   Event_bus.publish bus
-    (AgentStarted
-       { agent_name = "worker"; task_id = "t-42"; session_id = None;
-         worker_run_id = None });
+    (ev (AgentStarted { agent_name = "worker"; task_id = "t-42" }));
   match Event_bus.drain sub with
-  | [AgentStarted r] ->
+  | [{ payload = AgentStarted r; _ }] ->
     check string "agent_name" "worker" r.agent_name;
     check string "task_id" "t-42" r.task_id
   | _ -> fail "expected AgentStarted"
@@ -278,16 +215,9 @@ let test_tool_called_fields () =
   let sub = Event_bus.subscribe bus in
   let input = `Assoc [("x", `Int 1)] in
   Event_bus.publish bus
-    (ToolCalled
-       {
-         agent_name = "a";
-         tool_name = "calc";
-         input;
-         session_id = None;
-         worker_run_id = None;
-       });
+    (ev (ToolCalled { agent_name = "a"; tool_name = "calc"; input }));
   match Event_bus.drain sub with
-  | [ToolCalled r] ->
+  | [{ payload = ToolCalled r; _ }] ->
     check string "agent_name" "a" r.agent_name;
     check string "tool_name" "calc" r.tool_name;
     check string "input json" {|{"x":1}|} (Yojson.Safe.to_string r.input)
@@ -298,11 +228,9 @@ let test_turn_started_fields () =
   let bus = Event_bus.create () in
   let sub = Event_bus.subscribe bus in
   Event_bus.publish bus
-    (TurnStarted
-       { agent_name = "bot"; turn = 5; session_id = None;
-         worker_run_id = None });
+    (ev (TurnStarted { agent_name = "bot"; turn = 5 }));
   match Event_bus.drain sub with
-  | [TurnStarted r] ->
+  | [{ payload = TurnStarted r; _ }] ->
     check string "agent_name" "bot" r.agent_name;
     check int "turn" 5 r.turn
   | _ -> fail "expected TurnStarted"
@@ -328,28 +256,24 @@ let test_tool_completed_preserves_non_retryable_flag () =
   let _result =
     Agent_tools.find_and_execute_tool ~context ~tools:[tool] ~hooks:Hooks.empty
       ~event_bus:(Some bus) ~tracer:Tracing.null ~agent_name:"agent"
-      ~turn_count:0 ~session_id:"sess-event" ~worker_run_id:"run-event"
+      ~turn_count:0 ~correlation_id:"sess-event" ~run_id:"run-event"
       ~schedule "fail" (`Assoc []) "tool-1"
   in
   match Event_bus.drain sub with
-  | [ ToolCalled { session_id; worker_run_id; _ };
-      ToolCompleted
-        {
-          output = Error { message; recoverable };
-          session_id = completed_session_id;
-          worker_run_id = completed_worker_run_id;
-          _;
-        } ] ->
+  | [ { meta = called_meta; payload = ToolCalled _; _ };
+      { meta = completed_meta;
+        payload = ToolCompleted { output = Error { message; recoverable }; _ };
+        _ } ] ->
       check string "message" "boom" message;
       check bool "non-retryable preserved" false recoverable;
-      check (option string) "tool_called session_id" (Some "sess-event")
-        session_id;
-      check (option string) "tool_called worker_run_id" (Some "run-event")
-        worker_run_id;
-      check (option string) "tool_completed session_id" (Some "sess-event")
-        completed_session_id;
-      check (option string) "tool_completed worker_run_id"
-        (Some "run-event") completed_worker_run_id
+      check string "tool_called correlation_id" "sess-event"
+        called_meta.correlation_id;
+      check string "tool_called run_id" "run-event"
+        called_meta.run_id;
+      check string "tool_completed correlation_id" "sess-event"
+        completed_meta.correlation_id;
+      check string "tool_completed run_id" "run-event"
+        completed_meta.run_id
   | _ -> fail "expected tool called/completed events"
 
 let test_correlation_fields_roundtrip () =
@@ -357,18 +281,57 @@ let test_correlation_fields_roundtrip () =
   let bus = Event_bus.create () in
   let sub = Event_bus.subscribe bus in
   Event_bus.publish bus
-    (TurnStarted
-       {
-         agent_name = "corr";
-         turn = 7;
-         session_id = Some "sess-7";
-         worker_run_id = Some "run-7";
-       });
+    (Event_bus.mk_event ~correlation_id:"sess-7" ~run_id:"run-7"
+       (TurnStarted { agent_name = "corr"; turn = 7 }));
   match Event_bus.drain sub with
-  | [TurnStarted r] ->
-      check (option string) "session_id" (Some "sess-7") r.session_id;
-      check (option string) "worker_run_id" (Some "run-7") r.worker_run_id
+  | [{ meta; payload = TurnStarted _; _ }] ->
+      check string "correlation_id" "sess-7" meta.correlation_id;
+      check string "run_id" "run-7" meta.run_id
   | _ -> fail "expected TurnStarted"
+
+(* ── envelope filters ─────────────────────────────────────────────── *)
+
+let test_filter_correlation () =
+  Eio_main.run @@ fun _env ->
+  let bus = Event_bus.create () in
+  let sub = Event_bus.subscribe ~filter:(Event_bus.filter_correlation "c1") bus in
+  Event_bus.publish bus
+    (Event_bus.mk_event ~correlation_id:"c1"
+       (TurnStarted { agent_name = "a"; turn = 0 }));
+  Event_bus.publish bus
+    (Event_bus.mk_event ~correlation_id:"c2"
+       (TurnStarted { agent_name = "a"; turn = 1 }));
+  let events = Event_bus.drain sub in
+  check int "only c1 events" 1 (List.length events)
+
+let test_filter_run () =
+  Eio_main.run @@ fun _env ->
+  let bus = Event_bus.create () in
+  let sub = Event_bus.subscribe ~filter:(Event_bus.filter_run "r1") bus in
+  Event_bus.publish bus
+    (Event_bus.mk_event ~run_id:"r1"
+       (TurnStarted { agent_name = "a"; turn = 0 }));
+  Event_bus.publish bus
+    (Event_bus.mk_event ~run_id:"r2"
+       (TurnStarted { agent_name = "a"; turn = 1 }));
+  let events = Event_bus.drain sub in
+  check int "only r1 events" 1 (List.length events)
+
+let test_fresh_id_unique () =
+  let id1 = Event_bus.fresh_id () in
+  let id2 = Event_bus.fresh_id () in
+  check bool "ids differ" true (id1 <> id2)
+
+let test_mk_envelope_defaults () =
+  let env = Event_bus.mk_envelope () in
+  check bool "correlation_id non-empty" true (String.length env.correlation_id > 0);
+  check bool "run_id non-empty" true (String.length env.run_id > 0);
+  check bool "ts > 0" true (env.ts > 0.0)
+
+let test_mk_envelope_explicit () =
+  let env = Event_bus.mk_envelope ~correlation_id:"c" ~run_id:"r" () in
+  check string "correlation_id" "c" env.correlation_id;
+  check string "run_id" "r" env.run_id
 
 (* ── Suite ────────────────────────────────────────────────────────── *)
 
@@ -409,5 +372,12 @@ let () =
         test_tool_completed_preserves_non_retryable_flag;
       test_case "correlation fields roundtrip" `Quick
         test_correlation_fields_roundtrip;
+    ];
+    "envelope", [
+      test_case "filter_correlation" `Quick test_filter_correlation;
+      test_case "filter_run" `Quick test_filter_run;
+      test_case "fresh_id unique" `Quick test_fresh_id_unique;
+      test_case "mk_envelope defaults" `Quick test_mk_envelope_defaults;
+      test_case "mk_envelope explicit" `Quick test_mk_envelope_explicit;
     ];
   ]

@@ -98,15 +98,16 @@ let test_event_bus_elicitation_completed () =
   let bus = Event_bus.create () in
   let sub = Event_bus.subscribe bus in
   Event_bus.publish bus
-    (Event_bus.ElicitationCompleted {
-       agent_name = "test-agent";
-       question = "What env?";
-       response = Hooks.Answer (`String "prod");
-     });
+    (Event_bus.mk_event
+       (ElicitationCompleted {
+          agent_name = "test-agent";
+          question = "What env?";
+          response = Hooks.Answer (`String "prod");
+        }));
   let events = Event_bus.drain sub in
   Alcotest.(check int) "1 event" 1 (List.length events);
-  (match List.hd events with
-   | Event_bus.ElicitationCompleted { agent_name; question; _ } ->
+  (match (List.hd events).payload with
+   | ElicitationCompleted { agent_name; question; _ } ->
      Alcotest.(check string) "agent" "test-agent" agent_name;
      Alcotest.(check string) "question" "What env?" question
    | _ -> Alcotest.fail "expected ElicitationCompleted")
@@ -116,11 +117,13 @@ let test_event_bus_filter_agent () =
   let bus = Event_bus.create () in
   let sub = Event_bus.subscribe ~filter:(Event_bus.filter_agent "agent-a") bus in
   Event_bus.publish bus
-    (Event_bus.ElicitationCompleted {
-       agent_name = "agent-a"; question = "q"; response = Hooks.Declined });
+    (Event_bus.mk_event
+       (ElicitationCompleted {
+          agent_name = "agent-a"; question = "q"; response = Hooks.Declined }));
   Event_bus.publish bus
-    (Event_bus.ElicitationCompleted {
-       agent_name = "agent-b"; question = "q"; response = Hooks.Declined });
+    (Event_bus.mk_event
+       (ElicitationCompleted {
+          agent_name = "agent-b"; question = "q"; response = Hooks.Declined }));
   let events = Event_bus.drain sub in
   Alcotest.(check int) "filtered to 1" 1 (List.length events)
 

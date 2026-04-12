@@ -357,7 +357,7 @@ let test_event_bus_receives_started () =
   let events = Event_bus.drain sub in
   (* Should have AgentStarted + AgentCompleted *)
   check bool "has events" true (List.length events >= 2);
-  match List.hd events with
+  match (List.hd events).payload with
   | AgentStarted r ->
     check string "agent_name" "ghost" r.agent_name;
     check string "task_id" "eb-1" r.task_id
@@ -376,7 +376,7 @@ let test_event_bus_receives_completed () =
   let _tr = Orchestrator.run_task ~sw orch task in
   let events = Event_bus.drain sub in
   let last = List.nth events (List.length events - 1) in
-  match last with
+  match last.payload with
   | AgentCompleted r ->
     check string "agent_name" "phantom" r.agent_name;
     check string "task_id" "eb-2" r.task_id;

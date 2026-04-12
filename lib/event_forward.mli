@@ -16,6 +16,8 @@ type event_payload = {
   event_type: string;
   timestamp: float;
   agent_name: string option;
+  correlation_id: string;
+  run_id: string;
   data: Yojson.Safe.t;
 }
 

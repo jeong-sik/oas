@@ -23,10 +23,10 @@ let invoke_hook_with_trace agent ?raw_trace_run ~hook_name hook_opt event =
       decision)
 
 let execute_tools_with_trace agent active_run tool_uses =
-  let session_id =
+  let correlation_id =
     Option.bind agent.options.raw_trace Raw_trace.session_id
   in
-  let worker_run_id = Option.map Raw_trace.active_run_id active_run in
+  let run_id = Option.map Raw_trace.active_run_id active_run in
   let on_tool_execution_started =
     match active_run with
     | None -> None
@@ -63,7 +63,7 @@ let execute_tools_with_trace agent active_run tool_uses =
     ~hooks:agent.options.hooks ~event_bus:agent.options.event_bus
     ~tracer:agent.options.tracer ~agent_name:agent.state.config.name
     ~turn_count:agent.state.turn_count ~usage:agent.state.usage
-    ~approval:agent.options.approval ?session_id ?worker_run_id
+    ~approval:agent.options.approval ?correlation_id ?run_id
     ?on_tool_execution_started ?on_tool_execution_finished ~on_hook_invoked
     tool_uses
 

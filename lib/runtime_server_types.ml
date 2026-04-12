@@ -40,6 +40,7 @@ let next_control_id state =
 
 let emit_event state session_id (event : event) =
   Event_bus.publish state.event_bus
-    (Event_bus.Custom ("runtime.event", event |> event_to_yojson));
+    (Event_bus.mk_event ~correlation_id:session_id
+       (Custom ("runtime.event", event |> event_to_yojson)));
   write_protocol_message state
     (Event_message { session_id = Some session_id; event })
