@@ -27,7 +27,7 @@ let validate_completion_contract agent (response : Types.api_response) =
   let supports_tool_choice =
     match agent.options.provider with
     | Some cfg -> (Provider.capabilities_for_config cfg).supports_tool_choice
-    | None -> true
+    | None -> false
   in
   let contract =
     Completion_contract.of_tool_choice ~supports_tool_choice agent.state.config.tool_choice
@@ -196,7 +196,7 @@ let stage_route ~sw ?clock ~api_strategy agent prep =
         let supports_tool_choice =
           match agent.options.provider with
           | Some cfg -> (Provider.capabilities_for_config cfg).supports_tool_choice
-          | None -> true
+          | None -> false
         in
         let completion_contract =
           Completion_contract.of_tool_choice ~supports_tool_choice agent.state.config.tool_choice
@@ -243,7 +243,7 @@ let stage_route ~sw ?clock ~api_strategy agent prep =
         | None ->
           let can_stream = match agent.options.provider with
             | Some p -> Provider_intf.supports_streaming p
-            | None -> true  (* Default Anthropic supports streaming *)
+            | None -> false  (* Default Anthropic supports streaming *)
           in
           if can_stream then
             Streaming.create_message_stream ~sw ~net:agent.net
