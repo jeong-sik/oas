@@ -79,11 +79,12 @@ let test_unknown_type_returns_none () =
 (* build_body_assoc                                                     *)
 (* ------------------------------------------------------------------ *)
 
-let make_state ?thinking_budget ?tool_choice () =
+let make_state ?thinking_budget ?tool_choice ?enable_thinking () =
   let config = { Types.default_config with
     system_prompt = Some "You are helpful.";
     thinking_budget;
     tool_choice;
+    enable_thinking;
   } in
   { Types.config; messages = []; turn_count = 0; usage = Types.empty_usage }
 
@@ -100,7 +101,10 @@ let test_build_body_basic () =
     (json |> member "system" |> to_string)
 
 let test_build_body_with_thinking_budget () =
-  let config = make_state ~thinking_budget:1024 () in
+  (* Thinking is gated on [enable_thinking = Some true]; a budget
+     without enable_thinking must NOT emit a thinking block.
+     Matches backend_anthropic.build_request semantics. *)
+  let config = make_state ~enable_thinking:true ~thinking_budget:1024 () in
   let assoc = Api.build_body_assoc ~config ~messages:[] ~stream:false () in
   let json = `Assoc assoc in
   let open Yojson.Safe.Util in
@@ -109,6 +113,29 @@ let test_build_body_with_thinking_budget () =
     (thinking |> member "type" |> to_string);
   check int "budget_tokens" 1024
     (thinking |> member "budget_tokens" |> to_int)
+
+let test_build_body_with_enable_thinking_default_budget () =
+  (* enable_thinking = true without an explicit budget should still
+     emit a thinking block, using the 10_000-token default budget
+     that matches backend_anthropic. Regression for the old gate
+     that required thinking_budget = Some _ to activate. *)
+  let config = make_state ~enable_thinking:true () in
+  let assoc = Api.build_body_assoc ~config ~messages:[] ~stream:false () in
+  let json = `Assoc assoc in
+  let open Yojson.Safe.Util in
+  let thinking = json |> member "thinking" in
+  check string "thinking type" "enabled"
+    (thinking |> member "type" |> to_string);
+  check int "default budget_tokens 10_000" 10_000
+    (thinking |> member "budget_tokens" |> to_int)
+
+let test_build_body_enable_thinking_false_drops_thinking () =
+  (* enable_thinking = false must NOT emit a thinking block, even if
+     a budget was left in the config from a previous state. *)
+  let config = make_state ~enable_thinking:false ~thinking_budget:5000 () in
+  let assoc = Api.build_body_assoc ~config ~messages:[] ~stream:false () in
+  check bool "no thinking key when disabled" false
+    (List.exists (fun (k, _) -> k = "thinking") assoc)
 
 let test_build_body_without_thinking () =
   let config = make_state () in
@@ -956,6 +983,10 @@ let () =
     "build_body_assoc", [
       test_case "basic" `Quick test_build_body_basic;
       test_case "with thinking_budget" `Quick test_build_body_with_thinking_budget;
+      test_case "enable_thinking default budget" `Quick
+        test_build_body_with_enable_thinking_default_budget;
+      test_case "enable_thinking false drops thinking" `Quick
+        test_build_body_enable_thinking_false_drops_thinking;
       test_case "without thinking" `Quick test_build_body_without_thinking;
       test_case "with tool_choice" `Quick test_build_body_with_tool_choice;
       test_case "with tools" `Quick test_build_body_with_tools;
