@@ -47,6 +47,24 @@ let warn_capability_drop ~model_id ~field =
       field model_id field
   end
 
+(* Ceiling-based clamp (used for [max_tokens] against
+   [capabilities.max_output_tokens]). Semantics differ from
+   [warn_capability_drop] — the field is NOT dropped, the value is
+   lowered to the advertised upper bound. Shares the dedup table but
+   uses a distinct sentinel so a clamp does not silence a subsequent
+   drop on the same (model, field) pair. *)
+let warn_capability_clamp ~model_id ~field ~requested ~cap =
+  let key = (model_id, field ^ ":clamp") in
+  if not (Hashtbl.mem capability_drop_warned key) then begin
+    Hashtbl.replace capability_drop_warned key ();
+    Printf.eprintf
+      "[WARN] [backend_openai] clamping %s for model %s: requested %d \
+       exceeds capability cap %d. Update Capabilities.for_model_id if \
+       the advertised cap is stale, otherwise lower the value in your \
+       agent/cascade config to avoid the silent truncation.\n%!"
+      field model_id requested cap
+  end
+
 (* ── Request building ──────────────────────────────────── *)
 
 let effective_tool_choice (config : Provider_config.t) =
@@ -76,8 +94,12 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
      sending. Consumers (e.g. masc-mcp cascade.json) may configure
      max_tokens well above the provider's hard limit; honouring that
      value causes a server-side 400 "max_tokens must be less than or
-     equal to ..." which then fails the whole turn. The capability
-     upper bound is authoritative. *)
+     equal to ..." which then fails the whole turn and — for callers
+     that run mutating tools inside the turn (e.g. MASC keepers) —
+     corrupts partial-commit state. The capability upper bound is
+     authoritative. A [None] cap means "unknown model" → passthrough.
+     The clamp fires a one-shot WARN via [warn_capability_clamp] for
+     operator visibility. *)
   let caps_preview =
     match Capabilities.for_model_id config.model_id with
     | Some c -> c
@@ -85,7 +107,11 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
   in
   let effective_max_tokens =
     match caps_preview.max_output_tokens with
-    | Some cap when config.max_tokens > cap -> cap
+    | Some cap when config.max_tokens > cap ->
+        warn_capability_clamp
+          ~model_id:config.model_id ~field:"max_tokens"
+          ~requested:config.max_tokens ~cap;
+        cap
     | _ -> config.max_tokens
   in
   let body =

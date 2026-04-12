@@ -41,3 +41,20 @@ val build_request :
 
     @since 0.123.0 *)
 val warn_capability_drop : model_id:string -> field:string -> unit
+
+(** Emit a one-shot stderr WARN the first time a capability ceiling
+    (e.g. [max_output_tokens]) clamps a user-supplied value for a
+    given [(model_id, field)] pair.
+
+    Distinct from {!warn_capability_drop}: the field is still sent,
+    just with the requested value lowered to the advertised cap.
+
+    Called from {!build_request} and [Api_openai.build_openai_body]
+    when the clamp fires. Shares the dedup table with
+    [warn_capability_drop] but uses a [:clamp] sentinel so a clamp
+    warning does not silence a subsequent drop warning on the same
+    [(model_id, field)] pair (or vice versa).
+
+    @since 0.124.0 *)
+val warn_capability_clamp :
+  model_id:string -> field:string -> requested:int -> cap:int -> unit

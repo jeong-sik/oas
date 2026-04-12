@@ -70,11 +70,28 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
     system_message_json config
     @ List.concat_map openai_messages_of_message messages
   in
+  (* Clamp [max_tokens] to the provider's advertised [max_output_tokens]
+     ceiling, if declared. Rationale: raw passthrough of a user-supplied
+     [max_tokens] that exceeds the backend's cap produces a 400 error
+     after the turn has already committed mutating tools (observed on
+     MASC keepers against Groq's qwen/qwen3-32b at 40960), leaving the
+     caller in an [ambiguous_post_commit_failure] state. [None] means
+     "unknown cap" → pass through. Parallel implementation to the one
+     in [Llm_provider.Backend_openai.build_request]. *)
+  let effective_max_tokens =
+    match capabilities.max_output_tokens with
+    | Some cap when config.config.max_tokens > cap ->
+        Llm_provider.Backend_openai.warn_capability_clamp
+          ~model_id:model_str ~field:"max_tokens"
+          ~requested:config.config.max_tokens ~cap;
+        cap
+    | _ -> config.config.max_tokens
+  in
   let body_assoc =
     [
       ("model", `String model_str);
       ("messages", `List provider_messages);
-      ("max_tokens", `Int config.config.max_tokens);
+      ("max_tokens", `Int effective_max_tokens);
     ]
   in
   let body_assoc =

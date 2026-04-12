@@ -109,6 +109,37 @@ let test_openai_stream_flag () =
   Alcotest.(check bool) "stream" true
     (json |> member "stream" |> to_bool)
 
+let test_openai_max_tokens_clamped_to_capability () =
+  let config = PC.make ~kind:OpenAI_compat ~model_id:"gpt-4o"
+    ~base_url:"" ~max_tokens:32_768 () in
+  let body = BO.build_request ~config ~messages:[user_msg "hi"] () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  Alcotest.(check int) "max_tokens clamped to gpt-4o cap (16384)"
+    16_384
+    (json |> member "max_tokens" |> to_int)
+
+let test_openai_max_tokens_passthrough_when_within_cap () =
+  let config = PC.make ~kind:OpenAI_compat ~model_id:"gpt-4o"
+    ~base_url:"" ~max_tokens:4_096 () in
+  let body = BO.build_request ~config ~messages:[user_msg "hi"] () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  Alcotest.(check int) "max_tokens passthrough when within cap"
+    4_096
+    (json |> member "max_tokens" |> to_int)
+
+let test_openai_max_tokens_passthrough_when_model_unknown () =
+  let config = PC.make ~kind:OpenAI_compat
+    ~model_id:"totally-unknown-model-2099"
+    ~base_url:"" ~max_tokens:65_536 () in
+  let body = BO.build_request ~config ~messages:[user_msg "hi"] () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  Alcotest.(check int) "max_tokens passthrough for unknown model (None cap)"
+    65_536
+    (json |> member "max_tokens" |> to_int)
+
 (* ── Provider_config.make ────────────────────────────── *)
 
 let test_config_default_paths () =
@@ -312,6 +343,12 @@ let () =
       test_case "with system" `Quick test_openai_with_system;
       test_case "with tools" `Quick test_openai_with_tools;
       test_case "stream flag" `Quick test_openai_stream_flag;
+      test_case "max_tokens clamped to capability cap" `Quick
+        test_openai_max_tokens_clamped_to_capability;
+      test_case "max_tokens passthrough within cap" `Quick
+        test_openai_max_tokens_passthrough_when_within_cap;
+      test_case "max_tokens passthrough when unknown model" `Quick
+        test_openai_max_tokens_passthrough_when_model_unknown;
     ];
     "provider_config", [
       test_case "default paths" `Quick test_config_default_paths;

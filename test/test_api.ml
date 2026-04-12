@@ -407,6 +407,81 @@ let test_build_openai_body_glm_tool_choice_none_omits_tools () =
   check bool "tools omitted for glm none" false
     (List.mem_assoc "tools" assoc)
 
+(* [gpt-4o] carries [max_output_tokens = Some 16_384] in
+   [Llm_provider.Capabilities.for_model_id]. The three tests below
+   cover: user > cap (clamp), user < cap (passthrough), and
+   unknown-model (no cap → passthrough). The clamp case is the one
+   that used to silently return a 400 from the backend and corrupt
+   partial-commit state for MASC keepers running mutating tools
+   in-turn — see the regression that motivated this test. *)
+let test_build_openai_body_max_tokens_clamped_to_capability () =
+  let state = {
+    Types.config = {
+      Types.default_config with
+      model = "gpt-4o";
+      max_tokens = 32_768;
+    };
+    messages = [];
+    turn_count = 0;
+    usage = Types.empty_usage;
+  } in
+  let json =
+    Api.build_openai_body ~config:state ~messages:[] ()
+    |> Yojson.Safe.from_string
+  in
+  let open Yojson.Safe.Util in
+  check int "max_tokens clamped to gpt-4o cap (16384)"
+    16_384
+    (json |> member "max_tokens" |> to_int)
+
+let test_build_openai_body_max_tokens_passthrough_when_within_cap () =
+  let state = {
+    Types.config = {
+      Types.default_config with
+      model = "gpt-4o";
+      max_tokens = 4_096;
+    };
+    messages = [];
+    turn_count = 0;
+    usage = Types.empty_usage;
+  } in
+  let json =
+    Api.build_openai_body ~config:state ~messages:[] ()
+    |> Yojson.Safe.from_string
+  in
+  let open Yojson.Safe.Util in
+  check int "max_tokens passthrough when within cap"
+    4_096
+    (json |> member "max_tokens" |> to_int)
+
+let test_build_openai_body_max_tokens_clamped_to_default_compat_cap () =
+  (* A model string with no [for_model_id] override falls through to
+     [default_openai_compat_capabilities], which returns
+     [openai_chat_capabilities] (cap = [Some 16_384]) by default, or
+     [openai_chat_extended_capabilities] (same cap) for the qwen
+     family. Either way the clamp applies — the conservative 16K
+     ceiling is the abstraction's deliberate safety default for
+     models we do not recognise, so an unknown provider cannot be
+     hit with a request that silently overflows its own limits. *)
+  let state = {
+    Types.config = {
+      Types.default_config with
+      model = "totally-unknown-model-2099";
+      max_tokens = 65_536;
+    };
+    messages = [];
+    turn_count = 0;
+    usage = Types.empty_usage;
+  } in
+  let json =
+    Api.build_openai_body ~config:state ~messages:[] ()
+    |> Yojson.Safe.from_string
+  in
+  let open Yojson.Safe.Util in
+  check int "max_tokens clamped to default openai-compat cap (16384)"
+    16_384
+    (json |> member "max_tokens" |> to_int)
+
 (* ------------------------------------------------------------------ *)
 (* parse_response                                                       *)
 (* ------------------------------------------------------------------ *)
@@ -1003,6 +1078,12 @@ let () =
         test_build_openai_body_does_not_treat_non_zai_glm_as_glm;
       test_case "glm none tool_choice omits tools" `Quick
         test_build_openai_body_glm_tool_choice_none_omits_tools;
+      test_case "max_tokens clamped to capability cap" `Quick
+        test_build_openai_body_max_tokens_clamped_to_capability;
+      test_case "max_tokens passthrough within cap" `Quick
+        test_build_openai_body_max_tokens_passthrough_when_within_cap;
+      test_case "max_tokens clamped to default compat cap for unknown model" `Quick
+        test_build_openai_body_max_tokens_clamped_to_default_compat_cap;
       test_case "with cache_system_prompt" `Quick test_build_body_with_cache;
       test_case "tools cache_control with flag" `Quick test_build_body_tools_cache_control;
       test_case "tools no cache_control without flag" `Quick test_build_body_tools_no_cache_without_flag;
