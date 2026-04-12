@@ -25,3 +25,19 @@ val build_request :
   ?tools:Yojson.Safe.t list ->
   unit ->
   string
+
+(** Emit a one-shot stderr WARN the first time a capability-gated
+    sampling field is dropped for a given [(model_id, field)] pair.
+
+    Called from the silent-drop branches of the capability gates in
+    {!build_request} and [Api_openai.build_openai_body] so operators
+    who set a non-supported field (e.g. [min_p] on a GLM config) see
+    exactly which field was stripped without the per-request WARN
+    spam that would otherwise fire on every keeper turn.
+
+    Best-effort dedup via an internal [Hashtbl]; a race under Eio
+    cooperative scheduling double-warns at most once per key, which
+    is harmless.
+
+    @since 0.123.0 *)
+val warn_capability_drop : model_id:string -> field:string -> unit

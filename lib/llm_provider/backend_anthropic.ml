@@ -101,14 +101,41 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
         else
           ("tools", `List ts) :: body
   in
+  (* Anthropic Messages API nests [disable_parallel_tool_use] INSIDE
+     the [tool_choice] object — it is NOT a top-level body field.
+     See docs.anthropic.com/en/api/messages body params:
+       tool_choice.disable_parallel_tool_use: boolean
+
+     The previous implementation emitted [disable_parallel_tool_use]
+     as a top-level key, which Anthropic silently ignores, so any
+     cascade-path agent with [disable_parallel_tool_use = true] and
+     tools was still receiving parallel tool calls. Same class of
+     silent-drop bug as #834 but for a different field; also fixes
+     the drift with the agent_sdk path in lib/api_anthropic.ml which
+     already nests correctly. *)
+  let tool_choice_json_with_disable choice =
+    let base = tool_choice_to_json choice in
+    if config.disable_parallel_tool_use then
+      match base with
+      | `Assoc fields ->
+        `Assoc (("disable_parallel_tool_use", `Bool true) :: fields)
+      | other -> other
+    else base
+  in
   let body = match config.tool_choice with
     | Some choice ->
-        ("tool_choice", tool_choice_to_json choice) :: body
-    | None -> body
-  in
-  let body =
-    if config.disable_parallel_tool_use && tools <> [] then
-      ("disable_parallel_tool_use", `Bool true) :: body
-    else body
+      ("tool_choice", tool_choice_json_with_disable choice) :: body
+    | None ->
+      if config.disable_parallel_tool_use && tools <> [] then
+        (* No explicit tool_choice but caller still wants to disable
+           parallel tool use — synthesize an [auto] choice to carry
+           the flag, matching the agent_sdk path at
+           lib/api_anthropic.ml. *)
+        let tc = `Assoc [
+          ("type", `String "auto");
+          ("disable_parallel_tool_use", `Bool true);
+        ] in
+        ("tool_choice", tc) :: body
+      else body
   in
   Yojson.Safe.to_string (`Assoc body)

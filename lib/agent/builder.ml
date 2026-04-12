@@ -138,6 +138,19 @@ let with_tool_retry_policy tool_retry_policy b =
   { b with tool_retry_policy = Some tool_retry_policy }
 let with_context_reducer reducer b = { b with context_reducer = Some reducer }
 let with_context_thresholds ~compact_ratio ?context_window_tokens ?prepare_ratio ?handoff_ratio b =
+  (* Resolution chain for the context window used by the reducer:
+     1. explicit [?context_window_tokens] argument (caller knows the
+        per-agent override),
+     2. builder's [max_input_tokens] (whole-run input cap),
+     3. builder's [max_total_tokens] (whole-run total cap),
+     4. [Provider.resolve_max_context_tokens] on [b.provider] when set
+        (e.g. a [qwen3*] model_id → 262_144) — this shares the
+        "provider → capabilities → max_context_tokens" resolution with
+        [Pipeline.proactive_context_window_tokens] so the reducer budget
+        and the compaction watermark agree for the same agent.
+     5. conservative 200_000 literal as the final fallback when nothing
+        is known — better to under-report than to assume a giant window
+        and skip compaction. *)
   let effective_max = match context_window_tokens with
     | Some n when n > 0 -> n
     | _ ->
@@ -146,7 +159,8 @@ let with_context_thresholds ~compact_ratio ?context_window_tokens ?prepare_ratio
       | _ ->
         match b.max_total_tokens with
         | Some n when n > 0 -> n
-        | _ -> 200_000
+        | _ ->
+          Provider.resolve_max_context_tokens ~fallback:200_000 b.provider
   in
   let reducer = Context_reducer.from_context_config ~compact_ratio
     ~max_tokens:effective_max () in

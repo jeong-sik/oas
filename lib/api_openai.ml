@@ -92,14 +92,20 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
     | Some top_k when capabilities.supports_top_k ->
         ("top_k", `Int top_k) :: body_assoc
     | None -> body_assoc
-    | Some _ -> body_assoc
+    | Some _ ->
+        Llm_provider.Backend_openai.warn_capability_drop
+          ~model_id:model_str ~field:"top_k";
+        body_assoc
   in
   let body_assoc =
     match config.config.min_p with
     | Some min_p when capabilities.supports_min_p ->
         ("min_p", `Float min_p) :: body_assoc
     | None -> body_assoc
-    | Some _ -> body_assoc
+    | Some _ ->
+        Llm_provider.Backend_openai.warn_capability_drop
+          ~model_id:model_str ~field:"min_p";
+        body_assoc
   in
   let body_assoc =
     match config.config.enable_thinking with

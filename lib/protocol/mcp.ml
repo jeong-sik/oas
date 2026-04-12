@@ -20,11 +20,63 @@ type t = {
 let output_token_budget () =
   Defaults.int_env_or 25_000 "OAS_MCP_OUTPUT_MAX_TOKENS"
 
+(** Scan backward from [at] to the nearest UTF-8 codepoint boundary so a
+    byte-offset truncation never cuts the middle of a multi-byte character.
+    Returns the largest index [<= at] whose byte is NOT a UTF-8 continuation
+    byte ([0x80-0xBF]). A pure-ASCII cut point is already its own boundary;
+    the worst case for well-formed input walks back 1-3 bytes. *)
+let utf8_safe_boundary text at =
+  let len = String.length text in
+  let at = if at > len then len else at in
+  let rec scan i =
+    if i <= 0 then 0
+    else
+      let b = Char.code (String.unsafe_get text i) in
+      if b land 0xC0 <> 0x80 then i
+      else scan (i - 1)
+  in
+  scan at
+
+(** Truncate [text] when its estimated token count exceeds
+    [output_token_budget ()].
+
+    Delegates token estimation to {!Context_reducer.estimate_char_tokens}
+    so CJK / emoji content is counted on par with ASCII rather than
+    through the previous "1 token ~= 4 bytes" byte-count approximation
+    — the old formula over-truncated Korean/Japanese/Chinese tool output
+    (3-byte chars × a 4-byte-per-token budget = only half the real
+    character budget reachable).
+
+    When truncation is needed we binary-search for the largest prefix
+    whose estimated tokens are [<= budget], then snap the cut to a
+    UTF-8 codepoint boundary so the output is never a broken
+    half-character. For pure-ASCII inputs this reproduces the previous
+    [budget * 4] behavior exactly because the estimator rounds 4 ASCII
+    chars → 1 token; CJK content now keeps [~budget * 1.5] characters
+    instead of [~budget * 1.33 chars but cut mid-codepoint]. *)
 let truncate_output text =
-  let max_chars = output_token_budget () * 4 in
-  if String.length text <= max_chars then text
+  let budget = output_token_budget () in
+  if Context_reducer.estimate_char_tokens text <= budget then text
   else
-    String.sub text 0 max_chars ^ "\n...[oas mcp output truncated]"
+    (* Binary search the largest byte offset whose prefix fits in
+       [budget] tokens. The search is in bytes because we do not have
+       a cheap way to map byte offsets to codepoint counts without
+       scanning, but the per-probe cost is dominated by one call to
+       the estimator which is already linear in bytes anyway. *)
+    let fits k =
+      let safe_k = utf8_safe_boundary text k in
+      let prefix = String.sub text 0 safe_k in
+      Context_reducer.estimate_char_tokens prefix <= budget
+    in
+    let rec search lo hi =
+      if lo >= hi then utf8_safe_boundary text lo
+      else
+        let mid = (lo + hi + 1) / 2 in
+        if fits mid then search mid hi
+        else search lo (mid - 1)
+    in
+    let cut = search 0 (String.length text) in
+    String.sub text 0 cut ^ "\n...[oas mcp output truncated]"
 
 let text_of_tool_result (r : Sdk_types.tool_result) =
   List.filter_map (fun (c : Sdk_types.tool_content) ->
@@ -344,9 +396,32 @@ let%test "truncate_output long string gets truncated" =
   Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "10";
   let s = String.make 200 'x' in
   let result = truncate_output s in
-  (* 10 tokens * 4 chars = 40 chars max *)
-  String.length result <= 40 + String.length "\n...[oas mcp output truncated]"
+  (* ~10 tokens worth of bytes, snapped to UTF-8 boundary, plus marker *)
+  String.length result <= 50 + String.length "\n...[oas mcp output truncated]"
   && String.length result > 0
+
+let%test "truncate_output CJK under budget is unchanged" =
+  Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "1000";
+  (* 9 Hangul chars ~= 6 tokens under the CJK-aware estimator,
+     well under 1000. *)
+  let s = "\xEC\x95\x88\xEB\x85\x95\xED\x95\x98\xEC\x84\xB8\xEC\x9A\x94\xEC\x95\x88\xEB\x85\x95\xED\x95\x98\xEC\x84\xB8\xEC\x9A\x94\xEC\x95\x88\xEB\x85\x95\xED\x95\x98" in
+  truncate_output s = s
+
+let%test "truncate_output CJK over budget snaps to UTF-8 boundary" =
+  Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "2";
+  (* Many Hangul chars. 3 bytes each; cut must not land mid-codepoint. *)
+  let s = String.concat "" (List.init 40 (fun _ -> "\xEC\x95\x88")) in
+  let result = truncate_output s in
+  let marker = "\n...[oas mcp output truncated]" in
+  let marker_len = String.length marker in
+  let body_len = String.length result - marker_len in
+  (* (a) marker is present at the end *)
+  String.length result >= marker_len
+  && String.sub result body_len marker_len = marker
+  (* (b) body length is a multiple of 3, i.e. no partial Hangul char *)
+  && body_len mod 3 = 0
+  (* (c) we actually truncated (result is shorter than input + marker) *)
+  && body_len < String.length s
 
 let test_tool_result ?is_error ?structured_content content =
   let fields = [("content", Sdk_types.tool_content_list_to_yojson content)] in

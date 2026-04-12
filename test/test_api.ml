@@ -79,11 +79,12 @@ let test_unknown_type_returns_none () =
 (* build_body_assoc                                                     *)
 (* ------------------------------------------------------------------ *)
 
-let make_state ?thinking_budget ?tool_choice () =
+let make_state ?thinking_budget ?tool_choice ?enable_thinking () =
   let config = { Types.default_config with
     system_prompt = Some "You are helpful.";
     thinking_budget;
     tool_choice;
+    enable_thinking;
   } in
   { Types.config; messages = []; turn_count = 0; usage = Types.empty_usage }
 
@@ -100,7 +101,10 @@ let test_build_body_basic () =
     (json |> member "system" |> to_string)
 
 let test_build_body_with_thinking_budget () =
-  let config = make_state ~thinking_budget:1024 () in
+  (* Thinking is gated on [enable_thinking = Some true]; a budget
+     without enable_thinking must NOT emit a thinking block.
+     Matches backend_anthropic.build_request semantics. *)
+  let config = make_state ~enable_thinking:true ~thinking_budget:1024 () in
   let assoc = Api.build_body_assoc ~config ~messages:[] ~stream:false () in
   let json = `Assoc assoc in
   let open Yojson.Safe.Util in
@@ -109,6 +113,29 @@ let test_build_body_with_thinking_budget () =
     (thinking |> member "type" |> to_string);
   check int "budget_tokens" 1024
     (thinking |> member "budget_tokens" |> to_int)
+
+let test_build_body_with_enable_thinking_default_budget () =
+  (* enable_thinking = true without an explicit budget should still
+     emit a thinking block, using the 10_000-token default budget
+     that matches backend_anthropic. Regression for the old gate
+     that required thinking_budget = Some _ to activate. *)
+  let config = make_state ~enable_thinking:true () in
+  let assoc = Api.build_body_assoc ~config ~messages:[] ~stream:false () in
+  let json = `Assoc assoc in
+  let open Yojson.Safe.Util in
+  let thinking = json |> member "thinking" in
+  check string "thinking type" "enabled"
+    (thinking |> member "type" |> to_string);
+  check int "default budget_tokens 10_000" 10_000
+    (thinking |> member "budget_tokens" |> to_int)
+
+let test_build_body_enable_thinking_false_drops_thinking () =
+  (* enable_thinking = false must NOT emit a thinking block, even if
+     a budget was left in the config from a previous state. *)
+  let config = make_state ~enable_thinking:false ~thinking_budget:5000 () in
+  let assoc = Api.build_body_assoc ~config ~messages:[] ~stream:false () in
+  check bool "no thinking key when disabled" false
+    (List.exists (fun (k, _) -> k = "thinking") assoc)
 
 let test_build_body_without_thinking () =
   let config = make_state () in
@@ -136,6 +163,46 @@ let test_build_body_with_tools () =
   check bool "stream true" true (json |> member "stream" |> to_bool);
   let tools = json |> member "tools" |> to_list in
   check int "1 tool" 1 (List.length tools)
+
+let test_build_body_sampling_params_anthropic () =
+  (* Regression: the Anthropic agent_sdk request path previously omitted
+     temperature/top_p/top_k entirely, silently defaulting every Claude
+     agent to Anthropic's server-side temperature = 1.0 + top_p = 1. *)
+  let state = {
+    Types.config = {
+      Types.default_config with
+      temperature = Some 0.3;
+      top_p = Some 0.85;
+      top_k = Some 20;
+    };
+    messages = [];
+    turn_count = 0;
+    usage = Types.empty_usage;
+  } in
+  let assoc = Api.build_body_assoc ~config:state ~messages:[] ~stream:false () in
+  let json = `Assoc assoc in
+  let open Yojson.Safe.Util in
+  check (float 1e-6) "temperature 0.3" 0.3
+    (json |> member "temperature" |> to_number);
+  check (float 1e-6) "top_p 0.85" 0.85
+    (json |> member "top_p" |> to_number);
+  check int "top_k 20" 20
+    (json |> member "top_k" |> to_int)
+
+let test_build_body_sampling_params_omitted_when_none () =
+  (* When the caller does not set a sampling param, the Anthropic body
+     must not carry the key at all — relying on Anthropic's server-side
+     defaults rather than encoding some OAS-layer default. *)
+  let state = make_state () in
+  let assoc = Api.build_body_assoc ~config:state ~messages:[] ~stream:false () in
+  check bool "no temperature key" false
+    (List.exists (fun (k, _) -> k = "temperature") assoc);
+  check bool "no top_p key" false
+    (List.exists (fun (k, _) -> k = "top_p") assoc);
+  check bool "no top_k key" false
+    (List.exists (fun (k, _) -> k = "top_k") assoc);
+  check bool "no min_p key" false
+    (List.exists (fun (k, _) -> k = "min_p") assoc)
 
 let test_build_openai_body_with_qwen_sampling () =
   let state = {
@@ -916,9 +983,17 @@ let () =
     "build_body_assoc", [
       test_case "basic" `Quick test_build_body_basic;
       test_case "with thinking_budget" `Quick test_build_body_with_thinking_budget;
+      test_case "enable_thinking default budget" `Quick
+        test_build_body_with_enable_thinking_default_budget;
+      test_case "enable_thinking false drops thinking" `Quick
+        test_build_body_enable_thinking_false_drops_thinking;
       test_case "without thinking" `Quick test_build_body_without_thinking;
       test_case "with tool_choice" `Quick test_build_body_with_tool_choice;
       test_case "with tools" `Quick test_build_body_with_tools;
+      test_case "anthropic sampling params serialized" `Quick
+        test_build_body_sampling_params_anthropic;
+      test_case "anthropic sampling params omitted when None" `Quick
+        test_build_body_sampling_params_omitted_when_none;
       test_case "with qwen sampling" `Quick test_build_openai_body_with_qwen_sampling;
       test_case "generic compat omits qwen-only fields" `Quick
         test_build_openai_body_omits_qwen_only_fields_for_generic_compat;

@@ -34,3 +34,17 @@ type inference_params = {
     3. [None] (caller uses own defaults) *)
 val resolve_inference_params :
   config_path:string -> name:string -> inference_params
+
+(** Resolve per-cascade API key env var overrides from cascade.json.
+
+    Resolution order:
+    1. ["{name}_api_key_env"] from [config_path]
+    2. ["default_api_key_env"] from [config_path]
+    3. Empty list (use provider registry defaults)
+
+    The JSON value can be a string (applies to all providers via ["*"] key)
+    or an object mapping provider names to env var names.
+
+    @since 0.122.0 *)
+val resolve_api_key_env :
+  config_path:string -> name:string -> (string * string) list

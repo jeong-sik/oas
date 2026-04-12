@@ -24,6 +24,29 @@ let usage_of_openai_json = Backend_openai_parse.usage_of_openai_json
 
 let parse_openai_response_result = Backend_openai_parse.parse_openai_response_result
 
+(* ── Capability-drop WARN dedup ────────────────────────── *)
+
+(** One-shot stderr WARN table, keyed by ([model_id], [field_name]).
+    Reached from the capability-gated drop branches in {!build_request}
+    so operators see exactly which sampling field their config was
+    trying to send for which model, without the per-request WARN spam
+    that would otherwise fire on every keeper turn. Double-warning on
+    a race is harmless and only happens once per key. *)
+let capability_drop_warned : (string * string, unit) Hashtbl.t =
+  Hashtbl.create 16
+
+let warn_capability_drop ~model_id ~field =
+  let key = (model_id, field) in
+  if not (Hashtbl.mem capability_drop_warned key) then begin
+    Hashtbl.replace capability_drop_warned key ();
+    Printf.eprintf
+      "[WARN] [backend_openai] dropping sampling field %s for model %s: \
+       capability record reports supports_%s = false. Update \
+       Capabilities.for_model_id if this model actually supports it, \
+       otherwise remove the field from your agent/cascade config.\n%!"
+      field model_id field
+  end
+
 (* ── Request building ──────────────────────────────────── *)
 
 let effective_tool_choice (config : Provider_config.t) =
@@ -49,10 +72,26 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
      | _ -> [])
     @ List.concat_map openai_messages_of_message messages
   in
+  (* Clamp max_tokens to the capability record's upper bound before
+     sending. Consumers (e.g. masc-mcp cascade.json) may configure
+     max_tokens well above the provider's hard limit; honouring that
+     value causes a server-side 400 "max_tokens must be less than or
+     equal to ..." which then fails the whole turn. The capability
+     upper bound is authoritative. *)
+  let caps_preview =
+    match Capabilities.for_model_id config.model_id with
+    | Some c -> c
+    | None -> Capabilities.default_capabilities
+  in
+  let effective_max_tokens =
+    match caps_preview.max_output_tokens with
+    | Some cap when config.max_tokens > cap -> cap
+    | _ -> config.max_tokens
+  in
   let body =
     [ ("model", `String config.model_id);
       ("messages", `List provider_messages);
-      ("max_tokens", `Int config.max_tokens) ]
+      ("max_tokens", `Int effective_max_tokens) ]
   in
   let body = match config.temperature with
     | Some t -> ("temperature", `Float t) :: body
@@ -62,12 +101,37 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
     | Some p -> ("top_p", `Float p) :: body
     | None -> body
   in
+  (* Look up per-model capabilities once — the sampling params below
+     rely on [supports_top_k] / [supports_min_p] to decide whether the
+     server will accept the field.  If no capability record exists for
+     the model, default to NOT sending the non-standard sampling
+     params; conservative because misclassified providers (GLM, Gemini,
+     ...) previously silently inherited [config.min_p]/[config.top_k]
+     from the agent config and triggered hard 400s at the server. *)
+  let caps =
+    match Capabilities.for_model_id config.model_id with
+    | Some c -> c
+    | None -> Capabilities.default_capabilities
+  in
+  (* Silent drops of user-supplied sampling params are a debugging
+     hazard (GLM review on #830), so emit a ONE-SHOT stderr WARN per
+     (model_id, field) combination the first time a drop fires. Per-
+     request WARN would spam — keepers do ~50 requests/minute — hence
+     the dedup table. The cell is best-effort: Eio cooperative
+     scheduling means two fibers racing [mem_opt]/[replace] can
+     double-warn at most once per key, which is harmless. *)
   let body = match config.top_k with
-    | Some k -> ("top_k", `Int k) :: body
+    | Some k when caps.supports_top_k -> ("top_k", `Int k) :: body
+    | Some _ ->
+      warn_capability_drop ~model_id:config.model_id ~field:"top_k";
+      body
     | None -> body
   in
   let body = match config.min_p with
-    | Some p -> ("min_p", `Float p) :: body
+    | Some p when caps.supports_min_p -> ("min_p", `Float p) :: body
+    | Some _ ->
+      warn_capability_drop ~model_id:config.model_id ~field:"min_p";
+      body
     | None -> body
   in
   let body = match config.enable_thinking with
@@ -76,10 +140,25 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
          `Assoc [("enable_thinking", `Bool enabled)]) :: body
     | None -> body
   in
+  (* tool_choice uses a DIFFERENT unknown-model default than top_k /
+     min_p above: unknown → assume supported (true). Two reasons:
+       (1) [tool_choice] is a standard OpenAI Chat Completions body
+           param and virtually every OpenAI-compat server accepts it,
+           so conservatively dropping it on unknown models would
+           regress every agent that uses a model Capabilities does
+           not know about yet.
+       (2) top_k / min_p are non-standard extensions — ZAI GLM hard
+           400s on them (#827/#830), so conservative drop is the
+           right default for those specifically.
+     That is why this lookup is NOT a dedup candidate against the
+     [caps] binding above: we need [true] on [None] here, whereas
+     [caps] gives [default_capabilities.supports_tool_choice = false]
+     on [None]. Both defaults are intentional and contextual, not
+     drift. *)
   let supports_tool_choice =
     match Capabilities.for_model_id config.model_id with
-    | Some caps -> caps.supports_tool_choice
-    | None -> true  (* unknown model — assume support for backward compat *)
+    | Some c -> c.supports_tool_choice
+    | None -> true
   in
   let body = match effective_tool_choice config with
     | Some choice_json when supports_tool_choice ->
@@ -173,6 +252,48 @@ let%test "glm drops tools when tool_choice none" =
   let assoc = to_assoc json in
   not (List.mem_assoc "tool_choice" assoc)
   && not (List.mem_assoc "tools" assoc)
+
+(* === Capability-gated sampling param tests (oas#827) === *)
+
+let%test "glm drops min_p when model does not support it" =
+  (* GLM's glm_capabilities inherits supports_min_p = false from
+     default_capabilities.  Even when the caller sets min_p explicitly
+     (via cascade inheritance or agent default), backend_openai must
+     omit it from the wire body — ZAI rejects the request with
+     "property 'min_p' is unsupported". *)
+  let cfg = Provider_config.make
+    ~kind:Provider_config.Glm ~model_id:"glm-5.1"
+    ~base_url:Zai_catalog.general_base_url
+    ~min_p:0.05 () in
+  let json = build_request ~config:cfg ~messages:[] ()
+             |> Yojson.Safe.from_string in
+  let open Yojson.Safe.Util in
+  not (List.mem_assoc "min_p" (to_assoc json))
+
+let%test "glm drops top_k when model does not support it" =
+  let cfg = Provider_config.make
+    ~kind:Provider_config.Glm ~model_id:"glm-5.1"
+    ~base_url:Zai_catalog.general_base_url
+    ~top_k:40 () in
+  let json = build_request ~config:cfg ~messages:[] ()
+             |> Yojson.Safe.from_string in
+  let open Yojson.Safe.Util in
+  not (List.mem_assoc "top_k" (to_assoc json))
+
+let%test "ollama preserves min_p (llama.cpp supports it)" =
+  (* qwen3 via Ollama has supports_min_p = true in qwen_capabilities.
+     The capability-gated path must still pass min_p through for
+     providers that do support it. *)
+  let cfg = Provider_config.make
+    ~kind:Provider_config.Ollama ~model_id:"qwen3.5:35b-a3b-nvfp4"
+    ~base_url:"http://127.0.0.1:11434"
+    ~min_p:0.05 () in
+  let json = build_request ~config:cfg ~messages:[] ()
+             |> Yojson.Safe.from_string in
+  let open Yojson.Safe.Util in
+  match json |> member "min_p" with
+  | `Float f -> Float.abs (f -. 0.05) < 1e-6
+  | _ -> false
 
 let%test "strip_json_markdown_fences plain text unchanged" =
   strip_json_markdown_fences "{\"key\":\"value\"}" = "{\"key\":\"value\"}"

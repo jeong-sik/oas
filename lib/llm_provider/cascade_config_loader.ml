@@ -52,8 +52,21 @@ let load_json path =
             | Some (cached_mtime, cached_json)
               when Float.equal cached_mtime refreshed_mtime ->
               Ok cached_json
-            | _ ->
+            | prior ->
               Hashtbl.replace config_cache path (refreshed_mtime, json);
+              (* Observability: trace first-load vs reload so operators
+                 editing cascade.json can verify their change took effect.
+                 Keeping this at traceln (stderr) matches existing OAS
+                 convention (see Cascade_config.apply_provider_filter). *)
+              (match prior with
+               | None ->
+                 Eio.traceln
+                   "[CascadeConfig] loaded %s mtime=%.0f"
+                   path refreshed_mtime
+               | Some (old_mtime, _) ->
+                 Eio.traceln
+                   "[CascadeConfig] reloaded %s old_mtime=%.0f new_mtime=%.0f"
+                   path old_mtime refreshed_mtime);
               Ok json)
   in
   try load_current () with
@@ -114,3 +127,36 @@ let resolve_inference_params ~config_path ~name =
       | None -> read_int_field json "default_max_tokens"
     in
     { temperature = temp; max_tokens = max_tok }
+
+(* ── Per-cascade API key env override ────────────────── *)
+
+(** Read an api_key_env override object from JSON.
+
+    The JSON value can be:
+    - A string: applies to all providers in the cascade.
+      [{"{name}_api_key_env": "ZAI_API_KEY_SB"}]
+    - An object mapping provider names to env var names:
+      [{"{name}_api_key_env": {"glm": "ZAI_API_KEY_SB", "glm-coding": "ZAI_API_KEY_SB"}}]
+
+    Returns an association list of [(provider_name, env_var_name)].
+    The special key ["*"] means "all providers". *)
+let read_api_key_env_field json key =
+  let open Yojson.Safe.Util in
+  match json |> member key with
+  | `String s when String.trim s <> "" -> [("*", String.trim s)]
+  | `Assoc pairs ->
+    List.filter_map (fun (k, v) ->
+      match v with
+      | `String s when String.trim s <> "" ->
+        Some (String.lowercase_ascii (String.trim k), String.trim s)
+      | _ -> None
+    ) pairs
+  | _ -> []
+
+let resolve_api_key_env ~config_path ~name =
+  match load_json config_path with
+  | Error _ -> []
+  | Ok json ->
+    match read_api_key_env_field json (name ^ "_api_key_env") with
+    | [] -> read_api_key_env_field json "default_api_key_env"
+    | overrides -> overrides

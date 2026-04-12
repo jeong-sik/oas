@@ -157,7 +157,18 @@ let registered_providers () =
 
 let capabilities_for_model ~(provider : provider) ~(model_id : string) =
   match provider with
-  | Anthropic -> anthropic_capabilities
+  | Anthropic ->
+      (* Base [anthropic_capabilities] is a conservative 200K record;
+         the per-model overrides (claude-opus-4, claude-sonnet-4, etc.)
+         live in [Llm_provider.Capabilities.for_model_id] and carry the
+         real 1M windows and output-token ceilings. The [Local] and
+         [OpenAICompat] branches already consult that table; the
+         Anthropic branch must too, otherwise every Sonnet/Opus 4 agent
+         resolves to the wrong window and proactive compaction fires at
+         ~150K instead of ~750K. *)
+      (match Llm_provider.Capabilities.for_model_id model_id with
+       | Some caps -> caps
+       | None -> anthropic_capabilities)
   | Local _ ->
       (* Local (llama-server) uses OpenAI-compatible API.
          Resolve capabilities by model_id, fall back to openai_chat. *)
@@ -197,6 +208,24 @@ let request_path = function
 
 let capabilities_for_config (cfg : config) =
   capabilities_for_model ~provider:cfg.provider ~model_id:cfg.model_id
+
+(** Resolve a positive [max_context_tokens] from an optional provider
+    config, falling back to [fallback] when the config is [None] or
+    the capability reports [None]/[<= 0]. Shared by
+    [Pipeline.proactive_context_window_tokens] and
+    [Builder.with_context_thresholds] so both call sites agree on the
+    "provider → capabilities → max_context_tokens" resolution step.
+    Callers still own the literal fallback value because the two sites
+    disagree on it intentionally (Pipeline uses a stricter 128K; Builder
+    uses a looser 200K that plays well with broader token caps). *)
+let resolve_max_context_tokens ~fallback (cfg_opt : config option) =
+  match cfg_opt with
+  | Some cfg ->
+    let caps = capabilities_for_config cfg in
+    (match caps.max_context_tokens with
+     | Some n when n > 0 -> n
+     | _ -> fallback)
+  | None -> fallback
 
 let validate_inference_contract ~capabilities (contract : inference_contract) =
   if modality_supported capabilities contract.modality then Ok ()
