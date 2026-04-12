@@ -6,6 +6,25 @@ Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
 backfilled on 2026-04-04 from existing git tags. The dates below reflect the
 original tag dates. `0.100.4` was never tagged or released.
 
+## [0.122.1] - 2026-04-12
+
+### Fixed
+- Anthropic: Messages API conformance — tool_choice nesting + thinking gate (#835)
+- Anthropic: serialize temperature/top_p/top_k in build_body_assoc (#834)
+- Anthropic: capabilities_for_model consults for_model_id (#825)
+- Gemini: capabilities.supports_top_k = true (#833)
+- Anthropic: capabilities.supports_top_k = true (#832)
+- OpenAI: route silent capability drops through warn helper (#831)
+- OpenAI: gate min_p/top_k on capabilities.supports_* (#830)
+- MCP: truncate_output uses CJK-aware token estimator + UTF-8 boundary (#828)
+- Ollama: send keep_alive as integer when value parses as int (#821)
+- Builder: derive context_thresholds fallback from provider capabilities (#823)
+
+### Changed
+- Extract canonical CJK-aware text estimator to llm_provider (#829)
+- Drop dead Gemini/GLM exception catches in create_message (#836)
+- Add n > 0 guard to effective_max_context (#826)
+
 ## [0.122.0] - 2026-04-12
 
 ### Added
