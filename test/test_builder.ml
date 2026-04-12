@@ -713,7 +713,7 @@ let test_build_minimal_required_only () =
     Builder.create ~net ~model:"claude-3-7-sonnet" |> Builder.build_safe |> Result.get_ok in
   check_model "model" "claude-3-7-sonnet-20250219" (Agent.state agent).config.model;
   Alcotest.(check string) "name" "agent" (Agent.state agent).config.name;
-  Alcotest.(check (option int)) "max_tokens" (Some 4096) (Agent.state agent).config.max_tokens;
+  Alcotest.(check (option int)) "max_tokens" None (Agent.state agent).config.max_tokens;
   Alcotest.(check int) "max_turns" 10 (Agent.state agent).config.max_turns;
   Alcotest.(check int) "tools" 0 (Tool_set.size (Agent.tools agent));
   Alcotest.(check string) "base_url"

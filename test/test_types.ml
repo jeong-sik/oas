@@ -118,7 +118,7 @@ let test_add_usage_accumulates () =
 let test_default_config () =
   let c = Types.default_config in
   Alcotest.(check string) "name" "agent" c.name;
-  Alcotest.(check (option int)) "max_tokens" (Some 4096) c.max_tokens;
+  Alcotest.(check (option int)) "max_tokens" None c.max_tokens;
   Alcotest.(check int) "max_turns" 10 c.max_turns;
   Alcotest.(check bool) "no system prompt" true (c.system_prompt = None);
   Alcotest.(check bool) "no top_p" true (c.top_p = None);
