@@ -72,20 +72,29 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
      | _ -> [])
     @ List.concat_map openai_messages_of_message messages
   in
-  (* Clamp max_tokens to the capability record's upper bound before
-     sending. Consumers (e.g. masc-mcp cascade.json) may configure
-     max_tokens well above the provider's hard limit; honouring that
-     value causes a server-side 400 "max_tokens must be less than or
-     equal to ..." which then fails the whole turn. The capability
-     upper bound is authoritative. *)
-  let caps_preview =
+  (* Look up per-model capabilities once — drives:
+     (1) the [max_tokens] clamp below (avoid server 400 on over-cap),
+     (2) the [top_k] / [min_p] sampling-field gates further down.
+     If no capability record exists for the model, fall back to
+     [default_capabilities] (conservative: drop non-standard params,
+     pass through standard ones). *)
+  let caps =
     match Capabilities.for_model_id config.model_id with
     | Some c -> c
     | None -> Capabilities.default_capabilities
   in
+  (* Clamp [max_tokens] to [caps.max_output_tokens] when the cap is
+     known. The advertised cap is the upper bound the backend will
+     accept; exceeding it returns a 400 and — for callers that run
+     mutating tools inside the turn — corrupts partial-commit state,
+     because tool side effects persist even though the LLM final
+     response fails. [None] = "unknown model" → pass through rather
+     than imposing an arbitrary ceiling. *)
   let effective_max_tokens =
-    match caps_preview.max_output_tokens with
-    | Some cap when config.max_tokens > cap -> cap
+    match caps.max_output_tokens with
+    | Some cap when config.max_tokens > cap ->
+      warn_capability_drop ~model_id:config.model_id ~field:"max_tokens:clamp";
+      cap
     | _ -> config.max_tokens
   in
   let body =
@@ -100,18 +109,6 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
   let body = match config.top_p with
     | Some p -> ("top_p", `Float p) :: body
     | None -> body
-  in
-  (* Look up per-model capabilities once — the sampling params below
-     rely on [supports_top_k] / [supports_min_p] to decide whether the
-     server will accept the field.  If no capability record exists for
-     the model, default to NOT sending the non-standard sampling
-     params; conservative because misclassified providers (GLM, Gemini,
-     ...) previously silently inherited [config.min_p]/[config.top_k]
-     from the agent config and triggered hard 400s at the server. *)
-  let caps =
-    match Capabilities.for_model_id config.model_id with
-    | Some c -> c
-    | None -> Capabilities.default_capabilities
   in
   (* Silent drops of user-supplied sampling params are a debugging
      hazard (GLM review on #830), so emit a ONE-SHOT stderr WARN per
