@@ -380,89 +380,60 @@ let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
   in
   let rec try_next last_err = function
     | [] ->
-      let msg = match last_err with
-        | Some (Http_client.HttpError { code; body }) ->
-          Printf.sprintf "HTTP %d: %s" code
-            (if String.length body > Constants.Truncation.max_error_body_length
-             then String.sub body 0 Constants.Truncation.max_error_body_length ^ "..."
-             else body)
-        | Some (Http_client.AcceptRejected { reason }) -> reason
-        | Some (Http_client.NetworkError { message }) -> message
-        | None -> "No providers available"
-      in
-      (match last_err with
-       | Some (Http_client.AcceptRejected _ as err) -> Error err
-       | _ ->
-         Error (Http_client.NetworkError {
-             message = Printf.sprintf "All models failed: %s" msg
-           }))
+      Error (Cascade_fsm.format_exhausted_error last_err)
     | (cfg : Provider_config.t) :: rest ->
       let is_last = rest = [] in
-      (match try_one ~is_last cfg with
-      | Ok resp ->
-        (match accept resp with
-        | Ok () -> begin
-          diag "debug" "cascade_accept_passed"
-            [("model_id", cfg.model_id)];
-          Ok resp
-        end
-        | Error reason when is_last && accept_on_exhaustion -> begin
-          diag "info" "cascade_accept_on_exhaustion"
-            [("model_id", cfg.model_id);
-             ("is_last", string_of_bool is_last);
-             ("reason", reason)];
-          (* Graceful degradation: all models rejected by accept.
-             Return the last valid response rather than failing.
-             Based on constrained decoding fallback pattern:
-             when all constrained attempts fail, accept unconstrained.
-             Deterministic gate: accept_on_exhaustion flag.
-             Non-deterministic: content of the accepted response. *)
-          m.on_cascade_fallback
-            ~from_model:cfg.model_id ~to_model:"(accepted on exhaustion)"
-            ~reason:"accept relaxed: all models rejected";
-          Ok resp
-        end
-        | Error reason -> begin
-          diag "warn" "cascade_accept_rejected"
-            [("model_id", cfg.model_id);
-             ("is_last", string_of_bool is_last);
-             ("accept_on_exhaustion", string_of_bool accept_on_exhaustion);
-             ("reason", reason)];
-          (match last_err with
-           | Some (Http_client.HttpError { code; _ }) ->
-             m.on_cascade_fallback
-               ~from_model:cfg.model_id ~to_model:"next"
-               ~reason:(Printf.sprintf "rejected (prev HTTP %d)" code)
-           | _ ->
-             m.on_cascade_fallback
-               ~from_model:cfg.model_id ~to_model:"next"
-               ~reason);
-          try_next
-            (Some (Http_client.AcceptRejected { reason }))
-            rest
-        end)
-      | Error err ->
-        let err_str = match err with
-          | Http_client.HttpError { code; _ } ->
-            Printf.sprintf "HTTP %d" code
-          | Http_client.AcceptRejected { reason } -> reason
-          | Http_client.NetworkError { message } -> message
-        in
-        let should_cascade = Cascade_health_filter.should_cascade_to_next err in
-        diag "debug" "cascade_provider_error"
+      (* IO: attempt provider call *)
+      let outcome = match try_one ~is_last cfg with
+        | Ok resp ->
+          (match accept resp with
+           | Ok () -> Cascade_fsm.Call_ok resp
+           | Error reason -> Cascade_fsm.Accept_rejected { response = resp; reason })
+        | Error err -> Cascade_fsm.Call_err err
+      in
+      (* Pure decision: delegate to FSM *)
+      match Cascade_fsm.decide ~accept_on_exhaustion ~is_last outcome with
+      | Cascade_fsm.Accept resp ->
+        diag "debug" "cascade_accept_passed"
+          [("model_id", cfg.model_id)];
+        Ok resp
+      | Cascade_fsm.Accept_on_exhaustion { response; reason } ->
+        diag "info" "cascade_accept_on_exhaustion"
           [("model_id", cfg.model_id);
-           ("error", err_str);
-           ("should_cascade", string_of_bool should_cascade)];
+           ("is_last", string_of_bool is_last);
+           ("reason", reason)];
+        m.on_cascade_fallback
+          ~from_model:cfg.model_id ~to_model:"(accepted on exhaustion)"
+          ~reason:"accept relaxed: all models rejected";
+        Ok response
+      | Cascade_fsm.Try_next { last_err = new_err } ->
+        let reason_str = match new_err with
+          | Some (Http_client.HttpError { code; _ }) -> Printf.sprintf "HTTP %d" code
+          | Some (Http_client.AcceptRejected { reason }) -> reason
+          | Some (Http_client.NetworkError { message }) -> message
+          | None -> "unknown"
+        in
+        diag "debug" "cascade_try_next"
+          [("model_id", cfg.model_id);
+           ("reason", reason_str)];
         (match rest with
          | (next_cfg : Provider_config.t) :: _ ->
            m.on_cascade_fallback
              ~from_model:cfg.model_id ~to_model:next_cfg.model_id
-             ~reason:err_str
+             ~reason:reason_str
          | [] -> ());
-        if should_cascade then
-          try_next (Some err) rest
-        else
-          Error err)
+        try_next new_err rest
+      | Cascade_fsm.Exhausted { last_err = final_err } ->
+        let reason_str = match final_err with
+          | Some (Http_client.HttpError { code; _ }) -> Printf.sprintf "HTTP %d" code
+          | Some (Http_client.AcceptRejected { reason }) -> reason
+          | Some (Http_client.NetworkError { message }) -> message
+          | None -> "unknown"
+        in
+        diag "debug" "cascade_exhausted"
+          [("model_id", cfg.model_id);
+           ("reason", reason_str)];
+        Error (Cascade_fsm.format_exhausted_error final_err)
   in
   try_next None providers
 
@@ -496,39 +467,32 @@ let complete_cascade_stream ~sw ~net ?(metrics : Metrics.t option)
   in
   let rec try_next last_err = function
     | [] ->
-      let msg = match last_err with
-        | Some (Http_client.HttpError { code; body }) ->
-          Printf.sprintf "HTTP %d: %s" code
-            (if String.length body > Constants.Truncation.max_error_body_length
-             then String.sub body 0 Constants.Truncation.max_error_body_length ^ "..."
-             else body)
-        | Some (Http_client.AcceptRejected { reason }) -> reason
-        | Some (Http_client.NetworkError { message }) -> message
-        | None -> "No providers available"
-      in
-      Error (Http_client.NetworkError {
-        message = Printf.sprintf "All models failed (stream): %s" msg })
+      Error (Cascade_fsm.format_exhausted_error last_err)
     | (cfg : Provider_config.t) :: rest ->
       let is_last = rest = [] in
-      (match try_one ~is_last cfg with
-      | Ok _ as success -> success
-      | Error err ->
-        let err_str = match err with
-          | Http_client.HttpError { code; _ } ->
-            Printf.sprintf "HTTP %d" code
-          | Http_client.AcceptRejected { reason } -> reason
-          | Http_client.NetworkError { message } -> message
+      let outcome = match try_one ~is_last cfg with
+        | Ok resp -> Cascade_fsm.Call_ok resp
+        | Error err -> Cascade_fsm.Call_err err
+      in
+      match Cascade_fsm.decide ~accept_on_exhaustion:false ~is_last outcome with
+      | Cascade_fsm.Accept resp -> Ok resp
+      | Cascade_fsm.Accept_on_exhaustion { response; _ } -> Ok response
+      | Cascade_fsm.Try_next { last_err = new_err } ->
+        let reason_str = match new_err with
+          | Some (Http_client.HttpError { code; _ }) -> Printf.sprintf "HTTP %d" code
+          | Some (Http_client.AcceptRejected { reason }) -> reason
+          | Some (Http_client.NetworkError { message }) -> message
+          | None -> "unknown"
         in
         (match rest with
          | (next_cfg : Provider_config.t) :: _ ->
            m.on_cascade_fallback
              ~from_model:cfg.model_id ~to_model:next_cfg.model_id
-             ~reason:err_str
+             ~reason:reason_str
          | [] -> ());
-        if Cascade_health_filter.should_cascade_to_next err then
-          try_next (Some err) rest
-        else
-          Error err)
+        try_next new_err rest
+      | Cascade_fsm.Exhausted { last_err = final_err } ->
+        Error (Cascade_fsm.format_exhausted_error final_err)
   in
   try_next None providers
 
