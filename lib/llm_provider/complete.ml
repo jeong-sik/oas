@@ -628,8 +628,21 @@ let complete_stream_http ~sw:_ ~net ~(config : Provider_config.t)
     | Provider_config.Anthropic ->
         Backend_anthropic.build_request ~stream:true ~config ~messages ~tools ()
     | Provider_config.Ollama ->
-        (* Streaming: fall back to OpenAI compat format — native API
-           uses NDJSON, not SSE, which requires separate parsing. *)
+        (* DIVERGENCE: Ollama streaming uses OpenAI compat format + endpoint
+           (/v1/chat/completions with SSE), while non-streaming uses the native
+           Ollama format + endpoint (/api/chat with single JSON response).
+
+           This means: body builder, endpoint URL, and response parser are ALL
+           different between streaming and non-streaming for Ollama.
+
+           Consequence: a bug fix in Backend_ollama.build_request only affects
+           non-streaming; streaming goes through Backend_openai.build_request
+           with its own serialization path.
+
+           Rationale: Ollama's native /api/chat uses NDJSON (newline-delimited
+           JSON) for streaming, not SSE. Implementing an NDJSON parser was
+           deferred in favor of reusing the OpenAI compat endpoint which
+           speaks SSE natively. See oas#849 for unification tracking. *)
         Backend_openai.build_request ~stream:true ~config ~messages ~tools ()
     | Provider_config.OpenAI_compat ->
         Backend_openai.build_request ~stream:true ~config ~messages ~tools ()
