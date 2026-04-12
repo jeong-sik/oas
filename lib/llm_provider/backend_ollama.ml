@@ -85,7 +85,26 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
         ("tools", `List (List.map Backend_openai_serialize.build_openai_tool_json ts)) :: body
   in
 
-  (* Sampling parameters go inside "options" object *)
+  (* Sampling parameters go inside Ollama's "options" object.
+
+     top_k / min_p are now capability-gated — not because native
+     Ollama rejects them (its Options struct has both, llama.cpp
+     samplers support them), but to mirror the #830/#831 contract
+     across every OAS serializer so a future capability record that
+     lowers either flag actually takes effect everywhere in the
+     request-build pipeline.
+
+     For the default ollama_capabilities (inherited from
+     openai_chat_extended_capabilities) both flags are true, so
+     behaviour is byte-identical for the common path. The gate only
+     fires when an operator explicitly sets [supports_min_p = false]
+     or [supports_top_k = false] for a specific Ollama variant — at
+     which point the one-shot WARN from Backend_openai also fires. *)
+  let caps =
+    match Capabilities.for_model_id config.model_id with
+    | Some c -> c
+    | None -> Capabilities.ollama_capabilities
+  in
   let options = ref [] in
   (match config.max_tokens with
    | n -> options := ("num_predict", `Int n) :: !options);
@@ -96,10 +115,18 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
    | Some p -> options := ("top_p", `Float p) :: !options
    | None -> ());
   (match config.top_k with
-   | Some k -> options := ("top_k", `Int k) :: !options
+   | Some k when caps.supports_top_k ->
+     options := ("top_k", `Int k) :: !options
+   | Some _ ->
+     Backend_openai.warn_capability_drop
+       ~model_id:config.model_id ~field:"top_k"
    | None -> ());
   (match config.min_p with
-   | Some p -> options := ("min_p", `Float p) :: !options
+   | Some p when caps.supports_min_p ->
+     options := ("min_p", `Float p) :: !options
+   | Some _ ->
+     Backend_openai.warn_capability_drop
+       ~model_id:config.model_id ~field:"min_p"
    | None -> ());
   let body = ("options", `Assoc !options) :: body in
 
