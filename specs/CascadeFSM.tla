@@ -169,14 +169,10 @@ SlotFullNeverExhausts ==
     (Cardinality(tried) = 1 /\ \E i \in tried : outcomes[i] = "slot_full") =>
         decision # "exhausted"
 
-\* ── Bug Model: ShrinkContext missing ─────────
-\* Future Phase 2: when context is too large, cascade should
-\* ShrinkContext -> retry same provider instead of failing.
-\* Currently this transition does NOT exist, so large contexts
-\* that cause Call_err on ALL providers lead to Exhausted.
-\* This is the documented architectural gap.
+\* ── Bug Model: ShrinkContext missing (current code) ─────────
+\* All providers fail with cascadeable error (e.g. 175KB context).
+\* ShrinkContext transition does NOT exist -> Exhausted.
 
-\* Bug action: large context causes ALL providers to fail with cascadeable error
 BugAllProvidersFail(i) ==
     /\ idx = i
     /\ ~Terminal
@@ -194,9 +190,7 @@ NextBuggy ==
 
 SpecBuggy == Init /\ [][NextBuggy]_vars /\ WF_vars(NextBuggy)
 
-\* Invariant that SHOULD be violated in buggy spec:
-\* "If all providers fail with cascadeable errors, we should NOT be exhausted"
-\* (because ShrinkContext should have been tried)
+\* Invariant SHOULD be violated: proves ShrinkContext gap
 ShrinkContextShouldPreventExhaustion ==
     decision = "exhausted" =>
         ~(\A i \in tried : outcomes[i] = "call_err_cascade")
