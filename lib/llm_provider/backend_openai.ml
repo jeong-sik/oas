@@ -72,10 +72,26 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
      | _ -> [])
     @ List.concat_map openai_messages_of_message messages
   in
+  (* Clamp max_tokens to the capability record's upper bound before
+     sending. Consumers (e.g. masc-mcp cascade.json) may configure
+     max_tokens well above the provider's hard limit; honouring that
+     value causes a server-side 400 "max_tokens must be less than or
+     equal to ..." which then fails the whole turn. The capability
+     upper bound is authoritative. *)
+  let caps_preview =
+    match Capabilities.for_model_id config.model_id with
+    | Some c -> c
+    | None -> Capabilities.default_capabilities
+  in
+  let effective_max_tokens =
+    match caps_preview.max_output_tokens with
+    | Some cap when config.max_tokens > cap -> cap
+    | _ -> config.max_tokens
+  in
   let body =
     [ ("model", `String config.model_id);
       ("messages", `List provider_messages);
-      ("max_tokens", `Int config.max_tokens) ]
+      ("max_tokens", `Int effective_max_tokens) ]
   in
   let body = match config.temperature with
     | Some t -> ("temperature", `Float t) :: body
@@ -124,10 +140,25 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
          `Assoc [("enable_thinking", `Bool enabled)]) :: body
     | None -> body
   in
+  (* tool_choice uses a DIFFERENT unknown-model default than top_k /
+     min_p above: unknown → assume supported (true). Two reasons:
+       (1) [tool_choice] is a standard OpenAI Chat Completions body
+           param and virtually every OpenAI-compat server accepts it,
+           so conservatively dropping it on unknown models would
+           regress every agent that uses a model Capabilities does
+           not know about yet.
+       (2) top_k / min_p are non-standard extensions — ZAI GLM hard
+           400s on them (#827/#830), so conservative drop is the
+           right default for those specifically.
+     That is why this lookup is NOT a dedup candidate against the
+     [caps] binding above: we need [true] on [None] here, whereas
+     [caps] gives [default_capabilities.supports_tool_choice = false]
+     on [None]. Both defaults are intentional and contextual, not
+     drift. *)
   let supports_tool_choice =
     match Capabilities.for_model_id config.model_id with
-    | Some caps -> caps.supports_tool_choice
-    | None -> true  (* unknown model — assume support for backward compat *)
+    | Some c -> c.supports_tool_choice
+    | None -> true
   in
   let body = match effective_tool_choice config with
     | Some choice_json when supports_tool_choice ->

@@ -165,13 +165,19 @@ let ollama_supports_tool_choice_default =
 let ollama_capabilities = {
   openai_chat_extended_capabilities with
   supports_tool_choice = ollama_supports_tool_choice_default;
+  supports_min_p = false;
   is_ollama = true;
 }
 
 let glm_capabilities = {
   default_capabilities with
   max_context_tokens = Some 200_000;
-  max_output_tokens = Some 128_000;
+  (* GLM-5.1 API enforces max_tokens <= 40960 at request time; keeping a
+     higher value here causes server-side rejection with
+     "Invalid request: `max_tokens` must be less than or equal to `40960`".
+     Empirical upper bound observed on 2026-04-12 during keeper unified
+     turns against glm-coding:glm-5.1 and glm:glm-5.1. *)
+  max_output_tokens = Some 40_960;
   supports_tools = true;
   supports_tool_choice = true;
   supports_reasoning = true;
