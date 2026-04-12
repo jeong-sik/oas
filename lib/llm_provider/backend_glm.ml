@@ -37,6 +37,13 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
             ("thinking", thinking) :: fields
         | None -> fields
       in
+      (* Remove chat_template_kwargs leaked from Backend_openai.
+         GLM does not recognize this llama.cpp/Ollama-specific field and
+         returns "Invalid API parameter" when it is present.  GLM thinking
+         is handled above via the native [thinking] parameter. *)
+      let fields =
+        List.filter (fun (k, _) -> k <> "chat_template_kwargs") fields
+      in
       let fields =
         if stream && config.tool_stream then
           ("tool_stream", `Bool true) :: fields
@@ -189,6 +196,18 @@ let%test "parse_stream_chunk delegates to openai" =
   match parse_stream_chunk data with
   | Some chunk -> chunk.delta_content = Some "hi"
   | None -> false
+
+let%test "build_request strips chat_template_kwargs from GLM body" =
+  let config = Provider_config.make
+    ~kind:Glm ~model_id:"glm-5.1"
+    ~base_url:"https://api.z.ai/api/coding/paas/v4"
+    ~enable_thinking:true () in
+  let messages = [{ role = User; content = [Text "hi"]; name = None; tool_call_id = None }] in
+  let body = build_request ~config ~messages () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  json |> member "chat_template_kwargs" = `Null
+  && json |> member "thinking" |> member "type" |> to_string = "enabled"
 
 let%test "build_request adds tool_stream when enabled" =
   let config = Provider_config.make
