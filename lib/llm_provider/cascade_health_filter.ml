@@ -7,6 +7,32 @@
 
 (* ── Cascade-level error classification ────────────────── *)
 
+(** Case-insensitive substring check. Scans at most [max_scan] bytes
+    of [haystack] to avoid O(n*m) on very large error bodies. *)
+let contains_ci ?(max_scan = 512) ~haystack ~needle () =
+  let h = String.lowercase_ascii
+    (if String.length haystack > max_scan
+     then String.sub haystack 0 max_scan else haystack)
+  in
+  let n = String.lowercase_ascii needle in
+  let nlen = String.length n in
+  let hlen = String.length h in
+  if nlen = 0 || nlen > hlen then false
+  else
+    let rec scan i =
+      if i > hlen - nlen then false
+      else if String.sub h i nlen = n then true
+      else scan (i + 1)
+    in
+    scan 0
+
+(** Detect provider-specific JSON parser errors. Ollama/llama.cpp rejects
+    valid JSON with "can't find closing '}'" when the request body is large
+    (~175KB+). Cloud providers parse the same body correctly, so cascading
+    to the next provider is the correct action. *)
+let is_provider_parse_error (body : string) : bool =
+  contains_ci ~haystack:body ~needle:"can't find closing" ()
+
 (** Decide whether an error should cascade to the next provider.
     Local resource exhaustion (port/FD limits) stops the cascade
     because every subsequent provider will hit the same bottleneck. *)
@@ -15,7 +41,8 @@ let should_cascade_to_next err =
   else match err with
   | Http_client.HttpError { code; body }
     when List.mem code [400; 422]
-         && Retry.is_context_overflow_message body ->
+         && (Retry.is_context_overflow_message body
+             || is_provider_parse_error body) ->
     true
   | Http_client.HttpError { code; _ } ->
     List.mem code Constants.Http.cascadable_codes
@@ -130,6 +157,27 @@ let%test "should_cascade_to_next overflow 400 cascades" =
        body =
          {|{"error":{"message":"request (11447 tokens) exceeds the available context size (8192 tokens), try increasing it"}}|};
     }) = true
+
+let%test "should_cascade_to_next 400 ollama parse error cascades" =
+  should_cascade_to_next
+    (Http_client.HttpError {
+       code = 400;
+       body = {|{"error":"Value looks like object, but can't find closing '}' symbol"}|};
+    }) = true
+
+let%test "should_cascade_to_next 400 ollama closing bracket cascades" =
+  should_cascade_to_next
+    (Http_client.HttpError {
+       code = 400;
+       body = {|{"error":"can't find closing ']' symbol"}|};
+    }) = true
+
+let%test "should_cascade_to_next 400 generic invalid tool schema stops" =
+  should_cascade_to_next
+    (Http_client.HttpError {
+       code = 400;
+       body = {|{"error":{"message":"bad tool schema"}}|};
+    }) = false
 
 let%test "should_cascade_to_next 404 not found stops" =
   should_cascade_to_next (Http_client.HttpError { code = 404; body = "" }) = false
