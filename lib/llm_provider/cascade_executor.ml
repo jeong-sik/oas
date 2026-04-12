@@ -215,6 +215,71 @@ let truncate_to_context ?(context_margin = default_context_margin)
       apply_token_budget budget messages
     end
 
+(** Truncate tools to fit within the remaining context budget after
+    messages and output reserve are accounted for. Tools are kept in
+    order (front = highest relevance from the caller's Tool_selector)
+    and dropped from the tail when the cumulative token estimate
+    exceeds the budget.
+
+    Returns the original list unchanged when:
+    - [max_context_tokens] is unknown for the model (conservative: pass all)
+    - Tools fit within the budget
+    - Tools list is empty
+
+    @since 0.123.0 *)
+let truncate_tools
+    (cfg : Provider_config.t)
+    (effective_messages : Types.message list)
+    (tools : Yojson.Safe.t list) : Yojson.Safe.t list =
+  if tools = [] then tools
+  else
+    let caps =
+      match Capabilities.for_model_id cfg.model_id with
+      | Some c -> c
+      | None -> Capabilities.default_capabilities
+    in
+    match caps.max_context_tokens with
+    | None -> tools  (* unknown context window → don't truncate *)
+    | Some max_ctx ->
+      let output_reserve = cfg.max_tokens in
+      let message_tokens =
+        List.fold_left
+          (fun acc msg -> acc + estimate_message_tokens msg)
+          0 effective_messages
+      in
+      let margin = 512 in
+      let available =
+        max_ctx - output_reserve - message_tokens - margin
+      in
+      if available <= 0 then begin
+        Printf.eprintf
+          "[cascade_executor] [warn] tool_truncation: no budget for tools \
+           model=%s max_ctx=%d msg_tokens=%d output=%d\n%!"
+          cfg.model_id max_ctx message_tokens output_reserve;
+        []
+      end else
+        let total = List.length tools in
+        let rec take acc tokens_so_far = function
+          | [] -> List.rev acc
+          | tool :: rest ->
+            let tool_tokens =
+              estimate_char_tokens (Yojson.Safe.to_string tool)
+            in
+            if tokens_so_far + tool_tokens > available then begin
+              let kept = List.length acc in
+              if kept < total then
+                Printf.eprintf
+                  "[cascade_executor] [warn] tool_truncation: \
+                   %d→%d tools for %s (budget=%d tokens, \
+                   msg=%d output=%d)\n%!"
+                  total kept cfg.model_id available
+                  message_tokens output_reserve;
+              List.rev acc
+            end else
+              take (tool :: acc) (tokens_so_far + tool_tokens) rest
+        in
+        take [] 0 tools
+
 (* ── Diagnostic logging ──────────────────────────────────── *)
 
 (** [true] when the [OAS_CASCADE_DIAG] env var is set to [1], [true], or [yes].
@@ -257,15 +322,18 @@ let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
      ("accept_on_exhaustion", string_of_bool accept_on_exhaustion)];
   let try_one ~is_last (cfg : Provider_config.t) =
     let effective_messages = truncate_to_context cfg messages in
+    let effective_tools = truncate_tools cfg effective_messages tools in
     let call () =
       match clock with
       | Some clock ->
         Complete.complete_with_retry ~sw ~net ~clock ~config:cfg
-          ~messages:effective_messages ~tools ~retry_config:cascade_retry_config
+          ~messages:effective_messages ~tools:effective_tools
+          ~retry_config:cascade_retry_config
           ?cache ?metrics ?priority ()
       | None ->
         Complete.complete ~sw ~net ~config:cfg
-          ~messages:effective_messages ~tools ?cache ?metrics ?priority ()
+          ~messages:effective_messages ~tools:effective_tools
+          ?cache ?metrics ?priority ()
     in
     (* Wrap every provider — including the last — with a per-model
        timeout. The last provider used to be exempt on the theory that
