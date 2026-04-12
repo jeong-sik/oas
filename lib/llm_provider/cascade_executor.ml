@@ -325,10 +325,16 @@ let truncate_tools
       | Some c -> c
       | None -> Capabilities.default_capabilities
     in
+    let output_reserve =
+      match cfg.max_tokens, caps.max_output_tokens with
+      | None, Some cap -> cap
+      | None, None -> 4096
+      | Some n, Some cap -> min n cap
+      | Some n, None -> n
+    in
     match caps.max_context_tokens with
     | None -> tools  (* unknown context window → don't truncate *)
     | Some max_ctx ->
-      let output_reserve = cfg.max_tokens in
       let message_tokens =
         List.fold_left
           (fun acc msg -> acc + estimate_message_tokens msg)
@@ -809,3 +815,18 @@ let%test "truncate_within_turn result tokens within budget" =
      in the fallback case *)
   result_tokens <= budget
   || List.length result = 3  (* fallback: preamble + last round *)
+
+let%test "truncate_tools resolves None max_tokens from model capability" =
+  let cfg = make_cfg "gpt-4o-mini" in
+  let msgs = [make_msg (String.make 450_000 'x')] in
+  let tools = [`Assoc [("name", `String "tool-a")]] in
+  truncate_tools cfg msgs tools = []
+
+let%test "truncate_tools clamps explicit max_tokens to capability ceiling" =
+  let cfg =
+    Provider_config.make ~kind:OpenAI_compat ~model_id:"gpt-4o-mini"
+      ~base_url:"http://test" ~max_tokens:20_000 ()
+  in
+  let msgs = [make_msg (String.make 447_000 'x')] in
+  let tools = [`Assoc [("name", `String "tool-a")]] in
+  truncate_tools cfg msgs tools = []
