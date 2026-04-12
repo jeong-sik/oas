@@ -14,6 +14,12 @@ _opam/
 .vscode/
 .idea/
 
+# TLA+ / TLC artifacts
+specs/states/
+specs/*_TTrace_*.tla
+specs/*_TTrace_*.bin
+*.toolbox/
+
 # OS
 .DS_Store
 Thumbs.db
