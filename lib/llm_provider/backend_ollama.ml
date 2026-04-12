@@ -23,7 +23,16 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
      | Some s when not (Api_common.string_is_blank s) ->
          [`Assoc [("role", `String "system"); ("content", `String (Utf8_sanitize.sanitize s))]]
      | _ -> [])
-    @ List.concat_map Backend_openai_serialize.openai_messages_of_message messages
+    (* Ollama /api/chat expects tool_calls arguments as a JSON object,
+       not a JSON string.  OpenAI serializes arguments as a string
+       (e.g., "{\"key\":\"val\"}"), but Ollama's Go template parser
+       attempts to traverse the value as an object and fails with
+       "Value looks like object, but can't find closing '}' symbol"
+       when it encounters the escaped string form.  Passing
+       ~arguments_as_object:true emits the raw JSON object instead. *)
+    @ List.concat_map
+        (Backend_openai_serialize.openai_messages_of_message ~arguments_as_object:true)
+        messages
   in
 
   let body =

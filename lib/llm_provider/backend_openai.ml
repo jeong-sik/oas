@@ -11,9 +11,11 @@ open Types
 
 (* ── Re-exports from serialization ─────────────────────── *)
 
-let tool_calls_to_openai_json = Backend_openai_serialize.tool_calls_to_openai_json
+let tool_calls_to_openai_json blocks =
+  Backend_openai_serialize.tool_calls_to_openai_json blocks
 let openai_content_parts_of_blocks = Backend_openai_serialize.openai_content_parts_of_blocks
-let openai_messages_of_message = Backend_openai_serialize.openai_messages_of_message
+let openai_messages_of_message msg =
+  Backend_openai_serialize.openai_messages_of_message msg
 let tool_choice_to_openai_json = Backend_openai_serialize.tool_choice_to_openai_json
 let build_openai_tool_json = Backend_openai_serialize.build_openai_tool_json
 

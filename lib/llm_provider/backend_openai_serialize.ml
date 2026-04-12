@@ -7,10 +7,14 @@
 
 open Types
 
-let tool_calls_to_openai_json blocks =
+let tool_calls_to_openai_json ?(arguments_as_object = false) blocks =
   blocks
   |> List.filter_map (function
          | ToolUse { id; name; input } ->
+             let arguments =
+               if arguments_as_object then input
+               else `String (Yojson.Safe.to_string input)
+             in
              Some
                (`Assoc
                   [
@@ -20,7 +24,7 @@ let tool_calls_to_openai_json blocks =
                       `Assoc
                         [
                           ("name", `String name);
-                          ("arguments", `String (Yojson.Safe.to_string input));
+                          ("arguments", arguments);
                         ] );
                   ])
          | _ -> None)
@@ -54,7 +58,7 @@ let openai_content_parts_of_blocks blocks =
              ])
          | Thinking _ | RedactedThinking _ | ToolUse _ | ToolResult _ -> None)
 
-let openai_messages_of_message (msg : message) : Yojson.Safe.t list =
+let openai_messages_of_message ?(arguments_as_object = false) (msg : message) : Yojson.Safe.t list =
   match msg.role with
   | User ->
       let content_parts = openai_content_parts_of_blocks msg.content in
@@ -91,7 +95,7 @@ let openai_messages_of_message (msg : message) : Yojson.Safe.t list =
       user_msgs @ tool_msgs
   | Assistant ->
       let text_content = Api_common.text_blocks_to_string msg.content in
-      let tool_calls = tool_calls_to_openai_json msg.content in
+      let tool_calls = tool_calls_to_openai_json ~arguments_as_object msg.content in
       let fields =
         [
           ("role", `String "assistant");
@@ -218,3 +222,29 @@ let build_openai_tool_json = function
               ] );
         ]
   | other -> other
+
+let%test "tool_calls arguments default is string (OpenAI compat)" =
+  let blocks = [ToolUse { id = "t1"; name = "f"; input = `Assoc [("k", `String "v")] }] in
+  let result = tool_calls_to_openai_json blocks in
+  match result with
+  | [`Assoc fields] ->
+    (match List.assoc "function" fields with
+     | `Assoc fn_fields ->
+       (match List.assoc "arguments" fn_fields with
+        | `String s -> s = {|{"k":"v"}|}
+        | _ -> false)
+     | _ -> false)
+  | _ -> false
+
+let%test "tool_calls arguments_as_object emits raw JSON (Ollama)" =
+  let blocks = [ToolUse { id = "t1"; name = "f"; input = `Assoc [("k", `String "v")] }] in
+  let result = tool_calls_to_openai_json ~arguments_as_object:true blocks in
+  match result with
+  | [`Assoc fields] ->
+    (match List.assoc "function" fields with
+     | `Assoc fn_fields ->
+       (match List.assoc "arguments" fn_fields with
+        | `Assoc [("k", `String "v")] -> true
+        | _ -> false)
+     | _ -> false)
+  | _ -> false
