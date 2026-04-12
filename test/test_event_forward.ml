@@ -13,9 +13,12 @@ let tmp_file () =
 
 let test_event_type_name () =
   let cases = [
-    (Event_bus.AgentStarted { agent_name = "a"; task_id = "t" }, "agent.started");
-    (Event_bus.TurnStarted { agent_name = "a"; turn = 0 }, "turn.started");
-    (Event_bus.ToolCalled { agent_name = "a"; tool_name = "t"; input = `Null }, "tool.called");
+    (Event_bus.AgentStarted { agent_name = "a"; task_id = "t"; session_id = None;
+                              worker_run_id = None }, "agent.started");
+    (Event_bus.TurnStarted { agent_name = "a"; turn = 0; session_id = None;
+                             worker_run_id = None }, "turn.started");
+    (Event_bus.ToolCalled { agent_name = "a"; tool_name = "t"; input = `Null;
+                            session_id = None; worker_run_id = None }, "tool.called");
     (Event_bus.Custom ("foo", `Null), "custom.foo");
   ] in
   List.iter (fun (event, expected) ->
@@ -24,7 +27,11 @@ let test_event_type_name () =
   ) cases
 
 let test_event_to_payload () =
-  let event = Event_bus.TurnStarted { agent_name = "test"; turn = 3 } in
+  let event =
+    Event_bus.TurnStarted
+      { agent_name = "test"; turn = 3; session_id = None;
+        worker_run_id = None }
+  in
   let p = Event_forward.event_to_payload event in
   Alcotest.(check string) "event_type" "turn.started" p.event_type;
   Alcotest.(check (option string)) "agent_name" (Some "test") p.agent_name;
@@ -56,8 +63,12 @@ let test_file_append_target () =
     ~targets:[File_append { path }]
     ~batch_size:2 () in
   Event_forward.start ~sw ~net:(Eio.Stdenv.net env) ~bus fwd;
-  Event_bus.publish bus (TurnStarted { agent_name = "a"; turn = 0 });
-  Event_bus.publish bus (TurnStarted { agent_name = "a"; turn = 1 });
+  Event_bus.publish bus
+    (TurnStarted { agent_name = "a"; turn = 0; session_id = None;
+                   worker_run_id = None });
+  Event_bus.publish bus
+    (TurnStarted { agent_name = "a"; turn = 1; session_id = None;
+                   worker_run_id = None });
   Eio.Fiber.yield ();
   Eio.Fiber.yield ();
   Event_forward.stop fwd;
@@ -82,7 +93,9 @@ let test_custom_target () =
   let bus = Event_bus.create () in
   let fwd = Event_forward.create ~targets:[custom_target] ~batch_size:1 () in
   Event_forward.start ~sw ~net:(Eio.Stdenv.net env) ~bus fwd;
-  Event_bus.publish bus (TurnStarted { agent_name = "b"; turn = 0 });
+  Event_bus.publish bus
+    (TurnStarted { agent_name = "b"; turn = 0; session_id = None;
+                   worker_run_id = None });
   Eio.Fiber.yield ();
   Eio.Fiber.yield ();
   Event_forward.stop fwd;
@@ -102,7 +115,9 @@ let test_custom_target_error_handling () =
   let fwd = Event_forward.create ~targets:[failing_target] ~batch_size:1 () in
   Log.set_global_level Error;  (* Suppress warn during test *)
   Event_forward.start ~sw ~net:(Eio.Stdenv.net env) ~bus fwd;
-  Event_bus.publish bus (TurnStarted { agent_name = "c"; turn = 0 });
+  Event_bus.publish bus
+    (TurnStarted { agent_name = "c"; turn = 0; session_id = None;
+                   worker_run_id = None });
   Eio.Fiber.yield ();
   Eio.Fiber.yield ();
   Event_forward.stop fwd;
@@ -123,8 +138,12 @@ let test_delivered_count () =
   let bus = Event_bus.create () in
   let fwd = Event_forward.create ~targets:[counting_target] ~batch_size:1 () in
   Event_forward.start ~sw ~net:(Eio.Stdenv.net env) ~bus fwd;
-  Event_bus.publish bus (TurnStarted { agent_name = "d"; turn = 0 });
-  Event_bus.publish bus (TurnStarted { agent_name = "d"; turn = 1 });
+  Event_bus.publish bus
+    (TurnStarted { agent_name = "d"; turn = 0; session_id = None;
+                   worker_run_id = None });
+  Event_bus.publish bus
+    (TurnStarted { agent_name = "d"; turn = 1; session_id = None;
+                   worker_run_id = None });
   Eio.Fiber.yield ();
   Eio.Fiber.yield ();
   Event_forward.stop fwd;
@@ -149,7 +168,9 @@ let test_multiple_targets () =
   let bus = Event_bus.create () in
   let fwd = Event_forward.create ~targets:[t1; t2] ~batch_size:1 () in
   Event_forward.start ~sw ~net:(Eio.Stdenv.net env) ~bus fwd;
-  Event_bus.publish bus (TurnStarted { agent_name = "e"; turn = 0 });
+  Event_bus.publish bus
+    (TurnStarted { agent_name = "e"; turn = 0; session_id = None;
+                   worker_run_id = None });
   Eio.Fiber.yield ();
   Eio.Fiber.yield ();
   Event_forward.stop fwd;
@@ -176,6 +197,8 @@ let test_agent_completed_payload () =
       telemetry = None;
     };
     elapsed = 2.5;
+    session_id = None;
+    worker_run_id = None;
   } in
   let p = Event_forward.event_to_payload event in
   Alcotest.(check string) "type" "agent.completed" p.event_type;
@@ -185,10 +208,12 @@ let test_agent_completed_payload () =
 
 let test_tool_events_payload () =
   let called = Event_bus.ToolCalled {
-    agent_name = "x"; tool_name = "search"; input = `String "query" } in
+    agent_name = "x"; tool_name = "search"; input = `String "query";
+    session_id = None; worker_run_id = None } in
   let completed = Event_bus.ToolCompleted {
     agent_name = "x"; tool_name = "search";
-    output = Ok { Types.content = "result" } } in
+    output = Ok { Types.content = "result" }; session_id = None;
+    worker_run_id = None } in
   let p1 = Event_forward.event_to_payload called in
   let p2 = Event_forward.event_to_payload completed in
   Alcotest.(check string) "called type" "tool.called" p1.event_type;
@@ -197,7 +222,11 @@ let test_tool_events_payload () =
 (* ── event_to_payload: remaining event types ──────────────── *)
 
 let test_turn_completed_payload () =
-  let evt = Event_bus.TurnCompleted { agent_name = "worker"; turn = 5 } in
+  let evt =
+    Event_bus.TurnCompleted
+      { agent_name = "worker"; turn = 5; session_id = None;
+        worker_run_id = None }
+  in
   let p = Event_forward.event_to_payload evt in
   Alcotest.(check string) "type" "turn.completed" p.event_type;
   Alcotest.(check (option string)) "agent" (Some "worker") p.agent_name
@@ -224,7 +253,11 @@ let test_custom_event_payload () =
   Alcotest.(check (option string)) "no agent" None p.agent_name
 
 let test_agent_started_payload () =
-  let evt = Event_bus.AgentStarted { agent_name = "alpha"; task_id = "t1" } in
+  let evt =
+    Event_bus.AgentStarted
+      { agent_name = "alpha"; task_id = "t1"; session_id = None;
+        worker_run_id = None }
+  in
   let p = Event_forward.event_to_payload evt in
   Alcotest.(check string) "type" "agent.started" p.event_type;
   Alcotest.(check (option string)) "agent" (Some "alpha") p.agent_name
@@ -232,7 +265,8 @@ let test_agent_started_payload () =
 let test_tool_completed_error_payload () =
   let evt = Event_bus.ToolCompleted {
     agent_name = "x"; tool_name = "calc";
-    output = Error { Types.message = "fail"; recoverable = false } } in
+    output = Error { Types.message = "fail"; recoverable = false };
+    session_id = None; worker_run_id = None } in
   let p = Event_forward.event_to_payload evt in
   Alcotest.(check string) "type" "tool.completed" p.event_type;
   let open Yojson.Safe.Util in

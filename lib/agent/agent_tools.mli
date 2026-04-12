@@ -50,6 +50,8 @@ val find_and_execute_tool :
   tracer:Tracing.t ->
   agent_name:string ->
   turn_count:int ->
+  ?session_id:string ->
+  ?worker_run_id:string ->
   ?on_hook_invoked:(hook_name:string ->
     decision:Hooks.hook_decision ->
     detail:string option -> unit) ->
@@ -93,6 +95,8 @@ val execute_tools :
   turn_count:int ->
   usage:Types.usage_stats ->
   approval:Hooks.approval_callback option ->
+  ?session_id:string ->
+  ?worker_run_id:string ->
   ?on_tool_execution_started:(tool_use_id:string ->
     tool_name:string -> input:Yojson.Safe.t -> schedule:Hooks.tool_schedule -> unit) ->
   ?on_tool_execution_finished:(tool_use_id:string ->

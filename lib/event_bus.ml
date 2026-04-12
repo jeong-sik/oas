@@ -12,19 +12,26 @@ open Types
 (* ── Event type ────────────────────────────────────────────────────── *)
 
 type event =
-  | AgentStarted of { agent_name: string; task_id: string }
+  | AgentStarted of { agent_name: string; task_id: string;
+                      session_id: string option; worker_run_id: string option }
   | AgentCompleted of { agent_name: string; task_id: string;
-                        result: (api_response, Error.sdk_error) result; elapsed: float }
-  | ToolCalled of { agent_name: string; tool_name: string; input: Yojson.Safe.t }
+                        result: (api_response, Error.sdk_error) result; elapsed: float;
+                        session_id: string option; worker_run_id: string option }
+  | ToolCalled of { agent_name: string; tool_name: string; input: Yojson.Safe.t;
+                    session_id: string option; worker_run_id: string option }
   | ToolCompleted of { agent_name: string; tool_name: string;
-                       output: Types.tool_result }
-  | TurnStarted of { agent_name: string; turn: int }
-  | TurnCompleted of { agent_name: string; turn: int }
+                       output: Types.tool_result;
+                       session_id: string option; worker_run_id: string option }
+  | TurnStarted of { agent_name: string; turn: int;
+                     session_id: string option; worker_run_id: string option }
+  | TurnCompleted of { agent_name: string; turn: int;
+                       session_id: string option; worker_run_id: string option }
   | ElicitationCompleted of { agent_name: string; question: string;
                               response: Hooks.elicitation_response }
   | TaskStateChanged of { task_id: string; from_state: string; to_state: string }
   | ContextCompacted of { agent_name: string; before_tokens: int;
-                          after_tokens: int; phase: string }
+                          after_tokens: int; phase: string;
+                          session_id: string option; worker_run_id: string option }
   | Custom of string * Yojson.Safe.t
 
 (* ── Subscription ──────────────────────────────────────────────────── *)
