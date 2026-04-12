@@ -26,10 +26,11 @@ let contains_ci ?(max_scan = 512) ~haystack ~needle () =
     in
     scan 0
 
-(** Detect provider-specific JSON parser errors. Ollama/llama.cpp rejects
-    valid JSON with "can't find closing '}'" when the request body is large
-    (~175KB+). Cloud providers parse the same body correctly, so cascading
-    to the next provider is the correct action. *)
+(** Workaround for Ollama failing on large request bodies (~175KB+).
+    Returns 400 with "can't find closing '}'". Root cause is oversized
+    context — the proper fix is context compaction before sending to any
+    provider. This cascade fallthrough is a temporary workaround so
+    keeper turns are not blocked while compaction is implemented. *)
 let is_provider_parse_error (body : string) : bool =
   contains_ci ~haystack:body ~needle:"can't find closing" ()
 
