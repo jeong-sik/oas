@@ -79,10 +79,10 @@ let validator ~(contract : t) (response : api_response) =
 
 let accept_on_exhaustion ~(contract : t) =
   match contract with
-  | Allow_text_or_tool -> false
-  | Require_tool_use -> false
-  | Require_specific_tool _ -> false
-  | Require_no_tool_use -> false
+  | Allow_text_or_tool -> true
+  | Require_tool_use -> true
+  | Require_specific_tool _ -> true
+  | Require_no_tool_use -> true
 
 let resolve_accept ?accept_reason ~(accept : api_response -> bool) =
   match accept_reason with
