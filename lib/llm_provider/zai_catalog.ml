@@ -124,7 +124,7 @@ let general_concurrency_for_model model_id =
   else if starts_with "glm-ocr" then 2
   else 1
 
-let coding_concurrency_default = 1
+let coding_concurrency_default = 3
 
 let throttle_key_for_chat ~base_url ~model_id =
   match mode_of_base_url base_url with
