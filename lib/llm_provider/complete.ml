@@ -227,6 +227,38 @@ let complete_http ~sw ~net
        first=%C last=%C) for %s %s\n%!"
       body_len body_str.[0] body_str.[body_len - 1]
       (provider_name_of_kind config.kind) config.model_id;
+  (* Request body diagnostic dump.  Controlled by OAS_DEBUG_REQUEST_BODY:
+       "full"    — dump complete body to /tmp/oas-request-<ts>.json + stderr summary
+       "summary" — stderr one-liner: provider, model, url, byte count
+       unset/""  — silent (default, zero overhead)
+     Useful for diagnosing provider-side parse errors (e.g. Ollama yyjson
+     rejecting a body that Yojson.Safe considers valid). *)
+  let debug_request_body =
+    Sys.getenv_opt "OAS_DEBUG_REQUEST_BODY"
+    |> Option.value ~default:""
+    |> String.lowercase_ascii
+  in
+  let provider_label = provider_name_of_kind config.kind in
+  (match debug_request_body with
+   | "full" ->
+     let ts = Printf.sprintf "%.0f" (Unix.gettimeofday () *. 1000.0) in
+     let dump_path = Printf.sprintf "/tmp/oas-request-%s-%s.json" provider_label ts in
+     (try
+        let oc = open_out dump_path in
+        output_string oc body_str;
+        close_out oc;
+        Printf.eprintf
+          "[DEBUG] [Complete] %s %s → %s (%d bytes) dumped to %s\n%!"
+          provider_label config.model_id url body_len dump_path
+      with exn ->
+        Printf.eprintf
+          "[DEBUG] [Complete] %s %s → %s (%d bytes) dump failed: %s\n%!"
+          provider_label config.model_id url body_len (Printexc.to_string exn))
+   | "summary" ->
+     Printf.eprintf
+       "[DEBUG] [Complete] %s %s → %s (%d bytes)\n%!"
+       provider_label config.model_id url body_len
+   | _ -> ());
   let t0 = Unix.gettimeofday () in
   let result =
     match Http_client.post_sync ~sw ~net ~url
