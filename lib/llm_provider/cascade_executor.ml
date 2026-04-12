@@ -171,8 +171,82 @@ let group_into_turns (messages : Types.message list) : Types.message list list =
   in
   aux [] [] messages
 
+(** Group messages within a single turn into rounds.  Each round
+    starts with an Assistant message and includes all subsequent
+    messages until the next Assistant message.  The first message(s)
+    before any Assistant form a "preamble" round (the initial User
+    prompt / system context).  This preserves ToolUse/ToolResult
+    pairing because each (Assistant, User-ToolResult) stays together. *)
+let group_into_rounds (messages : Types.message list) : Types.message list list =
+  let open Types in
+  let rec aux current acc = function
+    | [] ->
+      if current = [] then List.rev acc
+      else List.rev (List.rev current :: acc)
+    | msg :: rest ->
+      if msg.role = Assistant && current <> [] then
+        aux [msg] (List.rev current :: acc) rest
+      else
+        aux (msg :: current) acc rest
+  in
+  aux [] [] messages
+
+(** Truncate within a single turn when it exceeds the token budget.
+    Keeps the preamble (first round — usually the initial User prompt)
+    and as many recent rounds as fit in the remaining budget.  Drops
+    older tool-call/result rounds from the middle.
+
+    If even the most recent round alone exceeds the remaining budget
+    after the preamble, keeps preamble + most recent round (exceeds
+    budget, but preserves minimal conversation structure).
+
+    @since 0.124.0 *)
+let truncate_within_turn budget (messages : Types.message list) : Types.message list =
+  match messages with
+  | [] | [_] -> messages
+  | _ ->
+    let rounds = group_into_rounds messages in
+    match rounds with
+    | [] -> messages
+    | [_single] -> messages  (* single round — nothing to drop *)
+    | preamble :: rest ->
+      let preamble_tokens =
+        List.fold_left (fun s m -> s + estimate_message_tokens m) 0 preamble
+      in
+      let remaining = budget - preamble_tokens in
+      if remaining <= 0 then preamble
+      else
+        let reversed = List.rev rest in
+        let rec take acc budget_left = function
+          | [] -> acc
+          | round :: more ->
+            let round_tokens =
+              List.fold_left (fun s m -> s + estimate_message_tokens m) 0 round
+            in
+            if budget_left >= round_tokens then
+              take (round :: acc) (budget_left - round_tokens) more
+            else acc
+        in
+        let kept = take [] remaining reversed in
+        let n_original = List.length rest in
+        let n_kept = List.length kept in
+        if n_kept < n_original then
+          Printf.eprintf
+            "[cascade_executor] [warn] intra_turn_truncation: \
+             %d→%d rounds (preamble=%d tokens, budget=%d)\n%!"
+            n_original n_kept preamble_tokens budget;
+        match kept with
+        | [] ->
+          (* Even the most recent round exceeds remaining budget.
+             Keep preamble + most recent round to preserve structure. *)
+          preamble @ (List.hd reversed)
+        | _ -> preamble @ List.concat kept
+
 (** Keep as many recent turns as fit within [budget] tokens.
-    Always keeps at least the most recent turn. *)
+    When the most recent turn alone exceeds the budget, truncates
+    within the turn by dropping older tool-call/result rounds
+    while preserving the initial prompt and ToolUse/ToolResult
+    pairing. *)
 let apply_token_budget budget messages =
   let turns = group_into_turns messages in
   let reversed = List.rev turns in
@@ -188,7 +262,9 @@ let apply_token_budget budget messages =
   in
   let kept = take_turns [] budget reversed in
   match kept, reversed with
-  | [], most_recent :: _ -> most_recent
+  | [], most_recent :: _ ->
+    (* Most recent turn exceeds budget — truncate within the turn *)
+    truncate_within_turn budget most_recent
   | _ -> List.concat kept
 
 (** Truncate messages to fit within a provider's context window.
@@ -212,7 +288,18 @@ let truncate_to_context ?(context_margin = default_context_margin)
         "[cascade_executor] [warn] context truncation: \
          estimated=%d budget=%d max_context=%d model=%s\n%!"
         estimated budget max_ctx cfg.model_id;
-      apply_token_budget budget messages
+      let result = apply_token_budget budget messages in
+      let result_tokens =
+        List.fold_left
+          (fun acc msg -> acc + estimate_message_tokens msg) 0 result
+      in
+      if result_tokens > budget then
+        Printf.eprintf
+          "[cascade_executor] [warn] context_still_over_budget: \
+           after_truncation=%d budget=%d messages=%d→%d model=%s\n%!"
+          result_tokens budget
+          (List.length messages) (List.length result) cfg.model_id;
+      result
     end
 
 (** Truncate tools to fit within the remaining context budget after
@@ -583,3 +670,142 @@ let%test "group_into_turns keeps ToolResult with preceding turn" =
      Total: 2 turns. *)
   List.length turns = 2
   && List.length (List.hd turns) = 3
+
+(* --- group_into_rounds: splits on Assistant messages --- *)
+
+let%test "group_into_rounds splits on assistant" =
+  let msgs = [
+    make_msg "prompt";
+    make_assistant_msg "tool call 1";
+    make_msg "result 1";
+    make_assistant_msg "tool call 2";
+    make_msg "result 2";
+  ] in
+  let rounds = group_into_rounds msgs in
+  (* Round 0: [prompt], Round 1: [asst1, result1], Round 2: [asst2, result2] *)
+  List.length rounds = 3
+  && List.length (List.hd rounds) = 1
+  && List.length (List.nth rounds 1) = 2
+  && List.length (List.nth rounds 2) = 2
+
+let%test "group_into_rounds single message" =
+  let rounds = group_into_rounds [make_msg "alone"] in
+  List.length rounds = 1
+
+(* --- truncate_within_turn: drops older rounds --- *)
+
+let make_tool_use_msg id input_str : Types.message =
+  let open Types in
+  { role = Assistant;
+    content = [ToolUse { id; name = "test_tool"; input = `String input_str }];
+    name = None; tool_call_id = None }
+
+let make_tool_result_msg id result_str : Types.message =
+  let open Types in
+  { role = User;
+    content = [ToolResult { tool_use_id = id; content = result_str;
+                            is_error = false; json = None }];
+    name = None; tool_call_id = None }
+
+let%test "truncate_within_turn drops older rounds keeps recent" =
+  (* Preamble: ~25 tokens.
+     Each round (assistant 400 chars + user 400 chars) ~200 tokens.
+     10 rounds = ~2000 tokens + 25 preamble = ~2025.
+     Budget 500: preamble 25 + ~2 recent rounds (400 tokens). *)
+  let preamble = make_msg (String.make 100 'p') in
+  let rounds = List.init 10 (fun i ->
+    let id = Printf.sprintf "t%d" i in
+    [make_tool_use_msg id (String.make 400 'x');
+     make_tool_result_msg id (String.make 400 'y')]
+  ) in
+  let messages = preamble :: List.concat rounds in
+  let result = truncate_within_turn 500 messages in
+  (* Should keep preamble + only a few recent rounds *)
+  List.length result < List.length messages
+  && List.length result >= 3  (* at least preamble + 1 round *)
+
+let%test "truncate_within_turn no-op when within budget" =
+  let msgs = [make_msg "small"; make_assistant_msg "reply"] in
+  let result = truncate_within_turn 10000 msgs in
+  List.length result = List.length msgs
+
+let%test "truncate_within_turn single message" =
+  let msgs = [make_msg "alone"] in
+  let result = truncate_within_turn 10 msgs in
+  List.length result = 1
+
+let%test "truncate_within_turn preserves most recent round" =
+  (* Even when budget is tiny, keeps preamble + last round. *)
+  let preamble = make_msg (String.make 100 'p') in
+  let round1 = [make_tool_use_msg "t1" (String.make 400 'a');
+                make_tool_result_msg "t1" (String.make 400 'b')] in
+  let round2 = [make_tool_use_msg "t2" (String.make 400 'c');
+                make_tool_result_msg "t2" (String.make 400 'd')] in
+  let messages = preamble :: round1 @ round2 in
+  let result = truncate_within_turn 50 messages in
+  (* Budget is tiny but fallback keeps preamble + last round *)
+  List.length result = 3  (* preamble + asst2 + result2 *)
+
+(* --- apply_token_budget: intra-turn truncation for oversized turn --- *)
+
+let%test "apply_token_budget triggers intra-turn for oversized single turn" =
+  (* Single turn with many tool rounds, budget smaller than the turn.
+     group_into_turns will produce 1 turn (all ToolResult User messages
+     stay in the same turn as the first User).  The old code would
+     return the entire turn unchanged; the new code truncates within. *)
+  let prompt = make_msg (String.make 100 'p') in
+  let rounds = List.init 20 (fun i ->
+    let id = Printf.sprintf "t%d" i in
+    let open Types in
+    [{ role = Assistant;
+       content = [ToolUse { id; name = "tool"; input = `String (String.make 400 'x') }];
+       name = None; tool_call_id = None };
+     { role = User;
+       content = [ToolResult { tool_use_id = id; content = String.make 400 'y';
+                               is_error = false; json = None }];
+       name = None; tool_call_id = None }]
+  ) in
+  let messages = prompt :: List.concat rounds in
+  (* Total: ~4025 tokens (prompt 25 + 20 rounds * 200 tokens).
+     Budget: 500 tokens → intra-turn truncation must kick in. *)
+  let result = apply_token_budget 500 messages in
+  List.length result < List.length messages
+  && List.length result >= 3
+
+(* --- group_into_rounds: assistant-first turn preserves pairing --- *)
+
+let%test "group_into_rounds assistant-first preserves ToolResult pairing" =
+  (* When a turn starts with Assistant (e.g. Agent.resume),
+     the first round should include Assistant + its ToolResult. *)
+  let msgs = [
+    make_tool_use_msg "t0" "first call";
+    make_tool_result_msg "t0" "first result";
+    make_tool_use_msg "t1" "second call";
+    make_tool_result_msg "t1" "second result";
+  ] in
+  let rounds = group_into_rounds msgs in
+  (* Round 0 (preamble): [Asst(t0), User(TR0)]
+     Round 1: [Asst(t1), User(TR1)] *)
+  List.length rounds = 2
+  && List.length (List.hd rounds) = 2
+  && List.length (List.nth rounds 1) = 2
+
+(* --- truncate_within_turn: result fits within budget (strict check) --- *)
+
+let%test "truncate_within_turn result tokens within budget" =
+  let preamble = make_msg (String.make 100 'p') in  (* ~25 tokens *)
+  let rounds = List.init 10 (fun i ->
+    let id = Printf.sprintf "t%d" i in
+    [make_tool_use_msg id (String.make 400 'x');
+     make_tool_result_msg id (String.make 400 'y')]
+  ) in
+  let messages = preamble :: List.concat rounds in
+  let budget = 500 in
+  let result = truncate_within_turn budget messages in
+  let result_tokens =
+    List.fold_left (fun acc m -> acc + estimate_message_tokens m) 0 result
+  in
+  (* Result should be within budget, or at most preamble + 1 round
+     in the fallback case *)
+  result_tokens <= budget
+  || List.length result = 3  (* fallback: preamble + last round *)
