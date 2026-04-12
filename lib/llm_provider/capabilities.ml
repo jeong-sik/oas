@@ -165,6 +165,7 @@ let ollama_supports_tool_choice_default =
 let ollama_capabilities = {
   openai_chat_extended_capabilities with
   supports_tool_choice = ollama_supports_tool_choice_default;
+  supports_min_p = false;
   is_ollama = true;
 }
 

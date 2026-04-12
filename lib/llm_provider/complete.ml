@@ -38,8 +38,11 @@ type sampling_defaults = {
 
 let provider_sampling_defaults (kind : Provider_config.provider_kind) : sampling_defaults =
   match kind with
-  | Provider_config.OpenAI_compat | Provider_config.Ollama ->
+  | Provider_config.OpenAI_compat ->
     { default_min_p = Some Constants.Sampling.openai_compat_min_p;
+      default_top_p = None; default_top_k = None }
+  | Provider_config.Ollama ->
+    { default_min_p = None;
       default_top_p = None; default_top_k = None }
   | Provider_config.Anthropic ->
     { default_min_p = None; default_top_p = None; default_top_k = None }
