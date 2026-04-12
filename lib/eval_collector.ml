@@ -29,15 +29,15 @@ let wrap_run ~bus ~agent_name ~run_id () =
 
 let process_events t =
   let events = Event_bus.drain t.sub in
-  List.iter (fun event ->
-    match event with
-    | Event_bus.TurnStarted _ ->
+  List.iter (fun (event : Event_bus.event) ->
+    match event.payload with
+    | TurnStarted _ ->
       t.turn_count <- t.turn_count + 1
-    | Event_bus.ToolCalled _ ->
+    | ToolCalled _ ->
       t.tool_calls <- t.tool_calls + 1
-    | Event_bus.ToolCompleted _ ->
+    | ToolCompleted _ ->
       t.tool_completions <- t.tool_completions + 1
-    | Event_bus.AgentCompleted r ->
+    | AgentCompleted r ->
       let elapsed_metric = {
         Eval.name = "elapsed_s";
         value = Float_val r.elapsed;

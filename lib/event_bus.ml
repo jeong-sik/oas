@@ -9,32 +9,57 @@
 
 open Types
 
-(* ── Event type ────────────────────────────────────────────────────── *)
+(* ── Envelope ─────────────────────────────────────────────────────── *)
 
-type event =
-  | AgentStarted of { agent_name: string; task_id: string;
-                      session_id: string option; worker_run_id: string option }
+type envelope = {
+  correlation_id: string;
+  run_id: string;
+  ts: float;
+}
+
+(* ── Payload type ─────────────────────────────────────────────────── *)
+
+type payload =
+  | AgentStarted of { agent_name: string; task_id: string }
   | AgentCompleted of { agent_name: string; task_id: string;
-                        result: (api_response, Error.sdk_error) result; elapsed: float;
-                        session_id: string option; worker_run_id: string option }
-  | ToolCalled of { agent_name: string; tool_name: string; input: Yojson.Safe.t;
-                    session_id: string option; worker_run_id: string option }
+                        result: (api_response, Error.sdk_error) result; elapsed: float }
+  | ToolCalled of { agent_name: string; tool_name: string; input: Yojson.Safe.t }
   | ToolCompleted of { agent_name: string; tool_name: string;
-                       output: Types.tool_result;
-                       session_id: string option; worker_run_id: string option }
-  | TurnStarted of { agent_name: string; turn: int;
-                     session_id: string option; worker_run_id: string option }
-  | TurnCompleted of { agent_name: string; turn: int;
-                       session_id: string option; worker_run_id: string option }
+                       output: Types.tool_result }
+  | TurnStarted of { agent_name: string; turn: int }
+  | TurnCompleted of { agent_name: string; turn: int }
   | ElicitationCompleted of { agent_name: string; question: string;
                               response: Hooks.elicitation_response }
   | TaskStateChanged of { task_id: string; from_state: string; to_state: string }
   | ContextCompacted of { agent_name: string; before_tokens: int;
-                          after_tokens: int; phase: string;
-                          session_id: string option; worker_run_id: string option }
+                          after_tokens: int; phase: string }
   | Custom of string * Yojson.Safe.t
 
-(* ── Subscription ──────────────────────────────────────────────────── *)
+(* ── Event type ───────────────────────────────────────────────────── *)
+
+type event = {
+  meta: envelope;
+  payload: payload;
+}
+
+(* ── ID generation ────────────────────────────────────────────────── *)
+
+let id_counter = Atomic.make 0
+
+let fresh_id () =
+  let n = Atomic.fetch_and_add id_counter 1 in
+  let now_us = Int.of_float (Unix.gettimeofday () *. 1e6) in
+  Printf.sprintf "%x-%x-%x" (Unix.getpid ()) now_us n
+
+let mk_envelope ?correlation_id ?run_id () =
+  let correlation_id = match correlation_id with Some id -> id | None -> fresh_id () in
+  let run_id = match run_id with Some id -> id | None -> fresh_id () in
+  { correlation_id; run_id; ts = Unix.gettimeofday () }
+
+let mk_event ?correlation_id ?run_id payload =
+  { meta = mk_envelope ?correlation_id ?run_id (); payload }
+
+(* ── Subscription ─────────────────────────────────────────────────── *)
 
 type filter = event -> bool
 
@@ -44,7 +69,7 @@ type subscription = {
   filter: filter;
 }
 
-(* ── Bus ───────────────────────────────────────────────────────────── *)
+(* ── Bus ──────────────────────────────────────────────────────────── *)
 
 type t = {
   mutable subscribers: subscription list;
@@ -60,12 +85,12 @@ let create ?(buffer_size = 256) () = {
   buffer_size;
 }
 
-(* ── Filters ───────────────────────────────────────────────────────── *)
+(* ── Filters ──────────────────────────────────────────────────────── *)
 
 let accept_all : filter = fun _ -> true
 
 let filter_agent name : filter = fun event ->
-  match event with
+  match event.payload with
   | AgentStarted r -> r.agent_name = name
   | AgentCompleted r -> r.agent_name = name
   | ToolCalled r -> r.agent_name = name
@@ -77,14 +102,24 @@ let filter_agent name : filter = fun event ->
   | TaskStateChanged _ -> true  (* Task events are not agent-scoped *)
   | Custom _ -> true  (* Custom events are not agent-scoped; always pass *)
 
-let filter_tools_only : filter = function
+let filter_tools_only : filter = fun event ->
+  match event.payload with
   | ToolCalled _ | ToolCompleted _ -> true
   | _ -> false
 
 (** Filter by Custom event topic name. *)
-let filter_topic topic : filter = function
+let filter_topic topic : filter = fun event ->
+  match event.payload with
   | Custom (t, _) -> t = topic
   | _ -> false
+
+(** Filter by correlation_id (replaces session_id filtering). *)
+let filter_correlation id : filter = fun event ->
+  event.meta.correlation_id = id
+
+(** Filter by run_id (replaces worker_run_id filtering). *)
+let filter_run id : filter = fun event ->
+  event.meta.run_id = id
 
 (** Combine filters: event passes if any filter accepts. *)
 let filter_any (filters : filter list) : filter = fun event ->
@@ -94,7 +129,7 @@ let filter_any (filters : filter list) : filter = fun event ->
 let filter_all (filters : filter list) : filter = fun event ->
   List.for_all (fun f -> f event) filters
 
-(* ── Subscribe / unsubscribe ───────────────────────────────────────── *)
+(* ── Subscribe / unsubscribe ──────────────────────────────────────── *)
 
 let subscribe ?(filter = accept_all) bus =
   let stream = Eio.Stream.create bus.buffer_size in
@@ -109,7 +144,7 @@ let unsubscribe bus sub =
   Eio.Mutex.use_rw ~protect:true bus.mu (fun () ->
     bus.subscribers <- List.filter (fun s -> s.id <> sub.id) bus.subscribers)
 
-(* ── Publish ───────────────────────────────────────────────────────── *)
+(* ── Publish ──────────────────────────────────────────────────────── *)
 
 let publish bus event =
   (* Snapshot subscriber list under lock, then deliver outside lock.
@@ -121,7 +156,7 @@ let publish bus event =
       Eio.Stream.add sub.stream event
   ) subs
 
-(* ── Drain ─────────────────────────────────────────────────────────── *)
+(* ── Drain ────────────────────────────────────────────────────────── *)
 
 let drain sub =
   let rec collect acc =
@@ -131,7 +166,7 @@ let drain sub =
   in
   collect []
 
-(* ── Queries ───────────────────────────────────────────────────────── *)
+(* ── Queries ──────────────────────────────────────────────────────── *)
 
 let subscriber_count bus =
   Eio.Mutex.use_ro bus.mu (fun () -> List.length bus.subscribers)

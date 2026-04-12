@@ -15,6 +15,8 @@ type event_payload = {
   event_type: string;
   timestamp: float;
   agent_name: string option;
+  correlation_id: string;
+  run_id: string;
   data: Yojson.Safe.t;
 }
 
@@ -22,6 +24,8 @@ let payload_to_json p =
   let base = [
     ("event_type", `String p.event_type);
     ("timestamp", `Float p.timestamp);
+    ("correlation_id", `String p.correlation_id);
+    ("run_id", `String p.run_id);
     ("data", p.data);
   ] in
   let agent = match p.agent_name with
@@ -32,7 +36,8 @@ let payload_to_json p =
 
 (* ── Event to payload ─────────────────────────────────────────── *)
 
-let event_type_name : Event_bus.event -> string = function
+let event_type_name (event : Event_bus.event) : string =
+  match event.payload with
   | AgentStarted _ -> "agent.started"
   | AgentCompleted _ -> "agent.completed"
   | ToolCalled _ -> "tool.called"
@@ -44,7 +49,7 @@ let event_type_name : Event_bus.event -> string = function
   | ContextCompacted _ -> "context.compacted"
   | Custom (name, _) -> "custom." ^ name
 
-let agent_name_of_event : Event_bus.event -> string option = function
+let agent_name_of_payload : Event_bus.payload -> string option = function
   | AgentStarted r -> Some r.agent_name
   | AgentCompleted r -> Some r.agent_name
   | ToolCalled r -> Some r.agent_name
@@ -56,10 +61,13 @@ let agent_name_of_event : Event_bus.event -> string option = function
   | TaskStateChanged _ -> None
   | Custom _ -> None
 
+let agent_name_of_event (event : Event_bus.event) : string option =
+  agent_name_of_payload event.payload
+
 let event_to_payload (event : Event_bus.event) : event_payload =
   let event_type = event_type_name event in
   let agent_name = agent_name_of_event event in
-  let data = match event with
+  let data = match event.payload with
     | AgentStarted r ->
       `Assoc [("agent_name", `String r.agent_name); ("task_id", `String r.task_id)]
     | AgentCompleted r ->
@@ -103,7 +111,12 @@ let event_to_payload (event : Event_bus.event) : event_payload =
     | Custom (name, data) ->
       `Assoc [("name", `String name); ("data", data)]
   in
-  { event_type; timestamp = Unix.gettimeofday (); agent_name; data }
+  { event_type;
+    timestamp = event.meta.ts;
+    agent_name;
+    correlation_id = event.meta.correlation_id;
+    run_id = event.meta.run_id;
+    data }
 
 (* ── Targets ──────────────────────────────────────────────────── *)
 

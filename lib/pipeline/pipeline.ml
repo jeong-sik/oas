@@ -40,11 +40,12 @@ let validate_completion_contract agent (response : Types.api_response) =
          (CompletionContractViolation
             { contract = Completion_contract.to_string contract; reason }))
 
-let event_session_id agent =
-  Option.bind agent.options.raw_trace Raw_trace.session_id
-
-let event_worker_run_id agent =
-  Option.bind (lifecycle_snapshot agent) (fun snapshot -> snapshot.current_run_id)
+let event_envelope agent : Event_bus.envelope =
+  let session_id = Option.bind agent.options.raw_trace Raw_trace.session_id in
+  let worker_run_id = Option.bind (lifecycle_snapshot agent) (fun s -> s.current_run_id) in
+  let correlation_id = match session_id with Some s -> s | None -> Event_bus.fresh_id () in
+  let run_id = match worker_run_id with Some r -> r | None -> Event_bus.fresh_id () in
+  Event_bus.mk_envelope ~correlation_id ~run_id ()
 
 (* ── Stage 1: Input ──────────────────────────────────────── *)
 
@@ -66,10 +67,11 @@ let stage_input ?raw_trace_run agent =
         let response = cb req in
         (match agent.options.event_bus with
          | Some bus -> Event_bus.publish bus
-             (ElicitationCompleted {
-                agent_name = agent.state.config.name;
-                question = req.question;
-                response })
+             (Event_bus.mk_event
+                (ElicitationCompleted {
+                   agent_name = agent.state.config.name;
+                   question = req.question;
+                   response }))
          | None -> ());
         (match response with
          | Hooks.Answer json ->
@@ -164,13 +166,10 @@ let stage_parse ?raw_trace_run agent =
   (* TurnStarted event *)
   (match agent.options.event_bus with
    | Some bus -> Event_bus.publish bus
-       (TurnStarted
-          {
-            agent_name = agent.state.config.name;
-            turn = agent.state.turn_count;
-            session_id = event_session_id agent;
-            worker_run_id = event_worker_run_id agent;
-          })
+       { meta = event_envelope agent;
+         payload = TurnStarted
+           { agent_name = agent.state.config.name;
+             turn = agent.state.turn_count } }
    | None -> ());
 
   let prep = prepare_turn_for_agent agent ~turn_params in
@@ -299,13 +298,10 @@ let stage_collect ?raw_trace_run agent ~original_config response =
 
   (match agent.options.event_bus with
    | Some bus -> Event_bus.publish bus
-       (TurnCompleted
-          {
-            agent_name = agent.state.config.name;
-            turn = agent.state.turn_count;
-            session_id = event_session_id agent;
-            worker_run_id = event_worker_run_id agent;
-          })
+       { meta = event_envelope agent;
+         payload = TurnCompleted
+           { agent_name = agent.state.config.name;
+             turn = agent.state.turn_count } }
    | None -> ());
 
   update_state agent (fun s ->
@@ -584,14 +580,12 @@ let proactive_compact ?raw_trace_run agent ~watermark () =
         update_state agent (fun s -> { s with messages = reduced });
         (match agent.options.event_bus with
          | Some bus -> Event_bus.publish bus
-             (ContextCompacted {
-               agent_name = agent.state.config.name;
-               before_tokens = est_tokens;
-               after_tokens;
-               phase = Printf.sprintf "proactive(%.0f%%)" (usage_ratio *. 100.0);
-               session_id = event_session_id agent;
-               worker_run_id = event_worker_run_id agent;
-             })
+             { meta = event_envelope agent;
+               payload = ContextCompacted {
+                 agent_name = agent.state.config.name;
+                 before_tokens = est_tokens;
+                 after_tokens;
+                 phase = Printf.sprintf "proactive(%.0f%%)" (usage_ratio *. 100.0) } }
          | None -> ());
         true
       end
@@ -631,14 +625,12 @@ let emergency_compact ?raw_trace_run agent ?limit () =
       update_state agent (fun s -> { s with messages = reduced });
       (match agent.options.event_bus with
        | Some bus -> Event_bus.publish bus
-           (ContextCompacted {
-             agent_name = agent.state.config.name;
-             before_tokens = est_tokens;
-             after_tokens;
-             phase = "emergency";
-             session_id = event_session_id agent;
-             worker_run_id = event_worker_run_id agent;
-           })
+           { meta = event_envelope agent;
+             payload = ContextCompacted {
+               agent_name = agent.state.config.name;
+               before_tokens = est_tokens;
+               after_tokens;
+               phase = "emergency" } }
        | None -> ());
       true
     end

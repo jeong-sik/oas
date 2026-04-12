@@ -688,24 +688,19 @@ let test_event_forward_all_event_types () =
          content = []; usage = None; telemetry = None }
   in
   let tool_ok : Types.tool_result = Ok { content = "done" } in
+  let ev p = Event_bus.mk_event p in
   let events : Event_bus.event list = [
-    AgentStarted { agent_name = "a"; task_id = "t1"; session_id = None;
-                   worker_run_id = None };
-    AgentCompleted { agent_name = "a"; task_id = "t1";
-                     result = ok_result; elapsed = 1.5; session_id = None;
-                     worker_run_id = None };
-    ToolCalled { agent_name = "a"; tool_name = "shell"; input = `String "ls";
-                 session_id = None; worker_run_id = None };
-    ToolCompleted { agent_name = "a"; tool_name = "shell"; output = tool_ok;
-                    session_id = None; worker_run_id = None };
-    TurnStarted { agent_name = "a"; turn = 0; session_id = None;
-                  worker_run_id = None };
-    TurnCompleted { agent_name = "a"; turn = 0; session_id = None;
-                    worker_run_id = None };
-    ElicitationCompleted { agent_name = "a"; question = "continue?";
-                           response = Hooks.Declined };
-    TaskStateChanged { task_id = "t1"; from_state = "submitted"; to_state = "working" };
-    Custom ("my_event", `Assoc [("key", `String "val")]);
+    ev (AgentStarted { agent_name = "a"; task_id = "t1" });
+    ev (AgentCompleted { agent_name = "a"; task_id = "t1";
+                     result = ok_result; elapsed = 1.5 });
+    ev (ToolCalled { agent_name = "a"; tool_name = "shell"; input = `String "ls" });
+    ev (ToolCompleted { agent_name = "a"; tool_name = "shell"; output = tool_ok });
+    ev (TurnStarted { agent_name = "a"; turn = 0 });
+    ev (TurnCompleted { agent_name = "a"; turn = 0 });
+    ev (ElicitationCompleted { agent_name = "a"; question = "continue?";
+                           response = Hooks.Declined });
+    ev (TaskStateChanged { task_id = "t1"; from_state = "submitted"; to_state = "working" });
+    ev (Custom ("my_event", `Assoc [("key", `String "val")]));
   ] in
   List.iter (fun event ->
     let type_name = Event_forward.event_type_name event in
@@ -721,24 +716,21 @@ let test_event_forward_all_event_types () =
   ) events
 
 let test_event_forward_agent_name_none_cases () =
-  let ev1 = Event_bus.TaskStateChanged {
-    task_id = "t"; from_state = "s1"; to_state = "s2" } in
-  let ev2 = Event_bus.Custom ("x", `Null) in
+  let ev1 = Event_bus.mk_event (TaskStateChanged {
+    task_id = "t"; from_state = "s1"; to_state = "s2" }) in
+  let ev2 = Event_bus.mk_event (Custom ("x", `Null)) in
   check (option string) "TaskStateChanged agent" None
     (Event_forward.agent_name_of_event ev1);
   check (option string) "Custom agent" None
     (Event_forward.agent_name_of_event ev2)
 
 let test_event_forward_agent_name_some_cases () =
+  let ev p = Event_bus.mk_event p in
   let events = [
-    Event_bus.AgentStarted { agent_name = "a"; task_id = "t"; session_id = None;
-                             worker_run_id = None };
-    Event_bus.ToolCalled { agent_name = "c"; tool_name = "t"; input = `Null;
-                           session_id = None; worker_run_id = None };
-    Event_bus.TurnStarted { agent_name = "e"; turn = 0; session_id = None;
-                            worker_run_id = None };
-    Event_bus.TurnCompleted { agent_name = "f"; turn = 0; session_id = None;
-                              worker_run_id = None };
+    ev (Event_bus.AgentStarted { agent_name = "a"; task_id = "t" });
+    ev (Event_bus.ToolCalled { agent_name = "c"; tool_name = "t"; input = `Null });
+    ev (Event_bus.TurnStarted { agent_name = "e"; turn = 0 });
+    ev (Event_bus.TurnCompleted { agent_name = "f"; turn = 0 });
   ] in
   List.iter (fun event ->
     match Event_forward.agent_name_of_event event with
@@ -749,7 +741,7 @@ let test_event_forward_agent_name_some_cases () =
 let test_event_forward_payload_no_agent () =
   let p : Event_forward.event_payload = {
     event_type = "test"; timestamp = 0.0;
-    agent_name = None; data = `Null;
+    agent_name = None; correlation_id = "c1"; run_id = "r1"; data = `Null;
   } in
   let json = Event_forward.payload_to_json p in
   let keys = match json with
@@ -761,7 +753,7 @@ let test_event_forward_payload_no_agent () =
 let test_event_forward_payload_with_agent () =
   let p : Event_forward.event_payload = {
     event_type = "test"; timestamp = 0.0;
-    agent_name = Some "alice"; data = `Null;
+    agent_name = Some "alice"; correlation_id = "c1"; run_id = "r1"; data = `Null;
   } in
   let json = Event_forward.payload_to_json p in
   let keys = match json with
@@ -786,7 +778,7 @@ let test_event_forward_custom_target_inline () =
     }]
     ~batch_size:1 () in
   Event_forward.start ~sw ~net:(Eio.Stdenv.net env) ~bus fwd;
-  Event_bus.publish bus (Custom ("ping", `Null));
+  Event_bus.publish bus (Event_bus.mk_event (Custom ("ping", `Null)));
   Eio.Fiber.yield ();
   Eio.Fiber.yield ();
   Event_forward.stop fwd;
@@ -820,9 +812,8 @@ let test_event_forward_file_append () =
     ~targets:[File_append { path }] ~batch_size:1 () in
   Event_forward.start ~sw ~net:(Eio.Stdenv.net env) ~bus fwd;
   Event_bus.publish bus
-    (TurnStarted
-       { agent_name = "a"; turn = 1; session_id = None;
-         worker_run_id = None });
+    (Event_bus.mk_event
+       (TurnStarted { agent_name = "a"; turn = 1 }));
   Eio.Fiber.yield ();
   Eio.Fiber.yield ();
   Event_forward.stop fwd;
@@ -843,7 +834,7 @@ let test_event_forward_custom_failure () =
     }]
     ~batch_size:1 () in
   Event_forward.start ~sw ~net:(Eio.Stdenv.net env) ~bus fwd;
-  Event_bus.publish bus (Custom ("test", `Null));
+  Event_bus.publish bus (Event_bus.mk_event (Custom ("test", `Null)));
   Eio.Fiber.yield ();
   Eio.Fiber.yield ();
   Event_forward.stop fwd;

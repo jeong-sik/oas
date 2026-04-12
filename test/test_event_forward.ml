@@ -9,17 +9,21 @@ let tmp_file () =
   at_exit (fun () -> try Sys.remove path with _ -> ());
   path
 
+(** Shorthand: wrap a payload into an event with a fresh envelope. *)
+let ev payload = Event_bus.mk_event payload
+
 (* ── Tests ────────────────────────────────────────────────────── *)
 
 let test_event_type_name () =
   let cases = [
-    (Event_bus.AgentStarted { agent_name = "a"; task_id = "t"; session_id = None;
-                              worker_run_id = None }, "agent.started");
-    (Event_bus.TurnStarted { agent_name = "a"; turn = 0; session_id = None;
-                             worker_run_id = None }, "turn.started");
-    (Event_bus.ToolCalled { agent_name = "a"; tool_name = "t"; input = `Null;
-                            session_id = None; worker_run_id = None }, "tool.called");
-    (Event_bus.Custom ("foo", `Null), "custom.foo");
+    (ev (Event_bus.AgentStarted { agent_name = "a"; task_id = "t" }),
+     "agent.started");
+    (ev (Event_bus.TurnStarted { agent_name = "a"; turn = 0 }),
+     "turn.started");
+    (ev (Event_bus.ToolCalled { agent_name = "a"; tool_name = "t"; input = `Null }),
+     "tool.called");
+    (ev (Event_bus.Custom ("foo", `Null)),
+     "custom.foo");
   ] in
   List.iter (fun (event, expected) ->
     Alcotest.(check string) "event_type"
@@ -28,9 +32,7 @@ let test_event_type_name () =
 
 let test_event_to_payload () =
   let event =
-    Event_bus.TurnStarted
-      { agent_name = "test"; turn = 3; session_id = None;
-        worker_run_id = None }
+    ev (Event_bus.TurnStarted { agent_name = "test"; turn = 3 })
   in
   let p = Event_forward.event_to_payload event in
   Alcotest.(check string) "event_type" "turn.started" p.event_type;
@@ -45,6 +47,8 @@ let test_payload_to_json () =
     event_type = "test.event";
     timestamp = 1700000000.0;
     agent_name = Some "alice";
+    correlation_id = "c1";
+    run_id = "r1";
     data = `Assoc [("key", `String "val")];
   } in
   let json = Event_forward.payload_to_json p in
@@ -52,7 +56,11 @@ let test_payload_to_json () =
   Alcotest.(check string) "event_type" "test.event"
     (json |> member "event_type" |> to_string);
   Alcotest.(check string) "agent_name" "alice"
-    (json |> member "agent_name" |> to_string)
+    (json |> member "agent_name" |> to_string);
+  Alcotest.(check string) "correlation_id" "c1"
+    (json |> member "correlation_id" |> to_string);
+  Alcotest.(check string) "run_id" "r1"
+    (json |> member "run_id" |> to_string)
 
 let test_file_append_target () =
   Eio_main.run @@ fun env ->
@@ -64,11 +72,9 @@ let test_file_append_target () =
     ~batch_size:2 () in
   Event_forward.start ~sw ~net:(Eio.Stdenv.net env) ~bus fwd;
   Event_bus.publish bus
-    (TurnStarted { agent_name = "a"; turn = 0; session_id = None;
-                   worker_run_id = None });
+    (ev (TurnStarted { agent_name = "a"; turn = 0 }));
   Event_bus.publish bus
-    (TurnStarted { agent_name = "a"; turn = 1; session_id = None;
-                   worker_run_id = None });
+    (ev (TurnStarted { agent_name = "a"; turn = 1 }));
   Eio.Fiber.yield ();
   Eio.Fiber.yield ();
   Event_forward.stop fwd;
@@ -94,8 +100,7 @@ let test_custom_target () =
   let fwd = Event_forward.create ~targets:[custom_target] ~batch_size:1 () in
   Event_forward.start ~sw ~net:(Eio.Stdenv.net env) ~bus fwd;
   Event_bus.publish bus
-    (TurnStarted { agent_name = "b"; turn = 0; session_id = None;
-                   worker_run_id = None });
+    (ev (TurnStarted { agent_name = "b"; turn = 0 }));
   Eio.Fiber.yield ();
   Eio.Fiber.yield ();
   Event_forward.stop fwd;
@@ -116,8 +121,7 @@ let test_custom_target_error_handling () =
   Log.set_global_level Error;  (* Suppress warn during test *)
   Event_forward.start ~sw ~net:(Eio.Stdenv.net env) ~bus fwd;
   Event_bus.publish bus
-    (TurnStarted { agent_name = "c"; turn = 0; session_id = None;
-                   worker_run_id = None });
+    (ev (TurnStarted { agent_name = "c"; turn = 0 }));
   Eio.Fiber.yield ();
   Eio.Fiber.yield ();
   Event_forward.stop fwd;
@@ -139,11 +143,9 @@ let test_delivered_count () =
   let fwd = Event_forward.create ~targets:[counting_target] ~batch_size:1 () in
   Event_forward.start ~sw ~net:(Eio.Stdenv.net env) ~bus fwd;
   Event_bus.publish bus
-    (TurnStarted { agent_name = "d"; turn = 0; session_id = None;
-                   worker_run_id = None });
+    (ev (TurnStarted { agent_name = "d"; turn = 0 }));
   Event_bus.publish bus
-    (TurnStarted { agent_name = "d"; turn = 1; session_id = None;
-                   worker_run_id = None });
+    (ev (TurnStarted { agent_name = "d"; turn = 1 }));
   Eio.Fiber.yield ();
   Eio.Fiber.yield ();
   Event_forward.stop fwd;
@@ -169,8 +171,7 @@ let test_multiple_targets () =
   let fwd = Event_forward.create ~targets:[t1; t2] ~batch_size:1 () in
   Event_forward.start ~sw ~net:(Eio.Stdenv.net env) ~bus fwd;
   Event_bus.publish bus
-    (TurnStarted { agent_name = "e"; turn = 0; session_id = None;
-                   worker_run_id = None });
+    (ev (TurnStarted { agent_name = "e"; turn = 0 }));
   Eio.Fiber.yield ();
   Eio.Fiber.yield ();
   Event_forward.stop fwd;
@@ -185,7 +186,7 @@ let test_stop_idempotent () =
   Alcotest.(check int) "delivered" 0 (Event_forward.delivered_count fwd)
 
 let test_agent_completed_payload () =
-  let event = Event_bus.AgentCompleted {
+  let event = ev (Event_bus.AgentCompleted {
     agent_name = "solver";
     task_id = "t1";
     result = Ok {
@@ -197,9 +198,7 @@ let test_agent_completed_payload () =
       telemetry = None;
     };
     elapsed = 2.5;
-    session_id = None;
-    worker_run_id = None;
-  } in
+  }) in
   let p = Event_forward.event_to_payload event in
   Alcotest.(check string) "type" "agent.completed" p.event_type;
   let open Yojson.Safe.Util in
@@ -207,13 +206,11 @@ let test_agent_completed_payload () =
   Alcotest.(check bool) "success" true (json |> member "success" |> to_bool)
 
 let test_tool_events_payload () =
-  let called = Event_bus.ToolCalled {
-    agent_name = "x"; tool_name = "search"; input = `String "query";
-    session_id = None; worker_run_id = None } in
-  let completed = Event_bus.ToolCompleted {
+  let called = ev (Event_bus.ToolCalled {
+    agent_name = "x"; tool_name = "search"; input = `String "query" }) in
+  let completed = ev (Event_bus.ToolCompleted {
     agent_name = "x"; tool_name = "search";
-    output = Ok { Types.content = "result" }; session_id = None;
-    worker_run_id = None } in
+    output = Ok { Types.content = "result" } }) in
   let p1 = Event_forward.event_to_payload called in
   let p2 = Event_forward.event_to_payload completed in
   Alcotest.(check string) "called type" "tool.called" p1.event_type;
@@ -222,51 +219,42 @@ let test_tool_events_payload () =
 (* ── event_to_payload: remaining event types ──────────────── *)
 
 let test_turn_completed_payload () =
-  let evt =
-    Event_bus.TurnCompleted
-      { agent_name = "worker"; turn = 5; session_id = None;
-        worker_run_id = None }
-  in
+  let evt = ev (Event_bus.TurnCompleted { agent_name = "worker"; turn = 5 }) in
   let p = Event_forward.event_to_payload evt in
   Alcotest.(check string) "type" "turn.completed" p.event_type;
   Alcotest.(check (option string)) "agent" (Some "worker") p.agent_name
 
 let test_elicitation_completed_payload () =
-  let evt = Event_bus.ElicitationCompleted {
+  let evt = ev (Event_bus.ElicitationCompleted {
     agent_name = "agent"; question = "confirm?";
-    response = Hooks.Declined } in
+    response = Hooks.Declined }) in
   let p = Event_forward.event_to_payload evt in
   Alcotest.(check string) "type" "elicitation.completed" p.event_type;
   Alcotest.(check (option string)) "agent" (Some "agent") p.agent_name
 
 let test_task_state_changed_payload () =
-  let evt = Event_bus.TaskStateChanged {
-    task_id = "t1"; from_state = "running"; to_state = "completed" } in
+  let evt = ev (Event_bus.TaskStateChanged {
+    task_id = "t1"; from_state = "running"; to_state = "completed" }) in
   let p = Event_forward.event_to_payload evt in
   Alcotest.(check string) "type" "task.state_changed" p.event_type;
   Alcotest.(check (option string)) "no agent" None p.agent_name
 
 let test_custom_event_payload () =
-  let evt = Event_bus.Custom ("myevent", `Assoc [("x", `Int 1)]) in
+  let evt = ev (Event_bus.Custom ("myevent", `Assoc [("x", `Int 1)])) in
   let p = Event_forward.event_to_payload evt in
   Alcotest.(check string) "type" "custom.myevent" p.event_type;
   Alcotest.(check (option string)) "no agent" None p.agent_name
 
 let test_agent_started_payload () =
-  let evt =
-    Event_bus.AgentStarted
-      { agent_name = "alpha"; task_id = "t1"; session_id = None;
-        worker_run_id = None }
-  in
+  let evt = ev (Event_bus.AgentStarted { agent_name = "alpha"; task_id = "t1" }) in
   let p = Event_forward.event_to_payload evt in
   Alcotest.(check string) "type" "agent.started" p.event_type;
   Alcotest.(check (option string)) "agent" (Some "alpha") p.agent_name
 
 let test_tool_completed_error_payload () =
-  let evt = Event_bus.ToolCompleted {
+  let evt = ev (Event_bus.ToolCompleted {
     agent_name = "x"; tool_name = "calc";
-    output = Error { Types.message = "fail"; recoverable = false };
-    session_id = None; worker_run_id = None } in
+    output = Error { Types.message = "fail"; recoverable = false } }) in
   let p = Event_forward.event_to_payload evt in
   Alcotest.(check string) "type" "tool.completed" p.event_type;
   let open Yojson.Safe.Util in
@@ -276,6 +264,7 @@ let test_tool_completed_error_payload () =
 let test_payload_to_json_no_agent () =
   let p : Event_forward.event_payload = {
     event_type = "test"; timestamp = 1.0; agent_name = None;
+    correlation_id = "c1"; run_id = "r1";
     data = `Assoc [("x", `Int 1)]; } in
   let json = Event_forward.payload_to_json p in
   let open Yojson.Safe.Util in
@@ -286,6 +275,7 @@ let test_payload_to_json_no_agent () =
 let test_payload_to_json_with_agent () =
   let p : Event_forward.event_payload = {
     event_type = "test"; timestamp = 1.0; agent_name = Some "bot";
+    correlation_id = "c1"; run_id = "r1";
     data = `Null; } in
   let json = Event_forward.payload_to_json p in
   let open Yojson.Safe.Util in
