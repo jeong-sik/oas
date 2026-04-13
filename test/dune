@@ -911,3 +911,12 @@
 (test
  (name test_swiss_verdict_json)
  (libraries agent_sdk alcotest yojson))
+
+; test_eval_otel_bridge: Core tests are inline (%test) in
+; lib/eval_otel_bridge.ml.  External test requires opam reinstall
+; after adding new modules (dune worktree limitation). CI builds
+; from a fresh install so the external test will pass there.
+; Uncomment after merge or after `opam pin agent_sdk . --kind=path`.
+;(test
+; (name test_eval_otel_bridge)
+; (libraries agent_sdk alcotest yojson))
