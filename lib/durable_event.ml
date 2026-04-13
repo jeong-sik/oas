@@ -60,13 +60,17 @@ type event =
 type journal = {
   mutable entries: event list;  (** Stored in reverse chronological order *)
   mutable size: int;
+  on_append: (event -> unit) option;
+    (** Optional fan-out callback invoked after every append.
+        Used to project journal events onto Event_bus or other sinks. *)
 }
 
-let create () = { entries = []; size = 0 }
+let create ?on_append () = { entries = []; size = 0; on_append }
 
 let append journal event =
   journal.entries <- event :: journal.entries;
-  journal.size <- journal.size + 1
+  journal.size <- journal.size + 1;
+  Option.iter (fun f -> f event) journal.on_append
 
 let events journal = List.rev journal.entries
 
@@ -302,7 +306,7 @@ let journal_of_json json =
     (* acc accumulates in reverse — matches journal.entries internal format *)
     let rec parse acc count = function
       | [] ->
-        Ok { entries = acc; size = count }
+        Ok { entries = acc; size = count; on_append = None }
       | item :: rest ->
         match event_of_json item with
         | Ok evt -> parse (evt :: acc) (count + 1) rest
