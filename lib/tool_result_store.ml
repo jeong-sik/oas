@@ -62,29 +62,51 @@ let config t = t.config
 
 (* ── Path helpers ───────────────────────────────────────────── *)
 
+(** Sanitize tool_use_id for safe use as a filename.
+    Strips path separators and non-alphanumeric characters except [-_].
+    Fail-closed: returns Error on empty result after sanitization. *)
+let sanitize_tool_use_id id =
+  let buf = Buffer.create (String.length id) in
+  String.iter (fun c ->
+    match c with
+    | 'a'..'z' | 'A'..'Z' | '0'..'9' | '-' | '_' -> Buffer.add_char buf c
+    | _ -> () (* strip path separators, dots, slashes, etc. *)
+  ) id;
+  let sanitized = Buffer.contents buf in
+  if sanitized = "" then
+    Error (Error.Io (ValidationFailed {
+      detail = Printf.sprintf "tool_use_id %S contains no safe characters" id }))
+  else Ok sanitized
+
 let result_path t ~tool_use_id =
-  Filename.concat t.results_dir (tool_use_id ^ ".txt")
+  match sanitize_tool_use_id tool_use_id with
+  | Ok safe_id -> Ok (Filename.concat t.results_dir (safe_id ^ ".txt"))
+  | Error _ as e -> e
 
 (* ── Persist / Read ─────────────────────────────────────────── *)
 
 let persist t ~tool_use_id ~content =
-  let path = result_path t ~tool_use_id in
-  (* Skip write if file already exists — idempotent on replay *)
-  if Fs_result.file_exists path then
-    Ok (generate_preview ~preview_chars:t.config.preview_chars content)
-  else
-    match Fs_result.write_file path content with
-    | Ok () ->
+  match result_path t ~tool_use_id with
+  | Error _ as e -> e
+  | Ok path ->
+    (* Skip write if file already exists — idempotent on replay *)
+    if Fs_result.file_exists path then
       Ok (generate_preview ~preview_chars:t.config.preview_chars content)
-    | Error _ as e -> e
+    else
+      match Fs_result.write_file path content with
+      | Ok () ->
+        Ok (generate_preview ~preview_chars:t.config.preview_chars content)
+      | Error _ as e -> e
 
 let read t ~tool_use_id =
-  let path = result_path t ~tool_use_id in
-  Fs_result.read_file path
+  match result_path t ~tool_use_id with
+  | Error _ as e -> e
+  | Ok path -> Fs_result.read_file path
 
 let has t ~tool_use_id =
-  let path = result_path t ~tool_use_id in
-  Fs_result.file_exists path
+  match result_path t ~tool_use_id with
+  | Error _ -> false
+  | Ok path -> Fs_result.file_exists path
 
 (* ── Cleanup ────────────────────────────────────────────────── *)
 

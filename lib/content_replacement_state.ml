@@ -140,7 +140,12 @@ let restore_from_context (ctx : Context.t) =
   | Some json ->
     match of_json json with
     | Ok t -> t
-    | Error _ -> create ()
+    | Error e ->
+      Printf.eprintf
+        "[WARN] Content_replacement_state.restore_from_context: \
+         CRS deserialization failed (%s), starting fresh\n%!"
+        (Error.to_string e);
+      create ()
 
 (* === Inline tests === *)
 
