@@ -414,42 +414,51 @@ let apply_cap_message_tokens ~max_tokens ~keep_recent messages =
         let msg_tokens = estimate_message_tokens msg in
         if msg_tokens <= max_tokens then msg
         else
-          let n_blocks = List.length msg.content in
-          if n_blocks <= 2 then msg  (* 1-2 blocks: not worth splitting *)
+          let blocks = Array.of_list msg.content in
+          let n_blocks = Array.length blocks in
+          if n_blocks <= 1 then msg  (* single block: can't split *)
           else
-            (* Take blocks from front until front_budget exhausted *)
-            let front_blocks, front_used =
-              let rec take acc used = function
-                | [] -> (List.rev acc, used)
-                | block :: rest ->
-                  let btok = estimate_block_tokens block in
-                  if used + btok > front_budget && acc <> [] then
-                    (List.rev acc, used)
-                  else
-                    take (block :: acc) (used + btok) rest
-              in
-              take [] 0 msg.content
+            (* Take blocks from front (indices 0..n_front-1) *)
+            let n_front, front_used =
+              let used = ref 0 in
+              let count = ref 0 in
+              let i = ref 0 in
+              while !i < n_blocks && (!count = 0 || !used <= front_budget) do
+                let btok = estimate_block_tokens blocks.(!i) in
+                if !count > 0 && !used + btok > front_budget then
+                  i := n_blocks  (* break *)
+                else begin
+                  used := !used + btok;
+                  incr count;
+                  incr i
+                end
+              done;
+              (!count, !used)
             in
-            (* Take blocks from back until back_budget exhausted *)
-            let back_blocks, _back_used =
-              let rev_content = List.rev msg.content in
-              let rec take acc used = function
-                | [] -> (acc, used)  (* already in correct order *)
-                | block :: rest ->
-                  let btok = estimate_block_tokens block in
-                  if used + btok > back_budget && acc <> [] then
-                    (acc, used)
-                  else
-                    take (block :: acc) (used + btok) rest
-              in
-              take [] 0 rev_content
+            (* Take blocks from back (indices n_blocks-n_back..n_blocks-1),
+               but never overlap with front blocks *)
+            let n_back, back_used =
+              let used = ref 0 in
+              let count = ref 0 in
+              let j = ref (n_blocks - 1) in
+              while !j >= n_front && (!count = 0 || !used <= back_budget) do
+                let btok = estimate_block_tokens blocks.(!j) in
+                if !count > 0 && !used + btok > back_budget then
+                  j := n_front - 1  (* break *)
+                else begin
+                  used := !used + btok;
+                  incr count;
+                  decr j
+                end
+              done;
+              (!count, !used)
             in
-            let n_front = List.length front_blocks in
-            let n_back = List.length back_blocks in
             let n_dropped = n_blocks - n_front - n_back in
             if n_dropped <= 0 then msg  (* front+back cover everything *)
             else
-              let dropped_tokens = msg_tokens - front_used - _back_used in
+              let dropped_tokens = max 0 (msg_tokens - front_used - back_used) in
+              let front_blocks = Array.to_list (Array.sub blocks 0 n_front) in
+              let back_blocks = Array.to_list (Array.sub blocks (n_blocks - n_back) n_back) in
               let marker = Text (Printf.sprintf
                 "[truncated: %d blocks, ~%d tokens removed]"
                 n_dropped dropped_tokens) in
@@ -684,12 +693,12 @@ let%test "cap_message_tokens: monotonicity — never increases tokens" =
   let capped_tokens = List.fold_left (fun acc m -> acc + estimate_message_tokens m) 0 result in
   capped_tokens <= original_tokens
 
-let%test "cap_message_tokens: 1-2 block messages are not split" =
+let%test "cap_message_tokens: single block message passes through" =
   let msg = { role = User;
               content = [Text (String.make 10000 'x')];
               name = None; tool_call_id = None } in
   let result = reduce (cap_message_tokens ~max_tokens:10 ~keep_recent:0) [msg] in
-  (* Single-block message: not worth splitting, passes through *)
+  (* Single-block message: cannot split further, passes through *)
   List.hd result = msg
 
 let%test "cap_message_tokens: max_tokens=0 is no-op" =
