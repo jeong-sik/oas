@@ -63,11 +63,18 @@ let has_required_api_key (cfg : Provider_config.t) =
 
 (** Internal: filter healthy + return discovery statuses for throttle. *)
 let filter_healthy_internal ~sw ~net (providers : Provider_config.t list) =
+  let initial_count = List.length providers in
   (* Step 0: Remove cloud providers missing required API keys *)
   let providers =
     let with_keys = List.filter has_required_api_key providers in
     if with_keys = [] then providers  (* keep all rather than empty *)
-    else with_keys
+    else begin
+      let dropped = initial_count - List.length with_keys in
+      if dropped > 0 then
+        Printf.eprintf "[cascade_health_filter] dropped %d provider(s) missing API keys\n%!"
+          dropped;
+      with_keys
+    end
   in
   let local_providers =
     List.filter is_local_provider providers
@@ -96,8 +103,12 @@ let filter_healthy_internal ~sw ~net (providers : Provider_config.t list) =
       in
       if any_healthy then
         (providers, statuses)
-      else
+      else begin
+        Printf.eprintf
+          "[cascade_health_filter] all %d local endpoint(s) unhealthy, falling back to %d cloud provider(s)\n%!"
+          (List.length local_providers) (List.length cloud_providers);
         (cloud_providers, [])
+      end
 
 let filter_healthy ~sw ~net providers =
   fst (filter_healthy_internal ~sw ~net providers)
