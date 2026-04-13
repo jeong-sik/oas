@@ -264,14 +264,26 @@ let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tra
   result
 
 let execute_scheduled_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus
+    ?journal
     ~tracer ~agent_name ~turn_count ~(usage : Types.usage_stats) ~approval
     ?correlation_id ?run_id
     ?on_tool_execution_started ?on_tool_execution_finished ?on_hook_invoked
     ~schedule (tool_use : scheduled_tool_use) =
   let { index; id; name; input; _ } = tool_use in
+  let idem_key = Durable_event.make_idempotency_key ~tool_name:name ~input in
+  (match journal with
+   | Some j ->
+       Durable_event.append j
+         (Tool_called
+            { turn = turn_count; tool_name = name;
+              idempotency_key = idem_key;
+              input_hash = Digest.string (Yojson.Safe.to_string input);
+              timestamp = Unix.gettimeofday () })
+   | None -> ());
   (match on_tool_execution_started with
    | Some callback -> callback ~tool_use_id:id ~tool_name:name ~input ~schedule
    | None -> ());
+  let t0_tool = Unix.gettimeofday () in
   let triple =
     Tracing.with_span tracer
       { kind = Tool_exec; name; agent_name; turn = turn_count; extra = [] }
@@ -368,6 +380,18 @@ let execute_scheduled_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus
               failure_kind = Some Non_retryable_tool_error;
             })
   in
+  let duration_ms_tool = (Unix.gettimeofday () -. t0_tool) *. 1000.0 in
+  (match journal with
+   | Some j ->
+       Durable_event.append j
+         (Tool_completed
+            { turn = turn_count; tool_name = name;
+              idempotency_key = idem_key;
+              output_json = `String triple.content;
+              is_error = triple.is_error;
+              duration_ms = duration_ms_tool;
+              timestamp = Unix.gettimeofday () })
+   | None -> ());
   (match on_tool_execution_finished with
    | Some callback ->
        callback ~tool_use_id:id ~tool_name:name ~content:triple.content
@@ -375,13 +399,12 @@ let execute_scheduled_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus
    | None -> ());
   (index, triple)
 
-let execute_tools ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tracer
+let execute_tools ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ?journal
+    ~tracer
     ~agent_name ~turn_count ~(usage : Types.usage_stats) ~approval
     ?correlation_id ?run_id
     ?on_tool_execution_started
     ?on_tool_execution_finished ?on_hook_invoked tool_uses =
-  (* Filter to ToolUse blocks only — prevents bogus result triples for
-     Text/Thinking/etc. blocks that may be present in the input list. *)
   let tool_use_blocks = List.filter_map (fun block ->
     match block with
     | ToolUse { id; name; input } -> Some (id, name, input)
@@ -391,7 +414,7 @@ let execute_tools ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tracer
     List.mapi (schedule_tool_use ~tools) tool_use_blocks
   in
   let run_one =
-    execute_scheduled_tool ~context ~tools ~hooks ~event_bus ~tracer
+    execute_scheduled_tool ~context ~tools ~hooks ~event_bus ?journal ~tracer
       ~agent_name ~turn_count ~usage ~approval ?correlation_id ?run_id
       ?on_tool_execution_started ?on_tool_execution_finished ?on_hook_invoked
   in
