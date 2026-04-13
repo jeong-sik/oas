@@ -154,6 +154,48 @@ let test_no_callback_default () =
   Durable_event.append j (Turn_started { turn = 1; timestamp = ts });
   check int "still appends" 1 (Durable_event.length j)
 
+(* ── Persistence ──────────────────────────────────── *)
+
+let test_save_and_load_roundtrip () =
+  let j = Durable_event.create () in
+  Durable_event.append j (Turn_started { turn = 1; timestamp = ts });
+  Durable_event.append j
+    (Llm_request { turn = 1; model = "q"; input_tokens = 42; timestamp = ts });
+  Durable_event.append j
+    (Error_occurred { turn = 1; error_domain = "Api"; detail = "boom"; timestamp = ts });
+  let path = Filename.temp_file "durable_event" ".jsonl" in
+  Fun.protect
+    ~finally:(fun () -> try Sys.remove path with _ -> ())
+    (fun () ->
+      (match Durable_event.save_to_file j path with
+       | Ok () -> ()
+       | Error e -> fail (Printf.sprintf "save failed: %s" e));
+      match Durable_event.load_from_file path with
+      | Error e -> fail (Printf.sprintf "load failed: %s" e)
+      | Ok j' ->
+        check int "length" 3 (Durable_event.length j');
+        let summary = Durable_event.replay_summary j' in
+        check int "total input tokens" 42 summary.total_input_tokens;
+        check int "error count" 1 summary.error_count)
+
+let test_load_missing_file_is_empty () =
+  let missing = "/tmp/definitely-does-not-exist-" ^ string_of_float (Unix.gettimeofday ()) in
+  match Durable_event.load_from_file missing with
+  | Ok j -> check int "empty journal" 0 (Durable_event.length j)
+  | Error e -> fail (Printf.sprintf "expected Ok, got: %s" e)
+
+let test_load_malformed_returns_error () =
+  let path = Filename.temp_file "durable_bad" ".jsonl" in
+  let oc = open_out path in
+  output_string oc "not json\n";
+  close_out oc;
+  Fun.protect
+    ~finally:(fun () -> try Sys.remove path with _ -> ())
+    (fun () ->
+      match Durable_event.load_from_file path with
+      | Ok _ -> fail "expected Error"
+      | Error _ -> ())
+
 (* ── Suite ────────────────────────────────────────── *)
 
 let () =
@@ -182,5 +224,10 @@ let () =
     ];
     "queries", [
       test_case "tool completions" `Quick test_tool_completions;
+    ];
+    "persistence", [
+      test_case "save/load roundtrip" `Quick test_save_and_load_roundtrip;
+      test_case "missing file empty" `Quick test_load_missing_file_is_empty;
+      test_case "malformed returns error" `Quick test_load_malformed_returns_error;
     ];
   ]
