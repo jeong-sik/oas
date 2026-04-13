@@ -38,6 +38,13 @@ type options = {
         updated.  Intended for emitting eval metrics, flushing OTel
         spans, or other end-of-run side effects.  The callback must
         not raise; exceptions are caught and logged. *)
+  tool_result_relocation:
+    (Tool_result_store.t * Content_replacement_state.t) option;
+    (** Optional tool result relocation.  When provided,
+        {!Agent_turn.make_tool_results} persists large results to disk
+        and replaces them with previews.  The [Content_replacement_state]
+        freezes replacement decisions for prompt cache stability.
+        @since 0.128.0 *)
 }
 
 (* Re-export lifecycle types from Agent_lifecycle.
@@ -98,6 +105,7 @@ let default_options = {
   priority = None;
   slot_id = None;
   on_run_complete = None;
+  tool_result_relocation = None;
 }
 
 type tool_call_fingerprint = Agent_turn.tool_call_fingerprint

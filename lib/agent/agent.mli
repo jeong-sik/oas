@@ -44,6 +44,8 @@ type options = Agent_types.options = {
   priority: Llm_provider.Request_priority.t option;
   slot_id: int option;
   on_run_complete: (bool -> unit) option;
+  tool_result_relocation:
+    (Tool_result_store.t * Content_replacement_state.t) option;
 }
 
 type lifecycle_status = Agent_lifecycle.lifecycle_status =

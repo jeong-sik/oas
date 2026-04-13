@@ -318,19 +318,58 @@ let default_max_tool_result_chars = 50_000
     All entries are valid ToolUse results — non-ToolUse blocks are filtered
     upstream in {!Agent_tools.execute_tools}.
 
+    When [relocation] is provided, results exceeding the store's
+    [threshold_chars] are persisted to disk and replaced with a
+    preview.  The [Content_replacement_state] records the decision
+    so that subsequent turns re-apply the same preview (no I/O).
+
     When [max_result_chars] > 0, individual results exceeding that limit
     are truncated at creation time with a marker showing the original
-    size.  This prevents pathological results (e.g. multi-MB file dumps)
-    from ever entering the message list. *)
-let make_tool_results ?(max_result_chars = default_max_tool_result_chars) results =
+    size.  This acts as a hard safety net after relocation.
+
+    Order: relocation first (persist + preview), then truncation
+    (if preview still exceeds [max_result_chars]). *)
+let make_tool_results ?(max_result_chars = default_max_tool_result_chars)
+    ?relocation results =
   List.map (fun (result : Agent_tools.tool_execution_result) ->
     let sanitized = Llm_provider.Utf8_sanitize.sanitize result.content in
+    (* Step 1: relocation — persist large results to disk *)
+    let content = match relocation with
+      | Some (store, crs) ->
+        let threshold = (Tool_result_store.config store).threshold_chars in
+        if threshold > 0 && String.length sanitized > threshold then
+          (* Persist and record replacement *)
+          (match Tool_result_store.persist store
+                   ~tool_use_id:result.tool_use_id ~content:sanitized with
+           | Ok preview ->
+             (try
+                Content_replacement_state.record_replacement crs {
+                  tool_use_id = result.tool_use_id;
+                  preview;
+                  original_chars = String.length sanitized;
+                };
+              with Invalid_argument _ ->
+                (* Already frozen — use cached replacement *)
+                ());
+             preview
+           | Error _ ->
+             (* Fail-open: keep original content *)
+             sanitized)
+        else begin
+          (* Below threshold — record as kept *)
+          (try Content_replacement_state.record_kept crs result.tool_use_id
+           with Invalid_argument _ -> ());
+          sanitized
+        end
+      | None -> sanitized
+    in
+    (* Step 2: truncation safety net *)
     let content =
-      if max_result_chars > 0 && String.length sanitized > max_result_chars then
-        let truncated = String.sub sanitized 0 max_result_chars in
+      if max_result_chars > 0 && String.length content > max_result_chars then
+        let truncated = String.sub content 0 max_result_chars in
         Printf.sprintf "%s\n[output truncated: %d chars total, showing first %d]"
-          truncated (String.length sanitized) max_result_chars
-      else sanitized
+          truncated (String.length content) max_result_chars
+      else content
     in
     ToolResult {
       tool_use_id = result.tool_use_id;

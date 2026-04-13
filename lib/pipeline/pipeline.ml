@@ -374,7 +374,11 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
         Error err
     in
     let* results = results in
-    let tool_results = Agent_turn.make_tool_results results in
+    let tool_results =
+      Agent_turn.make_tool_results
+        ?relocation:agent.options.tool_result_relocation
+        results
+    in
     let* tool_feedback =
       match agent.options.tool_retry_policy with
       | None ->

@@ -69,6 +69,13 @@ type options = {
         updated.  Intended for emitting eval metrics, flushing OTel
         spans, or other end-of-run side effects.
         @since 0.110.0 *)
+  tool_result_relocation:
+    (Tool_result_store.t * Content_replacement_state.t) option;
+    (** Optional tool result relocation.  When provided,
+        {!Agent_turn.make_tool_results} persists large results to disk
+        and replaces them with previews.  The {!Content_replacement_state}
+        freezes replacement decisions for prompt cache stability.
+        @since 0.128.0 *)
 }
 
 (** {1 Lifecycle re-exports} *)

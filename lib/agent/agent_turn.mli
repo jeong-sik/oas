@@ -150,11 +150,22 @@ val update_idle_detection :
 val default_max_tool_result_chars : int
 
 (** Convert tool execution results into [ToolResult] content blocks.
+
+    When [~relocation] is provided, results exceeding the store's
+    threshold are persisted to disk and replaced with a preview.
+    The {!Content_replacement_state} records each decision so that
+    subsequent turns re-apply the same preview without I/O.
+
     When [~max_result_chars] > 0 (default {!default_max_tool_result_chars}),
     individual results exceeding that limit are truncated at creation time
-    with a marker showing the original size.  Pass [~max_result_chars:0]
-    to disable the cap.
-    @since 0.127.0 added [max_result_chars] parameter *)
+    with a marker showing the original size.  This acts as a hard safety
+    net after relocation.  Pass [~max_result_chars:0] to disable.
+
+    Order: relocation first, then truncation.
+
+    @since 0.127.0 added [max_result_chars] parameter
+    @since 0.128.0 added [relocation] parameter *)
 val make_tool_results :
   ?max_result_chars:int ->
+  ?relocation:(Tool_result_store.t * Content_replacement_state.t) ->
   Agent_tools.tool_execution_result list -> Types.content_block list
