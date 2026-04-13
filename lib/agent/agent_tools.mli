@@ -90,6 +90,7 @@ val execute_tools :
   tools:Tool.t list ->
   hooks:Hooks.hooks ->
   event_bus:Event_bus.t option ->
+  ?journal:Durable_event.journal ->
   tracer:Tracing.t ->
   agent_name:string ->
   turn_count:int ->

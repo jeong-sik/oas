@@ -61,6 +61,7 @@ let execute_tools_with_trace agent active_run tool_uses =
   Agent_tools.execute_tools
     ~context:agent.context ~tools:(Tool_set.to_list agent.tools)
     ~hooks:agent.options.hooks ~event_bus:agent.options.event_bus
+    ?journal:agent.options.journal
     ~tracer:agent.options.tracer ~agent_name:agent.state.config.name
     ~turn_count:agent.state.turn_count ~usage:agent.state.usage
     ~approval:agent.options.approval ?correlation_id ?run_id
