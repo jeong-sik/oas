@@ -170,6 +170,7 @@ module Tool_retry_policy = Tool_retry_policy
 module Lenient_json = Llm_provider.Lenient_json
 module Tool_input_validation = Tool_input_validation
 module Durable_event = Durable_event
+module Journal_bridge = Journal_bridge
 module Checkpoint_validation = Checkpoint_validation
 module Judge = Judge
 
