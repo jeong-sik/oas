@@ -63,6 +63,12 @@ type options = {
     (** Pin LLM requests to a specific llama-server slot for KV cache reuse.
         When [Some n], adds ["id_slot": n] to OpenAI-compat request body.
         @since 0.109.0 *)
+  on_run_complete: (bool -> unit) option;
+    (** Optional callback invoked when a run finishes.  Receives [true]
+        on success, [false] on error.  Runs before lifecycle state is
+        updated.  Intended for emitting eval metrics, flushing OTel
+        spans, or other end-of-run side effects.
+        @since 0.110.0 *)
 }
 
 (** {1 Lifecycle re-exports} *)

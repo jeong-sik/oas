@@ -82,6 +82,18 @@ let trace_assistant_blocks active_run blocks =
              | _, (Error _ as err) -> err)
            (Ok ())
 
+(** Invoke the optional [on_run_complete] callback.
+    Exceptions are caught and logged to prevent finalization failures
+    from masking the actual run result. *)
+let invoke_on_run_complete agent ~ok =
+  match agent.options.on_run_complete with
+  | None -> ()
+  | Some cb ->
+    (try cb ok
+     with exn ->
+       Printf.eprintf "[WARN] on_run_complete raised: %s\n%!"
+         (Printexc.to_string exn))
+
 let with_raw_trace_run agent user_prompt f =
   (* Reset lifecycle so each run() starts fresh — allows agent reuse
      after Completed/Failed without hitting invalid transition. *)
@@ -92,6 +104,7 @@ let with_raw_trace_run agent user_prompt f =
       let ts = Unix.gettimeofday () in
       set_lifecycle agent ~accepted_at:ts ~started_at:ts Accepted;
       let result = f None in
+      invoke_on_run_complete agent ~ok:(Result.is_ok result);
       let ts = Unix.gettimeofday () in
       (match result with
       | Ok _ ->
@@ -113,6 +126,7 @@ let with_raw_trace_run agent user_prompt f =
       set_lifecycle agent ~current_run_id:(Raw_trace.active_run_id active)
         ~accepted_at:ts ~started_at:ts Accepted;
       let finalize result =
+        invoke_on_run_complete agent ~ok:(Result.is_ok result);
         let final_text, stop_reason, error =
           match result with
           | Ok response ->

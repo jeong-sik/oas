@@ -58,6 +58,7 @@ type t = {
   exit_condition: (int -> bool) option;
   tool_selector: Tool_selector.strategy option;
   slot_id: int option;
+  on_run_complete: (bool -> unit) option;
 }
 
 let create ~net ~model =
@@ -115,6 +116,7 @@ let create ~net ~model =
     exit_condition = None;
     tool_selector = None;
     slot_id = None;
+    on_run_complete = None;
   }
 
 let with_system_prompt prompt b = { b with system_prompt = Some prompt }
@@ -177,6 +179,7 @@ let with_guardrails_async guardrails_async b = { b with guardrails_async }
 let with_operator_policy policy b = { b with operator_policy = Some policy }
 let with_priority priority b = { b with priority = Some priority }
 let with_slot_id slot_id b = { b with slot_id = Some slot_id }
+let with_on_run_complete cb b = { b with on_run_complete = Some cb }
 let with_contract contract b =
   { b with contract = Contract.merge b.contract contract }
 let with_skill skill b =
@@ -311,6 +314,7 @@ let build b =
     tool_selector = b.tool_selector;
     priority = b.priority;
     slot_id = b.slot_id;
+    on_run_complete = b.on_run_complete;
   } in
   Agent.create ~net:b.net ~config ~tools:(Tool_set.to_list tools) ?context
     ~options ()

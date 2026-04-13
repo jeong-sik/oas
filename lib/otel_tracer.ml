@@ -54,6 +54,16 @@ let default_config = {
   endpoint = None;
 }
 
+(* -- Metric types ----------------------------------------------------- *)
+
+type metric_type = Counter | Gauge | Histogram
+
+type metric_entry = {
+  m_name: string;
+  m_value: float;
+  m_type: metric_type;
+}
+
 (* -- Instance type ---------------------------------------------------- *)
 
 type mutex_impl =
@@ -65,6 +75,7 @@ type instance = {
   mu: mutex_impl;
   mutable current_spans: span list;
   mutable completed_spans: span list;
+  mutable metrics: metric_entry list;
 }
 
 (* -- Random hex ID generation ----------------------------------------- *)
@@ -206,6 +217,25 @@ let inst_active_count inst =
   inst_with_lock inst @@ fun () ->
   List.length inst.current_spans
 
+(* -- Instance metric operations --------------------------------------- *)
+
+let inst_record_metric inst ~name ~value ~metric_type =
+  inst_with_lock inst @@ fun () ->
+  inst.metrics <- Util.snoc inst.metrics { m_name = name; m_value = value; m_type = metric_type }
+
+let inst_get_metrics inst =
+  inst_with_lock inst @@ fun () ->
+  List.map (fun m -> (m.m_name, m.m_value, m.m_type)) inst.metrics
+
+let inst_clear_metrics inst =
+  inst_with_lock inst @@ fun () ->
+  inst.metrics <- []
+
+let metric_type_to_string = function
+  | Counter -> "counter"
+  | Gauge -> "gauge"
+  | Histogram -> "histogram"
+
 (* -- Global instance (backward compat) -------------------------------- *)
 
 let _global : instance = {
@@ -213,6 +243,7 @@ let _global : instance = {
   mu = Stdlib_mu (Mutex.create ());
   current_spans = [];
   completed_spans = [];
+  metrics = [];
 }
 
 let start_span attrs = inst_start_span _global attrs
@@ -223,6 +254,10 @@ let flush () = inst_flush _global
 let reset () = inst_reset _global
 let completed_count () = inst_completed_count _global
 let active_count () = inst_active_count _global
+let record_metric ~name ~value ~metric_type =
+  inst_record_metric _global ~name ~value ~metric_type
+let get_metrics () = inst_get_metrics _global
+let clear_metrics () = inst_clear_metrics _global
 
 (* -- JSON export ------------------------------------------------------ *)
 
@@ -269,35 +304,76 @@ let span_to_json (s : span) : Yojson.Safe.t =
   in
   `Assoc with_parent
 
+let metric_entry_to_json (m : metric_entry) : Yojson.Safe.t =
+  let ts = now_ns () in
+  let data_point = `Assoc [
+    ("asDouble", `Float m.m_value);
+    ("timeUnixNano", `String (Int64.to_string ts));
+  ] in
+  let metric_body = match m.m_type with
+    | Counter ->
+      [("sum", `Assoc [
+        ("dataPoints", `List [data_point]);
+        ("isMonotonic", `Bool true);
+        ("aggregationTemporality", `Int 2);
+      ])]
+    | Gauge ->
+      [("gauge", `Assoc [
+        ("dataPoints", `List [data_point]);
+      ])]
+    | Histogram ->
+      [("histogram", `Assoc [
+        ("dataPoints", `List [data_point]);
+        ("aggregationTemporality", `Int 2);
+      ])]
+  in
+  `Assoc (("name", `String m.m_name) :: metric_body)
+
 let to_otlp_json (cfg : config) : Yojson.Safe.t =
-  let spans = inst_with_lock _global
-    (fun () -> List.rev _global.completed_spans) in
-  `Assoc [
-    ("resourceSpans", `List [
+  let spans, metrics = inst_with_lock _global
+    (fun () -> (List.rev _global.completed_spans, _global.metrics)) in
+  let resource = `Assoc [
+    ("attributes", attrs_to_json [
+      ("service.name", cfg.service_name)
+    ])
+  ] in
+  let resource_spans = `Assoc [
+    ("resource", resource);
+    ("scopeSpans", `List [
       `Assoc [
-        ("resource", `Assoc [
-          ("attributes", attrs_to_json [
-            ("service.name", cfg.service_name)
-          ])
+        ("scope", `Assoc [
+          ("name", `String "agent_sdk.otel_tracer");
+          ("version", `String Sdk_version.version);
         ]);
-        ("scopeSpans", `List [
+        ("spans", `List (List.map span_to_json spans));
+      ]
+    ])
+  ] in
+  let base = [("resourceSpans", `List [resource_spans])] in
+  let with_metrics =
+    if metrics = [] then base
+    else
+      let resource_metrics = `Assoc [
+        ("resource", resource);
+        ("scopeMetrics", `List [
           `Assoc [
             ("scope", `Assoc [
               ("name", `String "agent_sdk.otel_tracer");
               ("version", `String Sdk_version.version);
             ]);
-            ("spans", `List (List.map span_to_json spans));
+            ("metrics", `List (List.map metric_entry_to_json metrics));
           ]
         ])
-      ]
-    ])
-  ]
+      ] in
+      base @ [("resourceMetrics", `List [resource_metrics])]
+  in
+  `Assoc with_metrics
 
 (* -- Instance creation ------------------------------------------------ *)
 
 let create_instance ?(config = default_config) () : instance =
   { config; mu = Eio_mu (Eio.Mutex.create ());
-    current_spans = []; completed_spans = [] }
+    current_spans = []; completed_spans = []; metrics = [] }
 
 let create_instance_eio ?(config = default_config) () : instance =
   create_instance ~config ()

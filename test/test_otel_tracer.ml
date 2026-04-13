@@ -315,6 +315,134 @@ let test_with_span_helper () =
    with Failure _ -> raised := true);
   check bool "exception was re-raised" true !raised
 
+(* ── Metric API ─────────────────────────────────────────────────── *)
+
+let test_record_metric_counter () =
+  let inst : Otel_tracer.instance =
+    { config = Otel_tracer.default_config;
+      mu = Otel_tracer.Stdlib_mu (Mutex.create ());
+      current_spans = []; completed_spans = []; metrics = [] }
+  in
+  Otel_tracer.inst_record_metric inst ~name:"oas.eval.total" ~value:42.0
+    ~metric_type:Otel_tracer.Counter;
+  let metrics = Otel_tracer.inst_get_metrics inst in
+  check int "one metric recorded" 1 (List.length metrics);
+  let (name, value, mt) = List.hd metrics in
+  check string "metric name" "oas.eval.total" name;
+  check (float 0.01) "metric value" 42.0 value;
+  check string "metric type" "counter" (Otel_tracer.metric_type_to_string mt)
+
+let test_record_metric_gauge () =
+  let inst : Otel_tracer.instance =
+    { config = Otel_tracer.default_config;
+      mu = Otel_tracer.Stdlib_mu (Mutex.create ());
+      current_spans = []; completed_spans = []; metrics = [] }
+  in
+  Otel_tracer.inst_record_metric inst ~name:"oas.eval.coverage" ~value:0.85
+    ~metric_type:Otel_tracer.Gauge;
+  let metrics = Otel_tracer.inst_get_metrics inst in
+  check int "one metric" 1 (List.length metrics);
+  let (_, _, mt) = List.hd metrics in
+  check string "gauge type" "gauge" (Otel_tracer.metric_type_to_string mt)
+
+let test_record_multiple_metrics () =
+  let inst : Otel_tracer.instance =
+    { config = Otel_tracer.default_config;
+      mu = Otel_tracer.Stdlib_mu (Mutex.create ());
+      current_spans = []; completed_spans = []; metrics = [] }
+  in
+  Otel_tracer.inst_record_metric inst ~name:"m1" ~value:1.0
+    ~metric_type:Otel_tracer.Counter;
+  Otel_tracer.inst_record_metric inst ~name:"m2" ~value:2.0
+    ~metric_type:Otel_tracer.Gauge;
+  Otel_tracer.inst_record_metric inst ~name:"m3" ~value:3.0
+    ~metric_type:Otel_tracer.Histogram;
+  let metrics = Otel_tracer.inst_get_metrics inst in
+  check int "three metrics" 3 (List.length metrics);
+  let names = List.map (fun (n, _, _) -> n) metrics in
+  check (list string) "insertion order" ["m1"; "m2"; "m3"] names
+
+let test_clear_metrics () =
+  let inst : Otel_tracer.instance =
+    { config = Otel_tracer.default_config;
+      mu = Otel_tracer.Stdlib_mu (Mutex.create ());
+      current_spans = []; completed_spans = []; metrics = [] }
+  in
+  Otel_tracer.inst_record_metric inst ~name:"m1" ~value:1.0
+    ~metric_type:Otel_tracer.Counter;
+  Otel_tracer.inst_clear_metrics inst;
+  let metrics = Otel_tracer.inst_get_metrics inst in
+  check int "empty after clear" 0 (List.length metrics)
+
+let test_global_record_metric () =
+  Otel_tracer.reset ();
+  Otel_tracer.clear_metrics ();
+  Otel_tracer.record_metric ~name:"g1" ~value:10.0
+    ~metric_type:Otel_tracer.Counter;
+  let metrics = Otel_tracer.get_metrics () in
+  check int "one global metric" 1 (List.length metrics);
+  Otel_tracer.clear_metrics ()
+
+let test_metric_type_to_string () =
+  check string "counter" "counter"
+    (Otel_tracer.metric_type_to_string Otel_tracer.Counter);
+  check string "gauge" "gauge"
+    (Otel_tracer.metric_type_to_string Otel_tracer.Gauge);
+  check string "histogram" "histogram"
+    (Otel_tracer.metric_type_to_string Otel_tracer.Histogram)
+
+let test_metric_entry_to_json () =
+  let entry : Otel_tracer.metric_entry =
+    { m_name = "oas.eval.total"; m_value = 5.0;
+      m_type = Otel_tracer.Counter }
+  in
+  let json = Otel_tracer.metric_entry_to_json entry in
+  check bool "has name" true (json_assoc_field "name" json <> None);
+  check (option string) "name value" (Some "oas.eval.total")
+    (match json_assoc_field "name" json with
+     | Some (`String s) -> Some s | _ -> None);
+  check bool "has sum (counter)" true (json_assoc_field "sum" json <> None)
+
+let test_metric_entry_gauge_json () =
+  let entry : Otel_tracer.metric_entry =
+    { m_name = "oas.eval.coverage"; m_value = 0.95;
+      m_type = Otel_tracer.Gauge }
+  in
+  let json = Otel_tracer.metric_entry_to_json entry in
+  check bool "has gauge" true (json_assoc_field "gauge" json <> None);
+  check bool "no sum" true (json_assoc_field "sum" json = None)
+
+let test_otlp_json_with_metrics () =
+  Otel_tracer.reset ();
+  Otel_tracer.clear_metrics ();
+  let s = Otel_tracer.start_span (default_attrs ~name:"with_metrics" ()) in
+  Otel_tracer.end_span s ~ok:true;
+  Otel_tracer.record_metric ~name:"m1" ~value:1.0
+    ~metric_type:Otel_tracer.Counter;
+  let cfg : Otel_tracer.config =
+    { service_name = "test-svc"; endpoint = None }
+  in
+  let json = Otel_tracer.to_otlp_json cfg in
+  check bool "has resourceSpans" true
+    (json_assoc_field "resourceSpans" json <> None);
+  check bool "has resourceMetrics" true
+    (json_assoc_field "resourceMetrics" json <> None);
+  Otel_tracer.clear_metrics ()
+
+let test_otlp_json_without_metrics () =
+  Otel_tracer.reset ();
+  Otel_tracer.clear_metrics ();
+  let s = Otel_tracer.start_span (default_attrs ~name:"no_metrics" ()) in
+  Otel_tracer.end_span s ~ok:true;
+  let cfg : Otel_tracer.config =
+    { service_name = "test-svc"; endpoint = None }
+  in
+  let json = Otel_tracer.to_otlp_json cfg in
+  check bool "has resourceSpans" true
+    (json_assoc_field "resourceSpans" json <> None);
+  check bool "no resourceMetrics when empty" true
+    (json_assoc_field "resourceMetrics" json = None)
+
 (* ── Entry point ─────────────────────────────────────────────────── *)
 
 let () =
@@ -352,5 +480,17 @@ let () =
     "first_class_module", [
       test_case "create produces valid tracer" `Quick (with_eio test_create_produces_valid_tracer);
       test_case "with_span helper" `Quick (with_eio test_with_span_helper);
+    ];
+    "metrics_api", [
+      test_case "record counter metric" `Quick test_record_metric_counter;
+      test_case "record gauge metric" `Quick test_record_metric_gauge;
+      test_case "record multiple metrics" `Quick test_record_multiple_metrics;
+      test_case "clear metrics" `Quick test_clear_metrics;
+      test_case "global record metric" `Quick test_global_record_metric;
+      test_case "metric_type_to_string" `Quick test_metric_type_to_string;
+      test_case "metric_entry_to_json counter" `Quick test_metric_entry_to_json;
+      test_case "metric_entry_to_json gauge" `Quick test_metric_entry_gauge_json;
+      test_case "otlp json includes metrics" `Quick test_otlp_json_with_metrics;
+      test_case "otlp json omits metrics when empty" `Quick test_otlp_json_without_metrics;
     ];
   ]
