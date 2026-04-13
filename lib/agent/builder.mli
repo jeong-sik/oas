@@ -190,6 +190,15 @@ val with_tool_selector : Tool_selector.strategy -> t -> t
     @since 0.110.0 *)
 val with_on_run_complete : (bool -> unit) -> t -> t
 
+(** Enable tool result relocation.  Large results are persisted to disk
+    and replaced with previews.  Decisions are frozen in the
+    {!Content_replacement_state} for prompt cache stability.
+    @since 0.128.0 *)
+val with_tool_result_relocation :
+  store:Tool_result_store.t ->
+  state:Content_replacement_state.t ->
+  t -> t
+
 (** {2 Build} *)
 
 (** Build the agent. May raise on invalid config.

@@ -59,6 +59,8 @@ type t = {
   tool_selector: Tool_selector.strategy option;
   slot_id: int option;
   on_run_complete: (bool -> unit) option;
+  tool_result_relocation:
+    (Tool_result_store.t * Content_replacement_state.t) option;
 }
 
 let create ~net ~model =
@@ -117,7 +119,11 @@ let create ~net ~model =
     tool_selector = None;
     slot_id = None;
     on_run_complete = None;
+    tool_result_relocation = None;
   }
+
+let with_tool_result_relocation ~store ~state b =
+  { b with tool_result_relocation = Some (store, state) }
 
 let with_system_prompt prompt b = { b with system_prompt = Some prompt }
 let with_name name b = { b with name }
@@ -315,6 +321,7 @@ let build b =
     priority = b.priority;
     slot_id = b.slot_id;
     on_run_complete = b.on_run_complete;
+    tool_result_relocation = b.tool_result_relocation;
   } in
   Agent.create ~net:b.net ~config ~tools:(Tool_set.to_list tools) ?context
     ~options ()

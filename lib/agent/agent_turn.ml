@@ -306,15 +306,131 @@ let update_idle_detection ~idle_state ~tool_uses =
     is_idle = idle;
   }
 
+(** Default per-tool-result character cap.
+    Aligned with Claude Code's DEFAULT_MAX_RESULT_SIZE_CHARS (50,000).
+    Results exceeding this are truncated with a marker at creation time,
+    before entering the conversation.  The downstream
+    [Context_reducer.prune_tool_outputs] further reduces during turns.
+    Pass [~max_result_chars:0] to disable. *)
+let default_max_tool_result_chars = 50_000
+
 (** Process tool results into ToolResult content blocks.
     All entries are valid ToolUse results — non-ToolUse blocks are filtered
-    upstream in {!Agent_tools.execute_tools}. *)
-let make_tool_results results =
+    upstream in {!Agent_tools.execute_tools}.
+
+    When [relocation] is provided, results exceeding the store's
+    [threshold_chars] are persisted to disk and replaced with a
+    preview.  The [Content_replacement_state] records the decision
+    so that subsequent turns re-apply the same preview (no I/O).
+
+    When [max_result_chars] > 0, individual results exceeding that limit
+    are truncated at creation time with a marker showing the original
+    size.  This acts as a hard safety net after relocation.
+
+    Order: relocation first (persist + preview), then truncation
+    (if preview still exceeds [max_result_chars]). *)
+let make_tool_results ?(max_result_chars = default_max_tool_result_chars)
+    ?relocation results =
   List.map (fun (result : Agent_tools.tool_execution_result) ->
+    let sanitized = Llm_provider.Utf8_sanitize.sanitize result.content in
+    (* Step 1: relocation — persist large results to disk *)
+    let content = match relocation with
+      | Some (store, crs) ->
+        let threshold = (Tool_result_store.config store).threshold_chars in
+        if threshold > 0 && String.length sanitized > threshold then
+          (* Persist and record replacement *)
+          (match Tool_result_store.persist store
+                   ~tool_use_id:result.tool_use_id ~content:sanitized with
+           | Ok preview ->
+             (try
+                Content_replacement_state.record_replacement crs {
+                  tool_use_id = result.tool_use_id;
+                  preview;
+                  original_chars = String.length sanitized;
+                };
+              with Invalid_argument _ ->
+                (* Already frozen — use cached replacement *)
+                ());
+             preview
+           | Error _ ->
+             (* Fail-open: keep original content *)
+             sanitized)
+        else begin
+          (* Below threshold — record as kept *)
+          (try Content_replacement_state.record_kept crs result.tool_use_id
+           with Invalid_argument _ -> ());
+          sanitized
+        end
+      | None -> sanitized
+    in
+    (* Step 2: truncation safety net *)
+    let content =
+      if max_result_chars > 0 && String.length content > max_result_chars then
+        let truncated = String.sub content 0 max_result_chars in
+        Printf.sprintf "%s\n[output truncated: %d chars total, showing first %d]"
+          truncated (String.length content) max_result_chars
+      else content
+    in
     ToolResult {
       tool_use_id = result.tool_use_id;
-      content = Llm_provider.Utf8_sanitize.sanitize result.content;
+      content;
       is_error = result.is_error;
       json = None;
     }
   ) results
+
+(* === make_tool_results inline tests === *)
+
+let mock_result ?(is_error=false) ~id content : Agent_tools.tool_execution_result =
+  { tool_use_id = id; tool_name = "test"; content; is_error; failure_kind = None }
+
+let%test "make_tool_results: small result passes through unchanged" =
+  let results = [mock_result ~id:"t1" "hello world"] in
+  match make_tool_results results with
+  | [ToolResult { content; _ }] -> content = "hello world"
+  | _ -> false
+
+let%test "make_tool_results: large result is truncated at default cap" =
+  let big = String.make 60_000 'x' in
+  let results = [mock_result ~id:"t1" big] in
+  match make_tool_results results with
+  | [ToolResult { content; _ }] ->
+    String.length content > default_max_tool_result_chars
+    && String.length content < 60_000 + 100
+  | _ -> false
+
+let%test "make_tool_results: truncation marker present" =
+  let big = String.make 60_000 'x' in
+  let results = [mock_result ~id:"t1" big] in
+  match make_tool_results results with
+  | [ToolResult { content; _ }] ->
+    let needle = "[output truncated:" in
+    let nlen = String.length needle in
+    let slen = String.length content in
+    let found = ref false in
+    for i = 0 to slen - nlen do
+      if not !found && String.sub content i nlen = needle then found := true
+    done;
+    !found
+  | _ -> false
+
+let%test "make_tool_results: custom cap respected" =
+  let results = [mock_result ~id:"t1" (String.make 500 'y')] in
+  match make_tool_results ~max_result_chars:100 results with
+  | [ToolResult { content; _ }] ->
+    String.length content > 100 && String.length content < 200
+  | _ -> false
+
+let%test "make_tool_results: cap=0 disables truncation" =
+  let big = String.make 100_000 'z' in
+  let results = [mock_result ~id:"t1" big] in
+  match make_tool_results ~max_result_chars:0 results with
+  | [ToolResult { content; _ }] -> String.length content = 100_000
+  | _ -> false
+
+let%test "make_tool_results: tool_use_id and is_error preserved" =
+  let results = [mock_result ~id:"err1" ~is_error:true (String.make 60_000 'e')] in
+  match make_tool_results results with
+  | [ToolResult { tool_use_id; is_error; _ }] ->
+    tool_use_id = "err1" && is_error = true
+  | _ -> false
