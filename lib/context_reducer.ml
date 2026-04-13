@@ -27,6 +27,10 @@ type strategy =
   | Clear_tool_results of { keep_recent: int }
   | Stub_tool_results of { keep_recent: int }
   | Cap_message_tokens of { max_tokens: int; keep_recent: int }
+  | Relocate_tool_results of {
+      state: Content_replacement_state.t;
+      keep_recent: int;
+    }
   | Compose of strategy list
   | Custom of (message list -> message list)
   | Dynamic of (turn:int -> messages:message list -> strategy)
@@ -487,6 +491,37 @@ let apply_summarize_old ~keep_recent ~summarizer messages =
     let summary_msg = { role = User; content = [Text summary_text]; name = None; tool_call_id = None } in
     summary_msg :: List.concat recent_turns
 
+(** Re-apply frozen replacement decisions from CRS to messages.
+
+    For each message in older turns (beyond [keep_recent]):
+    - ToolResult blocks with a frozen replacement get their content
+      swapped to the cached preview (byte-identical, no I/O).
+    - ToolResult blocks that were "kept" pass through unchanged.
+    - Fresh (unseen) ToolResult blocks pass through unchanged.
+
+    This is useful after checkpoint restore: messages loaded from
+    history may have full content, but CRS knows which ones were
+    relocated.  Re-applying ensures the LLM sees consistent previews.
+
+    @since 0.129.0 *)
+let apply_relocate_tool_results ~state ~keep_recent messages =
+  let turns = group_into_turns messages in
+  let total = List.length turns in
+  if total <= keep_recent then messages
+  else
+    let process_turn i turn =
+      if i >= total - keep_recent then turn
+      else
+        List.map (fun (msg : message) ->
+          let content, _fresh =
+            Content_replacement_state.apply_frozen state msg.content
+          in
+          { msg with content }
+        ) turn
+    in
+    let processed = List.mapi process_turn turns in
+    List.concat processed
+
 (** Reduce messages according to the configured strategy. *)
 let rec reduce (reducer : t) (messages : message list) : message list =
   apply_strategy reducer.strategy messages
@@ -511,6 +546,8 @@ and apply_strategy strategy messages =
     apply_stub_tool_results ~keep_recent messages
   | Cap_message_tokens { max_tokens; keep_recent } ->
     apply_cap_message_tokens ~max_tokens ~keep_recent messages
+  | Relocate_tool_results { state; keep_recent } ->
+    apply_relocate_tool_results ~state ~keep_recent messages
   | Compose strategies ->
     List.fold_left (fun msgs s -> apply_strategy s msgs) messages strategies
   | Custom f -> f messages
@@ -540,6 +577,8 @@ let stub_tool_results ~keep_recent =
   { strategy = Stub_tool_results { keep_recent } }
 let cap_message_tokens ~max_tokens ~keep_recent =
   { strategy = Cap_message_tokens { max_tokens; keep_recent } }
+let relocate_tool_results ~state ~keep_recent =
+  { strategy = Relocate_tool_results { state; keep_recent } }
 let compose strategies = { strategy = Compose (List.map (fun r -> r.strategy) strategies) }
 let custom f = { strategy = Custom f }
 let clamp_score score = Float.min 1.0 (Float.max 0.0 score)

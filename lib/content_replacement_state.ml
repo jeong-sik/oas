@@ -127,6 +127,21 @@ let of_json json =
     Error (Error.Serialization (JsonParseError {
       detail = "CRS json: " ^ Printexc.to_string exn }))
 
+(* ── Context checkpoint persistence ─────────────────────── *)
+
+let context_key = "session:crs"
+
+let persist_to_context (ctx : Context.t) t =
+  Context.set ctx context_key (to_json t)
+
+let restore_from_context (ctx : Context.t) =
+  match Context.get ctx context_key with
+  | None -> create ()
+  | Some json ->
+    match of_json json with
+    | Ok t -> t
+    | Error _ -> create ()
+
 (* === Inline tests === *)
 
 let%test "create: empty state" =

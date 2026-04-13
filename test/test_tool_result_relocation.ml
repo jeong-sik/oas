@@ -40,6 +40,7 @@ let test_store_persist_read () =
   let config : Tool_result_store.config = {
     storage_dir = dir; session_id = "s1";
     threshold_chars = 100; preview_chars = 50;
+    aggregate_budget = 0;
   } in
   let store = Tool_result_store.create config |> Result.get_ok in
   let content = String.make 200 'x' in
@@ -61,6 +62,7 @@ let test_store_idempotent_persist () =
   let config : Tool_result_store.config = {
     storage_dir = dir; session_id = "s1";
     threshold_chars = 50; preview_chars = 20;
+    aggregate_budget = 0;
   } in
   let store = Tool_result_store.create config |> Result.get_ok in
   let content = String.make 100 'a' in
@@ -76,6 +78,7 @@ let test_store_below_threshold_not_persisted () =
   let config : Tool_result_store.config = {
     storage_dir = dir; session_id = "s1";
     threshold_chars = 500; preview_chars = 100;
+    aggregate_budget = 0;
   } in
   let store = Tool_result_store.create config |> Result.get_ok in
   (* Content below threshold — should NOT be persisted *)
@@ -150,6 +153,7 @@ let test_make_tool_results_with_relocation () =
   let config : Tool_result_store.config = {
     storage_dir = dir; session_id = "s1";
     threshold_chars = 100; preview_chars = 50;
+    aggregate_budget = 0;
   } in
   let store = Tool_result_store.create config |> Result.get_ok in
   let crs = Content_replacement_state.create () in
@@ -265,6 +269,141 @@ let test_compose_prune_then_relocation_reapply () =
   ) restored in
   Alcotest.(check (option string)) "t1 frozen preview" (Some "short_preview") t1_content
 
+(* ── 5. Aggregate budget enforcement (Phase 2) ──────── *)
+
+let test_aggregate_budget_persists_largest () =
+  let dir = tmp_dir () in
+  let config : Tool_result_store.config = {
+    storage_dir = dir; session_id = "s1";
+    threshold_chars = 500_000; (* high per-result threshold — won't trigger *)
+    preview_chars = 50;
+    aggregate_budget = 15_000; (* aggregate budget *)
+  } in
+  let store = Tool_result_store.create config |> Result.get_ok in
+  let crs = Content_replacement_state.create () in
+  (* 3 results: total = 8000+4000+3000 = 15000, at budget boundary.
+     Actually make total > budget: 8000+5000+4000 = 17000 > 15000 *)
+  let mock_results : Agent_tools.tool_execution_result list = [
+    { tool_use_id = "t1"; tool_name = "a"; content = String.make 8000 'a';
+      is_error = false; failure_kind = None };
+    { tool_use_id = "t2"; tool_name = "b"; content = String.make 5000 'b';
+      is_error = false; failure_kind = None };
+    { tool_use_id = "t3"; tool_name = "c"; content = String.make 4000 'c';
+      is_error = false; failure_kind = None };
+  ] in
+  let blocks = Agent_turn.make_tool_results
+    ~relocation:(store, crs) mock_results in
+  (* The largest (t1, 8000 chars) should be persisted — preview saves ~7870 chars,
+     bringing total from 17000 to ~9130, well under 15000 budget *)
+  Alcotest.(check bool) "t1 persisted" true
+    (Tool_result_store.has store ~tool_use_id:"t1");
+  (* t1 should have a preview (much shorter than 8000) *)
+  (match List.nth blocks 0 with
+   | Types.ToolResult { content; _ } ->
+     Alcotest.(check bool) "t1 is preview" true (String.length content < 200)
+   | _ -> Alcotest.fail "t1 not ToolResult");
+  (* t2 and t3 should be kept (not persisted) *)
+  Alcotest.(check bool) "t2 not persisted" false
+    (Tool_result_store.has store ~tool_use_id:"t2");
+  Alcotest.(check bool) "t3 not persisted" false
+    (Tool_result_store.has store ~tool_use_id:"t3");
+  (* All frozen in CRS *)
+  Alcotest.(check bool) "t1 frozen" true (Content_replacement_state.is_frozen crs "t1");
+  Alcotest.(check bool) "t2 frozen" true (Content_replacement_state.is_frozen crs "t2");
+  Alcotest.(check bool) "t3 frozen" true (Content_replacement_state.is_frozen crs "t3");
+  (* t1 was replaced, t2+t3 were kept *)
+  Alcotest.(check bool) "t1 replaced" true
+    (Content_replacement_state.lookup_replacement crs "t1" <> None);
+  Alcotest.(check bool) "t2 kept" true
+    (Content_replacement_state.lookup_replacement crs "t2" = None);
+  let _ = Tool_result_store.cleanup store in
+  rm_rf dir
+
+let test_aggregate_budget_disabled () =
+  let dir = tmp_dir () in
+  let config : Tool_result_store.config = {
+    storage_dir = dir; session_id = "s1";
+    threshold_chars = 500_000; preview_chars = 50;
+    aggregate_budget = 0; (* disabled *)
+  } in
+  let store = Tool_result_store.create config |> Result.get_ok in
+  let crs = Content_replacement_state.create () in
+  let mock_results : Agent_tools.tool_execution_result list = [
+    { tool_use_id = "t1"; tool_name = "a"; content = String.make 8000 'x';
+      is_error = false; failure_kind = None };
+  ] in
+  let _blocks = Agent_turn.make_tool_results
+    ~relocation:(store, crs) mock_results in
+  (* With aggregate_budget=0, should not persist even with large content *)
+  Alcotest.(check bool) "not persisted" false
+    (Tool_result_store.has store ~tool_use_id:"t1");
+  Alcotest.(check bool) "kept in CRS" true
+    (Content_replacement_state.is_frozen crs "t1"
+     && Content_replacement_state.lookup_replacement crs "t1" = None);
+  let _ = Tool_result_store.cleanup store in
+  rm_rf dir
+
+(* ── 6. CRS checkpoint persistence (Phase 2) ────────── *)
+
+let test_crs_checkpoint_roundtrip () =
+  let ctx = Context.create () in
+  let crs = Content_replacement_state.create () in
+  Content_replacement_state.record_replacement crs
+    { tool_use_id = "t1"; preview = "p1"; original_chars = 5000 };
+  Content_replacement_state.record_kept crs "t2";
+  (* Persist to context *)
+  Content_replacement_state.persist_to_context ctx crs;
+  (* Restore from context (simulates checkpoint resume) *)
+  let crs2 = Content_replacement_state.restore_from_context ctx in
+  Alcotest.(check int) "seen_count preserved" 2
+    (Content_replacement_state.seen_count crs2);
+  Alcotest.(check bool) "t1 frozen after restore" true
+    (Content_replacement_state.is_frozen crs2 "t1");
+  Alcotest.(check bool) "t2 frozen after restore" true
+    (Content_replacement_state.is_frozen crs2 "t2");
+  (match Content_replacement_state.lookup_replacement crs2 "t1" with
+   | Some r -> Alcotest.(check string) "t1 preview" "p1" r.preview
+   | None -> Alcotest.fail "t1 replacement lost after checkpoint")
+
+let test_crs_restore_from_empty_context () =
+  let ctx = Context.create () in
+  (* No CRS saved — should return fresh empty state *)
+  let crs = Content_replacement_state.restore_from_context ctx in
+  Alcotest.(check int) "empty state" 0
+    (Content_replacement_state.seen_count crs)
+
+(* ── 7. Relocate_tool_results reducer (Phase 2) ─────── *)
+
+let test_relocate_reducer_reapplies_frozen () =
+  let crs = Content_replacement_state.create () in
+  Content_replacement_state.record_replacement crs
+    { tool_use_id = "t1"; preview = "cached_preview"; original_chars = 50000 };
+  Content_replacement_state.record_kept crs "t2";
+  (* Messages with original content (simulates checkpoint restore) *)
+  let messages : Types.message list = [
+    user_msg [Types.Text "start"];
+    asst_msg "using tools";
+    user_msg [
+      tool_result "t1" "full original content that was relocated";
+      tool_result "t2" "small content";
+    ];
+    asst_msg "thinking";
+    user_msg [Types.Text "continue"];
+    asst_msg "done";
+  ] in
+  (* Apply relocate_tool_results reducer (keep_recent:1) *)
+  let reduced = Context_reducer.reduce
+    (Context_reducer.relocate_tool_results ~state:crs ~keep_recent:1) messages in
+  (* In older turns: t1 should have cached preview, t2 unchanged *)
+  let t1_content = List.find_map (fun (m : Types.message) ->
+    List.find_map (function
+      | Types.ToolResult { tool_use_id = "t1"; content; _ } -> Some content
+      | _ -> None
+    ) m.content
+  ) reduced in
+  Alcotest.(check (option string)) "t1 preview reapplied"
+    (Some "cached_preview") t1_content
+
 (* ── Test runner ──────────────────────────────────────── *)
 
 let () =
@@ -284,5 +423,16 @@ let () =
     "compaction_compose", [
       Alcotest.test_case "stub preserves relocated previews" `Quick test_compaction_preserves_relocated_previews;
       Alcotest.test_case "prune+stub then reapply" `Quick test_compose_prune_then_relocation_reapply;
+    ];
+    "aggregate_budget", [
+      Alcotest.test_case "persists largest when over budget" `Quick test_aggregate_budget_persists_largest;
+      Alcotest.test_case "disabled when budget=0" `Quick test_aggregate_budget_disabled;
+    ];
+    "crs_checkpoint", [
+      Alcotest.test_case "persist/restore roundtrip" `Quick test_crs_checkpoint_roundtrip;
+      Alcotest.test_case "restore from empty context" `Quick test_crs_restore_from_empty_context;
+    ];
+    "relocate_reducer", [
+      Alcotest.test_case "reapplies frozen decisions" `Quick test_relocate_reducer_reapplies_frozen;
     ];
   ]

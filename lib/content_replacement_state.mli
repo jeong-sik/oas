@@ -83,3 +83,19 @@ val to_json : t -> Yojson.Safe.t
 (** Deserialize state from JSON.
     Returns [Error] on malformed input. *)
 val of_json : Yojson.Safe.t -> (t, Error.sdk_error) result
+
+(** {1 Context checkpoint persistence}
+
+    Helpers for saving/restoring CRS state in {!Context.t} metadata.
+    The CRS is stored under the key ["session:crs"].
+
+    @since 0.129.0 *)
+
+(** Save CRS state to context metadata.  Called after tool result
+    processing so that checkpoint captures the current decisions. *)
+val persist_to_context : Context.t -> t -> unit
+
+(** Restore CRS state from context metadata.
+    Returns a fresh empty state if no CRS data is found or if
+    deserialization fails (fail-open). *)
+val restore_from_context : Context.t -> t

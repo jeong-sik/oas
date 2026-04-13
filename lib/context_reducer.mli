@@ -29,6 +29,10 @@ type strategy =
   | Clear_tool_results of { keep_recent: int }
   | Stub_tool_results of { keep_recent: int }
   | Cap_message_tokens of { max_tokens: int; keep_recent: int }
+  | Relocate_tool_results of {
+      state: Content_replacement_state.t;
+      keep_recent: int;
+    }
   | Compose of strategy list
   | Custom of (message list -> message list)
   | Dynamic of (turn:int -> messages:message list -> strategy)
@@ -105,6 +109,16 @@ val stub_tool_results : keep_recent:int -> t
     to maintain API pairing invariants.
     @since 0.125.0 *)
 val cap_message_tokens : max_tokens:int -> keep_recent:int -> t
+
+(** Re-apply frozen replacement decisions from
+    {!Content_replacement_state} to tool result content in older turns.
+    ToolResult blocks with a cached replacement get their content
+    swapped to the preview.  Blocks that were "kept" or are fresh
+    pass through unchanged.  Useful after checkpoint restore when
+    messages may have been loaded with full content.
+    @since 0.129.0 *)
+val relocate_tool_results :
+  state:Content_replacement_state.t -> keep_recent:int -> t
 
 val compose : t list -> t
 val custom : (message list -> message list) -> t

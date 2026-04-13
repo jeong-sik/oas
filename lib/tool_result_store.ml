@@ -8,6 +8,7 @@
 
 let default_threshold_chars = 50_000
 let default_preview_chars = 2_000
+let default_aggregate_budget = 200_000
 
 (* ── Types ──────────────────────────────────────────────────── *)
 
@@ -16,6 +17,7 @@ type config = {
   session_id: string;
   threshold_chars: int;
   preview_chars: int;
+  aggregate_budget: int;
 }
 
 type t = {
