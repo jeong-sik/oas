@@ -314,6 +314,14 @@ let truncate_to_context ?(context_margin = default_context_margin)
     - Tools list is empty
 
     @since 0.123.0 *)
+let effective_output_reserve (cfg : Provider_config.t)
+    (caps : Capabilities.capabilities) =
+  match cfg.max_tokens, caps.max_output_tokens with
+  | None, Some cap -> cap
+  | None, None -> 4096
+  | Some n, Some cap -> min n cap
+  | Some n, None -> n
+
 let truncate_tools
     (cfg : Provider_config.t)
     (effective_messages : Types.message list)
@@ -325,10 +333,10 @@ let truncate_tools
       | Some c -> c
       | None -> Capabilities.default_capabilities
     in
+    let output_reserve = effective_output_reserve cfg caps in
     match caps.max_context_tokens with
     | None -> tools  (* unknown context window → don't truncate *)
     | Some max_ctx ->
-      let output_reserve = cfg.max_tokens in
       let message_tokens =
         List.fold_left
           (fun acc msg -> acc + estimate_message_tokens msg)
@@ -595,6 +603,9 @@ let make_assistant_msg text : Types.message =
 let make_cfg ?max_context model_id : Provider_config.t =
   Provider_config.make ~kind:OpenAI_compat ~model_id ~base_url:"http://test" ?max_context ()
 
+let caps_with ?max_context_tokens ?max_output_tokens () =
+  { Capabilities.default_capabilities with max_context_tokens; max_output_tokens }
+
 (* --- estimate_message_tokens --- *)
 
 let%test "estimate_message_tokens ASCII text" =
@@ -809,3 +820,20 @@ let%test "truncate_within_turn result tokens within budget" =
      in the fallback case *)
   result_tokens <= budget
   || List.length result = 3  (* fallback: preamble + last round *)
+
+let%test "truncate_tools resolves None max_tokens from model capability" =
+  let cfg = make_cfg "gpt-4o-mini" in
+  let msgs = [make_msg (String.make 450_000 'x')] in
+  let tools = [`Assoc [("name", `String "tool-a")]] in
+  truncate_tools cfg msgs tools = []
+
+let%test "effective_output_reserve uses capability when max_tokens absent" =
+  let cfg = make_cfg "m" in
+  effective_output_reserve cfg (caps_with ~max_output_tokens:16_384 ()) = 16_384
+
+let%test "effective_output_reserve clamps explicit max_tokens to capability ceiling" =
+  let cfg =
+    Provider_config.make ~kind:OpenAI_compat ~model_id:"m"
+      ~base_url:"http://test" ~max_tokens:20_000 ()
+  in
+  effective_output_reserve cfg (caps_with ~max_output_tokens:16_384 ()) = 16_384

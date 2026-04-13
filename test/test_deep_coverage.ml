@@ -988,7 +988,7 @@ let test_builder_chaining () =
   | Ok agent ->
     let state = Agent.state agent in
     check string "name" "chained" state.config.name;
-    check int "max_tokens" 2048 state.config.max_tokens;
+    check (option int) "max_tokens" (Some 2048) state.config.max_tokens;
     check int "max_turns" 5 state.config.max_turns;
     check bool "thinking" true (state.config.enable_thinking = Some true)
   | Error e ->

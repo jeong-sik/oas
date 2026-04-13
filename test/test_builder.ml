@@ -71,7 +71,7 @@ let test_with_max_tokens () =
     |> Builder.with_max_tokens 8192
     |> Builder.build_safe |> Result.get_ok
   in
-  Alcotest.(check int) "max_tokens" 8192 (Agent.state agent).config.max_tokens
+  Alcotest.(check (option int)) "max_tokens" (Some 8192) (Agent.state agent).config.max_tokens
 
 (* --- 5. with_max_turns --- *)
 
@@ -608,7 +608,7 @@ let test_build_produces_valid_agent () =
   check_model "model" "claude-opus-4-5-20251101" cfg.model;
   Alcotest.(check (option string)) "system_prompt"
     (Some "Be concise.") cfg.system_prompt;
-  Alcotest.(check int) "max_tokens" 2048 cfg.max_tokens;
+  Alcotest.(check (option int)) "max_tokens" (Some 2048) cfg.max_tokens;
   Alcotest.(check int) "max_turns" 5 cfg.max_turns;
   Alcotest.(check (option (float 0.001))) "temperature"
     (Some 0.3) cfg.temperature;
@@ -638,7 +638,7 @@ let test_chain_multiple () =
     |> Builder.build_safe |> Result.get_ok
   in
   Alcotest.(check string) "name" "chained" (Agent.state agent).config.name;
-  Alcotest.(check int) "max_tokens" 1024 (Agent.state agent).config.max_tokens;
+  Alcotest.(check (option int)) "max_tokens" (Some 1024) (Agent.state agent).config.max_tokens;
   Alcotest.(check int) "max_turns" 3 (Agent.state agent).config.max_turns;
   Alcotest.(check int) "tool count" 2 (Tool_set.size (Agent.tools agent));
   Alcotest.(check string) "base_url" "http://test:9090" (Agent.options agent).base_url;
@@ -668,7 +668,7 @@ let test_defaults_match_agent_create () =
   check_model "model" dc.model bc.model;
   Alcotest.(check (option string)) "system_prompt"
     dc.system_prompt bc.system_prompt;
-  Alcotest.(check int) "max_tokens" dc.max_tokens bc.max_tokens;
+  Alcotest.(check (option int)) "max_tokens" dc.max_tokens bc.max_tokens;
   Alcotest.(check int) "max_turns" dc.max_turns bc.max_turns;
   Alcotest.(check (option (float 0.001))) "temperature"
     dc.temperature bc.temperature;
@@ -713,7 +713,7 @@ let test_build_minimal_required_only () =
     Builder.create ~net ~model:"claude-3-7-sonnet" |> Builder.build_safe |> Result.get_ok in
   check_model "model" "claude-3-7-sonnet-20250219" (Agent.state agent).config.model;
   Alcotest.(check string) "name" "agent" (Agent.state agent).config.name;
-  Alcotest.(check int) "max_tokens" 4096 (Agent.state agent).config.max_tokens;
+  Alcotest.(check (option int)) "max_tokens" None (Agent.state agent).config.max_tokens;
   Alcotest.(check int) "max_turns" 10 (Agent.state agent).config.max_turns;
   Alcotest.(check int) "tools" 0 (Tool_set.size (Agent.tools agent));
   Alcotest.(check string) "base_url"

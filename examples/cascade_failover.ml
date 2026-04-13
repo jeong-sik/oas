@@ -51,7 +51,7 @@ let () =
      Printf.printf "   temperature: %s\n"
        (match cfg.temperature with
         | Some t -> Printf.sprintf "%.1f" t | None -> "default");
-     Printf.printf "   max_tokens: %d\n" cfg.max_tokens
+     Printf.printf "   max_tokens: %s\n" (match cfg.max_tokens with Some n -> string_of_int n | None -> "auto")
    | None ->
      Printf.printf "   (not available)\n");
 

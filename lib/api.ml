@@ -201,7 +201,7 @@ let create_message_cascade ~sw ~net ?clock ?retry_config
 
 let create_message_named ~sw ~net ?clock ~(named_cascade : named_cascade)
     ~config ~messages ?tools ?(temperature = 0.3)
-    ?(max_tokens = config.config.max_tokens)
+    ?(max_tokens = Option.value ~default:4096 config.config.max_tokens)
     ?system_prompt ?(accept = fun _ -> true) ?accept_reason
     ?(accept_on_exhaustion = false)
     ?timeout_sec ?metrics ?priority () =
@@ -242,7 +242,7 @@ let create_message_named ~sw ~net ?clock ~(named_cascade : named_cascade)
 
 let create_message_named_stream ~sw ~net ?clock
     ~(named_cascade : named_cascade) ~config ~messages ?tools
-    ?(temperature = 0.3) ?(max_tokens = config.config.max_tokens)
+    ?(temperature = 0.3) ?(max_tokens = Option.value ~default:4096 config.config.max_tokens)
     ?system_prompt ?timeout_sec ?metrics ~on_event ?priority () =
   let system_prompt =
     match system_prompt with

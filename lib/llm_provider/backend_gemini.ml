@@ -152,7 +152,8 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
   in
   (* generationConfig *)
   let gen_config = ref [] in
-  gen_config := ("maxOutputTokens", `Int config.max_tokens) :: !gen_config;
+  (let mt = Option.value ~default:4096 config.max_tokens in
+   gen_config := ("maxOutputTokens", `Int mt) :: !gen_config);
   (match config.temperature with
    | Some t -> gen_config := ("temperature", `Float t) :: !gen_config
    | None -> ());

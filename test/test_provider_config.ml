@@ -14,7 +14,7 @@ let test_make_defaults () =
   check_string "model_id" "test" cfg.model_id;
   check_string "base_url" "http://localhost:8080" cfg.base_url;
   check_string "api_key default empty" "" cfg.api_key;
-  check_int "max_tokens default" 4096 cfg.max_tokens;
+  check_bool "max_tokens default None" true (cfg.max_tokens = None);
   check_bool "temperature None" true (cfg.temperature = None);
   check_bool "top_p None" true (cfg.top_p = None);
   check_bool "top_k None" true (cfg.top_k = None);
@@ -82,7 +82,7 @@ let test_make_with_all_options () =
     ~response_format_json:true
     ~cache_system_prompt:true () in
   check_string "api_key" "sk-test" cfg.api_key;
-  check_int "max_tokens" 2048 cfg.max_tokens;
+  check_bool "max_tokens" true (cfg.max_tokens = Some 2048);
   check_bool "temperature" true (cfg.temperature = Some 0.7);
   check_bool "top_p" true (cfg.top_p = Some 0.9);
   check_bool "top_k" true (cfg.top_k = Some 40);

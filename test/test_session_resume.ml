@@ -252,7 +252,7 @@ let test_resume_custom_options () =
 let test_resume_with_config_override () =
   with_net @@ fun net ->
   let cp = make_checkpoint ~agent_name:"cp-name" () in
-  let cfg = { Types.default_config with max_turns = 50; max_tokens = 8192 } in
+  let cfg = { Types.default_config with max_turns = 50; max_tokens = Some 8192 } in
   let agent = Agent.resume ~net ~checkpoint:cp ~config:cfg () in
   (* checkpoint fields override config *)
   Alcotest.(check string) "name from checkpoint"
@@ -260,7 +260,7 @@ let test_resume_with_config_override () =
   (* config fields not in checkpoint are preserved *)
   Alcotest.(check int) "max_turns from config" 50
     (Agent.state agent).config.max_turns;
-  Alcotest.(check int) "max_tokens from config" 8192
+  Alcotest.(check (option int)) "max_tokens from config" (Some 8192)
     (Agent.state agent).config.max_tokens
 
 let test_resume_empty_checkpoint () =

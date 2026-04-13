@@ -34,7 +34,7 @@ type agent_config = {
   name: string;
   model: model;
   system_prompt: string option;
-  max_tokens: int;
+  max_tokens: int option;
   max_turns: int;
   temperature: float option;
   top_p: float option;

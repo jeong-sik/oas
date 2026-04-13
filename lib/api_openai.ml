@@ -74,7 +74,7 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
     [
       ("model", `String model_str);
       ("messages", `List provider_messages);
-      ("max_tokens", `Int config.config.max_tokens);
+      ("max_tokens", `Int (Option.value ~default:4096 config.config.max_tokens));
     ]
   in
   let body_assoc =

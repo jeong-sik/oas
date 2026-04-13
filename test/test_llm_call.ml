@@ -21,7 +21,7 @@ let () =
     model = provider.model_id;
     system_prompt = Some "You are a helpful assistant. Reply in one sentence.";
     max_turns = 1;
-    max_tokens = 100;
+    max_tokens = Some 100;
   } in
   let messages = [{ Types.role = Types.User; content = [Types.Text "Say hello in exactly 5 words."]; name = None; tool_call_id = None }] in
   Printf.printf "Sending request...\n%!";

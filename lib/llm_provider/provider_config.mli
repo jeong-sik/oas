@@ -24,7 +24,7 @@ type t = {
   api_key: string;
   headers: (string * string) list;
   request_path: string;
-  max_tokens: int;
+  max_tokens: int option;  (** [None] = resolve from model capabilities at request time. @since 0.123.0 *)
   max_context: int option;  (** Provider's context window limit in tokens. When set, cascade executor truncates messages to fit before dispatch. @since 0.120.0 *)
   temperature: float option;
   top_p: float option;

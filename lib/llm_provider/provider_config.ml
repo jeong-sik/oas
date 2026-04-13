@@ -16,7 +16,7 @@ type t = {
   api_key: string;
   headers: (string * string) list;
   request_path: string;
-  max_tokens: int;
+  max_tokens: int option;
   max_context: int option;
   temperature: float option;
   top_p: float option;
@@ -35,7 +35,7 @@ type t = {
 
 let make ~kind ~model_id ~base_url
     ?(api_key="") ?(headers=[("Content-Type", "application/json")])
-    ?request_path ?(max_tokens=4096) ?max_context
+    ?request_path ?max_tokens ?max_context
     ?temperature ?top_p ?top_k ?min_p
     ?system_prompt ?enable_thinking ?thinking_budget
     ?clear_thinking ?(tool_stream=false)

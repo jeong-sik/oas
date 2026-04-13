@@ -106,8 +106,8 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
     | None -> Capabilities.ollama_capabilities
   in
   let options = ref [] in
-  (match config.max_tokens with
-   | n -> options := ("num_predict", `Int n) :: !options);
+  (let mt = Option.value ~default:4096 config.max_tokens in
+   options := ("num_predict", `Int mt) :: !options);
   (match config.temperature with
    | Some t -> options := ("temperature", `Float t) :: !options
    | None -> ());

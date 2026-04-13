@@ -42,7 +42,7 @@ let test_simple_chat () =
   Printf.printf "\n=== Test 1: Simple chat ===\n%!";
   Eio_main.run @@ fun env ->
   Eio.Switch.run @@ fun sw ->
-  let config = qwen_config "test-agent" None 100 1 in
+  let config = qwen_config "test-agent" None (Some 100) 1 in
   let agent = Agent.create ~net:env#net ~config ~options () in
   match Agent.run ~sw agent "What is 2+3? Answer with just the number." with
   | Ok response ->
@@ -67,7 +67,7 @@ let test_tool_calling () =
   let config =
     qwen_config "tool-agent"
       (Some "You are a helpful assistant. Use the provided tools to answer questions.")
-      200 3
+      (Some 200) 3
   in
   let calc_tool = Tool.create
     ~name:"calculator"
@@ -101,7 +101,7 @@ let test_multi_tool () =
   let config =
     qwen_config "multi-tool-agent"
       (Some "You have access to tools. Use read_file to check file contents.")
-      300 5
+      (Some 300) 5
   in
   let read_file_tool = Tool.create
     ~name:"read_file"

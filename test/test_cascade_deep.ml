@@ -60,7 +60,7 @@ let test_parse_llama_with_temperature () =
   match r with
   | None -> Alcotest.fail "expected Some"
   | Some cfg ->
-    Alcotest.(check int) "max_tokens" 1024 cfg.max_tokens;
+    Alcotest.(check (option int)) "max_tokens" (Some 1024) cfg.max_tokens;
     Alcotest.(check (option (float 0.01))) "temperature" (Some 0.7) cfg.temperature
 
 let test_parse_llama_with_system_prompt () =
@@ -151,7 +151,7 @@ let test_parse_model_strings_with_params () =
       ["llama:m1"; "llama:m2"] in
   Alcotest.(check int) "two valid" 2 (List.length r);
   List.iter (fun (cfg : Provider_config.t) ->
-    Alcotest.(check int) "max_tokens" 200 cfg.max_tokens;
+    Alcotest.(check (option int)) "max_tokens" (Some 200) cfg.max_tokens;
     Alcotest.(check (option (float 0.01))) "temp" (Some 0.5) cfg.temperature;
     Alcotest.(check (option string)) "system_prompt" (Some "test") cfg.system_prompt
   ) r

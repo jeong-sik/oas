@@ -15,7 +15,7 @@ let test_stream_basic () =
     model = provider.model_id;
     system_prompt = Some "You are a helpful assistant. Reply briefly.";
     max_turns = 1;
-    max_tokens = 200;
+    max_tokens = Some 200;
   } in
   let messages = [
     { Types.role = Types.User;
@@ -78,7 +78,7 @@ let test_stream_event_sequence () =
     model = provider.model_id;
     system_prompt = Some "Reply with one word only.";
     max_turns = 1;
-    max_tokens = 50;
+    max_tokens = Some 50;
   } in
   let messages = [
     { Types.role = Types.User;
