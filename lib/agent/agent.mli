@@ -70,7 +70,6 @@ val net : t -> [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
 val description : t -> string option
 val memory : t -> Memory.t option
 val allowed_paths : t -> string list
-val named_cascade : t -> Api.named_cascade option
 
 (** {1 Defaults} *)
 
@@ -84,7 +83,6 @@ val create :
   ?config:Types.agent_config ->
   ?tools:Tool.t list ->
   ?context:Context.t ->
-  ?named_cascade:Api.named_cascade ->
   ?options:options ->
   unit -> t
 
@@ -147,7 +145,6 @@ val resume :
   checkpoint:Checkpoint.t ->
   ?tools:Tool.t list ->
   ?context:Context.t ->
-  ?named_cascade:Api.named_cascade ->
   ?options:options ->
   ?config:Types.agent_config ->
   unit -> t

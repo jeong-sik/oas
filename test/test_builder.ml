@@ -249,17 +249,6 @@ let test_with_provider () =
   Alcotest.(check bool) "provider set" true
     (Option.is_some (Agent.options agent).provider)
 
-let test_with_named_cascade () =
-  with_net @@ fun net ->
-  let named = Api.named_cascade ~name:"routing" ~defaults:["llama:qwen"] () in
-  let agent =
-    Builder.create ~net ~model:"claude-sonnet-4-6"
-    |> Builder.with_named_cascade named
-    |> Builder.build_safe |> Result.get_ok
-  in
-  Alcotest.(check string) "name remains default" "agent"
-    (Agent.state agent).config.name
-
 (* --- 15. with_base_url --- *)
 
 let test_with_base_url () =
@@ -742,7 +731,6 @@ let () =
       Alcotest.test_case "context_reducer" `Quick test_with_context_reducer;
       Alcotest.test_case "context" `Quick test_with_context;
       Alcotest.test_case "provider" `Quick test_with_provider;
-      Alcotest.test_case "named_cascade" `Quick test_with_named_cascade;
       Alcotest.test_case "base_url" `Quick test_with_base_url;
       Alcotest.test_case "mcp_clients" `Quick test_with_mcp_clients;
       Alcotest.test_case "guardrails" `Quick test_with_guardrails;

@@ -179,7 +179,7 @@ let auto ~tools =
 
 (* ── Default rerank function ───────────────────────────── *)
 
-let default_rerank_fn ~sw ~net ?clock ~(named_cascade : Api.named_cascade) ~k () =
+let default_rerank_fn ~sw ~net ?clock ?config_path ~cascade_name ~defaults ~k () =
   fun ~context ~candidates ->
     let tool_list = List.mapi (fun i (name, desc) ->
       Printf.sprintf "%d. %s: %s" (i + 1) name desc
@@ -195,9 +195,7 @@ let default_rerank_fn ~sw ~net ?clock ~(named_cascade : Api.named_cascade) ~k ()
         name = None; tool_call_id = None }
     ] in
     match Llm_provider.Cascade_config.complete_named ~sw ~net ?clock
-        ?config_path:named_cascade.config_path
-        ~name:named_cascade.name
-        ~defaults:named_cascade.defaults
+        ?config_path ~name:cascade_name ~defaults
         ~messages ~temperature:0.0 ~max_tokens:200 () with
     | Ok response ->
       let text = Types.text_of_response response in

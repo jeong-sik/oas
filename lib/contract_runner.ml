@@ -101,8 +101,7 @@ let run ~sw ?clock ?(store = Proof_store.default_config)
     let context = Agent.context agent in
     let net = Agent.net agent in
     let new_agent = Agent.create ~net ~config ~tools
-        ~context ?named_cascade:(Agent.named_cascade agent)
-        ~options:new_opts () in
+        ~context ~options:new_opts () in
     let response = Agent.run ~sw ?clock new_agent prompt in
     (* Sync execution state back to the original agent so that
        downstream checkpoint capture sees the post-run messages,

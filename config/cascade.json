@@ -1,6 +1,0 @@
-{
-  "default_models": ["llama:auto", "glm:auto"],
-  "briefing_models": ["llama:auto", "glm:flash", "gemini:flash", "glm:auto"],
-  "coding_models": ["glm-coding:auto", "glm:auto"],
-  "vision_models": ["glm:glm-5v-turbo", "glm:vision"]
-}

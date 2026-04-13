@@ -2,19 +2,7 @@
 
 open Types
 
-type named_cascade = {
-  name : string;
-  defaults : string list;
-  config_path : string option;
-  metrics : Llm_provider.Metrics.t;
-  provider_filter : string list option;
-}
-
 type response_accept = Types.api_response -> (unit, string) result
-
-let named_cascade ?config_path ?metrics ?provider_filter ~name ~defaults () =
-  let metrics = match metrics with Some m -> m | None -> Llm_provider.Metrics.get_global () in
-  { name; defaults; config_path; metrics; provider_filter }
 
 (* Re-export Api_common *)
 let default_base_url = Api_common.default_base_url
@@ -38,19 +26,6 @@ let openai_content_parts_of_blocks = Api_openai.openai_content_parts_of_blocks
 let build_openai_body = Api_openai.build_openai_body
 let parse_openai_response_result = Llm_provider.Backend_openai_parse.parse_openai_response_result
 
-let map_named_cascade_error ~(contract : Completion_contract.t) = function
-  | Llm_provider.Http_client.HttpError { code; body } ->
-      Error.Api (Retry.classify_error ~status:code ~body)
-  | Llm_provider.Http_client.NetworkError { message } ->
-      Error.Api (Retry.NetworkError { message })
-  | Llm_provider.Http_client.AcceptRejected { reason } ->
-      (match contract with
-       | Completion_contract.Allow_text_or_tool ->
-         Error.Api (Retry.NetworkError { message = reason })
-       | _ ->
-         Error.Agent
-           (CompletionContractViolation
-              { contract = Completion_contract.to_string contract; reason }))
 
 (** Send a non-streaming message to the API, dispatching by provider *)
 let create_message ~sw ~net ?(base_url=default_base_url) ?provider ?clock ?retry_config ~config ~messages ?tools ?slot_id () =
@@ -199,103 +174,8 @@ let create_message_cascade ~sw ~net ?clock ?retry_config
      | Ok _ as success -> success
      | Error err -> try_providers err casc.fallbacks)
 
-let create_message_named ~sw ~net ?clock ~(named_cascade : named_cascade)
-    ~config ~messages ?tools ?(temperature = 0.3)
-    ?(max_tokens = Option.value ~default:4096 config.config.max_tokens)
-    ?system_prompt ?(accept = fun _ -> true) ?accept_reason
-    ?(accept_on_exhaustion = false)
-    ?timeout_sec ?metrics ?priority () =
-  let system_prompt =
-    match system_prompt with
-    | Some _ -> system_prompt
-    | None -> config.config.system_prompt
-  in
-  (* Fall back to named_cascade.metrics when caller does not provide ?metrics.
-     This lets downstream consumers wire Prometheus counters once via
-     named_cascade and get cache hit/miss callbacks without threading
-     ?metrics through every call site. *)
-  let metrics = match metrics with
-    | Some m -> m
-    | None -> named_cascade.metrics
-  in
-  let completion_contract =
-    Completion_contract.of_tool_choice config.config.tool_choice
-  in
-  let caller_accept =
-    Completion_contract.resolve_accept ~accept ?accept_reason
-  in
-  let accept_result response =
-    match Completion_contract.validate_response ~contract:completion_contract response with
-    | Error reason -> Error reason
-    | Ok () -> caller_accept response
-  in
-  match
-    Llm_provider.Cascade_config.complete_named ~sw ~net ?clock
-      ?config_path:named_cascade.config_path ~name:named_cascade.name
-      ~defaults:named_cascade.defaults ~messages ?tools ~temperature
-      ~max_tokens ?system_prompt ?tool_choice:config.config.tool_choice
-      ~accept_reason:accept_result ~accept_on_exhaustion ?timeout_sec ~metrics ?priority
-      ?provider_filter:named_cascade.provider_filter ()
-  with
-  | Ok response -> Ok response
-  | Error err -> Error (map_named_cascade_error ~contract:completion_contract err)
-
-let create_message_named_stream ~sw ~net ?clock
-    ~(named_cascade : named_cascade) ~config ~messages ?tools
-    ?(temperature = 0.3) ?(max_tokens = Option.value ~default:4096 config.config.max_tokens)
-    ?system_prompt ?timeout_sec ?metrics ~on_event ?priority () =
-  let system_prompt =
-    match system_prompt with
-    | Some _ -> system_prompt
-    | None -> config.config.system_prompt
-  in
-  let metrics = match metrics with
-    | Some m -> m
-    | None -> named_cascade.metrics
-  in
-  let completion_contract =
-    Completion_contract.of_tool_choice config.config.tool_choice
-  in
-  match
-    Llm_provider.Cascade_config.complete_named_stream ~sw ~net ?clock
-      ?config_path:named_cascade.config_path ~name:named_cascade.name
-      ~defaults:named_cascade.defaults ~messages ?tools ~temperature
-      ~max_tokens ?system_prompt ?tool_choice:config.config.tool_choice
-      ?timeout_sec ~metrics ~on_event ?priority
-      ?provider_filter:named_cascade.provider_filter ()
-  with
-  | Ok response -> Ok response
-  | Error err -> Error (map_named_cascade_error ~contract:completion_contract err)
-
 [@@@coverage off]
 (* === Inline tests === *)
-
-let%test "named_cascade creates record" =
-  let nc = named_cascade ~name:"test" ~defaults:["llama:m1"] () in
-  nc.name = "test" && nc.defaults = ["llama:m1"] && nc.config_path = None
-
-let%test "named_cascade with config_path" =
-  let nc = named_cascade ~config_path:"/some/path.json" ~name:"n" ~defaults:[] () in
-  nc.config_path = Some "/some/path.json"
-
-let%test "map_named_cascade_error HttpError" =
-  let err = Llm_provider.Http_client.HttpError { code = 429; body = "rate limited" } in
-  match map_named_cascade_error ~contract:Completion_contract.Allow_text_or_tool err with
-  | Error.Api _ -> true
-  | _ -> false
-
-let%test "map_named_cascade_error NetworkError" =
-  let err = Llm_provider.Http_client.NetworkError { message = "timeout" } in
-  match map_named_cascade_error ~contract:Completion_contract.Allow_text_or_tool err with
-  | Error.Api (Retry.NetworkError { message }) -> message = "timeout"
-  | _ -> false
-
-let%test "map_named_cascade_error AcceptRejected with tool contract" =
-  let err = Llm_provider.Http_client.AcceptRejected { reason = "validator rejected" } in
-  match map_named_cascade_error ~contract:Completion_contract.Require_tool_use err with
-  | Error.Agent (CompletionContractViolation { contract; reason }) ->
-    contract = "require_tool_use" && reason = "validator rejected"
-  | _ -> false
 
 let%test "re-exported default_base_url is non-empty" =
   String.length default_base_url > 0
@@ -351,22 +231,6 @@ let%test "text_blocks_to_string joins text" =
   String.length result > 0
 
 (* --- Additional coverage tests for api.ml --- *)
-
-let%test "map_named_cascade_error HttpError 500" =
-  let err = Llm_provider.Http_client.HttpError { code = 500; body = "server error" } in
-  match map_named_cascade_error ~contract:Completion_contract.Allow_text_or_tool err with
-  | Error.Api _ -> true
-  | _ -> false
-
-let%test "map_named_cascade_error HttpError 429" =
-  let err = Llm_provider.Http_client.HttpError { code = 429; body = "rate limit" } in
-  match map_named_cascade_error ~contract:Completion_contract.Allow_text_or_tool err with
-  | Error.Api _ -> true
-  | _ -> false
-
-let%test "named_cascade defaults" =
-  let nc = named_cascade ~name:"default" ~defaults:[] () in
-  nc.name = "default" && nc.defaults = [] && nc.config_path = None
 
 let%test "string_is_blank tab only" =
   string_is_blank "\t" = true
