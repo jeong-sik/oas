@@ -125,10 +125,9 @@ val auto : tools:Tool.t list -> strategy
     Usage:
     {[
       Eio.Switch.run @@ fun sw ->
-        let nc = Api.named_cascade ~name:"tool_selector"
-          ~defaults:["llama:auto"] () in
         let rerank = Tool_selector.default_rerank_fn
-          ~sw ~net ~named_cascade:nc ~k:5 in
+          ~sw ~net ~cascade_name:"tool_selector"
+          ~defaults:["llama:auto"] ~k:5 () in
         let agent = Builder.create ~net ~model
           |> Builder.with_tool_selector
                (TopK_llm { k = 5; bm25_prefilter_n = 20;
@@ -139,12 +138,16 @@ val auto : tools:Tool.t list -> strategy
         Agent.run ~sw agent
     ]}
 
-    @since 0.101.0 *)
+    @since 0.101.0
+    @since 0.125.0 Replaced [named_cascade] parameter with individual
+      [cascade_name], [defaults], [?config_path]. *)
 val default_rerank_fn :
   sw:Eio.Switch.t ->
   net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
   ?clock:_ Eio.Time.clock ->
-  named_cascade:Api.named_cascade ->
+  ?config_path:string ->
+  cascade_name:string ->
+  defaults:string list ->
   k:int ->
   unit ->
   (context:string -> candidates:(string * string) list -> string list)

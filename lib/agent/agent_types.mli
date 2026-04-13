@@ -111,7 +111,6 @@ type t = {
   mutable lifecycle: lifecycle_snapshot option;
   mutable last_tool_calls: tool_call_fingerprint list option;
   mutable consecutive_idle_turns: int;
-  named_cascade: Api.named_cascade option;
   tools: Tool_set.t;
   net: [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t;
   context: Context.t;
@@ -136,7 +135,6 @@ val set_consecutive_idle_turns : t -> int -> unit
 val description : t -> string option
 val memory : t -> Memory.t option
 val allowed_paths : t -> string list
-val named_cascade : t -> Api.named_cascade option
 
 (** {1 SDK version} *)
 
@@ -149,7 +147,6 @@ val create :
   ?config:Types.agent_config ->
   ?tools:Tool.t list ->
   ?context:Context.t ->
-  ?named_cascade:Api.named_cascade ->
   ?options:options ->
   unit -> t
 

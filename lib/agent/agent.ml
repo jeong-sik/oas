@@ -267,7 +267,7 @@ let run_with_handoffs ~sw ?clock agent ~targets user_prompt =
 (* ── Checkpoint / Resume ─────────────────────────────────────── *)
 
 let resume ~net ~(checkpoint : Checkpoint.t) ?(tools=[]) ?context
-    ?named_cascade ?(options=default_options) ?config () =
+    ?(options=default_options) ?config () =
   let { Agent_checkpoint.state; context = ctx } =
     Agent_checkpoint.build_resume ~checkpoint ?config ?context ()
   in
@@ -278,7 +278,7 @@ let resume ~net ~(checkpoint : Checkpoint.t) ?(tools=[]) ?context
   in
   { mu = Eio.Mutex.create ();
     state; lifecycle = None; last_tool_calls = None;
-    consecutive_idle_turns = 0; named_cascade;
+    consecutive_idle_turns = 0;
     tools = Tool_set.of_list tools; net; context = ctx; options }
 
 let make_extend_turns_tool ~agent_ref ~budget ?max_idle_before_extend () =

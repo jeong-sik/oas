@@ -6,6 +6,20 @@ Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
 backfilled on 2026-04-04 from existing git tags. The dates below reflect the
 original tag dates. `0.100.4` was never tagged or released.
 
+## [0.125.0] - 2026-04-13
+
+### Removed
+- `Api.named_cascade` type, constructor, `create_message_named`,
+  `create_message_named_stream`, and `Builder.with_named_cascade`.
+  Cascade FSM moved to MASC in Phase 2; this removes the dead OAS residue.
+- `config/cascade.json` — cascade config is now MASC-owned SSOT.
+- `Agent.t.named_cascade` field and `?named_cascade` parameter from
+  `Agent.create` and `Agent.resume`.
+
+### Changed
+- `Tool_selector.default_rerank_fn`: replaced `~named_cascade` parameter
+  with explicit `~cascade_name`, `~defaults`, and `?config_path`.
+
 ## [0.122.1] - 2026-04-12
 
 ### Fixed

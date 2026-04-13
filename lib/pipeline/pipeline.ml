@@ -179,7 +179,6 @@ let stage_parse ?raw_trace_run agent =
 
 (** Dispatch the API call via the chosen strategy (sync or stream). *)
 let stage_route ~sw ?clock ~api_strategy agent prep =
-  let priority = agent.state.config.priority in
   match api_strategy with
   | Sync ->
     Tracing.with_span agent.options.tracer
@@ -187,60 +186,25 @@ let stage_route ~sw ?clock ~api_strategy agent prep =
         agent_name = agent.state.config.name;
         turn = agent.state.turn_count; extra = [] }
       (fun _tracer ->
-        (* Enforce the semantic contract of tool_choice at the cascade layer.
-           When tool_choice requires tools, text-only responses are rejected
-           so the next provider gets a chance. If every provider violates the
-           contract, the turn fails with the last rejection reason instead of
-           being silently relaxed. *)
-        let supports_tool_choice =
-          match agent.options.provider with
-          | Some cfg -> (Provider.capabilities_for_config cfg).supports_tool_choice
-          | None -> false
-        in
-        let completion_contract =
-          Completion_contract.of_tool_choice ~supports_tool_choice agent.state.config.tool_choice
-        in
-        let accept =
-          Completion_contract.validator ~contract:completion_contract
-        in
-        let accept_on_exhaustion =
-          Completion_contract.accept_on_exhaustion
-            ~contract:completion_contract
-        in
-        match agent.named_cascade with
-        | Some named ->
-          Api.create_message_named ~sw ~net:agent.net ?clock
-            ~named_cascade:named ~config:agent.state
-            ~messages:prep.Agent_turn.effective_messages
-            ?tools:prep.tools_json ~metrics:named.metrics
-            ~accept_reason:accept ~accept_on_exhaustion ?priority ()
-        | None ->
-          (match agent.options.cascade with
-           | Some casc ->
-             Api.create_message_cascade ~sw ~net:agent.net ?clock
-               ~cascade:casc ~config:agent.state
-               ~messages:prep.Agent_turn.effective_messages
-               ?tools:prep.tools_json ()
-           | None ->
-             Api.create_message ~sw ~net:agent.net
-               ~base_url:agent.options.base_url
-               ?provider:agent.options.provider ?clock ~config:agent.state
-               ~messages:prep.effective_messages ?tools:prep.tools_json
-               ?slot_id:agent.options.slot_id ()))
+        (match agent.options.cascade with
+         | Some casc ->
+           Api.create_message_cascade ~sw ~net:agent.net ?clock
+             ~cascade:casc ~config:agent.state
+             ~messages:prep.Agent_turn.effective_messages
+             ?tools:prep.tools_json ()
+         | None ->
+           Api.create_message ~sw ~net:agent.net
+             ~base_url:agent.options.base_url
+             ?provider:agent.options.provider ?clock ~config:agent.state
+             ~messages:prep.effective_messages ?tools:prep.tools_json
+             ?slot_id:agent.options.slot_id ()))
   | Stream { on_event } ->
     Tracing.with_span agent.options.tracer
       { kind = Api_call; name = "create_message_stream";
         agent_name = agent.state.config.name;
         turn = agent.state.turn_count; extra = [] }
       (fun _tracer ->
-        match agent.named_cascade with
-        | Some named ->
-          Api.create_message_named_stream ~sw ~net:agent.net ?clock
-            ~named_cascade:named ~config:agent.state
-            ~messages:prep.effective_messages ?tools:prep.tools_json
-            ~metrics:named.metrics ~on_event ?priority ()
-        | None ->
-          let can_stream = match agent.options.provider with
+        let can_stream = match agent.options.provider with
             | Some p -> Provider_intf.supports_streaming p
             | None -> false  (* Default Anthropic supports streaming *)
           in

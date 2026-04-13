@@ -3,23 +3,7 @@
     @stability Evolving
     @since 0.93.1 *)
 
-(** {1 Named cascade} *)
-
-type named_cascade = {
-  name : string;
-  defaults : string list;
-  config_path : string option;
-  metrics : Llm_provider.Metrics.t;
-  provider_filter : string list option;
-}
-
 type response_accept = Types.api_response -> (unit, string) result
-
-val named_cascade :
-  ?config_path:string -> ?metrics:Llm_provider.Metrics.t ->
-  ?provider_filter:string list ->
-  name:string -> defaults:string list ->
-  unit -> named_cascade
 
 (** {1 Re-exports from Api_common} *)
 
@@ -93,42 +77,3 @@ val create_message_cascade :
   unit ->
   (Types.api_response, Error.sdk_error) result
 
-(** {1 Named cascade request} *)
-
-val create_message_named :
-  sw:Eio.Switch.t ->
-  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
-  ?clock:_ Eio.Time.clock ->
-  named_cascade:named_cascade ->
-  config:Types.agent_state ->
-  messages:Types.message list ->
-  ?tools:Yojson.Safe.t list ->
-  ?temperature:float ->
-  ?max_tokens:int ->
-  ?system_prompt:string ->
-  ?accept:(Types.api_response -> bool) ->
-  ?accept_reason:response_accept ->
-  ?accept_on_exhaustion:bool ->
-  ?timeout_sec:int ->
-  ?metrics:Llm_provider.Metrics.t ->
-  ?priority:Llm_provider.Request_priority.t ->
-  unit ->
-  (Types.api_response, Error.sdk_error) result
-
-val create_message_named_stream :
-  sw:Eio.Switch.t ->
-  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
-  ?clock:_ Eio.Time.clock ->
-  named_cascade:named_cascade ->
-  config:Types.agent_state ->
-  messages:Types.message list ->
-  ?tools:Yojson.Safe.t list ->
-  ?temperature:float ->
-  ?max_tokens:int ->
-  ?system_prompt:string ->
-  ?timeout_sec:int ->
-  ?metrics:Llm_provider.Metrics.t ->
-  on_event:(Types.sse_event -> unit) ->
-  ?priority:Llm_provider.Request_priority.t ->
-  unit ->
-  (Types.api_response, Error.sdk_error) result
