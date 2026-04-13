@@ -139,7 +139,6 @@ let participant_and_detail_of_event = function
       (Some detail.participant_name, detail.error)
   | Artifact_attached detail ->
       (None, Some (detail.name ^ ":" ^ detail.kind))
-  | Vote_recorded vote -> (vote.actor, Some vote.topic)
   | Checkpoint_saved detail -> (None, detail.label)
   | Finalize_requested detail -> (None, detail.reason)
   | Session_completed detail -> (None, detail.outcome)
@@ -162,7 +161,6 @@ let event_name_of_kind = function
   | Agent_completed _ -> "agent_completed"
   | Agent_failed _ -> "agent_failed"
   | Artifact_attached _ -> "artifact_attached"
-  | Vote_recorded _ -> "vote_recorded"
   | Checkpoint_saved _ -> "checkpoint_saved"
   | Finalize_requested _ -> "finalize_requested"
   | Session_completed _ -> "session_completed"
@@ -203,8 +201,6 @@ let structured_fields_of_event = function
         Some detail.kind,
         None,
         None )
-  | Vote_recorded vote ->
-      (vote.actor, None, None, None, None, None, None, None, None)
   | Checkpoint_saved detail ->
       (None, None, None, None, None, None, None, detail.label, None)
   | Finalize_requested _ ->

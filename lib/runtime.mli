@@ -61,15 +61,6 @@ type artifact = {
 }
 [@@deriving yojson, show]
 
-type vote = {
-  topic: string;
-  options: string list;
-  choice: string;
-  actor: string option;
-  created_at: float;
-}
-[@@deriving yojson, show]
-
 (** Runtime session — wire protocol record. *)
 type session = {
   session_id: string;
@@ -179,14 +170,6 @@ type spawn_agent_request = {
 type attach_artifact_request = { name: string; kind: string; content: string }
 [@@deriving yojson, show]
 
-type vote_request = {
-  topic: string;
-  options: string list;
-  choice: string;
-  actor: string option;
-}
-[@@deriving yojson, show]
-
 type checkpoint_request = { label: string option }
 [@@deriving yojson, show]
 
@@ -198,7 +181,6 @@ type command =
   | Spawn_agent of spawn_agent_request
   | Update_session_settings of update_settings_request
   | Attach_artifact of attach_artifact_request
-  | Vote of vote_request
   | Checkpoint of checkpoint_request
   | Request_finalize of finalize_request
 [@@deriving yojson, show]
@@ -259,7 +241,6 @@ type event_kind =
   | Agent_completed of participant_event
   | Agent_failed of participant_event
   | Artifact_attached of artifact_event
-  | Vote_recorded of vote
   | Checkpoint_saved of checkpoint_event
   | Finalize_requested of finalize_request
   | Session_completed of completion_event

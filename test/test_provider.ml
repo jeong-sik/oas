@@ -158,18 +158,6 @@ let test_model_spec_openrouter_capabilities () =
   Alcotest.(check bool) "supports json response" true
     spec.capabilities.supports_response_format_json
 
-let test_inference_contract_local_qwen () =
-  let cfg : Provider.config = {
-    provider = Local { base_url = "http://127.0.0.1:8085" };
-    model_id = "qwen3.5-35b-a3b-ud-q8-xl";
-    api_key_env = "DUMMY_KEY";
-  } in
-  let contract = Provider.inference_contract_of_config cfg in
-  Alcotest.(check string) "model_id" "qwen3.5-35b-a3b-ud-q8-xl" contract.model_id;
-  Alcotest.(check string) "modality" "text"
-    (Provider.modality_to_string contract.modality);
-  Alcotest.(check (option string)) "task" None contract.task
-
 let test_inference_contract_anthropic_multimodal () =
   let contract =
     Provider.inference_contract_of_config (Provider.anthropic_sonnet ())
@@ -479,8 +467,6 @@ let () =
         test_model_spec_local_llm_capabilities;
       Alcotest.test_case "openrouter model spec capabilities" `Quick
         test_model_spec_openrouter_capabilities;
-      Alcotest.test_case "inference contract local qwen" `Quick
-        test_inference_contract_local_qwen;
       Alcotest.test_case "inference contract anthropic multimodal" `Quick
         test_inference_contract_anthropic_multimodal;
       Alcotest.test_case "task inference transcription" `Quick

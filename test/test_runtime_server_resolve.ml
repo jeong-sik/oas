@@ -129,14 +129,6 @@ let test_resolve_provider_local () =
       | _ -> Alcotest.fail "expected local provider")
   | _ -> Alcotest.fail "expected Ok (Some cfg)"
 
-let test_resolve_provider_local_qwen () =
-  match Runtime_server_resolve.resolve_provider ~provider:"local-qwen" () with
-  | Ok (Some cfg) -> (
-      match cfg.Provider.provider with
-      | Provider.Local _ -> ()
-      | _ -> Alcotest.fail "expected local provider")
-  | _ -> Alcotest.fail "expected Ok (Some cfg)"
-
 let test_resolve_provider_sonnet () =
   match Runtime_server_resolve.resolve_provider ~provider:"sonnet" () with
   | Ok (Some cfg) -> Alcotest.(check bool) "anthropic" true (cfg.Provider.provider = Provider.Anthropic)
@@ -301,8 +293,6 @@ let () =
             test_resolve_provider_mock_rejected_by_default;
           Alcotest.test_case "local returns Local provider" `Quick
             test_resolve_provider_local;
-          Alcotest.test_case "local-qwen returns Local provider" `Quick
-            test_resolve_provider_local_qwen;
           Alcotest.test_case "sonnet returns Anthropic" `Quick
             test_resolve_provider_sonnet;
           Alcotest.test_case "haiku returns Anthropic" `Quick

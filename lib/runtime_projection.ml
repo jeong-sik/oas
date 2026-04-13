@@ -272,11 +272,6 @@ let apply_event (session : session) (event : event) =
         }
       in
       Ok { session with artifacts = Util.snoc session.artifacts artifact }
-  | Vote_recorded _ ->
-      (* Vote events are intentionally ignored in projection;
-         vote state is handled by downstream consumers. *)
-      let* session = ensure_active_phase session in
-      Ok session
   | Checkpoint_saved _ ->
       let* session = ensure_active_phase session in
       Ok session

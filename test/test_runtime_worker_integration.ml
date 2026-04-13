@@ -198,9 +198,6 @@ let test_make_event_various_kinds () =
     Artifact_attached {
       artifact_id = "a1"; name = "n"; kind = "k";
       mime_type = "text/plain"; path = "/p"; size_bytes = 10 };
-    Vote_recorded {
-      topic = "t"; options = ["a";"b"]; choice = "a";
-      actor = Some "v"; created_at = 0.0 };
     Checkpoint_saved { label = Some "cp"; path = "/cp" };
     Finalize_requested { reason = Some "done" };
     Session_completed { outcome = Some "ok" };
