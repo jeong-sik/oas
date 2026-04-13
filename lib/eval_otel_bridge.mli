@@ -40,11 +40,16 @@ type metrics_snapshot = {
 (** Extract metric values from [run_metrics]. *)
 val extract : Eval.run_metrics -> metrics_snapshot
 
-(** {1 OTel span emission} *)
+(** {1 Metric type mapping} *)
 
-(** Emit eval metrics as a span with structured attributes on the given
-    [Otel_tracer.instance].  Creates one span named ["eval_metrics"]
-    with all metric values as attributes. *)
+(** Map string metric type tags to [Otel_tracer.metric_type]. *)
+val otel_metric_type_to_tracer : string -> Otel_tracer.metric_type
+
+(** {1 OTel metric emission} *)
+
+(** Emit eval metrics on the given [Otel_tracer.instance] using the
+    native metric API ([Otel_tracer.inst_record_metric]).  Also creates
+    a summary span named ["eval_metrics"] for correlation. *)
 val emit_run_metrics : Otel_tracer.instance -> Eval.run_metrics -> unit
 
 (** {1 JSON export} *)

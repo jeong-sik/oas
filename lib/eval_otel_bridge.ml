@@ -104,12 +104,27 @@ let to_metric_list (snap : metrics_snapshot) : otel_metric list =
   ] in
   required @ optional
 
-(* ── OTel span emission ───────────────────────────────────────── *)
+(* ── Metric type mapping ──────────────────────────────────────── *)
+
+let otel_metric_type_to_tracer (mt : string) : Otel_tracer.metric_type =
+  match mt with
+  | "counter" -> Otel_tracer.Counter
+  | "gauge" -> Otel_tracer.Gauge
+  | "histogram" -> Otel_tracer.Histogram
+  | _ -> Otel_tracer.Gauge
+
+(* ── OTel metric emission ────────────────────────────────────── *)
 
 let emit_run_metrics (inst : Otel_tracer.instance) (rm : Eval.run_metrics) : unit =
   let snap = extract rm in
   let metrics = to_metric_list snap in
-  (* Create a dedicated eval_metrics span *)
+  (* Record each metric via the native metric API *)
+  List.iter (fun (m : otel_metric) ->
+    Otel_tracer.inst_record_metric inst
+      ~name:m.name ~value:m.value
+      ~metric_type:(otel_metric_type_to_tracer m.metric_type)
+  ) metrics;
+  (* Create a summary span for correlation and event context *)
   let span_attrs : Tracing.span_attrs = {
     kind = Tracing.Agent_run;
     name = "eval_metrics";
@@ -118,14 +133,6 @@ let emit_run_metrics (inst : Otel_tracer.instance) (rm : Eval.run_metrics) : uni
     extra = [("oas.run_id", snap.run_id)];
   } in
   let span = Otel_tracer.inst_start_span inst span_attrs in
-  (* Add each metric as a span attribute *)
-  let metric_attrs = List.map (fun (m : otel_metric) ->
-    (m.name, Printf.sprintf "%.6g" m.value)
-  ) metrics in
-  let type_attrs = List.map (fun (m : otel_metric) ->
-    (m.name ^ ".type", m.metric_type)
-  ) metrics in
-  Otel_tracer.inst_add_attrs inst span (metric_attrs @ type_attrs);
   (* Add a summary event *)
   Otel_tracer.inst_add_event inst span
     (Printf.sprintf "eval: %d passed, %d failed, coverage=%.2f"
@@ -214,7 +221,7 @@ let%test "all metric names start with oas." =
 let _mk_stdlib_inst () : Otel_tracer.instance =
   { config = Otel_tracer.default_config;
     mu = Otel_tracer.Stdlib_mu (Mutex.create ());
-    current_spans = []; completed_spans = [] }
+    current_spans = []; completed_spans = []; metrics = [] }
 
 let%test "emit_run_metrics creates one span" =
   let inst = _mk_stdlib_inst () in

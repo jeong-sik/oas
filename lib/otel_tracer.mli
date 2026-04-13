@@ -35,6 +35,16 @@ type config = {
   endpoint: string option;
 }
 
+(** {1 Metric types} *)
+
+type metric_type = Counter | Gauge | Histogram
+
+type metric_entry = {
+  m_name: string;
+  m_value: float;
+  m_type: metric_type;
+}
+
 type mutex_impl =
   | Stdlib_mu of Mutex.t
   | Eio_mu of Eio.Mutex.t
@@ -44,6 +54,7 @@ type instance = {
   mu: mutex_impl;
   mutable current_spans: span list;
   mutable completed_spans: span list;
+  mutable metrics: metric_entry list;
 }
 
 (** {1 Config} *)
@@ -72,6 +83,20 @@ val inst_reset : instance -> unit
 val inst_completed_count : instance -> int
 val inst_active_count : instance -> int
 
+(** {1 Instance metric operations} *)
+
+val inst_record_metric : instance -> name:string -> value:float -> metric_type:metric_type -> unit
+(** Record a metric (counter, gauge, or histogram) on the instance. *)
+
+val inst_get_metrics : instance -> (string * float * metric_type) list
+(** Retrieve all recorded metrics as [(name, value, type)] triples. *)
+
+val inst_clear_metrics : instance -> unit
+(** Clear all recorded metrics from the instance. *)
+
+val metric_type_to_string : metric_type -> string
+(** Convert metric type to its OTLP string representation. *)
+
 (** {1 Global operations} *)
 
 val start_span : Tracing.span_attrs -> span
@@ -83,12 +108,24 @@ val reset : unit -> unit
 val completed_count : unit -> int
 val active_count : unit -> int
 
+(** {1 Global metric operations} *)
+
+val record_metric : name:string -> value:float -> metric_type:metric_type -> unit
+(** Record a metric on the global instance. *)
+
+val get_metrics : unit -> (string * float * metric_type) list
+(** Retrieve all metrics from the global instance. *)
+
+val clear_metrics : unit -> unit
+(** Clear all metrics from the global instance. *)
+
 (** {1 JSON serialization} *)
 
 val attrs_to_json : (string * string) list -> Yojson.Safe.t
 val event_to_json : otel_event -> Yojson.Safe.t
 val status_to_json : span -> Yojson.Safe.t
 val span_to_json : span -> Yojson.Safe.t
+val metric_entry_to_json : metric_entry -> Yojson.Safe.t
 val to_otlp_json : config -> Yojson.Safe.t
 
 (** {1 First-class module constructors} *)

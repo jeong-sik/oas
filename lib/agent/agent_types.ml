@@ -32,6 +32,12 @@ type options = {
   tool_selector: Tool_selector.strategy option;
   priority: Llm_provider.Request_priority.t option;
   slot_id: int option;
+  on_run_complete: (bool -> unit) option;
+    (** Optional callback invoked when a run finishes.  Receives [true]
+        on success, [false] on error.  Runs before lifecycle state is
+        updated.  Intended for emitting eval metrics, flushing OTel
+        spans, or other end-of-run side effects.  The callback must
+        not raise; exceptions are caught and logged. *)
 }
 
 (* Re-export lifecycle types from Agent_lifecycle.
@@ -91,6 +97,7 @@ let default_options = {
   tool_selector = None;
   priority = None;
   slot_id = None;
+  on_run_complete = None;
 }
 
 type tool_call_fingerprint = Agent_turn.tool_call_fingerprint

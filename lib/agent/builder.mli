@@ -182,6 +182,14 @@ val with_progressive_tools : Progressive_tools.disclosure_strategy -> t -> t
     @since 0.100.0 *)
 val with_tool_selector : Tool_selector.strategy -> t -> t
 
+(** {2 Run lifecycle} *)
+
+(** Set a callback invoked when a run finishes.  Receives [true] on
+    success, [false] on error.  Intended for emitting eval metrics,
+    flushing OTel spans, or other end-of-run side effects.
+    @since 0.110.0 *)
+val with_on_run_complete : (bool -> unit) -> t -> t
+
 (** {2 Build} *)
 
 (** Build the agent. May raise on invalid config.
