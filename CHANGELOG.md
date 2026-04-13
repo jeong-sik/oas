@@ -6,6 +6,20 @@ Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
 backfilled on 2026-04-04 from existing git tags. The dates below reflect the
 original tag dates. `0.100.4` was never tagged or released.
 
+## [0.126.0] - 2026-04-13
+
+### Added
+- `Context_reducer.cap_message_tokens` strategy to cap per-message token
+  budgets while preserving recent turns and inserting a truncation marker
+  when the middle is dropped.
+- Swiss Verdict JSON schema v1 at `docs/schemas/swiss-verdict.schema.json`.
+- `Harness.verdict_to_json`, `Harness.swiss_verdict_to_json`, and
+  `Eval.run_metrics_to_json` for schema-aligned evaluation export.
+
+### Changed
+- Checkpoint delta metrics now use the `oas.checkpoint.*` namespace instead
+  of flat `checkpoint_delta_*` names.
+
 ## [0.125.0] - 2026-04-13
 
 ### Removed
