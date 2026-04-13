@@ -6,6 +6,13 @@ Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
 backfilled on 2026-04-04 from existing git tags. The dates below reflect the
 original tag dates. `0.100.4` was never tagged or released.
 
+## [0.132.0] - 2026-04-13
+
+### Added
+- `Diag` module in `llm_provider` — pluggable structured diagnostic logging
+  with level filtering and consumer-replaceable sink. Replaces 27 raw
+  `Printf.eprintf` calls across 6 files.
+
 ## [0.131.0] - 2026-04-13
 
 ### Removed
