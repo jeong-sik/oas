@@ -462,25 +462,31 @@ let default_api_key_env_of_kind
     When [api_key] is empty, falls back to the well-known env var
     name for the provider kind (e.g. [ANTHROPIC_API_KEY]). *)
 let config_of_provider_config (pc : Llm_provider.Provider_config.t) : config =
+  (* When pc.api_key is non-empty it is the *resolved* API key value
+     (not an env var name).  Pass it via static_token + auth_header
+     so that resolve() includes it in the Authorization header without
+     a second Sys.getenv_opt lookup (which would fail because the
+     value is not an env var name).  When pc.api_key is empty, fall
+     back to api_key_env so resolve() can look up the env var. *)
+  let has_key = pc.api_key <> "" in
+  let auth_header = if has_key then Some "Authorization" else None in
+  let static_token = if has_key then Some pc.api_key else None in
   let provider = match pc.kind with
     | Anthropic -> Anthropic
     | Gemini ->
-      OpenAICompat { base_url = pc.base_url; auth_header = None;
-                     path = pc.request_path; static_token = None }
+      OpenAICompat { base_url = pc.base_url; auth_header;
+                     path = pc.request_path; static_token }
     | Glm ->
-      OpenAICompat { base_url = pc.base_url; auth_header = None;
-                     path = pc.request_path; static_token = None }
+      OpenAICompat { base_url = pc.base_url; auth_header;
+                     path = pc.request_path; static_token }
     | OpenAI_compat | Ollama ->
       if Llm_provider.Provider_config.is_local pc
       then Local { base_url = pc.base_url }
-      else OpenAICompat { base_url = pc.base_url; auth_header = None;
-                          path = pc.request_path; static_token = None }
+      else OpenAICompat { base_url = pc.base_url; auth_header;
+                          path = pc.request_path; static_token }
     | Claude_code ->
-      OpenAICompat { base_url = pc.base_url; auth_header = None;
-                     path = pc.request_path; static_token = None }
+      OpenAICompat { base_url = pc.base_url; auth_header;
+                     path = pc.request_path; static_token }
   in
-  let api_key_env =
-    if pc.api_key <> "" then pc.api_key
-    else default_api_key_env_of_kind pc.kind
-  in
+  let api_key_env = default_api_key_env_of_kind pc.kind in
   { provider; model_id = pc.model_id; api_key_env }
