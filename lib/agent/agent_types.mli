@@ -76,6 +76,12 @@ type options = {
         and replaces them with previews.  The {!Content_replacement_state}
         freezes replacement decisions for prompt cache stability.
         @since 0.128.0 *)
+  journal: Durable_event.journal option;
+    (** Optional event-sourced journal for crash recovery and replay.
+        When provided, lifecycle events are appended alongside
+        [Event_bus] publishes, enabling offline replay via
+        {!Durable_event.replay_summary}.
+        @since 0.133.0 *)
 }
 
 (** {1 Lifecycle re-exports} *)
