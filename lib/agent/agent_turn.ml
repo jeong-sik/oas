@@ -318,66 +318,145 @@ let default_max_tool_result_chars = 50_000
     All entries are valid ToolUse results — non-ToolUse blocks are filtered
     upstream in {!Agent_tools.execute_tools}.
 
-    When [relocation] is provided, results exceeding the store's
-    [threshold_chars] are persisted to disk and replaced with a
-    preview.  The [Content_replacement_state] records the decision
-    so that subsequent turns re-apply the same preview (no I/O).
+    When [relocation] is provided, applies a 3-phase pipeline:
 
-    When [max_result_chars] > 0, individual results exceeding that limit
-    are truncated at creation time with a marker showing the original
-    size.  This acts as a hard safety net after relocation.
+    {b Phase 1} — Per-result threshold: results exceeding [threshold_chars]
+    are persisted to disk and replaced with a preview.
 
-    Order: relocation first (persist + preview), then truncation
-    (if preview still exceeds [max_result_chars]). *)
+    {b Phase 2} — Aggregate budget: if the total chars of fresh (non-frozen,
+    below-threshold) results exceeds [aggregate_budget], the largest are
+    persisted until under budget.  This catches the case where many
+    medium-sized results collectively exceed the budget.
+
+    {b Phase 3} — Truncation safety net: any result still exceeding
+    [max_result_chars] is hard-truncated.
+
+    All decisions are recorded in [Content_replacement_state] for
+    prompt cache stability on subsequent turns.
+
+    @since 0.128.0 (Phase 1), 0.129.0 (Phase 2 aggregate budget) *)
 let make_tool_results ?(max_result_chars = default_max_tool_result_chars)
     ?relocation results =
-  List.map (fun (result : Agent_tools.tool_execution_result) ->
-    let sanitized = Llm_provider.Utf8_sanitize.sanitize result.content in
-    (* Step 1: relocation — persist large results to disk *)
-    let content = match relocation with
-      | Some (store, crs) ->
-        let threshold = (Tool_result_store.config store).threshold_chars in
-        if threshold > 0 && String.length sanitized > threshold then
-          (* Persist and record replacement *)
-          (match Tool_result_store.persist store
-                   ~tool_use_id:result.tool_use_id ~content:sanitized with
-           | Ok preview ->
-             (try
-                Content_replacement_state.record_replacement crs {
-                  tool_use_id = result.tool_use_id;
-                  preview;
-                  original_chars = String.length sanitized;
-                };
-              with Invalid_argument _ ->
-                (* Already frozen — use cached replacement *)
-                ());
-             preview
-           | Error _ ->
-             (* Fail-open: keep original content *)
-             sanitized)
-        else begin
-          (* Below threshold — record as kept *)
-          (try Content_replacement_state.record_kept crs result.tool_use_id
-           with Invalid_argument _ -> ());
-          sanitized
-        end
-      | None -> sanitized
+  match relocation with
+  | None ->
+    (* No relocation — simple sanitize + truncate *)
+    List.map (fun (result : Agent_tools.tool_execution_result) ->
+      let content = Llm_provider.Utf8_sanitize.sanitize result.content in
+      let content =
+        if max_result_chars > 0 && String.length content > max_result_chars then
+          let truncated = String.sub content 0 max_result_chars in
+          Printf.sprintf "%s\n[output truncated: %d chars total, showing first %d]"
+            truncated (String.length content) max_result_chars
+        else content
+      in
+      ToolResult {
+        tool_use_id = result.tool_use_id; content;
+        is_error = result.is_error; json = None;
+      }
+    ) results
+  | Some (store, crs) ->
+    let cfg = Tool_result_store.config store in
+    (* Phase 1: sanitize, apply frozen, apply per-result threshold.
+       Fresh below-threshold results are NOT yet recorded in CRS —
+       they need aggregate budget check first. *)
+    let phase1 = List.map (fun (result : Agent_tools.tool_execution_result) ->
+      let sanitized = Llm_provider.Utf8_sanitize.sanitize result.content in
+      if Content_replacement_state.is_frozen crs result.tool_use_id then
+        (* Frozen — re-apply cached decision *)
+        let content =
+          match Content_replacement_state.lookup_replacement crs result.tool_use_id with
+          | Some r -> r.preview
+          | None -> sanitized
+        in
+        (result.tool_use_id, content, result.is_error, false)
+      else if cfg.threshold_chars > 0 && String.length sanitized > cfg.threshold_chars then
+        (* Above per-result threshold — persist and freeze now *)
+        let content =
+          match Tool_result_store.persist store
+                  ~tool_use_id:result.tool_use_id ~content:sanitized with
+          | Ok preview ->
+            (try Content_replacement_state.record_replacement crs {
+                   tool_use_id = result.tool_use_id;
+                   preview;
+                   original_chars = String.length sanitized;
+                 }
+             with Invalid_argument _ -> ());
+            preview
+          | Error _ -> sanitized
+        in
+        (result.tool_use_id, content, result.is_error, false)
+      else
+        (* Below threshold — fresh, needs aggregate budget check *)
+        (result.tool_use_id, sanitized, result.is_error, true)
+    ) results in
+    (* Phase 2: aggregate budget enforcement for fresh results *)
+    let total_fresh_chars = List.fold_left (fun acc (_, content, _, is_fresh) ->
+      if is_fresh then acc + String.length content else acc
+    ) 0 phase1 in
+    let persist_ids =
+      if cfg.aggregate_budget > 0 && total_fresh_chars > cfg.aggregate_budget then begin
+        (* Collect fresh results with sizes *)
+        let fresh_entries = List.filter_map (fun (tid, content, _, is_fresh) ->
+          if is_fresh then Some (tid, String.length content, content) else None
+        ) phase1 in
+        (* Sort by size descending — persist largest first *)
+        let sorted = List.sort
+          (fun (_, s1, _) (_, s2, _) -> compare s2 s1) fresh_entries in
+        let excess = ref (total_fresh_chars - cfg.aggregate_budget) in
+        let ids = Hashtbl.create 8 in
+        List.iter (fun (tid, size, content) ->
+          if !excess > 0 then begin
+            (* Only persist if the preview is actually smaller than the original.
+               The preview is at most preview_chars + ~60 bytes of marker text. *)
+            let preview_overhead = cfg.preview_chars + 80 in
+            let saved = size - preview_overhead in
+            if saved > 0 then begin
+              Hashtbl.replace ids tid content;
+              excess := !excess - saved
+            end
+          end
+        ) sorted;
+        ids
+      end else
+        Hashtbl.create 0
     in
-    (* Step 2: truncation safety net *)
-    let content =
-      if max_result_chars > 0 && String.length content > max_result_chars then
-        let truncated = String.sub content 0 max_result_chars in
-        Printf.sprintf "%s\n[output truncated: %d chars total, showing first %d]"
-          truncated (String.length content) max_result_chars
-      else content
-    in
-    ToolResult {
-      tool_use_id = result.tool_use_id;
-      content;
-      is_error = result.is_error;
-      json = None;
-    }
-  ) results
+    (* Phase 3: apply aggregate decisions, record CRS, truncate *)
+    List.map (fun (tid, content, is_error, is_fresh) ->
+      let content =
+        if is_fresh then begin
+          if Hashtbl.mem persist_ids tid then begin
+            (* Aggregate budget says: persist this one *)
+            let original = Hashtbl.find persist_ids tid in
+            match Tool_result_store.persist store ~tool_use_id:tid ~content:original with
+            | Ok preview ->
+              (try Content_replacement_state.record_replacement crs {
+                     tool_use_id = tid; preview;
+                     original_chars = String.length original;
+                   }
+               with Invalid_argument _ -> ());
+              preview
+            | Error _ ->
+              (try Content_replacement_state.record_kept crs tid
+               with Invalid_argument _ -> ());
+              content
+          end else begin
+            (* Under budget — record as kept *)
+            (try Content_replacement_state.record_kept crs tid
+             with Invalid_argument _ -> ());
+            content
+          end
+        end else
+          content
+      in
+      let content =
+        if max_result_chars > 0 && String.length content > max_result_chars then
+          let truncated = String.sub content 0 max_result_chars in
+          Printf.sprintf "%s\n[output truncated: %d chars total, showing first %d]"
+            truncated (String.length content) max_result_chars
+        else content
+      in
+      ToolResult { tool_use_id = tid; content; is_error; json = None }
+    ) phase1
 
 (* === make_tool_results inline tests === *)
 

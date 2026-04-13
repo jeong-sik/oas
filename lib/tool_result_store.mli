@@ -25,6 +25,12 @@ type config = {
         written to disk.  Default: 50,000.  Pass [0] to disable. *)
   preview_chars: int;
     (** Preview length kept in the message.  Default: 2,000. *)
+  aggregate_budget: int;
+    (** Per-message aggregate budget in chars.  When total tool result
+        content in a single message exceeds this, the largest fresh
+        results are persisted until under budget.
+        Default: 200,000.  Pass [0] to disable.
+        @since 0.129.0 *)
 }
 
 val default_threshold_chars : int
@@ -32,6 +38,10 @@ val default_threshold_chars : int
 
 val default_preview_chars : int
 (** Default preview length: 2,000 chars. *)
+
+val default_aggregate_budget : int
+(** Default per-message aggregate budget: 200,000 chars.
+    @since 0.129.0 *)
 
 (** {1 Store lifecycle} *)
 

@@ -379,6 +379,12 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
         ?relocation:agent.options.tool_result_relocation
         results
     in
+    (* Persist CRS to context after tool result processing so that
+       checkpoint captures the current replacement decisions. *)
+    (match agent.options.tool_result_relocation with
+     | Some (_, crs) ->
+       Content_replacement_state.persist_to_context agent.context crs
+     | None -> ());
     let* tool_feedback =
       match agent.options.tool_retry_policy with
       | None ->
