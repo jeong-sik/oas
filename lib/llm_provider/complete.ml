@@ -222,9 +222,8 @@ let complete_http ~sw ~net
     && body_str.[body_len - 1] = '}'
   in
   if not body_balanced && body_len > 0 then begin
-    Printf.eprintf
-      "[ERROR] [Complete] pre-flight: unbalanced JSON body (%d bytes, \
-       first=%C last=%C) for %s %s — request blocked\n%!"
+    Diag.error "complete"
+      "pre-flight: unbalanced JSON body (%d bytes, first=%C last=%C) for %s %s — request blocked"
       body_len body_str.[0] body_str.[body_len - 1]
       (provider_name_of_kind config.kind) config.model_id;
     (* Fail-closed: do not send a body the provider will reject.
@@ -258,16 +257,13 @@ let complete_http ~sw ~net
         let oc = open_out dump_path in
         output_string oc body_str;
         close_out oc;
-        Printf.eprintf
-          "[DEBUG] [Complete] %s %s → %s (%d bytes) dumped to %s\n%!"
+        Diag.debug "complete" "%s %s → %s (%d bytes) dumped to %s"
           provider_label config.model_id url body_len dump_path
       with exn ->
-        Printf.eprintf
-          "[DEBUG] [Complete] %s %s → %s (%d bytes) dump failed: %s\n%!"
+        Diag.debug "complete" "%s %s → %s (%d bytes) dump failed: %s"
           provider_label config.model_id url body_len (Printexc.to_string exn))
    | "summary" ->
-     Printf.eprintf
-       "[DEBUG] [Complete] %s %s → %s (%d bytes)\n%!"
+     Diag.debug "complete" "%s %s → %s (%d bytes)"
        provider_label config.model_id url body_len
    | _ -> ());
   let t0 = Unix.gettimeofday () in
@@ -306,23 +302,23 @@ let complete_http ~sw ~net
             | Provider_config.Claude_code -> Error (Http_client.NetworkError { message = "Unreachable code" })
           with
           | Yojson.Json_error msg ->
-              Printf.eprintf "[ERROR] [Llm_provider] JSON parse error: %s\n%!" msg;
+              Diag.error "complete" "JSON parse error: %s" msg;
               Error (Http_client.HttpError { code = 400; body = "JSON parse error: " ^ msg })
           | Yojson.Safe.Util.Type_error (msg, _) ->
-              Printf.eprintf "[ERROR] [Llm_provider] JSON type error: %s\n%!" msg;
+              Diag.error "complete" "JSON type error: %s" msg;
               Error (Http_client.HttpError { code = 400; body = "JSON type error: " ^ msg })
           | Yojson.Safe.Util.Undefined (msg, _) ->
-              Printf.eprintf "[ERROR] [Llm_provider] JSON undefined field error: %s\n%!" msg;
+              Diag.error "complete" "JSON undefined field error: %s" msg;
               Error (Http_client.HttpError { code = 400; body = "JSON undefined field error: " ^ msg })
           | Backend_gemini.Gemini_api_error msg ->
-              Printf.eprintf "[ERROR] [Llm_provider] Gemini API error: %s\n%!" msg;
+              Diag.error "complete" "Gemini API error: %s" msg;
               Error (Http_client.HttpError { code = 400; body = "Gemini API error: " ^ msg })
           | Backend_glm.Glm_api_error msg ->
-              Printf.eprintf "[ERROR] [Llm_provider] GLM API error: %s\n%!" msg;
+              Diag.error "complete" "GLM API error: %s" msg;
               Error (Http_client.HttpError { code = 400; body = "GLM API error: " ^ msg })
           | exn ->
               let exn_str = Printexc.to_string exn in
-              Printf.eprintf "[ERROR] [Llm_provider] Unexpected parsing exception: %s\n%!" exn_str;
+              Diag.error "complete" "Unexpected parsing exception: %s" exn_str;
               Error (Http_client.HttpError { code = 500; body = "Unexpected parsing exception: " ^ exn_str })
         else begin
           (* Log request body diagnostics on error responses to help debug
@@ -340,9 +336,8 @@ let complete_http ~sw ~net
                 let _ = Yojson.Safe.from_string body_str in true
               with _ -> false
             in
-            Printf.eprintf
-              "[WARN] [Complete] HTTP %d from %s (model=%s base_url=%s): \
-               req_body=%d bytes balanced=%b parse_ok=%b resp_body=%s\n%!"
+            Diag.warn "complete"
+              "HTTP %d from %s (model=%s base_url=%s): req_body=%d bytes balanced=%b parse_ok=%b resp_body=%s"
               code provider_name config.model_id
               (sanitize_url_for_log config.base_url)
               body_len body_balanced parse_ok
@@ -424,9 +419,7 @@ let complete_http ~sw ~net
                   let oc = Unix.out_channel_of_descr fd in
                   Fun.protect ~finally:(fun () -> close_out_noerr oc)
                     (fun () -> output_string oc body_str);
-                  Printf.eprintf
-                    "[WARN] [Complete] dumped rejected request body: %s \
-                     (%d bytes, mode 0600)\n%!"
+                  Diag.warn "complete" "dumped rejected request body: %s (%d bytes, mode 0600)"
                     path body_len
                 with
                 | Unix.Unix_error (Unix.EEXIST, _, _) -> ()

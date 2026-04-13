@@ -12,7 +12,7 @@ let warn_probe_failure ~url ~phase detail =
         ("detail", `String detail);
       ]
   in
-  Printf.eprintf "%s\n%!" (Yojson.Safe.to_string json)
+  Diag.debug "discovery" "%s" (Yojson.Safe.to_string json)
 
 type model_info = {
   id: string;
@@ -51,10 +51,10 @@ type endpoint_status = {
 let () =
   match Sys.getenv_opt "OAS_LOCAL_QWEN_URL" with
   | Some v when String.trim v <> "" ->
-    Printf.eprintf
-      "[WARN] [Discovery] OAS_LOCAL_QWEN_URL is set (%s) but has been \
+    Diag.warn "discovery"
+      "OAS_LOCAL_QWEN_URL is set (%s) but has been \
        removed in favor of OAS_LOCAL_LLM_URL. The legacy value will be \
-       ignored. Rename the env var to migrate.\n%!"
+       ignored. Rename the env var to migrate."
       (String.trim v)
   | _ -> ()
 

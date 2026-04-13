@@ -45,7 +45,7 @@ let log_close_failure ~url ~message =
         ("error", `String message);
       ]
   in
-  Printf.eprintf "%s\n%!" (Yojson.Safe.to_string json)
+  Diag.warn "http_client" "%s" (Yojson.Safe.to_string json)
 
 (* Substring check on already-lowered strings. *)
 let has_substr haystack needle =

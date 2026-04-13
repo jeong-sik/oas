@@ -39,11 +39,11 @@ let warn_capability_drop ~model_id ~field =
   let key = (model_id, field) in
   if not (Hashtbl.mem capability_drop_warned key) then begin
     Hashtbl.replace capability_drop_warned key ();
-    Printf.eprintf
-      "[WARN] [backend_openai] dropping sampling field %s for model %s: \
+    Diag.warn "backend_openai"
+      "dropping sampling field %s for model %s: \
        capability record reports supports_%s = false. Update \
        Capabilities.for_model_id if this model actually supports it, \
-       otherwise remove the field from your agent/cascade config.\n%!"
+       otherwise remove the field from your agent/cascade config."
       field model_id field
   end
 

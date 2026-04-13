@@ -71,7 +71,7 @@ let filter_healthy_internal ~sw ~net (providers : Provider_config.t list) =
     else begin
       let dropped = initial_count - List.length with_keys in
       if dropped > 0 then
-        Printf.eprintf "[cascade_health_filter] dropped %d provider(s) missing API keys\n%!"
+        Diag.debug "cascade_health_filter" "dropped %d provider(s) missing API keys"
           dropped;
       with_keys
     end
@@ -104,8 +104,8 @@ let filter_healthy_internal ~sw ~net (providers : Provider_config.t list) =
       if any_healthy then
         (providers, statuses)
       else begin
-        Printf.eprintf
-          "[cascade_health_filter] all %d local endpoint(s) unhealthy, falling back to %d cloud provider(s)\n%!"
+        Diag.info "cascade_health_filter"
+          "all %d local endpoint(s) unhealthy, falling back to %d cloud provider(s)"
           (List.length local_providers) (List.length cloud_providers);
         (cloud_providers, [])
       end

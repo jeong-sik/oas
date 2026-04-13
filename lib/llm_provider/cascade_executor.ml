@@ -231,9 +231,8 @@ let truncate_within_turn budget (messages : Types.message list) : Types.message 
         let n_original = List.length rest in
         let n_kept = List.length kept in
         if n_kept < n_original then
-          Printf.eprintf
-            "[cascade_executor] [warn] intra_turn_truncation: \
-             %d→%d rounds (preamble=%d tokens, budget=%d)\n%!"
+          Diag.warn "cascade_executor"
+            "intra_turn_truncation: %d→%d rounds (preamble=%d tokens, budget=%d)"
             n_original n_kept preamble_tokens budget;
         match kept with
         | [] ->
@@ -284,9 +283,8 @@ let truncate_to_context ?(context_margin = default_context_margin)
     in
     if estimated <= budget then messages
     else begin
-      Printf.eprintf
-        "[cascade_executor] [warn] context truncation: \
-         estimated=%d budget=%d max_context=%d model=%s\n%!"
+      Diag.warn "cascade_executor"
+        "context truncation: estimated=%d budget=%d max_context=%d model=%s"
         estimated budget max_ctx cfg.model_id;
       let result = apply_token_budget budget messages in
       let result_tokens =
@@ -294,9 +292,8 @@ let truncate_to_context ?(context_margin = default_context_margin)
           (fun acc msg -> acc + estimate_message_tokens msg) 0 result
       in
       if result_tokens > budget then
-        Printf.eprintf
-          "[cascade_executor] [warn] context_still_over_budget: \
-           after_truncation=%d budget=%d messages=%d→%d model=%s\n%!"
+        Diag.warn "cascade_executor"
+          "context_still_over_budget: after_truncation=%d budget=%d messages=%d→%d model=%s"
           result_tokens budget
           (List.length messages) (List.length result) cfg.model_id;
       result
@@ -347,9 +344,8 @@ let truncate_tools
         max_ctx - output_reserve - message_tokens - margin
       in
       if available <= 0 then begin
-        Printf.eprintf
-          "[cascade_executor] [warn] tool_truncation: no budget for tools \
-           model=%s max_ctx=%d msg_tokens=%d output=%d\n%!"
+        Diag.warn "cascade_executor"
+          "tool_truncation: no budget for tools model=%s max_ctx=%d msg_tokens=%d output=%d"
           cfg.model_id max_ctx message_tokens output_reserve;
         []
       end else
@@ -363,10 +359,8 @@ let truncate_tools
             if tokens_so_far + tool_tokens > available then begin
               let kept = List.length acc in
               if kept < total then
-                Printf.eprintf
-                  "[cascade_executor] [warn] tool_truncation: \
-                   %d→%d tools for %s (budget=%d tokens, \
-                   msg=%d output=%d)\n%!"
+                Diag.warn "cascade_executor"
+                  "tool_truncation: %d→%d tools for %s (budget=%d tokens, msg=%d output=%d)"
                   total kept cfg.model_id available
                   message_tokens output_reserve;
               List.rev acc
@@ -375,36 +369,6 @@ let truncate_tools
         in
         take [] 0 tools
 
-(* ── Diagnostic logging ──────────────────────────────────── *)
-
-(** [true] when the [OAS_CASCADE_DIAG] env var is set to [1], [true], or [yes].
-    Controls whether debug-level diagnostic lines are emitted.  Warn/info
-    lines are always emitted regardless of this flag. *)
-let cascade_diag_enabled : bool =
-  match Sys.getenv_opt "OAS_CASCADE_DIAG" with
-  | Some "1" | Some "true" | Some "yes" -> true
-  | _ -> false
-
-let diag_field_value (v : string) : string =
-  Printf.sprintf "%S" v
-
-(** [diag level msg fields] emits a structured diagnostic line to stderr.
-    Used for cascade accept/reject debugging.  [fields] is a list of
-    [(key, value)] string pairs.  Field values are quoted/escaped so that
-    spaces, [=], and newlines cannot make the output ambiguous.
-    Debug-level lines are gated behind [OAS_CASCADE_DIAG=1] (default off);
-    warn/info lines are always emitted. *)
-let diag (level : string) (msg : string) (fields : (string * string) list) =
-  if level = "debug" && not cascade_diag_enabled then ()
-  else
-    let fields_str = match fields with
-      | [] -> ""
-      | fs ->
-        " " ^ String.concat " "
-          (List.map (fun (k, v) -> k ^ "=" ^ diag_field_value v) fs)
-    in
-    Printf.eprintf "[cascade_executor] [%s] %s%s\n%!" level msg fields_str
-
 (* ── Synchronous cascade with accept validator ─────────── *)
 
 let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
@@ -412,9 +376,8 @@ let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
     ~accept (providers : Provider_config.t list)
     ~(messages : Types.message list) ~(tools : Yojson.Safe.t list) =
   let m = match metrics with Some m -> m | None -> Metrics.get_global () in
-  diag "debug" "cascade_accept_start"
-    [("providers", string_of_int (List.length providers));
-     ("accept_on_exhaustion", string_of_bool accept_on_exhaustion)];
+  Diag.debug "cascade_executor" "cascade_accept_start providers=%d accept_on_exhaustion=%b"
+    (List.length providers) accept_on_exhaustion;
   let try_one ~is_last (cfg : Provider_config.t) =
     let effective_messages = truncate_to_context cfg messages in
     let effective_tools = truncate_tools cfg effective_messages tools in
@@ -489,14 +452,11 @@ let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
       (* Pure decision: delegate to FSM *)
       match Cascade_fsm.decide ~accept_on_exhaustion ~is_last outcome with
       | Cascade_fsm.Accept resp ->
-        diag "debug" "cascade_accept_passed"
-          [("model_id", cfg.model_id)];
+        Diag.debug "cascade_executor" "cascade_accept_passed model_id=%s" cfg.model_id;
         Ok resp
       | Cascade_fsm.Accept_on_exhaustion { response; reason } ->
-        diag "info" "cascade_accept_on_exhaustion"
-          [("model_id", cfg.model_id);
-           ("is_last", string_of_bool is_last);
-           ("reason", reason)];
+        Diag.info "cascade_executor" "cascade_accept_on_exhaustion model_id=%s is_last=%b reason=%s"
+          cfg.model_id is_last reason;
         m.on_cascade_fallback
           ~from_model:cfg.model_id ~to_model:"(accepted on exhaustion)"
           ~reason:"accept relaxed: all models rejected";
@@ -508,9 +468,8 @@ let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
           | Some (Http_client.NetworkError { message }) -> message
           | None -> "unknown"
         in
-        diag "debug" "cascade_try_next"
-          [("model_id", cfg.model_id);
-           ("reason", reason_str)];
+        Diag.debug "cascade_executor" "cascade_try_next model_id=%s reason=%s"
+          cfg.model_id reason_str;
         (match rest with
          | (next_cfg : Provider_config.t) :: _ ->
            m.on_cascade_fallback
@@ -525,9 +484,8 @@ let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
           | Some (Http_client.NetworkError { message }) -> message
           | None -> "unknown"
         in
-        diag "debug" "cascade_exhausted"
-          [("model_id", cfg.model_id);
-           ("reason", reason_str)];
+        Diag.debug "cascade_executor" "cascade_exhausted model_id=%s reason=%s"
+          cfg.model_id reason_str;
         Error (Cascade_fsm.format_exhausted_error final_err)
   in
   try_next None providers
