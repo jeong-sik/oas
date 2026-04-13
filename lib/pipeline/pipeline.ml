@@ -700,8 +700,44 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
 
   (* Stage 3: Route — with compact-and-retry on context overflow *)
   let rec attempt_route ~prep ~compact_attempts =
+    let est_input =
+      List.fold_left (fun acc msg ->
+        acc + Context_reducer.estimate_message_tokens msg)
+        0 prep.Agent_turn.effective_messages
+    in
+    (match agent.options.journal with
+     | Some j ->
+         Durable_event.append j
+           (Llm_request
+              { turn = agent.state.turn_count;
+                model = agent.state.config.model;
+                input_tokens = est_input;
+                timestamp = Unix.gettimeofday () })
+     | None -> ());
+    let t0 = Unix.gettimeofday () in
     let api_result = stage_route ~sw ?clock ~api_strategy agent prep
       |> tag_error "route" in
+    let duration_ms = (Unix.gettimeofday () -. t0) *. 1000.0 in
+    (match agent.options.journal, api_result with
+     | Some j, Ok response ->
+         let out_tokens = match response.usage with
+           | Some u -> u.output_tokens | None -> 0
+         in
+         Durable_event.append j
+           (Llm_response
+              { turn = agent.state.turn_count;
+                output_tokens = out_tokens;
+                stop_reason = Types.show_stop_reason response.stop_reason;
+                duration_ms;
+                timestamp = Unix.gettimeofday () })
+     | Some j, Error err ->
+         Durable_event.append j
+           (Error_occurred
+              { turn = agent.state.turn_count;
+                error_domain = "Api";
+                detail = Error.to_string err;
+                timestamp = Unix.gettimeofday () })
+     | None, _ -> ());
     match api_result with
     | Error (Error.Api (Retry.ContextOverflow { limit; _ }))
       when compact_attempts < 2 ->
