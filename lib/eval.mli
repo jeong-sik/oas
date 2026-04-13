@@ -159,3 +159,11 @@ val compare_statistical :
   baselines:run_metrics list ->
   candidates:run_metrics list ->
   (string * float option) list
+
+(** {1 Swiss Verdict JSON export} *)
+
+(** Produce a JSON object conforming to
+    [docs/schemas/swiss-verdict.schema.json] (schema_version 1).
+    Maps [harness_verdicts] into [layer_results] (named "verdict_0",
+    "verdict_1", ...) and [metrics] into [eval_metrics]. *)
+val run_metrics_to_json : run_metrics -> Yojson.Safe.t

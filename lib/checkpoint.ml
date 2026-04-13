@@ -387,10 +387,10 @@ let limits_patch_changed (before : t) (after : t) =
 let delta_version = 1
 
 let delta_metrics_names =
-  ( "checkpoint_delta_apply_total",
-    "checkpoint_delta_apply_failures_total",
-    "checkpoint_delta_size_bytes",
-    "checkpoint_full_restore_fallback_total" )
+  ( "oas.checkpoint.delta_apply_total",
+    "oas.checkpoint.delta_apply_failures_total",
+    "oas.checkpoint.delta_size_bytes",
+    "oas.checkpoint.full_restore_fallback_total" )
 
 let is_truthy = function
   | Some ("1" | "true" | "TRUE" | "yes" | "on") -> true

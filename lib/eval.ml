@@ -386,3 +386,57 @@ let compare_statistical ~(baselines : run_metrics list) ~(candidates : run_metri
     else None
   ) metric_names in
   regressions
+
+(* ── Swiss Verdict JSON export ───────────────────────────────── *)
+
+(** Produce a JSON object conforming to swiss-verdict.schema.json (v1).
+
+    Maps [harness_verdicts] into [layer_results] and [metrics] into
+    [eval_metrics].  Each [Harness.verdict] becomes one layer_result
+    entry using ordinal naming ("verdict_0", "verdict_1", ...). *)
+let run_metrics_to_json (rm : run_metrics) : Yojson.Safe.t =
+  let layer_results =
+    List.mapi (fun i (v : Harness.verdict) ->
+      `Assoc [
+        ("layer_name", `String (Printf.sprintf "verdict_%d" i));
+        ("passed", `Bool v.passed);
+        ("score", match v.score with Some s -> `Float s | None -> `Null);
+        ("evidence", `List (List.map (fun e -> `String e) v.evidence));
+        ("detail", match v.detail with Some d -> `String d | None -> `Null);
+      ]
+    ) rm.harness_verdicts
+  in
+  let all_passed =
+    List.for_all (fun (v : Harness.verdict) -> v.passed) rm.harness_verdicts
+  in
+  let coverage =
+    let total = List.length rm.harness_verdicts in
+    if total = 0 then 1.0
+    else
+      let passed = List.length (List.filter (fun (v : Harness.verdict) -> v.passed) rm.harness_verdicts) in
+      Float.of_int passed /. Float.of_int total
+  in
+  let eval_metrics =
+    List.map (fun (m : metric) ->
+      let base = [
+        ("name", `String m.name);
+        ("value", metric_value_to_yojson m.value);
+      ] in
+      let unit_part = match m.unit_ with
+        | Some u -> [("unit", `String u)]
+        | None -> [("unit", `Null)]
+      in
+      let tags_part = match m.tags with
+        | [] -> []
+        | tags -> [("tags", `Assoc (List.map (fun (k, v) -> (k, `String v)) tags))]
+      in
+      `Assoc (base @ unit_part @ tags_part)
+    ) rm.metrics
+  in
+  `Assoc [
+    ("schema_version", `Int 1);
+    ("all_passed", `Bool all_passed);
+    ("coverage", `Float coverage);
+    ("layer_results", `List layer_results);
+    ("eval_metrics", `List eval_metrics);
+  ]
