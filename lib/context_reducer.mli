@@ -28,6 +28,7 @@ type strategy =
   | Summarize_old of { keep_recent: int; summarizer: message list -> string }
   | Clear_tool_results of { keep_recent: int }
   | Stub_tool_results of { keep_recent: int }
+  | Cap_message_tokens of { max_tokens: int; keep_recent: int }
   | Compose of strategy list
   | Custom of (message list -> message list)
   | Dynamic of (turn:int -> messages:message list -> strategy)
@@ -94,6 +95,16 @@ val clear_tool_results : keep_recent:int -> t
     ToolUse/ToolResult pairing is preserved.
     @since 0.98.0 *)
 val stub_tool_results : keep_recent:int -> t
+
+(** Cap per-message token count by truncating oversized messages.
+    Messages in the most recent [keep_recent] turns are not modified.
+    For older messages exceeding [max_tokens], content blocks are kept
+    from the front (60% budget) and back (30% budget), dropping the
+    middle. A truncation marker is inserted at the splice point.
+    ToolUse/ToolResult blocks at the boundaries are preserved intact
+    to maintain API pairing invariants.
+    @since 0.125.0 *)
+val cap_message_tokens : max_tokens:int -> keep_recent:int -> t
 
 val compose : t list -> t
 val custom : (message list -> message list) -> t
