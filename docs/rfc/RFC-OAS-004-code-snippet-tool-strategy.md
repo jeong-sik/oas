@@ -85,6 +85,8 @@ type sandbox_mode =
         가장 안전하지만 활용 범위가 좁다. *)
   | Subprocess_sandbox of { timeout_s: float; memory_limit_mb: int }
     (** 별도 프로세스에서 실행. timeout + memory 제한.
+        DSL이 Turing-incomplete이므로 이론적으로 무한루프 불가이나,
+        tool callback의 I/O 지연이나 파서 버그에 대한 방어적 timeout.
         OAS가 직접 spawn하므로 MASC playground 불필요. *)
 ```
 
@@ -101,10 +103,9 @@ type snippet = {
 }
 
 type snippet_result =
-  | Success of { output: string; tool_calls_made: int; tokens_saved_estimate: int }
+  | Success of { output: string; tool_calls_made: int }
   | Parse_error of string
   | Sandbox_violation of string
-  | Timeout
 
 val parse : raw:string -> (snippet, string) result
 (** LLM 응답에서 code block을 추출하고 AST-level 검증.
@@ -168,6 +169,7 @@ type comparison = {
   json_mode: { turns: int; llm_calls: int; tokens: int; passed: bool };
   snippet_mode: { turns: int; llm_calls: int; tokens: int; passed: bool };
   call_reduction_pct: float;  (** (json - snippet) / json * 100 *)
+  tokens_saved: int;          (** json.tokens - snippet.tokens *)
 }
 
 val run_comparison :
@@ -178,7 +180,7 @@ val run_comparison :
     두 모드 모두 harness verdict를 통과해야 유효한 비교. *)
 ```
 
-**채택 기준**: 10+ task에서 평균 call_reduction_pct >= 25% AND snippet_mode.passed >= json_mode.passed.
+**채택 기준**: 10+ task에서 평균 call_reduction_pct >= 25% AND SUM(snippet_mode.passed) >= SUM(json_mode.passed) across all tasks.
 
 ## Implementation Phases
 
@@ -209,6 +211,7 @@ val run_comparison :
 |------|------------|
 | DSL이 너무 제한적이어서 LLM이 활용하지 못함 | Phase 3 eval에서 드러남. DSL 확장은 별도 RFC |
 | LLM이 DSL 대신 자연어/JSON으로 응답 | Fallback: JSON tool call 경로로 자동 전환 (기존 동작) |
+| LLM이 거의 맞지만 문법 오류가 있는 DSL 생성 (syntax hallucination) | 연속 Parse_error 2회 시 해당 turn을 JSON tool call로 강제 전환. 무한 retry 방지 |
 | Sandbox escape | DSL이 Turing-incomplete이므로 구조적 불가. Subprocess sandbox는 timeout+memory 하드 리밋 |
 | 실험 코드가 본 코드에 복잡도 추가 | env var guard + 별도 모듈 격리. 재현 실패 시 삭제 |
 | Smolagents의 30% 수치가 특정 모델/task에 특화 | OAS 자체 task set으로 독립 평가. Smolagents 수치를 목표가 아닌 참조만으로 사용 |

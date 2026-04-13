@@ -120,7 +120,10 @@ OpenTelemetry GenAI SIG attribute는 span attribute로 유지:
           "layer_name": { "type": "string" },
           "passed": { "type": "boolean" },
           "score": { "type": ["number", "null"] },
-          "evidence": { "type": "string" },
+          "evidence": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
           "detail": { "type": ["string", "null"] }
         }
       }
@@ -179,7 +182,7 @@ val emit_run_metrics : Otel_tracer.t -> run_metrics -> unit
 - `docs/schemas/swiss-verdict.schema.json` 생성
 - `harness.ml`에 `swiss_verdict_to_json` 함수 추가 (schema 준수 보장)
 - `eval.ml`에 `run_metrics_to_json` 함수 추가
-- dune rule: schema validation test
+- dune rule: `ppx_deriving_yojson`로 생성된 `to_yojson`과 schema를 cross-check하는 테스트. OCaml 타입이 source-of-truth, schema는 파생물.
 
 ### Phase 3: Eval OTel Bridge (1 PR)
 - `eval_otel_bridge.ml` 신규 모듈
@@ -191,6 +194,7 @@ val emit_run_metrics : Otel_tracer.t -> run_metrics -> unit
 | Risk | Mitigation |
 |------|------------|
 | Metric rename이 기존 Grafana 대시보드를 깨뜨림 | Phase 1에서 1 cycle 동안 dual-emit. MASC dashboard 먼저 migration |
+| Dual-emit으로 metric cardinality 2배 증가 | Feature flag로 구이름 emit 대상을 선택적으로 제한. 전체 metric이 아닌 downstream consumer가 실제 사용하는 구이름만 dual-emit |
 | JSON Schema와 OCaml 타입 drift | dune rule로 CI에서 schema↔type 동기 검증 |
 | OTel GenAI SIG convention 변경 시 재작업 | `gen_ai.*`는 attribute만 사용, metric name은 `oas.*` 자체 namespace이므로 SIG 변경에 독립 |
 
