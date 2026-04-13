@@ -95,6 +95,8 @@ let default_for_kind (kind : Provider_config.provider_kind) =
     create ~max_concurrent:10 ~provider_name:"glm"
   | Provider_config.Claude_code ->
     create ~max_concurrent:2 ~provider_name:"claude_code"
+  | Provider_config.Gemini_cli | Provider_config.Codex_cli ->
+    create ~max_concurrent:2 ~provider_name:"cli_subprocess"
 
 (* ── Capacity Query ────────────────────────────────────── *)
 

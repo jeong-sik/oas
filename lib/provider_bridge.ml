@@ -56,6 +56,8 @@ let to_provider_config (legacy : Provider.config) : (Llm_provider.Provider_confi
               "glm"
         | OpenAI_compat -> "llama"
         | Ollama -> "ollama"
+        | Gemini_cli -> "gemini_cli"
+        | Codex_cli -> "codex_cli"
       in
       let resolved_model_id =
         Llm_provider.Cascade_model_resolve.resolve_auto_model_id

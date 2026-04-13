@@ -16,6 +16,8 @@ type provider_kind =
   | Gemini
   | Glm  (** ZhipuAI GLM native: OpenAI wire format + JWT auth + GLM error parsing. @since 0.83.0 *)
   | Claude_code  (** Subprocess transport via [claude -p]. @since 0.78.0 *)
+  | Gemini_cli  (** Subprocess transport via [gemini -p]. @since 0.133.0 *)
+  | Codex_cli   (** Subprocess transport via [codex exec]. @since 0.133.0 *)
 
 type t = {
   kind: provider_kind;

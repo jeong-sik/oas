@@ -74,7 +74,9 @@ let test_non_zai_glm_stays_openai_compat () =
          | Gemini -> "gemini"
          | Glm -> "glm"
          | Ollama -> "ollama"
-         | Claude_code -> "claude_code")
+         | Claude_code -> "claude_code"
+         | Gemini_cli -> "gemini_cli"
+         | Codex_cli -> "codex_cli")
 
 let test_zai_glm_becomes_glm_provider_config () =
   let legacy = {
@@ -98,7 +100,9 @@ let test_zai_glm_becomes_glm_provider_config () =
          | Gemini -> "gemini"
          | Glm -> "glm"
          | Ollama -> "ollama"
-         | Claude_code -> "claude_code")
+         | Claude_code -> "claude_code"
+         | Gemini_cli -> "gemini_cli"
+         | Codex_cli -> "codex_cli")
 
 let test_zai_coding_auto_uses_coding_default_model () =
   with_env "ZAI_DEFAULT_MODEL" "glm-5.1" (fun () ->

@@ -46,6 +46,7 @@ let headers_with_auth ~(kind : Provider_config.provider_kind) ~api_key =
         :: base
     | OpenAI_compat | Ollama | Gemini | Glm | Claude_code ->
         ("Authorization", "Bearer " ^ api_key) :: base
+    | Gemini_cli | Codex_cli -> []
 
 (* ── String splitting helper ──────────────────────────────── *)
 
