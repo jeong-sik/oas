@@ -158,6 +158,7 @@ let%test "build_request with thinking=false injects disabled" =
   let open Yojson.Safe.Util in
   let thinking = json |> member "thinking" in
   thinking |> member "type" |> to_string = "disabled"
+  && json |> member "chat_template_kwargs" = `Null
 
 let%test "check_glm_error detects string code" =
   let body = {|{"error":{"code":"1305","message":"service overloaded"}}|} in
