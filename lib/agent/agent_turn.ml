@@ -306,15 +306,92 @@ let update_idle_detection ~idle_state ~tool_uses =
     is_idle = idle;
   }
 
+(** Default per-tool-result character cap.
+    Aligned with Claude Code's DEFAULT_MAX_RESULT_SIZE_CHARS (50,000).
+    Results exceeding this are truncated with a marker at creation time,
+    before entering the conversation.  The downstream
+    [Context_reducer.prune_tool_outputs] further reduces during turns.
+    Pass [~max_result_chars:0] to disable. *)
+let default_max_tool_result_chars = 50_000
+
 (** Process tool results into ToolResult content blocks.
     All entries are valid ToolUse results — non-ToolUse blocks are filtered
-    upstream in {!Agent_tools.execute_tools}. *)
-let make_tool_results results =
+    upstream in {!Agent_tools.execute_tools}.
+
+    When [max_result_chars] > 0, individual results exceeding that limit
+    are truncated at creation time with a marker showing the original
+    size.  This prevents pathological results (e.g. multi-MB file dumps)
+    from ever entering the message list. *)
+let make_tool_results ?(max_result_chars = default_max_tool_result_chars) results =
   List.map (fun (result : Agent_tools.tool_execution_result) ->
+    let sanitized = Llm_provider.Utf8_sanitize.sanitize result.content in
+    let content =
+      if max_result_chars > 0 && String.length sanitized > max_result_chars then
+        let truncated = String.sub sanitized 0 max_result_chars in
+        Printf.sprintf "%s\n[output truncated: %d chars total, showing first %d]"
+          truncated (String.length sanitized) max_result_chars
+      else sanitized
+    in
     ToolResult {
       tool_use_id = result.tool_use_id;
-      content = Llm_provider.Utf8_sanitize.sanitize result.content;
+      content;
       is_error = result.is_error;
       json = None;
     }
   ) results
+
+(* === make_tool_results inline tests === *)
+
+let mock_result ?(is_error=false) ~id content : Agent_tools.tool_execution_result =
+  { tool_use_id = id; tool_name = "test"; content; is_error; failure_kind = None }
+
+let%test "make_tool_results: small result passes through unchanged" =
+  let results = [mock_result ~id:"t1" "hello world"] in
+  match make_tool_results results with
+  | [ToolResult { content; _ }] -> content = "hello world"
+  | _ -> false
+
+let%test "make_tool_results: large result is truncated at default cap" =
+  let big = String.make 60_000 'x' in
+  let results = [mock_result ~id:"t1" big] in
+  match make_tool_results results with
+  | [ToolResult { content; _ }] ->
+    String.length content > default_max_tool_result_chars
+    && String.length content < 60_000 + 100
+  | _ -> false
+
+let%test "make_tool_results: truncation marker present" =
+  let big = String.make 60_000 'x' in
+  let results = [mock_result ~id:"t1" big] in
+  match make_tool_results results with
+  | [ToolResult { content; _ }] ->
+    let needle = "[output truncated:" in
+    let nlen = String.length needle in
+    let slen = String.length content in
+    let found = ref false in
+    for i = 0 to slen - nlen do
+      if not !found && String.sub content i nlen = needle then found := true
+    done;
+    !found
+  | _ -> false
+
+let%test "make_tool_results: custom cap respected" =
+  let results = [mock_result ~id:"t1" (String.make 500 'y')] in
+  match make_tool_results ~max_result_chars:100 results with
+  | [ToolResult { content; _ }] ->
+    String.length content > 100 && String.length content < 200
+  | _ -> false
+
+let%test "make_tool_results: cap=0 disables truncation" =
+  let big = String.make 100_000 'z' in
+  let results = [mock_result ~id:"t1" big] in
+  match make_tool_results ~max_result_chars:0 results with
+  | [ToolResult { content; _ }] -> String.length content = 100_000
+  | _ -> false
+
+let%test "make_tool_results: tool_use_id and is_error preserved" =
+  let results = [mock_result ~id:"err1" ~is_error:true (String.make 60_000 'e')] in
+  match make_tool_results results with
+  | [ToolResult { tool_use_id; is_error; _ }] ->
+    tool_use_id = "err1" && is_error = true
+  | _ -> false

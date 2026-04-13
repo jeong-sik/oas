@@ -145,6 +145,16 @@ val update_idle_detection :
 
 (** {1 Tool result construction} *)
 
-(** Convert tool execution results into [ToolResult] content blocks. *)
+(** Default per-tool-result character cap (50,000).
+    @since 0.127.0 *)
+val default_max_tool_result_chars : int
+
+(** Convert tool execution results into [ToolResult] content blocks.
+    When [~max_result_chars] > 0 (default {!default_max_tool_result_chars}),
+    individual results exceeding that limit are truncated at creation time
+    with a marker showing the original size.  Pass [~max_result_chars:0]
+    to disable the cap.
+    @since 0.127.0 added [max_result_chars] parameter *)
 val make_tool_results :
+  ?max_result_chars:int ->
   Agent_tools.tool_execution_result list -> Types.content_block list
