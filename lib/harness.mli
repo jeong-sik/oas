@@ -196,8 +196,10 @@ end
 (** {1 JSON serialization (Swiss Verdict Schema v1)} *)
 
 (** Serialize a verdict to JSON.
-    Conforms to the layer_result item shape in
-    [docs/schemas/swiss-verdict.schema.json]. *)
+    Emits the shared verdict fields used by Swiss Verdict layer results:
+    [passed], [score], [evidence], and [detail].
+    Callers that need a full schema-conformant [layer_result] object must
+    add [layer_name] separately. *)
 val verdict_to_json : verdict -> Yojson.Safe.t
 
 (** Serialize a swiss_verdict to JSON.
