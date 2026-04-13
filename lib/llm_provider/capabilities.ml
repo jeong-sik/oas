@@ -226,6 +226,26 @@ let claude_code_capabilities = {
   supports_code_execution = true;
 }
 
+let gemini_cli_capabilities = {
+  default_capabilities with
+  max_context_tokens = Some 1_000_000;
+  max_output_tokens = Some 65_000;
+  supports_tools = false;
+  supports_tool_choice = false;
+  supports_native_streaming = false;
+  supports_system_prompt = true;
+}
+
+let codex_cli_capabilities = {
+  default_capabilities with
+  max_context_tokens = Some 1_050_000;
+  max_output_tokens = Some 32_000;
+  supports_tools = false;
+  supports_tool_choice = false;
+  supports_native_streaming = false;
+  supports_system_prompt = true;
+}
+
 (* ── Model-specific overrides (lookup table) ─────────── *)
 
 (** Lookup capabilities by model_id prefix.

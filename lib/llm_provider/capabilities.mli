@@ -48,6 +48,8 @@ val gemini_capabilities : capabilities
 val ollama_capabilities : capabilities
 val glm_capabilities : capabilities
 val claude_code_capabilities : capabilities
+val gemini_cli_capabilities : capabilities
+val codex_cli_capabilities : capabilities
 
 (** Lookup capabilities for a known model_id.
     Returns [None] if the model is not in the built-in table. *)

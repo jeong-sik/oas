@@ -8,6 +8,8 @@ type provider_kind =
   | Gemini
   | Glm
   | Claude_code
+  | Gemini_cli
+  | Codex_cli
 
 type t = {
   kind: provider_kind;
@@ -50,7 +52,7 @@ let make ~kind ~model_id ~base_url
       | Ollama -> "/api/chat"
       | Gemini -> ""
       | Glm -> "/chat/completions"
-      | Claude_code -> ""
+      | Claude_code | Gemini_cli | Codex_cli -> ""
   in
   { kind; model_id; base_url; api_key; headers; request_path;
     max_tokens; max_context; temperature; top_p; top_k; min_p;
@@ -69,6 +71,8 @@ let string_of_provider_kind = function
   | Gemini -> "gemini"
   | Glm -> "glm"
   | Claude_code -> "claude_code"
+  | Gemini_cli -> "gemini_cli"
+  | Codex_cli -> "codex_cli"
 
 (** Map thinking configuration to reasoning_effort string.
     Four levels: "none", "low" (≤2048), "medium" (≤8192), "high" (>8192).

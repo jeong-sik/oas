@@ -52,6 +52,8 @@ let provider_sampling_defaults (kind : Provider_config.provider_kind) : sampling
     { default_min_p = None; default_top_p = None; default_top_k = None }
   | Provider_config.Claude_code ->
     { default_min_p = None; default_top_p = None; default_top_k = None }
+  | Provider_config.Gemini_cli | Provider_config.Codex_cli ->
+    { default_min_p = None; default_top_p = None; default_top_k = None }
 
 (** Apply provider defaults to a config, preserving explicit values (overlay pattern).
     Only fills in None fields; explicit values are never overwritten. *)
@@ -83,6 +85,8 @@ let patch_telemetry (resp : Types.api_response) ~(config : Provider_config.t)
     | Gemini -> Capabilities.gemini_capabilities
     | OpenAI_compat -> Capabilities.openai_chat_capabilities
     | Claude_code -> Capabilities.claude_code_capabilities
+    | Gemini_cli -> Capabilities.gemini_cli_capabilities
+    | Codex_cli -> Capabilities.codex_cli_capabilities
   in
   let caps = match Capabilities.for_model_id config.model_id with
     | Some c -> c | None -> base_caps
@@ -116,6 +120,8 @@ let provider_name_of_kind : Provider_config.provider_kind -> string = function
   | Gemini -> "gemini"
   | Glm -> "glm"
   | Claude_code -> "claude_code"
+  | Gemini_cli -> "gemini_cli"
+  | Codex_cli -> "codex_cli"
 
 (** Strip query string and userinfo from a URL before logging.  Built-in
     providers use clean URLs, but [custom:model@url] accepts arbitrary
@@ -182,9 +188,12 @@ let complete_http ~sw ~net
     ?(on_http_status : (provider:string -> model_id:string -> status:int -> unit) option)
     ~(config : Provider_config.t)
     ~(messages : Types.message list) ~tools () =
-  if config.kind = Provider_config.Claude_code then
+  if config.kind = Provider_config.Claude_code
+     || config.kind = Provider_config.Gemini_cli
+     || config.kind = Provider_config.Codex_cli then
     (Error (Http_client.NetworkError {
-       message = "Claude_code provider requires a transport (use Transport_claude_code.create)" }),
+       message = Printf.sprintf "%s provider requires a transport"
+         (Provider_config.string_of_provider_kind config.kind) }),
      0)
   else
   let emit_status code =
@@ -206,7 +215,7 @@ let complete_http ~sw ~net
         Backend_gemini.build_request ~config ~messages ~tools ()
     | Provider_config.Glm ->
         Backend_glm.build_request ~config ~messages ~tools ()
-    | Provider_config.Claude_code -> "" (* guarded above *)
+    | Provider_config.Claude_code | Provider_config.Gemini_cli | Provider_config.Codex_cli -> "" (* guarded above *)
   in
   let url = match config.kind with
     | Provider_config.Gemini -> gemini_url ~config ~stream:false
@@ -299,7 +308,8 @@ let complete_http ~sw ~net
                       (Yojson.Safe.from_string body))
             | Provider_config.Glm ->
                 Ok (Backend_glm.parse_response body)
-            | Provider_config.Claude_code -> Error (Http_client.NetworkError { message = "Unreachable code" })
+            | Provider_config.Claude_code | Provider_config.Gemini_cli | Provider_config.Codex_cli ->
+                Error (Http_client.NetworkError { message = "Unreachable code" })
           with
           | Yojson.Json_error msg ->
               Diag.error "complete" "JSON parse error: %s" msg;
@@ -612,9 +622,12 @@ include Complete_stream_acc
 let complete_stream_http ~sw:_ ~net ~(config : Provider_config.t)
     ~(messages : Types.message list) ~tools
     ~(on_event : Types.sse_event -> unit) =
-  if config.kind = Provider_config.Claude_code then
+  if config.kind = Provider_config.Claude_code
+     || config.kind = Provider_config.Gemini_cli
+     || config.kind = Provider_config.Codex_cli then
     Error (Http_client.NetworkError {
-      message = "Claude_code provider requires a transport (use Transport_claude_code.create)" })
+      message = Printf.sprintf "%s provider requires a transport"
+        (Provider_config.string_of_provider_kind config.kind) })
   else
   let config = apply_sampling_defaults config in
   let body_str = match config.kind with
@@ -643,7 +656,7 @@ let complete_stream_http ~sw:_ ~net ~(config : Provider_config.t)
         Backend_gemini.build_request ~stream:true ~config ~messages ~tools ()
     | Provider_config.Glm ->
         Backend_glm.build_request ~stream:true ~config ~messages ~tools ()
-    | Provider_config.Claude_code -> ""
+    | Provider_config.Claude_code | Provider_config.Gemini_cli | Provider_config.Codex_cli -> ""
   in
   (* Ollama streaming: uses OpenAI compat body format, so must hit
      the OpenAI compat endpoint (/v1/chat/completions), not native
@@ -699,7 +712,7 @@ let complete_stream_http ~sw:_ ~net ~(config : Provider_config.t)
                     (match Backend_glm.parse_stream_chunk data with
                      | Some chunk -> Streaming.openai_chunk_to_events state chunk
                      | None -> [])
-                | Provider_config.Claude_code -> []
+                | Provider_config.Claude_code | Provider_config.Gemini_cli | Provider_config.Codex_cli -> []
               in
               List.iter (fun evt ->
                 on_event evt;
