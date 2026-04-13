@@ -576,6 +576,14 @@ let proactive_compact ?raw_trace_run agent ~watermark () =
                  after_tokens;
                  phase = Printf.sprintf "proactive(%.0f%%)" (usage_ratio *. 100.0) } }
          | None -> ());
+        (match agent.options.journal with
+         | Some j ->
+             Durable_event.append j
+               (Checkpoint_saved
+                  { checkpoint_id =
+                      Printf.sprintf "compact-proactive-%d" agent.state.turn_count;
+                    timestamp = Unix.gettimeofday () })
+         | None -> ());
         true
       end
 (* ── Emergency compaction ────────────────────────────────── *)
@@ -620,6 +628,14 @@ let emergency_compact ?raw_trace_run agent ?limit () =
                before_tokens = est_tokens;
                after_tokens;
                phase = "emergency" } }
+       | None -> ());
+      (match agent.options.journal with
+       | Some j ->
+           Durable_event.append j
+             (Checkpoint_saved
+                { checkpoint_id =
+                    Printf.sprintf "compact-emergency-%d" agent.state.turn_count;
+                  timestamp = Unix.gettimeofday () })
        | None -> ());
       true
     end
