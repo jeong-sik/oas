@@ -18,7 +18,6 @@ let dummy_session : Runtime.session =
     planned_participants = [];
     participants = [];
     artifacts = [];
-    votes = [];
     turn_count = 0;
     last_seq = 5;
     outcome = None;

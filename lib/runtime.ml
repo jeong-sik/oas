@@ -82,7 +82,6 @@ type session = {
   planned_participants: string list;
   participants: participant list;
   artifacts: artifact list;
-  votes: vote list; [@default []]     (** Deprecated. Wire-compat: kept with default for decode. *)
   turn_count: int;
   last_seq: int;
   outcome: string option;

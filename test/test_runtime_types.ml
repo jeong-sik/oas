@@ -111,7 +111,6 @@ let test_session () =
       last_error = None;
     }];
     artifacts = [];
-    votes = [];
     turn_count = 0; last_seq = 0;
     outcome = None;
   } in

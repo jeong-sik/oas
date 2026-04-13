@@ -56,7 +56,6 @@ let initial_session (request : start_request) =
     planned_participants = request.participants;
     participants = List.map make_planned_participant request.participants;
     artifacts = [];
-    votes = [];
     turn_count = 0;
     last_seq = 0;
     outcome = None;

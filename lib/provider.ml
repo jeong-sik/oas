@@ -323,10 +323,6 @@ let local_llm () = {
   api_key_env = "DUMMY_KEY";
 }
 
-(* Backward-compatible aliases — use local_llm instead *)
-let local_qwen () = local_llm ()
-let local_mlx () = local_llm ()
-
 let anthropic_sonnet () = {
   provider = Anthropic;
   model_id = "claude-sonnet-4-6";
