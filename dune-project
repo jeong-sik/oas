@@ -1,6 +1,6 @@
 (lang dune 3.11)
 (name agent_sdk)
-(version 0.129.0)
+(version 0.130.0)
 
 (generate_opam_files true)
 
