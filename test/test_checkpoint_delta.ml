@@ -431,16 +431,16 @@ let test_restore_with_delta_fallback_records_failure_metrics () =
         |> Result.get_ok)
   in
   let apply_total =
-    Metrics.counter metrics ~name:"checkpoint_delta_apply_total" ~unit_:"1"
+    Metrics.counter metrics ~name:"oas.checkpoint.delta_apply_total" ~unit_:"1"
   in
   let apply_failures =
-    Metrics.counter metrics ~name:"checkpoint_delta_apply_failures_total" ~unit_:"1"
+    Metrics.counter metrics ~name:"oas.checkpoint.delta_apply_failures_total" ~unit_:"1"
   in
   let fallback_total =
-    Metrics.counter metrics ~name:"checkpoint_full_restore_fallback_total" ~unit_:"1"
+    Metrics.counter metrics ~name:"oas.checkpoint.full_restore_fallback_total" ~unit_:"1"
   in
   let size_histogram =
-    Metrics.histogram metrics ~name:"checkpoint_delta_size_bytes"
+    Metrics.histogram metrics ~name:"oas.checkpoint.delta_size_bytes"
       ~buckets:[ 128.; 512.; 1024.; 4096.; 16384.; 65536. ]
   in
   Alcotest.(check bool) "fallback used" true
@@ -471,10 +471,10 @@ let test_restore_with_delta_fallback_gate_skips_after_failure () =
         |> Result.get_ok)
   in
   let apply_total =
-    Metrics.counter metrics ~name:"checkpoint_delta_apply_total" ~unit_:"1"
+    Metrics.counter metrics ~name:"oas.checkpoint.delta_apply_total" ~unit_:"1"
   in
   let fallback_total =
-    Metrics.counter metrics ~name:"checkpoint_full_restore_fallback_total" ~unit_:"1"
+    Metrics.counter metrics ~name:"oas.checkpoint.full_restore_fallback_total" ~unit_:"1"
   in
   Alcotest.(check bool) "first fallback" true (first.mode = Checkpoint.Full_restore);
   Alcotest.(check bool) "gate fallback" true (second.mode = Checkpoint.Full_restore);
