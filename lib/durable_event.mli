@@ -73,8 +73,12 @@ type event =
 
 type journal
 
-(** Create an empty journal. *)
-val create : unit -> journal
+(** Create an empty journal.
+    When [~on_append] is provided, it is called after every
+    {!append} with the event just recorded.  Intended for
+    projecting journal events onto {!Event_bus} or other sinks.
+    @since 0.133.0 *)
+val create : ?on_append:(event -> unit) -> unit -> journal
 
 (** Append an event to the journal. *)
 val append : journal -> event -> unit

@@ -138,6 +138,22 @@ let test_tool_completions () =
   let completions = Durable_event.tool_completions j in
   check int "2 completions" 2 (List.length completions)
 
+(* ── on_append callback ───────────────────────────── *)
+
+let test_on_append_fires () =
+  let captured = ref [] in
+  let j = Durable_event.create ~on_append:(fun evt ->
+    captured := evt :: !captured) () in
+  Durable_event.append j (Turn_started { turn = 1; timestamp = ts });
+  Durable_event.append j (Llm_request { turn = 1; model = "m"; input_tokens = 10; timestamp = ts });
+  check int "callback count" 2 (List.length !captured);
+  check int "journal length" 2 (Durable_event.length j)
+
+let test_no_callback_default () =
+  let j = Durable_event.create () in
+  Durable_event.append j (Turn_started { turn = 1; timestamp = ts });
+  check int "still appends" 1 (Durable_event.length j)
+
 (* ── Suite ────────────────────────────────────────── *)
 
 let () =
@@ -146,6 +162,10 @@ let () =
       test_case "empty" `Quick test_empty_journal;
       test_case "append and events" `Quick test_append_and_events;
       test_case "last_timestamp" `Quick test_last_timestamp;
+    ];
+    "on_append", [
+      test_case "callback fires" `Quick test_on_append_fires;
+      test_case "no callback default" `Quick test_no_callback_default;
     ];
     "idempotency", [
       test_case "deterministic key" `Quick test_idempotency_key_deterministic;
