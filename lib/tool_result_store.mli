@@ -43,6 +43,17 @@ val default_aggregate_budget : int
 (** Default per-message aggregate budget: 200,000 chars.
     @since 0.129.0 *)
 
+val config_with_env_overrides : config -> config
+(** Apply environment variable overrides to a config.
+
+    Reads:
+    - [OAS_TOOL_RESULT_THRESHOLD] -> {!config.threshold_chars}
+    - [OAS_TOOL_RESULT_PREVIEW_LEN] -> {!config.preview_chars}
+    - [OAS_TOOL_RESULT_AGGREGATE_BUDGET] -> {!config.aggregate_budget}
+
+    Non-numeric or absent values keep the original config field.
+    @since 0.130.0 *)
+
 (** {1 Store lifecycle} *)
 
 type t

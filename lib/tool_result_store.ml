@@ -20,6 +20,28 @@ type config = {
   aggregate_budget: int;
 }
 
+(* ── Env-var overrides ─────────────────────────────────────── *)
+
+let int_of_env name =
+  match Sys.getenv_opt name with
+  | None -> None
+  | Some s -> int_of_string_opt s
+
+let config_with_env_overrides config =
+  let threshold_chars =
+    match int_of_env "OAS_TOOL_RESULT_THRESHOLD" with
+    | Some v -> v | None -> config.threshold_chars
+  in
+  let preview_chars =
+    match int_of_env "OAS_TOOL_RESULT_PREVIEW_LEN" with
+    | Some v -> v | None -> config.preview_chars
+  in
+  let aggregate_budget =
+    match int_of_env "OAS_TOOL_RESULT_AGGREGATE_BUDGET" with
+    | Some v -> v | None -> config.aggregate_budget
+  in
+  { config with threshold_chars; preview_chars; aggregate_budget }
+
 type t = {
   config: config;
   results_dir: string;
@@ -160,3 +182,67 @@ let%test "generate_preview: cuts at newline boundary" =
 let%test "generate_preview: exact threshold passes through" =
   let content = String.make 100 'z' in
   generate_preview ~preview_chars:100 content = content
+
+(* ── Env-override tests ──────────────────────────────────────── *)
+
+let base_config = {
+  storage_dir = "/tmp/oas-test";
+  session_id = "s1";
+  threshold_chars = default_threshold_chars;
+  preview_chars = default_preview_chars;
+  aggregate_budget = default_aggregate_budget;
+}
+
+let unsetenv name =
+  (* Unix.putenv cannot unset; overwrite with empty then rely on
+     int_of_string_opt returning None for "" *)
+  Unix.putenv name ""
+
+let%test "config_with_env_overrides: no env keeps defaults" =
+  unsetenv "OAS_TOOL_RESULT_THRESHOLD";
+  unsetenv "OAS_TOOL_RESULT_PREVIEW_LEN";
+  unsetenv "OAS_TOOL_RESULT_AGGREGATE_BUDGET";
+  let c = config_with_env_overrides base_config in
+  c.threshold_chars = default_threshold_chars
+  && c.preview_chars = default_preview_chars
+  && c.aggregate_budget = default_aggregate_budget
+
+let%test "config_with_env_overrides: valid int overrides" =
+  Unix.putenv "OAS_TOOL_RESULT_THRESHOLD" "10000";
+  Unix.putenv "OAS_TOOL_RESULT_PREVIEW_LEN" "500";
+  Unix.putenv "OAS_TOOL_RESULT_AGGREGATE_BUDGET" "99999";
+  let c = config_with_env_overrides base_config in
+  let ok =
+    c.threshold_chars = 10000
+    && c.preview_chars = 500
+    && c.aggregate_budget = 99999
+  in
+  unsetenv "OAS_TOOL_RESULT_THRESHOLD";
+  unsetenv "OAS_TOOL_RESULT_PREVIEW_LEN";
+  unsetenv "OAS_TOOL_RESULT_AGGREGATE_BUDGET";
+  ok
+
+let%test "config_with_env_overrides: bad input keeps default" =
+  Unix.putenv "OAS_TOOL_RESULT_THRESHOLD" "not_a_number";
+  Unix.putenv "OAS_TOOL_RESULT_PREVIEW_LEN" "3.14";
+  let c = config_with_env_overrides base_config in
+  let ok =
+    c.threshold_chars = default_threshold_chars
+    && c.preview_chars = default_preview_chars
+  in
+  unsetenv "OAS_TOOL_RESULT_THRESHOLD";
+  unsetenv "OAS_TOOL_RESULT_PREVIEW_LEN";
+  ok
+
+let%test "config_with_env_overrides: partial override" =
+  Unix.putenv "OAS_TOOL_RESULT_PREVIEW_LEN" "777";
+  unsetenv "OAS_TOOL_RESULT_THRESHOLD";
+  unsetenv "OAS_TOOL_RESULT_AGGREGATE_BUDGET";
+  let c = config_with_env_overrides base_config in
+  let ok =
+    c.threshold_chars = default_threshold_chars
+    && c.preview_chars = 777
+    && c.aggregate_budget = default_aggregate_budget
+  in
+  unsetenv "OAS_TOOL_RESULT_PREVIEW_LEN";
+  ok
