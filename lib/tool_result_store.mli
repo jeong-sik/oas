@@ -77,6 +77,14 @@ val read : t -> tool_use_id:string -> (string, Error.sdk_error) result
     Pure filesystem stat, no I/O read. *)
 val has : t -> tool_use_id:string -> bool
 
+(** {1 Security} *)
+
+(** Sanitize a tool_use_id for safe use as a filename.
+    Strips all characters except [a-zA-Z0-9_-].
+    Returns [Error] if the result is empty.
+    @since 0.129.0 *)
+val sanitize_tool_use_id : string -> (string, Error.sdk_error) result
+
 (** {1 Preview} *)
 
 (** Generate preview from content.  Pure function, no I/O.
