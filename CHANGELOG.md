@@ -6,6 +6,20 @@ Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
 backfilled on 2026-04-04 from existing git tags. The dates below reflect the
 original tag dates. `0.100.4` was never tagged or released.
 
+## [0.131.0] - 2026-04-13
+
+### Removed
+- `Provider.local_qwen`, `Provider.local_mlx` deprecated aliases.
+- `vote` type, `vote_request`, `Vote` command, `Vote_recorded` event
+  (dead code: projection ignored votes, field never populated).
+- `"local-qwen"` provider resolver string alias.
+- `session.votes` field from runtime session record.
+
+### Added
+- Diagnostic logging in `cascade_health_filter.ml` for provider
+  filtering decisions (API key drops, cloud-only fallback).
+- Debug log on `event_forward.ml` event_bus unsubscribe failure.
+
 ## [0.126.0] - 2026-04-13
 
 ### Added

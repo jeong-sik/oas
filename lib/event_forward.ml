@@ -193,7 +193,9 @@ let start ~sw ~(net : _ Eio.Net.t) ~bus t =
       Fun.protect
         ~finally:(fun () ->
           Atomic.set t.running false;
-          (try Event_bus.unsubscribe bus sub with _ -> ()))
+          (try Event_bus.unsubscribe bus sub with exn ->
+            Log.debug t.log
+              (Printf.sprintf "event_bus unsubscribe failed: %s" (Printexc.to_string exn)) []))
         (fun () ->
           try
             let batch = ref [] in
