@@ -171,6 +171,12 @@ let stage_parse ?raw_trace_run agent =
            { agent_name = agent.state.config.name;
              turn = agent.state.turn_count } }
    | None -> ());
+  (match agent.options.journal with
+   | Some j ->
+       Durable_event.append j
+         (Turn_started { turn = agent.state.turn_count;
+                         timestamp = Unix.gettimeofday () })
+   | None -> ());
 
   let prep = prepare_turn_for_agent agent ~turn_params in
   (prep, original_config, turn_params)
@@ -266,6 +272,15 @@ let stage_collect ?raw_trace_run agent ~original_config response =
          payload = TurnCompleted
            { agent_name = agent.state.config.name;
              turn = agent.state.turn_count } }
+   | None -> ());
+  (match agent.options.journal with
+   | Some j ->
+       Durable_event.append j
+         (State_transition
+            { from_state = "turn_running";
+              to_state = "turn_complete";
+              reason = response.stop_reason |> Types.show_stop_reason;
+              timestamp = Unix.gettimeofday () })
    | None -> ());
 
   update_state agent (fun s ->
