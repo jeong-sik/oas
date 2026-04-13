@@ -26,6 +26,7 @@ type strategy =
   | Summarize_old of { keep_recent: int; summarizer: message list -> string }
   | Clear_tool_results of { keep_recent: int }
   | Stub_tool_results of { keep_recent: int }
+  | Cap_message_tokens of { max_tokens: int; keep_recent: int }
   | Compose of strategy list
   | Custom of (message list -> message list)
   | Dynamic of (turn:int -> messages:message list -> strategy)
@@ -383,6 +384,84 @@ let apply_stub_tool_results ~keep_recent messages =
     let processed = List.mapi process_turn turns in
     List.concat processed
 
+(** Cap per-message token count for older turns.
+
+    For messages in turns older than [keep_recent], if
+    [estimate_message_tokens msg > max_tokens], keep content blocks from
+    the front (~60% budget) and back (~30% budget), drop the middle, and
+    insert a truncation marker at the splice point. The remaining ~10%
+    absorbs the marker overhead and rounding.
+
+    This is the safety net for pathological messages (e.g. a single User
+    message containing hundreds of ToolResult blocks from a long agentic
+    turn). Per-block strategies like [Prune_tool_outputs] and
+    [Stub_tool_results] should run first for efficiency; this strategy
+    catches messages that remain oversized after per-block reduction.
+
+    ToolUse/ToolResult pairing: blocks are kept or dropped as whole units.
+    The caller should run [Repair_dangling_tool_calls] afterward to fix
+    any orphaned ToolUse blocks created by the middle-drop. *)
+let apply_cap_message_tokens ~max_tokens ~keep_recent messages =
+  if max_tokens <= 0 then messages
+  else
+    let turns = group_into_turns messages in
+    let total = List.length turns in
+    if total <= keep_recent then messages
+    else
+      let front_budget = max_tokens * 6 / 10 in  (* 60% *)
+      let back_budget = max_tokens * 3 / 10 in   (* 30% *)
+      let cap_message (msg : message) =
+        let msg_tokens = estimate_message_tokens msg in
+        if msg_tokens <= max_tokens then msg
+        else
+          let n_blocks = List.length msg.content in
+          if n_blocks <= 2 then msg  (* 1-2 blocks: not worth splitting *)
+          else
+            (* Take blocks from front until front_budget exhausted *)
+            let front_blocks, front_used =
+              let rec take acc used = function
+                | [] -> (List.rev acc, used)
+                | block :: rest ->
+                  let btok = estimate_block_tokens block in
+                  if used + btok > front_budget && acc <> [] then
+                    (List.rev acc, used)
+                  else
+                    take (block :: acc) (used + btok) rest
+              in
+              take [] 0 msg.content
+            in
+            (* Take blocks from back until back_budget exhausted *)
+            let back_blocks, _back_used =
+              let rev_content = List.rev msg.content in
+              let rec take acc used = function
+                | [] -> (acc, used)  (* already in correct order *)
+                | block :: rest ->
+                  let btok = estimate_block_tokens block in
+                  if used + btok > back_budget && acc <> [] then
+                    (acc, used)
+                  else
+                    take (block :: acc) (used + btok) rest
+              in
+              take [] 0 rev_content
+            in
+            let n_front = List.length front_blocks in
+            let n_back = List.length back_blocks in
+            let n_dropped = n_blocks - n_front - n_back in
+            if n_dropped <= 0 then msg  (* front+back cover everything *)
+            else
+              let dropped_tokens = msg_tokens - front_used - _back_used in
+              let marker = Text (Printf.sprintf
+                "[truncated: %d blocks, ~%d tokens removed]"
+                n_dropped dropped_tokens) in
+              { msg with content = front_blocks @ [marker] @ back_blocks }
+      in
+      let process_turn i turn =
+        if i >= total - keep_recent then turn
+        else List.map cap_message turn
+      in
+      let processed = List.mapi process_turn turns in
+      List.concat processed
+
 (** Replace old messages with a summary, keeping the [keep_recent] most
     recent turns intact. The caller supplies a [summarizer] function
     that produces a summary string from the old messages.
@@ -421,6 +500,8 @@ and apply_strategy strategy messages =
     apply_clear_tool_results ~keep_recent messages
   | Stub_tool_results { keep_recent } ->
     apply_stub_tool_results ~keep_recent messages
+  | Cap_message_tokens { max_tokens; keep_recent } ->
+    apply_cap_message_tokens ~max_tokens ~keep_recent messages
   | Compose strategies ->
     List.fold_left (fun msgs s -> apply_strategy s msgs) messages strategies
   | Custom f -> f messages
@@ -448,6 +529,8 @@ let clear_tool_results ~keep_recent =
   { strategy = Clear_tool_results { keep_recent } }
 let stub_tool_results ~keep_recent =
   { strategy = Stub_tool_results { keep_recent } }
+let cap_message_tokens ~max_tokens ~keep_recent =
+  { strategy = Cap_message_tokens { max_tokens; keep_recent } }
 let compose strategies = { strategy = Compose (List.map (fun r -> r.strategy) strategies) }
 let custom f = { strategy = Custom f }
 let clamp_score score = Float.min 1.0 (Float.max 0.0 score)
@@ -526,6 +609,93 @@ let%test "from_context_config applied reduces long conversation" =
   let reducer = from_context_config ~compact_ratio:0.1 ~max_tokens:1000 () in
   let reduced = reduce reducer msgs in
   List.length reduced < List.length msgs
+
+(* === Cap_message_tokens inline tests === *)
+
+let%test "cap_message_tokens: small message passes through unchanged" =
+  let msg = { role = User; content = [Text "hello"]; name = None; tool_call_id = None } in
+  let result = reduce (cap_message_tokens ~max_tokens:1000 ~keep_recent:0) [msg] in
+  result = [msg]
+
+let%test "cap_message_tokens: oversized message is truncated" =
+  (* Create a message with 50 ToolResult blocks, each ~100 tokens *)
+  let blocks = List.init 50 (fun i ->
+    ToolResult { tool_use_id = Printf.sprintf "t%d" i;
+                 content = String.make 400 'x';  (* ~100 tokens *)
+                 is_error = false; json = None }
+  ) in
+  let msg = { role = User; content = blocks; name = None; tool_call_id = None } in
+  let original_tokens = estimate_message_tokens msg in
+  let result = reduce (cap_message_tokens ~max_tokens:500 ~keep_recent:0) [msg] in
+  let capped_msg = List.hd result in
+  let capped_tokens = estimate_message_tokens capped_msg in
+  (* Must be reduced and have fewer blocks *)
+  capped_tokens < original_tokens
+  && List.length capped_msg.content < 50
+
+let%test "cap_message_tokens: truncation marker present" =
+  let blocks = List.init 20 (fun i ->
+    ToolResult { tool_use_id = Printf.sprintf "t%d" i;
+                 content = String.make 400 'x';
+                 is_error = false; json = None }
+  ) in
+  let msg = { role = User; content = blocks; name = None; tool_call_id = None } in
+  let result = reduce (cap_message_tokens ~max_tokens:300 ~keep_recent:0) [msg] in
+  let capped_msg = List.hd result in
+  let has_marker s =
+    let needle = "[truncated:" in
+    let nlen = String.length needle in
+    let slen = String.length s in
+    if slen < nlen then false
+    else
+      let found = ref false in
+      for i = 0 to slen - nlen do
+        if not !found && String.sub s i nlen = needle then found := true
+      done;
+      !found
+  in
+  List.exists (function
+    | Text s -> has_marker s
+    | _ -> false
+  ) capped_msg.content
+
+let%test "cap_message_tokens: recent turns are not modified" =
+  let blocks = List.init 20 (fun i ->
+    ToolResult { tool_use_id = Printf.sprintf "t%d" i;
+                 content = String.make 400 'x';
+                 is_error = false; json = None }
+  ) in
+  let msg = { role = User; content = blocks; name = None; tool_call_id = None } in
+  let result = reduce (cap_message_tokens ~max_tokens:100 ~keep_recent:1) [msg] in
+  (* Single turn, keep_recent=1: message should be unchanged *)
+  List.hd result = msg
+
+let%test "cap_message_tokens: monotonicity — never increases tokens" =
+  let blocks = List.init 30 (fun i ->
+    if i mod 3 = 0 then Text (String.make 200 'y')
+    else ToolResult { tool_use_id = Printf.sprintf "t%d" i;
+                      content = String.make 500 'x';
+                      is_error = false; json = None }
+  ) in
+  let msg = { role = User; content = blocks; name = None; tool_call_id = None } in
+  let msgs = [msg] in
+  let original_tokens = List.fold_left (fun acc m -> acc + estimate_message_tokens m) 0 msgs in
+  let result = reduce (cap_message_tokens ~max_tokens:400 ~keep_recent:0) msgs in
+  let capped_tokens = List.fold_left (fun acc m -> acc + estimate_message_tokens m) 0 result in
+  capped_tokens <= original_tokens
+
+let%test "cap_message_tokens: 1-2 block messages are not split" =
+  let msg = { role = User;
+              content = [Text (String.make 10000 'x')];
+              name = None; tool_call_id = None } in
+  let result = reduce (cap_message_tokens ~max_tokens:10 ~keep_recent:0) [msg] in
+  (* Single-block message: not worth splitting, passes through *)
+  List.hd result = msg
+
+let%test "cap_message_tokens: max_tokens=0 is no-op" =
+  let msg = { role = User; content = [Text "hello"]; name = None; tool_call_id = None } in
+  let result = reduce (cap_message_tokens ~max_tokens:0 ~keep_recent:0) [msg] in
+  result = [msg]
 
 [@@@coverage off]
 (* === CJK token estimation inline tests === *)
