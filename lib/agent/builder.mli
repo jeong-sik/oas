@@ -199,6 +199,10 @@ val with_tool_result_relocation :
   state:Content_replacement_state.t ->
   t -> t
 
+(** Attach an event-sourced journal for crash recovery and replay.
+    @since 0.133.0 *)
+val with_journal : Durable_event.journal -> t -> t
+
 (** {2 Build} *)
 
 (** Build the agent. May raise on invalid config.

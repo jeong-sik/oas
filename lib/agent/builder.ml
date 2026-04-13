@@ -61,6 +61,7 @@ type t = {
   on_run_complete: (bool -> unit) option;
   tool_result_relocation:
     (Tool_result_store.t * Content_replacement_state.t) option;
+  journal: Durable_event.journal option;
 }
 
 let create ~net ~model =
@@ -120,10 +121,13 @@ let create ~net ~model =
     slot_id = None;
     on_run_complete = None;
     tool_result_relocation = None;
+    journal = None;
   }
 
 let with_tool_result_relocation ~store ~state b =
   { b with tool_result_relocation = Some (store, state) }
+
+let with_journal journal b = { b with journal = Some journal }
 
 let with_system_prompt prompt b = { b with system_prompt = Some prompt }
 let with_name name b = { b with name }
@@ -322,6 +326,7 @@ let build b =
     slot_id = b.slot_id;
     on_run_complete = b.on_run_complete;
     tool_result_relocation = b.tool_result_relocation;
+    journal = b.journal;
   } in
   Agent.create ~net:b.net ~config ~tools:(Tool_set.to_list tools) ?context
     ~options ()

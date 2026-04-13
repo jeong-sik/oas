@@ -45,6 +45,12 @@ type options = {
         and replaces them with previews.  The [Content_replacement_state]
         freezes replacement decisions for prompt cache stability.
         @since 0.128.0 *)
+  journal: Durable_event.journal option;
+    (** Optional event-sourced journal for crash recovery and replay.
+        When provided, lifecycle events are appended alongside
+        [Event_bus] publishes, enabling offline replay via
+        {!Durable_event.replay_summary}.
+        @since 0.133.0 *)
 }
 
 (* Re-export lifecycle types from Agent_lifecycle.
@@ -106,6 +112,7 @@ let default_options = {
   slot_id = None;
   on_run_complete = None;
   tool_result_relocation = None;
+  journal = None;
 }
 
 type tool_call_fingerprint = Agent_turn.tool_call_fingerprint
