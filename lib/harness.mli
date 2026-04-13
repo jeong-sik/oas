@@ -192,3 +192,16 @@ module Model_grader : sig
     result:string ->
     verdict
 end
+
+(** {1 JSON serialization (Swiss Verdict Schema v1)} *)
+
+(** Serialize a verdict to JSON.
+    Conforms to the layer_result item shape in
+    [docs/schemas/swiss-verdict.schema.json]. *)
+val verdict_to_json : verdict -> Yojson.Safe.t
+
+(** Serialize a swiss_verdict to JSON.
+    Conforms to [docs/schemas/swiss-verdict.schema.json] (schema_version 1).
+    Each [layer_result.layer_evidence] is wrapped in a single-element list
+    to match the schema's [evidence: string array] shape. *)
+val swiss_verdict_to_json : _ swiss_verdict -> Yojson.Safe.t

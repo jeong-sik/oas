@@ -907,3 +907,7 @@
 (test
  (name test_uncertain)
  (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_swiss_verdict_json)
+ (libraries agent_sdk alcotest yojson))
