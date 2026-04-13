@@ -18,7 +18,6 @@ let base_session : Runtime.session =
     planned_participants = [ "worker" ];
     participants = [];
     artifacts = [];
-    votes = [];
     turn_count = 1;
     last_seq = 3;
     outcome = Some "done";

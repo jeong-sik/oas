@@ -113,12 +113,6 @@ val anthropic_haiku : unit -> config
 val anthropic_opus : unit -> config
 val openrouter : ?model_id:string -> unit -> config
 
-(** @deprecated Use {!local_llm} instead *)
-val local_qwen : unit -> config
-
-(** @deprecated Use {!local_llm} instead. MLX removed. *)
-val local_mlx : unit -> config
-
 (** {2 Cascade: multi-provider failover} *)
 
 type cascade = {

@@ -240,11 +240,6 @@ let test_provider_constructors () =
   check string "anthropic_haiku" "claude-haiku-4-5-20251001" p.model_id;
   let p = Provider.anthropic_opus () in
   check string "anthropic_opus" "claude-opus-4-6" p.model_id;
-  (* deprecated aliases still work *)
-  let p = (Provider.local_qwen [@alert "-deprecated"]) () in
-  check string "local_qwen deprecated alias" "default" p.model_id;
-  let p = (Provider.local_mlx [@alert "-deprecated"]) () in
-  check string "local_mlx deprecated alias" "default" p.model_id;
   let p = Provider.openrouter () in
   check string "openrouter default" "anthropic/claude-sonnet-4-6" p.model_id;
   let p = Provider.openrouter ~model_id:"google/gemini-2.5-pro" () in

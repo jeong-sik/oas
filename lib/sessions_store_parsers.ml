@@ -102,7 +102,6 @@ let infer_event_name_from_kind kind =
       ("Agent_completed", "agent_completed");
       ("Agent_failed", "agent_failed");
       ("Artifact_attached", "artifact_attached");
-      ("Vote_recorded", "vote_recorded");
       ("Checkpoint_saved", "checkpoint_saved");
       ("Finalize_requested", "finalize_requested");
       ("Session_completed", "session_completed");

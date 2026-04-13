@@ -42,7 +42,7 @@ let resolve_provider ?provider ?model () =
     | "mock" | "echo" ->
         let* () = ensure_test_provider_enabled selected in
         Ok None
-    | "local" | "local-qwen" -> Ok (Some (Provider.local_llm ()))
+    | "local" -> Ok (Some (Provider.local_llm ()))
     | "sonnet" -> Ok (Some (Provider.anthropic_sonnet ()))
     | "haiku" -> Ok (Some (Provider.anthropic_haiku ()))
     | "opus" -> Ok (Some (Provider.anthropic_opus ()))
@@ -50,7 +50,7 @@ let resolve_provider ?provider ?model () =
     | other ->
         unsupported_provider
           (Printf.sprintf
-             "unknown provider %S; valid: local, local-qwen, sonnet, haiku, opus, openrouter%s"
+             "unknown provider %S; valid: local, sonnet, haiku, opus, openrouter%s"
              other
              (if Defaults.allow_test_providers ()
               then ", mock, echo"

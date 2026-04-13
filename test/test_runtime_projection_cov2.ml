@@ -30,7 +30,6 @@ let mk_session
     ?(phase = Runtime.Running)
     ?(participants = [])
     ?(artifacts = [])
-    ?(votes = [])
     ?(outcome = None)
     ?(turn_count = 0)
     ?(last_seq = 0)
@@ -43,7 +42,7 @@ let mk_session
     system_prompt = Some "sys"; max_turns = 10;
     workdir = Some "/tmp";
     planned_participants = List.map (fun (p : Runtime.participant) -> p.name) participants;
-    participants; artifacts; votes;
+    participants; artifacts;
     turn_count; last_seq; outcome;
   }
 
@@ -278,19 +277,6 @@ let test_apply_artifact_attached () =
     Alcotest.(check string) "id" "art-1" a.artifact_id
   | Error e -> Alcotest.fail (Error.to_string e)
 
-(* ── apply_event: Vote_recorded ───────────────────────── *)
-
-let test_apply_vote_recorded () =
-  let session = mk_session () in
-  let vote : Runtime.vote = {
-    topic = "ready"; options = ["yes"; "no"]; choice = "yes";
-    actor = Some "alice"; created_at = 100.0;
-  } in
-  let event = mk_event (Vote_recorded vote) in
-  match Runtime_projection.apply_event session event with
-  | Ok s -> Alcotest.(check int) "turn_count unchanged" 0 s.turn_count
-  | Error e -> Alcotest.fail (Error.to_string e)
-
 (* ── apply_event: Checkpoint_saved ────────────────────── *)
 
 let test_apply_checkpoint_saved () =
@@ -507,7 +493,6 @@ let () =
       Alcotest.test_case "Completed" `Quick test_apply_agent_completed;
       Alcotest.test_case "Failed" `Quick test_apply_agent_failed;
       Alcotest.test_case "Artifact_attached" `Quick test_apply_artifact_attached;
-      Alcotest.test_case "Vote_recorded" `Quick test_apply_vote_recorded;
       Alcotest.test_case "Checkpoint_saved" `Quick test_apply_checkpoint_saved;
       Alcotest.test_case "Finalize_requested" `Quick test_apply_finalize_requested;
       Alcotest.test_case "Session_completed" `Quick test_apply_session_completed;

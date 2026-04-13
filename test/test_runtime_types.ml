@@ -75,18 +75,6 @@ let test_artifact () =
     ~show:Runtime.show_artifact
     ~name:"artifact" v
 
-let test_vote () =
-  let v : Runtime.vote = {
-    topic = "approve changes"; options = ["yes"; "no"];
-    choice = "yes"; actor = Some "reviewer";
-    created_at = 1.7e9;
-  } in
-  roundtrip
-    ~to_yojson:Runtime.vote_to_yojson
-    ~of_yojson:Runtime.vote_of_yojson
-    ~show:Runtime.show_vote
-    ~name:"vote" v
-
 let test_session () =
   let v : Runtime.session = {
     session_id = "sess-rt"; goal = "test runtime";
@@ -111,7 +99,6 @@ let test_session () =
       last_error = None;
     }];
     artifacts = [];
-    votes = [];
     turn_count = 0; last_seq = 0;
     outcome = None;
   } in
@@ -236,15 +223,6 @@ let test_attach_artifact_request () =
     ~of_yojson:Runtime.attach_artifact_request_of_yojson
     ~show:Runtime.show_attach_artifact_request ~name:"attach_artifact" v
 
-let test_vote_request () =
-  let v : Runtime.vote_request = {
-    topic = "merge?"; options = ["yes"; "no"];
-    choice = "yes"; actor = Some "reviewer";
-  } in
-  roundtrip ~to_yojson:Runtime.vote_request_to_yojson
-    ~of_yojson:Runtime.vote_request_of_yojson
-    ~show:Runtime.show_vote_request ~name:"vote_request" v
-
 let test_command () =
   let variants = [
     Runtime.Record_turn { actor = Some "user"; message = "hello" };
@@ -254,7 +232,6 @@ let test_command () =
     };
     Runtime.Update_session_settings { model = Some "opus"; permission_mode = None };
     Runtime.Attach_artifact { name = "r.txt"; kind = "text"; content = "data" };
-    Runtime.Vote { topic = "ok?"; options = ["yes"]; choice = "yes"; actor = None };
     Runtime.Checkpoint { label = Some "mid" };
     Runtime.Request_finalize { reason = Some "done" };
   ] in
@@ -280,10 +257,6 @@ let test_event_kind () =
     Runtime.Artifact_attached {
       artifact_id = "a1"; name = "r.json"; kind = "json";
       mime_type = "application/json"; path = "/tmp/r.json"; size_bytes = 10;
-    };
-    Runtime.Vote_recorded {
-      topic = "approve"; options = ["yes"; "no"]; choice = "yes";
-      actor = Some "user"; created_at = 1.7e9;
     };
     Runtime.Checkpoint_saved { label = Some "mid"; path = "/tmp/cp" };
     Runtime.Session_completed { outcome = Some "success" };
@@ -332,7 +305,6 @@ let () =
     "records", [
       Alcotest.test_case "participant" `Quick test_participant;
       Alcotest.test_case "artifact" `Quick test_artifact;
-      Alcotest.test_case "vote" `Quick test_vote;
       Alcotest.test_case "session" `Quick test_session;
       Alcotest.test_case "report" `Quick test_report;
       Alcotest.test_case "proof" `Quick test_proof;
@@ -346,7 +318,6 @@ let () =
       Alcotest.test_case "spawn_agent" `Quick test_spawn_agent_request;
       Alcotest.test_case "update_settings" `Quick test_update_settings;
       Alcotest.test_case "attach_artifact" `Quick test_attach_artifact_request;
-      Alcotest.test_case "vote_request" `Quick test_vote_request;
       Alcotest.test_case "permission_response" `Quick test_permission_response;
       Alcotest.test_case "hook_response" `Quick test_hook_response;
     ];

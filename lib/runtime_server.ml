@@ -280,18 +280,6 @@ let apply_command ~sw state store (session : session) command =
              })
       in
       Ok (Command_applied session)
-  | Vote detail ->
-      let vote =
-        {
-          topic = detail.topic;
-          options = detail.options;
-          choice = detail.choice;
-          actor = detail.actor;
-          created_at = Unix.gettimeofday ();
-        }
-      in
-      let* session, _ = persist_event store state session_id (Vote_recorded vote) in
-      Ok (Command_applied session)
   | Checkpoint detail ->
       let path =
         Runtime_store.snapshot_path store session.session_id
@@ -548,17 +536,6 @@ let%test "request roundtrip: Apply_command with Record_turn" =
       session_id = "s123" && actor = Some "alice" && message = "hello"
   | _ -> false
 
-let%test "request roundtrip: Apply_command with Vote" =
-  let req = Apply_command {
-    session_id = "s1";
-    command = Vote { topic = "color"; options = ["red"; "blue"]; choice = "red"; actor = Some "bob" }
-  } in
-  let json_str = request_to_string req in
-  match request_of_string json_str with
-  | Ok (Apply_command { command = Vote { topic; options; choice; _ }; _ }) ->
-      topic = "color" && options = ["red"; "blue"] && choice = "red"
-  | _ -> false
-
 (* --- response serialization roundtrip --- *)
 
 let%test "response roundtrip: Shutdown_ack" =
@@ -690,15 +667,6 @@ let%test "event roundtrip: Artifact_attached" =
   let json = event_to_yojson event in
   match event_of_yojson json with
   | Ok e -> (match e.kind with Artifact_attached { artifact_id = "art-1"; size_bytes = 1234; _ } -> true | _ -> false)
-  | Error _ -> false
-
-let%test "event roundtrip: Vote_recorded" =
-  let event = { seq = 5; ts = 400.0;
-                kind = Vote_recorded { topic = "color"; options = ["red"; "blue"];
-                  choice = "red"; actor = Some "bob"; created_at = 400.0 } } in
-  let json = event_to_yojson event in
-  match event_of_yojson json with
-  | Ok e -> (match e.kind with Vote_recorded { topic = "color"; _ } -> true | _ -> false)
   | Error _ -> false
 
 let%test "event roundtrip: Checkpoint_saved" =
