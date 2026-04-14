@@ -491,6 +491,22 @@ let complete ~sw ~net ?(transport : Llm_transport.t option)
           in
           { Llm_transport.response = resp; latency_ms = lat }
       in
+      (* Emit on_http_status for transport path.  complete_http fires
+         on_http_status internally from the raw HTTP response, but
+         the transport path bypasses complete_http entirely, leaving
+         the status callback silent.  Infer status from the result:
+         Ok → 200, HttpError → actual code, network → 0 (no HTTP). *)
+      (if Option.is_some transport then
+         match result with
+         | Ok _ ->
+           m.on_http_status
+             ~provider:(provider_name_of_kind config.kind)
+             ~model_id ~status:200
+         | Error (Http_client.HttpError { code; _ }) ->
+           m.on_http_status
+             ~provider:(provider_name_of_kind config.kind)
+             ~model_id ~status:code
+         | Error _ -> ());
       (match result with
        | Ok resp ->
            let resp = Pricing.annotate_response_cost resp in
