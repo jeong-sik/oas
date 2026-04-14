@@ -318,14 +318,77 @@ let text_of_response (resp : Types.api_response) : string =
 
 type cascade_source = Named | Default_fallback | Hardcoded_defaults
 
+(** Weighted shuffle: pick first element by weighted random, then order
+    remaining by descending weight.  This gives probabilistic distribution
+    of first-attempt provider while maintaining a deterministic fallback
+    chain.  When all weights are equal, behaves like random-first + stable
+    remainder.
+
+    Algorithm (LiteLLM simple-shuffle inspired):
+    1. Compute cumulative weights
+    2. Pick random value in [0, total_weight)
+    3. Selected item becomes first; rest sorted by weight desc
+
+    @since 0.137.0 *)
+let weighted_shuffle (entries : Cascade_config_loader.weighted_entry list)
+    : Cascade_config_loader.weighted_entry list =
+  match entries with
+  | [] | [_] -> entries
+  | _ ->
+    let total_weight =
+      List.fold_left (fun acc (e : Cascade_config_loader.weighted_entry) ->
+          acc + e.weight) 0 entries
+    in
+    if total_weight <= 0 then entries
+    else
+      let r = Random.int total_weight in
+      (* Find the selected entry via cumulative weight *)
+      let rec find_selected cumulative = function
+        | [] -> (* fallback: first entry *)
+          (List.hd entries,
+           List.tl entries)
+        | (e : Cascade_config_loader.weighted_entry) :: rest ->
+          let cumulative' = cumulative + e.weight in
+          if r < cumulative' then (e, rest)
+          else
+            let selected, remaining = find_selected cumulative' rest in
+            (selected, e :: remaining)
+      in
+      let selected, remaining = find_selected 0 entries in
+      (* Sort remaining by descending weight for fallback priority *)
+      let sorted_remaining =
+        List.sort (fun (a : Cascade_config_loader.weighted_entry)
+                       (b : Cascade_config_loader.weighted_entry) ->
+            compare b.weight a.weight) remaining
+      in
+      selected :: sorted_remaining
+
 let resolve_model_strings_traced ?config_path ~name ~defaults () =
   match config_path with
   | Some path ->
-    let from_file = load_profile ~config_path:path ~name in
-    if from_file <> [] then (from_file, Named)
+    let from_file_weighted =
+      Cascade_config_loader.load_profile_weighted ~config_path:path ~name in
+    if from_file_weighted <> [] then
+      let has_weights = List.exists
+          (fun (e : Cascade_config_loader.weighted_entry) -> e.weight <> 1)
+          from_file_weighted
+      in
+      let ordered =
+        if has_weights then weighted_shuffle from_file_weighted
+        else from_file_weighted
+      in
+      let models = List.map
+          (fun (e : Cascade_config_loader.weighted_entry) -> e.model) ordered in
+      (models, Named)
     else
-      let fallback = load_profile ~config_path:path ~name:"default" in
-      if fallback <> [] then (fallback, Default_fallback)
+      let fallback_weighted =
+        Cascade_config_loader.load_profile_weighted
+          ~config_path:path ~name:"default" in
+      if fallback_weighted <> [] then
+        let models = List.map
+            (fun (e : Cascade_config_loader.weighted_entry) -> e.model)
+            fallback_weighted in
+        (models, Default_fallback)
       else (defaults, Hardcoded_defaults)
   | None -> (defaults, Hardcoded_defaults)
 
@@ -1106,3 +1169,125 @@ let%test "resolve_api_key_env empty on no match" =
 
 (* should_cascade_to_next + has_required_api_key tests
    moved to Cascade_health_filter *)
+
+(* ── weighted_shuffle inline tests ──────────────────── *)
+
+let%test "weighted_shuffle empty list" =
+  weighted_shuffle [] = []
+
+let%test "weighted_shuffle single item unchanged" =
+  let e : Cascade_config_loader.weighted_entry =
+    { model = "a"; weight = 1 } in
+  weighted_shuffle [e] = [e]
+
+let%test "weighted_shuffle preserves all items" =
+  let entries : Cascade_config_loader.weighted_entry list = [
+    { model = "a"; weight = 50 };
+    { model = "b"; weight = 30 };
+    { model = "c"; weight = 20 };
+  ] in
+  let result = weighted_shuffle entries in
+  List.length result = 3
+  && List.for_all (fun (e : Cascade_config_loader.weighted_entry) ->
+       List.exists (fun (r : Cascade_config_loader.weighted_entry) ->
+         r.model = e.model) result) entries
+
+let%test "weighted_shuffle remainder sorted by weight desc" =
+  (* Run many times: the tail (index 1..n) should always be sorted desc *)
+  let entries : Cascade_config_loader.weighted_entry list = [
+    { model = "a"; weight = 10 };
+    { model = "b"; weight = 50 };
+    { model = "c"; weight = 30 };
+  ] in
+  let all_sorted = ref true in
+  for _ = 1 to 100 do
+    let result = weighted_shuffle entries in
+    let tail = List.tl result in
+    let rec is_sorted = function
+      | [] | [_] -> true
+      | (x : Cascade_config_loader.weighted_entry) ::
+        ((y : Cascade_config_loader.weighted_entry) :: _ as rest) ->
+        x.weight >= y.weight && is_sorted rest
+    in
+    if not (is_sorted tail) then all_sorted := false
+  done;
+  !all_sorted
+
+let%test "weighted_shuffle distribution roughly matches weights" =
+  (* Statistical: with weights 70/20/10, first position should be "a" ~70% *)
+  let entries : Cascade_config_loader.weighted_entry list = [
+    { model = "a"; weight = 70 };
+    { model = "b"; weight = 20 };
+    { model = "c"; weight = 10 };
+  ] in
+  let a_first = ref 0 in
+  let n = 1000 in
+  for _ = 1 to n do
+    let result = weighted_shuffle entries in
+    if (List.hd result).model = "a" then incr a_first
+  done;
+  (* Allow wide tolerance: 70% +/- 10% *)
+  let ratio = float_of_int !a_first /. float_of_int n in
+  ratio > 0.55 && ratio < 0.85
+
+let%test "weighted_shuffle equal weights gives uniform-ish distribution" =
+  let entries : Cascade_config_loader.weighted_entry list = [
+    { model = "a"; weight = 1 };
+    { model = "b"; weight = 1 };
+    { model = "c"; weight = 1 };
+  ] in
+  let counts = Hashtbl.create 3 in
+  let n = 900 in
+  for _ = 1 to n do
+    let result = weighted_shuffle entries in
+    let first = (List.hd result).model in
+    let prev = try Hashtbl.find counts first with Not_found -> 0 in
+    Hashtbl.replace counts first (prev + 1)
+  done;
+  (* Each should be ~33% +/- 15% *)
+  Hashtbl.fold (fun _ count ok ->
+    let ratio = float_of_int count /. float_of_int n in
+    ok && ratio > 0.18 && ratio < 0.48) counts true
+
+(* ── weighted config loading tests ──────────────────── *)
+
+let%test "resolve_model_strings weighted objects parsed" =
+  Eio_main.run (fun _env ->
+    with_temp_cascade_json
+      {|{"test_models": [
+           {"model": "glm:glm-5.1", "weight": 50},
+           {"model": "ollama:qwen", "weight": 30},
+           {"model": "claude:haiku", "weight": 20}
+         ]}|}
+      (fun tmp ->
+        let models, source = resolve_model_strings_traced ~config_path:tmp
+          ~name:"test" ~defaults:["fallback:x"] () in
+        source = Named
+        && List.length models = 3
+        && List.mem "glm:glm-5.1" models
+        && List.mem "ollama:qwen" models
+        && List.mem "claude:haiku" models))
+
+let%test "resolve_model_strings mixed strings and objects" =
+  Eio_main.run (fun _env ->
+    with_temp_cascade_json
+      {|{"test_models": [
+           "glm:glm-5.1",
+           {"model": "ollama:qwen", "weight": 30}
+         ]}|}
+      (fun tmp ->
+        let models, source = resolve_model_strings_traced ~config_path:tmp
+          ~name:"test" ~defaults:["fallback:x"] () in
+        source = Named
+        && List.length models = 2
+        && List.mem "glm:glm-5.1" models
+        && List.mem "ollama:qwen" models))
+
+let%test "resolve_model_strings plain strings keep original order" =
+  Eio_main.run (fun _env ->
+    with_temp_cascade_json
+      {|{"test_models": ["a:1", "b:2", "c:3"]}|}
+      (fun tmp ->
+        let models, _ = resolve_model_strings_traced ~config_path:tmp
+          ~name:"test" ~defaults:[] () in
+        models = ["a:1"; "b:2"; "c:3"]))

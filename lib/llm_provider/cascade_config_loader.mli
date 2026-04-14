@@ -10,6 +10,14 @@
     Cached with mtime-based hot-reload. *)
 val load_json : string -> (Yojson.Safe.t, string) result
 
+(** A model entry with an optional weight for weighted cascade selection.
+    Weight defaults to 1 when not specified.
+    @since 0.137.0 *)
+type weighted_entry = {
+  model: string;
+  weight: int;
+}
+
 (** Load a named model list from a JSON config file.
 
     The JSON file maps ["{name}_models"] keys to string arrays.
@@ -19,6 +27,21 @@ val load_profile :
   config_path:string ->
   name:string ->
   string list
+
+(** Like {!load_profile} but preserves weight information.
+
+    Supports two JSON formats in the model array:
+    - Plain strings: [{"model": s, "weight": 1}]
+    - Objects: [{"model": "provider:id", "weight": 50}]
+
+    When all weights are 1, the caller should treat the list as unweighted
+    (preserving backward-compatible fixed ordering).
+
+    @since 0.137.0 *)
+val load_profile_weighted :
+  config_path:string ->
+  name:string ->
+  weighted_entry list
 
 (** Per-cascade inference parameter overrides. *)
 type inference_params = {
