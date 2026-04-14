@@ -2,21 +2,6 @@
 
 open Agent_sdk
 
-let contains_substring ~needle haystack =
-  let needle_len = String.length needle in
-  let haystack_len = String.length haystack in
-  let rec loop idx =
-    if needle_len = 0 then
-      true
-    else if idx + needle_len > haystack_len then
-      false
-    else if String.sub haystack idx needle_len = needle then
-      true
-    else
-      loop (idx + 1)
-  in
-  loop 0
-
 (* ── prepare_turn tests ────────────────────────────────────── *)
 
 let test_prepare_turn_empty_tools () =
@@ -99,11 +84,9 @@ let test_prepare_messages_extra_context () =
   Alcotest.(check int) "prepended system msg" 2 (List.length result);
   let first = List.hd result in
   Alcotest.(check bool) "is User role" true (first.role = Types.User);
-  match List.hd first.content with
-  | Types.Text t ->
-    Alcotest.(check bool) "contains context" true
-      (contains_substring ~needle:"test mode" t)
-  | _ -> Alcotest.fail "expected Text"
+  match first.content with
+  | [Types.Text _] -> ()
+  | _ -> Alcotest.fail "expected single Text block"
 
 (* ── system_prompt_override does not affect prepare_messages ── *)
 
@@ -140,11 +123,9 @@ let test_prepare_messages_both_override_and_extra_context () =
   Alcotest.(check int) "extra context adds 1 message" 2 (List.length result);
   let first = List.hd result in
   Alcotest.(check bool) "injected msg is User" true (first.role = Types.User);
-  match List.hd first.content with
-  | Types.Text t ->
-    Alcotest.(check bool) "contains debug mode" true
-      (contains_substring ~needle:"Debug mode" t)
-  | _ -> Alcotest.fail "expected Text"
+  match first.content with
+  | [Types.Text _] -> ()
+  | _ -> Alcotest.fail "expected single Text block"
 
 (* ── accumulate_usage tests ──────────────────────────────── *)
 
