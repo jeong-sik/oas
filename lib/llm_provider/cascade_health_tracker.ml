@@ -180,9 +180,13 @@ let global : t = create ()
 
 (* ── Inline tests ─────────────────────────────── *)
 
+(* Tests use real timestamps so that success_rate / is_in_cooldown
+   (which call Unix.gettimeofday internally) see events within the
+   rolling window. *)
+
 let%test "record success clears consecutive failures" =
   let t = create () in
-  let now = 1000.0 in
+  let now = Unix.gettimeofday () in
   record t ~provider_key:"a" ~outcome:Failure ~now;
   record t ~provider_key:"a" ~outcome:Failure ~now;
   record t ~provider_key:"a" ~outcome:Success ~now;
@@ -191,7 +195,7 @@ let%test "record success clears consecutive failures" =
 
 let%test "cooldown activates after threshold failures" =
   let t = create () in
-  let now = 1000.0 in
+  let now = Unix.gettimeofday () in
   for _ = 1 to cooldown_threshold do
     record t ~provider_key:"a" ~outcome:Failure ~now
   done;
@@ -200,12 +204,12 @@ let%test "cooldown activates after threshold failures" =
 
 let%test "cooldown expires" =
   let t = create () in
-  let now = 1000.0 in
+  let now = Unix.gettimeofday () in
   for _ = 1 to cooldown_threshold do
     record t ~provider_key:"a" ~outcome:Failure ~now
   done;
   let state = Hashtbl.find t.providers "a" in
-  (* Manually expire *)
+  (* Manually expire by setting cooldown_until to the past *)
   state.cooldown_until <- now -. 1.0;
   not (is_in_cooldown t ~provider_key:"a")
 
@@ -215,7 +219,7 @@ let%test "success_rate with no data returns 1.0" =
 
 let%test "success_rate computed correctly" =
   let t = create () in
-  let now = 1000.0 in
+  let now = Unix.gettimeofday () in
   record t ~provider_key:"a" ~outcome:Success ~now;
   record t ~provider_key:"a" ~outcome:Success ~now;
   record t ~provider_key:"a" ~outcome:Failure ~now;
@@ -225,7 +229,7 @@ let%test "success_rate computed correctly" =
 
 let%test "effective_weight zero during cooldown" =
   let t = create () in
-  let now = 1000.0 in
+  let now = Unix.gettimeofday () in
   for _ = 1 to cooldown_threshold do
     record t ~provider_key:"a" ~outcome:Failure ~now
   done;
@@ -233,19 +237,19 @@ let%test "effective_weight zero during cooldown" =
 
 let%test "effective_weight scales with success rate" =
   let t = create () in
-  let now = 1000.0 in
+  let now = Unix.gettimeofday () in
   record t ~provider_key:"a" ~outcome:Success ~now;
   record t ~provider_key:"a" ~outcome:Failure ~now;
-  (* 50% success rate → weight 50 * 0.5 = 25 *)
+  (* 50% success rate -> weight 50 * 0.5 = 25 *)
   let w = effective_weight t ~provider_key:"a" ~config_weight:50 in
   w >= 24 && w <= 26
 
 let%test "old events pruned from window" =
   let t = create () in
-  let old_time = 1000.0 -. window_sec -. 10.0 in
-  let recent_time = 1000.0 in
+  let now = Unix.gettimeofday () in
+  let old_time = now -. window_sec -. 10.0 in
   record t ~provider_key:"a" ~outcome:Failure ~now:old_time;
-  record t ~provider_key:"a" ~outcome:Success ~now:recent_time;
+  record t ~provider_key:"a" ~outcome:Success ~now;
   (* Old failure should be pruned; only recent success counts *)
   let rate = success_rate t ~provider_key:"a" in
   Float.equal rate 1.0
