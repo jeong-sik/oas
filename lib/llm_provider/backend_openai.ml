@@ -16,6 +16,7 @@ let openai_content_parts_of_blocks = Backend_openai_serialize.openai_content_par
 let openai_messages_of_message = Backend_openai_serialize.openai_messages_of_message
 let tool_choice_to_openai_json = Backend_openai_serialize.tool_choice_to_openai_json
 let build_openai_tool_json = Backend_openai_serialize.build_openai_tool_json
+let strip_orphaned_tool_results = Backend_openai_serialize.strip_orphaned_tool_results
 
 (* ── Re-exports from parsing ──────────────────────────── *)
 

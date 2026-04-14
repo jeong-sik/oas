@@ -66,9 +66,10 @@ let should_include_tools ?provider_config (config : agent_state) =
 let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
   let model_str = model_to_string config.config.model in
   let capabilities = capabilities_for_request ?provider_config config in
+  let sanitized_messages = strip_orphaned_tool_results messages in
   let provider_messages =
     system_message_json config
-    @ List.concat_map openai_messages_of_message messages
+    @ List.concat_map openai_messages_of_message sanitized_messages
   in
   let body_assoc =
     [

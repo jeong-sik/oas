@@ -244,6 +244,58 @@ let test_heal_max_retries_zero () =
     Alcotest.(check int) "attempts" 1 attempts
   | _ -> Alcotest.fail "max_retries=0 should exhaust immediately"
 
+(* ── strip_orphaned_tool_results ──────────────────────────── *)
+
+module Serialize = Llm_provider.Backend_openai_serialize
+
+let mk_msg role content : Types.message =
+  { role; content; name = None; tool_call_id = None }
+
+let test_strip_no_orphans () =
+  let msgs = [
+    mk_msg Assistant [ToolUse { id = "t1"; name = "f"; input = `Null }];
+    mk_msg User [ToolResult { tool_use_id = "t1"; content = "ok"; is_error = false; json = None }];
+  ] in
+  let result = Serialize.strip_orphaned_tool_results msgs in
+  Alcotest.(check int) "same length" 2 (List.length result);
+  let user_msg = List.nth result 1 in
+  Alcotest.(check int) "user blocks preserved" 1 (List.length user_msg.content)
+
+let test_strip_removes_orphan () =
+  let msgs = [
+    mk_msg Assistant [Text "hello"];
+    mk_msg User [
+      Text "input";
+      ToolResult { tool_use_id = "orphan-id"; content = "stale"; is_error = false; json = None };
+    ];
+  ] in
+  let result = Serialize.strip_orphaned_tool_results msgs in
+  let user_msg = List.nth result 1 in
+  Alcotest.(check int) "orphan removed" 1 (List.length user_msg.content);
+  (match List.hd user_msg.content with
+   | Text _ -> ()
+   | _ -> Alcotest.fail "expected Text to survive")
+
+let test_strip_preserves_matched () =
+  let msgs = [
+    mk_msg Assistant [
+      ToolUse { id = "t1"; name = "f"; input = `Null };
+      ToolUse { id = "t2"; name = "g"; input = `Null };
+    ];
+    mk_msg User [
+      ToolResult { tool_use_id = "t1"; content = "ok"; is_error = false; json = None };
+      ToolResult { tool_use_id = "orphan"; content = "bad"; is_error = true; json = None };
+      ToolResult { tool_use_id = "t2"; content = "ok2"; is_error = false; json = None };
+    ];
+  ] in
+  let result = Serialize.strip_orphaned_tool_results msgs in
+  let user_msg = List.nth result 1 in
+  Alcotest.(check int) "orphan stripped, 2 kept" 2 (List.length user_msg.content)
+
+let test_strip_empty () =
+  let result = Serialize.strip_orphaned_tool_results [] in
+  Alcotest.(check int) "empty" 0 (List.length result)
+
 (* ── Runner ──────────────────────────────────────────────── *)
 
 let () =
@@ -275,5 +327,11 @@ let () =
       Alcotest.test_case "LLM error" `Quick test_heal_llm_error;
       Alcotest.test_case "on_retry callback" `Quick test_heal_on_retry_called;
       Alcotest.test_case "max_retries=0" `Quick test_heal_max_retries_zero;
+    ]);
+    ("strip_orphaned_tool_results", [
+      Alcotest.test_case "no orphans" `Quick test_strip_no_orphans;
+      Alcotest.test_case "removes orphaned result" `Quick test_strip_removes_orphan;
+      Alcotest.test_case "preserves matched result" `Quick test_strip_preserves_matched;
+      Alcotest.test_case "empty messages" `Quick test_strip_empty;
     ]);
   ]
