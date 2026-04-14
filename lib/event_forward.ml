@@ -47,6 +47,8 @@ let event_type_name (event : Event_bus.event) : string =
   | ElicitationCompleted _ -> "elicitation.completed"
   | TaskStateChanged _ -> "task.state_changed"
   | ContextCompacted _ -> "context.compacted"
+  | ContextOverflowImminent _ -> "context.overflow_imminent"
+  | ContextCompactStarted _ -> "context.compact_started"
   | Custom (name, _) -> "custom." ^ name
 
 let agent_name_of_payload : Event_bus.payload -> string option = function
@@ -58,6 +60,8 @@ let agent_name_of_payload : Event_bus.payload -> string option = function
   | TurnCompleted r -> Some r.agent_name
   | ElicitationCompleted r -> Some r.agent_name
   | ContextCompacted r -> Some r.agent_name
+  | ContextOverflowImminent r -> Some r.agent_name
+  | ContextCompactStarted r -> Some r.agent_name
   | TaskStateChanged _ -> None
   | Custom _ -> None
 
@@ -107,6 +111,18 @@ let event_to_payload (event : Event_bus.event) : event_payload =
         ("before_tokens", `Int r.before_tokens);
         ("after_tokens", `Int r.after_tokens);
         ("phase", `String r.phase);
+      ]
+    | ContextOverflowImminent r ->
+      `Assoc [
+        ("agent_name", `String r.agent_name);
+        ("estimated_tokens", `Int r.estimated_tokens);
+        ("limit_tokens", `Int r.limit_tokens);
+        ("ratio", `Float r.ratio);
+      ]
+    | ContextCompactStarted r ->
+      `Assoc [
+        ("agent_name", `String r.agent_name);
+        ("trigger", `String r.trigger);
       ]
     | Custom (name, data) ->
       `Assoc [("name", `String name); ("data", data)]

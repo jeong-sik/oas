@@ -24,6 +24,13 @@ let test_event_type_name () =
      "tool.called");
     (ev (Event_bus.Custom ("foo", `Null)),
      "custom.foo");
+    (ev (Event_bus.ContextOverflowImminent {
+           agent_name = "a"; estimated_tokens = 95000;
+           limit_tokens = 100000; ratio = 0.95 }),
+     "context.overflow_imminent");
+    (ev (Event_bus.ContextCompactStarted {
+           agent_name = "a"; trigger = "proactive" }),
+     "context.compact_started");
   ] in
   List.iter (fun (event, expected) ->
     Alcotest.(check string) "event_type"

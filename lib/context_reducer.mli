@@ -64,6 +64,24 @@ val estimate_block_tokens : content_block -> int
 (** Estimate tokens for a message. *)
 val estimate_message_tokens : message -> int
 
+(** {1 Overhead estimation} *)
+
+(** Estimate the fixed-overhead tokens for the next turn: system prompt,
+    tool descriptions, and output reserve.  This lets the caller project
+    whether adding one more turn will exceed the context budget without
+    actually building the prompt.
+
+    @param system_prompt  System prompt text (if any).
+    @param tools          Tool JSON descriptions sent to the provider.
+    @param output_reserve Tokens reserved for model output (default: 4096).
+    @return Estimated overhead in tokens.
+    @since 0.136.0 *)
+val estimate_next_turn_overhead :
+  ?system_prompt:string ->
+  ?tools:Yojson.Safe.t list ->
+  ?output_reserve:int ->
+  unit -> int
+
 (** {1 Turn grouping} *)
 
 (** Group messages into turns.
