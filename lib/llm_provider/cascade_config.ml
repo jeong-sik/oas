@@ -388,8 +388,14 @@ let order_weighted_entries
     let health = Cascade_health_tracker.global in
     let health_adjusted = List.map
         (fun (e : Cascade_config_loader.weighted_entry) ->
+           (* Extract model_id from "provider:model_id" to match the key
+              used by cascade_executor (cfg.model_id). *)
+           let provider_key = match String.split_on_char ':' e.model with
+             | _ :: rest when rest <> [] -> String.concat ":" rest
+             | _ -> e.model
+           in
            let ew = Cascade_health_tracker.effective_weight health
-               ~provider_key:e.model ~config_weight:e.weight in
+               ~provider_key ~config_weight:e.weight in
            { e with weight = ew })
         entries
     in
