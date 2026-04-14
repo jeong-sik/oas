@@ -83,6 +83,13 @@ type weighted_entry = {
   weight: int;
 }
 
+let parse_weight_field = function
+  | `Int i when i > 0 -> i
+  | `Float f when f > 0.0 ->
+    let i = int_of_float f in
+    if i > 0 && Float.equal f (float_of_int i) then i else 1
+  | _ -> 1
+
 let parse_weighted_item = function
   | `String s -> Some { model = String.trim s; weight = 1 }
   | `Assoc fields ->
@@ -90,11 +97,7 @@ let parse_weighted_item = function
     let json = `Assoc fields in
     (match json |> member "model" with
      | `String s when String.trim s <> "" ->
-       let w = match json |> member "weight" with
-         | `Int i when i > 0 -> i
-         | `Float f when f > 0.0 -> int_of_float f
-         | _ -> 1
-       in
+       let w = parse_weight_field (json |> member "weight") in
        Some { model = String.trim s; weight = w }
      | _ -> None)
   | _ -> None
