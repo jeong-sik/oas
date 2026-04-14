@@ -315,3 +315,57 @@ let journal_of_json json =
     parse [] 0 items
   with
   | Yojson.Safe.Util.Type_error (msg, _) -> Error msg
+
+(* ── Persistence (JSONL) ─────────────────────────── *)
+
+let save_to_file journal path =
+  let tmp_path = path ^ ".tmp" in
+  try
+    let oc = open_out tmp_path in
+    Fun.protect
+      ~finally:(fun () -> close_out_noerr oc)
+      (fun () ->
+        List.iter (fun event ->
+          output_string oc (Yojson.Safe.to_string (event_to_json event));
+          output_char oc '\n'
+        ) (events journal));
+    Sys.rename tmp_path path;
+    Ok ()
+  with
+  | Sys_error msg ->
+    (try Sys.remove tmp_path with _ -> ());
+    Error (Printf.sprintf "save_to_file: %s" msg)
+
+let load_from_file path =
+  if not (Sys.file_exists path) then Ok { entries = []; size = 0; on_append = None }
+  else
+    try
+      let ic = open_in path in
+      Fun.protect
+        ~finally:(fun () -> close_in_noerr ic)
+        (fun () ->
+          let rec read_lines acc count line_no =
+            match input_line ic with
+            | line ->
+              if String.trim line = "" then
+                read_lines acc count (line_no + 1)
+              else begin
+                let json =
+                  try Ok (Yojson.Safe.from_string line)
+                  with Yojson.Json_error msg ->
+                    Error (Printf.sprintf "line %d: %s" line_no msg)
+                in
+                match json with
+                | Error e -> Error e
+                | Ok j ->
+                  match event_of_json j with
+                  | Ok evt -> read_lines (evt :: acc) (count + 1) (line_no + 1)
+                  | Error e ->
+                    Error (Printf.sprintf "line %d: %s" line_no e)
+              end
+            | exception End_of_file ->
+              Ok { entries = acc; size = count; on_append = None }
+          in
+          read_lines [] 0 1)
+    with
+    | Sys_error msg -> Error (Printf.sprintf "load_from_file: %s" msg)

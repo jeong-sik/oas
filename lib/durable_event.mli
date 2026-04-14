@@ -122,6 +122,27 @@ val event_of_json : Yojson.Safe.t -> (event, string) result
 val journal_to_json : journal -> Yojson.Safe.t
 val journal_of_json : Yojson.Safe.t -> (journal, string) result
 
+(** {1 Persistence}
+
+    JSONL-based file persistence for crash recovery.  Each line is a
+    single event's JSON representation, appended in chronological
+    order.  Durable across restarts; atomic dump uses a temp file
+    + rename.
+
+    @since 0.133.0 *)
+
+(** Dump the full journal to [path] as JSONL (one event per line,
+    chronological order).  Writes to [path ^ ".tmp"] first then
+    renames, so a partial write cannot corrupt an existing file.
+    Returns [Error msg] on I/O failure. *)
+val save_to_file : journal -> string -> (unit, string) result
+
+(** Load a journal from a JSONL file produced by {!save_to_file}.
+    Empty or missing file returns an empty journal (not an error).
+    Malformed lines abort the load with [Error msg] identifying the
+    first bad line.  The loaded journal has no [on_append] callback. *)
+val load_from_file : string -> (journal, string) result
+
 (** {1 Queries} *)
 
 (** Events for a specific turn. *)
