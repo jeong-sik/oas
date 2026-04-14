@@ -144,6 +144,7 @@ module Tool_input_validation = Tool_input_validation
 module Tool_middleware = Tool_middleware
 module Response_harness = Response_harness
 module Durable_event = Durable_event
+module Journal_bridge = Journal_bridge
 module Checkpoint_validation = Checkpoint_validation
 module Judge = Judge
 
