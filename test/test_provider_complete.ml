@@ -54,6 +54,25 @@ let test_anthropic_stream_flag () =
   Alcotest.(check bool) "stream" true
     (json |> member "stream" |> to_bool)
 
+let test_anthropic_parse_response_initializes_telemetry () =
+  let json = Yojson.Safe.from_string {|{
+    "id": "msg_test",
+    "model": "claude-sonnet-4-6-20250514",
+    "stop_reason": "end_turn",
+    "content": [
+      {"type": "text", "text": "Hello there."}
+    ],
+    "usage": {"input_tokens": 100, "output_tokens": 50}
+  }|} in
+  let resp = BA.parse_response json in
+  match resp.telemetry with
+  | Some t ->
+      Alcotest.(check int) "request_latency_ms defaults to zero" 0 t.request_latency_ms;
+      Alcotest.(check (option string)) "provider_kind placeholder" None t.provider_kind;
+      Alcotest.(check (option string)) "canonical model placeholder" None t.canonical_model_id
+  | None ->
+      Alcotest.fail "expected telemetry placeholder"
+
 (* ── OpenAI build_request ────────────────────────────── *)
 
 let test_openai_basic_body () =
@@ -306,6 +325,8 @@ let () =
       test_case "with system" `Quick test_anthropic_with_system;
       test_case "with thinking" `Quick test_anthropic_with_thinking;
       test_case "stream flag" `Quick test_anthropic_stream_flag;
+      test_case "parse response initializes telemetry" `Quick
+        test_anthropic_parse_response_initializes_telemetry;
     ];
     "openai_build_request", [
       test_case "basic body" `Quick test_openai_basic_body;
