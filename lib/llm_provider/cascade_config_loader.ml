@@ -76,20 +76,45 @@ let load_json path =
   | Yojson.Json_error msg -> Error (Printf.sprintf "JSON error: %s" msg)
   | End_of_file -> Error "unexpected end of file"
 
-let load_profile ~config_path ~name =
+(** A model entry with an optional weight for weighted cascade selection.
+    Weight defaults to 1 when not specified (backward compatible). *)
+type weighted_entry = {
+  model: string;
+  weight: int;
+}
+
+let parse_weight_field = function
+  | `Int i when i > 0 -> i
+  | `Float f when f > 0.0 ->
+    let i = int_of_float f in
+    if i > 0 && Float.equal f (float_of_int i) then i else 1
+  | _ -> 1
+
+let parse_weighted_item = function
+  | `String s -> Some { model = String.trim s; weight = 1 }
+  | `Assoc fields ->
+    let open Yojson.Safe.Util in
+    let json = `Assoc fields in
+    (match json |> member "model" with
+     | `String s when String.trim s <> "" ->
+       let w = parse_weight_field (json |> member "weight") in
+       Some { model = String.trim s; weight = w }
+     | _ -> None)
+  | _ -> None
+
+let load_profile_weighted ~config_path ~name =
   let key = name ^ "_models" in
   match load_json config_path with
   | Error _ -> []
   | Ok json ->
     let open Yojson.Safe.Util in
     match json |> member key with
-    | `List items ->
-      List.filter_map
-        (function
-          | `String s -> Some (String.trim s)
-          | _ -> None)
-        items
+    | `List items -> List.filter_map parse_weighted_item items
     | _ -> []
+
+let load_profile ~config_path ~name =
+  load_profile_weighted ~config_path ~name
+  |> List.map (fun e -> e.model)
 
 (* ── Inference parameter resolution ───────────────────── *)
 

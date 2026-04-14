@@ -318,16 +318,123 @@ let text_of_response (resp : Types.api_response) : string =
 
 type cascade_source = Named | Default_fallback | Hardcoded_defaults
 
-let resolve_model_strings_traced ?config_path ~name ~defaults () =
+(** Weighted shuffle: pick first element by weighted random, then order
+    remaining by descending weight.  This gives probabilistic distribution
+    of first-attempt provider while maintaining a deterministic fallback
+    chain.  Callers preserve backward-compatible fixed ordering by
+    skipping shuffle when every weight is 1.
+
+    Algorithm (LiteLLM simple-shuffle inspired):
+    1. Compute cumulative weights
+    2. Pick random value in [0, total_weight)
+    3. Selected item becomes first; rest sorted by weight desc
+
+    @since 0.137.0 *)
+let weighted_shuffle_rng = lazy (Random.State.make_self_init ())
+
+let weighted_random_int bound =
+  Random.State.int (Lazy.force weighted_shuffle_rng) bound
+
+let weighted_shuffle
+    ?(rand_int = weighted_random_int)
+    (entries : Cascade_config_loader.weighted_entry list)
+    : Cascade_config_loader.weighted_entry list =
+  match entries with
+  | [] | [_] -> entries
+  | _ ->
+    let total_weight =
+      List.fold_left (fun acc (e : Cascade_config_loader.weighted_entry) ->
+          acc + e.weight) 0 entries
+    in
+    if total_weight <= 0 then entries
+    else
+      let r = rand_int total_weight in
+      (* Find the selected entry via cumulative weight *)
+      let rec find_selected cumulative = function
+        | [] -> (* fallback: first entry *)
+          (List.hd entries,
+           List.tl entries)
+        | (e : Cascade_config_loader.weighted_entry) :: rest ->
+          let cumulative' = cumulative + e.weight in
+          if r < cumulative' then (e, rest)
+          else
+            let selected, remaining = find_selected cumulative' rest in
+            (selected, e :: remaining)
+      in
+      let selected, remaining = find_selected 0 entries in
+      (* Sort remaining by descending weight for fallback priority.
+         Use index as tiebreaker to preserve original config order
+         among equal-weight entries (stable sort). *)
+      let indexed = List.mapi (fun i e -> (i, e)) remaining in
+      let sorted_remaining =
+        List.sort (fun (i1, (a : Cascade_config_loader.weighted_entry))
+                       (i2, (b : Cascade_config_loader.weighted_entry)) ->
+            let cmp = compare b.weight a.weight in
+            if cmp <> 0 then cmp else compare i1 i2
+          ) indexed
+        |> List.map snd
+      in
+      selected :: sorted_remaining
+
+let order_weighted_entries
+    ?(rand_int = weighted_random_int)
+    (entries : Cascade_config_loader.weighted_entry list) =
+  let has_weights = List.exists
+      (fun (e : Cascade_config_loader.weighted_entry) -> e.weight <> 1)
+      entries
+  in
+  if not has_weights then entries
+  else
+    let health = Cascade_health_tracker.global in
+    let health_adjusted = List.map
+        (fun (e : Cascade_config_loader.weighted_entry) ->
+           (* Extract model_id from "provider:model_id" to match the key
+              used by cascade_executor (cfg.model_id). *)
+           let provider_key = match String.split_on_char ':' e.model with
+             | _ :: rest when rest <> [] -> String.concat ":" rest
+             | _ -> e.model
+           in
+           let ew = Cascade_health_tracker.effective_weight health
+               ~provider_key ~config_weight:e.weight in
+           { e with weight = ew })
+        entries
+    in
+    (* Filter out zero-weight (cooled-down) providers, but keep at least one *)
+    let active = List.filter
+        (fun (e : Cascade_config_loader.weighted_entry) -> e.weight > 0)
+        health_adjusted
+    in
+    let effective = if active = [] then entries else active in
+    weighted_shuffle ~rand_int effective
+
+let resolve_model_strings_traced_with
+    ~rand_int ?config_path ~name ~defaults () =
   match config_path with
   | Some path ->
-    let from_file = load_profile ~config_path:path ~name in
-    if from_file <> [] then (from_file, Named)
+    let from_file_weighted =
+      Cascade_config_loader.load_profile_weighted ~config_path:path ~name in
+    if from_file_weighted <> [] then
+      let ordered = order_weighted_entries ~rand_int from_file_weighted in
+      let models = List.map
+          (fun (e : Cascade_config_loader.weighted_entry) -> e.model) ordered in
+      (models, Named)
     else
-      let fallback = load_profile ~config_path:path ~name:"default" in
-      if fallback <> [] then (fallback, Default_fallback)
+      let fallback_weighted =
+        Cascade_config_loader.load_profile_weighted
+          ~config_path:path ~name:"default" in
+      if fallback_weighted <> [] then
+        let ordered = order_weighted_entries ~rand_int fallback_weighted in
+        let models = List.map
+            (fun (e : Cascade_config_loader.weighted_entry) -> e.model)
+            ordered in
+        (models, Default_fallback)
       else (defaults, Hardcoded_defaults)
   | None -> (defaults, Hardcoded_defaults)
+
+let resolve_model_strings_traced ?config_path ~name ~defaults () =
+  resolve_model_strings_traced_with
+    ~rand_int:weighted_random_int
+    ?config_path ~name ~defaults ()
 
 let resolve_model_strings ?config_path ~name ~defaults () =
   fst (resolve_model_strings_traced ?config_path ~name ~defaults ())
@@ -406,6 +513,14 @@ let complete_named ~sw ~net ?clock ?config_path
     resolve_model_strings_traced ?config_path ~name ~defaults ()
   in
   let model_strings = expand_model_strings_for_execution model_strings in
+  (* Log resolved cascade order — useful for debugging weighted shuffle *)
+  (match model_strings with
+   | _ :: _ :: _ ->
+     Diag.debug "cascade_config" "cascade '%s' order: [%s] (source=%s)"
+       name (String.concat "; " model_strings)
+       (match source with Named -> "named" | Default_fallback -> "default"
+        | Hardcoded_defaults -> "hardcoded")
+   | _ -> ());
   if strict_name && source <> Named then
     Error (Http_client.NetworkError {
         message =
@@ -493,6 +608,14 @@ let complete_named_stream ~sw ~net ?clock ?config_path
     resolve_model_strings_traced ?config_path ~name ~defaults ()
   in
   let model_strings = expand_model_strings_for_execution model_strings in
+  (* Log resolved cascade order — useful for debugging weighted shuffle *)
+  (match model_strings with
+   | _ :: _ :: _ ->
+     Diag.debug "cascade_config" "cascade '%s' order: [%s] (source=%s)"
+       name (String.concat "; " model_strings)
+       (match source with Named -> "named" | Default_fallback -> "default"
+        | Hardcoded_defaults -> "hardcoded")
+   | _ -> ());
   if strict_name && source <> Named then
     Error (Http_client.NetworkError {
       message = Printf.sprintf
@@ -1106,3 +1229,143 @@ let%test "resolve_api_key_env empty on no match" =
 
 (* should_cascade_to_next + has_required_api_key tests
    moved to Cascade_health_filter *)
+
+(* ── weighted_shuffle inline tests ──────────────────── *)
+
+let%test "weighted_shuffle empty list" =
+  weighted_shuffle [] = []
+
+let%test "weighted_shuffle single item unchanged" =
+  let e : Cascade_config_loader.weighted_entry =
+    { model = "a"; weight = 1 } in
+  weighted_shuffle [e] = [e]
+
+let%test "weighted_shuffle preserves all items" =
+  let entries : Cascade_config_loader.weighted_entry list = [
+    { model = "a"; weight = 50 };
+    { model = "b"; weight = 30 };
+    { model = "c"; weight = 20 };
+  ] in
+  let result = weighted_shuffle entries in
+  List.length result = 3
+  && List.for_all (fun (e : Cascade_config_loader.weighted_entry) ->
+       List.exists (fun (r : Cascade_config_loader.weighted_entry) ->
+         r.model = e.model) result) entries
+
+let%test "weighted_shuffle selects first bucket by cumulative weight" =
+  let entries : Cascade_config_loader.weighted_entry list = [
+    { model = "a"; weight = 50 };
+    { model = "b"; weight = 30 };
+    { model = "c"; weight = 20 };
+  ] in
+  let result = weighted_shuffle ~rand_int:(fun _ -> 0) entries in
+  List.map (fun (e : Cascade_config_loader.weighted_entry) -> e.model) result
+  = ["a"; "b"; "c"]
+
+let%test "weighted_shuffle selects middle bucket by cumulative weight" =
+  let entries : Cascade_config_loader.weighted_entry list = [
+    { model = "a"; weight = 50 };
+    { model = "b"; weight = 30 };
+    { model = "c"; weight = 20 };
+  ] in
+  let result = weighted_shuffle ~rand_int:(fun _ -> 50) entries in
+  List.map (fun (e : Cascade_config_loader.weighted_entry) -> e.model) result
+  = ["b"; "a"; "c"]
+
+let%test "weighted_shuffle selects last bucket by cumulative weight" =
+  let entries : Cascade_config_loader.weighted_entry list = [
+    { model = "a"; weight = 50 };
+    { model = "b"; weight = 30 };
+    { model = "c"; weight = 20 };
+  ] in
+  let result = weighted_shuffle ~rand_int:(fun _ -> 95) entries in
+  List.map (fun (e : Cascade_config_loader.weighted_entry) -> e.model) result
+  = ["c"; "a"; "b"]
+
+let%test "weighted_shuffle keeps stable order among equal-weight remainder" =
+  let entries : Cascade_config_loader.weighted_entry list = [
+    { model = "a"; weight = 20 };
+    { model = "b"; weight = 20 };
+    { model = "c"; weight = 5 };
+    { model = "d"; weight = 20 };
+  ] in
+  let result = weighted_shuffle ~rand_int:(fun _ -> 40) entries in
+  List.map (fun (e : Cascade_config_loader.weighted_entry) -> e.model) result
+  = ["c"; "a"; "b"; "d"]
+
+(* ── weighted config loading tests ──────────────────── *)
+
+let%test "resolve_model_strings weighted objects parsed" =
+  Eio_main.run (fun _env ->
+    with_temp_cascade_json
+      {|{"test_models": [
+           {"model": "glm:glm-5.1", "weight": 50},
+           {"model": "ollama:qwen", "weight": 30},
+           {"model": "claude:haiku", "weight": 20}
+         ]}|}
+      (fun tmp ->
+        let models, source = resolve_model_strings_traced ~config_path:tmp
+          ~name:"test" ~defaults:["fallback:x"] () in
+        source = Named
+        && List.length models = 3
+        && List.mem "glm:glm-5.1" models
+        && List.mem "ollama:qwen" models
+        && List.mem "claude:haiku" models))
+
+let%test "resolve_model_strings mixed strings and objects" =
+  Eio_main.run (fun _env ->
+    with_temp_cascade_json
+      {|{"test_models": [
+           "glm:glm-5.1",
+           {"model": "ollama:qwen", "weight": 30}
+         ]}|}
+      (fun tmp ->
+        let models, source = resolve_model_strings_traced ~config_path:tmp
+          ~name:"test" ~defaults:["fallback:x"] () in
+        source = Named
+        && List.length models = 2
+        && List.mem "glm:glm-5.1" models
+        && List.mem "ollama:qwen" models))
+
+let%test "resolve_model_strings plain strings keep original order" =
+  Eio_main.run (fun _env ->
+    with_temp_cascade_json
+      {|{"test_models": ["a:1", "b:2", "c:3"]}|}
+      (fun tmp ->
+        let models, _ = resolve_model_strings_traced ~config_path:tmp
+          ~name:"test" ~defaults:[] () in
+        models = ["a:1"; "b:2"; "c:3"]))
+
+let%test "resolve_model_strings_traced weighted default fallback applies shuffle" =
+  Eio_main.run (fun _env ->
+    with_temp_cascade_json
+      {|{"default_models": [
+           {"model": "a:1", "weight": 50},
+           {"model": "b:2", "weight": 30},
+           {"model": "c:3", "weight": 20}
+         ]}|}
+      (fun tmp ->
+        let models, source = resolve_model_strings_traced_with
+            ~rand_int:(fun _ -> 95)
+            ~config_path:tmp
+            ~name:"missing"
+            ~defaults:["fallback:x"] () in
+        source = Default_fallback
+        && models = ["c:3"; "a:1"; "b:2"]))
+
+let%test "load_profile_weighted integral floats survive and fractional floats fall back to 1" =
+  Eio_main.run (fun _env ->
+    with_temp_cascade_json
+      {|{"test_models": [
+           {"model": "a:1", "weight": 50.0},
+           {"model": "b:2", "weight": 0.5},
+           "c:3"
+         ]}|}
+      (fun tmp ->
+        let entries = Cascade_config_loader.load_profile_weighted
+            ~config_path:tmp ~name:"test" in
+        entries = [
+          { model = "a:1"; weight = 50 };
+          { model = "b:2"; weight = 1 };
+          { model = "c:3"; weight = 1 };
+        ]))
