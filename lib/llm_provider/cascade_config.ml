@@ -355,11 +355,17 @@ let weighted_shuffle (entries : Cascade_config_loader.weighted_entry list)
             (selected, e :: remaining)
       in
       let selected, remaining = find_selected 0 entries in
-      (* Sort remaining by descending weight for fallback priority *)
+      (* Sort remaining by descending weight for fallback priority.
+         Use index as tiebreaker to preserve original config order
+         among equal-weight entries (stable sort). *)
+      let indexed = List.mapi (fun i e -> (i, e)) remaining in
       let sorted_remaining =
-        List.sort (fun (a : Cascade_config_loader.weighted_entry)
-                       (b : Cascade_config_loader.weighted_entry) ->
-            compare b.weight a.weight) remaining
+        List.sort (fun (i1, (a : Cascade_config_loader.weighted_entry))
+                       (i2, (b : Cascade_config_loader.weighted_entry)) ->
+            let cmp = compare b.weight a.weight in
+            if cmp <> 0 then cmp else compare i1 i2
+          ) indexed
+        |> List.map snd
       in
       selected :: sorted_remaining
 
@@ -469,6 +475,14 @@ let complete_named ~sw ~net ?clock ?config_path
     resolve_model_strings_traced ?config_path ~name ~defaults ()
   in
   let model_strings = expand_model_strings_for_execution model_strings in
+  (* Log resolved cascade order — useful for debugging weighted shuffle *)
+  (match model_strings with
+   | _ :: _ :: _ ->
+     Diag.debug "cascade_config" "cascade '%s' order: [%s] (source=%s)"
+       name (String.concat "; " model_strings)
+       (match source with Named -> "named" | Default_fallback -> "default"
+        | Hardcoded_defaults -> "hardcoded")
+   | _ -> ());
   if strict_name && source <> Named then
     Error (Http_client.NetworkError {
         message =
@@ -556,6 +570,14 @@ let complete_named_stream ~sw ~net ?clock ?config_path
     resolve_model_strings_traced ?config_path ~name ~defaults ()
   in
   let model_strings = expand_model_strings_for_execution model_strings in
+  (* Log resolved cascade order — useful for debugging weighted shuffle *)
+  (match model_strings with
+   | _ :: _ :: _ ->
+     Diag.debug "cascade_config" "cascade '%s' order: [%s] (source=%s)"
+       name (String.concat "; " model_strings)
+       (match source with Named -> "named" | Default_fallback -> "default"
+        | Hardcoded_defaults -> "hardcoded")
+   | _ -> ());
   if strict_name && source <> Named then
     Error (Http_client.NetworkError {
       message = Printf.sprintf
