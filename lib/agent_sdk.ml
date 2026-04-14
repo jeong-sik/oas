@@ -122,6 +122,7 @@ module Autonomy_diff_guard = Autonomy_diff_guard
 module Metric_contract = Metric_contract
 module Response_harness = Response_harness
 module Tool_middleware = Tool_middleware
+module Tool_use_recovery = Tool_use_recovery
 module Tool_selector = Tool_selector
 module Lesson_memory = Lesson_memory
 module Event_forward = Event_forward
