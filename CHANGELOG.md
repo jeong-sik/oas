@@ -6,6 +6,23 @@ Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
 backfilled on 2026-04-04 from existing git tags. The dates below reflect the
 original tag dates. `0.100.4` was never tagged or released.
 
+## [0.137.0] - 2026-04-15
+
+### Added
+- Weighted cascade routing for named/default profiles:
+  - `cascade.json` model arrays now accept `{ "model", "weight" }` entries.
+  - First-attempt provider selection uses weighted random ordering while
+    preserving deterministic fallback priority.
+  - Health-aware weight adjustment and cooldown-aware filtering feed the
+    effective provider order before execution (#911).
+
+### Fixed
+- Anthropic response parsing now initializes telemetry placeholders
+  consistently with the other provider backends (#912).
+- OpenAI-compatible request builders strip orphaned `ToolResult` blocks
+  before serialization so compacted contexts no longer trip invalid
+  `tool_call_id` errors on GLM/Groq/DeepSeek paths (#914).
+
 ## [0.136.0] - 2026-04-14
 
 ### Added
