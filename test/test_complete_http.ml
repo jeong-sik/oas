@@ -77,6 +77,21 @@ let make_openai_config base_url =
 
 let messages = [Types.user_msg "hello"]
 
+let mock_transport_response text =
+  { Types.id = "transport-response";
+    model = "transport-model";
+    stop_reason = Types.EndTurn;
+    content = [Types.Text text];
+    usage = None;
+    telemetry = None }
+
+let make_transport response : Llm_transport.t =
+  {
+    complete_sync = (fun _ ->
+      { Llm_transport.response; latency_ms = 7 });
+    complete_stream = (fun ~on_event:_ _ -> response);
+  }
+
 (* ── complete: success ───────────────────────────────── *)
 
 let test_complete_anthropic_ok () =
@@ -320,6 +335,75 @@ let test_complete_error_metrics () =
         | [(_, _, code)] -> fail (Printf.sprintf "expected 400, got %d" code)
         | _ -> fail "expected exactly one status call");
        Eio.Switch.fail sw Exit)
+  with Exit -> ()
+
+let test_complete_transport_http_metrics_ok () =
+  Eio_main.run @@ fun env ->
+  try
+    Eio.Switch.run @@ fun sw ->
+    let config = make_openai_config "http://unused.test" in
+    let status_calls = ref [] in
+    let metrics : Metrics.t = {
+      Metrics.noop with
+      on_http_status = (fun ~provider ~model_id ~status ->
+        status_calls := (provider, model_id, status) :: !status_calls);
+    } in
+    let transport = make_transport (Ok (mock_transport_response "transport ok")) in
+    (match Complete.complete ~sw ~net:env#net ~transport ~config ~messages ~metrics () with
+     | Ok _ ->
+       (match !status_calls with
+        | [("openai", "gpt-4", 200)] ->
+          Eio.Switch.fail sw Exit
+        | [(_, _, code)] -> fail (Printf.sprintf "expected 200, got %d" code)
+        | _ -> fail "expected exactly one transport status call")
+     | Error _ -> fail "expected Ok")
+  with Exit -> ()
+
+let test_complete_transport_http_metrics_error () =
+  Eio_main.run @@ fun env ->
+  try
+    Eio.Switch.run @@ fun sw ->
+    let config = make_openai_config "http://unused.test" in
+    let status_calls = ref [] in
+    let metrics : Metrics.t = {
+      Metrics.noop with
+      on_http_status = (fun ~provider ~model_id ~status ->
+        status_calls := (provider, model_id, status) :: !status_calls);
+    } in
+    let transport =
+      make_transport (Error (Http_client.HttpError { code = 429; body = "rate limited" }))
+    in
+    (match Complete.complete ~sw ~net:env#net ~transport ~config ~messages ~metrics () with
+     | Ok _ -> fail "expected Error"
+     | Error (Http_client.HttpError { code; _ }) ->
+       check int "status 429" 429 code;
+       (match !status_calls with
+        | [("openai", "gpt-4", 429)] ->
+          Eio.Switch.fail sw Exit
+        | [(_, _, seen)] -> fail (Printf.sprintf "expected 429, got %d" seen)
+        | _ -> fail "expected exactly one transport status call")
+     | Error _ -> fail "expected HttpError")
+  with Exit -> ()
+
+let test_complete_transport_cli_does_not_emit_status () =
+  Eio_main.run @@ fun env ->
+  try
+    Eio.Switch.run @@ fun sw ->
+    let config = Provider_config.make
+        ~kind:Provider_config.Codex_cli
+        ~model_id:"codex-mini"
+        ~base_url:"" () in
+    let hits = ref 0 in
+    let metrics : Metrics.t = {
+      Metrics.noop with
+      on_http_status = (fun ~provider:_ ~model_id:_ ~status:_ -> incr hits);
+    } in
+    let transport = make_transport (Ok (mock_transport_response "cli ok")) in
+    (match Complete.complete ~sw ~net:env#net ~transport ~config ~messages ~metrics () with
+     | Ok _ ->
+       check int "cli transport emits no status" 0 !hits;
+       Eio.Switch.fail sw Exit
+     | Error _ -> fail "expected Ok")
   with Exit -> ()
 
 (* ── Global metrics registry ──────────────────────────── *)
@@ -647,6 +731,10 @@ let () =
     "metrics", [
       test_case "callbacks" `Quick test_complete_metrics;
       test_case "error callback" `Quick test_complete_error_metrics;
+      test_case "transport http ok" `Quick test_complete_transport_http_metrics_ok;
+      test_case "transport http error" `Quick test_complete_transport_http_metrics_error;
+      test_case "transport cli stays silent" `Quick
+        test_complete_transport_cli_does_not_emit_status;
       test_case "global default is noop" `Quick test_metrics_global_default_is_noop;
       test_case "global set and get" `Quick test_metrics_global_set_and_get;
       test_case "global used when no per-call metrics" `Quick

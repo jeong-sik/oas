@@ -123,6 +123,10 @@ let provider_name_of_kind : Provider_config.provider_kind -> string = function
   | Gemini_cli -> "gemini_cli"
   | Codex_cli -> "codex_cli"
 
+let requires_non_http_transport : Provider_config.provider_kind -> bool = function
+  | Claude_code | Gemini_cli | Codex_cli -> true
+  | Anthropic | OpenAI_compat | Ollama | Gemini | Glm -> false
+
 (** Strip query string and userinfo from a URL before logging.  Built-in
     providers use clean URLs, but [custom:model@url] accepts arbitrary
     user-supplied URLs; a misconfigured one like
@@ -188,9 +192,7 @@ let complete_http ~sw ~net
     ?(on_http_status : (provider:string -> model_id:string -> status:int -> unit) option)
     ~(config : Provider_config.t)
     ~(messages : Types.message list) ~tools () =
-  if config.kind = Provider_config.Claude_code
-     || config.kind = Provider_config.Gemini_cli
-     || config.kind = Provider_config.Codex_cli then
+  if requires_non_http_transport config.kind then
     (Error (Http_client.NetworkError {
        message = Printf.sprintf "%s provider requires a transport"
          (Provider_config.string_of_provider_kind config.kind) }),
@@ -491,12 +493,10 @@ let complete ~sw ~net ?(transport : Llm_transport.t option)
           in
           { Llm_transport.response = resp; latency_ms = lat }
       in
-      (* Emit on_http_status for transport path.  complete_http fires
-         on_http_status internally from the raw HTTP response, but
-         the transport path bypasses complete_http entirely, leaving
-         the status callback silent.  Infer status from the result:
-         Ok → 200, HttpError → actual code, network → 0 (no HTTP). *)
-      (if Option.is_some transport then
+      (* HTTP-backed transports bypass complete_http, so emit the status
+         here using the transport result. Non-HTTP CLI transports must
+         stay silent because they never observed an HTTP status code. *)
+      (if Option.is_some transport && not (requires_non_http_transport config.kind) then
          match result with
          | Ok _ ->
            m.on_http_status
@@ -638,9 +638,7 @@ include Complete_stream_acc
 let complete_stream_http ~sw:_ ~net ~(config : Provider_config.t)
     ~(messages : Types.message list) ~tools
     ~(on_event : Types.sse_event -> unit) =
-  if config.kind = Provider_config.Claude_code
-     || config.kind = Provider_config.Gemini_cli
-     || config.kind = Provider_config.Codex_cli then
+  if requires_non_http_transport config.kind then
     Error (Http_client.NetworkError {
       message = Printf.sprintf "%s provider requires a transport"
         (Provider_config.string_of_provider_kind config.kind) })
