@@ -182,6 +182,12 @@ val with_progressive_tools : Progressive_tools.disclosure_strategy -> t -> t
     @since 0.100.0 *)
 val with_tool_selector : Tool_selector.strategy -> t -> t
 
+(** Set a shared policy channel for lazy tool policy propagation.
+    Children that share the same channel pick up parent policy changes
+    at their next turn boundary via lock-free polling.
+    @since 0.136.1 *)
+val with_policy_channel : Policy_channel.t -> t -> t
+
 (** {2 Run lifecycle} *)
 
 (** Set a callback invoked when a run finishes.  Receives [true] on
