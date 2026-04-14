@@ -47,6 +47,10 @@
  (libraries agent_sdk alcotest yojson str))
 
 (test
+ (name test_tool_use_recovery)
+ (libraries agent_sdk alcotest yojson))
+
+(test
  (name test_typed_tool_safe)
  (libraries agent_sdk alcotest yojson))
 

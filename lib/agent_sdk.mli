@@ -142,6 +142,7 @@ module Tool_retry_policy = Tool_retry_policy
 module Lenient_json = Llm_provider.Lenient_json
 module Tool_input_validation = Tool_input_validation
 module Tool_middleware = Tool_middleware
+module Tool_use_recovery = Tool_use_recovery
 module Response_harness = Response_harness
 module Durable_event = Durable_event
 module Journal_bridge = Journal_bridge
