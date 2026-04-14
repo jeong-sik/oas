@@ -2,6 +2,21 @@
 
 open Agent_sdk
 
+let contains_substring ~needle haystack =
+  let needle_len = String.length needle in
+  let haystack_len = String.length haystack in
+  let rec loop idx =
+    if needle_len = 0 then
+      true
+    else if idx + needle_len > haystack_len then
+      false
+    else if String.sub haystack idx needle_len = needle then
+      true
+    else
+      loop (idx + 1)
+  in
+  loop 0
+
 (* ── prepare_turn tests ────────────────────────────────────── *)
 
 let test_prepare_turn_empty_tools () =
@@ -87,7 +102,7 @@ let test_prepare_messages_extra_context () =
   match List.hd first.content with
   | Types.Text t ->
     Alcotest.(check bool) "contains context" true
-      (Util.string_contains ~needle:"test mode" t)
+      (contains_substring ~needle:"test mode" t)
   | _ -> Alcotest.fail "expected Text"
 
 (* ── system_prompt_override does not affect prepare_messages ── *)
@@ -128,7 +143,7 @@ let test_prepare_messages_both_override_and_extra_context () =
   match List.hd first.content with
   | Types.Text t ->
     Alcotest.(check bool) "contains debug mode" true
-      (Util.string_contains ~needle:"Debug mode" t)
+      (contains_substring ~needle:"Debug mode" t)
   | _ -> Alcotest.fail "expected Text"
 
 (* ── accumulate_usage tests ──────────────────────────────── *)
