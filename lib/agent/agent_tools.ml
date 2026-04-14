@@ -5,6 +5,8 @@
 
 open Types
 
+let _log = Log.create ~module_name:"agent_tools" ()
+
 type tool_failure_kind =
   | Validation_error
   | Recoverable_tool_error
@@ -148,12 +150,28 @@ let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tra
   let tool_opt = List.find_opt (fun (tool: Tool.t) -> tool.schema.name = name) tools in
   let result = match tool_opt with
   | Some tool ->
-    (* Validate input against schema via Tool_middleware; coerce types
-       before execution. Invalid inputs get structured feedback. *)
+    (* Multi-stage deterministic correction before execution.
+       Correction_pipeline runs 3 stages (type coercion, default injection,
+       format normalization) then validates. If det correction fixes the
+       input, skip the LLM retry path entirely. If still invalid, fall back
+       to Tool_middleware.validate_and_coerce for structured error feedback.
+       Ref: Samchon function calling harness (6.75% → 100%). *)
     let validated_input =
-      match Tool_middleware.validate_and_coerce ~tool_name:name
-              ~schema:tool.schema input with
-      | Tool_middleware.Reject { message; _ } ->
+      match Correction_pipeline.run ~schema:tool.schema input with
+      | Correction_pipeline.Fixed { corrected; corrections } ->
+        if corrections <> [] then
+          Log.info _log "tool %s: correction_pipeline fixed %d field(s)"
+            [ Log.S ("tool", name);
+              Log.I ("fixes", List.length corrections) ];
+        Ok corrected
+      | Correction_pipeline.Still_invalid { errors; attempted } ->
+        (* Det correction insufficient — build structured feedback for the
+           turn-level retry policy (pipeline Stage 5) to relay to the LLM. *)
+        let message =
+          Correction_pipeline.build_nondet_feedback
+            ~tool_name:name ~args:input
+            ~still_invalid:errors ~attempted
+        in
         ignore
              (invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count
                 ~hook_name:"post_tool_use_failure" hooks.post_tool_use_failure
@@ -167,8 +185,6 @@ let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tra
                    })
               : Hooks.hook_decision);
         Error message
-      | Tool_middleware.Proceed coerced -> Ok coerced
-      | Tool_middleware.Pass -> Ok input
     in
     begin match validated_input with
     | Error msg ->
@@ -322,7 +338,6 @@ let execute_scheduled_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus
           | Hooks.ApprovalRequired -> (
               match approval with
               | None ->
-                  let _log = Log.create ~module_name:"agent_tools" () in
                   Log.warn _log
                     "ApprovalRequired but no approval callback — executing"
                     [Log.S ("tool", name); Log.S ("agent", agent_name)];
