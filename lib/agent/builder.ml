@@ -129,6 +129,19 @@ let with_tool_result_relocation ~store ~state b =
 
 let with_journal journal b = { b with journal = Some journal }
 
+let with_auto_dump_journal ~path b =
+  let journal =
+    match b.journal with
+    | Some j -> j
+    | None -> Durable_event.create ()
+  in
+  let dump _ok =
+    match Durable_event.save_to_file journal path with
+    | Ok () -> ()
+    | Error _ -> ()  (* Best-effort; consumer can provide a stricter callback. *)
+  in
+  { b with journal = Some journal; on_run_complete = Some dump }
+
 let with_system_prompt prompt b = { b with system_prompt = Some prompt }
 let with_name name b = { b with name }
 let with_max_tokens n b = { b with max_tokens = Some n }

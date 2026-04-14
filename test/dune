@@ -928,3 +928,7 @@
 ;(test
 ; (name test_eval_otel_bridge)
 ; (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_agent_auto_dump)
+ (libraries agent_sdk alcotest eio eio_main))

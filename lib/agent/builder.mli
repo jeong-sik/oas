@@ -203,6 +203,17 @@ val with_tool_result_relocation :
     @since 0.133.0 *)
 val with_journal : Durable_event.journal -> t -> t
 
+(** Install an [on_run_complete] callback that persists the journal
+    to [path] whenever the agent run finishes (success or failure).
+    Equivalent to attaching a journal and then calling
+    {!Agent.save_journal} in a callback, but bundled so consumers
+    declare the intent in one line.
+
+    If a journal is not explicitly attached, this builder also
+    creates a fresh one so the dump is non-empty.
+    @since 0.135.0 *)
+val with_auto_dump_journal : path:string -> t -> t
+
 (** {2 Build} *)
 
 (** Build the agent. May raise on invalid config.
