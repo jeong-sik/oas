@@ -33,6 +33,10 @@ type payload =
   | TaskStateChanged of { task_id: string; from_state: string; to_state: string }
   | ContextCompacted of { agent_name: string; before_tokens: int;
                           after_tokens: int; phase: string }
+  | ContextOverflowImminent of { agent_name: string;
+                                  estimated_tokens: int; limit_tokens: int;
+                                  ratio: float }
+  | ContextCompactStarted of { agent_name: string; trigger: string }
   | Custom of string * Yojson.Safe.t
 
 (* ── Event type ───────────────────────────────────────────────────── *)
@@ -99,6 +103,8 @@ let filter_agent name : filter = fun event ->
   | TurnCompleted r -> r.agent_name = name
   | ElicitationCompleted r -> r.agent_name = name
   | ContextCompacted r -> r.agent_name = name
+  | ContextOverflowImminent r -> r.agent_name = name
+  | ContextCompactStarted r -> r.agent_name = name
   | TaskStateChanged _ -> true  (* Task events are not agent-scoped *)
   | Custom _ -> true  (* Custom events are not agent-scoped; always pass *)
 

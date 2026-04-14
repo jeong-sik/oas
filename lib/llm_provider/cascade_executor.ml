@@ -299,6 +299,42 @@ let truncate_to_context ?(context_margin = default_context_margin)
       result
     end
 
+(** Strict variant of {!truncate_to_context}.
+
+    Returns [Ok messages] when within budget, or
+    [Error (`Over_budget (estimated, budget))] when truncation cannot bring
+    the messages within budget.  Unlike {!truncate_to_context}, this function
+    never silently passes over-budget content through.
+
+    Intended for OAS-2's [ensure_within_budget] gate — the caller decides
+    whether to compact, handoff, or fail.
+
+    @since 0.136.0 *)
+let truncate_to_context_strict ?(context_margin = default_context_margin)
+    (cfg : Provider_config.t)
+    (messages : Types.message list)
+    : (Types.message list, [`Over_budget of int * int]) result =
+  match cfg.max_context with
+  | None -> Ok messages
+  | Some max_ctx ->
+    let budget = int_of_float (float_of_int max_ctx *. context_margin) in
+    let estimated =
+      List.fold_left
+        (fun acc msg -> acc + estimate_message_tokens msg) 0 messages
+    in
+    if estimated <= budget then Ok messages
+    else begin
+      let result = apply_token_budget budget messages in
+      let result_tokens =
+        List.fold_left
+          (fun acc msg -> acc + estimate_message_tokens msg) 0 result
+      in
+      if result_tokens > budget then
+        Error (`Over_budget (result_tokens, budget))
+      else
+        Ok result
+    end
+
 (** Truncate tools to fit within the remaining context budget after
     messages and output reserve are accounted for. Tools are kept in
     order (front = highest relevance from the caller's Tool_selector)

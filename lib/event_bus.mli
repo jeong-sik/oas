@@ -33,6 +33,16 @@ type payload =
   | TaskStateChanged of { task_id: string; from_state: string; to_state: string }
   | ContextCompacted of { agent_name: string; before_tokens: int;
                           after_tokens: int; phase: string }
+  | ContextOverflowImminent of { agent_name: string;
+                                  estimated_tokens: int; limit_tokens: int;
+                                  ratio: float }
+      (** Proactive warning: next turn is projected to exceed context budget.
+          Emitted before compaction is attempted.
+          @since 0.136.0 *)
+  | ContextCompactStarted of { agent_name: string; trigger: string }
+      (** Compaction has begun (before [ContextCompacted] which signals completion).
+          [trigger] is one of ["proactive"], ["emergency"], ["operator"].
+          @since 0.136.0 *)
   | Custom of string * Yojson.Safe.t
 
 (** {2 Event} *)

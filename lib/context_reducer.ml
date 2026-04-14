@@ -637,6 +637,48 @@ let from_context_config ?(compact_ratio=0.8) ~max_tokens () =
     token_budget budget;
   ]
 
+(** Estimate fixed-overhead tokens for the next turn.
+
+    Components:
+    - System prompt tokens (if provided).
+    - Tool description tokens (JSON serialization of each tool schema).
+    - Output reserve (tokens held back for the model's response).
+
+    This is intentionally a rough upper bound — it over-counts rather than
+    under-counts so callers can make conservative budget decisions. *)
+let estimate_next_turn_overhead
+    ?(system_prompt = "")
+    ?(tools : Yojson.Safe.t list = [])
+    ?(output_reserve = 4096)
+    () : int =
+  let system_tokens =
+    if String.length system_prompt = 0 then 0
+    else estimate_char_tokens system_prompt
+  in
+  let tool_tokens =
+    List.fold_left
+      (fun acc tool ->
+         acc + estimate_char_tokens (Yojson.Safe.to_string tool))
+      0 tools
+  in
+  (* Per-turn framing overhead: role tokens, separators, API envelope.
+     Conservative fixed constant. *)
+  let framing = 100 in
+  system_tokens + tool_tokens + output_reserve + framing
+
+let%test "estimate_next_turn_overhead empty" =
+  let overhead = estimate_next_turn_overhead () in
+  overhead = 4096 + 100
+
+let%test "estimate_next_turn_overhead with system prompt" =
+  let overhead = estimate_next_turn_overhead ~system_prompt:"You are a helpful assistant." () in
+  overhead > 4096 + 100
+
+let%test "estimate_next_turn_overhead with tools" =
+  let tool = `Assoc [("name", `String "get_weather"); ("description", `String "Get weather for a location")] in
+  let overhead = estimate_next_turn_overhead ~tools:[tool] () in
+  overhead > 4096 + 100
+
 let%test "from_context_config default compact_ratio 0.8" =
   let reducer = from_context_config ~max_tokens:10000 () in
   match reducer.strategy with
