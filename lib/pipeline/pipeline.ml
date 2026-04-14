@@ -663,14 +663,45 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
      Runs before async input validation so that validators operate on the
      already-compacted message set.  Re-prepares the turn via
      Agent_turn.prepare_turn directly (not stage_parse) to avoid emitting
-     TurnStarted a second time or re-invoking before_turn_params. *)
-  let prep = match agent.state.config.context_compact_ratio with
-    | Some watermark when watermark > 0.0 && watermark < 1.0 ->
+     TurnStarted a second time or re-invoking before_turn_params.
+
+     Hard budget gate (OAS-2): when context_compact_ratio is not configured,
+     a ratio >= 0.9 still triggers compaction. This prevents the silent
+     pass-through that caused masc-improver CTX 101% (#7083). *)
+  let prep =
+    let watermark = match agent.state.config.context_compact_ratio with
+      | Some w when w > 0.0 && w < 1.0 -> w
+      | _ -> 0.9  (* hard floor: compact before 90% regardless of config *)
+    in
+    let est_tokens = List.fold_left (fun acc msg ->
+      acc + Context_reducer.estimate_message_tokens msg) 0 agent.state.messages in
+    let context_window = proactive_context_window_tokens agent in
+    let ratio = float_of_int est_tokens /. float_of_int context_window in
+    if ratio >= watermark then begin
+      (* Emit ContextOverflowImminent before compaction *)
+      (match agent.options.event_bus with
+       | Some bus -> Event_bus.publish bus
+           { meta = event_envelope agent;
+             payload = ContextOverflowImminent {
+               agent_name = agent.state.config.name;
+               estimated_tokens = est_tokens;
+               limit_tokens = context_window;
+               ratio } }
+       | None -> ());
+      (* Emit ContextCompactStarted *)
+      (match agent.options.event_bus with
+       | Some bus -> Event_bus.publish bus
+           { meta = event_envelope agent;
+             payload = ContextCompactStarted {
+               agent_name = agent.state.config.name;
+               trigger = "proactive" } }
+       | None -> ());
       let compacted = proactive_compact ?raw_trace_run agent ~watermark () in
       if compacted then
         prepare_turn_for_agent agent ~turn_params
       else prep
-    | _ -> prep
+    end
+    else prep
   in
 
   (* Stage 2.5: Async input validation *)
@@ -683,19 +714,27 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
        validator = validator_name; reason }))
    | Guardrails_async.Pass ->
 
-  (* Stage 2.7: Proactive watermark compaction — compact before overflow.
-     When context_compact_ratio is configured, check current usage and
-     apply Budget_strategy-based compaction if over the watermark.
-     Re-parses prep after compaction to reflect reduced messages. *)
-  let prep = match agent.state.config.context_compact_ratio with
-    | Some watermark when watermark > 0.0 && watermark < 1.0 ->
+  (* Stage 2.7: Proactive watermark compaction — post-validation pass.
+     Same hard budget gate as 2.3 — if context still exceeds watermark
+     after validation (validators can inject messages), compact again. *)
+  let prep =
+    let watermark = match agent.state.config.context_compact_ratio with
+      | Some w when w > 0.0 && w < 1.0 -> w
+      | _ -> 0.9
+    in
+    let est_tokens = List.fold_left (fun acc msg ->
+      acc + Context_reducer.estimate_message_tokens msg) 0 agent.state.messages in
+    let context_window = proactive_context_window_tokens agent in
+    let ratio = float_of_int est_tokens /. float_of_int context_window in
+    if ratio >= watermark then begin
       let compacted = proactive_compact ?raw_trace_run agent ~watermark () in
       if compacted then begin
         update_state agent (fun s -> { s with config = original_config });
         let (prep', _, _) = stage_parse ?raw_trace_run agent in
         prep'
       end else prep
-    | _ -> prep
+    end
+    else prep
   in
 
   (* Stage 3: Route — with compact-and-retry on context overflow *)
@@ -741,6 +780,13 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
     match api_result with
     | Error (Error.Api (Retry.ContextOverflow { limit; _ }))
       when compact_attempts < 2 ->
+      (match agent.options.event_bus with
+       | Some bus -> Event_bus.publish bus
+           { meta = event_envelope agent;
+             payload = ContextCompactStarted {
+               agent_name = agent.state.config.name;
+               trigger = "emergency" } }
+       | None -> ());
       let compacted = emergency_compact ?raw_trace_run agent ?limit () in
       if not compacted then api_result
       else begin
