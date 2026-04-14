@@ -108,6 +108,33 @@ val select_names :
   tools:Tool.t list ->
   string list
 
+(** Like {!select} but accepts a pre-built {!Tool_index.t}.
+
+    Avoids rebuilding the BM25 index on every call. Callers that
+    invoke selection per-turn with the same tool set should build
+    the index once via {!Tool_index.of_tools} (or {!Tool_index.build}
+    for alias support) and reuse it.
+
+    For [All] and [Categorical] strategies the index is ignored
+    (they either return everything or build their own group index).
+
+    @since 0.136.1 *)
+val select_with_index :
+  strategy:strategy ->
+  index:Tool_index.t ->
+  context:string ->
+  tools:Tool.t list ->
+  Tool.t list
+
+(** Like {!select_names} but accepts a pre-built index.
+    @since 0.136.1 *)
+val select_names_with_index :
+  strategy:strategy ->
+  index:Tool_index.t ->
+  context:string ->
+  tools:Tool.t list ->
+  string list
+
 (** Default strategy based on tool count.
     - [<= 15] tools -> [All]
     - [> 15] tools  -> [TopK_bm25 { k = 5; always_include = \[\] }] *)

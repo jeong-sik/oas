@@ -59,11 +59,8 @@ let filter_by_names names tools =
 
 let select_all tools = tools
 
-let select_llm ~k ~bm25_prefilter_n ~always_include ~confidence_threshold
-    ~rerank_fn ~context ~tools =
-  if tools = [] then []
-  else
-    let index = Tool_index.of_tools tools in
+let select_llm_core ~k ~bm25_prefilter_n ~always_include ~confidence_threshold
+    ~rerank_fn ~context ~index ~tools =
     let retrieved = Tool_index.retrieve index context in
     let top_score = match retrieved with
       | (_, s) :: _ -> s
@@ -109,11 +106,8 @@ let select_llm ~k ~bm25_prefilter_n ~always_include ~confidence_threshold
       let selected = merge_names ~always_include ~top_names in
       filter_by_names selected tools
 
-let select_bm25 ~k ~always_include ~confidence_threshold ~fallback_tools
-    ~context ~tools =
-  if tools = [] then []
-  else
-    let index = Tool_index.of_tools tools in
+let select_bm25_core ~k ~always_include ~confidence_threshold ~fallback_tools
+    ~context ~index ~tools =
     let retrieved = Tool_index.retrieve index context in
     let top_score = match retrieved with
       | (_, s) :: _ -> s
@@ -130,6 +124,24 @@ let select_bm25 ~k ~always_include ~confidence_threshold ~fallback_tools
     let extra = if use_fallback then fallback_tools else [] in
     let selected_names = merge_names ~always_include ~top_names:(top_names @ extra) in
     filter_by_names selected_names tools
+
+(* ── Convenience wrappers (build index internally) ───────── *)
+
+let select_llm ~k ~bm25_prefilter_n ~always_include ~confidence_threshold
+    ~rerank_fn ~context ~tools =
+  if tools = [] then []
+  else
+    let index = Tool_index.of_tools tools in
+    select_llm_core ~k ~bm25_prefilter_n ~always_include ~confidence_threshold
+      ~rerank_fn ~context ~index ~tools
+
+let select_bm25 ~k ~always_include ~confidence_threshold ~fallback_tools
+    ~context ~tools =
+  if tools = [] then []
+  else
+    let index = Tool_index.of_tools tools in
+    select_bm25_core ~k ~always_include ~confidence_threshold ~fallback_tools
+      ~context ~index ~tools
 
 (* ── Public API ──────────────────────────────────────────── *)
 
@@ -168,9 +180,30 @@ let select ~strategy ~context ~tools =
       let selected_names = merge_names ~always_include ~top_names:group_tool_names in
       filter_by_names selected_names tools
 
+let select_with_index ~strategy ~index ~context ~tools =
+  match strategy with
+  | All -> select_all tools
+  | TopK_bm25 { k; always_include; confidence_threshold; fallback_tools } ->
+    if tools = [] then []
+    else select_bm25_core ~k ~always_include ~confidence_threshold ~fallback_tools
+      ~context ~index ~tools
+  | TopK_llm { k; bm25_prefilter_n; always_include; confidence_threshold;
+               rerank_fn } ->
+    if tools = [] then []
+    else select_llm_core ~k ~bm25_prefilter_n ~always_include ~confidence_threshold
+      ~rerank_fn ~context ~index ~tools
+  | Categorical _ ->
+    (* Categorical builds its own group index; the tool index is not useful.
+       Fall through to the standard select path. *)
+    select ~strategy ~context ~tools
+
 let select_names ~strategy ~context ~tools =
   List.map (fun (t : Tool.t) -> t.schema.name)
     (select ~strategy ~context ~tools)
+
+let select_names_with_index ~strategy ~index ~context ~tools =
+  List.map (fun (t : Tool.t) -> t.schema.name)
+    (select_with_index ~strategy ~index ~context ~tools)
 
 let auto ~tools =
   if List.length tools <= 15 then All
