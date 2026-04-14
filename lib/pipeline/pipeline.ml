@@ -468,13 +468,10 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
           with short stubs. Tool results are the largest allocation source.
        2. Hard message cap: keep last 100 messages. Prevents unbounded growth
           in long-running agents (600+ turns). *)
-    let pruner = Context_reducer.compose [
-      Context_reducer.stub_tool_results ~keep_recent:2;
-      Context_reducer.keep_last 100;
-    ] in
-    update_state agent (fun s ->
-      { s with messages =
-          Context_reducer.reduce pruner s.messages });
+    (* Tool-result stubbing and message cap are now applied at call-time
+       in Agent_turn.prepare_messages, not here.  Keeping stored messages
+       unmodified preserves the byte-identical conversation prefix that
+       local LLM KV-cache (Ollama/llama.cpp) depends on for reuse. *)
     Ok ToolsExecuted
 
 (* ── Stage 6: Output ─────────────────────────────────────── *)
