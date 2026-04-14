@@ -6,6 +6,44 @@ Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
 backfilled on 2026-04-04 from existing git tags. The dates below reflect the
 original tag dates. `0.100.4` was never tagged or released.
 
+## [0.135.0] - 2026-04-14
+
+### Added
+- `Agent.save_journal t path` — thin wrapper over
+  {!Durable_event.save_to_file}. Returns `Error "no journal"` when the
+  agent has no journal attached (#894).
+- `Builder.with_auto_dump_journal ~path` — installs an
+  `on_run_complete` callback that dumps the journal on every run
+  completion. Creates a fresh journal if one is not attached so the
+  dump is never empty (#894).
+
+## [0.134.0] - 2026-04-14
+
+### Added
+- `Durable_event` JSONL persistence primitives:
+  `save_to_file` (atomic tmp+rename) and `load_from_file`
+  (missing → empty journal, malformed → line-numbered error) (#892).
+
+### Changed
+- Version bump to 0.134.0 after integrating the full Durable_event
+  journal stack from 0.133.0.
+
+## [0.133.0] - 2026-04-14
+
+### Added
+- `Durable_event` integration across agent runtime (#890, #891):
+  - `agent_types.options.journal` field + `Builder.with_journal`.
+  - `pipeline.ml` appends `Turn_started`, `State_transition`,
+    `Llm_request`, `Llm_response`, `Error_occurred`,
+    `Checkpoint_saved` (proactive + emergency).
+  - `agent_tools.ml` appends `Tool_called` / `Tool_completed` with
+    idempotency keys suitable for replay deduplication.
+- `Durable_event.create ?on_append` fan-out callback (#891).
+- `Journal_bridge.make ~bus` projects every journal event onto
+  `Event_bus.Custom ("durable:<kind>", payload)` — Event_bus
+  subscribers observe the full journal stream without payload
+  schema changes (#891).
+
 ## [0.132.0] - 2026-04-13
 
 ### Added
