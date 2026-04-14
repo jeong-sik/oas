@@ -522,13 +522,13 @@ let test_prepare_turn_extra_context () =
     ~tools:Tool_set.empty ~messages
     ~context_reducer:None
     ~turn_params () in
-  (* Extra context adds a system message at the start *)
-  Alcotest.(check int) "2 messages (context + original)" 2
+  (* Extra context is appended at the end to preserve prefix for KV cache *)
+  Alcotest.(check int) "2 messages (original + context)" 2
     (List.length prep.effective_messages);
-  let first = List.hd prep.effective_messages in
-  (match first.content with
+  let last = List.nth prep.effective_messages 1 in
+  (match last.content with
    | [Types.Text s] ->
-     Alcotest.(check string) "injected context"
+     Alcotest.(check string) "injected context at tail"
        "[system context] You are in debug mode." s
    | _ -> Alcotest.fail "expected Text block")
 

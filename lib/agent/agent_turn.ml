@@ -113,15 +113,30 @@ let prepare_tools ~guardrails ~operator_policy ~policy_channel ~(tools : Tool_se
   (tools_json, effective_guardrails)
 
 let prepare_messages ~messages ~context_reducer ~turn_params =
+  (* Apply call-time stubbing: older tool results are replaced with
+     short stubs before sending to the LLM.  This is done here (not in
+     state.messages) so the stored conversation prefix stays byte-identical
+     across turns — enabling local LLM prefix KV-cache reuse. *)
+  let call_time_pruner = Context_reducer.compose [
+    Context_reducer.stub_tool_results ~keep_recent:2;
+    Context_reducer.keep_last 100;
+  ] in
+  let pruned = Context_reducer.reduce call_time_pruner messages in
   let effective = match context_reducer with
-    | None -> messages
-    | Some reducer -> Context_reducer.reduce reducer messages
+    | None -> pruned
+    | Some reducer -> Context_reducer.reduce reducer pruned
   in
   match turn_params.Hooks.extra_system_context with
   | None -> effective
   | Some ctx ->
+    (* Append (not prepend) so that the conversation prefix remains
+       byte-identical across turns — critical for local LLM KV-cache
+       reuse.  The dynamic context (timestamps, tool counts) changes
+       every turn; placing it at the tail keeps the stable history
+       prefix cacheable.  Anthropic API handles caching server-side
+       regardless of position, but Ollama/llama.cpp prefix-match. *)
     let system_msg = { role = User; content = [Text ("[system context] " ^ ctx)]; name = None; tool_call_id = None } in
-    system_msg :: effective
+    effective @ [system_msg]
 
 let prepare_turn ~guardrails ~operator_policy ~policy_channel ~tools ~messages ~context_reducer ~turn_params
     ?tool_selector () =
