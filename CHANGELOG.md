@@ -6,6 +6,22 @@ Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
 backfilled on 2026-04-04 from existing git tags. The dates below reflect the
 original tag dates. `0.100.4` was never tagged or released.
 
+## [0.136.0] - 2026-04-14
+
+### Added
+- `Event_bus.ContextOverflowImminent` payload — proactive warning emitted
+  before context overflow occurs, with `estimated_tokens`, `limit_tokens`,
+  and `ratio` fields (#901).
+- `Event_bus.ContextCompactStarted` payload — marks compaction start with
+  a `trigger` field (`proactive`, `emergency`, or `operator`) (#901).
+- `Context_reducer.estimate_next_turn_overhead` — estimates fixed overhead
+  (system prompt + tool descriptions + output reserve) for budget projection
+  before the next turn (#901).
+- `Cascade_executor.truncate_to_context_strict` — strict variant of
+  `truncate_to_context` that returns `Error (\`Over_budget (est, budget))`
+  instead of silently passing over-budget content. Original function
+  unchanged for backward compatibility (#901).
+
 ## [0.135.0] - 2026-04-14
 
 ### Added
