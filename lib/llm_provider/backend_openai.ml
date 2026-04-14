@@ -16,6 +16,7 @@ let openai_content_parts_of_blocks = Backend_openai_serialize.openai_content_par
 let openai_messages_of_message = Backend_openai_serialize.openai_messages_of_message
 let tool_choice_to_openai_json = Backend_openai_serialize.tool_choice_to_openai_json
 let build_openai_tool_json = Backend_openai_serialize.build_openai_tool_json
+let strip_orphaned_tool_results = Backend_openai_serialize.strip_orphaned_tool_results
 
 (* ── Re-exports from parsing ──────────────────────────── *)
 
@@ -65,12 +66,13 @@ let effective_tools (config : Provider_config.t) tools =
 let build_request ?(stream=false) ~(config : Provider_config.t)
     ~(messages : message list) ?(tools : Yojson.Safe.t list = []) () =
   let tools = effective_tools config tools in
+  let sanitized_messages = strip_orphaned_tool_results messages in
   let provider_messages =
     (match config.system_prompt with
      | Some s when not (Api_common.string_is_blank s) ->
          [`Assoc [("role", `String "system"); ("content", `String (Utf8_sanitize.sanitize s))]]
      | _ -> [])
-    @ List.concat_map openai_messages_of_message messages
+    @ List.concat_map openai_messages_of_message sanitized_messages
   in
   (* Look up per-model capabilities once — drives:
      (1) the [max_tokens] clamp below (avoid server 400 on over-cap),
@@ -460,6 +462,28 @@ let%test "openai_messages_of_message user with tool_result" =
   ]; name = None; tool_call_id = None } in
   let result = openai_messages_of_message msg in
   List.length result = 2
+
+let%test "build_request strips orphaned tool results from wire messages" =
+  let cfg = Provider_config.make
+    ~kind:Provider_config.Glm ~model_id:"glm-5.1"
+    ~base_url:Zai_catalog.general_base_url () in
+  let messages = [
+    { role = Assistant; content = [Text "hello"]; name = None; tool_call_id = None };
+    { role = User; content = [
+        Text "follow up";
+        ToolResult { tool_use_id = "orphan-id"; content = "stale"; is_error = false; json = None };
+      ]; name = None; tool_call_id = None };
+  ] in
+  let body =
+    build_request ~config:cfg ~messages ()
+    |> Yojson.Safe.from_string
+  in
+  let open Yojson.Safe.Util in
+  let roles =
+    body |> member "messages" |> to_list
+    |> List.map (fun json -> json |> member "role" |> to_string)
+  in
+  roles = ["assistant"; "user"]
 
 let%test "openai_messages_of_message assistant with tool_calls" =
   let msg = { role = Assistant; content = [

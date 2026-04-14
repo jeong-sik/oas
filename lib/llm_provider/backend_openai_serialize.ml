@@ -151,6 +151,38 @@ let openai_messages_of_message msg =
 let ollama_messages_of_message msg =
   messages_of_message_with ~tool_calls_fn:tool_calls_to_ollama_json msg
 
+(** Strip ToolResult blocks whose tool_use_id has no matching ToolUse
+    in any Assistant message. Occurs after context compaction drops a
+    ToolUse while the corresponding ToolResult survives.
+
+    OpenAI-compatible APIs reject orphaned tool_call_ids; the Anthropic
+    API has its own dangling-tool-call repair, so this is OpenAI-path only.
+
+    Pure function — no I/O, no mutation. *)
+let strip_orphaned_tool_results (messages : message list) : message list =
+  let tool_use_ids =
+    let tbl = Hashtbl.create 16 in
+    List.iter (fun (msg : message) ->
+      if msg.role = Assistant then
+        List.iter (function
+          | ToolUse { id; _ } -> Hashtbl.replace tbl id ()
+          | _ -> ()) msg.content
+    ) messages;
+    tbl
+  in
+  List.map (fun (msg : message) ->
+    match msg.role with
+    | User | Tool ->
+      let filtered = List.filter (function
+        | ToolResult { tool_use_id; _ } ->
+          Hashtbl.mem tool_use_ids tool_use_id
+        | _ -> true) msg.content
+      in
+      if List.length filtered = List.length msg.content then msg
+      else { msg with content = filtered }
+    | _ -> msg
+  ) messages
+
 let tool_choice_to_openai_json = function
   | Auto -> `String "auto"
   | Any -> `String "required"
