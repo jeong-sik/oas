@@ -485,12 +485,16 @@ let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
            | Error reason -> Cascade_fsm.Accept_rejected { response = resp; reason })
         | Error err -> Cascade_fsm.Call_err err
       in
+      let health = Cascade_health_tracker.global in
+      let provider_key = cfg.model_id in
       (* Pure decision: delegate to FSM *)
       match Cascade_fsm.decide ~accept_on_exhaustion ~is_last outcome with
       | Cascade_fsm.Accept resp ->
+        Cascade_health_tracker.record_success health ~provider_key;
         Diag.debug "cascade_executor" "cascade_accept_passed model_id=%s" cfg.model_id;
         Ok resp
       | Cascade_fsm.Accept_on_exhaustion { response; reason } ->
+        Cascade_health_tracker.record_success health ~provider_key;
         Diag.info "cascade_executor" "cascade_accept_on_exhaustion model_id=%s is_last=%b reason=%s"
           cfg.model_id is_last reason;
         m.on_cascade_fallback
@@ -498,6 +502,7 @@ let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
           ~reason:"accept relaxed: all models rejected";
         Ok response
       | Cascade_fsm.Try_next { last_err = new_err } ->
+        Cascade_health_tracker.record_failure health ~provider_key;
         let reason_str = match new_err with
           | Some (Http_client.HttpError { code; _ }) -> Printf.sprintf "HTTP %d" code
           | Some (Http_client.AcceptRejected { reason }) -> reason
@@ -514,6 +519,7 @@ let complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
          | [] -> ());
         try_next new_err rest
       | Cascade_fsm.Exhausted { last_err = final_err } ->
+        Cascade_health_tracker.record_failure health ~provider_key;
         let reason_str = match final_err with
           | Some (Http_client.HttpError { code; _ }) -> Printf.sprintf "HTTP %d" code
           | Some (Http_client.AcceptRejected { reason }) -> reason

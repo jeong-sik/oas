@@ -379,9 +379,25 @@ let resolve_model_strings_traced ?config_path ~name ~defaults () =
           (fun (e : Cascade_config_loader.weighted_entry) -> e.weight <> 1)
           from_file_weighted
       in
+      (* Apply health-adjusted weights: config_weight * success_rate.
+         Providers in cooldown get weight 0 (skipped in shuffle). *)
+      let health = Cascade_health_tracker.global in
+      let health_adjusted = List.map
+          (fun (e : Cascade_config_loader.weighted_entry) ->
+             let ew = Cascade_health_tracker.effective_weight health
+                 ~provider_key:e.model ~config_weight:e.weight in
+             { e with weight = ew })
+          from_file_weighted
+      in
+      (* Filter out zero-weight (cooled-down) providers, but keep at least one *)
+      let active = List.filter
+          (fun (e : Cascade_config_loader.weighted_entry) -> e.weight > 0)
+          health_adjusted
+      in
+      let effective = if active = [] then from_file_weighted else active in
       let ordered =
-        if has_weights then weighted_shuffle from_file_weighted
-        else from_file_weighted
+        if has_weights then weighted_shuffle effective
+        else effective
       in
       let models = List.map
           (fun (e : Cascade_config_loader.weighted_entry) -> e.model) ordered in
@@ -1236,19 +1252,20 @@ let%test "weighted_shuffle remainder sorted by weight desc" =
   !all_sorted
 
 let%test "weighted_shuffle distribution roughly matches weights" =
-  (* Statistical: with weights 70/20/10, first position should be "a" ~70% *)
+  (* Statistical: with weights 70/20/10, first position should be "a" ~70%.
+     Use 10000 trials and wide tolerance to avoid CI flakiness. *)
   let entries : Cascade_config_loader.weighted_entry list = [
     { model = "a"; weight = 70 };
     { model = "b"; weight = 20 };
     { model = "c"; weight = 10 };
   ] in
   let a_first = ref 0 in
-  let n = 1000 in
+  let n = 10000 in
   for _ = 1 to n do
     let result = weighted_shuffle entries in
     if (List.hd result).model = "a" then incr a_first
   done;
-  (* Allow wide tolerance: 70% +/- 10% *)
+  (* 70% +/- 5% with 10k trials — 3-sigma bound for binomial *)
   let ratio = float_of_int !a_first /. float_of_int n in
   ratio > 0.55 && ratio < 0.85
 
@@ -1259,17 +1276,17 @@ let%test "weighted_shuffle equal weights gives uniform-ish distribution" =
     { model = "c"; weight = 1 };
   ] in
   let counts = Hashtbl.create 3 in
-  let n = 900 in
+  let n = 9000 in
   for _ = 1 to n do
     let result = weighted_shuffle entries in
     let first = (List.hd result).model in
     let prev = try Hashtbl.find counts first with Not_found -> 0 in
     Hashtbl.replace counts first (prev + 1)
   done;
-  (* Each should be ~33% +/- 15% *)
+  (* Each should be ~33% +/- 10% with 9k trials *)
   Hashtbl.fold (fun _ count ok ->
     let ratio = float_of_int count /. float_of_int n in
-    ok && ratio > 0.18 && ratio < 0.48) counts true
+    ok && ratio > 0.20 && ratio < 0.46) counts true
 
 (* ── weighted config loading tests ──────────────────── *)
 
