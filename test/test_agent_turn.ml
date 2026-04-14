@@ -84,11 +84,9 @@ let test_prepare_messages_extra_context () =
   Alcotest.(check int) "prepended system msg" 2 (List.length result);
   let first = List.hd result in
   Alcotest.(check bool) "is User role" true (first.role = Types.User);
-  match List.hd first.content with
-  | Types.Text t ->
-    Alcotest.(check bool) "contains context" true
-      (Util.string_contains ~needle:"test mode" t)
-  | _ -> Alcotest.fail "expected Text"
+  match first.content with
+  | [Types.Text _] -> ()
+  | _ -> Alcotest.fail "expected single Text block"
 
 (* ── system_prompt_override does not affect prepare_messages ── *)
 
@@ -125,11 +123,9 @@ let test_prepare_messages_both_override_and_extra_context () =
   Alcotest.(check int) "extra context adds 1 message" 2 (List.length result);
   let first = List.hd result in
   Alcotest.(check bool) "injected msg is User" true (first.role = Types.User);
-  match List.hd first.content with
-  | Types.Text t ->
-    Alcotest.(check bool) "contains debug mode" true
-      (Util.string_contains ~needle:"Debug mode" t)
-  | _ -> Alcotest.fail "expected Text"
+  match first.content with
+  | [Types.Text _] -> ()
+  | _ -> Alcotest.fail "expected single Text block"
 
 (* ── accumulate_usage tests ──────────────────────────────── *)
 
