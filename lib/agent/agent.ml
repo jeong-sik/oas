@@ -291,3 +291,8 @@ let checkpoint ?(session_id="") ?working_context agent =
 
 let run_turn_stream ~sw ?clock ~on_event agent =
   run_turn_core ~sw ?clock ~api_strategy:(Stream { on_event }) agent
+
+let save_journal agent path =
+  match agent.options.journal with
+  | Some j -> Durable_event.save_to_file j path
+  | None -> Error "no journal"

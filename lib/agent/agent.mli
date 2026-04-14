@@ -202,3 +202,10 @@ val set_lifecycle :
   Agent_lifecycle.lifecycle_status -> unit
 val base_messages : t -> Types.message list
 val check_loop_guard : t -> Error.sdk_error option
+
+(** Dump the agent's Durable_event journal to [path] as JSONL.
+    Returns [Error "no journal"] when the agent was built without
+    {!Builder.with_journal}.  Thin wrapper over
+    {!Durable_event.save_to_file}.
+    @since 0.135.0 *)
+val save_journal : t -> string -> (unit, string) result
