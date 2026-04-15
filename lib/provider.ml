@@ -352,15 +352,6 @@ let openrouter ?(model_id="anthropic/claude-sonnet-4-6") () = {
   api_key_env = "OPENROUTER_API_KEY";
 }
 
-(* ── Cascade: multi-provider failover ──────────────────────────── *)
-
-type cascade = {
-  primary: config;
-  fallbacks: config list;
-}
-
-let cascade ~primary ~fallbacks = { primary; fallbacks }
-
 (* ── Pricing: per-model cost estimation ────────────────────────── *)
 
 type pricing = {

@@ -522,22 +522,3 @@ let%test "classify_error 429 transient preserves retry_after" =
   | RateLimited { retry_after = Some ra; _ } -> Float.equal ra 3.0
   | _ -> false
 
-(** Retry with cascade: try [primary] first (with retries), then each
-    fallback in order. Each attempt gets its own full retry budget.
-    Provider-agnostic: callers construct the request functions. *)
-let with_cascade ~clock ?(config=default_config)
-    ~primary ~fallbacks ()
-    : ('a, api_error) result =
-  match with_retry ~clock ~config primary with
-  | Ok _ as success -> success
-  | Error primary_err ->
-    (* Cascade tries all fallbacks on any primary failure, not just retryable ones.
-       A non-retryable error on provider A (e.g., AuthError) should still try provider B. *)
-    let rec try_fallbacks = function
-      | [] -> Error primary_err
-      | fb :: rest ->
-        match with_retry ~clock ~config fb with
-        | Ok _ as success -> success
-        | Error _ -> try_fallbacks rest
-    in
-    try_fallbacks fallbacks

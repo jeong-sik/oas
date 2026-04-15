@@ -6,6 +6,45 @@ Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
 backfilled on 2026-04-04 from existing git tags. The dates below reflect the
 original tag dates. `0.100.4` was never tagged or released.
 
+## [0.148.0] - 2026-04-15
+
+### Removed (breaking)
+
+**Legacy cascade API fully evicted.** 0.146.0 removed `lib/llm_provider/cascade_*` modules but the older primary+fallbacks cascade API remained (Api/Retry/Provider/Builder/Agent layers). This release deletes it too, making OAS unambiguously single-provider.
+
+Deleted:
+- `type Provider.cascade` + `Provider.cascade` constructor (`lib/provider.ml/.mli`)
+- `Api.create_message_cascade` (`lib/api.ml/.mli`)
+- `Retry.with_cascade` (`lib/llm_provider/retry.ml/.mli`)
+- `Builder.with_cascade`, `Builder.with_fallback` (`lib/agent/builder.ml/.mli`)
+- `options.cascade` field on agent options (`lib/agent/agent_types.ml/.mli`, `lib/agent/agent.mli`)
+- `cascade` field on `Agent_card.agent_info` + cascade_providers export (`lib/protocol/agent_card.ml/.mli`)
+- `Pipeline.stage_route` cascade branch (now always `Api.create_message` single-provider)
+- Tests: cascade cases in `test_deep_coverage.ml`, `test_e2e_v024.ml`, `test_bug_hunt.ml`, `test_provider.ml`, `test_builder_coverage.ml`
+- Example: `examples/custom_provider.ml` (cascade demo) + `examples/dune` stanza
+
+### Migration
+
+Callers that relied on `Builder.with_cascade` / `Builder.with_fallback`:
+1. Implement your own cascade loop around `Agent.run` / `Api.create_message`, OR
+2. Use MASC's `lib/cascade/` if you're building in the MASC ecosystem.
+
+Canonical pattern (MASC `oas_worker_named.ml` `try_cascade`):
+```ocaml
+let rec try_cascade remaining last_err =
+  match remaining with
+  | [] -> Error (format_exhausted_error last_err)
+  | provider :: rest ->
+    match Agent.run_with_provider agent ~provider with
+    | Ok r -> Ok r
+    | Error e when should_retry e -> try_cascade rest (Some e)
+    | Error e -> Error e
+```
+
+### Rationale
+
+Two parallel cascade systems existed in OAS: the `cascade.json`-based FSM (removed in 0.146.0) and this legacy primary+fallbacks record. Both are orchestration responsibilities, not SDK responsibilities. The SDK is now a pure `Provider_config.t → api_response` function.
+
 ## [0.146.0] - 2026-04-15
 
 ### Removed (breaking)

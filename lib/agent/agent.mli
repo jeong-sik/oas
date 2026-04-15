@@ -17,7 +17,6 @@ type periodic_callback = Agent_types.periodic_callback = {
 type options = Agent_types.options = {
   base_url: string;
   provider: Provider.config option;
-  cascade: Provider.cascade option;
   max_idle_turns: int;
   hooks: Hooks.hooks;
   guardrails: Guardrails.t;

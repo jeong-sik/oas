@@ -122,8 +122,6 @@ val with_periodic_callbacks : Agent.periodic_callback list -> t -> t
 val with_provider : Provider.config -> t -> t
 val with_provider_config : Llm_provider.Provider_config.t -> t -> t
 val with_base_url : string -> t -> t
-val with_cascade : Provider.cascade -> t -> t
-val with_fallback : Provider.config -> t -> t
 
 (** {2 Contract} *)
 

@@ -63,17 +63,4 @@ val create_message :
   unit ->
   (Types.api_response, Error.sdk_error) result
 
-(** {1 Cascade request} *)
-
-val create_message_cascade :
-  sw:Eio.Switch.t ->
-  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
-  ?clock:_ Eio.Time.clock ->
-  ?retry_config:Retry.retry_config ->
-  cascade:Provider.cascade ->
-  config:Types.agent_state ->
-  messages:Types.message list ->
-  ?tools:Yojson.Safe.t list ->
-  unit ->
-  (Types.api_response, Error.sdk_error) result
 

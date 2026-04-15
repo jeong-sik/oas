@@ -87,38 +87,6 @@ let test_multi_turn_tool_loop () =
      Printf.printf "  FAIL\n%!";
      assert false)
 
-(* ── Scenario 2: Cascade failover ────────────────────────────── *)
-
-let test_cascade_failover () =
-  Printf.printf "\n=== E2E 2: Cascade failover (fake primary → local) ===\n%!";
-  Eio_main.run @@ fun env ->
-  Eio.Switch.run @@ fun sw ->
-  let fake_primary : Provider.config = {
-    provider = Local { base_url = "http://127.0.0.1:1" };  (* unreachable *)
-    model_id = "fake-model";
-    api_key_env = "DUMMY_KEY";
-  } in
-  let real_fallback = provider in
-  let cascade = Provider.cascade ~primary:fake_primary ~fallbacks:[real_fallback] in
-  let config = qwen_config "cascade-agent" ~max_turns:1 in
-  let clock = Eio.Stdenv.clock env in
-  let cascade_options = { options with
-    cascade = Some cascade;
-    provider = None;  (* cascade overrides provider *)
-  } in
-  let agent = Agent.create ~net:env#net ~config ~options:cascade_options () in
-  let result = Agent.run ~sw ~clock agent "Say hello in one word." in
-  print_result "cascade" result;
-  (match result with
-   | Ok response ->
-     let text = List.filter_map (function Text s -> Some s | _ -> None) response.content
-       |> String.concat "" in
-     assert (String.length text > 0);
-     Printf.printf "  PASS (fallback worked)\n%!"
-   | Error _ ->
-     Printf.printf "  FAIL (cascade didn't fall through)\n%!";
-     assert false)
-
 (* ── Scenario 3: Idle detection ──────────────────────────────── *)
 
 let test_idle_detection () =
@@ -261,7 +229,6 @@ let () =
     Printf.printf "OAS v0.24 E2E Integration Tests\n%!";
     Printf.printf "Target: %s (%s)\n%!" base_url provider.model_id;
     test_multi_turn_tool_loop ();
-    test_cascade_failover ();
     test_idle_detection ();
     test_context_compaction ();
     test_context_injection ();

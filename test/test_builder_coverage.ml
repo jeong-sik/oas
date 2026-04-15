@@ -179,7 +179,6 @@ let test_agent_accessors () =
 let test_agent_default_options () =
   let opts = Agent.default_options in
   Alcotest.(check bool) "no provider" true (opts.provider = None);
-  Alcotest.(check bool) "no cascade" true (opts.cascade = None);
   Alcotest.(check bool) "no approval" true (opts.approval = None);
   Alcotest.(check bool) "no event_bus" true (opts.event_bus = None);
   Alcotest.(check bool) "no skill_registry" true (opts.skill_registry = None);
@@ -239,17 +238,6 @@ let test_agent_card () =
     Alcotest.(check string) "card name" "card-test" card.name
   | Error e -> Alcotest.fail (Error.to_string e)
 
-(* ── Builder with_fallback ────────────────────────────────── *)
-
-let test_builder_with_fallback () =
-  Eio_main.run @@ fun env ->
-  let fallback = Provider.local_llm () in
-  let b = Builder.create ~net:env#net ~model:Types.default_config.model
-    |> Builder.with_fallback fallback
-  in
-  match Builder.build_safe b with
-  | Ok _agent -> ()
-  | Error e -> Alcotest.fail (Error.to_string e)
 
 (* ── Builder with_event_bus ───────────────────────────────── *)
 
@@ -276,7 +264,6 @@ let () =
       Alcotest.test_case "tool choice" `Quick test_builder_tool_choice;
       Alcotest.test_case "initial messages" `Quick test_builder_initial_messages;
       Alcotest.test_case "max cost" `Quick test_builder_max_cost;
-      Alcotest.test_case "with fallback" `Quick test_builder_with_fallback;
       Alcotest.test_case "with event_bus" `Quick test_builder_with_event_bus;
     ];
     "build_safe_validation", [

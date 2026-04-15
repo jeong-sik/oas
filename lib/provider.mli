@@ -113,15 +113,6 @@ val anthropic_haiku : unit -> config
 val anthropic_opus : unit -> config
 val openrouter : ?model_id:string -> unit -> config
 
-(** {2 Cascade: multi-provider failover} *)
-
-type cascade = {
-  primary: config;
-  fallbacks: config list;
-}
-
-val cascade : primary:config -> fallbacks:config list -> cascade
-
 (** {2 Pricing: per-model cost estimation} *)
 
 type pricing = {

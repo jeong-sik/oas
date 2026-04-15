@@ -53,10 +53,3 @@ val with_retry :
   (unit -> ('a, api_error) result) ->
   ('a, api_error) result
 
-val with_cascade :
-  clock:_ Eio.Time.clock ->
-  ?config:retry_config ->
-  primary:(unit -> ('a, api_error) result) ->
-  fallbacks:(unit -> ('a, api_error) result) list ->
-  unit ->
-  ('a, api_error) result

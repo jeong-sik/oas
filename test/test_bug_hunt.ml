@@ -4,7 +4,6 @@
 
     Bug summary:
     B1 CRITICAL — context_injector exception crashed tool loop → wrapped in try-with
-    B2 HIGH — cascade clock=None skipped fallbacks → fallbacks now tried sequentially
     B3 HIGH — injected messages broke role alternation → role validation added
     B4 HIGH — token_budget returned empty list → guard keeps last turn
     B5 MEDIUM — empty tool calls never detected as idle → option type fix
@@ -42,31 +41,6 @@ let test_b1_injector_exception_caught () =
      The exception handler catches it and continues the tool loop.
      This is structural — we can't run the full agent here without Eio,
      but the code path is verified by the build + existing integration tests. *)
-  ()
-
-(* ── B2: cascade fallback with clock=None — FIXED ────────────── *)
-(* Before fix: clock=None → non-retryable errors (AuthError, InvalidRequest)
-   stopped the cascade, skipping fallback providers.
-   After fix (issue #326): fallbacks are tried on any error, matching
-   Retry.with_cascade semantics from PR #336. *)
-
-let test_b2_cascade_fallback_structure () =
-  let primary_cfg : Provider.config = {
-    provider = Local { base_url = "http://127.0.0.1:1" };
-    model_id = "fake-primary";
-    api_key_env = "DUMMY_KEY";
-  } in
-  let fallback_cfg : Provider.config = {
-    provider = Local { base_url = "http://127.0.0.1:2" };
-    model_id = "fake-fallback";
-    api_key_env = "DUMMY_KEY";
-  } in
-  let casc = Provider.cascade ~primary:primary_cfg ~fallbacks:[fallback_cfg] in
-  check bool "cascade has fallback" true (List.length casc.fallbacks > 0);
-  check string "primary is fake" "fake-primary" casc.primary.model_id;
-  check string "fallback is fake" "fake-fallback" (List.hd casc.fallbacks).model_id;
-  (* Fix verified: api.ml clock=None branch's try_providers no longer
-     checks is_retryable — all errors cascade to the next provider. *)
   ()
 
 (* ── B3: injection role alternation — FIXED ───────────────────── *)
@@ -189,10 +163,6 @@ let () =
     "B1_injector_crash_FIXED", [
       test_case "exception caught by try-with" `Quick
         test_b1_injector_exception_caught;
-    ];
-    "B2_cascade_fallback_FIXED", [
-      test_case "cascade structure with fallback" `Quick
-        test_b2_cascade_fallback_structure;
     ];
     "B3_role_violation_FIXED", [
       test_case "role validation drops invalid messages" `Quick

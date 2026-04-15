@@ -55,7 +55,3 @@
  (name builder_patterns)
  (libraries agent_sdk eio eio_main yojson))
 
-(executable
- (name custom_provider)
- (libraries agent_sdk eio eio_main yojson))
-
