@@ -576,59 +576,6 @@ let complete_with_retry ~sw ~net ?transport ~clock
   in
   attempt 0 retry_config.initial_delay_sec
 
-(* ── Cascade: multi-provider failover ────────────────── *)
-
-type cascade = {
-  primary: Provider_config.t;
-  fallbacks: Provider_config.t list;
-}
-
-let cascade_retry_config = {
-  max_retries = 1;
-  initial_delay_sec = 0.5;
-  max_delay_sec = 2.0;
-  backoff_multiplier = 2.0;
-}
-
-let complete_cascade ~sw ~net ?transport ?clock ?retry_config:_
-    ~(cascade : cascade)
-    ~(messages : Types.message list) ?(tools=[])
-    ?cache ?metrics ?priority () =
-  let m = match metrics with Some m -> m | None -> Metrics.get_global () in
-  let try_provider cfg =
-    match clock with
-    | Some clock ->
-        complete_with_retry ~sw ~net ?transport ~clock ~config:cfg
-          ~messages ~tools ~retry_config:cascade_retry_config
-          ?cache ?metrics ?priority ()
-    | None ->
-        complete ~sw ~net ?transport ~config:cfg ~messages ~tools ?cache ?metrics ?priority ()
-  in
-  match try_provider cascade.primary with
-  | Ok _ as success -> success
-  | Error err ->
-      if is_retryable err then
-        let primary_id = cascade.primary.model_id in
-        let rec try_fallbacks last_err = function
-          | [] -> Error last_err
-          | (fb : Provider_config.t) :: rest ->
-              let err_str = match last_err with
-                | Http_client.HttpError { code; _ } ->
-                    Printf.sprintf "HTTP %d" code
-                | Http_client.AcceptRejected { reason } -> reason
-                | Http_client.NetworkError { message } -> message
-              in
-              m.on_cascade_fallback
-                ~from_model:primary_id ~to_model:fb.model_id ~reason:err_str;
-              match try_provider fb with
-              | Ok _ as success -> success
-              | Error err2 ->
-                  if is_retryable err2 then try_fallbacks err2 rest
-                  else Error err2
-        in
-        try_fallbacks err cascade.fallbacks
-      else Error err
-
 (* ── Streaming ───────────────────────────────────────── *)
 
 (* Re-export stream accumulator for backward compatibility *)
@@ -771,46 +718,6 @@ let make_http_transport ~sw ~net : Llm_transport.t = {
 }
 
 (* ── Streaming Cascade ──────────────────────────── *)
-
-(** Streaming cascade: try each provider in order, failover on
-    connection/HTTP errors only. Once the SSE stream begins,
-    events are emitted to [on_event] and the provider is committed.
-    No mid-stream failover, no retry, no caching.
-
-    @since 0.61.0 *)
-let complete_stream_cascade ~sw ~net ?transport
-    ~(cascade : cascade)
-    ~(messages : Types.message list) ?(tools=[])
-    ~(on_event : Types.sse_event -> unit)
-    ?(metrics : Metrics.t option)
-    ?(priority : Request_priority.t option) () =
-  let m = match metrics with Some m -> m | None -> Metrics.get_global () in
-  let try_provider cfg =
-    complete_stream ~sw ~net ?transport ~config:cfg ~messages ~tools ~on_event ?priority ()
-  in
-  match try_provider cascade.primary with
-  | Ok _ as success -> success
-  | Error err when is_retryable err ->
-    let rec try_fallbacks last_err = function
-      | [] -> Error last_err
-      | (fb : Provider_config.t) :: rest ->
-        let err_str = match last_err with
-          | Http_client.HttpError { code; _ } ->
-            Printf.sprintf "HTTP %d" code
-          | Http_client.AcceptRejected { reason } -> reason
-          | Http_client.NetworkError { message } -> message
-        in
-        m.on_cascade_fallback
-          ~from_model:cascade.primary.model_id ~to_model:fb.model_id
-          ~reason:err_str;
-        match try_provider fb with
-        | Ok _ as success -> success
-        | Error err2 when is_retryable err2 ->
-          try_fallbacks err2 rest
-        | Error _ as fail -> fail
-    in
-    try_fallbacks err cascade.fallbacks
-  | Error _ as fail -> fail
 
 [@@@coverage off]
 (* === Inline tests === *)

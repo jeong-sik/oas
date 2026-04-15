@@ -72,21 +72,3 @@ let to_provider_config (legacy : Provider.config) : (Llm_provider.Provider_confi
             ~request_path
             ())
 
-(** Convert a legacy [Provider.cascade] to [Llm_provider.Complete.cascade].
-    Returns [Error] if any provider in the cascade fails to resolve. *)
-let cascade_to_provider_config (legacy : Provider.cascade) :
-    (Llm_provider.Complete.cascade, Error.sdk_error) result =
-  match to_provider_config legacy.primary with
-  | Error e -> Error e
-  | Ok primary ->
-      let rec convert_fallbacks acc = function
-        | [] -> Ok (List.rev acc)
-        | fb :: rest ->
-            match to_provider_config fb with
-            | Error e -> Error e
-            | Ok cfg -> convert_fallbacks (cfg :: acc) rest
-      in
-      match convert_fallbacks [] legacy.fallbacks with
-      | Error e -> Error e
-      | Ok fallbacks ->
-          Ok { Llm_provider.Complete.primary; fallbacks }

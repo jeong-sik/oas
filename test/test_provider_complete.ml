@@ -172,22 +172,6 @@ let test_is_retryable () =
   Alcotest.(check bool) "404 not retryable" false
     (Complete.is_retryable (Http_client.HttpError { code = 404; body = "" }))
 
-(* ── Cascade config ──────────────────────────────────── *)
-
-let test_cascade_type () =
-  let primary = PC.make ~kind:Anthropic ~model_id:"claude-sonnet-4-6"
-    ~base_url:"https://api.anthropic.com" () in
-  let fallback = PC.make ~kind:OpenAI_compat ~model_id:"qwen3.5"
-    ~base_url:"http://127.0.0.1:8085" () in
-  let casc : Llm_provider.Complete.cascade = {
-    primary; fallbacks = [fallback]
-  } in
-  Alcotest.(check int) "1 fallback" 1 (List.length casc.fallbacks);
-  Alcotest.(check string) "primary model" "claude-sonnet-4-6"
-    casc.primary.model_id;
-  Alcotest.(check string) "fallback model" "qwen3.5"
-    (List.hd casc.fallbacks).model_id
-
 let test_annotate_response_cost () =
   let response : api_response = {
     id = "resp-1";
@@ -342,8 +326,7 @@ let () =
       test_case "default config" `Quick test_default_retry_config;
       test_case "is_retryable" `Quick test_is_retryable;
     ];
-    "cascade", [
-      test_case "cascade type" `Quick test_cascade_type;
+    "cost", [
       test_case "annotate response cost" `Quick test_annotate_response_cost;
     ];
     "stream_acc", [

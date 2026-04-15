@@ -74,25 +74,6 @@ let test_retry_config_backoff () =
   check (float 0.01) "backoff" 2.0
     Complete.default_retry_config.backoff_multiplier
 
-(* ── cascade type ────────────────────────────────────── *)
-
-let test_cascade_primary () =
-  let primary = Provider_config.make ~kind:Anthropic ~model_id:"claude"
-      ~base_url:"https://api.anthropic.com" () in
-  let c : Complete.cascade = { primary; fallbacks = [] } in
-  check string "primary model" "claude" c.primary.model_id;
-  check int "0 fallbacks" 0 (List.length c.fallbacks)
-
-let test_cascade_with_fallbacks () =
-  let primary = Provider_config.make ~kind:Anthropic ~model_id:"test"
-      ~base_url:"https://api.anthropic.com" () in
-  let fb1 = Provider_config.make ~kind:OpenAI_compat ~model_id:"fb1"
-      ~base_url:"http://127.0.0.1:8085" () in
-  let fb2 = Provider_config.make ~kind:OpenAI_compat ~model_id:"fb2"
-      ~base_url:"http://127.0.0.1:8086" () in
-  let c : Complete.cascade = { primary; fallbacks = [fb1; fb2] } in
-  check int "2 fallbacks" 2 (List.length c.fallbacks)
-
 (* ── Runner ──────────────────────────────────────────── *)
 
 let () =
@@ -116,9 +97,5 @@ let () =
       test_case "initial delay" `Quick test_retry_config_initial;
       test_case "max delay" `Quick test_retry_config_max_delay;
       test_case "backoff" `Quick test_retry_config_backoff;
-    ];
-    "cascade", [
-      test_case "primary only" `Quick test_cascade_primary;
-      test_case "with fallbacks" `Quick test_cascade_with_fallbacks;
     ];
   ]
