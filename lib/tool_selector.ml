@@ -212,7 +212,7 @@ let auto ~tools =
 
 (* ── Default rerank function ───────────────────────────── *)
 
-let default_rerank_fn ~sw ~net ?clock ?config_path ~cascade_name ~defaults ~k () =
+let default_rerank_fn ~sw ~net ~provider ~k () =
   fun ~context ~candidates ->
     let tool_list = List.mapi (fun i (name, desc) ->
       Printf.sprintf "%d. %s: %s" (i + 1) name desc
@@ -230,25 +230,16 @@ let default_rerank_fn ~sw ~net ?clock ?config_path ~cascade_name ~defaults ~k ()
     let bm25_fallback () =
       List.filteri (fun i _ -> i < k) (List.map fst candidates)
     in
-    (* Inline cascade resolve+execute (was: Cascade_config.complete_named, slated
-       for removal). The four steps below mirror what the wrapper did internally. *)
-    let model_strings =
-      Llm_provider.Cascade_config.resolve_model_strings ?config_path
-        ~name:cascade_name ~defaults ()
-      |> Llm_provider.Cascade_config.expand_model_strings_for_execution
-    in
-    let providers =
-      Llm_provider.Cascade_config.parse_model_strings
-        ~temperature:0.0 ~max_tokens:200 model_strings
-    in
-    let healthy = Llm_provider.Cascade_config.filter_healthy ~sw ~net providers in
-    if healthy = [] then bm25_fallback ()
-    else
+    (* Single-provider rerank. Deterministic sampling for reproducibility;
+       short reply suffices (one tool name per line). *)
+    let provider_cfg = {
+      provider with
+      Llm_provider.Provider_config.temperature = Some 0.0;
+      max_tokens = Some 200;
+    } in
     match
-      Llm_provider.Cascade_executor.complete_cascade_with_accept
-        ~sw ~net ?clock
-        ~accept:(fun _ -> Ok ())
-        healthy ~messages ~tools:[]
+      Llm_provider.Complete.complete ~sw ~net
+        ~config:provider_cfg ~messages ~tools:[] ()
     with
     | Ok response ->
       let text = Types.text_of_response response in
