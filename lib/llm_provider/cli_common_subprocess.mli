@@ -32,3 +32,28 @@ val run_collect :
     Returns [Ok { stdout; stderr; latency_ms }] on a zero exit code,
     or a [NetworkError] describing the failure (non-zero exit code,
     signal, or I/O error). *)
+
+val run_stream_lines :
+  sw:Eio.Switch.t ->
+  mgr:_ Eio.Process.mgr ->
+  name:string ->
+  cwd:string option ->
+  extra_env:(string * string) list ->
+  on_line:(string -> unit) ->
+  cancel:unit Eio.Promise.t option ->
+  string list ->
+  (collect_result, Http_client.http_error) result
+(** Streaming variant of {!run_collect}. Calls [on_line line] for every
+    newline-terminated chunk written to stdout while the process is still
+    running — enabling true live streaming rather than post-exit splitting.
+    The full stdout is still accumulated and returned in [collect_result]
+    for callers that also need the aggregate.
+
+    - [cancel]: when [Some p] and [p] is resolved mid-run, [SIGINT] is
+      sent to the subprocess. The process is still drained to completion
+      after the signal.
+    - Exceptions raised by [on_line] are caught and traced via
+      [Eio.traceln]; they do not abort the run.
+
+    Stderr is drained concurrently but not forwarded line-by-line; it is
+    available in the returned [collect_result.stderr]. *)
