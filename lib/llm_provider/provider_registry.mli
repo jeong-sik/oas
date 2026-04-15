@@ -1,8 +1,8 @@
 (** Extensible provider registry with capability-aware queries.
 
-    Formalizes the hardcoded provider list from {!Cascade_config} into
-    a mutable registry. Providers can be registered at startup and
-    queried by name or capability predicate.
+    Formalizes the historical hardcoded provider list into a mutable
+    registry. Providers can be registered at startup and queried by
+    name or capability predicate.
 
     @since 0.69.0
 
