@@ -388,6 +388,59 @@ let test_zai_base_url_respects_override_host () =
        check bool "override host still rejected for general path" false
          (Zai_catalog.is_zai_base_url "https://proxy.example.com/api/paas/v4"))
 
+(* ── resolve_model_strings_with_trace ─────────────────── *)
+
+let test_trace_hardcoded_no_config () =
+  let (models, trace) =
+    Cascade_config.resolve_model_strings_with_trace
+      ~name:"test" ~defaults:["llama:auto"; "glm:auto"] () in
+  check (list string) "models" ["llama:auto"; "glm:auto"] models;
+  check int "candidate count" 2 (List.length trace.candidates);
+  (* With no weights, config_weight and effective_weight are 1 *)
+  let first = List.hd trace.candidates in
+  check string "first candidate model" "llama:auto" first.model_string;
+  check int "first config_weight" 1 first.config_weight;
+  check int "first effective_weight" 1 first.effective_weight
+
+let test_trace_named_profile_plain () =
+  Eio_main.run @@ fun _env ->
+  with_temp_json
+    {|{"traced_models": ["glm:flash", "llama:qwen3.5"]}|}
+    (fun path ->
+       let (_models, trace) =
+         Cascade_config.resolve_model_strings_with_trace
+           ~config_path:path ~name:"traced" ~defaults:[] ()
+       in
+       check int "candidate count" 2 (List.length trace.candidates);
+       let first = List.hd trace.candidates in
+       check int "weight 1 for plain entry" 1 first.config_weight)
+
+let test_trace_weighted_profile () =
+  Eio_main.run @@ fun _env ->
+  with_temp_json
+    {|{"weighted_models": [
+        {"model": "glm:a", "weight": 60},
+        {"model": "llama:b", "weight": 30},
+        {"model": "ollama:c", "weight": 10}
+      ]}|}
+    (fun path ->
+       let (models, trace) =
+         Cascade_config.resolve_model_strings_with_trace
+           ~config_path:path ~name:"weighted" ~defaults:[] ()
+       in
+       check int "model list size" 3 (List.length models);
+       check int "candidate list size" 3 (List.length trace.candidates);
+       (* First candidate in trace matches first model in ordered list *)
+       let first_model = List.hd models in
+       let first_candidate = List.hd trace.candidates in
+       check string "trace first == ordered first"
+         first_model first_candidate.model_string;
+       (* Weights preserved from config *)
+       let total_weight = List.fold_left
+         (fun acc (c : Cascade_config.candidate_info) -> acc + c.config_weight)
+         0 trace.candidates in
+       check int "total config_weight preserved" 100 total_weight)
+
 (* ── Suite ────────────────────────────────────────────── *)
 
 let () =
@@ -438,5 +491,10 @@ let () =
       test_case "empty passthrough" `Quick test_filter_empty_passthrough;
       test_case "context overflow 400 cascades" `Quick
         test_context_overflow_bad_request_cascades;
+    ];
+    "selection_trace", [
+      test_case "hardcoded no config" `Quick test_trace_hardcoded_no_config;
+      test_case "named profile plain" `Quick test_trace_named_profile_plain;
+      test_case "weighted profile" `Quick test_trace_weighted_profile;
     ];
   ]

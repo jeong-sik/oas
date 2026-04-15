@@ -149,6 +149,55 @@ val resolve_model_strings_traced :
   unit ->
   string list * cascade_source
 
+(** Per-candidate info in a weighted selection decision.
+
+    Captures the state that influenced a single candidate's ordering
+    at decision time: its declared weight, health-adjusted effective
+    weight, and current health signals.
+
+    @since 0.139.0 *)
+type candidate_info = {
+  model_string : string;        (** "provider:model_id" as written in config *)
+  config_weight : int;          (** Weight from [cascade.json] ([1] when absent) *)
+  effective_weight : int;       (** Weight after health adjustment; [0] = cooled-down *)
+  success_rate : float;         (** Rolling-window success rate, [0.0]–[1.0] *)
+  in_cooldown : bool;           (** Provider currently skipped by cooldown *)
+}
+
+(** Full trace of a cascade selection decision.
+
+    Consumers can use this to surface, in dashboards/telemetry,
+    why a particular provider was attempted first and what signals
+    were considered.
+
+    [candidates] is in final attempt order — the first entry is the
+    provider the cascade will try first.
+
+    When the profile has no weights (every entry is [weight=1]), no
+    probabilistic shuffle happens and [effective_weight = config_weight = 1]
+    for each entry.
+
+    @since 0.139.0 *)
+type selection_trace = {
+  candidates : candidate_info list;
+  source : cascade_source;
+}
+
+(** Like {!resolve_model_strings_traced} but also returns per-candidate
+    health signals that influenced the ordering. Useful for rendering
+    the cascade decision in dashboards without re-deriving state.
+
+    Non-breaking: callers who only need the ordered model list can
+    continue using {!resolve_model_strings} or {!resolve_model_strings_traced}.
+
+    @since 0.139.0 *)
+val resolve_model_strings_with_trace :
+  ?config_path:string ->
+  name:string ->
+  defaults:string list ->
+  unit ->
+  string list * selection_trace
+
 (** {1 Raw JSON Access} *)
 
 (** Load and cache the raw JSON config file.

@@ -172,6 +172,52 @@ let provider_summary t ~provider_key =
         (if total > 0 then 100.0 *. float_of_int successes /. float_of_int total else 100.0)
         state.consecutive_failures in_cd)
 
+(** Structured provider snapshot — shared by [provider_info] and [all_providers].
+    Built inside the mutex so the snapshot is consistent. *)
+type provider_info = {
+  provider_key : string;
+  success_rate : float;
+  consecutive_failures : int;
+  in_cooldown : bool;
+  cooldown_expires_at : float option;
+  events_in_window : int;
+}
+
+let build_info_locked ~now ~key state =
+  let recent = prune_old_events now state.events in
+  let total = List.length recent in
+  let successes = List.length
+      (List.filter (fun e -> e.outcome = Success) recent) in
+  let rate =
+    if total = 0 then 1.0
+    else float_of_int successes /. float_of_int total
+  in
+  let in_cd = state.cooldown_until > now in
+  {
+    provider_key = key;
+    success_rate = rate;
+    consecutive_failures = state.consecutive_failures;
+    in_cooldown = in_cd;
+    cooldown_expires_at = (if in_cd then Some state.cooldown_until else None);
+    events_in_window = total;
+  }
+
+let provider_info t ~provider_key =
+  with_lock t (fun () ->
+    match Hashtbl.find_opt t.providers provider_key with
+    | None -> None
+    | Some state ->
+      Some (build_info_locked ~now:(Unix.gettimeofday ()) ~key:provider_key state))
+
+let all_providers t =
+  with_lock t (fun () ->
+    let now = Unix.gettimeofday () in
+    Hashtbl.fold
+      (fun key state acc -> build_info_locked ~now ~key state :: acc)
+      t.providers
+      []
+    |> List.sort (fun a b -> String.compare a.provider_key b.provider_key))
+
 (* ── Global singleton ─────────────────────────── *)
 
 (** Global health tracker shared across all cascade calls in this process.
@@ -253,3 +299,55 @@ let%test "old events pruned from window" =
   (* Old failure should be pruned; only recent success counts *)
   let rate = success_rate t ~provider_key:"a" in
   Float.equal rate 1.0
+
+(* ── provider_info / all_providers ──────────────────── *)
+
+let%test "provider_info returns None for unknown provider" =
+  let t = create () in
+  Option.is_none (provider_info t ~provider_key:"unknown")
+
+let%test "provider_info reflects current state" =
+  let t = create () in
+  let now = Unix.gettimeofday () in
+  record t ~provider_key:"p" ~outcome:Success ~now;
+  record t ~provider_key:"p" ~outcome:Failure ~now;
+  match provider_info t ~provider_key:"p" with
+  | None -> false
+  | Some info ->
+    info.provider_key = "p"
+    && info.events_in_window = 2
+    && info.consecutive_failures = 1
+    && not info.in_cooldown
+    && Option.is_none info.cooldown_expires_at
+    && abs_float (info.success_rate -. 0.5) < 0.01
+
+let%test "provider_info exposes cooldown expiry" =
+  let t = create () in
+  let now = Unix.gettimeofday () in
+  for _ = 1 to cooldown_threshold do
+    record t ~provider_key:"p" ~outcome:Failure ~now
+  done;
+  match provider_info t ~provider_key:"p" with
+  | Some info ->
+    info.in_cooldown
+    && (match info.cooldown_expires_at with
+        | Some exp -> exp > now
+        | None -> false)
+  | None -> false
+
+let%test "all_providers returns sorted snapshot" =
+  let t = create () in
+  let now = Unix.gettimeofday () in
+  record t ~provider_key:"zeta" ~outcome:Success ~now;
+  record t ~provider_key:"alpha" ~outcome:Success ~now;
+  record t ~provider_key:"mid" ~outcome:Failure ~now;
+  match all_providers t with
+  | [a; b; c] ->
+    a.provider_key = "alpha"
+    && b.provider_key = "mid"
+    && c.provider_key = "zeta"
+  | _ -> false
+
+let%test "all_providers empty for fresh tracker" =
+  let t = create () in
+  all_providers t = []
