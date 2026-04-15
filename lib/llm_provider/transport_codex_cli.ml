@@ -1,15 +1,24 @@
 (** Codex CLI non-interactive transport.
 
+    Uses [codex exec --json] which emits JSONL envelopes on stdout:
+
+    {v
+    {"type":"thread.started","thread_id":"..."}
+    {"type":"turn.started"}
+    {"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"..."}}
+    {"type":"item.{started,completed}","item":{"id":"item_1","type":"command_execution","command":"...","aggregated_output":"...","exit_code":0}}
+    {"type":"turn.completed","usage":{"input_tokens":N,"cached_input_tokens":N,"output_tokens":N}}
+    v}
+
+    [agent_message] items become {!Types.Text} blocks in the aggregate
+    response.  [command_execution] items are Codex's internal shell tool
+    — transparent to the outer agent, tracked via [Eio.traceln] only.
+
     @since 0.133.0 *)
 
 type config = {
   codex_path: string;
   cwd: string option;
-  (* Fields below are accepted for parity with the Claude Code config
-     so callers can target multiple CLI backends with the same
-     structure.  Codex CLI does not yet expose flags for any of
-     them; setting a non-default value produces a one-shot
-     [Eio.traceln] warning and the value is otherwise ignored. *)
   mcp_config: string option;
   allowed_tools: string list;
   max_turns: int option;
@@ -31,49 +40,88 @@ let default_config = {
 (* ── CLI argument building ───────────────────────────── *)
 
 let build_args ~(config : config) ~prompt =
-  [config.codex_path; "exec"; prompt]
+  [config.codex_path; "exec"; "--json"; prompt]
 
-(* ── Output parsing ──────────────────────────────────── *)
+(* ── JSONL envelope parsing ──────────────────────────── *)
 
-(** Try to extract a token count from the last lines of codex output.
-    Codex may append "tokens used\nN" at the end. *)
-let try_extract_tokens (stdout : string) =
-  let lines = String.split_on_char '\n' stdout
-    |> List.filter (fun s -> String.trim s <> "")
-    |> List.rev in
-  match lines with
-  | count_str :: label :: _ when String.lowercase_ascii (String.trim label) = "tokens used" ->
-    (try Some (int_of_string (String.trim count_str))
-     with Failure _ -> None)
+(** Extract usage from a [turn.completed] envelope. *)
+let parse_usage json =
+  let open Yojson.Safe.Util in
+  match json |> member "usage" with
+  | `Assoc _ as u ->
+    Some { Types.input_tokens = Cli_common_json.member_int "input_tokens" u;
+           output_tokens = Cli_common_json.member_int "output_tokens" u;
+           cache_creation_input_tokens = 0;
+           cache_read_input_tokens =
+             Cli_common_json.member_int "cached_input_tokens" u;
+           cost_usd = None }
   | _ -> None
 
-(** Parse raw text output from codex exec into api_response.
-    Content is the full stdout text. Usage is extracted from trailing
-    "tokens used" line if present. *)
-let parse_text_result (stdout : string) =
-  let usage = match try_extract_tokens stdout with
-    | Some total ->
-      Some { Types.input_tokens = 0;
-             output_tokens = total;
-             cache_creation_input_tokens = 0;
-             cache_read_input_tokens = 0;
-             cost_usd = None }
-    | None -> None
-  in
-  Ok { Types.id = "";
-       model = "codex";
-       stop_reason = Types.EndTurn;
-       content = [Text (String.trim stdout)];
-       usage; telemetry = None }
+(** Parse a single envelope into zero or more OAS sse_events.
+    [command_execution] items do not map to an OAS concept — Codex runs
+    them transparently — so we emit no event for them. *)
+let events_of_line line =
+  try
+    let json = Yojson.Safe.from_string line in
+    let typ = Cli_common_json.member_str "type" json in
+    match typ with
+    | "thread.started" ->
+      let id = Cli_common_json.member_str "thread_id" json in
+      [Types.MessageStart { id; model = "codex"; usage = None }]
+    | "item.completed" ->
+      let item = Yojson.Safe.Util.member "item" json in
+      let item_type = Cli_common_json.member_str "type" item in
+      if item_type = "agent_message" then
+        let text = Cli_common_json.member_str "text" item in
+        [Types.ContentBlockStart {
+           index = 0; content_type = "text";
+           tool_id = None; tool_name = None };
+         Types.ContentBlockDelta { index = 0; delta = Types.TextDelta text };
+         Types.ContentBlockStop { index = 0 }]
+      else []  (* command_execution, etc. — no OAS mapping. *)
+    | "turn.completed" ->
+      let usage = parse_usage json in
+      [Types.MessageDelta { stop_reason = Some Types.EndTurn; usage };
+       Types.MessageStop]
+    | _ -> []
+  with Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ -> []
+
+(** Aggregate JSONL envelopes into an [api_response].  Only
+    [agent_message] text contributes to [content]; the terminal
+    [turn.completed] supplies [usage]; [thread.started] supplies [id]. *)
+let parse_jsonl_result lines =
+  let thread_id = ref "" in
+  let texts = ref [] in
+  let usage = ref None in
+  List.iter (fun line ->
+    try
+      let json = Yojson.Safe.from_string line in
+      let typ = Cli_common_json.member_str "type" json in
+      match typ with
+      | "thread.started" ->
+        thread_id := Cli_common_json.member_str "thread_id" json
+      | "item.completed" ->
+        let item = Yojson.Safe.Util.member "item" json in
+        if Cli_common_json.member_str "type" item = "agent_message" then
+          texts := Cli_common_json.member_str "text" item :: !texts
+      | "turn.completed" ->
+        usage := parse_usage json
+      | _ -> ()
+    with Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ -> ()
+  ) lines;
+  let content = List.rev_map (fun t -> Types.Text t) !texts in
+  if content = [] && !thread_id = "" then
+    Error (Http_client.NetworkError {
+      message = "no events parsed from codex output" })
+  else
+    Ok { Types.id = !thread_id;
+         model = "codex";
+         stop_reason = Types.EndTurn;
+         content;
+         usage = !usage;
+         telemetry = None }
 
 (* ── Transport constructor ───────────────────────────── *)
-
-let run ~sw ~mgr ~(config : config) argv =
-  Cli_common_subprocess.run_collect ~sw ~mgr
-    ~name:"codex"
-    ~cwd:config.cwd
-    ~extra_env:[]
-    argv
 
 (* Fires once per transport instance when any Claude-only config field
    is set.  Codex CLI has no flag for these yet, so we warn and drop. *)
@@ -99,10 +147,18 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
       let messages = Cli_common_prompt.non_system_messages req.messages in
       let prompt = Cli_common_prompt.prompt_of_messages messages in
       let argv = build_args ~config ~prompt in
-      match run ~sw ~mgr ~config argv with
+      let seen_lines = ref [] in
+      let on_line line =
+        if String.trim line <> "" then
+          seen_lines := line :: !seen_lines
+      in
+      match Cli_common_subprocess.run_stream_lines ~sw ~mgr
+              ~name:"codex" ~cwd:config.cwd ~extra_env:[]
+              ~on_line ~cancel:None
+              argv with
       | Error _ as e -> { Llm_transport.response = e; latency_ms = 0 }
-      | Ok { stdout; stderr = _; latency_ms } ->
-        let response = parse_text_result stdout in
+      | Ok { stdout = _; stderr = _; latency_ms } ->
+        let response = parse_jsonl_result (List.rev !seen_lines) in
         { Llm_transport.response; latency_ms });
 
     complete_stream = (fun ~on_event (req : Llm_transport.completion_request) ->
@@ -110,17 +166,20 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
       let messages = Cli_common_prompt.non_system_messages req.messages in
       let prompt = Cli_common_prompt.prompt_of_messages messages in
       let argv = build_args ~config ~prompt in
-      (* Codex CLI does not support native streaming; replay synthetic events
-         after the sync call completes. *)
-      match run ~sw ~mgr ~config argv with
+      let seen_lines = ref [] in
+      let on_line line =
+        if String.trim line <> "" then begin
+          seen_lines := line :: !seen_lines;
+          List.iter on_event (events_of_line line)
+        end
+      in
+      match Cli_common_subprocess.run_stream_lines ~sw ~mgr
+              ~name:"codex" ~cwd:config.cwd ~extra_env:[]
+              ~on_line ~cancel:None
+              argv with
       | Error _ as e -> e
-      | Ok { stdout; stderr = _; latency_ms = _ } ->
-        let result = parse_text_result stdout in
-        (match result with
-         | Ok resp ->
-           Cli_common_synthetic_events.replay ~on_event resp;
-           Ok resp
-         | Error _ as e -> e));
+      | Ok _ ->
+        parse_jsonl_result (List.rev !seen_lines));
   }
 
 (* ── Inline tests ────────────────────────────────────── *)
@@ -136,6 +195,10 @@ let%test "default_config parity fields absent" =
   && default_config.max_turns = None
   && default_config.permission_mode = None
 
+let%test "build_args includes --json flag" =
+  let args = build_args ~config:default_config ~prompt:"hello" in
+  args = ["codex"; "exec"; "--json"; "hello"]
+
 let%test "build_args ignores extra parity fields" =
   let config = { default_config with
     mcp_config = Some "/tmp/mcp.json";
@@ -144,36 +207,78 @@ let%test "build_args ignores extra parity fields" =
     permission_mode = Some "bypassPermissions";
   } in
   let args = build_args ~config ~prompt:"hi" in
-  (* Codex argv is [codex; exec; prompt] — no flag surface. *)
-  args = ["codex"; "exec"; "hi"]
+  args = ["codex"; "exec"; "--json"; "hi"]
 
-let%test "build_args basic" =
-  let args = build_args ~config:default_config ~prompt:"hello" in
-  args = ["codex"; "exec"; "hello"]
-
-let%test "parse_text_result plain text" =
-  match parse_text_result "hello world\n" with
+let%test "parse_jsonl_result extracts text + usage + thread_id" =
+  let lines = [
+    {|{"type":"thread.started","thread_id":"abc-123"}|};
+    {|{"type":"turn.started"}|};
+    {|{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"hi"}}|};
+    {|{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":5,"output_tokens":3}}|};
+  ] in
+  match parse_jsonl_result lines with
   | Ok resp ->
-    resp.content = [Types.Text "hello world"]
+    resp.id = "abc-123"
+    && resp.content = [Types.Text "hi"]
     && resp.stop_reason = Types.EndTurn
-    && resp.usage = None
-  | Error _ -> false
-
-let%test "parse_text_result with tokens" =
-  let stdout = "some output\ntokens used\n42\n" in
-  match parse_text_result stdout with
-  | Ok resp ->
-    resp.content = [Types.Text (String.trim stdout)]
     && (match resp.usage with
-        | Some u -> u.output_tokens = 42
+        | Some u -> u.input_tokens = 100
+                 && u.output_tokens = 3
+                 && u.cache_read_input_tokens = 5
         | None -> false)
   | Error _ -> false
 
-let%test "try_extract_tokens with valid count" =
-  try_extract_tokens "output\ntokens used\n100\n" = Some 100
+let%test "parse_jsonl_result aggregates multiple agent_messages" =
+  let lines = [
+    {|{"type":"thread.started","thread_id":"t1"}|};
+    {|{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"first"}}|};
+    {|{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"second"}}|};
+    {|{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":2}}|};
+  ] in
+  match parse_jsonl_result lines with
+  | Ok resp ->
+    resp.content = [Types.Text "first"; Types.Text "second"]
+  | Error _ -> false
 
-let%test "try_extract_tokens no pattern" =
-  try_extract_tokens "just some output\n" = None
+let%test "parse_jsonl_result skips command_execution items" =
+  let lines = [
+    {|{"type":"thread.started","thread_id":"t"}|};
+    {|{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"ls","exit_code":0}}|};
+    {|{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"done"}}|};
+  ] in
+  match parse_jsonl_result lines with
+  | Ok resp ->
+    (* command_execution contributes nothing; only agent_message text. *)
+    resp.content = [Types.Text "done"]
+  | Error _ -> false
 
-let%test "try_extract_tokens invalid number" =
-  try_extract_tokens "output\ntokens used\nnot_a_number\n" = None
+let%test "parse_jsonl_result empty lines → Error" =
+  match parse_jsonl_result [] with
+  | Error _ -> true
+  | Ok _ -> false
+
+let%test "events_of_line thread.started → MessageStart" =
+  let line = {|{"type":"thread.started","thread_id":"abc"}|} in
+  match events_of_line line with
+  | [Types.MessageStart { id = "abc"; model = "codex"; _ }] -> true
+  | _ -> false
+
+let%test "events_of_line agent_message → 3 block events" =
+  let line = {|{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"hi"}}|} in
+  (match events_of_line line with
+   | [Types.ContentBlockStart _; Types.ContentBlockDelta _; Types.ContentBlockStop _] -> true
+   | _ -> false)
+
+let%test "events_of_line command_execution → no events" =
+  let line = {|{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"ls"}}|} in
+  events_of_line line = []
+
+let%test "events_of_line turn.completed → MessageDelta+Stop" =
+  let line = {|{"type":"turn.completed","usage":{"input_tokens":10,"cached_input_tokens":0,"output_tokens":5}}|} in
+  (match events_of_line line with
+   | [Types.MessageDelta { stop_reason = Some Types.EndTurn; _ };
+      Types.MessageStop] -> true
+   | _ -> false)
+
+let%test "events_of_line invalid json → []" =
+  events_of_line "not json" = []

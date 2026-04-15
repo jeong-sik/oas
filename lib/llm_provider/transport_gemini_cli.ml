@@ -50,28 +50,68 @@ let build_args ~(config : config) ~(req_config : Provider_config.t)
 
 (* ── JSON parsing ────────────────────────────────────── *)
 
-(** Parse usage metadata from Gemini JSON response.
-    Gemini returns: {usageMetadata: {promptTokenCount, candidatesTokenCount, cachedContentTokenCount}} *)
+(** Parse and aggregate usage across [stats.models] entries in a Gemini
+    CLI [--output-format json] response.  The CLI may invoke multiple
+    models for a single prompt (e.g. a utility router + a main model),
+    each with its own per-model token counts:
+
+    {v
+    "stats": {
+      "models": {
+        "gemini-2.5-flash-lite": {
+          "tokens": { "input": N, "candidates": N, "cached": N }
+        },
+        "gemini-3-flash-preview": {
+          "tokens": { ... }
+        }
+      }
+    }
+    v}
+
+    We sum [tokens.input], [tokens.candidates], and [tokens.cached]
+    across every model.  Returns [None] when no [stats.models] object
+    is present. *)
 let parse_usage json =
   let open Yojson.Safe.Util in
-  match json |> member "usageMetadata" with
-  | `Assoc _ as u ->
-    Some { Types.input_tokens = Cli_common_json.member_int "promptTokenCount" u;
-           output_tokens = Cli_common_json.member_int "candidatesTokenCount" u;
+  let models_field =
+    try json |> member "stats" |> member "models"
+    with Type_error _ -> `Null
+  in
+  match models_field with
+  | `Assoc entries when entries <> [] ->
+    let input = ref 0 in
+    let output = ref 0 in
+    let cached = ref 0 in
+    List.iter (fun (_model_name, model_json) ->
+      match model_json |> member "tokens" with
+      | `Assoc _ as t ->
+        input  := !input  + Cli_common_json.member_int "input" t;
+        output := !output + Cli_common_json.member_int "candidates" t;
+        cached := !cached + Cli_common_json.member_int "cached" t
+      | _ -> ()
+    ) entries;
+    Some { Types.input_tokens = !input;
+           output_tokens = !output;
            cache_creation_input_tokens = 0;
-           cache_read_input_tokens =
-             Cli_common_json.member_int "cachedContentTokenCount" u;
+           cache_read_input_tokens = !cached;
            cost_usd = None }
   | _ -> None
 
-(** Parse the Gemini CLI --output-format json result into api_response.
-    Expected format: {"response": "text", "usageMetadata": {...}} *)
+(** Parse the Gemini CLI [--output-format json] result into an
+    [api_response].  Expected shape:
+
+    {v
+    { "session_id": "...",
+      "response": "text",
+      "stats": { "models": { ... } } }
+    v} *)
 let parse_json_result json_str =
   try
     let json = Yojson.Safe.from_string json_str in
     let response_text = Cli_common_json.member_str "response" json in
+    let session_id = Cli_common_json.member_str "session_id" json in
     let usage = parse_usage json in
-    Ok { Types.id = "";
+    Ok { Types.id = session_id;
          model = "gemini";
          stop_reason = Types.EndTurn;
          content = [Text response_text];
@@ -206,15 +246,28 @@ let%test "build_args ignores mcp_config and allowed_tools" =
   && not (List.mem "--permission-mode" args)
   && not (List.mem "/tmp/mcp.json" args)
 
-let%test "parse_json_result success" =
-  let json = {|{"response":"hello world","usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":5,"cachedContentTokenCount":2}}|} in
+let%test "parse_json_result success (single model stats)" =
+  let json = {|{"session_id":"sid","response":"hello world","stats":{"models":{"gemini-2.5-flash":{"tokens":{"input":10,"candidates":5,"cached":2}}}}}|} in
   match parse_json_result json with
   | Ok resp ->
     resp.content = [Types.Text "hello world"]
     && resp.stop_reason = Types.EndTurn
+    && resp.id = "sid"
     && (match resp.usage with
         | Some u -> u.input_tokens = 10 && u.output_tokens = 5 && u.cache_read_input_tokens = 2
         | None -> false)
+  | Error _ -> false
+
+let%test "parse_json_result aggregates across multiple models" =
+  let json = {|{"session_id":"sid","response":"hi","stats":{"models":{"utility":{"tokens":{"input":100,"candidates":7,"cached":0}},"main":{"tokens":{"input":200,"candidates":3,"cached":5}}}}}|} in
+  match parse_json_result json with
+  | Ok resp ->
+    (match resp.usage with
+     | Some u ->
+       u.input_tokens = 300
+       && u.output_tokens = 10
+       && u.cache_read_input_tokens = 5
+     | None -> false)
   | Error _ -> false
 
 let%test "parse_json_result no usage" =
