@@ -6,6 +6,48 @@ Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
 backfilled on 2026-04-04 from existing git tags. The dates below reflect the
 original tag dates. `0.100.4` was never tagged or released.
 
+## [0.140.0] - 2026-04-15
+
+### Removed (breaking)
+
+- `Cascade_config.complete_named`, `Cascade_config.complete_named_stream` —
+  the named-cascade convenience wrappers. Callers should compose the
+  primitives directly:
+    1. `Cascade_config.resolve_model_strings` (config lookup + defaults)
+    2. `Cascade_config.expand_model_strings_for_execution`
+    3. `Cascade_config.parse_model_strings`
+    4. `Cascade_config.filter_healthy`
+    5. `Cascade_executor.complete_cascade_with_accept` (or `_stream`)
+  In-tree consumers `judge.ml` (oas#925) and `tool_selector.ml` (oas#926)
+  were migrated to this pattern in the previous two releases.
+- `Cascade_config.complete_cascade_with_accept`,
+  `Cascade_config.complete_cascade_stream` re-export shims — call
+  `Cascade_executor.complete_cascade_with_accept` /
+  `Cascade_executor.complete_cascade_stream` directly.
+- `Cascade_config.filter_healthy_internal` private helper — only callers
+  were the deleted wrappers above. Public `Cascade_config.filter_healthy`
+  is unchanged.
+
+### Migration
+
+```ocaml
+(* Before: *)
+Cascade_config.complete_named ~sw ~net ?clock ?config_path
+  ~name ~defaults ~messages ~temperature ~max_tokens ()
+
+(* After: *)
+let model_strings =
+  Cascade_config.resolve_model_strings ?config_path ~name ~defaults ()
+  |> Cascade_config.expand_model_strings_for_execution
+in
+let providers =
+  Cascade_config.parse_model_strings ~temperature ~max_tokens model_strings
+in
+let healthy = Cascade_config.filter_healthy ~sw ~net providers in
+Cascade_executor.complete_cascade_with_accept ~sw ~net ?clock
+  ~accept:(fun _ -> Ok ()) healthy ~messages ~tools:[]
+```
+
 ## [0.139.0] - 2026-04-15
 
 ### Added

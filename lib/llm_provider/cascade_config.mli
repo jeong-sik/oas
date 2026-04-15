@@ -302,101 +302,17 @@ val filter_by_capabilities :
   Provider_config.t list ->
   Provider_config.t list
 
-(** {1 Named Cascade Execution} *)
+(** {1 Helpers for Cascade Consumers} *)
 
 (** Extract the concatenated text content from an API response.
     Joins all {!Types.Text} blocks. Useful for accept validators. *)
 val text_of_response : Types.api_response -> string
-
-(** Execute a cascade completion using a named profile.
-
-    1. Loads the profile from [config_path] (if provided)
-    2. Falls back to [defaults] when the config key is missing
-    3. Filters by local endpoint health
-    4. Executes cascade: try each provider in order, advancing on failure
-       or when [accept] returns [false]
-
-    When [accept] is provided, a successful response that the validator
-    rejects causes the cascade to try the next provider (same as a
-    retryable failure). This enables retry-on-invalid-format patterns.
-
-    When [strict_name] is [true], returns [Error] if the named profile
-    is not found in the config file (prevents silent fallback on typos).
-
-    @return [Ok api_response] on success
-    @return [Error http_error] when all providers fail or are rejected *)
 
 val apply_provider_filter :
   provider_filter:string list option ->
   label:string ->
   Provider_config.t list ->
   Provider_config.t list
-
-val complete_named :
-  sw:Eio.Switch.t ->
-  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
-  ?clock:_ Eio.Time.clock ->
-  ?config_path:string ->
-  name:string ->
-  defaults:string list ->
-  messages:Types.message list ->
-  ?tools:Yojson.Safe.t list ->
-  ?temperature:float ->
-  ?max_tokens:int ->
-  ?system_prompt:string ->
-  ?tool_choice:Types.tool_choice ->
-  ?accept:(Types.api_response -> bool) ->
-  ?accept_reason:(Types.api_response -> (unit, string) result) ->
-  ?strict_name:bool ->
-  ?accept_on_exhaustion:bool ->
-  ?timeout_sec:int ->
-  ?cache:Cache.t ->
-  ?metrics:Metrics.t ->
-  ?throttle:Provider_throttle.t ->
-  ?priority:Request_priority.t ->
-  ?provider_filter:string list ->
-  unit ->
-  (Types.api_response, Http_client.http_error) result
-
-(** {1 Named Streaming Cascade Execution} *)
-
-(** Execute a streaming cascade completion using a named profile.
-
-    Same resolution steps as {!complete_named}:
-    1. Loads the profile from [config_path] (if provided)
-    2. Falls back to [defaults] when the config key is missing
-    3. Filters by local endpoint health
-    4. Executes streaming cascade: try each provider in order
-
-    Unlike {!complete_named}, does not accept an [accept] validator:
-    once the SSE stream begins, events are emitted to [on_event]
-    and the provider is committed. Failover only occurs on
-    connection/HTTP errors before streaming starts.
-
-    No caching (streaming responses are not cacheable).
-
-    @since 0.61.0 *)
-val complete_named_stream :
-  sw:Eio.Switch.t ->
-  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
-  ?clock:_ Eio.Time.clock ->
-  ?config_path:string ->
-  name:string ->
-  defaults:string list ->
-  messages:Types.message list ->
-  ?tools:Yojson.Safe.t list ->
-  ?temperature:float ->
-  ?max_tokens:int ->
-  ?system_prompt:string ->
-  ?tool_choice:Types.tool_choice ->
-  ?strict_name:bool ->
-  ?timeout_sec:int ->
-  ?metrics:Metrics.t ->
-  ?priority:Request_priority.t ->
-  ?provider_filter:string list ->
-  on_event:(Types.sse_event -> unit) ->
-  unit ->
-  (Types.api_response, Http_client.http_error) result
 
 (** {1 Local Capacity Query} *)
 
