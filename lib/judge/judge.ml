@@ -1,10 +1,11 @@
 (** LLM-based evaluation and scoring.
 
-    Provides a single-turn judgment call via a named cascade.
+    Provides a single-turn judgment call against a single provider.
     The LLM receives a system prompt and context, and returns
     a structured JSON response parsed into a {!judgment} record.
 
-    @since 0.78.0 *)
+    @since 0.78.0
+    @since 0.142.0 Single-provider API. Cascade removed. *)
 
 open Llm_provider
 
@@ -24,21 +25,17 @@ type judgment = {
 [@@deriving yojson, show]
 
 type judge_config = {
-  cascade_name: string;
   system_prompt: string;
   temperature: float;
   max_tokens: int;
-  max_turns: int;
   output_schema: Yojson.Safe.t option;
 }
 [@@deriving show]
 
 let default_config () = {
-  cascade_name = "judge";
   system_prompt = "You are a precise evaluator. Analyze the given context and return a JSON object with: score (0.0-1.0), confidence (0.0-1.0), risk (low/medium/high/critical), summary (string), evidence (string array), recommended_action (string or null).";
   temperature = 0.2;
   max_tokens = 2048;
-  max_turns = 1;
   output_schema = None;
 }
 
@@ -65,11 +62,9 @@ let clamp_01 v =
 (** Extract the first JSON object from a string that may contain
     markdown fencing or surrounding prose. *)
 let extract_json_substring text =
-  (* Try to find JSON object boundaries *)
   match String.index_opt text '{' with
   | None -> None
   | Some start ->
-    (* Walk forward to find matching close brace *)
     let len = String.length text in
     let depth = ref 0 in
     let in_string = ref false in
@@ -135,40 +130,21 @@ let parse_judgment text =
   | Yojson.Safe.Util.Type_error (msg, _) ->
     Error (Printf.sprintf "JSON type error: %s" msg)
 
-(* ── LLM call ───────────────────────────────────────────── *)
+(* ── LLM call (single provider) ─────────────────────────── *)
 
-let judge ~sw ~net ?clock ?config_path ~config ~context () =
+let judge ~sw ~net ~provider ~config ~context () =
   let messages : Types.message list = [
     { role = System; content = [Text config.system_prompt]; name = None; tool_call_id = None };
     { role = User; content = [Text context]; name = None; tool_call_id = None };
   ] in
-  let defaults = ["llama:qwen3.5-35b"; "glm:auto"] in
-  (* Resolve cascade.json → ordered model strings → provider configs.
-     Inlined here so we no longer depend on the [Cascade_config.complete_named]
-     wrapper, which is slated for removal. The four steps below mirror what
-     the wrapper did internally. *)
-  let model_strings =
-    Cascade_config.resolve_model_strings ?config_path
-      ~name:config.cascade_name ~defaults ()
-    |> Cascade_config.expand_model_strings_for_execution
-  in
-  let providers =
-    Cascade_config.parse_model_strings
-      ~temperature:config.temperature
-      ~max_tokens:config.max_tokens
-      model_strings
-  in
-  let healthy = Cascade_config.filter_healthy ~sw ~net providers in
-  if healthy = [] then
-    Error (Printf.sprintf
-             "Judge: no callable models for cascade '%s'"
-             config.cascade_name)
-  else
+  (* Override provider sampling with judge_config (deterministic evaluation). *)
+  let provider_cfg = {
+    provider with
+    Provider_config.temperature = Some config.temperature;
+    max_tokens = Some config.max_tokens;
+  } in
   match
-    Cascade_executor.complete_cascade_with_accept
-      ~sw ~net ?clock
-      ~accept:(fun _ -> Ok ())
-      healthy ~messages ~tools:[]
+    Complete.complete ~sw ~net ~config:provider_cfg ~messages ~tools:[] ()
   with
   | Error err ->
     let msg = match err with
@@ -182,7 +158,7 @@ let judge ~sw ~net ?clock ?config_path ~config ~context () =
     in
     Error (Printf.sprintf "Judge LLM call failed: %s" msg)
   | Ok response ->
-    let text = Cascade_config.text_of_response response in
+    let text = Types.text_of_response response in
     if String.length text = 0 then
       Error "Judge LLM returned empty response"
     else
