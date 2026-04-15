@@ -12,10 +12,11 @@ module Http = struct
   (** HTTP status codes that trigger retry logic in {!Complete}. *)
   let retryable_codes = [429; 500; 502; 503; 529]
 
-  (** HTTP status codes that trigger cascade fallback in {!Cascade_config}.
-      Superset of [retryable_codes]: includes auth/forbidden errors
-      that are not retryable but should cascade to the next provider.
-      498 = Groq Flex tier capacity exceeded. *)
+  (** HTTP status codes that trigger cascade fallback in downstream
+      coordinators (OAS exposes the codes; orchestration lives outside
+      the SDK). Superset of [retryable_codes]: includes auth/forbidden
+      errors that are not retryable but should cascade to the next
+      provider. 498 = Groq Flex tier capacity exceeded. *)
   let cascadable_codes = [401; 403; 429; 498; 500; 502; 503; 529]
 end
 

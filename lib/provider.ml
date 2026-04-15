@@ -442,7 +442,7 @@ let default_api_key_env_of_kind
   | Glm -> "ZAI_API_KEY"
   | OpenAI_compat | Ollama | Claude_code | Gemini_cli | Codex_cli -> ""
 
-(** Convert a [Provider_config.t] (from Cascade_config) into a
+(** Convert a [Llm_provider.Provider_config.t] into a
     [Provider.config] (for Agent Builder).  Keeps the conversion
     internal to OAS so consumers don't need their own adapters.
 

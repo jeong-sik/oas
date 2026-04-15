@@ -161,9 +161,9 @@ val custom_provider : name:string -> ?model_id:string -> ?api_key_env:string -> 
 val default_api_key_env_of_kind :
   Llm_provider.Provider_config.provider_kind -> string
 
-(** Convert a {!Llm_provider.Provider_config.t} (from Cascade_config)
-    into a {!config}.  Falls back to {!default_api_key_env_of_kind}
-    when [api_key] is empty.
+(** Convert a {!Llm_provider.Provider_config.t} into a {!config}.
+    Falls back to {!default_api_key_env_of_kind} when [api_key] is
+    empty.
     @since 0.84.0
     @since 0.87.0 — env var fallback *)
 val config_of_provider_config : Llm_provider.Provider_config.t -> config
