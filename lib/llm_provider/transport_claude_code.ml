@@ -16,6 +16,12 @@ type config = {
        (and thinking) survives in the returned content.  The plain
        [--output-format json] flattens content into a single
        [result] string and drops structured blocks. *)
+  forward_tool_results: bool;
+    (* When true, prior [ToolUse]/[ToolResult] content blocks in the
+       conversation history are flattened into the CLI prompt so the
+       next turn sees the tool exchange.  Default [false] — the agent
+       loop typically resolves tools itself and feeds only fresh text
+       to the CLI. *)
 }
 
 let default_config = {
@@ -27,6 +33,7 @@ let default_config = {
   mcp_config = None;
   cwd = None;
   tool_use_via_stream_json = true;
+  forward_tool_results = false;
 }
 
 (* Prompt shaping, JSON helpers, and subprocess orchestration live in the
@@ -264,7 +271,8 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
   {
     complete_sync = (fun (req : Llm_transport.completion_request) ->
       let messages = Cli_common_prompt.non_system_messages req.messages in
-      let prompt = Cli_common_prompt.prompt_of_messages messages in
+      let prompt = Cli_common_prompt.prompt_of_messages
+        ~include_tool_blocks:config.forward_tool_results messages in
       let system_prompt =
         Cli_common_prompt.system_prompt_of ~req_config:req.config req.messages in
       if config.tool_use_via_stream_json then
@@ -298,7 +306,8 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
 
     complete_stream = (fun ~on_event (req : Llm_transport.completion_request) ->
       let messages = Cli_common_prompt.non_system_messages req.messages in
-      let prompt = Cli_common_prompt.prompt_of_messages messages in
+      let prompt = Cli_common_prompt.prompt_of_messages
+        ~include_tool_blocks:config.forward_tool_results messages in
       let system_prompt =
         Cli_common_prompt.system_prompt_of ~req_config:req.config req.messages in
       let args = build_args ~config ~req_config:req.config

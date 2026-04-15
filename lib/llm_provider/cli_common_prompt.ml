@@ -2,15 +2,34 @@ let text_of_block = function
   | Types.Text t -> Some t
   | _ -> None
 
+(** Render a content block when [~include_tool_blocks:true].  Text goes
+    through as-is; [ToolUse] and [ToolResult] are flattened into
+    bracket-tagged lines so the CLI can reconstruct the tool history in
+    its next turn; everything else (thinking, image, document, audio) is
+    dropped — Claude never expects to see its own thinking blocks
+    looped back. *)
+let render_block_with_tools = function
+  | Types.Text t -> Some t
+  | Types.ToolUse { id; name; input } ->
+    let input_str = Yojson.Safe.to_string input in
+    Some (Printf.sprintf "[tool_use id=%s name=%s] %s" id name input_str)
+  | Types.ToolResult { tool_use_id; content; is_error; _ } ->
+    let tag = if is_error then "tool_result (error)" else "tool_result" in
+    Some (Printf.sprintf "[%s id=%s] %s" tag tool_use_id content)
+  | _ -> None
+
 let string_of_role = function
   | Types.System -> "System"
   | Types.User -> "User"
   | Types.Assistant -> "Assistant"
   | Types.Tool -> "Tool"
 
-let prompt_of_messages (messages : Types.message list) =
+let prompt_of_messages ?(include_tool_blocks = false)
+    (messages : Types.message list) =
+  let render = if include_tool_blocks then render_block_with_tools
+               else text_of_block in
   let text_of_msg (m : Types.message) =
-    List.filter_map text_of_block m.content |> String.concat "\n"
+    List.filter_map render m.content |> String.concat "\n"
   in
   match List.rev messages with
   | [] -> ""
@@ -76,3 +95,53 @@ let%test "system_prompt_of falls back to system message" =
 let%test "system_prompt_of returns None when absent" =
   let req = Provider_config.make ~kind:Claude_code ~model_id:"" ~base_url:"" () in
   system_prompt_of ~req_config:req [msg User [Text "hi"]] = None
+
+let%test "prompt_of_messages default drops tool blocks" =
+  let msgs = [
+    msg Assistant [ToolUse { id = "tu_1"; name = "calc"; input = `Assoc [("x", `Int 1)] }];
+    msg User [ToolResult { tool_use_id = "tu_1"; content = "2"; is_error = false; json = None }];
+    msg User [Text "thanks"];
+  ] in
+  let out = prompt_of_messages msgs in
+  (* Default flatten: tool blocks dropped → only "thanks" remains as tail;
+     earlier messages become blank lines. *)
+  not (String.length out > 0 && String.starts_with ~prefix:"[tool_use" out)
+
+let%test "prompt_of_messages with include_tool_blocks renders tool_use" =
+  let msgs = [
+    msg Assistant [ToolUse { id = "tu_1"; name = "calc"; input = `Assoc [("x", `Int 1)] }];
+    msg User [Text "?"];
+  ] in
+  let out = prompt_of_messages ~include_tool_blocks:true msgs in
+  let contains s sub =
+    let n = String.length s and m = String.length sub in
+    if m = 0 then true
+    else
+      let rec loop i = i + m <= n &&
+        (String.sub s i m = sub || loop (i + 1)) in
+      loop 0
+  in
+  contains out "tool_use id=tu_1 name=calc"
+
+let%test "prompt_of_messages with include_tool_blocks renders tool_result error" =
+  let msgs = [
+    msg User [ToolResult { tool_use_id = "tu_1"; content = "boom";
+                            is_error = true; json = None }];
+    msg User [Text "retry"];
+  ] in
+  let out = prompt_of_messages ~include_tool_blocks:true msgs in
+  let contains s sub =
+    let n = String.length s and m = String.length sub in
+    if m = 0 then true
+    else
+      let rec loop i = i + m <= n &&
+        (String.sub s i m = sub || loop (i + 1)) in
+      loop 0
+  in
+  contains out "tool_result (error) id=tu_1"
+
+let%test "render_block_with_tools drops thinking" =
+  match render_block_with_tools
+          (Types.Thinking { thinking_type = "thinking"; content = "internal" }) with
+  | None -> true
+  | Some _ -> false
