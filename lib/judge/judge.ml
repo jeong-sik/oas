@@ -143,10 +143,32 @@ let judge ~sw ~net ?clock ?config_path ~config ~context () =
     { role = User; content = [Text context]; name = None; tool_call_id = None };
   ] in
   let defaults = ["llama:qwen3.5-35b"; "glm:auto"] in
-  match Cascade_config.complete_named ~sw ~net ?clock ?config_path
-          ~name:config.cascade_name ~defaults ~messages
-          ~temperature:config.temperature ~max_tokens:config.max_tokens
-          ~tools:[] ()
+  (* Resolve cascade.json → ordered model strings → provider configs.
+     Inlined here so we no longer depend on the [Cascade_config.complete_named]
+     wrapper, which is slated for removal. The four steps below mirror what
+     the wrapper did internally. *)
+  let model_strings =
+    Cascade_config.resolve_model_strings ?config_path
+      ~name:config.cascade_name ~defaults ()
+    |> Cascade_config.expand_model_strings_for_execution
+  in
+  let providers =
+    Cascade_config.parse_model_strings
+      ~temperature:config.temperature
+      ~max_tokens:config.max_tokens
+      model_strings
+  in
+  let healthy = Cascade_config.filter_healthy ~sw ~net providers in
+  if healthy = [] then
+    Error (Printf.sprintf
+             "Judge: no callable models for cascade '%s'"
+             config.cascade_name)
+  else
+  match
+    Cascade_executor.complete_cascade_with_accept
+      ~sw ~net ?clock
+      ~accept:(fun _ -> Ok ())
+      healthy ~messages ~tools:[]
   with
   | Error err ->
     let msg = match err with
