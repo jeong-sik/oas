@@ -439,6 +439,86 @@ let resolve_model_strings_traced ?config_path ~name ~defaults () =
 let resolve_model_strings ?config_path ~name ~defaults () =
   fst (resolve_model_strings_traced ?config_path ~name ~defaults ())
 
+(* ── Selection trace (observability) ─────────────────── *)
+
+type candidate_info = {
+  model_string : string;
+  config_weight : int;
+  effective_weight : int;
+  success_rate : float;
+  in_cooldown : bool;
+}
+
+type selection_trace = {
+  candidates : candidate_info list;
+  source : cascade_source;
+}
+
+(** Extract the provider_key the health tracker uses for a "provider:model"
+    string. Mirrors the derivation in {!order_weighted_entries}. *)
+let provider_key_of_model_string s =
+  match String.split_on_char ':' s with
+  | _ :: rest when rest <> [] -> String.concat ":" rest
+  | _ -> s
+
+(** Build a [candidate_info] for a model string given its config weight.
+    Reads current health tracker state for [success_rate] / [in_cooldown]
+    / [effective_weight], so the trace reflects state at call time. *)
+let candidate_info_of_weighted (e : Cascade_config_loader.weighted_entry) =
+  let health = Cascade_health_tracker.global in
+  let key = provider_key_of_model_string e.model in
+  let success_rate = Cascade_health_tracker.success_rate health ~provider_key:key in
+  let in_cooldown = Cascade_health_tracker.is_in_cooldown health ~provider_key:key in
+  let effective_weight =
+    Cascade_health_tracker.effective_weight health
+      ~provider_key:key ~config_weight:e.weight
+  in
+  {
+    model_string = e.model;
+    config_weight = e.weight;
+    effective_weight;
+    success_rate;
+    in_cooldown;
+  }
+
+let resolve_model_strings_with_trace ?config_path ~name ~defaults () =
+  match config_path with
+  | Some path ->
+    let from_file_weighted =
+      Cascade_config_loader.load_profile_weighted ~config_path:path ~name in
+    if from_file_weighted <> [] then
+      let ordered = order_weighted_entries from_file_weighted in
+      let models = List.map
+          (fun (e : Cascade_config_loader.weighted_entry) -> e.model) ordered in
+      let candidates = List.map candidate_info_of_weighted ordered in
+      (models, { candidates; source = Named })
+    else
+      let fallback_weighted =
+        Cascade_config_loader.load_profile_weighted
+          ~config_path:path ~name:"default" in
+      if fallback_weighted <> [] then
+        let ordered = order_weighted_entries fallback_weighted in
+        let models = List.map
+            (fun (e : Cascade_config_loader.weighted_entry) -> e.model) ordered in
+        let candidates = List.map candidate_info_of_weighted ordered in
+        (models, { candidates; source = Default_fallback })
+      else
+        let candidates =
+          List.map (fun m ->
+            candidate_info_of_weighted
+              { Cascade_config_loader.model = m; weight = 1 })
+            defaults
+        in
+        (defaults, { candidates; source = Hardcoded_defaults })
+  | None ->
+    let candidates =
+      List.map (fun m ->
+        candidate_info_of_weighted
+          { Cascade_config_loader.model = m; weight = 1 })
+        defaults
+    in
+    (defaults, { candidates; source = Hardcoded_defaults })
+
 let dedupe_stable (items : string list) =
   let rec loop seen acc = function
     | [] -> List.rev acc
