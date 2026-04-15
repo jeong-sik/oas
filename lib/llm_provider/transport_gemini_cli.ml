@@ -7,6 +7,15 @@ type config = {
   model: string option;
   yolo: bool;
   cwd: string option;
+  (* Fields below are accepted for parity with the Claude Code config
+     so callers can target multiple CLI backends with the same
+     structure.  Gemini CLI does not yet expose flags for any of
+     them; setting a non-default value produces a one-shot
+     [Eio.traceln] warning and the value is otherwise ignored. *)
+  mcp_config: string option;
+  allowed_tools: string list;
+  max_turns: int option;
+  permission_mode: string option;
 }
 
 let default_config = {
@@ -14,6 +23,10 @@ let default_config = {
   model = None;
   yolo = true;
   cwd = None;
+  mcp_config = None;
+  allowed_tools = [];
+  max_turns = None;
+  permission_mode = None;
 }
 
 (* Prompt shaping, JSON helpers, and subprocess orchestration live in the
@@ -77,10 +90,27 @@ let run ~sw ~mgr ~(config : config) argv =
     ~extra_env:[]
     argv
 
+(* Fires once per transport instance when any Claude-only config field
+   is set.  Gemini CLI has no flag for these yet, so we warn and drop. *)
+let warn_unsupported_once (config : config) warned =
+  if !warned then ()
+  else begin
+    warned := true;
+    let warn field =
+      Eio.traceln "[warn] %s is not supported by gemini_cli, ignoring" field
+    in
+    if Option.is_some config.mcp_config then warn "mcp_config";
+    if config.allowed_tools <> [] then warn "allowed_tools";
+    if Option.is_some config.max_turns then warn "max_turns";
+    if Option.is_some config.permission_mode then warn "permission_mode"
+  end
+
 let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
   : Llm_transport.t =
+  let warned = ref false in
   {
     complete_sync = (fun (req : Llm_transport.completion_request) ->
+      warn_unsupported_once config warned;
       let messages = Cli_common_prompt.non_system_messages req.messages in
       let prompt = Cli_common_prompt.prompt_of_messages messages in
       let system_prompt =
@@ -94,6 +124,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
         { Llm_transport.response; latency_ms });
 
     complete_stream = (fun ~on_event (req : Llm_transport.completion_request) ->
+      warn_unsupported_once config warned;
       let messages = Cli_common_prompt.non_system_messages req.messages in
       let prompt = Cli_common_prompt.prompt_of_messages messages in
       let system_prompt =
@@ -152,6 +183,28 @@ let%test "build_args omits auto model override" =
     ~req_config:(Provider_config.make ~kind:Claude_code ~model_id:"auto" ~base_url:"" ())
     ~prompt:"hello" ~system_prompt:None in
   not (List.mem "--model" args)
+
+let%test "default_config parity fields absent" =
+  default_config.mcp_config = None
+  && default_config.allowed_tools = []
+  && default_config.max_turns = None
+  && default_config.permission_mode = None
+
+let%test "build_args ignores mcp_config and allowed_tools" =
+  let config = { default_config with
+    mcp_config = Some "/tmp/mcp.json";
+    allowed_tools = ["Read"; "Write"];
+    max_turns = Some 3;
+    permission_mode = Some "bypassPermissions";
+  } in
+  let args = build_args ~config
+    ~req_config:(Provider_config.make ~kind:Claude_code ~model_id:"" ~base_url:"" ())
+    ~prompt:"hello" ~system_prompt:None in
+  not (List.mem "--mcp-config" args)
+  && not (List.mem "--allowedTools" args)
+  && not (List.mem "--max-turns" args)
+  && not (List.mem "--permission-mode" args)
+  && not (List.mem "/tmp/mcp.json" args)
 
 let%test "parse_json_result success" =
   let json = {|{"response":"hello world","usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":5,"cachedContentTokenCount":2}}|} in
