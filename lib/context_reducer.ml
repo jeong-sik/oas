@@ -440,6 +440,17 @@ let apply_cap_message_tokens ~max_tokens ~keep_recent messages =
     else
       let front_budget = max_tokens * 6 / 10 in  (* 60% *)
       let back_budget = max_tokens * 3 / 10 in   (* 30% *)
+      (* Pair invariant: ToolUse and ToolResult blocks must never be
+         dropped.  Dropping a ToolUse leaves the following User
+         message's ToolResult as an orphan, which Anthropic and
+         OpenAI-compatible APIs reject.  Dropping a ToolResult leaves
+         the preceding Assistant message's ToolUse dangling for the
+         same reason.  Only Text/Image/Thinking/Reasoning/Refusal
+         blocks are eligible for truncation. *)
+      let is_pair_block = function
+        | ToolUse _ | ToolResult _ -> true
+        | _ -> false
+      in
       let cap_message (msg : message) =
         let msg_tokens = estimate_message_tokens msg in
         if msg_tokens <= max_tokens then msg
@@ -448,51 +459,90 @@ let apply_cap_message_tokens ~max_tokens ~keep_recent messages =
           let n_blocks = Array.length blocks in
           if n_blocks <= 1 then msg  (* single block: can't split *)
           else
-            (* Take blocks from front (indices 0..n_front-1) *)
-            let n_front, front_used =
-              let used = ref 0 in
-              let count = ref 0 in
+            (* Pair-aware block index partitioning.  Mandatory blocks
+               (ToolUse/ToolResult) are always kept; only truncatable
+               blocks compete for the front/back budget. *)
+            let keep = Array.make n_blocks false in
+            let mandatory_tokens = ref 0 in
+            Array.iteri (fun i b ->
+              if is_pair_block b then begin
+                keep.(i) <- true;
+                mandatory_tokens := !mandatory_tokens + estimate_block_tokens b
+              end
+            ) blocks;
+            (* If mandatory blocks alone already exceed max_tokens, we
+               cannot shrink further without breaking the pair
+               invariant.  Leave the message as-is and rely on other
+               reducers (prune_tool_outputs, stub_tool_results) to cap
+               the ToolResult content upstream. *)
+            if !mandatory_tokens >= max_tokens then msg
+            else begin
+              (* Remaining budget applies only to truncatable blocks.
+                 Scale front/back splits against the remaining budget
+                 (not the raw [max_tokens]) to keep the ~60/30 bias
+                 consistent once mandatory blocks are accounted for. *)
+              let budget_remaining = max_tokens - !mandatory_tokens in
+              let front_budget' = min front_budget (budget_remaining * 6 / 9) in
+              let back_budget'  = min back_budget  (budget_remaining * 3 / 9) in
+              let front_used = ref 0 in
               let i = ref 0 in
-              while !i < n_blocks && (!count = 0 || !used <= front_budget) do
-                let btok = estimate_block_tokens blocks.(!i) in
-                if !count > 0 && !used + btok > front_budget then
-                  i := n_blocks  (* break *)
+              let stop_front = ref false in
+              while not !stop_front && !i < n_blocks do
+                if keep.(!i) then incr i  (* already kept (mandatory) *)
                 else begin
-                  used := !used + btok;
-                  incr count;
-                  incr i
+                  let btok = estimate_block_tokens blocks.(!i) in
+                  if !front_used + btok <= front_budget' then begin
+                    keep.(!i) <- true;
+                    front_used := !front_used + btok;
+                    incr i
+                  end else
+                    stop_front := true
                 end
               done;
-              (!count, !used)
-            in
-            (* Take blocks from back (indices n_blocks-n_back..n_blocks-1),
-               but never overlap with front blocks *)
-            let n_back, back_used =
-              let used = ref 0 in
-              let count = ref 0 in
+              let back_used = ref 0 in
               let j = ref (n_blocks - 1) in
-              while !j >= n_front && (!count = 0 || !used <= back_budget) do
-                let btok = estimate_block_tokens blocks.(!j) in
-                if !count > 0 && !used + btok > back_budget then
-                  j := n_front - 1  (* break *)
+              let stop_back = ref false in
+              while not !stop_back && !j >= 0 do
+                if keep.(!j) then decr j
                 else begin
-                  used := !used + btok;
-                  incr count;
-                  decr j
+                  let btok = estimate_block_tokens blocks.(!j) in
+                  if !back_used + btok <= back_budget' then begin
+                    keep.(!j) <- true;
+                    back_used := !back_used + btok;
+                    decr j
+                  end else
+                    stop_back := true
                 end
               done;
-              (!count, !used)
-            in
-            let n_dropped = n_blocks - n_front - n_back in
-            if n_dropped <= 0 then msg  (* front+back cover everything *)
-            else
-              let dropped_tokens = max 0 (msg_tokens - front_used - back_used) in
-              let front_blocks = Array.to_list (Array.sub blocks 0 n_front) in
-              let back_blocks = Array.to_list (Array.sub blocks (n_blocks - n_back) n_back) in
-              let marker = Text (Printf.sprintf
-                "[truncated: %d blocks, ~%d tokens removed]"
-                n_dropped dropped_tokens) in
-              { msg with content = front_blocks @ [marker] @ back_blocks }
+              let n_dropped = ref 0 in
+              let dropped_tokens = ref 0 in
+              Array.iteri (fun idx b ->
+                if not keep.(idx) then begin
+                  incr n_dropped;
+                  dropped_tokens := !dropped_tokens + estimate_block_tokens b
+                end
+              ) blocks;
+              if !n_dropped = 0 then msg
+              else begin
+                (* Emit kept blocks in original order; insert a single
+                   [truncated] marker at the first dropped position so
+                   ToolUse/Text adjacency is preserved within the run
+                   of mandatory blocks. *)
+                let marker = Text (Printf.sprintf
+                  "[truncated: %d blocks, ~%d tokens removed]"
+                  !n_dropped !dropped_tokens) in
+                let marker_inserted = ref false in
+                let out = ref [] in
+                Array.iteri (fun idx b ->
+                  if keep.(idx) then out := b :: !out
+                  else if not !marker_inserted then begin
+                    out := marker :: !out;
+                    marker_inserted := true
+                  end
+                ) blocks;
+                { msg with content = List.rev !out }
+              end
+            end
       in
       let process_turn i turn =
         if i >= total - keep_recent then turn
@@ -736,28 +786,36 @@ let%test "cap_message_tokens: small message passes through unchanged" =
   let result = reduce (cap_message_tokens ~max_tokens:1000 ~keep_recent:0) [msg] in
   result = [msg]
 
-let%test "cap_message_tokens: oversized message is truncated" =
-  (* Create a message with 50 ToolResult blocks, each ~100 tokens *)
-  let blocks = List.init 50 (fun i ->
-    ToolResult { tool_use_id = Printf.sprintf "t%d" i;
-                 content = String.make 400 'x';  (* ~100 tokens *)
-                 is_error = false; json = None }
-  ) in
+let%test "cap_message_tokens: oversized message with Text blocks is truncated" =
+  (* Mix Text (truncatable) with a single ToolResult (mandatory).
+     Text blocks must be dropped, ToolResult preserved. *)
+  let text_blocks = List.init 50 (fun _ -> Text (String.make 400 'x')) in
+  let blocks = text_blocks @ [
+    ToolResult { tool_use_id = "keep";
+                 content = "r"; is_error = false; json = None }
+  ] in
   let msg = { role = User; content = blocks; name = None; tool_call_id = None } in
   let original_tokens = estimate_message_tokens msg in
   let result = reduce (cap_message_tokens ~max_tokens:500 ~keep_recent:0) [msg] in
   let capped_msg = List.hd result in
   let capped_tokens = estimate_message_tokens capped_msg in
-  (* Must be reduced and have fewer blocks *)
+  let still_has_tool_result =
+    List.exists (function
+      | ToolResult { tool_use_id = "keep"; _ } -> true
+      | _ -> false)
+      capped_msg.content
+  in
+  (* Must be reduced, fewer blocks, but ToolResult preserved *)
   capped_tokens < original_tokens
-  && List.length capped_msg.content < 50
+  && List.length capped_msg.content < List.length blocks
+  && still_has_tool_result
 
-let%test "cap_message_tokens: truncation marker present" =
-  let blocks = List.init 20 (fun i ->
-    ToolResult { tool_use_id = Printf.sprintf "t%d" i;
-                 content = String.make 400 'x';
+let%test "cap_message_tokens: truncation marker present when text dropped" =
+  let text_blocks = List.init 20 (fun _ -> Text (String.make 400 'x')) in
+  let blocks = text_blocks @ [
+    ToolResult { tool_use_id = "t0"; content = "r";
                  is_error = false; json = None }
-  ) in
+  ] in
   let msg = { role = User; content = blocks; name = None; tool_call_id = None } in
   let result = reduce (cap_message_tokens ~max_tokens:300 ~keep_recent:0) [msg] in
   let capped_msg = List.hd result in
@@ -777,6 +835,21 @@ let%test "cap_message_tokens: truncation marker present" =
     | Text s -> has_marker s
     | _ -> false
   ) capped_msg.content
+
+let%test "cap_message_tokens: message of only ToolResults is untouched (upstream reducers must shrink)" =
+  (* New invariant: cap_message_tokens never drops mandatory blocks.
+     If the entire message is mandatory, it is returned as-is and
+     upstream reducers (stub_tool_results, prune_tool_outputs) are
+     responsible for shrinking ToolResult content. *)
+  let blocks = List.init 50 (fun i ->
+    ToolResult { tool_use_id = Printf.sprintf "t%d" i;
+                 content = String.make 400 'x';
+                 is_error = false; json = None }
+  ) in
+  let msg = { role = User; content = blocks; name = None; tool_call_id = None } in
+  let result = reduce (cap_message_tokens ~max_tokens:500 ~keep_recent:0) [msg] in
+  let capped_msg = List.hd result in
+  List.length capped_msg.content = 50
 
 let%test "cap_message_tokens: recent turns are not modified" =
   let blocks = List.init 20 (fun i ->
