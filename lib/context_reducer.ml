@@ -19,6 +19,7 @@ type strategy =
   | Prune_tool_outputs of { max_output_len: int }
   | Prune_tool_args of { max_arg_len: int; keep_recent: int }
   | Repair_dangling_tool_calls
+  | Repair_orphaned_tool_results
   | Merge_contiguous
   | Drop_thinking
   | Keep_first_and_last of { first_n: int; last_n: int }
@@ -244,6 +245,31 @@ let apply_repair_dangling_tool_calls messages =
         aux (List.rev_append repairs (msg :: acc)) rest
   in
   aux [] messages
+
+(** Repair orphaned tool results: remove ToolResult blocks whose
+    tool_use_id has no matching ToolUse in the message list.
+    OpenAI-compatible APIs (GLM, Groq, etc.) return 400 on orphan
+    ToolResult, so this prevents errors. Complement of
+    [apply_repair_dangling_tool_calls]. *)
+let apply_repair_orphaned_tool_results messages =
+  let use_ids =
+    List.fold_left (fun acc (msg : message) ->
+      List.fold_left (fun acc block ->
+        match block with
+        | ToolUse { id; _ } -> id :: acc
+        | _ -> acc
+      ) acc msg.content
+    ) [] messages
+  in
+  List.filter_map (fun (msg : message) ->
+    let content = List.filter (fun block ->
+      match block with
+      | ToolResult { tool_use_id; _ } -> List.mem tool_use_id use_ids
+      | _ -> true
+    ) msg.content in
+    if content = [] then None
+    else Some { msg with content }
+  ) messages
 
 (** Merge contiguous messages with the same role.
     Concatenates content blocks. Respects ToolUse/ToolResult pairing
@@ -533,6 +559,7 @@ and apply_strategy strategy messages =
   | Prune_tool_outputs { max_output_len } -> apply_prune_tool_outputs ~max_output_len messages
   | Prune_tool_args { max_arg_len; keep_recent } -> apply_prune_tool_args ~max_arg_len ~keep_recent messages
   | Repair_dangling_tool_calls -> apply_repair_dangling_tool_calls messages
+  | Repair_orphaned_tool_results -> apply_repair_orphaned_tool_results messages
   | Merge_contiguous -> apply_merge_contiguous messages
   | Drop_thinking -> apply_drop_thinking messages
   | Keep_first_and_last { first_n; last_n } ->
@@ -564,6 +591,7 @@ let prune_tool_outputs ~max_output_len = { strategy = Prune_tool_outputs { max_o
 let prune_tool_args ~max_arg_len ?(keep_recent=20) () =
   { strategy = Prune_tool_args { max_arg_len; keep_recent } }
 let repair_dangling_tool_calls = { strategy = Repair_dangling_tool_calls }
+let repair_orphaned_tool_results = { strategy = Repair_orphaned_tool_results }
 let merge_contiguous = { strategy = Merge_contiguous }
 let drop_thinking = { strategy = Drop_thinking }
 let keep_first_and_last ~first_n ~last_n =
@@ -621,6 +649,7 @@ let from_capabilities ?(margin=0.8) (caps : Llm_provider.Capabilities.capabiliti
     Some (compose [
       drop_thinking;
       repair_dangling_tool_calls;
+      repair_orphaned_tool_results;
       token_budget budget;
     ])
 
