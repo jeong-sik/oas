@@ -6,6 +6,46 @@ Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
 backfilled on 2026-04-04 from existing git tags. The dates below reflect the
 original tag dates. `0.100.4` was never tagged or released.
 
+## [0.146.0] - 2026-04-15
+
+### Removed (breaking)
+
+**Cascade completely evicted from OAS.** OAS is now a pure single-provider SDK.
+
+Deleted modules (lib/llm_provider/):
+- `cascade_config.ml` + `.mli` — parser/resolver utilities
+- `cascade_config_loader.ml` + `.mli` — cascade.json hot-reload
+- `cascade_fsm.ml` + `.mli` — pure decision FSM
+- `cascade_health_filter.ml` — error classification
+- `cascade_health_tracker.ml` + `.mli` — provider success/fail + cooldown
+- `cascade_model_resolve.ml` + `.mli` — glm:auto alias resolution
+- `cascade_throttle.ml` + `.mli` — local endpoint slot table
+
+Deleted tests:
+- `test/test_cascade.ml`, `test_cascade_config.ml`, `test_cascade_config_ext.ml`, `test_cascade_deep.ml`
+
+Deleted example:
+- `examples/cascade_failover.ml`
+
+### Internal
+
+- `Provider_bridge.resolve_auto_model_id` inlined (was delegating to `Cascade_model_resolve`)
+- `Provider_bridge.resolve_glm_model_id`, `resolve_glm_coding_model_id` inlined (direct `Zai_catalog` calls)
+- Stale docstring references (`{!Cascade_config}`) left in `constants.ml`, `provider_registry.mli`, `provider.ml`/`.mli` — to be purged in follow-up cleanup
+
+### Migration
+
+Cascade ownership moved to MASC (masc-mcp#7382 scaffold + #7386 migrate).
+Consumers previously using `Llm_provider.Cascade_*` should:
+1. Implement their own cascade loop around `Complete.complete`, OR
+2. Use MASC's `lib/cascade/` modules (import MASC's masc_cascade or replicate the pattern)
+
+Reference: MASC `oas_worker_named.ml` `try_cascade` function shows the canonical single-provider-loop pattern.
+
+### Rationale
+
+Cascade is an orchestrator responsibility, not an SDK responsibility. OAS was accumulating orchestration code (FSM, health tracking, throttle tables, weighted selection) that tightly coupled the SDK to MASC's operational model. Extracting cascade to MASC lets OAS focus on one job: "give me a Provider_config.t, I'll call it and return the response."
+
 ## [0.144.0] - 2026-04-15
 
 ### Removed (breaking)
