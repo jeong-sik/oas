@@ -209,18 +209,25 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
         Cli_common_prompt.system_prompt_of ~req_config:req.config req.messages in
       let args = build_args ~config ~req_config:req.config
         ~prompt ~stream:true ~system_prompt in
-      match run ~sw ~mgr ~config args with
+      let argv = config.claude_path :: args in
+      let seen_lines = ref [] in
+      let on_line line =
+        if String.trim line <> "" then begin
+          seen_lines := line :: !seen_lines;
+          List.iter on_event (events_of_line line)
+        end
+      in
+      match Cli_common_subprocess.run_stream_lines ~sw ~mgr
+              ~name:"claude"
+              ~cwd:config.cwd
+              ~extra_env:[]
+              ~on_line
+              ~cancel:None
+              argv with
       | Error _ as e -> e
-      | Ok { stdout; stderr = _; latency_ms = _ } ->
-        let lines = String.split_on_char '\n' stdout
-          |> List.filter (fun s -> String.trim s <> "") in
-        (* Emit events for each line *)
-        List.iter (fun line ->
-          let events = events_of_line line in
-          List.iter on_event events
-        ) lines;
-        (* Parse final response from result line *)
-        parse_stream_result lines);
+      | Ok _ ->
+        (* Final response is built from whatever lines we saw. *)
+        parse_stream_result (List.rev !seen_lines));
   }
 
 (* ── Inline tests ────────────────────────────────────── *)

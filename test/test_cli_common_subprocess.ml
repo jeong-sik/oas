@@ -1,0 +1,83 @@
+(* Integration tests for Cli_common_subprocess.
+   Depend on /bin/sh being available in the test environment. *)
+
+let sh = "/bin/sh"
+
+let test_run_collect_ok () =
+  Eio_main.run @@ fun env ->
+  let mgr = Eio.Stdenv.process_mgr env in
+  Eio.Switch.run @@ fun sw ->
+  match Llm_provider.Cli_common_subprocess.run_collect ~sw ~mgr
+          ~name:"sh" ~cwd:None ~extra_env:[]
+          [sh; "-c"; "printf a; printf b >&2"] with
+  | Ok { stdout; stderr; latency_ms } ->
+    Alcotest.(check string) "stdout" "a\n" stdout;
+    Alcotest.(check string) "stderr" "b\n" stderr;
+    Alcotest.(check bool) "latency non-negative" true (latency_ms >= 0)
+  | Error _ -> Alcotest.fail "expected Ok"
+
+let test_run_collect_nonzero_exit () =
+  Eio_main.run @@ fun env ->
+  let mgr = Eio.Stdenv.process_mgr env in
+  Eio.Switch.run @@ fun sw ->
+  match Llm_provider.Cli_common_subprocess.run_collect ~sw ~mgr
+          ~name:"sh" ~cwd:None ~extra_env:[]
+          [sh; "-c"; "echo oops >&2; exit 3"] with
+  | Ok _ -> Alcotest.fail "expected Error for exit 3"
+  | Error (Llm_provider.Http_client.NetworkError { message }) ->
+    Alcotest.(check bool) "non-empty error message"
+      true (String.length message > 0)
+  | Error _ ->
+    Alcotest.fail "expected NetworkError"
+
+let test_stream_emits_lines_live () =
+  Eio_main.run @@ fun env ->
+  let mgr = Eio.Stdenv.process_mgr env in
+  Eio.Switch.run @@ fun sw ->
+  let seen = ref [] in
+  let on_line line = seen := line :: !seen in
+  match Llm_provider.Cli_common_subprocess.run_stream_lines ~sw ~mgr
+          ~name:"sh" ~cwd:None ~extra_env:[]
+          ~on_line ~cancel:None
+          [sh; "-c"; "printf '1\\n2\\n3\\n'"] with
+  | Ok { stdout; _ } ->
+    Alcotest.(check (list string)) "lines" ["1"; "2"; "3"] (List.rev !seen);
+    Alcotest.(check string) "aggregate" "1\n2\n3\n" stdout
+  | Error _ -> Alcotest.fail "expected Ok"
+
+let test_stream_cancel_sends_sigint () =
+  Eio_main.run @@ fun env ->
+  let mgr = Eio.Stdenv.process_mgr env in
+  let clock = Eio.Stdenv.clock env in
+  Eio.Switch.run @@ fun sw ->
+  let cancel_p, cancel_r = Eio.Promise.create () in
+  let seen = ref [] in
+  let on_line line = seen := line :: !seen in
+  (* Fire cancel shortly after spawn. *)
+  Eio.Fiber.fork ~sw (fun () ->
+    Eio.Time.sleep clock 0.1;
+    Eio.Promise.resolve cancel_r ());
+  let result = Llm_provider.Cli_common_subprocess.run_stream_lines ~sw ~mgr
+    ~name:"sh" ~cwd:None ~extra_env:[]
+    ~on_line ~cancel:(Some cancel_p)
+    (* "trap '' INT" would swallow SIGINT, so use default handler. The
+       default sh behaviour on SIGINT is to exit with status 130 (signal). *)
+    [sh; "-c"; "sleep 5"] in
+  match result with
+  | Ok _ -> Alcotest.fail "expected Error after SIGINT"
+  | Error (Llm_provider.Http_client.NetworkError { message }) ->
+    Alcotest.(check bool) "non-empty error message"
+      true (String.length message > 0)
+  | Error _ -> Alcotest.fail "expected NetworkError"
+
+let () =
+  Alcotest.run "cli_common_subprocess"
+    [ "run_collect",
+      [ Alcotest.test_case "ok"   `Quick test_run_collect_ok
+      ; Alcotest.test_case "exit" `Quick test_run_collect_nonzero_exit
+      ]
+    ; "run_stream_lines",
+      [ Alcotest.test_case "emits lines live" `Quick test_stream_emits_lines_live
+      ; Alcotest.test_case "cancel"            `Quick test_stream_cancel_sends_sigint
+      ]
+    ]
