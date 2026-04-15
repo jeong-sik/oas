@@ -66,7 +66,7 @@ let agent =
     ~tools:[] ()
 ```
 
-See `examples/` for more: `basic_agent.ml`, `tool_use.ml`, `streaming.ml`, `review_agent.ml`, `swarm_review.ml`, `governance_demo.ml`, `plan_execute_demo.ml`, `autonomy_primitives_demo.ml`.
+See `examples/` for more: `basic_agent.ml`, `tool_use.ml`, `streaming.ml`, `review_agent.ml`, `governance_demo.ml`, `plan_execute_demo.ml`, `autonomy_primitives_demo.ml`.
 
 ## Provider support
 
@@ -87,9 +87,6 @@ OAS has a 3-layer architecture. Each layer is a separate opam library with expli
 ```
 Layer 3: MASC  (external — multi-process coordination)
             |
-Layer 2: agent_sdk_swarm  (lib_swarm/)
-            |  Swarm execution: Decentralized / Supervisor / Pipeline
-            |  Convergence loop, metric-driven iteration
             |
 Layer 1: agent_sdk  (lib/)
             |  Single-agent runtime: turn loop, tool dispatch, hooks
@@ -129,15 +126,6 @@ Layer 1: agent_sdk  (lib/)
 | `Durable` | Typed step chains with execution journal for crash recovery |
 | `Plan` | Goal decomposition with dependency DAG and re-planning |
 
-### Layer 2: Swarm Engine (`agent_sdk_swarm`)
-
-| Module | Role |
-|--------|------|
-| `Swarm_types` | agent_role, orchestration_mode, convergence_config, agent_entry |
-| `Runner` | 3-mode swarm execution (Decentralized / Supervisor / Pipeline), convergence loop |
-| `Swarm_checkpoint` | Swarm state persistence for resume |
-| `Test_helpers` | Mock agent builders for zero-LLM testing |
-
 ## Module stability tiers
 
 Not all modules are equally stable. Use this to gauge risk when depending on a module.
@@ -150,7 +138,7 @@ For the full 186-file classification, see `docs/api-stability.md`.
 
 **Evolving** -- API may change between minor versions:
 
-`Streaming`, `Structured`, `Orchestrator`, `Collaboration`, `Memory`, `Policy`, `Proof_store`, `Cdal_proof`, `Swarm_types`, `Runner`
+`Streaming`, `Structured`, `Orchestrator`, `Collaboration`, `Memory`, `Policy`, `Proof_store`, `Cdal_proof`
 
 **Internal** -- implementation details with no compatibility promise:
 
@@ -184,30 +172,6 @@ let counter_tool =
         | Some (`Int n) -> n + 1 | _ -> 1 in
       Context.set ctx "count" (`Int n);
       Ok (string_of_int n))
-```
-
-## Swarm execution
-
-```ocaml
-open Agent_sdk_swarm
-
-(* closure-based agents — no real LLM needed for testing *)
-let reviewer = Swarm_types.{
-  name = "reviewer";
-  run = (fun ~sw:_ prompt -> Ok { (* mock response *) });
-  role = Evaluate;
-}
-
-let config = Swarm_types.{
-  entries = [reviewer; writer; verifier];
-  mode = Supervisor;
-  convergence = { metric_fn = my_metric; threshold = 0.9;
-                  max_iterations = 5; patience = 2 };
-  callbacks = Swarm_types.default_callbacks;
-}
-
-let result = Runner.run ~sw config "Review this PR"
-(* result.converged, result.iterations, result.final_metric *)
 ```
 
 ## Hooks and guardrails
@@ -263,11 +227,10 @@ dune exec examples/review_agent.exe -- jeong-sik/oas 123
 - tool_use loop returns the last response and stops when max_turns is exceeded.
 - Runs on a single Eio domain. No multi-core parallelism.
 - Prompt caching tracks `cache_creation_input_tokens` and `cache_read_input_tokens` in both streaming and non-streaming modes (since v0.4.0).
-- Swarm convergence loop is cooperative — if an agent blocks indefinitely, the loop stalls.
 
 ## Scope limitations
 
-OAS is a single-process agent runtime and swarm engine. The following concerns are explicitly out of scope.
+OAS is a single-process agent runtime. The following concerns are explicitly out of scope.
 
 | What | Owner | Why not here |
 |------|-------|-------------|
@@ -278,7 +241,7 @@ OAS is a single-process agent runtime and swarm engine. The following concerns a
 | Workflow scheduling / SaaS isolation | Application layer | Cron triggers, tenant isolation, and multi-user access control are problems for the system that embeds OAS. |
 | Long-term persistence / vector storage | Application layer | Session state, memory backends, and embedding indexes are injected via callbacks, not owned by the SDK. |
 
-If you find yourself pulling one of these responsibilities into `agent_sdk` or `agent_sdk_swarm`, that is a sign the change belongs in a different repository.
+If you find yourself pulling one of these responsibilities into `agent_sdk`, that is a sign the change belongs in a different repository.
 
 ## Versioning
 
