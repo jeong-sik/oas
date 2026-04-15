@@ -1,7 +1,20 @@
-(** Replace invalid UTF-8 bytes with U+FFFD replacement character.
-    Valid UTF-8 is passed through unchanged.  O(n). *)
+(** Replace invalid UTF-8 bytes with U+FFFD replacement character
+    and disallowed control characters with spaces.
+    Valid UTF-8 with no control chars is passed through unchanged.  O(n).
+
+    Control characters (0x00-0x1F except LF/CR/TAB, plus DEL 0x7F)
+    break LLM prompt formatting. Replacing them at the SDK level
+    prevents consumers from needing their own sanitize pass.
+
+    @since 0.138.0 — control character sanitization added *)
 
 let replacement = "\xEF\xBF\xBD" (* U+FFFD *)
+
+(** True for ASCII control characters that break prompt formatting.
+    LF (0x0A), CR (0x0D), TAB (0x09) are kept — prompts rely on them. *)
+let is_disallowed_control byte =
+  (byte < 0x20 && byte <> 0x0A && byte <> 0x0D && byte <> 0x09)
+  || byte = 0x7F
 
 (** Expected byte length of a UTF-8 sequence given its lead byte.
     Returns 0 for invalid lead bytes (0x80..0xBF, 0xF8+). *)
@@ -26,8 +39,9 @@ let continuations_valid s i n =
     in
     loop 1
 
-(** Fast-path: scan the string and return [true] if it is already valid UTF-8. *)
-let is_valid_utf8 s =
+(** Fast-path: scan the string and return [true] if it is already
+    valid UTF-8 with no disallowed control characters. *)
+let is_clean s =
   let len = String.length s in
   let rec check i =
     if i >= len then true
@@ -35,14 +49,17 @@ let is_valid_utf8 s =
       let byte = Char.code (String.unsafe_get s i) in
       let n = expected_seq_len byte in
       if n = 0 then false                    (* invalid lead *)
-      else if n = 1 then check (i + 1)      (* ASCII *)
+      else if n = 1 then
+        if is_disallowed_control byte then false
+        else check (i + 1)
       else if not (continuations_valid s i n) then false
       else check (i + n)
   in
   check 0
 
+
 let sanitize s =
-  if is_valid_utf8 s then s                  (* fast path: no allocation *)
+  if is_clean s then s                       (* fast path: no allocation *)
   else
     let len = String.length s in
     let buf = Buffer.create len in
@@ -56,8 +73,11 @@ let sanitize s =
           Buffer.add_string buf replacement;
           loop (i + 1)
         end else if n = 1 then begin
-          (* ASCII *)
-          Buffer.add_char buf (String.unsafe_get s i);
+          (* ASCII — replace disallowed control chars with space *)
+          if is_disallowed_control byte then
+            Buffer.add_char buf ' '
+          else
+            Buffer.add_char buf (String.unsafe_get s i);
           loop (i + 1)
         end else if not (continuations_valid s i n) then begin
           (* truncated or bad continuation *)
@@ -98,7 +118,7 @@ let%test "truncated 4-byte replaced" =
 
 let%test "invalid continuation byte" =
   let s = "a\xC3\x00b" in  (* C3 followed by 0x00 instead of 0x80..0xBF *)
-  sanitize s = "a" ^ replacement ^ "\x00b"
+  sanitize s = "a" ^ replacement ^ " b"  (* NUL → space *)
 
 let%test "bare continuation byte" =
   let s = "\x80\x81" in
@@ -115,3 +135,19 @@ let%test "empty string" =
 let%test "0xF8+ lead byte invalid" =
   let s = "\xF8\x80\x80\x80" in
   sanitize s = replacement ^ replacement ^ replacement ^ replacement
+
+let%test "NUL replaced with space" =
+  sanitize "ab\x00cd" = "ab cd"
+
+let%test "BEL replaced with space" =
+  sanitize "x\x07y" = "x y"
+
+let%test "DEL replaced with space" =
+  sanitize "a\x7Fb" = "a b"
+
+let%test "LF CR TAB preserved" =
+  let s = "a\nb\rc\td" in
+  sanitize s == s  (* physical equality: no allocation *)
+
+let%test "mixed control chars" =
+  sanitize "\x01hello\x00\nworld\x1F" = " hello \nworld "
