@@ -6,6 +6,39 @@ Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
 backfilled on 2026-04-04 from existing git tags. The dates below reflect the
 original tag dates. `0.100.4` was never tagged or released.
 
+## [0.143.0] - 2026-04-15
+
+### Changed (breaking)
+
+- `Tool_selector.default_rerank_fn` now takes `~provider:Provider_config.t`
+  instead of `~cascade_name`, `~defaults`, `?config_path`, `?clock`. OAS
+  no longer resolves cascade.json inside the rerank closure — callers
+  that want multi-provider failover pick a single `Provider_config.t`
+  per rerank (MASC selects from `cascade.json` and passes the winner).
+- Implementation: replaces 4-step cascade resolve + `Cascade_executor.
+  complete_cascade_with_accept` with a direct `Complete.complete` call.
+  Rerank still overrides sampling (temperature 0.0, max_tokens 200) for
+  deterministic, short replies. BM25 fallback on LLM failure unchanged.
+
+### Migration
+
+Before:
+```ocaml
+let rerank = Tool_selector.default_rerank_fn
+  ~sw ~net ~cascade_name:"tool_selector"
+  ~defaults:["llama:auto"] ~k:5 ()
+```
+
+After:
+```ocaml
+(* Caller resolves one provider from whatever source and passes it in. *)
+let provider = (* ... *) in
+let rerank = Tool_selector.default_rerank_fn
+  ~sw ~net ~provider ~k:5 ()
+```
+
+Rationale: cascade is MASC's responsibility. OAS is a single-provider SDK.
+
 ## [0.142.0] - 2026-04-15
 
 ### Changed (breaking)
