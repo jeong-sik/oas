@@ -55,9 +55,11 @@ val find_capable : t -> (Capabilities.capabilities -> bool) -> entry list
 (** Check whether a command is discoverable from PATH without shelling out. *)
 val command_in_path : ?path:string -> string -> bool
 
-(** Default registry pre-populated with known providers
-    (llama, claude, gemini, glm, openrouter).
-    Availability is determined by checking the API key env var. *)
+(** Default registry pre-populated with known direct providers plus
+    non-interactive CLI transports ([claude_code], [gemini_cli],
+    [codex_cli], and compat alias [cc]).
+    Availability is determined by API-key env vars for direct providers
+    and PATH discovery for CLI transports. *)
 val default : unit -> t
 
 (** Initial LLM_ENDPOINTS URLs parsed from the environment at module load.

@@ -1017,8 +1017,16 @@ let%test "resolve_model_strings named takes priority over default" =
       resolve_model_strings ~config_path:tmp
         ~name:"named" ~defaults:["fallback:x"] () = ["glm:flash"]))
 
-let%test "default_registry has 12 providers" =
-  List.length (Provider_registry.all default_registry) = 12
+let%test "default_registry includes official cli providers" =
+  List.mem "claude_code"
+    (List.map (fun (e : Provider_registry.entry) -> e.name)
+       (Provider_registry.all default_registry))
+  && List.mem "gemini_cli"
+       (List.map (fun (e : Provider_registry.entry) -> e.name)
+          (Provider_registry.all default_registry))
+  && List.mem "codex_cli"
+       (List.map (fun (e : Provider_registry.entry) -> e.name)
+          (Provider_registry.all default_registry))
 
 let%test "default_registry llama is OpenAI_compat" =
   match Provider_registry.find default_registry "llama" with
@@ -1031,6 +1039,22 @@ let%test "default_registry claude is Anthropic" =
 let%test "default_registry gemini is Gemini" =
   match Provider_registry.find default_registry "gemini" with
   | Some e -> e.defaults.kind = Gemini | None -> false
+
+let%test "default_registry claude_code is Claude_code" =
+  match Provider_registry.find default_registry "claude_code" with
+  | Some e -> e.defaults.kind = Claude_code | None -> false
+
+let%test "default_registry cc remains Claude_code compat alias" =
+  match Provider_registry.find default_registry "cc" with
+  | Some e -> e.defaults.kind = Claude_code | None -> false
+
+let%test "default_registry gemini_cli is Gemini_cli" =
+  match Provider_registry.find default_registry "gemini_cli" with
+  | Some e -> e.defaults.kind = Gemini_cli | None -> false
+
+let%test "default_registry codex_cli is Codex_cli" =
+  match Provider_registry.find default_registry "codex_cli" with
+  | Some e -> e.defaults.kind = Codex_cli | None -> false
 
 let%test "parse_model_string trims whitespace" =
   match parse_model_string "  llama : qwen3.5  " with
