@@ -131,13 +131,23 @@ let openai_chat_extended_capabilities = {
    ignored for some models). Some Qwen3.5 deployments w/ native Jinja
    chat template do honor tool_choice:required in practice.
 
-   The default here stays conservative: contract relaxes to
-   Allow_text_or_tool so text-only replies are accepted even when the
-   consumer asked for a tool. Consumers who have verified their model-side
-   support can declare it per Provider_config via
+   Industry context: LiteLLM's model_prices_and_context_window.json
+   registry lacks per-Ollama-model tool support flags for the same
+   reason (see BerriAI/litellm#14067 — Ollama model metadata surfaces
+   no authoritative capability flag, so any static table is a guess).
+
+   Design choice here: declaration-over-probing. The default stays
+   conservative (supports_tool_choice = false → contract relaxes to
+   Allow_text_or_tool, text-only replies accepted even when the consumer
+   asked for a tool). Consumers who have verified their model-side
+   support declare it per Provider_config via
    [Provider_config.supports_tool_choice_override]. The SDK does not
    match on [model_id] to guess model-side behavior — the consumer
-   (e.g. a cascade loader) owns that policy. *)
+   (e.g. a cascade loader that knows it deployed Qwen3.5 w/ the Jinja
+   chat template) owns that policy. This is stricter than LiteLLM's
+   static-table approach, which requires JSON edits + redeploy to
+   flip capability, and avoids the fragile model_id pattern match that
+   the Claude Agent SDK sidesteps by being single-provider. *)
 let ollama_capabilities = {
   openai_chat_extended_capabilities with
   supports_tool_choice = false;

@@ -51,6 +51,13 @@ type t = {
       a verified model-side support flag without the SDK matching on
       [model_id]. The SDK stays model-agnostic; the consumer declares.
 
+      Design principle: declaration-over-probing. The SDK does not run
+      any capability probe against the provider endpoint (Ollama's
+      [/api/show] exposes no authoritative tool_choice flag; LiteLLM
+      encodes this in a static JSON table and has the same blind spot).
+      Instead of guessing from model_id substrings, the consumer owns
+      the policy and declares it.
+
       @since 0.150.0 *)
 }
 
