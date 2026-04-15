@@ -65,7 +65,6 @@ type agent_info = {
   config: Types.agent_config;
   tool_schemas: Types.tool_schema list;
   provider: Provider.config option;
-  cascade: Provider.cascade option;
   mcp_clients_count: int;
   has_elicitation: bool;
   skill_registry: Skill_registry.t option;

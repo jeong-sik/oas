@@ -994,28 +994,6 @@ let test_builder_chaining () =
   | Error e ->
     fail (Printf.sprintf "build_safe failed: %s" (Error.to_string e))
 
-let test_builder_with_fallback_no_provider () =
-  with_net @@ fun net ->
-  let fallback = Provider.local_llm () in
-  match Builder.create ~net ~model:"claude-sonnet-4-6"
-    |> Builder.with_fallback fallback
-    |> Builder.build_safe with
-  | Ok _ -> ()
-  | Error e -> fail (Printf.sprintf "with_fallback: %s" (Error.to_string e))
-
-let test_builder_with_fallback_existing_cascade () =
-  with_net @@ fun net ->
-  let primary = Provider.anthropic_sonnet () in
-  let fb1 = Provider.local_llm () in
-  let fb2 = Provider.custom_provider ~name:"test" () in
-  let cascade = Provider.cascade ~primary ~fallbacks:[fb1] in
-  match Builder.create ~net ~model:"claude-sonnet-4-6"
-    |> Builder.with_cascade cascade
-    |> Builder.with_fallback fb2
-    |> Builder.build_safe with
-  | Ok _ -> ()
-  | Error e -> fail (Printf.sprintf "cascade+fallback: %s" (Error.to_string e))
-
 let test_builder_with_contract () =
   with_net @@ fun net ->
   let skill = Skill.of_markdown "# Review\nReview code" in
@@ -1334,8 +1312,6 @@ let () =
     ];
     "builder.chaining", [
       test_case "full chain" `Quick test_builder_chaining;
-      test_case "fallback no provider" `Quick test_builder_with_fallback_no_provider;
-      test_case "fallback existing cascade" `Quick test_builder_with_fallback_existing_cascade;
       test_case "contract/skill" `Quick test_builder_with_contract;
       test_case "skills list" `Quick test_builder_with_skills_list;
       test_case "mcp tool allowlist" `Quick test_builder_with_mcp_tool_allowlist;

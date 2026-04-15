@@ -8,7 +8,6 @@ type periodic_callback = {
 type options = {
   base_url: string;
   provider: Provider.config option;
-  cascade: Provider.cascade option;
   max_idle_turns: int;
   hooks: Hooks.hooks;
   guardrails: Guardrails.t;
@@ -86,7 +85,6 @@ type lifecycle_snapshot = Agent_lifecycle.lifecycle_snapshot = {
 let default_options = {
   base_url = Api.default_base_url;
   provider = None;
-  cascade = None;
   max_idle_turns = 3;
   hooks = Hooks.empty;
   guardrails = Guardrails.default;
@@ -168,7 +166,6 @@ let card t =
     config = t.state.config;
     tool_schemas = List.map (fun (tool : Tool.t) -> tool.schema) (Tool_set.to_list t.tools);
     provider = t.options.provider;
-    cascade = t.options.cascade;
     mcp_clients_count = List.length t.options.mcp_clients;
     has_elicitation = Option.is_some t.options.elicitation;
     skill_registry = t.options.skill_registry;

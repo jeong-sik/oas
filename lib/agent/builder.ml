@@ -28,7 +28,6 @@ type t = {
   context: Context.t option;
   base_url: string;
   provider: Provider.config option;
-  cascade: Provider.cascade option;
   max_idle_turns: int;
   hooks: Hooks.hooks;
   guardrails: Guardrails.t;
@@ -90,7 +89,6 @@ let create ~net ~model =
     context = None;
     base_url = Api.default_base_url;
     provider = None;
-    cascade = None;
     max_idle_turns = 3;
     hooks = Hooks.empty;
     guardrails = Guardrails.default;
@@ -227,7 +225,6 @@ let with_cache_system_prompt v b = { b with cache_system_prompt = v }
 let with_yield_on_tool v b = { b with yield_on_tool = v }
 let with_exit_condition pred b = { b with exit_condition = Some pred }
 let with_event_bus bus b = { b with event_bus = Some bus }
-let with_cascade cascade b = { b with cascade = Some cascade }
 let with_max_idle_turns n b = { b with max_idle_turns = n }
 let with_context_injector injector b = { b with context_injector = Some injector }
 let with_skill_registry reg b = { b with skill_registry = Some reg }
@@ -246,17 +243,6 @@ let with_log_level level _b = Log.set_global_level level; _b
 let with_log_sink sink _b = Log.add_sink sink; _b
 (* with_event_targets removed — was a no-op (targets discarded,
    Event_forward never created in build). See oas#669. *)
-let with_fallback fallback b =
-  let casc = match b.cascade with
-    | Some c -> { c with Provider.fallbacks = c.fallbacks @ [fallback] }
-    | None ->
-      let primary = match b.provider with
-        | Some p -> p
-        | None -> Provider.anthropic_sonnet ()
-      in
-      Provider.cascade ~primary ~fallbacks:[fallback]
-  in
-  { b with cascade = Some casc }
 
 let build b =
   let tools = Tool_set.of_list (Contract.filter_tools b.contract (Tool_set.to_list b.tools)) in
@@ -292,7 +278,6 @@ let build b =
   let options = {
     Agent_types.base_url = b.base_url;
     provider = b.provider;
-    cascade = b.cascade;
     max_idle_turns = b.max_idle_turns;
     hooks = (match b.progressive_tools with
       | None -> b.hooks

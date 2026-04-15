@@ -192,18 +192,11 @@ let stage_route ~sw ?clock ~api_strategy agent prep =
         agent_name = agent.state.config.name;
         turn = agent.state.turn_count; extra = [] }
       (fun _tracer ->
-        (match agent.options.cascade with
-         | Some casc ->
-           Api.create_message_cascade ~sw ~net:agent.net ?clock
-             ~cascade:casc ~config:agent.state
-             ~messages:prep.Agent_turn.effective_messages
-             ?tools:prep.tools_json ()
-         | None ->
-           Api.create_message ~sw ~net:agent.net
-             ~base_url:agent.options.base_url
-             ?provider:agent.options.provider ?clock ~config:agent.state
-             ~messages:prep.effective_messages ?tools:prep.tools_json
-             ?slot_id:agent.options.slot_id ()))
+        Api.create_message ~sw ~net:agent.net
+          ~base_url:agent.options.base_url
+          ?provider:agent.options.provider ?clock ~config:agent.state
+          ~messages:prep.Agent_turn.effective_messages ?tools:prep.tools_json
+          ?slot_id:agent.options.slot_id ())
   | Stream { on_event } ->
     Tracing.with_span agent.options.tracer
       { kind = Api_call; name = "create_message_stream";
@@ -224,19 +217,12 @@ let stage_route ~sw ?clock ~api_strategy agent prep =
             (* Provider does not support native streaming —
                fall back to sync call + synthetic SSE events. *)
             let sync_result =
-              match agent.options.cascade with
-              | Some casc ->
-                Api.create_message_cascade ~sw ~net:agent.net ?clock
-                  ~cascade:casc ~config:agent.state
-                  ~messages:prep.effective_messages
-                  ?tools:prep.tools_json ()
-              | None ->
-                Api.create_message ~sw ~net:agent.net
-                  ~base_url:agent.options.base_url
-                  ?provider:agent.options.provider ?clock
-                  ~config:agent.state
-                  ~messages:prep.effective_messages
-                  ?tools:prep.tools_json ()
+              Api.create_message ~sw ~net:agent.net
+                ~base_url:agent.options.base_url
+                ?provider:agent.options.provider ?clock
+                ~config:agent.state
+                ~messages:prep.effective_messages
+                ?tools:prep.tools_json ()
             in
             (match sync_result with
              | Ok response ->

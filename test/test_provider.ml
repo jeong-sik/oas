@@ -444,15 +444,6 @@ let test_openai_compat_no_auth () =
     Alcotest.(check string) "empty key" "" key
   | Error e -> Alcotest.fail (Error.to_string e)
 
-let test_cascade_create () =
-  let primary = Provider.anthropic_sonnet () in
-  let fallback : Provider.config = {
-    provider = Local { base_url = "http://127.0.0.1:8085" };
-    model_id = "qwen3.5"; api_key_env = "DUMMY_KEY";
-  } in
-  let c = Provider.cascade ~primary ~fallbacks:[fallback] in
-  Alcotest.(check int) "1 fallback" 1 (List.length c.fallbacks)
-
 let () =
   Alcotest.run "Provider" [
     "resolve", [
@@ -505,8 +496,5 @@ let () =
     "openai_compat", [
       Alcotest.test_case "static token" `Quick test_openai_compat_static_token;
       Alcotest.test_case "no auth" `Quick test_openai_compat_no_auth;
-    ];
-    "cascade", [
-      Alcotest.test_case "create" `Quick test_cascade_create;
     ];
   ]

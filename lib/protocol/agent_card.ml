@@ -260,7 +260,6 @@ type agent_info = {
   config: Types.agent_config;
   tool_schemas: Types.tool_schema list;
   provider: Provider.config option;
-  cascade: Provider.cascade option;
   mcp_clients_count: int;
   has_elicitation: bool;
   skill_registry: Skill_registry.t option;
@@ -282,15 +281,7 @@ let of_info (info : agent_info) : agent_card =
     | Some cfg -> [provider_name cfg]
     | None -> ["anthropic"]
   in
-  let cascade_providers = match info.cascade with
-    | Some casc ->
-      provider_name casc.primary ::
-      List.map provider_name casc.fallbacks
-    | None -> []
-  in
-  let all_providers =
-    List.sort_uniq String.compare (providers @ cascade_providers)
-  in
+  let all_providers = List.sort_uniq String.compare providers in
 
   let skills = match info.skill_registry with
     | Some reg -> Skill_registry.list reg
