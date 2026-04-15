@@ -40,6 +40,27 @@ val effective_weight : t -> provider_key:string -> config_weight:int -> int
 (** Human-readable summary for debugging/telemetry. *)
 val provider_summary : t -> provider_key:string -> string
 
+(** Structured summary for telemetry/dashboard consumption.
+
+    @since 0.139.0 *)
+type provider_info = {
+  provider_key : string;
+  success_rate : float;               (** 0.0 to 1.0, 1.0 if unknown *)
+  consecutive_failures : int;
+  in_cooldown : bool;
+  cooldown_expires_at : float option; (** Unix timestamp, Some iff [in_cooldown] *)
+  events_in_window : int;             (** Events retained in rolling window *)
+}
+
+(** Structured info for a single provider. Returns [None] if untracked.
+    @since 0.139.0 *)
+val provider_info : t -> provider_key:string -> provider_info option
+
+(** Snapshot of all tracked providers.
+    Useful for dashboards and telemetry endpoints.
+    @since 0.139.0 *)
+val all_providers : t -> provider_info list
+
 (** Global singleton tracker shared across all cascade calls.
     Use this for production; use {!create} for isolated tests. *)
 val global : t

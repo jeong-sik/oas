@@ -6,6 +6,33 @@ Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
 backfilled on 2026-04-04 from existing git tags. The dates below reflect the
 original tag dates. `0.100.4` was never tagged or released.
 
+## [0.139.0] - 2026-04-15
+
+### Added
+- `Cascade_config.resolve_model_strings_with_trace` — structured selection
+  trace for cascade decisions. Returns the ordered model list plus a
+  `selection_trace` with per-candidate `config_weight`, `effective_weight`,
+  `success_rate`, and `in_cooldown`. Enables dashboards/telemetry to
+  surface *why* a provider was chosen first without re-deriving state.
+- `Cascade_health_tracker.provider_info` / `all_providers` — structured
+  snapshot API for the rolling-window health tracker. Returns
+  `provider_info` records (key, success rate, consecutive failures,
+  cooldown state + expiry, events in window). Complements the existing
+  string-based `provider_summary`.
+
+### Notes
+- No breaking changes. Existing consumers of `resolve_model_strings_traced`
+  and `provider_summary` are unaffected.
+
+## [0.138.0] - 2026-04-15
+
+### Fixed
+- `Context_reducer` now strips orphaned `ToolResult` blocks before the API
+  call so compacted contexts do not trip `tool_call_id` validation on
+  OpenAI-compatible providers (#917).
+- `Utf8_sanitize` strips disallowed control characters to prevent
+  downstream JSON serialization faults (#916).
+
 ## [0.137.0] - 2026-04-15
 
 ### Added
