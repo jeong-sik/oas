@@ -227,9 +227,29 @@ let default_rerank_fn ~sw ~net ?clock ?config_path ~cascade_name ~defaults ~k ()
         content = [Types.Text prompt];
         name = None; tool_call_id = None }
     ] in
-    match Llm_provider.Cascade_config.complete_named ~sw ~net ?clock
-        ?config_path ~name:cascade_name ~defaults
-        ~messages ~temperature:0.0 ~max_tokens:200 () with
+    let bm25_fallback () =
+      List.filteri (fun i _ -> i < k) (List.map fst candidates)
+    in
+    (* Inline cascade resolve+execute (was: Cascade_config.complete_named, slated
+       for removal). The four steps below mirror what the wrapper did internally. *)
+    let model_strings =
+      Llm_provider.Cascade_config.resolve_model_strings ?config_path
+        ~name:cascade_name ~defaults ()
+      |> Llm_provider.Cascade_config.expand_model_strings_for_execution
+    in
+    let providers =
+      Llm_provider.Cascade_config.parse_model_strings
+        ~temperature:0.0 ~max_tokens:200 model_strings
+    in
+    let healthy = Llm_provider.Cascade_config.filter_healthy ~sw ~net providers in
+    if healthy = [] then bm25_fallback ()
+    else
+    match
+      Llm_provider.Cascade_executor.complete_cascade_with_accept
+        ~sw ~net ?clock
+        ~accept:(fun _ -> Ok ())
+        healthy ~messages ~tools:[]
+    with
     | Ok response ->
       let text = Types.text_of_response response in
       String.split_on_char '\n' text
@@ -258,4 +278,4 @@ let default_rerank_fn ~sw ~net ?clock ?config_path ~cascade_name ~defaults ~k ()
           else None)
     | Error _ ->
       (* Graceful degradation: return candidates in BM25 order *)
-      List.filteri (fun i _ -> i < k) (List.map fst candidates)
+      bm25_fallback ()
