@@ -20,8 +20,3 @@ val to_provider_config :
   Provider.config ->
   (Llm_provider.Provider_config.t, Error.sdk_error) result
 
-(** Convert a legacy cascade to the new {!Llm_provider.Complete.cascade}.
-    Fails if any provider in the cascade cannot be resolved. *)
-val cascade_to_provider_config :
-  Provider.cascade ->
-  (Llm_provider.Complete.cascade, Error.sdk_error) result

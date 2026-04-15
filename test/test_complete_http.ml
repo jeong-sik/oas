@@ -224,53 +224,6 @@ let test_retry_first_try () =
      | Error _ -> fail "expected Ok")
   with Exit -> ()
 
-(* ── complete_cascade: primary success ───────────────── *)
-
-let test_cascade_primary_ok () =
-  Eio_main.run @@ fun env ->
-  try
-    Eio.Switch.run @@ fun sw ->
-    let url = start_mock_server ~sw ~net:env#net
-        (anthropic_response "primary ok") in
-    let primary = make_config url in
-    let cascade : Complete.cascade = { primary; fallbacks = [] } in
-    (match Complete.complete_cascade ~sw ~net:env#net
-             ~cascade ~messages () with
-     | Ok resp ->
-       let text = List.filter_map
-           (function Types.Text s -> Some s | _ -> None)
-           resp.content |> String.concat "" in
-       check string "primary" "primary ok" text;
-       Eio.Switch.fail sw Exit
-     | Error _ -> fail "expected Ok")
-  with Exit -> ()
-
-(* ── complete_cascade: fallback ──────────────────────── *)
-
-let test_cascade_fallback () =
-  Eio_main.run @@ fun env ->
-  try
-    Eio.Switch.run @@ fun sw ->
-    (* Primary: returns 500 (retryable) *)
-    let bad_url = start_mock_server ~sw ~net:env#net
-        ~status:`Internal_server_error "fail" in
-    (* Fallback: returns 200 *)
-    let good_url = start_mock_server ~sw ~net:env#net
-        (anthropic_response "fallback ok") in
-    let primary = make_config bad_url in
-    let fallback = make_config good_url in
-    let cascade : Complete.cascade = { primary; fallbacks = [fallback] } in
-    (match Complete.complete_cascade ~sw ~net:env#net
-             ~cascade ~messages () with
-     | Ok resp ->
-       let text = List.filter_map
-           (function Types.Text s -> Some s | _ -> None)
-           resp.content |> String.concat "" in
-       check string "fallback" "fallback ok" text;
-       Eio.Switch.fail sw Exit
-     | Error _ -> fail "expected Ok from fallback")
-  with Exit -> ()
-
 (* ── complete: 401 non-retryable ─────────────────────── *)
 
 let test_complete_non_retryable () =
@@ -491,29 +444,6 @@ let test_complete_stream_ok () =
      | Error _ -> fail "expected Ok")
   with Exit -> ()
 
-(* ── complete_stream_cascade ─────────────────────────── *)
-
-let test_stream_cascade_ok () =
-  Eio_main.run @@ fun env ->
-  try
-    Eio.Switch.run @@ fun sw ->
-    let url = start_sse_server ~sw ~net:env#net
-        (anthropic_sse_response "cascade stream") in
-    let primary = make_config url in
-    let cascade : Complete.cascade = { primary; fallbacks = [] } in
-    let events = ref [] in
-    let on_event evt = events := evt :: !events in
-    (match Complete.complete_stream_cascade ~sw ~net:env#net
-             ~cascade ~messages ~on_event () with
-     | Ok resp ->
-       let text = List.filter_map
-           (function Types.Text s -> Some s | _ -> None)
-           resp.content |> String.concat "" in
-       check string "text" "cascade stream" text;
-       Eio.Switch.fail sw Exit
-     | Error _ -> fail "expected Ok")
-  with Exit -> ()
-
 (* ── Runner ──────────────────────────────────────────── *)
 
 let () =
@@ -542,12 +472,7 @@ let () =
     "retry", [
       test_case "first try ok" `Quick test_retry_first_try;
     ];
-    "cascade", [
-      test_case "primary ok" `Quick test_cascade_primary_ok;
-      test_case "fallback" `Quick test_cascade_fallback;
-    ];
     "stream", [
       test_case "sse ok" `Quick test_complete_stream_ok;
-      test_case "cascade" `Quick test_stream_cascade_ok;
     ];
   ]

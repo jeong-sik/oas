@@ -475,10 +475,6 @@
  (libraries llm_provider alcotest yojson unix eio eio_main))
 
 (test
- (name test_streaming_cascade)
- (libraries llm_provider alcotest yojson eio eio_main str))
-
-(test
  (name test_cost_tracker)
  (libraries agent_sdk alcotest yojson str unix))
 
