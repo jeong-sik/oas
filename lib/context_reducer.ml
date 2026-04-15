@@ -459,15 +459,21 @@ let apply_cap_message_tokens ~max_tokens ~keep_recent messages =
           let n_blocks = Array.length blocks in
           if n_blocks <= 1 then msg  (* single block: can't split *)
           else
-            (* Pair-aware block index partitioning.  Mandatory blocks
-               (ToolUse/ToolResult) are always kept; only truncatable
-               blocks compete for the front/back budget. *)
+            (* Cache per-block tokens once.  estimate_block_tokens
+               serializes ToolUse JSON inputs and ToolResult JSON
+               outputs; re-running it across multiple passes (mandatory
+               sum, front walk, back walk, dropped sum) was an O(n·payload)
+               regression on JSON-heavy messages. *)
+            let block_tokens = Array.map estimate_block_tokens blocks in
+            (* Pair-aware partitioning.  Mandatory blocks (ToolUse/
+               ToolResult) are always kept; only truncatable blocks
+               compete for the front/back budget. *)
             let keep = Array.make n_blocks false in
             let mandatory_tokens = ref 0 in
             Array.iteri (fun i b ->
               if is_pair_block b then begin
                 keep.(i) <- true;
-                mandatory_tokens := !mandatory_tokens + estimate_block_tokens b
+                mandatory_tokens := !mandatory_tokens + block_tokens.(i)
               end
             ) blocks;
             (* If mandatory blocks alone already exceed max_tokens, we
@@ -477,68 +483,62 @@ let apply_cap_message_tokens ~max_tokens ~keep_recent messages =
                the ToolResult content upstream. *)
             if !mandatory_tokens >= max_tokens then msg
             else begin
-              (* Remaining budget applies only to truncatable blocks.
-                 Scale front/back splits against the remaining budget
-                 (not the raw [max_tokens]) to keep the ~60/30 bias
-                 consistent once mandatory blocks are accounted for. *)
+              (* Truncatable blocks share what's left after mandatory.
+                 Cap by the original 60/30 absolute budgets *and* by a
+                 60/30 share of remaining (mandatory leaves 90% to
+                 truncatables — the missing 10% is the marker/rounding
+                 slack the original policy kept against [max_tokens]). *)
               let budget_remaining = max_tokens - !mandatory_tokens in
-              let front_budget' = min front_budget (budget_remaining * 6 / 9) in
-              let back_budget'  = min back_budget  (budget_remaining * 3 / 9) in
+              let front_budget' = min front_budget (budget_remaining * 6 / 10) in
+              let back_budget'  = min back_budget  (budget_remaining * 3 / 10) in
               let front_used = ref 0 in
               let i = ref 0 in
               let stop_front = ref false in
               while not !stop_front && !i < n_blocks do
                 if keep.(!i) then incr i  (* already kept (mandatory) *)
-                else begin
-                  let btok = estimate_block_tokens blocks.(!i) in
-                  if !front_used + btok <= front_budget' then begin
-                    keep.(!i) <- true;
-                    front_used := !front_used + btok;
-                    incr i
-                  end else
-                    stop_front := true
-                end
+                else if !front_used + block_tokens.(!i) <= front_budget' then begin
+                  keep.(!i) <- true;
+                  front_used := !front_used + block_tokens.(!i);
+                  incr i
+                end else
+                  stop_front := true
               done;
               let back_used = ref 0 in
               let j = ref (n_blocks - 1) in
               let stop_back = ref false in
               while not !stop_back && !j >= 0 do
                 if keep.(!j) then decr j
-                else begin
-                  let btok = estimate_block_tokens blocks.(!j) in
-                  if !back_used + btok <= back_budget' then begin
-                    keep.(!j) <- true;
-                    back_used := !back_used + btok;
-                    decr j
-                  end else
-                    stop_back := true
-                end
+                else if !back_used + block_tokens.(!j) <= back_budget' then begin
+                  keep.(!j) <- true;
+                  back_used := !back_used + block_tokens.(!j);
+                  decr j
+                end else
+                  stop_back := true
               done;
+              (* Tally drops and find the first dropped index in one
+                 pass over the cached token array. *)
               let n_dropped = ref 0 in
               let dropped_tokens = ref 0 in
-              Array.iteri (fun idx b ->
+              let first_drop = ref (-1) in
+              for idx = 0 to n_blocks - 1 do
                 if not keep.(idx) then begin
                   incr n_dropped;
-                  dropped_tokens := !dropped_tokens + estimate_block_tokens b
+                  dropped_tokens := !dropped_tokens + block_tokens.(idx);
+                  if !first_drop = -1 then first_drop := idx
                 end
-              ) blocks;
+              done;
               if !n_dropped = 0 then msg
               else begin
-                (* Emit kept blocks in original order; insert a single
-                   [truncated] marker at the first dropped position so
-                   ToolUse/Text adjacency is preserved within the run
-                   of mandatory blocks. *)
                 let marker = Text (Printf.sprintf
                   "[truncated: %d blocks, ~%d tokens removed]"
                   !n_dropped !dropped_tokens) in
-                let marker_inserted = ref false in
+                (* Emit kept blocks in original order; insert marker at
+                   the first dropped position so ToolUse/Text adjacency
+                   is preserved. *)
                 let out = ref [] in
                 Array.iteri (fun idx b ->
                   if keep.(idx) then out := b :: !out
-                  else if not !marker_inserted then begin
-                    out := marker :: !out;
-                    marker_inserted := true
-                  end
+                  else if idx = !first_drop then out := marker :: !out
                 ) blocks;
                 { msg with content = List.rev !out }
               end
