@@ -55,3 +55,7 @@
  (name builder_patterns)
  (libraries agent_sdk eio eio_main yojson))
 
+(executable
+ (name cli_transports_demo)
+ (libraries llm_provider eio eio_main yojson))
+
