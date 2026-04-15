@@ -191,23 +191,25 @@ let counter_tool =
 ```ocaml
 open Agent_sdk_swarm
 
-(* closure-based agents — no real LLM needed for testing *)
-let reviewer = Swarm_types.{
-  name = "reviewer";
-  run = (fun ~sw:_ prompt -> Ok { (* mock response *) });
-  role = Evaluate;
-}
+(* Create entries from actual Agent.t instances *)
+let reviewer = Swarm_types.make_entry ~name:"reviewer" ~role:Evaluate ~clock reviewer_agent
 
 let config = Swarm_types.{
   entries = [reviewer; writer; verifier];
   mode = Supervisor;
-  convergence = { metric_fn = my_metric; threshold = 0.9;
-                  max_iterations = 5; patience = 2 };
-  callbacks = Swarm_types.default_callbacks;
+  convergence = Some { metric = Callback my_metric; target = 0.9;
+                       max_iterations = 5; patience = 2;
+                       aggregate = Best_score };
+  max_parallel = 3;
+  prompt = "Review this PR";
+  timeout_sec = None;
+  budget = no_budget; max_agent_retries = 0; collaboration_context = None;
+  resource_check = None; max_concurrent_agents = None;
+  enable_streaming = false;
 }
 
-let result = Runner.run ~sw config "Review this PR"
-(* result.converged, result.iterations, result.final_metric *)
+let result = Runner.run ~sw ~env config
+(* result.converged, result.iterations, result.total_elapsed *)
 ```
 
 ## Hooks and guardrails
@@ -281,8 +283,6 @@ OAS is a single-process agent runtime and swarm engine. The following concerns a
 If you find yourself pulling one of these responsibilities into `agent_sdk` or `agent_sdk_swarm`, that is a sign the change belongs in a different repository.
 
 ## Versioning
-
-0.77.0
 
 We follow semver intent within the 0.x series:
 - **0.x.0**: May contain breaking changes with migration guide in CHANGELOG.
