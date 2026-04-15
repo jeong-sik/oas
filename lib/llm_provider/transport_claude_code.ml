@@ -10,6 +10,12 @@ type config = {
   permission_mode: string option;
   mcp_config: string option;
   cwd: string option;
+  tool_use_via_stream_json: bool;
+    (* When true, [complete_sync] internally uses [--output-format
+       stream-json] and aggregates the assistant blocks so tool_use
+       (and thinking) survives in the returned content.  The plain
+       [--output-format json] flattens content into a single
+       [result] string and drops structured blocks. *)
 }
 
 let default_config = {
@@ -20,6 +26,7 @@ let default_config = {
   permission_mode = None;
   mcp_config = None;
   cwd = None;
+  tool_use_via_stream_json = true;
 }
 
 (* Prompt shaping, JSON helpers, and subprocess orchestration live in the
@@ -134,8 +141,67 @@ let events_of_line line =
     | _ -> []  (* skip rate_limit_event etc. *)
   with Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ -> []
 
-(** Parse stream output: extract final api_response from "result" line. *)
+(** Extract all content blocks (text / thinking / tool_use) from the
+    [message.content] array of an "assistant" line.  Unknown types are
+    dropped.  The Claude stream-json payload carries structured blocks
+    that [--output-format json] flattens into a single [result] string,
+    so aggregating across assistant lines is how we recover them. *)
+let blocks_of_assistant_message msg =
+  let open Yojson.Safe.Util in
+  try
+    msg |> member "content" |> to_list
+    |> List.filter_map (fun block ->
+      let typ = Cli_common_json.member_str "type" block in
+      match typ with
+      | "text" ->
+        Some (Types.Text (Cli_common_json.member_str "text" block))
+      | "thinking" ->
+        Some (Types.Thinking {
+          thinking_type = "thinking";
+          content = Cli_common_json.member_str "thinking" block;
+        })
+      | "tool_use" ->
+        let id = Cli_common_json.member_str "id" block in
+        let name = Cli_common_json.member_str "name" block in
+        let input = match block |> member "input" with
+          | `Null -> `Assoc []
+          | j -> j
+        in
+        Some (Types.ToolUse { id; name; input })
+      | _ -> None)
+  with Type_error _ -> []
+
+(** Parse a single line as assistant message blocks.  Errors / wrong
+    [type] produce the empty list. *)
+let assistant_blocks_of_line line =
+  try
+    let json = Yojson.Safe.from_string line in
+    if Cli_common_json.member_str "type" json = "assistant" then
+      blocks_of_assistant_message (Yojson.Safe.Util.member "message" json)
+    else []
+  with Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ -> []
+
+let last_assistant_msg lines =
+  let rec loop = function
+    | [] -> None
+    | line :: rest ->
+      (try
+        let json = Yojson.Safe.from_string line in
+        if Cli_common_json.member_str "type" json = "assistant" then
+          Some (Yojson.Safe.Util.member "message" json)
+        else loop rest
+      with Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ -> loop rest)
+  in
+  loop (List.rev lines)
+
+(** Parse stream output into an [api_response] that preserves structured
+    blocks (text, thinking, tool_use) across all assistant lines.  When
+    a terminal "result" line is present, its [stop_reason]/[model]/
+    [session_id]/[usage] are adopted; otherwise metadata is derived
+    from the final assistant line. *)
 let parse_stream_result lines =
+  let assistant_blocks =
+    List.concat_map assistant_blocks_of_line lines in
   let result_line = List.find_opt (fun line ->
     try
       let json = Yojson.Safe.from_string line in
@@ -143,39 +209,46 @@ let parse_stream_result lines =
     with Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ -> false
   ) lines in
   match result_line with
-  | Some line -> parse_json_result line
+  | Some rline ->
+    (try
+      let rjson = Yojson.Safe.from_string rline in
+      if Cli_common_json.member_bool "is_error" rjson then
+        let msg = Cli_common_json.member_str "result" rjson in
+        Error (Http_client.NetworkError {
+          message = Printf.sprintf "Claude Code error: %s" msg })
+      else
+        let model = Cli_common_json.member_str "model" rjson in
+        let session_id = Cli_common_json.member_str "session_id" rjson in
+        let stop_reason =
+          parse_stop_reason (Cli_common_json.member_str "stop_reason" rjson) in
+        let usage = parse_usage rjson in
+        let content =
+          if assistant_blocks <> [] then assistant_blocks
+          else
+            (* No assistant blocks were streamed — fall back to the flat
+               [result] string.  Keeps behaviour backward-compatible with
+               the old [parse_json_result] path. *)
+            [Types.Text (Cli_common_json.member_str "result" rjson)]
+        in
+        Ok { Types.id = session_id; model; stop_reason; content;
+             usage; telemetry = None }
+    with Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ ->
+      Error (Http_client.NetworkError {
+        message = "Failed to parse result line" }))
   | None ->
-    (* Fallback: try to assemble from assistant message *)
-    let assistant_line = List.find_opt (fun line ->
-      try
-        let json = Yojson.Safe.from_string line in
-        Cli_common_json.member_str "type" json = "assistant"
-      with Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ -> false
-    ) lines in
-    (match assistant_line with
-     | Some line ->
-       (try
-         let json = Yojson.Safe.from_string line in
-         let open Yojson.Safe.Util in
-         let msg = json |> member "message" in
-         let content = msg |> member "content" |> to_list
-           |> List.filter_map (fun block ->
-             let t = Cli_common_json.member_str "type" block in
-             let text = Cli_common_json.member_str "text" block in
-             match t with
-             | "text" -> Some (Types.Text text)
-             | _ -> None)
-         in
-         let model = Cli_common_json.member_str "model" msg in
-         let id = Cli_common_json.member_str "id" msg in
-         Ok { Types.id; model; stop_reason = EndTurn; content;
-              usage = parse_usage msg; telemetry = None }
-       with Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ ->
-         Error (Http_client.NetworkError {
-           message = "Failed to parse assistant message" }))
-     | None ->
-       Error (Http_client.NetworkError {
-         message = "No result or assistant message in stream output" }))
+    if assistant_blocks = [] then
+      Error (Http_client.NetworkError {
+        message = "No result or assistant message in stream output" })
+    else
+      let id, model, usage = match last_assistant_msg lines with
+        | Some msg ->
+          (Cli_common_json.member_str "id" msg,
+           Cli_common_json.member_str "model" msg,
+           parse_usage msg)
+        | None -> "", "", None
+      in
+      Ok { Types.id; model; stop_reason = EndTurn;
+           content = assistant_blocks; usage; telemetry = None }
 
 (* ── Transport constructor ───────────────────────────── *)
 
@@ -194,13 +267,34 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
       let prompt = Cli_common_prompt.prompt_of_messages messages in
       let system_prompt =
         Cli_common_prompt.system_prompt_of ~req_config:req.config req.messages in
-      let args = build_args ~config ~req_config:req.config
-        ~prompt ~stream:false ~system_prompt in
-      match run ~sw ~mgr ~config args with
-      | Error _ as e -> { Llm_transport.response = e; latency_ms = 0 }
-      | Ok { stdout; stderr = _; latency_ms } ->
-        let response = parse_json_result (String.trim stdout) in
-        { Llm_transport.response; latency_ms });
+      if config.tool_use_via_stream_json then
+        (* Use stream-json internally so we can aggregate tool_use /
+           thinking blocks.  [--output-format json] flattens these into
+           the [result] string and we'd lose them. *)
+        let args = build_args ~config ~req_config:req.config
+          ~prompt ~stream:true ~system_prompt in
+        let argv = config.claude_path :: args in
+        let seen_lines = ref [] in
+        let on_line line =
+          if String.trim line <> "" then
+            seen_lines := line :: !seen_lines
+        in
+        match Cli_common_subprocess.run_stream_lines ~sw ~mgr
+                ~name:"claude" ~cwd:config.cwd ~extra_env:[]
+                ~on_line ~cancel:None
+                argv with
+        | Error _ as e -> { Llm_transport.response = e; latency_ms = 0 }
+        | Ok { stdout = _; stderr = _; latency_ms } ->
+          let response = parse_stream_result (List.rev !seen_lines) in
+          { Llm_transport.response; latency_ms }
+      else
+        let args = build_args ~config ~req_config:req.config
+          ~prompt ~stream:false ~system_prompt in
+        match run ~sw ~mgr ~config args with
+        | Error _ as e -> { Llm_transport.response = e; latency_ms = 0 }
+        | Ok { stdout; stderr = _; latency_ms } ->
+          let response = parse_json_result (String.trim stdout) in
+          { Llm_transport.response; latency_ms });
 
     complete_stream = (fun ~on_event (req : Llm_transport.completion_request) ->
       let messages = Cli_common_prompt.non_system_messages req.messages in
@@ -336,3 +430,46 @@ let%test "parse_stream_result no messages" =
   match parse_stream_result [] with
   | Error _ -> true
   | Ok _ -> false
+
+let%test "parse_stream_result restores tool_use blocks" =
+  let lines = [
+    {|{"type":"system","subtype":"init","model":"m","session_id":"s1"}|};
+    {|{"type":"assistant","message":{"model":"m","id":"msg1","content":[{"type":"text","text":"using a tool"},{"type":"tool_use","id":"tu_1","name":"calc","input":{"x":1}}],"stop_reason":null,"usage":{}}}|};
+    {|{"type":"result","subtype":"success","is_error":false,"result":"unused","model":"m","stop_reason":"tool_use","session_id":"s1"}|};
+  ] in
+  match parse_stream_result lines with
+  | Ok resp ->
+    resp.stop_reason = Types.StopToolUse
+    && (match resp.content with
+        | [Types.Text "using a tool";
+           Types.ToolUse { id = "tu_1"; name = "calc"; _ }] -> true
+        | _ -> false)
+  | Error _ -> false
+
+let%test "parse_stream_result aggregates across multiple assistant lines" =
+  let lines = [
+    {|{"type":"assistant","message":{"model":"m","id":"msg1","content":[{"type":"text","text":"first"}],"stop_reason":null,"usage":{}}}|};
+    {|{"type":"assistant","message":{"model":"m","id":"msg2","content":[{"type":"tool_use","id":"tu_2","name":"search","input":{"q":"hi"}}],"stop_reason":null,"usage":{}}}|};
+  ] in
+  match parse_stream_result lines with
+  | Ok resp ->
+    (match resp.content with
+     | [Types.Text "first"; Types.ToolUse { name = "search"; _ }] -> true
+     | _ -> false)
+  | Error _ -> false
+
+let%test "parse_stream_result preserves thinking blocks" =
+  let lines = [
+    {|{"type":"assistant","message":{"model":"m","id":"msg1","content":[{"type":"thinking","thinking":"let me think"},{"type":"text","text":"done"}],"stop_reason":null,"usage":{}}}|};
+    {|{"type":"result","subtype":"success","is_error":false,"result":"unused","model":"m","stop_reason":"end_turn","session_id":"s1"}|};
+  ] in
+  match parse_stream_result lines with
+  | Ok resp ->
+    (match resp.content with
+     | [Types.Thinking { content = "let me think"; _ };
+        Types.Text "done"] -> true
+     | _ -> false)
+  | Error _ -> false
+
+let%test "default_config has tool_use_via_stream_json=true" =
+  default_config.tool_use_via_stream_json = true

@@ -26,6 +26,15 @@ type config = {
     (** [--mcp-config] path. *)
   cwd: string option;
     (** Working directory for the subprocess. *)
+  tool_use_via_stream_json: bool;
+    (** When [true] (default), [complete_sync] internally uses
+        [--output-format stream-json] and aggregates the assistant
+        content blocks so [tool_use] / [thinking] survive in the
+        returned {!Types.api_response.content}.  The plain
+        [--output-format json] flattens content into a single
+        [result] string and drops structured blocks.
+
+        @since 0.140.0 *)
 }
 
 (** Sensible defaults: [claude] in PATH, no overrides. *)
