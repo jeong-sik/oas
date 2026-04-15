@@ -717,6 +717,63 @@ let test_repair_partial_orphan () =
   (* Only t2 is orphan → 1 synthetic ToolResult *)
   Alcotest.(check int) "repaired (+1)" 5 (List.length result)
 
+(* --- repair_orphaned_tool_results --- *)
+
+let test_orphaned_results_no_orphans () =
+  let msgs = [
+    user_msg "q";
+    tool_use_msg "t1" "calc";
+    tool_result_msg "t1" "42";
+    asst_msg "done";
+  ] in
+  let result = Context_reducer.reduce Context_reducer.repair_orphaned_tool_results msgs in
+  Alcotest.(check int) "no change" (List.length msgs) (List.length result)
+
+let test_orphaned_results_single () =
+  (* ToolResult without matching ToolUse — orphaned *)
+  let msgs = [
+    user_msg "q";
+    tool_result_msg "t1" "42";
+    asst_msg "done";
+  ] in
+  let result = Context_reducer.reduce Context_reducer.repair_orphaned_tool_results msgs in
+  (* The orphaned ToolResult message should be removed entirely *)
+  Alcotest.(check int) "orphan removed" 2 (List.length result);
+  (match List.hd result with
+   | { Types.content = [Types.Text t]; _ } ->
+     Alcotest.(check string) "first is user" "q" t
+   | _ -> Alcotest.fail "expected user text")
+
+let test_orphaned_results_mixed () =
+  (* User message with both Text and orphaned ToolResult *)
+  let msgs = [
+    user_msg "q";
+    tool_use_msg "t1" "calc";
+    Types.{ role = User; content = [
+      ToolResult { tool_use_id = "t1"; content = "ok"; is_error = false; json = None };
+      ToolResult { tool_use_id = "t2"; content = "orphan"; is_error = false; json = None };
+    ]; name = None; tool_call_id = None };
+    asst_msg "done";
+  ] in
+  let result = Context_reducer.reduce Context_reducer.repair_orphaned_tool_results msgs in
+  Alcotest.(check int) "msg count same" 4 (List.length result);
+  (* The mixed message should only keep t1's result *)
+  (match List.nth result 2 with
+   | { Types.content = [Types.ToolResult { tool_use_id; _ }]; _ } ->
+     Alcotest.(check string) "kept t1" "t1" tool_use_id
+   | _ -> Alcotest.fail "expected single tool result for t1")
+
+let test_orphaned_results_after_compaction () =
+  (* Simulate: compaction dropped ToolUse but left ToolResult *)
+  let msgs = [
+    user_msg "q";
+    asst_msg "I will use a tool";  (* ToolUse was here but got dropped *)
+    tool_result_msg "t1" "result data";
+    asst_msg "based on that result";
+  ] in
+  let result = Context_reducer.reduce Context_reducer.repair_orphaned_tool_results msgs in
+  Alcotest.(check int) "orphan removed" 3 (List.length result)
+
 let () =
   Alcotest.run "Context_reducer" [
     "keep_last_n", [
@@ -795,6 +852,12 @@ let () =
       Alcotest.test_case "single orphan repaired" `Quick test_repair_single_orphan;
       Alcotest.test_case "multiple orphans repaired" `Quick test_repair_multiple_orphans;
       Alcotest.test_case "partial orphan repaired" `Quick test_repair_partial_orphan;
+    ];
+    "repair_orphaned_tool_results", [
+      Alcotest.test_case "no orphans unchanged" `Quick test_orphaned_results_no_orphans;
+      Alcotest.test_case "single orphan removed" `Quick test_orphaned_results_single;
+      Alcotest.test_case "mixed kept and orphan" `Quick test_orphaned_results_mixed;
+      Alcotest.test_case "after compaction" `Quick test_orphaned_results_after_compaction;
     ];
     "edge_cases", [
       Alcotest.test_case "empty messages" `Quick test_empty;

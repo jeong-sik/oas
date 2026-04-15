@@ -21,6 +21,7 @@ type strategy =
   | Prune_tool_outputs of { max_output_len: int }
   | Prune_tool_args of { max_arg_len: int; keep_recent: int }
   | Repair_dangling_tool_calls
+  | Repair_orphaned_tool_results
   | Merge_contiguous
   | Drop_thinking
   | Keep_first_and_last of { first_n: int; last_n: int }
@@ -103,6 +104,13 @@ val token_budget : int -> t
 val prune_tool_outputs : max_output_len:int -> t
 val prune_tool_args : max_arg_len:int -> ?keep_recent:int -> unit -> t
 val repair_dangling_tool_calls : t
+
+(** Remove ToolResult blocks whose tool_use_id has no matching ToolUse.
+    OpenAI-compatible APIs (GLM, Groq, etc.) reject orphaned ToolResults.
+    Complement of [repair_dangling_tool_calls].
+    @since 0.99.2 *)
+val repair_orphaned_tool_results : t
+
 val merge_contiguous : t
 val drop_thinking : t
 val keep_first_and_last : first_n:int -> last_n:int -> t
@@ -154,14 +162,16 @@ val dynamic : (turn:int -> messages:message list -> strategy) -> t
 
 (** Create a reducer from provider capabilities.
     Uses [max_context_tokens * margin] as the token budget (default 80%),
-    composed with [drop_thinking] and [repair_dangling_tool_calls].
+    composed with [drop_thinking], [repair_dangling_tool_calls],
+    and [repair_orphaned_tool_results].
     Returns [None] if [max_context_tokens] is unknown. *)
 val from_capabilities :
   ?margin:float -> Llm_provider.Capabilities.capabilities -> t option
 
 (** Create a reducer from an explicit context budget with configurable thresholds.
     Uses [max_tokens * compact_ratio] as the token budget (default 80%),
-    composed with [drop_thinking] and [repair_dangling_tool_calls].
+    composed with [drop_thinking], [repair_dangling_tool_calls],
+    and [repair_orphaned_tool_results].
 
     @since 0.79.0 *)
 val from_context_config :

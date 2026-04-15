@@ -67,6 +67,7 @@ let allow_test_providers () =
 let default_context_reducer =
   Context_reducer.compose [
     Context_reducer.repair_dangling_tool_calls;
+    Context_reducer.repair_orphaned_tool_results;
     Context_reducer.prune_tool_args ~max_arg_len:2000 ();
     Context_reducer.drop_thinking;
   ]
