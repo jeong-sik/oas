@@ -160,7 +160,7 @@ let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tra
       match Correction_pipeline.run ~schema:tool.schema input with
       | Correction_pipeline.Fixed { corrected; corrections } ->
         if corrections <> [] then
-          Log.info _log "tool %s: correction_pipeline fixed %d field(s)"
+          Log.info _log "correction_pipeline fixed tool input fields"
             [ Log.S ("tool", name);
               Log.I ("fixes", List.length corrections) ];
         Ok corrected
