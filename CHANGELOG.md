@@ -6,6 +6,31 @@ Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
 backfilled on 2026-04-04 from existing git tags. The dates below reflect the
 original tag dates. `0.100.4` was never tagged or released.
 
+## [0.150.0] - 2026-04-16
+
+### Removed (breaking, operator-facing)
+
+**`OAS_OLLAMA_SUPPORTS_TOOL_CHOICE` env var deleted.** The process-wide env knob coupled deployment config to library semantics: a single boolean forced every Ollama-served model into the same `supports_tool_choice` setting, and the SDK silently matched on the runtime environment instead of the caller's declared config. Consumers that want a model-specific override now declare it per-call; see Added below.
+
+Deleted:
+- `Capabilities.parse_ollama_supports_tool_choice_env` (`lib/llm_provider/capabilities.ml`)
+- `Capabilities.ollama_supports_tool_choice_default` (module-init env read)
+- 12 inline `%test` cases exercising the env parser
+- `ollama_capabilities.supports_tool_choice` is now hardcoded `false`; the documented Qwen3.5+Jinja opt-in path is through the new `supports_tool_choice_override` field.
+
+### Added
+
+**`Provider_config.supports_tool_choice_override : bool option`.** Lets the caller declare per-config whether their model honors `tool_choice:required`. `None` falls through to the per-kind default in `Capabilities` and the per-model override in `Capabilities.for_model_id`. `Some b` wins over both.
+
+Rationale: keeps the SDK model-agnostic. The SDK no longer matches on `model_id` substrings ("qwen") to guess model-side behavior — the consumer (e.g. a cascade loader that knows it deployed Qwen3.5 with the Jinja chat template) declares the fact on each `Provider_config.t`.
+
+Consumed by `backend_openai.build_request`: when `supports_tool_choice_override = Some b`, `b` is used instead of the capability record to decide whether the `tool_choice` body field is sent.
+
+### Migration
+
+- Callers that set `OAS_OLLAMA_SUPPORTS_TOOL_CHOICE=1` in deployment: drop the env var, pass `~supports_tool_choice_override:true` to `Provider_config.make` instead (or declare it in your cascade config and thread it through).
+- Callers that did not set the env var: no behavioral change (default was already `false`).
+
 ## [0.148.0] - 2026-04-15
 
 ### Removed (breaking)

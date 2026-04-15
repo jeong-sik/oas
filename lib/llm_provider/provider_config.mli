@@ -41,6 +41,17 @@ type t = {
   disable_parallel_tool_use: bool;
   response_format_json: bool;
   cache_system_prompt: bool;
+  supports_tool_choice_override: bool option;
+  (** Override the registry default for [supports_tool_choice].
+      [None] = use the per-kind default from {!Capabilities}.
+      [Some b] = force [b].
+
+      Kept on this low-level config so cascade consumers (e.g. declaring
+      per-entry capability facts in their own config file) can inject
+      a verified model-side support flag without the SDK matching on
+      [model_id]. The SDK stays model-agnostic; the consumer declares.
+
+      @since 0.150.0 *)
 }
 
 (** Default config for quick construction. Only [kind], [model_id],
@@ -67,6 +78,7 @@ val make :
   ?disable_parallel_tool_use:bool ->
   ?response_format_json:bool ->
   ?cache_system_prompt:bool ->
+  ?supports_tool_choice_override:bool ->
   unit -> t
 
 (** Lowercase string representation of the wire-format kind.
