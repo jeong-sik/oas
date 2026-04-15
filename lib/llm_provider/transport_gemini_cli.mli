@@ -35,6 +35,12 @@ type config = {
   permission_mode: string option;
     (** Accepted for parity; no equivalent flag on [gemini].
         @since 0.140.0 *)
+  cancel: unit Eio.Promise.t option;
+    (** When [Some p] and [p] resolves mid-run, the [gemini]
+        subprocess receives [SIGINT] via [Eio.Process.signal].
+        Default [None].
+
+        @since 0.148.0 *)
 }
 
 (** Sensible defaults: [gemini] in PATH, yolo enabled, no overrides. *)

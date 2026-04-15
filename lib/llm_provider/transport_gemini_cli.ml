@@ -16,6 +16,9 @@ type config = {
   allowed_tools: string list;
   max_turns: int option;
   permission_mode: string option;
+  cancel: unit Eio.Promise.t option;
+    (* When [Some p] and [p] resolves mid-run, the [gemini]
+       subprocess receives [SIGINT].  Default [None]. *)
 }
 
 let default_config = {
@@ -27,6 +30,7 @@ let default_config = {
   allowed_tools = [];
   max_turns = None;
   permission_mode = None;
+  cancel = None;
 }
 
 (* Prompt shaping, JSON helpers, and subprocess orchestration live in the
@@ -128,6 +132,7 @@ let run ~sw ~mgr ~(config : config) argv =
     ~name:"gemini"
     ~cwd:config.cwd
     ~extra_env:[]
+    ?cancel:config.cancel
     argv
 
 (* Fires once per transport instance when any Claude-only config field
