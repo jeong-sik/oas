@@ -35,6 +35,14 @@ type config = {
         [result] string and drops structured blocks.
 
         @since 0.140.0 *)
+  forward_tool_results: bool;
+    (** When [true], prior [ToolUse]/[ToolResult] content blocks in
+        the conversation history are flattened into the CLI prompt so
+        the next turn sees the tool exchange.  Default [false] — the
+        OAS agent loop typically resolves tools itself and feeds only
+        fresh text to the CLI.
+
+        @since 0.146.0 *)
 }
 
 (** Sensible defaults: [claude] in PATH, no overrides. *)
