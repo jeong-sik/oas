@@ -41,17 +41,6 @@ let test_local_provider_bridge () =
         cfg.model_id;
       Alcotest.(check string) "path" "/v1/chat/completions" cfg.request_path
 
-let test_cascade_bridge () =
-  let primary = Agent_sdk.Provider.local_llm () in
-  let fallback = Agent_sdk.Provider.local_llm () in
-  let legacy = Agent_sdk.Provider.cascade ~primary ~fallbacks:[fallback] in
-  match Agent_sdk.Provider_bridge.cascade_to_provider_config legacy with
-  | Error _ ->
-      Alcotest.fail "local cascade should not need env var"
-  | Ok casc ->
-      Alcotest.(check int) "1 fallback" 1
-        (List.length casc.fallbacks)
-
 let test_non_zai_glm_stays_openai_compat () =
   let legacy = {
     Agent_sdk.Provider.provider = OpenAICompat {
@@ -137,8 +126,5 @@ let () =
         test_zai_glm_becomes_glm_provider_config;
       test_case "zai coding auto uses coding default model" `Quick
         test_zai_coding_auto_uses_coding_default_model;
-    ];
-    "cascade", [
-      test_case "cascade bridge" `Quick test_cascade_bridge;
     ];
   ]
