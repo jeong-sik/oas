@@ -17,7 +17,7 @@
 
 type config = {
   storage_dir: string;
-    (** Base directory.  Consumer-provided (e.g. [masc_data_dir]). *)
+    (** Base directory.  Consumer-provided (the application's data root). *)
   session_id: string;
     (** Session identifier.  Used as subdirectory name. *)
   threshold_chars: int;
