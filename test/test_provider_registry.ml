@@ -163,10 +163,10 @@ let test_find_capable_composite () =
 
 (* ── Default registry ───────────────────────────────── *)
 
-let test_default_has_12 () =
+let test_default_has_15 () =
   let reg = Provider_registry.default () in
   let all = Provider_registry.all reg in
-  check int "12 known providers" 12 (List.length all);
+  check int "15 known providers" 15 (List.length all);
   check bool "llama exists" true
     (Option.is_some (Provider_registry.find reg "llama"));
   check bool "ollama exists" true
@@ -189,8 +189,14 @@ let test_default_has_12 () =
     (Option.is_some (Provider_registry.find reg "alibaba"));
   check bool "siliconflow exists" true
     (Option.is_some (Provider_registry.find reg "siliconflow"));
+  check bool "claude_code exists" true
+    (Option.is_some (Provider_registry.find reg "claude_code"));
   check bool "cc exists" true
-    (Option.is_some (Provider_registry.find reg "cc"))
+    (Option.is_some (Provider_registry.find reg "cc"));
+  check bool "gemini_cli exists" true
+    (Option.is_some (Provider_registry.find reg "gemini_cli"));
+  check bool "codex_cli exists" true
+    (Option.is_some (Provider_registry.find reg "codex_cli"))
 
 let test_default_capabilities () =
   let reg = Provider_registry.default () in
@@ -336,7 +342,7 @@ let () =
       test_case "requires_any" `Quick test_requires_any;
     ];
     "default", [
-      test_case "has 12 providers" `Quick test_default_has_12;
+      test_case "has 15 providers" `Quick test_default_has_15;
       test_case "correct capabilities" `Quick test_default_capabilities;
       test_case "max_context values" `Quick test_default_max_context;
       test_case "zai base urls" `Quick test_default_zai_base_urls;
