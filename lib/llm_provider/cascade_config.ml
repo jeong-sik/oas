@@ -244,7 +244,6 @@ let parse_model_strings
 
 (* Health filtering (extracted to Cascade_health_filter) *)
 let is_local_provider = Cascade_health_filter.is_local_provider
-let filter_healthy_internal = Cascade_health_filter.filter_healthy_internal
 let filter_healthy = Cascade_health_filter.filter_healthy
 
 (* ── Context window resolution ──────────────────────────── *)
@@ -547,9 +546,6 @@ let expand_model_strings_for_execution (items : string list) =
   |> List.concat_map expand_one
   |> dedupe_stable
 
-(* Cascade execution (extracted to Cascade_executor) *)
-let complete_cascade_with_accept = Cascade_executor.complete_cascade_with_accept
-
 (* Filter providers by kind name (exact, case-insensitive).
    Valid filter values: "ollama", "glm", "anthropic", "gemini", "openai_compat", "claude_code".
    Empty/None filter passes through unchanged. No-match falls back to unfiltered. *)
@@ -570,183 +566,6 @@ let apply_provider_filter ~provider_filter ~label providers =
           Provider_config.string_of_provider_kind p.kind) providers));
       providers)
     else filtered
-
-let complete_named ~sw ~net ?clock ?config_path
-    ~name ~defaults ~messages
-    ?(tools = [])
-    ?(temperature = Constants.Inference.default_temperature)
-    ?(max_tokens = Constants.Inference.default_max_tokens)
-    ?system_prompt ?tool_choice ?(accept = fun _ -> true) ?accept_reason
-    ?(strict_name = false)
-    ?(accept_on_exhaustion = false)
-    ?timeout_sec ?cache ?metrics ?throttle ?priority ?provider_filter () =
-  let accept_result =
-    match accept_reason with
-    | Some validator -> validator
-    | None ->
-      fun response ->
-        if accept response
-        then Ok ()
-        else Error "response rejected by accept validator"
-  in
-  let model_strings, source =
-    resolve_model_strings_traced ?config_path ~name ~defaults ()
-  in
-  let model_strings = expand_model_strings_for_execution model_strings in
-  (* Log resolved cascade order — useful for debugging weighted shuffle *)
-  (match model_strings with
-   | _ :: _ :: _ ->
-     Diag.debug "cascade_config" "cascade '%s' order: [%s] (source=%s)"
-       name (String.concat "; " model_strings)
-       (match source with Named -> "named" | Default_fallback -> "default"
-        | Hardcoded_defaults -> "hardcoded")
-   | _ -> ());
-  if strict_name && source <> Named then
-    Error (Http_client.NetworkError {
-        message =
-          Printf.sprintf
-            "Cascade '%s' not found in config (resolved via %s)"
-            name (match source with
-                  | Named -> "named"
-                  | Default_fallback -> "default_fallback"
-                  | Hardcoded_defaults -> "hardcoded_defaults")
-      })
-  else
-  (* Sync discovery state before parsing so that endpoint_for_model can
-     route llama:model_id to the correct endpoint. Without this, the
-     model_endpoints atomic is empty and all llama models fall back to
-     round-robin, which may route to a server without that model. #677 *)
-  let _discovery_statuses =
-    let endpoints = Discovery.endpoints_from_env () in
-    if endpoints <> [] then
-      Discovery.refresh_and_sync ~sw ~net ~endpoints
-    else []
-  in
-  (* Resolve per-cascade api_key_env overrides from config *)
-  let api_key_env_overrides =
-    match config_path with
-    | Some path -> resolve_api_key_env ~config_path:path ~name
-    | None -> []
-  in
-  let providers =
-    let parsed = parse_model_strings ~temperature ~max_tokens ?system_prompt
-        ~api_key_env_overrides model_strings in
-    (* Propagate tool_choice to each provider config so it reaches the
-       HTTP body (e.g. "tool_choice": "required" for OpenAI-compatible).
-       Without this, tool_choice from Agent hooks is lost in cascade. *)
-    let with_tc = match tool_choice with
-      | Some tc -> List.map (fun (p : Provider_config.t) -> { p with tool_choice = Some tc }) parsed
-      | None -> parsed
-    in
-    apply_provider_filter ~provider_filter ~label:"named" with_tc
-  in
-  if providers = [] then
-    Error (Http_client.NetworkError {
-        message =
-          Printf.sprintf
-            "No callable models for cascade '%s'. Tried: [%s]"
-            name (String.concat "; " model_strings)
-      })
-  else
-    let healthy_providers, local_statuses =
-      filter_healthy_internal ~sw ~net providers
-    in
-    populate_throttle_table local_statuses;
-    if healthy_providers = [] then
-      Error (Http_client.NetworkError {
-          message =
-            Printf.sprintf
-              "All providers unhealthy for cascade '%s'" name
-        })
-    else
-      let run () =
-        complete_cascade_with_accept ~sw ~net ?clock ?cache ?metrics
-          ?throttle ?priority ~accept:accept_result ~accept_on_exhaustion
-          healthy_providers ~messages ~tools
-      in
-      match clock, timeout_sec with
-      | Some clk, Some secs when secs > 0 ->
-        (try Eio.Time.with_timeout_exn clk (float_of_int secs) run
-         with Eio.Time.Timeout ->
-           Error (Http_client.NetworkError {
-               message =
-                 Printf.sprintf
-                   "Cascade '%s' timed out after %ds" name secs
-             }))
-      | _ -> run ()
-
-let complete_cascade_stream = Cascade_executor.complete_cascade_stream
-
-let complete_named_stream ~sw ~net ?clock ?config_path
-    ~name ~defaults ~messages
-    ?(tools = [])
-    ?(temperature = Constants.Inference.default_temperature)
-    ?(max_tokens = Constants.Inference.default_max_tokens)
-    ?system_prompt ?tool_choice ?(strict_name = false)
-    ?timeout_sec ?metrics ?priority ?provider_filter ~on_event () =
-  let model_strings, source =
-    resolve_model_strings_traced ?config_path ~name ~defaults ()
-  in
-  let model_strings = expand_model_strings_for_execution model_strings in
-  (* Log resolved cascade order — useful for debugging weighted shuffle *)
-  (match model_strings with
-   | _ :: _ :: _ ->
-     Diag.debug "cascade_config" "cascade '%s' order: [%s] (source=%s)"
-       name (String.concat "; " model_strings)
-       (match source with Named -> "named" | Default_fallback -> "default"
-        | Hardcoded_defaults -> "hardcoded")
-   | _ -> ());
-  if strict_name && source <> Named then
-    Error (Http_client.NetworkError {
-      message = Printf.sprintf
-        "Streaming cascade '%s' not found in config (resolved via %s)"
-        name (match source with
-              | Named -> "named"
-              | Default_fallback -> "default_fallback"
-              | Hardcoded_defaults -> "hardcoded_defaults") })
-  else
-  (* Resolve per-cascade api_key_env overrides from config *)
-  let api_key_env_overrides =
-    match config_path with
-    | Some path -> resolve_api_key_env ~config_path:path ~name
-    | None -> []
-  in
-  let providers =
-    let parsed = parse_model_strings ~temperature ~max_tokens ?system_prompt
-        ~api_key_env_overrides model_strings in
-    let with_tc = match tool_choice with
-      | Some tc -> List.map (fun (p : Provider_config.t) -> { p with tool_choice = Some tc }) parsed
-      | None -> parsed
-    in
-    apply_provider_filter ~provider_filter ~label:"stream" with_tc
-  in
-  if providers = [] then
-    Error (Http_client.NetworkError {
-      message = Printf.sprintf
-        "No callable models for streaming cascade '%s'. Tried: [%s]"
-        name (String.concat "; " model_strings) })
-  else
-    let healthy_providers, local_statuses =
-      filter_healthy_internal ~sw ~net providers
-    in
-    populate_throttle_table local_statuses;
-    if healthy_providers = [] then
-      Error (Http_client.NetworkError {
-        message = Printf.sprintf
-          "All providers unhealthy for streaming cascade '%s'" name })
-    else
-      let run () =
-        complete_cascade_stream ~sw ~net ?metrics ?priority
-          healthy_providers ~messages ~tools ~on_event
-      in
-      match clock, timeout_sec with
-      | Some clk, Some secs when secs > 0 ->
-        (try Eio.Time.with_timeout_exn clk (float_of_int secs) run
-         with Eio.Time.Timeout ->
-           Error (Http_client.NetworkError {
-             message = Printf.sprintf
-               "Streaming cascade '%s' timed out after %ds" name secs }))
-      | _ -> run ()
 
 (* ── Local Capacity Query ──────────────────────────────── *)
 
