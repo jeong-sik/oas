@@ -6,6 +6,27 @@ Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
 backfilled on 2026-04-04 from existing git tags. The dates below reflect the
 original tag dates. `0.100.4` was never tagged or released.
 
+## [0.144.0] - 2026-04-15
+
+### Removed (breaking)
+
+- `Cascade_executor` module deleted (839 lines). Zero remaining callers
+  after Judge and Tool_selector migrated to single-provider in 0.142.0
+  and 0.143.0. Callers that need multi-provider failover drive their
+  own loop around `Complete.complete` (MASC's `oas_worker_named.ml`
+  `try_cascade` is the reference pattern).
+
+### Internal
+
+- Stale docstring references to `Cascade_executor` removed from
+  `Context_reducer`, `Text_estimate`, and `test_complete_http`.
+
+Note: `Cascade_config`, `Cascade_fsm`, `Cascade_health_tracker`,
+`Cascade_health_filter`, `Cascade_throttle`, `Cascade_model_resolve`
+remain for this release — they are SDK utilities that MASC still
+consumes directly. A follow-up PR moves them into MASC and removes
+them from OAS entirely (MAJOR bump).
+
 ## [0.143.0] - 2026-04-15
 
 ### Changed (breaking)

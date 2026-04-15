@@ -4,7 +4,6 @@
     needs to size a text budget without invoking an actual tokenizer:
 
     - [Context_reducer] (lib/): message-level budget reduction
-    - [Cascade_executor] (lib/llm_provider/): per-request context trimming
     - [Mcp.truncate_output] (lib/protocol/): tool-output cap
 
     Lives in [lib/llm_provider/] so both [agent_sdk] (lib/) and

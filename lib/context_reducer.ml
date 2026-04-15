@@ -43,10 +43,10 @@ type importance_boost = message -> float option
 
 (** CJK-aware token estimation. Delegates to
     {!Llm_provider.Text_estimate.estimate_char_tokens}, which is the
-    canonical implementation shared with [Cascade_executor] and
-    [Mcp.truncate_output]. Kept as a top-level binding here so existing
-    call sites like [Context_reducer.estimate_char_tokens] continue to
-    work without renaming. *)
+    canonical implementation shared with [Mcp.truncate_output]. Kept
+    as a top-level binding here so existing call sites like
+    [Context_reducer.estimate_char_tokens] continue to work without
+    renaming. *)
 let estimate_char_tokens = Llm_provider.Text_estimate.estimate_char_tokens
 
 (** Estimate tokens for a single content block.
