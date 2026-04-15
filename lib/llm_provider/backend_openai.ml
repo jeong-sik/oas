@@ -161,9 +161,12 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
      on [None]. Both defaults are intentional and contextual, not
      drift. *)
   let supports_tool_choice =
-    match Capabilities.for_model_id config.model_id with
-    | Some c -> c.supports_tool_choice
-    | None -> true
+    match config.supports_tool_choice_override with
+    | Some v -> v
+    | None ->
+      (match Capabilities.for_model_id config.model_id with
+       | Some c -> c.supports_tool_choice
+       | None -> true)
   in
   let body = match effective_tool_choice config with
     | Some choice_json when supports_tool_choice ->
@@ -837,3 +840,28 @@ let%test "build_request omits tool_choice when tool_choice=None" =
   match json with
   | `Assoc fields -> not (List.exists (fun (k, _) -> k = "tool_choice") fields)
   | _ -> false
+
+let%test "supports_tool_choice_override=Some false drops tool_choice on unknown model" =
+  (* Unknown model_id defaults to supports_tool_choice=true. Override
+     to Some false must take precedence and drop the tool_choice field. *)
+  let config = Provider_config.make ~kind:OpenAI_compat ~model_id:"mystery-xyz-v1"
+      ~base_url:"http://localhost" ~tool_choice:Any
+      ~supports_tool_choice_override:false () in
+  let body = build_request ~config ~messages:[] () in
+  let json = Yojson.Safe.from_string body in
+  match json with
+  | `Assoc fields -> not (List.exists (fun (k, _) -> k = "tool_choice") fields)
+  | _ -> false
+
+let%test "supports_tool_choice_override=Some true forces tool_choice on capability-false model" =
+  (* min-p-disabled glm-5.1 has supports_tool_choice=true in its capability
+     record, so override flipping the other direction needs a model where
+     the capability record says false. Use mystery model with override
+     to simulate a verified-supports-it scenario. *)
+  let config = Provider_config.make ~kind:OpenAI_compat ~model_id:"mystery-xyz-v1"
+      ~base_url:"http://localhost" ~tool_choice:Any
+      ~supports_tool_choice_override:true () in
+  let body = build_request ~config ~messages:[] () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  json |> member "tool_choice" |> to_string = "required"

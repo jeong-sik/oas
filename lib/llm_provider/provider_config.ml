@@ -33,6 +33,7 @@ type t = {
   disable_parallel_tool_use: bool;
   response_format_json: bool;
   cache_system_prompt: bool;
+  supports_tool_choice_override: bool option;
 }
 
 let make ~kind ~model_id ~base_url
@@ -43,7 +44,8 @@ let make ~kind ~model_id ~base_url
     ?clear_thinking ?(tool_stream=false)
     ?tool_choice ?(disable_parallel_tool_use=false)
     ?(response_format_json=false)
-    ?(cache_system_prompt=false) () =
+    ?(cache_system_prompt=false)
+    ?supports_tool_choice_override () =
   let request_path = match request_path with
     | Some p -> p
     | None -> match kind with
@@ -59,7 +61,7 @@ let make ~kind ~model_id ~base_url
     system_prompt; enable_thinking; thinking_budget; clear_thinking;
     tool_stream;
     tool_choice; disable_parallel_tool_use; response_format_json;
-    cache_system_prompt }
+    cache_system_prompt; supports_tool_choice_override }
 
 (** Lowercase string representation of the wire-format kind.
     Exhaustive match: adding a new variant triggers a compile error.

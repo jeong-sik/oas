@@ -770,6 +770,7 @@ let%test "gemini_url sync no api_key" =
     clear_thinking = None; tool_stream = false;
     tool_choice = None; disable_parallel_tool_use = false;
     response_format_json = false; cache_system_prompt = false;
+    supports_tool_choice_override = None;
   } in
   let url = gemini_url ~config ~stream:false in
   url = "https://gen.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
@@ -786,6 +787,7 @@ let%test "gemini_url sync with api_key" =
     clear_thinking = None; tool_stream = false;
     tool_choice = None; disable_parallel_tool_use = false;
     response_format_json = false; cache_system_prompt = false;
+    supports_tool_choice_override = None;
   } in
   let url = gemini_url ~config ~stream:false in
   url = "https://gen.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=mykey"
@@ -802,6 +804,7 @@ let%test "gemini_url stream with api_key" =
     clear_thinking = None; tool_stream = false;
     tool_choice = None; disable_parallel_tool_use = false;
     response_format_json = false; cache_system_prompt = false;
+    supports_tool_choice_override = None;
   } in
   let url = gemini_url ~config ~stream:true in
   url = "https://gen.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?key=mykey&alt=sse"
@@ -818,6 +821,7 @@ let%test "gemini_url stream no api_key" =
     clear_thinking = None; tool_stream = false;
     tool_choice = None; disable_parallel_tool_use = false;
     response_format_json = false; cache_system_prompt = false;
+    supports_tool_choice_override = None;
   } in
   let url = gemini_url ~config ~stream:true in
   url = "https://gen.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse"
