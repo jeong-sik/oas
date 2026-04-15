@@ -6,6 +6,41 @@ Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
 backfilled on 2026-04-04 from existing git tags. The dates below reflect the
 original tag dates. `0.100.4` was never tagged or released.
 
+## [0.142.0] - 2026-04-15
+
+### Changed (breaking)
+
+- `Judge.judge` now takes `~provider:Provider_config.t` instead of
+  resolving a named cascade internally. OAS no longer owns cascade
+  orchestration — callers that want multi-provider failover pick a
+  single `Provider_config.t` per call (MASC selects from `cascade.json`
+  and passes the winner).
+- `Judge.judge_config` dropped `cascade_name` and `max_turns` fields.
+  `max_turns` was dead (single-turn evaluation is the only mode);
+  `cascade_name` belongs in the orchestrator, not in OAS.
+- `Judge.judge` dropped `?clock` and `?config_path` parameters.
+  Single-provider calls do not retry with backoff and do not read
+  `cascade.json`.
+
+### Migration
+
+Before:
+```ocaml
+let cfg = { Judge.default_config () with cascade_name = "my-judge" } in
+Judge.judge ~sw ~net ?clock ?config_path ~config:cfg ~context ()
+```
+
+After:
+```ocaml
+(* Caller resolves one provider from whatever source (cascade.json,
+   a static value, etc.) and passes it in. *)
+let provider = (* ... *) in
+let cfg = Judge.default_config () in
+Judge.judge ~sw ~net ~provider ~config:cfg ~context ()
+```
+
+Rationale: cascade is MASC's responsibility. OAS is a single-provider SDK.
+
 ## [0.140.0] - 2026-04-15
 
 ### Removed (breaking)

@@ -94,10 +94,8 @@ let test_parse_null_action () =
 
 let test_default_config () =
   let cfg = Judge.default_config () in
-  Alcotest.(check string) "cascade_name" "judge" cfg.cascade_name;
   Alcotest.(check (float 0.001)) "temperature" 0.2 cfg.temperature;
   Alcotest.(check int) "max_tokens" 2048 cfg.max_tokens;
-  Alcotest.(check int) "max_turns" 1 cfg.max_turns;
   Alcotest.(check bool) "output_schema is None"
     true (Option.is_none cfg.output_schema)
 
