@@ -235,6 +235,134 @@ let test_importance_scored_boost_preserves_message () =
     Alcotest.(check string) "boosted text kept" "[KEEP] anchor" (Types.text_of_message msg)
   | _ -> Alcotest.fail "unexpected boosted result"
 
+(* --- cap_message_tokens pair preservation --- *)
+
+(* Build an assistant message with mixed Text/ToolUse blocks.
+   Text blocks are each ~4*len characters to force truncation. *)
+let big_text_block () = Types.Text (String.make 1000 'x')
+
+let test_cap_preserves_tool_use () =
+  (* Assistant with two ToolUse ids and many filler text blocks.
+     With max_tokens=100 the filler should be truncated but the
+     ToolUse blocks must remain so the following tool_result stays
+     paired. *)
+  let mixed_content = [
+    big_text_block ();
+    Types.ToolUse { id = "call_A"; name = "tool_a"; input = `Null };
+    big_text_block ();
+    Types.ToolUse { id = "call_B"; name = "tool_b"; input = `Null };
+    big_text_block ();
+  ] in
+  let msgs = [
+    user_msg "q"; (* turn0 user *)
+    Types.{ role = Assistant; content = mixed_content;
+            name = None; tool_call_id = None };
+    tool_result_msg "call_A" "ra";  (* user + result *)
+    tool_result_msg "call_B" "rb";
+    asst_msg "done";                (* final assistant, forces keep_recent to skip turn0 *)
+    user_msg "extra turn";
+    asst_msg "padding";
+  ] in
+  let result =
+    Context_reducer.reduce
+      (Context_reducer.cap_message_tokens ~max_tokens:100 ~keep_recent:1)
+      msgs
+  in
+  (* Locate the capped assistant message (2nd message, still index 1). *)
+  let capped_asst = List.nth result 1 in
+  let tool_use_ids =
+    List.filter_map (function
+      | Types.ToolUse { id; _ } -> Some id
+      | _ -> None)
+      capped_asst.content
+  in
+  Alcotest.(check (list string)) "both ToolUse ids kept"
+    ["call_A"; "call_B"] tool_use_ids
+
+let test_cap_preserves_tool_result () =
+  (* A user message packing a ToolResult with inert text noise.
+     Cap must keep the ToolResult, dropping only text. *)
+  let mixed_content = [
+    big_text_block ();
+    Types.ToolResult { tool_use_id = "call_keep"; content = "r";
+                       is_error = false; json = None };
+    big_text_block ();
+  ] in
+  let msgs = [
+    tool_use_msg "call_keep" "tool_a";
+    Types.{ role = User; content = mixed_content;
+            name = None; tool_call_id = None };
+    asst_msg "follow"; user_msg "q"; asst_msg "a";
+  ] in
+  let result =
+    Context_reducer.reduce
+      (Context_reducer.cap_message_tokens ~max_tokens:100 ~keep_recent:1)
+      msgs
+  in
+  let capped_user = List.nth result 1 in
+  let has_result =
+    List.exists (function
+      | Types.ToolResult { tool_use_id = "call_keep"; _ } -> true
+      | _ -> false)
+      capped_user.content
+  in
+  Alcotest.(check bool) "ToolResult survives cap" true has_result
+
+let test_cap_truncates_text_only () =
+  (* Confirm that truncation happens (output content differs) but
+     ToolUse/ToolResult counts are preserved. *)
+  let asst_content = [
+    big_text_block (); big_text_block ();
+    Types.ToolUse { id = "c1"; name = "t"; input = `Null };
+    big_text_block (); big_text_block ();
+  ] in
+  let msgs = [
+    user_msg "q";
+    Types.{ role = Assistant; content = asst_content;
+            name = None; tool_call_id = None };
+    tool_result_msg "c1" "ok";
+    user_msg "q2"; asst_msg "a2";
+  ] in
+  let result =
+    Context_reducer.reduce
+      (Context_reducer.cap_message_tokens ~max_tokens:80 ~keep_recent:1)
+      msgs
+  in
+  let capped = List.nth result 1 in
+  let tool_uses =
+    List.filter (function Types.ToolUse _ -> true | _ -> false)
+      capped.content
+  in
+  Alcotest.(check int) "ToolUse count preserved" 1 (List.length tool_uses);
+  Alcotest.(check bool) "some blocks dropped"
+    true (List.length capped.content < List.length asst_content)
+
+let test_cap_mandatory_overflow_returns_as_is () =
+  (* When mandatory (ToolUse/ToolResult) tokens alone exceed
+     max_tokens, the message should be returned untouched rather
+     than producing an orphan. *)
+  let heavy_tool_input =
+    `Assoc [("k", `String (String.make 2000 'y'))]
+  in
+  let asst_content = [
+    Types.ToolUse { id = "big"; name = "t"; input = heavy_tool_input };
+  ] in
+  let msgs = [
+    user_msg "q";
+    Types.{ role = Assistant; content = asst_content;
+            name = None; tool_call_id = None };
+    tool_result_msg "big" "ok";
+    user_msg "q2"; asst_msg "a2";
+  ] in
+  let result =
+    Context_reducer.reduce
+      (Context_reducer.cap_message_tokens ~max_tokens:50 ~keep_recent:1)
+      msgs
+  in
+  let asst = List.nth result 1 in
+  Alcotest.(check int) "untouched when mandatory overflows"
+    1 (List.length asst.content)
+
 (* --- edge cases --- *)
 
 let test_empty () =
@@ -858,6 +986,12 @@ let () =
       Alcotest.test_case "single orphan removed" `Quick test_orphaned_results_single;
       Alcotest.test_case "mixed kept and orphan" `Quick test_orphaned_results_mixed;
       Alcotest.test_case "after compaction" `Quick test_orphaned_results_after_compaction;
+    ];
+    "cap_message_tokens_pair_preserving", [
+      Alcotest.test_case "tool_use never dropped" `Quick test_cap_preserves_tool_use;
+      Alcotest.test_case "tool_result never dropped" `Quick test_cap_preserves_tool_result;
+      Alcotest.test_case "text truncated, pairs kept" `Quick test_cap_truncates_text_only;
+      Alcotest.test_case "mandatory exceeds budget returns as-is" `Quick test_cap_mandatory_overflow_returns_as_is;
     ];
     "edge_cases", [
       Alcotest.test_case "empty messages" `Quick test_empty;
