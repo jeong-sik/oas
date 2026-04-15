@@ -23,6 +23,9 @@ type config = {
   allowed_tools: string list;
   max_turns: int option;
   permission_mode: string option;
+  cancel: unit Eio.Promise.t option;
+    (* When [Some p] and [p] resolves mid-run, the [codex]
+       subprocess receives [SIGINT].  Default [None]. *)
 }
 
 let default_config = {
@@ -32,6 +35,7 @@ let default_config = {
   allowed_tools = [];
   max_turns = None;
   permission_mode = None;
+  cancel = None;
 }
 
 (* Prompt shaping, JSON helpers, and subprocess orchestration live in the
@@ -154,7 +158,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
       in
       match Cli_common_subprocess.run_stream_lines ~sw ~mgr
               ~name:"codex" ~cwd:config.cwd ~extra_env:[]
-              ~on_line ~cancel:None
+              ~on_line ?cancel:config.cancel
               argv with
       | Error _ as e -> { Llm_transport.response = e; latency_ms = 0 }
       | Ok { stdout = _; stderr = _; latency_ms } ->
@@ -175,7 +179,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
       in
       match Cli_common_subprocess.run_stream_lines ~sw ~mgr
               ~name:"codex" ~cwd:config.cwd ~extra_env:[]
-              ~on_line ~cancel:None
+              ~on_line ?cancel:config.cancel
               argv with
       | Error _ as e -> e
       | Ok _ ->

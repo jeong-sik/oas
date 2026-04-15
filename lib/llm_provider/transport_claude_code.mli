@@ -43,6 +43,13 @@ type config = {
         fresh text to the CLI.
 
         @since 0.146.0 *)
+  cancel: unit Eio.Promise.t option;
+    (** When [Some p] and [p] resolves mid-run, the [claude]
+        subprocess receives [SIGINT] via [Eio.Process.signal].
+        Applied to every call served by this transport instance.
+        Default [None].
+
+        @since 0.148.0 *)
 }
 
 (** Sensible defaults: [claude] in PATH, no overrides. *)

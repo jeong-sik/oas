@@ -22,6 +22,10 @@ type config = {
        next turn sees the tool exchange.  Default [false] — the agent
        loop typically resolves tools itself and feeds only fresh text
        to the CLI. *)
+  cancel: unit Eio.Promise.t option;
+    (* When [Some p] and [p] is resolved mid-run, the [claude]
+       subprocess receives [SIGINT].  Applied to every call served
+       by the transport instance.  Default [None]. *)
 }
 
 let default_config = {
@@ -34,6 +38,7 @@ let default_config = {
   cwd = None;
   tool_use_via_stream_json = true;
   forward_tool_results = false;
+  cancel = None;
 }
 
 (* Prompt shaping, JSON helpers, and subprocess orchestration live in the
@@ -264,6 +269,7 @@ let run ~sw ~mgr ~(config : config) args =
     ~name:"claude"
     ~cwd:config.cwd
     ~extra_env:[]
+    ?cancel:config.cancel
     (config.claude_path :: args)
 
 let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
@@ -289,7 +295,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
         in
         match Cli_common_subprocess.run_stream_lines ~sw ~mgr
                 ~name:"claude" ~cwd:config.cwd ~extra_env:[]
-                ~on_line ~cancel:None
+                ~on_line ?cancel:config.cancel
                 argv with
         | Error _ as e -> { Llm_transport.response = e; latency_ms = 0 }
         | Ok { stdout = _; stderr = _; latency_ms } ->
@@ -325,7 +331,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
               ~cwd:config.cwd
               ~extra_env:[]
               ~on_line
-              ~cancel:None
+              ?cancel:config.cancel
               argv with
       | Error _ as e -> e
       | Ok _ ->
