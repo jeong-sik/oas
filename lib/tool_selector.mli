@@ -62,8 +62,8 @@ type strategy =
           If this function raises, the selector falls back to BM25 top-k
           (self-healing). Invalid names in the return are silently dropped.
 
-          Use {!default_rerank_fn} for a ready-made implementation via
-          {!Cascade_config.complete_named}. *)
+          Use {!default_rerank_fn} for a ready-made implementation against
+          a single {!Llm_provider.Provider_config.t}. *)
     }
     (** 2-stage LLM-based selection: BM25 pre-filter then LLM reranking.
 
@@ -144,17 +144,20 @@ val auto : tools:Tool.t list -> strategy
 
 (** Construct a rerank closure for use with [TopK_llm].
 
-    Uses {!Cascade_config.complete_named} for the LLM call.
-    Captures [sw] and [net] in the closure -- must be called inside
-    [Eio.Switch.run]. On LLM failure, returns candidates in BM25
-    score order (graceful degradation).
+    Uses {!Llm_provider.Complete.complete} against a single provider
+    for the LLM call. Captures [sw] and [net] in the closure -- must
+    be called inside [Eio.Switch.run]. On LLM failure, returns
+    candidates in BM25 score order (graceful degradation).
+
+    Cascade is not OAS's responsibility. Callers that want multi-
+    provider failover resolve the winning provider externally (e.g.
+    from [cascade.json] in MASC) and pass it here.
 
     Usage:
     {[
       Eio.Switch.run @@ fun sw ->
         let rerank = Tool_selector.default_rerank_fn
-          ~sw ~net ~cascade_name:"tool_selector"
-          ~defaults:["llama:auto"] ~k:5 () in
+          ~sw ~net ~provider:some_provider ~k:5 () in
         let agent = Builder.create ~net ~model
           |> Builder.with_tool_selector
                (TopK_llm { k = 5; bm25_prefilter_n = 20;
@@ -167,14 +170,12 @@ val auto : tools:Tool.t list -> strategy
 
     @since 0.101.0
     @since 0.125.0 Replaced [named_cascade] parameter with individual
-      [cascade_name], [defaults], [?config_path]. *)
+      [cascade_name], [defaults], [?config_path].
+    @since 0.142.0 Single-provider API. Cascade removed. *)
 val default_rerank_fn :
   sw:Eio.Switch.t ->
   net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
-  ?clock:_ Eio.Time.clock ->
-  ?config_path:string ->
-  cascade_name:string ->
-  defaults:string list ->
+  provider:Llm_provider.Provider_config.t ->
   k:int ->
   unit ->
   (context:string -> candidates:(string * string) list -> string list)
