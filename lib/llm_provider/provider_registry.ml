@@ -281,18 +281,52 @@ let default () =
                max_context = 262_144;
                capabilities = Capabilities.ollama_capabilities;
                is_available = (fun () -> true) };
-  (* Claude Code subprocess — always available if claude is in PATH *)
-  let cc_defaults = {
+  (* CLI subprocess providers. Exposed under explicit provider labels so
+     cascade/model specs can opt into the non-interactive transports
+     without reusing the direct API names. *)
+  let claude_code_defaults = {
     kind = Claude_code;
     base_url = "";
     api_key_env = "";
     request_path = "";
   } in
-  let cc_available =
+  let claude_code_available =
     let cached = command_in_path "claude" in
     fun () -> cached
   in
-  register t { name = "cc"; defaults = cc_defaults; max_context = 200_000;
+  let gemini_cli_defaults = {
+    kind = Gemini_cli;
+    base_url = "";
+    api_key_env = "";
+    request_path = "";
+  } in
+  let gemini_cli_available =
+    let cached = command_in_path "gemini" in
+    fun () -> cached
+  in
+  let codex_cli_defaults = {
+    kind = Codex_cli;
+    base_url = "";
+    api_key_env = "";
+    request_path = "";
+  } in
+  let codex_cli_available =
+    let cached = command_in_path "codex" in
+    fun () -> cached
+  in
+  register t { name = "claude_code"; defaults = claude_code_defaults;
+               max_context = 200_000;
                capabilities = Capabilities.claude_code_capabilities;
-               is_available = cc_available };
+               is_available = claude_code_available };
+  register t { name = "cc"; defaults = claude_code_defaults; max_context = 200_000;
+               capabilities = Capabilities.claude_code_capabilities;
+               is_available = claude_code_available };
+  register t { name = "gemini_cli"; defaults = gemini_cli_defaults;
+               max_context = 1_000_000;
+               capabilities = Capabilities.gemini_cli_capabilities;
+               is_available = gemini_cli_available };
+  register t { name = "codex_cli"; defaults = codex_cli_defaults;
+               max_context = 128_000;
+               capabilities = Capabilities.codex_cli_capabilities;
+               is_available = codex_cli_available };
   t

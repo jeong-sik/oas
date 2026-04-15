@@ -76,10 +76,10 @@ let build_args ~(config : config) ~(req_config : Provider_config.t)
   let add a = args := !args @ a in
   add ["--output-format"; if stream then "stream-json" else "json"];
   if stream then add ["--verbose"];
-  (* Model: prefer req_config.model_id, then config.model *)
-  let model = match req_config.model_id with
-    | "" -> config.model
-    | m -> Some m
+  (* "auto" means "use the CLI's configured default", so omit [--model]. *)
+  let model = match String.trim req_config.model_id |> String.lowercase_ascii with
+    | "" | "auto" -> config.model
+    | _ -> Some req_config.model_id
   in
   (match model with Some m -> add ["--model"; m] | None -> ());
   (match system_prompt with Some s -> add ["--system-prompt"; s] | None -> ());
@@ -361,6 +361,12 @@ let%test "non_system_messages filters system" =
   ] in
   let filtered = non_system_messages msgs in
   List.length filtered = 1
+
+let%test "build_args omits auto model override" =
+  let args = build_args ~config:default_config
+    ~req_config:(Provider_config.make ~kind:Claude_code ~model_id:"auto" ~base_url:"" ())
+    ~prompt:"hello" ~stream:false ~system_prompt:None in
+  not (List.mem "--model" args)
 
 let%test "parse_json_result success" =
   let json = {|{"type":"result","subtype":"success","is_error":false,"result":"hello world","model":"claude-sonnet-4","stop_reason":"end_turn","session_id":"s1","duration_api_ms":100}|} in
