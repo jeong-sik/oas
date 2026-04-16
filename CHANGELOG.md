@@ -6,6 +6,16 @@ Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
 backfilled on 2026-04-04 from existing git tags. The dates below reflect the
 original tag dates. `0.100.4` was never tagged or released.
 
+## [0.153.0] - 2026-04-17
+
+### Changed
+
+**`Budget_strategy.default_summarizer` is now exported in `budget_strategy.mli`.** Previously it was only used internally as the fallback for `strategies_for_phase` and `reduce_for_budget` when no custom `summarizer` was supplied. With the 0.152.0 addition of `Agent.options.summarizer`, downstream consumers writing wrapper summarizers had to re-implement the extractive default byte-for-byte to preserve the `[Summary of N earlier messages]` shape. Exporting lets them delegate instead.
+
+Signature: `val default_summarizer : Types.message list -> string`. No behavior change; this is strictly an API surface addition.
+
+3 new tests in `test_budget_strategy.ml`: empty → `[No prior context]` marker, header + role prefix shape, per-message truncation at 100 chars.
+
 ## [0.152.0] - 2026-04-17
 
 ### Added

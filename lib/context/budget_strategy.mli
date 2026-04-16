@@ -22,6 +22,22 @@ type compression_phase =
   | Aggressive  (** Medium: prune outputs + drop thinking + merge contiguous. *)
   | Emergency   (** Heavy: summarize old + all aggressive strategies. *)
 
+(** Default extractive summarizer.
+
+    Joins the first [Text] block of each message, truncating each to
+    100 chars and prefixing with role ([User]/[Assistant]/[System]/[Tool]).
+    Used by [reduce_for_budget] and [strategies_for_phase] when no custom
+    [summarizer] is supplied.
+
+    Exported so downstream consumers can wrap it — for example, a
+    domain-aware summarizer that scrubs application-specific markers
+    from each [Text] block before delegating to this function. Without
+    export, consumers had to re-implement the default to get the same
+    output shape.
+
+    @since 0.153.0 *)
+val default_summarizer : Types.message list -> string
+
 (** Map a compression phase to the appropriate reducer strategies.
 
     - [Full] returns an empty list (no reduction).
@@ -30,7 +46,7 @@ type compression_phase =
     - [Emergency] returns [[Summarize_old; PruneToolOutputs; Drop_thinking; Merge_contiguous]].
 
     The [summarizer] parameter is used only for [Emergency] phase.
-    If not provided, a default extractive summarizer is used. *)
+    If not provided, {!default_summarizer} is used. *)
 val strategies_for_phase :
   ?summarizer:(Types.message list -> string) ->
   compression_phase ->
