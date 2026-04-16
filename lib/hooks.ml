@@ -13,6 +13,7 @@ open Types
 type turn_params = {
   temperature: float option;
   thinking_budget: int option;
+  enable_thinking: bool option;
   tool_choice: tool_choice option;
   extra_system_context: string option;
   system_prompt_override: string option;
@@ -22,6 +23,7 @@ type turn_params = {
 let default_turn_params = {
   temperature = None;
   thinking_budget = None;
+  enable_thinking = None;
   tool_choice = None;
   extra_system_context = None;
   system_prompt_override = None;

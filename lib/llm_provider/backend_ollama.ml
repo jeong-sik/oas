@@ -215,7 +215,39 @@ let parse_ollama_response json_str =
 
   let telemetry =
     let system_fingerprint = None in
-    let timings = None in
+    (* Ollama reports durations in nanoseconds. Surface them as
+       inference_timings so downstream can distinguish hardware
+       decode rate from wall-clock tok/s. *)
+    let timings =
+      let prompt_n = json |> member "prompt_eval_count" |> to_int_option in
+      let prompt_ns = json |> member "prompt_eval_duration" |> to_int_option in
+      let predicted_n = json |> member "eval_count" |> to_int_option in
+      let predicted_ns = json |> member "eval_duration" |> to_int_option in
+      let any_set =
+        Option.is_some prompt_n || Option.is_some prompt_ns
+        || Option.is_some predicted_n || Option.is_some predicted_ns
+      in
+      if not any_set then None
+      else
+        let ms_of_ns ns_opt =
+          Option.map (fun ns -> float_of_int ns /. 1e6) ns_opt
+        in
+        let per_second n_opt ns_opt =
+          match n_opt, ns_opt with
+          | Some n, Some ns when ns > 0 ->
+              Some (float_of_int n /. (float_of_int ns /. 1e9))
+          | _ -> None
+        in
+        Some
+          { Types.prompt_n
+          ; prompt_ms = ms_of_ns prompt_ns
+          ; prompt_per_second = per_second prompt_n prompt_ns
+          ; predicted_n
+          ; predicted_ms = ms_of_ns predicted_ns
+          ; predicted_per_second = per_second predicted_n predicted_ns
+          ; cache_n = None
+          }
+    in
     let reasoning_tokens = None in
     Some { Types.system_fingerprint; timings; reasoning_tokens; request_latency_ms = 0;
             provider_kind = None; reasoning_effort = None;
@@ -304,3 +336,53 @@ let%test "build_request whitespace-only env falls back to default integer" =
     let json = Yojson.Safe.from_string body in
     let open Yojson.Safe.Util in
     json |> member "keep_alive" |> to_int = -1)
+
+let%test "parse_ollama_response populates timings from eval_count/eval_duration" =
+  let json =
+    {|{"model":"qwen3.5:35b-a3b-nvfp4","done":true,"done_reason":"stop",
+       "message":{"role":"assistant","content":"hi"},
+       "prompt_eval_count":100,"prompt_eval_duration":200000000,
+       "eval_count":120,"eval_duration":2000000000}|}
+  in
+  match parse_ollama_response json with
+  | Error _ -> false
+  | Ok resp ->
+    (match resp.telemetry with
+     | Some { timings = Some t; _ } ->
+       t.predicted_n = Some 120
+       && (match t.predicted_per_second with
+           | Some v -> abs_float (v -. 60.0) < 0.001
+           | None -> false)
+       && t.prompt_n = Some 100
+       && (match t.prompt_per_second with
+           | Some v -> abs_float (v -. 500.0) < 0.001
+           | None -> false)
+     | _ -> false)
+
+let%test "parse_ollama_response guards zero eval_duration" =
+  let json =
+    {|{"model":"qwen3.5:35b-a3b-nvfp4","done":true,"done_reason":"stop",
+       "message":{"role":"assistant","content":"hi"},
+       "eval_count":10,"eval_duration":0}|}
+  in
+  match parse_ollama_response json with
+  | Error _ -> false
+  | Ok resp ->
+    (match resp.telemetry with
+     | Some { timings = Some t; _ } ->
+       (* eval_count present → timings record exists,
+          but predicted_per_second is None because duration is 0. *)
+       t.predicted_n = Some 10 && t.predicted_per_second = None
+     | _ -> false)
+
+let%test "parse_ollama_response returns timings=None when no timing fields present" =
+  let json =
+    {|{"model":"qwen3.5:35b-a3b-nvfp4","done":true,"done_reason":"stop",
+       "message":{"role":"assistant","content":"hi"}}|}
+  in
+  match parse_ollama_response json with
+  | Error _ -> false
+  | Ok resp ->
+    (match resp.telemetry with
+     | Some { timings = None; _ } -> true
+     | _ -> false)
