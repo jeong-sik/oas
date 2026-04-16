@@ -262,3 +262,7 @@
  (name test_cli_common_subprocess)
  (libraries llm_provider alcotest eio eio_main))
 
+(test
+ (name test_budget_strategy)
+ (libraries agent_sdk alcotest astring))
+
