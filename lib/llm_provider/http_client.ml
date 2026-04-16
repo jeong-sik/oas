@@ -166,15 +166,25 @@ let make_closing_client ~sw ~net ~uri =
                 :> [ `Close | `Flow | `R | `Shutdown | `W ] Eio.Resource.t)
         in
         tracked_transports := transport :: !tracked_transports;
+        Diag.debug "http_client"
+          "connect: new transport #%d for %s" (List.length !tracked_transports) (Uri.to_string uri);
         transport
       in
       let client = Cohttp_eio.Client.make_generic connect in
       Eio.Switch.on_release sw (fun () ->
         let transports = !tracked_transports in
         tracked_transports := [];
+        let n = List.length transports in
+        if n > 0 then
+          Diag.debug "http_client"
+            "on_release: closing %d transport(s) for %s" n (Uri.to_string uri);
         List.iter
           (fun t ->
-            try Eio.Resource.close t with
+            try
+              Eio.Resource.close t;
+              Diag.debug "http_client"
+                "transport closed for %s" (Uri.to_string uri)
+            with
             | Eio.Cancel.Cancelled _ as e -> raise e
             | exn ->
                 log_close_failure ~url:(Uri.to_string uri)
