@@ -325,9 +325,11 @@ let complete_http ~sw ~net
           | Backend_gemini.Gemini_api_error msg ->
               Diag.error "complete" "Gemini API error: %s" msg;
               Error (Http_client.HttpError { code = 400; body = "Gemini API error: " ^ msg })
-          | Backend_glm.Glm_api_error msg ->
-              Diag.error "complete" "GLM API error: %s" msg;
-              Error (Http_client.HttpError { code = 400; body = "GLM API error: " ^ msg })
+          | Backend_glm.Glm_api_error err ->
+              let semantic_code = Backend_glm.http_code_of_glm_error_class err.error_class in
+              let body = Printf.sprintf "GLM error %s: %s" err.code err.message in
+              Diag.error "complete" "GLM API error (code=%s class=%d): %s" err.code semantic_code err.message;
+              Error (Http_client.HttpError { code = semantic_code; body })
           | exn ->
               let exn_str = Printexc.to_string exn in
               Diag.error "complete" "Unexpected parsing exception: %s" exn_str;

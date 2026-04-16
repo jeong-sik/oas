@@ -12,7 +12,74 @@
 
 open Types
 
-exception Glm_api_error of string
+type glm_error_class =
+  | Glm_quota_exceeded
+  | Glm_rate_limited
+  | Glm_auth_error
+  | Glm_server_error
+  | Glm_invalid_request
+
+type glm_error = {
+  code: string;
+  message: string;
+  error_class: glm_error_class;
+}
+
+let contains_ci ~haystack ~needle =
+  let h = String.lowercase_ascii haystack in
+  let n = String.lowercase_ascii needle in
+  let nlen = String.length n in
+  let hlen = String.length h in
+  if nlen = 0 || nlen > hlen then false
+  else
+    let rec scan i =
+      if i > hlen - nlen then false
+      else if String.sub h i nlen = n then true
+      else scan (i + 1)
+    in
+    scan 0
+
+(** Classify GLM error by code first, message fallback.
+    Code mapping from docs.z.ai/api-reference/api-code:
+    - 1000-1004,1100-1120: auth/account
+    - 1200-1261: parameter/request (non-cascadeable)
+    - 1113: account arrears (quota)
+    - 1300: policy block (non-cascadeable)
+    - 1301: unsafe content (non-cascadeable)
+    - 1302,1303,1305,1312: transient rate/load limit (cascadeable+retryable)
+    - 1304,1308,1310: quota exhausted (cascadeable, not retryable)
+    - 1309,1311,1313: subscription/plan (quota)
+    - 1230,1234,500: server error *)
+let classify_glm_error ~code ~message : glm_error_class =
+  match code with
+  | "1000" | "1001" | "1002" | "1003" | "1004"
+  | "1100" | "1110" | "1111" | "1112" | "1120"
+  | "1220" -> Glm_auth_error
+  | "1302" | "1303" | "1305" | "1312" -> Glm_rate_limited
+  | "1113" | "1304" | "1308" | "1309" | "1310"
+  | "1311" | "1313" -> Glm_quota_exceeded
+  | "1230" | "1234" | "500" -> Glm_server_error
+  | "1300" | "1301" | "1200" | "1210" | "1211"
+  | "1212" | "1213" | "1214" | "1215" | "1231"
+  | "1261" -> Glm_invalid_request
+  | _ ->
+    if contains_ci ~haystack:message ~needle:"usage limit"
+       || contains_ci ~haystack:message ~needle:"quota"
+       || contains_ci ~haystack:message ~needle:"exceeded" then
+      Glm_quota_exceeded
+    else if contains_ci ~haystack:message ~needle:"rate limit" then
+      Glm_rate_limited
+    else
+      Glm_invalid_request
+
+let http_code_of_glm_error_class = function
+  | Glm_quota_exceeded -> 429
+  | Glm_rate_limited -> 429
+  | Glm_auth_error -> 401
+  | Glm_server_error -> 500
+  | Glm_invalid_request -> 400
+
+exception Glm_api_error of glm_error
 
 (* ── Request building ────────────────────────────── *)
 
@@ -58,7 +125,7 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
 (** GLM error responses use string error codes:
     [{"error":{"code":"1305","message":"..."}}]
     Standard OpenAI uses numeric HTTP codes. *)
-let check_glm_error body =
+let check_glm_error body : glm_error option =
   try
     let json = Yojson.Safe.from_string body in
     let open Yojson.Safe.Util in
@@ -73,7 +140,8 @@ let check_glm_error body =
         let message = err |> member "message" |> to_string_option
           |> Option.value ~default:"Unknown GLM API error"
         in
-        Some (Printf.sprintf "GLM error %s: %s" code message)
+        let error_class = classify_glm_error ~code ~message in
+        Some { code; message; error_class }
   with Yojson.Json_error _ -> None
 
 (** Extract reasoning_content from GLM response and prepend as Thinking block.
@@ -97,10 +165,12 @@ let extract_reasoning_content (resp : api_response) body : api_response =
 
 let parse_response body =
   match check_glm_error body with
-  | Some msg -> raise (Glm_api_error msg)
+  | Some err -> raise (Glm_api_error err)
   | None ->
       (match Backend_openai_parse.parse_openai_response_result body with
-       | Error msg -> raise (Glm_api_error msg)
+       | Error msg ->
+           raise (Glm_api_error { code = "parse"; message = msg;
+                                  error_class = Glm_invalid_request })
        | Ok resp -> extract_reasoning_content resp body)
 
 (* ── Streaming ───────────────────────────────────── *)
@@ -163,7 +233,7 @@ let%test "build_request with thinking=false injects disabled" =
 let%test "check_glm_error detects string code" =
   let body = {|{"error":{"code":"1305","message":"service overloaded"}}|} in
   match check_glm_error body with
-  | Some msg -> String.length msg > 0
+  | Some err -> err.code = "1305" && err.error_class = Glm_server_error
   | None -> false
 
 let%test "check_glm_error returns None for valid response" =
@@ -173,8 +243,35 @@ let%test "check_glm_error returns None for valid response" =
 let%test "check_glm_error handles int code" =
   let body = {|{"error":{"code":400,"message":"bad request"}}|} in
   match check_glm_error body with
-  | Some msg -> String.length msg > 0
+  | Some err -> err.code = "400"
   | None -> false
+
+let%test "classify quota exceeded from message" =
+  classify_glm_error ~code:"unknown" ~message:"You have reached your specified API usage limits" = Glm_quota_exceeded
+
+let%test "classify rate limited from code 1113" =
+  classify_glm_error ~code:"1113" ~message:"whatever" = Glm_rate_limited
+
+let%test "classify auth from code 1001" =
+  classify_glm_error ~code:"1001" ~message:"whatever" = Glm_auth_error
+
+let%test "classify quota from code 1304 (daily limit)" =
+  classify_glm_error ~code:"1304" ~message:"whatever" = Glm_quota_exceeded
+
+let%test "classify quota from code 1308 (usage limit)" =
+  classify_glm_error ~code:"1308" ~message:"whatever" = Glm_quota_exceeded
+
+let%test "classify server error from code 1305" =
+  classify_glm_error ~code:"1305" ~message:"whatever" = Glm_rate_limited
+
+let%test "classify invalid request from code 1301 (unsafe content)" =
+  classify_glm_error ~code:"1301" ~message:"whatever" = Glm_invalid_request
+
+let%test "http_code quota maps to 429" =
+  http_code_of_glm_error_class Glm_quota_exceeded = 429
+
+let%test "http_code auth maps to 401" =
+  http_code_of_glm_error_class Glm_auth_error = 401
 
 let%test "extract_reasoning_content prepends thinking block" =
   let resp = { id = "x"; model = "glm-4.7"; stop_reason = EndTurn;
