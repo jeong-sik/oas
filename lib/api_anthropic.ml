@@ -27,7 +27,11 @@ let build_body_assoc ~config ~messages ?tools ~stream () =
         let cached_block = `Assoc [
           ("type", `String "text");
           ("text", `String s);
-          ("cache_control", `Assoc [("type", `String "ephemeral")]);
+          ("cache_control", `Assoc (
+            ("type", `String "ephemeral")
+            :: (if config.config.cache_extended_ttl
+                then [("ttl", `String "1h")]
+                else [])));
         ] in
         ("system", `List [cached_block]) :: body_assoc
     | Some s -> ("system", `String s) :: body_assoc
@@ -44,7 +48,10 @@ let build_body_assoc ~config ~messages ?tools ~stream () =
             let cached_last = match last with
               | `Assoc fields ->
                 `Assoc (("cache_control",
-                         `Assoc [("type", `String "ephemeral")]) :: fields)
+                         `Assoc (("type", `String "ephemeral")
+                                 :: (if config.config.cache_extended_ttl
+                                     then [("ttl", `String "1h")]
+                                     else []))) :: fields)
               | other -> other
             in
             List.rev (cached_last :: rest)

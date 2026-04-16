@@ -59,6 +59,7 @@ type agent_config = {
   tool_choice: tool_choice option;
   disable_parallel_tool_use: bool; (* Anthropic: tool_choice.disable_parallel_tool_use, OpenAI: parallel_tool_calls=false *)
   cache_system_prompt: bool; (* Wrap system prompt with cache_control ephemeral *)
+  cache_extended_ttl: bool; (* true=1h TTL (2x write cost), false=5min default *)
   max_input_tokens: int option; (* Token budget: max cumulative input tokens *)
   max_total_tokens: int option; (* Token budget: max cumulative total tokens *)
   initial_messages: message list; (* Seed conversation with prior history on first run *)
@@ -88,6 +89,7 @@ let default_config = {
   tool_choice = None;
   disable_parallel_tool_use = false;
   cache_system_prompt = false;
+  cache_extended_ttl = false;
   max_input_tokens = None;
   max_total_tokens = None;
   initial_messages = [];

@@ -206,6 +206,7 @@ let create_agent ~net ?name ?model ?system_prompt ?max_tokens ?max_turns
     tool_choice = default_config.tool_choice;
     disable_parallel_tool_use = default_config.disable_parallel_tool_use;
     cache_system_prompt = Option.value cache_system_prompt ~default:default_config.cache_system_prompt;
+    cache_extended_ttl = default_config.cache_extended_ttl;
     max_input_tokens = default_config.max_input_tokens;
     max_total_tokens = default_config.max_total_tokens;
     initial_messages = default_config.initial_messages;

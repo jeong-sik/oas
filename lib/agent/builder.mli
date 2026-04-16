@@ -32,6 +32,7 @@ val with_initial_messages : Types.message list -> t -> t
 val with_max_cost_usd : float -> t -> t
 val with_response_format_json : bool -> t -> t
 val with_cache_system_prompt : bool -> t -> t
+val with_cache_extended_ttl : bool -> t -> t
 
 (** Enable or disable yielding when the agent is about to call a tool.
 
