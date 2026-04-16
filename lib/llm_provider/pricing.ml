@@ -49,6 +49,25 @@ let pricing_for_model_opt model_id =
       Some ((2.0, 8.0), no_cache)
     else if string_contains ~needle:"o3-mini" normalized then
       Some ((1.1, 4.4), no_cache)
+    (* Gemini 3-계 preview. Source: ai.google.dev/gemini-api/docs/pricing,
+       confirmed 2026-04-16. Google also exposes context caching with a
+       per-hour storage surcharge ($1.00/h flash, $4.50/h pro); the
+       pricing record cannot represent time-based storage, so we keep
+       cache multipliers at no_cache and rely on provider-reported
+       cost_usd for exact billing. Estimates here are an upper bound on
+       input/output token cost only. *)
+    else if string_contains ~needle:"gemini-3-flash-preview" normalized then
+      Some ((0.50, 3.0), no_cache)
+    else if string_contains ~needle:"gemini-3.1-pro-preview" normalized
+         || string_contains ~needle:"gemini-3.1-pro" normalized then
+      (* Standard tier (input <= 200k tokens). Above 200k Google charges
+         2x ($4 input / $18 output). The pricing record has no context
+         window size field, so cost for >200k inputs is underestimated
+         by 2x. Follow-up: extend the record with tiered pricing. *)
+      Some ((2.0, 12.0), no_cache)
+    else if string_contains ~needle:"gemini-3.1-flash-lite-preview" normalized
+         || string_contains ~needle:"gemini-3.1-flash-lite" normalized then
+      Some ((0.25, 1.5), no_cache)
     else if string_contains ~needle:"ollama" normalized
          || string_contains ~needle:"qwen" normalized
          || string_contains ~needle:"llama" normalized then
@@ -210,6 +229,33 @@ let%test "pricing o3-mini" =
   let p = pricing_for_model "o3-mini" in
   close_enough p.input_per_million 1.1
   && close_enough p.output_per_million 4.4
+
+(* --- pricing_for_model: Gemini 3-계 preview (2026-04-16) --- *)
+
+let%test "pricing gemini-3-flash-preview" =
+  let p = pricing_for_model "gemini-3-flash-preview" in
+  close_enough p.input_per_million 0.50
+  && close_enough p.output_per_million 3.0
+
+let%test "pricing gemini-3.1-pro-preview" =
+  let p = pricing_for_model "gemini-3.1-pro-preview" in
+  close_enough p.input_per_million 2.0
+  && close_enough p.output_per_million 12.0
+
+let%test "pricing gemini-3.1-pro (bare id)" =
+  let p = pricing_for_model "gemini-3.1-pro" in
+  close_enough p.input_per_million 2.0
+  && close_enough p.output_per_million 12.0
+
+let%test "pricing gemini-3.1-flash-lite-preview" =
+  let p = pricing_for_model "gemini-3.1-flash-lite-preview" in
+  close_enough p.input_per_million 0.25
+  && close_enough p.output_per_million 1.5
+
+let%test "pricing_for_model_opt returns Some for gemini-3-flash-preview" =
+  match pricing_for_model_opt "gemini-3-flash-preview" with
+  | Some p -> p.input_per_million > 0.0
+  | None -> false
 
 (* --- pricing_for_model: local/free models --- *)
 
