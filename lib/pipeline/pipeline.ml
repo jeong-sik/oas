@@ -154,6 +154,8 @@ let stage_parse ?raw_trace_run agent =
       (match turn_params.temperature with Some _ as t -> t | None -> original_config.temperature);
     thinking_budget =
       (match turn_params.thinking_budget with Some _ as t -> t | None -> original_config.thinking_budget);
+    enable_thinking =
+      (match turn_params.enable_thinking with Some _ as t -> t | None -> original_config.enable_thinking);
     tool_choice =
       (match turn_params.tool_choice with Some _ as t -> t | None -> original_config.tool_choice);
     system_prompt =

@@ -8,9 +8,20 @@ let test_default_turn_params () =
   let p = Hooks.default_turn_params in
   Alcotest.(check (option (float 0.01))) "no temperature" None p.temperature;
   Alcotest.(check (option int)) "no thinking_budget" None p.thinking_budget;
+  Alcotest.(check (option bool)) "no enable_thinking" None p.enable_thinking;
   Alcotest.(check bool) "no extra context" true (p.extra_system_context = None);
   Alcotest.(check bool) "no system prompt override" true (p.system_prompt_override = None);
   Alcotest.(check bool) "no tool filter" true (p.tool_filter_override = None)
+
+let test_enable_thinking_override () =
+  let p = { Hooks.default_turn_params with
+    enable_thinking = Some false;
+  } in
+  Alcotest.(check (option bool)) "enable_thinking=false override" (Some false) p.enable_thinking;
+  let q = { Hooks.default_turn_params with
+    enable_thinking = Some true;
+  } in
+  Alcotest.(check (option bool)) "enable_thinking=true override" (Some true) q.enable_thinking
 
 (* ── Reasoning extraction ────────────────────────────────────── *)
 
@@ -196,6 +207,7 @@ let () =
   Alcotest.run "turn_params" [
     ("turn_params", [
       Alcotest.test_case "default" `Quick test_default_turn_params;
+      Alcotest.test_case "enable_thinking_override" `Quick test_enable_thinking_override;
       Alcotest.test_case "before_turn_params_event" `Quick test_before_turn_params_event;
       Alcotest.test_case "adjust_params_decision" `Quick test_adjust_params_decision;
       Alcotest.test_case "system_prompt_override" `Quick test_adjust_params_system_prompt_override;
