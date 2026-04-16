@@ -136,32 +136,53 @@ let make_closing_client ~sw ~net ~uri =
   | Error _ as e, _ -> e
   | _, (Error _ as e) -> e
   | Ok addr, Ok tls_wrap ->
-      (* Track the raw socket separately for explicit close.
-         The socket fd is the resource that leaks; closing it releases the fd. *)
-      let last_sock :
-        [ `Generic ] Eio.Net.stream_socket_ty Eio.Resource.t option ref =
-        ref None
+      (* Track every resource handed to cohttp-eio so we can close it on
+         switch release. Cohttp-eio 6.1.1 does not reliably close the
+         underlying TCP fd on macOS even when the connect scope exits
+         (issue #3221), so we keep the authoritative reference here.
+
+         Two design changes vs the prior single-slot version:
+
+         1. List, not option. When cohttp-eio redials under the same
+            switch — redirect, retry, or any future pool reuse — every
+            new connection must be tracked. The previous
+            [last_sock : _ option ref] retained only the last socket
+            and leaked N-1 fds per switch lifetime.
+
+         2. Store the TLS wrapper (not the raw sock) on the HTTPS path.
+            Closing the wrapper propagates an orderly close down to the
+            raw socket, matching the shutdown the wrapper itself would
+            try to run at its own on_release. Closing the raw sock
+            directly bypasses the wrapper and can leave the TLS flow
+            with a dangling reference. *)
+      let sockets :
+        [ `Close | `Flow | `R | `Shutdown | `W ] Eio.Resource.t list ref =
+        ref []
       in
       let connect ~sw:conn_sw _uri =
         let sock = Eio.Net.connect ~sw:conn_sw net addr in
-        last_sock := Some sock;
-        match tls_wrap with
-        | Some wrap ->
-            (wrap uri sock
-              :> [ `Close | `Flow | `R | `Shutdown | `W ] Eio.Resource.t)
-        | None -> (sock :> [ `Close | `Flow | `R | `Shutdown | `W ] Eio.Resource.t)
+        let resource :
+          [ `Close | `Flow | `R | `Shutdown | `W ] Eio.Resource.t =
+          match tls_wrap with
+          | Some wrap ->
+              (wrap uri sock
+                :> [ `Close | `Flow | `R | `Shutdown | `W ] Eio.Resource.t)
+          | None ->
+              (sock :> [ `Close | `Flow | `R | `Shutdown | `W ] Eio.Resource.t)
+        in
+        sockets := resource :: !sockets;
+        resource
       in
       let client = Cohttp_eio.Client.make_generic connect in
       Eio.Switch.on_release sw (fun () ->
-        match !last_sock with
-        | None -> ()
-        | Some sock ->
-            last_sock := None;
-            (try Eio.Net.close sock with
-             | Eio.Cancel.Cancelled _ as e -> raise e
-             | exn ->
-                 log_close_failure ~url:(Uri.to_string uri)
-                   ~message:(Printexc.to_string exn)));
+        let to_close = !sockets in
+        sockets := [];
+        List.iter (fun resource ->
+          try Eio.Flow.close resource with
+          | Eio.Cancel.Cancelled _ as e -> raise e
+          | exn ->
+              log_close_failure ~url:(Uri.to_string uri)
+                ~message:(Printexc.to_string exn)) to_close);
       Ok client
 
 let get_sync ~sw:_ ~net ~url ~headers =
