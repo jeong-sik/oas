@@ -20,6 +20,7 @@ type t = {
   tool_choice: tool_choice option;
   disable_parallel_tool_use: bool;
   cache_system_prompt: bool;
+  cache_extended_ttl: bool;
   max_input_tokens: int option;
   max_total_tokens: int option;
   initial_messages: message list;
@@ -81,6 +82,7 @@ let create ~net ~model =
     tool_choice = default_config.tool_choice;
     disable_parallel_tool_use = default_config.disable_parallel_tool_use;
     cache_system_prompt = default_config.cache_system_prompt;
+    cache_extended_ttl = default_config.cache_extended_ttl;
     max_input_tokens = default_config.max_input_tokens;
     max_total_tokens = default_config.max_total_tokens;
     initial_messages = default_config.initial_messages;
@@ -222,6 +224,7 @@ let with_initial_messages msgs b = { b with initial_messages = msgs }
 let with_max_cost_usd v b = { b with max_cost_usd = Some v }
 let with_response_format_json v b = { b with response_format_json = v }
 let with_cache_system_prompt v b = { b with cache_system_prompt = v }
+let with_cache_extended_ttl v b = { b with cache_extended_ttl = v }
 let with_yield_on_tool v b = { b with yield_on_tool = v }
 let with_exit_condition pred b = { b with exit_condition = Some pred }
 let with_event_bus bus b = { b with event_bus = Some bus }
@@ -264,6 +267,7 @@ let build b =
     tool_choice = b.tool_choice;
     disable_parallel_tool_use = b.disable_parallel_tool_use;
     cache_system_prompt = b.cache_system_prompt;
+    cache_extended_ttl = b.cache_extended_ttl;
     max_input_tokens = b.max_input_tokens;
     max_total_tokens = b.max_total_tokens;
     initial_messages = b.initial_messages;

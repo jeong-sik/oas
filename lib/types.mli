@@ -46,6 +46,12 @@ type agent_config = {
   tool_choice: tool_choice option;
   disable_parallel_tool_use: bool;
   cache_system_prompt: bool;
+  cache_extended_ttl: bool;
+  (** When [true] and [cache_system_prompt = true], sets the Anthropic
+      prompt cache TTL to 1 hour instead of the default 5 minutes.
+      Write cost is 2x but the cache persists 12x longer — intended
+      for long-running agents that go idle 5+ minutes between turns.
+      @since 0.151.0 *)
   max_input_tokens: int option;
   max_total_tokens: int option;
   initial_messages: message list;
