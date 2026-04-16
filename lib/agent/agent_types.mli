@@ -81,6 +81,15 @@ type options = {
         [Event_bus] publishes, enabling offline replay via
         {!Durable_event.replay_summary}.
         @since 0.133.0 *)
+  summarizer: (Types.message list -> string) option;
+    (** Optional custom extractive summarizer used by
+        {!Budget_strategy.reduce_for_budget} when the Emergency phase
+        triggers [Summarize_old].  When [None], the built-in
+        {!Budget_strategy.default_summarizer} is used.  Consumers can
+        supply a domain-aware summarizer to strip or transform
+        application-specific markers before they are re-injected as
+        compacted history.
+        @since 0.150.0 *)
 }
 
 (** {1 Lifecycle re-exports} *)

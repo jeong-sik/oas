@@ -542,6 +542,7 @@ let proactive_compact ?raw_trace_run agent ~watermark () =
     | Hooks.Skip -> false
     | _ ->
       let reduced = Budget_strategy.reduce_for_budget
+        ?summarizer:agent.options.summarizer
         ~usage_ratio:scaled_ratio ~messages () in
       let reduced = match agent.options.context_reducer with
         | Some reducer -> Context_reducer.reduce reducer reduced
@@ -595,6 +596,7 @@ let emergency_compact ?raw_trace_run agent ?limit () =
   | Hooks.Skip -> false
   | _ ->
     let reduced = Budget_strategy.reduce_for_budget
+      ?summarizer:agent.options.summarizer
       ~usage_ratio:1.0 ~messages () in
     let reduced = match agent.options.context_reducer with
       | Some reducer -> Context_reducer.reduce reducer reduced
