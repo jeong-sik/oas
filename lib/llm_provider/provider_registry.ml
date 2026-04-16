@@ -94,7 +94,7 @@ let llama_rr_counter = Atomic.make 0
 
 (** Pick the next llama endpoint via round-robin.
     Reads the current endpoint snapshot atomically.
-    Called by cascade_config when resolving "llama:*" provider. *)
+    Called by downstream cascade consumers when resolving "llama:*" provider. *)
 let next_llama_endpoint () =
   let endpoints = Atomic.get llama_endpoints_ref in
   let n = Array.length endpoints in
