@@ -8,7 +8,8 @@
     This is a compile-time-only layer — no runtime cost. The phantom
     parameter is erased by {!to_typed_tool}.
 
-    Inspired by MASC's {!Typed_state} GADT PoC (phantom task status).
+    Phantom-type permission encoding inspired by a typed-state GADT
+    proof of concept (phantom task status).
 
     @stability Evolving
     @since 0.120.0 *)

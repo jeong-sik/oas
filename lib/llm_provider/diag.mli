@@ -1,8 +1,8 @@
 (** Structured diagnostic logging for llm_provider.
 
     Default sink: stderr with structured prefix and level filtering.
-    Consumer (agent_sdk, masc-mcp) can replace the sink at startup
-    to route into their own structured logging pipeline.
+    Consumers can replace the sink at startup to route into their
+    own structured logging pipeline.
 
     Debug-level messages are gated by [OAS_LLM_PROVIDER_DEBUG=1]
     when using the default sink. Consumer sinks receive all levels

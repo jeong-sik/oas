@@ -6,7 +6,7 @@
 
     Cascade is not OAS's responsibility — callers that need
     multi-provider failover select a single provider per call
-    (e.g. MASC's orchestrator chooses from cascade.json and
+    (e.g. a downstream orchestrator resolves its cascade and
     passes the winning [Provider_config.t] here).
 
     @since 0.78.0
