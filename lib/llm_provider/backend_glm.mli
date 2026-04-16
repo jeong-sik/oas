@@ -17,7 +17,31 @@
 
 open Types
 
-exception Glm_api_error of string
+(** Semantic classification of a GLM API error.
+    Determined by error code (structured) with message fallback. *)
+type glm_error_class =
+  | Glm_quota_exceeded
+  | Glm_rate_limited
+  | Glm_auth_error
+  | Glm_server_error
+  | Glm_invalid_request
+
+type glm_error = {
+  code: string;
+  message: string;
+  error_class: glm_error_class;
+}
+
+exception Glm_api_error of glm_error
+
+(** Classify a GLM error code + message into a semantic class.
+    Code-based classification takes priority; message keywords are fallback. *)
+val classify_glm_error : code:string -> message:string -> glm_error_class
+
+(** Map a GLM error class to the equivalent HTTP status code.
+    Used by complete.ml to normalize provider-specific codes
+    into the cascade-compatible error path. *)
+val http_code_of_glm_error_class : glm_error_class -> int
 
 (** Build a GLM chat completion request body.
     Delegates to {!Backend_openai.build_request} and injects
