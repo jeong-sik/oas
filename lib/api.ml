@@ -27,6 +27,29 @@ let build_openai_body = Api_openai.build_openai_body
 let parse_openai_response_result = Llm_provider.Backend_openai_parse.parse_openai_response_result
 
 
+(* Wall-clock latency patch. Parser layers (api_anthropic and backend_ollama)
+   leave request_latency_ms at 0 as a sentinel because they only see the JSON
+   response body; only the transport layer measures wall time. Without this
+   patch, downstream telemetry (dashboard latency panel, model_inference_metrics
+   percentiles) treats every turn as zero-latency and filters it out. *)
+let patch_latency (resp : Types.api_response) (latency_ms : int)
+    : Types.api_response =
+  let telemetry =
+    match resp.telemetry with
+    | Some t -> Some { t with Llm_provider.Types.request_latency_ms = latency_ms }
+    | None ->
+      Some
+        { Llm_provider.Types.system_fingerprint = None;
+          timings = None;
+          reasoning_tokens = None;
+          request_latency_ms = latency_ms;
+          provider_kind = None;
+          reasoning_effort = None;
+          canonical_model_id = None;
+          effective_context_window = None }
+  in
+  { resp with telemetry }
+
 (** Send a non-streaming message to the API, dispatching by provider *)
 let create_message ~sw ~net ?(base_url=default_base_url) ?provider ?clock ?retry_config ~config ~messages ?tools ?slot_id () =
   let resolve_result = match provider with
@@ -78,31 +101,40 @@ let create_message ~sw ~net ?(base_url=default_base_url) ?provider ?clock ?retry
   let https = make_https () in
   let client = Cohttp_eio.Client.make ~https net in
   let do_request () =
+    let t0 = Unix.gettimeofday () in
+    let measured_latency_ms () =
+      int_of_float ((Unix.gettimeofday () -. t0) *. 1000.0)
+    in
     try
       let resp, body = Cohttp_eio.Client.post ~sw client ~headers ~body:(Cohttp_eio.Body.of_string body_str) uri in
       match Cohttp.Response.status resp with
       | `OK ->
           let body_str = Eio.Buf_read.(of_flow ~max_size:max_response_body body |> take_all) in
+          let lat = measured_latency_ms () in
           (match kind with
            | Provider.Anthropic_messages ->
                Ok
                  (parse_response (Yojson.Safe.from_string body_str)
-                  |> Llm_provider.Pricing.annotate_response_cost)
+                  |> Llm_provider.Pricing.annotate_response_cost
+                  |> fun r -> patch_latency r lat)
            | Provider.Openai_chat_completions ->
                (match parse_openai_response_result body_str with
                 | Ok resp ->
-                    Ok (Llm_provider.Pricing.annotate_response_cost resp)
+                    Ok (Llm_provider.Pricing.annotate_response_cost resp
+                        |> fun r -> patch_latency r lat)
                 | Error msg -> Error (Retry.InvalidRequest { message = msg }))
            | Provider.Custom name ->
                (match Provider.find_provider name with
                 | Some impl ->
                     Ok
                       (impl.parse_response body_str
-                       |> Llm_provider.Pricing.annotate_response_cost)
+                       |> Llm_provider.Pricing.annotate_response_cost
+                       |> fun r -> patch_latency r lat)
                 | None ->
                     (match parse_openai_response_result body_str with
                      | Ok resp ->
-                         Ok (Llm_provider.Pricing.annotate_response_cost resp)
+                         Ok (Llm_provider.Pricing.annotate_response_cost resp
+                             |> fun r -> patch_latency r lat)
                      | Error msg -> Error (Retry.InvalidRequest { message = msg }))))
       | status ->
           let code = Cohttp.Code.code_of_status status in
@@ -279,3 +311,48 @@ let%test "text_blocks_to_string non-text blocks ignored" =
   ] in
   let result = text_blocks_to_string blocks in
   String.length result > 0
+
+(* --- patch_latency tests --- *)
+
+let%test "patch_latency creates telemetry when None with measured ms" =
+  let resp : Types.api_response = {
+    id = "r1"; model = "m"; stop_reason = Types.EndTurn;
+    content = []; usage = None; telemetry = None
+  } in
+  let patched = patch_latency resp 500 in
+  match patched.telemetry with
+  | Some t -> t.Llm_provider.Types.request_latency_ms = 500
+  | None -> false
+
+let%test "patch_latency overwrites existing request_latency_ms" =
+  let telemetry : Llm_provider.Types.inference_telemetry = {
+    system_fingerprint = Some "fp";
+    timings = None;
+    reasoning_tokens = Some 10;
+    request_latency_ms = 0;  (* parser sentinel *)
+    provider_kind = Some "anthropic";
+    reasoning_effort = None;
+    canonical_model_id = Some "claude-4-sonnet";
+    effective_context_window = Some 200_000;
+  } in
+  let resp : Types.api_response = {
+    id = "r2"; model = "m"; stop_reason = Types.EndTurn;
+    content = []; usage = None; telemetry = Some telemetry
+  } in
+  let patched = patch_latency resp 1234 in
+  match patched.telemetry with
+  | Some t ->
+    t.request_latency_ms = 1234
+    && t.system_fingerprint = Some "fp"        (* preserved *)
+    && t.reasoning_tokens = Some 10            (* preserved *)
+    && t.canonical_model_id = Some "claude-4-sonnet" (* preserved *)
+  | None -> false
+
+let%test "patch_latency zero latency still patches" =
+  let resp : Types.api_response = {
+    id = "r3"; model = "m"; stop_reason = Types.EndTurn;
+    content = []; usage = None; telemetry = None
+  } in
+  let patched = patch_latency resp 0 in
+  (* Even 0 gets wrapped in Some — not a no-op. Caller decides semantics. *)
+  Option.is_some patched.telemetry
