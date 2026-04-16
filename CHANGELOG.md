@@ -6,6 +6,28 @@ Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
 backfilled on 2026-04-04 from existing git tags. The dates below reflect the
 original tag dates. `0.100.4` was never tagged or released.
 
+## [0.152.0] - 2026-04-17
+
+### Added
+
+**`Agent_types.options.summarizer : (message list -> string) option`.** Exposes the Budget_strategy Emergency-phase summarizer callback as a per-agent option so downstream consumers can inject a domain-aware summary function. When `None` (default), the built-in `Budget_strategy.default_summarizer` is used and behavior is unchanged.
+
+- `Builder.with_summarizer` setter registers a custom callback.
+- `pipeline.ml` (`proactive_compact` + `emergency_compact`) threads `?summarizer:agent.options.summarizer` into `Budget_strategy.reduce_for_budget`.
+- The existing `?summarizer` optional parameter on `Budget_strategy.reduce_for_budget` is unchanged; it is simply now reachable from `Agent.options`.
+
+Motivation: consumers that embed application-specific structured markers in message bodies (e.g. `[STATE]...[/STATE]` blocks) need a way to strip or transform those markers before they are re-injected as compacted history. Previously the only path was post-hoc scrubbing via `context_reducer`, which runs **after** `reduce_for_budget` — by that point the `[Summary of N earlier messages]` string is already materialized. Exposing the summarizer on `Agent.options` closes that gap while keeping OAS agnostic of any specific marker syntax.
+
+PR #973.
+
+## [0.151.0] - 2026-04-16
+
+### Added
+
+**`Anthropic cache_extended_ttl` field.** Opt-in 1-hour prompt cache TTL for Anthropic Messages API callers. When `cache_extended_ttl = true`, cache control blocks are stamped with the extended-beta TTL instead of the default 5-minute window.
+
+PR #962.
+
 ## [0.150.0] - 2026-04-16
 
 ### Removed (breaking, operator-facing)
