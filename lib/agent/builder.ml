@@ -63,6 +63,7 @@ type t = {
     (Tool_result_store.t * Content_replacement_state.t) option;
   journal: Durable_event.journal option;
   policy_channel: Policy_channel.t option;
+  summarizer: (Types.message list -> string) option;
 }
 
 let create ~net ~model =
@@ -124,12 +125,18 @@ let create ~net ~model =
     tool_result_relocation = None;
     journal = None;
     policy_channel = None;
+    summarizer = None;
   }
 
 let with_tool_result_relocation ~store ~state b =
   { b with tool_result_relocation = Some (store, state) }
 
 let with_journal journal b = { b with journal = Some journal }
+
+(** Override the Budget_strategy Emergency-phase summarizer with a
+    domain-aware function.  Leave unset to use the OAS built-in
+    [Budget_strategy.default_summarizer]. *)
+let with_summarizer summarizer b = { b with summarizer = Some summarizer }
 
 let with_auto_dump_journal ~path b =
   let journal =
@@ -332,6 +339,7 @@ let build b =
     on_run_complete = b.on_run_complete;
     tool_result_relocation = b.tool_result_relocation;
     journal = b.journal;
+    summarizer = b.summarizer;
   } in
   Agent.create ~net:b.net ~config ~tools:(Tool_set.to_list tools) ?context
     ~options ()

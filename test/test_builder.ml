@@ -219,6 +219,28 @@ let test_with_context_reducer () =
   Alcotest.(check bool) "context_reducer set" true
     (Option.is_some (Agent.options agent).context_reducer)
 
+(* --- 13b. with_summarizer --- *)
+
+let test_with_summarizer () =
+  with_net @@ fun net ->
+  let marker = "<<SUMMARIZER_MARKER>>" in
+  let custom : Types.message list -> string = fun _ -> marker in
+  let agent =
+    Builder.create ~net ~model:"claude-sonnet-4-6"
+    |> Builder.with_summarizer custom
+    |> Builder.build_safe |> Result.get_ok
+  in
+  let opts = Agent.options agent in
+  Alcotest.(check bool) "summarizer set" true
+    (Option.is_some opts.summarizer);
+  (* Apply the stored summarizer and confirm it's the one we registered. *)
+  let applied =
+    match opts.summarizer with
+    | Some s -> s []
+    | None -> ""
+  in
+  Alcotest.(check string) "summarizer identity" marker applied
+
 (* --- 13. with_context --- *)
 
 let test_with_context () =
@@ -729,6 +751,7 @@ let () =
       Alcotest.test_case "approval" `Quick test_with_approval;
       Alcotest.test_case "tool retry policy" `Quick test_with_tool_retry_policy;
       Alcotest.test_case "context_reducer" `Quick test_with_context_reducer;
+      Alcotest.test_case "summarizer" `Quick test_with_summarizer;
       Alcotest.test_case "context" `Quick test_with_context;
       Alcotest.test_case "provider" `Quick test_with_provider;
       Alcotest.test_case "base_url" `Quick test_with_base_url;
