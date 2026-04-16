@@ -233,7 +233,7 @@ let%test "build_request with thinking=false injects disabled" =
 let%test "check_glm_error detects string code" =
   let body = {|{"error":{"code":"1305","message":"service overloaded"}}|} in
   match check_glm_error body with
-  | Some err -> err.code = "1305" && err.error_class = Glm_server_error
+  | Some err -> err.code = "1305" && err.error_class = Glm_rate_limited
   | None -> false
 
 let%test "check_glm_error returns None for valid response" =
@@ -249,8 +249,8 @@ let%test "check_glm_error handles int code" =
 let%test "classify quota exceeded from message" =
   classify_glm_error ~code:"unknown" ~message:"You have reached your specified API usage limits" = Glm_quota_exceeded
 
-let%test "classify rate limited from code 1113" =
-  classify_glm_error ~code:"1113" ~message:"whatever" = Glm_rate_limited
+let%test "classify quota from code 1113 (arrears)" =
+  classify_glm_error ~code:"1113" ~message:"whatever" = Glm_quota_exceeded
 
 let%test "classify auth from code 1001" =
   classify_glm_error ~code:"1001" ~message:"whatever" = Glm_auth_error
@@ -261,7 +261,7 @@ let%test "classify quota from code 1304 (daily limit)" =
 let%test "classify quota from code 1308 (usage limit)" =
   classify_glm_error ~code:"1308" ~message:"whatever" = Glm_quota_exceeded
 
-let%test "classify server error from code 1305" =
+let%test "classify rate limited from code 1305" =
   classify_glm_error ~code:"1305" ~message:"whatever" = Glm_rate_limited
 
 let%test "classify invalid request from code 1301 (unsafe content)" =
