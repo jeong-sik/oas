@@ -43,7 +43,8 @@ val noop : t
     (before any keeper/agent cascade traffic) to avoid that gap.
 
     Intended to be called once at startup from the host application
-    (e.g. masc-mcp installs a Prometheus-backed instance). Thread-safe:
+    (e.g. a downstream consumer installs a Prometheus-backed instance).
+    Thread-safe:
     a concurrent [set_global] is published atomically via [Atomic.set];
     fibers already holding the previous reference continue to use it
     until their current call returns. *)

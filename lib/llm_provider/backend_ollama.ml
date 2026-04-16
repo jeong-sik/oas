@@ -61,8 +61,8 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
      and every keeper turn errors out in <2s.
 
      Empirical rationale:
-     - 2026-04-11 incident 1: masc-mcp's 35b-a3b model was evicted ~every
-       30 min because each keeper turn reset keep_alive to the 5m default.
+     - 2026-04-11 incident 1: a 35b-a3b model was evicted ~every 30 min
+       because each consumer turn reset keep_alive to the 5m default.
      - 2026-04-11 incident 2: after pinning keep_alive=-1 (PR #813), every
        ollama request failed with the duration parse error above because
        -1 was serialized as [`String "-1"]. This fix sends an integer for

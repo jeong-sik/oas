@@ -650,7 +650,8 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
 
      Hard budget gate (OAS-2): when context_compact_ratio is not configured,
      a ratio >= 0.9 still triggers compaction. This prevents the silent
-     pass-through that caused masc-improver CTX 101% (#7083). *)
+     pass-through that caused a downstream consumer's CTX 101% overrun
+     (observed in upstream issue #7083). *)
   let prep =
     let watermark = match agent.state.config.context_compact_ratio with
       | Some w when w > 0.0 && w < 1.0 -> w

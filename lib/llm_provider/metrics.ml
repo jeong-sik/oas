@@ -23,9 +23,8 @@ let noop = {
 (* ── Global registry ────────────────────────────────── *)
 
 (** Process-wide metrics sink used when a caller does not pass [~metrics]
-    explicitly.  Initialised to [noop].  Consumers (masc-mcp, custom
-    deployments) can install their own instance once at startup via
-    [set_global].
+    explicitly.  Initialised to [noop].  Consumers can install their
+    own instance once at startup via [set_global].
 
     Access is guarded by an atomic so reads from a fiber holding the
     cached reference race-cleanly with a concurrent [set_global]; the

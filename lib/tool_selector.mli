@@ -151,7 +151,7 @@ val auto : tools:Tool.t list -> strategy
 
     Cascade is not OAS's responsibility. Callers that want multi-
     provider failover resolve the winning provider externally (e.g.
-    from [cascade.json] in MASC) and pass it here.
+    from a downstream cascade configuration) and pass it here.
 
     Usage:
     {[
