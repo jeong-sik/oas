@@ -136,32 +136,50 @@ let make_closing_client ~sw ~net ~uri =
   | Error _ as e, _ -> e
   | _, (Error _ as e) -> e
   | Ok addr, Ok tls_wrap ->
-      (* Track the raw socket separately for explicit close.
-         The socket fd is the resource that leaks; closing it releases the fd. *)
-      let last_sock :
-        [ `Generic ] Eio.Net.stream_socket_ty Eio.Resource.t option ref =
-        ref None
+      (* Track every transport returned by [connect] so switch release can
+         close all of them — not just the most recent one.  [cohttp_eio]
+         may call [connect] multiple times per client (keep-alive refresh,
+         retry after transient error, etc.), and any socket we stop
+         referencing leaks its fd and leaves the TCP endpoint in
+         CLOSE_WAIT.
+
+         We also store the TLS-wrapped resource (not the raw socket) so
+         [Eio.Resource.close] triggers TLS close_notify before the TCP
+         layer closes.  Raw-socket close without TLS shutdown causes the
+         peer (e.g. GLM / Cloudflare-fronted endpoints) to interpret the
+         half-close as "keep waiting" and hold the connection in
+         CLOSE_WAIT indefinitely. *)
+      let tracked_transports :
+        [ `Close | `Flow | `R | `Shutdown | `W ] Eio.Resource.t list ref =
+        ref []
       in
       let connect ~sw:conn_sw _uri =
         let sock = Eio.Net.connect ~sw:conn_sw net addr in
-        last_sock := Some sock;
-        match tls_wrap with
-        | Some wrap ->
-            (wrap uri sock
-              :> [ `Close | `Flow | `R | `Shutdown | `W ] Eio.Resource.t)
-        | None -> (sock :> [ `Close | `Flow | `R | `Shutdown | `W ] Eio.Resource.t)
+        let transport :
+          [ `Close | `Flow | `R | `Shutdown | `W ] Eio.Resource.t =
+          match tls_wrap with
+          | Some wrap ->
+              (wrap uri sock
+                :> [ `Close | `Flow | `R | `Shutdown | `W ] Eio.Resource.t)
+          | None ->
+              (sock
+                :> [ `Close | `Flow | `R | `Shutdown | `W ] Eio.Resource.t)
+        in
+        tracked_transports := transport :: !tracked_transports;
+        transport
       in
       let client = Cohttp_eio.Client.make_generic connect in
       Eio.Switch.on_release sw (fun () ->
-        match !last_sock with
-        | None -> ()
-        | Some sock ->
-            last_sock := None;
-            (try Eio.Net.close sock with
-             | Eio.Cancel.Cancelled _ as e -> raise e
-             | exn ->
-                 log_close_failure ~url:(Uri.to_string uri)
-                   ~message:(Printexc.to_string exn)));
+        let transports = !tracked_transports in
+        tracked_transports := [];
+        List.iter
+          (fun t ->
+            try Eio.Resource.close t with
+            | Eio.Cancel.Cancelled _ as e -> raise e
+            | exn ->
+                log_close_failure ~url:(Uri.to_string uri)
+                  ~message:(Printexc.to_string exn))
+          transports);
       Ok client
 
 let get_sync ~sw:_ ~net ~url ~headers =
