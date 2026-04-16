@@ -91,23 +91,11 @@ let statuses = Discovery.discover ~sw ~net
 
 Configure via `LLM_ENDPOINTS` env var (comma-separated, default `http://127.0.0.1:8085`).
 
-## Cascade Config (`lib/llm_provider/cascade_config.ml`)
+## Provider Routing
 
-Named cascade profiles with JSON hot-reload and discovery-aware health filtering.
-Consumers define named cascade profiles; OAS handles routing.
-
-```ocaml
-(* Execute a named cascade: load config, filter health, failover *)
-Cascade_config.complete_named ~sw ~net ~clock
-  ~name:"primary"
-  ~defaults:["llama:qwen3.5-35b"; "glm:auto"]
-  ~messages ~temperature:0.3 ~max_tokens:500 ()
-
-(* Or use individual pieces *)
-let configs = Cascade_config.parse_model_strings ["llama:qwen3.5"; "glm:glm-4.5"] in
-let healthy = Cascade_config.filter_healthy ~sw ~net configs in
-(* ... use with Complete.complete_cascade *)
-```
+OAS provides multi-provider routing via `Complete.complete_cascade`.
+Cascade configuration (model lists, health filtering, failover) is
+the responsibility of downstream consumers.
 
 Supported providers: `llama`, `claude`, `gemini`, `glm`, `openrouter`, `custom:model@url`.
 
