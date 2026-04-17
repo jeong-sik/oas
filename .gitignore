@@ -1,4 +1,5 @@
 _build/
+_build_*/
 .worktrees/
 
 # OCaml / opam
@@ -35,6 +36,13 @@ _coverage/
 # TLA+ generated state files
 specs/states/
 
-# Local working documents
+# Local working documents and one-off scripts (operator scratch)
 REFACTORING-PLAN*.md
+ISSUE_OCAML_*.md
+CDAL-ENHANCEMENT*.md
+TODO.md
+add_logs.py
+apply_fix.py
+fix_*.py
+patch_*.py
 .mcp.json
