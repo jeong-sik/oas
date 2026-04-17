@@ -350,10 +350,24 @@ let complete_http ~sw ~net
                 let _ = Yojson.Safe.from_string body_str in true
               with _ -> false
             in
+            (* Mask api_key to a short fingerprint so log lines distinguish
+               same-provider calls that use different keys (e.g.
+               ZAI_API_KEY vs ZAI_API_KEY_SB for glm vs glm-coding).
+               Empty key renders as "-"; short keys render as "<len:N>"
+               since they cannot be safely sampled. *)
+            let api_key_tag =
+              let k = config.api_key in
+              let len = String.length k in
+              if len = 0 then "-"
+              else if len < 8 then Printf.sprintf "len:%d" len
+              else Printf.sprintf "%s..%s(len:%d)"
+                (String.sub k 0 3) (String.sub k (len - 3) 3) len
+            in
             Diag.warn "complete"
-              "HTTP %d from %s (model=%s base_url=%s): req_body=%d bytes balanced=%b parse_ok=%b resp_body=%s"
+              "HTTP %d from %s (model=%s base_url=%s request_path=%s key=%s): req_body=%d bytes balanced=%b parse_ok=%b resp_body=%s"
               code provider_name config.model_id
               (sanitize_url_for_log config.base_url)
+              config.request_path api_key_tag
               body_len body_balanced parse_ok
               (if String.length body <= 200 then body
                else String.sub body 0 200 ^ "...");
