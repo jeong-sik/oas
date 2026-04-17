@@ -339,6 +339,7 @@ let build b =
     on_run_complete = b.on_run_complete;
     tool_result_relocation = b.tool_result_relocation;
     journal = b.journal;
+    transport = None;
     summarizer = b.summarizer;
   } in
   Agent.create ~net:b.net ~config ~tools:(Tool_set.to_list tools) ?context
