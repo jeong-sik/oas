@@ -264,11 +264,25 @@ let parse_stream_result lines =
 
 (* ── Transport constructor ───────────────────────────── *)
 
+(** Env vars stripped from every [claude] subprocess.
+
+    When [ANTHROPIC_API_KEY] is set in the parent process, [claude -p]
+    authenticates as a metered API client (subject to the org's API
+    spend limits) rather than using the user's OAuth/subscription
+    session.  MASC / agent integrations that rely on the subscription
+    tier must not leak API_KEY env to the CLI.
+
+    The three names below cover the canonical variable plus the
+    conventional [_MAIN] / [_WORK] split some callers adopt. *)
+let claude_cli_scrub_env =
+  ["ANTHROPIC_API_KEY"; "ANTHROPIC_API_KEY_MAIN"; "ANTHROPIC_API_KEY_WORK"]
+
 let run ~sw ~mgr ~(config : config) args =
   Cli_common_subprocess.run_collect ~sw ~mgr
     ~name:"claude"
     ~cwd:config.cwd
     ~extra_env:[]
+    ~scrub_env:claude_cli_scrub_env
     ?cancel:config.cancel
     (config.claude_path :: args)
 
@@ -295,6 +309,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
         in
         match Cli_common_subprocess.run_stream_lines ~sw ~mgr
                 ~name:"claude" ~cwd:config.cwd ~extra_env:[]
+                ~scrub_env:claude_cli_scrub_env
                 ~on_line ?cancel:config.cancel
                 argv with
         | Error _ as e -> { Llm_transport.response = e; latency_ms = 0 }
@@ -330,6 +345,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
               ~name:"claude"
               ~cwd:config.cwd
               ~extra_env:[]
+              ~scrub_env:claude_cli_scrub_env
               ~on_line
               ?cancel:config.cancel
               argv with

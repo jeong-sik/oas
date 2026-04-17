@@ -4,8 +4,14 @@ type collect_result = {
   latency_ms: int;
 }
 
-let build_env ~cwd ~extra_env =
-  let base = Unix.environment () |> Array.to_list in
+let starts_with s prefix =
+  let lp = String.length prefix in
+  String.length s >= lp && String.sub s 0 lp = prefix
+
+let build_env ~cwd ~extra_env ?(scrub_env = []) () =
+  let drop_scrubbed kv =
+    not (List.exists (fun k -> starts_with kv (k ^ "=")) scrub_env) in
+  let base = Unix.environment () |> Array.to_list |> List.filter drop_scrubbed in
   let extras = List.map (fun (k, v) -> Printf.sprintf "%s=%s" k v) extra_env in
   let cwd_prefix = match cwd with
     | Some dir -> [Printf.sprintf "PWD=%s" dir]
@@ -24,12 +30,13 @@ let default_on_stderr_line ~name line =
     [run_stream_lines] are thin wrappers that differ only in whether
     they expose [on_line] to the caller. *)
 let run_core ~sw ~(mgr : _ Eio.Process.mgr) ~name ~cwd ~extra_env
+    ?(scrub_env = [])
     ~on_line ~on_stderr_line ~cancel argv =
   let t0 = Unix.gettimeofday () in
   try
     let r_stdout, w_stdout = Eio_unix.pipe sw in
     let r_stderr, w_stderr = Eio_unix.pipe sw in
-    let env = build_env ~cwd ~extra_env in
+    let env = build_env ~cwd ~extra_env ~scrub_env () in
     let proc = Eio.Process.spawn ~sw mgr
       ~stdout:(w_stdout :> Eio.Flow.sink_ty Eio.Resource.t)
       ~stderr:(w_stderr :> Eio.Flow.sink_ty Eio.Resource.t)
@@ -110,19 +117,21 @@ let run_core ~sw ~(mgr : _ Eio.Process.mgr) ~name ~cwd ~extra_env
       message = Printf.sprintf "%s(%s): %s" fn arg (Unix.error_message err) })
 
 let run_collect ~sw ~mgr ~name ~cwd ~extra_env
+    ?(scrub_env = [])
     ?(on_stderr_line = default_on_stderr_line ~name)
     ?cancel argv =
-  run_core ~sw ~mgr ~name ~cwd ~extra_env
+  run_core ~sw ~mgr ~name ~cwd ~extra_env ~scrub_env
     ~on_line:(fun _ -> ())
     ~on_stderr_line
     ~cancel
     argv
 
 let run_stream_lines ~sw ~mgr ~name ~cwd ~extra_env
+    ?(scrub_env = [])
     ~on_line
     ?(on_stderr_line = default_on_stderr_line ~name)
     ?cancel argv =
-  run_core ~sw ~mgr ~name ~cwd ~extra_env
+  run_core ~sw ~mgr ~name ~cwd ~extra_env ~scrub_env
     ~on_line
     ~on_stderr_line
     ~cancel

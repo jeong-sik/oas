@@ -142,6 +142,12 @@ let warn_unsupported_once (config : config) warned =
     if Option.is_some config.permission_mode then warn "permission_mode"
   end
 
+(** Strip API-key env so [codex] uses its own session/auth rather than
+    inherited [OPENAI_API_KEY].  Mirrors the rationale in
+    {!Transport_claude_code.claude_cli_scrub_env}. *)
+let codex_cli_scrub_env =
+  ["OPENAI_API_KEY"]
+
 let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
   : Llm_transport.t =
   let warned = ref false in
@@ -158,6 +164,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
       in
       match Cli_common_subprocess.run_stream_lines ~sw ~mgr
               ~name:"codex" ~cwd:config.cwd ~extra_env:[]
+              ~scrub_env:codex_cli_scrub_env
               ~on_line ?cancel:config.cancel
               argv with
       | Error _ as e -> { Llm_transport.response = e; latency_ms = 0 }
@@ -179,6 +186,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
       in
       match Cli_common_subprocess.run_stream_lines ~sw ~mgr
               ~name:"codex" ~cwd:config.cwd ~extra_env:[]
+              ~scrub_env:codex_cli_scrub_env
               ~on_line ?cancel:config.cancel
               argv with
       | Error _ as e -> e
