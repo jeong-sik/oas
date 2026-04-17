@@ -699,7 +699,6 @@ let test_event_forward_all_event_types () =
     ev (TurnCompleted { agent_name = "a"; turn = 0 });
     ev (ElicitationCompleted { agent_name = "a"; question = "continue?";
                            response = Hooks.Declined });
-    ev (TaskStateChanged { task_id = "t1"; from_state = "submitted"; to_state = "working" });
     ev (Custom ("my_event", `Assoc [("key", `String "val")]));
   ] in
   List.iter (fun event ->
@@ -716,11 +715,7 @@ let test_event_forward_all_event_types () =
   ) events
 
 let test_event_forward_agent_name_none_cases () =
-  let ev1 = Event_bus.mk_event (TaskStateChanged {
-    task_id = "t"; from_state = "s1"; to_state = "s2" }) in
   let ev2 = Event_bus.mk_event (Custom ("x", `Null)) in
-  check (option string) "TaskStateChanged agent" None
-    (Event_forward.agent_name_of_event ev1);
   check (option string) "Custom agent" None
     (Event_forward.agent_name_of_event ev2)
 

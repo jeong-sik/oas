@@ -47,7 +47,6 @@ type payload =
           @since 0.154.0 *)
   | ElicitationCompleted of { agent_name: string; question: string;
                               response: Hooks.elicitation_response }
-  | TaskStateChanged of { task_id: string; from_state: string; to_state: string }
   | ContextCompacted of { agent_name: string; before_tokens: int;
                           after_tokens: int; phase: string }
   | ContextOverflowImminent of { agent_name: string;

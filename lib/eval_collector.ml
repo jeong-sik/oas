@@ -58,7 +58,6 @@ let process_events t =
     | HandoffRequested _
     | HandoffCompleted _
     | ElicitationCompleted _
-    | TaskStateChanged _
     | ContextCompacted _
     | ContextOverflowImminent _
     | ContextCompactStarted _

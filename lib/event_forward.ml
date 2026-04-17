@@ -48,7 +48,6 @@ let event_type_name (event : Event_bus.event) : string =
   | HandoffRequested _ -> "handoff.requested"
   | HandoffCompleted _ -> "handoff.completed"
   | ElicitationCompleted _ -> "elicitation.completed"
-  | TaskStateChanged _ -> "task.state_changed"
   | ContextCompacted _ -> "context.compacted"
   | ContextOverflowImminent _ -> "context.overflow_imminent"
   | ContextCompactStarted _ -> "context.compact_started"
@@ -68,7 +67,6 @@ let agent_name_of_payload : Event_bus.payload -> string option = function
   | ContextCompacted r -> Some r.agent_name
   | ContextOverflowImminent r -> Some r.agent_name
   | ContextCompactStarted r -> Some r.agent_name
-  | TaskStateChanged _ -> None
   | Custom _ -> None
 
 let agent_name_of_event (event : Event_bus.event) : string option =
@@ -124,12 +122,6 @@ let event_to_payload (event : Event_bus.event) : event_payload =
       ]
     | ElicitationCompleted r ->
       `Assoc [("agent_name", `String r.agent_name); ("question", `String r.question)]
-    | TaskStateChanged r ->
-      `Assoc [
-        ("task_id", `String r.task_id);
-        ("from_state", `String r.from_state);
-        ("to_state", `String r.to_state);
-      ]
     | ContextCompacted r ->
       `Assoc [
         ("agent_name", `String r.agent_name);
