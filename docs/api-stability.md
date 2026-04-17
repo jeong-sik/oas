@@ -15,7 +15,7 @@ Each `.mli` file carries a `@stability` annotation in its top-level doc comment.
 
 ### Stable
 
-- Types and functions that downstream consumers (MASC, external agents) import directly.
+- Types and functions that downstream consumers (external coordinators, embedding agents) import directly.
 - Core abstractions: `Types`, `Error`, `Agent`, `Builder`, `Tool`, `Provider`, `Hooks`.
 - Breaking a Stable module breaks all consumers.
 
@@ -60,7 +60,7 @@ explicit stability tier:
 
 ### Stable (14 modules)
 
-Core types and interfaces that MASC and external consumers depend on.
+Core types and interfaces that downstream consumers depend on.
 
 | Module | File |
 |--------|------|

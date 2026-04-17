@@ -2,11 +2,16 @@
 
 [![CI](https://github.com/jeong-sik/oas/actions/workflows/ci.yml/badge.svg)](https://github.com/jeong-sik/oas/actions/workflows/ci.yml)
 
-A native OCaml implementation of the Anthropic Agent SDK using OCaml 5.x + Eio for structured concurrency. Supports Anthropic Messages API, OpenAI-compatible endpoints, and Gemini.
+> Personal project. No production SLA, no external support, no compatibility guarantees. The API surface changes on the author's schedule. Use at your own risk.
+>
+> 개인 프로젝트입니다. 프로덕션 SLA, 외부 지원, 호환성 보증 없음. 사용 시 자기 책임.
 
-- OCaml package: `agent_sdk`
+OCaml agent SDK on OCaml 5.x + Eio. Single-process, single-Eio-domain runtime. Talks to Anthropic Messages API and OpenAI-compatible chat endpoints (which covers many local servers, OpenRouter, and similar gateways), plus a local llama-server profile. See `lib/api_*.ml` for the actually wired endpoints.
+
+- OCaml packages: `agent_sdk` (Layer 1, in `lib/`) and `agent_sdk_swarm` (Layer 2, in `lib_swarm/`)
 - OCaml module: `Agent_sdk`
 - Requires: OCaml >= 5.1, Dune >= 3.11
+- Current version: source of truth is `lib/sdk_version.ml`
 
 ## Installation
 
@@ -70,33 +75,40 @@ See `examples/` for more: `basic_agent.ml`, `tool_use.ml`, `streaming.ml`, `revi
 
 ## Provider support
 
-| Provider | Constructor | Endpoint |
-|----------|-----------|----------|
-| Local (llama-server) | `Provider.Local { base_url }` | `http://127.0.0.1:8085` |
-| Anthropic | `Provider.Anthropic` | `https://api.anthropic.com` |
-| OpenAI-compatible | `Provider.OpenAICompat { base_url; ... }` | Any `/chat/completions` |
-| Gemini | `Provider.Gemini` | `https://generativelanguage.googleapis.com` |
-| OpenRouter | `Provider.openrouter ()` | `https://openrouter.ai/api/v1` |
+The provider variants actually wired in `lib/provider.ml` are:
+
+| Variant | Constructor | Endpoint |
+|---------|-------------|----------|
+| `Local` (llama-server) | `Provider.Local { base_url }` / helper `Provider.local_llm ()` | `http://127.0.0.1:8085` (default) |
+| `Anthropic` | `Provider.Anthropic` / helpers `anthropic_sonnet/haiku/opus ()` | `https://api.anthropic.com` |
+| `OpenAICompat` | `Provider.OpenAICompat { base_url; ... }` / helper `Provider.openrouter ()` | Any `/chat/completions` host (OpenRouter, hosted gateways, local servers) |
+
+There is no separate `Gemini` variant in the wired provider type — Gemini is reached through an OpenAI-compatible endpoint when one is available. If you need first-class Gemini support, that is currently a planned item, not a shipped one.
 
 `Provider.resolve` returns `(base_url * api_key * headers, sdk_error) result`. Missing env vars produce `Error`, not silent fallback.
 
 ## Architecture
 
-OAS has a 3-layer architecture. Each layer is a separate opam library with explicit dependencies.
+OAS ships two opam libraries in this repository:
 
 ```
-Layer 3: MASC  (external — multi-process coordination)
-            |
-            |
+Layer 2: agent_sdk_swarm  (lib_swarm/)
+            |  Multi-agent execution on top of Layer 1.
+            |  Modes: Decentralized | Supervisor | Pipeline.
+            |  Optional convergence loop with metric evaluation.
+            |  Depends on agent_sdk.
+            v
 Layer 1: agent_sdk  (lib/)
-            |  Single-agent runtime: turn loop, tool dispatch, hooks
+            |  Single-agent runtime: turn loop, tool dispatch, hooks.
             |
-            +-- lib/agent/       Agent lifecycle, turns, tools, handoff, builder
-            +-- lib/pipeline/    6-stage turn pipeline
-            +-- lib/protocol/    A2A, MCP, Agent Card, Agent Registry
+            +-- lib/agent/         Agent lifecycle, turns, tools, handoff, builder
+            +-- lib/pipeline/      6-stage turn pipeline
+            +-- lib/protocol/      A2A, MCP, Agent Card, Agent Registry
             +-- lib/llm_provider/  Shared LLM types, HTTP client, streaming
-            +-- lib/*.ml         Context, Hooks, Guardrails, Orchestrator, etc.
+            +-- lib/*.ml           Context, Hooks, Guardrails, Orchestrator, etc.
 ```
+
+Anything outside this repository — multi-process coordination, repo-wide task queues, dashboards, persistent room state — is the responsibility of an external coordinator, not of OAS. OAS deliberately knows nothing about any specific coordinator.
 
 ### Layer 1: Agent Runtime (`agent_sdk`)
 
@@ -125,6 +137,19 @@ Layer 1: agent_sdk  (lib/)
 | `Audit` | Immutable log of policy decisions and agent actions |
 | `Durable` | Typed step chains with execution journal for crash recovery |
 | `Plan` | Goal decomposition with dependency DAG and re-planning |
+
+### Layer 2: Swarm Engine (`agent_sdk_swarm`)
+
+`lib_swarm/` is a separate opam library that depends on `agent_sdk`. It runs N agents in one of three modes and, when configured, loops until a convergence metric is met.
+
+| Module | Role |
+|--------|------|
+| `Swarm_types` | Configuration types: `agent_role`, `orchestration_mode`, `convergence_config`, `agent_entry`, `swarm_state`, `swarm_callbacks` |
+| `Runner` | The `run` entry point. Modes: `Decentralized` (parallel via `Eio.Fiber.List.map`), `Supervisor` (workers in parallel, then a synthesizer), `Pipeline` (sequential). State protected by `Eio.Mutex` during convergence loops |
+| `Swarm_channel` | Optional message-stream transport between agents when `enable_streaming = true` |
+| `Swarm_checkpoint`, `Swarm_plan_cache`, `Selection`, `Eval_harness`, `Traced_swarm` | Supporting modules for checkpointing, plan caching, agent selection, evaluation, and traced runs |
+
+`Agent_entry.run` is closure-based, which lets callers wrap any `Agent.t` (or a mock) without breaking the `Agent.t` abstract-type barrier. This is also how the swarm test suite runs without contacting an LLM.
 
 ## Module stability tiers
 
@@ -230,25 +255,27 @@ dune exec examples/review_agent.exe -- jeong-sik/oas 123
 
 ## Scope limitations
 
-OAS is a single-process agent runtime. The following concerns are explicitly out of scope.
+OAS is a single-process, single-Eio-domain agent runtime. The following concerns are explicitly out of scope and belong to a downstream consumer or a separate library.
 
 | What | Owner | Why not here |
 |------|-------|-------------|
-| Worktree / filesystem coordination | `masc-mcp` | Multi-process file locking and git worktree lifecycle are coordinator concerns, not SDK concerns. |
+| Worktree / filesystem coordination | External coordinator | Multi-process file locking and git worktree lifecycle are coordinator concerns, not SDK concerns. |
 | MCP transport implementation | `mcp-protocol-sdk` | OAS consumes `mcp_protocol` as an opam dependency. Transport details (NDJSON framing, stdio management) live there. |
-| Operator dashboard / visibility | `masc-mcp` | Real-time agent status, room views, and keeper dashboards belong to the coordination layer that aggregates across processes. |
-| Repo-level task and room management | `masc-mcp` | Task queues, claim semantics, and room state are coordination-plane concepts that span multiple agents and sessions. |
-| Workflow scheduling / SaaS isolation | Application layer | Cron triggers, tenant isolation, and multi-user access control are problems for the system that embeds OAS. |
-| Long-term persistence / vector storage | Application layer | Session state, memory backends, and embedding indexes are injected via callbacks, not owned by the SDK. |
+| Operator dashboard / visibility | External coordinator | Real-time agent status, room views, and supervisor dashboards belong to a layer that aggregates across processes. |
+| Repo-level task and room management | External coordinator | Task queues, claim semantics, and room state are coordination-plane concepts that span multiple agents and sessions. |
+| Workflow scheduling / SaaS isolation | Embedding application | Cron triggers, tenant isolation, and multi-user access control are problems for the system that embeds OAS. |
+| Long-term persistence / vector storage | Embedding application | Session state, memory backends, and embedding indexes are injected via callbacks, not owned by the SDK. |
 
-If you find yourself pulling one of these responsibilities into `agent_sdk`, that is a sign the change belongs in a different repository.
+If you find yourself pulling one of these responsibilities into `agent_sdk`, that is a signal the change belongs in a different repository. OAS does not name any specific downstream coordinator on purpose: anyone wiring OAS into a coordination layer should be free to make their own architectural choices.
 
 ## Versioning
 
-0.77.0
+The authoritative version string lives in `lib/sdk_version.ml` (mirrored in `dune-project` and `agent_sdk.opam`). Do not trust a number written into this README — it will drift.
 
 We follow semver intent within the 0.x series:
-- **0.x.0**: May contain breaking changes with migration guide in CHANGELOG.
+- **0.x.0**: May contain breaking changes with migration guide in `CHANGELOG.md`.
 - **0.x.y** (y > 0): Additive features and bug fixes only.
+
+These are intent-level commitments on a personal project, not contractual guarantees.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and code style.

@@ -3,7 +3,7 @@
 **Status**: Draft
 **Date**: 2026-04-13
 **Scope**: `lib/otel_tracer.ml`, `lib/eval.ml`, `lib/harness.ml`, `lib/llm_provider/metrics.ml`
-**One sentence**: OAS가 방출하는 OTel metric/span 이름을 `oas.*` namespace로 표준화하고, harness swiss_verdict를 JSON schema로 공개하여 외부 consumer(MASC dashboard, Grafana, CI)가 안정적으로 소비할 수 있게 한다.
+**One sentence**: OAS가 방출하는 OTel metric/span 이름을 `oas.*` namespace로 표준화하고, harness swiss_verdict를 JSON schema로 공개하여 외부 consumer(downstream dashboards, Grafana, CI 등)가 안정적으로 소비할 수 있게 한다.
 
 ## Related Documents
 
@@ -16,7 +16,7 @@
 - `lib/checkpoint.ml` — delta metric names (`checkpoint_delta_*`)
 - `lib/llm_provider/metrics.ml` — provider-level event hooks
 - `lib/raw_trace.ml` — JSONL trace format (v1, 6 record types)
-- `docs/sdk-independence-principle.md` — MASC 어휘 역주입 금지
+- `docs/sdk-independence-principle.md` — downstream coordinator 어휘 역주입 금지
 
 ## Problem Statement
 
@@ -25,7 +25,7 @@
 현재 OAS는 OTel semantic attribute(`gen_ai.agent.name`, `gen_ai.turn`)와 자체 metric name(`checkpoint_delta_apply_total`)을 혼용한다. 문제:
 
 - **Namespace 충돌 위험**: `checkpoint_delta_*`는 OAS 고유이나 `gen_ai.*`는 OpenTelemetry GenAI SIG 공식 convention. OAS 자체 metric이 `gen_ai` 아래로 분류될 근거가 없음.
-- **Consumer 파편화**: MASC dashboard, Grafana, CI 각각이 metric name을 하드코딩. OAS가 이름을 바꾸면 downstream 전부 깨짐.
+- **Consumer 파편화**: 외부 dashboard, Grafana, CI 각각이 metric name을 하드코딩. OAS가 이름을 바꾸면 downstream 전부 깨짐.
 - **검색 불가**: `oas`라는 prefix가 없어 OTel collector에서 OAS 메트릭만 필터링하기 어려움.
 
 ### 2. Harness Verdict 스키마 비공개
@@ -37,7 +37,7 @@ type verdict = { passed: bool; score: float option; evidence: string list; detai
 type 'obs swiss_verdict = { all_passed: bool; layer_results: 'obs layer_result list; coverage: float }
 ```
 
-외부 consumer(MASC dashboard, CI reporter)가 이 구조를 안정적으로 파싱하려면 JSON Schema가 필요하다. 현재는 OCaml 소스를 읽어야 하고, 필드 추가/변경 시 downstream이 무예고로 깨진다.
+외부 consumer(downstream dashboard, CI reporter 등)가 이 구조를 안정적으로 파싱하려면 JSON Schema가 필요하다. 현재는 OCaml 소스를 읽어야 하고, 필드 추가/변경 시 downstream이 무예고로 깨진다.
 
 ### 3. Eval Metric 표준화 부재
 
@@ -193,7 +193,7 @@ val emit_run_metrics : Otel_tracer.t -> run_metrics -> unit
 
 | Risk | Mitigation |
 |------|------------|
-| Metric rename이 기존 Grafana 대시보드를 깨뜨림 | Phase 1에서 1 cycle 동안 dual-emit. MASC dashboard 먼저 migration |
+| Metric rename이 기존 Grafana 대시보드를 깨뜨림 | Phase 1에서 1 cycle 동안 dual-emit. Downstream dashboards migrate first. |
 | Dual-emit으로 metric cardinality 2배 증가 | Feature flag로 구이름 emit 대상을 선택적으로 제한. 전체 metric이 아닌 downstream consumer가 실제 사용하는 구이름만 dual-emit |
 | JSON Schema와 OCaml 타입 drift | dune rule로 CI에서 schema↔type 동기 검증 |
 | OTel GenAI SIG convention 변경 시 재작업 | `gen_ai.*`는 attribute만 사용, metric name은 `oas.*` 자체 namespace이므로 SIG 변경에 독립 |
@@ -203,5 +203,5 @@ val emit_run_metrics : Otel_tracer.t -> run_metrics -> unit
 - `Agent.replay_from()` API (Issue #484 Epic 범위)
 - Checkpoint delta protocol 변경 (Issue #484 Epic 범위)
 - Raw trace format 변경 (v1 유지)
-- MASC dashboard 코드 변경 (MASC 측 별도 작업, RFC-MASC-005에서 다룸)
+- Downstream consumer code changes (those live in their own repositories, not in OAS)
 - Cost tracking OTel emit 세부 구현 (Phase 3에서 다루되 cost_tracker.ml 내부 로직 변경은 없음)

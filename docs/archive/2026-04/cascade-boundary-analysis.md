@@ -1,5 +1,11 @@
 # Cascade Boundary Analysis — OAS vs MASC 경계 문제
 
+> ARCHIVED 2026-04-17. This document was written from the OAS side about a
+> specific external coordinator. Per the SDK independence principle, OAS docs
+> must not name a specific downstream consumer, so this analysis has been moved
+> out of `docs/design/` into the archive. Kept verbatim for historical context;
+> do not link to it from active OAS documentation.
+
 > last-verified commit: `b26936b4` (2026-04-12)
 
 ## 1. 요약

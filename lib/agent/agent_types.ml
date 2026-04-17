@@ -56,9 +56,10 @@ type options = {
         triggers [Summarize_old].  When [None], the built-in
         [Budget_strategy.default_summarizer] is used (first text block
         of each message, truncated to 100 chars).  Consumers that embed
-        domain-specific structured markers in message bodies (e.g., MASC's
-        [STATE] blocks) can supply a summarizer that strips or transforms
-        those markers before they are re-injected as compacted history.
+        domain-specific structured markers in message bodies (for example
+        their own [STATE] blocks or other custom envelopes) can supply a
+        summarizer that strips or transforms those markers before they are
+        re-injected as compacted history.
         @since 0.150.0 *)
 }
 

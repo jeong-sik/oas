@@ -231,9 +231,9 @@ Semantic checks:
 - reuse [`lib/checkpoint_validation.ml`](../../lib/checkpoint_validation.ml) as a partial validator, but do not treat its current `continuity_check` as sufficient by itself
 - raw text similarity score is advisory, not a gate
 
-## Version skew with MASC
+## Version skew with downstream consumers
 
-MASC consumes OAS checkpoints but should not assume delta support implicitly.
+A consumer reading OAS checkpoints must not assume delta support implicitly.
 
 - capability handshake should advertise `checkpoint_delta_v1`
 - if the consumer does not support delta, OAS keeps serving full checkpoints
