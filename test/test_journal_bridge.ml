@@ -17,7 +17,7 @@ let projection_payload evt =
 
 let test_turn_started_projection () =
   let evt = Durable_event.Turn_started { turn = 3; timestamp = ts } in
-  check string "name" "durable:turn_started" (projection_name evt);
+  check string "name" "durable.turn_started" (projection_name evt);
   match projection_payload evt with
   | `Assoc fields ->
     check int "turn" 3
@@ -28,7 +28,7 @@ let test_turn_started_projection () =
 let test_llm_request_projection () =
   let evt = Durable_event.Llm_request {
     turn = 1; model = "qwen"; input_tokens = 500; timestamp = ts } in
-  check string "name" "durable:llm_request" (projection_name evt);
+  check string "name" "durable.llm_request" (projection_name evt);
   match projection_payload evt with
   | `Assoc fields ->
     check int "input_tokens" 500
@@ -44,7 +44,7 @@ let test_tool_completed_projection () =
     turn = 2; tool_name = "read"; idempotency_key = "k1";
     output_json = `String "ok"; is_error = false; duration_ms = 12.5;
     timestamp = ts } in
-  check string "name" "durable:tool_completed" (projection_name evt);
+  check string "name" "durable.tool_completed" (projection_name evt);
   match projection_payload evt with
   | `Assoc fields ->
     check bool "is_error" false
@@ -71,9 +71,9 @@ let test_all_variants_project () =
   ] in
   List.iter (fun evt ->
     let (name, _) = Journal_bridge.projection_of_event evt in
-    check bool (Printf.sprintf "name has durable: prefix: %s" name)
+    check bool (Printf.sprintf "name has durable. prefix: %s" name)
       true (String.length name > 8 &&
-            String.sub name 0 8 = "durable:")
+            String.sub name 0 8 = "durable.")
   ) variants
 
 (* ── End-to-end: bridge via on_append ──────────────── *)
@@ -98,7 +98,7 @@ let test_make_publishes_to_bus () =
     | _ -> "non-custom"
   ) events in
   check (list string) "names"
-    ["durable:turn_started"; "durable:error_occurred"]
+    ["durable.turn_started"; "durable.error_occurred"]
     names
 
 let test_make_preserves_envelope () =
@@ -129,7 +129,7 @@ let () =
       test_case "turn_started" `Quick test_turn_started_projection;
       test_case "llm_request" `Quick test_llm_request_projection;
       test_case "tool_completed" `Quick test_tool_completed_projection;
-      test_case "all variants have durable: prefix" `Quick
+      test_case "all variants have durable. prefix" `Quick
         test_all_variants_project;
     ];
     "bridge", [
