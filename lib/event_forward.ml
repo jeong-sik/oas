@@ -40,29 +40,33 @@ let event_type_name (event : Event_bus.event) : string =
   match event.payload with
   | AgentStarted _ -> "agent.started"
   | AgentCompleted _ -> "agent.completed"
+  | AgentFailed _ -> "agent.failed"
   | ToolCalled _ -> "tool.called"
   | ToolCompleted _ -> "tool.completed"
   | TurnStarted _ -> "turn.started"
   | TurnCompleted _ -> "turn.completed"
+  | HandoffRequested _ -> "handoff.requested"
+  | HandoffCompleted _ -> "handoff.completed"
   | ElicitationCompleted _ -> "elicitation.completed"
-  | TaskStateChanged _ -> "task.state_changed"
   | ContextCompacted _ -> "context.compacted"
   | ContextOverflowImminent _ -> "context.overflow_imminent"
   | ContextCompactStarted _ -> "context.compact_started"
-  | Custom (name, _) -> "custom." ^ name
+  | Custom (name, _) -> name
 
 let agent_name_of_payload : Event_bus.payload -> string option = function
   | AgentStarted r -> Some r.agent_name
   | AgentCompleted r -> Some r.agent_name
+  | AgentFailed r -> Some r.agent_name
   | ToolCalled r -> Some r.agent_name
   | ToolCompleted r -> Some r.agent_name
   | TurnStarted r -> Some r.agent_name
   | TurnCompleted r -> Some r.agent_name
+  | HandoffRequested r -> Some r.from_agent
+  | HandoffCompleted r -> Some r.from_agent
   | ElicitationCompleted r -> Some r.agent_name
   | ContextCompacted r -> Some r.agent_name
   | ContextOverflowImminent r -> Some r.agent_name
   | ContextCompactStarted r -> Some r.agent_name
-  | TaskStateChanged _ -> None
   | Custom _ -> None
 
 let agent_name_of_event (event : Event_bus.event) : string option =
@@ -81,6 +85,13 @@ let event_to_payload (event : Event_bus.event) : event_payload =
         ("elapsed", `Float r.elapsed);
         ("success", `Bool (Result.is_ok r.result));
       ]
+    | AgentFailed r ->
+      `Assoc [
+        ("agent_name", `String r.agent_name);
+        ("task_id", `String r.task_id);
+        ("elapsed", `Float r.elapsed);
+        ("error", `String (Error.to_string r.error));
+      ]
     | ToolCalled r ->
       `Assoc [
         ("agent_name", `String r.agent_name);
@@ -97,14 +108,20 @@ let event_to_payload (event : Event_bus.event) : event_payload =
       `Assoc [("agent_name", `String r.agent_name); ("turn", `Int r.turn)]
     | TurnCompleted r ->
       `Assoc [("agent_name", `String r.agent_name); ("turn", `Int r.turn)]
+    | HandoffRequested r ->
+      `Assoc [
+        ("from_agent", `String r.from_agent);
+        ("to_agent", `String r.to_agent);
+        ("reason", `String r.reason);
+      ]
+    | HandoffCompleted r ->
+      `Assoc [
+        ("from_agent", `String r.from_agent);
+        ("to_agent", `String r.to_agent);
+        ("elapsed", `Float r.elapsed);
+      ]
     | ElicitationCompleted r ->
       `Assoc [("agent_name", `String r.agent_name); ("question", `String r.question)]
-    | TaskStateChanged r ->
-      `Assoc [
-        ("task_id", `String r.task_id);
-        ("from_state", `String r.from_state);
-        ("to_state", `String r.to_state);
-      ]
     | ContextCompacted r ->
       `Assoc [
         ("agent_name", `String r.agent_name);

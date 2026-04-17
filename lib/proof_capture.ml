@@ -188,6 +188,7 @@ let hooks st =
     on_tool_error = None;
     pre_compact = None;
     post_compact = None;
+    on_context_compacted = None;
   }
 
 let collect_evidence_refs st =

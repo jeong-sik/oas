@@ -17,7 +17,7 @@ let projection_payload evt =
 
 let test_turn_started_projection () =
   let evt = Durable_event.Turn_started { turn = 3; timestamp = ts } in
-  check string "name" "durable:turn_started" (projection_name evt);
+  check string "name" "durable.turn_started" (projection_name evt);
   match projection_payload evt with
   | `Assoc fields ->
     check int "turn" 3
@@ -28,7 +28,7 @@ let test_turn_started_projection () =
 let test_llm_request_projection () =
   let evt = Durable_event.Llm_request {
     turn = 1; model = "qwen"; input_tokens = 500; timestamp = ts } in
-  check string "name" "durable:llm_request" (projection_name evt);
+  check string "name" "durable.llm_request" (projection_name evt);
   match projection_payload evt with
   | `Assoc fields ->
     check int "input_tokens" 500
@@ -44,7 +44,7 @@ let test_tool_completed_projection () =
     turn = 2; tool_name = "read"; idempotency_key = "k1";
     output_json = `String "ok"; is_error = false; duration_ms = 12.5;
     timestamp = ts } in
-  check string "name" "durable:tool_completed" (projection_name evt);
+  check string "name" "durable.tool_completed" (projection_name evt);
   match projection_payload evt with
   | `Assoc fields ->
     check bool "is_error" false
@@ -71,9 +71,9 @@ let test_all_variants_project () =
   ] in
   List.iter (fun evt ->
     let (name, _) = Journal_bridge.projection_of_event evt in
-    check bool (Printf.sprintf "name has durable: prefix: %s" name)
+    check bool (Printf.sprintf "name has durable. prefix: %s" name)
       true (String.length name > 8 &&
-            String.sub name 0 8 = "durable:")
+            String.sub name 0 8 = "durable.")
   ) variants
 
 (* ── End-to-end: bridge via on_append ──────────────── *)
@@ -83,7 +83,7 @@ let test_make_publishes_to_bus () =
   let bus = Event_bus.create () in
   let sub = Event_bus.subscribe bus in
   let journal =
-    Durable_event.create ~on_append:(Journal_bridge.make ~bus) ()
+    Durable_event.create ~on_append:(Journal_bridge.make ~bus ()) ()
   in
   Durable_event.append journal
     (Turn_started { turn = 1; timestamp = ts });
@@ -98,8 +98,30 @@ let test_make_publishes_to_bus () =
     | _ -> "non-custom"
   ) events in
   check (list string) "names"
-    ["durable:turn_started"; "durable:error_occurred"]
+    ["durable.turn_started"; "durable.error_occurred"]
     names
+
+let test_make_preserves_envelope () =
+  Eio_main.run @@ fun _env ->
+  let bus = Event_bus.create () in
+  let sub = Event_bus.subscribe bus in
+  let corr = "corr-42" in
+  let run_id = "run-42" in
+  let journal =
+    Durable_event.create
+      ~on_append:(Journal_bridge.make ~bus ~correlation_id:corr ~run_id ())
+      ()
+  in
+  Durable_event.append journal (Turn_started { turn = 1; timestamp = ts });
+  Durable_event.append journal
+    (Error_occurred { turn = 1; error_domain = "Api";
+                      detail = "boom"; timestamp = ts });
+  let events = Event_bus.drain sub in
+  check int "count" 2 (List.length events);
+  List.iter (fun (e : Event_bus.event) ->
+    check string "correlation_id preserved" corr e.meta.correlation_id;
+    check string "run_id preserved" run_id e.meta.run_id)
+    events
 
 let () =
   run "Journal_bridge" [
@@ -107,10 +129,11 @@ let () =
       test_case "turn_started" `Quick test_turn_started_projection;
       test_case "llm_request" `Quick test_llm_request_projection;
       test_case "tool_completed" `Quick test_tool_completed_projection;
-      test_case "all variants have durable: prefix" `Quick
+      test_case "all variants have durable. prefix" `Quick
         test_all_variants_project;
     ];
     "bridge", [
       test_case "make publishes to bus" `Quick test_make_publishes_to_bus;
+      test_case "make preserves envelope" `Quick test_make_preserves_envelope;
     ];
   ]

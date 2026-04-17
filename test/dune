@@ -70,6 +70,14 @@
  (name test_handoff)
  (libraries agent_sdk alcotest yojson))
 
+(test
+ (name test_event_integration)
+ (libraries agent_sdk alcotest yojson eio eio_main cohttp cohttp-eio uri))
+
+(test
+ (name test_multivendor_live)
+ (libraries agent_sdk alcotest eio eio_main mirage-crypto-rng.unix))
+
 (executable
  (name test_local_llm)
  (libraries agent_sdk eio eio_main yojson))
@@ -277,4 +285,20 @@
 (test
  (name test_budget_strategy)
  (libraries agent_sdk alcotest astring))
+
+(test
+ (name test_journal_bridge)
+ (libraries agent_sdk alcotest yojson eio eio_main))
+
+(test
+ (name test_event_forward)
+ (libraries agent_sdk alcotest yojson eio eio_main))
+
+(test
+ (name test_deep_coverage)
+ (libraries agent_sdk alcotest yojson eio eio_main))
+
+(test
+ (name test_multivendor_events)
+ (libraries agent_sdk alcotest yojson eio eio_main))
 

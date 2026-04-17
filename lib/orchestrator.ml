@@ -140,7 +140,20 @@ let run_task ~sw ?clock orch task =
              { agent_name = task.agent_name;
                task_id = task.id;
                result;
-               elapsed }))
+               elapsed }));
+     (* AgentFailed companion event: emitted in addition to AgentCompleted
+        so subscribers that want to match on failure directly don't need
+        to destructure the result Result.t. *)
+     (match result with
+      | Error err ->
+        Event_bus.publish bus
+          (Event_bus.mk_event ~correlation_id ~run_id
+             (AgentFailed
+                { agent_name = task.agent_name;
+                  task_id = task.id;
+                  error = err;
+                  elapsed }))
+      | Ok _ -> ())
    | None -> ());
   Option.iter (fun cb -> cb tr) orch.config.on_task_complete;
   tr

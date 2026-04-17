@@ -59,3 +59,11 @@
  (name cli_transports_demo)
  (libraries llm_provider eio eio_main yojson))
 
+(executable
+ (name agent_failure_observability)
+ (libraries agent_sdk eio eio_main))
+
+(executable
+ (name handoff_lifecycle)
+ (libraries agent_sdk eio eio_main cohttp cohttp-eio uri yojson))
+

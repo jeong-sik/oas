@@ -576,6 +576,14 @@ let proactive_compact ?raw_trace_run agent ~watermark () =
                  after_tokens;
                  phase } }
          | None -> ());
+        let _ : Hooks.hook_decision =
+          Hooks.invoke agent.options.hooks.on_context_compacted
+            (Hooks.OnContextCompacted {
+               agent_name = agent.state.config.name;
+               before_tokens = est_tokens;
+               after_tokens;
+               phase })
+        in
         (match agent.options.journal with
          | Some j ->
              Durable_event.append j
@@ -642,6 +650,14 @@ let emergency_compact ?raw_trace_run agent ?limit () =
                after_tokens;
                phase } }
        | None -> ());
+      let _ : Hooks.hook_decision =
+        Hooks.invoke agent.options.hooks.on_context_compacted
+          (Hooks.OnContextCompacted {
+             agent_name = agent.state.config.name;
+             before_tokens = est_tokens;
+             after_tokens;
+             phase })
+      in
       (match agent.options.journal with
        | Some j ->
            Durable_event.append j

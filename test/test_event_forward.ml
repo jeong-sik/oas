@@ -23,7 +23,7 @@ let test_event_type_name () =
     (ev (Event_bus.ToolCalled { agent_name = "a"; tool_name = "t"; input = `Null }),
      "tool.called");
     (ev (Event_bus.Custom ("foo", `Null)),
-     "custom.foo");
+     "foo");
     (ev (Event_bus.ContextOverflowImminent {
            agent_name = "a"; estimated_tokens = 95000;
            limit_tokens = 100000; ratio = 0.95 }),
@@ -239,17 +239,10 @@ let test_elicitation_completed_payload () =
   Alcotest.(check string) "type" "elicitation.completed" p.event_type;
   Alcotest.(check (option string)) "agent" (Some "agent") p.agent_name
 
-let test_task_state_changed_payload () =
-  let evt = ev (Event_bus.TaskStateChanged {
-    task_id = "t1"; from_state = "running"; to_state = "completed" }) in
-  let p = Event_forward.event_to_payload evt in
-  Alcotest.(check string) "type" "task.state_changed" p.event_type;
-  Alcotest.(check (option string)) "no agent" None p.agent_name
-
 let test_custom_event_payload () =
   let evt = ev (Event_bus.Custom ("myevent", `Assoc [("x", `Int 1)])) in
   let p = Event_forward.event_to_payload evt in
-  Alcotest.(check string) "type" "custom.myevent" p.event_type;
+  Alcotest.(check string) "type" "myevent" p.event_type;
   Alcotest.(check (option string)) "no agent" None p.agent_name
 
 let test_agent_started_payload () =
@@ -303,7 +296,6 @@ let () =
       Alcotest.test_case "tool events" `Quick test_tool_events_payload;
       Alcotest.test_case "turn_completed" `Quick test_turn_completed_payload;
       Alcotest.test_case "elicitation" `Quick test_elicitation_completed_payload;
-      Alcotest.test_case "task_state_changed" `Quick test_task_state_changed_payload;
       Alcotest.test_case "custom event" `Quick test_custom_event_payload;
       Alcotest.test_case "agent_started" `Quick test_agent_started_payload;
       Alcotest.test_case "tool_completed error" `Quick test_tool_completed_error_payload;

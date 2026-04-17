@@ -38,21 +38,30 @@ let process_events t =
     | ToolCompleted _ ->
       t.tool_completions <- t.tool_completions + 1
     | AgentCompleted r ->
-      let elapsed_metric = {
-        Eval.name = "elapsed_s";
-        value = Float_val r.elapsed;
-        unit_ = Some "seconds";
-        tags = [];
-      } in
-      Eval.record t.collector elapsed_metric;
-      let success_metric = {
-        Eval.name = "success";
-        value = Bool_val (Result.is_ok r.result);
-        unit_ = None;
-        tags = [];
-      } in
-      Eval.record t.collector success_metric
-    | _ -> ()
+      Eval.record t.collector
+        { Eval.name = "elapsed_s"; value = Float_val r.elapsed;
+          unit_ = Some "seconds"; tags = [] };
+      Eval.record t.collector
+        { Eval.name = "success"; value = Bool_val (Result.is_ok r.result);
+          unit_ = None; tags = [] }
+    | AgentFailed r ->
+      (* AgentFailed fires alongside AgentCompleted on error paths; the
+         success=false metric is already recorded via AgentCompleted. *)
+      Eval.record t.collector
+        { Eval.name = "error_elapsed_s"; value = Float_val r.elapsed;
+          unit_ = Some "seconds";
+          tags = [("error", Error.to_string r.error)] }
+    (* Lifecycle events — observed but not metered here.
+       Downstream consumers can subscribe for richer metrics. *)
+    | AgentStarted _
+    | TurnCompleted _
+    | HandoffRequested _
+    | HandoffCompleted _
+    | ElicitationCompleted _
+    | ContextCompacted _
+    | ContextOverflowImminent _
+    | ContextCompactStarted _
+    | Custom _ -> ()
   ) events
 
 let finalize t =

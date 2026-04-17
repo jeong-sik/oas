@@ -233,12 +233,32 @@ let run_with_handoffs ~sw ?clock agent ~targets user_prompt =
                       ~tool_id ~content:err_msg ~is_error:true });
               loop ()
             | Some target ->
+              let from_name = agent_with_handoffs.state.config.name in
+              (match agent_with_handoffs.options.event_bus with
+               | Some bus -> Event_bus.publish bus
+                   (Event_bus.mk_event
+                      (HandoffRequested
+                         { from_agent = from_name;
+                           to_agent = target.name;
+                           reason = prompt }))
+               | None -> ());
+              let handoff_t0 = Unix.gettimeofday () in
               let sub = create ~net:agent.net ~config:target.config
                 ~tools:target.tools ~options:{ default_options with
                   base_url = agent.options.base_url;
                   provider = agent.options.provider;
                   policy_channel = agent.options.policy_channel } () in
-              (match run ~sw ?clock sub prompt with
+              let sub_result = run ~sw ?clock sub prompt in
+              let handoff_elapsed = Unix.gettimeofday () -. handoff_t0 in
+              (match agent_with_handoffs.options.event_bus with
+               | Some bus -> Event_bus.publish bus
+                   (Event_bus.mk_event
+                      (HandoffCompleted
+                         { from_agent = from_name;
+                           to_agent = target.name;
+                           elapsed = handoff_elapsed }))
+               | None -> ());
+              (match sub_result with
                | Error e ->
                  let err_msg = Printf.sprintf
                    "Handoff to %s failed: %s"

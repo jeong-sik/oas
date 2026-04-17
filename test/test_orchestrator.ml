@@ -375,13 +375,21 @@ let test_event_bus_receives_completed () =
   in
   let _tr = Orchestrator.run_task ~sw orch task in
   let events = Event_bus.drain sub in
-  let last = List.nth events (List.length events - 1) in
-  match last.payload with
-  | AgentCompleted r ->
+  (* Since v0.154.0, error paths emit AgentFailed AFTER AgentCompleted,
+     so AgentCompleted is no longer guaranteed to be the last event.
+     Look it up by payload shape instead. *)
+  let completed = List.find_opt (fun (e : Event_bus.event) ->
+    match e.payload with AgentCompleted _ -> true | _ -> false) events in
+  match Option.map (fun (e : Event_bus.event) -> e.payload) completed with
+  | Some (AgentCompleted r) ->
     check string "agent_name" "phantom" r.agent_name;
     check string "task_id" "eb-2" r.task_id;
-    check bool "result is error (unknown agent)" true (Result.is_error r.result)
-  | _ -> fail "expected AgentCompleted last"
+    check bool "result is error (unknown agent)" true (Result.is_error r.result);
+    (* AgentFailed companion event must also be present. *)
+    check bool "AgentFailed companion event emitted" true
+      (List.exists (fun (e : Event_bus.event) ->
+        match e.payload with AgentFailed _ -> true | _ -> false) events)
+  | _ -> fail "expected AgentCompleted event"
 
 (* ── execute_sequential: unknown agents ─────────────────────────── *)
 
