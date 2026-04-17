@@ -170,7 +170,57 @@ let test_is_retryable () =
   Alcotest.(check bool) "401 not retryable" false
     (Complete.is_retryable (Http_client.HttpError { code = 401; body = "" }));
   Alcotest.(check bool) "404 not retryable" false
-    (Complete.is_retryable (Http_client.HttpError { code = 404; body = "" }))
+    (Complete.is_retryable (Http_client.HttpError { code = 404; body = "" }));
+  (* Wiring bug — retrying cannot conjure a missing CLI transport. *)
+  Alcotest.(check bool) "CliTransportRequired not retryable" false
+    (Complete.is_retryable
+       (Http_client.CliTransportRequired { kind = "claude_code" }))
+
+let test_complete_claude_code_without_transport_is_guarded () =
+  (* Regression: [Complete.complete] used to forward CLI-kind configs
+     (base_url = "") to cohttp-eio, which crashed with
+     [Fmt.failwith "Unknown scheme None"].  The guard now returns a
+     typed [CliTransportRequired] so cascades and callers can
+     distinguish a wiring bug from a transient network failure.
+
+     Covers the full matrix (Claude_code, Gemini_cli, Codex_cli). *)
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  let net = Eio.Stdenv.net env in
+  let kinds =
+    [ PC.Claude_code,  "claude_code";
+      PC.Gemini_cli,   "gemini_cli";
+      PC.Codex_cli,    "codex_cli" ]
+  in
+  List.iter (fun (kind, expected_name) ->
+    let config = PC.make ~kind ~model_id:"auto" ~base_url:"" () in
+    let messages = [user_msg "hi"] in
+    match
+      Llm_provider.Complete.complete ~sw ~net
+        ~config ~messages ?transport:None ()
+    with
+    | Ok _ ->
+        Alcotest.failf
+          "%s with no transport must not succeed via HTTP fallback"
+          expected_name
+    | Error (Llm_provider.Http_client.CliTransportRequired { kind }) ->
+        Alcotest.(check string)
+          (Printf.sprintf "%s reports its own kind" expected_name)
+          expected_name kind
+    | Error (Llm_provider.Http_client.HttpError { code; _ }) ->
+        Alcotest.failf
+          "%s expected CliTransportRequired, got HttpError %d"
+          expected_name code
+    | Error (Llm_provider.Http_client.NetworkError { message }) ->
+        Alcotest.failf
+          "%s expected CliTransportRequired, got NetworkError: %s \
+           (this is the 'Unknown scheme None' regression)"
+          expected_name message
+    | Error (Llm_provider.Http_client.AcceptRejected { reason }) ->
+        Alcotest.failf
+          "%s expected CliTransportRequired, got AcceptRejected: %s"
+          expected_name reason
+  ) kinds
 
 let test_annotate_response_cost () =
   let response : api_response = {
@@ -325,6 +375,10 @@ let () =
     "retry", [
       test_case "default config" `Quick test_default_retry_config;
       test_case "is_retryable" `Quick test_is_retryable;
+    ];
+    "cli_transport_guard", [
+      test_case "complete refuses HTTP fallback for CLI kinds"
+        `Quick test_complete_claude_code_without_transport_is_guarded;
     ];
     "cost", [
       test_case "annotate response cost" `Quick test_annotate_response_cost;

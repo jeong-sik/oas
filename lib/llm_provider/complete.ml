@@ -487,6 +487,19 @@ let complete ~sw ~net ?(transport : Llm_transport.t option)
         match transport with
         | Some t ->
           t.complete_sync { Llm_transport.config; messages; tools }
+        | None when requires_non_http_transport config.kind ->
+          (* CLI subprocess providers (claude_code/codex_cli/gemini_cli)
+             register with [base_url = ""] on purpose.  Without a CLI
+             transport wired by the caller, falling through to
+             [complete_http] would let cohttp-eio raise
+             [Fmt.failwith "Unknown scheme None"] when parsing the empty
+             URL.  Fail fast with a dedicated variant so cascades and
+             downstream consumers can distinguish a wiring bug from a
+             transient network failure. *)
+          let kind = provider_name_of_kind config.kind in
+          { Llm_transport.response =
+              Error (Http_client.CliTransportRequired { kind });
+            latency_ms = 0 }
         | None ->
           let (resp, lat) =
             complete_http ~sw ~net
@@ -528,6 +541,10 @@ let complete ~sw ~net ?(transport : Llm_transport.t option)
                  Printf.sprintf "HTTP %d" code
              | Http_client.AcceptRejected { reason } -> reason
              | Http_client.NetworkError { message } -> message
+             | Http_client.CliTransportRequired { kind } ->
+                 Printf.sprintf
+                   "CLI transport required for %s but none injected"
+                   kind
            in
            m.on_error ~model_id ~error:err_str;
            Error err)
@@ -553,6 +570,9 @@ let is_retryable = function
       List.mem code Constants.Http.retryable_codes
   | Http_client.AcceptRejected _ -> false
   | Http_client.NetworkError _ -> true
+  (* Wiring bug, not transient — retrying cannot summon a missing
+     transport. *)
+  | Http_client.CliTransportRequired _ -> false
 
 let complete_with_retry ~sw ~net ?transport ~clock
     ~(config : Provider_config.t)
@@ -700,6 +720,11 @@ let complete_stream ~sw ~net ?(transport : Llm_transport.t option)
   let result = match transport with
   | Some t ->
     t.complete_stream ~on_event { Llm_transport.config; messages; tools }
+  | None when requires_non_http_transport config.kind ->
+    (* Same rationale as the sync [complete] guard: CLI kinds have
+       [base_url = ""] and must not reach cohttp-eio. *)
+    Error (Http_client.CliTransportRequired {
+      kind = provider_name_of_kind config.kind })
   | None ->
     complete_stream_http ~sw ~net ~config ~messages ~tools ~on_event
   in

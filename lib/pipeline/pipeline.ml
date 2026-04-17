@@ -200,6 +200,11 @@ let sdk_error_of_http_error : Llm_provider.Http_client.http_error -> Error.sdk_e
       Error.Api (Retry.NetworkError { message })
   | Llm_provider.Http_client.AcceptRejected { reason } ->
       Error.Api (Retry.InvalidRequest { message = reason })
+  | Llm_provider.Http_client.CliTransportRequired { kind } ->
+      Error.Api (Retry.InvalidRequest {
+        message = Printf.sprintf
+          "CLI transport required for %s but none was injected; \
+           pass ~transport via agent.options.transport" kind })
 
 (** Sync dispatch via {!Llm_provider.Complete.complete}.  Routes all
     provider kinds through the consolidated path so [on_request_end]

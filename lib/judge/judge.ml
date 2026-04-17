@@ -155,6 +155,8 @@ let judge ~sw ~net ~provider ~config ~context () =
            else body)
       | Http_client.AcceptRejected { reason } -> reason
       | Http_client.NetworkError { message } -> message
+      | Http_client.CliTransportRequired { kind } ->
+        Printf.sprintf "CLI transport required for %s" kind
     in
     Error (Printf.sprintf "Judge LLM call failed: %s" msg)
   | Ok response ->

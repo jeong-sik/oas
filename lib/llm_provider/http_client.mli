@@ -12,6 +12,11 @@ type http_error =
   | HttpError of { code: int; body: string }
   | NetworkError of { message: string }
   | AcceptRejected of { reason: string }
+  | CliTransportRequired of { kind: string }
+      (** Provider kind requires a non-HTTP transport (CLI subprocess)
+          but the caller did not inject one.  Distinct from
+          {!NetworkError} so cascades can treat it as a configuration
+          bug rather than a transient failure. *)
 
 (** GET a URL synchronously, returning the full response.
     Returns [(status_code, body_string)] on success. *)
