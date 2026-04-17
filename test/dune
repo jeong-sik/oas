@@ -282,3 +282,7 @@
  (name test_journal_bridge)
  (libraries agent_sdk alcotest yojson eio eio_main))
 
+(test
+ (name test_event_forward)
+ (libraries agent_sdk alcotest yojson eio eio_main))
+

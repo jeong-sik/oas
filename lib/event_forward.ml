@@ -52,7 +52,7 @@ let event_type_name (event : Event_bus.event) : string =
   | ContextCompacted _ -> "context.compacted"
   | ContextOverflowImminent _ -> "context.overflow_imminent"
   | ContextCompactStarted _ -> "context.compact_started"
-  | Custom (name, _) -> "custom." ^ name
+  | Custom (name, _) -> name
 
 let agent_name_of_payload : Event_bus.payload -> string option = function
   | AgentStarted r -> Some r.agent_name
