@@ -82,6 +82,13 @@ type hook_event =
       estimated_tokens: int;
       budget_tokens: int;
     }
+  | PostCompact of {
+      before_messages: Types.message list;
+      after_messages: Types.message list;
+      before_tokens: int;
+      after_tokens: int;
+      phase: string;
+    }
 
 (** Elicitation: structured request for user input during agent execution. *)
 type elicitation_request = {
@@ -135,6 +142,7 @@ type hooks = {
   on_error: hook option;
   on_tool_error: hook option;
   pre_compact: hook option;
+  post_compact: hook option;
 }
 
 (** Context injection: data returned by a context_injector after tool execution *)
@@ -170,6 +178,7 @@ val invoke : hook option -> hook_event -> hook_decision
     on_error             |    Y     |      |          |                  |              |
     on_tool_error        |    Y     |      |          |                  |              |
     pre_compact          |    Y     |  Y   |          |                  |              |
+    post_compact         |    Y     |      |          |                  |              |
     v}
 
     Fail-closed: unknown stages reject all decisions. *)
