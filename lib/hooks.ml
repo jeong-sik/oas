@@ -134,6 +134,12 @@ type hook_event =
       after_tokens: int;
       phase: string;
     }
+  | OnContextCompacted of {
+      agent_name: string;
+      before_tokens: int;
+      after_tokens: int;
+      phase: string;
+    }
 
 (** Elicitation: structured request for user input during agent execution.
     Inspired by Claude SDK MCP Elicitation pattern. *)
@@ -191,6 +197,7 @@ type hooks = {
   on_tool_error: hook option;
   pre_compact: hook option;
   post_compact: hook option;
+  on_context_compacted: hook option;
 }
 
 (** Empty hooks -- no-op default *)
@@ -207,6 +214,7 @@ let empty = {
   on_tool_error = None;
   pre_compact = None;
   post_compact = None;
+  on_context_compacted = None;
 }
 
 (** Context injection: data returned by a context_injector after tool execution.
@@ -267,6 +275,7 @@ let stage_of_event = function
   | OnToolError _ -> "on_tool_error"
   | PreCompact _ -> "pre_compact"
   | PostCompact _ -> "post_compact"
+  | OnContextCompacted _ -> "on_context_compacted"
 
 (** Legal decision matrix.
 
@@ -302,6 +311,7 @@ let legal_decisions_for_stage stage =
   | "on_tool_error"         -> [K_Continue]
   | "pre_compact"           -> [K_Continue; K_Skip]
   | "post_compact"          -> [K_Continue]
+  | "on_context_compacted"  -> [K_Continue]
   | _                       -> []   (* unknown stage: nothing is legal *)
 
 (** Validate that a hook_decision is legal for a given stage.
@@ -369,4 +379,5 @@ let compose ~outer ~inner = {
   on_tool_error = compose_hook outer.on_tool_error inner.on_tool_error;
   pre_compact = compose_hook outer.pre_compact inner.pre_compact;
   post_compact = compose_hook outer.post_compact inner.post_compact;
+  on_context_compacted = compose_hook outer.on_context_compacted inner.on_context_compacted;
 }

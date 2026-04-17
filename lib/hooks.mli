@@ -89,6 +89,17 @@ type hook_event =
       after_tokens: int;
       phase: string;
     }
+  | OnContextCompacted of {
+      agent_name: string;
+      before_tokens: int;
+      after_tokens: int;
+      phase: string;
+    }
+      (** Fired after a compaction completes. Observation only — Continue
+          is the single legal decision. Use this to audit or record
+          compactions without subscribing to [Event_bus.ContextCompacted]
+          (which is observation-only on a pub/sub channel).
+          @since 0.154.0 *)
 
 (** Elicitation: structured request for user input during agent execution. *)
 type elicitation_request = {
@@ -143,6 +154,7 @@ type hooks = {
   on_tool_error: hook option;
   pre_compact: hook option;
   post_compact: hook option;
+  on_context_compacted: hook option;
 }
 
 (** Context injection: data returned by a context_injector after tool execution *)
@@ -179,6 +191,7 @@ val invoke : hook option -> hook_event -> hook_decision
     on_tool_error        |    Y     |      |          |                  |              |
     pre_compact          |    Y     |  Y   |          |                  |              |
     post_compact         |    Y     |      |          |                  |              |
+    on_context_compacted |    Y     |      |          |                  |              |
     v}
 
     Fail-closed: unknown stages reject all decisions. *)
