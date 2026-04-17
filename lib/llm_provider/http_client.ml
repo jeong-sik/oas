@@ -16,6 +16,13 @@ type http_error =
   | HttpError of { code: int; body: string }
   | NetworkError of { message: string }
   | AcceptRejected of { reason: string }
+  (* Signals that a provider kind requires a non-HTTP transport (e.g. a
+     CLI subprocess transport for [Claude_code]/[Codex_cli]/[Gemini_cli])
+     but the caller did not wire one.  Distinct from [NetworkError] so
+     cascades can skip the candidate without counting it as a flaky
+     network failure, and so callers see a clear "configuration/wiring
+     bug" rather than a cohttp [Unknown scheme None]. *)
+  | CliTransportRequired of { kind: string }
 
 (* ── Internal helpers ──────────────────────────────────────── *)
 
@@ -71,6 +78,7 @@ let is_local_resource_exhaustion = function
     || has_substr m "enfile"
   | AcceptRejected _ -> false
   | HttpError _ -> false
+  | CliTransportRequired _ -> false
 
 (* ── Public API ────────────────────────────────────────────── *)
 

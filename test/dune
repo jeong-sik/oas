@@ -108,7 +108,7 @@
 
 (test
  (name test_provider_complete)
- (libraries llm_provider alcotest yojson))
+ (libraries llm_provider alcotest yojson eio eio_main))
 
 (test
  (name test_cache)

@@ -96,6 +96,8 @@ let get_json ~sw ~net url =
     Error reason
   | Error (Http_client.NetworkError { message }) ->
     Error message
+  | Error (Http_client.CliTransportRequired { kind }) ->
+    Error (Printf.sprintf "CLI transport required for %s" kind)
 
 let get_ok ~sw ~net url =
   match Http_client.get_sync ~sw ~net ~url ~headers:[] with
@@ -251,6 +253,8 @@ let probe_ollama_context ~sw ~net base_url =
                 Printf.sprintf "HTTP %d: %s" code body
             | Http_client.NetworkError { message } -> message
             | Http_client.AcceptRejected { reason } -> reason
+            | Http_client.CliTransportRequired { kind } ->
+                Printf.sprintf "CLI transport required for %s" kind
           in
           warn_probe_failure ~url:base_url ~phase:"ollama_show_http" detail;
           None
