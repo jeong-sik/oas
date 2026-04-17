@@ -193,6 +193,11 @@ let test_direct_evidence_materializes_bundle () =
        (fun (file : Sessions.evidence_file) ->
          String.equal file.label "telemetry_md")
        bundle.evidence.files);
+  Alcotest.(check bool) "evidence includes raw_trace_json" true
+    (List.exists
+       (fun (file : Sessions.evidence_file) ->
+         String.equal file.label "raw_trace_json")
+       bundle.evidence.files);
   Alcotest.(check bool) "evidence includes tool_catalog_json" true
     (List.exists
        (fun (file : Sessions.evidence_file) ->

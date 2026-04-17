@@ -19,6 +19,11 @@ type envelope = {
 
 (** {2 Payload types} *)
 
+type slot_scheduler_state =
+  | Idle
+  | Queued
+  | Saturated
+
 type payload =
   | AgentStarted of { agent_name: string; task_id: string }
   | AgentCompleted of { agent_name: string; task_id: string;
@@ -59,6 +64,35 @@ type payload =
       (** Compaction has begun (before [ContextCompacted] which signals completion).
           [trigger] is one of ["proactive"], ["emergency"], ["operator"].
           @since 0.136.0 *)
+  | ProviderFallback of { from_model: string; to_model: string; reason: string }
+      (** Provider/model fallback occurred inside OAS.
+          Promoted from [Custom("provider.fallback", ...)] to a native variant
+          so downstream consumers do not need to parse ad-hoc JSON.
+          @since 0.154.1 *)
+  | ContentReplacementReplaced of {
+      tool_use_id: string;
+      preview: string;
+      original_chars: int;
+      seen_count_after: int;
+    }
+      (** Content replacement state froze a tool result by replacing the
+          original output with a preview. Promoted from
+          [Custom("content_replacement_frozen", ...)].
+          @since 0.154.1 *)
+  | ContentReplacementKept of { tool_use_id: string; seen_count_after: int }
+      (** Content replacement state froze a tool result without replacement.
+          Promoted from [Custom("content_replacement_frozen", ...)].
+          @since 0.154.1 *)
+  | SlotSchedulerObserved of {
+      max_slots: int;
+      active: int;
+      available: int;
+      queue_length: int;
+      state: slot_scheduler_state;
+    }
+      (** Snapshot of the slot scheduler queue state. Promoted from
+          [Custom("slot_scheduler_queue", ...)].
+          @since 0.154.1 *)
   | Custom of string * Yojson.Safe.t
       (** Extension point.  [name] must be a dot-separated, lowercase,
           snake-case namespaced identifier (e.g. ["mylib.foo_happened"]).

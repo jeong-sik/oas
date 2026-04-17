@@ -3,16 +3,6 @@
 open Alcotest
 open Agent_sdk
 
-let extract_cascade_payload (ev : Event_bus.event) =
-  match ev.payload with
-  | Event_bus.Custom ("cascade_fallback", `Assoc kvs) -> Some kvs
-  | _ -> None
-
-let string_field kvs key =
-  match List.assoc_opt key kvs with
-  | Some (`String s) -> s
-  | _ -> Alcotest.fail ("missing field " ^ key)
-
 (* ── base callback is preserved ──────────────────────────────────── *)
 
 let test_base_callback_invoked () =
@@ -21,11 +11,11 @@ let test_base_callback_invoked () =
   let observed = ref [] in
   let base = {
     Llm_provider.Metrics.noop with
-    on_cascade_fallback = (fun ~from_model ~to_model ~reason ->
+    on_provider_fallback = (fun ~from_model ~to_model ~reason ->
       observed := (from_model, to_model, reason) :: !observed)
   } in
   let wrapped = Agent_sdk.Metrics_event_bridge.compose_with_event_bus bus base in
-  wrapped.on_cascade_fallback
+  wrapped.on_provider_fallback
     ~from_model:"claude" ~to_model:"glm" ~reason:"HTTP 529";
   check int "base invoked exactly once" 1 (List.length !observed);
   (match !observed with
@@ -44,18 +34,18 @@ let test_event_published () =
   let wrapped =
     Agent_sdk.Metrics_event_bridge.compose_with_event_bus bus Llm_provider.Metrics.noop
   in
-  wrapped.on_cascade_fallback
+  wrapped.on_provider_fallback
     ~from_model:"claude" ~to_model:"glm" ~reason:"HTTP 529";
   let events = Event_bus.drain sub in
   check int "one event received" 1 (List.length events);
   match events with
   | [ev] ->
-    (match extract_cascade_payload ev with
-     | Some kvs ->
-       check string "from_model" "claude" (string_field kvs "from_model");
-       check string "to_model"   "glm"    (string_field kvs "to_model");
-       check string "reason"     "HTTP 529" (string_field kvs "reason")
-     | None -> Alcotest.fail "payload was not Custom(cascade_fallback, _)")
+    (match ev.payload with
+     | Event_bus.ProviderFallback payload ->
+       check string "from_model" "claude" payload.from_model;
+       check string "to_model"   "glm"    payload.to_model;
+       check string "reason"     "HTTP 529" payload.reason
+     | _ -> Alcotest.fail "payload was not ProviderFallback _")
   | _ -> Alcotest.fail "wrong event count"
 
 (* ── envelope carries correlation_id + run_id when supplied ──────── *)
@@ -71,7 +61,7 @@ let test_envelope_ids_propagated () =
       bus
       Llm_provider.Metrics.noop
   in
-  wrapped.on_cascade_fallback
+  wrapped.on_provider_fallback
     ~from_model:"a" ~to_model:"b" ~reason:"stub";
   let events = Event_bus.drain sub in
   match events with
@@ -99,7 +89,7 @@ let () =
   run "Metrics_event_bridge" [
     "compose_with_event_bus", [
       test_case "base callback still invoked" `Quick test_base_callback_invoked;
-      test_case "Custom event published" `Quick test_event_published;
+      test_case "native event published" `Quick test_event_published;
       test_case "envelope ids propagated" `Quick test_envelope_ids_propagated;
       test_case "other callbacks delegated" `Quick test_other_callbacks_delegated;
     ]

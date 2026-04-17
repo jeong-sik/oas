@@ -6,21 +6,6 @@ open Agent_sdk
 module Bridge = Slot_scheduler_event_bridge
 module Sched = Llm_provider.Slot_scheduler
 
-let extract_queue_payload (ev : Event_bus.event) =
-  match ev.payload with
-  | Event_bus.Custom ("slot_scheduler_queue", `Assoc kvs) -> Some kvs
-  | _ -> None
-
-let string_field kvs key =
-  match List.assoc_opt key kvs with
-  | Some (`String s) -> s
-  | _ -> Alcotest.fail ("missing string field " ^ key)
-
-let int_field kvs key =
-  match List.assoc_opt key kvs with
-  | Some (`Int n) -> n
-  | _ -> Alcotest.fail ("missing int field " ^ key)
-
 let mk_snap ~max_slots ~active ~queue_length : Sched.snapshot =
   { max_slots; active; available = max_slots - active; queue_length }
 
@@ -28,18 +13,21 @@ let mk_snap ~max_slots ~active ~queue_length : Sched.snapshot =
 
 let test_derive_state_idle () =
   let snap = mk_snap ~max_slots:4 ~active:0 ~queue_length:0 in
-  check string "all free is idle" "idle" (Bridge.derive_state snap);
+  check bool "all free is idle" true (Bridge.derive_state snap = Event_bus.Idle);
   let snap2 = mk_snap ~max_slots:4 ~active:4 ~queue_length:0 in
-  check string "saturated-without-queue is idle" "idle" (Bridge.derive_state snap2)
+  check bool "saturated-without-queue is idle" true
+    (Bridge.derive_state snap2 = Event_bus.Idle)
 
 let test_derive_state_queued () =
   (* available > 0 but queue_length > 0: rare grant-race window *)
   let snap = mk_snap ~max_slots:4 ~active:2 ~queue_length:1 in
-  check string "waiters + slack → queued" "queued" (Bridge.derive_state snap)
+  check bool "waiters + slack → queued" true
+    (Bridge.derive_state snap = Event_bus.Queued)
 
 let test_derive_state_saturated () =
   let snap = mk_snap ~max_slots:4 ~active:4 ~queue_length:3 in
-  check string "full + waiters → saturated" "saturated" (Bridge.derive_state snap)
+  check bool "full + waiters → saturated" true
+    (Bridge.derive_state snap = Event_bus.Saturated)
 
 (* ── publish_snap: level-based event emission ──────────────────── *)
 
@@ -53,14 +41,14 @@ let test_publish_snap_fields () =
   check int "one event" 1 (List.length events);
   match events with
   | [ev] ->
-    (match extract_queue_payload ev with
-     | Some kvs ->
-       check int "max_slots"    8 (int_field kvs "max_slots");
-       check int "active"       5 (int_field kvs "active");
-       check int "available"    3 (int_field kvs "available");
-       check int "queue_length" 2 (int_field kvs "queue_length");
-       check string "state=queued" "queued" (string_field kvs "state")
-     | None -> Alcotest.fail "payload not Custom(slot_scheduler_queue, _)")
+    (match ev.payload with
+     | Event_bus.SlotSchedulerObserved payload ->
+       check int "max_slots" 8 payload.max_slots;
+       check int "active" 5 payload.active;
+       check int "available" 3 payload.available;
+       check int "queue_length" 2 payload.queue_length;
+       check bool "state=queued" true (payload.state = Event_bus.Queued)
+     | _ -> Alcotest.fail "payload not SlotSchedulerObserved _")
   | _ -> Alcotest.fail "wrong event count"
 
 (* ── envelope carries correlation_id + run_id ──────────────────── *)
@@ -93,14 +81,14 @@ let test_publish_snapshot_live_scheduler () =
   let events = Event_bus.drain sub in
   match events with
   | [ev] ->
-    (match extract_queue_payload ev with
-     | Some kvs ->
-       check string "state=idle" "idle" (string_field kvs "state");
-       check int    "active=0"    0      (int_field kvs "active");
-       check int    "available=4" 4      (int_field kvs "available");
-       check int    "queue=0"     0      (int_field kvs "queue_length");
-       check int    "max=4"       4      (int_field kvs "max_slots")
-     | None -> Alcotest.fail "payload not Custom(slot_scheduler_queue, _)")
+    (match ev.payload with
+     | Event_bus.SlotSchedulerObserved payload ->
+       check bool "state=idle" true (payload.state = Event_bus.Idle);
+       check int "active=0" 0 payload.active;
+       check int "available=4" 4 payload.available;
+       check int "queue=0" 0 payload.queue_length;
+       check int "max=4" 4 payload.max_slots
+     | _ -> Alcotest.fail "payload not SlotSchedulerObserved _")
   | _ -> Alcotest.fail "wrong event count"
 
 let () =

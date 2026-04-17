@@ -23,12 +23,6 @@ let base_session : Runtime.session =
     outcome = Some "done";
   }
 
-let completion_summary =
-  "final answer\n\n[runtime telemetry] dropped_output_deltas=2"
-
-let persistence_failure_detail =
-  "[runtime_persist_failure phase=agent_completed] failed to persist completion event: disk full"
-
 let telemetry_events : Runtime.event list =
   [
     {
@@ -38,10 +32,15 @@ let telemetry_events : Runtime.event list =
         Runtime.Agent_completed
           {
             participant_name = "worker";
-            summary = Some completion_summary;
+            summary = Some "final answer";
             provider = Some "ollama";
             model = Some "qwen";
             error = None;
+            raw_trace_run_id = Some "wr-1";
+            stop_reason = Some "end_turn";
+            completion_anomaly =
+              Some (Runtime.Dropped_output_deltas { count = 2 });
+            failure_cause = None;
           };
     };
     {
@@ -54,7 +53,58 @@ let telemetry_events : Runtime.event list =
             summary = None;
             provider = Some "ollama";
             model = Some "qwen";
-            error = Some persistence_failure_detail;
+            error = Some "failed to persist completion event: disk full";
+            raw_trace_run_id = Some "wr-1";
+            stop_reason = None;
+            completion_anomaly = None;
+            failure_cause =
+              Some
+                (Runtime.Persistence_failure
+                   {
+                     phase = "agent_completed";
+                     detail = "failed to persist completion event: disk full";
+                   });
+          };
+    };
+  ]
+
+let legacy_marker_events : Runtime.event list =
+  [
+    {
+      seq = 1;
+      ts = 1.0;
+      kind =
+        Runtime.Agent_completed
+          {
+            participant_name = "worker";
+            summary =
+              Some "final answer\n\n[runtime telemetry] dropped_output_deltas=2";
+            provider = Some "ollama";
+            model = Some "qwen";
+            error = None;
+            raw_trace_run_id = None;
+            stop_reason = None;
+            completion_anomaly = None;
+            failure_cause = None;
+          };
+    };
+    {
+      seq = 2;
+      ts = 2.0;
+      kind =
+        Runtime.Agent_failed
+          {
+            participant_name = "worker";
+            summary = None;
+            provider = Some "ollama";
+            model = Some "qwen";
+            error =
+              Some
+                "[runtime_persist_failure phase=agent_completed] failed to persist completion event: disk full";
+            raw_trace_run_id = None;
+            stop_reason = None;
+            completion_anomaly = None;
+            failure_cause = None;
           };
     };
   ]
@@ -98,6 +148,10 @@ let test_build_telemetry_report_surfaces_runtime_anomalies () =
     [ "worker" ] report.participants_with_persistence_failures;
   match report.steps with
   | completed :: failed :: [] ->
+      Alcotest.(check (option string)) "completed raw_trace_run_id"
+        (Some "wr-1") completed.raw_trace_run_id;
+      Alcotest.(check (option string)) "completed stop_reason"
+        (Some "end_turn") completed.stop_reason;
       Alcotest.(check (option int)) "completed dropped delta count"
         (Some 2) completed.dropped_output_deltas;
       Alcotest.(check (option string)) "completed persistence failure phase"
@@ -107,6 +161,15 @@ let test_build_telemetry_report_surfaces_runtime_anomalies () =
       Alcotest.(check (option string)) "failed persistence failure phase"
         (Some "agent_completed") failed.persistence_failure_phase
   | _ -> Alcotest.fail "expected exactly two telemetry steps"
+
+let test_build_telemetry_report_supports_legacy_marker_fallback () =
+  let report =
+    Runtime_evidence.build_telemetry_report base_session legacy_marker_events
+  in
+  Alcotest.(check int) "legacy dropped_output_deltas" 2
+    report.dropped_output_deltas;
+  Alcotest.(check int) "legacy persistence_failure_count" 1
+    report.persistence_failure_count
 
 let test_telemetry_report_json_includes_anomaly_fields () =
   let report = Runtime_evidence.build_telemetry_report base_session telemetry_events in
@@ -150,6 +213,8 @@ let () =
         [
           Alcotest.test_case "surfaces runtime anomalies" `Quick
             test_build_telemetry_report_surfaces_runtime_anomalies;
+          Alcotest.test_case "legacy marker fallback" `Quick
+            test_build_telemetry_report_supports_legacy_marker_fallback;
           Alcotest.test_case "json includes anomaly fields" `Quick
             test_telemetry_report_json_includes_anomaly_fields;
           Alcotest.test_case "ignores non-runtime marker text" `Quick

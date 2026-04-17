@@ -3,9 +3,8 @@
     Lives in [agent_sdk] rather than [agent_sdk.llm_provider] because
     [Event_bus] is part of [agent_sdk] and the provider layer must not
     gain a dependency edge back up to the root library. Opt-in: callers
-    who want cascade routing visible on the event bus wrap their
-    existing [Metrics.t] through here at startup; the raw
-    [complete_cascade] path stays unaware of the bus. *)
+    who want provider fallback visible on the event bus wrap their
+    existing [Metrics.t] through here at startup. *)
 
 module M = Llm_provider.Metrics
 
@@ -17,20 +16,13 @@ let compose_with_event_bus
   : M.t =
   {
     base with
-    on_cascade_fallback = (fun ~from_model ~to_model ~reason ->
-      base.on_cascade_fallback ~from_model ~to_model ~reason;
-      let payload =
-        `Assoc [
-          "from_model", `String from_model;
-          "to_model",   `String to_model;
-          "reason",     `String reason;
-        ]
-      in
+    on_provider_fallback = (fun ~from_model ~to_model ~reason ->
+      base.on_provider_fallback ~from_model ~to_model ~reason;
       let event =
         Event_bus.mk_event
           ~correlation_id
           ~run_id
-          (Event_bus.Custom ("cascade_fallback", payload))
+          (Event_bus.ProviderFallback { from_model; to_model; reason })
       in
       Event_bus.publish bus event
     );

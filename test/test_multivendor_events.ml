@@ -62,6 +62,11 @@ let test_envelope_preserved_across_variants () =
     ContextCompactStarted { agent_name = "alpha"; trigger = "proactive" };
     ContextCompacted { agent_name = "alpha";
                        before_tokens = 100; after_tokens = 50; phase = "proactive(50%)" };
+    ProviderFallback { from_model = "claude"; to_model = "glm"; reason = "HTTP 529" };
+    ContentReplacementKept { tool_use_id = "toolu_1"; seen_count_after = 1 };
+    SlotSchedulerObserved {
+      max_slots = 4; active = 4; available = 0; queue_length = 2;
+      state = Event_bus.Saturated };
     AgentCompleted { agent_name = "alpha"; task_id = "t1";
                      result = Ok stub_api_response; elapsed = 1.0 };
     Custom ("example.namespace.ok", `Null);
@@ -103,6 +108,16 @@ let test_event_type_name_mapping () =
       "context.compact_started";
     ContextCompacted { agent_name = "a"; before_tokens = 1; after_tokens = 1;
                        phase = "x" }, "context.compacted";
+    ProviderFallback { from_model = "claude"; to_model = "glm"; reason = "HTTP 529" },
+      "provider.fallback";
+    ContentReplacementReplaced {
+      tool_use_id = "toolu_1"; preview = "short"; original_chars = 12;
+      seen_count_after = 1 }, "content_replacement.replaced";
+    ContentReplacementKept { tool_use_id = "toolu_1"; seen_count_after = 1 },
+      "content_replacement.kept";
+    SlotSchedulerObserved {
+      max_slots = 4; active = 4; available = 0; queue_length = 2;
+      state = Event_bus.Saturated }, "slot_scheduler.observed";
     (* Custom names pass through verbatim — no "custom." prefix. *)
     Custom ("runtime.session_started", `Null), "runtime.session_started";
     Custom ("durable.tool_called", `Null), "durable.tool_called";

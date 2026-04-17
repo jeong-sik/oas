@@ -20,6 +20,24 @@ let extract_text (resp : Types.api_response) =
   |> List.filter_map (function Types.Text s -> Some s | _ -> None)
   |> String.concat "\n"
 
+type participant_run_success = {
+  summary: string;
+  raw_trace_run_id: string option;
+  stop_reason: string option;
+  completion_anomaly: Runtime.completion_anomaly option;
+}
+
+type participant_run_failure = {
+  error: Error.sdk_error;
+  raw_trace_run_id: string option;
+}
+
+let latest_raw_trace_run_id = function
+  | Some sink ->
+      Option.map (fun (run : Raw_trace.run_ref) -> run.worker_run_id)
+        (Raw_trace.last_run sink)
+  | None -> None
+
 let make_event (session : session) kind =
   {
     seq = session.last_seq + 1;
@@ -55,6 +73,24 @@ let persist_artifact_events_locked store state session
       Ok session)
     (Ok session) artifacts
 
+let build_raw_trace_manifest (store : Runtime_store.t) session_id =
+  let session_root = Some store.root in
+  let* latest_raw_trace_run =
+    Sessions.get_latest_raw_trace_run ?session_root ~session_id ()
+  in
+  let* raw_trace_runs =
+    Sessions.get_raw_trace_runs ?session_root ~session_id ()
+  in
+  let* raw_trace_summaries =
+    Sessions.get_raw_trace_summaries ?session_root ~session_id ()
+  in
+  let* raw_trace_validations =
+    Sessions.get_raw_trace_validations ?session_root ~session_id ()
+  in
+  Ok
+    (Runtime_evidence.build_raw_trace_manifest ~session_id ~latest_raw_trace_run
+       ~raw_trace_runs ~raw_trace_summaries ~raw_trace_validations)
+
 let generate_report_and_proof store state session_id =
   with_store_lock state (fun () ->
       let* session = Runtime_store.load_session store session_id in
@@ -89,6 +125,21 @@ let generate_report_and_proof store state session_id =
       let* telemetry_md_path =
         Artifact_service.persisted_path telemetry_md_artifact
       in
+      let* raw_trace_manifest =
+        build_raw_trace_manifest store session_id
+      in
+      let raw_trace_json =
+        Runtime_evidence.raw_trace_manifest_to_json raw_trace_manifest
+        |> Yojson.Safe.pretty_to_string
+      in
+      let* raw_trace_artifact =
+        Artifact_service.save_text_internal store ~session_id
+          ~name:"runtime-raw-trace-json" ~kind:"json"
+          ~content:raw_trace_json
+      in
+      let* raw_trace_json_path =
+        Artifact_service.persisted_path raw_trace_artifact
+      in
       let evidence =
         Runtime_evidence.build_evidence_bundle ~session_id
           (Runtime_evidence.base_evidence_file_specs store session_id
@@ -96,6 +147,7 @@ let generate_report_and_proof store state session_id =
            [
              ("telemetry_json", telemetry_json_path);
              ("telemetry_md", telemetry_md_path);
+             ("raw_trace_json", raw_trace_json_path);
            ])
       in
       let evidence_json =
@@ -108,7 +160,12 @@ let generate_report_and_proof store state session_id =
           ~content:evidence_json
       in
       let artifacts =
-        [ telemetry_json_artifact; telemetry_md_artifact; evidence_artifact ]
+        [
+          telemetry_json_artifact;
+          telemetry_md_artifact;
+          raw_trace_artifact;
+          evidence_artifact;
+        ]
       in
       let* final_session =
         persist_artifact_events_locked store state session artifacts
@@ -147,6 +204,7 @@ let generate_report_and_proof store state session_id =
            [
              ("telemetry_json", telemetry_json_path);
              ("telemetry_md", telemetry_md_path);
+             ("raw_trace_json", raw_trace_json_path);
            ])
       in
       let final_evidence_json =
@@ -200,16 +258,19 @@ let run_participant store state session_id
          Log.S ("error", Error.to_string e)];
       None
   in
-  let finalize_summary summary =
-    if !delta_error_count = 0 then summary
-    else
-      Runtime_evidence.append_dropped_output_deltas_summary ~summary
-        ~dropped_output_deltas:!delta_error_count
+  let completion_anomaly () =
+    if !delta_error_count > 0 then
+      Some (Runtime.Dropped_output_deltas { count = !delta_error_count })
+    else None
   in
   match resolution.selected_provider with
   | "mock" | "echo" ->
       if not (Defaults.allow_test_providers ()) then
-        Error (unsupported_test_provider resolution.selected_provider)
+        Error
+          {
+            error = unsupported_test_provider resolution.selected_provider;
+            raw_trace_run_id = latest_raw_trace_run_id trace_sink;
+          }
       else
       let full =
         Printf.sprintf "Mock runtime response for %s: %s" detail.participant_name
@@ -245,11 +306,22 @@ let run_participant store state session_id
           [ Log.S ("session_id", session_id);
             Log.S ("participant", detail.participant_name);
             Log.I ("dropped_output_deltas", !delta_error_count) ];
-      Ok (finalize_summary full)
+      Ok
+        {
+          summary = full;
+          raw_trace_run_id = latest_raw_trace_run_id trace_sink;
+          stop_reason = Some "EndTurn";
+          completion_anomaly = completion_anomaly ();
+        }
   | _ ->
       Eio.Switch.run @@ fun sw ->
       match Runtime_store.load_session store session_id with
-      | Error err -> Error err
+      | Error err ->
+          Error
+            {
+              error = err;
+              raw_trace_run_id = latest_raw_trace_run_id trace_sink;
+            }
       | Ok session ->
       let config =
         {
@@ -289,5 +361,16 @@ let run_participant store state session_id
               [ Log.S ("session_id", session_id);
                 Log.S ("participant", detail.participant_name);
                 Log.I ("dropped_output_deltas", !delta_error_count) ];
-          Ok (finalize_summary (extract_text response))
-      | Error err -> Error err
+          Ok
+            {
+              summary = extract_text response;
+              raw_trace_run_id = latest_raw_trace_run_id trace_sink;
+              stop_reason = Some (Types.show_stop_reason response.stop_reason);
+              completion_anomaly = completion_anomaly ();
+            }
+      | Error err ->
+          Error
+            {
+              error = err;
+              raw_trace_run_id = latest_raw_trace_run_id trace_sink;
+            }

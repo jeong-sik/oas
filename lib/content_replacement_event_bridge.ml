@@ -7,14 +7,12 @@
 
 module S = Content_replacement_state
 
-let event_topic = "content_replacement_frozen"
-
 let publish_event ~bus ~correlation_id ~run_id payload =
   let event =
     Event_bus.mk_event
       ~correlation_id
       ~run_id
-      (Event_bus.Custom (event_topic, payload))
+      payload
   in
   Event_bus.publish bus event
 
@@ -26,16 +24,14 @@ let record_replacement_with_events
     (r : S.replacement)
   : unit =
   S.record_replacement state r;
-  let payload =
-    `Assoc [
-      "tool_use_id",      `String r.tool_use_id;
-      "action",           `String "replaced";
-      "preview",          `String r.preview;
-      "original_chars",   `Int r.original_chars;
-      "seen_count_after", `Int (S.seen_count state);
-    ]
-  in
-  publish_event ~bus ~correlation_id ~run_id payload
+  publish_event ~bus ~correlation_id ~run_id
+    (Event_bus.ContentReplacementReplaced
+       {
+         tool_use_id = r.tool_use_id;
+         preview = r.preview;
+         original_chars = r.original_chars;
+         seen_count_after = S.seen_count state;
+       })
 
 let record_kept_with_events
     ?(correlation_id = "")
@@ -45,11 +41,6 @@ let record_kept_with_events
     (tool_use_id : string)
   : unit =
   S.record_kept state tool_use_id;
-  let payload =
-    `Assoc [
-      "tool_use_id",      `String tool_use_id;
-      "action",           `String "kept";
-      "seen_count_after", `Int (S.seen_count state);
-    ]
-  in
-  publish_event ~bus ~correlation_id ~run_id payload
+  publish_event ~bus ~correlation_id ~run_id
+    (Event_bus.ContentReplacementKept
+       { tool_use_id; seen_count_after = S.seen_count state })

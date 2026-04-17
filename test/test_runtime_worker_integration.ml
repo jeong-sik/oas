@@ -187,13 +187,20 @@ let test_make_event_various_kinds () =
       provider = None; model = None; permission_mode = None };
     Agent_became_live {
       participant_name = "p"; summary = None;
-      provider = None; model = None; error = None };
+      provider = None; model = None; error = None;
+      raw_trace_run_id = None; stop_reason = None;
+      completion_anomaly = None; failure_cause = None };
     Agent_completed {
       participant_name = "p"; summary = Some "done";
-      provider = None; model = None; error = None };
+      provider = None; model = None; error = None;
+      raw_trace_run_id = None; stop_reason = None;
+      completion_anomaly = None; failure_cause = None };
     Agent_failed {
       participant_name = "p"; summary = None;
-      provider = None; model = None; error = Some "err" };
+      provider = None; model = None; error = Some "err";
+      raw_trace_run_id = None; stop_reason = None;
+      completion_anomaly = None;
+      failure_cause = Some (Runtime.Execution_error "err") };
     Agent_output_delta { participant_name = "p"; delta = "d" };
     Artifact_attached {
       artifact_id = "a1"; name = "n"; kind = "k";
@@ -495,7 +502,22 @@ let test_generate_report_and_proof_basic () =
         (List.exists
            (fun (file : Sessions.evidence_file) ->
              String.equal file.label "telemetry_md")
-           evidence.files)
+           evidence.files);
+      Alcotest.(check bool) "evidence includes raw_trace_json" true
+        (List.exists
+           (fun (file : Sessions.evidence_file) ->
+             String.equal file.label "raw_trace_json")
+           evidence.files);
+      let raw_trace_manifest =
+        match Sessions.get_raw_trace_manifest ~session_root:dir ~session_id () with
+        | Ok manifest -> manifest
+        | Error e ->
+          Alcotest.fail
+            (Printf.sprintf "raw trace manifest read failed: %s"
+               (Error.to_string e))
+      in
+      Alcotest.(check bool) "raw trace manifest has run list" true
+        (List.length raw_trace_manifest.raw_trace_runs >= 0)
     | Error e ->
       Alcotest.fail
         (Printf.sprintf "generate_report_and_proof failed: %s"
@@ -729,7 +751,8 @@ let test_persist_agent_became_live () =
         (Agent_became_live {
            participant_name = "alice"; summary = None;
            provider = Some "mock"; model = Some "test";
-           error = None })
+           error = None; raw_trace_run_id = None; stop_reason = None;
+           completion_anomaly = None; failure_cause = None })
     with
     | Ok (sess, ev) ->
       Alcotest.(check int) "became_live seq" 3 ev.seq;
@@ -769,9 +792,11 @@ let test_persist_agent_completed () =
      | Error e -> Alcotest.fail (Error.to_string e));
     (match
        Runtime_server_worker.persist_event store state session_id
-         (Agent_became_live {
-            participant_name = "alice"; summary = None;
-            provider = None; model = None; error = None })
+        (Agent_became_live {
+           participant_name = "alice"; summary = None;
+           provider = None; model = None; error = None;
+           raw_trace_run_id = None; stop_reason = None;
+           completion_anomaly = None; failure_cause = None })
      with
      | Ok _ -> ()
      | Error e -> Alcotest.fail (Error.to_string e));
@@ -779,7 +804,9 @@ let test_persist_agent_completed () =
       Runtime_server_worker.persist_event store state session_id
         (Agent_completed {
            participant_name = "alice"; summary = Some "task done";
-           provider = None; model = None; error = None })
+           provider = None; model = None; error = None;
+           raw_trace_run_id = None; stop_reason = None;
+           completion_anomaly = None; failure_cause = None })
     with
     | Ok (sess, ev) ->
       Alcotest.(check int) "completed seq" 4 ev.seq;

@@ -195,9 +195,12 @@ let test_structured_telemetry_step_all_some () =
     participant = Some "bob"; detail = Some "detail";
     actor = Some "actor"; role = Some "lead";
     provider = Some "anthropic"; model = Some "claude-sonnet-4-6";
+    raw_trace_run_id = Some "wr-1"; stop_reason = Some "tool_use";
     artifact_id = Some "aid"; artifact_name = Some "aname";
     artifact_kind = Some "code"; checkpoint_label = Some "cp1";
     outcome = Some "success";
+    dropped_output_deltas = Some 2;
+    persistence_failure_phase = None;
   } in
   match Sessions.structured_telemetry_step_of_yojson
     (Sessions.structured_telemetry_step_to_yojson v) with
@@ -218,9 +221,12 @@ let test_structured_telemetry_step_all_none () =
     seq = 0; ts = 0.0; event_name = "e";
     participant = None; detail = None; actor = None;
     role = None; provider = None; model = None;
+    raw_trace_run_id = None; stop_reason = None;
     artifact_id = None; artifact_name = None;
     artifact_kind = None; checkpoint_label = None;
     outcome = None;
+    dropped_output_deltas = None;
+    persistence_failure_phase = None;
   } in
   match Sessions.structured_telemetry_step_of_yojson
     (Sessions.structured_telemetry_step_to_yojson v) with
@@ -237,9 +243,12 @@ let test_structured_telemetry_full () =
       seq = 0; ts = 0.0; event_name = "e";
       participant = None; detail = None; actor = None;
       role = None; provider = None; model = None;
+      raw_trace_run_id = None; stop_reason = None;
       artifact_id = None; artifact_name = None;
       artifact_kind = None; checkpoint_label = None;
       outcome = None;
+      dropped_output_deltas = None;
+      persistence_failure_phase = None;
     }];
   } in
   match Sessions.structured_telemetry_of_yojson

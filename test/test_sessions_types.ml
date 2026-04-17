@@ -119,9 +119,12 @@ let test_structured_telemetry_step () =
     participant = Some "w-1"; detail = Some "ran grep";
     actor = Some "agent"; role = Some "exec";
     provider = Some "anthropic"; model = Some "sonnet-4-6";
+    raw_trace_run_id = Some "wr-1"; stop_reason = Some "end_turn";
     artifact_id = Some "a-001"; artifact_name = Some "r.json";
     artifact_kind = Some "json"; checkpoint_label = Some "mid";
     outcome = Some "success";
+    dropped_output_deltas = Some 1;
+    persistence_failure_phase = None;
   } in
   roundtrip
     ~to_yojson:Sessions.structured_telemetry_step_to_yojson
@@ -131,9 +134,12 @@ let test_structured_telemetry_step () =
   let empty : Sessions.structured_telemetry_step = {
     seq = 0; ts = 0.0; event_name = "idle";
     participant = None; detail = None; actor = None; role = None;
-    provider = None; model = None; artifact_id = None;
+    provider = None; model = None; raw_trace_run_id = None;
+    stop_reason = None; artifact_id = None;
     artifact_name = None; artifact_kind = None;
     checkpoint_label = None; outcome = None;
+    dropped_output_deltas = None;
+    persistence_failure_phase = None;
   } in
   roundtrip
     ~to_yojson:Sessions.structured_telemetry_step_to_yojson
@@ -148,9 +154,12 @@ let test_structured_telemetry () =
     steps = [{
       seq = 1; ts = 1.7e9; event_name = "tool_exec";
       participant = None; detail = None; actor = None; role = None;
-      provider = None; model = None; artifact_id = None;
+      provider = None; model = None; raw_trace_run_id = None;
+      stop_reason = None; artifact_id = None;
       artifact_name = None; artifact_kind = None;
       checkpoint_label = None; outcome = None;
+      dropped_output_deltas = None;
+      persistence_failure_phase = None;
     }];
   } in
   roundtrip

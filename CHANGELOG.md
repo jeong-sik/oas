@@ -6,11 +6,18 @@ Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
 backfilled on 2026-04-04 from existing git tags. The dates below reflect the
 original tag dates. `0.100.4` was never tagged or released.
 
+## [0.155.1] - 2026-04-17
+
+### Changed
+
+- **OAS telemetry and docs purge stale orchestration terminology.** Public Event_bus and metrics surfaces now use provider-level fallback terminology (`ProviderFallback`, `provider.fallback`, `on_provider_fallback`) instead of reintroducing cascade semantics that belong outside OAS.
+- **Runtime telemetry preserves raw-trace linkage and anomaly detail structurally.** Runtime participant events now carry `raw_trace_run_id`, `stop_reason`, `completion_anomaly`, and `failure_cause`, and sessions publish a `runtime-raw-trace-json` artifact so external consumers can correlate runtime state with raw traces without reverse-parsing free-form strings.
+
 ## [0.154.0] - 2026-04-17
 
 ### Added
 
-- **`Metrics_event_bridge.compose_with_event_bus`.** Opt-in bridge that preserves the existing `Metrics.on_cascade_fallback` callback and additionally emits `Custom("cascade_fallback", {from_model, to_model, reason})` on `Event_bus` for consumers that want bus-level observability (PR #981).
+- **`Metrics_event_bridge.compose_with_event_bus`.** Opt-in bridge that preserves the existing `Metrics.on_provider_fallback` callback and additionally emits `Custom("provider.fallback", {from_model, to_model, reason})` on `Event_bus` for consumers that want bus-level observability (PR #981).
 - **`Content_replacement_event_bridge`.** Observer-only wrappers around `Content_replacement_state.record_replacement` / `record_kept` that publish `Custom("content_replacement_frozen", ...)` after successful state mutation, with an explicit `action` discriminator and `seen_count_after` payload (PR #982).
 - **`Slot_scheduler_event_bridge`.** Stateless publisher that projects `Slot_scheduler.snapshot` onto `Custom("slot_scheduler_queue", ...)` with a derived `state = idle | queued | saturated` discriminator for downstream congestion observers (PR #983).
 - **`Hooks.PostCompact` + `hooks.post_compact`.** Observer-only post-compaction lifecycle surface fired after successful proactive and emergency compaction, preserving the existing Event_bus behavior while exposing the reduced message set to hook consumers (PR #985).

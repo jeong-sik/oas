@@ -22,6 +22,16 @@ let test_event_type_name () =
      "turn.started");
     (ev (Event_bus.ToolCalled { agent_name = "a"; tool_name = "t"; input = `Null }),
      "tool.called");
+    (ev (Event_bus.ProviderFallback {
+           from_model = "claude"; to_model = "glm"; reason = "HTTP 529" }),
+     "provider.fallback");
+    (ev (Event_bus.ContentReplacementKept {
+           tool_use_id = "toolu_1"; seen_count_after = 1 }),
+     "content_replacement.kept");
+    (ev (Event_bus.SlotSchedulerObserved {
+           max_slots = 4; active = 2; available = 2; queue_length = 1;
+           state = Event_bus.Queued }),
+     "slot_scheduler.observed");
     (ev (Event_bus.Custom ("foo", `Null)),
      "foo");
     (ev (Event_bus.ContextOverflowImminent {
@@ -223,6 +233,38 @@ let test_tool_events_payload () =
   Alcotest.(check string) "called type" "tool.called" p1.event_type;
   Alcotest.(check string) "completed type" "tool.completed" p2.event_type
 
+let test_native_telemetry_payloads () =
+  let cascade =
+    ev (Event_bus.ProviderFallback {
+      from_model = "claude"; to_model = "glm"; reason = "HTTP 529" })
+  in
+  let replacement =
+    ev (Event_bus.ContentReplacementReplaced {
+      tool_use_id = "toolu_1"; preview = "short"; original_chars = 99;
+      seen_count_after = 2 })
+  in
+  let queue =
+    ev (Event_bus.SlotSchedulerObserved {
+      max_slots = 4; active = 4; available = 0; queue_length = 3;
+      state = Event_bus.Saturated })
+  in
+  let cascade_payload = Event_forward.event_to_payload cascade in
+  let replacement_payload = Event_forward.event_to_payload replacement in
+  let queue_payload = Event_forward.event_to_payload queue in
+  let open Yojson.Safe.Util in
+  Alcotest.(check string) "fallback type" "provider.fallback"
+    cascade_payload.event_type;
+  Alcotest.(check string) "fallback reason" "HTTP 529"
+    (cascade_payload.data |> member "reason" |> to_string);
+  Alcotest.(check string) "replacement type" "content_replacement.replaced"
+    replacement_payload.event_type;
+  Alcotest.(check string) "replacement decision" "replaced"
+    (replacement_payload.data |> member "decision" |> to_string);
+  Alcotest.(check string) "queue type" "slot_scheduler.observed"
+    queue_payload.event_type;
+  Alcotest.(check string) "queue state" "saturated"
+    (queue_payload.data |> member "state" |> to_string)
+
 (* ── event_to_payload: remaining event types ──────────────── *)
 
 let test_turn_completed_payload () =
@@ -294,6 +336,7 @@ let () =
       Alcotest.test_case "payload_to_json" `Quick test_payload_to_json;
       Alcotest.test_case "agent_completed" `Quick test_agent_completed_payload;
       Alcotest.test_case "tool events" `Quick test_tool_events_payload;
+      Alcotest.test_case "native telemetry" `Quick test_native_telemetry_payloads;
       Alcotest.test_case "turn_completed" `Quick test_turn_completed_payload;
       Alcotest.test_case "elicitation" `Quick test_elicitation_completed_payload;
       Alcotest.test_case "custom event" `Quick test_custom_event_payload;

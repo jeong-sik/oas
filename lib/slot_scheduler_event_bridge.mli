@@ -1,7 +1,7 @@
 (** Slot_scheduler ↔ Event_bus publisher.
 
     Projects a {!Llm_provider.Slot_scheduler} snapshot onto the supplied
-    {!Event_bus} as a [Custom("slot_scheduler_queue", ...)] event. Unlike
+    {!Event_bus} as a native [SlotSchedulerObserved] event. Unlike
     {!Metrics_event_bridge} and {!Content_replacement_event_bridge}, this
     module does NOT wrap a mutator — the scheduler is read-only from our
     perspective. Callers decide when to publish (typically on grant,
@@ -43,10 +43,10 @@
     Pure function — safe to call in tests without a real scheduler. *)
 val derive_state :
   Llm_provider.Slot_scheduler.snapshot ->
-  string
+  Event_bus.slot_scheduler_state
 
-(** Publish a given snapshot to [bus] as a
-    [Custom("slot_scheduler_queue", ...)] event. Separated from
+(** Publish a given snapshot to [bus] as a [SlotSchedulerObserved]
+    event. Separated from
     {!publish_snapshot} so tests can drive deterministic snapshots
     without creating a live scheduler.
 

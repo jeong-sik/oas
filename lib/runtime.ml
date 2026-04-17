@@ -210,12 +210,25 @@ type spawn_event = {
 }
 [@@deriving yojson, show]
 
+type completion_anomaly =
+  | Dropped_output_deltas of { count: int }
+[@@deriving yojson, show]
+
+type failure_cause =
+  | Execution_error of string
+  | Persistence_failure of { phase: string; detail: string }
+[@@deriving yojson, show]
+
 type participant_event = {
   participant_name: string;
   summary: string option;
   provider: string option;
   model: string option;
   error: string option;
+  raw_trace_run_id: string option; [@default None]
+  stop_reason: string option; [@default None]
+  completion_anomaly: completion_anomaly option; [@default None]
+  failure_cause: failure_cause option; [@default None]
 }
 [@@deriving yojson, show]
 

@@ -154,9 +154,12 @@ let test_structured_telemetry_step () =
     participant = Some "coder"; detail = Some "called read_file";
     actor = Some "agent-1"; role = Some "executor";
     provider = Some "anthropic"; model = Some "claude";
+    raw_trace_run_id = Some "wr-1"; stop_reason = Some "end_turn";
     artifact_id = Some "art-1"; artifact_name = Some "output.json";
     artifact_kind = Some "json";
     checkpoint_label = Some "cp1"; outcome = Some "success";
+    dropped_output_deltas = Some 1;
+    persistence_failure_phase = None;
   } in
   roundtrip
     ~to_yojson:Sessions.structured_telemetry_step_to_yojson
@@ -167,8 +170,11 @@ let test_structured_telemetry_step () =
     seq = 0; ts = 0.0; event_name = "";
     participant = None; detail = None;
     actor = None; role = None; provider = None; model = None;
+    raw_trace_run_id = None; stop_reason = None;
     artifact_id = None; artifact_name = None; artifact_kind = None;
     checkpoint_label = None; outcome = None;
+    dropped_output_deltas = None;
+    persistence_failure_phase = None;
   } in
   roundtrip
     ~to_yojson:Sessions.structured_telemetry_step_to_yojson

@@ -719,7 +719,7 @@ let make_http_transport ~sw ~net : Llm_transport.t = {
       ~messages:req.messages ~tools:req.tools ~on_event);
 }
 
-(* ── Streaming Cascade ──────────────────────────── *)
+(* ── Streaming Completion ───────────────────────── *)
 
 [@@@coverage off]
 (* === Inline tests === *)

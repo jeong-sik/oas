@@ -144,11 +144,18 @@ let structured_telemetry_of_json json =
              role = step |> member "role" |> to_string_option;
              provider = step |> member "provider" |> to_string_option;
              model = step |> member "model" |> to_string_option;
+             raw_trace_run_id =
+               step |> member "raw_trace_run_id" |> to_string_option;
+             stop_reason = step |> member "stop_reason" |> to_string_option;
              artifact_id = step |> member "artifact_id" |> to_string_option;
              artifact_name = step |> member "artifact_name" |> to_string_option;
              artifact_kind = step |> member "artifact_kind" |> to_string_option;
              checkpoint_label = step |> member "checkpoint_label" |> to_string_option;
              outcome = step |> member "outcome" |> to_string_option;
+             dropped_output_deltas =
+               step |> member "dropped_output_deltas" |> to_int_option;
+             persistence_failure_phase =
+               step |> member "persistence_failure_phase" |> to_string_option;
            })
   in
   ({
@@ -185,3 +192,5 @@ let evidence_of_json json =
     files;
     missing_files;
   }
+
+let raw_trace_manifest_of_json = raw_trace_manifest_of_yojson
