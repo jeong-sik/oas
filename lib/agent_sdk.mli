@@ -39,6 +39,7 @@ module Guardrails = Guardrails
 module Tool_set = Tool_set
 module Log = Log
 module Event_bus = Event_bus
+module Metrics_event_bridge = Metrics_event_bridge
 module Skill = Skill
 module Skill_registry = Skill_registry
 module Contract = Contract
