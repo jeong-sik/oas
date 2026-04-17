@@ -19,6 +19,11 @@ type envelope = {
 
 (* ── Payload type ─────────────────────────────────────────────────── *)
 
+type slot_scheduler_state =
+  | Idle
+  | Queued
+  | Saturated
+
 type payload =
   | AgentStarted of { agent_name: string; task_id: string }
   | AgentCompleted of { agent_name: string; task_id: string;
@@ -40,6 +45,20 @@ type payload =
                                   estimated_tokens: int; limit_tokens: int;
                                   ratio: float }
   | ContextCompactStarted of { agent_name: string; trigger: string }
+  | ContentReplacementReplaced of {
+      tool_use_id: string;
+      preview: string;
+      original_chars: int;
+      seen_count_after: int;
+    }
+  | ContentReplacementKept of { tool_use_id: string; seen_count_after: int }
+  | SlotSchedulerObserved of {
+      max_slots: int;
+      active: int;
+      available: int;
+      queue_length: int;
+      state: slot_scheduler_state;
+    }
   | Custom of string * Yojson.Safe.t
 
 (* ── Event type ───────────────────────────────────────────────────── *)
@@ -111,6 +130,9 @@ let filter_agent name : filter = fun event ->
   | ContextCompacted r -> r.agent_name = name
   | ContextOverflowImminent r -> r.agent_name = name
   | ContextCompactStarted r -> r.agent_name = name
+  | ContentReplacementReplaced _
+  | ContentReplacementKept _
+  | SlotSchedulerObserved _ -> true
   | Custom _ -> true  (* Custom events are not agent-scoped; always pass *)
 
 let filter_tools_only : filter = fun event ->

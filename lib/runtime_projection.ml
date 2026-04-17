@@ -109,6 +109,11 @@ let ensure_active_phase session =
            (Printf.sprintf "Session %s is terminal" session.session_id))
   | Bootstrapping | Running | Waiting_on_workers | Finalizing -> Ok session
 
+let failure_cause_message = function
+  | Runtime.Execution_error detail -> detail
+  | Runtime.Persistence_failure { phase; detail } ->
+      Printf.sprintf "%s: %s" phase detail
+
 let apply_event (session : session) (event : event) =
   let session = update_session_meta session event in
   match event.kind with
@@ -256,7 +261,9 @@ let apply_event (session : session) (event : event) =
                first_progress_at = first_some participant.first_progress_at (Some event.ts);
                finished_at = Some event.ts;
                last_progress_at = Some event.ts;
-               last_error = detail.error;
+               last_error =
+                 first_some detail.error
+                   (Option.map failure_cause_message detail.failure_cause);
              }))
   | Artifact_attached detail ->
       let artifact =
@@ -431,4 +438,3 @@ let build_proof (session : session) (events : event list) =
     evidence;
     generated_at;
   }
-

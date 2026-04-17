@@ -14,6 +14,8 @@ type telemetry_step = {
   role: string option;
   provider: string option;
   model: string option;
+  raw_trace_run_id: string option;
+  stop_reason: string option;
   artifact_id: string option;
   artifact_name: string option;
   artifact_kind: string option;
@@ -49,6 +51,8 @@ type evidence_bundle = {
   files: evidence_file list;
   missing_files: (string * string) list;
 }
+
+type raw_trace_manifest = Sessions.raw_trace_manifest
 
 let now () = Unix.gettimeofday ()
 
@@ -123,6 +127,17 @@ let persistence_failure_phase_of_text = function
             Some (String.sub text start (stop - start))
         | Some _ -> None
 
+let failure_cause_message = function
+  | Runtime.Execution_error detail -> detail
+  | Runtime.Persistence_failure { phase; detail } ->
+      Printf.sprintf "%s: %s" phase detail
+
+let failure_detail_of_event (detail : Runtime.participant_event) =
+  match detail.error, detail.failure_cause with
+  | Some error, _ -> Some error
+  | None, Some cause -> Some (failure_cause_message cause)
+  | None, None -> None
+
 let participant_and_detail_of_event = function
   | Session_started _ -> (None, Some "session_started")
   | Session_settings_updated _ -> (None, Some "session_settings_updated")
@@ -136,7 +151,7 @@ let participant_and_detail_of_event = function
   | Agent_completed detail ->
       (Some detail.participant_name, detail.summary)
   | Agent_failed detail ->
-      (Some detail.participant_name, detail.error)
+      (Some detail.participant_name, failure_detail_of_event detail)
   | Artifact_attached detail ->
       (None, Some (detail.name ^ ":" ^ detail.kind))
   | Checkpoint_saved detail -> (None, detail.label)
@@ -146,9 +161,20 @@ let participant_and_detail_of_event = function
 
 let anomaly_fields_of_event = function
   | Agent_completed detail ->
-      (dropped_output_deltas_of_text detail.summary, None)
+      let dropped_output_deltas =
+        match detail.completion_anomaly with
+        | Some (Runtime.Dropped_output_deltas { count }) when count > 0 -> Some count
+        | Some _ | None -> dropped_output_deltas_of_text detail.summary
+      in
+      (dropped_output_deltas, None)
   | Agent_failed detail ->
-      (None, persistence_failure_phase_of_text detail.error)
+      let persistence_failure_phase =
+        match detail.failure_cause with
+        | Some (Runtime.Persistence_failure { phase; _ }) -> Some phase
+        | Some _ | None ->
+            persistence_failure_phase_of_text (failure_detail_of_event detail)
+      in
+      (None, persistence_failure_phase)
   | _ -> (None, None)
 
 let event_name_of_kind = function
@@ -168,11 +194,11 @@ let event_name_of_kind = function
 
 let structured_fields_of_event = function
   | Session_started _ ->
-      (None, None, None, None, None, None, None, None, None)
+      (None, None, None, None, None, None, None, None, None, None, None)
   | Session_settings_updated detail ->
-      (None, None, None, detail.model, None, None, None, None, None)
+      (None, None, None, detail.model, None, None, None, None, None, None, None)
   | Turn_recorded detail ->
-      (detail.actor, None, None, None, None, None, None, None, None)
+      (detail.actor, None, None, None, None, None, None, None, None, None, None)
   | Agent_spawn_requested detail ->
       ( None,
         detail.role,
@@ -182,17 +208,51 @@ let structured_fields_of_event = function
         None,
         None,
         None,
+        None,
+        None,
         None )
   | Agent_became_live detail ->
-      (None, None, detail.provider, detail.model, None, None, None, None, None)
+      ( None,
+        None,
+        detail.provider,
+        detail.model,
+        detail.raw_trace_run_id,
+        detail.stop_reason,
+        None,
+        None,
+        None,
+        None,
+        None )
   | Agent_output_delta _ ->
-      (None, None, None, None, None, None, None, None, None)
+      (None, None, None, None, None, None, None, None, None, None, None)
   | Agent_completed detail ->
-      (None, None, detail.provider, detail.model, None, None, None, None, None)
+      ( None,
+        None,
+        detail.provider,
+        detail.model,
+        detail.raw_trace_run_id,
+        detail.stop_reason,
+        None,
+        None,
+        None,
+        None,
+        None )
   | Agent_failed detail ->
-      (None, None, detail.provider, detail.model, None, None, None, None, None)
+      ( None,
+        None,
+        detail.provider,
+        detail.model,
+        detail.raw_trace_run_id,
+        detail.stop_reason,
+        None,
+        None,
+        None,
+        None,
+        None )
   | Artifact_attached detail ->
       ( None,
+        None,
+        None,
         None,
         None,
         None,
@@ -202,13 +262,13 @@ let structured_fields_of_event = function
         None,
         None )
   | Checkpoint_saved detail ->
-      (None, None, None, None, None, None, None, detail.label, None)
+      (None, None, None, None, None, None, None, None, None, detail.label, None)
   | Finalize_requested _ ->
-      (None, None, None, None, None, None, None, None, None)
+      (None, None, None, None, None, None, None, None, None, None, None)
   | Session_completed detail ->
-      (None, None, None, None, None, None, None, None, detail.outcome)
+      (None, None, None, None, None, None, None, None, None, None, detail.outcome)
   | Session_failed detail ->
-      (None, None, None, None, None, None, None, None, detail.outcome)
+      (None, None, None, None, None, None, None, None, None, None, detail.outcome)
 
 let build_telemetry_report (session : session) (events : event list) =
   let event_counts =
@@ -233,8 +293,8 @@ let build_telemetry_report (session : session) (events : event list) =
     List.map
       (fun (event : event) ->
         let participant, detail = participant_and_detail_of_event event.kind in
-        let actor, role, provider, model, artifact_id, artifact_name, artifact_kind,
-            checkpoint_label, outcome =
+        let actor, role, provider, model, raw_trace_run_id, stop_reason, artifact_id,
+            artifact_name, artifact_kind, checkpoint_label, outcome =
           structured_fields_of_event event.kind
         in
         let dropped_output_deltas, persistence_failure_phase =
@@ -251,6 +311,8 @@ let build_telemetry_report (session : session) (events : event list) =
           role;
           provider;
           model;
+          raw_trace_run_id;
+          stop_reason;
           artifact_id;
           artifact_name;
           artifact_kind;
@@ -368,6 +430,14 @@ let telemetry_report_to_json (report : telemetry_report) =
                      | None -> `Null );
                    ( "model",
                      match step.model with
+                     | Some value -> `String value
+                     | None -> `Null );
+                   ( "raw_trace_run_id",
+                     match step.raw_trace_run_id with
+                     | Some value -> `String value
+                     | None -> `Null );
+                   ( "stop_reason",
+                     match step.stop_reason with
                      | Some value -> `String value
                      | None -> `Null );
                    ( "artifact_id",
@@ -507,6 +577,17 @@ let build_evidence_bundle ~session_id file_specs =
     missing_files = List.rev missing_files;
   }
 
+let build_raw_trace_manifest ~session_id ~latest_raw_trace_run ~raw_trace_runs
+    ~raw_trace_summaries ~raw_trace_validations =
+  ({
+    session_id;
+    generated_at = now ();
+    latest_raw_trace_run;
+    raw_trace_runs;
+    raw_trace_summaries;
+    raw_trace_validations;
+  } : Sessions.raw_trace_manifest)
+
 let evidence_bundle_to_json (bundle : evidence_bundle) =
   `Assoc
     [
@@ -535,3 +616,6 @@ let evidence_bundle_to_json (bundle : evidence_bundle) =
                  ])
              bundle.missing_files) );
     ]
+
+let raw_trace_manifest_to_json (manifest : raw_trace_manifest) =
+  Sessions.raw_trace_manifest_to_yojson manifest

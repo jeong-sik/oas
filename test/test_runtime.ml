@@ -374,6 +374,8 @@ let test_runtime_finalize_generates_telemetry_and_evidence () =
     (List.mem "runtime-telemetry-json" names);
   Alcotest.(check bool) "has telemetry markdown" true
     (List.mem "runtime-telemetry" names);
+  Alcotest.(check bool) "has raw trace json" true
+    (List.mem "runtime-raw-trace-json" names);
   Alcotest.(check bool) "has evidence json" true
     (List.mem "runtime-evidence" names);
   let evidence_artifact =

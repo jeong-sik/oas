@@ -32,6 +32,9 @@ val structured_telemetry_of_json :
 
 val evidence_of_json : Yojson.Safe.t -> Sessions_types.evidence
 
+val raw_trace_manifest_of_json :
+  Yojson.Safe.t -> (Sessions_types.raw_trace_manifest, string) result
+
 (** {1 Helpers} *)
 
 val contains_substring : sub:string -> string -> bool

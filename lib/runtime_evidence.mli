@@ -17,6 +17,8 @@ type telemetry_step = {
   role: string option;
   provider: string option;
   model: string option;
+  raw_trace_run_id: string option;
+  stop_reason: string option;
   artifact_id: string option;
   artifact_name: string option;
   artifact_kind: string option;
@@ -53,6 +55,8 @@ type evidence_bundle = {
   missing_files: (string * string) list;
 }
 
+type raw_trace_manifest = Sessions.raw_trace_manifest
+
 val now : unit -> float
 val runtime_persist_failure_prefix : string
 val dropped_output_deltas_marker : string
@@ -67,3 +71,11 @@ val telemetry_report_to_json : telemetry_report -> Yojson.Safe.t
 val telemetry_report_to_markdown : telemetry_report -> string
 val build_evidence_bundle : session_id:string -> (string * string) list -> evidence_bundle
 val evidence_bundle_to_json : evidence_bundle -> Yojson.Safe.t
+val build_raw_trace_manifest :
+  session_id:string ->
+  latest_raw_trace_run:Sessions.raw_trace_run option ->
+  raw_trace_runs:Sessions.raw_trace_run list ->
+  raw_trace_summaries:Sessions.raw_trace_summary list ->
+  raw_trace_validations:Sessions.raw_trace_validation list ->
+  raw_trace_manifest
+val raw_trace_manifest_to_json : raw_trace_manifest -> Yojson.Safe.t

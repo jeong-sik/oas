@@ -5,7 +5,7 @@
     a structured JSON response parsed into a {!judgment} record.
 
     @since 0.78.0
-    @since 0.142.0 Single-provider API. Cascade removed. *)
+    @since 0.142.0 Single-provider API. *)
 
 open Llm_provider
 

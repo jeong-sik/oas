@@ -4,13 +4,12 @@
     The LLM receives a system prompt and context, and returns
     a structured JSON response parsed into a {!judgment} record.
 
-    Cascade is not OAS's responsibility — callers that need
-    multi-provider failover select a single provider per call
-    (e.g. a downstream orchestrator resolves its cascade and
-    passes the winning [Provider_config.t] here).
+    OAS expects one resolved provider per call. Callers that need
+    failover should select a single provider per judgment call and pass
+    the winning [Provider_config.t] here.
 
     @since 0.78.0
-    @since 0.142.0 Single-provider API. Cascade removed.
+    @since 0.142.0 Single-provider API.
 
     @stability Evolving *)
 
@@ -66,7 +65,7 @@ val parse_judgment : string -> (judgment, string) result
     If JSON parsing fails, creates a low-confidence judgment from raw text.
 
     @param provider The LLM provider to evaluate with. Callers that need
-                    cascade-style failover should pick one provider per call. *)
+                    multi-provider routing should handle that outside OAS. *)
 val judge :
   sw:Eio.Switch.t ->
   net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->

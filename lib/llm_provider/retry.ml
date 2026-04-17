@@ -126,7 +126,7 @@ let is_retryable = function
   | RateLimited { message; _ } ->
     (* Most 429s are transient throttles — retry with backoff.
        But hard account-level quota exhaustion (balance 0, credit 0) will
-       never succeed on retry; fall through to the next cascade step. *)
+       never succeed on retry; let the caller decide what to do next. *)
     not (is_hard_quota_message message)
   | Overloaded _ | ServerError _ | NetworkError _ | Timeout _ -> true
   | InvalidRequest { message } ->
@@ -253,7 +253,7 @@ let classify_error ~status ~body : api_error =
     in
     (* Hard-quota 429s (balance 0, credit 0) will never succeed on retry.
        Clear any [retry_after] the server might have echoed so downstream
-       consumers (metrics, cascade backoff) see a consistent signal with
+       consumers (metrics, external backoff) see a consistent signal with
        [is_retryable] returning false.  Without this, a caller that
        trusts [retry_after] alone would still back off and retry, while
        [is_retryable] says no — contradictory. *)
@@ -521,4 +521,3 @@ let%test "classify_error 429 transient preserves retry_after" =
   match classify_error ~status:429 ~body with
   | RateLimited { retry_after = Some ra; _ } -> Float.equal ra 3.0
   | _ -> false
-

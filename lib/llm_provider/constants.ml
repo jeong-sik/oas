@@ -6,17 +6,17 @@
 
     @since 0.99.0 *)
 
-(* ── HTTP retry / cascade codes ──────────────────── *)
+(* ── HTTP retry / handoff codes ──────────────────── *)
 
 module Http = struct
   (** HTTP status codes that trigger retry logic in {!Complete}. *)
   let retryable_codes = [429; 500; 502; 503; 529]
 
-  (** HTTP status codes that trigger cascade fallback in downstream
-      coordinators (OAS exposes the codes; orchestration lives outside
-      the SDK). Superset of [retryable_codes]: includes auth/forbidden
-      errors that are not retryable but should cascade to the next
-      provider. 498 = Groq Flex tier capacity exceeded. *)
+  (** HTTP status codes that downstream coordinators may use when deciding
+      whether to hand work to another provider. OAS exposes the codes;
+      orchestration lives outside the SDK. Superset of [retryable_codes]:
+      includes auth/forbidden errors that are not retryable. 498 = Groq
+      Flex tier capacity exceeded. *)
   let cascadable_codes = [401; 403; 429; 498; 500; 502; 503; 529]
 end
 
@@ -26,7 +26,7 @@ end
     temperature / max_tokens defaults used by both the SDK and
     downstream coordinators.
 
-    - [cascade_default]: lightweight cascade calls (health, routing).
+    - [cascade_default]: lightweight coordinator calls (health, routing).
     - [agent_default]: full agent turn execution.
     - [low_variance]: evaluation, judging, deterministic extraction. *)
 module Inference_profile = struct
@@ -103,7 +103,7 @@ end
     @since 0.105.0 *)
 module Endpoints = struct
   (** Default port for llama.cpp servers.
-      Ollama uses 11434 — configure via cascade endpoint or LLM_ENDPOINTS env. *)
+      Ollama uses 11434 — configure via endpoint config or LLM_ENDPOINTS env. *)
   let default_llama_port = 8085
   let default_url = "http://127.0.0.1:" ^ string_of_int default_llama_port
   let default_url_localhost = "http://localhost:" ^ string_of_int default_llama_port

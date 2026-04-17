@@ -4,7 +4,7 @@
     Consumers can call these functions directly.
 
     @since 0.46.0  Sync completion
-    @since 0.53.0  Streaming, retry, cascade
+    @since 0.53.0  Streaming, retry
     @since 0.54.0  Optional cache + metrics hooks *)
 
 (* ── Internal: timed HTTP completion ──────────────────── *)
@@ -744,7 +744,7 @@ let make_http_transport ~sw ~net : Llm_transport.t = {
       ~messages:req.messages ~tools:req.tools ~on_event);
 }
 
-(* ── Streaming Cascade ──────────────────────────── *)
+(* ── Streaming Completion ───────────────────────── *)
 
 [@@@coverage off]
 (* === Inline tests === *)

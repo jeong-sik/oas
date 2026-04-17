@@ -149,6 +149,17 @@ let get_evidence ?session_root ~session_id () =
   in
   decode_json_with evidence_of_json raw
 
+let get_raw_trace_manifest ?session_root ~session_id () =
+  let* artifact =
+    get_named_artifact ?session_root ~session_id ~name:"runtime-raw-trace-json"
+      ()
+  in
+  let* raw =
+    Artifact_service.get_text ?session_root ~session_id
+      ~artifact_id:artifact.artifact_id ()
+  in
+  parse_runtime_json raw_trace_manifest_of_json raw
+
 let get_hook_summary ?session_root ~session_id () =
   let* paths = get_raw_trace_files ?session_root ~session_id () in
   let* runs =

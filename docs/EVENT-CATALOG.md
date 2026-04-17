@@ -7,7 +7,7 @@ relate, and the contracts downstream consumers can rely on.
 **Scope**: `agent_sdk` library (`lib/`) + `agent_sdk_swarm` (`lib_swarm/`).
 **Status**: Stable catalog; entries marked *Evolving* may change with
 deprecation notice.
-**Last updated**: v0.154.0.
+**Last updated**: v0.154.1.
 
 ---
 
@@ -71,6 +71,8 @@ Pattern-matchable OCaml sum type. **Stable across every provider.**
 | `ContextOverflowImminent` | `pipeline/pipeline.ml` | Projected next-turn tokens will exceed budget |
 | `ContextCompactStarted` | `pipeline/pipeline.ml` | Compaction begun (before completion) |
 | `ContextCompacted` | `pipeline/pipeline.ml`, `pipeline/pipeline_compaction.ml` | Compaction completed (before_tokens → after_tokens) |
+| `ContentReplacementReplaced` / `ContentReplacementKept` | `content_replacement_event_bridge.ml` | Tool-result content replacement decision froze |
+| `SlotSchedulerObserved` | `slot_scheduler_event_bridge.ml` | Queue/slot snapshot of the provider scheduler |
 | `Custom (name, json)` | anywhere | Extension point — see §2.3 |
 
 **Invariants**:
@@ -239,6 +241,14 @@ participant lifecycle) is distinct from `Event_bus.AgentCompleted`
 different payload shapes. Disambiguate by Custom name prefix:
 `runtime.agent_completed` vs native `AgentCompleted`.
 
+**Structured completion/failure metadata**:
+- `Runtime.participant_event` now carries optional `raw_trace_run_id`,
+  `stop_reason`, `completion_anomaly`, and `failure_cause`.
+- New sessions artifact `runtime-raw-trace-json` publishes the latest
+  raw-trace run refs, summaries, and validations so external consumers
+  can correlate live runtime events with persisted raw traces without
+  reconstructing the proof bundle first.
+
 ---
 
 ## 6. Surface 5: LLM wire stream (`Types.sse_event`)
@@ -342,6 +352,8 @@ string identifier:
 | `ElicitationCompleted` | `elicitation.completed` |
 | `ContextOverflowImminent` | `context.overflow_imminent` |
 | `ContextCompactStarted` / `ContextCompacted` | `context.compact_started` / `context.compacted` |
+| `ContentReplacementReplaced` / `ContentReplacementKept` | `content_replacement.replaced` / `content_replacement.kept` |
+| `SlotSchedulerObserved` | `slot_scheduler.observed` |
 | `Custom(name, _)` | `name` (unchanged — the name is already a namespaced identifier) |
 
 ### 9.2 Targets

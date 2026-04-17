@@ -148,7 +148,7 @@ let test_resolved_provider_from_resolved () =
   Alcotest.(check (option string))
     "resolved_provider wins" (Some "gcp") result
 
-let test_resolved_provider_fallback_to_provider () =
+let test_resolved_provider_uses_participant_provider () =
   let p =
     make_participant ~resolved_provider:None ~provider:(Some "aws") ()
   in
@@ -157,7 +157,7 @@ let test_resolved_provider_fallback_to_provider () =
   Alcotest.(check (option string))
     "falls back to provider" (Some "aws") result
 
-let test_resolved_provider_fallback_to_session () =
+let test_resolved_provider_uses_session_provider () =
   let session = make_session ~provider:(Some "session-p") () in
   let result = Sessions.resolved_provider_of_participant session None in
   Alcotest.(check (option string))
@@ -416,9 +416,9 @@ let () =
           Alcotest.test_case "resolved wins" `Quick
             test_resolved_provider_from_resolved;
           Alcotest.test_case "fallback to provider" `Quick
-            test_resolved_provider_fallback_to_provider;
+            test_resolved_provider_uses_participant_provider;
           Alcotest.test_case "fallback to session" `Quick
-            test_resolved_provider_fallback_to_session;
+            test_resolved_provider_uses_session_provider;
         ] );
       ( "resolved_model_of_participant",
         [

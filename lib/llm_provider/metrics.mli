@@ -23,7 +23,6 @@ type t = {
   on_request_start: model_id:string -> unit;
   on_request_end: model_id:string -> latency_ms:int -> unit;
   on_error: model_id:string -> error:string -> unit;
-  on_cascade_fallback: from_model:string -> to_model:string -> reason:string -> unit;
   on_http_status: provider:string -> model_id:string -> status:int -> unit;
 }
 
@@ -40,7 +39,7 @@ val noop : t
     the new value.  The only window where callers observe [noop] is
     for HTTP calls issued *before* the host has run its startup
     [set_global]; install the sink as early in bootstrap as possible
-    (before any keeper/agent cascade traffic) to avoid that gap.
+    (before any keeper/agent traffic) to avoid that gap.
 
     Intended to be called once at startup from the host application
     (e.g. a downstream consumer installs a Prometheus-backed instance).

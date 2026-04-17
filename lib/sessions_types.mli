@@ -63,11 +63,15 @@ type structured_telemetry_step = {
   role: string option;
   provider: string option;
   model: string option;
+  raw_trace_run_id: string option;
+  stop_reason: string option;
   artifact_id: string option;
   artifact_name: string option;
   artifact_kind: string option;
   checkpoint_label: string option;
   outcome: string option;
+  dropped_output_deltas: int option;
+  persistence_failure_phase: string option;
 }
 [@@deriving yojson, show]
 
@@ -127,6 +131,16 @@ type raw_trace_run = Raw_trace.run_ref
 type raw_trace_summary = Raw_trace.run_summary
 [@@deriving yojson, show]
 type raw_trace_validation = Raw_trace.run_validation
+[@@deriving yojson, show]
+
+type raw_trace_manifest = {
+  session_id: string;
+  generated_at: float;
+  latest_raw_trace_run: raw_trace_run option;
+  raw_trace_runs: raw_trace_run list;
+  raw_trace_summaries: raw_trace_summary list;
+  raw_trace_validations: raw_trace_validation list;
+}
 [@@deriving yojson, show]
 
 type worker_status =

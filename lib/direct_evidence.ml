@@ -362,7 +362,7 @@ let persist ~agent ~raw_trace ~(options : options) () =
     | Some bundle -> Ok bundle
     | None ->
         let* raw_summary = Raw_trace_query.summarize_run raw_run in
-        let* _raw_validation = Raw_trace_query.validate_run raw_run in
+        let* raw_validation = Raw_trace_query.validate_run raw_run in
         let prompt = extract_prompt latest_records in
         let selected_provider =
           first_some snapshot.requested_provider options.requested_provider
@@ -433,7 +433,11 @@ let persist ~agent ~raw_trace ~(options : options) () =
                    summary = Some "direct-agent-started";
                    provider = snapshot.resolved_provider;
                    model = snapshot.resolved_model;
-                   error = None;
+                    error = None;
+                    raw_trace_run_id = Some raw_run.worker_run_id;
+                    stop_reason = None;
+                    completion_anomaly = None;
+                    failure_cause = None;
                  });
           ]
           @ (deltas
@@ -452,6 +456,13 @@ let persist ~agent ~raw_trace ~(options : options) () =
                         provider = snapshot.resolved_provider;
                         model = snapshot.resolved_model;
                         error = first_some snapshot.last_error raw_summary.error;
+                        raw_trace_run_id = Some raw_run.worker_run_id;
+                        stop_reason = raw_summary.stop_reason;
+                        completion_anomaly = None;
+                        failure_cause =
+                          (first_some snapshot.last_error raw_summary.error
+                          |> Option.map (fun detail ->
+                                 Runtime.Execution_error detail));
                       }
                 | Agent.Accepted | Agent.Ready | Agent.Running | Agent.Completed ->
                     Agent_completed
@@ -461,6 +472,10 @@ let persist ~agent ~raw_trace ~(options : options) () =
                         provider = snapshot.resolved_provider;
                         model = snapshot.resolved_model;
                         error = None;
+                        raw_trace_run_id = Some raw_run.worker_run_id;
+                        stop_reason = raw_summary.stop_reason;
+                        completion_anomaly = None;
+                        failure_cause = None;
                       });
               make_event (6 + List.length deltas) (finished_at +. 0.001)
                 (Finalize_requested { reason = None });
@@ -496,6 +511,22 @@ let persist ~agent ~raw_trace ~(options : options) () =
         Artifact_service.save_text_internal store ~session_id:options.session_id
           ~name:"runtime-telemetry" ~kind:"markdown" ~content:telemetry_md
       in
+      let raw_trace_manifest =
+        Runtime_evidence.build_raw_trace_manifest
+          ~session_id:options.session_id
+          ~latest_raw_trace_run:(Some raw_run)
+          ~raw_trace_runs:[ raw_run ]
+          ~raw_trace_summaries:[ raw_summary ]
+          ~raw_trace_validations:[ raw_validation ]
+      in
+      let raw_trace_json =
+        Runtime_evidence.raw_trace_manifest_to_json raw_trace_manifest
+        |> Yojson.Safe.pretty_to_string
+      in
+      let* raw_trace_artifact =
+        Artifact_service.save_text_internal store ~session_id:options.session_id
+          ~name:"runtime-raw-trace-json" ~kind:"json" ~content:raw_trace_json
+      in
       let tool_catalog_json =
         tool_contracts_to_json (Tool_set.to_list (Agent.tools agent)) |> Yojson.Safe.pretty_to_string
       in
@@ -509,6 +540,9 @@ let persist ~agent ~raw_trace ~(options : options) () =
       let* telemetry_md_path =
         Artifact_service.persisted_path telemetry_md_artifact
       in
+      let* raw_trace_json_path =
+        Artifact_service.persisted_path raw_trace_artifact
+      in
       let* tool_catalog_path =
         Artifact_service.persisted_path tool_catalog_artifact
       in
@@ -519,6 +553,7 @@ let persist ~agent ~raw_trace ~(options : options) () =
            [
              ("telemetry_json", telemetry_json_path);
              ("telemetry_md", telemetry_md_path);
+             ("raw_trace_json", raw_trace_json_path);
              ("tool_catalog_json", tool_catalog_path);
            ])
       in
@@ -534,6 +569,7 @@ let persist ~agent ~raw_trace ~(options : options) () =
         [
           telemetry_json_artifact;
           telemetry_md_artifact;
+          raw_trace_artifact;
           tool_catalog_artifact;
           evidence_artifact;
         ]
@@ -575,6 +611,7 @@ let persist ~agent ~raw_trace ~(options : options) () =
            [
              ("telemetry_json", telemetry_json_path);
              ("telemetry_md", telemetry_md_path);
+             ("raw_trace_json", raw_trace_json_path);
              ("tool_catalog_json", tool_catalog_path);
            ])
       in

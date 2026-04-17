@@ -83,6 +83,10 @@ val get_evidence :
   ?session_root:string -> session_id:string -> unit ->
   (evidence, Error.sdk_error) result
 
+val get_raw_trace_manifest :
+  ?session_root:string -> session_id:string -> unit ->
+  (raw_trace_manifest, Error.sdk_error) result
+
 (** {1 Hooks} *)
 
 val get_hook_summary :

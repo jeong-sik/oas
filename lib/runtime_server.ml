@@ -16,7 +16,7 @@ let log_participant_persist_failure ~session_id ~participant_name ~phase err =
       Log.S ("error", Error.to_string err) ]
 
 let persist_participant_failure store state ~session_id ~participant_name
-    ~provider ~model ~detail =
+    ~provider ~model ~detail ?raw_trace_run_id ?failure_cause () =
   match
     persist_event store state session_id
       (Agent_failed
@@ -26,6 +26,10 @@ let persist_participant_failure store state ~session_id ~participant_name
            provider;
            model;
            error = Some detail;
+           raw_trace_run_id;
+           stop_reason = None;
+           completion_anomaly = None;
+           failure_cause;
          })
   with
   | Ok _ -> ()
@@ -172,6 +176,11 @@ let apply_command ~sw state store (session : session) command =
                  provider = detail.provider;
                  model = detail.model;
                  error = Some (Error.to_string err);
+                 raw_trace_run_id = None;
+                 stop_reason = None;
+                 completion_anomaly = None;
+                 failure_cause =
+                   Some (Execution_error (Error.to_string err));
                })
         in
         Ok (Command_applied session)
@@ -190,6 +199,15 @@ let apply_command ~sw state store (session : session) command =
                      (Option.value
                         ~default:"spawn blocked by control policy"
                         (first_some permission_message hook_message));
+                 raw_trace_run_id = None;
+                 stop_reason = None;
+                 completion_anomaly = None;
+                 failure_cause =
+                   Some
+                     (Execution_error
+                        (Option.value
+                           ~default:"spawn blocked by control policy"
+                           (first_some permission_message hook_message)));
                })
         in
         Ok (Command_applied session)
@@ -206,52 +224,71 @@ let apply_command ~sw state store (session : session) command =
                       provider = resolution.resolved_provider;
                       model = resolution.resolved_model;
                       error = None;
+                      raw_trace_run_id = None;
+                      stop_reason = None;
+                      completion_anomaly = None;
+                      failure_cause = None;
                     })
              with
              | Error err ->
                  let detail =
-                   Runtime_evidence.encode_persist_failure_detail ~phase:"agent_became_live"
-                     (Printf.sprintf "failed to persist runtime-started event: %s"
-                        (Error.to_string err))
+                   Printf.sprintf "failed to persist runtime-started event: %s"
+                     (Error.to_string err)
                  in
                  log_participant_persist_failure ~session_id ~participant_name
                    ~phase:"agent_became_live" err;
                  persist_participant_failure store state ~session_id
                    ~participant_name ~provider:resolution.resolved_provider
                    ~model:resolution.resolved_model ~detail
+                   ~failure_cause:
+                     (Persistence_failure
+                        { phase = "agent_became_live"; detail })
+                   ()
              | Ok _ -> (
                  match run_participant store state session_id resolution detail with
-                 | Ok summary -> (
+                 | Ok outcome -> (
                      match
                        persist_event store state session_id
                          (Agent_completed
                             {
                               participant_name;
-                              summary = Some summary;
+                              summary = Some outcome.summary;
                               provider = resolution.resolved_provider;
                               model = resolution.resolved_model;
                               error = None;
+                              raw_trace_run_id = outcome.raw_trace_run_id;
+                              stop_reason = outcome.stop_reason;
+                              completion_anomaly = outcome.completion_anomaly;
+                              failure_cause = None;
                             })
                      with
                      | Ok _ -> ()
                      | Error err ->
                          let detail =
-                           Runtime_evidence.encode_persist_failure_detail ~phase:"agent_completed"
-                             (Printf.sprintf
-                                "participant completed but completion event could not be persisted: %s"
-                                (Error.to_string err))
+                           Printf.sprintf
+                             "participant completed but completion event could not be persisted: %s"
+                             (Error.to_string err)
                          in
                          log_participant_persist_failure ~session_id
                            ~participant_name ~phase:"agent_completed" err;
                          persist_participant_failure store state ~session_id
                            ~participant_name
                            ~provider:resolution.resolved_provider
-                           ~model:resolution.resolved_model ~detail)
-                 | Error err ->
+                           ~model:resolution.resolved_model ~detail
+                           ?raw_trace_run_id:outcome.raw_trace_run_id
+                           ~failure_cause:
+                             (Persistence_failure
+                                { phase = "agent_completed"; detail })
+                           ())
+                 | Error failure ->
                      persist_participant_failure store state ~session_id
                        ~participant_name ~provider:resolution.resolved_provider
                        ~model:resolution.resolved_model
-                       ~detail:(Error.to_string err)))
+                       ~detail:(Error.to_string failure.error)
+                       ?raw_trace_run_id:failure.raw_trace_run_id
+                       ~failure_cause:
+                         (Execution_error (Error.to_string failure.error))
+                       ()))
           with
           | Eio.Cancel.Cancelled _ as ex -> raise ex
           | exn ->
@@ -259,7 +296,12 @@ let apply_command ~sw state store (session : session) command =
                 ~participant_name ~provider:resolution.resolved_provider
                 ~model:resolution.resolved_model
                 ~detail:(Printf.sprintf "participant fiber crashed: %s"
-                           (Printexc.to_string exn)));
+                           (Printexc.to_string exn))
+                ~failure_cause:
+                  (Execution_error
+                     (Printf.sprintf "participant fiber crashed: %s"
+                        (Printexc.to_string exn)))
+                ());
         Ok (Command_applied session)
       end
   | Attach_artifact detail ->

@@ -4,7 +4,7 @@
     Consumers can call these functions directly.
 
     @since 0.46.0  Sync completion
-    @since 0.53.0  Streaming, retry, cascade
+    @since 0.53.0  Streaming, retry
     @since 0.54.0  Optional cache + metrics hooks
     @since 0.78.0  Transport abstraction
     @since 0.95.0  Optional request priority (accepted, not yet used for scheduling)
@@ -109,9 +109,6 @@ val complete_with_retry :
   unit ->
   (Types.api_response, Http_client.http_error) result
 
-(** {1 Cascade: Multi-provider Failover} *)
-
-(** Provider cascade: try primary, then each fallback on retryable failure. *)
 (** {1 Stream Accumulator} *)
 
 (** Re-exported from {!Complete_stream_acc} for backward compatibility.
@@ -137,4 +134,3 @@ val complete_stream :
   ?priority:Request_priority.t ->
   unit ->
   (Types.api_response, Http_client.http_error) result
-

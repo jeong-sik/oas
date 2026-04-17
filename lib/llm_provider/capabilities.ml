@@ -143,7 +143,7 @@ let openai_chat_extended_capabilities = {
    support declare it per Provider_config via
    [Provider_config.supports_tool_choice_override]. The SDK does not
    match on [model_id] to guess model-side behavior — the consumer
-   (e.g. a cascade loader that knows it deployed Qwen3.5 w/ the Jinja
+   (e.g. a config loader that knows it deployed Qwen3.5 w/ the Jinja
    chat template) owns that policy. This is stricter than LiteLLM's
    static-table approach, which requires JSON edits + redeploy to
    flip capability, and avoids the fragile model_id pattern match that
@@ -527,4 +527,3 @@ let%test "for_model_id glm-5.1 full model (reasoning + extended thinking)" =
     && c.supports_extended_thinking
     && c.max_output_tokens = Some 128_000
   | None -> false
-

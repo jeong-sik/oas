@@ -6,24 +6,7 @@ open Agent_sdk
 module Bridge = Content_replacement_event_bridge
 module S = Content_replacement_state
 
-let extract_freeze_payload (ev : Event_bus.event) =
-  match ev.payload with
-  | Event_bus.Custom ("content_replacement_frozen", `Assoc kvs) -> Some kvs
-  | _ -> None
-
-let string_field kvs key =
-  match List.assoc_opt key kvs with
-  | Some (`String s) -> s
-  | _ -> Alcotest.fail ("missing string field " ^ key)
-
-let int_field kvs key =
-  match List.assoc_opt key kvs with
-  | Some (`Int n) -> n
-  | _ -> Alcotest.fail ("missing int field " ^ key)
-
-let has_key kvs key = List.mem_assoc key kvs
-
-(* ── record_replacement emits action="replaced" with full detail ─── *)
+(* ── record_replacement emits native replaced variant ─────────────── *)
 
 let test_replacement_event () =
   Eio_main.run @@ fun _env ->
@@ -37,17 +20,16 @@ let test_replacement_event () =
   check int "one event published" 1 (List.length events);
   match events with
   | [ev] ->
-    (match extract_freeze_payload ev with
-     | Some kvs ->
-       check string "action=replaced" "replaced" (string_field kvs "action");
-       check string "tool_use_id" "toolu_01"   (string_field kvs "tool_use_id");
-       check string "preview"     "short preview" (string_field kvs "preview");
-       check int    "original_chars" 9000       (int_field kvs "original_chars");
-       check int    "seen_count_after" 1        (int_field kvs "seen_count_after")
-     | None -> Alcotest.fail "payload not Custom(content_replacement_frozen, _)")
+    (match ev.payload with
+     | Event_bus.ContentReplacementReplaced payload ->
+       check string "tool_use_id" "toolu_01" payload.tool_use_id;
+       check string "preview" "short preview" payload.preview;
+       check int "original_chars" 9000 payload.original_chars;
+       check int "seen_count_after" 1 payload.seen_count_after
+     | _ -> Alcotest.fail "payload not ContentReplacementReplaced _")
   | _ -> Alcotest.fail "wrong event count"
 
-(* ── record_kept emits action="kept" without replacement fields ──── *)
+(* ── record_kept emits native kept variant ───────────────────────── *)
 
 let test_kept_event () =
   Eio_main.run @@ fun _env ->
@@ -62,14 +44,11 @@ let test_kept_event () =
   let events = Event_bus.drain sub in
   match events with
   | [ev] ->
-    (match extract_freeze_payload ev with
-     | Some kvs ->
-       check string "action=kept" "kept" (string_field kvs "action");
-       check string "tool_use_id" "toolu_02" (string_field kvs "tool_use_id");
-       check int    "seen_count_after" 1     (int_field kvs "seen_count_after");
-       check bool   "no preview key" false (has_key kvs "preview");
-       check bool   "no original_chars key" false (has_key kvs "original_chars")
-     | None -> Alcotest.fail "payload not Custom(content_replacement_frozen, _)")
+    (match ev.payload with
+     | Event_bus.ContentReplacementKept payload ->
+       check string "tool_use_id" "toolu_02" payload.tool_use_id;
+       check int "seen_count_after" 1 payload.seen_count_after
+     | _ -> Alcotest.fail "payload not ContentReplacementKept _")
   | _ -> Alcotest.fail "wrong event count"
 
 (* ── envelope carries correlation_id + run_id when supplied ─────── *)
@@ -126,10 +105,13 @@ let test_seen_count_growth () =
   let events = Event_bus.drain sub in
   check int "three events" 3 (List.length events);
   let counts =
-    List.map (fun ev ->
-      match extract_freeze_payload ev with
-      | Some kvs -> int_field kvs "seen_count_after"
-      | None -> Alcotest.fail "bad payload"
+    List.map (fun (ev : Event_bus.event) ->
+      match ev.payload with
+      | Event_bus.ContentReplacementReplaced payload ->
+        payload.seen_count_after
+      | Event_bus.ContentReplacementKept payload ->
+        payload.seen_count_after
+      | _ -> Alcotest.fail "bad payload"
     ) events
   in
   check (list int) "counts increase 1,2,3" [1; 2; 3] counts

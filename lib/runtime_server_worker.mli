@@ -37,7 +37,19 @@ val emit_output_delta :
 
 (** {1 Participant execution} *)
 
+type participant_run_success = {
+  summary: string;
+  raw_trace_run_id: string option;
+  stop_reason: string option;
+  completion_anomaly: Runtime.completion_anomaly option;
+}
+
+type participant_run_failure = {
+  error: Error.sdk_error;
+  raw_trace_run_id: string option;
+}
+
 val run_participant :
   Runtime_store.t -> state -> string ->
   execution_resolution -> Runtime.spawn_agent_request ->
-  (string, Error.sdk_error) result
+  (participant_run_success, participant_run_failure) result

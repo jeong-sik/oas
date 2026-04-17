@@ -36,6 +36,11 @@ let payload_to_json p =
 
 (* ── Event to payload ─────────────────────────────────────────── *)
 
+let slot_scheduler_state_to_string = function
+  | Event_bus.Idle -> "idle"
+  | Event_bus.Queued -> "queued"
+  | Event_bus.Saturated -> "saturated"
+
 let event_type_name (event : Event_bus.event) : string =
   match event.payload with
   | AgentStarted _ -> "agent.started"
@@ -51,6 +56,9 @@ let event_type_name (event : Event_bus.event) : string =
   | ContextCompacted _ -> "context.compacted"
   | ContextOverflowImminent _ -> "context.overflow_imminent"
   | ContextCompactStarted _ -> "context.compact_started"
+  | ContentReplacementReplaced _ -> "content_replacement.replaced"
+  | ContentReplacementKept _ -> "content_replacement.kept"
+  | SlotSchedulerObserved _ -> "slot_scheduler.observed"
   | Custom (name, _) -> name
 
 let agent_name_of_payload : Event_bus.payload -> string option = function
@@ -67,6 +75,9 @@ let agent_name_of_payload : Event_bus.payload -> string option = function
   | ContextCompacted r -> Some r.agent_name
   | ContextOverflowImminent r -> Some r.agent_name
   | ContextCompactStarted r -> Some r.agent_name
+  | ContentReplacementReplaced _
+  | ContentReplacementKept _
+  | SlotSchedulerObserved _ -> None
   | Custom _ -> None
 
 let agent_name_of_event (event : Event_bus.event) : string option =
@@ -140,6 +151,28 @@ let event_to_payload (event : Event_bus.event) : event_payload =
       `Assoc [
         ("agent_name", `String r.agent_name);
         ("trigger", `String r.trigger);
+      ]
+    | ContentReplacementReplaced r ->
+      `Assoc [
+        ("decision", `String "replaced");
+        ("tool_use_id", `String r.tool_use_id);
+        ("preview", `String r.preview);
+        ("original_chars", `Int r.original_chars);
+        ("seen_count_after", `Int r.seen_count_after);
+      ]
+    | ContentReplacementKept r ->
+      `Assoc [
+        ("decision", `String "kept");
+        ("tool_use_id", `String r.tool_use_id);
+        ("seen_count_after", `Int r.seen_count_after);
+      ]
+    | SlotSchedulerObserved r ->
+      `Assoc [
+        ("max_slots", `Int r.max_slots);
+        ("active", `Int r.active);
+        ("available", `Int r.available);
+        ("queue_length", `Int r.queue_length);
+        ("state", `String (slot_scheduler_state_to_string r.state));
       ]
     | Custom (name, data) ->
       `Assoc [("name", `String name); ("data", data)]

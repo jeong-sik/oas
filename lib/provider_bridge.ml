@@ -22,7 +22,7 @@ let is_glm_model_or_alias model_id =
   | _ -> false
 
 (** Resolve "auto" / aliases to concrete model IDs for legacy Provider.config
-    input. Inlined here because cascade orchestration no longer lives in OAS.
+    input. Inlined here because higher-level routing lives outside OAS.
 
     Local providers use {!Llm_provider.Discovery.first_discovered_model_id}
     for "auto"; cloud providers use environment-variable defaults. *)
@@ -114,4 +114,3 @@ let to_provider_config (legacy : Provider.config) : (Llm_provider.Provider_confi
             ~headers
             ~request_path
             ())
-

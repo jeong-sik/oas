@@ -27,7 +27,7 @@ type t = {
   headers: (string * string) list;
   request_path: string;
   max_tokens: int option;  (** [None] = resolve from model capabilities at request time. @since 0.123.0 *)
-  max_context: int option;  (** Provider's context window limit in tokens. When set, cascade executor truncates messages to fit before dispatch. @since 0.120.0 *)
+  max_context: int option;  (** Provider's context window limit in tokens. When set, downstream callers may truncate messages to fit before dispatch. @since 0.120.0 *)
   temperature: float option;
   top_p: float option;
   top_k: int option;
@@ -46,7 +46,7 @@ type t = {
       [None] = use the per-kind default from {!Capabilities}.
       [Some b] = force [b].
 
-      Kept on this low-level config so cascade consumers (e.g. declaring
+      Kept on this low-level config so downstream callers (e.g. declaring
       per-entry capability facts in their own config file) can inject
       a verified model-side support flag without the SDK matching on
       [model_id]. The SDK stays model-agnostic; the consumer declares.

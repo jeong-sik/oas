@@ -20,8 +20,6 @@ let base_url =
 let local_model = provider.model_id
 let options = { Agent.default_options with base_url; provider = Some provider }
 
-(* MASC MCP integration test moved to masc-mcp repo *)
-
 let qwen_config name system_prompt max_tokens max_turns =
   {
     default_config with

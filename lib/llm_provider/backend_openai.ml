@@ -44,7 +44,7 @@ let warn_capability_drop ~model_id ~field =
       "dropping sampling field %s for model %s: \
        capability record reports supports_%s = false. Update \
        Capabilities.for_model_id if this model actually supports it, \
-       otherwise remove the field from your agent/cascade config."
+       otherwise remove the field from your request config."
       field model_id field
   end
 
@@ -266,7 +266,7 @@ let%test "glm drops tools when tool_choice none" =
 let%test "glm drops min_p when model does not support it" =
   (* GLM's glm_capabilities inherits supports_min_p = false from
      default_capabilities.  Even when the caller sets min_p explicitly
-     (via cascade inheritance or agent default), backend_openai must
+     (via higher-level config inheritance or agent default), backend_openai must
      omit it from the wire body — ZAI rejects the request with
      "property 'min_p' is unsupported". *)
   let cfg = Provider_config.make

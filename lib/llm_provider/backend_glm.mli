@@ -40,7 +40,7 @@ val classify_glm_error : code:string -> message:string -> glm_error_class
 
 (** Map a GLM error class to the equivalent HTTP status code.
     Used by complete.ml to normalize provider-specific codes
-    into the cascade-compatible error path. *)
+    into the shared HTTP error path. *)
 val http_code_of_glm_error_class : glm_error_class -> int
 
 (** Build a GLM chat completion request body.

@@ -252,6 +252,8 @@ let test_event_kind () =
     Runtime.Agent_became_live {
       participant_name = "sub"; summary = Some "ready";
       provider = Some "local"; model = Some "qwen"; error = None;
+      raw_trace_run_id = Some "wr-1"; stop_reason = None;
+      completion_anomaly = None; failure_cause = None;
     };
     Runtime.Agent_output_delta { participant_name = "sub"; delta = "..." };
     Runtime.Artifact_attached {

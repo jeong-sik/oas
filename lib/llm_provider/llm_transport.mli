@@ -1,6 +1,6 @@
 (** Abstract transport for LLM completions.
 
-    Decouples the completion logic (cache, retry, cascade) from
+    Decouples the completion logic (cache, retry, request execution) from
     the underlying I/O mechanism (HTTP, subprocess, etc.).
 
     @since 0.78.0
