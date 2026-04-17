@@ -127,6 +127,13 @@ type hook_event =
       estimated_tokens: int;
       budget_tokens: int;
     }
+  | PostCompact of {
+      before_messages: message list;
+      after_messages: message list;
+      before_tokens: int;
+      after_tokens: int;
+      phase: string;
+    }
 
 (** Elicitation: structured request for user input during agent execution.
     Inspired by Claude SDK MCP Elicitation pattern. *)
@@ -183,6 +190,7 @@ type hooks = {
   on_error: hook option;
   on_tool_error: hook option;
   pre_compact: hook option;
+  post_compact: hook option;
 }
 
 (** Empty hooks -- no-op default *)
@@ -198,6 +206,7 @@ let empty = {
   on_error = None;
   on_tool_error = None;
   pre_compact = None;
+  post_compact = None;
 }
 
 (** Context injection: data returned by a context_injector after tool execution.
@@ -257,6 +266,7 @@ let stage_of_event = function
   | OnError _ -> "on_error"
   | OnToolError _ -> "on_tool_error"
   | PreCompact _ -> "pre_compact"
+  | PostCompact _ -> "post_compact"
 
 (** Legal decision matrix.
 
@@ -274,6 +284,7 @@ let stage_of_event = function
     on_error             |    Y     |      |          |                  |              |             |
     on_tool_error        |    Y     |      |          |                  |              |             |
     pre_compact          |    Y     |  Y   |          |                  |              |             |
+    post_compact         |    Y     |      |          |                  |              |             |
     v}
 
     Fail-closed: any decision not explicitly listed is rejected. *)
@@ -290,6 +301,7 @@ let legal_decisions_for_stage stage =
   | "on_error"              -> [K_Continue]
   | "on_tool_error"         -> [K_Continue]
   | "pre_compact"           -> [K_Continue; K_Skip]
+  | "post_compact"          -> [K_Continue]
   | _                       -> []   (* unknown stage: nothing is legal *)
 
 (** Validate that a hook_decision is legal for a given stage.
@@ -356,4 +368,5 @@ let compose ~outer ~inner = {
   on_error = compose_hook outer.on_error inner.on_error;
   on_tool_error = compose_hook outer.on_tool_error inner.on_tool_error;
   pre_compact = compose_hook outer.pre_compact inner.pre_compact;
+  post_compact = compose_hook outer.post_compact inner.post_compact;
 }

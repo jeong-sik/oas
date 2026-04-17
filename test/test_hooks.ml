@@ -151,6 +151,35 @@ let test_empty_hooks_pre_compact () =
   let hooks = Hooks.empty in
   check bool "pre_compact is None" true (hooks.pre_compact = None)
 
+let test_post_compact_event () =
+  let received_after_tokens = ref 0 in
+  let hook = function
+    | Hooks.PostCompact { after_tokens; phase; _ } ->
+        received_after_tokens := after_tokens;
+        check string "phase propagated" "proactive(75%)" phase;
+        Hooks.Continue
+    | _ -> Hooks.Continue
+  in
+  let msgs =
+    [ Types.{ role = User; content = [ Text "hello" ]; name = None; tool_call_id = None } ]
+  in
+  let _result =
+    Hooks.invoke (Some hook)
+      (Hooks.PostCompact
+         {
+           before_messages = msgs;
+           after_messages = [];
+           before_tokens = 5000;
+           after_tokens = 1200;
+           phase = "proactive(75%)";
+         })
+  in
+  check int "hook received after_tokens" 1200 !received_after_tokens
+
+let test_empty_hooks_post_compact () =
+  let hooks = Hooks.empty in
+  check bool "post_compact is None" true (hooks.post_compact = None)
+
 (* ── Decision matrix tests ────────────────────────────────── *)
 
 let dummy_pre_tool_use =
@@ -217,6 +246,16 @@ let dummy_on_tool_error =
 let dummy_pre_compact =
   Hooks.PreCompact { messages = []; estimated_tokens = 100; budget_tokens = 200 }
 
+let dummy_post_compact =
+  Hooks.PostCompact
+    {
+      before_messages = [];
+      after_messages = [];
+      before_tokens = 200;
+      after_tokens = 100;
+      phase = "emergency";
+    }
+
 (** Test that each (stage, decision) pair in the matrix is accepted. *)
 let test_validate_legal_before_turn () =
   let ok = Hooks.validate_decision ~stage:"before_turn" Hooks.Continue in
@@ -251,10 +290,14 @@ let test_validate_legal_pre_compact () =
   let ok2 = Hooks.validate_decision ~stage:"pre_compact" Hooks.Skip in
   check bool "Skip at pre_compact" true (Result.is_ok ok2)
 
+let test_validate_legal_post_compact () =
+  let ok = Hooks.validate_decision ~stage:"post_compact" Hooks.Continue in
+  check bool "Continue at post_compact" true (Result.is_ok ok)
+
 let test_validate_legal_observe_only_stages () =
   let stages = [
     "after_turn"; "post_tool_use"; "post_tool_use_failure";
-    "on_stop"; "on_idle"; "on_error"; "on_tool_error";
+    "on_stop"; "on_idle"; "on_error"; "on_tool_error"; "post_compact";
   ] in
   List.iter (fun stage ->
     let ok = Hooks.validate_decision ~stage Hooks.Continue in
@@ -304,6 +347,7 @@ let test_stage_of_event () =
     (dummy_on_error, "on_error");
     (dummy_on_tool_error, "on_tool_error");
     (dummy_pre_compact, "pre_compact");
+    (dummy_post_compact, "post_compact");
   ] in
   List.iter (fun (event, expected) ->
     check string
@@ -360,6 +404,7 @@ let test_all_stages_allow_continue () =
     "before_turn"; "before_turn_params"; "after_turn";
     "pre_tool_use"; "post_tool_use"; "post_tool_use_failure";
     "on_stop"; "on_idle"; "on_error"; "on_tool_error"; "pre_compact";
+    "post_compact";
   ] in
   List.iter (fun stage ->
     let legal = Hooks.legal_decisions_for_stage stage in
@@ -373,6 +418,7 @@ let () =
     "empty", [
       test_case "empty hooks" `Quick test_empty_hooks;
       test_case "pre_compact None" `Quick test_empty_hooks_pre_compact;
+      test_case "post_compact None" `Quick test_empty_hooks_post_compact;
     ];
     "invoke", [
       test_case "invoke None" `Quick test_invoke_none;
@@ -389,11 +435,16 @@ let () =
       test_case "receives tokens" `Quick test_pre_compact_event;
       test_case "returns Skip" `Quick test_pre_compact_skip;
     ];
+    "post_compact", [
+      test_case "receives tokens after compaction" `Quick
+        test_post_compact_event;
+    ];
     "decision_matrix", [
       test_case "legal: before_turn" `Quick test_validate_legal_before_turn;
       test_case "legal: before_turn_params" `Quick test_validate_legal_before_turn_params;
       test_case "legal: pre_tool_use" `Quick test_validate_legal_pre_tool_use;
       test_case "legal: pre_compact" `Quick test_validate_legal_pre_compact;
+      test_case "legal: post_compact" `Quick test_validate_legal_post_compact;
       test_case "legal: observe-only stages" `Quick test_validate_legal_observe_only_stages;
       test_case "illegal: Skip at before_turn" `Quick test_validate_illegal_skip_at_before_turn;
       test_case "illegal: AdjustParams at pre_tool_use" `Quick test_validate_illegal_adjust_at_pre_tool_use;

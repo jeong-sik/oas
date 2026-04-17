@@ -552,7 +552,21 @@ let proactive_compact ?raw_trace_run agent ~watermark () =
         acc + Context_reducer.estimate_message_tokens msg) 0 reduced in
       if after_tokens >= est_tokens then false
       else begin
+        let phase =
+          Printf.sprintf "proactive(%.0f%%)" (usage_ratio *. 100.0)
+        in
         update_state agent (fun s -> { s with messages = reduced });
+        ignore
+          (invoke_hook_with_trace agent ?raw_trace_run ~hook_name:"post_compact"
+             agent.options.hooks.post_compact
+             (Hooks.PostCompact
+                {
+                  before_messages = messages;
+                  after_messages = reduced;
+                  before_tokens = est_tokens;
+                  after_tokens;
+                  phase;
+                }));
         (match agent.options.event_bus with
          | Some bus -> Event_bus.publish bus
              { meta = event_envelope agent;
@@ -560,7 +574,7 @@ let proactive_compact ?raw_trace_run agent ~watermark () =
                  agent_name = agent.state.config.name;
                  before_tokens = est_tokens;
                  after_tokens;
-                 phase = Printf.sprintf "proactive(%.0f%%)" (usage_ratio *. 100.0) } }
+                 phase } }
          | None -> ());
         (match agent.options.journal with
          | Some j ->
@@ -606,7 +620,19 @@ let emergency_compact ?raw_trace_run agent ?limit () =
       acc + Context_reducer.estimate_message_tokens msg) 0 reduced in
     if after_tokens >= est_tokens then false
     else begin
+      let phase = "emergency" in
       update_state agent (fun s -> { s with messages = reduced });
+      ignore
+        (invoke_hook_with_trace agent ?raw_trace_run ~hook_name:"post_compact"
+           agent.options.hooks.post_compact
+           (Hooks.PostCompact
+              {
+                before_messages = messages;
+                after_messages = reduced;
+                before_tokens = est_tokens;
+                after_tokens;
+                phase;
+              }));
       (match agent.options.event_bus with
        | Some bus -> Event_bus.publish bus
            { meta = event_envelope agent;
@@ -614,7 +640,7 @@ let emergency_compact ?raw_trace_run agent ?limit () =
                agent_name = agent.state.config.name;
                before_tokens = est_tokens;
                after_tokens;
-               phase = "emergency" } }
+               phase } }
        | None -> ());
       (match agent.options.journal with
        | Some j ->
