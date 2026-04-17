@@ -64,6 +64,7 @@ type t = {
   journal: Durable_event.journal option;
   policy_channel: Policy_channel.t option;
   summarizer: (Types.message list -> string) option;
+  transport: Llm_provider.Llm_transport.t option;
 }
 
 let create ~net ~model =
@@ -126,6 +127,7 @@ let create ~net ~model =
     journal = None;
     policy_channel = None;
     summarizer = None;
+    transport = None;
   }
 
 let with_tool_result_relocation ~store ~state b =
@@ -137,6 +139,8 @@ let with_journal journal b = { b with journal = Some journal }
     domain-aware function.  Leave unset to use the OAS built-in
     [Budget_strategy.default_summarizer]. *)
 let with_summarizer summarizer b = { b with summarizer = Some summarizer }
+
+let with_transport transport b = { b with transport = Some transport }
 
 let with_auto_dump_journal ~path b =
   let journal =
@@ -339,7 +343,7 @@ let build b =
     on_run_complete = b.on_run_complete;
     tool_result_relocation = b.tool_result_relocation;
     journal = b.journal;
-    transport = None;
+    transport = b.transport;
     summarizer = b.summarizer;
   } in
   Agent.create ~net:b.net ~config ~tools:(Tool_set.to_list tools) ?context
