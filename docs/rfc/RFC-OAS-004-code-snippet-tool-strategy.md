@@ -87,7 +87,7 @@ type sandbox_mode =
     (** 별도 프로세스에서 실행. timeout + memory 제한.
         DSL이 Turing-incomplete이므로 이론적으로 무한루프 불가이나,
         tool callback의 I/O 지연이나 파서 버그에 대한 방어적 timeout.
-        OAS가 직접 spawn하므로 MASC playground 불필요. *)
+        OAS가 직접 spawn하므로 외부 sandbox/playground 의존이 필요 없다. *)
 ```
 
 ### Part B: Code Snippet Execution Engine
@@ -220,6 +220,6 @@ val run_comparison :
 
 - Python/OCaml 코드 직접 실행 (DSL만 허용)
 - Loop 구문 (Turing-completeness 의도적 배제)
-- MASC keeper에서의 CodeSnippet 사용 (MASC는 OAS consumer이므로 별도 결정)
+- Downstream coordinator usage of CodeSnippet (consumer-side decision, not in scope here)
 - Subprocess sandbox의 Docker isolation (RFC-OAS-003C 범위)
 - Production 채택 (Phase 4 판정 이전까지 experimental only)

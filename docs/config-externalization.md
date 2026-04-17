@@ -49,7 +49,7 @@ let max_retries = Env_config.get_int "OAS_MAX_RETRIES" ~default:3
 
 2. **Default values are required.** Every config must work with zero env vars set. The default should be the current hardcoded value.
 
-3. **Naming convention.** Use `OAS_` prefix for SDK-level config. Consumers (MASC, etc.) use their own prefix.
+3. **Naming convention.** Use `OAS_` prefix for SDK-level config. Downstream consumers should use their own prefix.
 
 4. **No silent fallback.** If a value is set but invalid (e.g. `OAS_MAX_RETRIES=abc`), use the default and log a warning — do not silently ignore.
 

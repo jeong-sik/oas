@@ -133,7 +133,7 @@ None in Phase 1.
 
 - Plain string arrays work unchanged (each gets weight=1)
 - `cascade_executor.ml` interface unchanged
-- Consumers (MASC) need no code changes; only cascade.json update
+- Existing consumers need no code changes; only `cascade.json` is updated
 
 ## Trade-offs
 

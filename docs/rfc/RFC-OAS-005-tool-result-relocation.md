@@ -4,7 +4,7 @@
 - **Author**: Vincent (jeong-sik)
 - **Created**: 2026-04-13
 - **OAS Version**: v0.128.0
-- **Related**: Track 1 (oas#873 per-result cap, masc-mcp#6815 sanitizer), Claude Code `toolResultStorage.ts`
+- **Related**: Track 1 (oas#873 per-result cap), Claude Code `toolResultStorage.ts`. Downstream consumer-side sanitization is tracked in those consumers' own repositories.
 
 ---
 

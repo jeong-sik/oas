@@ -32,7 +32,7 @@ llama-server -m qwen3.5-9b.gguf  --port 8087 &
 When `LLM_ENDPOINTS` is not set, `Provider_registry.refresh_llama_endpoints`
 scans ports 8085-8090 via `GET /health`. Only healthy endpoints are registered.
 
-MASC calls this at server startup. Standalone OAS users call it explicitly:
+A typical embedding application would call this at server startup. Standalone OAS users call it explicitly:
 
 ```ocaml
 Eio.Switch.run @@ fun sw ->
