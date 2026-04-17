@@ -208,6 +208,14 @@ val with_tool_result_relocation :
     @since 0.133.0 *)
 val with_journal : Durable_event.journal -> t -> t
 
+(** Override the Budget_strategy Emergency-phase summarizer with a
+    domain-aware function.  Routed into [Agent.options.summarizer] and
+    forwarded to {!Budget_strategy.reduce_for_budget} when compaction
+    triggers.  Leave unset to use the built-in
+    {!Budget_strategy.default_summarizer}.
+    @since 0.150.0 *)
+val with_summarizer : (Types.message list -> string) -> t -> t
+
 (** Install an [on_run_complete] callback that persists the journal
     to [path] whenever the agent run finishes (success or failure).
     Equivalent to attaching a journal and then calling

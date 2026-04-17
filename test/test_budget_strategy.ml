@@ -238,6 +238,37 @@ let test_deterministic_profile () =
   Alcotest.(check (float 0.001)) "temp" 0.0 p.temperature;
   Alcotest.(check int) "max_tokens" 4096 p.max_tokens
 
+(* --- default_summarizer (exported 0.153.0) --- *)
+
+let test_default_summarizer_empty () =
+  let s = Budget_strategy.default_summarizer [] in
+  Alcotest.(check string) "empty -> No prior context"
+    "[No prior context]" s
+
+let test_default_summarizer_shape () =
+  let msgs = [ user_msg "hello world"; asst_msg "reply here" ] in
+  let s = Budget_strategy.default_summarizer msgs in
+  Alcotest.(check bool) "contains Summary header"
+    true (Astring.String.is_prefix ~affix:"[Summary of 2 earlier messages]" s);
+  Alcotest.(check bool) "prefixes User role"
+    true (Astring.String.is_infix ~affix:"[User] hello world" s);
+  Alcotest.(check bool) "prefixes Assistant role"
+    true (Astring.String.is_infix ~affix:"[Assistant] reply here" s)
+
+let test_default_summarizer_truncates_at_100 () =
+  let long_text = String.make 200 'x' in
+  let msgs = [ user_msg long_text ] in
+  let s = Budget_strategy.default_summarizer msgs in
+  Alcotest.(check bool) "long text truncated with ellipsis"
+    true (Astring.String.is_infix ~affix:"..." s);
+  (* The message line itself is "[User] " + 100 chars + "...", under ~115 chars. *)
+  let lines = String.split_on_char '\n' s in
+  let user_line =
+    List.find (fun l -> Astring.String.is_prefix ~affix:"[User]" l) lines
+  in
+  Alcotest.(check bool) "truncated line is near 100 + prefix, not 200"
+    true (String.length user_line < 130)
+
 (* --- show_phase --- *)
 
 let test_show_phase_values () =
@@ -289,6 +320,11 @@ let () =
     "inference_profiles", [
       Alcotest.test_case "worker_default" `Quick test_worker_default_profile;
       Alcotest.test_case "deterministic" `Quick test_deterministic_profile;
+    ];
+    "default_summarizer", [
+      Alcotest.test_case "empty -> No prior context" `Quick test_default_summarizer_empty;
+      Alcotest.test_case "header + role prefix shape" `Quick test_default_summarizer_shape;
+      Alcotest.test_case "truncates at 100 chars" `Quick test_default_summarizer_truncates_at_100;
     ];
     "show_phase", [
       Alcotest.test_case "all values" `Quick test_show_phase_values;

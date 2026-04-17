@@ -50,6 +50,16 @@ type options = {
         [Event_bus] publishes, enabling offline replay via
         {!Durable_event.replay_summary}.
         @since 0.133.0 *)
+  summarizer: (message list -> string) option;
+    (** Optional custom extractive summarizer used by
+        {!Budget_strategy.reduce_for_budget} when the Emergency phase
+        triggers [Summarize_old].  When [None], the built-in
+        [Budget_strategy.default_summarizer] is used (first text block
+        of each message, truncated to 100 chars).  Consumers that embed
+        domain-specific structured markers in message bodies (e.g., MASC's
+        [STATE] blocks) can supply a summarizer that strips or transforms
+        those markers before they are re-injected as compacted history.
+        @since 0.150.0 *)
 }
 
 (* Re-export lifecycle types from Agent_lifecycle.
@@ -111,6 +121,7 @@ let default_options = {
   on_run_complete = None;
   tool_result_relocation = None;
   journal = None;
+  summarizer = None;
 }
 
 type tool_call_fingerprint = Agent_turn.tool_call_fingerprint
