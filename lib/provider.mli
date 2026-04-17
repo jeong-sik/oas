@@ -170,15 +170,19 @@ val config_of_provider_config : Llm_provider.Provider_config.t -> config
 
 (** Forward adapter: build a {!Llm_provider.Provider_config.t} from an
     agent state and optional {!config}.  Sampling params, tool_choice,
-    thinking controls come from [state.config]; provider kind and
-    api_key come from [provider_opt] (or the [ANTHROPIC_API_KEY]
-    fallback when [None]).
+    thinking controls come from [state.config]; provider kind,
+    headers, request_path, and api_key come from [provider_opt]
+    (or the [ANTHROPIC_API_KEY] fallback when [None]).
 
     [OpenAICompat] provider collapses to [OpenAI_compat] kind: the
     legacy {!config} variant does not distinguish Gemini/Glm/Ollama/
     Claude_code from generic OpenAI-compatible endpoints.  Callers
     needing a specific kind should use
     {!Llm_provider.Provider_config.make} directly.
+
+    [Custom_registered] providers are rejected: the custom registry can
+    define request/parse semantics that {!Llm_provider.Complete.complete}
+    cannot preserve through this adapter.
 
     @since 0.155.0 *)
 val provider_config_of_agent :
