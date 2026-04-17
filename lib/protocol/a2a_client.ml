@@ -24,6 +24,13 @@ let http_get ~sw ~net url =
     Error (Error.Orchestration (DiscoveryFailed { url; detail = reason }))
   | Error (Llm_provider.Http_client.NetworkError { message }) ->
     Error (Error.Orchestration (DiscoveryFailed { url; detail = message }))
+  | Error (Llm_provider.Http_client.CliTransportRequired { kind }) ->
+    (* [get_sync] never constructs this variant; only [Complete.complete]
+       does, as a wiring guard.  Treat defensively as a network-style
+       discovery failure so the match stays exhaustive. *)
+    Error (Error.Orchestration (DiscoveryFailed {
+      url;
+      detail = Printf.sprintf "CLI transport required for %s" kind }))
 
 let http_post ~sw ~net ~url ~body =
   let headers = [("Content-Type", "application/json")] in
@@ -39,6 +46,9 @@ let http_post ~sw ~net ~url ~body =
     Error (Error.A2a (ProtocolError { detail = reason }))
   | Error (Llm_provider.Http_client.NetworkError { message }) ->
     Error (Error.A2a (ProtocolError { detail = message }))
+  | Error (Llm_provider.Http_client.CliTransportRequired { kind }) ->
+    Error (Error.A2a (ProtocolError {
+      detail = Printf.sprintf "CLI transport required for %s" kind }))
 
 (* ── JSON-RPC ─────────────────────────────────────────────────── *)
 

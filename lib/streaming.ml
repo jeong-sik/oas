@@ -128,6 +128,10 @@ let map_http_error = function
       Error.Api (Retry.NetworkError { message = reason })
   | Llm_provider.Http_client.NetworkError { message } ->
       Error.Api (Retry.NetworkError { message })
+  | Llm_provider.Http_client.CliTransportRequired { kind } ->
+      Error.Api (Retry.InvalidRequest {
+        message = Printf.sprintf
+          "CLI transport required for %s but none was injected" kind })
 
 (** Streaming variant of create_message.
     Supports Anthropic (native SSE) and OpenAI-compatible (SSE).
