@@ -23,11 +23,15 @@ type payload =
   | AgentStarted of { agent_name: string; task_id: string }
   | AgentCompleted of { agent_name: string; task_id: string;
                         result: (api_response, Error.sdk_error) result; elapsed: float }
+  | AgentFailed of { agent_name: string; task_id: string;
+                     error: Error.sdk_error; elapsed: float }
   | ToolCalled of { agent_name: string; tool_name: string; input: Yojson.Safe.t }
   | ToolCompleted of { agent_name: string; tool_name: string;
                        output: Types.tool_result }
   | TurnStarted of { agent_name: string; turn: int }
   | TurnCompleted of { agent_name: string; turn: int }
+  | HandoffRequested of { from_agent: string; to_agent: string; reason: string }
+  | HandoffCompleted of { from_agent: string; to_agent: string; elapsed: float }
   | ElicitationCompleted of { agent_name: string; question: string;
                               response: Hooks.elicitation_response }
   | TaskStateChanged of { task_id: string; from_state: string; to_state: string }
@@ -97,10 +101,13 @@ let filter_agent name : filter = fun event ->
   match event.payload with
   | AgentStarted r -> r.agent_name = name
   | AgentCompleted r -> r.agent_name = name
+  | AgentFailed r -> r.agent_name = name
   | ToolCalled r -> r.agent_name = name
   | ToolCompleted r -> r.agent_name = name
   | TurnStarted r -> r.agent_name = name
   | TurnCompleted r -> r.agent_name = name
+  | HandoffRequested r -> r.from_agent = name || r.to_agent = name
+  | HandoffCompleted r -> r.from_agent = name || r.to_agent = name
   | ElicitationCompleted r -> r.agent_name = name
   | ContextCompacted r -> r.agent_name = name
   | ContextOverflowImminent r -> r.agent_name = name

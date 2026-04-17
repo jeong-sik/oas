@@ -23,11 +23,28 @@ type payload =
   | AgentStarted of { agent_name: string; task_id: string }
   | AgentCompleted of { agent_name: string; task_id: string;
                         result: (Types.api_response, Error.sdk_error) result; elapsed: float }
+  | AgentFailed of { agent_name: string; task_id: string;
+                     error: Error.sdk_error; elapsed: float }
+      (** Explicit failure variant companion to [AgentCompleted].
+          Emitted when an orchestrator task ends with [Error _].
+          Subscribers that only care about failures can filter on this
+          variant directly instead of matching [AgentCompleted] with a
+          [Result.is_error] check.
+          @since 0.154.0 *)
   | ToolCalled of { agent_name: string; tool_name: string; input: Yojson.Safe.t }
   | ToolCompleted of { agent_name: string; tool_name: string;
                        output: Types.tool_result }
   | TurnStarted of { agent_name: string; turn: int }
   | TurnCompleted of { agent_name: string; turn: int }
+  | HandoffRequested of { from_agent: string; to_agent: string; reason: string }
+      (** Agent-to-agent handoff has been requested. Emitted when an
+          agent delegates control to another agent (e.g. via a handoff
+          tool). Mirrors OpenAI Agents SDK [handoff_requested].
+          @since 0.154.0 *)
+  | HandoffCompleted of { from_agent: string; to_agent: string; elapsed: float }
+      (** Handoff target finished its run. Mirrors OpenAI Agents SDK
+          [handoff_occurred].
+          @since 0.154.0 *)
   | ElicitationCompleted of { agent_name: string; question: string;
                               response: Hooks.elicitation_response }
   | TaskStateChanged of { task_id: string; from_state: string; to_state: string }
