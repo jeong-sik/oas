@@ -26,6 +26,46 @@ original tag dates. `0.100.4` was never tagged or released.
 
 Net effect: the `agent_sdk` opam package no longer publishes `oas-review` or `oas-autonomy-smoke` binaries. `oas` and `oas-runtime` are unchanged. The `lib/` API surface is unchanged.
 
+## [0.155.0] - 2026-04-17
+
+Verification tests + real-world examples for the v0.154.0 event surface.
+
+### Added
+
+- **`test/test_event_integration.ml`** — end-to-end assertions that
+  the new variants actually emit where they should:
+  - Orchestrator error path publishes `AgentFailed` alongside
+    `AgentCompleted(Error _)`.
+  - `Agent.run_with_handoffs` emits `HandoffRequested` then
+    `HandoffCompleted` in order, with the sub-prompt in `reason`.
+  - `Hooks.invoke` dispatches `OnContextCompacted` payloads correctly
+    and `Hooks.empty.on_context_compacted` defaults to `None`.
+- **`test/test_multivendor_live.ml`** — live smoke test that drives
+  the golden transcript against every reachable provider
+  (Anthropic, OpenAI, Gemini via OpenAI-compat, and any
+  OpenAI-compatible local endpoint discovered via `LLM_ENDPOINTS`:
+  llama-server, Ollama, vLLM, LM Studio, TGI, …). Each case skips
+  gracefully when its prerequisite is missing, so CI without
+  credentials stays green. Verifies Invariants I1/I2
+  (provider-agnostic native variants, envelope preservation) against
+  real providers rather than mocks only.
+- **`examples/agent_failure_observability.ml`** — subscribes to an
+  Event_bus and drives an orchestrator failure path so the
+  `AgentFailed` payload (`agent_name`, `task_id`, `error`, `elapsed`)
+  is visible at runtime. No LLM / network required.
+- **`examples/handoff_lifecycle.ml`** — two-agent handoff with an
+  inline mock OpenAI-compatible server; prints the
+  `HandoffRequested` → `HandoffCompleted` lifecycle so the `reason`
+  and `elapsed` fields are self-documenting.
+
+### Changed
+
+- **`test_orchestrator.ml::test_event_bus_receives_completed`**
+  no longer assumes `AgentCompleted` is the last event — since
+  v0.154.0 the companion `AgentFailed` follows it on error paths,
+  so the test now looks events up by payload shape and also
+  asserts the `AgentFailed` companion is emitted.
+
 ## [0.154.0] - 2026-04-17
 
 Event system cleanup + boundary enforcement.
