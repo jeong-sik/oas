@@ -50,6 +50,13 @@ type options = {
         [Event_bus] publishes, enabling offline replay via
         {!Durable_event.replay_summary}.
         @since 0.133.0 *)
+  transport: Llm_provider.Llm_transport.t option;
+    (** Optional non-HTTP transport override.  Required for CLI provider
+        kinds ([Claude_code], [Codex_cli], [Gemini_cli]) which cannot be
+        reached over HTTP.  When [Some t], {!Pipeline.stage_route}
+        dispatches via {!Llm_provider.Complete.complete} with this
+        transport; when [None], the HTTP path is used.
+        @since 0.156.0 *)
   summarizer: (message list -> string) option;
     (** Optional custom extractive summarizer used by
         {!Budget_strategy.reduce_for_budget} when the Emergency phase
@@ -122,6 +129,7 @@ let default_options = {
   on_run_complete = None;
   tool_result_relocation = None;
   journal = None;
+  transport = None;
   summarizer = None;
 }
 

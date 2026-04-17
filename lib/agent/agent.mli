@@ -46,6 +46,7 @@ type options = Agent_types.options = {
   tool_result_relocation:
     (Tool_result_store.t * Content_replacement_state.t) option;
   journal: Durable_event.journal option;
+  transport: Llm_provider.Llm_transport.t option;
   summarizer: (Types.message list -> string) option;
 }
 
