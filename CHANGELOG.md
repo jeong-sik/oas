@@ -6,9 +6,20 @@ Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
 backfilled on 2026-04-04 from existing git tags. The dates below reflect the
 original tag dates. `0.100.4` was never tagged or released.
 
-## [Unreleased]
+## [0.154.0] - 2026-04-17
 
-### Removed
+### Added
+
+- **`Metrics_event_bridge.compose_with_event_bus`.** Opt-in bridge that preserves the existing `Metrics.on_cascade_fallback` callback and additionally emits `Custom("cascade_fallback", {from_model, to_model, reason})` on `Event_bus` for consumers that want bus-level observability (PR #981).
+- **`Content_replacement_event_bridge`.** Observer-only wrappers around `Content_replacement_state.record_replacement` / `record_kept` that publish `Custom("content_replacement_frozen", ...)` after successful state mutation, with an explicit `action` discriminator and `seen_count_after` payload (PR #982).
+- **`Slot_scheduler_event_bridge`.** Stateless publisher that projects `Slot_scheduler.snapshot` onto `Custom("slot_scheduler_queue", ...)` with a derived `state = idle | queued | saturated` discriminator for downstream congestion observers (PR #983).
+- **`Hooks.PostCompact` + `hooks.post_compact`.** Observer-only post-compaction lifecycle surface fired after successful proactive and emergency compaction, preserving the existing Event_bus behavior while exposing the reduced message set to hook consumers (PR #985).
+
+### Fixed
+
+- **Direct API dispatch now patches latency telemetry.** `Api.create_message` measures wall-clock request time on the non-cascade path and overwrites the parser-layer `request_latency_ms = 0` sentinel, so responses created through `Pipeline.stage_route -> Api.create_message` report real latency instead of zeros (PR #972).
+
+### Removed (operator-facing)
 
 - **`oas-review` CLI binary (`bin/review_agent.ml`).** Operator/example tool, not part of the SDK runtime contract. The same agent is still buildable from the example tree via `dune exec examples/review_agent.exe -- <owner/repo> <pr_number>` for anyone who wants the script. Audit reference: `docs/_audit/2026-04-17-coordination-leak-candidates.md` (PR #978).
 - **`oas-autonomy-smoke` CLI binary (`bin/autonomy_smoke_cli.ml`).** Operator-facing diagnostics that wrapped `Autonomy_trace_analyzer` to compare divergence across runs. The underlying library module `Autonomy_trace_analyzer` remains exported through `Agent_sdk.Autonomy_trace_analyzer`; downstream consumers that want the same diagnostic loop can call the library directly instead of relying on the CLI. Audit reference: same file as above.
