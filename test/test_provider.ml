@@ -444,6 +444,152 @@ let test_openai_compat_no_auth () =
     Alcotest.(check string) "empty key" "" key
   | Error e -> Alcotest.fail (Error.to_string e)
 
+(** Forward adapter — Provider.config + agent_state → Provider_config.t *)
+
+let agent_state_with_params () : Types.agent_state =
+  let cfg = { Types.default_config with
+    model = "claude-test";
+    max_tokens = Some 4096;
+    temperature = Some 0.7;
+    top_p = Some 0.9;
+    top_k = Some 40;
+    tool_choice = None;
+    disable_parallel_tool_use = false;
+    response_format_json = false;
+    cache_system_prompt = true;
+    system_prompt = Some "you are a tester";
+  } in
+  { config = cfg; usage = Types.empty_usage; turn_count = 0;
+    messages = [] }
+
+let test_provider_config_of_agent_anthropic () =
+  let env_var = "AGENT_SDK_TEST_ADAPTER_KEY_anth" in
+  Unix.putenv env_var "sk-ant-adapter-test";
+  let cfg : Provider.config = {
+    provider = Anthropic;
+    model_id = "claude-sonnet-4-20250514";
+    api_key_env = env_var;
+  } in
+  let state = agent_state_with_params () in
+  match Provider.provider_config_of_agent ~state
+          ~base_url:"https://api.anthropic.com" (Some cfg) with
+  | Ok pc ->
+    Alcotest.(check string) "kind" "anthropic"
+      (Llm_provider.Provider_config.string_of_provider_kind pc.kind);
+    Alcotest.(check string) "model_id" "claude-sonnet-4-20250514" pc.model_id;
+    Alcotest.(check string) "api_key" "sk-ant-adapter-test" pc.api_key;
+    Alcotest.(check string) "request_path" "/v1/messages" pc.request_path;
+    Alcotest.(check bool) "x-api-key header present" true
+      (List.mem ("x-api-key", "sk-ant-adapter-test") pc.headers);
+    Alcotest.(check bool) "anthropic-version header present" true
+      (List.mem ("anthropic-version", "2023-06-01") pc.headers);
+    Alcotest.(check (option int)) "max_tokens" (Some 4096) pc.max_tokens;
+    Alcotest.(check (option (float 0.001))) "temperature" (Some 0.7) pc.temperature;
+    Alcotest.(check (option (float 0.001))) "top_p" (Some 0.9) pc.top_p;
+    Alcotest.(check (option int)) "top_k" (Some 40) pc.top_k;
+    Alcotest.(check bool) "cache_system_prompt" true pc.cache_system_prompt;
+    Alcotest.(check (option string)) "system_prompt"
+      (Some "you are a tester") pc.system_prompt
+  | Error e -> Alcotest.fail (Error.to_string e)
+
+let test_provider_config_of_agent_openai_compat_collapses () =
+  (* OpenAICompat collapses to OpenAI_compat (lossy — documented limitation) *)
+  let env_var = "AGENT_SDK_TEST_ADAPTER_KEY_oai" in
+  Unix.putenv env_var "sk-oai-adapter-test";
+  let cfg : Provider.config = {
+    provider = OpenAICompat {
+      base_url = "https://generativelanguage.googleapis.com/v1beta/openai";
+      auth_header = Some "Authorization";
+      path = "/chat/completions";
+      static_token = None;
+    };
+    model_id = "gemini-2.5-flash";
+    api_key_env = env_var;
+  } in
+  let state = agent_state_with_params () in
+  match Provider.provider_config_of_agent ~state
+          ~base_url:"unused-fallback" (Some cfg) with
+  | Ok pc ->
+    Alcotest.(check string) "kind collapses to openai_compat" "openai_compat"
+      (Llm_provider.Provider_config.string_of_provider_kind pc.kind);
+    Alcotest.(check string) "base_url from resolve"
+      "https://generativelanguage.googleapis.com/v1beta/openai" pc.base_url;
+    Alcotest.(check string) "request_path preserved"
+      "/chat/completions" pc.request_path;
+    Alcotest.(check bool) "authorization header preserved" true
+      (List.mem ("Authorization", "Bearer sk-oai-adapter-test") pc.headers);
+    Alcotest.(check string) "model_id" "gemini-2.5-flash" pc.model_id
+  | Error e -> Alcotest.fail (Error.to_string e)
+
+let test_provider_config_of_agent_missing_env () =
+  let cfg : Provider.config = {
+    provider = Anthropic;
+    model_id = "claude-test";
+    api_key_env = "AGENT_SDK_TEST_ADAPTER_NONEXISTENT_zzz";
+  } in
+  let state = agent_state_with_params () in
+  match Provider.provider_config_of_agent ~state
+          ~base_url:"https://api.anthropic.com" (Some cfg) with
+  | Error (Error.Config (MissingEnvVar { var_name })) ->
+    Alcotest.(check string) "propagates env var name"
+      "AGENT_SDK_TEST_ADAPTER_NONEXISTENT_zzz" var_name
+  | Error e ->
+    Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))
+  | Ok _ -> Alcotest.fail "should fail when env var missing"
+
+let test_provider_config_of_agent_none_fallback () =
+  (* None provider with ANTHROPIC_API_KEY present = Anthropic default *)
+  Unix.putenv "ANTHROPIC_API_KEY" "sk-ant-default-fallback";
+  let state = agent_state_with_params () in
+  match Provider.provider_config_of_agent ~state
+          ~base_url:"https://api.anthropic.com" None with
+  | Ok pc ->
+    Alcotest.(check string) "defaults to anthropic" "anthropic"
+      (Llm_provider.Provider_config.string_of_provider_kind pc.kind);
+    Alcotest.(check string) "uses fallback key" "sk-ant-default-fallback"
+      pc.api_key;
+    Alcotest.(check string) "preserves caller base_url"
+      "https://api.anthropic.com" pc.base_url;
+    Alcotest.(check string) "request_path" "/v1/messages" pc.request_path;
+    Alcotest.(check bool) "x-api-key header present" true
+      (List.mem ("x-api-key", "sk-ant-default-fallback") pc.headers)
+  | Error e -> Alcotest.fail (Error.to_string e)
+
+let test_provider_config_of_agent_local_strips_dummy_key () =
+  let cfg : Provider.config = {
+    provider = Local { base_url = "http://127.0.0.1:11434" };
+    model_id = "qwen3.5";
+    api_key_env = "IGNORED";
+  } in
+  let state = agent_state_with_params () in
+  match Provider.provider_config_of_agent ~state
+          ~base_url:"unused-fallback" (Some cfg) with
+  | Ok pc ->
+    Alcotest.(check string) "kind" "openai_compat"
+      (Llm_provider.Provider_config.string_of_provider_kind pc.kind);
+    Alcotest.(check string) "request_path" "/v1/chat/completions" pc.request_path;
+    Alcotest.(check string) "local strips dummy api_key" "" pc.api_key;
+    Alcotest.(check (list (pair string string))) "headers"
+      [("Content-Type", "application/json")] pc.headers
+  | Error e -> Alcotest.fail (Error.to_string e)
+
+let test_provider_config_of_agent_rejects_custom_registered () =
+  let cfg : Provider.config = {
+    provider = Custom_registered { name = "my-provider" };
+    model_id = "custom-model";
+    api_key_env = "IGNORED";
+  } in
+  let state = agent_state_with_params () in
+  match Provider.provider_config_of_agent ~state
+          ~base_url:"unused-fallback" (Some cfg) with
+  | Error (Error.Config (InvalidConfig { field; detail })) ->
+    Alcotest.(check string) "field" "provider" field;
+    Alcotest.(check bool) "detail mentions unsupported custom provider" true
+      (String.length detail > 0 && Util.contains_substring_ci ~haystack:detail ~needle:"Custom_registered")
+  | Error e ->
+    Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))
+  | Ok _ -> Alcotest.fail "should reject Custom_registered"
+
 let () =
   Alcotest.run "Provider" [
     "resolve", [
@@ -496,5 +642,19 @@ let () =
     "openai_compat", [
       Alcotest.test_case "static token" `Quick test_openai_compat_static_token;
       Alcotest.test_case "no auth" `Quick test_openai_compat_no_auth;
+    ];
+    "provider_config_of_agent", [
+      Alcotest.test_case "anthropic maps fields" `Quick
+        test_provider_config_of_agent_anthropic;
+      Alcotest.test_case "openai_compat kind collapses" `Quick
+        test_provider_config_of_agent_openai_compat_collapses;
+      Alcotest.test_case "missing env propagates" `Quick
+        test_provider_config_of_agent_missing_env;
+      Alcotest.test_case "none falls back to ANTHROPIC_API_KEY" `Quick
+        test_provider_config_of_agent_none_fallback;
+      Alcotest.test_case "local strips dummy key" `Quick
+        test_provider_config_of_agent_local_strips_dummy_key;
+      Alcotest.test_case "custom registered rejected" `Quick
+        test_provider_config_of_agent_rejects_custom_registered;
     ];
   ]

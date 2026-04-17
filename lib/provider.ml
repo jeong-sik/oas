@@ -480,3 +480,102 @@ let config_of_provider_config (pc : Llm_provider.Provider_config.t) : config =
   in
   let api_key_env = default_api_key_env_of_kind pc.kind in
   { provider; model_id = pc.model_id; api_key_env }
+
+(** Forward adapter: build a {!Llm_provider.Provider_config.t} from an
+    agent state and optional {!config}.  Used when a caller needs to
+    bridge the legacy {!create_message} surface to the consolidated
+    {!Llm_provider.Complete.complete} surface.
+
+    Sampling params, tool_choice, thinking controls are pulled from
+    [state.config].  Provider kind, model_id, headers, request_path,
+    and api_key are resolved from [provider_opt] + env vars.  When
+    [provider_opt] is [None], falls back to Anthropic using
+    [ANTHROPIC_API_KEY] (matching {!create_message}'s existing default).
+
+    [OpenAICompat] provider collapses to [OpenAI_compat] kind — the
+    legacy {!config} variant does not distinguish Gemini/Glm/Ollama/
+    Claude_code from generic OpenAI-compatible endpoints.  Callers that
+    require a specific kind should construct {!Llm_provider.Provider_config.t}
+    directly via {!Llm_provider.Provider_config.make}.
+
+    [Custom_registered] is intentionally rejected: the custom provider
+    registry can define request/parse semantics that the consolidated
+    {!Llm_provider.Complete.complete} surface cannot represent safely.
+
+    @since 0.155.0 *)
+let provider_config_of_agent
+    ~(state : Types.agent_state)
+    ~(base_url : string)
+    (provider_opt : config option)
+  : (Llm_provider.Provider_config.t, Error.sdk_error) result =
+  let cfg = state.config in
+  let build ~kind ~resolved_base_url ~api_key ~headers ~request_path ~model_id =
+    Ok
+      (Llm_provider.Provider_config.make
+         ~kind
+         ~model_id
+         ~base_url:resolved_base_url
+         ~api_key
+         ~headers
+         ~request_path
+         ?max_tokens:cfg.max_tokens
+         ?temperature:cfg.temperature
+         ?top_p:cfg.top_p
+         ?top_k:cfg.top_k
+         ?min_p:cfg.min_p
+         ?enable_thinking:cfg.enable_thinking
+         ?thinking_budget:cfg.thinking_budget
+         ?tool_choice:cfg.tool_choice
+         ?system_prompt:cfg.system_prompt
+         ~disable_parallel_tool_use:cfg.disable_parallel_tool_use
+         ~response_format_json:cfg.response_format_json
+         ~cache_system_prompt:cfg.cache_system_prompt
+         ())
+  in
+  match provider_opt with
+  | Some p ->
+      (match p.provider with
+       | Custom_registered { name } ->
+           Error
+             (Error.Config
+                (InvalidConfig
+                   {
+                     field = "provider";
+                     detail =
+                       Printf.sprintf
+                         "provider_config_of_agent does not support Custom_registered provider '%s'; construct Provider_config.t directly"
+                         name;
+                   }))
+       | Anthropic | Local _ | OpenAICompat _ ->
+           (match resolve p with
+            | Error e -> Error e
+            | Ok (url, api_key, headers) ->
+                let kind : Llm_provider.Provider_config.provider_kind =
+                  match p.provider with
+                  | Anthropic -> Anthropic
+                  | Local _ | OpenAICompat _ -> OpenAI_compat
+                  | Custom_registered _ -> assert false
+                in
+                let sanitized_api_key =
+                  match p.provider with
+                  | Local _ -> ""
+                  | Anthropic | OpenAICompat _ -> api_key
+                  | Custom_registered _ -> assert false
+                in
+                build ~kind ~resolved_base_url:url ~api_key:sanitized_api_key
+                  ~headers ~request_path:(request_path p.provider)
+                  ~model_id:p.model_id))
+  | None ->
+      let fallback_provider : config =
+        {
+          provider = Anthropic;
+          model_id = Types.model_to_string cfg.model;
+          api_key_env = "ANTHROPIC_API_KEY";
+        }
+      in
+      (match resolve fallback_provider with
+       | Error e -> Error e
+       | Ok (_resolved_url, api_key, headers) ->
+           build ~kind:Anthropic ~resolved_base_url:base_url
+             ~api_key ~headers ~request_path:(request_path Anthropic)
+             ~model_id:(Types.model_to_string cfg.model))
