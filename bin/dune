@@ -16,14 +16,3 @@
  (public_name oas)
  (libraries agent_sdk oas_cli_support eio eio_main yojson unix cmdliner))
 
-(executable
- (name review_agent)
- (modules review_agent)
- (public_name oas-review)
- (libraries agent_sdk oas_cli_support eio eio_main yojson unix str cmdliner))
-
-(executable
- (name autonomy_smoke_cli)
- (modules autonomy_smoke_cli)
- (public_name oas-autonomy-smoke)
- (libraries agent_sdk agent_sdk_swarm oas_cli_support eio eio_main yojson unix cmdliner))

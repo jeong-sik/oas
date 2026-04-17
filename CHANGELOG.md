@@ -6,6 +6,15 @@ Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
 backfilled on 2026-04-04 from existing git tags. The dates below reflect the
 original tag dates. `0.100.4` was never tagged or released.
 
+## [Unreleased]
+
+### Removed
+
+- **`oas-review` CLI binary (`bin/review_agent.ml`).** Operator/example tool, not part of the SDK runtime contract. The same agent is still buildable from the example tree via `dune exec examples/review_agent.exe -- <owner/repo> <pr_number>` for anyone who wants the script. Audit reference: `docs/_audit/2026-04-17-coordination-leak-candidates.md` (PR #978).
+- **`oas-autonomy-smoke` CLI binary (`bin/autonomy_smoke_cli.ml`).** Operator-facing diagnostics that wrapped `Autonomy_trace_analyzer` to compare divergence across runs. The underlying library module `Autonomy_trace_analyzer` remains exported through `Agent_sdk.Autonomy_trace_analyzer`; downstream consumers that want the same diagnostic loop can call the library directly instead of relying on the CLI. Audit reference: same file as above.
+
+Net effect: the `agent_sdk` opam package no longer publishes `oas-review` or `oas-autonomy-smoke` binaries. `oas` and `oas-runtime` are unchanged. The `lib/` API surface is unchanged.
+
 ## [0.153.1] - 2026-04-17
 
 ### Changed
@@ -17,7 +26,6 @@ original tag dates. `0.100.4` was never tagged or released.
 - **Audit tracker added.** `docs/_audit/2026-04-17-coordination-leak-candidates.md` records the read-only sweep of `lib/`, `lib_swarm/`, `bin/`, and RFCs for coordination-layer leaks. Four low-risk candidates documented; structure otherwise clean (PR #978).
 
 No code or API changes. Bump captures the documentation/hygiene cycle as a tagged release boundary.
-
 ## [0.153.0] - 2026-04-17
 
 ### Changed
