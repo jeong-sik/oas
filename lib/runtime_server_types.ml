@@ -38,9 +38,28 @@ let next_control_id state =
   let id = Atomic.fetch_and_add state.next_control_id 1 in
   Printf.sprintf "ctrl-%06d" id
 
+(** Map a Runtime.event_kind constructor to its Custom event name.
+    Each variant gets a distinct [runtime.<snake_case>] name so
+    subscribers can filter by topic without JSON-parsing the payload. *)
+let custom_name_of_kind = function
+  | Session_started _           -> "runtime.session_started"
+  | Session_settings_updated _  -> "runtime.session_settings_updated"
+  | Turn_recorded _             -> "runtime.turn_recorded"
+  | Agent_spawn_requested _     -> "runtime.agent_spawn_requested"
+  | Agent_became_live _         -> "runtime.agent_became_live"
+  | Agent_output_delta _        -> "runtime.agent_output_delta"
+  | Agent_completed _           -> "runtime.agent_completed"
+  | Agent_failed _              -> "runtime.agent_failed"
+  | Artifact_attached _         -> "runtime.artifact_attached"
+  | Checkpoint_saved _          -> "runtime.checkpoint_saved"
+  | Finalize_requested _        -> "runtime.finalize_requested"
+  | Session_completed _         -> "runtime.session_completed"
+  | Session_failed _            -> "runtime.session_failed"
+
 let emit_event state session_id (event : event) =
+  let name = custom_name_of_kind event.kind in
   Event_bus.publish state.event_bus
     (Event_bus.mk_event ~correlation_id:session_id
-       (Custom ("runtime.event", event |> event_to_yojson)));
+       (Custom (name, event |> event_to_yojson)));
   write_protocol_message state
     (Event_message { session_id = Some session_id; event })
