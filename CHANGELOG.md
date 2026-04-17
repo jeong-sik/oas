@@ -26,6 +26,88 @@ original tag dates. `0.100.4` was never tagged or released.
 
 Net effect: the `agent_sdk` opam package no longer publishes `oas-review` or `oas-autonomy-smoke` binaries. `oas` and `oas-runtime` are unchanged. The `lib/` API surface is unchanged.
 
+## [0.154.0] - 2026-04-17
+
+Event system cleanup + boundary enforcement.
+
+### Added
+
+- **`Event_bus.AgentFailed`** payload variant. Emitted alongside
+  `AgentCompleted` whenever a task ends with `Error`. Subscribers that
+  want to match on failure directly no longer need to destructure the
+  `result` Result.t. Provider-agnostic.
+- **`Event_bus.HandoffRequested`** and **`HandoffCompleted`** payload
+  variants. Emitted at the sub-agent run bracket inside
+  `Agent.run_with_handoffs`. Mirrors OpenAI Agents SDK
+  `handoff_requested` / `handoff_occurred`. Provider-agnostic.
+- **`Hooks.OnContextCompacted`** hook event + `on_context_compacted`
+  field on the `hooks` record. Fires at the same call sites as
+  `Event_bus.ContextCompacted`. Use this hook for audit / metrics;
+  Event_bus remains for async observation.
+- **`Journal_bridge.make`** now accepts `?correlation_id` and `?run_id`
+  so journal events bridged onto `Event_bus` share the same envelope as
+  the surrounding agent run.
+- **`docs/EVENT-CATALOG.md`** single source of truth for every event
+  surface (Event_bus, Hooks, Durable journal, Runtime protocol, LLM
+  wire stream, A2A), reserved Custom namespaces, multi-vendor matrix,
+  and the Hook vs Event decision matrix.
+- **`test/test_multivendor_events.ml`** asserts Event_bus taxonomy
+  invariants (envelope preservation, event_type_name stability, golden
+  lifecycle transcript) that every provider must honor.
+
+### Changed (Breaking)
+
+- **Runtime events decomposed per variant.** Previously all 13
+  `Runtime.event_kind` variants flattened into one
+  `Custom("runtime.event", json)`; now each gets its own name:
+  `runtime.session_started`, `runtime.turn_recorded`,
+  `runtime.agent_became_live`, …, `runtime.session_failed`. Subscribers
+  can filter by topic without JSON parsing. The stdout
+  `Event_message` protocol write is unchanged (primary transport).
+- **Durable Custom names normalized colon → dot.**
+  `durable:turn_started` → `durable.turn_started` (8 names). Matches
+  runtime and provider namespace convention.
+- **`Event_forward.event_type_name` drops redundant `"custom."`
+  prefix.** `Custom("runtime.session_started", _)` now maps to
+  `"runtime.session_started"` (was `"custom.runtime.session_started"`).
+  The Custom name itself is already a namespaced identifier.
+- **`Event_bus.TaskStateChanged` removed.** Dead variant from
+  v0.31–0.35 A2A roadmap — declared but never emitted, no consumers.
+  The SSE-only `A2a_server.task_event` is a separate, unrelated type
+  and is unaffected.
+- **`Journal_bridge.make` signature** changed from
+  `bus:Event_bus.t -> Durable_event.event -> unit` to
+  `bus:Event_bus.t -> ?correlation_id:string -> ?run_id:string ->
+   unit -> (Durable_event.event -> unit)`. Call sites: add `()`.
+- **`Hooks.hooks` record** gains `on_context_compacted` field; `empty`
+  and `compose` updated. Pattern matches on `Hooks.hook_event` must add
+  an `OnContextCompacted` arm.
+- **`Event_bus.payload` pattern matches** must add arms for the four
+  new variants (`AgentFailed`, `HandoffRequested`, `HandoffCompleted`)
+  and drop the `TaskStateChanged` arm.
+
+### Refactored
+
+- `eval_collector.ml` replaces `_ -> ()` wildcard with explicit arms
+  per payload variant so future variants don't silently drop.
+
+### Migration for downstream consumers
+
+The only known consumer (masc-mcp) subscribes to native Event_bus
+variants via explicit arms; expect compile errors against v0.154.0 for:
+- new variants (add arms for `AgentFailed`, `HandoffRequested`,
+  `HandoffCompleted`)
+- removed variant (delete `TaskStateChanged` arm)
+- `Hooks.hooks` record field addition
+- `Journal_bridge.make` signature
+
+External consumers of `Event_forward` JSONL / HTTP output must update
+`event_type` string matching rules to drop the `"custom."` prefix and
+adopt the dot convention for runtime/durable events.
+
+See `docs/EVENT-CATALOG.md` for the full taxonomy and boundary
+guidance.
+
 ## [0.153.1] - 2026-04-17
 
 ### Changed
