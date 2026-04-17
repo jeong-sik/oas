@@ -278,3 +278,7 @@
  (name test_budget_strategy)
  (libraries agent_sdk alcotest astring))
 
+(test
+ (name test_journal_bridge)
+ (libraries agent_sdk alcotest yojson eio eio_main))
+

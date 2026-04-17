@@ -9,7 +9,7 @@
     Typical use:
     {[
       let journal =
-        Durable_event.create ~on_append:(Journal_bridge.make ~bus) ()
+        Durable_event.create ~on_append:(Journal_bridge.make ~bus ()) ()
       in
       ...
     ]}
@@ -78,8 +78,9 @@ let projection_of_event (evt : Durable_event.event) :
           ("detail", `String detail);
           ("timestamp", `Float timestamp) ] )
 
-let make ~bus : Durable_event.event -> unit =
+let make ~bus ?correlation_id ?run_id () : Durable_event.event -> unit =
   fun evt ->
     let (name, payload) = projection_of_event evt in
     Event_bus.publish bus
-      (Event_bus.mk_event (Custom (name, payload)))
+      (Event_bus.mk_event ?correlation_id ?run_id
+         (Custom (name, payload)))

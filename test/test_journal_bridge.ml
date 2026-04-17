@@ -83,7 +83,7 @@ let test_make_publishes_to_bus () =
   let bus = Event_bus.create () in
   let sub = Event_bus.subscribe bus in
   let journal =
-    Durable_event.create ~on_append:(Journal_bridge.make ~bus) ()
+    Durable_event.create ~on_append:(Journal_bridge.make ~bus ()) ()
   in
   Durable_event.append journal
     (Turn_started { turn = 1; timestamp = ts });
@@ -101,6 +101,28 @@ let test_make_publishes_to_bus () =
     ["durable:turn_started"; "durable:error_occurred"]
     names
 
+let test_make_preserves_envelope () =
+  Eio_main.run @@ fun _env ->
+  let bus = Event_bus.create () in
+  let sub = Event_bus.subscribe bus in
+  let corr = "corr-42" in
+  let run_id = "run-42" in
+  let journal =
+    Durable_event.create
+      ~on_append:(Journal_bridge.make ~bus ~correlation_id:corr ~run_id ())
+      ()
+  in
+  Durable_event.append journal (Turn_started { turn = 1; timestamp = ts });
+  Durable_event.append journal
+    (Error_occurred { turn = 1; error_domain = "Api";
+                      detail = "boom"; timestamp = ts });
+  let events = Event_bus.drain sub in
+  check int "count" 2 (List.length events);
+  List.iter (fun (e : Event_bus.event) ->
+    check string "correlation_id preserved" corr e.meta.correlation_id;
+    check string "run_id preserved" run_id e.meta.run_id)
+    events
+
 let () =
   run "Journal_bridge" [
     "projection", [
@@ -112,5 +134,6 @@ let () =
     ];
     "bridge", [
       test_case "make publishes to bus" `Quick test_make_publishes_to_bus;
+      test_case "make preserves envelope" `Quick test_make_preserves_envelope;
     ];
   ]
