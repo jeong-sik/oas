@@ -124,6 +124,16 @@ val with_provider : Provider.config -> t -> t
 val with_provider_config : Llm_provider.Provider_config.t -> t -> t
 val with_base_url : string -> t -> t
 
+(** Inject an {!Llm_provider.Llm_transport.t} for non-HTTP providers.
+    Required for CLI provider kinds ([Claude_code], [Codex_cli],
+    [Gemini_cli]) which are reached via subprocess rather than HTTP.
+    For HTTP kinds (Anthropic/Gemini/Glm/Ollama/OpenAI_compat) the
+    transport is unused and can be left unset.
+
+    The transport must outlive the agent's [run] call.
+    @since 0.156.0 *)
+val with_transport : Llm_provider.Llm_transport.t -> t -> t
+
 (** {2 Contract} *)
 
 val with_contract : Contract.t -> t -> t

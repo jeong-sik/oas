@@ -241,6 +241,27 @@ let test_with_summarizer () =
   in
   Alcotest.(check string) "summarizer identity" marker applied
 
+(* --- 13c. with_transport --- *)
+
+let test_with_transport () =
+  with_net @@ fun net ->
+  let mock_transport : Llm_provider.Llm_transport.t = {
+    complete_sync = (fun _req ->
+      { response = Error (Llm_provider.Http_client.NetworkError
+                            { message = "mock" });
+        latency_ms = 0 });
+    complete_stream = (fun ~on_event:_ _req ->
+      Error (Llm_provider.Http_client.NetworkError { message = "mock" }));
+  } in
+  let agent =
+    Builder.create ~net ~model:"claude-sonnet-4-6"
+    |> Builder.with_transport mock_transport
+    |> Builder.build_safe |> Result.get_ok
+  in
+  let opts = Agent.options agent in
+  Alcotest.(check bool) "transport set" true
+    (Option.is_some opts.transport)
+
 (* --- 13. with_context --- *)
 
 let test_with_context () =
@@ -752,6 +773,7 @@ let () =
       Alcotest.test_case "tool retry policy" `Quick test_with_tool_retry_policy;
       Alcotest.test_case "context_reducer" `Quick test_with_context_reducer;
       Alcotest.test_case "summarizer" `Quick test_with_summarizer;
+      Alcotest.test_case "transport" `Quick test_with_transport;
       Alcotest.test_case "context" `Quick test_with_context;
       Alcotest.test_case "provider" `Quick test_with_provider;
       Alcotest.test_case "base_url" `Quick test_with_base_url;
