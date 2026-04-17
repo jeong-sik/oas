@@ -185,6 +185,53 @@ let stage_parse ?raw_trace_run agent =
 
 (* ── Stage 3: Route ──────────────────────────────────────── *)
 
+(** Convert [Llm_provider.Http_client.http_error] into the [sdk_error]
+    shape that legacy [Api.create_message] surfaced.  Keeps downstream
+    Pipeline/Retry/ContextOverflow handling source-compatible while the
+    Sync dispatch migrates to {!Llm_provider.Complete.complete}.
+
+    HTTP status codes are re-classified via {!Retry.classify_error} so
+    ContextOverflow/RateLimited/etc. still map to the same variants. *)
+let sdk_error_of_http_error : Llm_provider.Http_client.http_error -> Error.sdk_error =
+  function
+  | Llm_provider.Http_client.HttpError { code; body } ->
+      Error.Api (Retry.classify_error ~status:code ~body)
+  | Llm_provider.Http_client.NetworkError { message } ->
+      Error.Api (Retry.NetworkError { message })
+  | Llm_provider.Http_client.AcceptRejected { reason } ->
+      Error.Api (Retry.InvalidRequest { message = reason })
+
+(** Sync dispatch via {!Llm_provider.Complete.complete}.  Routes all
+    provider kinds through the consolidated path so [on_request_end]
+    metrics fire and [Llm_transport.t] (set via [agent.options.transport])
+    handles CLI providers.  Legacy {!Api.create_message} remains for
+    Stream fallback pending PR-O2b. *)
+let dispatch_sync ~sw ?clock agent prep =
+  let tools = Option.value prep.Agent_turn.tools_json ~default:[] in
+  let open Result in
+  let* pc =
+    Provider.provider_config_of_agent
+      ~state:agent.state
+      ~base_url:agent.options.base_url
+      agent.options.provider
+  in
+  let call () =
+    match clock with
+    | Some clock ->
+        Llm_provider.Complete.complete_with_retry
+          ~sw ~net:agent.net ?transport:agent.options.transport ~clock
+          ~config:pc ~messages:prep.effective_messages ~tools
+          ?priority:agent.options.priority ()
+    | None ->
+        Llm_provider.Complete.complete
+          ~sw ~net:agent.net ?transport:agent.options.transport
+          ~config:pc ~messages:prep.effective_messages ~tools
+          ?priority:agent.options.priority ()
+  in
+  match call () with
+  | Ok resp -> Ok resp
+  | Error err -> Error (sdk_error_of_http_error err)
+
 (** Dispatch the API call via the chosen strategy (sync or stream). *)
 let stage_route ~sw ?clock ~api_strategy agent prep =
   match api_strategy with
@@ -193,12 +240,7 @@ let stage_route ~sw ?clock ~api_strategy agent prep =
       { kind = Api_call; name = "create_message";
         agent_name = agent.state.config.name;
         turn = agent.state.turn_count; extra = [] }
-      (fun _tracer ->
-        Api.create_message ~sw ~net:agent.net
-          ~base_url:agent.options.base_url
-          ?provider:agent.options.provider ?clock ~config:agent.state
-          ~messages:prep.Agent_turn.effective_messages ?tools:prep.tools_json
-          ?slot_id:agent.options.slot_id ())
+      (fun _tracer -> dispatch_sync ~sw ?clock agent prep)
   | Stream { on_event } ->
     Tracing.with_span agent.options.tracer
       { kind = Api_call; name = "create_message_stream";
