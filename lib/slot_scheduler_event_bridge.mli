@@ -2,8 +2,8 @@
 
     Projects a {!Llm_provider.Slot_scheduler} snapshot onto the supplied
     {!Event_bus} as a native [SlotSchedulerObserved] event. Unlike
-    {!Metrics_event_bridge} and {!Content_replacement_event_bridge}, this
-    module does NOT wrap a mutator — the scheduler is read-only from our
+    {!Content_replacement_event_bridge}, this module does NOT wrap a mutator
+    — the scheduler is read-only from our
     perspective. Callers decide when to publish (typically on grant,
     release, or a periodic tick).
 
@@ -50,8 +50,7 @@ val derive_state :
     {!publish_snapshot} so tests can drive deterministic snapshots
     without creating a live scheduler.
 
-    [correlation_id] / [run_id] default to empty strings, matching the
-    convention established by {!Metrics_event_bridge}. *)
+    [correlation_id] / [run_id] default to empty strings. *)
 val publish_snap :
   ?correlation_id:string ->
   ?run_id:string ->

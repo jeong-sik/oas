@@ -22,9 +22,6 @@ let test_event_type_name () =
      "turn.started");
     (ev (Event_bus.ToolCalled { agent_name = "a"; tool_name = "t"; input = `Null }),
      "tool.called");
-    (ev (Event_bus.ProviderFallback {
-           from_model = "claude"; to_model = "glm"; reason = "HTTP 529" }),
-     "provider.fallback");
     (ev (Event_bus.ContentReplacementKept {
            tool_use_id = "toolu_1"; seen_count_after = 1 }),
      "content_replacement.kept");
@@ -234,10 +231,6 @@ let test_tool_events_payload () =
   Alcotest.(check string) "completed type" "tool.completed" p2.event_type
 
 let test_native_telemetry_payloads () =
-  let cascade =
-    ev (Event_bus.ProviderFallback {
-      from_model = "claude"; to_model = "glm"; reason = "HTTP 529" })
-  in
   let replacement =
     ev (Event_bus.ContentReplacementReplaced {
       tool_use_id = "toolu_1"; preview = "short"; original_chars = 99;
@@ -248,14 +241,9 @@ let test_native_telemetry_payloads () =
       max_slots = 4; active = 4; available = 0; queue_length = 3;
       state = Event_bus.Saturated })
   in
-  let cascade_payload = Event_forward.event_to_payload cascade in
   let replacement_payload = Event_forward.event_to_payload replacement in
   let queue_payload = Event_forward.event_to_payload queue in
   let open Yojson.Safe.Util in
-  Alcotest.(check string) "fallback type" "provider.fallback"
-    cascade_payload.event_type;
-  Alcotest.(check string) "fallback reason" "HTTP 529"
-    (cascade_payload.data |> member "reason" |> to_string);
   Alcotest.(check string) "replacement type" "content_replacement.replaced"
     replacement_payload.event_type;
   Alcotest.(check string) "replacement decision" "replaced"

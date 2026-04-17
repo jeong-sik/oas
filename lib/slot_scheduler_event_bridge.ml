@@ -1,8 +1,7 @@
 (** Slot_scheduler ↔ Event_bus publisher (LT-14c / observability).
 
-    Third member of the OAS silent-FSM-to-event-bus series after
-    {!Metrics_event_bridge} (provider fallback) and
-    {!Content_replacement_event_bridge} (content_replacement_frozen).
+    Projects slot-scheduler snapshots onto the event bus without changing the
+    scheduler API itself.
 
     Shape difference: slot_scheduler already exposes a read-only
     [snapshot] API so this module is a pure publisher rather than a

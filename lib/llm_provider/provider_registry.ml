@@ -94,7 +94,7 @@ let llama_rr_counter = Atomic.make 0
 
 (** Pick the next llama endpoint via round-robin.
     Reads the current endpoint snapshot atomically.
-    Called by downstream cascade consumers when resolving "llama:*" provider. *)
+    Called by downstream callers when resolving "llama:*" provider. *)
 let next_llama_endpoint () =
   let endpoints = Atomic.get llama_endpoints_ref in
   let n = Array.length endpoints in
@@ -282,7 +282,7 @@ let default () =
                capabilities = Capabilities.ollama_capabilities;
                is_available = (fun () -> true) };
   (* CLI subprocess providers. Exposed under explicit provider labels so
-     cascade/model specs can opt into the non-interactive transports
+     caller-managed provider/model specs can opt into the non-interactive transports
      without reusing the direct API names. *)
   let claude_code_defaults = {
     kind = Claude_code;

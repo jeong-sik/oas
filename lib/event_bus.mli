@@ -64,11 +64,6 @@ type payload =
       (** Compaction has begun (before [ContextCompacted] which signals completion).
           [trigger] is one of ["proactive"], ["emergency"], ["operator"].
           @since 0.136.0 *)
-  | ProviderFallback of { from_model: string; to_model: string; reason: string }
-      (** Provider/model fallback occurred inside OAS.
-          Promoted from [Custom("provider.fallback", ...)] to a native variant
-          so downstream consumers do not need to parse ad-hoc JSON.
-          @since 0.154.1 *)
   | ContentReplacementReplaced of {
       tool_use_id: string;
       preview: string;

@@ -56,7 +56,6 @@ let event_type_name (event : Event_bus.event) : string =
   | ContextCompacted _ -> "context.compacted"
   | ContextOverflowImminent _ -> "context.overflow_imminent"
   | ContextCompactStarted _ -> "context.compact_started"
-  | ProviderFallback _ -> "provider.fallback"
   | ContentReplacementReplaced _ -> "content_replacement.replaced"
   | ContentReplacementKept _ -> "content_replacement.kept"
   | SlotSchedulerObserved _ -> "slot_scheduler.observed"
@@ -76,7 +75,6 @@ let agent_name_of_payload : Event_bus.payload -> string option = function
   | ContextCompacted r -> Some r.agent_name
   | ContextOverflowImminent r -> Some r.agent_name
   | ContextCompactStarted r -> Some r.agent_name
-  | ProviderFallback _
   | ContentReplacementReplaced _
   | ContentReplacementKept _
   | SlotSchedulerObserved _ -> None
@@ -153,12 +151,6 @@ let event_to_payload (event : Event_bus.event) : event_payload =
       `Assoc [
         ("agent_name", `String r.agent_name);
         ("trigger", `String r.trigger);
-      ]
-    | ProviderFallback r ->
-      `Assoc [
-        ("from_model", `String r.from_model);
-        ("to_model", `String r.to_model);
-        ("reason", `String r.reason);
       ]
     | ContentReplacementReplaced r ->
       `Assoc [

@@ -1,5 +1,5 @@
 (** Extended coverage tests for Complete module — public API only.
-    Targets: is_retryable, default_retry_config, cascade type. *)
+    Targets: is_retryable and default_retry_config. *)
 
 open Alcotest
 open Llm_provider

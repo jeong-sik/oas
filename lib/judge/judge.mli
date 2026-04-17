@@ -65,7 +65,7 @@ val parse_judgment : string -> (judgment, string) result
     If JSON parsing fails, creates a low-confidence judgment from raw text.
 
     @param provider The LLM provider to evaluate with. Callers that need
-                    cascade-style failover should pick one provider per call. *)
+                    multi-provider routing should handle that outside OAS. *)
 val judge :
   sw:Eio.Switch.t ->
   net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->

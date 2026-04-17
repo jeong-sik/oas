@@ -237,10 +237,6 @@
  (libraries agent_sdk alcotest yojson eio eio_main))
 
 (test
- (name test_metrics_event_bridge)
- (libraries agent_sdk alcotest yojson eio eio_main))
-
-(test
  (name test_content_replacement_event_bridge)
  (libraries agent_sdk alcotest yojson eio eio_main))
 
@@ -305,4 +301,3 @@
 (test
  (name test_multivendor_events)
  (libraries agent_sdk alcotest yojson eio eio_main))
-

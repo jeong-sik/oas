@@ -4,7 +4,7 @@
     Consumers can call these functions directly.
 
     @since 0.46.0  Sync completion
-    @since 0.53.0  Streaming, retry, cascade
+    @since 0.53.0  Streaming, retry
     @since 0.54.0  Optional cache + metrics hooks
     @since 0.78.0  Transport abstraction
     @since 0.95.0  Optional request priority (accepted, not yet used for scheduling)

@@ -5,7 +5,7 @@
 
     Scenarios:
     1. Multi-turn tool calling loop (basic sanity)
-    2. Cascade failover: fake primary → real local fallback
+    2. Endpoint handoff: fake primary → real local fallback
     3. Idle detection: model repeats same tool call → IdleDetected error
     4. Context compaction: long tool outputs pruned, token budget respected
     5. Context injection: injector updates context + appends messages *)

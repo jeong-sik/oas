@@ -183,7 +183,6 @@ let test_complete_metrics () =
       on_request_start = (fun ~model_id:_ -> incr start_count);
       on_request_end = (fun ~model_id:_ ~latency_ms:_ -> incr end_count);
       on_error = (fun ~model_id:_ ~error:_ -> ());
-      on_provider_fallback = (fun ~from_model:_ ~to_model:_ ~reason:_ -> ());
       on_http_status = (fun ~provider ~model_id ~status ->
         status_calls := (provider, model_id, status) :: !status_calls);
     } in
@@ -258,7 +257,6 @@ let test_complete_error_metrics () =
       on_request_start = (fun ~model_id:_ -> ());
       on_request_end = (fun ~model_id:_ ~latency_ms:_ -> ());
       on_error = (fun ~model_id:_ ~error:_ -> incr error_count);
-      on_provider_fallback = (fun ~from_model:_ ~to_model:_ ~reason:_ -> ());
       on_http_status = (fun ~provider ~model_id ~status ->
         status_calls := (provider, model_id, status) :: !status_calls);
     } in

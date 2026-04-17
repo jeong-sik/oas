@@ -20,8 +20,8 @@
     replacement decision, then publish a [ContentReplacementReplaced] event.
 
     [correlation_id] / [run_id] default to empty strings, matching the
-    {!Metrics_event_bridge} convention for callers that do not yet have
-    per-run identifiers wired.
+    convention used by the other event-bus wrappers for callers that do not
+    yet have per-run identifiers wired.
 
     @raise Invalid_argument if the [tool_use_id] is already frozen; the
     event is not published in that case. *)

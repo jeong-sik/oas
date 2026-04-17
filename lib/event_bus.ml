@@ -45,7 +45,6 @@ type payload =
                                   estimated_tokens: int; limit_tokens: int;
                                   ratio: float }
   | ContextCompactStarted of { agent_name: string; trigger: string }
-  | ProviderFallback of { from_model: string; to_model: string; reason: string }
   | ContentReplacementReplaced of {
       tool_use_id: string;
       preview: string;
@@ -131,7 +130,6 @@ let filter_agent name : filter = fun event ->
   | ContextCompacted r -> r.agent_name = name
   | ContextOverflowImminent r -> r.agent_name = name
   | ContextCompactStarted r -> r.agent_name = name
-  | ProviderFallback _
   | ContentReplacementReplaced _
   | ContentReplacementKept _
   | SlotSchedulerObserved _ -> true

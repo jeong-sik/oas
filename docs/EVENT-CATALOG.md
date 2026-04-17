@@ -71,7 +71,6 @@ Pattern-matchable OCaml sum type. **Stable across every provider.**
 | `ContextOverflowImminent` | `pipeline/pipeline.ml` | Projected next-turn tokens will exceed budget |
 | `ContextCompactStarted` | `pipeline/pipeline.ml` | Compaction begun (before completion) |
 | `ContextCompacted` | `pipeline/pipeline.ml`, `pipeline/pipeline_compaction.ml` | Compaction completed (before_tokens → after_tokens) |
-| `ProviderFallback` | `metrics_event_bridge.ml` | Provider/model fallback was reported by the completion layer |
 | `ContentReplacementReplaced` / `ContentReplacementKept` | `content_replacement_event_bridge.ml` | Tool-result content replacement decision froze |
 | `SlotSchedulerObserved` | `slot_scheduler_event_bridge.ml` | Queue/slot snapshot of the provider scheduler |
 | `Custom (name, json)` | anywhere | Extension point — see §2.3 |
@@ -353,7 +352,6 @@ string identifier:
 | `ElicitationCompleted` | `elicitation.completed` |
 | `ContextOverflowImminent` | `context.overflow_imminent` |
 | `ContextCompactStarted` / `ContextCompacted` | `context.compact_started` / `context.compacted` |
-| `ProviderFallback` | `provider.fallback` |
 | `ContentReplacementReplaced` / `ContentReplacementKept` | `content_replacement.replaced` / `content_replacement.kept` |
 | `SlotSchedulerObserved` | `slot_scheduler.observed` |
 | `Custom(name, _)` | `name` (unchanged — the name is already a namespaced identifier) |

@@ -112,7 +112,7 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
 
      The previous implementation emitted [disable_parallel_tool_use]
      as a top-level key, which Anthropic silently ignores, so any
-     cascade-path agent with [disable_parallel_tool_use = true] and
+     caller with [disable_parallel_tool_use = true] and
      tools was still receiving parallel tool calls. Same class of
      silent-drop bug as #834 but for a different field; also fixes
      the drift with the agent_sdk path in lib/api_anthropic.ml which

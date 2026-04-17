@@ -1,9 +1,9 @@
 (** Content_replacement_state ↔ Event_bus bridge (LT-14b / observability).
 
-    Lives in [agent_sdk] alongside {!Metrics_event_bridge}. Pattern is
-    identical: wrap the mutator, delegate first (preserving the raise
-    contract), then publish on success. On [Invalid_argument] the event
-    is suppressed because no state transition occurred. *)
+    Lives in [agent_sdk] as an opt-in observability wrapper: delegate first
+    (preserving the raise contract), then publish on success. On
+    [Invalid_argument] the event is suppressed because no state transition
+    occurred. *)
 
 module S = Content_replacement_state
 

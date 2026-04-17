@@ -61,7 +61,6 @@ let process_events t =
     | ContextCompacted _
     | ContextOverflowImminent _
     | ContextCompactStarted _
-    | ProviderFallback _
     | ContentReplacementReplaced _
     | ContentReplacementKept _
     | SlotSchedulerObserved _
