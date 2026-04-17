@@ -70,6 +70,14 @@
  (name test_handoff)
  (libraries agent_sdk alcotest yojson))
 
+(test
+ (name test_event_integration)
+ (libraries agent_sdk alcotest yojson eio eio_main cohttp cohttp-eio uri))
+
+(test
+ (name test_multivendor_live)
+ (libraries agent_sdk alcotest eio eio_main mirage-crypto-rng.unix))
+
 (executable
  (name test_local_llm)
  (libraries agent_sdk eio eio_main yojson))
