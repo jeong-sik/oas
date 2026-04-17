@@ -6,6 +6,18 @@ Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
 backfilled on 2026-04-04 from existing git tags. The dates below reflect the
 original tag dates. `0.100.4` was never tagged or released.
 
+## [0.153.1] - 2026-04-17
+
+### Changed
+
+- **Documentation alignment with code reality.** README rewritten so the architecture diagram, provider table, scope-limitations table, and version statement reflect what is actually wired in `lib/` and `lib_swarm/`. The literal version string has been removed from the README; `lib/sdk_version.ml` is the only source of truth (PR #976).
+- **SDK boundary tightened: OAS docs no longer name any specific downstream coordinator.** Comment in `lib/agent/agent_types.ml`, `docs/sdk-independence-principle.md`, RFCs, and supporting docs were generalized to "downstream consumer" / "external coordinator". The OAS-vs-named-coordinator analysis at `docs/design/cascade-boundary-analysis.md` was moved to `docs/archive/2026-04/` (PR #976). `CHANGELOG.md` itself is intentionally untouched in that PR — it is a historical record.
+- **Personal-project disclaimer added at the top of README.** Makes the no-SLA / no-support posture explicit (PR #976).
+- **Repo hygiene.** `TODO.md` removed from tracking; `.gitignore` broadened to absorb common operator-local scratch (`_build_*/`, one-off `*.py`, ad-hoc analysis `.md`) so future drops don't slip into commits (PR #977).
+- **Audit tracker added.** `docs/_audit/2026-04-17-coordination-leak-candidates.md` records the read-only sweep of `lib/`, `lib_swarm/`, `bin/`, and RFCs for coordination-layer leaks. Four low-risk candidates documented; structure otherwise clean (PR #978).
+
+No code or API changes. Bump captures the documentation/hygiene cycle as a tagged release boundary.
+
 ## [0.153.0] - 2026-04-17
 
 ### Changed
