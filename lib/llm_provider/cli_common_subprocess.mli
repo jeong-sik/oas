@@ -22,6 +22,7 @@ val run_collect :
   name:string ->
   cwd:string option ->
   extra_env:(string * string) list ->
+  ?scrub_env:string list ->
   ?on_stderr_line:(string -> unit) ->
   ?cancel:unit Eio.Promise.t ->
   string list ->
@@ -54,6 +55,7 @@ val run_stream_lines :
   name:string ->
   cwd:string option ->
   extra_env:(string * string) list ->
+  ?scrub_env:string list ->
   on_line:(string -> unit) ->
   ?on_stderr_line:(string -> unit) ->
   ?cancel:unit Eio.Promise.t ->
