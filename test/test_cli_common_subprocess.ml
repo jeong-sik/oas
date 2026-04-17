@@ -86,6 +86,27 @@ let test_on_stderr_line_called_per_line () =
       ["warn1"; "warn2"] (List.rev !err_lines)
   | Error _ -> Alcotest.fail "expected Ok"
 
+let test_scrub_env_removes_parent_var () =
+  Eio_main.run @@ fun env ->
+  let mgr = Eio.Stdenv.process_mgr env in
+  Eio.Switch.run @@ fun sw ->
+  Unix.putenv "OAS_TEST_SENTINEL" "leaked";
+  let cmd = [sh; "-c"; "printf '%s' \"${OAS_TEST_SENTINEL:-UNSET}\""] in
+  (match Llm_provider.Cli_common_subprocess.run_collect ~sw ~mgr
+           ~name:"sh" ~cwd:None ~extra_env:[] cmd with
+   | Ok { stdout; _ } ->
+     Alcotest.(check string) "parent env inherited by default"
+       "leaked\n" stdout
+   | Error _ -> Alcotest.fail "default path should succeed");
+  match Llm_provider.Cli_common_subprocess.run_collect ~sw ~mgr
+          ~name:"sh" ~cwd:None ~extra_env:[]
+          ~scrub_env:["OAS_TEST_SENTINEL"]
+          cmd with
+  | Ok { stdout; _ } ->
+    Alcotest.(check string) "scrub_env blocks named var from child"
+      "UNSET\n" stdout
+  | Error _ -> Alcotest.fail "scrub path should succeed"
+
 let () =
   Alcotest.run "cli_common_subprocess"
     [ "run_collect",
@@ -93,6 +114,8 @@ let () =
       ; Alcotest.test_case "exit" `Quick test_run_collect_nonzero_exit
       ; Alcotest.test_case "on_stderr_line forwards per-line"
           `Quick test_on_stderr_line_called_per_line
+      ; Alcotest.test_case "scrub_env strips named parent var"
+          `Quick test_scrub_env_removes_parent_var
       ]
     ; "run_stream_lines",
       [ Alcotest.test_case "emits lines live" `Quick test_stream_emits_lines_live

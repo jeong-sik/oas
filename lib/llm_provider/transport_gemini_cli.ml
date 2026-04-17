@@ -127,11 +127,18 @@ let parse_json_result json_str =
 
 (* ── Transport constructor ───────────────────────────── *)
 
+(** Strip API-key env so [gemini] uses the user's Google OAuth session
+    rather than a metered API key.  Mirrors the rationale in
+    {!Transport_claude_code.claude_cli_scrub_env}. *)
+let gemini_cli_scrub_env =
+  ["GEMINI_API_KEY"; "GOOGLE_API_KEY"; "GOOGLE_APPLICATION_CREDENTIALS"]
+
 let run ~sw ~mgr ~(config : config) argv =
   Cli_common_subprocess.run_collect ~sw ~mgr
     ~name:"gemini"
     ~cwd:config.cwd
     ~extra_env:[]
+    ~scrub_env:gemini_cli_scrub_env
     ?cancel:config.cancel
     argv
 
