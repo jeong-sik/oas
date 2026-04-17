@@ -133,8 +133,6 @@ let invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count ~hook_name
               | Hooks.AfterTurn _ | Hooks.OnStop _
               | Hooks.OnIdle _ | Hooks.OnError _
               | Hooks.OnToolError _ | Hooks.PreCompact _
-              | Hooks.PostCompact _ -> None)
-              | Hooks.OnToolError _ | Hooks.PreCompact _
               | Hooks.PostCompact _ | Hooks.OnContextCompacted _ -> None)
       | None -> ());
       decision)
