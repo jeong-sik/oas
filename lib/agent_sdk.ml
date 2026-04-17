@@ -143,6 +143,7 @@ module Cost_tracker = Cost_tracker
 module Context_offload = Context_offload
 module Tool_result_store = Tool_result_store
 module Content_replacement_state = Content_replacement_state
+module Content_replacement_event_bridge = Content_replacement_event_bridge
 module Memory = Memory
 module Memory_file_backend = Memory_file_backend
 module Memory_access = Memory_access

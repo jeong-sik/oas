@@ -229,6 +229,10 @@
  (libraries agent_sdk alcotest yojson eio eio_main))
 
 (test
+ (name test_content_replacement_event_bridge)
+ (libraries agent_sdk alcotest yojson eio eio_main))
+
+(test
  (name test_otel)
  (libraries agent_sdk alcotest yojson eio eio_main))
 
