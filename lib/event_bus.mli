@@ -60,6 +60,22 @@ type payload =
           [trigger] is one of ["proactive"], ["emergency"], ["operator"].
           @since 0.136.0 *)
   | Custom of string * Yojson.Safe.t
+      (** Extension point.  [name] must be a dot-separated, lowercase,
+          snake-case namespaced identifier (e.g. ["mylib.foo_happened"]).
+
+          Reserved prefixes (OAS-internal):
+          - [runtime.*] — bridged from [Runtime] session protocol.
+          - [durable.*] — bridged from [Durable_event] journal.
+          - [provider.*] — provider-specific escape hatch
+            (e.g. [provider.anthropic.cache_hit],
+            [provider.openai.reasoning_tokens]).
+          - [oas.*] — reserved for future OAS use.
+
+          External publishers should use their own [Event_bus.t] instance
+          for domain-specific events rather than publishing onto OAS's
+          bus.  Treating OAS's [Event_bus] as a general-purpose telemetry
+          channel creates cross-layer coupling and makes OAS's public
+          surface a dumping ground.  See [docs/EVENT-CATALOG.md] §2.3. *)
 
 (** {2 Event} *)
 
