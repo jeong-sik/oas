@@ -480,3 +480,69 @@ let config_of_provider_config (pc : Llm_provider.Provider_config.t) : config =
   in
   let api_key_env = default_api_key_env_of_kind pc.kind in
   { provider; model_id = pc.model_id; api_key_env }
+
+(** Forward adapter: build a {!Llm_provider.Provider_config.t} from an
+    agent state and optional {!config}.  Used when a caller needs to
+    bridge the legacy {!create_message} surface to the consolidated
+    {!Llm_provider.Complete.complete} surface.
+
+    Sampling params, tool_choice, thinking controls are pulled from
+    [state.config].  Provider kind, model_id, api_key are resolved from
+    [provider_opt] + env vars.  When [provider_opt] is [None], falls
+    back to Anthropic using [ANTHROPIC_API_KEY] (matching
+    {!create_message}'s existing default).
+
+    [OpenAICompat] provider collapses to [OpenAI_compat] kind — the
+    legacy {!config} variant does not distinguish Gemini/Glm/Ollama/
+    Claude_code from generic OpenAI-compatible endpoints.  Callers that
+    require a specific kind should construct {!Llm_provider.Provider_config.t}
+    directly via {!Llm_provider.Provider_config.make}.
+
+    @since 0.155.0 *)
+let provider_config_of_agent
+    ~(state : Types.agent_state)
+    ~(base_url : string)
+    (provider_opt : config option)
+  : (Llm_provider.Provider_config.t, Error.sdk_error) result =
+  let cfg = state.config in
+  let build ~kind ~resolved_base_url ~api_key ~model_id =
+    Ok
+      (Llm_provider.Provider_config.make
+         ~kind
+         ~model_id
+         ~base_url:resolved_base_url
+         ~api_key
+         ?max_tokens:cfg.max_tokens
+         ?temperature:cfg.temperature
+         ?top_p:cfg.top_p
+         ?top_k:cfg.top_k
+         ?min_p:cfg.min_p
+         ?enable_thinking:cfg.enable_thinking
+         ?thinking_budget:cfg.thinking_budget
+         ?tool_choice:cfg.tool_choice
+         ?system_prompt:cfg.system_prompt
+         ~disable_parallel_tool_use:cfg.disable_parallel_tool_use
+         ~response_format_json:cfg.response_format_json
+         ~cache_system_prompt:cfg.cache_system_prompt
+         ())
+  in
+  match provider_opt with
+  | Some p ->
+      (match resolve p with
+       | Error e -> Error e
+       | Ok (url, api_key, _headers) ->
+           let kind : Llm_provider.Provider_config.provider_kind =
+             match p.provider with
+             | Anthropic -> Anthropic
+             | Local _ | OpenAICompat _ | Custom_registered _ -> OpenAI_compat
+           in
+           build ~kind ~resolved_base_url:url ~api_key
+             ~model_id:p.model_id)
+  | None ->
+      (match Sys.getenv_opt "ANTHROPIC_API_KEY" with
+       | Some key ->
+           build ~kind:Anthropic ~resolved_base_url:base_url
+             ~api_key:key
+             ~model_id:(Types.model_to_string cfg.model)
+       | None ->
+           Error (Error.Config (MissingEnvVar { var_name = "ANTHROPIC_API_KEY" })))

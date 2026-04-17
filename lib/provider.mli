@@ -167,3 +167,22 @@ val default_api_key_env_of_kind :
     @since 0.84.0
     @since 0.87.0 — env var fallback *)
 val config_of_provider_config : Llm_provider.Provider_config.t -> config
+
+(** Forward adapter: build a {!Llm_provider.Provider_config.t} from an
+    agent state and optional {!config}.  Sampling params, tool_choice,
+    thinking controls come from [state.config]; provider kind and
+    api_key come from [provider_opt] (or the [ANTHROPIC_API_KEY]
+    fallback when [None]).
+
+    [OpenAICompat] provider collapses to [OpenAI_compat] kind: the
+    legacy {!config} variant does not distinguish Gemini/Glm/Ollama/
+    Claude_code from generic OpenAI-compatible endpoints.  Callers
+    needing a specific kind should use
+    {!Llm_provider.Provider_config.make} directly.
+
+    @since 0.155.0 *)
+val provider_config_of_agent :
+  state:Types.agent_state ->
+  base_url:string ->
+  config option ->
+  (Llm_provider.Provider_config.t, Error.sdk_error) result
