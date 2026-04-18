@@ -26,7 +26,7 @@ This RFC defines a conservative `Checkpoint.delta` format for agent checkpoints.
 ## Non-goals
 
 - cross-run temporal queries or run-window semantics
-- swarm checkpoint delta; swarm fidelity is tracked separately in `#487`
+- checkpoint delta; fidelity is tracked separately in `#487`
 - semantic summarization as part of delta application
 - read-path activation on day one; rollout starts with shadow apply only
 
@@ -277,6 +277,6 @@ This ordering preserves backward compatibility. A consumer running against old O
 
 ## Follow-up work
 
-- `#487`: finish the swarm checkpoint fidelity gate before reusing delta ideas in swarm state
+- `#487`: finish the checkpoint fidelity gate before reusing delta ideas in runtime state
 - `#488`: implement `Checkpoint.delta`, shadow metrics, and full-restore fallback
 - `#486`: specify cross-run read-side prerequisites separately; this RFC stays single-run only

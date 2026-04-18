@@ -1,44 +1,28 @@
 # Zero-LLM Testing Guide
 
 OAS supports testing agent logic without calling any LLM API.
-This is the primary testing strategy — 28+ swarm tests run in <0.3s.
+This is the primary testing strategy for `agent_sdk` itself.
 
 ## How it works
 
-`agent_entry.run` is a closure: `sw -> string -> (api_response, sdk_error) result`.
-Replace the closure with a function that returns a fixed response.
+`Agent.run` ultimately consumes pure OCaml data and effectful callbacks.
+Replace provider-facing seams with functions that return fixed responses.
 
 ```ocaml
-(* Using Test_helpers from agent_sdk_swarm *)
-open Agent_sdk_swarm
-
-let entry = Test_helpers.mock_entry ~name:"worker" "task complete"
-let config = Test_helpers.basic_config ~prompt:"do something" [entry]
+let mock_response =
+  Ok
+    {
+      Types.id = "m";
+      model = "m";
+      stop_reason = EndTurn;
+      content = [Text "task complete"];
+      usage = None;
+    }
 ```
 
 ## Mock patterns
 
 ### Fixed text response
-
-```ocaml
-let entry = Test_helpers.mock_entry ~name:"agent" "result text"
-```
-
-### Failing agent
-
-```ocaml
-let entry = Test_helpers.failing_entry ~name:"broken" "disk full"
-```
-
-### Counting calls
-
-```ocaml
-let (entry, get_count) = Test_helpers.counting_entry ~name:"w" "ok"
-(* ... run swarm ... *)
-assert (get_count () = 3)
-```
-
-### Custom behavior
 
 ```ocaml
 let smart_mock ~sw:_ prompt =
@@ -47,26 +31,22 @@ let smart_mock ~sw:_ prompt =
          content = [Text "summarized"]; usage = None }
   else
     Error (Error.Internal "prompt too short")
-
-let entry = { Swarm_types.name = "smart"; run = smart_mock; role = Execute }
 ```
 
 ## What you can test without LLM
 
 | Capability | How |
 |-----------|-----|
-| Convergence loop | Mock metric callback, verify iteration count |
-| Timeout behavior | Set `timeout_sec = Some 0.05`, verify graceful exit |
-| N-worker parallel | 12 entries, Eio fiber concurrency |
-| Pipeline mode | Ordered entries, verify sequential execution |
-| Supervisor mode | Verify supervisor entry runs first |
-| Partial failure | Mix mock_entry + failing_entry |
-| Aggregate strategies | Best_score, Average, Majority_vote |
-| Resource budget | Set budget limits, verify enforcement |
+| Tool-handling turn loop | Stub tool results and verify follow-up turns |
+| Timeout behavior | Set short time budgets and verify graceful exit |
+| Provider error recovery | Return typed `sdk_error` values from mocks |
+| Pipeline behavior | Assert stage-by-stage transformations stay deterministic |
+| Context compaction | Feed large prompts and verify reducer output |
+| Hook ordering | Capture side effects in test-local refs |
 
 ## Why this matters
 
 - Tests run in <0.3s (no network, no API keys)
 - Deterministic (no LLM variance)
 - CI-friendly (no secrets needed)
-- Type system guarantees mock = real (same `agent_entry` type)
+- Type system guarantees mock = real (same runtime contracts)

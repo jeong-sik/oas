@@ -8,7 +8,6 @@
     For full conversation transfer, use {!Handoff} instead.
 
     The runner is a closure to avoid circular dependency with {!Agent.t}.
-    Same pattern as {!Swarm_types.agent_entry.run}.
 
     @stability Evolving
     @since 0.102.0 *)

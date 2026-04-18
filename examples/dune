@@ -27,10 +27,6 @@
  (libraries agent_sdk eio eio_main yojson unix str))
 
 (executable
- (name swarm_review)
- (libraries agent_sdk agent_sdk_swarm eio eio_main yojson unix))
-
-(executable
  (name codegen_agent)
  (libraries agent_sdk eio eio_main yojson unix))
 
@@ -66,4 +62,3 @@
 (executable
  (name handoff_lifecycle)
  (libraries agent_sdk eio eio_main cohttp cohttp-eio uri yojson))
-
