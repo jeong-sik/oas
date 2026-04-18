@@ -33,6 +33,43 @@ opam install . --deps-only --with-test --yes
 dune build @all
 ```
 
+## Non-interactive CLI transports and MCP defaults
+
+OAS only owns the runtime policy for headless CLI subprocesses. Upstream CLI tools still have their own:
+
+1. server registry layer (`claude mcp ...`, `codex mcp ...`, `gemini mcp ...`)
+2. persistent config layer (user/project config files)
+3. per-run execution policy layer (what OAS injects for this specific subprocess)
+
+The recent bug lived in layer 3: a machine could have MCP servers registered, but a non-interactive OAS run was supposed to fail closed unless the caller opted back in.
+
+Current headless defaults:
+
+| Transport | Default runtime policy | Opt-back-in path |
+|----------|------------------------|------------------|
+| Claude Code | Always adds `--strict-mcp-config` | Supply `config.mcp_config` or `OAS_CLAUDE_MCP_CONFIG=/abs/path/mcp.json` |
+| Codex CLI | Always prepends `-c mcp_servers={}` | Pass a non-empty `mcp_servers` TOML fragment through `OAS_CODEX_CONFIG` / caller config |
+| Gemini CLI | Always sends an empty `--allowed-mcp-server-names` whitelist | Set `OAS_GEMINI_ALLOWED_MCP=name1,name2` |
+
+Why this can feel hidden:
+
+- Claude exposes MCP registration and runtime policy as separate commands/flags.
+- Codex exposes runtime policy through generic `-c key=value` overrides instead of a dedicated `--no-mcp` flag.
+- Gemini is the clearest: runtime MCP exposure is controlled by `--allowed-mcp-server-names`.
+
+Examples:
+
+```bash
+# Claude Code: keep strict mode, but allow only the config you pass explicitly
+OAS_CLAUDE_MCP_CONFIG=/abs/path/to/mcp.json dune exec ./examples/review_agent.exe -- org/repo 123
+
+# Gemini CLI: allow only named MCP servers for this run
+OAS_GEMINI_ALLOWED_MCP=filesystem,github dune exec ./examples/review_agent.exe -- org/repo 123
+
+# Codex CLI: default remains MCP OFF unless the caller injects a non-empty
+# mcp_servers TOML fragment via OAS_CODEX_CONFIG or equivalent caller wiring.
+```
+
 ## Quickstart
 
 ```ocaml
