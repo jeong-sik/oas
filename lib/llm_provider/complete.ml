@@ -55,12 +55,23 @@ let provider_sampling_defaults (kind : Provider_config.provider_kind) : sampling
   | Provider_config.Gemini_cli | Provider_config.Codex_cli ->
     { default_min_p = None; default_top_p = None; default_top_k = None }
 
+let openai_compat_should_default_min_p (config : Provider_config.t) : bool =
+  match Capabilities.for_model_id config.model_id with
+  | Some caps -> caps.supports_min_p
+  | None -> Provider_config.is_local config
+
 (** Apply provider defaults to a config, preserving explicit values (overlay pattern).
     Only fills in None fields; explicit values are never overwritten. *)
 let apply_sampling_defaults (config : Provider_config.t) : Provider_config.t =
   let defaults = provider_sampling_defaults config.kind in
+  let default_min_p =
+    match config.kind with
+    | Provider_config.OpenAI_compat
+      when not (openai_compat_should_default_min_p config) -> None
+    | _ -> defaults.default_min_p
+  in
   { config with
-    min_p = (match config.min_p with Some _ -> config.min_p | None -> defaults.default_min_p);
+    min_p = (match config.min_p with Some _ -> config.min_p | None -> default_min_p);
     top_p = (match config.top_p with Some _ -> config.top_p | None -> defaults.default_top_p);
     top_k = (match config.top_k with Some _ -> config.top_k | None -> defaults.default_top_k);
   }
@@ -894,6 +905,20 @@ let%test "provider_sampling_defaults Claude_code has no min_p" =
 let%test "apply_sampling_defaults fills min_p for OpenAI_compat" =
   let config = Provider_config.make
     ~kind:OpenAI_compat ~model_id:"test" ~base_url:"http://localhost" () in
+  let applied = apply_sampling_defaults config in
+  applied.min_p = Some 0.05
+
+let%test "apply_sampling_defaults OpenAI_compat Gemini model does not set min_p" =
+  let config = Provider_config.make
+    ~kind:OpenAI_compat ~model_id:"gemini-2.5-flash"
+    ~base_url:"https://generativelanguage.googleapis.com/v1beta/openai" () in
+  let applied = apply_sampling_defaults config in
+  applied.min_p = None
+
+let%test "apply_sampling_defaults OpenAI_compat qwen model keeps min_p default" =
+  let config = Provider_config.make
+    ~kind:OpenAI_compat ~model_id:"qwen3.5-35b"
+    ~base_url:"https://api.example.com/v1" () in
   let applied = apply_sampling_defaults config in
   applied.min_p = Some 0.05
 
