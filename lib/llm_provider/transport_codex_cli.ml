@@ -43,8 +43,46 @@ let default_config = {
 
 (* ── CLI argument building ───────────────────────────── *)
 
+(* Codex has no dedicated --no-mcp / --no-hooks flags; every runtime
+   toggle goes through [-c key=value] TOML overrides (see
+   `~/.codex/config.toml` schema).  We surface that via env vars so
+   MASC keeper can lock down MCP / tighten sandbox without needing an
+   OAS release.
+
+   OAS_CODEX_CONFIG   "k=v,k2=v2"                → -c k=v -c k2=v2
+   OAS_CODEX_SANDBOX  read-only|workspace-write  → -s <value>
+                      |danger-full-access
+   OAS_CODEX_PROFILE  <name>                     → -p <name>
+   OAS_CODEX_SKIP_GIT 1                          → --skip-git-repo-check
+
+   Unset → no flag added, preserving the pre-0.159 argv.
+
+   NB: the [mcp_config]/[allowed_tools]/[max_turns]/[permission_mode]
+   config fields have never had Codex equivalents and are still unused
+   here.  Callers wanting those knobs should emit [-c ...] overrides
+   via OAS_CODEX_CONFIG. *)
+let env_extra_args () =
+  let extras = ref [] in
+  let add a = extras := !extras @ a in
+  (match Cli_common_env.kv_pairs "OAS_CODEX_CONFIG" with
+   | None | Some [] -> ()
+   | Some pairs ->
+     List.iter (fun (k, v) -> add ["-c"; Printf.sprintf "%s=%s" k v]) pairs);
+  (match Cli_common_env.get "OAS_CODEX_SANDBOX" with
+   | Some v -> add ["-s"; v]
+   | None -> ());
+  (match Cli_common_env.get "OAS_CODEX_PROFILE" with
+   | Some v -> add ["-p"; v]
+   | None -> ());
+  if Cli_common_env.bool "OAS_CODEX_SKIP_GIT" then
+    add ["--skip-git-repo-check"];
+  !extras
+
 let build_args ~(config : config) ~prompt =
-  [config.codex_path; "exec"; "--json"; prompt]
+  (* Order: exec-level flags come before the positional prompt. *)
+  [config.codex_path; "exec"; "--json"]
+  @ env_extra_args ()
+  @ [prompt]
 
 (* ── JSONL envelope parsing ──────────────────────────── *)
 
@@ -294,3 +332,48 @@ let%test "events_of_line turn.completed → MessageDelta+Stop" =
 
 let%test "events_of_line invalid json → []" =
   events_of_line "not json" = []
+
+(* ── env-driven extra args ──────────────────────────── *)
+
+let with_env k v f =
+  let prev = Sys.getenv_opt k in
+  Unix.putenv k v;
+  Fun.protect ~finally:(fun () ->
+    match prev with
+    | None -> (try Unix.putenv k "" with _ -> ())
+    | Some old -> Unix.putenv k old)
+    f
+
+let with_unset k f =
+  let prev = Sys.getenv_opt k in
+  (try Unix.putenv k "" with _ -> ());
+  Fun.protect ~finally:(fun () ->
+    match prev with
+    | None -> ()
+    | Some old -> Unix.putenv k old)
+    f
+
+let%test "env: no vars → argv is [codex; exec; --json; prompt]" =
+  with_unset "OAS_CODEX_CONFIG" (fun () ->
+  with_unset "OAS_CODEX_SANDBOX" (fun () ->
+  with_unset "OAS_CODEX_PROFILE" (fun () ->
+  with_unset "OAS_CODEX_SKIP_GIT" (fun () ->
+    build_args ~config:default_config ~prompt:"hi"
+    = ["codex"; "exec"; "--json"; "hi"]))))
+
+let%test "env: OAS_CODEX_CONFIG emits -c pairs before prompt" =
+  with_env "OAS_CODEX_CONFIG" "mcp_servers={},model=o3" (fun () ->
+    let args = build_args ~config:default_config ~prompt:"hi" in
+    (* must emit -c mcp_servers={} and -c model=o3, and prompt stays last *)
+    List.mem "-c" args
+    && List.mem "mcp_servers={}" args
+    && List.mem "model=o3" args
+    && List.nth args (List.length args - 1) = "hi")
+
+let%test "env: OAS_CODEX_SANDBOX and OAS_CODEX_SKIP_GIT" =
+  with_env "OAS_CODEX_SANDBOX" "read-only" (fun () ->
+  with_env "OAS_CODEX_SKIP_GIT" "true" (fun () ->
+    let args = build_args ~config:default_config ~prompt:"hi" in
+    List.mem "-s" args
+    && List.mem "read-only" args
+    && List.mem "--skip-git-repo-check" args))
