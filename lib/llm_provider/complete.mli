@@ -34,7 +34,9 @@ type sampling_defaults = {
 val provider_sampling_defaults : Provider_config.provider_kind -> sampling_defaults
 
 (** Apply provider defaults to a config, preserving explicit values.
-    Only fills in [None] fields; explicit values are never overwritten. *)
+    Only fills in [None] fields; explicit values are never overwritten.
+    For [OpenAI_compat], [min_p] is auto-filled only when the target
+    model (or an unknown localhost endpoint) supports it. *)
 val apply_sampling_defaults : Provider_config.t -> Provider_config.t
 
 (** {1 Transport} *)

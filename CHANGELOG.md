@@ -6,6 +6,13 @@ Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
 backfilled on 2026-04-04 from existing git tags. The dates below reflect the
 original tag dates. `0.100.4` was never tagged or released.
 
+## [0.157.1] - 2026-04-18
+
+### Fixed
+
+- **TLS EOFs now stay on the retryable network-error path.** `llm_provider/http_client.ml` now maps `End_of_file` and `Sys_error` into `NetworkError`, so transient peer-close / socket-teardown failures no longer escape as top-level worker exceptions and instead flow through the existing retry/cascade logic (PR #995).
+- **OpenAI-compatible sampling defaults now respect model capability records.** `apply_sampling_defaults` no longer auto-injects `min_p=0.05` for Gemini/GLM-style OpenAI-compatible models that advertise `supports_min_p = false`, which removes the warn-and-drop path while preserving the existing default for Qwen-class and unknown localhost endpoints.
+
 ## [0.155.1] - 2026-04-17
 
 ### Changed
