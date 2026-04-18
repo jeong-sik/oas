@@ -129,7 +129,38 @@ val mk_event : ?correlation_id:string -> ?run_id:string -> payload -> event
 
 type t
 
-val create : ?buffer_size:int -> unit -> t
+(** Backpressure policy applied when a subscriber's stream is full.
+
+    - [Block] — [publish] blocks until the subscriber drains (current
+      semantics; default). A single slow subscriber stalls every
+      publisher sharing the bus.
+    - [Drop_oldest] — evict the oldest queued event for the offending
+      subscriber, enqueue the new one. Keeps [publish] non-blocking at
+      the cost of losing the queue head. Increments [dropped_total].
+    - [Drop_newest] — drop the event being published for that
+      subscriber and leave the queue intact. Non-blocking; newest
+      event is lost. Increments [dropped_total].
+
+    The policy is bus-wide and affects every subscriber. It is set at
+    {!create} time and cannot be changed afterwards. Publishers
+    observe different behaviours via [Drop_*] only indirectly, through
+    {!stats}: [Drop_*] never blocks, [Block] may accumulate time in
+    [total_publish_blocked_seconds].
+
+    @since 0.160.0 *)
+type backpressure_policy =
+  | Block
+  | Drop_oldest
+  | Drop_newest
+
+(** Create a bus.
+
+    - [?buffer_size] — per-subscriber stream capacity (default 256).
+    - [?policy] — backpressure policy (default [Block] for backward
+      compatibility).
+
+    @since 0.160.0 [?policy] parameter added. *)
+val create : ?buffer_size:int -> ?policy:backpressure_policy -> unit -> t
 
 (** {2 Filters} *)
 
@@ -148,7 +179,16 @@ val filter_all : filter list -> filter
 
 type subscription
 
-val subscribe : ?filter:filter -> t -> subscription
+(** Subscribe to the bus.
+
+    - [?filter] — event predicate (default: accept all).
+    - [?purpose] — free-form label surfaced in {!subscription_stats}
+      (e.g. ["sse_bridge"], ["keeper_turn"], ["eval_collector"]).
+      Does not affect routing.
+
+    @since 0.160.0 [?purpose] parameter added. *)
+val subscribe : ?filter:filter -> ?purpose:string -> t -> subscription
+
 val unsubscribe : t -> subscription -> unit
 
 (** {2 Publish and drain} *)
@@ -159,3 +199,43 @@ val drain : subscription -> event list
 (** {2 Queries} *)
 
 val subscriber_count : t -> int
+
+(** Per-subscriber runtime statistics. Counters are monotonic; they
+    reset only when the subscription is dropped.
+
+    - [purpose] — label passed to {!subscribe} (if any).
+    - [depth] — events currently queued in the subscriber's stream.
+    - [published_total] — events that passed the filter and were
+      offered to this subscriber (before any drop).
+    - [drained_total] — events removed via {!drain}.
+    - [dropped_total] — events discarded under [Drop_oldest] or
+      [Drop_newest]. Always 0 under [Block].
+
+    @since 0.160.0 *)
+type subscription_stats = {
+  purpose: string option;
+  depth: int;
+  published_total: int;
+  drained_total: int;
+  dropped_total: int;
+}
+
+(** Bus-wide runtime statistics.
+
+    - [subscriber_count] — current subscriber count.
+    - [subscriptions] — per-subscriber stats in subscription order
+      (newest first, matching internal list order).
+    - [total_publish_blocked_seconds] — wall-clock seconds that
+      [publish] spent waiting on full subscriber streams (only
+      accumulates under [Block]; always 0 for [Drop_*]).
+
+    @since 0.160.0 *)
+type bus_stats = {
+  subscriber_count: int;
+  subscriptions: subscription_stats list;
+  total_publish_blocked_seconds: float;
+}
+
+(** Snapshot of bus-wide and per-subscriber runtime statistics.
+    @since 0.160.0 *)
+val stats : t -> bus_stats
