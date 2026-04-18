@@ -6,6 +6,18 @@ Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
 backfilled on 2026-04-04 from existing git tags. The dates below reflect the
 original tag dates. `0.100.4` was never tagged or released.
 
+## [0.160.1] - 2026-04-18
+
+### Fixed
+
+- **Completion contract no longer rejects no-ToolUse responses when the model was cut off mid-turn.** `completion_contract.validate_response` now treats `stop_reason = MaxTokens` or `Unknown "pause_turn"` as resumable for `Require_tool_use` / `Require_specific_tool`, so callers can continue the turn (or raise `max_tokens`) instead of seeing a spurious `CompletionContractViolation`. Observed on Anthropic Haiku 4.5 where extended thinking consumes the 8192-token output budget before a ToolUse block emits and the API returns `pause_turn`. `EndTurn`, `StopToolUse`, `StopSequence`, and unknown reasons other than `pause_turn` continue to reject no-ToolUse responses (PR #1001).
+
+## [0.160.0] - 2026-04-18
+
+### Added
+
+- **Event bus backpressure policy + stats + purpose labels** (PR #998).
+
 ## [0.159.0] - 2026-04-18
 
 ### Added
