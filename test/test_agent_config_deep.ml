@@ -300,14 +300,17 @@ let test_resolve_other_custom_url () =
   | _ -> Alcotest.fail "expected OpenAICompat"
 
 let test_resolve_groq () =
+  (* With base_url=None, resolve_provider now returns Custom_registered
+     so that downstream can look up the registry-declared kind.
+     entry.defaults (url, path, api_key_env) are carried via the
+     registry, not embedded in the Provider.config variant. *)
   let cfg = Agent_config.resolve_provider ~model_id:"qwen/qwen3-32b" "groq" None in
   match cfg.provider with
-  | Provider.OpenAICompat { base_url; path; _ } ->
-    Alcotest.(check string) "groq url" "https://api.groq.com/openai/v1" base_url;
-    Alcotest.(check string) "groq path" "/chat/completions" path;
+  | Provider.Custom_registered { name } ->
+    Alcotest.(check string) "groq name" "groq" name;
     Alcotest.(check string) "groq api_key_env" "GROQ_API_KEY" cfg.api_key_env;
     Alcotest.(check string) "groq model_id" "qwen/qwen3-32b" cfg.model_id
-  | _ -> Alcotest.fail "expected OpenAICompat for groq"
+  | _ -> Alcotest.fail "expected Custom_registered for groq (registered)"
 
 let test_resolve_groq_custom_url () =
   let cfg = Agent_config.resolve_provider ~model_id:"qwen/qwen3-32b" "groq"
@@ -318,12 +321,27 @@ let test_resolve_groq_custom_url () =
   | _ -> Alcotest.fail "expected OpenAICompat for groq custom url"
 
 let test_resolve_deepseek () =
+  (* base_url=None: Custom_registered preserves kind lookup via registry. *)
   let cfg = Agent_config.resolve_provider ~model_id:"deepseek-chat" "deepseek" None in
   match cfg.provider with
-  | Provider.OpenAICompat { base_url; _ } ->
-    Alcotest.(check string) "deepseek url" "https://api.deepseek.com" base_url;
+  | Provider.Custom_registered { name } ->
+    Alcotest.(check string) "deepseek name" "deepseek" name;
     Alcotest.(check string) "deepseek api_key_env" "DEEPSEEK_API_KEY" cfg.api_key_env
-  | _ -> Alcotest.fail "expected OpenAICompat for deepseek"
+  | _ -> Alcotest.fail "expected Custom_registered for deepseek (registered)"
+
+let test_resolve_gemini_preserves_kind () =
+  (* Regression for #1003: registered providers with non-OpenAI kind
+     (e.g. Gemini) must route through Custom_registered so downstream
+     preserves entry.defaults.kind. Previously resolve_provider
+     returned OpenAICompat, flattening kind to OpenAI_compat and
+     producing 404 against the Gemini endpoint. *)
+  let cfg = Agent_config.resolve_provider ~model_id:"gemini-2.5-flash" "gemini" None in
+  match cfg.provider with
+  | Provider.Custom_registered { name } ->
+    Alcotest.(check string) "gemini name" "gemini" name;
+    Alcotest.(check string) "gemini api_key_env" "GEMINI_API_KEY" cfg.api_key_env;
+    Alcotest.(check string) "gemini model_id" "gemini-2.5-flash" cfg.model_id
+  | _ -> Alcotest.fail "expected Custom_registered for gemini (registered)"
 
 (* ── of_json error cases ─────────────────────────────────────── *)
 
@@ -408,5 +426,6 @@ let () =
       tc "groq" test_resolve_groq;
       tc "groq custom url" test_resolve_groq_custom_url;
       tc "deepseek" test_resolve_deepseek;
+      tc "gemini preserves kind (#1003)" test_resolve_gemini_preserves_kind;
     ]);
   ]
