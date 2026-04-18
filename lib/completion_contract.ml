@@ -37,6 +37,20 @@ let tool_use_names (response : api_response) =
       | _ -> None)
     response.content
 
+(* A response whose stop_reason signals the model was cut off mid-turn rather
+   than cleanly deciding not to call a tool. Surfacing a
+   [CompletionContractViolation] in that case is misleading — the caller can
+   continue the turn (or raise max_tokens) instead. Observed on Anthropic
+   Haiku 4.5 where extended thinking consumes the 8192 output budget before
+   a ToolUse block emits: Anthropic returns [pause_turn] which currently
+   parses to [Unknown "pause_turn"] since it is not yet a first-class
+   [stop_reason] variant. *)
+let stop_reason_is_resumable (sr : stop_reason) : bool =
+  match sr with
+  | MaxTokens -> true
+  | Unknown "pause_turn" -> true
+  | EndTurn | StopToolUse | StopSequence | Unknown _ -> false
+
 let validate_response ~(contract : t) (response : api_response) :
     (unit, string) result =
   match contract with
@@ -44,12 +58,15 @@ let validate_response ~(contract : t) (response : api_response) :
   | Require_tool_use ->
     if tool_use_names response <> []
     then Ok ()
+    else if stop_reason_is_resumable response.stop_reason
+    then Ok ()
     else
       Error
         "required tool contract unsatisfied: tool_choice requested tool use, \
          but the model returned no ToolUse block"
   | Require_specific_tool name ->
     (match tool_use_names response with
+     | [] when stop_reason_is_resumable response.stop_reason -> Ok ()
      | [] ->
        Error
          (Printf.sprintf
@@ -246,3 +263,101 @@ let%test "text-only response passes when contract relaxed for unsupported provid
       telemetry = None;
     }
   = Ok ()
+
+(* --- stop_reason resumability tests (extended-thinking / budget cut-off) --- *)
+
+let%test "Require_tool_use accepts no-ToolUse response when stop_reason is MaxTokens" =
+  validate_response
+    ~contract:Require_tool_use
+    { id = "r";
+      model = "claude-haiku-4-5-20251001";
+      stop_reason = MaxTokens;
+      content = [ Text "partial thinking output" ];
+      usage = None;
+      telemetry = None;
+    }
+  = Ok ()
+
+let%test "Require_tool_use accepts no-ToolUse response when stop_reason is Unknown pause_turn" =
+  validate_response
+    ~contract:Require_tool_use
+    { id = "r";
+      model = "claude-haiku-4-5-20251001";
+      stop_reason = Unknown "pause_turn";
+      content = [ Text "thinking..." ];
+      usage = None;
+      telemetry = None;
+    }
+  = Ok ()
+
+let%test "Require_tool_use still rejects no-ToolUse response when stop_reason is EndTurn" =
+  match
+    validate_response
+      ~contract:Require_tool_use
+      { id = "r";
+        model = "m";
+        stop_reason = EndTurn;
+        content = [ Text "I decline to call tools" ];
+        usage = None;
+        telemetry = None;
+      }
+  with
+  | Error _ -> true
+  | Ok () -> false
+
+let%test "Require_tool_use still rejects no-ToolUse response when stop_reason is Unknown refusal" =
+  match
+    validate_response
+      ~contract:Require_tool_use
+      { id = "r";
+        model = "m";
+        stop_reason = Unknown "refusal";
+        content = [ Text "..." ];
+        usage = None;
+        telemetry = None;
+      }
+  with
+  | Error _ -> true
+  | Ok () -> false
+
+let%test "Require_specific_tool accepts no-ToolUse response when stop_reason is MaxTokens" =
+  validate_response
+    ~contract:(Require_specific_tool "calculator")
+    { id = "r";
+      model = "m";
+      stop_reason = MaxTokens;
+      content = [ Text "partial" ];
+      usage = None;
+      telemetry = None;
+    }
+  = Ok ()
+
+let%test "Require_specific_tool still rejects wrong-tool response when stop_reason is MaxTokens" =
+  match
+    validate_response
+      ~contract:(Require_specific_tool "calculator")
+      { id = "r";
+        model = "m";
+        stop_reason = MaxTokens;
+        content =
+          [ ToolUse
+              { id = "call-1";
+                name = "search";
+                input = `Assoc [];
+              }
+          ];
+        usage = None;
+        telemetry = None;
+      }
+  with
+  | Error _ -> true
+  | Ok () -> false
+
+let%test "stop_reason_is_resumable classification" =
+  stop_reason_is_resumable MaxTokens
+  && stop_reason_is_resumable (Unknown "pause_turn")
+  && not (stop_reason_is_resumable EndTurn)
+  && not (stop_reason_is_resumable StopToolUse)
+  && not (stop_reason_is_resumable StopSequence)
+  && not (stop_reason_is_resumable (Unknown "refusal"))
+  && not (stop_reason_is_resumable (Unknown "anything-else"))
