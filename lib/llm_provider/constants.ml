@@ -30,16 +30,40 @@ end
     - [agent_default]: full agent turn execution.
     - [low_variance]: evaluation, judging, deterministic extraction. *)
 module Inference_profile = struct
+  (** Inference parameter profile. Sampling fields ([top_p], [top_k],
+      [min_p]) are [option] because provider support is not uniform
+      (e.g. Anthropic does not accept [min_p]); [None] means the
+      parameter is omitted from the request and the provider's own
+      default applies.
+
+      @since 0.99.0
+      @since 0.161.0 — added top_p, top_k, min_p (#851) *)
   type t = {
     temperature : float;
     max_tokens : int;
+    top_p : float option;
+    top_k : int option;
+    min_p : float option;
   }
 
-  let cascade_default = { temperature = 0.3; max_tokens = 500 }
-  let agent_default   = { temperature = 0.7; max_tokens = 16_384 }
-  let low_variance    = { temperature = 0.1; max_tokens = 2048 }
-  let worker_default  = { temperature = 0.2; max_tokens = 16_384 }
-  let deterministic   = { temperature = 0.0; max_tokens = 4096 }
+  (** Sampling triple unset — convenience base for profiles that do
+      not override [top_p] / [top_k] / [min_p]. Not a standalone
+      profile: [temperature] and [max_tokens] are sentinel zero and
+      must be overridden via record-update. *)
+  let no_sampling_overrides : t =
+    { temperature = 0.0; max_tokens = 0;
+      top_p = None; top_k = None; min_p = None }
+
+  let cascade_default =
+    { no_sampling_overrides with temperature = 0.3; max_tokens = 500 }
+  let agent_default =
+    { no_sampling_overrides with temperature = 0.7; max_tokens = 16_384 }
+  let low_variance =
+    { no_sampling_overrides with temperature = 0.1; max_tokens = 2048 }
+  let worker_default =
+    { no_sampling_overrides with temperature = 0.2; max_tokens = 16_384 }
+  let deterministic =
+    { no_sampling_overrides with temperature = 0.0; max_tokens = 4096 }
 end
 
 (** Backward-compatible aliases — existing callers of
