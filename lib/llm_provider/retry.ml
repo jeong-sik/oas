@@ -134,6 +134,10 @@ let is_retryable = function
     List.exists (fun needle -> contains_substring_ci ~haystack:message ~needle) malformed_json_indicators
   | AuthError _ | ContextOverflow _ -> false
 
+let is_hard_quota = function
+  | RateLimited { message; _ } -> is_hard_quota_message message
+  | _ -> false
+
 (** Extract a human-readable error message from a provider error body.
 
     Supports three common shapes:
@@ -505,6 +509,23 @@ let%test "is_hard_quota_message negative cases" =
   && not (is_hard_quota_message "credit balance OK, 100 tokens remaining")
   && not (is_hard_quota_message "request 1711130000 throttled")
   && not (is_hard_quota_message "")
+
+let%test "is_hard_quota RateLimited positive" =
+  is_hard_quota (RateLimited { retry_after = None;
+    message = "Insufficient balance" })
+
+let%test "is_hard_quota RateLimited transient is false" =
+  not (is_hard_quota (RateLimited { retry_after = Some 1.0;
+    message = "rate limit, retry in 1s" }))
+
+let%test "is_hard_quota non-RateLimited variants are false" =
+  not (is_hard_quota (Overloaded { message = "insufficient balance" }))
+  && not (is_hard_quota (ServerError { status = 500; message = "quota exceeded" }))
+  && not (is_hard_quota (AuthError { message = "invalid key" }))
+  && not (is_hard_quota (NetworkError { message = "connection reset" }))
+  && not (is_hard_quota (Timeout { message = "deadline exceeded" }))
+  && not (is_hard_quota (InvalidRequest { message = "bad input" }))
+  && not (is_hard_quota (ContextOverflow { message = "too long"; limit = None }))
 
 (* classify_error / retry_after alignment: hard-quota 429s must clear
    retry_after so downstream consumers that trust the type field see a

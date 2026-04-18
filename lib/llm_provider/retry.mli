@@ -30,6 +30,19 @@ val is_retryable : api_error -> bool
 val error_message : api_error -> string
 val is_context_overflow_message : string -> bool
 
+(** True when the error represents hard account-level quota exhaustion
+    (balance 0, credit depleted, monthly quota reached, resource exhausted).
+    A retry of the exact same request will never succeed until billing /
+    capacity is restored out-of-band.
+
+    Only [RateLimited] messages are inspected; other variants return [false].
+
+    Consumers (e.g. cascade health trackers) use this to apply an immediate
+    long cooldown instead of transient backoff.
+
+    @since 0.156.0 *)
+val is_hard_quota : api_error -> bool
+
 (** Extract the available context token limit from a context overflow error message.
     Parses both "available context size (N)" and "input token budget exceeded: U/N"
     formats. Returns [None] if the message is not an overflow error or the limit
