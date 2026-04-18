@@ -165,7 +165,23 @@ let glm_capabilities = {
      turns against glm-coding:glm-5.1 and glm:glm-5.1. *)
   max_output_tokens = Some 40_960;
   supports_tools = true;
-  supports_tool_choice = true;
+  (* GLM does not reliably honor tool_choice=required/Any — it frequently
+     returns a text-only response even when the caller sets the field.
+     Observed empirically on 2026-04-18 (MASC cascade vendor_mix_balanced
+     8+ CompletionContractViolation events in a single session against
+     glm-5-turbo / glm-4.7 / glm-5.1 via both glm: and glm-coding: prefix).
+     Cross-reference: BFCL tool-calling benchmarks rank GLM-4.5 at 77 and
+     local ~GLM families at 67 — tool routing works but is unreliable.
+
+     Flipping this to [false] causes
+     [Completion_contract.of_tool_choice ~supports_tool_choice:false]
+     to relax any tool_choice contract to [Allow_text_or_tool], so a
+     text response is accepted without raising
+     [CompletionContractViolation].  [supports_tools = true] remains
+     unchanged — tool DESCRIPTIONS are sent and the model may still
+     emit tool_use blocks when it decides to; we just don't error when
+     it picks text for a request that asked for a forced tool call. *)
+  supports_tool_choice = false;
   supports_reasoning = true;
   supports_extended_thinking = true;
   supports_response_format_json = true;

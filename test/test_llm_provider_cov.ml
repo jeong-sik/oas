@@ -1130,6 +1130,21 @@ let test_gemini_capabilities () =
   Alcotest.(check (option int)) "max_context" (Some 1_000_000) c.max_context_tokens;
   Alcotest.(check (option int)) "max_output" (Some 65_000) c.max_output_tokens
 
+let test_glm_capabilities () =
+  let c = Capabilities.glm_capabilities in
+  (* Tool descriptions are sent and the model can still emit tool_use blocks. *)
+  Alcotest.(check bool) "supports_tools" true c.supports_tools;
+  (* Pin the empirical GLM tool_choice semantics: GLM does not reliably
+     honor tool_choice=required (returns text-only).  This capability must
+     remain [false] so [Completion_contract.of_tool_choice] relaxes any
+     tool_choice contract to [Allow_text_or_tool] and a text response is
+     accepted instead of raising [CompletionContractViolation].
+     Regression guard added after 2026-04-18 incident (8+ violations in
+     a single MASC session against glm-5-turbo / glm-4.7 / glm-5.1). *)
+  Alcotest.(check bool) "supports_tool_choice relaxed" false c.supports_tool_choice;
+  Alcotest.(check (option int)) "200K context" (Some 200_000) c.max_context_tokens;
+  Alcotest.(check (option int)) "40960 output cap" (Some 40_960) c.max_output_tokens
+
 let test_for_model_id_claude_opus_4 () =
   match Capabilities.for_model_id "claude-opus-4-20260101" with
   | Some c ->
@@ -1467,6 +1482,7 @@ let () =
       Alcotest.test_case "openai_chat" `Quick test_openai_chat_capabilities;
       Alcotest.test_case "openai_chat_extended" `Quick test_openai_chat_extended_capabilities;
       Alcotest.test_case "gemini" `Quick test_gemini_capabilities;
+      Alcotest.test_case "glm" `Quick test_glm_capabilities;
     ]);
     ("capabilities.for_model_id", [
       Alcotest.test_case "claude-opus-4" `Quick test_for_model_id_claude_opus_4;
