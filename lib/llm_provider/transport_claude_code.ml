@@ -46,6 +46,30 @@ let default_config = {
 
 (* ── CLI argument building ───────────────────────────── *)
 
+(* Env-driven optional flags (see cli_common_env.mli).  All three are
+   opt-in — unset env means "no flag added", preserving the pre-0.159
+   argument vector.  Intended for callers (e.g. MASC keeper) that want
+   to tighten MCP surface / forbid specific tools without extending the
+   config record.  LSP / hooks / auto-memory stay ON — no --bare here. *)
+let env_extra_args ~(config : config) =
+  let extras = ref [] in
+  let add a = extras := !extras @ a in
+  (* --mcp-config: only used as fallback when config.mcp_config is None.
+     Explicit config wins over env, matching the convention that
+     programmatic wiring overrides ambient environment. *)
+  (match config.mcp_config with
+   | Some _ -> ()
+   | None ->
+     match Cli_common_env.get "OAS_CLAUDE_MCP_CONFIG" with
+     | Some v -> add ["--mcp-config"; v]
+     | None -> ());
+  if Cli_common_env.bool "OAS_CLAUDE_STRICT_MCP" then
+    add ["--strict-mcp-config"];
+  (match Cli_common_env.list "OAS_CLAUDE_DISALLOWED_TOOLS" with
+   | None | Some [] -> ()
+   | Some tools -> List.iter (fun t -> add ["--disallowedTools"; t]) tools);
+  !extras
+
 let build_args ~(config : config) ~(req_config : Provider_config.t)
     ~prompt ~stream ~system_prompt =
   let args = ref ["-p"; prompt] in
@@ -63,6 +87,7 @@ let build_args ~(config : config) ~(req_config : Provider_config.t)
   List.iter (fun t -> add ["--allowedTools"; t]) config.allowed_tools;
   (match config.permission_mode with Some m -> add ["--permission-mode"; m] | None -> ());
   (match config.mcp_config with Some c -> add ["--mcp-config"; c] | None -> ());
+  add (env_extra_args ~config);
   !args
 
 (* ── JSON parsing ────────────────────────────────────── *)
@@ -504,3 +529,61 @@ let%test "parse_stream_result preserves thinking blocks" =
 
 let%test "default_config has tool_use_via_stream_json=true" =
   default_config.tool_use_via_stream_json = true
+
+(* ── env-driven extra args ──────────────────────────── *)
+
+let with_env k v f =
+  let prev = Sys.getenv_opt k in
+  Unix.putenv k v;
+  Fun.protect ~finally:(fun () ->
+    match prev with
+    | None -> (try Unix.putenv k "" with _ -> ())
+    | Some old -> Unix.putenv k old)
+    f
+
+let with_unset k f =
+  let prev = Sys.getenv_opt k in
+  (try Unix.putenv k "" with _ -> ());
+  Fun.protect ~finally:(fun () ->
+    match prev with
+    | None -> ()
+    | Some old -> Unix.putenv k old)
+    f
+
+let sample_req =
+  Provider_config.make ~kind:Claude_code ~model_id:"" ~base_url:"" ()
+
+let%test "env: no vars set → no extra flags" =
+  with_unset "OAS_CLAUDE_STRICT_MCP" (fun () ->
+  with_unset "OAS_CLAUDE_MCP_CONFIG" (fun () ->
+  with_unset "OAS_CLAUDE_DISALLOWED_TOOLS" (fun () ->
+    let args = build_args ~config:default_config ~req_config:sample_req
+      ~prompt:"hi" ~stream:false ~system_prompt:None in
+    not (List.mem "--strict-mcp-config" args)
+    && not (List.mem "--disallowedTools" args))))
+
+let%test "env: OAS_CLAUDE_STRICT_MCP=1 appends --strict-mcp-config" =
+  with_env "OAS_CLAUDE_STRICT_MCP" "1" (fun () ->
+    let args = build_args ~config:default_config ~req_config:sample_req
+      ~prompt:"hi" ~stream:false ~system_prompt:None in
+    List.mem "--strict-mcp-config" args)
+
+let%test "env: MCP_CONFIG fallback only when config.mcp_config is None" =
+  with_env "OAS_CLAUDE_MCP_CONFIG" "/tmp/mcp.json" (fun () ->
+    let args_default = build_args ~config:default_config ~req_config:sample_req
+      ~prompt:"hi" ~stream:false ~system_prompt:None in
+    let explicit_cfg = { default_config with mcp_config = Some "/tmp/explicit.json" } in
+    let args_explicit = build_args ~config:explicit_cfg ~req_config:sample_req
+      ~prompt:"hi" ~stream:false ~system_prompt:None in
+    List.mem "/tmp/mcp.json" args_default
+    && List.mem "/tmp/explicit.json" args_explicit
+    && not (List.mem "/tmp/mcp.json" args_explicit))
+
+let%test "env: DISALLOWED_TOOLS splits on comma" =
+  with_env "OAS_CLAUDE_DISALLOWED_TOOLS" "Bash,Write" (fun () ->
+    let args = build_args ~config:default_config ~req_config:sample_req
+      ~prompt:"hi" ~stream:false ~system_prompt:None in
+    (* Each token emits its own --disallowedTools flag. *)
+    List.mem "--disallowedTools" args
+    && List.mem "Bash" args
+    && List.mem "Write" args)

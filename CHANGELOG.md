@@ -6,6 +6,22 @@ Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
 backfilled on 2026-04-04 from existing git tags. The dates below reflect the
 original tag dates. `0.100.4` was never tagged or released.
 
+## [0.159.0] - 2026-04-18
+
+### Added
+
+- **Env-driven CLI flags for non-interactive transports.** `transport_claude_code`, `transport_codex_cli`, and `transport_gemini_cli` now read a small, opt-in set of `OAS_*` environment variables at `build_args` time and append matching CLI flags. Config records are unchanged; unset env means "no flag added" so existing callers see identical argv. Intended for MASC keeper-style callers that want to tighten MCP / approval surface without a code change.
+  - **Claude Code:** `OAS_CLAUDE_STRICT_MCP=1` → `--strict-mcp-config`; `OAS_CLAUDE_MCP_CONFIG=<file|json>` → `--mcp-config` (only when `config.mcp_config = None`); `OAS_CLAUDE_DISALLOWED_TOOLS="a,b"` → repeated `--disallowedTools` flags. LSP / hooks / auto-memory stay ON — no `--bare`.
+  - **Codex CLI:** `OAS_CODEX_CONFIG="k=v,k2=v2"` → `-c k=v -c k2=v2` (the only way to toggle MCP / hooks / sandbox at the Codex boundary); `OAS_CODEX_SANDBOX=read-only|workspace-write|danger-full-access` → `-s`; `OAS_CODEX_PROFILE=<name>` → `-p`; `OAS_CODEX_SKIP_GIT=1` → `--skip-git-repo-check`.
+  - **Gemini CLI:** `OAS_GEMINI_NO_MCP=1` → `--allowed-mcp-server-names ""` (empty whitelist = all MCP OFF); `OAS_GEMINI_ALLOWED_MCP="a,b"` → per-server whitelist; `OAS_GEMINI_APPROVAL_MODE=default|auto_edit|yolo|plan` → `--approval-mode` (supersedes `config.yolo` when set); `OAS_GEMINI_EXTENSIONS="a,b"` → repeated `-e` flags.
+- `lib/llm_provider/cli_common_env.{ml,mli}` centralises env parsing (`get`, `bool`, `list`, `kv_pairs`) so the three transports agree on truthy values and splitting rules.
+
+### Notes
+
+- Gemini CLI has no runtime flag to disable hooks — hook lifecycle remains governed by the `gemini hooks` subcommand, outside transport scope.
+- Codex CLI exposes no dedicated `--no-mcp` / `--no-hooks` flags; every toggle there flows through `-c key=value` TOML overrides.
+- The stale "Gemini CLI does not yet expose flags for any of them" comment in `transport_gemini_cli.ml` was corrected — the parity config fields (`mcp_config` / `allowed_tools` / `max_turns` / `permission_mode`) are still unused because wiring them directly would silently reinterpret existing callers. Use the env vars above instead.
+
 ## [0.157.1] - 2026-04-18
 
 ### Fixed

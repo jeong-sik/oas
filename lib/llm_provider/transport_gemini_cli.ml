@@ -9,9 +9,13 @@ type config = {
   cwd: string option;
   (* Fields below are accepted for parity with the Claude Code config
      so callers can target multiple CLI backends with the same
-     structure.  Gemini CLI does not yet expose flags for any of
-     them; setting a non-default value produces a one-shot
-     [Eio.traceln] warning and the value is otherwise ignored. *)
+     structure.  As of Gemini CLI 0.8+, real flags exist for
+     [mcp_config] (via [--allowed-mcp-server-names]) and for the
+     approval surface (via [--approval-mode]); however we deliberately
+     do not bridge these config fields directly — that would silently
+     reinterpret existing callers.  Instead, opt-in env vars in
+     [env_extra_args] below expose the new flags.  The four fields
+     here are still unused and keep their legacy warning semantics. *)
   mcp_config: string option;
   allowed_tools: string list;
   max_turns: int option;
@@ -38,11 +42,46 @@ let default_config = {
 
 (* ── CLI argument building ───────────────────────────── *)
 
+(* Env-driven flags.  All opt-in.
+
+   OAS_GEMINI_ALLOWED_MCP    "a,b" → --allowed-mcp-server-names a
+                                     --allowed-mcp-server-names b
+   OAS_GEMINI_NO_MCP         1     → --allowed-mcp-server-names ""
+                                     (whitelist = empty ⇒ all MCP OFF;
+                                      takes precedence over the list)
+   OAS_GEMINI_APPROVAL_MODE  default|auto_edit|yolo|plan
+                                   → --approval-mode <v>
+                                     (when set, supersedes [config.yolo])
+   OAS_GEMINI_EXTENSIONS     "a,b" → -e a -e b
+
+   Gemini CLI has no runtime flag to disable hooks — hook lifecycle is
+   controlled via the [gemini hooks] subcommand, outside transport
+   scope. *)
+let env_extra_args () =
+  let extras = ref [] in
+  let add a = extras := !extras @ a in
+  if Cli_common_env.bool "OAS_GEMINI_NO_MCP" then
+    add ["--allowed-mcp-server-names"; ""]
+  else
+    (match Cli_common_env.list "OAS_GEMINI_ALLOWED_MCP" with
+     | None | Some [] -> ()
+     | Some names ->
+       List.iter (fun n -> add ["--allowed-mcp-server-names"; n]) names);
+  (match Cli_common_env.list "OAS_GEMINI_EXTENSIONS" with
+   | None | Some [] -> ()
+   | Some names -> List.iter (fun n -> add ["-e"; n]) names);
+  !extras
+
 let build_args ~(config : config) ~(req_config : Provider_config.t)
     ~prompt ~system_prompt =
   let args = ref [config.gemini_path; "--output-format"; "json"; "-p"; prompt] in
   let add a = args := !args @ a in
-  if config.yolo then add ["--yolo"];
+  (* Approval mode: env var wins over [config.yolo] when set, so keeper
+     can demote a transport from yolo → plan without a code change. *)
+  (match Cli_common_env.get "OAS_GEMINI_APPROVAL_MODE" with
+   | Some m -> add ["--approval-mode"; m]
+   | None ->
+     if config.yolo then add ["--yolo"]);
   (* "auto" means "use the CLI's configured default", so omit [--model]. *)
   let model = match String.trim req_config.model_id |> String.lowercase_ascii with
     | "" | "auto" -> config.model
@@ -50,6 +89,7 @@ let build_args ~(config : config) ~(req_config : Provider_config.t)
   in
   (match model with Some m -> add ["--model"; m] | None -> ());
   (match system_prompt with Some s -> add ["--system-prompt"; s] | None -> ());
+  add (env_extra_args ());
   !args
 
 (* ── JSON parsing ────────────────────────────────────── *)
@@ -294,3 +334,69 @@ let%test "parse_json_result invalid json" =
   match parse_json_result "not json" with
   | Error _ -> true
   | Ok _ -> false
+
+(* ── env-driven extra args ──────────────────────────── *)
+
+let with_env k v f =
+  let prev = Sys.getenv_opt k in
+  Unix.putenv k v;
+  Fun.protect ~finally:(fun () ->
+    match prev with
+    | None -> (try Unix.putenv k "" with _ -> ())
+    | Some old -> Unix.putenv k old)
+    f
+
+let with_unset k f =
+  let prev = Sys.getenv_opt k in
+  (try Unix.putenv k "" with _ -> ());
+  Fun.protect ~finally:(fun () ->
+    match prev with
+    | None -> ()
+    | Some old -> Unix.putenv k old)
+    f
+
+let gemini_req =
+  Provider_config.make ~kind:Gemini_cli ~model_id:"" ~base_url:"" ()
+
+let%test "env: approval-mode supersedes config.yolo" =
+  with_env "OAS_GEMINI_APPROVAL_MODE" "plan" (fun () ->
+    let args = build_args ~config:default_config ~req_config:gemini_req
+      ~prompt:"hi" ~system_prompt:None in
+    List.mem "--approval-mode" args
+    && List.mem "plan" args
+    && not (List.mem "--yolo" args))
+
+let%test "env: OAS_GEMINI_NO_MCP disables all MCP via empty whitelist" =
+  with_env "OAS_GEMINI_NO_MCP" "1" (fun () ->
+    let args = build_args ~config:default_config ~req_config:gemini_req
+      ~prompt:"hi" ~system_prompt:None in
+    let rec has_pair = function
+      | "--allowed-mcp-server-names" :: "" :: _ -> true
+      | _ :: rest -> has_pair rest
+      | [] -> false
+    in
+    has_pair args)
+
+let%test "env: OAS_GEMINI_ALLOWED_MCP whitelist" =
+  with_env "OAS_GEMINI_ALLOWED_MCP" "alpha,beta" (fun () ->
+    let args = build_args ~config:default_config ~req_config:gemini_req
+      ~prompt:"hi" ~system_prompt:None in
+    List.mem "alpha" args && List.mem "beta" args)
+
+let%test "env: OAS_GEMINI_EXTENSIONS splits on comma" =
+  with_env "OAS_GEMINI_EXTENSIONS" "ext-a,ext-b" (fun () ->
+    let args = build_args ~config:default_config ~req_config:gemini_req
+      ~prompt:"hi" ~system_prompt:None in
+    List.mem "-e" args && List.mem "ext-a" args && List.mem "ext-b" args)
+
+let%test "env: no vars → legacy behavior preserved (yolo kept)" =
+  with_unset "OAS_GEMINI_ALLOWED_MCP" (fun () ->
+  with_unset "OAS_GEMINI_APPROVAL_MODE" (fun () ->
+  with_unset "OAS_GEMINI_EXTENSIONS" (fun () ->
+  with_unset "OAS_GEMINI_NO_MCP" (fun () ->
+    let args = build_args ~config:default_config ~req_config:gemini_req
+      ~prompt:"hi" ~system_prompt:None in
+    (* default_config.yolo = true, so --yolo must appear. *)
+    List.mem "--yolo" args
+    && not (List.mem "--approval-mode" args)
+    && not (List.mem "--allowed-mcp-server-names" args)))))
