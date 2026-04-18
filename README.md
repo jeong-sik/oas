@@ -57,6 +57,29 @@ Why this can feel hidden:
 - Codex exposes runtime policy through generic `-c key=value` overrides instead of a dedicated `--no-mcp` flag.
 - Gemini is the clearest: runtime MCP exposure is controlled by `--allowed-mcp-server-names`.
 
+### Codex sandbox cheat sheet
+
+This is **Codex CLI's own sandbox flag**, not MASC keeper Docker sandbox.
+
+Use these three levels:
+
+- `OAS_CODEX_SANDBOX=read-only`: inspect / grep / diagnosis only
+- `OAS_CODEX_SANDBOX=workspace-write`: normal local coding
+- `OAS_CODEX_SANDBOX=danger-full-access`: last resort
+
+Examples:
+
+```bash
+# safest explicit Codex run
+OAS_CODEX_SANDBOX=read-only dune exec ./examples/review_agent.exe -- org/repo 123
+
+# normal editing run
+OAS_CODEX_SANDBOX=workspace-write dune exec ./examples/review_agent.exe -- org/repo 123
+```
+
+If `OAS_CODEX_SANDBOX` is unset, OAS does not add `-s`; only MCP-off
+(`-c mcp_servers={}`) remains forced by default.
+
 Examples:
 
 ```bash
