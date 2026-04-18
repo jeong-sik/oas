@@ -89,10 +89,23 @@ let mk_event ?correlation_id ?run_id payload =
 
 type filter = event -> bool
 
+type backpressure_policy =
+  | Block
+  | Drop_oldest
+  | Drop_newest
+
 type subscription = {
   id: int;
   stream: event Eio.Stream.t;
   filter: filter;
+  purpose: string option;
+  published_total: int Atomic.t;
+  drained_total: int Atomic.t;
+  dropped_total: int Atomic.t;
+  (* Serializes Drop_* delivery so (length-check, evict, add) is atomic
+     w.r.t. other publishers. Drain is not blocked — [take_nonblocking]
+     on an empty stream simply returns None. Unused under [Block]. *)
+  deliver_mu: Eio.Mutex.t;
 }
 
 (* ── Bus ──────────────────────────────────────────────────────────── *)
@@ -102,13 +115,19 @@ type t = {
   mutable next_id: int;
   mu: Eio.Mutex.t;
   buffer_size: int;
+  policy: backpressure_policy;
+  (* Nanosecond accumulator (monotonic int add); exposed as float seconds
+     via [stats] to avoid float accumulation drift across publishers. *)
+  block_nanos_total: int Atomic.t;
 }
 
-let create ?(buffer_size = 256) () = {
+let create ?(buffer_size = 256) ?(policy = Block) () = {
   subscribers = [];
   next_id = 0;
   mu = Eio.Mutex.create ();
   buffer_size;
+  policy;
+  block_nanos_total = Atomic.make 0;
 }
 
 (* ── Filters ──────────────────────────────────────────────────────── *)
@@ -164,11 +183,17 @@ let filter_all (filters : filter list) : filter = fun event ->
 
 (* ── Subscribe / unsubscribe ──────────────────────────────────────── *)
 
-let subscribe ?(filter = accept_all) bus =
+let subscribe ?(filter = accept_all) ?purpose bus =
   let stream = Eio.Stream.create bus.buffer_size in
   Eio.Mutex.use_rw ~protect:true bus.mu (fun () ->
     let id = bus.next_id in
-    let sub = { id; stream; filter } in
+    let sub = {
+      id; stream; filter; purpose;
+      published_total = Atomic.make 0;
+      drained_total = Atomic.make 0;
+      dropped_total = Atomic.make 0;
+      deliver_mu = Eio.Mutex.create ();
+    } in
     bus.subscribers <- sub :: bus.subscribers;
     bus.next_id <- id + 1;
     sub)
@@ -179,6 +204,52 @@ let unsubscribe bus sub =
 
 (* ── Publish ──────────────────────────────────────────────────────── *)
 
+(* Deliver one event to one subscriber under the configured policy.
+
+   [Eio.Stream] does not expose a non-blocking add. We emulate one by
+   serializing Drop_* delivery per-subscriber with [deliver_mu] and
+   using [Stream.length] as the fullness gate. Drain still uses
+   [take_nonblocking] without taking the mutex — it only widens the
+   gap, never narrows it. *)
+let deliver_to_sub bus sub event =
+  Atomic.incr sub.published_total;
+  match bus.policy with
+  | Block ->
+    (* Measure time spent blocked only if the stream is actually full.
+       [Eio.Stream.add] is non-blocking when space is available, so the
+       common case skips the clock read entirely. *)
+    if Eio.Stream.length sub.stream >= bus.buffer_size then begin
+      let t0 = Unix.gettimeofday () in
+      Eio.Stream.add sub.stream event;
+      let dt = Unix.gettimeofday () -. t0 in
+      let ns = Int.of_float (dt *. 1e9) in
+      if ns > 0 then
+        ignore (Atomic.fetch_and_add bus.block_nanos_total ns)
+    end else
+      Eio.Stream.add sub.stream event
+  | Drop_oldest ->
+    Eio.Mutex.use_rw ~protect:true sub.deliver_mu (fun () ->
+      if Eio.Stream.length sub.stream >= bus.buffer_size then begin
+        (* Evict one oldest. take_nonblocking can race with an external
+           drainer; tolerate [None] by dropping the new event instead. *)
+        match Eio.Stream.take_nonblocking sub.stream with
+        | Some _ ->
+          Atomic.incr sub.dropped_total;
+          (* Add is safe now: we hold deliver_mu, no other publisher can
+             refill this sub's slot concurrently, and length decreased. *)
+          Eio.Stream.add sub.stream event
+        | None ->
+          (* Rare: drainer emptied the queue. Just add. *)
+          Eio.Stream.add sub.stream event
+      end else
+        Eio.Stream.add sub.stream event)
+  | Drop_newest ->
+    Eio.Mutex.use_rw ~protect:true sub.deliver_mu (fun () ->
+      if Eio.Stream.length sub.stream >= bus.buffer_size then
+        Atomic.incr sub.dropped_total
+      else
+        Eio.Stream.add sub.stream event)
+
 let publish bus event =
   (* Snapshot subscriber list under lock, then deliver outside lock.
      Stream.add can block on a full stream — holding the lock would
@@ -186,7 +257,7 @@ let publish bus event =
   let subs = Eio.Mutex.use_ro bus.mu (fun () -> bus.subscribers) in
   List.iter (fun sub ->
     if sub.filter event then
-      Eio.Stream.add sub.stream event
+      deliver_to_sub bus sub event
   ) subs
 
 (* ── Drain ────────────────────────────────────────────────────────── *)
@@ -194,7 +265,9 @@ let publish bus event =
 let drain sub =
   let rec collect acc =
     match Eio.Stream.take_nonblocking sub.stream with
-    | Some event -> collect (event :: acc)
+    | Some event ->
+      Atomic.incr sub.drained_total;
+      collect (event :: acc)
     | None -> List.rev acc
   in
   collect []
@@ -203,3 +276,35 @@ let drain sub =
 
 let subscriber_count bus =
   Eio.Mutex.use_ro bus.mu (fun () -> List.length bus.subscribers)
+
+type subscription_stats = {
+  purpose: string option;
+  depth: int;
+  published_total: int;
+  drained_total: int;
+  dropped_total: int;
+}
+
+type bus_stats = {
+  subscriber_count: int;
+  subscriptions: subscription_stats list;
+  total_publish_blocked_seconds: float;
+}
+
+let stats bus =
+  let subs = Eio.Mutex.use_ro bus.mu (fun () -> bus.subscribers) in
+  let subscriptions = List.map (fun (sub : subscription) ->
+    ({
+       purpose = sub.purpose;
+       depth = Eio.Stream.length sub.stream;
+       published_total = Atomic.get sub.published_total;
+       drained_total = Atomic.get sub.drained_total;
+       dropped_total = Atomic.get sub.dropped_total;
+     } : subscription_stats)
+  ) subs in
+  let ns = Atomic.get bus.block_nanos_total in
+  ({
+    subscriber_count = List.length subs;
+    subscriptions;
+    total_publish_blocked_seconds = Float.of_int ns /. 1e9;
+  } : bus_stats)
