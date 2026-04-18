@@ -31,9 +31,13 @@ let ( let* ) = Result.bind
 let catch_network f =
   try f ()
   with
+  | End_of_file ->
+      Error (NetworkError { message = "End_of_file" })
   | Eio.Io _ as exn ->
       Error (NetworkError { message = Printexc.to_string exn })
   | Unix.Unix_error _ as exn ->
+      Error (NetworkError { message = Printexc.to_string exn })
+  | Sys_error _ as exn ->
       Error (NetworkError { message = Printexc.to_string exn })
   | Failure msg ->
       Error (NetworkError { message = msg })
@@ -318,6 +322,19 @@ let inject_stream_param body_str =
   | exception Yojson.Json_error _ -> body_str
 
 [@@@coverage off]
+(* ── catch_network tests ─────────────────────────────── *)
+
+let%test "catch_network maps End_of_file to NetworkError" =
+  match catch_network (fun () -> raise End_of_file) with
+  | Error (NetworkError { message }) -> message = "End_of_file"
+  | _ -> false
+
+let%test "catch_network maps Sys_error to NetworkError" =
+  match catch_network (fun () -> raise (Sys_error "broken pipe")) with
+  | Error (NetworkError { message }) ->
+      has_substr (String.lowercase_ascii message) "broken pipe"
+  | _ -> false
+
 (* ── is_local_resource_exhaustion tests ──────────────── *)
 
 let%test "resource exhaustion: EADDRNOTAVAIL via Eio" =
