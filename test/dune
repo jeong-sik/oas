@@ -51,6 +51,10 @@
  (libraries agent_sdk alcotest yojson))
 
 (test
+ (name test_agent_pipeline)
+ (libraries agent_sdk alcotest yojson eio eio_main cohttp-eio))
+
+(test
  (name test_approval)
  (libraries agent_sdk alcotest yojson eio eio_main))
 
