@@ -63,6 +63,7 @@ let test_payload_to_json () =
     agent_name = Some "alice";
     correlation_id = "c1";
     run_id = "r1";
+    caused_by = None;
     data = `Assoc [("key", `String "val")];
   } in
   let json = Event_forward.payload_to_json p in
@@ -294,7 +295,7 @@ let test_tool_completed_error_payload () =
 let test_payload_to_json_no_agent () =
   let p : Event_forward.event_payload = {
     event_type = "test"; timestamp = 1.0; agent_name = None;
-    correlation_id = "c1"; run_id = "r1";
+    correlation_id = "c1"; run_id = "r1"; caused_by = None;
     data = `Assoc [("x", `Int 1)]; } in
   let json = Event_forward.payload_to_json p in
   let open Yojson.Safe.Util in
@@ -305,12 +306,50 @@ let test_payload_to_json_no_agent () =
 let test_payload_to_json_with_agent () =
   let p : Event_forward.event_payload = {
     event_type = "test"; timestamp = 1.0; agent_name = Some "bot";
-    correlation_id = "c1"; run_id = "r1";
+    correlation_id = "c1"; run_id = "r1"; caused_by = None;
     data = `Null; } in
   let json = Event_forward.payload_to_json p in
   let open Yojson.Safe.Util in
   Alcotest.(check string) "agent" "bot"
     (json |> member "agent_name" |> to_string)
+
+(* ── caused_by roundtrip (#877) ─────────────────────────── *)
+
+let test_payload_caused_by_none_omitted () =
+  let p : Event_forward.event_payload = {
+    event_type = "test"; timestamp = 1.0; agent_name = None;
+    correlation_id = "c1"; run_id = "r1"; caused_by = None;
+    data = `Null; } in
+  let json = Event_forward.payload_to_json p in
+  let open Yojson.Safe.Util in
+  let keys = json |> to_assoc |> List.map fst in
+  Alcotest.(check bool) "caused_by omitted when None"
+    false (List.mem "caused_by" keys)
+
+let test_payload_caused_by_some_present () =
+  let p : Event_forward.event_payload = {
+    event_type = "test"; timestamp = 1.0; agent_name = None;
+    correlation_id = "c1"; run_id = "r1";
+    caused_by = Some "parent-42";
+    data = `Null; } in
+  let json = Event_forward.payload_to_json p in
+  let open Yojson.Safe.Util in
+  Alcotest.(check string) "caused_by serialised"
+    "parent-42" (json |> member "caused_by" |> to_string)
+
+let test_event_to_payload_copies_caused_by () =
+  (* Construct an event whose envelope has caused_by = Some "p" and
+     verify the forwarding payload preserves it. *)
+  let ev =
+    Event_bus.mk_event
+      ~correlation_id:"sess-1" ~run_id:"run-child"
+      ~caused_by:"run-parent"
+      (Event_bus.TurnStarted { agent_name = "a"; turn = 1 })
+  in
+  let p = Event_forward.event_to_payload ev in
+  Alcotest.(check (option string))
+    "payload.caused_by mirrors envelope"
+    (Some "run-parent") p.caused_by
 
 (* ── Runner ───────────────────────────────────────────────────── *)
 
@@ -332,6 +371,12 @@ let () =
       Alcotest.test_case "tool_completed error" `Quick test_tool_completed_error_payload;
       Alcotest.test_case "payload no agent" `Quick test_payload_to_json_no_agent;
       Alcotest.test_case "payload with agent" `Quick test_payload_to_json_with_agent;
+      Alcotest.test_case "caused_by=None omitted from JSON"
+        `Quick test_payload_caused_by_none_omitted;
+      Alcotest.test_case "caused_by=Some serialised"
+        `Quick test_payload_caused_by_some_present;
+      Alcotest.test_case "event_to_payload copies caused_by"
+        `Quick test_event_to_payload_copies_caused_by;
     ];
     "file_target", [
       Alcotest.test_case "append" `Quick test_file_append_target;
