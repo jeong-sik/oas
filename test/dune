@@ -329,3 +329,7 @@
 (test
  (name test_multivendor_events)
  (libraries agent_sdk alcotest yojson eio eio_main))
+
+(test
+ (name test_memory_advanced)
+ (libraries agent_sdk alcotest eio eio_main qcheck-core qcheck-alcotest))
