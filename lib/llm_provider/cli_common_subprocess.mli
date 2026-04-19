@@ -32,10 +32,12 @@ val run_collect :
 
     - [name] is used in error messages and the default
       [on_stderr_line] prefix.
-    - [cwd]: when [Some dir], [PWD=dir] is prepended to the env. The
-      CLI still launches from the parent's CWD; callers relying on
-      process CWD should embed an explicit [--cwd]-like flag in
-      [argv].
+    - [cwd]: when [Some dir], the child runs with [dir] as its OS-level
+      working directory (via an [env -C dir] argv prefix) and with
+      [PWD=dir] in its environment. Child tools that resolve project
+      config from cwd (e.g. claude / codex / gemini discovering
+      [.claude/] / [.codex/] / [.gemini/]) see [dir], not the parent's
+      cwd. Blank strings are treated as [None].
     - [extra_env]: additional [KEY=VAL] pairs prepended to the env.
     - [on_stderr_line]: called for every stderr line as it arrives.
       Defaults to {!default_on_stderr_line}, which forwards to
