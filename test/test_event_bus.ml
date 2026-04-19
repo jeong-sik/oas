@@ -333,6 +333,133 @@ let test_mk_envelope_explicit () =
   check string "correlation_id" "c" env.correlation_id;
   check string "run_id" "r" env.run_id
 
+(* ── Backpressure policy ──────────────────────────────────────────── *)
+
+(** [Block] policy is the default and preserves legacy semantics. *)
+let test_default_policy_is_block () =
+  Eio_main.run @@ fun _env ->
+  (* Block is only observable indirectly: with a 1-slot buffer and no
+     drain, a second publish would block. We don't exercise that here
+     (would need a fiber); we just confirm that default [create]
+     behaves the same as the old API — drop counters stay at 0. *)
+  let bus = Event_bus.create ~buffer_size:2 () in
+  let sub = Event_bus.subscribe bus in
+  Event_bus.publish bus (ev (Event_bus.TurnStarted { agent_name = "a"; turn = 1 }));
+  Event_bus.publish bus (ev (Event_bus.TurnStarted { agent_name = "a"; turn = 2 }));
+  let s = Event_bus.stats bus in
+  (match s.subscriptions with
+   | [ss] ->
+     check int "no drops under Block (not full)" 0 ss.dropped_total;
+     check int "published_total" 2 ss.published_total;
+     check int "depth 2" 2 ss.depth
+   | _ -> fail "expected exactly one subscription");
+  let _ = Event_bus.drain sub in
+  ()
+
+(** [Drop_oldest] evicts the queue head when full. *)
+let test_drop_oldest_policy () =
+  Eio_main.run @@ fun _env ->
+  let bus = Event_bus.create ~buffer_size:2 ~policy:Event_bus.Drop_oldest () in
+  let sub = Event_bus.subscribe bus in
+  Event_bus.publish bus (ev (Event_bus.TurnStarted { agent_name = "a"; turn = 1 }));
+  Event_bus.publish bus (ev (Event_bus.TurnStarted { agent_name = "a"; turn = 2 }));
+  (* Third event must evict turn=1, keep turn=2 and turn=3. *)
+  Event_bus.publish bus (ev (Event_bus.TurnStarted { agent_name = "a"; turn = 3 }));
+  let events = Event_bus.drain sub in
+  check int "drained 2 events (one dropped)" 2 (List.length events);
+  let turns =
+    List.filter_map
+      (fun e -> match e.Event_bus.payload with
+         | Event_bus.TurnStarted r -> Some r.turn
+         | _ -> None)
+      events
+  in
+  check (list int) "turn=1 was dropped, 2 and 3 remain" [2; 3] turns;
+  let s = Event_bus.stats bus in
+  (match s.subscriptions with
+   | [ss] -> check int "dropped_total=1" 1 ss.dropped_total
+   | _ -> fail "one subscription")
+
+(** [Drop_newest] keeps the existing queue and drops incoming events. *)
+let test_drop_newest_policy () =
+  Eio_main.run @@ fun _env ->
+  let bus = Event_bus.create ~buffer_size:2 ~policy:Event_bus.Drop_newest () in
+  let sub = Event_bus.subscribe bus in
+  Event_bus.publish bus (ev (Event_bus.TurnStarted { agent_name = "a"; turn = 1 }));
+  Event_bus.publish bus (ev (Event_bus.TurnStarted { agent_name = "a"; turn = 2 }));
+  (* Buffer is full; this event must be dropped. *)
+  Event_bus.publish bus (ev (Event_bus.TurnStarted { agent_name = "a"; turn = 3 }));
+  let events = Event_bus.drain sub in
+  let turns =
+    List.filter_map
+      (fun e -> match e.Event_bus.payload with
+         | Event_bus.TurnStarted r -> Some r.turn
+         | _ -> None)
+      events
+  in
+  check (list int) "turn 1 and 2 remain, 3 dropped" [1; 2] turns;
+  let s = Event_bus.stats bus in
+  (match s.subscriptions with
+   | [ss] ->
+     check int "dropped_total=1" 1 ss.dropped_total;
+     check int "published_total=3" 3 ss.published_total
+   | _ -> fail "one subscription")
+
+(* ── Stats shape ──────────────────────────────────────────────────── *)
+
+let test_stats_initial_shape () =
+  Eio_main.run @@ fun _env ->
+  let bus = Event_bus.create () in
+  let s = Event_bus.stats bus in
+  check int "no subscribers" 0 s.subscriber_count;
+  check int "empty subscriptions list" 0 (List.length s.subscriptions);
+  check (float 0.0) "blocked seconds = 0" 0.0 s.total_publish_blocked_seconds
+
+let test_stats_tracks_counts () =
+  Eio_main.run @@ fun _env ->
+  let bus = Event_bus.create () in
+  let sub = Event_bus.subscribe bus in
+  Event_bus.publish bus (ev (Event_bus.TurnStarted { agent_name = "a"; turn = 1 }));
+  Event_bus.publish bus (ev (Event_bus.TurnStarted { agent_name = "a"; turn = 2 }));
+  let s1 = Event_bus.stats bus in
+  (match s1.subscriptions with
+   | [ss] ->
+     check int "depth=2 before drain" 2 ss.depth;
+     check int "published_total=2" 2 ss.published_total;
+     check int "drained_total=0" 0 ss.drained_total
+   | _ -> fail "one sub");
+  let _ = Event_bus.drain sub in
+  let s2 = Event_bus.stats bus in
+  match s2.subscriptions with
+  | [ss] ->
+    check int "depth=0 after drain" 0 ss.depth;
+    check int "drained_total=2" 2 ss.drained_total
+  | _ -> fail "one sub"
+
+(* ── Purpose label ────────────────────────────────────────────────── *)
+
+let test_subscribe_purpose_surfaces_in_stats () =
+  Eio_main.run @@ fun _env ->
+  let bus = Event_bus.create () in
+  let _s1 = Event_bus.subscribe ~purpose:"sse_bridge" bus in
+  let _s2 = Event_bus.subscribe bus in
+  let s = Event_bus.stats bus in
+  let purposes =
+    List.map (fun (ss : Event_bus.subscription_stats) -> ss.purpose) s.subscriptions
+  in
+  (* Subscribers are prepended, so newest first. *)
+  check (list (option string)) "purposes match insertion order"
+    [None; Some "sse_bridge"] purposes
+
+let test_subscribe_without_purpose_defaults_none () =
+  Eio_main.run @@ fun _env ->
+  let bus = Event_bus.create () in
+  let _sub = Event_bus.subscribe bus in
+  let s = Event_bus.stats bus in
+  match s.subscriptions with
+  | [ss] -> check (option string) "purpose=None" None ss.purpose
+  | _ -> fail "one sub"
+
 (* ── Suite ────────────────────────────────────────────────────────── *)
 
 let () =
@@ -379,5 +506,24 @@ let () =
       test_case "fresh_id unique" `Quick test_fresh_id_unique;
       test_case "mk_envelope defaults" `Quick test_mk_envelope_defaults;
       test_case "mk_envelope explicit" `Quick test_mk_envelope_explicit;
+    ];
+    "purpose", [
+      test_case "subscribe ~purpose surfaces in stats" `Quick
+        test_subscribe_purpose_surfaces_in_stats;
+      test_case "subscribe without purpose defaults None" `Quick
+        test_subscribe_without_purpose_defaults_none;
+    ];
+    "backpressure_policy", [
+      test_case "default policy is Block" `Quick
+        test_default_policy_is_block;
+      test_case "Drop_oldest evicts queue head when full" `Quick
+        test_drop_oldest_policy;
+      test_case "Drop_newest keeps queue when full" `Quick
+        test_drop_newest_policy;
+    ];
+    "stats", [
+      test_case "initial shape" `Quick test_stats_initial_shape;
+      test_case "tracks publish/drain/drop counts" `Quick
+        test_stats_tracks_counts;
     ];
   ]
