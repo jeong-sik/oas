@@ -129,6 +129,24 @@ let test_handoff_emits_request_and_completion () =
           transfer_to_* tool call arguments, not the parent prompt. *)
        check string "reason carries sub-prompt" "sub" reason
      | _ -> fail "expected HandoffRequested payload");
+    (* Causation chain (#877): HandoffCompleted.caused_by must point
+       at the HandoffRequested envelope that opened the handoff.
+       HandoffRequested itself is the chain root. *)
+    let requested =
+      try List.find (fun e ->
+        Event_forward.event_type_name e = "handoff.requested") events
+      with Not_found -> fail "HandoffRequested missing"
+    in
+    let completed =
+      try List.find (fun e ->
+        Event_forward.event_type_name e = "handoff.completed") events
+      with Not_found -> fail "HandoffCompleted missing"
+    in
+    check (option string) "HandoffRequested.caused_by is None (root)"
+      None requested.meta.caused_by;
+    check (option string)
+      "HandoffCompleted.caused_by points at requested.run_id"
+      (Some requested.meta.run_id) completed.meta.caused_by;
     Eio.Switch.fail sw Exit
   with Exit -> ()
 
