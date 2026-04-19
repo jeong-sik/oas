@@ -1,13 +1,8 @@
-(** Agent state checkpoint — versioned JSON serialization.
-
-    Captures the full conversation state (messages, usage, config) as a
-    pure value for callers that want to persist and later restore agent
-    state.  This module only handles serialization; file I/O and resume
-    orchestration are left to the caller. *)
-
 open Types
 
-type t = Checkpoint_types.t = {
+let checkpoint_version = 4
+
+type t = {
   version: int;
   session_id: string;
   agent_name: string;
@@ -35,20 +30,20 @@ type t = Checkpoint_types.t = {
   working_context: Yojson.Safe.t option;
 }
 
-type message_splice = Checkpoint_types.message_splice = {
+type message_splice = {
   start_index: int;
   delete_count: int;
   insert: message list;
 }
 
-type identity_patch = Checkpoint_types.identity_patch = {
+type identity_patch = {
   session_id: string;
   agent_name: string;
   model: model;
   created_at: float;
 }
 
-type sampling_patch = Checkpoint_types.sampling_patch = {
+type sampling_patch = {
   temperature: float option;
   top_p: float option;
   top_k: int option;
@@ -57,7 +52,7 @@ type sampling_patch = Checkpoint_types.sampling_patch = {
   thinking_budget: int option;
 }
 
-type limits_patch = Checkpoint_types.limits_patch = {
+type limits_patch = {
   disable_parallel_tool_use: bool;
   response_format_json: bool;
   cache_system_prompt: bool;
@@ -65,7 +60,7 @@ type limits_patch = Checkpoint_types.limits_patch = {
   max_total_tokens: int option;
 }
 
-type delta_op = Checkpoint_types.delta_op =
+type delta_op =
   | Replace_identity of identity_patch
   | Replace_system_prompt of string option
   | Splice_messages of message_splice
@@ -79,7 +74,7 @@ type delta_op = Checkpoint_types.delta_op =
   | Replace_mcp_sessions of Mcp_session.info list
   | Replace_working_context of Yojson.Safe.t option
 
-type delta = Checkpoint_types.delta = {
+type delta = {
   delta_version: int;
   base_checkpoint_version: int;
   base_checkpoint_hash: string;
@@ -88,30 +83,11 @@ type delta = Checkpoint_types.delta = {
   operations: delta_op list;
 }
 
-type delta_restore_mode = Checkpoint_types.delta_restore_mode =
+type delta_restore_mode =
   | Delta_applied
   | Full_restore
 
-type delta_restore_result = Checkpoint_types.delta_restore_result = {
+type delta_restore_result = {
   checkpoint: t;
   mode: delta_restore_mode;
 }
-
-let checkpoint_version = Checkpoint_types.checkpoint_version
-
-let usage_to_json = Checkpoint_codec.usage_to_json
-let usage_of_json = Checkpoint_codec.usage_of_json
-let to_json = Checkpoint_codec.to_json
-let of_json = Checkpoint_codec.of_json
-let to_string = Checkpoint_codec.to_string
-let of_string = Checkpoint_codec.of_string
-let delta_to_json = Checkpoint_codec.delta_to_json
-let delta_of_json = Checkpoint_codec.delta_of_json
-
-let delta_enabled = Checkpoint_delta.delta_enabled
-let compute_delta = Checkpoint_delta.compute_delta
-let apply_delta = Checkpoint_delta.apply_delta
-let restore_with_delta_fallback = Checkpoint_delta.restore_with_delta_fallback
-
-let message_count cp = List.length cp.messages
-let token_usage cp = cp.usage
