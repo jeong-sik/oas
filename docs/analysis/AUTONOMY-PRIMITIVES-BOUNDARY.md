@@ -44,5 +44,5 @@ The intended shape is:
 5. On the next attempt, inject retrieved lesson text via
    `Hooks.BeforeTurnParams.extra_system_context` or `Append_instruction`.
 
-That gives consumers a safe autonomy substrate without changing `Agent`,
-`Builder`, or `Swarm` semantics.
+That gives consumers a safe autonomy substrate without changing `Agent`
+or `Builder` semantics.
