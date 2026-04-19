@@ -231,6 +231,15 @@ let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tra
                    error = message;
                    schedule;
                  })
+            : Hooks.hook_decision);
+         (* OnToolError: minimal tool-name/error event for consumers that
+            don't need the PostToolUseFailure context (tool_use_id,
+            schedule). Previously the hook type existed but had no emit
+            site — registering [on_tool_error] was a silent no-op (#1029). *)
+         ignore
+           (invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count
+              ~hook_name:"on_tool_error" hooks.on_tool_error
+              (Hooks.OnToolError { tool_name = name; error = message })
             : Hooks.hook_decision)
      | Ok _ -> ());
     let content, is_error, failure_kind = match result with
