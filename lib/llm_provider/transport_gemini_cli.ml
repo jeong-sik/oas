@@ -42,7 +42,8 @@ let default_config = {
 
 (* ── CLI argument building ───────────────────────────── *)
 
-(* Env-driven flags.  All opt-in.
+(* Non-interactive Gemini runs default to MCP OFF by passing an empty
+   MCP whitelist.  Explicit allow-lists can opt back in.
 
    OAS_GEMINI_ALLOWED_MCP    "a,b" → --allowed-mcp-server-names a
                                      --allowed-mcp-server-names b
@@ -64,7 +65,7 @@ let env_extra_args () =
     add ["--allowed-mcp-server-names"; ""]
   else
     (match Cli_common_env.list "OAS_GEMINI_ALLOWED_MCP" with
-     | None | Some [] -> ()
+     | None | Some [] -> add ["--allowed-mcp-server-names"; ""]
      | Some names ->
        List.iter (fun n -> add ["--allowed-mcp-server-names"; n]) names);
   (match Cli_common_env.list "OAS_GEMINI_EXTENSIONS" with
@@ -420,14 +421,19 @@ let%test "env: OAS_GEMINI_EXTENSIONS splits on comma" =
       ~prompt:"hi" ~system_prompt:None in
     List.mem "-e" args && List.mem "ext-a" args && List.mem "ext-b" args)
 
-let%test "env: no vars → legacy behavior preserved (yolo kept)" =
+let%test "default: no vars still keeps MCP disabled" =
   with_unset "OAS_GEMINI_ALLOWED_MCP" (fun () ->
   with_unset "OAS_GEMINI_APPROVAL_MODE" (fun () ->
   with_unset "OAS_GEMINI_EXTENSIONS" (fun () ->
   with_unset "OAS_GEMINI_NO_MCP" (fun () ->
     let args = build_args ~config:default_config ~req_config:gemini_req
       ~prompt:"hi" ~system_prompt:None in
+    let rec has_empty_whitelist = function
+      | "--allowed-mcp-server-names" :: "" :: _ -> true
+      | _ :: rest -> has_empty_whitelist rest
+      | [] -> false
+    in
     (* default_config.yolo = true, so --yolo must appear. *)
     List.mem "--yolo" args
     && not (List.mem "--approval-mode" args)
-    && not (List.mem "--allowed-mcp-server-names" args)))))
+    && has_empty_whitelist args))))
