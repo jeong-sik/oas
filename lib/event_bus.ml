@@ -15,6 +15,7 @@ type envelope = {
   correlation_id: string;
   run_id: string;
   ts: float;
+  caused_by: string option;
 }
 
 (* ── Payload type ─────────────────────────────────────────────────── *)
@@ -77,13 +78,13 @@ let fresh_id () =
   let now_us = Int.of_float (Unix.gettimeofday () *. 1e6) in
   Printf.sprintf "%x-%x-%x" (Unix.getpid ()) now_us n
 
-let mk_envelope ?correlation_id ?run_id () =
+let mk_envelope ?correlation_id ?run_id ?caused_by () =
   let correlation_id = match correlation_id with Some id -> id | None -> fresh_id () in
   let run_id = match run_id with Some id -> id | None -> fresh_id () in
-  { correlation_id; run_id; ts = Unix.gettimeofday () }
+  { correlation_id; run_id; ts = Unix.gettimeofday (); caused_by }
 
-let mk_event ?correlation_id ?run_id payload =
-  { meta = mk_envelope ?correlation_id ?run_id (); payload }
+let mk_event ?correlation_id ?run_id ?caused_by payload =
+  { meta = mk_envelope ?correlation_id ?run_id ?caused_by (); payload }
 
 (* ── Subscription ─────────────────────────────────────────────────── *)
 

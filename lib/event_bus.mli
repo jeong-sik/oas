@@ -15,6 +15,16 @@ type envelope = {
   correlation_id: string;  (** Session-level correlation (formerly session_id). *)
   run_id: string;          (** Per-run identifier (formerly worker_run_id). *)
   ts: float;               (** Event timestamp (Unix epoch). *)
+  caused_by: string option;
+    (** ID of the event that causally triggered this one. Distinct from
+        [correlation_id] (same-session scoping): [caused_by] points at a
+        specific prior [run_id] or [correlation_id] to reconstruct
+        A→B→C cascades within a session. [None] means "no known parent
+        event" (root of a causation chain). Convention:
+        [caused_by = Some parent.run_id] when the trigger is a concrete
+        event; [caused_by = Some parent.correlation_id] when the
+        trigger is the session as a whole. Anthropic Multi-Agent
+        Pattern 4 (Message Bus). @since 0.161.0 (#877) *)
 }
 
 (** {2 Payload types} *)
@@ -119,11 +129,24 @@ type event = {
 (** Generate a fresh unique identifier (pid-timestamp-counter). *)
 val fresh_id : unit -> string
 
-(** Create an envelope with optional correlation/run IDs (defaults to fresh). *)
-val mk_envelope : ?correlation_id:string -> ?run_id:string -> unit -> envelope
+(** Create an envelope with optional correlation/run IDs (defaults to fresh)
+    and an optional causation link.
+    @since 0.161.0 [?caused_by] added. *)
+val mk_envelope :
+  ?correlation_id:string ->
+  ?run_id:string ->
+  ?caused_by:string ->
+  unit ->
+  envelope
 
-(** Create an event by wrapping a payload in a fresh envelope. *)
-val mk_event : ?correlation_id:string -> ?run_id:string -> payload -> event
+(** Create an event by wrapping a payload in a fresh envelope.
+    @since 0.161.0 [?caused_by] added. *)
+val mk_event :
+  ?correlation_id:string ->
+  ?run_id:string ->
+  ?caused_by:string ->
+  payload ->
+  event
 
 (** {2 Bus} *)
 

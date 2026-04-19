@@ -42,15 +42,19 @@ Every event carries a common envelope:
 
 ```ocaml
 type envelope = {
-  correlation_id: string;  (* session-level, stable across a run *)
-  run_id: string;          (* per-run identifier *)
-  ts: float;               (* Unix epoch seconds *)
+  correlation_id: string;       (* session-level, stable across a run *)
+  run_id: string;               (* per-run identifier *)
+  ts: float;                    (* Unix epoch seconds *)
+  caused_by: string option;     (* optional causation link (#877) *)
 }
 ```
 
 **Contract**: `correlation_id` is constant for all events belonging to the
-same logical session. `run_id` is unique per agent run. Envelopes are
-filled by producers, never rewritten by subscribers.
+same logical session. `run_id` is unique per agent run. `caused_by`, when
+`Some id`, points at the prior `run_id` (or `correlation_id`) that
+causally triggered this event — enabling A→B→C cascade reconstruction
+within a session. Root events and legacy producers set `caused_by =
+None`. Envelopes are filled by producers, never rewritten by subscribers.
 
 ### 2.2 Native payload variants
 
