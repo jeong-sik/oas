@@ -19,6 +19,16 @@ let build_env ~cwd ~extra_env ?(scrub_env = []) () =
   in
   Array.of_list (cwd_prefix @ extras @ base)
 
+(** Argv prefix that changes the child's OS-level working directory.
+    Mirrors [autonomy_exec.ml]'s approach: prepend [env -C dir] to argv
+    so [chdir(dir)] runs before the target binary execs. Returns [[]]
+    when [cwd] is [None] or blank. [PWD] env var is still set
+    separately by [build_env] for shell-facing callers that read it. *)
+let cwd_wrapper = function
+  | None -> []
+  | Some dir when String.trim dir = "" -> []
+  | Some dir -> ["/usr/bin/env"; "-C"; dir]
+
 (** Default stderr-line handler: route to [Eio.traceln] with a
     transport-name prefix.  Transports that want silence pass
     [~on_stderr_line:ignore]. *)
@@ -37,11 +47,12 @@ let run_core ~sw ~(mgr : _ Eio.Process.mgr) ~name ~cwd ~extra_env
     let r_stdout, w_stdout = Eio_unix.pipe sw in
     let r_stderr, w_stderr = Eio_unix.pipe sw in
     let env = build_env ~cwd ~extra_env ~scrub_env () in
+    let final_argv = cwd_wrapper cwd @ argv in
     let proc = Eio.Process.spawn ~sw mgr
       ~stdout:(w_stdout :> Eio.Flow.sink_ty Eio.Resource.t)
       ~stderr:(w_stderr :> Eio.Flow.sink_ty Eio.Resource.t)
       ~env
-      argv
+      final_argv
     in
     Eio.Flow.close w_stdout;
     Eio.Flow.close w_stderr;

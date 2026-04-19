@@ -107,6 +107,36 @@ let test_scrub_env_removes_parent_var () =
       "UNSET\n" stdout
   | Error _ -> Alcotest.fail "scrub path should succeed"
 
+let test_cwd_sets_os_level_working_dir () =
+  Eio_main.run @@ fun env ->
+  let mgr = Eio.Stdenv.process_mgr env in
+  Eio.Switch.run @@ fun sw ->
+  (* /tmp is stable on macOS/Linux; on macOS it is a symlink to
+     /private/tmp, so compare against realpath. *)
+  let expected = Unix.realpath "/tmp" in
+  match Llm_provider.Cli_common_subprocess.run_collect ~sw ~mgr
+          ~name:"sh" ~cwd:(Some "/tmp") ~extra_env:[]
+          [sh; "-c"; "pwd -P"] with
+  | Ok { stdout; _ } ->
+    Alcotest.(check string) "child cwd follows ~cwd at OS level"
+      expected (String.trim stdout)
+  | Error _ -> Alcotest.fail "expected Ok"
+
+let test_cwd_blank_treated_as_none () =
+  Eio_main.run @@ fun env ->
+  let mgr = Eio.Stdenv.process_mgr env in
+  Eio.Switch.run @@ fun sw ->
+  (* Blank cwd must not inject a bogus "env -C " prefix that would
+     either fail or chdir somewhere unexpected. Parent cwd is inherited. *)
+  let parent = Unix.realpath (Unix.getcwd ()) in
+  match Llm_provider.Cli_common_subprocess.run_collect ~sw ~mgr
+          ~name:"sh" ~cwd:(Some "   ") ~extra_env:[]
+          [sh; "-c"; "pwd -P"] with
+  | Ok { stdout; _ } ->
+    Alcotest.(check string) "blank cwd == None (inherit parent)"
+      parent (String.trim stdout)
+  | Error _ -> Alcotest.fail "expected Ok"
+
 let () =
   Alcotest.run "cli_common_subprocess"
     [ "run_collect",
@@ -116,6 +146,10 @@ let () =
           `Quick test_on_stderr_line_called_per_line
       ; Alcotest.test_case "scrub_env strips named parent var"
           `Quick test_scrub_env_removes_parent_var
+      ; Alcotest.test_case "cwd sets OS-level working directory"
+          `Quick test_cwd_sets_os_level_working_dir
+      ; Alcotest.test_case "blank cwd treated as None"
+          `Quick test_cwd_blank_treated_as_none
       ]
     ; "run_stream_lines",
       [ Alcotest.test_case "emits lines live" `Quick test_stream_emits_lines_live
