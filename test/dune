@@ -333,3 +333,63 @@
 (test
  (name test_memory_advanced)
  (libraries agent_sdk alcotest eio eio_main qcheck-core qcheck-alcotest))
+
+(test
+ (name test_agent_lifecycle)
+ (libraries agent_sdk alcotest))
+
+(test
+ (name test_agent_registry)
+ (libraries agent_sdk alcotest eio eio_main))
+
+(test
+ (name test_durable_event)
+ (libraries agent_sdk alcotest))
+
+(test
+ (name test_a2a_client)
+ (libraries agent_sdk alcotest))
+
+(test
+ (name test_a2a_client_cov)
+ (libraries agent_sdk alcotest eio eio_main cohttp cohttp-eio))
+
+(test
+ (name test_a2a_task_store)
+ (libraries agent_sdk alcotest eio eio_main unix))
+
+(test
+ (name test_a2a_task_unit)
+ (libraries agent_sdk alcotest eio eio_main yojson))
+
+(test
+ (name test_a2a_full)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_a2a)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_eval_baseline)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_eval)
+ (libraries agent_sdk alcotest yojson eio eio_main))
+
+(test
+ (name test_eval_report_full)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_eval_coverage)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_memory_episodic)
+ (libraries agent_sdk alcotest))
+
+(test
+ (name test_memory_procedural)
+ (libraries agent_sdk alcotest))
