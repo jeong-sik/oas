@@ -42,7 +42,27 @@ let test_orchestrator_error_emits_agent_failed () =
      check string "agent_name" "ghost" agent_name;
      check string "task_id" "t-err" task_id;
      check bool "elapsed non-negative" true (elapsed >= 0.0)
-   | _ -> fail "expected AgentFailed payload")
+   | _ -> fail "expected AgentFailed payload");
+  (* Causation chain (#877): AgentCompleted / AgentFailed must carry
+     [caused_by = Some started.run_id], i.e. point back at the
+     AgentStarted envelope that opened this task. AgentStarted itself
+     is the chain root (caused_by = None). *)
+  let started =
+    try List.find (fun e ->
+      Event_forward.event_type_name e = "agent.started") events
+    with Not_found -> fail "AgentStarted missing"
+  in
+  let completed =
+    try List.find (fun e ->
+      Event_forward.event_type_name e = "agent.completed") events
+    with Not_found -> fail "AgentCompleted missing"
+  in
+  check (option string) "AgentStarted.caused_by is None (root)"
+    None started.meta.caused_by;
+  check (option string) "AgentCompleted.caused_by points at started.run_id"
+    (Some started.meta.run_id) completed.meta.caused_by;
+  check (option string) "AgentFailed.caused_by points at started.run_id"
+    (Some started.meta.run_id) (List.hd failed_events).meta.caused_by
 
 (* ── B. run_with_handoffs emits Handoff{Requested,Completed} ──── *)
 
