@@ -217,8 +217,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
       let prompt = Cli_common_prompt.prompt_of_messages messages in
       let system_prompt =
         Cli_common_prompt.system_prompt_of ~req_config:req.config req.messages in
-      let argv = build_args ~config ~req_config:req.config
-        ~prompt ~system_prompt in
+      let argv = build_args ~config ~req_config:req.config ~prompt ~system_prompt in
       match run ~sw ~mgr ~config argv with
       | Error _ as e -> { Llm_transport.response = e; latency_ms = 0 }
       | Ok { stdout; stderr = _; latency_ms } ->
@@ -231,8 +230,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
       let prompt = Cli_common_prompt.prompt_of_messages messages in
       let system_prompt =
         Cli_common_prompt.system_prompt_of ~req_config:req.config req.messages in
-      let argv = build_args ~config ~req_config:req.config
-        ~prompt ~system_prompt in
+      let argv = build_args ~config ~req_config:req.config ~prompt ~system_prompt in
       (* Gemini CLI does not support native streaming; replay synthetic events
          after the sync call completes. *)
       match run ~sw ~mgr ~config argv with
