@@ -45,9 +45,10 @@ let default_config = {
 
 (* Codex has no dedicated --no-mcp / --no-hooks flags; every runtime
    toggle goes through [-c key=value] TOML overrides (see
-   `~/.codex/config.toml` schema).  We surface that via env vars so
-   MASC keeper can lock down MCP / tighten sandbox without needing an
-   OAS release.
+   `~/.codex/config.toml` schema).  Non-interactive OAS runs default to
+   MCP OFF by injecting [-c mcp_servers={}] before any caller-provided
+   overrides.  Additional env vars let callers refine sandbox/profile
+   without changing the config record.
 
    OAS_CODEX_CONFIG   "k=v,k2=v2"                → -c k=v -c k2=v2
    OAS_CODEX_SANDBOX  read-only|workspace-write  → -s <value>
@@ -64,6 +65,7 @@ let default_config = {
 let env_extra_args () =
   let extras = ref [] in
   let add a = extras := !extras @ a in
+  add ["-c"; "mcp_servers={}"];
   (match Cli_common_env.kv_pairs "OAS_CODEX_CONFIG" with
    | None | Some [] -> ()
    | Some pairs ->
@@ -193,7 +195,13 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
     complete_sync = (fun (req : Llm_transport.completion_request) ->
       warn_unsupported_once config warned;
       let messages = Cli_common_prompt.non_system_messages req.messages in
-      let prompt = Cli_common_prompt.prompt_of_messages messages in
+      let system_prompt =
+        Cli_common_prompt.system_prompt_of ~req_config:req.config req.messages in
+      let prompt =
+        Cli_common_prompt.prompt_of_messages messages
+        |> fun prompt ->
+        Cli_common_prompt.prompt_with_system_prompt ~prompt ~system_prompt
+      in
       let argv = build_args ~config ~prompt in
       let seen_lines = ref [] in
       let on_line line =
@@ -213,7 +221,13 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
     complete_stream = (fun ~on_event (req : Llm_transport.completion_request) ->
       warn_unsupported_once config warned;
       let messages = Cli_common_prompt.non_system_messages req.messages in
-      let prompt = Cli_common_prompt.prompt_of_messages messages in
+      let system_prompt =
+        Cli_common_prompt.system_prompt_of ~req_config:req.config req.messages in
+      let prompt =
+        Cli_common_prompt.prompt_of_messages messages
+        |> fun prompt ->
+        Cli_common_prompt.prompt_with_system_prompt ~prompt ~system_prompt
+      in
       let argv = build_args ~config ~prompt in
       let seen_lines = ref [] in
       let on_line line =
@@ -247,7 +261,7 @@ let%test "default_config parity fields absent" =
 
 let%test "build_args includes --json flag" =
   let args = build_args ~config:default_config ~prompt:"hello" in
-  args = ["codex"; "exec"; "--json"; "hello"]
+  args = ["codex"; "exec"; "--json"; "-c"; "mcp_servers={}"; "hello"]
 
 let%test "build_args ignores extra parity fields" =
   let config = { default_config with
@@ -257,7 +271,7 @@ let%test "build_args ignores extra parity fields" =
     permission_mode = Some "bypassPermissions";
   } in
   let args = build_args ~config ~prompt:"hi" in
-  args = ["codex"; "exec"; "--json"; "hi"]
+  args = ["codex"; "exec"; "--json"; "-c"; "mcp_servers={}"; "hi"]
 
 let%test "parse_jsonl_result extracts text + usage + thread_id" =
   let lines = [
@@ -353,13 +367,13 @@ let with_unset k f =
     | Some old -> Unix.putenv k old)
     f
 
-let%test "env: no vars → argv is [codex; exec; --json; prompt]" =
+let%test "default: argv disables MCP even with no env" =
   with_unset "OAS_CODEX_CONFIG" (fun () ->
   with_unset "OAS_CODEX_SANDBOX" (fun () ->
   with_unset "OAS_CODEX_PROFILE" (fun () ->
   with_unset "OAS_CODEX_SKIP_GIT" (fun () ->
     build_args ~config:default_config ~prompt:"hi"
-    = ["codex"; "exec"; "--json"; "hi"]))))
+    = ["codex"; "exec"; "--json"; "-c"; "mcp_servers={}"; "hi"]))))
 
 let%test "env: OAS_CODEX_CONFIG emits -c pairs before prompt" =
   with_env "OAS_CODEX_CONFIG" "mcp_servers={},model=o3" (fun () ->

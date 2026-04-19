@@ -46,14 +46,15 @@ let default_config = {
 
 (* ── CLI argument building ───────────────────────────── *)
 
-(* Env-driven optional flags (see cli_common_env.mli).  All three are
-   opt-in — unset env means "no flag added", preserving the pre-0.159
-   argument vector.  Intended for callers (e.g. MASC keeper) that want
-   to tighten MCP surface / forbid specific tools without extending the
-   config record.  LSP / hooks / auto-memory stay ON — no --bare here. *)
+(* Non-interactive Claude runs default to MCP OFF by forcing strict MCP
+   config resolution.  When [config.mcp_config] or
+   [OAS_CLAUDE_MCP_CONFIG] is provided, strict mode narrows the runtime
+   to exactly that config; when neither is present, strict mode yields an
+   empty MCP surface.  LSP / hooks / auto-memory stay ON — no --bare. *)
 let env_extra_args ~(config : config) =
   let extras = ref [] in
   let add a = extras := !extras @ a in
+  add ["--strict-mcp-config"];
   (* --mcp-config: only used as fallback when config.mcp_config is None.
      Explicit config wins over env, matching the convention that
      programmatic wiring overrides ambient environment. *)
@@ -64,7 +65,7 @@ let env_extra_args ~(config : config) =
      | Some v -> add ["--mcp-config"; v]
      | None -> ());
   if Cli_common_env.bool "OAS_CLAUDE_STRICT_MCP" then
-    add ["--strict-mcp-config"];
+    ();
   (match Cli_common_env.list "OAS_CLAUDE_DISALLOWED_TOOLS" with
    | None | Some [] -> ()
    | Some tools -> List.iter (fun t -> add ["--disallowedTools"; t]) tools);
@@ -553,13 +554,13 @@ let with_unset k f =
 let sample_req =
   Provider_config.make ~kind:Claude_code ~model_id:"" ~base_url:"" ()
 
-let%test "env: no vars set → no extra flags" =
+let%test "default: strict MCP is always enabled" =
   with_unset "OAS_CLAUDE_STRICT_MCP" (fun () ->
   with_unset "OAS_CLAUDE_MCP_CONFIG" (fun () ->
   with_unset "OAS_CLAUDE_DISALLOWED_TOOLS" (fun () ->
     let args = build_args ~config:default_config ~req_config:sample_req
       ~prompt:"hi" ~stream:false ~system_prompt:None in
-    not (List.mem "--strict-mcp-config" args)
+    List.mem "--strict-mcp-config" args
     && not (List.mem "--disallowedTools" args))))
 
 let%test "env: OAS_CLAUDE_STRICT_MCP=1 appends --strict-mcp-config" =

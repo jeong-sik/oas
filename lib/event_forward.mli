@@ -18,6 +18,11 @@ type event_payload = {
   agent_name: string option;
   correlation_id: string;
   run_id: string;
+  caused_by: string option;
+    (** Causation link copied from [Event_bus.envelope.caused_by].
+        Serialised as a [caused_by: <run_id>] JSON field only when
+        [Some] — [None] omits the field, preserving the legacy JSON
+        shape for subscribers that never opt in. @since 0.161.0 (#877) *)
   data: Yojson.Safe.t;
 }
 

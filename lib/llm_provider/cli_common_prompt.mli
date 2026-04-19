@@ -37,9 +37,9 @@ val prompt_of_messages :
     history in its next turn. *)
 
 val non_system_messages : Types.message list -> Types.message list
-(** Drop [System] messages. CLI transports convey the system prompt
-    via a dedicated [--system-prompt] flag, so it should not be
-    duplicated inside the flattened prompt string. *)
+(** Drop [System] messages from the conversational turn history. CLI
+    transports may pass the extracted system prompt separately or fold
+    it back into the final prompt via {!prompt_with_system_prompt}. *)
 
 val system_prompt_of :
   req_config:Provider_config.t ->
@@ -47,3 +47,10 @@ val system_prompt_of :
   string option
 (** Extract a system prompt: prefer [req_config.system_prompt],
     then fall back to the first [System] message. *)
+
+val prompt_with_system_prompt :
+  prompt:string ->
+  system_prompt:string option ->
+  string
+(** Prepend a textual [System] section to [prompt] when a dedicated
+    CLI flag is unavailable or unsupported. *)

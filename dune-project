@@ -1,6 +1,6 @@
-(lang dune 3.11)
+(lang dune 3.22)
 (name agent_sdk)
-(version 0.161.0)
+(version 0.162.0)
 
 (generate_opam_files true)
 
@@ -15,7 +15,7 @@
  (description "A native OCaml implementation of the Anthropic Agent SDK using OCaml 5.x Eio for structured concurrency, inspired by Go SDK patterns.")
  (depends
   (ocaml (>= 5.1))
-  (dune (>= 3.11))
+  (dune (>= 3.22))
   (eio_main (>= 0.12))
   (cohttp-eio (>= 6.0.0~alpha2))
   (tls (>= 0.17.0))

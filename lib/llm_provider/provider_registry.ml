@@ -254,7 +254,13 @@ let siliconflow_defaults = {
 
 let default () =
   let t = create () in
+  let max_context_from_capabilities ~default caps =
+    match caps.Capabilities.max_context_tokens with
+    | Some ctx when ctx > default -> ctx
+    | _ -> default
+  in
   let reg name defaults ~max_context caps =
+    let max_context = max_context_from_capabilities ~default:max_context caps in
     register t { name; defaults; max_context; capabilities = caps;
                  is_available = (fun () -> has_api_key defaults.api_key_env) }
   in
@@ -316,18 +322,23 @@ let default () =
     fun () -> cached
   in
   register t { name = "claude_code"; defaults = claude_code_defaults;
-               max_context = 200_000;
+               max_context = max_context_from_capabilities ~default:200_000
+                   Capabilities.claude_code_capabilities;
                capabilities = Capabilities.claude_code_capabilities;
                is_available = claude_code_available };
-  register t { name = "cc"; defaults = claude_code_defaults; max_context = 200_000;
+  register t { name = "cc"; defaults = claude_code_defaults;
+               max_context = max_context_from_capabilities ~default:200_000
+                   Capabilities.claude_code_capabilities;
                capabilities = Capabilities.claude_code_capabilities;
                is_available = claude_code_available };
   register t { name = "gemini_cli"; defaults = gemini_cli_defaults;
-               max_context = 1_000_000;
+               max_context = max_context_from_capabilities ~default:1_000_000
+                   Capabilities.gemini_cli_capabilities;
                capabilities = Capabilities.gemini_cli_capabilities;
                is_available = gemini_cli_available };
   register t { name = "codex_cli"; defaults = codex_cli_defaults;
-               max_context = 128_000;
+               max_context = max_context_from_capabilities ~default:128_000
+                   Capabilities.codex_cli_capabilities;
                capabilities = Capabilities.codex_cli_capabilities;
                is_available = codex_cli_available };
   t

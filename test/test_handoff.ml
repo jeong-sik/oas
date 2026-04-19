@@ -109,8 +109,27 @@ let handoff_mock_handler _conn req body =
   | _ ->
       Cohttp_eio.Server.respond_string ~status:`Not_found ~body:"Not found" ()
 
+let fresh_port () =
+  let s = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
+  Unix.setsockopt s Unix.SO_REUSEADDR true;
+  Unix.bind s (Unix.ADDR_INET (Unix.inet_addr_loopback, 0));
+  let port = match Unix.getsockname s with
+    | Unix.ADDR_INET (_, p) -> p
+    | _ -> failwith "not inet"
+  in
+  Unix.close s;
+  port
+
+let skip_if_bisect label =
+  match Sys.getenv_opt "BISECT_ENABLE" with
+  | Some ("1" | "yes" | "true") ->
+    Printf.printf "  [SKIP] %s under bisect coverage run\n%!" label;
+    Alcotest.skip ()
+  | _ -> ()
+
 let test_run_with_handoffs_intercepts_tool_use () =
-  let port = 8083 in
+  skip_if_bisect "intercepts handoff tool use";
+  let port = fresh_port () in
   let base_url = Printf.sprintf "http://127.0.0.1:%d" port in
   Eio_main.run @@ fun env ->
   try
@@ -148,7 +167,8 @@ let test_run_with_handoffs_intercepts_tool_use () =
   with Exit -> ()
 
 let test_run_with_handoffs_reports_unknown_target () =
-  let port = 8084 in
+  skip_if_bisect "reports unknown target";
+  let port = fresh_port () in
   let base_url = Printf.sprintf "http://127.0.0.1:%d" port in
   Eio_main.run @@ fun env ->
   try
