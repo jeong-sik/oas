@@ -4,7 +4,7 @@ Single source of truth for every event surface exposed by OAS. This
 document covers *what* events exist, *where* they are emitted, *how* they
 relate, and the contracts downstream consumers can rely on.
 
-**Scope**: `agent_sdk` library (`lib/`) + `agent_sdk_swarm` (`lib_swarm/`).
+**Scope**: `agent_sdk` library (`lib/`).
 **Status**: Stable catalog; entries marked *Evolving* may change with
 deprecation notice.
 **Last updated**: v0.154.1.

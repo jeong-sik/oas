@@ -8,7 +8,7 @@
 
 OCaml agent SDK on OCaml 5.x + Eio. Single-process, single-Eio-domain runtime. Talks to Anthropic Messages API and OpenAI-compatible chat endpoints (which covers many local servers, OpenRouter, and similar gateways), plus a local llama-server profile. See `lib/api_*.ml` for the actually wired endpoints.
 
-- OCaml packages: `agent_sdk` (Layer 1, in `lib/`) and `agent_sdk_swarm` (Layer 2, in `lib_swarm/`)
+- OCaml package: `agent_sdk` (in `lib/`)
 - OCaml module: `Agent_sdk`
 - Requires: OCaml >= 5.1, Dune >= 3.11
 - Current version: source of truth is `lib/sdk_version.ml`
@@ -89,15 +89,9 @@ There is no separate `Gemini` variant in the wired provider type — Gemini is r
 
 ## Architecture
 
-OAS ships two opam libraries in this repository:
+OAS ships one opam library in this repository:
 
 ```
-Layer 2: agent_sdk_swarm  (lib_swarm/)
-            |  Multi-agent execution on top of Layer 1.
-            |  Modes: Decentralized | Supervisor | Pipeline.
-            |  Optional convergence loop with metric evaluation.
-            |  Depends on agent_sdk.
-            v
 Layer 1: agent_sdk  (lib/)
             |  Single-agent runtime: turn loop, tool dispatch, hooks.
             |
@@ -137,19 +131,6 @@ Anything outside this repository — multi-process coordination, repo-wide task 
 | `Audit` | Immutable log of policy decisions and agent actions |
 | `Durable` | Typed step chains with execution journal for crash recovery |
 | `Plan` | Goal decomposition with dependency DAG and re-planning |
-
-### Layer 2: Swarm Engine (`agent_sdk_swarm`)
-
-`lib_swarm/` is a separate opam library that depends on `agent_sdk`. It runs N agents in one of three modes and, when configured, loops until a convergence metric is met.
-
-| Module | Role |
-|--------|------|
-| `Swarm_types` | Configuration types: `agent_role`, `orchestration_mode`, `convergence_config`, `agent_entry`, `swarm_state`, `swarm_callbacks` |
-| `Runner` | The `run` entry point. Modes: `Decentralized` (parallel via `Eio.Fiber.List.map`), `Supervisor` (workers in parallel, then a synthesizer), `Pipeline` (sequential). State protected by `Eio.Mutex` during convergence loops |
-| `Swarm_channel` | Optional message-stream transport between agents when `enable_streaming = true` |
-| `Swarm_checkpoint`, `Swarm_plan_cache`, `Selection`, `Eval_harness`, `Traced_swarm` | Supporting modules for checkpointing, plan caching, agent selection, evaluation, and traced runs |
-
-`Agent_entry.run` is closure-based, which lets callers wrap any `Agent.t` (or a mock) without breaking the `Agent.t` abstract-type barrier. This is also how the swarm test suite runs without contacting an LLM.
 
 ## Module stability tiers
 

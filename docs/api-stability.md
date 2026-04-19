@@ -23,7 +23,7 @@ Each `.mli` file carries a `@stability` annotation in its top-level doc comment.
 
 - Modules under active development with external consumers.
 - New features (autonomy, CDAL, harness) that have not yet settled.
-- Swarm orchestration modules whose API is still being refined.
+- Runtime orchestration helpers whose API is still being refined.
 
 ### Internal
 
@@ -51,12 +51,7 @@ Rules:
 
 ## Current classification
 
-As of v0.93.1, all 186 `.mli` files in `lib/` and `lib_swarm/` carry an
-explicit stability tier:
-
-- Stable: 14
-- Evolving: 94
-- Internal: 78
+All public-facing `.mli` files in `lib/` carry an explicit stability tier.
 
 ### Stable (14 modules)
 
@@ -79,11 +74,10 @@ Core types and interfaces that downstream consumers depend on.
 | Context | `lib/context.mli` |
 | Context_reducer | `lib/context_reducer.mli` |
 
-### Evolving (94 modules)
+### Evolving modules
 
 Public modules with downstream consumers that are still settling. This tier
-includes most top-level SDK surfaces outside the stable core and selected swarm
-interfaces.
+includes most top-level SDK surfaces outside the stable core.
 
 Representative modules:
 
@@ -93,10 +87,8 @@ Representative modules:
 | Memory | `lib/memory.mli` | Memory system is under active development |
 | Policy | `lib/policy.mli` | Rule engine surface is still settling |
 | Proof_store | `lib/proof_store.mli` | CDAL storage API is newly added |
-| Swarm_types | `lib_swarm/swarm_types.mli` | Swarm API remains consumer-facing but not stable |
-| Runner | `lib_swarm/runner.mli` | Orchestration behavior is still being refined |
 
-### Internal (78 modules)
+### Internal modules
 
 Implementation-detail modules with no compatibility promise. Most entries in
 this tier live under internal subdirectories such as `lib/agent/`,
@@ -107,10 +99,10 @@ external consumers should not depend on directly.
 
 ```bash
 # Count annotated files (should equal total .mli count)
-rg '@stability' lib/ lib_swarm/ --glob '*.mli' -c | wc -l
+rg '@stability' lib/ --glob '*.mli' -c | wc -l
 
 # List by tier
-rg '@stability Stable' lib/ lib_swarm/ --glob '*.mli' -l
-rg '@stability Evolving' lib/ lib_swarm/ --glob '*.mli' -l
-rg '@stability Internal' lib/ lib_swarm/ --glob '*.mli' -l
+rg '@stability Stable' lib/ --glob '*.mli' -l
+rg '@stability Evolving' lib/ --glob '*.mli' -l
+rg '@stability Internal' lib/ --glob '*.mli' -l
 ```

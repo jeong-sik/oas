@@ -1,8 +1,8 @@
 (** A2A Client — client for Agent-to-Agent protocol.
 
     Discovers remote agents via [/.well-known/agent.json],
-    sends tasks via JSON-RPC 2.0, and optionally wraps a remote
-    agent as a {!Swarm_types.agent_entry} for swarm execution.
+    sends tasks via JSON-RPC 2.0, and exposes a thin remote-agent client
+    for higher-level orchestration built outside this SDK.
 
     @since 0.55.0
 

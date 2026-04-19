@@ -1,7 +1,7 @@
 (** Consumer API — high-level agent execution with telemetry aggregation.
 
     Wraps {!Agent.run} and collects all Layer 1 telemetry into a single
-    {!run_result} record. Designed for swarm consumers that
+    {!run_result} record. Designed for higher-level multi-agent consumers that
     need response + trace + harness data in one call.
 
     @since 0.55.0
