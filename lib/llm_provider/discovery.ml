@@ -68,14 +68,19 @@ let ollama_endpoint =
   | Some url when String.trim url <> "" -> String.trim url
   | _ -> "http://127.0.0.1:11434"
 
+let parse_llm_endpoints_env () =
+  match Sys.getenv_opt "LLM_ENDPOINTS" with
+  | None -> []
+  | Some value ->
+    value
+    |> String.split_on_char ','
+    |> List.map String.trim
+    |> List.filter (fun s -> s <> "")
+
 let endpoints_from_env () =
-  let explicit = match Sys.getenv_opt "LLM_ENDPOINTS" with
-    | None | Some "" -> [default_endpoint]
-    | Some value ->
-      value
-      |> String.split_on_char ','
-      |> List.map String.trim
-      |> List.filter (fun s -> s <> "")
+  let explicit = match parse_llm_endpoints_env () with
+    | [] -> [default_endpoint]
+    | urls -> urls
   in
   (* Include Ollama endpoint if not already listed.
      Discovery handles both llama-server and Ollama probe paths. *)
@@ -606,6 +611,31 @@ let max_context_of_status (status : endpoint_status) =
 
 let%test "default_endpoint is localhost:8085" =
   default_endpoint = Constants.Endpoints.default_url
+
+(* --- parse_llm_endpoints_env (SSOT helper, #1002) --- *)
+
+let%test "parse_llm_endpoints_env empty when unset" =
+  (match Sys.getenv_opt "LLM_ENDPOINTS" with
+   | Some _ -> Unix.putenv "LLM_ENDPOINTS" ""
+   | None -> ());
+  parse_llm_endpoints_env () = []
+
+let%test "parse_llm_endpoints_env empty when env is blank" =
+  Unix.putenv "LLM_ENDPOINTS" "";
+  let res = parse_llm_endpoints_env () in
+  res = []
+
+let%test "parse_llm_endpoints_env empty when env has only separators" =
+  Unix.putenv "LLM_ENDPOINTS" " , , ";
+  let res = parse_llm_endpoints_env () in
+  Unix.putenv "LLM_ENDPOINTS" "";
+  res = []
+
+let%test "parse_llm_endpoints_env preserves order and trims" =
+  Unix.putenv "LLM_ENDPOINTS" "  http://a:8080 ,http://b:8081";
+  let res = parse_llm_endpoints_env () in
+  Unix.putenv "LLM_ENDPOINTS" "";
+  res = ["http://a:8080"; "http://b:8081"]
 
 (* --- endpoints_from_env --- *)
 

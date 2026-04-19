@@ -58,6 +58,19 @@ val default_endpoint : string
     falls back to ["http://127.0.0.1:11434"]. *)
 val ollama_endpoint : string
 
+(** Parse the [LLM_ENDPOINTS] env var as a comma-separated list of
+    URLs, trimming whitespace and dropping empty entries.  Returns
+    [[]] when the variable is unset, empty, or contains only empty
+    entries after trimming.
+
+    Single source of truth for [LLM_ENDPOINTS] parsing — consumers
+    needing defaulting (e.g. fall back to {!default_endpoint}) or the
+    Ollama append (see {!endpoints_from_env}) should layer their
+    semantics on top of this raw list.
+
+    @since 0.161.0 *)
+val parse_llm_endpoints_env : unit -> string list
+
 (** Parse LLM_ENDPOINTS env var (comma-separated) and append
     {!ollama_endpoint} if not already included.
     Falls back to [[default_endpoint; ollama_endpoint]]. *)

@@ -74,14 +74,14 @@ let command_in_path ?path name =
          |> List.exists (fun candidate ->
                 is_runnable_path (Filename.concat dir candidate)))
 
-(** Initial endpoints from LLM_ENDPOINTS env var. *)
+(** Initial endpoints from LLM_ENDPOINTS env var.
+    Falls back to [[Discovery.default_endpoint]] when the variable is
+    unset or has no non-empty entries (SSOT: see
+    {!Discovery.parse_llm_endpoints_env}). *)
 let initial_llama_endpoints =
-  match Sys.getenv_opt "LLM_ENDPOINTS" with
-  | Some s ->
-    let urls = s |> String.split_on_char ',' |> List.map String.trim
-               |> List.filter (fun s -> s <> "") in
-    if urls = [] then [Discovery.default_endpoint] else urls
-  | None -> [Discovery.default_endpoint]
+  match Discovery.parse_llm_endpoints_env () with
+  | [] -> [Discovery.default_endpoint]
+  | urls -> urls
 
 (** Mutable endpoint list, protected by atomic snapshot swap.
     Updated by [refresh_llama_endpoints]. *)
@@ -118,13 +118,14 @@ let current_llama_endpoint () =
     Falls back to default 8085 if no healthy endpoints found.
     Call this after Eio scheduler is available (e.g. at server startup). *)
 let refresh_llama_endpoints ~sw ~net () =
+  (* SSOT: {!Discovery.parse_llm_endpoints_env} returns [[]] for unset,
+     empty, or all-empty env values — collapsing the three historical
+     guard patterns into a single list-match. *)
+  let explicit = Discovery.parse_llm_endpoints_env () in
   let endpoint_urls =
-    match Sys.getenv_opt "LLM_ENDPOINTS" with
-    | Some s when String.trim s <> "" ->
-        let urls = s |> String.split_on_char ',' |> List.map String.trim
-                   |> List.filter (fun s -> s <> "") in
-        if urls = [] then [Discovery.default_endpoint] else urls
-    | _ ->
+    match explicit with
+    | _ :: _ -> explicit
+    | [] ->
         (* scan_local_endpoints only returns healthy URLs; we need full statuses
            for context sync, so probe the default + scanned ports. *)
         let candidates =
@@ -138,10 +139,10 @@ let refresh_llama_endpoints ~sw ~net () =
         if found = [] then [Discovery.default_endpoint] else found
   in
   (* When LLM_ENDPOINTS is explicit, still probe for context sync *)
-  (match Sys.getenv_opt "LLM_ENDPOINTS" with
-   | Some s when String.trim s <> "" ->
+  (match explicit with
+   | _ :: _ ->
      ignore (Discovery.refresh_and_sync ~sw ~net ~endpoints:endpoint_urls)
-   | _ -> () (* already synced above *));
+   | [] -> () (* already synced above *));
   Atomic.set llama_endpoints_ref (Array.of_list endpoint_urls);
   endpoint_urls
 
