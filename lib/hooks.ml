@@ -167,7 +167,7 @@ type hook_decision =
   | ApprovalRequired  (** PreToolUse only: signals that tool needs approval before execution *)
   | AdjustParams of turn_params  (** BeforeTurnParams only: override params for this turn *)
   | ElicitInput of elicitation_request  (** Request user input before proceeding *)
-  | Nudge of string  (** OnIdle only: inject a nudge message into conversation, reset idle counter, continue execution *)
+  | Nudge of string  (** OnIdle and BeforeTurn: inject a nudge message into the conversation as a User-role message and continue execution. On OnIdle the idle counter is preserved (deliberate: lets the host hook escalate via Skip). On BeforeTurn the message is appended before tool preparation and reaches the model in the same turn. *)
 
 (** Decision from approval callback *)
 type approval_decision =
@@ -282,7 +282,7 @@ let stage_of_event = function
     {v
     Stage                | Continue | Skip | Override | ApprovalRequired | AdjustParams | ElicitInput | Nudge
     ---------------------+----------+------+----------+------------------+--------------+-------------+-------
-    before_turn          |    Y     |      |          |                  |              |      Y      |
+    before_turn          |    Y     |      |          |                  |              |      Y      |   Y
     before_turn_params   |    Y     |      |          |                  |      Y       |             |
     after_turn           |    Y     |      |          |                  |              |             |
     pre_tool_use         |    Y     |  Y   |    Y     |        Y         |              |             |
@@ -299,7 +299,7 @@ let stage_of_event = function
     Fail-closed: any decision not explicitly listed is rejected. *)
 let legal_decisions_for_stage stage =
   match stage with
-  | "before_turn"           -> [K_Continue; K_ElicitInput]
+  | "before_turn"           -> [K_Continue; K_ElicitInput; K_Nudge]
   | "before_turn_params"    -> [K_Continue; K_AdjustParams]
   | "after_turn"            -> [K_Continue]
   | "pre_tool_use"          -> [K_Continue; K_Skip; K_Override; K_ApprovalRequired]
