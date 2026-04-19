@@ -393,3 +393,7 @@
 (test
  (name test_memory_procedural)
  (libraries agent_sdk alcotest))
+
+(test
+ (name test_memory_tools)
+ (libraries agent_sdk alcotest yojson))
