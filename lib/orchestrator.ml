@@ -97,18 +97,23 @@ let run_agent_with_timeout ~sw ?clock ~task_id config agent prompt =
 
 let run_task ~sw ?clock orch task =
   Option.iter (fun cb -> cb task) orch.config.on_task_start;
-  (* AgentStarted event *)
-  (match orch.config.event_bus with
-   | Some bus ->
-     let correlation_id = match find_agent orch task.agent_name with
-       | Some agent -> orch_correlation_id agent
-       | None -> task.id
-     in
-     let run_id = Event_bus.fresh_id () in
-     Event_bus.publish bus
-       (Event_bus.mk_event ~correlation_id ~run_id
-          (AgentStarted { agent_name = task.agent_name; task_id = task.id }))
-   | None -> ());
+  (* AgentStarted event — capture the started run_id so AgentCompleted
+     and AgentFailed can record it as caused_by, preserving the event
+     causation chain (#877). *)
+  let started_run_id =
+    match orch.config.event_bus with
+    | Some bus ->
+      let correlation_id = match find_agent orch task.agent_name with
+        | Some agent -> orch_correlation_id agent
+        | None -> task.id
+      in
+      let run_id = Event_bus.fresh_id () in
+      Event_bus.publish bus
+        (Event_bus.mk_event ~correlation_id ~run_id
+           (AgentStarted { agent_name = task.agent_name; task_id = task.id }));
+      Some run_id
+    | None -> None
+  in
   let t0 = Unix.gettimeofday () in
   let result =
     match find_agent orch task.agent_name with
@@ -135,7 +140,7 @@ let run_task ~sw ?clock orch task =
        | None -> Event_bus.fresh_id ()
      in
      Event_bus.publish bus
-       (Event_bus.mk_event ~correlation_id ~run_id
+       (Event_bus.mk_event ~correlation_id ~run_id ?caused_by:started_run_id
           (AgentCompleted
              { agent_name = task.agent_name;
                task_id = task.id;
@@ -147,7 +152,7 @@ let run_task ~sw ?clock orch task =
      (match result with
       | Error err ->
         Event_bus.publish bus
-          (Event_bus.mk_event ~correlation_id ~run_id
+          (Event_bus.mk_event ~correlation_id ~run_id ?caused_by:started_run_id
              (AgentFailed
                 { agent_name = task.agent_name;
                   task_id = task.id;

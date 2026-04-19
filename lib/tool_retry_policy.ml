@@ -21,6 +21,20 @@ type failure = {
   kind: failure_kind;
 }
 
+type error_class =
+  | Transient
+  | Deterministic
+  | Unknown
+
+let classify = function
+  | Validation_error -> Deterministic
+  | Recoverable_tool_error -> Transient
+
+let error_class_to_string = function
+  | Transient -> "transient"
+  | Deterministic -> "deterministic"
+  | Unknown -> "unknown"
+
 type decision =
   | No_retry
   | Retry of {

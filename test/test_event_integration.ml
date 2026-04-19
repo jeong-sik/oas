@@ -42,7 +42,27 @@ let test_orchestrator_error_emits_agent_failed () =
      check string "agent_name" "ghost" agent_name;
      check string "task_id" "t-err" task_id;
      check bool "elapsed non-negative" true (elapsed >= 0.0)
-   | _ -> fail "expected AgentFailed payload")
+   | _ -> fail "expected AgentFailed payload");
+  (* Causation chain (#877): AgentCompleted / AgentFailed must carry
+     [caused_by = Some started.run_id], i.e. point back at the
+     AgentStarted envelope that opened this task. AgentStarted itself
+     is the chain root (caused_by = None). *)
+  let started =
+    try List.find (fun e ->
+      Event_forward.event_type_name e = "agent.started") events
+    with Not_found -> fail "AgentStarted missing"
+  in
+  let completed =
+    try List.find (fun e ->
+      Event_forward.event_type_name e = "agent.completed") events
+    with Not_found -> fail "AgentCompleted missing"
+  in
+  check (option string) "AgentStarted.caused_by is None (root)"
+    None started.meta.caused_by;
+  check (option string) "AgentCompleted.caused_by points at started.run_id"
+    (Some started.meta.run_id) completed.meta.caused_by;
+  check (option string) "AgentFailed.caused_by points at started.run_id"
+    (Some started.meta.run_id) (List.hd failed_events).meta.caused_by
 
 (* ── B. run_with_handoffs emits Handoff{Requested,Completed} ──── *)
 
@@ -78,8 +98,27 @@ let mock_handler _conn req body =
   | _ ->
     Cohttp_eio.Server.respond_string ~status:`Not_found ~body:"nf" ()
 
+let fresh_port () =
+  let s = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
+  Unix.setsockopt s Unix.SO_REUSEADDR true;
+  Unix.bind s (Unix.ADDR_INET (Unix.inet_addr_loopback, 0));
+  let port = match Unix.getsockname s with
+    | Unix.ADDR_INET (_, p) -> p
+    | _ -> failwith "not inet"
+  in
+  Unix.close s;
+  port
+
+let skip_if_bisect label =
+  match Sys.getenv_opt "BISECT_ENABLE" with
+  | Some ("1" | "yes" | "true") ->
+    Printf.printf "  [SKIP] %s under bisect coverage run\n%!" label;
+    Alcotest.skip ()
+  | _ -> ()
+
 let test_handoff_emits_request_and_completion () =
-  let port = 8091 in
+  skip_if_bisect "run_with_handoffs emits Requested+Completed";
+  let port = fresh_port () in
   let base_url = Printf.sprintf "http://127.0.0.1:%d" port in
   Eio_main.run @@ fun env ->
   try
@@ -129,6 +168,24 @@ let test_handoff_emits_request_and_completion () =
           transfer_to_* tool call arguments, not the parent prompt. *)
        check string "reason carries sub-prompt" "sub" reason
      | _ -> fail "expected HandoffRequested payload");
+    (* Causation chain (#877): HandoffCompleted.caused_by must point
+       at the HandoffRequested envelope that opened the handoff.
+       HandoffRequested itself is the chain root. *)
+    let requested =
+      try List.find (fun e ->
+        Event_forward.event_type_name e = "handoff.requested") events
+      with Not_found -> fail "HandoffRequested missing"
+    in
+    let completed =
+      try List.find (fun e ->
+        Event_forward.event_type_name e = "handoff.completed") events
+      with Not_found -> fail "HandoffCompleted missing"
+    in
+    check (option string) "HandoffRequested.caused_by is None (root)"
+      None requested.meta.caused_by;
+    check (option string)
+      "HandoffCompleted.caused_by points at requested.run_id"
+      (Some requested.meta.run_id) completed.meta.caused_by;
     Eio.Switch.fail sw Exit
   with Exit -> ()
 

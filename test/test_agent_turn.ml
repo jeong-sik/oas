@@ -236,6 +236,49 @@ let test_idle_different_calls () =
   Alcotest.(check bool) "not idle" false second.is_idle;
   Alcotest.(check int) "consecutive reset" 0 second.new_state.consecutive_idle_turns
 
+(* ── is_idle ~granularity tests (#896) ───────────────────── *)
+
+let fp name input_str =
+  { Agent_turn.fp_name = name;
+    fp_input = Yojson.Safe.to_string (Yojson.Safe.from_string input_str) }
+
+let test_is_idle_exact_distinguishes_inputs () =
+  let a = [fp "search" {|{"q":"a"}|}] in
+  let b = [fp "search" {|{"q":"b"}|}] in
+  Alcotest.(check bool) "Exact: differing inputs -> not idle"
+    false (Agent_turn.is_idle (Some a) b);
+  Alcotest.(check bool) "Exact: identical -> idle"
+    true (Agent_turn.is_idle (Some a) a)
+
+let test_is_idle_name_only_collapses_inputs () =
+  let a = [fp "masc_status" {|{"token":"x"}|}] in
+  let b = [fp "masc_status" {|{"token":"y"}|}] in
+  Alcotest.(check bool) "Name_only: same name, different input -> idle"
+    true (Agent_turn.is_idle ~granularity:Agent_turn.Name_only (Some a) b);
+  let c = [fp "masc_heartbeat" {|{"token":"x"}|}] in
+  Alcotest.(check bool) "Name_only: different name -> not idle"
+    false (Agent_turn.is_idle ~granularity:Agent_turn.Name_only (Some a) c)
+
+let test_is_idle_name_and_subset_placeholder_matches_name_only () =
+  let a = [fp "masc_status" {|{"token":"x","verbose":true}|}] in
+  let b = [fp "masc_status" {|{"token":"y","verbose":false}|}] in
+  (* Placeholder semantics: keys list is currently ignored; behaves
+     as Name_only. Locking this in a test so future leaves that wire
+     up real subset matching will break loudly here. *)
+  Alcotest.(check bool)
+    "Name_and_subset placeholder: same name -> idle"
+    true
+    (Agent_turn.is_idle
+       ~granularity:(Agent_turn.Name_and_subset ["token"])
+       (Some a) b)
+
+let test_is_idle_prev_none_never_idle () =
+  let current = [fp "search" {|{"q":"a"}|}] in
+  Alcotest.(check bool) "Exact + prev=None"
+    false (Agent_turn.is_idle None current);
+  Alcotest.(check bool) "Name_only + prev=None"
+    false (Agent_turn.is_idle ~granularity:Agent_turn.Name_only None current)
+
 (* ── filter_valid_messages tests ─────────────────────────── *)
 
 let test_filter_valid_empty () =
@@ -659,6 +702,14 @@ let () =
       Alcotest.test_case "different calls" `Quick test_idle_different_calls;
       Alcotest.test_case "multiple tools" `Quick test_idle_multiple_tools;
       Alcotest.test_case "non-tool ignored" `Quick test_idle_non_tool_use_ignored;
+      Alcotest.test_case "granularity=Exact distinguishes inputs" `Quick
+        test_is_idle_exact_distinguishes_inputs;
+      Alcotest.test_case "granularity=Name_only collapses inputs" `Quick
+        test_is_idle_name_only_collapses_inputs;
+      Alcotest.test_case "granularity=Name_and_subset placeholder" `Quick
+        test_is_idle_name_and_subset_placeholder_matches_name_only;
+      Alcotest.test_case "granularity: prev=None never idle" `Quick
+        test_is_idle_prev_none_never_idle;
     ];
     "filter_valid_messages", [
       Alcotest.test_case "empty base" `Quick test_filter_valid_empty;

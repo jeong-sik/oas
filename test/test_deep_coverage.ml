@@ -745,7 +745,8 @@ let test_event_forward_agent_name_some_cases () =
 let test_event_forward_payload_no_agent () =
   let p : Event_forward.event_payload = {
     event_type = "test"; timestamp = 0.0;
-    agent_name = None; correlation_id = "c1"; run_id = "r1"; data = `Null;
+    agent_name = None; correlation_id = "c1"; run_id = "r1";
+    caused_by = None; data = `Null;
   } in
   let json = Event_forward.payload_to_json p in
   let keys = match json with
@@ -757,7 +758,8 @@ let test_event_forward_payload_no_agent () =
 let test_event_forward_payload_with_agent () =
   let p : Event_forward.event_payload = {
     event_type = "test"; timestamp = 0.0;
-    agent_name = Some "alice"; correlation_id = "c1"; run_id = "r1"; data = `Null;
+    agent_name = Some "alice"; correlation_id = "c1"; run_id = "r1";
+    caused_by = None; data = `Null;
   } in
   let json = Event_forward.payload_to_json p in
   let keys = match json with

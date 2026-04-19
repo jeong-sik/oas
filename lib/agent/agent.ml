@@ -234,14 +234,22 @@ let run_with_handoffs ~sw ?clock agent ~targets user_prompt =
               loop ()
             | Some target ->
               let from_name = agent_with_handoffs.state.config.name in
-              (match agent_with_handoffs.options.event_bus with
-               | Some bus -> Event_bus.publish bus
-                   (Event_bus.mk_event
-                      (HandoffRequested
-                         { from_agent = from_name;
-                           to_agent = target.name;
-                           reason = prompt }))
-               | None -> ());
+              (* HandoffRequested: capture the run_id so HandoffCompleted
+                 can record it as [caused_by], preserving the
+                 request -> completion causation chain (#877). *)
+              let handoff_requested_run_id =
+                match agent_with_handoffs.options.event_bus with
+                | Some bus ->
+                  let run_id = Event_bus.fresh_id () in
+                  Event_bus.publish bus
+                    (Event_bus.mk_event ~run_id
+                       (HandoffRequested
+                          { from_agent = from_name;
+                            to_agent = target.name;
+                            reason = prompt }));
+                  Some run_id
+                | None -> None
+              in
               let handoff_t0 = Unix.gettimeofday () in
               let sub = create ~net:agent.net ~config:target.config
                 ~tools:target.tools ~options:{ default_options with
@@ -252,7 +260,7 @@ let run_with_handoffs ~sw ?clock agent ~targets user_prompt =
               let handoff_elapsed = Unix.gettimeofday () -. handoff_t0 in
               (match agent_with_handoffs.options.event_bus with
                | Some bus -> Event_bus.publish bus
-                   (Event_bus.mk_event
+                   (Event_bus.mk_event ?caused_by:handoff_requested_run_id
                       (HandoffCompleted
                          { from_agent = from_name;
                            to_agent = target.name;

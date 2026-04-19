@@ -42,29 +42,35 @@ let default_config = {
 
 (* ── CLI argument building ───────────────────────────── *)
 
-(* Env-driven flags.  All opt-in.
+(* Non-interactive Gemini runs default to MCP OFF by passing a sentinel
+   MCP whitelist that will never match a real server.  Explicit
+   allow-lists can opt back in.
 
    OAS_GEMINI_ALLOWED_MCP    "a,b" → --allowed-mcp-server-names a
                                      --allowed-mcp-server-names b
-   OAS_GEMINI_NO_MCP         1     → --allowed-mcp-server-names ""
-                                     (whitelist = empty ⇒ all MCP OFF;
+   OAS_GEMINI_NO_MCP         1     → --allowed-mcp-server-names __oas_no_mcp__
+                                     (sentinel ⇒ all MCP OFF;
                                       takes precedence over the list)
    OAS_GEMINI_APPROVAL_MODE  default|auto_edit|yolo|plan
                                    → --approval-mode <v>
                                      (when set, supersedes [config.yolo])
    OAS_GEMINI_EXTENSIONS     "a,b" → -e a -e b
 
-   Gemini CLI has no runtime flag to disable hooks — hook lifecycle is
-   controlled via the [gemini hooks] subcommand, outside transport
-   scope. *)
+   Gemini CLI 0.38+ PolicyEngine rejects empty strings in
+   [--allowed-mcp-server-names] ("mcpName is required if specified").
+   The sentinel is a non-existent server name that satisfies the
+   validator while matching nothing, giving us the same "all MCP OFF"
+   semantics without crashing the CLI. *)
+let no_mcp_sentinel = "__oas_no_mcp__"
+
 let env_extra_args () =
   let extras = ref [] in
   let add a = extras := !extras @ a in
   if Cli_common_env.bool "OAS_GEMINI_NO_MCP" then
-    add ["--allowed-mcp-server-names"; ""]
+    add ["--allowed-mcp-server-names"; no_mcp_sentinel]
   else
     (match Cli_common_env.list "OAS_GEMINI_ALLOWED_MCP" with
-     | None | Some [] -> ()
+     | None | Some [] -> add ["--allowed-mcp-server-names"; no_mcp_sentinel]
      | Some names ->
        List.iter (fun n -> add ["--allowed-mcp-server-names"; n]) names);
   (match Cli_common_env.list "OAS_GEMINI_EXTENSIONS" with
@@ -217,8 +223,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
       let prompt = Cli_common_prompt.prompt_of_messages messages in
       let system_prompt =
         Cli_common_prompt.system_prompt_of ~req_config:req.config req.messages in
-      let argv = build_args ~config ~req_config:req.config
-        ~prompt ~system_prompt in
+      let argv = build_args ~config ~req_config:req.config ~prompt ~system_prompt in
       match run ~sw ~mgr ~config argv with
       | Error _ as e -> { Llm_transport.response = e; latency_ms = 0 }
       | Ok { stdout; stderr = _; latency_ms } ->
@@ -231,8 +236,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
       let prompt = Cli_common_prompt.prompt_of_messages messages in
       let system_prompt =
         Cli_common_prompt.system_prompt_of ~req_config:req.config req.messages in
-      let argv = build_args ~config ~req_config:req.config
-        ~prompt ~system_prompt in
+      let argv = build_args ~config ~req_config:req.config ~prompt ~system_prompt in
       (* Gemini CLI does not support native streaming; replay synthetic events
          after the sync call completes. *)
       match run ~sw ~mgr ~config argv with
@@ -399,16 +403,18 @@ let%test "env: approval-mode supersedes config.yolo" =
     && List.mem "plan" args
     && not (List.mem "--yolo" args))
 
-let%test "env: OAS_GEMINI_NO_MCP disables all MCP via empty whitelist" =
+let%test "env: OAS_GEMINI_NO_MCP disables all MCP via sentinel whitelist" =
   with_env "OAS_GEMINI_NO_MCP" "1" (fun () ->
     let args = build_args ~config:default_config ~req_config:gemini_req
       ~prompt:"hi" ~system_prompt:None in
     let rec has_pair = function
-      | "--allowed-mcp-server-names" :: "" :: _ -> true
+      | "--allowed-mcp-server-names" :: name :: _
+        when name = no_mcp_sentinel -> true
       | _ :: rest -> has_pair rest
       | [] -> false
     in
-    has_pair args)
+    has_pair args
+    && not (List.mem "" args))
 
 let%test "env: OAS_GEMINI_ALLOWED_MCP whitelist" =
   with_env "OAS_GEMINI_ALLOWED_MCP" "alpha,beta" (fun () ->
@@ -422,14 +428,21 @@ let%test "env: OAS_GEMINI_EXTENSIONS splits on comma" =
       ~prompt:"hi" ~system_prompt:None in
     List.mem "-e" args && List.mem "ext-a" args && List.mem "ext-b" args)
 
-let%test "env: no vars → legacy behavior preserved (yolo kept)" =
+let%test "default: no vars still keeps MCP disabled via sentinel" =
   with_unset "OAS_GEMINI_ALLOWED_MCP" (fun () ->
   with_unset "OAS_GEMINI_APPROVAL_MODE" (fun () ->
   with_unset "OAS_GEMINI_EXTENSIONS" (fun () ->
   with_unset "OAS_GEMINI_NO_MCP" (fun () ->
     let args = build_args ~config:default_config ~req_config:gemini_req
       ~prompt:"hi" ~system_prompt:None in
+    let rec has_sentinel_whitelist = function
+      | "--allowed-mcp-server-names" :: name :: _
+        when name = no_mcp_sentinel -> true
+      | _ :: rest -> has_sentinel_whitelist rest
+      | [] -> false
+    in
     (* default_config.yolo = true, so --yolo must appear. *)
     List.mem "--yolo" args
     && not (List.mem "--approval-mode" args)
-    && not (List.mem "--allowed-mcp-server-names" args)))))
+    && has_sentinel_whitelist args
+    && not (List.mem "" args)))))

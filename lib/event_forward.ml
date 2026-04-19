@@ -17,6 +17,7 @@ type event_payload = {
   agent_name: string option;
   correlation_id: string;
   run_id: string;
+  caused_by: string option;
   data: Yojson.Safe.t;
 }
 
@@ -32,7 +33,11 @@ let payload_to_json p =
     | Some n -> [("agent_name", `String n)]
     | None -> []
   in
-  `Assoc (base @ agent)
+  let caused_by = match p.caused_by with
+    | Some id -> [("caused_by", `String id)]
+    | None -> []
+  in
+  `Assoc (base @ agent @ caused_by)
 
 (* ── Event to payload ─────────────────────────────────────────── *)
 
@@ -182,6 +187,7 @@ let event_to_payload (event : Event_bus.event) : event_payload =
     agent_name;
     correlation_id = event.meta.correlation_id;
     run_id = event.meta.run_id;
+    caused_by = event.meta.caused_by;
     data }
 
 (* ── Targets ──────────────────────────────────────────────────── *)

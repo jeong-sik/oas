@@ -53,6 +53,16 @@ let system_prompt_of ~(req_config : Provider_config.t)
       Some (List.filter_map text_of_block content |> String.concat "\n")
     | _ -> None
 
+let prompt_with_system_prompt ~prompt ~system_prompt =
+  match system_prompt |> Option.map String.trim with
+  | None | Some "" -> prompt
+  | Some sp ->
+    let prompt = String.trim prompt in
+    if prompt = "" then
+      Printf.sprintf "System:\n%s" sp
+    else
+      Printf.sprintf "System:\n%s\n\n%s" sp prompt
+
 [@@@coverage off]
 
 let msg role content : Types.message =
@@ -95,6 +105,13 @@ let%test "system_prompt_of falls back to system message" =
 let%test "system_prompt_of returns None when absent" =
   let req = Provider_config.make ~kind:Claude_code ~model_id:"" ~base_url:"" () in
   system_prompt_of ~req_config:req [msg User [Text "hi"]] = None
+
+let%test "prompt_with_system_prompt prepends section" =
+  prompt_with_system_prompt ~prompt:"hello" ~system_prompt:(Some "be helpful")
+  = "System:\nbe helpful\n\nhello"
+
+let%test "prompt_with_system_prompt leaves prompt unchanged when absent" =
+  prompt_with_system_prompt ~prompt:"hello" ~system_prompt:None = "hello"
 
 let%test "prompt_of_messages default drops tool blocks" =
   let msgs = [

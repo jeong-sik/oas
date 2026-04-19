@@ -23,12 +23,40 @@
  (libraries agent_sdk alcotest unix str))
 
 (test
+ (name test_provider_registry)
+ (libraries llm_provider alcotest unix))
+
+(test
  (name test_types)
  (libraries agent_sdk alcotest))
 
 (test
  (name test_hooks)
  (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_agent_config)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_agent_turn_budget_unit)
+ (libraries agent_sdk alcotest))
+
+(test
+ (name test_agent_tool)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_agent_typed)
+ (libraries agent_sdk alcotest))
+
+(test
+ (name test_agent_turn)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_agent_pipeline)
+ (libraries agent_sdk alcotest yojson eio eio_main cohttp-eio))
 
 (test
  (name test_approval)
