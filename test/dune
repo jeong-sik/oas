@@ -333,3 +333,7 @@
 (test
  (name test_memory_advanced)
  (libraries agent_sdk alcotest eio eio_main qcheck-core qcheck-alcotest))
+
+(test
+ (name test_memory)
+ (libraries agent_sdk alcotest))
