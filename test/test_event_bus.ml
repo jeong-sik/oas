@@ -345,6 +345,71 @@ let test_on_tool_error_hook_silent_on_success () =
   in
   check int "hook not fired on Ok result" 0 !fired
 
+(* ── Hooks.OnError emit on tool-not-found (#1032) ──────── *)
+
+let test_on_error_fires_on_tool_not_found () =
+  Eio_main.run @@ fun _env ->
+  let context = Context.create () in
+  let bus = Event_bus.create () in
+  let schedule : Hooks.tool_schedule =
+    { planned_index = 0; batch_index = 0; batch_size = 1;
+      concurrency_class = "sequential_workspace";
+      batch_kind = "sequential"; }
+  in
+  let fired = ref [] in
+  let on_error = Some (fun event ->
+    (match event with
+     | Hooks.OnError { detail; context } ->
+       fired := (detail, context) :: !fired
+     | _ -> ());
+    Hooks.Continue)
+  in
+  let hooks = { Hooks.empty with on_error } in
+  (* No tools registered -> dispatch falls to the None branch. *)
+  let _result =
+    Agent_tools.find_and_execute_tool ~context ~tools:[] ~hooks
+      ~event_bus:(Some bus) ~tracer:Tracing.null ~agent_name:"agent"
+      ~turn_count:0 ~correlation_id:"c" ~run_id:"r"
+      ~schedule "ghost_tool" (`Assoc []) "tool-1"
+  in
+  match List.rev !fired with
+  | [(detail, ctx)] ->
+    check bool "detail mentions tool name" true
+      (String.length detail > 0
+       && String.length detail >= String.length "ghost_tool"
+       && (try
+             let _ = Str.search_forward (Str.regexp_string "ghost_tool") detail 0 in
+             true
+           with Not_found -> false));
+    check string "context labels dispatch site"
+      "agent_tools.find_and_execute_tool" ctx
+  | [] -> fail "on_error hook not fired"
+  | _ -> fail "on_error fired more than once"
+
+let test_on_error_silent_on_successful_dispatch () =
+  Eio_main.run @@ fun _env ->
+  let context = Context.create () in
+  let bus = Event_bus.create () in
+  let tool =
+    Tool.create ~name:"ok" ~description:"" ~parameters:[]
+      (fun _ -> Ok { Types.content = "done" })
+  in
+  let schedule : Hooks.tool_schedule =
+    { planned_index = 0; batch_index = 0; batch_size = 1;
+      concurrency_class = "sequential_workspace";
+      batch_kind = "sequential"; }
+  in
+  let fired = ref 0 in
+  let on_error = Some (fun _ -> incr fired; Hooks.Continue) in
+  let hooks = { Hooks.empty with on_error } in
+  let _ =
+    Agent_tools.find_and_execute_tool ~context ~tools:[tool] ~hooks
+      ~event_bus:(Some bus) ~tracer:Tracing.null ~agent_name:"agent"
+      ~turn_count:0 ~correlation_id:"c" ~run_id:"r"
+      ~schedule "ok" (`Assoc []) "tool-2"
+  in
+  check int "on_error not fired on success" 0 !fired
+
 let test_correlation_fields_roundtrip () =
   Eio_main.run @@ fun _env ->
   let bus = Event_bus.create () in
@@ -586,6 +651,10 @@ let () =
         test_on_tool_error_hook_fires_on_tool_failure;
       test_case "on_tool_error silent on success" `Quick
         test_on_tool_error_hook_silent_on_success;
+      test_case "on_error fires on tool-not-found" `Quick
+        test_on_error_fires_on_tool_not_found;
+      test_case "on_error silent on successful dispatch" `Quick
+        test_on_error_silent_on_successful_dispatch;
     ];
     "envelope", [
       test_case "filter_correlation" `Quick test_filter_correlation;
