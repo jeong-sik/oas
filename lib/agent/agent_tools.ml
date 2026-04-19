@@ -142,12 +142,23 @@ let invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count ~hook_name
 let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tracer
     ~agent_name ~turn_count ?correlation_id ?run_id ?on_hook_invoked
     ~schedule name input id =
-  (* ToolCalled event *)
-  (match event_bus with
-   | Some bus -> Event_bus.publish bus
-       (Event_bus.mk_event ?correlation_id ?run_id
-          (ToolCalled { agent_name; tool_name = name; input }))
-   | None -> ());
+  (* ToolCalled event — capture the published envelope's run_id so the
+     matching ToolCompleted records it as caused_by, preserving the
+     call -> completion causation chain per tool invocation (#877).
+     Using [ev.meta.run_id] works whether the caller supplies
+     [~run_id] explicitly or we fall back to the fresh id minted by
+     [mk_event]. *)
+  let tool_called_run_id =
+    match event_bus with
+    | Some bus ->
+      let ev =
+        Event_bus.mk_event ?correlation_id ?run_id
+          (ToolCalled { agent_name; tool_name = name; input })
+      in
+      Event_bus.publish bus ev;
+      Some ev.meta.run_id
+    | None -> None
+  in
   let tool_opt = List.find_opt (fun (tool: Tool.t) -> tool.schema.name = name) tools in
   let result = match tool_opt with
   | Some tool ->
@@ -276,6 +287,7 @@ let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tra
      in
      Event_bus.publish bus
        (Event_bus.mk_event ?correlation_id ?run_id
+          ?caused_by:tool_called_run_id
           (ToolCompleted { agent_name; tool_name = name; output }))
    | None -> ());
   result

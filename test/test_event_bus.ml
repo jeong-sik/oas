@@ -273,7 +273,15 @@ let test_tool_completed_preserves_non_retryable_flag () =
       check string "tool_completed correlation_id" "sess-event"
         completed_meta.correlation_id;
       check string "tool_completed run_id" "run-event"
-        completed_meta.run_id
+        completed_meta.run_id;
+      (* Causation chain (#877): ToolCalled is the chain root for this
+         tool invocation; ToolCompleted.caused_by must point at
+         called_meta.run_id. *)
+      check (option string) "tool_called.caused_by is None (root)"
+        None called_meta.caused_by;
+      check (option string)
+        "tool_completed.caused_by points at called.run_id"
+        (Some called_meta.run_id) completed_meta.caused_by
   | _ -> fail "expected tool called/completed events"
 
 let test_correlation_fields_roundtrip () =
