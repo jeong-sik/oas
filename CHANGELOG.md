@@ -17,6 +17,12 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ### Fixed
 
+- **Gemini CLI MCP-off no longer emits an empty MCP server name.** Gemini CLI
+  0.38 rejects `--allowed-mcp-server-names ""` with
+  `mcpName is required if specified (cannot be empty)`. The `gemini_cli`
+  transport now uses a non-matching sentinel whitelist entry for the default
+  MCP-off path and for `OAS_GEMINI_NO_MCP=1`, preserving the "do not inherit
+  ambient MCP" intent without tripping CLI policy validation.
 - **CLI transports disable MCP by default in headless mode** (PR #999). `transport_claude_code` / `transport_codex_cli` / `transport_gemini_cli` stop inheriting user MCP config for non-interactive invocations unless explicitly opted in via `OAS_*_ALLOWED_MCP`. Eliminates the "connection refused to dead MCP port" noise observed in keeper logs.
 - **`Hooks.OnToolError` emitted on tool execution failure** (PR #1031). Prior behavior left callers relying on `stop_reason` heuristics; now the failure path fires a dedicated hook with the error payload.
 - **`Hooks.OnError` emitted on tool-not-found dispatch failure** (PR #1035 — deferred, see PR description).

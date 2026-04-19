@@ -42,30 +42,35 @@ let default_config = {
 
 (* ── CLI argument building ───────────────────────────── *)
 
-(* Non-interactive Gemini runs default to MCP OFF by passing an empty
-   MCP whitelist.  Explicit allow-lists can opt back in.
+(* Non-interactive Gemini runs default to MCP OFF by passing a sentinel
+   MCP whitelist entry that should not match a configured server.
+   Explicit allow-lists can opt back in.
 
    OAS_GEMINI_ALLOWED_MCP    "a,b" → --allowed-mcp-server-names a
                                      --allowed-mcp-server-names b
-   OAS_GEMINI_NO_MCP         1     → --allowed-mcp-server-names ""
-                                     (whitelist = empty ⇒ all MCP OFF;
+   OAS_GEMINI_NO_MCP         1     → --allowed-mcp-server-names __oas_no_mcp__
+                                     (non-matching whitelist ⇒ all MCP OFF;
                                       takes precedence over the list)
    OAS_GEMINI_APPROVAL_MODE  default|auto_edit|yolo|plan
                                    → --approval-mode <v>
                                      (when set, supersedes [config.yolo])
    OAS_GEMINI_EXTENSIONS     "a,b" → -e a -e b
 
-   Gemini CLI has no runtime flag to disable hooks — hook lifecycle is
+   Gemini CLI 0.38 rejects an empty name with
+   "mcpName is required if specified (cannot be empty)", so do not pass
+   [""] as the whitelist entry. Gemini CLI has no runtime flag to disable hooks — hook lifecycle is
    controlled via the [gemini hooks] subcommand, outside transport
    scope. *)
+let no_mcp_sentinel = "__oas_no_mcp__"
+
 let env_extra_args () =
   let extras = ref [] in
   let add a = extras := !extras @ a in
   if Cli_common_env.bool "OAS_GEMINI_NO_MCP" then
-    add ["--allowed-mcp-server-names"; ""]
+    add ["--allowed-mcp-server-names"; no_mcp_sentinel]
   else
     (match Cli_common_env.list "OAS_GEMINI_ALLOWED_MCP" with
-     | None | Some [] -> add ["--allowed-mcp-server-names"; ""]
+     | None | Some [] -> add ["--allowed-mcp-server-names"; no_mcp_sentinel]
      | Some names ->
        List.iter (fun n -> add ["--allowed-mcp-server-names"; n]) names);
   (match Cli_common_env.list "OAS_GEMINI_EXTENSIONS" with
@@ -398,16 +403,17 @@ let%test "env: approval-mode supersedes config.yolo" =
     && List.mem "plan" args
     && not (List.mem "--yolo" args))
 
-let%test "env: OAS_GEMINI_NO_MCP disables all MCP via empty whitelist" =
+let%test "env: OAS_GEMINI_NO_MCP disables all MCP via sentinel whitelist" =
   with_env "OAS_GEMINI_NO_MCP" "1" (fun () ->
     let args = build_args ~config:default_config ~req_config:gemini_req
       ~prompt:"hi" ~system_prompt:None in
     let rec has_pair = function
-      | "--allowed-mcp-server-names" :: "" :: _ -> true
+      | "--allowed-mcp-server-names" :: name :: _ ->
+        name = no_mcp_sentinel
       | _ :: rest -> has_pair rest
       | [] -> false
     in
-    has_pair args)
+    has_pair args && not (List.mem "" args))
 
 let%test "env: OAS_GEMINI_ALLOWED_MCP whitelist" =
   with_env "OAS_GEMINI_ALLOWED_MCP" "alpha,beta" (fun () ->
@@ -421,19 +427,21 @@ let%test "env: OAS_GEMINI_EXTENSIONS splits on comma" =
       ~prompt:"hi" ~system_prompt:None in
     List.mem "-e" args && List.mem "ext-a" args && List.mem "ext-b" args)
 
-let%test "default: no vars still keeps MCP disabled" =
+let%test "default: no vars still keeps MCP disabled without empty whitelist" =
   with_unset "OAS_GEMINI_ALLOWED_MCP" (fun () ->
   with_unset "OAS_GEMINI_APPROVAL_MODE" (fun () ->
   with_unset "OAS_GEMINI_EXTENSIONS" (fun () ->
   with_unset "OAS_GEMINI_NO_MCP" (fun () ->
     let args = build_args ~config:default_config ~req_config:gemini_req
       ~prompt:"hi" ~system_prompt:None in
-    let rec has_empty_whitelist = function
-      | "--allowed-mcp-server-names" :: "" :: _ -> true
-      | _ :: rest -> has_empty_whitelist rest
+    let rec has_no_mcp_whitelist = function
+      | "--allowed-mcp-server-names" :: name :: _ ->
+        name = no_mcp_sentinel
+      | _ :: rest -> has_no_mcp_whitelist rest
       | [] -> false
     in
     (* default_config.yolo = true, so --yolo must appear. *)
     List.mem "--yolo" args
     && not (List.mem "--approval-mode" args)
-    && has_empty_whitelist args))))
+    && has_no_mcp_whitelist args
+    && not (List.mem "" args)))))
