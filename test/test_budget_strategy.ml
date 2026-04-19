@@ -238,6 +238,22 @@ let test_deterministic_profile () =
   Alcotest.(check (float 0.001)) "temp" 0.0 p.temperature;
   Alcotest.(check int) "max_tokens" 4096 p.max_tokens
 
+(** Regression for #851: built-in profiles leave sampling params
+    unset ([None]) so consumers opting in explicitly — not inherited
+    hardcoded constants. *)
+let test_builtin_profiles_sampling_unset () =
+  let module IP = Llm_provider.Constants.Inference_profile in
+  List.iter (fun (name, p) ->
+    Alcotest.(check bool) (name ^ " top_p=None") true (p.IP.top_p = None);
+    Alcotest.(check bool) (name ^ " top_k=None") true (p.IP.top_k = None);
+    Alcotest.(check bool) (name ^ " min_p=None") true (p.IP.min_p = None))
+    [ "cascade_default", IP.cascade_default
+    ; "agent_default", IP.agent_default
+    ; "low_variance", IP.low_variance
+    ; "worker_default", IP.worker_default
+    ; "deterministic", IP.deterministic
+    ]
+
 (* --- default_summarizer (exported 0.153.0) --- *)
 
 let test_default_summarizer_empty () =
@@ -320,6 +336,8 @@ let () =
     "inference_profiles", [
       Alcotest.test_case "worker_default" `Quick test_worker_default_profile;
       Alcotest.test_case "deterministic" `Quick test_deterministic_profile;
+      Alcotest.test_case "builtin profiles leave sampling unset (#851)" `Quick
+        test_builtin_profiles_sampling_unset;
     ];
     "default_summarizer", [
       Alcotest.test_case "empty -> No prior context" `Quick test_default_summarizer_empty;
