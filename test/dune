@@ -31,6 +31,10 @@
  (libraries agent_sdk alcotest yojson))
 
 (test
+ (name test_agent_config)
+ (libraries agent_sdk alcotest yojson))
+
+(test
  (name test_approval)
  (libraries agent_sdk alcotest yojson eio eio_main))
 
