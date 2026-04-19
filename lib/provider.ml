@@ -493,16 +493,21 @@ let config_of_provider_config (pc : Llm_provider.Provider_config.t) : config =
     [ANTHROPIC_API_KEY] (matching {!create_message}'s existing default).
 
     [OpenAICompat] provider collapses to [OpenAI_compat] kind — the
-    legacy {!config} variant does not distinguish Gemini/Glm/Ollama/
-    Claude_code from generic OpenAI-compatible endpoints.  Callers that
-    require a specific kind should construct {!Llm_provider.Provider_config.t}
-    directly via {!Llm_provider.Provider_config.make}.
+    legacy {!config} variant does not distinguish arbitrary
+    OpenAI-compatible endpoints from named providers carrying their
+    own kind.  Callers that require kind + arbitrary URL should
+    construct {!Llm_provider.Provider_config.t} directly via
+    {!Llm_provider.Provider_config.make}.
 
-    [Custom_registered] is intentionally rejected: the custom provider
-    registry can define request/parse semantics that the consolidated
-    {!Llm_provider.Complete.complete} surface cannot represent safely.
+    [Custom_registered {name}] preserves the registry-declared
+    {!Llm_provider.Provider_config.provider_kind}
+    (Gemini/Glm/Ollama/Claude_code/etc.) by looking [name] up in
+    {!Llm_provider.Provider_registry.default} and using
+    [entry.defaults.kind] and [entry.defaults.request_path].
+    Returns [Error InvalidConfig] when [name] is not registered.
 
-    @since 0.155.0 *)
+    @since 0.155.0
+    @since 0.161.0 — Custom_registered kind preservation *)
 let provider_config_of_agent
     ~(state : Types.agent_state)
     ~(base_url : string)
@@ -536,16 +541,44 @@ let provider_config_of_agent
   | Some p ->
       (match p.provider with
        | Custom_registered { name } ->
-           Error
-             (Error.Config
-                (InvalidConfig
-                   {
-                     field = "provider";
-                     detail =
-                       Printf.sprintf
-                         "provider_config_of_agent does not support Custom_registered provider '%s'; construct Provider_config.t directly"
-                         name;
-                   }))
+           (* Preserve the registry-declared provider_kind
+              (Gemini/Glm/Ollama/Claude_code/etc.) instead of flattening
+              to OpenAI_compat.
+
+              Source of truth is {!Llm_provider.Provider_registry.default},
+              which carries [entry.defaults.{kind, base_url, api_key_env,
+              request_path}] per registered name. We read api_key from
+              env directly rather than going through {!resolve}, because
+              [resolve] dispatches via a separate {!Provider.registry}
+              Hashtbl that is not guaranteed to contain the registry
+              entries defined in {!Llm_provider.Provider_registry}. *)
+           let registry = Llm_provider.Provider_registry.default () in
+           (match Llm_provider.Provider_registry.find registry name with
+            | None ->
+                Error
+                  (Error.Config
+                     (InvalidConfig
+                        {
+                          field = "provider";
+                          detail =
+                            Printf.sprintf
+                              "Custom_registered provider '%s' not found in Provider_registry.default"
+                              name;
+                        }))
+            | Some entry ->
+                let api_key =
+                  if entry.defaults.api_key_env = "" then ""
+                  else
+                    match Sys.getenv_opt entry.defaults.api_key_env with
+                    | Some k -> k
+                    | None -> ""
+                in
+                build ~kind:entry.defaults.kind
+                  ~resolved_base_url:entry.defaults.base_url
+                  ~api_key
+                  ~headers:[]
+                  ~request_path:entry.defaults.request_path
+                  ~model_id:p.model_id)
        | Anthropic | Local _ | OpenAICompat _ ->
            (match resolve p with
             | Error e -> Error e

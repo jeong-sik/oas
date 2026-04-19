@@ -175,16 +175,20 @@ val config_of_provider_config : Llm_provider.Provider_config.t -> config
     (or the [ANTHROPIC_API_KEY] fallback when [None]).
 
     [OpenAICompat] provider collapses to [OpenAI_compat] kind: the
-    legacy {!config} variant does not distinguish Gemini/Glm/Ollama/
-    Claude_code from generic OpenAI-compatible endpoints.  Callers
-    needing a specific kind should use
+    legacy {!config} variant does not distinguish arbitrary
+    OpenAI-compatible endpoints from named providers carrying their own
+    kind.  Callers needing kind + arbitrary URL should construct
+    {!Llm_provider.Provider_config.t} via
     {!Llm_provider.Provider_config.make} directly.
 
-    [Custom_registered] providers are rejected: the custom registry can
-    define request/parse semantics that {!Llm_provider.Complete.complete}
-    cannot preserve through this adapter.
+    [Custom_registered {name}] preserves the registry-declared
+    {!Llm_provider.Provider_config.provider_kind} by looking [name] up
+    in {!Llm_provider.Provider_registry.default} and using
+    [entry.defaults.kind].  Errors with [InvalidConfig] when [name] is
+    not registered.
 
-    @since 0.155.0 *)
+    @since 0.155.0
+    @since 0.161.0 — Custom_registered kind preservation *)
 val provider_config_of_agent :
   state:Types.agent_state ->
   base_url:string ->

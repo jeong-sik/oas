@@ -237,14 +237,24 @@ let resolve_provider ~model_id provider_str base_url =
       let registry = Llm_provider.Provider_registry.default () in
       match Llm_provider.Provider_registry.find registry other with
       | Some entry ->
-          let url = match base_url with
-            | Some u -> u
-            | None -> entry.defaults.base_url
-          in
-          { Provider.provider = OpenAICompat {
-              base_url = url; auth_header = None;
-              path = entry.defaults.request_path; static_token = None };
-            model_id; api_key_env = entry.defaults.api_key_env }
+          (match base_url with
+           | None ->
+               (* Preserve registry-declared kind (Gemini/Glm/Ollama/etc.)
+                  via Custom_registered. Downstream (provider_config_of_agent,
+                  request_path, Capabilities, resolve) dispatches through
+                  Provider_registry by name, retaining entry.defaults.kind. *)
+               { Provider.provider = Custom_registered { name = other };
+                 model_id; api_key_env = entry.defaults.api_key_env }
+           | Some url ->
+               (* Explicit base_url override: legacy Provider.config variant
+                  cannot carry kind + arbitrary URL simultaneously, so kind
+                  flattens to OpenAI_compat. For kind-preserving override,
+                  construct Llm_provider.Provider_config.t directly via
+                  Provider_config.make. *)
+               { Provider.provider = OpenAICompat {
+                   base_url = url; auth_header = None;
+                   path = entry.defaults.request_path; static_token = None };
+                 model_id; api_key_env = entry.defaults.api_key_env })
       | None ->
           let url = match base_url with
             | Some u -> u

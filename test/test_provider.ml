@@ -573,10 +573,32 @@ let test_provider_config_of_agent_local_strips_dummy_key () =
       [("Content-Type", "application/json")] pc.headers
   | Error e -> Alcotest.fail (Error.to_string e)
 
-let test_provider_config_of_agent_rejects_custom_registered () =
+let test_provider_config_of_agent_custom_registered_preserves_kind () =
+  (* Regression for #1003: Custom_registered must preserve the
+     registry-declared provider_kind (e.g. Gemini) rather than
+     flattening to OpenAI_compat, which would route Gemini requests
+     through the OpenAI wire format and produce 404 against the
+     Gemini base URL. *)
   let cfg : Provider.config = {
-    provider = Custom_registered { name = "my-provider" };
-    model_id = "custom-model";
+    provider = Custom_registered { name = "gemini" };
+    model_id = "gemini-2.5-flash";
+    api_key_env = "GEMINI_API_KEY";
+  } in
+  let state = agent_state_with_params () in
+  Unix.putenv "GEMINI_API_KEY" "fake-gemini-key";
+  match Provider.provider_config_of_agent ~state
+          ~base_url:"unused-fallback" (Some cfg) with
+  | Ok pc ->
+    Alcotest.(check bool) "kind preserves Gemini" true
+      (pc.kind = Llm_provider.Provider_config.Gemini);
+    Alcotest.(check string) "model_id" "gemini-2.5-flash" pc.model_id
+  | Error e ->
+    Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))
+
+let test_provider_config_of_agent_custom_registered_unknown_name () =
+  let cfg : Provider.config = {
+    provider = Custom_registered { name = "nonexistent-provider-xyz" };
+    model_id = "m";
     api_key_env = "IGNORED";
   } in
   let state = agent_state_with_params () in
@@ -584,11 +606,11 @@ let test_provider_config_of_agent_rejects_custom_registered () =
           ~base_url:"unused-fallback" (Some cfg) with
   | Error (Error.Config (InvalidConfig { field; detail })) ->
     Alcotest.(check string) "field" "provider" field;
-    Alcotest.(check bool) "detail mentions unsupported custom provider" true
-      (String.length detail > 0 && Util.contains_substring_ci ~haystack:detail ~needle:"Custom_registered")
+    Alcotest.(check bool) "detail mentions not found" true
+      (Util.contains_substring_ci ~haystack:detail ~needle:"not found")
   | Error e ->
     Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))
-  | Ok _ -> Alcotest.fail "should reject Custom_registered"
+  | Ok _ -> Alcotest.fail "should error on unregistered name"
 
 let () =
   Alcotest.run "Provider" [
@@ -654,7 +676,9 @@ let () =
         test_provider_config_of_agent_none_fallback;
       Alcotest.test_case "local strips dummy key" `Quick
         test_provider_config_of_agent_local_strips_dummy_key;
-      Alcotest.test_case "custom registered rejected" `Quick
-        test_provider_config_of_agent_rejects_custom_registered;
+      Alcotest.test_case "custom registered preserves kind (#1003)" `Quick
+        test_provider_config_of_agent_custom_registered_preserves_kind;
+      Alcotest.test_case "custom registered unknown name errors" `Quick
+        test_provider_config_of_agent_custom_registered_unknown_name;
     ];
   ]
