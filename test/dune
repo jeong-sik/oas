@@ -23,6 +23,10 @@
  (libraries agent_sdk alcotest unix str))
 
 (test
+ (name test_provider_registry)
+ (libraries llm_provider alcotest unix))
+
+(test
  (name test_types)
  (libraries agent_sdk alcotest))
 
