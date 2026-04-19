@@ -6,6 +6,30 @@ Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
 backfilled on 2026-04-04 from existing git tags. The dates below reflect the
 original tag dates. `0.100.4` was never tagged or released.
 
+## [0.162.0] - 2026-04-19
+
+### Added
+
+- **`Event_bus` envelopes carry `caused_by`.** `envelope.caused_by : string option` links every event back to the originating run. Three emitters wire it through: `orchestrator` (`AgentStarted` → `AgentCompleted`/`AgentFailed`, PR #1019), `agent` handoff (`HandoffRequested` → `HandoffCompleted`, PR #1020), `agent_tools` (`ToolCalled` → `ToolCompleted`, PR #1021). `event_forward` surfaces the field on the delivery payload (PR #1028). Enables causation tracing across a single run without re-parsing agent logs.
+- **`Tool_retry_policy.error_class` variant** (PR #1027). Contract-first typed classification of tool errors drives retry decisions; replaces string-based pattern matching at callsites.
+- **`Agent_turn.idle_granularity` opt-in variant** (PR #1024). Fine-grained `is_idle` reporting for callers that need sub-turn idle signals without changing the default coarse-grained behavior.
+- **Inference profile exposes `top_p` / `top_k` / `min_p`** (PR #1015). Constants-layer extension so cascade configs can pin sampling parameters without provider-specific escapes.
+
+### Fixed
+
+- **CLI transports disable MCP by default in headless mode** (PR #999). `transport_claude_code` / `transport_codex_cli` / `transport_gemini_cli` stop inheriting user MCP config for non-interactive invocations unless explicitly opted in via `OAS_*_ALLOWED_MCP`. Eliminates the "connection refused to dead MCP port" noise observed in keeper logs.
+- **`Hooks.OnToolError` emitted on tool execution failure** (PR #1031). Prior behavior left callers relying on `stop_reason` heuristics; now the failure path fires a dedicated hook with the error payload.
+- **`Hooks.OnError` emitted on tool-not-found dispatch failure** (PR #1035 — deferred, see PR description).
+- **`llm_provider` honors `~cwd` at the OS level** via `env -C <dir>` prefix (PR #1016). Earlier implementation relied on the CLI's own `--cwd` flag, which was inconsistent across providers and silently dropped by some wrappers.
+
+### Changed
+
+- **`LLM_ENDPOINTS` parsing unified** via `Discovery.parse_llm_endpoints_env` (PR #1014). Transports and discovery now share a single comma-split + trim routine.
+
+### Chore
+
+- **Test registry cleanup.** Six orphan tests wired into `test/dune` — `test_agent_config` (#1030), `test_agent_turn_budget_unit` (#1026), `test_agent_tool` (#1033), `test_agent_typed` (#1034), `test_agent_pipeline` (#1036), `test_agent_lifecycle` (#1037). No behavior change; tests were previously not run.
+
 ## [0.161.0] - 2026-04-19
 
 ### Fixed
