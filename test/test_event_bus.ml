@@ -276,6 +276,67 @@ let test_tool_completed_preserves_non_retryable_flag () =
         completed_meta.run_id
   | _ -> fail "expected tool called/completed events"
 
+(* ── Hooks.OnToolError emit on tool failure (#1029) ─────── *)
+
+let test_on_tool_error_hook_fires_on_tool_failure () =
+  Eio_main.run @@ fun _env ->
+  let context = Context.create () in
+  let bus = Event_bus.create () in
+  let tool =
+    Tool.create ~name:"fail" ~description:"Always fails" ~parameters:[]
+      (fun _ -> Error { Types.message = "boom"; recoverable = false })
+  in
+  let schedule : Hooks.tool_schedule =
+    { planned_index = 0; batch_index = 0; batch_size = 1;
+      concurrency_class = "sequential_workspace";
+      batch_kind = "sequential"; }
+  in
+  let fired = ref [] in
+  let on_tool_error = Some (fun event ->
+    (match event with
+     | Hooks.OnToolError { tool_name; error } ->
+       fired := (tool_name, error) :: !fired
+     | _ -> ());
+    Hooks.Continue)
+  in
+  let hooks = { Hooks.empty with on_tool_error } in
+  let _result =
+    Agent_tools.find_and_execute_tool ~context ~tools:[tool] ~hooks
+      ~event_bus:(Some bus) ~tracer:Tracing.null ~agent_name:"agent"
+      ~turn_count:0 ~correlation_id:"c" ~run_id:"r"
+      ~schedule "fail" (`Assoc []) "tool-1"
+  in
+  match List.rev !fired with
+  | [(tool_name, error)] ->
+    check string "hook fired for failing tool" "fail" tool_name;
+    check string "hook error carries tool message" "boom" error
+  | [] -> fail "on_tool_error hook not fired"
+  | _ -> fail "on_tool_error fired more than once"
+
+let test_on_tool_error_hook_silent_on_success () =
+  Eio_main.run @@ fun _env ->
+  let context = Context.create () in
+  let bus = Event_bus.create () in
+  let tool =
+    Tool.create ~name:"ok" ~description:"" ~parameters:[]
+      (fun _ -> Ok { Types.content = "done" })
+  in
+  let schedule : Hooks.tool_schedule =
+    { planned_index = 0; batch_index = 0; batch_size = 1;
+      concurrency_class = "sequential_workspace";
+      batch_kind = "sequential"; }
+  in
+  let fired = ref 0 in
+  let on_tool_error = Some (fun _event -> incr fired; Hooks.Continue) in
+  let hooks = { Hooks.empty with on_tool_error } in
+  let _ =
+    Agent_tools.find_and_execute_tool ~context ~tools:[tool] ~hooks
+      ~event_bus:(Some bus) ~tracer:Tracing.null ~agent_name:"agent"
+      ~turn_count:0 ~correlation_id:"c" ~run_id:"r"
+      ~schedule "ok" (`Assoc []) "tool-2"
+  in
+  check int "hook not fired on Ok result" 0 !fired
+
 let test_correlation_fields_roundtrip () =
   Eio_main.run @@ fun _env ->
   let bus = Event_bus.create () in
@@ -513,6 +574,10 @@ let () =
         test_tool_completed_preserves_non_retryable_flag;
       test_case "correlation fields roundtrip" `Quick
         test_correlation_fields_roundtrip;
+      test_case "on_tool_error fires on tool failure" `Quick
+        test_on_tool_error_hook_fires_on_tool_failure;
+      test_case "on_tool_error silent on success" `Quick
+        test_on_tool_error_hook_silent_on_success;
     ];
     "envelope", [
       test_case "filter_correlation" `Quick test_filter_correlation;
