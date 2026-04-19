@@ -78,8 +78,27 @@ let mock_handler _conn req body =
   | _ ->
     Cohttp_eio.Server.respond_string ~status:`Not_found ~body:"nf" ()
 
+let fresh_port () =
+  let s = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
+  Unix.setsockopt s Unix.SO_REUSEADDR true;
+  Unix.bind s (Unix.ADDR_INET (Unix.inet_addr_loopback, 0));
+  let port = match Unix.getsockname s with
+    | Unix.ADDR_INET (_, p) -> p
+    | _ -> failwith "not inet"
+  in
+  Unix.close s;
+  port
+
+let skip_if_bisect label =
+  match Sys.getenv_opt "BISECT_ENABLE" with
+  | Some ("1" | "yes" | "true") ->
+    Printf.printf "  [SKIP] %s under bisect coverage run\n%!" label;
+    Alcotest.skip ()
+  | _ -> ()
+
 let test_handoff_emits_request_and_completion () =
-  let port = 8091 in
+  skip_if_bisect "run_with_handoffs emits Requested+Completed";
+  let port = fresh_port () in
   let base_url = Printf.sprintf "http://127.0.0.1:%d" port in
   Eio_main.run @@ fun env ->
   try
