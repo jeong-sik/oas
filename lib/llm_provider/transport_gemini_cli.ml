@@ -72,8 +72,19 @@ let env_extra_args () =
    | Some names -> List.iter (fun n -> add ["-e"; n]) names);
   !extras
 
+(* Gemini CLI (>=0.38) has no dedicated system-prompt flag — earlier
+   builds accepted [--system-prompt], current builds reject it with
+   "Unknown arguments: system-prompt".  Prepend the system text to the
+   user prompt with labelled blocks so the model keeps the role
+   distinction without needing a CLI flag. *)
+let effective_prompt ~prompt ~system_prompt =
+  match system_prompt with
+  | None | Some "" -> prompt
+  | Some sp -> Printf.sprintf "[System]\n%s\n\n[User]\n%s" sp prompt
+
 let build_args ~(config : config) ~(req_config : Provider_config.t)
     ~prompt ~system_prompt =
+  let prompt = effective_prompt ~prompt ~system_prompt in
   let args = ref [config.gemini_path; "--output-format"; "json"; "-p"; prompt] in
   let add a = args := !args @ a in
   (* Approval mode: env var wins over [config.yolo] when set, so keeper
@@ -88,7 +99,6 @@ let build_args ~(config : config) ~(req_config : Provider_config.t)
     | _ -> Some req_config.model_id
   in
   (match model with Some m -> add ["--model"; m] | None -> ());
-  (match system_prompt with Some s -> add ["--system-prompt"; s] | None -> ());
   add (env_extra_args ());
   !args
 
@@ -268,7 +278,30 @@ let%test "build_args with model" =
     ~prompt:"hello" ~system_prompt:(Some "be helpful") in
   List.mem "--model" args
   && List.mem "gemini-2.5-pro" args
-  && List.mem "--system-prompt" args
+  (* Gemini CLI has no --system-prompt flag; system text is folded into
+     the [-p] argument via [effective_prompt]. *)
+  && not (List.mem "--system-prompt" args)
+  (* The labelled [-p] argument carries the system text now. *)
+  && List.exists (fun a ->
+       let needle = "be helpful" in
+       let nl = String.length needle in
+       let al = String.length a in
+       let rec scan i =
+         if i + nl > al then false
+         else if String.sub a i nl = needle then true
+         else scan (i + 1)
+       in
+       scan 0) args
+
+let%test "effective_prompt: None → passthrough" =
+  effective_prompt ~prompt:"hi" ~system_prompt:None = "hi"
+
+let%test "effective_prompt: empty → passthrough" =
+  effective_prompt ~prompt:"hi" ~system_prompt:(Some "") = "hi"
+
+let%test "effective_prompt: labelled blocks" =
+  effective_prompt ~prompt:"user" ~system_prompt:(Some "sys")
+  = "[System]\nsys\n\n[User]\nuser"
 
 let%test "build_args omits auto model override" =
   let args = build_args ~config:default_config
