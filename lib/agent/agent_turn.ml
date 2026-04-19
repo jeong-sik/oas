@@ -23,12 +23,30 @@ let compute_fingerprints tool_uses =
     | _ -> None
   ) tool_uses
 
-let is_idle (prev : tool_call_fingerprint list option) current =
+type idle_granularity =
+  | Exact
+  | Name_only
+  | Name_and_subset of string list
+
+(* Key used to compare two fingerprints under the given granularity.
+   For [Name_and_subset _], the [keys] list is accepted for typecheck
+   stability but not yet consulted — this variant currently behaves
+   as [Name_only]. JSON field extraction is deferred to a follow-up
+   leaf (#896). *)
+let fingerprint_key granularity fp =
+  match granularity with
+  | Exact -> fp.fp_name ^ "\x00" ^ fp.fp_input
+  | Name_only -> fp.fp_name
+  | Name_and_subset _keys -> fp.fp_name
+
+let is_idle ?(granularity = Exact)
+    (prev : tool_call_fingerprint list option) current =
   match prev with
   | None -> false
   | Some prev_fps ->
     List.length current = List.length prev_fps &&
-    List.for_all2 (fun a b -> a.fp_name = b.fp_name && a.fp_input = b.fp_input)
+    List.for_all2 (fun a b ->
+        fingerprint_key granularity a = fingerprint_key granularity b)
       current prev_fps
 
 (* ── Turn preparation ─────────────────────────────────────────── *)
