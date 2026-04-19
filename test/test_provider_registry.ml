@@ -226,7 +226,7 @@ let test_default_max_context () =
    | Some e -> check int "glm 200K" 200_000 e.max_context
    | None -> fail "glm should exist");
   (match Provider_registry.find reg "cc" with
-   | Some e -> check int "cc 200K" 200_000 e.max_context
+   | Some e -> check int "cc 1M" 1_000_000 e.max_context
    | None -> fail "cc should exist");
   (match Provider_registry.find reg "groq" with
    | Some e -> check int "groq 131K" 131_072 e.max_context
@@ -239,7 +239,22 @@ let test_default_max_context () =
    | None -> fail "alibaba should exist");
   (match Provider_registry.find reg "siliconflow" with
    | Some e -> check int "siliconflow 128K" 128_000 e.max_context
-   | None -> fail "siliconflow should exist")
+   | None -> fail "siliconflow should exist");
+  (match Provider_registry.find reg "codex_cli" with
+   | Some e -> check int "codex_cli 1.05M" 1_050_000 e.max_context
+   | None -> fail "codex_cli should exist")
+
+let test_default_max_context_matches_capabilities () =
+  let reg = Provider_registry.default () in
+  Provider_registry.all reg
+  |> List.iter (fun (entry : Provider_registry.entry) ->
+    match entry.capabilities.max_context_tokens with
+    | None -> ()
+    | Some caps_ctx ->
+      check bool
+        (Printf.sprintf "%s registry max_context >= capabilities" entry.name)
+        true
+        (entry.max_context >= caps_ctx))
 
 let test_default_zai_base_urls () =
   let reg = Provider_registry.default () in
@@ -345,6 +360,8 @@ let () =
       test_case "has 15 providers" `Quick test_default_has_15;
       test_case "correct capabilities" `Quick test_default_capabilities;
       test_case "max_context values" `Quick test_default_max_context;
+      test_case "max_context matches capabilities" `Quick
+        test_default_max_context_matches_capabilities;
       test_case "zai base urls" `Quick test_default_zai_base_urls;
       test_case "blank zai base urls fall back" `Quick test_blank_zai_base_urls_fall_back;
     ];
