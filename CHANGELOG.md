@@ -6,6 +6,12 @@ Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
 backfilled on 2026-04-04 from existing git tags. The dates below reflect the
 original tag dates. `0.100.4` was never tagged or released.
 
+## [0.161.0] - 2026-04-19
+
+### Fixed
+
+- **`transport_gemini_cli.build_args` no longer emits `--system-prompt`.** Gemini CLI (>=0.38) rejects the flag with `Unknown arguments: system-prompt` and the subprocess exits with code 1, so any cascade member using `gemini_cli:auto` with a system prompt was failing every turn. System text is now folded into the `-p` argument as labelled `[System]` / `[User]` blocks via the new `effective_prompt` helper, which keeps the role distinction without requiring a CLI flag. `None` / empty system prompts pass through unchanged, so the argv for prompt-only callers is byte-identical to pre-0.161.0.
+
 ## [0.160.1] - 2026-04-18
 
 ### Fixed
