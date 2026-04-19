@@ -181,6 +181,29 @@ let test_tool_retry_policy_feedback_preserves_positive_limit () =
   Alcotest.(check bool) "shows actual positive limit" true
     (Util.string_contains ~needle:"retry 5/3" text)
 
+(* ── error_class classification (#898) ─────────────────── *)
+
+let test_error_class_classify_validation_error () =
+  match Tool_retry_policy.classify Tool_retry_policy.Validation_error with
+  | Tool_retry_policy.Deterministic -> ()
+  | _ -> Alcotest.fail "expected Validation_error -> Deterministic"
+
+let test_error_class_classify_recoverable () =
+  match Tool_retry_policy.classify Tool_retry_policy.Recoverable_tool_error with
+  | Tool_retry_policy.Transient -> ()
+  | _ -> Alcotest.fail "expected Recoverable_tool_error -> Transient"
+
+let test_error_class_to_string_stable () =
+  Alcotest.(check string) "transient"
+    "transient"
+    (Tool_retry_policy.error_class_to_string Tool_retry_policy.Transient);
+  Alcotest.(check string) "deterministic"
+    "deterministic"
+    (Tool_retry_policy.error_class_to_string Tool_retry_policy.Deterministic);
+  Alcotest.(check string) "unknown"
+    "unknown"
+    (Tool_retry_policy.error_class_to_string Tool_retry_policy.Unknown)
+
 let () =
   run "Agent SDK" [
     "types", [
@@ -219,5 +242,11 @@ let () =
         test_tool_retry_policy_feedback_uses_retry_counts;
       test_case "feedback preserves positive limit" `Quick
         test_tool_retry_policy_feedback_preserves_positive_limit;
+      test_case "classify Validation_error -> Deterministic" `Quick
+        test_error_class_classify_validation_error;
+      test_case "classify Recoverable_tool_error -> Transient" `Quick
+        test_error_class_classify_recoverable;
+      test_case "error_class_to_string stable" `Quick
+        test_error_class_to_string_stable;
     ];
   ]
