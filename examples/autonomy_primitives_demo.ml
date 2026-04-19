@@ -1,7 +1,7 @@
 (** Autonomy primitives demo.
 
     Shows how an external orchestrator can compose the new autonomy helpers
-    without changing Agent or Swarm semantics.
+    without changing Agent semantics.
 
     Usage:
       dune exec examples/autonomy_primitives_demo.exe *)
