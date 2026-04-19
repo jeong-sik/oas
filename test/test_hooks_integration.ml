@@ -34,6 +34,11 @@ let text_only_handler _conn _req body =
   let _ = Eio.Buf_read.(of_flow ~max_size:(1024 * 1024) body |> take_all) in
   Cohttp_eio.Server.respond_string ~status:`OK ~body:(text_body "hello") ()
 
+let capturing_text_handler captured _conn _req body =
+  let raw = Eio.Buf_read.(of_flow ~max_size:(1024 * 1024) body |> take_all) in
+  captured := raw;
+  Cohttp_eio.Server.respond_string ~status:`OK ~body:(text_body "ok") ()
+
 let with_mock_server ~port handler f =
   Eio_main.run @@ fun env ->
   try
@@ -56,9 +61,9 @@ let fresh_echo_tool () =
 
 (* ── before_turn tests ───────────────────────────────── *)
 
-(* NOTE: before_turn hook Skip does NOT prevent the LLM call —
-   pipeline.ml stage_input only handles ElicitInput.
-   Skip is informational at this stage. Test verifies the hook fires. *)
+(* NOTE: before_turn handles ElicitInput and Nudge. Skip is informational —
+   it fires the hook but does not prevent the LLM call. Nudge appends a
+   User-role message that reaches the model in the same turn. *)
 let test_before_turn_skip_fires_but_proceeds () =
   with_mock_server ~port:18101 text_only_handler (fun ~sw ~net ~base_url ->
     let skip_fired = ref false in
@@ -103,6 +108,30 @@ let test_before_turn_receives_turn_number () =
      | Ok _ -> ()
      | Error e -> Alcotest.fail (Error.to_string e));
     Alcotest.(check int) "turn 0" 0 !received_turn)
+
+let test_before_turn_nudge_injected_into_request () =
+  let captured = ref "" in
+  with_mock_server ~port:18110 (capturing_text_handler captured)
+    (fun ~sw ~net ~base_url ->
+      let options = { Agent.default_options with
+        base_url;
+        hooks = { Hooks.empty with
+          before_turn = Some (fun _event ->
+            Hooks.Nudge "OAS_BEFORE_TURN_NUDGE_MARKER") } } in
+      let agent = Agent.create ~net ~options () in
+      (match Agent.run ~sw agent "first prompt" with
+       | Ok _ -> ()
+       | Error e -> Alcotest.fail (Error.to_string e));
+      let body = !captured in
+      let contains s sub =
+        let n = String.length s and m = String.length sub in
+        let rec loop i = if i + m > n then false
+          else if String.sub s i m = sub then true else loop (i + 1) in
+        loop 0
+      in
+      Alcotest.(check bool)
+        "nudge marker reached the LLM request body" true
+        (contains body "OAS_BEFORE_TURN_NUDGE_MARKER"))
 
 (* ── pre_tool_use tests ──────────────────────────────── *)
 
@@ -233,6 +262,8 @@ let () =
       test_case "continue proceeds" `Quick test_before_turn_continue_proceeds;
       test_case "receives turn number" `Quick
         test_before_turn_receives_turn_number;
+      test_case "nudge injected into request body" `Quick
+        test_before_turn_nudge_injected_into_request;
     ];
     "pre_tool_use", [
       test_case "skip blocks tool execution" `Quick
