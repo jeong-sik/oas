@@ -326,12 +326,26 @@ let test_mk_envelope_defaults () =
   let env = Event_bus.mk_envelope () in
   check bool "correlation_id non-empty" true (String.length env.correlation_id > 0);
   check bool "run_id non-empty" true (String.length env.run_id > 0);
-  check bool "ts > 0" true (env.ts > 0.0)
+  check bool "ts > 0" true (env.ts > 0.0);
+  check (option string) "caused_by defaults to None" None env.caused_by
 
 let test_mk_envelope_explicit () =
   let env = Event_bus.mk_envelope ~correlation_id:"c" ~run_id:"r" () in
   check string "correlation_id" "c" env.correlation_id;
-  check string "run_id" "r" env.run_id
+  check string "run_id" "r" env.run_id;
+  check (option string) "caused_by omitted stays None" None env.caused_by
+
+let test_mk_envelope_with_caused_by () =
+  let env = Event_bus.mk_envelope ~caused_by:"run-42" () in
+  check (option string) "caused_by propagated" (Some "run-42") env.caused_by
+
+let test_mk_event_propagates_caused_by () =
+  let ev =
+    Event_bus.mk_event ~correlation_id:"s" ~run_id:"r"
+      ~caused_by:"parent-7" (Custom ("x", `Null))
+  in
+  check (option string) "event.meta.caused_by"
+    (Some "parent-7") ev.meta.caused_by
 
 (* ── Backpressure policy ──────────────────────────────────────────── *)
 
@@ -506,6 +520,9 @@ let () =
       test_case "fresh_id unique" `Quick test_fresh_id_unique;
       test_case "mk_envelope defaults" `Quick test_mk_envelope_defaults;
       test_case "mk_envelope explicit" `Quick test_mk_envelope_explicit;
+      test_case "mk_envelope with caused_by" `Quick test_mk_envelope_with_caused_by;
+      test_case "mk_event propagates caused_by"
+        `Quick test_mk_event_propagates_caused_by;
     ];
     "purpose", [
       test_case "subscribe ~purpose surfaces in stats" `Quick
