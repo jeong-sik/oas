@@ -193,7 +193,13 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
     complete_sync = (fun (req : Llm_transport.completion_request) ->
       warn_unsupported_once config warned;
       let messages = Cli_common_prompt.non_system_messages req.messages in
-      let prompt = Cli_common_prompt.prompt_of_messages messages in
+      let system_prompt =
+        Cli_common_prompt.system_prompt_of ~req_config:req.config req.messages in
+      let prompt =
+        Cli_common_prompt.prompt_of_messages messages
+        |> fun prompt ->
+        Cli_common_prompt.prompt_with_system_prompt ~prompt ~system_prompt
+      in
       let argv = build_args ~config ~prompt in
       let seen_lines = ref [] in
       let on_line line =
@@ -213,7 +219,13 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
     complete_stream = (fun ~on_event (req : Llm_transport.completion_request) ->
       warn_unsupported_once config warned;
       let messages = Cli_common_prompt.non_system_messages req.messages in
-      let prompt = Cli_common_prompt.prompt_of_messages messages in
+      let system_prompt =
+        Cli_common_prompt.system_prompt_of ~req_config:req.config req.messages in
+      let prompt =
+        Cli_common_prompt.prompt_of_messages messages
+        |> fun prompt ->
+        Cli_common_prompt.prompt_with_system_prompt ~prompt ~system_prompt
+      in
       let argv = build_args ~config ~prompt in
       let seen_lines = ref [] in
       let on_line line =

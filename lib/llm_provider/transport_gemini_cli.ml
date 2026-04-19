@@ -217,8 +217,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
       let prompt = Cli_common_prompt.prompt_of_messages messages in
       let system_prompt =
         Cli_common_prompt.system_prompt_of ~req_config:req.config req.messages in
-      let argv = build_args ~config ~req_config:req.config
-        ~prompt ~system_prompt in
+      let argv = build_args ~config ~req_config:req.config ~prompt ~system_prompt in
       match run ~sw ~mgr ~config argv with
       | Error _ as e -> { Llm_transport.response = e; latency_ms = 0 }
       | Ok { stdout; stderr = _; latency_ms } ->
@@ -231,8 +230,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
       let prompt = Cli_common_prompt.prompt_of_messages messages in
       let system_prompt =
         Cli_common_prompt.system_prompt_of ~req_config:req.config req.messages in
-      let argv = build_args ~config ~req_config:req.config
-        ~prompt ~system_prompt in
+      let argv = build_args ~config ~req_config:req.config ~prompt ~system_prompt in
       (* Gemini CLI does not support native streaming; replay synthetic events
          after the sync call completes. *)
       match run ~sw ~mgr ~config argv with
@@ -259,7 +257,7 @@ let%test "default_config yolo true" =
 let%test "build_args basic with yolo" =
   let args = build_args ~config:default_config
     ~req_config:(Provider_config.make ~kind:Claude_code ~model_id:"" ~base_url:"" ())
-    ~prompt:"hello" ~system_prompt:None in
+    ~prompt:"hello" in
   List.mem "-p" args
   && List.mem "json" args
   && List.mem "--yolo" args
@@ -268,7 +266,7 @@ let%test "build_args without yolo" =
   let config = { default_config with yolo = false } in
   let args = build_args ~config
     ~req_config:(Provider_config.make ~kind:Claude_code ~model_id:"" ~base_url:"" ())
-    ~prompt:"hello" ~system_prompt:None in
+    ~prompt:"hello" in
   List.mem "-p" args
   && not (List.mem "--yolo" args)
 
