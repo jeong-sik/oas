@@ -257,7 +257,7 @@ let%test "default_config yolo true" =
 let%test "build_args basic with yolo" =
   let args = build_args ~config:default_config
     ~req_config:(Provider_config.make ~kind:Claude_code ~model_id:"" ~base_url:"" ())
-    ~prompt:"hello" in
+    ~prompt:"hello" ~system_prompt:None in
   List.mem "-p" args
   && List.mem "json" args
   && List.mem "--yolo" args
@@ -266,7 +266,7 @@ let%test "build_args without yolo" =
   let config = { default_config with yolo = false } in
   let args = build_args ~config
     ~req_config:(Provider_config.make ~kind:Claude_code ~model_id:"" ~base_url:"" ())
-    ~prompt:"hello" in
+    ~prompt:"hello" ~system_prompt:None in
   List.mem "-p" args
   && not (List.mem "--yolo" args)
 
