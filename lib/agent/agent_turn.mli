@@ -18,11 +18,37 @@ type tool_call_fingerprint = {
   fp_input: string;
 }
 
+(** Granularity at which two fingerprints are considered the "same"
+    for idle detection.
+
+    - [Exact] (default, pre-0.161 behaviour): both [fp_name] and
+      [fp_input] must match byte-for-byte.
+    - [Name_only]: only [fp_name] is compared. Catches polling loops
+      that alternate arguments (e.g. [status(x)] -> [status(y)] ->
+      [status(x)]) and cross-tool polls at the tool-name level.
+    - [Name_and_subset keys]: placeholder for future argument-subset
+      matching — currently behaves as [Name_only]. The [keys] list is
+      carried through for typecheck stability, but its semantics
+      (JSON field extraction) are left for a follow-up leaf. See #896.
+
+    @since 0.161.0 *)
+type idle_granularity =
+  | Exact
+  | Name_only
+  | Name_and_subset of string list
+
 (** Compute fingerprints from content blocks containing [ToolUse]. *)
 val compute_fingerprints : Types.content_block list -> tool_call_fingerprint list
 
-(** Return [true] when [current] fingerprints match [prev] exactly. *)
-val is_idle : tool_call_fingerprint list option -> tool_call_fingerprint list -> bool
+(** Return [true] when [current] fingerprints match [prev] at the
+    given granularity. Default [?granularity] is [Exact] — preserves
+    the pre-0.161 semantics for every existing caller.
+    @since 0.161.0 [?granularity] added (#896). *)
+val is_idle :
+  ?granularity:idle_granularity ->
+  tool_call_fingerprint list option ->
+  tool_call_fingerprint list ->
+  bool
 
 (** {1 Turn preparation} *)
 
