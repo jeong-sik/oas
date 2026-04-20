@@ -38,9 +38,18 @@ let default_on_stderr_line ~name line =
 (** Shared core.  Always reads stdout/stderr line-by-line from the live
     pipe, always supports cooperative cancel.  [run_collect] and
     [run_stream_lines] are thin wrappers that differ only in whether
-    they expose [on_line] to the caller. *)
+    they expose [on_line] to the caller.
+
+    [?stdin_content]: when [Some s], opens a pipe to the child's stdin,
+    writes [s], and closes the writer so the child sees EOF.  Used by
+    transports to bypass the argv/envp [ARG_MAX] ceiling (macOS
+    ~1 MiB) for large prompts; see
+    {!Transport_claude_code.keeper_isolation_env} and PR fixing OAS
+    #1082 for the original symptom.  When [None] the child's stdin
+    follows Eio's default (inherits parent). *)
 let run_core ~sw ~(mgr : _ Eio.Process.mgr) ~name ~cwd ~extra_env
     ?(scrub_env = [])
+    ?stdin_content
     ~on_line ~on_stderr_line ~cancel argv =
   let t0 = Unix.gettimeofday () in
   try
@@ -48,12 +57,44 @@ let run_core ~sw ~(mgr : _ Eio.Process.mgr) ~name ~cwd ~extra_env
     let r_stderr, w_stderr = Eio_unix.pipe sw in
     let env = build_env ~cwd ~extra_env ~scrub_env () in
     let final_argv = cwd_wrapper cwd @ argv in
-    let proc = Eio.Process.spawn ~sw mgr
-      ~stdout:(w_stdout :> Eio.Flow.sink_ty Eio.Resource.t)
-      ~stderr:(w_stderr :> Eio.Flow.sink_ty Eio.Resource.t)
-      ~env
-      final_argv
+    let stdin_pipe =
+      match stdin_content with
+      | None -> None
+      | Some _ -> Some (Eio_unix.pipe sw)
     in
+    let stdin_flow =
+      match stdin_pipe with
+      | None -> None
+      | Some (r_stdin, _) ->
+        Some (r_stdin :> Eio.Flow.source_ty Eio.Resource.t)
+    in
+    let proc =
+      match stdin_flow with
+      | None ->
+        Eio.Process.spawn ~sw mgr
+          ~stdout:(w_stdout :> Eio.Flow.sink_ty Eio.Resource.t)
+          ~stderr:(w_stderr :> Eio.Flow.sink_ty Eio.Resource.t)
+          ~env
+          final_argv
+      | Some stdin ->
+        Eio.Process.spawn ~sw mgr
+          ~stdin
+          ~stdout:(w_stdout :> Eio.Flow.sink_ty Eio.Resource.t)
+          ~stderr:(w_stderr :> Eio.Flow.sink_ty Eio.Resource.t)
+          ~env
+          final_argv
+    in
+    (match stdin_pipe, stdin_content with
+     | Some (r_stdin, w_stdin), Some s ->
+       (* Close the read end here — the child already holds its copy. *)
+       Eio.Flow.close r_stdin;
+       (try
+          Eio.Flow.copy_string s (w_stdin :> Eio.Flow.sink_ty Eio.Resource.t)
+        with exn ->
+          Eio.traceln "cli_common_subprocess: stdin write raised: %s"
+            (Printexc.to_string exn));
+       Eio.Flow.close w_stdin
+     | _ -> ());
     Eio.Flow.close w_stdout;
     Eio.Flow.close w_stderr;
     let stdout_buf = Buffer.create 4096 in
@@ -129,9 +170,11 @@ let run_core ~sw ~(mgr : _ Eio.Process.mgr) ~name ~cwd ~extra_env
 
 let run_collect ~sw ~mgr ~name ~cwd ~extra_env
     ?(scrub_env = [])
+    ?stdin_content
     ?(on_stderr_line = default_on_stderr_line ~name)
     ?cancel argv =
   run_core ~sw ~mgr ~name ~cwd ~extra_env ~scrub_env
+    ?stdin_content
     ~on_line:(fun _ -> ())
     ~on_stderr_line
     ~cancel
@@ -139,10 +182,12 @@ let run_collect ~sw ~mgr ~name ~cwd ~extra_env
 
 let run_stream_lines ~sw ~mgr ~name ~cwd ~extra_env
     ?(scrub_env = [])
+    ?stdin_content
     ~on_line
     ?(on_stderr_line = default_on_stderr_line ~name)
     ?cancel argv =
   run_core ~sw ~mgr ~name ~cwd ~extra_env ~scrub_env
+    ?stdin_content
     ~on_line
     ~on_stderr_line
     ~cancel
