@@ -43,6 +43,28 @@ let default_config = {
 
 (* ── CLI argument building ───────────────────────────── *)
 
+(** Threshold at which [build_args] stops passing the prompt as a
+    positional argv entry and expects the caller to feed it via
+    stdin instead.  macOS [ARG_MAX] is ~1 MiB for the combined argv
+    + envp block; 512 KiB leaves headroom for env vars and the other
+    argv entries.  Env override [OAS_CODEX_PROMPT_ARGV_THRESHOLD]
+    accepts an integer byte count for per-host tuning. *)
+let default_prompt_argv_threshold = 512 * 1024
+
+let prompt_argv_threshold () =
+  match Sys.getenv_opt "OAS_CODEX_PROMPT_ARGV_THRESHOLD" with
+  | Some raw ->
+    (match int_of_string_opt (String.trim raw) with
+     | Some v when v >= 0 -> v
+     | _ -> default_prompt_argv_threshold)
+  | None -> default_prompt_argv_threshold
+
+let prompt_exceeds_argv_budget prompt =
+  String.length prompt >= prompt_argv_threshold ()
+
+let stdin_for_prompt prompt =
+  if prompt_exceeds_argv_budget prompt then Some prompt else None
+
 (* Codex has no dedicated --no-mcp / --no-hooks flags; every runtime
    toggle goes through [-c key=value] TOML overrides (see
    `~/.codex/config.toml` schema).  Non-interactive OAS runs default to
@@ -81,10 +103,12 @@ let env_extra_args () =
   !extras
 
 let build_args ~(config : config) ~prompt =
-  (* Order: exec-level flags come before the positional prompt. *)
+  let prompt_via_stdin = prompt_exceeds_argv_budget prompt in
+  (* Order: exec-level flags come before the positional prompt.  When the
+     prompt is too large for argv, pass "-" so Codex reads it from stdin. *)
   [config.codex_path; "exec"; "--json"]
   @ env_extra_args ()
-  @ [prompt]
+  @ if prompt_via_stdin then ["-"] else [prompt]
 
 (* ── JSONL envelope parsing ──────────────────────────── *)
 
@@ -211,6 +235,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
       match Cli_common_subprocess.run_stream_lines ~sw ~mgr
               ~name:"codex" ~cwd:config.cwd ~extra_env:[]
               ~scrub_env:codex_cli_scrub_env
+              ?stdin_content:(stdin_for_prompt prompt)
               ~on_line ?cancel:config.cancel
               argv with
       | Error _ as e -> { Llm_transport.response = e; latency_ms = 0 }
@@ -239,6 +264,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
       match Cli_common_subprocess.run_stream_lines ~sw ~mgr
               ~name:"codex" ~cwd:config.cwd ~extra_env:[]
               ~scrub_env:codex_cli_scrub_env
+              ?stdin_content:(stdin_for_prompt prompt)
               ~on_line ?cancel:config.cancel
               argv with
       | Error _ as e -> e
@@ -272,6 +298,22 @@ let%test "build_args ignores extra parity fields" =
   } in
   let args = build_args ~config ~prompt:"hi" in
   args = ["codex"; "exec"; "--json"; "-c"; "mcp_servers={}"; "hi"]
+
+let%test "prompt_exceeds_argv_budget: small prompt stays in argv" =
+  not (prompt_exceeds_argv_budget "hello")
+
+let%test "prompt_exceeds_argv_budget: 1 MiB prompt routes to stdin" =
+  prompt_exceeds_argv_budget (String.make (1 * 1024 * 1024) 'x')
+
+let%test "stdin_for_prompt: Some when over budget, None under" =
+  let over = String.make (1 * 1024 * 1024) 'x' in
+  stdin_for_prompt "hi" = None && stdin_for_prompt over = Some over
+
+let%test "build_args uses stdin sentinel when prompt is too large" =
+  let big = String.make (1 * 1024 * 1024) 'x' in
+  let args = build_args ~config:default_config ~prompt:big in
+  not (List.mem big args)
+  && List.nth args (List.length args - 1) = "-"
 
 let%test "parse_jsonl_result extracts text + usage + thread_id" =
   let lines = [
@@ -391,3 +433,8 @@ let%test "env: OAS_CODEX_SANDBOX and OAS_CODEX_SKIP_GIT" =
     List.mem "-s" args
     && List.mem "read-only" args
     && List.mem "--skip-git-repo-check" args))
+
+let%test "prompt_exceeds_argv_budget: OAS_CODEX_PROMPT_ARGV_THRESHOLD override" =
+  with_env "OAS_CODEX_PROMPT_ARGV_THRESHOLD" "100" (fun () ->
+    prompt_exceeds_argv_budget (String.make 200 'x')
+    && not (prompt_exceeds_argv_budget (String.make 50 'x')))
