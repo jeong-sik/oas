@@ -12,6 +12,12 @@ original tag dates. `0.100.4` was never tagged or released.
 
 - **Codex CLI transport honors request model IDs.** `transport_codex_cli` now passes a non-empty, non-`auto` `Provider_config.model_id` through `codex exec --model`, matching Claude Code and Gemini CLI behavior while preserving `auto` as "use the user's CLI default".
 
+## [0.163.0] - 2026-04-20
+
+### Added
+
+- **`Hooks.Nudge` accepted from `before_turn`.** Previously only `OnIdle` could return `Nudge`; `before_turn` returning `Nudge` was silently dropped by the pipeline (`stage_input` only handled `ElicitInput`). The decision matrix and `legal_decisions_for_stage` now list `K_Nudge` for `before_turn`, and `pipeline.ml stage_input` appends the nudge text as a User-role message before tool preparation so it reaches the model in the same turn. Mirrors the `on_idle` Nudge handler at `pipeline.ml:392`. Generic primitive — payload is opaque text, no domain knowledge in OAS.
+
 ## [0.162.0] - 2026-04-19
 
 ### Added

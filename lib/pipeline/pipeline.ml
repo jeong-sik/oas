@@ -82,6 +82,15 @@ let stage_input ?raw_trace_run agent =
                  { role = User; content = [Text text]; name = None; tool_call_id = None } })
          | Hooks.Declined | Hooks.Timeout -> ())
       | None -> ())
+   | Hooks.Nudge nudge_msg ->
+     (* Mirror on_idle Nudge handling (Stage 5): append the nudge as a
+        User-role message so it reaches the model in this same turn via
+        Stage 2 prepare_turn. The idle counter is not touched — BeforeTurn
+        is not part of the idle path. *)
+     update_state agent (fun s ->
+       { s with messages = Util.snoc s.messages
+           { role = User; content = [Text nudge_msg];
+             name = None; tool_call_id = None } })
    | _ -> ())
 
 (* ── Stage 2: Parse ──────────────────────────────────────── *)
