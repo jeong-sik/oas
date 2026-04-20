@@ -308,22 +308,62 @@ let parse_stream_result lines =
 
 (** Env vars stripped from every [claude] subprocess.
 
-    When [ANTHROPIC_API_KEY] is set in the parent process, [claude -p]
+    [ANTHROPIC_API_KEY*]: when set in the parent process, [claude -p]
     authenticates as a metered API client (subject to the org's API
     spend limits) rather than using the user's OAuth/subscription
     session.  MASC / agent integrations that rely on the subscription
-    tier must not leak API_KEY env to the CLI.
+    tier must not leak API_KEY env to the CLI.  The three names cover
+    the canonical variable plus the conventional [_MAIN] / [_WORK]
+    split some callers adopt.
 
-    The three names below cover the canonical variable plus the
-    conventional [_MAIN] / [_WORK] split some callers adopt. *)
+    [CODEX_COMPANION_SESSION_ID]: scrubbed so our fresh value injected
+    by {!keeper_isolation_env} wins over whatever the parent shell
+    inherited.  See that function's doc for the plugin-hook rationale.
+    Key order in [Cli_common_subprocess.build_env] is [extras @ base];
+    [execve] preserves duplicates and libuv's env parser takes the
+    last match, so an un-scrubbed parent value would shadow our
+    injection and defeat the isolation.  *)
 let claude_cli_scrub_env =
-  ["ANTHROPIC_API_KEY"; "ANTHROPIC_API_KEY_MAIN"; "ANTHROPIC_API_KEY_WORK"]
+  [ "ANTHROPIC_API_KEY"
+  ; "ANTHROPIC_API_KEY_MAIN"
+  ; "ANTHROPIC_API_KEY_WORK"
+  ; "CODEX_COMPANION_SESSION_ID"
+  ]
+
+(** Per-subprocess isolation env for Claude Code plugin hooks.
+
+    The openai-codex plugin installs [session-lifecycle-hook.mjs]
+    which runs on every SessionEnd event the [claude] binary fires.
+    Its [cleanupSessionJobs] path loads the workspace state file and
+    [terminateProcessTree]s any job row whose [sessionId] matches the
+    current process's [CODEX_COMPANION_SESSION_ID] env var.
+
+    When an OAS transport spawns a short-lived [claude -p] subprocess
+    inside a long-lived parent Claude Code session, they share
+    [CODEX_COMPANION_SESSION_ID] via env inheritance.  Each transient
+    subprocess's SessionEnd therefore tears down the parent session's
+    broker state and jobs — a silent outage vector for any keeper
+    runtime colocated with an interactive Claude Code session.
+
+    Injecting a subprocess-unique id short-circuits the match in the
+    hook: [cleanupSessionJobs] iterates the state file, finds no row
+    with the freshly-minted sessionId, and returns without side
+    effects.  The hook still runs (we don't disable it); it just
+    becomes a no-op for our subprocess. *)
+let keeper_isolation_counter = Atomic.make 0
+
+let keeper_isolation_env () =
+  let n = Atomic.fetch_and_add keeper_isolation_counter 1 in
+  [ ( "CODEX_COMPANION_SESSION_ID"
+    , Printf.sprintf "oas-claude-%d-%d-%f"
+        (Unix.getpid ()) n (Unix.gettimeofday ()) )
+  ]
 
 let run ~sw ~mgr ~(config : config) args =
   Cli_common_subprocess.run_collect ~sw ~mgr
     ~name:"claude"
     ~cwd:config.cwd
-    ~extra_env:[]
+    ~extra_env:(keeper_isolation_env ())
     ~scrub_env:claude_cli_scrub_env
     ?cancel:config.cancel
     (config.claude_path :: args)
@@ -350,7 +390,8 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
             seen_lines := line :: !seen_lines
         in
         match Cli_common_subprocess.run_stream_lines ~sw ~mgr
-                ~name:"claude" ~cwd:config.cwd ~extra_env:[]
+                ~name:"claude" ~cwd:config.cwd
+                ~extra_env:(keeper_isolation_env ())
                 ~scrub_env:claude_cli_scrub_env
                 ~on_line ?cancel:config.cancel
                 argv with
@@ -386,7 +427,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
       match Cli_common_subprocess.run_stream_lines ~sw ~mgr
               ~name:"claude"
               ~cwd:config.cwd
-              ~extra_env:[]
+              ~extra_env:(keeper_isolation_env ())
               ~scrub_env:claude_cli_scrub_env
               ~on_line
               ?cancel:config.cancel
@@ -619,3 +660,30 @@ let%test "env: DISALLOWED_TOOLS splits on comma" =
     List.mem "--disallowedTools" args
     && List.mem "Bash" args
     && List.mem "Write" args)
+
+let%test "keeper_isolation_env injects fresh CODEX_COMPANION_SESSION_ID" =
+  match keeper_isolation_env () with
+  | [ (k, v) ] ->
+    k = "CODEX_COMPANION_SESSION_ID"
+    && String.length v > 0
+    && (let prefix = "oas-claude-" in
+        String.length v >= String.length prefix
+        && String.sub v 0 (String.length prefix) = prefix)
+  | _ -> false
+
+let%test "keeper_isolation_env yields a new id per call" =
+  let a = keeper_isolation_env () in
+  let b = keeper_isolation_env () in
+  let v_of = function
+    | [ (_, v) ] -> v
+    | _ -> ""
+  in
+  v_of a <> "" && v_of a <> v_of b
+
+let%test "claude_cli_scrub_env strips CODEX_COMPANION_SESSION_ID" =
+  List.mem "CODEX_COMPANION_SESSION_ID" claude_cli_scrub_env
+
+let%test "claude_cli_scrub_env keeps ANTHROPIC_API_KEY entries" =
+  List.mem "ANTHROPIC_API_KEY" claude_cli_scrub_env
+  && List.mem "ANTHROPIC_API_KEY_MAIN" claude_cli_scrub_env
+  && List.mem "ANTHROPIC_API_KEY_WORK" claude_cli_scrub_env
