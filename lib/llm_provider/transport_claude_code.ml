@@ -54,16 +54,32 @@ let default_config = {
 let env_extra_args ~(config : config) =
   let extras = ref [] in
   let add a = extras := !extras @ a in
-  add ["--strict-mcp-config"];
+  (* Determine whether an MCP config path is actually available (either
+     explicit [config.mcp_config] or OAS_CLAUDE_MCP_CONFIG env fallback).
+     [--strict-mcp-config] must only be emitted when we can also point
+     Claude at a real config file — otherwise the CLI accepts the flag,
+     finds no config, and exits 1 with no stderr, producing the
+     "claude exited with code 1: exit code 1" signature that was
+     dominating fleet cascade_exhausted failures (690/2.5h, 2026-04-20). *)
+  let env_mcp = Cli_common_env.get "OAS_CLAUDE_MCP_CONFIG" in
+  let has_mcp_config =
+    match config.mcp_config with
+    | Some _ -> true
+    | None ->
+      (match env_mcp with
+       | Some v when String.trim v <> "" -> true
+       | _ -> false)
+  in
+  if has_mcp_config then add ["--strict-mcp-config"];
   (* --mcp-config: only used as fallback when config.mcp_config is None.
      Explicit config wins over env, matching the convention that
      programmatic wiring overrides ambient environment. *)
   (match config.mcp_config with
    | Some _ -> ()
    | None ->
-     match Cli_common_env.get "OAS_CLAUDE_MCP_CONFIG" with
-     | Some v -> add ["--mcp-config"; v]
-     | None -> ());
+     match env_mcp with
+     | Some v when String.trim v <> "" -> add ["--mcp-config"; v]
+     | _ -> ());
   if Cli_common_env.bool "OAS_CLAUDE_STRICT_MCP" then
     ();
   (match Cli_common_env.list "OAS_CLAUDE_DISALLOWED_TOOLS" with
@@ -454,6 +470,41 @@ let%test "build_args omits auto model override" =
     ~req_config:(Provider_config.make ~kind:Claude_code ~model_id:"auto" ~base_url:"" ())
     ~prompt:"hello" ~stream:false ~system_prompt:None in
   not (List.mem "--model" args)
+
+(* [--strict-mcp-config] must only be emitted when an MCP config path is
+   actually available; otherwise Claude CLI accepts the flag, finds no
+   config, and exits 1 without stderr (root cause of the
+   "claude exited with code 1: exit code 1" fleet failure signature). *)
+let%test "build_args omits --strict-mcp-config when no config present" =
+  (* No config.mcp_config and no OAS_CLAUDE_MCP_CONFIG env. *)
+  Unix.putenv "OAS_CLAUDE_MCP_CONFIG" "";
+  let args = build_args ~config:default_config
+    ~req_config:(Provider_config.make ~kind:Claude_code ~model_id:"" ~base_url:"" ())
+    ~prompt:"hello" ~stream:false ~system_prompt:None in
+  not (List.mem "--strict-mcp-config" args)
+  && not (List.mem "--mcp-config" args)
+
+let%test "build_args includes --strict-mcp-config when config.mcp_config set" =
+  let cfg = { default_config with mcp_config = Some "/tmp/mcp.json" } in
+  let args = build_args ~config:cfg
+    ~req_config:(Provider_config.make ~kind:Claude_code ~model_id:"" ~base_url:"" ())
+    ~prompt:"hello" ~stream:false ~system_prompt:None in
+  List.mem "--strict-mcp-config" args
+  && List.mem "--mcp-config" args
+  && List.mem "/tmp/mcp.json" args
+
+let%test "build_args includes --strict-mcp-config when env fallback set" =
+  Unix.putenv "OAS_CLAUDE_MCP_CONFIG" "/tmp/env-mcp.json";
+  let args = build_args ~config:default_config
+    ~req_config:(Provider_config.make ~kind:Claude_code ~model_id:"" ~base_url:"" ())
+    ~prompt:"hello" ~stream:false ~system_prompt:None in
+  let ok =
+    List.mem "--strict-mcp-config" args
+    && List.mem "--mcp-config" args
+    && List.mem "/tmp/env-mcp.json" args
+  in
+  Unix.putenv "OAS_CLAUDE_MCP_CONFIG" "";
+  ok
 
 let%test "parse_stop_reason variants" =
   parse_stop_reason "end_turn" = Types.EndTurn
