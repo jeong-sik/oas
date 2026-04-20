@@ -401,3 +401,7 @@
 (test
  (name test_sessions_cov2)
  (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_sessions_types_deep)
+ (libraries agent_sdk alcotest yojson))
