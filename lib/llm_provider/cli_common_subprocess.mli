@@ -23,6 +23,7 @@ val run_collect :
   cwd:string option ->
   extra_env:(string * string) list ->
   ?scrub_env:string list ->
+  ?stdin_content:string ->
   ?on_stderr_line:(string -> unit) ->
   ?cancel:unit Eio.Promise.t ->
   string list ->
@@ -39,6 +40,11 @@ val run_collect :
       [.claude/] / [.codex/] / [.gemini/]) see [dir], not the parent's
       cwd. Blank strings are treated as [None].
     - [extra_env]: additional [KEY=VAL] pairs prepended to the env.
+    - [stdin_content]: when [Some s], opens a pipe to the child's
+      stdin, writes [s], and closes it.  Used by transports to
+      bypass the argv/envp [ARG_MAX] ceiling (macOS ~1 MiB) for
+      large prompts that cannot fit in argv.  When [None], the
+      child's stdin follows Eio's default (inherits parent's).
     - [on_stderr_line]: called for every stderr line as it arrives.
       Defaults to {!default_on_stderr_line}, which forwards to
       [Eio.traceln].  Exceptions raised by the callback are caught
@@ -58,6 +64,7 @@ val run_stream_lines :
   cwd:string option ->
   extra_env:(string * string) list ->
   ?scrub_env:string list ->
+  ?stdin_content:string ->
   on_line:(string -> unit) ->
   ?on_stderr_line:(string -> unit) ->
   ?cancel:unit Eio.Promise.t ->
