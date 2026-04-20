@@ -453,3 +453,7 @@
 (test
  (name test_structured_ext)
  (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_skill_registry)
+ (libraries agent_sdk alcotest yojson))
