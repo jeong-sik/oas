@@ -12,6 +12,10 @@
 type config = {
   codex_path: string;
     (** Path to the [codex] executable. Default ["codex"]. *)
+  model: string option;
+    (** [--model] override. [None] uses the user's Codex CLI default.
+
+        @since 0.164.0 *)
   cwd: string option;
     (** Working directory for the subprocess. *)
   mcp_config: string option;
