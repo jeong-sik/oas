@@ -433,3 +433,7 @@
 (test
  (name test_approval_pipeline)
  (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_structured_deep)
+ (libraries agent_sdk alcotest yojson))
