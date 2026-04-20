@@ -409,3 +409,7 @@
 (test
  (name test_trajectory)
  (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_skill_coverage2)
+ (libraries agent_sdk alcotest yojson unix))
