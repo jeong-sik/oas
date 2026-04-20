@@ -471,40 +471,10 @@ let%test "build_args omits auto model override" =
     ~prompt:"hello" ~stream:false ~system_prompt:None in
   not (List.mem "--model" args)
 
-(* [--strict-mcp-config] must only be emitted when an MCP config path is
-   actually available; otherwise Claude CLI accepts the flag, finds no
-   config, and exits 1 without stderr (root cause of the
-   "claude exited with code 1: exit code 1" fleet failure signature). *)
-let%test "build_args omits --strict-mcp-config when no config present" =
-  (* No config.mcp_config and no OAS_CLAUDE_MCP_CONFIG env. *)
-  Unix.putenv "OAS_CLAUDE_MCP_CONFIG" "";
-  let args = build_args ~config:default_config
-    ~req_config:(Provider_config.make ~kind:Claude_code ~model_id:"" ~base_url:"" ())
-    ~prompt:"hello" ~stream:false ~system_prompt:None in
-  not (List.mem "--strict-mcp-config" args)
-  && not (List.mem "--mcp-config" args)
-
-let%test "build_args includes --strict-mcp-config when config.mcp_config set" =
-  let cfg = { default_config with mcp_config = Some "/tmp/mcp.json" } in
-  let args = build_args ~config:cfg
-    ~req_config:(Provider_config.make ~kind:Claude_code ~model_id:"" ~base_url:"" ())
-    ~prompt:"hello" ~stream:false ~system_prompt:None in
-  List.mem "--strict-mcp-config" args
-  && List.mem "--mcp-config" args
-  && List.mem "/tmp/mcp.json" args
-
-let%test "build_args includes --strict-mcp-config when env fallback set" =
-  Unix.putenv "OAS_CLAUDE_MCP_CONFIG" "/tmp/env-mcp.json";
-  let args = build_args ~config:default_config
-    ~req_config:(Provider_config.make ~kind:Claude_code ~model_id:"" ~base_url:"" ())
-    ~prompt:"hello" ~stream:false ~system_prompt:None in
-  let ok =
-    List.mem "--strict-mcp-config" args
-    && List.mem "--mcp-config" args
-    && List.mem "/tmp/env-mcp.json" args
-  in
-  Unix.putenv "OAS_CLAUDE_MCP_CONFIG" "";
-  ok
+(* Strict-MCP/mcp-config pairing invariants are exercised by the
+   env-driven tests further down (grep "strict MCP", "MCP_CONFIG
+   fallback"), which use the shared with_env/with_unset helpers for
+   env isolation. *)
 
 let%test "parse_stop_reason variants" =
   parse_stop_reason "end_turn" = Types.EndTurn
@@ -605,20 +575,30 @@ let with_unset k f =
 let sample_req =
   Provider_config.make ~kind:Claude_code ~model_id:"" ~base_url:"" ()
 
-let%test "default: strict MCP is always enabled" =
+let%test "default: --strict-mcp-config omitted when no MCP config is available" =
+  (* Previously this test asserted that --strict-mcp-config was emitted
+     unconditionally.  That was the buggy behaviour — Claude CLI rejects
+     --strict-mcp-config alone and exits 1 with no stderr.  The invariant
+     is now: --strict-mcp-config is paired with a real config path, or
+     neither flag is emitted. *)
   with_unset "OAS_CLAUDE_STRICT_MCP" (fun () ->
   with_unset "OAS_CLAUDE_MCP_CONFIG" (fun () ->
   with_unset "OAS_CLAUDE_DISALLOWED_TOOLS" (fun () ->
     let args = build_args ~config:default_config ~req_config:sample_req
       ~prompt:"hi" ~stream:false ~system_prompt:None in
-    List.mem "--strict-mcp-config" args
+    (not (List.mem "--strict-mcp-config" args))
+    && not (List.mem "--mcp-config" args)
     && not (List.mem "--disallowedTools" args))))
 
-let%test "env: OAS_CLAUDE_STRICT_MCP=1 appends --strict-mcp-config" =
+let%test "env: OAS_CLAUDE_STRICT_MCP=1 alone no longer implies --strict-mcp-config" =
+  (* OAS_CLAUDE_STRICT_MCP is a downstream intent marker (MASC uses it to
+     gate SessionEnd hooks), not a trigger for Claude CLI flags.  Without
+     a real config path, --strict-mcp-config must NOT be emitted. *)
+  with_unset "OAS_CLAUDE_MCP_CONFIG" (fun () ->
   with_env "OAS_CLAUDE_STRICT_MCP" "1" (fun () ->
     let args = build_args ~config:default_config ~req_config:sample_req
       ~prompt:"hi" ~stream:false ~system_prompt:None in
-    List.mem "--strict-mcp-config" args)
+    not (List.mem "--strict-mcp-config" args)))
 
 let%test "env: MCP_CONFIG fallback only when config.mcp_config is None" =
   with_env "OAS_CLAUDE_MCP_CONFIG" "/tmp/mcp.json" (fun () ->
