@@ -429,3 +429,7 @@
 (test
  (name test_mcp_http)
  (libraries agent_sdk alcotest eio eio_main))
+
+(test
+ (name test_approval_pipeline)
+ (libraries agent_sdk alcotest yojson))
