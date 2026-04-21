@@ -216,6 +216,47 @@ let test_with_retry_non_retryable_during_loop () =
    | _ -> fail "expected InvalidRequest from loop");
   check int "stopped at 2" 2 !attempt
 
+type mapped_error =
+  | Retryable of Retry.api_error
+  | HardFail of string
+
+let test_with_retry_map_error_succeeds_after_retries () =
+  Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  let attempt = ref 0 in
+  let f () =
+    incr attempt;
+    if !attempt < 3 then
+      Error (Retryable (Retry.ServerError { status = 500; message = "transient" }))
+    else Ok "recovered"
+  in
+  (match
+     Retry.with_retry_map_error ~clock ~config:fast_config
+       ~classify:(function Retryable err -> Some err | HardFail _ -> None)
+       f
+   with
+   | Ok v -> check string "eventual success" "recovered" v
+   | Error _ -> fail "expected recovery after mapped retry");
+  check int "took 3 attempts" 3 !attempt
+
+let test_with_retry_map_error_preserves_original_error () =
+  Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  let attempt = ref 0 in
+  let f () =
+    incr attempt;
+    Error (HardFail "missing transport")
+  in
+  (match
+     Retry.with_retry_map_error ~clock ~config:fast_config
+       ~classify:(function Retryable err -> Some err | HardFail _ -> None)
+       f
+   with
+   | Error (HardFail message) ->
+       check string "original error preserved" "missing transport" message
+   | _ -> fail "expected original HardFail");
+  check int "only 1 attempt" 1 !attempt
+
 let test_with_retry_max_retries_exhausted () =
   Eio_main.run @@ fun env ->
   let clock = Eio.Stdenv.clock env in
@@ -265,6 +306,8 @@ let () =
       test_case "rate limited uses retry_after" `Quick test_with_retry_rate_limited_uses_retry_after;
       test_case "non-retryable stops immediately" `Quick test_with_retry_non_retryable_stops;
       test_case "non-retryable during loop" `Quick test_with_retry_non_retryable_during_loop;
+      test_case "map_error retries classified errors" `Quick test_with_retry_map_error_succeeds_after_retries;
+      test_case "map_error preserves original errors" `Quick test_with_retry_map_error_preserves_original_error;
       test_case "max retries exhausted" `Quick test_with_retry_max_retries_exhausted;
     ];
     "providers", [

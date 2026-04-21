@@ -601,6 +601,13 @@ let default_retry_config = {
   backoff_multiplier = Constants.Retry.backoff_multiplier;
 }
 
+let shared_retry_config_of_complete (config : retry_config) : Retry.retry_config = {
+  max_retries = config.max_retries;
+  initial_delay = config.initial_delay_sec;
+  max_delay = config.max_delay_sec;
+  backoff_factor = config.backoff_multiplier;
+}
+
 let classify_retry_error = function
   | Http_client.HttpError { code; body } ->
       Some (Retry.classify_error ~status:code ~body)
@@ -623,34 +630,13 @@ let complete_with_retry ~sw ~net ?transport ~clock
     ?runtime_mcp_policy
     ?(retry_config=default_retry_config)
     ?cache ?metrics ?priority () =
-  let jittered delay =
-    let factor = Constants.Retry.jitter_min +. Random.float Constants.Retry.jitter_range in
-    delay *. factor
-  in
-  let sleep_delay_sec ~delay err =
-    match classify_retry_error err with
-    | Some (Retry.RateLimited { retry_after = Some retry_after; _ }) ->
-        retry_after
-    | Some _ | None ->
-        jittered delay
-  in
-  let rec attempt n delay =
-    match
-      complete ~sw ~net ?transport ~config ~messages ~tools
-        ?runtime_mcp_policy ?cache ?metrics ?priority ()
-    with
-    | Ok _ as success -> success
-    | Error err when is_retryable err && n < retry_config.max_retries ->
-        Eio.Time.sleep clock (sleep_delay_sec ~delay err);
-        let next_delay =
-          Float.min
-            (delay *. retry_config.backoff_multiplier)
-            retry_config.max_delay_sec
-        in
-        attempt (n + 1) next_delay
-    | Error _ as fail -> fail
-  in
-  attempt 0 retry_config.initial_delay_sec
+  Retry.with_retry_map_error
+    ~clock
+    ~config:(shared_retry_config_of_complete retry_config)
+    ~classify:classify_retry_error
+    (fun () ->
+       complete ~sw ~net ?transport ~config ~messages ~tools
+         ?runtime_mcp_policy ?cache ?metrics ?priority ())
 
 (* ── Streaming ───────────────────────────────────────── *)
 
