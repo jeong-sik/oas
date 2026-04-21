@@ -174,3 +174,21 @@ jobs:
 
       - name: Run transport drift gate
         run: bash scripts/check-transport-truth.sh
+
+  tag-drift:
+    name: Release Tag Drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Non-blocking warn-only: reports CHANGELOG entries that lack a matching
+    # git tag. Flip to --strict in a follow-up PR once the existing backlog
+    # (v0.155.1, v0.160.0, v0.161.0, v0.163.0, v0.164.0) is back-tagged.
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          # Need full tag history for `git tag -l` to see released versions.
+          fetch-depth: 0
+
+      - name: Run tag drift audit (warn-only)
+        run: bash scripts/check-tag-drift.sh
