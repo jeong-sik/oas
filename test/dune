@@ -457,3 +457,55 @@
 (test
  (name test_skill_registry)
  (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_skill_discovery)
+ (libraries agent_sdk alcotest eio eio_main))
+
+(test
+ (name test_memory)
+ (libraries agent_sdk alcotest))
+
+(test
+ (name test_memory_lt_backend)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_memory_tools)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_memory_file_backend)
+ (libraries agent_sdk alcotest eio eio_main unix))
+
+(test
+ (name test_memory_access)
+ (libraries agent_sdk alcotest))
+
+(test
+ (name test_memory_coverage)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_harness_case)
+ (libraries agent_sdk alcotest))
+
+(test
+ (name test_harness)
+ (libraries agent_sdk alcotest))
+
+(test
+ (name test_harness_runner)
+ (libraries agent_sdk alcotest unix))
+
+(test
+ (name test_harness_deep)
+ (libraries agent_sdk alcotest))
+
+(test
+ (name test_agent_auto_dump)
+ (libraries agent_sdk alcotest eio eio_main))
+
+(test
+ (name test_agent_race)
+ (libraries agent_sdk alcotest eio eio_main yojson))
