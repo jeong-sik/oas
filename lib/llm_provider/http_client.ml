@@ -42,7 +42,10 @@ let ( let* ) = Result.bind
 
 let classify_unix_error = function
   | Unix.ECONNREFUSED -> Connection_refused
+  | Unix.ECONNRESET -> Connection_refused
   | Unix.ETIMEDOUT -> Timeout
+  | Unix.ENETUNREACH -> Dns_failure
+  | Unix.EHOSTUNREACH -> Dns_failure
   | Unix.EMFILE | Unix.ENFILE | Unix.ENOBUFS -> Local_resource_exhaustion
   | Unix.EADDRNOTAVAIL -> Local_resource_exhaustion
   | _ -> Unknown
@@ -75,7 +78,9 @@ let has_substr haystack needle =
 
 let classify_by_message msg =
   let m = String.lowercase_ascii msg in
-  if has_substr m "connection refused" then Connection_refused
+  if has_substr m "connection refused"
+     || has_substr m "connection reset"
+    then Connection_refused
   else if has_substr m "timed out" || has_substr m "timeout" then Timeout
   else if has_substr m "can't assign requested address"
        || has_substr m "too many open files"
@@ -87,6 +92,8 @@ let classify_by_message msg =
   else if has_substr m "failed to resolve hostname"
        || has_substr m "name resolution"
        || has_substr m "name or service not known"
+       || has_substr m "network is unreachable"
+       || has_substr m "host is unreachable"
     then Dns_failure
   else if has_substr m "tls"
        || has_substr m "ssl"
@@ -409,6 +416,15 @@ let%test "classify_unix_error: EADDRNOTAVAIL" =
 let%test "classify_unix_error: catchall returns Unknown" =
   classify_unix_error Unix.EPIPE = Unknown
 
+let%test "classify_unix_error: ECONNRESET is Connection_refused" =
+  classify_unix_error Unix.ECONNRESET = Connection_refused
+
+let%test "classify_unix_error: ENETUNREACH is Dns_failure" =
+  classify_unix_error Unix.ENETUNREACH = Dns_failure
+
+let%test "classify_unix_error: EHOSTUNREACH is Dns_failure" =
+  classify_unix_error Unix.EHOSTUNREACH = Dns_failure
+
 (* ── is_local_resource_exhaustion tests ──────────────── *)
 
 let%test "resource exhaustion: EADDRNOTAVAIL via Eio" =
@@ -484,3 +500,12 @@ let%test "classify_by_message: resource exhaustion" =
 
 let%test "classify_by_message: unknown" =
   classify_by_message "broken pipe" = Unknown
+
+let%test "classify_by_message: connection reset by peer" =
+  classify_by_message "Connection reset by peer" = Connection_refused
+
+let%test "classify_by_message: network unreachable" =
+  classify_by_message "Network is unreachable" = Dns_failure
+
+let%test "classify_by_message: host unreachable" =
+  classify_by_message "Host is unreachable" = Dns_failure

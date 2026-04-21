@@ -130,7 +130,15 @@ let is_retryable = function
        But hard account-level quota exhaustion (balance 0, credit 0) will
        never succeed on retry; let the caller decide what to do next. *)
     not (is_hard_quota_message message)
-  | Overloaded _ | ServerError _ | NetworkError _ | Timeout _ -> true
+  | Overloaded _ | ServerError _ | Timeout _ -> true
+  | NetworkError { kind; _ } ->
+      (* TLS errors are permanent (certificate/config issues).
+         Local resource exhaustion means the local machine is the bottleneck,
+         not the remote server — retrying won't help. *)
+      (match kind with
+       | Http_client.Tls_error -> false
+       | Http_client.Local_resource_exhaustion -> false
+       | _ -> true)
   | InvalidRequest { message } ->
     (* Malformed JSON from model output is transient — retry may produce valid JSON. *)
     List.exists (fun needle -> contains_substring_ci ~haystack:message ~needle) malformed_json_indicators
