@@ -352,6 +352,93 @@ let test_requires_any () =
     (Capability_filter.requires_any
        [Capability_filter.requires_tools; Capability_filter.requires_streaming] caps)
 
+(* ── Kind ↔ registry integrity ────────────────────────── *)
+
+(** Minimal [Provider_config.t] construction for a given kind, using a
+    localhost base URL so [is_local = true] for [OpenAI_compat] (resolves
+    to the registry's "llama" entry) and a plain (non-coding) URL for
+    [Glm] (resolves to "glm"). *)
+let mk_config_for_kind kind =
+  let base_url = match kind with
+    | Provider_config.OpenAI_compat -> "http://127.0.0.1:8085"
+    | _ -> "https://example.test"
+  in
+  Provider_config.make ~kind ~model_id:"test" ~base_url ()
+
+(** Regression guard for the masc-mcp capability-lookup bug fixed in
+    masc-mcp#9306. That bug passed [Provider_adapter.string_of_provider_kind]
+    (masc canonical_name: "claude-api", "kimi-api", "codex-api", ...) to
+    [Provider_registry.find], but the registry is keyed on the names
+    returned by [Provider_registry.provider_name_of_config] ("claude",
+    "kimi", "llama", "ollama", "claude_code", "gemini_cli", ...). For
+    direct-API kinds the lookup silently fell back to
+    [default_capabilities]; for CLI kinds the masc vocabulary happened
+    to match direct-API entries ("claude" → Anthropic, "gemini" → Gemini,
+    "kimi" → Kimi) and returned the wrong capability matrix.
+
+    Assert here that [provider_name_of_config] is the authoritative key
+    source: every variant in [Provider_config.all_provider_kinds]
+    produces a name that resolves to [Some entry] in the default
+    registry. Adding a variant without a corresponding registry
+    registration fails this test. *)
+let test_every_kind_resolves_in_registry () =
+  let registry = Provider_registry.default () in
+  List.iter
+    (fun kind ->
+      let cfg = mk_config_for_kind kind in
+      let name = Provider_registry.provider_name_of_config cfg in
+      let label =
+        Printf.sprintf "kind=%s name=%s"
+          (Provider_config.string_of_provider_kind kind) name
+      in
+      match Provider_registry.find registry name with
+      | Some entry ->
+          check string
+            (Printf.sprintf "%s: entry.name echoes lookup key" label)
+            name entry.name
+      | None ->
+          failf
+            "%s: provider_name_of_config returned %S but registry has no \
+             entry for it; either register the provider or fix the naming \
+             function" label name)
+    Provider_config.all_provider_kinds
+
+(** Sharper assertion for the two CLI kinds that were the primary
+    wrong-hit victims in masc-mcp#9306: assert their registry entries
+    are CLI-shaped, not direct-API-shaped. If a regression reverts
+    [provider_name_of_config Claude_code] back to ["claude"], this
+    test fails because the resolved entry's [defaults.kind] will be
+    [Anthropic] instead of [Claude_code]. *)
+let test_cli_kinds_resolve_to_cli_entries () =
+  let registry = Provider_registry.default () in
+  let cases = [
+    Provider_config.Claude_code, "claude_code";
+    Provider_config.Gemini_cli, "gemini_cli";
+    Provider_config.Kimi_cli, "kimi_cli";
+    Provider_config.Codex_cli, "codex_cli";
+  ] in
+  List.iter
+    (fun (kind, expected_name) ->
+      let cfg = mk_config_for_kind kind in
+      let name = Provider_registry.provider_name_of_config cfg in
+      check string
+        (Printf.sprintf "%s maps to expected registry key"
+           (Provider_config.string_of_provider_kind kind))
+        expected_name name;
+      (match Provider_registry.find registry name with
+       | Some entry ->
+           (* The entry's defaults.kind must equal the variant we
+              started from; this catches any future renaming that
+              silently points a CLI kind at a direct-API entry. *)
+           check bool
+             (Printf.sprintf "%s → entry.defaults.kind equals source"
+                (Provider_config.string_of_provider_kind kind))
+             true (entry.defaults.kind = kind)
+       | None ->
+           failf "%s: no entry for %S"
+             (Provider_config.string_of_provider_kind kind) name))
+    cases
+
 (* ── Suite ──────────────────────────────────────────── *)
 
 let () =
@@ -381,6 +468,11 @@ let () =
         test_default_max_context_matches_capabilities;
       test_case "zai base urls" `Quick test_default_zai_base_urls;
       test_case "blank zai base urls fall back" `Quick test_blank_zai_base_urls_fall_back;
+    ];
+    "kind_registry_integrity", [
+      test_case "every kind resolves" `Quick test_every_kind_resolves_in_registry;
+      test_case "CLI kinds resolve to CLI entries" `Quick
+        test_cli_kinds_resolve_to_cli_entries;
     ];
     "types_usage", [
       test_case "zero_api_usage" `Quick test_zero_api_usage;
