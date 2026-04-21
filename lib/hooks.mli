@@ -123,10 +123,10 @@ type hook_decision =
   | ApprovalRequired
       (** Signals that the tool needs external approval.  If an
           {!approval_callback} is registered the callback is invoked;
-          otherwise the tool is executed with a warning log. *)
+          otherwise the tool is executed and a debug log is emitted. *)
   | AdjustParams of turn_params
   | ElicitInput of elicitation_request
-  | Nudge of string  (** OnIdle only: inject message, reset idle counter, continue *)
+  | Nudge of string  (** OnIdle and BeforeTurn: inject message as User-role into the conversation, continue execution. On OnIdle the idle counter is preserved. On BeforeTurn the nudge is appended before tool preparation. *)
 
 (** Decision from approval callback *)
 type approval_decision =
@@ -179,8 +179,8 @@ val invoke : hook option -> hook_event -> hook_decision
     {v
     Stage                | Continue | Skip | Override | ApprovalRequired | AdjustParams | ElicitInput | Nudge
     ---------------------+----------+------+----------+------------------+--------------+-------------+-------
-    before_turn          |    Y     |      |          |                  |              |      Y
-    before_turn_params   |    Y     |      |          |                  |      Y       |
+    before_turn          |    Y     |      |          |                  |              |      Y      |   Y
+    before_turn_params   |    Y     |      |          |                  |      Y       |             |
     after_turn           |    Y     |      |          |                  |              |
     pre_tool_use         |    Y     |  Y   |    Y     |        Y         |              |
     post_tool_use        |    Y     |      |          |                  |              |

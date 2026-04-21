@@ -8,6 +8,10 @@ let ( let* ) = Result.bind
 let first_some = Util.first_some
 let _log = Log.create ~module_name:"runtime_server" ()
 
+let read_control_response = Runtime_server_control.read_control_response
+let ask_permission = Runtime_server_control.ask_permission
+let invoke_hook = Runtime_server_control.invoke_hook
+
 let log_participant_persist_failure ~session_id ~participant_name ~phase err =
   Log.error _log "participant event persistence failed"
     [ Log.S ("session_id", session_id);
@@ -36,48 +40,6 @@ let persist_participant_failure store state ~session_id ~participant_name
   | Error err ->
       log_participant_persist_failure ~session_id ~participant_name
         ~phase:"agent_failed" err
-
-let rec read_control_response state control_id =
-  match input_line stdin with
-  | raw when String.trim raw = "" ->
-      read_control_response state control_id
-  | exception End_of_file ->
-      Error
-        (Error.Io
-           (FileOpFailed
-              {
-                op = "read";
-                path = "stdin";
-                detail = "runtime control channel closed";
-              }))
-  | raw -> (
-      match protocol_message_of_string raw with
-      | Error detail ->
-          Error (Error.Serialization (JsonParseError { detail }))
-      | Ok (Control_response_message payload)
-        when String.equal payload.control_id control_id ->
-          Ok payload.response
-      | Ok _ -> read_control_response state control_id)
-
-let ask_permission state ~action ~subject ~payload =
-  let control_id = next_control_id state in
-  write_protocol_message state
-    (Control_request_message
-       {
-         control_id;
-         request = Permission_request { action; subject; payload };
-       });
-  read_control_response state control_id
-
-let invoke_hook state ~hook_name ~payload =
-  let control_id = next_control_id state in
-  write_protocol_message state
-    (Control_request_message
-       {
-         control_id;
-         request = Hook_request { hook_name; payload };
-       });
-  read_control_response state control_id
 
 let start_session state (request : start_request) =
   let* store = store_of_state state in

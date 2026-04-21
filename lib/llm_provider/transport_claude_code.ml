@@ -54,16 +54,32 @@ let default_config = {
 let env_extra_args ~(config : config) =
   let extras = ref [] in
   let add a = extras := !extras @ a in
-  add ["--strict-mcp-config"];
+  (* Determine whether an MCP config path is actually available (either
+     explicit [config.mcp_config] or OAS_CLAUDE_MCP_CONFIG env fallback).
+     [--strict-mcp-config] must only be emitted when we can also point
+     Claude at a real config file — otherwise the CLI accepts the flag,
+     finds no config, and exits 1 with no stderr, producing the
+     "claude exited with code 1: exit code 1" signature that was
+     dominating fleet cascade_exhausted failures (690/2.5h, 2026-04-20). *)
+  let env_mcp = Cli_common_env.get "OAS_CLAUDE_MCP_CONFIG" in
+  let has_mcp_config =
+    match config.mcp_config with
+    | Some _ -> true
+    | None ->
+      (match env_mcp with
+       | Some v when String.trim v <> "" -> true
+       | _ -> false)
+  in
+  if has_mcp_config then add ["--strict-mcp-config"];
   (* --mcp-config: only used as fallback when config.mcp_config is None.
      Explicit config wins over env, matching the convention that
      programmatic wiring overrides ambient environment. *)
   (match config.mcp_config with
    | Some _ -> ()
    | None ->
-     match Cli_common_env.get "OAS_CLAUDE_MCP_CONFIG" with
-     | Some v -> add ["--mcp-config"; v]
-     | None -> ());
+     match env_mcp with
+     | Some v when String.trim v <> "" -> add ["--mcp-config"; v]
+     | _ -> ());
   if Cli_common_env.bool "OAS_CLAUDE_STRICT_MCP" then
     ();
   (match Cli_common_env.list "OAS_CLAUDE_DISALLOWED_TOOLS" with
@@ -71,9 +87,51 @@ let env_extra_args ~(config : config) =
    | Some tools -> List.iter (fun t -> add ["--disallowedTools"; t]) tools);
   !extras
 
+(** Threshold at which [build_args] stops passing the prompt as a
+    positional argv entry and expects the caller to feed it via
+    stdin instead.  macOS [ARG_MAX] is ~1 MiB for the combined argv
+    + envp block; 512 KiB leaves headroom for env vars (keeper
+    context, OAS_* flags) and the other argv entries added after the
+    prompt.  Env override [OAS_CLAUDE_PROMPT_ARGV_THRESHOLD] accepts
+    an integer byte count for per-host tuning. *)
+let default_prompt_argv_threshold = 512 * 1024
+
+let prompt_argv_threshold () =
+  match Sys.getenv_opt "OAS_CLAUDE_PROMPT_ARGV_THRESHOLD" with
+  | Some raw ->
+    (match int_of_string_opt (String.trim raw) with
+     | Some v when v >= 0 -> v
+     | _ -> default_prompt_argv_threshold)
+  | None -> default_prompt_argv_threshold
+
+(** Decide whether the prompt must be routed via stdin.  Callers that
+    observe a [true] result should:
+      1. call [build_args] which returns [-p <empty>] (or omits the
+         prompt entirely, see below);
+      2. pass the prompt as [~stdin_content] to the subprocess.
+    Returning the threshold here keeps the decision co-located with
+    argv construction, so any future argv-budget change lives in one
+    place. *)
+let prompt_exceeds_argv_budget prompt =
+  String.length prompt >= prompt_argv_threshold ()
+
+(** Caller-side helper: wrap [prompt] in [Some] when it must go via
+    stdin, [None] when argv is fine.  Saves the three call sites
+    from duplicating the budget check alongside [build_args]. *)
+let stdin_for_prompt prompt =
+  if prompt_exceeds_argv_budget prompt then Some prompt else None
+
 let build_args ~(config : config) ~(req_config : Provider_config.t)
     ~prompt ~stream ~system_prompt =
-  let args = ref ["-p"; prompt] in
+  (* When the prompt is too big for argv, omit it from the positional
+     slot. Claude CLI (`--input-format text`, the default) then reads
+     the prompt from stdin via [--print] / [-p]. We still pass [-p]
+     to select non-interactive mode; the CLI concatenates stdin onto
+     the empty positional. *)
+  let prompt_via_stdin = prompt_exceeds_argv_budget prompt in
+  let args =
+    ref (if prompt_via_stdin then ["-p"] else ["-p"; prompt])
+  in
   let add a = args := !args @ a in
   add ["--output-format"; if stream then "stream-json" else "json"];
   if stream then add ["--verbose"];
@@ -292,23 +350,64 @@ let parse_stream_result lines =
 
 (** Env vars stripped from every [claude] subprocess.
 
-    When [ANTHROPIC_API_KEY] is set in the parent process, [claude -p]
+    [ANTHROPIC_API_KEY*]: when set in the parent process, [claude -p]
     authenticates as a metered API client (subject to the org's API
     spend limits) rather than using the user's OAuth/subscription
     session.  MASC / agent integrations that rely on the subscription
-    tier must not leak API_KEY env to the CLI.
+    tier must not leak API_KEY env to the CLI.  The three names cover
+    the canonical variable plus the conventional [_MAIN] / [_WORK]
+    split some callers adopt.
 
-    The three names below cover the canonical variable plus the
-    conventional [_MAIN] / [_WORK] split some callers adopt. *)
+    [CODEX_COMPANION_SESSION_ID]: scrubbed so our fresh value injected
+    by {!keeper_isolation_env} wins over whatever the parent shell
+    inherited.  See that function's doc for the plugin-hook rationale.
+    Key order in [Cli_common_subprocess.build_env] is [extras @ base];
+    [execve] preserves duplicates and libuv's env parser takes the
+    last match, so an un-scrubbed parent value would shadow our
+    injection and defeat the isolation.  *)
 let claude_cli_scrub_env =
-  ["ANTHROPIC_API_KEY"; "ANTHROPIC_API_KEY_MAIN"; "ANTHROPIC_API_KEY_WORK"]
+  [ "ANTHROPIC_API_KEY"
+  ; "ANTHROPIC_API_KEY_MAIN"
+  ; "ANTHROPIC_API_KEY_WORK"
+  ; "CODEX_COMPANION_SESSION_ID"
+  ]
 
-let run ~sw ~mgr ~(config : config) args =
+(** Per-subprocess isolation env for Claude Code plugin hooks.
+
+    The openai-codex plugin installs [session-lifecycle-hook.mjs]
+    which runs on every SessionEnd event the [claude] binary fires.
+    Its [cleanupSessionJobs] path loads the workspace state file and
+    [terminateProcessTree]s any job row whose [sessionId] matches the
+    current process's [CODEX_COMPANION_SESSION_ID] env var.
+
+    When an OAS transport spawns a short-lived [claude -p] subprocess
+    inside a long-lived parent Claude Code session, they share
+    [CODEX_COMPANION_SESSION_ID] via env inheritance.  Each transient
+    subprocess's SessionEnd therefore tears down the parent session's
+    broker state and jobs — a silent outage vector for any keeper
+    runtime colocated with an interactive Claude Code session.
+
+    Injecting a subprocess-unique id short-circuits the match in the
+    hook: [cleanupSessionJobs] iterates the state file, finds no row
+    with the freshly-minted sessionId, and returns without side
+    effects.  The hook still runs (we don't disable it); it just
+    becomes a no-op for our subprocess. *)
+let keeper_isolation_counter = Atomic.make 0
+
+let keeper_isolation_env () =
+  let n = Atomic.fetch_and_add keeper_isolation_counter 1 in
+  [ ( "CODEX_COMPANION_SESSION_ID"
+    , Printf.sprintf "oas-claude-%d-%d-%f"
+        (Unix.getpid ()) n (Unix.gettimeofday ()) )
+  ]
+
+let run ~sw ~mgr ~(config : config) ?stdin_content args =
   Cli_common_subprocess.run_collect ~sw ~mgr
     ~name:"claude"
     ~cwd:config.cwd
-    ~extra_env:[]
+    ~extra_env:(keeper_isolation_env ())
     ~scrub_env:claude_cli_scrub_env
+    ?stdin_content
     ?cancel:config.cancel
     (config.claude_path :: args)
 
@@ -334,8 +433,10 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
             seen_lines := line :: !seen_lines
         in
         match Cli_common_subprocess.run_stream_lines ~sw ~mgr
-                ~name:"claude" ~cwd:config.cwd ~extra_env:[]
+                ~name:"claude" ~cwd:config.cwd
+                ~extra_env:(keeper_isolation_env ())
                 ~scrub_env:claude_cli_scrub_env
+                ?stdin_content:(stdin_for_prompt prompt)
                 ~on_line ?cancel:config.cancel
                 argv with
         | Error _ as e -> { Llm_transport.response = e; latency_ms = 0 }
@@ -345,7 +446,8 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
       else
         let args = build_args ~config ~req_config:req.config
           ~prompt ~stream:false ~system_prompt in
-        match run ~sw ~mgr ~config args with
+        match run ~sw ~mgr ~config
+                ?stdin_content:(stdin_for_prompt prompt) args with
         | Error _ as e -> { Llm_transport.response = e; latency_ms = 0 }
         | Ok { stdout; stderr = _; latency_ms } ->
           let response = parse_json_result (String.trim stdout) in
@@ -370,8 +472,9 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
       match Cli_common_subprocess.run_stream_lines ~sw ~mgr
               ~name:"claude"
               ~cwd:config.cwd
-              ~extra_env:[]
+              ~extra_env:(keeper_isolation_env ())
               ~scrub_env:claude_cli_scrub_env
+              ?stdin_content:(stdin_for_prompt prompt)
               ~on_line
               ?cancel:config.cancel
               argv with
@@ -454,6 +557,11 @@ let%test "build_args omits auto model override" =
     ~req_config:(Provider_config.make ~kind:Claude_code ~model_id:"auto" ~base_url:"" ())
     ~prompt:"hello" ~stream:false ~system_prompt:None in
   not (List.mem "--model" args)
+
+(* Strict-MCP/mcp-config pairing invariants are exercised by the
+   env-driven tests further down (grep "strict MCP", "MCP_CONFIG
+   fallback"), which use the shared with_env/with_unset helpers for
+   env isolation. *)
 
 let%test "parse_stop_reason variants" =
   parse_stop_reason "end_turn" = Types.EndTurn
@@ -554,20 +662,30 @@ let with_unset k f =
 let sample_req =
   Provider_config.make ~kind:Claude_code ~model_id:"" ~base_url:"" ()
 
-let%test "default: strict MCP is always enabled" =
+let%test "default: --strict-mcp-config omitted when no MCP config is available" =
+  (* Previously this test asserted that --strict-mcp-config was emitted
+     unconditionally.  That was the buggy behaviour — Claude CLI rejects
+     --strict-mcp-config alone and exits 1 with no stderr.  The invariant
+     is now: --strict-mcp-config is paired with a real config path, or
+     neither flag is emitted. *)
   with_unset "OAS_CLAUDE_STRICT_MCP" (fun () ->
   with_unset "OAS_CLAUDE_MCP_CONFIG" (fun () ->
   with_unset "OAS_CLAUDE_DISALLOWED_TOOLS" (fun () ->
     let args = build_args ~config:default_config ~req_config:sample_req
       ~prompt:"hi" ~stream:false ~system_prompt:None in
-    List.mem "--strict-mcp-config" args
+    (not (List.mem "--strict-mcp-config" args))
+    && not (List.mem "--mcp-config" args)
     && not (List.mem "--disallowedTools" args))))
 
-let%test "env: OAS_CLAUDE_STRICT_MCP=1 appends --strict-mcp-config" =
+let%test "env: OAS_CLAUDE_STRICT_MCP=1 alone no longer implies --strict-mcp-config" =
+  (* OAS_CLAUDE_STRICT_MCP is a downstream intent marker (MASC uses it to
+     gate SessionEnd hooks), not a trigger for Claude CLI flags.  Without
+     a real config path, --strict-mcp-config must NOT be emitted. *)
+  with_unset "OAS_CLAUDE_MCP_CONFIG" (fun () ->
   with_env "OAS_CLAUDE_STRICT_MCP" "1" (fun () ->
     let args = build_args ~config:default_config ~req_config:sample_req
       ~prompt:"hi" ~stream:false ~system_prompt:None in
-    List.mem "--strict-mcp-config" args)
+    not (List.mem "--strict-mcp-config" args)))
 
 let%test "env: MCP_CONFIG fallback only when config.mcp_config is None" =
   with_env "OAS_CLAUDE_MCP_CONFIG" "/tmp/mcp.json" (fun () ->
@@ -588,3 +706,64 @@ let%test "env: DISALLOWED_TOOLS splits on comma" =
     List.mem "--disallowedTools" args
     && List.mem "Bash" args
     && List.mem "Write" args)
+
+let%test "keeper_isolation_env injects fresh CODEX_COMPANION_SESSION_ID" =
+  match keeper_isolation_env () with
+  | [ (k, v) ] ->
+    k = "CODEX_COMPANION_SESSION_ID"
+    && String.length v > 0
+    && (let prefix = "oas-claude-" in
+        String.length v >= String.length prefix
+        && String.sub v 0 (String.length prefix) = prefix)
+  | _ -> false
+
+let%test "keeper_isolation_env yields a new id per call" =
+  let a = keeper_isolation_env () in
+  let b = keeper_isolation_env () in
+  let v_of = function
+    | [ (_, v) ] -> v
+    | _ -> ""
+  in
+  v_of a <> "" && v_of a <> v_of b
+
+let%test "claude_cli_scrub_env strips CODEX_COMPANION_SESSION_ID" =
+  List.mem "CODEX_COMPANION_SESSION_ID" claude_cli_scrub_env
+
+let%test "claude_cli_scrub_env keeps ANTHROPIC_API_KEY entries" =
+  List.mem "ANTHROPIC_API_KEY" claude_cli_scrub_env
+  && List.mem "ANTHROPIC_API_KEY_MAIN" claude_cli_scrub_env
+  && List.mem "ANTHROPIC_API_KEY_WORK" claude_cli_scrub_env
+
+let%test "prompt_exceeds_argv_budget: small prompt stays in argv" =
+  not (prompt_exceeds_argv_budget "hello")
+
+let%test "prompt_exceeds_argv_budget: 1 MiB prompt routes to stdin" =
+  prompt_exceeds_argv_budget (String.make (1 * 1024 * 1024) 'x')
+
+let%test "prompt_exceeds_argv_budget: OAS_CLAUDE_PROMPT_ARGV_THRESHOLD override" =
+  with_env "OAS_CLAUDE_PROMPT_ARGV_THRESHOLD" "100" (fun () ->
+    prompt_exceeds_argv_budget (String.make 200 'x')
+    && not (prompt_exceeds_argv_budget (String.make 50 'x')))
+
+let%test "stdin_for_prompt: Some when over budget, None under" =
+  let over = String.make (1 * 1024 * 1024) 'x' in
+  stdin_for_prompt "hi" = None && stdin_for_prompt over = Some over
+
+let%test "build_args omits positional prompt when routing via stdin" =
+  let big = String.make (1 * 1024 * 1024) 'x' in
+  let args = build_args ~config:default_config ~req_config:sample_req
+    ~prompt:big ~stream:false ~system_prompt:None in
+  (* First two argv entries should be ["-p"; "--output-format"], NOT
+     ["-p"; <big>] — the prompt must not appear anywhere in argv. *)
+  not (List.mem big args)
+  && (match args with
+      | "-p" :: "--output-format" :: _ -> true
+      | _ -> false)
+
+let%test "build_args keeps positional prompt when small" =
+  let args = build_args ~config:default_config ~req_config:sample_req
+    ~prompt:"hello" ~stream:false ~system_prompt:None in
+  List.mem "hello" args
+  && (match args with
+      | "-p" :: "hello" :: _ -> true
+      | _ -> false)

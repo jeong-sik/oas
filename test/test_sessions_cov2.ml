@@ -191,7 +191,9 @@ let test_structured_telemetry_full () =
                actor = None; role = None; provider = None; model = None;
                artifact_id = None; artifact_name = None;
                artifact_kind = None; checkpoint_label = None;
-               outcome = None }];
+               outcome = None;
+               raw_trace_run_id = None; stop_reason = None;
+               dropped_output_deltas = None; persistence_failure_phase = None }];
   } in
   roundtrip
     ~to_yojson:Sessions.structured_telemetry_to_yojson

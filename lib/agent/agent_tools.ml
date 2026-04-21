@@ -272,6 +272,19 @@ let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tra
     }
     end (* Tool_middleware validation match *)
   | None ->
+      (* Tool dispatch failure (the LLM asked for a tool that isn't
+         registered). Distinct from OnToolError — that fires when a
+         tool actually ran and returned Error. This is a configuration
+         / routing mistake, so it belongs on the general OnError
+         channel. First production emit site for Hooks.OnError (#1032). *)
+      ignore
+        (invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count
+           ~hook_name:"on_error" hooks.on_error
+           (Hooks.OnError {
+              detail = Printf.sprintf "Tool not found: %s" name;
+              context = "agent_tools.find_and_execute_tool";
+            })
+         : Hooks.hook_decision);
       {
         tool_use_id = id;
         tool_name = name;
@@ -360,7 +373,7 @@ let execute_scheduled_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus
           | Hooks.ApprovalRequired -> (
               match approval with
               | None ->
-                  Log.warn _log
+                  Log.debug _log
                     "ApprovalRequired but no approval callback — executing"
                     [Log.S ("tool", name); Log.S ("agent", agent_name)];
                   find_and_execute_tool ~context ~tools ~hooks ~event_bus

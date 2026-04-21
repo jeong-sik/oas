@@ -189,14 +189,110 @@ let parse_json_result json_str =
 let gemini_cli_scrub_env =
   ["GEMINI_API_KEY"; "GOOGLE_API_KEY"; "GOOGLE_APPLICATION_CREDENTIALS"]
 
+(* Stderr markers the gemini CLI emits when it is looping internally on
+   429 MODEL_CAPACITY_EXHAUSTED from cloudcode-pa.googleapis.com.  Each
+   retry wall-clocks ~8 s (server-timing gfet4t7;dur≥8000) and the CLI
+   typically attempts 5 before giving up, so a single upstream 429 can
+   block a cascade call for 30–60 s.  When we see the first marker, we
+   trip [cancel] so the CLI receives [SIGINT] and the cascade can move
+   on to the next provider immediately. *)
+let capacity_exhausted_markers =
+  [ "MODEL_CAPACITY_EXHAUSTED"
+  ; "RESOURCE_EXHAUSTED"
+  ; "No capacity available"
+  ; "rateLimitExceeded"
+  ]
+
+let startup_crash_markers =
+  [ "Detected unsettled top-level await"
+  ; "yoga_wasm_base64_esm_default"
+  ]
+
+let substring_found line needle =
+  let hl = String.length line and nl = String.length needle in
+  if nl = 0 || nl > hl then false
+  else
+    let rec scan i =
+      if i + nl > hl then false
+      else if String.sub line i nl = needle then true
+      else scan (i + 1)
+    in
+    scan 0
+
+let contains_all_markers haystack markers =
+  List.for_all (substring_found haystack) markers
+
+let classify_cli_error = function
+  | Error (Http_client.NetworkError { message })
+    when contains_all_markers message startup_crash_markers ->
+      Error
+        (Http_client.AcceptRejected
+           {
+             reason =
+               "gemini_cli startup crash detected (unsettled top-level await / yoga_wasm). "
+               ^ "Known bad CLI runtime; rejecting without retry so the cascade can move on.";
+           })
+  | other -> other
+
 let run ~sw ~mgr ~(config : config) argv =
-  Cli_common_subprocess.run_collect ~sw ~mgr
-    ~name:"gemini"
-    ~cwd:config.cwd
-    ~extra_env:[]
-    ~scrub_env:gemini_cli_scrub_env
-    ?cancel:config.cancel
-    argv
+  let fail_fast_enabled =
+    not (Cli_common_env.bool "OAS_GEMINI_CLI_NO_FAIL_FAST_ON_CAPACITY")
+  in
+  let capacity_p, capacity_r = Eio.Promise.create () in
+  let capacity_exhausted = ref false in
+  let on_stderr_line line =
+    Cli_common_subprocess.default_on_stderr_line ~name:"gemini" line;
+    if
+      fail_fast_enabled
+      && not !capacity_exhausted
+      && List.exists (substring_found line) capacity_exhausted_markers
+    then begin
+      capacity_exhausted := true;
+      if not (Eio.Promise.is_resolved capacity_p) then
+        Eio.Promise.resolve capacity_r ()
+    end
+  in
+  (* Merge the upstream cancel (if any) with the capacity-exhausted
+     signal so either one triggers a SIGINT on the CLI. *)
+  let merged_cancel =
+    match config.cancel with
+    | None -> Some capacity_p
+    | Some upstream ->
+        let merged_p, merged_r = Eio.Promise.create () in
+        let resolve_once () =
+          if not (Eio.Promise.is_resolved merged_p) then
+            Eio.Promise.resolve merged_r ()
+        in
+        Eio.Fiber.fork ~sw (fun () ->
+          Eio.Promise.await upstream;
+          resolve_once ());
+        Eio.Fiber.fork ~sw (fun () ->
+          Eio.Promise.await capacity_p;
+          resolve_once ());
+        Some merged_p
+  in
+  let result =
+    Cli_common_subprocess.run_collect ~sw ~mgr
+      ~name:"gemini"
+      ~cwd:config.cwd
+      ~extra_env:[]
+      ~scrub_env:gemini_cli_scrub_env
+      ~on_stderr_line
+      ?cancel:merged_cancel
+      argv
+  in
+  match result with
+  | Error _ when !capacity_exhausted ->
+      Error
+        (Http_client.NetworkError
+           {
+             message =
+               "gemini_cli: MODEL_CAPACITY_EXHAUSTED detected on stderr, \
+                aborted CLI early so the cascade can move on. Set \
+                OAS_GEMINI_CLI_NO_FAIL_FAST_ON_CAPACITY=1 to let the CLI \
+                keep its internal retry loop.";
+           })
+  | r -> classify_cli_error r
 
 (* Fires once per transport instance when any Claude-only config field
    is set.  Gemini CLI has no flag for these yet, so we warn and drop. *)
@@ -371,6 +467,32 @@ let%test "parse_json_result invalid json" =
   match parse_json_result "not json" with
   | Error _ -> true
   | Ok _ -> false
+
+let%test "classify_cli_error reclassifies gemini startup crash as AcceptRejected" =
+  let err =
+    Error
+      (Http_client.NetworkError
+         {
+           message =
+             "gemini exited with code 13: Warning: Detected unsettled top-level await\n\
+              var Yoga = wrapAssembly(await yoga_wasm_base64_esm_default());";
+         })
+  in
+  match classify_cli_error err with
+  | Error (Http_client.AcceptRejected { reason }) ->
+      substring_found reason "startup crash"
+  | _ -> false
+
+let%test "classify_cli_error keeps unrelated network failures retryable" =
+  let err =
+    Error
+      (Http_client.NetworkError
+         { message = "gemini exited with code 1: connection refused" })
+  in
+  match classify_cli_error err with
+  | Error (Http_client.NetworkError { message }) ->
+      substring_found message "connection refused"
+  | _ -> false
 
 (* ── env-driven extra args ──────────────────────────── *)
 
