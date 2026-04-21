@@ -25,8 +25,22 @@ let test_run_collect_nonzero_exit () =
           [sh; "-c"; "echo oops >&2; exit 3"] with
   | Ok _ -> Alcotest.fail "expected Error for exit 3"
   | Error (Llm_provider.Http_client.NetworkError { message }) ->
-    Alcotest.(check bool) "non-empty error message"
-      true (String.length message > 0)
+    Alcotest.(check string) "stderr detail propagated"
+      "sh exited with code 3: oops\n" message
+  | Error _ ->
+    Alcotest.fail "expected NetworkError"
+
+let test_run_collect_nonzero_exit_falls_back_to_stdout () =
+  Eio_main.run @@ fun env ->
+  let mgr = Eio.Stdenv.process_mgr env in
+  Eio.Switch.run @@ fun sw ->
+  match Llm_provider.Cli_common_subprocess.run_collect ~sw ~mgr
+          ~name:"sh" ~cwd:None ~extra_env:[]
+          [sh; "-c"; "printf 'first\\n{\"error\":\"quota\"}\\n'; exit 7"] with
+  | Ok _ -> Alcotest.fail "expected Error for exit 7"
+  | Error (Llm_provider.Http_client.NetworkError { message }) ->
+    Alcotest.(check string) "stdout fallback uses last non-empty line"
+      "sh exited with code 7: {\"error\":\"quota\"}" message
   | Error _ ->
     Alcotest.fail "expected NetworkError"
 
@@ -142,6 +156,8 @@ let () =
     [ "run_collect",
       [ Alcotest.test_case "ok"   `Quick test_run_collect_ok
       ; Alcotest.test_case "exit" `Quick test_run_collect_nonzero_exit
+      ; Alcotest.test_case "exit falls back to stdout detail"
+          `Quick test_run_collect_nonzero_exit_falls_back_to_stdout
       ; Alcotest.test_case "on_stderr_line forwards per-line"
           `Quick test_on_stderr_line_called_per_line
       ; Alcotest.test_case "scrub_env strips named parent var"
