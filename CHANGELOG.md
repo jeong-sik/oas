@@ -8,6 +8,32 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.169.0] - 2026-04-21
+
+### Added
+
+- **Typed `Provider_kind` sum type, hoisted to its own module.** `Llm_provider.Provider_kind.t` now lives in a standalone compilation unit (`lib/llm_provider/provider_kind.ml`) so it can be shared by records in `Types` without creating a dependency cycle with `Provider_config`. `Provider_config` re-exports the type via manifest rebinding (`type provider_kind = Provider_kind.t = | Anthropic | ... | Kimi | ...`) so every existing `Provider_config.Anthropic` / `Provider_config.string_of_provider_kind` caller keeps compiling unchanged (#1122).
+
+- **`Provider_kind.of_string` canonical parser.** Accepts the canonical lowercase forms emitted by `to_string` plus the documented legacy aliases (`claude → Anthropic`, `openai → OpenAI_compat`, `llama → Ollama`). Case-insensitive; leading/trailing whitespace trimmed. Returns `None` for unknown inputs so callers fail fast instead of silently defaulting to a wrong provider (#1122).
+
+- **Hand-written `Provider_kind.pp` / `show` / `to_yojson` / `of_yojson`.** Preserve the existing lowercase wire format (`"anthropic"`, not `"Anthropic"`) so records embedding the variant (`Types.inference_telemetry.provider_kind`) can use derived yojson without breaking on-disk or over-the-wire payloads (#1122).
+
+- **`Provider_kind.all : t list` and `Provider_kind.default_api_key_env : t -> string option`** (re-exported as `Provider_config.all_provider_kinds` and `Provider_config.default_api_key_env`). `all` is the canonical enumeration used by tests, CLI completion, and future QCheck generators; `default_api_key_env` centralizes the per-kind env-var convention (`Anthropic → Some "ANTHROPIC_API_KEY"`, …). `Provider.default_api_key_env_of_kind` now delegates through the sum type (#1126).
+
+- **Kimi Code provider support.** Added `Kimi` (direct Anthropic-compatible `/v1/messages`) and `Kimi_cli` (subprocess transport via `kimi --print`) variants plus their transports, capabilities, and registry entries (#1125).
+
+### Changed
+
+- **`Types.inference_telemetry.provider_kind` is now `Provider_kind.t option`** (was `string option`). Wire format unchanged — the derived yojson transits through the hand-written `Provider_kind.{to,of}_yojson` so every record serializes the same lowercase strings (`"ollama"`, `"anthropic"`, `"openai_compat"`, …). Existing readers that pattern-matched on the string literal (`Some "ollama"`) move to constructors (`Some Provider_config.Ollama`) at the two callsites in `Complete.complete_cascade` (#1122).
+
+- **`agent_config.resolve_provider` now dispatches on `Provider_kind.of_string`** instead of an ad-hoc `match provider_str with | "anthropic" | ... | _ -> ...` ladder. Closes three drift bugs reported in the tick-6 audit: the SDK-emitted `"openai_compat"` string now resolves to OpenAICompat (was dropping to a broken registry fallback), the documented `"claude"` alias routes to Anthropic, and parsing is case-insensitive (#1123).
+
+- **`Provider_bridge.resolve_auto_model_id` takes `Provider_kind.t` directly**, not a stringified `provider_name`. Removes the dead `"openai"` / `"openrouter"` branches (unreachable from the prior stringify path) and makes future variant additions fail loudly in the compiler rather than silently falling into a wildcard (#1124).
+
+### Notes
+
+- Tests: 44/44 in `test_provider_config` (+13 over 0.164.0 covering parser, serializers, enumeration, and wire-format regressions), 31+4 in the newly-registered `test_agent_config_deep` (was silently unregistered in `test/dune` before #1123), full `@test/runtest` green.
+
 ## [0.164.0] - 2026-04-21
 
 ### Fixed
