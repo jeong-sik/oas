@@ -30,7 +30,13 @@ let calculator_tool =
       let open Yojson.Safe.Util in
       match args |> member "expression" |> to_string_option with
       | Some expr -> Ok { Types.content = Printf.sprintf "Result of '%s': 42" expr }
-      | None -> Error { Types.message = "missing 'expression' parameter"; recoverable = true })
+      | None ->
+          Error
+            {
+              Types.message = "missing 'expression' parameter";
+              recoverable = true;
+              error_class = None;
+            })
 
 let counter_tool =
   Tool.create_with_context ~name:"counter"

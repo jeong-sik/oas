@@ -55,11 +55,12 @@ let call_tool t ~name ~arguments =
           Types.message =
             Printf.sprintf "MCP tools/call '%s' failed: %s" name detail;
           recoverable = true;
+          error_class = None;
         }
   | Ok result ->
       let content = Mcp.text_of_tool_result result in
       if Option.value ~default:false result.Mcp_schema.Sdk_types.is_error then
-        Error { Types.message = content; recoverable = true }
+        Error { Types.message = content; recoverable = true; error_class = None }
       else Ok { Types.content }
 
 let close t = ignore (Sdk_http_client.close t.client)

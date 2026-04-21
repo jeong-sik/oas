@@ -354,7 +354,12 @@ let test_agent_run_tool_error () =
         ~description:"Always fails"
         ~parameters:[]
         (fun _input ->
-          Error { Types.message = "tool broke"; recoverable = true })
+          Error
+            {
+              Types.message = "tool broke";
+              recoverable = true;
+              error_class = None;
+            })
     in
     let agent = make_agent ~net:env#net ~tools:[fail_tool] ~max_turns:5 url in
     (match Agent.run ~sw agent "trigger error" with

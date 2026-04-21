@@ -18,6 +18,7 @@ type tool_execution_result = {
   content: string;
   is_error: bool;
   failure_kind: tool_failure_kind option;
+  error_class: Types.tool_error_class option;
 }
 
 type scheduled_tool_use = {
@@ -206,6 +207,7 @@ let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tra
         content = msg;
         is_error = true;
         failure_kind = Some Validation_error;
+        error_class = Some Types.Deterministic;
       }
     | Ok coerced_input ->
     let t0 = Unix.gettimeofday () in
@@ -253,15 +255,15 @@ let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tra
               (Hooks.OnToolError { tool_name = name; error = message })
             : Hooks.hook_decision)
      | Ok _ -> ());
-    let content, is_error, failure_kind = match result with
-      | Ok { content } -> (content, false, None)
-      | Error { message; recoverable } ->
+    let content, is_error, failure_kind, error_class = match result with
+      | Ok { content } -> (content, false, None, None)
+      | Error { message; recoverable; error_class } ->
           let failure_kind =
             Some
               (if recoverable then Recoverable_tool_error
                else Non_retryable_tool_error)
           in
-          (message, true, failure_kind)
+          (message, true, failure_kind, error_class)
     in
     {
       tool_use_id = id;
@@ -269,6 +271,7 @@ let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tra
       content;
       is_error;
       failure_kind;
+      error_class;
     }
     end (* Tool_middleware validation match *)
   | None ->
@@ -291,6 +294,7 @@ let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tra
         content = "Tool not found";
         is_error = true;
         failure_kind = Some Non_retryable_tool_error;
+        error_class = Some Types.Deterministic;
       }
   in
   (* ToolCompleted event *)
@@ -304,6 +308,7 @@ let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tra
            {
              message = output_content;
              recoverable = recoverable_of_failure_kind result.failure_kind;
+             error_class = result.error_class;
            }
        else Ok { content = output_content }
      in
@@ -361,6 +366,7 @@ let execute_scheduled_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus
                 content = "Tool execution skipped by hook";
                 is_error = false;
                 failure_kind = None;
+                error_class = None;
               }
           | Hooks.Override value ->
               {
@@ -369,6 +375,7 @@ let execute_scheduled_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus
                 content = value;
                 is_error = false;
                 failure_kind = None;
+                error_class = None;
               }
           | Hooks.ApprovalRequired -> (
               match approval with
@@ -394,6 +401,7 @@ let execute_scheduled_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus
                         content = "Tool rejected: " ^ reason;
                         is_error = true;
                         failure_kind = Some Non_retryable_tool_error;
+                        error_class = Some Types.Deterministic;
                       }
                   | Hooks.Edit new_input ->
                       find_and_execute_tool ~context ~tools ~hooks ~event_bus
@@ -428,6 +436,7 @@ let execute_scheduled_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus
               content = msg;
               is_error = true;
               failure_kind = Some Non_retryable_tool_error;
+              error_class = Some Types.Unknown;
             })
   in
   let duration_ms_tool = (Unix.gettimeofday () -. t0_tool) *. 1000.0 in

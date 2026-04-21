@@ -285,7 +285,9 @@ let test_agent_started_payload () =
 let test_tool_completed_error_payload () =
   let evt = ev (Event_bus.ToolCompleted {
     agent_name = "x"; tool_name = "calc";
-    output = Error { Types.message = "fail"; recoverable = false } }) in
+    output =
+      Error { Types.message = "fail"; recoverable = false; error_class = None } })
+  in
   let p = Event_forward.event_to_payload evt in
   Alcotest.(check string) "type" "tool.completed" p.event_type;
   let open Yojson.Safe.Util in

@@ -29,8 +29,12 @@ let fragile_tool =
        if Sys.file_exists path then
          Ok { content = Printf.sprintf "Contents of %s: [data]" path }
        else
-         Error { message = Printf.sprintf "File not found: %s" path;
-                 recoverable = true })
+         Error
+           {
+             message = Printf.sprintf "File not found: %s" path;
+             recoverable = true;
+             error_class = None;
+           })
 
 (* ── Error logging hook ──────────────────────────────── *)
 

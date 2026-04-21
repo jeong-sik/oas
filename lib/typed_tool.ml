@@ -52,7 +52,7 @@ let execute_parsed ?context tool json =
 let execute ?context tool json =
   match tool.parse json with
   | Error e ->
-    Error { Types.message = e; recoverable = true }
+    Error { Types.message = e; recoverable = true; error_class = None }
   | Ok input ->
     match run_handler ?context tool.handler input with
     | Ok output ->
@@ -60,7 +60,7 @@ let execute ?context tool json =
       let content = Yojson.Safe.to_string json_output in
       Ok { Types.content }
     | Error e ->
-      Error { Types.message = e; recoverable = false }
+      Error { Types.message = e; recoverable = false; error_class = None }
 
 let to_untyped tool =
   let untyped_handler : Tool.handler_kind =

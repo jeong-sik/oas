@@ -44,7 +44,17 @@ let param_type_to_string = function
     Defined before content_block/message/api_response to avoid
     field-name shadowing on the [content] record field. *)
 type tool_output = { content: string }
-type tool_error = { message: string; recoverable: bool }
+type tool_error_class =
+  | Transient
+  | Deterministic
+  | Unknown
+[@@deriving yojson, show]
+
+type tool_error = {
+  message: string;
+  recoverable: bool;
+  error_class: tool_error_class option;
+}
 type tool_result = (tool_output, tool_error) result
 
 type tool_param = {

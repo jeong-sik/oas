@@ -6,7 +6,7 @@
     @since 0.92.0 extracted from Memory_tools *)
 
 let tool_error message =
-  Error { Types.message = message; recoverable = true }
+  Error { Types.message = message; recoverable = true; error_class = None }
 
 let parse_string_field json name =
   match Yojson.Safe.Util.member name json with

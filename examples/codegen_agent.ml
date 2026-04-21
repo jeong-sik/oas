@@ -28,7 +28,13 @@ let typecheck_tool =
     (fun args ->
       let open Yojson.Safe.Util in
       match args |> member "code" |> to_string_option with
-      | None -> Error { message = "missing code parameter"; recoverable = false }
+      | None ->
+          Error
+            {
+              message = "missing code parameter";
+              recoverable = false;
+              error_class = None;
+            }
       | Some code ->
         let tmp = Filename.temp_file "codegen" ".ml" in
         let oc = open_out tmp in
@@ -59,7 +65,13 @@ let format_tool =
     (fun args ->
       let open Yojson.Safe.Util in
       match args |> member "code" |> to_string_option with
-      | None -> Error { message = "missing code parameter"; recoverable = false }
+      | None ->
+          Error
+            {
+              message = "missing code parameter";
+              recoverable = false;
+              error_class = None;
+            }
       | Some code ->
         let tmp = Filename.temp_file "codegen" ".ml" in
         let oc = open_out tmp in
@@ -91,7 +103,13 @@ let write_file_tool =
       let code = args |> member "code" |> to_string in
       (* Reject path traversal attempts *)
       if String.contains path '\000' || (String.length path > 2 && String.sub path 0 2 = "..") || (try ignore (Str.search_forward (Str.regexp_string "/../") path 0); true with Not_found -> false) then
-        Error { message = Printf.sprintf "Rejected path: %s (path traversal)" path; recoverable = false }
+        Error
+          {
+            message =
+              Printf.sprintf "Rejected path: %s (path traversal)" path;
+            recoverable = false;
+            error_class = None;
+          }
       else
       (try
         let oc = open_out path in
@@ -99,7 +117,14 @@ let write_file_tool =
         close_out oc;
         Ok { content = Printf.sprintf "Written %d bytes to %s" (String.length code) path }
       with exn ->
-        Error { message = Printf.sprintf "Failed to write %s: %s" path (Printexc.to_string exn); recoverable = true }))
+        Error
+          {
+            message =
+              Printf.sprintf "Failed to write %s: %s" path
+                (Printexc.to_string exn);
+            recoverable = true;
+            error_class = None;
+          }))
 
 (* ── System prompt ─────────────────────────────────────────── *)
 

@@ -28,7 +28,17 @@ val param_type_to_string : param_type -> string
 
 (** Tool execution result types. *)
 type tool_output = { content: string }
-type tool_error = { message: string; recoverable: bool }
+type tool_error_class =
+  | Transient
+  | Deterministic
+  | Unknown
+[@@deriving yojson, show]
+
+type tool_error = {
+  message: string;
+  recoverable: bool;
+  error_class: tool_error_class option;
+}
 type tool_result = (tool_output, tool_error) result
 
 type tool_param = {

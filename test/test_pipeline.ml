@@ -350,6 +350,7 @@ let test_make_tool_results_ok () =
       content = "result1";
       is_error = false;
       failure_kind = None;
+    error_class = None;
     };
     {
       tool_use_id = "tu2";
@@ -357,6 +358,7 @@ let test_make_tool_results_ok () =
       content = "result2";
       is_error = false;
       failure_kind = None;
+    error_class = None;
     };
   ] in
   let tool_results = Agent_turn.make_tool_results results in
@@ -376,6 +378,7 @@ let test_make_tool_results_error () =
       content = "failed";
       is_error = true;
       failure_kind = Some Agent_tools.Recoverable_tool_error;
+    error_class = None;
     };
   ] in
   let tool_results = Agent_turn.make_tool_results results in
@@ -393,6 +396,7 @@ let test_make_tool_results_mixed () =
       content = "good";
       is_error = false;
       failure_kind = None;
+    error_class = None;
     };
     {
       tool_use_id = "tu2";
@@ -400,6 +404,7 @@ let test_make_tool_results_mixed () =
       content = "bad";
       is_error = true;
       failure_kind = Some Agent_tools.Recoverable_tool_error;
+    error_class = None;
     };
   ] in
   let tool_results = Agent_turn.make_tool_results results in

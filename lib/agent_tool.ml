@@ -45,7 +45,7 @@ let make_handler config : Tool.tool_handler =
       in
       Ok { content = output }
     | Error e ->
-      Error { message = Error.to_string e; recoverable = false }
+      Error { message = Error.to_string e; recoverable = false; error_class = None }
 
 (* ── Construction ────────────────────────────────────────────── *)
 

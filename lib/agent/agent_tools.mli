@@ -37,6 +37,7 @@ type tool_execution_result = {
   content: string;
   is_error: bool;
   failure_kind: tool_failure_kind option;
+  error_class: Types.tool_error_class option;
 }
 
 (** Find a tool by name and execute it, invoking [PostToolUse] (and

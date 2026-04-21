@@ -203,7 +203,15 @@ let resolve_turn_params ~hooks ~messages ~max_turns ~turn ~invoke_hook =
           if msg.role = User then
             let results = List.filter_map (function
               | ToolResult { content; is_error; _ } ->
-                if is_error then Some (Error { message = content; recoverable = true } : tool_result)
+                if is_error then
+                  Some
+                    (Error
+                       {
+                         message = content;
+                         recoverable = true;
+                         error_class = None;
+                       }
+                      : tool_result)
                 else Some (Ok { content } : tool_result)
               | _ -> None
             ) msg.content in
@@ -264,6 +272,7 @@ let apply_context_injection ~context ~messages ~injector ~tool_uses ~results =
             {
               message = result.content;
               recoverable = recoverable_of_failure_kind result.failure_kind;
+              error_class = result.error_class;
             }
         else Ok { content = result.content }
       in
@@ -494,7 +503,14 @@ let make_tool_results ?(max_result_chars = default_max_tool_result_chars)
 (* === make_tool_results inline tests === *)
 
 let mock_result ?(is_error=false) ~id content : Agent_tools.tool_execution_result =
-  { tool_use_id = id; tool_name = "test"; content; is_error; failure_kind = None }
+  {
+    tool_use_id = id;
+    tool_name = "test";
+    content;
+    is_error;
+    failure_kind = None;
+    error_class = None;
+  }
 
 let%test "make_tool_results: small result passes through unchanged" =
   let results = [mock_result ~id:"t1" "hello world"] in

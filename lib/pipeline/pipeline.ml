@@ -103,7 +103,15 @@ let last_tool_results_from messages =
     else
       List.filter_map (function
         | ToolResult { content; is_error; _ } ->
-          if is_error then Some (Error { Types.message = content; recoverable = true } : Types.tool_result)
+          if is_error then
+            Some
+              (Error
+                 {
+                   Types.message = content;
+                   recoverable = true;
+                   error_class = None;
+                 }
+                : Types.tool_result)
           else Some (Ok { Types.content } : Types.tool_result)
         | _ -> None
       ) msg.content
@@ -347,6 +355,10 @@ let retry_failures_of_results
                  Tool_retry_policy.tool_name = result.tool_name;
                  detail = result.content;
                  kind = Tool_retry_policy.Validation_error;
+                 error_class =
+                   Tool_retry_policy.resolve_error_class
+                     ~explicit:result.error_class
+                     Tool_retry_policy.Validation_error;
                }
          | Some Agent_tools.Recoverable_tool_error ->
              Some
@@ -354,6 +366,10 @@ let retry_failures_of_results
                  Tool_retry_policy.tool_name = result.tool_name;
                  detail = result.content;
                  kind = Tool_retry_policy.Recoverable_tool_error;
+                 error_class =
+                   Tool_retry_policy.resolve_error_class
+                     ~explicit:result.error_class
+                     Tool_retry_policy.Recoverable_tool_error;
                }
          | Some Agent_tools.Non_retryable_tool_error | None -> None)
 
@@ -973,7 +989,9 @@ let%test "last_tool_results_from finds tool results in last user message" =
       ]; name = None; tool_call_id = None };
   ] in
   match last_tool_results_from msgs with
-  | [Ok { content = "result1" }; Error { message = "error msg"; recoverable = true }] -> true
+  | [ Ok { content = "result1" };
+      Error { message = "error msg"; recoverable = true; error_class = None } ] ->
+      true
   | _ -> false
 
 let%test "last_tool_results_from skips non-tool user messages" =
@@ -1042,7 +1060,8 @@ let%test "last_tool_results_from error tool result" =
       ]; name = None; tool_call_id = None };
   ] in
   match last_tool_results_from msgs with
-  | [Error { message = "fail msg"; recoverable = true }] -> true
+  | [Error { message = "fail msg"; recoverable = true; error_class = None }] ->
+      true
   | _ -> false
 
 let%test "tag_error with Config error" =

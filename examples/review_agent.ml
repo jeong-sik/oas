@@ -44,7 +44,8 @@ let get_pr_info_tool =
       match run_gh_command ["pr"; "view"; pr_num; "--repo"; repo;
         "--json"; "title,body,additions,deletions,changedFiles,labels"] with
       | Ok output -> Ok { content = output }
-      | Error msg -> Error { message = msg; recoverable = true })
+      | Error msg ->
+          Error { message = msg; recoverable = true; error_class = None })
 
 let get_pr_diff_tool =
   Tool.create ~name:"get_pr_diff"
@@ -60,7 +61,8 @@ let get_pr_diff_tool =
       let repo = args |> member "repo" |> to_string in
       let pr_num = args |> member "pr_number" |> to_string in
       (match run_gh_command ["pr"; "diff"; pr_num; "--repo"; repo] with
-      | Error msg -> Error { message = msg; recoverable = true }
+      | Error msg ->
+          Error { message = msg; recoverable = true; error_class = None }
       | Ok output ->
       let filtered = match args |> member "file_filter" |> to_string_option with
         | None -> output
@@ -111,7 +113,8 @@ let post_review_tool =
       Sys.remove tmp;
       match result with
       | Ok output -> Ok { content = Printf.sprintf "Review posted. %s" (String.trim output) }
-      | Error msg -> Error { message = msg; recoverable = true })
+      | Error msg ->
+          Error { message = msg; recoverable = true; error_class = None })
 
 (* ── System prompt ─────────────────────────────────────────── *)
 

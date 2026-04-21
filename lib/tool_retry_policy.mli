@@ -19,6 +19,7 @@ type failure = {
   tool_name: string;
   detail: string;
   kind: failure_kind;
+  error_class: Types.tool_error_class;
 }
 
 (** Error class — orthogonal classification over {!failure_kind} that
@@ -36,7 +37,7 @@ type failure = {
     unchanged — consumers opt in via {!classify}.
 
     @since 0.161.0 (#898) *)
-type error_class =
+type error_class = Types.tool_error_class =
   | Transient
   | Deterministic
   | Unknown
@@ -50,6 +51,13 @@ type error_class =
     Downstream consumers that want finer classification should tag
     their errors directly once a structured error surface lands. *)
 val classify : failure_kind -> error_class
+
+(** Prefer the explicit error class attached to the tool error channel when
+    available; otherwise fall back to the legacy [failure_kind]-based mapping. *)
+val resolve_error_class :
+  explicit:Types.tool_error_class option ->
+  failure_kind ->
+  error_class
 
 (** Stable, lowercase identifier for logs / metric labels. *)
 val error_class_to_string : error_class -> string
