@@ -67,27 +67,38 @@ let structured_schema_of_config (config : Provider_config.t) =
   | None, JsonSchema schema -> Some schema
   | None, JsonMode | None, Off -> None
 
-let response_format_of_config (config : Provider_config.t) =
-  match structured_schema_of_config config with
-  | Some schema ->
+let openai_json_schema_payload (schema : Yojson.Safe.t) : Yojson.Safe.t =
+  match schema with
+  | `Assoc fields
+    when List.mem_assoc "name" fields && List.mem_assoc "schema" fields ->
+      schema
+  | _ ->
+      `Assoc
+        [
+          ( "name",
+            `String (Provider_config.structured_output_name_of_schema schema) );
+          ("schema", schema);
+          ("strict", `Bool true);
+        ]
+
+let response_format_to_openai_json = function
+  | Types.Off -> None
+  | Types.JsonMode ->
+      Some (`Assoc [("type", `String "json_object")])
+  | Types.JsonSchema schema ->
       Some
         (`Assoc
            [
              ("type", `String "json_schema");
-             ( "json_schema",
-               `Assoc
-                 [
-                   ( "name",
-                     `String
-                       (Provider_config.structured_output_name_of_schema schema) );
-                   ("schema", schema);
-                   ("strict", `Bool true);
-                 ] );
+             ("json_schema", openai_json_schema_payload schema);
            ])
-  | None when config.response_format = JsonMode ->
-      Some (`Assoc [("type", `String "json_object")])
-  | None -> None
 
+let response_format_of_config (config : Provider_config.t) =
+  match structured_schema_of_config config with
+  | Some schema -> response_format_to_openai_json (Types.JsonSchema schema)
+  | None when config.response_format = JsonMode ->
+      response_format_to_openai_json Types.JsonMode
+  | None -> None
 (** Build OpenAI Chat Completions request body from {!Provider_config.t}.
     Returns a JSON string ready for HTTP POST. *)
 let build_request ?(stream=false) ~(config : Provider_config.t)
@@ -656,6 +667,50 @@ let%test "build_openai_tool_json missing all optional fields" =
 
 let%test "build_openai_tool_json list passthrough" =
   build_openai_tool_json (`List [`String "bad"]) = `List [`String "bad"]
+
+let%test "response_format_to_openai_json wraps raw json schema" =
+  let schema =
+    `Assoc
+      [
+        ("type", `String "object");
+        ( "properties",
+          `Assoc [("answer", `Assoc [("type", `String "string")])] );
+      ]
+  in
+  match response_format_to_openai_json (Types.JsonSchema schema) with
+  | Some json ->
+      let open Yojson.Safe.Util in
+      json |> member "type" |> to_string = "json_schema"
+      && json |> member "json_schema" |> member "name" |> to_string
+         = "structured_output"
+      && json |> member "json_schema" |> member "schema" |> member "type"
+         |> to_string = "object"
+  | None -> false
+
+let%test "response_format_to_openai_json preserves named schema envelope" =
+  let schema =
+    `Assoc
+      [
+        ("name", `String "math_response");
+        ("strict", `Bool true);
+        ( "schema",
+          `Assoc
+            [
+              ("type", `String "object");
+              ( "properties",
+                `Assoc [("answer", `Assoc [("type", `String "number")])] );
+            ] );
+      ]
+  in
+  match response_format_to_openai_json (Types.JsonSchema schema) with
+  | Some json ->
+      let open Yojson.Safe.Util in
+      json |> member "json_schema" |> member "name" |> to_string
+      = "math_response"
+      && json |> member "json_schema" |> member "strict" |> to_bool
+      && json |> member "json_schema" |> member "schema" |> member "type"
+         |> to_string = "object"
+  | None -> false
 
 let%test "strip_json_markdown_fences no closing fence" =
   let input = "```json\n{\"key\":\"value\"}" in

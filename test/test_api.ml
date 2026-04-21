@@ -164,6 +164,42 @@ let test_build_body_with_tools () =
   let tools = json |> member "tools" |> to_list in
   check int "1 tool" 1 (List.length tools)
 
+let test_build_openai_body_with_json_schema () =
+  let schema =
+    `Assoc
+      [
+        ("type", `String "object");
+        ( "properties",
+          `Assoc [("answer", `Assoc [("type", `String "string")])] );
+      ]
+  in
+  let state =
+    {
+      Types.config =
+        {
+          Types.default_config with
+          model = "gpt-4o-mini";
+          response_format = Types.JsonSchema schema;
+        };
+      messages = [];
+      turn_count = 0;
+      usage = Types.empty_usage;
+    }
+  in
+  let json =
+    Api.build_openai_body ~config:state ~messages:[] ()
+    |> Yojson.Safe.from_string
+  in
+  let open Yojson.Safe.Util in
+  let response_format = json |> member "response_format" in
+  check string "response_format.type" "json_schema"
+    (response_format |> member "type" |> to_string);
+  check string "json_schema.name" "structured_output"
+    (response_format |> member "json_schema" |> member "name" |> to_string);
+  check string "json_schema.schema.type" "object"
+    (response_format |> member "json_schema" |> member "schema" |> member "type"
+     |> to_string)
+
 let test_build_body_sampling_params_anthropic () =
   (* Regression: the Anthropic agent_sdk request path previously omitted
      temperature/top_p/top_k entirely, silently defaulting every Claude
@@ -990,6 +1026,8 @@ let () =
       test_case "without thinking" `Quick test_build_body_without_thinking;
       test_case "with tool_choice" `Quick test_build_body_with_tool_choice;
       test_case "with tools" `Quick test_build_body_with_tools;
+      test_case "openai json schema" `Quick
+        test_build_openai_body_with_json_schema;
       test_case "anthropic sampling params serialized" `Quick
         test_build_body_sampling_params_anthropic;
       test_case "anthropic sampling params omitted when None" `Quick
