@@ -97,6 +97,23 @@ val make :
     @since 0.100.0 *)
 val string_of_provider_kind : provider_kind -> string
 
+(** Canonical inverse of {!string_of_provider_kind}.
+
+    Accepts every lowercase form produced by {!string_of_provider_kind} plus
+    the documented legacy aliases used by cascade configs and callers:
+    - [claude]  -> [Anthropic]
+    - [openai]  -> [OpenAI_compat]
+    - [llama]   -> [Ollama]
+
+    The match is case-insensitive; leading and trailing whitespace is
+    trimmed. Returns [None] for any other input so callers fail fast
+    rather than silently falling back to a default provider.
+
+    Use this instead of scattered ad-hoc [match s with "claude" -> ...]
+    ladders to keep all string-to-kind drift in one place.
+    @since 0.165.0 *)
+val provider_kind_of_string : string -> provider_kind option
+
 (** Map thinking configuration fields to reasoning_effort string.
     Returns "none", "low", "medium", or "high".
     @since 0.114.0 *)

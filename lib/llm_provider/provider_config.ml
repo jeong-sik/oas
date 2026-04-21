@@ -91,6 +91,31 @@ let string_of_provider_kind = function
   | Gemini_cli -> "gemini_cli"
   | Codex_cli -> "codex_cli"
 
+(** Canonical inverse of {!string_of_provider_kind}.
+
+    Accepts every lowercase form produced by {!string_of_provider_kind} plus
+    the documented legacy aliases used by cascade configs and downstream
+    callers:
+    - [claude]  -> [Anthropic]
+    - [openai]  -> [OpenAI_compat]
+    - [llama]   -> [Ollama]
+
+    The match is case-insensitive; leading and trailing whitespace is
+    trimmed. Returns [None] for any other input so callers can fail fast
+    instead of silently falling back to a default provider.
+    @since 0.165.0 *)
+let provider_kind_of_string raw =
+  match String.lowercase_ascii (String.trim raw) with
+  | "anthropic" | "claude" -> Some Anthropic
+  | "openai_compat" | "openai" -> Some OpenAI_compat
+  | "ollama" | "llama" -> Some Ollama
+  | "gemini" -> Some Gemini
+  | "glm" -> Some Glm
+  | "claude_code" -> Some Claude_code
+  | "gemini_cli" -> Some Gemini_cli
+  | "codex_cli" -> Some Codex_cli
+  | _ -> None
+
 (** Map thinking configuration to reasoning_effort string.
     Four levels: "none", "low" (≤2048), "medium" (≤8192), "high" (>8192).
     Shared by Ollama backends and api_openai request building.

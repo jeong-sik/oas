@@ -194,6 +194,54 @@ let test_provider_name_of_config_openrouter () =
   check_string "openrouter" "openrouter"
     (Provider_registry.provider_name_of_config cfg)
 
+(* ── provider_kind_of_string ─────────────────────────── *)
+
+(** Check a raw string parses to the expected variant. Compared via
+    [string_of_provider_kind] to avoid needing a derived [equal_provider_kind]. *)
+let check_parse label input expected =
+  match Provider_config.provider_kind_of_string input with
+  | None -> Alcotest.failf "%s: expected Some _, got None for %S" label input
+  | Some k ->
+    let got = Provider_config.string_of_provider_kind k in
+    let want = Provider_config.string_of_provider_kind expected in
+    check_string label want got
+
+let all_kinds : Provider_config.provider_kind list =
+  [ Anthropic; OpenAI_compat; Ollama; Gemini; Glm;
+    Claude_code; Gemini_cli; Codex_cli ]
+
+let test_kind_roundtrip () =
+  List.iter (fun k ->
+    let s = Provider_config.string_of_provider_kind k in
+    check_parse ("roundtrip " ^ s) s k
+  ) all_kinds
+
+let test_kind_aliases () =
+  check_parse "claude -> Anthropic" "claude" Anthropic;
+  check_parse "openai -> OpenAI_compat" "openai" OpenAI_compat;
+  check_parse "llama -> Ollama" "llama" Ollama
+
+let test_kind_case_insensitive () =
+  check_parse "ANTHROPIC" "ANTHROPIC" Anthropic;
+  check_parse "Claude" "Claude" Anthropic;
+  check_parse "GLM" "GLM" Glm;
+  check_parse "Gemini_CLI" "Gemini_CLI" Gemini_cli
+
+let test_kind_whitespace () =
+  check_parse "leading ws" "  claude" Anthropic;
+  check_parse "trailing ws" "ollama  " Ollama;
+  check_parse "both ws" "\topenai\n" OpenAI_compat
+
+let test_kind_unknown_returns_none () =
+  check_bool "empty string" true
+    (Option.is_none (Provider_config.provider_kind_of_string ""));
+  check_bool "misspelling" true
+    (Option.is_none (Provider_config.provider_kind_of_string "anthrpic"));
+  check_bool "bare openrouter" true
+    (Option.is_none (Provider_config.provider_kind_of_string "openrouter"));
+  check_bool "json-ish" true
+    (Option.is_none (Provider_config.provider_kind_of_string "\"claude\""))
+
 (* ── Suite ────────────────────────────────────────────── *)
 
 let () =
@@ -239,5 +287,13 @@ let () =
         test_provider_name_of_config_local_openai_compat;
       Alcotest.test_case "openrouter" `Quick
         test_provider_name_of_config_openrouter;
+    ];
+    "kind_of_string", [
+      Alcotest.test_case "roundtrip all variants" `Quick test_kind_roundtrip;
+      Alcotest.test_case "documented aliases" `Quick test_kind_aliases;
+      Alcotest.test_case "case insensitive" `Quick test_kind_case_insensitive;
+      Alcotest.test_case "whitespace trimmed" `Quick test_kind_whitespace;
+      Alcotest.test_case "unknown returns None" `Quick
+        test_kind_unknown_returns_none;
     ];
   ]
