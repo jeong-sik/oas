@@ -444,6 +444,40 @@ let test_default_api_key_env_known () =
     (Some "KIMI_API_KEY_SB")
     (Provider_config.default_api_key_env Kimi)
 
+let test_is_subprocess_cli () =
+  List.iter (fun (label, k) ->
+    Alcotest.(check bool) ("subprocess: " ^ label) true
+      (Provider_config.is_subprocess_cli k)
+  ) [
+    "claude_code", Provider_config.Claude_code;
+    "gemini_cli",  Provider_config.Gemini_cli;
+    "kimi_cli",    Provider_config.Kimi_cli;
+    "codex_cli",   Provider_config.Codex_cli;
+  ];
+  List.iter (fun (label, k) ->
+    Alcotest.(check bool) ("http: " ^ label) false
+      (Provider_config.is_subprocess_cli k)
+  ) [
+    "anthropic",     Provider_config.Anthropic;
+    "kimi",          Provider_config.Kimi;
+    "openai_compat", Provider_config.OpenAI_compat;
+    "ollama",        Provider_config.Ollama;
+    "gemini",        Provider_config.Gemini;
+    "glm",           Provider_config.Glm;
+  ]
+
+(* Partition property: every variant is either a subprocess CLI or
+   direct-HTTP, never both, never neither. Verifies the predicate is
+   total over [all] and catches future variants that slip past the
+   compiler's exhaustive match (defensive runtime check). *)
+let test_subprocess_partitions_all () =
+  let xs = Provider_config.all_provider_kinds in
+  let sub, http = List.partition Provider_config.is_subprocess_cli xs in
+  Alcotest.(check int) "four subprocess kinds" 4 (List.length sub);
+  Alcotest.(check int) "six http-direct kinds" 6 (List.length http);
+  Alcotest.(check int) "partition sums to all" (List.length xs)
+    (List.length sub + List.length http)
+
 let test_default_api_key_env_none_for_others () =
   (* Local / transport-mediated / OpenAI-compatible share: OAS does not
      dictate a single env var; callers supply their own. *)
@@ -557,6 +591,10 @@ let () =
         test_default_api_key_env_known;
       Alcotest.test_case "default_api_key_env None for others" `Quick
         test_default_api_key_env_none_for_others;
+      Alcotest.test_case "is_subprocess_cli partitions variants" `Quick
+        test_is_subprocess_cli;
+      Alcotest.test_case "subprocess + http partition covers all" `Quick
+        test_subprocess_partitions_all;
     ];
     "telemetry_wire_format", [
       Alcotest.test_case "kind emitted as lowercase canonical string" `Quick

@@ -140,9 +140,11 @@ let provider_name_of_kind : Provider_config.provider_kind -> string = function
   | Gemini_cli -> "gemini_cli"
   | Kimi_cli -> "kimi_cli"
   | Codex_cli -> "codex_cli"
-let requires_non_http_transport : Provider_config.provider_kind -> bool = function
-  | Claude_code | Gemini_cli | Kimi_cli | Codex_cli -> true
-  | Anthropic | Kimi | OpenAI_compat | Ollama | Gemini | Glm -> false
+(* Delegate to the sum-type-owning module. The name stays local because
+   several guard clauses in this file reference it; renaming is a
+   separate concern. Replacing the hand-maintained match removes the
+   drift risk when a new subprocess-transported kind is added. *)
+let requires_non_http_transport = Provider_config.is_subprocess_cli
 
 let validate_output_schema_request (config : Provider_config.t) =
   match Provider_config.validate_output_schema_request config with
