@@ -151,6 +151,10 @@
  (libraries llm_provider alcotest yojson eio eio_main))
 
 (test
+ (name test_complete_http)
+ (libraries llm_provider alcotest yojson eio eio_main cohttp-eio unix))
+
+(test
  (name test_cache)
  (libraries agent_sdk alcotest yojson))
 

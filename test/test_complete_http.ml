@@ -18,6 +18,11 @@ let openai_response text =
     {|{"id":"chatcmpl-1","object":"chat.completion","model":"gpt-4","choices":[{"index":0,"message":{"role":"assistant","content":"%s"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5}}|}
     text
 
+let openai_mlx_vlm_response text =
+  Printf.sprintf
+    {|{"id":"chatcmpl-mlx-1","object":"chat.completion","model":"gpt-4","choices":[{"index":0,"message":{"role":"assistant","content":"%s"},"finish_reason":"stop"}],"usage":{"input_tokens":11,"output_tokens":5,"prompt_tps":21.55,"generation_tps":81.56},"peak_memory":52.66}|}
+    text
+
 let fresh_port () =
   let s = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
   Unix.setsockopt s Unix.SO_REUSEADDR true;
@@ -131,6 +136,44 @@ let test_complete_openai_ok () =
        check string "text" "openai reply" text;
        Eio.Switch.fail sw Exit
      | Error _ -> fail "expected Ok for openai")
+  with Exit -> ()
+
+let test_complete_openai_mlx_vlm_telemetry () =
+  Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  try
+    Eio.Switch.run @@ fun sw ->
+    let url = start_mock_server ~sw ~net:env#net ~delay_sec:0.02 ~clock
+        (openai_mlx_vlm_response "mlx reply") in
+    let config = make_openai_config url in
+    (match Complete.complete ~sw ~net:env#net ~config ~messages () with
+     | Ok resp ->
+       let text = List.filter_map
+           (function Types.Text s -> Some s | _ -> None)
+           resp.content |> String.concat "" in
+       check string "text" "mlx reply" text;
+       (match resp.usage with
+        | Some usage ->
+          check int "input_tokens" 11 usage.input_tokens;
+          check int "output_tokens" 5 usage.output_tokens
+        | None -> fail "expected usage");
+       (match resp.telemetry with
+        | Some t ->
+          check bool "latency patched" true (t.request_latency_ms > 0);
+          check (option string) "canonical model id" (Some "gpt-4")
+            t.canonical_model_id;
+          check (option (float 0.001)) "peak memory" (Some 52.66)
+            t.peak_memory_gb;
+          (match t.timings with
+           | Some timings ->
+             check (option (float 0.001)) "prompt tps" (Some 21.55)
+               timings.prompt_per_second;
+             check (option (float 0.001)) "generation tps" (Some 81.56)
+               timings.predicted_per_second
+           | None -> fail "expected timings")
+        | None -> fail "expected telemetry");
+       Eio.Switch.fail sw Exit
+     | Error _ -> fail "expected Ok for mlx-vlm openai compat")
   with Exit -> ()
 
 (* ── complete with cache ─────────────────────────────── *)
@@ -450,6 +493,8 @@ let () =
       test_case "anthropic ok" `Quick test_complete_anthropic_ok;
       test_case "http error" `Quick test_complete_http_error;
       test_case "openai ok" `Quick test_complete_openai_ok;
+      test_case "openai mlx-vlm telemetry" `Quick
+        test_complete_openai_mlx_vlm_telemetry;
       test_case "non-retryable" `Quick test_complete_non_retryable;
     ];
     "cache", [
