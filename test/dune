@@ -445,3 +445,7 @@
 (test
  (name test_structured_coverage)
  (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_skill_coverage)
+ (libraries agent_sdk alcotest))
