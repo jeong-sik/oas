@@ -343,6 +343,67 @@ let test_resolve_gemini_preserves_kind () =
     Alcotest.(check string) "gemini model_id" "gemini-2.5-flash" cfg.model_id
   | _ -> Alcotest.fail "expected Custom_registered for gemini (registered)"
 
+(* ── Provider_kind dispatch (drift-fix regressions) ───────────── *)
+
+let test_resolve_openai_compat_ssot () =
+  (* "openai_compat" is the canonical string emitted by
+     Provider_kind.to_string OpenAI_compat. Before the parser dispatch,
+     it fell through to the registry fallback and ended up with
+     api_key_env = "openai_compat" — a meaningless value. *)
+  let cfg =
+    Agent_config.resolve_provider ~model_id:"gpt-4" "openai_compat" None
+  in
+  match cfg.provider with
+  | Provider.OpenAICompat { base_url; _ } ->
+    Alcotest.(check string) "canonical form reaches openai branch"
+      "https://api.openai.com" base_url;
+    Alcotest.(check string) "api_key_env is OPENAI_API_KEY"
+      "OPENAI_API_KEY" cfg.api_key_env
+  | _ -> Alcotest.fail "expected OpenAICompat for openai_compat"
+
+let test_resolve_anthropic_case_insensitive () =
+  (* The parser trims and lowercases; ["Anthropic"] and [" ANTHROPIC "]
+     both land on the Anthropic branch, not the registry fallback. *)
+  List.iter (fun input ->
+    let cfg =
+      Agent_config.resolve_provider ~model_id:"claude-sonnet" input None
+    in
+    match cfg.provider with
+    | Provider.Anthropic ->
+      Alcotest.(check string)
+        (Printf.sprintf "api_key_env for %S" input)
+        "ANTHROPIC_API_KEY" cfg.api_key_env
+    | _ ->
+      Alcotest.failf "expected Anthropic for %S" input
+  ) [ "Anthropic"; " ANTHROPIC "; "anthropic" ]
+
+let test_resolve_claude_alias_routes_to_anthropic () =
+  (* ["claude"] is a documented Provider_kind alias for Anthropic. Prior
+     to this fix it fell to the registry fallback (Provider_registry
+     has no "claude" entry) and ended up as OpenAICompat with
+     api_key_env = "claude" — broken. *)
+  let cfg =
+    Agent_config.resolve_provider ~model_id:"claude-sonnet" "claude" None
+  in
+  match cfg.provider with
+  | Provider.Anthropic ->
+    Alcotest.(check string) "api_key_env routed to Anthropic"
+      "ANTHROPIC_API_KEY" cfg.api_key_env
+  | _ -> Alcotest.fail "expected Anthropic for claude alias"
+
+let test_resolve_unknown_still_goes_to_registry_fallback () =
+  (* Non-canonical non-alias input should continue to flow through the
+     registry-or-fallback path. This guards against over-eager parser
+     capture when we add more kinds. *)
+  let cfg =
+    Agent_config.resolve_provider ~model_id:"m1" "TOTALLY_BOGUS_KEY" None
+  in
+  match cfg.provider with
+  | Provider.OpenAICompat _ ->
+    Alcotest.(check string) "api_key_env preserves input"
+      "TOTALLY_BOGUS_KEY" cfg.api_key_env
+  | _ -> Alcotest.fail "expected registry fallback OpenAICompat"
+
 (* ── of_json error cases ─────────────────────────────────────── *)
 
 let test_of_json_bad_param () =
@@ -427,5 +488,13 @@ let () =
       tc "groq custom url" test_resolve_groq_custom_url;
       tc "deepseek" test_resolve_deepseek;
       tc "gemini preserves kind (#1003)" test_resolve_gemini_preserves_kind;
+      tc "openai_compat SSOT string"
+        test_resolve_openai_compat_ssot;
+      tc "anthropic case-insensitive"
+        test_resolve_anthropic_case_insensitive;
+      tc "claude alias routes to Anthropic"
+        test_resolve_claude_alias_routes_to_anthropic;
+      tc "unknown still goes to registry fallback"
+        test_resolve_unknown_still_goes_to_registry_fallback;
     ]);
   ]
