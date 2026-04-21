@@ -11,6 +11,7 @@ original tag dates. `0.100.4` was never tagged or released.
 ### Fixed
 
 - **Codex CLI transport honors request model IDs.** `transport_codex_cli` now passes a non-empty, non-`auto` `Provider_config.model_id` through `codex exec --model`, matching Claude Code and Gemini CLI behavior while preserving `auto` as "use the user's CLI default".
+- **ApprovalRequired fallback no longer emits an operator-facing WARN without a callback.** The existing fail-open behavior is unchanged, but `agent_tools` now records the fallback at debug level so consumers do not see an unactionable warning on every approval-less tool execution.
 
 ## [0.163.0] - 2026-04-20
 
