@@ -170,7 +170,6 @@ let events_of_line line =
 
 (** Aggregate JSONL envelopes into an [api_response].  Only
     [agent_message] text contributes to [content]; the terminal
-    [turn.completed] supplies [usage]; [thread.started] supplies [id]. *)
     [turn.completed] supplies [usage]; [thread.started] supplies [id].
     [command_execution] items are counted as provider-native internal
     actions rather than surfaced as OAS tool calls. *)
