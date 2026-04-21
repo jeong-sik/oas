@@ -154,4 +154,11 @@ let with_raw_trace_run agent user_prompt f =
               ~last_error:(Error.to_string err) Failed;
             Error err
       in
-      finalize (f (Some active))
+      match f (Some active) with
+      | result -> finalize result
+      | exception exn ->
+          let error_msg = Printf.sprintf "Unhandled exception: %s" (Printexc.to_string exn) in
+          let _ = Raw_trace.finish_run active ~final_text:None ~stop_reason:None ~error:(Some error_msg) in
+          set_lifecycle agent ~finished_at:(Unix.gettimeofday ())
+            ~last_error:error_msg Failed;
+          raise exn
