@@ -36,25 +36,27 @@ type sampling_defaults = {
   default_top_k : int option;
 }
 
+(* Shared by every kind that does not inject a sampling floor. Ollama
+   also lands here because the backend applies its own per-model
+   defaults in [Backend_ollama]; pre-filling a top-level value here
+   would shadow that. Only OpenAI_compat carries the non-empty
+   [openai_compat_min_p] floor. *)
+let no_sampling_defaults : sampling_defaults =
+  { default_min_p = None; default_top_p = None; default_top_k = None }
+
 let provider_sampling_defaults (kind : Provider_config.provider_kind) : sampling_defaults =
   match kind with
   | Provider_config.OpenAI_compat ->
     { default_min_p = Some Constants.Sampling.openai_compat_min_p;
       default_top_p = None; default_top_k = None }
-  | Provider_config.Ollama ->
-    { default_min_p = None;
-      default_top_p = None; default_top_k = None }
-  | Provider_config.Anthropic | Provider_config.Kimi ->
-    { default_min_p = None; default_top_p = None; default_top_k = None }
-  | Provider_config.Gemini ->
-    { default_min_p = None; default_top_p = None; default_top_k = None }
-  | Provider_config.Glm ->
-    { default_min_p = None; default_top_p = None; default_top_k = None }
-  | Provider_config.Claude_code ->
-    { default_min_p = None; default_top_p = None; default_top_k = None }
+  | Provider_config.Ollama
+  | Provider_config.Anthropic | Provider_config.Kimi
+  | Provider_config.Gemini
+  | Provider_config.Glm
+  | Provider_config.Claude_code
   | Provider_config.Gemini_cli | Provider_config.Kimi_cli
   | Provider_config.Codex_cli ->
-    { default_min_p = None; default_top_p = None; default_top_k = None }
+    no_sampling_defaults
 
 let openai_compat_should_default_min_p (config : Provider_config.t) : bool =
   match Capabilities.for_model_id config.model_id with
