@@ -34,7 +34,8 @@ let parse_response json =
       reasoning_tokens = None; request_latency_ms = 0;
       peak_memory_gb = None;
       provider_kind = None; reasoning_effort = None;
-      canonical_model_id = None; effective_context_window = None } }
+      canonical_model_id = None; effective_context_window = None;
+      provider_internal_action_count = None } }
 
 (** Build Anthropic Messages API request body from {!Provider_config.t}.
     Returns a JSON string ready for HTTP POST. *)

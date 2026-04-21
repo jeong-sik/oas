@@ -252,7 +252,8 @@ let parse_ollama_response json_str =
     Some { Types.system_fingerprint; timings; reasoning_tokens; request_latency_ms = 0;
             peak_memory_gb = None;
             provider_kind = None; reasoning_effort = None;
-            canonical_model_id = None; effective_context_window = None }
+            canonical_model_id = None; effective_context_window = None;
+            provider_internal_action_count = None }
   in
 
   Ok {

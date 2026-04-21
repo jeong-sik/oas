@@ -240,6 +240,7 @@ type inference_telemetry = {
   reasoning_effort: string option;
   canonical_model_id: string option;
   effective_context_window: int option;
+  provider_internal_action_count: int option;
 }
 [@@deriving show, yojson]
 

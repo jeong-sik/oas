@@ -119,6 +119,7 @@ let patch_telemetry (resp : Types.api_response) ~(config : Provider_config.t)
         reasoning_effort = re;
         canonical_model_id = canonical;
         effective_context_window = ctx_window;
+        provider_internal_action_count = None;
       }
   in
   { resp with telemetry }
@@ -965,6 +966,7 @@ let%test "patch_telemetry fills latency and provider on existing telemetry" =
       peak_memory_gb = None;
       provider_kind = None; reasoning_effort = None;
       canonical_model_id = None; effective_context_window = None;
+      provider_internal_action_count = None;
     };
   } in
   let patched = patch_telemetry resp ~config 42 in
@@ -976,6 +978,7 @@ let%test "patch_telemetry fills latency and provider on existing telemetry" =
               && t.reasoning_effort = Some "none"
               && t.canonical_model_id = Some "qwen3.5:9b"
               && t.effective_context_window = Some 262_144
+              && t.provider_internal_action_count = None
   | None -> false
 
 let%test "patch_telemetry creates telemetry when None" =
@@ -992,6 +995,7 @@ let%test "patch_telemetry creates telemetry when None" =
               && t.canonical_model_id = Some "gpt-4"
               && t.effective_context_window = Some 128_000
               && t.reasoning_effort = None
+              && t.provider_internal_action_count = None
   | None -> false
 
 let%test "reasoning_effort_of_config Ollama default is none" =
