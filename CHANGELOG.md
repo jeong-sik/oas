@@ -8,6 +8,8 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.164.0] - 2026-04-21
+
 ### Fixed
 
 - **Codex CLI transport honors request model IDs.** `transport_codex_cli` now passes a non-empty, non-`auto` `Provider_config.model_id` through `codex exec --model`, matching Claude Code and Gemini CLI behavior while preserving `auto` as "use the user's CLI default".
@@ -16,6 +18,17 @@ original tag dates. `0.100.4` was never tagged or released.
 ### Added
 
 - **`Hooks.on_idle_escalated` adds runtime-computed idle severity.** Callers can opt into a structured idle hook carrying `nudge` / `final_warning` / `skip` severity while keeping the legacy `on_idle` path for compatibility. `skip_at` reuses `max_idle_turns`; `final_at` is configurable per agent via `idle_final_warning_at`.
+- **Tool error retry classification now honors explicit runtime error classes.** `Types.tool_error` carries an optional typed `error_class`, and `Tool_retry_policy.decide` now prefers that explicit classification over legacy `failure_kind` inference. Recoverable errors marked `Deterministic` no longer blind-retry.
+
+### Changed
+
+- **`response_format` now uses a typed variant surface** for agent config, builders, provider config, and checkpoints: `Off | JsonMode | JsonSchema of Yojson.Safe.t` (issue #957). `Builder.with_response_format_json`, `Provider_config.make ?response_format_json`, and checkpoint decoding of legacy `response_format_json: bool` remain as compatibility shims. In this step, provider request builders honor `JsonMode`; `JsonSchema _` is preserved through config/persistence but not yet emitted as provider-native schema parameters.
+
+- **Completion contract violations now carry typed contract IDs.** `Error.CompletionContractViolation.contract` now uses `Completion_contract_id.t` instead of `string`. `Agent_sdk.Completion_contract` and `Agent_sdk.Completion_contract_id` are re-exported; downstream code that serialized the old string field should switch to `Completion_contract_id.to_string`.
+
+### Notes
+
+- **Version boundary realigned for downstream pins.** `main` now advertises `0.164.0` so post-`0.163.0` public API growth no longer masquerades as the earlier `0.163.0` floor used by downstream SHA pins and compatibility checks.
 
 ## [0.163.0] - 2026-04-20
 
@@ -23,11 +36,6 @@ original tag dates. `0.100.4` was never tagged or released.
 
 - **`Hooks.Nudge` accepted from `before_turn`.** Previously only `OnIdle` could return `Nudge`; `before_turn` returning `Nudge` was silently dropped by the pipeline (`stage_input` only handled `ElicitInput`). The decision matrix and `legal_decisions_for_stage` now list `K_Nudge` for `before_turn`, and `pipeline.ml stage_input` appends the nudge text as a User-role message before tool preparation so it reaches the model in the same turn. Mirrors the `on_idle` Nudge handler at `pipeline.ml:392`. Generic primitive — payload is opaque text, no domain knowledge in OAS.
 
-### Changed
-
-- **`response_format` now uses a typed variant surface** for agent config, builders, provider config, and checkpoints: `Off | JsonMode | JsonSchema of Yojson.Safe.t` (issue #957). `Builder.with_response_format_json`, `Provider_config.make ?response_format_json`, and checkpoint decoding of legacy `response_format_json: bool` remain as compatibility shims. In this step, provider request builders honor `JsonMode`; `JsonSchema _` is preserved through config/persistence but not yet emitted as provider-native schema parameters.
-
-- **Completion contract violations now carry typed contract IDs.** `Error.CompletionContractViolation.contract` now uses `Completion_contract_id.t` instead of `string`. `Agent_sdk.Completion_contract` and `Agent_sdk.Completion_contract_id` are re-exported; downstream code that serialized the old string field should switch to `Completion_contract_id.to_string`.
 ## [0.162.0] - 2026-04-19
 
 ### Added
