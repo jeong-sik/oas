@@ -20,6 +20,21 @@ type t =
   | Kimi_cli
   | Codex_cli
 
+val all : t list
+(** All variants in declaration order. Maintained exhaustively alongside
+    {!t}; adding a new variant without extending this list is a bug that
+    the property test in [test_provider_config] flags immediately. Useful
+    for QCheck generators, CLI completion, and iterative exhaustive
+    checks. *)
+
+val default_api_key_env : t -> string option
+(** Canonical environment variable conventionally consulted for the kind's
+    API key (e.g. [Anthropic -> Some "ANTHROPIC_API_KEY"]). Returns [None]
+    for kinds that do not have a universally-agreed env var — either the
+    kind is local ({!Ollama}), embedded in a subprocess transport
+    ({!Claude_code}, {!Gemini_cli}, {!Codex_cli}), or shares a space where
+    OAS does not dictate the env name ({!OpenAI_compat}). *)
+
 val to_string : t -> string
 (** Canonical lowercase wire form (e.g. [Anthropic -> "anthropic"]).
     Exhaustive — adding a new variant forces a compile error. *)

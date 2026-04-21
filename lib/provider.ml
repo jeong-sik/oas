@@ -511,15 +511,15 @@ let custom_provider ~name ?(model_id="custom") ?(api_key_env="DUMMY_KEY") () = {
 }
 
 (** Well-known env var names per provider kind.
-    Used as fallback when [Provider_config.t.api_key] is empty. *)
+    Used as fallback when [Provider_config.t.api_key] is empty.
+    Delegates to {!Llm_provider.Provider_kind.default_api_key_env}
+    — the sum type owns this convention so adding a new variant
+    updates both call sites from one edit. *)
 let default_api_key_env_of_kind
     (kind : Llm_provider.Provider_config.provider_kind) : string =
-  match kind with
-  | Anthropic -> "ANTHROPIC_API_KEY"
-  | Kimi -> "KIMI_API_KEY_SB"
-  | Gemini -> "GEMINI_API_KEY"
-  | Glm -> "ZAI_API_KEY"
-  | OpenAI_compat | Ollama | Claude_code | Gemini_cli | Kimi_cli | Codex_cli -> ""
+  match Llm_provider.Provider_kind.default_api_key_env kind with
+  | Some env -> env
+  | None -> ""
 
 (** Convert a [Llm_provider.Provider_config.t] into a
     [Provider.config] (for Agent Builder).  Keeps the conversion

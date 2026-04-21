@@ -32,6 +32,17 @@ let to_string = function
   | Kimi_cli -> "kimi_cli"
   | Codex_cli -> "codex_cli"
 
+let all : t list =
+  [ Anthropic; Kimi; OpenAI_compat; Ollama; Gemini; Glm
+  ; Claude_code; Gemini_cli; Kimi_cli; Codex_cli ]
+
+let default_api_key_env = function
+  | Anthropic -> Some "ANTHROPIC_API_KEY"
+  | Kimi -> Some "KIMI_API_KEY_SB"
+  | Gemini -> Some "GEMINI_API_KEY"
+  | Glm -> Some "ZAI_API_KEY"
+  | OpenAI_compat | Ollama | Claude_code | Gemini_cli | Kimi_cli | Codex_cli -> None
+
 let of_string raw =
   match String.lowercase_ascii (String.trim raw) with
   | "anthropic" | "claude" -> Some Anthropic

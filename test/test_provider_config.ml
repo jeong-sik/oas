@@ -223,9 +223,12 @@ let check_parse label input expected =
     let want = Provider_config.string_of_provider_kind expected in
     check_string label want got
 
+(* SSOT: pull the canonical list from the type's own module so adding a
+   new variant without updating [Provider_kind.all] is caught by the
+   [test_all_is_exhaustive] property below rather than silently skipping
+   the new variant in every iterative test. *)
 let all_kinds : Provider_config.provider_kind list =
-  [ Anthropic; OpenAI_compat; Ollama; Gemini; Glm;
-    Claude_code; Gemini_cli; Codex_cli ]
+  Provider_config.all_provider_kinds
 
 let test_kind_roundtrip () =
   List.iter (fun k ->
@@ -388,6 +391,74 @@ let test_wire_kind_none_roundtrip () =
       false (contains_substring ~sub:s encoded)
   ) [ "\"anthropic\""; "\"ollama\""; "\"openai_compat\"" ]
 
+(* ── enumeration & default_api_key_env ────────────────── *)
+
+(** [all_provider_kinds] must contain every variant exactly once. The
+    property guards against adding a variant to the sum type without
+    extending {!Provider_kind.all}; subsequent iterative tests would
+    silently skip the new kind otherwise. *)
+let test_all_is_exhaustive () =
+  let xs = Provider_config.all_provider_kinds in
+  Alcotest.(check int) "ten canonical variants" 10 (List.length xs);
+  Alcotest.(check bool) "no duplicate canonical strings" true
+    (let strs = List.map Provider_config.string_of_provider_kind xs in
+     List.length strs = List.length (List.sort_uniq compare strs));
+  (* Exhaustive match: any missing or extra variant produces a compile
+     error here — the check is the compiler, not the runtime. *)
+  List.iter (fun k ->
+    match (k : Provider_config.provider_kind) with
+    | Anthropic | Kimi | OpenAI_compat | Ollama | Gemini
+    | Glm | Claude_code | Gemini_cli | Kimi_cli | Codex_cli -> ()
+  ) xs
+
+let test_all_drives_parse_roundtrip () =
+  (* Property: [of_string (to_string k) = Some k] for every variant in
+     [all_provider_kinds]. Stronger than the spot-check roundtrip
+     because the driver is the canonical enumeration — new variants
+     are tested automatically. *)
+  List.iter (fun k ->
+    let encoded = Provider_config.string_of_provider_kind k in
+    match Provider_config.provider_kind_of_string encoded with
+    | Some k' ->
+      Alcotest.(check string) ("parse " ^ encoded) encoded
+        (Provider_config.string_of_provider_kind k')
+    | None ->
+      Alcotest.failf "of_string %S returned None for a canonical form"
+        encoded
+  ) Provider_config.all_provider_kinds
+
+let test_default_api_key_env_known () =
+  Alcotest.(check (option string)) "anthropic"
+    (Some "ANTHROPIC_API_KEY")
+    (Provider_config.default_api_key_env Anthropic);
+  Alcotest.(check (option string)) "gemini"
+    (Some "GEMINI_API_KEY")
+    (Provider_config.default_api_key_env Gemini);
+  Alcotest.(check (option string)) "glm"
+    (Some "ZAI_API_KEY")
+    (Provider_config.default_api_key_env Glm);
+  (* Kimi direct transport: canonical env is KIMI_API_KEY_SB (Second
+     Brain convention); lib/provider.ml also consults the bare
+     KIMI_API_KEY as a fallback, but the SSOT default is the _SB form. *)
+  Alcotest.(check (option string)) "kimi"
+    (Some "KIMI_API_KEY_SB")
+    (Provider_config.default_api_key_env Kimi)
+
+let test_default_api_key_env_none_for_others () =
+  (* Local / transport-mediated / OpenAI-compatible share: OAS does not
+     dictate a single env var; callers supply their own. *)
+  List.iter (fun (label, k) ->
+    Alcotest.(check (option string)) label None
+      (Provider_config.default_api_key_env k)
+  ) [
+    "openai_compat", Provider_config.OpenAI_compat;
+    "ollama",        Provider_config.Ollama;
+    "claude_code",   Provider_config.Claude_code;
+    "gemini_cli",    Provider_config.Gemini_cli;
+    "kimi_cli",      Provider_config.Kimi_cli;
+    "codex_cli",     Provider_config.Codex_cli;
+  ]
+
 let test_wire_kind_roundtrip_via_yojson () =
   (* End-to-end: record -> JSON string -> JSON tree -> record; the
      provider_kind survives as the same typed constructor. *)
@@ -476,6 +547,16 @@ let () =
         test_of_yojson_rejects_unknown_string;
       Alcotest.test_case "of_yojson non-string rejected" `Quick
         test_of_yojson_rejects_non_string;
+    ];
+    "kind_enumeration", [
+      Alcotest.test_case "all_provider_kinds is exhaustive" `Quick
+        test_all_is_exhaustive;
+      Alcotest.test_case "all drives parse roundtrip" `Quick
+        test_all_drives_parse_roundtrip;
+      Alcotest.test_case "default_api_key_env known" `Quick
+        test_default_api_key_env_known;
+      Alcotest.test_case "default_api_key_env None for others" `Quick
+        test_default_api_key_env_none_for_others;
     ];
     "telemetry_wire_format", [
       Alcotest.test_case "kind emitted as lowercase canonical string" `Quick
