@@ -75,7 +75,7 @@ let test_is_retryable () =
   check bool "server retryable" true
     (Retry.is_retryable (Retry.ServerError { status = 500; message = "" }));
   check bool "network retryable" true
-    (Retry.is_retryable (Retry.NetworkError { message = "" }));
+    (Retry.is_retryable (Retry.NetworkError { message = ""; kind = Unknown }));
   check bool "timeout retryable" true
     (Retry.is_retryable (Retry.Timeout { message = "" }));
   check bool "auth not retryable" false
@@ -93,7 +93,7 @@ let test_error_message_all_variants () =
     (Retry.AuthError { message = "bad key" }, "Auth error: bad key");
     (Retry.InvalidRequest { message = "wrong" }, "Invalid request: wrong");
     (Retry.NotFound { message = "no model" }, "Not found: no model");
-    (Retry.NetworkError { message = "dns" }, "Network error: dns");
+    (Retry.NetworkError { message = "dns"; kind = Unknown }, "Network error: dns");
     (Retry.Timeout { message = "10s" }, "Timeout: 10s");
   ] in
   List.iter (fun (err, expected) ->
@@ -266,7 +266,7 @@ let test_with_retry_max_retries_exhausted () =
   let attempt = ref 0 in
   let f () =
     incr attempt;
-    Error (Retry.NetworkError { message = "unreachable" })
+    Error (Retry.NetworkError { message = "unreachable"; kind = Unknown })
   in
   (* 1 initial + 3 retries = 4 total attempts *)
   let res = Retry.with_retry ~clock ~config:fast_config f in

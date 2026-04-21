@@ -639,8 +639,8 @@ let shared_retry_config_of_complete (config : retry_config) : Retry.retry_config
 let classify_retry_error = function
   | Http_client.HttpError { code; body } ->
       Some (Retry.classify_error ~status:code ~body)
-  | Http_client.NetworkError { message; _ } ->
-      Some (Retry.NetworkError { message })
+  | Http_client.NetworkError { message; kind; _ } ->
+      Some (Retry.NetworkError { message; kind })
   | Http_client.AcceptRejected _ -> None
   (* Wiring bug, not transient — retrying cannot summon a missing
      transport. *)

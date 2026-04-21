@@ -125,9 +125,9 @@ let map_http_error = function
   | Llm_provider.Http_client.HttpError { code; body } ->
       Error.Api (Retry.classify_error ~status:code ~body)
   | Llm_provider.Http_client.AcceptRejected { reason } ->
-      Error.Api (Retry.NetworkError { message = reason })
-  | Llm_provider.Http_client.NetworkError { message; _ } ->
-      Error.Api (Retry.NetworkError { message })
+      Error.Api (Retry.NetworkError { message = reason; kind = Unknown })
+  | Llm_provider.Http_client.NetworkError { message; kind; _ } ->
+      Error.Api (Retry.NetworkError { message; kind })
   | Llm_provider.Http_client.CliTransportRequired { kind } ->
       Error.Api (Retry.InvalidRequest {
         message = Printf.sprintf
@@ -193,7 +193,7 @@ let create_message_stream ~sw ~net ?(base_url=Api.default_base_url)
             | Ok (Ok resp) -> Ok (Llm_provider.Pricing.annotate_response_cost resp)
             | Ok (Error msg) ->
                 Error (Error.Api (Retry.NetworkError {
-                  message = Printf.sprintf "SSE stream error: %s" msg })))
+                  message = Printf.sprintf "SSE stream error: %s" msg; kind = Unknown })))
        | Provider.Openai_chat_completions ->
            (* OpenAI-compatible SSE streaming. *)
            let headers = match Provider.resolve provider_cfg with
@@ -244,7 +244,7 @@ let create_message_stream ~sw ~net ?(base_url=Api.default_base_url)
             | Ok (Ok resp) -> Ok (Llm_provider.Pricing.annotate_response_cost resp)
             | Ok (Error msg) ->
                 Error (Error.Api (Retry.NetworkError {
-                  message = Printf.sprintf "SSE stream error: %s" msg })))
+                  message = Printf.sprintf "SSE stream error: %s" msg; kind = Unknown })))
        | Provider.Custom _ ->
            (* Sync fallback: non-streaming call + synthetic events *)
            (match Api.create_message ~sw ~net ~base_url

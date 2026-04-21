@@ -101,11 +101,11 @@ let of_config (provider_cfg : Provider.config) : provider_module =
           Error (Error.Api (Retry.classify_error ~status:code ~body:body_str))
       with
       | Eio.Io _ as exn ->
-        Error (Error.Api (Retry.NetworkError { message = Printexc.to_string exn }))
+        Error (Error.Api (Retry.NetworkError { message = Printexc.to_string exn; kind = Unknown }))
       | Unix.Unix_error _ as exn ->
-        Error (Error.Api (Retry.NetworkError { message = Printexc.to_string exn }))
+        Error (Error.Api (Retry.NetworkError { message = Printexc.to_string exn; kind = Unknown }))
       | Failure msg ->
-        Error (Error.Api (Retry.NetworkError { message = msg }))
+        Error (Error.Api (Retry.NetworkError { message = msg; kind = Unknown }))
   end in
   (module P : PROVIDER)
 

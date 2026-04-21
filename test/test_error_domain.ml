@@ -201,7 +201,7 @@ let test_roundtrip_api_server_error () =
    | _ -> Alcotest.fail "roundtrip mismatch for ServerError")
 
 let test_roundtrip_api_network_error () =
-  let orig = Error.Api (Retry.NetworkError { message = "conn refused" }) in
+  let orig = Error.Api (Retry.NetworkError { message = "conn refused"; kind = Unknown }) in
   let poly = Error_domain.of_sdk_error orig in
   (match poly with
    | `Network_error "conn refused" -> ()

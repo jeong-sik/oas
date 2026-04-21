@@ -8,7 +8,7 @@ type api_error =
   | InvalidRequest of { message: string }
   | NotFound of { message: string }
   | ContextOverflow of { message: string; limit: int option }
-  | NetworkError of { message: string }
+  | NetworkError of { message: string; kind: Http_client.network_error_kind }
   | Timeout of { message: string }
 
 type retry_config = {
@@ -536,7 +536,7 @@ let%test "is_hard_quota non-RateLimited variants are false" =
   not (is_hard_quota (Overloaded { message = "insufficient balance" }))
   && not (is_hard_quota (ServerError { status = 500; message = "quota exceeded" }))
   && not (is_hard_quota (AuthError { message = "invalid key" }))
-  && not (is_hard_quota (NetworkError { message = "connection reset" }))
+  && not (is_hard_quota (NetworkError { message = "connection reset"; kind = Unknown }))
   && not (is_hard_quota (Timeout { message = "deadline exceeded" }))
   && not (is_hard_quota (InvalidRequest { message = "bad input" }))
   && not (is_hard_quota (ContextOverflow { message = "too long"; limit = None }))
