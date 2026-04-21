@@ -5,6 +5,12 @@ type periodic_callback = {
   callback: unit -> unit;
 }
 
+type tiered_memory = Types.tiered_memory = {
+  long_term: string option;
+  mid_term: string option;
+  short_term: string option;
+}
+
 type options = {
   base_url: string;
   provider: Provider.config option;
@@ -18,6 +24,7 @@ type options = {
   approval: Hooks.approval_callback option;
   tool_retry_policy: Tool_retry_policy.t option;
   context_reducer: Context_reducer.t option;
+  tiered_memory: tiered_memory option;
   context_injector: Hooks.context_injector option;
   mcp_clients: Mcp.managed list;
   event_bus: Event_bus.t option;
@@ -120,6 +127,7 @@ let default_options = {
   approval = None;
   tool_retry_policy = None;
   context_reducer = Some Defaults.default_context_reducer;
+  tiered_memory = None;
   context_injector = None;
   mcp_clients = [];
   event_bus = None;

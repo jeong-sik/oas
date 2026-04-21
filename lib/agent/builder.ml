@@ -39,6 +39,7 @@ type t = {
   approval: Hooks.approval_callback option;
   tool_retry_policy: Tool_retry_policy.t option;
   context_reducer: Context_reducer.t option;
+  tiered_memory: Agent.tiered_memory option;
   context_compact_ratio: float option;
   context_prepare_ratio: float option;
   context_handoff_ratio: float option;
@@ -106,6 +107,7 @@ let create ~net ~model =
     approval = None;
     tool_retry_policy = None;
     context_reducer = None;
+    tiered_memory = None;
     context_compact_ratio = None;
     context_prepare_ratio = None;
     context_handoff_ratio = None;
@@ -180,6 +182,7 @@ let with_approval approval b = { b with approval = Some approval }
 let with_tool_retry_policy tool_retry_policy b =
   { b with tool_retry_policy = Some tool_retry_policy }
 let with_context_reducer reducer b = { b with context_reducer = Some reducer }
+let with_tiered_memory tiered_memory b = { b with tiered_memory = Some tiered_memory }
 let with_context_thresholds ~compact_ratio ?context_window_tokens ?prepare_ratio ?handoff_ratio b =
   (* Resolution chain for the context window used by the reducer:
      1. explicit [?context_window_tokens] argument (caller knows the
@@ -337,6 +340,7 @@ let build b =
     approval = b.approval;
     tool_retry_policy = b.tool_retry_policy;
     context_reducer = b.context_reducer;
+    tiered_memory = b.tiered_memory;
     context_injector = b.context_injector;
     mcp_clients;
     event_bus = b.event_bus;

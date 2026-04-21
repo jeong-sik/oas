@@ -89,6 +89,7 @@ val with_raw_trace : Raw_trace.t -> t -> t
 val with_approval : Hooks.approval_callback -> t -> t
 val with_tool_retry_policy : Tool_retry_policy.t -> t -> t
 val with_context_reducer : Context_reducer.t -> t -> t
+val with_tiered_memory : Agent.tiered_memory -> t -> t
 
 (** Set context reduction thresholds.
     [compact_ratio] determines when to compact (default 0.8).
