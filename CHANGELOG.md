@@ -27,6 +27,7 @@ original tag dates. `0.100.4` was never tagged or released.
 
 - **`response_format` now uses a typed variant surface** for agent config, builders, provider config, and checkpoints: `Off | JsonMode | JsonSchema of Yojson.Safe.t` (issue #957). `Builder.with_response_format_json`, `Provider_config.make ?response_format_json`, and checkpoint decoding of legacy `response_format_json: bool` remain as compatibility shims. In this step, provider request builders honor `JsonMode`; `JsonSchema _` is preserved through config/persistence but not yet emitted as provider-native schema parameters.
 
+- **Completion contract violations now carry typed contract IDs.** `Error.CompletionContractViolation.contract` now uses `Completion_contract_id.t` instead of `string`. `Agent_sdk.Completion_contract` and `Agent_sdk.Completion_contract_id` are re-exported; downstream code that serialized the old string field should switch to `Completion_contract_id.to_string`.
 ## [0.162.0] - 2026-04-19
 
 ### Added
