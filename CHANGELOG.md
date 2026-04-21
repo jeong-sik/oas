@@ -8,6 +8,20 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.170.0] - 2026-04-21
+
+### Added
+
+- **Tiered recall prompt assembly and budgeting.** Agents can now carry optional typed `tiered_memory = { long_term; mid_term; short_term }` through `Agent.options` and `Builder.with_tiered_memory`. Turn preparation renders a pinned synthetic User recall block after leading system messages, keeps a fixed `LONG -> MID -> SHORT` order, and omits blank tiers (#1133).
+
+### Changed
+
+- **Context reduction and compaction now account for pinned recall tokens.** Reducers reserve the recall token budget before trimming raw history, and proactive/emergency compaction watermarks are computed from `raw history + recall` while only stored raw messages are compacted (#1133).
+
+### Notes
+
+- **Registry coverage now fails loudly when `Provider_kind` and the provider registry drift.** Added a dedicated regression test asserting every `Provider_kind` resolves to a registered entry, closing a silent coverage gap in the provider registry surface (#1132).
+
 ## [0.169.0] - 2026-04-21
 
 ### Added
