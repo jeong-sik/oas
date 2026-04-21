@@ -15,7 +15,7 @@ type t = {
   top_k: int option;
   min_p: float option;
   enable_thinking: bool option;
-  response_format_json: bool;
+  response_format: response_format;
   thinking_budget: int option;
   tool_choice: tool_choice option;
   disable_parallel_tool_use: bool;
@@ -80,7 +80,7 @@ let create ~net ~model =
     top_k = default_config.top_k;
     min_p = default_config.min_p;
     enable_thinking = default_config.enable_thinking;
-    response_format_json = default_config.response_format_json;
+    response_format = default_config.response_format;
     thinking_budget = default_config.thinking_budget;
     tool_choice = default_config.tool_choice;
     disable_parallel_tool_use = default_config.disable_parallel_tool_use;
@@ -229,13 +229,15 @@ let with_tool_grants tool_names b =
 let with_mcp_tool_allowlist tool_names b =
   with_contract (Contract.with_mcp_tool_allowlist tool_names Contract.empty) b
 let with_tool_choice tc b = { b with tool_choice = Some tc }
+let with_response_format response_format b = { b with response_format }
 let with_disable_parallel_tool_use v b = { b with disable_parallel_tool_use = v }
 let with_thinking_budget n b = { b with thinking_budget = Some n }
 let with_max_input_tokens n b = { b with max_input_tokens = Some n }
 let with_max_total_tokens n b = { b with max_total_tokens = Some n }
 let with_initial_messages msgs b = { b with initial_messages = msgs }
 let with_max_cost_usd v b = { b with max_cost_usd = Some v }
-let with_response_format_json v b = { b with response_format_json = v }
+let with_response_format_json v b =
+  with_response_format (response_format_of_json_mode v) b
 let with_cache_system_prompt v b = { b with cache_system_prompt = v }
 let with_cache_extended_ttl v b = { b with cache_extended_ttl = v }
 let with_yield_on_tool v b = { b with yield_on_tool = v }
@@ -276,7 +278,7 @@ let build b =
     top_k = b.top_k;
     min_p = b.min_p;
     enable_thinking = b.enable_thinking;
-    response_format_json = b.response_format_json;
+    response_format = b.response_format;
     thinking_budget = b.thinking_budget;
     tool_choice = b.tool_choice;
     disable_parallel_tool_use = b.disable_parallel_tool_use;

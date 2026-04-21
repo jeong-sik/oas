@@ -141,6 +141,24 @@ let tool_choice_to_json = function
   | Tool name -> `Assoc [("type", `String "tool"); ("name", `String name)]
   | None_ -> `Assoc [("type", `String "none")]
 
+type response_format =
+  | Off
+  | JsonMode
+  | JsonSchema of Yojson.Safe.t
+[@@deriving show]
+
+let response_format_of_json_mode enabled =
+  if enabled then JsonMode else Off
+
+let response_format_to_json = function
+  | Off -> `Assoc [("type", `String "off")]
+  | JsonMode -> `Assoc [("type", `String "json_mode")]
+  | JsonSchema schema ->
+      `Assoc [
+        ("type", `String "json_schema");
+        ("schema", schema);
+      ]
+
 (** {1 Content Types} *)
 
 (** Content block types -- inline records for clarity *)

@@ -153,12 +153,11 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
       body_assoc
   in
   let body_assoc =
-    if config.config.response_format_json
-       && capabilities.supports_response_format_json
-    then
-      ("response_format", `Assoc [("type", `String "json_object")]) :: body_assoc
-    else
-      body_assoc
+    match config.config.response_format with
+    | JsonMode when capabilities.supports_response_format_json ->
+        ("response_format", `Assoc [("type", `String "json_object")]) :: body_assoc
+    | JsonSchema _ | JsonMode | Off ->
+        body_assoc
   in
   let body_assoc =
     match slot_id with

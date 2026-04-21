@@ -1,6 +1,6 @@
 open Types
 
-let checkpoint_version = 4
+let checkpoint_version = 5
 
 type t = {
   version: int;
@@ -20,7 +20,7 @@ type t = {
   top_k: int option;
   min_p: float option;
   enable_thinking: bool option;
-  response_format_json: bool;
+  response_format: response_format;
   thinking_budget: int option;
   cache_system_prompt: bool;
   max_input_tokens: int option;
@@ -54,7 +54,7 @@ type sampling_patch = {
 
 type limits_patch = {
   disable_parallel_tool_use: bool;
-  response_format_json: bool;
+  response_format: response_format;
   cache_system_prompt: bool;
   max_input_tokens: int option;
   max_total_tokens: int option;

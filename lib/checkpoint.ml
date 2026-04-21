@@ -2,7 +2,7 @@
 
     Captures the full conversation state (messages, usage, config) as a
     pure value for callers that want to persist and later restore agent
-    state.  This module only handles serialization; file I/O and resume
+    state. This module only handles serialization; file I/O and resume
     orchestration are left to the caller. *)
 
 open Types
@@ -25,7 +25,7 @@ type t = Checkpoint_types.t = {
   top_k: int option;
   min_p: float option;
   enable_thinking: bool option;
-  response_format_json: bool;
+  response_format: response_format;
   thinking_budget: int option;
   cache_system_prompt: bool;
   max_input_tokens: int option;
@@ -59,7 +59,7 @@ type sampling_patch = Checkpoint_types.sampling_patch = {
 
 type limits_patch = Checkpoint_types.limits_patch = {
   disable_parallel_tool_use: bool;
-  response_format_json: bool;
+  response_format: response_format;
   cache_system_prompt: bool;
   max_input_tokens: int option;
   max_total_tokens: int option;

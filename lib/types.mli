@@ -16,6 +16,8 @@ include module type of struct include Llm_provider.Types end
 (* ================================================================ *)
 
 val tool_choice_of_json : Yojson.Safe.t -> (tool_choice, Error.sdk_error) result
+val response_format_of_json :
+  Yojson.Safe.t -> (response_format, Error.sdk_error) result
 
 (* ================================================================ *)
 (* Agent-specific types                                              *)
@@ -41,7 +43,7 @@ type agent_config = {
   top_k: int option;
   min_p: float option;
   enable_thinking: bool option;
-  response_format_json: bool;
+  response_format: response_format;
   thinking_budget: int option;
   tool_choice: tool_choice option;
   disable_parallel_tool_use: bool;

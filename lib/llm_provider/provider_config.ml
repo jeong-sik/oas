@@ -31,7 +31,7 @@ type t = {
   tool_stream: bool;
   tool_choice: Types.tool_choice option;
   disable_parallel_tool_use: bool;
-  response_format_json: bool;
+  response_format: Types.response_format;
   cache_system_prompt: bool;
   supports_tool_choice_override: bool option;
 }
@@ -43,9 +43,15 @@ let make ~kind ~model_id ~base_url
     ?system_prompt ?enable_thinking ?thinking_budget
     ?clear_thinking ?(tool_stream=false)
     ?tool_choice ?(disable_parallel_tool_use=false)
+    ?response_format
     ?(response_format_json=false)
     ?(cache_system_prompt=false)
     ?supports_tool_choice_override () =
+  let response_format =
+    match response_format with
+    | Some value -> value
+    | None -> Types.response_format_of_json_mode response_format_json
+  in
   let request_path = match request_path with
     | Some p -> p
     | None -> match kind with
@@ -60,7 +66,7 @@ let make ~kind ~model_id ~base_url
     max_tokens; max_context; temperature; top_p; top_k; min_p;
     system_prompt; enable_thinking; thinking_budget; clear_thinking;
     tool_stream;
-    tool_choice; disable_parallel_tool_use; response_format_json;
+    tool_choice; disable_parallel_tool_use; response_format;
     cache_system_prompt; supports_tool_choice_override }
 
 (** Lowercase string representation of the wire-format kind.

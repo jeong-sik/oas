@@ -132,7 +132,7 @@ let checkpoint_to_json cp =
       ( "enable_thinking",
         Option.value ~default:`Null
           (Option.map (fun v -> `Bool v) cp.enable_thinking) );
-      ("response_format_json", `Bool cp.response_format_json);
+      ("response_format", response_format_to_json cp.response_format);
       ( "thinking_budget",
         Option.value ~default:`Null
           (Option.map (fun v -> `Int v) cp.thinking_budget) );
@@ -278,7 +278,7 @@ let delta_to_json (delta : delta) =
           [
             ("kind", `String "replace_limits");
             ("disable_parallel_tool_use", `Bool patch.disable_parallel_tool_use);
-            ("response_format_json", `Bool patch.response_format_json);
+            ("response_format", response_format_to_json patch.response_format);
             ("cache_system_prompt", `Bool patch.cache_system_prompt);
             ("max_input_tokens",
              Option.value ~default:`Null
@@ -377,20 +377,29 @@ let delta_of_json json =
                thinking_budget = op_json |> member "thinking_budget" |> to_int_option;
              })
     | "replace_limits" ->
-        Ok
-          (Replace_limits
-             {
-               disable_parallel_tool_use =
-                 op_json |> member "disable_parallel_tool_use" |> to_bool;
-               response_format_json =
-                 op_json |> member "response_format_json" |> to_bool;
-               cache_system_prompt =
-                 op_json |> member "cache_system_prompt" |> to_bool;
-               max_input_tokens =
-                 op_json |> member "max_input_tokens" |> to_int_option;
-               max_total_tokens =
-                 op_json |> member "max_total_tokens" |> to_int_option;
-             })
+        let response_format =
+          match op_json |> member "response_format" with
+          | `Null ->
+              Ok
+                (response_format_of_json_mode
+                   (op_json |> member "response_format_json" |> to_bool))
+          | value -> response_format_of_json value
+        in
+        Result.map
+          (fun response_format ->
+            Replace_limits
+              {
+                disable_parallel_tool_use =
+                  op_json |> member "disable_parallel_tool_use" |> to_bool;
+                response_format;
+                cache_system_prompt =
+                  op_json |> member "cache_system_prompt" |> to_bool;
+                max_input_tokens =
+                  op_json |> member "max_input_tokens" |> to_int_option;
+                max_total_tokens =
+                  op_json |> member "max_total_tokens" |> to_int_option;
+              })
+          response_format
     | "patch_context" ->
         context_diff_of_json (op_json |> member "diff")
         |> Result.map (fun diff -> Patch_context diff)
@@ -445,7 +454,9 @@ let of_json json =
   try
     let open Yojson.Safe.Util in
     let version = json |> member "version" |> to_int in
-    if version <> checkpoint_version && version <> 3 && version <> 2 && version <> 1 then
+    if version <> checkpoint_version && version <> 4 && version <> 3
+       && version <> 2 && version <> 1
+    then
       Error
         (Error.Serialization
            (VersionMismatch { expected = checkpoint_version; got = version }))
@@ -500,8 +511,18 @@ let of_json json =
             | `Null -> None
             | v -> Some v
           in
-          (match model, messages, tools, context, mcp_sessions with
-           | Ok model, Ok messages, Ok tools, Ok context, Ok mcp_sessions ->
+          let response_format =
+            match json |> member "response_format" with
+            | `Null ->
+                Ok
+                  (response_format_of_json_mode
+                     (json |> member "response_format_json" |> to_bool_option
+                      |> Option.value ~default:false))
+            | value -> response_format_of_json value
+          in
+          (match model, messages, tools, context, mcp_sessions, response_format with
+           | Ok model, Ok messages, Ok tools, Ok context, Ok mcp_sessions,
+             Ok response_format ->
                Ok
                  {
                    version = checkpoint_version;
@@ -523,9 +544,7 @@ let of_json json =
                    top_k = json |> member "top_k" |> to_int_option;
                    min_p = json |> member "min_p" |> to_float_option;
                    enable_thinking = json |> member "enable_thinking" |> to_bool_option;
-                   response_format_json =
-                     json |> member "response_format_json" |> to_bool_option
-                     |> Option.value ~default:false;
+                   response_format;
                    thinking_budget = json |> member "thinking_budget" |> to_int_option;
                    cache_system_prompt =
                      json |> member "cache_system_prompt" |> to_bool_option
@@ -536,11 +555,12 @@ let of_json json =
                    mcp_sessions;
                    working_context;
                  }
-           | Error e, _, _, _, _ -> Error e
-           | _, Error e, _, _, _ -> Error e
-           | _, _, Error e, _, _ -> Error e
-           | _, _, _, Error e, _ -> Error e
-           | _, _, _, _, Error e -> Error e)
+           | Error e, _, _, _, _, _ -> Error e
+           | _, Error e, _, _, _, _ -> Error e
+           | _, _, Error e, _, _, _ -> Error e
+           | _, _, _, Error e, _, _ -> Error e
+           | _, _, _, _, Error e, _ -> Error e
+           | _, _, _, _, _, Error e -> Error e)
   with
   | Yojson.Safe.Util.Type_error (msg, _) ->
       Error

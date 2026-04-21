@@ -709,8 +709,9 @@ let test_defaults_match_agent_create () =
   Alcotest.(check int) "max_turns" dc.max_turns bc.max_turns;
   Alcotest.(check (option (float 0.001))) "temperature"
     dc.temperature bc.temperature;
-  Alcotest.(check bool) "response_format_json"
-    dc.response_format_json bc.response_format_json;
+  Alcotest.(check string) "response_format"
+    (Types.show_response_format dc.response_format)
+    (Types.show_response_format bc.response_format);
   Alcotest.(check (option int)) "thinking_budget"
     dc.thinking_budget bc.thinking_budget;
   Alcotest.(check bool) "cache_system_prompt"

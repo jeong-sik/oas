@@ -533,7 +533,7 @@ let provider_config_of_agent
          ?tool_choice:cfg.tool_choice
          ?system_prompt:cfg.system_prompt
          ~disable_parallel_tool_use:cfg.disable_parallel_tool_use
-         ~response_format_json:cfg.response_format_json
+         ~response_format:cfg.response_format
          ~cache_system_prompt:cfg.cache_system_prompt
          ())
   in

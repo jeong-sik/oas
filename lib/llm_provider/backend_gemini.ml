@@ -175,8 +175,11 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
          ]) :: !gen_config
    | _ -> ());
   (* JSON mode *)
-  if config.response_format_json then
-    gen_config := ("responseMimeType", `String "application/json") :: !gen_config;
+  (match config.response_format with
+   | Types.JsonMode ->
+       gen_config :=
+         ("responseMimeType", `String "application/json") :: !gen_config
+   | Types.JsonSchema _ | Types.Off -> ());
   let body = ("generationConfig", `Assoc !gen_config) :: body in
   (* Tools *)
   let body = match tools with
