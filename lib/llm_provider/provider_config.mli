@@ -14,12 +14,14 @@
     it can be shared with {!Types} without creating a dependency cycle. *)
 type provider_kind = Provider_kind.t =
   | Anthropic
+  | Kimi  (** Kimi Code direct API: Anthropic-compatible [/v1/messages]. @since 0.169.0 *)
   | OpenAI_compat
   | Ollama  (** Ollama: OpenAI compat wire format + reasoning_effort + no tool_choice. @since 0.112.0 *)
   | Gemini
   | Glm  (** ZhipuAI GLM native: OpenAI wire format + JWT auth + GLM error parsing. @since 0.83.0 *)
   | Claude_code  (** Subprocess transport via [claude -p]. @since 0.78.0 *)
   | Gemini_cli  (** Subprocess transport via [gemini -p]. @since 0.133.0 *)
+  | Kimi_cli  (** Subprocess transport via [kimi --print]. @since 0.169.0 *)
   | Codex_cli   (** Subprocess transport via [codex exec]. @since 0.133.0 *)
 
 type t = {
@@ -161,6 +163,7 @@ val structured_output_name_of_schema : Yojson.Safe.t -> string
     - [OpenAI_compat] is accepted only for official OpenAI hosts with a
       model capability record that reports [supports_structured_output].
     - [Gemini], [Anthropic], and [Ollama] are accepted.
+    - [Kimi] is rejected until native json_schema support is verified.
     - [Glm] and CLI kinds are rejected.
 
     @since 0.163.0 *)

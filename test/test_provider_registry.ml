@@ -163,10 +163,10 @@ let test_find_capable_composite () =
 
 (* ── Default registry ───────────────────────────────── *)
 
-let test_default_has_15 () =
+let test_default_has_17 () =
   let reg = Provider_registry.default () in
   let all = Provider_registry.all reg in
-  check int "15 known providers" 15 (List.length all);
+  check int "17 known providers" 17 (List.length all);
   check bool "llama exists" true
     (Option.is_some (Provider_registry.find reg "llama"));
   check bool "ollama exists" true
@@ -179,6 +179,8 @@ let test_default_has_15 () =
     (Option.is_some (Provider_registry.find reg "glm"));
   check bool "glm-coding exists" true
     (Option.is_some (Provider_registry.find reg "glm-coding"));
+  check bool "kimi exists" true
+    (Option.is_some (Provider_registry.find reg "kimi"));
   check bool "openrouter exists" true
     (Option.is_some (Provider_registry.find reg "openrouter"));
   check bool "groq exists" true
@@ -195,6 +197,8 @@ let test_default_has_15 () =
     (Option.is_some (Provider_registry.find reg "cc"));
   check bool "gemini_cli exists" true
     (Option.is_some (Provider_registry.find reg "gemini_cli"));
+  check bool "kimi_cli exists" true
+    (Option.is_some (Provider_registry.find reg "kimi_cli"));
   check bool "codex_cli exists" true
     (Option.is_some (Provider_registry.find reg "codex_cli"))
 
@@ -225,6 +229,9 @@ let test_default_max_context () =
   (match Provider_registry.find reg "glm" with
    | Some e -> check int "glm 200K" 200_000 e.max_context
    | None -> fail "glm should exist");
+  (match Provider_registry.find reg "kimi" with
+   | Some e -> check int "kimi 262K" 262_144 e.max_context
+   | None -> fail "kimi should exist");
   (match Provider_registry.find reg "cc" with
    | Some e -> check int "cc 1M" 1_000_000 e.max_context
    | None -> fail "cc should exist");
@@ -242,7 +249,10 @@ let test_default_max_context () =
    | None -> fail "siliconflow should exist");
   (match Provider_registry.find reg "codex_cli" with
    | Some e -> check int "codex_cli 1.05M" 1_050_000 e.max_context
-   | None -> fail "codex_cli should exist")
+   | None -> fail "codex_cli should exist");
+  (match Provider_registry.find reg "kimi_cli" with
+   | Some e -> check int "kimi_cli 262K" 262_144 e.max_context
+   | None -> fail "kimi_cli should exist")
 
 let test_default_max_context_matches_capabilities () =
   let reg = Provider_registry.default () in
@@ -267,7 +277,14 @@ let test_default_zai_base_urls () =
    | Some e ->
        check string "glm-coding base_url" Zai_catalog.coding_base_url
          e.defaults.base_url
-   | None -> fail "glm-coding should exist")
+   | None -> fail "glm-coding should exist");
+  (match Provider_registry.find reg "kimi" with
+   | Some e ->
+       check string "kimi base_url" "https://api.kimi.com/coding"
+         e.defaults.base_url;
+       check string "kimi request_path" "/v1/messages"
+         e.defaults.request_path
+   | None -> fail "kimi should exist")
 
 let test_blank_zai_base_urls_fall_back () =
   let prev_general = Sys.getenv_opt "ZAI_BASE_URL" in
@@ -357,7 +374,7 @@ let () =
       test_case "requires_any" `Quick test_requires_any;
     ];
     "default", [
-      test_case "has 15 providers" `Quick test_default_has_15;
+      test_case "has 17 providers" `Quick test_default_has_17;
       test_case "correct capabilities" `Quick test_default_capabilities;
       test_case "max_context values" `Quick test_default_max_context;
       test_case "max_context matches capabilities" `Quick

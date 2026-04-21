@@ -107,6 +107,17 @@ let anthropic_capabilities = {
   supports_top_k = true;
 }
 
+let kimi_capabilities = {
+  default_capabilities with
+  max_context_tokens = Some 262_144;
+  max_output_tokens = Some 32_768;
+  supports_tools = true;
+  supports_tool_choice = true;
+  supports_reasoning = true;
+  supports_system_prompt = true;
+  supports_code_execution = true;
+}
+
 let openai_chat_capabilities = {
   default_capabilities with
   max_context_tokens = Some 128_000;
@@ -170,22 +181,14 @@ let glm_capabilities = {
      turns against glm-coding:glm-5.1 and glm:glm-5.1. *)
   max_output_tokens = Some 40_960;
   supports_tools = true;
-  (* GLM does not reliably honor tool_choice=required/Any — it frequently
-     returns a text-only response even when the caller sets the field.
-     Observed empirically on 2026-04-18 (MASC cascade vendor_mix_balanced
-     8+ CompletionContractViolation events in a single session against
-     glm-5-turbo / glm-4.7 / glm-5.1 via both glm: and glm-coding: prefix).
-     Cross-reference: BFCL tool-calling benchmarks rank GLM-4.5 at 77 and
-     local ~GLM families at 67 — tool routing works but is unreliable.
-
-     Flipping this to [false] causes
-     [Completion_contract.of_tool_choice ~supports_tool_choice:false]
-     to relax any tool_choice contract to [Allow_text_or_tool], so a
-     text response is accepted without raising
-     [CompletionContractViolation].  [supports_tools = true] remains
-     unchanged — tool DESCRIPTIONS are sent and the model may still
-     emit tool_use blocks when it decides to; we just don't error when
-     it picks text for a request that asked for a forced tool call. *)
+  (* Z.AI's function-calling docs currently document [tool_choice]
+     as default [auto] and "only supports auto". OAS therefore treats
+     GLM as "tools supported, forced tool_choice unsupported":
+     callers may still send tools and OAS may coerce an explicit
+     tool_choice request to [auto], but the completion contract must
+     stay relaxed so direct GLM text replies do not count as contract
+     violations. Ref checked 2026-04-21:
+     https://docs.z.ai/guides/capabilities/function-calling *)
   supports_tool_choice = false;
   supports_reasoning = true;
   supports_extended_thinking = true;
@@ -245,6 +248,17 @@ let gemini_cli_capabilities = {
   supports_system_prompt = true;
 }
 
+let kimi_cli_capabilities = {
+  default_capabilities with
+  max_context_tokens = Some 262_144;
+  max_output_tokens = Some 32_768;
+  supports_tools = true;
+  supports_tool_choice = false;
+  supports_reasoning = true;
+  supports_system_prompt = true;
+  supports_code_execution = true;
+}
+
 let codex_cli_capabilities = {
   default_capabilities with
   max_context_tokens = Some 1_050_000;
@@ -293,6 +307,8 @@ let for_model_id model_id =
            max_output_tokens = Some 16_384 }
   else if starts_with "gemini-3" || starts_with "gemini-2.5" then
     Some gemini_capabilities
+  else if starts_with "kimi-for-coding" then
+    Some kimi_capabilities
   else if starts_with "qwen3" then
     Some { default_capabilities with
            max_context_tokens = Some 262_144;
@@ -379,7 +395,7 @@ let for_model_id model_id =
            max_context_tokens = Some 128_000;
            max_output_tokens = Some 16_384;
            supports_tools = true;
-           supports_tool_choice = true;
+           supports_tool_choice = false;
            supports_response_format_json = true;
            supports_native_streaming = true }
   (* GLM 5-turbo: tool-calling optimized, fast, reasoning but no extended thinking *)
@@ -388,7 +404,7 @@ let for_model_id model_id =
            max_context_tokens = Some 128_000;
            max_output_tokens = Some 16_384;
            supports_tools = true;
-           supports_tool_choice = true;
+           supports_tool_choice = false;
            supports_reasoning = true;
            supports_response_format_json = true;
            supports_native_streaming = true }
@@ -397,7 +413,7 @@ let for_model_id model_id =
            max_context_tokens = Some 200_000;
            max_output_tokens = Some 128_000;
            supports_tools = true;
-           supports_tool_choice = true;
+           supports_tool_choice = false;
            supports_reasoning = true;
            supports_extended_thinking = true;
            supports_response_format_json = true;
@@ -416,7 +432,7 @@ let for_model_id model_id =
            max_context_tokens = Some 128_000;
            max_output_tokens = Some 32_768;
            supports_tools = true;
-           supports_tool_choice = true;
+           supports_tool_choice = false;
            supports_reasoning = true;
            supports_extended_thinking = true;
            supports_multimodal_inputs = true;
@@ -429,7 +445,7 @@ let for_model_id model_id =
            max_context_tokens = Some 200_000;
            max_output_tokens = Some 128_000;
            supports_tools = true;
-           supports_tool_choice = true;
+           supports_tool_choice = false;
            supports_reasoning = true;
            supports_extended_thinking = true;
            supports_response_format_json = true;
@@ -453,7 +469,7 @@ let for_model_id model_id =
            max_context_tokens = Some 128_000;
            max_output_tokens = Some 4_096;
            supports_tools = true;
-           supports_tool_choice = true;
+           supports_tool_choice = false;
            supports_native_streaming = true }
   else
     None

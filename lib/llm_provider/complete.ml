@@ -44,7 +44,7 @@ let provider_sampling_defaults (kind : Provider_config.provider_kind) : sampling
   | Provider_config.Ollama ->
     { default_min_p = None;
       default_top_p = None; default_top_k = None }
-  | Provider_config.Anthropic ->
+  | Provider_config.Anthropic | Provider_config.Kimi ->
     { default_min_p = None; default_top_p = None; default_top_k = None }
   | Provider_config.Gemini ->
     { default_min_p = None; default_top_p = None; default_top_k = None }
@@ -52,7 +52,8 @@ let provider_sampling_defaults (kind : Provider_config.provider_kind) : sampling
     { default_min_p = None; default_top_p = None; default_top_k = None }
   | Provider_config.Claude_code ->
     { default_min_p = None; default_top_p = None; default_top_k = None }
-  | Provider_config.Gemini_cli | Provider_config.Codex_cli ->
+  | Provider_config.Gemini_cli | Provider_config.Kimi_cli
+  | Provider_config.Codex_cli ->
     { default_min_p = None; default_top_p = None; default_top_k = None }
 
 let openai_compat_should_default_min_p (config : Provider_config.t) : bool =
@@ -90,13 +91,15 @@ let patch_telemetry (resp : Types.api_response) ~(config : Provider_config.t)
   let pk = Some config.kind in
   let re = reasoning_effort_of_config config in
   let base_caps = match config.kind with
-    | Ollama -> Capabilities.ollama_capabilities
-    | Anthropic -> Capabilities.anthropic_capabilities
-    | Glm -> Capabilities.glm_capabilities
-    | Gemini -> Capabilities.gemini_capabilities
+  | Ollama -> Capabilities.ollama_capabilities
+  | Anthropic -> Capabilities.anthropic_capabilities
+  | Kimi -> Capabilities.kimi_capabilities
+  | Glm -> Capabilities.glm_capabilities
+  | Gemini -> Capabilities.gemini_capabilities
     | OpenAI_compat -> Capabilities.openai_chat_capabilities
     | Claude_code -> Capabilities.claude_code_capabilities
     | Gemini_cli -> Capabilities.gemini_cli_capabilities
+    | Kimi_cli -> Capabilities.kimi_cli_capabilities
     | Codex_cli -> Capabilities.codex_cli_capabilities
   in
   let caps = match Capabilities.for_model_id config.model_id with
@@ -124,9 +127,22 @@ let patch_telemetry (resp : Types.api_response) ~(config : Provider_config.t)
   in
   { resp with telemetry }
 
+(** Internal helper: canonical provider name for metric labels.
+    Kept in sync with the log tag used by the [WARN Complete] line. *)
+let provider_name_of_kind : Provider_config.provider_kind -> string = function
+  | Ollama -> "ollama"
+  | Anthropic -> "anthropic"
+  | Kimi -> "kimi"
+  | OpenAI_compat -> "openai"
+  | Gemini -> "gemini"
+  | Glm -> "glm"
+  | Claude_code -> "claude_code"
+  | Gemini_cli -> "gemini_cli"
+  | Kimi_cli -> "kimi_cli"
+  | Codex_cli -> "codex_cli"
 let requires_non_http_transport : Provider_config.provider_kind -> bool = function
-  | Claude_code | Gemini_cli | Codex_cli -> true
-  | Anthropic | OpenAI_compat | Ollama | Gemini | Glm -> false
+  | Claude_code | Gemini_cli | Kimi_cli | Codex_cli -> true
+  | Anthropic | Kimi | OpenAI_compat | Ollama | Gemini | Glm -> false
 
 let validate_output_schema_request (config : Provider_config.t) =
   match Provider_config.validate_output_schema_request config with
@@ -219,6 +235,8 @@ let complete_http ~sw ~net
   let body_str = match config.kind with
     | Provider_config.Anthropic ->
         Backend_anthropic.build_request ~config ~messages ~tools ()
+    | Provider_config.Kimi ->
+        Backend_anthropic.build_request ~config ~messages ~tools ()
     | Provider_config.Ollama ->
         Backend_ollama.build_request ~config ~messages ~tools ()
     | Provider_config.OpenAI_compat ->
@@ -227,7 +245,8 @@ let complete_http ~sw ~net
         Backend_gemini.build_request ~config ~messages ~tools ()
     | Provider_config.Glm ->
         Backend_glm.build_request ~config ~messages ~tools ()
-    | Provider_config.Claude_code | Provider_config.Gemini_cli | Provider_config.Codex_cli -> "" (* guarded above *)
+    | Provider_config.Claude_code | Provider_config.Gemini_cli
+    | Provider_config.Kimi_cli | Provider_config.Codex_cli -> "" (* guarded above *)
   in
   let url = match config.kind with
     | Provider_config.Gemini -> gemini_url ~config ~stream:false
@@ -305,6 +324,9 @@ let complete_http ~sw ~net
             | Provider_config.Anthropic ->
                 Ok (Backend_anthropic.parse_response
                       (Yojson.Safe.from_string body))
+            | Provider_config.Kimi ->
+                Ok (Backend_anthropic.parse_response
+                      (Yojson.Safe.from_string body))
             | Provider_config.Ollama ->
                 (match Backend_ollama.parse_ollama_response body with
                  | Ok resp -> Ok resp
@@ -320,7 +342,8 @@ let complete_http ~sw ~net
                       (Yojson.Safe.from_string body))
             | Provider_config.Glm ->
                 Ok (Backend_glm.parse_response body)
-            | Provider_config.Claude_code | Provider_config.Gemini_cli | Provider_config.Codex_cli ->
+            | Provider_config.Claude_code | Provider_config.Gemini_cli
+            | Provider_config.Kimi_cli | Provider_config.Codex_cli ->
                 Error (Http_client.NetworkError { message = "Unreachable code" })
           with
           | Yojson.Json_error msg ->
@@ -524,7 +547,7 @@ let complete ~sw ~net ?(transport : Llm_transport.t option)
               runtime_mcp_policy;
             }
         | None when requires_non_http_transport config.kind ->
-          (* CLI subprocess providers (claude_code/codex_cli/gemini_cli)
+          (* CLI subprocess providers (claude_code/codex_cli/gemini_cli/kimi_cli)
              register with [base_url = ""] on purpose.  Without a CLI
              transport wired by the caller, falling through to
              [complete_http] would let cohttp-eio raise
@@ -659,6 +682,8 @@ let complete_stream_http ~sw:_ ~net ~(config : Provider_config.t)
   let body_str = match config.kind with
     | Provider_config.Anthropic ->
         Backend_anthropic.build_request ~stream:true ~config ~messages ~tools ()
+    | Provider_config.Kimi ->
+        Backend_anthropic.build_request ~stream:true ~config ~messages ~tools ()
     | Provider_config.Ollama ->
         (* DIVERGENCE: Ollama streaming uses OpenAI compat format + endpoint
            (/v1/chat/completions with SSE), while non-streaming uses the native
@@ -682,7 +707,8 @@ let complete_stream_http ~sw:_ ~net ~(config : Provider_config.t)
         Backend_gemini.build_request ~stream:true ~config ~messages ~tools ()
     | Provider_config.Glm ->
         Backend_glm.build_request ~stream:true ~config ~messages ~tools ()
-    | Provider_config.Claude_code | Provider_config.Gemini_cli | Provider_config.Codex_cli -> ""
+    | Provider_config.Claude_code | Provider_config.Gemini_cli
+    | Provider_config.Kimi_cli | Provider_config.Codex_cli -> ""
   in
   (* Ollama streaming: uses OpenAI compat body format, so must hit
      the OpenAI compat endpoint (/v1/chat/completions), not native
@@ -705,6 +731,10 @@ let complete_stream_http ~sw:_ ~net ~(config : Provider_config.t)
             Http_client.read_sse ~reader ~on_data:(fun ~event_type data ->
               let events = match config.kind with
                 | Provider_config.Anthropic ->
+                    (match Streaming.parse_sse_event event_type data with
+                     | Some evt -> [evt]
+                     | None -> [])
+                | Provider_config.Kimi ->
                     (match Streaming.parse_sse_event event_type data with
                      | Some evt -> [evt]
                      | None -> [])
@@ -738,7 +768,8 @@ let complete_stream_http ~sw:_ ~net ~(config : Provider_config.t)
                     (match Backend_glm.parse_stream_chunk data with
                      | Some chunk -> Streaming.openai_chunk_to_events state chunk
                      | None -> [])
-                | Provider_config.Claude_code | Provider_config.Gemini_cli | Provider_config.Codex_cli -> []
+                | Provider_config.Claude_code | Provider_config.Gemini_cli
+                | Provider_config.Kimi_cli | Provider_config.Codex_cli -> []
               in
               List.iter (fun evt ->
                 on_event evt;

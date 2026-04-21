@@ -49,11 +49,11 @@ let effective_tool_choice_json (capabilities : Provider.capabilities)
     ?provider_config (config : agent_state) =
   let is_glm = is_glm_request ?provider_config config in
   match config.config.tool_choice with
+  | Some Types.None_ when is_glm -> None
+  | Some (Types.Auto | Types.Any | Types.Tool _) when is_glm ->
+      Some (tool_choice_to_openai_json Types.Auto)
   | Some Types.Auto when capabilities.supports_tool_choice ->
       Some (tool_choice_to_openai_json Types.Auto)
-  | Some (Types.Any | Types.Tool _) when is_glm && capabilities.supports_tool_choice ->
-      Some (tool_choice_to_openai_json Types.Auto)
-  | Some Types.None_ when is_glm -> None
   | Some choice when capabilities.supports_tool_choice ->
       Some (tool_choice_to_openai_json choice)
   | _ -> None
@@ -68,8 +68,14 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
   let capabilities = capabilities_for_request ?provider_config config in
   let sanitized_messages = strip_orphaned_tool_results messages in
   let provider_messages =
+    let message_serializer =
+      if is_glm_request ?provider_config config then
+        Llm_provider.Backend_openai_serialize.glm_messages_of_message
+      else
+        openai_messages_of_message
+    in
     system_message_json config
-    @ List.concat_map openai_messages_of_message sanitized_messages
+    @ List.concat_map message_serializer sanitized_messages
   in
   let body_assoc =
     [

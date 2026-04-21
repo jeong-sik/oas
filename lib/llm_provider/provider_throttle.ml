@@ -89,13 +89,15 @@ let default_for_kind (kind : Provider_config.provider_kind) =
     create ~max_concurrent:4 ~provider_name:"local"
   | Provider_config.Anthropic ->
     create ~max_concurrent:5 ~provider_name:"anthropic"
+  | Provider_config.Kimi ->
+    create ~max_concurrent:5 ~provider_name:"kimi"
   | Provider_config.Gemini ->
     create ~max_concurrent:10 ~provider_name:"gemini"
   | Provider_config.Glm ->
     create ~max_concurrent:10 ~provider_name:"glm"
   | Provider_config.Claude_code ->
     create ~max_concurrent:2 ~provider_name:"claude_code"
-  | Provider_config.Gemini_cli | Provider_config.Codex_cli ->
+  | Provider_config.Gemini_cli | Provider_config.Kimi_cli | Provider_config.Codex_cli ->
     create ~max_concurrent:2 ~provider_name:"cli_subprocess"
 
 (* ── Capacity Query ────────────────────────────────────── *)

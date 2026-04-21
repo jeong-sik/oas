@@ -108,7 +108,7 @@ let finalize_stream_acc (acc : stream_acc) =
              tool_use_id;
              content = text;
              is_error;
-             json = None;
+             json = if is_error then None else Types.try_parse_json text;
            })
     | _ -> None
   ) indices in
@@ -356,6 +356,22 @@ let%test "finalize_stream_acc tool_use missing id/name defaults to empty" =
     (match result.content with
     | [Types.ToolUse { id = ""; name = ""; _ }] -> true
     | _ -> false)
+
+let%test "finalize_stream_acc assembles tool_result block" =
+  let acc = create_stream_acc () in
+  Hashtbl.replace acc.block_types 0 "tool_result";
+  Hashtbl.replace acc.block_tool_ids 0 "tu_1";
+  let buf = Buffer.create 16 in
+  Buffer.add_string buf "{\"ok\":true}";
+  Hashtbl.replace acc.block_texts 0 buf;
+  match finalize_stream_acc acc with
+  | Error _ -> false
+  | Ok result ->
+    (match result.content with
+     | [Types.ToolResult {
+          tool_use_id = "tu_1"; content = "{\"ok\":true}";
+          json = Some (`Assoc [("ok", `Bool true)]); _ }] -> true
+     | _ -> false)
 
 let%test "finalize_stream_acc block with no text buffer produces empty text" =
   let acc = create_stream_acc () in

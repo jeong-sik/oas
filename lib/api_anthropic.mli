@@ -10,6 +10,7 @@ val parse_response : Yojson.Safe.t -> Types.api_response
 val build_body_assoc :
   config:Types.agent_state ->
   messages:Types.message list ->
+  ?message_to_json:(Types.message -> Yojson.Safe.t) ->
   ?tools:Yojson.Safe.t list ->
   stream:bool ->
   unit -> (string * Yojson.Safe.t) list

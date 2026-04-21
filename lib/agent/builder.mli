@@ -128,7 +128,8 @@ val with_base_url : string -> t -> t
 
 (** Inject an {!Llm_provider.Llm_transport.t} for non-HTTP providers.
     Required for CLI provider kinds ([Claude_code], [Codex_cli],
-    [Gemini_cli]) which are reached via subprocess rather than HTTP.
+    [Gemini_cli], [Kimi_cli]) which are reached via subprocess rather
+    than HTTP.
     For HTTP kinds (Anthropic/Gemini/Glm/Ollama/OpenAI_compat) the
     transport is unused and can be left unset.
 

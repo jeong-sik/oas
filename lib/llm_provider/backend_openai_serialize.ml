@@ -75,7 +75,26 @@ let openai_content_parts_of_blocks blocks =
              ])
          | Thinking _ | RedactedThinking _ | ToolUse _ | ToolResult _ -> None)
 
-let messages_of_message_with ?(tool_calls_fn = tool_calls_to_openai_json) (msg : message) : Yojson.Safe.t list =
+let assistant_text_content_of_blocks blocks =
+  blocks
+  |> List.filter_map (function
+         | Text s -> Some (Utf8_sanitize.sanitize s)
+         | Thinking _ | RedactedThinking _ | ToolUse _ | ToolResult _
+         | Image _ | Document _ | Audio _ -> None)
+  |> String.concat "\n"
+
+let assistant_reasoning_content_of_blocks blocks =
+  blocks
+  |> List.filter_map (function
+         | Thinking { content; _ } when not (Api_common.string_is_blank content) ->
+             Some (Utf8_sanitize.sanitize content)
+         | Thinking _ -> None
+         | Text _ | RedactedThinking _ | ToolUse _ | ToolResult _
+         | Image _ | Document _ | Audio _ -> None)
+  |> String.concat ""
+
+let messages_of_message_with ?(tool_calls_fn = tool_calls_to_openai_json)
+    ?(include_reasoning_content = false) (msg : message) : Yojson.Safe.t list =
   match msg.role with
   | User ->
       let content_parts = openai_content_parts_of_blocks msg.content in
@@ -111,16 +130,32 @@ let messages_of_message_with ?(tool_calls_fn = tool_calls_to_openai_json) (msg :
       in
       user_msgs @ tool_msgs
   | Assistant ->
-      let text_content = Api_common.text_blocks_to_string msg.content in
+      let text_content = assistant_text_content_of_blocks msg.content in
+      let reasoning_content =
+        if include_reasoning_content then
+          assistant_reasoning_content_of_blocks msg.content
+        else
+          ""
+      in
       let tool_calls = tool_calls_fn msg.content in
       let fields =
         [
           ("role", `String "assistant");
-          ( if Api_common.string_is_blank text_content && tool_calls <> [] then
+          ( if include_reasoning_content then
+              ("content", `String text_content)
+            else if Api_common.string_is_blank text_content && tool_calls <> [] then
               ("content", `Null)
             else
               ("content", `String text_content) );
         ]
+      in
+      let fields =
+        if include_reasoning_content
+           && not (Api_common.string_is_blank reasoning_content)
+        then
+          ("reasoning_content", `String reasoning_content) :: fields
+        else
+          fields
       in
       let fields =
         if tool_calls = [] then fields else ("tool_calls", `List tool_calls) :: fields
@@ -147,6 +182,10 @@ let messages_of_message_with ?(tool_calls_fn = tool_calls_to_openai_json) (msg :
 
 let openai_messages_of_message msg =
   messages_of_message_with ~tool_calls_fn:tool_calls_to_openai_json msg
+
+let glm_messages_of_message msg =
+  messages_of_message_with ~tool_calls_fn:tool_calls_to_openai_json
+    ~include_reasoning_content:true msg
 
 let ollama_messages_of_message msg =
   messages_of_message_with ~tool_calls_fn:tool_calls_to_ollama_json msg

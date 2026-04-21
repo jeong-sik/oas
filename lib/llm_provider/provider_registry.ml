@@ -49,6 +49,9 @@ let has_api_key env_name =
    | Some s -> String.trim s <> ""
    | None -> false)
 
+let has_any_api_key env_names =
+  List.exists has_api_key env_names
+
 let path_entries ?path () =
   match path with
   | Some value -> String.split_on_char ':' value
@@ -200,6 +203,16 @@ let glm_coding_defaults = {
   request_path = "/chat/completions";
 }
 
+let kimi_defaults = {
+  kind = Kimi;
+  base_url =
+    (match Sys.getenv_opt "KIMI_BASE_URL" with
+     | Some url when String.trim url <> "" -> String.trim url
+     | _ -> "https://api.kimi.com/coding");
+  api_key_env = "KIMI_API_KEY_SB";
+  request_path = "/v1/messages";
+}
+
 let ollama_defaults = {
   kind = Ollama;
   base_url =
@@ -287,6 +300,12 @@ let default () =
     Capabilities.glm_capabilities;
   reg "glm-coding" glm_coding_defaults ~max_context:200_000
     Capabilities.glm_capabilities;
+  register t { name = "kimi"; defaults = kimi_defaults;
+               max_context = max_context_from_capabilities ~default:262_144
+                   Capabilities.kimi_capabilities;
+               capabilities = Capabilities.kimi_capabilities;
+               is_available = (fun () ->
+                 has_any_api_key ["KIMI_API_KEY_SB"; "KIMI_API_KEY"]) };
   reg "openrouter" openrouter_defaults ~max_context:128_000
     Capabilities.openai_chat_extended_capabilities;
   reg "groq" groq_defaults ~max_context:131_072
@@ -324,6 +343,16 @@ let default () =
     let cached = command_in_path "gemini" in
     fun () -> cached
   in
+  let kimi_cli_defaults = {
+    kind = Kimi_cli;
+    base_url = "";
+    api_key_env = "";
+    request_path = "";
+  } in
+  let kimi_cli_available =
+    let cached = command_in_path "kimi" in
+    fun () -> cached
+  in
   let codex_cli_defaults = {
     kind = Codex_cli;
     base_url = "";
@@ -349,6 +378,11 @@ let default () =
                    Capabilities.gemini_cli_capabilities;
                capabilities = Capabilities.gemini_cli_capabilities;
                is_available = gemini_cli_available };
+  register t { name = "kimi_cli"; defaults = kimi_cli_defaults;
+               max_context = max_context_from_capabilities ~default:262_144
+                   Capabilities.kimi_cli_capabilities;
+               capabilities = Capabilities.kimi_cli_capabilities;
+               is_available = kimi_cli_available };
   register t { name = "codex_cli"; defaults = codex_cli_defaults;
                max_context = max_context_from_capabilities ~default:128_000
                    Capabilities.codex_cli_capabilities;
@@ -359,12 +393,14 @@ let default () =
 let provider_name_of_config (config : Provider_config.t) =
   match config.kind with
   | Anthropic -> "claude"
+  | Kimi -> "kimi"
   | Gemini -> "gemini"
   | Glm ->
       if Zai_catalog.is_coding_base_url config.base_url then "glm-coding"
       else "glm"
   | Claude_code -> "claude_code"
   | Gemini_cli -> "gemini_cli"
+  | Kimi_cli -> "kimi_cli"
   | Codex_cli -> "codex_cli"
   | Ollama -> "ollama"
   | OpenAI_compat ->

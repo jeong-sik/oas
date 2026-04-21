@@ -3,8 +3,9 @@
 module PC = Llm_provider.Provider_config
 module BA = Llm_provider.Backend_anthropic
 module BO = Llm_provider.Backend_openai
+module BGlm = Llm_provider.Backend_glm
 module BOL = Llm_provider.Backend_ollama
-module BG = Llm_provider.Backend_gemini
+module BGemini = Llm_provider.Backend_gemini
 open Llm_provider.Types
 
 let contains_substring ~sub text =
@@ -219,7 +220,7 @@ let test_gemini_with_json_schema () =
       ~base_url:"https://generativelanguage.googleapis.com/v1beta"
       ~api_key:"test-key" ~response_format:(JsonSchema schema) ()
   in
-  let body = BG.build_request ~config ~messages:[user_msg "Return JSON."] () in
+  let body = BGemini.build_request ~config ~messages:[user_msg "Return JSON."] () in
   let json = Yojson.Safe.from_string body in
   let open Yojson.Safe.Util in
   let generation_config = json |> member "generationConfig" in
@@ -231,12 +232,109 @@ let test_gemini_with_json_schema () =
     (generation_config |> member "responseJsonSchema" |> member "required" |> to_list
      |> List.hd |> to_string)
 
+let test_kimi_direct_with_tools_and_thinking () =
+  let config = PC.make ~kind:Kimi ~model_id:"kimi-for-coding"
+    ~base_url:"https://api.kimi.com/coding" ~enable_thinking:true () in
+  let tool = `Assoc [
+    ("name", `String "shell");
+    ("description", `String "run shell command");
+    ("input_schema", `Assoc [("type", `String "object")]);
+  ] in
+  let body = BA.build_request ~config ~messages:[user_msg "inspect repo"]
+    ~tools:[tool] () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  let tools = json |> member "tools" |> to_list in
+  let thinking = json |> member "thinking" in
+  Alcotest.(check string) "model" "kimi-for-coding"
+    (json |> member "model" |> to_string);
+  Alcotest.(check int) "tool count" 1 (List.length tools);
+  Alcotest.(check string) "thinking type" "enabled"
+    (thinking |> member "type" |> to_string)
+
+let test_kimi_direct_tool_result_uses_text_blocks () =
+  let config = PC.make ~kind:Kimi ~model_id:"kimi-for-coding"
+    ~base_url:"https://api.kimi.com/coding" () in
+  let messages = [
+    { role = Assistant; content = [
+        Thinking { thinking_type = "sig_1";
+                   content = "I should call the calculator." };
+        ToolUse { id = "tool_1"; name = "calculator";
+                  input = `Assoc [("a", `Int 2); ("b", `Int 3)] };
+      ]; name = None; tool_call_id = None };
+    { role = Tool; content = [
+        ToolResult {
+          tool_use_id = "tool_1";
+          content = "5";
+          is_error = false;
+          json = Some (`Int 5);
+        };
+      ]; name = None; tool_call_id = None };
+  ] in
+  let body = BA.build_request ~config ~messages () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  let replay = json |> member "messages" |> index 1 in
+  let block = replay |> member "content" |> index 0 in
+  let content_blocks = block |> member "content" |> to_list in
+  Alcotest.(check string) "tool result role serialized as user" "user"
+    (replay |> member "role" |> to_string);
+  Alcotest.(check string) "tool_result type" "tool_result"
+    (block |> member "type" |> to_string);
+  Alcotest.(check string) "tool_use id preserved" "tool_1"
+    (block |> member "tool_use_id" |> to_string);
+  Alcotest.(check int) "tool_result content block count" 1
+    (List.length content_blocks);
+  Alcotest.(check string) "nested text block type" "text"
+    (List.hd content_blocks |> member "type" |> to_string);
+  Alcotest.(check string) "nested text block content" "5"
+    (List.hd content_blocks |> member "text" |> to_string)
+
+let test_glm_preserved_reasoning_replay_and_auto_tool_choice () =
+  let config = PC.make ~kind:Glm ~model_id:"glm-5.1"
+    ~base_url:"https://api.z.ai/api/coding/paas/v4"
+    ~enable_thinking:true ~clear_thinking:false
+    ~tool_stream:true ~tool_choice:(Tool "calculator") () in
+  let messages = [
+    { role = Assistant; content = [
+        Thinking { thinking_type = "reasoning";
+                   content = "I need the calculator result." };
+        ToolUse { id = "call_1"; name = "calculator";
+                  input = `Assoc [("expr", `String "2+2")] };
+      ]; name = None; tool_call_id = None };
+    { role = Tool; content = [
+        ToolResult {
+          tool_use_id = "call_1";
+          content = "{\"value\":4}";
+          is_error = false;
+          json = Some (`Assoc [("value", `Int 4)]);
+        };
+      ]; name = None; tool_call_id = None };
+  ] in
+  let body = BGlm.build_request ~stream:true ~config ~messages () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  let assistant = json |> member "messages" |> index 0 in
+  Alcotest.(check string) "glm tool_choice coerced" "auto"
+    (json |> member "tool_choice" |> to_string);
+  Alcotest.(check string) "assistant content remains text channel" ""
+    (assistant |> member "content" |> to_string);
+  Alcotest.(check string) "reasoning replayed separately"
+    "I need the calculator result."
+    (assistant |> member "reasoning_content" |> to_string);
+  Alcotest.(check bool) "clear_thinking false preserved" true
+    (json |> member "thinking" |> member "clear_thinking" |> to_bool = false);
+  Alcotest.(check bool) "tool_stream enabled" true
+    (json |> member "tool_stream" |> to_bool)
 (* ── Provider_config.make ────────────────────────────── *)
 
 let test_config_default_paths () =
   let anth = PC.make ~kind:Anthropic ~model_id:"m" ~base_url:"" () in
   Alcotest.(check string) "anthropic path" "/v1/messages"
     anth.request_path;
+  let kimi = PC.make ~kind:Kimi ~model_id:"m" ~base_url:"" () in
+  Alcotest.(check string) "kimi path" "/v1/messages"
+    kimi.request_path;
   let oai = PC.make ~kind:OpenAI_compat ~model_id:"m" ~base_url:"" () in
   Alcotest.(check string) "openai path" "/v1/chat/completions"
     oai.request_path
@@ -286,13 +384,14 @@ let test_complete_claude_code_without_transport_is_guarded () =
      typed [CliTransportRequired] so cascades and callers can
      distinguish a wiring bug from a transient network failure.
 
-     Covers the full matrix (Claude_code, Gemini_cli, Codex_cli). *)
+     Covers the full matrix (Claude_code, Gemini_cli, Kimi_cli, Codex_cli). *)
   Eio_main.run @@ fun env ->
   Eio.Switch.run @@ fun sw ->
   let net = Eio.Stdenv.net env in
   let kinds =
     [ PC.Claude_code,  "claude_code";
       PC.Gemini_cli,   "gemini_cli";
+      PC.Kimi_cli,     "kimi_cli";
       PC.Codex_cli,    "codex_cli" ]
   in
   List.iter (fun (kind, expected_name) ->
@@ -486,9 +585,15 @@ let () =
       test_case "basic body" `Quick test_openai_basic_body;
       test_case "with system" `Quick test_openai_with_system;
       test_case "with tools" `Quick test_openai_with_tools;
+      test_case "kimi direct tools + thinking" `Quick
+        test_kimi_direct_with_tools_and_thinking;
+      test_case "kimi direct tool_result uses text blocks" `Quick
+        test_kimi_direct_tool_result_uses_text_blocks;
       test_case "stream flag" `Quick test_openai_stream_flag;
       test_case "with json schema" `Quick test_openai_with_json_schema;
       test_case "ollama output schema" `Quick test_ollama_output_schema;
+      test_case "glm preserved reasoning replay" `Quick
+        test_glm_preserved_reasoning_replay_and_auto_tool_choice;
     ];
     "gemini_build_request", [
       test_case "with json schema" `Quick test_gemini_with_json_schema;

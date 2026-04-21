@@ -10,33 +10,39 @@
 
 type t =
   | Anthropic
+  | Kimi
   | OpenAI_compat
   | Ollama
   | Gemini
   | Glm
   | Claude_code
   | Gemini_cli
+  | Kimi_cli
   | Codex_cli
 
 let to_string = function
   | Anthropic -> "anthropic"
+  | Kimi -> "kimi"
   | OpenAI_compat -> "openai_compat"
   | Ollama -> "ollama"
   | Gemini -> "gemini"
   | Glm -> "glm"
   | Claude_code -> "claude_code"
   | Gemini_cli -> "gemini_cli"
+  | Kimi_cli -> "kimi_cli"
   | Codex_cli -> "codex_cli"
 
 let of_string raw =
   match String.lowercase_ascii (String.trim raw) with
   | "anthropic" | "claude" -> Some Anthropic
+  | "kimi" -> Some Kimi
   | "openai_compat" | "openai" -> Some OpenAI_compat
   | "ollama" | "llama" -> Some Ollama
   | "gemini" -> Some Gemini
   | "glm" -> Some Glm
   | "claude_code" -> Some Claude_code
   | "gemini_cli" -> Some Gemini_cli
+  | "kimi_cli" -> Some Kimi_cli
   | "codex_cli" -> Some Codex_cli
   | _ -> None
 

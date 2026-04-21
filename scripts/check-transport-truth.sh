@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # check-transport-truth.sh
-# Drift gate for OAS CLI transports (transport_{claude_code,gemini_cli,codex_cli}).
+# Drift gate for OAS CLI transports
+# (transport_{claude_code,gemini_cli,kimi_cli,codex_cli}).
 #
 # Background
 # ----------
@@ -45,6 +46,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TRANSPORTS=(
   "claude_code:lib/llm_provider/transport_claude_code"
   "gemini_cli:lib/llm_provider/transport_gemini_cli"
+  "kimi_cli:lib/llm_provider/transport_kimi_cli"
   "codex_cli:lib/llm_provider/transport_codex_cli"
 )
 
@@ -95,4 +97,4 @@ if [[ $fail -ne 0 ]]; then
   exit 1
 fi
 
-echo "OK: transport drift gate passed (3 transports, invariants 1–2)"
+echo "OK: transport drift gate passed (4 transports, invariants 1–2)"

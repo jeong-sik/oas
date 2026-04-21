@@ -14,6 +14,7 @@ open Types
 let tool_calls_to_openai_json = Backend_openai_serialize.tool_calls_to_openai_json
 let openai_content_parts_of_blocks = Backend_openai_serialize.openai_content_parts_of_blocks
 let openai_messages_of_message = Backend_openai_serialize.openai_messages_of_message
+let glm_messages_of_message = Backend_openai_serialize.glm_messages_of_message
 let tool_choice_to_openai_json = Backend_openai_serialize.tool_choice_to_openai_json
 let build_openai_tool_json = Backend_openai_serialize.build_openai_tool_json
 let strip_orphaned_tool_results = Backend_openai_serialize.strip_orphaned_tool_results
@@ -53,6 +54,7 @@ let warn_capability_drop ~model_id ~field =
 let effective_tool_choice (config : Provider_config.t) =
   match config.kind, config.tool_choice with
   | Provider_config.Glm, Some None_ -> None
+  | Provider_config.Glm, Some _ -> Some (tool_choice_to_openai_json Auto)
   | _, Some choice -> Some (tool_choice_to_openai_json choice)
   | _, None -> None
 
@@ -106,11 +108,20 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
   let tools = effective_tools config tools in
   let sanitized_messages = strip_orphaned_tool_results messages in
   let provider_messages =
+    let message_serializer =
+      match config.kind with
+      | Provider_config.Glm -> glm_messages_of_message
+      | Provider_config.Anthropic | Provider_config.Kimi
+      | Provider_config.OpenAI_compat | Provider_config.Ollama
+      | Provider_config.Gemini | Provider_config.Claude_code
+      | Provider_config.Gemini_cli | Provider_config.Kimi_cli
+      | Provider_config.Codex_cli -> openai_messages_of_message
+    in
     (match config.system_prompt with
      | Some s when not (Api_common.string_is_blank s) ->
          [`Assoc [("role", `String "system"); ("content", `String (Utf8_sanitize.sanitize s))]]
      | _ -> [])
-    @ List.concat_map openai_messages_of_message sanitized_messages
+    @ List.concat_map message_serializer sanitized_messages
   in
   (* Look up per-model capabilities once — drives:
      (1) the [max_tokens] clamp below (avoid server 400 on over-cap),
@@ -207,6 +218,8 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
        | None -> true)
   in
   let body = match effective_tool_choice config with
+    | Some choice_json when config.kind = Provider_config.Glm ->
+        ("tool_choice", choice_json) :: body
     | Some choice_json when supports_tool_choice ->
         ("tool_choice", choice_json) :: body
     | None -> body
@@ -251,26 +264,19 @@ let%test "tool_choice_to_openai_json Tool name" =
   result |> member "type" |> to_string = "function"
   && result |> member "function" |> member "name" |> to_string = "my_tool"
 
-let%test "glm preserves named tool_choice" =
+let%test "glm coerces named tool_choice to auto" =
   let cfg = Provider_config.make
     ~kind:Provider_config.Glm ~model_id:"glm-5"
     ~base_url:Zai_catalog.general_base_url
     ~tool_choice:(Tool "calculator") () in
-  match effective_tool_choice cfg with
-  | Some (`Assoc _ as json) ->
-    let open Yojson.Safe.Util in
-    json |> member "type" |> to_string = "function"
-    && json |> member "function" |> member "name" |> to_string = "calculator"
-  | _ -> false
+  effective_tool_choice cfg = Some (`String "auto")
 
-let%test "glm preserves tool_choice any as required" =
+let%test "glm coerces tool_choice any to auto" =
   let cfg = Provider_config.make
     ~kind:Provider_config.Glm ~model_id:"glm-5"
     ~base_url:Zai_catalog.general_base_url
     ~tool_choice:Any () in
-  match effective_tool_choice cfg with
-  | Some (`String "required") -> true
-  | _ -> false
+  effective_tool_choice cfg = Some (`String "auto")
 
 let%test "glm drops tool_choice none" =
   let cfg = Provider_config.make
@@ -570,6 +576,29 @@ let%test "openai_messages_of_message assistant text only" =
   let json = List.hd result in
   let open Yojson.Safe.Util in
   json |> member "content" |> to_string = "hello"
+
+let%test "openai_messages_of_message assistant excludes reasoning from content" =
+  let msg = { role = Assistant; content = [
+    Thinking { thinking_type = "reasoning"; content = "hidden chain of thought" };
+    Text "final answer";
+  ]; name = None; tool_call_id = None } in
+  let result = openai_messages_of_message msg in
+  let json = List.hd result in
+  let open Yojson.Safe.Util in
+  json |> member "content" |> to_string = "final answer"
+  && json |> member "reasoning_content" = `Null
+
+let%test "glm_messages_of_message preserves reasoning_content separately" =
+  let msg = { role = Assistant; content = [
+    Thinking { thinking_type = "reasoning"; content = "step one" };
+    ToolUse { id = "tc1"; name = "calc"; input = `Assoc [("expr", `String "2+2")] };
+  ]; name = None; tool_call_id = None } in
+  let result = glm_messages_of_message msg in
+  let json = List.hd result in
+  let open Yojson.Safe.Util in
+  json |> member "content" |> to_string = ""
+  && json |> member "reasoning_content" |> to_string = "step one"
+  && json |> member "tool_calls" |> to_list |> List.length = 1
 
 let%test "openai_messages_of_message assistant blank text with tool_calls" =
   let msg = { role = Assistant; content = [
@@ -922,6 +951,30 @@ let%test "build_request omits tool_choice when tool_choice=None" =
   | `Assoc fields -> not (List.exists (fun (k, _) -> k = "tool_choice") fields)
   | _ -> false
 
+let%test "glm build_request coerces explicit tool_choice to auto" =
+  let config = Provider_config.make ~kind:Provider_config.Glm ~model_id:"glm-5.1"
+      ~base_url:Zai_catalog.coding_base_url ~tool_choice:(Tool "calc") () in
+  let body = build_request ~config ~messages:[] () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  json |> member "tool_choice" |> to_string = "auto"
+
+let%test "glm build_request replays reasoning_content without leaking it into content" =
+  let config = Provider_config.make ~kind:Provider_config.Glm ~model_id:"glm-5.1"
+      ~base_url:Zai_catalog.coding_base_url () in
+  let messages = [
+    { role = Assistant; content = [
+        Thinking { thinking_type = "reasoning"; content = "use calculator" };
+        ToolUse { id = "call_1"; name = "calc";
+                  input = `Assoc [("expr", `String "2+2")] };
+      ]; name = None; tool_call_id = None };
+  ] in
+  let body = build_request ~config ~messages () |> Yojson.Safe.from_string in
+  let open Yojson.Safe.Util in
+  let assistant = body |> member "messages" |> index 0 in
+  assistant |> member "content" |> to_string = ""
+  && assistant |> member "reasoning_content" |> to_string = "use calculator"
+
 let%test "build_request uses json_schema response_format when output_schema is set" =
   let schema =
     `Assoc
@@ -970,10 +1023,8 @@ let%test "supports_tool_choice_override=Some false drops tool_choice on unknown 
   | _ -> false
 
 let%test "supports_tool_choice_override=Some true forces tool_choice on capability-false model" =
-  (* min-p-disabled glm-5.1 has supports_tool_choice=true in its capability
-     record, so override flipping the other direction needs a model where
-     the capability record says false. Use mystery model with override
-     to simulate a verified-supports-it scenario. *)
+  (* Use an unknown model whose capability record defaults to
+     supports_tool_choice=false, then force-enable it via override. *)
   let config = Provider_config.make ~kind:OpenAI_compat ~model_id:"mystery-xyz-v1"
       ~base_url:"http://localhost" ~tool_choice:Any
       ~supports_tool_choice_override:true () in

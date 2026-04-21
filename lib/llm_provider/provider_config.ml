@@ -7,12 +7,14 @@
     can be shared with {!Types} without creating a module dependency cycle. *)
 type provider_kind = Provider_kind.t =
   | Anthropic
+  | Kimi
   | OpenAI_compat
   | Ollama
   | Gemini
   | Glm
   | Claude_code
   | Gemini_cli
+  | Kimi_cli
   | Codex_cli
 
 type t = {
@@ -69,11 +71,12 @@ let make ~kind ~model_id ~base_url
     | Some p -> p
     | None -> match kind with
       | Anthropic -> "/v1/messages"
+      | Kimi -> "/v1/messages"
       | OpenAI_compat -> "/v1/chat/completions"
       | Ollama -> "/api/chat"
       | Gemini -> ""
       | Glm -> "/chat/completions"
-      | Claude_code | Gemini_cli | Codex_cli -> ""
+      | Claude_code | Gemini_cli | Kimi_cli | Codex_cli -> ""
   in
   { kind; model_id; base_url; api_key; headers; request_path;
     max_tokens; max_context; temperature; top_p; top_k; min_p;
@@ -174,6 +177,9 @@ let validate_output_schema_request (config : t) =
   | Some _ ->
       match config.kind with
       | Gemini | Anthropic | Ollama -> Ok ()
+      | Kimi ->
+          Error
+            "Kimi direct API native json_schema output is not verified yet in OAS"
       | OpenAI_compat ->
           let caps =
             match Capabilities.for_model_id config.model_id with
@@ -194,7 +200,7 @@ let validate_output_schema_request (config : t) =
                  config.base_url)
       | Glm ->
           Error "GLM is currently wired for JSON mode only; native json_schema is not enabled"
-      | Claude_code | Gemini_cli | Codex_cli ->
+      | Claude_code | Gemini_cli | Kimi_cli | Codex_cli ->
           Error
             (Printf.sprintf "%s does not expose provider-native structured output in OAS"
                (string_of_provider_kind config.kind))

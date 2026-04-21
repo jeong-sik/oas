@@ -36,8 +36,12 @@ let text_blocks_to_string blocks =
 
 let json_of_string_or_raw s = Lenient_json.parse s
 
+type tool_result_content_style =
+  | Tool_result_content_string
+  | Tool_result_content_text_blocks
+
 (** Content block <-> JSON *)
-let content_block_to_json = function
+let content_block_to_json_with ~(tool_result_content_style : tool_result_content_style) = function
   | Text s -> `Assoc [("type", `String "text"); ("text", `String (Utf8_sanitize.sanitize s))]
   | Thinking { thinking_type; content } ->
       `Assoc [
@@ -55,10 +59,22 @@ let content_block_to_json = function
         ("input", input);
       ]
   | ToolResult { tool_use_id; content; is_error; _ } ->
+      let content_json =
+        match tool_result_content_style with
+        | Tool_result_content_string ->
+            `String (Utf8_sanitize.sanitize content)
+        | Tool_result_content_text_blocks ->
+            `List [
+              `Assoc [
+                ("type", `String "text");
+                ("text", `String (Utf8_sanitize.sanitize content));
+              ];
+            ]
+      in
       `Assoc [
         ("type", `String "tool_result");
         ("tool_use_id", `String tool_use_id);
-        ("content", `String (Utf8_sanitize.sanitize content));
+        ("content", content_json);
         ("is_error", `Bool is_error);
       ]
   | Image { media_type; data; source_type } ->
@@ -88,6 +104,9 @@ let content_block_to_json = function
           ("data", `String data);
         ]);
       ]
+
+let content_block_to_json =
+  content_block_to_json_with ~tool_result_content_style:Tool_result_content_string
 
 let content_block_of_json json =
   let open Yojson.Safe.Util in
@@ -141,6 +160,21 @@ let message_to_json (msg : message) =
   `Assoc [
     ("role", `String role_str);
     ("content", `List (List.map content_block_to_json msg.content));
+  ]
+
+let kimi_message_to_json (msg : message) =
+  let role_str = match msg.role with
+    | User | System | Tool -> "user"
+    | Assistant -> "assistant"
+  in
+  `Assoc [
+    ("role", `String role_str);
+    ("content",
+     `List
+       (List.map
+          (content_block_to_json_with
+             ~tool_result_content_style:Tool_result_content_text_blocks)
+          msg.content));
   ]
 
 (** Create HTTPS upgrade function using tls-eio *)

@@ -1,13 +1,14 @@
 (** Subprocess CLI transport demo.
 
-    Shows how to wire up the three non-interactive CLI transports
+    Shows how to wire up the four non-interactive CLI transports
     ([Transport_claude_code], [Transport_gemini_cli],
-    [Transport_codex_cli]), invoke a single completion through both
-    [complete_sync] and [complete_stream], and observe the new
-    [cancel] / [on_stderr_line] knobs added in v0.148.0+.
+    [Transport_kimi_cli], [Transport_codex_cli]), invoke a single
+    completion through both [complete_sync] and [complete_stream], and
+    observe the new [cancel] / [on_stderr_line] knobs added in
+    v0.148.0+.
 
     Prerequisites:
-    - At least one of [claude] / [gemini] / [codex] in [PATH]
+    - At least one of [claude] / [gemini] / [kimi] / [codex] in [PATH]
     - For real runs the CLI must be already authenticated (this demo
       makes a tiny "say hi" call that consumes a few tokens)
 
@@ -15,6 +16,7 @@
       dune exec examples/cli_transports_demo.exe                # auto-pick
       OAS_CLI_DEMO=claude dune exec examples/cli_transports_demo.exe
       OAS_CLI_DEMO=gemini dune exec examples/cli_transports_demo.exe
+      OAS_CLI_DEMO=kimi   dune exec examples/cli_transports_demo.exe
       OAS_CLI_DEMO=codex  dune exec examples/cli_transports_demo.exe
 *)
 
@@ -22,7 +24,7 @@ open Llm_provider
 
 let prompt = "Reply with a single word: hi"
 
-let make_request () : Llm_transport.completion_request =
+let make_request ~kind () : Llm_transport.completion_request =
   let messages : Types.message list =
     [ { role = User
       ; content = [ Text prompt ]
@@ -32,7 +34,7 @@ let make_request () : Llm_transport.completion_request =
   in
   let config =
     Provider_config.make
-      ~kind:Claude_code
+      ~kind
       ~model_id:""
       ~base_url:""
       ()
@@ -67,36 +69,43 @@ let pick_transport ~sw ~mgr =
     ignore on_stderr_line;  (* default already routes to traceln *)
     Transport_claude_code.create ~sw ~mgr
       ~config:Transport_claude_code.default_config,
-    "claude"
+    "claude", Provider_config.Claude_code
   in
   let gemini () =
     Transport_gemini_cli.create ~sw ~mgr
       ~config:Transport_gemini_cli.default_config,
-    "gemini"
+    "gemini", Provider_config.Gemini_cli
+  in
+  let kimi () =
+    Transport_kimi_cli.create ~sw ~mgr
+      ~config:Transport_kimi_cli.default_config,
+    "kimi", Provider_config.Kimi_cli
   in
   let codex () =
     Transport_codex_cli.create ~sw ~mgr
       ~config:Transport_codex_cli.default_config,
-    "codex"
+    "codex", Provider_config.Codex_cli
   in
   match env with
   | Some "claude" -> claude ()
   | Some "gemini" -> gemini ()
+  | Some "kimi"   -> kimi ()
   | Some "codex"  -> codex ()
   | _ ->
     if in_path "claude" then claude ()
     else if in_path "gemini" then gemini ()
+    else if in_path "kimi" then kimi ()
     else if in_path "codex" then codex ()
     else (
-      prerr_endline "No claude/gemini/codex binary in PATH; nothing to demo.";
+      prerr_endline "No claude/gemini/kimi/codex binary in PATH; nothing to demo.";
       exit 0)
 
 let () =
   Eio_main.run @@ fun env ->
   let mgr = Eio.Stdenv.process_mgr env in
   Eio.Switch.run @@ fun sw ->
-  let transport, name = pick_transport ~sw ~mgr in
-  let req = make_request () in
+  let transport, name, kind = pick_transport ~sw ~mgr in
+  let req = make_request ~kind () in
 
   Printf.printf "==> sync via %s\n" name;
   let { Llm_transport.response; latency_ms } = transport.complete_sync req in
