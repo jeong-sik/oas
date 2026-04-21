@@ -51,6 +51,10 @@
  (libraries agent_sdk alcotest yojson))
 
 (test
+ (name test_agent_config_deep)
+ (libraries agent_sdk alcotest yojson))
+
+(test
  (name test_agent_turn_budget_unit)
  (libraries agent_sdk alcotest))
 

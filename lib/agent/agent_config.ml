@@ -211,59 +211,78 @@ let load path =
   | Yojson.Json_error msg ->
     Error (Error.Io (FileOpFailed { op = "load"; path; detail = "JSON error: " ^ msg }))
 
-(** Resolve provider string + optional base_url to a Provider.config. *)
+(** Resolve provider string + optional base_url to a Provider.config.
+
+    Canonical provider kinds ({!Llm_provider.Provider_kind.t}) are dispatched
+    through {!Llm_provider.Provider_kind.of_string}, which accepts the
+    canonical wire forms (["anthropic"], ["openai_compat"], …) plus the
+    documented aliases (["claude"] -> Anthropic,
+    ["openai"] -> OpenAI_compat, ["llama"] -> Ollama), case-insensitively
+    with leading/trailing whitespace trimmed.
+
+    ["local"] remains a first-class routing shorthand (not a Provider_kind
+    variant) and is matched explicitly before the parser so that
+    ["LOCAL"] / [" local "] also reach the Local branch.
+
+    Any kind the parser recognises beyond Anthropic / OpenAI_compat — or
+    anything it does not recognise at all — falls through to the registry
+    lookup path, preserving the legacy [Custom_registered] behaviour that
+    downstream tests and configs depend on. *)
 let resolve_provider ~model_id provider_str base_url =
-  match provider_str with
-  | "local" ->
-      let url = match base_url with
-        | Some u -> u
-        | None -> Defaults.local_llm_url
-      in
-      { Provider.provider = Local { base_url = url };
-        model_id; api_key_env = "" }
-  | "anthropic" ->
-      { Provider.provider = Anthropic;
-        model_id; api_key_env = "ANTHROPIC_API_KEY" }
-  | "openai" ->
-      let url = match base_url with
-        | Some u -> u
-        | None -> "https://api.openai.com"
-      in
-      { Provider.provider = OpenAICompat {
-          base_url = url; auth_header = None;
-          path = "/v1/chat/completions"; static_token = None };
-        model_id; api_key_env = "OPENAI_API_KEY" }
-  | other ->
-      let registry = Llm_provider.Provider_registry.default () in
-      match Llm_provider.Provider_registry.find registry other with
-      | Some entry ->
-          (match base_url with
-           | None ->
-               (* Preserve registry-declared kind (Gemini/Glm/Ollama/etc.)
-                  via Custom_registered. Downstream (provider_config_of_agent,
-                  request_path, Capabilities, resolve) dispatches through
-                  Provider_registry by name, retaining entry.defaults.kind. *)
-               { Provider.provider = Custom_registered { name = other };
-                 model_id; api_key_env = entry.defaults.api_key_env }
-           | Some url ->
-               (* Explicit base_url override: legacy Provider.config variant
-                  cannot carry kind + arbitrary URL simultaneously, so kind
-                  flattens to OpenAI_compat. For kind-preserving override,
-                  construct Llm_provider.Provider_config.t directly via
-                  Provider_config.make. *)
-               { Provider.provider = OpenAICompat {
-                   base_url = url; auth_header = None;
-                   path = entry.defaults.request_path; static_token = None };
-                 model_id; api_key_env = entry.defaults.api_key_env })
-      | None ->
-          let url = match base_url with
-            | Some u -> u
-            | None -> Defaults.local_llm_url
-          in
-          { Provider.provider = OpenAICompat {
-              base_url = url; auth_header = None;
-              path = "/v1/chat/completions"; static_token = None };
-            model_id; api_key_env = other }
+  let normalized = String.lowercase_ascii (String.trim provider_str) in
+  if normalized = "local" then
+    let url = match base_url with
+      | Some u -> u
+      | None -> Defaults.local_llm_url
+    in
+    { Provider.provider = Local { base_url = url };
+      model_id; api_key_env = "" }
+  else
+    match Llm_provider.Provider_kind.of_string provider_str with
+    | Some Anthropic ->
+        { Provider.provider = Anthropic;
+          model_id; api_key_env = "ANTHROPIC_API_KEY" }
+    | Some OpenAI_compat ->
+        let url = match base_url with
+          | Some u -> u
+          | None -> "https://api.openai.com"
+        in
+        { Provider.provider = OpenAICompat {
+            base_url = url; auth_header = None;
+            path = "/v1/chat/completions"; static_token = None };
+          model_id; api_key_env = "OPENAI_API_KEY" }
+    | Some (Ollama | Gemini | Glm | Claude_code | Gemini_cli | Codex_cli)
+    | None ->
+        let registry = Llm_provider.Provider_registry.default () in
+        match Llm_provider.Provider_registry.find registry provider_str with
+        | Some entry ->
+            (match base_url with
+             | None ->
+                 (* Preserve registry-declared kind (Gemini/Glm/Ollama/etc.)
+                    via Custom_registered. Downstream (provider_config_of_agent,
+                    request_path, Capabilities, resolve) dispatches through
+                    Provider_registry by name, retaining entry.defaults.kind. *)
+                 { Provider.provider = Custom_registered { name = provider_str };
+                   model_id; api_key_env = entry.defaults.api_key_env }
+             | Some url ->
+                 (* Explicit base_url override: legacy Provider.config variant
+                    cannot carry kind + arbitrary URL simultaneously, so kind
+                    flattens to OpenAI_compat. For kind-preserving override,
+                    construct Llm_provider.Provider_config.t directly via
+                    Provider_config.make. *)
+                 { Provider.provider = OpenAICompat {
+                     base_url = url; auth_header = None;
+                     path = entry.defaults.request_path; static_token = None };
+                   model_id; api_key_env = entry.defaults.api_key_env })
+        | None ->
+            let url = match base_url with
+              | Some u -> u
+              | None -> Defaults.local_llm_url
+            in
+            { Provider.provider = OpenAICompat {
+                base_url = url; auth_header = None;
+                path = "/v1/chat/completions"; static_token = None };
+              model_id; api_key_env = provider_str }
 
 (** Convert mcp_file_config to a server spec for stdio, or connect HTTP directly. *)
 let connect_mcp_server ~sw ~mgr ~net mcp_cfg =
