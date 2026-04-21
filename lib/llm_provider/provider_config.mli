@@ -115,6 +115,12 @@ val all_provider_kinds : provider_kind list
     @since 0.166.0 *)
 val default_api_key_env : provider_kind -> string option
 
+(** Re-export of {!Provider_kind.is_subprocess_cli}. [true] for the
+    four CLI-subprocess kinds (Claude_code, Gemini_cli, Kimi_cli,
+    Codex_cli); [false] for direct-HTTP kinds.
+    @since 0.170.0 *)
+val is_subprocess_cli : provider_kind -> bool
+
 (** Canonical inverse of {!string_of_provider_kind}.
 
     Accepts every lowercase form produced by {!string_of_provider_kind} plus

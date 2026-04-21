@@ -35,6 +35,15 @@ val default_api_key_env : t -> string option
     ({!Claude_code}, {!Gemini_cli}, {!Codex_cli}), or shares a space where
     OAS does not dictate the env name ({!OpenAI_compat}). *)
 
+val is_subprocess_cli : t -> bool
+(** [true] for kinds whose transport is a subprocess CLI
+    ({!Claude_code}, {!Gemini_cli}, {!Kimi_cli}, {!Codex_cli}) rather
+    than a direct HTTP request. Centralizes a discrimination that used
+    to live as an inline [match _ with Claude_code | … -> true | _ ->
+    false] in several modules; lifting it here makes future variant
+    additions force an explicit categorization in the compiler.
+    @since 0.170.0 *)
+
 val to_string : t -> string
 (** Canonical lowercase wire form (e.g. [Anthropic -> "anthropic"]).
     Exhaustive — adding a new variant forces a compile error. *)

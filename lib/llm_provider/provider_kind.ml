@@ -43,6 +43,10 @@ let default_api_key_env = function
   | Glm -> Some "ZAI_API_KEY"
   | OpenAI_compat | Ollama | Claude_code | Gemini_cli | Kimi_cli | Codex_cli -> None
 
+let is_subprocess_cli = function
+  | Claude_code | Gemini_cli | Kimi_cli | Codex_cli -> true
+  | Anthropic | Kimi | OpenAI_compat | Ollama | Gemini | Glm -> false
+
 let of_string raw =
   match String.lowercase_ascii (String.trim raw) with
   | "anthropic" | "claude" -> Some Anthropic
