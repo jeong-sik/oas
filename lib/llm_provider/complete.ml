@@ -87,7 +87,7 @@ let reasoning_effort_of_config = Provider_config.reasoning_effort_of_config
     request completes. *)
 let patch_telemetry (resp : Types.api_response) ~(config : Provider_config.t)
     (latency_ms : int) : Types.api_response =
-  let pk = Some (Provider_config.string_of_provider_kind config.kind) in
+  let pk = Some config.kind in
   let re = reasoning_effort_of_config config in
   let base_caps = match config.kind with
     | Ollama -> Capabilities.ollama_capabilities
@@ -1021,7 +1021,7 @@ let%test "patch_telemetry fills latency and provider on existing telemetry" =
   | Some t -> t.request_latency_ms = 42
               && t.system_fingerprint = Some "fp-1"
               && t.reasoning_tokens = Some 10
-              && t.provider_kind = Some "ollama"
+              && t.provider_kind = Some Provider_config.Ollama
               && t.reasoning_effort = Some "none"
               && t.canonical_model_id = Some "qwen3.5:9b"
               && t.effective_context_window = Some 262_144
@@ -1038,7 +1038,7 @@ let%test "patch_telemetry creates telemetry when None" =
   let patched = patch_telemetry resp ~config 100 in
   match patched.telemetry with
   | Some t -> t.request_latency_ms = 100
-              && t.provider_kind = Some "openai_compat"
+              && t.provider_kind = Some Provider_config.OpenAI_compat
               && t.canonical_model_id = Some "gpt-4"
               && t.effective_context_window = Some 128_000
               && t.reasoning_effort = None

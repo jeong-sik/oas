@@ -8,8 +8,11 @@
     @stability Internal
     @since 0.93.1 *)
 
-(** Provider kind determines request/response wire format. *)
-type provider_kind =
+(** Provider kind determines request/response wire format.
+
+    Re-exported from {!Provider_kind} — the underlying type now lives there so
+    it can be shared with {!Types} without creating a dependency cycle. *)
+type provider_kind = Provider_kind.t =
   | Anthropic
   | OpenAI_compat
   | Ollama  (** Ollama: OpenAI compat wire format + reasoning_effort + no tool_choice. @since 0.112.0 *)

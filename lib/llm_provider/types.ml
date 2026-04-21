@@ -246,7 +246,7 @@ type inference_telemetry = {
   reasoning_tokens: int option;
   request_latency_ms: int;
   peak_memory_gb: float option;
-  provider_kind: string option;
+  provider_kind: Provider_kind.t option;
   reasoning_effort: string option;
   canonical_model_id: string option;
   effective_context_window: int option;

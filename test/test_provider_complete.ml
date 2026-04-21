@@ -98,7 +98,11 @@ let test_anthropic_parse_response_initializes_telemetry () =
   match resp.telemetry with
   | Some t ->
       Alcotest.(check int) "request_latency_ms defaults to zero" 0 t.request_latency_ms;
-      Alcotest.(check (option string)) "provider_kind placeholder" None t.provider_kind;
+      let provider_kind_t =
+        Alcotest.testable PC.pp_provider_kind (=)
+      in
+      Alcotest.(check (option provider_kind_t))
+        "provider_kind placeholder" None t.provider_kind;
       Alcotest.(check (option string)) "canonical model placeholder" None t.canonical_model_id
   | None ->
       Alcotest.fail "expected telemetry placeholder"

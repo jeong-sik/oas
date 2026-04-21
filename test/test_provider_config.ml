@@ -309,6 +309,85 @@ let test_of_yojson_rejects_non_string () =
     | Error _ -> ()
   ) cases
 
+(* ── telemetry wire-format regression ─────────────────── *)
+
+(** Build a throwaway inference_telemetry with only provider_kind varying.
+    Other fields carry placeholder values so the serialised payload is stable. *)
+let telemetry_with_kind (pk : Provider_config.provider_kind option)
+  : Types.inference_telemetry =
+  {
+    system_fingerprint = None;
+    timings = None;
+    reasoning_tokens = None;
+    request_latency_ms = 0;
+    peak_memory_gb = None;
+    provider_kind = pk;
+    reasoning_effort = None;
+    canonical_model_id = None;
+    effective_context_window = None;
+    provider_internal_action_count = None;
+  }
+
+(** Substring search helper local to this module. *)
+let contains_substring ~sub text =
+  let sub_len = String.length sub in
+  let text_len = String.length text in
+  let rec loop i =
+    if i + sub_len > text_len then false
+    else if String.sub text i sub_len = sub then true
+    else loop (i + 1)
+  in
+  sub_len = 0 || loop 0
+
+let test_wire_kind_lowercase () =
+  let cases =
+    [ Provider_config.Anthropic,   "\"provider_kind\":\"anthropic\"";
+      Provider_config.OpenAI_compat,"\"provider_kind\":\"openai_compat\"";
+      Provider_config.Ollama,       "\"provider_kind\":\"ollama\"";
+      Provider_config.Gemini,       "\"provider_kind\":\"gemini\"";
+      Provider_config.Glm,          "\"provider_kind\":\"glm\"";
+      Provider_config.Claude_code,  "\"provider_kind\":\"claude_code\"";
+      Provider_config.Gemini_cli,   "\"provider_kind\":\"gemini_cli\"";
+      Provider_config.Codex_cli,    "\"provider_kind\":\"codex_cli\"" ]
+  in
+  List.iter (fun (kind, expected_substring) ->
+    let json =
+      Types.inference_telemetry_to_yojson (telemetry_with_kind (Some kind))
+    in
+    let encoded = Yojson.Safe.to_string json in
+    Alcotest.(check bool)
+      (Printf.sprintf "wire for %s contains %s"
+         (Provider_config.string_of_provider_kind kind) expected_substring)
+      true (contains_substring ~sub:expected_substring encoded)
+  ) cases
+
+let test_wire_kind_none_roundtrip () =
+  let t = telemetry_with_kind None in
+  let encoded = Yojson.Safe.to_string (Types.inference_telemetry_to_yojson t) in
+  (* None should not produce "anthropic" / "ollama" / any kind string. *)
+  List.iter (fun s ->
+    Alcotest.(check bool)
+      (Printf.sprintf "None telemetry must not contain %S" s)
+      false (contains_substring ~sub:s encoded)
+  ) [ "\"anthropic\""; "\"ollama\""; "\"openai_compat\"" ]
+
+let test_wire_kind_roundtrip_via_yojson () =
+  (* End-to-end: record -> JSON string -> JSON tree -> record; the
+     provider_kind survives as the same typed constructor. *)
+  let original = telemetry_with_kind (Some Provider_config.Ollama) in
+  let encoded = Yojson.Safe.to_string (Types.inference_telemetry_to_yojson original) in
+  let decoded =
+    match Types.inference_telemetry_of_yojson (Yojson.Safe.from_string encoded) with
+    | Ok t -> t
+    | Error msg -> Alcotest.failf "roundtrip decode failed: %s" msg
+  in
+  match decoded.provider_kind with
+  | Some Ollama -> ()
+  | Some other ->
+    Alcotest.failf "roundtrip produced wrong variant: %s"
+      (Provider_config.string_of_provider_kind other)
+  | None -> Alcotest.fail "roundtrip produced None"
+
 (* ── Suite ────────────────────────────────────────────── *)
 
 let () =
@@ -376,5 +455,13 @@ let () =
         test_of_yojson_rejects_unknown_string;
       Alcotest.test_case "of_yojson non-string rejected" `Quick
         test_of_yojson_rejects_non_string;
+    ];
+    "telemetry_wire_format", [
+      Alcotest.test_case "kind emitted as lowercase canonical string" `Quick
+        test_wire_kind_lowercase;
+      Alcotest.test_case "None kind stays absent / no kind leaks" `Quick
+        test_wire_kind_none_roundtrip;
+      Alcotest.test_case "record JSON roundtrip preserves variant" `Quick
+        test_wire_kind_roundtrip_via_yojson;
     ];
   ]
