@@ -603,14 +603,21 @@ let default_retry_config = {
   backoff_multiplier = Constants.Retry.backoff_multiplier;
 }
 
-let is_retryable = function
-  | Http_client.HttpError { code; _ } ->
-      List.mem code Constants.Http.retryable_codes
-  | Http_client.AcceptRejected _ -> false
-  | Http_client.NetworkError _ -> true
+let classify_retry_error = function
+  | Http_client.HttpError { code; body } ->
+      Some (Retry.classify_error ~status:code ~body)
+  | Http_client.NetworkError { message } ->
+      Some (Retry.NetworkError { message })
+  | Http_client.AcceptRejected _ -> None
   (* Wiring bug, not transient — retrying cannot summon a missing
      transport. *)
-  | Http_client.CliTransportRequired _ -> false
+  | Http_client.CliTransportRequired _ -> None
+
+let is_retryable = function
+  | err ->
+      (match classify_retry_error err with
+       | Some api_err -> Retry.is_retryable api_err
+       | None -> false)
 
 let complete_with_retry ~sw ~net ?transport ~clock
     ~(config : Provider_config.t)
@@ -621,11 +628,18 @@ let complete_with_retry ~sw ~net ?transport ~clock
     let factor = Constants.Retry.jitter_min +. Random.float Constants.Retry.jitter_range in
     delay *. factor
   in
+  let sleep_delay_sec ~delay err =
+    match classify_retry_error err with
+    | Some (Retry.RateLimited { retry_after = Some retry_after; _ }) ->
+        retry_after
+    | Some _ | None ->
+        jittered delay
+  in
   let rec attempt n delay =
     match complete ~sw ~net ?transport ~config ~messages ~tools ?cache ?metrics ?priority () with
     | Ok _ as success -> success
     | Error err when is_retryable err && n < retry_config.max_retries ->
-        Eio.Time.sleep clock (jittered delay);
+        Eio.Time.sleep clock (sleep_delay_sec ~delay err);
         let next_delay =
           Float.min
             (delay *. retry_config.backoff_multiplier)
@@ -796,6 +810,15 @@ let make_http_transport ~sw ~net : Llm_transport.t = {
 let%test "is_retryable 429 rate limit" =
   is_retryable (Http_client.HttpError { code = 429; body = "" }) = true
 
+let%test "is_retryable 429 hard quota is false" =
+  not
+    (is_retryable
+       (Http_client.HttpError {
+          code = 429;
+          body =
+            {|{"error":{"message":"Insufficient balance or no resource package. Please recharge.","retry_after":5.0}}|};
+        }))
+
 let%test "is_retryable 500 server error" =
   is_retryable (Http_client.HttpError { code = 500; body = "" }) = true
 
@@ -810,6 +833,14 @@ let%test "is_retryable 529 overloaded" =
 
 let%test "is_retryable 400 not retryable" =
   is_retryable (Http_client.HttpError { code = 400; body = "" }) = false
+
+let%test "is_retryable 400 malformed json is true" =
+  is_retryable
+    (Http_client.HttpError {
+       code = 400;
+       body =
+         {|{"error":"Value looks like object, but can't find closing '}' symbol"}|};
+     })
 
 let%test "is_retryable 401 not retryable" =
   is_retryable (Http_client.HttpError { code = 401; body = "" }) = false
