@@ -14,6 +14,12 @@ type periodic_callback = Agent_types.periodic_callback = {
   callback: unit -> unit;
 }
 
+type tiered_memory = Types.tiered_memory = {
+  long_term: string option;
+  mid_term: string option;
+  short_term: string option;
+}
+
 type options = Agent_types.options = {
   base_url: string;
   provider: Provider.config option;
@@ -27,6 +33,7 @@ type options = Agent_types.options = {
   approval: Hooks.approval_callback option;
   tool_retry_policy: Tool_retry_policy.t option;
   context_reducer: Context_reducer.t option;
+  tiered_memory: tiered_memory option;
   context_injector: Hooks.context_injector option;
   mcp_clients: Mcp.managed list;
   event_bus: Event_bus.t option;

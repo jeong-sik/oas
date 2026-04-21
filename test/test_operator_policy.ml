@@ -150,6 +150,7 @@ let test_full_prepare_turn_with_operator () =
     ~tools
     ~messages:[]
     ~context_reducer:None
+    ~tiered_memory:None
     ~turn_params:Hooks.default_turn_params
     ()
   in

@@ -82,6 +82,12 @@ type model = string
     Delegates to {!Model_registry.resolve_model_id}. *)
 let model_to_string = Model_registry.resolve_model_id
 
+type tiered_memory = {
+  long_term: string option;
+  mid_term: string option;
+  short_term: string option;
+}
+
 (** Agent configuration *)
 type agent_config = {
   name: string;

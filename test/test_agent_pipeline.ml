@@ -525,6 +525,101 @@ let test_agent_run_guardrails () =
      | Error e -> fail (Error.to_string e))
   with Exit -> ()
 
+let prompt_token_estimate messages =
+  List.fold_left (fun acc msg ->
+    acc + Context_reducer.estimate_message_tokens msg) 0 messages
+
+let test_agent_run_tiered_memory_triggers_proactive_compaction () =
+  Eio_main.run @@ fun env ->
+  try
+    Eio.Switch.run @@ fun sw ->
+    let url = start_multi_mock ~sw ~net:env#net ~port:20011
+        [openai_text_response "compacted"] in
+    let provider : Provider.config = {
+      provider = Provider.Local { base_url = url };
+      model_id = "mock-model";
+      api_key_env = "";
+    } in
+    let tiered_memory : Agent.tiered_memory = {
+      long_term = Some (String.make 220 'r');
+      mid_term = None;
+      short_term = None;
+    } in
+    let estimated_tokens_seen = ref None in
+    let hooks = {
+      Hooks.empty with
+      pre_compact = Some (function
+        | Hooks.PreCompact info ->
+          estimated_tokens_seen := Some info.estimated_tokens;
+          Hooks.Continue
+        | _ -> Hooks.Continue);
+    } in
+    let config = {
+      Types.default_config with
+      name = "tiered-memory-compaction";
+      max_turns = 3;
+      context_compact_ratio = Some 0.0022;
+    } in
+    let options = {
+      Agent.default_options with
+      base_url = url;
+      provider = Some provider;
+      hooks;
+      tiered_memory = Some tiered_memory;
+    } in
+    let agent = Agent.create ~net:env#net ~config ~options () in
+    let raw_messages = [
+      { Types.role = User; content = [Text "search logs"]; name = None; tool_call_id = None };
+      { Types.role = Assistant;
+        content = [ToolUse { id = "tool_1"; name = "search"; input = `Assoc [("q", `String "errors")] }];
+        name = None;
+        tool_call_id = None };
+      { Types.role = User;
+        content = [ToolResult {
+          tool_use_id = "tool_1";
+          content = String.make 1000 'x';
+          is_error = false;
+          json = None;
+        }];
+        name = None;
+        tool_call_id = None };
+    ] in
+    Agent.update_state agent (fun state -> { state with messages = raw_messages });
+    let prompt = "continue" in
+    let raw_with_prompt_tokens =
+      prompt_token_estimate
+        (raw_messages @ [{ Types.role = User; content = [Text prompt]; name = None; tool_call_id = None }])
+    in
+    let watermark_tokens =
+      int_of_float
+        (0.0022 *. float_of_int
+           (Provider.resolve_max_context_tokens ~fallback:128_000 (Some provider)))
+    in
+    check bool "raw history stays below watermark" true
+      (raw_with_prompt_tokens < watermark_tokens);
+    (match Agent.run ~sw agent prompt with
+     | Ok resp ->
+       check string "final text" "compacted" (extract_text resp);
+       (match !estimated_tokens_seen with
+        | Some estimated_tokens ->
+          check bool "recall pushed estimated tokens higher" true
+            (estimated_tokens > raw_with_prompt_tokens)
+        | None -> fail "expected pre_compact hook to fire");
+       let tool_result_lengths =
+         Agent.state agent |> fun state ->
+         List.concat_map (fun (msg : Types.message) ->
+           List.filter_map (function
+             | Types.ToolResult { content; _ } -> Some (String.length content)
+             | _ -> None)
+             msg.content)
+           state.messages
+       in
+       check bool "tool result was compacted" true
+         (List.exists (fun len -> len < 1000) tool_result_lengths);
+       Eio.Switch.fail sw Exit
+     | Error e -> fail (Error.to_string e))
+  with Exit -> ()
+
 (* ── Runner ──────────────────────────────────────────── *)
 
 let () =
@@ -553,6 +648,8 @@ let () =
     "hooks_and_reducers", [
       test_case "hooks" `Quick test_agent_run_with_hooks;
       test_case "context reducer" `Quick test_agent_run_with_reducer;
+      test_case "tiered memory triggers compaction" `Quick
+        test_agent_run_tiered_memory_triggers_proactive_compaction;
       test_case "guardrails" `Quick test_agent_run_guardrails;
     ];
   ]

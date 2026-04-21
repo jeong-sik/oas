@@ -133,9 +133,18 @@ let prepare_turn_for_agent agent ~turn_params =
     ~policy_channel:agent.options.policy_channel
     ~tools:agent.tools
     ~messages:agent.state.messages
-    ~context_reducer:agent.options.context_reducer ~turn_params
+    ~context_reducer:agent.options.context_reducer
+    ~tiered_memory:agent.options.tiered_memory
+    ~turn_params
     ?tool_selector:agent.options.tool_selector
     ()
+
+let total_prompt_tokens_for_agent agent messages =
+  let raw_tokens =
+    List.fold_left (fun acc msg ->
+      acc + Context_reducer.estimate_message_tokens msg) 0 messages
+  in
+  raw_tokens + Agent_turn.tiered_memory_tokens agent.options.tiered_memory
 
 (** Invoke BeforeTurnParams hook, apply turn params, prepare tools.
     Returns (turn_preparation, original_config, turn_params). *)
@@ -617,8 +626,7 @@ let proactive_context_window_tokens agent =
     @since Phase 2 — proactive compaction *)
 let proactive_compact ?raw_trace_run agent ~watermark () =
   let messages = agent.state.messages in
-  let est_tokens = List.fold_left (fun acc msg ->
-    acc + Context_reducer.estimate_message_tokens msg) 0 messages in
+  let est_tokens = total_prompt_tokens_for_agent agent messages in
   let context_window_tokens = proactive_context_window_tokens agent in
   let usage_ratio =
     float_of_int est_tokens /. float_of_int context_window_tokens
@@ -646,12 +654,13 @@ let proactive_compact ?raw_trace_run agent ~watermark () =
       let reduced = Budget_strategy.reduce_for_budget
         ?summarizer:agent.options.summarizer
         ~usage_ratio:scaled_ratio ~messages () in
-      let reduced = match agent.options.context_reducer with
-        | Some reducer -> Context_reducer.reduce reducer reduced
-        | None -> reduced
+      let reduced =
+        Agent_turn.apply_context_reducer
+          ~messages:reduced
+          ~context_reducer:agent.options.context_reducer
+          ~tiered_memory:agent.options.tiered_memory
       in
-      let after_tokens = List.fold_left (fun acc msg ->
-        acc + Context_reducer.estimate_message_tokens msg) 0 reduced in
+      let after_tokens = total_prompt_tokens_for_agent agent reduced in
       if after_tokens >= est_tokens then false
       else begin
         let phase =
@@ -704,8 +713,7 @@ let proactive_compact ?raw_trace_run agent ~watermark () =
     Returns [true] if messages were actually reduced. *)
 let emergency_compact ?raw_trace_run agent ?limit () =
   let messages = agent.state.messages in
-  let est_tokens = List.fold_left (fun acc msg ->
-    acc + Context_reducer.estimate_message_tokens msg) 0 messages in
+  let est_tokens = total_prompt_tokens_for_agent agent messages in
   let budget = match limit with
     | Some l -> l
     | None -> est_tokens
@@ -722,12 +730,13 @@ let emergency_compact ?raw_trace_run agent ?limit () =
     let reduced = Budget_strategy.reduce_for_budget
       ?summarizer:agent.options.summarizer
       ~usage_ratio:1.0 ~messages () in
-    let reduced = match agent.options.context_reducer with
-      | Some reducer -> Context_reducer.reduce reducer reduced
-      | None -> reduced
+    let reduced =
+      Agent_turn.apply_context_reducer
+        ~messages:reduced
+        ~context_reducer:agent.options.context_reducer
+        ~tiered_memory:agent.options.tiered_memory
     in
-    let after_tokens = List.fold_left (fun acc msg ->
-      acc + Context_reducer.estimate_message_tokens msg) 0 reduced in
+    let after_tokens = total_prompt_tokens_for_agent agent reduced in
     if after_tokens >= est_tokens then false
     else begin
       let phase = "emergency" in
@@ -805,8 +814,7 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
       | Some w when w > 0.0 && w < 1.0 -> w
       | _ -> 0.9  (* hard floor: compact before 90% regardless of config *)
     in
-    let est_tokens = List.fold_left (fun acc msg ->
-      acc + Context_reducer.estimate_message_tokens msg) 0 agent.state.messages in
+    let est_tokens = total_prompt_tokens_for_agent agent agent.state.messages in
     let context_window = proactive_context_window_tokens agent in
     let ratio = float_of_int est_tokens /. float_of_int context_window in
     if ratio >= watermark then begin
@@ -854,8 +862,7 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
       | Some w when w > 0.0 && w < 1.0 -> w
       | _ -> 0.9
     in
-    let est_tokens = List.fold_left (fun acc msg ->
-      acc + Context_reducer.estimate_message_tokens msg) 0 agent.state.messages in
+    let est_tokens = total_prompt_tokens_for_agent agent agent.state.messages in
     let context_window = proactive_context_window_tokens agent in
     let ratio = float_of_int est_tokens /. float_of_int context_window in
     if ratio >= watermark then begin

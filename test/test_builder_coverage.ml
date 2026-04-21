@@ -184,6 +184,7 @@ let test_agent_default_options () =
   Alcotest.(check bool) "no event_bus" true (opts.event_bus = None);
   Alcotest.(check bool) "no skill_registry" true (opts.skill_registry = None);
   Alcotest.(check bool) "no memory" true (opts.memory = None);
+  Alcotest.(check bool) "no tiered_memory" true (opts.tiered_memory = None);
   Alcotest.(check int) "max_idle_turns" 3 opts.max_idle_turns;
   Alcotest.(check int) "empty mcp" 0 (List.length opts.mcp_clients)
 

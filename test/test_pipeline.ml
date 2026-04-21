@@ -103,6 +103,7 @@ let test_agent_turn_preparation () =
     ~policy_channel:None
     ~tools ~messages
     ~context_reducer:None
+    ~tiered_memory:None
     ~turn_params:Hooks.default_turn_params () in
   (* tools_json should be Some with 2 tools *)
   (match prep.tools_json with
@@ -273,6 +274,7 @@ let test_prepare_turn_no_tools () =
     ~policy_channel:None
     ~tools:Tool_set.empty ~messages
     ~context_reducer:None
+    ~tiered_memory:None
     ~turn_params:Hooks.default_turn_params () in
   (match prep.tools_json with
    | None -> ()
@@ -291,6 +293,7 @@ let test_prepare_turn_preserves_messages () =
     ~policy_channel:None
     ~tools:Tool_set.empty ~messages
     ~context_reducer:None
+    ~tiered_memory:None
     ~turn_params:Hooks.default_turn_params () in
   Alcotest.(check int) "3 messages" 3 (List.length prep.effective_messages)
 
@@ -526,6 +529,7 @@ let test_prepare_turn_extra_context () =
     ~policy_channel:None
     ~tools:Tool_set.empty ~messages
     ~context_reducer:None
+    ~tiered_memory:None
     ~turn_params () in
   (* Extra context is appended at the end to preserve prefix for KV cache *)
   Alcotest.(check int) "2 messages (original + context)" 2
@@ -555,6 +559,7 @@ let test_prepare_turn_tool_filter_override () =
     ~policy_channel:None
     ~tools ~messages
     ~context_reducer:None
+    ~tiered_memory:None
     ~turn_params () in
   match prep.tools_json with
   | Some tools_json ->
