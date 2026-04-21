@@ -250,6 +250,7 @@ let parse_ollama_response json_str =
     in
     let reasoning_tokens = None in
     Some { Types.system_fingerprint; timings; reasoning_tokens; request_latency_ms = 0;
+            peak_memory_gb = None;
             provider_kind = None; reasoning_effort = None;
             canonical_model_id = None; effective_context_window = None }
   in

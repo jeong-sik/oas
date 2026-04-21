@@ -114,6 +114,7 @@ let patch_telemetry (resp : Types.api_response) ~(config : Provider_config.t)
         timings = None;
         reasoning_tokens = None;
         request_latency_ms = latency_ms;
+        peak_memory_gb = None;
         provider_kind = pk;
         reasoning_effort = re;
         canonical_model_id = canonical;
@@ -961,6 +962,7 @@ let%test "patch_telemetry fills latency and provider on existing telemetry" =
       Types.system_fingerprint = Some "fp-1";
       timings = None; reasoning_tokens = Some 10;
       request_latency_ms = 0;
+      peak_memory_gb = None;
       provider_kind = None; reasoning_effort = None;
       canonical_model_id = None; effective_context_window = None;
     };

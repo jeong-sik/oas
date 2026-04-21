@@ -7,6 +7,44 @@
 
 open Types
 
+let first_some a b =
+  match a with
+  | Some _ -> a
+  | None -> b
+
+let member_int_fallback json field_names =
+  let open Yojson.Safe.Util in
+  let rec loop = function
+    | [] -> None
+    | key :: rest ->
+        (match json |> member key |> to_int_option with
+         | Some _ as value -> value
+         | None -> loop rest)
+  in
+  loop field_names
+
+let member_float_fallback json field_names =
+  let open Yojson.Safe.Util in
+  let rec loop = function
+    | [] -> None
+    | key :: rest ->
+        let value =
+          match json |> member key with
+          | `Float f -> Some f
+          | `Int i -> Some (float_of_int i)
+          | _ -> None
+        in
+        (match value with
+         | Some _ -> value
+         | None -> loop rest)
+  in
+  loop field_names
+
+let derive_ms token_count tok_per_sec =
+  match token_count, tok_per_sec with
+  | Some n, Some v when v > 0.0 -> Some (float_of_int n /. v *. 1000.0)
+  | _ -> None
+
 let strip_json_markdown_fences text =
   let trimmed = String.trim text in
   if String.length trimmed < 7 || String.sub trimmed 0 3 <> "```" then
@@ -27,7 +65,8 @@ let usage_of_openai_json json =
     None
   else
     let prompt_tokens =
-      usage |> member "prompt_tokens" |> to_int_option |> Option.value ~default:0 in
+      member_int_fallback usage [ "prompt_tokens"; "input_tokens" ]
+      |> Option.value ~default:0 in
     let cached_tokens =
       let details = usage |> member "prompt_tokens_details" in
       if details = `Null then 0
@@ -37,7 +76,8 @@ let usage_of_openai_json json =
       {
         input_tokens = prompt_tokens;
         output_tokens =
-          usage |> member "completion_tokens" |> to_int_option |> Option.value ~default:0;
+          member_int_fallback usage [ "completion_tokens"; "output_tokens" ]
+          |> Option.value ~default:0;
         cache_creation_input_tokens = 0;
         cache_read_input_tokens = cached_tokens;
         cost_usd = None
@@ -48,24 +88,61 @@ let usage_of_openai_json json =
     cloud providers return [None] for those fields. *)
 let telemetry_of_openai_json json =
   let open Yojson.Safe.Util in
+  let usage = json |> member "usage" in
+  let usage_int keys =
+    if usage = `Null then None else member_int_fallback usage keys in
+  let usage_float keys =
+    if usage = `Null then None else member_float_fallback usage keys in
   let system_fingerprint =
     json |> member "system_fingerprint" |> to_string_option in
+  let t = json |> member "timings" in
+  let prompt_n =
+    first_some
+      (if t = `Null then None else member_int_fallback t [ "prompt_n" ])
+      (usage_int [ "prompt_tokens"; "input_tokens" ])
+  in
+  let prompt_per_second =
+    first_some
+      (if t = `Null then None
+       else member_float_fallback t [ "prompt_per_second"; "prompt_tps" ])
+      (first_some
+         (member_float_fallback json [ "prompt_tps" ])
+         (usage_float [ "prompt_tps"; "prompt_per_second" ]))
+  in
+  let predicted_n =
+    first_some
+      (if t = `Null then None else member_int_fallback t [ "predicted_n" ])
+      (usage_int [ "completion_tokens"; "output_tokens" ])
+  in
+  let predicted_per_second =
+    first_some
+      (if t = `Null then None
+       else member_float_fallback t [ "predicted_per_second"; "generation_tps" ])
+      (first_some
+         (member_float_fallback json [ "generation_tps" ])
+         (usage_float [ "generation_tps"; "predicted_per_second" ]))
+  in
   let timings =
-    let t = json |> member "timings" in
-    if t = `Null then None
+    if t = `Null && prompt_per_second = None && predicted_per_second = None then None
     else Some {
-      Types.prompt_n = t |> member "prompt_n" |> to_int_option;
-      prompt_ms = t |> member "prompt_ms" |> to_float_option;
-      prompt_per_second = t |> member "prompt_per_second" |> to_float_option;
-      predicted_n = t |> member "predicted_n" |> to_int_option;
-      predicted_ms = t |> member "predicted_ms" |> to_float_option;
-      predicted_per_second = t |> member "predicted_per_second" |> to_float_option;
-      cache_n = t |> member "cache_n" |> to_int_option;
+      Types.prompt_n;
+      prompt_ms =
+        first_some
+          (if t = `Null then None else member_float_fallback t [ "prompt_ms" ])
+          (derive_ms prompt_n prompt_per_second);
+      prompt_per_second;
+      predicted_n;
+      predicted_ms =
+        first_some
+          (if t = `Null then None else member_float_fallback t [ "predicted_ms" ])
+          (derive_ms predicted_n predicted_per_second);
+      predicted_per_second;
+      cache_n =
+        if t = `Null then None else member_int_fallback t [ "cache_n" ];
     }
   in
   let reasoning_tokens =
     let from_details =
-      let usage = json |> member "usage" in
       if usage = `Null then None
       else
         let details = usage |> member "completion_tokens_details" in
@@ -83,18 +160,26 @@ let telemetry_of_openai_json json =
           with _ -> `Null
         in
         let reasoning_text =
-          match msg |> member "reasoning_content" with
-          | `String s when not (Api_common.string_is_blank s) -> Some s
-          | _ ->
-            (match msg |> member "reasoning" with
-             | `String s when not (Api_common.string_is_blank s) -> Some s
-             | _ -> None)
+          if msg = `Null then None
+          else
+            match msg |> member "reasoning_content" with
+            | `String s when not (Api_common.string_is_blank s) -> Some s
+            | _ ->
+              (match msg |> member "reasoning" with
+               | `String s when not (Api_common.string_is_blank s) -> Some s
+               | _ -> None)
         in
         (match reasoning_text with
          | Some s -> Some (max 1 (String.length s / 4))
          | None -> None)
   in
+  let peak_memory_gb =
+    first_some
+      (member_float_fallback json [ "peak_memory"; "peak_memory_gb" ])
+      (usage_float [ "peak_memory"; "peak_memory_gb" ])
+  in
   Some { Types.system_fingerprint; timings; reasoning_tokens; request_latency_ms = 0;
+         peak_memory_gb;
          provider_kind = None; reasoning_effort = None;
          canonical_model_id = None; effective_context_window = None }
 
@@ -196,3 +281,47 @@ let parse_openai_response_result json_str =
         err |> member "message" |> to_string_option |> Option.value ~default:"Unknown API error"
       in
       Error msg
+
+let%test "usage_of_openai_json supports mlx_vlm input/output token fields" =
+  let json = `Assoc [
+    ("usage", `Assoc [
+      ("input_tokens", `Int 11);
+      ("output_tokens", `Int 5);
+      ("total_tokens", `Int 16);
+    ]);
+  ] in
+  match usage_of_openai_json json with
+  | Some u -> u.input_tokens = 11 && u.output_tokens = 5
+  | None -> false
+
+let%test "telemetry_of_openai_json synthesizes timings from mlx_vlm usage" =
+  let json = `Assoc [
+    ("usage", `Assoc [
+      ("input_tokens", `Int 11);
+      ("output_tokens", `Int 5);
+      ("prompt_tps", `Float 21.55);
+      ("generation_tps", `Float 81.56);
+    ]);
+    ("peak_memory", `Float 52.66);
+  ] in
+  match telemetry_of_openai_json json with
+  | Some { timings = Some t; peak_memory_gb = Some peak; _ } ->
+      t.prompt_n = Some 11
+      && t.predicted_n = Some 5
+      && Option.value ~default:0.0 t.prompt_per_second > 21.5
+      && Option.value ~default:0.0 t.predicted_per_second > 81.5
+      && Option.value ~default:0.0 t.prompt_ms > 500.0
+      && Option.value ~default:0.0 t.predicted_ms > 60.0
+      && peak = 52.66
+  | _ -> false
+
+let%test "telemetry_of_openai_json keeps timings none without timing signals" =
+  let json = `Assoc [
+    ("usage", `Assoc [
+      ("prompt_tokens", `Int 11);
+      ("completion_tokens", `Int 5);
+    ]);
+  ] in
+  match telemetry_of_openai_json json with
+  | Some { timings = None; peak_memory_gb = None; _ } -> true
+  | _ -> false
