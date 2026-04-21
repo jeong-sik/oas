@@ -3,9 +3,11 @@
 Defines what an agent SDK needs to know about an LLM provider/model
 to make correct runtime decisions.
 
-Based on analysis of 20+ models across 10 providers (March 2026).
+Historical baseline from the March 2026 capability survey. Structured
+output notes in this document were revalidated against official provider
+docs and the current OAS serializers on 2026-04-21.
 
-## Current State (v0.71.0)
+## Historical Baseline (v0.71.0)
 
 ```ocaml
 type capabilities = {
@@ -22,6 +24,12 @@ type capabilities = {
 
 8 boolean fields. No numeric limits. `supports_reasoning` conflates
 4 distinct mechanisms. `supports_multimodal_inputs` conflates 3 modalities.
+
+Current OAS code has already added many of the proposed fields in
+`lib/llm_provider/capabilities.ml`. This document is still useful as a
+design note, but the structured output section below is the authoritative
+reference for the difference between official provider support and current
+OAS wiring.
 
 ## Proposed: 3-Tier Capability Model
 
@@ -48,8 +56,8 @@ Cloud providers need hardcoded lookup tables keyed by model_id.
 | `supports_think_tool` | missing | add | Anthropic-only. Mid-reasoning pause between tool calls. |
 | `supports_adaptive_reasoning` | missing | add | Model auto-selects depth. Opus 4.6, Gemini 3 dynamic. |
 | `supports_reasoning_budget` | missing | add | budget_tokens (Anthropic), reasoning_effort (OpenAI), thinking_level (Gemini). |
-| `supports_structured_output` | missing | add | JSON schema 100% guarantee (OpenAI/Gemini) vs JSON mode (DeepSeek) vs via tool_use (Anthropic). |
-| `supports_response_format_json` | exists | keep (subset of structured_output) | |
+| `supports_structured_output` | exists in code | keep, tighten semantics | Use only for provider-native schema-constrained output APIs. Do not use it for JSON mode or "prompt with schema text + app-side validator" patterns. |
+| `supports_response_format_json` | exists in code | keep, separate from schema guarantee | JSON mode means "return valid JSON" only. It is not a subset of native schema support and still requires caller-side shape validation. |
 | `supports_caching` | missing | add | Prompt caching: Anthropic (90% savings), OpenAI, Gemini, DeepSeek. |
 | `supports_computer_use` | missing | add | Claude, GPT-5.4 native. New tool category. |
 | `supports_code_execution` | missing | add | Gemini built-in, OpenAI code_interpreter. Server-side sandbox. |
@@ -70,6 +78,43 @@ Consider adding:
 |-------|-----------|
 | `Openai_responses` request_kind | OpenAI Responses API: server-side state, built-in tools, remote MCP. Distinct from chat completions. |
 | `supports_remote_mcp` | OpenAI Responses API passes MCP servers as API parameters. |
+
+## Structured Output Semantics (updated 2026-04-21)
+
+Use two layers when discussing structured output support:
+
+- Official provider capability: what the provider's documented API can do.
+- Current OAS wiring: what the current serializer path actually sends on
+  the wire today.
+
+Semantic contract:
+
+- `supports_response_format_json` — the provider can be asked to return
+  syntactically valid JSON. The caller must still validate the shape.
+- `supports_structured_output` — the provider exposes a native request
+  field for schema-constrained output, so the schema is enforced by the
+  provider rather than only by prompt instructions or app-side retries.
+
+The two flags are related but not interchangeable:
+
+- OpenAI, Gemini, Anthropic, and Ollama officially support both JSON mode
+  and native schema-constrained output.
+- GLM's current official docs describe JSON mode via
+  `response_format = {"type":"json_object"}` plus prompt/schema guidance,
+  but do not document a separate native JSON-schema request field.
+- Generic OpenAI-compatible servers must be treated as host-specific. Do
+  not infer native schema support from wire compatibility alone.
+
+### Structured Output: Official Support vs Current OAS Wiring
+
+| Provider | Official API surface | Guarantee level | Current OAS wiring | Note / risk |
+|----------|----------------------|-----------------|--------------------|-------------|
+| OpenAI | `response_format: {type: "json_schema", ...}` plus JSON mode `json_object` | Native schema guarantee + JSON mode | `backend_openai.ml` currently emits `json_object` only | Capability records may say structured output before the serializer reaches the native schema path. |
+| Gemini | `generationConfig.responseMimeType = "application/json"` plus `responseJsonSchema` / `responseSchema` | Native schema guarantee + JSON mode | `backend_gemini.ml` currently emits `responseMimeType` only | OAS does not yet send the schema field, so this is JSON mode in practice today. |
+| Anthropic | `output_config.format` for JSON outputs; strict tool use is separate | Native schema guarantee for JSON outputs; strict tool use validates tool names and inputs, not assistant text shape | `backend_anthropic.ml` does not emit `output_config.format`; `lib/structured.ml` still describes tool-use extraction | Do not describe Anthropic structured output as "tool-use only". |
+| Ollama | `/api/chat` `format` accepts `"json"` or a JSON schema | JSON mode or native schema guarantee, depending on `format` | `backend_ollama.ml` does not emit `format` today | Native server capability exists, but OAS has not wired it yet. |
+| GLM | `response_format = {"type":"json_object"}` plus prompt/schema-in-text guidance | JSON mode only in the current official docs | `backend_glm.ml` inherits the OpenAI-style `json_object` path | Keep caller-side validation; do not treat this as provider-native schema enforcement. |
+| Generic OpenAI-compatible / llama.cpp | Varies by server, release, and host integration | Host-specific; do not assume schema support | OAS should treat this as opt-in or host-specific behavior, not a generic capability | OpenAI-compatible wire shape is not enough evidence for native schema support. |
 
 ## Thinking Taxonomy
 
@@ -105,10 +150,14 @@ as the union. Audio/video can be added later.
 
 ## Model Capability Matrix (reference)
 
+Structured column note: values below describe official provider capability,
+not necessarily current OAS serializer wiring. See the table above for the
+runtime distinction.
+
 | Model | ctx | out | tools | parallel | thinking | structured | vision | cache |
 |-------|-----|-----|-------|----------|----------|------------|--------|-------|
-| Claude Opus 4.6 | 1M | 128K | Y | Y | adaptive | via tool | Y | Y |
-| Claude Sonnet 4.6 | 1M | 64K | Y | Y | extended | via tool | Y | Y |
+| Claude Opus 4.6 | 1M | 128K | Y | Y | adaptive | schema | Y | Y |
+| Claude Sonnet 4.6 | 1M | 64K | Y | Y | extended | schema | Y | Y |
 | GPT-5.4 | 1.05M | 128K | Y | Y | Y | schema | Y | Y |
 | Gemini 3.1 Pro | 1M | 65K | Y | Y | dynamic | schema | Y+A+V | Y |
 | Gemini 3 Flash | 1M | 64K | Y | Y | dynamic | schema | Y+A+V | Y |
@@ -121,7 +170,7 @@ as the union. Audio/video can be added later.
 | Mistral Small 4 | 256K | ? | Y | Y | Y | Y | Y | Y |
 | Cohere Command A | 256K | 32K | Y | Y | N | Y | N | ? |
 | Grok 4 | 2M | ? | Y | Y | Y | Y | limited | Y |
-| GLM-5 | 200K | 128K | Y | ? | Y | Y | ? | ? |
+| GLM-5 | 200K | 128K | Y | ? | Y | JSON only | ? | ? |
 
 ## Implementation Plan
 
@@ -133,7 +182,10 @@ as the union. Audio/video can be added later.
 
 ### Phase 2: Thinking split + structured output
 - Split `supports_reasoning` → keep as union + add `supports_extended_thinking`
-- Add `supports_structured_output`, `supports_caching`
+- Keep `supports_structured_output` and `supports_response_format_json` as distinct contracts
+- Wire native schema request paths only where the official provider API exposes them
+- Keep JSON mode + caller-side validation for providers whose current official docs stop at `json_object`
+- Add `supports_caching`
 - Add `supports_reasoning_budget`
 
 ### Phase 3: New modalities
@@ -146,9 +198,16 @@ as the union. Audio/video can be added later.
 
 ## Sources
 
-- Anthropic Claude docs (platform.claude.com)
-- OpenAI GPT-5.4 docs (developers.openai.com)
-- Google Gemini docs (ai.google.dev)
+Structured output claims in this pass were revalidated against official
+docs on 2026-04-21. Other rows in the broader matrix remain background
+reference from the March 2026 survey unless otherwise noted.
+
+- [근거] OpenAI Structured Outputs: https://platform.openai.com/docs/guides/structured-outputs — checked 2026-04-21 — High
+- [근거] Gemini Structured Outputs: https://ai.google.dev/gemini-api/docs/structured-output — checked 2026-04-21 — High
+- [근거] Anthropic Structured Outputs: https://platform.claude.com/docs/en/build-with-claude/structured-outputs — checked 2026-04-21 — High
+- [근거] Ollama Structured Outputs: https://docs.ollama.com/capabilities/structured-outputs — checked 2026-04-21 — High
+- [근거] Ollama `/api/chat` format field: https://docs.ollama.com/api/chat — checked 2026-04-21 — High
+- [근거] GLM Structured Output overview: https://docs.z.ai/guides/capabilities/struct-output — checked 2026-04-21 — High
 - Qwen 3.5 blog (qwen.ai)
 - Meta Llama 4 (llama.com)
 - DeepSeek API docs (api-docs.deepseek.com)
@@ -158,4 +217,5 @@ as the union. Audio/video can be added later.
 - MCP specification 2025-11-25
 - arxiv: SimpleTool (2603.00030), SelfBudgeter (2505.11274), Agent Skills (2602.12430)
 
-Analysis date: 2026-03-20.
+Structured output section revalidated: 2026-04-21.
+Full matrix baseline: 2026-03-20.
