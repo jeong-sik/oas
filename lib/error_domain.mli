@@ -29,6 +29,7 @@ type provider_error = [
   | `Provider_timeout of string
   | `Overloaded
   | `Invalid_request of string
+  | `Not_found of string
   | `Context_overflow of string * int option
 ]
 

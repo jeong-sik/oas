@@ -6,6 +6,7 @@ type api_error =
   | ServerError of { status: int; message: string }
   | AuthError of { message: string }
   | InvalidRequest of { message: string }
+  | NotFound of { message: string }
   | ContextOverflow of { message: string; limit: int option }
   | NetworkError of { message: string }
   | Timeout of { message: string }
@@ -30,6 +31,7 @@ let error_message = function
   | ServerError r -> Printf.sprintf "Server error %d: %s" r.status r.message
   | AuthError r -> Printf.sprintf "Auth error: %s" r.message
   | InvalidRequest r -> Printf.sprintf "Invalid request: %s" r.message
+  | NotFound r -> Printf.sprintf "Not found: %s" r.message
   | ContextOverflow r ->
     let limit_str = match r.limit with
       | Some n -> Printf.sprintf " (limit: %d)" n
@@ -132,7 +134,7 @@ let is_retryable = function
   | InvalidRequest { message } ->
     (* Malformed JSON from model output is transient — retry may produce valid JSON. *)
     List.exists (fun needle -> contains_substring_ci ~haystack:message ~needle) malformed_json_indicators
-  | AuthError _ | ContextOverflow _ -> false
+  | AuthError _ | ContextOverflow _ | NotFound _ -> false
 
 let is_hard_quota = function
   | RateLimited { message; _ } -> is_hard_quota_message message
@@ -266,6 +268,7 @@ let classify_error ~status ~body : api_error =
       else parsed_retry_after
     in
     RateLimited { retry_after; message }
+  | 404 -> NotFound { message }
   | 529 -> Overloaded { message }
   | s when s >= 500 -> ServerError { status = s; message }
   | _ -> InvalidRequest { message }

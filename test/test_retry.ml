@@ -61,11 +61,11 @@ let test_classify_error_edge_cases () =
    | Retry.ServerError { message; _ } ->
        check string "raw body fallback" "not json at all" message
    | _ -> fail "expected ServerError with raw body");
-  (* unmapped status (e.g. 404) -> catch-all InvalidRequest *)
+  (* 404 -> NotFound *)
   (match Retry.classify_error ~status:404 ~body:"not found" with
-   | Retry.InvalidRequest { message } ->
-       check string "404 catch-all" "not found" message
-   | _ -> fail "expected InvalidRequest for 404")
+   | Retry.NotFound { message } ->
+       check string "404 not found" "not found" message
+   | _ -> fail "expected NotFound for 404")
 
 let test_is_retryable () =
   check bool "rate limited retryable" true
@@ -81,7 +81,9 @@ let test_is_retryable () =
   check bool "auth not retryable" false
     (Retry.is_retryable (Retry.AuthError { message = "" }));
   check bool "invalid request not retryable" false
-    (Retry.is_retryable (Retry.InvalidRequest { message = "" }))
+    (Retry.is_retryable (Retry.InvalidRequest { message = "" }));
+  check bool "not found not retryable" false
+    (Retry.is_retryable (Retry.NotFound { message = "" }))
 
 let test_error_message_all_variants () =
   let cases = [
@@ -90,6 +92,7 @@ let test_error_message_all_variants () =
     (Retry.ServerError { status = 503; message = "down" }, "Server error 503: down");
     (Retry.AuthError { message = "bad key" }, "Auth error: bad key");
     (Retry.InvalidRequest { message = "wrong" }, "Invalid request: wrong");
+    (Retry.NotFound { message = "no model" }, "Not found: no model");
     (Retry.NetworkError { message = "dns" }, "Network error: dns");
     (Retry.Timeout { message = "10s" }, "Timeout: 10s");
   ] in
