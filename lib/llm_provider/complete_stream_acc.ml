@@ -92,6 +92,24 @@ let finalize_stream_acc (acc : stream_acc) =
         let input = try Yojson.Safe.from_string text
           with Yojson.Json_error _ -> `Assoc [] in
         Some (Types.ToolUse { id; name; input })
+    | Some "tool_result" | Some "tool_result_error" ->
+        let tool_use_id =
+          match Hashtbl.find_opt acc.block_tool_ids idx with
+          | Some s -> s
+          | None -> ""
+        in
+        let is_error =
+          match Hashtbl.find_opt acc.block_types idx with
+          | Some "tool_result_error" -> true
+          | _ -> false
+        in
+        Some
+          (Types.ToolResult {
+             tool_use_id;
+             content = text;
+             is_error;
+             json = None;
+           })
     | _ -> None
   ) indices in
   Ok { Types.id = !(acc.id);

@@ -14,11 +14,16 @@ let message_fingerprint (m : Types.message) : Yojson.Safe.t =
   ]
 
 let request_fingerprint ~(config : Provider_config.t)
-    ~(messages : Types.message list) ?(tools=[]) () =
+    ~(messages : Types.message list) ?(tools=[])
+    ?runtime_mcp_policy () =
   let json = `Assoc [
     ("model_id", `String config.model_id);
     ("messages", `List (List.map message_fingerprint messages));
     ("tools", `List tools);
+    ("runtime_mcp_policy",
+     match runtime_mcp_policy with
+     | Some policy -> Llm_transport.runtime_mcp_policy_to_yojson policy
+     | None -> `Null);
   ] in
   let canonical = Yojson.Safe.to_string json in
   Digest.string canonical |> Digest.to_hex

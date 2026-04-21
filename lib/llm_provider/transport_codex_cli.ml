@@ -43,6 +43,119 @@ let default_config = {
 (* Prompt shaping, JSON helpers, and subprocess orchestration live in the
    shared [Cli_common_*] modules. *)
 
+type stream_state = {
+  next_index: int ref;
+  item_indices: (string, int) Hashtbl.t;
+  item_result_indices: (string, int) Hashtbl.t;
+}
+
+let create_stream_state () = {
+  next_index = ref 0;
+  item_indices = Hashtbl.create 8;
+  item_result_indices = Hashtbl.create 8;
+}
+
+let index_for_item (state : stream_state) item_id =
+  match Hashtbl.find_opt state.item_indices item_id with
+  | Some idx -> idx
+  | None ->
+    let idx = !(state.next_index) in
+    state.next_index := idx + 1;
+    Hashtbl.replace state.item_indices item_id idx;
+    idx
+
+let result_index_for_item (state : stream_state) item_id =
+  match Hashtbl.find_opt state.item_result_indices item_id with
+  | Some idx -> idx
+  | None ->
+    let idx = !(state.next_index) in
+    state.next_index := idx + 1;
+    Hashtbl.replace state.item_result_indices item_id idx;
+    idx
+
+let toml_string value = Yojson.Safe.to_string (`String value)
+
+let toml_string_list values =
+  "[" ^ String.concat "," (List.map toml_string values) ^ "]"
+
+let toml_string_assoc entries =
+  let body =
+    entries
+    |> List.map (fun (key, value) -> Printf.sprintf "%s=%s" key (toml_string value))
+    |> String.concat ","
+  in
+  "{" ^ body ^ "}"
+
+let server_tool_name ~server ~tool =
+  Printf.sprintf "mcp__%s__%s" server tool
+
+let text_of_mcp_result_json json =
+  let open Yojson.Safe.Util in
+  match json |> member "content" with
+  | `List blocks ->
+    let texts =
+      blocks
+      |> List.filter_map (fun block ->
+        match block |> member "type" |> to_string_option with
+        | Some "text" -> block |> member "text" |> to_string_option
+        | _ -> None)
+    in
+    if texts <> [] then String.concat "\n" texts
+    else Yojson.Safe.to_string json
+  | _ -> Yojson.Safe.to_string json
+
+let is_error_mcp_result_json json =
+  let open Yojson.Safe.Util in
+  (json |> member "is_error" |> to_bool_option |> Option.value ~default:false)
+  || (json |> member "isError" |> to_bool_option |> Option.value ~default:false)
+
+let content_blocks_of_jsonl lines =
+  let blocks = ref [] in
+  List.iter (fun line ->
+    try
+      let json = Yojson.Safe.from_string line in
+      match Cli_common_json.member_str "type" json with
+      | "item.completed" ->
+        let item = Yojson.Safe.Util.member "item" json in
+        let item_type = Cli_common_json.member_str "type" item in
+        if item_type = "agent_message" then
+          blocks := Types.Text (Cli_common_json.member_str "text" item) :: !blocks
+        else if item_type = "mcp_tool_call" then
+          let id = Cli_common_json.member_str "id" item in
+          let server = Cli_common_json.member_str "server" item in
+          let tool = Cli_common_json.member_str "tool" item in
+          let input =
+            match Yojson.Safe.Util.member "arguments" item with
+            | `Null -> `Assoc []
+            | json -> json
+          in
+          let name = server_tool_name ~server ~tool in
+          let result_json =
+            match Yojson.Safe.Util.member "result" item with
+            | `Null -> None
+            | json -> Some json
+          in
+          let tool_blocks =
+            match result_json with
+            | Some result_json ->
+              [
+                Types.ToolUse { id; name; input };
+                Types.ToolResult {
+                  tool_use_id = id;
+                  content = text_of_mcp_result_json result_json;
+                  is_error = is_error_mcp_result_json result_json;
+                  json = Some result_json;
+                };
+              ]
+            | None ->
+              [Types.ToolUse { id; name; input }]
+          in
+          blocks := List.rev_append tool_blocks !blocks
+      | _ -> ()
+    with Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ -> ()
+  ) lines;
+  List.rev !blocks
+
 (* ── CLI argument building ───────────────────────────── *)
 
 (** Threshold at which [build_args] stops passing the prompt as a
@@ -86,7 +199,7 @@ let stdin_for_prompt prompt =
    config fields have never had Codex equivalents and are still unused
    here.  Callers wanting those knobs should emit [-c ...] overrides
    via OAS_CODEX_CONFIG. *)
-let env_extra_args () =
+let legacy_env_extra_args () =
   let extras = ref [] in
   let add a = extras := !extras @ a in
   add ["-c"; "mcp_servers={}"];
@@ -109,7 +222,76 @@ let cli_model_override ~(config : config) ~(req_config : Provider_config.t) =
   | "" | "auto" -> config.model
   | _ -> Some (String.trim req_config.model_id)
 
-let build_args ~(config : config) ~(req_config : Provider_config.t) ~prompt =
+let runtime_mcp_overrides
+    (policy : Llm_transport.runtime_mcp_policy) :
+    (string list, string) result =
+  let add_server acc server =
+    let name = Llm_transport.runtime_mcp_server_name server in
+    match acc, server with
+    | Error _ as e, _ -> e
+    | Ok overrides, Llm_transport.Http_server { url; headers = []; _ } ->
+      Ok
+        (overrides
+         @ [Printf.sprintf "mcp_servers.%s.url=%s" name (toml_string url)])
+    | Ok _, Llm_transport.Http_server { headers = _ :: _; _ } ->
+      Error "codex_cli runtime MCP does not support inline HTTP headers yet"
+    | Ok overrides, Llm_transport.Stdio_server { command; args; env; _ } ->
+      Ok
+        (overrides
+         @ [
+             Printf.sprintf "mcp_servers.%s.command=%s"
+               name (toml_string command);
+             Printf.sprintf "mcp_servers.%s.args=%s"
+               name (toml_string_list args);
+           ]
+         @
+         if env = [] then []
+         else
+           [
+             Printf.sprintf "mcp_servers.%s.env=%s"
+               name (toml_string_assoc env);
+           ])
+  in
+  let server_overrides =
+    List.fold_left add_server (Ok ["mcp_servers={}"]) policy.servers
+  in
+  match server_overrides with
+  | Error _ as e -> e
+  | Ok overrides ->
+    let server_names =
+      match policy.allowed_server_names with
+      | [] ->
+        List.map Llm_transport.runtime_mcp_server_name policy.servers
+      | names -> names
+    in
+    let tool_overrides =
+      match policy.allowed_tool_names with
+      | [] -> []
+      | tool_names ->
+        List.concat_map (fun server_name ->
+          List.map (fun tool_name ->
+            Printf.sprintf "mcp_servers.%s.tools.%s.approval_mode=%s"
+              server_name tool_name (toml_string "approve")
+          ) tool_names
+        ) server_names
+    in
+    Ok (overrides @ tool_overrides)
+
+let non_mcp_env_extra_args () =
+  let extras = ref [] in
+  let add a = extras := !extras @ a in
+  (match Cli_common_env.get "OAS_CODEX_SANDBOX" with
+   | Some v -> add ["-s"; v]
+   | None -> ());
+  (match Cli_common_env.get "OAS_CODEX_PROFILE" with
+   | Some v -> add ["-p"; v]
+   | None -> ());
+  if Cli_common_env.bool "OAS_CODEX_SKIP_GIT" then
+    add ["--skip-git-repo-check"];
+  !extras
+
+let build_args ~(config : config) ~(req_config : Provider_config.t)
+    ?runtime_mcp_policy ~prompt () =
   let prompt_via_stdin = prompt_exceeds_argv_budget prompt in
   (* Order: exec-level flags come before the positional prompt.  When the
      prompt is too large for argv, pass "-" so Codex reads it from stdin. *)
@@ -119,9 +301,23 @@ let build_args ~(config : config) ~(req_config : Provider_config.t) ~prompt =
     | Some model -> ["--model"; model]
   in
   [config.codex_path; "exec"; "--json"]
-  @ env_extra_args ()
+  @ (match runtime_mcp_policy with
+     | Some policy -> (
+         match runtime_mcp_overrides policy with
+         | Ok overrides ->
+           List.concat_map (fun override -> ["-c"; override]) overrides
+         | Error _ -> [])
+     | None -> legacy_env_extra_args ())
   @ model_args
-  @ (if prompt_via_stdin then ["-"] else [prompt])
+  @ (match runtime_mcp_policy with
+     | Some (policy : Llm_transport.runtime_mcp_policy) ->
+       (match Cli_common_env.get "OAS_CODEX_SANDBOX" with
+        | Some _ -> non_mcp_env_extra_args ()
+        | None when policy.disable_builtin_tools ->
+          ["-s"; "read-only"] @ non_mcp_env_extra_args ()
+        | None -> non_mcp_env_extra_args ())
+     | None -> [])
+  @ [if prompt_via_stdin then "-" else prompt]
 
 (* ── JSONL envelope parsing ──────────────────────────── *)
 
@@ -140,9 +336,8 @@ let parse_usage json =
 
 (** Parse a single envelope into zero or more OAS sse_events.
     [command_execution] items do not map to an OAS concept — Codex runs
-    them transparently — so we emit no event for them and track them only
-    in inference telemetry. *)
-let events_of_line line =
+    them transparently — so we emit no event for them. *)
+let events_of_line_with_state (state : stream_state) line =
   try
     let json = Yojson.Safe.from_string line in
     let typ = Cli_common_json.member_str "type" json in
@@ -150,16 +345,79 @@ let events_of_line line =
     | "thread.started" ->
       let id = Cli_common_json.member_str "thread_id" json in
       [Types.MessageStart { id; model = "codex"; usage = None }]
+    | "item.started" ->
+      let item = Yojson.Safe.Util.member "item" json in
+      let item_type = Cli_common_json.member_str "type" item in
+      if item_type = "mcp_tool_call" then
+        let item_id = Cli_common_json.member_str "id" item in
+        let index = index_for_item state item_id in
+        let server = Cli_common_json.member_str "server" item in
+        let tool = Cli_common_json.member_str "tool" item in
+        let tool_name = server_tool_name ~server ~tool in
+        let arguments =
+          match Yojson.Safe.Util.member "arguments" item with
+          | `Null -> "{}"
+          | json -> Yojson.Safe.to_string json
+        in
+        [
+          Types.ContentBlockStart {
+            index;
+            content_type = "tool_use";
+            tool_id = Some item_id;
+            tool_name = Some tool_name;
+          };
+          Types.ContentBlockDelta {
+            index;
+            delta = Types.InputJsonDelta arguments;
+          };
+        ]
+      else []
     | "item.completed" ->
       let item = Yojson.Safe.Util.member "item" json in
       let item_type = Cli_common_json.member_str "type" item in
       if item_type = "agent_message" then
+        let item_id = Cli_common_json.member_str "id" item in
+        let index = index_for_item state item_id in
         let text = Cli_common_json.member_str "text" item in
-        [Types.ContentBlockStart {
-           index = 0; content_type = "text";
-           tool_id = None; tool_name = None };
-         Types.ContentBlockDelta { index = 0; delta = Types.TextDelta text };
-         Types.ContentBlockStop { index = 0 }]
+        [
+          Types.ContentBlockStart {
+            index;
+            content_type = "text";
+            tool_id = None;
+            tool_name = None;
+          };
+          Types.ContentBlockDelta { index; delta = Types.TextDelta text };
+          Types.ContentBlockStop { index };
+        ]
+      else if item_type = "mcp_tool_call" then
+        let item_id = Cli_common_json.member_str "id" item in
+        let tool_use_index = index_for_item state item_id in
+        let tool_result_events =
+          match Yojson.Safe.Util.member "result" item with
+          | `Null -> []
+          | result_json ->
+            let index = result_index_for_item state item_id in
+            let content_type =
+              if is_error_mcp_result_json result_json then
+                "tool_result_error"
+              else
+                "tool_result"
+            in
+            [
+              Types.ContentBlockStart {
+                index;
+                content_type;
+                tool_id = Some item_id;
+                tool_name = None;
+              };
+              Types.ContentBlockDelta {
+                index;
+                delta = Types.TextDelta (text_of_mcp_result_json result_json);
+              };
+              Types.ContentBlockStop { index };
+            ]
+        in
+        Types.ContentBlockStop { index = tool_use_index } :: tool_result_events
       else []  (* command_execution, etc. — no OAS mapping. *)
     | "turn.completed" ->
       let usage = parse_usage json in
@@ -175,7 +433,6 @@ let events_of_line line =
     actions rather than surfaced as OAS tool calls. *)
 let parse_jsonl_result ?(model_id = "codex") lines =
   let thread_id = ref "" in
-  let texts = ref [] in
   let usage = ref None in
   let provider_internal_action_count = ref 0 in
   List.iter (fun line ->
@@ -188,8 +445,6 @@ let parse_jsonl_result ?(model_id = "codex") lines =
       | "item.completed" ->
         let item = Yojson.Safe.Util.member "item" json in
         (match Cli_common_json.member_str "type" item with
-         | "agent_message" ->
-           texts := Cli_common_json.member_str "text" item :: !texts
          | "command_execution" ->
            incr provider_internal_action_count
          | _ -> ())
@@ -198,7 +453,7 @@ let parse_jsonl_result ?(model_id = "codex") lines =
       | _ -> ()
     with Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ -> ()
   ) lines;
-  let content = List.rev_map (fun t -> Types.Text t) !texts in
+  let content = content_blocks_of_jsonl lines in
   let telemetry =
     if !provider_internal_action_count > 0 then
       Some {
@@ -268,7 +523,23 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
         Option.value ~default:"codex"
           (cli_model_override ~config ~req_config:req.config)
       in
-      let argv = build_args ~config ~req_config:req.config ~prompt in
+      let runtime_mcp_policy_error =
+        match req.runtime_mcp_policy with
+        | Some policy -> (
+            match runtime_mcp_overrides policy with
+            | Ok _ -> None
+            | Error msg -> Some msg)
+        | None -> None
+      in
+      match runtime_mcp_policy_error with
+      | Some msg ->
+        { Llm_transport.response = Error (Http_client.NetworkError { message = msg });
+          latency_ms = 0 }
+      | None ->
+      let argv =
+        build_args ~config ~req_config:req.config
+          ?runtime_mcp_policy:req.runtime_mcp_policy ~prompt ()
+      in
       let seen_lines = ref [] in
       let on_line line =
         if String.trim line <> "" then
@@ -299,12 +570,27 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
         Option.value ~default:"codex"
           (cli_model_override ~config ~req_config:req.config)
       in
-      let argv = build_args ~config ~req_config:req.config ~prompt in
+      let runtime_mcp_policy_error =
+        match req.runtime_mcp_policy with
+        | Some policy -> (
+            match runtime_mcp_overrides policy with
+            | Ok _ -> None
+            | Error msg -> Some msg)
+        | None -> None
+      in
+      match runtime_mcp_policy_error with
+      | Some msg -> Error (Http_client.NetworkError { message = msg })
+      | None ->
+      let argv =
+        build_args ~config ~req_config:req.config
+          ?runtime_mcp_policy:req.runtime_mcp_policy ~prompt ()
+      in
+      let state = create_stream_state () in
       let seen_lines = ref [] in
       let on_line line =
         if String.trim line <> "" then begin
           seen_lines := line :: !seen_lines;
-          List.iter on_event (events_of_line line)
+          List.iter on_event (events_of_line_with_state state line)
         end
       in
       match Cli_common_subprocess.run_stream_lines ~sw ~mgr
@@ -338,7 +624,7 @@ let%test "default_config parity fields absent" =
 
 let%test "build_args includes --json flag" =
   let args =
-    build_args ~config:default_config ~req_config:(codex_req ()) ~prompt:"hello"
+    build_args ~config:default_config ~req_config:(codex_req ()) ~prompt:"hello" ()
   in
   args = ["codex"; "exec"; "--json"; "-c"; "mcp_servers={}"; "hello"]
 
@@ -349,7 +635,7 @@ let%test "build_args ignores extra parity fields" =
     max_turns = Some 5;
     permission_mode = Some "bypassPermissions";
   } in
-  let args = build_args ~config ~req_config:(codex_req ()) ~prompt:"hi" in
+  let args = build_args ~config ~req_config:(codex_req ()) ~prompt:"hi" () in
   args = ["codex"; "exec"; "--json"; "-c"; "mcp_servers={}"; "hi"]
 
 let%test "build_args with requested model" =
@@ -357,6 +643,7 @@ let%test "build_args with requested model" =
     build_args ~config:default_config
       ~req_config:(codex_req ~model_id:"gpt-5.4" ())
       ~prompt:"hi"
+      ()
   in
   args =
   ["codex"; "exec"; "--json"; "-c"; "mcp_servers={}";
@@ -364,7 +651,7 @@ let%test "build_args with requested model" =
 
 let%test "build_args with config default model for auto request" =
   let config = { default_config with model = Some "gpt-5.2-codex" } in
-  let args = build_args ~config ~req_config:(codex_req ()) ~prompt:"hi" in
+  let args = build_args ~config ~req_config:(codex_req ()) ~prompt:"hi" () in
   args =
   ["codex"; "exec"; "--json"; "-c"; "mcp_servers={}";
    "--model"; "gpt-5.2-codex"; "hi"]
@@ -382,7 +669,7 @@ let%test "stdin_for_prompt: Some when over budget, None under" =
 let%test "build_args uses stdin sentinel when prompt is too large" =
   let big = String.make (1 * 1024 * 1024) 'x' in
   let args =
-    build_args ~config:default_config ~req_config:(codex_req ()) ~prompt:big
+    build_args ~config:default_config ~req_config:(codex_req ()) ~prompt:big ()
   in
   not (List.mem big args)
   && List.nth args (List.length args - 1) = "-"
@@ -445,30 +732,51 @@ let%test "parse_jsonl_result empty lines → Error" =
   | Ok _ -> false
 
 let%test "events_of_line thread.started → MessageStart" =
+  let state = create_stream_state () in
   let line = {|{"type":"thread.started","thread_id":"abc"}|} in
-  match events_of_line line with
+  match events_of_line_with_state state line with
   | [Types.MessageStart { id = "abc"; model = "codex"; _ }] -> true
   | _ -> false
 
 let%test "events_of_line agent_message → 3 block events" =
+  let state = create_stream_state () in
   let line = {|{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"hi"}}|} in
-  (match events_of_line line with
+  (match events_of_line_with_state state line with
    | [Types.ContentBlockStart _; Types.ContentBlockDelta _; Types.ContentBlockStop _] -> true
    | _ -> false)
 
 let%test "events_of_line command_execution → no events" =
+  let state = create_stream_state () in
   let line = {|{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"ls"}}|} in
-  events_of_line line = []
+  events_of_line_with_state state line = []
+
+let%test "events_of_line mcp_tool_call completion emits tool_result block" =
+  let state = create_stream_state () in
+  let started =
+    {|{"type":"item.started","item":{"id":"call_1","type":"mcp_tool_call","server":"masc","tool":"masc_status","arguments":{"verbose":true}}}|}
+  in
+  let completed =
+    {|{"type":"item.completed","item":{"id":"call_1","type":"mcp_tool_call","server":"masc","tool":"masc_status","result":{"content":[{"type":"text","text":"ok"}],"isError":false}}}|}
+  in
+  ignore (events_of_line_with_state state started);
+  match events_of_line_with_state state completed with
+  | [Types.ContentBlockStop _;
+     Types.ContentBlockStart { content_type = "tool_result"; _ };
+     Types.ContentBlockDelta { delta = Types.TextDelta "ok"; _ };
+     Types.ContentBlockStop _] -> true
+  | _ -> false
 
 let%test "events_of_line turn.completed → MessageDelta+Stop" =
+  let state = create_stream_state () in
   let line = {|{"type":"turn.completed","usage":{"input_tokens":10,"cached_input_tokens":0,"output_tokens":5}}|} in
-  (match events_of_line line with
+  (match events_of_line_with_state state line with
    | [Types.MessageDelta { stop_reason = Some Types.EndTurn; _ };
       Types.MessageStop] -> true
    | _ -> false)
 
 let%test "events_of_line invalid json → []" =
-  events_of_line "not json" = []
+  let state = create_stream_state () in
+  events_of_line_with_state state "not json" = []
 
 (* ── env-driven extra args ──────────────────────────── *)
 
@@ -495,13 +803,13 @@ let%test "default: argv disables MCP even with no env" =
   with_unset "OAS_CODEX_SANDBOX" (fun () ->
   with_unset "OAS_CODEX_PROFILE" (fun () ->
   with_unset "OAS_CODEX_SKIP_GIT" (fun () ->
-    build_args ~config:default_config ~req_config:(codex_req ()) ~prompt:"hi"
+    build_args ~config:default_config ~req_config:(codex_req ()) ~prompt:"hi" ()
     = ["codex"; "exec"; "--json"; "-c"; "mcp_servers={}"; "hi"]))))
 
 let%test "env: OAS_CODEX_CONFIG emits -c pairs before prompt" =
   with_env "OAS_CODEX_CONFIG" "mcp_servers={},model=o3" (fun () ->
     let args =
-      build_args ~config:default_config ~req_config:(codex_req ()) ~prompt:"hi"
+      build_args ~config:default_config ~req_config:(codex_req ()) ~prompt:"hi" ()
     in
     (* must emit -c mcp_servers={} and -c model=o3, and prompt stays last *)
     List.mem "-c" args
@@ -513,7 +821,7 @@ let%test "env: OAS_CODEX_SANDBOX and OAS_CODEX_SKIP_GIT" =
   with_env "OAS_CODEX_SANDBOX" "read-only" (fun () ->
   with_env "OAS_CODEX_SKIP_GIT" "true" (fun () ->
     let args =
-      build_args ~config:default_config ~req_config:(codex_req ()) ~prompt:"hi"
+      build_args ~config:default_config ~req_config:(codex_req ()) ~prompt:"hi" ()
     in
     List.mem "-s" args
     && List.mem "read-only" args
@@ -523,3 +831,44 @@ let%test "prompt_exceeds_argv_budget: OAS_CODEX_PROMPT_ARGV_THRESHOLD override" 
   with_env "OAS_CODEX_PROMPT_ARGV_THRESHOLD" "100" (fun () ->
     prompt_exceeds_argv_budget (String.make 200 'x')
     && not (prompt_exceeds_argv_budget (String.make 50 'x')))
+
+let%test "build_args runtime MCP wires request-scoped server" =
+  let policy =
+    {
+      Llm_transport.empty_runtime_mcp_policy with
+      servers = [
+        Llm_transport.Http_server {
+          name = "masc";
+          url = "http://127.0.0.1:8935/mcp";
+          headers = [];
+        };
+      ];
+      allowed_server_names = ["masc"];
+      allowed_tool_names = ["masc_status"];
+      disable_builtin_tools = true;
+    }
+  in
+  let args =
+    build_args ~config:default_config ~req_config:(codex_req ()) ~prompt:"hi"
+      ~runtime_mcp_policy:policy
+      ()
+  in
+  List.mem "mcp_servers.masc.url=\"http://127.0.0.1:8935/mcp\"" args
+  && List.mem "mcp_servers.masc.tools.masc_status.approval_mode=\"approve\"" args
+  && List.mem "-s" args
+  && List.mem "read-only" args
+
+let%test "parse_jsonl_result includes mcp tool call blocks" =
+  let lines = [
+    {|{"type":"thread.started","thread_id":"abc-123"}|};
+    {|{"type":"item.completed","item":{"id":"call_1","type":"mcp_tool_call","server":"masc","tool":"masc_status","arguments":{"verbose":true},"result":{"content":[{"type":"text","text":"ok"}],"isError":false}}}|};
+    {|{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"done"}}|};
+  ] in
+  match parse_jsonl_result lines with
+  | Ok resp ->
+    (match resp.content with
+     | Types.ToolUse { name = "mcp__masc__masc_status"; _ }
+       :: Types.ToolResult { tool_use_id = "call_1"; content = "ok"; _ }
+       :: Types.Text "done" :: [] -> true
+     | _ -> false)
+  | Error _ -> false

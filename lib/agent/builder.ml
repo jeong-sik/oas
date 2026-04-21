@@ -66,6 +66,8 @@ type t = {
   policy_channel: Policy_channel.t option;
   summarizer: (Types.message list -> string) option;
   transport: Llm_provider.Llm_transport.t option;
+  runtime_mcp_policy:
+    Llm_provider.Llm_transport.runtime_mcp_policy option;
 }
 
 let create ~net ~model =
@@ -130,6 +132,7 @@ let create ~net ~model =
     policy_channel = None;
     summarizer = None;
     transport = None;
+    runtime_mcp_policy = None;
   }
 
 let with_tool_result_relocation ~store ~state b =
@@ -143,6 +146,8 @@ let with_journal journal b = { b with journal = Some journal }
 let with_summarizer summarizer b = { b with summarizer = Some summarizer }
 
 let with_transport transport b = { b with transport = Some transport }
+let with_runtime_mcp_policy runtime_mcp_policy b =
+  { b with runtime_mcp_policy = Some runtime_mcp_policy }
 
 let with_auto_dump_journal ~path b =
   let journal =
@@ -350,6 +355,7 @@ let build b =
     tool_result_relocation = b.tool_result_relocation;
     journal = b.journal;
     transport = b.transport;
+    runtime_mcp_policy = b.runtime_mcp_policy;
     summarizer = b.summarizer;
   } in
   Agent.create ~net:b.net ~config ~tools:(Tool_set.to_list tools) ?context

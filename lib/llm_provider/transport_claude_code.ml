@@ -44,6 +44,54 @@ let default_config = {
 (* Prompt shaping, JSON helpers, and subprocess orchestration live in the
    shared [Cli_common_*] modules to deduplicate logic across CLI transports. *)
 
+let json_of_string_pairs pairs =
+  `Assoc (List.map (fun (k, v) -> (k, `String v)) pairs)
+
+let json_of_runtime_mcp_server = function
+  | Llm_transport.Stdio_server { name = _; command; args; env } ->
+    `Assoc [
+      ("command", `String command);
+      ("args", `List (List.map (fun arg -> `String arg) args));
+      ("env", json_of_string_pairs env);
+    ]
+  | Llm_transport.Http_server { name = _; url; headers } ->
+    `Assoc [
+      ("type", `String "http");
+      ("url", `String url);
+      ("headers", json_of_string_pairs headers);
+    ]
+
+let mcp_config_json_of_policy
+    (policy : Llm_transport.runtime_mcp_policy) : Yojson.Safe.t option =
+  match policy.servers with
+  | [] -> None
+  | servers ->
+    let entries =
+      List.map (fun server ->
+        (Llm_transport.runtime_mcp_server_name server,
+         json_of_runtime_mcp_server server))
+        servers
+    in
+    Some (`Assoc [("mcpServers", `Assoc entries)])
+
+let claude_allowed_tools_of_policy
+    (policy : Llm_transport.runtime_mcp_policy) : string list =
+  let server_names =
+    match policy.allowed_server_names with
+    | [] ->
+      List.map Llm_transport.runtime_mcp_server_name policy.servers
+    | names -> names
+  in
+  match policy.allowed_tool_names with
+  | [] ->
+    List.map (fun server_name -> "mcp__" ^ server_name) server_names
+  | tool_names ->
+    List.concat_map (fun server_name ->
+      List.map
+        (fun tool_name -> Printf.sprintf "mcp__%s__%s" server_name tool_name)
+        tool_names
+    ) server_names
+
 (* ── CLI argument building ───────────────────────────── *)
 
 (* Non-interactive Claude runs default to MCP OFF by forcing strict MCP
@@ -51,7 +99,7 @@ let default_config = {
    [OAS_CLAUDE_MCP_CONFIG] is provided, strict mode narrows the runtime
    to exactly that config; when neither is present, strict mode yields an
    empty MCP surface.  LSP / hooks / auto-memory stay ON — no --bare. *)
-let env_extra_args ~(config : config) =
+let legacy_env_extra_args ~(config : config) =
   let extras = ref [] in
   let add a = extras := !extras @ a in
   (* Determine whether an MCP config path is actually available (either
@@ -122,7 +170,8 @@ let stdin_for_prompt prompt =
   if prompt_exceeds_argv_budget prompt then Some prompt else None
 
 let build_args ~(config : config) ~(req_config : Provider_config.t)
-    ~prompt ~stream ~system_prompt =
+    ?runtime_mcp_policy
+    ~prompt ~stream ~system_prompt () =
   (* When the prompt is too big for argv, omit it from the positional
      slot. Claude CLI (`--input-format text`, the default) then reads
      the prompt from stdin via [--print] / [-p]. We still pass [-p]
@@ -143,10 +192,41 @@ let build_args ~(config : config) ~(req_config : Provider_config.t)
   (match model with Some m -> add ["--model"; m] | None -> ());
   (match system_prompt with Some s -> add ["--system-prompt"; s] | None -> ());
   (match config.max_turns with Some n -> add ["--max-turns"; string_of_int n] | None -> ());
-  List.iter (fun t -> add ["--allowedTools"; t]) config.allowed_tools;
-  (match config.permission_mode with Some m -> add ["--permission-mode"; m] | None -> ());
-  (match config.mcp_config with Some c -> add ["--mcp-config"; c] | None -> ());
-  add (env_extra_args ~config);
+  (match runtime_mcp_policy with
+   | Some (policy : Llm_transport.runtime_mcp_policy) ->
+     let emitted_mcp_config = ref false in
+     if policy.disable_builtin_tools then
+       add ["--tools"; ""];
+     List.iter
+       (fun tool_name -> add ["--allowedTools"; tool_name])
+       (claude_allowed_tools_of_policy policy);
+     (match policy.permission_mode with
+      | Some mode -> add ["--permission-mode"; mode]
+      | None ->
+        (match config.permission_mode with
+         | Some mode -> add ["--permission-mode"; mode]
+         | None -> ()));
+     (match mcp_config_json_of_policy policy with
+      | Some json ->
+        emitted_mcp_config := true;
+        add ["--mcp-config"; Yojson.Safe.to_string json]
+      | None ->
+        (match config.mcp_config with
+         | Some c ->
+           emitted_mcp_config := true;
+           add ["--mcp-config"; c]
+         | None -> ()));
+     if policy.strict && !emitted_mcp_config then
+       add ["--strict-mcp-config"];
+     (match Cli_common_env.list "OAS_CLAUDE_DISALLOWED_TOOLS" with
+      | None | Some [] -> ()
+      | Some tools ->
+        List.iter (fun t -> add ["--disallowedTools"; t]) tools)
+   | None ->
+     List.iter (fun t -> add ["--allowedTools"; t]) config.allowed_tools;
+     (match config.permission_mode with Some m -> add ["--permission-mode"; m] | None -> ());
+     (match config.mcp_config with Some c -> add ["--mcp-config"; c] | None -> ());
+     add (legacy_env_extra_args ~config));
   !args
 
 (* ── JSON parsing ────────────────────────────────────── *)
@@ -418,14 +498,16 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
       let messages = Cli_common_prompt.non_system_messages req.messages in
       let prompt = Cli_common_prompt.prompt_of_messages
         ~include_tool_blocks:config.forward_tool_results messages in
-      let system_prompt =
-        Cli_common_prompt.system_prompt_of ~req_config:req.config req.messages in
-      if config.tool_use_via_stream_json then
+        let system_prompt =
+          Cli_common_prompt.system_prompt_of ~req_config:req.config req.messages in
+        if config.tool_use_via_stream_json then
         (* Use stream-json internally so we can aggregate tool_use /
            thinking blocks.  [--output-format json] flattens these into
            the [result] string and we'd lose them. *)
         let args = build_args ~config ~req_config:req.config
-          ~prompt ~stream:true ~system_prompt in
+          ?runtime_mcp_policy:req.runtime_mcp_policy
+          ~prompt ~stream:true ~system_prompt ()
+        in
         let argv = config.claude_path :: args in
         let seen_lines = ref [] in
         let on_line line =
@@ -445,7 +527,9 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
           { Llm_transport.response; latency_ms }
       else
         let args = build_args ~config ~req_config:req.config
-          ~prompt ~stream:false ~system_prompt in
+          ?runtime_mcp_policy:req.runtime_mcp_policy
+          ~prompt ~stream:false ~system_prompt ()
+        in
         match run ~sw ~mgr ~config
                 ?stdin_content:(stdin_for_prompt prompt) args with
         | Error _ as e -> { Llm_transport.response = e; latency_ms = 0 }
@@ -460,7 +544,9 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
       let system_prompt =
         Cli_common_prompt.system_prompt_of ~req_config:req.config req.messages in
       let args = build_args ~config ~req_config:req.config
-        ~prompt ~stream:true ~system_prompt in
+        ?runtime_mcp_policy:req.runtime_mcp_policy
+        ~prompt ~stream:true ~system_prompt ()
+      in
       let argv = config.claude_path :: args in
       let seen_lines = ref [] in
       let on_line line =
@@ -539,13 +625,15 @@ let%test "events_of_line invalid json" =
 let%test "build_args basic" =
   let args = build_args ~config:default_config
     ~req_config:(Provider_config.make ~kind:Anthropic ~model_id:"" ~base_url:"" ())
-    ~prompt:"hello" ~stream:false ~system_prompt:None in
+    ~prompt:"hello" ~stream:false ~system_prompt:None ()
+  in
   List.mem "-p" args && List.mem "json" args
 
 let%test "build_args with model" =
   let args = build_args ~config:default_config
     ~req_config:(Provider_config.make ~kind:Anthropic ~model_id:"claude-sonnet-4" ~base_url:"" ())
-    ~prompt:"hello" ~stream:true ~system_prompt:(Some "be helpful") in
+    ~prompt:"hello" ~stream:true ~system_prompt:(Some "be helpful") ()
+  in
   List.mem "--model" args
   && List.mem "claude-sonnet-4" args
   && List.mem "--system-prompt" args
@@ -555,7 +643,8 @@ let%test "build_args with model" =
 let%test "build_args omits auto model override" =
   let args = build_args ~config:default_config
     ~req_config:(Provider_config.make ~kind:Claude_code ~model_id:"auto" ~base_url:"" ())
-    ~prompt:"hello" ~stream:false ~system_prompt:None in
+    ~prompt:"hello" ~stream:false ~system_prompt:None ()
+  in
   not (List.mem "--model" args)
 
 (* Strict-MCP/mcp-config pairing invariants are exercised by the
@@ -672,7 +761,7 @@ let%test "default: --strict-mcp-config omitted when no MCP config is available" 
   with_unset "OAS_CLAUDE_MCP_CONFIG" (fun () ->
   with_unset "OAS_CLAUDE_DISALLOWED_TOOLS" (fun () ->
     let args = build_args ~config:default_config ~req_config:sample_req
-      ~prompt:"hi" ~stream:false ~system_prompt:None in
+      ~prompt:"hi" ~stream:false ~system_prompt:None () in
     (not (List.mem "--strict-mcp-config" args))
     && not (List.mem "--mcp-config" args)
     && not (List.mem "--disallowedTools" args))))
@@ -684,16 +773,18 @@ let%test "env: OAS_CLAUDE_STRICT_MCP=1 alone no longer implies --strict-mcp-conf
   with_unset "OAS_CLAUDE_MCP_CONFIG" (fun () ->
   with_env "OAS_CLAUDE_STRICT_MCP" "1" (fun () ->
     let args = build_args ~config:default_config ~req_config:sample_req
-      ~prompt:"hi" ~stream:false ~system_prompt:None in
+      ~prompt:"hi" ~stream:false ~system_prompt:None () in
     not (List.mem "--strict-mcp-config" args)))
 
 let%test "env: MCP_CONFIG fallback only when config.mcp_config is None" =
   with_env "OAS_CLAUDE_MCP_CONFIG" "/tmp/mcp.json" (fun () ->
     let args_default = build_args ~config:default_config ~req_config:sample_req
-      ~prompt:"hi" ~stream:false ~system_prompt:None in
+      ~prompt:"hi" ~stream:false ~system_prompt:None ()
+    in
     let explicit_cfg = { default_config with mcp_config = Some "/tmp/explicit.json" } in
     let args_explicit = build_args ~config:explicit_cfg ~req_config:sample_req
-      ~prompt:"hi" ~stream:false ~system_prompt:None in
+      ~prompt:"hi" ~stream:false ~system_prompt:None ()
+    in
     List.mem "/tmp/mcp.json" args_default
     && List.mem "/tmp/explicit.json" args_explicit
     && not (List.mem "/tmp/mcp.json" args_explicit))
@@ -701,7 +792,8 @@ let%test "env: MCP_CONFIG fallback only when config.mcp_config is None" =
 let%test "env: DISALLOWED_TOOLS splits on comma" =
   with_env "OAS_CLAUDE_DISALLOWED_TOOLS" "Bash,Write" (fun () ->
     let args = build_args ~config:default_config ~req_config:sample_req
-      ~prompt:"hi" ~stream:false ~system_prompt:None in
+      ~prompt:"hi" ~stream:false ~system_prompt:None ()
+    in
     (* Each token emits its own --disallowedTools flag. *)
     List.mem "--disallowedTools" args
     && List.mem "Bash" args
@@ -752,7 +844,7 @@ let%test "stdin_for_prompt: Some when over budget, None under" =
 let%test "build_args omits positional prompt when routing via stdin" =
   let big = String.make (1 * 1024 * 1024) 'x' in
   let args = build_args ~config:default_config ~req_config:sample_req
-    ~prompt:big ~stream:false ~system_prompt:None in
+    ~prompt:big ~stream:false ~system_prompt:None () in
   (* First two argv entries should be ["-p"; "--output-format"], NOT
      ["-p"; <big>] — the prompt must not appear anywhere in argv. *)
   not (List.mem big args)
@@ -762,8 +854,50 @@ let%test "build_args omits positional prompt when routing via stdin" =
 
 let%test "build_args keeps positional prompt when small" =
   let args = build_args ~config:default_config ~req_config:sample_req
-    ~prompt:"hello" ~stream:false ~system_prompt:None in
+    ~prompt:"hello" ~stream:false ~system_prompt:None () in
   List.mem "hello" args
   && (match args with
       | "-p" :: "hello" :: _ -> true
       | _ -> false)
+
+let%test "runtime MCP policy overrides legacy tool and MCP config wiring" =
+  let config = {
+    default_config with
+    allowed_tools = ["Bash"];
+    permission_mode = Some "bypassPermissions";
+    mcp_config = Some "/tmp/legacy-mcp.json";
+  } in
+  let policy =
+    {
+      Llm_transport.empty_runtime_mcp_policy with
+      servers = [
+        Llm_transport.Http_server {
+          name = "masc";
+          url = "http://127.0.0.1:8935/mcp";
+          headers = [];
+        };
+      ];
+      allowed_server_names = ["masc"];
+      allowed_tool_names = ["masc_status"];
+      permission_mode = Some "plan";
+      strict = true;
+      disable_builtin_tools = true;
+    }
+  in
+  let args = build_args ~config ~req_config:sample_req
+    ~runtime_mcp_policy:policy
+    ~prompt:"hi" ~stream:false ~system_prompt:None ()
+  in
+  List.mem "--tools" args
+  && List.mem "" args
+  && List.mem "--allowedTools" args
+  && List.mem "mcp__masc__masc_status" args
+  && List.mem "--permission-mode" args
+  && List.mem "plan" args
+  && List.mem "--strict-mcp-config" args
+  && List.mem
+       {|{"mcpServers":{"masc":{"type":"http","url":"http://127.0.0.1:8935/mcp","headers":{}}}}|}
+       args
+  && not (List.mem "Bash" args)
+  && not (List.mem "/tmp/legacy-mcp.json" args)
+  && not (List.mem "bypassPermissions" args)

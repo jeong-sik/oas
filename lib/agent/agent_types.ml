@@ -58,6 +58,12 @@ type options = {
         dispatches via {!Llm_provider.Complete.complete} with this
         transport; when [None], the HTTP path is used.
         @since 0.156.0 *)
+  runtime_mcp_policy:
+    Llm_provider.Llm_transport.runtime_mcp_policy option;
+    (** Optional request-scoped MCP exposure policy for CLI transports.
+        When [Some], the transport may expose runtime MCP tools without
+        relying on inline [Tool.t] schemas.
+        @since 0.164.0 *)
   summarizer: (message list -> string) option;
     (** Optional custom extractive summarizer used by
         {!Budget_strategy.reduce_for_budget} when the Emergency phase
@@ -132,6 +138,7 @@ let default_options = {
   tool_result_relocation = None;
   journal = None;
   transport = None;
+  runtime_mcp_policy = None;
   summarizer = None;
 }
 
