@@ -38,7 +38,7 @@ let resolve_glm_model_id model_id =
 
 let resolve_glm_coding_model_id model_id =
   Llm_provider.Zai_catalog.resolve_glm_coding_alias
-    ~default_model:(env_or "glm-4.7" "ZAI_CODING_DEFAULT_MODEL")
+    ~default_model:(env_or "glm-5.1" "ZAI_CODING_DEFAULT_MODEL")
     model_id
 
 let resolve_auto_model_id provider_name model_id =

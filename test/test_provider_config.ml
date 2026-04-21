@@ -165,6 +165,35 @@ let test_is_local_localhost_query_true () =
     ~model_id:"m" ~base_url:"http://localhost?foo=bar" () in
   check_bool "localhost query is local" true (Provider_config.is_local cfg)
 
+(* ── provider_name_of_config ─────────────────────────── *)
+
+let test_provider_name_of_config_glm_general () =
+  let cfg = Provider_config.make ~kind:Glm
+    ~model_id:"glm-5.1" ~base_url:Zai_catalog.general_base_url () in
+  check_string "glm general" "glm"
+    (Provider_registry.provider_name_of_config cfg)
+
+let test_provider_name_of_config_glm_coding () =
+  let cfg = Provider_config.make ~kind:Glm
+    ~model_id:"glm-5.1" ~base_url:Zai_catalog.coding_base_url () in
+  check_string "glm coding" "glm-coding"
+    (Provider_registry.provider_name_of_config cfg)
+
+let test_provider_name_of_config_local_openai_compat () =
+  let cfg = Provider_config.make ~kind:OpenAI_compat
+    ~model_id:"local-model" ~base_url:"http://127.0.0.1:8085" () in
+  check_string "local openai compat resolves to llama" "llama"
+    (Provider_registry.provider_name_of_config cfg)
+
+let test_provider_name_of_config_openrouter () =
+  let cfg = Provider_config.make ~kind:OpenAI_compat
+    ~model_id:"openai/gpt-oss-20b"
+    ~base_url:"https://openrouter.ai/api/v1"
+    ~request_path:"/chat/completions"
+    () in
+  check_string "openrouter" "openrouter"
+    (Provider_registry.provider_name_of_config cfg)
+
 (* ── Suite ────────────────────────────────────────────── *)
 
 let () =
@@ -200,5 +229,15 @@ let () =
       Alcotest.test_case "host boundary false" `Quick test_is_local_host_boundary_false;
       Alcotest.test_case "localhost query true" `Quick
         test_is_local_localhost_query_true;
+    ];
+    "provider_name", [
+      Alcotest.test_case "glm general" `Quick
+        test_provider_name_of_config_glm_general;
+      Alcotest.test_case "glm coding" `Quick
+        test_provider_name_of_config_glm_coding;
+      Alcotest.test_case "local openai compat" `Quick
+        test_provider_name_of_config_local_openai_compat;
+      Alcotest.test_case "openrouter" `Quick
+        test_provider_name_of_config_openrouter;
     ];
   ]

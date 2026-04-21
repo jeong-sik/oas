@@ -84,7 +84,7 @@ let glm_auto_models () =
 let glm_coding_auto_models () =
   match Sys.getenv_opt "ZAI_CODING_AUTO_MODELS" with
   | Some v when String.trim v <> "" -> split_csv v
-  | _ -> [ "glm-4.7"; "glm-5-turbo"; "glm-5.1"; "glm-4.5-air" ]
+  | _ -> [ "glm-5.1"; "glm-5"; "glm-5-turbo"; "glm-4.7"; "glm-4.5-air" ]
 
 let resolve_glm_alias ~default_model model_id =
   match String.lowercase_ascii model_id with
