@@ -174,9 +174,16 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
            ("includeThoughts", `Bool true);
          ]) :: !gen_config
    | _ -> ());
-  (* JSON mode *)
-  if config.response_format_json then
-    gen_config := ("responseMimeType", `String "application/json") :: !gen_config;
+  (* JSON mode / native structured output *)
+  (match config.output_schema with
+   | Some schema ->
+       gen_config :=
+         ("responseJsonSchema", schema)
+         :: ("responseMimeType", `String "application/json")
+         :: !gen_config
+   | None when config.response_format_json ->
+       gen_config := ("responseMimeType", `String "application/json") :: !gen_config
+   | None -> ());
   let body = ("generationConfig", `Assoc !gen_config) :: body in
   (* Tools *)
   let body = match tools with

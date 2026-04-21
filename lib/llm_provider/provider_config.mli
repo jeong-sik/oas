@@ -40,6 +40,7 @@ type t = {
   tool_choice: Types.tool_choice option;
   disable_parallel_tool_use: bool;
   response_format_json: bool;
+  output_schema: Yojson.Safe.t option;  (** Provider-native JSON schema output request. @since 0.163.0 *)
   cache_system_prompt: bool;
   supports_tool_choice_override: bool option;
   (** Override the registry default for [supports_tool_choice].
@@ -84,6 +85,7 @@ val make :
   ?tool_choice:Types.tool_choice ->
   ?disable_parallel_tool_use:bool ->
   ?response_format_json:bool ->
+  ?output_schema:Yojson.Safe.t ->
   ?cache_system_prompt:bool ->
   ?supports_tool_choice_override:bool ->
   unit -> t
@@ -104,6 +106,25 @@ val effort_of_thinking_config :
     Returns [None] for non-Ollama providers.
     @since 0.114.0 *)
 val reasoning_effort_of_config : t -> string option
+
+(** Derive a provider-safe schema name for native structured-output APIs
+    that require one (for example OpenAI's [json_schema.name]). *)
+val structured_output_name_of_schema : Yojson.Safe.t -> string
+
+(** Validate whether [output_schema] can be sent natively for this config.
+    Returns [Ok ()] when no schema was requested or when the provider kind
+    is wired for native schema output. Returns [Error reason] for
+    unsupported provider/model combinations so callers can fail fast
+    before making an HTTP request.
+
+    Conservative policy:
+    - [OpenAI_compat] is accepted only for official OpenAI hosts with a
+      model capability record that reports [supports_structured_output].
+    - [Gemini], [Anthropic], and [Ollama] are accepted.
+    - [Glm] and CLI kinds are rejected.
+
+    @since 0.163.0 *)
+val validate_output_schema_request : t -> (unit, string) result
 
 (** Whether the provider config points at a local loopback endpoint.
     This is the SSOT for locality checks derived from runtime configuration. *)

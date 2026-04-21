@@ -85,6 +85,18 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
           ("budget_tokens", `Int budget)]) :: body
     | _ -> body
   in
+  let body = match config.output_schema with
+    | Some schema ->
+        ("output_config",
+         `Assoc [
+           ("format",
+            `Assoc [
+              ("type", `String "json_schema");
+              ("schema", schema);
+            ]);
+         ]) :: body
+    | None -> body
+  in
   let body = match tools with
     | [] -> body
     | ts ->

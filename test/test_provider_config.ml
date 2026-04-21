@@ -27,6 +27,7 @@ let test_make_defaults () =
   check_bool "tool_choice None" true (cfg.tool_choice = None);
   check_bool "no parallel tool use" false cfg.disable_parallel_tool_use;
   check_bool "no json format" false cfg.response_format_json;
+  check_bool "no output schema" true (Option.is_none cfg.output_schema);
   check_bool "no cache system prompt" false cfg.cache_system_prompt
 
 (* ── make: request_path per kind ──────────────────────── *)
@@ -80,6 +81,7 @@ let test_make_with_all_options () =
     ~tool_stream:true
     ~disable_parallel_tool_use:true
     ~response_format_json:true
+    ~output_schema:(`Assoc [("type", `String "object")])
     ~cache_system_prompt:true () in
   check_string "api_key" "sk-test" cfg.api_key;
   check_bool "max_tokens" true (cfg.max_tokens = Some 2048);
@@ -94,7 +96,29 @@ let test_make_with_all_options () =
   check_bool "tool_stream" true cfg.tool_stream;
   check_bool "disable_parallel" true cfg.disable_parallel_tool_use;
   check_bool "json format" true cfg.response_format_json;
+  check_bool "has output schema" true (Option.is_some cfg.output_schema);
   check_bool "cache prompt" true cfg.cache_system_prompt
+
+let test_validate_output_schema_openai_official () =
+  let cfg = Provider_config.make ~kind:OpenAI_compat
+    ~model_id:"gpt-4o" ~base_url:"https://api.openai.com/v1"
+    ~output_schema:(`Assoc [("type", `String "object")]) () in
+  check_bool "official openai accepted" true
+    (Result.is_ok (Provider_config.validate_output_schema_request cfg))
+
+let test_validate_output_schema_openai_compat_rejected () =
+  let cfg = Provider_config.make ~kind:OpenAI_compat
+    ~model_id:"gpt-4o" ~base_url:"https://openrouter.ai/api/v1"
+    ~output_schema:(`Assoc [("type", `String "object")]) () in
+  check_bool "generic compat rejected" true
+    (Result.is_error (Provider_config.validate_output_schema_request cfg))
+
+let test_validate_output_schema_glm_rejected () =
+  let cfg = Provider_config.make ~kind:Glm
+    ~model_id:"glm-5" ~base_url:"https://api.z.ai/api/coding/paas/v4"
+    ~output_schema:(`Assoc [("type", `String "object")]) () in
+  check_bool "glm rejected" true
+    (Result.is_error (Provider_config.validate_output_schema_request cfg))
 
 (* ── make: headers default ────────────────────────────── *)
 
@@ -158,6 +182,14 @@ let () =
     "explicit_values", [
       Alcotest.test_case "all options" `Quick test_make_with_all_options;
       Alcotest.test_case "custom headers" `Quick test_custom_headers;
+    ];
+    "output_schema", [
+      Alcotest.test_case "official openai" `Quick
+        test_validate_output_schema_openai_official;
+      Alcotest.test_case "generic compat rejected" `Quick
+        test_validate_output_schema_openai_compat_rejected;
+      Alcotest.test_case "glm rejected" `Quick
+        test_validate_output_schema_glm_rejected;
     ];
     "locality", [
       Alcotest.test_case "loopback ip" `Quick test_is_local_loopback_ip;

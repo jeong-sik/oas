@@ -4,7 +4,7 @@ open Llm_provider
 (* ── Helpers ────────────────────────────────────────── *)
 
 let gemini_config ?(thinking=false) ?(budget=10000) ?(tools=[])
-    ?(json_mode=false) ?(system="") () =
+    ?(json_mode=false) ?output_schema ?(system="") () =
   ignore tools;
   Provider_config.make
     ~kind:Gemini
@@ -17,6 +17,7 @@ let gemini_config ?(thinking=false) ?(budget=10000) ?(tools=[])
     ?enable_thinking:(if thinking then Some true else None)
     ?thinking_budget:(if thinking then Some budget else None)
     ~response_format_json:json_mode
+    ?output_schema
     ?system_prompt:(if system = "" then None else Some system)
     ()
 
@@ -153,6 +154,26 @@ let test_json_mode () =
   let gen = json |> member "generationConfig" in
   check string "responseMimeType" "application/json"
     (gen |> member "responseMimeType" |> to_string)
+
+let test_output_schema () =
+  let schema =
+    `Assoc [
+      ("type", `String "object");
+      ("properties", `Assoc [
+        ("answer", `Assoc [("type", `String "string")])
+      ]);
+      ("required", `List [`String "answer"]);
+    ]
+  in
+  let config = gemini_config ~output_schema:schema () in
+  let messages = [Types.user_msg "Return structured JSON."] in
+  let body = Backend_gemini.build_request ~config ~messages () in
+  let json = parse_body body in
+  let gen = json |> member "generationConfig" in
+  check string "responseMimeType" "application/json"
+    (gen |> member "responseMimeType" |> to_string);
+  check bool "responseJsonSchema copied" true
+    (gen |> member "responseJsonSchema" = schema)
 
 let test_role_mapping () =
   let config = gemini_config () in
@@ -628,6 +649,7 @@ let () =
       test_case "tools" `Quick test_tools;
       test_case "tool result" `Quick test_tool_result;
       test_case "json mode" `Quick test_json_mode;
+      test_case "output schema" `Quick test_output_schema;
       test_case "role mapping" `Quick test_role_mapping;
       test_case "tool choice" `Quick test_tool_choice_mapping;
       test_case "thinking part roundtrip" `Quick test_thinking_part_roundtrip;

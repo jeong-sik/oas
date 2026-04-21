@@ -138,6 +138,11 @@ let requires_non_http_transport : Provider_config.provider_kind -> bool = functi
   | Claude_code | Gemini_cli | Codex_cli -> true
   | Anthropic | OpenAI_compat | Ollama | Gemini | Glm -> false
 
+let validate_output_schema_request (config : Provider_config.t) =
+  match Provider_config.validate_output_schema_request config with
+  | Ok () -> Ok ()
+  | Error reason -> Error (Http_client.AcceptRejected { reason })
+
 (** Strip query string and userinfo from a URL before logging.  Built-in
     providers use clean URLs, but [custom:model@url] accepts arbitrary
     user-supplied URLs; a misconfigured one like
@@ -203,6 +208,9 @@ let complete_http ~sw ~net
     ?(on_http_status : (provider:string -> model_id:string -> status:int -> unit) option)
     ~(config : Provider_config.t)
     ~(messages : Types.message list) ~tools () =
+  match validate_output_schema_request config with
+  | Error err -> (Error err, 0)
+  | Ok () ->
   if requires_non_http_transport config.kind then
     (Error (Http_client.NetworkError {
        message = Printf.sprintf "%s provider requires a transport"
@@ -479,6 +487,9 @@ let complete ~sw ~net ?(transport : Llm_transport.t option)
     ~(messages : Types.message list) ?(tools=[])
     ?(cache : Cache.t option) ?(metrics : Metrics.t option)
     ?(priority : Request_priority.t option) () =
+  match validate_output_schema_request config with
+  | Error err -> Error err
+  | Ok () ->
   let _priority = priority in
   let m = match metrics with Some m -> m | None -> Metrics.get_global () in
   let model_id = config.model_id in
@@ -548,31 +559,31 @@ let complete ~sw ~net ?(transport : Llm_transport.t option)
              ~model_id ~status:code
          | Error _ -> ());
       (match result with
-       | Ok resp ->
-           let resp = Pricing.annotate_response_cost resp in
-           let resp = patch_telemetry resp ~config latency_ms in
-           m.on_request_end ~model_id ~latency_ms;
-           (* Cache store — reuse pre-computed key *)
-           (match cache, cache_key with
-            | Some c, Some key ->
-                let json = Cache.response_to_json resp in
-                (try c.set ~key ~ttl_sec:Constants.Cache.default_ttl_sec json
-                 with Eio.Io _ | Sys_error _ -> ())
-            | _, _ -> ());
-           Ok resp
-       | Error err ->
-           let err_str = match err with
-             | Http_client.HttpError { code; _ } ->
-                 Printf.sprintf "HTTP %d" code
-             | Http_client.AcceptRejected { reason } -> reason
-             | Http_client.NetworkError { message } -> message
-             | Http_client.CliTransportRequired { kind } ->
-                 Printf.sprintf
-                   "CLI transport required for %s but none injected"
-                   kind
-           in
-           m.on_error ~model_id ~error:err_str;
-           Error err)
+      | Ok resp ->
+          let resp = Pricing.annotate_response_cost resp in
+          let resp = patch_telemetry resp ~config latency_ms in
+          m.on_request_end ~model_id ~latency_ms;
+          (* Cache store — reuse pre-computed key *)
+          (match cache, cache_key with
+          | Some c, Some key ->
+              let json = Cache.response_to_json resp in
+              (try c.set ~key ~ttl_sec:Constants.Cache.default_ttl_sec json
+               with Eio.Io _ | Sys_error _ -> ())
+          | _, _ -> ());
+          Ok resp
+      | Error err ->
+          let err_str = match err with
+            | Http_client.HttpError { code; _ } ->
+                Printf.sprintf "HTTP %d" code
+            | Http_client.AcceptRejected { reason } -> reason
+            | Http_client.NetworkError { message } -> message
+            | Http_client.CliTransportRequired { kind } ->
+                Printf.sprintf
+                  "CLI transport required for %s but none injected"
+                  kind
+          in
+          m.on_error ~model_id ~error:err_str;
+          Error err)
 
 (* ── Retry ───────────────────────────────────────────── *)
 
@@ -632,6 +643,9 @@ include Complete_stream_acc
 let complete_stream_http ~sw:_ ~net ~(config : Provider_config.t)
     ~(messages : Types.message list) ~tools
     ~(on_event : Types.sse_event -> unit) =
+  match validate_output_schema_request config with
+  | Error err -> Error err
+  | Ok () ->
   if requires_non_http_transport config.kind then
     Error (Http_client.NetworkError {
       message = Printf.sprintf "%s provider requires a transport"
@@ -741,6 +755,9 @@ let complete_stream ~sw ~net ?(transport : Llm_transport.t option)
     ~(messages : Types.message list) ?(tools=[])
     ~(on_event : Types.sse_event -> unit)
     ?(priority : Request_priority.t option) () =
+  match validate_output_schema_request config with
+  | Error err -> Error err
+  | Ok () ->
   let _priority = priority in
   let result = match transport with
   | Some t ->
@@ -821,7 +838,8 @@ let%test "gemini_url sync no api_key" =
     enable_thinking = None; thinking_budget = None;
     clear_thinking = None; tool_stream = false;
     tool_choice = None; disable_parallel_tool_use = false;
-    response_format_json = false; cache_system_prompt = false;
+    response_format_json = false; output_schema = None;
+    cache_system_prompt = false;
     supports_tool_choice_override = None;
   } in
   let url = gemini_url ~config ~stream:false in
@@ -838,7 +856,8 @@ let%test "gemini_url sync with api_key" =
     enable_thinking = None; thinking_budget = None;
     clear_thinking = None; tool_stream = false;
     tool_choice = None; disable_parallel_tool_use = false;
-    response_format_json = false; cache_system_prompt = false;
+    response_format_json = false; output_schema = None;
+    cache_system_prompt = false;
     supports_tool_choice_override = None;
   } in
   let url = gemini_url ~config ~stream:false in
@@ -855,7 +874,8 @@ let%test "gemini_url stream with api_key" =
     enable_thinking = None; thinking_budget = None;
     clear_thinking = None; tool_stream = false;
     tool_choice = None; disable_parallel_tool_use = false;
-    response_format_json = false; cache_system_prompt = false;
+    response_format_json = false; output_schema = None;
+    cache_system_prompt = false;
     supports_tool_choice_override = None;
   } in
   let url = gemini_url ~config ~stream:true in
@@ -872,7 +892,8 @@ let%test "gemini_url stream no api_key" =
     enable_thinking = None; thinking_budget = None;
     clear_thinking = None; tool_stream = false;
     tool_choice = None; disable_parallel_tool_use = false;
-    response_format_json = false; cache_system_prompt = false;
+    response_format_json = false; output_schema = None;
+    cache_system_prompt = false;
     supports_tool_choice_override = None;
   } in
   let url = gemini_url ~config ~stream:true in

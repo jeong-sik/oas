@@ -3,7 +3,18 @@
 module PC = Llm_provider.Provider_config
 module BA = Llm_provider.Backend_anthropic
 module BO = Llm_provider.Backend_openai
+module BOL = Llm_provider.Backend_ollama
 open Llm_provider.Types
+
+let contains_substring ~sub text =
+  let sub_len = String.length sub in
+  let text_len = String.length text in
+  let rec loop idx =
+    if idx + sub_len > text_len then false
+    else if String.sub text idx sub_len = sub then true
+    else loop (idx + 1)
+  in
+  if sub_len = 0 then true else loop 0
 
 (* ── Anthropic build_request ─────────────────────────── *)
 
@@ -53,6 +64,24 @@ let test_anthropic_stream_flag () =
   let open Yojson.Safe.Util in
   Alcotest.(check bool) "stream" true
     (json |> member "stream" |> to_bool)
+
+let test_anthropic_output_schema () =
+  let schema =
+    `Assoc [
+      ("type", `String "object");
+      ("properties", `Assoc [("answer", `Assoc [("type", `String "string")])]);
+      ("required", `List [`String "answer"]);
+    ]
+  in
+  let config = PC.make ~kind:Anthropic ~model_id:"claude-sonnet-4-6"
+    ~base_url:"" ~output_schema:schema () in
+  let body = BA.build_request ~config ~messages:[user_msg "hi"] () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  Alcotest.(check string) "output_config type" "json_schema"
+    (json |> member "output_config" |> member "format" |> member "type" |> to_string);
+  Alcotest.(check bool) "schema copied" true
+    (json |> member "output_config" |> member "format" |> member "schema" = schema)
 
 let test_anthropic_parse_response_initializes_telemetry () =
   let json = Yojson.Safe.from_string {|{
@@ -127,6 +156,22 @@ let test_openai_stream_flag () =
   let open Yojson.Safe.Util in
   Alcotest.(check bool) "stream" true
     (json |> member "stream" |> to_bool)
+
+let test_ollama_output_schema () =
+  let schema =
+    `Assoc [
+      ("type", `String "object");
+      ("properties", `Assoc [("answer", `Assoc [("type", `String "string")])]);
+      ("required", `List [`String "answer"]);
+    ]
+  in
+  let config = PC.make ~kind:Ollama ~model_id:"qwen3.5:9b"
+    ~base_url:"http://localhost:11434" ~output_schema:schema () in
+  let body = BOL.build_request ~config ~messages:[user_msg "hi"] () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  Alcotest.(check bool) "format copied" true
+    (json |> member "format" = schema)
 
 (* ── Provider_config.make ────────────────────────────── *)
 
@@ -221,6 +266,22 @@ let test_complete_claude_code_without_transport_is_guarded () =
           "%s expected CliTransportRequired, got AcceptRejected: %s"
           expected_name reason
   ) kinds
+
+let test_complete_rejects_output_schema_for_glm () =
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  let net = Eio.Stdenv.net env in
+  let config = PC.make ~kind:Glm ~model_id:"glm-5"
+    ~base_url:"https://api.z.ai/api/coding/paas/v4"
+    ~output_schema:(`Assoc [("type", `String "object")]) () in
+  match Llm_provider.Complete.complete ~sw ~net ~config
+          ~messages:[user_msg "hi"] () with
+  | Error (Llm_provider.Http_client.AcceptRejected { reason }) ->
+      Alcotest.(check bool) "mentions glm json mode" true
+        (contains_substring ~sub:"json mode only"
+           (String.lowercase_ascii reason))
+  | Ok _ -> Alcotest.fail "expected AcceptRejected for glm output_schema"
+  | Error _ -> Alcotest.fail "expected AcceptRejected for glm output_schema"
 
 let test_annotate_response_cost () =
   let response : api_response = {
@@ -358,6 +419,7 @@ let () =
       test_case "basic body" `Quick test_anthropic_basic_body;
       test_case "with system" `Quick test_anthropic_with_system;
       test_case "with thinking" `Quick test_anthropic_with_thinking;
+      test_case "with output schema" `Quick test_anthropic_output_schema;
       test_case "stream flag" `Quick test_anthropic_stream_flag;
       test_case "parse response initializes telemetry" `Quick
         test_anthropic_parse_response_initializes_telemetry;
@@ -367,6 +429,7 @@ let () =
       test_case "with system" `Quick test_openai_with_system;
       test_case "with tools" `Quick test_openai_with_tools;
       test_case "stream flag" `Quick test_openai_stream_flag;
+      test_case "ollama output schema" `Quick test_ollama_output_schema;
     ];
     "provider_config", [
       test_case "default paths" `Quick test_config_default_paths;
@@ -379,6 +442,8 @@ let () =
     "cli_transport_guard", [
       test_case "complete refuses HTTP fallback for CLI kinds"
         `Quick test_complete_claude_code_without_transport_is_guarded;
+      test_case "glm output schema rejected before request"
+        `Quick test_complete_rejects_output_schema_for_glm;
     ];
     "cost", [
       test_case "annotate response cost" `Quick test_annotate_response_cost;

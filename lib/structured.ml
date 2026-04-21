@@ -1,11 +1,10 @@
-(** Structured output via tool_use pattern.
+(** Structured output helpers.
 
-    Anthropic does not have a native json_schema response_format.
-    Instead, we use tool_choice=Tool(name) to force the model to call a
-    specific tool, then extract the input JSON as structured output.
-
-    This module provides a typed schema + extraction function that
-    abstracts this pattern. *)
+    This module keeps the legacy tool-use helpers ([schema_to_tool_json],
+    [extract_tool_input]) for callers that still want forced tool calls,
+    but the direct extraction APIs now prefer provider-native JSON schema
+    output via {!Llm_provider.Complete}. Unsupported providers fail fast
+    instead of silently falling back to prompt-only JSON mode. *)
 
 open Types
 
@@ -24,6 +23,9 @@ let schema_to_tool_json (s : _ schema) : Yojson.Safe.t =
     ("input_schema", Types.params_to_input_schema s.params);
   ]
 
+let schema_to_json_schema (s : _ schema) : Yojson.Safe.t =
+  Types.params_to_input_schema s.params
+
 (** Extract a tool_use input JSON from an API response's content blocks.
     Returns the first ToolUse matching the schema name, or an error. *)
 let extract_tool_input ~(schema : _ schema) (content : content_block list) =
@@ -35,25 +37,77 @@ let extract_tool_input ~(schema : _ schema) (content : content_block list) =
   | Some json -> schema.parse json |> Result.map_error (fun e -> Error.Serialization (JsonParseError { detail = e }))
   | None -> Error (Error.Internal (Printf.sprintf "No tool_use block for '%s' in response" schema.name))
 
-(** Extract structured output from a prompt using the Anthropic API.
-    Forces tool_choice=Tool(schema.name), sends the prompt, and parses
-    the resulting tool_use input as the structured value.
+(** Extract structured output from the response text JSON. *)
+let extract_text_json ~(schema : _ schema) (response : api_response)
+    : ('a, Error.sdk_error) result =
+  let text =
+    response
+    |> Types.text_of_response
+    |> Llm_provider.Backend_openai.strip_json_markdown_fences
+    |> String.trim
+  in
+  if text = "" then
+    Error (Error.Serialization (JsonParseError {
+      detail = "structured output response did not contain text JSON";
+    }))
+  else
+    try
+      let json = Yojson.Safe.from_string text in
+      schema.parse json
+      |> Result.map_error (fun e ->
+        Error.Serialization (JsonParseError { detail = e }))
+    with
+    | Yojson.Json_error detail ->
+        Error (Error.Serialization (JsonParseError { detail }))
 
-    Requires Eio context (sw, net) and an agent_state for config. *)
+let sdk_error_of_http_error = function
+  | Llm_provider.Http_client.HttpError { code; body } ->
+      Error.Api (Llm_provider.Retry.classify_error ~status:code ~body)
+  | Llm_provider.Http_client.NetworkError { message } ->
+      Error.Api (Llm_provider.Retry.NetworkError { message })
+  | Llm_provider.Http_client.AcceptRejected { reason } ->
+      Error.Config (InvalidConfig { field = "output_schema"; detail = reason })
+  | Llm_provider.Http_client.CliTransportRequired { kind } ->
+      Error.Config (UnsupportedProvider {
+        detail =
+          Printf.sprintf
+            "CLI transport required for %s, but native structured output is only wired for HTTP providers"
+            kind;
+      })
+
+let provider_config_for_schema ~base_url ?provider ~config ~(schema : _ schema) () =
+  let state = {
+    config;
+    messages = [];
+    turn_count = 0;
+    usage = empty_usage;
+  } in
+  match Provider.provider_config_of_agent ~state ~base_url provider with
+  | Error _ as err -> err
+  | Ok provider_cfg ->
+      Ok {
+        provider_cfg with
+        Llm_provider.Provider_config.tool_choice = None;
+        response_format_json = false;
+        output_schema = Some (schema_to_json_schema schema);
+      }
+
+(** Extract structured output from a prompt using provider-native JSON
+    schema output when available. Unsupported providers fail fast. *)
 let extract ~sw ~net ?base_url ?provider ~config ~(schema : 'a schema) prompt
     : ('a, Error.sdk_error) result =
-  let config_with_tool = { config with
-    tool_choice = Some (Tool schema.name);
-  } in
-  let state = { config = config_with_tool; messages = []; turn_count = 0; usage = empty_usage } in
+  let base_url = Option.value ~default:Api.default_base_url base_url in
+  let provider_cfg_result =
+    provider_config_for_schema ~base_url ?provider ~config ~schema ()
+  in
   let messages = [{ role = User; content = [Text prompt]; name = None; tool_call_id = None }] in
-  let tools = [schema_to_tool_json schema] in
-  match Api.create_message ~sw ~net ?base_url ?provider ~config:state ~messages ~tools () with
+  match provider_cfg_result with
   | Error e -> Error e
-  | Ok response ->
-    (match extract_tool_input ~schema response.content with
-     | Ok v -> Ok v
-     | Error e -> Error e)
+  | Ok provider_cfg ->
+    (match Llm_provider.Complete.complete ~sw ~net ~config:provider_cfg
+             ~messages ~tools:[] () with
+     | Error e -> Error (sdk_error_of_http_error e)
+     | Ok response -> extract_text_json ~schema response)
 
 (* ── Extractors ────────────────────────────────────────────────── *)
 
@@ -61,7 +115,14 @@ let extract ~sw ~net ?base_url ?provider ~config ~(schema : 'a schema) prompt
     Use with {!run_structured} for Agent.t-level structured output. *)
 type 'a extractor = api_response -> ('a, string) result
 
-(** Extract a JSON value from the first text block and parse it. *)
+let schema_json_extractor (schema : 'a schema) : 'a extractor =
+  fun response ->
+    match extract_text_json ~schema response with
+    | Ok value -> Ok value
+    | Error e -> Error (Error.to_string e)
+
+(* NOTE: keep [json_extractor] / [text_extractor] for callers who parse
+   free-form responses themselves. *)
 let json_extractor (parse : Yojson.Safe.t -> 'a) : 'a extractor =
   fun resp ->
     let texts =
@@ -101,6 +162,11 @@ let run_structured ~sw ?clock agent prompt ~(extract : 'a extractor) =
      | Error detail ->
        Error (Error.Serialization (JsonParseError { detail })))
 
+let validation_feedback_message ~summary ~error_msg =
+  Printf.sprintf
+    "The previous response did not satisfy the required JSON schema.\nValidation error: %s\nPlease return only valid JSON that matches the schema.\n%s"
+    error_msg summary
+
 (** Extract structured output with validation retry (Instructor pattern).
 
     On parse/extraction failure, feeds the error message back to the LLM
@@ -120,10 +186,8 @@ let extract_with_retry ~sw ~net ?base_url ?provider ?clock
     ~config ~(schema : 'a schema) ?(max_retries=2)
     ?(on_validation_error : (int -> string -> unit) option)
     prompt : ('a retry_result, Error.sdk_error) result =
-  let config_with_tool = { config with
-    tool_choice = Some (Tool schema.name);
-  } in
-  let tools = [schema_to_tool_json schema] in
+  ignore clock;
+  let base_url = Option.value ~default:Api.default_base_url base_url in
   let add_usage acc resp_usage =
     match acc, resp_usage with
     | None, u -> u
@@ -150,110 +214,79 @@ let extract_with_retry ~sw ~net ?base_url ?provider ?clock
       Tool_retry_policy.max_retries = max_retries;
       retry_on_validation_error = true;
       retry_on_recoverable_tool_error = false;
-      feedback_style = Tool_retry_policy.Structured_tool_result;
+      feedback_style = Tool_retry_policy.Plain_error_text;
     }
   in
-  let rec attempt n acc_usage messages =
-    let state = { config = config_with_tool; messages = []; turn_count = 0;
-                  usage = empty_usage } in
-    match Api.create_message ~sw ~net ?base_url ?provider ?clock
-            ~config:state ~messages ~tools () with
-    | Error e -> Error e
-    | Ok response ->
-        let total = add_usage acc_usage response.usage in
-        match extract_tool_input ~schema response.content with
-        | Ok v -> Ok { value = v; total_usage = total; attempts = n + 1 }
-        | Error e ->
-            let error_msg = Error.to_string e in
-            let decision =
-              Tool_retry_policy.decide ~policy:retry_policy ~prior_retries:n
-                [
-                  {
-                    Tool_retry_policy.tool_name = schema.name;
-                    detail = error_msg;
-                    kind = Tool_retry_policy.Validation_error;
-                  };
-                ]
-            in
-            (match decision with
-             | Tool_retry_policy.Retry { retry_count; summary } ->
-                 (match on_validation_error with
-                  | Some cb -> cb retry_count error_msg
-                  | None -> ());
-                 let tool_use_id =
-                   List.find_map
-                     (function
-                       | ToolUse { id; name; _ } when name = schema.name ->
-                           Some id
-                       | _ -> None)
-                     response.content
-                   |> Option.value ~default:"structured_retry"
-                 in
-                 let retry_messages =
-                   [
-                     initial_message;
-                     {
-                       role = Assistant;
-                       content = response.content;
-                       name = None;
-                       tool_call_id = None;
-                     };
-                     {
-                       role = User;
-                       content =
-                         [
-                           Tool_retry_policy.structured_feedback_block
-                             ~tool_use_id ~retry_count
-                             ~max_retries:retry_policy.max_retries ~summary;
-                         ];
-                       name = None;
-                       tool_call_id = None;
-                     };
-                   ]
-                 in
-                 attempt retry_count total retry_messages
-             | Tool_retry_policy.Exhausted _
-             | Tool_retry_policy.No_retry -> Error e)
-  in
-  let initial_messages = [ initial_message ] in
-  attempt 0 None initial_messages
+  match provider_config_for_schema ~base_url ?provider ~config ~schema () with
+  | Error e -> Error e
+  | Ok provider_cfg ->
+      let rec attempt n acc_usage messages =
+        match Llm_provider.Complete.complete ~sw ~net ~config:provider_cfg
+                ~messages ~tools:[] () with
+        | Error e -> Error (sdk_error_of_http_error e)
+        | Ok response ->
+            let total = add_usage acc_usage response.usage in
+            match extract_text_json ~schema response with
+            | Ok v -> Ok { value = v; total_usage = total; attempts = n + 1 }
+            | Error e ->
+                let error_msg = Error.to_string e in
+                let decision =
+                  Tool_retry_policy.decide ~policy:retry_policy ~prior_retries:n
+                    [
+                      {
+                        Tool_retry_policy.tool_name = schema.name;
+                        detail = error_msg;
+                        kind = Tool_retry_policy.Validation_error;
+                      };
+                    ]
+                in
+                (match decision with
+                 | Tool_retry_policy.Retry { retry_count; summary } ->
+                     (match on_validation_error with
+                      | Some cb -> cb retry_count error_msg
+                      | None -> ());
+                     let retry_messages =
+                       messages @ [
+                         {
+                           role = Assistant;
+                           content = response.content;
+                           name = None;
+                           tool_call_id = None;
+                         };
+                         {
+                           role = User;
+                           content = [
+                             Text (validation_feedback_message ~summary ~error_msg);
+                           ];
+                           name = None;
+                           tool_call_id = None;
+                         };
+                       ]
+                     in
+                     attempt retry_count total retry_messages
+                 | Tool_retry_policy.Exhausted _
+                 | Tool_retry_policy.No_retry -> Error e)
+      in
+      let initial_messages = [ initial_message ] in
+      attempt 0 None initial_messages
 
 (** Extract structured output with SSE streaming.
-    Like [extract] but uses [Streaming.create_message_stream] to receive
-    incremental SSE events.  Calls [on_event] for each event.
-    Falls back to sync API + synthetic events for non-Anthropic providers. *)
+    Like [extract] but streams via {!Llm_provider.Complete.complete_stream}. *)
 let extract_stream ~sw ~net ?base_url ?provider ?clock ~config ~(schema : 'a schema)
     ~on_event prompt : ('a * api_response, Error.sdk_error) result =
-  let config_with_tool = { config with
-    tool_choice = Some (Tool schema.name);
-  } in
-  let state = { config = config_with_tool; messages = []; turn_count = 0; usage = empty_usage } in
+  ignore clock;
+  let base_url = Option.value ~default:Api.default_base_url base_url in
   let messages = [{ role = User; content = [Text prompt]; name = None; tool_call_id = None }] in
-  let tools = [schema_to_tool_json schema] in
-  let api_result =
-    let stream_result =
-      Streaming.create_message_stream ~sw ~net ?base_url ?provider
-        ~config:state ~messages ~tools ~on_event ()
-    in
-    match stream_result with
-    | Ok _ -> stream_result
-    | Error (Error.Config (UnsupportedProvider _)) ->
-        (* Non-Anthropic: fallback to sync + synthetic events *)
-        let sync_result = Api.create_message ~sw ~net ?base_url ?provider
-          ?clock ~config:state ~messages ~tools () in
-        (match sync_result with
-         | Ok response ->
-           Streaming.emit_synthetic_events response on_event;
-           Ok response
-         | Error _ -> sync_result)
-    | Error _ -> stream_result
-  in
-  match api_result with
+  match provider_config_for_schema ~base_url ?provider ~config ~schema () with
   | Error e -> Error e
-  | Ok response ->
-    (match extract_tool_input ~schema response.content with
-     | Ok value -> Ok (value, response)
-     | Error e -> Error e)
+  | Ok provider_cfg ->
+      (match Llm_provider.Complete.complete_stream ~sw ~net ~config:provider_cfg
+               ~messages ~tools:[] ~on_event () with
+       | Error e -> Error (sdk_error_of_http_error e)
+       | Ok response ->
+           match extract_text_json ~schema response with
+           | Ok value -> Ok (value, response)
+           | Error e -> Error e)
 
 [@@@coverage off]
 (* === Inline tests === *)

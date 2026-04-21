@@ -79,6 +79,13 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
   in
   let body = ("keep_alive", keep_alive_json) :: body in
 
+  let body =
+    match config.output_schema with
+    | Some schema -> ("format", schema) :: body
+    | None when config.response_format_json -> ("format", `String "json") :: body
+    | None -> body
+  in
+
   let body = match tools with
     | [] -> body
     | ts ->
