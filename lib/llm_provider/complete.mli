@@ -71,6 +71,7 @@ val complete :
   config:Provider_config.t ->
   messages:Types.message list ->
   ?tools:Yojson.Safe.t list ->
+  ?runtime_mcp_policy:Llm_transport.runtime_mcp_policy ->
   ?cache:Cache.t ->
   ?metrics:Metrics.t ->
   ?priority:Request_priority.t ->
@@ -104,6 +105,7 @@ val complete_with_retry :
   config:Provider_config.t ->
   messages:Types.message list ->
   ?tools:Yojson.Safe.t list ->
+  ?runtime_mcp_policy:Llm_transport.runtime_mcp_policy ->
   ?retry_config:retry_config ->
   ?cache:Cache.t ->
   ?metrics:Metrics.t ->
@@ -132,6 +134,7 @@ val complete_stream :
   config:Provider_config.t ->
   messages:Types.message list ->
   ?tools:Yojson.Safe.t list ->
+  ?runtime_mcp_policy:Llm_transport.runtime_mcp_policy ->
   on_event:(Types.sse_event -> unit) ->
   ?priority:Request_priority.t ->
   unit ->

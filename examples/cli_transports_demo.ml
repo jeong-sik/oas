@@ -37,7 +37,7 @@ let make_request () : Llm_transport.completion_request =
       ~base_url:""
       ()
   in
-  { config; messages; tools = [] }
+  { config; messages; tools = []; runtime_mcp_policy = None }
 
 (** Stream demo: print every text delta as it arrives + a marker per
     event kind. *)

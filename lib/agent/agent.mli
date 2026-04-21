@@ -48,6 +48,8 @@ type options = Agent_types.options = {
     (Tool_result_store.t * Content_replacement_state.t) option;
   journal: Durable_event.journal option;
   transport: Llm_provider.Llm_transport.t option;
+  runtime_mcp_policy:
+    Llm_provider.Llm_transport.runtime_mcp_policy option;
   summarizer: (Types.message list -> string) option;
 }
 

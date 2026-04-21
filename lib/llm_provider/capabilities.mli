@@ -14,6 +14,8 @@ type capabilities = {
   supports_tools: bool;
   supports_tool_choice: bool;
   supports_parallel_tool_calls: bool;
+  supports_runtime_mcp_tools: bool;
+  supports_runtime_tool_events: bool;
   (* Thinking / reasoning *)
   supports_reasoning: bool;
   supports_extended_thinking: bool;

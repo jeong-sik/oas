@@ -136,6 +136,14 @@ val with_base_url : string -> t -> t
     @since 0.156.0 *)
 val with_transport : Llm_provider.Llm_transport.t -> t -> t
 
+(** Inject a request-scoped runtime MCP policy for CLI transports.
+    This is orthogonal to inline [Tool.t] schemas: transports such as
+    Claude Code and Codex CLI can expose MCP tools directly from the
+    subprocess runtime.
+    @since 0.164.0 *)
+val with_runtime_mcp_policy :
+  Llm_provider.Llm_transport.runtime_mcp_policy -> t -> t
+
 (** {2 Contract} *)
 
 val with_contract : Contract.t -> t -> t

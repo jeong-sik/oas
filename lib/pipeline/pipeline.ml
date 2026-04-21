@@ -243,14 +243,35 @@ let dispatch_sync ~sw ?clock agent prep =
         Llm_provider.Complete.complete_with_retry
           ~sw ~net:agent.net ?transport:agent.options.transport ~clock
           ~config:pc ~messages:prep.effective_messages ~tools
+          ?runtime_mcp_policy:agent.options.runtime_mcp_policy
           ?priority:agent.options.priority ()
     | None ->
         Llm_provider.Complete.complete
           ~sw ~net:agent.net ?transport:agent.options.transport
           ~config:pc ~messages:prep.effective_messages ~tools
+          ?runtime_mcp_policy:agent.options.runtime_mcp_policy
           ?priority:agent.options.priority ()
   in
   match call () with
+  | Ok resp -> Ok resp
+  | Error err -> Error (sdk_error_of_http_error err)
+
+let dispatch_stream ~sw agent prep ~on_event =
+  let tools = Option.value prep.Agent_turn.tools_json ~default:[] in
+  let open Result in
+  let* pc =
+    Provider.provider_config_of_agent
+      ~state:agent.state
+      ~base_url:agent.options.base_url
+      agent.options.provider
+  in
+  match
+    Llm_provider.Complete.complete_stream
+      ~sw ~net:agent.net ?transport:agent.options.transport
+      ~config:pc ~messages:prep.effective_messages ~tools
+      ?runtime_mcp_policy:agent.options.runtime_mcp_policy
+      ~on_event ?priority:agent.options.priority ()
+  with
   | Ok resp -> Ok resp
   | Error err -> Error (sdk_error_of_http_error err)
 
@@ -268,33 +289,7 @@ let stage_route ~sw ?clock ~api_strategy agent prep =
       { kind = Api_call; name = "create_message_stream";
         agent_name = agent.state.config.name;
         turn = agent.state.turn_count; extra = [] }
-      (fun _tracer ->
-        let can_stream = match agent.options.provider with
-            | Some p -> Provider_intf.supports_streaming p
-            | None -> false  (* Default Anthropic supports streaming *)
-          in
-          if can_stream then
-            Streaming.create_message_stream ~sw ~net:agent.net
-              ~base_url:agent.options.base_url
-              ?provider:agent.options.provider
-              ~config:agent.state ~messages:prep.effective_messages
-              ?tools:prep.tools_json ~on_event ()
-          else
-            (* Provider does not support native streaming —
-               fall back to sync call + synthetic SSE events. *)
-            let sync_result =
-              Api.create_message ~sw ~net:agent.net
-                ~base_url:agent.options.base_url
-                ?provider:agent.options.provider ?clock
-                ~config:agent.state
-                ~messages:prep.effective_messages
-                ?tools:prep.tools_json ()
-            in
-            (match sync_result with
-             | Ok response ->
-               Streaming.emit_synthetic_events response on_event;
-               Ok response
-             | Error _ -> sync_result))
+      (fun _tracer -> dispatch_stream ~sw agent prep ~on_event)
 
 (* ── Stage 4: Collect ────────────────────────────────────── *)
 

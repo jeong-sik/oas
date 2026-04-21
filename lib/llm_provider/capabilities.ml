@@ -16,6 +16,8 @@ type capabilities = {
   supports_tools: bool;
   supports_tool_choice: bool;
   supports_parallel_tool_calls: bool;
+  supports_runtime_mcp_tools: bool;
+  supports_runtime_tool_events: bool;
 
   (* ── Thinking / reasoning ──────────────────────────── *)
   supports_reasoning: bool;             (** Any form of reasoning/thinking *)
@@ -55,6 +57,8 @@ let default_capabilities = {
   supports_tools = false;
   supports_tool_choice = false;
   supports_parallel_tool_calls = false;
+  supports_runtime_mcp_tools = false;
+  supports_runtime_tool_events = false;
   supports_reasoning = false;
   supports_extended_thinking = false;
   supports_reasoning_budget = false;
@@ -227,6 +231,8 @@ let claude_code_capabilities = {
   supports_structured_output = false;
   supports_computer_use = true;
   supports_code_execution = true;
+  supports_runtime_mcp_tools = true;
+  supports_runtime_tool_events = true;
 }
 
 let gemini_cli_capabilities = {
@@ -247,6 +253,8 @@ let codex_cli_capabilities = {
   supports_tool_choice = false;
   supports_native_streaming = false;
   supports_system_prompt = true;
+  supports_runtime_mcp_tools = true;
+  supports_runtime_tool_events = true;
 }
 
 (* ── Model-specific overrides (lookup table) ─────────── *)

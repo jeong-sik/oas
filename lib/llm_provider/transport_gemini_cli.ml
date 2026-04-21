@@ -314,6 +314,15 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
   let warned = ref false in
   {
     complete_sync = (fun (req : Llm_transport.completion_request) ->
+      (match req.runtime_mcp_policy with
+       | Some _ ->
+         { Llm_transport.response =
+             Error (Http_client.NetworkError {
+               message =
+                 "gemini_cli does not support request-scoped runtime MCP configuration";
+             });
+           latency_ms = 0 }
+       | None ->
       warn_unsupported_once config warned;
       let messages = Cli_common_prompt.non_system_messages req.messages in
       let prompt = Cli_common_prompt.prompt_of_messages messages in
@@ -324,9 +333,16 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
       | Error _ as e -> { Llm_transport.response = e; latency_ms = 0 }
       | Ok { stdout; stderr = _; latency_ms } ->
         let response = parse_json_result (String.trim stdout) in
-        { Llm_transport.response; latency_ms });
+        { Llm_transport.response; latency_ms }));
 
     complete_stream = (fun ~on_event (req : Llm_transport.completion_request) ->
+      match req.runtime_mcp_policy with
+      | Some _ ->
+        Error (Http_client.NetworkError {
+          message =
+            "gemini_cli does not support request-scoped runtime MCP configuration";
+        })
+      | None ->
       warn_unsupported_once config warned;
       let messages = Cli_common_prompt.non_system_messages req.messages in
       let prompt = Cli_common_prompt.prompt_of_messages messages in
@@ -568,3 +584,49 @@ let%test "default: no vars still keeps MCP disabled via sentinel" =
     && not (List.mem "--approval-mode" args)
     && has_sentinel_whitelist args
     && not (List.mem "" args)))))
+
+let runtime_mcp_policy_sample =
+  {
+    Llm_transport.empty_runtime_mcp_policy with
+    servers = [
+      Llm_transport.Http_server {
+        name = "masc";
+        url = "http://127.0.0.1:8935/mcp";
+        headers = [];
+      };
+    ];
+    allowed_server_names = ["masc"];
+    allowed_tool_names = ["masc_status"];
+  }
+
+let runtime_mcp_req_sample : Llm_transport.completion_request =
+  {
+    config = gemini_req;
+    messages = [];
+    tools = [];
+    runtime_mcp_policy = Some runtime_mcp_policy_sample;
+  }
+
+let runtime_mcp_policy_error_message =
+  "gemini_cli does not support request-scoped runtime MCP configuration"
+
+let%test_unit "complete_sync rejects request-scoped runtime MCP policy" =
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  let transport = create ~sw ~mgr:(Eio.Stdenv.process_mgr env) ~config:default_config in
+  match transport.complete_sync runtime_mcp_req_sample with
+  | {
+      response = Error (Http_client.NetworkError { message });
+      latency_ms = 0;
+    } ->
+    assert (String.equal message runtime_mcp_policy_error_message)
+  | _ -> assert false
+
+let%test_unit "complete_stream rejects request-scoped runtime MCP policy" =
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  let transport = create ~sw ~mgr:(Eio.Stdenv.process_mgr env) ~config:default_config in
+  match transport.complete_stream ~on_event:(fun _ -> ()) runtime_mcp_req_sample with
+  | Error (Http_client.NetworkError { message }) ->
+    assert (String.equal message runtime_mcp_policy_error_message)
+  | _ -> assert false

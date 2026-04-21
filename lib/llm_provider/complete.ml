@@ -475,6 +475,7 @@ let complete_http ~sw ~net
 let complete ~sw ~net ?(transport : Llm_transport.t option)
     ~(config : Provider_config.t)
     ~(messages : Types.message list) ?(tools=[])
+    ?runtime_mcp_policy
     ?(cache : Cache.t option) ?(metrics : Metrics.t option)
     ?(priority : Request_priority.t option) () =
   match validate_output_schema_request config with
@@ -486,7 +487,10 @@ let complete ~sw ~net ?(transport : Llm_transport.t option)
   (* Cache lookup *)
   (* Compute fingerprint once; reuse for both lookup and store *)
   let cache_key = match cache with
-    | Some _ -> Some (Cache.request_fingerprint ~config ~messages ~tools ())
+    | Some _ ->
+      Some
+        (Cache.request_fingerprint ~config ~messages ~tools
+           ?runtime_mcp_policy ())
     | None -> None
   in
   let cached = match cache, cache_key with
@@ -512,7 +516,13 @@ let complete ~sw ~net ?(transport : Llm_transport.t option)
       let { Llm_transport.response = result; latency_ms } =
         match transport with
         | Some t ->
-          t.complete_sync { Llm_transport.config; messages; tools }
+          t.complete_sync
+            {
+              Llm_transport.config;
+              messages;
+              tools;
+              runtime_mcp_policy;
+            }
         | None when requires_non_http_transport config.kind ->
           (* CLI subprocess providers (claude_code/codex_cli/gemini_cli)
              register with [base_url = ""] on purpose.  Without a CLI
@@ -603,6 +613,7 @@ let is_retryable = function
 let complete_with_retry ~sw ~net ?transport ~clock
     ~(config : Provider_config.t)
     ~(messages : Types.message list) ?(tools=[])
+    ?runtime_mcp_policy
     ?(retry_config=default_retry_config)
     ?cache ?metrics ?priority () =
   let jittered delay =
@@ -610,7 +621,10 @@ let complete_with_retry ~sw ~net ?transport ~clock
     delay *. factor
   in
   let rec attempt n delay =
-    match complete ~sw ~net ?transport ~config ~messages ~tools ?cache ?metrics ?priority () with
+    match
+      complete ~sw ~net ?transport ~config ~messages ~tools
+        ?runtime_mcp_policy ?cache ?metrics ?priority ()
+    with
     | Ok _ as success -> success
     | Error err when is_retryable err && n < retry_config.max_retries ->
         Eio.Time.sleep clock (jittered delay);
@@ -743,6 +757,7 @@ let complete_stream_http ~sw:_ ~net ~(config : Provider_config.t)
 let complete_stream ~sw ~net ?(transport : Llm_transport.t option)
     ~(config : Provider_config.t)
     ~(messages : Types.message list) ?(tools=[])
+    ?runtime_mcp_policy
     ~(on_event : Types.sse_event -> unit)
     ?(priority : Request_priority.t option) () =
   match validate_output_schema_request config with
@@ -751,7 +766,13 @@ let complete_stream ~sw ~net ?(transport : Llm_transport.t option)
   let _priority = priority in
   let result = match transport with
   | Some t ->
-    t.complete_stream ~on_event { Llm_transport.config; messages; tools }
+    t.complete_stream ~on_event
+      {
+        Llm_transport.config;
+        messages;
+        tools;
+        runtime_mcp_policy;
+      }
   | None when requires_non_http_transport config.kind ->
     (* Same rationale as the sync [complete] guard: CLI kinds have
        [base_url = ""] and must not reach cohttp-eio. *)
