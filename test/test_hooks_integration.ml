@@ -30,6 +30,15 @@ let stateful_handler call_count _conn _req body =
   in
   Cohttp_eio.Server.respond_string ~status:`OK ~body:response_body ()
 
+let sequence_handler responses _conn _req body =
+  let _ = Eio.Buf_read.(of_flow ~max_size:(1024 * 1024) body |> take_all) in
+  match !responses with
+  | response_body :: rest ->
+      responses := rest;
+      Cohttp_eio.Server.respond_string ~status:`OK ~body:response_body ()
+  | [] ->
+      Cohttp_eio.Server.respond_string ~status:`OK ~body:(text_body "done") ()
+
 let text_only_handler _conn _req body =
   let _ = Eio.Buf_read.(of_flow ~max_size:(1024 * 1024) body |> take_all) in
   Cohttp_eio.Server.respond_string ~status:`OK ~body:(text_body "hello") ()
@@ -206,6 +215,75 @@ let test_on_stop_fires () =
      | Ok _ | Error _ -> ());
     Alcotest.(check bool) "on_stop fired" true !stop_fired)
 
+(* ── on_idle_escalated tests ─────────────────────────── *)
+
+let test_on_idle_escalated_final_warning_fires () =
+  let responses = ref [
+    tool_use_body ~tool_name:"echo" ~input_json:{|{"msg":"hi"}|};
+    tool_use_body ~tool_name:"echo" ~input_json:{|{"msg":"hi"}|};
+    text_body "done";
+  ] in
+  with_mock_server ~port:18111 (sequence_handler responses)
+    (fun ~sw ~net ~base_url ->
+      let (tool, _tool_calls) = fresh_echo_tool () in
+      let seen = ref [] in
+      let options = { Agent.default_options with
+        base_url;
+        max_idle_turns = 3;
+        idle_final_warning_at = Some 1;
+        hooks = { Hooks.empty with
+          on_idle_escalated = Some (function
+            | Hooks.OnIdleEscalated
+                {
+                  severity;
+                  consecutive_idle_turns;
+                  tool_names;
+                } ->
+                seen := (severity, consecutive_idle_turns, tool_names) :: !seen;
+                Hooks.Nudge "try a different tool"
+            | _ -> Hooks.Continue) } } in
+      let config = { default_config with max_turns = 4 } in
+      let agent = Agent.create ~net ~config ~options ~tools:[tool] () in
+      (match Agent.run ~sw agent "test" with
+       | Ok _ -> ()
+       | Error e -> Alcotest.fail (Error.to_string e));
+      match List.rev !seen with
+      | [(severity, consecutive_idle_turns, tool_names)] ->
+          Alcotest.(check string) "severity" "final_warning"
+            (Hooks.Idle_severity.to_string severity);
+          Alcotest.(check int) "idle turns" 1 consecutive_idle_turns;
+          Alcotest.(check (list string)) "tool names" ["echo"] tool_names
+      | _ ->
+          Alcotest.fail "expected exactly one on_idle_escalated callback")
+
+let test_on_idle_escalated_skip_short_circuits_execution () =
+  let responses = ref [
+    tool_use_body ~tool_name:"echo" ~input_json:{|{"msg":"hi"}|};
+    tool_use_body ~tool_name:"echo" ~input_json:{|{"msg":"hi"}|};
+  ] in
+  with_mock_server ~port:18112 (sequence_handler responses)
+    (fun ~sw ~net ~base_url ->
+      let (tool, tool_calls) = fresh_echo_tool () in
+      let seen = ref [] in
+      let options = { Agent.default_options with
+        base_url;
+        max_idle_turns = 1;
+        hooks = { Hooks.empty with
+          on_idle_escalated = Some (function
+            | Hooks.OnIdleEscalated { severity; _ } ->
+                seen := severity :: !seen;
+                Hooks.Skip
+            | _ -> Hooks.Continue) } } in
+      let config = { default_config with max_turns = 3 } in
+      let agent = Agent.create ~net ~config ~options ~tools:[tool] () in
+      match Agent.run ~sw agent "test" with
+      | Ok resp ->
+          Alcotest.(check string) "current response preserved" "m2" resp.id;
+          Alcotest.(check int) "tool executed only once" 1 !tool_calls;
+          Alcotest.(check (list string)) "skip severity seen" ["skip"]
+            (List.rev_map Hooks.Idle_severity.to_string !seen)
+      | Error e -> Alcotest.fail (Error.to_string e))
+
 (* ── multiple hooks test ─────────────────────────────── *)
 
 let test_multiple_hooks_all_fire () =
@@ -276,6 +354,12 @@ let () =
     ];
     "on_stop", [
       test_case "fires on completion" `Quick test_on_stop_fires;
+    ];
+    "on_idle_escalated", [
+      test_case "final warning severity fires" `Quick
+        test_on_idle_escalated_final_warning_fires;
+      test_case "skip short-circuits tool execution" `Quick
+        test_on_idle_escalated_skip_short_circuits_execution;
     ];
     "chaining", [
       test_case "multiple hooks all fire" `Quick test_multiple_hooks_all_fire;

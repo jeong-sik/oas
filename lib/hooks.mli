@@ -37,6 +37,15 @@ type tool_schedule = {
   batch_kind: string;
 }
 
+module Idle_severity : sig
+  type t =
+    | Nudge
+    | Final_warning
+    | Skip
+
+  val to_string : t -> string
+end
+
 (** Events emitted during agent execution *)
 type hook_event =
   | BeforeTurn of { turn: int; messages: Types.message list }
@@ -75,6 +84,11 @@ type hook_event =
     }
   | OnStop of { reason: Types.stop_reason; response: Types.api_response }
   | OnIdle of { consecutive_idle_turns: int; tool_names: string list }
+  | OnIdleEscalated of {
+      severity: Idle_severity.t;
+      consecutive_idle_turns: int;
+      tool_names: string list;
+    }
   | OnError of { detail: string; context: string }
   | OnToolError of { tool_name: string; error: string }
   | PreCompact of {
@@ -150,6 +164,13 @@ type hooks = {
   post_tool_use_failure: hook option;
   on_stop: hook option;
   on_idle: hook option;
+  on_idle_escalated: hook option;
+      (** More structured replacement for [on_idle]. When present, the
+          runtime computes severity from the agent's idle thresholds and
+          calls this hook instead of [on_idle]. [skip_at] reuses
+          [Agent.options.max_idle_turns]; [final_at] comes from
+          [Agent.options.idle_final_warning_at] or defaults to
+          [max_idle_turns - 1] when possible. *)
   on_error: hook option;
   on_tool_error: hook option;
   pre_compact: hook option;
@@ -187,6 +208,7 @@ val invoke : hook option -> hook_event -> hook_decision
     post_tool_use_failure|    Y     |      |          |                  |              |
     on_stop              |    Y     |      |          |                  |              |
     on_idle              |    Y     |  Y   |          |                  |              |             |   Y
+    on_idle_escalated    |    Y     |  Y   |          |                  |              |             |   Y
     on_error             |    Y     |      |          |                  |              |
     on_tool_error        |    Y     |      |          |                  |              |
     pre_compact          |    Y     |  Y   |          |                  |              |

@@ -52,6 +52,18 @@ type tool_schedule = {
   batch_kind: string;
 }
 
+module Idle_severity = struct
+  type t =
+    | Nudge
+    | Final_warning
+    | Skip
+
+  let to_string = function
+    | Nudge -> "nudge"
+    | Final_warning -> "final_warning"
+    | Skip -> "skip"
+end
+
 (** Extract reasoning summary from message list.
     Scans for Thinking blocks and heuristically detects uncertainty
     markers like "I'm not sure", "uncertain", "unclear". *)
@@ -120,6 +132,11 @@ type hook_event =
     }
   | OnStop of { reason: stop_reason; response: api_response }
   | OnIdle of { consecutive_idle_turns: int; tool_names: string list }
+  | OnIdleEscalated of {
+      severity: Idle_severity.t;
+      consecutive_idle_turns: int;
+      tool_names: string list;
+    }
   | OnError of { detail: string; context: string }
   | OnToolError of { tool_name: string; error: string }
   | PreCompact of {
@@ -193,6 +210,7 @@ type hooks = {
   post_tool_use_failure: hook option;
   on_stop: hook option;
   on_idle: hook option;
+  on_idle_escalated: hook option;
   on_error: hook option;
   on_tool_error: hook option;
   pre_compact: hook option;
@@ -210,6 +228,7 @@ let empty = {
   post_tool_use_failure = None;
   on_stop = None;
   on_idle = None;
+  on_idle_escalated = None;
   on_error = None;
   on_tool_error = None;
   pre_compact = None;
@@ -271,6 +290,7 @@ let stage_of_event = function
   | PostToolUseFailure _ -> "post_tool_use_failure"
   | OnStop _ -> "on_stop"
   | OnIdle _ -> "on_idle"
+  | OnIdleEscalated _ -> "on_idle_escalated"
   | OnError _ -> "on_error"
   | OnToolError _ -> "on_tool_error"
   | PreCompact _ -> "pre_compact"
@@ -290,6 +310,7 @@ let stage_of_event = function
     post_tool_use_failure|    Y     |      |          |                  |              |             |
     on_stop              |    Y     |      |          |                  |              |             |
     on_idle              |    Y     |  Y   |          |                  |              |             |   Y
+    on_idle_escalated    |    Y     |  Y   |          |                  |              |             |   Y
     on_error             |    Y     |      |          |                  |              |             |
     on_tool_error        |    Y     |      |          |                  |              |             |
     pre_compact          |    Y     |  Y   |          |                  |              |             |
@@ -307,6 +328,7 @@ let legal_decisions_for_stage stage =
   | "post_tool_use_failure" -> [K_Continue]
   | "on_stop"               -> [K_Continue]
   | "on_idle"               -> [K_Continue; K_Skip; K_Nudge]
+  | "on_idle_escalated"     -> [K_Continue; K_Skip; K_Nudge]
   | "on_error"              -> [K_Continue]
   | "on_tool_error"         -> [K_Continue]
   | "pre_compact"           -> [K_Continue; K_Skip]
@@ -375,6 +397,7 @@ let compose ~outer ~inner = {
   post_tool_use_failure = compose_hook outer.post_tool_use_failure inner.post_tool_use_failure;
   on_stop = compose_hook outer.on_stop inner.on_stop;
   on_idle = compose_hook outer.on_idle inner.on_idle;
+  on_idle_escalated = compose_hook outer.on_idle_escalated inner.on_idle_escalated;
   on_error = compose_hook outer.on_error inner.on_error;
   on_tool_error = compose_hook outer.on_tool_error inner.on_tool_error;
   pre_compact = compose_hook outer.pre_compact inner.pre_compact;

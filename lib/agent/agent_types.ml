@@ -9,6 +9,7 @@ type options = {
   base_url: string;
   provider: Provider.config option;
   max_idle_turns: int;
+  idle_final_warning_at: int option;
   hooks: Hooks.hooks;
   guardrails: Guardrails.t;
   guardrails_async: Guardrails_async.t;
@@ -104,6 +105,7 @@ let default_options = {
   base_url = Api.default_base_url;
   provider = None;
   max_idle_turns = 3;
+  idle_final_warning_at = None;
   hooks = Hooks.empty;
   guardrails = Guardrails.default;
   guardrails_async = Guardrails_async.empty;

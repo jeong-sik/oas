@@ -371,6 +371,26 @@ let retry_feedback_blocks ~(policy : Tool_retry_policy.t) ~(retry_count : int)
 
 (** Handle tool execution: idle detection, guardrails, context injection. *)
 let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
+  let resolved_idle_skip_at =
+    let skip_at = agent.options.max_idle_turns in
+    if skip_at > 0 then Some skip_at else None
+  in
+  let resolved_idle_final_warning_at =
+    match agent.options.idle_final_warning_at, resolved_idle_skip_at with
+    | Some n, _ when n > 0 -> Some n
+    | Some _, _ -> None
+    | None, Some skip_at when skip_at > 1 -> Some (skip_at - 1)
+    | None, _ -> None
+  in
+  let classify_idle_severity consecutive_idle_turns =
+    match resolved_idle_skip_at, resolved_idle_final_warning_at with
+    | Some skip_at, _ when consecutive_idle_turns >= skip_at ->
+        Hooks.Idle_severity.Skip
+    | _, Some final_at when consecutive_idle_turns >= final_at ->
+        Hooks.Idle_severity.Final_warning
+    | _ ->
+        Hooks.Idle_severity.Nudge
+  in
   let idle_result = Agent_turn.update_idle_detection
     ~idle_state:{
       last_tool_calls = agent.last_tool_calls;
@@ -385,14 +405,29 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
   let idle_skip = ref false in
   let idle_handled = ref false in  (* true when Nudge or Skip handled idle *)
   if idle_result.is_idle then begin
+    let tool_names = List.filter_map (function
+      | ToolUse { name; _ } -> Some name | _ -> None
+    ) tool_uses in
+    let consecutive_idle_turns = agent.consecutive_idle_turns in
     let idle_decision =
-      invoke_hook_with_trace agent ?raw_trace_run ~hook_name:"on_idle"
-        agent.options.hooks.on_idle
-        (Hooks.OnIdle {
-          consecutive_idle_turns = agent.consecutive_idle_turns;
-          tool_names = List.filter_map (function
-            | ToolUse { name; _ } -> Some name | _ -> None
-          ) tool_uses })
+      match agent.options.hooks.on_idle_escalated with
+      | Some hook ->
+          let severity = classify_idle_severity consecutive_idle_turns in
+          invoke_hook_with_trace agent ?raw_trace_run
+            ~hook_name:"on_idle_escalated"
+            (Some hook)
+            (Hooks.OnIdleEscalated {
+               severity;
+               consecutive_idle_turns;
+               tool_names;
+             })
+      | None ->
+          invoke_hook_with_trace agent ?raw_trace_run ~hook_name:"on_idle"
+            agent.options.hooks.on_idle
+            (Hooks.OnIdle {
+               consecutive_idle_turns;
+               tool_names;
+             })
     in
     match idle_decision with
     | Hooks.Skip ->

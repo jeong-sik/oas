@@ -15,7 +15,9 @@ let test_empty_hooks () =
   check bool "post_tool_use is None" true (hooks.post_tool_use = None);
   check bool "post_tool_use_failure is None" true
     (hooks.post_tool_use_failure = None);
-  check bool "on_stop is None" true (hooks.on_stop = None)
+  check bool "on_stop is None" true (hooks.on_stop = None);
+  check bool "on_idle_escalated is None" true
+    (hooks.on_idle_escalated = None)
 
 let test_invoke_none () =
   let result = Hooks.invoke None (Hooks.BeforeTurn { turn = 0; messages = [] }) in
@@ -237,6 +239,13 @@ let dummy_on_stop =
 let dummy_on_idle =
   Hooks.OnIdle { consecutive_idle_turns = 1; tool_names = ["t"] }
 
+let dummy_on_idle_escalated =
+  Hooks.OnIdleEscalated {
+    severity = Hooks.Idle_severity.Final_warning;
+    consecutive_idle_turns = 2;
+    tool_names = ["t"];
+  }
+
 let dummy_on_error =
   Hooks.OnError { detail = "d"; context = "c" }
 
@@ -297,7 +306,8 @@ let test_validate_legal_post_compact () =
 let test_validate_legal_observe_only_stages () =
   let stages = [
     "after_turn"; "post_tool_use"; "post_tool_use_failure";
-    "on_stop"; "on_idle"; "on_error"; "on_tool_error"; "post_compact";
+    "on_stop"; "on_idle"; "on_idle_escalated"; "on_error";
+    "on_tool_error"; "post_compact";
   ] in
   List.iter (fun stage ->
     let ok = Hooks.validate_decision ~stage Hooks.Continue in
@@ -344,6 +354,7 @@ let test_stage_of_event () =
     (dummy_post_tool_use_failure, "post_tool_use_failure");
     (dummy_on_stop, "on_stop");
     (dummy_on_idle, "on_idle");
+    (dummy_on_idle_escalated, "on_idle_escalated");
     (dummy_on_error, "on_error");
     (dummy_on_tool_error, "on_tool_error");
     (dummy_pre_compact, "pre_compact");
@@ -403,7 +414,8 @@ let test_all_stages_allow_continue () =
   let stages = [
     "before_turn"; "before_turn_params"; "after_turn";
     "pre_tool_use"; "post_tool_use"; "post_tool_use_failure";
-    "on_stop"; "on_idle"; "on_error"; "on_tool_error"; "pre_compact";
+    "on_stop"; "on_idle"; "on_idle_escalated"; "on_error";
+    "on_tool_error"; "pre_compact";
     "post_compact";
   ] in
   List.iter (fun stage ->

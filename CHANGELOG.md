@@ -13,6 +13,10 @@ original tag dates. `0.100.4` was never tagged or released.
 - **Codex CLI transport honors request model IDs.** `transport_codex_cli` now passes a non-empty, non-`auto` `Provider_config.model_id` through `codex exec --model`, matching Claude Code and Gemini CLI behavior while preserving `auto` as "use the user's CLI default".
 - **ApprovalRequired fallback no longer emits an operator-facing WARN without a callback.** The existing fail-open behavior is unchanged, but `agent_tools` now records the fallback at debug level so consumers do not see an unactionable warning on every approval-less tool execution.
 
+### Added
+
+- **`Hooks.on_idle_escalated` adds runtime-computed idle severity.** Callers can opt into a structured idle hook carrying `nudge` / `final_warning` / `skip` severity while keeping the legacy `on_idle` path for compatibility. `skip_at` reuses `max_idle_turns`; `final_at` is configurable per agent via `idle_final_warning_at`.
+
 ## [0.163.0] - 2026-04-20
 
 ### Added

@@ -178,6 +178,7 @@ let hooks st =
       Continue);
 
     on_idle = None;
+    on_idle_escalated = None;
 
     on_error = Some (fun event ->
       (match event with

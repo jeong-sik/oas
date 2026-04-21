@@ -18,6 +18,7 @@ type options = Agent_types.options = {
   base_url: string;
   provider: Provider.config option;
   max_idle_turns: int;
+  idle_final_warning_at: int option;
   hooks: Hooks.hooks;
   guardrails: Guardrails.t;
   guardrails_async: Guardrails_async.t;
