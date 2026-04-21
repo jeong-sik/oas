@@ -24,10 +24,10 @@ type span = {
   name: string;
   kind: otel_span_kind;
   start_time_ns: Int64.t;
-  mutable end_time_ns: Int64.t option;
-  mutable status: bool option;
-  mutable attributes: (string * string) list;
-  mutable events: otel_event list;
+  end_time_ns: Int64.t option;
+  status: bool option;
+  attributes: (string * string) list;
+  events: otel_event list;
 }
 
 type config = {

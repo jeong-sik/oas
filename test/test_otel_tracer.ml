@@ -69,10 +69,12 @@ let test_end_span_sets_status () =
   Otel_tracer.reset ();
   let span_ok = Otel_tracer.start_span (default_attrs ~name:"ok_op" ()) in
   Otel_tracer.end_span span_ok ~ok:true;
+  let span_ok = List.hd (Otel_tracer.flush ()) in
   check (option bool) "ok=true sets Some true" (Some true) span_ok.status;
   check bool "end_time_ns is set" true (span_ok.end_time_ns <> None);
   let span_err = Otel_tracer.start_span (default_attrs ~name:"err_op" ()) in
   Otel_tracer.end_span span_err ~ok:false;
+  let span_err = List.hd (Otel_tracer.flush ()) in
   check (option bool) "ok=false sets Some false" (Some false) span_err.status
 
 let test_end_span_moves_to_completed () =
@@ -126,6 +128,8 @@ let test_add_event () =
   Otel_tracer.reset ();
   let span = Otel_tracer.start_span (default_attrs ()) in
   Otel_tracer.add_event span "something happened";
+  Otel_tracer.end_span span ~ok:true;
+  let span = List.hd (Otel_tracer.flush ()) in
   check int "events list has 1 entry" 1 (List.length span.events);
   let evt = List.hd span.events in
   check string "event name" "something happened" evt.event_name;
@@ -137,6 +141,8 @@ let test_add_attrs () =
   let span = Otel_tracer.start_span (default_attrs ()) in
   let initial_len = List.length span.attributes in
   Otel_tracer.add_attrs span [ ("extra_k", "extra_v") ];
+  Otel_tracer.end_span span ~ok:true;
+  let span = List.hd (Otel_tracer.flush ()) in
   check int "attrs grew by 1" (initial_len + 1) (List.length span.attributes);
   check bool "contains new attr" true
     (List.mem ("extra_k", "extra_v") span.attributes);
@@ -148,11 +154,12 @@ let test_multiple_events_order () =
   Otel_tracer.add_event span "first";
   Otel_tracer.add_event span "second";
   Otel_tracer.add_event span "third";
+  Otel_tracer.end_span span ~ok:true;
+  let span = List.hd (Otel_tracer.flush ()) in
   check int "3 events" 3 (List.length span.events);
   let names = List.map (fun (e : Otel_tracer.otel_event) -> e.event_name) span.events in
   check (list string) "insertion order preserved"
-    [ "first"; "second"; "third" ] names;
-  Otel_tracer.end_span span ~ok:true
+    [ "first"; "second"; "third" ] names
 
 (* ── Buffer Management ───────────────────────────────────────────── *)
 
@@ -265,6 +272,7 @@ let test_status_to_json () =
     (match json_assoc_field "code" j_unset with
      | Some (`Int n) -> Some n | _ -> None);
   Otel_tracer.end_span s_unset ~ok:true;
+  let s_unset = List.hd (Otel_tracer.flush ()) in
   (* OK: s_unset now has status=Some true (mutable record, mutated by end_span) *)
   let j_ok = Otel_tracer.status_to_json s_unset in
   check (option int) "OK code=1" (Some 1)
@@ -275,6 +283,7 @@ let test_status_to_json () =
   (* ERROR: status = Some false *)
   let s_err = Otel_tracer.start_span (default_attrs ~name:"err" ()) in
   Otel_tracer.end_span s_err ~ok:false;
+  let s_err = List.hd (Otel_tracer.flush ()) in
   let j_err = Otel_tracer.status_to_json s_err in
   check (option int) "ERROR code=2" (Some 2)
     (match json_assoc_field "code" j_err with

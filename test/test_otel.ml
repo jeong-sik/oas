@@ -33,6 +33,7 @@ let test_start_span_creates_span () =
 let test_end_span_sets_end_time () =
   let s = Otel_tracer.start_span (default_attrs ()) in
   Otel_tracer.end_span s ~ok:true;
+  let s = List.hd (Otel_tracer.flush ()) in
   check bool "end_time is set" true (s.end_time_ns <> None);
   (match s.end_time_ns with
    | Some end_t -> check bool "end >= start" true (end_t >= s.start_time_ns)
@@ -41,11 +42,13 @@ let test_end_span_sets_end_time () =
 let test_end_span_ok_true () =
   let s = Otel_tracer.start_span (default_attrs ()) in
   Otel_tracer.end_span s ~ok:true;
+  let s = List.hd (Otel_tracer.flush ()) in
   check (option bool) "status is Some true" (Some true) s.status
 
 let test_end_span_ok_false () =
   let s = Otel_tracer.start_span (default_attrs ()) in
   Otel_tracer.end_span s ~ok:false;
+  let s = List.hd (Otel_tracer.flush ()) in
   check (option bool) "status is Some false" (Some false) s.status
 
 (* -- span_kind_mapping ------------------------------------------------ *)
@@ -173,6 +176,8 @@ let test_root_span_no_parent () =
 let test_add_event_records () =
   let s = Otel_tracer.start_span (default_attrs ()) in
   Otel_tracer.add_event s "something happened";
+  Otel_tracer.end_span s ~ok:true;
+  let s = List.hd (Otel_tracer.flush ()) in
   check int "one event" 1 (List.length s.events);
   check string "event name" "something happened"
     (List.hd s.events).event_name;
@@ -183,6 +188,8 @@ let test_multiple_events_preserved () =
   Otel_tracer.add_event s "event1";
   Otel_tracer.add_event s "event2";
   Otel_tracer.add_event s "event3";
+  Otel_tracer.end_span s ~ok:true;
+  let s = List.hd (Otel_tracer.flush ()) in
   check int "three events" 3 (List.length s.events);
   let names = List.map (fun (e : Otel_tracer.otel_event) -> e.event_name) s.events in
   check (list string) "event order" ["event1"; "event2"; "event3"] names;
@@ -194,6 +201,8 @@ let test_add_attrs_appends () =
   let s = Otel_tracer.start_span (default_attrs ()) in
   let initial_count = List.length s.attributes in
   Otel_tracer.add_attrs s [("extra_key", "extra_val")];
+  Otel_tracer.end_span s ~ok:true;
+  let s = List.hd (Otel_tracer.flush ()) in
   check int "one more attr" (initial_count + 1) (List.length s.attributes);
   let has = List.exists
     (fun (k, v) -> k = "extra_key" && v = "extra_val") s.attributes in
@@ -205,6 +214,8 @@ let test_multiple_add_attrs_accumulate () =
   let initial_count = List.length s.attributes in
   Otel_tracer.add_attrs s [("k1", "v1")];
   Otel_tracer.add_attrs s [("k2", "v2"); ("k3", "v3")];
+  Otel_tracer.end_span s ~ok:true;
+  let s = List.hd (Otel_tracer.flush ()) in
   check int "three more attrs" (initial_count + 3) (List.length s.attributes);
   Otel_tracer.end_span s ~ok:true
 
@@ -431,6 +442,7 @@ let () =
         Otel_tracer.add_event s "start_processing";
         Otel_tracer.add_event s "end_processing";
         Otel_tracer.end_span s ~ok:true;
+        let s = List.hd (Otel_tracer.flush ()) in
         let json = Otel_tracer.span_to_json s in
         let open Yojson.Safe.Util in
         let events = json |> member "events" |> to_list in
@@ -441,7 +453,8 @@ let () =
       test_case "span error status json" `Quick (with_reset (fun () ->
         let s = Otel_tracer.start_span (default_attrs ~name:"err" ()) in
         Otel_tracer.end_span s ~ok:false;
-        let json = Otel_tracer.span_to_json s in
+  let s = List.hd (Otel_tracer.flush ()) in
+  let json = Otel_tracer.span_to_json s in
         let open Yojson.Safe.Util in
         let code = json |> member "status" |> member "code" |> to_int in
         let msg = json |> member "status" |> member "message" |> to_string in

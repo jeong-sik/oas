@@ -36,10 +36,10 @@ type span = {
   name: string;
   kind: otel_span_kind;
   start_time_ns: Int64.t;
-  mutable end_time_ns: Int64.t option;
-  mutable status: bool option;
-  mutable attributes: (string * string) list;
-  mutable events: otel_event list;
+  end_time_ns: Int64.t option;
+  status: bool option;
+  attributes: (string * string) list;
+  events: otel_event list;
 }
 
 (* -- Config ----------------------------------------------------------- *)
@@ -173,17 +173,20 @@ let inst_start_span inst (attrs : Tracing.span_attrs) : span =
 
 let inst_end_span inst (s : span) ~ok =
   inst_with_lock inst @@ fun () ->
-  s.end_time_ns <- Some (now_ns ());
-  s.status <- Some ok;
+  let target = ref None in
+  Printf.printf "DEBUG: end_span for %s, current_spans size=%d\n%!" s.span_id (List.length inst.current_spans);
   inst.current_spans <- (
-    let found = ref false in
-    List.filter (fun sp ->
-      if not !found && sp.span_id = s.span_id then begin
-        found := true; false
-      end else true
+    List.filter_map (fun sp ->
+      if sp.span_id = s.span_id then begin
+        let updated = { sp with end_time_ns = Some (now_ns ()); status = Some ok } in
+        target := Some updated;
+        None
+      end else Some sp
     ) inst.current_spans
   );
-  inst.completed_spans <- s :: inst.completed_spans
+  match !target with
+  | Some completed -> inst.completed_spans <- completed :: inst.completed_spans
+  | None -> ()
 
 let inst_add_event inst (s : span) (msg : string) =
   inst_with_lock inst @@ fun () ->
@@ -192,11 +195,18 @@ let inst_add_event inst (s : span) (msg : string) =
     timestamp_ns = now_ns ();
     attributes = [];
   } in
-  s.events <- Util.snoc s.events evt
+  Printf.printf "DEBUG: add_event for %s, current_spans size=%d\n%!" s.span_id (List.length inst.current_spans);
+  inst.current_spans <- List.map (fun sp ->
+    if sp.span_id = s.span_id then { sp with events = Util.snoc sp.events evt }
+    else sp
+  ) inst.current_spans
 
 let inst_add_attrs inst (s : span) (attrs : (string * string) list) =
   inst_with_lock inst @@ fun () ->
-  s.attributes <- Util.snoc_list s.attributes attrs
+  inst.current_spans <- List.map (fun sp ->
+    if sp.span_id = s.span_id then { sp with attributes = Util.snoc_list sp.attributes attrs }
+    else sp
+  ) inst.current_spans
 
 let inst_flush inst =
   inst_with_lock inst @@ fun () ->
