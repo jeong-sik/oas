@@ -26,7 +26,7 @@ let test_make_defaults () =
   check_bool "tool_stream false" false cfg.tool_stream;
   check_bool "tool_choice None" true (cfg.tool_choice = None);
   check_bool "no parallel tool use" false cfg.disable_parallel_tool_use;
-  check_bool "no json format" false cfg.response_format_json;
+  check_bool "response format off" true (cfg.response_format = Types.Off);
   check_bool "no cache system prompt" false cfg.cache_system_prompt
 
 (* ── make: request_path per kind ──────────────────────── *)
@@ -93,7 +93,7 @@ let test_make_with_all_options () =
   check_bool "clear_thinking" true (cfg.clear_thinking = Some false);
   check_bool "tool_stream" true cfg.tool_stream;
   check_bool "disable_parallel" true cfg.disable_parallel_tool_use;
-  check_bool "json format" true cfg.response_format_json;
+  check_bool "json mode" true (cfg.response_format = Types.JsonMode);
   check_bool "cache prompt" true cfg.cache_system_prompt
 
 (* ── make: headers default ────────────────────────────── *)

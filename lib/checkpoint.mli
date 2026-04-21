@@ -32,7 +32,7 @@ type t = {
   top_k: int option;
   min_p: float option;
   enable_thinking: bool option;
-  response_format_json: bool;
+  response_format: Types.response_format;
   thinking_budget: int option;
   cache_system_prompt: bool;
   max_input_tokens: int option;
@@ -66,7 +66,7 @@ type sampling_patch = {
 
 type limits_patch = {
   disable_parallel_tool_use: bool;
-  response_format_json: bool;
+  response_format: Types.response_format;
   cache_system_prompt: bool;
   max_input_tokens: int option;
   max_total_tokens: int option;
@@ -109,7 +109,7 @@ type delta_restore_result = {
 (** Serialize checkpoint to JSON. *)
 val to_json : t -> Yojson.Safe.t
 
-(** Deserialize checkpoint from JSON. Supports versions 1-4. *)
+(** Deserialize checkpoint from JSON. Supports versions 1-5. *)
 val of_json : Yojson.Safe.t -> (t, Error.sdk_error) result
 
 (** Serialize checkpoint to a JSON string. *)

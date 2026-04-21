@@ -1,5 +1,10 @@
 open Agent_sdk
 
+let check_response_format label expected actual =
+  Alcotest.(check string) label
+    (Types.show_response_format expected)
+    (Types.show_response_format actual)
+
 (* Helper: build a minimal checkpoint for testing *)
 let make_checkpoint
     ?(session_id="test-session")
@@ -32,7 +37,7 @@ let make_checkpoint
     top_k = None;
     min_p = None;
     enable_thinking = None;
-    response_format_json = false;
+    response_format = Types.Off;
     thinking_budget = None;
     cache_system_prompt = false;
     max_input_tokens = None;
@@ -67,14 +72,14 @@ let () =
   let open Alcotest in
   run "Checkpoint" [
     "version", [
-      test_case "checkpoint_version is 4" `Quick (fun () ->
-        check int "version" 4 Checkpoint.checkpoint_version);
+      test_case "checkpoint_version is 5" `Quick (fun () ->
+        check int "version" 5 Checkpoint.checkpoint_version);
 
       test_case "version field in to_json" `Quick (fun () ->
         let cp = make_checkpoint () in
         let json = Checkpoint.to_json cp in
         let v = Yojson.Safe.Util.(json |> member "version" |> to_int) in
-        check int "version" 4 v);
+        check int "version" 5 v);
 
       test_case "wrong version returns Error" `Quick (fun () ->
         let cp = make_checkpoint () in
@@ -87,6 +92,40 @@ let () =
           | other -> other
         in
         check bool "is error" true (Result.is_error (Checkpoint.of_json bad)));
+
+      test_case "v4 response_format_json migrates to JsonMode" `Quick (fun () ->
+        let json =
+          `Assoc [
+            ("version", `Int 4);
+            ("session_id", `String "s1");
+            ("agent_name", `String "a1");
+            ("model", `String "claude-sonnet-4-6");
+            ("system_prompt", `Null);
+            ("messages", `List []);
+            ("usage", Checkpoint.usage_to_json Types.empty_usage);
+            ("turn_count", `Int 0);
+            ("created_at", `Float 1000.0);
+            ("tools", `List []);
+            ("tool_choice", `Null);
+            ("disable_parallel_tool_use", `Bool false);
+            ("temperature", `Null);
+            ("top_p", `Null);
+            ("top_k", `Null);
+            ("min_p", `Null);
+            ("enable_thinking", `Null);
+            ("response_format_json", `Bool true);
+            ("thinking_budget", `Null);
+            ("cache_system_prompt", `Bool false);
+            ("max_input_tokens", `Null);
+            ("max_total_tokens", `Null);
+            ("context", `Assoc []);
+            ("mcp_sessions", `List []);
+            ("working_context", `Null);
+          ]
+        in
+        let cp = Result.get_ok (Checkpoint.of_json json) in
+        check_response_format "legacy bool migrates" Types.JsonMode
+          cp.response_format);
     ];
 
     "roundtrip_basic", [
@@ -666,7 +705,7 @@ let () =
           | other -> other
         in
         let cp2 = Result.get_ok (Checkpoint.of_json v1_json) in
-        check int "version upgraded to 4" 4 cp2.version;
+        check int "version upgraded to 5" 5 cp2.version;
         check int "mcp_sessions empty" 0 (List.length cp2.mcp_sessions));
 
       test_case "version 1 with null mcp_sessions" `Quick (fun () ->

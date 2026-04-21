@@ -9,7 +9,7 @@ include module type of Llm_provider.Backend_openai
 
 (** Build OpenAI-compatible request body JSON string.
     Respects provider capabilities for tool_choice, top_k, min_p,
-    reasoning, response_format_json. *)
+    reasoning, and response_format. *)
 val build_openai_body :
   ?provider_config:Provider.config ->
   config:Types.agent_state ->

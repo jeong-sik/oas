@@ -822,7 +822,7 @@ let%test "gemini_url sync no api_key" =
     enable_thinking = None; thinking_budget = None;
     clear_thinking = None; tool_stream = false;
     tool_choice = None; disable_parallel_tool_use = false;
-    response_format_json = false; cache_system_prompt = false;
+    response_format = Types.Off; cache_system_prompt = false;
     supports_tool_choice_override = None;
   } in
   let url = gemini_url ~config ~stream:false in
@@ -839,7 +839,7 @@ let%test "gemini_url sync with api_key" =
     enable_thinking = None; thinking_budget = None;
     clear_thinking = None; tool_stream = false;
     tool_choice = None; disable_parallel_tool_use = false;
-    response_format_json = false; cache_system_prompt = false;
+    response_format = Types.Off; cache_system_prompt = false;
     supports_tool_choice_override = None;
   } in
   let url = gemini_url ~config ~stream:false in
@@ -856,7 +856,7 @@ let%test "gemini_url stream with api_key" =
     enable_thinking = None; thinking_budget = None;
     clear_thinking = None; tool_stream = false;
     tool_choice = None; disable_parallel_tool_use = false;
-    response_format_json = false; cache_system_prompt = false;
+    response_format = Types.Off; cache_system_prompt = false;
     supports_tool_choice_override = None;
   } in
   let url = gemini_url ~config ~stream:true in
@@ -873,7 +873,7 @@ let%test "gemini_url stream no api_key" =
     enable_thinking = None; thinking_budget = None;
     clear_thinking = None; tool_stream = false;
     tool_choice = None; disable_parallel_tool_use = false;
-    response_format_json = false; cache_system_prompt = false;
+    response_format = Types.Off; cache_system_prompt = false;
     supports_tool_choice_override = None;
   } in
   let url = gemini_url ~config ~stream:true in

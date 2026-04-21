@@ -203,7 +203,7 @@ let create_agent ~net ?name ?model ?system_prompt ?max_tokens ?max_turns
     top_k = default_config.top_k;
     min_p = default_config.min_p;
     enable_thinking = default_config.enable_thinking;
-    response_format_json = default_config.response_format_json;
+    response_format = default_config.response_format;
     thinking_budget = default_config.thinking_budget;
     tool_choice = default_config.tool_choice;
     disable_parallel_tool_use = default_config.disable_parallel_tool_use;

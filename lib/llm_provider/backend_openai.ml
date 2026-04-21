@@ -185,10 +185,11 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
     else body
   in
   let body =
-    if config.response_format_json then
-      ("response_format",
-       `Assoc [("type", `String "json_object")]) :: body
-    else body
+    match config.response_format with
+    | Types.JsonMode ->
+        ("response_format",
+         `Assoc [("type", `String "json_object")]) :: body
+    | Types.JsonSchema _ | Types.Off -> body
   in
   let body =
     if stream then ("stream", `Bool true) :: body

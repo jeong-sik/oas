@@ -23,6 +23,10 @@ original tag dates. `0.100.4` was never tagged or released.
 
 - **`Hooks.Nudge` accepted from `before_turn`.** Previously only `OnIdle` could return `Nudge`; `before_turn` returning `Nudge` was silently dropped by the pipeline (`stage_input` only handled `ElicitInput`). The decision matrix and `legal_decisions_for_stage` now list `K_Nudge` for `before_turn`, and `pipeline.ml stage_input` appends the nudge text as a User-role message before tool preparation so it reaches the model in the same turn. Mirrors the `on_idle` Nudge handler at `pipeline.ml:392`. Generic primitive — payload is opaque text, no domain knowledge in OAS.
 
+### Changed
+
+- **`response_format` now uses a typed variant surface** for agent config, builders, provider config, and checkpoints: `Off | JsonMode | JsonSchema of Yojson.Safe.t` (issue #957). `Builder.with_response_format_json`, `Provider_config.make ?response_format_json`, and checkpoint decoding of legacy `response_format_json: bool` remain as compatibility shims. In this step, provider request builders honor `JsonMode`; `JsonSchema _` is preserved through config/persistence but not yet emitted as provider-native schema parameters.
+
 ## [0.162.0] - 2026-04-19
 
 ### Added

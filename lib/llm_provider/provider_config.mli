@@ -39,7 +39,7 @@ type t = {
   tool_stream: bool;
   tool_choice: Types.tool_choice option;
   disable_parallel_tool_use: bool;
-  response_format_json: bool;
+  response_format: Types.response_format;
   cache_system_prompt: bool;
   supports_tool_choice_override: bool option;
   (** Override the registry default for [supports_tool_choice].
@@ -83,6 +83,7 @@ val make :
   ?tool_stream:bool ->
   ?tool_choice:Types.tool_choice ->
   ?disable_parallel_tool_use:bool ->
+  ?response_format:Types.response_format ->
   ?response_format_json:bool ->
   ?cache_system_prompt:bool ->
   ?supports_tool_choice_override:bool ->

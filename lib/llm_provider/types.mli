@@ -64,6 +64,15 @@ type tool_choice =
 
 val tool_choice_to_json : tool_choice -> Yojson.Safe.t
 
+type response_format =
+  | Off
+  | JsonMode
+  | JsonSchema of Yojson.Safe.t
+[@@deriving show]
+
+val response_format_to_json : response_format -> Yojson.Safe.t
+val response_format_of_json_mode : bool -> response_format
+
 (** {1 Content Types} *)
 
 type content_block =

@@ -22,7 +22,7 @@ let make_checkpoint ?(session_id = "test-session") ?(created_at = 1000.0) () :
     top_k = None;
     min_p = None;
     enable_thinking = None;
-    response_format_json = false;
+    response_format = Types.Off;
     thinking_budget = None;
     cache_system_prompt = false;
     max_input_tokens = None;

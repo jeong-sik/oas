@@ -92,12 +92,12 @@ let sampling_patch_changed (before : t) (after : t) =
 
 let limits_patch_changed (before : t) (after : t) =
   before.disable_parallel_tool_use <> after.disable_parallel_tool_use
-  || before.response_format_json <> after.response_format_json
+  || before.response_format <> after.response_format
   || before.cache_system_prompt <> after.cache_system_prompt
   || before.max_input_tokens <> after.max_input_tokens
   || before.max_total_tokens <> after.max_total_tokens
 
-let delta_version = 1
+let delta_version = 2
 
 let delta_metrics_names =
   ( "oas.checkpoint.delta_apply_total",
@@ -181,7 +181,7 @@ let compute_delta (before : t) (after : t) =
       (Replace_limits
          {
            disable_parallel_tool_use = after.disable_parallel_tool_use;
-           response_format_json = after.response_format_json;
+           response_format = after.response_format;
            cache_system_prompt = after.cache_system_prompt;
            max_input_tokens = after.max_input_tokens;
            max_total_tokens = after.max_total_tokens;
@@ -256,7 +256,7 @@ let apply_delta base delta =
             {
               checkpoint with
               disable_parallel_tool_use = patch.disable_parallel_tool_use;
-              response_format_json = patch.response_format_json;
+              response_format = patch.response_format;
               cache_system_prompt = patch.cache_system_prompt;
               max_input_tokens = patch.max_input_tokens;
               max_total_tokens = patch.max_total_tokens;

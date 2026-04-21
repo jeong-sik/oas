@@ -59,7 +59,8 @@ let test_builder_response_format () =
   match Builder.build_safe b with
   | Ok agent ->
     let st = Agent.state agent in
-    Alcotest.(check bool) "json format" true st.config.response_format_json;
+    Alcotest.(check bool) "json mode" true
+      (st.config.response_format = Types.JsonMode);
     Alcotest.(check bool) "cache prompt" true st.config.cache_system_prompt;
     Alcotest.(check bool) "disable parallel" true st.config.disable_parallel_tool_use
   | Error e -> Alcotest.fail (Error.to_string e)

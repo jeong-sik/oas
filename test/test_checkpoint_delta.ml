@@ -16,6 +16,15 @@ let yojson_simple_gen =
       map (fun b -> `Bool b) bool;
     ]
 
+let response_format_gen =
+  let open QCheck.Gen in
+  oneof
+    [
+      return Off;
+      return JsonMode;
+      map (fun value -> JsonSchema (`Assoc [("schema", value)])) yojson_simple_gen;
+    ]
+
 let message_gen =
   let open QCheck.Gen in
   map2
@@ -129,7 +138,7 @@ let checkpoint_gen =
   let* top_k = option (int_range 1 40) in
   let* min_p = option (map (fun n -> float_of_int n /. 20.0) (int_range 0 20)) in
   let* enable_thinking = option bool in
-  let* response_format_json = bool in
+  let* response_format = response_format_gen in
   let* thinking_budget = option (int_range 0 2048) in
   let* cache_system_prompt = bool in
   let* max_input_tokens = option (int_range 0 4096) in
@@ -156,7 +165,7 @@ let checkpoint_gen =
       top_k;
       min_p;
       enable_thinking;
-      response_format_json;
+      response_format;
       thinking_budget;
       cache_system_prompt;
       max_input_tokens;
@@ -210,7 +219,7 @@ let make_unit_checkpoint ?(messages = []) ?(session_id = "sess-a")
     top_k = None;
     min_p = None;
     enable_thinking = None;
-    response_format_json = false;
+    response_format = Off;
     thinking_budget = None;
     cache_system_prompt = false;
     max_input_tokens = None;

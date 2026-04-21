@@ -455,7 +455,7 @@ let agent_state_with_params () : Types.agent_state =
     top_k = Some 40;
     tool_choice = None;
     disable_parallel_tool_use = false;
-    response_format_json = false;
+    response_format = Types.Off;
     cache_system_prompt = true;
     system_prompt = Some "you are a tester";
   } in

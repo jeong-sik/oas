@@ -28,6 +28,46 @@ let tool_choice_of_json json =
   | Yojson.Safe.Util.Type_error (msg, _) ->
     Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Invalid tool_choice JSON: %s" msg }))
 
+let response_format_of_json json =
+  let open Yojson.Safe.Util in
+  try
+    match json with
+    | `Bool enabled -> Ok (response_format_of_json_mode enabled)
+    | `Null -> Ok Off
+    | `Assoc _ ->
+        (match json |> member "type" |> to_string with
+         | "off" -> Ok Off
+         | "json_mode" -> Ok JsonMode
+         | "json_schema" ->
+             (match json |> member "schema" with
+              | `Null ->
+                  Error
+                    (Error.Serialization
+                       (JsonParseError
+                          {
+                            detail =
+                              "Invalid response_format JSON: missing schema";
+                          }))
+              | schema -> Ok (JsonSchema schema))
+         | other ->
+             Error
+               (Error.Serialization
+                  (UnknownVariant { type_name = "response_format"; value = other })))
+    | _ ->
+        Error
+          (Error.Serialization
+             (JsonParseError
+                { detail = "Invalid response_format JSON: expected object" }))
+  with
+  | Yojson.Safe.Util.Type_error (msg, _) ->
+      Error
+        (Error.Serialization
+           (JsonParseError
+              {
+                detail =
+                  Printf.sprintf "Invalid response_format JSON: %s" msg;
+              }))
+
 (* ================================================================ *)
 (* Agent-specific types (internal to OAS)                             *)
 (* ================================================================ *)
@@ -54,7 +94,7 @@ type agent_config = {
   top_k: int option;
   min_p: float option;
   enable_thinking: bool option;
-  response_format_json: bool;
+  response_format: response_format;
   thinking_budget: int option; (* For Claude 3.7+ extended thinking *)
   tool_choice: tool_choice option;
   disable_parallel_tool_use: bool; (* Anthropic: tool_choice.disable_parallel_tool_use, OpenAI: parallel_tool_calls=false *)
@@ -84,7 +124,7 @@ let default_config = {
   top_k = None;
   min_p = None;
   enable_thinking = None;
-  response_format_json = false;
+  response_format = Off;
   thinking_budget = None;
   tool_choice = None;
   disable_parallel_tool_use = false;

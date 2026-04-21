@@ -243,7 +243,7 @@ let test_build_openai_body_omits_qwen_only_fields_for_generic_compat () =
       top_k = Some 40;
       min_p = Some 0.05;
       enable_thinking = Some false;
-      response_format_json = true;
+      response_format = Types.JsonMode;
       tool_choice = Some Types.Any;
     };
     messages = [];
