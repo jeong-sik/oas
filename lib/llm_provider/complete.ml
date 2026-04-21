@@ -124,18 +124,6 @@ let patch_telemetry (resp : Types.api_response) ~(config : Provider_config.t)
   in
   { resp with telemetry }
 
-(** Internal helper: canonical provider name for metric labels.
-    Kept in sync with the log tag used by the [WARN Complete] line. *)
-let provider_name_of_kind : Provider_config.provider_kind -> string = function
-  | Ollama -> "ollama"
-  | Anthropic -> "anthropic"
-  | OpenAI_compat -> "openai"
-  | Gemini -> "gemini"
-  | Glm -> "glm"
-  | Claude_code -> "claude_code"
-  | Gemini_cli -> "gemini_cli"
-  | Codex_cli -> "codex_cli"
-
 let requires_non_http_transport : Provider_config.provider_kind -> bool = function
   | Claude_code | Gemini_cli | Codex_cli -> true
   | Anthropic | OpenAI_compat | Ollama | Gemini | Glm -> false
@@ -219,10 +207,11 @@ let complete_http ~sw ~net
          (Provider_config.string_of_provider_kind config.kind) }),
      0)
   else
+  let provider_name = Provider_registry.provider_name_of_config config in
   let emit_status code =
     match on_http_status with
     | Some cb ->
-      cb ~provider:(provider_name_of_kind config.kind)
+      cb ~provider:provider_name
         ~model_id:config.model_id ~status:code
     | None -> ()
   in
@@ -257,7 +246,7 @@ let complete_http ~sw ~net
     Diag.error "complete"
       "pre-flight: unbalanced JSON body (%d bytes, first=%C last=%C) for %s %s — request blocked"
       body_len body_str.[0] body_str.[body_len - 1]
-      (provider_name_of_kind config.kind) config.model_id;
+      provider_name config.model_id;
     (* Fail-closed: do not send a body the provider will reject.
        Previously this was WARN-and-continue, which let malformed
        payloads through to produce cryptic server-side errors
@@ -280,7 +269,7 @@ let complete_http ~sw ~net
     |> Option.value ~default:""
     |> String.lowercase_ascii
   in
-  let provider_label = provider_name_of_kind config.kind in
+  let provider_label = provider_name in
   (match debug_request_body with
    | "full" ->
      let ts = Printf.sprintf "%.0f" (Unix.gettimeofday () *. 1000.0) in
@@ -358,7 +347,6 @@ let complete_http ~sw ~net
         else begin
           (* Log request body diagnostics on error responses to help debug
              Ollama "closing '}' symbol" and similar body-rejection errors. *)
-          let provider_name = provider_name_of_kind config.kind in
           if code >= 400 then begin
             (* Strong validation: round-trip parse the body we sent.  The
                cheap balanced=true check only inspects first/last char and
@@ -534,7 +522,7 @@ let complete ~sw ~net ?(transport : Llm_transport.t option)
              URL.  Fail fast with a dedicated variant so cascades and
              downstream consumers can distinguish a wiring bug from a
              transient network failure. *)
-          let kind = provider_name_of_kind config.kind in
+          let kind = Provider_registry.provider_name_of_config config in
           { Llm_transport.response =
               Error (Http_client.CliTransportRequired { kind });
             latency_ms = 0 }
@@ -553,11 +541,11 @@ let complete ~sw ~net ?(transport : Llm_transport.t option)
          match result with
          | Ok _ ->
            m.on_http_status
-             ~provider:(provider_name_of_kind config.kind)
+             ~provider:(Provider_registry.provider_name_of_config config)
              ~model_id ~status:200
          | Error (Http_client.HttpError { code; _ }) ->
            m.on_http_status
-             ~provider:(provider_name_of_kind config.kind)
+             ~provider:(Provider_registry.provider_name_of_config config)
              ~model_id ~status:code
          | Error _ -> ());
       (match result with
@@ -768,7 +756,7 @@ let complete_stream ~sw ~net ?(transport : Llm_transport.t option)
     (* Same rationale as the sync [complete] guard: CLI kinds have
        [base_url = ""] and must not reach cohttp-eio. *)
     Error (Http_client.CliTransportRequired {
-      kind = provider_name_of_kind config.kind })
+      kind = Provider_registry.provider_name_of_config config })
   | None ->
     complete_stream_http ~sw ~net ~config ~messages ~tools ~on_event
   in

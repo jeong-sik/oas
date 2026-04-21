@@ -113,6 +113,12 @@ let test_zai_coding_auto_uses_coding_default_model () =
           Alcotest.(check string) "coding auto model" "glm-4.5-air"
             cfg.model_id))
 
+let test_zai_coding_auto_models_default_order () =
+  with_env "ZAI_CODING_AUTO_MODELS" "" (fun () ->
+    Alcotest.(check (list string)) "coding auto order"
+      [ "glm-5.1"; "glm-5"; "glm-5-turbo"; "glm-4.7"; "glm-4.5-air" ]
+      (Llm_provider.Zai_catalog.glm_coding_auto_models ()))
+
 let () =
   let open Alcotest in
   run "provider_bridge" [
@@ -126,5 +132,7 @@ let () =
         test_zai_glm_becomes_glm_provider_config;
       test_case "zai coding auto uses coding default model" `Quick
         test_zai_coding_auto_uses_coding_default_model;
+      test_case "zai coding auto models default order" `Quick
+        test_zai_coding_auto_models_default_order;
     ];
   ]

@@ -252,6 +252,19 @@ let siliconflow_defaults = {
   request_path = "/chat/completions";
 }
 
+let normalize_url value =
+  let trimmed = String.trim value in
+  if trimmed = "" then trimmed
+  else
+    let rec strip_trailing_slash s =
+      let len = String.length s in
+      if len > 1 && s.[len - 1] = '/' then
+        strip_trailing_slash (String.sub s 0 (len - 1))
+      else
+        s
+    in
+    strip_trailing_slash trimmed
+
 let default () =
   let t = create () in
   let max_context_from_capabilities ~default caps =
@@ -342,3 +355,31 @@ let default () =
                capabilities = Capabilities.codex_cli_capabilities;
                is_available = codex_cli_available };
   t
+
+let provider_name_of_config (config : Provider_config.t) =
+  match config.kind with
+  | Anthropic -> "claude"
+  | Gemini -> "gemini"
+  | Glm ->
+      if Zai_catalog.is_coding_base_url config.base_url then "glm-coding"
+      else "glm"
+  | Claude_code -> "claude_code"
+  | Gemini_cli -> "gemini_cli"
+  | Codex_cli -> "codex_cli"
+  | Ollama -> "ollama"
+  | OpenAI_compat ->
+      if Provider_config.is_local config then
+        "llama"
+      else
+        let request_path = String.trim config.request_path in
+        let base_url = normalize_url config.base_url in
+        let registry = default () in
+        match
+          all registry
+          |> List.find_opt (fun (entry : entry) ->
+                 entry.defaults.kind = config.kind
+                 && String.equal (normalize_url entry.defaults.base_url) base_url
+                 && String.equal (String.trim entry.defaults.request_path) request_path)
+        with
+        | Some entry -> entry.name
+        | None -> "openai"

@@ -62,6 +62,14 @@ val command_in_path : ?path:string -> string -> bool
     and PATH discovery for CLI transports. *)
 val default : unit -> t
 
+(** Best-effort canonical provider name for a concrete provider config.
+    Unlike [Provider_config.string_of_provider_kind], this keeps
+    registry-level distinctions that share a wire kind but differ by
+    endpoint (for example [glm] vs [glm-coding], or [openai] vs
+    [openrouter]). Falls back to a stable kind-derived label when the
+    config does not match a known registry entry exactly. *)
+val provider_name_of_config : Provider_config.t -> string
+
 (** Initial LLM_ENDPOINTS URLs parsed from the environment at module load.
     For current active endpoints, use [active_llama_endpoints]. *)
 val llama_all_endpoints : string list
