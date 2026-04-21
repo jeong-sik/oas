@@ -30,6 +30,7 @@ type t = {
   base_url: string;
   provider: Provider.config option;
   max_idle_turns: int;
+  idle_final_warning_at: int option;
   hooks: Hooks.hooks;
   guardrails: Guardrails.t;
   guardrails_async: Guardrails_async.t;
@@ -94,6 +95,7 @@ let create ~net ~model =
     base_url = Api.default_base_url;
     provider = None;
     max_idle_turns = 3;
+    idle_final_warning_at = None;
     hooks = Hooks.empty;
     guardrails = Guardrails.default;
     guardrails_async = Guardrails_async.empty;
@@ -240,6 +242,7 @@ let with_yield_on_tool v b = { b with yield_on_tool = v }
 let with_exit_condition pred b = { b with exit_condition = Some pred }
 let with_event_bus bus b = { b with event_bus = Some bus }
 let with_max_idle_turns n b = { b with max_idle_turns = n }
+let with_idle_final_warning_at n b = { b with idle_final_warning_at = Some n }
 let with_context_injector injector b = { b with context_injector = Some injector }
 let with_skill_registry reg b = { b with skill_registry = Some reg }
 let with_progressive_tools strategy b = { b with progressive_tools = Some strategy }
@@ -294,6 +297,7 @@ let build b =
     Agent_types.base_url = b.base_url;
     provider = b.provider;
     max_idle_turns = b.max_idle_turns;
+    idle_final_warning_at = b.idle_final_warning_at;
     hooks = (match b.progressive_tools with
       | None -> b.hooks
       | Some strategy ->

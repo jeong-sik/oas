@@ -665,6 +665,8 @@ let test_chain_multiple () =
     |> Builder.with_tool t1
     |> Builder.with_tool t2
     |> Builder.with_base_url "http://test:9090"
+    |> Builder.with_max_idle_turns 3
+    |> Builder.with_idle_final_warning_at 2
     |> Builder.with_enable_thinking true
     |> Builder.with_thinking_budget 5000
     |> Builder.build_safe |> Result.get_ok
@@ -674,6 +676,9 @@ let test_chain_multiple () =
   Alcotest.(check int) "max_turns" 3 (Agent.state agent).config.max_turns;
   Alcotest.(check int) "tool count" 2 (Tool_set.size (Agent.tools agent));
   Alcotest.(check string) "base_url" "http://test:9090" (Agent.options agent).base_url;
+  Alcotest.(check int) "max_idle_turns" 3 (Agent.options agent).max_idle_turns;
+  Alcotest.(check (option int)) "idle_final_warning_at" (Some 2)
+    (Agent.options agent).idle_final_warning_at;
   Alcotest.(check (option int)) "thinking_budget"
     (Some 5000) (Agent.state agent).config.thinking_budget
 

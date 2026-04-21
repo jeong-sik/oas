@@ -18,6 +18,10 @@ type options = {
   base_url: string;
   provider: Provider.config option;
   max_idle_turns: int;
+  idle_final_warning_at: int option;
+    (** Threshold for [Hooks.on_idle_escalated] to emit
+        [Hooks.Idle_severity.Final_warning]. When [None], the runtime
+        derives [max_idle_turns - 1] when [max_idle_turns > 1]. *)
   hooks: Hooks.hooks;
   guardrails: Guardrails.t;
   guardrails_async: Guardrails_async.t;
