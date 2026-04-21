@@ -1,6 +1,10 @@
 open Agent_sdk
 
 let () = Unix.putenv "OAS_ALLOW_TEST_PROVIDERS" "1"
+let () =
+  if Sys.getenv_opt "ANTHROPIC_API_KEY" = None then
+    Unix.putenv "ANTHROPIC_API_KEY" "test-mock-key"
+
 open Alcotest
 
 let runtime_path () =
@@ -67,6 +71,28 @@ let openai_text_response ?(id = "chatcmpl-1") ?(model = "mock")
                  ];
              ] );
          ("usage", response_usage ~prompt_tokens ~completion_tokens ());
+       ])
+
+let anthropic_text_response ?(id = "msg-1") ?(model = "mock")
+    ?(stop_reason = "end_turn") ?(input_tokens = 10) ?(output_tokens = 5)
+    text =
+  Yojson.Safe.to_string
+    (`Assoc
+       [
+         ("id", `String id);
+         ("type", `String "message");
+         ("role", `String "assistant");
+         ("model", `String model);
+         ("content", `List [`Assoc [("type", `String "text"); ("text", `String text)]]);
+         ("stop_reason", `String stop_reason);
+         ( "usage",
+           `Assoc
+             [
+               ("input_tokens", `Int input_tokens);
+               ("output_tokens", `Int output_tokens);
+               ("cache_creation_input_tokens", `Int 0);
+               ("cache_read_input_tokens", `Int 0);
+             ] );
        ])
 
 let openai_tool_use_response ?(id = "chatcmpl-tool") ?(model = "mock")
@@ -218,6 +244,65 @@ let openai_sse_tool_use_body ?(tool_id = "call_stream")
       "data: [DONE]\n\n";
     ]
 
+let anthropic_sse_text_body ?(id = "msg-stream") ?(model = "mock")
+    ?(input_tokens = 12) ?(output_tokens = 8) text =
+  String.concat ""
+    [
+      Printf.sprintf "event: message_start\ndata: %s\n\n"
+        (Yojson.Safe.to_string
+           (`Assoc
+              [
+                ("type", `String "message_start");
+                ( "message",
+                  `Assoc
+                    [
+                      ("id", `String id);
+                      ("model", `String model);
+                      ( "usage",
+                        `Assoc
+                          [
+                            ("input_tokens", `Int input_tokens);
+                            ("cache_creation_input_tokens", `Int 0);
+                            ("cache_read_input_tokens", `Int 0);
+                          ] );
+                    ] );
+              ]));
+      "event: content_block_start\ndata: "
+      ^ Yojson.Safe.to_string
+          (`Assoc
+             [
+               ("type", `String "content_block_start");
+               ("index", `Int 0);
+               ("content_block", `Assoc [("type", `String "text"); ("text", `String "")]);
+             ])
+      ^ "\n\n";
+      Printf.sprintf "event: content_block_delta\ndata: %s\n\n"
+        (Yojson.Safe.to_string
+           (`Assoc
+              [
+                ("type", `String "content_block_delta");
+                ("index", `Int 0);
+                ("delta", `Assoc [("type", `String "text_delta"); ("text", `String text)]);
+              ]));
+      "event: content_block_stop\ndata: "
+      ^ Yojson.Safe.to_string
+          (`Assoc
+             [
+               ("type", `String "content_block_stop");
+               ("index", `Int 0);
+             ])
+      ^ "\n\n";
+      Printf.sprintf "event: message_delta\ndata: %s\n\n"
+        (Yojson.Safe.to_string
+           (`Assoc
+              [
+                ("type", `String "message_delta");
+                ("delta", `Assoc [("stop_reason", `String "end_turn")]);
+                ("usage", `Assoc [("output_tokens", `Int output_tokens)]);
+              ]));
+      "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n";
+    ]
+
 let start_sequence_mock ~sw ~net ~port responses =
   let index = Atomic.make 0 in
   let handler _conn _req body =
@@ -313,15 +398,10 @@ let test_structured_extract_success () =
   Eio_main.run @@ fun env ->
   try
     Eio.Switch.run @@ fun sw ->
-    let body =
-      openai_tool_use_response ~tool_name:"extract_person"
-        ~tool_input:(`Assoc [ ("name", `String "Alice"); ("age", `Int 30) ])
-        ()
-    in
+    let body = anthropic_text_response {|{"name":"Alice","age":30}|} in
     let url = start_sequence_mock ~sw ~net:env#net ~port:21301 [ body ] in
-    let provider = local_provider url in
     match
-      Structured.extract ~sw ~net:env#net ~provider
+      Structured.extract ~sw ~net:env#net ~base_url:url
         ~config:(agent_config ()) ~schema:person_schema "extract"
     with
     | Ok (name, age) ->
@@ -335,17 +415,14 @@ let test_structured_extract_requires_tool_use () =
   Eio_main.run @@ fun env ->
   try
     Eio.Switch.run @@ fun sw ->
-    let body = openai_text_response "not structured" in
+    let body = anthropic_text_response "not structured" in
     let url = start_sequence_mock ~sw ~net:env#net ~port:21302 [ body ] in
-    let provider = local_provider url in
     match
-      Structured.extract ~sw ~net:env#net ~provider
+      Structured.extract ~sw ~net:env#net ~base_url:url
         ~config:(agent_config ()) ~schema:person_schema "extract"
     with
     | Ok _ -> fail "expected structured extraction error"
-    | Error (Error.Internal detail) ->
-        check bool "mentions missing tool_use" true
-          (contains_substring ~sub:"No tool_use block" detail);
+    | Error (Error.Serialization _) ->
         Eio.Switch.fail sw Exit
     | Error err -> fail (Error.to_string err)
   with Exit -> ()
@@ -356,21 +433,16 @@ let test_structured_extract_with_retry_success () =
     Eio.Switch.run @@ fun sw ->
     let responses =
       [
-        openai_tool_use_response ~prompt_tokens:7 ~completion_tokens:3
-          ~tool_name:"extract_person"
-          ~tool_input:(`Assoc [ ("name", `String "Bob"); ("age", `String "oops") ])
-          ();
-        openai_tool_use_response ~prompt_tokens:11 ~completion_tokens:5
-          ~tool_name:"extract_person"
-          ~tool_input:(`Assoc [ ("name", `String "Bob"); ("age", `Int 41) ])
-          ();
+        anthropic_text_response ~input_tokens:7 ~output_tokens:3
+          {|{"name":"Bob","age":"oops"}|};
+        anthropic_text_response ~input_tokens:11 ~output_tokens:5
+          {|{"name":"Bob","age":41}|};
       ]
     in
     let url = start_sequence_mock ~sw ~net:env#net ~port:21303 responses in
-    let provider = local_provider url in
     let callbacks = ref [] in
     match
-      Structured.extract_with_retry ~sw ~net:env#net ~provider
+      Structured.extract_with_retry ~sw ~net:env#net ~base_url:url
         ~config:(agent_config ()) ~schema:person_schema
         ~on_validation_error:(fun attempt detail ->
           callbacks := (attempt, detail) :: !callbacks)
@@ -395,16 +467,11 @@ let test_structured_extract_with_retry_exhausted () =
   Eio_main.run @@ fun env ->
   try
     Eio.Switch.run @@ fun sw ->
-    let body =
-      openai_tool_use_response ~tool_name:"extract_person"
-        ~tool_input:(`Assoc [ ("name", `String "Eve"); ("age", `String "bad") ])
-        ()
-    in
+    let body = anthropic_text_response {|{"name":"Eve","age":"bad"}|} in
     let url = start_sequence_mock ~sw ~net:env#net ~port:21304 [ body ] in
-    let provider = local_provider url in
     let callback_count = ref 0 in
     match
-      Structured.extract_with_retry ~sw ~net:env#net ~provider
+      Structured.extract_with_retry ~sw ~net:env#net ~base_url:url
         ~config:(agent_config ()) ~schema:person_schema ~max_retries:1
         ~on_validation_error:(fun _ _ -> incr callback_count)
         "retry fail"
@@ -438,15 +505,11 @@ let test_structured_extract_stream_success () =
   Eio_main.run @@ fun env ->
   try
     Eio.Switch.run @@ fun sw ->
-    let body =
-      openai_sse_tool_use_body
-        (`Assoc [ ("name", `String "Dana"); ("age", `Int 27) ])
-    in
+    let body = anthropic_sse_text_body {|{"name":"Dana","age":27}|} in
     let url = start_sse_mock ~sw ~net:env#net ~port:21306 body in
-    let provider = local_provider url in
     let events = ref 0 in
     match
-      Structured.extract_stream ~sw ~net:env#net ~provider
+      Structured.extract_stream ~sw ~net:env#net ~base_url:url
         ~config:(agent_config ()) ~schema:person_schema
         ~on_event:(fun _ -> incr events)
         "stream"

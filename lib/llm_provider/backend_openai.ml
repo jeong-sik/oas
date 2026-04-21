@@ -61,6 +61,33 @@ let effective_tools (config : Provider_config.t) tools =
   | Provider_config.Glm, Some None_ -> []
   | _ -> tools
 
+let structured_schema_of_config (config : Provider_config.t) =
+  match config.output_schema, config.response_format with
+  | Some schema, _ -> Some schema
+  | None, JsonSchema schema -> Some schema
+  | None, JsonMode | None, Off -> None
+
+let response_format_of_config (config : Provider_config.t) =
+  match structured_schema_of_config config with
+  | Some schema ->
+      Some
+        (`Assoc
+           [
+             ("type", `String "json_schema");
+             ( "json_schema",
+               `Assoc
+                 [
+                   ( "name",
+                     `String
+                       (Provider_config.structured_output_name_of_schema schema) );
+                   ("schema", schema);
+                   ("strict", `Bool true);
+                 ] );
+           ])
+  | None when config.response_format = JsonMode ->
+      Some (`Assoc [("type", `String "json_object")])
+  | None -> None
+
 (** Build OpenAI Chat Completions request body from {!Provider_config.t}.
     Returns a JSON string ready for HTTP POST. *)
 let build_request ?(stream=false) ~(config : Provider_config.t)
@@ -185,11 +212,9 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
     else body
   in
   let body =
-    match config.response_format with
-    | Types.JsonMode ->
-        ("response_format",
-         `Assoc [("type", `String "json_object")]) :: body
-    | Types.JsonSchema _ | Types.Off -> body
+    match response_format_of_config config with
+    | Some response_format -> ("response_format", response_format) :: body
+    | None -> body
   in
   let body =
     if stream then ("stream", `Bool true) :: body
@@ -841,6 +866,41 @@ let%test "build_request omits tool_choice when tool_choice=None" =
   match json with
   | `Assoc fields -> not (List.exists (fun (k, _) -> k = "tool_choice") fields)
   | _ -> false
+
+let%test "build_request uses json_schema response_format when output_schema is set" =
+  let schema =
+    `Assoc
+      [
+        ("title", `String "Math Response");
+        ("type", `String "object");
+        ("properties", `Assoc [("answer", `Assoc [("type", `String "string")])]);
+        ("required", `List [`String "answer"]);
+      ]
+  in
+  let config =
+    Provider_config.make ~kind:OpenAI_compat ~model_id:"gpt-4o"
+      ~base_url:"https://api.openai.com/v1" ~output_schema:schema ()
+  in
+  let body = build_request ~config ~messages:[] () |> Yojson.Safe.from_string in
+  let open Yojson.Safe.Util in
+  body |> member "response_format" |> member "type" |> to_string = "json_schema"
+  && body |> member "response_format" |> member "json_schema"
+     |> member "name" |> to_string = "math_response"
+  && body |> member "response_format" |> member "json_schema"
+     |> member "schema" = schema
+  && body |> member "response_format" |> member "json_schema"
+     |> member "strict" |> to_bool
+
+let%test "build_request prefers output_schema over json_object mode" =
+  let schema = `Assoc [("type", `String "object")] in
+  let config =
+    Provider_config.make ~kind:OpenAI_compat ~model_id:"gpt-4o"
+      ~base_url:"https://api.openai.com/v1"
+      ~response_format_json:true ~output_schema:schema ()
+  in
+  let body = build_request ~config ~messages:[] () |> Yojson.Safe.from_string in
+  let open Yojson.Safe.Util in
+  body |> member "response_format" |> member "type" |> to_string = "json_schema"
 
 let%test "supports_tool_choice_override=Some false drops tool_choice on unknown model" =
   (* Unknown model_id defaults to supports_tool_choice=true. Override

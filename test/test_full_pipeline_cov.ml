@@ -24,6 +24,12 @@ let openai_text_response ?(id = "chatcmpl-1") text =
     {|{"id":"%s","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":"%s"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}|}
     id text
 
+let anthropic_text_response ?(id = "msg-1") ?(model = "mock")
+    ?(stop_reason = "end_turn") text =
+  Printf.sprintf
+    {|{"id":"%s","type":"message","role":"assistant","model":"%s","content":[{"type":"text","text":"%s"}],"stop_reason":"%s","usage":{"input_tokens":10,"output_tokens":5,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}|}
+    id model text stop_reason
+
 let openai_tool_use ?(id = "chatcmpl-t") tool_name input_json =
   Printf.sprintf
     {|{"id":"%s","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"%s","arguments":"%s"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":15,"completion_tokens":10,"total_tokens":25}}|}
@@ -434,16 +440,14 @@ let test_agent_clone_run () =
      | Error e -> fail (Error.to_string e))
   with Exit -> ()
 
-(* ── 16. Structured output via tool_use pattern ───────────────── *)
+(* ── 16. Structured output via provider-native JSON schema ────── *)
 
 let test_structured_extract () =
   Eio_main.run @@ fun env ->
   try
     Eio.Switch.run @@ fun sw ->
-    let tool_resp =
-        {|{"id":"chatcmpl-s","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_s","type":"function","function":{"name":"get_info","arguments":"{\"name\":\"test\",\"age\":25}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":10,"total_tokens":20}}|}
-    in
-    let url = start_multi ~sw ~net:env#net ~port:21016 [tool_resp] in
+    let body = anthropic_text_response {|{"name":"test","age":25}|} in
+    let url = start_multi ~sw ~net:env#net ~port:21016 [body] in
     let schema : (string * int) Structured.schema = {
       name = "get_info";
       description = "Get info";
@@ -461,12 +465,8 @@ let test_structured_extract () =
     let config = { Types.default_config with
       name = "struct-agent"; max_turns = 1;
     } in
-    let provider : Provider.config = {
-      provider = Provider.Local { base_url = url };
-      model_id = "mock"; api_key_env = "";
-    } in
     (match Structured.extract ~sw ~net:env#net ~base_url:url
-             ~provider ~config ~schema "extract" with
+             ~config ~schema "extract" with
      | Ok (name, age) ->
        check string "name" "test" name;
        check int "age" 25 age;

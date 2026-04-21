@@ -1098,6 +1098,7 @@ let test_anthropic_capabilities () =
   Alcotest.(check bool) "parallel tools" true c.supports_parallel_tool_calls;
   Alcotest.(check bool) "reasoning" true c.supports_reasoning;
   Alcotest.(check bool) "extended_thinking" true c.supports_extended_thinking;
+  Alcotest.(check bool) "structured output" true c.supports_structured_output;
   Alcotest.(check bool) "multimodal" true c.supports_multimodal_inputs;
   Alcotest.(check bool) "streaming" true c.supports_native_streaming;
   Alcotest.(check bool) "caching" true c.supports_caching;
@@ -1142,6 +1143,7 @@ let test_glm_capabilities () =
      Regression guard added after 2026-04-18 incident (8+ violations in
      a single MASC session against glm-5-turbo / glm-4.7 / glm-5.1). *)
   Alcotest.(check bool) "supports_tool_choice relaxed" false c.supports_tool_choice;
+  Alcotest.(check bool) "structured output disabled" false c.supports_structured_output;
   Alcotest.(check (option int)) "200K context" (Some 200_000) c.max_context_tokens;
   Alcotest.(check (option int)) "40960 output cap" (Some 40_960) c.max_output_tokens
 

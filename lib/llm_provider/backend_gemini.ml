@@ -174,12 +174,22 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
            ("includeThoughts", `Bool true);
          ]) :: !gen_config
    | _ -> ());
-  (* JSON mode *)
-  (match config.response_format with
-   | Types.JsonMode ->
+  let structured_schema =
+    match config.output_schema, config.response_format with
+    | Some schema, _ -> Some schema
+    | None, Types.JsonSchema schema -> Some schema
+    | None, Types.JsonMode | None, Types.Off -> None
+  in
+  (* JSON mode / native structured output *)
+  (match structured_schema with
+   | Some schema ->
        gen_config :=
-         ("responseMimeType", `String "application/json") :: !gen_config
-   | Types.JsonSchema _ | Types.Off -> ());
+         ("responseJsonSchema", schema)
+         :: ("responseMimeType", `String "application/json")
+         :: !gen_config
+   | None when config.response_format = Types.JsonMode ->
+       gen_config := ("responseMimeType", `String "application/json") :: !gen_config
+   | None -> ());
   let body = ("generationConfig", `Assoc !gen_config) :: body in
   (* Tools *)
   let body = match tools with
