@@ -155,7 +155,13 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
   let body_assoc =
     match config.config.response_format with
     | JsonMode when capabilities.supports_response_format_json ->
-        ("response_format", `Assoc [("type", `String "json_object")]) :: body_assoc
+        (match response_format_to_openai_json JsonMode with
+         | Some response_format -> ("response_format", response_format) :: body_assoc
+         | None -> body_assoc)
+    | JsonSchema _ when capabilities.supports_structured_output ->
+        (match response_format_to_openai_json config.config.response_format with
+         | Some response_format -> ("response_format", response_format) :: body_assoc
+         | None -> body_assoc)
     | JsonSchema _ | JsonMode | Off ->
         body_assoc
   in

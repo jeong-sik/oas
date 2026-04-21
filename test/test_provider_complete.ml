@@ -4,6 +4,7 @@ module PC = Llm_provider.Provider_config
 module BA = Llm_provider.Backend_anthropic
 module BO = Llm_provider.Backend_openai
 module BOL = Llm_provider.Backend_ollama
+module BG = Llm_provider.Backend_gemini
 open Llm_provider.Types
 
 let contains_substring ~sub text =
@@ -172,6 +173,59 @@ let test_ollama_output_schema () =
   let open Yojson.Safe.Util in
   Alcotest.(check bool) "format copied" true
     (json |> member "format" = schema)
+
+let test_openai_with_json_schema () =
+  let schema =
+    `Assoc
+      [
+        ("type", `String "object");
+        ( "properties",
+          `Assoc [("answer", `Assoc [("type", `String "string")])] );
+      ]
+  in
+  let config =
+    PC.make ~kind:OpenAI_compat ~model_id:"gpt-4o-mini"
+      ~base_url:"https://api.openai.com/v1"
+      ~response_format:(JsonSchema schema) ()
+  in
+  let body = BO.build_request ~config ~messages:[user_msg "Return JSON."] () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  let response_format = json |> member "response_format" in
+  Alcotest.(check string) "response_format.type" "json_schema"
+    (response_format |> member "type" |> to_string);
+  Alcotest.(check string) "json_schema.name" "structured_output"
+    (response_format |> member "json_schema" |> member "name" |> to_string);
+  Alcotest.(check string) "json_schema.schema.type" "object"
+    (response_format |> member "json_schema" |> member "schema" |> member "type"
+     |> to_string)
+
+let test_gemini_with_json_schema () =
+  let schema =
+    `Assoc
+      [
+        ("type", `String "object");
+        ( "properties",
+          `Assoc [("answer", `Assoc [("type", `String "string")])] );
+        ("required", `List [`String "answer"]);
+      ]
+  in
+  let config =
+    PC.make ~kind:Gemini ~model_id:"gemini-2.5-flash"
+      ~base_url:"https://generativelanguage.googleapis.com/v1beta"
+      ~api_key:"test-key" ~response_format:(JsonSchema schema) ()
+  in
+  let body = BG.build_request ~config ~messages:[user_msg "Return JSON."] () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  let generation_config = json |> member "generationConfig" in
+  Alcotest.(check string) "responseMimeType" "application/json"
+    (generation_config |> member "responseMimeType" |> to_string);
+  Alcotest.(check string) "responseJsonSchema.type" "object"
+    (generation_config |> member "responseJsonSchema" |> member "type" |> to_string);
+  Alcotest.(check string) "responseJsonSchema.required[0]" "answer"
+    (generation_config |> member "responseJsonSchema" |> member "required" |> to_list
+     |> List.hd |> to_string)
 
 (* ── Provider_config.make ────────────────────────────── *)
 
@@ -429,7 +483,11 @@ let () =
       test_case "with system" `Quick test_openai_with_system;
       test_case "with tools" `Quick test_openai_with_tools;
       test_case "stream flag" `Quick test_openai_stream_flag;
+      test_case "with json schema" `Quick test_openai_with_json_schema;
       test_case "ollama output schema" `Quick test_ollama_output_schema;
+    ];
+    "gemini_build_request", [
+      test_case "with json schema" `Quick test_gemini_with_json_schema;
     ];
     "provider_config", [
       test_case "default paths" `Quick test_config_default_paths;
