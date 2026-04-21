@@ -206,6 +206,7 @@ let parse_jsonl_result ?(model_id = "codex") lines =
         timings = None;
         reasoning_tokens = None;
         request_latency_ms = 0;
+        peak_memory_gb = None;
         provider_kind = None;
         reasoning_effort = None;
         canonical_model_id = None;
