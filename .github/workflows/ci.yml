@@ -179,9 +179,13 @@ jobs:
     name: Release Tag Drift
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # Non-blocking warn-only: reports CHANGELOG entries that lack a matching
-    # git tag. Flip to --strict in a follow-up PR once the existing backlog
-    # (v0.155.1, v0.160.0, v0.161.0, v0.163.0, v0.164.0) is back-tagged.
+    # Enforced gate: fails if any CHANGELOG entry in the default scope
+    # (--limit 10) lacks a matching `v<version>` git tag. The backlog
+    # surfaced when #1130 landed (v0.155.1, v0.160.0, v0.161.0,
+    # v0.163.0, v0.164.0) was back-tagged in the same session, so the
+    # default scope is drift-free. Widening --limit further surfaces a
+    # deeper backlog (duplicate `[0.154.0]`, out-of-order `[0.155.0]`)
+    # that needs CHANGELOG cleanup before the scope is raised.
 
     steps:
       - name: Checkout
@@ -190,5 +194,5 @@ jobs:
           # Need full tag history for `git tag -l` to see released versions.
           fetch-depth: 0
 
-      - name: Run tag drift audit (warn-only)
-        run: bash scripts/check-tag-drift.sh
+      - name: Enforce tag drift (strict)
+        run: bash scripts/check-tag-drift.sh --strict
