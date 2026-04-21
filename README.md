@@ -51,6 +51,8 @@ Current headless defaults:
 | Codex CLI | Always prepends `-c mcp_servers={}` | Pass a non-empty `mcp_servers` TOML fragment through `OAS_CODEX_CONFIG` / caller config |
 | Gemini CLI | Always sends an empty `--allowed-mcp-server-names` whitelist | Set `OAS_GEMINI_ALLOWED_MCP=name1,name2` |
 
+Model selection remains request-scoped: Claude Code, Gemini CLI, and Codex CLI all honor a non-empty, non-`auto` `Provider_config.model_id` by passing the transport's model flag (`--model`). `auto` keeps the user's CLI default.
+
 Why this can feel hidden:
 
 - Claude exposes MCP registration and runtime policy as separate commands/flags.

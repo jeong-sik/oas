@@ -397,3 +397,31 @@
 (test
  (name test_memory_procedural)
  (libraries agent_sdk alcotest))
+
+(test
+ (name test_sessions_cov2)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_sessions_types_deep)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_trajectory)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_skill_coverage2)
+ (libraries agent_sdk alcotest yojson unix))
+
+(test
+ (name test_mcp_coverage)
+ (libraries agent_sdk alcotest unix))
+
+(test
+ (name test_mcp_deep)
+ (libraries agent_sdk alcotest unix mcp_protocol))
+
+(test
+ (name test_mcp_http)
+ (libraries agent_sdk alcotest eio eio_main))
