@@ -197,7 +197,7 @@ let stderr_sink () : sink = fun record ->
 (* ── Collector sink (for testing) ─────────────────────────────── *)
 
 let collector_sink () : sink * (unit -> record list) =
-  let records = ref [] in
-  let sink record = records := record :: !records in
-  let get () = List.rev !records in
+  let records = Atomic.make [] in
+  let sink record = atomic_update records ~f:(fun rs -> record :: rs) in
+  let get () = List.rev (Atomic.get records) in
   (sink, get)
