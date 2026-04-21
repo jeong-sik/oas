@@ -159,7 +159,7 @@ let parse_jsonl_result ~model_id lines =
   let content = List.concat_map blocks_of_output_line lines in
   if content = [] then
     Error (Http_client.NetworkError {
-      message = "no messages parsed from kimi output" })
+      message = "no messages parsed from kimi output"; kind = Unknown })
   else
     Ok { Types.id = response_id_of_lines lines;
          model = response_model_of_lines ~model_id lines;
@@ -227,7 +227,7 @@ let exit_code_of_message message =
       int_of_string_opt raw
 
 let classify_cli_error = function
-  | Error (Http_client.NetworkError { message }) as err ->
+  | Error (Http_client.NetworkError { message; _ }) as err ->
     (match exit_code_of_message message with
      | Some 1 ->
        Error (Http_client.AcceptRejected {
@@ -433,7 +433,7 @@ let%test "parse_jsonl_result accepts array-form content" =
 let%test "classify_cli_error exit 1 becomes AcceptRejected" =
   match classify_cli_error
           (Error (Http_client.NetworkError {
-             message = "kimi exited with code 1: auth failed" }))
+             message = "kimi exited with code 1: auth failed"; kind = Unknown }))
   with
   | Error (Http_client.AcceptRejected { reason }) ->
     String.length reason > 0

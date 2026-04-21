@@ -49,7 +49,7 @@ let test_not_retryable_422 () =
 let test_retryable_network () =
   check bool "network error" true
     (Complete.is_retryable
-       (Http_client.NetworkError { message = "connection refused" }))
+       (Http_client.NetworkError { message = "connection refused"; kind = Unknown }))
 
 let test_not_retryable_200 () =
   (* 200 is not an error, but is_retryable should return false *)

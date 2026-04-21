@@ -13,7 +13,7 @@ type api_error =
   | InvalidRequest of { message: string }
   | NotFound of { message: string }
   | ContextOverflow of { message: string; limit: int option }
-  | NetworkError of { message: string }
+  | NetworkError of { message: string; kind: Http_client.network_error_kind }
   | Timeout of { message: string }
 
 type retry_config = {

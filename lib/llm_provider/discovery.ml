@@ -99,7 +99,7 @@ let get_json ~sw ~net url =
     Error (Printf.sprintf "HTTP %d" code)
   | Error (Http_client.AcceptRejected { reason }) ->
     Error reason
-  | Error (Http_client.NetworkError { message }) ->
+  | Error (Http_client.NetworkError { message; _ }) ->
     Error message
   | Error (Http_client.CliTransportRequired { kind }) ->
     Error (Printf.sprintf "CLI transport required for %s" kind)
@@ -256,7 +256,7 @@ let probe_ollama_context ~sw ~net base_url =
             match err with
             | Http_client.HttpError { code; body } ->
                 Printf.sprintf "HTTP %d: %s" code body
-            | Http_client.NetworkError { message } -> message
+            | Http_client.NetworkError { message; _ } -> message
             | Http_client.AcceptRejected { reason } -> reason
             | Http_client.CliTransportRequired { kind } ->
                 Printf.sprintf "CLI transport required for %s" kind

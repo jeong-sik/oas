@@ -145,9 +145,9 @@ let create_message ~sw ~net ?(base_url=default_base_url) ?provider ?clock ?retry
           Error (Retry.classify_error ~status:code ~body:body_str)
     with
     | Eio.Io _ as exn ->
-      Error (Retry.NetworkError { message = Printexc.to_string exn })
+      Error (Retry.NetworkError { message = Printexc.to_string exn; kind = Unknown })
     | Unix.Unix_error _ as exn ->
-      Error (Retry.NetworkError { message = Printexc.to_string exn })
+      Error (Retry.NetworkError { message = Printexc.to_string exn; kind = Unknown })
     (* Backend_gemini.Gemini_api_error and Backend_glm.Glm_api_error
        are intentionally NOT caught here: this function only
        dispatches [Anthropic_messages | Openai_chat_completions |
@@ -157,9 +157,9 @@ let create_message ~sw ~net ?(base_url=default_base_url) ?provider ?clock ?retry
        live site in [Llm_provider.Complete] — see
        lib/llm_provider/complete.ml:271,274. *)
     | Failure msg ->
-      Error (Retry.NetworkError { message = msg })
+      Error (Retry.NetworkError { message = msg; kind = Unknown })
     | Yojson.Json_error msg ->
-      Error (Retry.NetworkError { message = "JSON parse error: " ^ msg })
+      Error (Retry.NetworkError { message = "JSON parse error: " ^ msg; kind = Unknown })
   in
   match clock with
   | Some clock ->

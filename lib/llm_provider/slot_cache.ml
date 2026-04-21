@@ -27,7 +27,7 @@ let slot_action ~sw ~net ~endpoint ~slot_id ~action ~body_fields =
     Error (Printf.sprintf "slot %s HTTP error %d: %s" action code body)
   | Error (Http_client.AcceptRejected { reason }) ->
     Error (Printf.sprintf "slot %s rejected: %s" action reason)
-  | Error (Http_client.NetworkError { message }) ->
+  | Error (Http_client.NetworkError { message; _ }) ->
     Error (Printf.sprintf "slot %s network error: %s" action message)
   | Error (Http_client.CliTransportRequired { kind }) ->
     Error (Printf.sprintf "slot %s: CLI transport required for %s"

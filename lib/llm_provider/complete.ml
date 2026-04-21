@@ -224,7 +224,8 @@ let complete_http ~sw ~net
   if requires_non_http_transport config.kind then
     (Error (Http_client.NetworkError {
        message = Printf.sprintf "%s provider requires a transport"
-         (Provider_config.string_of_provider_kind config.kind) }),
+         (Provider_config.string_of_provider_kind config.kind);
+       kind = Unknown }),
      0)
   else
   let provider_name = Provider_registry.provider_name_of_config config in
@@ -348,7 +349,7 @@ let complete_http ~sw ~net
                 Ok (Backend_glm.parse_response body)
             | Provider_config.Claude_code | Provider_config.Gemini_cli
             | Provider_config.Kimi_cli | Provider_config.Codex_cli ->
-                Error (Http_client.NetworkError { message = "Unreachable code" })
+                Error (Http_client.NetworkError { message = "Unreachable code"; kind = Unknown })
           with
           | Yojson.Json_error msg ->
               Diag.error "complete" "JSON parse error: %s" msg;
@@ -603,7 +604,7 @@ let complete ~sw ~net ?(transport : Llm_transport.t option)
             | Http_client.HttpError { code; _ } ->
                 Printf.sprintf "HTTP %d" code
             | Http_client.AcceptRejected { reason } -> reason
-            | Http_client.NetworkError { message } -> message
+            | Http_client.NetworkError { message; _ } -> message
             | Http_client.CliTransportRequired { kind } ->
                 Printf.sprintf
                   "CLI transport required for %s but none injected"
@@ -638,8 +639,8 @@ let shared_retry_config_of_complete (config : retry_config) : Retry.retry_config
 let classify_retry_error = function
   | Http_client.HttpError { code; body } ->
       Some (Retry.classify_error ~status:code ~body)
-  | Http_client.NetworkError { message } ->
-      Some (Retry.NetworkError { message })
+  | Http_client.NetworkError { message; kind; _ } ->
+      Some (Retry.NetworkError { message; kind })
   | Http_client.AcceptRejected _ -> None
   (* Wiring bug, not transient — retrying cannot summon a missing
      transport. *)
@@ -680,7 +681,8 @@ let complete_stream_http ~sw:_ ~net ~(config : Provider_config.t)
   if requires_non_http_transport config.kind then
     Error (Http_client.NetworkError {
       message = Printf.sprintf "%s provider requires a transport"
-        (Provider_config.string_of_provider_kind config.kind) })
+        (Provider_config.string_of_provider_kind config.kind);
+      kind = Unknown })
   else
   let config = apply_sampling_defaults config in
   let body_str = match config.kind with
@@ -787,7 +789,7 @@ let complete_stream_http ~sw:_ ~net ~(config : Provider_config.t)
       Ok (patch_telemetry resp ~config latency_ms)
   | Ok (Error msg) ->
       Error (Http_client.NetworkError {
-        message = Printf.sprintf "SSE stream error: %s" msg })
+        message = Printf.sprintf "SSE stream error: %s" msg; kind = Unknown })
 
 let complete_stream ~sw ~net ?(transport : Llm_transport.t option)
     ~(config : Provider_config.t)
@@ -884,7 +886,7 @@ let%test "is_retryable 404 not retryable" =
   is_retryable (Http_client.HttpError { code = 404; body = "" }) = false
 
 let%test "is_retryable network error always retryable" =
-  is_retryable (Http_client.NetworkError { message = "connection refused" }) = true
+  is_retryable (Http_client.NetworkError { message = "connection refused"; kind = Unknown }) = true
 
 let%test "default_retry_config values" =
   default_retry_config.max_retries = 3

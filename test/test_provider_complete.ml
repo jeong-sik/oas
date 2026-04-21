@@ -364,7 +364,7 @@ let test_is_retryable () =
     (Complete.is_retryable (Http_client.HttpError { code = 529; body = "" }));
   (* Network errors *)
   Alcotest.(check bool) "network retryable" true
-    (Complete.is_retryable (Http_client.NetworkError { message = "timeout" }));
+    (Complete.is_retryable (Http_client.NetworkError { message = "timeout"; kind = Unknown }));
   (* Non-retryable *)
   Alcotest.(check bool) "400 not retryable" false
     (Complete.is_retryable (Http_client.HttpError { code = 400; body = "" }));
@@ -413,7 +413,7 @@ let test_complete_claude_code_without_transport_is_guarded () =
         Alcotest.failf
           "%s expected CliTransportRequired, got HttpError %d"
           expected_name code
-    | Error (Llm_provider.Http_client.NetworkError { message }) ->
+    | Error (Llm_provider.Http_client.NetworkError { message; _ }) ->
         Alcotest.failf
           "%s expected CliTransportRequired, got NetworkError: %s \
            (this is the 'Unknown scheme None' regression)"

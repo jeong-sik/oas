@@ -155,7 +155,7 @@ let judge ~sw ~net ~provider ~config ~context () =
            then String.sub body 0 200 ^ "..."
            else body)
       | Http_client.AcceptRejected { reason } -> reason
-      | Http_client.NetworkError { message } -> message
+      | Http_client.NetworkError { message; _ } -> message
       | Http_client.CliTransportRequired { kind } ->
         Printf.sprintf "CLI transport required for %s" kind
     in

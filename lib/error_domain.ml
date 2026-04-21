@@ -114,7 +114,7 @@ let provider_to_api : provider_error -> Retry.api_error = function
   | `Rate_limited after -> Retry.RateLimited { retry_after = after; message = "rate limited" }
   | `Auth_error msg -> Retry.AuthError { message = msg }
   | `Server_error (status, msg) -> Retry.ServerError { status; message = msg }
-  | `Network_error msg -> Retry.NetworkError { message = msg }
+  | `Network_error msg -> Retry.NetworkError { message = msg; kind = Unknown }
   | `Provider_timeout msg -> Retry.Timeout { message = msg }
   | `Overloaded -> Retry.Overloaded { message = "overloaded" }
   | `Invalid_request msg -> Retry.InvalidRequest { message = msg }

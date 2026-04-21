@@ -273,10 +273,10 @@ let test_with_transport () =
   let mock_transport : Llm_provider.Llm_transport.t = {
     complete_sync = (fun _req ->
       { response = Error (Llm_provider.Http_client.NetworkError
-                            { message = "mock" });
+                            { message = "mock"; kind = Unknown });
         latency_ms = 0 });
     complete_stream = (fun ~on_event:_ _req ->
-      Error (Llm_provider.Http_client.NetworkError { message = "mock" }));
+      Error (Llm_provider.Http_client.NetworkError { message = "mock"; kind = Unknown }));
   } in
   let agent =
     Builder.create ~net ~model:"claude-sonnet-4-6"

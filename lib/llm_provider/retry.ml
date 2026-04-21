@@ -8,7 +8,7 @@ type api_error =
   | InvalidRequest of { message: string }
   | NotFound of { message: string }
   | ContextOverflow of { message: string; limit: int option }
-  | NetworkError of { message: string }
+  | NetworkError of { message: string; kind: Http_client.network_error_kind }
   | Timeout of { message: string }
 
 type retry_config = {
@@ -130,7 +130,15 @@ let is_retryable = function
        But hard account-level quota exhaustion (balance 0, credit 0) will
        never succeed on retry; let the caller decide what to do next. *)
     not (is_hard_quota_message message)
-  | Overloaded _ | ServerError _ | NetworkError _ | Timeout _ -> true
+  | Overloaded _ | ServerError _ | Timeout _ -> true
+  | NetworkError { kind; _ } ->
+      (* TLS errors are permanent (certificate/config issues).
+         Local resource exhaustion means the local machine is the bottleneck,
+         not the remote server — retrying won't help. *)
+      (match kind with
+       | Http_client.Tls_error -> false
+       | Http_client.Local_resource_exhaustion -> false
+       | _ -> true)
   | InvalidRequest { message } ->
     (* Malformed JSON from model output is transient — retry may produce valid JSON. *)
     List.exists (fun needle -> contains_substring_ci ~haystack:message ~needle) malformed_json_indicators
@@ -536,7 +544,7 @@ let%test "is_hard_quota non-RateLimited variants are false" =
   not (is_hard_quota (Overloaded { message = "insufficient balance" }))
   && not (is_hard_quota (ServerError { status = 500; message = "quota exceeded" }))
   && not (is_hard_quota (AuthError { message = "invalid key" }))
-  && not (is_hard_quota (NetworkError { message = "connection reset" }))
+  && not (is_hard_quota (NetworkError { message = "connection reset"; kind = Unknown }))
   && not (is_hard_quota (Timeout { message = "deadline exceeded" }))
   && not (is_hard_quota (InvalidRequest { message = "bad input" }))
   && not (is_hard_quota (ContextOverflow { message = "too long"; limit = None }))

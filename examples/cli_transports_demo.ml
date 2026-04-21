@@ -117,7 +117,7 @@ let () =
        | Types.Text t -> Printf.printf "  text: %s\n" t
        | Types.ToolUse { name; _ } -> Printf.printf "  tool_use: %s\n" name
        | _ -> ()) resp.content
-   | Error (Http_client.NetworkError { message }) ->
+   | Error (Http_client.NetworkError { message; _ }) ->
      Printf.printf "  error: %s\n" message
    | Error _ ->
      print_endline "  error: (non-network)");
@@ -132,7 +132,7 @@ let () =
         | Some u -> Printf.sprintf "in=%d out=%d cached=%d"
                       u.input_tokens u.output_tokens u.cache_read_input_tokens
         | None -> "n/a")
-   | Error (Http_client.NetworkError { message }) ->
+   | Error (Http_client.NetworkError { message; _ }) ->
      Printf.printf "[stream error: %s]\n" message
    | Error _ ->
      print_endline "[stream error: non-network]")

@@ -169,17 +169,17 @@ let run_core ~sw ~(mgr : _ Eio.Process.mgr) ~name ~cwd ~extra_env
           | None -> Printf.sprintf "exit code %d" code
       in
       Error (Http_client.NetworkError {
-        message = Printf.sprintf "%s exited with code %d: %s" name code detail })
+        message = Printf.sprintf "%s exited with code %d: %s" name code detail; kind = Unknown })
     | `Signaled sig_num ->
       Error (Http_client.NetworkError {
-        message = Printf.sprintf "%s killed by signal %d" name sig_num })
+        message = Printf.sprintf "%s killed by signal %d" name sig_num; kind = Unknown })
   with
   | Eio.Io _ as exn ->
     Error (Http_client.NetworkError {
-      message = Printf.sprintf "subprocess I/O error: %s" (Printexc.to_string exn) })
+      message = Printf.sprintf "subprocess I/O error: %s" (Printexc.to_string exn); kind = Unknown })
   | Unix.Unix_error (err, fn, arg) ->
     Error (Http_client.NetworkError {
-      message = Printf.sprintf "%s(%s): %s" fn arg (Unix.error_message err) })
+      message = Printf.sprintf "%s(%s): %s" fn arg (Unix.error_message err); kind = Unknown })
 
 let run_collect ~sw ~mgr ~name ~cwd ~extra_env
     ?(scrub_env = [])

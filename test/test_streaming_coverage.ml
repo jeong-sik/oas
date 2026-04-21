@@ -430,10 +430,10 @@ let test_map_http_error_http_error () =
 
 let test_map_http_error_network_error () =
   let http_err = Llm_provider.Http_client.NetworkError
-      { message = "connection refused" } in
+      { message = "connection refused"; kind = Unknown } in
   let sdk_err = Streaming.map_http_error http_err in
   (match sdk_err with
-   | Error.Api (Retry.NetworkError { message }) ->
+   | Error.Api (Retry.NetworkError { message; _ }) ->
      check_string "message" "connection refused" message
    | _ -> Alcotest.fail "expected Error.Api NetworkError")
 

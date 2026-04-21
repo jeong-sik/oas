@@ -302,7 +302,7 @@ let test_is_retryable_client_error () =
     (Llm_provider.Complete.is_retryable err)
 
 let test_is_retryable_network_error () =
-  let err = Llm_provider.Http_client.NetworkError { message = "timeout" } in
+  let err = Llm_provider.Http_client.NetworkError { message = "timeout"; kind = Unknown } in
   Alcotest.(check bool) "network retryable" true
     (Llm_provider.Complete.is_retryable err)
 

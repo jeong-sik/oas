@@ -115,7 +115,7 @@ let test_is_retryable_404 () =
 
 let test_is_retryable_network () =
   Alcotest.(check bool) "network always retryable" true
-    (Complete.is_retryable (Http_client.NetworkError { message = "refused" }))
+    (Complete.is_retryable (Http_client.NetworkError { message = "refused"; kind = Unknown }))
 
 let test_default_retry_config () =
   let c = Complete.default_retry_config in

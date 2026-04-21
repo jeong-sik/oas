@@ -24,7 +24,7 @@ let test_run_collect_nonzero_exit () =
           ~name:"sh" ~cwd:None ~extra_env:[]
           [sh; "-c"; "echo oops >&2; exit 3"] with
   | Ok _ -> Alcotest.fail "expected Error for exit 3"
-  | Error (Llm_provider.Http_client.NetworkError { message }) ->
+  | Error (Llm_provider.Http_client.NetworkError { message; _ }) ->
     Alcotest.(check string) "stderr detail propagated"
       "sh exited with code 3: oops\n" message
   | Error _ ->
@@ -38,7 +38,7 @@ let test_run_collect_nonzero_exit_falls_back_to_stdout () =
           ~name:"sh" ~cwd:None ~extra_env:[]
           [sh; "-c"; "printf 'first\\n{\"error\":\"quota\"}\\n'; exit 7"] with
   | Ok _ -> Alcotest.fail "expected Error for exit 7"
-  | Error (Llm_provider.Http_client.NetworkError { message }) ->
+  | Error (Llm_provider.Http_client.NetworkError { message; _ }) ->
     Alcotest.(check string) "stdout fallback uses last non-empty line"
       "sh exited with code 7: {\"error\":\"quota\"}" message
   | Error _ ->
@@ -79,7 +79,7 @@ let test_stream_cancel_sends_sigint () =
     [sh; "-c"; "sleep 5"] in
   match result with
   | Ok _ -> Alcotest.fail "expected Error after SIGINT"
-  | Error (Llm_provider.Http_client.NetworkError { message }) ->
+  | Error (Llm_provider.Http_client.NetworkError { message; _ }) ->
     Alcotest.(check bool) "non-empty error message"
       true (String.length message > 0)
   | Error _ -> Alcotest.fail "expected NetworkError"
