@@ -799,6 +799,7 @@ let complete_stream ~sw ~net ?(transport : Llm_transport.t option)
   | Error err -> Error err
   | Ok () ->
   let _priority = priority in
+  let t0 = Unix.gettimeofday () in
   let result = match transport with
   | Some t ->
     t.complete_stream ~on_event
@@ -816,7 +817,11 @@ let complete_stream ~sw ~net ?(transport : Llm_transport.t option)
   | None ->
     complete_stream_http ~sw ~net ~config ~messages ~tools ~on_event
   in
-  Result.map (fun resp -> Pricing.annotate_response_cost resp) result
+  Result.map (fun resp ->
+    let latency_ms = int_of_float ((Unix.gettimeofday () -. t0) *. 1000.0) in
+    let resp = Pricing.annotate_response_cost resp in
+    patch_telemetry resp ~config latency_ms
+  ) result
 
 (* ── HTTP Transport constructor ─────────────────────── *)
 
