@@ -35,6 +35,7 @@ let test_anthropic_capabilities () =
   check bool "has image" true c.supports_image_input;
   check bool "has caching" true c.supports_caching;
   check bool "has computer use" true c.supports_computer_use;
+  check bool "has structured output" true c.supports_structured_output;
   check bool "no audio" false c.supports_audio_input;
   (* Anthropic Messages API accepts top_k per its documented body
      params; pin the field so the #830/#831 capability-gated
@@ -127,7 +128,8 @@ let test_lookup_glm5_text_only () =
   match Capabilities.for_model_id "glm-5" with
   | Some c ->
     check bool "no image input" false c.supports_image_input;
-    check bool "reasoning" true c.supports_reasoning
+    check bool "reasoning" true c.supports_reasoning;
+    check bool "structured output disabled" false c.supports_structured_output
   | None -> fail "should match glm-5"
 
 let test_lookup_glm5v_vision () =

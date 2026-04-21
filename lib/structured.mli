@@ -1,7 +1,8 @@
-(** Structured output via tool_use pattern.
+(** Structured output helpers.
 
-    Uses tool_choice=Tool(name) to force the model to call a specific tool,
-    then extracts the input JSON as structured output.
+    Direct extraction prefers provider-native JSON schema output via
+    {!Llm_provider.Complete}. The legacy tool-use helpers remain available
+    for callers that still want forced tool calls.
 
     @stability Evolving
     @since 0.93.1 *)
@@ -31,6 +32,8 @@ val extract :
   schema:'a schema ->
   string ->
   ('a, Error.sdk_error) result
+(** Uses provider-native JSON schema output when the resolved provider kind
+    is wired for it. Unsupported providers fail fast. *)
 
 (** {1 Extractors} *)
 

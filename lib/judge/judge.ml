@@ -142,6 +142,7 @@ let judge ~sw ~net ~provider ~config ~context () =
     provider with
     Provider_config.temperature = Some config.temperature;
     max_tokens = Some config.max_tokens;
+    output_schema = config.output_schema;
   } in
   match
     Complete.complete ~sw ~net ~config:provider_cfg ~messages ~tools:[] ()

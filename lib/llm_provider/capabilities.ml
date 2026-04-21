@@ -84,6 +84,7 @@ let anthropic_capabilities = {
   supports_reasoning = true;
   supports_extended_thinking = true;
   supports_reasoning_budget = true;
+  supports_structured_output = true;
   supports_multimodal_inputs = true;
   supports_image_input = true;
   supports_native_streaming = true;
@@ -185,7 +186,6 @@ let glm_capabilities = {
   supports_reasoning = true;
   supports_extended_thinking = true;
   supports_response_format_json = true;
-  supports_structured_output = true;
   supports_native_streaming = true;
 }
 
@@ -224,6 +224,7 @@ let claude_code_capabilities = {
   anthropic_capabilities with
   max_context_tokens = Some 1_000_000;  (* 1M context via Claude Code *)
   max_output_tokens = Some 64_000;
+  supports_structured_output = false;
   supports_computer_use = true;
   supports_code_execution = true;
 }
@@ -371,7 +372,6 @@ let for_model_id model_id =
            max_output_tokens = Some 16_384;
            supports_tools = true;
            supports_tool_choice = true;
-           supports_structured_output = true;
            supports_response_format_json = true;
            supports_native_streaming = true }
   (* GLM 5-turbo: tool-calling optimized, fast, reasoning but no extended thinking *)
@@ -382,7 +382,6 @@ let for_model_id model_id =
            supports_tools = true;
            supports_tool_choice = true;
            supports_reasoning = true;
-           supports_structured_output = true;
            supports_response_format_json = true;
            supports_native_streaming = true }
   else if starts_with "glm-5v-turbo" then
@@ -393,7 +392,6 @@ let for_model_id model_id =
            supports_tool_choice = true;
            supports_reasoning = true;
            supports_extended_thinking = true;
-           supports_structured_output = true;
            supports_response_format_json = true;
            supports_multimodal_inputs = true;
            supports_image_input = true;
@@ -426,7 +424,6 @@ let for_model_id model_id =
            supports_tool_choice = true;
            supports_reasoning = true;
            supports_extended_thinking = true;
-           supports_structured_output = true;
            supports_response_format_json = true;
            supports_native_streaming = true }
   else if starts_with "glm-4-flash" then
