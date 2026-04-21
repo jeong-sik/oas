@@ -203,6 +203,11 @@ let capacity_exhausted_markers =
   ; "rateLimitExceeded"
   ]
 
+let startup_crash_markers =
+  [ "Detected unsettled top-level await"
+  ; "yoga_wasm_base64_esm_default"
+  ]
+
 let substring_found line needle =
   let hl = String.length line and nl = String.length needle in
   if nl = 0 || nl > hl then false
@@ -213,6 +218,21 @@ let substring_found line needle =
       else scan (i + 1)
     in
     scan 0
+
+let contains_all_markers haystack markers =
+  List.for_all (substring_found haystack) markers
+
+let classify_cli_error = function
+  | Error (Http_client.NetworkError { message })
+    when contains_all_markers message startup_crash_markers ->
+      Error
+        (Http_client.AcceptRejected
+           {
+             reason =
+               "gemini_cli startup crash detected (unsettled top-level await / yoga_wasm). "
+               ^ "Known bad CLI runtime; rejecting without retry so the cascade can move on.";
+           })
+  | other -> other
 
 let run ~sw ~mgr ~(config : config) argv =
   let fail_fast_enabled =
@@ -272,7 +292,7 @@ let run ~sw ~mgr ~(config : config) argv =
                 OAS_GEMINI_CLI_NO_FAIL_FAST_ON_CAPACITY=1 to let the CLI \
                 keep its internal retry loop.";
            })
-  | r -> r
+  | r -> classify_cli_error r
 
 (* Fires once per transport instance when any Claude-only config field
    is set.  Gemini CLI has no flag for these yet, so we warn and drop. *)
@@ -447,6 +467,32 @@ let%test "parse_json_result invalid json" =
   match parse_json_result "not json" with
   | Error _ -> true
   | Ok _ -> false
+
+let%test "classify_cli_error reclassifies gemini startup crash as AcceptRejected" =
+  let err =
+    Error
+      (Http_client.NetworkError
+         {
+           message =
+             "gemini exited with code 13: Warning: Detected unsettled top-level await\n\
+              var Yoga = wrapAssembly(await yoga_wasm_base64_esm_default());";
+         })
+  in
+  match classify_cli_error err with
+  | Error (Http_client.AcceptRejected { reason }) ->
+      substring_found reason "startup crash"
+  | _ -> false
+
+let%test "classify_cli_error keeps unrelated network failures retryable" =
+  let err =
+    Error
+      (Http_client.NetworkError
+         { message = "gemini exited with code 1: connection refused" })
+  in
+  match classify_cli_error err with
+  | Error (Http_client.NetworkError { message }) ->
+      substring_found message "connection refused"
+  | _ -> false
 
 (* ── env-driven extra args ──────────────────────────── *)
 
