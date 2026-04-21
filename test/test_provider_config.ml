@@ -242,6 +242,73 @@ let test_kind_unknown_returns_none () =
   check_bool "json-ish" true
     (Option.is_none (Provider_config.provider_kind_of_string "\"claude\""))
 
+(* ── provider_kind serializers ───────────────────────── *)
+
+let test_show_matches_string_of () =
+  List.iter (fun k ->
+    check_string "show = string_of"
+      (Provider_config.string_of_provider_kind k)
+      (Provider_config.show_provider_kind k)
+  ) all_kinds
+
+let test_pp_uses_lowercase () =
+  let buf = Buffer.create 32 in
+  let fmt = Format.formatter_of_buffer buf in
+  Provider_config.pp_provider_kind fmt Anthropic;
+  Format.pp_print_flush fmt ();
+  check_string "pp Anthropic" "anthropic" (Buffer.contents buf)
+
+let test_to_yojson_roundtrip () =
+  List.iter (fun k ->
+    let json = Provider_config.provider_kind_to_yojson k in
+    match json with
+    | `String s ->
+      check_string "to_yojson wire form"
+        (Provider_config.string_of_provider_kind k) s
+    | _ -> Alcotest.fail "to_yojson must produce `String"
+  ) all_kinds
+
+let test_of_yojson_accepts_canonical () =
+  List.iter (fun k ->
+    let s = Provider_config.string_of_provider_kind k in
+    let json : Yojson.Safe.t = `String s in
+    match Provider_config.provider_kind_of_yojson json with
+    | Ok k' ->
+      check_string "of_yojson roundtrip" s
+        (Provider_config.string_of_provider_kind k')
+    | Error msg -> Alcotest.failf "of_yojson failed for %s: %s" s msg
+  ) all_kinds
+
+let test_of_yojson_accepts_aliases () =
+  List.iter (fun (input, expected_wire) ->
+    let json : Yojson.Safe.t = `String input in
+    match Provider_config.provider_kind_of_yojson json with
+    | Ok k ->
+      check_string ("of_yojson alias " ^ input) expected_wire
+        (Provider_config.string_of_provider_kind k)
+    | Error msg -> Alcotest.failf "of_yojson alias %S failed: %s" input msg
+  ) [ "claude", "anthropic";
+      "openai", "openai_compat";
+      "llama",  "ollama" ]
+
+let test_of_yojson_rejects_unknown_string () =
+  let json : Yojson.Safe.t = `String "nopenope" in
+  match Provider_config.provider_kind_of_yojson json with
+  | Ok _ -> Alcotest.fail "expected Error for unknown string"
+  | Error _ -> ()
+
+let test_of_yojson_rejects_non_string () =
+  let cases : (string * Yojson.Safe.t) list =
+    [ "null", `Null;
+      "int", `Int 1;
+      "assoc", `Assoc [ "kind", `String "anthropic" ] ]
+  in
+  List.iter (fun (label, json) ->
+    match Provider_config.provider_kind_of_yojson json with
+    | Ok _ -> Alcotest.failf "expected Error for non-string %s" label
+    | Error _ -> ()
+  ) cases
+
 (* ── Suite ────────────────────────────────────────────── *)
 
 let () =
@@ -295,5 +362,19 @@ let () =
       Alcotest.test_case "whitespace trimmed" `Quick test_kind_whitespace;
       Alcotest.test_case "unknown returns None" `Quick
         test_kind_unknown_returns_none;
+    ];
+    "kind_serializers", [
+      Alcotest.test_case "show matches string_of" `Quick
+        test_show_matches_string_of;
+      Alcotest.test_case "pp uses lowercase" `Quick test_pp_uses_lowercase;
+      Alcotest.test_case "to_yojson roundtrip" `Quick test_to_yojson_roundtrip;
+      Alcotest.test_case "of_yojson canonical" `Quick
+        test_of_yojson_accepts_canonical;
+      Alcotest.test_case "of_yojson aliases" `Quick
+        test_of_yojson_accepts_aliases;
+      Alcotest.test_case "of_yojson unknown rejected" `Quick
+        test_of_yojson_rejects_unknown_string;
+      Alcotest.test_case "of_yojson non-string rejected" `Quick
+        test_of_yojson_rejects_non_string;
     ];
   ]

@@ -114,6 +114,25 @@ val string_of_provider_kind : provider_kind -> string
     @since 0.165.0 *)
 val provider_kind_of_string : string -> provider_kind option
 
+(** {1 Serializers}
+
+    Hand-written to emit the wire-format produced by
+    {!string_of_provider_kind} (for example ["anthropic"]) rather than the
+    capitalised constructor name that [\[@@deriving yojson\]] would default
+    to (["Anthropic"]).
+
+    Records that embed [provider_kind] (for example
+    [Types.inference_telemetry]) can therefore add it to a derived-yojson
+    record without breaking the current on-disk / over-the-wire format.
+    @since 0.165.0 *)
+
+val pp_provider_kind : Format.formatter -> provider_kind -> unit
+val show_provider_kind : provider_kind -> string
+
+val provider_kind_to_yojson : provider_kind -> Yojson.Safe.t
+val provider_kind_of_yojson :
+  Yojson.Safe.t -> provider_kind Ppx_deriving_yojson_runtime.error_or
+
 (** Map thinking configuration fields to reasoning_effort string.
     Returns "none", "low", "medium", or "high".
     @since 0.114.0 *)

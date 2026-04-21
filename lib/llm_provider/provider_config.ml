@@ -116,6 +116,33 @@ let provider_kind_of_string raw =
   | "codex_cli" -> Some Codex_cli
   | _ -> None
 
+(** Hand-written serializers for [provider_kind]. We do not use
+    [\[@@deriving show, yojson\]] because the default generated forms would
+    emit the capitalised constructor name (["Anthropic"]) rather than the
+    wire-format lowercase produced by {!string_of_provider_kind}
+    (["anthropic"]). Keeping the wire format stable matters when records
+    embedding this type (for example [Types.inference_telemetry]) are
+    serialised to disk / over the network. *)
+
+let pp_provider_kind fmt k =
+  Format.pp_print_string fmt (string_of_provider_kind k)
+
+let show_provider_kind = string_of_provider_kind
+
+let provider_kind_to_yojson (k : provider_kind) : Yojson.Safe.t =
+  `String (string_of_provider_kind k)
+
+let provider_kind_of_yojson
+    (json : Yojson.Safe.t) :
+  provider_kind Ppx_deriving_yojson_runtime.error_or =
+  match json with
+  | `String s ->
+    (match provider_kind_of_string s with
+     | Some k -> Ok k
+     | None ->
+       Error (Printf.sprintf "provider_kind: unknown value %S" s))
+  | _ -> Error "provider_kind: expected JSON string"
+
 (** Map thinking configuration to reasoning_effort string.
     Four levels: "none", "low" (≤2048), "medium" (≤8192), "high" (>8192).
     Shared by Ollama backends and api_openai request building.
