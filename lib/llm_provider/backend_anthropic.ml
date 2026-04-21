@@ -32,6 +32,7 @@ let parse_response json =
   { id; model; stop_reason; content; usage;
     telemetry = Some { Types.system_fingerprint = None; timings = None;
       reasoning_tokens = None; request_latency_ms = 0;
+      peak_memory_gb = None;
       provider_kind = None; reasoning_effort = None;
       canonical_model_id = None; effective_context_window = None } }
 

@@ -43,6 +43,7 @@ let patch_latency (resp : Types.api_response) (latency_ms : int)
           timings = None;
           reasoning_tokens = None;
           request_latency_ms = latency_ms;
+          peak_memory_gb = None;
           provider_kind = None;
           reasoning_effort = None;
           canonical_model_id = None;
@@ -330,6 +331,7 @@ let%test "patch_latency overwrites existing request_latency_ms" =
     timings = None;
     reasoning_tokens = Some 10;
     request_latency_ms = 0;  (* parser sentinel *)
+    peak_memory_gb = None;
     provider_kind = Some "anthropic";
     reasoning_effort = None;
     canonical_model_id = Some "claude-4-sonnet";

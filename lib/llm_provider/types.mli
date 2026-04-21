@@ -123,6 +123,7 @@ type inference_telemetry = {
   timings: inference_timings option;
   reasoning_tokens: int option;
   request_latency_ms: int;
+  peak_memory_gb: float option;
   provider_kind: string option;        (** e.g. "ollama", "anthropic", "openai_compat" *)
   reasoning_effort: string option;     (** e.g. "none", "low", "medium", "high" — as sent to provider *)
   canonical_model_id: string option;   (** Model ID used for the API request after alias resolution (e.g. "glm-4.7") *)
