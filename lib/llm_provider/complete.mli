@@ -91,8 +91,8 @@ type retry_config = {
 val default_retry_config : retry_config
 
 (** Classify whether an HTTP error is worth retrying.
-    Retryable: 429 (rate limit), 500, 502, 503, 529,
-    and all network errors. *)
+    Uses {!Retry.classify_error} for HTTP bodies, so hard-quota 429s
+    fail fast while malformed-JSON 400s remain retryable. *)
 val is_retryable : Http_client.http_error -> bool
 
 (** Completion with exponential backoff retry.
