@@ -392,6 +392,23 @@ let%test "catch_network classifies Unix ETIMEDOUT" =
   | Error (NetworkError { kind = Timeout; _ }) -> true
   | _ -> false
 
+(* ── classify_unix_error direct tests ──────────────── *)
+
+let%test "classify_unix_error: EMFILE" =
+  classify_unix_error Unix.EMFILE = Local_resource_exhaustion
+
+let%test "classify_unix_error: ENFILE" =
+  classify_unix_error Unix.ENFILE = Local_resource_exhaustion
+
+let%test "classify_unix_error: ENOBUFS" =
+  classify_unix_error Unix.ENOBUFS = Local_resource_exhaustion
+
+let%test "classify_unix_error: EADDRNOTAVAIL" =
+  classify_unix_error Unix.EADDRNOTAVAIL = Local_resource_exhaustion
+
+let%test "classify_unix_error: catchall returns Unknown" =
+  classify_unix_error Unix.EPIPE = Unknown
+
 (* ── is_local_resource_exhaustion tests ──────────────── *)
 
 let%test "resource exhaustion: EADDRNOTAVAIL via Eio" =
