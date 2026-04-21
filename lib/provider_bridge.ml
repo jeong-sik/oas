@@ -21,11 +21,6 @@ let is_glm_model_or_alias model_id =
   | "ocr" -> true
   | _ -> false
 
-(** Resolve "auto" / aliases to concrete model IDs for legacy Provider.config
-    input. Inlined here because higher-level routing lives outside OAS.
-
-    Local providers use {!Llm_provider.Discovery.first_discovered_model_id}
-    for "auto"; cloud providers use environment-variable defaults. *)
 let env_or default var =
   match Sys.getenv_opt var with
   | Some v when String.trim v <> "" -> String.trim v
@@ -41,29 +36,42 @@ let resolve_glm_coding_model_id model_id =
     ~default_model:(env_or "glm-5.1" "ZAI_CODING_DEFAULT_MODEL")
     model_id
 
-let resolve_auto_model_id provider_name model_id =
-  match provider_name with
-  | "llama" | "ollama" ->
-    if model_id = "auto" then
-      match Llm_provider.Discovery.first_discovered_model_id () with
-      | Some id -> id
-      | None -> env_or model_id "OLLAMA_DEFAULT_MODEL"
-    else model_id
-  | "glm" -> resolve_glm_model_id model_id
-  | "glm-coding" -> resolve_glm_coding_model_id model_id
-  | "gemini" ->
-    if model_id = "auto" then env_or "gemini-2.5-flash" "GEMINI_DEFAULT_MODEL"
-    else model_id
-  | "claude" ->
-    if model_id = "auto" then env_or "claude-sonnet-4-6-20250514" "ANTHROPIC_DEFAULT_MODEL"
-    else model_id
-  | "openai" ->
-    if model_id = "auto" then env_or "gpt-4.1" "OPENAI_DEFAULT_MODEL"
-    else model_id
-  | "openrouter" ->
-    if model_id = "auto" then env_or model_id "OPENROUTER_DEFAULT_MODEL"
-    else model_id
-  | _ -> model_id
+(** Resolve "auto" / aliases to concrete model IDs, dispatched on the typed
+    {!Llm_provider.Provider_config.provider_kind} instead of a stringified name.
+
+    Local providers consult {!Llm_provider.Discovery.first_discovered_model_id}
+    for "auto"; cloud providers fall back to environment-variable defaults.
+
+    Parse, don't validate: callers hand in the concrete variant so dead
+    branches ([openai], [openrouter] in the pre-typed version) cannot exist. *)
+let resolve_auto_model_id
+    ~base_url
+    (kind : Llm_provider.Provider_config.provider_kind)
+    model_id =
+  let open Llm_provider.Provider_config in
+  match kind with
+  | Ollama | OpenAI_compat ->
+      (* Local llama-server and OpenAI-compatible endpoints share the
+         "auto" → discovery → OLLAMA_DEFAULT_MODEL fallback. Cloud-only
+         OpenAI-compatible backends (e.g. OpenRouter) still traverse this
+         branch; splitting them into a dedicated subkind is future work. *)
+      if model_id = "auto" then
+        match Llm_provider.Discovery.first_discovered_model_id () with
+        | Some id -> id
+        | None -> env_or model_id "OLLAMA_DEFAULT_MODEL"
+      else model_id
+  | Glm ->
+      if Llm_provider.Zai_catalog.is_coding_base_url base_url
+      then resolve_glm_coding_model_id model_id
+      else resolve_glm_model_id model_id
+  | Gemini ->
+      if model_id = "auto" then env_or "gemini-2.5-flash" "GEMINI_DEFAULT_MODEL"
+      else model_id
+  | Anthropic | Claude_code ->
+      if model_id = "auto"
+      then env_or "claude-sonnet-4-6-20250514" "ANTHROPIC_DEFAULT_MODEL"
+      else model_id
+  | Gemini_cli | Codex_cli -> model_id
 
 let to_provider_config (legacy : Provider.config) : (Llm_provider.Provider_config.t, Error.sdk_error) result =
   match Provider.resolve legacy with
@@ -89,22 +97,8 @@ let to_provider_config (legacy : Provider.config) : (Llm_provider.Provider_confi
             else Llm_provider.Provider_config.OpenAI_compat
       in
       let request_path = Provider.request_path legacy.provider in
-      let provider_name = match kind with
-        | Llm_provider.Provider_config.Anthropic -> "claude"
-        | Claude_code -> "claude"
-        | Gemini -> "gemini"
-        | Glm ->
-            if Llm_provider.Zai_catalog.is_coding_base_url base_url then
-              "glm-coding"
-            else
-              "glm"
-        | OpenAI_compat -> "llama"
-        | Ollama -> "ollama"
-        | Gemini_cli -> "gemini_cli"
-        | Codex_cli -> "codex_cli"
-      in
       let resolved_model_id =
-        resolve_auto_model_id provider_name legacy.model_id
+        resolve_auto_model_id ~base_url kind legacy.model_id
       in
       Ok (Llm_provider.Provider_config.make
             ~kind
