@@ -1,7 +1,11 @@
 (** Lightweight provider configuration for standalone LLM calls.
     @since 0.46.0 *)
 
-type provider_kind =
+(** Re-exported from {!Provider_kind} so existing callers
+    ([Provider_config.Anthropic], [Provider_config.string_of_provider_kind],
+    …) keep working. The underlying type now lives in {!Provider_kind} so it
+    can be shared with {!Types} without creating a module dependency cycle. *)
+type provider_kind = Provider_kind.t =
   | Anthropic
   | OpenAI_compat
   | Ollama
@@ -78,18 +82,15 @@ let make ~kind ~model_id ~base_url
     tool_choice; disable_parallel_tool_use; response_format; output_schema;
     cache_system_prompt; supports_tool_choice_override }
 
-(** Lowercase string representation of the wire-format kind.
-    Exhaustive match: adding a new variant triggers a compile error.
-    @since 0.100.0 *)
-let string_of_provider_kind = function
-  | Anthropic -> "anthropic"
-  | OpenAI_compat -> "openai_compat"
-  | Ollama -> "ollama"
-  | Gemini -> "gemini"
-  | Glm -> "glm"
-  | Claude_code -> "claude_code"
-  | Gemini_cli -> "gemini_cli"
-  | Codex_cli -> "codex_cli"
+(** Helpers for [provider_kind]. Implementations live in {!Provider_kind};
+    these re-exports keep the call-site [Provider_config.*] namespace
+    unchanged while the underlying type is hoisted to a shared module. *)
+let string_of_provider_kind = Provider_kind.to_string
+let provider_kind_of_string = Provider_kind.of_string
+let pp_provider_kind = Provider_kind.pp
+let show_provider_kind = Provider_kind.show
+let provider_kind_to_yojson = Provider_kind.to_yojson
+let provider_kind_of_yojson = Provider_kind.of_yojson
 
 (** Map thinking configuration to reasoning_effort string.
     Four levels: "none", "low" (≤2048), "medium" (≤8192), "high" (>8192).

@@ -8,8 +8,11 @@
     @stability Internal
     @since 0.93.1 *)
 
-(** Provider kind determines request/response wire format. *)
-type provider_kind =
+(** Provider kind determines request/response wire format.
+
+    Re-exported from {!Provider_kind} — the underlying type now lives there so
+    it can be shared with {!Types} without creating a dependency cycle. *)
+type provider_kind = Provider_kind.t =
   | Anthropic
   | OpenAI_compat
   | Ollama  (** Ollama: OpenAI compat wire format + reasoning_effort + no tool_choice. @since 0.112.0 *)
@@ -96,6 +99,42 @@ val make :
     Exhaustive match: adding a new variant triggers a compile error.
     @since 0.100.0 *)
 val string_of_provider_kind : provider_kind -> string
+
+(** Canonical inverse of {!string_of_provider_kind}.
+
+    Accepts every lowercase form produced by {!string_of_provider_kind} plus
+    the documented legacy aliases used by cascade configs and callers:
+    - [claude]  -> [Anthropic]
+    - [openai]  -> [OpenAI_compat]
+    - [llama]   -> [Ollama]
+
+    The match is case-insensitive; leading and trailing whitespace is
+    trimmed. Returns [None] for any other input so callers fail fast
+    rather than silently falling back to a default provider.
+
+    Use this instead of scattered ad-hoc [match s with "claude" -> ...]
+    ladders to keep all string-to-kind drift in one place.
+    @since 0.165.0 *)
+val provider_kind_of_string : string -> provider_kind option
+
+(** {1 Serializers}
+
+    Hand-written to emit the wire-format produced by
+    {!string_of_provider_kind} (for example ["anthropic"]) rather than the
+    capitalised constructor name that [\[@@deriving yojson\]] would default
+    to (["Anthropic"]).
+
+    Records that embed [provider_kind] (for example
+    [Types.inference_telemetry]) can therefore add it to a derived-yojson
+    record without breaking the current on-disk / over-the-wire format.
+    @since 0.165.0 *)
+
+val pp_provider_kind : Format.formatter -> provider_kind -> unit
+val show_provider_kind : provider_kind -> string
+
+val provider_kind_to_yojson : provider_kind -> Yojson.Safe.t
+val provider_kind_of_yojson :
+  Yojson.Safe.t -> provider_kind Ppx_deriving_yojson_runtime.error_or
 
 (** Map thinking configuration fields to reasoning_effort string.
     Returns "none", "low", "medium", or "high".

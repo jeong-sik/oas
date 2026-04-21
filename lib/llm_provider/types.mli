@@ -143,7 +143,11 @@ type inference_telemetry = {
   reasoning_tokens: int option;
   request_latency_ms: int;
   peak_memory_gb: float option;
-  provider_kind: string option;        (** e.g. "ollama", "anthropic", "openai_compat" *)
+  provider_kind: Provider_kind.t option;
+    (** Set by the inference pipeline to record which provider produced the
+        response. The on-wire JSON form stays the lowercase canonical string
+        (["ollama"], ["anthropic"], ["openai_compat"], …) via
+        {!Provider_kind.to_yojson}. *)
   reasoning_effort: string option;     (** e.g. "none", "low", "medium", "high" — as sent to provider *)
   canonical_model_id: string option;   (** Model ID used for the API request after alias resolution (e.g. "glm-4.7") *)
   effective_context_window: int option; (** Model's context window in tokens, from capabilities *)
