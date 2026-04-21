@@ -35,6 +35,14 @@ let cwd_wrapper = function
 let default_on_stderr_line ~name line =
   Eio.traceln "[%s stderr] %s" name line
 
+let last_nonempty_line text =
+  text
+  |> String.split_on_char '\n'
+  |> List.fold_left
+       (fun acc line ->
+         if String.trim line = "" then acc else Some line)
+       None
+
 (** Shared core.  Always reads stdout/stderr line-by-line from the live
     pipe, always supports cooperative cancel.  [run_collect] and
     [run_stream_lines] are thin wrappers that differ only in whether
@@ -153,8 +161,13 @@ let run_core ~sw ~(mgr : _ Eio.Process.mgr) ~name ~cwd ~extra_env
     | `Exited 0 ->
       Ok { stdout = stdout_str; stderr = stderr_str; latency_ms }
     | `Exited code ->
-      let detail = if stderr_str <> "" then stderr_str
-        else Printf.sprintf "exit code %d" code in
+      let detail =
+        if stderr_str <> "" then stderr_str
+        else
+          match last_nonempty_line stdout_str with
+          | Some line -> line
+          | None -> Printf.sprintf "exit code %d" code
+      in
       Error (Http_client.NetworkError {
         message = Printf.sprintf "%s exited with code %d: %s" name code detail })
     | `Signaled sig_num ->
