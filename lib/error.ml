@@ -20,7 +20,10 @@ type agent_error =
   | UnrecognizedStopReason of { reason: string }
   | IdleDetected of { consecutive_idle_turns: int }
   | ToolRetryExhausted of { attempts: int; limit: int; detail: string }
-  | CompletionContractViolation of { contract: string; reason: string }
+  | CompletionContractViolation of {
+      contract: Completion_contract_id.t;
+      reason: string;
+    }
   | GuardrailViolation of { validator: string; reason: string }
   | TripwireViolation of { tripwire: string; reason: string }
   | ExitConditionMet of { turn: int }
@@ -94,7 +97,7 @@ let agent_error_to_string = function
       r.attempts r.limit r.detail
   | CompletionContractViolation r ->
     Printf.sprintf "Completion contract [%s] violated: %s"
-      r.contract r.reason
+      (Completion_contract_id.to_string r.contract) r.reason
   | GuardrailViolation r ->
     Printf.sprintf "Guardrail violation [%s]: %s" r.validator r.reason
   | TripwireViolation r ->
