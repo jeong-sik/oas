@@ -6,6 +6,12 @@ Historical note: release notes for `0.100.3`, `0.100.5`, and `0.100.6` were
 backfilled on 2026-04-04 from existing git tags. The dates below reflect the
 original tag dates. `0.100.4` was never tagged or released.
 
+## Unreleased
+
+### Fixed
+
+- **Codex CLI transport honors request model IDs.** `transport_codex_cli` now passes a non-empty, non-`auto` `Provider_config.model_id` through `codex exec --model`, matching Claude Code and Gemini CLI behavior while preserving `auto` as "use the user's CLI default".
+
 ## [0.163.0] - 2026-04-20
 
 ### Added

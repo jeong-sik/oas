@@ -18,6 +18,7 @@
 
 type config = {
   codex_path: string;
+  model: string option;
   cwd: string option;
   mcp_config: string option;
   allowed_tools: string list;
@@ -30,6 +31,7 @@ type config = {
 
 let default_config = {
   codex_path = "codex";
+  model = None;
   cwd = None;
   mcp_config = None;
   allowed_tools = [];
@@ -102,13 +104,24 @@ let env_extra_args () =
     add ["--skip-git-repo-check"];
   !extras
 
-let build_args ~(config : config) ~prompt =
+let cli_model_override ~(config : config) ~(req_config : Provider_config.t) =
+  match String.trim req_config.model_id |> String.lowercase_ascii with
+  | "" | "auto" -> config.model
+  | _ -> Some (String.trim req_config.model_id)
+
+let build_args ~(config : config) ~(req_config : Provider_config.t) ~prompt =
   let prompt_via_stdin = prompt_exceeds_argv_budget prompt in
   (* Order: exec-level flags come before the positional prompt.  When the
      prompt is too large for argv, pass "-" so Codex reads it from stdin. *)
+  let model_args =
+    match cli_model_override ~config ~req_config with
+    | None -> []
+    | Some model -> ["--model"; model]
+  in
   [config.codex_path; "exec"; "--json"]
   @ env_extra_args ()
-  @ if prompt_via_stdin then ["-"] else [prompt]
+  @ model_args
+  @ (if prompt_via_stdin then ["-"] else [prompt])
 
 (* ── JSONL envelope parsing ──────────────────────────── *)
 
@@ -157,7 +170,7 @@ let events_of_line line =
 (** Aggregate JSONL envelopes into an [api_response].  Only
     [agent_message] text contributes to [content]; the terminal
     [turn.completed] supplies [usage]; [thread.started] supplies [id]. *)
-let parse_jsonl_result lines =
+let parse_jsonl_result ?(model_id = "codex") lines =
   let thread_id = ref "" in
   let texts = ref [] in
   let usage = ref None in
@@ -183,7 +196,7 @@ let parse_jsonl_result lines =
       message = "no events parsed from codex output" })
   else
     Ok { Types.id = !thread_id;
-         model = "codex";
+         model = model_id;
          stop_reason = Types.EndTurn;
          content;
          usage = !usage;
@@ -226,7 +239,11 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
         |> fun prompt ->
         Cli_common_prompt.prompt_with_system_prompt ~prompt ~system_prompt
       in
-      let argv = build_args ~config ~prompt in
+      let model_id =
+        Option.value ~default:"codex"
+          (cli_model_override ~config ~req_config:req.config)
+      in
+      let argv = build_args ~config ~req_config:req.config ~prompt in
       let seen_lines = ref [] in
       let on_line line =
         if String.trim line <> "" then
@@ -240,7 +257,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
               argv with
       | Error _ as e -> { Llm_transport.response = e; latency_ms = 0 }
       | Ok { stdout = _; stderr = _; latency_ms } ->
-        let response = parse_jsonl_result (List.rev !seen_lines) in
+        let response = parse_jsonl_result ~model_id (List.rev !seen_lines) in
         { Llm_transport.response; latency_ms });
 
     complete_stream = (fun ~on_event (req : Llm_transport.completion_request) ->
@@ -253,7 +270,11 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
         |> fun prompt ->
         Cli_common_prompt.prompt_with_system_prompt ~prompt ~system_prompt
       in
-      let argv = build_args ~config ~prompt in
+      let model_id =
+        Option.value ~default:"codex"
+          (cli_model_override ~config ~req_config:req.config)
+      in
+      let argv = build_args ~config ~req_config:req.config ~prompt in
       let seen_lines = ref [] in
       let on_line line =
         if String.trim line <> "" then begin
@@ -269,24 +290,31 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
               argv with
       | Error _ as e -> e
       | Ok _ ->
-        parse_jsonl_result (List.rev !seen_lines));
+        parse_jsonl_result ~model_id (List.rev !seen_lines));
   }
 
 (* ── Inline tests ────────────────────────────────────── *)
 
 [@@@coverage off]
 
+let codex_req ?(model_id = "auto") () =
+  Provider_config.make ~kind:Provider_config.Codex_cli ~model_id ~base_url:"" ()
+
 let%test "default_config codex_path" =
   default_config.codex_path = "codex"
 
 let%test "default_config parity fields absent" =
+  default_config.model = None
+  &&
   default_config.mcp_config = None
   && default_config.allowed_tools = []
   && default_config.max_turns = None
   && default_config.permission_mode = None
 
 let%test "build_args includes --json flag" =
-  let args = build_args ~config:default_config ~prompt:"hello" in
+  let args =
+    build_args ~config:default_config ~req_config:(codex_req ()) ~prompt:"hello"
+  in
   args = ["codex"; "exec"; "--json"; "-c"; "mcp_servers={}"; "hello"]
 
 let%test "build_args ignores extra parity fields" =
@@ -296,8 +324,25 @@ let%test "build_args ignores extra parity fields" =
     max_turns = Some 5;
     permission_mode = Some "bypassPermissions";
   } in
-  let args = build_args ~config ~prompt:"hi" in
+  let args = build_args ~config ~req_config:(codex_req ()) ~prompt:"hi" in
   args = ["codex"; "exec"; "--json"; "-c"; "mcp_servers={}"; "hi"]
+
+let%test "build_args with requested model" =
+  let args =
+    build_args ~config:default_config
+      ~req_config:(codex_req ~model_id:"gpt-5.4" ())
+      ~prompt:"hi"
+  in
+  args =
+  ["codex"; "exec"; "--json"; "-c"; "mcp_servers={}";
+   "--model"; "gpt-5.4"; "hi"]
+
+let%test "build_args with config default model for auto request" =
+  let config = { default_config with model = Some "gpt-5.2-codex" } in
+  let args = build_args ~config ~req_config:(codex_req ()) ~prompt:"hi" in
+  args =
+  ["codex"; "exec"; "--json"; "-c"; "mcp_servers={}";
+   "--model"; "gpt-5.2-codex"; "hi"]
 
 let%test "prompt_exceeds_argv_budget: small prompt stays in argv" =
   not (prompt_exceeds_argv_budget "hello")
@@ -311,7 +356,9 @@ let%test "stdin_for_prompt: Some when over budget, None under" =
 
 let%test "build_args uses stdin sentinel when prompt is too large" =
   let big = String.make (1 * 1024 * 1024) 'x' in
-  let args = build_args ~config:default_config ~prompt:big in
+  let args =
+    build_args ~config:default_config ~req_config:(codex_req ()) ~prompt:big
+  in
   not (List.mem big args)
   && List.nth args (List.length args - 1) = "-"
 
@@ -344,6 +391,15 @@ let%test "parse_jsonl_result aggregates multiple agent_messages" =
   match parse_jsonl_result lines with
   | Ok resp ->
     resp.content = [Types.Text "first"; Types.Text "second"]
+  | Error _ -> false
+
+let%test "parse_jsonl_result preserves requested model_id" =
+  let lines = [
+    {|{"type":"thread.started","thread_id":"t1"}|};
+    {|{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"ok"}}|};
+  ] in
+  match parse_jsonl_result ~model_id:"gpt-5.4" lines with
+  | Ok resp -> resp.model = "gpt-5.4"
   | Error _ -> false
 
 let%test "parse_jsonl_result skips command_execution items" =
@@ -414,12 +470,14 @@ let%test "default: argv disables MCP even with no env" =
   with_unset "OAS_CODEX_SANDBOX" (fun () ->
   with_unset "OAS_CODEX_PROFILE" (fun () ->
   with_unset "OAS_CODEX_SKIP_GIT" (fun () ->
-    build_args ~config:default_config ~prompt:"hi"
+    build_args ~config:default_config ~req_config:(codex_req ()) ~prompt:"hi"
     = ["codex"; "exec"; "--json"; "-c"; "mcp_servers={}"; "hi"]))))
 
 let%test "env: OAS_CODEX_CONFIG emits -c pairs before prompt" =
   with_env "OAS_CODEX_CONFIG" "mcp_servers={},model=o3" (fun () ->
-    let args = build_args ~config:default_config ~prompt:"hi" in
+    let args =
+      build_args ~config:default_config ~req_config:(codex_req ()) ~prompt:"hi"
+    in
     (* must emit -c mcp_servers={} and -c model=o3, and prompt stays last *)
     List.mem "-c" args
     && List.mem "mcp_servers={}" args
@@ -429,7 +487,9 @@ let%test "env: OAS_CODEX_CONFIG emits -c pairs before prompt" =
 let%test "env: OAS_CODEX_SANDBOX and OAS_CODEX_SKIP_GIT" =
   with_env "OAS_CODEX_SANDBOX" "read-only" (fun () ->
   with_env "OAS_CODEX_SKIP_GIT" "true" (fun () ->
-    let args = build_args ~config:default_config ~prompt:"hi" in
+    let args =
+      build_args ~config:default_config ~req_config:(codex_req ()) ~prompt:"hi"
+    in
     List.mem "-s" args
     && List.mem "read-only" args
     && List.mem "--skip-git-repo-check" args))
