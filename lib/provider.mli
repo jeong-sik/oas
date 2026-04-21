@@ -158,7 +158,8 @@ val registered_providers : unit -> string list
 val custom_provider : name:string -> ?model_id:string -> ?api_key_env:string -> unit -> config
 
 (** Well-known env var name for a provider kind.
-    Returns empty string for providers that don't need auth (Local, Claude_code).
+    Returns empty string for providers that don't need auth
+    (Local and the CLI transports).
     @since 0.87.0 *)
 val default_api_key_env_of_kind :
   Llm_provider.Provider_config.provider_kind -> string

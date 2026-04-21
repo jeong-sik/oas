@@ -17,7 +17,8 @@ type http_error =
   | NetworkError of { message: string }
   | AcceptRejected of { reason: string }
   (* Signals that a provider kind requires a non-HTTP transport (e.g. a
-     CLI subprocess transport for [Claude_code]/[Codex_cli]/[Gemini_cli])
+     CLI subprocess transport for
+     [Claude_code]/[Codex_cli]/[Gemini_cli]/[Kimi_cli])
      but the caller did not wire one.  Distinct from [NetworkError] so
      cascades can skip the candidate without counting it as a flaky
      network failure, and so callers see a clear "configuration/wiring

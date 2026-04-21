@@ -10,12 +10,13 @@ open Types
 let parse_response = Llm_provider.Backend_anthropic.parse_response
 
 (** Build request body assoc list shared between stream and non-stream calls *)
-let build_body_assoc ~config ~messages ?tools ~stream () =
+let build_body_assoc ~config ~messages
+    ?(message_to_json=Api_common.message_to_json) ?tools ~stream () =
   let model_str = model_to_string config.config.model in
   let body_assoc = [
     ("model", `String model_str);
     ("max_tokens", `Int (Option.value ~default:4096 config.config.max_tokens));
-    ("messages", `List (List.map Api_common.message_to_json messages));
+    ("messages", `List (List.map message_to_json messages));
     ("stream", `Bool stream);
   ] in
   (* Anthropic requires ~1024+ tokens for cache_control to take effect.

@@ -412,6 +412,21 @@ let test_config_of_provider_config_localhost_query_delegates_to_ssot () =
   | _ ->
       Alcotest.fail "expected localhost query config to resolve as local"
 
+let test_config_of_provider_config_kimi_uses_custom_provider () =
+  let cfg =
+    Llm_provider.Provider_config.make
+      ~kind:Llm_provider.Provider_config.Kimi
+      ~model_id:"kimi-for-coding"
+      ~base_url:"https://api.kimi.com/coding"
+      ()
+  in
+  match Provider.config_of_provider_config cfg with
+  | { provider = Provider.Custom_registered { name }; api_key_env; _ } ->
+      Alcotest.(check string) "provider name" "kimi" name;
+      Alcotest.(check string) "api_key_env" "KIMI_API_KEY_SB" api_key_env
+  | _ ->
+      Alcotest.fail "expected kimi config to round-trip through Custom_registered"
+
 let test_openai_compat_static_token () =
   let cfg : Provider.config = {
     provider = OpenAICompat {
@@ -595,6 +610,28 @@ let test_provider_config_of_agent_custom_registered_preserves_kind () =
   | Error e ->
     Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))
 
+let test_provider_config_of_agent_custom_registered_kimi_preserves_headers () =
+  let env_var = "KIMI_PROVIDER_TEST_KEY" in
+  Unix.putenv env_var "kimi-provider-test-key";
+  let cfg : Provider.config = {
+    provider = Custom_registered { name = "kimi" };
+    model_id = "kimi-for-coding";
+    api_key_env = env_var;
+  } in
+  let state = agent_state_with_params () in
+  match Provider.provider_config_of_agent ~state
+          ~base_url:"unused-fallback" (Some cfg) with
+  | Ok pc ->
+      Alcotest.(check bool) "kind preserves Kimi" true
+        (pc.kind = Llm_provider.Provider_config.Kimi);
+      Alcotest.(check string) "request_path" "/v1/messages" pc.request_path;
+      Alcotest.(check bool) "x-api-key header present" true
+        (List.mem ("x-api-key", "kimi-provider-test-key") pc.headers);
+      Alcotest.(check bool) "anthropic-version header present" true
+        (List.mem ("anthropic-version", "2023-06-01") pc.headers)
+  | Error e ->
+      Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))
+
 let test_provider_config_of_agent_custom_registered_unknown_name () =
   let cfg : Provider.config = {
     provider = Custom_registered { name = "nonexistent-provider-xyz" };
@@ -660,6 +697,8 @@ let () =
         test_config_of_provider_config_uppercase_localhost_delegates_to_ssot;
       Alcotest.test_case "provider_config localhost query" `Quick
         test_config_of_provider_config_localhost_query_delegates_to_ssot;
+      Alcotest.test_case "provider_config kimi custom" `Quick
+        test_config_of_provider_config_kimi_uses_custom_provider;
     ];
     "openai_compat", [
       Alcotest.test_case "static token" `Quick test_openai_compat_static_token;
@@ -678,6 +717,8 @@ let () =
         test_provider_config_of_agent_local_strips_dummy_key;
       Alcotest.test_case "custom registered preserves kind (#1003)" `Quick
         test_provider_config_of_agent_custom_registered_preserves_kind;
+      Alcotest.test_case "custom registered kimi preserves headers" `Quick
+        test_provider_config_of_agent_custom_registered_kimi_preserves_headers;
       Alcotest.test_case "custom registered unknown name errors" `Quick
         test_provider_config_of_agent_custom_registered_unknown_name;
     ];

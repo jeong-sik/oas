@@ -41,8 +41,13 @@ let parse_response json =
     Returns a JSON string ready for HTTP POST. *)
 let build_request ?(stream=false) ~(config : Provider_config.t)
     ~(messages : message list) ?(tools : Yojson.Safe.t list = []) () =
+  let message_to_json =
+    match config.kind with
+    | Provider_config.Kimi -> Api_common.kimi_message_to_json
+    | _ -> Api_common.message_to_json
+  in
   let msgs_json =
-    List.map Api_common.message_to_json messages in
+    List.map message_to_json messages in
   let body =
     [ ("model", `String config.model_id);
       ("max_tokens", `Int (Option.value ~default:4096 config.max_tokens));

@@ -75,6 +75,36 @@ let test_unknown_type_returns_none () =
   | None -> ()
   | Some _ -> fail "expected None for unknown type"
 
+let test_kimi_message_to_json_tool_result_uses_text_blocks () =
+  let msg = {
+    Types.role = Tool;
+    content = [
+      Types.ToolResult {
+        tool_use_id = "tu_001";
+        content = "5";
+        is_error = false;
+        json = Some (`Int 5);
+      };
+    ];
+    name = None;
+    tool_call_id = None;
+  } in
+  let json = Llm_provider.Api_common.kimi_message_to_json msg in
+  let open Yojson.Safe.Util in
+  let block = json |> member "content" |> index 0 in
+  let nested = block |> member "content" |> to_list in
+  check string "role serialized as user" "user"
+    (json |> member "role" |> to_string);
+  check string "tool_result type" "tool_result"
+    (block |> member "type" |> to_string);
+  check string "tool_use_id" "tu_001"
+    (block |> member "tool_use_id" |> to_string);
+  check int "nested content count" 1 (List.length nested);
+  check string "nested text block type" "text"
+    (List.hd nested |> member "type" |> to_string);
+  check string "nested text block text" "5"
+    (List.hd nested |> member "text" |> to_string)
+
 (* ------------------------------------------------------------------ *)
 (* build_body_assoc                                                     *)
 (* ------------------------------------------------------------------ *)
@@ -357,6 +387,58 @@ let test_build_openai_body_uses_glm_thinking_and_auto_tool_choice () =
   check bool "clear_thinking default true" true
     (thinking |> member "clear_thinking" |> to_bool);
   check string "glm tool choice coerced" "auto"
+    (json |> member "tool_choice" |> to_string)
+
+let test_build_openai_body_glm_preserves_reasoning_content () =
+  let provider_config = {
+    Provider.provider = Provider.OpenAICompat {
+      base_url = Llm_provider.Zai_catalog.general_base_url;
+      auth_header = None;
+      path = "/chat/completions";
+      static_token = None;
+    };
+    model_id = "glm-5";
+    api_key_env = "";
+  } in
+  let messages = [
+    { Types.role = Types.Assistant;
+      content = [
+        Types.Thinking {
+          thinking_type = "reasoning";
+          content = "I should call the calculator.";
+        };
+        Types.ToolUse {
+          id = "call_1";
+          name = "calculator";
+          input = `Assoc [("expr", `String "2+2")];
+        };
+      ];
+      name = None;
+      tool_call_id = None;
+    };
+  ] in
+  let state = {
+    Types.config = {
+      Types.default_config with
+      model = provider_config.model_id;
+      tool_choice = Some (Types.Tool "calculator");
+    };
+    messages = [];
+    turn_count = 0;
+    usage = Types.empty_usage;
+  } in
+  let json =
+    Api.build_openai_body ~provider_config ~config:state ~messages ()
+    |> Yojson.Safe.from_string
+  in
+  let open Yojson.Safe.Util in
+  let assistant = json |> member "messages" |> index 0 in
+  check string "content kept empty" ""
+    (assistant |> member "content" |> to_string);
+  check string "reasoning_content replayed"
+    "I should call the calculator."
+    (assistant |> member "reasoning_content" |> to_string);
+  check string "tool choice still auto" "auto"
     (json |> member "tool_choice" |> to_string)
 
 let test_build_openai_body_does_not_treat_non_zai_glm_as_glm () =
@@ -1037,6 +1119,8 @@ let () =
         test_build_openai_body_omits_qwen_only_fields_for_generic_compat;
       test_case "glm thinking + auto tool choice" `Quick
         test_build_openai_body_uses_glm_thinking_and_auto_tool_choice;
+      test_case "glm preserved reasoning replay" `Quick
+        test_build_openai_body_glm_preserves_reasoning_content;
       test_case "non-zai glm avoids glm path" `Quick
         test_build_openai_body_does_not_treat_non_zai_glm_as_glm;
       test_case "glm none tool_choice omits tools" `Quick
@@ -1090,6 +1174,8 @@ let () =
       test_case "string_is_blank" `Quick test_string_is_blank;
       test_case "json_of_string_or_raw valid" `Quick test_json_of_string_or_raw_valid;
       test_case "json_of_string_or_raw invalid" `Quick test_json_of_string_or_raw_invalid;
+      test_case "kimi tool_result uses text blocks" `Quick
+        test_kimi_message_to_json_tool_result_uses_text_blocks;
       test_case "disable_parallel_tool_use" `Quick test_build_body_disable_parallel;
     ];
   ]

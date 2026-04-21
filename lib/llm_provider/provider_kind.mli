@@ -10,12 +10,14 @@
 
 type t =
   | Anthropic
+  | Kimi
   | OpenAI_compat
   | Ollama
   | Gemini
   | Glm
   | Claude_code
   | Gemini_cli
+  | Kimi_cli
   | Codex_cli
 
 val to_string : t -> string

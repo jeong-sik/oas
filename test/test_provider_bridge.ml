@@ -60,11 +60,13 @@ let test_non_zai_glm_stays_openai_compat () =
         (match cfg.kind with
          | Llm_provider.Provider_config.OpenAI_compat -> "openai_compat"
          | Anthropic -> "anthropic"
+         | Kimi -> "kimi"
          | Gemini -> "gemini"
          | Glm -> "glm"
          | Ollama -> "ollama"
          | Claude_code -> "claude_code"
          | Gemini_cli -> "gemini_cli"
+         | Kimi_cli -> "kimi_cli"
          | Codex_cli -> "codex_cli")
 
 let test_zai_glm_becomes_glm_provider_config () =
@@ -86,11 +88,13 @@ let test_zai_glm_becomes_glm_provider_config () =
         (match cfg.kind with
          | Llm_provider.Provider_config.OpenAI_compat -> "openai_compat"
          | Anthropic -> "anthropic"
+         | Kimi -> "kimi"
          | Gemini -> "gemini"
          | Glm -> "glm"
          | Ollama -> "ollama"
          | Claude_code -> "claude_code"
          | Gemini_cli -> "gemini_cli"
+         | Kimi_cli -> "kimi_cli"
          | Codex_cli -> "codex_cli")
 
 let test_zai_coding_auto_uses_coding_default_model () =
@@ -113,6 +117,24 @@ let test_zai_coding_auto_uses_coding_default_model () =
           Alcotest.(check string) "coding auto model" "glm-4.5-air"
             cfg.model_id))
 
+let test_kimi_custom_registered_becomes_kimi_provider_config () =
+  let env_var = "KIMI_PROVIDER_BRIDGE_TEST_KEY" in
+  with_env env_var "kimi-test-key" (fun () ->
+    let legacy = {
+      Agent_sdk.Provider.provider = Custom_registered { name = "kimi" };
+      model_id = "auto";
+      api_key_env = env_var;
+    } in
+    match Agent_sdk.Provider_bridge.to_provider_config legacy with
+    | Error e ->
+        Alcotest.fail (Printf.sprintf "kimi custom provider should resolve: %s"
+          (Agent_sdk.Error.to_string e))
+    | Ok cfg ->
+        Alcotest.(check string) "kind becomes kimi" "kimi"
+          (Llm_provider.Provider_config.string_of_provider_kind cfg.kind);
+        Alcotest.(check string) "auto model" "kimi-for-coding" cfg.model_id;
+        Alcotest.(check string) "path" "/v1/messages" cfg.request_path)
+
 let test_zai_coding_auto_models_default_order () =
   with_env "ZAI_CODING_AUTO_MODELS" "" (fun () ->
     Alcotest.(check (list string)) "coding auto order"
@@ -132,6 +154,8 @@ let () =
         test_zai_glm_becomes_glm_provider_config;
       test_case "zai coding auto uses coding default model" `Quick
         test_zai_coding_auto_uses_coding_default_model;
+      test_case "kimi custom provider becomes kimi" `Quick
+        test_kimi_custom_registered_becomes_kimi_provider_config;
       test_case "zai coding auto models default order" `Quick
         test_zai_coding_auto_models_default_order;
     ];

@@ -57,7 +57,7 @@ val command_in_path : ?path:string -> string -> bool
 
 (** Default registry pre-populated with known direct providers plus
     non-interactive CLI transports ([claude_code], [gemini_cli],
-    [codex_cli], and compat alias [cc]).
+    [kimi], [kimi_cli], [codex_cli], and compat alias [cc]).
     Availability is determined by API-key env vars for direct providers
     and PATH discovery for CLI transports. *)
 val default : unit -> t

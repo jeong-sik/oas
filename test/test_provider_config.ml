@@ -37,6 +37,11 @@ let test_request_path_anthropic () =
     ~model_id:"m" ~base_url:"" () in
   check_string "anthropic path" "/v1/messages" cfg.request_path
 
+let test_request_path_kimi () =
+  let cfg = Provider_config.make ~kind:Kimi
+    ~model_id:"m" ~base_url:"" () in
+  check_string "kimi path" "/v1/messages" cfg.request_path
+
 let test_request_path_openai () =
   let cfg = Provider_config.make ~kind:OpenAI_compat
     ~model_id:"m" ~base_url:"" () in
@@ -56,6 +61,11 @@ let test_request_path_claude_code () =
   let cfg = Provider_config.make ~kind:Claude_code
     ~model_id:"m" ~base_url:"" () in
   check_string "claude_code path" "" cfg.request_path
+
+let test_request_path_kimi_cli () =
+  let cfg = Provider_config.make ~kind:Kimi_cli
+    ~model_id:"m" ~base_url:"" () in
+  check_string "kimi_cli path" "" cfg.request_path
 
 let test_request_path_override () =
   let cfg = Provider_config.make ~kind:Anthropic
@@ -120,6 +130,13 @@ let test_validate_output_schema_glm_rejected () =
     ~model_id:"glm-5" ~base_url:"https://api.z.ai/api/coding/paas/v4"
     ~output_schema:(`Assoc [("type", `String "object")]) () in
   check_bool "glm rejected" true
+    (Result.is_error (Provider_config.validate_output_schema_request cfg))
+
+let test_validate_output_schema_kimi_rejected () =
+  let cfg = Provider_config.make ~kind:Kimi
+    ~model_id:"kimi-for-coding" ~base_url:"https://api.kimi.com/coding"
+    ~output_schema:(`Assoc [("type", `String "object")]) () in
+  check_bool "kimi rejected" true
     (Result.is_error (Provider_config.validate_output_schema_request cfg))
 
 (* ── make: headers default ────────────────────────────── *)
@@ -398,10 +415,12 @@ let () =
     ];
     "request_path", [
       Alcotest.test_case "anthropic" `Quick test_request_path_anthropic;
+      Alcotest.test_case "kimi" `Quick test_request_path_kimi;
       Alcotest.test_case "openai" `Quick test_request_path_openai;
       Alcotest.test_case "gemini" `Quick test_request_path_gemini;
       Alcotest.test_case "glm" `Quick test_request_path_glm;
       Alcotest.test_case "claude_code" `Quick test_request_path_claude_code;
+      Alcotest.test_case "kimi_cli" `Quick test_request_path_kimi_cli;
       Alcotest.test_case "override" `Quick test_request_path_override;
     ];
     "explicit_values", [
@@ -415,6 +434,8 @@ let () =
         test_validate_output_schema_openai_compat_rejected;
       Alcotest.test_case "glm rejected" `Quick
         test_validate_output_schema_glm_rejected;
+      Alcotest.test_case "kimi rejected" `Quick
+        test_validate_output_schema_kimi_rejected;
     ];
     "locality", [
       Alcotest.test_case "loopback ip" `Quick test_is_local_loopback_ip;

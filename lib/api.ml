@@ -18,7 +18,8 @@ let make_https = Api_common.make_https
 
 (* Re-export Api_anthropic *)
 let parse_response = Api_anthropic.parse_response
-let build_body_assoc = Api_anthropic.build_body_assoc
+let build_body_assoc ~config ~messages ?tools ~stream () =
+  Api_anthropic.build_body_assoc ~config ~messages ?tools ~stream ()
 
 (* Re-export Api_openai *)
 let openai_messages_of_message = Api_openai.openai_messages_of_message

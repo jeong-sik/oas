@@ -147,13 +147,91 @@ let register_provider impl =
   Eio.Mutex.use_rw ~protect:true registry_mu (fun () ->
     Hashtbl.replace registry impl.name impl)
 
+let find_builtin_provider name = function
+  | impl :: rest ->
+      let rec loop current remaining =
+        if current.name = name then Some current
+        else
+          match remaining with
+          | next :: tail -> loop next tail
+          | [] -> None
+      in
+      loop impl rest
+  | [] -> None
+
+let first_present_env env_names =
+  let rec loop = function
+    | [] -> None
+    | env_name :: rest ->
+        (match Sys.getenv_opt env_name with
+         | Some value when String.trim value <> "" -> Some (env_name, String.trim value)
+         | _ -> loop rest)
+  in
+  loop env_names
+
+let kimi_direct_base_url () =
+  match Sys.getenv_opt "KIMI_BASE_URL" with
+  | Some url when String.trim url <> "" -> String.trim url
+  | _ -> "https://api.kimi.com/coding"
+
+let kimi_direct_request_path = "/v1/messages"
+
+let kimi_direct_headers key = [
+  ("Content-Type", "application/json");
+  ("x-api-key", key);
+  ("anthropic-version", "2023-06-01");
+]
+
+let kimi_provider_impl : provider_impl = {
+  name = "kimi";
+  request_kind = Anthropic_messages;
+  request_path = kimi_direct_request_path;
+  capabilities = Llm_provider.Capabilities.kimi_capabilities;
+  build_body = (fun ~config ~messages ?tools () ->
+    Yojson.Safe.to_string
+      (`Assoc
+         (Api_anthropic.build_body_assoc ~config ~messages
+            ~message_to_json:Llm_provider.Api_common.kimi_message_to_json
+            ?tools ~stream:false ())));
+  parse_response = (fun body_str ->
+    Api_anthropic.parse_response (Yojson.Safe.from_string body_str));
+  resolve = (fun cfg ->
+    let env_names =
+      if String.trim cfg.api_key_env <> "" then
+        [cfg.api_key_env; "KIMI_API_KEY_SB"; "KIMI_API_KEY"]
+      else
+        ["KIMI_API_KEY_SB"; "KIMI_API_KEY"]
+    in
+    match first_present_env env_names with
+    | Some (_env_name, key) ->
+        Ok (kimi_direct_base_url (), key, kimi_direct_headers key)
+    | None ->
+        let var_name =
+          match env_names with
+          | preferred :: _ -> preferred
+          | [] -> "KIMI_API_KEY_SB"
+        in
+        Error (Error.Config (MissingEnvVar { var_name })));
+}
+
+let builtin_provider_impls = [kimi_provider_impl]
+
 let find_provider name =
-  Eio.Mutex.use_ro registry_mu (fun () ->
-    Hashtbl.find_opt registry name)
+  match find_builtin_provider name builtin_provider_impls with
+  | Some impl -> Some impl
+  | None ->
+      Eio.Mutex.use_ro registry_mu (fun () ->
+        Hashtbl.find_opt registry name)
 
 let registered_providers () =
-  Eio.Mutex.use_ro registry_mu (fun () ->
-    Hashtbl.fold (fun name _ acc -> name :: acc) registry [])
+  let dynamic =
+    Eio.Mutex.use_ro registry_mu (fun () ->
+      Hashtbl.fold (fun name _ acc -> name :: acc) registry [])
+  in
+  builtin_provider_impls
+  |> List.fold_left (fun acc impl ->
+       if List.mem impl.name acc then acc else impl.name :: acc)
+       dynamic
 
 let capabilities_for_model ~(provider : provider) ~(model_id : string) =
   match provider with
@@ -438,9 +516,10 @@ let default_api_key_env_of_kind
     (kind : Llm_provider.Provider_config.provider_kind) : string =
   match kind with
   | Anthropic -> "ANTHROPIC_API_KEY"
+  | Kimi -> "KIMI_API_KEY_SB"
   | Gemini -> "GEMINI_API_KEY"
   | Glm -> "ZAI_API_KEY"
-  | OpenAI_compat | Ollama | Claude_code | Gemini_cli | Codex_cli -> ""
+  | OpenAI_compat | Ollama | Claude_code | Gemini_cli | Kimi_cli | Codex_cli -> ""
 
 (** Convert a [Llm_provider.Provider_config.t] into a
     [Provider.config] (for Agent Builder).  Keeps the conversion
@@ -460,6 +539,8 @@ let config_of_provider_config (pc : Llm_provider.Provider_config.t) : config =
   let static_token = if has_key then Some pc.api_key else None in
   let provider = match pc.kind with
     | Anthropic -> Anthropic
+    | Kimi ->
+      Custom_registered { name = "kimi" }
     | Gemini ->
       OpenAICompat { base_url = pc.base_url; auth_header;
                      path = pc.request_path; static_token }
@@ -474,7 +555,7 @@ let config_of_provider_config (pc : Llm_provider.Provider_config.t) : config =
     | Claude_code ->
       OpenAICompat { base_url = pc.base_url; auth_header;
                      path = pc.request_path; static_token }
-    | Gemini_cli | Codex_cli ->
+    | Gemini_cli | Kimi_cli | Codex_cli ->
       OpenAICompat { base_url = pc.base_url; auth_header;
                      path = pc.request_path; static_token }
   in
@@ -565,20 +646,32 @@ let provider_config_of_agent
                               "Custom_registered provider '%s' not found in Provider_registry.default"
                               name;
                         }))
-            | Some entry ->
-                let api_key =
-                  if entry.defaults.api_key_env = "" then ""
-                  else
-                    match Sys.getenv_opt entry.defaults.api_key_env with
-                    | Some k -> k
-                    | None -> ""
-                in
-                build ~kind:entry.defaults.kind
-                  ~resolved_base_url:entry.defaults.base_url
-                  ~api_key
-                  ~headers:[]
-                  ~request_path:entry.defaults.request_path
-                  ~model_id:p.model_id)
+           | Some entry ->
+                (match find_provider name with
+                 | Some impl ->
+                     (match impl.resolve p with
+                      | Error e -> Error e
+                      | Ok (resolved_base_url, api_key, headers) ->
+                          build ~kind:entry.defaults.kind
+                            ~resolved_base_url
+                            ~api_key
+                            ~headers
+                            ~request_path:entry.defaults.request_path
+                            ~model_id:p.model_id)
+                 | None ->
+                     let api_key =
+                       if entry.defaults.api_key_env = "" then ""
+                       else
+                         match Sys.getenv_opt entry.defaults.api_key_env with
+                         | Some k -> k
+                         | None -> ""
+                     in
+                     build ~kind:entry.defaults.kind
+                       ~resolved_base_url:entry.defaults.base_url
+                       ~api_key
+                       ~headers:[]
+                       ~request_path:entry.defaults.request_path
+                       ~model_id:p.model_id))
        | Anthropic | Local _ | OpenAICompat _ ->
            (match resolve p with
             | Error e -> Error e
