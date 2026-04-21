@@ -440,3 +440,30 @@ let%test "resource exhaustion: DNS failure is not" =
     message = "failed to resolve hostname: example.com";
     kind = Dns_failure;
   }))
+
+(* ── classify_by_message tests ───────────────────────── *)
+
+let%test "classify_by_message: connection refused" =
+  classify_by_message "Connection refused" = Connection_refused
+
+let%test "classify_by_message: connection refused via Eio" =
+  classify_by_message "Eio.Io (Unix.Unix_error (Connection refused, connect, 127.0.0.1:443))"
+  = Connection_refused
+
+let%test "classify_by_message: timeout" =
+  classify_by_message "Connection timed out" = Timeout
+
+let%test "classify_by_message: DNS failure" =
+  classify_by_message "failed to resolve hostname: api.example.com" = Dns_failure
+
+let%test "classify_by_message: DNS name or service" =
+  classify_by_message "Name or service not known" = Dns_failure
+
+let%test "classify_by_message: TLS error" =
+  classify_by_message "TLS handshake failed: certificate verify failed" = Tls_error
+
+let%test "classify_by_message: resource exhaustion" =
+  classify_by_message "Too many open files" = Local_resource_exhaustion
+
+let%test "classify_by_message: unknown" =
+  classify_by_message "broken pipe" = Unknown
