@@ -155,6 +155,7 @@ let test_tool_retry_policy_clamps_negative_max_retries () =
       Tool_retry_policy.tool_name = "tool";
       detail = "bad output";
       kind = Tool_retry_policy.Recoverable_tool_error;
+      error_class = Tool_retry_policy.Transient;
     };
   ] in
   match Tool_retry_policy.decide ~policy ~prior_retries:0 failures with
@@ -204,6 +205,27 @@ let test_error_class_to_string_stable () =
     "unknown"
     (Tool_retry_policy.error_class_to_string Tool_retry_policy.Unknown)
 
+let test_explicit_deterministic_error_disables_recoverable_retry () =
+  let policy = Tool_retry_policy.default_internal in
+  let failures =
+    [
+      {
+        Tool_retry_policy.tool_name = "tool";
+        detail = "path_not_found";
+        kind = Tool_retry_policy.Recoverable_tool_error;
+        error_class = Tool_retry_policy.Deterministic;
+      };
+    ]
+  in
+  match Tool_retry_policy.decide ~policy ~prior_retries:0 failures with
+  | Tool_retry_policy.No_retry -> ()
+  | Tool_retry_policy.Retry _ ->
+      Alcotest.fail
+        "deterministic recoverable error should not enter blind retry"
+  | Tool_retry_policy.Exhausted _ ->
+      Alcotest.fail
+        "deterministic recoverable error should stop before retry budget applies"
+
 let () =
   run "Agent SDK" [
     "types", [
@@ -248,5 +270,7 @@ let () =
         test_error_class_classify_recoverable;
       test_case "error_class_to_string stable" `Quick
         test_error_class_to_string_stable;
+      test_case "explicit deterministic class disables recoverable retry"
+        `Quick test_explicit_deterministic_error_disables_recoverable_retry;
     ];
   ]

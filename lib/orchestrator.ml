@@ -505,7 +505,13 @@ let step_as_tool ~name ~description (step : step) : Tool.t =
       in
       match step text with
       | Ok output -> Ok { content = output }
-      | Error e -> Error { message = Error.to_string e; recoverable = false })
+      | Error e ->
+          Error
+            {
+              message = Error.to_string e;
+              recoverable = false;
+              error_class = None;
+            })
 
 let agent_as_step ~sw ?clock (agent : Agent.t) : step =
   fun prompt ->

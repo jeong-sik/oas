@@ -242,7 +242,8 @@ let test_tool_completed_preserves_non_retryable_flag () =
   let sub = Event_bus.subscribe ~filter:Event_bus.filter_tools_only bus in
   let tool =
     Tool.create ~name:"fail" ~description:"Always fails" ~parameters:[]
-      (fun _ -> Error { Types.message = "boom"; recoverable = false })
+      (fun _ ->
+        Error { Types.message = "boom"; recoverable = false; error_class = None })
   in
   let schedule : Hooks.tool_schedule =
     {
@@ -262,7 +263,7 @@ let test_tool_completed_preserves_non_retryable_flag () =
   match Event_bus.drain sub with
   | [ { meta = called_meta; payload = ToolCalled _; _ };
       { meta = completed_meta;
-        payload = ToolCompleted { output = Error { message; recoverable }; _ };
+        payload = ToolCompleted { output = Error { message; recoverable; _ }; _ };
         _ } ] ->
       check string "message" "boom" message;
       check bool "non-retryable preserved" false recoverable;
@@ -292,7 +293,8 @@ let test_on_tool_error_hook_fires_on_tool_failure () =
   let bus = Event_bus.create () in
   let tool =
     Tool.create ~name:"fail" ~description:"Always fails" ~parameters:[]
-      (fun _ -> Error { Types.message = "boom"; recoverable = false })
+      (fun _ ->
+        Error { Types.message = "boom"; recoverable = false; error_class = None })
   in
   let schedule : Hooks.tool_schedule =
     { planned_index = 0; batch_index = 0; batch_size = 1;

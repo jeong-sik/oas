@@ -25,7 +25,13 @@ let test_simple_handler_error () =
     ~name:"fail"
     ~description:"Always fails"
     ~parameters:[]
-    (fun _input -> Error { Types.message = "intentional error"; recoverable = true })
+    (fun _input ->
+      Error
+        {
+          Types.message = "intentional error";
+          recoverable = true;
+          error_class = None;
+        })
   in
   let actual = Tool.execute tool `Null in
   match actual with
@@ -40,7 +46,13 @@ let test_context_handler_receives_context () =
     (fun ctx _input ->
       match Context.get ctx "key" with
       | Some (`String v) -> Ok { Types.content = v }
-      | _ -> Error { Types.message = "key not found"; recoverable = true })
+      | _ ->
+          Error
+            {
+              Types.message = "key not found";
+              recoverable = true;
+              error_class = None;
+            })
   in
   let ctx = Context.create () in
   Context.set ctx "key" (`String "ctx_value");

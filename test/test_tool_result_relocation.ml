@@ -158,10 +158,22 @@ let test_make_tool_results_with_relocation () =
   let store = Tool_result_store.create config |> Result.get_ok in
   let crs = Content_replacement_state.create () in
   let mock_results : Agent_tools.tool_execution_result list = [
-    { tool_use_id = "t1"; tool_name = "read"; content = String.make 200 'x';
-      is_error = false; failure_kind = None };
-    { tool_use_id = "t2"; tool_name = "echo"; content = "small";
-      is_error = false; failure_kind = None };
+    {
+      tool_use_id = "t1";
+      tool_name = "read";
+      content = String.make 200 'x';
+      is_error = false;
+      failure_kind = None;
+      error_class = None;
+    };
+    {
+      tool_use_id = "t2";
+      tool_name = "echo";
+      content = "small";
+      is_error = false;
+      failure_kind = None;
+      error_class = None;
+    };
   ] in
   let blocks = Agent_turn.make_tool_results
     ~relocation:(store, crs) mock_results in
@@ -284,12 +296,30 @@ let test_aggregate_budget_persists_largest () =
   (* 3 results: total = 8000+4000+3000 = 15000, at budget boundary.
      Actually make total > budget: 8000+5000+4000 = 17000 > 15000 *)
   let mock_results : Agent_tools.tool_execution_result list = [
-    { tool_use_id = "t1"; tool_name = "a"; content = String.make 8000 'a';
-      is_error = false; failure_kind = None };
-    { tool_use_id = "t2"; tool_name = "b"; content = String.make 5000 'b';
-      is_error = false; failure_kind = None };
-    { tool_use_id = "t3"; tool_name = "c"; content = String.make 4000 'c';
-      is_error = false; failure_kind = None };
+    {
+      tool_use_id = "t1";
+      tool_name = "a";
+      content = String.make 8000 'a';
+      is_error = false;
+      failure_kind = None;
+      error_class = None;
+    };
+    {
+      tool_use_id = "t2";
+      tool_name = "b";
+      content = String.make 5000 'b';
+      is_error = false;
+      failure_kind = None;
+      error_class = None;
+    };
+    {
+      tool_use_id = "t3";
+      tool_name = "c";
+      content = String.make 4000 'c';
+      is_error = false;
+      failure_kind = None;
+      error_class = None;
+    };
   ] in
   let blocks = Agent_turn.make_tool_results
     ~relocation:(store, crs) mock_results in
@@ -329,8 +359,14 @@ let test_aggregate_budget_disabled () =
   let store = Tool_result_store.create config |> Result.get_ok in
   let crs = Content_replacement_state.create () in
   let mock_results : Agent_tools.tool_execution_result list = [
-    { tool_use_id = "t1"; tool_name = "a"; content = String.make 8000 'x';
-      is_error = false; failure_kind = None };
+    {
+      tool_use_id = "t1";
+      tool_name = "a";
+      content = String.make 8000 'x';
+      is_error = false;
+      failure_kind = None;
+      error_class = None;
+    };
   ] in
   let _blocks = Agent_turn.make_tool_results
     ~relocation:(store, crs) mock_results in

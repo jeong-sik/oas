@@ -665,7 +665,13 @@ let test_proof_capture_multiple_tools () =
          tool_use_id = "tu-edit";
          tool_name = "edit";
          input = `String "b.ml";
-         output = Error { Types.message = "conflict"; recoverable = true };
+         output =
+           Error
+             {
+               Types.message = "conflict";
+               recoverable = true;
+               error_class = None;
+             };
          result_bytes = 0;
          duration_ms = 3.0;
          schedule = default_schedule ~planned_index:2 ~batch_index:2 ();

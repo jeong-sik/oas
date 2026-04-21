@@ -268,7 +268,8 @@ let%test "ok_json wraps as tool result" =
 
 let%test "tool_error returns recoverable error" =
   match tool_error "bad input" with
-  | Error { Types.message = "bad input"; recoverable = true } -> true
+  | Error { Types.message = "bad input"; recoverable = true; error_class = None } ->
+      true
   | _ -> false
 
 (* --- bind --- *)
@@ -277,7 +278,7 @@ let%test "bind ok" =
   Result.bind (Ok 1) (fun x -> Ok (x + 1)) = Ok 2
 
 let%test "bind error propagates" =
-  let err = Error { Types.message = "fail"; recoverable = true } in
+  let err = Error { Types.message = "fail"; recoverable = true; error_class = None } in
   match Result.bind err (fun _ -> Ok 0) with
   | Error { message = "fail"; _ } -> true
   | _ -> false

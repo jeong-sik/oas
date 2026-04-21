@@ -48,7 +48,12 @@ let target_name_of_tool name =
     by the agent runner before this handler is called. *)
 let make_handoff_tool (target : handoff_target) : Tool.t =
   let handler _input : Types.tool_result =
-    Error { message = "Handoff tools are intercepted by the agent runner"; recoverable = false }
+    Error
+      {
+        message = "Handoff tools are intercepted by the agent runner";
+        recoverable = false;
+        error_class = None;
+      }
   in
   Tool.create
     ~name:(Printf.sprintf "%s%s" handoff_prefix target.name)

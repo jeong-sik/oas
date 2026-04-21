@@ -237,6 +237,7 @@ let extract_with_retry ~sw ~net ?base_url ?provider ?clock
                         Tool_retry_policy.tool_name = schema.name;
                         detail = error_msg;
                         kind = Tool_retry_policy.Validation_error;
+                        error_class = Tool_retry_policy.Deterministic;
                       };
                     ]
                 in

@@ -40,7 +40,7 @@ let execute_with_approval ?context ~approve safe_tool args =
   match approve ~tool_name ~input_desc with
   | Ok () -> Typed_tool.execute ?context safe_tool.tool args
   | Error reason ->
-    Error { Types.message = reason; recoverable = false }
+    Error { Types.message = reason; recoverable = false; error_class = None }
 
 let execute_write ?context ~approve tool args =
   execute_with_approval ?context ~approve tool args

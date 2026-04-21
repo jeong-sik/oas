@@ -19,9 +19,10 @@ type failure = {
   tool_name: string;
   detail: string;
   kind: failure_kind;
+  error_class: Types.tool_error_class;
 }
 
-type error_class =
+type error_class = Types.tool_error_class =
   | Transient
   | Deterministic
   | Unknown
@@ -29,6 +30,11 @@ type error_class =
 let classify = function
   | Validation_error -> Deterministic
   | Recoverable_tool_error -> Transient
+
+let resolve_error_class ~explicit failure_kind =
+  match explicit with
+  | Some error_class -> error_class
+  | None -> classify failure_kind
 
 let error_class_to_string = function
   | Transient -> "transient"
@@ -69,9 +75,13 @@ let set_context_retry_count (context : Context.t) retries =
 let clear_context_retry_count (context : Context.t) =
   Context.delete_scoped context Temp retry_count_key
 
-let failure_enabled (policy : t) = function
+let failure_enabled (policy : t) (failure : failure) =
+  match failure.kind with
   | Validation_error -> policy.retry_on_validation_error
-  | Recoverable_tool_error -> policy.retry_on_recoverable_tool_error
+  | Recoverable_tool_error ->
+      (match failure.error_class with
+       | Deterministic -> false
+       | Transient | Unknown -> policy.retry_on_recoverable_tool_error)
 
 let dedup_preserve_order xs =
   let seen = Hashtbl.create 8 in
@@ -96,7 +106,7 @@ let decide ~policy ~prior_retries failures =
   let max_retries = normalized_max_retries policy.max_retries in
   let retryable =
     failures
-    |> List.filter (fun failure -> failure_enabled policy failure.kind)
+    |> List.filter (failure_enabled policy)
   in
   match retryable with
   | [] -> No_retry

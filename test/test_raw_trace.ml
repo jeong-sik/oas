@@ -175,7 +175,13 @@ let test_agent_run_stream_append_only_raw_trace () =
                         "source text -> copied"
                  then "PASS"
                  else "FAIL") }
-        else Error { Types.message = "unexpected command: " ^ command; recoverable = true })
+        else
+          Error
+            {
+              Types.message = "unexpected command: " ^ command;
+              recoverable = true;
+              error_class = None;
+            })
   in
   let tools = [ file_read_tool; shell_exec_tool; file_write_tool ] in
   let port = 8094 in

@@ -340,6 +340,7 @@ let test_make_tool_results () =
       content = "success output";
       is_error = false;
       failure_kind = None;
+    error_class = None;
     };
     {
       tool_use_id = "t2";
@@ -347,6 +348,7 @@ let test_make_tool_results () =
       content = "error msg";
       is_error = true;
       failure_kind = Some Agent_tools.Recoverable_tool_error;
+    error_class = None;
     };
   ] in
   let blocks = Agent_turn.make_tool_results results in
@@ -523,6 +525,7 @@ let test_apply_context_injection_no_injector () =
         content = "result";
         is_error = false;
         failure_kind = None;
+      error_class = None;
       };
     ]
   in
@@ -544,6 +547,7 @@ let test_apply_context_injection_with_context_update () =
         content = "found it";
         is_error = false;
         failure_kind = None;
+      error_class = None;
       };
     ]
   in
@@ -575,6 +579,7 @@ let test_apply_context_injection_with_extra_messages () =
         content = "result";
         is_error = false;
         failure_kind = None;
+      error_class = None;
       };
     ]
   in
@@ -603,6 +608,7 @@ let test_apply_context_injection_exception_handled () =
         content = "result";
         is_error = false;
         failure_kind = None;
+      error_class = None;
       };
     ]
   in
@@ -630,6 +636,7 @@ let test_apply_context_injection_preserves_non_retryable_error () =
         content = "fatal";
         is_error = true;
         failure_kind = Some Agent_tools.Non_retryable_tool_error;
+        error_class = Some Types.Deterministic;
       };
     ]
   in
@@ -641,9 +648,12 @@ let test_apply_context_injection_preserves_non_retryable_error () =
     ~context ~messages ~injector ~tool_uses ~results
   in
   match !received_output with
-  | Some (Error { message; recoverable }) ->
+  | Some (Error { message; recoverable; error_class }) ->
       Alcotest.(check string) "message" "fatal" message;
-      Alcotest.(check bool) "recoverable false" false recoverable
+      Alcotest.(check bool) "recoverable false" false recoverable;
+      (match error_class with
+       | Some Types.Deterministic -> ()
+       | _ -> Alcotest.fail "expected deterministic error_class")
   | Some (Ok _) -> Alcotest.fail "expected Error output"
   | None -> Alcotest.fail "injector not called"
 

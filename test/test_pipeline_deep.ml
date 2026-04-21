@@ -228,7 +228,7 @@ let test_resolve_params_error_tool_results () =
   let _params = Agent_turn.resolve_turn_params ~hooks ~messages ~max_turns:10 ~turn:0 ~invoke_hook in
   Alcotest.(check int) "1 error result" 1 (List.length !captured_results);
   (match List.hd !captured_results with
-   | Error { message; recoverable } ->
+   | Error { message; recoverable; _ } ->
      Alcotest.(check string) "error message" "permission denied" message;
      Alcotest.(check bool) "recoverable" true recoverable
    | Ok _ -> Alcotest.fail "expected Error result")
@@ -278,6 +278,7 @@ let test_context_injection_sets_values () =
         content = "result text";
         is_error = false;
         failure_kind = None;
+      error_class = None;
       };
     ]
   in
@@ -310,6 +311,7 @@ let test_context_injection_none () =
         content = "ok";
         is_error = false;
         failure_kind = None;
+      error_class = None;
       };
     ]
   in
@@ -347,6 +349,7 @@ let test_context_injection_extra_messages () =
         content = "ok";
         is_error = false;
         failure_kind = None;
+      error_class = None;
       };
     ]
   in
@@ -377,13 +380,14 @@ let test_context_injection_error_result () =
         content = "something went wrong";
         is_error = true;
         failure_kind = Some Agent_tools.Recoverable_tool_error;
+      error_class = None;
       };
     ]
   in
   let _new_messages = Agent_turn.apply_context_injection
     ~context ~messages ~injector ~tool_uses ~results in
   (match !received_output with
-   | Some (Error { message; recoverable }) ->
+   | Some (Error { message; recoverable; _ }) ->
      Alcotest.(check string) "error message" "something went wrong" message;
      Alcotest.(check bool) "recoverable" true recoverable
    | Some (Ok _) -> Alcotest.fail "expected Error output"
@@ -409,6 +413,7 @@ let test_context_injection_raises () =
         content = "ok";
         is_error = false;
         failure_kind = None;
+      error_class = None;
       };
     ]
   in
