@@ -22,7 +22,7 @@ type agent_error = [
   | `Cost_budget_exceeded
   | `Idle_detected of int
   | `Tool_retry_exhausted of int * int * string
-  | `Completion_contract_violation of string * string
+  | `Completion_contract_violation of Completion_contract_id.t * string
   | `Guardrail_violation of string * string
   | `Tripwire_violation of string * string
   | `Unrecognized_stop_reason of string

@@ -3,16 +3,13 @@ open Types
 let _log = Log.create ~module_name:"completion_contract" ()
 
 type t =
+  Completion_contract_id.t =
   | Allow_text_or_tool
   | Require_tool_use
   | Require_specific_tool of string
   | Require_no_tool_use
 
-let to_string = function
-  | Allow_text_or_tool -> "allow_text_or_tool"
-  | Require_tool_use -> "require_tool_use"
-  | Require_specific_tool name -> Printf.sprintf "require_specific_tool(%s)" name
-  | Require_no_tool_use -> "require_no_tool_use"
+let to_string = Completion_contract_id.to_string
 
 let of_tool_choice ?(supports_tool_choice = true) choice =
   let requested = match choice with

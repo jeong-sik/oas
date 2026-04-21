@@ -107,7 +107,8 @@ let test_to_string_each_variant () =
     `Max_turns_exceeded (20, 10);
     `Token_budget_exceeded (5000, 4000);
     `Idle_detected 5;
-    `Completion_contract_violation ("require_tool_use", "no ToolUse block");
+    `Completion_contract_violation
+      (Completion_contract.Require_tool_use, "no ToolUse block");
     `Unrecognized_stop_reason "weird";
     `Missing_env_var "SECRET";
     `Unsupported_provider "unknown_llm";
@@ -148,7 +149,8 @@ let test_all_variants_convert () =
     `Max_turns_exceeded (1, 2);
     `Token_budget_exceeded (100, 50);
     `Idle_detected 3;
-    `Completion_contract_violation ("require_tool_use", "no ToolUse block");
+    `Completion_contract_violation
+      (Completion_contract.Require_tool_use, "no ToolUse block");
     `Unrecognized_stop_reason "x";
     `Missing_env_var "X";
     `Unsupported_provider "x";
@@ -294,17 +296,24 @@ let test_roundtrip_agent_completion_contract_violation () =
   let orig =
     Error.Agent
       (CompletionContractViolation
-         { contract = "require_tool_use"; reason = "no ToolUse block" })
+         {
+           contract = Completion_contract.Require_tool_use;
+           reason = "no ToolUse block";
+         })
   in
   let poly = Error_domain.of_sdk_error orig in
   (match poly with
-   | `Completion_contract_violation ("require_tool_use", "no ToolUse block") -> ()
+   | `Completion_contract_violation
+       (Completion_contract.Require_tool_use, "no ToolUse block") -> ()
    | _ -> Alcotest.fail "expected Completion_contract_violation");
   let back = Error_domain.to_sdk_error poly in
   (match back with
    | Error.Agent
        (CompletionContractViolation
-          { contract = "require_tool_use"; reason = "no ToolUse block" }) -> ()
+          {
+            contract = Completion_contract.Require_tool_use;
+            reason = "no ToolUse block";
+          }) -> ()
    | _ -> Alcotest.fail "roundtrip mismatch for CompletionContractViolation")
 
 let test_roundtrip_agent_unrecognized_stop () =

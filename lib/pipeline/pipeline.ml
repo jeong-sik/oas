@@ -38,7 +38,7 @@ let validate_completion_contract agent (response : Types.api_response) =
     Error
       (Error.Agent
          (CompletionContractViolation
-            { contract = Completion_contract.to_string contract; reason }))
+            { contract; reason }))
 
 let event_envelope agent : Event_bus.envelope =
   let session_id = Option.bind agent.options.raw_trace Raw_trace.session_id in

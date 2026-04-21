@@ -157,7 +157,8 @@ let test_agent_run_requires_tool_use_when_tool_choice_is_any () =
     (match Agent.run ~sw agent "what time is it?" with
      | Ok _ -> fail "expected required tool contract failure"
      | Error (Error.Agent (Error.CompletionContractViolation { contract; reason })) ->
-       check string "contract" "require_tool_use" contract;
+       check bool "contract" true
+         (contract = Completion_contract.Require_tool_use);
        check bool "reason mentions tool contract" true
          (contains_substring
             ~needle:"required tool contract unsatisfied" reason);
@@ -190,7 +191,8 @@ let test_agent_run_requires_specific_tool_when_tool_choice_is_tool () =
     (match Agent.run ~sw agent "what time is it?" with
      | Ok _ -> fail "expected specific-tool contract failure"
      | Error (Error.Agent (Error.CompletionContractViolation { contract; reason })) ->
-       check string "contract" "require_specific_tool(get_time)" contract;
+       check bool "contract" true
+         (contract = Completion_contract.Require_specific_tool "get_time");
        check bool "reason mentions requested tool" true
          (contains_substring ~needle:"get_time" reason);
        check bool "reason mentions called tool" true
@@ -218,7 +220,8 @@ let test_agent_run_rejects_tool_use_when_tool_choice_is_none () =
     (match Agent.run ~sw agent "do not use tools" with
      | Ok _ -> fail "expected no-tool contract failure"
      | Error (Error.Agent (Error.CompletionContractViolation { contract; reason })) ->
-       check string "contract" "require_no_tool_use" contract;
+       check bool "contract" true
+         (contract = Completion_contract.Require_no_tool_use);
        check bool "reason mentions called tool" true
          (contains_substring ~needle:"other_tool" reason);
        Eio.Switch.fail sw Exit

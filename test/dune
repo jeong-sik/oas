@@ -285,6 +285,10 @@
  (libraries agent_sdk alcotest yojson))
 
 (test
+ (name test_error_domain)
+ (libraries agent_sdk alcotest yojson))
+
+(test
  (name test_otel_tracer)
  (libraries agent_sdk alcotest yojson eio_main))
 
