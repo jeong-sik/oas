@@ -280,13 +280,10 @@ let calculate_delay config attempt =
     +. Random.float Constants.Structured_retry.jitter_range in
   capped *. jitter
 
-(** Retry a function with exponential backoff.
-    [f] should return [Ok result] on success or [Error api_error] on failure.
-    Uses Eio.Time for sleeping between retries.
-    Non-retryable errors (AuthError, ContextOverflow, and most InvalidRequest)
-    are returned immediately.  InvalidRequest caused by malformed JSON in the
-    model output is treated as retryable. *)
-let with_retry ~clock ?(config=default_config) (f : unit -> ('a, api_error) result) : ('a, api_error) result =
+(** Retry a function with exponential backoff while preserving the original
+    error type. *)
+let with_retry_map_error ~clock ?(config=default_config) ~classify
+    (f : unit -> ('a, 'e) result) : ('a, 'e) result =
   let sleep_for err attempt =
     let delay = match err with
       | RateLimited { retry_after = Some ra; _ } -> ra
@@ -300,17 +297,31 @@ let with_retry ~clock ?(config=default_config) (f : unit -> ('a, api_error) resu
     else
       match f () with
       | Ok _ as success -> success
-      | Error err when is_retryable err ->
-        sleep_for err attempt;
-        loop (attempt + 1) err
-      | Error _ as non_retryable -> non_retryable
+      | Error err ->
+        (match classify err with
+         | Some api_err when is_retryable api_err ->
+           sleep_for api_err attempt;
+           loop (attempt + 1) err
+         | Some _ | None -> Error err)
   in
   match f () with
   | Ok _ as success -> success
-  | Error err when is_retryable err ->
-    sleep_for err 0;
-    loop 1 err
-  | Error _ as non_retryable -> non_retryable
+  | Error err ->
+    (match classify err with
+     | Some api_err when is_retryable api_err ->
+       sleep_for api_err 0;
+       loop 1 err
+     | Some _ | None -> Error err)
+
+(** Retry a function with exponential backoff.
+    [f] should return [Ok result] on success or [Error api_error] on failure.
+    Uses Eio.Time for sleeping between retries.
+    Non-retryable errors (AuthError, ContextOverflow, and most InvalidRequest)
+    are returned immediately.  InvalidRequest caused by malformed JSON in the
+    model output is treated as retryable. *)
+let with_retry ~clock ?config (f : unit -> ('a, api_error) result)
+    : ('a, api_error) result =
+  with_retry_map_error ~clock ?config ~classify:Option.some f
 
 [@@@coverage off]
 

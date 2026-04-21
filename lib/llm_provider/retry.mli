@@ -66,3 +66,15 @@ val with_retry :
   (unit -> ('a, api_error) result) ->
   ('a, api_error) result
 
+(** Retry a function while preserving its original error type.
+    [classify] returns [Some api_error] for errors that should use the shared
+    retry / backoff policy, or [None] to fail fast without retry.
+
+    @stability Internal
+    @since 0.163.0 *)
+val with_retry_map_error :
+  clock:_ Eio.Time.clock ->
+  ?config:retry_config ->
+  classify:('e -> api_error option) ->
+  (unit -> ('a, 'e) result) ->
+  ('a, 'e) result

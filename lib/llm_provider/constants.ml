@@ -82,11 +82,10 @@ end
 
 (* ── Retry ───────────────────────────────────────── *)
 
-module Retry = struct
+module Retry_common = struct
   let max_retries = 3
-  let initial_delay_sec = 1.0
-  let max_delay_sec = 30.0
   let backoff_multiplier = 2.0
+  let initial_delay_sec = 1.0
 
   (** Jitter range: delay is multiplied by a random factor
       in [jitter_min, jitter_min + jitter_range). *)
@@ -94,15 +93,24 @@ module Retry = struct
   let jitter_range = 1.0
 end
 
+module Retry = struct
+  let max_retries = Retry_common.max_retries
+  let initial_delay_sec = Retry_common.initial_delay_sec
+  let max_delay_sec = 30.0
+  let backoff_multiplier = Retry_common.backoff_multiplier
+  let jitter_min = Retry_common.jitter_min
+  let jitter_range = Retry_common.jitter_range
+end
+
 (* ── Structured retry (retry.ml) ─────────────────── *)
 
 module Structured_retry = struct
-  let max_retries = 3
-  let initial_delay = 1.0
+  let max_retries = Retry_common.max_retries
+  let initial_delay = Retry_common.initial_delay_sec
   let max_delay = 60.0
-  let backoff_factor = 2.0
-  let jitter_min = 0.5
-  let jitter_range = 1.0
+  let backoff_factor = Retry_common.backoff_multiplier
+  let jitter_min = Retry_common.jitter_min
+  let jitter_range = Retry_common.jitter_range
 end
 
 (* ── Sampling ────────────────────────────────────── *)
