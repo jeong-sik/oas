@@ -140,7 +140,8 @@ let parse_usage json =
 
 (** Parse a single envelope into zero or more OAS sse_events.
     [command_execution] items do not map to an OAS concept — Codex runs
-    them transparently — so we emit no event for them. *)
+    them transparently — so we emit no event for them and track them only
+    in inference telemetry. *)
 let events_of_line line =
   try
     let json = Yojson.Safe.from_string line in
@@ -170,10 +171,14 @@ let events_of_line line =
 (** Aggregate JSONL envelopes into an [api_response].  Only
     [agent_message] text contributes to [content]; the terminal
     [turn.completed] supplies [usage]; [thread.started] supplies [id]. *)
+    [turn.completed] supplies [usage]; [thread.started] supplies [id].
+    [command_execution] items are counted as provider-native internal
+    actions rather than surfaced as OAS tool calls. *)
 let parse_jsonl_result ?(model_id = "codex") lines =
   let thread_id = ref "" in
   let texts = ref [] in
   let usage = ref None in
+  let provider_internal_action_count = ref 0 in
   List.iter (fun line ->
     try
       let json = Yojson.Safe.from_string line in
@@ -183,14 +188,34 @@ let parse_jsonl_result ?(model_id = "codex") lines =
         thread_id := Cli_common_json.member_str "thread_id" json
       | "item.completed" ->
         let item = Yojson.Safe.Util.member "item" json in
-        if Cli_common_json.member_str "type" item = "agent_message" then
-          texts := Cli_common_json.member_str "text" item :: !texts
+        (match Cli_common_json.member_str "type" item with
+         | "agent_message" ->
+           texts := Cli_common_json.member_str "text" item :: !texts
+         | "command_execution" ->
+           incr provider_internal_action_count
+         | _ -> ())
       | "turn.completed" ->
         usage := parse_usage json
       | _ -> ()
     with Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ -> ()
   ) lines;
   let content = List.rev_map (fun t -> Types.Text t) !texts in
+  let telemetry =
+    if !provider_internal_action_count > 0 then
+      Some {
+        Types.system_fingerprint = None;
+        timings = None;
+        reasoning_tokens = None;
+        request_latency_ms = 0;
+        provider_kind = None;
+        reasoning_effort = None;
+        canonical_model_id = None;
+        effective_context_window = None;
+        provider_internal_action_count = Some !provider_internal_action_count;
+      }
+    else
+      None
+  in
   if content = [] && !thread_id = "" then
     Error (Http_client.NetworkError {
       message = "no events parsed from codex output" })
@@ -200,7 +225,7 @@ let parse_jsonl_result ?(model_id = "codex") lines =
          stop_reason = Types.EndTurn;
          content;
          usage = !usage;
-         telemetry = None }
+         telemetry }
 
 (* ── Transport constructor ───────────────────────────── *)
 

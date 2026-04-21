@@ -137,6 +137,7 @@ type inference_telemetry = {
   reasoning_effort: string option;     (** e.g. "none", "low", "medium", "high" — as sent to provider *)
   canonical_model_id: string option;   (** Model ID used for the API request after alias resolution (e.g. "glm-4.7") *)
   effective_context_window: int option; (** Model's context window in tokens, from capabilities *)
+  provider_internal_action_count: int option; (** Telemetry-only count of provider-native actions that are not surfaced as OAS tool calls. *)
 }
 [@@deriving show, yojson]
 
