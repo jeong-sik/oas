@@ -126,7 +126,7 @@ let map_http_error = function
       Error.Api (Retry.classify_error ~status:code ~body)
   | Llm_provider.Http_client.AcceptRejected { reason } ->
       Error.Api (Retry.NetworkError { message = reason })
-  | Llm_provider.Http_client.NetworkError { message } ->
+  | Llm_provider.Http_client.NetworkError { message; _ } ->
       Error.Api (Retry.NetworkError { message })
   | Llm_provider.Http_client.CliTransportRequired { kind } ->
       Error.Api (Retry.InvalidRequest {

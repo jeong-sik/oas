@@ -17,8 +17,8 @@ let sdk_error_of_http_error : Llm_provider.Http_client.http_error -> Error.sdk_e
   function
   | Llm_provider.Http_client.HttpError { code; body } ->
       Error.Api (Retry.classify_error ~status:code ~body)
-  | Llm_provider.Http_client.NetworkError { message } ->
-      Error.Api (Retry.NetworkError { message })
+  | Llm_provider.Http_client.NetworkError { message; kind; _ } ->
+      Error.Api (Retry.NetworkError { message; kind })
   | Llm_provider.Http_client.AcceptRejected { reason } ->
       Error.Api (Retry.InvalidRequest { message = reason })
   | Llm_provider.Http_client.CliTransportRequired { kind } ->

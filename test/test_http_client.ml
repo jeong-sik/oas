@@ -93,7 +93,7 @@ let test_post_stream_invalid_url_returns_network_error () =
     Http_client.post_stream ~sw ~net:env#net ~url:"http://"
       ~headers:[ ("Content-Type", "application/json") ] ~body:"{}"
   with
-  | Error (Http_client.NetworkError { message }) ->
+  | Error (Http_client.NetworkError { message; _ }) ->
       Alcotest.(check bool) "mentions missing host" true
         (Util.contains_substring_ci ~haystack:message ~needle:"missing host")
   | Error (Http_client.AcceptRejected _) ->

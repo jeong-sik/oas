@@ -179,7 +179,7 @@ let parse_json_result json_str =
   with
   | Yojson.Json_error msg ->
     Error (Http_client.NetworkError {
-      message = Printf.sprintf "JSON parse error: %s" msg })
+      message = Printf.sprintf "JSON parse error: %s" msg; kind = Unknown })
 
 (* ── Transport constructor ───────────────────────────── *)
 
@@ -223,7 +223,7 @@ let contains_all_markers haystack markers =
   List.for_all (substring_found haystack) markers
 
 let classify_cli_error = function
-  | Error (Http_client.NetworkError { message })
+  | Error (Http_client.NetworkError { message; _ })
     when contains_all_markers message startup_crash_markers ->
       Error
         (Http_client.AcceptRejected
@@ -291,6 +291,7 @@ let run ~sw ~mgr ~(config : config) argv =
                 aborted CLI early so the cascade can move on. Set \
                 OAS_GEMINI_CLI_NO_FAIL_FAST_ON_CAPACITY=1 to let the CLI \
                 keep its internal retry loop.";
+             kind = Unknown;
            })
   | r -> classify_cli_error r
 
@@ -320,6 +321,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
              Error (Http_client.NetworkError {
                message =
                  "gemini_cli does not support request-scoped runtime MCP configuration";
+               kind = Unknown;
              });
            latency_ms = 0 }
        | None ->
@@ -341,6 +343,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
         Error (Http_client.NetworkError {
           message =
             "gemini_cli does not support request-scoped runtime MCP configuration";
+          kind = Unknown;
         })
       | None ->
       warn_unsupported_once config warned;
@@ -492,6 +495,7 @@ let%test "classify_cli_error reclassifies gemini startup crash as AcceptRejected
            message =
              "gemini exited with code 13: Warning: Detected unsettled top-level await\n\
               var Yoga = wrapAssembly(await yoga_wasm_base64_esm_default());";
+           kind = Unknown;
          })
   in
   match classify_cli_error err with
@@ -503,10 +507,10 @@ let%test "classify_cli_error keeps unrelated network failures retryable" =
   let err =
     Error
       (Http_client.NetworkError
-         { message = "gemini exited with code 1: connection refused" })
+         { message = "gemini exited with code 1: connection refused"; kind = Unknown })
   in
   match classify_cli_error err with
-  | Error (Http_client.NetworkError { message }) ->
+  | Error (Http_client.NetworkError { message; _ }) ->
       substring_found message "connection refused"
   | _ -> false
 
@@ -616,7 +620,7 @@ let%test_unit "complete_sync rejects request-scoped runtime MCP policy" =
   let transport = create ~sw ~mgr:(Eio.Stdenv.process_mgr env) ~config:default_config in
   match transport.complete_sync runtime_mcp_req_sample with
   | {
-      response = Error (Http_client.NetworkError { message });
+      response = Error (Http_client.NetworkError { message; _ });
       latency_ms = 0;
     } ->
     assert (String.equal message runtime_mcp_policy_error_message)
@@ -627,6 +631,6 @@ let%test_unit "complete_stream rejects request-scoped runtime MCP policy" =
   Eio.Switch.run @@ fun sw ->
   let transport = create ~sw ~mgr:(Eio.Stdenv.process_mgr env) ~config:default_config in
   match transport.complete_stream ~on_event:(fun _ -> ()) runtime_mcp_req_sample with
-  | Error (Http_client.NetworkError { message }) ->
+  | Error (Http_client.NetworkError { message; _ }) ->
     assert (String.equal message runtime_mcp_policy_error_message)
   | _ -> assert false

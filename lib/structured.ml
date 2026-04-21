@@ -63,7 +63,7 @@ let extract_text_json ~(schema : _ schema) (response : api_response)
 let sdk_error_of_http_error = function
   | Llm_provider.Http_client.HttpError { code; body } ->
       Error.Api (Llm_provider.Retry.classify_error ~status:code ~body)
-  | Llm_provider.Http_client.NetworkError { message } ->
+  | Llm_provider.Http_client.NetworkError { message; _ } ->
       Error.Api (Llm_provider.Retry.NetworkError { message })
   | Llm_provider.Http_client.AcceptRejected { reason } ->
       Error.Config (InvalidConfig { field = "output_schema"; detail = reason })

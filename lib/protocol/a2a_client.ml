@@ -22,7 +22,7 @@ let http_get ~sw ~net url =
       (DiscoveryFailed { url; detail = Printf.sprintf "HTTP %d: %s" code body }))
   | Error (Llm_provider.Http_client.AcceptRejected { reason }) ->
     Error (Error.Orchestration (DiscoveryFailed { url; detail = reason }))
-  | Error (Llm_provider.Http_client.NetworkError { message }) ->
+  | Error (Llm_provider.Http_client.NetworkError { message; _ }) ->
     Error (Error.Orchestration (DiscoveryFailed { url; detail = message }))
   | Error (Llm_provider.Http_client.CliTransportRequired { kind }) ->
     (* [get_sync] never constructs this variant; only [Complete.complete]
@@ -44,7 +44,7 @@ let http_post ~sw ~net ~url ~body =
       detail = Printf.sprintf "HTTP %d: %s" code err_body }))
   | Error (Llm_provider.Http_client.AcceptRejected { reason }) ->
     Error (Error.A2a (ProtocolError { detail = reason }))
-  | Error (Llm_provider.Http_client.NetworkError { message }) ->
+  | Error (Llm_provider.Http_client.NetworkError { message; _ }) ->
     Error (Error.A2a (ProtocolError { detail = message }))
   | Error (Llm_provider.Http_client.CliTransportRequired { kind }) ->
     Error (Error.A2a (ProtocolError {

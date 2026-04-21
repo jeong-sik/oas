@@ -7,10 +7,31 @@
     @stability Internal
     @since 0.93.1 *)
 
+(** Structured classification of network errors.
+    Enables consumers to pattern-match on error kind instead of
+    parsing message strings.
+
+    @since 0.171.0 *)
+type network_error_kind =
+  | Connection_refused
+      (** Remote endpoint actively refused the connection (ECONNREFUSED). *)
+  | Dns_failure
+      (** Hostname resolution failed or returned no results. *)
+  | Tls_error
+      (** TLS handshake or certificate validation failed. *)
+  | Timeout
+      (** Connection or read timed out (ETIMEDOUT). *)
+  | Local_resource_exhaustion
+      (** Local OS resource limits reached (EMFILE, ENFILE, ENOBUFS, EADDRNOTAVAIL). *)
+  | End_of_file
+      (** Peer closed the connection unexpectedly. *)
+  | Unknown
+      (** Unclassified network error. *)
+
 (** Transport-level error. *)
 type http_error =
   | HttpError of { code: int; body: string }
-  | NetworkError of { message: string }
+  | NetworkError of { message: string; kind: network_error_kind }
   | AcceptRejected of { reason: string }
   | CliTransportRequired of { kind: string }
       (** Provider kind requires a non-HTTP transport (CLI subprocess)

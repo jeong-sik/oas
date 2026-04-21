@@ -12,9 +12,18 @@
 
     @since 0.45.0 *)
 
+type network_error_kind =
+  | Connection_refused
+  | Dns_failure
+  | Tls_error
+  | Timeout
+  | Local_resource_exhaustion
+  | End_of_file
+  | Unknown
+
 type http_error =
   | HttpError of { code: int; body: string }
-  | NetworkError of { message: string }
+  | NetworkError of { message: string; kind: network_error_kind }
   | AcceptRejected of { reason: string }
   (* Signals that a provider kind requires a non-HTTP transport (e.g. a
      CLI subprocess transport for
@@ -29,24 +38,19 @@ type http_error =
 
 let ( let* ) = Result.bind
 
-let catch_network f =
-  try f ()
-  with
-  | End_of_file ->
-      Error (NetworkError { message = "End_of_file" })
-  | Eio.Io _ as exn ->
-      Error (NetworkError { message = Printexc.to_string exn })
-  | Unix.Unix_error _ as exn ->
-      Error (NetworkError { message = Printexc.to_string exn })
-  | Sys_error _ as exn ->
-      Error (NetworkError { message = Printexc.to_string exn })
-  | Failure msg ->
-      Error (NetworkError { message = msg })
+(* ── Exception → network_error_kind classification ───────── *)
+
+let classify_unix_error = function
+  | Unix.ECONNREFUSED -> Connection_refused
+  | Unix.ETIMEDOUT -> Timeout
+  | Unix.EMFILE | Unix.ENFILE | Unix.ENOBUFS -> Local_resource_exhaustion
+  | Unix.EADDRNOTAVAIL -> Local_resource_exhaustion
+  | _ -> Unknown
 
 let parse_uri url =
   try Ok (Uri.of_string url)
   with Invalid_argument msg ->
-    Error (NetworkError { message = Printf.sprintf "invalid URL %S: %s" url msg })
+    Error (NetworkError { message = Printf.sprintf "invalid URL %S: %s" url msg; kind = Unknown })
 
 let log_close_failure ~url ~message =
   let json =
@@ -69,21 +73,54 @@ let has_substr haystack needle =
     else check (i + 1)
   in check 0
 
+let classify_by_message msg =
+  let m = String.lowercase_ascii msg in
+  if has_substr m "connection refused" then Connection_refused
+  else if has_substr m "timed out" || has_substr m "timeout" then Timeout
+  else if has_substr m "can't assign requested address"
+       || has_substr m "too many open files"
+       || has_substr m "no buffer space available"
+       || has_substr m "eaddrnotavail"
+       || has_substr m "emfile"
+       || has_substr m "enfile"
+    then Local_resource_exhaustion
+  else if has_substr m "failed to resolve hostname"
+       || has_substr m "name resolution"
+       || has_substr m "name or service not known"
+    then Dns_failure
+  else if has_substr m "tls"
+       || has_substr m "ssl"
+       || has_substr m "certificate"
+    then Tls_error
+  else Unknown
+
+let catch_network f =
+  try f ()
+  with
+  | End_of_file ->
+      Error (NetworkError { message = "End_of_file"; kind = End_of_file })
+  | Unix.Unix_error (code, _, _) as exn ->
+      Error (NetworkError {
+        message = Printexc.to_string exn;
+        kind = classify_unix_error code;
+      })
+  | Eio.Io _ as exn ->
+      let msg = Printexc.to_string exn in
+      Error (NetworkError { message = msg; kind = classify_by_message msg })
+  | Sys_error msg ->
+      Error (NetworkError { message = msg; kind = classify_by_message msg })
+  | Failure msg ->
+      Error (NetworkError { message = msg; kind = classify_by_message msg })
+
 (** Detect errors caused by local resource exhaustion (port/FD limits).
     Cascading to another provider cannot help — the local machine is
     the bottleneck, not the remote server. *)
 let is_local_resource_exhaustion = function
-  | NetworkError { message } ->
-    let m = String.lowercase_ascii message in
-    has_substr m "can't assign requested address"  (* EADDRNOTAVAIL *)
-    || has_substr m "too many open files"           (* EMFILE / ENFILE *)
-    || has_substr m "no buffer space available"     (* ENOBUFS *)
-    || has_substr m "eaddrnotavail"
-    || has_substr m "emfile"
-    || has_substr m "enfile"
+  | NetworkError { kind = Local_resource_exhaustion; _ } -> true
   | AcceptRejected _ -> false
   | HttpError _ -> false
   | CliTransportRequired _ -> false
+  | NetworkError _ -> false
 
 (* ── Public API ────────────────────────────────────────────── *)
 
@@ -105,6 +142,7 @@ let make_closing_client ~sw ~net ~uri =
              {
                message =
                  Printf.sprintf "invalid URL %S: missing host" (Uri.to_string uri);
+               kind = Unknown;
              })
   in
   let service =
@@ -122,13 +160,18 @@ let make_closing_client ~sw ~net ~uri =
                {
                  message =
                    Printf.sprintf "failed to resolve hostname: %s" host;
+                 kind = Dns_failure;
                })
     with
     | Eio.Io _ as exn ->
-        Error (NetworkError { message = Printexc.to_string exn })
-    | Unix.Unix_error _ as exn ->
-        Error (NetworkError { message = Printexc.to_string exn })
-    | Failure msg -> Error (NetworkError { message = msg })
+        let msg = Printexc.to_string exn in
+        Error (NetworkError { message = msg; kind = classify_by_message msg })
+    | Unix.Unix_error (code, _, _) as exn ->
+        Error (NetworkError {
+          message = Printexc.to_string exn;
+          kind = classify_unix_error code;
+        })
+    | Failure msg -> Error (NetworkError { message = msg; kind = classify_by_message msg })
   in
   let tls_wrap =
     match Uri.scheme uri with
@@ -142,6 +185,7 @@ let make_closing_client ~sw ~net ~uri =
                    message =
                      Printf.sprintf "HTTPS requested but TLS not available for %s"
                        (Uri.to_string uri);
+                   kind = Tls_error;
                  }))
     | _ -> Ok None
   in
@@ -325,47 +369,65 @@ let inject_stream_param body_str =
 [@@@coverage off]
 (* ── catch_network tests ─────────────────────────────── *)
 
-let%test "catch_network maps End_of_file to NetworkError" =
+let%test "catch_network maps End_of_file to NetworkError with kind" =
   match catch_network (fun () -> raise End_of_file) with
-  | Error (NetworkError { message }) -> message = "End_of_file"
+  | Error (NetworkError { message; kind = End_of_file }) -> message = "End_of_file"
   | _ -> false
 
 let%test "catch_network maps Sys_error to NetworkError" =
   match catch_network (fun () -> raise (Sys_error "broken pipe")) with
-  | Error (NetworkError { message }) ->
+  | Error (NetworkError { message; kind = Unknown }) ->
       has_substr (String.lowercase_ascii message) "broken pipe"
+  | _ -> false
+
+let%test "catch_network classifies Unix ECONNREFUSED" =
+  match catch_network (fun () ->
+    raise (Unix.Unix_error (Unix.ECONNREFUSED, "connect", ""))) with
+  | Error (NetworkError { kind = Connection_refused; _ }) -> true
+  | _ -> false
+
+let%test "catch_network classifies Unix ETIMEDOUT" =
+  match catch_network (fun () ->
+    raise (Unix.Unix_error (Unix.ETIMEDOUT, "connect", ""))) with
+  | Error (NetworkError { kind = Timeout; _ }) -> true
   | _ -> false
 
 (* ── is_local_resource_exhaustion tests ──────────────── *)
 
 let%test "resource exhaustion: EADDRNOTAVAIL via Eio" =
   is_local_resource_exhaustion (NetworkError {
-    message = "Eio.Io Unix_error (Can't assign requested address, \"connect\", \"\"), connecting to tcp:128.14.69.121:443"
+    message = "Eio.Io Unix_error (Can't assign requested address, \"connect\", \"\"), connecting to tcp:128.14.69.121:443";
+    kind = Local_resource_exhaustion;
   })
 
 let%test "resource exhaustion: too many open files" =
   is_local_resource_exhaustion (NetworkError {
-    message = "Too many open files"
+    message = "Too many open files";
+    kind = Local_resource_exhaustion;
   })
 
 let%test "resource exhaustion: EMFILE constant" =
   is_local_resource_exhaustion (NetworkError {
-    message = "Unix.Unix_error(Unix.EMFILE, \"socket\", \"\")"
+    message = "Unix.Unix_error(Unix.EMFILE, \"socket\", \"\")";
+    kind = Local_resource_exhaustion;
   })
 
 let%test "resource exhaustion: ENOBUFS" =
   is_local_resource_exhaustion (NetworkError {
-    message = "No buffer space available"
+    message = "No buffer space available";
+    kind = Local_resource_exhaustion;
   })
 
 let%test "resource exhaustion: ENFILE constant" =
   is_local_resource_exhaustion (NetworkError {
-    message = "Unix.Unix_error(Unix.ENFILE, \"socket\", \"\")"
+    message = "Unix.Unix_error(Unix.ENFILE, \"socket\", \"\")";
+    kind = Local_resource_exhaustion;
   })
 
 let%test "resource exhaustion: normal connection refused is not" =
   not (is_local_resource_exhaustion (NetworkError {
-    message = "Connection refused"
+    message = "Connection refused";
+    kind = Connection_refused;
   }))
 
 let%test "resource exhaustion: HTTP error is not" =
@@ -375,5 +437,6 @@ let%test "resource exhaustion: HTTP error is not" =
 
 let%test "resource exhaustion: DNS failure is not" =
   not (is_local_resource_exhaustion (NetworkError {
-    message = "failed to resolve hostname: example.com"
+    message = "failed to resolve hostname: example.com";
+    kind = Dns_failure;
   }))

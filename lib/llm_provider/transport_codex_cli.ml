@@ -473,7 +473,7 @@ let parse_jsonl_result ?(model_id = "codex") lines =
   in
   if content = [] && !thread_id = "" then
     Error (Http_client.NetworkError {
-      message = "no events parsed from codex output" })
+      message = "no events parsed from codex output"; kind = Unknown })
   else
     Ok { Types.id = !thread_id;
          model = model_id;
@@ -533,7 +533,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
       in
       match runtime_mcp_policy_error with
       | Some msg ->
-        { Llm_transport.response = Error (Http_client.NetworkError { message = msg });
+        { Llm_transport.response = Error (Http_client.NetworkError { message = msg; kind = Unknown });
           latency_ms = 0 }
       | None ->
       let argv =
@@ -579,7 +579,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
         | None -> None
       in
       match runtime_mcp_policy_error with
-      | Some msg -> Error (Http_client.NetworkError { message = msg })
+      | Some msg -> Error (Http_client.NetworkError { message = msg; kind = Unknown })
       | None ->
       let argv =
         build_args ~config ~req_config:req.config

@@ -300,7 +300,7 @@ let test_map_http_error_http () =
 
 let test_map_http_error_network () =
   let err = Streaming.map_http_error
-    (Llm_provider.Http_client.NetworkError { message = "connection refused" }) in
+    (Llm_provider.Http_client.NetworkError { message = "connection refused"; kind = Unknown }) in
   (match err with
    | Error.Api (Retry.NetworkError { message }) ->
      Alcotest.(check string) "msg" "connection refused" message

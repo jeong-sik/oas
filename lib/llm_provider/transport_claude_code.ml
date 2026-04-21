@@ -254,7 +254,7 @@ let parse_json_result json_str =
     if Cli_common_json.member_bool "is_error" json then
       let msg = Cli_common_json.member_str "result" json in
       Error (Http_client.NetworkError {
-        message = Printf.sprintf "Claude Code error: %s" msg })
+        message = Printf.sprintf "Claude Code error: %s" msg; kind = Unknown })
     else
       let result_text = Cli_common_json.member_str "result" json in
       let model = Cli_common_json.member_str "model" json in
@@ -270,7 +270,7 @@ let parse_json_result json_str =
   with
   | Yojson.Json_error msg ->
     Error (Http_client.NetworkError {
-      message = Printf.sprintf "JSON parse error: %s" msg })
+      message = Printf.sprintf "JSON parse error: %s" msg; kind = Unknown })
 
 (* ── Stream event parsing ────────────────────────────── *)
 
@@ -391,7 +391,7 @@ let parse_stream_result lines =
       if Cli_common_json.member_bool "is_error" rjson then
         let msg = Cli_common_json.member_str "result" rjson in
         Error (Http_client.NetworkError {
-          message = Printf.sprintf "Claude Code error: %s" msg })
+          message = Printf.sprintf "Claude Code error: %s" msg; kind = Unknown })
       else
         let model = Cli_common_json.member_str "model" rjson in
         let session_id = Cli_common_json.member_str "session_id" rjson in
@@ -410,11 +410,11 @@ let parse_stream_result lines =
              usage; telemetry = None }
     with Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ ->
       Error (Http_client.NetworkError {
-        message = "Failed to parse result line" }))
+        message = "Failed to parse result line"; kind = Unknown }))
   | None ->
     if assistant_blocks = [] then
       Error (Http_client.NetworkError {
-        message = "No result or assistant message in stream output" })
+        message = "No result or assistant message in stream output"; kind = Unknown })
     else
       let id, model, usage = match last_assistant_msg lines with
         | Some msg ->
@@ -589,7 +589,7 @@ let%test "parse_json_result success" =
 let%test "parse_json_result error" =
   let json = {|{"type":"result","subtype":"error","is_error":true,"result":"rate limited","model":"m","stop_reason":"","session_id":"s1"}|} in
   match parse_json_result json with
-  | Error (Http_client.NetworkError { message }) ->
+  | Error (Http_client.NetworkError { message; _ }) ->
     String.length message > 0
   | _ -> false
 
