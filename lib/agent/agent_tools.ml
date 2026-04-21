@@ -373,7 +373,7 @@ let execute_scheduled_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus
           | Hooks.ApprovalRequired -> (
               match approval with
               | None ->
-                  Log.warn _log
+                  Log.debug _log
                     "ApprovalRequired but no approval callback — executing"
                     [Log.S ("tool", name); Log.S ("agent", agent_name)];
                   find_and_execute_tool ~context ~tools ~hooks ~event_bus

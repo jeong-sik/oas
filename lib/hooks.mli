@@ -123,7 +123,7 @@ type hook_decision =
   | ApprovalRequired
       (** Signals that the tool needs external approval.  If an
           {!approval_callback} is registered the callback is invoked;
-          otherwise the tool is executed with a warning log. *)
+          otherwise the tool is executed and a debug log is emitted. *)
   | AdjustParams of turn_params
   | ElicitInput of elicitation_request
   | Nudge of string  (** OnIdle and BeforeTurn: inject message as User-role into the conversation, continue execution. On OnIdle the idle counter is preserved. On BeforeTurn the nudge is appended before tool preparation. *)
