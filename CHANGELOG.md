@@ -8,12 +8,6 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
-## [0.170.3] - 2026-04-22
-
-### Fixed
-
-- **Split pipeline stages now build messages through the shared constructor.** The post-split `stage_input`, `stage_collect`, and `stage_execute` paths now use `make_message` instead of stale record literals, so newly required fields such as `metadata` stay aligned with the shared message shape and downstream pipeline builds stop breaking after the stage split (#1151).
-
 ## [0.170.0] - 2026-04-21
 
 ### Added
