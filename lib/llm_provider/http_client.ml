@@ -268,8 +268,19 @@ let get_sync ~sw:_ ~net ~url ~headers =
     let code =
       Cohttp.Response.status resp |> Cohttp.Code.code_of_status in
     let body_str =
-      Eio.Buf_read.(of_flow ~max_size:Api_common.max_response_body
-                       resp_body |> take_all) in
+      try
+        Eio.Buf_read.(of_flow ~max_size:Api_common.max_response_body
+                         resp_body |> take_all)
+      with exn ->
+        let _ =
+          try
+            let buf = Cstruct.create 4096 in
+            let rec drain () = let _ = Eio.Flow.single_read resp_body buf in drain () in
+            drain ()
+          with _ -> ()
+        in
+        raise exn
+    in
     Ok (code, body_str))
 
 let post_sync ~sw:_ ~net ~url ~headers ~body =
@@ -292,8 +303,19 @@ let post_sync ~sw:_ ~net ~url ~headers ~body =
     let code =
       Cohttp.Response.status resp |> Cohttp.Code.code_of_status in
     let body_str =
-      Eio.Buf_read.(of_flow ~max_size:Api_common.max_response_body
-                       resp_body |> take_all) in
+      try
+        Eio.Buf_read.(of_flow ~max_size:Api_common.max_response_body
+                         resp_body |> take_all)
+      with exn ->
+        let _ =
+          try
+            let buf = Cstruct.create 4096 in
+            let rec drain () = let _ = Eio.Flow.single_read resp_body buf in drain () in
+            drain ()
+          with _ -> ()
+        in
+        raise exn
+    in
     Ok (code, body_str))
 
 let post_stream ~sw ~net ~url ~headers ~body =
@@ -315,8 +337,19 @@ let post_stream ~sw ~net ~url ~headers ~body =
     | status ->
         let code = Cohttp.Code.code_of_status status in
         let body_str =
-          Eio.Buf_read.(of_flow ~max_size:Api_common.max_response_body
-                           resp_body |> take_all) in
+          try
+            Eio.Buf_read.(of_flow ~max_size:Api_common.max_response_body
+                             resp_body |> take_all)
+          with exn ->
+            let _ =
+              try
+                let buf = Cstruct.create 4096 in
+                let rec drain () = let _ = Eio.Flow.single_read resp_body buf in drain () in
+                drain ()
+              with _ -> ()
+            in
+            raise exn
+        in
         Error (HttpError { code; body = body_str }))
 
 let with_post_stream ~net ~url ~headers ~body ~f =
@@ -342,8 +375,19 @@ let with_post_stream ~net ~url ~headers ~body ~f =
     | status ->
         let code = Cohttp.Code.code_of_status status in
         let body_str =
-          Eio.Buf_read.(of_flow ~max_size:Api_common.max_response_body
-                           resp_body |> take_all) in
+          try
+            Eio.Buf_read.(of_flow ~max_size:Api_common.max_response_body
+                             resp_body |> take_all)
+          with exn ->
+            let _ =
+              try
+                let buf = Cstruct.create 4096 in
+                let rec drain () = let _ = Eio.Flow.single_read resp_body buf in drain () in
+                drain ()
+              with _ -> ()
+            in
+            raise exn
+        in
         Error (HttpError { code; body = body_str }))
 
 let read_sse ~reader ~on_data () =
