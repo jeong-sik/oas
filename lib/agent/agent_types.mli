@@ -23,6 +23,9 @@ type tiered_memory = Types.tiered_memory = {
 type options = {
   base_url: string;
   provider: Provider.config option;
+  max_execution_time_s: float option;
+    (** Maximum allowed execution time for the entire agent run (including all turns and tool calls).
+        If exceeded, the run terminates safely and returns a Timeout error. *)
   max_idle_turns: int;
   idle_final_warning_at: int option;
     (** Threshold for [Hooks.on_idle_escalated] to emit
