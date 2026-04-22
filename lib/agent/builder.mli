@@ -112,6 +112,7 @@ val with_context_thresholds :
 val with_context : Context.t -> t -> t
 val with_context_injector : Hooks.context_injector -> t -> t
 val with_event_bus : Event_bus.t -> t -> t
+val with_max_execution_time : float -> t -> t
 val with_max_idle_turns : int -> t -> t
 val with_idle_final_warning_at : int -> t -> t
 val with_elicitation : Hooks.elicitation_callback -> t -> t

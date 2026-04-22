@@ -180,17 +180,27 @@ let start_periodic_callbacks ~sw ?clock (cbs : periodic_callback list) =
     ) cbs in
     fun () -> List.iter (fun stop -> stop ()) stops
 
+let with_optional_timeout ?clock agent f =
+  match agent.options.max_execution_time_s, clock with
+  | Some timeout_s, Some clock ->
+    (try Eio.Time.with_timeout_exn clock timeout_s f
+     with Eio.Time.Timeout ->
+       Error (Error.Api (Llm_provider.Retry.Timeout { message = Printf.sprintf "Agent execution exceeded max_execution_time_s (%f)" timeout_s })))
+  | _ -> f ()
+
 let run ~sw ?clock ?on_yield ?on_resume agent user_prompt =
   let stop = start_periodic_callbacks ~sw ?clock agent.options.periodic_callbacks in
-  Fun.protect
-    ~finally:stop
-    (fun () -> run_loop ~sw ?clock ~api_strategy:Sync ?on_yield ?on_resume agent user_prompt)
+  with_optional_timeout ?clock agent (fun () ->
+    Fun.protect
+      ~finally:stop
+      (fun () -> run_loop ~sw ?clock ~api_strategy:Sync ?on_yield ?on_resume agent user_prompt))
 
 let run_stream ~sw ?clock ~on_event ?on_yield ?on_resume agent user_prompt =
   let stop = start_periodic_callbacks ~sw ?clock agent.options.periodic_callbacks in
-  Fun.protect
-    ~finally:stop
-    (fun () -> run_loop ~sw ?clock ~api_strategy:(Stream { on_event }) ?on_yield ?on_resume agent user_prompt)
+  with_optional_timeout ?clock agent (fun () ->
+    Fun.protect
+      ~finally:stop
+      (fun () -> run_loop ~sw ?clock ~api_strategy:(Stream { on_event }) ?on_yield ?on_resume agent user_prompt))
 
 (* ── Handoff support ─────────────────────────────────────────── *)
 
@@ -318,7 +328,8 @@ let checkpoint ?(session_id="") ?working_context agent =
     ~mcp_clients:agent.options.mcp_clients ()
 
 let run_turn_stream ~sw ?clock ~on_event agent =
-  run_turn_core ~sw ?clock ~api_strategy:(Stream { on_event }) agent
+  with_optional_timeout ?clock agent (fun () ->
+    run_turn_core ~sw ?clock ~api_strategy:(Stream { on_event }) agent)
 
 let save_journal agent path =
   match agent.options.journal with

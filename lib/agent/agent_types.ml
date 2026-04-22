@@ -14,6 +14,7 @@ type tiered_memory = Types.tiered_memory = {
 type options = {
   base_url: string;
   provider: Provider.config option;
+  max_execution_time_s: float option;
   max_idle_turns: int;
   idle_final_warning_at: int option;
   hooks: Hooks.hooks;
@@ -117,6 +118,7 @@ type lifecycle_snapshot = Agent_lifecycle.lifecycle_snapshot = {
 let default_options = {
   base_url = Api.default_base_url;
   provider = None;
+  max_execution_time_s = None;
   max_idle_turns = 3;
   idle_final_warning_at = None;
   hooks = Hooks.empty;
