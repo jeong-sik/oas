@@ -79,18 +79,17 @@ let stage_input ?raw_trace_run agent =
              req.question (Yojson.Safe.to_string json) in
            update_state agent (fun s ->
              { s with messages = Util.snoc s.messages
-                 { role = User; content = [Text text]; name = None; tool_call_id = None ; metadata = []} })
+                 (make_message ~role:User [Text text]) })
          | Hooks.Declined | Hooks.Timeout -> ())
       | None -> ())
    | Hooks.Nudge nudge_msg ->
      (* Mirror on_idle Nudge handling (Stage 5): append the nudge as a
         User-role message so it reaches the model in this same turn via
         Stage 2 prepare_turn. The idle counter is not touched — BeforeTurn
-        is not part of the idle path. *)
+     is not part of the idle path. *)
      update_state agent (fun s ->
        { s with messages = Util.snoc s.messages
-           { role = User; content = [Text nudge_msg];
-             name = None; tool_call_id = None ; metadata = []} })
+           (make_message ~role:User [Text nudge_msg]) })
    | _ -> ())
 
 (* ── Stage 2: Parse ──────────────────────────────────────── *)
@@ -342,7 +341,7 @@ let stage_collect ?raw_trace_run agent ~original_config response =
   update_state agent (fun s ->
     { s with
       messages = Util.snoc s.messages
-        { role = Assistant; content = response.content; name = None; tool_call_id = None ; metadata = []};
+        (make_message ~role:Assistant response.content);
       turn_count = s.turn_count + 1;
       usage });
   Ok ()
@@ -461,8 +460,7 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
          to Skip (for example, at a configured threshold). *)
       update_state agent (fun s ->
         { s with messages = Util.snoc s.messages
-            { role = User; content = [Text nudge_msg];
-              name = None; tool_call_id = None ; metadata = []} });
+            (make_message ~role:User [Text nudge_msg]) });
       idle_handled := true
     | _ -> ()
   end;
@@ -478,7 +476,7 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
       "Tool call limit exceeded: %d calls in one turn" count in
     update_state agent (fun s ->
       { s with messages = Util.snoc s.messages
-          { role = User; content = [Text msg]; name = None; tool_call_id = None ; metadata = []} });
+          (make_message ~role:User [Text msg]) });
     Ok ToolsExecuted
   | false ->
     let results =
@@ -540,12 +538,7 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
         s with
         messages =
           Util.snoc s.messages
-            {
-              role = User;
-              content = effective_feedback;
-              name = None;
-              tool_call_id = None; metadata = [];
-            };
+            (make_message ~role:User effective_feedback);
       });
     (match agent.options.context_injector with
      | None -> ()
