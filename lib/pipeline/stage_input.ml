@@ -36,7 +36,7 @@ let stage_input ?raw_trace_run agent =
              req.question (Yojson.Safe.to_string json) in
            update_state agent (fun s ->
              { s with messages = Util.snoc s.messages
-                 { role = User; content = [Text text]; name = None; tool_call_id = None; metadata = [] } })
+                 (make_message ~role:User [Text text]) })
          | Hooks.Declined | Hooks.Timeout -> ())
       | None -> ())
    | Hooks.Nudge nudge_msg ->
@@ -46,6 +46,5 @@ let stage_input ?raw_trace_run agent =
         is not part of the idle path. *)
      update_state agent (fun s ->
        { s with messages = Util.snoc s.messages
-           { role = User; content = [Text nudge_msg];
-             name = None; tool_call_id = None; metadata = [] } })
+           (make_message ~role:User [Text nudge_msg]) })
    | _ -> ())

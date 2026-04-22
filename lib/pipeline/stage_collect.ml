@@ -46,7 +46,7 @@ let stage_collect ?raw_trace_run agent ~original_config response =
   update_state agent (fun s ->
     { s with
       messages = Util.snoc s.messages
-        { role = Assistant; content = response.content; name = None; tool_call_id = None; metadata = [] };
+        (make_message ~role:Assistant response.content);
       turn_count = s.turn_count + 1;
       usage });
   Ok ()
