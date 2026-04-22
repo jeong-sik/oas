@@ -44,10 +44,10 @@ let make_checkpoint
   }
 
 let sample_messages = [
-  { Types.role = Types.User; content = [Types.Text "Hello"]; name = None; tool_call_id = None };
-  { Types.role = Types.Assistant; content = [Types.Text "Hi there."]; name = None; tool_call_id = None };
-  { Types.role = Types.User; content = [Types.Text "What is 2+2?"]; name = None; tool_call_id = None };
-  { Types.role = Types.Assistant; content = [Types.Text "4"]; name = None; tool_call_id = None };
+  { Types.role = Types.User; content = [Types.Text "Hello"]; name = None; tool_call_id = None ; metadata = []};
+  { Types.role = Types.Assistant; content = [Types.Text "Hi there."]; name = None; tool_call_id = None ; metadata = []};
+  { Types.role = Types.User; content = [Types.Text "What is 2+2?"]; name = None; tool_call_id = None ; metadata = []};
+  { Types.role = Types.Assistant; content = [Types.Text "4"]; name = None; tool_call_id = None ; metadata = []};
 ]
 
 let sample_usage : Types.usage_stats = {
@@ -278,7 +278,7 @@ let test_resume_preserves_message_content () =
   let msgs = [
     { Types.role = Types.User;
       content = [Types.Text "Hello"; Types.Text "World"];
-      name = None; tool_call_id = None };
+      name = None; tool_call_id = None ; metadata = []};
   ] in
   let cp = make_checkpoint ~messages:msgs () in
   let agent = Agent.resume ~net ~checkpoint:cp () in

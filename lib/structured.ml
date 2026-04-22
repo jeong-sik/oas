@@ -100,7 +100,7 @@ let extract ~sw ~net ?base_url ?provider ~config ~(schema : 'a schema) prompt
   let provider_cfg_result =
     provider_config_for_schema ~base_url ?provider ~config ~schema ()
   in
-  let messages = [{ role = User; content = [Text prompt]; name = None; tool_call_id = None }] in
+  let messages = [{ role = User; content = [Text prompt]; name = None; tool_call_id = None ; metadata = []}] in
   match provider_cfg_result with
   | Error e -> Error e
   | Ok provider_cfg ->
@@ -207,7 +207,7 @@ let extract_with_retry ~sw ~net ?base_url ?provider ?clock
                 | None, None -> None) }
   in
   let initial_message =
-    { role = User; content = [Text prompt]; name = None; tool_call_id = None }
+    { role = User; content = [Text prompt]; name = None; tool_call_id = None ; metadata = []}
   in
   let retry_policy =
     {
@@ -252,7 +252,7 @@ let extract_with_retry ~sw ~net ?base_url ?provider ?clock
                            role = Assistant;
                            content = response.content;
                            name = None;
-                           tool_call_id = None;
+                           tool_call_id = None; metadata = [];
                          };
                          {
                            role = User;
@@ -260,7 +260,7 @@ let extract_with_retry ~sw ~net ?base_url ?provider ?clock
                              Text (validation_feedback_message ~summary ~error_msg);
                            ];
                            name = None;
-                           tool_call_id = None;
+                           tool_call_id = None; metadata = [];
                          };
                        ]
                      in
@@ -277,7 +277,7 @@ let extract_stream ~sw ~net ?base_url ?provider ?clock ~config ~(schema : 'a sch
     ~on_event prompt : ('a * api_response, Error.sdk_error) result =
   ignore clock;
   let base_url = Option.value ~default:Api.default_base_url base_url in
-  let messages = [{ role = User; content = [Text prompt]; name = None; tool_call_id = None }] in
+  let messages = [{ role = User; content = [Text prompt]; name = None; tool_call_id = None ; metadata = []}] in
   match provider_config_for_schema ~base_url ?provider ~config ~schema () with
   | Error e -> Error e
   | Ok provider_cfg ->

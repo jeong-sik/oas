@@ -10,7 +10,7 @@ let make_response text : Types.api_response =
     content = [Text text]; usage = None; telemetry = None }
 
 let dummy_messages : Types.message list =
-  [{ role = User; content = [Text "hello"]; name = None; tool_call_id = None }]
+  [{ role = User; content = [Text "hello"]; name = None; tool_call_id = None ; metadata = []}]
 
 let pass_input : Guardrails_async.input_validator =
   { name = "pass_in"; validate = fun _ -> Ok () }

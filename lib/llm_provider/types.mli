@@ -102,6 +102,7 @@ type message = {
   content: content_block list;
   name: string option;
   tool_call_id: string option;
+  metadata: (string * Yojson.Safe.t) list;
 }
 [@@deriving show]
 
@@ -185,7 +186,13 @@ type sse_event =
 
 (** {1 Convenience Constructors} *)
 
-val make_message : ?name:string -> ?tool_call_id:string -> role:role -> content_block list -> message
+val make_message :
+  ?name:string ->
+  ?tool_call_id:string ->
+  ?metadata:(string * Yojson.Safe.t) list ->
+  role:role ->
+  content_block list ->
+  message
 val text_message : role -> string -> message
 val system_msg : string -> message
 val user_msg : string -> message

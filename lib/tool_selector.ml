@@ -225,7 +225,7 @@ let default_rerank_fn ~sw ~net ~provider ~k () =
     let messages = [
       { Types.role = Types.User;
         content = [Types.Text prompt];
-        name = None; tool_call_id = None }
+        name = None; tool_call_id = None ; metadata = []}
     ] in
     let bm25_fallback () =
       List.filteri (fun i _ -> i < k) (List.map fst candidates)

@@ -295,7 +295,7 @@ let%test "build_request pins keep_alive=-1 as integer by default" =
     let config = Provider_config.make
       ~kind:Ollama ~model_id:"qwen3.5:35b-a3b-nvfp4"
       ~base_url:"http://127.0.0.1:11434" () in
-    let messages = [{ role = User; content = [Text "hi"]; name = None; tool_call_id = None }] in
+    let messages = [{ role = User; content = [Text "hi"]; name = None; tool_call_id = None ; metadata = []}] in
     let body = build_request ~config ~messages () in
     let json = Yojson.Safe.from_string body in
     let open Yojson.Safe.Util in
@@ -308,7 +308,7 @@ let%test "build_request integer override sent as `Int" =
     let config = Provider_config.make
       ~kind:Ollama ~model_id:"qwen3.5:35b-a3b-nvfp4"
       ~base_url:"http://127.0.0.1:11434" () in
-    let messages = [{ role = User; content = [Text "hi"]; name = None; tool_call_id = None }] in
+    let messages = [{ role = User; content = [Text "hi"]; name = None; tool_call_id = None ; metadata = []}] in
     let body = build_request ~config ~messages () in
     let json = Yojson.Safe.from_string body in
     let open Yojson.Safe.Util in
@@ -319,7 +319,7 @@ let%test "build_request duration string override sent as `String" =
     let config = Provider_config.make
       ~kind:Ollama ~model_id:"qwen3.5:35b-a3b-nvfp4"
       ~base_url:"http://127.0.0.1:11434" () in
-    let messages = [{ role = User; content = [Text "hi"]; name = None; tool_call_id = None }] in
+    let messages = [{ role = User; content = [Text "hi"]; name = None; tool_call_id = None ; metadata = []}] in
     let body = build_request ~config ~messages () in
     let json = Yojson.Safe.from_string body in
     let open Yojson.Safe.Util in
@@ -330,7 +330,7 @@ let%test "build_request trims whitespace around override" =
     let config = Provider_config.make
       ~kind:Ollama ~model_id:"qwen3.5:35b-a3b-nvfp4"
       ~base_url:"http://127.0.0.1:11434" () in
-    let messages = [{ role = User; content = [Text "hi"]; name = None; tool_call_id = None }] in
+    let messages = [{ role = User; content = [Text "hi"]; name = None; tool_call_id = None ; metadata = []}] in
     let body = build_request ~config ~messages () in
     let json = Yojson.Safe.from_string body in
     let open Yojson.Safe.Util in
@@ -341,7 +341,7 @@ let%test "build_request whitespace-only env falls back to default integer" =
     let config = Provider_config.make
       ~kind:Ollama ~model_id:"qwen3.5:35b-a3b-nvfp4"
       ~base_url:"http://127.0.0.1:11434" () in
-    let messages = [{ role = User; content = [Text "hi"]; name = None; tool_call_id = None }] in
+    let messages = [{ role = User; content = [Text "hi"]; name = None; tool_call_id = None ; metadata = []}] in
     let body = build_request ~config ~messages () in
     let json = Yojson.Safe.from_string body in
     let open Yojson.Safe.Util in

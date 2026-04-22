@@ -195,7 +195,7 @@ let test_context_injection () =
         Some {
           Hooks.context_updates = [("last_file_read", `String tool_name)];
           extra_messages = [
-            { Types.role = Assistant; content = [Text "[System note: file was read successfully]"]; name = None; tool_call_id = None };
+            { Types.role = Assistant; content = [Text "[System note: file was read successfully]"]; name = None; tool_call_id = None ; metadata = []};
           ];
         }
       | Error _ -> None

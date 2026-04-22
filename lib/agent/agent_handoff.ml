@@ -47,7 +47,7 @@ let replace_tool_result messages ~tool_id ~content ~is_error =
      acc accumulates skipped elements in original order. *)
   let rec rewrite acc = function
     | [] ->
-        Util.snoc acc { role = User; content = [ToolResult { tool_use_id = tool_id; content; is_error; json = None }]; name = None; tool_call_id = None }
+        Util.snoc acc { role = User; content = [ToolResult { tool_use_id = tool_id; content; is_error; json = None }]; name = None; tool_call_id = None ; metadata = []}
     | ((message : message) :: rest) ->
         let has_tool_result =
           List.exists (function

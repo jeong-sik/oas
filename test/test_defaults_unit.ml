@@ -70,8 +70,8 @@ let () =
 
       test_case "passes through simple messages" `Quick (fun () ->
         let msgs : Types.message list = [
-          { role = Types.User; content = [Text "hello"]; name = None; tool_call_id = None };
-          { role = Types.Assistant; content = [Text "hi"]; name = None; tool_call_id = None };
+          { role = Types.User; content = [Text "hello"]; name = None; tool_call_id = None ; metadata = []};
+          { role = Types.Assistant; content = [Text "hi"]; name = None; tool_call_id = None ; metadata = []};
         ] in
         let reduced = Context_reducer.reduce Defaults.default_context_reducer msgs in
         check int "2 messages preserved" 2 (List.length reduced));
@@ -80,7 +80,7 @@ let () =
         (* drop_thinking preserves last 2 messages unchanged, so we need
            the thinking block in an older message (not in the last 2) *)
         let mk role content : Types.message =
-          { role; content; name = None; tool_call_id = None }
+          { role; content; name = None; tool_call_id = None ; metadata = []}
         in
         let msgs = [
           mk Types.User [Text "first question"];

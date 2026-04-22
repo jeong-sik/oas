@@ -15,10 +15,10 @@ open Agent_sdk
 
 (* ── Helpers ──────────────────────────────────────────────────── *)
 
-let user_msg text = Types.{ role = User; content = [Text text]; name = None; tool_call_id = None }
-let asst_msg text = Types.{ role = Assistant; content = [Text text]; name = None; tool_call_id = None }
+let user_msg text = Types.{ role = User; content = [Text text]; name = None; tool_call_id = None ; metadata = []}
+let asst_msg text = Types.{ role = Assistant; content = [Text text]; name = None; tool_call_id = None ; metadata = []}
 let thinking_only_msg content =
-  Types.{ role = Assistant; content = [Thinking { thinking_type = "thinking"; content }]; name = None; tool_call_id = None }
+  Types.{ role = Assistant; content = [Thinking { thinking_type = "thinking"; content }]; name = None; tool_call_id = None ; metadata = []}
 
 (* ── B1: context_injector exception — FIXED ───────────────────── *)
 (* Before fix: injector exception propagated uncaught.
@@ -54,10 +54,10 @@ let test_b3_injection_role_validation () =
     user_msg "question";
     Types.{ role = Assistant; content = [
       ToolUse { id = "t1"; name = "calc"; input = `Null }
-    ]; name = None; tool_call_id = None};
+    ]; name = None; tool_call_id = None; metadata = []};
     Types.{ role = User; content = [
       ToolResult { tool_use_id = "t1"; content = "42"; is_error = false; json = None }
-    ]; name = None; tool_call_id = None};
+    ]; name = None; tool_call_id = None; metadata = []};
   ] in
   let extra = [
     user_msg "[system] observation: file changed";  (* same role as last = User *)

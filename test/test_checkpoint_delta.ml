@@ -28,7 +28,7 @@ let response_format_gen =
 let message_gen =
   let open QCheck.Gen in
   map2
-    (fun role text -> { role; content = [ Text text ]; name = None; tool_call_id = None })
+    (fun role text -> { role; content = [ Text text ]; name = None; tool_call_id = None ; metadata = []})
     (oneof [ return User; return Assistant ])
     small_string_gen
 
@@ -242,7 +242,7 @@ let test_delta_json_roundtrip () =
     make_unit_checkpoint
       ~messages:
         [
-          { role = User; content = [ Text "hello" ]; name = None; tool_call_id = None };
+          { role = User; content = [ Text "hello" ]; name = None; tool_call_id = None ; metadata = []};
         ]
       ()
   in
@@ -258,8 +258,8 @@ let test_delta_json_roundtrip () =
       ~working_context:(Some (`Assoc [ ("kind", `String "test_context_v1") ]))
       ~messages:
         [
-          { role = User; content = [ Text "hello" ]; name = None; tool_call_id = None };
-          { role = Assistant; content = [ Text "world" ]; name = None; tool_call_id = None };
+          { role = User; content = [ Text "hello" ]; name = None; tool_call_id = None ; metadata = []};
+          { role = Assistant; content = [ Text "world" ]; name = None; tool_call_id = None ; metadata = []};
         ]
       ()
   in
@@ -280,7 +280,7 @@ let test_delta_json_rejects_malformed_context_removed () =
       ~context:target_context
       ~messages:
         [
-          { role = User; content = [ Text "hello" ]; name = None; tool_call_id = None };
+          { role = User; content = [ Text "hello" ]; name = None; tool_call_id = None ; metadata = []};
         ]
       ()
   in
@@ -341,7 +341,7 @@ let test_empty_delta_roundtrip () =
       ~turn_count:3
       ~messages:
         [
-          { role = User; content = [ Text "steady" ]; name = None; tool_call_id = None };
+          { role = User; content = [ Text "steady" ]; name = None; tool_call_id = None ; metadata = []};
         ]
       ()
   in
@@ -351,6 +351,57 @@ let test_empty_delta_roundtrip () =
     (match Checkpoint.apply_delta checkpoint delta with
      | Ok rebuilt -> checkpoint_equal rebuilt checkpoint
      | Error _ -> false)
+
+let test_delta_roundtrip_preserves_message_metadata () =
+  let replay_metadata =
+    [
+      ( "masc.replay",
+        `Assoc
+          [
+            ("kind", `String "state_snapshot");
+            ("version", `Int 1);
+            ("payload", `Assoc [ ("goal", `String "persist") ]);
+          ] );
+    ]
+  in
+  let base =
+    make_unit_checkpoint
+      ~messages:
+        [
+          { role = User; content = [ Text "start" ]; name = None; tool_call_id = None; metadata = [] };
+        ]
+      ()
+  in
+  let target =
+    make_unit_checkpoint
+      ~messages:
+        [
+          { role = User; content = [ Text "start" ]; name = None; tool_call_id = None; metadata = [] };
+          {
+            role = Assistant;
+            content = [ Text "done" ];
+            name = Some "keeper";
+            tool_call_id = Some "call_1";
+            metadata = replay_metadata;
+          };
+        ]
+      ()
+  in
+  let delta = Checkpoint.compute_delta base target in
+  match Checkpoint.apply_delta base delta with
+  | Error err ->
+      Alcotest.failf "expected delta to apply, got %s"
+        (Agent_sdk.Error.to_string err)
+  | Ok rebuilt ->
+      match rebuilt.messages with
+      | _ :: [ assistant ] ->
+          Alcotest.(check (option string)) "name" (Some "keeper") assistant.name;
+          Alcotest.(check (option string)) "tool_call_id" (Some "call_1")
+            assistant.tool_call_id;
+          Alcotest.(check string) "metadata preserved"
+            (Yojson.Safe.to_string (`Assoc replay_metadata))
+            (Yojson.Safe.to_string (`Assoc assistant.metadata))
+      | _ -> Alcotest.fail "expected assistant message with metadata"
 
 let test_apply_delta_rejects_version_and_hash_mismatch () =
   let base = make_unit_checkpoint () in
@@ -379,7 +430,7 @@ let test_apply_delta_rejects_invalid_splice () =
     make_unit_checkpoint
       ~messages:
         [
-          { role = User; content = [ Text "a" ]; name = None; tool_call_id = None };
+          { role = User; content = [ Text "a" ]; name = None; tool_call_id = None ; metadata = []};
         ]
       ()
   in
@@ -387,8 +438,8 @@ let test_apply_delta_rejects_invalid_splice () =
     make_unit_checkpoint
       ~messages:
         [
-          { role = User; content = [ Text "a" ]; name = None; tool_call_id = None };
-          { role = Assistant; content = [ Text "b" ]; name = None; tool_call_id = None };
+          { role = User; content = [ Text "a" ]; name = None; tool_call_id = None ; metadata = []};
+          { role = Assistant; content = [ Text "b" ]; name = None; tool_call_id = None ; metadata = []};
         ]
       ()
   in
@@ -413,7 +464,7 @@ let test_restore_with_delta_fallback_disabled () =
       ~session_id:"sess-b"
       ~messages:
         [
-          { role = User; content = [ Text "delta" ]; name = None; tool_call_id = None };
+          { role = User; content = [ Text "delta" ]; name = None; tool_call_id = None ; metadata = []};
         ]
       ()
   in
@@ -511,6 +562,8 @@ let () =
           Alcotest.test_case "delta JSON rejects malformed context removed" `Quick
             test_delta_json_rejects_malformed_context_removed;
           Alcotest.test_case "empty delta roundtrip" `Quick test_empty_delta_roundtrip;
+          Alcotest.test_case "metadata delta roundtrip" `Quick
+            test_delta_roundtrip_preserves_message_metadata;
           Alcotest.test_case "apply_delta rejects version/hash mismatch" `Quick
             test_apply_delta_rejects_version_and_hash_mismatch;
           Alcotest.test_case "apply_delta rejects invalid splice" `Quick

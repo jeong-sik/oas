@@ -79,7 +79,7 @@ let stage_input ?raw_trace_run agent =
              req.question (Yojson.Safe.to_string json) in
            update_state agent (fun s ->
              { s with messages = Util.snoc s.messages
-                 { role = User; content = [Text text]; name = None; tool_call_id = None } })
+                 { role = User; content = [Text text]; name = None; tool_call_id = None ; metadata = []} })
          | Hooks.Declined | Hooks.Timeout -> ())
       | None -> ())
    | Hooks.Nudge nudge_msg ->
@@ -90,7 +90,7 @@ let stage_input ?raw_trace_run agent =
      update_state agent (fun s ->
        { s with messages = Util.snoc s.messages
            { role = User; content = [Text nudge_msg];
-             name = None; tool_call_id = None } })
+             name = None; tool_call_id = None ; metadata = []} })
    | _ -> ())
 
 (* ── Stage 2: Parse ──────────────────────────────────────── *)
@@ -342,7 +342,7 @@ let stage_collect ?raw_trace_run agent ~original_config response =
   update_state agent (fun s ->
     { s with
       messages = Util.snoc s.messages
-        { role = Assistant; content = response.content; name = None; tool_call_id = None };
+        { role = Assistant; content = response.content; name = None; tool_call_id = None ; metadata = []};
       turn_count = s.turn_count + 1;
       usage });
   Ok ()
@@ -462,7 +462,7 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
       update_state agent (fun s ->
         { s with messages = Util.snoc s.messages
             { role = User; content = [Text nudge_msg];
-              name = None; tool_call_id = None } });
+              name = None; tool_call_id = None ; metadata = []} });
       idle_handled := true
     | _ -> ()
   end;
@@ -478,7 +478,7 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
       "Tool call limit exceeded: %d calls in one turn" count in
     update_state agent (fun s ->
       { s with messages = Util.snoc s.messages
-          { role = User; content = [Text msg]; name = None; tool_call_id = None } });
+          { role = User; content = [Text msg]; name = None; tool_call_id = None ; metadata = []} });
     Ok ToolsExecuted
   | false ->
     let results =
@@ -544,7 +544,7 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
               role = User;
               content = effective_feedback;
               name = None;
-              tool_call_id = None;
+              tool_call_id = None; metadata = [];
             };
       });
     (match agent.options.context_injector with
@@ -978,17 +978,17 @@ let%test "last_tool_results_from empty messages" =
 
 let%test "last_tool_results_from no tool results" =
   let msgs = [
-    { role = User; content = [Text "hello"]; name = None; tool_call_id = None };
+    { role = User; content = [Text "hello"]; name = None; tool_call_id = None ; metadata = []};
   ] in
   last_tool_results_from msgs = []
 
 let%test "last_tool_results_from finds tool results in last user message" =
   let msgs = [
-    { role = Assistant; content = [Text "thinking..."]; name = None; tool_call_id = None };
+    { role = Assistant; content = [Text "thinking..."]; name = None; tool_call_id = None ; metadata = []};
     { role = User; content = [
         ToolResult { tool_use_id = "t1"; content = "result1"; is_error = false; json = None };
         ToolResult { tool_use_id = "t2"; content = "error msg"; is_error = true; json = None };
-      ]; name = None; tool_call_id = None };
+      ]; name = None; tool_call_id = None ; metadata = []};
   ] in
   match last_tool_results_from msgs with
   | [ Ok { content = "result1" };
@@ -1000,9 +1000,9 @@ let%test "last_tool_results_from skips non-tool user messages" =
   let msgs = [
     { role = User; content = [
         ToolResult { tool_use_id = "t1"; content = "first"; is_error = false; json = None };
-      ]; name = None; tool_call_id = None };
-    { role = Assistant; content = [Text "response"]; name = None; tool_call_id = None };
-    { role = User; content = [Text "follow up"]; name = None; tool_call_id = None };
+      ]; name = None; tool_call_id = None ; metadata = []};
+    { role = Assistant; content = [Text "response"]; name = None; tool_call_id = None ; metadata = []};
+    { role = User; content = [Text "follow up"]; name = None; tool_call_id = None ; metadata = []};
   ] in
   (* Should find the tool result from the first user message since the last
      user message has no tool results *)
@@ -1024,8 +1024,8 @@ let%test "tag_error passes through Error" =
 
 let%test "last_tool_results_from assistant-only messages" =
   let msgs = [
-    { role = Assistant; content = [Text "hello"]; name = None; tool_call_id = None };
-    { role = Assistant; content = [Text "world"]; name = None; tool_call_id = None };
+    { role = Assistant; content = [Text "hello"]; name = None; tool_call_id = None ; metadata = []};
+    { role = Assistant; content = [Text "world"]; name = None; tool_call_id = None ; metadata = []};
   ] in
   last_tool_results_from msgs = []
 
@@ -1033,11 +1033,11 @@ let%test "last_tool_results_from picks last user with tool results" =
   let msgs = [
     { role = User; content = [
         ToolResult { tool_use_id = "t1"; content = "first"; is_error = false; json = None };
-      ]; name = None; tool_call_id = None };
-    { role = Assistant; content = [Text "mid"]; name = None; tool_call_id = None };
+      ]; name = None; tool_call_id = None ; metadata = []};
+    { role = Assistant; content = [Text "mid"]; name = None; tool_call_id = None ; metadata = []};
     { role = User; content = [
         ToolResult { tool_use_id = "t2"; content = "second"; is_error = false; json = None };
-      ]; name = None; tool_call_id = None };
+      ]; name = None; tool_call_id = None ; metadata = []};
   ] in
   match last_tool_results_from msgs with
   | [Ok { content = "second" }] -> true
@@ -1049,7 +1049,7 @@ let%test "last_tool_results_from mixed content in user message" =
         Text "some text";
         ToolResult { tool_use_id = "t1"; content = "ok"; is_error = false; json = None };
         Text "more text";
-      ]; name = None; tool_call_id = None };
+      ]; name = None; tool_call_id = None ; metadata = []};
   ] in
   match last_tool_results_from msgs with
   | [Ok { content = "ok" }] -> true
@@ -1059,7 +1059,7 @@ let%test "last_tool_results_from error tool result" =
   let msgs = [
     { role = User; content = [
         ToolResult { tool_use_id = "t1"; content = "fail msg"; is_error = true; json = None };
-      ]; name = None; tool_call_id = None };
+      ]; name = None; tool_call_id = None ; metadata = []};
   ] in
   match last_tool_results_from msgs with
   | [Error { message = "fail msg"; recoverable = true; error_class = None }] ->
@@ -1085,8 +1085,8 @@ let%test "tag_error string result Ok" =
 
 let%test "last_tool_results_from only non-user roles" =
   let msgs = [
-    { role = System; content = [Text "system"]; name = None; tool_call_id = None };
-    { role = Assistant; content = [Text "reply"]; name = None; tool_call_id = None };
+    { role = System; content = [Text "system"]; name = None; tool_call_id = None ; metadata = []};
+    { role = Assistant; content = [Text "reply"]; name = None; tool_call_id = None ; metadata = []};
   ] in
   last_tool_results_from msgs = []
 
@@ -1096,7 +1096,7 @@ let%test "last_tool_results_from multiple tool results in one message" =
         ToolResult { tool_use_id = "t1"; content = "r1"; is_error = false; json = None };
         ToolResult { tool_use_id = "t2"; content = "r2"; is_error = false; json = None };
         ToolResult { tool_use_id = "t3"; content = "r3"; is_error = true; json = None };
-      ]; name = None; tool_call_id = None };
+      ]; name = None; tool_call_id = None ; metadata = []};
   ] in
   List.length (last_tool_results_from msgs) = 3
 
@@ -1105,7 +1105,7 @@ let%test "last_tool_results_from user msg with only non-tool content" =
     { role = User; content = [
         Text "just text";
         Types.ToolUse { id = "tu1"; name = "fn"; input = `Null };
-      ]; name = None; tool_call_id = None };
+      ]; name = None; tool_call_id = None ; metadata = []};
   ] in
   last_tool_results_from msgs = []
 

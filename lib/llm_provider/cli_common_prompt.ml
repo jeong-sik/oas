@@ -66,7 +66,7 @@ let prompt_with_system_prompt ~prompt ~system_prompt =
 [@@@coverage off]
 
 let msg role content : Types.message =
-  { role; content; name = None; tool_call_id = None }
+  { role; content; name = None; tool_call_id = None ; metadata = []}
 
 let%test "prompt_of_messages single user" =
   prompt_of_messages [msg User [Text "hello"]] = "hello"

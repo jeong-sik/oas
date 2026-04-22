@@ -104,8 +104,8 @@ let%test "parse_judge_response unexpected" =
 
 let%test "messages_to_text extracts text blocks" =
   let msgs = [
-    { role = User; content = [Text "hello"]; name = None; tool_call_id = None };
-    { role = Assistant; content = [Text "world"]; name = None; tool_call_id = None };
+    { role = User; content = [Text "hello"]; name = None; tool_call_id = None ; metadata = []};
+    { role = Assistant; content = [Text "world"]; name = None; tool_call_id = None ; metadata = []};
   ] in
   messages_to_text msgs = "hello\n\nworld"
 

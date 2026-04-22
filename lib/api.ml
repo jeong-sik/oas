@@ -217,7 +217,7 @@ let%test "content_block_of_json text block" =
 let%test "message_to_json user message" =
   let msg : Types.message = {
     role = User; content = [Types.Text "test"];
-    name = None; tool_call_id = None } in
+    name = None; tool_call_id = None ; metadata = []} in
   let json = message_to_json msg in
   let open Yojson.Safe.Util in
   json |> member "role" |> to_string = "user"
@@ -295,7 +295,7 @@ let%test "content_block_of_json unknown type" =
 let%test "message_to_json assistant message" =
   let msg : Types.message = {
     role = Assistant; content = [Types.Text "response"];
-    name = None; tool_call_id = None } in
+    name = None; tool_call_id = None ; metadata = []} in
   let json = message_to_json msg in
   let open Yojson.Safe.Util in
   json |> member "role" |> to_string = "assistant"

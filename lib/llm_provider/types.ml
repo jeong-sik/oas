@@ -194,6 +194,7 @@ type message = {
   content: content_block list;
   name: string option; [@default None]
   tool_call_id: string option; [@default None]
+  metadata: (string * Yojson.Safe.t) list; [@default []]
 }
 [@@deriving show]
 
@@ -289,8 +290,8 @@ type sse_event =
     messages and need to convert to [content_block list]. *)
 
 (** Create a message with default [None] for optional fields. *)
-let make_message ?name ?tool_call_id ~role content =
-  { role; content; name; tool_call_id }
+let make_message ?name ?tool_call_id ?(metadata=[]) ~role content =
+  { role; content; name; tool_call_id; metadata }
 
 (** Create a text-only message. *)
 let text_message role text = make_message ~role [Text text]

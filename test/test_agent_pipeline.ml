@@ -569,11 +569,11 @@ let test_agent_run_tiered_memory_triggers_proactive_compaction () =
     } in
     let agent = Agent.create ~net:env#net ~config ~options () in
     let raw_messages = [
-      { Types.role = User; content = [Text "search logs"]; name = None; tool_call_id = None };
+      { Types.role = User; content = [Text "search logs"]; name = None; tool_call_id = None ; metadata = []};
       { Types.role = Assistant;
         content = [ToolUse { id = "tool_1"; name = "search"; input = `Assoc [("q", `String "errors")] }];
         name = None;
-        tool_call_id = None };
+        tool_call_id = None ; metadata = []};
       { Types.role = User;
         content = [ToolResult {
           tool_use_id = "tool_1";
@@ -582,13 +582,13 @@ let test_agent_run_tiered_memory_triggers_proactive_compaction () =
           json = None;
         }];
         name = None;
-        tool_call_id = None };
+        tool_call_id = None ; metadata = []};
     ] in
     Agent.update_state agent (fun state -> { state with messages = raw_messages });
     let prompt = "continue" in
     let raw_with_prompt_tokens =
       prompt_token_estimate
-        (raw_messages @ [{ Types.role = User; content = [Text prompt]; name = None; tool_call_id = None }])
+        (raw_messages @ [{ Types.role = User; content = [Text prompt]; name = None; tool_call_id = None ; metadata = []}])
     in
     let watermark_tokens =
       int_of_float

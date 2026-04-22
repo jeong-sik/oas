@@ -65,7 +65,7 @@ let test_sync_dispatches_via_complete_triggers_metrics () =
     ~sw ~net ~transport ~config:pc
     ~messages:[{ Types.role = User;
                  content = [Text "ping"];
-                 name = None; tool_call_id = None }]
+                 name = None; tool_call_id = None ; metadata = []}]
     ~metrics () in
   (match result with
    | Ok _ ->

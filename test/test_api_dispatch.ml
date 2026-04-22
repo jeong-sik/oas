@@ -15,7 +15,7 @@ let base_state = {
     system_prompt = Some "You are a test assistant.";
     max_tokens = Some 1024;
   };
-  messages = [{ Types.role = User; content = [Text "Hello"]; name = None; tool_call_id = None }];
+  messages = [{ Types.role = User; content = [Text "Hello"]; name = None; tool_call_id = None ; metadata = []}];
   turn_count = 0;
   usage = Types.empty_usage;
 }

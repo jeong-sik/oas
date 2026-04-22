@@ -90,7 +90,7 @@ let test_reducer_from_caps_some () =
        Test with a message list that fits. *)
     let msgs = [
       { Types.role = Types.User; content = [Types.Text "hello"];
-        name = None; tool_call_id = None }
+        name = None; tool_call_id = None ; metadata = []}
     ] in
     let reduced = Agent_sdk.Context_reducer.reduce reducer msgs in
     check int "small message kept" 1 (List.length reduced)

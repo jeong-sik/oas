@@ -87,7 +87,7 @@ let test_kimi_message_to_json_tool_result_uses_text_blocks () =
       };
     ];
     name = None;
-    tool_call_id = None;
+    tool_call_id = None; metadata = [];
   } in
   let json = Llm_provider.Api_common.kimi_message_to_json msg in
   let open Yojson.Safe.Util in
@@ -414,7 +414,7 @@ let test_build_openai_body_glm_preserves_reasoning_content () =
         };
       ];
       name = None;
-      tool_call_id = None;
+      tool_call_id = None; metadata = [];
     };
   ] in
   let state = {
@@ -780,12 +780,38 @@ let test_parse_openai_response_reasoning_content_preferred () =
 (* ------------------------------------------------------------------ *)
 
 let test_message_to_json () =
-  let msg = { Types.role = Types.User; content = [Types.Text "hi"]; name = None; tool_call_id = None } in
+  let msg = { Types.role = Types.User; content = [Types.Text "hi"]; name = None; tool_call_id = None ; metadata = []} in
   let json = Api.message_to_json msg in
   let open Yojson.Safe.Util in
   check string "role" "user" (json |> member "role" |> to_string);
   let content = json |> member "content" |> to_list in
   check int "1 block" 1 (List.length content)
+
+let test_message_to_json_ignores_metadata () =
+  let msg =
+    {
+      Types.role = Types.Assistant;
+      content = [ Types.Text "visible" ];
+      name = Some "assistant";
+      tool_call_id = Some "call_1";
+      metadata =
+        [ ( "masc.replay",
+            `Assoc
+              [
+                ("kind", `String "state_snapshot");
+                ("version", `Int 1);
+                ("payload", `Assoc [ ("goal", `String "finish") ]);
+              ] );
+        ];
+    }
+  in
+  let json = Api.message_to_json msg in
+  let open Yojson.Safe.Util in
+  let assoc = to_assoc json in
+  check bool "metadata omitted from provider payload" false
+    (List.mem_assoc "metadata" assoc);
+  check string "text still serialized" "visible"
+    (json |> member "content" |> index 0 |> member "text" |> to_string)
 
 (* ------------------------------------------------------------------ *)
 (* build_body_assoc: cache_system_prompt                                *)
@@ -974,7 +1000,7 @@ let test_parse_sse_malformed_json () =
 let test_message_to_json_assistant () =
   let msg = { Types.role = Types.Assistant;
               content = [Types.Text "hi"; Types.ToolUse { id = "t1"; name = "calc"; input = `Null }];
-              name = None; tool_call_id = None } in
+              name = None; tool_call_id = None ; metadata = []} in
   let json = Api.message_to_json msg in
   let open Yojson.Safe.Util in
   check string "role" "assistant" (json |> member "role" |> to_string);
@@ -986,7 +1012,7 @@ let test_message_to_json_assistant () =
 (* ------------------------------------------------------------------ *)
 
 let test_openai_messages_text_only () =
-  let msg = { Types.role = Types.User; content = [Types.Text "hello"]; name = None; tool_call_id = None } in
+  let msg = { Types.role = Types.User; content = [Types.Text "hello"]; name = None; tool_call_id = None ; metadata = []} in
   let msgs = Api.openai_messages_of_message msg in
   check int "1 message" 1 (List.length msgs);
   let open Yojson.Safe.Util in
@@ -998,7 +1024,7 @@ let test_openai_messages_with_image () =
   let msg = { Types.role = Types.User; content = [
     Types.Text "describe this";
     Types.Image { media_type = "image/png"; data = "abc123"; source_type = "base64" };
-  ]; name = None; tool_call_id = None } in
+  ]; name = None; tool_call_id = None ; metadata = []} in
   let msgs = Api.openai_messages_of_message msg in
   check int "1 message" 1 (List.length msgs);
   let open Yojson.Safe.Util in
@@ -1163,6 +1189,7 @@ let () =
     ];
     "message_to_json", [
       test_case "user message" `Quick test_message_to_json;
+      test_case "ignores metadata" `Quick test_message_to_json_ignores_metadata;
       test_case "assistant mixed content" `Quick test_message_to_json_assistant;
     ];
     "openai_messages", [

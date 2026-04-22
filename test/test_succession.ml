@@ -7,7 +7,7 @@ let check_bool = Alcotest.(check bool)
 let check_int = Alcotest.(check int)
 
 let mk_msg role text : Types.message =
-  { role; content = [Types.Text text]; name = None; tool_call_id = None }
+  { role; content = [Types.Text text]; name = None; tool_call_id = None ; metadata = []}
 
 (* ── empty_metrics ────────────────────────────────────── *)
 
@@ -172,7 +172,7 @@ let test_normalize_strips_thinking () =
         Types.Thinking { thinking_type = "thinking"; content = "hmm" };
         Types.Text "answer";
       ];
-      name = None; tool_call_id = None };
+      name = None; tool_call_id = None ; metadata = []};
   ] in
   let normalized = Succession.normalize_for_model msgs ~target_model:"any" in
   let content = (List.hd normalized).content in
@@ -188,7 +188,7 @@ let test_normalize_strips_redacted_thinking () =
         Types.RedactedThinking "secret";
         Types.Text "visible";
       ];
-      name = None; tool_call_id = None };
+      name = None; tool_call_id = None ; metadata = []};
   ] in
   let normalized = Succession.normalize_for_model msgs ~target_model:"any" in
   let content = (List.hd normalized).content in
@@ -200,7 +200,7 @@ let test_normalize_repairs_dangling_tool_calls () =
       content = [
         Types.ToolUse { id = "t1"; name = "search"; input = `Null };
       ];
-      name = None; tool_call_id = None };
+      name = None; tool_call_id = None ; metadata = []};
     (* No matching ToolResult follows *)
   ] in
   let normalized = Succession.normalize_for_model msgs ~target_model:"any" in
@@ -214,12 +214,12 @@ let test_normalize_preserves_matched_tool_calls () =
       content = [
         Types.ToolUse { id = "t1"; name = "search"; input = `Null };
       ];
-      name = None; tool_call_id = None };
+      name = None; tool_call_id = None ; metadata = []};
     { Types.role = Types.User;
       content = [
         Types.ToolResult { tool_use_id = "t1"; content = "result"; is_error = false; json = None };
       ];
-      name = None; tool_call_id = None };
+      name = None; tool_call_id = None ; metadata = []};
   ] in
   let normalized = Succession.normalize_for_model msgs ~target_model:"any" in
   check_int "2 messages (no repair needed)" 2 (List.length normalized)

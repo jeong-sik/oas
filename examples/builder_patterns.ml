@@ -57,7 +57,7 @@ let demo_full () =
     |> Builder.with_max_cost_usd 0.10
     |> Builder.with_initial_messages [
          { role = User; content = [Text "context: this is a demo"];
-           name = None; tool_call_id = None }]
+           name = None; tool_call_id = None ; metadata = []}]
     |> Builder.build_safe
   in
   match result with

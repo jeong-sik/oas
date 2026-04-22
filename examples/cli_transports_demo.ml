@@ -29,7 +29,7 @@ let make_request ~kind () : Llm_transport.completion_request =
     [ { role = User
       ; content = [ Text prompt ]
       ; name = None
-      ; tool_call_id = None
+      ; tool_call_id = None; metadata = []
       } ]
   in
   let config =
