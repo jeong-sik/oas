@@ -120,7 +120,7 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
       update_state agent (fun s ->
         { s with messages = Util.snoc s.messages
             { role = User; content = [Text nudge_msg];
-              name = None; tool_call_id = None } });
+              name = None; tool_call_id = None; metadata = [] } });
       idle_handled := true
     | _ -> ()
   end;
@@ -136,7 +136,7 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
       "Tool call limit exceeded: %d calls in one turn" count in
     update_state agent (fun s ->
       { s with messages = Util.snoc s.messages
-          { role = User; content = [Text msg]; name = None; tool_call_id = None } });
+          { role = User; content = [Text msg]; name = None; tool_call_id = None; metadata = [] } });
     Ok ToolsExecuted
   | false ->
     let results =
@@ -203,6 +203,7 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
               content = effective_feedback;
               name = None;
               tool_call_id = None;
+              metadata = [];
             };
       });
     (match agent.options.context_injector with
@@ -230,4 +231,3 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
        unmodified preserves the byte-identical conversation prefix that
        local LLM KV-cache (Ollama/llama.cpp) depends on for reuse. *)
     Ok ToolsExecuted
-

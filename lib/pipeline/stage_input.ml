@@ -36,7 +36,7 @@ let stage_input ?raw_trace_run agent =
              req.question (Yojson.Safe.to_string json) in
            update_state agent (fun s ->
              { s with messages = Util.snoc s.messages
-                 { role = User; content = [Text text]; name = None; tool_call_id = None } })
+                 { role = User; content = [Text text]; name = None; tool_call_id = None; metadata = [] } })
          | Hooks.Declined | Hooks.Timeout -> ())
       | None -> ())
    | Hooks.Nudge nudge_msg ->
@@ -47,6 +47,5 @@ let stage_input ?raw_trace_run agent =
      update_state agent (fun s ->
        { s with messages = Util.snoc s.messages
            { role = User; content = [Text nudge_msg];
-             name = None; tool_call_id = None } })
+             name = None; tool_call_id = None; metadata = [] } })
    | _ -> ())
-
