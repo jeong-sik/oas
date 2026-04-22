@@ -50,7 +50,7 @@ let () =
         role = User;
         content = [ Text "Explain monads in one paragraph." ];
         name = None;
-        tool_call_id = None;
+        tool_call_id = None; metadata = [];
       };
     ]
   in

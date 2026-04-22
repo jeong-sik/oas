@@ -20,13 +20,13 @@ let test_reasoning_multiple_messages () =
         Types.Thinking { thinking_type = "thinking";
                          content = "First thought" };
         Types.Text "response 1";
-      ]; name = None; tool_call_id = None };
-    { role = User; content = [Text "follow-up"]; name = None; tool_call_id = None };
+      ]; name = None; tool_call_id = None ; metadata = []};
+    { role = User; content = [Text "follow-up"]; name = None; tool_call_id = None ; metadata = []};
     { role = Assistant; content = [
         Types.Thinking { thinking_type = "thinking";
                          content = "Second thought, I'm not sure about this" };
         Types.Text "response 2";
-      ]; name = None; tool_call_id = None };
+      ]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let r = Hooks.extract_reasoning messages in
   Alcotest.(check int) "2 thinking blocks" 2 (List.length r.thinking_blocks);
@@ -35,8 +35,8 @@ let test_reasoning_multiple_messages () =
 (** No thinking blocks but has text messages. *)
 let test_reasoning_no_thinking_blocks () =
   let messages : Types.message list = [
-    { role = User; content = [Text "question"]; name = None; tool_call_id = None };
-    { role = Assistant; content = [Text "answer"]; name = None; tool_call_id = None };
+    { role = User; content = [Text "question"]; name = None; tool_call_id = None ; metadata = []};
+    { role = Assistant; content = [Text "answer"]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let r = Hooks.extract_reasoning messages in
   Alcotest.(check int) "0 thinking blocks" 0 (List.length r.thinking_blocks);
@@ -50,7 +50,7 @@ let test_reasoning_tool_rationale_detection () =
         Types.Thinking { thinking_type = "thinking";
                          content = "I should use the search function to find info" };
         Types.Text "Searching now";
-      ]; name = None; tool_call_id = None };
+      ]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let r = Hooks.extract_reasoning messages in
   Alcotest.(check bool) "has tool rationale" true
@@ -73,7 +73,7 @@ let test_reasoning_various_uncertainty_markers () =
       { role = Assistant; content = [
           Types.Thinking { thinking_type = "thinking";
                            content = "Analysis: " ^ marker };
-        ]; name = None; tool_call_id = None };
+        ]; name = None; tool_call_id = None ; metadata = []};
     ] in
     let r = Hooks.extract_reasoning messages in
     Alcotest.(check bool) (Printf.sprintf "marker '%s' detected" marker)
@@ -86,7 +86,7 @@ let test_reasoning_no_uncertainty () =
     { role = Assistant; content = [
         Types.Thinking { thinking_type = "thinking";
                          content = "The answer is clearly 42" };
-      ]; name = None; tool_call_id = None };
+      ]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let r = Hooks.extract_reasoning messages in
   Alcotest.(check bool) "no uncertainty" false r.has_uncertainty
@@ -97,7 +97,7 @@ let test_reasoning_no_uncertainty () =
 let test_resolve_params_no_hook () =
   let hooks = Hooks.empty in
   let messages : Types.message list = [
-    { role = User; content = [Text "hello"]; name = None; tool_call_id = None };
+    { role = User; content = [Text "hello"]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let invoke_hook ~hook_name:_ _hook _event = Hooks.Continue in
   let params = Agent_turn.resolve_turn_params ~hooks ~messages ~max_turns:10 ~turn:0 ~invoke_hook in
@@ -122,7 +122,7 @@ let test_resolve_params_adjust () =
     before_turn_params = Some (fun _ -> Hooks.AdjustParams adjusted)
   } in
   let messages : Types.message list = [
-    { role = User; content = [Text "hello"]; name = None; tool_call_id = None };
+    { role = User; content = [Text "hello"]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let invoke_hook ~hook_name:_ hook event =
     match hook with
@@ -146,7 +146,7 @@ let test_resolve_params_system_prompt_override () =
     before_turn_params = Some (fun _ -> Hooks.AdjustParams adjusted)
   } in
   let messages : Types.message list = [
-    { role = User; content = [Text "review this"]; name = None; tool_call_id = None };
+    { role = User; content = [Text "review this"]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let invoke_hook ~hook_name:_ hook event =
     match hook with
@@ -164,7 +164,7 @@ let test_resolve_params_system_prompt_override () =
 let test_resolve_params_no_system_prompt_override () =
   let hooks = Hooks.empty in
   let messages : Types.message list = [
-    { role = User; content = [Text "hello"]; name = None; tool_call_id = None };
+    { role = User; content = [Text "hello"]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let invoke_hook ~hook_name:_ _hook _event = Hooks.Continue in
   let params = Agent_turn.resolve_turn_params ~hooks ~messages ~max_turns:10 ~turn:0 ~invoke_hook in
@@ -183,13 +183,13 @@ let test_resolve_params_with_tool_results () =
       Hooks.Continue)
   } in
   let messages : Types.message list = [
-    { role = User; content = [Text "do something"]; name = None; tool_call_id = None };
+    { role = User; content = [Text "do something"]; name = None; tool_call_id = None ; metadata = []};
     { role = Assistant; content = [
         ToolUse { id = "tu_1"; name = "search"; input = `Assoc [] };
-      ]; name = None; tool_call_id = None };
+      ]; name = None; tool_call_id = None ; metadata = []};
     { role = User; content = [
         ToolResult { tool_use_id = "tu_1"; content = "found it"; is_error = false; json = None };
-      ]; name = None; tool_call_id = None };
+      ]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let invoke_hook ~hook_name:_ hook event =
     match hook with
@@ -214,13 +214,13 @@ let test_resolve_params_error_tool_results () =
       Hooks.Continue)
   } in
   let messages : Types.message list = [
-    { role = User; content = [Text "try this"]; name = None; tool_call_id = None };
+    { role = User; content = [Text "try this"]; name = None; tool_call_id = None ; metadata = []};
     { role = Assistant; content = [
         ToolUse { id = "tu_e"; name = "risky"; input = `Assoc [] };
-      ]; name = None; tool_call_id = None };
+      ]; name = None; tool_call_id = None ; metadata = []};
     { role = User; content = [
         ToolResult { tool_use_id = "tu_e"; content = "permission denied"; is_error = true; json = None };
-      ]; name = None; tool_call_id = None };
+      ]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let invoke_hook ~hook_name:_ hook event =
     match hook with Some h -> h event | None -> Hooks.Continue
@@ -245,7 +245,7 @@ let test_resolve_params_max_turns_passed () =
       Hooks.Continue)
   } in
   let messages : Types.message list = [
-    { role = User; content = [Text "hi"]; name = None; tool_call_id = None };
+    { role = User; content = [Text "hi"]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let invoke_hook ~hook_name:_ hook event =
     match hook with Some h -> h event | None -> Hooks.Continue
@@ -259,7 +259,7 @@ let test_resolve_params_max_turns_passed () =
 let test_context_injection_sets_values () =
   let context = Context.create () in
   let messages : Types.message list = [
-    { role = User; content = [Text "query"]; name = None; tool_call_id = None };
+    { role = User; content = [Text "query"]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let injector ~tool_name:_ ~input:_ ~output:_ =
     Some {
@@ -297,7 +297,7 @@ let test_context_injection_sets_values () =
 let test_context_injection_none () =
   let context = Context.create () in
   let messages : Types.message list = [
-    { role = User; content = [Text "query"]; name = None; tool_call_id = None };
+    { role = User; content = [Text "query"]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let injector ~tool_name:_ ~input:_ ~output:_ = None in
   let tool_uses = [
@@ -324,17 +324,17 @@ let test_context_injection_none () =
 let test_context_injection_extra_messages () =
   let context = Context.create () in
   let messages : Types.message list = [
-    { role = User; content = [Text "query"]; name = None; tool_call_id = None };
+    { role = User; content = [Text "query"]; name = None; tool_call_id = None ; metadata = []};
     { role = Assistant; content = [
         ToolUse { id = "tu_m"; name = "tool"; input = `Assoc [] };
-      ]; name = None; tool_call_id = None };
+      ]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let injector ~tool_name:_ ~input:_ ~output:_ =
     Some {
       Hooks.context_updates = [];
       extra_messages = [
         { Types.role = User; content = [Text "injected context"];
-          name = None; tool_call_id = None };
+          name = None; tool_call_id = None ; metadata = []};
       ];
     }
   in
@@ -363,7 +363,7 @@ let test_context_injection_error_result () =
   let context = Context.create () in
   let received_output = ref None in
   let messages : Types.message list = [
-    { role = User; content = [Text "query"]; name = None; tool_call_id = None };
+    { role = User; content = [Text "query"]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let injector ~tool_name:_ ~input:_ ~output =
     received_output := Some output;
@@ -397,7 +397,7 @@ let test_context_injection_error_result () =
 let test_context_injection_raises () =
   let context = Context.create () in
   let messages : Types.message list = [
-    { role = User; content = [Text "query"]; name = None; tool_call_id = None };
+    { role = User; content = [Text "query"]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let injector ~tool_name:_ ~input:_ ~output:_ =
     failwith "injector crash"
@@ -428,13 +428,13 @@ let test_context_injection_raises () =
 (** Multiple consecutive same-role messages filtered. *)
 let test_filter_valid_multiple_same_role () =
   let messages = [
-    { Types.role = User; content = [Text "last"]; name = None; tool_call_id = None };
+    { Types.role = User; content = [Text "last"]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let extra = [
-    { Types.role = User; content = [Text "a"]; name = None; tool_call_id = None };
-    { Types.role = User; content = [Text "b"]; name = None; tool_call_id = None };
-    { Types.role = Assistant; content = [Text "c"]; name = None; tool_call_id = None };
-    { Types.role = Assistant; content = [Text "d"]; name = None; tool_call_id = None };
+    { Types.role = User; content = [Text "a"]; name = None; tool_call_id = None ; metadata = []};
+    { Types.role = User; content = [Text "b"]; name = None; tool_call_id = None ; metadata = []};
+    { Types.role = Assistant; content = [Text "c"]; name = None; tool_call_id = None ; metadata = []};
+    { Types.role = Assistant; content = [Text "d"]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let result = Agent_turn.filter_valid_messages ~messages extra in
   (* User (filtered: same as last), User (filtered: same as prev User),
@@ -445,10 +445,10 @@ let test_filter_valid_multiple_same_role () =
 (** Single extra message with different role. *)
 let test_filter_valid_single_different () =
   let messages = [
-    { Types.role = User; content = [Text "last"]; name = None; tool_call_id = None };
+    { Types.role = User; content = [Text "last"]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let extra = [
-    { Types.role = Assistant; content = [Text "reply"]; name = None; tool_call_id = None };
+    { Types.role = Assistant; content = [Text "reply"]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let result = Agent_turn.filter_valid_messages ~messages extra in
   Alcotest.(check int) "1 message kept" 1 (List.length result)

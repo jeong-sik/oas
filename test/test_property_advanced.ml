@@ -45,7 +45,7 @@ let role_gen =
   ]
 
 let message_gen =
-  QCheck.Gen.map2 (fun role content -> { role; content; name = None; tool_call_id = None })
+  QCheck.Gen.map2 (fun role content -> { role; content; name = None; tool_call_id = None ; metadata = []})
     role_gen
     (QCheck.Gen.list_size (QCheck.Gen.int_range 1 3) content_block_gen)
 
@@ -240,7 +240,7 @@ let test_context_reducer_never_adds =
     (fun n ->
        let msgs = List.init (n + 5) (fun i ->
          { role = (if i mod 2 = 0 then User else Assistant);
-           content = [Text (Printf.sprintf "msg_%d" i)]; name = None; tool_call_id = None }) in
+           content = [Text (Printf.sprintf "msg_%d" i)]; name = None; tool_call_id = None ; metadata = []}) in
        let reducer = Context_reducer.keep_last n in
        let result = Context_reducer.reduce reducer msgs in
        List.length result <= List.length msgs)
@@ -254,7 +254,7 @@ let test_token_budget_reducer_respects_limit =
     (fun budget ->
        let msgs = List.init 20 (fun i ->
          { role = (if i mod 2 = 0 then User else Assistant);
-           content = [Text (String.make 50 'x')]; name = None; tool_call_id = None }) in
+           content = [Text (String.make 50 'x')]; name = None; tool_call_id = None ; metadata = []}) in
        let reducer = Context_reducer.token_budget budget in
        let result = Context_reducer.reduce reducer msgs in
        List.length result <= List.length msgs)

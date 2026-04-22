@@ -128,11 +128,11 @@ let test_tool_result () =
     { role = Assistant; content = [
         ToolUse { id = "call_123"; name = "get_weather";
                   input = `Assoc [("city", `String "Seoul")] }
-      ]; name = None; tool_call_id = None };
+      ]; name = None; tool_call_id = None ; metadata = []};
     { role = User; content = [
         ToolResult { tool_use_id = "call_123"; content = "Sunny, 25C";
                      is_error = false; json = None }
-      ]; name = None; tool_call_id = None };
+      ]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let body = Backend_gemini.build_request ~config ~messages () in
   let json = parse_body body in
@@ -357,7 +357,7 @@ let test_contents_multimodal () =
     { Types.role = User; content = [
         Text "Describe this image:";
         Image { media_type = "image/png"; data = "base64data"; source_type = "base64" };
-      ]; name = None; tool_call_id = None };
+      ]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let (contents, _) = Backend_gemini.contents_of_messages messages in
   check int "one content" 1 (List.length contents);
@@ -502,7 +502,7 @@ let test_thinking_part_roundtrip () =
     { Types.role = Assistant; content = [
         Thinking { thinking_type = "thinking"; content = "Let me consider..." };
         Text "The answer is 42.";
-      ]; name = None; tool_call_id = None };
+      ]; name = None; tool_call_id = None ; metadata = []};
     Types.user_msg "Thanks";
   ] in
   let body = Backend_gemini.build_request ~config ~messages () in

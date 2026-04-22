@@ -187,7 +187,7 @@ let parse_stream_chunk = Streaming.parse_openai_sse_chunk
 let%test "build_request without thinking is passthrough" =
   let config = Provider_config.make
     ~kind:Glm ~model_id:"glm-4.7" ~base_url:"https://open.bigmodel.cn/api/paas/v4" () in
-  let messages = [{ role = User; content = [Text "hello"]; name = None; tool_call_id = None }] in
+  let messages = [{ role = User; content = [Text "hello"]; name = None; tool_call_id = None ; metadata = []}] in
   let body = build_request ~config ~messages () in
   let json = Yojson.Safe.from_string body in
   let open Yojson.Safe.Util in
@@ -198,7 +198,7 @@ let%test "build_request with thinking injects correct format" =
     ~kind:Glm ~model_id:"glm-4.5"
     ~base_url:"https://open.bigmodel.cn/api/paas/v4"
     ~enable_thinking:true () in
-  let messages = [{ role = User; content = [Text "reason"]; name = None; tool_call_id = None }] in
+  let messages = [{ role = User; content = [Text "reason"]; name = None; tool_call_id = None ; metadata = []}] in
   let body = build_request ~config ~messages () in
   let json = Yojson.Safe.from_string body in
   let open Yojson.Safe.Util in
@@ -211,7 +211,7 @@ let%test "build_request can preserve reasoning on demand" =
     ~kind:Glm ~model_id:"glm-5"
     ~base_url:"https://api.z.ai/api/coding/paas/v4"
     ~enable_thinking:true ~clear_thinking:false () in
-  let messages = [{ role = User; content = [Text "reason"]; name = None; tool_call_id = None }] in
+  let messages = [{ role = User; content = [Text "reason"]; name = None; tool_call_id = None ; metadata = []}] in
   let body = build_request ~config ~messages () in
   let json = Yojson.Safe.from_string body in
   let open Yojson.Safe.Util in
@@ -222,7 +222,7 @@ let%test "build_request with thinking=false injects disabled" =
     ~kind:Glm ~model_id:"glm-4.5"
     ~base_url:"https://open.bigmodel.cn/api/paas/v4"
     ~enable_thinking:false () in
-  let messages = [{ role = User; content = [Text "no think"]; name = None; tool_call_id = None }] in
+  let messages = [{ role = User; content = [Text "no think"]; name = None; tool_call_id = None ; metadata = []}] in
   let body = build_request ~config ~messages () in
   let json = Yojson.Safe.from_string body in
   let open Yojson.Safe.Util in
@@ -300,7 +300,7 @@ let%test "build_request strips chat_template_kwargs from GLM body" =
     ~kind:Glm ~model_id:"glm-5.1"
     ~base_url:"https://api.z.ai/api/coding/paas/v4"
     ~enable_thinking:true () in
-  let messages = [{ role = User; content = [Text "hi"]; name = None; tool_call_id = None }] in
+  let messages = [{ role = User; content = [Text "hi"]; name = None; tool_call_id = None ; metadata = []}] in
   let body = build_request ~config ~messages () in
   let json = Yojson.Safe.from_string body in
   let open Yojson.Safe.Util in
@@ -312,7 +312,7 @@ let%test "build_request adds tool_stream when enabled" =
     ~kind:Glm ~model_id:"glm-5.1"
     ~base_url:"https://api.z.ai/api/paas/v4"
     ~tool_stream:true () in
-  let messages = [{ role = User; content = [Text "weather"]; name = None; tool_call_id = None }] in
+  let messages = [{ role = User; content = [Text "weather"]; name = None; tool_call_id = None ; metadata = []}] in
   let body = build_request ~stream:true ~config ~messages ~tools:[`Assoc [("name", `String "weather")]] () in
   let json = Yojson.Safe.from_string body in
   let open Yojson.Safe.Util in

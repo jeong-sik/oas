@@ -261,7 +261,7 @@ let test_kimi_direct_tool_result_uses_text_blocks () =
                    content = "I should call the calculator." };
         ToolUse { id = "tool_1"; name = "calculator";
                   input = `Assoc [("a", `Int 2); ("b", `Int 3)] };
-      ]; name = None; tool_call_id = None };
+      ]; name = None; tool_call_id = None ; metadata = []};
     { role = Tool; content = [
         ToolResult {
           tool_use_id = "tool_1";
@@ -269,7 +269,7 @@ let test_kimi_direct_tool_result_uses_text_blocks () =
           is_error = false;
           json = Some (`Int 5);
         };
-      ]; name = None; tool_call_id = None };
+      ]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let body = BA.build_request ~config ~messages () in
   let json = Yojson.Safe.from_string body in
@@ -301,7 +301,7 @@ let test_glm_preserved_reasoning_replay_and_auto_tool_choice () =
                    content = "I need the calculator result." };
         ToolUse { id = "call_1"; name = "calculator";
                   input = `Assoc [("expr", `String "2+2")] };
-      ]; name = None; tool_call_id = None };
+      ]; name = None; tool_call_id = None ; metadata = []};
     { role = Tool; content = [
         ToolResult {
           tool_use_id = "call_1";
@@ -309,7 +309,7 @@ let test_glm_preserved_reasoning_replay_and_auto_tool_choice () =
           is_error = false;
           json = Some (`Assoc [("value", `Int 4)]);
         };
-      ]; name = None; tool_call_id = None };
+      ]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let body = BGlm.build_request ~stream:true ~config ~messages () in
   let json = Yojson.Safe.from_string body in

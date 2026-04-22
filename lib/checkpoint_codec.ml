@@ -83,27 +83,72 @@ let content_block_of_json_strict json =
            (JsonParseError
               { detail = Printf.sprintf "Invalid content block: %s" msg }))
 
+let metadata_of_json json =
+  let open Yojson.Safe.Util in
+  match json |> member "metadata" with
+  | `Null -> Ok []
+  | `Assoc fields -> Ok fields
+  | other ->
+      Error
+        (Error.Serialization
+           (JsonParseError
+              {
+                detail =
+                  Printf.sprintf
+                    "Checkpoint.message metadata must be an object, got %s"
+                    (Yojson.Safe.to_string other);
+              }))
+
+let message_to_json (msg : Types.message) =
+  let base_fields =
+    [
+      ("role", `String (Types.role_to_string msg.role));
+      ("content", `List (List.map Api.content_block_to_json msg.content));
+    ]
+  in
+  let optional_fields =
+    (match msg.name with
+     | Some name -> [ ("name", `String name) ]
+     | None -> [])
+    @
+    (match msg.tool_call_id with
+     | Some tool_call_id -> [ ("tool_call_id", `String tool_call_id) ]
+     | None -> [])
+    @
+    if msg.metadata = [] then [] else [ ("metadata", `Assoc msg.metadata) ]
+  in
+  `Assoc (base_fields @ optional_fields)
+
 let message_of_json json =
   let open Yojson.Safe.Util in
   let role_str = json |> member "role" |> to_string in
   let role =
-    match role_str with
-    | "assistant" -> Ok Assistant
-    | "user" -> Ok User
-    | other ->
+    match Types.role_of_string role_str with
+    | Some role -> Ok role
+    | None ->
         Error
           (Error.Serialization
-             (UnknownVariant { type_name = "role"; value = other }))
+             (UnknownVariant { type_name = "role"; value = role_str }))
   in
   let content =
     json |> member "content" |> to_list
     |> List.map content_block_of_json_strict
     |> result_all
   in
-  match role, content with
-  | Ok role, Ok content -> Ok { role; content; name = None; tool_call_id = None }
-  | Error e, _ -> Error e
-  | _, Error e -> Error e
+  let metadata = metadata_of_json json in
+  match role, content, metadata with
+  | Ok role, Ok content, Ok metadata ->
+      Ok
+        {
+          role;
+          content;
+          name = json |> member "name" |> to_string_option;
+          tool_call_id = json |> member "tool_call_id" |> to_string_option;
+          metadata;
+        }
+  | Error e, _, _ -> Error e
+  | _, Error e, _ -> Error e
+  | _, _, Error e -> Error e
 
 let checkpoint_to_json cp =
   `Assoc
@@ -114,7 +159,7 @@ let checkpoint_to_json cp =
       ("model", model_to_yojson cp.model);
       ("system_prompt",
        (match cp.system_prompt with Some s -> `String s | None -> `Null));
-      ("messages", `List (List.map Api.message_to_json cp.messages));
+      ("messages", `List (List.map message_to_json cp.messages));
       ("usage", usage_to_json cp.usage);
       ("turn_count", `Int cp.turn_count);
       ("created_at", `Float cp.created_at);
@@ -229,7 +274,7 @@ let delta_to_json (delta : delta) =
             ("kind", `String "splice_messages");
             ("start_index", `Int splice.start_index);
             ("delete_count", `Int splice.delete_count);
-            ("insert", `List (List.map Api.message_to_json splice.insert));
+            ("insert", `List (List.map message_to_json splice.insert));
           ]
     | Replace_usage usage ->
         `Assoc [ ("kind", `String "replace_usage"); ("usage", usage_to_json usage) ]

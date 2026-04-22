@@ -104,7 +104,7 @@ let log_turn ~run_start ~turn_start ~turn_index ~max_turns ~model ~stop =
 
 let run_loop ~sw ?clock ~api_strategy ?on_yield ?on_resume agent user_prompt =
   let user_prompt = Llm_provider.Utf8_sanitize.sanitize user_prompt in
-  let user_msg = { role = User; content = [Text user_prompt]; name = None; tool_call_id = None } in
+  let user_msg = { role = User; content = [Text user_prompt]; name = None; tool_call_id = None ; metadata = []} in
   Tool_retry_policy.clear_context_retry_count agent.context;
   update_state agent (fun s ->
     { s with messages = Util.snoc (base_messages agent) user_msg });
@@ -202,7 +202,7 @@ let run_with_handoffs ~sw ?clock agent ~targets user_prompt =
   let all_tools = Tool_set.merge agent.tools (Tool_set.of_list handoff_tools) in
   let agent_with_handoffs = { agent with tools = all_tools } in
 
-  let user_msg = { role = User; content = [Text user_prompt]; name = None; tool_call_id = None } in
+  let user_msg = { role = User; content = [Text user_prompt]; name = None; tool_call_id = None ; metadata = []} in
   Tool_retry_policy.clear_context_retry_count agent_with_handoffs.context;
   update_state agent_with_handoffs (fun s ->
     { s with messages = Util.snoc (base_messages agent_with_handoffs) user_msg });

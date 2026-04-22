@@ -134,8 +134,8 @@ let parse_judgment text =
 
 let judge ~sw ~net ~provider ~config ~context () =
   let messages : Types.message list = [
-    { role = System; content = [Text config.system_prompt]; name = None; tool_call_id = None };
-    { role = User; content = [Text context]; name = None; tool_call_id = None };
+    { role = System; content = [Text config.system_prompt]; name = None; tool_call_id = None ; metadata = []};
+    { role = User; content = [Text context]; name = None; tool_call_id = None ; metadata = []};
   ] in
   (* Override provider sampling with judge_config (deterministic evaluation). *)
   let provider_cfg = {

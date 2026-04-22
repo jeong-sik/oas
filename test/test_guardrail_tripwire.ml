@@ -8,7 +8,7 @@ open Agent_sdk
 
 let make_messages texts =
   List.map (fun text ->
-    Types.{ role = User; content = [Text text]; name = None; tool_call_id = None }
+    Types.{ role = User; content = [Text text]; name = None; tool_call_id = None ; metadata = []}
   ) texts
 
 let pass_tripwire name : Guardrail_tripwire.tripwire =

@@ -19,7 +19,7 @@ let keyword_judge keyword : Guardrail_llm.judge = fun prompt ->
 
 let make_messages texts =
   List.map (fun text ->
-    Types.{ role = User; content = [Text text]; name = None; tool_call_id = None }
+    Types.{ role = User; content = [Text text]; name = None; tool_call_id = None ; metadata = []}
   ) texts
 
 let make_response text =

@@ -28,13 +28,13 @@ let make_config
     ~response_format_json ()
 
 let user_msg s : Types.message =
-  { role = User; content = [Text s]; name = None; tool_call_id = None }
+  { role = User; content = [Text s]; name = None; tool_call_id = None ; metadata = []}
 
 let assistant_msg s : Types.message =
-  { role = Assistant; content = [Text s]; name = None; tool_call_id = None }
+  { role = Assistant; content = [Text s]; name = None; tool_call_id = None ; metadata = []}
 
 let system_msg s : Types.message =
-  { role = System; content = [Text s]; name = None; tool_call_id = None }
+  { role = System; content = [Text s]; name = None; tool_call_id = None ; metadata = []}
 
 let mk_response ?(id = "r1") ?(model = "m1")
     ?(stop_reason = Types.EndTurn) ?(content = [Types.Text "ok"])
@@ -528,7 +528,7 @@ let test_message_to_json_system () =
 
 let test_message_to_json_tool () =
   let msg : Types.message =
-    { role = Tool; content = [Text "result"]; name = None; tool_call_id = None } in
+    { role = Tool; content = [Text "result"]; name = None; tool_call_id = None ; metadata = []} in
   let json = Api_common.message_to_json msg in
   let open Yojson.Safe.Util in
   Alcotest.(check string) "tool -> user" "user"
@@ -566,10 +566,10 @@ let test_contents_of_messages_tool_use () =
     user_msg "call this tool";
     { role = Assistant;
       content = [ToolUse { id = "tu1"; name = "my_fn"; input = `Assoc [("x", `Int 1)] }];
-      name = None; tool_call_id = None };
+      name = None; tool_call_id = None ; metadata = []};
     { role = Tool;
       content = [ToolResult { tool_use_id = "tu1"; content = "result42"; is_error = false; json = None }];
-      name = None; tool_call_id = None };
+      name = None; tool_call_id = None ; metadata = []};
   ] in
   let (contents, _sys) = Backend_gemini.contents_of_messages msgs in
   (* Should have 3 content entries: user, assistant with functionCall, tool with functionResponse *)
@@ -579,7 +579,7 @@ let test_contents_of_messages_redacted_filtered () =
   let msgs : Types.message list = [
     { role = Assistant;
       content = [RedactedThinking "secret"; Text "visible"];
-      name = None; tool_call_id = None };
+      name = None; tool_call_id = None ; metadata = []};
   ] in
   let (contents, _sys) = Backend_gemini.contents_of_messages msgs in
   Alcotest.(check int) "1 content" 1 (List.length contents);

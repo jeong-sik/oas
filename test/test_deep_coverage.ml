@@ -1052,7 +1052,7 @@ let test_builder_with_tools_list () =
 
 let test_builder_with_initial_messages () =
   with_net @@ fun net ->
-  let msgs : Types.message list = [{ role = User; content = [Text "Hello"]; name = None; tool_call_id = None }] in
+  let msgs : Types.message list = [{ role = User; content = [Text "Hello"]; name = None; tool_call_id = None ; metadata = []}] in
   match Builder.create ~net ~model:"claude-sonnet-4-6"
     |> Builder.with_initial_messages msgs
     |> Builder.build_safe with

@@ -115,7 +115,7 @@ let apply_repair_dangling_tool_calls messages =
                       };
                   ];
                 name = None;
-                tool_call_id = None;
+                tool_call_id = None; metadata = [];
               })
             orphan_ids
         in
@@ -382,7 +382,7 @@ let apply_summarize_old ~keep_recent ~summarizer messages =
     let old_messages = List.concat old_turns in
     let summary_text = summarizer old_messages in
     let summary_msg =
-      { role = User; content = [Text summary_text]; name = None; tool_call_id = None }
+      { role = User; content = [Text summary_text]; name = None; tool_call_id = None ; metadata = []}
     in
     summary_msg :: List.concat recent_turns
 

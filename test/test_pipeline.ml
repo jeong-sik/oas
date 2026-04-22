@@ -96,7 +96,7 @@ let test_agent_turn_preparation () =
     Tool.create ~name:"b" ~description:"tool b" ~parameters:[]
       (fun _ -> Ok { Types.content = "b" });
   ] in
-  let messages = [{ Types.role = User; content = [Text "hello"]; name = None; tool_call_id = None }] in
+  let messages = [{ Types.role = User; content = [Text "hello"]; name = None; tool_call_id = None ; metadata = []}] in
   let prep = Agent_turn.prepare_turn
     ~guardrails:Guardrails.default
     ~operator_policy:None
@@ -267,7 +267,7 @@ let test_agent_multiple_tools () =
 (* ── Agent_turn: prepare_turn edge cases ──────────────── *)
 
 let test_prepare_turn_no_tools () =
-  let messages = [{ Types.role = User; content = [Text "hi"]; name = None; tool_call_id = None }] in
+  let messages = [{ Types.role = User; content = [Text "hi"]; name = None; tool_call_id = None ; metadata = []}] in
   let prep = Agent_turn.prepare_turn
     ~guardrails:Guardrails.default
     ~operator_policy:None
@@ -283,9 +283,9 @@ let test_prepare_turn_no_tools () =
 
 let test_prepare_turn_preserves_messages () =
   let messages = [
-    { Types.role = User; content = [Text "hello"]; name = None; tool_call_id = None };
-    { Types.role = Assistant; content = [Text "hi there"]; name = None; tool_call_id = None };
-    { Types.role = User; content = [Text "how are you"]; name = None; tool_call_id = None };
+    { Types.role = User; content = [Text "hello"]; name = None; tool_call_id = None ; metadata = []};
+    { Types.role = Assistant; content = [Text "hi there"]; name = None; tool_call_id = None ; metadata = []};
+    { Types.role = User; content = [Text "how are you"]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let prep = Agent_turn.prepare_turn
     ~guardrails:Guardrails.default
@@ -520,7 +520,7 @@ let test_token_budget_input_takes_precedence () =
 (* ── prepare_turn: extra_system_context ──────────────────── *)
 
 let test_prepare_turn_extra_context () =
-  let messages = [{ Types.role = User; content = [Text "hi"]; name = None; tool_call_id = None }] in
+  let messages = [{ Types.role = User; content = [Text "hi"]; name = None; tool_call_id = None ; metadata = []}] in
   let turn_params = { Hooks.default_turn_params with
     extra_system_context = Some "You are in debug mode." } in
   let prep = Agent_turn.prepare_turn
@@ -550,7 +550,7 @@ let test_prepare_turn_tool_filter_override () =
     Tool.create ~name:"blocked" ~description:"no" ~parameters:[]
       (fun _ -> Ok { Types.content = "no" });
   ] in
-  let messages = [{ Types.role = User; content = [Text "hi"]; name = None; tool_call_id = None }] in
+  let messages = [{ Types.role = User; content = [Text "hi"]; name = None; tool_call_id = None ; metadata = []}] in
   let turn_params = { Hooks.default_turn_params with
     tool_filter_override = Some (AllowList ["allowed"]) } in
   let prep = Agent_turn.prepare_turn
@@ -633,19 +633,19 @@ let test_mock_multi_tool_response () =
 
 let test_filter_valid_empty_messages () =
   let extra = [
-    { Types.role = User; content = [Text "a"]; name = None; tool_call_id = None };
-    { Types.role = Assistant; content = [Text "b"]; name = None; tool_call_id = None };
+    { Types.role = User; content = [Text "a"]; name = None; tool_call_id = None ; metadata = []};
+    { Types.role = Assistant; content = [Text "b"]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let result = Agent_turn.filter_valid_messages ~messages:[] extra in
   Alcotest.(check int) "passthrough on empty" 2 (List.length result)
 
 let test_filter_valid_removes_consecutive_same_role () =
   let messages = [
-    { Types.role = User; content = [Text "x"]; name = None; tool_call_id = None };
+    { Types.role = User; content = [Text "x"]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let extra = [
-    { Types.role = User; content = [Text "a"]; name = None; tool_call_id = None };
-    { Types.role = Assistant; content = [Text "b"]; name = None; tool_call_id = None };
+    { Types.role = User; content = [Text "a"]; name = None; tool_call_id = None ; metadata = []};
+    { Types.role = Assistant; content = [Text "b"]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let result = Agent_turn.filter_valid_messages ~messages extra in
   (* First extra msg has same role (User) as last message, should be filtered *)
@@ -657,11 +657,11 @@ let test_filter_valid_removes_consecutive_same_role () =
 
 let test_filter_valid_alternating_roles () =
   let messages = [
-    { Types.role = Assistant; content = [Text "x"]; name = None; tool_call_id = None };
+    { Types.role = Assistant; content = [Text "x"]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let extra = [
-    { Types.role = User; content = [Text "a"]; name = None; tool_call_id = None };
-    { Types.role = Assistant; content = [Text "b"]; name = None; tool_call_id = None };
+    { Types.role = User; content = [Text "a"]; name = None; tool_call_id = None ; metadata = []};
+    { Types.role = Assistant; content = [Text "b"]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let result = Agent_turn.filter_valid_messages ~messages extra in
   Alcotest.(check int) "alternating kept" 2 (List.length result)

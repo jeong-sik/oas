@@ -3,20 +3,20 @@
 open Agent_sdk
 
 let user_msg text =
-  Types.{ role = User; content = [Text text]; name = None; tool_call_id = None }
+  Types.{ role = User; content = [Text text]; name = None; tool_call_id = None ; metadata = []}
 
 let asst_msg text =
-  Types.{ role = Assistant; content = [Text text]; name = None; tool_call_id = None }
+  Types.{ role = Assistant; content = [Text text]; name = None; tool_call_id = None ; metadata = []}
 
 let tool_use_msg id name =
   Types.{ role = Assistant;
           content = [ToolUse { id; name; input = `Null }];
-          name = None; tool_call_id = None }
+          name = None; tool_call_id = None ; metadata = []}
 
 let tool_result_msg id content =
   Types.{ role = User;
           content = [ToolResult { tool_use_id = id; content; is_error = false; json = None }];
-          name = None; tool_call_id = None }
+          name = None; tool_call_id = None ; metadata = []}
 
 (* --- phase_of_usage_ratio boundary tests --- *)
 
@@ -140,7 +140,7 @@ let test_reduce_aggressive_drops_thinking () =
         Types.Thinking { thinking_type = "thinking"; content = "long thought" };
         Types.Text "answer"
       ];
-      name = None; tool_call_id = None };
+      name = None; tool_call_id = None ; metadata = []};
     user_msg "turn2";
     asst_msg "response";
   ] in

@@ -28,10 +28,10 @@ let tool_result ?(is_error=false) id content : Types.content_block =
   Types.ToolResult { tool_use_id = id; content; is_error; json = None }
 
 let asst_msg text : Types.message =
-  { role = Types.Assistant; content = [Types.Text text]; name = None; tool_call_id = None }
+  { role = Types.Assistant; content = [Types.Text text]; name = None; tool_call_id = None ; metadata = []}
 
 let user_msg blocks : Types.message =
-  { role = Types.User; content = blocks; name = None; tool_call_id = None }
+  { role = Types.User; content = blocks; name = None; tool_call_id = None ; metadata = []}
 
 (* ── 1. Tool_result_store lifecycle ───────────────────── *)
 
@@ -209,7 +209,7 @@ let test_compaction_preserves_relocated_previews () =
   Content_replacement_state.record_kept crs "t2";
   (* Build message list that mimics a post-relocation conversation *)
   let messages : Types.message list = [
-    { role = Types.User; content = [Types.Text "hello"]; name = None; tool_call_id = None };
+    { role = Types.User; content = [Types.Text "hello"]; name = None; tool_call_id = None ; metadata = []};
     asst_msg "I'll use tools";
     user_msg [
       tool_result "t1" "preview_of_t1";

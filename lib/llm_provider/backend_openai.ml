@@ -497,7 +497,7 @@ let%test "parse_openai_response_result error returns Error" =
   | Ok _ -> false
 
 let%test "openai_messages_of_message user text" =
-  let msg = { role = User; content = [Text "hello"]; name = None; tool_call_id = None } in
+  let msg = { role = User; content = [Text "hello"]; name = None; tool_call_id = None ; metadata = []} in
   let result = openai_messages_of_message msg in
   List.length result = 1
 
@@ -505,7 +505,7 @@ let%test "openai_messages_of_message user with tool_result" =
   let msg = { role = User; content = [
     Text "follow up";
     ToolResult { tool_use_id = "tc1"; content = "result"; is_error = false; json = None };
-  ]; name = None; tool_call_id = None } in
+  ]; name = None; tool_call_id = None ; metadata = []} in
   let result = openai_messages_of_message msg in
   List.length result = 2
 
@@ -514,11 +514,11 @@ let%test "build_request strips orphaned tool results from wire messages" =
     ~kind:Provider_config.Glm ~model_id:"glm-5.1"
     ~base_url:Zai_catalog.general_base_url () in
   let messages = [
-    { role = Assistant; content = [Text "hello"]; name = None; tool_call_id = None };
+    { role = Assistant; content = [Text "hello"]; name = None; tool_call_id = None ; metadata = []};
     { role = User; content = [
         Text "follow up";
         ToolResult { tool_use_id = "orphan-id"; content = "stale"; is_error = false; json = None };
-      ]; name = None; tool_call_id = None };
+      ]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let body =
     build_request ~config:cfg ~messages ()
@@ -534,17 +534,17 @@ let%test "build_request strips orphaned tool results from wire messages" =
 let%test "openai_messages_of_message assistant with tool_calls" =
   let msg = { role = Assistant; content = [
     ToolUse { id = "tc1"; name = "fn"; input = `Assoc [] };
-  ]; name = None; tool_call_id = None } in
+  ]; name = None; tool_call_id = None ; metadata = []} in
   let result = openai_messages_of_message msg in
   List.length result = 1
 
 let%test "openai_messages_of_message system" =
-  let msg = { role = System; content = [Text "system prompt"]; name = None; tool_call_id = None } in
+  let msg = { role = System; content = [Text "system prompt"]; name = None; tool_call_id = None ; metadata = []} in
   let result = openai_messages_of_message msg in
   List.length result = 1
 
 let%test "openai_messages_of_message user empty content" =
-  let msg = { role = User; content = []; name = None; tool_call_id = None } in
+  let msg = { role = User; content = []; name = None; tool_call_id = None ; metadata = []} in
   let result = openai_messages_of_message msg in
   result = []
 
@@ -552,26 +552,26 @@ let%test "openai_messages_of_message user with image" =
   let msg = { role = User; content = [
     Image { media_type = "image/png"; data = "abc123"; source_type = "base64" };
     Text "describe this";
-  ]; name = None; tool_call_id = None } in
+  ]; name = None; tool_call_id = None ; metadata = []} in
   let result = openai_messages_of_message msg in
   List.length result = 1
 
 let%test "openai_messages_of_message user with document" =
   let msg = { role = User; content = [
     Document { media_type = "application/pdf"; data = "abc"; source_type = "base64" };
-  ]; name = None; tool_call_id = None } in
+  ]; name = None; tool_call_id = None ; metadata = []} in
   let result = openai_messages_of_message msg in
   List.length result = 1
 
 let%test "openai_messages_of_message user with audio" =
   let msg = { role = User; content = [
     Audio { media_type = "audio/wav"; data = "audiodata"; source_type = "base64" };
-  ]; name = None; tool_call_id = None } in
+  ]; name = None; tool_call_id = None ; metadata = []} in
   let result = openai_messages_of_message msg in
   List.length result = 1
 
 let%test "openai_messages_of_message assistant text only" =
-  let msg = { role = Assistant; content = [Text "hello"]; name = None; tool_call_id = None } in
+  let msg = { role = Assistant; content = [Text "hello"]; name = None; tool_call_id = None ; metadata = []} in
   let result = openai_messages_of_message msg in
   let json = List.hd result in
   let open Yojson.Safe.Util in
@@ -581,7 +581,7 @@ let%test "openai_messages_of_message assistant excludes reasoning from content" 
   let msg = { role = Assistant; content = [
     Thinking { thinking_type = "reasoning"; content = "hidden chain of thought" };
     Text "final answer";
-  ]; name = None; tool_call_id = None } in
+  ]; name = None; tool_call_id = None ; metadata = []} in
   let result = openai_messages_of_message msg in
   let json = List.hd result in
   let open Yojson.Safe.Util in
@@ -592,7 +592,7 @@ let%test "glm_messages_of_message preserves reasoning_content separately" =
   let msg = { role = Assistant; content = [
     Thinking { thinking_type = "reasoning"; content = "step one" };
     ToolUse { id = "tc1"; name = "calc"; input = `Assoc [("expr", `String "2+2")] };
-  ]; name = None; tool_call_id = None } in
+  ]; name = None; tool_call_id = None ; metadata = []} in
   let result = glm_messages_of_message msg in
   let json = List.hd result in
   let open Yojson.Safe.Util in
@@ -604,7 +604,7 @@ let%test "openai_messages_of_message assistant blank text with tool_calls" =
   let msg = { role = Assistant; content = [
     Text "";
     ToolUse { id = "tc1"; name = "fn"; input = `Assoc [] };
-  ]; name = None; tool_call_id = None } in
+  ]; name = None; tool_call_id = None ; metadata = []} in
   let result = openai_messages_of_message msg in
   let json = List.hd result in
   let open Yojson.Safe.Util in
@@ -613,7 +613,7 @@ let%test "openai_messages_of_message assistant blank text with tool_calls" =
 let%test "openai_messages_of_message Tool role with ToolResult" =
   let msg = { role = Tool; content = [
     ToolResult { tool_use_id = "tc1"; content = "result data"; is_error = false; json = None };
-  ]; name = None; tool_call_id = None } in
+  ]; name = None; tool_call_id = None ; metadata = []} in
   let result = openai_messages_of_message msg in
   List.length result = 1
   && (let json = List.hd result in
@@ -621,7 +621,7 @@ let%test "openai_messages_of_message Tool role with ToolResult" =
       json |> member "role" |> to_string = "tool")
 
 let%test "openai_messages_of_message Tool role without ToolResult fallback to user" =
-  let msg = { role = Tool; content = [Text "fallback"]; name = None; tool_call_id = None } in
+  let msg = { role = Tool; content = [Text "fallback"]; name = None; tool_call_id = None ; metadata = []} in
   let result = openai_messages_of_message msg in
   let json = List.hd result in
   let open Yojson.Safe.Util in
@@ -967,7 +967,7 @@ let%test "glm build_request replays reasoning_content without leaking it into co
         Thinking { thinking_type = "reasoning"; content = "use calculator" };
         ToolUse { id = "call_1"; name = "calc";
                   input = `Assoc [("expr", `String "2+2")] };
-      ]; name = None; tool_call_id = None };
+      ]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let body = build_request ~config ~messages () |> Yojson.Safe.from_string in
   let open Yojson.Safe.Util in

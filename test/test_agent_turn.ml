@@ -65,7 +65,7 @@ let test_prepare_turn_with_guardrails_filter () =
 
 let test_prepare_messages_no_reducer () =
   let msgs = [
-    { Types.role = Types.User; content = [Types.Text "hello"]; name = None; tool_call_id = None };
+    { Types.role = Types.User; content = [Types.Text "hello"]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let result = Agent_turn.prepare_messages
     ~messages:msgs ~context_reducer:None
@@ -76,7 +76,7 @@ let test_prepare_messages_no_reducer () =
 
 let test_prepare_messages_extra_context () =
   let msgs = [
-    { Types.role = Types.User; content = [Types.Text "hello"]; name = None; tool_call_id = None };
+    { Types.role = Types.User; content = [Types.Text "hello"]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let turn_params = {
     Hooks.default_turn_params with
@@ -96,7 +96,7 @@ let test_prepare_messages_extra_context () =
 
 let test_prepare_messages_system_prompt_override_noop () =
   let msgs = [
-    { Types.role = Types.User; content = [Types.Text "hello"]; name = None; tool_call_id = None };
+    { Types.role = Types.User; content = [Types.Text "hello"]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let turn_params = {
     Hooks.default_turn_params with
@@ -111,7 +111,7 @@ let test_prepare_messages_system_prompt_override_noop () =
 
 let test_prepare_messages_both_override_and_extra_context () =
   let msgs = [
-    { Types.role = Types.User; content = [Types.Text "hello"]; name = None; tool_call_id = None };
+    { Types.role = Types.User; content = [Types.Text "hello"]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let turn_params = {
     Hooks.default_turn_params with
@@ -159,8 +159,8 @@ let is_tiered_recall_message msg =
 
 let test_prepare_messages_with_tiered_memory_after_system () =
   let msgs = [
-    { Types.role = Types.System; content = [Types.Text "obey system prompt"]; name = None; tool_call_id = None };
-    { Types.role = Types.User; content = [Types.Text "hello"]; name = None; tool_call_id = None };
+    { Types.role = Types.System; content = [Types.Text "obey system prompt"]; name = None; tool_call_id = None ; metadata = []};
+    { Types.role = Types.User; content = [Types.Text "hello"]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let tiered_memory : Agent_turn.tiered_memory = {
     long_term = Some "User prefers concise answers.";
@@ -188,7 +188,7 @@ let test_prepare_messages_with_tiered_memory_after_system () =
 
 let test_prepare_messages_omits_blank_tiered_memory () =
   let msgs = [
-    { Types.role = Types.User; content = [Types.Text "hello"]; name = None; tool_call_id = None };
+    { Types.role = Types.User; content = [Types.Text "hello"]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let tiered_memory : Agent_turn.tiered_memory = {
     long_term = Some "   ";
@@ -205,7 +205,7 @@ let test_prepare_messages_omits_blank_tiered_memory () =
 
 let test_prepare_messages_tiered_memory_reserves_token_budget () =
   let mk_user text =
-    { Types.role = Types.User; content = [Types.Text text]; name = None; tool_call_id = None }
+    { Types.role = Types.User; content = [Types.Text text]; name = None; tool_call_id = None ; metadata = []}
   in
   let msgs = [
     mk_user (String.make 100 'a');
@@ -393,17 +393,17 @@ let test_is_idle_prev_none_never_idle () =
 (* ── filter_valid_messages tests ─────────────────────────── *)
 
 let test_filter_valid_empty () =
-  let extra = [{ Types.role = Types.User; content = [Types.Text "hi"]; name = None; tool_call_id = None }] in
+  let extra = [{ Types.role = Types.User; content = [Types.Text "hi"]; name = None; tool_call_id = None ; metadata = []}] in
   let result = Agent_turn.filter_valid_messages ~messages:[] extra in
   Alcotest.(check int) "passes through" 1 (List.length result)
 
 let test_filter_valid_same_role_adjacency () =
   let messages = [
-    { Types.role = Types.User; content = [Types.Text "first"]; name = None; tool_call_id = None };
+    { Types.role = Types.User; content = [Types.Text "first"]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let extra = [
-    { Types.role = Types.User; content = [Types.Text "second"]; name = None; tool_call_id = None };
-    { Types.role = Types.Assistant; content = [Types.Text "reply"]; name = None; tool_call_id = None };
+    { Types.role = Types.User; content = [Types.Text "second"]; name = None; tool_call_id = None ; metadata = []};
+    { Types.role = Types.Assistant; content = [Types.Text "reply"]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let result = Agent_turn.filter_valid_messages ~messages extra in
   Alcotest.(check int) "skips adjacent same-role" 1 (List.length result);
@@ -538,23 +538,23 @@ let test_accumulate_usage_cumulative () =
 
 let test_filter_valid_alternating () =
   let messages = [
-    { Types.role = Types.User; content = [Types.Text "u1"]; name = None; tool_call_id = None };
-    { Types.role = Types.Assistant; content = [Types.Text "a1"]; name = None; tool_call_id = None };
+    { Types.role = Types.User; content = [Types.Text "u1"]; name = None; tool_call_id = None ; metadata = []};
+    { Types.role = Types.Assistant; content = [Types.Text "a1"]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let extra = [
-    { Types.role = Types.User; content = [Types.Text "u2"]; name = None; tool_call_id = None };
-    { Types.role = Types.Assistant; content = [Types.Text "a2"]; name = None; tool_call_id = None };
+    { Types.role = Types.User; content = [Types.Text "u2"]; name = None; tool_call_id = None ; metadata = []};
+    { Types.role = Types.Assistant; content = [Types.Text "a2"]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let result = Agent_turn.filter_valid_messages ~messages extra in
   Alcotest.(check int) "all pass" 2 (List.length result)
 
 let test_filter_valid_all_same_role () =
   let messages = [
-    { Types.role = Types.Assistant; content = [Types.Text "a1"]; name = None; tool_call_id = None };
+    { Types.role = Types.Assistant; content = [Types.Text "a1"]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let extra = [
-    { Types.role = Types.Assistant; content = [Types.Text "a2"]; name = None; tool_call_id = None };
-    { Types.role = Types.Assistant; content = [Types.Text "a3"]; name = None; tool_call_id = None };
+    { Types.role = Types.Assistant; content = [Types.Text "a2"]; name = None; tool_call_id = None ; metadata = []};
+    { Types.role = Types.Assistant; content = [Types.Text "a3"]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let result = Agent_turn.filter_valid_messages ~messages extra in
   Alcotest.(check int) "all filtered" 0 (List.length result)
@@ -627,7 +627,7 @@ let test_token_budget_total_within () =
 
 let test_apply_context_injection_no_injector () =
   let context = Context.create () in
-  let messages = [{ Types.role = Types.User; content = [Types.Text "hi"]; name = None; tool_call_id = None }] in
+  let messages = [{ Types.role = Types.User; content = [Types.Text "hi"]; name = None; tool_call_id = None ; metadata = []}] in
   let tool_uses = [make_tool_use "search" {|{"q":"test"}|}] in
   let results =
     [
@@ -649,7 +649,7 @@ let test_apply_context_injection_no_injector () =
 
 let test_apply_context_injection_with_context_update () =
   let context = Context.create () in
-  let messages = [{ Types.role = Types.User; content = [Types.Text "hi"]; name = None; tool_call_id = None }] in
+  let messages = [{ Types.role = Types.User; content = [Types.Text "hi"]; name = None; tool_call_id = None ; metadata = []}] in
   let tool_uses = [make_tool_use "search" {|{"q":"test"}|}] in
   let results =
     [
@@ -680,7 +680,7 @@ let test_apply_context_injection_with_context_update () =
 let test_apply_context_injection_with_extra_messages () =
   let context = Context.create () in
   let messages = [
-    { Types.role = Types.User; content = [Types.Text "hi"]; name = None; tool_call_id = None };
+    { Types.role = Types.User; content = [Types.Text "hi"]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let tool_uses = [make_tool_use "search" {|{"q":"test"}|}] in
   let results =
@@ -699,7 +699,7 @@ let test_apply_context_injection_with_extra_messages () =
     Some {
       Hooks.context_updates = [];
       extra_messages = [
-        { Types.role = Types.Assistant; content = [Types.Text "injected"]; name = None; tool_call_id = None };
+        { Types.role = Types.Assistant; content = [Types.Text "injected"]; name = None; tool_call_id = None ; metadata = []};
       ];
     }
   in
@@ -710,7 +710,7 @@ let test_apply_context_injection_with_extra_messages () =
 
 let test_apply_context_injection_exception_handled () =
   let context = Context.create () in
-  let messages = [{ Types.role = Types.User; content = [Types.Text "hi"]; name = None; tool_call_id = None }] in
+  let messages = [{ Types.role = Types.User; content = [Types.Text "hi"]; name = None; tool_call_id = None ; metadata = []}] in
   let tool_uses = [make_tool_use "search" {|{"q":"test"}|}] in
   let results =
     [
@@ -736,7 +736,7 @@ let test_apply_context_injection_exception_handled () =
 let test_apply_context_injection_preserves_non_retryable_error () =
   let context = Context.create () in
   let messages =
-    [{ Types.role = Types.User; content = [Types.Text "hi"]; name = None; tool_call_id = None }]
+    [{ Types.role = Types.User; content = [Types.Text "hi"]; name = None; tool_call_id = None ; metadata = []}]
   in
   let tool_uses = [make_tool_use "search" {|{"q":"test"}|}] in
   let received_output = ref None in

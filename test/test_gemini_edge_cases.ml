@@ -116,10 +116,10 @@ let test_tool_use_id_roundtrip () =
       ~base_url:"https://generativelanguage.googleapis.com/v1beta" () in
   let messages = [
     Types.user_msg "What's the weather?";
-    { Types.role = Assistant; content = [Types.ToolUse { id = tu_id; name = tu_name; input = tu_input }]; name = None; tool_call_id = None };
+    { Types.role = Assistant; content = [Types.ToolUse { id = tu_id; name = tu_name; input = tu_input }]; name = None; tool_call_id = None ; metadata = []};
     { Types.role = User; content = [
         Types.ToolResult { tool_use_id = tu_id; content = "Sunny 25C"; is_error = false; json = None }
-      ]; name = None; tool_call_id = None };
+      ]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let body = Backend_gemini.build_request ~config ~messages () in
   let json = Yojson.Safe.from_string body in

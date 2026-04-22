@@ -221,7 +221,7 @@ let normalize_for_model (msgs : message list) ~(target_model : string) : message
             content = [ToolResult { tool_use_id = id;
               content = Printf.sprintf "[truncated: %s result unavailable]" name;
               is_error = true; json = None }];
-            name = None; tool_call_id = None }
+            name = None; tool_call_id = None ; metadata = []}
         ) dangling in
         process (List.rev_append repairs (m :: acc)) rest
     in

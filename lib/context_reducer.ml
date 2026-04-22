@@ -200,7 +200,7 @@ let%test "from_context_config custom compact_ratio" =
 let%test "from_context_config applied reduces long conversation" =
   let msgs = List.init 100 (fun i ->
     { role = User; content = [Text (String.make 200 (Char.chr (65 + (i mod 26))))];
-      name = None; tool_call_id = None }
+      name = None; tool_call_id = None ; metadata = []}
   ) in
   let reducer = from_context_config ~compact_ratio:0.1 ~max_tokens:1000 () in
   let reduced = reduce reducer msgs in
@@ -209,7 +209,7 @@ let%test "from_context_config applied reduces long conversation" =
 (* === Cap_message_tokens inline tests === *)
 
 let%test "cap_message_tokens: small message passes through unchanged" =
-  let msg = { role = User; content = [Text "hello"]; name = None; tool_call_id = None } in
+  let msg = { role = User; content = [Text "hello"]; name = None; tool_call_id = None ; metadata = []} in
   let result = reduce (cap_message_tokens ~max_tokens:1000 ~keep_recent:0) [msg] in
   result = [msg]
 
@@ -221,7 +221,7 @@ let%test "cap_message_tokens: oversized message with Text blocks is truncated" =
     ToolResult { tool_use_id = "keep";
                  content = "r"; is_error = false; json = None }
   ] in
-  let msg = { role = User; content = blocks; name = None; tool_call_id = None } in
+  let msg = { role = User; content = blocks; name = None; tool_call_id = None ; metadata = []} in
   let original_tokens = estimate_message_tokens msg in
   let result = reduce (cap_message_tokens ~max_tokens:500 ~keep_recent:0) [msg] in
   let capped_msg = List.hd result in
@@ -243,7 +243,7 @@ let%test "cap_message_tokens: truncation marker present when text dropped" =
     ToolResult { tool_use_id = "t0"; content = "r";
                  is_error = false; json = None }
   ] in
-  let msg = { role = User; content = blocks; name = None; tool_call_id = None } in
+  let msg = { role = User; content = blocks; name = None; tool_call_id = None ; metadata = []} in
   let result = reduce (cap_message_tokens ~max_tokens:300 ~keep_recent:0) [msg] in
   let capped_msg = List.hd result in
   let has_marker s =
@@ -273,7 +273,7 @@ let%test "cap_message_tokens: message of only ToolResults is untouched (upstream
                  content = String.make 400 'x';
                  is_error = false; json = None }
   ) in
-  let msg = { role = User; content = blocks; name = None; tool_call_id = None } in
+  let msg = { role = User; content = blocks; name = None; tool_call_id = None ; metadata = []} in
   let result = reduce (cap_message_tokens ~max_tokens:500 ~keep_recent:0) [msg] in
   let capped_msg = List.hd result in
   List.length capped_msg.content = 50
@@ -284,7 +284,7 @@ let%test "cap_message_tokens: recent turns are not modified" =
                  content = String.make 400 'x';
                  is_error = false; json = None }
   ) in
-  let msg = { role = User; content = blocks; name = None; tool_call_id = None } in
+  let msg = { role = User; content = blocks; name = None; tool_call_id = None ; metadata = []} in
   let result = reduce (cap_message_tokens ~max_tokens:100 ~keep_recent:1) [msg] in
   (* Single turn, keep_recent=1: message should be unchanged *)
   List.hd result = msg
@@ -296,7 +296,7 @@ let%test "cap_message_tokens: monotonicity — never increases tokens" =
                       content = String.make 500 'x';
                       is_error = false; json = None }
   ) in
-  let msg = { role = User; content = blocks; name = None; tool_call_id = None } in
+  let msg = { role = User; content = blocks; name = None; tool_call_id = None ; metadata = []} in
   let msgs = [msg] in
   let original_tokens = List.fold_left (fun acc m -> acc + estimate_message_tokens m) 0 msgs in
   let result = reduce (cap_message_tokens ~max_tokens:400 ~keep_recent:0) msgs in
@@ -306,13 +306,13 @@ let%test "cap_message_tokens: monotonicity — never increases tokens" =
 let%test "cap_message_tokens: single block message passes through" =
   let msg = { role = User;
               content = [Text (String.make 10000 'x')];
-              name = None; tool_call_id = None } in
+              name = None; tool_call_id = None ; metadata = []} in
   let result = reduce (cap_message_tokens ~max_tokens:10 ~keep_recent:0) [msg] in
   (* Single-block message: cannot split further, passes through *)
   List.hd result = msg
 
 let%test "cap_message_tokens: max_tokens=0 is no-op" =
-  let msg = { role = User; content = [Text "hello"]; name = None; tool_call_id = None } in
+  let msg = { role = User; content = [Text "hello"]; name = None; tool_call_id = None ; metadata = []} in
   let result = reduce (cap_message_tokens ~max_tokens:0 ~keep_recent:0) [msg] in
   result = [msg]
 

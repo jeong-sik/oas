@@ -171,8 +171,8 @@ let () =
     "messages", [
       test_case "Text message roundtrip" `Quick (fun () ->
         let msgs = [
-          { Types.role = Types.User; content = [Types.Text "Hello"]; name = None; tool_call_id = None };
-          { Types.role = Types.Assistant; content = [Types.Text "Hi there"]; name = None; tool_call_id = None };
+          { Types.role = Types.User; content = [Types.Text "Hello"]; name = None; tool_call_id = None ; metadata = []};
+          { Types.role = Types.Assistant; content = [Types.Text "Hi there"]; name = None; tool_call_id = None ; metadata = []};
         ] in
         let cp = make_checkpoint ~messages:msgs () in
         let cp2 = Result.get_ok (Checkpoint.of_json (Checkpoint.to_json cp)) in
@@ -188,7 +188,7 @@ let () =
           { Types.role = Types.Assistant;
             content = [Types.ToolUse { id = "id1"; name = "get_weather";
               input = `Assoc [("city", `String "Seoul")] }];
-            name = None; tool_call_id = None };
+            name = None; tool_call_id = None ; metadata = []};
         ] in
         let cp = make_checkpoint ~messages:msgs () in
         let cp2 = Result.get_ok (Checkpoint.of_json (Checkpoint.to_json cp)) in
@@ -200,12 +200,13 @@ let () =
 
       test_case "ToolResult message roundtrip" `Quick (fun () ->
         let msgs = [
-          { Types.role = Types.User;
+          { Types.role = Types.Tool;
             content = [Types.ToolResult { tool_use_id = "id1"; content = "Sunny 22C"; is_error = false; json = None }];
-            name = None; tool_call_id = None };
+            name = None; tool_call_id = None ; metadata = []};
         ] in
         let cp = make_checkpoint ~messages:msgs () in
         let cp2 = Result.get_ok (Checkpoint.of_json (Checkpoint.to_json cp)) in
+        check bool "tool role" true ((List.hd cp2.messages).role = Types.Tool);
         match (List.hd cp2.messages).content with
         | [Types.ToolResult { tool_use_id; content; is_error; _ }] ->
           check string "id" "id1" tool_use_id;
@@ -224,16 +225,48 @@ let () =
             content = [
               Types.Text "Let me check.";
               Types.ToolUse { id = "t1"; name = "search"; input = `Assoc [("q", `String "test")] };
-            ]; name = None; tool_call_id = None };
+            ]; name = None; tool_call_id = None ; metadata = []};
           { Types.role = Types.User;
             content = [Types.ToolResult { tool_use_id = "t1"; content = "found it"; is_error = false; json = None }];
-            name = None; tool_call_id = None };
+            name = None; tool_call_id = None ; metadata = []};
         ] in
         let cp = make_checkpoint ~messages:msgs () in
         let cp2 = Result.get_ok (Checkpoint.of_json (Checkpoint.to_json cp)) in
         check int "2 messages" 2 (List.length cp2.messages);
         let first = List.hd cp2.messages in
         check int "2 blocks in first" 2 (List.length first.content));
+
+      test_case "message metadata roundtrip" `Quick (fun () ->
+        let replay_metadata =
+          [
+            ( "masc.replay",
+              `Assoc
+                [
+                  ("kind", `String "state_snapshot");
+                  ("version", `Int 1);
+                  ("payload", `Assoc [ ("goal", `String "ship") ]);
+                ] );
+          ]
+        in
+        let msgs = [
+          {
+            Types.role = Types.Assistant;
+            content = [ Types.Text "Visible reply" ];
+            name = Some "keeper";
+            tool_call_id = Some "call_1";
+            metadata = replay_metadata;
+          };
+        ] in
+        let cp = make_checkpoint ~messages:msgs () in
+        let cp2 = Result.get_ok (Checkpoint.of_json (Checkpoint.to_json cp)) in
+        match cp2.messages with
+        | [ msg ] ->
+            check (option string) "name" (Some "keeper") msg.name;
+            check (option string) "tool_call_id" (Some "call_1") msg.tool_call_id;
+            check string "metadata preserved"
+              (Yojson.Safe.to_string (`Assoc replay_metadata))
+              (Yojson.Safe.to_string (`Assoc msg.metadata))
+        | _ -> fail "expected one message");
     ];
 
     "usage", [
@@ -338,9 +371,9 @@ let () =
     "helpers", [
       test_case "message_count" `Quick (fun () ->
         let msgs = [
-          { Types.role = Types.User; content = [Types.Text "a"]; name = None; tool_call_id = None };
-          { Types.role = Types.Assistant; content = [Types.Text "b"]; name = None; tool_call_id = None };
-          { Types.role = Types.User; content = [Types.Text "c"]; name = None; tool_call_id = None };
+          { Types.role = Types.User; content = [Types.Text "a"]; name = None; tool_call_id = None ; metadata = []};
+          { Types.role = Types.Assistant; content = [Types.Text "b"]; name = None; tool_call_id = None ; metadata = []};
+          { Types.role = Types.User; content = [Types.Text "c"]; name = None; tool_call_id = None ; metadata = []};
         ] in
         let cp = make_checkpoint ~messages:msgs () in
         check int "count" 3 (Checkpoint.message_count cp));
@@ -370,8 +403,8 @@ let () =
         Agent.set_state agent {
           (Agent.state agent) with
           messages = [
-            { Types.role = Types.User; content = [Types.Text "hello"]; name = None; tool_call_id = None };
-            { Types.role = Types.Assistant; content = [Types.Text "hi"]; name = None; tool_call_id = None };
+            { Types.role = Types.User; content = [Types.Text "hello"]; name = None; tool_call_id = None ; metadata = []};
+            { Types.role = Types.Assistant; content = [Types.Text "hi"]; name = None; tool_call_id = None ; metadata = []};
           ];
           turn_count = 2;
           usage = {
@@ -479,7 +512,7 @@ let () =
         Agent.set_state agent {
           (Agent.state agent) with
           messages = [
-            { Types.role = Types.User; content = [Types.Text "test"]; name = None; tool_call_id = None };
+            { Types.role = Types.User; content = [Types.Text "test"]; name = None; tool_call_id = None ; metadata = []};
           ];
           turn_count = 7;
         };
@@ -532,7 +565,7 @@ let () =
 
       test_case "invalid role returns Error" `Quick (fun () ->
         let cp = make_checkpoint ~messages:[
-          { Types.role = Types.User; content = [Types.Text "hello"]; name = None; tool_call_id = None }
+          { Types.role = Types.User; content = [Types.Text "hello"]; name = None; tool_call_id = None ; metadata = []}
         ] () in
         let json = Checkpoint.to_json cp in
         let bad =
@@ -544,7 +577,7 @@ let () =
                 | `List (`Assoc msg_fields :: rest) ->
                   let msg_fields =
                     List.map (fun (mk, mv) ->
-                      if mk = "role" then (mk, `String "system") else (mk, mv)
+                      if mk = "role" then (mk, `String "bad_role") else (mk, mv)
                     ) msg_fields
                   in
                   (k, `List (`Assoc msg_fields :: rest))
@@ -604,7 +637,7 @@ let () =
 
       test_case "unknown content block returns Error" `Quick (fun () ->
         let cp = make_checkpoint ~messages:[
-          { Types.role = Types.User; content = [Types.Text "hello"]; name = None; tool_call_id = None }
+          { Types.role = Types.User; content = [Types.Text "hello"]; name = None; tool_call_id = None ; metadata = []}
         ] () in
         let json = Checkpoint.to_json cp in
         let bad =

@@ -135,7 +135,7 @@ let test_pre_compact_event () =
       Hooks.Continue
     | _ -> Hooks.Continue
   in
-  let msgs = [Types.{ role = User; content = [Text "hello"]; name = None; tool_call_id = None }] in
+  let msgs = [Types.{ role = User; content = [Text "hello"]; name = None; tool_call_id = None ; metadata = []}] in
   let _result = Hooks.invoke (Some hook)
     (Hooks.PreCompact { messages = msgs; estimated_tokens = 5000; budget_tokens = 8000 }) in
   check int "hook received estimated_tokens" 5000 !received_tokens
@@ -163,7 +163,7 @@ let test_post_compact_event () =
     | _ -> Hooks.Continue
   in
   let msgs =
-    [ Types.{ role = User; content = [ Text "hello" ]; name = None; tool_call_id = None } ]
+    [ Types.{ role = User; content = [ Text "hello" ]; name = None; tool_call_id = None ; metadata = []} ]
   in
   let _result =
     Hooks.invoke (Some hook)

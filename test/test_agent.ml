@@ -7,16 +7,16 @@ open Types
 
 let test_find_handoff_none () =
   let msgs = [
-    { role = User; content = [Text "hello"]; name = None; tool_call_id = None };
-    { role = Assistant; content = [Text "world"]; name = None; tool_call_id = None };
+    { role = User; content = [Text "hello"]; name = None; tool_call_id = None ; metadata = []};
+    { role = Assistant; content = [Text "world"]; name = None; tool_call_id = None ; metadata = []};
   ] in
   Alcotest.(check bool) "no handoff" true
     (Agent_handoff.find_handoff_in_messages msgs = None)
 
 let test_find_handoff_normal_tool () =
   let msgs = [
-    { role = User; content = [Text "use_tool"]; name = None; tool_call_id = None };
-    { role = Assistant; content = [ToolUse { id = "t1"; name = "calculator"; input = `Assoc [("a", `Int 1)] }]; name = None; tool_call_id = None };
+    { role = User; content = [Text "use_tool"]; name = None; tool_call_id = None ; metadata = []};
+    { role = Assistant; content = [ToolUse { id = "t1"; name = "calculator"; input = `Assoc [("a", `Int 1)] }]; name = None; tool_call_id = None ; metadata = []};
   ] in
   Alcotest.(check bool) "non-handoff tool" true
     (Agent_handoff.find_handoff_in_messages msgs = None)
@@ -24,8 +24,8 @@ let test_find_handoff_normal_tool () =
 let test_find_handoff_present () =
   let input = `Assoc [("prompt", `String "research this")] in
   let msgs = [
-    { role = User; content = [Text "delegate"]; name = None; tool_call_id = None };
-    { role = Assistant; content = [ToolUse { id = "h1"; name = "transfer_to_researcher"; input }]; name = None; tool_call_id = None };
+    { role = User; content = [Text "delegate"]; name = None; tool_call_id = None ; metadata = []};
+    { role = Assistant; content = [ToolUse { id = "h1"; name = "transfer_to_researcher"; input }]; name = None; tool_call_id = None ; metadata = []};
   ] in
   match Agent_handoff.find_handoff_in_messages msgs with
   | Some (id, name, prompt) ->
@@ -38,7 +38,7 @@ let test_find_handoff_present () =
 let test_find_handoff_no_prompt_field () =
   let input = `Assoc [("other", `Int 42)] in
   let msgs = [
-    { role = Assistant; content = [ToolUse { id = "h2"; name = "transfer_to_coder"; input }]; name = None; tool_call_id = None };
+    { role = Assistant; content = [ToolUse { id = "h2"; name = "transfer_to_coder"; input }]; name = None; tool_call_id = None ; metadata = []};
   ] in
   match Agent_handoff.find_handoff_in_messages msgs with
   | Some (_, _, prompt) ->
@@ -55,7 +55,7 @@ let test_find_handoff_mixed_content () =
     { role = Assistant; content = [
         Text "I'll delegate";
         ToolUse { id = "h3"; name = "transfer_to_analyst"; input = `Assoc [("prompt", `String "analyze")] };
-    ]; name = None; tool_call_id = None };
+    ]; name = None; tool_call_id = None ; metadata = []};
   ] in
   match Agent_handoff.find_handoff_in_messages msgs with
   | Some (id, name, prompt) ->
@@ -69,9 +69,9 @@ let test_find_handoff_mixed_content () =
 
 let test_replace_existing () =
   let msgs = [
-    { role = User; content = [Text "hello"]; name = None; tool_call_id = None };
-    { role = Assistant; content = [ToolUse { id = "t1"; name = "calc"; input = `Null }]; name = None; tool_call_id = None };
-    { role = User; content = [ToolResult { tool_use_id = "t1"; content = "old result"; is_error = false; json = None }]; name = None; tool_call_id = None };
+    { role = User; content = [Text "hello"]; name = None; tool_call_id = None ; metadata = []};
+    { role = Assistant; content = [ToolUse { id = "t1"; name = "calc"; input = `Null }]; name = None; tool_call_id = None ; metadata = []};
+    { role = User; content = [ToolResult { tool_use_id = "t1"; content = "old result"; is_error = false; json = None }]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let updated = Agent_handoff.replace_tool_result msgs ~tool_id:"t1" ~content:"new result" ~is_error:false in
   let last = List.nth updated (List.length updated - 1) in
@@ -85,7 +85,7 @@ let test_replace_existing () =
 
 let test_replace_missing_appends () =
   let msgs = [
-    { role = User; content = [Text "hello"]; name = None; tool_call_id = None };
+    { role = User; content = [Text "hello"]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let updated = Agent_handoff.replace_tool_result msgs ~tool_id:"t99" ~content:"injected" ~is_error:true in
   let last = List.nth updated (List.length updated - 1) in
@@ -102,7 +102,7 @@ let test_replace_preserves_other_results () =
     { role = User; content = [
         ToolResult { tool_use_id = "t1"; content = "keep"; is_error = false; json = None };
         ToolResult { tool_use_id = "t2"; content = "replace me"; is_error = false; json = None };
-    ]; name = None; tool_call_id = None };
+    ]; name = None; tool_call_id = None ; metadata = []};
   ] in
   let updated = Agent_handoff.replace_tool_result msgs ~tool_id:"t2" ~content:"replaced" ~is_error:true in
   let last = List.nth updated (List.length updated - 1) in

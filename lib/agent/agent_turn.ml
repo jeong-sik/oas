@@ -161,7 +161,7 @@ let render_tiered_memory_message = function
         role = User;
         content = [Text (String.concat "\n\n" sections)];
         name = None;
-        tool_call_id = None;
+        tool_call_id = None; metadata = [];
       }
 
 let tiered_memory_tokens tiered_memory =
@@ -234,7 +234,7 @@ let prepare_messages ~messages ~context_reducer ~tiered_memory ~turn_params =
        every turn; placing it at the tail keeps the stable history
        prefix cacheable.  Anthropic API handles caching server-side
        regardless of position, but Ollama/llama.cpp prefix-match. *)
-    let system_msg = { role = User; content = [Text ("[system context] " ^ ctx)]; name = None; tool_call_id = None } in
+    let system_msg = { role = User; content = [Text ("[system context] " ^ ctx)]; name = None; tool_call_id = None ; metadata = []} in
     effective @ [system_msg]
 
 let prepare_turn ~guardrails ~operator_policy ~policy_channel ~tools ~messages ~context_reducer ~tiered_memory ~turn_params

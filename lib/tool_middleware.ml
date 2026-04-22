@@ -106,7 +106,7 @@ let heal_tool_call ~tool_name ~schema ~tool_use_id ~args
                 is_error = true;
                 json = None;
               }];
-            name = None; tool_call_id = None }
+            name = None; tool_call_id = None ; metadata = []}
         in
         let retry_messages = messages @ [error_feedback] in
         match llm retry_messages with
@@ -122,7 +122,7 @@ let heal_tool_call ~tool_name ~schema ~tool_use_id ~args
           | Some (new_id, new_args) ->
             let assistant_msg : Types.message =
               { role = Assistant; content = response.content;
-                name = None; tool_call_id = None }
+                name = None; tool_call_id = None ; metadata = []}
             in
             loop (attempt + 1) new_args new_id
               (retry_messages @ [assistant_msg])
@@ -133,6 +133,6 @@ let heal_tool_call ~tool_name ~schema ~tool_use_id ~args
     { role = Assistant;
       content = [
         ToolUse { id = tool_use_id; name = tool_name; input = args }];
-      name = None; tool_call_id = None }
+      name = None; tool_call_id = None ; metadata = []}
   in
   loop 0 args tool_use_id (prior_messages @ [initial_assistant])

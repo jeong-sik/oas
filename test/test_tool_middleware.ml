@@ -249,7 +249,7 @@ let test_heal_max_retries_zero () =
 module Serialize = Llm_provider.Backend_openai_serialize
 
 let mk_msg role content : Types.message =
-  { role; content; name = None; tool_call_id = None }
+  { role; content; name = None; tool_call_id = None ; metadata = []}
 
 let test_strip_no_orphans () =
   let msgs = [
