@@ -872,13 +872,13 @@ let%test "runtime MCP policy overrides legacy tool and MCP config wiring" =
       Llm_transport.empty_runtime_mcp_policy with
       servers = [
         Llm_transport.Http_server {
-          name = "masc";
-          url = "http://127.0.0.1:8935/mcp";
+          name = "example";
+          url = "http://127.0.0.1:9999/mcp";
           headers = [];
         };
       ];
-      allowed_server_names = ["masc"];
-      allowed_tool_names = ["masc_status"];
+      allowed_server_names = ["example"];
+      allowed_tool_names = ["example_status"];
       permission_mode = Some "plan";
       strict = true;
       disable_builtin_tools = true;
@@ -891,12 +891,12 @@ let%test "runtime MCP policy overrides legacy tool and MCP config wiring" =
   List.mem "--tools" args
   && List.mem "" args
   && List.mem "--allowedTools" args
-  && List.mem "mcp__masc__masc_status" args
+  && List.mem "mcp__example__example_status" args
   && List.mem "--permission-mode" args
   && List.mem "plan" args
   && List.mem "--strict-mcp-config" args
   && List.mem
-       {|{"mcpServers":{"masc":{"type":"http","url":"http://127.0.0.1:8935/mcp","headers":{}}}}|}
+       {|{"mcpServers":{"example":{"type":"http","url":"http://127.0.0.1:9999/mcp","headers":{}}}}|}
        args
   && not (List.mem "Bash" args)
   && not (List.mem "/tmp/legacy-mcp.json" args)
