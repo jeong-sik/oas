@@ -155,6 +155,29 @@ let response_model_of_lines ~model_id lines =
   in
   List.find_map find_model lines |> Option.value ~default:model_id
 
+let parse_usage json =
+  let open Yojson.Safe.Util in
+  match json |> member "usage" with
+  | `Assoc _ as u ->
+    Some { Types.input_tokens = Cli_common_json.member_int "input_tokens" u;
+           output_tokens = Cli_common_json.member_int "output_tokens" u;
+           cache_creation_input_tokens =
+             Cli_common_json.member_int "cache_creation_input_tokens" u;
+           cache_read_input_tokens =
+             Cli_common_json.member_int "cache_read_input_tokens" u;
+           cost_usd = None }
+  | _ -> None
+
+let usage_of_lines lines =
+  let find_usage line =
+    let open Yojson.Safe.Util in
+    try
+      let json = Yojson.Safe.from_string line in
+      parse_usage json
+    with Yojson.Json_error _ | Type_error _ -> None
+  in
+  List.find_map find_usage lines
+
 let parse_jsonl_result ~model_id lines =
   let content = List.concat_map blocks_of_output_line lines in
   if content = [] then
@@ -165,7 +188,7 @@ let parse_jsonl_result ~model_id lines =
          model = response_model_of_lines ~model_id lines;
          stop_reason = Types.EndTurn;
          content;
-         usage = None;
+         usage = usage_of_lines lines;
          telemetry = None }
 
 (* ── Stream events ───────────────────────────────────── *)
@@ -438,3 +461,57 @@ let%test "classify_cli_error exit 1 becomes AcceptRejected" =
   | Error (Http_client.AcceptRejected { reason }) ->
     String.length reason > 0
   | _ -> false
+
+let%test "parse_usage extracts input and output tokens" =
+  let json = Yojson.Safe.from_string {|{"usage":{"input_tokens":10,"output_tokens":20}}|} in
+  match parse_usage json with
+  | Some u ->
+    u.input_tokens = 10
+    && u.output_tokens = 20
+    && u.cache_creation_input_tokens = 0
+    && u.cache_read_input_tokens = 0
+    && u.cost_usd = None
+  | None -> false
+
+let%test "parse_usage missing keys default to zero" =
+  let json = Yojson.Safe.from_string {|{"usage":{"input_tokens":5}}|} in
+  match parse_usage json with
+  | Some u ->
+    u.input_tokens = 5
+    && u.output_tokens = 0
+    && u.cache_creation_input_tokens = 0
+    && u.cache_read_input_tokens = 0
+  | None -> false
+
+let%test "parse_usage no usage field returns None" =
+  let json = Yojson.Safe.from_string {|{"role":"assistant"}|} in
+  parse_usage json = None
+
+let%test "usage_of_lines finds usage across lines" =
+  let lines = [
+    {|{"role":"assistant","content":"hi"}|};
+    {|{"usage":{"input_tokens":1,"output_tokens":2}}|};
+  ] in
+  match usage_of_lines lines with
+  | Some u -> u.input_tokens = 1 && u.output_tokens = 2
+  | None -> false
+
+let%test "parse_jsonl_result includes usage when present" =
+  let lines = [
+    {|{"role":"assistant","content":"hello"}|};
+    {|{"usage":{"input_tokens":10,"output_tokens":20}}|};
+  ] in
+  match parse_jsonl_result ~model_id:"kimi-for-coding" lines with
+  | Ok resp ->
+    (match resp.usage with
+     | Some u -> u.input_tokens = 10 && u.output_tokens = 20
+     | None -> false)
+  | Error _ -> false
+
+let%test "parse_jsonl_result keeps None when usage absent" =
+  let lines = [
+    {|{"role":"assistant","content":"hello"}|};
+  ] in
+  match parse_jsonl_result ~model_id:"kimi-for-coding" lines with
+  | Ok resp -> resp.usage = None
+  | Error _ -> false
