@@ -753,10 +753,10 @@ let%test "events_of_line command_execution → no events" =
 let%test "events_of_line mcp_tool_call completion emits tool_result block" =
   let state = create_stream_state () in
   let started =
-    {|{"type":"item.started","item":{"id":"call_1","type":"mcp_tool_call","server":"masc","tool":"masc_status","arguments":{"verbose":true}}}|}
+    {|{"type":"item.started","item":{"id":"call_1","type":"mcp_tool_call","server":"example","tool":"example_status","arguments":{"verbose":true}}}|}
   in
   let completed =
-    {|{"type":"item.completed","item":{"id":"call_1","type":"mcp_tool_call","server":"masc","tool":"masc_status","result":{"content":[{"type":"text","text":"ok"}],"isError":false}}}|}
+    {|{"type":"item.completed","item":{"id":"call_1","type":"mcp_tool_call","server":"example","tool":"example_status","result":{"content":[{"type":"text","text":"ok"}],"isError":false}}}|}
   in
   ignore (events_of_line_with_state state started);
   match events_of_line_with_state state completed with
@@ -838,13 +838,13 @@ let%test "build_args runtime MCP wires request-scoped server" =
       Llm_transport.empty_runtime_mcp_policy with
       servers = [
         Llm_transport.Http_server {
-          name = "masc";
-          url = "http://127.0.0.1:8935/mcp";
+          name = "example";
+          url = "http://127.0.0.1:9999/mcp";
           headers = [];
         };
       ];
-      allowed_server_names = ["masc"];
-      allowed_tool_names = ["masc_status"];
+      allowed_server_names = ["example"];
+      allowed_tool_names = ["example_status"];
       disable_builtin_tools = true;
     }
   in
@@ -853,21 +853,21 @@ let%test "build_args runtime MCP wires request-scoped server" =
       ~runtime_mcp_policy:policy
       ()
   in
-  List.mem "mcp_servers.masc.url=\"http://127.0.0.1:8935/mcp\"" args
-  && List.mem "mcp_servers.masc.tools.masc_status.approval_mode=\"approve\"" args
+  List.mem "mcp_servers.example.url=\"http://127.0.0.1:9999/mcp\"" args
+  && List.mem "mcp_servers.example.tools.example_status.approval_mode=\"approve\"" args
   && List.mem "-s" args
   && List.mem "read-only" args
 
 let%test "parse_jsonl_result includes mcp tool call blocks" =
   let lines = [
     {|{"type":"thread.started","thread_id":"abc-123"}|};
-    {|{"type":"item.completed","item":{"id":"call_1","type":"mcp_tool_call","server":"masc","tool":"masc_status","arguments":{"verbose":true},"result":{"content":[{"type":"text","text":"ok"}],"isError":false}}}|};
+    {|{"type":"item.completed","item":{"id":"call_1","type":"mcp_tool_call","server":"example","tool":"example_status","arguments":{"verbose":true},"result":{"content":[{"type":"text","text":"ok"}],"isError":false}}}|};
     {|{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"done"}}|};
   ] in
   match parse_jsonl_result lines with
   | Ok resp ->
     (match resp.content with
-     | Types.ToolUse { name = "mcp__masc__masc_status"; _ }
+     | Types.ToolUse { name = "mcp__example__example_status"; _ }
        :: Types.ToolResult { tool_use_id = "call_1"; content = "ok"; _ }
        :: Types.Text "done" :: [] -> true
      | _ -> false)

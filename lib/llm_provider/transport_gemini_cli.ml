@@ -594,13 +594,13 @@ let runtime_mcp_policy_sample =
     Llm_transport.empty_runtime_mcp_policy with
     servers = [
       Llm_transport.Http_server {
-        name = "masc";
-        url = "http://127.0.0.1:8935/mcp";
+        name = "example";
+        url = "http://127.0.0.1:9999/mcp";
         headers = [];
       };
     ];
-    allowed_server_names = ["masc"];
-    allowed_tool_names = ["masc_status"];
+    allowed_server_names = ["example"];
+    allowed_tool_names = ["example_status"];
   }
 
 let runtime_mcp_req_sample : Llm_transport.completion_request =
