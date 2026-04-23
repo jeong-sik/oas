@@ -136,6 +136,8 @@ let test_session_transport_kind () =
     command = "http";
     args = [];
     env = [];
+    http_base_url = Some "http://127.0.0.1:8935/mcp";
+    http_headers = [("Authorization", "Bearer tok")];
     tool_schemas = [];
     transport_kind = Http;
   } in
@@ -143,7 +145,9 @@ let test_session_transport_kind () =
   let info2 = Result.get_ok (Mcp_session.info_of_json json) in
   check bool "transport_kind is Http" true
     (info2.transport_kind = Mcp_session.Http);
-  check string "command" "http" info2.command
+  check string "command" "http" info2.command;
+  check (option string) "http url" (Some "http://127.0.0.1:8935/mcp")
+    info2.http_base_url
 
 let test_session_transport_kind_stdio_default () =
   (* Old JSON without transport_kind should default to Stdio *)

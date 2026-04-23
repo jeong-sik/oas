@@ -89,7 +89,13 @@ let connect_and_load_managed ~sw ~net (spec : http_spec) :
     {
       Mcp.tools;
       name = spec.name;
-      transport = Http { close_fn = (fun () -> close client) };
+      transport =
+        Http
+          {
+            close_fn = (fun () -> close client);
+            base_url = spec.base_url;
+            headers = spec.headers;
+          };
     }
 
 let connect_and_load ~sw ~net spec = connect_and_load_managed ~sw ~net spec

@@ -180,7 +180,11 @@ let test_close_managed_http () =
   let managed : Mcp.managed = {
     tools = [];
     name = "http-test";
-    transport = Http { close_fn = (fun () -> closed := true) };
+    transport = Http {
+      close_fn = (fun () -> closed := true);
+      base_url = "http://127.0.0.1:8935/mcp";
+      headers = [];
+    };
   } in
   Mcp.close_managed managed;
   Alcotest.(check bool) "close_fn called" true !closed
@@ -195,12 +199,20 @@ let test_close_all_mixed () =
   let m1 : Mcp.managed = {
     tools = [];
     name = "srv1";
-    transport = Http { close_fn = (fun () -> incr count) };
+    transport = Http {
+      close_fn = (fun () -> incr count);
+      base_url = "http://127.0.0.1:1/mcp";
+      headers = [];
+    };
   } in
   let m2 : Mcp.managed = {
     tools = [];
     name = "srv2";
-    transport = Http { close_fn = (fun () -> incr count) };
+    transport = Http {
+      close_fn = (fun () -> incr count);
+      base_url = "http://127.0.0.1:2/mcp";
+      headers = [];
+    };
   } in
   Mcp.close_all [m1; m2];
   Alcotest.(check int) "both closed" 2 !count
@@ -210,7 +222,11 @@ let test_close_managed_http_exception () =
   let managed : Mcp.managed = {
     tools = [];
     name = "bad-close";
-    transport = Http { close_fn = (fun () -> failwith "close error") };
+    transport = Http {
+      close_fn = (fun () -> failwith "close error");
+      base_url = "http://127.0.0.1:3/mcp";
+      headers = [];
+    };
   } in
   Mcp.close_managed managed;
   Alcotest.(check bool) "no crash" true true

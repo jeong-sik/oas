@@ -12,7 +12,7 @@
       (* ... serialize infos into checkpoint JSON ... *)
 
       (* On resume *)
-      let managed, failed_with_reasons = Mcp_session.reconnect_all ~sw ~mgr infos in
+      let managed, failed_with_reasons = Mcp_session.reconnect_all ~sw ~mgr ~net infos in
       List.iter (fun (info, err) ->
         let _log = Log.create ~module_name:"mcp_session" () in
         Log.warn _log "Failed to reconnect"
@@ -31,6 +31,8 @@ type info = {
   command: string;     (** For HTTP: "http"; for stdio: the executable *)
   args: string list;   (** For HTTP: [url]; for stdio: command-line args *)
   env: (string * string) list;
+  http_base_url: string option;
+  http_headers: (string * string) list;
   tool_schemas: tool_schema list;
   transport_kind: transport_kind;
 }
@@ -42,10 +44,13 @@ let capture (m : Mcp.managed) : info =
   | Mcp.Stdio { spec; _ } ->
       { server_name = m.name; command = spec.command;
         args = spec.args; env = spec.env;
+        http_base_url = None; http_headers = [];
         tool_schemas; transport_kind = Stdio }
-  | Mcp.Http _ ->
+  | Mcp.Http { base_url; headers; _ } ->
       { server_name = m.name; command = "http";
         args = []; env = [];
+        http_base_url = Some base_url;
+        http_headers = headers;
         tool_schemas; transport_kind = Http }
 
 (** Capture session info from all connected managed servers. *)
@@ -61,18 +66,29 @@ let to_server_spec (info : info) : Mcp.server_spec =
     name = info.server_name;
   }
 
+let to_http_spec (info : info) : Mcp_http.http_spec option =
+  match info.http_base_url with
+  | Some base_url -> Some { base_url; headers = info.http_headers; name = info.server_name }
+  | None -> None
+
 (** Reconnect to MCP servers from saved session info.
     Returns a pair: (successfully connected, failed infos with error messages).
     Failed connections do not abort the others.
-    HTTP servers cannot be reconnected from session info alone — they are
-    reported as failed with an informational error. *)
-let reconnect_all ~sw ~mgr (infos : info list) : Mcp.managed list * (info * Error.sdk_error) list =
+    Legacy HTTP checkpoints without stored endpoint metadata still cannot be
+    reconnected and are reported as failed with an informational error. *)
+let reconnect_all ~sw ~mgr ~net (infos : info list) : Mcp.managed list * (info * Error.sdk_error) list =
   List.fold_left (fun (connected, failed) info ->
     match info.transport_kind with
     | Http ->
-        let e = Error.Mcp (InitializeFailed {
-          detail = Printf.sprintf "HTTP MCP server '%s' cannot be reconnected from session" info.server_name }) in
-        (connected, (info, e) :: failed)
+        (match to_http_spec info with
+         | Some spec ->
+             (match Mcp_http.connect_and_load_managed ~sw ~net spec with
+              | Ok m -> (m :: connected, failed)
+              | Error e -> (connected, (info, e) :: failed))
+         | None ->
+             let e = Error.Mcp (InitializeFailed {
+               detail = Printf.sprintf "HTTP MCP server '%s' cannot be reconnected from legacy session data" info.server_name }) in
+             (connected, (info, e) :: failed))
     | Stdio ->
         let spec = to_server_spec info in
         (match Mcp.connect_and_load ~sw ~mgr spec with
@@ -128,6 +144,11 @@ let info_to_json (info : info) : Yojson.Safe.t =
     ("command", `String info.command);
     ("args", `List (List.map (fun s -> `String s) info.args));
     ("env", `List (List.map env_pair_to_json info.env));
+    ( "http_base_url",
+      match info.http_base_url with
+      | Some base_url -> `String base_url
+      | None -> `Null );
+    ("http_headers", `List (List.map env_pair_to_json info.http_headers));
     ("tool_schemas", `List (List.map tool_schema_to_json info.tool_schemas));
     ("transport_kind", `String (transport_kind_to_string info.transport_kind));
   ]
@@ -139,27 +160,47 @@ let info_of_json json : (info, Error.sdk_error) result =
       json |> member "env" |> to_list
       |> List.map env_pair_of_json |> result_all
     in
+    let http_headers_result =
+      let http_header_items =
+        match json |> member "http_headers" with
+        | `List items -> items
+        | _ -> []
+      in
+      http_header_items |> List.map env_pair_of_json |> result_all
+    in
     let tools_result =
       json |> member "tool_schemas" |> to_list
       |> List.map tool_schema_of_json |> result_all
     in
-    match env_result, tools_result with
-    | Ok env, Ok tool_schemas ->
+    match env_result, http_headers_result, tools_result with
+    | Ok env, Ok http_headers, Ok tool_schemas ->
       let transport_kind =
         json |> member "transport_kind" |> to_string_option
         |> Option.value ~default:"stdio"
         |> transport_kind_of_string
+      in
+      let http_base_url =
+        match json |> member "http_base_url" |> to_string_option with
+        | Some base_url -> Some base_url
+        | None ->
+            (match transport_kind with
+             | Http when json |> member "command" |> to_string <> "http" ->
+                 Some (json |> member "command" |> to_string)
+             | _ -> None)
       in
       Ok {
         server_name = json |> member "server_name" |> to_string;
         command = json |> member "command" |> to_string;
         args = json |> member "args" |> to_list |> List.map to_string;
         env;
+        http_base_url;
+        http_headers;
         tool_schemas;
         transport_kind;
       }
-    | Error e, _ -> Error e
-    | _, Error e -> Error e
+    | Error e, _, _ -> Error e
+    | _, Error e, _ -> Error e
+    | _, _, Error e -> Error e
   with
   | Yojson.Safe.Util.Type_error (msg, _) ->
     Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Mcp_session.info_of_json: %s" msg }))

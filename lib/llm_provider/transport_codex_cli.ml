@@ -229,16 +229,21 @@ let runtime_mcp_overrides
     let name = Llm_transport.runtime_mcp_server_name server in
     match acc, server with
     | Error _ as e, _ -> e
-    | Ok overrides, Llm_transport.Http_server { url; headers = []; _ } ->
+    | Ok overrides, Llm_transport.Http_server { url; headers; _ } ->
       Ok
         (overrides
-         @ [Printf.sprintf "mcp_servers.%s.url=%s" name (toml_string url)])
-    | Ok _, Llm_transport.Http_server { headers = _ :: _; _ } ->
-      Error "codex_cli runtime MCP does not support inline HTTP headers yet"
+         @ [Printf.sprintf "mcp_servers.%s.url=%s" name (toml_string url)]
+         @
+         if headers = [] then []
+         else
+           [
+             Printf.sprintf "mcp_servers.%s.http_headers=%s"
+               name (toml_string_assoc headers);
+           ])
     | Ok overrides, Llm_transport.Stdio_server { command; args; env; _ } ->
       Ok
         (overrides
-         @ [
+        @ [
              Printf.sprintf "mcp_servers.%s.command=%s"
                name (toml_string command);
              Printf.sprintf "mcp_servers.%s.args=%s"
@@ -857,6 +862,33 @@ let%test "build_args runtime MCP wires request-scoped server" =
   && List.mem "mcp_servers.example.tools.example_status.approval_mode=\"approve\"" args
   && List.mem "-s" args
   && List.mem "read-only" args
+
+let%test "build_args runtime MCP wires HTTP headers" =
+  let policy =
+    {
+      Llm_transport.empty_runtime_mcp_policy with
+      servers = [
+        Llm_transport.Http_server {
+          name = "masc";
+          url = "http://127.0.0.1:8935/mcp";
+          headers = [
+            ("Authorization", "Bearer tok");
+            ("Accept", "application/json, text/event-stream");
+          ];
+        };
+      ];
+      allowed_server_names = ["masc"];
+    }
+  in
+  let args =
+    build_args ~config:default_config ~req_config:(codex_req ()) ~prompt:"hi"
+      ~runtime_mcp_policy:policy
+      ()
+  in
+  List.mem "mcp_servers.masc.url=\"http://127.0.0.1:8935/mcp\"" args
+  && List.mem
+       "mcp_servers.masc.http_headers={Authorization=\"Bearer tok\",Accept=\"application/json, text/event-stream\"}"
+       args
 
 let%test "parse_jsonl_result includes mcp tool call blocks" =
   let lines = [
