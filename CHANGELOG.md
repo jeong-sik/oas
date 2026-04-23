@@ -11,11 +11,6 @@ original tag dates. `0.100.4` was never tagged or released.
 ### Fixed
 
 - **Split pipeline stages now build messages through the shared constructor.** The post-split `stage_input`, `stage_collect`, and `stage_execute` paths now use `make_message` instead of stale record literals, so newly required fields such as `metadata` stay aligned with the shared message shape and downstream pipeline builds stop breaking after the stage split (#1151).
-
-## [0.170.4] - 2026-04-23
-
-### Fixed
-
 - **Kimi CLI session reuse now matches the actual CLI contract.** `transport_kimi_cli` now passes config files via `--config-file`, keeps `--session <id>` stable across turns, and stops assuming `--continue` is valid with an explicit session id. This preserves the intended token-saving delta prompt behavior for keeper-style multi-turn sessions without relying on a CLI flag combination that `kimi` rejects.
 
 ## [0.170.0] - 2026-04-21
