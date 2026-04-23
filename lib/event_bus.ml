@@ -18,6 +18,8 @@ type envelope = {
   caused_by: string option;
 }
 
+type envelope_v2 = Event_envelope.t
+
 (* ── Payload type ─────────────────────────────────────────────────── *)
 
 type slot_scheduler_state =
@@ -82,6 +84,14 @@ let mk_envelope ?correlation_id ?run_id ?caused_by () =
   let correlation_id = match correlation_id with Some id -> id | None -> fresh_id () in
   let run_id = match run_id with Some id -> id | None -> fresh_id () in
   { correlation_id; run_id; ts = Unix.gettimeofday (); caused_by }
+
+let mk_envelope_v2 = Event_envelope.make
+
+let envelope_v2_of_envelope ?event_id ?observed_at ?seq ?parent_event_id
+    (env : envelope) =
+  Event_envelope.make ?event_id ~correlation_id:env.correlation_id
+    ~run_id:env.run_id ~event_time:env.ts ?observed_at ?seq ?parent_event_id
+    ?caused_by:env.caused_by ~source_clock:Event_envelope.Wall ()
 
 let mk_event ?correlation_id ?run_id ?caused_by payload =
   { meta = mk_envelope ?correlation_id ?run_id ?caused_by (); payload }

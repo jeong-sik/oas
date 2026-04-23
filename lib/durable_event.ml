@@ -7,6 +7,10 @@
 
 (* ── Event types ──────────────────────────────────── *)
 
+type envelope_v2 = Event_envelope.t
+
+let mk_envelope_v2 = Event_envelope.make
+
 type event =
   | Turn_started of { turn: int; timestamp: float }
   | Llm_request of {

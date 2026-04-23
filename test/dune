@@ -371,6 +371,10 @@
  (libraries agent_sdk alcotest))
 
 (test
+ (name test_cdal)
+ (libraries agent_sdk alcotest yojson unix str))
+
+(test
  (name test_a2a_client)
  (libraries agent_sdk alcotest))
 

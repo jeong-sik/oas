@@ -27,6 +27,12 @@ type envelope = {
         Pattern 4 (Message Bus). @since 0.161.0 (#877) *)
 }
 
+(** Richer, cross-runtime envelope with explicit event IDs, observation time,
+    and sequence/parent metadata. Existing {!envelope} remains the event bus
+    compatibility shape; new adapters should prefer [envelope_v2].
+    @since truth-layer-evidence *)
+type envelope_v2 = Event_envelope.t
+
 (** {2 Payload types} *)
 
 type slot_scheduler_state =
@@ -138,6 +144,27 @@ val mk_envelope :
   ?caused_by:string ->
   unit ->
   envelope
+
+val mk_envelope_v2 :
+  ?event_id:string ->
+  ?correlation_id:string ->
+  ?run_id:string ->
+  ?event_time:float ->
+  ?observed_at:float ->
+  ?seq:int ->
+  ?parent_event_id:string ->
+  ?caused_by:string ->
+  ?source_clock:Event_envelope.source_clock ->
+  unit ->
+  envelope_v2
+
+val envelope_v2_of_envelope :
+  ?event_id:string ->
+  ?observed_at:float ->
+  ?seq:int ->
+  ?parent_event_id:string ->
+  envelope ->
+  envelope_v2
 
 (** Create an event by wrapping a payload in a fresh envelope.
     @since 0.161.0 [?caused_by] added. *)

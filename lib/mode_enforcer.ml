@@ -158,6 +158,7 @@ type state = {
   mutable violations: violation list;
   mutable token_snapshots: token_snapshot list;
   mutable review_warning: string option;
+  mutable effect_evidence: Effect_evidence.t list;
 }
 
 let create ~contract ~effective_mode ?(tool_classifications = []) () =
@@ -170,11 +171,13 @@ let create ~contract ~effective_mode ?(tool_classifications = []) () =
     violations = [];
     token_snapshots = [];
     review_warning = None;
+    effect_evidence = [];
   }
 
 let violations st = List.rev st.violations
 let token_snapshots st = List.rev st.token_snapshots
 let review_warning st = st.review_warning
+let effect_evidence st = List.rev st.effect_evidence
 
 (* ── Tool classification ─────────────────────────────────────────── *)
 
@@ -351,10 +354,14 @@ let all_workspace_only tools =
 let truncate_input input =
   Util.clip (Yojson.Safe.to_string input) 200
 
-let check_violation st tool_name input =
-  let cls = effective_class_with_hints
-      ~tool_classifications:st.tool_classifications tool_name input in
-  let kind = match st.effective_mode, cls with
+let evidence_effect_class_of_tool_class = function
+  | Read_only -> Effect_evidence.Read_only
+  | Local_mutation -> Effect_evidence.Local_mutation
+  | External_effect -> Effect_evidence.External_effect
+  | Shell_dynamic -> Effect_evidence.Shell_dynamic
+
+let violation_kind_for_class st cls =
+  match st.effective_mode, cls with
     | Execution_mode.Diagnose, (Local_mutation | External_effect) ->
       Some Mutating_in_diagnose
     | Execution_mode.Draft, External_effect ->
@@ -365,18 +372,45 @@ let check_violation st tool_name input =
         Some Scope_violation
       else
         None
+
+let record_effect_evidence st ~tool_use_id ~tool_name ~input ~turn ~ts
+    ~effect_class ~decision ~result_status ?violation_kind () =
+  let violation_kind =
+    Option.map violation_kind_to_string violation_kind
   in
+  let row =
+    Effect_evidence.make ~tool_use_id ~tool_name
+      ~effect_class:(evidence_effect_class_of_tool_class effect_class)
+      ~decision ~decision_source:"mode_enforcer" ~input
+      ~input_summary:(truncate_input input) ~started_at:ts ~ended_at:ts
+      ~result_status ?violation_kind ~turn
+      ~execution_mode:(Execution_mode.to_string st.effective_mode) ()
+  in
+  st.effect_evidence <- row :: st.effect_evidence
+
+let check_violation st ~tool_use_id ~tool_name ~input ~turn =
+  let ts = Unix.gettimeofday () in
+  let cls = effective_class_with_hints
+      ~tool_classifications:st.tool_classifications tool_name input in
+  let kind = violation_kind_for_class st cls in
   match kind with
-  | None -> None
+  | None ->
+    record_effect_evidence st ~tool_use_id ~tool_name ~input ~turn ~ts
+      ~effect_class:cls ~decision:Effect_evidence.Allowed
+      ~result_status:Effect_evidence.Pending ();
+    None
   | Some violation_kind ->
     let v = {
-      ts = Unix.gettimeofday ();
+      ts;
       tool_name;
       input_summary = truncate_input input;
       effective_mode = st.effective_mode;
       violation_kind;
     } in
     st.violations <- v :: st.violations;
+    record_effect_evidence st ~tool_use_id ~tool_name ~input ~turn ~ts
+      ~effect_class:cls ~decision:Effect_evidence.Denied
+      ~result_status:Effect_evidence.Not_run ~violation_kind ();
     Some v
 
 (* ── Hooks ───────────────────────────────────────────────────────── *)
@@ -399,8 +433,8 @@ let hooks st =
 
     pre_tool_use = Some (fun event ->
       match event with
-      | PreToolUse { tool_name; input; _ } ->
-        (match check_violation st tool_name input with
+      | PreToolUse { tool_use_id; tool_name; input; turn; _ } ->
+        (match check_violation st ~tool_use_id ~tool_name ~input ~turn with
          | Some v ->
            Format.eprintf
              "[mode_enforcer] SKIP tool=%s kind=%s mode=%s@."
