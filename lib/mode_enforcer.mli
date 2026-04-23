@@ -68,6 +68,10 @@ val violations : state -> violation list
 val token_snapshots : state -> token_snapshot list
 val review_warning : state -> string option
 
+(** Tool-effect decision evidence recorded for every PreToolUse decision,
+    including allowed attempts and denied/skipped attempts. *)
+val effect_evidence : state -> Effect_evidence.t list
+
 (** Classify a tool by name using the global registry.
     Returns [Shell_dynamic] for bash/execute_shell_command.
     Unknown tools default to [External_effect] (fail closed). *)

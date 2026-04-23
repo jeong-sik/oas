@@ -102,6 +102,84 @@ let default_schedule ?(planned_index = 0) ?(batch_index = 0) ?(batch_size = 1)
     ?(concurrency_class = "sequential_workspace") ?(batch_kind = "sequential") () =
   Hooks.{ planned_index; batch_index; batch_size; concurrency_class; batch_kind }
 
+let contains_substring ~sub s =
+  try
+    ignore (Str.search_forward (Str.regexp_string sub) s 0);
+    true
+  with Not_found -> false
+
+(* ================================================================ *)
+(* Truth-layer primitive tests                                       *)
+(* ================================================================ *)
+
+let test_event_envelope_roundtrip () =
+  let env =
+    Event_envelope.make ~event_id:"evt-1" ~correlation_id:"corr-1"
+      ~run_id:"run-1" ~event_time:10.0 ~observed_at:11.0 ~seq:7
+      ~parent_event_id:"evt-0" ~caused_by:"cause-1"
+      ~source_clock:Event_envelope.Logical ()
+  in
+  match Event_envelope.of_json (Event_envelope.to_json env) with
+  | Error e -> Alcotest.fail e
+  | Ok decoded ->
+    Alcotest.(check string) "event_id" env.event_id decoded.event_id;
+    Alcotest.(check string) "clock" "logical"
+      (Event_envelope.source_clock_to_string decoded.source_clock);
+    Alcotest.(check (option int)) "seq" (Some 7) decoded.seq
+
+let test_event_bus_envelope_v2_from_legacy () =
+  let legacy =
+    Event_bus.mk_envelope ~correlation_id:"corr-legacy" ~run_id:"run-legacy"
+      ~caused_by:"parent-run" ()
+  in
+  let env =
+    Event_bus.envelope_v2_of_envelope ~event_id:"evt-legacy"
+      ~observed_at:(legacy.ts +. 1.0) ~seq:3 legacy
+  in
+  Alcotest.(check string) "correlation" legacy.correlation_id env.correlation_id;
+  Alcotest.(check string) "run" legacy.run_id env.run_id;
+  Alcotest.(check (option string)) "caused_by" legacy.caused_by env.caused_by;
+  Alcotest.(check string) "clock" "wall"
+    (Event_envelope.source_clock_to_string env.source_clock)
+
+let test_effect_evidence_roundtrip () =
+  let input = `Assoc ["path", `String "a.ml"] in
+  let evidence =
+    Effect_evidence.make ~tool_use_id:"tu-1" ~tool_name:"edit"
+      ~effect_class:Effect_evidence.Local_mutation
+      ~decision:Effect_evidence.Approval_required
+      ~decision_source:"hitl" ~input ~started_at:1.0 ~ended_at:2.0
+      ~result_status:Effect_evidence.Pending ~sandbox:"docker"
+      ~workdir:"/workspace" ~turn:4 ~execution_mode:"draft" ()
+  in
+  match Effect_evidence.of_json (Effect_evidence.to_json evidence) with
+  | Error e -> Alcotest.fail e
+  | Ok decoded ->
+    Alcotest.(check string) "tool_use_id" "tu-1" decoded.tool_use_id;
+    Alcotest.(check string) "effect_class" "local_mutation"
+      (Effect_evidence.effect_class_to_string decoded.effect_class);
+    Alcotest.(check string) "decision" "approval_required"
+      (Effect_evidence.decision_to_string decoded.decision);
+    Alcotest.(check (option string)) "sandbox" (Some "docker") decoded.sandbox
+
+let test_runtime_health_roundtrip () =
+  let probes = [
+    Runtime_health.make_probe ~name:Runtime_health.Provider
+      ~status:Runtime_health.Status_ok ~checked_at:10.0 ();
+    Runtime_health.make_probe ~name:Runtime_health.Transport
+      ~status:Runtime_health.Failed ~detail:"connection reset"
+      ~checked_at:11.0 ~latency_ms:25.0 ();
+  ] in
+  let report = Runtime_health.make ~generated_at:12.0 probes in
+  Alcotest.(check string) "overall" "failed"
+    (Runtime_health.status_to_string report.overall);
+  match Runtime_health.of_json (Runtime_health.to_json report) with
+  | Error e -> Alcotest.fail e
+  | Ok decoded ->
+    Alcotest.(check int) "probe count" 2 (List.length decoded.probes);
+    Alcotest.(check string) "overall roundtrip" "failed"
+      (Runtime_health.status_to_string decoded.overall)
+
 let test_mode_resolver_passthrough () =
   let result = Mode_resolver.resolve
       ~requested:Execution_mode.Draft
@@ -749,6 +827,27 @@ let test_diagnose_allows_read () =
     (match d with Hooks.Continue -> true | _ -> false);
   Alcotest.(check int) "0 violations" 0 (List.length (Mode_enforcer.violations st))
 
+let test_mode_enforcer_records_effect_evidence () =
+  let st = diagnose_enforcer () in
+  let h = Mode_enforcer.hooks st in
+  let _ = Hooks.invoke h.pre_tool_use (make_enforcer_event "read" `Null) in
+  let _ = Hooks.invoke h.pre_tool_use (make_enforcer_event "edit" `Null) in
+  let effects = Mode_enforcer.effect_evidence st in
+  Alcotest.(check int) "2 effect rows" 2 (List.length effects);
+  match effects with
+  | read_effect :: edit_effect :: [] ->
+    Alcotest.(check string) "read decision" "allowed"
+      (Effect_evidence.decision_to_string read_effect.decision);
+    Alcotest.(check string) "read class" "read_only"
+      (Effect_evidence.effect_class_to_string read_effect.effect_class);
+    Alcotest.(check string) "edit decision" "denied"
+      (Effect_evidence.decision_to_string edit_effect.decision);
+    Alcotest.(check string) "edit status" "not_run"
+      (Effect_evidence.result_status_to_string edit_effect.result_status);
+    Alcotest.(check (option string)) "violation" (Some "mutating_in_diagnose")
+      edit_effect.violation_kind
+  | _ -> Alcotest.fail "unexpected effect evidence order"
+
 let test_diagnose_allows_bash_ls () =
   let st = diagnose_enforcer () in
   let h = Mode_enforcer.hooks st in
@@ -947,6 +1046,51 @@ let test_evidence_violations_in_proof () =
        with Not_found -> false) proof.raw_evidence_refs);
   ignore (Sys.command (Printf.sprintf "rm -rf %s" tmpdir))
 
+let test_evidence_effects_in_proof () =
+  let store, tmpdir = make_test_store () in
+  let contract = make_contract ~mode:Execution_mode.Diagnose ~risk:Risk_class.Low () in
+  let mode_decision : Mode_resolver.decision = {
+    effective_mode = Execution_mode.Diagnose; source = "passthrough";
+  } in
+  let state = Proof_capture.create
+      ~store ~contract ~mode_decision ~capability_snapshot:test_caps () in
+  let enforcer = Mode_enforcer.create
+      ~contract ~effective_mode:Execution_mode.Diagnose () in
+  Proof_capture.set_enforcer state enforcer;
+  let eh = Mode_enforcer.hooks enforcer in
+  let _ = Hooks.invoke eh.pre_tool_use
+      (Hooks.PreToolUse {
+         tool_use_id = "tu-edit";
+         tool_name = "edit";
+         input = `Assoc ["path", `String "a.ml"];
+         accumulated_cost_usd = 0.0;
+         turn = 2;
+         schedule = default_schedule ();
+       }) in
+  let proof = Proof_capture.finalize state ~result_status:Cdal_proof.Completed in
+  let effects_ref =
+    List.find_opt (contains_substring ~sub:"effects") proof.raw_evidence_refs
+  in
+  (match effects_ref with
+   | None -> Alcotest.fail "missing effects evidence ref"
+   | Some ref_ ->
+     (match Proof_store.read_json store ref_ with
+      | Ok (`List [json]) ->
+        (match Effect_evidence.of_json json with
+         | Ok evidence ->
+           Alcotest.(check string) "decision" "denied"
+             (Effect_evidence.decision_to_string evidence.decision);
+           Alcotest.(check (option string)) "mode" (Some "diagnose")
+             evidence.execution_mode;
+           Alcotest.(check (option int)) "turn" (Some 2) evidence.turn
+         | Error e -> Alcotest.fail e)
+      | Ok other ->
+        Alcotest.fail
+          (Printf.sprintf "unexpected effects payload: %s"
+             (Yojson.Safe.to_string other))
+      | Error e -> Alcotest.fail e));
+  ignore (Sys.command (Printf.sprintf "rm -rf %s" tmpdir))
+
 let test_evidence_token_usage () =
   let store, tmpdir = make_test_store () in
   let state = Proof_capture.create
@@ -1089,6 +1233,16 @@ let () =
     "Risk_class", [
       Alcotest.test_case "max_mode" `Quick test_risk_class_max_mode;
     ];
+    "Truth-layer primitives", [
+      Alcotest.test_case "event envelope roundtrip" `Quick
+        test_event_envelope_roundtrip;
+      Alcotest.test_case "event bus v2 from legacy" `Quick
+        test_event_bus_envelope_v2_from_legacy;
+      Alcotest.test_case "effect evidence roundtrip" `Quick
+        test_effect_evidence_roundtrip;
+      Alcotest.test_case "runtime health roundtrip" `Quick
+        test_runtime_health_roundtrip;
+    ];
     "Risk_contract", [
       Alcotest.test_case "contract_id deterministic" `Quick test_contract_id_deterministic;
       Alcotest.test_case "contract_id sensitive" `Quick test_contract_id_sensitive;
@@ -1137,6 +1291,8 @@ let () =
       Alcotest.test_case "diagnose blocks write" `Quick test_diagnose_blocks_write;
       Alcotest.test_case "diagnose blocks bash rm" `Quick test_diagnose_blocks_bash_rm;
       Alcotest.test_case "diagnose allows read" `Quick test_diagnose_allows_read;
+      Alcotest.test_case "records effect evidence" `Quick
+        test_mode_enforcer_records_effect_evidence;
       Alcotest.test_case "diagnose allows bash ls" `Quick test_diagnose_allows_bash_ls;
       Alcotest.test_case "draft allows write" `Quick test_draft_allows_write;
       Alcotest.test_case "draft blocks bash curl" `Quick test_draft_blocks_bash_curl;
@@ -1154,6 +1310,7 @@ let () =
     ];
     "Evidence enrichment", [
       Alcotest.test_case "violations in proof" `Quick test_evidence_violations_in_proof;
+      Alcotest.test_case "effects in proof" `Quick test_evidence_effects_in_proof;
       Alcotest.test_case "token usage" `Quick test_evidence_token_usage;
       Alcotest.test_case "review warning" `Quick test_evidence_review_warning;
     ];

@@ -197,6 +197,14 @@ let collect_evidence_refs st =
   | None -> []
   | Some enforcer ->
     let refs = ref [] in
+    let effects = Mode_enforcer.effect_evidence enforcer in
+    if effects <> [] then begin
+      let json = `List (List.map Effect_evidence.to_json effects) in
+      Proof_store.write_evidence st.store ~run_id:st.run_id
+        ~ref_id:"effects" json;
+      refs := Proof_store.make_ref ~run_id:st.run_id
+        ~subpath:"evidence/effects.json" :: !refs
+    end;
     let violations = Mode_enforcer.violations enforcer in
     if violations <> [] then begin
       let json = `List (List.map Mode_enforcer.violation_to_yojson violations) in
