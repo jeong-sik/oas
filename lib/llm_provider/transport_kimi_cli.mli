@@ -18,6 +18,9 @@ type config = {
         selected unless the request provides a concrete model id. *)
   cwd: string option;
     (** Working directory for the subprocess. *)
+  config_file: string option;
+    (** Path to a Kimi CLI config file passed as [--config-file].
+        [None] means no explicit config file is supplied. *)
   mcp_config_files: string list;
     (** Additional [--mcp-config-file] paths. Empty preserves the CLI's
         default MCP discovery (including [~/.kimi/mcp.json] when it
@@ -29,10 +32,19 @@ type config = {
     (** When [true] (default), prior [ToolUse]/[ToolResult] content
         blocks in the conversation history are flattened back into the
         prompt so later turns keep the provider-native tool trace. *)
+  extra_env: (string * string) list;
+    (** Additional environment variables injected into the [kimi]
+        subprocess. Default [[]]. *)
   cancel: unit Eio.Promise.t option;
     (** When [Some p] and [p] resolves mid-run, the [kimi] subprocess
         receives [SIGINT] via [Eio.Process.signal].
         Default [None]. *)
+  session_id: string option;
+    (** When [Some id], the transport passes [--session id] on each call.
+        Kimi CLI creates that session if absent and resumes it if present.
+        The transport then reuses the CLI's on-disk session state and sends
+        only the message delta on later turns, which avoids re-transmitting
+        the entire conversation history in keeper mode. Default [None]. *)
 }
 
 (** Sensible defaults: [kimi] in PATH, [kimi-for-coding], no explicit

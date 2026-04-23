@@ -6,20 +6,26 @@ type config = {
   kimi_path: string;
   model: string option;
   cwd: string option;
+  config_file: string option;
   mcp_config_files: string list;
   mcp_config_json: string list;
   forward_tool_results: bool;
+  extra_env: (string * string) list;
   cancel: unit Eio.Promise.t option;
+  session_id: string option;
 }
 
 let default_config = {
   kimi_path = "kimi";
   model = Some "kimi-for-coding";
   cwd = None;
+  config_file = None;
   mcp_config_files = [];
   mcp_config_json = [];
   forward_tool_results = true;
+  extra_env = [];
   cancel = None;
+  session_id = None;
 }
 
 (* Prompt shaping, JSON helpers, and subprocess orchestration live in the
@@ -59,12 +65,18 @@ let build_args ~(config : config) ~(req_config : Provider_config.t) ~prompt =
   (match config.cwd with
    | Some dir when String.trim dir <> "" -> add ["--work-dir"; dir]
    | _ -> ());
+  (match config.config_file with
+   | Some path when String.trim path <> "" -> add ["--config-file"; path]
+   | _ -> ());
   List.iter (fun path -> add ["--mcp-config-file"; path]) config.mcp_config_files;
   List.iter (fun json -> add ["--mcp-config"; json]) config.mcp_config_json;
   (match req_config.enable_thinking with
    | Some true -> add ["--thinking"]
    | Some false -> add ["--no-thinking"]
    | None -> ());
+  (match config.session_id with
+   | Some id when String.trim id <> "" -> add ["--session"; id]
+   | _ -> ());
   !args
 
 (* ── JSON parsing ────────────────────────────────────── *)
@@ -177,7 +189,6 @@ let usage_of_lines lines =
     with Yojson.Json_error _ | Type_error _ -> None
   in
   List.find_map find_usage lines
-
 let parse_jsonl_result ~model_id lines =
   let content = List.concat_map blocks_of_output_line lines in
   if content = [] then
@@ -276,21 +287,58 @@ let warn_external_tools_once warned tools =
        transport."
   end
 
+(* Drop the first [n] elements of a list.  O(n) but n is the delta between
+   successive turns, which is small. *)
+let rec drop n = function
+  | [] -> []
+  | _ :: t when n > 0 -> drop (n - 1) t
+  | l -> l
+
 let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
   : Llm_transport.t =
   let warned = ref false in
+  (* When [session_id] is set we track how many non-system messages have
+     already been sent so that subsequent turns can transmit only the delta.
+     This avoids re-transmitting the entire conversation history on every
+     turn, which is the primary source of token waste in keeper mode. *)
+  let previous_msg_count = ref 0 in
+
+  let prepare_prompt_and_messages (req : Llm_transport.completion_request) =
+    let all_messages = Cli_common_prompt.non_system_messages req.messages in
+    let system_prompt =
+      Cli_common_prompt.system_prompt_of ~req_config:req.config req.messages in
+    let resume_existing_session =
+      match config.session_id with
+      | Some _ when !previous_msg_count > 0 &&
+                    List.length all_messages > !previous_msg_count -> true
+      | _ -> false
+    in
+    let messages_to_send =
+      if resume_existing_session then
+        drop !previous_msg_count all_messages
+      else
+        all_messages
+    in
+    let prompt =
+      Cli_common_prompt.prompt_of_messages
+        ~include_tool_blocks:config.forward_tool_results messages_to_send
+      |> fun prompt ->
+      if resume_existing_session then
+        (* When resuming a session the CLI already has the system prompt
+           and prior turns in its session file; repeating it would bloat
+           the prompt and confuse the context. *)
+        prompt
+      else
+        Cli_common_prompt.prompt_with_system_prompt ~prompt ~system_prompt
+    in
+    previous_msg_count := List.length all_messages;
+    prompt, resume_existing_session
+  in
+
   {
     complete_sync = (fun (req : Llm_transport.completion_request) ->
       warn_external_tools_once warned req.tools;
-      let messages = Cli_common_prompt.non_system_messages req.messages in
-      let system_prompt =
-        Cli_common_prompt.system_prompt_of ~req_config:req.config req.messages in
-      let prompt =
-        Cli_common_prompt.prompt_of_messages
-          ~include_tool_blocks:config.forward_tool_results messages
-        |> fun prompt ->
-        Cli_common_prompt.prompt_with_system_prompt ~prompt ~system_prompt
-      in
+      let prompt, _resume_existing_session = prepare_prompt_and_messages req in
       let model_id =
         Option.value ~default:"kimi-for-coding"
           (cli_model_override ~config ~req_config:req.config)
@@ -302,7 +350,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
           seen_lines := line :: !seen_lines
       in
       match Cli_common_subprocess.run_stream_lines ~sw ~mgr
-              ~name:"kimi" ~cwd:config.cwd ~extra_env:[]
+              ~name:"kimi" ~cwd:config.cwd ~extra_env:config.extra_env
               ?stdin_content:(stdin_for_prompt prompt)
               ~on_line ?cancel:config.cancel
               argv with
@@ -314,15 +362,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
 
     complete_stream = (fun ~on_event (req : Llm_transport.completion_request) ->
       warn_external_tools_once warned req.tools;
-      let messages = Cli_common_prompt.non_system_messages req.messages in
-      let system_prompt =
-        Cli_common_prompt.system_prompt_of ~req_config:req.config req.messages in
-      let prompt =
-        Cli_common_prompt.prompt_of_messages
-          ~include_tool_blocks:config.forward_tool_results messages
-        |> fun prompt ->
-        Cli_common_prompt.prompt_with_system_prompt ~prompt ~system_prompt
-      in
+      let prompt, _resume_existing_session = prepare_prompt_and_messages req in
       let model_id =
         Option.value ~default:"kimi-for-coding"
           (cli_model_override ~config ~req_config:req.config)
@@ -353,7 +393,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
       in
       match classify_cli_error
               (Cli_common_subprocess.run_stream_lines ~sw ~mgr
-                 ~name:"kimi" ~cwd:config.cwd ~extra_env:[]
+                 ~name:"kimi" ~cwd:config.cwd ~extra_env:config.extra_env
                  ?stdin_content:(stdin_for_prompt prompt)
                  ~on_line ?cancel:config.cancel
                  argv)
@@ -427,6 +467,23 @@ let%test "build_args routes large prompt via stdin" =
   in
   not (List.mem big args)
   && not (List.mem "-p" args)
+
+let%test "build_args adds session id when configured" =
+  let config = { default_config with session_id = Some "sess-abc" } in
+  let args =
+    build_args ~config ~req_config:(kimi_req ()) ~prompt:"next"
+  in
+  List.mem "--session" args
+  && List.mem "sess-abc" args
+
+let%test "build_args uses config-file flag for config_file" =
+  let config = { default_config with config_file = Some "/tmp/kimi.toml" } in
+  let args =
+    build_args ~config ~req_config:(kimi_req ()) ~prompt:"first"
+  in
+  List.mem "--config-file" args
+  && List.mem "/tmp/kimi.toml" args
+  && not (List.mem "--config" args)
 
 let%test "parse_jsonl_result restores tool trace" =
   let lines = [
