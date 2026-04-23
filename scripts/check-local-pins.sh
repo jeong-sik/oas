@@ -15,10 +15,11 @@ drift=0
 
 check_pin() {
   local pkg="$1" expected_sha="$2" label="$3"
-  local local_info
-  local_info="$(opam pin list 2>/dev/null | grep "^${pkg}\." || true)"
+  local switch_prefix overlay_opam local_sha
+  switch_prefix="$(opam var prefix 2>/dev/null || true)"
+  overlay_opam="${switch_prefix}/.opam-switch/overlay/${pkg}/opam"
 
-  if [[ -z "$local_info" ]]; then
+  if [[ -z "$switch_prefix" || ! -f "$overlay_opam" ]]; then
     echo -e "${RED}[DRIFT]${NC} ${label}: not pinned locally"
     echo "  expected: ${expected_sha:0:12} (from scripts/mcp-sdk-pin.sh)"
     echo "  local:    opam default / no pin"
@@ -27,14 +28,17 @@ check_pin() {
     return
   fi
 
-  if echo "$local_info" | grep -q "$expected_sha"; then
+  local_sha="$(
+    sed -n 's/^[[:space:]]*"\(git+[^"#]*#\)\([a-f0-9]\{7,\}\)".*/\2/p' "$overlay_opam" \
+      | head -1
+  )"
+
+  if [[ "$local_sha" == "$expected_sha" ]]; then
     echo -e "${GREEN}[OK]${NC} ${label}: ${expected_sha:0:12}"
   else
-    local actual
-    actual="$(echo "$local_info" | grep -oE 'at [a-f0-9]+' | head -1 | sed 's/at //')"
     echo -e "${RED}[DRIFT]${NC} ${label}"
     echo "  expected: ${expected_sha:0:12} (from scripts/mcp-sdk-pin.sh)"
-    echo "  local:    ${actual:-unknown}"
+    echo "  local:    ${local_sha:-unknown}"
     echo "  fix: opam pin add ${pkg} \"git+${MCP_SDK_URL}#${expected_sha}\" --no-action --yes"
     drift=1
   fi
