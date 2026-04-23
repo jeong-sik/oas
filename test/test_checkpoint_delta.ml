@@ -105,6 +105,8 @@ let mcp_info_gen =
         command;
         args;
         env = [];
+        http_base_url = None;
+        http_headers = [];
         tool_schemas;
         transport_kind = Mcp_session.Stdio;
       })

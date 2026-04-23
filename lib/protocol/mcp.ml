@@ -267,7 +267,11 @@ type server_spec = {
 (** Transport backend for a managed MCP connection. *)
 type transport =
   | Stdio of { client: t; spec: server_spec }
-  | Http of { close_fn: unit -> unit }
+  | Http of {
+      close_fn: unit -> unit;
+      base_url: string;
+      headers: (string * string) list;
+    }
 
 (** A connected MCP server together with its converted SDK tools. *)
 type managed = {

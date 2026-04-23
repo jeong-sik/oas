@@ -27,9 +27,11 @@ let make_info
     ?(command="/usr/bin/mcp-server")
     ?(args=[])
     ?(env=[])
+    ?http_base_url
+    ?(http_headers=[])
     ?(tool_schemas=[])
     () : Mcp_session.info =
-  { server_name; command; args; env; tool_schemas;
+  { server_name; command; args; env; http_base_url; http_headers; tool_schemas;
     transport_kind = Stdio }
 
 let () =
@@ -95,6 +97,30 @@ let () =
         check string "second" "beta" (List.nth infos2 1).server_name;
         check string "third" "gamma" (List.nth infos2 2).server_name;
         check int "beta tools" 1 (List.length (List.nth infos2 1).tool_schemas));
+
+      test_case "http info roundtrip" `Quick (fun () ->
+        let info : Mcp_session.info = {
+          server_name = "masc";
+          command = "http";
+          args = [];
+          env = [];
+          http_base_url = Some "http://127.0.0.1:8935/mcp";
+          http_headers = [
+            ("Authorization", "Bearer tok");
+            ("X-MASC-Agent", "codex");
+          ];
+          tool_schemas = [sample_tool_schema];
+          transport_kind = Http;
+        } in
+        let json = Mcp_session.info_to_json info in
+        let info2 = Result.get_ok (Mcp_session.info_of_json json) in
+        check (option string) "http base url"
+          (Some "http://127.0.0.1:8935/mcp") info2.http_base_url;
+        check int "http headers" 2 (List.length info2.http_headers);
+        check string "first http header key" "Authorization"
+          (fst (List.hd info2.http_headers));
+        check string "transport kind" "http"
+          (match info2.transport_kind with Http -> "http" | Stdio -> "stdio"));
     ];
 
     "to_server_spec", [
@@ -159,6 +185,19 @@ let () =
           ]);
         ] in
         check bool "error" true (Result.is_error (Mcp_session.info_of_json bad)));
+
+      test_case "legacy http info without endpoint still parses" `Quick (fun () ->
+        let legacy = `Assoc [
+          ("server_name", `String "legacy-http");
+          ("command", `String "http");
+          ("args", `List []);
+          ("env", `List []);
+          ("tool_schemas", `List []);
+          ("transport_kind", `String "http");
+        ] in
+        let info = Result.get_ok (Mcp_session.info_of_json legacy) in
+        check (option string) "no http endpoint" None info.http_base_url;
+        check int "no http headers" 0 (List.length info.http_headers));
     ];
 
     "spec_roundtrip", [

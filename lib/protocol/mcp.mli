@@ -85,7 +85,11 @@ type server_spec = {
 
 type transport =
   | Stdio of { client: t; spec: server_spec }
-  | Http of { close_fn: unit -> unit }
+  | Http of {
+      close_fn: unit -> unit;
+      base_url: string;
+      headers: (string * string) list;
+    }
 
 type managed = {
   tools: Tool.t list;

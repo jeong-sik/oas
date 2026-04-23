@@ -688,6 +688,8 @@ let () =
           command = "/usr/bin/mcp-server";
           args = ["--port"; "8080"];
           env = [("API_KEY", "secret123")];
+          http_base_url = None;
+          http_headers = [];
           tool_schemas = [sample_tool_schema];
           transport_kind = Stdio;
         } in
@@ -707,12 +709,14 @@ let () =
         let info1 : Mcp_session.info = {
           server_name = "server-a";
           command = "mcp-a"; args = []; env = [];
+          http_base_url = None; http_headers = [];
           tool_schemas = [];
           transport_kind = Stdio;
         } in
         let info2 : Mcp_session.info = {
           server_name = "server-b";
           command = "mcp-b"; args = ["--verbose"]; env = [("X", "1")];
+          http_base_url = None; http_headers = [];
           tool_schemas = [sample_tool_schema];
           transport_kind = Stdio;
         } in
