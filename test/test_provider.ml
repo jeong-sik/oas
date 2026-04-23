@@ -423,7 +423,7 @@ let test_config_of_provider_config_kimi_uses_custom_provider () =
   match Provider.config_of_provider_config cfg with
   | { provider = Provider.Custom_registered { name }; api_key_env; _ } ->
       Alcotest.(check string) "provider name" "kimi" name;
-      Alcotest.(check string) "api_key_env" "KIMI_API_KEY_SB" api_key_env
+      Alcotest.(check string) "api_key_env" "KIMI_API_KEY" api_key_env
   | _ ->
       Alcotest.fail "expected kimi config to round-trip through Custom_registered"
 

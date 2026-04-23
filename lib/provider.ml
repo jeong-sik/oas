@@ -198,9 +198,9 @@ let kimi_provider_impl : provider_impl = {
   resolve = (fun cfg ->
     let env_names =
       if String.trim cfg.api_key_env <> "" then
-        [cfg.api_key_env; "KIMI_API_KEY_SB"; "KIMI_API_KEY"]
+        [cfg.api_key_env; "KIMI_API_KEY"]
       else
-        ["KIMI_API_KEY_SB"; "KIMI_API_KEY"]
+        ["KIMI_API_KEY"]
     in
     match first_present_env env_names with
     | Some (_env_name, key) ->
@@ -209,7 +209,7 @@ let kimi_provider_impl : provider_impl = {
         let var_name =
           match env_names with
           | preferred :: _ -> preferred
-          | [] -> "KIMI_API_KEY_SB"
+          | [] -> "KIMI_API_KEY"
         in
         Error (Error.Config (MissingEnvVar { var_name })));
 }
