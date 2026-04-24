@@ -41,6 +41,8 @@ type t = {
   output_schema: Yojson.Safe.t option;
   cache_system_prompt: bool;
   supports_tool_choice_override: bool option;
+  keep_alive: string option;
+  num_ctx: int option;
 }
 
 let make ~kind ~model_id ~base_url
@@ -54,7 +56,10 @@ let make ~kind ~model_id ~base_url
     ?(response_format_json=false)
     ?output_schema
     ?(cache_system_prompt=false)
-    ?supports_tool_choice_override () =
+    ?supports_tool_choice_override
+    ?keep_alive
+    ?num_ctx
+    () =
   let response_format =
     match response_format, output_schema with
     | Some value, _ -> value
@@ -83,7 +88,8 @@ let make ~kind ~model_id ~base_url
     system_prompt; enable_thinking; thinking_budget; clear_thinking;
     tool_stream;
     tool_choice; disable_parallel_tool_use; response_format; output_schema;
-    cache_system_prompt; supports_tool_choice_override }
+    cache_system_prompt; supports_tool_choice_override;
+    keep_alive; num_ctx }
 
 (** Helpers for [provider_kind]. Implementations live in {!Provider_kind};
     these re-exports keep the call-site [Provider_config.*] namespace

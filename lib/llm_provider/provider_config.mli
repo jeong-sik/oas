@@ -65,6 +65,24 @@ type t = {
       the policy and declares it.
 
       @since 0.150.0 *)
+  keep_alive: string option;
+  (** Ollama [keep_alive] request field. Accepted values: integer
+      seconds ({"-1"}, {"0"}, {"3600"}) or duration strings ({"5m"},
+      {"30m"}, {"24h"}). [None] falls back to the
+      [OAS_OLLAMA_KEEP_ALIVE] env var, then to the SDK default
+      ({"-1"}, permanent). Honored only by the Ollama backend; ignored
+      by other kinds. Cascade configs may surface this so a profile
+      can declare its own residency policy without a global env
+      variable.
+      @since 0.171.0 *)
+  num_ctx: int option;
+  (** Ollama [num_ctx] option. Per-request context window allocation
+      in tokens. Drives KV cache RAM allocation. [None] leaves the
+      field unset so Ollama uses its own default (Modelfile or 4096).
+      Honored only by the Ollama backend; ignored by other kinds.
+      Cascade configs may surface this so a small-model profile can
+      pick a smaller window than a long-context profile.
+      @since 0.171.0 *)
 }
 
 (** Default config for quick construction. Only [kind], [model_id],
@@ -94,6 +112,8 @@ val make :
   ?output_schema:Yojson.Safe.t ->
   ?cache_system_prompt:bool ->
   ?supports_tool_choice_override:bool ->
+  ?keep_alive:string ->
+  ?num_ctx:int ->
   unit -> t
 
 (** Lowercase string representation of the wire-format kind.
