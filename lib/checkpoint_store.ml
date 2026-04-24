@@ -1,7 +1,8 @@
 (** File-backed checkpoint persistence using Eio.Path.
 
     Layout: [<base_dir>/<session_id>.json].
-    Atomic writes via .tmp + rename. *)
+    Atomic writes via {!Fs_atomic_eio.save_atomic}: unique per-writer
+    tmp + fsync + rename + dir fsync. *)
 
 type t = { base_dir: Eio.Fs.dir_ty Eio.Path.t }
 
@@ -24,25 +25,16 @@ let create base_dir =
   | exn -> io_error_of_exn ~op:"create" ~path:"checkpoint_dir" exn
 
 let file_path store id = Eio.Path.(store.base_dir / (id ^ ".json"))
-let tmp_path store id = Eio.Path.(store.base_dir / (id ^ ".json.tmp"))
 
 let save store (cp : Checkpoint.t) =
   match validate_session_id cp.session_id with
   | Error e -> Error e
   | Ok () ->
     let data = Checkpoint.to_string cp in
-    let tmp = tmp_path store cp.session_id in
-    let target = file_path store cp.session_id in
-    (try
-       Eio.Path.save ~create:(`Or_truncate 0o644) tmp data;
-       Eio.Path.rename tmp target;
-       Ok ()
-     with
-     | Eio.Cancel.Cancelled _ as e -> raise e
-     | exn ->
-       (* Best-effort cleanup: ignore unlink failure — the primary error is already captured *)
-       (try Eio.Path.unlink tmp with Eio.Io _ | Unix.Unix_error _ -> ());
-       io_error_of_exn ~op:"save" ~path:cp.session_id exn)
+    Fs_atomic_eio.save_atomic
+      ~dir:store.base_dir
+      ~name:(cp.session_id ^ ".json")
+      data
 
 let load store id =
   match validate_session_id id with
@@ -62,9 +54,12 @@ let list store =
     Ok (entries
     |> List.filter (fun name ->
            let len = String.length name in
+           (* Exclude any *.tmp sibling — writer-unique tmp names no
+              longer end in exactly ".json.tmp"; match the ".tmp"
+              suffix directly. *)
            len > 5
            && String.sub name (len - 5) 5 = ".json"
-           && not (len > 9 && String.sub name (len - 9) 9 = ".json.tmp"))
+           && not (len > 4 && String.sub name (len - 4) 4 = ".tmp"))
     |> List.map (fun name -> String.sub name 0 (String.length name - 5))
     |> List.sort String.compare)
   with

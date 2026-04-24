@@ -323,22 +323,18 @@ let journal_of_json json =
 (* ── Persistence (JSONL) ─────────────────────────── *)
 
 let save_to_file journal path =
-  let tmp_path = path ^ ".tmp" in
-  try
-    let oc = open_out tmp_path in
-    Fun.protect
-      ~finally:(fun () -> close_out_noerr oc)
-      (fun () ->
-        List.iter (fun event ->
-          output_string oc (Yojson.Safe.to_string (event_to_json event));
-          output_char oc '\n'
-        ) (events journal));
-    Sys.rename tmp_path path;
-    Ok ()
-  with
-  | Sys_error msg ->
-    (try Sys.remove tmp_path with _ -> ());
-    Error (Printf.sprintf "save_to_file: %s" msg)
+  (* Delegate to {!Fs_result.write_file}: unique per-writer tmp +
+     fsync + rename + dir fsync. Closes the shared-".tmp" rename race
+     that happened when two fibers persisted the same journal path
+     (masc-mcp#9780 family). *)
+  let buf = Buffer.create 4096 in
+  List.iter (fun event ->
+    Buffer.add_string buf (Yojson.Safe.to_string (event_to_json event));
+    Buffer.add_char buf '\n'
+  ) (events journal);
+  match Fs_result.write_file path (Buffer.contents buf) with
+  | Ok () -> Ok ()
+  | Error e -> Error (Printf.sprintf "save_to_file: %s" (Error.to_string e))
 
 let load_from_file path =
   if not (Sys.file_exists path) then Ok { entries = []; size = 0; on_append = None }
