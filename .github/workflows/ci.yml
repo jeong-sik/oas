@@ -85,19 +85,33 @@ jobs:
           EIO_BACKEND: "posix"
         run: |
           opam exec -- dune clean
-          opam exec -- dune runtest --force
-          COVERAGE=$(opam exec -- bisect-ppx-report summary 2>/dev/null | grep -oP '\d+\.\d+(?=%)' | head -1 || echo "0")
+          # --instrument-with bisect_ppx activates the `(instrumentation
+          # (backend bisect_ppx))` stanza declared in lib/dune. Without
+          # this flag dune ignores the stanza, no .coverage files are
+          # written, and `bisect-ppx-report summary` exits "no *.coverage
+          # files found" — which the old `2>/dev/null | head -1 || echo 0`
+          # pipeline silently masked as an empty coverage value, bypassing
+          # the 80% threshold check below.
+          opam exec -- dune runtest --force --instrument-with bisect_ppx
+
+          SUMMARY=$(opam exec -- bisect-ppx-report summary 2>&1 || true)
+          echo "$SUMMARY"
+
+          COVERAGE=$(echo "$SUMMARY" | grep -oP '\d+\.\d+(?=%)' | head -1 || true)
+          if [ -z "$COVERAGE" ]; then
+            echo "::error::Coverage summary parse failed — no '<number>%' found in bisect-ppx-report output."
+            exit 1
+          fi
+
           echo "Total coverage: ${COVERAGE}%"
           opam exec -- bisect-ppx-report summary --per-file || true
-          # Enforce minimum coverage threshold (80%)
-          if [ -n "$COVERAGE" ]; then
-            THRESHOLD=80
-            if [ "$(echo "$COVERAGE < $THRESHOLD" | bc -l)" -eq 1 ]; then
-              echo "Coverage ${COVERAGE}% is below threshold ${THRESHOLD}%"
-              exit 1
-            fi
-            echo "Coverage ${COVERAGE}% meets threshold ${THRESHOLD}%"
+
+          THRESHOLD=80
+          if [ "$(echo "$COVERAGE < $THRESHOLD" | bc -l)" -eq 1 ]; then
+            echo "::error::Coverage ${COVERAGE}% is below threshold ${THRESHOLD}%"
+            exit 1
           fi
+          echo "Coverage ${COVERAGE}% meets threshold ${THRESHOLD}%"
 
       - name: Build documentation (odoc)
         if: matrix.ocaml-compiler == '5.4.1'
