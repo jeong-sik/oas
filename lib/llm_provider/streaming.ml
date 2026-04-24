@@ -430,3 +430,402 @@ let gemini_chunk_to_events (state : openai_stream_state)
                             usage = chunk.gem_usage })
    | None -> ());
   List.rev !events
+
+(** {1 Ollama NDJSON Streaming}
+
+    Ollama [/api/chat] with [stream:true] emits one JSON object per
+    line. Non-final lines carry a [message.content] delta; the final
+    line has [done:true] together with [done_reason] and the four
+    timing fields ([prompt_eval_count] / [prompt_eval_duration] /
+    [eval_count] / [eval_duration]) that the OpenAI compat path on
+    [/v1/chat/completions] strips out. *)
+
+type ollama_tool_call_delta = {
+  oll_tc_index: int;
+  oll_tc_id: string option;
+  oll_tc_name: string option;
+  oll_tc_arguments: string option;
+}
+
+type ollama_chunk = {
+  oll_model: string;
+  oll_delta_content: string option;
+  oll_delta_thinking: string option;
+  oll_tool_calls: ollama_tool_call_delta list;
+  oll_done_reason: string option;
+  oll_is_done: bool;
+  oll_usage: api_usage option;
+  oll_timings: inference_timings option;
+}
+
+let parse_ollama_ndjson_chunk data_str : ollama_chunk option =
+  let open Yojson.Safe.Util in
+  try
+    let json = Yojson.Safe.from_string data_str in
+    let oll_model =
+      json |> member "model" |> to_string_option
+      |> Option.value ~default:""
+    in
+    let oll_is_done =
+      json |> member "done" |> to_bool_option
+      |> Option.value ~default:false
+    in
+    let oll_done_reason = json |> member "done_reason" |> to_string_option in
+    let message = json |> member "message" in
+    let oll_delta_content =
+      match message with
+      | `Assoc _ ->
+          let s = message |> member "content" |> to_string_option in
+          (match s with Some "" -> None | other -> other)
+      | _ -> None
+    in
+    let oll_delta_thinking =
+      match message with
+      | `Assoc _ ->
+          let s = message |> member "thinking" |> to_string_option in
+          (match s with Some "" -> None | other -> other)
+      | _ -> None
+    in
+    let oll_tool_calls =
+      match message with
+      | `Assoc _ ->
+          (match message |> member "tool_calls" with
+           | `List items ->
+               List.mapi (fun idx tc ->
+                 let func = tc |> member "function" in
+                 let oll_tc_name = func |> member "name" |> to_string_option in
+                 let oll_tc_id = tc |> member "id" |> to_string_option in
+                 let oll_tc_arguments =
+                   match func |> member "arguments" with
+                   | `Null -> None
+                   | (`Assoc _ | `List _) as v ->
+                       Some (Yojson.Safe.to_string v)
+                   | `String s -> Some s
+                   | other -> Some (Yojson.Safe.to_string other)
+                 in
+                 { oll_tc_index = idx; oll_tc_id;
+                   oll_tc_name; oll_tc_arguments }
+               ) items
+           | _ -> [])
+      | _ -> []
+    in
+    (* Token-count usage. Ollama only emits these on the done chunk. *)
+    let oll_usage =
+      let input = json |> member "prompt_eval_count" |> to_int_option in
+      let output = json |> member "eval_count" |> to_int_option in
+      match input, output with
+      | None, None -> None
+      | _ ->
+          Some {
+            input_tokens = Option.value ~default:0 input;
+            output_tokens = Option.value ~default:0 output;
+            cache_creation_input_tokens = 0;
+            cache_read_input_tokens = 0;
+            cost_usd = None;
+          }
+    in
+    (* inference_timings: same wire-format the non-streaming
+       Backend_ollama.parse_ollama_response builds, so downstream
+       (record_llm_tok_s_metrics) is byte-identical between the two
+       paths. Durations are nanoseconds on the wire; convert to ms
+       and tok/s here. *)
+    let oll_timings =
+      let prompt_n = json |> member "prompt_eval_count" |> to_int_option in
+      let prompt_ns = json |> member "prompt_eval_duration" |> to_int_option in
+      let predicted_n = json |> member "eval_count" |> to_int_option in
+      let predicted_ns = json |> member "eval_duration" |> to_int_option in
+      let any_set =
+        Option.is_some prompt_n || Option.is_some prompt_ns
+        || Option.is_some predicted_n || Option.is_some predicted_ns
+      in
+      if not any_set then None
+      else
+        let ms_of_ns ns_opt =
+          Option.map (fun ns -> float_of_int ns /. 1e6) ns_opt
+        in
+        let per_second n_opt ns_opt =
+          match n_opt, ns_opt with
+          | Some n, Some ns when ns > 0 ->
+              Some (float_of_int n /. (float_of_int ns /. 1e9))
+          | _ -> None
+        in
+        Some {
+          prompt_n;
+          prompt_ms = ms_of_ns prompt_ns;
+          prompt_per_second = per_second prompt_n prompt_ns;
+          predicted_n;
+          predicted_ms = ms_of_ns predicted_ns;
+          predicted_per_second = per_second predicted_n predicted_ns;
+          cache_n = None;
+        }
+    in
+    Some {
+      oll_model;
+      oll_delta_content;
+      oll_delta_thinking;
+      oll_tool_calls;
+      oll_done_reason;
+      oll_is_done;
+      oll_usage;
+      oll_timings;
+    }
+  with
+  | Yojson.Json_error _ -> None
+  | Type_error (_, _) -> None
+
+(** Convert a parsed {!ollama_chunk} into {!sse_event} list.
+    Reuses {!openai_stream_state} for block index tracking. *)
+let ollama_chunk_to_events (state : openai_stream_state)
+    (chunk : ollama_chunk) : sse_event list =
+  let events = ref [] in
+  let emit evt = events := evt :: !events in
+  (* Thinking content delta *)
+  (match chunk.oll_delta_thinking with
+   | Some text when text <> "" ->
+       if not state.thinking_block_started then begin
+         state.thinking_block_index <- state.next_block_index;
+         emit (ContentBlockStart {
+           index = state.next_block_index; content_type = "thinking";
+           tool_id = None; tool_name = None });
+         state.thinking_block_started <- true;
+         state.next_block_index <- state.next_block_index + 1
+       end;
+       emit (ContentBlockDelta {
+         index = state.thinking_block_index; delta = ThinkingDelta text })
+   | _ -> ());
+  (* Text content delta *)
+  (match chunk.oll_delta_content with
+   | Some text when text <> "" ->
+       if not state.text_block_started then begin
+         state.text_block_index <- state.next_block_index;
+         emit (ContentBlockStart {
+           index = state.next_block_index; content_type = "text";
+           tool_id = None; tool_name = None });
+         state.text_block_started <- true;
+         state.next_block_index <- state.next_block_index + 1
+       end;
+       emit (ContentBlockDelta {
+         index = state.text_block_index; delta = TextDelta text })
+   | _ -> ());
+  (* Tool calls. Ollama typically emits these complete in the done
+     chunk rather than incrementally. We still keyed-cache by the
+     per-tool index so a server that DID stream them incrementally
+     would get correct accumulation behaviour. *)
+  List.iter (fun (tc : ollama_tool_call_delta) ->
+    let block_idx =
+      match Hashtbl.find_opt state.tool_block_indices tc.oll_tc_index with
+      | Some idx -> idx
+      | None ->
+          let idx = state.next_block_index in
+          Hashtbl.replace state.tool_block_indices tc.oll_tc_index idx;
+          emit (ContentBlockStart {
+            index = idx; content_type = "tool_use";
+            tool_id = tc.oll_tc_id; tool_name = tc.oll_tc_name;
+          });
+          state.next_block_index <- state.next_block_index + 1;
+          idx
+    in
+    match tc.oll_tc_arguments with
+    | Some args when args <> "" ->
+        emit (ContentBlockDelta { index = block_idx;
+                                  delta = InputJsonDelta args })
+    | _ -> ()
+  ) chunk.oll_tool_calls;
+  (* Terminal chunk: emit MessageDelta with stop_reason + usage. *)
+  if chunk.oll_is_done then begin
+    let stop_reason =
+      match chunk.oll_done_reason with
+      | None -> Some EndTurn
+      | Some reason ->
+          (match String.lowercase_ascii reason with
+           | "tool_calls" when chunk.oll_tool_calls <> [] -> Some StopToolUse
+           | "length" -> Some MaxTokens
+           | "stop" -> Some EndTurn
+           | _other when chunk.oll_tool_calls <> [] -> Some StopToolUse
+           | other -> Some (Unknown other))
+    in
+    emit (MessageDelta { stop_reason; usage = chunk.oll_usage })
+  end;
+  List.rev !events
+
+[@@@coverage off]
+(* ── parse_ollama_ndjson_chunk tests ──────────────────────── *)
+
+let%test "parse_ollama_ndjson_chunk: content delta line" =
+  let line =
+    {|{"model":"qwen3:8b","message":{"role":"assistant","content":"hi"},"done":false}|}
+  in
+  match parse_ollama_ndjson_chunk line with
+  | None -> false
+  | Some c ->
+    c.oll_model = "qwen3:8b"
+    && c.oll_delta_content = Some "hi"
+    && c.oll_delta_thinking = None
+    && c.oll_tool_calls = []
+    && not c.oll_is_done
+    && c.oll_usage = None
+    && c.oll_timings = None
+
+let%test "parse_ollama_ndjson_chunk: done line carries timings + usage" =
+  let line =
+    {|{"model":"qwen3:8b","message":{"role":"assistant","content":""},
+       "done_reason":"stop","done":true,
+       "prompt_eval_count":15,"prompt_eval_duration":300000000,
+       "eval_count":50,"eval_duration":1000000000}|}
+  in
+  match parse_ollama_ndjson_chunk line with
+  | None -> false
+  | Some c ->
+    c.oll_is_done
+    && c.oll_done_reason = Some "stop"
+    && (match c.oll_usage with
+        | Some u -> u.input_tokens = 15 && u.output_tokens = 50
+        | None -> false)
+    && (match c.oll_timings with
+        | Some t ->
+          t.predicted_n = Some 50
+          && t.prompt_n = Some 15
+          && (match t.predicted_per_second with
+              | Some v -> abs_float (v -. 50.0) < 0.001
+              | None -> false)
+          && (match t.prompt_per_second with
+              | Some v -> abs_float (v -. 50.0) < 0.001
+              | None -> false)
+        | None -> false)
+
+let%test "parse_ollama_ndjson_chunk: zero eval_duration → per_second None" =
+  let line =
+    {|{"model":"qwen3:8b","message":{"role":"assistant","content":""},
+       "done":true,"eval_count":10,"eval_duration":0}|}
+  in
+  match parse_ollama_ndjson_chunk line with
+  | Some c ->
+    (match c.oll_timings with
+     | Some t -> t.predicted_n = Some 10 && t.predicted_per_second = None
+     | None -> false)
+  | None -> false
+
+let%test "parse_ollama_ndjson_chunk: tool_calls fully formed in done line" =
+  let line =
+    {|{"model":"qwen3:8b","message":{"role":"assistant","content":"",
+       "tool_calls":[{"function":{"name":"foo","arguments":{"x":1}}}]},
+       "done":true,"done_reason":"tool_calls"}|}
+  in
+  match parse_ollama_ndjson_chunk line with
+  | None -> false
+  | Some c ->
+    (match c.oll_tool_calls with
+     | [tc] ->
+       tc.oll_tc_name = Some "foo"
+       && (match tc.oll_tc_arguments with
+           | Some args ->
+             let json = Yojson.Safe.from_string args in
+             json |> Yojson.Safe.Util.member "x" |> Yojson.Safe.Util.to_int = 1
+           | None -> false)
+     | _ -> false)
+
+let%test "parse_ollama_ndjson_chunk: malformed json → None" =
+  parse_ollama_ndjson_chunk "{not valid" = None
+
+(* ── ollama_chunk_to_events tests ─────────────────────────── *)
+
+let%test "ollama_chunk_to_events: content delta emits Start+Delta" =
+  let state = create_openai_stream_state () in
+  let chunk = {
+    oll_model = "qwen3:8b";
+    oll_delta_content = Some "hello";
+    oll_delta_thinking = None;
+    oll_tool_calls = [];
+    oll_done_reason = None;
+    oll_is_done = false;
+    oll_usage = None;
+    oll_timings = None;
+  } in
+  let events = ollama_chunk_to_events state chunk in
+  match events with
+  | [ ContentBlockStart { index = 0; content_type = "text"; _ };
+      ContentBlockDelta { index = 0; delta = TextDelta "hello" } ] -> true
+  | _ -> false
+
+let%test "ollama_chunk_to_events: subsequent content delta reuses block" =
+  let state = create_openai_stream_state () in
+  let mk text = {
+    oll_model = "qwen3:8b";
+    oll_delta_content = Some text;
+    oll_delta_thinking = None;
+    oll_tool_calls = [];
+    oll_done_reason = None;
+    oll_is_done = false;
+    oll_usage = None;
+    oll_timings = None;
+  } in
+  let _ = ollama_chunk_to_events state (mk "he") in
+  let events = ollama_chunk_to_events state (mk "llo") in
+  (* Second chunk: only Delta, no new Start *)
+  match events with
+  | [ ContentBlockDelta { index = 0; delta = TextDelta "llo" } ] -> true
+  | _ -> false
+
+let%test "ollama_chunk_to_events: done with stop_reason emits MessageDelta" =
+  let state = create_openai_stream_state () in
+  let chunk = {
+    oll_model = "qwen3:8b";
+    oll_delta_content = None;
+    oll_delta_thinking = None;
+    oll_tool_calls = [];
+    oll_done_reason = Some "stop";
+    oll_is_done = true;
+    oll_usage = Some { input_tokens = 10; output_tokens = 20;
+                       cache_creation_input_tokens = 0;
+                       cache_read_input_tokens = 0; cost_usd = None };
+    oll_timings = None;
+  } in
+  let events = ollama_chunk_to_events state chunk in
+  match events with
+  | [ MessageDelta { stop_reason = Some EndTurn; usage = Some u } ] ->
+    u.input_tokens = 10 && u.output_tokens = 20
+  | _ -> false
+
+let%test "ollama_chunk_to_events: tool_calls emit Start+InputJsonDelta" =
+  let state = create_openai_stream_state () in
+  let chunk = {
+    oll_model = "qwen3:8b";
+    oll_delta_content = None;
+    oll_delta_thinking = None;
+    oll_tool_calls = [{
+      oll_tc_index = 0; oll_tc_id = None;
+      oll_tc_name = Some "search";
+      oll_tc_arguments = Some {|{"q":"hello"}|};
+    }];
+    oll_done_reason = Some "tool_calls";
+    oll_is_done = true;
+    oll_usage = None;
+    oll_timings = None;
+  } in
+  let events = ollama_chunk_to_events state chunk in
+  match events with
+  | [ ContentBlockStart { index = 0; content_type = "tool_use";
+                          tool_name = Some "search"; _ };
+      ContentBlockDelta { index = 0; delta = InputJsonDelta args };
+      MessageDelta { stop_reason = Some StopToolUse; _ } ] ->
+    args = {|{"q":"hello"}|}
+  | _ -> false
+
+let%test "ollama_chunk_to_events: thinking delta emits thinking block first" =
+  let state = create_openai_stream_state () in
+  let chunk = {
+    oll_model = "qwen3:8b";
+    oll_delta_content = None;
+    oll_delta_thinking = Some "considering";
+    oll_tool_calls = [];
+    oll_done_reason = None;
+    oll_is_done = false;
+    oll_usage = None;
+    oll_timings = None;
+  } in
+  let events = ollama_chunk_to_events state chunk in
+  match events with
+  | [ ContentBlockStart { index = 0; content_type = "thinking"; _ };
+      ContentBlockDelta { index = 0;
+                          delta = ThinkingDelta "considering" } ] -> true
+  | _ -> false

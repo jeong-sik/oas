@@ -127,6 +127,14 @@ val read_sse :
   on_data:(event_type:string option -> string -> unit) ->
   unit -> unit
 
+(** Read NDJSON-formatted lines from a reader (one JSON object per
+    line). Blank lines are skipped so a trailing newline does not
+    yield an empty payload. Returns normally on [End_of_file]. *)
+val read_ndjson :
+  reader:Eio.Buf_read.t ->
+  on_line:(string -> unit) ->
+  unit -> unit
+
 (** [true] when the error indicates local resource exhaustion
     (ephemeral port depletion, FD limit).  Cascading to another
     provider cannot help — the bottleneck is the local machine. *)

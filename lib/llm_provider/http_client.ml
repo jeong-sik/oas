@@ -435,6 +435,18 @@ let read_sse ~reader ~on_data () =
   in
   loop ()
 
+(** Read NDJSON-formatted lines from a reader (one JSON object per line).
+    Skips blank lines so a trailing newline does not yield an empty payload.
+    Returns normally on [End_of_file]. *)
+let read_ndjson ~reader ~on_line () =
+  let rec loop () =
+    match Eio.Buf_read.line reader with
+    | "" -> loop ()
+    | line -> on_line line; loop ()
+    | exception End_of_file -> ()
+  in
+  loop ()
+
 let inject_stream_param body_str =
   match Yojson.Safe.from_string body_str with
   | `Assoc fields ->
