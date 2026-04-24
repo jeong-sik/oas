@@ -63,7 +63,10 @@ let validate_completion_contract agent (response : Types.api_response) =
     else resolved.effective
   in
   match
-    Completion_contract.validate_response ~contract response
+    Completion_contract.validate_response
+      ~tools:(Tool_set.to_list agent.tools)
+      ~required_tool_satisfaction:agent.options.required_tool_satisfaction
+      ~contract response
   with
   | Ok () -> Ok ()
   | Error reason ->

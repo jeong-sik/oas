@@ -59,6 +59,7 @@ type options = Agent_types.options = {
   runtime_mcp_policy:
     Llm_provider.Llm_transport.runtime_mcp_policy option;
   summarizer: (Types.message list -> string) option;
+  required_tool_satisfaction: Completion_contract.required_tool_satisfaction;
 }
 
 type lifecycle_status = Agent_lifecycle.lifecycle_status =

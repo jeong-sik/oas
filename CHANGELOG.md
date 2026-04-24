@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+### Added
+
+- **Strict required-tool satisfaction hooks.** Completion contracts can now
+  validate required tool calls with a caller-supplied typed predicate, so
+  read-only/observability tools no longer have to count as productive action
+  at runtime boundaries.
+
 ## [0.170.9] - 2026-04-24
 
 ### Added

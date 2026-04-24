@@ -36,7 +36,12 @@ let validate_completion_contract agent (response : Types.api_response) =
   let contract =
     Completion_contract.of_tool_choice ~supports_tool_choice agent.state.config.tool_choice
   in
-  match Completion_contract.validate_response ~contract response with
+  match
+    Completion_contract.validate_response
+      ~tools:(Tool_set.to_list agent.tools)
+      ~required_tool_satisfaction:agent.options.required_tool_satisfaction
+      ~contract response
+  with
   | Ok () -> Ok ()
   | Error reason ->
     Error
@@ -58,4 +63,3 @@ let total_prompt_tokens_for_agent agent messages =
       acc + Context_reducer.estimate_message_tokens msg) 0 messages
   in
   raw_tokens + Agent_turn.tiered_memory_tokens agent.options.tiered_memory
-

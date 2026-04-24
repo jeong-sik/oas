@@ -83,6 +83,12 @@ type options = {
         summarizer that strips or transforms those markers before they are
         re-injected as compacted history.
         @since 0.150.0 *)
+  required_tool_satisfaction: Completion_contract.required_tool_satisfaction;
+    (** Predicate used when validating [tool_choice] contracts that require
+        tool use. Defaults to accepting any ToolUse for backward compatibility;
+        runtimes with effect metadata can require productive/non-read-only
+        tools without changing provider wire semantics.
+        @since 0.171.0 *)
 }
 
 (* Re-export lifecycle types from Agent_lifecycle.
@@ -150,6 +156,7 @@ let default_options = {
   transport = None;
   runtime_mcp_policy = None;
   summarizer = None;
+  required_tool_satisfaction = Completion_contract.any_tool_call_satisfies;
 }
 
 type tool_call_fingerprint = Agent_turn.tool_call_fingerprint
