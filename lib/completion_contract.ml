@@ -11,21 +11,38 @@ type t =
 
 let to_string = Completion_contract_id.to_string
 
+type resolved = {
+  requested: t;
+  effective: t;
+  relaxed: bool;
+}
+
+let requested_of_tool_choice choice =
+  match choice with
+  | Some Any -> Require_tool_use
+  | Some (Tool name) -> Require_specific_tool name
+  | Some None_ -> Require_no_tool_use
+  | Some Auto | None -> Allow_text_or_tool
+
 let of_tool_choice ?(supports_tool_choice = true) choice =
-  let requested = match choice with
-    | Some Any -> Some Require_tool_use
-    | Some (Tool name) -> Some (Require_specific_tool name)
-    | Some None_ -> Some Require_no_tool_use
-    | Some Auto | None -> None
-  in
+  let requested = requested_of_tool_choice choice in
   match requested with
-  | None -> Allow_text_or_tool
-  | Some contract when supports_tool_choice -> contract
-  | Some contract ->
+  | Allow_text_or_tool -> Allow_text_or_tool
+  | contract when supports_tool_choice -> contract
+  | contract ->
     Log.info _log "tool_choice contract relaxed (provider does not support tool_choice)"
       [ Log.S ("requested", to_string contract);
         Log.S ("effective", "allow_text_or_tool") ];
     Allow_text_or_tool
+
+let resolve_tool_choice_contract ?(supports_tool_choice = true) choice =
+  let requested = requested_of_tool_choice choice in
+  let effective = of_tool_choice ~supports_tool_choice choice in
+  {
+    requested;
+    effective;
+    relaxed = requested <> effective;
+  }
 
 let tool_use_names (response : api_response) =
   List.filter_map
