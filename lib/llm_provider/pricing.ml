@@ -25,8 +25,10 @@ let string_contains ~needle haystack =
 let pricing_for_model_opt model_id =
   let normalized = String.lowercase_ascii (String.trim model_id) in
   (* Anthropic cache pricing: write = 1.25x input, read = 0.1x input.
-     OpenAI/local: no cache pricing (multipliers are 1.0 for no-op). *)
+     Newer OpenAI text models expose cached input at 0.1x input.
+     Local/free models keep no-op cache multipliers. *)
   let anthropic_cache = (1.25, 0.1) in
+  let openai_cached_input = (1.0, 0.1) in
   let no_cache = (1.0, 1.0) in
   let result =
     if string_contains ~needle:"opus-4-6" normalized then
@@ -41,6 +43,19 @@ let pricing_for_model_opt model_id =
       Some ((0.8, 4.0), anthropic_cache)
     else if string_contains ~needle:"claude-3-7-sonnet" normalized then
       Some ((3.0, 15.0), anthropic_cache)
+    (* OpenAI API text-token pricing, confirmed from official model docs
+       2026-04-25. GPT-5.3-Codex-Spark is intentionally not covered here:
+       its Codex rate card labels it research preview with non-final rates. *)
+    else if string_contains ~needle:"gpt-5.3-codex-spark" normalized then
+      None
+    else if string_contains ~needle:"gpt-5.4-mini" normalized then
+      Some ((0.75, 4.5), openai_cached_input)
+    else if string_contains ~needle:"gpt-5.4" normalized then
+      Some ((2.5, 15.0), openai_cached_input)
+    else if string_contains ~needle:"gpt-5.3-codex" normalized then
+      Some ((1.75, 14.0), openai_cached_input)
+    else if string_contains ~needle:"gpt-5.2" normalized then
+      Some ((1.75, 14.0), openai_cached_input)
     else if string_contains ~needle:"gpt-4o-mini" normalized then
       Some ((0.15, 0.6), no_cache)
     else if string_contains ~needle:"gpt-4o" normalized then
@@ -214,6 +229,34 @@ let%test "pricing gpt-4o-mini" =
   && close_enough p.output_per_million 0.6
   && close_enough p.cache_write_multiplier 1.0
   && close_enough p.cache_read_multiplier 1.0
+
+let%test "pricing gpt-5.4-mini" =
+  let p = pricing_for_model "gpt-5.4-mini" in
+  close_enough p.input_per_million 0.75
+  && close_enough p.output_per_million 4.5
+  && close_enough p.cache_write_multiplier 1.0
+  && close_enough p.cache_read_multiplier 0.1
+
+let%test "pricing gpt-5.4" =
+  let p = pricing_for_model "gpt-5.4" in
+  close_enough p.input_per_million 2.5
+  && close_enough p.output_per_million 15.0
+  && close_enough p.cache_read_multiplier 0.1
+
+let%test "pricing gpt-5.3-codex" =
+  let p = pricing_for_model "gpt-5.3-codex" in
+  close_enough p.input_per_million 1.75
+  && close_enough p.output_per_million 14.0
+  && close_enough p.cache_read_multiplier 0.1
+
+let%test "pricing gpt-5.2" =
+  let p = pricing_for_model "gpt-5.2" in
+  close_enough p.input_per_million 1.75
+  && close_enough p.output_per_million 14.0
+  && close_enough p.cache_read_multiplier 0.1
+
+let%test "pricing gpt-5.3-codex-spark remains unknown" =
+  pricing_for_model_opt "gpt-5.3-codex-spark" = None
 
 let%test "pricing gpt-4o (not mini)" =
   let p = pricing_for_model "gpt-4o" in
