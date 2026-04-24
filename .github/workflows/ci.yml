@@ -102,7 +102,15 @@ jobs:
           # below.
           opam exec -- dune runtest --force --instrument-with bisect_ppx
 
-          SUMMARY=$(opam exec -- bisect-ppx-report summary _coverage 2>&1 || true)
+          # `bisect-ppx-report summary` takes `--coverage-path=DIR` for a
+          # directory search, not a positional argument (that slot is for
+          # explicit *.coverage file paths). Passing the dir positionally
+          # produces `cannot read coverage file '_coverage': Is a directory`.
+          echo "::group::Coverage files discovered"
+          find _coverage -name '*.coverage' -print || true
+          echo "::endgroup::"
+
+          SUMMARY=$(opam exec -- bisect-ppx-report summary --coverage-path=_coverage 2>&1 || true)
           echo "$SUMMARY"
 
           COVERAGE=$(echo "$SUMMARY" | grep -oP '\d+\.\d+(?=%)' | head -1 || true)
@@ -112,7 +120,7 @@ jobs:
           fi
 
           echo "Total coverage: ${COVERAGE}%"
-          opam exec -- bisect-ppx-report summary --per-file _coverage || true
+          opam exec -- bisect-ppx-report summary --per-file --coverage-path=_coverage || true
 
           THRESHOLD=80
           if [ "$(echo "$COVERAGE < $THRESHOLD" | bc -l)" -eq 1 ]; then
