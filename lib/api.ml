@@ -53,8 +53,21 @@ let patch_latency (resp : Types.api_response) (latency_ms : int)
   in
   { resp with telemetry }
 
-(** Send a non-streaming message to the API, dispatching by provider *)
-let create_message ~sw ~net ?(base_url=default_base_url) ?provider ?clock ?retry_config ~config ~messages ?tools ?slot_id () =
+(** Send a non-streaming message to the API, dispatching by provider.
+    When [clock] is supplied the HTTP request is wrapped in
+    [Eio.Time.with_timeout_exn] using [request_timeout_s] (default
+    [Api_common.default_request_timeout_s]); the resulting
+    [Eio.Time.Timeout] is mapped to [Retry.Timeout] so [Retry.with_retry]
+    can retry or surface the failure. Without a clock no timeout is
+    applied (preserves backward-compatible call sites that run outside
+    an Eio domain). *)
+let create_message ~sw ~net ?(base_url=default_base_url) ?provider ?clock
+    ?retry_config ?request_timeout_s ~config ~messages ?tools ?slot_id () =
+  let request_timeout_s =
+    match request_timeout_s with
+    | Some v -> v
+    | None -> Api_common.default_request_timeout_s
+  in
   let resolve_result = match provider with
     | Some p ->
         (match Provider.resolve p with
@@ -103,16 +116,31 @@ let create_message ~sw ~net ?(base_url=default_base_url) ?provider ?clock ?retry
 
   let https = make_https () in
   let client = Cohttp_eio.Client.make ~https net in
+  let do_http_call () =
+    let resp, body = Cohttp_eio.Client.post ~sw client ~headers ~body:(Cohttp_eio.Body.of_string body_str) uri in
+    match Cohttp.Response.status resp with
+    | `OK ->
+        let body_str = Eio.Buf_read.(of_flow ~max_size:max_response_body body |> take_all) in
+        `Ok body_str
+    | status ->
+        let code = Cohttp.Code.code_of_status status in
+        let body_str = Eio.Buf_read.(of_flow ~max_size:max_response_body body |> take_all) in
+        `HttpError (code, body_str)
+  in
   let do_request () =
     let t0 = Unix.gettimeofday () in
     let measured_latency_ms () =
       int_of_float ((Unix.gettimeofday () -. t0) *. 1000.0)
     in
     try
-      let resp, body = Cohttp_eio.Client.post ~sw client ~headers ~body:(Cohttp_eio.Body.of_string body_str) uri in
-      match Cohttp.Response.status resp with
-      | `OK ->
-          let body_str = Eio.Buf_read.(of_flow ~max_size:max_response_body body |> take_all) in
+      let call_result =
+        match clock with
+        | Some clk ->
+            Eio.Time.with_timeout_exn clk request_timeout_s do_http_call
+        | None -> do_http_call ()
+      in
+      match call_result with
+      | `Ok body_str ->
           let lat = measured_latency_ms () in
           (match kind with
            | Provider.Anthropic_messages ->
@@ -139,11 +167,16 @@ let create_message ~sw ~net ?(base_url=default_base_url) ?provider ?clock ?retry
                          Ok (Llm_provider.Pricing.annotate_response_cost resp
                              |> fun r -> patch_latency r lat)
                      | Error msg -> Error (Retry.InvalidRequest { message = msg }))))
-      | status ->
-          let code = Cohttp.Code.code_of_status status in
-          let body_str = Eio.Buf_read.(of_flow ~max_size:max_response_body body |> take_all) in
+      | `HttpError (code, body_str) ->
           Error (Retry.classify_error ~status:code ~body:body_str)
     with
+    | Eio.Time.Timeout ->
+      Error
+        (Retry.Timeout
+           { message =
+               Printf.sprintf
+                 "HTTP request exceeded %.1fs wall-clock timeout"
+                 request_timeout_s })
     | Eio.Io _ as exn ->
       Error (Retry.NetworkError { message = Printexc.to_string exn; kind = Unknown })
     | Unix.Unix_error _ as exn ->
@@ -179,6 +212,18 @@ let%test "re-exported default_base_url is non-empty" =
 
 let%test "re-exported api_version is non-empty" =
   String.length api_version > 0
+
+let%test "default_request_timeout_s is positive" =
+  Api_common.default_request_timeout_s > 0.0
+
+let%test "default_request_timeout_s is bounded to a reasonable ceiling" =
+  (* Guards against accidental "set to a big number to mask a stall"
+     regressions; 10 minutes is already well past any healthy LLM turn. *)
+  Api_common.default_request_timeout_s <= 600.0
+
+let%test "Retry.Timeout classifies as retryable" =
+  Retry.is_retryable
+    (Retry.Timeout { message = "HTTP request exceeded 60.0s wall-clock timeout" })
 
 let%test "re-exported max_response_body is positive" =
   max_response_body > 0

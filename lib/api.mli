@@ -56,11 +56,16 @@ val create_message :
   ?provider:Provider.config ->
   ?clock:_ Eio.Time.clock ->
   ?retry_config:Retry.retry_config ->
+  ?request_timeout_s:float ->
   config:Types.agent_state ->
   messages:Types.message list ->
   ?tools:Yojson.Safe.t list ->
   ?slot_id:int ->
   unit ->
   (Types.api_response, Error.sdk_error) result
+(** When [clock] is supplied, the HTTP request is bounded by
+    [request_timeout_s] (default [Api_common.default_request_timeout_s]).
+    A timed-out request is classified as [Retry.Timeout] which is
+    retryable by default. Without a clock no timeout is applied. *)
 
 
