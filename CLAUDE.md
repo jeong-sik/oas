@@ -27,9 +27,11 @@ examples/   →  사용 예제
 ## Build
 
 ```bash
-dune build --root .          # 빌드
-make test                    # 전체 테스트
+scripts/dune-local.sh build <target>  # 로컬 focused 빌드, lock + 낮은 병렬도
+make test                           # 로컬 throttled 테스트
 ```
+
+Full `dune build @all` / `dune runtest`는 CI 또는 명시적인 수동 검증에서만 실행한다.
 
 ## Conventions
 

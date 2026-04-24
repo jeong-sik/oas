@@ -30,7 +30,7 @@ opam pin add bisect_ppx git+https://github.com/patricoferris/bisect_ppx.git#5.2 
 opam pin add mcp_protocol "git+${MCP_SDK_URL}#${MCP_SDK_SHA}" --no-action --yes
 
 opam install . --deps-only --with-test --yes
-dune build @all
+scripts/dune-local.sh build @all
 ```
 
 ## Non-interactive CLI transports and MCP defaults
@@ -262,8 +262,12 @@ let guardrails = {
 ## Build and test
 
 ```bash
-dune build @all
-dune runtest
+scripts/dune-local.sh build <target>
+make test
+
+# Full CI parity only when explicitly needed
+scripts/dune-local.sh build @all
+scripts/dune-local.sh runtest
 
 # Coverage report
 make coverage

@@ -1,20 +1,20 @@
 .PHONY: build test coverage coverage-html coverage-clean
 
 build:
-	dune build
+	scripts/dune-local.sh build
 
 test:
-	dune runtest
+	scripts/dune-local.sh runtest
 
 # Coverage pipeline — generates summary + per-file report
 coverage: coverage-clean
-	BISECT_FILE=$(CURDIR)/bisect dune runtest --instrument-with bisect_ppx --force
+	BISECT_FILE=$(CURDIR)/bisect scripts/dune-local.sh runtest --instrument-with bisect_ppx --force
 	bisect-ppx-report summary --coverage-path=$(CURDIR) --per-file
 	@echo "---"
 	@echo "For HTML report: make coverage-html"
 
 coverage-html: coverage-clean
-	BISECT_FILE=$(CURDIR)/bisect dune runtest --instrument-with bisect_ppx --force
+	BISECT_FILE=$(CURDIR)/bisect scripts/dune-local.sh runtest --instrument-with bisect_ppx --force
 	bisect-ppx-report html --coverage-path=$(CURDIR)
 	@echo "HTML report: _coverage/index.html"
 
