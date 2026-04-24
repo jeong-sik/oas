@@ -113,12 +113,12 @@ if ! $apply; then
 fi
 
 if $opam_drift; then
-  info "running: dune build ${opam_file}"
+  info "running: scripts/dune-local.sh build ${opam_file}"
   # stderr intentionally NOT redirected: when dune fails (lock contention,
   # missing deps, syntax error in dune-project), the operator needs the
   # real diagnostic to troubleshoot, not a generic "failed" message.
-  if ! dune build --root . "$opam_file"; then
-    echo "sync-version-truth: 'dune build ${opam_file}' failed" >&2
+  if ! scripts/dune-local.sh build "$opam_file"; then
+    echo "sync-version-truth: 'scripts/dune-local.sh build ${opam_file}' failed" >&2
     exit 1
   fi
 fi

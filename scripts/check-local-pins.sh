@@ -50,7 +50,7 @@ check_pin "mcp_protocol" "$MCP_SDK_SHA" "mcp_protocol"
 if [[ $drift -ne 0 ]]; then
   echo ""
   echo -e "${RED}Pin drift detected.${NC} Local build may behave differently from CI."
-  echo "Run the fix commands above, then: dune clean && dune build"
+  echo "Run the fix commands above, then: dune clean && scripts/dune-local.sh build"
   exit 1
 fi
 
