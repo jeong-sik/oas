@@ -52,7 +52,7 @@ let last_nonempty_line text =
     writes [s], and closes the writer so the child sees EOF.  Used by
     transports to bypass the argv/envp [ARG_MAX] ceiling (macOS
     ~1 MiB) for large prompts; see
-    {!Transport_claude_code.keeper_isolation_env} and PR fixing OAS
+    {!Transport_claude_code.subprocess_session_isolation_env} and PR fixing OAS
     #1082 for the original symptom.  When [None] the child's stdin
     follows Eio's default (inherits parent). *)
 let run_core ~sw ~(mgr : _ Eio.Process.mgr) ~name ~cwd ~extra_env

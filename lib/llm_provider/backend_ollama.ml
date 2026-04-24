@@ -44,7 +44,7 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
 
   (* keep_alive: controls how long the model stays loaded in memory after
      the request. Ollama's default is 5 minutes, which causes models to be
-     unloaded between keeper cycles and re-loaded on demand — slow and
+     unloaded between automated cycles and re-loaded on demand — slow and
      eviction-prone when other processes ping different models.
 
      We default to -1 (permanent) so the caller's pinned model stays
@@ -58,7 +58,7 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
      [time.ParseDuration], which requires a unit suffix — [time.ParseDuration "-1"]
      fails with "missing unit in duration". Sending the plain string "-1"
      therefore produces [Invalid request: time: missing unit in duration "-1"]
-     and every keeper turn errors out in <2s.
+     and every automated turn errors out in <2s.
 
      Empirical rationale:
      - 2026-04-11 incident 1: a 35b-a3b model was evicted ~every 30 min

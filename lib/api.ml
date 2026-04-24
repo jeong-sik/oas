@@ -31,7 +31,7 @@ let parse_openai_response_result = Llm_provider.Backend_openai_parse.parse_opena
 (* Wall-clock latency patch. Parser layers (api_anthropic and backend_ollama)
    leave request_latency_ms at 0 as a sentinel because they only see the JSON
    response body; only the transport layer measures wall time. Without this
-   patch, downstream telemetry (dashboard latency panel, model_inference_metrics
+   patch, downstream telemetry (latency panels, model_inference_metrics
    percentiles) treats every turn as zero-latency and filters it out. *)
 let patch_latency (resp : Types.api_response) (latency_ms : int)
     : Types.api_response =

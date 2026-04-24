@@ -138,7 +138,7 @@ let legacy_env_extra_args ~(config : config) =
 (** Threshold at which [build_args] stops passing the prompt as a
     positional argv entry and expects the caller to feed it via
     stdin instead.  macOS [ARG_MAX] is ~1 MiB for the combined argv
-    + envp block; 512 KiB leaves headroom for env vars (keeper
+    + envp block; 512 KiB leaves headroom for env vars (conversation
     context, OAS_* flags) and the other argv entries added after the
     prompt.  Env override [OAS_CLAUDE_PROMPT_ARGV_THRESHOLD] accepts
     an integer byte count for per-host tuning. *)
@@ -433,13 +433,13 @@ let parse_stream_result lines =
     [ANTHROPIC_API_KEY*]: when set in the parent process, [claude -p]
     authenticates as a metered API client (subject to the org's API
     spend limits) rather than using the user's OAuth/subscription
-    session.  MASC / agent integrations that rely on the subscription
+    session.  Agent integrations that rely on the subscription
     tier must not leak API_KEY env to the CLI.  The three names cover
     the canonical variable plus the conventional [_MAIN] / [_WORK]
     split some callers adopt.
 
     [CODEX_COMPANION_SESSION_ID]: scrubbed so our fresh value injected
-    by {!keeper_isolation_env} wins over whatever the parent shell
+    by {!subprocess_session_isolation_env} wins over whatever the parent shell
     inherited.  See that function's doc for the plugin-hook rationale.
     Key order in [Cli_common_subprocess.build_env] is [extras @ base];
     [execve] preserves duplicates and libuv's env parser takes the
@@ -464,7 +464,7 @@ let claude_cli_scrub_env =
     inside a long-lived parent Claude Code session, they share
     [CODEX_COMPANION_SESSION_ID] via env inheritance.  Each transient
     subprocess's SessionEnd therefore tears down the parent session's
-    broker state and jobs — a silent outage vector for any keeper
+    broker state and jobs — a silent outage vector for any automated
     runtime colocated with an interactive Claude Code session.
 
     Injecting a subprocess-unique id short-circuits the match in the
@@ -472,10 +472,10 @@ let claude_cli_scrub_env =
     with the freshly-minted sessionId, and returns without side
     effects.  The hook still runs (we don't disable it); it just
     becomes a no-op for our subprocess. *)
-let keeper_isolation_counter = Atomic.make 0
+let subprocess_session_isolation_counter = Atomic.make 0
 
-let keeper_isolation_env () =
-  let n = Atomic.fetch_and_add keeper_isolation_counter 1 in
+let subprocess_session_isolation_env () =
+  let n = Atomic.fetch_and_add subprocess_session_isolation_counter 1 in
   [ ( "CODEX_COMPANION_SESSION_ID"
     , Printf.sprintf "oas-claude-%d-%d-%f"
         (Unix.getpid ()) n (Unix.gettimeofday ()) )
@@ -485,7 +485,7 @@ let run ~sw ~mgr ~(config : config) ?stdin_content args =
   Cli_common_subprocess.run_collect ~sw ~mgr
     ~name:"claude"
     ~cwd:config.cwd
-    ~extra_env:(keeper_isolation_env ())
+    ~extra_env:(subprocess_session_isolation_env ())
     ~scrub_env:claude_cli_scrub_env
     ?stdin_content
     ?cancel:config.cancel
@@ -516,7 +516,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
         in
         match Cli_common_subprocess.run_stream_lines ~sw ~mgr
                 ~name:"claude" ~cwd:config.cwd
-                ~extra_env:(keeper_isolation_env ())
+                ~extra_env:(subprocess_session_isolation_env ())
                 ~scrub_env:claude_cli_scrub_env
                 ?stdin_content:(stdin_for_prompt prompt)
                 ~on_line ?cancel:config.cancel
@@ -558,7 +558,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
       match Cli_common_subprocess.run_stream_lines ~sw ~mgr
               ~name:"claude"
               ~cwd:config.cwd
-              ~extra_env:(keeper_isolation_env ())
+              ~extra_env:(subprocess_session_isolation_env ())
               ~scrub_env:claude_cli_scrub_env
               ?stdin_content:(stdin_for_prompt prompt)
               ~on_line
@@ -767,8 +767,8 @@ let%test "default: --strict-mcp-config omitted when no MCP config is available" 
     && not (List.mem "--disallowedTools" args))))
 
 let%test "env: OAS_CLAUDE_STRICT_MCP=1 alone no longer implies --strict-mcp-config" =
-  (* OAS_CLAUDE_STRICT_MCP is a downstream intent marker (MASC uses it to
-     gate SessionEnd hooks), not a trigger for Claude CLI flags.  Without
+  (* OAS_CLAUDE_STRICT_MCP is a legacy downstream intent marker, not a
+     trigger for Claude CLI flags.  Without
      a real config path, --strict-mcp-config must NOT be emitted. *)
   with_unset "OAS_CLAUDE_MCP_CONFIG" (fun () ->
   with_env "OAS_CLAUDE_STRICT_MCP" "1" (fun () ->
@@ -799,8 +799,8 @@ let%test "env: DISALLOWED_TOOLS splits on comma" =
     && List.mem "Bash" args
     && List.mem "Write" args)
 
-let%test "keeper_isolation_env injects fresh CODEX_COMPANION_SESSION_ID" =
-  match keeper_isolation_env () with
+let%test "subprocess_session_isolation_env injects fresh CODEX_COMPANION_SESSION_ID" =
+  match subprocess_session_isolation_env () with
   | [ (k, v) ] ->
     k = "CODEX_COMPANION_SESSION_ID"
     && String.length v > 0
@@ -809,9 +809,9 @@ let%test "keeper_isolation_env injects fresh CODEX_COMPANION_SESSION_ID" =
         && String.sub v 0 (String.length prefix) = prefix)
   | _ -> false
 
-let%test "keeper_isolation_env yields a new id per call" =
-  let a = keeper_isolation_env () in
-  let b = keeper_isolation_env () in
+let%test "subprocess_session_isolation_env yields a new id per call" =
+  let a = subprocess_session_isolation_env () in
+  let b = subprocess_session_isolation_env () in
   let v_of = function
     | [ (_, v) ] -> v
     | _ -> ""

@@ -233,7 +233,7 @@ type subscription
 
     - [?filter] — event predicate (default: accept all).
     - [?purpose] — free-form label surfaced in {!subscription_stats}
-      (e.g. ["sse_bridge"], ["keeper_turn"], ["eval_collector"]).
+      (e.g. ["sse_bridge"], ["agent_turn"], ["eval_collector"]).
       Does not affect routing.
 
     @since 0.160.0 [?purpose] parameter added. *)

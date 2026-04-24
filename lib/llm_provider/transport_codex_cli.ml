@@ -869,15 +869,15 @@ let%test "build_args runtime MCP wires HTTP headers" =
       Llm_transport.empty_runtime_mcp_policy with
       servers = [
         Llm_transport.Http_server {
-          name = "masc";
-          url = "http://127.0.0.1:8935/mcp";
+          name = "agent_tools";
+          url = "http://127.0.0.1:9999/mcp";
           headers = [
             ("Authorization", "Bearer tok");
             ("Accept", "application/json, text/event-stream");
           ];
         };
       ];
-      allowed_server_names = ["masc"];
+      allowed_server_names = ["agent_tools"];
     }
   in
   let args =
@@ -885,9 +885,9 @@ let%test "build_args runtime MCP wires HTTP headers" =
       ~runtime_mcp_policy:policy
       ()
   in
-  List.mem "mcp_servers.masc.url=\"http://127.0.0.1:8935/mcp\"" args
+  List.mem "mcp_servers.agent_tools.url=\"http://127.0.0.1:9999/mcp\"" args
   && List.mem
-       "mcp_servers.masc.http_headers={Authorization=\"Bearer tok\",Accept=\"application/json, text/event-stream\"}"
+       "mcp_servers.agent_tools.http_headers={Authorization=\"Bearer tok\",Accept=\"application/json, text/event-stream\"}"
        args
 
 let%test "parse_jsonl_result includes mcp tool call blocks" =

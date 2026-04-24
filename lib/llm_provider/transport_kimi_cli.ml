@@ -300,7 +300,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
   (* When [session_id] is set we track how many non-system messages have
      already been sent so that subsequent turns can transmit only the delta.
      This avoids re-transmitting the entire conversation history on every
-     turn, which is the primary source of token waste in keeper mode. *)
+     turn, which is the primary source of token waste in session-reuse mode. *)
   let previous_msg_count = ref 0 in
 
   let prepare_prompt_and_messages (req : Llm_transport.completion_request) =

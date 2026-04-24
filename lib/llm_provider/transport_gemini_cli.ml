@@ -93,7 +93,7 @@ let build_args ~(config : config) ~(req_config : Provider_config.t)
   let prompt = effective_prompt ~prompt ~system_prompt in
   let args = ref [config.gemini_path; "--output-format"; "json"; "-p"; prompt] in
   let add a = args := !args @ a in
-  (* Approval mode: env var wins over [config.yolo] when set, so keeper
+  (* Approval mode: env var wins over [config.yolo] when set, so callers
      can demote a transport from yolo → plan without a code change. *)
   (match Cli_common_env.get "OAS_GEMINI_APPROVAL_MODE" with
    | Some m -> add ["--approval-mode"; m]

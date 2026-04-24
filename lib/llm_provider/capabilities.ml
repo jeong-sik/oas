@@ -177,7 +177,7 @@ let glm_capabilities = {
   (* GLM-5.1 API enforces max_tokens <= 40960 at request time; keeping a
      higher value here causes server-side rejection with
      "Invalid request: `max_tokens` must be less than or equal to `40960`".
-     Empirical upper bound observed on 2026-04-12 during keeper unified
+     Empirical upper bound observed on 2026-04-12 during automated
      turns against glm-coding:glm-5.1 and glm:glm-5.1. *)
   max_output_tokens = Some 40_960;
   supports_tools = true;
