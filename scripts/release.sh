@@ -6,10 +6,44 @@ set -euo pipefail
 # Usage:
 #   ./scripts/release.sh          # dry-run (verify only)
 #   ./scripts/release.sh --tag    # verify + create tag + push
+#
+# IMPORTANT: Must run on the post-merge `main` branch.
+# `git tag -a vX.Y.Z` places the tag on the current HEAD. Running this
+# from a feature branch (before the release PR is merged) leaves the
+# tag on a commit that is no longer on `main` after GitHub's rebase
+# merge rewrites the SHA (#1135, #1136). The checks below refuse to
+# run unless `main` is checked out and synced with origin/main.
 
 TAG_MODE=false
 if [[ "${1:-}" == "--tag" ]]; then
   TAG_MODE=true
+fi
+
+# Check -1: running on `main` synced with origin/main.
+# Rationale: tag lands on HEAD, so a non-main HEAD (or a stale main)
+# produces an orphaned tag after PR merge rebases the SHA.
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+if [[ "$CURRENT_BRANCH" != "main" ]]; then
+  echo "ERROR: release.sh must run on 'main', current branch is '$CURRENT_BRANCH'."
+  echo ""
+  echo "PR rebase merge rewrites the release-cut commit SHA. Tagging before"
+  echo "merge leaves the tag on a commit that no longer exists on main."
+  echo ""
+  echo "Fix:"
+  echo "  git checkout main && git pull --ff-only"
+  echo "  scripts/release.sh --tag"
+  exit 1
+fi
+
+git fetch origin main --quiet
+LOCAL_MAIN=$(git rev-parse HEAD)
+ORIGIN_MAIN=$(git rev-parse origin/main)
+if [[ "$LOCAL_MAIN" != "$ORIGIN_MAIN" ]]; then
+  echo "ERROR: local main ($LOCAL_MAIN) is not in sync with origin/main ($ORIGIN_MAIN)."
+  echo "Tag would land on a stale commit."
+  echo ""
+  echo "Fix: git pull --ff-only"
+  exit 1
 fi
 
 # Extract versions from canonical sources
