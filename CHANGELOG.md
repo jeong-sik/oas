@@ -8,6 +8,8 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.170.9] - 2026-04-24
+
 ### Added
 
 - **Truth-layer evidence primitives.** `Event_envelope`, `Effect_evidence`, and
@@ -16,6 +18,19 @@ original tag dates. `0.100.4` was never tagged or released.
   effect evidence for every pre-tool decision, and `Proof_capture` persists
   those rows under `evidence/effects.json` for downstream proof consumers
   (#1158).
+- **`Capabilities.emits_usage_tokens` + `capabilities_for_provider_label`.**
+  `Llm_provider.Capabilities.capabilities` gains an
+  `emits_usage_tokens : bool` field (default `true`) that captures whether
+  a provider's standard response carries `input_tokens`/`output_tokens`.
+  CLI-class wrappers that strip usage before returning (`codex_cli`,
+  `gemini_cli`, `kimi_cli`) declare it `false`; all direct APIs keep the
+  default. A companion `capabilities_for_provider_label : string ->
+  capabilities option` lookup and a matching
+  `Capability_filter.emits_usage_tokens` predicate let adapters that
+  track provider kind as a string query this flag without reinventing
+  a provider allowlist. Downstream metrics/coverage layers (e.g.
+  masc-mcp `Provider_adapter.is_structurally_unmetered_provider`) can
+  now consume the SDK directly as the SSOT (#1173).
 
 ### Fixed
 
@@ -67,6 +82,109 @@ original tag dates. `0.100.4` was never tagged or released.
   happy-path line coverage of `Fs_atomic_eio.save_atomic` is retained
   indirectly via the existing `test_checkpoint_store`,
   `test_a2a_task_store`, and `test_memory_file_backend` suites (#1165).
+
+## [0.170.6] - 2026-04-24
+
+### Changed
+
+- **SDK independence boundary now enforced in CI.** The `SDK Independence
+  Gate` job rejects PRs that reintroduce cross-SDK imports, keeping
+  `agent_sdk` consumable without pulling downstream-specific modules
+  (#1160).
+
+## [0.170.5] - 2026-04-24
+
+### Added
+
+- **Truth-layer evidence primitives.** New types and helpers for
+  recording evidence alongside LLM outputs so callers can persist
+  rationale and citations without bespoke serialisers (#1158).
+
+### Fixed
+
+- **KIMI direct API aligned with `KIMI_API_KEY` only.** The provider
+  previously fell back across several env var candidates, so setting
+  the wrong one silently routed traffic to the default key. Routing is
+  now keyed exclusively on `KIMI_API_KEY` (#1159).
+- **kimi CLI session reuse matched to actual CLI contract.** Session
+  IDs are threaded through follow-up turns instead of being dropped
+  after the first turn (#1157).
+- **HTTP MCP reconnect state preserved across transport restarts** —
+  the client no longer loses its resume token when the underlying
+  socket is replaced (#1156).
+
+## [0.170.4] - 2026-04-23
+
+### Fixed
+
+- **`llm_provider` parses usage fields from kimi-cli JSONL output.**
+  Token counts now surface on KIMI CLI responses; previously
+  `prompt_tokens` and `completion_tokens` were dropped (#1155).
+
+### Changed
+
+- **MCP fixture names genericised in transport tests** so new
+  providers can reuse the harness without name collisions (#1154).
+
+## [0.170.3] - 2026-04-22
+
+### Added
+
+- **Native timeout handling for `Agent.run`.** Uses Eio's clock
+  primitives instead of callback-based workarounds, so timeouts
+  compose with the surrounding switch (#1006, #1150).
+- **Structured replay metadata in checkpoints.** Replay flows persist
+  a typed payload instead of free-form strings, enabling downstream
+  tooling to reason about replay provenance (#1149).
+- **Structured `network_error_kind` on `NetworkError`.** The
+  `llm_provider` error surface classifies transport failures
+  (DNS / connect / read / idle) so callers can pick a retry policy
+  without string-matching error messages (#1147).
+
+### Fixed
+
+- **HTTP client drains response body to prevent CLOSE\_WAIT
+  accumulation.** Long-lived cascades had been leaking sockets into
+  CLOSE\_WAIT, eventually exhausting the local port pool (#965,
+  #1148).
+- **Pipeline message constructor drift resolved** — stages no longer
+  produce messages that downstream stages cannot decode after the
+  6-stage split (#1151).
+
+### Changed
+
+- **Pipeline split by stage (prepare / route / retry).** `pipeline.ml`
+  was broken up along the three stages that were already documented in
+  the architecture notes, reducing module size and clarifying
+  responsibilities (#1146, #1152).
+
+## [0.170.2] - 2026-04-22
+
+### Fixed
+
+- **Raw trace generation now flushes gracefully on timeout.** When the
+  surrounding operation cancelled, the trace backend used to lose its
+  in-flight buffer because shutdown raced with cancellation; a typed
+  flush hook now drains before the backend tears down (#1141).
+
+## [0.170.1] - 2026-04-22
+
+### Added
+
+- **`NotFound` variant on `api_error` for HTTP 404.** Callers can now
+  distinguish 404 from generic HTTP failures without string-matching
+  the status code inside error messages (#1139).
+
+### Changed
+
+- **`Otel_tracer` span records made immutable** so they are safe to
+  share across Eio fibers without an owning-fiber lock (#1138).
+
+### Fixed
+
+- **Streamed telemetry populated via non-HTTP transports.** Previously
+  only HTTP-backed streams emitted telemetry; CLI and in-process
+  transports now produce the same span shape (#1140).
 
 ## [0.170.0] - 2026-04-21
 

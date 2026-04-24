@@ -40,6 +40,15 @@ type capabilities = {
   supports_code_execution: bool;
   (* Provider identity *)
   is_ollama: bool;
+  (* Usage reporting *)
+  emits_usage_tokens: bool;
+  (** Whether the provider's standard response carries usage tokens
+      (input_tokens/output_tokens). CLI-class wrappers (codex_cli,
+      gemini_cli, kimi_cli) strip usage before returning, so
+      downstream metrics coverage gating must treat text-only turns
+      against them as structurally unreported rather than a gap.
+
+      @since 0.170.9 *)
 }
 
 val default_capabilities : capabilities
@@ -58,6 +67,21 @@ val codex_cli_capabilities : capabilities
 (** Lookup capabilities for a known model_id.
     Returns [None] if the model is not in the built-in table. *)
 val for_model_id : string -> capabilities option
+
+(** Lookup capabilities for a provider label string.
+
+    Recognized labels (case-insensitive, whitespace trimmed):
+    [anthropic], [openai] / [openai_chat], [openai_chat_extended],
+    [gemini], [ollama], [glm] / [glm-coding], [kimi],
+    [claude_code], [gemini_cli], [kimi_cli], [codex_cli].
+
+    Returns [None] for labels outside this set. Intended for adapter
+    layers that track provider kind as a string (e.g. config loaders,
+    metrics exporters) and want a single SSOT for provider-level
+    capability flags.
+
+    @since 0.170.9 *)
+val capabilities_for_provider_label : string -> capabilities option
 
 (** Merge Discovery ctx_size into existing capabilities. *)
 val with_context_size : capabilities -> ctx_size:int -> capabilities

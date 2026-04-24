@@ -49,6 +49,18 @@ type capabilities = {
 
   (* ── Provider identity ───────────────────────────────── *)
   is_ollama: bool;
+
+  (* ── Usage reporting ─────────────────────────────────── *)
+  emits_usage_tokens: bool;
+  (** True when the provider's standard response carries
+      [input_tokens]/[output_tokens] (direct APIs like Anthropic,
+      OpenAI, Gemini, Kimi-API, GLM, Ollama). False for CLI-class
+      wrappers that strip usage before returning (codex_cli,
+      gemini_cli, kimi_cli).
+
+      Consumers use this to decide whether a text-only turn with no
+      usage should be treated as a structurally unreported one
+      (not a coverage gap) vs. a real gap. *)
 }
 
 let default_capabilities = {
@@ -76,6 +88,7 @@ let default_capabilities = {
   supports_computer_use = false;
   supports_code_execution = false;
   is_ollama = false;
+  emits_usage_tokens = true;  (* stricter default: most providers report usage *)
 }
 
 let anthropic_capabilities = {
@@ -246,6 +259,7 @@ let gemini_cli_capabilities = {
   supports_tool_choice = false;
   supports_native_streaming = false;
   supports_system_prompt = true;
+  emits_usage_tokens = false;  (* CLI wrapper strips usage *)
 }
 
 let kimi_cli_capabilities = {
@@ -257,6 +271,7 @@ let kimi_cli_capabilities = {
   supports_reasoning = true;
   supports_system_prompt = true;
   supports_code_execution = true;
+  emits_usage_tokens = false;  (* CLI wrapper strips usage *)
 }
 
 let codex_cli_capabilities = {
@@ -269,6 +284,7 @@ let codex_cli_capabilities = {
   supports_system_prompt = true;
   supports_runtime_mcp_tools = true;
   supports_runtime_tool_events = true;
+  emits_usage_tokens = false;  (* CLI wrapper strips usage *)
 }
 
 (* ── Model-specific overrides (lookup table) ─────────── *)
@@ -474,6 +490,26 @@ let for_model_id model_id =
   else
     None
 
+(** Lookup capabilities by provider label string.
+
+    Returns [None] for labels outside the recognized set so callers can
+    fail closed rather than silently treating unknown providers as
+    having default capabilities. *)
+let capabilities_for_provider_label label =
+  match String.lowercase_ascii (String.trim label) with
+  | "anthropic" -> Some anthropic_capabilities
+  | "openai" | "openai_chat" -> Some openai_chat_capabilities
+  | "openai_chat_extended" -> Some openai_chat_extended_capabilities
+  | "gemini" -> Some gemini_capabilities
+  | "ollama" -> Some ollama_capabilities
+  | "glm" | "glm-coding" -> Some glm_capabilities
+  | "kimi" -> Some kimi_capabilities
+  | "claude_code" -> Some claude_code_capabilities
+  | "gemini_cli" -> Some gemini_cli_capabilities
+  | "kimi_cli" -> Some kimi_cli_capabilities
+  | "codex_cli" -> Some codex_cli_capabilities
+  | _ -> None
+
 (** Merge Discovery ctx_size into capabilities. *)
 let with_context_size caps ~ctx_size =
   { caps with max_context_tokens = Some ctx_size }
@@ -564,3 +600,53 @@ let%test "for_model_id glm-5.1 full model (reasoning + extended thinking)" =
     && c.supports_extended_thinking
     && c.max_output_tokens = Some 128_000
   | None -> false
+
+(* --- emits_usage_tokens / capabilities_for_provider_label --- *)
+
+let%test "emits_usage_tokens: default is true" =
+  default_capabilities.emits_usage_tokens
+
+let%test "emits_usage_tokens: anthropic reports usage" =
+  anthropic_capabilities.emits_usage_tokens
+
+let%test "emits_usage_tokens: ollama reports usage" =
+  ollama_capabilities.emits_usage_tokens
+
+let%test "emits_usage_tokens: claude_code reports usage" =
+  claude_code_capabilities.emits_usage_tokens
+
+let%test "emits_usage_tokens: gemini_cli strips usage" =
+  not gemini_cli_capabilities.emits_usage_tokens
+
+let%test "emits_usage_tokens: kimi_cli strips usage" =
+  not kimi_cli_capabilities.emits_usage_tokens
+
+let%test "emits_usage_tokens: codex_cli strips usage" =
+  not codex_cli_capabilities.emits_usage_tokens
+
+let%test "capabilities_for_provider_label: kimi_cli" =
+  match capabilities_for_provider_label "kimi_cli" with
+  | Some c -> not c.emits_usage_tokens
+  | None -> false
+
+let%test "capabilities_for_provider_label: KIMI_CLI (case insensitive)" =
+  Option.is_some (capabilities_for_provider_label "KIMI_CLI")
+
+let%test "capabilities_for_provider_label: trims whitespace" =
+  Option.is_some (capabilities_for_provider_label "  codex_cli  ")
+
+let%test "capabilities_for_provider_label: anthropic" =
+  match capabilities_for_provider_label "anthropic" with
+  | Some c -> c.emits_usage_tokens && c.supports_caching
+  | None -> false
+
+let%test "capabilities_for_provider_label: openai alias" =
+  Option.is_some (capabilities_for_provider_label "openai")
+  && Option.is_some (capabilities_for_provider_label "openai_chat")
+
+let%test "capabilities_for_provider_label: glm alias" =
+  Option.is_some (capabilities_for_provider_label "glm")
+  && Option.is_some (capabilities_for_provider_label "glm-coding")
+
+let%test "capabilities_for_provider_label: unknown returns None" =
+  Option.is_none (capabilities_for_provider_label "not_a_real_provider_xyz")
