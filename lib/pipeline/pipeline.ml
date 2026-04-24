@@ -262,8 +262,9 @@ let stage_collect ?raw_trace_run agent ~original_config response =
 let handle_missing_required_tool_use ?raw_trace_run agent ~original_config
     ~valid_tool_names response =
   let resolved = requested_completion_contract agent in
+  let retry_contract = resolved.effective in
   match
-    missing_required_tool_use_reason ~contract:resolved.requested response
+    missing_required_tool_use_reason ~contract:retry_contract response
   with
   | None -> Ok `Proceed
   | Some _ when last_message_has_tool_result agent -> Ok `Proceed
@@ -274,7 +275,7 @@ let handle_missing_required_tool_use ?raw_trace_run agent ~original_config
     | Some policy ->
       let failure : Tool_retry_policy.failure =
         {
-          tool_name = requested_tool_label resolved.requested;
+          tool_name = requested_tool_label retry_contract;
           detail = reason;
           kind = Tool_retry_policy.Validation_error;
           error_class = Tool_retry_policy.Deterministic;
@@ -294,7 +295,7 @@ let handle_missing_required_tool_use ?raw_trace_run agent ~original_config
         let feedback =
           missing_tool_feedback_text ~retry_count
             ~max_retries:policy.max_retries ~reason
-            ~contract:resolved.requested ~valid_tool_names ~response
+            ~contract:retry_contract ~valid_tool_names ~response
         in
         update_state agent (fun s ->
           {
@@ -313,7 +314,7 @@ let handle_missing_required_tool_use ?raw_trace_run agent ~original_config
           (Error.Agent
              (CompletionContractViolation
                 {
-                  contract = resolved.requested;
+                  contract = retry_contract;
                   reason =
                     Printf.sprintf
                       "%s (missing required tool use retry exhausted: attempts=%d limit=%d)"
