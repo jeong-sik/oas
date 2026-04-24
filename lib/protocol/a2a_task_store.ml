@@ -1,7 +1,7 @@
 (** File-backed A2A task persistence using Eio.Path.
 
     Layout: [<base_dir>/<task_id>.json].
-    Atomic writes via .tmp + rename (same pattern as checkpoint_store.ml).
+    Atomic writes via {!Fs_atomic_eio.save_atomic}: unique tmp + fsync + rename.
     In-memory Hashtbl cache for fast lookups; file I/O for durability. *)
 
 let _log = Log.create ~module_name:"a2a_task_store" ()
@@ -24,7 +24,6 @@ let validate_task_id id =
 let io_error_of_exn = Fs_result.io_error_of_exn
 
 let file_path store id = Eio.Path.(store.base_dir / (id ^ ".json"))
-let tmp_path store id = Eio.Path.(store.base_dir / (id ^ ".json.tmp"))
 
 let create base_dir =
   try
@@ -40,18 +39,16 @@ let store_task store (task : A2a_task.task) =
   | Ok () ->
     let json = A2a_task.task_to_yojson task in
     let data = Yojson.Safe.to_string json in
-    let tmp = tmp_path store task.id in
-    let target = file_path store task.id in
-    (try
-       Eio.Path.save ~create:(`Or_truncate 0o644) tmp data;
-       Eio.Path.rename tmp target;
+    (match
+       Fs_atomic_eio.save_atomic
+         ~dir:store.base_dir
+         ~name:(task.id ^ ".json")
+         data
+     with
+     | Ok () ->
        Hashtbl.replace store.cache task.id task;
        Ok ()
-     with
-     | Eio.Cancel.Cancelled _ as e -> raise e
-     | exn ->
-       (try Eio.Path.unlink tmp with Eio.Io _ | Unix.Unix_error _ -> ());
-       io_error_of_exn ~op:"store_task" ~path:task.id exn)
+     | Error _ as e -> e)
 
 let get_task store id =
   Hashtbl.find_opt store.cache id
@@ -81,9 +78,11 @@ let reload store =
     let json_files = entries
       |> List.filter (fun name ->
              let len = String.length name in
+             (* Tmp files now use writer-unique suffix ending in
+                ".tmp"; match that directly. *)
              len > 5
              && String.sub name (len - 5) 5 = ".json"
-             && not (len > 9 && String.sub name (len - 9) 9 = ".json.tmp"))
+             && not (len > 4 && String.sub name (len - 4) 4 = ".tmp"))
     in
     List.iter (fun filename ->
       let path = Eio.Path.(store.base_dir / filename) in

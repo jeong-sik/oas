@@ -43,9 +43,6 @@ let hex_decode s =
 let file_path store key =
   Eio.Path.(store.base_dir / (hex_encode key ^ ".json"))
 
-let tmp_path store key =
-  Eio.Path.(store.base_dir / (hex_encode key ^ ".json.tmp"))
-
 let io_error_of_exn = Fs_result.io_error_of_exn
 
 (* ── Lifecycle ───────────────────────────────────────────────── *)
@@ -62,19 +59,11 @@ let create base_dir =
 
 let persist t ~key value =
   let data = Yojson.Safe.to_string value in
-  let tmp = tmp_path t key in
-  let target = file_path t key in
-  try
-    Eio.Path.save ~create:(`Or_truncate 0o644) tmp data;
-    Eio.Path.rename tmp target;
-    Ok ()
-  with
-  | Eio.Cancel.Cancelled _ as e -> raise e
-  | exn ->
-    (try Eio.Path.unlink tmp with Eio.Io _ | Unix.Unix_error _ -> ());
-    match io_error_of_exn ~op:"persist" ~path:key exn with
-    | Error (Error.Io _) -> Error (Printf.sprintf "persist '%s' failed: %s" key (Printexc.to_string exn))
-    | _ -> Error (Printf.sprintf "persist '%s' failed: %s" key (Printexc.to_string exn))
+  let name = hex_encode key ^ ".json" in
+  match Fs_atomic_eio.save_atomic ~dir:t.base_dir ~name data with
+  | Ok () -> Ok ()
+  | Error e ->
+    Error (Printf.sprintf "persist '%s' failed: %s" key (Error.to_string e))
 
 let retrieve t ~key =
   let path = file_path t key in
@@ -122,8 +111,10 @@ let query t ~prefix ~limit =
     entries
     |> List.filter_map (fun name ->
       let len = String.length name in
+      (* Writer-unique tmp names end with ".tmp"; match that suffix
+         directly (see Fs_atomic_eio.save_atomic). *)
       if len > 5 && String.sub name (len - 5) 5 = ".json"
-         && not (len > 9 && String.sub name (len - 9) 9 = ".json.tmp")
+         && not (len > 4 && String.sub name (len - 4) 4 = ".tmp")
       then
         let hex = String.sub name 0 (len - 5) in
         match hex_decode hex with
@@ -169,7 +160,7 @@ let keys t =
     |> List.filter_map (fun name ->
       let len = String.length name in
       if len > 5 && String.sub name (len - 5) 5 = ".json"
-         && not (len > 9 && String.sub name (len - 9) 9 = ".json.tmp")
+         && not (len > 4 && String.sub name (len - 4) 4 = ".tmp")
       then
         hex_decode (String.sub name 0 (len - 5))
       else None)
