@@ -22,6 +22,22 @@ original tag dates. `0.100.4` was never tagged or released.
 - **Split pipeline stages now build messages through the shared constructor.** The post-split `stage_input`, `stage_collect`, and `stage_execute` paths now use `make_message` instead of stale record literals, so newly required fields such as `metadata` stay aligned with the shared message shape and downstream pipeline builds stop breaking after the stage split (#1151).
 - **Kimi CLI session reuse now matches the actual CLI contract.** `transport_kimi_cli` now passes config files via `--config-file`, keeps `--session <id>` stable across turns, and stops assuming `--continue` is valid with an explicit session id. This preserves the intended token-saving delta prompt behavior for keeper-style multi-turn sessions without relying on a CLI flag combination that `kimi` rejects.
 
+## [0.170.8] - 2026-04-24
+
+### Fixed
+
+- **`scripts/release.sh` now refuses to tag from anywhere other than
+  a main branch synced with `origin/main`.** Previously the script
+  ran `git tag -a` against the current `HEAD`, so running it from a
+  feature branch (or before the release PR was merged) left the tag
+  on a release-cut commit whose SHA was rewritten by GitHub's PR
+  rebase merge. The tag then pointed to a commit no longer reachable
+  from main, which broke release-provenance audits and every
+  downstream consumer that pinned by SHA-equivalent. The script now
+  fails fast when `git rev-parse --abbrev-ref HEAD` is not the
+  integration branch or when local HEAD differs from `origin/main`,
+  with the remediation printed inline (#1136, #1135, #1168).
+
 ## [0.170.7] - 2026-04-24
 
 ### Fixed
