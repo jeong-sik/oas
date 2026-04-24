@@ -58,6 +58,8 @@ type capabilities = {
   supports_code_execution: bool;
   (* Provider identity *)
   is_ollama: bool;
+  (* Usage reporting *)
+  emits_usage_tokens: bool;
 }
 
 type inference_contract = {
