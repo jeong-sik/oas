@@ -314,7 +314,7 @@ let complete_http ~sw ~net
   let t0 = Unix.gettimeofday () in
   let result =
     match Http_client.post_sync ~sw ~net ~url
-            ~headers:config.headers ~body:body_str with
+            ~headers:config.headers ~body:body_str () with
     | Error _ as e -> e
     | Ok (code, body) ->
         (* Emit status counter as soon as we have a raw HTTP code from
@@ -782,7 +782,7 @@ let complete_stream_http ~sw:_ ~net ~(config : Provider_config.t)
                 accumulate_event acc evt
               ) events
             ) ();
-            finalize_stream_acc acc) with
+            finalize_stream_acc acc) () with
   | Error _ as e -> e
   | Ok (Ok resp) ->
       let latency_ms = int_of_float ((Unix.gettimeofday () -. t0) *. 1000.0) in

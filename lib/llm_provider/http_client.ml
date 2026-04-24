@@ -38,6 +38,17 @@ type http_error =
 
 let ( let* ) = Result.bind
 
+(** Default wall-clock timeout applied to synchronous HTTP operations
+    when a clock is supplied ([get_sync], [post_sync]).  Streaming
+    variants use this only to bound the connect + initial-response-headers
+    phase; body consumption is governed by the caller. *)
+let default_http_timeout_s = 60.0
+
+let with_optional_timeout ~clock ~timeout_s f =
+  match clock with
+  | Some clk -> Eio.Time.with_timeout_exn clk timeout_s f
+  | None -> f ()
+
 (* ── Exception → network_error_kind classification ───────── *)
 
 let classify_unix_error = function
@@ -106,6 +117,11 @@ let catch_network f =
   with
   | End_of_file ->
       Error (NetworkError { message = "End_of_file"; kind = End_of_file })
+  | Eio.Time.Timeout ->
+      Error (NetworkError {
+        message = "HTTP operation exceeded wall-clock timeout";
+        kind = Timeout;
+      })
   | Unix.Unix_error (code, _, _) as exn ->
       Error (NetworkError {
         message = Printexc.to_string exn;
@@ -256,34 +272,35 @@ let make_closing_client ~sw ~net ~uri =
           transports);
       Ok client
 
-let get_sync ~sw:_ ~net ~url ~headers =
+let get_sync ?clock ?(timeout_s = default_http_timeout_s) ~sw:_ ~net ~url ~headers () =
   catch_network (fun () ->
     Eio.Switch.run @@ fun sw ->
     let* uri = parse_uri url in
     let* client = make_closing_client ~sw ~net ~uri in
     let hdr = Http.Header.of_list (add_connection_close headers) in
-    let resp, resp_body =
-      Cohttp_eio.Client.get ~sw client ~headers:hdr uri
-    in
-    let code =
-      Cohttp.Response.status resp |> Cohttp.Code.code_of_status in
-    let body_str =
-      try
-        Eio.Buf_read.(of_flow ~max_size:Api_common.max_response_body
-                         resp_body |> take_all)
-      with exn ->
-        let _ =
-          try
-            let buf = Cstruct.create 4096 in
-            let rec drain () = let _ = Eio.Flow.single_read resp_body buf in drain () in
-            drain ()
-          with _ -> ()
-        in
-        raise exn
-    in
-    Ok (code, body_str))
+    with_optional_timeout ~clock ~timeout_s (fun () ->
+      let resp, resp_body =
+        Cohttp_eio.Client.get ~sw client ~headers:hdr uri
+      in
+      let code =
+        Cohttp.Response.status resp |> Cohttp.Code.code_of_status in
+      let body_str =
+        try
+          Eio.Buf_read.(of_flow ~max_size:Api_common.max_response_body
+                           resp_body |> take_all)
+        with exn ->
+          let _ =
+            try
+              let buf = Cstruct.create 4096 in
+              let rec drain () = let _ = Eio.Flow.single_read resp_body buf in drain () in
+              drain ()
+            with _ -> ()
+          in
+          raise exn
+      in
+      Ok (code, body_str)))
 
-let post_sync ~sw:_ ~net ~url ~headers ~body =
+let post_sync ?clock ?(timeout_s = default_http_timeout_s) ~sw:_ ~net ~url ~headers ~body () =
   catch_network (fun () ->
     Eio.Switch.run @@ fun sw ->
     let* uri = parse_uri url in
@@ -296,29 +313,30 @@ let post_sync ~sw:_ ~net ~url ~headers ~body =
       :: add_connection_close headers
     in
     let hdr = Http.Header.of_list headers_with_length in
-    let resp, resp_body =
-      Cohttp_eio.Client.post ~sw client ~headers:hdr
-        ~body:(Cohttp_eio.Body.of_string body) uri
-    in
-    let code =
-      Cohttp.Response.status resp |> Cohttp.Code.code_of_status in
-    let body_str =
-      try
-        Eio.Buf_read.(of_flow ~max_size:Api_common.max_response_body
-                         resp_body |> take_all)
-      with exn ->
-        let _ =
-          try
-            let buf = Cstruct.create 4096 in
-            let rec drain () = let _ = Eio.Flow.single_read resp_body buf in drain () in
-            drain ()
-          with _ -> ()
-        in
-        raise exn
-    in
-    Ok (code, body_str))
+    with_optional_timeout ~clock ~timeout_s (fun () ->
+      let resp, resp_body =
+        Cohttp_eio.Client.post ~sw client ~headers:hdr
+          ~body:(Cohttp_eio.Body.of_string body) uri
+      in
+      let code =
+        Cohttp.Response.status resp |> Cohttp.Code.code_of_status in
+      let body_str =
+        try
+          Eio.Buf_read.(of_flow ~max_size:Api_common.max_response_body
+                           resp_body |> take_all)
+        with exn ->
+          let _ =
+            try
+              let buf = Cstruct.create 4096 in
+              let rec drain () = let _ = Eio.Flow.single_read resp_body buf in drain () in
+              drain ()
+            with _ -> ()
+          in
+          raise exn
+      in
+      Ok (code, body_str)))
 
-let post_stream ~sw ~net ~url ~headers ~body =
+let post_stream ?clock ?(connect_timeout_s = default_http_timeout_s) ~sw ~net ~url ~headers ~body () =
   catch_network (fun () ->
     let* uri = parse_uri url in
     let* client = make_closing_client ~sw ~net ~uri in
@@ -327,9 +345,13 @@ let post_stream ~sw ~net ~url ~headers ~body =
       :: add_connection_close headers
     in
     let hdr = Http.Header.of_list headers_with_length in
+    (* Only the connect + initial response headers are bounded; body
+       consumption happens in the returned reader and is the caller's
+       responsibility to timebox. *)
     let resp, resp_body =
-      Cohttp_eio.Client.post ~sw client ~headers:hdr
-        ~body:(Cohttp_eio.Body.of_string body) uri
+      with_optional_timeout ~clock ~timeout_s:connect_timeout_s (fun () ->
+        Cohttp_eio.Client.post ~sw client ~headers:hdr
+          ~body:(Cohttp_eio.Body.of_string body) uri)
     in
     match Cohttp.Response.status resp with
     | `OK ->
@@ -352,7 +374,7 @@ let post_stream ~sw ~net ~url ~headers ~body =
         in
         Error (HttpError { code; body = body_str }))
 
-let with_post_stream ~net ~url ~headers ~body ~f =
+let with_post_stream ?clock ?(connect_timeout_s = default_http_timeout_s) ~net ~url ~headers ~body ~f () =
   catch_network (fun () ->
     Eio.Switch.run @@ fun sw ->
     let* uri = parse_uri url in
@@ -362,9 +384,12 @@ let with_post_stream ~net ~url ~headers ~body ~f =
       :: add_connection_close headers
     in
     let hdr = Http.Header.of_list headers_with_length in
+    (* Only bound connect + initial response headers.  Body consumption
+       in [f] is the caller's responsibility to timebox. *)
     let resp, resp_body =
-      Cohttp_eio.Client.post ~sw client ~headers:hdr
-        ~body:(Cohttp_eio.Body.of_string body) uri
+      with_optional_timeout ~clock ~timeout_s:connect_timeout_s (fun () ->
+        Cohttp_eio.Client.post ~sw client ~headers:hdr
+          ~body:(Cohttp_eio.Body.of_string body) uri)
     in
     match Cohttp.Response.status resp with
     | `OK ->

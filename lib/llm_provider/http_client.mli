@@ -39,23 +39,44 @@ type http_error =
           {!NetworkError} so cascades can treat it as a configuration
           bug rather than a transient failure. *)
 
+(** Default wall-clock timeout (seconds) applied to synchronous HTTP
+    operations when a clock is supplied.  Streaming variants use this
+    only to bound the connect + initial-response-headers phase. *)
+val default_http_timeout_s : float
+
 (** GET a URL synchronously, returning the full response.
-    Returns [(status_code, body_string)] on success. *)
+    Returns [(status_code, body_string)] on success.
+
+    When [clock] is supplied the entire operation (connect + response
+    + body read) is bounded by [timeout_s] (default
+    {!default_http_timeout_s}); a timeout surfaces as
+    [NetworkError { kind = Timeout; _ }] which is classified as
+    retryable by {!Retry.is_retryable}. *)
 val get_sync :
+  ?clock:_ Eio.Time.clock ->
+  ?timeout_s:float ->
   sw:Eio.Switch.t ->
   net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
   url:string ->
   headers:(string * string) list ->
+  unit ->
   (int * string, http_error) result
 
 (** POST JSON body synchronously, returning the full response.
-    Returns [(status_code, body_string)] on success. *)
+    Returns [(status_code, body_string)] on success.
+
+    When [clock] is supplied the entire operation is bounded by
+    [timeout_s] (default {!default_http_timeout_s}); a timeout surfaces
+    as [NetworkError { kind = Timeout; _ }]. *)
 val post_sync :
+  ?clock:_ Eio.Time.clock ->
+  ?timeout_s:float ->
   sw:Eio.Switch.t ->
   net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
   url:string ->
   headers:(string * string) list ->
   body:string ->
+  unit ->
   (int * string, http_error) result
 
 (** POST JSON body for SSE/NDJSON streaming.
@@ -63,24 +84,38 @@ val post_sync :
     Returns [Error] on non-200 or network failure.
 
     The connection is bound to [sw]; prefer {!with_post_stream} to
-    ensure the connection fd is released when the stream is consumed. *)
+    ensure the connection fd is released when the stream is consumed.
+
+    When [clock] is supplied only the connect + initial response
+    headers are bounded by [connect_timeout_s] (default
+    {!default_http_timeout_s}); body consumption through the returned
+    reader is the caller's responsibility to timebox. *)
 val post_stream :
+  ?clock:_ Eio.Time.clock ->
+  ?connect_timeout_s:float ->
   sw:Eio.Switch.t ->
   net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
   url:string ->
   headers:(string * string) list ->
   body:string ->
+  unit ->
   (Eio.Buf_read.t, http_error) result
 
 (** Like {!post_stream} but manages connection lifetime internally.
     [f] receives the reader; when [f] returns the connection is closed
-    and its fd is released immediately. *)
+    and its fd is released immediately.
+
+    [connect_timeout_s] bounds only the connect + initial response
+    headers phase when [clock] is supplied. *)
 val with_post_stream :
+  ?clock:_ Eio.Time.clock ->
+  ?connect_timeout_s:float ->
   net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
   url:string ->
   headers:(string * string) list ->
   body:string ->
   f:(Eio.Buf_read.t -> 'a) ->
+  unit ->
   ('a, http_error) result
 
 (** Read SSE-formatted lines from a reader.

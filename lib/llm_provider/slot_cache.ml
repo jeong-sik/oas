@@ -12,7 +12,7 @@ let slot_action ~sw ~net ~endpoint ~slot_id ~action ~body_fields =
     | fields -> Yojson.Safe.to_string (`Assoc fields)
   in
   let headers = [("Content-Type", "application/json")] in
-  match Http_client.post_sync ~sw ~net ~url ~headers ~body with
+  match Http_client.post_sync ~sw ~net ~url ~headers ~body () with
   | Ok (code, _) when code >= 200 && code < 300 ->
     Ok ()
   | Ok (code, resp_body) ->

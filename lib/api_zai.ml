@@ -146,7 +146,7 @@ let parse_transcription body =
         })
 
 let post_json ~sw ~net ~url ~headers body parse =
-  match Http_client.post_sync ~sw ~net ~url ~headers ~body with
+  match Http_client.post_sync ~sw ~net ~url ~headers ~body () with
   | Error _ as err -> err
   | Ok (code, body) ->
       if code >= 200 && code < 300 then parse body
@@ -223,7 +223,7 @@ let get_media_async_result ~sw ~net
     ?(base_url = Zai_catalog.general_base_url) ?api_key ~id () =
   match Http_client.get_sync ~sw ~net
           ~url:(media_async_result_url ~base_url ~id)
-          ~headers:(auth_headers ?api_key "application/json") with
+          ~headers:(auth_headers ?api_key "application/json") () with
   | Error _ as err -> err
   | Ok (code, body) ->
       if code >= 200 && code < 300 then parse_media_async_result body
