@@ -16,6 +16,14 @@ let max_response_body = 10 * 1024 * 1024
     Larger than HTTP because stdio carries full JSON-RPC frames. *)
 let max_stdio_buffer = 16 * 1024 * 1024
 
+(** Default per-request wall-clock timeout for LLM HTTP calls (seconds).
+    Prevents a slow upstream (Ollama stall, network partition, stuck gateway)
+    from freezing the caller's fiber. [Api.create_message] wraps its HTTP
+    request with [Eio.Time.with_timeout_exn] using this value when a clock
+    is supplied, and maps the resulting [Eio.Time.Timeout] to
+    [Retry.Timeout] so [Retry.with_retry] can retry or surface the failure. *)
+let default_request_timeout_s = 60.0
+
 (** Synthesize a deterministic tool_use_id from function name and args.
     Gemini API does not return tool IDs; we generate stable ones via MD5. *)
 let synthesize_tool_use_id ~name args =
