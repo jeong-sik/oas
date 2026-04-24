@@ -22,6 +22,24 @@ original tag dates. `0.100.4` was never tagged or released.
 - **Split pipeline stages now build messages through the shared constructor.** The post-split `stage_input`, `stage_collect`, and `stage_execute` paths now use `make_message` instead of stale record literals, so newly required fields such as `metadata` stay aligned with the shared message shape and downstream pipeline builds stop breaking after the stage split (#1151).
 - **Kimi CLI session reuse now matches the actual CLI contract.** `transport_kimi_cli` now passes config files via `--config-file`, keeps `--session <id>` stable across turns, and stops assuming `--continue` is valid with an explicit session id. This preserves the intended token-saving delta prompt behavior for keeper-style multi-turn sessions without relying on a CLI flag combination that `kimi` rejects.
 
+## [0.170.9] - 2026-04-24
+
+### Added
+
+- **`Capabilities.emits_usage_tokens` + `capabilities_for_provider_label`.**
+  `Llm_provider.Capabilities.capabilities` gains an
+  `emits_usage_tokens : bool` field (default `true`) that captures whether
+  a provider's standard response carries `input_tokens`/`output_tokens`.
+  CLI-class wrappers that strip usage before returning (`codex_cli`,
+  `gemini_cli`, `kimi_cli`) declare it `false`; all direct APIs keep the
+  default. A companion `capabilities_for_provider_label : string ->
+  capabilities option` lookup and a matching
+  `Capability_filter.emits_usage_tokens` predicate let adapters that
+  track provider kind as a string query this flag without reinventing
+  a provider allowlist. Downstream metrics/coverage layers (e.g.
+  masc-mcp `Provider_adapter.is_structurally_unmetered_provider`) can
+  now consume the SDK directly as the SSOT.
+
 ## [0.170.8] - 2026-04-24
 
 ### Fixed

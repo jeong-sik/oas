@@ -18,6 +18,7 @@ let requires_caching (c : Capabilities.capabilities) = c.supports_caching
 let requires_vision (c : Capabilities.capabilities) = c.supports_image_input
 let requires_computer_use (c : Capabilities.capabilities) = c.supports_computer_use
 let requires_system_prompt (c : Capabilities.capabilities) = c.supports_system_prompt
+let emits_usage_tokens (c : Capabilities.capabilities) = c.emits_usage_tokens
 
 (* ── Limit checks ────────────────────────────────────── *)
 
