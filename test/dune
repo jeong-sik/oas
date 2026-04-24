@@ -533,3 +533,7 @@
 (test
  (name test_agent_race)
  (libraries agent_sdk alcotest eio eio_main yojson))
+
+(test
+ (name test_atomic_write_race)
+ (libraries agent_sdk alcotest eio eio_main))
