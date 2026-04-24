@@ -121,6 +121,7 @@ type options = {
         application-specific markers before they are re-injected as
         compacted history.
         @since 0.150.0 *)
+  required_tool_satisfaction: Completion_contract.required_tool_satisfaction;
 }
 
 (** {1 Lifecycle re-exports} *)

@@ -17,6 +17,37 @@ type resolved = {
   relaxed: bool;
 }
 
+type tool_call = {
+  name : string;
+  input : Yojson.Safe.t;
+  tool : Tool.t option;
+}
+
+type required_tool_satisfaction = tool_call -> (unit, string) result
+
+let any_tool_call_satisfies (_call : tool_call) = Ok ()
+
+let effectful_tool_satisfies (call : tool_call) =
+  match call.tool with
+  | None ->
+    Error
+      (Printf.sprintf
+         "tool '%s' has no registered descriptor for strict required-tool validation"
+         call.name)
+  | Some tool ->
+    (match Tool.permission tool with
+     | Some Tool.ReadOnly ->
+       Error
+         (Printf.sprintf
+            "tool '%s' is read-only and cannot satisfy a required-tool contract"
+            call.name)
+     | Some (Tool.Write | Tool.Destructive) -> Ok ()
+     | None ->
+       Error
+         (Printf.sprintf
+            "tool '%s' has no permission metadata for strict required-tool validation"
+            call.name))
+
 let requested_of_tool_choice choice =
   match choice with
   | Some Any -> Require_tool_use
@@ -51,6 +82,42 @@ let tool_use_names (response : api_response) =
       | _ -> None)
     response.content
 
+let tool_lookup tools name =
+  List.find_opt (fun (tool : Tool.t) -> String.equal tool.schema.name name) tools
+
+let tool_use_calls ~(tools : Tool.t list) (response : api_response) =
+  List.filter_map
+    (function
+      | ToolUse { name; input; _ } ->
+        Some { name; input; tool = tool_lookup tools name }
+      | _ -> None)
+    response.content
+
+let satisfaction_errors ~required_tool_satisfaction calls =
+  List.filter_map
+    (fun call ->
+       match required_tool_satisfaction call with
+       | Ok () -> None
+       | Error reason -> Some (Printf.sprintf "%s: %s" call.name reason))
+    calls
+
+let any_satisfying_call ~required_tool_satisfaction calls =
+  List.exists
+    (fun call -> Result.is_ok (required_tool_satisfaction call))
+    calls
+
+let unsatisfied_calls_message calls errors =
+  match errors with
+  | [] ->
+    Printf.sprintf
+      "required tool contract unsatisfied: model called [%s], but no call satisfied the required-tool predicate"
+      (String.concat ", " (List.map (fun call -> call.name) calls))
+  | _ ->
+    Printf.sprintf
+      "required tool contract unsatisfied: model called [%s], but no call satisfied the required-tool predicate (%s)"
+      (String.concat ", " (List.map (fun call -> call.name) calls))
+      (String.concat "; " errors)
+
 (* A response whose stop_reason signals the model was cut off mid-turn rather
    than cleanly deciding not to call a tool. Surfacing a
    [CompletionContractViolation] in that case is misleading — the caller can
@@ -65,13 +132,21 @@ let stop_reason_is_resumable (sr : stop_reason) : bool =
   | Unknown "pause_turn" -> true
   | EndTurn | StopToolUse | StopSequence | Unknown _ -> false
 
-let validate_response ~(contract : t) (response : api_response) :
+let validate_response
+    ?(tools = [])
+    ?(required_tool_satisfaction = any_tool_call_satisfies)
+    ~(contract : t) (response : api_response) :
     (unit, string) result =
   match contract with
   | Allow_text_or_tool -> Ok ()
   | Require_tool_use ->
-    if tool_use_names response <> []
+    let calls = tool_use_calls ~tools response in
+    if calls <> [] && any_satisfying_call ~required_tool_satisfaction calls
     then Ok ()
+    else if calls <> [] then
+      Error
+        (unsatisfied_calls_message calls
+           (satisfaction_errors ~required_tool_satisfaction calls))
     else if stop_reason_is_resumable response.stop_reason
     then Ok ()
     else
@@ -79,7 +154,8 @@ let validate_response ~(contract : t) (response : api_response) :
         "required tool contract unsatisfied: tool_choice requested tool use, \
          but the model returned no ToolUse block"
   | Require_specific_tool name ->
-    (match tool_use_names response with
+    let calls = tool_use_calls ~tools response in
+    (match calls with
      | [] when stop_reason_is_resumable response.stop_reason -> Ok ()
      | [] ->
        Error
@@ -87,14 +163,30 @@ let validate_response ~(contract : t) (response : api_response) :
             "required tool contract unsatisfied: tool_choice requested tool \
              '%s', but the model returned no ToolUse block"
             name)
-     | tool_names when List.mem name tool_names -> Ok ()
-     | tool_names ->
-       Error
-         (Printf.sprintf
-            "required tool contract unsatisfied: tool_choice requested tool \
-             '%s', but the model called [%s]"
-            name
-            (String.concat ", " tool_names)))
+     | calls ->
+       let matching =
+         List.filter (fun call -> String.equal call.name name) calls
+       in
+       if matching <> []
+          && any_satisfying_call ~required_tool_satisfaction matching
+       then Ok ()
+       else if matching <> [] then
+         Error
+           (Printf.sprintf
+              "required tool contract unsatisfied: tool_choice requested tool \
+               '%s', but matching calls did not satisfy the required-tool \
+               predicate (%s)"
+              name
+              (String.concat "; "
+                 (satisfaction_errors ~required_tool_satisfaction matching)))
+       else
+         let tool_names = List.map (fun call -> call.name) calls in
+         Error
+           (Printf.sprintf
+              "required tool contract unsatisfied: tool_choice requested tool \
+               '%s', but the model called [%s]"
+              name
+              (String.concat ", " tool_names)))
   | Require_no_tool_use ->
     (match tool_use_names response with
      | [] -> Ok ()

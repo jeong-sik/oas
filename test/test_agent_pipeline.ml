@@ -63,8 +63,8 @@ let start_multi_mock ~sw ~net ~port (responses : string list) =
   Printf.sprintf "http://127.0.0.1:%d" port
 
 let make_agent ~net ?(max_turns = 3) ?(tools = []) ?hooks ?context_reducer
-    ?guardrails ?tool_retry_policy ?tool_choice ?(model_id = "mock-model")
-    base_url =
+    ?guardrails ?tool_retry_policy ?required_tool_satisfaction ?tool_choice
+    ?(model_id = "mock-model") base_url =
   let config = { Types.default_config with
     name = "test-agent"; max_turns; tool_choice;
   } in
@@ -80,6 +80,9 @@ let make_agent ~net ?(max_turns = 3) ?(tools = []) ?hooks ?context_reducer
     context_reducer;
     guardrails = (match guardrails with Some g -> g | None -> Guardrails.default);
     tool_retry_policy;
+    required_tool_satisfaction =
+      Option.value required_tool_satisfaction
+        ~default:Completion_contract.any_tool_call_satisfies;
   } in
   Agent.create ~net ~config ~tools ~options ()
 
@@ -89,6 +92,17 @@ let required_tool_retry_policy ?(max_retries = 1) () = {
   retry_on_recoverable_tool_error = false;
   feedback_style = Agent_sdk.Tool_retry_policy.Plain_error_text;
 }
+
+let descriptor permission : Tool.descriptor =
+  {
+    kind = None;
+    mutation_class = None;
+    concurrency_class = None;
+    permission = Some permission;
+    shell = None;
+    notes = [];
+    examples = [];
+  }
 
 let extract_text (resp : Types.api_response) =
   List.filter_map
@@ -355,6 +369,100 @@ let test_agent_run_rejects_tool_use_when_tool_choice_is_none () =
          (contract = Completion_contract.Require_no_tool_use);
        check bool "reason mentions called tool" true
          (contains_substring ~needle:"other_tool" reason);
+       Eio.Switch.fail sw Exit
+     | Error e -> fail (Error.to_string e))
+  with Exit -> ()
+
+let test_agent_run_strict_required_tool_rejects_read_only_tool () =
+  Eio_main.run @@ fun env ->
+  try
+    Eio.Switch.run @@ fun sw ->
+    let url = start_multi_mock ~sw ~net:env#net ~port:20016
+        [openai_tool_use_response "status" {|{}|}] in
+    let status_tool = Tool.create
+        ~descriptor:(descriptor Tool.ReadOnly)
+        ~name:"status"
+        ~description:"Read current status"
+        ~parameters:[]
+        (fun _input -> Ok { Types.content = "ok" })
+    in
+    let agent =
+      make_agent ~net:env#net ~tools:[status_tool]
+        ~required_tool_satisfaction:Completion_contract.effectful_tool_satisfies
+        ~tool_choice:Types.Any url
+    in
+    (match Agent.run ~sw agent "must use a productive tool" with
+     | Ok _ -> fail "expected read-only tool contract failure"
+     | Error (Error.Agent (Error.CompletionContractViolation { contract; reason })) ->
+       check bool "contract" true
+         (contract = Completion_contract.Require_tool_use);
+       check bool "reason mentions read-only" true
+         (contains_substring ~needle:"read-only" reason);
+       Eio.Switch.fail sw Exit
+     | Error e -> fail (Error.to_string e))
+  with Exit -> ()
+
+let test_agent_run_strict_required_tool_allows_write_tool () =
+  let write_tool = Tool.create
+      ~descriptor:(descriptor Tool.Write)
+      ~name:"write_note"
+      ~description:"Write a note"
+      ~parameters:[]
+      (fun _input -> Ok { Types.content = "done" })
+  in
+  let response : Types.api_response =
+    {
+      id = "resp-write";
+      model = "mock";
+      stop_reason = Types.StopToolUse;
+      content =
+        [
+          Types.ToolUse
+            {
+              id = "call-write";
+              name = "write_note";
+              input = `Assoc [];
+            };
+        ];
+      usage = None;
+      telemetry = None;
+    }
+  in
+  match
+    Completion_contract.validate_response
+      ~tools:[write_tool]
+      ~required_tool_satisfaction:Completion_contract.effectful_tool_satisfies
+      ~contract:Completion_contract.Require_tool_use
+      response
+  with
+  | Ok () -> ()
+  | Error e -> fail e
+
+let test_agent_run_strict_specific_tool_rejects_read_only_match () =
+  Eio_main.run @@ fun env ->
+  try
+    Eio.Switch.run @@ fun sw ->
+    let url = start_multi_mock ~sw ~net:env#net ~port:20018
+        [openai_tool_use_response "status" {|{}|}] in
+    let status_tool = Tool.create
+        ~descriptor:(descriptor Tool.ReadOnly)
+        ~name:"status"
+        ~description:"Read current status"
+        ~parameters:[]
+        (fun _input -> Ok { Types.content = "ok" })
+    in
+    let agent =
+      make_agent ~net:env#net ~tools:[status_tool]
+        ~required_tool_satisfaction:Completion_contract.effectful_tool_satisfies
+        ~tool_choice:(Types.Tool "status") url
+    in
+    (match Agent.run ~sw agent "must use status" with
+     | Ok _ -> fail "expected read-only specific-tool contract failure"
+     | Error (Error.Agent (Error.CompletionContractViolation { contract; reason })) ->
+       check bool "contract" true
+         (contract = Completion_contract.Require_specific_tool "status");
+       check bool "reason mentions predicate" true
+         (contains_substring ~needle:"predicate" reason);
        Eio.Switch.fail sw Exit
      | Error e -> fail (Error.to_string e))
   with Exit -> ()
@@ -776,6 +884,12 @@ let () =
         test_agent_run_requires_specific_tool_when_tool_choice_is_tool;
       test_case "tool_choice none rejects tool use" `Quick
         test_agent_run_rejects_tool_use_when_tool_choice_is_none;
+      test_case "strict tool_choice any rejects read-only tool" `Quick
+        test_agent_run_strict_required_tool_rejects_read_only_tool;
+      test_case "strict tool_choice any allows write tool" `Quick
+        test_agent_run_strict_required_tool_allows_write_tool;
+      test_case "strict tool_choice tool rejects read-only match" `Quick
+        test_agent_run_strict_specific_tool_rejects_read_only_match;
       test_case "tool error" `Quick test_agent_run_tool_error;
       test_case "validation retry success" `Quick test_agent_run_validation_retry_success;
       test_case "validation retry exhausted" `Quick test_agent_run_validation_retry_exhausted;
