@@ -12,7 +12,7 @@ type remote_agent = {
 (* ── HTTP helpers ─────────────────────────────────────────────── *)
 
 let http_get ~sw ~net url =
-  match Llm_provider.Http_client.get_sync ~sw ~net ~url ~headers:[] with
+  match Llm_provider.Http_client.get_sync ~sw ~net ~url ~headers:[] () with
   | Ok (code, body) when code >= 200 && code < 300 -> Ok body
   | Ok (code, body) ->
     Error (Error.Orchestration
@@ -34,7 +34,7 @@ let http_get ~sw ~net url =
 
 let http_post ~sw ~net ~url ~body =
   let headers = [("Content-Type", "application/json")] in
-  match Llm_provider.Http_client.post_sync ~sw ~net ~url ~headers ~body with
+  match Llm_provider.Http_client.post_sync ~sw ~net ~url ~headers ~body () with
   | Ok (code, resp_body) when code >= 200 && code < 300 -> Ok resp_body
   | Ok (code, resp_body) ->
     Error (Error.A2a (ProtocolError {

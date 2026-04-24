@@ -90,7 +90,7 @@ let endpoints_from_env () =
 (* ── HTTP helpers ────────────────────────────────────────── *)
 
 let get_json ~sw ~net url =
-  match Http_client.get_sync ~sw ~net ~url ~headers:[] with
+  match Http_client.get_sync ~sw ~net ~url ~headers:[] () with
   | Ok (code, body) when code >= 200 && code < 300 ->
     (try Ok (Yojson.Safe.from_string body)
      with Yojson.Json_error msg -> Error msg)
@@ -105,7 +105,7 @@ let get_json ~sw ~net url =
     Error (Printf.sprintf "CLI transport required for %s" kind)
 
 let get_ok ~sw ~net url =
-  match Http_client.get_sync ~sw ~net ~url ~headers:[] with
+  match Http_client.get_sync ~sw ~net ~url ~headers:[] () with
   | Ok (code, _) when code >= 200 && code < 300 -> true
   | _ -> false
 
@@ -228,7 +228,7 @@ let probe_ollama_context ~sw ~net base_url =
       let body = Yojson.Safe.to_string (`Assoc [("name", `String model_name)]) in
       let headers = [("content-type", "application/json")] in
       match Http_client.post_sync ~sw ~net
-              ~url:(base_url ^ "/api/show") ~headers ~body with
+              ~url:(base_url ^ "/api/show") ~headers ~body () with
       | Ok (code, resp_body) when code >= 200 && code < 300 ->
         (try
            let json = Yojson.Safe.from_string resp_body in

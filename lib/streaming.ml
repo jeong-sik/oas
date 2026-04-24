@@ -188,7 +188,7 @@ let create_message_stream ~sw ~net ?(base_url=Api.default_base_url)
                                 on_event evt; accumulate_event acc evt
                         ) ();
                       on_event MessageStop;
-                      finalize_stream_acc acc) with
+                      finalize_stream_acc acc) () with
             | Error e -> Error (map_http_error e)
             | Ok (Ok resp) -> Ok (Llm_provider.Pricing.annotate_response_cost resp)
             | Ok (Error msg) ->
@@ -239,7 +239,7 @@ let create_message_stream ~sw ~net ?(base_url=Api.default_base_url)
                                      oai_state chunk)
                         ) ();
                       on_event MessageStop;
-                      finalize_stream_acc acc) with
+                      finalize_stream_acc acc) () with
             | Error e -> Error (map_http_error e)
             | Ok (Ok resp) -> Ok (Llm_provider.Pricing.annotate_response_cost resp)
             | Ok (Error msg) ->
