@@ -691,22 +691,13 @@ let complete_stream_http ~sw:_ ~net ~(config : Provider_config.t)
     | Provider_config.Kimi ->
         Backend_anthropic.build_request ~stream:true ~config ~messages ~tools ()
     | Provider_config.Ollama ->
-        (* DIVERGENCE: Ollama streaming uses OpenAI compat format + endpoint
-           (/v1/chat/completions with SSE), while non-streaming uses the native
-           Ollama format + endpoint (/api/chat with single JSON response).
-
-           This means: body builder, endpoint URL, and response parser are ALL
-           different between streaming and non-streaming for Ollama.
-
-           Consequence: a bug fix in Backend_ollama.build_request only affects
-           non-streaming; streaming goes through Backend_openai.build_request
-           with its own serialization path.
-
-           Rationale: Ollama's native /api/chat uses NDJSON (newline-delimited
-           JSON) for streaming, not SSE. Implementing an NDJSON parser was
-           deferred in favor of reusing the OpenAI compat endpoint which
-           speaks SSE natively. See oas#849 for unification tracking. *)
-        Backend_openai.build_request ~stream:true ~config ~messages ~tools ()
+        (* Native /api/chat + NDJSON. The Backend_openai detour was a
+           deferred work-around (#849) that dropped Ollama's
+           prompt_eval_count / eval_count / *_duration fields and
+           silently disabled prompt_tok_s / decode_tok_s telemetry
+           for every streaming caller. NDJSON parser is now in
+           Streaming.parse_ollama_ndjson_chunk. *)
+        Backend_ollama.build_request ~stream:true ~config ~messages ~tools ()
     | Provider_config.OpenAI_compat ->
         Backend_openai.build_request ~stream:true ~config ~messages ~tools ()
     | Provider_config.Gemini ->
@@ -716,12 +707,8 @@ let complete_stream_http ~sw:_ ~net ~(config : Provider_config.t)
     | Provider_config.Claude_code | Provider_config.Gemini_cli
     | Provider_config.Kimi_cli | Provider_config.Codex_cli -> ""
   in
-  (* Ollama streaming: uses OpenAI compat body format, so must hit
-     the OpenAI compat endpoint (/v1/chat/completions), not native
-     (/api/chat). Non-streaming uses the native endpoint. *)
   let url = match config.kind with
     | Provider_config.Gemini -> gemini_url ~config ~stream:true
-    | Provider_config.Ollama -> config.base_url ^ "/v1/chat/completions"
     | _ -> config.base_url ^ config.request_path
   in
   let body_with_stream = match config.kind with
@@ -729,63 +716,114 @@ let complete_stream_http ~sw:_ ~net ~(config : Provider_config.t)
     | _ -> Http_client.inject_stream_param body_str
   in
   let t0 = Unix.gettimeofday () in
+  (* Ollama-specific side channel: prompt_eval_count / eval_count and
+     the four duration fields only appear on the [done:true] line, so
+     stream_acc (which only sees content/tool deltas) cannot capture
+     them. We trap them here and patch the finalised response below. *)
+  let ollama_usage = ref None in
+  let ollama_timings = ref None in
   match Http_client.with_post_stream ~net ~url
           ~headers:config.headers ~body:body_with_stream
           ~f:(fun reader ->
             let acc = create_stream_acc () in
             let openai_state = ref None in
-            Http_client.read_sse ~reader ~on_data:(fun ~event_type data ->
-              let events = match config.kind with
-                | Provider_config.Anthropic ->
-                    (match Streaming.parse_sse_event event_type data with
-                     | Some evt -> [evt]
-                     | None -> [])
-                | Provider_config.Kimi ->
-                    (match Streaming.parse_sse_event event_type data with
-                     | Some evt -> [evt]
-                     | None -> [])
-                | Provider_config.OpenAI_compat | Provider_config.Ollama ->
-                    let state = match !openai_state with
-                      | Some s -> s
-                      | None ->
-                          let s = Streaming.create_openai_stream_state () in
-                          openai_state := Some s; s
-                    in
-                    (match Streaming.parse_openai_sse_chunk data with
-                     | Some chunk -> Streaming.openai_chunk_to_events state chunk
-                     | None -> [])
-                | Provider_config.Gemini ->
-                    let state = match !openai_state with
-                      | Some s -> s
-                      | None ->
-                          let s = Streaming.create_openai_stream_state () in
-                          openai_state := Some s; s
-                    in
-                    (match Streaming.parse_gemini_sse_chunk data with
-                     | Some chunk -> Streaming.gemini_chunk_to_events state chunk
-                     | None -> [])
-                | Provider_config.Glm ->
-                    let state = match !openai_state with
-                      | Some s -> s
-                      | None ->
-                          let s = Streaming.create_openai_stream_state () in
-                          openai_state := Some s; s
-                    in
-                    (match Backend_glm.parse_stream_chunk data with
-                     | Some chunk -> Streaming.openai_chunk_to_events state chunk
-                     | None -> [])
-                | Provider_config.Claude_code | Provider_config.Gemini_cli
-                | Provider_config.Kimi_cli | Provider_config.Codex_cli -> []
-              in
+            let get_state () =
+              match !openai_state with
+              | Some s -> s
+              | None ->
+                  let s = Streaming.create_openai_stream_state () in
+                  openai_state := Some s; s
+            in
+            let dispatch events =
               List.iter (fun evt ->
                 on_event evt;
                 accumulate_event acc evt
               ) events
-            ) ();
+            in
+            (match config.kind with
+             | Provider_config.Ollama ->
+                 Http_client.read_ndjson ~reader ~on_line:(fun line ->
+                   match Streaming.parse_ollama_ndjson_chunk line with
+                   | None -> ()
+                   | Some chunk ->
+                       (match chunk.oll_timings with
+                        | Some _ as t -> ollama_timings := t
+                        | None -> ());
+                       (match chunk.oll_usage with
+                        | Some _ as u -> ollama_usage := u
+                        | None -> ());
+                       dispatch
+                         (Streaming.ollama_chunk_to_events
+                            (get_state ()) chunk)
+                 ) ()
+             | _ ->
+                 Http_client.read_sse ~reader ~on_data:(fun ~event_type data ->
+                   let events = match config.kind with
+                     | Provider_config.Anthropic
+                     | Provider_config.Kimi ->
+                         (match Streaming.parse_sse_event event_type data with
+                          | Some evt -> [evt]
+                          | None -> [])
+                     | Provider_config.OpenAI_compat ->
+                         (match Streaming.parse_openai_sse_chunk data with
+                          | Some chunk ->
+                              Streaming.openai_chunk_to_events
+                                (get_state ()) chunk
+                          | None -> [])
+                     | Provider_config.Gemini ->
+                         (match Streaming.parse_gemini_sse_chunk data with
+                          | Some chunk ->
+                              Streaming.gemini_chunk_to_events
+                                (get_state ()) chunk
+                          | None -> [])
+                     | Provider_config.Glm ->
+                         (match Backend_glm.parse_stream_chunk data with
+                          | Some chunk ->
+                              Streaming.openai_chunk_to_events
+                                (get_state ()) chunk
+                          | None -> [])
+                     | Provider_config.Ollama ->
+                         []  (* unreachable: handled above *)
+                     | Provider_config.Claude_code | Provider_config.Gemini_cli
+                     | Provider_config.Kimi_cli | Provider_config.Codex_cli ->
+                         []
+                   in
+                   dispatch events
+                 ) ());
             finalize_stream_acc acc) () with
   | Error _ as e -> e
   | Ok (Ok resp) ->
       let latency_ms = int_of_float ((Unix.gettimeofday () -. t0) *. 1000.0) in
+      (* Ollama injection: usage from the done chunk wins over the
+         zeroed accumulator, and timings populate the otherwise-None
+         telemetry slot before patch_telemetry layers in latency. *)
+      let resp =
+        match config.kind with
+        | Provider_config.Ollama ->
+            let usage = match !ollama_usage with
+              | Some _ as u -> u
+              | None -> resp.usage
+            in
+            let telemetry = match resp.telemetry, !ollama_timings with
+              | _, None -> resp.telemetry
+              | Some t, (Some _ as timings) -> Some { t with timings }
+              | None, (Some _ as timings) ->
+                  Some {
+                    Types.system_fingerprint = None;
+                    timings;
+                    reasoning_tokens = None;
+                    request_latency_ms = 0;
+                    peak_memory_gb = None;
+                    provider_kind = None;
+                    reasoning_effort = None;
+                    canonical_model_id = None;
+                    effective_context_window = None;
+                    provider_internal_action_count = None;
+                  }
+            in
+            { resp with usage; telemetry }
+        | _ -> resp
+      in
       Ok (patch_telemetry resp ~config latency_ms)
   | Ok (Error msg) ->
       Error (Http_client.NetworkError {
