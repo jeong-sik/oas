@@ -437,11 +437,8 @@ let test_default_api_key_env_known () =
   Alcotest.(check (option string)) "glm"
     (Some "ZAI_API_KEY")
     (Provider_config.default_api_key_env Glm);
-  (* Kimi direct transport: canonical env is KIMI_API_KEY_SB (Second
-     Brain convention); lib/provider.ml also consults the bare
-     KIMI_API_KEY as a fallback, but the SSOT default is the _SB form. *)
   Alcotest.(check (option string)) "kimi"
-    (Some "KIMI_API_KEY_SB")
+    (Some "KIMI_API_KEY")
     (Provider_config.default_api_key_env Kimi)
 
 let test_is_subprocess_cli () =

@@ -209,7 +209,7 @@ let kimi_defaults = {
     (match Sys.getenv_opt "KIMI_BASE_URL" with
      | Some url when String.trim url <> "" -> String.trim url
      | _ -> "https://api.kimi.com/coding");
-  api_key_env = "KIMI_API_KEY_SB";
+  api_key_env = "KIMI_API_KEY";
   request_path = "/v1/messages";
 }
 
@@ -305,7 +305,7 @@ let default () =
                    Capabilities.kimi_capabilities;
                capabilities = Capabilities.kimi_capabilities;
                is_available = (fun () ->
-                 has_any_api_key ["KIMI_API_KEY_SB"; "KIMI_API_KEY"]) };
+                 has_any_api_key ["KIMI_API_KEY"]) };
   reg "openrouter" openrouter_defaults ~max_context:128_000
     Capabilities.openai_chat_extended_capabilities;
   reg "groq" groq_defaults ~max_context:131_072
