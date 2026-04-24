@@ -48,7 +48,12 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
      eviction-prone when other processes ping different models.
 
      We default to -1 (permanent) so the caller's pinned model stays
-     resident. Override via OAS_OLLAMA_KEEP_ALIVE env var. Accepted values:
+     resident. Resolution order:
+     1. [config.keep_alive] (cascade profile / per-call override; the
+        first-class SSOT a TOML editor reaches for)
+     2. [OAS_OLLAMA_KEEP_ALIVE] env var (operator-wide default)
+     3. SDK default ["-1"] (permanent residency)
+     Accepted values:
      - integer seconds: "-1", "0", "3600" → sent as [`Int n]
      - duration strings: "5m", "30m", "24h", "-1m" → sent as [`String v]
 
@@ -68,9 +73,12 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
        -1 was serialized as [`String "-1"]. This fix sends an integer for
        parseable values and a duration string otherwise. *)
   let keep_alive_raw =
-    match Sys.getenv_opt "OAS_OLLAMA_KEEP_ALIVE" with
+    match config.keep_alive with
     | Some v when String.trim v <> "" -> String.trim v
-    | _ -> "-1"
+    | _ ->
+      match Sys.getenv_opt "OAS_OLLAMA_KEEP_ALIVE" with
+      | Some v when String.trim v <> "" -> String.trim v
+      | _ -> "-1"
   in
   let keep_alive_json : Yojson.Safe.t =
     match int_of_string_opt keep_alive_raw with
@@ -136,6 +144,13 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
      Backend_openai.warn_capability_drop
        ~model_id:config.model_id ~field:"min_p"
    | None -> ());
+  (* num_ctx: per-request KV cache allocation in tokens. Honored by Ollama
+     only. [None] omits the field so Ollama uses its own default
+     (Modelfile-declared or 4096). Cascade-level setting; non-positive
+     values are treated as "unset" to keep cascade authoring forgiving. *)
+  (match config.num_ctx with
+   | Some n when n > 0 -> options := ("num_ctx", `Int n) :: !options
+   | _ -> ());
   let body = ("options", `Assoc !options) :: body in
 
   Yojson.Safe.to_string (`Assoc body)
@@ -346,6 +361,61 @@ let%test "build_request whitespace-only env falls back to default integer" =
     let json = Yojson.Safe.from_string body in
     let open Yojson.Safe.Util in
     json |> member "keep_alive" |> to_int = -1)
+
+let%test "build_request config.keep_alive overrides env (string form)" =
+  with_keep_alive_env "-1" (fun () ->
+    let config = Provider_config.make
+      ~kind:Ollama ~model_id:"qwen3.5:35b-a3b-nvfp4"
+      ~base_url:"http://127.0.0.1:11434" ~keep_alive:"5m" () in
+    let messages = [{ role = User; content = [Text "hi"]; name = None; tool_call_id = None ; metadata = []}] in
+    let body = build_request ~config ~messages () in
+    let json = Yojson.Safe.from_string body in
+    let open Yojson.Safe.Util in
+    json |> member "keep_alive" |> to_string = "5m")
+
+let%test "build_request config.keep_alive integer form sent as `Int" =
+  with_keep_alive_env "" (fun () ->
+    let config = Provider_config.make
+      ~kind:Ollama ~model_id:"qwen3.5:35b-a3b-nvfp4"
+      ~base_url:"http://127.0.0.1:11434" ~keep_alive:"600" () in
+    let messages = [{ role = User; content = [Text "hi"]; name = None; tool_call_id = None ; metadata = []}] in
+    let body = build_request ~config ~messages () in
+    let json = Yojson.Safe.from_string body in
+    let open Yojson.Safe.Util in
+    json |> member "keep_alive" |> to_int = 600)
+
+let%test "build_request config.num_ctx injected into options" =
+  with_keep_alive_env "" (fun () ->
+    let config = Provider_config.make
+      ~kind:Ollama ~model_id:"qwen3:8b"
+      ~base_url:"http://127.0.0.1:11434" ~num_ctx:8192 () in
+    let messages = [{ role = User; content = [Text "hi"]; name = None; tool_call_id = None ; metadata = []}] in
+    let body = build_request ~config ~messages () in
+    let json = Yojson.Safe.from_string body in
+    let open Yojson.Safe.Util in
+    json |> member "options" |> member "num_ctx" |> to_int = 8192)
+
+let%test "build_request omits num_ctx when None" =
+  with_keep_alive_env "" (fun () ->
+    let config = Provider_config.make
+      ~kind:Ollama ~model_id:"qwen3:8b"
+      ~base_url:"http://127.0.0.1:11434" () in
+    let messages = [{ role = User; content = [Text "hi"]; name = None; tool_call_id = None ; metadata = []}] in
+    let body = build_request ~config ~messages () in
+    let json = Yojson.Safe.from_string body in
+    let open Yojson.Safe.Util in
+    json |> member "options" |> member "num_ctx" = `Null)
+
+let%test "build_request num_ctx<=0 treated as unset" =
+  with_keep_alive_env "" (fun () ->
+    let config = Provider_config.make
+      ~kind:Ollama ~model_id:"qwen3:8b"
+      ~base_url:"http://127.0.0.1:11434" ~num_ctx:0 () in
+    let messages = [{ role = User; content = [Text "hi"]; name = None; tool_call_id = None ; metadata = []}] in
+    let body = build_request ~config ~messages () in
+    let json = Yojson.Safe.from_string body in
+    let open Yojson.Safe.Util in
+    json |> member "options" |> member "num_ctx" = `Null)
 
 let%test "parse_ollama_response populates timings from eval_count/eval_duration" =
   let json =
