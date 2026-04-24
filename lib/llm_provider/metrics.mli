@@ -39,7 +39,7 @@ val noop : t
     the new value.  The only window where callers observe [noop] is
     for HTTP calls issued *before* the host has run its startup
     [set_global]; install the sink as early in bootstrap as possible
-    (before any keeper/agent traffic) to avoid that gap.
+    (before any automated agent traffic) to avoid that gap.
 
     Intended to be called once at startup from the host application
     (e.g. a downstream consumer installs a Prometheus-backed instance).

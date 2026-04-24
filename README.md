@@ -61,7 +61,7 @@ Why this can feel hidden:
 
 ### Codex sandbox cheat sheet
 
-This is **Codex CLI's own sandbox flag**, not MASC keeper Docker sandbox.
+This is **Codex CLI's own sandbox flag**, not a downstream container sandbox.
 
 Use these three levels:
 
@@ -164,7 +164,7 @@ Layer 1: agent_sdk  (lib/)
             +-- lib/*.ml           Context, Hooks, Guardrails, Orchestrator, etc.
 ```
 
-Anything outside this repository — multi-process coordination, repo-wide task queues, dashboards, persistent room state — is the responsibility of an external coordinator, not of OAS. OAS deliberately knows nothing about any specific coordinator.
+Anything outside this repository — multi-process coordination, repo-wide task queues, dashboards, persistent shared state — is the responsibility of an external coordinator, not of OAS. OAS deliberately knows nothing about any specific coordinator.
 
 ### Layer 1: Agent Runtime (`agent_sdk`)
 
@@ -304,8 +304,8 @@ OAS is a single-process, single-Eio-domain agent runtime. The following concerns
 |------|-------|-------------|
 | Worktree / filesystem coordination | External coordinator | Multi-process file locking and git worktree lifecycle are coordinator concerns, not SDK concerns. |
 | MCP transport implementation | `mcp-protocol-sdk` | OAS consumes `mcp_protocol` as an opam dependency. Transport details (NDJSON framing, stdio management) live there. |
-| Operator dashboard / visibility | External coordinator | Real-time agent status, room views, and supervisor dashboards belong to a layer that aggregates across processes. |
-| Repo-level task and room management | External coordinator | Task queues, claim semantics, and room state are coordination-plane concepts that span multiple agents and sessions. |
+| Operator dashboard / visibility | External coordinator | Real-time agent status, workspace views, and supervisor dashboards belong to a layer that aggregates across processes. |
+| Repo-level task and shared-state management | External coordinator | Task queues, claim semantics, and shared workspace state are coordination-plane concepts that span multiple agents and sessions. |
 | Workflow scheduling / SaaS isolation | Embedding application | Cron triggers, tenant isolation, and multi-user access control are problems for the system that embeds OAS. |
 | Long-term persistence / vector storage | Embedding application | Session state, memory backends, and embedding indexes are injected via callbacks, not owned by the SDK. |
 

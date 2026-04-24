@@ -356,31 +356,31 @@ let%test "tokenize korean preserves ascii behavior" =
 
 let%test "korean query retrieves korean-aliased tool" =
   let idx = build [
-    { name = "board_create_post";
-      description = "Create a new post on the board 게시판 글 올리기 작성";
-      group = Some "board"; aliases = [] };
+    { name = "notice_create_post";
+      description = "Create a new notice 게시판 글 올리기 작성";
+      group = Some "notices"; aliases = [] };
     { name = "fs_read_file";
       description = "Read a file from the project 파일 읽기";
       group = Some "filesystem"; aliases = [] };
   ] in
   let results = retrieve_names idx "게시판에 글 올려줘" in
-  List.mem "board_create_post" results
+  List.mem "notice_create_post" results
 
 let%test "korean group co-retrieval" =
   let idx = build [
-    { name = "board_create_post";
+    { name = "notice_create_post";
       description = "Create post 게시판 글 올리기";
-      group = Some "board"; aliases = [] };
-    { name = "board_add_comment";
+      group = Some "notices"; aliases = [] };
+    { name = "notice_add_comment";
       description = "Add comment 게시판 댓글";
-      group = Some "board"; aliases = [] };
+      group = Some "notices"; aliases = [] };
     { name = "fs_read_file";
       description = "Read file 파일 읽기";
       group = None; aliases = [] };
   ] in
   let results = retrieve_names idx "게시판 글" in
-  List.mem "board_create_post" results
-  && List.mem "board_add_comment" results
+  List.mem "notice_create_post" results
+  && List.mem "notice_add_comment" results
 
 (* ── Scoped retrieval tests ──────────────────────── *)
 
@@ -513,13 +513,13 @@ let%test "remove_entries with nonexistent name is no-op" =
 
 let%test "aliases boost retrieval" =
   let idx = build [
-    { name = "board_post"; description = "Create a post on the board";
+    { name = "notice_post"; description = "Create a notice post";
       group = None; aliases = ["게시판"; "글"; "올리기"] };
     { name = "read_file"; description = "Read a file from disk";
       group = None; aliases = [] };
   ] in
   let results = retrieve_names idx "게시판에 글 올려줘" in
-  List.mem "board_post" results
+  List.mem "notice_post" results
 
 let%test "aliases do not interfere when empty" =
   let idx = build [

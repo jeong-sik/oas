@@ -10,7 +10,7 @@
 type t =
   | Resume        (** P-1: resuming a yielded slot. Higher than Interactive to prevent starvation. *)
   | Interactive   (** P0: user-facing chat, tool calls. *)
-  | Proactive     (** P1: agent turns, board replies. *)
+  | Proactive     (** P1: agent turns, scheduled replies. *)
   | Background    (** P2: heartbeat, status ticks. *)
   | Unspecified   (** Caller did not set priority. Dispatched as Proactive with warning. *)
 [@@deriving show]

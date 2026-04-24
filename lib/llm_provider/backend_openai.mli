@@ -35,7 +35,7 @@ val build_request :
     {!build_request} and [Api_openai.build_openai_body] so operators
     who set a non-supported field (e.g. [min_p] on a GLM config) see
     exactly which field was stripped without the per-request WARN
-    spam that would otherwise fire on every keeper turn.
+    spam that would otherwise fire on every automated turn.
 
     Best-effort dedup via an internal [Hashtbl]; a race under Eio
     cooperative scheduling double-warns at most once per key, which

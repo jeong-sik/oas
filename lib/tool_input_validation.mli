@@ -11,7 +11,7 @@
 
 (** A single field-level validation error. *)
 type field_error = {
-  path: string;      (** JSON path, e.g. ["/room"], ["/interval_seconds"] *)
+  path: string;      (** JSON path, e.g. ["/workspace"], ["/interval_seconds"] *)
   expected: string;  (** Expected type or constraint, e.g. ["integer"], ["required"] *)
   actual: string;    (** What was received, e.g. ["string(\"sixty\")"], [{!missing_actual}] *)
 }

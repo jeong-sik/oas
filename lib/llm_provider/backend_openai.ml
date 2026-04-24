@@ -32,7 +32,7 @@ let parse_openai_response_result = Backend_openai_parse.parse_openai_response_re
     Reached from the capability-gated drop branches in {!build_request}
     so operators see exactly which sampling field their config was
     trying to send for which model, without the per-request WARN spam
-    that would otherwise fire on every keeper turn. Double-warning on
+    that would otherwise fire on every automated turn. Double-warning on
     a race is harmless and only happens once per key. *)
 let capability_drop_warned : (string * string, unit) Hashtbl.t =
   Hashtbl.create 16
@@ -170,7 +170,7 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
   (* Silent drops of user-supplied sampling params are a debugging
      hazard (GLM review on #830), so emit a ONE-SHOT stderr WARN per
      (model_id, field) combination the first time a drop fires. Per-
-     request WARN would spam — keepers do ~50 requests/minute — hence
+     request WARN would spam under high-throughput agents — hence
      the dedup table. The cell is best-effort: Eio cooperative
      scheduling means two fibers racing [mem_opt]/[replace] can
      double-warn at most once per key, which is harmless. *)

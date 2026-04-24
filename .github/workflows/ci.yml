@@ -175,6 +175,18 @@ jobs:
       - name: Run transport drift gate
         run: bash scripts/check-transport-truth.sh
 
+  sdk-independence:
+    name: SDK Independence Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Run SDK independence gate
+        run: bash scripts/check-sdk-independence.sh
+
   tag-drift:
     name: Release Tag Drift
     runs-on: ubuntu-latest

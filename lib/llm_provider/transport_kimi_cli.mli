@@ -44,7 +44,7 @@ type config = {
         Kimi CLI creates that session if absent and resumes it if present.
         The transport then reuses the CLI's on-disk session state and sends
         only the message delta on later turns, which avoids re-transmitting
-        the entire conversation history in keeper mode. Default [None]. *)
+        the entire conversation history in session-reuse mode. Default [None]. *)
 }
 
 (** Sensible defaults: [kimi] in PATH, [kimi-for-coding], no explicit
