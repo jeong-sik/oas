@@ -8,6 +8,8 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.170.9] - 2026-04-24
+
 ### Added
 
 - **Truth-layer evidence primitives.** `Event_envelope`, `Effect_evidence`, and
@@ -28,7 +30,7 @@ original tag dates. `0.100.4` was never tagged or released.
   track provider kind as a string query this flag without reinventing
   a provider allowlist. Downstream metrics/coverage layers (e.g.
   masc-mcp `Provider_adapter.is_structurally_unmetered_provider`) can
-  now consume the SDK directly as the SSOT.
+  now consume the SDK directly as the SSOT (#1173).
 
 ### Fixed
 
