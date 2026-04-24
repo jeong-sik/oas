@@ -130,6 +130,8 @@ include module type of Complete_stream_acc
 val complete_stream :
   sw:Eio.Switch.t ->
   net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
+  ?clock:_ Eio.Time.clock ->
+  ?stream_idle_timeout_s:float ->
   ?transport:Llm_transport.t ->
   config:Provider_config.t ->
   messages:Types.message list ->
@@ -139,3 +141,9 @@ val complete_stream :
   ?priority:Request_priority.t ->
   unit ->
   (Types.api_response, Http_client.http_error) result
+(** [clock] and [stream_idle_timeout_s] together bound inter-chunk idle
+    time on the Ollama native NDJSON path. The deadline resets after
+    each successful chunk, so this does not cap total stream duration.
+    A stalled endpoint surfaces as [NetworkError { kind = Timeout; _ }]
+    which cascade/retry layers treat as retryable. Non-Ollama paths
+    currently ignore [stream_idle_timeout_s]. *)
