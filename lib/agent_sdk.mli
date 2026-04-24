@@ -15,6 +15,7 @@ module Types = Types
 module Uncertain = Uncertain
 module Util = Util
 module Fs_result = Fs_result
+module Fs_atomic_eio = Fs_atomic_eio
 module Context = Context
 module Provider = Provider
 module Provider_intf = Provider_intf
