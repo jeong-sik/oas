@@ -63,13 +63,14 @@ let start_multi_mock ~sw ~net ~port (responses : string list) =
   Printf.sprintf "http://127.0.0.1:%d" port
 
 let make_agent ~net ?(max_turns = 3) ?(tools = []) ?hooks ?context_reducer
-    ?guardrails ?tool_retry_policy ?tool_choice base_url =
+    ?guardrails ?tool_retry_policy ?tool_choice ?(model_id = "mock-model")
+    base_url =
   let config = { Types.default_config with
     name = "test-agent"; max_turns; tool_choice;
   } in
   let provider : Provider.config = {
     provider = Provider.Local { base_url };
-    model_id = "mock-model";
+    model_id;
     api_key_env = "";
   } in
   let options = { Agent.default_options with
@@ -81,6 +82,13 @@ let make_agent ~net ?(max_turns = 3) ?(tools = []) ?hooks ?context_reducer
     tool_retry_policy;
   } in
   Agent.create ~net ~config ~tools ~options ()
+
+let required_tool_retry_policy ?(max_retries = 1) () = {
+  Agent_sdk.Tool_retry_policy.max_retries;
+  retry_on_validation_error = true;
+  retry_on_recoverable_tool_error = false;
+  feedback_style = Agent_sdk.Tool_retry_policy.Plain_error_text;
+}
 
 let extract_text (resp : Types.api_response) =
   List.filter_map
@@ -162,6 +170,129 @@ let test_agent_run_requires_tool_use_when_tool_choice_is_any () =
        check bool "reason mentions tool contract" true
          (contains_substring
             ~needle:"required tool contract unsatisfied" reason);
+       Eio.Switch.fail sw Exit
+     | Error e -> fail (Error.to_string e))
+  with Exit -> ()
+
+let test_agent_run_missing_required_tool_use_retry_success () =
+  Eio_main.run @@ fun env ->
+  try
+    Eio.Switch.run @@ fun sw ->
+    let responses = [
+      openai_text_response "I ignored the tool requirement";
+      openai_tool_use_response "get_time" {|{"timezone": "UTC"}|};
+      openai_text_response "The time is 12:00 UTC";
+    ] in
+    let url = start_multi_mock ~sw ~net:env#net ~port:20016 responses in
+    let time_tool = Tool.create
+        ~name:"get_time"
+        ~description:"Get current time"
+        ~parameters:[
+          { name = "timezone"; param_type = Types.String;
+            description = "tz"; required = true };
+        ]
+        (fun _input -> Ok { Types.content = "12:00 UTC" })
+    in
+    let agent =
+      make_agent ~net:env#net ~tools:[time_tool] ~max_turns:5
+        ~tool_choice:Types.Any
+        ~tool_retry_policy:(required_tool_retry_policy ()) url
+    in
+    (match Agent.run ~sw agent "what time is it?" with
+     | Ok resp ->
+       check string "final text" "The time is 12:00 UTC" (extract_text resp);
+       check int "turns include missing-tool retry" 3
+         (Agent.state agent).turn_count;
+       Eio.Switch.fail sw Exit
+     | Error e -> fail (Error.to_string e))
+  with Exit -> ()
+
+let test_agent_run_missing_specific_tool_retry_success () =
+  Eio_main.run @@ fun env ->
+  try
+    Eio.Switch.run @@ fun sw ->
+    let responses = [
+      openai_text_response "I ignored the specific tool requirement";
+      openai_tool_use_response "get_time" {|{}|};
+      openai_text_response "The time is 12:00 UTC";
+    ] in
+    let url = start_multi_mock ~sw ~net:env#net ~port:20017 responses in
+    let time_tool = Tool.create
+        ~name:"get_time"
+        ~description:"Get current time"
+        ~parameters:[]
+        (fun _input -> Ok { Types.content = "12:00 UTC" })
+    in
+    let agent =
+      make_agent ~net:env#net ~tools:[time_tool] ~max_turns:5
+        ~tool_choice:(Types.Tool "get_time")
+        ~tool_retry_policy:(required_tool_retry_policy ()) url
+    in
+    (match Agent.run ~sw agent "what time is it?" with
+     | Ok resp ->
+       check string "final text" "The time is 12:00 UTC" (extract_text resp);
+       Eio.Switch.fail sw Exit
+     | Error e -> fail (Error.to_string e))
+  with Exit -> ()
+
+let test_agent_run_missing_required_tool_use_retry_exhausted () =
+  Eio_main.run @@ fun env ->
+  try
+    Eio.Switch.run @@ fun sw ->
+    let url = start_multi_mock ~sw ~net:env#net ~port:20018
+        [openai_text_response "still no tool"] in
+    let time_tool = Tool.create
+        ~name:"get_time"
+        ~description:"Get current time"
+        ~parameters:[]
+        (fun _input -> Ok { Types.content = "12:00 UTC" })
+    in
+    let agent =
+      make_agent ~net:env#net ~tools:[time_tool] ~max_turns:5
+        ~tool_choice:Types.Any
+        ~tool_retry_policy:(required_tool_retry_policy ~max_retries:1 ()) url
+    in
+    (match Agent.run ~sw agent "what time is it?" with
+     | Ok _ -> fail "expected missing required tool retry exhaustion"
+     | Error (Error.Agent (Error.CompletionContractViolation { contract; reason })) ->
+       check bool "contract" true
+         (contract = Completion_contract.Require_tool_use);
+       check bool "reason mentions retry exhausted" true
+         (contains_substring ~needle:"retry exhausted" reason);
+       Eio.Switch.fail sw Exit
+     | Error e -> fail (Error.to_string e))
+  with Exit -> ()
+
+let test_agent_run_missing_required_tool_use_retry_on_relaxed_provider () =
+  Eio_main.run @@ fun env ->
+  try
+    Eio.Switch.run @@ fun sw ->
+    let responses = [
+      openai_text_response "I ignored the relaxed tool_choice";
+      openai_tool_use_response "get_time" {|{"timezone": "UTC"}|};
+      openai_text_response "The time is 12:00 UTC";
+    ] in
+    let url = start_multi_mock ~sw ~net:env#net ~port:20019 responses in
+    let time_tool = Tool.create
+        ~name:"get_time"
+        ~description:"Get current time"
+        ~parameters:[
+          { name = "timezone"; param_type = Types.String;
+            description = "tz"; required = true };
+        ]
+        (fun _input -> Ok { Types.content = "12:00 UTC" })
+    in
+    let agent =
+      make_agent ~net:env#net ~tools:[time_tool] ~max_turns:5
+        ~model_id:"glm-5"
+        ~tool_choice:Types.Any
+        ~tool_retry_policy:(required_tool_retry_policy ()) url
+    in
+    (match Agent.run ~sw agent "what time is it?" with
+     | Ok resp ->
+       check string "final text" "The time is 12:00 UTC" (extract_text resp);
+       check int "turns include relaxed-provider retry" 3
+         (Agent.state agent).turn_count;
        Eio.Switch.fail sw Exit
      | Error e -> fail (Error.to_string e))
   with Exit -> ()
@@ -633,6 +764,14 @@ let () =
       test_case "tool use cycle" `Quick test_agent_run_tool_use;
       test_case "tool_choice any requires tool use" `Quick
         test_agent_run_requires_tool_use_when_tool_choice_is_any;
+      test_case "missing required tool use retry success" `Quick
+        test_agent_run_missing_required_tool_use_retry_success;
+      test_case "missing specific tool retry success" `Quick
+        test_agent_run_missing_specific_tool_retry_success;
+      test_case "missing required tool use retry exhausted" `Quick
+        test_agent_run_missing_required_tool_use_retry_exhausted;
+      test_case "missing required tool retry on relaxed provider" `Quick
+        test_agent_run_missing_required_tool_use_retry_on_relaxed_provider;
       test_case "tool_choice tool requires specific tool" `Quick
         test_agent_run_requires_specific_tool_when_tool_choice_is_tool;
       test_case "tool_choice none rejects tool use" `Quick

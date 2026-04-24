@@ -23,22 +23,122 @@ type turn_outcome =
   | ToolsExecuted
   | IdleSkipped
 
+let contract_requires_tool = function
+  | Completion_contract.Require_tool_use
+  | Completion_contract.Require_specific_tool _ -> true
+  | Completion_contract.Allow_text_or_tool
+  | Completion_contract.Require_no_tool_use -> false
+
+let message_has_tool_result (msg : Types.message) =
+  List.exists
+    (function
+      | ToolResult _ -> true
+      | Text _ | Thinking _ | RedactedThinking _ | ToolUse _
+      | Image _ | Document _ | Audio _ -> false)
+    msg.content
+
+let last_message_has_tool_result agent =
+  match List.rev agent.state.messages with
+  | msg :: _ -> message_has_tool_result msg
+  | [] -> false
+
+let has_tool_use response =
+  Completion_contract.tool_use_names response <> []
+
 let validate_completion_contract agent (response : Types.api_response) =
   let supports_tool_choice =
     match agent.options.provider with
     | Some cfg -> (Provider.capabilities_for_config cfg).supports_tool_choice
     | None -> false
   in
-  let contract =
-    Completion_contract.of_tool_choice ~supports_tool_choice agent.state.config.tool_choice
+  let resolved =
+    Completion_contract.resolve_tool_choice_contract ~supports_tool_choice
+      agent.state.config.tool_choice
   in
-  match Completion_contract.validate_response ~contract response with
+  let contract =
+    if contract_requires_tool resolved.effective
+       && last_message_has_tool_result agent
+       && not (has_tool_use response)
+    then Completion_contract.Allow_text_or_tool
+    else resolved.effective
+  in
+  match
+    Completion_contract.validate_response ~contract response
+  with
   | Ok () -> Ok ()
   | Error reason ->
     Error
       (Error.Agent
          (CompletionContractViolation
             { contract; reason }))
+
+let requested_completion_contract agent =
+  let supports_tool_choice =
+    match agent.options.provider with
+    | Some cfg -> (Provider.capabilities_for_config cfg).supports_tool_choice
+    | None -> false
+  in
+  Completion_contract.resolve_tool_choice_contract ~supports_tool_choice
+    agent.state.config.tool_choice
+
+let requested_tool_label = function
+  | Completion_contract.Require_specific_tool name -> name
+  | Completion_contract.Require_tool_use -> "required_tool_use"
+  | Completion_contract.Allow_text_or_tool
+  | Completion_contract.Require_no_tool_use -> "tool_choice_contract"
+
+let missing_required_tool_use_reason ~contract response =
+  match contract with
+  | Completion_contract.Require_tool_use
+  | Completion_contract.Require_specific_tool _ ->
+    if has_tool_use response
+       || Completion_contract.stop_reason_is_resumable response.stop_reason
+    then None
+    else
+      (match Completion_contract.validate_response ~contract response with
+       | Ok () -> None
+       | Error reason -> Some reason)
+  | Completion_contract.Allow_text_or_tool
+  | Completion_contract.Require_no_tool_use -> None
+
+let preview_tool_names names =
+  let rec take n xs =
+    if n <= 0 then []
+    else match xs with
+      | [] -> []
+      | x :: rest -> x :: take (n - 1) rest
+  in
+  match names with
+  | [] -> "(none)"
+  | _ ->
+    let shown = take 12 names in
+    let suffix =
+      let extra = List.length names - List.length shown in
+      if extra > 0 then Printf.sprintf ", ... (+%d more)" extra else ""
+    in
+    String.concat ", " shown ^ suffix
+
+let missing_tool_feedback_text ~retry_count ~max_retries ~reason
+    ~contract ~valid_tool_names ~(response : Types.api_response) =
+  let requested =
+    match contract with
+    | Completion_contract.Require_specific_tool name ->
+      Printf.sprintf "call the `%s` tool" name
+    | Completion_contract.Require_tool_use ->
+      "call one of the available tools"
+    | Completion_contract.Allow_text_or_tool
+    | Completion_contract.Require_no_tool_use ->
+      "satisfy the requested tool contract"
+  in
+  let retry_limit = max 0 max_retries in
+  Printf.sprintf
+    "Retryable tool contract violation (retry %d/%d): %s\n\
+     Required action: %s before answering in natural language.\n\
+     Available tools: %s\n\
+     Previous stop_reason: %s\n\
+     Emit a ToolUse block with valid JSON arguments. Do not answer directly."
+    retry_count retry_limit reason requested (preview_tool_names valid_tool_names)
+    (Types.show_stop_reason response.stop_reason)
 
 let event_envelope agent : Event_bus.envelope =
   let session_id = Option.bind agent.options.raw_trace Raw_trace.session_id in
@@ -155,6 +255,67 @@ let stage_collect ?raw_trace_run agent ~original_config response =
       turn_count = s.turn_count + 1;
       usage });
   Ok ()
+
+let handle_missing_required_tool_use ?raw_trace_run agent ~original_config
+    ~valid_tool_names response =
+  let resolved = requested_completion_contract agent in
+  match
+    missing_required_tool_use_reason ~contract:resolved.requested response
+  with
+  | None -> Ok `Proceed
+  | Some _ when last_message_has_tool_result agent -> Ok `Proceed
+  | Some _ when valid_tool_names = [] -> Ok `Proceed
+  | Some reason -> (
+    match agent.options.tool_retry_policy with
+    | None -> Ok `Proceed
+    | Some policy ->
+      let failure : Tool_retry_policy.failure =
+        {
+          tool_name = requested_tool_label resolved.requested;
+          detail = reason;
+          kind = Tool_retry_policy.Validation_error;
+          error_class = Tool_retry_policy.Deterministic;
+        }
+      in
+      match
+        Tool_retry_policy.decide ~policy
+          ~prior_retries:(Tool_retry_policy.context_retry_count agent.context)
+          [ failure ]
+      with
+      | Tool_retry_policy.No_retry -> Ok `Proceed
+      | Tool_retry_policy.Retry { retry_count; summary = _ } ->
+        Tool_retry_policy.set_context_retry_count agent.context retry_count;
+        let* () =
+          stage_collect ?raw_trace_run agent ~original_config response
+        in
+        let feedback =
+          missing_tool_feedback_text ~retry_count
+            ~max_retries:policy.max_retries ~reason
+            ~contract:resolved.requested ~valid_tool_names ~response
+        in
+        update_state agent (fun s ->
+          {
+            s with
+            messages =
+              Util.snoc s.messages
+                (make_message ~role:User [ Text feedback ]);
+          });
+        Ok `Retried
+      | Tool_retry_policy.Exhausted { attempts; limit; summary = _ } ->
+        Tool_retry_policy.clear_context_retry_count agent.context;
+        let* () =
+          stage_collect ?raw_trace_run agent ~original_config response
+        in
+        Error
+          (Error.Agent
+             (CompletionContractViolation
+                {
+                  contract = resolved.requested;
+                  reason =
+                    Printf.sprintf
+                      "%s (missing required tool use retry exhausted: attempts=%d limit=%d)"
+                      reason attempts limit;
+                })))
 
 let retry_failures_of_results = Pipeline_retry.retry_failures_of_results
 
@@ -720,22 +881,30 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
     let response =
       Tool_use_recovery.recover_response ~valid_tool_names raw_response
     in
-    let* () =
-      validate_completion_contract agent response
-      |> tag_error "route_contract"
+    let* missing_tool_action =
+      handle_missing_required_tool_use ?raw_trace_run agent ~original_config
+        ~valid_tool_names response
+      |> tag_error "missing_required_tool_use"
     in
-    (* Stage 3.5: Async output validation *)
-    (match Guardrails_async.run_output async_guard.output_validators response with
-     | Guardrails_async.Fail { validator_name; reason } ->
-       update_state agent (fun s -> { s with config = original_config });
-       Error (Error.Agent (GuardrailViolation {
-         validator = validator_name; reason }))
-     | Guardrails_async.Pass ->
-    let* () = stage_collect ?raw_trace_run agent ~original_config response
-      |> tag_error "collect" in
-    stage_output ?raw_trace_run agent
-      ~effective_guardrails:prep.effective_guardrails response
-    |> tag_error "output"))
+    match missing_tool_action with
+    | `Retried -> Ok ToolsExecuted
+    | `Proceed ->
+      let* () =
+        validate_completion_contract agent response
+        |> tag_error "route_contract"
+      in
+      (* Stage 3.5: Async output validation *)
+      (match Guardrails_async.run_output async_guard.output_validators response with
+       | Guardrails_async.Fail { validator_name; reason } ->
+         update_state agent (fun s -> { s with config = original_config });
+         Error (Error.Agent (GuardrailViolation {
+           validator = validator_name; reason }))
+       | Guardrails_async.Pass ->
+      let* () = stage_collect ?raw_trace_run agent ~original_config response
+        |> tag_error "collect" in
+      stage_output ?raw_trace_run agent
+        ~effective_guardrails:prep.effective_guardrails response
+      |> tag_error "output"))
 
 [@@@coverage off]
 (* === Inline tests === *)
