@@ -60,3 +60,50 @@ type gemini_chunk = {
 
 val parse_gemini_sse_chunk : string -> gemini_chunk option
 val gemini_chunk_to_events : openai_stream_state -> gemini_chunk -> sse_event list
+
+(** {1 Ollama NDJSON Streaming}
+
+    Ollama [/api/chat] with [stream:true] emits one JSON object per
+    line (newline-delimited JSON, NDJSON). The final line carries
+    [done:true] together with [done_reason] and the
+    [prompt_eval_count] / [prompt_eval_duration] /
+    [eval_count] / [eval_duration] timing fields that the OpenAI
+    compat path on [/v1/chat/completions] strips out.
+
+    State management reuses {!openai_stream_state} since the block
+    tracking pattern is identical. Tool calls in Ollama typically
+    arrive fully-formed in the [done:true] line, so the streaming
+    consumer treats them as a single delta rather than incremental.
+
+    @since 0.171.0 *)
+
+type ollama_tool_call_delta = {
+  oll_tc_index: int;
+  oll_tc_id: string option;
+  oll_tc_name: string option;
+  oll_tc_arguments: string option;  (** JSON string of arguments. *)
+}
+
+type ollama_chunk = {
+  oll_model: string;
+  oll_delta_content: string option;
+  oll_delta_thinking: string option;
+  oll_tool_calls: ollama_tool_call_delta list;
+  oll_done_reason: string option;
+  oll_is_done: bool;
+  oll_usage: api_usage option;
+  oll_timings: inference_timings option;
+}
+
+(** Parse one NDJSON line into an {!ollama_chunk}. Returns [None]
+    when the line is not valid JSON or is missing the expected
+    [message]/[done] keys. *)
+val parse_ollama_ndjson_chunk : string -> ollama_chunk option
+
+(** Convert a parsed {!ollama_chunk} into {!sse_event} list.
+    Synthesises [ContentBlockStart] events on first occurrence of
+    text / thinking content and on each new tool_call. The terminal
+    [done:true] chunk also emits [MessageDelta] carrying the
+    stop_reason and any token-count usage. *)
+val ollama_chunk_to_events :
+  openai_stream_state -> ollama_chunk -> sse_event list
