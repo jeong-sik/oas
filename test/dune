@@ -534,6 +534,13 @@
  (name test_agent_race)
  (libraries agent_sdk alcotest eio eio_main yojson))
 
+; Race test skipped under coverage instrumentation because the
+; additional io_uring submissions from bisect_ppx hooks blow the CI
+; container's memlock budget. The happy-path coverage of
+; Fs_atomic_eio.save_atomic is retained indirectly via
+; test_checkpoint_store, test_a2a_task_store, and
+; test_memory_file_backend.
 (test
  (name test_atomic_write_race)
- (libraries agent_sdk alcotest eio eio_main))
+ (libraries agent_sdk alcotest eio eio_main)
+ (enabled_if (<> %{env:BISECT_ENABLE=no} "yes")))
