@@ -92,6 +92,9 @@ let patch_telemetry (resp : Types.api_response) ~(config : Provider_config.t)
     (latency_ms : int) : Types.api_response =
   let pk = Some config.kind in
   let re = reasoning_effort_of_config config in
+  let model =
+    if String.trim resp.model = "" then config.model_id else resp.model
+  in
   let base_caps = match config.kind with
   | Ollama -> Capabilities.ollama_capabilities
   | Anthropic -> Capabilities.anthropic_capabilities
@@ -127,7 +130,7 @@ let patch_telemetry (resp : Types.api_response) ~(config : Provider_config.t)
         provider_internal_action_count = None;
       }
   in
-  { resp with telemetry }
+  { resp with model; telemetry }
 
 (** Internal helper: canonical provider name for metric labels.
     Kept in sync with the log tag used by the [WARN Complete] line. *)
@@ -1132,6 +1135,18 @@ let%test "patch_telemetry creates telemetry when None" =
               && t.reasoning_effort = None
               && t.provider_internal_action_count = None
   | None -> false
+
+let%test "patch_telemetry fills blank response model" =
+  let config =
+    Provider_config.make ~kind:OpenAI_compat ~model_id:"gpt-5.4-mini"
+      ~base_url:"https://api.openai.com" ()
+  in
+  let resp = {
+    Types.id = "test"; model = ""; stop_reason = Types.EndTurn;
+    content = []; usage = None; telemetry = None;
+  } in
+  let patched = patch_telemetry resp ~config 100 in
+  patched.model = "gpt-5.4-mini"
 
 let%test "reasoning_effort_of_config Ollama default is none" =
   let config = Provider_config.make ~kind:Ollama ~model_id:"m"
