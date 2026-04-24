@@ -437,10 +437,20 @@ let read_sse ~reader ~on_data () =
 
 (** Read NDJSON-formatted lines from a reader (one JSON object per line).
     Skips blank lines so a trailing newline does not yield an empty payload.
-    Returns normally on [End_of_file]. *)
-let read_ndjson ~reader ~on_line () =
+    Returns normally on [End_of_file].
+
+    When [clock] and [idle_timeout] are both set, each line read is
+    wrapped in [Eio.Time.with_timeout_exn] so a stalled stream raises
+    [Eio.Time.Timeout] after [idle_timeout] seconds of silence. *)
+let read_ndjson ?clock ?idle_timeout ~reader ~on_line () =
+  let read_line () =
+    match clock, idle_timeout with
+    | Some c, Some t ->
+        Eio.Time.with_timeout_exn c t (fun () -> Eio.Buf_read.line reader)
+    | _ -> Eio.Buf_read.line reader
+  in
   let rec loop () =
-    match Eio.Buf_read.line reader with
+    match read_line () with
     | "" -> loop ()
     | line -> on_line line; loop ()
     | exception End_of_file -> ()
@@ -590,3 +600,28 @@ let%test "classify_by_message: network unreachable" =
 
 let%test "classify_by_message: host unreachable" =
   classify_by_message "Host is unreachable" = Dns_failure
+
+(* ── read_ndjson idle_timeout tests ──────────────────── *)
+
+let%test "read_ndjson: no clock/idle_timeout preserves default behaviour" =
+  Eio_main.run (fun _env ->
+    let flow = Eio.Flow.string_source "{\"a\":1}\n{\"b\":2}\n" in
+    let reader = Eio.Buf_read.of_flow ~max_size:1024 flow in
+    let lines = ref [] in
+    read_ndjson ~reader ~on_line:(fun l -> lines := l :: !lines) ();
+    List.rev !lines = ["{\"a\":1}"; "{\"b\":2}"])
+
+let%test "read_ndjson: idle_timeout fires when stream stalls mid-read" =
+  Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  Eio.Switch.run @@ fun sw ->
+  let source, sink = Eio_unix.pipe sw in
+  (* Push one line and keep the sink open (never closed, never written
+     again) — the second [Eio.Buf_read.line] call will hang. *)
+  Eio.Flow.copy_string "{\"a\":1}\n" sink;
+  let reader = Eio.Buf_read.of_flow ~max_size:1024 source in
+  try
+    read_ndjson ~clock ~idle_timeout:0.05 ~reader
+      ~on_line:(fun _ -> ()) ();
+    false
+  with Eio.Time.Timeout -> true
