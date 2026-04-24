@@ -24,6 +24,12 @@ val requires_vision : Capabilities.capabilities -> bool
 val requires_computer_use : Capabilities.capabilities -> bool
 val requires_system_prompt : Capabilities.capabilities -> bool
 
+(** True when the provider's standard response carries usage tokens.
+    False for CLI-class wrappers that strip usage before returning.
+
+    @since 0.170.9 *)
+val emits_usage_tokens : Capabilities.capabilities -> bool
+
 (** {2 Limit checks} *)
 
 (** Result of a limit check against capability metadata. *)

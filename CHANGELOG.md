@@ -16,6 +16,19 @@ original tag dates. `0.100.4` was never tagged or released.
   effect evidence for every pre-tool decision, and `Proof_capture` persists
   those rows under `evidence/effects.json` for downstream proof consumers
   (#1158).
+- **`Capabilities.emits_usage_tokens` + `capabilities_for_provider_label`.**
+  `Llm_provider.Capabilities.capabilities` gains an
+  `emits_usage_tokens : bool` field (default `true`) that captures whether
+  a provider's standard response carries `input_tokens`/`output_tokens`.
+  CLI-class wrappers that strip usage before returning (`codex_cli`,
+  `gemini_cli`, `kimi_cli`) declare it `false`; all direct APIs keep the
+  default. A companion `capabilities_for_provider_label : string ->
+  capabilities option` lookup and a matching
+  `Capability_filter.emits_usage_tokens` predicate let adapters that
+  track provider kind as a string query this flag without reinventing
+  a provider allowlist. Downstream metrics/coverage layers (e.g.
+  masc-mcp `Provider_adapter.is_structurally_unmetered_provider`) can
+  now consume the SDK directly as the SSOT.
 
 ### Fixed
 
