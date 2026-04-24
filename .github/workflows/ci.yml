@@ -84,17 +84,25 @@ jobs:
           # fails the step.
           EIO_BACKEND: "posix"
         run: |
+          mkdir -p _coverage
+          # Pin coverage file location outside dune's per-test sandboxes.
+          # Without this, bisect_ppx writes `bisect_<pid>.coverage` into
+          # the test executable's CWD (a sandbox dir under
+          # `_build/.sandbox/...`), which dune deletes immediately after
+          # the test binary exits. `BISECT_FILE` tells the bisect runtime
+          # library to write files at a stable absolute prefix instead.
+          export BISECT_FILE="$PWD/_coverage/bisect"
           opam exec -- dune clean
-          # --instrument-with bisect_ppx activates the `(instrumentation
-          # (backend bisect_ppx))` stanza declared in lib/dune. Without
-          # this flag dune ignores the stanza, no .coverage files are
-          # written, and `bisect-ppx-report summary` exits "no *.coverage
-          # files found" — which the old `2>/dev/null | head -1 || echo 0`
-          # pipeline silently masked as an empty coverage value, bypassing
-          # the 80% threshold check below.
+          # `--instrument-with bisect_ppx` activates the
+          # `(instrumentation (backend bisect_ppx))` stanza declared in
+          # lib/dune. Without this flag dune ignores the stanza and no
+          # `.coverage` files are written at all — which the previous
+          # `2>/dev/null | head -1 || echo 0` pipeline silently masked as
+          # an empty coverage value, bypassing the 80% threshold check
+          # below.
           opam exec -- dune runtest --force --instrument-with bisect_ppx
 
-          SUMMARY=$(opam exec -- bisect-ppx-report summary 2>&1 || true)
+          SUMMARY=$(opam exec -- bisect-ppx-report summary _coverage 2>&1 || true)
           echo "$SUMMARY"
 
           COVERAGE=$(echo "$SUMMARY" | grep -oP '\d+\.\d+(?=%)' | head -1 || true)
@@ -104,7 +112,7 @@ jobs:
           fi
 
           echo "Total coverage: ${COVERAGE}%"
-          opam exec -- bisect-ppx-report summary --per-file || true
+          opam exec -- bisect-ppx-report summary --per-file _coverage || true
 
           THRESHOLD=80
           if [ "$(echo "$COVERAGE < $THRESHOLD" | bc -l)" -eq 1 ]; then
