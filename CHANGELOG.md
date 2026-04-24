@@ -22,6 +22,36 @@ original tag dates. `0.100.4` was never tagged or released.
 - **Split pipeline stages now build messages through the shared constructor.** The post-split `stage_input`, `stage_collect`, and `stage_execute` paths now use `make_message` instead of stale record literals, so newly required fields such as `metadata` stay aligned with the shared message shape and downstream pipeline builds stop breaking after the stage split (#1151).
 - **Kimi CLI session reuse now matches the actual CLI contract.** `transport_kimi_cli` now passes config files via `--config-file`, keeps `--session <id>` stable across turns, and stops assuming `--continue` is valid with an explicit session id. This preserves the intended token-saving delta prompt behavior for keeper-style multi-turn sessions without relying on a CLI flag combination that `kimi` rejects.
 
+## [0.170.7] - 2026-04-24
+
+### Fixed
+
+- **Atomic file writes no longer race on a shared tmp path.** Previously
+  both `Fs_result.write_file` (blocking path) and the `Eio.Path` callers
+  in `Checkpoint_store.save`, `A2a_task_store.store_task`,
+  `Memory_file_backend.persist`, and `Durable_event.save_to_file` derived
+  the tmp name from the target (`<path>.tmp`). Two fibers writing to the
+  same logical file could therefore race, with writer A's `rename`
+  consuming the shared tmp before writer B's `rename` ran, surfacing as
+  `Eio.Io Fs Not_found (renameat …)`. A new `Fs_atomic_eio.save_atomic`
+  helper gives every writer a unique tmp suffix (pid + wall-clock ns +
+  `Atomic` counter) and best-effort fsyncs the tmp file and parent
+  directory; the five call sites now delegate to this helper (or the
+  unified `Fs_result.write_file`). `A2a_task_store.store_task` only
+  updates its in-memory cache on `Ok`, so cache and disk can no longer
+  drift when the atomic write fails after flush (#1165).
+
+### Notes
+
+- **Race test skipped under `BISECT_ENABLE=yes`.** `test_atomic_write_race`
+  is gated off when the Coverage report job re-runs the suite with bisect
+  instrumentation, because the extra io_uring submissions from bisect hooks
+  blow the CI container's memlock budget and cause unrelated downstream
+  tests to fail with `Unix_error(ENOMEM, "io_uring_queue_init")`. The
+  happy-path line coverage of `Fs_atomic_eio.save_atomic` is retained
+  indirectly via the existing `test_checkpoint_store`,
+  `test_a2a_task_store`, and `test_memory_file_backend` suites (#1165).
+
 ## [0.170.0] - 2026-04-21
 
 ### Added
