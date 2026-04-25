@@ -309,7 +309,18 @@ let build_args ~(config : config) ~(req_config : Provider_config.t)
     | None -> []
     | Some model -> ["--model"; model]
   in
-  [config.codex_path; "exec"; "--json"]
+  (* [--ephemeral] suppresses Codex CLI session/rollout persistence.  Without
+     it, codex-cli 0.125.0+ records each invocation under
+     [$CODEX_HOME/sessions/], and an asynchronous record_rollout_items step
+     can race process exit, surfacing
+       [ERROR codex_core::session: failed to record rollout items:
+        thread <UUID> not found]
+     on stderr together with [exit code 1].  OAS' [cli_common_subprocess]
+     classifies any nonzero exit as [NetworkError], discarding the otherwise
+     valid stdout JSONL.  We never call [codex resume]/[fork] from this
+     transport, so persisted sessions are dead weight; opting into ephemeral
+     mode removes the race entirely. *)
+  [config.codex_path; "exec"; "--json"; "--ephemeral"]
   @ (match runtime_mcp_policy with
      | Some policy -> (
          match runtime_mcp_overrides policy with
@@ -638,7 +649,25 @@ let%test "build_args includes --json flag" =
   let args =
     build_args ~config:default_config ~req_config:(codex_req ()) ~prompt:"hello" ()
   in
-  args = ["codex"; "exec"; "--json"; "-c"; "mcp_servers={}"; "hello"]
+  args = ["codex"; "exec"; "--json"; "--ephemeral"; "-c"; "mcp_servers={}"; "hello"]
+
+let%test "build_args includes --ephemeral right after --json" =
+  (* Regression guard: --ephemeral must precede config overrides and the
+     prompt so codex-cli 0.125.0+ skips session/rollout persistence even
+     when callers add custom -c flags. *)
+  let args =
+    build_args ~config:default_config ~req_config:(codex_req ()) ~prompt:"hello" ()
+  in
+  let rec idx_of x = function
+    | [] -> -1
+    | hd :: _ when hd = x -> 0
+    | _ :: tl ->
+      let r = idx_of x tl in
+      if r < 0 then r else r + 1
+  in
+  let json_idx = idx_of "--json" args in
+  let ephemeral_idx = idx_of "--ephemeral" args in
+  json_idx >= 0 && ephemeral_idx = json_idx + 1
 
 let%test "build_args ignores extra parity fields" =
   let config = { default_config with
@@ -648,7 +677,7 @@ let%test "build_args ignores extra parity fields" =
     permission_mode = Some "bypassPermissions";
   } in
   let args = build_args ~config ~req_config:(codex_req ()) ~prompt:"hi" () in
-  args = ["codex"; "exec"; "--json"; "-c"; "mcp_servers={}"; "hi"]
+  args = ["codex"; "exec"; "--json"; "--ephemeral"; "-c"; "mcp_servers={}"; "hi"]
 
 let%test "build_args with requested model" =
   let args =
@@ -658,14 +687,14 @@ let%test "build_args with requested model" =
       ()
   in
   args =
-  ["codex"; "exec"; "--json"; "-c"; "mcp_servers={}";
+  ["codex"; "exec"; "--json"; "--ephemeral"; "-c"; "mcp_servers={}";
    "--model"; "gpt-5.4"; "hi"]
 
 let%test "build_args with config default model for auto request" =
   let config = { default_config with model = Some "gpt-5.2-codex" } in
   let args = build_args ~config ~req_config:(codex_req ()) ~prompt:"hi" () in
   args =
-  ["codex"; "exec"; "--json"; "-c"; "mcp_servers={}";
+  ["codex"; "exec"; "--json"; "--ephemeral"; "-c"; "mcp_servers={}";
    "--model"; "gpt-5.2-codex"; "hi"]
 
 let%test "prompt_exceeds_argv_budget: small prompt stays in argv" =
@@ -812,7 +841,7 @@ let%test "default: argv disables MCP even with no env" =
   with_unset "OAS_CODEX_PROFILE" (fun () ->
   with_unset "OAS_CODEX_SKIP_GIT" (fun () ->
     build_args ~config:default_config ~req_config:(codex_req ()) ~prompt:"hi" ()
-    = ["codex"; "exec"; "--json"; "-c"; "mcp_servers={}"; "hi"]))))
+    = ["codex"; "exec"; "--json"; "--ephemeral"; "-c"; "mcp_servers={}"; "hi"]))))
 
 let%test "env: OAS_CODEX_CONFIG emits -c pairs before prompt" =
   with_env "OAS_CODEX_CONFIG" "mcp_servers={},model=o3" (fun () ->
