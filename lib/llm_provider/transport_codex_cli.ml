@@ -13,6 +13,10 @@
     [agent_message] items become {!Types.Text} blocks in the aggregate
     response.  [command_execution] items are Codex's internal shell tool
     — transparent to the outer agent, tracked via [Eio.traceln] only.
+    The CLI may print raw usage counters, but this transport does not
+    surface them as {!Types.api_usage}: Codex CLI is declared
+    [emits_usage_tokens = false], and observed counters can be cumulative
+    across the CLI thread instead of a single OAS response.
 
     @since 0.133.0 *)
 
@@ -326,7 +330,9 @@ let build_args ~(config : config) ~(req_config : Provider_config.t)
 
 (* ── JSONL envelope parsing ──────────────────────────── *)
 
-(** Extract usage from a [turn.completed] envelope. *)
+(** Extract raw usage from a [turn.completed] envelope. The transport keeps
+    this private and does not put it on [api_response.usage] because Codex
+    CLI counters are not a stable per-response contract. *)
 let parse_usage json =
   let open Yojson.Safe.Util in
   match json |> member "usage" with
@@ -425,20 +431,20 @@ let events_of_line_with_state (state : stream_state) line =
         Types.ContentBlockStop { index = tool_use_index } :: tool_result_events
       else []  (* command_execution, etc. — no OAS mapping. *)
     | "turn.completed" ->
-      let usage = parse_usage json in
-      [Types.MessageDelta { stop_reason = Some Types.EndTurn; usage };
+      let _raw_usage = parse_usage json in
+      [Types.MessageDelta { stop_reason = Some Types.EndTurn; usage = None };
        Types.MessageStop]
     | _ -> []
   with Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ -> []
 
 (** Aggregate JSONL envelopes into an [api_response].  Only
-    [agent_message] text contributes to [content]; the terminal
-    [turn.completed] supplies [usage]; [thread.started] supplies [id].
+    [agent_message] text contributes to [content]; [thread.started]
+    supplies [id]. Raw [turn.completed.usage] is intentionally ignored
+    because Codex CLI usage is not a stable per-response contract.
     [command_execution] items are counted as provider-native internal
     actions rather than surfaced as OAS tool calls. *)
 let parse_jsonl_result ?(model_id = "codex") lines =
   let thread_id = ref "" in
-  let usage = ref None in
   let provider_internal_action_count = ref 0 in
   List.iter (fun line ->
     try
@@ -454,7 +460,8 @@ let parse_jsonl_result ?(model_id = "codex") lines =
            incr provider_internal_action_count
          | _ -> ())
       | "turn.completed" ->
-        usage := parse_usage json
+        let _raw_usage = parse_usage json in
+        ()
       | _ -> ()
     with Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ -> ()
   ) lines;
@@ -484,7 +491,7 @@ let parse_jsonl_result ?(model_id = "codex") lines =
          model = model_id;
          stop_reason = Types.EndTurn;
          content;
-         usage = !usage;
+         usage = None;
          telemetry }
 
 (* ── Transport constructor ───────────────────────────── *)
@@ -679,7 +686,7 @@ let%test "build_args uses stdin sentinel when prompt is too large" =
   not (List.mem big args)
   && List.nth args (List.length args - 1) = "-"
 
-let%test "parse_jsonl_result extracts text + usage + thread_id" =
+let%test "parse_jsonl_result extracts text + thread_id and suppresses usage" =
   let lines = [
     {|{"type":"thread.started","thread_id":"abc-123"}|};
     {|{"type":"turn.started"}|};
@@ -691,11 +698,7 @@ let%test "parse_jsonl_result extracts text + usage + thread_id" =
     resp.id = "abc-123"
     && resp.content = [Types.Text "hi"]
     && resp.stop_reason = Types.EndTurn
-    && (match resp.usage with
-        | Some u -> u.input_tokens = 100
-                 && u.output_tokens = 3
-                 && u.cache_read_input_tokens = 5
-        | None -> false)
+    && resp.usage = None
   | Error _ -> false
 
 let%test "parse_jsonl_result aggregates multiple agent_messages" =
@@ -775,7 +778,7 @@ let%test "events_of_line turn.completed → MessageDelta+Stop" =
   let state = create_stream_state () in
   let line = {|{"type":"turn.completed","usage":{"input_tokens":10,"cached_input_tokens":0,"output_tokens":5}}|} in
   (match events_of_line_with_state state line with
-   | [Types.MessageDelta { stop_reason = Some Types.EndTurn; _ };
+   | [Types.MessageDelta { stop_reason = Some Types.EndTurn; usage = None };
       Types.MessageStop] -> true
    | _ -> false)
 

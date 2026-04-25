@@ -148,7 +148,8 @@ let default_config = {
   exit_condition = None;
 }
 
-(* Usage tracking *)
+(** Usage tracking accumulated across provider calls. Per-response usage stays
+    in [Llm_provider.Types.api_usage]. *)
 type usage_stats = {
   total_input_tokens: int;
   total_output_tokens: int;

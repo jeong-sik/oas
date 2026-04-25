@@ -175,10 +175,11 @@ let validation_feedback_message ~summary ~error_msg =
 
     [max_retries] defaults to 2 (so up to 3 total attempts).
     [on_validation_error] is called on each retry for observability. *)
-(** Result of [extract_with_retry] — includes total usage across all attempts. *)
+(** Result of [extract_with_retry] — includes accumulated usage across all
+    attempts. [api_usage] stays reserved for a single provider response. *)
 type 'a retry_result = {
   value: 'a;
-  total_usage: api_usage option;
+  total_usage: usage_stats;
   attempts: int;
 }
 
@@ -188,23 +189,23 @@ let extract_with_retry ~sw ~net ?base_url ?provider ?clock
     prompt : ('a retry_result, Error.sdk_error) result =
   ignore clock;
   let base_url = Option.value ~default:Api.default_base_url base_url in
-  let add_usage acc resp_usage =
-    match acc, resp_usage with
-    | None, u -> u
-    | Some _, None -> acc
-    | Some a, Some u ->
-      Some { input_tokens = a.input_tokens + u.input_tokens;
-             output_tokens = a.output_tokens + u.output_tokens;
-             cache_creation_input_tokens =
-               a.cache_creation_input_tokens + u.cache_creation_input_tokens;
-             cache_read_input_tokens =
-               a.cache_read_input_tokens + u.cache_read_input_tokens;
-             cost_usd =
-               (match a.cost_usd, u.cost_usd with
-                | Some left, Some right -> Some (left +. right)
-                | Some left, None -> Some left
-                | None, Some right -> Some right
-                | None, None -> None) }
+  let add_retry_usage acc resp_usage =
+    match resp_usage with
+    | None -> acc
+    | Some u ->
+      {
+        total_input_tokens = acc.total_input_tokens + u.input_tokens;
+        total_output_tokens = acc.total_output_tokens + u.output_tokens;
+        total_cache_creation_input_tokens =
+          acc.total_cache_creation_input_tokens
+          + u.cache_creation_input_tokens;
+        total_cache_read_input_tokens =
+          acc.total_cache_read_input_tokens + u.cache_read_input_tokens;
+        api_calls = acc.api_calls + 1;
+        estimated_cost_usd =
+          acc.estimated_cost_usd
+          +. Option.value ~default:0.0 u.cost_usd;
+      }
   in
   let initial_message =
     { role = User; content = [Text prompt]; name = None; tool_call_id = None ; metadata = []}
@@ -225,7 +226,7 @@ let extract_with_retry ~sw ~net ?base_url ?provider ?clock
                 ~messages ~tools:[] () with
         | Error e -> Error (sdk_error_of_http_error e)
         | Ok response ->
-            let total = add_usage acc_usage response.usage in
+            let total = add_retry_usage acc_usage response.usage in
             match extract_text_json ~schema response with
             | Ok v -> Ok { value = v; total_usage = total; attempts = n + 1 }
             | Error e ->
@@ -269,7 +270,7 @@ let extract_with_retry ~sw ~net ?base_url ?provider ?clock
                  | Tool_retry_policy.No_retry -> Error e)
       in
       let initial_messages = [ initial_message ] in
-      attempt 0 None initial_messages
+      attempt 0 empty_usage initial_messages
 
 (** Extract structured output with SSE streaming.
     Like [extract] but streams via {!Llm_provider.Complete.complete_stream}. *)

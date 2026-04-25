@@ -199,7 +199,10 @@ let parse_jsonl_result ~model_id lines =
          model = response_model_of_lines ~model_id lines;
          stop_reason = Types.EndTurn;
          content;
-         usage = usage_of_lines lines;
+         (* Kimi CLI is declared [emits_usage_tokens=false]. If the CLI
+            prints a usage object, do not promote it to [api_usage] unless
+            the provider contract becomes explicitly per-response. *)
+         usage = None;
          telemetry = None }
 
 (* ── Stream events ───────────────────────────────────── *)
@@ -553,16 +556,13 @@ let%test "usage_of_lines finds usage across lines" =
   | Some u -> u.input_tokens = 1 && u.output_tokens = 2
   | None -> false
 
-let%test "parse_jsonl_result includes usage when present" =
+let%test "parse_jsonl_result suppresses CLI usage when present" =
   let lines = [
     {|{"role":"assistant","content":"hello"}|};
     {|{"usage":{"input_tokens":10,"output_tokens":20}}|};
   ] in
   match parse_jsonl_result ~model_id:"kimi-for-coding" lines with
-  | Ok resp ->
-    (match resp.usage with
-     | Some u -> u.input_tokens = 10 && u.output_tokens = 20
-     | None -> false)
+  | Ok resp -> resp.usage = None
   | Error _ -> false
 
 let%test "parse_jsonl_result keeps None when usage absent" =

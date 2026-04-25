@@ -439,6 +439,23 @@ let%test "parse_ollama_response populates timings from eval_count/eval_duration"
            | None -> false)
      | _ -> false)
 
+let%test "parse_ollama_response maps prompt/eval counts to usage" =
+  let json =
+    {|{"model":"qwen3.5:35b-a3b-nvfp4","done":true,"done_reason":"stop",
+       "message":{"role":"assistant","content":"hi"},
+       "prompt_eval_count":17,"eval_count":23}|}
+  in
+  match parse_ollama_response json with
+  | Error _ -> false
+  | Ok resp ->
+    (match resp.usage with
+     | Some usage ->
+       usage.input_tokens = 17
+       && usage.output_tokens = 23
+       && usage.cache_creation_input_tokens = 0
+       && usage.cache_read_input_tokens = 0
+     | None -> false)
+
 let%test "parse_ollama_response guards zero eval_duration" =
   let json =
     {|{"model":"qwen3.5:35b-a3b-nvfp4","done":true,"done_reason":"stop",

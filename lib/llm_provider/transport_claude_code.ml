@@ -231,18 +231,36 @@ let build_args ~(config : config) ~(req_config : Provider_config.t)
 
 (* ── JSON parsing ────────────────────────────────────── *)
 
+(** Claude Code reports per-response usage for normal turns, but older
+    fleet data has shown impossible session-scale counters leaking through
+    this field. Keep [api_usage] as single-response telemetry by dropping
+    values above Claude Code's declared 1M input window. *)
+let claude_code_max_single_response_input_tokens = 1_000_000
+
+let plausible_single_response_usage (u : Types.api_usage) =
+  u.input_tokens <= claude_code_max_single_response_input_tokens
+
 (** Parse the [usage] object from a result or assistant message. *)
 let parse_usage json =
   let open Yojson.Safe.Util in
   match json |> member "usage" with
   | `Assoc _ as u ->
-    Some { Types.input_tokens = Cli_common_json.member_int "input_tokens" u;
-           output_tokens = Cli_common_json.member_int "output_tokens" u;
-           cache_creation_input_tokens =
-             Cli_common_json.member_int "cache_creation_input_tokens" u;
-           cache_read_input_tokens =
-             Cli_common_json.member_int "cache_read_input_tokens" u;
-           cost_usd = None }
+    let usage =
+      { Types.input_tokens = Cli_common_json.member_int "input_tokens" u;
+        output_tokens = Cli_common_json.member_int "output_tokens" u;
+        cache_creation_input_tokens =
+          Cli_common_json.member_int "cache_creation_input_tokens" u;
+        cache_read_input_tokens =
+          Cli_common_json.member_int "cache_read_input_tokens" u;
+        cost_usd = None }
+    in
+    if plausible_single_response_usage usage then Some usage
+    else begin
+      Eio.traceln
+        "[warn] claude_code usage dropped: input_tokens=%d exceeds single-response ceiling=%d"
+        usage.input_tokens claude_code_max_single_response_input_tokens;
+      None
+    end
   | _ -> None
 
 let parse_stop_reason s = Types.stop_reason_of_string s
@@ -584,6 +602,14 @@ let%test "parse_json_result success" =
     resp.model = "claude-sonnet-4"
     && resp.content = [Types.Text "hello world"]
     && resp.stop_reason = Types.EndTurn
+  | Error _ -> false
+
+let%test "parse_json_result drops impossible cumulative usage" =
+  let json =
+    {|{"type":"result","subtype":"success","is_error":false,"result":"hello","model":"claude-sonnet-4","stop_reason":"end_turn","session_id":"s1","usage":{"input_tokens":3690186,"output_tokens":42}}|}
+  in
+  match parse_json_result json with
+  | Ok resp -> resp.usage = None
   | Error _ -> false
 
 let%test "parse_json_result error" =

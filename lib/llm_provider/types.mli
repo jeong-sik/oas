@@ -118,6 +118,8 @@ type stop_reason =
 
 val stop_reason_of_string : string -> stop_reason
 
+(** API usage from a single provider response. Accumulated multi-call usage
+    belongs in agent-level usage stats. *)
 type api_usage = {
   input_tokens: int;
   output_tokens: int;
