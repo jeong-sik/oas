@@ -48,6 +48,8 @@ let pricing_for_model_opt model_id =
        its Codex rate card labels it research preview with non-final rates. *)
     else if string_contains ~needle:"gpt-5.3-codex-spark" normalized then
       None
+    else if string_contains ~needle:"gpt-5.5" normalized then
+      Some ((5.0, 30.0), openai_cached_input)
     else if string_contains ~needle:"gpt-5.4-mini" normalized then
       Some ((0.75, 4.5), openai_cached_input)
     else if string_contains ~needle:"gpt-5.4" normalized then
@@ -229,6 +231,13 @@ let%test "pricing gpt-4o-mini" =
   && close_enough p.output_per_million 0.6
   && close_enough p.cache_write_multiplier 1.0
   && close_enough p.cache_read_multiplier 1.0
+
+let%test "pricing gpt-5.5" =
+  let p = pricing_for_model "gpt-5.5" in
+  close_enough p.input_per_million 5.0
+  && close_enough p.output_per_million 30.0
+  && close_enough p.cache_write_multiplier 1.0
+  && close_enough p.cache_read_multiplier 0.1
 
 let%test "pricing gpt-5.4-mini" =
   let p = pricing_for_model "gpt-5.4-mini" in

@@ -334,6 +334,13 @@ let test_pricing_sonnet () =
   Alcotest.(check (float 0.001)) "cache_write" 1.25 p.cache_write_multiplier;
   Alcotest.(check (float 0.001)) "cache_read" 0.1 p.cache_read_multiplier
 
+let test_pricing_gpt55 () =
+  let p = Provider.pricing_for_model "gpt-5.5" in
+  Alcotest.(check (float 0.001)) "input/M" 5.0 p.input_per_million;
+  Alcotest.(check (float 0.001)) "output/M" 30.0 p.output_per_million;
+  Alcotest.(check (float 0.001)) "cache_write" 1.0 p.cache_write_multiplier;
+  Alcotest.(check (float 0.001)) "cache_read" 0.1 p.cache_read_multiplier
+
 let test_pricing_local () =
   let p = Provider.pricing_for_provider
     ~provider:(Local { base_url = "http://127.0.0.1:8085" })
@@ -686,6 +693,7 @@ let () =
     ];
     "pricing", [
       Alcotest.test_case "sonnet pricing" `Quick test_pricing_sonnet;
+      Alcotest.test_case "gpt-5.5 pricing" `Quick test_pricing_gpt55;
       Alcotest.test_case "local free" `Quick test_pricing_local;
       Alcotest.test_case "unknown model" `Quick test_pricing_unknown;
       Alcotest.test_case "estimate cost" `Quick test_estimate_cost;
