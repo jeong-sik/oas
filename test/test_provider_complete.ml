@@ -460,6 +460,26 @@ let test_annotate_response_cost () =
       Alcotest.(check bool) "annotated cost" true (cost > 0.0)
   | _ -> Alcotest.fail "expected annotated response cost"
 
+let test_annotate_response_cost_gpt55 () =
+  let response : api_response = {
+    id = "resp-gpt55";
+    model = "gpt-5.5";
+    stop_reason = EndTurn;
+    content = [Text "ok"];
+    usage = Some {
+      input_tokens = 1_000_000;
+      output_tokens = 1_000_000;
+      cache_creation_input_tokens = 0;
+      cache_read_input_tokens = 0;
+      cost_usd = None;
+    };
+    telemetry = None;
+  } in
+  match Llm_provider.Pricing.annotate_response_cost response with
+  | { usage = Some { cost_usd = Some cost; _ }; _ } ->
+      Alcotest.(check (float 0.001)) "gpt-5.5 cost" 35.0 cost
+  | _ -> Alcotest.fail "expected gpt-5.5 annotated response cost"
+
 (* ── Stream accumulator ──────────────────────────────── *)
 
 let test_stream_acc_text () =
@@ -614,6 +634,8 @@ let () =
     ];
     "cost", [
       test_case "annotate response cost" `Quick test_annotate_response_cost;
+      test_case "annotate gpt-5.5 response cost" `Quick
+        test_annotate_response_cost_gpt55;
     ];
     "stream_acc", [
       test_case "text events" `Quick test_stream_acc_text;
