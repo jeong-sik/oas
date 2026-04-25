@@ -8,6 +8,20 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.175.0] - 2026-04-25
+
+### Added
+
+- **HTTP SSE stream idle timeout parity.** `Complete.complete_stream`
+  now applies `stream_idle_timeout_s` to every HTTP streaming path,
+  including Anthropic, OpenAI-compatible, Gemini, GLM, and Ollama native
+  NDJSON streams. The timeout remains caller-owned and surfaces stalled
+  endpoints as retryable timeout-shaped network errors.
+- **CLI subprocess stdout idle timeout.** Shared non-interactive CLI
+  subprocess execution now accepts `?clock` and
+  `?stdout_idle_timeout_s`, so silent CLI hangs can be interrupted
+  without imposing a total runtime cap.
+
 ### Fixed
 
 - **Pipeline retry honors effective tool contract.** Missing-required-tool retry
@@ -15,6 +29,15 @@ original tag dates. `0.100.4` was never tagged or released.
   resolution) instead of the originally requested contract. Providers that
   intentionally relax unsupported tool requirements no longer enter forced
   retry loops.
+- **Per-response usage is preserved.** Ollama and CLI transports keep
+  usage on each returned response instead of letting aggregate turn
+  accounting overwrite or drop the provider payload.
+- **Runtime participant events preserve raw trace run ids.** Runtime
+  participant lifecycle events now carry `raw_trace_run_id` through to
+  the top-level EventBus `run_id`, keeping generic trace correlation
+  intact for downstream consumers.
+- **Provider pricing entries refreshed again.** Added pricing for
+  `gpt-5.5` alongside the existing current OpenAI model table refresh.
 
 ## [0.173.0] - 2026-04-25
 
