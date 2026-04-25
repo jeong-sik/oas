@@ -43,6 +43,16 @@ let pricing_for_model_opt model_id =
       Some ((0.8, 4.0), anthropic_cache)
     else if string_contains ~needle:"claude-3-7-sonnet" normalized then
       Some ((3.0, 15.0), anthropic_cache)
+    (* claude_code provider alias fallback. The Claude Code transport
+       surfaces telemetry.model_used as the alias (e.g. "claude_code:auto",
+       "cc:default") instead of the canonical model id returned by the
+       Anthropic response, so substring matches against opus/sonnet/haiku
+       above never fire. Estimate at sonnet-4-6 rates as the modal
+       Anthropic backend; per-call accuracy is a follow-up that should
+       resolve the canonical id from the API response. *)
+    else if string_contains ~needle:"claude_code" normalized
+         || string_contains ~needle:"cc:" normalized then
+      Some ((3.0, 15.0), anthropic_cache)
     (* OpenAI API text-token pricing, confirmed from official model docs
        2026-04-25. GPT-5.3-Codex-Spark is intentionally not covered here:
        its Codex rate card labels it research preview with non-final rates. *)
@@ -313,6 +323,23 @@ let%test "pricing gemini-3.1-flash-lite-preview" =
   let p = pricing_for_model "gemini-3.1-flash-lite-preview" in
   close_enough p.input_per_million 0.25
   && close_enough p.output_per_million 1.5
+
+(* --- pricing_for_model: claude_code alias fallback --- *)
+
+let%test "pricing claude_code:auto falls back to sonnet-4-6 rates" =
+  let p = pricing_for_model "claude_code:auto" in
+  close_enough p.input_per_million 3.0
+  && close_enough p.output_per_million 15.0
+
+let%test "pricing claude_code (bare alias)" =
+  let p = pricing_for_model "claude_code" in
+  close_enough p.input_per_million 3.0
+  && close_enough p.output_per_million 15.0
+
+let%test "pricing cc: short alias falls back to sonnet-4-6 rates" =
+  let p = pricing_for_model "cc:default" in
+  close_enough p.input_per_million 3.0
+  && close_enough p.output_per_million 15.0
 
 let%test "pricing_for_model_opt returns Some for gemini-3-flash-preview" =
   match pricing_for_model_opt "gemini-3-flash-preview" with
