@@ -64,6 +64,7 @@ let process_events t =
     | ContentReplacementReplaced _
     | ContentReplacementKept _
     | SlotSchedulerObserved _
+    | InferenceTelemetry _
     | Custom _ -> ()
   ) events
 

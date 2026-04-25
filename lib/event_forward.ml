@@ -64,6 +64,7 @@ let event_type_name (event : Event_bus.event) : string =
   | ContentReplacementReplaced _ -> "content_replacement.replaced"
   | ContentReplacementKept _ -> "content_replacement.kept"
   | SlotSchedulerObserved _ -> "slot_scheduler.observed"
+  | InferenceTelemetry _ -> "inference.telemetry"
   | Custom (name, _) -> name
 
 let agent_name_of_payload : Event_bus.payload -> string option = function
@@ -83,6 +84,7 @@ let agent_name_of_payload : Event_bus.payload -> string option = function
   | ContentReplacementReplaced _
   | ContentReplacementKept _
   | SlotSchedulerObserved _ -> None
+  | InferenceTelemetry r -> Some r.agent_name
   | Custom _ -> None
 
 let agent_name_of_event (event : Event_bus.event) : string option =
@@ -178,6 +180,20 @@ let event_to_payload (event : Event_bus.event) : event_payload =
         ("available", `Int r.available);
         ("queue_length", `Int r.queue_length);
         ("state", `String (slot_scheduler_state_to_string r.state));
+      ]
+    | InferenceTelemetry r ->
+      let opt_int = function Some n -> `Int n | None -> `Null in
+      let opt_float = function Some f -> `Float f | None -> `Null in
+      `Assoc [
+        ("agent_name", `String r.agent_name);
+        ("turn", `Int r.turn);
+        ("provider", `String r.provider);
+        ("model", `String r.model);
+        ("prompt_tokens", opt_int r.prompt_tokens);
+        ("completion_tokens", opt_int r.completion_tokens);
+        ("prompt_ms", opt_float r.prompt_ms);
+        ("decode_ms", opt_float r.decode_ms);
+        ("decode_tok_s", opt_float r.decode_tok_s);
       ]
     | Custom (name, data) ->
       `Assoc [("name", `String name); ("data", data)]

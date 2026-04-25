@@ -104,6 +104,36 @@ type payload =
       (** Snapshot of the slot scheduler queue state. Promoted from
           [Custom("slot_scheduler_queue", ...)].
           @since 0.154.1 *)
+  | InferenceTelemetry of {
+      agent_name: string;
+      turn: int;
+      provider: string;
+      model: string;
+      prompt_tokens: int option;
+      completion_tokens: int option;
+      prompt_ms: float option;
+      decode_ms: float option;
+      decode_tok_s: float option;
+    }
+      (** Per-turn inference timings & token usage. Emitted alongside
+          {!TurnCompleted} when the provider reported native timings
+          (currently Ollama via [prompt_eval_*] / [eval_*] fields).
+
+          [decode_tok_s] is decode-only throughput, computed as
+          [completion_tokens / (decode_ms / 1000)] when both are
+          available. Distinguishes hardware decode rate from wall-clock
+          [tok/s] (which mixes prefill into the denominator).
+
+          [prompt_ms] is the prefill duration; downstream consumers may
+          classify a turn as "warm" (cache hit) when [prompt_ms] is
+          significantly lower than a recent baseline for the same prefix.
+          Cold/warm classification itself is a heuristic and lives in
+          consumers, not in this event.
+
+          Subscribers should treat absent fields as "backend did not
+          report this metric" — never fabricate a value or substitute
+          a default. Ollama reports all five metrics; OpenAI-compatible
+          backends typically report only token counts. *)
   | Custom of string * Yojson.Safe.t
       (** Extension point.  [name] must be a dot-separated, lowercase,
           snake-case namespaced identifier (e.g. ["mylib.foo_happened"]).
