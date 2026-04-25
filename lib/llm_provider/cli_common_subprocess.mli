@@ -26,6 +26,7 @@ val run_collect :
   extra_env:(string * string) list ->
   ?scrub_env:string list ->
   ?stdin_content:string ->
+  ?stdout_recovery:(string -> bool) ->
   ?on_stderr_line:(string -> unit) ->
   ?cancel:unit Eio.Promise.t ->
   string list ->
@@ -60,9 +61,18 @@ val run_collect :
       within [stdout_idle_timeout_s] seconds.  Independent of [cancel];
       protects against subprocesses that hang silently with no caller-
       side cancellation token.  The deadline resets after each line.
+    - [stdout_recovery]: opt-in predicate that lets a transport rescue
+      a structurally complete stdout payload from a nonzero exit.  Some
+      CLIs (e.g. codex-cli 0.125.0+) finish the LLM response on stdout
+      but exit nonzero on post-response bookkeeping races.  When the
+      predicate returns [true] for the captured stdout, [run_collect]
+      surfaces [Ok] so the caller can parse a real response instead of
+      retrying the cascade.  The hook is invoked only on nonzero exits
+      and predicate exceptions are caught and logged.
 
-    Returns [Ok { stdout; stderr; latency_ms }] on a zero exit code,
-    or a [NetworkError] describing the failure. *)
+    Returns [Ok { stdout; stderr; latency_ms }] on a zero exit code (or
+    on a nonzero exit when [stdout_recovery] accepts the captured
+    stdout), or a [NetworkError] describing the failure. *)
 
 val run_stream_lines :
   sw:Eio.Switch.t ->
@@ -74,6 +84,7 @@ val run_stream_lines :
   extra_env:(string * string) list ->
   ?scrub_env:string list ->
   ?stdin_content:string ->
+  ?stdout_recovery:(string -> bool) ->
   on_line:(string -> unit) ->
   ?on_stderr_line:(string -> unit) ->
   ?cancel:unit Eio.Promise.t ->

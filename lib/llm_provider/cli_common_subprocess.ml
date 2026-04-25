@@ -59,6 +59,7 @@ let run_core ~sw ~(mgr : _ Eio.Process.mgr) ?clock ?stdout_idle_timeout_s
     ~name ~cwd ~extra_env
     ?(scrub_env = [])
     ?stdin_content
+    ?stdout_recovery
     ~on_line ~on_stderr_line ~cancel argv =
   let t0 = Unix.gettimeofday () in
   try
@@ -187,6 +188,31 @@ let run_core ~sw ~(mgr : _ Eio.Process.mgr) ?clock ?stdout_idle_timeout_s
     | `Exited 0 ->
       Ok { stdout = stdout_str; stderr = stderr_str; latency_ms }
     | `Exited code ->
+      (* Some CLI transports complete the LLM response on stdout but exit
+         nonzero on post-response bookkeeping (e.g. codex-cli 0.125.0+
+         races [record_rollout_items] against process exit and emits
+         [thread <UUID> not found] on stderr with [exit code 1] even
+         though the JSONL stream on stdout is structurally complete).
+
+         When the caller supplies [stdout_recovery] and the predicate
+         accepts [stdout_str], we surface the captured stream as a
+         success so the caller can parse a real response instead of
+         being forced into a [NetworkError] retry.  The recovery hook is
+         opt-in; transports that do not pass it keep the strict
+         exit-code semantics. *)
+      let recovered =
+        match stdout_recovery with
+        | Some predicate ->
+          (try predicate stdout_str
+           with exn ->
+             Eio.traceln "cli_common_subprocess: stdout_recovery raised: %s"
+               (Printexc.to_string exn);
+             false)
+        | None -> false
+      in
+      if recovered then
+        Ok { stdout = stdout_str; stderr = stderr_str; latency_ms }
+      else
       let detail =
         if stderr_str <> "" then stderr_str
         else
@@ -211,11 +237,13 @@ let run_collect ~sw ~mgr ?clock ?stdout_idle_timeout_s
     ~name ~cwd ~extra_env
     ?(scrub_env = [])
     ?stdin_content
+    ?stdout_recovery
     ?(on_stderr_line = default_on_stderr_line ~name)
     ?cancel argv =
   run_core ~sw ~mgr ?clock ?stdout_idle_timeout_s
     ~name ~cwd ~extra_env ~scrub_env
     ?stdin_content
+    ?stdout_recovery
     ~on_line:(fun _ -> ())
     ~on_stderr_line
     ~cancel
@@ -225,12 +253,14 @@ let run_stream_lines ~sw ~mgr ?clock ?stdout_idle_timeout_s
     ~name ~cwd ~extra_env
     ?(scrub_env = [])
     ?stdin_content
+    ?stdout_recovery
     ~on_line
     ?(on_stderr_line = default_on_stderr_line ~name)
     ?cancel argv =
   run_core ~sw ~mgr ?clock ?stdout_idle_timeout_s
     ~name ~cwd ~extra_env ~scrub_env
     ?stdin_content
+    ?stdout_recovery
     ~on_line
     ~on_stderr_line
     ~cancel
@@ -251,4 +281,57 @@ let%test "run_collect: stdout_idle_timeout fires when subprocess produces nothin
       [ "sleep"; "5" ]
   with
   | Error (Http_client.NetworkError { kind = Timeout; _ }) -> true
+  | _ -> false
+
+(* ── stdout_recovery test ─────────────────────────────── *)
+
+let%test "run_collect: stdout_recovery rescues nonzero exit when predicate matches" =
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  let mgr = Eio.Stdenv.process_mgr env in
+  match
+    run_collect ~sw ~mgr
+      ~name:"recover-test"
+      ~cwd:None ~extra_env:[]
+      ~stdout_recovery:(fun s ->
+        (* Predicate accepts any stdout — emulates the codex case where
+           a structurally complete stream was already captured. *)
+        String.length s > 0)
+      ~on_stderr_line:(fun _ -> ())
+      [ "sh"; "-c"; "printf 'turn.completed marker\\n'; exit 1" ]
+  with
+  | Ok { stdout; _ } ->
+    (* The 'turn.completed marker\n' payload should be captured even
+       though the subprocess exited 1. *)
+    String.length stdout > 0
+  | _ -> false
+
+let%test "run_collect: stdout_recovery rejects nonzero exit when predicate refuses" =
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  let mgr = Eio.Stdenv.process_mgr env in
+  match
+    run_collect ~sw ~mgr
+      ~name:"recover-reject-test"
+      ~cwd:None ~extra_env:[]
+      ~stdout_recovery:(fun _ -> false)
+      ~on_stderr_line:(fun _ -> ())
+      [ "sh"; "-c"; "printf 'partial\\n'; exit 1" ]
+  with
+  | Error (Http_client.NetworkError _) -> true
+  | _ -> false
+
+let%test "run_collect: zero exit ignores stdout_recovery (still Ok)" =
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  let mgr = Eio.Stdenv.process_mgr env in
+  match
+    run_collect ~sw ~mgr
+      ~name:"recover-zero-test"
+      ~cwd:None ~extra_env:[]
+      ~stdout_recovery:(fun _ -> false)  (* would block, but exit=0 wins *)
+      ~on_stderr_line:(fun _ -> ())
+      [ "sh"; "-c"; "printf 'fine\\n'; exit 0" ]
+  with
+  | Ok _ -> true
   | _ -> false
