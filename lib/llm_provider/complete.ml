@@ -763,7 +763,9 @@ let complete_stream_http ~sw:_ ~net ?clock ?stream_idle_timeout_s
                             (get_state ()) chunk)
                  ) ()
              | _ ->
-                 Http_client.read_sse ~reader ~on_data:(fun ~event_type data ->
+                 Http_client.read_sse
+                   ?clock ?idle_timeout:stream_idle_timeout_s
+                   ~reader ~on_data:(fun ~event_type data ->
                    let events = match config.kind with
                      | Provider_config.Anthropic
                      | Provider_config.Kimi ->

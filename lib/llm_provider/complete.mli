@@ -129,12 +129,15 @@ include module type of Complete_stream_acc
     dispatched by {!Provider_config.t.kind}.
 
     [clock] and [stream_idle_timeout_s] together bound inter-line idle
-    on the Ollama native NDJSON path (see {!Http_client.read_ndjson}).
-    The deadline resets after each successful line, so this does not
-    cap total stream duration.  A stalled endpoint surfaces as
-    [NetworkError { kind = Timeout; _ }] which cascade/retry layers
-    treat as retryable.  Non-Ollama paths currently ignore
-    [stream_idle_timeout_s]. *)
+    on every HTTP streaming path: Ollama native NDJSON
+    (see {!Http_client.read_ndjson}) and the SSE format used by
+    Anthropic, OpenAI-compatible, Gemini, and GLM
+    (see {!Http_client.read_sse}). The deadline resets after each
+    successful line, so this does not cap total stream duration.
+    SSE keepalive comments reset the deadline like any other line.
+    A stalled endpoint surfaces as [NetworkError { kind = Timeout; _ }]
+    which cascade/retry layers treat as retryable. Non-HTTP transports
+    (CLI subprocess) ignore [stream_idle_timeout_s]. *)
 val complete_stream :
   sw:Eio.Switch.t ->
   net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
