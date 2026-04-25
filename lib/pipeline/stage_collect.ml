@@ -33,6 +33,43 @@ let stage_collect ?raw_trace_run agent ~original_config response =
            { agent_name = agent.state.config.name;
              turn = agent.state.turn_count } }
    | None -> ());
+  (* Per-turn inference telemetry. Decoupled from TurnCompleted so subscribers
+     interested only in lifecycle don't pay parsing cost; subscribers tracking
+     decode rate / prefill latency don't have to remember which TurnCompleted
+     carried timings. *)
+  (match agent.options.event_bus, response.telemetry with
+   | Some bus, Some tel ->
+       let timings = tel.timings in
+       let prompt_tokens = Option.bind timings (fun t -> t.Types.prompt_n) in
+       let completion_tokens =
+         Option.bind timings (fun t -> t.Types.predicted_n) in
+       let prompt_ms = Option.bind timings (fun t -> t.Types.prompt_ms) in
+       let decode_ms = Option.bind timings (fun t -> t.Types.predicted_ms) in
+       let decode_tok_s =
+         Option.bind timings (fun t -> t.Types.predicted_per_second) in
+       let any_field =
+         Option.is_some prompt_tokens || Option.is_some completion_tokens
+         || Option.is_some prompt_ms || Option.is_some decode_ms
+         || Option.is_some decode_tok_s
+       in
+       if any_field then
+         let provider = match tel.provider_kind with
+           | Some k -> Llm_provider.Provider_kind.to_string k
+           | None -> "unknown"
+         in
+         Event_bus.publish bus
+           { meta = event_envelope agent;
+             payload = InferenceTelemetry
+               { agent_name = agent.state.config.name;
+                 turn = agent.state.turn_count;
+                 provider;
+                 model = response.model;
+                 prompt_tokens;
+                 completion_tokens;
+                 prompt_ms;
+                 decode_ms;
+                 decode_tok_s } }
+   | _ -> ());
   (match agent.options.journal with
    | Some j ->
        Durable_event.append j

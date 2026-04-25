@@ -29,6 +29,12 @@ let test_event_type_name () =
            max_slots = 4; active = 2; available = 2; queue_length = 1;
            state = Event_bus.Queued }),
      "slot_scheduler.observed");
+    (ev (Event_bus.InferenceTelemetry {
+           agent_name = "a"; turn = 1; provider = "ollama"; model = "qwen3";
+           prompt_tokens = Some 100; completion_tokens = Some 50;
+           prompt_ms = Some 200.0; decode_ms = Some 1000.0;
+           decode_tok_s = Some 50.0 }),
+     "inference.telemetry");
     (ev (Event_bus.Custom ("foo", `Null)),
      "foo");
     (ev (Event_bus.ContextOverflowImminent {
@@ -254,6 +260,44 @@ let test_native_telemetry_payloads () =
   Alcotest.(check string) "queue state" "saturated"
     (queue_payload.data |> member "state" |> to_string)
 
+let test_inference_telemetry_payload () =
+  let evt = ev (Event_bus.InferenceTelemetry {
+    agent_name = "worker"; turn = 4; provider = "ollama";
+    model = "qwen3.6:27b-coding-nvfp4";
+    prompt_tokens = Some 172000; completion_tokens = Some 309;
+    prompt_ms = Some 540000.0; decode_ms = Some 8500.0;
+    decode_tok_s = Some 36.4 }) in
+  let p = Event_forward.event_to_payload evt in
+  Alcotest.(check string) "type" "inference.telemetry" p.event_type;
+  Alcotest.(check (option string)) "agent" (Some "worker") p.agent_name;
+  let open Yojson.Safe.Util in
+  Alcotest.(check int) "turn" 4 (p.data |> member "turn" |> to_int);
+  Alcotest.(check string) "provider" "ollama"
+    (p.data |> member "provider" |> to_string);
+  Alcotest.(check string) "model" "qwen3.6:27b-coding-nvfp4"
+    (p.data |> member "model" |> to_string);
+  Alcotest.(check int) "prompt_tokens" 172000
+    (p.data |> member "prompt_tokens" |> to_int);
+  Alcotest.(check int) "completion_tokens" 309
+    (p.data |> member "completion_tokens" |> to_int);
+  Alcotest.(check (float 0.001)) "decode_tok_s" 36.4
+    (p.data |> member "decode_tok_s" |> to_number)
+
+let test_inference_telemetry_partial_fields () =
+  (* OpenAI-compat backends typically only report token counts; absent
+     timing fields must serialize as JSON null, not be omitted or default
+     to 0. Subscribers distinguish "absent" from "zero". *)
+  let evt = ev (Event_bus.InferenceTelemetry {
+    agent_name = "a"; turn = 1; provider = "openai_compat"; model = "gpt-x";
+    prompt_tokens = Some 50; completion_tokens = Some 10;
+    prompt_ms = None; decode_ms = None; decode_tok_s = None }) in
+  let p = Event_forward.event_to_payload evt in
+  let open Yojson.Safe.Util in
+  Alcotest.(check bool) "prompt_ms is null" true
+    (match p.data |> member "prompt_ms" with `Null -> true | _ -> false);
+  Alcotest.(check bool) "decode_tok_s is null" true
+    (match p.data |> member "decode_tok_s" with `Null -> true | _ -> false)
+
 (* ── event_to_payload: remaining event types ──────────────── *)
 
 let test_turn_completed_payload () =
@@ -366,6 +410,10 @@ let () =
       Alcotest.test_case "agent_completed" `Quick test_agent_completed_payload;
       Alcotest.test_case "tool events" `Quick test_tool_events_payload;
       Alcotest.test_case "native telemetry" `Quick test_native_telemetry_payloads;
+      Alcotest.test_case "inference_telemetry full"
+        `Quick test_inference_telemetry_payload;
+      Alcotest.test_case "inference_telemetry absent fields"
+        `Quick test_inference_telemetry_partial_fields;
       Alcotest.test_case "turn_completed" `Quick test_turn_completed_payload;
       Alcotest.test_case "elicitation" `Quick test_elicitation_completed_payload;
       Alcotest.test_case "custom event" `Quick test_custom_event_payload;

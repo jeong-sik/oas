@@ -62,6 +62,17 @@ type payload =
       queue_length: int;
       state: slot_scheduler_state;
     }
+  | InferenceTelemetry of {
+      agent_name: string;
+      turn: int;
+      provider: string;
+      model: string;
+      prompt_tokens: int option;
+      completion_tokens: int option;
+      prompt_ms: float option;
+      decode_ms: float option;
+      decode_tok_s: float option;
+    }
   | Custom of string * Yojson.Safe.t
 
 (* ── Event type ───────────────────────────────────────────────────── *)
@@ -163,6 +174,7 @@ let filter_agent name : filter = fun event ->
   | ContentReplacementReplaced _
   | ContentReplacementKept _
   | SlotSchedulerObserved _ -> true
+  | InferenceTelemetry r -> r.agent_name = name
   | Custom _ -> true  (* Custom events are not agent-scoped; always pass *)
 
 let filter_tools_only : filter = fun event ->
