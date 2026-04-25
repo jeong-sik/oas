@@ -8,6 +8,56 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+### Fixed
+
+- **Pipeline retry honors effective tool contract.** Missing-required-tool retry
+  now consults the resolved completion contract (post provider-capability
+  resolution) instead of the originally requested contract. Providers that
+  intentionally relax unsupported tool requirements no longer enter forced
+  retry loops.
+
+## [0.173.0] - 2026-04-25
+
+### Added
+
+- **Bounded Ollama NDJSON streams.** `Complete.complete_stream` and
+  `Http_client.read_ndjson` now accept optional `?clock` and
+  `?stream_idle_timeout_s`. When set, each NDJSON line read is wrapped in
+  `Eio.Time.with_timeout_exn`; a stalled stream raises `Eio.Time.Timeout`,
+  which `catch_network` already maps to a retryable `NetworkError`. No new
+  error surface, no default injected at the SDK layer — callers decide the
+  idle budget.
+
+### Fixed
+
+- **Provider pricing entries refreshed.** Added pricing for current
+  `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`, and `gpt-5.2` from the
+  official OpenAI rate cards. `gpt-5.3-codex-spark` left unpriced because
+  the Codex rate card marks research-preview pricing as non-final.
+- **Streamed `response.model` no longer blank.** When a provider omits
+  `model` from the streamed final chunk, `patch_telemetry` now fills it
+  from the configured `model_id` so downstream consumers receive a stable
+  identifier.
+
+## [0.172.0] - 2026-04-24
+
+### Added
+
+- **Native NDJSON streaming for Ollama.** `Complete.complete_stream_http`
+  Ollama branch now speaks the native `/api/chat` endpoint and parses the
+  newline-delimited JSON wire format directly, replacing the prior detour
+  through Backend_openai's SSE shape. Adds `Http_client.read_ndjson`,
+  `Streaming.parse_ollama_ndjson_chunk`, and
+  `Streaming.ollama_chunk_to_events` as new public exports.
+- **Restored Ollama timing telemetry.** Streaming responses now carry
+  `prompt_eval_count`, `prompt_eval_duration`, `eval_count`, and
+  `eval_duration` — the four Ollama-only fields the OpenAI compat detour
+  was stripping. Token-count usage and `inference_timings` on streaming
+  responses are byte-identical to the non-streaming path
+  (masc-mcp #8968 / #8969).
+
+## [0.171.0] - 2026-04-24
+
 ### Added
 
 - **Strict required-tool satisfaction hooks.** Completion contracts can now
