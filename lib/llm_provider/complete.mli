@@ -126,7 +126,15 @@ include module type of Complete_stream_acc
     Returns the final assembled {!Types.api_response} after the stream ends.
 
     Supports both Anthropic native SSE and OpenAI-compatible SSE formats,
-    dispatched by {!Provider_config.t.kind}. *)
+    dispatched by {!Provider_config.t.kind}.
+
+    [clock] and [stream_idle_timeout_s] together bound inter-line idle
+    on the Ollama native NDJSON path (see {!Http_client.read_ndjson}).
+    The deadline resets after each successful line, so this does not
+    cap total stream duration.  A stalled endpoint surfaces as
+    [NetworkError { kind = Timeout; _ }] which cascade/retry layers
+    treat as retryable.  Non-Ollama paths currently ignore
+    [stream_idle_timeout_s]. *)
 val complete_stream :
   sw:Eio.Switch.t ->
   net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
@@ -141,9 +149,3 @@ val complete_stream :
   ?priority:Request_priority.t ->
   unit ->
   (Types.api_response, Http_client.http_error) result
-(** [clock] and [stream_idle_timeout_s] together bound inter-chunk idle
-    time on the Ollama native NDJSON path. The deadline resets after
-    each successful chunk, so this does not cap total stream duration.
-    A stalled endpoint surfaces as [NetworkError { kind = Timeout; _ }]
-    which cascade/retry layers treat as retryable. Non-Ollama paths
-    currently ignore [stream_idle_timeout_s]. *)
