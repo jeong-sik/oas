@@ -8,6 +8,20 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.177.0] - 2026-04-25
+
+### Fixed
+
+- **`claude_code` provider cost recovery.** `pricing_for_model_opt`
+  now matches the `claude_code` and `cc:` aliases that the Claude
+  Code transport surfaces in `telemetry.model_used` instead of a
+  canonical model id, estimating at sonnet-4-6 rates as the modal
+  Anthropic backend. Restores `cost_usd` reporting for every
+  `claude_code` keeper turn (previously null because substring
+  matches against opus/sonnet/haiku never fired). Per-call accuracy
+  via canonical model resolution from the API response remains a
+  follow-up.
+
 ## [0.176.0] - 2026-04-25
 
 ### Added
