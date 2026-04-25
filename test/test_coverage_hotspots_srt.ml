@@ -454,11 +454,9 @@ let test_structured_extract_with_retry_success () =
         check int "age" 41 age;
         check int "attempts" 2 result.attempts;
         check int "validation callback count" 1 (List.length !callbacks);
-        (match result.total_usage with
-        | Some usage ->
-            check int "input tokens summed" 18 usage.input_tokens;
-            check int "output tokens summed" 8 usage.output_tokens
-        | None -> fail "expected accumulated usage");
+        check int "input tokens summed" 18 result.total_usage.total_input_tokens;
+        check int "output tokens summed" 8 result.total_usage.total_output_tokens;
+        check int "api calls counted" 2 result.total_usage.api_calls;
         Eio.Switch.fail sw Exit
     | Error err -> fail (Error.to_string err)
   with Exit -> ()

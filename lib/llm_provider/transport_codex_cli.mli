@@ -1,8 +1,10 @@
 (** Codex CLI non-interactive transport.
 
     Implements {!Llm_transport.t} by spawning [codex exec] subprocesses.
-    Codex outputs raw text (not JSON). Token usage is extracted from
-    the trailing output lines when available.
+    Codex outputs JSONL envelopes. Text and tool events are projected into
+    OAS response/content events; raw CLI usage counters are intentionally
+    not surfaced because this provider is declared [emits_usage_tokens=false]
+    and the counters can be cumulative rather than per-response.
 
     @since 0.133.0
 

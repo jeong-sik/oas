@@ -313,34 +313,37 @@ let test_extract_deeply_nested_input () =
 let test_retry_result_type () =
   let result : string Structured.retry_result = {
     value = "test";
-    total_usage = Some {
-      input_tokens = 100;
-      output_tokens = 50;
-      cache_creation_input_tokens = 10;
-      cache_read_input_tokens = 5;
-      cost_usd = None
+    total_usage = {
+      total_input_tokens = 100;
+      total_output_tokens = 50;
+      total_cache_creation_input_tokens = 10;
+      total_cache_read_input_tokens = 5;
+      api_calls = 2;
+      estimated_cost_usd = 0.0;
     };
     attempts = 2;
   } in
   Alcotest.(check string) "value" "test" result.value;
   Alcotest.(check int) "attempts" 2 result.attempts;
-  (match result.total_usage with
-   | Some u ->
-     Alcotest.(check int) "input_tokens" 100 u.input_tokens;
-     Alcotest.(check int) "output_tokens" 50 u.output_tokens;
-     Alcotest.(check int) "cache_creation" 10 u.cache_creation_input_tokens;
-     Alcotest.(check int) "cache_read" 5 u.cache_read_input_tokens
-   | None -> Alcotest.fail "expected Some usage")
+  Alcotest.(check int) "input_tokens" 100
+    result.total_usage.total_input_tokens;
+  Alcotest.(check int) "output_tokens" 50
+    result.total_usage.total_output_tokens;
+  Alcotest.(check int) "cache_creation" 10
+    result.total_usage.total_cache_creation_input_tokens;
+  Alcotest.(check int) "cache_read" 5
+    result.total_usage.total_cache_read_input_tokens;
+  Alcotest.(check int) "api_calls" 2 result.total_usage.api_calls
 
 let test_retry_result_no_usage () =
   let result : int Structured.retry_result = {
     value = 42;
-    total_usage = None;
+    total_usage = Types.empty_usage;
     attempts = 1;
   } in
   Alcotest.(check int) "value" 42 result.value;
   Alcotest.(check int) "attempts" 1 result.attempts;
-  Alcotest.(check bool) "no usage" true (Option.is_none result.total_usage)
+  Alcotest.(check int) "no api calls" 0 result.total_usage.api_calls
 
 (* ── Suite ──────────────────────────────────────────────────── *)
 

@@ -75,7 +75,8 @@ type agent_config = {
 
 val default_config : agent_config
 
-(** Usage tracking *)
+(** Usage tracking accumulated across provider calls. Per-response usage stays
+    in {!Llm_provider.Types.api_usage}. *)
 type usage_stats = {
   total_input_tokens: int;
   total_output_tokens: int;

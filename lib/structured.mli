@@ -56,7 +56,7 @@ val run_structured :
 
 type 'a retry_result = {
   value: 'a;
-  total_usage: api_usage option;
+  total_usage: usage_stats;
   attempts: int;
 }
 
