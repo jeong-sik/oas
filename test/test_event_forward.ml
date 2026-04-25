@@ -306,6 +306,39 @@ let test_turn_completed_payload () =
   Alcotest.(check string) "type" "turn.completed" p.event_type;
   Alcotest.(check (option string)) "agent" (Some "worker") p.agent_name
 
+let test_turn_ready_payload () =
+  let evt = ev (Event_bus.TurnReady {
+    agent_name = "worker"; turn = 7;
+    tool_names = ["Bash"; "Read"; "Edit"] }) in
+  let p = Event_forward.event_to_payload evt in
+  Alcotest.(check string) "type" "turn.ready" p.event_type;
+  Alcotest.(check (option string)) "agent" (Some "worker") p.agent_name;
+  let json = Event_forward.payload_to_json p in
+  let open Yojson.Safe.Util in
+  let data = json |> member "data" in
+  Alcotest.(check int) "tool_count" 3
+    (data |> member "tool_count" |> to_int);
+  Alcotest.(check int) "turn" 7
+    (data |> member "turn" |> to_int);
+  let names = data |> member "tool_names" |> to_list
+              |> List.map to_string in
+  Alcotest.(check (list string)) "tool_names ordered"
+    ["Bash"; "Read"; "Edit"] names
+
+let test_turn_ready_empty_tools () =
+  (* Empty list is the well-defined "no tools presented to LLM" state. *)
+  let evt = ev (Event_bus.TurnReady {
+    agent_name = "agent"; turn = 0; tool_names = [] }) in
+  let p = Event_forward.event_to_payload evt in
+  Alcotest.(check string) "type" "turn.ready" p.event_type;
+  let json = Event_forward.payload_to_json p in
+  let open Yojson.Safe.Util in
+  Alcotest.(check int) "tool_count = 0" 0
+    (json |> member "data" |> member "tool_count" |> to_int);
+  Alcotest.(check (list string)) "empty tool_names" []
+    (json |> member "data" |> member "tool_names"
+     |> to_list |> List.map to_string)
+
 let test_elicitation_completed_payload () =
   let evt = ev (Event_bus.ElicitationCompleted {
     agent_name = "agent"; question = "confirm?";
@@ -415,6 +448,9 @@ let () =
       Alcotest.test_case "inference_telemetry absent fields"
         `Quick test_inference_telemetry_partial_fields;
       Alcotest.test_case "turn_completed" `Quick test_turn_completed_payload;
+      Alcotest.test_case "turn_ready" `Quick test_turn_ready_payload;
+      Alcotest.test_case "turn_ready empty tools"
+        `Quick test_turn_ready_empty_tools;
       Alcotest.test_case "elicitation" `Quick test_elicitation_completed_payload;
       Alcotest.test_case "custom event" `Quick test_custom_event_payload;
       Alcotest.test_case "agent_started" `Quick test_agent_started_payload;

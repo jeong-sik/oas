@@ -54,6 +54,7 @@ let event_type_name (event : Event_bus.event) : string =
   | ToolCalled _ -> "tool.called"
   | ToolCompleted _ -> "tool.completed"
   | TurnStarted _ -> "turn.started"
+  | TurnReady _ -> "turn.ready"
   | TurnCompleted _ -> "turn.completed"
   | HandoffRequested _ -> "handoff.requested"
   | HandoffCompleted _ -> "handoff.completed"
@@ -74,6 +75,7 @@ let agent_name_of_payload : Event_bus.payload -> string option = function
   | ToolCalled r -> Some r.agent_name
   | ToolCompleted r -> Some r.agent_name
   | TurnStarted r -> Some r.agent_name
+  | TurnReady r -> Some r.agent_name
   | TurnCompleted r -> Some r.agent_name
   | HandoffRequested r -> Some r.from_agent
   | HandoffCompleted r -> Some r.from_agent
@@ -124,6 +126,13 @@ let event_to_payload (event : Event_bus.event) : event_payload =
       ]
     | TurnStarted r ->
       `Assoc [("agent_name", `String r.agent_name); ("turn", `Int r.turn)]
+    | TurnReady r ->
+      `Assoc [
+        ("agent_name", `String r.agent_name);
+        ("turn", `Int r.turn);
+        ("tool_names", `List (List.map (fun n -> `String n) r.tool_names));
+        ("tool_count", `Int (List.length r.tool_names));
+      ]
     | TurnCompleted r ->
       `Assoc [("agent_name", `String r.agent_name); ("turn", `Int r.turn)]
     | HandoffRequested r ->

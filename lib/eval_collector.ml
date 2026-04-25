@@ -54,6 +54,7 @@ let process_events t =
     (* Lifecycle events — observed but not metered here.
        Downstream consumers can subscribe for richer metrics. *)
     | AgentStarted _
+    | TurnReady _
     | TurnCompleted _
     | HandoffRequested _
     | HandoffCompleted _

@@ -37,6 +37,8 @@ type payload =
   | ToolCompleted of { agent_name: string; tool_name: string;
                        output: Types.tool_result }
   | TurnStarted of { agent_name: string; turn: int }
+  | TurnReady of { agent_name: string; turn: int;
+                   tool_names: string list }
   | TurnCompleted of { agent_name: string; turn: int }
   | HandoffRequested of { from_agent: string; to_agent: string; reason: string }
   | HandoffCompleted of { from_agent: string; to_agent: string; elapsed: float }
@@ -164,6 +166,7 @@ let filter_agent name : filter = fun event ->
   | ToolCalled r -> r.agent_name = name
   | ToolCompleted r -> r.agent_name = name
   | TurnStarted r -> r.agent_name = name
+  | TurnReady r -> r.agent_name = name
   | TurnCompleted r -> r.agent_name = name
   | HandoffRequested r -> r.from_agent = name || r.to_agent = name
   | HandoffCompleted r -> r.from_agent = name || r.to_agent = name

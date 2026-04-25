@@ -59,7 +59,45 @@ let test_prepare_turn_with_guardrails_filter () =
     ()
   in
   let count = match prep.tools_json with Some l -> List.length l | None -> 0 in
-  Alcotest.(check int) "only tool a" 1 count
+  Alcotest.(check int) "only tool a" 1 count;
+  Alcotest.(check (list string)) "visible_tool_names matches filter"
+    ["a"] prep.visible_tool_names
+
+(* visible_tool_names mirrors the tool list the LLM actually sees this
+   turn — exposed via Event_bus.TurnReady for substrate observability.
+   Empty when no tools survive filtering. *)
+let test_prepare_turn_visible_tool_names_empty () =
+  let prep = Agent_turn.prepare_turn
+    ~guardrails:Guardrails.default
+    ~operator_policy:None
+    ~policy_channel:None
+    ~tools:Tool_set.empty
+    ~messages:[]
+    ~context_reducer:None
+    ~tiered_memory:None
+    ~turn_params:Hooks.default_turn_params
+    ()
+  in
+  Alcotest.(check (list string)) "empty when no tools"
+    [] prep.visible_tool_names
+
+let test_prepare_turn_visible_tool_names_preserves_order () =
+  let make n = Tool.create ~name:n ~description:n ~parameters:[]
+    (fun _ -> Ok { Types.content = "" }) in
+  let tools = Tool_set.of_list [make "Bash"; make "Read"; make "Edit"] in
+  let prep = Agent_turn.prepare_turn
+    ~guardrails:Guardrails.default
+    ~operator_policy:None
+    ~policy_channel:None
+    ~tools
+    ~messages:[]
+    ~context_reducer:None
+    ~tiered_memory:None
+    ~turn_params:Hooks.default_turn_params
+    ()
+  in
+  Alcotest.(check (list string)) "registry order preserved"
+    ["Bash"; "Read"; "Edit"] prep.visible_tool_names
 
 (* ── prepare_messages tests ────────────────────────────────── *)
 
@@ -800,6 +838,10 @@ let () =
       Alcotest.test_case "empty tools" `Quick test_prepare_turn_empty_tools;
       Alcotest.test_case "with tools" `Quick test_prepare_turn_with_tools;
       Alcotest.test_case "guardrails filter" `Quick test_prepare_turn_with_guardrails_filter;
+      Alcotest.test_case "visible_tool_names empty"
+        `Quick test_prepare_turn_visible_tool_names_empty;
+      Alcotest.test_case "visible_tool_names preserves order"
+        `Quick test_prepare_turn_visible_tool_names_preserves_order;
       Alcotest.test_case "filter override" `Quick test_prepare_turn_filter_override;
     ];
     "prepare_messages", [

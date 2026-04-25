@@ -61,6 +61,7 @@ type turn_preparation = {
   tools_json: Yojson.Safe.t list option;
   effective_messages: message list;
   effective_guardrails: Guardrails.t;
+  visible_tool_names: string list;
 }
 
 (* ── Extract last user text from messages (for Tool_selector context) ── *)
@@ -134,7 +135,10 @@ let prepare_tools ~guardrails ~operator_policy ~policy_channel ~(tools : Tool_se
   in
   let tool_schemas = List.map Tool.schema_to_json selected in
   let tools_json = if tool_schemas = [] then None else Some tool_schemas in
-  (tools_json, effective_guardrails)
+  let visible_tool_names =
+    List.map (fun (t : Tool.t) -> t.schema.name) selected
+  in
+  (tools_json, visible_tool_names, effective_guardrails)
 
 let normalize_tier_content = function
   | None -> None
@@ -239,14 +243,14 @@ let prepare_messages ~messages ~context_reducer ~tiered_memory ~turn_params =
 
 let prepare_turn ~guardrails ~operator_policy ~policy_channel ~tools ~messages ~context_reducer ~tiered_memory ~turn_params
     ?tool_selector () =
-  let tools_json, effective_guardrails =
+  let tools_json, visible_tool_names, effective_guardrails =
     prepare_tools ~guardrails ~operator_policy ~policy_channel ~tools ~turn_params
       ?tool_selector ~messages ()
   in
   let effective_messages =
     prepare_messages ~messages ~context_reducer ~tiered_memory ~turn_params
   in
-  { tools_json; effective_messages; effective_guardrails }
+  { tools_json; effective_messages; effective_guardrails; visible_tool_names }
 
 (* ── Usage accumulation ───────────────────────────────────────── *)
 

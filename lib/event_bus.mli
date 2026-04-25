@@ -56,6 +56,21 @@ type payload =
   | ToolCompleted of { agent_name: string; tool_name: string;
                        output: Types.tool_result }
   | TurnStarted of { agent_name: string; turn: int }
+  | TurnReady of { agent_name: string; turn: int;
+                   tool_names: string list }
+      (** Emitted between [TurnStarted] and the LLM call, after
+          guardrails + operator policy + tool_filter_override +
+          tool_selector have been applied to the agent's tool registry.
+          [tool_names] is exactly the list of tools the LLM sees this
+          turn (deterministic, ordered). Empty list when no tools are
+          presented to the LLM.
+
+          Subscribers can use this to observe the substrate the
+          autonomous agent operates on — e.g., to verify that an
+          expected tool is actually exposed before drawing conclusions
+          about LLM behaviour from a missing tool call.
+
+          @since 0.162.0 *)
   | TurnCompleted of { agent_name: string; turn: int }
   | HandoffRequested of { from_agent: string; to_agent: string; reason: string }
       (** Agent-to-agent handoff has been requested. Emitted when an
