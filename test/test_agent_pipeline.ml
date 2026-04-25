@@ -277,7 +277,7 @@ let test_agent_run_missing_required_tool_use_retry_exhausted () =
      | Error e -> fail (Error.to_string e))
   with Exit -> ()
 
-let test_agent_run_missing_required_tool_use_retry_on_relaxed_provider () =
+let test_agent_run_missing_required_tool_use_does_not_retry_on_relaxed_provider () =
   Eio_main.run @@ fun env ->
   try
     Eio.Switch.run @@ fun sw ->
@@ -304,8 +304,9 @@ let test_agent_run_missing_required_tool_use_retry_on_relaxed_provider () =
     in
     (match Agent.run ~sw agent "what time is it?" with
      | Ok resp ->
-       check string "final text" "The time is 12:00 UTC" (extract_text resp);
-       check int "turns include relaxed-provider retry" 3
+       check string "final text" "I ignored the relaxed tool_choice"
+         (extract_text resp);
+       check int "relaxed provider completes without retry" 1
          (Agent.state agent).turn_count;
        Eio.Switch.fail sw Exit
      | Error e -> fail (Error.to_string e))
@@ -878,8 +879,8 @@ let () =
         test_agent_run_missing_specific_tool_retry_success;
       test_case "missing required tool use retry exhausted" `Quick
         test_agent_run_missing_required_tool_use_retry_exhausted;
-      test_case "missing required tool retry on relaxed provider" `Quick
-        test_agent_run_missing_required_tool_use_retry_on_relaxed_provider;
+      test_case "missing required tool does not retry on relaxed provider" `Quick
+        test_agent_run_missing_required_tool_use_does_not_retry_on_relaxed_provider;
       test_case "tool_choice tool requires specific tool" `Quick
         test_agent_run_requires_specific_tool_when_tool_choice_is_tool;
       test_case "tool_choice none rejects tool use" `Quick
