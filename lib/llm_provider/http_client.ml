@@ -415,10 +415,16 @@ let with_post_stream ?clock ?(connect_timeout_s = default_http_timeout_s) ~net ~
         in
         Error (HttpError { code; body = body_str }))
 
-let read_sse ~reader ~on_data () =
+let read_sse ?clock ?idle_timeout ~reader ~on_data () =
+  let read_line () =
+    match clock, idle_timeout with
+    | Some c, Some t ->
+        Eio.Time.with_timeout_exn c t (fun () -> Eio.Buf_read.line reader)
+    | _ -> Eio.Buf_read.line reader
+  in
   let current_event_type = ref None in
   let rec loop () =
-    match Eio.Buf_read.line reader with
+    match read_line () with
     | line ->
         let len = String.length line in
         if len = 0 then
@@ -623,5 +629,29 @@ let%test "read_ndjson: idle_timeout fires when stream stalls mid-read" =
   try
     read_ndjson ~clock ~idle_timeout:0.05 ~reader
       ~on_line:(fun _ -> ()) ();
+    false
+  with Eio.Time.Timeout -> true
+
+(* ── read_sse idle_timeout tests ──────────────────────── *)
+
+let%test "read_sse: no clock/idle_timeout preserves default behaviour" =
+  Eio_main.run (fun _env ->
+    let flow = Eio.Flow.string_source "data: hello\n\ndata: world\n\n" in
+    let reader = Eio.Buf_read.of_flow ~max_size:1024 flow in
+    let payloads = ref [] in
+    read_sse ~reader
+      ~on_data:(fun ~event_type:_ d -> payloads := d :: !payloads) ();
+    List.rev !payloads = ["hello"; "world"])
+
+let%test "read_sse: idle_timeout fires when stream stalls mid-read" =
+  Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  Eio.Switch.run @@ fun sw ->
+  let source, sink = Eio_unix.pipe sw in
+  Eio.Flow.copy_string "data: hello\n" sink;
+  let reader = Eio.Buf_read.of_flow ~max_size:1024 source in
+  try
+    read_sse ~clock ~idle_timeout:0.05 ~reader
+      ~on_data:(fun ~event_type:_ _ -> ()) ();
     false
   with Eio.Time.Timeout -> true

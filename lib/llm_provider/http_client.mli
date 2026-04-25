@@ -121,8 +121,19 @@ val with_post_stream :
 (** Read SSE-formatted lines from a reader.
     Strips [data: ] prefixes and passes the payload to [on_data].
     Tracks [event: ] lines and provides the current event type.
-    Returns normally on [End_of_file]. *)
+    Returns normally on [End_of_file].
+
+    When both [clock] and [idle_timeout] are supplied, raises
+    [Eio.Time.Timeout] if no line arrives within [idle_timeout]
+    seconds. The deadline resets after each successful line, so this
+    bounds inter-line idle — not total stream duration. SSE keepalive
+    comments (lines starting with [:]) reset the deadline like any
+    other line. Wrapped by {!with_post_stream} the timeout surfaces
+    as [NetworkError { kind = Timeout; _ }], which
+    {!Retry.is_retryable} treats as retryable. *)
 val read_sse :
+  ?clock:_ Eio.Time.clock ->
+  ?idle_timeout:float ->
   reader:Eio.Buf_read.t ->
   on_data:(event_type:string option -> string -> unit) ->
   unit -> unit
