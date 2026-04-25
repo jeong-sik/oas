@@ -19,6 +19,8 @@ val default_on_stderr_line : name:string -> string -> unit
 val run_collect :
   sw:Eio.Switch.t ->
   mgr:_ Eio.Process.mgr ->
+  ?clock:_ Eio.Time.clock ->
+  ?stdout_idle_timeout_s:float ->
   name:string ->
   cwd:string option ->
   extra_env:(string * string) list ->
@@ -53,6 +55,11 @@ val run_collect :
       subprocess via [Eio.Process.signal].  The process is still
       drained to completion so the structured error reflects the
       real exit status.
+    - [clock] and [stdout_idle_timeout_s]: when both are supplied,
+      delivers [SIGINT] and aborts the run if no stdout line arrives
+      within [stdout_idle_timeout_s] seconds.  Independent of [cancel];
+      protects against subprocesses that hang silently with no caller-
+      side cancellation token.  The deadline resets after each line.
 
     Returns [Ok { stdout; stderr; latency_ms }] on a zero exit code,
     or a [NetworkError] describing the failure. *)
@@ -60,6 +67,8 @@ val run_collect :
 val run_stream_lines :
   sw:Eio.Switch.t ->
   mgr:_ Eio.Process.mgr ->
+  ?clock:_ Eio.Time.clock ->
+  ?stdout_idle_timeout_s:float ->
   name:string ->
   cwd:string option ->
   extra_env:(string * string) list ->
