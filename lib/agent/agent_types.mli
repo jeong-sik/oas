@@ -26,6 +26,19 @@ type options = {
   max_execution_time_s: float option;
     (** Maximum allowed execution time for the entire agent run (including all turns and tool calls).
         If exceeded, the run terminates safely and returns a Timeout error. *)
+  stream_idle_timeout_s: float option;
+    (** Inter-line idle deadline applied to streaming HTTP responses.
+        Threaded through {!Pipeline.stage_route} into
+        {!Llm_provider.Complete.complete_stream}, which forwards it to
+        {!Llm_provider.Http_client.read_ndjson} (Ollama native NDJSON)
+        and {!Llm_provider.Http_client.read_sse} (Anthropic / OpenAI-
+        compatible / Gemini / GLM). The deadline resets after each
+        successful line, so this caps inter-chunk silence — not total
+        stream duration. A stalled endpoint surfaces as
+        [NetworkError { kind = Timeout; _ }] which the cascade/retry
+        layer treats as retryable. CLI transports honour the parallel
+        [stdout_idle_timeout_s] knob via the transport's own config.
+        @since 0.176.0 *)
   max_idle_turns: int;
   idle_final_warning_at: int option;
     (** Threshold for [Hooks.on_idle_escalated] to emit
