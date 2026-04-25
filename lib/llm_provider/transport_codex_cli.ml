@@ -160,6 +160,38 @@ let content_blocks_of_jsonl lines =
   ) lines;
   List.rev !blocks
 
+(* ── stdout recovery on nonzero exit ──────────────────── *)
+
+(** Lightweight structural check used as the [stdout_recovery] hook
+    for [Cli_common_subprocess.run_stream_lines].  A successful codex
+    run always emits a [turn.completed] envelope on its own line; if
+    the captured stdout contains that envelope we treat the run as
+    structurally complete even when the process exited nonzero (e.g.
+    the codex-cli 0.125.0+ [record_rollout_items] race that surfaces
+    [thread <UUID> not found] on stderr after the LLM response is
+    already on stdout).  We scan for the marker substring rather than
+    parse every line — this hook is consulted only on nonzero exits
+    (already a slow path) and the marker does not appear outside the
+    JSONL [type] field in codex output. *)
+let stdout_contains_turn_completed stdout_str =
+  let needle = {|"type":"turn.completed"|} in
+  let m = String.length needle and h = String.length stdout_str in
+  if m > h then false
+  else
+    let rec scan i =
+      if i + m > h then false
+      else
+        let eq = ref true and j = ref 0 in
+        while !eq && !j < m do
+          if String.unsafe_get stdout_str (i + !j)
+             <> String.unsafe_get needle !j
+          then eq := false;
+          incr j
+        done;
+        !eq || scan (i + 1)
+    in
+    scan 0
+
 (* ── CLI argument building ───────────────────────────── *)
 
 (** Threshold at which [build_args] stops passing the prompt as a
@@ -572,6 +604,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
               ~name:"codex" ~cwd:config.cwd ~extra_env:[]
               ~scrub_env:codex_cli_scrub_env
               ?stdin_content:(stdin_for_prompt prompt)
+              ~stdout_recovery:stdout_contains_turn_completed
               ~on_line ?cancel:config.cancel
               argv with
       | Error _ as e -> { Llm_transport.response = e; latency_ms = 0 }
@@ -620,6 +653,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
               ~name:"codex" ~cwd:config.cwd ~extra_env:[]
               ~scrub_env:codex_cli_scrub_env
               ?stdin_content:(stdin_for_prompt prompt)
+              ~stdout_recovery:stdout_contains_turn_completed
               ~on_line ?cancel:config.cancel
               argv with
       | Error _ as e -> e
@@ -936,3 +970,29 @@ let%test "parse_jsonl_result includes mcp tool call blocks" =
        :: Types.Text "done" :: [] -> true
      | _ -> false)
   | Error _ -> false
+
+(* ── stdout_recovery validator tests ─────────────────── *)
+
+let%test "stdout_contains_turn_completed: full JSONL stream is recovered" =
+  let stdout =
+    {|{"type":"thread.started","thread_id":"019dc578-02d3"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"hi"}}
+{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1}}
+|}
+  in
+  stdout_contains_turn_completed stdout
+
+let%test "stdout_contains_turn_completed: incomplete stream is rejected" =
+  let stdout =
+    {|{"type":"thread.started","thread_id":"019dc578-02d3"}
+{"type":"turn.started"}
+|}
+  in
+  not (stdout_contains_turn_completed stdout)
+
+let%test "stdout_contains_turn_completed: empty stdout is rejected" =
+  not (stdout_contains_turn_completed "")
+
+let%test "stdout_contains_turn_completed: short stdout below needle length" =
+  not (stdout_contains_turn_completed "x")
