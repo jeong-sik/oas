@@ -56,10 +56,38 @@ let custom_name_of_kind = function
   | Session_completed _         -> "runtime.session_completed"
   | Session_failed _            -> "runtime.session_failed"
 
+let event_bus_run_id_of_event (event : event) =
+  let participant_run_id (participant : participant_event) =
+    match participant.raw_trace_run_id with
+    | Some run_id when String.trim run_id <> "" -> Some run_id
+    | _ -> None
+  in
+  match event.kind with
+  | Agent_became_live participant
+  | Agent_completed participant
+  | Agent_failed participant ->
+      participant_run_id participant
+  | Session_started _
+  | Session_settings_updated _
+  | Turn_recorded _
+  | Agent_spawn_requested _
+  | Agent_output_delta _
+  | Artifact_attached _
+  | Checkpoint_saved _
+  | Finalize_requested _
+  | Session_completed _
+  | Session_failed _ ->
+      None
+
 let emit_event state session_id (event : event) =
   let name = custom_name_of_kind event.kind in
+  let payload = Event_bus.Custom (name, event |> event_to_yojson) in
+  let event_bus_event =
+    match event_bus_run_id_of_event event with
+    | Some run_id -> Event_bus.mk_event ~correlation_id:session_id ~run_id payload
+    | None -> Event_bus.mk_event ~correlation_id:session_id payload
+  in
   Event_bus.publish state.event_bus
-    (Event_bus.mk_event ~correlation_id:session_id
-       (Custom (name, event |> event_to_yojson)));
+    event_bus_event;
   write_protocol_message state
     (Event_message { session_id = Some session_id; event })

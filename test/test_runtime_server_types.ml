@@ -35,6 +35,48 @@ let test_next_control_id_unique_across_domains () =
   Alcotest.(check int) "all ids unique" (workers * per_worker)
     (S.cardinal uniq)
 
+let participant_event ?raw_trace_run_id () : Runtime.participant_event =
+  {
+    participant_name = "worker-1";
+    summary = None;
+    provider = None;
+    model = None;
+    error = None;
+    raw_trace_run_id;
+    stop_reason = None;
+    completion_anomaly = None;
+    failure_cause = None;
+  }
+
+let runtime_event kind : Runtime.event =
+  { seq = 1; ts = 1.0; kind }
+
+let test_event_bus_run_id_uses_participant_raw_trace_run_id () =
+  let event =
+    runtime_event
+      (Runtime.Agent_completed
+         (participant_event ~raw_trace_run_id:"raw-run-1" ()))
+  in
+  Alcotest.(check (option string)) "run_id" (Some "raw-run-1")
+    (Runtime_server_types.event_bus_run_id_of_event event)
+
+let test_event_bus_run_id_ignores_blank_raw_trace_run_id () =
+  let event =
+    runtime_event
+      (Runtime.Agent_failed
+         (participant_event ~raw_trace_run_id:"   " ()))
+  in
+  Alcotest.(check (option string)) "run_id" None
+    (Runtime_server_types.event_bus_run_id_of_event event)
+
+let test_event_bus_run_id_omits_session_events () =
+  let event =
+    runtime_event
+      (Runtime.Session_started { goal = "test"; participants = [] })
+  in
+  Alcotest.(check (option string)) "run_id" None
+    (Runtime_server_types.event_bus_run_id_of_event event)
+
 let () =
   Alcotest.run "Runtime_server_types"
     [
@@ -44,5 +86,14 @@ let () =
             test_next_control_id_sequential;
           Alcotest.test_case "unique across domains" `Quick
             test_next_control_id_unique_across_domains;
+        ] );
+      ( "event bus run correlation",
+        [
+          Alcotest.test_case "uses participant raw trace run id" `Quick
+            test_event_bus_run_id_uses_participant_raw_trace_run_id;
+          Alcotest.test_case "ignores blank raw trace run id" `Quick
+            test_event_bus_run_id_ignores_blank_raw_trace_run_id;
+          Alcotest.test_case "omits session events" `Quick
+            test_event_bus_run_id_omits_session_events;
         ] );
     ]
