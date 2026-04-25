@@ -129,8 +129,18 @@ val read_sse :
 
 (** Read NDJSON-formatted lines from a reader (one JSON object per
     line). Blank lines are skipped so a trailing newline does not
-    yield an empty payload. Returns normally on [End_of_file]. *)
+    yield an empty payload. Returns normally on [End_of_file].
+
+    When both [clock] and [idle_timeout] are supplied, raises
+    [Eio.Time.Timeout] if no line arrives within [idle_timeout]
+    seconds. The deadline resets after each successful line, so this
+    bounds inter-line idle — not total stream duration. Wrapped by
+    {!with_post_stream} the timeout surfaces as
+    [NetworkError { kind = Timeout; _ }], which {!Retry.is_retryable}
+    treats as retryable. *)
 val read_ndjson :
+  ?clock:_ Eio.Time.clock ->
+  ?idle_timeout:float ->
   reader:Eio.Buf_read.t ->
   on_line:(string -> unit) ->
   unit -> unit

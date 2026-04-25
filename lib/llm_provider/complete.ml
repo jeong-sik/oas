@@ -92,6 +92,9 @@ let patch_telemetry (resp : Types.api_response) ~(config : Provider_config.t)
     (latency_ms : int) : Types.api_response =
   let pk = Some config.kind in
   let re = reasoning_effort_of_config config in
+  let model =
+    if String.trim resp.model = "" then config.model_id else resp.model
+  in
   let base_caps = match config.kind with
   | Ollama -> Capabilities.ollama_capabilities
   | Anthropic -> Capabilities.anthropic_capabilities
@@ -127,7 +130,7 @@ let patch_telemetry (resp : Types.api_response) ~(config : Provider_config.t)
         provider_internal_action_count = None;
       }
   in
-  { resp with telemetry }
+  { resp with model; telemetry }
 
 (** Internal helper: canonical provider name for metric labels.
     Kept in sync with the log tag used by the [WARN Complete] line. *)
@@ -672,9 +675,10 @@ let complete_with_retry ~sw ~net ?transport ~clock
 include Complete_stream_acc
 
 (* Internal: HTTP-specific streaming implementation. *)
-let complete_stream_http ~sw:_ ~net ~(config : Provider_config.t)
+let complete_stream_http ~sw:_ ~net ?clock ?stream_idle_timeout_s
+    ~(config : Provider_config.t)
     ~(messages : Types.message list) ~tools
-    ~(on_event : Types.sse_event -> unit) =
+    ~(on_event : Types.sse_event -> unit) () =
   match validate_output_schema_request config with
   | Error err -> Error err
   | Ok () ->
@@ -722,7 +726,7 @@ let complete_stream_http ~sw:_ ~net ~(config : Provider_config.t)
      them. We trap them here and patch the finalised response below. *)
   let ollama_usage = ref None in
   let ollama_timings = ref None in
-  match Http_client.with_post_stream ~net ~url
+  match Http_client.with_post_stream ?clock ~net ~url
           ~headers:config.headers ~body:body_with_stream
           ~f:(fun reader ->
             let acc = create_stream_acc () in
@@ -742,7 +746,9 @@ let complete_stream_http ~sw:_ ~net ~(config : Provider_config.t)
             in
             (match config.kind with
              | Provider_config.Ollama ->
-                 Http_client.read_ndjson ~reader ~on_line:(fun line ->
+                 Http_client.read_ndjson
+                   ?clock ?idle_timeout:stream_idle_timeout_s
+                   ~reader ~on_line:(fun line ->
                    match Streaming.parse_ollama_ndjson_chunk line with
                    | None -> ()
                    | Some chunk ->
@@ -829,7 +835,8 @@ let complete_stream_http ~sw:_ ~net ~(config : Provider_config.t)
       Error (Http_client.NetworkError {
         message = Printf.sprintf "SSE stream error: %s" msg; kind = Unknown })
 
-let complete_stream ~sw ~net ?(transport : Llm_transport.t option)
+let complete_stream ~sw ~net ?clock ?stream_idle_timeout_s
+    ?(transport : Llm_transport.t option)
     ~(config : Provider_config.t)
     ~(messages : Types.message list) ?(tools=[])
     ?runtime_mcp_policy
@@ -855,7 +862,8 @@ let complete_stream ~sw ~net ?(transport : Llm_transport.t option)
     Error (Http_client.CliTransportRequired {
       kind = Provider_registry.provider_name_of_config config })
   | None ->
-    complete_stream_http ~sw ~net ~config ~messages ~tools ~on_event
+    complete_stream_http ~sw ~net ?clock ?stream_idle_timeout_s
+      ~config ~messages ~tools ~on_event ()
   in
   Result.map (fun resp ->
     let latency_ms = int_of_float ((Unix.gettimeofday () -. t0) *. 1000.0) in
@@ -874,7 +882,7 @@ let make_http_transport ~sw ~net : Llm_transport.t = {
     { Llm_transport.response; latency_ms });
   complete_stream = (fun ~on_event (req : Llm_transport.completion_request) ->
     complete_stream_http ~sw ~net ~config:req.config
-      ~messages:req.messages ~tools:req.tools ~on_event);
+      ~messages:req.messages ~tools:req.tools ~on_event ());
 }
 
 (* ── Streaming Completion ───────────────────────── *)
@@ -1132,6 +1140,18 @@ let%test "patch_telemetry creates telemetry when None" =
               && t.reasoning_effort = None
               && t.provider_internal_action_count = None
   | None -> false
+
+let%test "patch_telemetry fills blank response model" =
+  let config =
+    Provider_config.make ~kind:OpenAI_compat ~model_id:"gpt-5.4-mini"
+      ~base_url:"https://api.openai.com" ()
+  in
+  let resp = {
+    Types.id = "test"; model = ""; stop_reason = Types.EndTurn;
+    content = []; usage = None; telemetry = None;
+  } in
+  let patched = patch_telemetry resp ~config 100 in
+  patched.model = "gpt-5.4-mini"
 
 let%test "reasoning_effort_of_config Ollama default is none" =
   let config = Provider_config.make ~kind:Ollama ~model_id:"m"
