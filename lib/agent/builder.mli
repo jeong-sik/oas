@@ -115,6 +115,13 @@ val with_context : Context.t -> t -> t
 val with_context_injector : Hooks.context_injector -> t -> t
 val with_event_bus : Event_bus.t -> t -> t
 val with_max_execution_time : float -> t -> t
+val with_stream_idle_timeout : float -> t -> t
+(** Set the per-line idle deadline applied to streaming HTTP responses
+    (Ollama NDJSON, Anthropic / OpenAI / Gemini / GLM SSE). Resets after
+    each successful line, so this caps inter-chunk silence — not total
+    stream duration. A stalled endpoint surfaces as
+    [NetworkError { kind = Timeout; _ }] which the cascade/retry layer
+    treats as retryable. @since 0.176.0 *)
 val with_max_idle_turns : int -> t -> t
 val with_idle_final_warning_at : int -> t -> t
 val with_elicitation : Hooks.elicitation_callback -> t -> t

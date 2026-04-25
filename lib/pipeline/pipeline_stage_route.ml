@@ -46,7 +46,7 @@ let dispatch_sync ~sw ?clock agent (prep : Agent_turn.turn_preparation) =
   | Ok resp -> Ok resp
   | Error err -> Error (sdk_error_of_http_error err)
 
-let dispatch_stream ~sw agent (prep : Agent_turn.turn_preparation) ~on_event =
+let dispatch_stream ~sw ?clock agent (prep : Agent_turn.turn_preparation) ~on_event =
   let tools = Option.value prep.Agent_turn.tools_json ~default:[] in
   let* pc =
     Provider.provider_config_of_agent ~state:agent.state
@@ -54,6 +54,8 @@ let dispatch_stream ~sw agent (prep : Agent_turn.turn_preparation) ~on_event =
   in
   match
     Llm_provider.Complete.complete_stream ~sw ~net:agent.net
+      ?clock
+      ?stream_idle_timeout_s:agent.options.stream_idle_timeout_s
       ?transport:agent.options.transport ~config:pc
       ~messages:prep.Agent_turn.effective_messages ~tools
       ?runtime_mcp_policy:agent.options.runtime_mcp_policy
