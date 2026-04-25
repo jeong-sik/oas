@@ -55,7 +55,8 @@ let last_nonempty_line text =
     {!Transport_claude_code.subprocess_session_isolation_env} and PR fixing OAS
     #1082 for the original symptom.  When [None] the child's stdin
     follows Eio's default (inherits parent). *)
-let run_core ~sw ~(mgr : _ Eio.Process.mgr) ~name ~cwd ~extra_env
+let run_core ~sw ~(mgr : _ Eio.Process.mgr) ?clock ?stdout_idle_timeout_s
+    ~name ~cwd ~extra_env
     ?(scrub_env = [])
     ?stdin_content
     ~on_line ~on_stderr_line ~cancel argv =
@@ -108,18 +109,36 @@ let run_core ~sw ~(mgr : _ Eio.Process.mgr) ~name ~cwd ~extra_env
     let stdout_buf = Buffer.create 4096 in
     let stderr_buf = Buffer.create 256 in
     let done_p, done_r = Eio.Promise.create () in
+    let stdout_idle_timeout_fired = Atomic.make false in
     let read_stdout () =
       let reader = Eio.Buf_read.of_flow
         (r_stdout :> _ Eio.Flow.source) ~max_size:(16 * 1024 * 1024) in
+      let read_line () =
+        match clock, stdout_idle_timeout_s with
+        | Some c, Some t ->
+            Eio.Time.with_timeout_exn c t (fun () -> Eio.Buf_read.line reader)
+        | _ -> Eio.Buf_read.line reader
+      in
       (try while true do
-         let line = Eio.Buf_read.line reader in
+         let line = read_line () in
          Buffer.add_string stdout_buf line;
          Buffer.add_char stdout_buf '\n';
          (try on_line line
           with exn ->
             Eio.traceln "cli_common_subprocess: on_line raised: %s"
               (Printexc.to_string exn))
-       done with End_of_file -> ())
+       done with
+       | End_of_file -> ()
+       | Eio.Time.Timeout ->
+         (* Idle deadline elapsed.  Mark fired so the caller can surface
+            this as a structured error, then SIGINT the subprocess so
+            the cancel/done loop can drain it.  We deliberately do NOT
+            re-raise here: the surrounding [Eio.Fiber.both read_stdout
+            read_stderr] would propagate the exception and drop captured
+            stderr buffers.  The post-await arm classifies on the
+            atomic instead. *)
+         Atomic.set stdout_idle_timeout_fired true;
+         (try Eio.Process.signal proc Sys.sigint with _ -> ()))
     in
     let read_stderr () =
       let reader = Eio.Buf_read.of_flow
@@ -157,6 +176,13 @@ let run_core ~sw ~(mgr : _ Eio.Process.mgr) ~name ~cwd ~extra_env
     let latency_ms = int_of_float ((Unix.gettimeofday () -. t0) *. 1000.0) in
     let stdout_str = Buffer.contents stdout_buf in
     let stderr_str = Buffer.contents stderr_buf in
+    if Atomic.get stdout_idle_timeout_fired then
+      let timeout_s = Option.value stdout_idle_timeout_s ~default:0.0 in
+      Error (Http_client.NetworkError {
+        message = Printf.sprintf
+          "%s produced no stdout for %.1fs; SIGINT delivered" name timeout_s;
+        kind = Timeout })
+    else
     match status with
     | `Exited 0 ->
       Ok { stdout = stdout_str; stderr = stderr_str; latency_ms }
@@ -181,27 +207,48 @@ let run_core ~sw ~(mgr : _ Eio.Process.mgr) ~name ~cwd ~extra_env
     Error (Http_client.NetworkError {
       message = Printf.sprintf "%s(%s): %s" fn arg (Unix.error_message err); kind = Unknown })
 
-let run_collect ~sw ~mgr ~name ~cwd ~extra_env
+let run_collect ~sw ~mgr ?clock ?stdout_idle_timeout_s
+    ~name ~cwd ~extra_env
     ?(scrub_env = [])
     ?stdin_content
     ?(on_stderr_line = default_on_stderr_line ~name)
     ?cancel argv =
-  run_core ~sw ~mgr ~name ~cwd ~extra_env ~scrub_env
+  run_core ~sw ~mgr ?clock ?stdout_idle_timeout_s
+    ~name ~cwd ~extra_env ~scrub_env
     ?stdin_content
     ~on_line:(fun _ -> ())
     ~on_stderr_line
     ~cancel
     argv
 
-let run_stream_lines ~sw ~mgr ~name ~cwd ~extra_env
+let run_stream_lines ~sw ~mgr ?clock ?stdout_idle_timeout_s
+    ~name ~cwd ~extra_env
     ?(scrub_env = [])
     ?stdin_content
     ~on_line
     ?(on_stderr_line = default_on_stderr_line ~name)
     ?cancel argv =
-  run_core ~sw ~mgr ~name ~cwd ~extra_env ~scrub_env
+  run_core ~sw ~mgr ?clock ?stdout_idle_timeout_s
+    ~name ~cwd ~extra_env ~scrub_env
     ?stdin_content
     ~on_line
     ~on_stderr_line
     ~cancel
     argv
+
+(* ── stdout_idle_timeout test ───────────────────────── *)
+
+let%test "run_collect: stdout_idle_timeout fires when subprocess produces nothing" =
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  let mgr = Eio.Stdenv.process_mgr env in
+  let clock = Eio.Stdenv.clock env in
+  match
+    run_collect ~sw ~mgr ~clock ~stdout_idle_timeout_s:0.1
+      ~name:"sleep-test"
+      ~cwd:None ~extra_env:[]
+      ~on_stderr_line:(fun _ -> ())
+      [ "sleep"; "5" ]
+  with
+  | Error (Http_client.NetworkError { kind = Timeout; _ }) -> true
+  | _ -> false
