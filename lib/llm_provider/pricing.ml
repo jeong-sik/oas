@@ -95,6 +95,16 @@ let pricing_for_model_opt model_id =
     else if string_contains ~needle:"gemini-3.1-flash-lite-preview" normalized
          || string_contains ~needle:"gemini-3.1-flash-lite" normalized then
       Some ((0.25, 1.5), no_cache)
+    else if normalized = "auto"
+         || normalized = "gemini"
+         || normalized = "kimi"
+         || normalized = "codex"
+         || normalized = "claude_code"
+         || normalized = "gemini_cli"
+         || normalized = "kimi_cli"
+         || normalized = "codex_cli" then
+      Some ((0.0, 0.0), no_cache)
+
     else if string_contains ~needle:"ollama" normalized
          || string_contains ~needle:"qwen" normalized
          || string_contains ~needle:"llama" normalized then
