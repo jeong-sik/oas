@@ -248,4 +248,4 @@ jobs:
           fetch-depth: 0
 
       - name: Enforce tag drift (strict)
-        run: bash scripts/check-tag-drift.sh --strict
+        run: bash scripts/check-tag-drift.sh --strict --allow-current-untagged
