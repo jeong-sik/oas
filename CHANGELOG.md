@@ -8,6 +8,18 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.176.0] - 2026-04-25
+
+### Added
+
+- **Agent-level stream idle timeout control.** `Agent.options` and
+  `Builder.t` now expose `stream_idle_timeout_s`, with
+  `Builder.with_stream_idle_timeout` for callers that need bounded
+  streaming turns. `Pipeline_stage_route.dispatch_stream` forwards the
+  value into `Complete.complete_stream`, so downstream consumers can opt
+  into retryable idle timeout failures across HTTP SSE, Ollama NDJSON,
+  and CLI subprocess streaming paths.
+
 ## [0.175.0] - 2026-04-25
 
 ### Added
