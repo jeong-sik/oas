@@ -28,5 +28,8 @@ val write_protocol_message :
 
 val next_control_id : state -> string
 
+val event_bus_run_id_of_event :
+  Runtime.event -> string option
+
 val emit_event :
   state -> string -> Runtime.event -> unit
