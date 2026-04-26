@@ -265,14 +265,39 @@ let parse_usage json =
 
 let parse_stop_reason s = Types.stop_reason_of_string s
 
-(** Parse a sync JSON result into api_response. *)
+(** Parse a sync JSON result into api_response.
+
+    Mirrors the [is_error=true] dispatch in {!parse_stream_result} so
+    sync and stream paths agree on classification: structured terminal
+    subtypes (e.g. [error_max_turns]) become {!Http_client.ProviderTerminal},
+    not {!Http_client.NetworkError}.  See {!parse_stream_result} for the
+    reasoning. *)
 let parse_json_result json_str =
   try
     let json = Yojson.Safe.from_string json_str in
     if Cli_common_json.member_bool "is_error" json then
+      let subtype = Cli_common_json.member_str "subtype" json in
       let msg = Cli_common_json.member_str "result" json in
-      Error (Http_client.NetworkError {
-        message = Printf.sprintf "Claude Code error: %s" msg; kind = Unknown })
+      (* Whitelist only structured terminal subtypes for [ProviderTerminal].
+         Unknown/legacy subtypes (e.g. [subtype="error"] for generic API
+         failures, rate limits, network) keep the {!NetworkError} path so
+         they remain retryable through the cascade.  Adding new structured
+         subtypes (e.g. [error_max_thinking_tokens]) is intentionally an
+         explicit code change so we never accidentally promote a transient
+         API failure to "graceful checkpoint". *)
+      (match subtype with
+       | "error_max_turns" ->
+         let turns = Cli_common_json.member_int "num_turns" json in
+         Error (Http_client.ProviderTerminal {
+           kind = Max_turns { turns; limit = turns };
+           message =
+             Printf.sprintf
+               "claude_code internal max_turns reached at %d turns"
+               turns })
+       | _ ->
+         Error (Http_client.NetworkError {
+           message = Printf.sprintf "Claude Code error: %s" msg;
+           kind = Unknown }))
     else
       let result_text = Cli_common_json.member_str "result" json in
       let model = Cli_common_json.member_str "model" json in
@@ -407,9 +432,36 @@ let parse_stream_result lines =
     (try
       let rjson = Yojson.Safe.from_string rline in
       if Cli_common_json.member_bool "is_error" rjson then
+        (* claude_code emits structured [is_error=true] result lines for
+           provider-internal terminal conditions (max_turns, …) alongside
+           generic API errors.  Burying these as [NetworkError] loses the
+           [subtype] field that downstream cascades and the agent runtime
+           need to distinguish "subprocess hit its own turn budget —
+           checkpoint and resume next cycle" from "transient network
+           failure — fall back to next provider".
+
+           Whitelist only structured terminal subtypes for
+           [ProviderTerminal]; unknown/legacy subtypes
+           ([subtype="error"], generic API errors) keep the
+           {!NetworkError} path so they remain retryable.  Adding new
+           subtypes (e.g. [error_max_thinking_tokens]) is intentionally
+           an explicit code change so we never accidentally promote a
+           transient API failure to "graceful checkpoint". *)
+        let subtype = Cli_common_json.member_str "subtype" rjson in
         let msg = Cli_common_json.member_str "result" rjson in
-        Error (Http_client.NetworkError {
-          message = Printf.sprintf "Claude Code error: %s" msg; kind = Unknown })
+        (match subtype with
+         | "error_max_turns" ->
+           let turns = Cli_common_json.member_int "num_turns" rjson in
+           Error (Http_client.ProviderTerminal {
+             kind = Max_turns { turns; limit = turns };
+             message =
+               Printf.sprintf
+                 "claude_code internal max_turns reached at %d turns"
+                 turns })
+         | _ ->
+           Error (Http_client.NetworkError {
+             message = Printf.sprintf "Claude Code error: %s" msg;
+             kind = Unknown }))
       else
         let model = Cli_common_json.member_str "model" rjson in
         let session_id = Cli_common_json.member_str "session_id" rjson in
@@ -619,6 +671,27 @@ let%test "parse_json_result error" =
     String.length message > 0
   | _ -> false
 
+let%test "parse_json_result error_max_turns becomes ProviderTerminal Max_turns" =
+  (* Pins the structural fix for masc-mcp#10629: claude_code internal
+     [error_max_turns] must surface as a structured terminal so the
+     agent runtime can graceful-checkpoint instead of the cascade
+     treating it as a transient network failure. *)
+  let json = {|{"type":"result","subtype":"error_max_turns","is_error":true,"result":"","model":"m","stop_reason":"tool_use","session_id":"s1","num_turns":31}|} in
+  match parse_json_result json with
+  | Error (Http_client.ProviderTerminal { kind = Max_turns r; _ }) ->
+    r.turns = 31 && r.limit = 31
+  | _ -> false
+
+let%test "parse_json_result unknown error subtype stays NetworkError" =
+  (* Whitelist guard: only known structured terminals promote to
+     ProviderTerminal.  Unknown/legacy subtypes keep the retryable
+     NetworkError path so a transient API error never gets silently
+     promoted to "graceful checkpoint". *)
+  let json = {|{"type":"result","subtype":"error_during_execution","is_error":true,"result":"unexpected","model":"m","stop_reason":"","session_id":"s1"}|} in
+  match parse_json_result json with
+  | Error (Http_client.NetworkError _) -> true
+  | _ -> false
+
 let%test "parse_json_result invalid json" =
   match parse_json_result "not json" with
   | Error _ -> true
@@ -710,6 +783,27 @@ let%test "parse_stream_result no messages" =
   match parse_stream_result [] with
   | Error _ -> true
   | Ok _ -> false
+
+let%test "parse_stream_result error_max_turns becomes ProviderTerminal Max_turns" =
+  (* Sync/stream parity for masc-mcp#10629: the production hits show
+     this exact JSON shape on stdout when claude_code subprocess exits
+     1 due to its internal max_turns CLI default (currently 31). *)
+  let lines = [
+    {|{"type":"system","subtype":"init","model":"m","session_id":"33e45115"}|};
+    {|{"type":"result","subtype":"error_max_turns","duration_ms":273722,"duration_api_ms":180417,"is_error":true,"num_turns":31,"stop_reason":"tool_use","session_id":"33e45115"}|};
+  ] in
+  match parse_stream_result lines with
+  | Error (Http_client.ProviderTerminal { kind = Max_turns r; _ }) ->
+    r.turns = 31 && r.limit = 31
+  | _ -> false
+
+let%test "parse_stream_result unknown error subtype stays NetworkError" =
+  let lines = [
+    {|{"type":"result","subtype":"error_unknown_future","is_error":true,"result":"who knows","model":"m","stop_reason":"","session_id":"s1"}|};
+  ] in
+  match parse_stream_result lines with
+  | Error (Http_client.NetworkError _) -> true
+  | _ -> false
 
 let%test "parse_stream_result restores tool_use blocks" =
   let lines = [

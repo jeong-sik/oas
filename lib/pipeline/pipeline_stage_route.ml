@@ -20,6 +20,13 @@ let sdk_error_of_http_error : Llm_provider.Http_client.http_error -> Error.sdk_e
                   pass ~transport via agent.options.transport"
                  kind;
            })
+  | Llm_provider.Http_client.ProviderTerminal { kind = Max_turns r; _ } ->
+      Error.Agent (MaxTurnsExceeded { turns = r.turns; limit = r.limit })
+  | Llm_provider.Http_client.ProviderTerminal
+      { kind = Other reason; message } ->
+      Error.Api
+        (Retry.InvalidRequest
+           { message = Printf.sprintf "%s: %s" reason message })
 
 let dispatch_sync ~sw ?clock agent (prep : Agent_turn.turn_preparation) =
   let tools = Option.value prep.Agent_turn.tools_json ~default:[] in

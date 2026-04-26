@@ -31,6 +31,11 @@ let http_get ~sw ~net url =
     Error (Error.Orchestration (DiscoveryFailed {
       url;
       detail = Printf.sprintf "CLI transport required for %s" kind }))
+  | Error (Llm_provider.Http_client.ProviderTerminal { message; _ }) ->
+    (* Same defensive note as [CliTransportRequired]: pure HTTP discovery
+       cannot produce a CLI subprocess terminal condition; reduce to
+       message text so the exhaustive match stays sound. *)
+    Error (Error.Orchestration (DiscoveryFailed { url; detail = message }))
 
 let http_post ~sw ~net ~url ~body =
   let headers = [("Content-Type", "application/json")] in
@@ -49,6 +54,11 @@ let http_post ~sw ~net ~url ~body =
   | Error (Llm_provider.Http_client.CliTransportRequired { kind }) ->
     Error (Error.A2a (ProtocolError {
       detail = Printf.sprintf "CLI transport required for %s" kind }))
+  | Error (Llm_provider.Http_client.ProviderTerminal { message; _ }) ->
+    (* Pure HTTP RPC cannot produce a CLI subprocess terminal condition;
+       defensive handling mirrors [http_get] so the exhaustive match
+       stays sound and the message survives for diagnostics. *)
+    Error (Error.A2a (ProtocolError { detail = message }))
 
 (* ── JSON-RPC ─────────────────────────────────────────────────── *)
 

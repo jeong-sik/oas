@@ -74,6 +74,13 @@ let sdk_error_of_http_error = function
             "CLI transport required for %s, but native structured output is only wired for HTTP providers"
             kind;
       })
+  | Llm_provider.Http_client.ProviderTerminal { kind = Max_turns r; _ } ->
+      Error.Agent (MaxTurnsExceeded { turns = r.turns; limit = r.limit })
+  | Llm_provider.Http_client.ProviderTerminal
+      { kind = Other reason; message } ->
+      Error.Api
+        (Llm_provider.Retry.InvalidRequest
+           { message = Printf.sprintf "%s: %s" reason message })
 
 let provider_config_for_schema ~base_url ?provider ~config ~(schema : _ schema) () =
   let state = {
