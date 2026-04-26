@@ -342,6 +342,16 @@ let for_model_id model_id =
            supports_native_streaming = true;
            supports_top_k = true;
            supports_min_p = true }
+  else if (let rec contains s sub =
+             let len_s = String.length s in
+             let len_sub = String.length sub in
+             let rec check i =
+               if i + len_sub > len_s then false
+               else if String.sub s i len_sub = sub then true
+               else check (i + 1)
+             in check 0
+           in contains m "qwen") then
+    Some dashscope_capabilities
   else if starts_with "llama-4" || starts_with "llama4" then
     Some { default_capabilities with
            max_context_tokens = Some 1_000_000;
