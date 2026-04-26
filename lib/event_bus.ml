@@ -84,6 +84,35 @@ type event = {
   payload: payload;
 }
 
+(* ── Payload introspection ────────────────────────────────────────── *)
+
+(* Stable snake_case event-type label.  Co-located with the [payload]
+   variant: adding a new constructor in [payload] forces an update
+   here in the same patch under OAS's [warn-error +8] flag set, so
+   downstream consumers can rely on the label being defined for every
+   reachable variant.  Subscribers may persist or compare the
+   returned strings — treat them as part of the public API. *)
+let payload_kind = function
+  | AgentStarted _ -> "agent_started"
+  | AgentCompleted _ -> "agent_completed"
+  | AgentFailed _ -> "agent_failed"
+  | ToolCalled _ -> "tool_called"
+  | ToolCompleted _ -> "tool_completed"
+  | TurnStarted _ -> "turn_started"
+  | TurnReady _ -> "turn_ready"
+  | TurnCompleted _ -> "turn_completed"
+  | HandoffRequested _ -> "handoff_requested"
+  | HandoffCompleted _ -> "handoff_completed"
+  | ElicitationCompleted _ -> "elicitation_completed"
+  | ContextCompacted _ -> "context_compacted"
+  | ContextOverflowImminent _ -> "context_overflow_imminent"
+  | ContextCompactStarted _ -> "context_compact_started"
+  | ContentReplacementReplaced _ -> "content_replacement_replaced"
+  | ContentReplacementKept _ -> "content_replacement_kept"
+  | SlotSchedulerObserved _ -> "slot_scheduler_observed"
+  | InferenceTelemetry _ -> "inference_telemetry"
+  | Custom (name, _) -> Printf.sprintf "custom:%s" name
+
 (* ── ID generation ────────────────────────────────────────────────── *)
 
 let id_counter = Atomic.make 0

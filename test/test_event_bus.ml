@@ -171,6 +171,57 @@ let test_custom_event () =
   | Custom (name, _) -> check string "event name" "my_event" name
   | _ -> fail "expected Custom event"
 
+(* ── payload_kind ─────────────────────────────────────────────────── *)
+
+let test_payload_kind_canonical_labels () =
+  let cases : (Event_bus.payload * string) list = [
+    Event_bus.AgentStarted { agent_name = "a"; task_id = "t" }, "agent_started";
+    Event_bus.TurnStarted { agent_name = "a"; turn = 0 }, "turn_started";
+    Event_bus.TurnReady { agent_name = "a"; turn = 0; tool_names = [] },
+      "turn_ready";
+    Event_bus.TurnCompleted { agent_name = "a"; turn = 0 }, "turn_completed";
+    Event_bus.ToolCalled { agent_name = "a"; tool_name = "f"; input = `Null },
+      "tool_called";
+    Event_bus.HandoffRequested { from_agent = "a"; to_agent = "b"; reason = "" },
+      "handoff_requested";
+    Event_bus.HandoffCompleted
+      { from_agent = "a"; to_agent = "b"; elapsed = 0.0 },
+      "handoff_completed";
+    Event_bus.Custom ("masc.keeper.lifecycle", `Null),
+      "custom:masc.keeper.lifecycle";
+  ] in
+  List.iter (fun (payload, expected) ->
+    check string expected expected (Event_bus.payload_kind payload)
+  ) cases
+
+(* Stable-API guard: the snake_case label set is documented as part of
+   OAS's public surface.  Subscribers may persist these strings, so an
+   accidental rename (e.g. "agent_started" → "agentStarted") would be a
+   silent breaking change for consumers reading historical event logs.
+   This test pins the exact characters so any rename trips a code
+   review. *)
+let test_payload_kind_label_set_is_stable () =
+  let label_cases : (Event_bus.payload * string) list = [
+    Event_bus.AgentStarted { agent_name = ""; task_id = "" }, "agent_started";
+    Event_bus.AgentFailed { agent_name = ""; task_id = "";
+                            error = Error.Agent
+                              (Error.MaxTurnsExceeded { turns = 0; limit = 0 });
+                            elapsed = 0.0 }, "agent_failed";
+    Event_bus.InferenceTelemetry
+      { agent_name = ""; turn = 0; provider = "";
+        model = ""; prompt_tokens = None;
+        completion_tokens = None; prompt_ms = None;
+        decode_ms = None; decode_tok_s = None },
+      "inference_telemetry";
+    Event_bus.SlotSchedulerObserved
+      { max_slots = 0; active = 0; available = 0;
+        queue_length = 0; state = Event_bus.Idle },
+      "slot_scheduler_observed";
+  ] in
+  List.iter (fun (p, expected) ->
+    check string expected expected (Event_bus.payload_kind p)
+  ) label_cases
+
 let test_multiple_event_types () =
   Eio_main.run @@ fun _env ->
   let bus = Event_bus.create () in
@@ -640,6 +691,10 @@ let () =
     "event_types", [
       test_case "custom" `Quick test_custom_event;
       test_case "multiple types" `Quick test_multiple_event_types;
+    ];
+    "payload_kind", [
+      test_case "canonical labels" `Quick test_payload_kind_canonical_labels;
+      test_case "label set is stable" `Quick test_payload_kind_label_set_is_stable;
     ];
     "fields", [
       test_case "agent_started" `Quick test_agent_started_fields;
