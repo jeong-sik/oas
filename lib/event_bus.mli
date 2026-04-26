@@ -175,6 +175,26 @@ type event = {
   payload: payload;
 }
 
+(** {2 Payload introspection} *)
+
+(** [payload_kind p] returns a stable, snake_case event-type label for
+    [p].  The label set is part of OAS's stable API: subscribers may
+    persist or compare the strings.
+
+    Co-located with the [payload] variant so that adding a new variant
+    upstream forces an update here in the same patch (compiler warning
+    8 is fatal under OAS's flag set).  Downstream consumers (logging,
+    SSE bridges, dashboards) that previously had to maintain their own
+    exhaustive [match] on [payload] can call this for the leading
+    type label and fall back gracefully on unknown variants instead
+    of breaking the build at OAS pin-bump time.
+
+    Custom payloads use the form [Printf.sprintf "custom:%s" name] so
+    operator-defined event types remain distinguishable.
+
+    @since 0.179.0 *)
+val payload_kind : payload -> string
+
 (** {2 ID generation} *)
 
 (** Generate a fresh unique identifier (pid-timestamp-counter). *)
