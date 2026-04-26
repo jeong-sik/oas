@@ -422,6 +422,10 @@ let test_complete_claude_code_without_transport_is_guarded () =
         Alcotest.failf
           "%s expected CliTransportRequired, got AcceptRejected: %s"
           expected_name reason
+    | Error (Llm_provider.Http_client.ProviderTerminal { message; _ }) ->
+        Alcotest.failf
+          "%s expected CliTransportRequired, got ProviderTerminal: %s"
+          expected_name message
   ) kinds
 
 let test_complete_rejects_output_schema_for_glm () =

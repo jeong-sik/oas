@@ -28,6 +28,29 @@ type network_error_kind =
   | Unknown
       (** Unclassified network error. *)
 
+(** Provider-internal terminal condition reported via structured exit.
+
+    Distinct from {!network_error_kind}: the subprocess/API ran to
+    completion and emitted a structured stop reason on stdout.  Burying
+    these as [NetworkError] loses the information that downstream
+    cascades and per-provider budgets need to handle the condition
+    gracefully (e.g. [Max_turns] should checkpoint and resume on the
+    next cycle rather than fall back to another provider).
+
+    @since 0.178.0 *)
+type provider_terminal_kind =
+  | Max_turns of { turns: int; limit: int }
+      (** Provider's internal turn budget exhausted.  Maps to
+          {!Error.MaxTurnsExceeded} at the agent runtime layer.  For
+          claude_code 0.x the [limit] equals the CLI default
+          [--max-turns] (currently 31) when the keeper does not
+          override it. *)
+  | Other of string
+      (** Forward-compatible bucket for unrecognized subtypes
+          (e.g. [error_during_execution], [error_max_thinking_tokens]).
+          Carries the raw subtype string so consumers can log it
+          without flag day for new variants. *)
+
 (** Transport-level error. *)
 type http_error =
   | HttpError of { code: int; body: string }
@@ -38,6 +61,14 @@ type http_error =
           but the caller did not inject one.  Distinct from
           {!NetworkError} so cascades can treat it as a configuration
           bug rather than a transient failure. *)
+  | ProviderTerminal of { kind: provider_terminal_kind; message: string }
+      (** Provider reported a structured terminal condition on its
+          completion stream.  Distinct from {!NetworkError} so cascades
+          and the agent runtime can map it to the right semantic
+          ({!Error.MaxTurnsExceeded}, {!Retry.InvalidRequest}, …)
+          rather than treat it as a transient network failure.
+
+          @since 0.178.0 *)
 
 (** Default wall-clock timeout (seconds) applied to synchronous HTTP
     operations when a clock is supplied.  Streaming variants use this

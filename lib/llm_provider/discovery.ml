@@ -103,6 +103,11 @@ let get_json ~sw ~net url =
     Error message
   | Error (Http_client.CliTransportRequired { kind }) ->
     Error (Printf.sprintf "CLI transport required for %s" kind)
+  | Error (Http_client.ProviderTerminal { message; _ }) ->
+    (* Discovery hits HTTP endpoints only; CLI subprocess terminals
+       cannot reach this match.  Surface the message defensively so the
+       exhaustive match stays sound. *)
+    Error message
 
 let get_ok ~sw ~net url =
   match Http_client.get_sync ~sw ~net ~url ~headers:[] () with
@@ -260,6 +265,7 @@ let probe_ollama_context ~sw ~net base_url =
             | Http_client.AcceptRejected { reason } -> reason
             | Http_client.CliTransportRequired { kind } ->
                 Printf.sprintf "CLI transport required for %s" kind
+            | Http_client.ProviderTerminal { message; _ } -> message
           in
           warn_probe_failure ~url:base_url ~phase:"ollama_show_http" detail;
           None

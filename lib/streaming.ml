@@ -132,6 +132,13 @@ let map_http_error = function
       Error.Api (Retry.InvalidRequest {
         message = Printf.sprintf
           "CLI transport required for %s but none was injected" kind })
+  | Llm_provider.Http_client.ProviderTerminal { kind = Max_turns r; _ } ->
+      Error.Agent (MaxTurnsExceeded { turns = r.turns; limit = r.limit })
+  | Llm_provider.Http_client.ProviderTerminal
+      { kind = Other reason; message } ->
+      Error.Api
+        (Retry.InvalidRequest
+           { message = Printf.sprintf "%s: %s" reason message })
 
 (** Streaming variant of create_message.
     Supports Anthropic (native SSE) and OpenAI-compatible (SSE).

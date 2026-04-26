@@ -612,6 +612,7 @@ let complete ~sw ~net ?(transport : Llm_transport.t option)
                 Printf.sprintf
                   "CLI transport required for %s but none injected"
                   kind
+            | Http_client.ProviderTerminal { message; _ } -> message
           in
           m.on_error ~model_id ~error:err_str;
           Error err)
@@ -648,6 +649,11 @@ let classify_retry_error = function
   (* Wiring bug, not transient — retrying cannot summon a missing
      transport. *)
   | Http_client.CliTransportRequired _ -> None
+  (* Provider hit its own terminal condition (e.g. claude_code's
+     internal max_turns).  Retry would re-trigger the same
+     deterministic exit, so signal non-retryable and let the agent
+     runtime checkpoint via [Error.Agent (MaxTurnsExceeded ...)]. *)
+  | Http_client.ProviderTerminal _ -> None
 
 let is_retryable = function
   | err ->

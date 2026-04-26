@@ -21,6 +21,14 @@ type network_error_kind =
   | End_of_file
   | Unknown
 
+(* Provider-internal terminal condition reported via structured exit
+   (see .mli for the rationale and the @since note).  Adding a new
+   variant rather than overloading [NetworkError] keeps cascades from
+   counting a provider's own [max_turns] hit as a flaky network. *)
+type provider_terminal_kind =
+  | Max_turns of { turns: int; limit: int }
+  | Other of string
+
 type http_error =
   | HttpError of { code: int; body: string }
   | NetworkError of { message: string; kind: network_error_kind }
@@ -33,6 +41,7 @@ type http_error =
      network failure, and so callers see a clear "configuration/wiring
      bug" rather than a cohttp [Unknown scheme None]. *)
   | CliTransportRequired of { kind: string }
+  | ProviderTerminal of { kind: provider_terminal_kind; message: string }
 
 (* ── Internal helpers ──────────────────────────────────────── *)
 
@@ -144,6 +153,7 @@ let is_local_resource_exhaustion = function
   | HttpError _ -> false
   | CliTransportRequired _ -> false
   | NetworkError _ -> false
+  | ProviderTerminal _ -> false
 
 (* ── Public API ────────────────────────────────────────────── *)
 

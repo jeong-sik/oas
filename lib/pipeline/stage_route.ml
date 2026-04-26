@@ -26,6 +26,16 @@ let sdk_error_of_http_error : Llm_provider.Http_client.http_error -> Error.sdk_e
         message = Printf.sprintf
           "CLI transport required for %s but none was injected; \
            pass ~transport via agent.options.transport" kind })
+  | Llm_provider.Http_client.ProviderTerminal { kind = Max_turns r; _ } ->
+      (* Map provider-internal max_turns to the agent-runtime variant so
+         the existing [MaxTurnsExceeded] graceful path (checkpoint +
+         [TurnBudgetExhausted] stop_reason) handles it instead of the
+         cascade treating it as a transient API failure. *)
+      Error.Agent (MaxTurnsExceeded { turns = r.turns; limit = r.limit })
+  | Llm_provider.Http_client.ProviderTerminal
+      { kind = Other reason; message } ->
+      Error.Api (Retry.InvalidRequest {
+        message = Printf.sprintf "%s: %s" reason message })
 
 (** Sync dispatch via {!Llm_provider.Complete.complete}.  Routes all
     provider kinds through the consolidated path so [on_request_end]
