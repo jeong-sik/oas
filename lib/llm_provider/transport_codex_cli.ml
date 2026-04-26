@@ -90,6 +90,42 @@ let toml_string_assoc entries =
   in
   "{" ^ body ^ "}"
 
+(* Codex CLI 0.125.0+ accepts [mcp_servers.<name>.bearer_token_env_var = "VAR"]
+   for HTTP MCP servers, reading the actual Bearer token from the named env
+   variable in its own process environment.  This avoids the secret reaching
+   argv (visible via [ps eww]).  The transport mints a deterministic env var
+   name per server so the override and the env injection stay in sync. *)
+let bearer_env_var_name server_name =
+  let buf = Buffer.create 32 in
+  Buffer.add_string buf "OAS_CODEX_MCP_";
+  String.iter (fun c ->
+    let c = Char.uppercase_ascii c in
+    if (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') then
+      Buffer.add_char buf c
+    else
+      Buffer.add_char buf '_'
+  ) server_name;
+  Buffer.add_string buf "_BEARER";
+  Buffer.contents buf
+
+let is_authorization_header (key, _) =
+  String.lowercase_ascii (String.trim key) = "authorization"
+
+let extract_bearer_token value =
+  let trimmed = String.trim value in
+  let prefix = "bearer " in
+  if String.length trimmed >= String.length prefix
+     && String.lowercase_ascii (String.sub trimmed 0 (String.length prefix))
+        = prefix
+  then
+    let token =
+      String.sub trimmed (String.length prefix)
+        (String.length trimmed - String.length prefix)
+      |> String.trim
+    in
+    if token = "" then None else Some token
+  else None
+
 let server_tool_name ~server ~tool =
   Printf.sprintf "mcp__%s__%s" server tool
 
@@ -258,47 +294,80 @@ let cli_model_override ~(config : config) ~(req_config : Provider_config.t) =
   | "" | "auto" -> config.model
   | _ -> Some (String.trim req_config.model_id)
 
+(* Returns [Ok (overrides, env_pairs)].  [env_pairs] are name=value pairs that
+   the caller must inject into the spawned [codex] process's environment so
+   that any [bearer_token_env_var=...] overrides resolve.  When no HTTP MCP
+   server carries an [Authorization: Bearer ...] header, [env_pairs] is
+   empty and behaviour matches the pre-fix [http_headers=...] path. *)
 let runtime_mcp_overrides
     (policy : Llm_transport.runtime_mcp_policy) :
-    (string list, string) result =
+    (string list * (string * string) list, string) result =
   let add_server acc server =
     let name = Llm_transport.runtime_mcp_server_name server in
     match acc, server with
     | Error _ as e, _ -> e
-    | Ok overrides, Llm_transport.Http_server { url; headers; _ } ->
+    | Ok (overrides, env_pairs), Llm_transport.Http_server { url; headers; _ } ->
+      let auth_headers, other_headers =
+        List.partition is_authorization_header headers
+      in
+      let bearer_extra =
+        match auth_headers with
+        | [(_, value)] ->
+          (match extract_bearer_token value with
+           | Some token -> Some (bearer_env_var_name name, token)
+           | None -> None)
+        | _ -> None
+      in
+      let url_override =
+        Printf.sprintf "mcp_servers.%s.url=%s" name (toml_string url)
+      in
+      let bearer_overrides, headers_to_emit, env_pairs' =
+        match bearer_extra with
+        | Some (env_var, token) ->
+          [
+            Printf.sprintf "mcp_servers.%s.bearer_token_env_var=%s"
+              name (toml_string env_var);
+          ],
+          other_headers,
+          (env_var, token) :: env_pairs
+        | None ->
+          [], headers, env_pairs
+      in
+      let header_overrides =
+        if headers_to_emit = [] then []
+        else
+          [
+            Printf.sprintf "mcp_servers.%s.http_headers=%s"
+              name (toml_string_assoc headers_to_emit);
+          ]
+      in
+      Ok
+        (overrides @ [url_override] @ bearer_overrides @ header_overrides,
+         env_pairs')
+    | Ok (overrides, env_pairs),
+      Llm_transport.Stdio_server { command; args; env; _ } ->
       Ok
         (overrides
-         @ [Printf.sprintf "mcp_servers.%s.url=%s" name (toml_string url)]
-         @
-         if headers = [] then []
-         else
-           [
-             Printf.sprintf "mcp_servers.%s.http_headers=%s"
-               name (toml_string_assoc headers);
-           ])
-    | Ok overrides, Llm_transport.Stdio_server { command; args; env; _ } ->
-      Ok
-        (overrides
-        @ [
+         @ [
              Printf.sprintf "mcp_servers.%s.command=%s"
                name (toml_string command);
              Printf.sprintf "mcp_servers.%s.args=%s"
                name (toml_string_list args);
            ]
-         @
-         if env = [] then []
-         else
-           [
-             Printf.sprintf "mcp_servers.%s.env=%s"
-               name (toml_string_assoc env);
-           ])
+         @ (if env = [] then []
+            else
+              [
+                Printf.sprintf "mcp_servers.%s.env=%s"
+                  name (toml_string_assoc env);
+              ]),
+         env_pairs)
   in
   let server_overrides =
-    List.fold_left add_server (Ok ["mcp_servers={}"]) policy.servers
+    List.fold_left add_server (Ok (["mcp_servers={}"], [])) policy.servers
   in
   match server_overrides with
   | Error _ as e -> e
-  | Ok overrides ->
+  | Ok (overrides, env_pairs) ->
     let server_names =
       match policy.allowed_server_names with
       | [] ->
@@ -316,7 +385,7 @@ let runtime_mcp_overrides
           ) tool_names
         ) server_names
     in
-    Ok (overrides @ tool_overrides)
+    Ok (overrides @ tool_overrides, env_pairs)
 
 let non_mcp_env_extra_args () =
   let extras = ref [] in
@@ -352,24 +421,31 @@ let build_args ~(config : config) ~(req_config : Provider_config.t)
      valid stdout JSONL.  We never call [codex resume]/[fork] from this
      transport, so persisted sessions are dead weight; opting into ephemeral
      mode removes the race entirely. *)
-  [config.codex_path; "exec"; "--json"; "--ephemeral"]
-  @ (match runtime_mcp_policy with
-     | Some policy -> (
-         match runtime_mcp_overrides policy with
-         | Ok overrides ->
-           List.concat_map (fun override -> ["-c"; override]) overrides
-         | Error _ -> [])
-     | None -> legacy_env_extra_args ())
-  @ model_args
-  @ (match runtime_mcp_policy with
-     | Some (policy : Llm_transport.runtime_mcp_policy) ->
-       (match Cli_common_env.get "OAS_CODEX_SANDBOX" with
-        | Some _ -> non_mcp_env_extra_args ()
-        | None when policy.disable_builtin_tools ->
-          ["-s"; "read-only"] @ non_mcp_env_extra_args ()
-        | None -> non_mcp_env_extra_args ())
-     | None -> [])
-  @ [if prompt_via_stdin then "-" else prompt]
+  let mcp_argv, mcp_extra_env =
+    match runtime_mcp_policy with
+    | Some policy -> (
+        match runtime_mcp_overrides policy with
+        | Ok (overrides, env_pairs) ->
+          List.concat_map (fun override -> ["-c"; override]) overrides,
+          env_pairs
+        | Error _ -> [], [])
+    | None -> legacy_env_extra_args (), []
+  in
+  let argv =
+    [config.codex_path; "exec"; "--json"; "--ephemeral"]
+    @ mcp_argv
+    @ model_args
+    @ (match runtime_mcp_policy with
+       | Some (policy : Llm_transport.runtime_mcp_policy) ->
+         (match Cli_common_env.get "OAS_CODEX_SANDBOX" with
+          | Some _ -> non_mcp_env_extra_args ()
+          | None when policy.disable_builtin_tools ->
+            ["-s"; "read-only"] @ non_mcp_env_extra_args ()
+          | None -> non_mcp_env_extra_args ())
+       | None -> [])
+    @ [if prompt_via_stdin then "-" else prompt]
+  in
+  argv, mcp_extra_env
 
 (* ── JSONL envelope parsing ──────────────────────────── *)
 
@@ -591,7 +667,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
         { Llm_transport.response = Error (Http_client.NetworkError { message = msg; kind = Unknown });
           latency_ms = 0 }
       | None ->
-      let argv =
+      let argv, mcp_extra_env =
         build_args ~config ~req_config:req.config
           ?runtime_mcp_policy:req.runtime_mcp_policy ~prompt ()
       in
@@ -601,7 +677,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
           seen_lines := line :: !seen_lines
       in
       match Cli_common_subprocess.run_stream_lines ~sw ~mgr
-              ~name:"codex" ~cwd:config.cwd ~extra_env:[]
+              ~name:"codex" ~cwd:config.cwd ~extra_env:mcp_extra_env
               ~scrub_env:codex_cli_scrub_env
               ?stdin_content:(stdin_for_prompt prompt)
               ~stdout_recovery:stdout_contains_turn_completed
@@ -637,7 +713,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
       match runtime_mcp_policy_error with
       | Some msg -> Error (Http_client.NetworkError { message = msg; kind = Unknown })
       | None ->
-      let argv =
+      let argv, mcp_extra_env =
         build_args ~config ~req_config:req.config
           ?runtime_mcp_policy:req.runtime_mcp_policy ~prompt ()
       in
@@ -650,7 +726,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
         end
       in
       match Cli_common_subprocess.run_stream_lines ~sw ~mgr
-              ~name:"codex" ~cwd:config.cwd ~extra_env:[]
+              ~name:"codex" ~cwd:config.cwd ~extra_env:mcp_extra_env
               ~scrub_env:codex_cli_scrub_env
               ?stdin_content:(stdin_for_prompt prompt)
               ~stdout_recovery:stdout_contains_turn_completed
@@ -680,16 +756,17 @@ let%test "default_config parity fields absent" =
   && default_config.permission_mode = None
 
 let%test "build_args includes --json flag" =
-  let args =
+  let args, env =
     build_args ~config:default_config ~req_config:(codex_req ()) ~prompt:"hello" ()
   in
   args = ["codex"; "exec"; "--json"; "--ephemeral"; "-c"; "mcp_servers={}"; "hello"]
+  && env = []
 
 let%test "build_args includes --ephemeral right after --json" =
   (* Regression guard: --ephemeral must precede config overrides and the
      prompt so codex-cli 0.125.0+ skips session/rollout persistence even
      when callers add custom -c flags. *)
-  let args =
+  let args, _ =
     build_args ~config:default_config ~req_config:(codex_req ()) ~prompt:"hello" ()
   in
   let rec idx_of x = function
@@ -710,11 +787,11 @@ let%test "build_args ignores extra parity fields" =
     max_turns = Some 5;
     permission_mode = Some "bypassPermissions";
   } in
-  let args = build_args ~config ~req_config:(codex_req ()) ~prompt:"hi" () in
+  let args, _ = build_args ~config ~req_config:(codex_req ()) ~prompt:"hi" () in
   args = ["codex"; "exec"; "--json"; "--ephemeral"; "-c"; "mcp_servers={}"; "hi"]
 
 let%test "build_args with requested model" =
-  let args =
+  let args, _ =
     build_args ~config:default_config
       ~req_config:(codex_req ~model_id:"gpt-5.4" ())
       ~prompt:"hi"
@@ -726,7 +803,7 @@ let%test "build_args with requested model" =
 
 let%test "build_args with config default model for auto request" =
   let config = { default_config with model = Some "gpt-5.2-codex" } in
-  let args = build_args ~config ~req_config:(codex_req ()) ~prompt:"hi" () in
+  let args, _ = build_args ~config ~req_config:(codex_req ()) ~prompt:"hi" () in
   args =
   ["codex"; "exec"; "--json"; "--ephemeral"; "-c"; "mcp_servers={}";
    "--model"; "gpt-5.2-codex"; "hi"]
@@ -743,11 +820,105 @@ let%test "stdin_for_prompt: Some when over budget, None under" =
 
 let%test "build_args uses stdin sentinel when prompt is too large" =
   let big = String.make (1 * 1024 * 1024) 'x' in
-  let args =
+  let args, _ =
     build_args ~config:default_config ~req_config:(codex_req ()) ~prompt:big ()
   in
   not (List.mem big args)
   && List.nth args (List.length args - 1) = "-"
+
+(* ── Bearer-token env-var indirection ────────────────── *)
+
+let%test "bearer_env_var_name uppercases and sanitises" =
+  bearer_env_var_name "context7" = "OAS_CODEX_MCP_CONTEXT7_BEARER"
+  && bearer_env_var_name "my-server" = "OAS_CODEX_MCP_MY_SERVER_BEARER"
+  && bearer_env_var_name "x.y.z" = "OAS_CODEX_MCP_X_Y_Z_BEARER"
+
+let%test "extract_bearer_token strips prefix case-insensitively" =
+  extract_bearer_token "Bearer abc123" = Some "abc123"
+  && extract_bearer_token "bearer xyz" = Some "xyz"
+  && extract_bearer_token "BEARER  spaced  " = Some "spaced"
+  && extract_bearer_token "" = None
+  && extract_bearer_token "Basic dXNlcg==" = None
+  && extract_bearer_token "Bearer " = None
+  && extract_bearer_token "Bearer   " = None
+
+let%test "is_authorization_header is case-insensitive" =
+  is_authorization_header ("Authorization", "x")
+  && is_authorization_header ("authorization", "x")
+  && is_authorization_header ("AUTHORIZATION", "x")
+  && not (is_authorization_header ("X-API-Key", "x"))
+
+let bearer_policy_with_header header_value =
+  let server = Llm_transport.Http_server {
+    name = "context7";
+    url = "https://api.example.com/mcp";
+    headers = [("Authorization", header_value); ("X-Trace", "id123")];
+  } in
+  { Llm_transport.servers = [server];
+    allowed_server_names = [];
+    allowed_tool_names = [];
+    permission_mode = None;
+    approval_mode = None;
+    strict = false;
+    disable_builtin_tools = true; }
+
+let%test "runtime_mcp_overrides redirects Bearer to env var indirection" =
+  let policy = bearer_policy_with_header "Bearer secret-token" in
+  match runtime_mcp_overrides policy with
+  | Error _ -> false
+  | Ok (overrides, env_pairs) ->
+    let env_var = "OAS_CODEX_MCP_CONTEXT7_BEARER" in
+    (* Token is in env_pairs, never in overrides string. *)
+    env_pairs = [(env_var, "secret-token")]
+    && List.exists (fun s ->
+         s = Printf.sprintf
+           "mcp_servers.context7.bearer_token_env_var=\"%s\"" env_var
+       ) overrides
+    (* Other headers stay in http_headers (no Authorization). *)
+    && List.exists (fun s ->
+         s = "mcp_servers.context7.http_headers={X-Trace=\"id123\"}"
+       ) overrides
+    (* Argv must NOT leak the literal token. *)
+    && not (List.exists (fun s ->
+              try ignore (Str.search_forward
+                            (Str.regexp_string "secret-token") s 0); true
+              with Not_found -> false) overrides)
+
+let%test "runtime_mcp_overrides keeps non-Bearer auth header verbatim" =
+  let policy = bearer_policy_with_header "Basic dXNlcjpwYXNz" in
+  match runtime_mcp_overrides policy with
+  | Error _ -> false
+  | Ok (overrides, env_pairs) ->
+    env_pairs = []
+    && not (List.exists (fun s ->
+              try ignore (Str.search_forward
+                            (Str.regexp_string "bearer_token_env_var") s 0); true
+              with Not_found -> false) overrides)
+    && List.exists (fun s ->
+         try ignore (Str.search_forward
+                       (Str.regexp_string "Authorization=\"Basic") s 0); true
+         with Not_found -> false) overrides
+
+let%test "runtime_mcp_overrides without auth header is unchanged" =
+  let server = Llm_transport.Http_server {
+    name = "context7";
+    url = "https://api.example.com/mcp";
+    headers = [("X-API-Key", "k")];
+  } in
+  let policy = { Llm_transport.servers = [server];
+                 allowed_server_names = [];
+                 allowed_tool_names = [];
+                 permission_mode = None;
+                 approval_mode = None;
+                 strict = false;
+                 disable_builtin_tools = true; } in
+  match runtime_mcp_overrides policy with
+  | Error _ -> false
+  | Ok (overrides, env_pairs) ->
+    env_pairs = []
+    && List.exists (fun s ->
+         s = "mcp_servers.context7.http_headers={X-API-Key=\"k\"}"
+       ) overrides
 
 let%test "parse_jsonl_result extracts text + thread_id and suppresses usage" =
   let lines = [
@@ -874,12 +1045,14 @@ let%test "default: argv disables MCP even with no env" =
   with_unset "OAS_CODEX_SANDBOX" (fun () ->
   with_unset "OAS_CODEX_PROFILE" (fun () ->
   with_unset "OAS_CODEX_SKIP_GIT" (fun () ->
-    build_args ~config:default_config ~req_config:(codex_req ()) ~prompt:"hi" ()
-    = ["codex"; "exec"; "--json"; "--ephemeral"; "-c"; "mcp_servers={}"; "hi"]))))
+    let args, _ =
+      build_args ~config:default_config ~req_config:(codex_req ()) ~prompt:"hi" ()
+    in
+    args = ["codex"; "exec"; "--json"; "--ephemeral"; "-c"; "mcp_servers={}"; "hi"]))))
 
 let%test "env: OAS_CODEX_CONFIG emits -c pairs before prompt" =
   with_env "OAS_CODEX_CONFIG" "mcp_servers={},model=o3" (fun () ->
-    let args =
+    let args, _ =
       build_args ~config:default_config ~req_config:(codex_req ()) ~prompt:"hi" ()
     in
     (* must emit -c mcp_servers={} and -c model=o3, and prompt stays last *)
@@ -891,7 +1064,7 @@ let%test "env: OAS_CODEX_CONFIG emits -c pairs before prompt" =
 let%test "env: OAS_CODEX_SANDBOX and OAS_CODEX_SKIP_GIT" =
   with_env "OAS_CODEX_SANDBOX" "read-only" (fun () ->
   with_env "OAS_CODEX_SKIP_GIT" "true" (fun () ->
-    let args =
+    let args, _ =
       build_args ~config:default_config ~req_config:(codex_req ()) ~prompt:"hi" ()
     in
     List.mem "-s" args
@@ -919,7 +1092,7 @@ let%test "build_args runtime MCP wires request-scoped server" =
       disable_builtin_tools = true;
     }
   in
-  let args =
+  let args, env =
     build_args ~config:default_config ~req_config:(codex_req ()) ~prompt:"hi"
       ~runtime_mcp_policy:policy
       ()
@@ -928,8 +1101,17 @@ let%test "build_args runtime MCP wires request-scoped server" =
   && List.mem "mcp_servers.example.tools.example_status.approval_mode=\"approve\"" args
   && List.mem "-s" args
   && List.mem "read-only" args
+  && env = []
 
-let%test "build_args runtime MCP wires HTTP headers" =
+(* Regression guard: HTTP MCP servers carrying [Authorization: Bearer X] must
+   redirect the token through Codex CLI's [bearer_token_env_var] so it never
+   appears on the command line ([ps eww] visibility).  Other headers stay in
+   [http_headers={...}].  Pre-fix behaviour leaked the token via argv and
+   triggered upstream omission policies in masc-mcp. *)
+let%test "build_args runtime MCP routes Bearer through env var indirection" =
+  (* Use a token whose substring does not collide with any keyword in the
+     emitted overrides (e.g. ["tok"] would also match [bearer_token_env_var]). *)
+  let token = "s3kr9t-VALUE-Q" in
   let policy =
     {
       Llm_transport.empty_runtime_mcp_policy with
@@ -938,7 +1120,7 @@ let%test "build_args runtime MCP wires HTTP headers" =
           name = "agent_tools";
           url = "http://127.0.0.1:9999/mcp";
           headers = [
-            ("Authorization", "Bearer tok");
+            ("Authorization", "Bearer " ^ token);
             ("Accept", "application/json, text/event-stream");
           ];
         };
@@ -946,15 +1128,34 @@ let%test "build_args runtime MCP wires HTTP headers" =
       allowed_server_names = ["agent_tools"];
     }
   in
-  let args =
+  let args, env =
     build_args ~config:default_config ~req_config:(codex_req ()) ~prompt:"hi"
       ~runtime_mcp_policy:policy
       ()
   in
+  let token_in s =
+    let nl = String.length token in
+    let hl = String.length s in
+    if nl > hl then false
+    else
+      let rec aux i =
+        if i + nl > hl then false
+        else if String.sub s i nl = token then true
+        else aux (i + 1)
+      in
+      aux 0
+  in
   List.mem "mcp_servers.agent_tools.url=\"http://127.0.0.1:9999/mcp\"" args
   && List.mem
-       "mcp_servers.agent_tools.http_headers={Authorization=\"Bearer tok\",Accept=\"application/json, text/event-stream\"}"
+       "mcp_servers.agent_tools.bearer_token_env_var=\"OAS_CODEX_MCP_AGENT_TOOLS_BEARER\""
        args
+  (* Authorization stripped from http_headers; only Accept remains. *)
+  && List.mem
+       "mcp_servers.agent_tools.http_headers={Accept=\"application/json, text/event-stream\"}"
+       args
+  (* Token never appears as substring of any argv element. *)
+  && not (List.exists token_in args)
+  && env = [("OAS_CODEX_MCP_AGENT_TOOLS_BEARER", token)]
 
 let%test "parse_jsonl_result includes mcp tool call blocks" =
   let lines = [
