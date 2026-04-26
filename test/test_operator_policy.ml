@@ -65,7 +65,7 @@ let test_operator_restricts_allow_all () =
   let tool_b = make_tool "b" in
   let tool_c = make_tool "c" in
   let tools = Tool_set.of_list [tool_a; tool_b; tool_c] in
-  let tools_json, _ = Agent_turn.prepare_tools
+  let tools_json, _, _ = Agent_turn.prepare_tools
     ~guardrails:Guardrails.default
     ~operator_policy:(Some (Guardrails.AllowList ["a"]))
     ~policy_channel:None
@@ -79,7 +79,7 @@ let test_operator_restricts_allow_all () =
 let test_operator_denylist_on_allowall () =
   (* Agent: AllowAll, Operator: DenyList ["b"] -> "a", "c" visible *)
   let tools = Tool_set.of_list [make_tool "a"; make_tool "b"; make_tool "c"] in
-  let tools_json, _ = Agent_turn.prepare_tools
+  let tools_json, _, _ = Agent_turn.prepare_tools
     ~guardrails:Guardrails.default
     ~operator_policy:(Some (Guardrails.DenyList ["b"]))
     ~policy_channel:None
@@ -95,7 +95,7 @@ let test_no_operator_is_noop () =
   let guardrails = { Guardrails.default with
     tool_filter = Guardrails.AllowList ["a"] } in
   let tools = Tool_set.of_list [make_tool "a"; make_tool "b"] in
-  let tools_json, _ = Agent_turn.prepare_tools
+  let tools_json, _, _ = Agent_turn.prepare_tools
     ~guardrails
     ~operator_policy:None
     ~policy_channel:None
@@ -112,7 +112,7 @@ let test_turn_override_intersects_operator () =
   let tools = Tool_set.of_list [make_tool "a"; make_tool "b"; make_tool "c"] in
   let turn_params = { Hooks.default_turn_params with
     tool_filter_override = Some (Guardrails.AllowList ["b"; "c"]) } in
-  let tools_json, _ = Agent_turn.prepare_tools
+  let tools_json, _, _ = Agent_turn.prepare_tools
     ~guardrails:Guardrails.default
     ~operator_policy:(Some (Guardrails.AllowList ["a"; "b"]))
     ~policy_channel:None
@@ -129,7 +129,7 @@ let test_turn_override_cannot_widen_operator () =
   let tools = Tool_set.of_list [make_tool "a"; make_tool "b"; make_tool "c"] in
   let turn_params = { Hooks.default_turn_params with
     tool_filter_override = Some (Guardrails.AllowList ["b"]) } in
-  let tools_json, _ = Agent_turn.prepare_tools
+  let tools_json, _, _ = Agent_turn.prepare_tools
     ~guardrails:Guardrails.default
     ~operator_policy:(Some (Guardrails.AllowList ["a"]))
     ~policy_channel:None

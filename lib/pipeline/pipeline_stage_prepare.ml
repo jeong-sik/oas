@@ -190,4 +190,35 @@ let stage_parse ?raw_trace_run agent =
   | None -> ());
 
   let prep = prepare_turn_for_agent agent ~turn_params in
+  (* TurnReady event — emitted after guardrails + operator policy +
+     tool_filter_override + tool_selector have produced the final tool
+     list the LLM will see this turn. Subscribers (e.g. masc-mcp
+     substrate observability) use this to verify deterministically
+     which tools the autonomous agent actually has access to, before
+     making claims about LLM behaviour from a missing tool call.
+     Sibling of TurnStarted (announce) and TurnCompleted (post-LLM). *)
+  (match agent.options.event_bus with
+  | Some bus ->
+      Event_bus.publish bus
+        {
+          meta =
+            Event_bus.mk_envelope
+              ~correlation_id:
+                (match Option.bind agent.options.raw_trace Raw_trace.session_id with
+                | Some session_id -> session_id
+                | None -> Event_bus.fresh_id ())
+              ~run_id:
+                (match Option.bind (lifecycle_snapshot agent) (fun s -> s.current_run_id) with
+                | Some run_id -> run_id
+                | None -> Event_bus.fresh_id ())
+              ();
+          payload =
+            TurnReady
+              {
+                agent_name = agent.state.config.name;
+                turn = agent.state.turn_count;
+                tool_names = prep.visible_tool_names;
+              };
+        }
+  | None -> ());
   (prep, original_config, turn_params)

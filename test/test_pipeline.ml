@@ -111,7 +111,10 @@ let test_agent_turn_preparation () =
      Alcotest.(check int) "2 tools in json" 2 (List.length tools_json)
    | None -> Alcotest.fail "expected tools_json");
   (* effective_messages should contain our user message *)
-  Alcotest.(check int) "1 message" 1 (List.length prep.effective_messages)
+  Alcotest.(check int) "1 message" 1 (List.length prep.effective_messages);
+  (* visible_tool_names mirrors tools_json — exact list LLM sees *)
+  Alcotest.(check (list string)) "visible_tool_names matches"
+    ["a"; "b"] prep.visible_tool_names
 
 let test_agent_turn_idle_detection () =
   let tool_uses = [
@@ -279,7 +282,10 @@ let test_prepare_turn_no_tools () =
   (match prep.tools_json with
    | None -> ()
    | Some _ -> Alcotest.fail "expected no tools_json for empty tool set");
-  Alcotest.(check int) "1 message" 1 (List.length prep.effective_messages)
+  Alcotest.(check int) "1 message" 1 (List.length prep.effective_messages);
+  (* visible_tool_names is empty when no tools survive filtering *)
+  Alcotest.(check (list string)) "empty visible_tool_names"
+    [] prep.visible_tool_names
 
 let test_prepare_turn_preserves_messages () =
   let messages = [

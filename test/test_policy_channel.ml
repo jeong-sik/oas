@@ -63,7 +63,7 @@ let test_channel_restricts_tools () =
   let ch = Policy_channel.create () in
   Policy_channel.push ch (Tool_op.Remove ["shell"]);
   let tools = Tool_set.of_list [make_tool "read"; make_tool "shell"; make_tool "write"] in
-  let tools_json, _ = Agent_turn.prepare_tools
+  let tools_json, _, _ = Agent_turn.prepare_tools
     ~guardrails:Guardrails.default
     ~operator_policy:None
     ~policy_channel:(Some ch)
@@ -76,7 +76,7 @@ let test_channel_restricts_tools () =
 
 let test_channel_none_is_noop () =
   let tools = Tool_set.of_list [make_tool "a"; make_tool "b"] in
-  let tools_json, _ = Agent_turn.prepare_tools
+  let tools_json, _, _ = Agent_turn.prepare_tools
     ~guardrails:Guardrails.default
     ~operator_policy:None
     ~policy_channel:None
@@ -90,7 +90,7 @@ let test_channel_none_is_noop () =
 let test_channel_empty_is_noop () =
   let ch = Policy_channel.create () in
   let tools = Tool_set.of_list [make_tool "a"; make_tool "b"] in
-  let tools_json, _ = Agent_turn.prepare_tools
+  let tools_json, _, _ = Agent_turn.prepare_tools
     ~guardrails:Guardrails.default
     ~operator_policy:None
     ~policy_channel:(Some ch)
@@ -108,7 +108,7 @@ let test_channel_overrides_operator_policy () =
   let ch = Policy_channel.create () in
   Policy_channel.push ch (Tool_op.Intersect_with ["a"]);
   let tools = Tool_set.of_list [make_tool "a"; make_tool "b"; make_tool "c"] in
-  let tools_json, _ = Agent_turn.prepare_tools
+  let tools_json, _, _ = Agent_turn.prepare_tools
     ~guardrails:Guardrails.default
     ~operator_policy:(Some (Guardrails.AllowList ["a"; "b"]))
     ~policy_channel:(Some ch)
@@ -131,7 +131,7 @@ let test_multiple_updates_compose_correctly () =
     make_tool "read"; make_tool "write";
     make_tool "shell"; make_tool "deploy"
   ] in
-  let tools_json, _ = Agent_turn.prepare_tools
+  let tools_json, _, _ = Agent_turn.prepare_tools
     ~guardrails:Guardrails.default
     ~operator_policy:None
     ~policy_channel:(Some ch)

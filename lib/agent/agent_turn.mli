@@ -63,6 +63,19 @@ type turn_preparation = {
   tools_json: Yojson.Safe.t list option;
   effective_messages: Types.message list;
   effective_guardrails: Guardrails.t;
+  visible_tool_names: string list;
+    (** Names of the tools that survived guardrails + operator policy
+        + tool_filter_override + tool_selector. This is exactly the
+        list the LLM sees this turn — not the agent's full tool
+        registry. Useful for [Event_bus.TurnReady] subscribers and
+        deterministic substrate observability. Empty list when no
+        tools are presented to the LLM.
+
+        Order matches [tools_json]: tool_selector ordering is
+        preserved when present, otherwise the guardrail-filtered
+        order from [Tool_set.to_list].
+
+        @since 0.162.0 *)
 }
 
 (** Prepare tool schemas, applying operator policy and optional
@@ -86,7 +99,12 @@ val prepare_tools :
   ?tool_selector:Tool_selector.strategy ->
   ?messages:Types.message list ->
   unit ->
-  Yojson.Safe.t list option * Guardrails.t
+  Yojson.Safe.t list option * string list * Guardrails.t
+(** Returns [(tools_json, visible_tool_names, effective_guardrails)].
+    [visible_tool_names] mirrors the order of [tools_json] and is empty
+    when no tools survive filtering.
+
+    @since 0.162.0 third tuple element added (visible_tool_names) *)
 
 (** Reduce messages and inject extra system context. *)
 val tiered_memory_tokens : tiered_memory option -> int
