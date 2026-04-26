@@ -8,6 +8,12 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.178.0] - 2026-04-26
+
+### Added
+
+- **DashScope native provider support.** Adds a first-class `DashScope` provider kind to correctly expose `supports_tool_choice=true` and `supports_min_p=true` for Qwen models, bypassing the conservative `Ollama` defaults.
+
 ## [0.177.0] - 2026-04-25
 
 ### Fixed
