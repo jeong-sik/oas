@@ -112,7 +112,7 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
       match config.kind with
       | Provider_config.Glm -> glm_messages_of_message
       | Provider_config.Anthropic | Provider_config.Kimi
-      | Provider_config.OpenAI_compat | Provider_config.Ollama
+      | Provider_config.OpenAI_compat | Provider_config.Ollama | Provider_config.DashScope
       | Provider_config.Gemini | Provider_config.Claude_code
       | Provider_config.Gemini_cli | Provider_config.Kimi_cli
       | Provider_config.Codex_cli -> openai_messages_of_message

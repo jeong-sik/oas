@@ -564,7 +564,7 @@ let config_of_provider_config (pc : Llm_provider.Provider_config.t) : config =
     | Glm ->
       OpenAICompat { base_url = pc.base_url; auth_header;
                      path = pc.request_path; static_token }
-    | OpenAI_compat | Ollama ->
+    | OpenAI_compat | Ollama | DashScope ->
       if Llm_provider.Provider_config.is_local pc
       then Local { base_url = pc.base_url }
       else OpenAICompat { base_url = pc.base_url; auth_header;

@@ -58,6 +58,7 @@ val openai_chat_capabilities : capabilities
 val openai_chat_extended_capabilities : capabilities
 val gemini_capabilities : capabilities
 val ollama_capabilities : capabilities
+val dashscope_capabilities : capabilities
 val glm_capabilities : capabilities
 val claude_code_capabilities : capabilities
 val gemini_cli_capabilities : capabilities

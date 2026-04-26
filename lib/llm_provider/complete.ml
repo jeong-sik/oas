@@ -46,7 +46,7 @@ let no_sampling_defaults : sampling_defaults =
 
 let provider_sampling_defaults (kind : Provider_config.provider_kind) : sampling_defaults =
   match kind with
-  | Provider_config.OpenAI_compat ->
+  | Provider_config.OpenAI_compat | Provider_config.DashScope ->
     { default_min_p = Some Constants.Sampling.openai_compat_min_p;
       default_top_p = None; default_top_k = None }
   | Provider_config.Ollama
@@ -97,6 +97,7 @@ let patch_telemetry (resp : Types.api_response) ~(config : Provider_config.t)
   in
   let base_caps = match config.kind with
   | Ollama -> Capabilities.ollama_capabilities
+  | DashScope -> Capabilities.dashscope_capabilities
   | Anthropic -> Capabilities.anthropic_capabilities
   | Kimi -> Capabilities.kimi_capabilities
   | Glm -> Capabilities.glm_capabilities
@@ -136,6 +137,7 @@ let patch_telemetry (resp : Types.api_response) ~(config : Provider_config.t)
     Kept in sync with the log tag used by the [WARN Complete] line. *)
 let provider_name_of_kind : Provider_config.provider_kind -> string = function
   | Ollama -> "ollama"
+  | DashScope -> "dashscope"
   | Anthropic -> "anthropic"
   | Kimi -> "kimi"
   | OpenAI_compat -> "openai"
@@ -247,7 +249,7 @@ let complete_http ~sw ~net
         Backend_anthropic.build_request ~config ~messages ~tools ()
     | Provider_config.Ollama ->
         Backend_ollama.build_request ~config ~messages ~tools ()
-    | Provider_config.OpenAI_compat ->
+    | Provider_config.OpenAI_compat | Provider_config.DashScope ->
         Backend_openai.build_request ~config ~messages ~tools ()
     | Provider_config.Gemini ->
         Backend_gemini.build_request ~config ~messages ~tools ()
@@ -340,7 +342,7 @@ let complete_http ~sw ~net
                  | Ok resp -> Ok resp
                  | Error msg ->
                      Error (Http_client.HttpError { code = 400; body = msg }))
-            | Provider_config.OpenAI_compat ->
+            | Provider_config.OpenAI_compat | Provider_config.DashScope ->
                 (match Backend_openai_parse.parse_openai_response_result body with
                  | Ok resp -> Ok resp
                  | Error msg ->
@@ -708,7 +710,7 @@ let complete_stream_http ~sw:_ ~net ?clock ?stream_idle_timeout_s
            for every streaming caller. NDJSON parser is now in
            Streaming.parse_ollama_ndjson_chunk. *)
         Backend_ollama.build_request ~stream:true ~config ~messages ~tools ()
-    | Provider_config.OpenAI_compat ->
+    | Provider_config.OpenAI_compat | Provider_config.DashScope ->
         Backend_openai.build_request ~stream:true ~config ~messages ~tools ()
     | Provider_config.Gemini ->
         Backend_gemini.build_request ~stream:true ~config ~messages ~tools ()
@@ -778,7 +780,7 @@ let complete_stream_http ~sw:_ ~net ?clock ?stream_idle_timeout_s
                          (match Streaming.parse_sse_event event_type data with
                           | Some evt -> [evt]
                           | None -> [])
-                     | Provider_config.OpenAI_compat ->
+                     | Provider_config.OpenAI_compat | Provider_config.DashScope ->
                          (match Streaming.parse_openai_sse_chunk data with
                           | Some chunk ->
                               Streaming.openai_chunk_to_events

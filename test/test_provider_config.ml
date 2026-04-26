@@ -399,7 +399,7 @@ let test_wire_kind_none_roundtrip () =
     silently skip the new kind otherwise. *)
 let test_all_is_exhaustive () =
   let xs = Provider_config.all_provider_kinds in
-  Alcotest.(check int) "ten canonical variants" 10 (List.length xs);
+  Alcotest.(check int) "eleven canonical variants" 11 (List.length xs);
   Alcotest.(check bool) "no duplicate canonical strings" true
     (let strs = List.map Provider_config.string_of_provider_kind xs in
      List.length strs = List.length (List.sort_uniq compare strs));
@@ -407,7 +407,7 @@ let test_all_is_exhaustive () =
      error here — the check is the compiler, not the runtime. *)
   List.iter (fun k ->
     match (k : Provider_config.provider_kind) with
-    | Anthropic | Kimi | OpenAI_compat | Ollama | Gemini
+    | Anthropic | Kimi | OpenAI_compat | Ollama | Gemini | DashScope
     | Glm | Claude_code | Gemini_cli | Kimi_cli | Codex_cli -> ()
   ) xs
 
@@ -471,7 +471,7 @@ let test_subprocess_partitions_all () =
   let xs = Provider_config.all_provider_kinds in
   let sub, http = List.partition Provider_config.is_subprocess_cli xs in
   Alcotest.(check int) "four subprocess kinds" 4 (List.length sub);
-  Alcotest.(check int) "six http-direct kinds" 6 (List.length http);
+  Alcotest.(check int) "seven http-direct kinds" 7 (List.length http);
   Alcotest.(check int) "partition sums to all" (List.length xs)
     (List.length sub + List.length http)
 

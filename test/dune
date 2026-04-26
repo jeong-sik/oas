@@ -1,537 +1,670 @@
 (test
  (name test_agent_sdk)
+ (modules test_agent_sdk)
  (libraries agent_sdk alcotest yojson eio eio_main))
 
 (test
  (name test_sdk_client_types)
+ (modules test_sdk_client_types)
  (libraries agent_sdk alcotest))
 
 (test
  (name test_sessions_types)
+ (modules test_sessions_types)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_runtime_types)
+ (modules test_runtime_types)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_integration)
+ (modules test_integration)
  (libraries agent_sdk alcotest eio eio_main cohttp-eio yojson))
 
 (test
  (name test_hooks_integration)
+ (modules test_hooks_integration)
  (libraries agent_sdk alcotest eio eio_main cohttp-eio yojson))
 
 (test
  (name test_provider)
+ (modules test_provider)
  (libraries agent_sdk alcotest unix str))
 
 (test
  (name test_provider_registry)
+ (modules test_provider_registry)
  (libraries llm_provider alcotest unix))
 
 (test
  (name test_provider_config)
+ (modules test_provider_config)
  (libraries llm_provider alcotest))
 
 (test
  (name test_provider_bridge)
+ (modules test_provider_bridge)
  (libraries agent_sdk llm_provider alcotest unix))
 
 (test
  (name test_types)
+ (modules test_types)
  (libraries agent_sdk alcotest))
 
 (test
  (name test_hooks)
+ (modules test_hooks)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_agent_config)
+ (modules test_agent_config)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_agent_config_deep)
+ (modules test_agent_config_deep)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_agent_turn_budget_unit)
+ (modules test_agent_turn_budget_unit)
  (libraries agent_sdk alcotest))
 
 (test
  (name test_agent_tool)
+ (modules test_agent_tool)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_agent_typed)
+ (modules test_agent_typed)
  (libraries agent_sdk alcotest))
 
 (test
  (name test_agent_turn)
+ (modules test_agent_turn)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_agent_pipeline)
+ (modules test_agent_pipeline)
  (libraries agent_sdk alcotest yojson eio eio_main cohttp-eio))
 
 (test
  (name test_approval)
+ (modules test_approval)
  (libraries agent_sdk alcotest yojson eio eio_main))
 
 (test
  (name test_context)
+ (modules test_context)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_typed_tool)
+ (modules test_typed_tool)
  (libraries agent_sdk alcotest yojson str))
 
 (test
  (name test_correction_pipeline)
+ (modules test_correction_pipeline)
  (libraries agent_sdk alcotest yojson str))
 
 (test
  (name test_pipeline_metrics)
+ (modules test_pipeline_metrics)
  (libraries agent_sdk alcotest eio eio_main))
 
 (test
  (name test_tool_use_recovery)
+ (modules test_tool_use_recovery)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_typed_tool_safe)
+ (modules test_typed_tool_safe)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_tool_schema_gen)
+ (modules test_tool_schema_gen)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_context_properties)
+ (modules test_context_properties)
  (libraries agent_sdk alcotest yojson qcheck-core qcheck-alcotest))
 
 (test
  (name test_guardrails)
+ (modules test_guardrails)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_handoff)
+ (modules test_handoff)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_event_integration)
+ (modules test_event_integration)
  (libraries agent_sdk alcotest yojson eio eio_main cohttp cohttp-eio uri))
 
 (test
  (name test_multivendor_live)
+ (modules test_multivendor_live)
  (libraries agent_sdk alcotest eio eio_main mirage-crypto-rng.unix))
 
 (executable
  (name test_local_llm)
+ (modules test_local_llm)
  (libraries agent_sdk eio eio_main yojson))
 
 (executable
  (name test_llm_call)
+ (modules test_llm_call)
  (libraries agent_sdk eio eio_main yojson))
 
 (test
  (name test_retry)
+ (modules test_retry)
  (libraries agent_sdk alcotest yojson eio eio_main))
 
 (test
  (name test_streaming)
+ (modules test_streaming)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_streaming_openai)
+ (modules test_streaming_openai)
  (libraries agent_sdk llm_provider alcotest yojson))
 
 (test
  (name test_runtime_server_types)
+ (modules test_runtime_server_types)
  (libraries agent_sdk alcotest eio eio_main))
 
 (test
  (name test_provider_complete)
+ (modules test_provider_complete)
  (libraries llm_provider alcotest yojson eio eio_main))
 
 (test
  (name test_complete_http)
+ (modules test_complete_http)
  (libraries llm_provider alcotest yojson eio eio_main cohttp-eio unix))
 
 (test
  (name test_cache)
+ (modules test_cache)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_streaming_e2e)
+ (modules test_streaming_e2e)
  (libraries agent_sdk eio eio_main yojson))
 
 (test
  (name test_multimodal)
+ (modules test_multimodal)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_tool)
+ (modules test_tool)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_api)
+ (modules test_api)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_session)
+ (modules test_session)
  (libraries agent_sdk alcotest yojson eio eio_main))
 
 (test
  (name test_skill)
+ (modules test_skill)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_subagent)
+ (modules test_subagent)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_agent)
+ (modules test_agent)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_clone)
+ (modules test_clone)
  (libraries agent_sdk alcotest yojson eio eio_main))
 
 (test
  (name test_property)
+ (modules test_property)
  (libraries agent_sdk alcotest qcheck-core qcheck-alcotest yojson))
 
 (test
  (name test_structured)
+ (modules test_structured)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_structured_stream)
+ (modules test_structured_stream)
  (libraries agent_sdk alcotest yojson))
 
 
 (test
  (name test_tracing)
+ (modules test_tracing)
  (libraries agent_sdk alcotest unix str))
 
 (test
  (name test_context_reducer)
+ (modules test_context_reducer)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_tool_result_relocation)
+ (modules test_tool_result_relocation)
  (libraries agent_sdk alcotest yojson unix))
 
 (test
  (name test_context_intent)
+ (modules test_context_intent)
  (libraries agent_sdk alcotest yojson eio eio_main))
 
 (test
  (name test_runtime_server_resolve)
+ (modules test_runtime_server_resolve)
  (libraries agent_sdk alcotest))
 
 (test
  (name test_runtime_server_worker)
+ (modules test_runtime_server_worker)
  (libraries agent_sdk alcotest))
 
 (test
  (name test_runtime_evidence)
+ (modules test_runtime_evidence)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_mcp)
+ (modules test_mcp)
  (libraries agent_sdk alcotest yojson mcp_protocol))
 
 (test
  (name test_checkpoint)
+ (modules test_checkpoint)
  (libraries agent_sdk alcotest yojson unix))
 
 (test
  (name test_checkpoint_delta)
+ (modules test_checkpoint_delta)
  (libraries agent_sdk alcotest qcheck-core qcheck-alcotest yojson unix eio eio_main))
 
 (test
  (name test_mcp_integration)
+ (modules test_mcp_integration)
  (libraries agent_sdk alcotest yojson unix eio eio_main))
 
 (test
  (name test_session_resume)
+ (modules test_session_resume)
  (libraries agent_sdk alcotest yojson unix eio eio_main))
 
 
 (test
  (name test_mcp_session)
+ (modules test_mcp_session)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_builder)
+ (modules test_builder)
  (libraries agent_sdk alcotest eio eio_main yojson))
 
 (test
  (name test_checkpoint_store)
+ (modules test_checkpoint_store)
  (libraries agent_sdk alcotest eio eio_main yojson unix))
 
 (test
  (name test_agent_stream)
+ (modules test_agent_stream)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_orchestrator)
+ (modules test_orchestrator)
  (libraries agent_sdk alcotest yojson eio eio_main unix))
 
 (test
  (name test_event_bus)
+ (modules test_event_bus)
  (libraries agent_sdk alcotest yojson eio eio_main))
 
 (test
  (name test_content_replacement_event_bridge)
+ (modules test_content_replacement_event_bridge)
  (libraries agent_sdk alcotest yojson eio eio_main))
 
 (test
  (name test_slot_scheduler_event_bridge)
+ (modules test_slot_scheduler_event_bridge)
  (libraries agent_sdk llm_provider alcotest yojson eio eio_main))
 
 (test
  (name test_otel)
+ (modules test_otel)
  (libraries agent_sdk alcotest yojson eio eio_main))
 
 (test
  (name test_error)
+ (modules test_error)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_error_domain)
+ (modules test_error_domain)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_otel_tracer)
+ (modules test_otel_tracer)
  (libraries agent_sdk alcotest yojson eio_main))
 
 (test
  (name test_trace_eval)
+ (modules test_trace_eval)
  (libraries agent_sdk alcotest yojson eio eio_main unix))
 
 (test
  (name test_conformance)
+ (modules test_conformance)
  (libraries agent_sdk alcotest yojson unix eio eio_main)
  (deps ../bin/oas_runtime.exe))
 
 (test
  (name test_direct_evidence)
+ (modules test_direct_evidence)
  (libraries agent_sdk alcotest yojson unix eio eio_main cohttp-eio))
 
 (test
  (name test_runtime)
+ (modules test_runtime)
  (libraries agent_sdk alcotest unix eio eio_main)
  (deps ../bin/oas_runtime.exe))
 
 (test
  (name test_raw_trace)
+ (modules test_raw_trace)
  (libraries agent_sdk alcotest yojson unix eio eio_main cohttp-eio))
 
 (test
  (name test_cli_common_subprocess)
+ (modules test_cli_common_subprocess)
  (libraries llm_provider alcotest eio eio_main))
 
 (test
  (name test_budget_strategy)
+ (modules test_budget_strategy)
  (libraries agent_sdk alcotest astring))
 
 (test
  (name test_journal_bridge)
+ (modules test_journal_bridge)
  (libraries agent_sdk alcotest yojson eio eio_main))
 
 (test
  (name test_event_forward)
+ (modules test_event_forward)
  (libraries agent_sdk alcotest yojson eio eio_main))
 
 (test
  (name test_deep_coverage)
+ (modules test_deep_coverage)
  (libraries agent_sdk alcotest yojson eio eio_main))
 
 (test
  (name test_multivendor_events)
+ (modules test_multivendor_events)
  (libraries agent_sdk alcotest yojson eio eio_main))
 
 (test
  (name test_memory_advanced)
+ (modules test_memory_advanced)
  (libraries agent_sdk alcotest eio eio_main qcheck-core qcheck-alcotest))
 
 (test
  (name test_agent_lifecycle)
+ (modules test_agent_lifecycle)
  (libraries agent_sdk alcotest))
 
 (test
  (name test_agent_registry)
+ (modules test_agent_registry)
  (libraries agent_sdk alcotest eio eio_main))
 
 (test
  (name test_durable_event)
+ (modules test_durable_event)
  (libraries agent_sdk alcotest))
 
 (test
  (name test_cdal)
+ (modules test_cdal)
  (libraries agent_sdk alcotest yojson unix str))
 
 (test
  (name test_a2a_client)
+ (modules test_a2a_client)
  (libraries agent_sdk alcotest))
 
 (test
  (name test_a2a_client_cov)
+ (modules test_a2a_client_cov)
  (libraries agent_sdk alcotest eio eio_main cohttp cohttp-eio))
 
 (test
  (name test_a2a_task_store)
+ (modules test_a2a_task_store)
  (libraries agent_sdk alcotest eio eio_main unix))
 
 (test
  (name test_a2a_task_unit)
+ (modules test_a2a_task_unit)
  (libraries agent_sdk alcotest eio eio_main yojson))
 
 (test
  (name test_a2a_full)
+ (modules test_a2a_full)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_a2a)
+ (modules test_a2a)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_eval_baseline)
+ (modules test_eval_baseline)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_eval)
+ (modules test_eval)
  (libraries agent_sdk alcotest yojson eio eio_main))
 
 (test
  (name test_eval_report_full)
+ (modules test_eval_report_full)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_eval_coverage)
+ (modules test_eval_coverage)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_memory_episodic)
+ (modules test_memory_episodic)
  (libraries agent_sdk alcotest))
 
 (test
  (name test_memory_procedural)
+ (modules test_memory_procedural)
  (libraries agent_sdk alcotest))
 
 (test
  (name test_sessions_cov2)
+ (modules test_sessions_cov2)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_sessions_types_deep)
+ (modules test_sessions_types_deep)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_audit)
+ (modules test_audit)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_trajectory)
+ (modules test_trajectory)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_skill_coverage2)
+ (modules test_skill_coverage2)
  (libraries agent_sdk alcotest yojson unix))
 
 (test
  (name test_mcp_coverage)
+ (modules test_mcp_coverage)
  (libraries agent_sdk alcotest unix))
 
 (test
  (name test_mcp_deep)
+ (modules test_mcp_deep)
  (libraries agent_sdk alcotest unix mcp_protocol))
 
 (test
  (name test_mcp_http)
+ (modules test_mcp_http)
  (libraries agent_sdk alcotest eio eio_main))
 
 (test
  (name test_approval_pipeline)
+ (modules test_approval_pipeline)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_structured_deep)
+ (modules test_structured_deep)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_trajectory_unit)
+ (modules test_trajectory_unit)
  (libraries agent_sdk alcotest yojson str))
 
 (test
  (name test_structured_coverage)
+ (modules test_structured_coverage)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_skill_coverage)
+ (modules test_skill_coverage)
  (libraries agent_sdk alcotest))
 
 (test
  (name test_structured_ext)
+ (modules test_structured_ext)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_skill_registry)
+ (modules test_skill_registry)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_skill_discovery)
+ (modules test_skill_discovery)
  (libraries agent_sdk alcotest eio eio_main))
 
 (test
  (name test_memory)
+ (modules test_memory)
  (libraries agent_sdk alcotest))
 
 (test
  (name test_memory_lt_backend)
+ (modules test_memory_lt_backend)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_memory_tools)
+ (modules test_memory_tools)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_memory_file_backend)
+ (modules test_memory_file_backend)
  (libraries agent_sdk alcotest eio eio_main unix))
 
 (test
  (name test_memory_access)
+ (modules test_memory_access)
  (libraries agent_sdk alcotest))
 
 (test
  (name test_memory_coverage)
+ (modules test_memory_coverage)
  (libraries agent_sdk alcotest yojson))
 
 (test
  (name test_harness_case)
+ (modules test_harness_case)
  (libraries agent_sdk alcotest))
 
 (test
  (name test_harness)
+ (modules test_harness)
  (libraries agent_sdk alcotest))
 
 (test
  (name test_harness_runner)
+ (modules test_harness_runner)
  (libraries agent_sdk alcotest unix))
 
 (test
  (name test_harness_deep)
+ (modules test_harness_deep)
  (libraries agent_sdk alcotest))
 
 (test
  (name test_agent_auto_dump)
+ (modules test_agent_auto_dump)
  (libraries agent_sdk alcotest eio eio_main))
 
 (test
  (name test_agent_race)
+ (modules test_agent_race)
  (libraries agent_sdk alcotest eio eio_main yojson))
 
 ; Race test skipped under coverage instrumentation because the
@@ -542,5 +675,6 @@
 ; test_memory_file_backend.
 (test
  (name test_atomic_write_race)
+ (modules test_atomic_write_race)
  (libraries agent_sdk alcotest eio eio_main)
  (enabled_if (<> %{env:BISECT_ENABLE=no} "yes")))

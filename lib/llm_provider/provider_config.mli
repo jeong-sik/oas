@@ -19,6 +19,7 @@ type provider_kind = Provider_kind.t =
   | Ollama  (** Ollama: OpenAI compat wire format + reasoning_effort + no tool_choice. @since 0.112.0 *)
   | Gemini
   | Glm  (** ZhipuAI GLM native: OpenAI wire format + JWT auth + GLM error parsing. @since 0.83.0 *)
+  | DashScope
   | Claude_code  (** Subprocess transport via [claude -p]. @since 0.78.0 *)
   | Gemini_cli  (** Subprocess transport via [gemini -p]. @since 0.133.0 *)
   | Kimi_cli  (** Subprocess transport via [kimi --print]. @since 0.169.0 *)

@@ -250,7 +250,7 @@ let deepseek_defaults = {
 }
 
 let alibaba_defaults = {
-  kind = OpenAI_compat;
+  kind = DashScope;
   base_url = env_or_default "DASHSCOPE_BASE_URL"
     "https://dashscope-intl.aliyuncs.com/compatible-mode/v1";
   api_key_env = "DASHSCOPE_API_KEY";
@@ -313,7 +313,7 @@ let default () =
   reg "deepseek" deepseek_defaults ~max_context:128_000
     Capabilities.openai_chat_capabilities;
   reg "alibaba" alibaba_defaults ~max_context:131_072
-    Capabilities.openai_chat_capabilities;
+    Capabilities.dashscope_capabilities;
   reg "siliconflow" siliconflow_defaults ~max_context:128_000
     Capabilities.openai_chat_capabilities;
   register t { name = "ollama"; defaults = ollama_defaults;
@@ -403,6 +403,7 @@ let provider_name_of_config (config : Provider_config.t) =
   | Kimi_cli -> "kimi_cli"
   | Codex_cli -> "codex_cli"
   | Ollama -> "ollama"
+  | DashScope -> "dashscope"
   | OpenAI_compat ->
       if Provider_config.is_local config then
         "llama"

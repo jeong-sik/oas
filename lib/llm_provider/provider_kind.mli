@@ -15,6 +15,7 @@ type t =
   | Ollama
   | Gemini
   | Glm
+  | DashScope
   | Claude_code
   | Gemini_cli
   | Kimi_cli

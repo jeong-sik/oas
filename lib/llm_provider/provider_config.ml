@@ -12,6 +12,7 @@ type provider_kind = Provider_kind.t =
   | Ollama
   | Gemini
   | Glm
+  | DashScope
   | Claude_code
   | Gemini_cli
   | Kimi_cli
@@ -81,6 +82,7 @@ let make ~kind ~model_id ~base_url
       | Ollama -> "/api/chat"
       | Gemini -> ""
       | Glm -> "/chat/completions"
+      | DashScope -> "/chat/completions"
       | Claude_code | Gemini_cli | Kimi_cli | Codex_cli -> ""
   in
   { kind; model_id; base_url; api_key; headers; request_path;
@@ -185,7 +187,7 @@ let validate_output_schema_request (config : t) =
   | None -> Ok ()
   | Some _ ->
       match config.kind with
-      | Gemini | Anthropic | Ollama -> Ok ()
+      | Gemini | Anthropic | Ollama | DashScope -> Ok ()
       | Kimi ->
           Error
             "Kimi direct API native json_schema output is not verified yet in OAS"

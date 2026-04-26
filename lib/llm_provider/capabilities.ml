@@ -184,6 +184,12 @@ let ollama_capabilities = {
   is_ollama = true;
 }
 
+let dashscope_capabilities = {
+  openai_chat_extended_capabilities with
+  supports_tool_choice = true;
+  supports_min_p = true;
+}
+
 let glm_capabilities = {
   default_capabilities with
   max_context_tokens = Some 200_000;

@@ -251,7 +251,7 @@ let resolve_provider ~model_id provider_str base_url =
             base_url = url; auth_header = None;
             path = "/v1/chat/completions"; static_token = None };
           model_id; api_key_env = "OPENAI_API_KEY" }
-    | Some (Kimi | Ollama | Gemini | Glm | Claude_code | Gemini_cli | Kimi_cli | Codex_cli)
+    | Some (Kimi | Ollama | Gemini | Glm | DashScope | Claude_code | Gemini_cli | Kimi_cli | Codex_cli)
     | None ->
         let registry = Llm_provider.Provider_registry.default () in
         match Llm_provider.Provider_registry.find registry provider_str with

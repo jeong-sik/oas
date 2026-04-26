@@ -69,7 +69,7 @@ let resolve_auto_model_id
     model_id =
   let open Llm_provider.Provider_config in
   match kind with
-  | Ollama | OpenAI_compat ->
+  | Ollama | OpenAI_compat | DashScope ->
       (* Local llama-server and OpenAI-compatible endpoints share the
          "auto" -> discovery -> OLLAMA_DEFAULT_MODEL fallback. Cloud-only
          OpenAI-compatible backends still traverse this branch. *)

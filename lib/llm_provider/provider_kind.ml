@@ -15,6 +15,7 @@ type t =
   | Ollama
   | Gemini
   | Glm
+  | DashScope
   | Claude_code
   | Gemini_cli
   | Kimi_cli
@@ -27,13 +28,14 @@ let to_string = function
   | Ollama -> "ollama"
   | Gemini -> "gemini"
   | Glm -> "glm"
+  | DashScope -> "dashscope"
   | Claude_code -> "claude_code"
   | Gemini_cli -> "gemini_cli"
   | Kimi_cli -> "kimi_cli"
   | Codex_cli -> "codex_cli"
 
 let all : t list =
-  [ Anthropic; Kimi; OpenAI_compat; Ollama; Gemini; Glm
+  [ Anthropic; Kimi; OpenAI_compat; Ollama; Gemini; Glm; DashScope
   ; Claude_code; Gemini_cli; Kimi_cli; Codex_cli ]
 
 let default_api_key_env = function
@@ -41,11 +43,12 @@ let default_api_key_env = function
   | Kimi -> Some "KIMI_API_KEY"
   | Gemini -> Some "GEMINI_API_KEY"
   | Glm -> Some "ZAI_API_KEY"
+  | DashScope -> Some "DASHSCOPE_API_KEY"
   | OpenAI_compat | Ollama | Claude_code | Gemini_cli | Kimi_cli | Codex_cli -> None
 
 let is_subprocess_cli = function
   | Claude_code | Gemini_cli | Kimi_cli | Codex_cli -> true
-  | Anthropic | Kimi | OpenAI_compat | Ollama | Gemini | Glm -> false
+  | Anthropic | Kimi | OpenAI_compat | Ollama | Gemini | Glm | DashScope -> false
 
 let of_string raw =
   match String.lowercase_ascii (String.trim raw) with
@@ -55,6 +58,7 @@ let of_string raw =
   | "ollama" | "llama" -> Some Ollama
   | "gemini" -> Some Gemini
   | "glm" -> Some Glm
+  | "dashscope" | "qwen" -> Some DashScope
   | "claude_code" -> Some Claude_code
   | "gemini_cli" -> Some Gemini_cli
   | "kimi_cli" -> Some Kimi_cli
