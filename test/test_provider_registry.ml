@@ -163,10 +163,10 @@ let test_find_capable_composite () =
 
 (* ── Default registry ───────────────────────────────── *)
 
-let test_default_has_17 () =
+let test_default_has_18 () =
   let reg = Provider_registry.default () in
   let all = Provider_registry.all reg in
-  check int "17 known providers" 17 (List.length all);
+  check int "18 known providers" 18 (List.length all);
   check bool "llama exists" true
     (Option.is_some (Provider_registry.find reg "llama"));
   check bool "ollama exists" true
@@ -189,6 +189,8 @@ let test_default_has_17 () =
     (Option.is_some (Provider_registry.find reg "deepseek"));
   check bool "alibaba exists" true
     (Option.is_some (Provider_registry.find reg "alibaba"));
+  check bool "dashscope exists" true
+    (Option.is_some (Provider_registry.find reg "dashscope"));
   check bool "siliconflow exists" true
     (Option.is_some (Provider_registry.find reg "siliconflow"));
   check bool "claude_code exists" true
@@ -461,7 +463,7 @@ let () =
       test_case "requires_any" `Quick test_requires_any;
     ];
     "default", [
-      test_case "has 17 providers" `Quick test_default_has_17;
+      test_case "has 18 providers" `Quick test_default_has_18;
       test_case "correct capabilities" `Quick test_default_capabilities;
       test_case "max_context values" `Quick test_default_max_context;
       test_case "max_context matches capabilities" `Quick
