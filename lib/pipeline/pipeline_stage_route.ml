@@ -63,6 +63,7 @@ let dispatch_stream ~sw ?clock agent (prep : Agent_turn.turn_preparation) ~on_ev
     Llm_provider.Complete.complete_stream ~sw ~net:agent.net
       ?clock
       ?stream_idle_timeout_s:agent.options.stream_idle_timeout_s
+      ?body_timeout_s:agent.options.body_timeout_s
       ?transport:agent.options.transport ~config:pc
       ~messages:prep.Agent_turn.effective_messages ~tools
       ?runtime_mcp_policy:agent.options.runtime_mcp_policy
