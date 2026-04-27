@@ -76,6 +76,29 @@ type t = {
       can declare its own residency policy without a global env
       variable.
       @since 0.171.0 *)
+  internal_model_rotation_count: int option;
+  (** Number of model attempts the subprocess CLI is configured to
+      cycle through internally before yielding a final response.
+      [None] = SDK has no opinion (the default for non-CLI providers
+      and CLI providers that do not expose rotation visibility).
+
+      Originally surfaced for [Codex_cli], whose vendor binary cycles
+      through 5 candidate models per [codex exec] invocation and
+      returns only the final attempt's outcome. Without this hint a
+      single CLI call appears as one provider attempt to the
+      downstream cascade observer, even though it can take ~180s
+      worst-case (5 model retries with internal backoff). Consumers
+      that want to render the rotation in cascade traces or apply
+      a per-attempt timeout budget can read this hint instead of
+      hard-coding a Codex-specific constant.
+
+      The SDK does not enforce or schedule the rotation; it remains
+      the CLI binary's responsibility. This field is purely
+      declarative metadata so the consumer can reason about the
+      worst-case behaviour of one [Complete.complete] call.
+
+      Honored only as an advisory hint; ignored for non-CLI kinds.
+      @since 0.182.0 *)
   num_ctx: int option;
   (** Ollama [num_ctx] option. Per-request context window allocation
       in tokens. Drives KV cache RAM allocation. [None] leaves the
@@ -114,6 +137,7 @@ val make :
   ?cache_system_prompt:bool ->
   ?supports_tool_choice_override:bool ->
   ?keep_alive:string ->
+  ?internal_model_rotation_count:int ->
   ?num_ctx:int ->
   unit -> t
 
