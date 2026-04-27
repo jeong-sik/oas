@@ -43,6 +43,7 @@ type t = {
   cache_system_prompt: bool;
   supports_tool_choice_override: bool option;
   keep_alive: string option;
+  internal_model_rotation_count: int option;
   num_ctx: int option;
 }
 
@@ -59,6 +60,7 @@ let make ~kind ~model_id ~base_url
     ?(cache_system_prompt=false)
     ?supports_tool_choice_override
     ?keep_alive
+    ?internal_model_rotation_count
     ?num_ctx
     () =
   let response_format =
@@ -91,7 +93,7 @@ let make ~kind ~model_id ~base_url
     tool_stream;
     tool_choice; disable_parallel_tool_use; response_format; output_schema;
     cache_system_prompt; supports_tool_choice_override;
-    keep_alive; num_ctx }
+    keep_alive; internal_model_rotation_count; num_ctx }
 
 (** Helpers for [provider_kind]. Implementations live in {!Provider_kind};
     these re-exports keep the call-site [Provider_config.*] namespace
