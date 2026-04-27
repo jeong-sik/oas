@@ -16,6 +16,7 @@ type options = {
   provider: Provider.config option;
   max_execution_time_s: float option;
   stream_idle_timeout_s: float option;
+  body_timeout_s: float option;
   max_idle_turns: int;
   idle_final_warning_at: int option;
   hooks: Hooks.hooks;
@@ -127,6 +128,7 @@ let default_options = {
   provider = None;
   max_execution_time_s = None;
   stream_idle_timeout_s = None;
+  body_timeout_s = None;
   max_idle_turns = 3;
   idle_final_warning_at = None;
   hooks = Hooks.empty;

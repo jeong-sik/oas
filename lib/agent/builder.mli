@@ -122,6 +122,15 @@ val with_stream_idle_timeout : float -> t -> t
     stream duration. A stalled endpoint surfaces as
     [NetworkError { kind = Timeout; _ }] which the cascade/retry layer
     treats as retryable. @since 0.176.0 *)
+val with_body_timeout : float -> t -> t
+(** Set the total deadline applied to streaming HTTP body consumption.
+    Wraps the body callback in [Eio.Time.with_timeout_exn], complementing
+    [with_stream_idle_timeout] (which only caps inter-line silence).
+    Catches the case where a single bulk read hangs without producing
+    line breaks. Requires a clock to be provided to the underlying
+    request; without one the wrapper is skipped. A timeout surfaces as
+    [NetworkError { kind = Timeout; _ }] which the cascade/retry layer
+    treats as retryable. @since 0.181.0 *)
 val with_max_idle_turns : int -> t -> t
 val with_idle_final_warning_at : int -> t -> t
 val with_elicitation : Hooks.elicitation_callback -> t -> t

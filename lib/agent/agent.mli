@@ -25,6 +25,7 @@ type options = Agent_types.options = {
   provider: Provider.config option;
   max_execution_time_s: float option;
   stream_idle_timeout_s: float option;
+  body_timeout_s: float option;
   max_idle_turns: int;
   idle_final_warning_at: int option;
   hooks: Hooks.hooks;

@@ -8,6 +8,14 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.181.0] - 2026-04-27
+
+### Added
+
+- **`Agent.options.body_timeout_s` (`float option`).** Caps total HTTP body consumption time, distinct from `stream_idle_timeout_s` which only resets between successful lines and so cannot interrupt a single bulk read. On expiry the result is `Error (NetworkError { kind = Timeout; _ })` with a message that names the configured deadline and the `Builder.with_body_timeout` setter, so cascade/retry treats it as retryable while operators retain attribution. Requires `clock`; without one the wrapper is skipped and behaviour matches `<= 0.180.0`. Threaded through `Builder`, `Pipeline.stage_route`, and `Llm_provider.Complete.complete_stream` / `complete_stream_http`.
+- `Builder.with_body_timeout : float -> t -> t` setter.
+- Unit tests (`test/test_body_timeout.ml`) pin the message-prefix contract so future edits cannot silently downgrade body-deadline expiry to `kind = Unknown`.
+
 ## [0.180.0] - 2026-04-27
 
 ### Changed

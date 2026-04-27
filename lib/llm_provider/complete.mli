@@ -143,6 +143,7 @@ val complete_stream :
   net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
   ?clock:_ Eio.Time.clock ->
   ?stream_idle_timeout_s:float ->
+  ?body_timeout_s:float ->
   ?transport:Llm_transport.t ->
   config:Provider_config.t ->
   messages:Types.message list ->
@@ -152,3 +153,13 @@ val complete_stream :
   ?priority:Request_priority.t ->
   unit ->
   (Types.api_response, Http_client.http_error) result
+(** [body_timeout_s] caps the total HTTP body consumption time, in
+    seconds.  Distinct from [stream_idle_timeout_s] (which only resets
+    the deadline between successful lines and cannot interrupt a
+    single bulk read).  Requires [clock]; without one the wrapper is
+    skipped and behaviour matches versions < 0.181.0.  On expiry the
+    result is [Error (NetworkError { kind = Timeout; _ })] with a
+    message that identifies the body deadline (vs inter-line idle), so
+    cascade/retry treats it as retryable while operators retain
+    attribution.  Non-HTTP transports (CLI subprocess) ignore
+    [body_timeout_s].  @since 0.181.0 *)

@@ -39,6 +39,20 @@ type options = {
         layer treats as retryable. CLI transports honour the parallel
         [stdout_idle_timeout_s] knob via the transport's own config.
         @since 0.176.0 *)
+  body_timeout_s: float option;
+    (** Total deadline applied to streaming HTTP body consumption.
+        Wraps the entire body callback passed to
+        {!Llm_provider.Http_client.with_post_stream} in
+        [Eio.Time.with_timeout_exn], complementing
+        [stream_idle_timeout_s] (which only caps inter-line silence).
+        Catches the case where a single bulk read hangs without
+        producing line breaks — uncancellable by the inter-line
+        deadline alone. Requires [clock] to be supplied; without a
+        clock the wrapper is skipped and behaviour matches earlier
+        versions. A timeout surfaces as
+        [NetworkError { kind = Timeout; _ }] which the cascade/retry
+        layer treats as retryable.
+        @since 0.181.0 *)
   max_idle_turns: int;
   idle_final_warning_at: int option;
     (** Threshold for [Hooks.on_idle_escalated] to emit

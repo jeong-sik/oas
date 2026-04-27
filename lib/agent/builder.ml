@@ -31,6 +31,7 @@ type t = {
   provider: Provider.config option;
   max_execution_time_s: float option;
   stream_idle_timeout_s: float option;
+  body_timeout_s: float option;
   max_idle_turns: int;
   idle_final_warning_at: int option;
   hooks: Hooks.hooks;
@@ -102,6 +103,7 @@ let create ~net ~model =
     provider = None;
     max_execution_time_s = None;
     stream_idle_timeout_s = None;
+    body_timeout_s = None;
     max_idle_turns = 3;
     idle_final_warning_at = None;
     hooks = Hooks.empty;
@@ -261,6 +263,7 @@ let with_exit_condition pred b = { b with exit_condition = Some pred }
 let with_event_bus bus b = { b with event_bus = Some bus }
 let with_max_execution_time s b = { b with max_execution_time_s = Some s }
 let with_stream_idle_timeout s b = { b with stream_idle_timeout_s = Some s }
+let with_body_timeout s b = { b with body_timeout_s = Some s }
 let with_max_idle_turns n b = { b with max_idle_turns = n }
 let with_idle_final_warning_at n b = { b with idle_final_warning_at = Some n }
 let with_context_injector injector b = { b with context_injector = Some injector }
@@ -318,6 +321,7 @@ let build b =
     provider = b.provider;
     max_execution_time_s = b.max_execution_time_s;
     stream_idle_timeout_s = b.stream_idle_timeout_s;
+    body_timeout_s = b.body_timeout_s;
     max_idle_turns = b.max_idle_turns;
     idle_final_warning_at = b.idle_final_warning_at;
     hooks = (match b.progressive_tools with

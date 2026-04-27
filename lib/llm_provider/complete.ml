@@ -683,7 +683,7 @@ let complete_with_retry ~sw ~net ?transport ~clock
 include Complete_stream_acc
 
 (* Internal: HTTP-specific streaming implementation. *)
-let complete_stream_http ~sw:_ ~net ?clock ?stream_idle_timeout_s
+let complete_stream_http ~sw:_ ~net ?clock ?stream_idle_timeout_s ?body_timeout_s
     ~(config : Provider_config.t)
     ~(messages : Types.message list) ~tools
     ~(on_event : Types.sse_event -> unit) () =
@@ -737,6 +737,7 @@ let complete_stream_http ~sw:_ ~net ?clock ?stream_idle_timeout_s
   match Http_client.with_post_stream ?clock ~net ~url
           ~headers:config.headers ~body:body_with_stream
           ~f:(fun reader ->
+            let body_logic () =
             let acc = create_stream_acc () in
             let openai_state = ref None in
             let get_state () =
@@ -806,7 +807,33 @@ let complete_stream_http ~sw:_ ~net ?clock ?stream_idle_timeout_s
                    in
                    dispatch events
                  ) ());
-            finalize_stream_acc acc) () with
+            finalize_stream_acc acc
+            in
+            (* Body-level deadline (since 0.181.0). Wraps the entire
+               body callback in [Eio.Time.with_timeout_exn] so a single
+               bulk read that produces no line breaks cannot hang
+               indefinitely — [stream_idle_timeout_s] only resets
+               between lines, leaving in-line silence uncovered.
+
+               No silent failure: on expiry we raise an inner [Error]
+               whose message carries the configured deadline, and the
+               outer match below promotes it to
+               [NetworkError { kind = Timeout }] so the cascade/retry
+               layer treats it as retryable. *)
+            match clock, body_timeout_s with
+            | Some clk, Some timeout_s ->
+                (try Eio.Time.with_timeout_exn clk timeout_s body_logic
+                 with Eio.Time.Timeout ->
+                   Error (Printf.sprintf
+                     "body_timeout_s deadline exceeded after %.1fs \
+                      (configured via Builder.with_body_timeout; \
+                      total body consumption cap, distinct from \
+                      stream_idle_timeout_s)" timeout_s))
+            | _, _ ->
+                (* Explicit no-deadline path: caller did not provide a
+                   clock or did not configure body_timeout_s. Behaviour
+                   matches versions < 0.181.0. *)
+                body_logic ()) () with
   | Error _ as e -> e
   | Ok (Ok resp) ->
       let latency_ms = int_of_float ((Unix.gettimeofday () -. t0) *. 1000.0) in
@@ -841,11 +868,22 @@ let complete_stream_http ~sw:_ ~net ?clock ?stream_idle_timeout_s
         | _ -> resp
       in
       Ok (patch_telemetry resp ~config latency_ms)
+  | Ok (Error msg)
+    when String.length msg >= 31
+         && String.equal
+              (String.sub msg 0 31)
+              "body_timeout_s deadline exceeded" ->
+      (* Promote body-deadline expiry to a structured Timeout so
+         cascade/retry treats it as retryable, matching the
+         stream_idle_timeout_s docstring contract. The full message
+         (including the configured deadline value) is preserved so
+         operators can distinguish body vs inter-line timeout. *)
+      Error (Http_client.NetworkError { message = msg; kind = Timeout })
   | Ok (Error msg) ->
       Error (Http_client.NetworkError {
         message = Printf.sprintf "SSE stream error: %s" msg; kind = Unknown })
 
-let complete_stream ~sw ~net ?clock ?stream_idle_timeout_s
+let complete_stream ~sw ~net ?clock ?stream_idle_timeout_s ?body_timeout_s
     ?(transport : Llm_transport.t option)
     ~(config : Provider_config.t)
     ~(messages : Types.message list) ?(tools=[])
@@ -872,7 +910,7 @@ let complete_stream ~sw ~net ?clock ?stream_idle_timeout_s
     Error (Http_client.CliTransportRequired {
       kind = Provider_registry.provider_name_of_config config })
   | None ->
-    complete_stream_http ~sw ~net ?clock ?stream_idle_timeout_s
+    complete_stream_http ~sw ~net ?clock ?stream_idle_timeout_s ?body_timeout_s
       ~config ~messages ~tools ~on_event ()
   in
   Result.map (fun resp ->
