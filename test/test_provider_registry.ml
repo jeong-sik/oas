@@ -187,10 +187,10 @@ let test_default_has_18 () =
     (Option.is_some (Provider_registry.find reg "groq"));
   check bool "deepseek exists" true
     (Option.is_some (Provider_registry.find reg "deepseek"));
-  check bool "alibaba exists" true
-    (Option.is_some (Provider_registry.find reg "alibaba"));
   check bool "dashscope exists" true
     (Option.is_some (Provider_registry.find reg "dashscope"));
+  check bool "alibaba exists" true
+    (Option.is_some (Provider_registry.find reg "alibaba"));
   check bool "siliconflow exists" true
     (Option.is_some (Provider_registry.find reg "siliconflow"));
   check bool "claude_code exists" true
@@ -243,6 +243,9 @@ let test_default_max_context () =
   (match Provider_registry.find reg "deepseek" with
    | Some e -> check int "deepseek 128K" 128_000 e.max_context
    | None -> fail "deepseek should exist");
+  (match Provider_registry.find reg "dashscope" with
+   | Some e -> check int "dashscope 131K" 131_072 e.max_context
+   | None -> fail "dashscope should exist");
   (match Provider_registry.find reg "alibaba" with
    | Some e -> check int "alibaba 131K" 131_072 e.max_context
    | None -> fail "alibaba should exist");
