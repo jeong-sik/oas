@@ -8,6 +8,12 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.179.0] - 2026-04-27
+
+### Added
+
+- **`Event_bus.payload_kind` SSOT helper.** Adds `payload_kind : payload -> string` so downstream consumers can categorize events by kind without maintaining exhaustive match sites that break on variant addition.
+
 ## [0.178.0] - 2026-04-26
 
 ### Added
