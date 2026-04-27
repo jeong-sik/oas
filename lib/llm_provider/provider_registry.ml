@@ -249,7 +249,7 @@ let deepseek_defaults = {
   request_path = "/chat/completions";
 }
 
-let alibaba_defaults = {
+let dashscope_defaults = {
   kind = DashScope;
   base_url = env_or_default "DASHSCOPE_BASE_URL"
     "https://dashscope-intl.aliyuncs.com/compatible-mode/v1";
@@ -312,9 +312,9 @@ let default () =
     Capabilities.openai_chat_capabilities;
   reg "deepseek" deepseek_defaults ~max_context:128_000
     Capabilities.openai_chat_capabilities;
-  reg "alibaba" alibaba_defaults ~max_context:131_072
+  reg "dashscope" dashscope_defaults ~max_context:131_072
     Capabilities.dashscope_capabilities;
-  reg "dashscope" alibaba_defaults ~max_context:131_072
+  reg "alibaba" dashscope_defaults ~max_context:131_072
     Capabilities.dashscope_capabilities;
   reg "siliconflow" siliconflow_defaults ~max_context:128_000
     Capabilities.openai_chat_capabilities;

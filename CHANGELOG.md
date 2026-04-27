@@ -8,6 +8,16 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.180.0] - 2026-04-27
+
+### Changed
+
+- **`Provider_registry`: rename `alibaba_defaults` → `dashscope_defaults`.** Canonical name follows the `DashScope` provider kind introduced in 0.178.0. The `alibaba` registry entry remains as alias for backward compatibility, both pointing to the same defaults.
+
+### Added
+
+- Test coverage for `dashscope` registry lookup (max_context 131K, dashscope_capabilities).
+
 ## [0.179.0] - 2026-04-27
 
 ### Added
