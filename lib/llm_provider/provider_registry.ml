@@ -314,6 +314,8 @@ let default () =
     Capabilities.openai_chat_capabilities;
   reg "alibaba" alibaba_defaults ~max_context:131_072
     Capabilities.dashscope_capabilities;
+  reg "dashscope" alibaba_defaults ~max_context:131_072
+    Capabilities.dashscope_capabilities;
   reg "siliconflow" siliconflow_defaults ~max_context:128_000
     Capabilities.openai_chat_capabilities;
   register t { name = "ollama"; defaults = ollama_defaults;
