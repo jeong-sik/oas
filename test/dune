@@ -4,6 +4,11 @@
  (libraries agent_sdk alcotest yojson eio eio_main))
 
 (test
+ (name test_eio_cancellability)
+ (modules test_eio_cancellability)
+ (libraries alcotest eio eio_main eio.unix unix))
+
+(test
  (name test_sdk_client_types)
  (modules test_sdk_client_types)
  (libraries agent_sdk alcotest))
