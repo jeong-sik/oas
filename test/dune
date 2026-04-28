@@ -214,6 +214,11 @@
  (libraries agent_sdk alcotest yojson))
 
 (test
+ (name test_eval_report)
+ (modules test_eval_report)
+ (libraries agent_sdk alcotest yojson))
+
+(test
  (name test_guardrail_llm)
  (modules test_guardrail_llm)
  (libraries agent_sdk alcotest))
