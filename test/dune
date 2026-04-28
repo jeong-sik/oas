@@ -828,6 +828,11 @@
  (libraries agent_sdk alcotest yojson))
 
 (test
+ (name test_memory_tools_parse)
+ (modules test_memory_tools_parse)
+ (libraries agent_sdk alcotest yojson))
+
+(test
  (name test_memory_file_backend)
  (modules test_memory_file_backend)
  (libraries agent_sdk alcotest eio eio_main unix))

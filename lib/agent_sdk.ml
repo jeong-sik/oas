@@ -153,6 +153,7 @@ module Memory = Memory
 module Memory_file_backend = Memory_file_backend
 module Memory_access = Memory_access
 module Memory_tools = Memory_tools
+module Memory_tools_parse = Memory_tools_parse
 module Verified_output = Verified_output
 module Succession = Succession
 module Guardrails_async = Guardrails_async
