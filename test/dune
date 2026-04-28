@@ -179,6 +179,36 @@
  (libraries agent_sdk alcotest yojson))
 
 (test
+ (name test_fs_result)
+ (modules test_fs_result)
+ (libraries agent_sdk alcotest))
+
+(test
+ (name test_log)
+ (modules test_log)
+ (libraries agent_sdk alcotest))
+
+(test
+ (name test_metrics)
+ (modules test_metrics)
+ (libraries agent_sdk alcotest eio eio_main))
+
+(test
+ (name test_tool_op)
+ (modules test_tool_op)
+ (libraries agent_sdk alcotest qcheck-core qcheck-alcotest))
+
+(test
+ (name test_uncertain)
+ (modules test_uncertain)
+ (libraries agent_sdk alcotest))
+
+(test
+ (name test_policy)
+ (modules test_policy)
+ (libraries agent_sdk alcotest))
+
+(test
  (name test_tool_schema_gen)
  (modules test_tool_schema_gen)
  (libraries agent_sdk alcotest yojson))
