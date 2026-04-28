@@ -93,6 +93,7 @@ module Harness_report = Harness_report
 module Harness_runner = Harness_runner
 module Eval = Eval
 module Eval_collector = Eval_collector
+module Eval_otel_bridge = Eval_otel_bridge
 module Trajectory = Trajectory
 module Sandbox_runner = Sandbox_runner
 module Autonomy_exec = Autonomy_exec
