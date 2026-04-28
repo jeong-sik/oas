@@ -87,7 +87,8 @@ Version sources (must always match, enforced by CI):
 | Source | Location |
 |--------|----------|
 | `dune-project` | `(version X.Y.Z)` |
-| `lib/agent_sdk.ml` | `let version = "X.Y.Z"` |
+| `lib/sdk_version.ml` | `let version = "X.Y.Z"` (primary source) |
+| `lib/agent_sdk.ml` | `let version = Sdk_version.version` (re-exports sdk_version) |
 
 ### Release process
 
