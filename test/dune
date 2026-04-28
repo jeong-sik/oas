@@ -903,3 +903,8 @@
  (name test_util)
  (modules test_util)
  (libraries agent_sdk alcotest str))
+
+(test
+ (name test_defaults)
+ (modules test_defaults)
+ (libraries agent_sdk alcotest unix))
