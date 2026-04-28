@@ -908,3 +908,8 @@
  (name test_defaults)
  (modules test_defaults)
  (libraries agent_sdk alcotest unix))
+
+(test
+ (name test_metric_contract)
+ (modules test_metric_contract)
+ (libraries agent_sdk alcotest str))
