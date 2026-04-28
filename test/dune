@@ -129,6 +129,26 @@
  (libraries agent_sdk alcotest yojson))
 
 (test
+ (name test_http_client)
+ (modules test_http_client)
+ (libraries agent_sdk llm_provider alcotest yojson))
+
+(test
+ (name test_sse_parser)
+ (modules test_sse_parser)
+ (libraries agent_sdk llm_provider alcotest eio eio_main))
+
+(test
+ (name test_stream_accumulator)
+ (modules test_stream_accumulator)
+ (libraries agent_sdk llm_provider alcotest))
+
+(test
+ (name test_streaming_coverage)
+ (modules test_streaming_coverage)
+ (libraries agent_sdk llm_provider alcotest))
+
+(test
  (name test_tool_set)
  (modules test_tool_set)
  (libraries agent_sdk alcotest qcheck-core qcheck-alcotest))
