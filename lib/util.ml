@@ -66,3 +66,7 @@ let contains_substring_ci ~haystack ~needle =
       else loop (i + 1)
     in
     loop 0
+
+let regex_match re str =
+  try ignore (Str.search_forward re str 0); true
+  with Not_found -> false

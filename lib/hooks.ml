@@ -80,14 +80,14 @@ let extract_reasoning (messages : message list) : reasoning_summary =
     "might be wrong"; "unsure"; "probably"; "I think";
   ] in
   let has_uncertainty = List.exists (fun marker ->
-    Str_match.contains (Str.regexp_string_case_fold marker) all_text
+    Util.regex_match (Str.regexp_string_case_fold marker) all_text
   ) uncertainty_markers in
   let tool_rationale =
     (* Look for the last thinking block that mentions tool selection *)
     let tool_markers = ["tool"; "function"; "call"; "use"] in
     List.find_map (fun block ->
       if List.exists (fun marker ->
-        Str_match.contains (Str.regexp_string_case_fold marker) block
+        Util.regex_match (Str.regexp_string_case_fold marker) block
       ) tool_markers then Some block
       else None
     ) (List.rev thinking_blocks)

@@ -39,3 +39,6 @@ val safe_sub : string -> int -> int -> string
 
 (** Case-insensitive substring search. *)
 val contains_substring_ci : haystack:string -> needle:string -> bool
+
+(** [regex_match re s] returns [true] if regex [re] matches anywhere in [s]. *)
+val regex_match : Str.regexp -> string -> bool
