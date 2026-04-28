@@ -8,6 +8,16 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.183.0] - 2026-04-28
+
+### Changed
+
+- **Removed `lib/str_match.{ml,mli}` thin wrapper (#1221 via #1223).** The 4-line `Str.search_forward` wrapper was used at 6 call sites across 4 files (`approval.ml`, `harness.ml`, `hooks.ml`, `orchestrator.ml`). Folded the helper into `Util.regex_match` where the rest of the shared substring/regex utilities live. No behavioral change — the compiled `Str.search_forward` body is identical.
+
+### Added
+
+- **`Util.regex_match : Str.regexp -> string -> bool`.** Boolean wrapper around `Str.search_forward` that returns `false` instead of raising `Not_found`. Exposed alongside the existing `safe_sub`, `contains_substring_ci`, and `clip` helpers.
+
 ## [0.182.0] - 2026-04-28
 
 ### Added
