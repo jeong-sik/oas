@@ -123,13 +123,17 @@ jobs:
           opam exec -- bisect-ppx-report summary --per-file --coverage-path=_coverage || true
 
           # Baseline, not aspiration. #250 set this to 80% but the parser
-          # bug (fixed in this PR) meant the gate never actually fired, so
+          # bug (fixed in #1171) meant the gate never actually fired, so
           # the 80% number was always hypothetical. First real measurement
-          # under correct instrumentation is 66.42% (run 24887636744). We
-          # ratchet-pin the floor to 66% and require non-regression only;
-          # raising the floor is tracked as a separate follow-up so this
-          # PR remains a pure measurement fix.
-          THRESHOLD=66
+          # under correct instrumentation was 66.42% (run 24887636744).
+          #
+          # 2026-04-28: orphan-test sweep (#1224 → #1229 → #1230 → #1231 →
+          # #1232 → #1233 → #1234 → #1235) registered 37 previously
+          # 0%-covered modules. Coverage on run 25039242435 (sha 755c04b0,
+          # batch-5 merge) measured 72.47%. Floor raised to 71 per #1175
+          # plan ("After each step, raise THRESHOLD to floor(measured - 1)
+          # to prevent regression without blocking noise").
+          THRESHOLD=71
           if [ "$(echo "$COVERAGE < $THRESHOLD" | bc -l)" -eq 1 ]; then
             echo "::error::Coverage ${COVERAGE}% is below threshold ${THRESHOLD}%"
             exit 1
