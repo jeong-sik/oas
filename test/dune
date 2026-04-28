@@ -204,6 +204,11 @@
  (libraries agent_sdk alcotest))
 
 (test
+ (name test_eval_stats)
+ (modules test_eval_stats)
+ (libraries agent_sdk alcotest fmt))
+
+(test
  (name test_eval_otel_bridge)
  (modules test_eval_otel_bridge)
  (libraries agent_sdk alcotest yojson))
