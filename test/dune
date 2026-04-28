@@ -179,6 +179,36 @@
  (libraries agent_sdk alcotest yojson))
 
 (test
+ (name test_consumer)
+ (modules test_consumer)
+ (libraries agent_sdk alcotest eio eio_main cohttp-eio yojson))
+
+(test
+ (name test_context_offload)
+ (modules test_context_offload)
+ (libraries agent_sdk alcotest))
+
+(test
+ (name test_provider_intf)
+ (modules test_provider_intf)
+ (libraries agent_sdk alcotest))
+
+(test
+ (name test_tool_index)
+ (modules test_tool_index)
+ (libraries agent_sdk alcotest))
+
+(test
+ (name test_tool_input_validation)
+ (modules test_tool_input_validation)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_tool_middleware)
+ (modules test_tool_middleware)
+ (libraries agent_sdk alcotest yojson))
+
+(test
  (name test_fs_result)
  (modules test_fs_result)
  (libraries agent_sdk alcotest))
