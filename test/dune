@@ -561,6 +561,11 @@
  (libraries agent_sdk alcotest yojson eio eio_main))
 
 (test
+ (name test_event_envelope)
+ (modules test_event_envelope)
+ (libraries agent_sdk alcotest yojson))
+
+(test
  (name test_content_replacement_event_bridge)
  (modules test_content_replacement_event_bridge)
  (libraries agent_sdk alcotest yojson eio eio_main))
