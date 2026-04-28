@@ -918,3 +918,8 @@
  (name test_cdal_proof)
  (modules test_cdal_proof)
  (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_artifact_service)
+ (modules test_artifact_service)
+ (libraries agent_sdk alcotest))
