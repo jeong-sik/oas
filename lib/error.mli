@@ -11,8 +11,8 @@ module Retry = Llm_provider.Retry
 
 (** {1 Domain error types} *)
 
-(** API errors — same type as {!Retry.api_error}. *)
-type api_error = Retry.api_error
+(** API errors — same type as {!Llm_provider.Retry.api_error}. *)
+type api_error = Llm_provider.Retry.api_error
 
 type agent_error =
   | MaxTurnsExceeded of { turns: int; limit: int }

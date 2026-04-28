@@ -1,3 +1,5 @@
+module Retry = Llm_provider.Retry
+
 (** Provider interface module types.
 
     Defines PROVIDER and STREAMING_PROVIDER as first-class module types.

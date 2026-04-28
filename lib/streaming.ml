@@ -1,3 +1,5 @@
+module Retry = Llm_provider.Retry
+
 (** SSE streaming client for multi-provider LLM APIs.
 
     Supports Anthropic (native SSE) and OpenAI-compatible (SSE).

@@ -1,3 +1,5 @@
+module Retry = Llm_provider.Retry
+
 (** Turn pipeline: 6-stage decomposition of agent turn execution.
 
     Replaces the monolithic run_turn_core with named stages:

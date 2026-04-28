@@ -57,7 +57,7 @@ val create_message :
   ?base_url:string ->
   ?provider:Provider.config ->
   ?clock:_ Eio.Time.clock ->
-  ?retry_config:Retry.retry_config ->
+  ?retry_config:Llm_provider.Retry.retry_config ->
   ?request_timeout_s:float ->
   config:Types.agent_state ->
   messages:Types.message list ->
@@ -67,7 +67,7 @@ val create_message :
   (Types.api_response, Error.sdk_error) result
 (** When [clock] is supplied, the HTTP request is bounded by
     [request_timeout_s] (default [Api_common.default_request_timeout_s]).
-    A timed-out request is classified as [Retry.Timeout] which is
+    A timed-out request is classified as [Llm_provider.Retry.Timeout] which is
     retryable by default. Without a clock no timeout is applied. *)
 
 
