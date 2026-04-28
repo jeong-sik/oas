@@ -8,6 +8,25 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.182.0] - 2026-04-28
+
+### Added
+
+- **`Provider_config.internal_model_rotation_count` hint (#1211).** Threaded through provider config so cascade/orchestrator layers can observe how many internal rotations a provider has performed. Read-only hint; default is 0.
+
+### Tests
+
+- **Eio HTTP body cancellation regression guard (#1210).** Pins the cancellation-propagation contract for `Llm_provider.Http_client` so future edits cannot silently drop body-read interruption.
+- **Register orphan `test_tool_set` with QCheck deps (#1179, via #1224).** Closes the last orphan from the #1025 series; cold-cache `dune build @check` no longer fails on `Unbound module QCheck` for `test/test_tool_set.ml`.
+
+### Docs
+
+- **CLAUDE.md / CONTRIBUTING.md SSOT alignment (#1215, #1216, #1217, #1218 via #1222).** Bumps the AI-assistant reference from a hardcoded `v0.149.0` to the SSOT (`lib/sdk_version.ml`), corrects the `CONTRIBUTING.md` version-source pointer (`agent_sdk.ml` → `sdk_version.ml`), and expands the Provider Support table to list `backend_anthropic`, `backend_openai`, `backend_gemini`, `backend_glm`, `backend_ollama` as the actual concrete backends.
+
+### Closed (no code change)
+
+- **#1219 — `Proof_store` public Read API.** Verified resolved by masc-mcp PR #11512: `proof_artifact_reader.ml` now delegates to `Oas.Proof_store.{resolve_ref, make_ref, read_json}` instead of hardcoding the OAS internal layout. The OAS-side Read API was already sufficient.
+
 ## [0.181.0] - 2026-04-27
 
 ### Added
