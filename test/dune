@@ -591,6 +591,11 @@
  (libraries llm_provider alcotest))
 
 (test
+ (name test_capability_filter)
+ (modules test_capability_filter)
+ (libraries llm_provider alcotest))
+
+(test
  (name test_error_domain)
  (modules test_error_domain)
  (libraries agent_sdk llm_provider alcotest yojson))
