@@ -6,6 +6,8 @@
     output via {!Llm_provider.Complete}. Unsupported providers fail fast
     instead of silently falling back to prompt-only JSON mode. *)
 
+module Retry = Llm_provider.Retry
+
 open Types
 
 type 'a schema = {

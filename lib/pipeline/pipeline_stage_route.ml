@@ -1,3 +1,5 @@
+module Retry = Llm_provider.Retry
+
 open Agent_types
 
 let ( let* ) = Result.bind

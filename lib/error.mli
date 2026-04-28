@@ -7,6 +7,8 @@
     @stability Stable
     @since 0.93.1 *)
 
+module Retry = Llm_provider.Retry
+
 (** {1 Domain error types} *)
 
 (** API errors — same type as {!Retry.api_error}. *)

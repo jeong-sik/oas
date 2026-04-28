@@ -17,6 +17,7 @@
       exactly once with matching [latency_ms >= 0]. *)
 
 open Agent_sdk
+module Retry = Llm_provider.Retry
 
 let mk_mock_response () : Types.api_response =
   { id = "test-msg-1";

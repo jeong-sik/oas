@@ -8,6 +8,8 @@
     5. Execute — tool execution on StopToolUse (idle detection, guardrails)
     6. Output  — stop reason → turn_outcome *)
 
+module Retry = Llm_provider.Retry
+
 open Types
 open Agent_types
 open Agent_trace

@@ -121,7 +121,7 @@
 (test
  (name test_pipeline_metrics)
  (modules test_pipeline_metrics)
- (libraries agent_sdk alcotest eio eio_main))
+ (libraries agent_sdk llm_provider alcotest eio eio_main))
 
 (test
  (name test_tool_use_recovery)
@@ -181,7 +181,7 @@
 (test
  (name test_retry)
  (modules test_retry)
- (libraries agent_sdk alcotest yojson eio eio_main))
+ (libraries agent_sdk llm_provider alcotest yojson eio eio_main))
 
 (test
  (name test_streaming)
@@ -383,12 +383,12 @@
 (test
  (name test_error)
  (modules test_error)
- (libraries agent_sdk alcotest yojson))
+ (libraries agent_sdk llm_provider alcotest yojson))
 
 (test
  (name test_error_domain)
  (modules test_error_domain)
- (libraries agent_sdk alcotest yojson))
+ (libraries agent_sdk llm_provider alcotest yojson))
 
 (test
  (name test_otel_tracer)

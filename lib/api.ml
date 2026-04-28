@@ -1,5 +1,7 @@
 (** API dispatch — re-exports provider modules and routes create_message *)
 
+module Retry = Llm_provider.Retry
+
 open Types
 
 type response_accept = Types.api_response -> (unit, string) result
