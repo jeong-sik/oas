@@ -6,6 +6,8 @@
     {b Compile-time guarantee}: attempting to pass a non-streaming
     provider as STREAMING_PROVIDER produces a type error. *)
 
+module Retry = Llm_provider.Retry
+
 (** Synchronous provider: can send a message and get a response. *)
 module type PROVIDER = sig
   type t

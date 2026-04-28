@@ -1,6 +1,7 @@
 (** Error_domain tests — roundtrip conversion and retryability. *)
 
 open Agent_sdk
+module Retry = Llm_provider.Retry
 
 (* ── Roundtrip: sdk_error -> poly -> sdk_error ───────────── *)
 

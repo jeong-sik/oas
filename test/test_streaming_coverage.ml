@@ -5,6 +5,7 @@
     are not exercised by the existing test_streaming.ml. *)
 
 open Agent_sdk
+module Retry = Llm_provider.Retry
 open Types
 
 (* ── Helpers ────────────────────────────────────────────────────── *)

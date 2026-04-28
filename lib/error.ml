@@ -9,6 +9,8 @@
     - [Internal] is reserved for unreachable sentinel handlers (handoff.ml).
     - [to_string] produces human-readable messages compatible with v0.8.x. *)
 
+module Retry = Llm_provider.Retry
+
 (** API errors — alias for {!Retry.api_error}. *)
 type api_error = Retry.api_error
 

@@ -3,6 +3,8 @@
     @stability Evolving
     @since 0.93.1 *)
 
+module Retry = Llm_provider.Retry
+
 type response_accept = Types.api_response -> (unit, string) result
 
 (** {1 Re-exports from Api_common} *)

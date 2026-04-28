@@ -5,6 +5,8 @@
     {!Llm_provider.Streaming}. The HTTP streaming client remains here
     due to agent_state/Provider/Error coupling. *)
 
+module Retry = Llm_provider.Retry
+
 open Types
 
 (* Re-export pure functions from llm_provider *)

@@ -2,6 +2,7 @@
 
 open Alcotest
 open Agent_sdk
+module Retry = Llm_provider.Retry
 
 let sdk_error_testable =
   Alcotest.testable

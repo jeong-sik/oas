@@ -1,5 +1,7 @@
 (** Fine-grained error domains using polymorphic variants. *)
 
+module Retry = Llm_provider.Retry
+
 type provider_error = [
   | `Rate_limited of float option
   | `Auth_error of string
