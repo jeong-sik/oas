@@ -898,3 +898,8 @@
  (name test_body_timeout)
  (modules test_body_timeout)
  (libraries agent_sdk alcotest))
+
+(test
+ (name test_util)
+ (modules test_util)
+ (libraries agent_sdk alcotest str))
