@@ -148,7 +148,7 @@ let test_shared_channel_between_agents () =
   let ch = Policy_channel.create () in
   let tools = Tool_set.of_list [make_tool "read"; make_tool "shell"] in
   (* Before push: child sees all *)
-  let tools_json_before, _ = Agent_turn.prepare_tools
+  let tools_json_before, _, _ = Agent_turn.prepare_tools
     ~guardrails:Guardrails.default
     ~operator_policy:None
     ~policy_channel:(Some ch)
@@ -161,7 +161,7 @@ let test_shared_channel_between_agents () =
   (* Parent pushes Remove ["shell"] *)
   Policy_channel.push ch (Tool_op.Remove ["shell"]);
   (* After push: child sees reduced set *)
-  let tools_json_after, _ = Agent_turn.prepare_tools
+  let tools_json_after, _, _ = Agent_turn.prepare_tools
     ~guardrails:Guardrails.default
     ~operator_policy:None
     ~policy_channel:(Some ch)
