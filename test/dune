@@ -129,6 +129,11 @@
  (libraries agent_sdk alcotest yojson))
 
 (test
+ (name test_tool_set)
+ (modules test_tool_set)
+ (libraries agent_sdk alcotest qcheck-core qcheck-alcotest))
+
+(test
  (name test_typed_tool_safe)
  (modules test_typed_tool_safe)
  (libraries agent_sdk alcotest yojson))
