@@ -8,6 +8,12 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.184.0] - 2026-04-28
+
+### Fixed
+
+- **SSE keepalive comments no longer reset `stream_idle_timeout`** in `Llm_provider.Http_client.read_sse`. Per the W3C EventSource spec, lines starting with `:` are comments / keepalives and carry no event payload. Previously these lines reset the `Eio.Time.with_timeout_exn` deadline like any other line, so a provider that emitted only keepalives without ever sending `event:` / `data:` lines would never trip the idle timeout — the entire stream had to wait for the upstream consumer's hard cap (downstream observed: keeper turn-level 3600s wall-clock). Now keepalive skipping happens inside the same timeout window, preserving the deadline across an arbitrary number of keepalives. `read_ndjson` is unaffected (NDJSON has no comment concept). Public API surface unchanged; semantic of the existing `?idle_timeout` parameter is now "inter-event idle" instead of "inter-line idle". Companion regression test: `test/test_streaming_keepalive_idle.ml`.
+
 ## [0.183.0] - 2026-04-28
 
 ### Changed

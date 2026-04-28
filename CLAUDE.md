@@ -1,6 +1,6 @@
 # OAS — OCaml Agent SDK
 
-OCaml 5.x + Eio 기반 에이전트 SDK. 버전 SSOT: `lib/sdk_version.ml` (현재 `0.183.0`).
+OCaml 5.x + Eio 기반 에이전트 SDK. 버전 SSOT: `lib/sdk_version.ml` (현재 `0.184.0`).
 
 ## Architecture
 
