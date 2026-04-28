@@ -14,6 +14,10 @@ original tag dates. `0.100.4` was never tagged or released.
 
 - **`Provider_config.internal_model_rotation_count` hint (#1211).** Threaded through provider config so cascade/orchestrator layers can observe how many internal rotations a provider has performed. Read-only hint; default is 0.
 
+### Changed
+
+- **Removed `lib/retry.{ml,mli}` and `lib/sse_parser.{ml,mli}` thin re-export shims (#1220 via #1225).** Both files were 1-line `include Llm_provider.X` wrappers. Public surface is preserved through explicit `module Retry = Llm_provider.Retry` (and `Sse_parser`) in `lib/agent_sdk.{ml,mli}`, so external `Agent_sdk.Retry.X` access is unchanged. Internal lib/ consumers now alias `Llm_provider.Retry` per file; affected test stanzas in `test/dune` gained `llm_provider` as a `(libraries ...)` dep.
+
 ### Tests
 
 - **Eio HTTP body cancellation regression guard (#1210).** Pins the cancellation-propagation contract for `Llm_provider.Http_client` so future edits cannot silently drop body-read interruption.
