@@ -160,6 +160,7 @@ module Guardrail_llm = Guardrail_llm
 module Guardrail_tripwire = Guardrail_tripwire
 module Eval_baseline = Eval_baseline
 module Eval_report = Eval_report
+module Eval_stats = Eval_stats
 module Defaults = Defaults
 module Runtime_store = Runtime_store
 module Runtime_server_types = Runtime_server_types
