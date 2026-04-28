@@ -179,6 +179,86 @@
  (libraries agent_sdk alcotest yojson))
 
 (test
+ (name test_async_agent)
+ (modules test_async_agent)
+ (libraries agent_sdk alcotest eio eio_main cohttp-eio yojson))
+
+(test
+ (name test_contract)
+ (modules test_contract)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_contract_runner)
+ (modules test_contract_runner)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_cost_tracker)
+ (modules test_cost_tracker)
+ (libraries agent_sdk alcotest))
+
+(test
+ (name test_durable)
+ (modules test_durable)
+ (libraries agent_sdk alcotest))
+
+(test
+ (name test_guardrail_llm)
+ (modules test_guardrail_llm)
+ (libraries agent_sdk alcotest))
+
+(test
+ (name test_guardrail_tripwire)
+ (modules test_guardrail_tripwire)
+ (libraries agent_sdk alcotest eio eio_main))
+
+(test
+ (name test_guardrails_async)
+ (modules test_guardrails_async)
+ (libraries agent_sdk alcotest eio eio_main))
+
+(test
+ (name test_otel_export)
+ (modules test_otel_export)
+ (libraries agent_sdk alcotest yojson))
+
+(test
+ (name test_pipeline)
+ (modules test_pipeline)
+ (libraries agent_sdk alcotest eio eio_main yojson))
+
+(test
+ (name test_plan)
+ (modules test_plan)
+ (libraries agent_sdk alcotest))
+
+(test
+ (name test_progressive_tools)
+ (modules test_progressive_tools)
+ (libraries agent_sdk alcotest))
+
+(test
+ (name test_reflexion)
+ (modules test_reflexion)
+ (libraries agent_sdk alcotest))
+
+(test
+ (name test_succession)
+ (modules test_succession)
+ (libraries agent_sdk alcotest))
+
+(test
+ (name test_verified_output)
+ (modules test_verified_output)
+ (libraries agent_sdk alcotest))
+
+(test
+ (name test_append_instruction)
+ (modules test_append_instruction)
+ (libraries agent_sdk alcotest))
+
+(test
  (name test_consumer)
  (modules test_consumer)
  (libraries agent_sdk alcotest eio eio_main cohttp-eio yojson))
