@@ -212,7 +212,7 @@ module Adversarial = struct
     | ErrorContains needle ->
       let passed = match obs.error_message with
         | Some msg ->
-          Str_match.contains (Str.regexp_string needle) msg
+          Util.regex_match (Str.regexp_string needle) msg
         | None -> false
       in
       {
