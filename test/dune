@@ -586,6 +586,11 @@
  (libraries agent_sdk llm_provider alcotest yojson))
 
 (test
+ (name test_llm_provider_error)
+ (modules test_llm_provider_error)
+ (libraries llm_provider alcotest))
+
+(test
  (name test_error_domain)
  (modules test_error_domain)
  (libraries agent_sdk llm_provider alcotest yojson))
