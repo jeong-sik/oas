@@ -1,3 +1,5 @@
+module Retry = Llm_provider.Retry
+
 type run_result = {
   response: (Types.api_response, Error.sdk_error) result;
   proof: Cdal_proof.t;

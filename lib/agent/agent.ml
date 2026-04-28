@@ -6,6 +6,8 @@
     {!Agent_checkpoint}.  Sync and streaming turns share a single
     {!run_turn_core} with an [api_strategy] parameter. *)
 
+module Retry = Llm_provider.Retry
+
 open Types
 include Agent_types
 open Agent_trace

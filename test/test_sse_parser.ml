@@ -2,6 +2,7 @@
 
 open Alcotest
 open Agent_sdk
+module Sse_parser = Llm_provider.Sse_parser
 
 let parse_string input =
   let events = ref [] in

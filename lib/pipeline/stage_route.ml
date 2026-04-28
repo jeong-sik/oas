@@ -1,3 +1,5 @@
+module Retry = Llm_provider.Retry
+
 open Types
 open Agent_types
 open Agent_trace
