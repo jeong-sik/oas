@@ -13,17 +13,15 @@ type _ t = T : Agent.t -> _ t
 
 let create ~net ?config ?tools ?context ?options () =
   T (Agent.create ~net ?config ?tools ?context ?options ())
+;;
 
 let run ~sw ?clock (T agent) prompt =
   match Agent.run ~sw ?clock agent prompt with
   | Ok response -> Ok (response, T agent)
   | Error e -> Error e
+;;
 
-let close (T agent) =
-  Agent.close agent
-
+let close (T agent) = Agent.close agent
 let inner (T agent) = agent
-
 let card (T agent) = Agent.card agent
-
 let last_trace (T agent) = Agent.last_raw_trace_run agent

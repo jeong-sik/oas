@@ -24,68 +24,71 @@
     @since truth-layer-evidence *)
 type envelope_v2 = Event_envelope.t
 
-val mk_envelope_v2 :
-  ?event_id:string ->
-  ?correlation_id:string ->
-  ?run_id:string ->
-  ?event_time:float ->
-  ?observed_at:float ->
-  ?seq:int ->
-  ?parent_event_id:string ->
-  ?caused_by:string ->
-  ?source_clock:Event_envelope.source_clock ->
-  unit ->
-  envelope_v2
+val mk_envelope_v2
+  :  ?event_id:string
+  -> ?correlation_id:string
+  -> ?run_id:string
+  -> ?event_time:float
+  -> ?observed_at:float
+  -> ?seq:int
+  -> ?parent_event_id:string
+  -> ?caused_by:string
+  -> ?source_clock:Event_envelope.source_clock
+  -> unit
+  -> envelope_v2
 
 (** An agent loop event. Each variant captures the data needed
     to replay the action without re-executing it. *)
 type event =
-  | Turn_started of { turn: int; timestamp: float }
-  | Llm_request of {
-      turn: int;
-      model: string;
-      input_tokens: int;
-      timestamp: float;
-    }
-  | Llm_response of {
-      turn: int;
-      output_tokens: int;
-      stop_reason: string;
-      duration_ms: float;
-      timestamp: float;
-    }
-  | Tool_called of {
-      turn: int;
-      tool_name: string;
-      idempotency_key: string;
-      input_hash: string;
-      timestamp: float;
-    }
-  | Tool_completed of {
-      turn: int;
-      tool_name: string;
-      idempotency_key: string;
-      output_json: Yojson.Safe.t;
-      is_error: bool;
-      duration_ms: float;
-      timestamp: float;
-    }
-  | State_transition of {
-      from_state: string;
-      to_state: string;
-      reason: string;
-      timestamp: float;
-    }
-  | Checkpoint_saved of {
-      checkpoint_id: string;
-      timestamp: float;
-    }
-  | Error_occurred of {
-      turn: int;
-      error_domain: string;
-      detail: string;
-      timestamp: float;
-    }
+  | Turn_started of
+      { turn : int
+      ; timestamp : float
+      }
+  | Llm_request of
+      { turn : int
+      ; model : string
+      ; input_tokens : int
+      ; timestamp : float
+      }
+  | Llm_response of
+      { turn : int
+      ; output_tokens : int
+      ; stop_reason : string
+      ; duration_ms : float
+      ; timestamp : float
+      }
+  | Tool_called of
+      { turn : int
+      ; tool_name : string
+      ; idempotency_key : string
+      ; input_hash : string
+      ; timestamp : float
+      }
+  | Tool_completed of
+      { turn : int
+      ; tool_name : string
+      ; idempotency_key : string
+      ; output_json : Yojson.Safe.t
+      ; is_error : bool
+      ; duration_ms : float
+      ; timestamp : float
+      }
+  | State_transition of
+      { from_state : string
+      ; to_state : string
+      ; reason : string
+      ; timestamp : float
+      }
+  | Checkpoint_saved of
+      { checkpoint_id : string
+      ; timestamp : float
+      }
+  | Error_occurred of
+      { turn : int
+      ; error_domain : string
+      ; detail : string
+      ; timestamp : float
+      }
 
 (** {1 Journal} *)
 
@@ -120,14 +123,14 @@ val find_completed_activity : journal -> string -> Yojson.Safe.t option
 (** {1 Replay} *)
 
 (** Replay summary: extracted from a journal for state reconstruction. *)
-type replay_summary = {
-  last_turn: int;
-  completed_tools: (string * Yojson.Safe.t) list;  (** idempotency_key -> output *)
-  last_state: string;
-  total_input_tokens: int;
-  total_output_tokens: int;
-  error_count: int;
-}
+type replay_summary =
+  { last_turn : int
+  ; completed_tools : (string * Yojson.Safe.t) list (** idempotency_key -> output *)
+  ; last_state : string
+  ; total_input_tokens : int
+  ; total_output_tokens : int
+  ; error_count : int
+  }
 
 (** Extract a replay summary from a journal.
     Used to reconstruct agent state after crash recovery. *)

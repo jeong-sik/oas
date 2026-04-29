@@ -11,22 +11,16 @@
     @since 0.93.1 *)
 
 (** Configuration for the Claude Code subprocess. *)
-type config = {
-  claude_path: string;
-    (** Path to the [claude] executable. Default ["claude"]. *)
-  model: string option;
-    (** [--model] override. [None] uses the user's default. *)
-  max_turns: int option;
+type config =
+  { claude_path : string (** Path to the [claude] executable. Default ["claude"]. *)
+  ; model : string option (** [--model] override. [None] uses the user's default. *)
+  ; max_turns : int option
     (** [--max-turns] limit. [None] uses the default (single turn). *)
-  allowed_tools: string list;
-    (** [--allowedTools] whitelist. Empty = no tools. *)
-  permission_mode: string option;
-    (** [--permission-mode] (e.g. "bypassPermissions"). *)
-  mcp_config: string option;
-    (** [--mcp-config] path. *)
-  cwd: string option;
-    (** Working directory for the subprocess. *)
-  tool_use_via_stream_json: bool;
+  ; allowed_tools : string list (** [--allowedTools] whitelist. Empty = no tools. *)
+  ; permission_mode : string option (** [--permission-mode] (e.g. "bypassPermissions"). *)
+  ; mcp_config : string option (** [--mcp-config] path. *)
+  ; cwd : string option (** Working directory for the subprocess. *)
+  ; tool_use_via_stream_json : bool
     (** When [true] (default), [complete_sync] internally uses
         [--output-format stream-json] and aggregates the assistant
         content blocks so [tool_use] / [thinking] survive in the
@@ -35,7 +29,7 @@ type config = {
         [result] string and drops structured blocks.
 
         @since 0.140.0 *)
-  forward_tool_results: bool;
+  ; forward_tool_results : bool
     (** When [true], prior [ToolUse]/[ToolResult] content blocks in
         the conversation history are flattened into the CLI prompt so
         the next turn sees the tool exchange.  Default [false] — the
@@ -43,14 +37,14 @@ type config = {
         fresh text to the CLI.
 
         @since 0.146.0 *)
-  cancel: unit Eio.Promise.t option;
+  ; cancel : unit Eio.Promise.t option
     (** When [Some p] and [p] resolves mid-run, the [claude]
         subprocess receives [SIGINT] via [Eio.Process.signal].
         Applied to every call served by this transport instance.
         Default [None].
 
         @since 0.148.0 *)
-}
+  }
 
 (** Sensible defaults: [claude] in PATH, no overrides. *)
 val default_config : config
@@ -66,8 +60,4 @@ val default_config : config
 
     @param sw Eio switch controlling subprocess lifetime.
     @param mgr Eio process manager for spawning. *)
-val create :
-  sw:Eio.Switch.t ->
-  mgr:_ Eio.Process.mgr ->
-  config:config ->
-  Llm_transport.t
+val create : sw:Eio.Switch.t -> mgr:_ Eio.Process.mgr -> config:config -> Llm_transport.t

@@ -20,10 +20,10 @@
     [Pass] accepts the response.  [Fail] triggers reflection and retry. *)
 type verdict =
   | Pass
-  | Fail of {
-      diagnosis: string;       (** What went wrong *)
-      critique: string list;   (** Independent critical observations *)
-    }
+  | Fail of
+      { diagnosis : string (** What went wrong *)
+      ; critique : string list (** Independent critical observations *)
+      }
 
 (** {1 Evaluator} *)
 
@@ -34,12 +34,12 @@ type evaluator = Types.api_response -> verdict
 (** {1 Configuration} *)
 
 (** Reflexion loop configuration. *)
-type config = {
-  max_attempts: int;           (** Maximum number of attempts (including first). >= 1. *)
-  evaluator: evaluator;        (** How to judge each attempt *)
-  memory_prefix: string;       (** Key prefix for episodic memory entries *)
-  include_critique: bool;      (** Whether to include critique list in reflection *)
-}
+type config =
+  { max_attempts : int (** Maximum number of attempts (including first). >= 1. *)
+  ; evaluator : evaluator (** How to judge each attempt *)
+  ; memory_prefix : string (** Key prefix for episodic memory entries *)
+  ; include_critique : bool (** Whether to include critique list in reflection *)
+  }
 
 (** Default config: max 3 attempts, memory prefix "reflexion", include critique. *)
 val default_config : evaluator:evaluator -> config
@@ -47,19 +47,19 @@ val default_config : evaluator:evaluator -> config
 (** {1 Result} *)
 
 (** Outcome of a reflexion loop. *)
-type attempt = {
-  attempt_number: int;
-  response: Types.api_response;
-  verdict: verdict;
-  reflection_text: string option;  (** Reflection stored for failed attempts *)
-}
+type attempt =
+  { attempt_number : int
+  ; response : Types.api_response
+  ; verdict : verdict
+  ; reflection_text : string option (** Reflection stored for failed attempts *)
+  }
 
-type run_result = {
-  final_response: Types.api_response;
-  attempts: attempt list;       (** All attempts, oldest first *)
-  passed: bool;                 (** Whether the final attempt passed *)
-  total_attempts: int;
-}
+type run_result =
+  { final_response : Types.api_response
+  ; attempts : attempt list (** All attempts, oldest first *)
+  ; passed : bool (** Whether the final attempt passed *)
+  ; total_attempts : int
+  }
 
 (** {1 Reflection formatting} *)
 
@@ -76,12 +76,12 @@ val format_reflection : attempt_number:int -> verdict -> string
     stored in [memory] (if provided) and appended to the next attempt.
 
     Returns [Ok run_result] with all attempts, or [Error] if [run_agent] fails. *)
-val run :
-  config:config ->
-  ?memory:Memory.t ->
-  run_agent:(reflections:string list -> (Types.api_response, Error.sdk_error) result) ->
-  unit ->
-  (run_result, Error.sdk_error) result
+val run
+  :  config:config
+  -> ?memory:Memory.t
+  -> run_agent:(reflections:string list -> (Types.api_response, Error.sdk_error) result)
+  -> unit
+  -> (run_result, Error.sdk_error) result
 
 (** {1 Hook integration} *)
 
@@ -91,5 +91,4 @@ val run :
 
     Note: this is a convenience adapter.  For full control, use {!run}
     directly. *)
-val on_stop_evaluator :
-  config:config -> Types.api_response -> verdict
+val on_stop_evaluator : config:config -> Types.api_response -> verdict

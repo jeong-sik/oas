@@ -5,10 +5,10 @@
     @stability Evolving
     @since 0.93.1 *)
 
-val query :
-  sw:Eio.Switch.t ->
-  mgr:_ Eio.Process.mgr ->
-  ?options:Sdk_client_types.options ->
-  prompt:string ->
-  unit ->
-  (Sdk_client_types.message list, Error.sdk_error) result
+val query
+  :  sw:Eio.Switch.t
+  -> mgr:_ Eio.Process.mgr
+  -> ?options:Sdk_client_types.options
+  -> prompt:string
+  -> unit
+  -> (Sdk_client_types.message list, Error.sdk_error) result

@@ -18,6 +18,7 @@ let to_int = function
   | Proactive -> 1
   | Unspecified -> 1
   | Background -> 2
+;;
 
 (* [Unspecified] silently maps to [Proactive]. Previously emitted an
    [Eio.traceln] warning, but that polluted ppx_inline_test stderr capture
@@ -30,6 +31,7 @@ let to_int = function
 let resolve = function
   | Unspecified -> Proactive
   | p -> p
+;;
 
 let compare a b =
   let rank = function
@@ -39,6 +41,7 @@ let compare a b =
     | Background -> 2
   in
   Int.compare (rank a) (rank b)
+;;
 
 let to_string = function
   | Resume -> "resume"
@@ -46,6 +49,7 @@ let to_string = function
   | Proactive -> "proactive"
   | Background -> "background"
   | Unspecified -> "unspecified"
+;;
 
 let of_string = function
   | "resume" -> Some Resume
@@ -54,6 +58,7 @@ let of_string = function
   | "background" -> Some Background
   | "unspecified" -> Some Unspecified
   | _ -> None
+;;
 
 let to_yojson v = `String (to_string v)
 
@@ -63,54 +68,47 @@ let of_yojson = function
      | Some v -> Ok v
      | None -> Error (Printf.sprintf "unknown priority: %s" s))
   | j -> Error (Printf.sprintf "expected string, got %s" (Yojson.Safe.to_string j))
+;;
 
 [@@@coverage off]
 (* === Inline tests === *)
 
 let%test "to_string / of_string roundtrip Resume" =
   of_string (to_string Resume) = Some Resume
+;;
 
 let%test "to_string / of_string roundtrip Interactive" =
   of_string (to_string Interactive) = Some Interactive
+;;
 
 let%test "to_string / of_string roundtrip Proactive" =
   of_string (to_string Proactive) = Some Proactive
+;;
 
 let%test "to_string / of_string roundtrip Background" =
   of_string (to_string Background) = Some Background
+;;
 
 let%test "to_string / of_string roundtrip Unspecified" =
   of_string (to_string Unspecified) = Some Unspecified
+;;
 
-let%test "of_string unknown returns None" =
-  of_string "urgent" = None
-
-let%test "of_string empty returns None" =
-  of_string "" = None
-
-let%test "compare Resume < Interactive" =
-  compare Resume Interactive < 0
-
-let%test "compare Interactive < Proactive" =
-  compare Interactive Proactive < 0
-
-let%test "compare Proactive < Background" =
-  compare Proactive Background < 0
-
-let%test "compare Interactive < Background" =
-  compare Interactive Background < 0
-
-let%test "compare Unspecified equals Proactive" =
-  compare Unspecified Proactive = 0
+let%test "of_string unknown returns None" = of_string "urgent" = None
+let%test "of_string empty returns None" = of_string "" = None
+let%test "compare Resume < Interactive" = compare Resume Interactive < 0
+let%test "compare Interactive < Proactive" = compare Interactive Proactive < 0
+let%test "compare Proactive < Background" = compare Proactive Background < 0
+let%test "compare Interactive < Background" = compare Interactive Background < 0
+let%test "compare Unspecified equals Proactive" = compare Unspecified Proactive = 0
 
 let%test "compare same is zero" =
   compare Resume Resume = 0
   && compare Interactive Interactive = 0
   && compare Proactive Proactive = 0
   && compare Background Background = 0
+;;
 
-let%test "default is Background" =
-  default = Background
+let%test "default is Background" = default = Background
 
 let%test "to_int values" =
   to_int Resume = -1
@@ -118,11 +116,12 @@ let%test "to_int values" =
   && to_int Proactive = 1
   && to_int Unspecified = 1
   && to_int Background = 2
+;;
 
 let%test "resolve Unspecified returns Proactive" =
-  Eio_main.run (fun _env ->
-    resolve Unspecified = Proactive)
+  Eio_main.run (fun _env -> resolve Unspecified = Proactive)
+;;
 
 let%test "resolve Interactive is identity" =
-  Eio_main.run (fun _env ->
-    resolve Interactive = Interactive)
+  Eio_main.run (fun _env -> resolve Interactive = Interactive)
+;;

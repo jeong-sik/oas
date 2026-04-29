@@ -20,24 +20,24 @@ type result_status =
   | Failed
   | Not_run
 
-type t = {
-  schema_version: int;
-  tool_use_id: string;
-  tool_name: string;
-  effect_class: effect_class;
-  decision: decision;
-  decision_source: string;
-  input_hash: string;
-  input_summary: string;
-  sandbox: string option;
-  workdir: string option;
-  started_at: float;
-  ended_at: float option;
-  result_status: result_status;
-  violation_kind: string option;
-  turn: int option;
-  execution_mode: string option;
-}
+type t =
+  { schema_version : int
+  ; tool_use_id : string
+  ; tool_name : string
+  ; effect_class : effect_class
+  ; decision : decision
+  ; decision_source : string
+  ; input_hash : string
+  ; input_summary : string
+  ; sandbox : string option
+  ; workdir : string option
+  ; started_at : float
+  ; ended_at : float option
+  ; result_status : result_status
+  ; violation_kind : string option
+  ; turn : int option
+  ; execution_mode : string option
+  }
 
 let schema_version_current = 1
 
@@ -46,6 +46,7 @@ let effect_class_to_string = function
   | Local_mutation -> "local_mutation"
   | External_effect -> "external_effect"
   | Shell_dynamic -> "shell_dynamic"
+;;
 
 let effect_class_of_string = function
   | "read_only" -> Ok Read_only
@@ -53,6 +54,7 @@ let effect_class_of_string = function
   | "external" | "external_effect" -> Ok External_effect
   | "shell_dynamic" -> Ok Shell_dynamic
   | s -> Error (Printf.sprintf "unknown effect_class: %s" s)
+;;
 
 let decision_to_string = function
   | Allowed -> "allowed"
@@ -63,6 +65,7 @@ let decision_to_string = function
   | Edited -> "edited"
   | Skipped -> "skipped"
   | Overridden -> "overridden"
+;;
 
 let decision_of_string = function
   | "allowed" -> Ok Allowed
@@ -74,12 +77,14 @@ let decision_of_string = function
   | "skipped" -> Ok Skipped
   | "overridden" -> Ok Overridden
   | s -> Error (Printf.sprintf "unknown decision: %s" s)
+;;
 
 let result_status_to_string = function
   | Pending -> "pending"
   | Succeeded -> "succeeded"
   | Failed -> "failed"
   | Not_run -> "not_run"
+;;
 
 let result_status_of_string = function
   | "pending" -> Ok Pending
@@ -87,78 +92,100 @@ let result_status_of_string = function
   | "failed" -> Ok Failed
   | "not_run" -> Ok Not_run
   | s -> Error (Printf.sprintf "unknown result_status: %s" s)
+;;
 
-let hash_input input =
-  Yojson.Safe.to_string input |> Digest.string |> Digest.to_hex
+let hash_input input = Yojson.Safe.to_string input |> Digest.string |> Digest.to_hex
 
 let clip s =
   let limit = 200 in
   if String.length s <= limit then s else String.sub s 0 limit
+;;
 
-let make ?(schema_version = schema_version_current) ?input_hash ?input_summary
-    ?sandbox ?workdir ?ended_at ?(result_status = Pending) ?violation_kind
-    ?turn ?execution_mode ~tool_use_id ~tool_name ~effect_class ~decision
-    ~decision_source ~input ~started_at () =
-  {
-    schema_version;
-    tool_use_id;
-    tool_name;
-    effect_class;
-    decision;
-    decision_source;
-    input_hash = Option.value input_hash ~default:(hash_input input);
-    input_summary =
-      Option.value input_summary ~default:(clip (Yojson.Safe.to_string input));
-    sandbox;
-    workdir;
-    started_at;
-    ended_at;
-    result_status;
-    violation_kind;
-    turn;
-    execution_mode;
+let make
+      ?(schema_version = schema_version_current)
+      ?input_hash
+      ?input_summary
+      ?sandbox
+      ?workdir
+      ?ended_at
+      ?(result_status = Pending)
+      ?violation_kind
+      ?turn
+      ?execution_mode
+      ~tool_use_id
+      ~tool_name
+      ~effect_class
+      ~decision
+      ~decision_source
+      ~input
+      ~started_at
+      ()
+  =
+  { schema_version
+  ; tool_use_id
+  ; tool_name
+  ; effect_class
+  ; decision
+  ; decision_source
+  ; input_hash = Option.value input_hash ~default:(hash_input input)
+  ; input_summary =
+      Option.value input_summary ~default:(clip (Yojson.Safe.to_string input))
+  ; sandbox
+  ; workdir
+  ; started_at
+  ; ended_at
+  ; result_status
+  ; violation_kind
+  ; turn
+  ; execution_mode
   }
+;;
 
 let option_to_json f = function
   | None -> `Null
   | Some v -> f v
+;;
 
 let to_json t =
-  `Assoc [
-    "schema_version", `Int t.schema_version;
-    "tool_use_id", `String t.tool_use_id;
-    "tool_name", `String t.tool_name;
-    "effect_class", `String (effect_class_to_string t.effect_class);
-    "decision", `String (decision_to_string t.decision);
-    "decision_source", `String t.decision_source;
-    "input_hash", `String t.input_hash;
-    "input_summary", `String t.input_summary;
-    "sandbox", option_to_json (fun v -> `String v) t.sandbox;
-    "workdir", option_to_json (fun v -> `String v) t.workdir;
-    "started_at", `Float t.started_at;
-    "ended_at", option_to_json (fun v -> `Float v) t.ended_at;
-    "result_status", `String (result_status_to_string t.result_status);
-    "violation_kind", option_to_json (fun v -> `String v) t.violation_kind;
-    "turn", option_to_json (fun v -> `Int v) t.turn;
-    "execution_mode", option_to_json (fun v -> `String v) t.execution_mode;
-  ]
+  `Assoc
+    [ "schema_version", `Int t.schema_version
+    ; "tool_use_id", `String t.tool_use_id
+    ; "tool_name", `String t.tool_name
+    ; "effect_class", `String (effect_class_to_string t.effect_class)
+    ; "decision", `String (decision_to_string t.decision)
+    ; "decision_source", `String t.decision_source
+    ; "input_hash", `String t.input_hash
+    ; "input_summary", `String t.input_summary
+    ; "sandbox", option_to_json (fun v -> `String v) t.sandbox
+    ; "workdir", option_to_json (fun v -> `String v) t.workdir
+    ; "started_at", `Float t.started_at
+    ; "ended_at", option_to_json (fun v -> `Float v) t.ended_at
+    ; "result_status", `String (result_status_to_string t.result_status)
+    ; "violation_kind", option_to_json (fun v -> `String v) t.violation_kind
+    ; "turn", option_to_json (fun v -> `Int v) t.turn
+    ; "execution_mode", option_to_json (fun v -> `String v) t.execution_mode
+    ]
+;;
 
 let assoc_field name fields =
   match List.assoc_opt name fields with
   | Some v -> Ok v
   | None -> Error (Printf.sprintf "missing field: %s" name)
+;;
 
 let int_field name fields =
   match assoc_field name fields with
   | Ok (`Int v) -> Ok v
   | Ok _ -> Error (Printf.sprintf "field %s must be an int" name)
   | Error _ as err -> err
+;;
 
 let string_field name fields =
   match assoc_field name fields with
   | Ok (`String v) -> Ok v
   | Ok _ -> Error (Printf.sprintf "field %s must be a string" name)
   | Error _ as err -> err
+;;
 
 let float_field name fields =
   match assoc_field name fields with
@@ -166,12 +193,14 @@ let float_field name fields =
   | Ok (`Int v) -> Ok (float_of_int v)
   | Ok _ -> Error (Printf.sprintf "field %s must be a number" name)
   | Error _ as err -> err
+;;
 
 let option_string_field name fields =
   match List.assoc_opt name fields with
   | None | Some `Null -> Ok None
   | Some (`String v) -> Ok (Some v)
   | Some _ -> Error (Printf.sprintf "field %s must be a string or null" name)
+;;
 
 let option_float_field name fields =
   match List.assoc_opt name fields with
@@ -179,12 +208,14 @@ let option_float_field name fields =
   | Some (`Float v) -> Ok (Some v)
   | Some (`Int v) -> Ok (Some (float_of_int v))
   | Some _ -> Error (Printf.sprintf "field %s must be a number or null" name)
+;;
 
 let option_int_field name fields =
   match List.assoc_opt name fields with
   | None | Some `Null -> Ok None
   | Some (`Int v) -> Ok (Some v)
   | Some _ -> Error (Printf.sprintf "field %s must be an int or null" name)
+;;
 
 let ( let* ) = Result.bind
 
@@ -215,22 +246,23 @@ let of_json = function
     let* violation_kind = option_string_field "violation_kind" fields in
     let* turn = option_int_field "turn" fields in
     let* execution_mode = option_string_field "execution_mode" fields in
-    Ok {
-      schema_version;
-      tool_use_id;
-      tool_name;
-      effect_class;
-      decision;
-      decision_source;
-      input_hash;
-      input_summary;
-      sandbox;
-      workdir;
-      started_at;
-      ended_at;
-      result_status;
-      violation_kind;
-      turn;
-      execution_mode;
-    }
+    Ok
+      { schema_version
+      ; tool_use_id
+      ; tool_name
+      ; effect_class
+      ; decision
+      ; decision_source
+      ; input_hash
+      ; input_summary
+      ; sandbox
+      ; workdir
+      ; started_at
+      ; ended_at
+      ; result_status
+      ; violation_kind
+      ; turn
+      ; execution_mode
+      }
   | _ -> Error "effect evidence must be a JSON object"
+;;

@@ -15,13 +15,19 @@ let set_of names =
   let tbl = Hashtbl.create (List.length names) in
   List.iter (fun n -> Hashtbl.replace tbl n ()) names;
   tbl
+;;
 
 let dedup names =
   let seen = Hashtbl.create (List.length names) in
-  List.filter (fun n ->
-    if Hashtbl.mem seen n then false
-    else (Hashtbl.replace seen n (); true)
-  ) names
+  List.filter
+    (fun n ->
+       if Hashtbl.mem seen n
+       then false
+       else (
+         Hashtbl.replace seen n ();
+         true))
+    names
+;;
 
 (* ── apply ────────────────────────────────────────────────── *)
 
@@ -41,16 +47,16 @@ let rec apply op current =
   | Intersect_with names ->
     let keep = set_of (dedup names) in
     List.filter (fun n -> Hashtbl.mem keep n) current
-  | Seq ops ->
-    List.fold_left (fun acc op -> apply op acc) current ops
+  | Seq ops -> List.fold_left (fun acc op -> apply op acc) current ops
+;;
 
 let apply_to_tool_set op ts =
   let result_names = apply op (Tool_set.names ts) in
   (* Build a lookup table from tool name to tool, based on the original set. *)
   let by_name = Hashtbl.create (List.length result_names) in
-  List.iter (fun (tool : Tool.t) ->
-    Hashtbl.replace by_name tool.schema.Types.name tool
-  ) (Tool_set.to_list ts);
+  List.iter
+    (fun (tool : Tool.t) -> Hashtbl.replace by_name tool.schema.Types.name tool)
+    (Tool_set.to_list ts);
   (* Construct the resulting tool list in the order given by [result_names]. *)
   let rec collect acc = function
     | [] -> List.rev acc
@@ -61,6 +67,7 @@ let apply_to_tool_set op ts =
   in
   let ordered_tools = collect [] result_names in
   Tool_set.of_list ordered_tools
+;;
 
 (* ── compose ──────────────────────────────────────────────── *)
 
@@ -75,13 +82,13 @@ let compose ops =
   in
   match List.rev (flatten [] ops) with
   | [] -> Keep_all
-  | [x] -> x
+  | [ x ] -> x
   | many -> Seq many
+;;
 
 (* ── to_tool_filter ───────────────────────────────────────── *)
 
-let to_tool_filter op current =
-  Guardrails.AllowList (apply op current)
+let to_tool_filter op current = Guardrails.AllowList (apply op current)
 
 (* ── predicates ───────────────────────────────────────────── *)
 
@@ -91,27 +98,29 @@ let rec is_identity = function
   | Remove names -> dedup names = []
   | Seq ops -> List.for_all is_identity ops
   | Clear_all | Replace_with _ | Intersect_with _ -> false
+;;
 
 let rec is_destructive = function
   | Clear_all | Replace_with _ | Intersect_with _ -> true
   | Keep_all | Add _ | Remove _ -> false
   | Seq ops -> List.exists is_destructive ops
+;;
 
 (* ── serialization ────────────────────────────────────────── *)
 
 let names_to_json names = `List (List.map (fun n -> `String n) names)
 
 let rec to_yojson = function
-  | Keep_all -> `Assoc [("op", `String "keep_all")]
-  | Clear_all -> `Assoc [("op", `String "clear_all")]
-  | Add names -> `Assoc [("op", `String "add"); ("names", names_to_json names)]
-  | Remove names -> `Assoc [("op", `String "remove"); ("names", names_to_json names)]
+  | Keep_all -> `Assoc [ "op", `String "keep_all" ]
+  | Clear_all -> `Assoc [ "op", `String "clear_all" ]
+  | Add names -> `Assoc [ "op", `String "add"; "names", names_to_json names ]
+  | Remove names -> `Assoc [ "op", `String "remove"; "names", names_to_json names ]
   | Replace_with names ->
-    `Assoc [("op", `String "replace_with"); ("names", names_to_json names)]
+    `Assoc [ "op", `String "replace_with"; "names", names_to_json names ]
   | Intersect_with names ->
-    `Assoc [("op", `String "intersect_with"); ("names", names_to_json names)]
-  | Seq ops ->
-    `Assoc [("op", `String "seq"); ("ops", `List (List.map to_yojson ops))]
+    `Assoc [ "op", `String "intersect_with"; "names", names_to_json names ]
+  | Seq ops -> `Assoc [ "op", `String "seq"; "ops", `List (List.map to_yojson ops) ]
+;;
 
 let names_of_json = function
   | `List items ->
@@ -122,61 +131,58 @@ let names_of_json = function
     in
     go [] items
   | _ -> Error "names must be a JSON array"
+;;
 
 let rec of_yojson json =
   match json with
-  | `Assoc fields -> (
-    match List.assoc_opt "op" fields with
-    | Some (`String "keep_all") -> Ok Keep_all
-    | Some (`String "clear_all") -> Ok Clear_all
-    | Some (`String "add") ->
-      of_yojson_names fields (fun ns -> Add ns)
-    | Some (`String "remove") ->
-      of_yojson_names fields (fun ns -> Remove ns)
-    | Some (`String "replace_with") ->
-      of_yojson_names fields (fun ns -> Replace_with ns)
-    | Some (`String "intersect_with") ->
-      of_yojson_names fields (fun ns -> Intersect_with ns)
-    | Some (`String "seq") -> (
-      match List.assoc_opt "ops" fields with
-      | Some (`List items) ->
-        let rec go acc = function
-          | [] -> Ok (Seq (List.rev acc))
-          | j :: rest -> (
-            match of_yojson j with
-            | Ok op -> go (op :: acc) rest
-            | Error e -> Error e)
-        in
-        go [] items
-      | _ -> Error "seq requires 'ops' array")
-    | Some (`String other) -> Error (Printf.sprintf "unknown op: %s" other)
-    | _ -> Error "missing or invalid 'op' field")
+  | `Assoc fields ->
+    (match List.assoc_opt "op" fields with
+     | Some (`String "keep_all") -> Ok Keep_all
+     | Some (`String "clear_all") -> Ok Clear_all
+     | Some (`String "add") -> of_yojson_names fields (fun ns -> Add ns)
+     | Some (`String "remove") -> of_yojson_names fields (fun ns -> Remove ns)
+     | Some (`String "replace_with") -> of_yojson_names fields (fun ns -> Replace_with ns)
+     | Some (`String "intersect_with") ->
+       of_yojson_names fields (fun ns -> Intersect_with ns)
+     | Some (`String "seq") ->
+       (match List.assoc_opt "ops" fields with
+        | Some (`List items) ->
+          let rec go acc = function
+            | [] -> Ok (Seq (List.rev acc))
+            | j :: rest ->
+              (match of_yojson j with
+               | Ok op -> go (op :: acc) rest
+               | Error e -> Error e)
+          in
+          go [] items
+        | _ -> Error "seq requires 'ops' array")
+     | Some (`String other) -> Error (Printf.sprintf "unknown op: %s" other)
+     | _ -> Error "missing or invalid 'op' field")
   | _ -> Error "tool_op must be a JSON object"
 
 and of_yojson_names fields wrap =
   match List.assoc_opt "names" fields with
-  | Some json -> (
-    match names_of_json json with
-    | Ok ns -> Ok (wrap ns)
-    | Error e -> Error e)
+  | Some json ->
+    (match names_of_json json with
+     | Ok ns -> Ok (wrap ns)
+     | Error e -> Error e)
   | None -> Error "missing 'names' field"
+;;
 
 (* ── equal ────────────────────────────────────────────────── *)
 
-let sort_dedup names =
-  names |> dedup |> List.sort String.compare
+let sort_dedup names = names |> dedup |> List.sort String.compare
 
 let rec equal a b =
-  match (a, b) with
+  match a, b with
   | Keep_all, Keep_all -> true
   | Clear_all, Clear_all -> true
   | Add a_names, Add b_names -> sort_dedup a_names = sort_dedup b_names
   | Remove a_names, Remove b_names -> sort_dedup a_names = sort_dedup b_names
-  | Replace_with a_names, Replace_with b_names ->
-    sort_dedup a_names = sort_dedup b_names
+  | Replace_with a_names, Replace_with b_names -> sort_dedup a_names = sort_dedup b_names
   | Intersect_with a_names, Intersect_with b_names ->
     sort_dedup a_names = sort_dedup b_names
   | Seq a_ops, Seq b_ops ->
-    List.compare_lengths a_ops b_ops = 0
-    && List.for_all2 equal a_ops b_ops
+    List.compare_lengths a_ops b_ops = 0 && List.for_all2 equal a_ops b_ops
   | _ -> false
+;;

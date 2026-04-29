@@ -12,8 +12,7 @@
 
 (** Serialize a journal event into the [(name, payload)] shape used by
     {!Event_bus.Custom}.  Exposed for testing and custom relays. *)
-val projection_of_event :
-  Durable_event.event -> string * Yojson.Safe.t
+val projection_of_event : Durable_event.event -> string * Yojson.Safe.t
 
 (** Build an [on_append] callback suitable for {!Durable_event.create}
     that publishes every journal event to [bus] as an
@@ -24,9 +23,10 @@ val projection_of_event :
     surrounding agent run.  If omitted, each event gets a fresh
     envelope, which is fine for standalone journals but breaks
     correlation-based querying in multi-agent sessions. *)
-val make :
-  bus:Event_bus.t ->
-  ?correlation_id:string ->
-  ?run_id:string ->
-  unit ->
-  (Durable_event.event -> unit)
+val make
+  :  bus:Event_bus.t
+  -> ?correlation_id:string
+  -> ?run_id:string
+  -> unit
+  -> Durable_event.event
+  -> unit

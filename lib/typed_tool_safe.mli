@@ -30,26 +30,23 @@ type ('perm, 'input, 'output) t
 
 (** Wrap a typed tool with read-only permission.
     The descriptor must have [permission = Some ReadOnly] or [None]. *)
-val read_only :
-  ('input, 'output) Typed_tool.t -> (read_only, 'input, 'output) t
+val read_only : ('input, 'output) Typed_tool.t -> (read_only, 'input, 'output) t
 
 (** Wrap a typed tool with write permission. *)
-val write :
-  ('input, 'output) Typed_tool.t -> (write, 'input, 'output) t
+val write : ('input, 'output) Typed_tool.t -> (write, 'input, 'output) t
 
 (** Wrap a typed tool with destructive permission. *)
-val destructive :
-  ('input, 'output) Typed_tool.t -> (destructive, 'input, 'output) t
+val destructive : ('input, 'output) Typed_tool.t -> (destructive, 'input, 'output) t
 
 (** {1 Permission-gated execution} *)
 
 (** Execute a read-only tool. No approval needed.
     Passing a [write] or [destructive] tool here is a compile error. *)
-val execute_read_only :
-  ?context:Context.t ->
-  (read_only, 'input, 'output) t ->
-  Yojson.Safe.t ->
-  Types.tool_result
+val execute_read_only
+  :  ?context:Context.t
+  -> (read_only, 'input, 'output) t
+  -> Yojson.Safe.t
+  -> Types.tool_result
 
 (** Execute a write tool with mandatory approval callback.
     The callback receives the tool name and parsed input description.
@@ -58,21 +55,21 @@ val execute_read_only :
 
     @param approve Called before execution. Returns [Ok ()] to proceed,
                    [Error reason] to reject with the given reason. *)
-val execute_write :
-  ?context:Context.t ->
-  approve:(tool_name:string -> input_desc:string Lazy.t -> (unit, string) result) ->
-  (write, 'input, 'output) t ->
-  Yojson.Safe.t ->
-  Types.tool_result
+val execute_write
+  :  ?context:Context.t
+  -> approve:(tool_name:string -> input_desc:string Lazy.t -> (unit, string) result)
+  -> (write, 'input, 'output) t
+  -> Yojson.Safe.t
+  -> Types.tool_result
 
 (** Execute a destructive tool with mandatory approval callback.
     Same as {!execute_write} but semantically distinct for auditing. *)
-val execute_destructive :
-  ?context:Context.t ->
-  approve:(tool_name:string -> input_desc:string Lazy.t -> (unit, string) result) ->
-  (destructive, 'input, 'output) t ->
-  Yojson.Safe.t ->
-  Types.tool_result
+val execute_destructive
+  :  ?context:Context.t
+  -> approve:(tool_name:string -> input_desc:string Lazy.t -> (unit, string) result)
+  -> (destructive, 'input, 'output) t
+  -> Yojson.Safe.t
+  -> Types.tool_result
 
 (** {1 Erasure} *)
 

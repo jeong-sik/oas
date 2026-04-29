@@ -20,13 +20,13 @@ val parse_openai_response_result : string -> (Types.api_response, string) result
 
 val usage_of_openai_json : Yojson.Safe.t -> Types.api_usage option
 
-val build_request :
-  ?stream:bool ->
-  config:Provider_config.t ->
-  messages:Types.message list ->
-  ?tools:Yojson.Safe.t list ->
-  unit ->
-  string
+val build_request
+  :  ?stream:bool
+  -> config:Provider_config.t
+  -> messages:Types.message list
+  -> ?tools:Yojson.Safe.t list
+  -> unit
+  -> string
 
 (** Emit a one-shot stderr WARN the first time a capability-gated
     sampling field is dropped for a given [(model_id, field)] pair.

@@ -6,16 +6,13 @@
     @stability Internal
     @since 0.93.1 *)
 
-type raw_sse_event = {
-  event_type: string option;
-  data: string;
-  id: string option;
-  retry: int option;
-}
+type raw_sse_event =
+  { event_type : string option
+  ; data : string
+  ; id : string option
+  ; retry : int option
+  }
 
 (** Parse SSE lines from a buffered reader, calling [on_event] for
     each complete event.  Returns when the stream ends. *)
-val parse_lines :
-  Eio.Buf_read.t ->
-  on_event:(raw_sse_event -> unit) ->
-  unit
+val parse_lines : Eio.Buf_read.t -> on_event:(raw_sse_event -> unit) -> unit

@@ -14,18 +14,22 @@
     @stability Evolving *)
 
 (** Risk classification derived from score. *)
-type risk_level = Low | Medium | High | Critical
+type risk_level =
+  | Low
+  | Medium
+  | High
+  | Critical
 [@@deriving yojson, show]
 
 (** Result of an LLM judgment. *)
-type judgment = {
-  score: float;                     (** 0.0-1.0 *)
-  confidence: float;                (** 0.0-1.0 *)
-  risk: risk_level;
-  summary: string;
-  evidence: string list;
-  recommended_action: string option;
-}
+type judgment =
+  { score : float (** 0.0-1.0 *)
+  ; confidence : float (** 0.0-1.0 *)
+  ; risk : risk_level
+  ; summary : string
+  ; evidence : string list
+  ; recommended_action : string option
+  }
 [@@deriving yojson, show]
 
 (** Configuration for a judge call.
@@ -33,12 +37,13 @@ type judgment = {
     [temperature] and [max_tokens] override the provider's own values
     for this evaluation. Callers that want provider-native sampling
     can set these to match the provider config. *)
-type judge_config = {
-  system_prompt: string;
-  temperature: float;               (** Overrides provider temperature; default 0.2 for deterministic evaluation *)
-  max_tokens: int;                  (** Overrides provider max_tokens; default 2048 *)
-  output_schema: Yojson.Safe.t option;  (** JSON schema hint for structured output *)
-}
+type judge_config =
+  { system_prompt : string
+  ; temperature : float
+    (** Overrides provider temperature; default 0.2 for deterministic evaluation *)
+  ; max_tokens : int (** Overrides provider max_tokens; default 2048 *)
+  ; output_schema : Yojson.Safe.t option (** JSON schema hint for structured output *)
+  }
 [@@deriving show]
 
 (** Default configuration: temperature 0.2, max_tokens 2048. *)
@@ -66,11 +71,11 @@ val parse_judgment : string -> (judgment, string) result
 
     @param provider The LLM provider to evaluate with. Callers that need
                     multi-provider routing should handle that outside OAS. *)
-val judge :
-  sw:Eio.Switch.t ->
-  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
-  provider:Llm_provider.Provider_config.t ->
-  config:judge_config ->
-  context:string ->
-  unit ->
-  (judgment, string) result
+val judge
+  :  sw:Eio.Switch.t
+  -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+  -> provider:Llm_provider.Provider_config.t
+  -> config:judge_config
+  -> context:string
+  -> unit
+  -> (judgment, string) result

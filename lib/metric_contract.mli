@@ -5,17 +5,14 @@
     @stability Evolving
     @since 0.93.1 *)
 
-type metric = {
-  name: string;
-  value: float;
-}
+type metric =
+  { name : string
+  ; value : float
+  }
 
 val default_metric_name : string
 
-val prompt_snippet : ?metric_name:string -> unit -> string
 (** Instruction text for forcing a single final metric tag. *)
+val prompt_snippet : ?metric_name:string -> unit -> string
 
-val parse :
-  ?expected_name:string ->
-  string ->
-  (metric, string) result
+val parse : ?expected_name:string -> string -> (metric, string) result

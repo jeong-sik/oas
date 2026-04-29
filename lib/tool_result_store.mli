@@ -15,35 +15,32 @@
 
 (** {1 Configuration} *)
 
-type config = {
-  storage_dir: string;
+type config =
+  { storage_dir : string
     (** Base directory.  Consumer-provided (the application's data root). *)
-  session_id: string;
-    (** Session identifier.  Used as subdirectory name. *)
-  threshold_chars: int;
+  ; session_id : string (** Session identifier.  Used as subdirectory name. *)
+  ; threshold_chars : int
     (** Per-result persist threshold.  Content exceeding this is
         written to disk.  Default: 50,000.  Pass [0] to disable. *)
-  preview_chars: int;
-    (** Preview length kept in the message.  Default: 2,000. *)
-  aggregate_budget: int;
+  ; preview_chars : int (** Preview length kept in the message.  Default: 2,000. *)
+  ; aggregate_budget : int
     (** Per-message aggregate budget in chars.  When total tool result
         content in a single message exceeds this, the largest fresh
         results are persisted until under budget.
         Default: 200,000.  Pass [0] to disable.
         @since 0.129.0 *)
-}
+  }
 
-val default_threshold_chars : int
 (** Default per-result threshold: 50,000 chars. *)
+val default_threshold_chars : int
 
-val default_preview_chars : int
 (** Default preview length: 2,000 chars. *)
+val default_preview_chars : int
 
-val default_aggregate_budget : int
 (** Default per-message aggregate budget: 200,000 chars.
     @since 0.129.0 *)
+val default_aggregate_budget : int
 
-val config_with_env_overrides : config -> config
 (** Apply environment variable overrides to a config.
 
     Reads:
@@ -53,11 +50,12 @@ val config_with_env_overrides : config -> config
 
     Non-numeric or absent values keep the original config field.
     @since 0.130.0 *)
+val config_with_env_overrides : config -> config
 
 (** {1 Store lifecycle} *)
 
-type t
 (** Abstract store handle.  Not thread-safe; each agent owns one. *)
+type t
 
 (** Create a store.  Ensures session directory exists.
     Returns [Error] if directory creation fails. *)
@@ -76,9 +74,11 @@ val config : t -> config
     Preview generation: takes first [config.preview_chars] bytes,
     finds last newline in [[preview_chars*0.5, preview_chars]] and
     cuts there for readability.  Appends a size marker. *)
-val persist :
-  t -> tool_use_id:string -> content:string ->
-  (string, Error.sdk_error) result
+val persist
+  :  t
+  -> tool_use_id:string
+  -> content:string
+  -> (string, Error.sdk_error) result
 
 (** Read back full content for a tool_use_id.
     Returns [Error] if file does not exist or I/O fails. *)

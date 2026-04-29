@@ -16,7 +16,6 @@
     - [OpenAICompat] and [Custom_registered] map to [OpenAI_compat]
 
     @return [Error] if the provider cannot be resolved (e.g. missing env var) *)
-val to_provider_config :
-  Provider.config ->
-  (Llm_provider.Provider_config.t, Error.sdk_error) result
-
+val to_provider_config
+  :  Provider.config
+  -> (Llm_provider.Provider_config.t, Error.sdk_error) result

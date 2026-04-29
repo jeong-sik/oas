@@ -17,10 +17,10 @@
 
 (** Compression phase, ordered from lightest to heaviest. *)
 type compression_phase =
-  | Full        (** No compression needed. *)
-  | Compact     (** Light: prune tool outputs only. *)
-  | Aggressive  (** Medium: prune outputs + drop thinking + merge contiguous. *)
-  | Emergency   (** Heavy: summarize old + all aggressive strategies. *)
+  | Full (** No compression needed. *)
+  | Compact (** Light: prune tool outputs only. *)
+  | Aggressive (** Medium: prune outputs + drop thinking + merge contiguous. *)
+  | Emergency (** Heavy: summarize old + all aggressive strategies. *)
 
 (** Default extractive summarizer.
 
@@ -47,10 +47,10 @@ val default_summarizer : Types.message list -> string
 
     The [summarizer] parameter is used only for [Emergency] phase.
     If not provided, {!default_summarizer} is used. *)
-val strategies_for_phase :
-  ?summarizer:(Types.message list -> string) ->
-  compression_phase ->
-  Context_reducer.strategy list
+val strategies_for_phase
+  :  ?summarizer:(Types.message list -> string)
+  -> compression_phase
+  -> Context_reducer.strategy list
 
 (** Determine compression phase from budget usage ratio (0.0-1.0).
 
@@ -72,12 +72,12 @@ val phase_of_usage_ratio : float -> compression_phase
     ]}
 
     Returns messages unchanged when phase is [Full]. *)
-val reduce_for_budget :
-  ?summarizer:(Types.message list -> string) ->
-  usage_ratio:float ->
-  messages:Types.message list ->
-  unit ->
-  Types.message list
+val reduce_for_budget
+  :  ?summarizer:(Types.message list -> string)
+  -> usage_ratio:float
+  -> messages:Types.message list
+  -> unit
+  -> Types.message list
 
 (** String representation of a compression phase for logging. *)
 val show_phase : compression_phase -> string
@@ -87,17 +87,16 @@ val show_phase : compression_phase -> string
     a single value that downstream coordinators can consume without
     performing raw arithmetic on token counts.
     @since 0.105.0 *)
-type context_metrics = {
-  usage_ratio : float;       (** 0.0 to 1.0+. *)
-  phase : compression_phase; (** Compression phase for this ratio. *)
-  is_near_limit : bool;      (** [true] when [usage_ratio >= 0.85]. *)
-  estimated_tokens : int;    (** Estimated tokens in context. *)
-  context_window : int;      (** Total context window size. *)
-}
+type context_metrics =
+  { usage_ratio : float (** 0.0 to 1.0+. *)
+  ; phase : compression_phase (** Compression phase for this ratio. *)
+  ; is_near_limit : bool (** [true] when [usage_ratio >= 0.85]. *)
+  ; estimated_tokens : int (** Estimated tokens in context. *)
+  ; context_window : int (** Total context window size. *)
+  }
 
 (** Build context metrics from estimated token count and context window size.
     Returns a pre-computed [context_metrics] record with phase and limit
     proximity derived from the usage ratio.
     @since 0.105.0 *)
-val context_metrics :
-  estimated_tokens:int -> context_window:int -> context_metrics
+val context_metrics : estimated_tokens:int -> context_window:int -> context_metrics

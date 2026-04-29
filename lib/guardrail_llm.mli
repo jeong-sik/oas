@@ -27,20 +27,20 @@ type judge = string -> (bool * string, string) result
 (** Create an input validator backed by a judge closure.
     The judge receives a serialized summary of the messages
     prepended with the policy prompt. *)
-val make_input_validator :
-  name:string ->
-  policy_prompt:string ->
-  judge:judge ->
-  Guardrails_async.input_validator
+val make_input_validator
+  :  name:string
+  -> policy_prompt:string
+  -> judge:judge
+  -> Guardrails_async.input_validator
 
 (** Create an output validator backed by a judge closure.
     The judge receives the concatenated text content of the response
     prepended with the policy prompt. *)
-val make_output_validator :
-  name:string ->
-  policy_prompt:string ->
-  judge:judge ->
-  Guardrails_async.output_validator
+val make_output_validator
+  :  name:string
+  -> policy_prompt:string
+  -> judge:judge
+  -> Guardrails_async.output_validator
 
 (** {1 Utilities} *)
 

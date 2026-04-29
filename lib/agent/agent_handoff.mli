@@ -11,17 +11,16 @@
 
 (** Find the most recent assistant message and extract the first handoff
     [ToolUse].  Returns [(tool_use_id, target_name, prompt)] or [None]. *)
-val find_handoff_in_messages :
-  Types.message list -> (string * string * string) option
+val find_handoff_in_messages : Types.message list -> (string * string * string) option
 
 (** {1 Message manipulation} *)
 
 (** Replace the [ToolResult] for a specific [tool_id] in the most recent
     user message.  Used by handoff interception to overwrite the sentinel
     handler output with the delegated agent response. *)
-val replace_tool_result :
-  Types.message list ->
-  tool_id:string ->
-  content:string ->
-  is_error:bool ->
-  Types.message list
+val replace_tool_result
+  :  Types.message list
+  -> tool_id:string
+  -> content:string
+  -> is_error:bool
+  -> Types.message list

@@ -15,33 +15,48 @@
 
 (** {1 Journal} *)
 
-type journal_entry = {
-  step_name: string;
-  started_at: float;
-  completed_at: float option;
-  input_json: Yojson.Safe.t;
-  output_json: Yojson.Safe.t option;
-  error: string option;
-  attempt: int;
-}
+type journal_entry =
+  { step_name : string
+  ; started_at : float
+  ; completed_at : float option
+  ; input_json : Yojson.Safe.t
+  ; output_json : Yojson.Safe.t option
+  ; error : string option
+  ; attempt : int
+  }
 
 (** {1 Execution state} *)
 
 type execution_state =
   | NotStarted
-  | InProgress of { current_step: string; attempt: int; journal: journal_entry list }
-  | Suspended of { at_step: string; journal: journal_entry list; reason: string }
-  | Completed of { journal: journal_entry list; final_output: Yojson.Safe.t }
-  | Failed of { at_step: string; journal: journal_entry list; error: string }
+  | InProgress of
+      { current_step : string
+      ; attempt : int
+      ; journal : journal_entry list
+      }
+  | Suspended of
+      { at_step : string
+      ; journal : journal_entry list
+      ; reason : string
+      }
+  | Completed of
+      { journal : journal_entry list
+      ; final_output : Yojson.Safe.t
+      }
+  | Failed of
+      { at_step : string
+      ; journal : journal_entry list
+      ; error : string
+      }
 
 (** {1 Steps} *)
 
 (** A single execution step with serialization support. *)
-type step = {
-  name: string;
-  execute: Yojson.Safe.t -> (Yojson.Safe.t, string) result;
-  retry_limit: int;
-}
+type step =
+  { name : string
+  ; execute : Yojson.Safe.t -> (Yojson.Safe.t, string) result
+  ; retry_limit : int
+  }
 
 (** {1 State machine} *)
 

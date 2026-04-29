@@ -31,9 +31,7 @@ let _log = Log.create ~module_name:"tool_use_recovery" ()
 let find_json_object (s : string) : (int * int) option =
   let len = String.length s in
   let rec find_start i =
-    if i >= len then None
-    else if s.[i] = '{' then Some i
-    else find_start (i + 1)
+    if i >= len then None else if s.[i] = '{' then Some i else find_start (i + 1)
   in
   match find_start 0 with
   | None -> None
@@ -45,20 +43,24 @@ let find_json_object (s : string) : (int * int) option =
     let i = ref start in
     while !end_idx = -1 && !i < len do
       let c = s.[!i] in
-      if !escaped then escaped := false
-      else if c = '\\' && !in_string then escaped := true
-      else if c = '"' then in_string := not !in_string
-      else if not !in_string then begin
-        if c = '{' then incr depth
-        else if c = '}' then begin
+      if !escaped
+      then escaped := false
+      else if c = '\\' && !in_string
+      then escaped := true
+      else if c = '"'
+      then in_string := not !in_string
+      else if not !in_string
+      then
+        if c = '{'
+        then incr depth
+        else if c = '}'
+        then (
           decr depth;
-          if !depth = 0 then end_idx := !i
-        end
-      end;
+          if !depth = 0 then end_idx := !i);
       incr i
     done;
-    if !end_idx >= 0 then Some (start, !end_idx - start + 1)
-    else None
+    if !end_idx >= 0 then Some (start, !end_idx - start + 1) else None
+;;
 
 (** Try to parse a JSON object from a string using {!Lenient_json.parse}
     after locating a balanced object. Returns [None] only when no
@@ -75,14 +77,15 @@ let try_parse_json_object (s : string) : Yojson.Safe.t option =
        where the stream is the JSON itself, possibly truncated. *)
     let parsed = Llm_provider.Lenient_json.parse stripped in
     (match parsed with
-     | `Assoc [("raw", `String _)] -> None  (* Sentinel for parse failure *)
+     | `Assoc [ ("raw", `String _) ] -> None (* Sentinel for parse failure *)
      | other -> Some other)
   | Some (start, length) ->
     let candidate = String.sub stripped start length in
     let parsed = Llm_provider.Lenient_json.parse candidate in
     (match parsed with
-     | `Assoc [("raw", `String _)] -> None
+     | `Assoc [ ("raw", `String _) ] -> None
      | other -> Some other)
+;;
 
 (* ── Tool call shape matching ────────────────────────────── *)
 
@@ -99,7 +102,8 @@ let try_parse_json_object (s : string) : Yojson.Safe.t option =
 let rec extract_name_and_input (json : Yojson.Safe.t) : (string * Yojson.Safe.t) option =
   match json with
   | `Assoc fields ->
-    let name_opt = match List.assoc_opt "name" fields with
+    let name_opt =
+      match List.assoc_opt "name" fields with
       | Some (`String s) -> Some s
       | _ -> None
     in
@@ -109,34 +113,35 @@ let rec extract_name_and_input (json : Yojson.Safe.t) : (string * Yojson.Safe.t)
          match List.assoc_opt "input" fields with
          | Some v -> Some v
          | None ->
-           match List.assoc_opt "arguments" fields with
-           | Some (`String s) ->
-             (* Double-stringified: arguments is a JSON-encoded string *)
-             let inner = Llm_provider.Lenient_json.parse s in
-             (match inner with
-              | `Assoc [("raw", `String _)] -> Some (`String s)
-              | other -> Some other)
-           | Some v -> Some v
-           | None ->
-             match List.assoc_opt "parameters" fields with
-             | Some v -> Some v
-             | None -> None
+           (match List.assoc_opt "arguments" fields with
+            | Some (`String s) ->
+              (* Double-stringified: arguments is a JSON-encoded string *)
+              let inner = Llm_provider.Lenient_json.parse s in
+              (match inner with
+               | `Assoc [ ("raw", `String _) ] -> Some (`String s)
+               | other -> Some other)
+            | Some v -> Some v
+            | None ->
+              (match List.assoc_opt "parameters" fields with
+               | Some v -> Some v
+               | None -> None))
        in
-       Option.map (fun input -> (name, input)) input_opt
+       Option.map (fun input -> name, input) input_opt
      | None ->
-       match List.assoc_opt "tool_calls" fields with
-       | Some (`List (first :: _)) ->
-         (match first with
-          | `Assoc subfields ->
-            (match List.assoc_opt "function" subfields with
-             | Some inner -> extract_name_and_input inner
-             | None -> extract_name_and_input first)
-          | _ -> None)
-       | _ ->
-         match List.assoc_opt "function" fields with
-         | Some inner -> extract_name_and_input inner
-         | None -> None)
+       (match List.assoc_opt "tool_calls" fields with
+        | Some (`List (first :: _)) ->
+          (match first with
+           | `Assoc subfields ->
+             (match List.assoc_opt "function" subfields with
+              | Some inner -> extract_name_and_input inner
+              | None -> extract_name_and_input first)
+           | _ -> None)
+        | _ ->
+          (match List.assoc_opt "function" fields with
+           | Some inner -> extract_name_and_input inner
+           | None -> None)))
   | _ -> None
+;;
 
 (* ── Tool ID generation ──────────────────────────────────── *)
 
@@ -144,35 +149,41 @@ let next_recovery_id =
   let counter = ref 0 in
   fun () ->
     incr counter;
-    Printf.sprintf "recovered_%d_%d"
-      (int_of_float (Unix.gettimeofday () *. 1000.0)) !counter
+    Printf.sprintf
+      "recovered_%d_%d"
+      (int_of_float (Unix.gettimeofday () *. 1000.0))
+      !counter
+;;
 
 (* ── Response-level recovery ─────────────────────────────── *)
 
 (** Scan content blocks; replace recoverable Text blocks with ToolUse.
     Returns [(new_content, recovered_count)]. *)
 let recover_content_blocks
-    ~(valid_tool_names : string list)
-    (content : content_block list)
-  : content_block list * int =
+      ~(valid_tool_names : string list)
+      (content : content_block list)
+  : content_block list * int
+  =
   let recovered = ref 0 in
   let new_content =
-    List.map (fun block ->
-      match block with
-      | Text text ->
-        (match try_parse_json_object text with
-         | None -> block
-         | Some json ->
-           match extract_name_and_input json with
-           | None -> block
-           | Some (name, input) when List.mem name valid_tool_names ->
-             incr recovered;
-             ToolUse { id = next_recovery_id (); name; input }
-           | Some _ -> block)
-      | _ -> block
-    ) content
+    List.map
+      (fun block ->
+         match block with
+         | Text text ->
+           (match try_parse_json_object text with
+            | None -> block
+            | Some json ->
+              (match extract_name_and_input json with
+               | None -> block
+               | Some (name, input) when List.mem name valid_tool_names ->
+                 incr recovered;
+                 ToolUse { id = next_recovery_id (); name; input }
+               | Some _ -> block))
+         | _ -> block)
+      content
   in
-  (new_content, !recovered)
+  new_content, !recovered
+;;
 
 (** Top-level recovery. Promotes Text-embedded tool calls to ToolUse
     blocks only when:
@@ -183,28 +194,37 @@ let recover_content_blocks
 
     Otherwise returns the response unchanged. Adjusts [stop_reason]
     from [EndTurn] to [StopToolUse] when recovery succeeds. *)
-let recover_response
-    ~(valid_tool_names : string list)
-    (response : api_response)
-  : api_response =
-  if valid_tool_names = [] then response
-  else
+let recover_response ~(valid_tool_names : string list) (response : api_response)
+  : api_response
+  =
+  if valid_tool_names = []
+  then response
+  else (
     let has_tool_use =
-      List.exists (function ToolUse _ -> true | _ -> false) response.content
+      List.exists
+        (function
+          | ToolUse _ -> true
+          | _ -> false)
+        response.content
     in
-    if has_tool_use then response
-    else
-      let (new_content, count) =
+    if has_tool_use
+    then response
+    else (
+      let new_content, count =
         recover_content_blocks ~valid_tool_names response.content
       in
-      if count = 0 then response
-      else begin
-        Log.info _log
+      if count = 0
+      then response
+      else (
+        Log.info
+          _log
           "recovered tool use(s) from text content"
-          [ Log.I ("count", count);
-            Log.S ("model", response.model) ];
-        { response with content = new_content;
-          stop_reason = match response.stop_reason with
-            | EndTurn -> StopToolUse
-            | other -> other }
-      end
+          [ Log.I ("count", count); Log.S ("model", response.model) ];
+        { response with
+          content = new_content
+        ; stop_reason =
+            (match response.stop_reason with
+             | EndTurn -> StopToolUse
+             | other -> other)
+        })))
+;;

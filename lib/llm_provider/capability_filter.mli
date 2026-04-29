@@ -33,7 +33,10 @@ val emits_usage_tokens : Capabilities.capabilities -> bool
 (** {2 Limit checks} *)
 
 (** Result of a limit check against capability metadata. *)
-type fit_result = Fits | Does_not_fit | Unknown_limit
+type fit_result =
+  | Fits
+  | Does_not_fit
+  | Unknown_limit
 
 (** Check context window fit with explicit unknown representation. *)
 val check_context : tokens:int -> Capabilities.capabilities -> fit_result
@@ -51,7 +54,12 @@ val fits_output : tokens:int -> Capabilities.capabilities -> bool
 
 (** {2 Combinators} *)
 
-val requires_all :
-  (Capabilities.capabilities -> bool) list -> Capabilities.capabilities -> bool
-val requires_any :
-  (Capabilities.capabilities -> bool) list -> Capabilities.capabilities -> bool
+val requires_all
+  :  (Capabilities.capabilities -> bool) list
+  -> Capabilities.capabilities
+  -> bool
+
+val requires_any
+  :  (Capabilities.capabilities -> bool) list
+  -> Capabilities.capabilities
+  -> bool

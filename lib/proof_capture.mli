@@ -9,17 +9,17 @@
     @stability Evolving
     @since 0.93.1 *)
 
-type state
 (** Opaque mutable accumulator. One per agent run, not shared. *)
+type state
 
-val create :
-  store:Proof_store.config ->
-  contract:Risk_contract.t ->
-  mode_decision:Mode_resolver.decision ->
-  capability_snapshot:Cdal_proof.capability_snapshot ->
-  ?scope:string ->
-  unit ->
-  state
+val create
+  :  store:Proof_store.config
+  -> contract:Risk_contract.t
+  -> mode_decision:Mode_resolver.decision
+  -> capability_snapshot:Cdal_proof.capability_snapshot
+  -> ?scope:string
+  -> unit
+  -> state
 
 (** Returns hooks that intercept lifecycle events for proof capture.
     Compose with agent's existing hooks via [Hooks.compose]. *)
@@ -27,10 +27,7 @@ val hooks : state -> Hooks.hooks
 
 (** Finalize: write manifest.json + contract.json to store,
     return the assembled proof bundle. *)
-val finalize :
-  state ->
-  result_status:Cdal_proof.result_status ->
-  Cdal_proof.t
+val finalize : state -> result_status:Cdal_proof.result_status -> Cdal_proof.t
 
 val run_id : state -> string
 

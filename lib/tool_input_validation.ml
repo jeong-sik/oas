@@ -5,11 +5,11 @@
 
     @since 0.100.0 *)
 
-type field_error = {
-  path: string;
-  expected: string;
-  actual: string;
-}
+type field_error =
+  { path : string
+  ; expected : string
+  ; actual : string
+  }
 
 let missing_actual = "missing"
 
@@ -32,6 +32,7 @@ let describe_json_value = function
   | `Intlit s -> Printf.sprintf "integer(%s)" s
   | `Tuple _ -> "tuple"
   | `Variant _ -> "variant"
+;;
 
 let string_of_param_type = Types.param_type_to_string
 
@@ -40,7 +41,8 @@ let string_of_param_type = Types.param_type_to_string
 (** Try to coerce a JSON value to the expected param_type.
     Returns [Some coerced] on success, [None] if not coercible. *)
 let try_coerce (expected : Types.param_type) (value : Yojson.Safe.t)
-  : Yojson.Safe.t option =
+  : Yojson.Safe.t option
+  =
   match expected, value with
   (* string → integer *)
   | Types.Integer, `String s ->
@@ -81,6 +83,7 @@ let try_coerce (expected : Types.param_type) (value : Yojson.Safe.t)
      | None -> None)
   (* already correct type — no coercion needed *)
   | _ -> None
+;;
 
 (* ── Type checking ───────────────────────────────────────── *)
 
@@ -90,72 +93,88 @@ let matches_type (expected : Types.param_type) (value : Yojson.Safe.t) : bool =
   | Types.Integer, `Int _ -> true
   | Types.Integer, `Intlit _ -> true
   | Types.Number, `Float _ -> true
-  | Types.Number, `Int _ -> true    (* int is a valid number *)
+  | Types.Number, `Int _ -> true (* int is a valid number *)
   | Types.Number, `Intlit _ -> true
   | Types.Boolean, `Bool _ -> true
   | Types.Array, `List _ -> true
   | Types.Object, `Assoc _ -> true
   | _ -> false
+;;
 
 (* ── Validation ──────────────────────────────────────────── *)
 
-let validate (schema : Types.tool_schema) (input : Yojson.Safe.t)
-  : validation_result =
+let validate (schema : Types.tool_schema) (input : Yojson.Safe.t) : validation_result =
   let params = schema.parameters in
-  if params = [] then Valid input
-  else
-    let fields = match input with
+  if params = []
+  then Valid input
+  else (
+    let fields =
+      match input with
       | `Assoc fields -> fields
-      | `Null -> []  (* treat null as empty object for lenient parsing *)
-      | _ -> [("_raw", input)]
+      | `Null -> [] (* treat null as empty object for lenient parsing *)
+      | _ -> [ "_raw", input ]
     in
     let errors = ref [] in
     let coerced_fields = ref fields in
     (* Check each declared parameter *)
-    List.iter (fun (p : Types.tool_param) ->
-      let path = "/" ^ p.name in
-      match List.assoc_opt p.name fields with
-      | None | Some `Null ->
-        if p.required then
-          errors := { path; expected = string_of_param_type p.param_type; actual = missing_actual } :: !errors
-      | Some value ->
-        if not (matches_type p.param_type value) then begin
-          (* Try coercion before failing *)
-          match try_coerce p.param_type value with
-          | Some coerced ->
-            coerced_fields :=
-              List.map (fun (k, v) ->
-                if k = p.name then (k, coerced) else (k, v)
-              ) !coerced_fields
-          | None ->
-            errors := {
-              path;
-              expected = string_of_param_type p.param_type;
-              actual = describe_json_value value;
-            } :: !errors
-        end else begin
-          (* Type matches, but try normalization (e.g. Intlit -> Int) *)
-          match try_coerce p.param_type value with
-          | Some normalized when not (Yojson.Safe.equal normalized value) ->
-            coerced_fields :=
-              List.map (fun (k, v) ->
-                if k = p.name then (k, normalized) else (k, v)
-              ) !coerced_fields
-          | _ -> ()
-        end
-    ) params;
+    List.iter
+      (fun (p : Types.tool_param) ->
+         let path = "/" ^ p.name in
+         match List.assoc_opt p.name fields with
+         | None | Some `Null ->
+           if p.required
+           then
+             errors
+             := { path
+                ; expected = string_of_param_type p.param_type
+                ; actual = missing_actual
+                }
+                :: !errors
+         | Some value ->
+           if not (matches_type p.param_type value)
+           then (
+             (* Try coercion before failing *)
+             match try_coerce p.param_type value with
+             | Some coerced ->
+               coerced_fields
+               := List.map
+                    (fun (k, v) -> if k = p.name then k, coerced else k, v)
+                    !coerced_fields
+             | None ->
+               errors
+               := { path
+                  ; expected = string_of_param_type p.param_type
+                  ; actual = describe_json_value value
+                  }
+                  :: !errors)
+           else (
+             (* Type matches, but try normalization (e.g. Intlit -> Int) *)
+             match try_coerce p.param_type value with
+             | Some normalized when not (Yojson.Safe.equal normalized value) ->
+               coerced_fields
+               := List.map
+                    (fun (k, v) -> if k = p.name then k, normalized else k, v)
+                    !coerced_fields
+             | _ -> ()))
+      params;
     match List.rev !errors with
     | [] -> Valid (`Assoc !coerced_fields)
-    | errs -> Invalid errs
+    | errs -> Invalid errs)
+;;
 
 (* ── Error formatting ────────────────────────────────────── *)
 
 let format_errors ~tool_name errors =
-  let lines = List.map (fun e ->
-    Printf.sprintf "- %s: expected %s, got %s" e.path e.expected e.actual
-  ) errors in
-  Printf.sprintf "Tool '%s' parameter errors:\n%s\nFix the parameters and try again."
-    tool_name (String.concat "\n" lines)
+  let lines =
+    List.map
+      (fun e -> Printf.sprintf "- %s: expected %s, got %s" e.path e.expected e.actual)
+      errors
+  in
+  Printf.sprintf
+    "Tool '%s' parameter errors:\n%s\nFix the parameters and try again."
+    tool_name
+    (String.concat "\n" lines)
+;;
 
 (** Samchon-style inline error feedback: show the LLM's own JSON
     with error annotations, so the retry prompt gives surgical guidance.
@@ -172,16 +191,27 @@ let format_errors ~tool_name errors =
 *)
 let format_errors_inline ~tool_name ~(args : Yojson.Safe.t) errors =
   let json_str = Yojson.Safe.to_string args in
-  let error_lines = List.map (fun e ->
-    let field_name = match String.index_opt e.path '/' with
-      | Some i -> String.sub e.path (i + 1) (String.length e.path - i - 1)
-      | None -> e.path
-    in
-    if e.actual = missing_actual then
-      Printf.sprintf "  \"%s\": MISSING (required: %s)" field_name e.expected
-    else
-      Printf.sprintf "  \"%s\": wrong type — expected: %s, got: %s"
-        field_name e.expected e.actual
-  ) errors in
-  Printf.sprintf "Your call to \"%s\":\n%s\n\nErrors (fix these and call again):\n%s"
-    tool_name json_str (String.concat "\n" error_lines)
+  let error_lines =
+    List.map
+      (fun e ->
+         let field_name =
+           match String.index_opt e.path '/' with
+           | Some i -> String.sub e.path (i + 1) (String.length e.path - i - 1)
+           | None -> e.path
+         in
+         if e.actual = missing_actual
+         then Printf.sprintf "  \"%s\": MISSING (required: %s)" field_name e.expected
+         else
+           Printf.sprintf
+             "  \"%s\": wrong type — expected: %s, got: %s"
+             field_name
+             e.expected
+             e.actual)
+      errors
+  in
+  Printf.sprintf
+    "Your call to \"%s\":\n%s\n\nErrors (fix these and call again):\n%s"
+    tool_name
+    json_str
+    (String.concat "\n" error_lines)
+;;

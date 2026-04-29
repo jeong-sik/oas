@@ -15,4 +15,3 @@
  (modules oas_cli)
  (public_name oas)
  (libraries agent_sdk oas_cli_support eio eio_main yojson unix cmdliner))
-

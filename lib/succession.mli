@@ -14,32 +14,32 @@
 
 (** {1 Metrics} *)
 
-type metrics = {
-  total_turns : int;
-  total_tokens_used : int;
-  total_cost_usd : float;
-  tasks_completed : int;
-  errors_encountered : int;
-  elapsed_seconds : float;
-}
+type metrics =
+  { total_turns : int
+  ; total_tokens_used : int
+  ; total_cost_usd : float
+  ; tasks_completed : int
+  ; errors_encountered : int
+  ; elapsed_seconds : float
+  }
 
 val empty_metrics : metrics
 val merge_metrics : metrics -> metrics -> metrics
 
 (** {1 DNA — compressed handoff payload} *)
 
-type dna = {
-  generation : int;
-  trace_id : string;
-  goal : string;
-  progress_summary : string;
-  compressed_context : string;
-  pending_actions : string list;
-  key_decisions : string list;
-  memory_refs : string list;
-  warnings : string list;
-  metrics : metrics;
-}
+type dna =
+  { generation : int
+  ; trace_id : string
+  ; goal : string
+  ; progress_summary : string
+  ; compressed_context : string
+  ; pending_actions : string list
+  ; key_decisions : string list
+  ; memory_refs : string list
+  ; warnings : string list
+  ; metrics : metrics
+  }
 
 (** {1 DNA Extraction} *)
 
@@ -50,14 +50,15 @@ type dna = {
     - pending_actions: incomplete tool calls, unanswered questions
     - key_decisions: significant choices made during execution
     - compressed_context: truncated message history *)
-val extract_dna :
-  messages:Types.message list ->
-  goal:string ->
-  generation:int ->
-  trace_id:string ->
-  ?metrics:metrics ->
-  ?warnings:string list ->
-  unit -> dna
+val extract_dna
+  :  messages:Types.message list
+  -> goal:string
+  -> generation:int
+  -> trace_id:string
+  -> ?metrics:metrics
+  -> ?warnings:string list
+  -> unit
+  -> dna
 
 (** {1 Hydration — restore context from DNA} *)
 
@@ -73,10 +74,7 @@ val hydrate_messages : dna -> Types.message list
 (** Normalize messages for a target model.
     Repairs tool call pairing, strips thinking blocks,
     and ensures role alternation. *)
-val normalize_for_model :
-  Types.message list ->
-  target_model:string ->
-  Types.message list
+val normalize_for_model : Types.message list -> target_model:string -> Types.message list
 
 (** {1 Serialization} *)
 

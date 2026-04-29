@@ -473,7 +473,6 @@
  (modules test_structured_stream)
  (libraries agent_sdk alcotest yojson))
 
-
 (test
  (name test_tracing)
  (modules test_tracing)
@@ -522,7 +521,15 @@
 (test
  (name test_checkpoint_delta)
  (modules test_checkpoint_delta)
- (libraries agent_sdk alcotest qcheck-core qcheck-alcotest yojson unix eio eio_main))
+ (libraries
+  agent_sdk
+  alcotest
+  qcheck-core
+  qcheck-alcotest
+  yojson
+  unix
+  eio
+  eio_main))
 
 (test
  (name test_mcp_integration)
@@ -533,7 +540,6 @@
  (name test_session_resume)
  (modules test_session_resume)
  (libraries agent_sdk alcotest yojson unix eio eio_main))
-
 
 (test
  (name test_mcp_session)
@@ -908,11 +914,13 @@
 ; Fs_atomic_eio.save_atomic is retained indirectly via
 ; test_checkpoint_store, test_a2a_task_store, and
 ; test_memory_file_backend.
+
 (test
  (name test_atomic_write_race)
  (modules test_atomic_write_race)
  (libraries agent_sdk alcotest eio eio_main)
- (enabled_if (<> %{env:BISECT_ENABLE=no} "yes")))
+ (enabled_if
+  (<> %{env:BISECT_ENABLE=no} "yes")))
 
 (test
  (name test_body_timeout)

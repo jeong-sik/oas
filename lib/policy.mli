@@ -14,12 +14,32 @@
 (** {1 Decision points} *)
 
 type decision_point =
-  | BeforeToolCall of { tool_name: string; agent_name: string }
-  | BeforeHandoff of { from_agent: string; to_agent: string }
-  | BeforeResponse of { agent_name: string; content_preview: string }
-  | ResourceRequest of { agent_name: string; resource: string; amount: float }
-  | BeforeMemoryWrite of { agent_name: string; tier: string; key: string }
-  | Custom of { name: string; detail: string }
+  | BeforeToolCall of
+      { tool_name : string
+      ; agent_name : string
+      }
+  | BeforeHandoff of
+      { from_agent : string
+      ; to_agent : string
+      }
+  | BeforeResponse of
+      { agent_name : string
+      ; content_preview : string
+      }
+  | ResourceRequest of
+      { agent_name : string
+      ; resource : string
+      ; amount : float
+      }
+  | BeforeMemoryWrite of
+      { agent_name : string
+      ; tier : string
+      ; key : string
+      }
+  | Custom of
+      { name : string
+      ; detail : string
+      }
 
 (** {1 Verdicts} *)
 
@@ -31,24 +51,24 @@ type verdict =
 
 (** {1 Rules} *)
 
-type rule = {
-  name: string;
-  priority: int;
-  applies_to: decision_point -> bool;
-  evaluate: decision_point -> verdict;
-}
+type rule =
+  { name : string
+  ; priority : int
+  ; applies_to : decision_point -> bool
+  ; evaluate : decision_point -> verdict
+  }
 
 (** {1 Structured decision} *)
 
 (** A structured decision with full lineage of matched rules.
     @since 0.99.2 *)
-type decision = {
-  verdict: verdict;
-  matched_rules: rule list;
-  first_match: rule option;
-  policy_source: string;
-  evaluated_at: float;
-}
+type decision =
+  { verdict : verdict
+  ; matched_rules : rule list
+  ; first_match : rule option
+  ; policy_source : string
+  ; evaluated_at : float
+  }
 
 (** {1 Policy engine} *)
 
@@ -66,8 +86,7 @@ val evaluate : t -> decision_point -> verdict
     with matched-rule lineage for audit.
     [policy_source] defaults to ["default"].
     @since 0.99.2 *)
-val evaluate_with_lineage :
-  ?policy_source:string -> t -> decision_point -> decision
+val evaluate_with_lineage : ?policy_source:string -> t -> decision_point -> decision
 
 (** {1 Rule management} *)
 

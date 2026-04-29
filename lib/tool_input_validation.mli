@@ -10,11 +10,12 @@
     @since 0.100.0 *)
 
 (** A single field-level validation error. *)
-type field_error = {
-  path: string;      (** JSON path, e.g. ["/workspace"], ["/interval_seconds"] *)
-  expected: string;  (** Expected type or constraint, e.g. ["integer"], ["required"] *)
-  actual: string;    (** What was received, e.g. ["string(\"sixty\")"], [{!missing_actual}] *)
-}
+type field_error =
+  { path : string (** JSON path, e.g. ["/workspace"], ["/interval_seconds"] *)
+  ; expected : string (** Expected type or constraint, e.g. ["integer"], ["required"] *)
+  ; actual : string
+    (** What was received, e.g. ["string(\"sixty\")"], [{!missing_actual}] *)
+  }
 
 (** Sentinel value for [field_error.actual] when the field is absent. *)
 val missing_actual : string
@@ -41,8 +42,11 @@ val format_errors : tool_name:string -> field_error list -> string
     because the LLM sees its own output with precise error markers.
 
     Use this in heal_tool_call retry loops for higher recovery rates. *)
-val format_errors_inline :
-  tool_name:string -> args:Yojson.Safe.t -> field_error list -> string
+val format_errors_inline
+  :  tool_name:string
+  -> args:Yojson.Safe.t
+  -> field_error list
+  -> string
 
 (** {1 Low-level helpers (for Correction_pipeline, Tool_schema_gen)} *)
 

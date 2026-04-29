@@ -21,18 +21,24 @@ let make_unique_suffix () =
   let now_ns = Int64.of_float (Unix.gettimeofday () *. 1e9) in
   let n = Atomic.fetch_and_add unique_counter 1 in
   Printf.sprintf "%d_%Ld_%d" pid now_ns n
+;;
 
 let fsync_fd_best_effort fd =
-  try Unix.fsync fd
-  with Unix.Unix_error ((EINVAL | EOPNOTSUPP), _, _) -> ()
+  try Unix.fsync fd with
+  | Unix.Unix_error ((EINVAL | EOPNOTSUPP), _, _) -> ()
+;;
 
 let fsync_native_path_best_effort native =
   try
     let fd = Unix.openfile native [ Unix.O_RDONLY ] 0 in
     Fun.protect
-      ~finally:(fun () -> try Unix.close fd with Unix.Unix_error _ -> ())
+      ~finally:(fun () ->
+        try Unix.close fd with
+        | Unix.Unix_error _ -> ())
       (fun () -> fsync_fd_best_effort fd)
-  with Unix.Unix_error _ -> ()
+  with
+  | Unix.Unix_error _ -> ()
+;;
 
 (* Eio.Path.native returns [None] for non-filesystem dirs (rare in
    our callers). Best-effort: skip fsync when we cannot get a native
@@ -41,6 +47,7 @@ let fsync_eio_path_best_effort path =
   match Eio.Path.native path with
   | Some native -> fsync_native_path_best_effort native
   | None -> ()
+;;
 
 (** Save [content] atomically to [dir / name].
 
@@ -54,8 +61,8 @@ let save_atomic ~(dir : Eio.Fs.dir_ty Eio.Path.t) ~(name : string) (content : st
   let tmp = Eio.Path.(dir / tmp_name) in
   let target = Eio.Path.(dir / name) in
   let cleanup_tmp () =
-    try Eio.Path.unlink tmp
-    with Eio.Io _ | Unix.Unix_error _ -> ()
+    try Eio.Path.unlink tmp with
+    | Eio.Io _ | Unix.Unix_error _ -> ()
   in
   try
     Eio.Path.save ~create:(`Or_truncate 0o644) tmp content;
@@ -70,3 +77,4 @@ let save_atomic ~(dir : Eio.Fs.dir_ty Eio.Path.t) ~(name : string) (content : st
   | exn ->
     cleanup_tmp ();
     Fs_result.io_error_of_exn ~op:"save_atomic" ~path:name exn
+;;

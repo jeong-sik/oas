@@ -18,18 +18,15 @@
     Captured in a closure at tool creation time. *)
 type agent_runner = string -> (Types.api_response, Error.sdk_error) result
 
-type config = {
-  name: string;
-      (** Tool name (shown to the parent agent). *)
-  description: string;
-      (** Tool description (shown to the parent agent). *)
-  runner: agent_runner;
-      (** Closure that captures the child agent and runs it. *)
-  output_summarizer: (string -> string) option;
-      (** Optional post-processing of agent output before returning. *)
-  input_parameters: Types.tool_param list;
-      (** Extra structured parameters beyond the default "prompt". *)
-}
+type config =
+  { name : string (** Tool name (shown to the parent agent). *)
+  ; description : string (** Tool description (shown to the parent agent). *)
+  ; runner : agent_runner (** Closure that captures the child agent and runs it. *)
+  ; output_summarizer : (string -> string) option
+    (** Optional post-processing of agent output before returning. *)
+  ; input_parameters : Types.tool_param list
+    (** Extra structured parameters beyond the default "prompt". *)
+  }
 
 (** {1 Construction} *)
 
@@ -39,8 +36,4 @@ type config = {
 val create : config -> Tool.t
 
 (** Convenience: create from a runner function with minimal config. *)
-val create_simple :
-  name:string ->
-  description:string ->
-  agent_runner ->
-  Tool.t
+val create_simple : name:string -> description:string -> agent_runner -> Tool.t

@@ -26,10 +26,10 @@ val extract_name_and_input : Yojson.Safe.t -> (string * Yojson.Safe.t) option
 
 (** Scan content blocks and replace recoverable Text blocks with
     ToolUse. Returns [(new_content, recovered_count)]. *)
-val recover_content_blocks :
-  valid_tool_names:string list ->
-  content_block list ->
-  content_block list * int
+val recover_content_blocks
+  :  valid_tool_names:string list
+  -> content_block list
+  -> content_block list * int
 
 (** Top-level recovery. Promotes Text-embedded tool calls to ToolUse
     blocks only when:
@@ -40,7 +40,4 @@ val recover_content_blocks :
 
     Returns the response unchanged otherwise. Adjusts [stop_reason]
     from [EndTurn] to [StopToolUse] on recovery. *)
-val recover_response :
-  valid_tool_names:string list ->
-  api_response ->
-  api_response
+val recover_response : valid_tool_names:string list -> api_response -> api_response

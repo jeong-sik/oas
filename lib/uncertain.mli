@@ -12,53 +12,51 @@
 
 (** How the value was produced. *)
 type provenance =
-  | LLM of { model : string; temperature : float option }
+  | LLM of
+      { model : string
+      ; temperature : float option
+      }
   | Heuristic of { name : string }
   | Deterministic
   | User
 
 (** Resource pressure at the time of production. *)
-type stress = {
-  context_pressure : float option;
-  (** 0.0–1.0 fraction of context window consumed.  [None] if unknown. *)
-  time_pressure : bool;
-  (** [true] when the producer was under a timeout warning. *)
-  retry_count : int;
-  (** How many retries preceded this value. *)
-}
+type stress =
+  { context_pressure : float option
+    (** 0.0–1.0 fraction of context window consumed.  [None] if unknown. *)
+  ; time_pressure : bool (** [true] when the producer was under a timeout warning. *)
+  ; retry_count : int (** How many retries preceded this value. *)
+  }
 
 (** A value of type ['a] with provenance and confidence metadata. *)
-type 'a t = private {
-  value : 'a;
-  confidence : float;
-  provenance : provenance;
-  stress : stress;
-}
+type 'a t = private
+  { value : 'a
+  ; confidence : float
+  ; provenance : provenance
+  ; stress : stress
+  }
 
 (** {1 Smart constructors} *)
 
-val from_llm :
-  model:string ->
-  ?temperature:float ->
-  ?confidence:float ->
-  ?stress:stress ->
-  'a -> 'a t
 (** Wrap an LLM-produced value.  Default confidence: [0.5]. *)
+val from_llm
+  :  model:string
+  -> ?temperature:float
+  -> ?confidence:float
+  -> ?stress:stress
+  -> 'a
+  -> 'a t
 
-val from_heuristic :
-  name:string ->
-  ?confidence:float ->
-  ?stress:stress ->
-  'a -> 'a t
 (** Wrap a heuristic-produced value.  Default confidence: [0.3]. *)
+val from_heuristic : name:string -> ?confidence:float -> ?stress:stress -> 'a -> 'a t
 
-val deterministic : 'a -> 'a t
 (** Wrap a value known to be deterministic.
     Confidence is [1.0], provenance is [Deterministic], stress is zero. *)
+val deterministic : 'a -> 'a t
 
-val from_user : 'a -> 'a t
 (** Wrap a user-supplied value.
     Confidence is [1.0], provenance is [User], stress is zero. *)
+val from_user : 'a -> 'a t
 
 (** {1 Accessors} *)
 
@@ -69,45 +67,45 @@ val stress_of : 'a t -> stress
 
 (** {1 Predicates} *)
 
-val is_confident : threshold:float -> 'a t -> bool
 (** [is_confident ~threshold u] is [u.confidence >= threshold]. *)
+val is_confident : threshold:float -> 'a t -> bool
 
-val is_deterministic : 'a t -> bool
 (** [true] iff provenance is [Deterministic]. *)
+val is_deterministic : 'a t -> bool
 
 (** {1 Transformations} *)
 
-val map : ('a -> 'b) -> 'a t -> 'b t
 (** Transform the inner value, preserving metadata. *)
+val map : ('a -> 'b) -> 'a t -> 'b t
 
-val bind : ('a -> 'b t) -> 'a t -> 'b t
 (** Monadic bind.  Resulting confidence is [min] of both. *)
+val bind : ('a -> 'b t) -> 'a t -> 'b t
 
-val with_confidence : float -> 'a t -> 'a t
 (** Override confidence (clamped to [0.0, 1.0]). *)
+val with_confidence : float -> 'a t -> 'a t
 
 (** {1 Unwrapping — explicit boundary crossing} *)
 
-val unwrap : 'a t -> 'a
 (** Extract the value.  Caller assumes responsibility for the
     non-deterministic nature.  Prefer [to_result] when possible. *)
+val unwrap : 'a t -> 'a
 
-val to_result : min_confidence:float -> 'a t -> ('a, string) result
 (** [Ok value] when confidence >= [min_confidence],
     [Error reason] otherwise.  The reason includes provenance info. *)
+val to_result : min_confidence:float -> 'a t -> ('a, string) result
 
 (** {1 Serialization} *)
 
-val stress_zero : stress
 (** Zero stress: no context pressure, no time pressure, zero retries. *)
+val stress_zero : stress
 
 val provenance_to_yojson : provenance -> Yojson.Safe.t
 val provenance_of_yojson : Yojson.Safe.t -> (provenance, string) result
-
 val stress_to_yojson : stress -> Yojson.Safe.t
 val stress_of_yojson : Yojson.Safe.t -> (stress, string) result
-
 val to_yojson : ('a -> Yojson.Safe.t) -> 'a t -> Yojson.Safe.t
-val of_yojson :
-  (Yojson.Safe.t -> ('a, string) result) ->
-  Yojson.Safe.t -> ('a t, string) result
+
+val of_yojson
+  :  (Yojson.Safe.t -> ('a, string) result)
+  -> Yojson.Safe.t
+  -> ('a t, string) result

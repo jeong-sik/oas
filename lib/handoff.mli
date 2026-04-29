@@ -13,25 +13,25 @@
 (** {1 Types} *)
 
 (** Handoff target definition. *)
-type handoff_target = {
-  name: string;
-  description: string;
-  config: Types.agent_config;
-  tools: Tool.t list;
-}
+type handoff_target =
+  { name : string
+  ; description : string
+  ; config : Types.agent_config
+  ; tools : Tool.t list
+  }
 
 (** Result of a handoff execution. *)
-type handoff_result = {
-  target_name: string;
-  response: Types.api_response;
-}
+type handoff_result =
+  { target_name : string
+  ; response : Types.api_response
+  }
 
 (** Delegate function type — provided by {!Agent} at runtime. *)
 type delegate_fn =
-  sw:Eio.Switch.t ->
-  handoff_target ->
-  string ->
-  (Types.api_response, Error.sdk_error) result
+  sw:Eio.Switch.t
+  -> handoff_target
+  -> string
+  -> (Types.api_response, Error.sdk_error) result
 
 (** {1 Constants} *)
 

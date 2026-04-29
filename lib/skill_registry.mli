@@ -47,9 +47,7 @@ val count : t -> int
 (** {1 Bulk Loading} *)
 
 (** Load skills from a directory.  Returns the number loaded on success. *)
-val load_from_dir :
-  t -> ?scope:Skill.scope -> string ->
-  (int, Error.sdk_error) result
+val load_from_dir : t -> ?scope:Skill.scope -> string -> (int, Error.sdk_error) result
 
 (** {1 JSON Serialization} *)
 

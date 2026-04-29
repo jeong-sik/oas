@@ -8,37 +8,49 @@
 
 (** {1 Types} *)
 
-type risk_level = Low | Medium | High | Critical
+type risk_level =
+  | Low
+  | Medium
+  | High
+  | Critical
 
 val risk_level_to_string : risk_level -> string
 
-type approval_context = {
-  tool_name: string;
-  input: Yojson.Safe.t;
-  agent_name: string;
-  turn: int;
-  risk_level: risk_level;
-}
+type approval_context =
+  { tool_name : string
+  ; input : Yojson.Safe.t
+  ; agent_name : string
+  ; turn : int
+  ; risk_level : risk_level
+  }
 
 type stage_result =
   | Decided of Hooks.approval_decision
   | Pass
   | Pass_with_context of approval_context
-      (** Like [Pass] but replaces the context for downstream stages.
+  (** Like [Pass] but replaces the context for downstream stages.
           Used by context-enriching stages such as [risk_classifier]. *)
 
-type approval_stage = {
-  name: string;
-  evaluate: approval_context -> stage_result;
-  timeout_s: float option;
-}
+type approval_stage =
+  { name : string
+  ; evaluate : approval_context -> stage_result
+  ; timeout_s : float option
+  }
 
 type t
 
 (** {1 Pipeline} *)
 
 val create : approval_stage list -> t
-val evaluate : t -> tool_name:string -> input:Yojson.Safe.t -> agent_name:string -> turn:int -> Hooks.approval_decision
+
+val evaluate
+  :  t
+  -> tool_name:string
+  -> input:Yojson.Safe.t
+  -> agent_name:string
+  -> turn:int
+  -> Hooks.approval_decision
+
 val as_callback : t -> Hooks.approval_callback
 
 (** {1 Built-in stages} *)

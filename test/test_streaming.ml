@@ -4,8 +4,13 @@ open Agent_sdk.Types
 
 (* Helper: create api_usage from input/output token counts *)
 let make_usage inp out =
-  { input_tokens = inp; output_tokens = out;
-    cache_creation_input_tokens = 0; cache_read_input_tokens = 0 ; cost_usd = None }
+  { input_tokens = inp
+  ; output_tokens = out
+  ; cache_creation_input_tokens = 0
+  ; cache_read_input_tokens = 0
+  ; cost_usd = None
+  }
+;;
 
 (* ------------------------------------------------------------------ *)
 (* Usage tracking                                                       *)
@@ -15,12 +20,14 @@ let test_empty_usage () =
   Alcotest.(check int) "total_input_tokens is 0" 0 empty_usage.total_input_tokens;
   Alcotest.(check int) "total_output_tokens is 0" 0 empty_usage.total_output_tokens;
   Alcotest.(check int) "api_calls is 0" 0 empty_usage.api_calls
+;;
 
 let test_add_usage_basic () =
   let s = add_usage empty_usage (make_usage 100 50) in
   Alcotest.(check int) "input_tokens accumulated" 100 s.total_input_tokens;
   Alcotest.(check int) "output_tokens accumulated" 50 s.total_output_tokens;
   Alcotest.(check int) "api_calls incremented" 1 s.api_calls
+;;
 
 let test_add_usage_multiple () =
   let s0 = add_usage empty_usage (make_usage 100 50) in
@@ -28,12 +35,14 @@ let test_add_usage_multiple () =
   Alcotest.(check int) "input_tokens summed" 300 s1.total_input_tokens;
   Alcotest.(check int) "output_tokens summed" 130 s1.total_output_tokens;
   Alcotest.(check int) "api_calls counted" 2 s1.api_calls
+;;
 
 let test_add_usage_zero_tokens () =
   let s = add_usage empty_usage (make_usage 0 0) in
   Alcotest.(check int) "zero input accepted" 0 s.total_input_tokens;
   Alcotest.(check int) "zero output accepted" 0 s.total_output_tokens;
   Alcotest.(check int) "api_calls still incremented" 1 s.api_calls
+;;
 
 let test_add_usage_immutable () =
   let s0 = add_usage empty_usage (make_usage 100 50) in
@@ -41,21 +50,34 @@ let test_add_usage_immutable () =
   (* s0 must not be mutated *)
   Alcotest.(check int) "original input_tokens unchanged" 100 s0.total_input_tokens;
   Alcotest.(check int) "original api_calls unchanged" 1 s0.api_calls
+;;
 
 (* ------------------------------------------------------------------ *)
 (* SSE event type construction                                          *)
 (* ------------------------------------------------------------------ *)
 
 let test_sse_message_start () =
-  let evt = MessageStart { id = "msg_abc"; model = "claude-sonnet-4";
-    usage = Some { input_tokens = 100; output_tokens = 0;
-                   cache_creation_input_tokens = 0; cache_read_input_tokens = 0 ; cost_usd = None } } in
+  let evt =
+    MessageStart
+      { id = "msg_abc"
+      ; model = "claude-sonnet-4"
+      ; usage =
+          Some
+            { input_tokens = 100
+            ; output_tokens = 0
+            ; cache_creation_input_tokens = 0
+            ; cache_read_input_tokens = 0
+            ; cost_usd = None
+            }
+      }
+  in
   match evt with
   | MessageStart { id; model; usage = Some u } ->
     Alcotest.(check string) "id" "msg_abc" id;
     Alcotest.(check string) "model" "claude-sonnet-4" model;
     Alcotest.(check int) "input_tokens" 100 u.input_tokens
   | _ -> Alcotest.fail "expected MessageStart"
+;;
 
 let test_sse_content_block_delta_text () =
   let delta = TextDelta "hello" in
@@ -65,29 +87,35 @@ let test_sse_content_block_delta_text () =
     Alcotest.(check int) "index" 0 index;
     Alcotest.(check string) "text" "hello" s
   | _ -> Alcotest.fail "expected ContentBlockDelta with TextDelta"
+;;
 
 let test_sse_message_stop () =
   match MessageStop with
   | MessageStop -> ()
   | _ -> Alcotest.fail "expected MessageStop"
+;;
 
 let test_sse_ping () =
   match Ping with
   | Ping -> ()
   | _ -> Alcotest.fail "expected Ping"
+;;
 
 let test_sse_error () =
   let evt = SSEError "overloaded" in
   match evt with
   | SSEError msg -> Alcotest.(check string) "error message" "overloaded" msg
   | _ -> Alcotest.fail "expected SSEError"
+;;
 
 (* ------------------------------------------------------------------ *)
 (* parse_sse_event                                                      *)
 (* ------------------------------------------------------------------ *)
 
 let test_parse_message_start () =
-  let data = {|{"type":"message_start","message":{"id":"msg_01","model":"claude-3-7-sonnet-20250219","usage":{"input_tokens":42}}}|} in
+  let data =
+    {|{"type":"message_start","message":{"id":"msg_01","model":"claude-3-7-sonnet-20250219","usage":{"input_tokens":42}}}|}
+  in
   match Agent_sdk.Streaming.parse_sse_event None data with
   | Some (MessageStart { id; model; usage }) ->
     Alcotest.(check string) "id" "msg_01" id;
@@ -97,51 +125,66 @@ let test_parse_message_start () =
      | None -> Alcotest.fail "expected Some usage")
   | Some _ -> Alcotest.fail "unexpected event type"
   | None -> Alcotest.fail "parse returned None"
+;;
 
 let test_parse_content_block_start () =
-  let data = {|{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}|} in
+  let data =
+    {|{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}|}
+  in
   match Agent_sdk.Streaming.parse_sse_event None data with
   | Some (ContentBlockStart { index; content_type; _ }) ->
     Alcotest.(check int) "index" 0 index;
     Alcotest.(check string) "content_type" "text" content_type
   | Some _ -> Alcotest.fail "unexpected event type"
   | None -> Alcotest.fail "parse returned None"
+;;
 
 let test_parse_content_block_delta_text () =
-  let data = {|{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hello"}}|} in
+  let data =
+    {|{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hello"}}|}
+  in
   match Agent_sdk.Streaming.parse_sse_event None data with
   | Some (ContentBlockDelta { index; delta = TextDelta s }) ->
     Alcotest.(check int) "index" 0 index;
     Alcotest.(check string) "text" "hello" s
   | Some _ -> Alcotest.fail "unexpected event type"
   | None -> Alcotest.fail "parse returned None"
+;;
 
 let test_parse_content_block_delta_thinking () =
-  let data = {|{"type":"content_block_delta","index":1,"delta":{"type":"thinking_delta","thinking":"I think..."}}|} in
+  let data =
+    {|{"type":"content_block_delta","index":1,"delta":{"type":"thinking_delta","thinking":"I think..."}}|}
+  in
   match Agent_sdk.Streaming.parse_sse_event None data with
   | Some (ContentBlockDelta { index = 1; delta = ThinkingDelta s }) ->
     Alcotest.(check string) "thinking" "I think..." s
   | Some _ -> Alcotest.fail "unexpected event type"
   | None -> Alcotest.fail "parse returned None"
+;;
 
 let test_parse_content_block_delta_input_json () =
-  let data = {|{"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"{\"k\":"}}|} in
+  let data =
+    {|{"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"{\"k\":"}}|}
+  in
   match Agent_sdk.Streaming.parse_sse_event None data with
   | Some (ContentBlockDelta { index = 2; delta = InputJsonDelta s }) ->
-    Alcotest.(check string) "partial_json" {|{"k":|}  s
+    Alcotest.(check string) "partial_json" {|{"k":|} s
   | Some _ -> Alcotest.fail "unexpected event type"
   | None -> Alcotest.fail "parse returned None"
+;;
 
 let test_parse_content_block_stop () =
   let data = {|{"type":"content_block_stop","index":0}|} in
   match Agent_sdk.Streaming.parse_sse_event None data with
-  | Some (ContentBlockStop { index }) ->
-    Alcotest.(check int) "index" 0 index
+  | Some (ContentBlockStop { index }) -> Alcotest.(check int) "index" 0 index
   | Some _ -> Alcotest.fail "unexpected event type"
   | None -> Alcotest.fail "parse returned None"
+;;
 
 let test_parse_message_delta_end_turn () =
-  let data = {|{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":57}}|} in
+  let data =
+    {|{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":57}}|}
+  in
   match Agent_sdk.Streaming.parse_sse_event None data with
   | Some (MessageDelta { stop_reason; usage }) ->
     (match stop_reason with
@@ -152,6 +195,7 @@ let test_parse_message_delta_end_turn () =
      | None -> Alcotest.fail "expected Some usage")
   | Some _ -> Alcotest.fail "unexpected event type"
   | None -> Alcotest.fail "parse returned None"
+;;
 
 let test_parse_message_stop () =
   let data = {|{"type":"message_stop"}|} in
@@ -159,6 +203,7 @@ let test_parse_message_stop () =
   | Some MessageStop -> ()
   | Some _ -> Alcotest.fail "unexpected event type"
   | None -> Alcotest.fail "parse returned None"
+;;
 
 let test_parse_ping () =
   let data = {|{"type":"ping"}|} in
@@ -166,28 +211,35 @@ let test_parse_ping () =
   | Some Ping -> ()
   | Some _ -> Alcotest.fail "unexpected event type"
   | None -> Alcotest.fail "parse returned None"
+;;
 
 let test_parse_error_event () =
-  let data = {|{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}|} in
+  let data =
+    {|{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}|}
+  in
   match Agent_sdk.Streaming.parse_sse_event None data with
-  | Some (SSEError msg) ->
-    Alcotest.(check string) "error message" "Overloaded" msg
+  | Some (SSEError msg) -> Alcotest.(check string) "error message" "Overloaded" msg
   | Some _ -> Alcotest.fail "unexpected event type"
   | None -> Alcotest.fail "parse returned None"
+;;
 
 let test_parse_invalid_json () =
   match Agent_sdk.Streaming.parse_sse_event None "not json at all" with
   | None -> ()
   | Some _ -> Alcotest.fail "expected None for invalid JSON"
+;;
 
 let test_parse_unknown_event_type () =
   let data = {|{"type":"unknown_future_event","data":"x"}|} in
   match Agent_sdk.Streaming.parse_sse_event None data with
   | None -> ()
   | Some _ -> Alcotest.fail "expected None for unknown event type"
+;;
 
 let test_parse_message_start_with_cache () =
-  let data = {|{"type":"message_start","message":{"id":"msg_cache","model":"claude-sonnet-4","usage":{"input_tokens":100,"cache_creation_input_tokens":50,"cache_read_input_tokens":30}}}|} in
+  let data =
+    {|{"type":"message_start","message":{"id":"msg_cache","model":"claude-sonnet-4","usage":{"input_tokens":100,"cache_creation_input_tokens":50,"cache_read_input_tokens":30}}}|}
+  in
   match Agent_sdk.Streaming.parse_sse_event None data with
   | Some (MessageStart { id; usage; _ }) ->
     Alcotest.(check string) "id" "msg_cache" id;
@@ -199,10 +251,13 @@ let test_parse_message_start_with_cache () =
      | None -> Alcotest.fail "expected Some usage")
   | Some _ -> Alcotest.fail "unexpected event type"
   | None -> Alcotest.fail "parse returned None"
+;;
 
 let test_message_delta_with_cache_usage () =
   (* message_delta may carry usage with cache metrics *)
-  let data = {|{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":0,"output_tokens":150,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}|} in
+  let data =
+    {|{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":0,"output_tokens":150,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}|}
+  in
   match Agent_sdk.Streaming.parse_sse_event None data with
   | Some (MessageDelta { stop_reason; usage }) ->
     (match stop_reason with
@@ -215,10 +270,13 @@ let test_message_delta_with_cache_usage () =
      | None -> Alcotest.fail "expected usage in delta")
   | Some _ -> Alcotest.fail "unexpected event type"
   | None -> Alcotest.fail "parse returned None"
+;;
 
 let test_message_start_missing_output_tokens () =
   (* Some API responses may omit output_tokens in message_start usage *)
-  let data = {|{"type":"message_start","message":{"id":"msg_partial","model":"claude-sonnet-4-6","usage":{"input_tokens":500}}}|} in
+  let data =
+    {|{"type":"message_start","message":{"id":"msg_partial","model":"claude-sonnet-4-6","usage":{"input_tokens":500}}}|}
+  in
   match Agent_sdk.Streaming.parse_sse_event None data with
   | Some (MessageStart { id; usage; _ }) ->
     Alcotest.(check string) "id" "msg_partial" id;
@@ -227,15 +285,19 @@ let test_message_start_missing_output_tokens () =
      | None -> Alcotest.fail "expected usage")
   | Some _ -> Alcotest.fail "unexpected event type"
   | None -> Alcotest.fail "parse returned None"
+;;
 
 let test_parse_with_explicit_event_type () =
   (* event_type parameter overrides the 'type' field in JSON *)
-  let data = {|{"message":{"id":"msg_02","model":"claude-haiku-4-5-20251001","usage":{"input_tokens":10}}}|} in
+  let data =
+    {|{"message":{"id":"msg_02","model":"claude-haiku-4-5-20251001","usage":{"input_tokens":10}}}|}
+  in
   match Agent_sdk.Streaming.parse_sse_event (Some "message_start") data with
   | Some (MessageStart { id; _ }) ->
     Alcotest.(check string) "id via explicit event type" "msg_02" id
   | Some _ -> Alcotest.fail "unexpected event type"
   | None -> Alcotest.fail "parse returned None"
+;;
 
 (* ------------------------------------------------------------------ *)
 (* emit_synthetic_events                                                *)
@@ -243,19 +305,27 @@ let test_parse_with_explicit_event_type () =
 
 let collect_events response =
   let events = ref [] in
-  Agent_sdk.Streaming.emit_synthetic_events response
-    (fun evt -> events := evt :: !events);
+  Agent_sdk.Streaming.emit_synthetic_events response (fun evt -> events := evt :: !events);
   List.rev !events
+;;
 
 let test_synthetic_text_only () =
-  let response : api_response = {
-    id = "msg-s1"; model = "test"; stop_reason = EndTurn;
-    content = [Text "hello"];
-    usage = Some { input_tokens = 10; output_tokens = 5;
-                   cache_creation_input_tokens = 0;
-                   cache_read_input_tokens = 0 ; cost_usd = None };
-    telemetry = None;
-  } in
+  let response : api_response =
+    { id = "msg-s1"
+    ; model = "test"
+    ; stop_reason = EndTurn
+    ; content = [ Text "hello" ]
+    ; usage =
+        Some
+          { input_tokens = 10
+          ; output_tokens = 5
+          ; cache_creation_input_tokens = 0
+          ; cache_read_input_tokens = 0
+          ; cost_usd = None
+          }
+    ; telemetry = None
+    }
+  in
   let events = collect_events response in
   (* MessageStart, ContentBlockStart, TextDelta, ContentBlockStop, MessageDelta, MessageStop *)
   Alcotest.(check int) "6 events" 6 (List.length events);
@@ -271,30 +341,38 @@ let test_synthetic_text_only () =
    | ContentBlockDelta { delta = TextDelta s; _ } ->
      Alcotest.(check string) "text" "hello" s
    | _ -> Alcotest.fail "expected TextDelta");
-  (match List.nth events 4 with
-   | MessageDelta { stop_reason = Some EndTurn; _ } -> ()
-   | _ -> Alcotest.fail "expected MessageDelta EndTurn")
+  match List.nth events 4 with
+  | MessageDelta { stop_reason = Some EndTurn; _ } -> ()
+  | _ -> Alcotest.fail "expected MessageDelta EndTurn"
+;;
 
 let test_synthetic_thinking () =
-  let response : api_response = {
-    id = "msg-t"; model = "test"; stop_reason = EndTurn;
-    content = [Thinking { thinking_type = "sig"; content = "I think..." }];
-    usage = None;
-    telemetry = None;
-  } in
+  let response : api_response =
+    { id = "msg-t"
+    ; model = "test"
+    ; stop_reason = EndTurn
+    ; content = [ Thinking { thinking_type = "sig"; content = "I think..." } ]
+    ; usage = None
+    ; telemetry = None
+    }
+  in
   let events = collect_events response in
-  (match List.nth events 2 with
-   | ContentBlockDelta { delta = ThinkingDelta s; _ } ->
-     Alcotest.(check string) "thinking" "I think..." s
-   | _ -> Alcotest.fail "expected ThinkingDelta")
+  match List.nth events 2 with
+  | ContentBlockDelta { delta = ThinkingDelta s; _ } ->
+    Alcotest.(check string) "thinking" "I think..." s
+  | _ -> Alcotest.fail "expected ThinkingDelta"
+;;
 
 let test_synthetic_tool_use () =
-  let response : api_response = {
-    id = "msg-tu"; model = "test"; stop_reason = StopToolUse;
-    content = [ToolUse { id = "tu1"; name = "calc"; input = `Assoc [("x", `Int 1)] }];
-    usage = None;
-    telemetry = None;
-  } in
+  let response : api_response =
+    { id = "msg-tu"
+    ; model = "test"
+    ; stop_reason = StopToolUse
+    ; content = [ ToolUse { id = "tu1"; name = "calc"; input = `Assoc [ "x", `Int 1 ] } ]
+    ; usage = None
+    ; telemetry = None
+    }
+  in
   let events = collect_events response in
   (match List.nth events 1 with
    | ContentBlockStart { content_type; tool_id; tool_name; _ } ->
@@ -302,34 +380,43 @@ let test_synthetic_tool_use () =
      Alcotest.(check (option string)) "tool_id" (Some "tu1") tool_id;
      Alcotest.(check (option string)) "tool_name" (Some "calc") tool_name
    | _ -> Alcotest.fail "expected tool_use ContentBlockStart");
-  (match List.nth events 2 with
-   | ContentBlockDelta { delta = InputJsonDelta s; _ } ->
-     Alcotest.(check bool) "has json" true (String.length s > 0)
-   | _ -> Alcotest.fail "expected InputJsonDelta")
+  match List.nth events 2 with
+  | ContentBlockDelta { delta = InputJsonDelta s; _ } ->
+    Alcotest.(check bool) "has json" true (String.length s > 0)
+  | _ -> Alcotest.fail "expected InputJsonDelta"
+;;
 
 let test_synthetic_image_no_delta () =
-  let response : api_response = {
-    id = "msg-img"; model = "test"; stop_reason = EndTurn;
-    content = [Image { media_type = "image/png"; data = "abc"; source_type = "base64" }];
-    usage = None;
-    telemetry = None;
-  } in
+  let response : api_response =
+    { id = "msg-img"
+    ; model = "test"
+    ; stop_reason = EndTurn
+    ; content =
+        [ Image { media_type = "image/png"; data = "abc"; source_type = "base64" } ]
+    ; usage = None
+    ; telemetry = None
+    }
+  in
   let events = collect_events response in
   (* MessageStart, ContentBlockStart, ContentBlockStop, MessageDelta, MessageStop *)
   (* No delta for Image *)
   Alcotest.(check int) "5 events (no delta)" 5 (List.length events)
+;;
 
 let test_synthetic_multi_block () =
-  let response : api_response = {
-    id = "msg-m"; model = "test"; stop_reason = EndTurn;
-    content = [
-      Thinking { thinking_type = "s"; content = "hmm" };
-      Text "answer";
-      ToolUse { id = "tu2"; name = "read"; input = `Assoc [] };
-    ];
-    usage = None;
-    telemetry = None;
-  } in
+  let response : api_response =
+    { id = "msg-m"
+    ; model = "test"
+    ; stop_reason = EndTurn
+    ; content =
+        [ Thinking { thinking_type = "s"; content = "hmm" }
+        ; Text "answer"
+        ; ToolUse { id = "tu2"; name = "read"; input = `Assoc [] }
+        ]
+    ; usage = None
+    ; telemetry = None
+    }
+  in
   let events = collect_events response in
   (* For each block: Start+Delta+Stop (Thinking, Text) or Start+Delta+Stop (ToolUse) *)
   (* + MessageStart + MessageDelta + MessageStop = 3*3 + 3 = 12 *)
@@ -341,29 +428,37 @@ let test_synthetic_multi_block () =
   (match List.nth events 4 with
    | ContentBlockStart { index = 1; _ } -> ()
    | _ -> Alcotest.fail "expected index 1");
-  (match List.nth events 7 with
-   | ContentBlockStart { index = 2; _ } -> ()
-   | _ -> Alcotest.fail "expected index 2")
+  match List.nth events 7 with
+  | ContentBlockStart { index = 2; _ } -> ()
+  | _ -> Alcotest.fail "expected index 2"
+;;
 
 let test_synthetic_usage_propagation () =
-  let usage : api_usage = {
-    input_tokens = 100; output_tokens = 50;
-    cache_creation_input_tokens = 10; cache_read_input_tokens = 5;
-    cost_usd = None
-  } in
-  let response : api_response = {
-    id = "msg-u"; model = "test"; stop_reason = EndTurn;
-    content = [Text "x"]; usage = Some usage; telemetry = None;
-  } in
+  let usage : api_usage =
+    { input_tokens = 100
+    ; output_tokens = 50
+    ; cache_creation_input_tokens = 10
+    ; cache_read_input_tokens = 5
+    ; cost_usd = None
+    }
+  in
+  let response : api_response =
+    { id = "msg-u"
+    ; model = "test"
+    ; stop_reason = EndTurn
+    ; content = [ Text "x" ]
+    ; usage = Some usage
+    ; telemetry = None
+    }
+  in
   let events = collect_events response in
   (match List.hd events with
-   | MessageStart { usage = Some u; _ } ->
-     Alcotest.(check int) "input" 100 u.input_tokens
+   | MessageStart { usage = Some u; _ } -> Alcotest.(check int) "input" 100 u.input_tokens
    | _ -> Alcotest.fail "expected MessageStart with usage");
-  (match List.nth events 4 with
-   | MessageDelta { usage = Some u; _ } ->
-     Alcotest.(check int) "output" 50 u.output_tokens
-   | _ -> Alcotest.fail "expected MessageDelta with usage")
+  match List.nth events 4 with
+  | MessageDelta { usage = Some u; _ } -> Alcotest.(check int) "output" 50 u.output_tokens
+  | _ -> Alcotest.fail "expected MessageDelta with usage"
+;;
 
 (* ------------------------------------------------------------------ *)
 (* Test runner                                                          *)
@@ -371,45 +466,56 @@ let test_synthetic_usage_propagation () =
 
 let () =
   let open Alcotest in
-  run "streaming" [
-    "usage_tracking", [
-      test_case "empty_usage" `Quick test_empty_usage;
-      test_case "add_usage_basic" `Quick test_add_usage_basic;
-      test_case "add_usage_multiple" `Quick test_add_usage_multiple;
-      test_case "add_usage_zero_tokens" `Quick test_add_usage_zero_tokens;
-      test_case "add_usage_immutable" `Quick test_add_usage_immutable;
-    ];
-    "sse_event_types", [
-      test_case "message_start" `Quick test_sse_message_start;
-      test_case "content_block_delta_text" `Quick test_sse_content_block_delta_text;
-      test_case "message_stop" `Quick test_sse_message_stop;
-      test_case "ping" `Quick test_sse_ping;
-      test_case "sse_error" `Quick test_sse_error;
-    ];
-    "parse_sse_event", [
-      test_case "message_start" `Quick test_parse_message_start;
-      test_case "content_block_start" `Quick test_parse_content_block_start;
-      test_case "content_block_delta_text" `Quick test_parse_content_block_delta_text;
-      test_case "content_block_delta_thinking" `Quick test_parse_content_block_delta_thinking;
-      test_case "content_block_delta_input_json" `Quick test_parse_content_block_delta_input_json;
-      test_case "content_block_stop" `Quick test_parse_content_block_stop;
-      test_case "message_delta_end_turn" `Quick test_parse_message_delta_end_turn;
-      test_case "message_stop" `Quick test_parse_message_stop;
-      test_case "ping" `Quick test_parse_ping;
-      test_case "error_event" `Quick test_parse_error_event;
-      test_case "invalid_json" `Quick test_parse_invalid_json;
-      test_case "unknown_event_type" `Quick test_parse_unknown_event_type;
-      test_case "message_start_with_cache" `Quick test_parse_message_start_with_cache;
-      test_case "explicit_event_type" `Quick test_parse_with_explicit_event_type;
-      test_case "message_delta_with_cache" `Quick test_message_delta_with_cache_usage;
-      test_case "message_start_missing_output" `Quick test_message_start_missing_output_tokens;
-    ];
-    "emit_synthetic_events", [
-      test_case "text only" `Quick test_synthetic_text_only;
-      test_case "thinking block" `Quick test_synthetic_thinking;
-      test_case "tool use" `Quick test_synthetic_tool_use;
-      test_case "image no delta" `Quick test_synthetic_image_no_delta;
-      test_case "multi block indexes" `Quick test_synthetic_multi_block;
-      test_case "usage propagation" `Quick test_synthetic_usage_propagation;
-    ];
-  ]
+  run
+    "streaming"
+    [ ( "usage_tracking"
+      , [ test_case "empty_usage" `Quick test_empty_usage
+        ; test_case "add_usage_basic" `Quick test_add_usage_basic
+        ; test_case "add_usage_multiple" `Quick test_add_usage_multiple
+        ; test_case "add_usage_zero_tokens" `Quick test_add_usage_zero_tokens
+        ; test_case "add_usage_immutable" `Quick test_add_usage_immutable
+        ] )
+    ; ( "sse_event_types"
+      , [ test_case "message_start" `Quick test_sse_message_start
+        ; test_case "content_block_delta_text" `Quick test_sse_content_block_delta_text
+        ; test_case "message_stop" `Quick test_sse_message_stop
+        ; test_case "ping" `Quick test_sse_ping
+        ; test_case "sse_error" `Quick test_sse_error
+        ] )
+    ; ( "parse_sse_event"
+      , [ test_case "message_start" `Quick test_parse_message_start
+        ; test_case "content_block_start" `Quick test_parse_content_block_start
+        ; test_case "content_block_delta_text" `Quick test_parse_content_block_delta_text
+        ; test_case
+            "content_block_delta_thinking"
+            `Quick
+            test_parse_content_block_delta_thinking
+        ; test_case
+            "content_block_delta_input_json"
+            `Quick
+            test_parse_content_block_delta_input_json
+        ; test_case "content_block_stop" `Quick test_parse_content_block_stop
+        ; test_case "message_delta_end_turn" `Quick test_parse_message_delta_end_turn
+        ; test_case "message_stop" `Quick test_parse_message_stop
+        ; test_case "ping" `Quick test_parse_ping
+        ; test_case "error_event" `Quick test_parse_error_event
+        ; test_case "invalid_json" `Quick test_parse_invalid_json
+        ; test_case "unknown_event_type" `Quick test_parse_unknown_event_type
+        ; test_case "message_start_with_cache" `Quick test_parse_message_start_with_cache
+        ; test_case "explicit_event_type" `Quick test_parse_with_explicit_event_type
+        ; test_case "message_delta_with_cache" `Quick test_message_delta_with_cache_usage
+        ; test_case
+            "message_start_missing_output"
+            `Quick
+            test_message_start_missing_output_tokens
+        ] )
+    ; ( "emit_synthetic_events"
+      , [ test_case "text only" `Quick test_synthetic_text_only
+        ; test_case "thinking block" `Quick test_synthetic_thinking
+        ; test_case "tool use" `Quick test_synthetic_tool_use
+        ; test_case "image no delta" `Quick test_synthetic_image_no_delta
+        ; test_case "multi block indexes" `Quick test_synthetic_multi_block
+        ; test_case "usage propagation" `Quick test_synthetic_usage_propagation
+        ] )
+    ]
+;;

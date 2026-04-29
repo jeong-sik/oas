@@ -18,8 +18,10 @@ val initial_session : Runtime.start_request -> Runtime.session
     Returns [Error] if the session is in a terminal phase
     ([Completed], [Failed], [Cancelled]) when a non-terminal
     event is applied. *)
-val apply_event :
-  Runtime.session -> Runtime.event -> (Runtime.session, Error.sdk_error) result
+val apply_event
+  :  Runtime.session
+  -> Runtime.event
+  -> (Runtime.session, Error.sdk_error) result
 
 (** {1 Reporting and proofs} *)
 
@@ -30,4 +32,3 @@ val build_report : Runtime.session -> Runtime.event list -> Runtime.report
     Checks: session started, turn recorded, participant outcome,
     terminal phase/event, sequence contiguity, artifact ID uniqueness. *)
 val build_proof : Runtime.session -> Runtime.event list -> Runtime.proof
-

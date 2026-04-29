@@ -12,22 +12,22 @@ type tool_failure_kind =
   | Recoverable_tool_error
   | Non_retryable_tool_error
 
-type tool_execution_result = {
-  tool_use_id: string;
-  tool_name: string;
-  content: string;
-  is_error: bool;
-  failure_kind: tool_failure_kind option;
-  error_class: Types.tool_error_class option;
-}
+type tool_execution_result =
+  { tool_use_id : string
+  ; tool_name : string
+  ; content : string
+  ; is_error : bool
+  ; failure_kind : tool_failure_kind option
+  ; error_class : Types.tool_error_class option
+  }
 
-type scheduled_tool_use = {
-  index: int;
-  id: string;
-  name: string;
-  input: Yojson.Safe.t;
-  concurrency_class: Tool.concurrency_class;
-}
+type scheduled_tool_use =
+  { index : int
+  ; id : string
+  ; name : string
+  ; input : Yojson.Safe.t
+  ; concurrency_class : Tool.concurrency_class
+  }
 
 type execution_batch =
   | Parallel_batch of scheduled_tool_use list
@@ -38,39 +38,46 @@ let concurrency_class_to_string = function
   | Tool.Parallel_read -> "parallel_read"
   | Tool.Sequential_workspace -> "sequential_workspace"
   | Tool.Exclusive_external -> "exclusive_external"
+;;
 
 let inferred_concurrency_class_of_mutation_class = function
   | "read_only" -> Some Tool.Parallel_read
   | "workspace" | "workspace_mutating" -> Some Tool.Sequential_workspace
   | "external" | "external_effect" -> Some Tool.Exclusive_external
   | _ -> None
+;;
 
 let concurrency_class_from_descriptor (descriptor : Tool.descriptor) =
   match descriptor.Tool.concurrency_class with
   | Some cc -> cc
-  | None -> (
-      match
-        Option.bind descriptor.Tool.mutation_class
-          inferred_concurrency_class_of_mutation_class
-      with
-      | Some inferred -> inferred
-      | None -> Tool.Sequential_workspace)
+  | None ->
+    (match
+       Option.bind
+         descriptor.Tool.mutation_class
+         inferred_concurrency_class_of_mutation_class
+     with
+     | Some inferred -> inferred
+     | None -> Tool.Sequential_workspace)
+;;
 
 let concurrency_class_of_tool tool =
   match Tool.descriptor tool with
   | Some descriptor -> concurrency_class_from_descriptor descriptor
   | None ->
     (* Fallback: check builtin descriptor registry before defaulting *)
-    match Mode_enforcer.builtin_descriptor tool.schema.name with
-    | Some descriptor -> concurrency_class_from_descriptor descriptor
-    | None -> Tool.Sequential_workspace
+    (match Mode_enforcer.builtin_descriptor tool.schema.name with
+     | Some descriptor -> concurrency_class_from_descriptor descriptor
+     | None -> Tool.Sequential_workspace)
+;;
 
 let find_tool_by_name tools name =
   List.find_opt (fun (tool : Tool.t) -> tool.schema.name = name) tools
+;;
 
 let recoverable_of_failure_kind = function
   | Some Validation_error | Some Recoverable_tool_error -> true
   | Some Non_retryable_tool_error | None -> false
+;;
 
 let schedule_tool_use ~tools index (id, name, input) =
   let concurrency_class =
@@ -79,6 +86,7 @@ let schedule_tool_use ~tools index (id, name, input) =
     | None -> Tool.Sequential_workspace
   in
   { index; id; name; input; concurrency_class }
+;;
 
 let execution_batches tool_uses =
   let flush_parallel acc = function
@@ -87,62 +95,84 @@ let execution_batches tool_uses =
   in
   let rec build acc current_parallel = function
     | [] -> List.rev (flush_parallel acc current_parallel)
-    | tool_use :: rest -> (
-        match tool_use.concurrency_class with
-        | Tool.Parallel_read ->
-            build acc (tool_use :: current_parallel) rest
-        | Tool.Sequential_workspace ->
-            let acc = flush_parallel acc current_parallel in
-            build (Sequential_batch tool_use :: acc) [] rest
-        | Tool.Exclusive_external ->
-            let acc = flush_parallel acc current_parallel in
-            build (Exclusive_batch tool_use :: acc) [] rest)
+    | tool_use :: rest ->
+      (match tool_use.concurrency_class with
+       | Tool.Parallel_read -> build acc (tool_use :: current_parallel) rest
+       | Tool.Sequential_workspace ->
+         let acc = flush_parallel acc current_parallel in
+         build (Sequential_batch tool_use :: acc) [] rest
+       | Tool.Exclusive_external ->
+         let acc = flush_parallel acc current_parallel in
+         build (Exclusive_batch tool_use :: acc) [] rest)
   in
   build [] [] tool_uses
+;;
 
-let hook_schedule_of_tool_use ~batch_index ~batch_size ~batch_kind
-    (tool_use : scheduled_tool_use) : Hooks.tool_schedule =
-  {
-    planned_index = tool_use.index;
-    batch_index;
-    batch_size;
-    concurrency_class = concurrency_class_to_string tool_use.concurrency_class;
-    batch_kind;
+let hook_schedule_of_tool_use
+      ~batch_index
+      ~batch_size
+      ~batch_kind
+      (tool_use : scheduled_tool_use)
+  : Hooks.tool_schedule
+  =
+  { planned_index = tool_use.index
+  ; batch_index
+  ; batch_size
+  ; concurrency_class = concurrency_class_to_string tool_use.concurrency_class
+  ; batch_kind
   }
+;;
 
-let invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count ~hook_name
-    hook_opt event =
-  Tracing.with_span tracer
-    {
-      kind = Hook_invoke;
-      name = hook_name;
-      agent_name;
-      turn = turn_count;
-      extra = [];
-    }
+let invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count ~hook_name hook_opt event
+  =
+  Tracing.with_span
+    tracer
+    { kind = Hook_invoke; name = hook_name; agent_name; turn = turn_count; extra = [] }
     (fun _ ->
-      let decision = Hooks.invoke_validated hook_opt event in
-      (match on_hook_invoked with
-      | Some callback ->
-          callback ~hook_name ~decision
+       let decision = Hooks.invoke_validated hook_opt event in
+       (match on_hook_invoked with
+        | Some callback ->
+          callback
+            ~hook_name
+            ~decision
             ~detail:
               (match event with
-              | Hooks.PreToolUse { tool_name; _ }
-              | Hooks.PostToolUse { tool_name; _ }
-              | Hooks.PostToolUseFailure { tool_name; _ } -> Some tool_name
-              | Hooks.BeforeTurn _ | Hooks.BeforeTurnParams _
-              | Hooks.AfterTurn _ | Hooks.OnStop _
-              | Hooks.OnIdle _ | Hooks.OnIdleEscalated _ | Hooks.OnError _
-              | Hooks.OnToolError _ | Hooks.PreCompact _
-              | Hooks.PostCompact _ | Hooks.OnContextCompacted _ -> None)
-      | None -> ());
-      decision)
+               | Hooks.PreToolUse { tool_name; _ }
+               | Hooks.PostToolUse { tool_name; _ }
+               | Hooks.PostToolUseFailure { tool_name; _ } -> Some tool_name
+               | Hooks.BeforeTurn _
+               | Hooks.BeforeTurnParams _
+               | Hooks.AfterTurn _
+               | Hooks.OnStop _
+               | Hooks.OnIdle _
+               | Hooks.OnIdleEscalated _
+               | Hooks.OnError _
+               | Hooks.OnToolError _
+               | Hooks.PreCompact _
+               | Hooks.PostCompact _
+               | Hooks.OnContextCompacted _ -> None)
+        | None -> ());
+       decision)
+;;
 
 (** Find and execute a single tool, invoking PostToolUse hook.
     Returns a structured execution result. *)
-let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tracer
-    ~agent_name ~turn_count ?correlation_id ?run_id ?on_hook_invoked
-    ~schedule name input id =
+let find_and_execute_tool
+      ~context
+      ~tools
+      ~(hooks : Hooks.hooks)
+      ~event_bus
+      ~tracer
+      ~agent_name
+      ~turn_count
+      ?correlation_id
+      ?run_id
+      ?on_hook_invoked
+      ~schedule
+      name
+      input
+      id
+  =
   (* ToolCalled event — capture the published envelope's run_id so the
      matching ToolCompleted records it as caused_by, preserving the
      call -> completion causation chain per tool invocation (#877).
@@ -153,148 +183,170 @@ let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tra
     match event_bus with
     | Some bus ->
       let ev =
-        Event_bus.mk_event ?correlation_id ?run_id
+        Event_bus.mk_event
+          ?correlation_id
+          ?run_id
           (ToolCalled { agent_name; tool_name = name; input })
       in
       Event_bus.publish bus ev;
       Some ev.meta.run_id
     | None -> None
   in
-  let tool_opt = List.find_opt (fun (tool: Tool.t) -> tool.schema.name = name) tools in
-  let result = match tool_opt with
-  | Some tool ->
-    (* Multi-stage deterministic correction before execution.
+  let tool_opt = List.find_opt (fun (tool : Tool.t) -> tool.schema.name = name) tools in
+  let result =
+    match tool_opt with
+    | Some tool ->
+      (* Multi-stage deterministic correction before execution.
        Correction_pipeline runs 3 stages (type coercion, default injection,
        format normalization) then validates. If det correction fixes the
        input, skip the LLM retry path entirely. If still invalid, fall back
        to Tool_middleware.validate_and_coerce for structured error feedback.
        Ref: Samchon function calling harness (6.75% → 100%). *)
-    let validated_input =
-      match Correction_pipeline.run ~schema:tool.schema input with
-      | Correction_pipeline.Fixed { corrected; corrections } ->
-        if corrections <> [] then
-          Log.info _log "correction_pipeline fixed tool input fields"
-            [ Log.S ("tool", name);
-              Log.I ("fixes", List.length corrections) ];
-        Ok corrected
-      | Correction_pipeline.Still_invalid { errors; attempted } ->
-        (* Det correction insufficient — build structured feedback for the
+      let validated_input =
+        match Correction_pipeline.run ~schema:tool.schema input with
+        | Correction_pipeline.Fixed { corrected; corrections } ->
+          if corrections <> []
+          then
+            Log.info
+              _log
+              "correction_pipeline fixed tool input fields"
+              [ Log.S ("tool", name); Log.I ("fixes", List.length corrections) ];
+          Ok corrected
+        | Correction_pipeline.Still_invalid { errors; attempted } ->
+          (* Det correction insufficient — build structured feedback for the
            turn-level retry policy (pipeline Stage 5) to relay to the LLM. *)
-        let message =
-          Correction_pipeline.build_nondet_feedback
-            ~tool_name:name ~args:input
-            ~still_invalid:errors ~attempted
-        in
-        ignore
-             (invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count
-                ~hook_name:"post_tool_use_failure" hooks.post_tool_use_failure
-                (Hooks.PostToolUseFailure
-                   {
-                     tool_use_id = id;
-                     tool_name = name;
-                     input;
-                     error = message;
-                     schedule;
-                   })
-              : Hooks.hook_decision);
-        Error message
-    in
-    begin match validated_input with
-    | Error msg ->
-      {
-        tool_use_id = id;
-        tool_name = name;
-        content = msg;
-        is_error = true;
-        failure_kind = Some Validation_error;
-        error_class = Some Types.Deterministic;
-      }
-    | Ok coerced_input ->
-    let t0 = Unix.gettimeofday () in
-    let result = Tool.execute ~context tool coerced_input in
-    let duration_ms = (Unix.gettimeofday () -. t0) *. 1000.0 in
-    let result_bytes = match result with
-      | Ok { content } -> String.length content
-      | Error { message; _ } -> String.length message
-    in
-    let _post =
-      invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count
-        ~hook_name:"post_tool_use" hooks.post_tool_use
-        (Hooks.PostToolUse
-           {
-             tool_use_id = id;
-             tool_name = name;
-             input = coerced_input;
-             output = result;
-             result_bytes;
-             duration_ms;
-             schedule;
-           })
-    in
-    (match result with
-     | Error { message; _ } ->
-         ignore
-           (invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count
-              ~hook_name:"post_tool_use_failure" hooks.post_tool_use_failure
-              (Hooks.PostToolUseFailure
-                 {
-                   tool_use_id = id;
-                   tool_name = name;
-                   input = coerced_input;
-                   error = message;
-                   schedule;
-                 })
-            : Hooks.hook_decision);
-         (* OnToolError: minimal tool-name/error event for consumers that
+          let message =
+            Correction_pipeline.build_nondet_feedback
+              ~tool_name:name
+              ~args:input
+              ~still_invalid:errors
+              ~attempted
+          in
+          ignore
+            (invoke_hook
+               ?on_hook_invoked
+               ~tracer
+               ~agent_name
+               ~turn_count
+               ~hook_name:"post_tool_use_failure"
+               hooks.post_tool_use_failure
+               (Hooks.PostToolUseFailure
+                  { tool_use_id = id; tool_name = name; input; error = message; schedule })
+             : Hooks.hook_decision);
+          Error message
+      in
+      (match validated_input with
+       | Error msg ->
+         { tool_use_id = id
+         ; tool_name = name
+         ; content = msg
+         ; is_error = true
+         ; failure_kind = Some Validation_error
+         ; error_class = Some Types.Deterministic
+         }
+       | Ok coerced_input ->
+         let t0 = Unix.gettimeofday () in
+         let result = Tool.execute ~context tool coerced_input in
+         let duration_ms = (Unix.gettimeofday () -. t0) *. 1000.0 in
+         let result_bytes =
+           match result with
+           | Ok { content } -> String.length content
+           | Error { message; _ } -> String.length message
+         in
+         let _post =
+           invoke_hook
+             ?on_hook_invoked
+             ~tracer
+             ~agent_name
+             ~turn_count
+             ~hook_name:"post_tool_use"
+             hooks.post_tool_use
+             (Hooks.PostToolUse
+                { tool_use_id = id
+                ; tool_name = name
+                ; input = coerced_input
+                ; output = result
+                ; result_bytes
+                ; duration_ms
+                ; schedule
+                })
+         in
+         (match result with
+          | Error { message; _ } ->
+            ignore
+              (invoke_hook
+                 ?on_hook_invoked
+                 ~tracer
+                 ~agent_name
+                 ~turn_count
+                 ~hook_name:"post_tool_use_failure"
+                 hooks.post_tool_use_failure
+                 (Hooks.PostToolUseFailure
+                    { tool_use_id = id
+                    ; tool_name = name
+                    ; input = coerced_input
+                    ; error = message
+                    ; schedule
+                    })
+               : Hooks.hook_decision);
+            (* OnToolError: minimal tool-name/error event for consumers that
             don't need the PostToolUseFailure context (tool_use_id,
             schedule). Previously the hook type existed but had no emit
             site — registering [on_tool_error] was a silent no-op (#1029). *)
-         ignore
-           (invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count
-              ~hook_name:"on_tool_error" hooks.on_tool_error
-              (Hooks.OnToolError { tool_name = name; error = message })
-            : Hooks.hook_decision)
-     | Ok _ -> ());
-    let content, is_error, failure_kind, error_class = match result with
-      | Ok { content } -> (content, false, None, None)
-      | Error { message; recoverable; error_class } ->
-          let failure_kind =
-            Some
-              (if recoverable then Recoverable_tool_error
-               else Non_retryable_tool_error)
-          in
-          (message, true, failure_kind, error_class)
-    in
-    {
-      tool_use_id = id;
-      tool_name = name;
-      content;
-      is_error;
-      failure_kind;
-      error_class;
-    }
-    end (* Tool_middleware validation match *)
-  | None ->
+            ignore
+              (invoke_hook
+                 ?on_hook_invoked
+                 ~tracer
+                 ~agent_name
+                 ~turn_count
+                 ~hook_name:"on_tool_error"
+                 hooks.on_tool_error
+                 (Hooks.OnToolError { tool_name = name; error = message })
+               : Hooks.hook_decision)
+          | Ok _ -> ());
+         let content, is_error, failure_kind, error_class =
+           match result with
+           | Ok { content } -> content, false, None, None
+           | Error { message; recoverable; error_class } ->
+             let failure_kind =
+               Some
+                 (if recoverable then Recoverable_tool_error else Non_retryable_tool_error)
+             in
+             message, true, failure_kind, error_class
+         in
+         { tool_use_id = id
+         ; tool_name = name
+         ; content
+         ; is_error
+         ; failure_kind
+         ; error_class
+         })
+      (* Tool_middleware validation match *)
+    | None ->
       (* Tool dispatch failure (the LLM asked for a tool that isn't
          registered). Distinct from OnToolError — that fires when a
          tool actually ran and returned Error. This is a configuration
          / routing mistake, so it belongs on the general OnError
          channel. First production emit site for Hooks.OnError (#1032). *)
       ignore
-        (invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count
-           ~hook_name:"on_error" hooks.on_error
-           (Hooks.OnError {
-              detail = Printf.sprintf "Tool not found: %s" name;
-              context = "agent_tools.find_and_execute_tool";
-            })
+        (invoke_hook
+           ?on_hook_invoked
+           ~tracer
+           ~agent_name
+           ~turn_count
+           ~hook_name:"on_error"
+           hooks.on_error
+           (Hooks.OnError
+              { detail = Printf.sprintf "Tool not found: %s" name
+              ; context = "agent_tools.find_and_execute_tool"
+              })
          : Hooks.hook_decision);
-      {
-        tool_use_id = id;
-        tool_name = name;
-        content = "Tool not found";
-        is_error = true;
-        failure_kind = Some Non_retryable_tool_error;
-        error_class = Some Types.Deterministic;
+      { tool_use_id = id
+      ; tool_name = name
+      ; content = "Tool not found"
+      ; is_error = true
+      ; failure_kind = Some Non_retryable_tool_error
+      ; error_class = Some Types.Deterministic
       }
   in
   (* ToolCompleted event *)
@@ -303,207 +355,339 @@ let find_and_execute_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ~tra
      let output_content = result.content in
      let is_error = result.is_error in
      let output : Types.tool_result =
-       if is_error then
+       if is_error
+       then
          Error
-           {
-             message = output_content;
-             recoverable = recoverable_of_failure_kind result.failure_kind;
-             error_class = result.error_class;
+           { message = output_content
+           ; recoverable = recoverable_of_failure_kind result.failure_kind
+           ; error_class = result.error_class
            }
        else Ok { content = output_content }
      in
-     Event_bus.publish bus
-       (Event_bus.mk_event ?correlation_id ?run_id
+     Event_bus.publish
+       bus
+       (Event_bus.mk_event
+          ?correlation_id
+          ?run_id
           ?caused_by:tool_called_run_id
           (ToolCompleted { agent_name; tool_name = name; output }))
    | None -> ());
   result
+;;
 
-let execute_scheduled_tool ~context ~tools ~(hooks : Hooks.hooks) ~event_bus
-    ?journal
-    ~tracer ~agent_name ~turn_count ~(usage : Types.usage_stats) ~approval
-    ?correlation_id ?run_id
-    ?on_tool_execution_started ?on_tool_execution_finished ?on_hook_invoked
-    ~schedule (tool_use : scheduled_tool_use) =
+let execute_scheduled_tool
+      ~context
+      ~tools
+      ~(hooks : Hooks.hooks)
+      ~event_bus
+      ?journal
+      ~tracer
+      ~agent_name
+      ~turn_count
+      ~(usage : Types.usage_stats)
+      ~approval
+      ?correlation_id
+      ?run_id
+      ?on_tool_execution_started
+      ?on_tool_execution_finished
+      ?on_hook_invoked
+      ~schedule
+      (tool_use : scheduled_tool_use)
+  =
   let { index; id; name; input; _ } = tool_use in
   let idem_key = Durable_event.make_idempotency_key ~tool_name:name ~input in
   (match journal with
    | Some j ->
-       Durable_event.append j
-         (Tool_called
-            { turn = turn_count; tool_name = name;
-              idempotency_key = idem_key;
-              input_hash = Digest.string (Yojson.Safe.to_string input);
-              timestamp = Unix.gettimeofday () })
+     Durable_event.append
+       j
+       (Tool_called
+          { turn = turn_count
+          ; tool_name = name
+          ; idempotency_key = idem_key
+          ; input_hash = Digest.string (Yojson.Safe.to_string input)
+          ; timestamp = Unix.gettimeofday ()
+          })
    | None -> ());
   (match on_tool_execution_started with
    | Some callback -> callback ~tool_use_id:id ~tool_name:name ~input ~schedule
    | None -> ());
   let t0_tool = Unix.gettimeofday () in
   let triple =
-    Tracing.with_span tracer
+    Tracing.with_span
+      tracer
       { kind = Tool_exec; name; agent_name; turn = turn_count; extra = [] }
       (fun _tracer ->
-        try
-          let decision =
-            invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count
-              ~hook_name:"pre_tool_use" hooks.pre_tool_use
-              (Hooks.PreToolUse
-                 {
-                   tool_use_id = id;
-                   tool_name = name;
-                   input;
-                   accumulated_cost_usd = usage.Types.estimated_cost_usd;
-                   turn = turn_count;
-                   schedule;
-                 })
-          in
-          match decision with
-          | Hooks.Skip ->
-              {
-                tool_use_id = id;
-                tool_name = name;
-                content = "Tool execution skipped by hook";
-                is_error = false;
-                failure_kind = None;
-                error_class = None;
-              }
-          | Hooks.Override value ->
-              {
-                tool_use_id = id;
-                tool_name = name;
-                content = value;
-                is_error = false;
-                failure_kind = None;
-                error_class = None;
-              }
-          | Hooks.ApprovalRequired -> (
-              match approval with
+         try
+           let decision =
+             invoke_hook
+               ?on_hook_invoked
+               ~tracer
+               ~agent_name
+               ~turn_count
+               ~hook_name:"pre_tool_use"
+               hooks.pre_tool_use
+               (Hooks.PreToolUse
+                  { tool_use_id = id
+                  ; tool_name = name
+                  ; input
+                  ; accumulated_cost_usd = usage.Types.estimated_cost_usd
+                  ; turn = turn_count
+                  ; schedule
+                  })
+           in
+           match decision with
+           | Hooks.Skip ->
+             { tool_use_id = id
+             ; tool_name = name
+             ; content = "Tool execution skipped by hook"
+             ; is_error = false
+             ; failure_kind = None
+             ; error_class = None
+             }
+           | Hooks.Override value ->
+             { tool_use_id = id
+             ; tool_name = name
+             ; content = value
+             ; is_error = false
+             ; failure_kind = None
+             ; error_class = None
+             }
+           | Hooks.ApprovalRequired ->
+             (match approval with
               | None ->
-                  Log.debug _log
-                    "ApprovalRequired but no approval callback — executing"
-                    [Log.S ("tool", name); Log.S ("agent", agent_name)];
-                  find_and_execute_tool ~context ~tools ~hooks ~event_bus
-                    ~tracer ~agent_name ~turn_count ?correlation_id
-                    ?run_id ?on_hook_invoked ~schedule
-                    name input id
-              | Some approve_fn -> (
-                  match approve_fn ~tool_name:name ~input with
-                  | Hooks.Approve ->
-                      find_and_execute_tool ~context ~tools ~hooks ~event_bus
-                        ~tracer ~agent_name ~turn_count ?correlation_id
-                        ?run_id ?on_hook_invoked ~schedule name input
-                        id
-                  | Hooks.Reject reason ->
-                      {
-                        tool_use_id = id;
-                        tool_name = name;
-                        content = "Tool rejected: " ^ reason;
-                        is_error = true;
-                        failure_kind = Some Non_retryable_tool_error;
-                        error_class = Some Types.Deterministic;
-                      }
-                  | Hooks.Edit new_input ->
-                      find_and_execute_tool ~context ~tools ~hooks ~event_bus
-                        ~tracer ~agent_name ~turn_count ?correlation_id
-                        ?run_id ?on_hook_invoked ~schedule name
-                        new_input id))
-          | Hooks.Continue ->
-              find_and_execute_tool ~context ~tools ~hooks ~event_bus ~tracer
-                ~agent_name ~turn_count ?correlation_id ?run_id
-                ?on_hook_invoked ~schedule name input id
-          | Hooks.AdjustParams _ ->
-              find_and_execute_tool ~context ~tools ~hooks ~event_bus ~tracer
-                ~agent_name ~turn_count ?correlation_id ?run_id
-                ?on_hook_invoked ~schedule name input id
-          | Hooks.ElicitInput _ | Hooks.Nudge _ ->
-              find_and_execute_tool ~context ~tools ~hooks ~event_bus ~tracer
-                ~agent_name ~turn_count ?correlation_id ?run_id
-                ?on_hook_invoked ~schedule name input id
-        with
-        | Out_of_memory -> raise Out_of_memory
-        | Stack_overflow -> raise Stack_overflow
-        | Sys.Break -> raise Sys.Break
-        | Eio.Cancel.Cancelled _ as ex -> raise ex
-        | exn ->
-            let msg =
-              Printf.sprintf "Tool '%s' raised: %s" name
-                (Printexc.to_string exn)
-            in
-            {
-              tool_use_id = id;
-              tool_name = name;
-              content = msg;
-              is_error = true;
-              failure_kind = Some Non_retryable_tool_error;
-              error_class = Some Types.Unknown;
-            })
+                Log.debug
+                  _log
+                  "ApprovalRequired but no approval callback — executing"
+                  [ Log.S ("tool", name); Log.S ("agent", agent_name) ];
+                find_and_execute_tool
+                  ~context
+                  ~tools
+                  ~hooks
+                  ~event_bus
+                  ~tracer
+                  ~agent_name
+                  ~turn_count
+                  ?correlation_id
+                  ?run_id
+                  ?on_hook_invoked
+                  ~schedule
+                  name
+                  input
+                  id
+              | Some approve_fn ->
+                (match approve_fn ~tool_name:name ~input with
+                 | Hooks.Approve ->
+                   find_and_execute_tool
+                     ~context
+                     ~tools
+                     ~hooks
+                     ~event_bus
+                     ~tracer
+                     ~agent_name
+                     ~turn_count
+                     ?correlation_id
+                     ?run_id
+                     ?on_hook_invoked
+                     ~schedule
+                     name
+                     input
+                     id
+                 | Hooks.Reject reason ->
+                   { tool_use_id = id
+                   ; tool_name = name
+                   ; content = "Tool rejected: " ^ reason
+                   ; is_error = true
+                   ; failure_kind = Some Non_retryable_tool_error
+                   ; error_class = Some Types.Deterministic
+                   }
+                 | Hooks.Edit new_input ->
+                   find_and_execute_tool
+                     ~context
+                     ~tools
+                     ~hooks
+                     ~event_bus
+                     ~tracer
+                     ~agent_name
+                     ~turn_count
+                     ?correlation_id
+                     ?run_id
+                     ?on_hook_invoked
+                     ~schedule
+                     name
+                     new_input
+                     id))
+           | Hooks.Continue ->
+             find_and_execute_tool
+               ~context
+               ~tools
+               ~hooks
+               ~event_bus
+               ~tracer
+               ~agent_name
+               ~turn_count
+               ?correlation_id
+               ?run_id
+               ?on_hook_invoked
+               ~schedule
+               name
+               input
+               id
+           | Hooks.AdjustParams _ ->
+             find_and_execute_tool
+               ~context
+               ~tools
+               ~hooks
+               ~event_bus
+               ~tracer
+               ~agent_name
+               ~turn_count
+               ?correlation_id
+               ?run_id
+               ?on_hook_invoked
+               ~schedule
+               name
+               input
+               id
+           | Hooks.ElicitInput _ | Hooks.Nudge _ ->
+             find_and_execute_tool
+               ~context
+               ~tools
+               ~hooks
+               ~event_bus
+               ~tracer
+               ~agent_name
+               ~turn_count
+               ?correlation_id
+               ?run_id
+               ?on_hook_invoked
+               ~schedule
+               name
+               input
+               id
+         with
+         | Out_of_memory -> raise Out_of_memory
+         | Stack_overflow -> raise Stack_overflow
+         | Sys.Break -> raise Sys.Break
+         | Eio.Cancel.Cancelled _ as ex -> raise ex
+         | exn ->
+           let msg =
+             Printf.sprintf "Tool '%s' raised: %s" name (Printexc.to_string exn)
+           in
+           { tool_use_id = id
+           ; tool_name = name
+           ; content = msg
+           ; is_error = true
+           ; failure_kind = Some Non_retryable_tool_error
+           ; error_class = Some Types.Unknown
+           })
   in
   let duration_ms_tool = (Unix.gettimeofday () -. t0_tool) *. 1000.0 in
   (match journal with
    | Some j ->
-       Durable_event.append j
-         (Tool_completed
-            { turn = turn_count; tool_name = name;
-              idempotency_key = idem_key;
-              output_json = `String triple.content;
-              is_error = triple.is_error;
-              duration_ms = duration_ms_tool;
-              timestamp = Unix.gettimeofday () })
+     Durable_event.append
+       j
+       (Tool_completed
+          { turn = turn_count
+          ; tool_name = name
+          ; idempotency_key = idem_key
+          ; output_json = `String triple.content
+          ; is_error = triple.is_error
+          ; duration_ms = duration_ms_tool
+          ; timestamp = Unix.gettimeofday ()
+          })
    | None -> ());
   (match on_tool_execution_finished with
    | Some callback ->
-       callback ~tool_use_id:id ~tool_name:name ~content:triple.content
-         ~is_error:triple.is_error
+     callback
+       ~tool_use_id:id
+       ~tool_name:name
+       ~content:triple.content
+       ~is_error:triple.is_error
    | None -> ());
-  (index, triple)
+  index, triple
+;;
 
-let execute_tools ~context ~tools ~(hooks : Hooks.hooks) ~event_bus ?journal
-    ~tracer
-    ~agent_name ~turn_count ~(usage : Types.usage_stats) ~approval
-    ?correlation_id ?run_id
-    ?on_tool_execution_started
-    ?on_tool_execution_finished ?on_hook_invoked tool_uses =
-  let tool_use_blocks = List.filter_map (fun block ->
-    match block with
-    | ToolUse { id; name; input } -> Some (id, name, input)
-    | _ -> None
-  ) tool_uses in
-  let scheduled =
-    List.mapi (schedule_tool_use ~tools) tool_use_blocks
+let execute_tools
+      ~context
+      ~tools
+      ~(hooks : Hooks.hooks)
+      ~event_bus
+      ?journal
+      ~tracer
+      ~agent_name
+      ~turn_count
+      ~(usage : Types.usage_stats)
+      ~approval
+      ?correlation_id
+      ?run_id
+      ?on_tool_execution_started
+      ?on_tool_execution_finished
+      ?on_hook_invoked
+      tool_uses
+  =
+  let tool_use_blocks =
+    List.filter_map
+      (fun block ->
+         match block with
+         | ToolUse { id; name; input } -> Some (id, name, input)
+         | _ -> None)
+      tool_uses
   in
+  let scheduled = List.mapi (schedule_tool_use ~tools) tool_use_blocks in
   let run_one =
-    execute_scheduled_tool ~context ~tools ~hooks ~event_bus ?journal ~tracer
-      ~agent_name ~turn_count ~usage ~approval ?correlation_id ?run_id
-      ?on_tool_execution_started ?on_tool_execution_finished ?on_hook_invoked
+    execute_scheduled_tool
+      ~context
+      ~tools
+      ~hooks
+      ~event_bus
+      ?journal
+      ~tracer
+      ~agent_name
+      ~turn_count
+      ~usage
+      ~approval
+      ?correlation_id
+      ?run_id
+      ?on_tool_execution_started
+      ?on_tool_execution_finished
+      ?on_hook_invoked
   in
   execution_batches scheduled
   |> List.mapi (fun batch_index batch ->
-         match batch with
-         | Sequential_batch tool_use ->
-             let schedule =
-               hook_schedule_of_tool_use ~batch_index ~batch_size:1
-                 ~batch_kind:"sequential" tool_use
-             in
-             [ run_one ~schedule tool_use ]
-         | Exclusive_batch tool_use ->
-             let schedule =
-               hook_schedule_of_tool_use ~batch_index ~batch_size:1
-                 ~batch_kind:"exclusive" tool_use
-             in
-             [ run_one ~schedule tool_use ]
-         | Parallel_batch tool_uses ->
-             let batch_size = List.length tool_uses in
-             tool_uses
-             |> List.map (fun tool_use ->
-                    let schedule =
-                      hook_schedule_of_tool_use ~batch_index ~batch_size
-                        ~batch_kind:"parallel" tool_use
-                    in
-                    (tool_use, schedule))
-             |> Eio.Fiber.List.map (fun (tool_use, schedule) ->
-                    run_one ~schedule tool_use))
+    match batch with
+    | Sequential_batch tool_use ->
+      let schedule =
+        hook_schedule_of_tool_use
+          ~batch_index
+          ~batch_size:1
+          ~batch_kind:"sequential"
+          tool_use
+      in
+      [ run_one ~schedule tool_use ]
+    | Exclusive_batch tool_use ->
+      let schedule =
+        hook_schedule_of_tool_use
+          ~batch_index
+          ~batch_size:1
+          ~batch_kind:"exclusive"
+          tool_use
+      in
+      [ run_one ~schedule tool_use ]
+    | Parallel_batch tool_uses ->
+      let batch_size = List.length tool_uses in
+      tool_uses
+      |> List.map (fun tool_use ->
+        let schedule =
+          hook_schedule_of_tool_use
+            ~batch_index
+            ~batch_size
+            ~batch_kind:"parallel"
+            tool_use
+        in
+        tool_use, schedule)
+      |> Eio.Fiber.List.map (fun (tool_use, schedule) -> run_one ~schedule tool_use))
   |> List.concat
   |> List.sort (fun (left_index, _) (right_index, _) ->
-         Int.compare left_index right_index)
+    Int.compare left_index right_index)
   |> List.map snd
+;;

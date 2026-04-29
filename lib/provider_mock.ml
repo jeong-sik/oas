@@ -12,28 +12,26 @@ type response_fn = message list -> api_response
 
 (** Scripted mock: list of response functions applied in order.
     When exhausted, wraps around from the beginning. *)
-type t = {
-  responses: response_fn list;
-  mutable index: int;
-}
+type t =
+  { responses : response_fn list
+  ; mutable index : int
+  }
 
-let create ~responses () =
-  { responses; index = 0 }
+let create ~responses () = { responses; index = 0 }
 
 (** Get the next response for the given messages. *)
 let next_response mock messages =
   match mock.responses with
-  | [] ->
-    Error (Error.Internal "Provider_mock: empty response list")
+  | [] -> Error (Error.Internal "Provider_mock: empty response list")
   | _ ->
     let n = List.length mock.responses in
     let fn = List.nth mock.responses (mock.index mod n) in
     mock.index <- mock.index + 1;
     Ok (fn messages)
+;;
 
 (** Reset the mock index to replay from the beginning. *)
-let reset mock =
-  mock.index <- 0
+let reset mock = mock.index <- 0
 
 (** How many responses have been consumed so far. *)
 let call_count mock = mock.index
@@ -42,77 +40,93 @@ let call_count mock = mock.index
 
 (** Build a simple text response.
     Token counts default to 0; set explicitly when testing budget/cost logic. *)
-let text_response ?(id="mock-id") ?(model="mock-model")
-    ?(input_tokens=0) ?(output_tokens=0) text =
+let text_response
+      ?(id = "mock-id")
+      ?(model = "mock-model")
+      ?(input_tokens = 0)
+      ?(output_tokens = 0)
+      text
+  =
   fun (_messages : message list) ->
-    {
-      id;
-      model;
-      stop_reason = EndTurn;
-      content = [Text text];
-      usage = Some {
-        input_tokens;
-        output_tokens;
-        cache_creation_input_tokens = 0;
-        cache_read_input_tokens = 0;
-        cost_usd = None
-      };
-      telemetry = None;
-    }
+  { id
+  ; model
+  ; stop_reason = EndTurn
+  ; content = [ Text text ]
+  ; usage =
+      Some
+        { input_tokens
+        ; output_tokens
+        ; cache_creation_input_tokens = 0
+        ; cache_read_input_tokens = 0
+        ; cost_usd = None
+        }
+  ; telemetry = None
+  }
+;;
 
 (** Build a tool-use response.
     Token counts default to 0; set explicitly when testing budget/cost logic. *)
-let tool_use_response ?(id="mock-id") ?(model="mock-model")
-    ?(input_tokens=0) ?(output_tokens=0)
-    ~tool_name ~tool_input () =
+let tool_use_response
+      ?(id = "mock-id")
+      ?(model = "mock-model")
+      ?(input_tokens = 0)
+      ?(output_tokens = 0)
+      ~tool_name
+      ~tool_input
+      ()
+  =
   fun (_messages : message list) ->
-    let tool_use_id = Printf.sprintf "toolu_%s_%d"
-      tool_name (int_of_float (Unix.gettimeofday () *. 1000.0)) in
-    {
-      id;
-      model;
-      stop_reason = StopToolUse;
-      content = [ToolUse { id = tool_use_id; name = tool_name; input = tool_input }];
-      usage = Some {
-        input_tokens;
-        output_tokens;
-        cache_creation_input_tokens = 0;
-        cache_read_input_tokens = 0;
-        cost_usd = None
-      };
-      telemetry = None;
-    }
+  let tool_use_id =
+    Printf.sprintf "toolu_%s_%d" tool_name (int_of_float (Unix.gettimeofday () *. 1000.0))
+  in
+  { id
+  ; model
+  ; stop_reason = StopToolUse
+  ; content = [ ToolUse { id = tool_use_id; name = tool_name; input = tool_input } ]
+  ; usage =
+      Some
+        { input_tokens
+        ; output_tokens
+        ; cache_creation_input_tokens = 0
+        ; cache_read_input_tokens = 0
+        ; cost_usd = None
+        }
+  ; telemetry = None
+  }
+;;
 
 (** Build a response that uses a tool then ends with text on the next call. *)
 let tool_then_text ~tool_name ~tool_input ~final_text () =
-  [
-    tool_use_response ~tool_name ~tool_input ();
-    text_response final_text;
-  ]
+  [ tool_use_response ~tool_name ~tool_input (); text_response final_text ]
+;;
 
 (** Build a response with thinking block followed by text.
     Token counts default to 0; set explicitly when testing budget/cost logic. *)
-let thinking_response ?(id="mock-id") ?(model="mock-model")
-    ?(input_tokens=0) ?(output_tokens=0)
-    ~thinking ~text () =
+let thinking_response
+      ?(id = "mock-id")
+      ?(model = "mock-model")
+      ?(input_tokens = 0)
+      ?(output_tokens = 0)
+      ~thinking
+      ~text
+      ()
+  =
   fun (_messages : message list) ->
-    {
-      id;
-      model;
-      stop_reason = EndTurn;
-      content = [
-        Thinking { thinking_type = "thinking"; content = thinking };
-        Text text;
-      ];
-      usage = Some {
-        input_tokens;
-        output_tokens;
-        cache_creation_input_tokens = 0;
-        cache_read_input_tokens = 0;
-        cost_usd = None
-      };
-      telemetry = None;
-    }
+  { id
+  ; model
+  ; stop_reason = EndTurn
+  ; content = [ Thinking { thinking_type = "thinking"; content = thinking }; Text text ]
+  ; usage =
+      Some
+        { input_tokens
+        ; output_tokens
+        ; cache_creation_input_tokens = 0
+        ; cache_read_input_tokens = 0
+        ; cost_usd = None
+        }
+  ; telemetry = None
+  }
+;;
 
 (** Create a Provider.config that routes through this mock.
     The mock replaces the HTTP layer — Api.create_message will
@@ -122,8 +136,8 @@ let thinking_response ?(id="mock-id") ?(model="mock-model")
     Actual interception happens in Harness.run_case which replaces
     the agent's run loop with mock-driven execution. *)
 let to_provider_config () : Provider.config =
-  {
-    provider = Provider.Local { base_url = "http://mock:0/v1" };
-    model_id = "mock-model";
-    api_key_env = "MOCK_API_KEY";
+  { provider = Provider.Local { base_url = "http://mock:0/v1" }
+  ; model_id = "mock-model"
+  ; api_key_env = "MOCK_API_KEY"
   }
+;;

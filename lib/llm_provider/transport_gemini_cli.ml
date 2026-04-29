@@ -2,12 +2,12 @@
 
     @since 0.133.0 *)
 
-type config = {
-  gemini_path: string;
-  model: string option;
-  yolo: bool;
-  cwd: string option;
-  (* Fields below are accepted for parity with the Claude Code config
+type config =
+  { gemini_path : string
+  ; model : string option
+  ; yolo : bool
+  ; cwd : string option
+  ; (* Fields below are accepted for parity with the Claude Code config
      so callers can target multiple CLI backends with the same
      structure.  As of Gemini CLI 0.8+, real flags exist for
      [mcp_config] (via [--allowed-mcp-server-names]) and for the
@@ -16,26 +16,27 @@ type config = {
      reinterpret existing callers.  Instead, opt-in env vars in
      [env_extra_args] below expose the new flags.  The four fields
      here are still unused and keep their legacy warning semantics. *)
-  mcp_config: string option;
-  allowed_tools: string list;
-  max_turns: int option;
-  permission_mode: string option;
-  cancel: unit Eio.Promise.t option;
+    mcp_config : string option
+  ; allowed_tools : string list
+  ; max_turns : int option
+  ; permission_mode : string option
+  ; cancel : unit Eio.Promise.t option
     (* When [Some p] and [p] resolves mid-run, the [gemini]
        subprocess receives [SIGINT].  Default [None]. *)
-}
+  }
 
-let default_config = {
-  gemini_path = "gemini";
-  model = None;
-  yolo = true;
-  cwd = None;
-  mcp_config = None;
-  allowed_tools = [];
-  max_turns = None;
-  permission_mode = None;
-  cancel = None;
-}
+let default_config =
+  { gemini_path = "gemini"
+  ; model = None
+  ; yolo = true
+  ; cwd = None
+  ; mcp_config = None
+  ; allowed_tools = []
+  ; max_turns = None
+  ; permission_mode = None
+  ; cancel = None
+  }
+;;
 
 (* Prompt shaping, JSON helpers, and subprocess orchestration live in the
    shared [Cli_common_*] modules. *)
@@ -66,17 +67,17 @@ let no_mcp_sentinel = "__oas_no_mcp__"
 let env_extra_args () =
   let extras = ref [] in
   let add a = extras := !extras @ a in
-  if Cli_common_env.bool "OAS_GEMINI_NO_MCP" then
-    add ["--allowed-mcp-server-names"; no_mcp_sentinel]
-  else
-    (match Cli_common_env.list "OAS_GEMINI_ALLOWED_MCP" with
-     | None | Some [] -> add ["--allowed-mcp-server-names"; no_mcp_sentinel]
-     | Some names ->
-       List.iter (fun n -> add ["--allowed-mcp-server-names"; n]) names);
+  if Cli_common_env.bool "OAS_GEMINI_NO_MCP"
+  then add [ "--allowed-mcp-server-names"; no_mcp_sentinel ]
+  else (
+    match Cli_common_env.list "OAS_GEMINI_ALLOWED_MCP" with
+    | None | Some [] -> add [ "--allowed-mcp-server-names"; no_mcp_sentinel ]
+    | Some names -> List.iter (fun n -> add [ "--allowed-mcp-server-names"; n ]) names);
   (match Cli_common_env.list "OAS_GEMINI_EXTENSIONS" with
    | None | Some [] -> ()
-   | Some names -> List.iter (fun n -> add ["-e"; n]) names);
+   | Some names -> List.iter (fun n -> add [ "-e"; n ]) names);
   !extras
+;;
 
 (* Gemini CLI (>=0.38) has no dedicated system-prompt flag — earlier
    builds accepted [--system-prompt], current builds reject it with
@@ -87,26 +88,30 @@ let effective_prompt ~prompt ~system_prompt =
   match system_prompt with
   | None | Some "" -> prompt
   | Some sp -> Printf.sprintf "[System]\n%s\n\n[User]\n%s" sp prompt
+;;
 
-let build_args ~(config : config) ~(req_config : Provider_config.t)
-    ~prompt ~system_prompt =
+let build_args ~(config : config) ~(req_config : Provider_config.t) ~prompt ~system_prompt
+  =
   let prompt = effective_prompt ~prompt ~system_prompt in
-  let args = ref [config.gemini_path; "--output-format"; "json"; "-p"; prompt] in
+  let args = ref [ config.gemini_path; "--output-format"; "json"; "-p"; prompt ] in
   let add a = args := !args @ a in
   (* Approval mode: env var wins over [config.yolo] when set, so callers
      can demote a transport from yolo → plan without a code change. *)
   (match Cli_common_env.get "OAS_GEMINI_APPROVAL_MODE" with
-   | Some m -> add ["--approval-mode"; m]
-   | None ->
-     if config.yolo then add ["--yolo"]);
+   | Some m -> add [ "--approval-mode"; m ]
+   | None -> if config.yolo then add [ "--yolo" ]);
   (* "auto" means "use the CLI's configured default", so omit [--model]. *)
-  let model = match String.trim req_config.model_id |> String.lowercase_ascii with
+  let model =
+    match String.trim req_config.model_id |> String.lowercase_ascii with
     | "" | "auto" -> config.model
     | _ -> Some req_config.model_id
   in
-  (match model with Some m -> add ["--model"; m] | None -> ());
+  (match model with
+   | Some m -> add [ "--model"; m ]
+   | None -> ());
   add (env_extra_args ());
   !args
+;;
 
 (* ── JSON parsing ────────────────────────────────────── *)
 
@@ -134,28 +139,32 @@ let build_args ~(config : config) ~(req_config : Provider_config.t)
 let parse_usage json =
   let open Yojson.Safe.Util in
   let models_field =
-    try json |> member "stats" |> member "models"
-    with Type_error _ -> `Null
+    try json |> member "stats" |> member "models" with
+    | Type_error _ -> `Null
   in
   match models_field with
   | `Assoc entries when entries <> [] ->
     let input = ref 0 in
     let output = ref 0 in
     let cached = ref 0 in
-    List.iter (fun (_model_name, model_json) ->
-      match model_json |> member "tokens" with
-      | `Assoc _ as t ->
-        input  := !input  + Cli_common_json.member_int "input" t;
-        output := !output + Cli_common_json.member_int "candidates" t;
-        cached := !cached + Cli_common_json.member_int "cached" t
-      | _ -> ()
-    ) entries;
-    Some { Types.input_tokens = !input;
-           output_tokens = !output;
-           cache_creation_input_tokens = 0;
-           cache_read_input_tokens = !cached;
-           cost_usd = None }
+    List.iter
+      (fun (_model_name, model_json) ->
+         match model_json |> member "tokens" with
+         | `Assoc _ as t ->
+           input := !input + Cli_common_json.member_int "input" t;
+           output := !output + Cli_common_json.member_int "candidates" t;
+           cached := !cached + Cli_common_json.member_int "cached" t
+         | _ -> ())
+      entries;
+    Some
+      { Types.input_tokens = !input
+      ; output_tokens = !output
+      ; cache_creation_input_tokens = 0
+      ; cache_read_input_tokens = !cached
+      ; cost_usd = None
+      }
   | _ -> None
+;;
 
 (** Parse the Gemini CLI [--output-format json] result into an
     [api_response].  Expected shape:
@@ -171,15 +180,20 @@ let parse_json_result json_str =
     let response_text = Cli_common_json.member_str "response" json in
     let session_id = Cli_common_json.member_str "session_id" json in
     let usage = parse_usage json in
-    Ok { Types.id = session_id;
-         model = "gemini";
-         stop_reason = Types.EndTurn;
-         content = [Text response_text];
-         usage; telemetry = None }
+    Ok
+      { Types.id = session_id
+      ; model = "gemini"
+      ; stop_reason = Types.EndTurn
+      ; content = [ Text response_text ]
+      ; usage
+      ; telemetry = None
+      }
   with
   | Yojson.Json_error msg ->
-    Error (Http_client.NetworkError {
-      message = Printf.sprintf "JSON parse error: %s" msg; kind = Unknown })
+    Error
+      (Http_client.NetworkError
+         { message = Printf.sprintf "JSON parse error: %s" msg; kind = Unknown })
+;;
 
 (* ── Transport constructor ───────────────────────────── *)
 
@@ -187,7 +201,8 @@ let parse_json_result json_str =
     rather than a metered API key.  Mirrors the rationale in
     {!Transport_claude_code.claude_cli_scrub_env}. *)
 let gemini_cli_scrub_env =
-  ["GEMINI_API_KEY"; "GOOGLE_API_KEY"; "GOOGLE_APPLICATION_CREDENTIALS"]
+  [ "GEMINI_API_KEY"; "GOOGLE_API_KEY"; "GOOGLE_APPLICATION_CREDENTIALS" ]
+;;
 
 (* Stderr markers the gemini CLI emits when it is looping internally on
    429 MODEL_CAPACITY_EXHAUSTED from cloudcode-pa.googleapis.com.  Each
@@ -202,37 +217,44 @@ let capacity_exhausted_markers =
   ; "No capacity available"
   ; "rateLimitExceeded"
   ]
+;;
 
 let startup_crash_markers =
-  [ "Detected unsettled top-level await"
-  ; "yoga_wasm_base64_esm_default"
-  ]
+  [ "Detected unsettled top-level await"; "yoga_wasm_base64_esm_default" ]
+;;
 
 let substring_found line needle =
-  let hl = String.length line and nl = String.length needle in
-  if nl = 0 || nl > hl then false
-  else
+  let hl = String.length line
+  and nl = String.length needle in
+  if nl = 0 || nl > hl
+  then false
+  else (
     let rec scan i =
-      if i + nl > hl then false
-      else if String.sub line i nl = needle then true
+      if i + nl > hl
+      then false
+      else if String.sub line i nl = needle
+      then true
       else scan (i + 1)
     in
-    scan 0
+    scan 0)
+;;
 
 let contains_all_markers haystack markers =
   List.for_all (substring_found haystack) markers
+;;
 
 let classify_cli_error = function
   | Error (Http_client.NetworkError { message; _ })
     when contains_all_markers message startup_crash_markers ->
-      Error
-        (Http_client.AcceptRejected
-           {
-             reason =
-               "gemini_cli startup crash detected (unsettled top-level await / yoga_wasm). "
-               ^ "Known bad CLI runtime; rejecting without retry so the cascade can move on.";
-           })
+    Error
+      (Http_client.AcceptRejected
+         { reason =
+             "gemini_cli startup crash detected (unsettled top-level await / yoga_wasm). "
+             ^ "Known bad CLI runtime; rejecting without retry so the cascade can move \
+                on."
+         })
   | other -> other
+;;
 
 let run ~sw ~mgr ~(config : config) argv =
   let fail_fast_enabled =
@@ -244,13 +266,11 @@ let run ~sw ~mgr ~(config : config) argv =
     Cli_common_subprocess.default_on_stderr_line ~name:"gemini" line;
     if
       fail_fast_enabled
-      && not !capacity_exhausted
+      && (not !capacity_exhausted)
       && List.exists (substring_found line) capacity_exhausted_markers
-    then begin
+    then (
       capacity_exhausted := true;
-      if not (Eio.Promise.is_resolved capacity_p) then
-        Eio.Promise.resolve capacity_r ()
-    end
+      if not (Eio.Promise.is_resolved capacity_p) then Eio.Promise.resolve capacity_r ())
   in
   (* Merge the upstream cancel (if any) with the capacity-exhausted
      signal so either one triggers a SIGINT on the CLI. *)
@@ -258,21 +278,22 @@ let run ~sw ~mgr ~(config : config) argv =
     match config.cancel with
     | None -> Some capacity_p
     | Some upstream ->
-        let merged_p, merged_r = Eio.Promise.create () in
-        let resolve_once () =
-          if not (Eio.Promise.is_resolved merged_p) then
-            Eio.Promise.resolve merged_r ()
-        in
-        Eio.Fiber.fork ~sw (fun () ->
-          Eio.Promise.await upstream;
-          resolve_once ());
-        Eio.Fiber.fork ~sw (fun () ->
-          Eio.Promise.await capacity_p;
-          resolve_once ());
-        Some merged_p
+      let merged_p, merged_r = Eio.Promise.create () in
+      let resolve_once () =
+        if not (Eio.Promise.is_resolved merged_p) then Eio.Promise.resolve merged_r ()
+      in
+      Eio.Fiber.fork ~sw (fun () ->
+        Eio.Promise.await upstream;
+        resolve_once ());
+      Eio.Fiber.fork ~sw (fun () ->
+        Eio.Promise.await capacity_p;
+        resolve_once ());
+      Some merged_p
   in
   let result =
-    Cli_common_subprocess.run_collect ~sw ~mgr
+    Cli_common_subprocess.run_collect
+      ~sw
+      ~mgr
       ~name:"gemini"
       ~cwd:config.cwd
       ~extra_env:[]
@@ -283,23 +304,23 @@ let run ~sw ~mgr ~(config : config) argv =
   in
   match result with
   | Error _ when !capacity_exhausted ->
-      Error
-        (Http_client.NetworkError
-           {
-             message =
-               "gemini_cli: MODEL_CAPACITY_EXHAUSTED detected on stderr, \
-                aborted CLI early so the cascade can move on. Set \
-                OAS_GEMINI_CLI_NO_FAIL_FAST_ON_CAPACITY=1 to let the CLI \
-                keep its internal retry loop.";
-             kind = Unknown;
-           })
+    Error
+      (Http_client.NetworkError
+         { message =
+             "gemini_cli: MODEL_CAPACITY_EXHAUSTED detected on stderr, aborted CLI early \
+              so the cascade can move on. Set OAS_GEMINI_CLI_NO_FAIL_FAST_ON_CAPACITY=1 \
+              to let the CLI keep its internal retry loop."
+         ; kind = Unknown
+         })
   | r -> classify_cli_error r
+;;
 
 (* Fires once per transport instance when any Claude-only config field
    is set.  Gemini CLI has no flag for these yet, so we warn and drop. *)
 let warn_unsupported_once (config : config) warned =
-  if !warned then ()
-  else begin
+  if !warned
+  then ()
+  else (
     warned := true;
     let warn field =
       Eio.traceln "[warn] %s is not supported by gemini_cli, ignoring" field
@@ -307,201 +328,248 @@ let warn_unsupported_once (config : config) warned =
     if Option.is_some config.mcp_config then warn "mcp_config";
     if config.allowed_tools <> [] then warn "allowed_tools";
     if Option.is_some config.max_turns then warn "max_turns";
-    if Option.is_some config.permission_mode then warn "permission_mode"
-  end
+    if Option.is_some config.permission_mode then warn "permission_mode")
+;;
 
-let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config)
-  : Llm_transport.t =
+let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config) : Llm_transport.t =
   let warned = ref false in
-  {
-    complete_sync = (fun (req : Llm_transport.completion_request) ->
-      (match req.runtime_mcp_policy with
-       | Some _ ->
-         { Llm_transport.response =
-             Error (Http_client.NetworkError {
-               message =
-                 "gemini_cli does not support request-scoped runtime MCP configuration";
-               kind = Unknown;
-             });
-           latency_ms = 0 }
-       | None ->
-      warn_unsupported_once config warned;
-      let messages = Cli_common_prompt.non_system_messages req.messages in
-      let prompt = Cli_common_prompt.prompt_of_messages messages in
-      let system_prompt =
-        Cli_common_prompt.system_prompt_of ~req_config:req.config req.messages in
-      let argv = build_args ~config ~req_config:req.config ~prompt ~system_prompt in
-      match run ~sw ~mgr ~config argv with
-      | Error _ as e -> { Llm_transport.response = e; latency_ms = 0 }
-      | Ok { stdout; stderr = _; latency_ms } ->
-        let response = parse_json_result (String.trim stdout) in
-        { Llm_transport.response; latency_ms }));
-
-    complete_stream = (fun ~on_event (req : Llm_transport.completion_request) ->
-      match req.runtime_mcp_policy with
-      | Some _ ->
-        Error (Http_client.NetworkError {
-          message =
-            "gemini_cli does not support request-scoped runtime MCP configuration";
-          kind = Unknown;
-        })
-      | None ->
-      warn_unsupported_once config warned;
-      let messages = Cli_common_prompt.non_system_messages req.messages in
-      let prompt = Cli_common_prompt.prompt_of_messages messages in
-      let system_prompt =
-        Cli_common_prompt.system_prompt_of ~req_config:req.config req.messages in
-      let argv = build_args ~config ~req_config:req.config ~prompt ~system_prompt in
-      (* Gemini CLI does not support native streaming; replay synthetic events
+  { complete_sync =
+      (fun (req : Llm_transport.completion_request) ->
+        match req.runtime_mcp_policy with
+        | Some _ ->
+          { Llm_transport.response =
+              Error
+                (Http_client.NetworkError
+                   { message =
+                       "gemini_cli does not support request-scoped runtime MCP \
+                        configuration"
+                   ; kind = Unknown
+                   })
+          ; latency_ms = 0
+          }
+        | None ->
+          warn_unsupported_once config warned;
+          let messages = Cli_common_prompt.non_system_messages req.messages in
+          let prompt = Cli_common_prompt.prompt_of_messages messages in
+          let system_prompt =
+            Cli_common_prompt.system_prompt_of ~req_config:req.config req.messages
+          in
+          let argv = build_args ~config ~req_config:req.config ~prompt ~system_prompt in
+          (match run ~sw ~mgr ~config argv with
+           | Error _ as e -> { Llm_transport.response = e; latency_ms = 0 }
+           | Ok { stdout; stderr = _; latency_ms } ->
+             let response = parse_json_result (String.trim stdout) in
+             { Llm_transport.response; latency_ms }))
+  ; complete_stream =
+      (fun ~on_event (req : Llm_transport.completion_request) ->
+        match req.runtime_mcp_policy with
+        | Some _ ->
+          Error
+            (Http_client.NetworkError
+               { message =
+                   "gemini_cli does not support request-scoped runtime MCP configuration"
+               ; kind = Unknown
+               })
+        | None ->
+          warn_unsupported_once config warned;
+          let messages = Cli_common_prompt.non_system_messages req.messages in
+          let prompt = Cli_common_prompt.prompt_of_messages messages in
+          let system_prompt =
+            Cli_common_prompt.system_prompt_of ~req_config:req.config req.messages
+          in
+          let argv = build_args ~config ~req_config:req.config ~prompt ~system_prompt in
+          (* Gemini CLI does not support native streaming; replay synthetic events
          after the sync call completes. *)
-      match run ~sw ~mgr ~config argv with
-      | Error _ as e -> e
-      | Ok { stdout; stderr = _; latency_ms = _ } ->
-        let result = parse_json_result (String.trim stdout) in
-        (match result with
-         | Ok resp ->
-           Cli_common_synthetic_events.replay ~on_event resp;
-           Ok resp
-         | Error _ as e -> e));
+          (match run ~sw ~mgr ~config argv with
+           | Error _ as e -> e
+           | Ok { stdout; stderr = _; latency_ms = _ } ->
+             let result = parse_json_result (String.trim stdout) in
+             (match result with
+              | Ok resp ->
+                Cli_common_synthetic_events.replay ~on_event resp;
+                Ok resp
+              | Error _ as e -> e)))
   }
+;;
 
 (* ── Inline tests ────────────────────────────────────── *)
 
 [@@@coverage off]
 
-let%test "default_config gemini_path" =
-  default_config.gemini_path = "gemini"
-
-let%test "default_config yolo true" =
-  default_config.yolo = true
+let%test "default_config gemini_path" = default_config.gemini_path = "gemini"
+let%test "default_config yolo true" = default_config.yolo = true
 
 let%test "build_args basic with yolo" =
-  let args = build_args ~config:default_config
-    ~req_config:(Provider_config.make ~kind:Claude_code ~model_id:"" ~base_url:"" ())
-    ~prompt:"hello" ~system_prompt:None in
-  List.mem "-p" args
-  && List.mem "json" args
-  && List.mem "--yolo" args
+  let args =
+    build_args
+      ~config:default_config
+      ~req_config:(Provider_config.make ~kind:Claude_code ~model_id:"" ~base_url:"" ())
+      ~prompt:"hello"
+      ~system_prompt:None
+  in
+  List.mem "-p" args && List.mem "json" args && List.mem "--yolo" args
+;;
 
 let%test "build_args without yolo" =
   let config = { default_config with yolo = false } in
-  let args = build_args ~config
-    ~req_config:(Provider_config.make ~kind:Claude_code ~model_id:"" ~base_url:"" ())
-    ~prompt:"hello" ~system_prompt:None in
-  List.mem "-p" args
-  && not (List.mem "--yolo" args)
+  let args =
+    build_args
+      ~config
+      ~req_config:(Provider_config.make ~kind:Claude_code ~model_id:"" ~base_url:"" ())
+      ~prompt:"hello"
+      ~system_prompt:None
+  in
+  List.mem "-p" args && not (List.mem "--yolo" args)
+;;
 
 let%test "build_args with model" =
-  let args = build_args ~config:default_config
-    ~req_config:(Provider_config.make ~kind:Claude_code ~model_id:"gemini-2.5-pro" ~base_url:"" ())
-    ~prompt:"hello" ~system_prompt:(Some "be helpful") in
+  let args =
+    build_args
+      ~config:default_config
+      ~req_config:
+        (Provider_config.make
+           ~kind:Claude_code
+           ~model_id:"gemini-2.5-pro"
+           ~base_url:""
+           ())
+      ~prompt:"hello"
+      ~system_prompt:(Some "be helpful")
+  in
   List.mem "--model" args
   && List.mem "gemini-2.5-pro" args
   (* Gemini CLI has no --system-prompt flag; system text is folded into
      the [-p] argument via [effective_prompt]. *)
-  && not (List.mem "--system-prompt" args)
+  && (not (List.mem "--system-prompt" args))
   (* The labelled [-p] argument carries the system text now. *)
-  && List.exists (fun a ->
-       let needle = "be helpful" in
-       let nl = String.length needle in
-       let al = String.length a in
-       let rec scan i =
-         if i + nl > al then false
-         else if String.sub a i nl = needle then true
-         else scan (i + 1)
-       in
-       scan 0) args
+  && List.exists
+       (fun a ->
+          let needle = "be helpful" in
+          let nl = String.length needle in
+          let al = String.length a in
+          let rec scan i =
+            if i + nl > al
+            then false
+            else if String.sub a i nl = needle
+            then true
+            else scan (i + 1)
+          in
+          scan 0)
+       args
+;;
 
 let%test "effective_prompt: None → passthrough" =
   effective_prompt ~prompt:"hi" ~system_prompt:None = "hi"
+;;
 
 let%test "effective_prompt: empty → passthrough" =
   effective_prompt ~prompt:"hi" ~system_prompt:(Some "") = "hi"
+;;
 
 let%test "effective_prompt: labelled blocks" =
   effective_prompt ~prompt:"user" ~system_prompt:(Some "sys")
   = "[System]\nsys\n\n[User]\nuser"
+;;
 
 let%test "build_args omits auto model override" =
-  let args = build_args ~config:default_config
-    ~req_config:(Provider_config.make ~kind:Claude_code ~model_id:"auto" ~base_url:"" ())
-    ~prompt:"hello" ~system_prompt:None in
+  let args =
+    build_args
+      ~config:default_config
+      ~req_config:
+        (Provider_config.make ~kind:Claude_code ~model_id:"auto" ~base_url:"" ())
+      ~prompt:"hello"
+      ~system_prompt:None
+  in
   not (List.mem "--model" args)
+;;
 
 let%test "default_config parity fields absent" =
   default_config.mcp_config = None
   && default_config.allowed_tools = []
   && default_config.max_turns = None
   && default_config.permission_mode = None
+;;
 
 let%test "build_args ignores mcp_config and allowed_tools" =
-  let config = { default_config with
-    mcp_config = Some "/tmp/mcp.json";
-    allowed_tools = ["Read"; "Write"];
-    max_turns = Some 3;
-    permission_mode = Some "bypassPermissions";
-  } in
-  let args = build_args ~config
-    ~req_config:(Provider_config.make ~kind:Claude_code ~model_id:"" ~base_url:"" ())
-    ~prompt:"hello" ~system_prompt:None in
-  not (List.mem "--mcp-config" args)
-  && not (List.mem "--allowedTools" args)
-  && not (List.mem "--max-turns" args)
-  && not (List.mem "--permission-mode" args)
+  let config =
+    { default_config with
+      mcp_config = Some "/tmp/mcp.json"
+    ; allowed_tools = [ "Read"; "Write" ]
+    ; max_turns = Some 3
+    ; permission_mode = Some "bypassPermissions"
+    }
+  in
+  let args =
+    build_args
+      ~config
+      ~req_config:(Provider_config.make ~kind:Claude_code ~model_id:"" ~base_url:"" ())
+      ~prompt:"hello"
+      ~system_prompt:None
+  in
+  (not (List.mem "--mcp-config" args))
+  && (not (List.mem "--allowedTools" args))
+  && (not (List.mem "--max-turns" args))
+  && (not (List.mem "--permission-mode" args))
   && not (List.mem "/tmp/mcp.json" args)
+;;
 
 let%test "parse_json_result success (single model stats)" =
-  let json = {|{"session_id":"sid","response":"hello world","stats":{"models":{"gemini-2.5-flash":{"tokens":{"input":10,"candidates":5,"cached":2}}}}}|} in
+  let json =
+    {|{"session_id":"sid","response":"hello world","stats":{"models":{"gemini-2.5-flash":{"tokens":{"input":10,"candidates":5,"cached":2}}}}}|}
+  in
   match parse_json_result json with
   | Ok resp ->
-    resp.content = [Types.Text "hello world"]
+    resp.content = [ Types.Text "hello world" ]
     && resp.stop_reason = Types.EndTurn
     && resp.id = "sid"
-    && (match resp.usage with
-        | Some u -> u.input_tokens = 10 && u.output_tokens = 5 && u.cache_read_input_tokens = 2
-        | None -> false)
+    &&
+      (match resp.usage with
+      | Some u ->
+        u.input_tokens = 10 && u.output_tokens = 5 && u.cache_read_input_tokens = 2
+      | None -> false)
   | Error _ -> false
+;;
 
 let%test "parse_json_result aggregates across multiple models" =
-  let json = {|{"session_id":"sid","response":"hi","stats":{"models":{"utility":{"tokens":{"input":100,"candidates":7,"cached":0}},"main":{"tokens":{"input":200,"candidates":3,"cached":5}}}}}|} in
+  let json =
+    {|{"session_id":"sid","response":"hi","stats":{"models":{"utility":{"tokens":{"input":100,"candidates":7,"cached":0}},"main":{"tokens":{"input":200,"candidates":3,"cached":5}}}}}|}
+  in
   match parse_json_result json with
   | Ok resp ->
     (match resp.usage with
      | Some u ->
-       u.input_tokens = 300
-       && u.output_tokens = 10
-       && u.cache_read_input_tokens = 5
+       u.input_tokens = 300 && u.output_tokens = 10 && u.cache_read_input_tokens = 5
      | None -> false)
   | Error _ -> false
+;;
 
 let%test "parse_json_result no usage" =
   let json = {|{"response":"hello"}|} in
   match parse_json_result json with
-  | Ok resp ->
-    resp.content = [Types.Text "hello"]
-    && resp.usage = None
+  | Ok resp -> resp.content = [ Types.Text "hello" ] && resp.usage = None
   | Error _ -> false
+;;
 
 let%test "parse_json_result invalid json" =
   match parse_json_result "not json" with
   | Error _ -> true
   | Ok _ -> false
+;;
 
 let%test "classify_cli_error reclassifies gemini startup crash as AcceptRejected" =
   let err =
     Error
       (Http_client.NetworkError
-         {
-           message =
+         { message =
              "gemini exited with code 13: Warning: Detected unsettled top-level await\n\
-              var Yoga = wrapAssembly(await yoga_wasm_base64_esm_default());";
-           kind = Unknown;
+              var Yoga = wrapAssembly(await yoga_wasm_base64_esm_default());"
+         ; kind = Unknown
          })
   in
   match classify_cli_error err with
   | Error (Http_client.AcceptRejected { reason }) ->
-      substring_found reason "startup crash"
+    substring_found reason "startup crash"
   | _ -> false
+;;
 
 let%test "classify_cli_error keeps unrelated network failures retryable" =
   let err =
@@ -511,126 +579,162 @@ let%test "classify_cli_error keeps unrelated network failures retryable" =
   in
   match classify_cli_error err with
   | Error (Http_client.NetworkError { message; _ }) ->
-      substring_found message "connection refused"
+    substring_found message "connection refused"
   | _ -> false
+;;
 
 (* ── env-driven extra args ──────────────────────────── *)
 
 let with_env k v f =
   let prev = Sys.getenv_opt k in
   Unix.putenv k v;
-  Fun.protect ~finally:(fun () ->
-    match prev with
-    | None -> (try Unix.putenv k "" with _ -> ())
-    | Some old -> Unix.putenv k old)
+  Fun.protect
+    ~finally:(fun () ->
+      match prev with
+      | None ->
+        (try Unix.putenv k "" with
+         | _ -> ())
+      | Some old -> Unix.putenv k old)
     f
+;;
 
 let with_unset k f =
   let prev = Sys.getenv_opt k in
-  (try Unix.putenv k "" with _ -> ());
-  Fun.protect ~finally:(fun () ->
-    match prev with
-    | None -> ()
-    | Some old -> Unix.putenv k old)
+  (try Unix.putenv k "" with
+   | _ -> ());
+  Fun.protect
+    ~finally:(fun () ->
+      match prev with
+      | None -> ()
+      | Some old -> Unix.putenv k old)
     f
+;;
 
-let gemini_req =
-  Provider_config.make ~kind:Gemini_cli ~model_id:"" ~base_url:"" ()
+let gemini_req = Provider_config.make ~kind:Gemini_cli ~model_id:"" ~base_url:"" ()
 
 let%test "env: approval-mode supersedes config.yolo" =
   with_env "OAS_GEMINI_APPROVAL_MODE" "plan" (fun () ->
-    let args = build_args ~config:default_config ~req_config:gemini_req
-      ~prompt:"hi" ~system_prompt:None in
+    let args =
+      build_args
+        ~config:default_config
+        ~req_config:gemini_req
+        ~prompt:"hi"
+        ~system_prompt:None
+    in
     List.mem "--approval-mode" args
     && List.mem "plan" args
     && not (List.mem "--yolo" args))
+;;
 
 let%test "env: OAS_GEMINI_NO_MCP disables all MCP via sentinel whitelist" =
   with_env "OAS_GEMINI_NO_MCP" "1" (fun () ->
-    let args = build_args ~config:default_config ~req_config:gemini_req
-      ~prompt:"hi" ~system_prompt:None in
+    let args =
+      build_args
+        ~config:default_config
+        ~req_config:gemini_req
+        ~prompt:"hi"
+        ~system_prompt:None
+    in
     let rec has_pair = function
-      | "--allowed-mcp-server-names" :: name :: _
-        when name = no_mcp_sentinel -> true
+      | "--allowed-mcp-server-names" :: name :: _ when name = no_mcp_sentinel -> true
       | _ :: rest -> has_pair rest
       | [] -> false
     in
-    has_pair args
-    && not (List.mem "" args))
+    has_pair args && not (List.mem "" args))
+;;
 
 let%test "env: OAS_GEMINI_ALLOWED_MCP whitelist" =
   with_env "OAS_GEMINI_ALLOWED_MCP" "alpha,beta" (fun () ->
-    let args = build_args ~config:default_config ~req_config:gemini_req
-      ~prompt:"hi" ~system_prompt:None in
+    let args =
+      build_args
+        ~config:default_config
+        ~req_config:gemini_req
+        ~prompt:"hi"
+        ~system_prompt:None
+    in
     List.mem "alpha" args && List.mem "beta" args)
+;;
 
 let%test "env: OAS_GEMINI_EXTENSIONS splits on comma" =
   with_env "OAS_GEMINI_EXTENSIONS" "ext-a,ext-b" (fun () ->
-    let args = build_args ~config:default_config ~req_config:gemini_req
-      ~prompt:"hi" ~system_prompt:None in
+    let args =
+      build_args
+        ~config:default_config
+        ~req_config:gemini_req
+        ~prompt:"hi"
+        ~system_prompt:None
+    in
     List.mem "-e" args && List.mem "ext-a" args && List.mem "ext-b" args)
+;;
 
 let%test "default: no vars still keeps MCP disabled via sentinel" =
   with_unset "OAS_GEMINI_ALLOWED_MCP" (fun () ->
-  with_unset "OAS_GEMINI_APPROVAL_MODE" (fun () ->
-  with_unset "OAS_GEMINI_EXTENSIONS" (fun () ->
-  with_unset "OAS_GEMINI_NO_MCP" (fun () ->
-    let args = build_args ~config:default_config ~req_config:gemini_req
-      ~prompt:"hi" ~system_prompt:None in
-    let rec has_sentinel_whitelist = function
-      | "--allowed-mcp-server-names" :: name :: _
-        when name = no_mcp_sentinel -> true
-      | _ :: rest -> has_sentinel_whitelist rest
-      | [] -> false
-    in
-    (* default_config.yolo = true, so --yolo must appear. *)
-    List.mem "--yolo" args
-    && not (List.mem "--approval-mode" args)
-    && has_sentinel_whitelist args
-    && not (List.mem "" args)))))
+    with_unset "OAS_GEMINI_APPROVAL_MODE" (fun () ->
+      with_unset "OAS_GEMINI_EXTENSIONS" (fun () ->
+        with_unset "OAS_GEMINI_NO_MCP" (fun () ->
+          let args =
+            build_args
+              ~config:default_config
+              ~req_config:gemini_req
+              ~prompt:"hi"
+              ~system_prompt:None
+          in
+          let rec has_sentinel_whitelist = function
+            | "--allowed-mcp-server-names" :: name :: _ when name = no_mcp_sentinel ->
+              true
+            | _ :: rest -> has_sentinel_whitelist rest
+            | [] -> false
+          in
+          (* default_config.yolo = true, so --yolo must appear. *)
+          List.mem "--yolo" args
+          && (not (List.mem "--approval-mode" args))
+          && has_sentinel_whitelist args
+          && not (List.mem "" args)))))
+;;
 
 let runtime_mcp_policy_sample =
-  {
-    Llm_transport.empty_runtime_mcp_policy with
-    servers = [
-      Llm_transport.Http_server {
-        name = "example";
-        url = "http://127.0.0.1:9999/mcp";
-        headers = [];
-      };
-    ];
-    allowed_server_names = ["example"];
-    allowed_tool_names = ["example_status"];
+  { Llm_transport.empty_runtime_mcp_policy with
+    servers =
+      [ Llm_transport.Http_server
+          { name = "example"; url = "http://127.0.0.1:9999/mcp"; headers = [] }
+      ]
+  ; allowed_server_names = [ "example" ]
+  ; allowed_tool_names = [ "example_status" ]
   }
+;;
 
 let runtime_mcp_req_sample : Llm_transport.completion_request =
-  {
-    config = gemini_req;
-    messages = [];
-    tools = [];
-    runtime_mcp_policy = Some runtime_mcp_policy_sample;
+  { config = gemini_req
+  ; messages = []
+  ; tools = []
+  ; runtime_mcp_policy = Some runtime_mcp_policy_sample
   }
+;;
 
 let runtime_mcp_policy_error_message =
   "gemini_cli does not support request-scoped runtime MCP configuration"
+;;
 
 let%test_unit "complete_sync rejects request-scoped runtime MCP policy" =
-  Eio_main.run @@ fun env ->
-  Eio.Switch.run @@ fun sw ->
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
   let transport = create ~sw ~mgr:(Eio.Stdenv.process_mgr env) ~config:default_config in
   match transport.complete_sync runtime_mcp_req_sample with
-  | {
-      response = Error (Http_client.NetworkError { message; _ });
-      latency_ms = 0;
-    } ->
+  | { response = Error (Http_client.NetworkError { message; _ }); latency_ms = 0 } ->
     assert (String.equal message runtime_mcp_policy_error_message)
   | _ -> assert false
+;;
 
 let%test_unit "complete_stream rejects request-scoped runtime MCP policy" =
-  Eio_main.run @@ fun env ->
-  Eio.Switch.run @@ fun sw ->
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
   let transport = create ~sw ~mgr:(Eio.Stdenv.process_mgr env) ~config:default_config in
   match transport.complete_stream ~on_event:(fun _ -> ()) runtime_mcp_req_sample with
   | Error (Http_client.NetworkError { message; _ }) ->
     assert (String.equal message runtime_mcp_policy_error_message)
   | _ -> assert false
+;;
