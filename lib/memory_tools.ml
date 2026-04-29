@@ -4,15 +4,15 @@
 
 type backend = Memory_tools_backend.t =
   | Plain of Memory.t
-  | Acl of { acl: Memory_access.t; agent_name: string }
+  | Acl of
+      { acl : Memory_access.t
+      ; agent_name : string
+      }
 
 let json_string = Memory_tools_backend.json_string
 let ok_json = Memory_tools_backend.ok_json
-
 let tool_error = Memory_tools_parse.tool_error
-
 let ( let* ) = Result.bind
-
 let tier_to_string = Memory_tools_backend.tier_to_string
 
 (* Re-export parse helpers for backward compatibility and inline tests *)
@@ -25,7 +25,6 @@ let parse_string_list_field = Memory_tools_parse.parse_string_list_field
 let parse_metadata_field = Memory_tools_parse.parse_metadata_field
 let parse_value_json = Memory_tools_parse.parse_value_json
 let parse_outcome = Memory_tools_parse.parse_outcome
-
 let procedure_to_json = Memory_tools_backend.procedure_to_json
 let generated_episode_id = Memory_tools_backend.generated_episode_id
 let store_value = Memory_tools_backend.store_value
@@ -34,578 +33,597 @@ let store_episode = Memory_tools_backend.store_episode
 let find_procedure_backend = Memory_tools_backend.find_procedure
 
 let remember_tool backend =
-  Tool.create ~name:"memory_remember"
-    ~description:
-      "Store a JSON value in scratchpad, working, or long_term memory."
+  Tool.create
+    ~name:"memory_remember"
+    ~description:"Store a JSON value in scratchpad, working, or long_term memory."
     ~parameters:
-      [
-        {
-          Types.name = "tier";
-          description = "Optional tier: scratchpad, working, or long_term";
-          param_type = Types.String;
-          required = false;
-        };
-        {
-          Types.name = "key";
-          description = "Memory key";
-          param_type = Types.String;
-          required = true;
-        };
-        {
-          Types.name = "value_json";
-          description = "JSON string to store; invalid JSON is stored as a raw string";
-          param_type = Types.String;
-          required = true;
-        };
+      [ { Types.name = "tier"
+        ; description = "Optional tier: scratchpad, working, or long_term"
+        ; param_type = Types.String
+        ; required = false
+        }
+      ; { Types.name = "key"
+        ; description = "Memory key"
+        ; param_type = Types.String
+        ; required = true
+        }
+      ; { Types.name = "value_json"
+        ; description = "JSON string to store; invalid JSON is stored as a raw string"
+        ; param_type = Types.String
+        ; required = true
+        }
       ]
     (fun input ->
-      let* tier = parse_generic_tier input ~default:Memory.Working in
-      let* key = parse_string_field input "key" in
-      let* value = parse_value_json input in
-      let* () = store_value backend ~tier key value in
-      ok_json
-        (`Assoc
-          [
-            ("ok", `Bool true);
-            ("tier", `String (tier_to_string tier));
-            ("key", `String key);
-          ]))
+       let* tier = parse_generic_tier input ~default:Memory.Working in
+       let* key = parse_string_field input "key" in
+       let* value = parse_value_json input in
+       let* () = store_value backend ~tier key value in
+       ok_json
+         (`Assoc
+             [ "ok", `Bool true
+             ; "tier", `String (tier_to_string tier)
+             ; "key", `String key
+             ]))
+;;
 
 let recall_tool backend =
-  Tool.create ~name:"memory_recall"
-    ~description:
-      "Recall a memory value from scratchpad, working, or long_term memory."
+  Tool.create
+    ~name:"memory_recall"
+    ~description:"Recall a memory value from scratchpad, working, or long_term memory."
     ~parameters:
-      [
-        {
-          Types.name = "tier";
-          description = "Optional tier: scratchpad, working, or long_term";
-          param_type = Types.String;
-          required = false;
-        };
-        {
-          Types.name = "key";
-          description = "Memory key";
-          param_type = Types.String;
-          required = true;
-        };
-        {
-          Types.name = "exact";
-          description = "Use exact tier lookup without fallback";
-          param_type = Types.Boolean;
-          required = false;
-        };
+      [ { Types.name = "tier"
+        ; description = "Optional tier: scratchpad, working, or long_term"
+        ; param_type = Types.String
+        ; required = false
+        }
+      ; { Types.name = "key"
+        ; description = "Memory key"
+        ; param_type = Types.String
+        ; required = true
+        }
+      ; { Types.name = "exact"
+        ; description = "Use exact tier lookup without fallback"
+        ; param_type = Types.Boolean
+        ; required = false
+        }
       ]
     (fun input ->
-      let* tier = parse_generic_tier input ~default:Memory.Working in
-      let* key = parse_string_field input "key" in
-      let* exact = parse_bool_field input "exact" ~default:false in
-      let* value = recall_value backend ~tier key ~exact in
-      ok_json
-        (`Assoc
-          [
-            ("found", `Bool (Option.is_some value));
-            ("tier", `String (tier_to_string tier));
-            ("key", `String key);
-            ("exact", `Bool exact);
-            ( "value",
-              match value with Some value -> value | None -> `Null );
-          ]))
+       let* tier = parse_generic_tier input ~default:Memory.Working in
+       let* key = parse_string_field input "key" in
+       let* exact = parse_bool_field input "exact" ~default:false in
+       let* value = recall_value backend ~tier key ~exact in
+       ok_json
+         (`Assoc
+             [ "found", `Bool (Option.is_some value)
+             ; "tier", `String (tier_to_string tier)
+             ; "key", `String key
+             ; "exact", `Bool exact
+             ; ( "value"
+               , match value with
+                 | Some value -> value
+                 | None -> `Null )
+             ]))
+;;
 
 let remember_episode_tool backend =
-  Tool.create ~name:"memory_remember_episode"
+  Tool.create
+    ~name:"memory_remember_episode"
     ~description:"Store a structured episodic memory record."
     ~parameters:
-      [
-        {
-          Types.name = "id";
-          description = "Optional episode id; autogenerated when omitted";
-          param_type = Types.String;
-          required = false;
-        };
-        {
-          Types.name = "action";
-          description = "What happened";
-          param_type = Types.String;
-          required = true;
-        };
-        {
-          Types.name = "participants";
-          description = "Optional participant names";
-          param_type = Types.Array;
-          required = false;
-        };
-        {
-          Types.name = "outcome";
-          description = "Optional outcome: success, failure, or neutral";
-          param_type = Types.String;
-          required = false;
-        };
-        {
-          Types.name = "detail";
-          description = "Optional detail for success or failure outcomes";
-          param_type = Types.String;
-          required = false;
-        };
-        {
-          Types.name = "salience";
-          description = "Optional salience score";
-          param_type = Types.Number;
-          required = false;
-        };
-        {
-          Types.name = "metadata";
-          description = "Optional metadata object";
-          param_type = Types.Object;
-          required = false;
-        };
+      [ { Types.name = "id"
+        ; description = "Optional episode id; autogenerated when omitted"
+        ; param_type = Types.String
+        ; required = false
+        }
+      ; { Types.name = "action"
+        ; description = "What happened"
+        ; param_type = Types.String
+        ; required = true
+        }
+      ; { Types.name = "participants"
+        ; description = "Optional participant names"
+        ; param_type = Types.Array
+        ; required = false
+        }
+      ; { Types.name = "outcome"
+        ; description = "Optional outcome: success, failure, or neutral"
+        ; param_type = Types.String
+        ; required = false
+        }
+      ; { Types.name = "detail"
+        ; description = "Optional detail for success or failure outcomes"
+        ; param_type = Types.String
+        ; required = false
+        }
+      ; { Types.name = "salience"
+        ; description = "Optional salience score"
+        ; param_type = Types.Number
+        ; required = false
+        }
+      ; { Types.name = "metadata"
+        ; description = "Optional metadata object"
+        ; param_type = Types.Object
+        ; required = false
+        }
       ]
     (fun input ->
-      let* id = parse_optional_string_field input "id" in
-      let* action = parse_string_field input "action" in
-      let* participants = parse_string_list_field input "participants" in
-      let* outcome = parse_outcome input in
-      let* salience = parse_float_field input "salience" ~default:0.7 in
-      let* metadata = parse_metadata_field input in
-      let episode : Memory.episode =
-        {
-          id = Option.value id ~default:(generated_episode_id ());
-          timestamp = Unix.gettimeofday ();
-          participants;
-          action;
-          outcome;
-          salience;
-          metadata;
-        }
-      in
-      let* () = store_episode backend episode in
-      ok_json
-        (`Assoc
-          [
-            ("ok", `Bool true);
-            ("tier", `String "episodic");
-            ("id", `String episode.id);
-          ]))
+       let* id = parse_optional_string_field input "id" in
+       let* action = parse_string_field input "action" in
+       let* participants = parse_string_list_field input "participants" in
+       let* outcome = parse_outcome input in
+       let* salience = parse_float_field input "salience" ~default:0.7 in
+       let* metadata = parse_metadata_field input in
+       let episode : Memory.episode =
+         { id = Option.value id ~default:(generated_episode_id ())
+         ; timestamp = Unix.gettimeofday ()
+         ; participants
+         ; action
+         ; outcome
+         ; salience
+         ; metadata
+         }
+       in
+       let* () = store_episode backend episode in
+       ok_json
+         (`Assoc
+             [ "ok", `Bool true; "tier", `String "episodic"; "id", `String episode.id ]))
+;;
 
 let find_procedure_tool backend =
-  Tool.create ~name:"memory_find_procedure"
+  Tool.create
+    ~name:"memory_find_procedure"
     ~description:"Find the best procedural memory matching a pattern."
     ~parameters:
-      [
-        {
-          Types.name = "pattern";
-          description = "Pattern substring to search";
-          param_type = Types.String;
-          required = true;
-        };
-        {
-          Types.name = "min_confidence";
-          description = "Optional minimum confidence threshold";
-          param_type = Types.Number;
-          required = false;
-        };
-        {
-          Types.name = "touch";
-          description = "Update last_used on the selected procedure";
-          param_type = Types.Boolean;
-          required = false;
-        };
+      [ { Types.name = "pattern"
+        ; description = "Pattern substring to search"
+        ; param_type = Types.String
+        ; required = true
+        }
+      ; { Types.name = "min_confidence"
+        ; description = "Optional minimum confidence threshold"
+        ; param_type = Types.Number
+        ; required = false
+        }
+      ; { Types.name = "touch"
+        ; description = "Update last_used on the selected procedure"
+        ; param_type = Types.Boolean
+        ; required = false
+        }
       ]
     (fun input ->
-      let* pattern = parse_string_field input "pattern" in
-      let* min_confidence = parse_float_field input "min_confidence" ~default:0.0 in
-      let* touch = parse_bool_field input "touch" ~default:false in
-      let* procedure =
-        find_procedure_backend backend ~pattern ~min_confidence ~touch
-      in
-      ok_json
-        (`Assoc
-          [
-            ("found", `Bool (Option.is_some procedure));
-            ("pattern", `String pattern);
-            ( "procedure",
-              match procedure with
-              | Some procedure -> procedure_to_json procedure
-              | None -> `Null );
-          ]))
+       let* pattern = parse_string_field input "pattern" in
+       let* min_confidence = parse_float_field input "min_confidence" ~default:0.0 in
+       let* touch = parse_bool_field input "touch" ~default:false in
+       let* procedure = find_procedure_backend backend ~pattern ~min_confidence ~touch in
+       ok_json
+         (`Assoc
+             [ "found", `Bool (Option.is_some procedure)
+             ; "pattern", `String pattern
+             ; ( "procedure"
+               , match procedure with
+                 | Some procedure -> procedure_to_json procedure
+                 | None -> `Null )
+             ]))
+;;
 
 let remember mem = remember_tool (Plain mem)
 let recall mem = recall_tool (Plain mem)
 let remember_episode mem = remember_episode_tool (Plain mem)
 let find_procedure mem = find_procedure_tool (Plain mem)
 let all mem = [ remember mem; recall mem; remember_episode mem; find_procedure mem ]
-
 let remember_acl acl ~agent_name = remember_tool (Acl { acl; agent_name })
 let recall_acl acl ~agent_name = recall_tool (Acl { acl; agent_name })
-let remember_episode_acl acl ~agent_name =
-  remember_episode_tool (Acl { acl; agent_name })
-let find_procedure_acl acl ~agent_name =
-  find_procedure_tool (Acl { acl; agent_name })
+let remember_episode_acl acl ~agent_name = remember_episode_tool (Acl { acl; agent_name })
+let find_procedure_acl acl ~agent_name = find_procedure_tool (Acl { acl; agent_name })
 
 let all_acl acl ~agent_name =
-  [
-    remember_acl acl ~agent_name;
-    recall_acl acl ~agent_name;
-    remember_episode_acl acl ~agent_name;
-    find_procedure_acl acl ~agent_name;
+  [ remember_acl acl ~agent_name
+  ; recall_acl acl ~agent_name
+  ; remember_episode_acl acl ~agent_name
+  ; find_procedure_acl acl ~agent_name
   ]
+;;
 
 [@@@coverage off]
 (* === Inline tests === *)
 
 (* --- json_string / ok_json / tool_error --- *)
 
-let%test "json_string encodes value" =
-  json_string (`String "hello") = "\"hello\""
-
-let%test "json_string encodes int" =
-  json_string (`Int 42) = "42"
+let%test "json_string encodes value" = json_string (`String "hello") = "\"hello\""
+let%test "json_string encodes int" = json_string (`Int 42) = "42"
 
 let%test "ok_json wraps as tool result" =
   match ok_json (`Bool true) with
   | Ok { Types.content } -> content = "true"
   | Error _ -> false
+;;
 
 let%test "tool_error returns recoverable error" =
   match tool_error "bad input" with
-  | Error { Types.message = "bad input"; recoverable = true; error_class = None } ->
-      true
+  | Error { Types.message = "bad input"; recoverable = true; error_class = None } -> true
   | _ -> false
+;;
 
 (* --- bind --- *)
 
-let%test "bind ok" =
-  Result.bind (Ok 1) (fun x -> Ok (x + 1)) = Ok 2
+let%test "bind ok" = Result.bind (Ok 1) (fun x -> Ok (x + 1)) = Ok 2
 
 let%test "bind error propagates" =
   let err = Error { Types.message = "fail"; recoverable = true; error_class = None } in
   match Result.bind err (fun _ -> Ok 0) with
   | Error { message = "fail"; _ } -> true
   | _ -> false
+;;
 
 (* --- tier_to_string --- *)
 
-let%test "tier_to_string scratchpad" =
-  tier_to_string Memory.Scratchpad = "scratchpad"
-
-let%test "tier_to_string working" =
-  tier_to_string Memory.Working = "working"
-
-let%test "tier_to_string episodic" =
-  tier_to_string Memory.Episodic = "episodic"
-
-let%test "tier_to_string procedural" =
-  tier_to_string Memory.Procedural = "procedural"
-
-let%test "tier_to_string long_term" =
-  tier_to_string Memory.Long_term = "long_term"
+let%test "tier_to_string scratchpad" = tier_to_string Memory.Scratchpad = "scratchpad"
+let%test "tier_to_string working" = tier_to_string Memory.Working = "working"
+let%test "tier_to_string episodic" = tier_to_string Memory.Episodic = "episodic"
+let%test "tier_to_string procedural" = tier_to_string Memory.Procedural = "procedural"
+let%test "tier_to_string long_term" = tier_to_string Memory.Long_term = "long_term"
 
 (* --- parse_string_field --- *)
 
 let%test "parse_string_field present" =
-  let json = `Assoc [("key", `String "val")] in
+  let json = `Assoc [ "key", `String "val" ] in
   parse_string_field json "key" = Ok "val"
+;;
 
 let%test "parse_string_field missing" =
   let json = `Assoc [] in
   match parse_string_field json "key" with
   | Error _ -> true
   | Ok _ -> false
+;;
 
 let%test "parse_string_field null" =
-  let json = `Assoc [("key", `Null)] in
+  let json = `Assoc [ "key", `Null ] in
   match parse_string_field json "key" with
   | Error _ -> true
   | Ok _ -> false
+;;
 
 let%test "parse_string_field wrong type" =
-  let json = `Assoc [("key", `Int 42)] in
+  let json = `Assoc [ "key", `Int 42 ] in
   match parse_string_field json "key" with
   | Error _ -> true
   | Ok _ -> false
+;;
 
 (* --- parse_optional_string_field --- *)
 
 let%test "parse_optional_string_field present" =
-  let json = `Assoc [("key", `String "val")] in
+  let json = `Assoc [ "key", `String "val" ] in
   parse_optional_string_field json "key" = Ok (Some "val")
+;;
 
 let%test "parse_optional_string_field null" =
-  let json = `Assoc [("key", `Null)] in
+  let json = `Assoc [ "key", `Null ] in
   parse_optional_string_field json "key" = Ok None
+;;
 
 let%test "parse_optional_string_field missing" =
   let json = `Assoc [] in
   parse_optional_string_field json "key" = Ok None
+;;
 
 let%test "parse_optional_string_field wrong type" =
-  let json = `Assoc [("key", `Int 42)] in
+  let json = `Assoc [ "key", `Int 42 ] in
   match parse_optional_string_field json "key" with
   | Error _ -> true
   | Ok _ -> false
+;;
 
 (* --- parse_bool_field --- *)
 
 let%test "parse_bool_field present true" =
-  let json = `Assoc [("flag", `Bool true)] in
+  let json = `Assoc [ "flag", `Bool true ] in
   parse_bool_field json "flag" ~default:false = Ok true
+;;
 
 let%test "parse_bool_field present false" =
-  let json = `Assoc [("flag", `Bool false)] in
+  let json = `Assoc [ "flag", `Bool false ] in
   parse_bool_field json "flag" ~default:true = Ok false
+;;
 
 let%test "parse_bool_field null uses default" =
-  let json = `Assoc [("flag", `Null)] in
+  let json = `Assoc [ "flag", `Null ] in
   parse_bool_field json "flag" ~default:true = Ok true
+;;
 
 let%test "parse_bool_field missing uses default" =
   let json = `Assoc [] in
   parse_bool_field json "flag" ~default:false = Ok false
+;;
 
 let%test "parse_bool_field wrong type" =
-  let json = `Assoc [("flag", `String "yes")] in
+  let json = `Assoc [ "flag", `String "yes" ] in
   match parse_bool_field json "flag" ~default:false with
   | Error _ -> true
   | Ok _ -> false
+;;
 
 (* --- parse_float_field --- *)
 
 let%test "parse_float_field float" =
-  let json = `Assoc [("val", `Float 3.14)] in
+  let json = `Assoc [ "val", `Float 3.14 ] in
   parse_float_field json "val" ~default:0.0 = Ok 3.14
+;;
 
 let%test "parse_float_field int coerced to float" =
-  let json = `Assoc [("val", `Int 42)] in
+  let json = `Assoc [ "val", `Int 42 ] in
   parse_float_field json "val" ~default:0.0 = Ok 42.0
+;;
 
 let%test "parse_float_field null uses default" =
   let json = `Assoc [] in
   parse_float_field json "val" ~default:1.5 = Ok 1.5
+;;
 
 let%test "parse_float_field wrong type" =
-  let json = `Assoc [("val", `String "nope")] in
+  let json = `Assoc [ "val", `String "nope" ] in
   match parse_float_field json "val" ~default:0.0 with
   | Error _ -> true
   | Ok _ -> false
+;;
 
 (* --- parse_generic_tier --- *)
 
 let%test "parse_generic_tier scratchpad" =
-  let json = `Assoc [("tier", `String "scratchpad")] in
+  let json = `Assoc [ "tier", `String "scratchpad" ] in
   parse_generic_tier json ~default:Memory.Working = Ok Memory.Scratchpad
+;;
 
 let%test "parse_generic_tier working" =
-  let json = `Assoc [("tier", `String "working")] in
+  let json = `Assoc [ "tier", `String "working" ] in
   parse_generic_tier json ~default:Memory.Scratchpad = Ok Memory.Working
+;;
 
 let%test "parse_generic_tier long_term" =
-  let json = `Assoc [("tier", `String "long_term")] in
+  let json = `Assoc [ "tier", `String "long_term" ] in
   parse_generic_tier json ~default:Memory.Working = Ok Memory.Long_term
+;;
 
 let%test "parse_generic_tier long-term hyphen" =
-  let json = `Assoc [("tier", `String "long-term")] in
+  let json = `Assoc [ "tier", `String "long-term" ] in
   parse_generic_tier json ~default:Memory.Working = Ok Memory.Long_term
+;;
 
 let%test "parse_generic_tier episodic rejected" =
-  let json = `Assoc [("tier", `String "episodic")] in
+  let json = `Assoc [ "tier", `String "episodic" ] in
   match parse_generic_tier json ~default:Memory.Working with
   | Error _ -> true
   | Ok _ -> false
+;;
 
 let%test "parse_generic_tier procedural rejected" =
-  let json = `Assoc [("tier", `String "procedural")] in
+  let json = `Assoc [ "tier", `String "procedural" ] in
   match parse_generic_tier json ~default:Memory.Working with
   | Error _ -> true
   | Ok _ -> false
+;;
 
 let%test "parse_generic_tier invalid string" =
-  let json = `Assoc [("tier", `String "garbage")] in
+  let json = `Assoc [ "tier", `String "garbage" ] in
   match parse_generic_tier json ~default:Memory.Working with
   | Error _ -> true
   | Ok _ -> false
+;;
 
 let%test "parse_generic_tier null uses default" =
   let json = `Assoc [] in
   parse_generic_tier json ~default:Memory.Long_term = Ok Memory.Long_term
+;;
 
 let%test "parse_generic_tier wrong type" =
-  let json = `Assoc [("tier", `Int 1)] in
+  let json = `Assoc [ "tier", `Int 1 ] in
   match parse_generic_tier json ~default:Memory.Working with
   | Error _ -> true
   | Ok _ -> false
+;;
 
 let%test "parse_generic_tier uppercase scratchpad" =
-  let json = `Assoc [("tier", `String "Scratchpad")] in
+  let json = `Assoc [ "tier", `String "Scratchpad" ] in
   parse_generic_tier json ~default:Memory.Working = Ok Memory.Scratchpad
+;;
 
 (* --- parse_string_list_field --- *)
 
 let%test "parse_string_list_field empty list" =
-  let json = `Assoc [("tags", `List [])] in
+  let json = `Assoc [ "tags", `List [] ] in
   parse_string_list_field json "tags" = Ok []
+;;
 
 let%test "parse_string_list_field with strings" =
-  let json = `Assoc [("tags", `List [`String "a"; `String "b"])] in
-  parse_string_list_field json "tags" = Ok ["a"; "b"]
+  let json = `Assoc [ "tags", `List [ `String "a"; `String "b" ] ] in
+  parse_string_list_field json "tags" = Ok [ "a"; "b" ]
+;;
 
 let%test "parse_string_list_field null returns empty" =
   let json = `Assoc [] in
   parse_string_list_field json "tags" = Ok []
+;;
 
 let%test "parse_string_list_field non-string element" =
-  let json = `Assoc [("tags", `List [`Int 1])] in
+  let json = `Assoc [ "tags", `List [ `Int 1 ] ] in
   match parse_string_list_field json "tags" with
   | Error _ -> true
   | Ok _ -> false
+;;
 
 let%test "parse_string_list_field wrong type" =
-  let json = `Assoc [("tags", `String "not a list")] in
+  let json = `Assoc [ "tags", `String "not a list" ] in
   match parse_string_list_field json "tags" with
   | Error _ -> true
   | Ok _ -> false
+;;
 
 (* --- parse_metadata_field --- *)
 
 let%test "parse_metadata_field object" =
-  let json = `Assoc [("metadata", `Assoc [("k", `String "v")])] in
-  parse_metadata_field json = Ok [("k", `String "v")]
+  let json = `Assoc [ "metadata", `Assoc [ "k", `String "v" ] ] in
+  parse_metadata_field json = Ok [ "k", `String "v" ]
+;;
 
 let%test "parse_metadata_field null" =
   let json = `Assoc [] in
   parse_metadata_field json = Ok []
+;;
 
 let%test "parse_metadata_field wrong type" =
-  let json = `Assoc [("metadata", `List [])] in
+  let json = `Assoc [ "metadata", `List [] ] in
   match parse_metadata_field json with
   | Error _ -> true
   | Ok _ -> false
+;;
 
 (* --- parse_value_json --- *)
 
 let%test "parse_value_json valid json" =
-  let json = `Assoc [("value_json", `String "{\"a\":1}")] in
+  let json = `Assoc [ "value_json", `String "{\"a\":1}" ] in
   match parse_value_json json with
-  | Ok (`Assoc [("a", `Int 1)]) -> true
+  | Ok (`Assoc [ ("a", `Int 1) ]) -> true
   | _ -> false
+;;
 
 let%test "parse_value_json invalid json stored as raw string" =
-  let json = `Assoc [("value_json", `String "not json")] in
+  let json = `Assoc [ "value_json", `String "not json" ] in
   match parse_value_json json with
   | Ok (`String "not json") -> true
   | _ -> false
+;;
 
 let%test "parse_value_json missing field" =
   let json = `Assoc [] in
   match parse_value_json json with
   | Error _ -> true
   | Ok _ -> false
+;;
 
 (* --- parse_outcome --- *)
 
 let%test "parse_outcome success" =
-  let json = `Assoc [("outcome", `String "success"); ("detail", `String "done")] in
+  let json = `Assoc [ "outcome", `String "success"; "detail", `String "done" ] in
   parse_outcome json = Ok (Memory.Success "done")
+;;
 
 let%test "parse_outcome failure" =
-  let json = `Assoc [("outcome", `String "failure"); ("detail", `String "bad")] in
+  let json = `Assoc [ "outcome", `String "failure"; "detail", `String "bad" ] in
   parse_outcome json = Ok (Memory.Failure "bad")
+;;
 
 let%test "parse_outcome neutral" =
-  let json = `Assoc [("outcome", `String "neutral")] in
+  let json = `Assoc [ "outcome", `String "neutral" ] in
   parse_outcome json = Ok Memory.Neutral
+;;
 
 let%test "parse_outcome null" =
   let json = `Assoc [] in
   parse_outcome json = Ok Memory.Neutral
+;;
 
 let%test "parse_outcome invalid string" =
-  let json = `Assoc [("outcome", `String "unknown")] in
+  let json = `Assoc [ "outcome", `String "unknown" ] in
   match parse_outcome json with
   | Error _ -> true
   | Ok _ -> false
+;;
 
 let%test "parse_outcome wrong type" =
-  let json = `Assoc [("outcome", `Int 1)] in
+  let json = `Assoc [ "outcome", `Int 1 ] in
   match parse_outcome json with
   | Error _ -> true
   | Ok _ -> false
+;;
 
 let%test "parse_outcome success no detail" =
-  let json = `Assoc [("outcome", `String "success")] in
+  let json = `Assoc [ "outcome", `String "success" ] in
   parse_outcome json = Ok (Memory.Success "")
+;;
 
 (* --- procedure_to_json --- *)
 
 let%test "procedure_to_json roundtrip fields" =
-  let proc : Memory.procedure = {
-    id = "p1"; pattern = "build"; action = "run make";
-    success_count = 5; failure_count = 1;
-    confidence = 0.83; last_used = 1000.0;
-    metadata = [("env", `String "prod")];
-  } in
+  let proc : Memory.procedure =
+    { id = "p1"
+    ; pattern = "build"
+    ; action = "run make"
+    ; success_count = 5
+    ; failure_count = 1
+    ; confidence = 0.83
+    ; last_used = 1000.0
+    ; metadata = [ "env", `String "prod" ]
+    }
+  in
   let json = procedure_to_json proc in
   let open Yojson.Safe.Util in
   json |> member "id" |> to_string = "p1"
   && json |> member "pattern" |> to_string = "build"
   && json |> member "success_count" |> to_int = 5
+;;
 
 (* --- generated_episode_id --- *)
 
 let%test "generated_episode_id starts with ep_" =
   let id = generated_episode_id () in
   String.length id > 3 && String.sub id 0 3 = "ep_"
+;;
 
 (* --- remember_tool / recall_tool / all tools --- *)
 
 let%test "all returns 4 tools" =
   let mem = Memory.create () in
   List.length (all mem) = 4
+;;
 
 let%test "all_acl returns 4 tools" =
   let mem = Memory.create () in
   let acl = Memory_access.create mem in
   List.length (all_acl acl ~agent_name:"test") = 4
+;;
 
 let%test "remember_tool stores and recall_tool retrieves" =
   let mem = Memory.create () in
   let rem = remember mem in
   let rec_ = recall mem in
-  let store_input = `Assoc [
-    ("key", `String "test_key");
-    ("value_json", `String "{\"v\":1}");
-  ] in
-  (match Tool.execute rem store_input with
-   | Ok _ ->
-     let recall_input = `Assoc [
-       ("key", `String "test_key");
-     ] in
-     (match Tool.execute rec_ recall_input with
-      | Ok { content } ->
-        let json = Yojson.Safe.from_string content in
-        let open Yojson.Safe.Util in
-        json |> member "found" |> to_bool = true
-      | Error _ -> false)
-   | Error _ -> false)
+  let store_input =
+    `Assoc [ "key", `String "test_key"; "value_json", `String "{\"v\":1}" ]
+  in
+  match Tool.execute rem store_input with
+  | Ok _ ->
+    let recall_input = `Assoc [ "key", `String "test_key" ] in
+    (match Tool.execute rec_ recall_input with
+     | Ok { content } ->
+       let json = Yojson.Safe.from_string content in
+       let open Yojson.Safe.Util in
+       json |> member "found" |> to_bool = true
+     | Error _ -> false)
+  | Error _ -> false
+;;
 
 let%test "recall_tool missing key" =
   let mem = Memory.create () in
   let rec_ = recall mem in
-  let input = `Assoc [("key", `String "nonexistent")] in
+  let input = `Assoc [ "key", `String "nonexistent" ] in
   match Tool.execute rec_ input with
   | Ok { content } ->
     let json = Yojson.Safe.from_string content in
     let open Yojson.Safe.Util in
     json |> member "found" |> to_bool = false
   | Error _ -> false
+;;
 
 let%test "remember_tool with explicit tier" =
   let mem = Memory.create () in
   let rem = remember mem in
-  let input = `Assoc [
-    ("tier", `String "scratchpad");
-    ("key", `String "sp_key");
-    ("value_json", `String "\"hello\"");
-  ] in
+  let input =
+    `Assoc
+      [ "tier", `String "scratchpad"
+      ; "key", `String "sp_key"
+      ; "value_json", `String "\"hello\""
+      ]
+  in
   match Tool.execute rem input with
   | Ok { content } ->
     let json = Yojson.Safe.from_string content in
@@ -613,25 +631,27 @@ let%test "remember_tool with explicit tier" =
     json |> member "ok" |> to_bool = true
     && json |> member "tier" |> to_string = "scratchpad"
   | Error _ -> false
+;;
 
 let%test "recall_tool with exact=true" =
   let mem = Memory.create () in
   let rem = remember mem in
   let rec_ = recall mem in
-  ignore (Tool.execute rem (`Assoc [
-    ("tier", `String "working");
-    ("key", `String "exact_key");
-    ("value_json", `String "\"data\"");
-  ]));
-  let input = `Assoc [
-    ("tier", `String "working");
-    ("key", `String "exact_key");
-    ("exact", `Bool true);
-  ] in
+  ignore
+    (Tool.execute
+       rem
+       (`Assoc
+           [ "tier", `String "working"
+           ; "key", `String "exact_key"
+           ; "value_json", `String "\"data\""
+           ]));
+  let input =
+    `Assoc [ "tier", `String "working"; "key", `String "exact_key"; "exact", `Bool true ]
+  in
   match Tool.execute rec_ input with
   | Ok { content } ->
     let json = Yojson.Safe.from_string content in
     let open Yojson.Safe.Util in
-    json |> member "found" |> to_bool = true
-    && json |> member "exact" |> to_bool = true
+    json |> member "found" |> to_bool = true && json |> member "exact" |> to_bool = true
   | Error _ -> false
+;;

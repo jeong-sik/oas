@@ -38,15 +38,15 @@ val field_to_json : field -> string * Yojson.Safe.t
 
 (** {2 Record} *)
 
-type record = {
-  ts: float;
-  level: level;
-  module_name: string;
-  message: string;
-  fields: field list;
-  trace_id: string option;
-  span_id: string option;
-}
+type record =
+  { ts : float
+  ; level : level
+  ; module_name : string
+  ; message : string
+  ; fields : field list
+  ; trace_id : string option
+  ; span_id : string option
+  }
 
 val record_to_json : record -> Yojson.Safe.t
 

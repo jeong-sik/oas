@@ -21,12 +21,12 @@ type retrieval_depth =
   | Full
 [@@deriving yojson, show]
 
-type classification = {
-  intent : intent;
-  depth : retrieval_depth;
-  confidence : float;
-  rationale : string option;
-}
+type classification =
+  { intent : intent
+  ; depth : retrieval_depth
+  ; confidence : float
+  ; rationale : string option
+  }
 [@@deriving yojson, show]
 
 val intent_to_string : intent -> string
@@ -47,28 +47,28 @@ val schema : classification Structured.schema
 val prompt_for_query : string -> string
 
 (** Run model-assisted classification using OAS structured output. *)
-val classify_model :
-  sw:Eio.Switch.t ->
-  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
-  ?base_url:string ->
-  ?provider:Provider.config ->
-  ?clock:float Eio.Time.clock_ty Eio.Resource.t ->
-  config:Types.agent_config ->
-  ?max_retries:int ->
-  string ->
-  (classification Structured.retry_result, Error.sdk_error) result
+val classify_model
+  :  sw:Eio.Switch.t
+  -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+  -> ?base_url:string
+  -> ?provider:Provider.config
+  -> ?clock:float Eio.Time.clock_ty Eio.Resource.t
+  -> config:Types.agent_config
+  -> ?max_retries:int
+  -> string
+  -> (classification Structured.retry_result, Error.sdk_error) result
 
 (** Try model-assisted classification first, then use a caller-supplied
     fallback on any model/path failure. This function no longer applies
     heuristic fallback implicitly. *)
-val classify_hybrid :
-  sw:Eio.Switch.t ->
-  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
-  ?base_url:string ->
-  ?provider:Provider.config ->
-  ?clock:float Eio.Time.clock_ty Eio.Resource.t ->
-  config:Types.agent_config ->
-  ?max_retries:int ->
-  fallback:(string -> classification) ->
-  string ->
-  (classification, Error.sdk_error) result
+val classify_hybrid
+  :  sw:Eio.Switch.t
+  -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+  -> ?base_url:string
+  -> ?provider:Provider.config
+  -> ?clock:float Eio.Time.clock_ty Eio.Resource.t
+  -> config:Types.agent_config
+  -> ?max_retries:int
+  -> fallback:(string -> classification)
+  -> string
+  -> (classification, Error.sdk_error) result

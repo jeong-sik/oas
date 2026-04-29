@@ -16,58 +16,113 @@ type api_error = Retry.api_error
 
 (** Agent runtime errors. *)
 type agent_error =
-  | MaxTurnsExceeded of { turns: int; limit: int }
-  | TokenBudgetExceeded of { kind: string; used: int; limit: int }
-  | CostBudgetExceeded of { spent_usd: float; limit_usd: float }
-  | UnrecognizedStopReason of { reason: string }
-  | IdleDetected of { consecutive_idle_turns: int }
-  | ToolRetryExhausted of { attempts: int; limit: int; detail: string }
-  | CompletionContractViolation of {
-      contract: Completion_contract_id.t;
-      reason: string;
-    }
-  | GuardrailViolation of { validator: string; reason: string }
-  | TripwireViolation of { tripwire: string; reason: string }
-  | ExitConditionMet of { turn: int }
+  | MaxTurnsExceeded of
+      { turns : int
+      ; limit : int
+      }
+  | TokenBudgetExceeded of
+      { kind : string
+      ; used : int
+      ; limit : int
+      }
+  | CostBudgetExceeded of
+      { spent_usd : float
+      ; limit_usd : float
+      }
+  | UnrecognizedStopReason of { reason : string }
+  | IdleDetected of { consecutive_idle_turns : int }
+  | ToolRetryExhausted of
+      { attempts : int
+      ; limit : int
+      ; detail : string
+      }
+  | CompletionContractViolation of
+      { contract : Completion_contract_id.t
+      ; reason : string
+      }
+  | GuardrailViolation of
+      { validator : string
+      ; reason : string
+      }
+  | TripwireViolation of
+      { tripwire : string
+      ; reason : string
+      }
+  | ExitConditionMet of { turn : int }
 
 (** MCP client errors. *)
 type mcp_error =
-  | ServerStartFailed of { command: string; detail: string }
-  | InitializeFailed of { detail: string }
-  | ToolListFailed of { detail: string }
-  | ToolCallFailed of { tool_name: string; detail: string }
-  | HttpTransportFailed of { url: string; detail: string }
+  | ServerStartFailed of
+      { command : string
+      ; detail : string
+      }
+  | InitializeFailed of { detail : string }
+  | ToolListFailed of { detail : string }
+  | ToolCallFailed of
+      { tool_name : string
+      ; detail : string
+      }
+  | HttpTransportFailed of
+      { url : string
+      ; detail : string
+      }
 
 (** Configuration errors. *)
 type config_error =
-  | MissingEnvVar of { var_name: string }
-  | UnsupportedProvider of { detail: string }
-  | InvalidConfig of { field: string; detail: string }
+  | MissingEnvVar of { var_name : string }
+  | UnsupportedProvider of { detail : string }
+  | InvalidConfig of
+      { field : string
+      ; detail : string
+      }
 
 (** Serialization / deserialization errors. *)
 type serialization_error =
-  | JsonParseError of { detail: string }
-  | VersionMismatch of { expected: int; got: int }
-  | UnknownVariant of { type_name: string; value: string }
+  | JsonParseError of { detail : string }
+  | VersionMismatch of
+      { expected : int
+      ; got : int
+      }
+  | UnknownVariant of
+      { type_name : string
+      ; value : string
+      }
 
 (** File I/O and validation errors. *)
 type io_error =
-  | FileOpFailed of { op: string; path: string; detail: string }
-  | ValidationFailed of { detail: string }
+  | FileOpFailed of
+      { op : string
+      ; path : string
+      ; detail : string
+      }
+  | ValidationFailed of { detail : string }
 
 (** Multi-agent orchestration errors. *)
 type orchestration_error =
-  | UnknownAgent of { name: string }
-  | TaskTimeout of { task_id: string }
-  | DiscoveryFailed of { url: string; detail: string }
+  | UnknownAgent of { name : string }
+  | TaskTimeout of { task_id : string }
+  | DiscoveryFailed of
+      { url : string
+      ; detail : string
+      }
 
 (** A2A protocol errors. *)
 type a2a_error =
-  | TaskNotFound of { task_id: string }
-  | InvalidTransition of { task_id: string; from_state: string; to_state: string }
-  | MessageSendFailed of { task_id: string; detail: string }
-  | ProtocolError of { detail: string }
-  | StoreCapacityExceeded of { current: int; max: int }
+  | TaskNotFound of { task_id : string }
+  | InvalidTransition of
+      { task_id : string
+      ; from_state : string
+      ; to_state : string
+      }
+  | MessageSendFailed of
+      { task_id : string
+      ; detail : string
+      }
+  | ProtocolError of { detail : string }
+  | StoreCapacityExceeded of
+      { current : int
+      ; max : int
+      }
 
 (** Top-level SDK error. *)
 type sdk_error =
@@ -89,77 +144,83 @@ let agent_error_to_string = function
   | TokenBudgetExceeded r ->
     Printf.sprintf "%s token budget exceeded: %d/%d" r.kind r.used r.limit
   | CostBudgetExceeded r ->
-    Printf.sprintf "Cost budget exceeded: $%.4f spent (limit $%.4f)" r.spent_usd r.limit_usd
+    Printf.sprintf
+      "Cost budget exceeded: $%.4f spent (limit $%.4f)"
+      r.spent_usd
+      r.limit_usd
   | UnrecognizedStopReason r ->
     Printf.sprintf "Unrecognized stop_reason from API: %s" r.reason
   | IdleDetected r ->
-    Printf.sprintf "Idle detected: %d consecutive identical tool call turns" r.consecutive_idle_turns
+    Printf.sprintf
+      "Idle detected: %d consecutive identical tool call turns"
+      r.consecutive_idle_turns
   | ToolRetryExhausted r ->
-    Printf.sprintf "Tool retry budget exhausted after %d/%d retries: %s"
-      r.attempts r.limit r.detail
+    Printf.sprintf
+      "Tool retry budget exhausted after %d/%d retries: %s"
+      r.attempts
+      r.limit
+      r.detail
   | CompletionContractViolation r ->
-    Printf.sprintf "Completion contract [%s] violated: %s"
-      (Completion_contract_id.to_string r.contract) r.reason
+    Printf.sprintf
+      "Completion contract [%s] violated: %s"
+      (Completion_contract_id.to_string r.contract)
+      r.reason
   | GuardrailViolation r ->
     Printf.sprintf "Guardrail violation [%s]: %s" r.validator r.reason
   | TripwireViolation r ->
     Printf.sprintf "Tripwire violation [%s]: %s" r.tripwire r.reason
-  | ExitConditionMet r ->
-    Printf.sprintf "Exit condition met at turn %d" r.turn
+  | ExitConditionMet r -> Printf.sprintf "Exit condition met at turn %d" r.turn
+;;
 
 let mcp_error_to_string = function
   | ServerStartFailed r ->
     Printf.sprintf "Failed to start MCP server '%s': %s" r.command r.detail
-  | InitializeFailed r ->
-    Printf.sprintf "MCP initialize failed: %s" r.detail
-  | ToolListFailed r ->
-    Printf.sprintf "MCP tools/list failed: %s" r.detail
+  | InitializeFailed r -> Printf.sprintf "MCP initialize failed: %s" r.detail
+  | ToolListFailed r -> Printf.sprintf "MCP tools/list failed: %s" r.detail
   | ToolCallFailed r ->
     Printf.sprintf "MCP tools/call '%s' failed: %s" r.tool_name r.detail
   | HttpTransportFailed r ->
     Printf.sprintf "MCP HTTP transport failed for %s: %s" r.url r.detail
+;;
 
 let config_error_to_string = function
-  | MissingEnvVar r ->
-    Printf.sprintf "Missing env var: %s" r.var_name
-  | UnsupportedProvider r ->
-    Printf.sprintf "Unsupported provider: %s" r.detail
-  | InvalidConfig r ->
-    Printf.sprintf "Invalid config '%s': %s" r.field r.detail
+  | MissingEnvVar r -> Printf.sprintf "Missing env var: %s" r.var_name
+  | UnsupportedProvider r -> Printf.sprintf "Unsupported provider: %s" r.detail
+  | InvalidConfig r -> Printf.sprintf "Invalid config '%s': %s" r.field r.detail
+;;
 
 let serialization_error_to_string = function
-  | JsonParseError r ->
-    Printf.sprintf "JSON parse error: %s" r.detail
+  | JsonParseError r -> Printf.sprintf "JSON parse error: %s" r.detail
   | VersionMismatch r ->
     Printf.sprintf "Version mismatch: expected %d, got %d" r.expected r.got
-  | UnknownVariant r ->
-    Printf.sprintf "Unknown %s variant: %s" r.type_name r.value
+  | UnknownVariant r -> Printf.sprintf "Unknown %s variant: %s" r.type_name r.value
+;;
 
 let io_error_to_string = function
-  | FileOpFailed r ->
-    Printf.sprintf "File %s failed on %s: %s" r.op r.path r.detail
-  | ValidationFailed r ->
-    Printf.sprintf "Validation failed: %s" r.detail
+  | FileOpFailed r -> Printf.sprintf "File %s failed on %s: %s" r.op r.path r.detail
+  | ValidationFailed r -> Printf.sprintf "Validation failed: %s" r.detail
+;;
 
 let orchestration_error_to_string = function
-  | UnknownAgent r ->
-    Printf.sprintf "Unknown agent: %s" r.name
-  | TaskTimeout r ->
-    Printf.sprintf "Task timed out: %s" r.task_id
-  | DiscoveryFailed r ->
-    Printf.sprintf "Agent discovery failed for %s: %s" r.url r.detail
+  | UnknownAgent r -> Printf.sprintf "Unknown agent: %s" r.name
+  | TaskTimeout r -> Printf.sprintf "Task timed out: %s" r.task_id
+  | DiscoveryFailed r -> Printf.sprintf "Agent discovery failed for %s: %s" r.url r.detail
+;;
 
 let a2a_error_to_string = function
-  | TaskNotFound r ->
-    Printf.sprintf "A2A task not found: %s" r.task_id
+  | TaskNotFound r -> Printf.sprintf "A2A task not found: %s" r.task_id
   | InvalidTransition r ->
-    Printf.sprintf "A2A invalid transition: %s -> %s (task %s)" r.from_state r.to_state r.task_id
+    Printf.sprintf
+      "A2A invalid transition: %s -> %s (task %s)"
+      r.from_state
+      r.to_state
+      r.task_id
   | MessageSendFailed r ->
     Printf.sprintf "A2A message send failed for task %s: %s" r.task_id r.detail
-  | ProtocolError r ->
-    Printf.sprintf "A2A protocol error: %s" r.detail
+  | ProtocolError r -> Printf.sprintf "A2A protocol error: %s" r.detail
   | StoreCapacityExceeded r ->
     Printf.sprintf "A2A store capacity exceeded: %d/%d" r.current r.max
+;;
 
 let to_string = function
   | Api err -> Retry.error_message err
@@ -171,6 +232,7 @@ let to_string = function
   | Orchestration err -> orchestration_error_to_string err
   | A2a err -> a2a_error_to_string err
   | Internal msg -> Printf.sprintf "Internal error: %s" msg
+;;
 
 (* ── Retryability ─────────────────────────────────────────────────── *)
 
@@ -178,16 +240,21 @@ let is_retryable = function
   | Api err -> Retry.is_retryable err
   | Mcp (ServerStartFailed _) -> false
   | Mcp _ -> true
-  | Agent _ | Config _ | Serialization _ | Io _ | Orchestration _
-  | A2a _ | Internal _ -> false
+  | Agent _ | Config _ | Serialization _ | Io _ | Orchestration _ | A2a _ | Internal _ ->
+    false
+;;
 
 (* ── A2A convenience constructors ────────────────────────────────── *)
 
 let a2a_protocol detail = A2a (ProtocolError { detail })
 let a2a_task_not_found task_id = A2a (TaskNotFound { task_id })
+
 let a2a_invalid_transition ~task_id ~from_state ~to_state =
   A2a (InvalidTransition { task_id; from_state; to_state })
-let a2a_message_send_failed ~task_id ~detail =
-  A2a (MessageSendFailed { task_id; detail })
+;;
+
+let a2a_message_send_failed ~task_id ~detail = A2a (MessageSendFailed { task_id; detail })
+
 let a2a_store_capacity_exceeded ~current ~max =
   A2a (StoreCapacityExceeded { current; max })
+;;

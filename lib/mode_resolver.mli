@@ -7,16 +7,16 @@
     @stability Evolving
     @since 0.93.1 *)
 
-type decision = {
-  effective_mode: Execution_mode.t;
-  source: string;
-}
+type decision =
+  { effective_mode : Execution_mode.t
+  ; source : string
+  }
 
 (** Resolve the effective execution mode.
     Returns [Error msg] when the risk class forbids all execution
     (e.g., Critical risk). *)
-val resolve :
-  requested:Execution_mode.t ->
-  risk_class:Risk_class.t ->
-  capabilities:Cdal_proof.capability_snapshot ->
-  (decision, string) result
+val resolve
+  :  requested:Execution_mode.t
+  -> risk_class:Risk_class.t
+  -> capabilities:Cdal_proof.capability_snapshot
+  -> (decision, string) result

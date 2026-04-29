@@ -11,34 +11,34 @@
 (** Save a slot's KV cache to disk via the llama-server API.
     Calls [POST /slots/{slot_id}?action=save].
     Returns [Ok ()] on success, [Error message] on failure. *)
-val save :
-  sw:Eio.Switch.t ->
-  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
-  endpoint:string ->
-  slot_id:int ->
-  filename:string ->
-  (unit, string) result
+val save
+  :  sw:Eio.Switch.t
+  -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+  -> endpoint:string
+  -> slot_id:int
+  -> filename:string
+  -> (unit, string) result
 
 (** Restore a slot's KV cache from disk via the llama-server API.
     Calls [POST /slots/{slot_id}?action=restore].
     Failure is expected on first session (no prior save) or model mismatch.
     Returns [Ok ()] on success, [Error message] on failure. *)
-val restore :
-  sw:Eio.Switch.t ->
-  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
-  endpoint:string ->
-  slot_id:int ->
-  filename:string ->
-  (unit, string) result
+val restore
+  :  sw:Eio.Switch.t
+  -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+  -> endpoint:string
+  -> slot_id:int
+  -> filename:string
+  -> (unit, string) result
 
 (** Erase a slot's KV cache on the server (free GPU memory).
     Calls [POST /slots/{slot_id}?action=erase]. *)
-val erase :
-  sw:Eio.Switch.t ->
-  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
-  endpoint:string ->
-  slot_id:int ->
-  (unit, string) result
+val erase
+  :  sw:Eio.Switch.t
+  -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+  -> endpoint:string
+  -> slot_id:int
+  -> (unit, string) result
 
 (** Delete a saved cache file from disk.
     No-op if the file does not exist. *)

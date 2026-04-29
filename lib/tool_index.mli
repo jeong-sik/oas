@@ -19,24 +19,24 @@ type t
 (** {1 Tool entry} *)
 
 (** A tool entry in the index: name + description + optional group tag. *)
-type entry = {
-  name: string;
-  description: string;
-  group: string option;  (** Tools in the same group are co-retrieved *)
-  aliases: string list;
+type entry =
+  { name : string
+  ; description : string
+  ; group : string option (** Tools in the same group are co-retrieved *)
+  ; aliases : string list
     (** Additional tokens for BM25 matching (e.g. Korean keywords).
         Appended to name+description during tokenization.
         Use [[]] when no aliases are needed. *)
-}
+  }
 
 (** {1 Configuration} *)
 
-type config = {
-  k1: float;       (** Term frequency saturation. Default: 1.5 *)
-  b: float;        (** Length normalization. Default: 0.75 *)
-  top_k: int;      (** Max results per query. Default: 10 *)
-  min_score: float; (** Minimum BM25 score to include. Default: 0.0 *)
-}
+type config =
+  { k1 : float (** Term frequency saturation. Default: 1.5 *)
+  ; b : float (** Length normalization. Default: 0.75 *)
+  ; top_k : int (** Max results per query. Default: 10 *)
+  ; min_score : float (** Minimum BM25 score to include. Default: 0.0 *)
+  }
 
 val default_config : config
 

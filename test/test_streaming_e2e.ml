@@ -6,29 +6,32 @@ open Agent_sdk
 let local_llm_provider : Provider.config = Provider.local_llm ()
 
 let test_stream_basic () =
-  Eio_main.run @@ fun env ->
+  Eio_main.run
+  @@ fun env ->
   let net = Eio.Stdenv.net env in
-  Eio.Switch.run @@ fun sw ->
+  Eio.Switch.run
+  @@ fun sw ->
   let provider = local_llm_provider in
-  let config = {
-    Types.default_config with
-    model = provider.model_id;
-    system_prompt = Some "You are a helpful assistant. Reply briefly.";
-    max_turns = 1;
-    max_tokens = Some 200;
-  } in
-  let messages = [
-    { Types.role = Types.User;
-      content = [Types.Text "What is 2+3? Answer with just the number."];
-      name = None; tool_call_id = None ; metadata = []}
-  ] in
-  let state = {
-    Types.config = config;
-    messages = [];
-    turn_count = 0;
-    usage = Types.empty_usage;
-  } in
-
+  let config =
+    { Types.default_config with
+      model = provider.model_id
+    ; system_prompt = Some "You are a helpful assistant. Reply briefly."
+    ; max_turns = 1
+    ; max_tokens = Some 200
+    }
+  in
+  let messages =
+    [ { Types.role = Types.User
+      ; content = [ Types.Text "What is 2+3? Answer with just the number." ]
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = []
+      }
+    ]
+  in
+  let state =
+    { Types.config; messages = []; turn_count = 0; usage = Types.empty_usage }
+  in
   (* Collect SSE events *)
   let events = ref [] in
   let text_buf = Buffer.create 256 in
@@ -39,10 +42,17 @@ let test_stream_basic () =
       Buffer.add_string text_buf s
     | _ -> ()
   in
-
   Printf.printf "=== Streaming E2E Test: basic ===\n%!";
-  match Streaming.create_message_stream ~sw ~net ~provider
-          ~config:state ~messages ~on_event () with
+  match
+    Streaming.create_message_stream
+      ~sw
+      ~net
+      ~provider
+      ~config:state
+      ~messages
+      ~on_event
+      ()
+  with
   | Ok resp ->
     let text = Buffer.contents text_buf in
     let event_count = List.length !events in
@@ -56,42 +66,50 @@ let test_stream_basic () =
     (* Verify accumulated text is non-empty *)
     assert (String.length text > 0);
     (* Verify response content matches accumulated text *)
-    let resp_text = List.fold_left (fun acc block ->
-      match block with
-      | Types.Text t -> acc ^ t
-      | _ -> acc
-    ) "" resp.Types.content in
+    let resp_text =
+      List.fold_left
+        (fun acc block ->
+           match block with
+           | Types.Text t -> acc ^ t
+           | _ -> acc)
+        ""
+        resp.Types.content
+    in
     Printf.printf "Response text: %s\n%!" resp_text;
     assert (String.length resp_text > 0);
     Printf.printf "PASS: basic streaming\n%!"
   | Error e ->
     Printf.printf "FAIL: %s\n%!" (Error.to_string e);
     exit 1
+;;
 
 let test_stream_event_sequence () =
-  Eio_main.run @@ fun env ->
+  Eio_main.run
+  @@ fun env ->
   let net = Eio.Stdenv.net env in
-  Eio.Switch.run @@ fun sw ->
+  Eio.Switch.run
+  @@ fun sw ->
   let provider = local_llm_provider in
-  let config = {
-    Types.default_config with
-    model = provider.model_id;
-    system_prompt = Some "Reply with one word only.";
-    max_turns = 1;
-    max_tokens = Some 50;
-  } in
-  let messages = [
-    { Types.role = Types.User;
-      content = [Types.Text "Say yes."];
-      name = None; tool_call_id = None ; metadata = []}
-  ] in
-  let state = {
-    Types.config = config;
-    messages = [];
-    turn_count = 0;
-    usage = Types.empty_usage;
-  } in
-
+  let config =
+    { Types.default_config with
+      model = provider.model_id
+    ; system_prompt = Some "Reply with one word only."
+    ; max_turns = 1
+    ; max_tokens = Some 50
+    }
+  in
+  let messages =
+    [ { Types.role = Types.User
+      ; content = [ Types.Text "Say yes." ]
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = []
+      }
+    ]
+  in
+  let state =
+    { Types.config; messages = []; turn_count = 0; usage = Types.empty_usage }
+  in
   let saw_message_start = ref false in
   let saw_content_block_start = ref false in
   let saw_content_block_delta = ref false in
@@ -105,10 +123,17 @@ let test_stream_event_sequence () =
     | Types.MessageStop -> saw_message_stop := true
     | _ -> ()
   in
-
   Printf.printf "\n=== Streaming E2E Test: event sequence ===\n%!";
-  match Streaming.create_message_stream ~sw ~net ~provider
-          ~config:state ~messages ~on_event () with
+  match
+    Streaming.create_message_stream
+      ~sw
+      ~net
+      ~provider
+      ~config:state
+      ~messages
+      ~on_event
+      ()
+  with
   | Ok _resp ->
     Printf.printf "MessageStart: %b\n%!" !saw_message_start;
     Printf.printf "ContentBlockStart: %b\n%!" !saw_content_block_start;
@@ -124,6 +149,7 @@ let test_stream_event_sequence () =
   | Error e ->
     Printf.printf "FAIL: %s\n%!" (Error.to_string e);
     exit 1
+;;
 
 let () =
   match Sys.getenv_opt "LLAMA_LIVE_TEST" with
@@ -132,5 +158,5 @@ let () =
     test_stream_basic ();
     test_stream_event_sequence ();
     Printf.printf "\nAll streaming E2E tests passed.\n%!"
-  | _ ->
-    Printf.printf "Skipped: set LLAMA_LIVE_TEST=1 to run streaming E2E tests\n%!"
+  | _ -> Printf.printf "Skipped: set LLAMA_LIVE_TEST=1 to run streaming E2E tests\n%!"
+;;

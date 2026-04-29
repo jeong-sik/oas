@@ -10,17 +10,17 @@
 
 (** {1 Configuration} *)
 
-type options = {
-  runtime_path: string option;
-  session_root: string option;
-  provider: string option;
-  model: string option;
-  permission_mode: string option;
-  include_partial_messages: bool;
-  setting_sources: string list;
-  resume_session: string option;
-  cwd: string option;
-}
+type options =
+  { runtime_path : string option
+  ; session_root : string option
+  ; provider : string option
+  ; model : string option
+  ; permission_mode : string option
+  ; include_partial_messages : bool
+  ; setting_sources : string list
+  ; resume_session : string option
+  ; cwd : string option
+  }
 
 val default_options : options
 
@@ -40,21 +40,21 @@ type t
 
 (** Spawn a runtime subprocess and establish the NDJSON transport.
     Performs the Initialize handshake and verifies protocol version. *)
-val connect :
-  sw:Eio.Switch.t ->
-  mgr:_ Eio.Process.mgr ->
-  ?options:options ->
-  unit ->
-  (t, Error.sdk_error) result
+val connect
+  :  sw:Eio.Switch.t
+  -> mgr:_ Eio.Process.mgr
+  -> ?options:options
+  -> unit
+  -> (t, Error.sdk_error) result
 
 (** Send a request and await the response.
     Optionally sets control and event handlers for the duration. *)
-val request :
-  ?control_handler:control_handler ->
-  ?event_handler:event_handler ->
-  t ->
-  Runtime.request ->
-  (Runtime.response, Error.sdk_error) result
+val request
+  :  ?control_handler:control_handler
+  -> ?event_handler:event_handler
+  -> t
+  -> Runtime.request
+  -> (Runtime.response, Error.sdk_error) result
 
 (** Query connection status. *)
 val status : t -> [ `Connected | `Disconnected | `Error of string ]

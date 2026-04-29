@@ -31,34 +31,35 @@ val violation_kind_of_string : string -> (violation_kind, string) result
 val violation_kind_to_yojson : violation_kind -> Yojson.Safe.t
 val violation_kind_of_yojson : Yojson.Safe.t -> (violation_kind, string) result
 
-type violation = {
-  ts: float;
-  tool_name: string;
-  input_summary: string;
-  effective_mode: Execution_mode.t;
-  violation_kind: violation_kind;
-}
+type violation =
+  { ts : float
+  ; tool_name : string
+  ; input_summary : string
+  ; effective_mode : Execution_mode.t
+  ; violation_kind : violation_kind
+  }
 
 (** Canonical JSON serialization for violation records.
     Downstream consumers should use these instead of manual JSON parsing. *)
 val violation_to_yojson : violation -> Yojson.Safe.t
+
 val violation_of_yojson : Yojson.Safe.t -> (violation, string) result
 
-type token_snapshot = {
-  input_tokens: int;
-  output_tokens: int;
-  cost_usd: float option;
-  turn: int;
-}
+type token_snapshot =
+  { input_tokens : int
+  ; output_tokens : int
+  ; cost_usd : float option
+  ; turn : int
+  }
 
 type state
 
-val create :
-  contract:Risk_contract.t ->
-  effective_mode:Execution_mode.t ->
-  ?tool_classifications:(string * tool_effect_class) list ->
-  unit ->
-  state
+val create
+  :  contract:Risk_contract.t
+  -> effective_mode:Execution_mode.t
+  -> ?tool_classifications:(string * tool_effect_class) list
+  -> unit
+  -> state
 
 (** Returns hooks that enforce mode constraints.
     PreToolUse returns [Hooks.Skip] on violation. *)

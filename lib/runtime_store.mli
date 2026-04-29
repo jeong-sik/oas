@@ -7,7 +7,7 @@
     @since 0.93.1 *)
 
 (** Store handle wrapping a root directory. *)
-type t = { root: string }
+type t = { root : string }
 
 (** {1 Store creation} *)
 
@@ -43,22 +43,33 @@ val load_session : t -> string -> (Runtime.session, Error.sdk_error) result
 (** {1 Event I/O} *)
 
 val append_event : t -> string -> Runtime.event -> (unit, Error.sdk_error) result
-val read_events :
-  t -> string -> ?after_seq:int -> unit ->
-  (Runtime.event list, Error.sdk_error) result
+
+val read_events
+  :  t
+  -> string
+  -> ?after_seq:int
+  -> unit
+  -> (Runtime.event list, Error.sdk_error) result
 
 (** {1 Snapshots} *)
 
 val snapshot_path : t -> string -> seq:int -> label:string option -> string
-val save_snapshot :
-  t -> Runtime.session -> label:string option ->
-  (string, Error.sdk_error) result
+
+val save_snapshot
+  :  t
+  -> Runtime.session
+  -> label:string option
+  -> (string, Error.sdk_error) result
 
 (** {1 Artifacts} *)
 
-val save_artifact_text :
-  t -> string -> name:string -> kind:string -> content:string ->
-  (string, Error.sdk_error) result
+val save_artifact_text
+  :  t
+  -> string
+  -> name:string
+  -> kind:string
+  -> content:string
+  -> (string, Error.sdk_error) result
 
 (** {1 Reports and proofs} *)
 

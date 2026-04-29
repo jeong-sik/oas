@@ -21,17 +21,17 @@
 (** {1 Types} *)
 
 (** A single replacement record. *)
-type replacement = {
-  tool_use_id: string;
-  preview: string;        (** Exact preview string the model sees *)
-  original_chars: int;    (** Size of original content before relocation *)
-}
+type replacement =
+  { tool_use_id : string
+  ; preview : string (** Exact preview string the model sees *)
+  ; original_chars : int (** Size of original content before relocation *)
+  }
 
 (** {1 State lifecycle} *)
 
-type t
 (** Abstract replacement state.
     Not thread-safe; each agent/session owns one instance. *)
+type t
 
 (** Create empty state. *)
 val create : unit -> t
@@ -70,9 +70,7 @@ val record_kept : t -> string -> unit
     - Otherwise: include in the returned [fresh] list.
 
     Returns [(modified_blocks, fresh_tool_use_ids)]. *)
-val apply_frozen :
-  t -> Types.content_block list ->
-  Types.content_block list * string list
+val apply_frozen : t -> Types.content_block list -> Types.content_block list * string list
 
 (** {1 Serialization} *)
 

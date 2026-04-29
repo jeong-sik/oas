@@ -26,11 +26,11 @@ type glm_error_class =
   | Glm_server_error
   | Glm_invalid_request
 
-type glm_error = {
-  code: string;
-  message: string;
-  error_class: glm_error_class;
-}
+type glm_error =
+  { code : string
+  ; message : string
+  ; error_class : glm_error_class
+  }
 
 exception Glm_api_error of glm_error
 
@@ -46,12 +46,13 @@ val http_code_of_glm_error_class : glm_error_class -> int
 (** Build a GLM chat completion request body.
     Delegates to {!Backend_openai.build_request} and injects
     GLM-specific [thinking] parameter when [enable_thinking] is set. *)
-val build_request :
-  ?stream:bool ->
-  config:Provider_config.t ->
-  messages:message list ->
-  ?tools:Yojson.Safe.t list ->
-  unit -> string
+val build_request
+  :  ?stream:bool
+  -> config:Provider_config.t
+  -> messages:message list
+  -> ?tools:Yojson.Safe.t list
+  -> unit
+  -> string
 
 (** Parse a GLM chat completion response.
     Handles GLM-specific string error codes and extracts

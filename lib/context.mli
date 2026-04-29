@@ -6,6 +6,7 @@
     @since 0.93.1 *)
 
 type t
+
 type scope =
   | App
   | User
@@ -13,11 +14,11 @@ type scope =
   | Temp
   | Custom of string
 
-type diff = {
-  added: (string * Yojson.Safe.t) list;
-  removed: string list;
-  changed: (string * Yojson.Safe.t) list;
-}
+type diff =
+  { added : (string * Yojson.Safe.t) list
+  ; removed : string list
+  ; changed : (string * Yojson.Safe.t) list
+  }
 
 val create : unit -> t
 val get : t -> string -> Yojson.Safe.t option
@@ -45,16 +46,18 @@ val copy : t -> t
 
 (** Isolated scope for sub-agent delegation.
     Only specified keys propagate between parent and child contexts. *)
-type isolated_scope = {
-  parent: t;
-  local: t;
-  propagate_up: string list;
-  propagate_down: string list;
-}
+type isolated_scope =
+  { parent : t
+  ; local : t
+  ; propagate_up : string list
+  ; propagate_down : string list
+  }
 
-val create_scope :
-  parent:t -> propagate_down:string list -> propagate_up:string list ->
-  isolated_scope
+val create_scope
+  :  parent:t
+  -> propagate_down:string list
+  -> propagate_up:string list
+  -> isolated_scope
 
 val merge_back : isolated_scope -> unit
 

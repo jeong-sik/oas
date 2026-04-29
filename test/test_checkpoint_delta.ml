@@ -6,31 +6,34 @@ let small_string_gen =
   map
     (fun chars -> chars |> List.to_seq |> String.of_seq)
     (list_size (int_range 0 12) printable)
+;;
 
 let yojson_simple_gen =
   let open QCheck.Gen in
   oneof
-    [
-      map (fun s -> `String s) small_string_gen;
-      map (fun n -> `Int n) (int_range 0 50);
-      map (fun b -> `Bool b) bool;
+    [ map (fun s -> `String s) small_string_gen
+    ; map (fun n -> `Int n) (int_range 0 50)
+    ; map (fun b -> `Bool b) bool
     ]
+;;
 
 let response_format_gen =
   let open QCheck.Gen in
   oneof
-    [
-      return Off;
-      return JsonMode;
-      map (fun value -> JsonSchema (`Assoc [("schema", value)])) yojson_simple_gen;
+    [ return Off
+    ; return JsonMode
+    ; map (fun value -> JsonSchema (`Assoc [ "schema", value ])) yojson_simple_gen
     ]
+;;
 
 let message_gen =
   let open QCheck.Gen in
   map2
-    (fun role text -> { role; content = [ Text text ]; name = None; tool_call_id = None ; metadata = []})
+    (fun role text ->
+       { role; content = [ Text text ]; name = None; tool_call_id = None; metadata = [] })
     (oneof [ return User; return Assistant ])
     small_string_gen
+;;
 
 let usage_stats_gen =
   let open QCheck.Gen in
@@ -41,32 +44,32 @@ let usage_stats_gen =
   let* api_calls = int_range 0 10 in
   let* estimated_cost_cents = int_range 0 100 in
   return
-    {
-      total_input_tokens = input_tokens;
-      total_output_tokens = output_tokens;
-      total_cache_creation_input_tokens = cache_creation;
-      total_cache_read_input_tokens = cache_read;
-      api_calls;
-      estimated_cost_usd = float_of_int estimated_cost_cents /. 100.0;
+    { total_input_tokens = input_tokens
+    ; total_output_tokens = output_tokens
+    ; total_cache_creation_input_tokens = cache_creation
+    ; total_cache_read_input_tokens = cache_read
+    ; api_calls
+    ; estimated_cost_usd = float_of_int estimated_cost_cents /. 100.0
     }
+;;
 
 let tool_param_gen =
   let open QCheck.Gen in
   map4
     (fun name description param_type required ->
-      { name; description; param_type; required })
+       { name; description; param_type; required })
     small_string_gen
     small_string_gen
     (oneof
-       [
-         return String;
-         return Integer;
-         return Number;
-         return Boolean;
-         return Array;
-         return Object;
+       [ return String
+       ; return Integer
+       ; return Number
+       ; return Boolean
+       ; return Array
+       ; return Object
        ])
     bool
+;;
 
 let tool_schema_gen =
   let open QCheck.Gen in
@@ -75,57 +78,54 @@ let tool_schema_gen =
     small_string_gen
     small_string_gen
     (list_size (int_range 0 2) tool_param_gen)
+;;
 
 let context_gen =
   let open QCheck.Gen in
   map
     (fun pairs ->
-      let ctx = Context.create () in
-      List.iter (fun (key, value) -> Context.set ctx key value) pairs;
-      ctx)
+       let ctx = Context.create () in
+       List.iter (fun (key, value) -> Context.set ctx key value) pairs;
+       ctx)
     (list_size (int_range 0 3) (pair small_string_gen yojson_simple_gen))
+;;
 
 let tool_choice_gen =
   let open QCheck.Gen in
   oneof
-    [
-      return None;
-      return (Some Auto);
-      return (Some Any);
-      map (fun s -> Some (Tool s)) small_string_gen;
-      return (Some None_);
+    [ return None
+    ; return (Some Auto)
+    ; return (Some Any)
+    ; map (fun s -> Some (Tool s)) small_string_gen
+    ; return (Some None_)
     ]
+;;
 
 let mcp_info_gen =
   let open QCheck.Gen in
   map4
     (fun server_name command args tool_schemas ->
-      {
-        Mcp_session.server_name;
-        command;
-        args;
-        env = [];
-        http_base_url = None;
-        http_headers = [];
-        tool_schemas;
-        transport_kind = Mcp_session.Stdio;
-      })
+       { Mcp_session.server_name
+       ; command
+       ; args
+       ; env = []
+       ; http_base_url = None
+       ; http_headers = []
+       ; tool_schemas
+       ; transport_kind = Mcp_session.Stdio
+       })
     small_string_gen
     small_string_gen
     (list_size (int_range 0 2) small_string_gen)
     (list_size (int_range 0 1) tool_schema_gen)
+;;
 
 let checkpoint_gen =
   let open QCheck.Gen in
   let* session_id = small_string_gen in
   let* agent_name = small_string_gen in
   let* model =
-    oneof
-      [
-        return "claude-sonnet-4-6";
-        return "claude-opus-4-6";
-        small_string_gen;
-      ]
+    oneof [ return "claude-sonnet-4-6"; return "claude-opus-4-6"; small_string_gen ]
   in
   let* system_prompt = option small_string_gen in
   let* messages = list_size (int_range 0 5) message_gen in
@@ -149,41 +149,40 @@ let checkpoint_gen =
   let* mcp_sessions = list_size (int_range 0 1) mcp_info_gen in
   let* working_context = option yojson_simple_gen in
   return
-    {
-      Checkpoint.version = Checkpoint.checkpoint_version;
-      session_id;
-      agent_name;
-      model;
-      system_prompt;
-      messages;
-      usage;
-      turn_count;
-      created_at = float_of_int created_at;
-      tools;
-      tool_choice;
-      disable_parallel_tool_use;
-      temperature;
-      top_p;
-      top_k;
-      min_p;
-      enable_thinking;
-      response_format;
-      thinking_budget;
-      cache_system_prompt;
-      max_input_tokens;
-      max_total_tokens;
-      context;
-      mcp_sessions;
-      working_context;
+    { Checkpoint.version = Checkpoint.checkpoint_version
+    ; session_id
+    ; agent_name
+    ; model
+    ; system_prompt
+    ; messages
+    ; usage
+    ; turn_count
+    ; created_at = float_of_int created_at
+    ; tools
+    ; tool_choice
+    ; disable_parallel_tool_use
+    ; temperature
+    ; top_p
+    ; top_k
+    ; min_p
+    ; enable_thinking
+    ; response_format
+    ; thinking_budget
+    ; cache_system_prompt
+    ; max_input_tokens
+    ; max_total_tokens
+    ; context
+    ; mcp_sessions
+    ; working_context
     }
+;;
 
 let arb_checkpoint =
   QCheck.make checkpoint_gen ~print:(fun checkpoint ->
-      Yojson.Safe.to_string (Checkpoint.to_json checkpoint))
+    Yojson.Safe.to_string (Checkpoint.to_json checkpoint))
+;;
 
-let checkpoint_equal left right =
-  Checkpoint.to_json left = Checkpoint.to_json right
-
+let checkpoint_equal left right = Checkpoint.to_json left = Checkpoint.to_json right
 let with_eio f () = Eio_main.run (fun _env -> f ())
 
 let with_env key value f =
@@ -199,52 +198,67 @@ let with_env key value f =
    | Some next -> Unix.putenv key next
    | None -> Unix.putenv key "");
   Fun.protect f ~finally:restore
+;;
 
-let make_unit_checkpoint ?(messages = []) ?(session_id = "sess-a")
-    ?(agent_name = "agent-a") ?(turn_count = 0) ?(context = Context.create ())
-    ?(tool_choice = None) ?(working_context = None) () =
-  {
-    Checkpoint.version = Checkpoint.checkpoint_version;
-    session_id;
-    agent_name;
-    model = "claude-sonnet-4-6";
-    system_prompt = Some "Be careful.";
-    messages;
-    usage = Types.empty_usage;
-    turn_count;
-    created_at = 1000.0;
-    tools = [];
-    tool_choice;
-    disable_parallel_tool_use = false;
-    temperature = None;
-    top_p = None;
-    top_k = None;
-    min_p = None;
-    enable_thinking = None;
-    response_format = Off;
-    thinking_budget = None;
-    cache_system_prompt = false;
-    max_input_tokens = None;
-    max_total_tokens = None;
-    context;
-    mcp_sessions = [];
-    working_context;
+let make_unit_checkpoint
+      ?(messages = [])
+      ?(session_id = "sess-a")
+      ?(agent_name = "agent-a")
+      ?(turn_count = 0)
+      ?(context = Context.create ())
+      ?(tool_choice = None)
+      ?(working_context = None)
+      ()
+  =
+  { Checkpoint.version = Checkpoint.checkpoint_version
+  ; session_id
+  ; agent_name
+  ; model = "claude-sonnet-4-6"
+  ; system_prompt = Some "Be careful."
+  ; messages
+  ; usage = Types.empty_usage
+  ; turn_count
+  ; created_at = 1000.0
+  ; tools = []
+  ; tool_choice
+  ; disable_parallel_tool_use = false
+  ; temperature = None
+  ; top_p = None
+  ; top_k = None
+  ; min_p = None
+  ; enable_thinking = None
+  ; response_format = Off
+  ; thinking_budget = None
+  ; cache_system_prompt = false
+  ; max_input_tokens = None
+  ; max_total_tokens = None
+  ; context
+  ; mcp_sessions = []
+  ; working_context
   }
+;;
 
 let test_delta_roundtrip_property =
-  QCheck.Test.make ~count:100 ~name:"checkpoint delta round-trip"
+  QCheck.Test.make
+    ~count:100
+    ~name:"checkpoint delta round-trip"
     QCheck.(pair arb_checkpoint arb_checkpoint)
     (fun (base, target) ->
-      match Checkpoint.apply_delta base (Checkpoint.compute_delta base target) with
-      | Ok rebuilt -> checkpoint_equal rebuilt target
-      | Error _ -> false)
+       match Checkpoint.apply_delta base (Checkpoint.compute_delta base target) with
+       | Ok rebuilt -> checkpoint_equal rebuilt target
+       | Error _ -> false)
+;;
 
 let test_delta_json_roundtrip () =
   let base =
     make_unit_checkpoint
       ~messages:
-        [
-          { role = User; content = [ Text "hello" ]; name = None; tool_call_id = None ; metadata = []};
+        [ { role = User
+          ; content = [ Text "hello" ]
+          ; name = None
+          ; tool_call_id = None
+          ; metadata = []
+          }
         ]
       ()
   in
@@ -257,20 +271,34 @@ let test_delta_json_roundtrip () =
       ~turn_count:2
       ~context:ctx
       ~tool_choice:(Some Auto)
-      ~working_context:(Some (`Assoc [ ("kind", `String "test_context_v1") ]))
+      ~working_context:(Some (`Assoc [ "kind", `String "test_context_v1" ]))
       ~messages:
-        [
-          { role = User; content = [ Text "hello" ]; name = None; tool_call_id = None ; metadata = []};
-          { role = Assistant; content = [ Text "world" ]; name = None; tool_call_id = None ; metadata = []};
+        [ { role = User
+          ; content = [ Text "hello" ]
+          ; name = None
+          ; tool_call_id = None
+          ; metadata = []
+          }
+        ; { role = Assistant
+          ; content = [ Text "world" ]
+          ; name = None
+          ; tool_call_id = None
+          ; metadata = []
+          }
         ]
       ()
   in
   let delta = Checkpoint.compute_delta base target in
-  let decoded = delta |> Checkpoint.delta_to_json |> Checkpoint.delta_of_json |> Result.get_ok in
-  Alcotest.(check bool) "delta apply works after JSON roundtrip" true
+  let decoded =
+    delta |> Checkpoint.delta_to_json |> Checkpoint.delta_of_json |> Result.get_ok
+  in
+  Alcotest.(check bool)
+    "delta apply works after JSON roundtrip"
+    true
     (match Checkpoint.apply_delta base decoded with
      | Ok rebuilt -> checkpoint_equal rebuilt target
      | Error _ -> false)
+;;
 
 let test_delta_json_rejects_malformed_context_removed () =
   let base_context = Context.create () in
@@ -281,8 +309,12 @@ let test_delta_json_rejects_malformed_context_removed () =
     make_unit_checkpoint
       ~context:target_context
       ~messages:
-        [
-          { role = User; content = [ Text "hello" ]; name = None; tool_call_id = None ; metadata = []};
+        [ { role = User
+          ; content = [ Text "hello" ]
+          ; name = None
+          ; tool_call_id = None
+          ; metadata = []
+          }
         ]
       ()
   in
@@ -301,25 +333,27 @@ let test_delta_json_rejects_malformed_context_removed () =
                    let is_patch_context =
                      List.assoc_opt "kind" op_fields = Some (`String "patch_context")
                    in
-                   if not is_patch_context then op_json
+                   if not is_patch_context
+                   then op_json
                    else
                      `Assoc
                        (List.map
                           (fun (key, value) ->
-                            if key = "diff" then
-                              match value with
-                              | `Assoc diff_fields ->
-                                let patched_diff =
-                                  List.map
-                                    (fun (diff_key, diff_value) ->
-                                      if diff_key = "removed" then
-                                        (diff_key, `String "bad")
-                                      else (diff_key, diff_value))
-                                    diff_fields
-                                in
-                                (key, `Assoc patched_diff)
-                              | _ -> (key, value)
-                            else (key, value))
+                             if key = "diff"
+                             then (
+                               match value with
+                               | `Assoc diff_fields ->
+                                 let patched_diff =
+                                   List.map
+                                     (fun (diff_key, diff_value) ->
+                                        if diff_key = "removed"
+                                        then diff_key, `String "bad"
+                                        else diff_key, diff_value)
+                                     diff_fields
+                                 in
+                                 key, `Assoc patched_diff
+                               | _ -> key, value)
+                             else key, value)
                           op_fields)
                  | op_json -> op_json)
                ops)
@@ -328,12 +362,15 @@ let test_delta_json_rejects_malformed_context_removed () =
       `Assoc
         (List.map
            (fun (key, value) ->
-             if key = "operations" then (key, operations) else (key, value))
+              if key = "operations" then key, operations else key, value)
            fields)
     | json -> json
   in
-  Alcotest.(check bool) "malformed removed field rejected" true
+  Alcotest.(check bool)
+    "malformed removed field rejected"
+    true
     (Result.is_error (Checkpoint.delta_of_json malformed_json))
+;;
 
 let test_empty_delta_roundtrip () =
   let checkpoint =
@@ -342,68 +379,83 @@ let test_empty_delta_roundtrip () =
       ~agent_name:"agent-a"
       ~turn_count:3
       ~messages:
-        [
-          { role = User; content = [ Text "steady" ]; name = None; tool_call_id = None ; metadata = []};
+        [ { role = User
+          ; content = [ Text "steady" ]
+          ; name = None
+          ; tool_call_id = None
+          ; metadata = []
+          }
         ]
       ()
   in
   let delta = Checkpoint.compute_delta checkpoint checkpoint in
   Alcotest.(check int) "no operations" 0 (List.length delta.operations);
-  Alcotest.(check bool) "noop delta applies cleanly" true
+  Alcotest.(check bool)
+    "noop delta applies cleanly"
+    true
     (match Checkpoint.apply_delta checkpoint delta with
      | Ok rebuilt -> checkpoint_equal rebuilt checkpoint
      | Error _ -> false)
+;;
 
 let test_delta_roundtrip_preserves_message_metadata () =
   let replay_metadata =
-    [
-      ( "masc.replay",
-        `Assoc
-          [
-            ("kind", `String "state_snapshot");
-            ("version", `Int 1);
-            ("payload", `Assoc [ ("goal", `String "persist") ]);
-          ] );
+    [ ( "masc.replay"
+      , `Assoc
+          [ "kind", `String "state_snapshot"
+          ; "version", `Int 1
+          ; "payload", `Assoc [ "goal", `String "persist" ]
+          ] )
     ]
   in
   let base =
     make_unit_checkpoint
       ~messages:
-        [
-          { role = User; content = [ Text "start" ]; name = None; tool_call_id = None; metadata = [] };
+        [ { role = User
+          ; content = [ Text "start" ]
+          ; name = None
+          ; tool_call_id = None
+          ; metadata = []
+          }
         ]
       ()
   in
   let target =
     make_unit_checkpoint
       ~messages:
-        [
-          { role = User; content = [ Text "start" ]; name = None; tool_call_id = None; metadata = [] };
-          {
-            role = Assistant;
-            content = [ Text "done" ];
-            name = Some "keeper";
-            tool_call_id = Some "call_1";
-            metadata = replay_metadata;
-          };
+        [ { role = User
+          ; content = [ Text "start" ]
+          ; name = None
+          ; tool_call_id = None
+          ; metadata = []
+          }
+        ; { role = Assistant
+          ; content = [ Text "done" ]
+          ; name = Some "keeper"
+          ; tool_call_id = Some "call_1"
+          ; metadata = replay_metadata
+          }
         ]
       ()
   in
   let delta = Checkpoint.compute_delta base target in
   match Checkpoint.apply_delta base delta with
   | Error err ->
-      Alcotest.failf "expected delta to apply, got %s"
-        (Agent_sdk.Error.to_string err)
+    Alcotest.failf "expected delta to apply, got %s" (Agent_sdk.Error.to_string err)
   | Ok rebuilt ->
-      match rebuilt.messages with
-      | _ :: [ assistant ] ->
-          Alcotest.(check (option string)) "name" (Some "keeper") assistant.name;
-          Alcotest.(check (option string)) "tool_call_id" (Some "call_1")
-            assistant.tool_call_id;
-          Alcotest.(check string) "metadata preserved"
-            (Yojson.Safe.to_string (`Assoc replay_metadata))
-            (Yojson.Safe.to_string (`Assoc assistant.metadata))
-      | _ -> Alcotest.fail "expected assistant message with metadata"
+    (match rebuilt.messages with
+     | _ :: [ assistant ] ->
+       Alcotest.(check (option string)) "name" (Some "keeper") assistant.name;
+       Alcotest.(check (option string))
+         "tool_call_id"
+         (Some "call_1")
+         assistant.tool_call_id;
+       Alcotest.(check string)
+         "metadata preserved"
+         (Yojson.Safe.to_string (`Assoc replay_metadata))
+         (Yojson.Safe.to_string (`Assoc assistant.metadata))
+     | _ -> Alcotest.fail "expected assistant message with metadata")
+;;
 
 let test_apply_delta_rejects_version_and_hash_mismatch () =
   let base = make_unit_checkpoint () in
@@ -411,53 +463,71 @@ let test_apply_delta_rejects_version_and_hash_mismatch () =
   let delta = Checkpoint.compute_delta base target in
   let bad_version = { delta with delta_version = delta.delta_version + 1 } in
   let bad_checkpoint_version =
-    {
-      delta with
-      base_checkpoint_version = delta.base_checkpoint_version + 1;
-    }
+    { delta with base_checkpoint_version = delta.base_checkpoint_version + 1 }
   in
   let bad_base_hash = { delta with base_checkpoint_hash = "bad-hash" } in
   let bad_result_hash = { delta with result_checkpoint_hash = "bad-result-hash" } in
-  Alcotest.(check bool) "delta version mismatch" true
+  Alcotest.(check bool)
+    "delta version mismatch"
+    true
     (Result.is_error (Checkpoint.apply_delta base bad_version));
-  Alcotest.(check bool) "checkpoint version mismatch" true
+  Alcotest.(check bool)
+    "checkpoint version mismatch"
+    true
     (Result.is_error (Checkpoint.apply_delta base bad_checkpoint_version));
-  Alcotest.(check bool) "base hash mismatch" true
+  Alcotest.(check bool)
+    "base hash mismatch"
+    true
     (Result.is_error (Checkpoint.apply_delta base bad_base_hash));
-  Alcotest.(check bool) "result hash mismatch" true
+  Alcotest.(check bool)
+    "result hash mismatch"
+    true
     (Result.is_error (Checkpoint.apply_delta base bad_result_hash))
+;;
 
 let test_apply_delta_rejects_invalid_splice () =
   let base =
     make_unit_checkpoint
       ~messages:
-        [
-          { role = User; content = [ Text "a" ]; name = None; tool_call_id = None ; metadata = []};
+        [ { role = User
+          ; content = [ Text "a" ]
+          ; name = None
+          ; tool_call_id = None
+          ; metadata = []
+          }
         ]
       ()
   in
   let target =
     make_unit_checkpoint
       ~messages:
-        [
-          { role = User; content = [ Text "a" ]; name = None; tool_call_id = None ; metadata = []};
-          { role = Assistant; content = [ Text "b" ]; name = None; tool_call_id = None ; metadata = []};
+        [ { role = User
+          ; content = [ Text "a" ]
+          ; name = None
+          ; tool_call_id = None
+          ; metadata = []
+          }
+        ; { role = Assistant
+          ; content = [ Text "b" ]
+          ; name = None
+          ; tool_call_id = None
+          ; metadata = []
+          }
         ]
       ()
   in
   let delta = Checkpoint.compute_delta base target in
   let invalid_delta =
-    {
-      delta with
+    { delta with
       operations =
-        [
-          Checkpoint.Splice_messages
-            { start_index = 3; delete_count = 1; insert = [] };
-        ];
+        [ Checkpoint.Splice_messages { start_index = 3; delete_count = 1; insert = [] } ]
     }
   in
-  Alcotest.(check bool) "invalid splice rejected" true
+  Alcotest.(check bool)
+    "invalid splice rejected"
+    true
     (Result.is_error (Checkpoint.apply_delta base invalid_delta))
+;;
 
 let test_restore_with_delta_fallback_disabled () =
   let base = make_unit_checkpoint () in
@@ -465,19 +535,26 @@ let test_restore_with_delta_fallback_disabled () =
     make_unit_checkpoint
       ~session_id:"sess-b"
       ~messages:
-        [
-          { role = User; content = [ Text "delta" ]; name = None; tool_call_id = None ; metadata = []};
+        [ { role = User
+          ; content = [ Text "delta" ]
+          ; name = None
+          ; tool_call_id = None
+          ; metadata = []
+          }
         ]
       ()
   in
   let delta = Checkpoint.compute_delta base target in
   let result =
     with_env "OAS_DELTA_CHECKPOINT" None (fun () ->
-        Checkpoint.restore_with_delta_fallback ~base ~delta ~full_checkpoint:target ()
-        |> Result.get_ok)
+      Checkpoint.restore_with_delta_fallback ~base ~delta ~full_checkpoint:target ()
+      |> Result.get_ok)
   in
-  Alcotest.(check bool) "full checkpoint used" true
+  Alcotest.(check bool)
+    "full checkpoint used"
+    true
     (result.mode = Checkpoint.Full_restore && checkpoint_equal result.checkpoint target)
+;;
 
 let test_restore_with_delta_fallback_records_failure_metrics () =
   let metrics = Metrics.create () in
@@ -488,9 +565,13 @@ let test_restore_with_delta_fallback_records_failure_metrics () =
   in
   let result =
     with_env "OAS_DELTA_CHECKPOINT" (Some "1") (fun () ->
-        Checkpoint.restore_with_delta_fallback ~metrics ~base ~delta
-          ~full_checkpoint:target ()
-        |> Result.get_ok)
+      Checkpoint.restore_with_delta_fallback
+        ~metrics
+        ~base
+        ~delta
+        ~full_checkpoint:target
+        ()
+      |> Result.get_ok)
   in
   let apply_total =
     Metrics.counter metrics ~name:"oas.checkpoint.delta_apply_total" ~unit_:"1"
@@ -502,15 +583,20 @@ let test_restore_with_delta_fallback_records_failure_metrics () =
     Metrics.counter metrics ~name:"oas.checkpoint.full_restore_fallback_total" ~unit_:"1"
   in
   let size_histogram =
-    Metrics.histogram metrics ~name:"oas.checkpoint.delta_size_bytes"
+    Metrics.histogram
+      metrics
+      ~name:"oas.checkpoint.delta_size_bytes"
       ~buckets:[ 128.; 512.; 1024.; 4096.; 16384.; 65536. ]
   in
-  Alcotest.(check bool) "fallback used" true
+  Alcotest.(check bool)
+    "fallback used"
+    true
     (result.mode = Checkpoint.Full_restore && checkpoint_equal result.checkpoint target);
   Alcotest.(check int) "apply total" 1 (Metrics.counter_value apply_total ());
   Alcotest.(check int) "apply failures" 1 (Metrics.counter_value apply_failures ());
   Alcotest.(check int) "fallback total" 1 (Metrics.counter_value fallback_total ());
   Alcotest.(check int) "delta size observed" 1 (Metrics.histogram_count size_histogram)
+;;
 
 let test_restore_with_delta_fallback_gate_skips_after_failure () =
   let metrics = Metrics.create () in
@@ -522,15 +608,23 @@ let test_restore_with_delta_fallback_gate_skips_after_failure () =
   let good_delta = Checkpoint.compute_delta base target in
   let first =
     with_env "OAS_DELTA_CHECKPOINT" (Some "1") (fun () ->
-        Checkpoint.restore_with_delta_fallback ~metrics ~base ~delta:bad_delta
-          ~full_checkpoint:target ()
-        |> Result.get_ok)
+      Checkpoint.restore_with_delta_fallback
+        ~metrics
+        ~base
+        ~delta:bad_delta
+        ~full_checkpoint:target
+        ()
+      |> Result.get_ok)
   in
   let second =
     with_env "OAS_DELTA_CHECKPOINT" (Some "1") (fun () ->
-        Checkpoint.restore_with_delta_fallback ~metrics ~base ~delta:good_delta
-          ~full_checkpoint:target ()
-        |> Result.get_ok)
+      Checkpoint.restore_with_delta_fallback
+        ~metrics
+        ~base
+        ~delta:good_delta
+        ~full_checkpoint:target
+        ()
+      |> Result.get_ok)
   in
   let apply_total =
     Metrics.counter metrics ~name:"oas.checkpoint.delta_apply_total" ~unit_:"1"
@@ -540,43 +634,61 @@ let test_restore_with_delta_fallback_gate_skips_after_failure () =
   in
   Alcotest.(check bool) "first fallback" true (first.mode = Checkpoint.Full_restore);
   Alcotest.(check bool) "gate fallback" true (second.mode = Checkpoint.Full_restore);
-  Alcotest.(check int) "apply total stays at first failure" 1
+  Alcotest.(check int)
+    "apply total stays at first failure"
+    1
     (Metrics.counter_value apply_total ());
-  Alcotest.(check int) "fallback total counts both" 2
+  Alcotest.(check int)
+    "fallback total counts both"
+    2
     (Metrics.counter_value fallback_total ())
+;;
 
 let test_delta_enabled_env_var () =
   (* OAS_DELTA_CHECKPOINT enables *)
   with_env "OAS_DELTA_CHECKPOINT" (Some "1") (fun () ->
-      Alcotest.(check bool) "OAS var enables" true (Checkpoint.delta_enabled ()));
+    Alcotest.(check bool) "OAS var enables" true (Checkpoint.delta_enabled ()));
   (* Not set: disabled *)
   with_env "OAS_DELTA_CHECKPOINT" None (fun () ->
-      Alcotest.(check bool) "not set" false (Checkpoint.delta_enabled ()))
+    Alcotest.(check bool) "not set" false (Checkpoint.delta_enabled ()))
+;;
 
 let () =
-  Alcotest.run "Checkpoint_delta"
-    [
-      ( "properties",
-        List.map QCheck_alcotest.to_alcotest [ test_delta_roundtrip_property ] );
-      ( "unit",
-        [
-          Alcotest.test_case "delta JSON roundtrip" `Quick test_delta_json_roundtrip;
-          Alcotest.test_case "delta JSON rejects malformed context removed" `Quick
-            test_delta_json_rejects_malformed_context_removed;
-          Alcotest.test_case "empty delta roundtrip" `Quick test_empty_delta_roundtrip;
-          Alcotest.test_case "metadata delta roundtrip" `Quick
-            test_delta_roundtrip_preserves_message_metadata;
-          Alcotest.test_case "apply_delta rejects version/hash mismatch" `Quick
-            test_apply_delta_rejects_version_and_hash_mismatch;
-          Alcotest.test_case "apply_delta rejects invalid splice" `Quick
-            test_apply_delta_rejects_invalid_splice;
-          Alcotest.test_case "feature flag disabled falls back" `Quick
-            test_restore_with_delta_fallback_disabled;
-          Alcotest.test_case "delta env var" `Quick
-            test_delta_enabled_env_var;
-          Alcotest.test_case "bad delta records failure metrics" `Quick
-            (with_eio test_restore_with_delta_fallback_records_failure_metrics);
-          Alcotest.test_case "failure gate skips later delta path" `Quick
-            (with_eio test_restore_with_delta_fallback_gate_skips_after_failure);
-        ] );
+  Alcotest.run
+    "Checkpoint_delta"
+    [ "properties", List.map QCheck_alcotest.to_alcotest [ test_delta_roundtrip_property ]
+    ; ( "unit"
+      , [ Alcotest.test_case "delta JSON roundtrip" `Quick test_delta_json_roundtrip
+        ; Alcotest.test_case
+            "delta JSON rejects malformed context removed"
+            `Quick
+            test_delta_json_rejects_malformed_context_removed
+        ; Alcotest.test_case "empty delta roundtrip" `Quick test_empty_delta_roundtrip
+        ; Alcotest.test_case
+            "metadata delta roundtrip"
+            `Quick
+            test_delta_roundtrip_preserves_message_metadata
+        ; Alcotest.test_case
+            "apply_delta rejects version/hash mismatch"
+            `Quick
+            test_apply_delta_rejects_version_and_hash_mismatch
+        ; Alcotest.test_case
+            "apply_delta rejects invalid splice"
+            `Quick
+            test_apply_delta_rejects_invalid_splice
+        ; Alcotest.test_case
+            "feature flag disabled falls back"
+            `Quick
+            test_restore_with_delta_fallback_disabled
+        ; Alcotest.test_case "delta env var" `Quick test_delta_enabled_env_var
+        ; Alcotest.test_case
+            "bad delta records failure metrics"
+            `Quick
+            (with_eio test_restore_with_delta_fallback_records_failure_metrics)
+        ; Alcotest.test_case
+            "failure gate skips later delta path"
+            `Quick
+            (with_eio test_restore_with_delta_fallback_gate_skips_after_failure)
+        ] )
     ]
+;;

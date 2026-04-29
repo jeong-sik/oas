@@ -22,6 +22,7 @@
 
 (** Phantom state tags. Not constructible — used only as type parameters. *)
 type created
+
 type completed
 
 (** Agent with phantom lifecycle state. *)
@@ -30,23 +31,25 @@ type _ t
 (** {1 Construction} *)
 
 (** Create a new agent in the [created] state. *)
-val create :
-  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
-  ?config:Types.agent_config ->
-  ?tools:Tool.t list ->
-  ?context:Context.t ->
-  ?options:Agent.options ->
-  unit -> created t
+val create
+  :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+  -> ?config:Types.agent_config
+  -> ?tools:Tool.t list
+  -> ?context:Context.t
+  -> ?options:Agent.options
+  -> unit
+  -> created t
 
 (** {1 Execution} *)
 
 (** Run the agent. Transitions [created -> completed].
     Returns the response and the agent in [completed] state. *)
-val run :
-  sw:Eio.Switch.t ->
-  ?clock:_ Eio.Time.clock ->
-  created t -> string ->
-  (Types.api_response * completed t, Error.sdk_error) result
+val run
+  :  sw:Eio.Switch.t
+  -> ?clock:_ Eio.Time.clock
+  -> created t
+  -> string
+  -> (Types.api_response * completed t, Error.sdk_error) result
 
 (** {1 Cleanup} *)
 

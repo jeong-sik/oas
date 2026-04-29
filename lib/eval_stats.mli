@@ -9,13 +9,13 @@
     @since 0.93.1 *)
 
 (** Summary statistics for a sample. *)
-type stats = {
-  n: int;
-  mean: float;
-  std_dev: float;
-  min_val: float;
-  max_val: float;
-}
+type stats =
+  { n : int
+  ; mean : float
+  ; std_dev : float
+  ; min_val : float
+  ; max_val : float
+  }
 
 (** Compute summary statistics for a list of floats.
     Returns [None] for empty lists. *)
@@ -38,7 +38,11 @@ val is_regression : baseline:float list -> current:float list -> bool
 val effect_size : float list -> float list -> float option
 
 (** Direction of a sliding-window trend. *)
-type trend = Improving | Degrading | Stable | Insufficient_data
+type trend =
+  | Improving
+  | Degrading
+  | Stable
+  | Insufficient_data
 
 (** Detect trend direction over the last [window] data points using linear regression.
     Returns [Insufficient_data] if the list has fewer than [window] elements. *)
@@ -46,4 +50,4 @@ val detect_trend : window:int -> float list -> trend
 
 (** Count consecutive transitions in the same direction from the end of a list.
     Returns [(count, direction)]. An empty or single-element list returns [(0, `Flat)]. *)
-val consecutive_direction : float list -> int * [`Up | `Down | `Flat]
+val consecutive_direction : float list -> int * [ `Up | `Down | `Flat ]

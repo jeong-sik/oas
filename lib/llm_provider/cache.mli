@@ -9,22 +9,23 @@
     @since 0.93.1 *)
 
 (** Cache backend interface. Implementations must be fiber-safe. *)
-type t = {
-  get: key:string -> Yojson.Safe.t option;
-  (** Look up a cached response by key. Returns [None] on miss. *)
-  set: key:string -> ttl_sec:int -> Yojson.Safe.t -> unit;
-  (** Store a response with a TTL in seconds. *)
-}
+type t =
+  { get : key:string -> Yojson.Safe.t option
+    (** Look up a cached response by key. Returns [None] on miss. *)
+  ; set : key:string -> ttl_sec:int -> Yojson.Safe.t -> unit
+    (** Store a response with a TTL in seconds. *)
+  }
 
 (** Compute a deterministic cache key from request parameters.
     Includes model_id, messages (role + text), temperature, and tools.
     Two identical requests always produce the same key. *)
-val request_fingerprint :
-  config:Provider_config.t ->
-  messages:Types.message list ->
-  ?tools:Yojson.Safe.t list ->
-  ?runtime_mcp_policy:Llm_transport.runtime_mcp_policy ->
-  unit -> string
+val request_fingerprint
+  :  config:Provider_config.t
+  -> messages:Types.message list
+  -> ?tools:Yojson.Safe.t list
+  -> ?runtime_mcp_policy:Llm_transport.runtime_mcp_policy
+  -> unit
+  -> string
 
 (** Serialize an [api_response] to JSON for caching. *)
 val response_to_json : Types.api_response -> Yojson.Safe.t

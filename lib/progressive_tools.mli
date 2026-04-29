@@ -24,18 +24,18 @@
     @since 0.43.0 (Phase_based, Gather_act_verify)
     @since 0.89.0 (Retrieval_based) *)
 type disclosure_strategy =
-  | Phase_based of { phases: (int * string list) list }
-  | Gather_act_verify of {
-      gather_tools: string list;
-      act_tools: string list;
-      verify_tools: string list;
-    }
-  | Retrieval_based of {
-      index: Tool_index.t;
-      confidence_threshold: float;
-      fallback_tools: string list;
-      always_include: string list;
-    }
+  | Phase_based of { phases : (int * string list) list }
+  | Gather_act_verify of
+      { gather_tools : string list
+      ; act_tools : string list
+      ; verify_tools : string list
+      }
+  | Retrieval_based of
+      { index : Tool_index.t
+      ; confidence_threshold : float
+      ; fallback_tools : string list
+      ; always_include : string list
+      }
 
 (** {1 Query} *)
 

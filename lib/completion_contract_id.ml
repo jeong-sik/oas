@@ -9,3 +9,4 @@ let to_string = function
   | Require_tool_use -> "require_tool_use"
   | Require_specific_tool name -> Printf.sprintf "require_specific_tool(%s)" name
   | Require_no_tool_use -> "require_no_tool_use"
+;;

@@ -4,23 +4,23 @@ type feedback_style =
   | Structured_tool_result
   | Plain_error_text
 
-type t = {
-  max_retries: int;
-  retry_on_validation_error: bool;
-  retry_on_recoverable_tool_error: bool;
-  feedback_style: feedback_style;
-}
+type t =
+  { max_retries : int
+  ; retry_on_validation_error : bool
+  ; retry_on_recoverable_tool_error : bool
+  ; feedback_style : feedback_style
+  }
 
 type failure_kind =
   | Validation_error
   | Recoverable_tool_error
 
-type failure = {
-  tool_name: string;
-  detail: string;
-  kind: failure_kind;
-  error_class: Types.tool_error_class;
-}
+type failure =
+  { tool_name : string
+  ; detail : string
+  ; kind : failure_kind
+  ; error_class : Types.tool_error_class
+  }
 
 (** Error class — orthogonal classification over {!failure_kind} that
     consumers can use to parameterise retry budgets or circuit
@@ -54,52 +54,42 @@ val classify : failure_kind -> error_class
 
 (** Prefer the explicit error class attached to the tool error channel when
     available; otherwise fall back to the legacy [failure_kind]-based mapping. *)
-val resolve_error_class :
-  explicit:Types.tool_error_class option ->
-  failure_kind ->
-  error_class
+val resolve_error_class
+  :  explicit:Types.tool_error_class option
+  -> failure_kind
+  -> error_class
 
 (** Stable, lowercase identifier for logs / metric labels. *)
 val error_class_to_string : error_class -> string
 
 type decision =
   | No_retry
-  | Retry of {
-      retry_count: int;
-      summary: string;
-    }
-  | Exhausted of {
-      attempts: int;
-      limit: int;
-      summary: string;
-    }
+  | Retry of
+      { retry_count : int
+      ; summary : string
+      }
+  | Exhausted of
+      { attempts : int
+      ; limit : int
+      ; summary : string
+      }
 
 val default_internal : t
+val decide : policy:t -> prior_retries:int -> failure list -> decision
+val retry_feedback_text : retry_count:int -> max_retries:int -> summary:string -> string
 
-val decide :
-  policy:t ->
-  prior_retries:int ->
-  failure list ->
-  decision
+val structured_feedback_block
+  :  tool_use_id:string
+  -> retry_count:int
+  -> max_retries:int
+  -> summary:string
+  -> content_block
 
-val retry_feedback_text :
-  retry_count:int ->
-  max_retries:int ->
-  summary:string ->
-  string
-
-val structured_feedback_block :
-  tool_use_id:string ->
-  retry_count:int ->
-  max_retries:int ->
-  summary:string ->
-  content_block
-
-val plain_feedback_block :
-  retry_count:int ->
-  max_retries:int ->
-  summary:string ->
-  content_block
+val plain_feedback_block
+  :  retry_count:int
+  -> max_retries:int
+  -> summary:string
+  -> content_block
 
 val context_retry_count : Context.t -> int
 val set_context_retry_count : Context.t -> int -> unit

@@ -6,33 +6,47 @@ type read_only
 type write
 type destructive
 
-type ('perm, 'input, 'output) t = {
-  tool : ('input, 'output) Typed_tool.t;
-  perm : Tool.permission;
-}
+type ('perm, 'input, 'output) t =
+  { tool : ('input, 'output) Typed_tool.t
+  ; perm : Tool.permission
+  }
 
 let check_perm_compat ~expected tool =
   match Typed_tool.descriptor tool with
   | None -> ()
   | Some d ->
-    match d.Tool.permission with
-    | None -> ()
-    | Some actual when actual = expected -> ()
-    | Some actual ->
-      invalid_arg (Printf.sprintf
-        "Typed_tool_safe: tool %s descriptor permission %s incompatible with %s"
-        (Typed_tool.name tool)
-        (Tool.show_permission actual)
-        (Tool.show_permission expected))
+    (match d.Tool.permission with
+     | None -> ()
+     | Some actual when actual = expected -> ()
+     | Some actual ->
+       invalid_arg
+         (Printf.sprintf
+            "Typed_tool_safe: tool %s descriptor permission %s incompatible with %s"
+            (Typed_tool.name tool)
+            (Tool.show_permission actual)
+            (Tool.show_permission expected)))
+;;
 
-let read_only tool = check_perm_compat ~expected:Tool.ReadOnly tool; { tool; perm = Tool.ReadOnly }
-let write tool = check_perm_compat ~expected:Tool.Write tool; { tool; perm = Tool.Write }
-let destructive tool = check_perm_compat ~expected:Tool.Destructive tool; { tool; perm = Tool.Destructive }
+let read_only tool =
+  check_perm_compat ~expected:Tool.ReadOnly tool;
+  { tool; perm = Tool.ReadOnly }
+;;
+
+let write tool =
+  check_perm_compat ~expected:Tool.Write tool;
+  { tool; perm = Tool.Write }
+;;
+
+let destructive tool =
+  check_perm_compat ~expected:Tool.Destructive tool;
+  { tool; perm = Tool.Destructive }
+;;
 
 (* ── Permission-gated execution ─────────────────────────── *)
 
 let execute_read_only ?context safe_tool args =
   Typed_tool.execute ?context safe_tool.tool args
+;;
 
 let execute_with_approval ?context ~approve safe_tool args =
   let tool_name = Typed_tool.name safe_tool.tool in
@@ -41,12 +55,15 @@ let execute_with_approval ?context ~approve safe_tool args =
   | Ok () -> Typed_tool.execute ?context safe_tool.tool args
   | Error reason ->
     Error { Types.message = reason; recoverable = false; error_class = None }
+;;
 
 let execute_write ?context ~approve tool args =
   execute_with_approval ?context ~approve tool args
+;;
 
 let execute_destructive ?context ~approve tool args =
   execute_with_approval ?context ~approve tool args
+;;
 
 (* ── Erasure ────────────────────────────────────────────── *)
 

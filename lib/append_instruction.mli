@@ -12,34 +12,21 @@
 
 (** Instruction source — where to read instruction text from. *)
 type instruction_source =
-  | Static of string
-      (** Fixed text, injected every turn. *)
-  | FromContext of string
-      (** Read from a {!Context.t} key (string value). *)
-  | FromFile of string
-      (** Read from a file path at invocation time. *)
-  | Dynamic of (int -> string option)
-      (** Turn number -> optional instruction. *)
+  | Static of string (** Fixed text, injected every turn. *)
+  | FromContext of string (** Read from a {!Context.t} key (string value). *)
+  | FromFile of string (** Read from a file path at invocation time. *)
+  | Dynamic of (int -> string option) (** Turn number -> optional instruction. *)
 
 (** Configuration for instruction injection.
     All sources are rendered and injected via [extra_system_context]
     on each turn (per-turn semantics). *)
-type config = {
-  sources: instruction_source list;
-}
+type config = { sources : instruction_source list }
 
 (** Render all sources into a single instruction string for the given turn.
     Returns [None] if all sources produce no output. *)
-val render :
-  ?context:Context.t ->
-  turn:int ->
-  config ->
-  string option
+val render : ?context:Context.t -> turn:int -> config -> string option
 
 (** Convert an instruction config into a {!Hooks.hook} that returns
     [AdjustParams { extra_system_context }] on [BeforeTurnParams] events.
     All other events receive [Continue]. *)
-val as_hook :
-  ?context:Context.t ->
-  config ->
-  Hooks.hook
+val as_hook : ?context:Context.t -> config -> Hooks.hook

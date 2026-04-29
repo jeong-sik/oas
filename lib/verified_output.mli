@@ -47,9 +47,19 @@ type verified
 (** {1 Verification result} *)
 
 type verification_result =
-  | Verified of { verifier: string; confidence: float; evidence: string }
-  | Disputed of { verifier: string; reason: string }
-  | Abstained of { verifier: string; reason: string }
+  | Verified of
+      { verifier : string
+      ; confidence : float
+      ; evidence : string
+      }
+  | Disputed of
+      { verifier : string
+      ; reason : string
+      }
+  | Abstained of
+      { verifier : string
+      ; reason : string
+      }
 
 (** {1 Phantom-typed output} *)
 
@@ -61,8 +71,7 @@ type 'status output
 (** {1 Construction} *)
 
 (** Create an unverified output from an API response. *)
-val of_response :
-  producer:string -> Types.api_response -> unverified output
+val of_response : producer:string -> Types.api_response -> unverified output
 
 (** {1 Verification} *)
 
@@ -70,21 +79,21 @@ val of_response :
     if at least one verification result is [Verified] with
     confidence >= [min_confidence] (default 0.5).
     Returns [None] if verification fails. *)
-val verify :
-  unverified output ->
-  verifier:string ->
-  confidence:float ->
-  evidence:string ->
-  verified output option
+val verify
+  :  unverified output
+  -> verifier:string
+  -> confidence:float
+  -> evidence:string
+  -> verified output option
 
 (** Mark as verified with explicit verification results.
     Succeeds if any result is [Verified] above threshold. *)
-val verify_with_results :
-  unverified output ->
-  verification_result list ->
-  ?min_confidence:float ->
-  unit ->
-  verified output option
+val verify_with_results
+  :  unverified output
+  -> verification_result list
+  -> ?min_confidence:float
+  -> unit
+  -> verified output option
 
 (** Force-verify an output (bypass verification).
     Use only for testing or trusted sources.  The [reason] is

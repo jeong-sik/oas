@@ -14,42 +14,47 @@
     it can be shared with {!Types} without creating a dependency cycle. *)
 type provider_kind = Provider_kind.t =
   | Anthropic
-  | Kimi  (** Kimi Code direct API: Anthropic-compatible [/v1/messages]. @since 0.169.0 *)
+  | Kimi (** Kimi Code direct API: Anthropic-compatible [/v1/messages]. @since 0.169.0 *)
   | OpenAI_compat
-  | Ollama  (** Ollama: OpenAI compat wire format + reasoning_effort + no tool_choice. @since 0.112.0 *)
+  | Ollama
+  (** Ollama: OpenAI compat wire format + reasoning_effort + no tool_choice. @since 0.112.0 *)
   | Gemini
-  | Glm  (** ZhipuAI GLM native: OpenAI wire format + JWT auth + GLM error parsing. @since 0.83.0 *)
+  | Glm
+  (** ZhipuAI GLM native: OpenAI wire format + JWT auth + GLM error parsing. @since 0.83.0 *)
   | DashScope
-  | Claude_code  (** Subprocess transport via [claude -p]. @since 0.78.0 *)
-  | Gemini_cli  (** Subprocess transport via [gemini -p]. @since 0.133.0 *)
-  | Kimi_cli  (** Subprocess transport via [kimi --print]. @since 0.169.0 *)
-  | Codex_cli   (** Subprocess transport via [codex exec]. @since 0.133.0 *)
+  | Claude_code (** Subprocess transport via [claude -p]. @since 0.78.0 *)
+  | Gemini_cli (** Subprocess transport via [gemini -p]. @since 0.133.0 *)
+  | Kimi_cli (** Subprocess transport via [kimi --print]. @since 0.169.0 *)
+  | Codex_cli (** Subprocess transport via [codex exec]. @since 0.133.0 *)
 
-type t = {
-  kind: provider_kind;
-  model_id: string;
-  base_url: string;
-  api_key: string;
-  headers: (string * string) list;
-  request_path: string;
-  max_tokens: int option;  (** [None] = resolve from model capabilities at request time. @since 0.123.0 *)
-  max_context: int option;  (** Provider's context window limit in tokens. When set, downstream callers may truncate messages to fit before dispatch. @since 0.120.0 *)
-  temperature: float option;
-  top_p: float option;
-  top_k: int option;
-  min_p: float option;
-  system_prompt: string option;
-  enable_thinking: bool option;
-  thinking_budget: int option;
-  clear_thinking: bool option;
-  tool_stream: bool;
-  tool_choice: Types.tool_choice option;
-  disable_parallel_tool_use: bool;
-  response_format: Types.response_format;
-  output_schema: Yojson.Safe.t option;  (** Provider-native JSON schema output request. @since 0.163.0 *)
-  cache_system_prompt: bool;
-  supports_tool_choice_override: bool option;
-  (** Override the registry default for [supports_tool_choice].
+type t =
+  { kind : provider_kind
+  ; model_id : string
+  ; base_url : string
+  ; api_key : string
+  ; headers : (string * string) list
+  ; request_path : string
+  ; max_tokens : int option
+    (** [None] = resolve from model capabilities at request time. @since 0.123.0 *)
+  ; max_context : int option
+    (** Provider's context window limit in tokens. When set, downstream callers may truncate messages to fit before dispatch. @since 0.120.0 *)
+  ; temperature : float option
+  ; top_p : float option
+  ; top_k : int option
+  ; min_p : float option
+  ; system_prompt : string option
+  ; enable_thinking : bool option
+  ; thinking_budget : int option
+  ; clear_thinking : bool option
+  ; tool_stream : bool
+  ; tool_choice : Types.tool_choice option
+  ; disable_parallel_tool_use : bool
+  ; response_format : Types.response_format
+  ; output_schema : Yojson.Safe.t option
+    (** Provider-native JSON schema output request. @since 0.163.0 *)
+  ; cache_system_prompt : bool
+  ; supports_tool_choice_override : bool option
+    (** Override the registry default for [supports_tool_choice].
       [None] = use the per-kind default from {!Capabilities}.
       [Some b] = force [b].
 
@@ -66,8 +71,8 @@ type t = {
       the policy and declares it.
 
       @since 0.150.0 *)
-  keep_alive: string option;
-  (** Ollama [keep_alive] request field. Accepted values: integer
+  ; keep_alive : string option
+    (** Ollama [keep_alive] request field. Accepted values: integer
       seconds ({"-1"}, {"0"}, {"3600"}) or duration strings ({"5m"},
       {"30m"}, {"24h"}). [None] falls back to the
       [OAS_OLLAMA_KEEP_ALIVE] env var, then to the SDK default
@@ -76,8 +81,8 @@ type t = {
       can declare its own residency policy without a global env
       variable.
       @since 0.171.0 *)
-  internal_model_rotation_count: int option;
-  (** Number of model attempts the subprocess CLI is configured to
+  ; internal_model_rotation_count : int option
+    (** Number of model attempts the subprocess CLI is configured to
       cycle through internally before yielding a final response.
       [None] = SDK has no opinion (the default for non-CLI providers
       and CLI providers that do not expose rotation visibility).
@@ -99,47 +104,48 @@ type t = {
 
       Honored only as an advisory hint; ignored for non-CLI kinds.
       @since 0.182.0 *)
-  num_ctx: int option;
-  (** Ollama [num_ctx] option. Per-request context window allocation
+  ; num_ctx : int option
+    (** Ollama [num_ctx] option. Per-request context window allocation
       in tokens. Drives KV cache RAM allocation. [None] leaves the
       field unset so Ollama uses its own default (Modelfile or 4096).
       Honored only by the Ollama backend; ignored by other kinds.
       Cascade configs may surface this so a small-model profile can
       pick a smaller window than a long-context profile.
       @since 0.171.0 *)
-}
+  }
 
 (** Default config for quick construction. Only [kind], [model_id],
     [base_url], and [request_path] are required; rest use safe defaults. *)
-val make :
-  kind:provider_kind ->
-  model_id:string ->
-  base_url:string ->
-  ?api_key:string ->
-  ?headers:(string * string) list ->
-  ?request_path:string ->
-  ?max_tokens:int ->
-  ?max_context:int ->
-  ?temperature:float ->
-  ?top_p:float ->
-  ?top_k:int ->
-  ?min_p:float ->
-  ?system_prompt:string ->
-  ?enable_thinking:bool ->
-  ?thinking_budget:int ->
-  ?clear_thinking:bool ->
-  ?tool_stream:bool ->
-  ?tool_choice:Types.tool_choice ->
-  ?disable_parallel_tool_use:bool ->
-  ?response_format:Types.response_format ->
-  ?response_format_json:bool ->
-  ?output_schema:Yojson.Safe.t ->
-  ?cache_system_prompt:bool ->
-  ?supports_tool_choice_override:bool ->
-  ?keep_alive:string ->
-  ?internal_model_rotation_count:int ->
-  ?num_ctx:int ->
-  unit -> t
+val make
+  :  kind:provider_kind
+  -> model_id:string
+  -> base_url:string
+  -> ?api_key:string
+  -> ?headers:(string * string) list
+  -> ?request_path:string
+  -> ?max_tokens:int
+  -> ?max_context:int
+  -> ?temperature:float
+  -> ?top_p:float
+  -> ?top_k:int
+  -> ?min_p:float
+  -> ?system_prompt:string
+  -> ?enable_thinking:bool
+  -> ?thinking_budget:int
+  -> ?clear_thinking:bool
+  -> ?tool_stream:bool
+  -> ?tool_choice:Types.tool_choice
+  -> ?disable_parallel_tool_use:bool
+  -> ?response_format:Types.response_format
+  -> ?response_format_json:bool
+  -> ?output_schema:Yojson.Safe.t
+  -> ?cache_system_prompt:bool
+  -> ?supports_tool_choice_override:bool
+  -> ?keep_alive:string
+  -> ?internal_model_rotation_count:int
+  -> ?num_ctx:int
+  -> unit
+  -> t
 
 (** Lowercase string representation of the wire-format kind.
     Returns the variant name in lowercase (e.g. [Anthropic] -> ["anthropic"]).
@@ -197,16 +203,19 @@ val provider_kind_of_string : string -> provider_kind option
 
 val pp_provider_kind : Format.formatter -> provider_kind -> unit
 val show_provider_kind : provider_kind -> string
-
 val provider_kind_to_yojson : provider_kind -> Yojson.Safe.t
-val provider_kind_of_yojson :
-  Yojson.Safe.t -> provider_kind Ppx_deriving_yojson_runtime.error_or
+
+val provider_kind_of_yojson
+  :  Yojson.Safe.t
+  -> provider_kind Ppx_deriving_yojson_runtime.error_or
 
 (** Map thinking configuration fields to reasoning_effort string.
     Returns "none", "low", "medium", or "high".
     @since 0.114.0 *)
-val effort_of_thinking_config :
-  enable_thinking:bool option -> thinking_budget:int option -> string
+val effort_of_thinking_config
+  :  enable_thinking:bool option
+  -> thinking_budget:int option
+  -> string
 
 (** Compute reasoning_effort for a provider config.
     Returns [None] for non-Ollama providers.

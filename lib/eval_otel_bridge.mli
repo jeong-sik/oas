@@ -15,25 +15,25 @@
 (** {1 Accumulated metric record} *)
 
 (** A single OTel-style metric with name, value, and type tag. *)
-type otel_metric = {
-  name: string;
-  value: float;
-  metric_type: string;  (** "counter" | "gauge" *)
-}
+type otel_metric =
+  { name : string
+  ; value : float
+  ; metric_type : string (** "counter" | "gauge" *)
+  }
 
 (** All metrics extracted from a run. *)
-type metrics_snapshot = {
-  agent_name: string;
-  run_id: string;
-  verdict_passed_total: int;
-  verdict_failed_total: int;
-  coverage: float;
-  turns_total: int option;
-  tool_calls_total: int option;
-  tool_errors_total: int option;
-  api_calls_total: int option;
-  failed_api_calls_total: int option;
-}
+type metrics_snapshot =
+  { agent_name : string
+  ; run_id : string
+  ; verdict_passed_total : int
+  ; verdict_failed_total : int
+  ; coverage : float
+  ; turns_total : int option
+  ; tool_calls_total : int option
+  ; tool_errors_total : int option
+  ; api_calls_total : int option
+  ; failed_api_calls_total : int option
+  }
 
 (** {1 Extraction} *)
 

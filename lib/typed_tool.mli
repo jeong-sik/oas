@@ -33,31 +33,31 @@ type ('input, 'output) t
                    Return [Error] for domain-level rejections (e.g. empty message).
     @param encode  Serialize output to JSON for tool_result content.
     @param descriptor Optional safety metadata (permission, concurrency, shell). *)
-val create :
-  name:string ->
-  description:string ->
-  params:Types.tool_param list ->
-  parse:(Yojson.Safe.t -> ('input, string) result) ->
-  handler:('input -> ('output, string) result) ->
-  encode:('output -> Yojson.Safe.t) ->
-  ?descriptor:Tool.descriptor ->
-  unit ->
-  ('input, 'output) t
+val create
+  :  name:string
+  -> description:string
+  -> params:Types.tool_param list
+  -> parse:(Yojson.Safe.t -> ('input, string) result)
+  -> handler:('input -> ('output, string) result)
+  -> encode:('output -> Yojson.Safe.t)
+  -> ?descriptor:Tool.descriptor
+  -> unit
+  -> ('input, 'output) t
 
 (** Create a context-aware typed tool.
 
     Same as {!create} but the handler receives a {!Context.t} for accessing
     shared agent state (e.g. retry counts, custom keys). *)
-val create_with_context :
-  name:string ->
-  description:string ->
-  params:Types.tool_param list ->
-  parse:(Yojson.Safe.t -> ('input, string) result) ->
-  handler:(Context.t -> 'input -> ('output, string) result) ->
-  encode:('output -> Yojson.Safe.t) ->
-  ?descriptor:Tool.descriptor ->
-  unit ->
-  ('input, 'output) t
+val create_with_context
+  :  name:string
+  -> description:string
+  -> params:Types.tool_param list
+  -> parse:(Yojson.Safe.t -> ('input, string) result)
+  -> handler:(Context.t -> 'input -> ('output, string) result)
+  -> encode:('output -> Yojson.Safe.t)
+  -> ?descriptor:Tool.descriptor
+  -> unit
+  -> ('input, 'output) t
 
 (** {1 Execution} *)
 
@@ -67,16 +67,20 @@ val create_with_context :
     handler failure. Parse errors are marked [recoverable = true] (the LLM
     can retry with corrected input). Handler errors use [recoverable = false]
     by default (domain rejection). *)
-val execute : ?context:Context.t -> ('input, 'output) t -> Yojson.Safe.t -> Types.tool_result
+val execute
+  :  ?context:Context.t
+  -> ('input, 'output) t
+  -> Yojson.Safe.t
+  -> Types.tool_result
 
 (** Execute with access to the intermediate parsed input.
 
     Useful for logging, metrics, or correction pipeline integration. *)
-val execute_parsed :
-  ?context:Context.t ->
-  ('input, 'output) t ->
-  Yojson.Safe.t ->
-  ('input * ('output, string) result, string) result
+val execute_parsed
+  :  ?context:Context.t
+  -> ('input, 'output) t
+  -> Yojson.Safe.t
+  -> ('input * ('output, string) result, string) result
 
 (** {1 Backward compatibility} *)
 

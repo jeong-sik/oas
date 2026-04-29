@@ -11,28 +11,28 @@ let io_error_of_exn ~op ~path = function
     Error (Error.Io (FileOpFailed { op; path; detail = Printexc.to_string exn }))
   | Unix.Unix_error _ as exn ->
     Error (Error.Io (FileOpFailed { op; path; detail = Printexc.to_string exn }))
-  | Sys_error detail ->
-    Error (Error.Io (FileOpFailed { op; path; detail }))
-  | Failure msg ->
-    Error (Error.Io (FileOpFailed { op; path; detail = msg }))
+  | Sys_error detail -> Error (Error.Io (FileOpFailed { op; path; detail }))
+  | Failure msg -> Error (Error.Io (FileOpFailed { op; path; detail = msg }))
   | Yojson.Json_error msg ->
     Error (Error.Io (FileOpFailed { op; path; detail = "JSON error: " ^ msg }))
   | Eio.Cancel.Cancelled _ as e -> raise e
   | exn -> raise exn
+;;
 
 let read_file path =
-  try Ok (In_channel.with_open_bin path In_channel.input_all)
-  with
+  try Ok (In_channel.with_open_bin path In_channel.input_all) with
   | Eio.Cancel.Cancelled _ as e -> raise e
   | exn -> io_error_of_exn ~op:"read" ~path exn
+;;
 
 let ensure_dir_recursive path =
   let rec aux p =
-    if Sys.file_exists p then ()
-    else begin
+    if Sys.file_exists p
+    then ()
+    else (
       aux (Filename.dirname p);
-      (try Sys.mkdir p 0o755 with Sys_error _ -> ())
-    end
+      try Sys.mkdir p 0o755 with
+      | Sys_error _ -> ())
   in
   try
     aux path;
@@ -40,22 +40,28 @@ let ensure_dir_recursive path =
   with
   | Eio.Cancel.Cancelled _ as e -> raise e
   | exn -> io_error_of_exn ~op:"mkdir_p" ~path exn
+;;
 
 let ensure_dir path = ensure_dir_recursive path
 
 (* Best-effort fsync. Some filesystems (tmpfs on some kernels, SMB)
    reject fsync with EINVAL/EOPNOTSUPP; treat those as non-fatal. *)
 let fsync_fd_best_effort fd =
-  try Unix.fsync fd
-  with Unix.Unix_error ((EINVAL | EOPNOTSUPP), _, _) -> ()
+  try Unix.fsync fd with
+  | Unix.Unix_error ((EINVAL | EOPNOTSUPP), _, _) -> ()
+;;
 
 let fsync_dir_best_effort dir =
   try
     let fd = Unix.openfile dir [ Unix.O_RDONLY ] 0 in
     Fun.protect
-      ~finally:(fun () -> try Unix.close fd with Unix.Unix_error _ -> ())
+      ~finally:(fun () ->
+        try Unix.close fd with
+        | Unix.Unix_error _ -> ())
       (fun () -> fsync_fd_best_effort fd)
-  with Unix.Unix_error _ -> ()
+  with
+  | Unix.Unix_error _ -> ()
+;;
 
 let write_file path content =
   try
@@ -67,29 +73,30 @@ let write_file path content =
        a tmp path. This closes the [rename] race where writer A's
        rename consumes the tmp before writer B's rename runs
        (oas checkpoint_store.ml / a2a_task_store.ml / memory_file_backend.ml). *)
-    let tmp_path =
-      Filename.temp_file ~temp_dir:dir (base ^ ".") ".tmp"
-    in
+    let tmp_path = Filename.temp_file ~temp_dir:dir (base ^ ".") ".tmp" in
     let clean_tmp () =
-      try Sys.remove tmp_path with Sys_error _ | Unix.Unix_error _ -> ()
+      try Sys.remove tmp_path with
+      | Sys_error _ | Unix.Unix_error _ -> ()
     in
-    (try
-       Out_channel.with_open_bin tmp_path (fun oc ->
-         Out_channel.output_string oc content;
-         Out_channel.flush oc;
-         (* Durability: data must reach disk before rename, else a
+    try
+      Out_channel.with_open_bin tmp_path (fun oc ->
+        Out_channel.output_string oc content;
+        Out_channel.flush oc;
+        (* Durability: data must reach disk before rename, else a
             crash between [rename] and the kernel's write-back can
             leave the target with stale or truncated bytes. *)
-         fsync_fd_best_effort (Unix.descr_of_out_channel oc));
-       Sys.rename tmp_path path;
-       fsync_dir_best_effort dir;
-       Ok ()
-     with exn ->
-       clean_tmp ();
-       raise exn)
+        fsync_fd_best_effort (Unix.descr_of_out_channel oc));
+      Sys.rename tmp_path path;
+      fsync_dir_best_effort dir;
+      Ok ()
+    with
+    | exn ->
+      clean_tmp ();
+      raise exn
   with
   | Eio.Cancel.Cancelled _ as e -> raise e
   | exn -> io_error_of_exn ~op:"write" ~path exn
+;;
 
 let append_file path content =
   try
@@ -102,16 +109,18 @@ let append_file path content =
   with
   | Eio.Cancel.Cancelled _ as e -> raise e
   | exn -> io_error_of_exn ~op:"append" ~path exn
+;;
 
 let read_dir path =
-  try Ok (Sys.readdir path |> Array.to_list |> List.sort String.compare)
-  with
+  try Ok (Sys.readdir path |> Array.to_list |> List.sort String.compare) with
   | Eio.Cancel.Cancelled _ as e -> raise e
   | exn -> io_error_of_exn ~op:"read_dir" ~path exn
+;;
 
 let file_exists path =
-  try Sys.file_exists path && not (Sys.is_directory path)
-  with Sys_error _ -> false
+  try Sys.file_exists path && not (Sys.is_directory path) with
+  | Sys_error _ -> false
+;;
 
 let remove_file path =
   try
@@ -120,3 +129,4 @@ let remove_file path =
   with
   | Eio.Cancel.Cancelled _ as e -> raise e
   | exn -> io_error_of_exn ~op:"remove" ~path exn
+;;

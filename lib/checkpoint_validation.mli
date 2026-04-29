@@ -29,10 +29,7 @@ val validate_dna : string -> (string, string) result
 
     @param full_context Original uncompressed context
     @param compressed_context Post-compression context *)
-val continuity_check :
-  full_context:string ->
-  compressed_context:string ->
-  Yojson.Safe.t
+val continuity_check : full_context:string -> compressed_context:string -> Yojson.Safe.t
 
 (** {1 Text utilities} *)
 

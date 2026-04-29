@@ -8,26 +8,26 @@
 
 (** {1 Types} *)
 
-type trigger = {
-  kind: string;
-  source: string option;
-  reason: string option;
-  payload: Yojson.Safe.t option;
-}
+type trigger =
+  { kind : string
+  ; source : string option
+  ; reason : string option
+  ; payload : Yojson.Safe.t option
+  }
 
-type instruction_layer = {
-  label: string option;
-  content: string;
-}
+type instruction_layer =
+  { label : string option
+  ; content : string
+  }
 
-type t = {
-  runtime_awareness: string option;
-  trigger: trigger option;
-  instruction_layers: instruction_layer list;
-  skills: Skill.t list;
-  tool_grants: string list option;
-  mcp_tool_allowlist: string list option;
-}
+type t =
+  { runtime_awareness : string option
+  ; trigger : trigger option
+  ; instruction_layers : instruction_layer list
+  ; skills : Skill.t list
+  ; tool_grants : string list option
+  ; mcp_tool_allowlist : string list option
+  }
 
 val context_key : string
 val empty : t
@@ -35,7 +35,15 @@ val empty : t
 (** {1 Builders} *)
 
 val with_runtime_awareness : string -> t -> t
-val with_trigger : ?source:string -> ?reason:string -> ?payload:Yojson.Safe.t -> string -> t -> t
+
+val with_trigger
+  :  ?source:string
+  -> ?reason:string
+  -> ?payload:Yojson.Safe.t
+  -> string
+  -> t
+  -> t
+
 val add_instruction_layer : ?label:string -> string -> t -> t
 
 (** Add a skill to the contract for {b runtime prompt composition}.

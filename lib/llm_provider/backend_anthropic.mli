@@ -7,10 +7,10 @@
 
 val parse_response : Yojson.Safe.t -> Types.api_response
 
-val build_request :
-  ?stream:bool ->
-  config:Provider_config.t ->
-  messages:Types.message list ->
-  ?tools:Yojson.Safe.t list ->
-  unit ->
-  string
+val build_request
+  :  ?stream:bool
+  -> config:Provider_config.t
+  -> messages:Types.message list
+  -> ?tools:Yojson.Safe.t list
+  -> unit
+  -> string

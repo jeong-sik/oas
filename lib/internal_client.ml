@@ -5,6 +5,7 @@ let process_query ~sw ~mgr ?(options = Sdk_client_types.default_options) ~prompt
   Fun.protect
     ~finally:(fun () -> Internal_query_engine.close client)
     (fun () ->
-      let* () = Internal_query_engine.query_turn client prompt in
-      let* () = Internal_query_engine.finalize client () in
-      Ok (Internal_query_engine.receive_messages client))
+       let* () = Internal_query_engine.query_turn client prompt in
+       let* () = Internal_query_engine.finalize client () in
+       Ok (Internal_query_engine.receive_messages client))
+;;

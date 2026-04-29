@@ -6,15 +6,15 @@
     @since 0.93.1 *)
 
 (** Structured cost report. *)
-type cost_report = {
-  total_usd: float;
-  input_tokens: int;
-  output_tokens: int;
-  cache_creation_tokens: int;
-  cache_read_tokens: int;
-  api_calls: int;
-  avg_cost_per_call: float;
-}
+type cost_report =
+  { total_usd : float
+  ; input_tokens : int
+  ; output_tokens : int
+  ; cache_creation_tokens : int
+  ; cache_read_tokens : int
+  ; api_calls : int
+  ; avg_cost_per_call : float
+  }
 
 (** Check whether accumulated cost exceeds [config.max_cost_usd].
 

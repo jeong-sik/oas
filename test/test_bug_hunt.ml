@@ -15,10 +15,35 @@ open Agent_sdk
 
 (* ── Helpers ──────────────────────────────────────────────────── *)
 
-let user_msg text = Types.{ role = User; content = [Text text]; name = None; tool_call_id = None ; metadata = []}
-let asst_msg text = Types.{ role = Assistant; content = [Text text]; name = None; tool_call_id = None ; metadata = []}
+let user_msg text =
+  Types.
+    { role = User
+    ; content = [ Text text ]
+    ; name = None
+    ; tool_call_id = None
+    ; metadata = []
+    }
+;;
+
+let asst_msg text =
+  Types.
+    { role = Assistant
+    ; content = [ Text text ]
+    ; name = None
+    ; tool_call_id = None
+    ; metadata = []
+    }
+;;
+
 let thinking_only_msg content =
-  Types.{ role = Assistant; content = [Thinking { thinking_type = "thinking"; content }]; name = None; tool_call_id = None ; metadata = []}
+  Types.
+    { role = Assistant
+    ; content = [ Thinking { thinking_type = "thinking"; content } ]
+    ; name = None
+    ; tool_call_id = None
+    ; metadata = []
+    }
+;;
 
 (* ── B1: context_injector exception — FIXED ───────────────────── *)
 (* Before fix: injector exception propagated uncaught.
@@ -26,22 +51,25 @@ let thinking_only_msg content =
 
 let test_b1_injector_exception_caught () =
   let boom_injector : Hooks.context_injector =
-    fun ~tool_name:_ ~input:_ ~output:_ ->
-      failwith "injector_boom"
+    fun ~tool_name:_ ~input:_ ~output:_ -> failwith "injector_boom"
   in
   (* The injector still throws when called directly *)
   let threw = ref false in
   (try
-    ignore (boom_injector ~tool_name:"test" ~input:`Null
-      ~output:(Ok { Types.content = "ok" }))
-  with Failure msg ->
-    if msg = "injector_boom" then threw := true);
+     ignore
+       (boom_injector
+          ~tool_name:"test"
+          ~input:`Null
+          ~output:(Ok { Types.content = "ok" }))
+   with
+   | Failure msg -> if msg = "injector_boom" then threw := true);
   check bool "injector throws Failure" true !threw;
   (* Fix verification: agent.ml now wraps the call in try...with.
      The exception handler catches it and continues the tool loop.
      This is structural — we can't run the full agent here without Eio,
      but the code path is verified by the build + existing integration tests. *)
   ()
+;;
 
 (* ── B3: injection role alternation — FIXED ───────────────────── *)
 (* Before fix: extra_messages appended without role validation.
@@ -50,51 +78,62 @@ let test_b1_injector_exception_caught () =
 let test_b3_injection_role_validation () =
   (* Simulate what the fixed agent.ml does: filter_valid drops
      messages that would create role adjacency violations. *)
-  let messages_before = [
-    user_msg "question";
-    Types.{ role = Assistant; content = [
-      ToolUse { id = "t1"; name = "calc"; input = `Null }
-    ]; name = None; tool_call_id = None; metadata = []};
-    Types.{ role = User; content = [
-      ToolResult { tool_use_id = "t1"; content = "42"; is_error = false; json = None }
-    ]; name = None; tool_call_id = None; metadata = []};
-  ] in
-  let extra = [
-    user_msg "[system] observation: file changed";  (* same role as last = User *)
-  ] in
+  let messages_before =
+    [ user_msg "question"
+    ; Types.
+        { role = Assistant
+        ; content = [ ToolUse { id = "t1"; name = "calc"; input = `Null } ]
+        ; name = None
+        ; tool_call_id = None
+        ; metadata = []
+        }
+    ; Types.
+        { role = User
+        ; content =
+            [ ToolResult
+                { tool_use_id = "t1"; content = "42"; is_error = false; json = None }
+            ]
+        ; name = None
+        ; tool_call_id = None
+        ; metadata = []
+        }
+    ]
+  in
+  let extra =
+    [ user_msg "[system] observation: file changed" (* same role as last = User *) ]
+  in
   (* Reproduce the fix logic from agent.ml *)
-  let last_role = (List.nth messages_before
-    (List.length messages_before - 1)).Types.role in
+  let last_role =
+    (List.nth messages_before (List.length messages_before - 1)).Types.role
+  in
   let rec filter_valid prev_role = function
     | [] -> []
     | (msg : Types.message) :: rest ->
-      if msg.role = prev_role then
-        filter_valid prev_role rest
-      else
-        msg :: filter_valid msg.role rest
+      if msg.role = prev_role
+      then filter_valid prev_role rest
+      else msg :: filter_valid msg.role rest
   in
   let valid = filter_valid last_role extra in
   check int "User after User is dropped" 0 (List.length valid);
   (* Now test that valid alternation works *)
-  let good_extra = [
-    asst_msg "I see the file changed";  (* Assistant after User = ok *)
-  ] in
+  let good_extra =
+    [ asst_msg "I see the file changed" (* Assistant after User = ok *) ]
+  in
   let valid2 = filter_valid last_role good_extra in
   check int "Assistant after User is kept" 1 (List.length valid2)
+;;
 
 (* ── B4: token_budget empty → now keeps last turn — FIXED ─────── *)
 
 let test_b4_token_budget_keeps_last_turn () =
   let long_text = String.make 1000 'x' in
-  let msgs = [
-    user_msg long_text;
-    asst_msg long_text;
-  ] in
+  let msgs = [ user_msg long_text; asst_msg long_text ] in
   (* Budget of 1 can't fit any turn, but fix ensures last turn is kept *)
   let result = Context_reducer.reduce (Context_reducer.token_budget 1) msgs in
   check bool "non-empty result" true (List.length result > 0);
   (* Should contain 2 messages (the single turn) *)
   check int "last turn preserved" 2 (List.length result)
+;;
 
 (* ── B5: idle detection with empty fingerprints — FIXED ───────── *)
 (* Before fix: [] <> [] = false blocked detection.
@@ -103,48 +142,61 @@ let test_b4_token_budget_keeps_last_turn () =
 let test_b5_idle_option_type () =
   (* Reproduce the fixed idle detection logic using option type *)
   let is_idle_fixed
-      (prev : (string * string) list option)
-      (current : (string * string) list) =
+        (prev : (string * string) list option)
+        (current : (string * string) list)
+    =
     match prev with
-    | None -> false  (* first turn, no comparison *)
+    | None -> false (* first turn, no comparison *)
     | Some prev_fps ->
-      List.length current = List.length prev_fps &&
-      List.for_all2 (fun (n1, i1) (n2, i2) -> n1 = n2 && i1 = i2)
-        current prev_fps
+      List.length current = List.length prev_fps
+      && List.for_all2 (fun (n1, i1) (n2, i2) -> n1 = n2 && i1 = i2) current prev_fps
   in
   (* None → first turn, never idle *)
-  check bool "None → not idle" false
-    (is_idle_fixed None []);
+  check bool "None → not idle" false (is_idle_fixed None []);
   (* Some [] vs [] → now correctly detected as idle *)
-  check bool "empty-empty idle detected (fixed)" true
-    (is_idle_fixed (Some []) []);
+  check bool "empty-empty idle detected (fixed)" true (is_idle_fixed (Some []) []);
   (* Some [A] vs [A] → idle detected *)
-  check bool "identical detected" true
-    (is_idle_fixed (Some [("calc", "42")]) [("calc", "42")]);
+  check
+    bool
+    "identical detected"
+    true
+    (is_idle_fixed (Some [ "calc", "42" ]) [ "calc", "42" ]);
   (* Some [A] vs [B] → not idle *)
-  check bool "different not idle" false
-    (is_idle_fixed (Some [("calc", "42")]) [("calc", "43")])
+  check
+    bool
+    "different not idle"
+    false
+    (is_idle_fixed (Some [ "calc", "42" ]) [ "calc", "43" ])
+;;
 
 (* ── B6: drop_thinking now drops entire message — FIXED ───────── *)
 (* Before fix: thinking-only → [Text ""].
    After fix: thinking-only messages are removed entirely. *)
 
 let test_b6_drop_thinking_removes_message () =
-  let msgs = [
-    thinking_only_msg "deep reasoning step 1";
-    user_msg "follow up";
-    asst_msg "response";
-  ] in
+  let msgs =
+    [ thinking_only_msg "deep reasoning step 1"
+    ; user_msg "follow up"
+    ; asst_msg "response"
+    ]
+  in
   let result = Context_reducer.reduce Context_reducer.drop_thinking msgs in
   (* First message (thinking-only) should be GONE, not replaced with Text "" *)
   check int "message count reduced" 2 (List.length result);
   (* Verify no empty Text blocks *)
-  let has_empty_text = List.exists (fun (msg : Types.message) ->
-    List.exists (fun block ->
-      match block with Types.Text "" -> true | _ -> false
-    ) msg.content
-  ) result in
+  let has_empty_text =
+    List.exists
+      (fun (msg : Types.message) ->
+         List.exists
+           (fun block ->
+              match block with
+              | Types.Text "" -> true
+              | _ -> false)
+           msg.content)
+      result
+  in
   check bool "no empty Text blocks" false has_empty_text
+;;
 
 (* ── B7: unknown model zero cost — design choice, not fixed ───── *)
 
@@ -152,36 +204,52 @@ let test_b7_unknown_model_zero_cost () =
   let pricing = Provider.pricing_for_model "my-custom-fine-tuned-model" in
   check (float 0.001) "input zero" 0.0 pricing.input_per_million;
   check (float 0.001) "output zero" 0.0 pricing.output_per_million;
-  let cost = Provider.estimate_cost ~pricing
-    ~input_tokens:1_000_000 ~output_tokens:500_000 () in
+  let cost =
+    Provider.estimate_cost ~pricing ~input_tokens:1_000_000 ~output_tokens:500_000 ()
+  in
   check (float 0.001) "total cost zero" 0.0 cost
+;;
 
 (* ── Test runner ──────────────────────────────────────────────── *)
 
 let () =
-  run "bug_hunt_v024" [
-    "B1_injector_crash_FIXED", [
-      test_case "exception caught by try-with" `Quick
-        test_b1_injector_exception_caught;
-    ];
-    "B3_role_violation_FIXED", [
-      test_case "role validation drops invalid messages" `Quick
-        test_b3_injection_role_validation;
-    ];
-    "B4_empty_messages_FIXED", [
-      test_case "token_budget keeps last turn" `Quick
-        test_b4_token_budget_keeps_last_turn;
-    ];
-    "B5_idle_detection_FIXED", [
-      test_case "option type enables empty-empty detection" `Quick
-        test_b5_idle_option_type;
-    ];
-    "B6_empty_text_FIXED", [
-      test_case "thinking-only messages removed entirely" `Quick
-        test_b6_drop_thinking_removes_message;
-    ];
-    "B7_zero_cost_BY_DESIGN", [
-      test_case "unknown model has zero pricing (design choice)" `Quick
-        test_b7_unknown_model_zero_cost;
-    ];
-  ]
+  run
+    "bug_hunt_v024"
+    [ ( "B1_injector_crash_FIXED"
+      , [ test_case
+            "exception caught by try-with"
+            `Quick
+            test_b1_injector_exception_caught
+        ] )
+    ; ( "B3_role_violation_FIXED"
+      , [ test_case
+            "role validation drops invalid messages"
+            `Quick
+            test_b3_injection_role_validation
+        ] )
+    ; ( "B4_empty_messages_FIXED"
+      , [ test_case
+            "token_budget keeps last turn"
+            `Quick
+            test_b4_token_budget_keeps_last_turn
+        ] )
+    ; ( "B5_idle_detection_FIXED"
+      , [ test_case
+            "option type enables empty-empty detection"
+            `Quick
+            test_b5_idle_option_type
+        ] )
+    ; ( "B6_empty_text_FIXED"
+      , [ test_case
+            "thinking-only messages removed entirely"
+            `Quick
+            test_b6_drop_thinking_removes_message
+        ] )
+    ; ( "B7_zero_cost_BY_DESIGN"
+      , [ test_case
+            "unknown model has zero pricing (design choice)"
+            `Quick
+            test_b7_unknown_model_zero_cost
+        ] )
+    ]
+;;

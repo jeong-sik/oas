@@ -33,10 +33,22 @@ let to_string = function
   | Gemini_cli -> "gemini_cli"
   | Kimi_cli -> "kimi_cli"
   | Codex_cli -> "codex_cli"
+;;
 
 let all : t list =
-  [ Anthropic; Kimi; OpenAI_compat; Ollama; Gemini; Glm; DashScope
-  ; Claude_code; Gemini_cli; Kimi_cli; Codex_cli ]
+  [ Anthropic
+  ; Kimi
+  ; OpenAI_compat
+  ; Ollama
+  ; Gemini
+  ; Glm
+  ; DashScope
+  ; Claude_code
+  ; Gemini_cli
+  ; Kimi_cli
+  ; Codex_cli
+  ]
+;;
 
 let default_api_key_env = function
   | Anthropic -> Some "ANTHROPIC_API_KEY"
@@ -45,10 +57,12 @@ let default_api_key_env = function
   | Glm -> Some "ZAI_API_KEY"
   | DashScope -> Some "DASHSCOPE_API_KEY"
   | OpenAI_compat | Ollama | Claude_code | Gemini_cli | Kimi_cli | Codex_cli -> None
+;;
 
 let is_subprocess_cli = function
   | Claude_code | Gemini_cli | Kimi_cli | Codex_cli -> true
   | Anthropic | Kimi | OpenAI_compat | Ollama | Gemini | Glm | DashScope -> false
+;;
 
 let of_string raw =
   match String.lowercase_ascii (String.trim raw) with
@@ -64,18 +78,17 @@ let of_string raw =
   | "kimi_cli" -> Some Kimi_cli
   | "codex_cli" -> Some Codex_cli
   | _ -> None
+;;
 
 let pp fmt k = Format.pp_print_string fmt (to_string k)
-
 let show = to_string
-
 let to_yojson (k : t) : Yojson.Safe.t = `String (to_string k)
 
-let of_yojson (json : Yojson.Safe.t) :
-  t Ppx_deriving_yojson_runtime.error_or =
+let of_yojson (json : Yojson.Safe.t) : t Ppx_deriving_yojson_runtime.error_or =
   match json with
   | `String s ->
     (match of_string s with
      | Some k -> Ok k
      | None -> Error (Printf.sprintf "provider_kind: unknown value %S" s))
   | _ -> Error "provider_kind: expected JSON string"
+;;

@@ -13,23 +13,23 @@ type issue =
   | Empty_patch
   | Unsafe_path of string
   | Outside_allowed_paths of string
-  | Banned_addition of {
-      path: string option;
-      pattern: string;
-      line: string;
-    }
+  | Banned_addition of
+      { path : string option
+      ; pattern : string
+      ; line : string
+      }
 
-type report = {
-  accepted: bool;
-  touched_paths: string list;
-  issues: issue list;
-}
+type report =
+  { accepted : bool
+  ; touched_paths : string list
+  ; issues : issue list
+  }
 
 val default_banned_patterns : string list
 val show_issue : issue -> string
 
-val validate_patch :
-  allowed_paths:string list ->
-  ?banned_patterns:string list ->
-  string ->
-  report
+val validate_patch
+  :  allowed_paths:string list
+  -> ?banned_patterns:string list
+  -> string
+  -> report

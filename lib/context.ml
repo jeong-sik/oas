@@ -9,10 +9,11 @@
     (pure Hashtbl ops), so Stdlib.Mutex is safe and sufficient.
     Values are Yojson.Safe.t for flexibility while maintaining serializability. *)
 
-type t = {
-  mu: Mutex.t;
-  tbl: (string, Yojson.Safe.t) Hashtbl.t;
-}
+type t =
+  { mu : Mutex.t
+  ; tbl : (string, Yojson.Safe.t) Hashtbl.t
+  }
+
 type scope =
   | App
   | User
@@ -20,36 +21,32 @@ type scope =
   | Temp
   | Custom of string
 
-type diff = {
-  added: (string * Yojson.Safe.t) list;
-  removed: string list;
-  changed: (string * Yojson.Safe.t) list;
-}
+type diff =
+  { added : (string * Yojson.Safe.t) list
+  ; removed : string list
+  ; changed : (string * Yojson.Safe.t) list
+  }
 
-let create () : t =
-  { mu = Mutex.create (); tbl = Hashtbl.create 16 }
+let create () : t = { mu = Mutex.create (); tbl = Hashtbl.create 16 }
 
 let with_lock ctx f =
   Mutex.lock ctx.mu;
   Fun.protect f ~finally:(fun () -> Mutex.unlock ctx.mu)
+;;
 
-let get (ctx : t) key =
-  with_lock ctx (fun () -> Hashtbl.find_opt ctx.tbl key)
-
-let set (ctx : t) key value =
-  with_lock ctx (fun () -> Hashtbl.replace ctx.tbl key value)
-
-let delete (ctx : t) key =
-  with_lock ctx (fun () -> Hashtbl.remove ctx.tbl key)
+let get (ctx : t) key = with_lock ctx (fun () -> Hashtbl.find_opt ctx.tbl key)
+let set (ctx : t) key value = with_lock ctx (fun () -> Hashtbl.replace ctx.tbl key value)
+let delete (ctx : t) key = with_lock ctx (fun () -> Hashtbl.remove ctx.tbl key)
 
 let keys (ctx : t) =
-  with_lock ctx (fun () ->
-    Hashtbl.fold (fun k _ acc -> k :: acc) ctx.tbl [])
+  with_lock ctx (fun () -> Hashtbl.fold (fun k _ acc -> k :: acc) ctx.tbl [])
+;;
 
 let snapshot (ctx : t) =
   with_lock ctx (fun () ->
     Hashtbl.fold (fun k v acc -> (k, v) :: acc) ctx.tbl []
     |> List.sort (fun (a, _) (b, _) -> String.compare a b))
+;;
 
 let scope_prefix = function
   | App -> "app:"
@@ -57,22 +54,18 @@ let scope_prefix = function
   | Session -> "session:"
   | Temp -> "temp:"
   | Custom raw ->
-      let raw = String.trim raw in
-      if raw = "" then "custom:"
-      else if String.ends_with ~suffix:":" raw then raw
-      else raw ^ ":"
+    let raw = String.trim raw in
+    if raw = ""
+    then "custom:"
+    else if String.ends_with ~suffix:":" raw
+    then raw
+    else raw ^ ":"
+;;
 
-let scoped_key scope key =
-  scope_prefix scope ^ key
-
-let get_scoped (ctx : t) scope key =
-  get ctx (scoped_key scope key)
-
-let set_scoped (ctx : t) scope key value =
-  set ctx (scoped_key scope key) value
-
-let delete_scoped (ctx : t) scope key =
-  delete ctx (scoped_key scope key)
+let scoped_key scope key = scope_prefix scope ^ key
+let get_scoped (ctx : t) scope key = get ctx (scoped_key scope key)
+let set_scoped (ctx : t) scope key value = set ctx (scoped_key scope key) value
+let delete_scoped (ctx : t) scope key = delete ctx (scoped_key scope key)
 
 let keys_in_scope (ctx : t) scope =
   let prefix = scope_prefix scope in
@@ -80,17 +73,15 @@ let keys_in_scope (ctx : t) scope =
   with_lock ctx (fun () ->
     Hashtbl.fold (fun k _ acc -> k :: acc) ctx.tbl []
     |> List.filter_map (fun key ->
-           if String.length key >= prefix_len
-              && String.sub key 0 prefix_len = prefix
-           then
-             Some (String.sub key prefix_len (String.length key - prefix_len))
-           else
-             None)
+      if String.length key >= prefix_len && String.sub key 0 prefix_len = prefix
+      then Some (String.sub key prefix_len (String.length key - prefix_len))
+      else None)
     |> List.sort String.compare)
+;;
 
 let merge (ctx : t) (pairs : (string * Yojson.Safe.t) list) =
-  with_lock ctx (fun () ->
-    List.iter (fun (k, v) -> Hashtbl.replace ctx.tbl k v) pairs)
+  with_lock ctx (fun () -> List.iter (fun (k, v) -> Hashtbl.replace ctx.tbl k v) pairs)
+;;
 
 let diff before after =
   let before_snapshot = snapshot before in
@@ -100,41 +91,42 @@ let diff before after =
   List.iter (fun (k, v) -> Hashtbl.replace before_map k v) before_snapshot;
   List.iter (fun (k, v) -> Hashtbl.replace after_map k v) after_snapshot;
   let added =
-    after_snapshot
-    |> List.filter (fun (k, _) -> not (Hashtbl.mem before_map k))
+    after_snapshot |> List.filter (fun (k, _) -> not (Hashtbl.mem before_map k))
   in
   let removed =
     before_snapshot
-    |> List.filter_map (fun (k, _) ->
-           if Hashtbl.mem after_map k then None else Some k)
+    |> List.filter_map (fun (k, _) -> if Hashtbl.mem after_map k then None else Some k)
   in
   let changed =
     after_snapshot
     |> List.filter_map (fun (k, v) ->
-           match Hashtbl.find_opt before_map k with
-           | Some prev when prev = v -> None
-           | Some _ -> Some (k, v)
-           | None -> None)
+      match Hashtbl.find_opt before_map k with
+      | Some prev when prev = v -> None
+      | Some _ -> Some (k, v)
+      | None -> None)
   in
   { added; removed; changed }
+;;
 
 let to_json (ctx : t) : Yojson.Safe.t =
   let pairs = snapshot ctx in
   `Assoc pairs
+;;
 
 let of_json (json : Yojson.Safe.t) : t =
   let ctx = create () in
   (match json with
-   | `Assoc pairs ->
-       List.iter (fun (k, v) -> Hashtbl.replace ctx.tbl k v) pairs
+   | `Assoc pairs -> List.iter (fun (k, v) -> Hashtbl.replace ctx.tbl k v) pairs
    | _ -> ());
   ctx
+;;
 
 let copy (ctx : t) : t =
   with_lock ctx (fun () ->
     let new_ctx = create () in
     Hashtbl.iter (fun k v -> Hashtbl.replace new_ctx.tbl k v) ctx.tbl;
     new_ctx)
+;;
 
 (* ── Scoped isolation for sub-agent delegation ───────────────── *)
 
@@ -143,52 +135,53 @@ let copy (ctx : t) : t =
     [local] is the sub-agent's working context.
     [propagate_up] lists keys that should be merged back to parent.
     [propagate_down] lists keys inherited from parent at creation. *)
-type isolated_scope = {
-  parent: t;
-  local: t;
-  propagate_up: string list;
-  propagate_down: string list;
-}
+type isolated_scope =
+  { parent : t
+  ; local : t
+  ; propagate_up : string list
+  ; propagate_down : string list
+  }
 
 (** Create an isolated scope from a parent context.
     Only keys listed in [propagate_down] are copied to the local context.
     Reads from parent under lock, then populates new local context. *)
 let create_scope ~parent ~propagate_down ~propagate_up =
   let local = create () in
-  let pairs = with_lock parent (fun () ->
-    List.filter_map (fun key ->
-      match Hashtbl.find_opt parent.tbl key with
-      | Some v -> Some (key, v)
-      | None -> None
-    ) propagate_down) in
+  let pairs =
+    with_lock parent (fun () ->
+      List.filter_map
+        (fun key ->
+           match Hashtbl.find_opt parent.tbl key with
+           | Some v -> Some (key, v)
+           | None -> None)
+        propagate_down)
+  in
   List.iter (fun (k, v) -> Hashtbl.replace local.tbl k v) pairs;
   { parent; local; propagate_up; propagate_down }
+;;
 
 (** Merge specified keys from the local context back into the parent.
     Only keys listed in [propagate_up] are merged.
     Collects local values, then writes to parent under a single lock. *)
 let merge_back scope =
-  let pairs = with_lock scope.local (fun () ->
-    List.filter_map (fun key ->
-      match Hashtbl.find_opt scope.local.tbl key with
-      | Some v -> Some (key, v)
-      | None -> None
-    ) scope.propagate_up) in
+  let pairs =
+    with_lock scope.local (fun () ->
+      List.filter_map
+        (fun key ->
+           match Hashtbl.find_opt scope.local.tbl key with
+           | Some v -> Some (key, v)
+           | None -> None)
+        scope.propagate_up)
+  in
   with_lock scope.parent (fun () ->
-    List.iter (fun (k, v) ->
-      Hashtbl.replace scope.parent.tbl k v
-    ) pairs)
+    List.iter (fun (k, v) -> Hashtbl.replace scope.parent.tbl k v) pairs)
+;;
 
 (* ── User data convenience API ─────────────────────────────── *)
 
-let set_user_data (ctx : t) key value =
-  set_scoped ctx User key value
-
-let get_user_data (ctx : t) key =
-  get_scoped ctx User key
-
-let delete_user_data (ctx : t) key =
-  delete_scoped ctx User key
+let set_user_data (ctx : t) key value = set_scoped ctx User key value
+let get_user_data (ctx : t) key = get_scoped ctx User key
+let delete_user_data (ctx : t) key = delete_scoped ctx User key
 
 let all_user_data (ctx : t) =
   let prefix = scope_prefix User in
@@ -196,9 +189,7 @@ let all_user_data (ctx : t) =
   with_lock ctx (fun () ->
     Hashtbl.fold (fun k v acc -> (k, v) :: acc) ctx.tbl []
     |> List.filter_map (fun (key, value) ->
-         if String.length key >= prefix_len
-            && String.sub key 0 prefix_len = prefix
-         then
-           Some (String.sub key prefix_len (String.length key - prefix_len), value)
-         else
-           None))
+      if String.length key >= prefix_len && String.sub key 0 prefix_len = prefix
+      then Some (String.sub key prefix_len (String.length key - prefix_len), value)
+      else None))
+;;

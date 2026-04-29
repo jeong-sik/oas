@@ -11,57 +11,65 @@ include Llm_provider.Backend_openai
 let system_message_json (config : agent_state) : Yojson.Safe.t list =
   match config.config.system_prompt with
   | Some s when not (Api_common.string_is_blank s) ->
-      [ `Assoc [("role", `String "system"); ("content", `String (Llm_provider.Utf8_sanitize.sanitize s))] ]
+    [ `Assoc
+        [ "role", `String "system"
+        ; "content", `String (Llm_provider.Utf8_sanitize.sanitize s)
+        ]
+    ]
   | _ -> []
+;;
 
 let capabilities_for_request ?provider_config (config : agent_state) =
   match provider_config with
   | Some cfg -> Provider.capabilities_for_config cfg
   | None ->
-      Provider.capabilities_for_model
-        ~provider:
-          (Provider.OpenAICompat
-             {
-               base_url = "";
-               auth_header = None;
-               path = "/chat/completions";
-               static_token = None;
-             })
-        ~model_id:(model_to_string config.config.model)
+    Provider.capabilities_for_model
+      ~provider:
+        (Provider.OpenAICompat
+           { base_url = ""
+           ; auth_header = None
+           ; path = "/chat/completions"
+           ; static_token = None
+           })
+      ~model_id:(model_to_string config.config.model)
+;;
 
 let is_zai_provider_config (cfg : Provider.config) =
   match cfg.provider with
-  | Provider.OpenAICompat { base_url; _ }
-  | Provider.Local { base_url } ->
-      Llm_provider.Zai_catalog.is_zai_base_url base_url
+  | Provider.OpenAICompat { base_url; _ } | Provider.Local { base_url } ->
+    Llm_provider.Zai_catalog.is_zai_base_url base_url
   | _ -> false
+;;
 
 let is_glm_request ?provider_config (config : agent_state) =
   match provider_config with
   | Some (cfg : Provider.config) ->
-      is_zai_provider_config cfg
-      && Llm_provider.Zai_catalog.is_glm_model_id cfg.model_id
-  | None ->
-      Llm_provider.Zai_catalog.is_glm_model_id
-        (model_to_string config.config.model)
+    is_zai_provider_config cfg && Llm_provider.Zai_catalog.is_glm_model_id cfg.model_id
+  | None -> Llm_provider.Zai_catalog.is_glm_model_id (model_to_string config.config.model)
+;;
 
-let effective_tool_choice_json (capabilities : Provider.capabilities)
-    ?provider_config (config : agent_state) =
+let effective_tool_choice_json
+      (capabilities : Provider.capabilities)
+      ?provider_config
+      (config : agent_state)
+  =
   let is_glm = is_glm_request ?provider_config config in
   match config.config.tool_choice with
   | Some Types.None_ when is_glm -> None
   | Some (Types.Auto | Types.Any | Types.Tool _) when is_glm ->
-      Some (tool_choice_to_openai_json Types.Auto)
+    Some (tool_choice_to_openai_json Types.Auto)
   | Some Types.Auto when capabilities.supports_tool_choice ->
-      Some (tool_choice_to_openai_json Types.Auto)
+    Some (tool_choice_to_openai_json Types.Auto)
   | Some choice when capabilities.supports_tool_choice ->
-      Some (tool_choice_to_openai_json choice)
+    Some (tool_choice_to_openai_json choice)
   | _ -> None
+;;
 
 let should_include_tools ?provider_config (config : agent_state) =
   match config.config.tool_choice with
   | Some Types.None_ when is_glm_request ?provider_config config -> false
   | _ -> true
+;;
 
 let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
   let model_str = model_to_string config.config.model in
@@ -69,19 +77,16 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
   let sanitized_messages = strip_orphaned_tool_results messages in
   let provider_messages =
     let message_serializer =
-      if is_glm_request ?provider_config config then
-        Llm_provider.Backend_openai_serialize.glm_messages_of_message
-      else
-        openai_messages_of_message
+      if is_glm_request ?provider_config config
+      then Llm_provider.Backend_openai_serialize.glm_messages_of_message
+      else openai_messages_of_message
     in
-    system_message_json config
-    @ List.concat_map message_serializer sanitized_messages
+    system_message_json config @ List.concat_map message_serializer sanitized_messages
   in
   let body_assoc =
-    [
-      ("model", `String model_str);
-      ("messages", `List provider_messages);
-      ("max_tokens", `Int (Option.value ~default:4096 config.config.max_tokens));
+    [ "model", `String model_str
+    ; "messages", `List provider_messages
+    ; "max_tokens", `Int (Option.value ~default:4096 config.config.max_tokens)
     ]
   in
   let body_assoc =
@@ -96,45 +101,44 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
   in
   let body_assoc =
     match config.config.top_k with
-    | Some top_k when capabilities.supports_top_k ->
-        ("top_k", `Int top_k) :: body_assoc
+    | Some top_k when capabilities.supports_top_k -> ("top_k", `Int top_k) :: body_assoc
     | None -> body_assoc
     | Some _ ->
-        Llm_provider.Backend_openai.warn_capability_drop
-          ~model_id:model_str ~field:"top_k";
-        body_assoc
+      Llm_provider.Backend_openai.warn_capability_drop ~model_id:model_str ~field:"top_k";
+      body_assoc
   in
   let body_assoc =
     match config.config.min_p with
-    | Some min_p when capabilities.supports_min_p ->
-        ("min_p", `Float min_p) :: body_assoc
+    | Some min_p when capabilities.supports_min_p -> ("min_p", `Float min_p) :: body_assoc
     | None -> body_assoc
     | Some _ ->
-        Llm_provider.Backend_openai.warn_capability_drop
-          ~model_id:model_str ~field:"min_p";
-        body_assoc
+      Llm_provider.Backend_openai.warn_capability_drop ~model_id:model_str ~field:"min_p";
+      body_assoc
   in
   let body_assoc =
     match config.config.enable_thinking with
     | Some enabled when capabilities.supports_reasoning ->
-        if capabilities.is_ollama then
-          let effort = Llm_provider.Provider_config.effort_of_thinking_config
-              ~enable_thinking:(Some enabled)
-              ~thinking_budget:config.config.thinking_budget in
-          ("reasoning_effort", `String effort) :: body_assoc
-        else if is_glm_request ?provider_config config then
-          let thinking =
-            if enabled then
-              `Assoc [("type", `String "enabled");
-                      ("clear_thinking", `Bool true)]
-            else
-              `Assoc [("type", `String "disabled")]
-          in
-          ("thinking", thinking) :: body_assoc
-        else
-          ("chat_template_kwargs", `Assoc [("enable_thinking", `Bool enabled)]) :: body_assoc
+      if capabilities.is_ollama
+      then (
+        let effort =
+          Llm_provider.Provider_config.effort_of_thinking_config
+            ~enable_thinking:(Some enabled)
+            ~thinking_budget:config.config.thinking_budget
+        in
+        ("reasoning_effort", `String effort) :: body_assoc)
+      else if is_glm_request ?provider_config config
+      then (
+        let thinking =
+          if enabled
+          then `Assoc [ "type", `String "enabled"; "clear_thinking", `Bool true ]
+          else `Assoc [ "type", `String "disabled" ]
+        in
+        ("thinking", thinking) :: body_assoc)
+      else
+        ("chat_template_kwargs", `Assoc [ "enable_thinking", `Bool enabled ])
+        :: body_assoc
     | None when capabilities.is_ollama ->
-        ("reasoning_effort", `String "none") :: body_assoc
+      ("reasoning_effort", `String "none") :: body_assoc
     | None -> body_assoc
     | Some _ -> body_assoc
   in
@@ -144,7 +148,7 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
       when entries <> []
            && capabilities.supports_tools
            && should_include_tools ?provider_config config ->
-        ("tools", `List (List.map build_openai_tool_json entries)) :: body_assoc
+      ("tools", `List (List.map build_openai_tool_json entries)) :: body_assoc
     | _ -> body_assoc
   in
   let body_assoc =
@@ -153,23 +157,21 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
     | None -> body_assoc
   in
   let body_assoc =
-    if config.config.disable_parallel_tool_use && capabilities.supports_tools then
-      ("parallel_tool_calls", `Bool false) :: body_assoc
-    else
-      body_assoc
+    if config.config.disable_parallel_tool_use && capabilities.supports_tools
+    then ("parallel_tool_calls", `Bool false) :: body_assoc
+    else body_assoc
   in
   let body_assoc =
     match config.config.response_format with
     | JsonMode when capabilities.supports_response_format_json ->
-        (match response_format_to_openai_json JsonMode with
-         | Some response_format -> ("response_format", response_format) :: body_assoc
-         | None -> body_assoc)
+      (match response_format_to_openai_json JsonMode with
+       | Some response_format -> ("response_format", response_format) :: body_assoc
+       | None -> body_assoc)
     | JsonSchema _ when capabilities.supports_structured_output ->
-        (match response_format_to_openai_json config.config.response_format with
-         | Some response_format -> ("response_format", response_format) :: body_assoc
-         | None -> body_assoc)
-    | JsonSchema _ | JsonMode | Off ->
-        body_assoc
+      (match response_format_to_openai_json config.config.response_format with
+       | Some response_format -> ("response_format", response_format) :: body_assoc
+       | None -> body_assoc)
+    | JsonSchema _ | JsonMode | Off -> body_assoc
   in
   let body_assoc =
     match slot_id with
@@ -177,3 +179,4 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
     | None -> body_assoc
   in
   Yojson.Safe.to_string (`Assoc body_assoc)
+;;

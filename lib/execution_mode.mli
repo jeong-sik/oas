@@ -7,9 +7,9 @@
     @since 0.93.1 *)
 
 type t =
-  | Diagnose  (** Read-only analysis, no mutations *)
-  | Draft     (** Workspace-local mutations, no external side effects *)
-  | Execute   (** Full execution with external side effects *)
+  | Diagnose (** Read-only analysis, no mutations *)
+  | Draft (** Workspace-local mutations, no external side effects *)
+  | Execute (** Full execution with external side effects *)
 [@@deriving yojson, show]
 
 val to_string : t -> string
