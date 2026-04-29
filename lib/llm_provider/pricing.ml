@@ -83,6 +83,15 @@ let pricing_for_model_opt model_id =
     else if string_contains ~needle:"o3-mini" normalized
     then
       Some ((1.1, 4.4), no_cache)
+      (* DeepSeek v4. Source: api-docs.deepseek.com, confirmed 2026-04-29.
+       Promotional 75%% discount until 2026-05-31.
+       Cache read rate: flash $0.0028/M (2%% of input), pro $0.003625/M.
+       Cache write is billed at standard input rate (no surcharge). *)
+    else if string_contains ~needle:"deepseek-v4-pro" normalized
+    then Some ((0.435, 0.87), (1.0, 0.008333333333333333))
+    else if string_contains ~needle:"deepseek-v4-flash" normalized
+    then
+      Some ((0.14, 0.28), (1.0, 0.02))
       (* Gemini 3-계 preview. Source: ai.google.dev/gemini-api/docs/pricing,
        confirmed 2026-04-16. Google also exposes context caching with a
        per-hour storage surcharge ($1.00/h flash, $4.50/h pro); the

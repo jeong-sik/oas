@@ -18,3 +18,9 @@ val build_openai_tool_json : Yojson.Safe.t -> Yojson.Safe.t
     OpenAI-compatible APIs to prevent orphaned tool_call_id errors
     after context compaction.  @since 0.103.0 *)
 val strip_orphaned_tool_results : Types.message list -> Types.message list
+
+(** Remove Thinking blocks from all messages. DeepSeek-compatible APIs
+    reject [reasoning_content] in request messages — it is response-only.
+    Call before serializing messages for OpenAI-compatible APIs.
+    @since 0.184.0 *)
+val strip_thinking_blocks : Types.message list -> Types.message list

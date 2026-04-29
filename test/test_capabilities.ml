@@ -111,13 +111,26 @@ let test_lookup_qwen () =
   | None -> fail "should match qwen3"
 ;;
 
-let test_lookup_deepseek_r1 () =
-  match Capabilities.for_model_id "deepseek-r1" with
+let test_lookup_deepseek_v4_flash () =
+  match Capabilities.for_model_id "deepseek-v4-flash" with
   | Some c ->
-    check bool "NO tools" false c.supports_tools;
+    check (option int) "context 1M" (Some 1_000_000) c.max_context_tokens;
+    check (option int) "output 384K" (Some 384_000) c.max_output_tokens;
+    check bool "tools" true c.supports_tools;
     check bool "reasoning" true c.supports_reasoning;
-    check (option int) "output 8K" (Some 8_000) c.max_output_tokens
-  | None -> fail "should match deepseek-r1"
+    check bool "caching" true c.supports_caching
+  | None -> fail "should match deepseek-v4-flash"
+;;
+
+let test_lookup_deepseek_v4_pro () =
+  match Capabilities.for_model_id "deepseek-v4-pro" with
+  | Some c ->
+    check (option int) "context 1M" (Some 1_000_000) c.max_context_tokens;
+    check (option int) "output 384K" (Some 384_000) c.max_output_tokens;
+    check bool "tools" true c.supports_tools;
+    check bool "reasoning" true c.supports_reasoning;
+    check bool "caching" true c.supports_caching
+  | None -> fail "should match deepseek-v4-pro"
 ;;
 
 let test_lookup_grok () =
@@ -204,7 +217,8 @@ let () =
         ; test_case "gpt-5" `Quick test_lookup_gpt5
         ; test_case "gemini" `Quick test_lookup_gemini
         ; test_case "qwen" `Quick test_lookup_qwen
-        ; test_case "deepseek r1 no tools" `Quick test_lookup_deepseek_r1
+        ; test_case "deepseek v4 flash" `Quick test_lookup_deepseek_v4_flash
+        ; test_case "deepseek v4 pro" `Quick test_lookup_deepseek_v4_pro
         ; test_case "grok 2M context" `Quick test_lookup_grok
         ; test_case "glm-5 text only" `Quick test_lookup_glm5_text_only
         ; test_case "glm-5v vision" `Quick test_lookup_glm5v_vision

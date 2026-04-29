@@ -18,6 +18,7 @@ let glm_messages_of_message = Backend_openai_serialize.glm_messages_of_message
 let tool_choice_to_openai_json = Backend_openai_serialize.tool_choice_to_openai_json
 let build_openai_tool_json = Backend_openai_serialize.build_openai_tool_json
 let strip_orphaned_tool_results = Backend_openai_serialize.strip_orphaned_tool_results
+let strip_thinking_blocks = Backend_openai_serialize.strip_thinking_blocks
 
 (* ── Re-exports from parsing ──────────────────────────── *)
 
@@ -190,8 +191,20 @@ let build_request ?(stream=false) ~(config : Provider_config.t)
   in
   let body = match config.enable_thinking with
     | Some enabled ->
-        ("chat_template_kwargs",
-         `Assoc [("enable_thinking", `Bool enabled)]) :: body
+        if String.starts_with ~prefix:"deepseek-v4" config.model_id then
+          if enabled then
+            let effort = Provider_config.effort_of_thinking_config
+              ~enable_thinking:config.enable_thinking
+              ~thinking_budget:config.thinking_budget
+            in
+            ("reasoning_effort", `String effort)
+            :: ("thinking", `Assoc [("type", `String "enabled")])
+            :: body
+          else
+            ("thinking", `Assoc [("type", `String "disabled")]) :: body
+        else
+          ("chat_template_kwargs",
+           `Assoc [("enable_thinking", `Bool enabled)]) :: body
     | None -> body
   in
   (* tool_choice uses a DIFFERENT unknown-model default than top_k /
@@ -1032,3 +1045,45 @@ let%test "supports_tool_choice_override=Some true forces tool_choice on capabili
   let json = Yojson.Safe.from_string body in
   let open Yojson.Safe.Util in
   json |> member "tool_choice" |> to_string = "required"
+
+let%test "build_request serializes thinking object for deepseek-v4-flash" =
+  let config = Provider_config.make ~kind:OpenAI_compat ~model_id:"deepseek-v4-flash"
+      ~base_url:"https://api.deepseek.com" ~enable_thinking:true ~thinking_budget:2048 () in
+  let body = build_request ~config ~messages:[] () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  let thinking = json |> member "thinking" in
+  thinking |> member "type" |> to_string = "enabled"
+  && thinking |> member "reasoning_effort" = `Null
+  && json |> member "reasoning_effort" |> to_string = "low"
+
+let%test "build_request serializes disabled thinking for deepseek-v4-pro" =
+  let config = Provider_config.make ~kind:OpenAI_compat ~model_id:"deepseek-v4-pro"
+      ~base_url:"https://api.deepseek.com" ~enable_thinking:false () in
+  let body = build_request ~config ~messages:[] () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  json |> member "thinking" |> member "type" |> to_string = "disabled"
+
+let%test "build_request falls back to chat_template_kwargs for non-deepseek thinking" =
+  let config = Provider_config.make ~kind:OpenAI_compat ~model_id:"llama-3.3-70b"
+      ~base_url:"http://localhost" ~enable_thinking:true () in
+  let body = build_request ~config ~messages:[] () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  json |> member "chat_template_kwargs" |> member "enable_thinking" |> to_bool = true
+
+let%test "strip_thinking_blocks removes Thinking from all messages" =
+  let messages = [
+    { role = User; content = [Text "hello"]
+    ; name = None; tool_call_id = None; metadata = [] };
+    { role = Assistant; content = [
+        Text "hi";
+        Thinking { thinking_type = "reasoning"; content = "step 1" }
+      ]
+    ; name = None; tool_call_id = None; metadata = [] }
+  ] in
+  let stripped = strip_thinking_blocks messages in
+  List.for_all (fun (msg : message) ->
+    not (List.exists (function Thinking _ -> true | _ -> false) msg.content)
+  ) stripped

@@ -1646,33 +1646,26 @@ let test_for_model_id_llama4_alt () =
   | None -> Alcotest.fail "expected Some for llama4"
 ;;
 
-let test_for_model_id_deepseek_chat () =
-  match Capabilities.for_model_id "deepseek-chat-v3" with
+let test_for_model_id_deepseek_v4_flash () =
+  match Capabilities.for_model_id "deepseek-v4-flash" with
   | Some c ->
+    Alcotest.(check (option int)) "1M context" (Some 1_000_000) c.max_context_tokens;
+    Alcotest.(check (option int)) "384K output" (Some 384_000) c.max_output_tokens;
     Alcotest.(check bool) "tools" true c.supports_tools;
-    Alcotest.(check bool) "reasoning" true c.supports_reasoning
-  | None -> Alcotest.fail "expected Some for deepseek-chat"
-;;
-
-let test_for_model_id_deepseek_v3 () =
-  match Capabilities.for_model_id "deepseek-v3-2025" with
-  | Some c -> Alcotest.(check bool) "tools" true c.supports_tools
-  | None -> Alcotest.fail "expected Some for deepseek-v3"
-;;
-
-let test_for_model_id_deepseek_r1 () =
-  match Capabilities.for_model_id "deepseek-r1-latest" with
-  | Some c ->
-    Alcotest.(check bool) "no tools" false c.supports_tools;
     Alcotest.(check bool) "reasoning" true c.supports_reasoning;
-    Alcotest.(check bool) "extended_thinking" true c.supports_extended_thinking
-  | None -> Alcotest.fail "expected Some for deepseek-r1"
+    Alcotest.(check bool) "caching" true c.supports_caching
+  | None -> Alcotest.fail "expected Some for deepseek-v4-flash"
 ;;
 
-let test_for_model_id_deepseek_reasoner () =
-  match Capabilities.for_model_id "deepseek-reasoner" with
-  | Some c -> Alcotest.(check bool) "no tools" false c.supports_tools
-  | None -> Alcotest.fail "expected Some for deepseek-reasoner"
+let test_for_model_id_deepseek_v4_pro () =
+  match Capabilities.for_model_id "deepseek-v4-pro" with
+  | Some c ->
+    Alcotest.(check (option int)) "1M context" (Some 1_000_000) c.max_context_tokens;
+    Alcotest.(check (option int)) "384K output" (Some 384_000) c.max_output_tokens;
+    Alcotest.(check bool) "tools" true c.supports_tools;
+    Alcotest.(check bool) "reasoning" true c.supports_reasoning;
+    Alcotest.(check bool) "caching" true c.supports_caching
+  | None -> Alcotest.fail "expected Some for deepseek-v4-pro"
 ;;
 
 let test_for_model_id_mistral_large () =
@@ -2003,13 +1996,11 @@ let () =
         ; Alcotest.test_case "qwen3" `Quick test_for_model_id_qwen3
         ; Alcotest.test_case "llama-4" `Quick test_for_model_id_llama4
         ; Alcotest.test_case "llama4" `Quick test_for_model_id_llama4_alt
-        ; Alcotest.test_case "deepseek-chat" `Quick test_for_model_id_deepseek_chat
-        ; Alcotest.test_case "deepseek-v3" `Quick test_for_model_id_deepseek_v3
-        ; Alcotest.test_case "deepseek-r1" `Quick test_for_model_id_deepseek_r1
         ; Alcotest.test_case
-            "deepseek-reasoner"
+            "deepseek-v4-flash"
             `Quick
-            test_for_model_id_deepseek_reasoner
+            test_for_model_id_deepseek_v4_flash
+        ; Alcotest.test_case "deepseek-v4-pro" `Quick test_for_model_id_deepseek_v4_pro
         ; Alcotest.test_case "mistral-large" `Quick test_for_model_id_mistral_large
         ; Alcotest.test_case "mistral-small" `Quick test_for_model_id_mistral_small
         ; Alcotest.test_case "command" `Quick test_for_model_id_command

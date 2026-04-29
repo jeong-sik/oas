@@ -383,28 +383,33 @@ let for_model_id model_id =
       ; supports_image_input = true
       ; supports_native_streaming = true
       }
-  else if starts_with "deepseek-chat" || starts_with "deepseek-v3"
+  else if starts_with "deepseek-v4-flash"
   then
     Some
       { default_capabilities with
-        max_context_tokens = Some 128_000
-      ; max_output_tokens = Some 8_000
+        max_context_tokens = Some 1_000_000
+      ; max_output_tokens = Some 384_000
       ; supports_tools = true
+      ; supports_tool_choice = true
       ; supports_reasoning = true
+      ; supports_extended_thinking = true
+      ; supports_reasoning_budget = true
       ; supports_response_format_json = true
       ; supports_native_streaming = true
       ; supports_caching = true
       }
-  else if starts_with "deepseek-reasoner" || starts_with "deepseek-r1"
+  else if starts_with "deepseek-v4-pro"
   then
     Some
       { default_capabilities with
-        max_context_tokens = Some 128_000
-      ; max_output_tokens = Some 8_000
-      ; supports_tools = false
-      ; (* R1 does NOT support tools *)
-        supports_reasoning = true
+        max_context_tokens = Some 1_000_000
+      ; max_output_tokens = Some 384_000
+      ; supports_tools = true
+      ; supports_tool_choice = true
+      ; supports_reasoning = true
       ; supports_extended_thinking = true
+      ; supports_reasoning_budget = true
+      ; supports_response_format_json = true
       ; supports_native_streaming = true
       ; supports_caching = true
       }

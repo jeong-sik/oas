@@ -302,7 +302,7 @@ let test_default_max_context () =
    | Some e -> check int "groq 131K" 131_072 e.max_context
    | None -> fail "groq should exist");
   (match Provider_registry.find reg "deepseek" with
-   | Some e -> check int "deepseek 128K" 128_000 e.max_context
+   | Some e -> check int "deepseek 1M" 1_000_000 e.max_context
    | None -> fail "deepseek should exist");
   (match Provider_registry.find reg "dashscope" with
    | Some e -> check int "dashscope 131K" 131_072 e.max_context
