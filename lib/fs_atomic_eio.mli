@@ -6,13 +6,13 @@
     Creates a writer-unique tmp file in [dir], writes and fsyncs it,
     then renames into place. Concurrent calls with the same [name]
     never share a tmp path, so [rename] cannot race against a sibling
-    writer's [rename] (masc-mcp#9780).
+    writer's [rename] (downstream #9780).
 
     Fsync of tmp and parent directory is best-effort: failures are
     silently tolerated for filesystems that reject fsync (tmpfs on
     some kernels, SMB). Where supported, fsync closes the crash
     window where [rename] succeeds but is not yet durable
-    (masc-mcp#9749).
+    (downstream #9749).
 
     Returns [Error] via [Fs_result.io_error_of_exn] for any I/O,
     Eio, or Unix error. Re-raises [Eio.Cancel.Cancelled] after

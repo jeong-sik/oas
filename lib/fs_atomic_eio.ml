@@ -4,13 +4,13 @@
     place, then fsyncs the directory. Unique tmp naming closes the
     concurrent-save race that produced [Eio.Io Fs Not_found
     Unix_error (No such file or directory, "renameat", ...json.tmp)]
-    when two fibers wrote to the same logical id (masc-mcp#9780).
+    when two fibers wrote to the same logical id (downstream #9780).
 
     The fsync pair is best-effort: some filesystems reject fsync on
     directories or on the file itself. Where supported, it closes the
     gap where [rename] succeeds but the kernel has not yet written the
     directory block — a crash in that window can resurrect the old
-    file or leave a partial one (masc-mcp#9749). *)
+    file or leave a partial one (downstream #9749). *)
 
 let unique_counter = Atomic.make 0
 

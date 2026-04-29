@@ -326,7 +326,7 @@ let save_to_file journal path =
   (* Delegate to {!Fs_result.write_file}: unique per-writer tmp +
      fsync + rename + dir fsync. Closes the shared-".tmp" rename race
      that happened when two fibers persisted the same journal path
-     (masc-mcp#9780 family). *)
+     (downstream #9780 family). *)
   let buf = Buffer.create 4096 in
   List.iter (fun event ->
     Buffer.add_string buf (Yojson.Safe.to_string (event_to_json event));

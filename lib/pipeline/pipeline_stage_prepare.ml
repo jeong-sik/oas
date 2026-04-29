@@ -192,8 +192,8 @@ let stage_parse ?raw_trace_run agent =
   let prep = prepare_turn_for_agent agent ~turn_params in
   (* TurnReady event — emitted after guardrails + operator policy +
      tool_filter_override + tool_selector have produced the final tool
-     list the LLM will see this turn. Subscribers (e.g. masc-mcp
-     substrate observability) use this to verify deterministically
+     list the LLM will see this turn. Downstream substrate observability
+     subscribers use this to verify deterministically
      which tools the autonomous agent actually has access to, before
      making claims about LLM behaviour from a missing tool call.
      Sibling of TurnStarted (announce) and TurnCompleted (post-LLM). *)
