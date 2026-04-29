@@ -50,10 +50,37 @@ TRANSPORTS=(
   "codex_cli:lib/llm_provider/transport_codex_cli"
 )
 
-# Extract field names from `type config = { ... }` block. BSD/GNU awk compat.
+# Extract field names from the `type config = { ... }` record block.
+# Supports both compact and ocamlformat-split forms:
+#   type config = {
+#   type config =
+#     {
 extract_config_fields() {
-  awk '/^type config = \{/,/^\}/' "$1" \
-    | sed -n 's/^[[:space:]]*\([a-z_][a-zA-Z0-9_]*\)[[:space:]]*:.*/\1/p'
+  awk '
+    /^type[[:space:]]+config[[:space:]]*=/ {
+      seen = 1
+      if ($0 ~ /\{/) {
+        in_record = 1
+        sub(/^.*\{/, "")
+        if ($0 ~ /\}/) {
+          sub(/\}.*/, "")
+          print
+          exit
+        }
+        print
+      }
+      next
+    }
+    seen && !in_record && /^[[:space:]]*\{/ {
+      in_record = 1
+      sub(/^[^{]*\{/, "")
+      print
+      next
+    }
+    in_record && /^[[:space:]]*\}/ { exit }
+    in_record { print }
+  ' "$1" \
+    | sed -n 's/^[[:space:]]*;[[:space:]]*\([a-z_][a-zA-Z0-9_]*\)[[:space:]]*:.*/\1/p; s/^[[:space:]]*\([a-z_][a-zA-Z0-9_]*\)[[:space:]]*:.*/\1/p'
 }
 
 fail=0
