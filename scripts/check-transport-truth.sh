@@ -51,9 +51,10 @@ TRANSPORTS=(
 )
 
 # Extract field names from `type config = { ... }` block. BSD/GNU awk compat.
+# Robust against ocamlformat splitting `type config =` and `{` across lines.
 extract_config_fields() {
-  awk '/^type config = \{/,/^\}/' "$1" \
-    | sed -n 's/^[[:space:]]*\([a-z_][a-zA-Z0-9_]*\)[[:space:]]*:.*/\1/p'
+  awk '/^type config[[:space:]]*=$/,/^[[:space:]]*}$/' "$1" \
+    | sed -n 's/^[[:space:];{]*[[:space:]]*\([a-z_][a-zA-Z0-9_]*\)[[:space:]]*:.*/\1/p'
 }
 
 fail=0
