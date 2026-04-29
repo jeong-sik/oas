@@ -34,7 +34,11 @@ let default_config =
 
 (* ── CLI argument building ───────────────────────────── *)
 
-let default_prompt_argv_threshold = 512 * 1024
+(* Kimi CLI imports setproctitle before it starts the request. On macOS,
+   long/non-ASCII argv payloads can make setproctitle.getproctitle raise a
+   UnicodeDecodeError before the provider sees the prompt. Keep argv small
+   and send keeper-scale prompts through stdin instead. *)
+let default_prompt_argv_threshold = 32 * 1024
 
 let prompt_argv_threshold () =
   match Sys.getenv_opt "OAS_KIMI_PROMPT_ARGV_THRESHOLD" with
@@ -530,6 +534,12 @@ let%test "build_args uses request model over default" =
 
 let%test "build_args routes large prompt via stdin" =
   let big = String.make (1 * 1024 * 1024) 'x' in
+  let args = build_args ~config:default_config ~req_config:(kimi_req ()) ~prompt:big in
+  (not (List.mem big args)) && not (List.mem "-p" args)
+;;
+
+let%test "build_args routes keeper-scale prompt via stdin" =
+  let big = String.make (70 * 1024) 'x' in
   let args = build_args ~config:default_config ~req_config:(kimi_req ()) ~prompt:big in
   (not (List.mem big args)) && not (List.mem "-p" args)
 ;;

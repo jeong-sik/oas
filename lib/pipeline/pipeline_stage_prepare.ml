@@ -112,6 +112,43 @@ let prepare_turn_for_agent agent ~turn_params =
     ()
 ;;
 
+let dedupe_preserve_order xs =
+  let seen = Hashtbl.create (List.length xs) in
+  List.filter
+    (fun x ->
+       if x = "" || Hashtbl.mem seen x
+       then false
+       else (
+         Hashtbl.replace seen x ();
+         true))
+    xs
+;;
+
+let turn_ready_tool_names_from_policy ?runtime_mcp_policy visible_tool_names =
+  let runtime_tool_names =
+    match runtime_mcp_policy with
+    | None -> []
+    | Some policy -> policy.Llm_provider.Llm_transport.allowed_tool_names
+  in
+  dedupe_preserve_order (visible_tool_names @ runtime_tool_names)
+;;
+
+let turn_ready_tool_names agent (prep : Agent_turn.turn_preparation) =
+  turn_ready_tool_names_from_policy
+    ?runtime_mcp_policy:agent.options.runtime_mcp_policy
+    prep.visible_tool_names
+;;
+
+let%test "turn_ready_tool_names includes runtime MCP policy names" =
+  let runtime_mcp_policy =
+    { Llm_provider.Llm_transport.empty_runtime_mcp_policy with
+      allowed_tool_names = [ "masc_status"; "keeper_bash"; "inline_tool" ]
+    }
+  in
+  turn_ready_tool_names_from_policy ~runtime_mcp_policy [ "inline_tool" ]
+  = [ "inline_tool"; "masc_status"; "keeper_bash" ]
+;;
+
 let stage_parse ?raw_trace_run agent =
   let turn_params =
     match agent.options.hooks.before_turn_params with
@@ -195,9 +232,12 @@ let stage_parse ?raw_trace_run agent =
        (Turn_started { turn = agent.state.turn_count; timestamp = Unix.gettimeofday () })
    | None -> ());
   let prep = prepare_turn_for_agent agent ~turn_params in
+  let ready_tool_names = turn_ready_tool_names agent prep in
   (* TurnReady event — emitted after guardrails + operator policy +
      tool_filter_override + tool_selector have produced the final tool
-     list the LLM will see this turn. Downstream substrate observability
+     list the LLM will see this turn. CLI runtime-MCP tools are included
+     from the request-scoped runtime policy because those tools bypass
+     inline Tool.t schemas. Downstream substrate observability
      subscribers use this to verify deterministically
      which tools the autonomous agent actually has access to, before
      making claims about LLM behaviour from a missing tool call.
@@ -223,7 +263,7 @@ let stage_parse ?raw_trace_run agent =
            TurnReady
              { agent_name = agent.state.config.name
              ; turn = agent.state.turn_count
-             ; tool_names = prep.visible_tool_names
+             ; tool_names = ready_tool_names
              }
        }
    | None -> ());
