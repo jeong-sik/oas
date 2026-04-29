@@ -326,10 +326,11 @@ let default () =
     ~max_context:128_000
     Capabilities.openai_chat_extended_capabilities;
   reg "groq" groq_defaults ~max_context:131_072 Capabilities.openai_chat_capabilities;
+  (* DeepSeek v4 series (flash / pro). 1M context, reasoning, tools. *)
   reg
     "deepseek"
     deepseek_defaults
-    ~max_context:128_000
+    ~max_context:1_000_000
     Capabilities.openai_chat_capabilities;
   reg
     "dashscope"

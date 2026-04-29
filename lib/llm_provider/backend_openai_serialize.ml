@@ -243,6 +243,28 @@ let strip_orphaned_tool_results (messages : message list) : message list =
     messages
 ;;
 
+(** Strip Thinking blocks from all messages.
+    DeepSeek-compatible APIs reject [reasoning_content] in request
+    messages — it is response-only. Occurs before serialization so
+    theThinking blocks do not leak into the wire format.
+
+    Pure function — no I/O, no mutation. *)
+let strip_thinking_blocks (messages : message list) : message list =
+  List.map
+    (fun (msg : message) ->
+       let filtered =
+         List.filter
+           (function
+             | Thinking _ -> false
+             | _ -> true)
+           msg.content
+       in
+       if List.length filtered = List.length msg.content
+       then msg
+       else { msg with content = filtered })
+    messages
+;;
+
 let tool_choice_to_openai_json = function
   | Auto -> `String "auto"
   | Any -> `String "required"

@@ -74,10 +74,13 @@ let usage_of_openai_json json =
       |> Option.value ~default:0
     in
     let cached_tokens =
-      let details = usage |> member "prompt_tokens_details" in
-      if details = `Null
-      then 0
-      else details |> member "cached_tokens" |> to_int_option |> Option.value ~default:0
+      match member_int_fallback usage [ "prompt_cache_hit_tokens" ] with
+      | Some n -> n
+      | None ->
+        let details = usage |> member "prompt_tokens_details" in
+        if details = `Null
+        then 0
+        else details |> member "cached_tokens" |> to_int_option |> Option.value ~default:0
     in
     Some
       { input_tokens = prompt_tokens

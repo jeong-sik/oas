@@ -127,9 +127,9 @@ let%test "gemini-3.1-flash-lite-preview has 1M context via gemini-3 prefix" =
   m.context_window = 1_000_000 && m.capabilities.supports_tools
 ;;
 
-let%test "deepseek-v3 can be marked local explicitly" =
-  let m = for_model_id ~locality:`Local "deepseek-v3" in
-  m.is_local && m.context_window = 128_000
+let%test "deepseek-v4-flash can be marked local explicitly" =
+  let m = for_model_id ~locality:`Local "deepseek-v4-flash" in
+  m.is_local && m.context_window = 1_000_000
 ;;
 
 let%test "llama-4-maverick can be marked local explicitly" =
