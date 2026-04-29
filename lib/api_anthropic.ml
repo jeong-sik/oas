@@ -10,79 +10,96 @@ open Types
 let parse_response = Llm_provider.Backend_anthropic.parse_response
 
 (** Build request body assoc list shared between stream and non-stream calls *)
-let build_body_assoc ~config ~messages
-    ?(message_to_json=Api_common.message_to_json) ?tools ~stream () =
+let build_body_assoc
+      ~config
+      ~messages
+      ?(message_to_json = Api_common.message_to_json)
+      ?tools
+      ~stream
+      ()
+  =
   let model_str = model_to_string config.config.model in
-  let body_assoc = [
-    ("model", `String model_str);
-    ("max_tokens", `Int (Option.value ~default:4096 config.config.max_tokens));
-    ("messages", `List (List.map message_to_json messages));
-    ("stream", `Bool stream);
-  ] in
+  let body_assoc =
+    [ "model", `String model_str
+    ; "max_tokens", `Int (Option.value ~default:4096 config.config.max_tokens)
+    ; "messages", `List (List.map message_to_json messages)
+    ; "stream", `Bool stream
+    ]
+  in
   (* Anthropic requires ~1024+ tokens for cache_control to take effect.
      Heuristic: 1 token ≈ 4 chars, so 4096 chars ≈ 1024 tokens minimum. *)
   let min_cache_chars = 4096 in
-  let body_assoc = match config.config.system_prompt with
-    | Some s when config.config.cache_system_prompt
-                  && String.length s >= min_cache_chars ->
-        let cached_block = `Assoc [
-          ("type", `String "text");
-          ("text", `String s);
-          ("cache_control", `Assoc (
-            ("type", `String "ephemeral")
-            :: (if config.config.cache_extended_ttl
-                then [("ttl", `String "1h")]
-                else [])));
-        ] in
-        ("system", `List [cached_block]) :: body_assoc
+  let body_assoc =
+    match config.config.system_prompt with
+    | Some s when config.config.cache_system_prompt && String.length s >= min_cache_chars
+      ->
+      let cached_block =
+        `Assoc
+          [ "type", `String "text"
+          ; "text", `String s
+          ; ( "cache_control"
+            , `Assoc
+                (("type", `String "ephemeral")
+                 ::
+                 (if config.config.cache_extended_ttl then [ "ttl", `String "1h" ] else [])
+                ) )
+          ]
+      in
+      ("system", `List [ cached_block ]) :: body_assoc
     | Some s -> ("system", `String s) :: body_assoc
     | None -> body_assoc
   in
-  let body_assoc = match tools with
+  let body_assoc =
+    match tools with
     | Some t when config.config.cache_system_prompt ->
-        (* Anthropic prompt caching: place cache_control on the last tool
+      (* Anthropic prompt caching: place cache_control on the last tool
            so the entire prefix (system + tools) is cached together.
            Same gate as system prompt caching — both are prefix components. *)
-        let cached_tools = match List.rev t with
-          | [] -> t
-          | last :: rest ->
-            let cached_last = match last with
-              | `Assoc fields ->
-                `Assoc (("cache_control",
-                         `Assoc (("type", `String "ephemeral")
-                                 :: (if config.config.cache_extended_ttl
-                                     then [("ttl", `String "1h")]
-                                     else []))) :: fields)
-              | other -> other
-            in
-            List.rev (cached_last :: rest)
-        in
-        ("tools", `List cached_tools) :: body_assoc
+      let cached_tools =
+        match List.rev t with
+        | [] -> t
+        | last :: rest ->
+          let cached_last =
+            match last with
+            | `Assoc fields ->
+              `Assoc
+                (( "cache_control"
+                 , `Assoc
+                     (("type", `String "ephemeral")
+                      ::
+                      (if config.config.cache_extended_ttl
+                       then [ "ttl", `String "1h" ]
+                       else [])) )
+                 :: fields)
+            | other -> other
+          in
+          List.rev (cached_last :: rest)
+      in
+      ("tools", `List cached_tools) :: body_assoc
     | Some t -> ("tools", `List t) :: body_assoc
     | None -> body_assoc
   in
-  let body_assoc = match config.config.tool_choice with
+  let body_assoc =
+    match config.config.tool_choice with
     | Some tc ->
-        let tc_json = tool_choice_to_json tc in
-        let tc_json =
-          if config.config.disable_parallel_tool_use then
-            match tc_json with
-            | `Assoc fields ->
-                `Assoc (("disable_parallel_tool_use", `Bool true) :: fields)
-            | other -> other
-          else
-            tc_json
-        in
-        ("tool_choice", tc_json) :: body_assoc
+      let tc_json = tool_choice_to_json tc in
+      let tc_json =
+        if config.config.disable_parallel_tool_use
+        then (
+          match tc_json with
+          | `Assoc fields -> `Assoc (("disable_parallel_tool_use", `Bool true) :: fields)
+          | other -> other)
+        else tc_json
+      in
+      ("tool_choice", tc_json) :: body_assoc
     | None ->
-        if config.config.disable_parallel_tool_use then
-          let tc_json = `Assoc [
-            ("type", `String "auto");
-            ("disable_parallel_tool_use", `Bool true);
-          ] in
-          ("tool_choice", tc_json) :: body_assoc
-        else
-          body_assoc
+      if config.config.disable_parallel_tool_use
+      then (
+        let tc_json =
+          `Assoc [ "type", `String "auto"; "disable_parallel_tool_use", `Bool true ]
+        in
+        ("tool_choice", tc_json) :: body_assoc)
+      else body_assoc
   in
   (* Thinking gate keys on [enable_thinking], not on [thinking_budget].
      Previously the match was on [thinking_budget = Some _], which
@@ -97,17 +114,16 @@ let build_body_assoc ~config ~messages
      lib/llm_provider/backend_anthropic.ml:75-83: gate on
      [enable_thinking = Some true] and fall back to a 10_000-token
      default budget if the caller did not specify one. *)
-  let body_assoc = match config.config.enable_thinking with
+  let body_assoc =
+    match config.config.enable_thinking with
     | Some true ->
       let budget =
         match config.config.thinking_budget with
         | Some b -> b
         | None -> 10_000
       in
-      ("thinking", `Assoc [
-        ("type", `String "enabled");
-        ("budget_tokens", `Int budget)
-      ]) :: body_assoc
+      ("thinking", `Assoc [ "type", `String "enabled"; "budget_tokens", `Int budget ])
+      :: body_assoc
     | _ -> body_assoc
   in
   (* Sampling parameters were previously omitted entirely from the
@@ -122,16 +138,20 @@ let build_body_assoc ~config ~messages
      int >= 1. No [min_p] field — we intentionally do not serialise
      it so a caller who sets [min_p] on a cross-provider config gets
      the same silent-omit behaviour Anthropic itself enforces. *)
-  let body_assoc = match config.config.temperature with
+  let body_assoc =
+    match config.config.temperature with
     | Some t -> ("temperature", `Float t) :: body_assoc
     | None -> body_assoc
   in
-  let body_assoc = match config.config.top_p with
+  let body_assoc =
+    match config.config.top_p with
     | Some p -> ("top_p", `Float p) :: body_assoc
     | None -> body_assoc
   in
-  let body_assoc = match config.config.top_k with
+  let body_assoc =
+    match config.config.top_k with
     | Some k -> ("top_k", `Int k) :: body_assoc
     | None -> body_assoc
   in
   body_assoc
+;;

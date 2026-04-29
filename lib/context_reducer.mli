@@ -18,22 +18,34 @@ open Types
 type strategy =
   | Keep_last_n of int
   | Token_budget of int
-  | Prune_tool_outputs of { max_output_len: int }
-  | Prune_tool_args of { max_arg_len: int; keep_recent: int }
+  | Prune_tool_outputs of { max_output_len : int }
+  | Prune_tool_args of
+      { max_arg_len : int
+      ; keep_recent : int
+      }
   | Repair_dangling_tool_calls
   | Repair_orphaned_tool_results
   | Merge_contiguous
   | Drop_thinking
-  | Keep_first_and_last of { first_n: int; last_n: int }
-  | Prune_by_role of { drop_roles: role list }
-  | Summarize_old of { keep_recent: int; summarizer: message list -> string }
-  | Clear_tool_results of { keep_recent: int }
-  | Stub_tool_results of { keep_recent: int }
-  | Cap_message_tokens of { max_tokens: int; keep_recent: int }
-  | Relocate_tool_results of {
-      state: Content_replacement_state.t;
-      keep_recent: int;
-    }
+  | Keep_first_and_last of
+      { first_n : int
+      ; last_n : int
+      }
+  | Prune_by_role of { drop_roles : role list }
+  | Summarize_old of
+      { keep_recent : int
+      ; summarizer : message list -> string
+      }
+  | Clear_tool_results of { keep_recent : int }
+  | Stub_tool_results of { keep_recent : int }
+  | Cap_message_tokens of
+      { max_tokens : int
+      ; keep_recent : int
+      }
+  | Relocate_tool_results of
+      { state : Content_replacement_state.t
+      ; keep_recent : int
+      }
   | Compose of strategy list
   | Custom of (message list -> message list)
   | Dynamic of (turn:int -> messages:message list -> strategy)
@@ -77,11 +89,12 @@ val estimate_message_tokens : message -> int
     @param output_reserve Tokens reserved for model output (default: 4096).
     @return Estimated overhead in tokens.
     @since 0.136.0 *)
-val estimate_next_turn_overhead :
-  ?system_prompt:string ->
-  ?tools:Yojson.Safe.t list ->
-  ?output_reserve:int ->
-  unit -> int
+val estimate_next_turn_overhead
+  :  ?system_prompt:string
+  -> ?tools:Yojson.Safe.t list
+  -> ?output_reserve:int
+  -> unit
+  -> int
 
 (** {1 Turn grouping} *)
 
@@ -143,16 +156,17 @@ val cap_message_tokens : max_tokens:int -> keep_recent:int -> t
     pass through unchanged.  Useful after checkpoint restore when
     messages may have been loaded with full content.
     @since 0.129.0 *)
-val relocate_tool_results :
-  state:Content_replacement_state.t -> keep_recent:int -> t
+val relocate_tool_results : state:Content_replacement_state.t -> keep_recent:int -> t
 
 val compose : t list -> t
 val custom : (message list -> message list) -> t
-val importance_scored :
-  ?threshold:float ->
-  ?boost:importance_boost ->
-  scorer:importance_scorer ->
-  unit -> t
+
+val importance_scored
+  :  ?threshold:float
+  -> ?boost:importance_boost
+  -> scorer:importance_scorer
+  -> unit
+  -> t
 
 (** Dynamic strategy: selects a strategy per turn based on
     conversation state. *)
@@ -165,8 +179,10 @@ val dynamic : (turn:int -> messages:message list -> strategy) -> t
     composed with [drop_thinking], [repair_dangling_tool_calls],
     and [repair_orphaned_tool_results].
     Returns [None] if [max_context_tokens] is unknown. *)
-val from_capabilities :
-  ?margin:float -> Llm_provider.Capabilities.capabilities -> t option
+val from_capabilities
+  :  ?margin:float
+  -> Llm_provider.Capabilities.capabilities
+  -> t option
 
 (** Create a reducer from an explicit context budget with configurable thresholds.
     Uses [max_tokens * compact_ratio] as the token budget (default 80%),
@@ -174,5 +190,4 @@ val from_capabilities :
     and [repair_orphaned_tool_results].
 
     @since 0.79.0 *)
-val from_context_config :
-  ?compact_ratio:float -> max_tokens:int -> unit -> t
+val from_context_config : ?compact_ratio:float -> max_tokens:int -> unit -> t

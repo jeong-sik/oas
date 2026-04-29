@@ -37,6 +37,7 @@
 
 (** Re-export all modules (dependency-safe order) *)
 module Sdk_version = Sdk_version
+
 module Types = Types
 module Model_registry = Model_registry
 module Uncertain = Uncertain
@@ -199,49 +200,64 @@ module Contract_runner = Contract_runner
 module Mode_enforcer = Mode_enforcer
 
 (** Quick start: create an agent with default config *)
-let create_agent ~net ?name ?model ?system_prompt ?max_tokens ?max_turns
-    ?cache_system_prompt ?provider ?raw_trace () =
+let create_agent
+      ~net
+      ?name
+      ?model
+      ?system_prompt
+      ?max_tokens
+      ?max_turns
+      ?cache_system_prompt
+      ?provider
+      ?raw_trace
+      ()
+  =
   let open Types in
-  let config = {
-    name = Option.value name ~default:default_config.name;
-    model = Option.value model ~default:default_config.model;
-    system_prompt;
-    max_tokens;
-    max_turns = Option.value max_turns ~default:default_config.max_turns;
-    temperature = default_config.temperature;
-    top_p = default_config.top_p;
-    top_k = default_config.top_k;
-    min_p = default_config.min_p;
-    enable_thinking = default_config.enable_thinking;
-    response_format = default_config.response_format;
-    thinking_budget = default_config.thinking_budget;
-    tool_choice = default_config.tool_choice;
-    disable_parallel_tool_use = default_config.disable_parallel_tool_use;
-    cache_system_prompt = Option.value cache_system_prompt ~default:default_config.cache_system_prompt;
-    cache_extended_ttl = default_config.cache_extended_ttl;
-    max_input_tokens = default_config.max_input_tokens;
-    max_total_tokens = default_config.max_total_tokens;
-    initial_messages = default_config.initial_messages;
-    max_cost_usd = default_config.max_cost_usd;
-    context_compact_ratio = default_config.context_compact_ratio;
-    context_prepare_ratio = default_config.context_prepare_ratio;
-    context_handoff_ratio = default_config.context_handoff_ratio;
-    priority = default_config.priority;
-    yield_on_tool = default_config.yield_on_tool;
-    exit_condition = default_config.exit_condition;
-  } in
-  let options = match provider, raw_trace with
+  let config =
+    { name = Option.value name ~default:default_config.name
+    ; model = Option.value model ~default:default_config.model
+    ; system_prompt
+    ; max_tokens
+    ; max_turns = Option.value max_turns ~default:default_config.max_turns
+    ; temperature = default_config.temperature
+    ; top_p = default_config.top_p
+    ; top_k = default_config.top_k
+    ; min_p = default_config.min_p
+    ; enable_thinking = default_config.enable_thinking
+    ; response_format = default_config.response_format
+    ; thinking_budget = default_config.thinking_budget
+    ; tool_choice = default_config.tool_choice
+    ; disable_parallel_tool_use = default_config.disable_parallel_tool_use
+    ; cache_system_prompt =
+        Option.value cache_system_prompt ~default:default_config.cache_system_prompt
+    ; cache_extended_ttl = default_config.cache_extended_ttl
+    ; max_input_tokens = default_config.max_input_tokens
+    ; max_total_tokens = default_config.max_total_tokens
+    ; initial_messages = default_config.initial_messages
+    ; max_cost_usd = default_config.max_cost_usd
+    ; context_compact_ratio = default_config.context_compact_ratio
+    ; context_prepare_ratio = default_config.context_prepare_ratio
+    ; context_handoff_ratio = default_config.context_handoff_ratio
+    ; priority = default_config.priority
+    ; yield_on_tool = default_config.yield_on_tool
+    ; exit_condition = default_config.exit_condition
+    }
+  in
+  let options =
+    match provider, raw_trace with
     | None, None -> Agent.default_options
     | Some p, None -> { Agent.default_options with provider = Some p }
     | None, Some trace -> { Agent.default_options with raw_trace = Some trace }
     | Some p, Some trace ->
-        { Agent.default_options with provider = Some p; raw_trace = Some trace }
+      { Agent.default_options with provider = Some p; raw_trace = Some trace }
   in
   Agent.create ~net ~config ~options ()
+;;
 
 let runtime_query = Runtime_query.query
 let query = Query.query
 
 (** Version info *)
 let version = Sdk_version.version
+
 let sdk_name = Sdk_version.sdk_name

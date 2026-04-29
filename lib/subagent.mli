@@ -38,19 +38,19 @@ type state_isolation =
 
     {b Diagnostic fields} (stored for introspection, not consumed at runtime):
     - [path]: source file path, used for name derivation in {!of_markdown} *)
-type t = {
-  name: string;
-  description: string option;
-  prompt: string;
-  tools: string list option;
-  disallowed_tools: string list;
-  model: model_override;
-  max_turns: int option;
-  skill_refs: string list;
-  skills: Skill.t list;
-  state_isolation: state_isolation;
-  path: string option;
-}
+type t =
+  { name : string
+  ; description : string option
+  ; prompt : string
+  ; tools : string list option
+  ; disallowed_tools : string list
+  ; model : model_override
+  ; max_turns : int option
+  ; skill_refs : string list
+  ; skills : Skill.t list
+  ; state_isolation : state_isolation
+  ; path : string option
+  }
 [@@deriving show]
 
 (** {1 Parsing helpers} *)
@@ -71,4 +71,9 @@ val compose_prompt : ?arguments:string -> t -> string
 (** {1 Tool filtering and conversion} *)
 
 val filter_tools : t -> Tool.t list -> Tool.t list
-val to_handoff_target : parent_config:Types.agent_config -> base_tools:Tool.t list -> t -> Handoff.handoff_target
+
+val to_handoff_target
+  :  parent_config:Types.agent_config
+  -> base_tools:Tool.t list
+  -> t
+  -> Handoff.handoff_target

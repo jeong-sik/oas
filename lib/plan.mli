@@ -23,13 +23,13 @@ type step_status =
 
 (** {1 Plan step} *)
 
-type step = {
-  id: string;
-  description: string;
-  status: step_status;
-  result: Yojson.Safe.t option;
-  depends_on: string list;   (** ids of steps this depends on *)
-}
+type step =
+  { id : string
+  ; description : string
+  ; status : step_status
+  ; result : Yojson.Safe.t option
+  ; depends_on : string list (** ids of steps this depends on *)
+  }
 
 (** {1 Plan status} *)
 
@@ -51,8 +51,13 @@ val create : goal:string -> planner:string -> unit -> t
 
 (** Add a step to the plan. Steps execute in insertion order,
     respecting [depends_on] constraints. *)
-val add_step : t -> id:string -> description:string ->
-  ?depends_on:string list -> unit -> t
+val add_step
+  :  t
+  -> id:string
+  -> description:string
+  -> ?depends_on:string list
+  -> unit
+  -> t
 
 (** Mark a step as running. *)
 val start_step : t -> string -> t
@@ -76,8 +81,11 @@ val replan : t -> new_steps:step list -> t
 (** {1 Plan transition guards} *)
 
 type plan_transition_error =
-  | InvalidPlanTransition of { from_status: plan_status; to_status: plan_status }
-  | PlanAlreadyTerminal of { status: plan_status }
+  | InvalidPlanTransition of
+      { from_status : plan_status
+      ; to_status : plan_status
+      }
+  | PlanAlreadyTerminal of { status : plan_status }
 
 val is_terminal_status : plan_status -> bool
 val valid_plan_transitions : plan_status -> plan_status list

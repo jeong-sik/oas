@@ -12,17 +12,16 @@
 
 (** Invoke a hook, recording the decision via optional [on_hook_invoked] callback
     and [tracer] span.  Returns the hook's decision. *)
-val invoke_hook :
-  ?on_hook_invoked:(hook_name:string ->
-    decision:Hooks.hook_decision ->
-    detail:string option -> unit) ->
-  tracer:Tracing.t ->
-  agent_name:string ->
-  turn_count:int ->
-  hook_name:string ->
-  (Hooks.hook_event -> Hooks.hook_decision) option ->
-  Hooks.hook_event ->
-  Hooks.hook_decision
+val invoke_hook
+  :  ?on_hook_invoked:
+       (hook_name:string -> decision:Hooks.hook_decision -> detail:string option -> unit)
+  -> tracer:Tracing.t
+  -> agent_name:string
+  -> turn_count:int
+  -> hook_name:string
+  -> (Hooks.hook_event -> Hooks.hook_decision) option
+  -> Hooks.hook_event
+  -> Hooks.hook_decision
 
 (** {1 Single tool execution} *)
 
@@ -31,34 +30,35 @@ type tool_failure_kind =
   | Recoverable_tool_error
   | Non_retryable_tool_error
 
-type tool_execution_result = {
-  tool_use_id: string;
-  tool_name: string;
-  content: string;
-  is_error: bool;
-  failure_kind: tool_failure_kind option;
-  error_class: Types.tool_error_class option;
-}
+type tool_execution_result =
+  { tool_use_id : string
+  ; tool_name : string
+  ; content : string
+  ; is_error : bool
+  ; failure_kind : tool_failure_kind option
+  ; error_class : Types.tool_error_class option
+  }
 
 (** Find a tool by name and execute it, invoking [PostToolUse] (and
     [PostToolUseFailure] on error) hooks.  Publishes [ToolCalled] and
     [ToolCompleted] events to the event bus. *)
-val find_and_execute_tool :
-  context:Context.t ->
-  tools:Tool.t list ->
-  hooks:Hooks.hooks ->
-  event_bus:Event_bus.t option ->
-  tracer:Tracing.t ->
-  agent_name:string ->
-  turn_count:int ->
-  ?correlation_id:string ->
-  ?run_id:string ->
-  ?on_hook_invoked:(hook_name:string ->
-    decision:Hooks.hook_decision ->
-    detail:string option -> unit) ->
-  schedule:Hooks.tool_schedule ->
-  string -> Yojson.Safe.t -> string ->
-  tool_execution_result
+val find_and_execute_tool
+  :  context:Context.t
+  -> tools:Tool.t list
+  -> hooks:Hooks.hooks
+  -> event_bus:Event_bus.t option
+  -> tracer:Tracing.t
+  -> agent_name:string
+  -> turn_count:int
+  -> ?correlation_id:string
+  -> ?run_id:string
+  -> ?on_hook_invoked:
+       (hook_name:string -> decision:Hooks.hook_decision -> detail:string option -> unit)
+  -> schedule:Hooks.tool_schedule
+  -> string
+  -> Yojson.Safe.t
+  -> string
+  -> tool_execution_result
 
 (** {1 Tool scheduling and execution} *)
 
@@ -86,25 +86,28 @@ val find_and_execute_tool :
 
     Returns one [tool_execution_result] per [ToolUse] block in the same
     relative order as the input. *)
-val execute_tools :
-  context:Context.t ->
-  tools:Tool.t list ->
-  hooks:Hooks.hooks ->
-  event_bus:Event_bus.t option ->
-  ?journal:Durable_event.journal ->
-  tracer:Tracing.t ->
-  agent_name:string ->
-  turn_count:int ->
-  usage:Types.usage_stats ->
-  approval:Hooks.approval_callback option ->
-  ?correlation_id:string ->
-  ?run_id:string ->
-  ?on_tool_execution_started:(tool_use_id:string ->
-    tool_name:string -> input:Yojson.Safe.t -> schedule:Hooks.tool_schedule -> unit) ->
-  ?on_tool_execution_finished:(tool_use_id:string ->
-    tool_name:string -> content:string -> is_error:bool -> unit) ->
-  ?on_hook_invoked:(hook_name:string ->
-    decision:Hooks.hook_decision ->
-    detail:string option -> unit) ->
-  Types.content_block list ->
-  tool_execution_result list
+val execute_tools
+  :  context:Context.t
+  -> tools:Tool.t list
+  -> hooks:Hooks.hooks
+  -> event_bus:Event_bus.t option
+  -> ?journal:Durable_event.journal
+  -> tracer:Tracing.t
+  -> agent_name:string
+  -> turn_count:int
+  -> usage:Types.usage_stats
+  -> approval:Hooks.approval_callback option
+  -> ?correlation_id:string
+  -> ?run_id:string
+  -> ?on_tool_execution_started:
+       (tool_use_id:string
+        -> tool_name:string
+        -> input:Yojson.Safe.t
+        -> schedule:Hooks.tool_schedule
+        -> unit)
+  -> ?on_tool_execution_finished:
+       (tool_use_id:string -> tool_name:string -> content:string -> is_error:bool -> unit)
+  -> ?on_hook_invoked:
+       (hook_name:string -> decision:Hooks.hook_decision -> detail:string option -> unit)
+  -> Types.content_block list
+  -> tool_execution_result list

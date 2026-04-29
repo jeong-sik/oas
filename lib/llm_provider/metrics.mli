@@ -17,14 +17,14 @@
     [{provider, model, status}]. Network/timeout errors that never
     produced a status do NOT fire this callback — those still surface
     through [on_error] as before. *)
-type t = {
-  on_cache_hit: model_id:string -> unit;
-  on_cache_miss: model_id:string -> unit;
-  on_request_start: model_id:string -> unit;
-  on_request_end: model_id:string -> latency_ms:int -> unit;
-  on_error: model_id:string -> error:string -> unit;
-  on_http_status: provider:string -> model_id:string -> status:int -> unit;
-}
+type t =
+  { on_cache_hit : model_id:string -> unit
+  ; on_cache_miss : model_id:string -> unit
+  ; on_request_start : model_id:string -> unit
+  ; on_request_end : model_id:string -> latency_ms:int -> unit
+  ; on_error : model_id:string -> error:string -> unit
+  ; on_http_status : provider:string -> model_id:string -> status:int -> unit
+  }
 
 (** No-op metrics — all callbacks do nothing. *)
 val noop : t

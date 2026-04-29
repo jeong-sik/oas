@@ -11,20 +11,25 @@
 
 (** {1 Types} *)
 
-type span_kind = Agent_run | Api_call | Tool_exec | Hook_invoke
+type span_kind =
+  | Agent_run
+  | Api_call
+  | Tool_exec
+  | Hook_invoke
 
-type span_attrs = {
-  kind: span_kind;
-  name: string;
-  agent_name: string;
-  turn: int;
-  extra: (string * string) list;
-}
+type span_attrs =
+  { kind : span_kind
+  ; name : string
+  ; agent_name : string
+  ; turn : int
+  ; extra : (string * string) list
+  }
 
 (** {1 Tracer Interface} *)
 
 module type TRACER = sig
   type span
+
   val start_span : span_attrs -> span
   val end_span : span -> ok:bool -> unit
   val add_event : span -> string -> unit

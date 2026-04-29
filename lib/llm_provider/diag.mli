@@ -10,7 +10,11 @@
 
     @since 0.131.0 *)
 
-type level = Debug | Info | Warn | Error
+type level =
+  | Debug
+  | Info
+  | Warn
+  | Error
 
 val level_to_string : level -> string
 
@@ -21,6 +25,7 @@ val set_sink : (level -> ctx:string -> string -> unit) -> unit
 (** Emit diagnostics at the given level.
     [ctx] is the module/subsystem name (e.g. "cascade_executor"). *)
 val debug : string -> ('a, unit, string, unit) format4 -> 'a
-val info  : string -> ('a, unit, string, unit) format4 -> 'a
-val warn  : string -> ('a, unit, string, unit) format4 -> 'a
+
+val info : string -> ('a, unit, string, unit) format4 -> 'a
+val warn : string -> ('a, unit, string, unit) format4 -> 'a
 val error : string -> ('a, unit, string, unit) format4 -> 'a

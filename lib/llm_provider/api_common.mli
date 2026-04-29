@@ -11,8 +11,8 @@ val max_stdio_buffer : int
 (** Default per-request wall-clock timeout for LLM HTTP calls (seconds).
     Used by [Api.create_message] to bound HTTP stalls. *)
 val default_request_timeout_s : float
-val synthesize_tool_use_id : name:string -> Yojson.Safe.t -> string
 
+val synthesize_tool_use_id : name:string -> Yojson.Safe.t -> string
 val string_is_blank : string -> bool
 val text_blocks_to_string : Types.content_block list -> string
 val json_of_string_or_raw : string -> Yojson.Safe.t
@@ -26,8 +26,7 @@ val kimi_message_to_json : Types.message -> Yojson.Safe.t
 
 (** {2 TLS} *)
 
-val make_https :
-  unit ->
-  (Uri.t ->
-   [> `Close | `Flow | `R | `Shutdown | `W ] Eio.Resource.t ->
-   Tls_eio.t) option
+val make_https
+  :  unit
+  -> (Uri.t -> [> `Close | `Flow | `R | `Shutdown | `W ] Eio.Resource.t -> Tls_eio.t)
+       option

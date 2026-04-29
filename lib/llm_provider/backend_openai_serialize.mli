@@ -13,8 +13,8 @@ val ollama_messages_of_message : Types.message -> Yojson.Safe.t list
 val tool_choice_to_openai_json : Types.tool_choice -> Yojson.Safe.t
 val build_openai_tool_json : Yojson.Safe.t -> Yojson.Safe.t
 
-val strip_orphaned_tool_results : Types.message list -> Types.message list
 (** Remove ToolResult blocks whose tool_use_id has no matching ToolUse
     in any Assistant message. Call before serializing messages for
     OpenAI-compatible APIs to prevent orphaned tool_call_id errors
     after context compaction.  @since 0.103.0 *)
+val strip_orphaned_tool_results : Types.message list -> Types.message list

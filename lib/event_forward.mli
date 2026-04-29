@@ -12,19 +12,19 @@
 (** {1 Payload} *)
 
 (** Serializable event payload for delivery. *)
-type event_payload = {
-  event_type: string;
-  timestamp: float;
-  agent_name: string option;
-  correlation_id: string;
-  run_id: string;
-  caused_by: string option;
+type event_payload =
+  { event_type : string
+  ; timestamp : float
+  ; agent_name : string option
+  ; correlation_id : string
+  ; run_id : string
+  ; caused_by : string option
     (** Causation link copied from [Event_bus.envelope.caused_by].
         Serialised as a [caused_by: <run_id>] JSON field only when
         [Some] — [None] omits the field, preserving the legacy JSON
         shape for subscribers that never opt in. @since 0.161.0 (#877) *)
-  data: Yojson.Safe.t;
-}
+  ; data : Yojson.Safe.t
+  }
 
 (** Serialize a payload to JSON. *)
 val payload_to_json : event_payload -> Yojson.Safe.t
@@ -43,8 +43,11 @@ val event_to_payload : Event_bus.event -> event_payload
 (** Delivery target for forwarded events.
     For HTTP delivery, use {!Custom_target} with an HTTP client callback. *)
 type target =
-  | File_append of { path: string }
-  | Custom_target of { name: string; deliver: event_payload -> unit }
+  | File_append of { path : string }
+  | Custom_target of
+      { name : string
+      ; deliver : event_payload -> unit
+      }
 
 (** {1 Forwarder} *)
 
@@ -54,22 +57,19 @@ type t
 (** Create a forwarder with the given targets and batching parameters.
     @param batch_size flush after this many events (default 10)
     @param flush_interval_s maximum time between flushes in seconds (default 1.0) *)
-val create :
-  targets:target list ->
-  ?batch_size:int ->
-  ?flush_interval_s:float ->
-  unit -> t
+val create
+  :  targets:target list
+  -> ?batch_size:int
+  -> ?flush_interval_s:float
+  -> unit
+  -> t
 
 (** {1 Lifecycle} *)
 
 (** Start the forwarding fiber.  Subscribes to [bus] and begins
     delivering events to configured targets.  Idempotent: calling
     [start] on an already-running forwarder is a no-op. *)
-val start :
-  sw:Eio.Switch.t ->
-  net:_ Eio.Net.t ->
-  bus:Event_bus.t ->
-  t -> unit
+val start : sw:Eio.Switch.t -> net:_ Eio.Net.t -> bus:Event_bus.t -> t -> unit
 
 (** Signal the forwarding fiber to stop after draining remaining events. *)
 val stop : t -> unit

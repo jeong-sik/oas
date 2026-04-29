@@ -44,52 +44,52 @@
 
 (** Operations that transform a tool name set. *)
 type t =
-  | Keep_all                      (** Identity -- no change *)
-  | Clear_all                     (** Empty the set *)
-  | Add of string list            (** Set union *)
-  | Remove of string list         (** Set difference *)
-  | Replace_with of string list   (** Replace entire set *)
+  | Keep_all (** Identity -- no change *)
+  | Clear_all (** Empty the set *)
+  | Add of string list (** Set union *)
+  | Remove of string list (** Set difference *)
+  | Replace_with of string list (** Replace entire set *)
   | Intersect_with of string list (** Set intersection *)
-  | Seq of t list                 (** Sequential composition (fold_left) *)
+  | Seq of t list (** Sequential composition (fold_left) *)
 
 (** {1 Application} *)
 
-val apply : t -> string list -> string list
 (** Apply [op] to a tool name set. Result is deduplicated,
     preserving first-occurrence order. *)
+val apply : t -> string list -> string list
 
-val apply_to_tool_set : t -> Tool_set.t -> Tool_set.t
 (** Apply [op] to a {!Tool_set.t}. Result is always a subset of the
     original set — names not present in [ts] are silently ignored
     by all ops. Output order follows [apply] semantics (first-occurrence
     in the op result), not the original [Tool_set.t] order. *)
+val apply_to_tool_set : t -> Tool_set.t -> Tool_set.t
 
 (** {1 Composition} *)
 
-val compose : t list -> t
 (** Smart [Seq] constructor.
     - [[]] -> [Keep_all]
     - [[x]] -> [x]
     - Nested [Seq] flattened recursively.
     - Identity ops ([Keep_all], [Add []], [Remove []]) eliminated. *)
+val compose : t list -> t
 
 (** {1 Conversion} *)
 
-val to_tool_filter : t -> string list -> Guardrails.tool_filter
 (** [to_tool_filter op current] applies [op] to [current] and returns
     the result as {!Guardrails.AllowList}. Bridge function for
     [tool_filter_override] in hooks. *)
+val to_tool_filter : t -> string list -> Guardrails.tool_filter
 
 (** {1 Predicates} *)
 
-val is_identity : t -> bool
 (** [Keep_all], [Add []], [Remove []], [Seq] of all identities. *)
+val is_identity : t -> bool
 
-val is_destructive : t -> bool
 (** [true] for [Clear_all], [Replace_with], [Intersect_with],
     or [Seq] containing any destructive op.
     "Destructive" means the op can drop tools implicitly, without
     enumerating them (e.g. clear, replace, or intersect with a subset). *)
+val is_destructive : t -> bool
 
 (** {1 Serialization} *)
 
@@ -98,8 +98,8 @@ val of_yojson : Yojson.Safe.t -> (t, string) result
 
 (** {1 Comparison} *)
 
-val equal : t -> t -> bool
 (** Structural equality with name normalization (sort + dedup).
     Compares normalized structure, NOT [apply] semantics.
     [Add ["a";"b"]] and [Add ["b";"a"]] are equal;
     [Add ["a"]] and [Seq [Add ["a"]]] are not. *)
+val equal : t -> t -> bool

@@ -26,11 +26,12 @@ type 'a future
 
     The agent runs within [sw]'s scope; if [sw] is cancelled, the
     fiber is cancelled too (Eio structured concurrency guarantee). *)
-val spawn :
-  sw:Eio.Switch.t ->
-  ?clock:_ Eio.Time.clock ->
-  Agent.t -> string ->
-  Types.api_response future
+val spawn
+  :  sw:Eio.Switch.t
+  -> ?clock:_ Eio.Time.clock
+  -> Agent.t
+  -> string
+  -> Types.api_response future
 
 (** {1 Awaiting} *)
 
@@ -60,20 +61,20 @@ val cancel : 'a future -> unit
 
     Returns [(agent_name, response)] on success, where [agent_name]
     is derived from the agent's card. *)
-val race :
-  sw:Eio.Switch.t ->
-  ?clock:_ Eio.Time.clock ->
-  (Agent.t * string) list ->
-  (string * Types.api_response, Error.sdk_error) result
+val race
+  :  sw:Eio.Switch.t
+  -> ?clock:_ Eio.Time.clock
+  -> (Agent.t * string) list
+  -> (string * Types.api_response, Error.sdk_error) result
 
 (** [all ~sw ?clock ?max_fibers agents] runs all [(agent, prompt)] pairs
     and waits for all to complete. Returns a list of
     [(agent_name, result)] pairs in the same order as input.
 
     @param max_fibers limits concurrent fibers (default: no limit). *)
-val all :
-  sw:Eio.Switch.t ->
-  ?clock:_ Eio.Time.clock ->
-  ?max_fibers:int ->
-  (Agent.t * string) list ->
-  (string * (Types.api_response, Error.sdk_error) result) list
+val all
+  :  sw:Eio.Switch.t
+  -> ?clock:_ Eio.Time.clock
+  -> ?max_fibers:int
+  -> (Agent.t * string) list
+  -> (string * (Types.api_response, Error.sdk_error) result) list

@@ -11,6 +11,7 @@ let test_default_no_limits () =
   check bool "no output limit" true (c.max_output_tokens = None);
   check bool "no tools" false c.supports_tools;
   check bool "system prompt default true" true c.supports_system_prompt
+;;
 
 let test_default_new_fields_false () =
   let c = Capabilities.default_capabilities in
@@ -23,6 +24,7 @@ let test_default_new_fields_false () =
   check bool "no caching" false c.supports_caching;
   check bool "no computer use" false c.supports_computer_use;
   check bool "no code execution" false c.supports_code_execution
+;;
 
 (* ── Preset capabilities ─────────────────────────────── *)
 
@@ -43,6 +45,7 @@ let test_anthropic_capabilities () =
   check bool "supports top_k" true c.supports_top_k;
   check bool "no min_p" false c.supports_min_p;
   check bool "context 200K" true (c.max_context_tokens = Some 200_000)
+;;
 
 let test_openai_capabilities () =
   let c = Capabilities.openai_chat_capabilities in
@@ -50,12 +53,14 @@ let test_openai_capabilities () =
   check bool "has parallel tools" true c.supports_parallel_tool_calls;
   check bool "no reasoning" false c.supports_reasoning;
   check bool "context 128K" true (c.max_context_tokens = Some 128_000)
+;;
 
 let test_openai_extended () =
   let c = Capabilities.openai_chat_extended_capabilities in
   check bool "has reasoning" true c.supports_reasoning;
   check bool "has top_k" true c.supports_top_k;
   check bool "has min_p" true c.supports_min_p
+;;
 
 (* ── Model lookup ────────────────────────────────────── *)
 
@@ -66,6 +71,7 @@ let test_lookup_claude_opus () =
     check (option int) "output 128K" (Some 128_000) c.max_output_tokens;
     check bool "computer use" true c.supports_computer_use
   | None -> fail "should match claude-opus"
+;;
 
 let test_lookup_claude_sonnet () =
   match Capabilities.for_model_id "claude-sonnet-4-6" with
@@ -73,6 +79,7 @@ let test_lookup_claude_sonnet () =
     check (option int) "output 64K" (Some 64_000) c.max_output_tokens;
     check bool "parallel tools" true c.supports_parallel_tool_calls
   | None -> fail "should match claude-sonnet"
+;;
 
 let test_lookup_gpt5 () =
   match Capabilities.for_model_id "gpt-5.4" with
@@ -82,6 +89,7 @@ let test_lookup_gpt5 () =
     check bool "structured output" true c.supports_structured_output;
     check bool "computer use" true c.supports_computer_use
   | None -> fail "should match gpt-5"
+;;
 
 let test_lookup_gemini () =
   match Capabilities.for_model_id "gemini-3.1-pro" with
@@ -91,6 +99,7 @@ let test_lookup_gemini () =
     check bool "code execution" true c.supports_code_execution;
     check bool "structured output" true c.supports_structured_output
   | None -> fail "should match gemini"
+;;
 
 let test_lookup_qwen () =
   match Capabilities.for_model_id "qwen3.5-35b-a3b" with
@@ -100,6 +109,7 @@ let test_lookup_qwen () =
     check bool "thinking" true c.supports_extended_thinking;
     check bool "top_k" true c.supports_top_k
   | None -> fail "should match qwen3"
+;;
 
 let test_lookup_deepseek_r1 () =
   match Capabilities.for_model_id "deepseek-r1" with
@@ -108,6 +118,7 @@ let test_lookup_deepseek_r1 () =
     check bool "reasoning" true c.supports_reasoning;
     check (option int) "output 8K" (Some 8_000) c.max_output_tokens
   | None -> fail "should match deepseek-r1"
+;;
 
 let test_lookup_grok () =
   match Capabilities.for_model_id "grok-4" with
@@ -115,14 +126,19 @@ let test_lookup_grok () =
     check (option int) "context 2M" (Some 2_000_000) c.max_context_tokens;
     check bool "structured" true c.supports_structured_output
   | None -> fail "should match grok"
+;;
 
 let test_lookup_unknown () =
-  check bool "unknown returns None" true
+  check
+    bool
+    "unknown returns None"
+    true
     (Capabilities.for_model_id "totally-unknown-model" = None)
+;;
 
 let test_lookup_case_insensitive () =
-  check bool "uppercase matches" true
-    (Capabilities.for_model_id "Claude-Opus-4-6" <> None)
+  check bool "uppercase matches" true (Capabilities.for_model_id "Claude-Opus-4-6" <> None)
+;;
 
 let test_lookup_glm5_text_only () =
   match Capabilities.for_model_id "glm-5" with
@@ -131,6 +147,7 @@ let test_lookup_glm5_text_only () =
     check bool "reasoning" true c.supports_reasoning;
     check bool "structured output disabled" false c.supports_structured_output
   | None -> fail "should match glm-5"
+;;
 
 let test_lookup_glm5v_vision () =
   match Capabilities.for_model_id "glm-5v-turbo" with
@@ -138,6 +155,7 @@ let test_lookup_glm5v_vision () =
     check bool "has image input" true c.supports_image_input;
     check bool "multimodal" true c.supports_multimodal_inputs
   | None -> fail "should match glm-5v"
+;;
 
 let test_lookup_glm46v_vision () =
   match Capabilities.for_model_id "glm-4.6v-flashx" with
@@ -146,6 +164,7 @@ let test_lookup_glm46v_vision () =
     check bool "multimodal" true c.supports_multimodal_inputs;
     check bool "reasoning" true c.supports_reasoning
   | None -> fail "should match glm-4.6v"
+;;
 
 let test_lookup_glm_ocr () =
   match Capabilities.for_model_id "glm-ocr" with
@@ -154,6 +173,7 @@ let test_lookup_glm_ocr () =
     check bool "multimodal" true c.supports_multimodal_inputs;
     check bool "no tools" false c.supports_tools
   | None -> fail "should match glm-ocr"
+;;
 
 (* ── with_context_size ───────────────────────────────── *)
 
@@ -162,36 +182,37 @@ let test_with_context_size () =
   let c2 = Capabilities.with_context_size c ~ctx_size:131072 in
   check (option int) "ctx_size set" (Some 131072) c2.max_context_tokens;
   check bool "other fields unchanged" false c2.supports_tools
+;;
 
 (* ── Suite ───────────────────────────────────────────── *)
 
 let () =
-  run "Capabilities" [
-    "defaults", [
-      test_case "no limits" `Quick test_default_no_limits;
-      test_case "new fields false" `Quick test_default_new_fields_false;
-    ];
-    "presets", [
-      test_case "anthropic" `Quick test_anthropic_capabilities;
-      test_case "openai" `Quick test_openai_capabilities;
-      test_case "openai extended" `Quick test_openai_extended;
-    ];
-    "model_lookup", [
-      test_case "claude opus" `Quick test_lookup_claude_opus;
-      test_case "claude sonnet" `Quick test_lookup_claude_sonnet;
-      test_case "gpt-5" `Quick test_lookup_gpt5;
-      test_case "gemini" `Quick test_lookup_gemini;
-      test_case "qwen" `Quick test_lookup_qwen;
-      test_case "deepseek r1 no tools" `Quick test_lookup_deepseek_r1;
-      test_case "grok 2M context" `Quick test_lookup_grok;
-      test_case "glm-5 text only" `Quick test_lookup_glm5_text_only;
-      test_case "glm-5v vision" `Quick test_lookup_glm5v_vision;
-      test_case "glm-4.6v vision" `Quick test_lookup_glm46v_vision;
-      test_case "glm-ocr vision" `Quick test_lookup_glm_ocr;
-      test_case "unknown" `Quick test_lookup_unknown;
-      test_case "case insensitive" `Quick test_lookup_case_insensitive;
-    ];
-    "merge", [
-      test_case "with_context_size" `Quick test_with_context_size;
-    ];
-  ]
+  run
+    "Capabilities"
+    [ ( "defaults"
+      , [ test_case "no limits" `Quick test_default_no_limits
+        ; test_case "new fields false" `Quick test_default_new_fields_false
+        ] )
+    ; ( "presets"
+      , [ test_case "anthropic" `Quick test_anthropic_capabilities
+        ; test_case "openai" `Quick test_openai_capabilities
+        ; test_case "openai extended" `Quick test_openai_extended
+        ] )
+    ; ( "model_lookup"
+      , [ test_case "claude opus" `Quick test_lookup_claude_opus
+        ; test_case "claude sonnet" `Quick test_lookup_claude_sonnet
+        ; test_case "gpt-5" `Quick test_lookup_gpt5
+        ; test_case "gemini" `Quick test_lookup_gemini
+        ; test_case "qwen" `Quick test_lookup_qwen
+        ; test_case "deepseek r1 no tools" `Quick test_lookup_deepseek_r1
+        ; test_case "grok 2M context" `Quick test_lookup_grok
+        ; test_case "glm-5 text only" `Quick test_lookup_glm5_text_only
+        ; test_case "glm-5v vision" `Quick test_lookup_glm5v_vision
+        ; test_case "glm-4.6v vision" `Quick test_lookup_glm46v_vision
+        ; test_case "glm-ocr vision" `Quick test_lookup_glm_ocr
+        ; test_case "unknown" `Quick test_lookup_unknown
+        ; test_case "case insensitive" `Quick test_lookup_case_insensitive
+        ] )
+    ; "merge", [ test_case "with_context_size" `Quick test_with_context_size ]
+    ]
+;;

@@ -8,23 +8,25 @@ exception Cancelled
 
 (* ── Future type ──────────────────────────────────────────────── *)
 
-type 'a future = {
-  promise: ('a, Error.sdk_error) result Eio.Promise.t;
-  resolver: ('a, Error.sdk_error) result Eio.Promise.u;
-  resolved: bool Atomic.t;
-  mutable cancel_fn: (unit -> unit) option;
-}
+type 'a future =
+  { promise : ('a, Error.sdk_error) result Eio.Promise.t
+  ; resolver : ('a, Error.sdk_error) result Eio.Promise.u
+  ; resolved : bool Atomic.t
+  ; mutable cancel_fn : (unit -> unit) option
+  }
 
 (** Resolve the future exactly once. Subsequent calls are no-ops. *)
 let resolve_once future result =
-  if not (Atomic.exchange future.resolved true) then
-    Eio.Promise.resolve future.resolver result
+  if not (Atomic.exchange future.resolved true)
+  then Eio.Promise.resolve future.resolver result
+;;
 
 (* ── Agent name extraction ────────────────────────────────────── *)
 
 let agent_name agent =
   let card = Agent.card agent in
   card.Agent_card.name
+;;
 
 (* ── Spawning ─────────────────────────────────────────────────── *)
 
@@ -39,8 +41,7 @@ let spawn ~sw ?clock agent prompt =
     let result =
       try
         Eio.Switch.run (fun sub_sw ->
-          future.cancel_fn <- Some (fun () ->
-            Eio.Switch.fail sub_sw Cancelled);
+          future.cancel_fn <- Some (fun () -> Eio.Switch.fail sub_sw Cancelled);
           Agent.run ~sw:sub_sw ?clock agent prompt)
       with
       | Cancelled -> Error (Error.Internal "cancelled")
@@ -52,14 +53,12 @@ let spawn ~sw ?clock agent prompt =
     in
     resolve_once future result);
   future
+;;
 
 (* ── Awaiting ─────────────────────────────────────────────────── *)
 
-let await future =
-  Eio.Promise.await future.promise
-
-let is_ready future =
-  Option.is_some (Eio.Promise.peek future.promise)
+let await future = Eio.Promise.await future.promise
+let is_ready future = Option.is_some (Eio.Promise.peek future.promise)
 
 (* ── Cancellation ─────────────────────────────────────────────── *)
 
@@ -69,17 +68,19 @@ let cancel future =
      with Cancelled.  The fiber's own handler calls resolve_once,
      but we call it again as a fallback (idempotent). *)
   (match future.cancel_fn with
-   | Some f -> (try f () with Eio.Io _ | Unix.Unix_error _ | Failure _ -> ())
+   | Some f ->
+     (try f () with
+      | Eio.Io _ | Unix.Unix_error _ | Failure _ -> ())
    | None -> ());
   resolve_once future (Error (Error.Internal "cancelled"))
+;;
 
 (* ── Combinators ──────────────────────────────────────────────── *)
 
 let race ~sw ?clock agents =
   match agents with
-  | [] ->
-    Error (Error.Internal "race: no agents provided")
-  | [(agent, prompt)] ->
+  | [] -> Error (Error.Internal "race: no agents provided")
+  | [ (agent, prompt) ] ->
     let name = agent_name agent in
     (match Agent.run ~sw ?clock agent prompt with
      | Ok resp -> Ok (name, resp)
@@ -89,37 +90,37 @@ let race ~sw ?clock agents =
        normal completions. Eio.Fiber.first returns the first fiber to
        finish and cancels the rest via structured concurrency. *)
     let fns =
-      List.map (fun (agent, prompt) ->
-        fun () ->
-          let name = agent_name agent in
-          let result =
-            try Agent.run ~sw ?clock agent prompt
-            with
-            | Raw_trace.Trace_error e -> Error e
-            | Out_of_memory -> raise Out_of_memory
-            | Stack_overflow -> raise Stack_overflow
-            | Sys.Break -> raise Sys.Break
-            | exn -> Error (Error.Internal (Printexc.to_string exn))
-          in
-          (name, result))
+      List.map
+        (fun (agent, prompt) ->
+           fun () ->
+           let name = agent_name agent in
+           let result =
+             try Agent.run ~sw ?clock agent prompt with
+             | Raw_trace.Trace_error e -> Error e
+             | Out_of_memory -> raise Out_of_memory
+             | Stack_overflow -> raise Stack_overflow
+             | Sys.Break -> raise Sys.Break
+             | exn -> Error (Error.Internal (Printexc.to_string exn))
+           in
+           name, result)
         agents
     in
     let rec any_of = function
       | [] -> invalid_arg "any_of: empty list"
-      | [f] -> f ()
+      | [ f ] -> f ()
       | f :: rest -> Eio.Fiber.first f (fun () -> any_of rest)
     in
-    let (name, result) = any_of fns in
-    Result.map (fun resp -> (name, resp)) result
+    let name, result = any_of fns in
+    Result.map (fun resp -> name, resp) result
+;;
 
 let all ~sw ?clock ?max_fibers agents =
   let run_one (agent, prompt) =
     let name = agent_name agent in
     let result = Agent.run ~sw ?clock agent prompt in
-    (name, result)
+    name, result
   in
   match max_fibers with
-  | Some n ->
-    Eio.Fiber.List.map ~max_fibers:n run_one agents
-  | None ->
-    Eio.Fiber.List.map run_one agents
+  | Some n -> Eio.Fiber.List.map ~max_fibers:n run_one agents
+  | None -> Eio.Fiber.List.map run_one agents
+;;

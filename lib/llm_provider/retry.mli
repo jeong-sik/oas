@@ -6,22 +6,34 @@
 (** {1 Error types} *)
 
 type api_error =
-  | RateLimited of { retry_after: float option; message: string }
-  | Overloaded of { message: string }
-  | ServerError of { status: int; message: string }
-  | AuthError of { message: string }
-  | InvalidRequest of { message: string }
-  | NotFound of { message: string }
-  | ContextOverflow of { message: string; limit: int option }
-  | NetworkError of { message: string; kind: Http_client.network_error_kind }
-  | Timeout of { message: string }
+  | RateLimited of
+      { retry_after : float option
+      ; message : string
+      }
+  | Overloaded of { message : string }
+  | ServerError of
+      { status : int
+      ; message : string
+      }
+  | AuthError of { message : string }
+  | InvalidRequest of { message : string }
+  | NotFound of { message : string }
+  | ContextOverflow of
+      { message : string
+      ; limit : int option
+      }
+  | NetworkError of
+      { message : string
+      ; kind : Http_client.network_error_kind
+      }
+  | Timeout of { message : string }
 
-type retry_config = {
-  max_retries: int;
-  initial_delay: float;
-  max_delay: float;
-  backoff_factor: float;
-}
+type retry_config =
+  { max_retries : int
+  ; initial_delay : float
+  ; max_delay : float
+  ; backoff_factor : float
+  }
 
 val default_config : retry_config
 
@@ -61,11 +73,11 @@ val classify_error : status:int -> body:string -> api_error
 
 val calculate_delay : retry_config -> int -> float
 
-val with_retry :
-  clock:_ Eio.Time.clock ->
-  ?config:retry_config ->
-  (unit -> ('a, api_error) result) ->
-  ('a, api_error) result
+val with_retry
+  :  clock:_ Eio.Time.clock
+  -> ?config:retry_config
+  -> (unit -> ('a, api_error) result)
+  -> ('a, api_error) result
 
 (** Retry a function while preserving its original error type.
     [classify] returns [Some api_error] for errors that should use the shared
@@ -73,9 +85,9 @@ val with_retry :
 
     @stability Internal
     @since 0.163.0 *)
-val with_retry_map_error :
-  clock:_ Eio.Time.clock ->
-  ?config:retry_config ->
-  classify:('e -> api_error option) ->
-  (unit -> ('a, 'e) result) ->
-  ('a, 'e) result
+val with_retry_map_error
+  :  clock:_ Eio.Time.clock
+  -> ?config:retry_config
+  -> classify:('e -> api_error option)
+  -> (unit -> ('a, 'e) result)
+  -> ('a, 'e) result

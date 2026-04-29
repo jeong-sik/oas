@@ -9,53 +9,61 @@
 
 (** {1 Types} *)
 
-type otel_span_kind = Internal | Client | Server | Producer | Consumer
+type otel_span_kind =
+  | Internal
+  | Client
+  | Server
+  | Producer
+  | Consumer
 
-type otel_event = {
-  event_name: string;
-  timestamp_ns: Int64.t;
-  attributes: (string * string) list;
-}
+type otel_event =
+  { event_name : string
+  ; timestamp_ns : Int64.t
+  ; attributes : (string * string) list
+  }
 
-type span = {
-  trace_id: string;
-  span_id: string;
-  parent_span_id: string option;
-  name: string;
-  kind: otel_span_kind;
-  start_time_ns: Int64.t;
-  end_time_ns: Int64.t option;
-  status: bool option;
-  attributes: (string * string) list;
-  events: otel_event list;
-}
+type span =
+  { trace_id : string
+  ; span_id : string
+  ; parent_span_id : string option
+  ; name : string
+  ; kind : otel_span_kind
+  ; start_time_ns : Int64.t
+  ; end_time_ns : Int64.t option
+  ; status : bool option
+  ; attributes : (string * string) list
+  ; events : otel_event list
+  }
 
-type config = {
-  service_name: string;
-  endpoint: string option;
-}
+type config =
+  { service_name : string
+  ; endpoint : string option
+  }
 
 (** {1 Metric types} *)
 
-type metric_type = Counter | Gauge | Histogram
+type metric_type =
+  | Counter
+  | Gauge
+  | Histogram
 
-type metric_entry = {
-  m_name: string;
-  m_value: float;
-  m_type: metric_type;
-}
+type metric_entry =
+  { m_name : string
+  ; m_value : float
+  ; m_type : metric_type
+  }
 
 type mutex_impl =
   | Stdlib_mu of Mutex.t
   | Eio_mu of Eio.Mutex.t
 
-type instance = {
-  config: config;
-  mu: mutex_impl;
-  mutable current_spans: span list;
-  mutable completed_spans: span list;
-  mutable metrics: metric_entry list;
-}
+type instance =
+  { config : config
+  ; mu : mutex_impl
+  ; mutable current_spans : span list
+  ; mutable completed_spans : span list
+  ; mutable metrics : metric_entry list
+  }
 
 (** {1 Config} *)
 
@@ -85,17 +93,22 @@ val inst_active_count : instance -> int
 
 (** {1 Instance metric operations} *)
 
-val inst_record_metric : instance -> name:string -> value:float -> metric_type:metric_type -> unit
 (** Record a metric (counter, gauge, or histogram) on the instance. *)
+val inst_record_metric
+  :  instance
+  -> name:string
+  -> value:float
+  -> metric_type:metric_type
+  -> unit
 
-val inst_get_metrics : instance -> (string * float * metric_type) list
 (** Retrieve all recorded metrics as [(name, value, type)] triples. *)
+val inst_get_metrics : instance -> (string * float * metric_type) list
 
-val inst_clear_metrics : instance -> unit
 (** Clear all recorded metrics from the instance. *)
+val inst_clear_metrics : instance -> unit
 
-val metric_type_to_string : metric_type -> string
 (** Convert metric type to its OTLP string representation. *)
+val metric_type_to_string : metric_type -> string
 
 (** {1 Global operations} *)
 
@@ -110,14 +123,14 @@ val active_count : unit -> int
 
 (** {1 Global metric operations} *)
 
-val record_metric : name:string -> value:float -> metric_type:metric_type -> unit
 (** Record a metric on the global instance. *)
+val record_metric : name:string -> value:float -> metric_type:metric_type -> unit
 
-val get_metrics : unit -> (string * float * metric_type) list
 (** Retrieve all metrics from the global instance. *)
+val get_metrics : unit -> (string * float * metric_type) list
 
-val clear_metrics : unit -> unit
 (** Clear all metrics from the global instance. *)
+val clear_metrics : unit -> unit
 
 (** {1 JSON serialization} *)
 

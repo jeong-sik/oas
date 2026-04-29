@@ -4,9 +4,6 @@
     native streaming (Gemini CLI, Codex CLI) so consumers receive the
     same event shape as a truly streamed response. *)
 
-val replay :
-  on_event:(Types.sse_event -> unit) ->
-  Types.api_response ->
-  unit
 (** Emit [MessageStart] → per-block [ContentBlockStart]/[ContentBlockDelta]/
     [ContentBlockStop] → [MessageDelta] → [MessageStop], in order. *)
+val replay : on_event:(Types.sse_event -> unit) -> Types.api_response -> unit

@@ -21,9 +21,12 @@ let with_env key value f =
       | Some v -> Unix.putenv key v
       | None -> Unix.putenv key "")
     f
+;;
 
 let make_tool_result ?is_error ?structured_content content =
-  let fields = [("content", Mcp_protocol.Mcp_types.tool_content_list_to_yojson content)] in
+  let fields =
+    [ "content", Mcp_protocol.Mcp_types.tool_content_list_to_yojson content ]
+  in
   let fields =
     match is_error with
     | Some b -> ("isError", `Bool b) :: fields
@@ -37,37 +40,50 @@ let make_tool_result ?is_error ?structured_content content =
   match Mcp_protocol.Mcp_types.tool_result_of_yojson (`Assoc fields) with
   | Ok result -> result
   | Error detail -> failwith ("tool_result_of_yojson failed: " ^ detail)
+;;
 
 let contains_substring ~sub text =
   let sub_len = String.length sub in
   let text_len = String.length text in
   let rec loop index =
-    if index + sub_len > text_len then false
-    else if String.sub text index sub_len = sub then true
+    if index + sub_len > text_len
+    then false
+    else if String.sub text index sub_len = sub
+    then true
     else loop (index + 1)
   in
   if sub_len = 0 then true else loop 0
+;;
 
 (* ── JSON Schema -> SDK tool_param ───────────────────────────────── *)
 
-let check_param_type = Alcotest.testable
-  Types.pp_param_type
-  (fun a b -> a = b)
+let check_param_type = Alcotest.testable Types.pp_param_type (fun a b -> a = b)
 
 let test_type_mapping () =
-  let cases = [
-    ("string", Types.String); ("integer", Types.Integer);
-    ("number", Types.Number); ("boolean", Types.Boolean);
-    ("array", Types.Array); ("object", Types.Object);
-    ("unknown_type", Types.String);
-  ] in
-  List.iter (fun (input, expected) ->
-    Alcotest.check check_param_type input expected
-      (Mcp.json_schema_type_to_param_type input)
-  ) cases
+  let cases =
+    [ "string", Types.String
+    ; "integer", Types.Integer
+    ; "number", Types.Number
+    ; "boolean", Types.Boolean
+    ; "array", Types.Array
+    ; "object", Types.Object
+    ; "unknown_type", Types.String
+    ]
+  in
+  List.iter
+    (fun (input, expected) ->
+       Alcotest.check
+         check_param_type
+         input
+         expected
+         (Mcp.json_schema_type_to_param_type input))
+    cases
+;;
 
 let test_json_schema_to_params () =
-  let schema = Yojson.Safe.from_string {|{
+  let schema =
+    Yojson.Safe.from_string
+      {|{
     "type": "object",
     "properties": {
       "city": {"type": "string", "description": "City name"},
@@ -75,7 +91,8 @@ let test_json_schema_to_params () =
       "count": {"type": "integer", "description": "Result count"}
     },
     "required": ["city"]
-  }|} in
+  }|}
+  in
   let params = Mcp.json_schema_to_params schema in
   Alcotest.(check int) "param count" 3 (List.length params);
   let city = List.hd params in
@@ -87,48 +104,61 @@ let test_json_schema_to_params () =
   Alcotest.(check bool) "units optional" false units.required;
   let count = List.nth params 2 in
   Alcotest.check check_param_type "count type" Types.Integer count.param_type
+;;
 
 let test_json_schema_empty () =
   let schema = Yojson.Safe.from_string {|{"type": "object"}|} in
   let params = Mcp.json_schema_to_params schema in
   Alcotest.(check int) "empty params" 0 (List.length params)
+;;
 
 let test_json_schema_no_required () =
-  let schema = Yojson.Safe.from_string {|{
+  let schema =
+    Yojson.Safe.from_string
+      {|{
     "type": "object",
     "properties": {
       "x": {"type": "number", "description": "X value"}
     }
-  }|} in
+  }|}
+  in
   let params = Mcp.json_schema_to_params schema in
   Alcotest.(check int) "one param" 1 (List.length params);
   Alcotest.(check bool) "not required" false (List.hd params).required
+;;
 
 let test_json_schema_no_description () =
-  let schema = Yojson.Safe.from_string {|{
+  let schema =
+    Yojson.Safe.from_string
+      {|{
     "type": "object",
     "properties": {
       "flag": {"type": "boolean"}
     }
-  }|} in
+  }|}
+  in
   let params = Mcp.json_schema_to_params schema in
   Alcotest.(check string) "default desc" "" (List.hd params).description;
   Alcotest.check check_param_type "bool type" Types.Boolean (List.hd params).param_type
+;;
 
 (* ── Tool bridge ────────────────────────────────────────────────── *)
 
 let test_mcp_tool_to_sdk_tool () =
-  let mcp_tool : Mcp.mcp_tool = {
-    name = "echo";
-    description = "Echoes input";
-    input_schema = Yojson.Safe.from_string {|{
+  let mcp_tool : Mcp.mcp_tool =
+    { name = "echo"
+    ; description = "Echoes input"
+    ; input_schema =
+        Yojson.Safe.from_string
+          {|{
       "type": "object",
       "properties": {
         "text": {"type": "string", "description": "Text to echo"}
       },
       "required": ["text"]
-    }|};
-  } in
+    }|}
+    }
+  in
   let call_fn input : Types.tool_result =
     let open Yojson.Safe.Util in
     let text = input |> member "text" |> to_string in
@@ -138,49 +168,54 @@ let test_mcp_tool_to_sdk_tool () =
   Alcotest.(check string) "tool name" "echo" sdk_tool.schema.name;
   Alcotest.(check string) "tool desc" "Echoes input" sdk_tool.schema.description;
   Alcotest.(check int) "param count" 1 (List.length sdk_tool.schema.parameters);
-  let input = `Assoc [("text", `String "hello")] in
+  let input = `Assoc [ "text", `String "hello" ] in
   let result = Tool.execute sdk_tool input in
-  (match result with
-   | Ok { content } -> Alcotest.(check string) "execution" "echo: hello" content
-   | Error _ -> Alcotest.fail "expected Ok")
+  match result with
+  | Ok { content } -> Alcotest.(check string) "execution" "echo: hello" content
+  | Error _ -> Alcotest.fail "expected Ok"
+;;
 
 let test_mcp_tool_bridge_error () =
-  let mcp_tool : Mcp.mcp_tool = {
-    name = "fail";
-    description = "Always fails";
-    input_schema = `Assoc [("type", `String "object"); ("properties", `Assoc [])];
-  } in
+  let mcp_tool : Mcp.mcp_tool =
+    { name = "fail"
+    ; description = "Always fails"
+    ; input_schema = `Assoc [ "type", `String "object"; "properties", `Assoc [] ]
+    }
+  in
   let call_fn _input : Types.tool_result =
     Error { message = "server error"; recoverable = true; error_class = None }
   in
   let sdk_tool = Mcp.mcp_tool_to_sdk_tool ~call_fn mcp_tool in
   let result = Tool.execute sdk_tool (`Assoc []) in
-  (match result with
-   | Error { message; _ } -> Alcotest.(check string) "error" "server error" message
-   | Ok _ -> Alcotest.fail "expected Error")
+  match result with
+  | Error { message; _ } -> Alcotest.(check string) "error" "server error" message
+  | Ok _ -> Alcotest.fail "expected Error"
+;;
 
 (* ── SDK tool -> oas mcp_tool conversion ─────────────────────────── *)
 
 let test_mcp_tool_of_sdk_tool () =
-  let sdk_tool : Mcp_protocol.Mcp_types.tool = {
-    name = "read_file";
-    description = Some "Read a file";
-    input_schema = `Assoc [
-      ("type", `String "object");
-      ("properties", `Assoc [
-        ("path", `Assoc [
-          ("type", `String "string");
-          ("description", `String "File path");
-        ]);
-      ]);
-      ("required", `List [`String "path"]);
-    ];
-    title = None;
-    annotations = None;
-    icon = None;
-    output_schema = None;
-    execution = None;
-  } in
+  let sdk_tool : Mcp_protocol.Mcp_types.tool =
+    { name = "read_file"
+    ; description = Some "Read a file"
+    ; input_schema =
+        `Assoc
+          [ "type", `String "object"
+          ; ( "properties"
+            , `Assoc
+                [ ( "path"
+                  , `Assoc
+                      [ "type", `String "string"; "description", `String "File path" ] )
+                ] )
+          ; "required", `List [ `String "path" ]
+          ]
+    ; title = None
+    ; annotations = None
+    ; icon = None
+    ; output_schema = None
+    ; execution = None
+    }
+  in
   let mcp_tool = Mcp.mcp_tool_of_sdk_tool sdk_tool in
   Alcotest.(check string) "name" "read_file" mcp_tool.name;
   Alcotest.(check string) "description" "Read a file" mcp_tool.description;
@@ -188,182 +223,219 @@ let test_mcp_tool_of_sdk_tool () =
   Alcotest.(check int) "param count" 1 (List.length params);
   Alcotest.(check string) "param name" "path" (List.hd params).name;
   Alcotest.(check bool) "param required" true (List.hd params).required
+;;
 
 let test_mcp_tool_of_sdk_tool_no_description () =
-  let sdk_tool : Mcp_protocol.Mcp_types.tool = {
-    name = "bare";
-    description = None;
-    input_schema = `Assoc [("type", `String "object"); ("properties", `Assoc [])];
-    title = None;
-    annotations = None;
-    icon = None;
-    output_schema = None;
-    execution = None;
-  } in
+  let sdk_tool : Mcp_protocol.Mcp_types.tool =
+    { name = "bare"
+    ; description = None
+    ; input_schema = `Assoc [ "type", `String "object"; "properties", `Assoc [] ]
+    ; title = None
+    ; annotations = None
+    ; icon = None
+    ; output_schema = None
+    ; execution = None
+    }
+  in
   let mcp_tool = Mcp.mcp_tool_of_sdk_tool sdk_tool in
   Alcotest.(check string) "default desc" "" mcp_tool.description
+;;
 
 let test_text_of_tool_result () =
   let result : Mcp_protocol.Mcp_types.tool_result =
-    make_tool_result [
-      Mcp_protocol.Mcp_types.TextContent {
-        type_ = "text"; text = "line1"; annotations = None };
-      Mcp_protocol.Mcp_types.TextContent {
-        type_ = "text"; text = "line2"; annotations = None };
-    ]
+    make_tool_result
+      [ Mcp_protocol.Mcp_types.TextContent
+          { type_ = "text"; text = "line1"; annotations = None }
+      ; Mcp_protocol.Mcp_types.TextContent
+          { type_ = "text"; text = "line2"; annotations = None }
+      ]
   in
   let text = Mcp.text_of_tool_result result in
   Alcotest.(check string) "concatenated" "line1\nline2" text
+;;
 
 let test_text_of_tool_result_empty () =
   let result : Mcp_protocol.Mcp_types.tool_result = make_tool_result [] in
   let text = Mcp.text_of_tool_result result in
   Alcotest.(check string) "empty content" "" text
+;;
 
 let test_text_of_tool_result_non_text_only () =
   let result : Mcp_protocol.Mcp_types.tool_result =
-    make_tool_result [
-      Mcp_protocol.Mcp_types.ImageContent {
-        type_ = "image"; data = "base64..."; mime_type = "image/png";
-        annotations = None };
-    ]
+    make_tool_result
+      [ Mcp_protocol.Mcp_types.ImageContent
+          { type_ = "image"
+          ; data = "base64..."
+          ; mime_type = "image/png"
+          ; annotations = None
+          }
+      ]
   in
   let text = Mcp.text_of_tool_result result in
   Alcotest.(check string) "non-text returns empty" "" text
+;;
 
 let test_text_of_tool_result_mixed () =
   let result : Mcp_protocol.Mcp_types.tool_result =
-    make_tool_result [
-      Mcp_protocol.Mcp_types.TextContent {
-        type_ = "text"; text = "hello"; annotations = None };
-      Mcp_protocol.Mcp_types.ImageContent {
-        type_ = "image"; data = "base64..."; mime_type = "image/png";
-        annotations = None };
-      Mcp_protocol.Mcp_types.TextContent {
-        type_ = "text"; text = "world"; annotations = None };
-    ]
+    make_tool_result
+      [ Mcp_protocol.Mcp_types.TextContent
+          { type_ = "text"; text = "hello"; annotations = None }
+      ; Mcp_protocol.Mcp_types.ImageContent
+          { type_ = "image"
+          ; data = "base64..."
+          ; mime_type = "image/png"
+          ; annotations = None
+          }
+      ; Mcp_protocol.Mcp_types.TextContent
+          { type_ = "text"; text = "world"; annotations = None }
+      ]
   in
   let text = Mcp.text_of_tool_result result in
   Alcotest.(check string) "text only" "hello\nworld" text
+;;
 
 let test_text_of_tool_result_budget_truncates () =
   with_env "OAS_MCP_OUTPUT_MAX_TOKENS" (Some "1") (fun () ->
-      let result : Mcp_protocol.Mcp_types.tool_result =
-        make_tool_result [
-          Mcp_protocol.Mcp_types.TextContent {
-            type_ = "text";
-            text = "0123456789";
-            annotations = None;
-          };
+    let result : Mcp_protocol.Mcp_types.tool_result =
+      make_tool_result
+        [ Mcp_protocol.Mcp_types.TextContent
+            { type_ = "text"; text = "0123456789"; annotations = None }
         ]
-      in
-      let text = Mcp.text_of_tool_result result in
-      Alcotest.(check bool) "truncated" true
-        (contains_substring ~sub:"...[oas mcp output truncated]" text))
+    in
+    let text = Mcp.text_of_tool_result result in
+    Alcotest.(check bool)
+      "truncated"
+      true
+      (contains_substring ~sub:"...[oas mcp output truncated]" text))
+;;
 
 (* ── mcp_tool_of_json tests ─────────────────────────────────── *)
 
 let test_mcp_tool_of_json_valid () =
-  let json = `Assoc [
-    ("name", `String "my_tool");
-    ("description", `String "Does things");
-    ("inputSchema", `Assoc [("type", `String "object")]);
-  ] in
+  let json =
+    `Assoc
+      [ "name", `String "my_tool"
+      ; "description", `String "Does things"
+      ; "inputSchema", `Assoc [ "type", `String "object" ]
+      ]
+  in
   match Mcp.mcp_tool_of_json json with
   | Some t ->
     Alcotest.(check string) "name" "my_tool" t.name;
     Alcotest.(check string) "desc" "Does things" t.description
   | None -> Alcotest.fail "expected Some"
+;;
 
 let test_mcp_tool_of_json_input_schema_underscore () =
-  let json = `Assoc [
-    ("name", `String "t2");
-    ("input_schema", `Assoc [("type", `String "object")]);
-  ] in
+  let json =
+    `Assoc [ "name", `String "t2"; "input_schema", `Assoc [ "type", `String "object" ] ]
+  in
   match Mcp.mcp_tool_of_json json with
   | Some t -> Alcotest.(check string) "name" "t2" t.name
   | None -> Alcotest.fail "expected Some for input_schema"
+;;
 
 let test_mcp_tool_of_json_missing_name () =
   (* After fix: tools without a name are skipped (returns None) *)
-  let json = `Assoc [
-    ("description", `String "no name");
-    ("inputSchema", `Assoc []);
-  ] in
+  let json = `Assoc [ "description", `String "no name"; "inputSchema", `Assoc [] ] in
   match Mcp.mcp_tool_of_json json with
   | None -> ()
   | Some _ -> Alcotest.fail "expected None for missing name"
+;;
 
 let test_mcp_tool_of_json_missing_schema () =
-  let json = `Assoc [("name", `String "bare")] in
+  let json = `Assoc [ "name", `String "bare" ] in
   match Mcp.mcp_tool_of_json json with
   | Some t ->
     (* Schema defaults to empty Assoc *)
     Alcotest.(check string) "name" "bare" t.name
   | None -> Alcotest.fail "expected Some"
+;;
 
 let test_mcp_tool_of_json_non_assoc () =
   match Mcp.mcp_tool_of_json (`String "not an object") with
   | None -> ()
   | Some _ -> Alcotest.fail "expected None for non-assoc"
+;;
 
 let test_truncate_output_short () =
   let result = Mcp.truncate_output "short text" in
   Alcotest.(check string) "no truncation" "short text" result
+;;
 
 let test_truncate_output_at_boundary () =
   with_env "OAS_MCP_OUTPUT_MAX_TOKENS" (Some "2") (fun () ->
-    let text = String.make 8 'x' in  (* 2*4 = 8 chars = exact limit *)
+    let text = String.make 8 'x' in
+    (* 2*4 = 8 chars = exact limit *)
     let result = Mcp.truncate_output text in
     Alcotest.(check string) "exact boundary" text result)
+;;
 
 let test_output_token_budget_default () =
   with_env "OAS_MCP_OUTPUT_MAX_TOKENS" (Some "") (fun () ->
     let budget = Mcp.output_token_budget () in
     Alcotest.(check int) "default" 25_000 budget)
+;;
 
 let test_output_token_budget_negative () =
   with_env "OAS_MCP_OUTPUT_MAX_TOKENS" (Some "-5") (fun () ->
     let budget = Mcp.output_token_budget () in
     Alcotest.(check int) "negative -> default" 25_000 budget)
+;;
 
 (* ── Test runner ────────────────────────────────────────────────── *)
 
 let () =
   let open Alcotest in
-  run "MCP" [
-    "schema_conversion", [
-      test_case "type mapping" `Quick test_type_mapping;
-      test_case "full schema" `Quick test_json_schema_to_params;
-      test_case "empty schema" `Quick test_json_schema_empty;
-      test_case "no required" `Quick test_json_schema_no_required;
-      test_case "no description" `Quick test_json_schema_no_description;
-    ];
-    "tool_bridge", [
-      test_case "mcp_tool_to_sdk_tool" `Quick test_mcp_tool_to_sdk_tool;
-      test_case "bridge error propagation" `Quick test_mcp_tool_bridge_error;
-    ];
-    "sdk_bridge", [
-      test_case "mcp_tool_of_sdk_tool" `Quick test_mcp_tool_of_sdk_tool;
-      test_case "sdk_tool no description" `Quick test_mcp_tool_of_sdk_tool_no_description;
-      test_case "text_of_tool_result" `Quick test_text_of_tool_result;
-      test_case "text_of_tool_result empty" `Quick test_text_of_tool_result_empty;
-      test_case "text_of_tool_result non-text only" `Quick test_text_of_tool_result_non_text_only;
-      test_case "text_of_tool_result mixed content" `Quick test_text_of_tool_result_mixed;
-      test_case "text_of_tool_result budget truncates" `Quick
-        test_text_of_tool_result_budget_truncates;
-    ];
-    "mcp_tool_of_json", [
-      test_case "valid" `Quick test_mcp_tool_of_json_valid;
-      test_case "input_schema underscore" `Quick test_mcp_tool_of_json_input_schema_underscore;
-      test_case "missing name" `Quick test_mcp_tool_of_json_missing_name;
-      test_case "missing schema" `Quick test_mcp_tool_of_json_missing_schema;
-      test_case "non-assoc" `Quick test_mcp_tool_of_json_non_assoc;
-    ];
-    "truncation", [
-      test_case "short text" `Quick test_truncate_output_short;
-      test_case "boundary" `Quick test_truncate_output_at_boundary;
-      test_case "budget default" `Quick test_output_token_budget_default;
-      test_case "budget negative" `Quick test_output_token_budget_negative;
-    ];
-  ]
+  run
+    "MCP"
+    [ ( "schema_conversion"
+      , [ test_case "type mapping" `Quick test_type_mapping
+        ; test_case "full schema" `Quick test_json_schema_to_params
+        ; test_case "empty schema" `Quick test_json_schema_empty
+        ; test_case "no required" `Quick test_json_schema_no_required
+        ; test_case "no description" `Quick test_json_schema_no_description
+        ] )
+    ; ( "tool_bridge"
+      , [ test_case "mcp_tool_to_sdk_tool" `Quick test_mcp_tool_to_sdk_tool
+        ; test_case "bridge error propagation" `Quick test_mcp_tool_bridge_error
+        ] )
+    ; ( "sdk_bridge"
+      , [ test_case "mcp_tool_of_sdk_tool" `Quick test_mcp_tool_of_sdk_tool
+        ; test_case
+            "sdk_tool no description"
+            `Quick
+            test_mcp_tool_of_sdk_tool_no_description
+        ; test_case "text_of_tool_result" `Quick test_text_of_tool_result
+        ; test_case "text_of_tool_result empty" `Quick test_text_of_tool_result_empty
+        ; test_case
+            "text_of_tool_result non-text only"
+            `Quick
+            test_text_of_tool_result_non_text_only
+        ; test_case
+            "text_of_tool_result mixed content"
+            `Quick
+            test_text_of_tool_result_mixed
+        ; test_case
+            "text_of_tool_result budget truncates"
+            `Quick
+            test_text_of_tool_result_budget_truncates
+        ] )
+    ; ( "mcp_tool_of_json"
+      , [ test_case "valid" `Quick test_mcp_tool_of_json_valid
+        ; test_case
+            "input_schema underscore"
+            `Quick
+            test_mcp_tool_of_json_input_schema_underscore
+        ; test_case "missing name" `Quick test_mcp_tool_of_json_missing_name
+        ; test_case "missing schema" `Quick test_mcp_tool_of_json_missing_schema
+        ; test_case "non-assoc" `Quick test_mcp_tool_of_json_non_assoc
+        ] )
+    ; ( "truncation"
+      , [ test_case "short text" `Quick test_truncate_output_short
+        ; test_case "boundary" `Quick test_truncate_output_at_boundary
+        ; test_case "budget default" `Quick test_output_token_budget_default
+        ; test_case "budget negative" `Quick test_output_token_budget_negative
+        ] )
+    ]
+;;

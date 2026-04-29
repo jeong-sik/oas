@@ -5,32 +5,17 @@
     bug fixes (signal handling, env propagation, I/O framing) apply
     to every CLI transport at once. *)
 
-type collect_result = {
-  stdout: string;
-  stderr: string;
-  latency_ms: int;
-}
+type collect_result =
+  { stdout : string
+  ; stderr : string
+  ; latency_ms : int
+  }
 
-val default_on_stderr_line : name:string -> string -> unit
 (** Default stderr-line handler used when [~on_stderr_line] is
     omitted.  Routes each line to [Eio.traceln] with a
     [\[NAME stderr\]] prefix. *)
+val default_on_stderr_line : name:string -> string -> unit
 
-val run_collect :
-  sw:Eio.Switch.t ->
-  mgr:_ Eio.Process.mgr ->
-  ?clock:_ Eio.Time.clock ->
-  ?stdout_idle_timeout_s:float ->
-  name:string ->
-  cwd:string option ->
-  extra_env:(string * string) list ->
-  ?scrub_env:string list ->
-  ?stdin_content:string ->
-  ?stdout_recovery:(string -> bool) ->
-  ?on_stderr_line:(string -> unit) ->
-  ?cancel:unit Eio.Promise.t ->
-  string list ->
-  (collect_result, Http_client.http_error) result
 (** Spawn [argv] and wait for exit, returning the full captured
     streams.
 
@@ -73,23 +58,22 @@ val run_collect :
     Returns [Ok { stdout; stderr; latency_ms }] on a zero exit code (or
     on a nonzero exit when [stdout_recovery] accepts the captured
     stdout), or a [NetworkError] describing the failure. *)
+val run_collect
+  :  sw:Eio.Switch.t
+  -> mgr:_ Eio.Process.mgr
+  -> ?clock:_ Eio.Time.clock
+  -> ?stdout_idle_timeout_s:float
+  -> name:string
+  -> cwd:string option
+  -> extra_env:(string * string) list
+  -> ?scrub_env:string list
+  -> ?stdin_content:string
+  -> ?stdout_recovery:(string -> bool)
+  -> ?on_stderr_line:(string -> unit)
+  -> ?cancel:unit Eio.Promise.t
+  -> string list
+  -> (collect_result, Http_client.http_error) result
 
-val run_stream_lines :
-  sw:Eio.Switch.t ->
-  mgr:_ Eio.Process.mgr ->
-  ?clock:_ Eio.Time.clock ->
-  ?stdout_idle_timeout_s:float ->
-  name:string ->
-  cwd:string option ->
-  extra_env:(string * string) list ->
-  ?scrub_env:string list ->
-  ?stdin_content:string ->
-  ?stdout_recovery:(string -> bool) ->
-  on_line:(string -> unit) ->
-  ?on_stderr_line:(string -> unit) ->
-  ?cancel:unit Eio.Promise.t ->
-  string list ->
-  (collect_result, Http_client.http_error) result
 (** Streaming variant of {!run_collect}.  Calls [on_line line] for
     every newline-terminated chunk written to stdout while the
     process is still running — enabling true live streaming rather
@@ -102,3 +86,19 @@ val run_stream_lines :
       not abort the run.
     - [on_stderr_line] and [cancel] behave identically to
       {!run_collect}. *)
+val run_stream_lines
+  :  sw:Eio.Switch.t
+  -> mgr:_ Eio.Process.mgr
+  -> ?clock:_ Eio.Time.clock
+  -> ?stdout_idle_timeout_s:float
+  -> name:string
+  -> cwd:string option
+  -> extra_env:(string * string) list
+  -> ?scrub_env:string list
+  -> ?stdin_content:string
+  -> ?stdout_recovery:(string -> bool)
+  -> on_line:(string -> unit)
+  -> ?on_stderr_line:(string -> unit)
+  -> ?cancel:unit Eio.Promise.t
+  -> string list
+  -> (collect_result, Http_client.http_error) result

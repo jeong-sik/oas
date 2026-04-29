@@ -16,17 +16,16 @@
 
 (** Construct Gemini API URL with model_id in path and optional key param.
     Exposed for testing. *)
-val gemini_url :
-  config:Provider_config.t -> stream:bool -> string
+val gemini_url : config:Provider_config.t -> stream:bool -> string
 
 (** {1 Provider Sampling Defaults} *)
 
 (** Sampling parameter defaults per provider kind. *)
-type sampling_defaults = {
-  default_min_p : float option;
-  default_top_p : float option;
-  default_top_k : int option;
-}
+type sampling_defaults =
+  { default_min_p : float option
+  ; default_top_p : float option
+  ; default_top_k : int option
+  }
 
 (** Get default sampling parameters for a provider kind.
     Local (OpenAI_compat) providers get min_p=0.05.
@@ -47,10 +46,10 @@ val apply_sampling_defaults : Provider_config.t -> Provider_config.t
     or [complete_stream] via [?transport].
 
     @since 0.78.0 *)
-val make_http_transport :
-  sw:Eio.Switch.t ->
-  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
-  Llm_transport.t
+val make_http_transport
+  :  sw:Eio.Switch.t
+  -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+  -> Llm_transport.t
 
 (** {1 Sync Completion} *)
 
@@ -64,29 +63,29 @@ val make_http_transport :
 
     @return [Ok api_response] on success (possibly from cache)
     @return [Error http_error] on failure *)
-val complete :
-  sw:Eio.Switch.t ->
-  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
-  ?transport:Llm_transport.t ->
-  config:Provider_config.t ->
-  messages:Types.message list ->
-  ?tools:Yojson.Safe.t list ->
-  ?runtime_mcp_policy:Llm_transport.runtime_mcp_policy ->
-  ?cache:Cache.t ->
-  ?metrics:Metrics.t ->
-  ?priority:Request_priority.t ->
-  unit ->
-  (Types.api_response, Http_client.http_error) result
+val complete
+  :  sw:Eio.Switch.t
+  -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+  -> ?transport:Llm_transport.t
+  -> config:Provider_config.t
+  -> messages:Types.message list
+  -> ?tools:Yojson.Safe.t list
+  -> ?runtime_mcp_policy:Llm_transport.runtime_mcp_policy
+  -> ?cache:Cache.t
+  -> ?metrics:Metrics.t
+  -> ?priority:Request_priority.t
+  -> unit
+  -> (Types.api_response, Http_client.http_error) result
 
 (** {1 Retry} *)
 
 (** Retry configuration with exponential backoff. *)
-type retry_config = {
-  max_retries: int;
-  initial_delay_sec: float;
-  max_delay_sec: float;
-  backoff_multiplier: float;
-}
+type retry_config =
+  { max_retries : int
+  ; initial_delay_sec : float
+  ; max_delay_sec : float
+  ; backoff_multiplier : float
+  }
 
 val default_retry_config : retry_config
 
@@ -97,21 +96,21 @@ val is_retryable : Http_client.http_error -> bool
 
 (** Completion with exponential backoff retry.
     Passes [transport], [cache] and [metrics] through to each attempt. *)
-val complete_with_retry :
-  sw:Eio.Switch.t ->
-  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
-  ?transport:Llm_transport.t ->
-  clock:_ Eio.Time.clock ->
-  config:Provider_config.t ->
-  messages:Types.message list ->
-  ?tools:Yojson.Safe.t list ->
-  ?runtime_mcp_policy:Llm_transport.runtime_mcp_policy ->
-  ?retry_config:retry_config ->
-  ?cache:Cache.t ->
-  ?metrics:Metrics.t ->
-  ?priority:Request_priority.t ->
-  unit ->
-  (Types.api_response, Http_client.http_error) result
+val complete_with_retry
+  :  sw:Eio.Switch.t
+  -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+  -> ?transport:Llm_transport.t
+  -> clock:_ Eio.Time.clock
+  -> config:Provider_config.t
+  -> messages:Types.message list
+  -> ?tools:Yojson.Safe.t list
+  -> ?runtime_mcp_policy:Llm_transport.runtime_mcp_policy
+  -> ?retry_config:retry_config
+  -> ?cache:Cache.t
+  -> ?metrics:Metrics.t
+  -> ?priority:Request_priority.t
+  -> unit
+  -> (Types.api_response, Http_client.http_error) result
 
 (** {1 Stream Accumulator} *)
 
@@ -138,21 +137,21 @@ include module type of Complete_stream_acc
     A stalled endpoint surfaces as [NetworkError { kind = Timeout; _ }]
     which cascade/retry layers treat as retryable. Non-HTTP transports
     (CLI subprocess) ignore [stream_idle_timeout_s]. *)
-val complete_stream :
-  sw:Eio.Switch.t ->
-  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
-  ?clock:_ Eio.Time.clock ->
-  ?stream_idle_timeout_s:float ->
-  ?body_timeout_s:float ->
-  ?transport:Llm_transport.t ->
-  config:Provider_config.t ->
-  messages:Types.message list ->
-  ?tools:Yojson.Safe.t list ->
-  ?runtime_mcp_policy:Llm_transport.runtime_mcp_policy ->
-  on_event:(Types.sse_event -> unit) ->
-  ?priority:Request_priority.t ->
-  unit ->
-  (Types.api_response, Http_client.http_error) result
+val complete_stream
+  :  sw:Eio.Switch.t
+  -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+  -> ?clock:_ Eio.Time.clock
+  -> ?stream_idle_timeout_s:float
+  -> ?body_timeout_s:float
+  -> ?transport:Llm_transport.t
+  -> config:Provider_config.t
+  -> messages:Types.message list
+  -> ?tools:Yojson.Safe.t list
+  -> ?runtime_mcp_policy:Llm_transport.runtime_mcp_policy
+  -> on_event:(Types.sse_event -> unit)
+  -> ?priority:Request_priority.t
+  -> unit
+  -> (Types.api_response, Http_client.http_error) result
 (** [body_timeout_s] caps the total HTTP body consumption time, in
     seconds.  Distinct from [stream_idle_timeout_s] (which only resets
     the deadline between successful lines and cannot interrupt a

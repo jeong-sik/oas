@@ -16,45 +16,45 @@
 
 (** {1 Types} *)
 
-type t
 (** Metrics instance. *)
+type t
 
-type counter
 (** Monotonically increasing integer counter. *)
+type counter
 
-type histogram
 (** Distribution of float observations. *)
+type histogram
 
 (** {1 Construction} *)
 
 val create : unit -> t
 
-val counter : t -> name:string -> unit_:string -> counter
 (** Register or retrieve a counter by name. *)
+val counter : t -> name:string -> unit_:string -> counter
 
-val histogram : t -> name:string -> buckets:float list -> histogram
 (** Register or retrieve a histogram by name. *)
+val histogram : t -> name:string -> buckets:float list -> histogram
 
 (** {1 Recording} *)
 
-val incr : counter -> ?labels:(string * string) list -> int -> unit
 (** Increment a counter. *)
+val incr : counter -> ?labels:(string * string) list -> int -> unit
 
-val observe : histogram -> float -> unit
 (** Record an observation in a histogram. *)
+val observe : histogram -> float -> unit
 
 (** {1 Export} *)
 
-val to_otlp_json : t -> Yojson.Safe.t
 (** Export all metrics in OTLP JSON format. *)
+val to_otlp_json : t -> Yojson.Safe.t
 
 (** {1 Inspection} *)
 
-val counter_value : counter -> ?labels:(string * string) list -> unit -> int
 (** Read current counter value for given labels. *)
+val counter_value : counter -> ?labels:(string * string) list -> unit -> int
 
-val histogram_count : histogram -> int
 (** Number of observations recorded. *)
+val histogram_count : histogram -> int
 
-val reset : t -> unit
 (** Clear all recorded data. *)
+val reset : t -> unit

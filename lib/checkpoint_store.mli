@@ -14,8 +14,7 @@ type t
 (** {1 Lifecycle} *)
 
 (** Create a store backed by [base_dir].  Creates the directory if needed. *)
-val create :
-  Eio.Fs.dir_ty Eio.Path.t -> (t, Error.sdk_error) result
+val create : Eio.Fs.dir_ty Eio.Path.t -> (t, Error.sdk_error) result
 
 (** {1 Operations} *)
 

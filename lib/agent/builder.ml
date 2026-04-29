@@ -3,150 +3,150 @@
 
 open Types
 
-type t = {
-  net: [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t;
-  model: model;
-  name: string;
-  system_prompt: string option;
-  max_tokens: int option;
-  max_turns: int;
-  temperature: float option;
-  top_p: float option;
-  top_k: int option;
-  min_p: float option;
-  enable_thinking: bool option;
-  response_format: response_format;
-  thinking_budget: int option;
-  tool_choice: tool_choice option;
-  disable_parallel_tool_use: bool;
-  cache_system_prompt: bool;
-  cache_extended_ttl: bool;
-  max_input_tokens: int option;
-  max_total_tokens: int option;
-  initial_messages: message list;
-  max_cost_usd: float option;
-  tools: Tool_set.t;
-  context: Context.t option;
-  base_url: string;
-  provider: Provider.config option;
-  max_execution_time_s: float option;
-  stream_idle_timeout_s: float option;
-  body_timeout_s: float option;
-  max_idle_turns: int;
-  idle_final_warning_at: int option;
-  hooks: Hooks.hooks;
-  guardrails: Guardrails.t;
-  guardrails_async: Guardrails_async.t;
-  tracer: Tracing.t;
-  raw_trace: Raw_trace.t option;
-  approval: Hooks.approval_callback option;
-  tool_retry_policy: Tool_retry_policy.t option;
-  required_tool_satisfaction: Completion_contract.required_tool_satisfaction;
-  context_reducer: Context_reducer.t option;
-  tiered_memory: Agent.tiered_memory option;
-  context_compact_ratio: float option;
-  context_prepare_ratio: float option;
-  context_handoff_ratio: float option;
-  context_injector: Hooks.context_injector option;
-  mcp_clients: Mcp.managed list;
-  event_bus: Event_bus.t option;
-  skill_registry: Skill_registry.t option;
-  elicitation: Hooks.elicitation_callback option;
-  description: string option;
-  periodic_callbacks: Agent.periodic_callback list;
-  contract: Contract.t;
-  memory: Memory.t option;
-  allowed_paths: string list;
-  progressive_tools: Progressive_tools.disclosure_strategy option;
-  operator_policy: Guardrails.tool_filter option;
-  priority: Llm_provider.Request_priority.t option;
-  yield_on_tool: bool;
-  exit_condition: (int -> bool) option;
-  tool_selector: Tool_selector.strategy option;
-  slot_id: int option;
-  on_run_complete: (bool -> unit) option;
-  tool_result_relocation:
-    (Tool_result_store.t * Content_replacement_state.t) option;
-  journal: Durable_event.journal option;
-  policy_channel: Policy_channel.t option;
-  summarizer: (Types.message list -> string) option;
-  transport: Llm_provider.Llm_transport.t option;
-  runtime_mcp_policy:
-    Llm_provider.Llm_transport.runtime_mcp_policy option;
-}
+type t =
+  { net : [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+  ; model : model
+  ; name : string
+  ; system_prompt : string option
+  ; max_tokens : int option
+  ; max_turns : int
+  ; temperature : float option
+  ; top_p : float option
+  ; top_k : int option
+  ; min_p : float option
+  ; enable_thinking : bool option
+  ; response_format : response_format
+  ; thinking_budget : int option
+  ; tool_choice : tool_choice option
+  ; disable_parallel_tool_use : bool
+  ; cache_system_prompt : bool
+  ; cache_extended_ttl : bool
+  ; max_input_tokens : int option
+  ; max_total_tokens : int option
+  ; initial_messages : message list
+  ; max_cost_usd : float option
+  ; tools : Tool_set.t
+  ; context : Context.t option
+  ; base_url : string
+  ; provider : Provider.config option
+  ; max_execution_time_s : float option
+  ; stream_idle_timeout_s : float option
+  ; body_timeout_s : float option
+  ; max_idle_turns : int
+  ; idle_final_warning_at : int option
+  ; hooks : Hooks.hooks
+  ; guardrails : Guardrails.t
+  ; guardrails_async : Guardrails_async.t
+  ; tracer : Tracing.t
+  ; raw_trace : Raw_trace.t option
+  ; approval : Hooks.approval_callback option
+  ; tool_retry_policy : Tool_retry_policy.t option
+  ; required_tool_satisfaction : Completion_contract.required_tool_satisfaction
+  ; context_reducer : Context_reducer.t option
+  ; tiered_memory : Agent.tiered_memory option
+  ; context_compact_ratio : float option
+  ; context_prepare_ratio : float option
+  ; context_handoff_ratio : float option
+  ; context_injector : Hooks.context_injector option
+  ; mcp_clients : Mcp.managed list
+  ; event_bus : Event_bus.t option
+  ; skill_registry : Skill_registry.t option
+  ; elicitation : Hooks.elicitation_callback option
+  ; description : string option
+  ; periodic_callbacks : Agent.periodic_callback list
+  ; contract : Contract.t
+  ; memory : Memory.t option
+  ; allowed_paths : string list
+  ; progressive_tools : Progressive_tools.disclosure_strategy option
+  ; operator_policy : Guardrails.tool_filter option
+  ; priority : Llm_provider.Request_priority.t option
+  ; yield_on_tool : bool
+  ; exit_condition : (int -> bool) option
+  ; tool_selector : Tool_selector.strategy option
+  ; slot_id : int option
+  ; on_run_complete : (bool -> unit) option
+  ; tool_result_relocation : (Tool_result_store.t * Content_replacement_state.t) option
+  ; journal : Durable_event.journal option
+  ; policy_channel : Policy_channel.t option
+  ; summarizer : (Types.message list -> string) option
+  ; transport : Llm_provider.Llm_transport.t option
+  ; runtime_mcp_policy : Llm_provider.Llm_transport.runtime_mcp_policy option
+  }
 
 let create ~net ~model =
-  {
-    net; model = Model_registry.resolve_model_id model;
-    name = default_config.name;
-    system_prompt = default_config.system_prompt;
-    max_tokens = default_config.max_tokens;
-    max_turns = default_config.max_turns;
-    temperature = default_config.temperature;
-    top_p = default_config.top_p;
-    top_k = default_config.top_k;
-    min_p = default_config.min_p;
-    enable_thinking = default_config.enable_thinking;
-    response_format = default_config.response_format;
-    thinking_budget = default_config.thinking_budget;
-    tool_choice = default_config.tool_choice;
-    disable_parallel_tool_use = default_config.disable_parallel_tool_use;
-    cache_system_prompt = default_config.cache_system_prompt;
-    cache_extended_ttl = default_config.cache_extended_ttl;
-    max_input_tokens = default_config.max_input_tokens;
-    max_total_tokens = default_config.max_total_tokens;
-    initial_messages = default_config.initial_messages;
-    max_cost_usd = default_config.max_cost_usd;
-    tools = Tool_set.empty;
-    context = None;
-    base_url = Api.default_base_url;
-    provider = None;
-    max_execution_time_s = None;
-    stream_idle_timeout_s = None;
-    body_timeout_s = None;
-    max_idle_turns = 3;
-    idle_final_warning_at = None;
-    hooks = Hooks.empty;
-    guardrails = Guardrails.default;
-    guardrails_async = Guardrails_async.empty;
-    tracer = Tracing.null;
-    raw_trace = None;
-    approval = None;
-    tool_retry_policy = None;
-    required_tool_satisfaction = Completion_contract.any_tool_call_satisfies;
-    context_reducer = None;
-    tiered_memory = None;
-    context_compact_ratio = None;
-    context_prepare_ratio = None;
-    context_handoff_ratio = None;
-    context_injector = None;
-    mcp_clients = [];
-    event_bus = None;
-    skill_registry = None;
-    elicitation = None;
-    description = None;
-    periodic_callbacks = [];
-    contract = Contract.empty;
-    memory = None;
-    allowed_paths = [];
-    progressive_tools = None;
-    operator_policy = None;
-    priority = None;
-    yield_on_tool = false;
-    exit_condition = None;
-    tool_selector = None;
-    slot_id = None;
-    on_run_complete = None;
-    tool_result_relocation = None;
-    journal = None;
-    policy_channel = None;
-    summarizer = None;
-    transport = None;
-    runtime_mcp_policy = None;
+  { net
+  ; model = Model_registry.resolve_model_id model
+  ; name = default_config.name
+  ; system_prompt = default_config.system_prompt
+  ; max_tokens = default_config.max_tokens
+  ; max_turns = default_config.max_turns
+  ; temperature = default_config.temperature
+  ; top_p = default_config.top_p
+  ; top_k = default_config.top_k
+  ; min_p = default_config.min_p
+  ; enable_thinking = default_config.enable_thinking
+  ; response_format = default_config.response_format
+  ; thinking_budget = default_config.thinking_budget
+  ; tool_choice = default_config.tool_choice
+  ; disable_parallel_tool_use = default_config.disable_parallel_tool_use
+  ; cache_system_prompt = default_config.cache_system_prompt
+  ; cache_extended_ttl = default_config.cache_extended_ttl
+  ; max_input_tokens = default_config.max_input_tokens
+  ; max_total_tokens = default_config.max_total_tokens
+  ; initial_messages = default_config.initial_messages
+  ; max_cost_usd = default_config.max_cost_usd
+  ; tools = Tool_set.empty
+  ; context = None
+  ; base_url = Api.default_base_url
+  ; provider = None
+  ; max_execution_time_s = None
+  ; stream_idle_timeout_s = None
+  ; body_timeout_s = None
+  ; max_idle_turns = 3
+  ; idle_final_warning_at = None
+  ; hooks = Hooks.empty
+  ; guardrails = Guardrails.default
+  ; guardrails_async = Guardrails_async.empty
+  ; tracer = Tracing.null
+  ; raw_trace = None
+  ; approval = None
+  ; tool_retry_policy = None
+  ; required_tool_satisfaction = Completion_contract.any_tool_call_satisfies
+  ; context_reducer = None
+  ; tiered_memory = None
+  ; context_compact_ratio = None
+  ; context_prepare_ratio = None
+  ; context_handoff_ratio = None
+  ; context_injector = None
+  ; mcp_clients = []
+  ; event_bus = None
+  ; skill_registry = None
+  ; elicitation = None
+  ; description = None
+  ; periodic_callbacks = []
+  ; contract = Contract.empty
+  ; memory = None
+  ; allowed_paths = []
+  ; progressive_tools = None
+  ; operator_policy = None
+  ; priority = None
+  ; yield_on_tool = false
+  ; exit_condition = None
+  ; tool_selector = None
+  ; slot_id = None
+  ; on_run_complete = None
+  ; tool_result_relocation = None
+  ; journal = None
+  ; policy_channel = None
+  ; summarizer = None
+  ; transport = None
+  ; runtime_mcp_policy = None
   }
+;;
 
 let with_tool_result_relocation ~store ~state b =
   { b with tool_result_relocation = Some (store, state) }
+;;
 
 let with_journal journal b = { b with journal = Some journal }
 
@@ -156,8 +156,10 @@ let with_journal journal b = { b with journal = Some journal }
 let with_summarizer summarizer b = { b with summarizer = Some summarizer }
 
 let with_transport transport b = { b with transport = Some transport }
+
 let with_runtime_mcp_policy runtime_mcp_policy b =
   { b with runtime_mcp_policy = Some runtime_mcp_policy }
+;;
 
 let with_auto_dump_journal ~path b =
   let journal =
@@ -168,9 +170,10 @@ let with_auto_dump_journal ~path b =
   let dump _ok =
     match Durable_event.save_to_file journal path with
     | Ok () -> ()
-    | Error _ -> ()  (* Best-effort; consumer can provide a stricter callback. *)
+    | Error _ -> () (* Best-effort; consumer can provide a stricter callback. *)
   in
   { b with journal = Some journal; on_run_complete = Some dump }
+;;
 
 let with_system_prompt prompt b = { b with system_prompt = Some prompt }
 let with_name name b = { b with name }
@@ -187,13 +190,25 @@ let with_hooks hooks b = { b with hooks }
 let with_tracer tracer b = { b with tracer }
 let with_raw_trace raw_trace b = { b with raw_trace = Some raw_trace }
 let with_approval approval b = { b with approval = Some approval }
+
 let with_tool_retry_policy tool_retry_policy b =
   { b with tool_retry_policy = Some tool_retry_policy }
+;;
+
 let with_required_tool_satisfaction required_tool_satisfaction b =
   { b with required_tool_satisfaction }
+;;
+
 let with_context_reducer reducer b = { b with context_reducer = Some reducer }
 let with_tiered_memory tiered_memory b = { b with tiered_memory = Some tiered_memory }
-let with_context_thresholds ~compact_ratio ?context_window_tokens ?prepare_ratio ?handoff_ratio b =
+
+let with_context_thresholds
+      ~compact_ratio
+      ?context_window_tokens
+      ?prepare_ratio
+      ?handoff_ratio
+      b
+  =
   (* Resolution chain for the context window used by the reducer:
      1. explicit [?context_window_tokens] argument (caller knows the
         per-agent override),
@@ -207,27 +222,31 @@ let with_context_thresholds ~compact_ratio ?context_window_tokens ?prepare_ratio
      5. conservative 200_000 literal as the final fallback when nothing
         is known — better to under-report than to assume a giant window
         and skip compaction. *)
-  let effective_max = match context_window_tokens with
+  let effective_max =
+    match context_window_tokens with
     | Some n when n > 0 -> n
     | _ ->
-      match b.max_input_tokens with
-      | Some n when n > 0 -> n
-      | _ ->
-        match b.max_total_tokens with
-        | Some n when n > 0 -> n
-        | _ ->
-          Provider.resolve_max_context_tokens ~fallback:200_000 b.provider
+      (match b.max_input_tokens with
+       | Some n when n > 0 -> n
+       | _ ->
+         (match b.max_total_tokens with
+          | Some n when n > 0 -> n
+          | _ -> Provider.resolve_max_context_tokens ~fallback:200_000 b.provider))
   in
-  let reducer = Context_reducer.from_context_config ~compact_ratio
-    ~max_tokens:effective_max () in
-  { b with context_reducer = Some reducer;
-    context_compact_ratio = Some compact_ratio;
-    context_prepare_ratio = prepare_ratio;
-    context_handoff_ratio = handoff_ratio }
+  let reducer =
+    Context_reducer.from_context_config ~compact_ratio ~max_tokens:effective_max ()
+  in
+  { b with
+    context_reducer = Some reducer
+  ; context_compact_ratio = Some compact_ratio
+  ; context_prepare_ratio = prepare_ratio
+  ; context_handoff_ratio = handoff_ratio
+  }
+;;
+
 let with_context ctx b = { b with context = Some ctx }
 let with_provider provider b = { b with provider = Some provider }
-let with_provider_config pc b =
-  with_provider (Provider.config_of_provider_config pc) b
+let with_provider_config pc b = with_provider (Provider.config_of_provider_config pc) b
 let with_base_url url b = { b with base_url = url }
 let with_mcp_clients clients b = { b with mcp_clients = clients }
 let with_guardrails guardrails b = { b with guardrails }
@@ -236,16 +255,18 @@ let with_operator_policy policy b = { b with operator_policy = Some policy }
 let with_priority priority b = { b with priority = Some priority }
 let with_slot_id slot_id b = { b with slot_id = Some slot_id }
 let with_on_run_complete cb b = { b with on_run_complete = Some cb }
-let with_contract contract b =
-  { b with contract = Contract.merge b.contract contract }
-let with_skill skill b =
-  with_contract (Contract.with_skill skill Contract.empty) b
-let with_skills skills b =
-  with_contract (Contract.with_skills skills Contract.empty) b
+let with_contract contract b = { b with contract = Contract.merge b.contract contract }
+let with_skill skill b = with_contract (Contract.with_skill skill Contract.empty) b
+let with_skills skills b = with_contract (Contract.with_skills skills Contract.empty) b
+
 let with_tool_grants tool_names b =
   with_contract (Contract.with_tool_grants tool_names Contract.empty) b
+;;
+
 let with_mcp_tool_allowlist tool_names b =
   with_contract (Contract.with_mcp_tool_allowlist tool_names Contract.empty) b
+;;
+
 let with_tool_choice tc b = { b with tool_choice = Some tc }
 let with_response_format response_format b = { b with response_format }
 let with_disable_parallel_tool_use v b = { b with disable_parallel_tool_use = v }
@@ -254,8 +275,11 @@ let with_max_input_tokens n b = { b with max_input_tokens = Some n }
 let with_max_total_tokens n b = { b with max_total_tokens = Some n }
 let with_initial_messages msgs b = { b with initial_messages = msgs }
 let with_max_cost_usd v b = { b with max_cost_usd = Some v }
+
 let with_response_format_json v b =
   with_response_format (response_format_of_json_mode v) b
+;;
+
 let with_cache_system_prompt v b = { b with cache_system_prompt = v }
 let with_cache_extended_ttl v b = { b with cache_extended_ttl = v }
 let with_yield_on_tool v b = { b with yield_on_tool = v }
@@ -275,137 +299,171 @@ let with_elicitation cb b = { b with elicitation = Some cb }
 let with_description desc b = { b with description = Some desc }
 let with_memory mem b = { b with memory = Some mem }
 let with_allowed_paths paths b = { b with allowed_paths = paths }
+
 let with_periodic_callback cb b =
-  { b with periodic_callbacks = b.periodic_callbacks @ [cb] }
+  { b with periodic_callbacks = b.periodic_callbacks @ [ cb ] }
+;;
+
 let with_periodic_callbacks cbs b =
   { b with periodic_callbacks = b.periodic_callbacks @ cbs }
-let with_log_level level _b = Log.set_global_level level; _b
-let with_log_sink sink _b = Log.add_sink sink; _b
+;;
+
+let with_log_level level _b =
+  Log.set_global_level level;
+  _b
+;;
+
+let with_log_sink sink _b =
+  Log.add_sink sink;
+  _b
+;;
+
 (* with_event_targets removed — was a no-op (targets discarded,
    Event_forward never created in build). See oas#669. *)
 
 let build b =
-  let tools = Tool_set.of_list (Contract.filter_tools b.contract (Tool_set.to_list b.tools)) in
+  let tools =
+    Tool_set.of_list (Contract.filter_tools b.contract (Tool_set.to_list b.tools))
+  in
   let mcp_clients = Contract.filter_mcp_clients b.contract b.mcp_clients in
   let context = Contract.context_with_contract ?context:b.context b.contract in
-  let config = {
-    name = b.name;
-    model = b.model;
-    system_prompt = Contract.compose_system_prompt ?base:b.system_prompt b.contract;
-    max_tokens = b.max_tokens;
-    max_turns = b.max_turns;
-    temperature = b.temperature;
-    top_p = b.top_p;
-    top_k = b.top_k;
-    min_p = b.min_p;
-    enable_thinking = b.enable_thinking;
-    response_format = b.response_format;
-    thinking_budget = b.thinking_budget;
-    tool_choice = b.tool_choice;
-    disable_parallel_tool_use = b.disable_parallel_tool_use;
-    cache_system_prompt = b.cache_system_prompt;
-    cache_extended_ttl = b.cache_extended_ttl;
-    max_input_tokens = b.max_input_tokens;
-    max_total_tokens = b.max_total_tokens;
-    initial_messages = b.initial_messages;
-    max_cost_usd = b.max_cost_usd;
-    context_compact_ratio = b.context_compact_ratio;
-    context_prepare_ratio = b.context_prepare_ratio;
-    context_handoff_ratio = b.context_handoff_ratio;
-    priority = b.priority;
-    yield_on_tool = b.yield_on_tool;
-    exit_condition = b.exit_condition;
-  } in
-  let options = {
-    Agent_types.base_url = b.base_url;
-    provider = b.provider;
-    max_execution_time_s = b.max_execution_time_s;
-    stream_idle_timeout_s = b.stream_idle_timeout_s;
-    body_timeout_s = b.body_timeout_s;
-    max_idle_turns = b.max_idle_turns;
-    idle_final_warning_at = b.idle_final_warning_at;
-    hooks = (match b.progressive_tools with
-      | None -> b.hooks
-      | Some strategy ->
-        let prog_hook = Progressive_tools.as_hook strategy in
-        let existing_btp = b.hooks.before_turn_params in
-        { b.hooks with before_turn_params = Some (fun event ->
-          match prog_hook event with
-          | Hooks.AdjustParams prog_params -> (
-            match existing_btp with
-            | Some h -> (
-              match h event with
-              | Hooks.AdjustParams existing_params ->
-                (* Merge: progressive tool_filter_override takes priority *)
-                let merged = { existing_params with
-                  Hooks.tool_filter_override =
-                    (match prog_params.tool_filter_override with
-                     | Some _ as override -> override
-                     | None -> existing_params.tool_filter_override) } in
-                Hooks.AdjustParams merged
-              | _ -> Hooks.AdjustParams prog_params)
-            | None -> Hooks.AdjustParams prog_params)
-          | other -> (
-            match existing_btp with
-            | Some h -> h event
-            | None -> other)) });
-    guardrails = b.guardrails;
-    guardrails_async = b.guardrails_async;
-    tracer = b.tracer;
-    raw_trace = b.raw_trace;
-    approval = b.approval;
-    tool_retry_policy = b.tool_retry_policy;
-    context_reducer = b.context_reducer;
-    tiered_memory = b.tiered_memory;
-    context_injector = b.context_injector;
-    mcp_clients;
-    event_bus = b.event_bus;
-    skill_registry = b.skill_registry;
-    elicitation = b.elicitation;
-    description = b.description;
-    periodic_callbacks = b.periodic_callbacks;
-    memory = b.memory;
-    allowed_paths = b.allowed_paths;
-    operator_policy = b.operator_policy;
-    policy_channel = b.policy_channel;
-    tool_selector = b.tool_selector;
-    priority = b.priority;
-    slot_id = b.slot_id;
-    on_run_complete = b.on_run_complete;
-    tool_result_relocation = b.tool_result_relocation;
-    journal = b.journal;
-    transport = b.transport;
-    runtime_mcp_policy = b.runtime_mcp_policy;
-    summarizer = b.summarizer;
-    required_tool_satisfaction = b.required_tool_satisfaction;
-  } in
-  Agent.create ~net:b.net ~config ~tools:(Tool_set.to_list tools) ?context
-    ~options ()
+  let config =
+    { name = b.name
+    ; model = b.model
+    ; system_prompt = Contract.compose_system_prompt ?base:b.system_prompt b.contract
+    ; max_tokens = b.max_tokens
+    ; max_turns = b.max_turns
+    ; temperature = b.temperature
+    ; top_p = b.top_p
+    ; top_k = b.top_k
+    ; min_p = b.min_p
+    ; enable_thinking = b.enable_thinking
+    ; response_format = b.response_format
+    ; thinking_budget = b.thinking_budget
+    ; tool_choice = b.tool_choice
+    ; disable_parallel_tool_use = b.disable_parallel_tool_use
+    ; cache_system_prompt = b.cache_system_prompt
+    ; cache_extended_ttl = b.cache_extended_ttl
+    ; max_input_tokens = b.max_input_tokens
+    ; max_total_tokens = b.max_total_tokens
+    ; initial_messages = b.initial_messages
+    ; max_cost_usd = b.max_cost_usd
+    ; context_compact_ratio = b.context_compact_ratio
+    ; context_prepare_ratio = b.context_prepare_ratio
+    ; context_handoff_ratio = b.context_handoff_ratio
+    ; priority = b.priority
+    ; yield_on_tool = b.yield_on_tool
+    ; exit_condition = b.exit_condition
+    }
+  in
+  let options =
+    { Agent_types.base_url = b.base_url
+    ; provider = b.provider
+    ; max_execution_time_s = b.max_execution_time_s
+    ; stream_idle_timeout_s = b.stream_idle_timeout_s
+    ; body_timeout_s = b.body_timeout_s
+    ; max_idle_turns = b.max_idle_turns
+    ; idle_final_warning_at = b.idle_final_warning_at
+    ; hooks =
+        (match b.progressive_tools with
+         | None -> b.hooks
+         | Some strategy ->
+           let prog_hook = Progressive_tools.as_hook strategy in
+           let existing_btp = b.hooks.before_turn_params in
+           { b.hooks with
+             before_turn_params =
+               Some
+                 (fun event ->
+                   match prog_hook event with
+                   | Hooks.AdjustParams prog_params ->
+                     (match existing_btp with
+                      | Some h ->
+                        (match h event with
+                         | Hooks.AdjustParams existing_params ->
+                           (* Merge: progressive tool_filter_override takes priority *)
+                           let merged =
+                             { existing_params with
+                               Hooks.tool_filter_override =
+                                 (match prog_params.tool_filter_override with
+                                  | Some _ as override -> override
+                                  | None -> existing_params.tool_filter_override)
+                             }
+                           in
+                           Hooks.AdjustParams merged
+                         | _ -> Hooks.AdjustParams prog_params)
+                      | None -> Hooks.AdjustParams prog_params)
+                   | other ->
+                     (match existing_btp with
+                      | Some h -> h event
+                      | None -> other))
+           })
+    ; guardrails = b.guardrails
+    ; guardrails_async = b.guardrails_async
+    ; tracer = b.tracer
+    ; raw_trace = b.raw_trace
+    ; approval = b.approval
+    ; tool_retry_policy = b.tool_retry_policy
+    ; context_reducer = b.context_reducer
+    ; tiered_memory = b.tiered_memory
+    ; context_injector = b.context_injector
+    ; mcp_clients
+    ; event_bus = b.event_bus
+    ; skill_registry = b.skill_registry
+    ; elicitation = b.elicitation
+    ; description = b.description
+    ; periodic_callbacks = b.periodic_callbacks
+    ; memory = b.memory
+    ; allowed_paths = b.allowed_paths
+    ; operator_policy = b.operator_policy
+    ; policy_channel = b.policy_channel
+    ; tool_selector = b.tool_selector
+    ; priority = b.priority
+    ; slot_id = b.slot_id
+    ; on_run_complete = b.on_run_complete
+    ; tool_result_relocation = b.tool_result_relocation
+    ; journal = b.journal
+    ; transport = b.transport
+    ; runtime_mcp_policy = b.runtime_mcp_policy
+    ; summarizer = b.summarizer
+    ; required_tool_satisfaction = b.required_tool_satisfaction
+    }
+  in
+  Agent.create ~net:b.net ~config ~tools:(Tool_set.to_list tools) ?context ~options ()
+;;
 
 let build_safe b =
-  if b.max_turns <= 0 then
-    Error (Error.Config (Error.InvalidConfig {
-      field = "max_turns";
-      detail = Printf.sprintf "must be > 0, got %d" b.max_turns;
-    }))
-  else match b.max_tokens with
-  | Some n when n <= 0 ->
-    Error (Error.Config (Error.InvalidConfig {
-      field = "max_tokens";
-      detail = Printf.sprintf "must be > 0, got %d" n;
-    }))
-  | _ ->
-    match b.thinking_budget, b.enable_thinking with
-    | Some _, (None | Some false) ->
-        Error (Error.Config (Error.InvalidConfig {
-          field = "thinking_budget";
-          detail = "thinking_budget requires enable_thinking = true";
-        }))
+  if b.max_turns <= 0
+  then
+    Error
+      (Error.Config
+         (Error.InvalidConfig
+            { field = "max_turns"
+            ; detail = Printf.sprintf "must be > 0, got %d" b.max_turns
+            }))
+  else (
+    match b.max_tokens with
+    | Some n when n <= 0 ->
+      Error
+        (Error.Config
+           (Error.InvalidConfig
+              { field = "max_tokens"; detail = Printf.sprintf "must be > 0, got %d" n }))
     | _ ->
-      match b.max_cost_usd with
-      | Some v when v < 0.0 ->
-        Error (Error.Config (Error.InvalidConfig {
-          field = "max_cost_usd";
-          detail = Printf.sprintf "must be >= 0.0, got %.4f" v;
-        }))
-      | _ -> Ok (build b)
+      (match b.thinking_budget, b.enable_thinking with
+       | Some _, (None | Some false) ->
+         Error
+           (Error.Config
+              (Error.InvalidConfig
+                 { field = "thinking_budget"
+                 ; detail = "thinking_budget requires enable_thinking = true"
+                 }))
+       | _ ->
+         (match b.max_cost_usd with
+          | Some v when v < 0.0 ->
+            Error
+              (Error.Config
+                 (Error.InvalidConfig
+                    { field = "max_cost_usd"
+                    ; detail = Printf.sprintf "must be >= 0.0, got %.4f" v
+                    }))
+          | _ -> Ok (build b))))
+;;

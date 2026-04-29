@@ -13,21 +13,17 @@
     @since 0.93.1 *)
 
 (** Configuration for an OpenAI-compatible endpoint. *)
-type config = {
-  base_url: string;
-    (** Base URL (e.g. {!Constants.Endpoints.default_url}). *)
-  api_key: string;
-    (** API key. Empty string when no auth is needed (local servers). *)
-  model_id: string;
-    (** Model identifier sent in the request body. *)
-  request_path: string;
+type config =
+  { base_url : string (** Base URL (e.g. {!Constants.Endpoints.default_url}). *)
+  ; api_key : string (** API key. Empty string when no auth is needed (local servers). *)
+  ; model_id : string (** Model identifier sent in the request body. *)
+  ; request_path : string
     (** Path appended to [base_url]. Default ["/v1/chat/completions"]. *)
-  max_tokens: int;
-    (** Maximum tokens in the response. Default [4096]. *)
-  extra_headers: (string * string) list;
+  ; max_tokens : int (** Maximum tokens in the response. Default [4096]. *)
+  ; extra_headers : (string * string) list
     (** Additional HTTP headers (e.g. [("HTTP-Referer", "...")]
         for OpenRouter). Default empty. *)
-}
+  }
 
 (** Default config for local llama-server on port 8085. *)
 val default_config : config
@@ -43,8 +39,8 @@ val default_config : config
 
     @param sw  Eio switch for HTTP connection lifetime.
     @param net Eio network capability for outbound connections. *)
-val create :
-  sw:Eio.Switch.t ->
-  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
-  config:config ->
-  Llm_transport.t
+val create
+  :  sw:Eio.Switch.t
+  -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+  -> config:config
+  -> Llm_transport.t

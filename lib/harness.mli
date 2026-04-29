@@ -10,33 +10,33 @@
 (** {1 Common types} *)
 
 (** Verdict from a harness evaluation. *)
-type verdict = {
-  passed: bool;
-  score: float option;       (** 0.0-1.0, for graded harnesses *)
-  evidence: string list;     (** Machine-readable evidence strings *)
-  detail: string option;     (** Human-readable explanation *)
-}
+type verdict =
+  { passed : bool
+  ; score : float option (** 0.0-1.0, for graded harnesses *)
+  ; evidence : string list (** Machine-readable evidence strings *)
+  ; detail : string option (** Human-readable explanation *)
+  }
 
 (** A single layer in a Swiss Cheese stack. *)
-type 'obs layer = {
-  name: string;
-  check: 'obs -> bool;
-  evidence: 'obs -> string;
-}
+type 'obs layer =
+  { name : string
+  ; check : 'obs -> bool
+  ; evidence : 'obs -> string
+  }
 
 (** Result of evaluating one layer. *)
-type 'obs layer_result = {
-  layer_name: string;
-  layer_passed: bool;
-  layer_evidence: string;
-}
+type 'obs layer_result =
+  { layer_name : string
+  ; layer_passed : bool
+  ; layer_evidence : string
+  }
 
 (** Combined result from all layers. *)
-type 'obs swiss_verdict = {
-  all_passed: bool;
-  layer_results: 'obs layer_result list;
-  coverage: float;  (** Fraction of layers that passed. *)
-}
+type 'obs swiss_verdict =
+  { all_passed : bool
+  ; layer_results : 'obs layer_result list
+  ; coverage : float (** Fraction of layers that passed. *)
+  }
 
 (** {1 Behavioral harness} *)
 
@@ -49,12 +49,12 @@ module Behavioral : sig
     | All of expectation list
 
   (** What we observe from the agent run. *)
-  type observation = {
-    tools_called: string list;
-    turn_count: int;
-    final_response: string;
-    messages: Types.message list;
-  }
+  type observation =
+    { tools_called : string list
+    ; turn_count : int
+    ; final_response : string
+    ; messages : Types.message list
+    }
 
   (** Extract observation from an agent after a run. *)
   val observe : Agent.t -> (Types.api_response, Error.sdk_error) result -> observation
@@ -70,8 +70,11 @@ module Adversarial : sig
   type adversarial_input =
     | MalformedJson of string
     | PromptInjection of string
-    | ToolError of { tool_name: string; error: string }
-    | OversizedInput of { size: int }
+    | ToolError of
+        { tool_name : string
+        ; error : string
+        }
+    | OversizedInput of { size : int }
 
   (** What we expect under adversarial conditions. *)
   type expectation =
@@ -79,11 +82,11 @@ module Adversarial : sig
     | NoToolExecution
     | ErrorContains of string
 
-  type observation = {
-    result: (Types.api_response, Error.sdk_error) result;
-    tools_executed: string list;
-    error_message: string option;
-  }
+  type observation =
+    { result : (Types.api_response, Error.sdk_error) result
+    ; tools_executed : string list
+    ; error_message : string option
+    }
 
   (** Evaluate adversarial observation against expectation. *)
   val evaluate : observation -> expectation -> verdict
@@ -92,19 +95,19 @@ end
 (** {1 Performance harness} *)
 
 module Performance : sig
-  type observation = {
-    latencies_ms: float list;
-    total_tokens: int;
-    total_cost_usd: float;
-    turn_count: int;
-  }
+  type observation =
+    { latencies_ms : float list
+    ; total_tokens : int
+    ; total_cost_usd : float
+    ; turn_count : int
+    }
 
-  type expectation = {
-    max_p95_latency_ms: float option;
-    max_total_tokens: int option;
-    max_cost_usd: float option;
-    max_turns: int option;
-  }
+  type expectation =
+    { max_p95_latency_ms : float option
+    ; max_total_tokens : int option
+    ; max_cost_usd : float option
+    ; max_turns : int option
+    }
 
   val default_expectation : expectation
 
@@ -121,12 +124,12 @@ module Regression : sig
   type match_mode =
     | ExactMatch
     | StructuralMatch of (Yojson.Safe.t -> Yojson.Safe.t -> bool)
-    | FuzzyMatch of { threshold: float }
+    | FuzzyMatch of { threshold : float }
 
-  type observation = {
-    output_json: Yojson.Safe.t;
-    output_text: string;
-  }
+  type observation =
+    { output_json : Yojson.Safe.t
+    ; output_text : string
+    }
 
   (** Compare observation against a golden string value. *)
   val evaluate : mode:match_mode -> observation -> string -> verdict
@@ -150,9 +153,12 @@ end
 module Composability : sig
   type scenario =
     | SingleAgent
-    | Handoff of { parent: string; targets: string list }
-    | Orchestrated of { agents: string list }
-    | Pipeline of { stages: string list }
+    | Handoff of
+        { parent : string
+        ; targets : string list
+        }
+    | Orchestrated of { agents : string list }
+    | Pipeline of { stages : string list }
 
   type expectation =
     | HandoffOccurred of string
@@ -160,13 +166,13 @@ module Composability : sig
     | ContextPropagated of string
     | TurnCountBelow of int
 
-  type observation = {
-    agents_involved: string list;
-    handoffs_observed: (string * string) list;
-    all_completed: bool;
-    context_keys: string list;
-    total_turns: int;
-  }
+  type observation =
+    { agents_involved : string list
+    ; handoffs_observed : (string * string) list
+    ; all_completed : bool
+    ; context_keys : string list
+    ; total_turns : int
+    }
 
   (** Evaluate composability observation against expectation. *)
   val evaluate : observation -> expectation -> verdict
@@ -176,21 +182,21 @@ end
 
 module Model_grader : sig
   (** Configuration for LLM-based evaluation. *)
-  type config = {
-    prompt_template: string;   (** Must contain \{goal\} and \{result\} placeholders *)
-    rubric: string;            (** Evaluation criteria *)
-    weight: float;             (** 0.0-1.0 weight for this grader *)
-  }
+  type config =
+    { prompt_template : string (** Must contain \{goal\} and \{result\} placeholders *)
+    ; rubric : string (** Evaluation criteria *)
+    ; weight : float (** 0.0-1.0 weight for this grader *)
+    }
 
   (** Grade a result using an LLM via dependency-injected [complete_fn].
       Extracts a numeric score from the LLM response.
       [passed] is true when score >= 0.5 * weight. *)
-  val grade :
-    complete_fn:(string -> (string, string) result) ->
-    config ->
-    goal:string ->
-    result:string ->
-    verdict
+  val grade
+    :  complete_fn:(string -> (string, string) result)
+    -> config
+    -> goal:string
+    -> result:string
+    -> verdict
 end
 
 (** {1 JSON serialization (Swiss Verdict Schema v1)} *)

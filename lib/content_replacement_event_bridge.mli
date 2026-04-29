@@ -25,23 +25,23 @@
 
     @raise Invalid_argument if the [tool_use_id] is already frozen; the
     event is not published in that case. *)
-val record_replacement_with_events :
-  ?correlation_id:string ->
-  ?run_id:string ->
-  Event_bus.t ->
-  Content_replacement_state.t ->
-  Content_replacement_state.replacement ->
-  unit
+val record_replacement_with_events
+  :  ?correlation_id:string
+  -> ?run_id:string
+  -> Event_bus.t
+  -> Content_replacement_state.t
+  -> Content_replacement_state.replacement
+  -> unit
 
 (** Wrap [Content_replacement_state.record_kept]: record the kept
     decision, then publish a [ContentReplacementKept] event.
 
     @raise Invalid_argument if the [tool_use_id] is already frozen; the
     event is not published in that case. *)
-val record_kept_with_events :
-  ?correlation_id:string ->
-  ?run_id:string ->
-  Event_bus.t ->
-  Content_replacement_state.t ->
-  string ->
-  unit
+val record_kept_with_events
+  :  ?correlation_id:string
+  -> ?run_id:string
+  -> Event_bus.t
+  -> Content_replacement_state.t
+  -> string
+  -> unit

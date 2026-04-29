@@ -11,13 +11,15 @@ type tool_filter =
   | Custom of (Types.tool_schema -> bool)
 
 (** Source of a tool policy, for audit logging. *)
-type policy_source = Agent | Operator
+type policy_source =
+  | Agent
+  | Operator
 [@@deriving show]
 
-type t = {
-  tool_filter: tool_filter;
-  max_tool_calls_per_turn: int option;
-}
+type t =
+  { tool_filter : tool_filter
+  ; max_tool_calls_per_turn : int option
+  }
 
 val default : t
 val is_allowed : t -> Types.tool_schema -> bool
@@ -32,8 +34,7 @@ val exceeds_limit : t -> int -> bool
     effective [tool_filter].
 
     @since 0.94.0 *)
-val merge_operator_policy :
-  operator:tool_filter option -> agent:t -> t * policy_source
+val merge_operator_policy : operator:tool_filter option -> agent:t -> t * policy_source
 
 (** Intersect two tool filters: the result only allows tools permitted
     by {b both} inputs.  Used to ensure hook [tool_filter_override]

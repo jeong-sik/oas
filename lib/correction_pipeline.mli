@@ -17,38 +17,37 @@
 (** {1 Correction tracking} *)
 
 (** Record of a single deterministic correction applied. *)
-type correction = {
-  stage : string;     (** Which correction stage applied *)
-  field : string;     (** Which field was corrected *)
-  from_value : string option;  (** Original value, or [None] if field was missing *)
-  to_value : string;    (** Corrected value description *)
-}
+type correction =
+  { stage : string (** Which correction stage applied *)
+  ; field : string (** Which field was corrected *)
+  ; from_value : string option (** Original value, or [None] if field was missing *)
+  ; to_value : string (** Corrected value description *)
+  }
 
 (** {1 Result types} *)
 
 (** Outcome of the deterministic pipeline. *)
 type det_result =
-  | Fixed of {
-      corrected : Yojson.Safe.t;
-      corrections : correction list;
-    }
-      (** All validation errors resolved by deterministic stages. *)
-  | Still_invalid of {
-      errors : Tool_input_validation.field_error list;
-      attempted : correction list;
-    }
-      (** Some errors remain after all stages exhausted. *)
+  | Fixed of
+      { corrected : Yojson.Safe.t
+      ; corrections : correction list
+      } (** All validation errors resolved by deterministic stages. *)
+  | Still_invalid of
+      { errors : Tool_input_validation.field_error list
+      ; attempted : correction list
+      } (** Some errors remain after all stages exhausted. *)
 
 (** {1 Stages} *)
 
 (** A single correction stage. Pure function: no I/O, no randomness. *)
-type stage = {
-  name : string;
-  apply : Types.tool_schema -> Yojson.Safe.t -> Yojson.Safe.t;
-}
+type stage =
+  { name : string
+  ; apply : Types.tool_schema -> Yojson.Safe.t -> Yojson.Safe.t
+  }
 
 (** Built-in stages. *)
 val coercion_stage : stage
+
 val default_injection_stage : stage
 val format_normalization_stage : stage
 
@@ -57,14 +56,18 @@ val zero_default : Types.param_type -> Yojson.Safe.t
 
 (** Build a default injection stage with custom per-field defaults.
     [?default_for] receives the full [tool_param] so it can branch on name or type. *)
-val make_default_injection_stage :
-  ?default_for:(Types.tool_param -> Yojson.Safe.t) -> unit -> stage
+val make_default_injection_stage
+  :  ?default_for:(Types.tool_param -> Yojson.Safe.t)
+  -> unit
+  -> stage
 
 (** Build a format normalization stage with custom string normalizer.
     [?normalize] receives [(field_name, raw_string)] and returns the normalized string.
     Default: {!String.trim}. *)
-val make_format_normalization_stage :
-  ?normalize:(string -> string -> string) -> unit -> stage
+val make_format_normalization_stage
+  :  ?normalize:(string -> string -> string)
+  -> unit
+  -> stage
 
 (** The default pipeline: [coercion; default_injection; format_normalization]. *)
 val default_stages : stage list
@@ -78,11 +81,7 @@ val default_stages : stage list
 
     Pure function. Idempotent: [run schema (run schema x) = run schema x]
     when [x] passes after corrections. *)
-val run :
-  schema:Types.tool_schema ->
-  ?stages:stage list ->
-  Yojson.Safe.t ->
-  det_result
+val run : schema:Types.tool_schema -> ?stages:stage list -> Yojson.Safe.t -> det_result
 
 (** {1 Det/NonDet boundary} *)
 
@@ -94,9 +93,9 @@ val run :
 
     Constructs an enriched error message that includes attempted
     corrections, giving the LLM better context for its retry. *)
-val build_nondet_feedback :
-  tool_name:string ->
-  args:Yojson.Safe.t ->
-  still_invalid:Tool_input_validation.field_error list ->
-  attempted:correction list ->
-  string
+val build_nondet_feedback
+  :  tool_name:string
+  -> args:Yojson.Safe.t
+  -> still_invalid:Tool_input_validation.field_error list
+  -> attempted:correction list
+  -> string

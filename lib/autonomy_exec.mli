@@ -17,18 +17,18 @@ type backend =
 type kill_scope =
   | Single_process
   | Process_group
-      (** Requires a wrapper that creates a dedicated process group
+  (** Requires a wrapper that creates a dedicated process group
           (for example: [setsid], [docker run], [bwrap]). *)
 
-type config = {
-  backend: backend;
-  cwd: string option;
-  env_allowlist: string list;
-  extra_env: (string * string) list;
-  stdout_limit_bytes: int;
-  stderr_limit_bytes: int;
-  kill_scope: kill_scope;
-}
+type config =
+  { backend : backend
+  ; cwd : string option
+  ; env_allowlist : string list
+  ; extra_env : (string * string) list
+  ; stdout_limit_bytes : int
+  ; stderr_limit_bytes : int
+  ; kill_scope : kill_scope
+  }
 
 val default_env_allowlist : string list
 val default_config : config
@@ -38,34 +38,34 @@ type exit_status =
   | Exit_signal of int
   | Timed_out of int option
 
-type output = {
-  effective_argv: string list;
-  status: exit_status;
-  stdout: string;
-  stderr: string;
-  stdout_truncated: bool;
-  stderr_truncated: bool;
-  elapsed_s: float;
-}
+type output =
+  { effective_argv : string list
+  ; status : exit_status
+  ; stdout : string
+  ; stderr : string
+  ; stdout_truncated : bool
+  ; stderr_truncated : bool
+  ; elapsed_s : float
+  }
 
-val argv_to_string : string list -> string
 (** Shell-quoted rendering for logs and diagnostics. *)
+val argv_to_string : string list -> string
 
-val effective_argv :
-  config:config ->
-  argv:string list ->
-  (string list, Error.sdk_error) result
 (** Compose backend prefix and cwd wrapper into the final argv list. *)
+val effective_argv
+  :  config:config
+  -> argv:string list
+  -> (string list, Error.sdk_error) result
 
-val build_env : config:config -> string array
 (** Build the child environment from inherited allowlisted vars and overrides. *)
+val build_env : config:config -> string array
 
 val status_to_string : exit_status -> string
 
-val run :
-  sw:Eio.Switch.t ->
-  clock:_ Eio.Time.clock ->
-  config:config ->
-  argv:string list ->
-  timeout_s:float ->
-  (output, Error.sdk_error) result
+val run
+  :  sw:Eio.Switch.t
+  -> clock:_ Eio.Time.clock
+  -> config:config
+  -> argv:string list
+  -> timeout_s:float
+  -> (output, Error.sdk_error) result

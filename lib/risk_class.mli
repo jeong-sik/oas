@@ -7,10 +7,10 @@
     @since 0.93.1 *)
 
 type t =
-  | Low       (** Small radius, easy rollback, low recovery cost *)
-  | Medium    (** One or more ambiguous/mid-level axes *)
-  | High      (** Any one axis large; Execute forbidden without human review *)
-  | Critical  (** Hard to reverse or external system damage; default = reject *)
+  | Low (** Small radius, easy rollback, low recovery cost *)
+  | Medium (** One or more ambiguous/mid-level axes *)
+  | High (** Any one axis large; Execute forbidden without human review *)
+  | Critical (** Hard to reverse or external system damage; default = reject *)
 [@@deriving yojson, show]
 
 val to_string : t -> string

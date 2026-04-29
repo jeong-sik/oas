@@ -8,10 +8,10 @@
     @stability Evolving
     @since 0.93.1 *)
 
-type run_result = {
-  response: (Types.api_response, Error.sdk_error) result;
-  proof: Cdal_proof.t;
-}
+type run_result =
+  { response : (Types.api_response, Error.sdk_error) result
+  ; proof : Cdal_proof.t
+  }
 
 (** Run an agent with contract enforcement and proof capture.
 
@@ -23,11 +23,11 @@ type run_result = {
 
     Returns [Error] in response if risk class forbids execution
     (Critical), with [proof.result_status = Cancelled]. *)
-val run :
-  sw:Eio.Switch.t ->
-  ?clock:_ Eio.Time.clock ->
-  ?store:Proof_store.config ->
-  contract:Risk_contract.t ->
-  Agent.t ->
-  string ->
-  run_result
+val run
+  :  sw:Eio.Switch.t
+  -> ?clock:_ Eio.Time.clock
+  -> ?store:Proof_store.config
+  -> contract:Risk_contract.t
+  -> Agent.t
+  -> string
+  -> run_result

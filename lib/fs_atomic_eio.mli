@@ -17,8 +17,8 @@
     Returns [Error] via [Fs_result.io_error_of_exn] for any I/O,
     Eio, or Unix error. Re-raises [Eio.Cancel.Cancelled] after
     cleaning up the tmp file. *)
-val save_atomic :
-  dir:Eio.Fs.dir_ty Eio.Path.t ->
-  name:string ->
-  string ->
-  (unit, Error.sdk_error) result
+val save_atomic
+  :  dir:Eio.Fs.dir_ty Eio.Path.t
+  -> name:string
+  -> string
+  -> (unit, Error.sdk_error) result

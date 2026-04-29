@@ -13,10 +13,10 @@
 (** {1 Idle detection} *)
 
 (** Fingerprint of a single tool call for idle detection. *)
-type tool_call_fingerprint = {
-  fp_name: string;
-  fp_input: string;
-}
+type tool_call_fingerprint =
+  { fp_name : string
+  ; fp_input : string
+  }
 
 (** Granularity at which two fingerprints are considered the "same"
     for idle detection.
@@ -44,26 +44,26 @@ val compute_fingerprints : Types.content_block list -> tool_call_fingerprint lis
     given granularity. Default [?granularity] is [Exact] — preserves
     the pre-0.161 semantics for every existing caller.
     @since 0.161.0 [?granularity] added (#896). *)
-val is_idle :
-  ?granularity:idle_granularity ->
-  tool_call_fingerprint list option ->
-  tool_call_fingerprint list ->
-  bool
+val is_idle
+  :  ?granularity:idle_granularity
+  -> tool_call_fingerprint list option
+  -> tool_call_fingerprint list
+  -> bool
 
 (** {1 Turn preparation} *)
 
-type tiered_memory = Types.tiered_memory = {
-  long_term: string option;
-  mid_term: string option;
-  short_term: string option;
-}
+type tiered_memory = Types.tiered_memory =
+  { long_term : string option
+  ; mid_term : string option
+  ; short_term : string option
+  }
 
 (** Pre-processed inputs for an LLM turn. *)
-type turn_preparation = {
-  tools_json: Yojson.Safe.t list option;
-  effective_messages: Types.message list;
-  effective_guardrails: Guardrails.t;
-  visible_tool_names: string list;
+type turn_preparation =
+  { tools_json : Yojson.Safe.t list option
+  ; effective_messages : Types.message list
+  ; effective_guardrails : Guardrails.t
+  ; visible_tool_names : string list
     (** Names of the tools that survived guardrails + operator policy
         + tool_filter_override + tool_selector. This is exactly the
         list the LLM sees this turn — not the agent's full tool
@@ -76,7 +76,7 @@ type turn_preparation = {
         order from [Tool_set.to_list].
 
         @since 0.162.0 *)
-}
+  }
 
 (** Prepare tool schemas, applying operator policy and optional
     [tool_filter_override].
@@ -90,16 +90,16 @@ type turn_preparation = {
 
     @since 0.94.0 added [operator_policy] parameter
     @since 0.100.0 added [tool_selector] and [messages] parameters *)
-val prepare_tools :
-  guardrails:Guardrails.t ->
-  operator_policy:Guardrails.tool_filter option ->
-  policy_channel:Policy_channel.t option ->
-  tools:Tool_set.t ->
-  turn_params:Hooks.turn_params ->
-  ?tool_selector:Tool_selector.strategy ->
-  ?messages:Types.message list ->
-  unit ->
-  Yojson.Safe.t list option * string list * Guardrails.t
+val prepare_tools
+  :  guardrails:Guardrails.t
+  -> operator_policy:Guardrails.tool_filter option
+  -> policy_channel:Policy_channel.t option
+  -> tools:Tool_set.t
+  -> turn_params:Hooks.turn_params
+  -> ?tool_selector:Tool_selector.strategy
+  -> ?messages:Types.message list
+  -> unit
+  -> Yojson.Safe.t list option * string list * Guardrails.t
 (** Returns [(tools_json, visible_tool_names, effective_guardrails)].
     [visible_tool_names] mirrors the order of [tools_json] and is empty
     when no tools survive filtering.
@@ -109,99 +109,99 @@ val prepare_tools :
 (** Reduce messages and inject extra system context. *)
 val tiered_memory_tokens : tiered_memory option -> int
 
-val apply_context_reducer :
-  messages:Types.message list ->
-  context_reducer:Context_reducer.t option ->
-  tiered_memory:tiered_memory option ->
-  Types.message list
+val apply_context_reducer
+  :  messages:Types.message list
+  -> context_reducer:Context_reducer.t option
+  -> tiered_memory:tiered_memory option
+  -> Types.message list
 
-val prepare_messages :
-  messages:Types.message list ->
-  context_reducer:Context_reducer.t option ->
-  tiered_memory:tiered_memory option ->
-  turn_params:Hooks.turn_params ->
-  Types.message list
+val prepare_messages
+  :  messages:Types.message list
+  -> context_reducer:Context_reducer.t option
+  -> tiered_memory:tiered_memory option
+  -> turn_params:Hooks.turn_params
+  -> Types.message list
 
 (** Full turn preparation: tools + messages + guardrails.
 
     @since 0.94.0 added [operator_policy] parameter
     @since 0.100.0 added [tool_selector] parameter *)
-val prepare_turn :
-  guardrails:Guardrails.t ->
-  operator_policy:Guardrails.tool_filter option ->
-  policy_channel:Policy_channel.t option ->
-  tools:Tool_set.t ->
-  messages:Types.message list ->
-  context_reducer:Context_reducer.t option ->
-  tiered_memory:tiered_memory option ->
-  turn_params:Hooks.turn_params ->
-  ?tool_selector:Tool_selector.strategy ->
-  unit ->
-  turn_preparation
+val prepare_turn
+  :  guardrails:Guardrails.t
+  -> operator_policy:Guardrails.tool_filter option
+  -> policy_channel:Policy_channel.t option
+  -> tools:Tool_set.t
+  -> messages:Types.message list
+  -> context_reducer:Context_reducer.t option
+  -> tiered_memory:tiered_memory option
+  -> turn_params:Hooks.turn_params
+  -> ?tool_selector:Tool_selector.strategy
+  -> unit
+  -> turn_preparation
 
 (** {1 Usage accumulation} *)
 
 (** Accumulate response usage into running totals, including cost estimation. *)
-val accumulate_usage :
-  current_usage:Types.usage_stats ->
-  provider:Provider.config option ->
-  response_usage:Types.api_usage option ->
-  Types.usage_stats
+val accumulate_usage
+  :  current_usage:Types.usage_stats
+  -> provider:Provider.config option
+  -> response_usage:Types.api_usage option
+  -> Types.usage_stats
 
 (** {1 Turn params resolution} *)
 
 (** Resolve per-turn parameters by invoking the [BeforeTurnParams] hook. *)
-val resolve_turn_params :
-  hooks:Hooks.hooks ->
-  messages:Types.message list ->
-  max_turns:int ->
-  turn:int ->
-  invoke_hook:(hook_name:string ->
-    (Hooks.hook_event -> Hooks.hook_decision) option ->
-    Hooks.hook_event ->
-    Hooks.hook_decision) ->
-  Hooks.turn_params
+val resolve_turn_params
+  :  hooks:Hooks.hooks
+  -> messages:Types.message list
+  -> max_turns:int
+  -> turn:int
+  -> invoke_hook:
+       (hook_name:string
+        -> (Hooks.hook_event -> Hooks.hook_decision) option
+        -> Hooks.hook_event
+        -> Hooks.hook_decision)
+  -> Hooks.turn_params
 
 (** {1 Context injection} *)
 
 (** Filter extra messages to avoid consecutive same-role entries. *)
-val filter_valid_messages :
-  messages:Types.message list ->
-  Types.message list ->
-  Types.message list
+val filter_valid_messages
+  :  messages:Types.message list
+  -> Types.message list
+  -> Types.message list
 
 (** Apply context injector after tool execution, updating context and messages. *)
-val apply_context_injection :
-  context:Context.t ->
-  messages:Types.message list ->
-  injector:Hooks.context_injector ->
-  tool_uses:Types.content_block list ->
-  results:Agent_tools.tool_execution_result list ->
-  Types.message list
+val apply_context_injection
+  :  context:Context.t
+  -> messages:Types.message list
+  -> injector:Hooks.context_injector
+  -> tool_uses:Types.content_block list
+  -> results:Agent_tools.tool_execution_result list
+  -> Types.message list
 
 (** {1 Token budget} *)
 
 (** Check input/total token budgets; return an error if exceeded. *)
-val check_token_budget :
-  Types.agent_config -> Types.usage_stats -> Error.sdk_error option
+val check_token_budget : Types.agent_config -> Types.usage_stats -> Error.sdk_error option
 
 (** {1 Idle state tracking} *)
 
-type idle_state = {
-  last_tool_calls: tool_call_fingerprint list option;
-  consecutive_idle_turns: int;
-}
+type idle_state =
+  { last_tool_calls : tool_call_fingerprint list option
+  ; consecutive_idle_turns : int
+  }
 
-type idle_result = {
-  new_state: idle_state;
-  is_idle: bool;
-}
+type idle_result =
+  { new_state : idle_state
+  ; is_idle : bool
+  }
 
 (** Update idle detection state after a tool-use turn. *)
-val update_idle_detection :
-  idle_state:idle_state ->
-  tool_uses:Types.content_block list ->
-  idle_result
+val update_idle_detection
+  :  idle_state:idle_state
+  -> tool_uses:Types.content_block list
+  -> idle_result
 
 (** {1 Tool result construction} *)
 
@@ -225,7 +225,8 @@ val default_max_tool_result_chars : int
 
     @since 0.127.0 added [max_result_chars] parameter
     @since 0.128.0 added [relocation] parameter *)
-val make_tool_results :
-  ?max_result_chars:int ->
-  ?relocation:(Tool_result_store.t * Content_replacement_state.t) ->
-  Agent_tools.tool_execution_result list -> Types.content_block list
+val make_tool_results
+  :  ?max_result_chars:int
+  -> ?relocation:Tool_result_store.t * Content_replacement_state.t
+  -> Agent_tools.tool_execution_result list
+  -> Types.content_block list

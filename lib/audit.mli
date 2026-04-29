@@ -10,15 +10,15 @@
 
 (** {1 Audit entries} *)
 
-type entry = {
-  id: string;
-  timestamp: float;
-  agent_name: string;
-  action: string;
-  decision_point: Policy.decision_point option;
-  verdict: Policy.verdict option;
-  detail: Yojson.Safe.t;
-}
+type entry =
+  { id : string
+  ; timestamp : float
+  ; agent_name : string
+  ; action : string
+  ; decision_point : Policy.decision_point option
+  ; verdict : Policy.verdict option
+  ; detail : Yojson.Safe.t
+  }
 
 (** {1 Audit log} *)
 
@@ -34,18 +34,19 @@ val record : t -> entry -> unit
 (** Record a structured [Policy.decision] as an audit entry.
     The decision's lineage is stored in the [detail] field as JSON.
     @since 0.99.2 *)
-val record_decision :
-  t -> id:string -> agent_name:string -> action:string ->
-  decision_point:Policy.decision_point -> Policy.decision -> unit
+val record_decision
+  :  t
+  -> id:string
+  -> agent_name:string
+  -> action:string
+  -> decision_point:Policy.decision_point
+  -> Policy.decision
+  -> unit
 
 (** {1 Queries} *)
 
-val query :
-  t -> ?agent:string -> ?action:string -> ?since:float ->
-  unit -> entry list
-
+val query : t -> ?agent:string -> ?action:string -> ?since:float -> unit -> entry list
 val count : t -> int
-
 val latest : t -> int -> entry list
 
 (** {1 Export} *)

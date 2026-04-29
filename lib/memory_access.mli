@@ -34,12 +34,12 @@ type permission =
 
 (** A single access policy entry. [key_pattern] supports ["*"] for
     all keys, or a prefix match (e.g., ["shared_"] matches ["shared_goal"]). *)
-type policy = {
-  agent_name: string;
-  tier: Memory.tier;
-  key_pattern: string;
-  permission: permission;
-}
+type policy =
+  { agent_name : string
+  ; tier : Memory.tier
+  ; key_pattern : string
+  ; permission : permission
+  }
 
 (** {1 Access-controlled memory} *)
 
@@ -72,8 +72,19 @@ val policies_for : t -> string -> policy list
 (** Access error returned when an operation is denied due to insufficient
     permissions, or when the underlying storage backend fails. *)
 type access_error =
-  | Denied of { agent_name: string; tier: Memory.tier; key: string; needed: permission }
-  | Backend_failed of { agent_name: string; tier: Memory.tier; key: string; op: string; detail: string }
+  | Denied of
+      { agent_name : string
+      ; tier : Memory.tier
+      ; key : string
+      ; needed : permission
+      }
+  | Backend_failed of
+      { agent_name : string
+      ; tier : Memory.tier
+      ; key : string
+      ; op : string
+      ; detail : string
+      }
 
 (** Store a value, checking Write permission.
     Returns [Error (Denied _)] if the agent lacks write access,
@@ -85,50 +96,70 @@ type access_error =
     visible in the local in-memory context even though persistence failed.
     Similarly, for [forget], the key may already be removed from the local
     in-memory context even though the backend removal failed. *)
-val store :
-  t -> agent:string -> tier:Memory.tier -> string -> Yojson.Safe.t ->
-  (unit, access_error) result
+val store
+  :  t
+  -> agent:string
+  -> tier:Memory.tier
+  -> string
+  -> Yojson.Safe.t
+  -> (unit, access_error) result
 
 (** Recall a value, checking Read permission. *)
-val recall :
-  t -> agent:string -> tier:Memory.tier -> string ->
-  (Yojson.Safe.t option, access_error) result
+val recall
+  :  t
+  -> agent:string
+  -> tier:Memory.tier
+  -> string
+  -> (Yojson.Safe.t option, access_error) result
 
 (** Recall without fallback, checking Read permission. *)
-val recall_exact :
-  t -> agent:string -> tier:Memory.tier -> string ->
-  (Yojson.Safe.t option, access_error) result
+val recall_exact
+  :  t
+  -> agent:string
+  -> tier:Memory.tier
+  -> string
+  -> (Yojson.Safe.t option, access_error) result
 
 (** Forget a key, checking Write permission. *)
-val forget :
-  t -> agent:string -> tier:Memory.tier -> string ->
-  (unit, access_error) result
+val forget
+  :  t
+  -> agent:string
+  -> tier:Memory.tier
+  -> string
+  -> (unit, access_error) result
 
 (** {1 Episodic access control} *)
 
-val store_episode :
-  t -> agent:string -> Memory.episode ->
-  (unit, access_error) result
+val store_episode : t -> agent:string -> Memory.episode -> (unit, access_error) result
 
-val recall_episodes :
-  t -> agent:string -> ?now:float -> ?decay_rate:float ->
-  ?min_salience:float -> ?limit:int -> unit ->
-  (Memory.episode list, access_error) result
+val recall_episodes
+  :  t
+  -> agent:string
+  -> ?now:float
+  -> ?decay_rate:float
+  -> ?min_salience:float
+  -> ?limit:int
+  -> unit
+  -> (Memory.episode list, access_error) result
 
 (** {1 Procedural access control} *)
 
-val store_procedure :
-  t -> agent:string -> Memory.procedure ->
-  (unit, access_error) result
+val store_procedure : t -> agent:string -> Memory.procedure -> (unit, access_error) result
 
-val find_procedure :
-  t -> agent:string -> pattern:string ->
-  ?min_confidence:float -> ?touch:bool -> unit ->
-  (Memory.procedure option, access_error) result
+val find_procedure
+  :  t
+  -> agent:string
+  -> pattern:string
+  -> ?min_confidence:float
+  -> ?touch:bool
+  -> unit
+  -> (Memory.procedure option, access_error) result
 
-val best_procedure :
-  t -> agent:string -> pattern:string ->
-  (Memory.procedure option, access_error) result
+val best_procedure
+  :  t
+  -> agent:string
+  -> pattern:string
+  -> (Memory.procedure option, access_error) result
 
 (** {1 Utilities} *)
 

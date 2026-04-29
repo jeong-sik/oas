@@ -177,36 +177,37 @@ module Mode_enforcer = Mode_enforcer
 
 (** Create an agent with default config.
     Convenience wrapper around {!Agent.create}. *)
-val create_agent :
-  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
-  ?name:string ->
-  ?model:Types.model ->
-  ?system_prompt:string ->
-  ?max_tokens:int ->
-  ?max_turns:int ->
-  ?cache_system_prompt:bool ->
-  ?provider:Provider.config ->
-  ?raw_trace:Raw_trace.t ->
-  unit -> Agent.t
+val create_agent
+  :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+  -> ?name:string
+  -> ?model:Types.model
+  -> ?system_prompt:string
+  -> ?max_tokens:int
+  -> ?max_turns:int
+  -> ?cache_system_prompt:bool
+  -> ?provider:Provider.config
+  -> ?raw_trace:Raw_trace.t
+  -> unit
+  -> Agent.t
 
 (** Low-level runtime query. *)
-val runtime_query :
-  sw:Eio.Switch.t ->
-  mgr:_ Eio.Process.mgr ->
-  ?runtime_path:string ->
-  ?session_root:string ->
-  Runtime.request ->
-  (Runtime.response, Error.sdk_error) result
+val runtime_query
+  :  sw:Eio.Switch.t
+  -> mgr:_ Eio.Process.mgr
+  -> ?runtime_path:string
+  -> ?session_root:string
+  -> Runtime.request
+  -> (Runtime.response, Error.sdk_error) result
 
 (** One-shot client query — connect, send prompt, collect messages,
     disconnect. *)
-val query :
-  sw:Eio.Switch.t ->
-  mgr:_ Eio.Process.mgr ->
-  ?options:Sdk_client_types.options ->
-  prompt:string ->
-  unit ->
-  (Sdk_client_types.message list, Error.sdk_error) result
+val query
+  :  sw:Eio.Switch.t
+  -> mgr:_ Eio.Process.mgr
+  -> ?options:Sdk_client_types.options
+  -> prompt:string
+  -> unit
+  -> (Sdk_client_types.message list, Error.sdk_error) result
 
 (** {1 Version} *)
 

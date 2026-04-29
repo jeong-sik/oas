@@ -20,20 +20,20 @@ val emit_synthetic_events : Types.api_response -> (Types.sse_event -> unit) -> u
 
 (** Mutable accumulator for building an {!Types.api_response} from
     a sequence of SSE events. *)
-type stream_acc = {
-  msg_id: string ref;
-  msg_model: string ref;
-  input_tokens: int ref;
-  output_tokens: int ref;
-  cache_creation: int ref;
-  cache_read: int ref;
-  stop_reason: Types.stop_reason ref;
-  sse_error: string option ref;
-  block_texts: (int, Buffer.t) Hashtbl.t;
-  block_types: (int, string) Hashtbl.t;
-  block_tool_ids: (int, string) Hashtbl.t;
-  block_tool_names: (int, string) Hashtbl.t;
-}
+type stream_acc =
+  { msg_id : string ref
+  ; msg_model : string ref
+  ; input_tokens : int ref
+  ; output_tokens : int ref
+  ; cache_creation : int ref
+  ; cache_read : int ref
+  ; stop_reason : Types.stop_reason ref
+  ; sse_error : string option ref
+  ; block_texts : (int, Buffer.t) Hashtbl.t
+  ; block_types : (int, string) Hashtbl.t
+  ; block_tool_ids : (int, string) Hashtbl.t
+  ; block_tool_names : (int, string) Hashtbl.t
+  }
 
 (** Create a fresh accumulator. *)
 val create_stream_acc : unit -> stream_acc
@@ -58,14 +58,14 @@ val map_http_error : Llm_provider.Http_client.http_error -> Error.sdk_error
 
     Does not accept [retry_config]: SSE streams deliver partial results
     incrementally; retrying mid-stream would discard data. *)
-val create_message_stream :
-  sw:Eio.Switch.t ->
-  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
-  ?base_url:string ->
-  ?provider:Provider.config ->
-  config:Types.agent_state ->
-  messages:Types.message list ->
-  ?tools:Yojson.Safe.t list ->
-  on_event:(Types.sse_event -> unit) ->
-  unit ->
-  (Types.api_response, Error.sdk_error) result
+val create_message_stream
+  :  sw:Eio.Switch.t
+  -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+  -> ?base_url:string
+  -> ?provider:Provider.config
+  -> config:Types.agent_state
+  -> messages:Types.message list
+  -> ?tools:Yojson.Safe.t list
+  -> on_event:(Types.sse_event -> unit)
+  -> unit
+  -> (Types.api_response, Error.sdk_error) result

@@ -34,21 +34,37 @@ type done_t
 
 (** {1 Field constructors} *)
 
-val string_field :
-  string -> required:bool -> desc:string ->
-  ?default:string -> unit -> (string, 'rest) field_spec
+val string_field
+  :  string
+  -> required:bool
+  -> desc:string
+  -> ?default:string
+  -> unit
+  -> (string, 'rest) field_spec
 
-val int_field :
-  string -> required:bool -> desc:string ->
-  ?default:int -> unit -> (int, 'rest) field_spec
+val int_field
+  :  string
+  -> required:bool
+  -> desc:string
+  -> ?default:int
+  -> unit
+  -> (int, 'rest) field_spec
 
-val float_field :
-  string -> required:bool -> desc:string ->
-  ?default:float -> unit -> (float, 'rest) field_spec
+val float_field
+  :  string
+  -> required:bool
+  -> desc:string
+  -> ?default:float
+  -> unit
+  -> (float, 'rest) field_spec
 
-val bool_field :
-  string -> required:bool -> desc:string ->
-  ?default:bool -> unit -> (bool, 'rest) field_spec
+val bool_field
+  :  string
+  -> required:bool
+  -> desc:string
+  -> ?default:bool
+  -> unit
+  -> (bool, 'rest) field_spec
 
 (** {1 Schema construction} *)
 
@@ -59,25 +75,22 @@ type 'a schema
 val one : ('a, done_t) field_spec -> 'a schema
 
 (** Two-field schema. *)
-val two :
-  ('a, done_t) field_spec ->
-  ('b, done_t) field_spec ->
-  ('a * 'b) schema
+val two : ('a, done_t) field_spec -> ('b, done_t) field_spec -> ('a * 'b) schema
 
 (** Three-field schema. *)
-val three :
-  ('a, done_t) field_spec ->
-  ('b, done_t) field_spec ->
-  ('c, done_t) field_spec ->
-  ('a * 'b * 'c) schema
+val three
+  :  ('a, done_t) field_spec
+  -> ('b, done_t) field_spec
+  -> ('c, done_t) field_spec
+  -> ('a * 'b * 'c) schema
 
 (** Four-field schema. *)
-val four :
-  ('a, done_t) field_spec ->
-  ('b, done_t) field_spec ->
-  ('c, done_t) field_spec ->
-  ('d, done_t) field_spec ->
-  ('a * 'b * 'c * 'd) schema
+val four
+  :  ('a, done_t) field_spec
+  -> ('b, done_t) field_spec
+  -> ('c, done_t) field_spec
+  -> ('d, done_t) field_spec
+  -> ('a * 'b * 'c * 'd) schema
 
 (** {1 Derivation} *)
 
@@ -87,7 +100,10 @@ val to_params : _ schema -> Types.tool_param list
 (** Parse JSON input according to schema.
     Required fields must be present; optional fields default to [None]/zero.
     Returns typed tuple or structured field errors. *)
-val parse : 'a schema -> Yojson.Safe.t -> ('a, Tool_input_validation.field_error list) result
+val parse
+  :  'a schema
+  -> Yojson.Safe.t
+  -> ('a, Tool_input_validation.field_error list) result
 
 (** Generate JSON Schema object for MCP tool registration. *)
 val to_json_schema : _ schema -> Yojson.Safe.t

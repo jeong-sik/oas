@@ -22,11 +22,7 @@ type t
 (** {1 Lifecycle} *)
 
 (** Start collecting events from [bus] for the given agent and run. *)
-val wrap_run :
-  bus:Event_bus.t ->
-  agent_name:string ->
-  run_id:string ->
-  unit -> t
+val wrap_run : bus:Event_bus.t -> agent_name:string -> run_id:string -> unit -> t
 
 (** Process any pending events from the bus.
     Called automatically by {!finalize} but can be invoked

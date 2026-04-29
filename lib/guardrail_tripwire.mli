@@ -12,15 +12,18 @@
 
 (** {1 Types} *)
 
-type tripwire = {
-  name: string;
-  check: Types.message list -> (unit, string) result;
+type tripwire =
+  { name : string
+  ; check : Types.message list -> (unit, string) result
     (** Blocking check. Return [Error reason] to trip. *)
-}
+  }
 
 type tripwire_result =
   | All_clear
-  | Tripped of { tripwire_name: string; reason: string }
+  | Tripped of
+      { tripwire_name : string
+      ; reason : string
+      }
 
 (** {1 Execution} *)
 
@@ -30,8 +33,8 @@ type tripwire_result =
     If the action completes first, tripwire fibers are cancelled.
 
     With zero tripwires, runs the action directly (no fiber overhead). *)
-val guarded_action :
-  tripwires:tripwire list ->
-  messages:Types.message list ->
-  action:(unit -> ('a, Error.sdk_error) result) ->
-  ('a, [`Tripped of tripwire_result | `Action of Error.sdk_error]) result
+val guarded_action
+  :  tripwires:tripwire list
+  -> messages:Types.message list
+  -> action:(unit -> ('a, Error.sdk_error) result)
+  -> ('a, [ `Tripped of tripwire_result | `Action of Error.sdk_error ]) result

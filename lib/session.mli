@@ -9,15 +9,15 @@
 
 (** {1 Session type} *)
 
-type t = {
-  id: string;
-  started_at: float;
-  last_active_at: float;
-  turn_count: int;
-  resumed_from: string option;
-  cwd: string option;
-  metadata: Context.t;
-}
+type t =
+  { id : string
+  ; started_at : float
+  ; last_active_at : float
+  ; turn_count : int
+  ; resumed_from : string option
+  ; cwd : string option
+  ; metadata : Context.t
+  }
 
 (** {1 Lifecycle} *)
 
@@ -25,13 +25,13 @@ type t = {
 val generate_id : unit -> string
 
 (** Create a new session. *)
-val create :
-  ?id:string ->
-  ?resumed_from:string ->
-  ?cwd:string ->
-  ?metadata:Context.t ->
-  unit ->
-  t
+val create
+  :  ?id:string
+  -> ?resumed_from:string
+  -> ?cwd:string
+  -> ?metadata:Context.t
+  -> unit
+  -> t
 
 (** Record a completed turn: increments turn_count, updates last_active_at. *)
 val record_turn : t -> t

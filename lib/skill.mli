@@ -15,18 +15,18 @@ type scope =
   | Custom of string
 [@@deriving show]
 
-type t = {
-  name: string;
-  description: string option;
-  body: string;
-  path: string option;
-  scope: scope option;
-  allowed_tools: string list;
-  argument_hint: string option;
-  model: string option;
-  supporting_files: string list;
-  metadata: (string * string list) list;
-}
+type t =
+  { name : string
+  ; description : string option
+  ; body : string
+  ; path : string option
+  ; scope : scope option
+  ; allowed_tools : string list
+  ; argument_hint : string option
+  ; model : string option
+  ; supporting_files : string list
+  ; metadata : (string * string list) list
+  }
 [@@deriving show]
 
 (** {1 String helpers} *)

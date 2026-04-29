@@ -23,100 +23,127 @@
 open Types
 
 (** Transport kind tag for serialization. *)
-type transport_kind = Stdio | Http
+type transport_kind =
+  | Stdio
+  | Http
 
 (** Serializable MCP session information. *)
-type info = {
-  server_name: string;
-  command: string;     (** For HTTP: "http"; for stdio: the executable *)
-  args: string list;   (** For HTTP: [url]; for stdio: command-line args *)
-  env: (string * string) list;
-  http_base_url: string option;
-  http_headers: (string * string) list;
-  tool_schemas: tool_schema list;
-  transport_kind: transport_kind;
-}
+type info =
+  { server_name : string
+  ; command : string (** For HTTP: "http"; for stdio: the executable *)
+  ; args : string list (** For HTTP: [url]; for stdio: command-line args *)
+  ; env : (string * string) list
+  ; http_base_url : string option
+  ; http_headers : (string * string) list
+  ; tool_schemas : tool_schema list
+  ; transport_kind : transport_kind
+  }
 
 (** Capture session info from a connected managed server. *)
 let capture (m : Mcp.managed) : info =
   let tool_schemas = List.map (fun (t : Tool.t) -> t.schema) m.tools in
   match m.transport with
   | Mcp.Stdio { spec; _ } ->
-      { server_name = m.name; command = spec.command;
-        args = spec.args; env = spec.env;
-        http_base_url = None; http_headers = [];
-        tool_schemas; transport_kind = Stdio }
+    { server_name = m.name
+    ; command = spec.command
+    ; args = spec.args
+    ; env = spec.env
+    ; http_base_url = None
+    ; http_headers = []
+    ; tool_schemas
+    ; transport_kind = Stdio
+    }
   | Mcp.Http { base_url; headers; _ } ->
-      { server_name = m.name; command = "http";
-        args = []; env = [];
-        http_base_url = Some base_url;
-        http_headers = headers;
-        tool_schemas; transport_kind = Http }
+    { server_name = m.name
+    ; command = "http"
+    ; args = []
+    ; env = []
+    ; http_base_url = Some base_url
+    ; http_headers = headers
+    ; tool_schemas
+    ; transport_kind = Http
+    }
+;;
 
 (** Capture session info from all connected managed servers. *)
 let capture_all (managed_list : Mcp.managed list) : info list =
   List.map capture managed_list
+;;
 
 (** Convert session info back to a server_spec for reconnection. *)
 let to_server_spec (info : info) : Mcp.server_spec =
-  {
-    command = info.command;
-    args = info.args;
-    env = info.env;
-    name = info.server_name;
-  }
+  { command = info.command; args = info.args; env = info.env; name = info.server_name }
+;;
 
 let to_http_spec (info : info) : Mcp_http.http_spec option =
   match info.http_base_url with
-  | Some base_url -> Some { base_url; headers = info.http_headers; name = info.server_name }
+  | Some base_url ->
+    Some { base_url; headers = info.http_headers; name = info.server_name }
   | None -> None
+;;
 
 (** Reconnect to MCP servers from saved session info.
     Returns a pair: (successfully connected, failed infos with error messages).
     Failed connections do not abort the others.
     Legacy HTTP checkpoints without stored endpoint metadata still cannot be
     reconnected and are reported as failed with an informational error. *)
-let reconnect_all ~sw ~mgr ~net (infos : info list) : Mcp.managed list * (info * Error.sdk_error) list =
-  List.fold_left (fun (connected, failed) info ->
-    match info.transport_kind with
-    | Http ->
-        (match to_http_spec info with
-         | Some spec ->
-             (match Mcp_http.connect_and_load_managed ~sw ~net spec with
-              | Ok m -> (m :: connected, failed)
-              | Error e -> (connected, (info, e) :: failed))
-         | None ->
-             let e = Error.Mcp (InitializeFailed {
-               detail = Printf.sprintf "HTTP MCP server '%s' cannot be reconnected from legacy session data" info.server_name }) in
-             (connected, (info, e) :: failed))
-    | Stdio ->
-        let spec = to_server_spec info in
-        (match Mcp.connect_and_load ~sw ~mgr spec with
-         | Ok m -> (m :: connected, failed)
-         | Error e -> (connected, (info, e) :: failed))
-  ) ([], []) infos
-  |> fun (connected, failed) -> (List.rev connected, List.rev failed)
+let reconnect_all ~sw ~mgr ~net (infos : info list)
+  : Mcp.managed list * (info * Error.sdk_error) list
+  =
+  List.fold_left
+    (fun (connected, failed) info ->
+       match info.transport_kind with
+       | Http ->
+         (match to_http_spec info with
+          | Some spec ->
+            (match Mcp_http.connect_and_load_managed ~sw ~net spec with
+             | Ok m -> m :: connected, failed
+             | Error e -> connected, (info, e) :: failed)
+          | None ->
+            let e =
+              Error.Mcp
+                (InitializeFailed
+                   { detail =
+                       Printf.sprintf
+                         "HTTP MCP server '%s' cannot be reconnected from legacy session \
+                          data"
+                         info.server_name
+                   })
+            in
+            connected, (info, e) :: failed)
+       | Stdio ->
+         let spec = to_server_spec info in
+         (match Mcp.connect_and_load ~sw ~mgr spec with
+          | Ok m -> m :: connected, failed
+          | Error e -> connected, (info, e) :: failed))
+    ([], [])
+    infos
+  |> fun (connected, failed) -> List.rev connected, List.rev failed
+;;
 
 (* ── JSON serialization ─────────────────────────────────────────── *)
 
-let env_pair_to_json (k, v) =
-  `Assoc [("key", `String k); ("value", `String v)]
+let env_pair_to_json (k, v) = `Assoc [ "key", `String k; "value", `String v ]
 
 let env_pair_of_json json =
   let open Yojson.Safe.Util in
-  try
-    Ok (json |> member "key" |> to_string,
-        json |> member "value" |> to_string)
-  with
+  try Ok (json |> member "key" |> to_string, json |> member "value" |> to_string) with
   | Eio.Cancel.Cancelled _ as e -> raise e
   | exn ->
-    Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Invalid env pair: %s" (Printexc.to_string exn) }))
+    Error
+      (Error.Serialization
+         (JsonParseError
+            { detail = Printf.sprintf "Invalid env pair: %s" (Printexc.to_string exn) }))
+;;
 
 let tool_schema_to_json = Types.tool_schema_to_json
 
 let map_str_err r =
-  Result.map_error (fun s ->
-    Error.Serialization (UnknownVariant { type_name = "param_type"; value = s })) r
+  Result.map_error
+    (fun s ->
+       Error.Serialization (UnknownVariant { type_name = "param_type"; value = s }))
+    r
+;;
 
 let tool_schema_of_json json = map_str_err (Types.tool_schema_of_json json)
 
@@ -127,38 +154,41 @@ let result_all items =
     | Error e :: _ -> Error e
   in
   loop [] items
+;;
 
 (* ── info JSON ─────────────────────────────────────────────────── *)
 
 let transport_kind_to_string = function
   | Stdio -> "stdio"
   | Http -> "http"
+;;
 
 let transport_kind_of_string = function
   | "http" -> Http
-  | _ -> Stdio  (* default to stdio for backward compat *)
+  | _ -> Stdio (* default to stdio for backward compat *)
+;;
 
 let info_to_json (info : info) : Yojson.Safe.t =
-  `Assoc [
-    ("server_name", `String info.server_name);
-    ("command", `String info.command);
-    ("args", `List (List.map (fun s -> `String s) info.args));
-    ("env", `List (List.map env_pair_to_json info.env));
-    ( "http_base_url",
-      match info.http_base_url with
-      | Some base_url -> `String base_url
-      | None -> `Null );
-    ("http_headers", `List (List.map env_pair_to_json info.http_headers));
-    ("tool_schemas", `List (List.map tool_schema_to_json info.tool_schemas));
-    ("transport_kind", `String (transport_kind_to_string info.transport_kind));
-  ]
+  `Assoc
+    [ "server_name", `String info.server_name
+    ; "command", `String info.command
+    ; "args", `List (List.map (fun s -> `String s) info.args)
+    ; "env", `List (List.map env_pair_to_json info.env)
+    ; ( "http_base_url"
+      , match info.http_base_url with
+        | Some base_url -> `String base_url
+        | None -> `Null )
+    ; "http_headers", `List (List.map env_pair_to_json info.http_headers)
+    ; "tool_schemas", `List (List.map tool_schema_to_json info.tool_schemas)
+    ; "transport_kind", `String (transport_kind_to_string info.transport_kind)
+    ]
+;;
 
 let info_of_json json : (info, Error.sdk_error) result =
   try
     let open Yojson.Safe.Util in
     let env_result =
-      json |> member "env" |> to_list
-      |> List.map env_pair_of_json |> result_all
+      json |> member "env" |> to_list |> List.map env_pair_of_json |> result_all
     in
     let http_headers_result =
       let http_header_items =
@@ -169,13 +199,18 @@ let info_of_json json : (info, Error.sdk_error) result =
       http_header_items |> List.map env_pair_of_json |> result_all
     in
     let tools_result =
-      json |> member "tool_schemas" |> to_list
-      |> List.map tool_schema_of_json |> result_all
+      json
+      |> member "tool_schemas"
+      |> to_list
+      |> List.map tool_schema_of_json
+      |> result_all
     in
     match env_result, http_headers_result, tools_result with
     | Ok env, Ok http_headers, Ok tool_schemas ->
       let transport_kind =
-        json |> member "transport_kind" |> to_string_option
+        json
+        |> member "transport_kind"
+        |> to_string_option
         |> Option.value ~default:"stdio"
         |> transport_kind_of_string
       in
@@ -183,34 +218,42 @@ let info_of_json json : (info, Error.sdk_error) result =
         match json |> member "http_base_url" |> to_string_option with
         | Some base_url -> Some base_url
         | None ->
-            (match transport_kind with
-             | Http when json |> member "command" |> to_string <> "http" ->
-                 Some (json |> member "command" |> to_string)
-             | _ -> None)
+          (match transport_kind with
+           | Http when json |> member "command" |> to_string <> "http" ->
+             Some (json |> member "command" |> to_string)
+           | _ -> None)
       in
-      Ok {
-        server_name = json |> member "server_name" |> to_string;
-        command = json |> member "command" |> to_string;
-        args = json |> member "args" |> to_list |> List.map to_string;
-        env;
-        http_base_url;
-        http_headers;
-        tool_schemas;
-        transport_kind;
-      }
+      Ok
+        { server_name = json |> member "server_name" |> to_string
+        ; command = json |> member "command" |> to_string
+        ; args = json |> member "args" |> to_list |> List.map to_string
+        ; env
+        ; http_base_url
+        ; http_headers
+        ; tool_schemas
+        ; transport_kind
+        }
     | Error e, _, _ -> Error e
     | _, Error e, _ -> Error e
     | _, _, Error e -> Error e
   with
   | Yojson.Safe.Util.Type_error (msg, _) ->
-    Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Mcp_session.info_of_json: %s" msg }))
+    Error
+      (Error.Serialization
+         (JsonParseError { detail = Printf.sprintf "Mcp_session.info_of_json: %s" msg }))
   | Yojson.Json_error msg ->
-    Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Mcp_session.info_of_json: %s" msg }))
+    Error
+      (Error.Serialization
+         (JsonParseError { detail = Printf.sprintf "Mcp_session.info_of_json: %s" msg }))
   | Failure msg ->
-    Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Mcp_session.info_of_json: %s" msg }))
+    Error
+      (Error.Serialization
+         (JsonParseError { detail = Printf.sprintf "Mcp_session.info_of_json: %s" msg }))
+;;
 
 let info_list_to_json (infos : info list) : Yojson.Safe.t =
   `List (List.map info_to_json infos)
+;;
 
 let info_list_of_json json : (info list, Error.sdk_error) result =
   try
@@ -218,8 +261,18 @@ let info_list_of_json json : (info list, Error.sdk_error) result =
     json |> to_list |> List.map info_of_json |> result_all
   with
   | Yojson.Safe.Util.Type_error (msg, _) ->
-    Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Mcp_session.info_list_of_json: %s" msg }))
+    Error
+      (Error.Serialization
+         (JsonParseError
+            { detail = Printf.sprintf "Mcp_session.info_list_of_json: %s" msg }))
   | Yojson.Json_error msg ->
-    Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Mcp_session.info_list_of_json: %s" msg }))
+    Error
+      (Error.Serialization
+         (JsonParseError
+            { detail = Printf.sprintf "Mcp_session.info_list_of_json: %s" msg }))
   | Failure msg ->
-    Error (Error.Serialization (JsonParseError { detail = Printf.sprintf "Mcp_session.info_list_of_json: %s" msg }))
+    Error
+      (Error.Serialization
+         (JsonParseError
+            { detail = Printf.sprintf "Mcp_session.info_list_of_json: %s" msg }))
+;;

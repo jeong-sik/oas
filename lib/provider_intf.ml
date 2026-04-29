@@ -12,33 +12,34 @@ module Retry = Llm_provider.Retry
 module type PROVIDER = sig
   type t
 
-  val create_message :
-    sw:Eio.Switch.t ->
-    net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
-    config:Types.agent_state ->
-    messages:Types.message list ->
-    ?tools:Yojson.Safe.t list ->
-    unit ->
-    (Types.api_response, Error.sdk_error) result
+  val create_message
+    :  sw:Eio.Switch.t
+    -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+    -> config:Types.agent_state
+    -> messages:Types.message list
+    -> ?tools:Yojson.Safe.t list
+    -> unit
+    -> (Types.api_response, Error.sdk_error) result
 end
 
 (** Streaming provider: extends PROVIDER with SSE streaming. *)
 module type STREAMING_PROVIDER = sig
   include PROVIDER
 
-  val create_message_stream :
-    sw:Eio.Switch.t ->
-    net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
-    config:Types.agent_state ->
-    messages:Types.message list ->
-    ?tools:Yojson.Safe.t list ->
-    on_event:(Types.sse_event -> unit) ->
-    unit ->
-    (Types.api_response, Error.sdk_error) result
+  val create_message_stream
+    :  sw:Eio.Switch.t
+    -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+    -> config:Types.agent_state
+    -> messages:Types.message list
+    -> ?tools:Yojson.Safe.t list
+    -> on_event:(Types.sse_event -> unit)
+    -> unit
+    -> (Types.api_response, Error.sdk_error) result
 end
 
 (** First-class packed provider. *)
 type provider_module = (module PROVIDER)
+
 type streaming_provider_module = (module STREAMING_PROVIDER)
 
 (** Runtime dispatch: resolve a provider config to a first-class module.
@@ -48,8 +49,8 @@ let of_config (provider_cfg : Provider.config) : provider_module =
   let spec = Provider.model_spec_of_config provider_cfg in
   let base_url, headers =
     match Provider.resolve provider_cfg with
-    | Ok (url, _key, hdrs) -> (url, hdrs)
-    | Error _ -> ("", [])
+    | Ok (url, _key, hdrs) -> url, hdrs
+    | Error _ -> "", []
   in
   let module P = struct
     type t = unit
@@ -60,9 +61,16 @@ let of_config (provider_cfg : Provider.config) : provider_module =
       let body_str =
         match kind with
         | Provider.Anthropic_messages ->
-          Yojson.Safe.to_string (`Assoc (Api_anthropic.build_body_assoc ~config ~messages ?tools ~stream:false ()))
+          Yojson.Safe.to_string
+            (`Assoc
+                (Api_anthropic.build_body_assoc ~config ~messages ?tools ~stream:false ()))
         | Provider.Openai_chat_completions ->
-          Api_openai.build_openai_body ~provider_config:provider_cfg ~config ~messages ?tools ()
+          Api_openai.build_openai_body
+            ~provider_config:provider_cfg
+            ~config
+            ~messages
+            ?tools
+            ()
         | Provider.Custom name ->
           (match Provider.find_provider name with
            | Some impl -> impl.build_body ~config ~messages ?tools ()
@@ -75,109 +83,150 @@ let of_config (provider_cfg : Provider.config) : provider_module =
       let hdr = Http.Header.of_list hdr_list in
       try
         let resp, body =
-          Cohttp_eio.Client.post ~sw client ~headers:hdr
-            ~body:(Cohttp_eio.Body.of_string body_str) uri
+          Cohttp_eio.Client.post
+            ~sw
+            client
+            ~headers:hdr
+            ~body:(Cohttp_eio.Body.of_string body_str)
+            uri
         in
         match Cohttp.Response.status resp with
         | `OK ->
-          let body_str = Eio.Buf_read.(of_flow ~max_size:Api_common.max_response_body body |> take_all) in
+          let body_str =
+            Eio.Buf_read.(of_flow ~max_size:Api_common.max_response_body body |> take_all)
+          in
           (match kind with
            | Provider.Anthropic_messages ->
              Ok (Api_anthropic.parse_response (Yojson.Safe.from_string body_str))
            | Provider.Openai_chat_completions ->
-             (match Llm_provider.Backend_openai_parse.parse_openai_response_result body_str with
+             (match
+                Llm_provider.Backend_openai_parse.parse_openai_response_result body_str
+              with
               | Ok resp -> Ok resp
-              | Error msg ->
-                Error (Error.Api (Retry.InvalidRequest { message = msg })))
+              | Error msg -> Error (Error.Api (Retry.InvalidRequest { message = msg })))
            | Provider.Custom name ->
              (match Provider.find_provider name with
               | Some impl -> Ok (impl.parse_response body_str)
               | None ->
-                (match Llm_provider.Backend_openai_parse.parse_openai_response_result body_str with
+                (match
+                   Llm_provider.Backend_openai_parse.parse_openai_response_result body_str
+                 with
                  | Ok resp -> Ok resp
-                 | Error msg ->
-                   Error (Error.Api (Retry.InvalidRequest { message = msg })))))
+                 | Error msg -> Error (Error.Api (Retry.InvalidRequest { message = msg })))))
         | status ->
           let code = Cohttp.Code.code_of_status status in
-          let body_str = Eio.Buf_read.(of_flow ~max_size:Api_common.max_response_body body |> take_all) in
+          let body_str =
+            Eio.Buf_read.(of_flow ~max_size:Api_common.max_response_body body |> take_all)
+          in
           Error (Error.Api (Retry.classify_error ~status:code ~body:body_str))
       with
       | Eio.Io _ as exn ->
-        Error (Error.Api (Retry.NetworkError { message = Printexc.to_string exn; kind = Unknown }))
+        Error
+          (Error.Api
+             (Retry.NetworkError { message = Printexc.to_string exn; kind = Unknown }))
       | Unix.Unix_error _ as exn ->
-        Error (Error.Api (Retry.NetworkError { message = Printexc.to_string exn; kind = Unknown }))
+        Error
+          (Error.Api
+             (Retry.NetworkError { message = Printexc.to_string exn; kind = Unknown }))
       | Failure msg ->
         Error (Error.Api (Retry.NetworkError { message = msg; kind = Unknown }))
-  end in
+    ;;
+  end
+  in
   (module P : PROVIDER)
+;;
 
 (** Check if a provider config supports native streaming. *)
 let supports_streaming (provider_cfg : Provider.config) : bool =
   let caps = Provider.capabilities_for_config provider_cfg in
   caps.supports_native_streaming
+;;
 
 (** Resolve to a streaming provider if supported.
     Returns [Some] for Anthropic and OpenAI-compatible providers. *)
 let of_config_streaming (provider_cfg : Provider.config)
-    : streaming_provider_module option =
-  if not (supports_streaming provider_cfg) then None
-  else
+  : streaming_provider_module option
+  =
+  if not (supports_streaming provider_cfg)
+  then None
+  else (
     let base_module = of_config provider_cfg in
     let module Base = (val base_module : PROVIDER) in
-    let base_url = match Provider.resolve provider_cfg with
-      | Ok (url, _, _) -> url | Error _ -> ""
+    let base_url =
+      match Provider.resolve provider_cfg with
+      | Ok (url, _, _) -> url
+      | Error _ -> ""
     in
     let module SP = struct
       include Base
 
-      let create_message_stream ~sw ~net ~config ~messages ?tools
-          ~on_event () =
-        Streaming.create_message_stream ~sw ~net ~base_url
-          ~provider:provider_cfg ~config ~messages ?tools ~on_event ()
-    end in
-    Some (module SP : STREAMING_PROVIDER)
+      let create_message_stream ~sw ~net ~config ~messages ?tools ~on_event () =
+        Streaming.create_message_stream
+          ~sw
+          ~net
+          ~base_url
+          ~provider:provider_cfg
+          ~config
+          ~messages
+          ?tools
+          ~on_event
+          ()
+      ;;
+    end
+    in
+    Some (module SP : STREAMING_PROVIDER))
+;;
 
 [@@@coverage off]
 (* === Inline tests === *)
 
 let%test "supports_streaming Anthropic" =
-  let cfg : Provider.config = {
-    provider = Provider.Anthropic;
-    model_id = "claude-3-5-sonnet-20241022";
-    api_key_env = "ANTHROPIC_API_KEY";
-  } in
+  let cfg : Provider.config =
+    { provider = Provider.Anthropic
+    ; model_id = "claude-3-5-sonnet-20241022"
+    ; api_key_env = "ANTHROPIC_API_KEY"
+    }
+  in
   supports_streaming cfg = true
+;;
 
 let%test "supports_streaming OpenAICompat" =
-  let cfg : Provider.config = {
-    provider = Provider.OpenAICompat {
-      base_url = Llm_provider.Constants.Endpoints.default_url_localhost;
-      auth_header = None;
-      path = "/v1/chat/completions";
-      static_token = None;
-    };
-    model_id = "qwen3.5";
-    api_key_env = "";
-  } in
+  let cfg : Provider.config =
+    { provider =
+        Provider.OpenAICompat
+          { base_url = Llm_provider.Constants.Endpoints.default_url_localhost
+          ; auth_header = None
+          ; path = "/v1/chat/completions"
+          ; static_token = None
+          }
+    ; model_id = "qwen3.5"
+    ; api_key_env = ""
+    }
+  in
   (* OpenAI-compat providers support streaming *)
   supports_streaming cfg
+;;
 
 let%test "of_config returns a provider_module" =
-  let cfg : Provider.config = {
-    provider = Provider.Anthropic;
-    model_id = "claude-3-5-sonnet-20241022";
-    api_key_env = "ANTHROPIC_API_KEY";
-  } in
+  let cfg : Provider.config =
+    { provider = Provider.Anthropic
+    ; model_id = "claude-3-5-sonnet-20241022"
+    ; api_key_env = "ANTHROPIC_API_KEY"
+    }
+  in
   let _m = of_config cfg in
   (* Just verify it doesn't raise *)
   true
+;;
 
 let%test "of_config_streaming Anthropic returns Some" =
-  let cfg : Provider.config = {
-    provider = Provider.Anthropic;
-    model_id = "claude-3-5-sonnet-20241022";
-    api_key_env = "ANTHROPIC_API_KEY";
-  } in
+  let cfg : Provider.config =
+    { provider = Provider.Anthropic
+    ; model_id = "claude-3-5-sonnet-20241022"
+    ; api_key_env = "ANTHROPIC_API_KEY"
+    }
+  in
   match of_config_streaming cfg with
   | Some _ -> true
   | None -> false
+;;

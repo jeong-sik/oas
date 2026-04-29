@@ -10,23 +10,23 @@
     @since 0.93.1 *)
 
 (** Provider defaults: how to connect to a provider. *)
-type provider_defaults = {
-  kind: Provider_config.provider_kind;
-  base_url: string;
-  api_key_env: string;
-  request_path: string;
-}
+type provider_defaults =
+  { kind : Provider_config.provider_kind
+  ; base_url : string
+  ; api_key_env : string
+  ; request_path : string
+  }
 
 (** A registered provider entry.
     [max_context] is the default context window size in tokens.
     @since 0.78.0 max_context added *)
-type entry = {
-  name: string;
-  defaults: provider_defaults;
-  max_context: int;
-  capabilities: Capabilities.capabilities;
-  is_available: unit -> bool;
-}
+type entry =
+  { name : string
+  ; defaults : provider_defaults
+  ; max_context : int
+  ; capabilities : Capabilities.capabilities
+  ; is_available : unit -> bool
+  }
 
 (** Mutable provider registry. *)
 type t
@@ -92,10 +92,11 @@ val current_llama_endpoint : unit -> string
     Otherwise probes ports and keeps only healthy endpoints.
     Returns the new endpoint list. Call after Eio scheduler is available.
     @since 0.86.0 *)
-val refresh_llama_endpoints :
-  sw:Eio.Switch.t ->
-  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
-  unit -> string list
+val refresh_llama_endpoints
+  :  sw:Eio.Switch.t
+  -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+  -> unit
+  -> string list
 
 (** Current active endpoint list (snapshot after last refresh).
     @since 0.86.0 *)
@@ -107,9 +108,9 @@ val active_llama_endpoints : unit -> string list
     @since 0.100.8 *)
 val discovered_max_context : unit -> int option
 
-val discovered_endpoint_max_context : string -> int option
 (** Per-slot context for a specific endpoint URL.
     Delegates to {!Discovery.discovered_context_for_url}.
     Returns [None] when no valid context has been discovered for this URL
     (either not probed or probed without reporting valid context properties).
     @since 0.100.8 *)
+val discovered_endpoint_max_context : string -> int option
