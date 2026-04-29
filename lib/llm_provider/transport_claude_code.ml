@@ -672,7 +672,7 @@ let%test "parse_json_result error" =
   | _ -> false
 
 let%test "parse_json_result error_max_turns becomes ProviderTerminal Max_turns" =
-  (* Pins the structural fix for masc-mcp#10629: claude_code internal
+  (* Pins the structural fix for downstream #10629: claude_code internal
      [error_max_turns] must surface as a structured terminal so the
      agent runtime can graceful-checkpoint instead of the cascade
      treating it as a transient network failure. *)
@@ -785,7 +785,7 @@ let%test "parse_stream_result no messages" =
   | Ok _ -> false
 
 let%test "parse_stream_result error_max_turns becomes ProviderTerminal Max_turns" =
-  (* Sync/stream parity for masc-mcp#10629: the production hits show
+  (* Sync/stream parity for downstream #10629: the production hits show
      this exact JSON shape on stdout when claude_code subprocess exits
      1 due to its internal max_turns CLI default (currently 31). *)
   let lines = [

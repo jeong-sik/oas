@@ -1106,8 +1106,8 @@ let%test "build_args runtime MCP wires request-scoped server" =
 (* Regression guard: HTTP MCP servers carrying [Authorization: Bearer X] must
    redirect the token through Codex CLI's [bearer_token_env_var] so it never
    appears on the command line ([ps eww] visibility).  Other headers stay in
-   [http_headers={...}].  Pre-fix behaviour leaked the token via argv and
-   triggered upstream omission policies in masc-mcp. *)
+   [http_headers={...}]. Pre-fix behaviour leaked the token via argv and
+   triggered downstream omission policies. *)
 let%test "build_args runtime MCP routes Bearer through env var indirection" =
   (* Use a token whose substring does not collide with any keyword in the
      emitted overrides (e.g. ["tok"] would also match [bearer_token_env_var]). *)
