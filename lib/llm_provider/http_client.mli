@@ -156,11 +156,14 @@ val with_post_stream :
 
     When both [clock] and [idle_timeout] are supplied, raises
     [Eio.Time.Timeout] if no line arrives within [idle_timeout]
-    seconds. The deadline resets after each successful line, so this
-    bounds inter-line idle — not total stream duration. SSE keepalive
-    comments (lines starting with [:]) reset the deadline like any
-    other line. Wrapped by {!with_post_stream} the timeout surfaces
-    as [NetworkError { kind = Timeout; _ }], which
+    seconds. The deadline resets after each successful meaningful
+    line, so this bounds inter-event idle — not total stream
+    duration. SSE keepalive comments (lines starting with [:] per
+    the W3C EventSource spec) are skipped inside the same timeout
+    window — they do NOT reset the deadline, so a stream of pure
+    keepalives still trips [idle_timeout]. Wrapped by
+    {!with_post_stream} the timeout surfaces as
+    [NetworkError { kind = Timeout; _ }], which
     {!Retry.is_retryable} treats as retryable. *)
 val read_sse :
   ?clock:_ Eio.Time.clock ->

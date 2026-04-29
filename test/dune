@@ -144,6 +144,11 @@
  (libraries agent_sdk llm_provider alcotest eio eio_main))
 
 (test
+ (name test_streaming_keepalive_idle)
+ (modules test_streaming_keepalive_idle)
+ (libraries agent_sdk llm_provider alcotest eio eio_main))
+
+(test
  (name test_stream_accumulator)
  (modules test_stream_accumulator)
  (libraries agent_sdk llm_provider alcotest))

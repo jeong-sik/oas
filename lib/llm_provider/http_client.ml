@@ -426,15 +426,26 @@ let with_post_stream ?clock ?(connect_timeout_s = default_http_timeout_s) ~net ~
         Error (HttpError { code; body = body_str }))
 
 let read_sse ?clock ?idle_timeout ~reader ~on_data () =
-  let read_line () =
+  (* SSE keepalive comments (lines starting with ":" per W3C
+     EventSource) carry no payload. Skipping them inside the SAME
+     [with_timeout_exn] window preserves the idle deadline so a
+     provider that emits only keepalives still trips [idle_timeout]
+     when no real event arrives. *)
+  let is_keepalive_comment line =
+    String.length line > 0 && line.[0] = ':'
+  in
+  let read_meaningful_line () =
+    let rec inner () =
+      let line = Eio.Buf_read.line reader in
+      if is_keepalive_comment line then inner () else line
+    in
     match clock, idle_timeout with
-    | Some c, Some t ->
-        Eio.Time.with_timeout_exn c t (fun () -> Eio.Buf_read.line reader)
-    | _ -> Eio.Buf_read.line reader
+    | Some c, Some t -> Eio.Time.with_timeout_exn c t inner
+    | _ -> inner ()
   in
   let current_event_type = ref None in
   let rec loop () =
-    match read_line () with
+    match read_meaningful_line () with
     | line ->
         let len = String.length line in
         if len = 0 then
