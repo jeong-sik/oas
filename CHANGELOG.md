@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.187.3] - 2026-04-30
+
+### Added
+
+- Collaboration substrate priority/quota contract, including typed request priority and quota attribution helpers.
+- Collaboration performance budget contract for downstream multi-agent UI scheduling and coalescing expectations.
+
 ## [0.187.2] - 2026-04-30
 
 ### Changed
