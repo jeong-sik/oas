@@ -8,6 +8,12 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.187.0] - 2026-04-30
+
+### Added
+
+- **Runtime sync/replay window contract** exposes `Agent_sdk.Runtime_sync` with stream cursors, replay window metadata, persistence capability metadata, append-only offline merge helpers, cursor-based delta filtering, schema `docs/schemas/runtime-sync-window-v1.json`, and focused coverage for downstream offline/online sync integrations.
+
 ## [0.186.0] - 2026-04-30
 
 ### Added
