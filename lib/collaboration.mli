@@ -98,6 +98,82 @@ type merge_error =
       }
 [@@deriving yojson, show]
 
+(** {1 Performance budgets}
+
+    These budget names are generic collaboration-substrate measurements.
+    Downstream systems own the actual k6/Locust/OpenTelemetry/Lighthouse
+    runners; OAS only provides stable names and budget evaluation semantics
+    so observations can be correlated with runtime traces. *)
+
+type performance_metric =
+  | Ws_connecting_duration_p95_ms
+  | Sync_latency_p95_ms
+  | Checks_success_rate
+  | Crdt_ops_per_sec
+  | Crdt_single_insert_mean_ms
+  | Crdt_serialize_under_10mb_ms
+  | Crdt_merge_12_docs_ms
+[@@deriving yojson, show]
+
+type budget_direction =
+  | Below
+  | At_most
+  | Above
+  | At_least
+[@@deriving yojson, show]
+
+type performance_budget =
+  { metric : performance_metric
+  ; direction : budget_direction
+  ; threshold : float
+  ; unit : string
+  ; tool_hint : string
+  }
+[@@deriving yojson, show]
+
+type performance_measurement =
+  { metric : performance_metric
+  ; value : float
+  ; observed_at : float option
+  }
+[@@deriving yojson, show]
+
+type performance_budget_error =
+  | Metric_mismatch of
+      { budget_metric : performance_metric
+      ; measurement_metric : performance_metric
+      }
+[@@deriving yojson, show]
+
+type performance_budget_result =
+  { metric : performance_metric
+  ; passed : bool
+  ; value : float
+  ; threshold : float
+  ; direction : budget_direction
+  ; unit : string
+  }
+[@@deriving yojson, show]
+
+val performance_metric_label : performance_metric -> string
+val budget_direction_label : budget_direction -> string
+
+(** Track 8 baseline budgets from the collaboration performance plan:
+    WebSocket connection p95 <500ms, sync latency p95 <100ms, checks
+    success rate >0.99, CRDT throughput >1000 ops/sec, single insert mean
+    <1ms, serialize <50ms for <10MB documents, and 12-document merge <100ms. *)
+val default_performance_budgets : performance_budget list
+
+val find_performance_budget
+  :  performance_metric
+  -> performance_budget list
+  -> performance_budget option
+
+val evaluate_performance_budget
+  :  performance_budget
+  -> performance_measurement
+  -> (performance_budget_result, performance_budget_error) result
+
 val open_claim : item_id -> claim_snapshot
 val is_claimable : claim_snapshot -> bool
 

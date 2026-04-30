@@ -91,6 +91,124 @@ type merge_error =
       }
 [@@deriving yojson, show]
 
+type performance_metric =
+  | Ws_connecting_duration_p95_ms
+  | Sync_latency_p95_ms
+  | Checks_success_rate
+  | Crdt_ops_per_sec
+  | Crdt_single_insert_mean_ms
+  | Crdt_serialize_under_10mb_ms
+  | Crdt_merge_12_docs_ms
+[@@deriving yojson, show]
+
+let performance_metric_label = function
+  | Ws_connecting_duration_p95_ms -> "ws_connecting_duration.p95_ms"
+  | Sync_latency_p95_ms -> "sync.latency.p95_ms"
+  | Checks_success_rate -> "checks.success_rate"
+  | Crdt_ops_per_sec -> "crdt.ops_per_sec"
+  | Crdt_single_insert_mean_ms -> "crdt.single_insert.mean_ms"
+  | Crdt_serialize_under_10mb_ms -> "crdt.serialize_under_10mb.ms"
+  | Crdt_merge_12_docs_ms -> "crdt.merge_12_docs.ms"
+;;
+
+type budget_direction =
+  | Below
+  | At_most
+  | Above
+  | At_least
+[@@deriving yojson, show]
+
+let budget_direction_label = function
+  | Below -> "below"
+  | At_most -> "at_most"
+  | Above -> "above"
+  | At_least -> "at_least"
+;;
+
+type performance_budget =
+  { metric : performance_metric
+  ; direction : budget_direction
+  ; threshold : float
+  ; unit : string
+  ; tool_hint : string
+  }
+[@@deriving yojson, show]
+
+type performance_measurement =
+  { metric : performance_metric
+  ; value : float
+  ; observed_at : float option
+  }
+[@@deriving yojson, show]
+
+type performance_budget_error =
+  | Metric_mismatch of
+      { budget_metric : performance_metric
+      ; measurement_metric : performance_metric
+      }
+[@@deriving yojson, show]
+
+type performance_budget_result =
+  { metric : performance_metric
+  ; passed : bool
+  ; value : float
+  ; threshold : float
+  ; direction : budget_direction
+  ; unit : string
+  }
+[@@deriving yojson, show]
+
+let budget metric direction threshold unit tool_hint =
+  { metric; direction; threshold; unit; tool_hint }
+;;
+
+let default_performance_budgets =
+  [ budget Ws_connecting_duration_p95_ms Below 500.0 "ms" "k6 websocket"
+  ; budget Sync_latency_p95_ms Below 100.0 "ms" "k6/OpenTelemetry"
+  ; budget Checks_success_rate Above 0.99 "rate" "k6 checks"
+  ; budget Crdt_ops_per_sec Above 1000.0 "ops/sec" "crdt benchmark"
+  ; budget Crdt_single_insert_mean_ms Below 1.0 "ms" "crdt benchmark"
+  ; budget Crdt_serialize_under_10mb_ms Below 50.0 "ms" "crdt benchmark"
+  ; budget Crdt_merge_12_docs_ms Below 100.0 "ms" "crdt benchmark"
+  ]
+;;
+
+let find_performance_budget metric (budgets : performance_budget list) =
+  List.find_opt (fun (budget : performance_budget) -> budget.metric = metric) budgets
+;;
+
+let passes_budget direction ~threshold ~value =
+  match direction with
+  | Below -> value < threshold
+  | At_most -> value <= threshold
+  | Above -> value > threshold
+  | At_least -> value >= threshold
+;;
+
+let evaluate_performance_budget
+      (budget : performance_budget)
+      (measurement : performance_measurement)
+  =
+  if budget.metric <> measurement.metric
+  then
+    Error
+      (Metric_mismatch
+         { budget_metric = budget.metric; measurement_metric = measurement.metric })
+  else
+    Ok
+      { metric = budget.metric
+      ; passed =
+          passes_budget
+            budget.direction
+            ~threshold:budget.threshold
+            ~value:measurement.value
+      ; value = measurement.value
+      ; threshold = budget.threshold
+      ; direction = budget.direction
+      ; unit = budget.unit
+      }
+;;
+
 let open_claim item_id = { item_id; phase = Open; claimant = None; logical_clock = 0 }
 
 let is_claimable = function
