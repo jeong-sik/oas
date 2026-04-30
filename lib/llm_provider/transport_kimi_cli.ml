@@ -55,6 +55,8 @@ let stdin_for_prompt prompt =
   if prompt_exceeds_argv_budget prompt then Some prompt else None
 ;;
 
+let prompt_for_cli prompt = Utf8_sanitize.sanitize prompt
+
 let cli_model_override ~(config : config) ~(req_config : Provider_config.t) =
   match String.trim req_config.model_id |> String.lowercase_ascii with
   | "" | "auto" -> config.model
@@ -368,13 +370,16 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config) : Llm_transport.t =
         ~include_tool_blocks:config.forward_tool_results
         messages_to_send
       |> fun prompt ->
-      if resume_existing_session
-      then
-        (* When resuming a session the CLI already has the system prompt
-           and prior turns in its session file; repeating it would bloat
-           the prompt and confuse the context. *)
-        prompt
-      else Cli_common_prompt.prompt_with_system_prompt ~prompt ~system_prompt
+      let prompt =
+        if resume_existing_session
+        then
+          (* When resuming a session the CLI already has the system prompt
+             and prior turns in its session file; repeating it would bloat
+             the prompt and confuse the context. *)
+          prompt
+        else Cli_common_prompt.prompt_with_system_prompt ~prompt ~system_prompt
+      in
+      prompt_for_cli prompt
     in
     previous_msg_count := List.length all_messages;
     prompt, resume_existing_session
@@ -498,6 +503,10 @@ let%test "build_args basic" =
     ; "--model"
     ; "kimi-for-coding"
     ]
+;;
+
+let%test "prompt_for_cli sanitizes invalid utf8 before argv or stdin" =
+  prompt_for_cli "abc\xEF\x00d" = "abc\xEF\xBF\xBD d"
 ;;
 
 let%test "build_args with work dir, mcp, and thinking" =
