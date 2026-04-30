@@ -8,6 +8,12 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.187.4] - 2026-04-30
+
+### Fixed
+
+- Format the memory query follow-up so the CI format gate remains green after the memory prefix query merge.
+
 ## [0.187.3] - 2026-04-30
 
 ### Added
