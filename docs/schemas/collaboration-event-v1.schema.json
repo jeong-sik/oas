@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "oas:collaboration-event:v1",
+  "title": "Collaboration Substrate Observation Event v1",
+  "description": "Generic downstream collaboration observation payload correlated with OAS runtime events.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "event_type",
+    "observed_at",
+    "correlation_id",
+    "run_id",
+    "substrate"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "event_id": { "type": "string", "minLength": 1 },
+    "event_type": {
+      "type": "string",
+      "pattern": "^collaboration\\.[a-z0-9_]+(\\.[a-z0-9_]+)+$"
+    },
+    "observed_at": { "type": "number" },
+    "correlation_id": { "type": "string", "minLength": 1 },
+    "run_id": { "type": "string", "minLength": 1 },
+    "caused_by": { "type": ["string", "null"] },
+    "trace_id": {
+      "type": ["string", "null"],
+      "pattern": "^[a-f0-9]{32}$"
+    },
+    "span_id": {
+      "type": ["string", "null"],
+      "pattern": "^[a-f0-9]{16}$"
+    },
+    "substrate": {
+      "type": "object",
+      "required": ["kind"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "crdt",
+            "editor",
+            "presence",
+            "vcs_graph",
+            "todo_claim",
+            "turn_queue",
+            "transport",
+            "other"
+          ]
+        },
+        "provider": { "type": ["string", "null"] },
+        "workspace_id": { "type": ["string", "null"] }
+      }
+    },
+    "actor": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "role": { "type": ["string", "null"] },
+        "display_name": { "type": ["string", "null"] }
+      }
+    },
+    "document": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "path": { "type": ["string", "null"] },
+        "provider": { "type": ["string", "null"] },
+        "revision": { "type": ["string", "integer", "null"] },
+        "update_id": { "type": ["string", "null"] },
+        "update_bytes": { "type": ["integer", "null"], "minimum": 0 },
+        "origin": {
+          "type": ["string", "null"],
+          "enum": ["local", "remote", "replay", null]
+        }
+      }
+    },
+    "transport": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string" },
+        "peer_id": { "type": ["string", "null"] },
+        "message_bytes": { "type": ["integer", "null"], "minimum": 0 },
+        "latency_ms": { "type": ["number", "null"], "minimum": 0 }
+      }
+    },
+    "vcs": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "repository_id": { "type": ["string", "null"] },
+        "ref_name": { "type": ["string", "null"] },
+        "commit_id": { "type": ["string", "null"] },
+        "node_count": { "type": ["integer", "null"], "minimum": 0 },
+        "edge_count": { "type": ["integer", "null"], "minimum": 0 }
+      }
+    },
+    "todo_claim": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "todo_id": { "type": "string" },
+        "state": {
+          "type": "string",
+          "enum": ["observed", "claim_written", "claim_verified", "claim_lost", "released"]
+        },
+        "claimed_by": { "type": ["string", "null"] },
+        "winner_actor_id": { "type": ["string", "null"] }
+      }
+    },
+    "turn_queue": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "queue_id": { "type": "string" },
+        "depth": { "type": ["integer", "null"], "minimum": 0 },
+        "position": { "type": ["integer", "null"], "minimum": 0 },
+        "head_actor_id": { "type": ["string", "null"] },
+        "state": {
+          "type": ["string", "null"],
+          "enum": ["observed", "queued", "ready", "active", "blocked", "completed", null]
+        }
+      }
+    },
+    "attributes": {
+      "type": ["object", "null"],
+      "additionalProperties": {
+        "type": ["string", "number", "boolean", "null"]
+      }
+    }
+  }
+}

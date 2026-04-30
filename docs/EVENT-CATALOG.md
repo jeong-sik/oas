@@ -7,13 +7,13 @@ relate, and the contracts downstream consumers can rely on.
 **Scope**: `agent_sdk` library (`lib/`).
 **Status**: Stable catalog; entries marked *Evolving* may change with
 deprecation notice.
-**Last updated**: v0.154.1.
+**Last updated**: v0.184.0.
 
 ---
 
-## 1. Five event surfaces at a glance
+## 1. Six event surfaces at a glance
 
-OAS carries five independent event surfaces. They are listed here in order
+OAS carries six independent event surfaces. They are listed here in order
 of external relevance.
 
 | # | Surface | Module | Transport | Audience |
@@ -66,6 +66,7 @@ Pattern-matchable OCaml sum type. **Stable across every provider.**
 | `AgentCompleted` | `orchestrator.ml:run_task` (success) | Result type captures success/error |
 | `AgentFailed` | `orchestrator.ml:run_task` (error branch) | Explicit failure companion to `AgentCompleted` |
 | `TurnStarted` | `pipeline/pipeline.ml`, `pipeline/pipeline_input.ml` | Start of a single agent turn |
+| `TurnReady` | `pipeline/pipeline_input.ml` | Tool surface visible to the LLM after guardrails, policy, overrides, and selection |
 | `TurnCompleted` | `pipeline/pipeline.ml`, `pipeline/pipeline_collect.ml` | End of a single agent turn |
 | `ToolCalled` | `agent/agent_tools.ml` | Tool invocation requested by LLM |
 | `ToolCompleted` | `agent/agent_tools.ml` | Tool invocation result available |
@@ -77,6 +78,7 @@ Pattern-matchable OCaml sum type. **Stable across every provider.**
 | `ContextCompacted` | `pipeline/pipeline.ml`, `pipeline/pipeline_compaction.ml` | Compaction completed (before_tokens → after_tokens) |
 | `ContentReplacementReplaced` / `ContentReplacementKept` | `content_replacement_event_bridge.ml` | Tool-result content replacement decision froze |
 | `SlotSchedulerObserved` | `slot_scheduler_event_bridge.ml` | Queue/slot snapshot of the provider scheduler |
+| `InferenceTelemetry` | `pipeline/pipeline_collect.ml` | Per-turn provider timing/token telemetry when reported by the backend |
 | `Custom (name, json)` | anywhere | Extension point — see §2.3 |
 
 **Invariants**:
@@ -102,6 +104,13 @@ identifier.** The following prefixes are reserved:
 purpose telemetry channel for their own domain events.** Create your own
 `Event_bus.t` instance for your events and bridge into OAS's where
 necessary via a forwarder.
+
+For collaboration substrates such as CRDT documents, editor projections,
+VCS graph surfaces, TODO claims, or shared turn queues, keep the events in
+the downstream bus and use the neutral observation payload in
+`docs/collaboration-substrate-contract.md`. Those events can correlate with
+OAS via `correlation_id`, `run_id`, `caused_by`, raw-trace refs, and OTel
+trace/span IDs without becoming OAS-native taxonomy.
 
 ### 2.4 Filters, subscriptions, and draining
 
@@ -350,7 +359,7 @@ string identifier:
 | `AgentStarted` | `agent.started` |
 | `AgentCompleted` | `agent.completed` |
 | `AgentFailed` | `agent.failed` |
-| `TurnStarted` / `TurnCompleted` | `turn.started` / `turn.completed` |
+| `TurnStarted` / `TurnReady` / `TurnCompleted` | `turn.started` / `turn.ready` / `turn.completed` |
 | `ToolCalled` / `ToolCompleted` | `tool.called` / `tool.completed` |
 | `HandoffRequested` / `HandoffCompleted` | `handoff.requested` / `handoff.completed` |
 | `ElicitationCompleted` | `elicitation.completed` |
@@ -358,6 +367,7 @@ string identifier:
 | `ContextCompactStarted` / `ContextCompacted` | `context.compact_started` / `context.compacted` |
 | `ContentReplacementReplaced` / `ContentReplacementKept` | `content_replacement.replaced` / `content_replacement.kept` |
 | `SlotSchedulerObserved` | `slot_scheduler.observed` |
+| `InferenceTelemetry` | `inference.telemetry` |
 | `Custom(name, _)` | `name` (unchanged — the name is already a namespaced identifier) |
 
 ### 9.2 Targets
@@ -377,6 +387,8 @@ string identifier:
    - A replay-relevant record? → `Durable_event` variant.
    - Provider-specific? → `Custom("provider.<name>.<event>", json)`.
    - Downstream domain event? → downstream's own Event_bus, not OAS's.
+     For collaboration substrates, use
+     `docs/collaboration-substrate-contract.md`.
 
 2. **Provider-agnostic check** (native variants only, per I6):
    - Confirm the semantic exists in Anthropic + OpenAI + Gemini.

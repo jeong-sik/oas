@@ -83,10 +83,12 @@ Representative modules:
 
 | Module | File | Reason |
 |--------|------|--------|
-| Collaboration | `lib/collaboration.mli` | Shared collaboration state is still evolving |
 | Memory | `lib/memory.mli` | Memory system is under active development |
 | Policy | `lib/policy.mli` | Rule engine surface is still settling |
 | Proof_store | `lib/proof_store.mli` | CDAL storage API is newly added |
+
+Collaboration substrate guidance is intentionally docs/schema-only; there is
+no public `Collaboration` module in `agent_sdk`.
 
 ### Internal modules
 
