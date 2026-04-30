@@ -8,6 +8,21 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.185.0] - 2026-04-30
+
+### Added
+
+- **DeepSeek v4 provider inventory entries** for `deepseek-v4-flash` and `deepseek-v4-pro`, including model registry aliases and provider config coverage for downstream cascade routing.
+
+### Fixed
+
+- **Kimi CLI large-prompt handling** now routes large prompts through stdin instead of argv so OS argument length limits do not truncate or reject long requests.
+- **Transport drift gate parsing** handles the split ocamlformat configuration shape used by the current tree.
+
+### Changed
+
+- **Test stanza layout** in `test/dune` now uses grouped `(tests ...)` stanzas for auto-discovery while preserving the same test executables and CI coverage.
+
 ## [0.184.0] - 2026-04-28
 
 ### Fixed

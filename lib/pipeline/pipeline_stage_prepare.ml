@@ -142,11 +142,11 @@ let turn_ready_tool_names agent (prep : Agent_turn.turn_preparation) =
 let%test "turn_ready_tool_names includes runtime MCP policy names" =
   let runtime_mcp_policy =
     { Llm_provider.Llm_transport.empty_runtime_mcp_policy with
-      allowed_tool_names = [ "masc_status"; "keeper_bash"; "inline_tool" ]
+      allowed_tool_names = [ "status_tool"; "shell_tool"; "inline_tool" ]
     }
   in
   turn_ready_tool_names_from_policy ~runtime_mcp_policy [ "inline_tool" ]
-  = [ "inline_tool"; "masc_status"; "keeper_bash" ]
+  = [ "inline_tool"; "status_tool"; "shell_tool" ]
 ;;
 
 let stage_parse ?raw_trace_run agent =
