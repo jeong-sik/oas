@@ -103,6 +103,69 @@ let test_artifact () =
     v
 ;;
 
+let test_collaboration_contracts () =
+  List.iter
+    (fun v ->
+       roundtrip
+         ~to_yojson:Runtime.collaboration_channel_to_yojson
+         ~of_yojson:Runtime.collaboration_channel_of_yojson
+         ~show:Runtime.show_collaboration_channel
+         ~name:"collaboration_channel"
+         v)
+    Runtime.[ Presence_channel; Activity_channel; System_channel ];
+  List.iter
+    (fun v ->
+       roundtrip
+         ~to_yojson:Runtime.persistence_policy_to_yojson
+         ~of_yojson:Runtime.persistence_policy_of_yojson
+         ~show:Runtime.show_persistence_policy
+         ~name:"persistence_policy"
+         v)
+    Runtime.[ Ephemeral; Append_only; Aggregated_snapshot ];
+  List.iter
+    (fun v ->
+       roundtrip
+         ~to_yojson:Runtime.participant_presence_status_to_yojson
+         ~of_yojson:Runtime.participant_presence_status_of_yojson
+         ~show:Runtime.show_participant_presence_status
+         ~name:"participant_presence_status"
+         v)
+    Runtime.
+      [ Presence_online
+      ; Presence_active
+      ; Presence_away
+      ; Presence_busy
+      ; Presence_do_not_disturb
+      ; Presence_idle
+      ; Presence_offline
+      ; Presence_error
+      ; Presence_sleeping
+      ];
+  let event : Runtime.collaboration_event =
+    { metadata =
+        { channel = Runtime.Activity_channel
+        ; persistence = Runtime.Append_only
+        ; qos = Runtime.Ordered
+        }
+    ; payload =
+        Runtime.Activity_feed_item
+          { actor = Some "agent-1"
+          ; category = Runtime.Activity_work
+          ; severity = Runtime.Severity_normal
+          ; title = "edited file"
+          ; summary = Some "src/main.ml"
+          ; subject = Some "src/main.ml"
+          }
+    }
+  in
+  roundtrip
+    ~to_yojson:Runtime.collaboration_event_to_yojson
+    ~of_yojson:Runtime.collaboration_event_of_yojson
+    ~show:Runtime.show_collaboration_event
+    ~name:"collaboration_event"
+    event
+;;
+
 let test_session () =
   let v : Runtime.session =
     { session_id = "sess-rt"
@@ -440,6 +503,10 @@ let () =
     ; ( "records"
       , [ Alcotest.test_case "participant" `Quick test_participant
         ; Alcotest.test_case "artifact" `Quick test_artifact
+        ; Alcotest.test_case
+            "collaboration contracts"
+            `Quick
+            test_collaboration_contracts
         ; Alcotest.test_case "session" `Quick test_session
         ; Alcotest.test_case "report" `Quick test_report
         ; Alcotest.test_case "proof" `Quick test_proof

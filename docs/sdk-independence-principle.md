@@ -31,6 +31,11 @@ adapt to any specific coordinator.
    "handoff" to map to `Coordination` intent, it should wrap
    `Context_intent.intent_of_string` in its own adapter.
 
+5. **Collaboration substrates stay downstream.** Shared documents, CRDT
+   replicas, participant grouping, and binary frame choices are embedding-layer
+   responsibilities. OAS may expose neutral runtime events and protocol fields
+   that such systems observe, but it must not own their coordination model.
+
 ## Module ownership (this repository only)
 
 This table is restricted to OAS-owned modules. Whatever a downstream

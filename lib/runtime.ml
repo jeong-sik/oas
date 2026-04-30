@@ -18,6 +18,97 @@ type participant_state =
   | Detached
 [@@deriving yojson, show]
 
+type collaboration_channel =
+  | Presence_channel
+  | Activity_channel
+  | System_channel
+[@@deriving yojson, show]
+
+type persistence_policy =
+  | Ephemeral
+  | Append_only
+  | Aggregated_snapshot
+[@@deriving yojson, show]
+
+type delivery_qos =
+  | Best_effort
+  | Coalesced of { max_hz : int }
+  | Ordered
+[@@deriving yojson, show]
+
+type participant_presence_status =
+  | Presence_online
+  | Presence_active
+  | Presence_away
+  | Presence_busy
+  | Presence_do_not_disturb
+  | Presence_idle
+  | Presence_offline
+  | Presence_error
+  | Presence_sleeping
+[@@deriving yojson, show]
+
+type activity_category =
+  | Activity_lifecycle
+  | Activity_work
+  | Activity_coordination
+  | Activity_artifact
+  | Activity_conflict
+  | Activity_system
+[@@deriving yojson, show]
+
+type activity_severity =
+  | Severity_critical
+  | Severity_high
+  | Severity_normal
+  | Severity_low
+[@@deriving yojson, show]
+
+type collaboration_metadata =
+  { channel : collaboration_channel
+  ; persistence : persistence_policy
+  ; qos : delivery_qos
+  }
+[@@deriving yojson, show]
+
+type participant_presence_event =
+  { participant_name : string
+  ; status : participant_presence_status
+  ; summary : string option
+  ; subject : string option
+  }
+[@@deriving yojson, show]
+
+type activity_feed_event =
+  { actor : string option
+  ; category : activity_category
+  ; severity : activity_severity
+  ; title : string
+  ; summary : string option
+  ; subject : string option
+  }
+[@@deriving yojson, show]
+
+type system_health_event =
+  { component : string
+  ; severity : activity_severity
+  ; status : string
+  ; summary : string option
+  }
+[@@deriving yojson, show]
+
+type collaboration_event_payload =
+  | Participant_presence_updated of participant_presence_event
+  | Activity_feed_item of activity_feed_event
+  | System_health_updated of system_health_event
+[@@deriving yojson, show]
+
+type collaboration_event =
+  { metadata : collaboration_metadata
+  ; payload : collaboration_event_payload
+  }
+[@@deriving yojson, show]
+
 type participant =
   { name : string
   ; role : string option

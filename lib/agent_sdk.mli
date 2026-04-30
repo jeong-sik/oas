@@ -113,6 +113,7 @@ module Provider_bridge = Provider_bridge
 module Async_agent = Async_agent
 module Append_instruction = Append_instruction
 module Consumer = Consumer
+module Collaboration = Collaboration
 module Agent_typed = Agent_typed
 module Cost_tracker = Cost_tracker
 module Context_offload = Context_offload

@@ -83,6 +83,7 @@ Representative modules:
 
 | Module | File | Reason |
 |--------|------|--------|
+| Runtime | `lib/runtime.mli` | Runtime protocol types are still evolving |
 | Memory | `lib/memory.mli` | Memory system is under active development |
 | Policy | `lib/policy.mli` | Rule engine surface is still settling |
 | Proof_store | `lib/proof_store.mli` | CDAL storage API is newly added |
