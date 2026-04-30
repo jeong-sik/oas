@@ -206,7 +206,7 @@ For the full 186-file classification, see `docs/api-stability.md`.
 
 **Evolving** -- API may change between minor versions:
 
-`Streaming`, `Structured`, `Orchestrator`, `Memory`, `Policy`, `Proof_store`, `Cdal_proof`
+`Streaming`, `Structured`, `Orchestrator`, `Runtime`, `Memory`, `Policy`, `Proof_store`, `Cdal_proof`
 
 **Internal** -- implementation details with no compatibility promise:
 
