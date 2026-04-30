@@ -118,11 +118,36 @@ OAS-owned metric names keep the `oas.*` prefix. Collaboration-specific metrics
 should use `collaboration.*` unless the OpenTelemetry spec already defines a
 better semantic-convention attribute.
 
+## Priority And Quota Contract
+
+Large multi-agent embeddings need a shared vocabulary for backpressure and
+quota allocation, but OAS must not own the distributed quota manager. The
+domain-neutral contract lives in `Llm_provider.Request_priority`:
+
+| OAS request priority | Quota tier | Default share | Meaning |
+|----------------------|------------|---------------|---------|
+| `Resume`, `Interactive` | `p0_critical` | 40% | User-visible or starvation-sensitive work. |
+| `Proactive`, `Unspecified` | `p1_standard` | 40% | Normal agent turns and scheduled work. |
+| `Background` | `p2_background` | 20% | Heartbeats, maintenance, and low-urgency status work. |
+
+`default_quota_allocations` turns a total request budget into integer
+requests-per-minute allocations while preserving the exact total after
+rounding. The SDK default is 1000 requests/minute, which yields
+400/400/200 for P0/P1/P2.
+
+Downstream systems own the actual counters and policy:
+
+- Distributed quota counters and atomic reservation.
+- Lease expiry after crashed or cancelled agents.
+- Backpressure propagation to child agents after 429 or capacity exhaustion.
+- Adaptive multipliers and product-specific billing/credit semantics.
+
 ## Boundary Rules
 
 - Do not add Yjs, y-websocket, CodeMirror, cytoscape, or browser dependencies
   to `agent_sdk`.
 - Do not add TODO claim or turn queue state machines to OAS.
+- Do not add global quota counters, billing, or product pricing logic to OAS.
 - Do not add downstream UI or repo graph payloads as native `Event_bus`
   variants.
 - Prefer `Event_bus.TurnReady`, `ToolCalled`, `ToolCompleted`,
