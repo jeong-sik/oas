@@ -8,6 +8,16 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.186.0] - 2026-04-30
+
+### Added
+
+- **Typed provider failure transport surface** via `Llm_provider.Http_client.ProviderFailure`, covering capacity exhaustion, hard quota, capability mismatch, CLI policy invalid, CLI startup failure, provider parse failure, and unknown provider failure.
+
+### Changed
+
+- **Gemini CLI capacity and policy failures now classify at the transport edge** instead of surfacing as `NetworkError Unknown`. `MODEL_CAPACITY_EXHAUSTED` maps to `Capacity_exhausted`, request-scoped runtime MCP rejection maps to `Capability_mismatch`, and Gemini policy warnings such as `Unrecognized tool name "glm"` map to `Cli_policy_invalid`.
+
 ## [0.185.0] - 2026-04-30
 
 ### Added
