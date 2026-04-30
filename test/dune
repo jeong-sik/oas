@@ -192,7 +192,7 @@
  (libraries agent_sdk alcotest qcheck-core qcheck-alcotest))
 
 (tests
- (names test_retry test_slot_scheduler_event_bridge)
+ (names test_request_priority test_retry test_slot_scheduler_event_bridge)
  (libraries agent_sdk llm_provider alcotest yojson eio eio_main))
 
 (tests

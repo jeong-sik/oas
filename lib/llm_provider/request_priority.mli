@@ -32,5 +32,42 @@ val compare : t -> t -> int
 (** Numeric rank: -1=Resume, 0=Interactive, 1=Proactive, 2=Background, 3=Unspecified. *)
 val to_int : t -> int
 
+(** Product-neutral quota tier for schedulers that coordinate many agents.
+
+    OAS only defines the vocabulary and deterministic allocation helper.
+    Distributed counters, leases, backpressure propagation, billing, and
+    product-specific policy remain downstream coordinator responsibilities. *)
+type quota_tier =
+  | P0_critical (** Critical/user-visible work. Suggested default share: 40%. *)
+  | P1_standard
+  (** Standard agent turns and scheduled work. Suggested default share: 40%. *)
+  | P2_background
+  (** Background maintenance, heartbeat, and status work. Suggested default
+      share: 20%. *)
+[@@deriving show]
+
+type quota_allocation =
+  { tier : quota_tier
+  ; share_percent : int
+  ; requests_per_minute : int
+  }
+[@@deriving show]
+
+type quota_allocation_error = Invalid_total_requests_per_minute of int [@@deriving show]
+
+val default_quota_requests_per_minute : int
+val quota_tier_label : quota_tier -> string
+val quota_tier_share_percent : quota_tier -> int
+
+(** Map request scheduling priority to the Track9 P0/P1/P2 quota vocabulary. *)
+val quota_tier_of_priority : t -> quota_tier
+
+(** Deterministically split [total_requests_per_minute] into the default
+    40/40/20 quota tiers while preserving the exact total after integer
+    rounding. *)
+val default_quota_allocations
+  :  total_requests_per_minute:int
+  -> (quota_allocation list, quota_allocation_error) result
+
 val to_yojson : t -> Yojson.Safe.t
 val of_yojson : Yojson.Safe.t -> (t, string) result
