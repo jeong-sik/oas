@@ -110,7 +110,9 @@
           "enum": ["observed", "claim_written", "claim_verified", "claim_lost", "released"]
         },
         "claimed_by": { "type": ["string", "null"] },
-        "winner_actor_id": { "type": ["string", "null"] }
+        "winner_actor_id": { "type": ["string", "null"] },
+        "logical_clock": { "type": ["integer", "null"], "minimum": 0 },
+        "convergence_delay_ms": { "type": ["integer", "null"], "minimum": 0 }
       }
     },
     "turn_queue": {

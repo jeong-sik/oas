@@ -66,6 +66,31 @@ type claim_verdict =
   | Claim_closed
 [@@deriving yojson, show]
 
+(** Downstream-visible observation state for optimistic claim protocols. *)
+type claim_observation_state =
+  | Claim_observed
+  | Claim_written
+  | Claim_verified
+  | Claim_lost_observed
+  | Claim_released
+[@@deriving yojson, show]
+
+val claim_observation_state_label : claim_observation_state -> string
+
+(** A claim observation records what an actor saw after a write or readback.
+    [claimed_by] reflects the claimant visible in the observed snapshot.
+    [winner_actor_id] is set only when a verify step observed a winner. *)
+type claim_observation =
+  { observer_id : participant_id
+  ; item_id : item_id
+  ; state : claim_observation_state
+  ; claimed_by : participant_id option
+  ; winner_actor_id : participant_id option
+  ; logical_clock : logical_clock
+  ; convergence_delay_ms : int option
+  }
+[@@deriving yojson, show]
+
 type merge_error =
   | Subject_mismatch of
       { left : string
@@ -86,6 +111,24 @@ val claim
 
 (** Verify whether [actor_id] is the converged claimant. *)
 val verify_claim : actor_id:participant_id -> claim_snapshot -> claim_verdict
+
+(** Observe an arbitrary claim snapshot without declaring a winner. *)
+val observe_claim_snapshot
+  :  observer_id:participant_id
+  -> ?convergence_delay_ms:int
+  -> claim_snapshot
+  -> claim_observation
+
+(** Record the optimistic write side of a write-then-verify claim attempt. *)
+val observe_claim_write : actor_id:participant_id -> claim_snapshot -> claim_observation
+
+(** Record the verify/readback side of a write-then-verify claim attempt. *)
+val observe_claim_verdict
+  :  actor_id:participant_id
+  -> ?convergence_delay_ms:int
+  -> claim_snapshot
+  -> claim_verdict
+  -> claim_observation
 
 (** Deterministic merge for two snapshots of the same item.
     [Closed] wins over non-closed phases to preserve monotonic progress.

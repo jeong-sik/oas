@@ -29,6 +29,43 @@ let test_claim_merge_is_deterministic () =
     Alcotest.fail "expected higher logical clock to win"
 ;;
 
+let test_claim_write_observations () =
+  let snapshot = C.open_claim "item-1" |> C.claim ~actor_id:"actor-a" ~logical_clock:7 in
+  let written = C.observe_claim_write ~actor_id:"actor-a" snapshot in
+  Alcotest.(check string)
+    "write state"
+    "claim_written"
+    (C.claim_observation_state_label written.state);
+  Alcotest.(check (option string)) "written claimant" (Some "actor-a") written.claimed_by;
+  let verdict = C.verify_claim ~actor_id:"actor-a" snapshot in
+  let verified =
+    C.observe_claim_verdict ~actor_id:"actor-a" ~convergence_delay_ms:50 snapshot verdict
+  in
+  Alcotest.(check string)
+    "verified state"
+    "claim_verified"
+    (C.claim_observation_state_label verified.state);
+  Alcotest.(check (option string)) "winner" (Some "actor-a") verified.winner_actor_id;
+  Alcotest.(check int) "clock" 7 verified.logical_clock;
+  Alcotest.(check (option int)) "delay" (Some 50) verified.convergence_delay_ms
+;;
+
+let test_lost_claim_observation_names_winner () =
+  let left = C.open_claim "item-1" |> C.claim ~actor_id:"actor-a" ~logical_clock:1 in
+  let right = C.open_claim "item-1" |> C.claim ~actor_id:"actor-b" ~logical_clock:2 in
+  let merged = C.merge_claim_snapshot left right |> expect_ok in
+  let verdict = C.verify_claim ~actor_id:"actor-a" merged in
+  let observed =
+    C.observe_claim_verdict ~actor_id:"actor-a" ~convergence_delay_ms:50 merged verdict
+  in
+  Alcotest.(check string)
+    "lost state"
+    "claim_lost"
+    (C.claim_observation_state_label observed.state);
+  Alcotest.(check (option string)) "visible claimant" (Some "actor-b") observed.claimed_by;
+  Alcotest.(check (option string)) "winner" (Some "actor-b") observed.winner_actor_id
+;;
+
 let test_closed_claim_preserves_monotonic_progress () =
   let claimed = C.open_claim "item-1" |> C.claim ~actor_id:"actor-a" ~logical_clock:10 in
   let closed : C.claim_snapshot =
@@ -88,6 +125,14 @@ let () =
             "claim deterministic merge"
             `Quick
             test_claim_merge_is_deterministic
+        ; Alcotest.test_case
+            "claim write observations"
+            `Quick
+            test_claim_write_observations
+        ; Alcotest.test_case
+            "lost claim observation"
+            `Quick
+            test_lost_claim_observation_names_winner
         ; Alcotest.test_case
             "closed claim monotonic"
             `Quick

@@ -23,6 +23,7 @@
   test_audit
   test_cache
   test_cdal_proof
+  test_collaboration
   test_context
   test_context_reducer
   test_contract
