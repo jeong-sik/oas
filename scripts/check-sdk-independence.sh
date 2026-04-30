@@ -7,6 +7,11 @@ cd "$ROOT"
 
 TARGETS=(lib bin README.md)
 
+if ! command -v rg >/dev/null 2>&1; then
+  echo "SDK independence check failed: ripgrep (rg) is required" >&2
+  exit 1
+fi
+
 patterns=(
   '\bmasc\b'
   'masc_'
