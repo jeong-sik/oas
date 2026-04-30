@@ -206,7 +206,7 @@ For the full 186-file classification, see `docs/api-stability.md`.
 
 **Evolving** -- API may change between minor versions:
 
-`Streaming`, `Structured`, `Orchestrator`, `Collaboration`, `Memory`, `Policy`, `Proof_store`, `Cdal_proof`
+`Streaming`, `Structured`, `Orchestrator`, `Memory`, `Policy`, `Proof_store`, `Cdal_proof`
 
 **Internal** -- implementation details with no compatibility promise:
 
@@ -314,6 +314,12 @@ OAS is a single-process, single-Eio-domain agent runtime. The following concerns
 | Long-term persistence / vector storage | Embedding application | Session state, memory backends, and embedding indexes are injected via callbacks, not owned by the SDK. |
 
 If you find yourself pulling one of these responsibilities into `agent_sdk`, that is a signal the change belongs in a different repository. OAS does not name any specific downstream coordinator on purpose: anyone wiring OAS into a coordination layer should be free to make their own architectural choices.
+
+For real-time collaboration embeddings, OAS provides only the generic
+observation boundary in
+[`docs/collaboration-substrate-contract.md`](docs/collaboration-substrate-contract.md).
+CRDT/editor/VCS graph/TODO claim/turn queue state remains downstream-owned;
+OAS events are join points for correlation and telemetry.
 
 ## Versioning
 
