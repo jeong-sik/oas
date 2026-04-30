@@ -222,7 +222,10 @@ let test_collaboration_metadata_channels () =
   let presence =
     Runtime_projection.collaboration_metadata_of_channel Runtime.Presence_channel
   in
-  Alcotest.(check bool) "presence ephemeral" true (presence.persistence = Runtime.Ephemeral);
+  Alcotest.(check bool)
+    "presence ephemeral"
+    true
+    (presence.persistence = Runtime.Ephemeral);
   Alcotest.(check bool)
     "presence coalesced"
     true
@@ -267,10 +270,14 @@ let test_collaboration_projection_agent_failed () =
       }
     ] ->
     Alcotest.(check string) "participant" "alice" participant_name;
-    Alcotest.(check bool) "presence channel" true
+    Alcotest.(check bool)
+      "presence channel"
+      true
       (presence_meta.channel = Runtime.Presence_channel);
     Alcotest.(check bool) "presence status" true (status = Runtime.Presence_error);
-    Alcotest.(check bool) "activity channel" true
+    Alcotest.(check bool)
+      "activity channel"
+      true
       (activity_meta.channel = Runtime.Activity_channel);
     Alcotest.(check bool) "high severity" true (severity = Runtime.Severity_high)
   | _ -> Alcotest.fail "unexpected collaboration projection"

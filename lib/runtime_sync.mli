@@ -111,7 +111,6 @@ val merge_offline_events
   -> (Runtime.event list, merge_conflict list) result
 
 val validate_window : window -> (unit, string) result
-
 val event_record_to_yojson : event_record -> Yojson.Safe.t
 val event_record_of_yojson : Yojson.Safe.t -> (event_record, string) result
 val window_to_yojson : window -> Yojson.Safe.t

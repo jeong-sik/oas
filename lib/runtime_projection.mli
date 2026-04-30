@@ -37,9 +37,7 @@ val collaboration_metadata_of_channel
 (** Project a runtime event into zero or more generic collaboration events.
     Presence outputs are ephemeral; activity outputs are append-only; system
     outputs are aggregated status signals. *)
-val collaboration_events_of_event
-  :  Runtime.event
-  -> Runtime.collaboration_event list
+val collaboration_events_of_event : Runtime.event -> Runtime.collaboration_event list
 
 (** {1 Reporting and proofs} *)
 

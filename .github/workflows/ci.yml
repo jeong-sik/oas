@@ -184,6 +184,27 @@ jobs:
         env:
           OCAMLPARAM: "_,warn-error=+a"
 
+  ocamlformat:
+    name: OCaml Format
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup OCaml
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: 5.4.1
+          dune-cache: true
+
+      - name: Install ocamlformat
+        run: opam install ocamlformat --yes
+
+      - name: Check formatting
+        run: opam exec -- dune build @fmt
+
   version-check:
     name: Version Consistency
     runs-on: ubuntu-latest

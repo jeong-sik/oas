@@ -251,9 +251,9 @@ let window_to_yojson window =
     ; "events", `List (List.map event_record_to_yojson window.events)
     ; "artifact_refs", `List (List.map (fun value -> `String value) window.artifact_refs)
     ; ( "persistence"
-      , (match window.persistence with
-         | None -> `Null
-         | Some value -> persistence_contract_to_json value) )
+      , match window.persistence with
+        | None -> `Null
+        | Some value -> persistence_contract_to_json value )
     ; "merge_policy", merge_policy_to_json window.merge_policy
     ]
 ;;
@@ -261,11 +261,7 @@ let window_to_yojson window =
 let validate_cursor_field field_name expected_stream_id (cursor : cursor) =
   if String.equal cursor.stream_id expected_stream_id
   then Ok ()
-  else
-    Error
-      (Printf.sprintf
-         "field %s stream_id must match window stream_id"
-         field_name)
+  else Error (Printf.sprintf "field %s stream_id must match window stream_id" field_name)
 ;;
 
 let validate_persistence = function
@@ -291,7 +287,8 @@ let validate_event_order cursor next_cursor records =
       then Error "window events must be ordered by increasing seq"
       else (
         match envelope.Event_envelope.seq with
-        | Some seq when seq <> event.seq -> Error "event envelope seq must match event seq"
+        | Some seq when seq <> event.seq ->
+          Error "event envelope seq must match event seq"
         | Some _ | None -> loop event.seq rest)
   in
   loop cursor.after_seq records
@@ -320,11 +317,8 @@ let window_of_yojson = function
     let* schema_version = int_field "schema_version" fields in
     if schema_version <> schema_version_current
     then
-      Error
-        (Printf.sprintf
-           "unsupported runtime sync schema_version: %d"
-           schema_version)
-    else (
+      Error (Printf.sprintf "unsupported runtime sync schema_version: %d" schema_version)
+    else
       let* stream_id = string_field "stream_id" fields in
       let* cursor_json = assoc_field "cursor" fields in
       let* cursor = cursor_of_yojson cursor_json in
@@ -334,9 +328,7 @@ let window_of_yojson = function
       let* () = validate_cursor_field "next_cursor" stream_id next_cursor in
       let* events = event_record_list_field "events" fields in
       let* artifact_refs = string_list_field "artifact_refs" fields in
-      let* persistence =
-        option_field "persistence" fields persistence_contract_of_json
-      in
+      let* persistence = option_field "persistence" fields persistence_contract_of_json in
       let* merge_policy =
         match List.assoc_opt "merge_policy" fields with
         | None -> Ok Append_only
@@ -354,7 +346,7 @@ let window_of_yojson = function
         }
       in
       let* () = validate_window window in
-      Ok window)
+      Ok window
   | _ -> Error "runtime sync window must be a JSON object"
 ;;
 
