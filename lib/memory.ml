@@ -124,6 +124,48 @@ let forget t ~tier key =
     Ok ()
 ;;
 
+let take_unique limit entries =
+  if limit <= 0
+  then []
+  else (
+    let seen = Hashtbl.create (limit + 1) in
+    let rec loop remaining acc = function
+      | [] -> List.rev acc
+      | _ when remaining <= 0 -> List.rev acc
+      | (key, value) :: rest ->
+        if Hashtbl.mem seen key
+        then loop remaining acc rest
+        else (
+          Hashtbl.replace seen key ();
+          loop (remaining - 1) ((key, value) :: acc) rest)
+    in
+    loop limit [] entries)
+;;
+
+let query_context t ~tier ~prefix =
+  Context.keys_in_scope t.ctx (scope_of_tier tier)
+  |> List.filter (fun key -> String.starts_with ~prefix key)
+  |> List.filter_map (fun key ->
+    match Context.get_scoped t.ctx (scope_of_tier tier) key with
+    | Some value -> Some (key, value)
+    | None -> None)
+;;
+
+let query t ~tier ~prefix ~limit =
+  if limit <= 0
+  then []
+  else
+    match tier with
+    | Long_term ->
+      let backend_entries =
+        match t.long_term with
+        | Some backend -> backend.query ~prefix ~limit
+        | None -> []
+      in
+      take_unique limit (backend_entries @ query_context t ~tier:Long_term ~prefix)
+    | _ -> take_unique limit (query_context t ~tier ~prefix)
+;;
+
 let promote t key =
   match Context.get_scoped t.ctx (scope_of_tier Scratchpad) key with
   | Some value ->

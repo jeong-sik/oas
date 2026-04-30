@@ -213,6 +213,44 @@ let test_long_term_backend_set_after_create () =
   | _ -> fail "late backend should work"
 ;;
 
+let test_query_long_term_prefix () =
+  let store = Hashtbl.create 4 in
+  let backend : Memory.long_term_backend =
+    { persist =
+        (fun ~key value ->
+          Hashtbl.replace store key value;
+          Ok ())
+    ; retrieve = (fun ~key -> Hashtbl.find_opt store key)
+    ; remove =
+        (fun ~key ->
+          Hashtbl.remove store key;
+          Ok ())
+    ; batch_persist =
+        (fun pairs ->
+          List.iter (fun (k, v) -> Hashtbl.replace store k v) pairs;
+          Ok ())
+    ; query =
+        (fun ~prefix ~limit ->
+          Hashtbl.fold
+            (fun k v acc ->
+              if String.starts_with ~prefix k then (k, v) :: acc else acc)
+            store
+            []
+          |> List.sort (fun (a, _) (b, _) -> String.compare a b)
+          |> List.filteri (fun i _ -> i < limit))
+    }
+  in
+  let mem = Memory.create ~long_term:backend () in
+  ignore (Memory.store mem ~tier:Long_term "world:mission" (json_s "ready"));
+  ignore (Memory.store mem ~tier:Long_term "world:crew" (json_s "awake"));
+  ignore (Memory.store mem ~tier:Long_term "other:key" (json_s "skip"));
+  let results = Memory.query mem ~tier:Long_term ~prefix:"world" ~limit:10 in
+  let keys = List.map fst results in
+  check int "world entries" 2 (List.length results);
+  check bool "mission" true (List.mem "world:mission" keys);
+  check bool "crew" true (List.mem "world:crew" keys)
+;;
+
 (* ── Context access ───────────────────────────────── *)
 
 let test_context_access () =
@@ -257,6 +295,7 @@ let () =
             "set backend after create"
             `Quick
             test_long_term_backend_set_after_create
+        ; test_case "query prefix" `Quick test_query_long_term_prefix
         ] )
     ; "context", [ test_case "context access" `Quick test_context_access ]
     ]
