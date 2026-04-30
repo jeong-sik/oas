@@ -111,6 +111,8 @@ let get_json ~sw ~net url =
        cannot reach this match.  Surface the message defensively so the
        exhaustive match stays sound. *)
     Error message
+  | Error (Http_client.ProviderFailure { kind; message }) ->
+    Error (Http_client.provider_failure_to_string ~kind ~message)
 ;;
 
 let get_ok ~sw ~net url =
@@ -293,6 +295,8 @@ let probe_ollama_context ~sw ~net base_url =
             | Http_client.CliTransportRequired { kind } ->
               Printf.sprintf "CLI transport required for %s" kind
             | Http_client.ProviderTerminal { message; _ } -> message
+            | Http_client.ProviderFailure { kind; message } ->
+              Http_client.provider_failure_to_string ~kind ~message
           in
           warn_probe_failure ~url:base_url ~phase:"ollama_show_http" detail;
           None))

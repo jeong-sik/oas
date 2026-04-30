@@ -124,6 +124,8 @@ let test_post_stream_invalid_url_returns_network_error () =
     Alcotest.fail "expected NetworkError for invalid URL, not CliTransportRequired"
   | Error (Http_client.ProviderTerminal _) ->
     Alcotest.fail "expected NetworkError for invalid URL, not ProviderTerminal"
+  | Error (Http_client.ProviderFailure _) ->
+    Alcotest.fail "expected NetworkError for invalid URL, not ProviderFailure"
   | Ok _ -> Alcotest.fail "expected invalid URL to fail before opening a stream"
 ;;
 

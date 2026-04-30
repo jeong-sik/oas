@@ -756,6 +756,8 @@ let complete
             | Http_client.CliTransportRequired { kind } ->
               Printf.sprintf "CLI transport required for %s but none injected" kind
             | Http_client.ProviderTerminal { message; _ } -> message
+            | Http_client.ProviderFailure { kind; message } ->
+              Http_client.provider_failure_to_string ~kind ~message
           in
           m.on_error ~model_id ~error:err_str;
           Error err))
@@ -799,6 +801,10 @@ let classify_retry_error = function
      deterministic exit, so signal non-retryable and let the agent
      runtime checkpoint via [Error.Agent (MaxTurnsExceeded ...)]. *)
   | Http_client.ProviderTerminal _ -> None
+  (* Provider/runtime failures are semantic cascade inputs, not local
+     retry inputs.  Retrying the same CLI/API lane would hide the typed
+     reason from downstream policy. *)
+  | Http_client.ProviderFailure _ -> None
 ;;
 
 let is_retryable = function
@@ -1217,6 +1223,20 @@ let%test "is_retryable network error always retryable" =
   is_retryable
     (Http_client.NetworkError { message = "connection refused"; kind = Unknown })
   = true
+;;
+
+let%test "is_retryable provider capacity failure is false" =
+  not
+    (is_retryable
+       (Http_client.ProviderFailure
+          { kind =
+              Http_client.Capacity_exhausted
+                { scope = Http_client.Failure_scope_model
+                ; retry_after = None
+                ; model = Some "gemini-2.5-pro"
+                }
+          ; message = "capacity exhausted"
+          }))
 ;;
 
 let%test "default_retry_config values" =

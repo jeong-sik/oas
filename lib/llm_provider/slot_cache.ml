@@ -31,6 +31,12 @@ let slot_action ~sw ~net ~endpoint ~slot_id ~action ~body_fields =
     Error (Printf.sprintf "slot %s: CLI transport required for %s" action kind)
   | Error (Http_client.ProviderTerminal { message; _ }) ->
     Error (Printf.sprintf "slot %s: %s" action message)
+  | Error (Http_client.ProviderFailure { kind; message }) ->
+    Error
+      (Printf.sprintf
+         "slot %s: %s"
+         action
+         (Http_client.provider_failure_to_string ~kind ~message))
 ;;
 
 let save ~sw ~net ~endpoint ~slot_id ~filename =

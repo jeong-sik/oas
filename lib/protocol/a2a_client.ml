@@ -39,6 +39,13 @@ let http_get ~sw ~net url =
        cannot produce a CLI subprocess terminal condition; reduce to
        message text so the exhaustive match stays sound. *)
     Error (Error.Orchestration (DiscoveryFailed { url; detail = message }))
+  | Error (Llm_provider.Http_client.ProviderFailure { kind; message }) ->
+    Error
+      (Error.Orchestration
+         (DiscoveryFailed
+            { url
+            ; detail = Llm_provider.Http_client.provider_failure_to_string ~kind ~message
+            }))
 ;;
 
 let http_post ~sw ~net ~url ~body =
@@ -64,6 +71,12 @@ let http_post ~sw ~net ~url ~body =
        defensive handling mirrors [http_get] so the exhaustive match
        stays sound and the message survives for diagnostics. *)
     Error (Error.A2a (ProtocolError { detail = message }))
+  | Error (Llm_provider.Http_client.ProviderFailure { kind; message }) ->
+    Error
+      (Error.A2a
+         (ProtocolError
+            { detail = Llm_provider.Http_client.provider_failure_to_string ~kind ~message
+            }))
 ;;
 
 (* ── JSON-RPC ─────────────────────────────────────────────────── *)

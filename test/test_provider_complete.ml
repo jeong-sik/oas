@@ -607,7 +607,12 @@ let test_complete_claude_code_without_transport_is_guarded () =
          Alcotest.failf
            "%s expected CliTransportRequired, got ProviderTerminal: %s"
            expected_name
-           message)
+           message
+       | Error (Llm_provider.Http_client.ProviderFailure { kind; message }) ->
+         Alcotest.failf
+           "%s expected CliTransportRequired, got ProviderFailure: %s"
+           expected_name
+           (Llm_provider.Http_client.provider_failure_to_string ~kind ~message))
     kinds
 ;;
 
