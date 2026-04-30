@@ -55,7 +55,7 @@ external collaboration streams, not new OAS native `Event_bus` variants.
 | `collaboration.selection.updated` | Editor cursor or selection projection changed. |
 | `collaboration.graph.snapshot` | A VCS graph snapshot became visible to consumers. |
 | `collaboration.graph.delta` | A VCS graph delta was applied. |
-| `collaboration.todo.claim_observed` | A TODO claim write or verify result was observed. |
+| `collaboration.todo.claim_observed` | A TODO claim write, readback, or verify result was observed. |
 | `collaboration.turn_queue.observed` | A shared turn queue state was observed. |
 
 Downstreams may add more specific names under the same prefix, but should keep
@@ -90,7 +90,7 @@ Optional fields carry implementation details:
 | `document` | CRDT/editor document identifiers, provider, update metadata, and revision. |
 | `transport` | WebSocket or other transport metadata. |
 | `vcs` | Repository/ref/commit identifiers for graph projections. |
-| `todo_claim` | TODO claim observation state, not OAS-owned task semantics. |
+| `todo_claim` | TODO claim observation state, claimant, winner, logical clock, and optional convergence delay; not OAS-owned task semantics. |
 | `turn_queue` | Queue snapshot metadata, not OAS-owned scheduling semantics. |
 | `attributes` | Extra scalar attributes for downstream-specific dimensions. |
 

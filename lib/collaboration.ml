@@ -57,6 +57,33 @@ type claim_verdict =
   | Claim_closed
 [@@deriving yojson, show]
 
+type claim_observation_state =
+  | Claim_observed
+  | Claim_written
+  | Claim_verified
+  | Claim_lost_observed
+  | Claim_released
+[@@deriving yojson, show]
+
+let claim_observation_state_label = function
+  | Claim_observed -> "observed"
+  | Claim_written -> "claim_written"
+  | Claim_verified -> "claim_verified"
+  | Claim_lost_observed -> "claim_lost"
+  | Claim_released -> "released"
+;;
+
+type claim_observation =
+  { observer_id : participant_id
+  ; item_id : item_id
+  ; state : claim_observation_state
+  ; claimed_by : participant_id option
+  ; winner_actor_id : participant_id option
+  ; logical_clock : logical_clock
+  ; convergence_delay_ms : int option
+  }
+[@@deriving yojson, show]
+
 type merge_error =
   | Subject_mismatch of
       { left : string
@@ -85,6 +112,51 @@ let verify_claim ~actor_id = function
   | { phase = Open; _ } | { phase = Claimed; claimant = None; _ } -> Claim_not_claimed
 ;;
 
+let observe_claim_snapshot ~observer_id ?convergence_delay_ms (snapshot : claim_snapshot) =
+  { observer_id
+  ; item_id = snapshot.item_id
+  ; state = Claim_observed
+  ; claimed_by = snapshot.claimant
+  ; winner_actor_id = None
+  ; logical_clock = snapshot.logical_clock
+  ; convergence_delay_ms
+  }
+;;
+
+let observe_claim_write ~actor_id (snapshot : claim_snapshot) =
+  { observer_id = actor_id
+  ; item_id = snapshot.item_id
+  ; state = Claim_written
+  ; claimed_by = snapshot.claimant
+  ; winner_actor_id = None
+  ; logical_clock = snapshot.logical_clock
+  ; convergence_delay_ms = None
+  }
+;;
+
+let observe_claim_verdict
+      ~actor_id
+      ?convergence_delay_ms
+      (snapshot : claim_snapshot)
+      verdict
+  =
+  let state, winner_actor_id =
+    match verdict with
+    | Claim_won -> Claim_verified, Some actor_id
+    | Claim_lost winner -> Claim_lost_observed, Some winner
+    | Claim_not_claimed -> Claim_observed, None
+    | Claim_closed -> Claim_observed, None
+  in
+  { observer_id = actor_id
+  ; item_id = snapshot.item_id
+  ; state
+  ; claimed_by = snapshot.claimant
+  ; winner_actor_id
+  ; logical_clock = snapshot.logical_clock
+  ; convergence_delay_ms
+  }
+;;
+
 let phase_rank = function
   | Open -> 0
   | Claimed -> 1
@@ -99,7 +171,7 @@ let compare_option_string left right =
   | Some left, Some right -> String.compare left right
 ;;
 
-let compare_claim_snapshot left right =
+let compare_claim_snapshot (left : claim_snapshot) (right : claim_snapshot) =
   let phase_cmp = Int.compare (phase_rank left.phase) (phase_rank right.phase) in
   if phase_cmp <> 0
   then phase_cmp
@@ -110,7 +182,7 @@ let compare_claim_snapshot left right =
     else compare_option_string left.claimant right.claimant)
 ;;
 
-let merge_claim_snapshot left right =
+let merge_claim_snapshot (left : claim_snapshot) (right : claim_snapshot) =
   if not (String.equal left.item_id right.item_id)
   then Error (Subject_mismatch { left = left.item_id; right = right.item_id })
   else if compare_claim_snapshot left right >= 0
