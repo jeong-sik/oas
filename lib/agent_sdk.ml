@@ -186,6 +186,7 @@ module Durable_event = Durable_event
 module Journal_bridge = Journal_bridge
 module Checkpoint_validation = Checkpoint_validation
 module Judge = Judge
+module Vcs_graph_snapshot = Vcs_graph_snapshot
 
 (* CDAL — Contract-Driven Agent Loop PoC-1 *)
 module Execution_mode = Execution_mode
