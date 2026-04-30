@@ -110,6 +110,183 @@ let ensure_active_phase session =
   | Bootstrapping | Running | Waiting_on_workers | Finalizing -> Ok session
 ;;
 
+let participant_presence_status_of_state = function
+  | Planned -> Presence_idle
+  | Starting -> Presence_busy
+  | Live -> Presence_active
+  | Idle -> Presence_idle
+  | Done -> Presence_offline
+  | Failed_participant -> Presence_error
+  | Detached -> Presence_offline
+;;
+
+let collaboration_metadata_of_channel channel =
+  match channel with
+  | Presence_channel ->
+    { channel; persistence = Ephemeral; qos = Coalesced { max_hz = 30 } }
+  | Activity_channel -> { channel; persistence = Append_only; qos = Ordered }
+  | System_channel -> { channel; persistence = Aggregated_snapshot; qos = Best_effort }
+;;
+
+let presence_event ?summary ?subject participant_name status =
+  { metadata = collaboration_metadata_of_channel Presence_channel
+  ; payload =
+      Participant_presence_updated { participant_name; status; summary; subject }
+  }
+;;
+
+let activity_event ?actor ?summary ?subject ~category ~severity ~title () =
+  { metadata = collaboration_metadata_of_channel Activity_channel
+  ; payload = Activity_feed_item { actor; category; severity; title; summary; subject }
+  }
+;;
+
+let system_event ?summary ~severity ~status component =
+  { metadata = collaboration_metadata_of_channel System_channel
+  ; payload = System_health_updated { component; severity; status; summary }
+  }
+;;
+
+let collaboration_events_of_event (event : event) =
+  match event.kind with
+  | Session_started detail ->
+    [ system_event
+        ~severity:Severity_normal
+        ~status:"running"
+        ~summary:detail.goal
+        "runtime_session"
+    ; activity_event
+        ~category:Activity_lifecycle
+        ~severity:Severity_normal
+        ~title:"session started"
+        ~summary:detail.goal
+        ()
+    ]
+  | Session_settings_updated _ ->
+    [ activity_event
+        ~category:Activity_system
+        ~severity:Severity_low
+        ~title:"session settings updated"
+        ()
+    ]
+  | Turn_recorded detail ->
+    [ activity_event
+        ?actor:detail.actor
+        ~category:Activity_work
+        ~severity:Severity_low
+        ~title:"turn recorded"
+        ~summary:detail.message
+        ()
+    ]
+  | Agent_spawn_requested detail ->
+    [ presence_event detail.participant_name Presence_busy
+    ; activity_event
+        ~actor:detail.participant_name
+        ~category:Activity_lifecycle
+        ~severity:Severity_normal
+        ~title:"participant spawn requested"
+        ?summary:detail.role
+        ~subject:detail.participant_name
+        ()
+    ]
+  | Agent_became_live detail ->
+    [ presence_event ?summary:detail.summary detail.participant_name Presence_active
+    ; activity_event
+        ~actor:detail.participant_name
+        ~category:Activity_lifecycle
+        ~severity:Severity_normal
+        ~title:"participant live"
+        ?summary:detail.summary
+        ~subject:detail.participant_name
+        ()
+    ]
+  | Agent_output_delta detail ->
+    [ presence_event detail.participant_name Presence_active ]
+  | Agent_completed detail ->
+    [ presence_event ?summary:detail.summary detail.participant_name Presence_offline
+    ; activity_event
+        ~actor:detail.participant_name
+        ~category:Activity_lifecycle
+        ~severity:Severity_normal
+        ~title:"participant completed"
+        ?summary:detail.summary
+        ~subject:detail.participant_name
+        ()
+    ]
+  | Agent_failed detail ->
+    [ presence_event
+        ?summary:detail.summary
+        ?subject:detail.error
+        detail.participant_name
+        Presence_error
+    ; activity_event
+        ~actor:detail.participant_name
+        ~category:Activity_lifecycle
+        ~severity:Severity_high
+        ~title:"participant failed"
+        ?summary:(first_some detail.error detail.summary)
+        ~subject:detail.participant_name
+        ()
+    ]
+  | Artifact_attached detail ->
+    [ activity_event
+        ~category:Activity_artifact
+        ~severity:Severity_normal
+        ~title:"artifact attached"
+        ~summary:detail.name
+        ~subject:detail.artifact_id
+        ()
+    ]
+  | Checkpoint_saved detail ->
+    [ activity_event
+        ~category:Activity_system
+        ~severity:Severity_low
+        ~title:"checkpoint saved"
+        ?summary:detail.label
+        ~subject:detail.path
+        ()
+    ]
+  | Finalize_requested detail ->
+    [ system_event
+        ~severity:Severity_normal
+        ~status:"finalizing"
+        ?summary:detail.reason
+        "runtime_session"
+    ; activity_event
+        ~category:Activity_lifecycle
+        ~severity:Severity_normal
+        ~title:"finalize requested"
+        ?summary:detail.reason
+        ()
+    ]
+  | Session_completed detail ->
+    [ system_event
+        ~severity:Severity_normal
+        ~status:"completed"
+        ?summary:detail.outcome
+        "runtime_session"
+    ; activity_event
+        ~category:Activity_lifecycle
+        ~severity:Severity_normal
+        ~title:"session completed"
+        ?summary:detail.outcome
+        ()
+    ]
+  | Session_failed detail ->
+    [ system_event
+        ~severity:Severity_critical
+        ~status:"failed"
+        ?summary:detail.outcome
+        "runtime_session"
+    ; activity_event
+        ~category:Activity_lifecycle
+        ~severity:Severity_critical
+        ~title:"session failed"
+        ?summary:detail.outcome
+        ()
+    ]
+;;
+
 let failure_cause_message = function
   | Runtime.Execution_error detail -> detail
   | Runtime.Persistence_failure { phase; detail } -> Printf.sprintf "%s: %s" phase detail

@@ -197,6 +197,85 @@ let test_apply_session_started () =
   | Error e -> Alcotest.fail (Error.to_string e)
 ;;
 
+let test_presence_status_mapping () =
+  let cases =
+    Runtime.
+      [ Planned, Presence_idle
+      ; Starting, Presence_busy
+      ; Live, Presence_active
+      ; Idle, Presence_idle
+      ; Done, Presence_offline
+      ; Failed_participant, Presence_error
+      ; Detached, Presence_offline
+      ]
+  in
+  List.iter
+    (fun (state, expected) ->
+       Alcotest.(check bool)
+         (Runtime.show_participant_state state)
+         true
+         (Runtime_projection.participant_presence_status_of_state state = expected))
+    cases
+;;
+
+let test_collaboration_metadata_channels () =
+  let presence =
+    Runtime_projection.collaboration_metadata_of_channel Runtime.Presence_channel
+  in
+  Alcotest.(check bool) "presence ephemeral" true (presence.persistence = Runtime.Ephemeral);
+  Alcotest.(check bool)
+    "presence coalesced"
+    true
+    (presence.qos = Runtime.Coalesced { max_hz = 30 });
+  let activity =
+    Runtime_projection.collaboration_metadata_of_channel Runtime.Activity_channel
+  in
+  Alcotest.(check bool)
+    "activity append-only"
+    true
+    (activity.persistence = Runtime.Append_only);
+  Alcotest.(check bool) "activity ordered" true (activity.qos = Runtime.Ordered)
+;;
+
+let test_collaboration_projection_agent_failed () =
+  let event =
+    mk_event
+      (Agent_failed
+         { participant_name = "alice"
+         ; summary = Some "crashed"
+         ; provider = None
+         ; model = None
+         ; error = Some "timeout"
+         ; raw_trace_run_id = None
+         ; stop_reason = None
+         ; completion_anomaly = None
+         ; failure_cause = None
+         })
+  in
+  let projected = Runtime_projection.collaboration_events_of_event event in
+  Alcotest.(check int) "presence + activity" 2 (List.length projected);
+  match projected with
+  | [ { Runtime.metadata = presence_meta
+      ; payload =
+          Runtime.Participant_presence_updated
+            { participant_name; status; summary = _; subject = _ }
+      }
+    ; { Runtime.metadata = activity_meta
+      ; payload =
+          Runtime.Activity_feed_item
+            { actor = _; category = _; severity; title = _; summary = _; subject = _ }
+      }
+    ] ->
+    Alcotest.(check string) "participant" "alice" participant_name;
+    Alcotest.(check bool) "presence channel" true
+      (presence_meta.channel = Runtime.Presence_channel);
+    Alcotest.(check bool) "presence status" true (status = Runtime.Presence_error);
+    Alcotest.(check bool) "activity channel" true
+      (activity_meta.channel = Runtime.Activity_channel);
+    Alcotest.(check bool) "high severity" true (severity = Runtime.Severity_high)
+  | _ -> Alcotest.fail "unexpected collaboration projection"
+;;
+
 (* ── apply_event: Session_settings_updated ────────────── *)
 
 let test_apply_settings_updated () =
@@ -717,6 +796,17 @@ let () =
         ; Alcotest.test_case "Session_completed" `Quick test_apply_session_completed
         ; Alcotest.test_case "Session_failed" `Quick test_apply_session_failed
         ; Alcotest.test_case "new participant" `Quick test_update_participant_new
+        ] )
+    ; ( "collaboration"
+      , [ Alcotest.test_case "presence status mapping" `Quick test_presence_status_mapping
+        ; Alcotest.test_case
+            "channel metadata"
+            `Quick
+            test_collaboration_metadata_channels
+        ; Alcotest.test_case
+            "agent failure projection"
+            `Quick
+            test_collaboration_projection_agent_failed
         ] )
     ; ( "count_by_state"
       , [ Alcotest.test_case "via report" `Quick test_count_by_state_via_report ] )

@@ -13,6 +13,7 @@ original tag dates. `0.100.4` was never tagged or released.
 ### Added
 
 - **Typed provider failure transport surface** via `Llm_provider.Http_client.ProviderFailure`, covering capacity exhaustion, hard quota, capability mismatch, CLI policy invalid, CLI startup failure, provider parse failure, and unknown provider failure.
+- **Runtime collaboration projection contract** adds generic presence, activity, and system-health event types plus `Runtime_projection.collaboration_events_of_event` for downstream multi-agent UIs. Presence is explicitly ephemeral and 30Hz-coalesced; no persisted collaboration runtime event kind is introduced.
 
 ### Changed
 
