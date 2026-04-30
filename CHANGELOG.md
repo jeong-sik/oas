@@ -8,6 +8,12 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.187.1] - 2026-04-30
+
+### Changed
+
+- Version bump only (post-CI gate merge).
+
 ## [0.187.0] - 2026-04-30
 
 ### Added
