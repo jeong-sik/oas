@@ -49,6 +49,38 @@ type provider_terminal_kind =
           Carries the raw subtype string so consumers can log it
           without flag day for new variants. *)
 
+(** Scope attached to provider failure classifications.
+
+    This is deliberately about the failed lane, not about retry policy.
+    Retry/cascade policy lives above this transport layer. *)
+type provider_failure_scope =
+  | Failure_scope_model
+  | Failure_scope_account
+  | Failure_scope_region
+  | Failure_scope_provider
+  | Failure_scope_unknown
+
+(** Provider/runtime failure surfaced by a transport after it has parsed
+    provider-specific HTTP/CLI details at the edge.
+
+    Downstream code should pattern-match on this type instead of parsing
+    stderr, HTTP bodies, or vendor-specific status strings. *)
+type provider_failure_kind =
+  | Capacity_exhausted of
+      { scope : provider_failure_scope
+      ; retry_after : float option
+      ; model : string option
+      }
+  | Hard_quota of { retry_after : float option }
+  | Capability_mismatch of { capability : string option }
+  | Cli_policy_invalid of
+      { tool_name : string option
+      ; rule : int option
+      }
+  | Cli_startup_failed of { reason : string }
+  | Provider_parse_error of { parser : string option }
+  | Unknown_provider_failure of { reason : string option }
+
 (** Transport-level error. *)
 type http_error =
   | HttpError of
@@ -76,6 +108,17 @@ type http_error =
           rather than treat it as a transient network failure.
 
           @since 0.178.0 *)
+  | ProviderFailure of
+      { kind : provider_failure_kind
+      ; message : string
+      }
+  (** Provider/runtime failure classified at the transport edge.
+      Examples: model capacity exhaustion from a CLI stderr stream,
+      invalid CLI policy, or a request that requires a capability the
+      transport cannot provide. *)
+
+val provider_failure_kind_to_string : provider_failure_kind -> string
+val provider_failure_to_string : kind:provider_failure_kind -> message:string -> string
 
 (** Default wall-clock timeout (seconds) applied to synchronous HTTP
     operations when a clock is supplied.  Streaming variants use this

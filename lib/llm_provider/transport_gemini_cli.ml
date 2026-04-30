@@ -90,6 +90,12 @@ let effective_prompt ~prompt ~system_prompt =
   | Some sp -> Printf.sprintf "[System]\n%s\n\n[User]\n%s" sp prompt
 ;;
 
+let selected_model ~(config : config) ~(req_config : Provider_config.t) =
+  match String.trim req_config.model_id |> String.lowercase_ascii with
+  | "" | "auto" -> config.model
+  | _ -> Some req_config.model_id
+;;
+
 let build_args ~(config : config) ~(req_config : Provider_config.t) ~prompt ~system_prompt
   =
   let prompt = effective_prompt ~prompt ~system_prompt in
@@ -101,11 +107,7 @@ let build_args ~(config : config) ~(req_config : Provider_config.t) ~prompt ~sys
    | Some m -> add [ "--approval-mode"; m ]
    | None -> if config.yolo then add [ "--yolo" ]);
   (* "auto" means "use the CLI's configured default", so omit [--model]. *)
-  let model =
-    match String.trim req_config.model_id |> String.lowercase_ascii with
-    | "" | "auto" -> config.model
-    | _ -> Some req_config.model_id
-  in
+  let model = selected_model ~config ~req_config in
   (match model with
    | Some m -> add [ "--model"; m ]
    | None -> ());
@@ -239,8 +241,74 @@ let substring_found line needle =
     scan 0)
 ;;
 
+let find_substring line needle =
+  let hl = String.length line
+  and nl = String.length needle in
+  if nl = 0 || nl > hl
+  then None
+  else (
+    let rec scan i =
+      if i + nl > hl
+      then None
+      else if String.sub line i nl = needle
+      then Some i
+      else scan (i + 1)
+    in
+    scan 0)
+;;
+
+let quoted_after line prefix =
+  match find_substring line prefix with
+  | None -> None
+  | Some prefix_idx ->
+    let start = prefix_idx + String.length prefix in
+    let rec find_close i =
+      if i >= String.length line
+      then None
+      else if line.[i] = '"'
+      then Some i
+      else find_close (i + 1)
+    in
+    find_close start |> Option.map (fun stop -> String.sub line start (stop - start))
+;;
+
+let rule_after line =
+  match find_substring line "Rule #" with
+  | None -> None
+  | Some idx ->
+    let start = idx + String.length "Rule #" in
+    let rec scan_digits i =
+      if i >= String.length line
+      then i
+      else (
+        match line.[i] with
+        | '0' .. '9' -> scan_digits (i + 1)
+        | _ -> i)
+    in
+    let stop = scan_digits start in
+    if stop = start
+    then None
+    else String.sub line start (stop - start) |> int_of_string_opt
+;;
+
 let contains_all_markers haystack markers =
   List.for_all (substring_found haystack) markers
+;;
+
+let provider_failure_of_stderr_line ?model line =
+  if substring_found line "Unrecognized tool name"
+  then
+    Some
+      (Http_client.Cli_policy_invalid
+         { tool_name = quoted_after line "Unrecognized tool name \""
+         ; rule = rule_after line
+         })
+  else if List.exists (substring_found line) capacity_exhausted_markers
+  then
+    Some
+      (Http_client.Capacity_exhausted
+         { scope = Http_client.Failure_scope_model; retry_after = None; model })
+  else None
 ;;
 
 let classify_cli_error = function
@@ -256,27 +324,32 @@ let classify_cli_error = function
   | other -> other
 ;;
 
-let run ~sw ~mgr ~(config : config) argv =
+let run ~sw ~mgr ~(config : config) ?model argv =
   let fail_fast_enabled =
     not (Cli_common_env.bool "OAS_GEMINI_CLI_NO_FAIL_FAST_ON_CAPACITY")
   in
-  let capacity_p, capacity_r = Eio.Promise.create () in
-  let capacity_exhausted = ref false in
+  let failure_p, failure_r = Eio.Promise.create () in
+  let provider_failure = ref None in
+  let set_provider_failure kind =
+    match !provider_failure with
+    | Some _ -> ()
+    | None ->
+      provider_failure := Some kind;
+      if not (Eio.Promise.is_resolved failure_p) then Eio.Promise.resolve failure_r ()
+  in
   let on_stderr_line line =
     Cli_common_subprocess.default_on_stderr_line ~name:"gemini" line;
-    if
-      fail_fast_enabled
-      && (not !capacity_exhausted)
-      && List.exists (substring_found line) capacity_exhausted_markers
-    then (
-      capacity_exhausted := true;
-      if not (Eio.Promise.is_resolved capacity_p) then Eio.Promise.resolve capacity_r ())
+    match provider_failure_of_stderr_line ?model line with
+    | Some (Http_client.Capacity_exhausted _ as kind) ->
+      if fail_fast_enabled then set_provider_failure kind
+    | Some kind -> set_provider_failure kind
+    | None -> ()
   in
-  (* Merge the upstream cancel (if any) with the capacity-exhausted
-     signal so either one triggers a SIGINT on the CLI. *)
+  (* Merge the upstream cancel (if any) with the provider-failure signal
+     so either one triggers a SIGINT on the CLI. *)
   let merged_cancel =
     match config.cancel with
-    | None -> Some capacity_p
+    | None -> Some failure_p
     | Some upstream ->
       let merged_p, merged_r = Eio.Promise.create () in
       let resolve_once () =
@@ -286,7 +359,7 @@ let run ~sw ~mgr ~(config : config) argv =
         Eio.Promise.await upstream;
         resolve_once ());
       Eio.Fiber.fork ~sw (fun () ->
-        Eio.Promise.await capacity_p;
+        Eio.Promise.await failure_p;
         resolve_once ());
       Some merged_p
   in
@@ -302,17 +375,16 @@ let run ~sw ~mgr ~(config : config) argv =
       ?cancel:merged_cancel
       argv
   in
-  match result with
-  | Error _ when !capacity_exhausted ->
+  match result, !provider_failure with
+  | _, Some kind ->
     Error
-      (Http_client.NetworkError
-         { message =
-             "gemini_cli: MODEL_CAPACITY_EXHAUSTED detected on stderr, aborted CLI early \
-              so the cascade can move on. Set OAS_GEMINI_CLI_NO_FAIL_FAST_ON_CAPACITY=1 \
-              to let the CLI keep its internal retry loop."
-         ; kind = Unknown
+      (Http_client.ProviderFailure
+         { kind
+         ; message =
+             "gemini_cli stderr reported a provider/runtime failure; aborted early so \
+              the cascade can move on."
          })
-  | r -> classify_cli_error r
+  | r, None -> classify_cli_error r
 ;;
 
 (* Fires once per transport instance when any Claude-only config field
@@ -339,11 +411,13 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config) : Llm_transport.t =
         | Some _ ->
           { Llm_transport.response =
               Error
-                (Http_client.NetworkError
-                   { message =
+                (Http_client.ProviderFailure
+                   { kind =
+                       Http_client.Capability_mismatch
+                         { capability = Some "request_scoped_runtime_mcp" }
+                   ; message =
                        "gemini_cli does not support request-scoped runtime MCP \
                         configuration"
-                   ; kind = Unknown
                    })
           ; latency_ms = 0
           }
@@ -355,7 +429,8 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config) : Llm_transport.t =
             Cli_common_prompt.system_prompt_of ~req_config:req.config req.messages
           in
           let argv = build_args ~config ~req_config:req.config ~prompt ~system_prompt in
-          (match run ~sw ~mgr ~config argv with
+          let model = selected_model ~config ~req_config:req.config in
+          (match run ~sw ~mgr ~config ?model argv with
            | Error _ as e -> { Llm_transport.response = e; latency_ms = 0 }
            | Ok { stdout; stderr = _; latency_ms } ->
              let response = parse_json_result (String.trim stdout) in
@@ -365,10 +440,12 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config) : Llm_transport.t =
         match req.runtime_mcp_policy with
         | Some _ ->
           Error
-            (Http_client.NetworkError
-               { message =
+            (Http_client.ProviderFailure
+               { kind =
+                   Http_client.Capability_mismatch
+                     { capability = Some "request_scoped_runtime_mcp" }
+               ; message =
                    "gemini_cli does not support request-scoped runtime MCP configuration"
-               ; kind = Unknown
                })
         | None ->
           warn_unsupported_once config warned;
@@ -378,9 +455,10 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config) : Llm_transport.t =
             Cli_common_prompt.system_prompt_of ~req_config:req.config req.messages
           in
           let argv = build_args ~config ~req_config:req.config ~prompt ~system_prompt in
+          let model = selected_model ~config ~req_config:req.config in
           (* Gemini CLI does not support native streaming; replay synthetic events
          after the sync call completes. *)
-          (match run ~sw ~mgr ~config argv with
+          (match run ~sw ~mgr ~config ?model argv with
            | Error _ as e -> e
            | Ok { stdout; stderr = _; latency_ms = _ } ->
              let result = parse_json_result (String.trim stdout) in
@@ -583,6 +661,29 @@ let%test "classify_cli_error keeps unrelated network failures retryable" =
   | _ -> false
 ;;
 
+let%test "provider_failure_of_stderr_line detects model capacity" =
+  match
+    provider_failure_of_stderr_line
+      ~model:"gemini-2.5-pro"
+      {|Attempt 1 failed with status 429. "reason": "MODEL_CAPACITY_EXHAUSTED"|}
+  with
+  | Some
+      (Http_client.Capacity_exhausted
+         { scope = Http_client.Failure_scope_model; model = Some "gemini-2.5-pro"; _ }) ->
+    true
+  | _ -> false
+;;
+
+let%test "provider_failure_of_stderr_line extracts invalid policy tool" =
+  match
+    provider_failure_of_stderr_line
+      {|Rule #248: Unrecognized tool name "glm". Did you mean one of: "glob"?|}
+  with
+  | Some (Http_client.Cli_policy_invalid { tool_name = Some "glm"; rule = Some 248 }) ->
+    true
+  | _ -> false
+;;
+
 (* ── env-driven extra args ──────────────────────────── *)
 
 let with_env k v f =
@@ -722,8 +823,16 @@ let%test_unit "complete_sync rejects request-scoped runtime MCP policy" =
   @@ fun sw ->
   let transport = create ~sw ~mgr:(Eio.Stdenv.process_mgr env) ~config:default_config in
   match transport.complete_sync runtime_mcp_req_sample with
-  | { response = Error (Http_client.NetworkError { message; _ }); latency_ms = 0 } ->
-    assert (String.equal message runtime_mcp_policy_error_message)
+  | { response =
+        Error
+          (Http_client.ProviderFailure
+             { kind =
+                 Http_client.Capability_mismatch
+                   { capability = Some "request_scoped_runtime_mcp" }
+             ; message
+             })
+    ; latency_ms = 0
+    } -> assert (String.equal message runtime_mcp_policy_error_message)
   | _ -> assert false
 ;;
 
@@ -734,7 +843,12 @@ let%test_unit "complete_stream rejects request-scoped runtime MCP policy" =
   @@ fun sw ->
   let transport = create ~sw ~mgr:(Eio.Stdenv.process_mgr env) ~config:default_config in
   match transport.complete_stream ~on_event:(fun _ -> ()) runtime_mcp_req_sample with
-  | Error (Http_client.NetworkError { message; _ }) ->
-    assert (String.equal message runtime_mcp_policy_error_message)
+  | Error
+      (Http_client.ProviderFailure
+         { kind =
+             Http_client.Capability_mismatch
+               { capability = Some "request_scoped_runtime_mcp" }
+         ; message
+         }) -> assert (String.equal message runtime_mcp_policy_error_message)
   | _ -> assert false
 ;;

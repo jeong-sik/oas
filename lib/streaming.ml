@@ -181,6 +181,19 @@ let map_http_error = function
     Error.Agent (MaxTurnsExceeded { turns = r.turns; limit = r.limit })
   | Llm_provider.Http_client.ProviderTerminal { kind = Other reason; message } ->
     Error.Api (Retry.InvalidRequest { message = Printf.sprintf "%s: %s" reason message })
+  | Llm_provider.Http_client.ProviderFailure { kind; message } ->
+    let message = Llm_provider.Http_client.provider_failure_to_string ~kind ~message in
+    (match kind with
+     | Llm_provider.Http_client.Capacity_exhausted _ ->
+       Error.Api (Retry.Overloaded { message })
+     | Llm_provider.Http_client.Hard_quota { retry_after } ->
+       Error.Api (Retry.RateLimited { retry_after; message })
+     | Llm_provider.Http_client.Capability_mismatch _
+     | Llm_provider.Http_client.Cli_policy_invalid _
+     | Llm_provider.Http_client.Cli_startup_failed _
+     | Llm_provider.Http_client.Provider_parse_error _
+     | Llm_provider.Http_client.Unknown_provider_failure _ ->
+       Error.Api (Retry.InvalidRequest { message }))
 ;;
 
 (** Streaming variant of create_message.

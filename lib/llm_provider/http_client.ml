@@ -32,6 +32,29 @@ type provider_terminal_kind =
       }
   | Other of string
 
+type provider_failure_scope =
+  | Failure_scope_model
+  | Failure_scope_account
+  | Failure_scope_region
+  | Failure_scope_provider
+  | Failure_scope_unknown
+
+type provider_failure_kind =
+  | Capacity_exhausted of
+      { scope : provider_failure_scope
+      ; retry_after : float option
+      ; model : string option
+      }
+  | Hard_quota of { retry_after : float option }
+  | Capability_mismatch of { capability : string option }
+  | Cli_policy_invalid of
+      { tool_name : string option
+      ; rule : int option
+      }
+  | Cli_startup_failed of { reason : string }
+  | Provider_parse_error of { parser : string option }
+  | Unknown_provider_failure of { reason : string option }
+
 type http_error =
   | HttpError of
       { code : int
@@ -54,10 +77,50 @@ type http_error =
       { kind : provider_terminal_kind
       ; message : string
       }
+  | ProviderFailure of
+      { kind : provider_failure_kind
+      ; message : string
+      }
 
 (* ── Internal helpers ──────────────────────────────────────── *)
 
 let ( let* ) = Result.bind
+
+let provider_failure_scope_to_string = function
+  | Failure_scope_model -> "model"
+  | Failure_scope_account -> "account"
+  | Failure_scope_region -> "region"
+  | Failure_scope_provider -> "provider"
+  | Failure_scope_unknown -> "unknown"
+;;
+
+let provider_failure_kind_to_string = function
+  | Capacity_exhausted { scope; _ } ->
+    Printf.sprintf "capacity_exhausted:%s" (provider_failure_scope_to_string scope)
+  | Hard_quota _ -> "hard_quota"
+  | Capability_mismatch { capability = Some capability } ->
+    Printf.sprintf "capability_mismatch:%s" capability
+  | Capability_mismatch { capability = None } -> "capability_mismatch"
+  | Cli_policy_invalid { tool_name = Some tool_name; rule = Some rule } ->
+    Printf.sprintf "cli_policy_invalid:rule_%d:%s" rule tool_name
+  | Cli_policy_invalid { tool_name = Some tool_name; rule = None } ->
+    Printf.sprintf "cli_policy_invalid:%s" tool_name
+  | Cli_policy_invalid { tool_name = None; rule = Some rule } ->
+    Printf.sprintf "cli_policy_invalid:rule_%d" rule
+  | Cli_policy_invalid { tool_name = None; rule = None } -> "cli_policy_invalid"
+  | Cli_startup_failed _ -> "cli_startup_failed"
+  | Provider_parse_error { parser = Some parser } ->
+    Printf.sprintf "provider_parse_error:%s" parser
+  | Provider_parse_error { parser = None } -> "provider_parse_error"
+  | Unknown_provider_failure { reason = Some reason } ->
+    Printf.sprintf "unknown_provider_failure:%s" reason
+  | Unknown_provider_failure { reason = None } -> "unknown_provider_failure"
+;;
+
+let provider_failure_to_string ~kind ~message =
+  let name = provider_failure_kind_to_string kind in
+  if String.trim message = "" then name else Printf.sprintf "%s: %s" name message
+;;
 
 (** Default wall-clock timeout applied to synchronous HTTP operations
     when a clock is supplied ([get_sync], [post_sync]).  Streaming
@@ -174,6 +237,7 @@ let is_local_resource_exhaustion = function
   | CliTransportRequired _ -> false
   | NetworkError _ -> false
   | ProviderTerminal _ -> false
+  | ProviderFailure _ -> false
 ;;
 
 (* ── Public API ────────────────────────────────────────────── *)
