@@ -154,7 +154,7 @@ let query_context t ~tier ~prefix =
 let query t ~tier ~prefix ~limit =
   if limit <= 0
   then []
-  else
+  else (
     match tier with
     | Long_term ->
       let backend_entries =
@@ -163,7 +163,7 @@ let query t ~tier ~prefix ~limit =
         | None -> []
       in
       take_unique limit (backend_entries @ query_context t ~tier:Long_term ~prefix)
-    | _ -> take_unique limit (query_context t ~tier ~prefix)
+    | _ -> take_unique limit (query_context t ~tier ~prefix))
 ;;
 
 let promote t key =

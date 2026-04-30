@@ -232,8 +232,7 @@ let test_query_long_term_prefix () =
     ; query =
         (fun ~prefix ~limit ->
           Hashtbl.fold
-            (fun k v acc ->
-              if String.starts_with ~prefix k then (k, v) :: acc else acc)
+            (fun k v acc -> if String.starts_with ~prefix k then (k, v) :: acc else acc)
             store
             []
           |> List.sort (fun (a, _) (b, _) -> String.compare a b)
