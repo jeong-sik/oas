@@ -79,6 +79,7 @@ module Conformance = Conformance
 module Direct_evidence = Direct_evidence
 module Runtime = Runtime
 module Runtime_projection = Runtime_projection
+module Runtime_sync = Runtime_sync
 module Transport = Transport
 module Runtime_client = Runtime_client
 module Client = Client
