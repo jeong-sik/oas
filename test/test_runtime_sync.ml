@@ -59,7 +59,11 @@ let test_json_roundtrip () =
   check int "events" 1 (List.length decoded.events);
   check (list string) "artifact refs" window.artifact_refs decoded.artifact_refs;
   check bool "persistence present" true (Option.is_some decoded.persistence);
-  check bool "merge policy preserved" true (decoded.merge_policy = Runtime_sync.Append_only)
+  check
+    bool
+    "merge policy preserved"
+    true
+    (decoded.merge_policy = Runtime_sync.Append_only)
 ;;
 
 let test_custom_envelope_preserved () =
@@ -94,13 +98,13 @@ let test_rejects_unsupported_schema () =
   in
   let bad =
     match json with
-    | `Assoc fields -> `Assoc (("schema_version", `Int 2) :: List.remove_assoc "schema_version" fields)
+    | `Assoc fields ->
+      `Assoc (("schema_version", `Int 2) :: List.remove_assoc "schema_version" fields)
     | other -> other
   in
   match Runtime_sync.of_json bad with
   | Ok _ -> fail "expected unsupported schema error"
-  | Error detail ->
-    check bool "mentions schema_version" true (String.contains detail '2')
+  | Error detail -> check bool "mentions schema_version" true (String.contains detail '2')
 ;;
 
 let test_rejects_cursor_stream_mismatch () =
@@ -109,15 +113,15 @@ let test_rejects_cursor_stream_mismatch () =
       [ "schema_version", `Int Runtime_sync.schema_version_current
       ; "stream_id", `String "session-1"
       ; "cursor", Runtime_sync.cursor_to_yojson { stream_id = "other"; after_seq = 0 }
-      ; "next_cursor", Runtime_sync.cursor_to_yojson { stream_id = "session-1"; after_seq = 0 }
+      ; ( "next_cursor"
+        , Runtime_sync.cursor_to_yojson { stream_id = "session-1"; after_seq = 0 } )
       ; "events", `List []
       ; "artifact_refs", `List []
       ]
   in
   match Runtime_sync.of_json json with
   | Ok _ -> fail "expected cursor stream mismatch"
-  | Error detail ->
-    check bool "mentions stream_id" true (String.contains detail '_')
+  | Error detail -> check bool "mentions stream_id" true (String.contains detail '_')
 ;;
 
 let test_rejects_non_monotonic_events () =
@@ -136,8 +140,7 @@ let test_rejects_non_monotonic_events () =
   in
   match Runtime_sync.validate_window window with
   | Ok _ -> fail "expected non-monotonic event error"
-  | Error detail ->
-    check bool "mentions ordered seq" true (String.contains detail 'q')
+  | Error detail -> check bool "mentions ordered seq" true (String.contains detail 'q')
 ;;
 
 let test_rejects_invalid_persistence_contract () =
@@ -148,20 +151,17 @@ let test_rejects_invalid_persistence_contract () =
       ()
   in
   let window =
-    Runtime_sync.make_window
-      ~persistence
-      ~stream_id:"session-1"
-      ~after_seq:0
-      []
+    Runtime_sync.make_window ~persistence ~stream_id:"session-1" ~after_seq:0 []
   in
   match Runtime_sync.validate_window window with
   | Ok _ -> fail "expected invalid persistence contract"
-  | Error detail ->
-    check bool "mentions namespace" true (String.contains detail 'n')
+  | Error detail -> check bool "mentions namespace" true (String.contains detail 'n')
 ;;
 
 let test_diff_events_filters_and_sorts () =
-  let diff = Runtime_sync.diff_events ~after_seq:2 [ mk_event 4; mk_event 1; mk_event 3 ] in
+  let diff =
+    Runtime_sync.diff_events ~after_seq:2 [ mk_event 4; mk_event 1; mk_event 3 ]
+  in
   check (list int) "seqs" [ 3; 4 ] (List.map (fun event -> event.Runtime.seq) diff)
 ;;
 
@@ -173,7 +173,11 @@ let test_merge_offline_events_appends_after_committed_tail () =
       ~offline:[ mk_event 10; mk_event 11 ]
     |> expect_ok "offline merge"
   in
-  check (list int) "renumbered seqs" [ 1; 2; 3; 4 ] (List.map (fun event -> event.Runtime.seq) merged)
+  check
+    (list int)
+    "renumbered seqs"
+    [ 1; 2; 3; 4 ]
+    (List.map (fun event -> event.Runtime.seq) merged)
 ;;
 
 let test_merge_offline_events_reports_conflict () =
@@ -197,16 +201,26 @@ let () =
         ; test_case "empty window keeps cursor" `Quick test_make_window_empty_keeps_cursor
         ; test_case "json roundtrip" `Quick test_json_roundtrip
         ; test_case "rejects unsupported schema" `Quick test_rejects_unsupported_schema
-        ; test_case "rejects cursor stream mismatch" `Quick test_rejects_cursor_stream_mismatch
-        ; test_case "rejects non-monotonic events" `Quick test_rejects_non_monotonic_events
+        ; test_case
+            "rejects cursor stream mismatch"
+            `Quick
+            test_rejects_cursor_stream_mismatch
+        ; test_case
+            "rejects non-monotonic events"
+            `Quick
+            test_rejects_non_monotonic_events
         ; test_case
             "rejects invalid persistence contract"
             `Quick
             test_rejects_invalid_persistence_contract
         ] )
-    ; "event_record", [ test_case "custom envelope preserved" `Quick test_custom_envelope_preserved ]
+    ; ( "event_record"
+      , [ test_case "custom envelope preserved" `Quick test_custom_envelope_preserved ] )
     ; ( "delta"
-      , [ test_case "filters and sorts events after cursor" `Quick test_diff_events_filters_and_sorts
+      , [ test_case
+            "filters and sorts events after cursor"
+            `Quick
+            test_diff_events_filters_and_sorts
         ] )
     ; ( "offline_merge"
       , [ test_case

@@ -503,10 +503,7 @@ let () =
     ; ( "records"
       , [ Alcotest.test_case "participant" `Quick test_participant
         ; Alcotest.test_case "artifact" `Quick test_artifact
-        ; Alcotest.test_case
-            "collaboration contracts"
-            `Quick
-            test_collaboration_contracts
+        ; Alcotest.test_case "collaboration contracts" `Quick test_collaboration_contracts
         ; Alcotest.test_case "session" `Quick test_session
         ; Alcotest.test_case "report" `Quick test_report
         ; Alcotest.test_case "proof" `Quick test_proof

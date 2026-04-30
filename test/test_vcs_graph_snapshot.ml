@@ -87,14 +87,26 @@ let test_conflict_encoding () =
     "conflict path"
     "lib/conflicted.ml"
     Yojson.Safe.Util.(conflict |> member "path" |> to_string);
-  check string "conflict kind" "content" Yojson.Safe.Util.(conflict |> member "kind" |> to_string);
-  check string "conflict ours" "c2" Yojson.Safe.Util.(conflict |> member "ours" |> to_string);
+  check
+    string
+    "conflict kind"
+    "content"
+    Yojson.Safe.Util.(conflict |> member "kind" |> to_string);
+  check
+    string
+    "conflict ours"
+    "c2"
+    Yojson.Safe.Util.(conflict |> member "ours" |> to_string);
   check
     string
     "conflict theirs"
     "feature"
     Yojson.Safe.Util.(conflict |> member "theirs" |> to_string);
-  check string "conflict ancestor" "c1" Yojson.Safe.Util.(conflict |> member "ancestor" |> to_string)
+  check
+    string
+    "conflict ancestor"
+    "c1"
+    Yojson.Safe.Util.(conflict |> member "ancestor" |> to_string)
 ;;
 
 let test_missing_optional_fields_decode () =

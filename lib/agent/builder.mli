@@ -8,9 +8,7 @@
 
 type t
 
-val create :
-  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t ->
-  model:Types.model -> t
+val create : net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t -> model:Types.model -> t
 
 (** {2 Configuration} *)
 
@@ -88,8 +86,12 @@ val with_tracer : Tracing.t -> t -> t
 val with_raw_trace : Raw_trace.t -> t -> t
 val with_approval : Hooks.approval_callback -> t -> t
 val with_tool_retry_policy : Tool_retry_policy.t -> t -> t
-val with_required_tool_satisfaction :
-  Completion_contract.required_tool_satisfaction -> t -> t
+
+val with_required_tool_satisfaction
+  :  Completion_contract.required_tool_satisfaction
+  -> t
+  -> t
+
 val with_context_reducer : Context_reducer.t -> t -> t
 val with_tiered_memory : Agent.tiered_memory -> t -> t
 
@@ -105,17 +107,27 @@ val with_tiered_memory : Agent.tiered_memory -> t -> t
 
     @since 0.79.0
     @since 0.110.0 [?context_window_tokens] parameter *)
-val with_context_thresholds :
-  compact_ratio:float ->
-  ?context_window_tokens:int ->
-  ?prepare_ratio:float ->
-  ?handoff_ratio:float ->
-  t -> t
+val with_context_thresholds
+  :  compact_ratio:float
+  -> ?context_window_tokens:int
+  -> ?prepare_ratio:float
+  -> ?handoff_ratio:float
+  -> t
+  -> t
+
 val with_context : Context.t -> t -> t
 val with_context_injector : Hooks.context_injector -> t -> t
 val with_event_bus : Event_bus.t -> t -> t
 val with_max_execution_time : float -> t -> t
+
+(** Set the per-line idle deadline applied to streaming HTTP responses
+    (Ollama NDJSON, Anthropic / OpenAI / Gemini / GLM SSE). Resets after
+    each successful line, so this caps inter-chunk silence — not total
+    stream duration. A stalled endpoint surfaces as
+    [NetworkError { kind = Timeout; _ }] which the cascade/retry layer
+    treats as retryable. @since 0.176.0 *)
 val with_stream_idle_timeout : float -> t -> t
+
 (** Set the per-line idle deadline applied to streaming HTTP responses
     (Ollama NDJSON, Anthropic / OpenAI / Gemini / GLM SSE). Resets after
     each successful line, so this caps inter-chunk silence — not total
@@ -131,7 +143,17 @@ val with_body_timeout : float -> t -> t
     request; without one the wrapper is skipped. A timeout surfaces as
     [NetworkError { kind = Timeout; _ }] which the cascade/retry layer
     treats as retryable. @since 0.181.0 *)
+
+(** Set the total deadline applied to streaming HTTP body consumption.
+    Wraps the body callback in [Eio.Time.with_timeout_exn], complementing
+    [with_stream_idle_timeout] (which only caps inter-line silence).
+    Catches the case where a single bulk read hangs without producing
+    line breaks. Requires a clock to be provided to the underlying
+    request; without one the wrapper is skipped. A timeout surfaces as
+    [NetworkError { kind = Timeout; _ }] which the cascade/retry layer
+    treats as retryable. @since 0.181.0 *)
 val with_max_idle_turns : int -> t -> t
+
 val with_idle_final_warning_at : int -> t -> t
 val with_elicitation : Hooks.elicitation_callback -> t -> t
 val with_description : string -> t -> t
@@ -162,8 +184,7 @@ val with_transport : Llm_provider.Llm_transport.t -> t -> t
     Claude Code and Codex CLI can expose MCP tools directly from the
     subprocess runtime.
     @since 0.164.0 *)
-val with_runtime_mcp_policy :
-  Llm_provider.Llm_transport.runtime_mcp_policy -> t -> t
+val with_runtime_mcp_policy : Llm_provider.Llm_transport.runtime_mcp_policy -> t -> t
 
 (** {2 Contract} *)
 
@@ -181,7 +202,6 @@ val with_contract : Contract.t -> t -> t
 
 val with_skill : Skill.t -> t -> t
 val with_skills : Skill.t list -> t -> t
-
 val with_tool_grants : string list -> t -> t
 val with_mcp_tool_allowlist : string list -> t -> t
 
@@ -240,10 +260,11 @@ val with_on_run_complete : (bool -> unit) -> t -> t
     and replaced with previews.  Decisions are frozen in the
     {!Content_replacement_state} for prompt cache stability.
     @since 0.128.0 *)
-val with_tool_result_relocation :
-  store:Tool_result_store.t ->
-  state:Content_replacement_state.t ->
-  t -> t
+val with_tool_result_relocation
+  :  store:Tool_result_store.t
+  -> state:Content_replacement_state.t
+  -> t
+  -> t
 
 (** Attach an event-sourced journal for crash recovery and replay.
     @since 0.133.0 *)

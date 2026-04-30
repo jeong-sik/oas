@@ -130,8 +130,7 @@ let collaboration_metadata_of_channel channel =
 
 let presence_event ?summary ?subject participant_name status =
   { metadata = collaboration_metadata_of_channel Presence_channel
-  ; payload =
-      Participant_presence_updated { participant_name; status; summary; subject }
+  ; payload = Participant_presence_updated { participant_name; status; summary; subject }
   }
 ;;
 
