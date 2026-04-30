@@ -77,6 +77,11 @@ val recall_exact : t -> tier:tier -> string -> Yojson.Safe.t option
     Returns [Error reason] if the long-term backend remove fails. *)
 val forget : t -> tier:tier -> string -> (unit, string) result
 
+(** Query entries in a specific tier whose keys start with [prefix], up to
+    [limit].  For [Long_term], backend results are included first and
+    de-duplicated with the in-memory long-term tier. *)
+val query : t -> tier:tier -> prefix:string -> limit:int -> (string * Yojson.Safe.t) list
+
 (** Promote a key from Scratchpad to Working.
     Returns [true] if the key existed in Scratchpad. *)
 val promote : t -> string -> bool
