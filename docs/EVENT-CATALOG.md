@@ -262,6 +262,33 @@ different payload shapes. Disambiguate by Custom name prefix:
   can correlate live runtime events with persisted raw traces without
   reconstructing the proof bundle first.
 
+### 5.2 Collaboration UI projection
+
+OAS exposes generic collaboration projections for downstream UIs without
+encoding any downstream cockpit, dashboard, CSS, or keeper-specific policy.
+`Runtime_projection.collaboration_events_of_event` projects persisted runtime
+events into typed `Runtime.collaboration_event` values; it does not introduce
+a new persisted runtime event kind.
+
+Collaboration events use three independent channels:
+
+| Channel | Persistence | QoS | Intended consumer |
+|---------|-------------|-----|-------------------|
+| `Presence_channel` | `Ephemeral` | `Coalesced { max_hz = 30 }` | Presence indicators, current participant activity |
+| `Activity_channel` | `Append_only` | `Ordered` | Activity feed, history, audit-adjacent timelines |
+| `System_channel` | `Aggregated_snapshot` | `Best_effort` | Status bars and health summaries |
+
+Presence status is derived from runtime participant state by
+`participant_presence_status_of_state`: planned/idle participants map to
+`Presence_idle`, starting participants to `Presence_busy`, live participants
+to `Presence_active`, completed/detached participants to `Presence_offline`,
+and failed participants to `Presence_error`.
+
+Activity feed items carry typed `activity_category` and `activity_severity`
+fields. The first slice classifies runtime lifecycle/work/artifact/system
+events only; downstream domain events should still live on downstream-owned
+event buses unless they are generic OAS runtime collaboration signals.
+
 ---
 
 ## 6. Surface 5: LLM wire stream (`Types.sse_event`)

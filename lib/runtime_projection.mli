@@ -23,6 +23,24 @@ val apply_event
   -> Runtime.event
   -> (Runtime.session, Error.sdk_error) result
 
+(** Map runtime participant lifecycle states to generic presence statuses for
+    collaboration UIs. *)
+val participant_presence_status_of_state
+  :  Runtime.participant_state
+  -> Runtime.participant_presence_status
+
+(** Default persistence and QoS contract for a collaboration channel. *)
+val collaboration_metadata_of_channel
+  :  Runtime.collaboration_channel
+  -> Runtime.collaboration_metadata
+
+(** Project a runtime event into zero or more generic collaboration events.
+    Presence outputs are ephemeral; activity outputs are append-only; system
+    outputs are aggregated status signals. *)
+val collaboration_events_of_event
+  :  Runtime.event
+  -> Runtime.collaboration_event list
+
 (** {1 Reporting and proofs} *)
 
 (** Build a human-readable report from a session and its event trace. *)
