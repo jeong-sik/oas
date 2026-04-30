@@ -142,6 +142,23 @@ Downstream systems own the actual counters and policy:
 - Backpressure propagation to child agents after 429 or capacity exhaustion.
 - Adaptive multipliers and product-specific billing/credit semantics.
 
+## Performance Budget Contract
+
+Track 8 performance runners remain downstream-owned. k6, Locust,
+crdt-benchmarks, Lighthouse, and browser RUM should emit observations using
+stable metric names from `Agent_sdk.Collaboration`. OAS exposes only the budget
+vocabulary and pass/fail evaluation helpers.
+
+| Metric label | Budget | Tool hint |
+|--------------|--------|-----------|
+| `ws_connecting_duration.p95_ms` | <= 500 ms | k6 WebSocket |
+| `sync.latency.p95_ms` | <= 100 ms | k6 / OpenTelemetry |
+| `checks.success_rate` | >= 0.99 | k6 checks |
+| `crdt.ops_per_sec` | >= 1000 ops/sec | CRDT benchmark |
+| `crdt.single_insert.mean_ms` | <= 1 ms | CRDT benchmark |
+| `crdt.serialize_under_10mb.ms` | <= 50 ms | CRDT benchmark |
+| `crdt.merge_12_docs.ms` | <= 100 ms | CRDT benchmark |
+
 ## Boundary Rules
 
 - Do not add Yjs, y-websocket, CodeMirror, cytoscape, or browser dependencies

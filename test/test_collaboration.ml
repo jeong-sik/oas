@@ -116,6 +116,78 @@ let test_shared_state_merge_lww () =
   Alcotest.(check string) "value" "\"right\"" (Yojson.Safe.to_string merged.value)
 ;;
 
+let expect_budget_ok = function
+  | Ok value -> value
+  | Error _ -> Alcotest.fail "expected budget evaluation to match metric"
+;;
+
+let test_default_performance_budgets_include_track8_targets () =
+  let assert_budget metric direction threshold =
+    match C.find_performance_budget metric C.default_performance_budgets with
+    | Some budget ->
+      Alcotest.(check string)
+        "direction"
+        (C.budget_direction_label direction)
+        (C.budget_direction_label budget.direction);
+      Alcotest.(check (float 0.0001)) "threshold" threshold budget.threshold
+    | None -> Alcotest.fail ("missing budget for " ^ C.performance_metric_label metric)
+  in
+  assert_budget C.Ws_connecting_duration_p95_ms C.Below 500.0;
+  assert_budget C.Sync_latency_p95_ms C.Below 100.0;
+  assert_budget C.Checks_success_rate C.Above 0.99;
+  assert_budget C.Crdt_ops_per_sec C.Above 1000.0;
+  assert_budget C.Crdt_single_insert_mean_ms C.Below 1.0;
+  assert_budget C.Crdt_serialize_under_10mb_ms C.Below 50.0;
+  assert_budget C.Crdt_merge_12_docs_ms C.Below 100.0
+;;
+
+let test_evaluate_performance_budget_directions () =
+  let sync_budget =
+    C.find_performance_budget C.Sync_latency_p95_ms C.default_performance_budgets
+    |> Option.get
+  in
+  let sync_result =
+    C.evaluate_performance_budget
+      sync_budget
+      { metric = C.Sync_latency_p95_ms; value = 99.9; observed_at = Some 1.0 }
+    |> expect_budget_ok
+  in
+  Alcotest.(check bool) "sync under p95 budget" true sync_result.passed;
+  let checks_budget =
+    C.find_performance_budget C.Checks_success_rate C.default_performance_budgets
+    |> Option.get
+  in
+  let checks_result =
+    C.evaluate_performance_budget
+      checks_budget
+      { metric = C.Checks_success_rate; value = 0.98; observed_at = None }
+    |> expect_budget_ok
+  in
+  Alcotest.(check bool) "checks rate below threshold fails" false checks_result.passed
+;;
+
+let test_evaluate_performance_budget_rejects_metric_mismatch () =
+  let budget =
+    C.find_performance_budget C.Crdt_merge_12_docs_ms C.default_performance_budgets
+    |> Option.get
+  in
+  match
+    C.evaluate_performance_budget
+      budget
+      { metric = C.Sync_latency_p95_ms; value = 80.0; observed_at = None }
+  with
+  | Error (C.Metric_mismatch { budget_metric; measurement_metric }) ->
+    Alcotest.(check string)
+      "budget metric"
+      "crdt.merge_12_docs.ms"
+      (C.performance_metric_label budget_metric);
+    Alcotest.(check string)
+      "measurement metric"
+      "sync.latency.p95_ms"
+      (C.performance_metric_label measurement_metric)
+  | Ok _ -> Alcotest.fail "expected metric mismatch"
+;;
+
 let () =
   Alcotest.run
     "collaboration"
@@ -139,6 +211,18 @@ let () =
             test_closed_claim_preserves_monotonic_progress
         ; Alcotest.test_case "turn queue ordering" `Quick test_turn_queue_ordering
         ; Alcotest.test_case "shared state LWW" `Quick test_shared_state_merge_lww
+        ; Alcotest.test_case
+            "default performance budgets"
+            `Quick
+            test_default_performance_budgets_include_track8_targets
+        ; Alcotest.test_case
+            "performance budget directions"
+            `Quick
+            test_evaluate_performance_budget_directions
+        ; Alcotest.test_case
+            "performance budget metric mismatch"
+            `Quick
+            test_evaluate_performance_budget_rejects_metric_mismatch
         ] )
     ]
 ;;
