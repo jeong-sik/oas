@@ -8,6 +8,12 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.187.2] - 2026-04-30
+
+### Changed
+
+- Version bump with opam package metadata truth synced after the v0.187.1 release cut.
+
 ## [0.187.1] - 2026-04-30
 
 ### Changed
