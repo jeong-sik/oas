@@ -121,12 +121,7 @@ let delta_metrics_names =
   , "oas.checkpoint.full_restore_fallback_total" )
 ;;
 
-let is_truthy = function
-  | Some ("1" | "true" | "TRUE" | "yes" | "on") -> true
-  | _ -> false
-;;
-
-let delta_enabled () = is_truthy (Sys.getenv_opt "OAS_DELTA_CHECKPOINT")
+let delta_enabled () = Defaults.bool_env_or false "OAS_DELTA_CHECKPOINT"
 
 let register_delta_metrics metrics =
   let apply_total_name, apply_failures_name, size_name, fallback_name =
