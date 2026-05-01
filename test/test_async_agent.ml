@@ -2,8 +2,8 @@
 
     Uses a mock HTTP server (cohttp-eio) to simulate LLM responses.
     No real LLM calls. *)
-
 open Agent_sdk
+
 open Alcotest
 
 (* ── Mock server helpers ─────────────────────────────────────────── *)
@@ -50,9 +50,9 @@ let start_mock ~sw ~net ~clock ?(delay_sec = 0.0) response_text =
   Printf.sprintf "http://127.0.0.1:%d" port
 ;;
 
-let make_agent ~net base_url name =
+let make_agent ?max_execution_time_s ~net base_url name =
   let config = { Types.default_config with name; max_turns = 1 } in
-  let options = { Agent.default_options with base_url } in
+  let options = { Agent.default_options with base_url; max_execution_time_s } in
   Agent.create ~net ~config ~options ()
 ;;
 
@@ -171,6 +171,30 @@ let test_cancel_fiber_stops_before_resolve () =
   | Exit -> ()
 ;;
 
+let test_parent_cancellation_resolves_future () =
+  Eio_main.run
+  @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  let future_ref = ref None in
+  (try
+     Eio.Switch.run
+     @@ fun sw ->
+     let url = start_mock ~sw ~net:env#net ~clock ~delay_sec:5.0 "parent-cancel" in
+     let agent = make_agent ~net:env#net url "parent-cancel-agent" in
+     future_ref := Some (Async_agent.spawn ~sw ~clock agent "test");
+     Eio.Fiber.yield ();
+     Eio.Switch.fail sw Exit
+   with
+   | Exit -> ());
+  match !future_ref with
+  | None -> fail "future was not created"
+  | Some future ->
+    (match Eio.Time.with_timeout_exn clock 0.5 (fun () -> Async_agent.await future) with
+     | Ok _ -> fail "expected cancelled error"
+     | Error (Error.Internal msg) -> check string "cancel message" "cancelled" msg
+     | Error e -> fail (Printf.sprintf "wrong error: %s" (Error.to_string e)))
+;;
+
 (* ── race (first wins) ────────────────────────────────────────────── *)
 
 let test_race_first_wins () =
@@ -285,6 +309,38 @@ let test_all_order () =
   | Exit -> ()
 ;;
 
+let test_all_timeout_is_per_agent () =
+  Eio_main.run
+  @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let url_fast_1 = start_mock ~sw ~net:env#net ~clock "fast-1" in
+    let url_slow = start_mock ~sw ~net:env#net ~clock ~delay_sec:1.0 "too-slow" in
+    let url_fast_2 = start_mock ~sw ~net:env#net ~clock "fast-2" in
+    let fast_1 = make_agent ~net:env#net url_fast_1 "all-fast-1" in
+    let slow = make_agent ~max_execution_time_s:0.2 ~net:env#net url_slow "all-slow" in
+    let fast_2 = make_agent ~net:env#net url_fast_2 "all-fast-2" in
+    let results =
+      Async_agent.all ~sw ~clock ~max_fibers:3 [ fast_1, "go"; slow, "go"; fast_2, "go" ]
+    in
+    let lookup name = List.assoc name results in
+    (match lookup "all-fast-1" with
+     | Ok resp -> check string "first sibling completed" "fast-1" (extract_text resp)
+     | Error e -> fail (Printf.sprintf "first sibling failed: %s" (Error.to_string e)));
+    (match lookup "all-slow" with
+     | Error (Error.Api (Retry.Timeout _)) -> ()
+     | Ok _ -> fail "slow branch should time out"
+     | Error e -> fail (Printf.sprintf "wrong slow error: %s" (Error.to_string e)));
+    (match lookup "all-fast-2" with
+     | Ok resp -> check string "second sibling completed" "fast-2" (extract_text resp)
+     | Error e -> fail (Printf.sprintf "second sibling failed: %s" (Error.to_string e)));
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
 (* ── Test suite ──────────────────────────────────────────────────── *)
 
 let () =
@@ -301,6 +357,10 @@ let () =
             "cancel_fiber_stops_before_resolve"
             `Quick
             test_cancel_fiber_stops_before_resolve
+        ; test_case
+            "parent_cancellation_resolves_future"
+            `Quick
+            test_parent_cancellation_resolves_future
         ] )
     ; ( "race"
       , [ test_case "first_wins" `Quick test_race_first_wins
@@ -310,6 +370,7 @@ let () =
     ; ( "all"
       , [ test_case "collects_all" `Quick test_all_collects
         ; test_case "preserves_order" `Quick test_all_order
+        ; test_case "timeout_is_per_agent" `Quick test_all_timeout_is_per_agent
         ] )
     ]
 ;;

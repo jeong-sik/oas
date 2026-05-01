@@ -50,7 +50,13 @@ All error domains use record payloads for context. Pattern matching is exhaustiv
 
 Eio structured concurrency: every fiber runs within a `Switch.t`.
 - Switch guarantees cleanup on exit (normal or exception)
-- Timeouts propagate through the fiber tree
+- Parent switch cancellation propagates through the fiber tree
+- Timeout/error containment depends on the combinator contract:
+  - `Async_agent.race` and `Guardrail_tripwire` are fail-fast; the first
+    completion or trip cancels remaining siblings.
+  - `Async_agent.all` is all-settled; per-agent timeouts and ordinary
+    exceptions are returned in that agent's result while sibling agents finish.
+  - `Guardrails_async` keeps validator failures local to that validator result.
 - No resource leaks by construction
 
 ```

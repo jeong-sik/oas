@@ -8,19 +8,20 @@
     inside a dedicated [Eio.Switch]. Cancellation propagates correctly.
 
     @since 0.67.0 *)
-
 open Types
+
+let log = Log.create ~module_name:"guardrails_async" ()
 
 (** Input validator: checks messages before sending to the LLM. *)
 type input_validator =
   { name : string
-  ; validate : message list -> (unit, string) result
+  ; validate : message list -> (unit, string) Result.t
   }
 
 (** Output validator: checks the LLM response. *)
 type output_validator =
   { name : string
-  ; validate : api_response -> (unit, string) result
+  ; validate : api_response -> (unit, string) Result.t
   }
 
 (** Result of a validation run. *)
@@ -39,6 +40,31 @@ type t =
 
 let empty = { input_validators = []; output_validators = [] }
 
+let exception_reason ~validator_name = function
+  | Eio.Time.Timeout -> "validator timed out"
+  | exn ->
+    Log.debug
+      log
+      "validator raised"
+      [ Log.S ("validator", validator_name)
+      ; Log.S ("exception", Stdlib.Printexc.to_string exn)
+      ];
+    "validator raised"
+;;
+
+let run_validator ~validator_name f =
+  try
+    match f () with
+    | Ok () -> Pass
+    | Error reason -> Fail { validator_name; reason }
+  with
+  | Eio.Cancel.Cancelled _ as e -> raise e
+  | Out_of_memory -> raise Out_of_memory
+  | Stack_overflow -> raise Stack_overflow
+  | Stdlib.Sys.Break -> raise Stdlib.Sys.Break
+  | exn -> Fail { validator_name; reason = exception_reason ~validator_name exn }
+;;
+
 (** Run all input validators concurrently.
 
     Creates a dedicated [Eio.Switch] for parallel execution.
@@ -47,17 +73,16 @@ let empty = { input_validators = []; output_validators = [] }
 let run_input (validators : input_validator list) (messages : message list)
   : validation_result
   =
-  if validators = []
-  then Pass
-  else (
+  match validators with
+  | [] -> Pass
+  | _ ->
     let results = Array.make (List.length validators) Pass in
     let fns =
       List.mapi
         (fun i (v : input_validator) ->
            fun () ->
-           match v.validate messages with
-           | Ok () -> ()
-           | Error reason -> results.(i) <- Fail { validator_name = v.name; reason })
+           results.(i)
+           <- run_validator ~validator_name:v.name (fun () -> v.validate messages))
         validators
     in
     Eio.Switch.run ~name:"input_validators" (fun _sw -> Eio.Fiber.all fns);
@@ -65,7 +90,7 @@ let run_input (validators : input_validator list) (messages : message list)
     |> List.find_opt (function
       | Fail _ -> true
       | Pass -> false)
-    |> Option.value ~default:Pass)
+    |> Option.value ~default:Pass
 ;;
 
 (** Run all output validators concurrently.
@@ -74,17 +99,16 @@ let run_input (validators : input_validator list) (messages : message list)
 let run_output (validators : output_validator list) (response : api_response)
   : validation_result
   =
-  if validators = []
-  then Pass
-  else (
+  match validators with
+  | [] -> Pass
+  | _ ->
     let results = Array.make (List.length validators) Pass in
     let fns =
       List.mapi
         (fun i (v : output_validator) ->
            fun () ->
-           match v.validate response with
-           | Ok () -> ()
-           | Error reason -> results.(i) <- Fail { validator_name = v.name; reason })
+           results.(i)
+           <- run_validator ~validator_name:v.name (fun () -> v.validate response))
         validators
     in
     Eio.Switch.run ~name:"output_validators" (fun _sw -> Eio.Fiber.all fns);
@@ -92,7 +116,7 @@ let run_output (validators : output_validator list) (response : api_response)
     |> List.find_opt (function
       | Fail _ -> true
       | Pass -> false)
-    |> Option.value ~default:Pass)
+    |> Option.value ~default:Pass
 ;;
 
 (** Convenience: run input validation, then an action, then output validation.
@@ -102,8 +126,8 @@ let run_output (validators : output_validator list) (response : api_response)
 let guarded
       ~(config : t)
       ~(messages : message list)
-      ~(action : unit -> (api_response, 'e) result)
-  : (api_response, [ `Validation of validation_result | `Action of 'e ]) result
+      ~(action : unit -> (api_response, 'e) Result.t)
+  : (api_response, [ `Validation of validation_result | `Action of 'e ]) Result.t
   =
   match run_input config.input_validators messages with
   | Fail _ as f -> Error (`Validation f)

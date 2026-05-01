@@ -2,6 +2,16 @@
 
     @since 0.55.0 *)
 
+let log = Log.create ~module_name:"async_agent" ()
+
+let internal_agent_exception exn =
+  Log.debug
+    log
+    "agent execution raised"
+    [ Log.S ("exception", Stdlib.Printexc.to_string exn) ];
+  Error.Internal "agent execution failed"
+;;
+
 (* ── Internal cancellation exception ──────────────────────────── *)
 
 exception Cancelled
@@ -9,8 +19,8 @@ exception Cancelled
 (* ── Future type ──────────────────────────────────────────────── *)
 
 type 'a future =
-  { promise : ('a, Error.sdk_error) result Eio.Promise.t
-  ; resolver : ('a, Error.sdk_error) result Eio.Promise.u
+  { promise : ('a, Error.sdk_error) Result.t Eio.Promise.t
+  ; resolver : ('a, Error.sdk_error) Result.t Eio.Promise.u
   ; resolved : bool Atomic.t
   ; mutable cancel_fn : (unit -> unit) option
   }
@@ -28,6 +38,16 @@ let agent_name agent =
   card.Agent_card.name
 ;;
 
+let run_agent_result ~sw ?clock agent prompt =
+  try Agent.run ~sw ?clock agent prompt with
+  | Eio.Cancel.Cancelled _ as e -> raise e
+  | Raw_trace.Trace_error e -> Error e
+  | Out_of_memory -> raise Out_of_memory
+  | Stack_overflow -> raise Stack_overflow
+  | Stdlib.Sys.Break -> raise Stdlib.Sys.Break
+  | exn -> Error (internal_agent_exception exn)
+;;
+
 (* ── Spawning ─────────────────────────────────────────────────── *)
 
 let spawn ~sw ?clock agent prompt =
@@ -35,23 +55,30 @@ let spawn ~sw ?clock agent prompt =
   let resolved = Atomic.make false in
   let future = { promise; resolver; resolved; cancel_fn = None } in
   Eio.Fiber.fork ~sw (fun () ->
-    (* Run agent inside a sub-switch so cancel can terminate the fiber.
-       Eio.Switch.run creates an independent error domain — failing it
-       cancels all I/O (HTTP, DNS, etc.) within Agent.run. *)
-    let result =
-      try
-        Eio.Switch.run (fun sub_sw ->
-          future.cancel_fn <- Some (fun () -> Eio.Switch.fail sub_sw Cancelled);
-          Agent.run ~sw:sub_sw ?clock agent prompt)
-      with
-      | Cancelled -> Error (Error.Internal "cancelled")
-      | Raw_trace.Trace_error e -> Error e
-      | Out_of_memory -> raise Out_of_memory
-      | Stack_overflow -> raise Stack_overflow
-      | Sys.Break -> raise Sys.Break
-      | exn -> Error (Error.Internal (Printexc.to_string exn))
-    in
-    resolve_once future result);
+    try
+      (* Run agent inside a sub-switch so cancel can terminate the fiber.
+         Eio.Switch.run creates an independent error domain — failing it
+         cancels all I/O (HTTP, DNS, etc.) within Agent.run. *)
+      let result =
+        try
+          Eio.Switch.run (fun sub_sw ->
+            future.cancel_fn <- Some (fun () -> Eio.Switch.fail sub_sw Cancelled);
+            Agent.run ~sw:sub_sw ?clock agent prompt)
+        with
+        | Cancelled -> Error (Error.Internal "cancelled")
+        | Eio.Cancel.Cancelled _ as e -> raise e
+        | Raw_trace.Trace_error e -> Error e
+        | Out_of_memory -> raise Out_of_memory
+        | Stack_overflow -> raise Stack_overflow
+        | Stdlib.Sys.Break -> raise Stdlib.Sys.Break
+        | exn -> Error (internal_agent_exception exn)
+      in
+      resolve_once future result
+    with
+    | Eio.Cancel.Cancelled _ as e ->
+      let bt = Stdlib.Printexc.get_raw_backtrace () in
+      resolve_once future (Error (Error.Internal "cancelled"));
+      Stdlib.Printexc.raise_with_backtrace e bt);
   future
 ;;
 
@@ -82,7 +109,7 @@ let race ~sw ?clock agents =
   | [] -> Error (Error.Internal "race: no agents provided")
   | [ (agent, prompt) ] ->
     let name = agent_name agent in
-    (match Agent.run ~sw ?clock agent prompt with
+    (match run_agent_result ~sw ?clock agent prompt with
      | Ok resp -> Ok (name, resp)
      | Error e -> Error e)
   | _ ->
@@ -94,14 +121,7 @@ let race ~sw ?clock agents =
         (fun (agent, prompt) ->
            fun () ->
            let name = agent_name agent in
-           let result =
-             try Agent.run ~sw ?clock agent prompt with
-             | Raw_trace.Trace_error e -> Error e
-             | Out_of_memory -> raise Out_of_memory
-             | Stack_overflow -> raise Stack_overflow
-             | Sys.Break -> raise Sys.Break
-             | exn -> Error (Error.Internal (Printexc.to_string exn))
-           in
+           let result = run_agent_result ~sw ?clock agent prompt in
            name, result)
         agents
     in
@@ -117,7 +137,7 @@ let race ~sw ?clock agents =
 let all ~sw ?clock ?max_fibers agents =
   let run_one (agent, prompt) =
     let name = agent_name agent in
-    let result = Agent.run ~sw ?clock agent prompt in
+    let result = run_agent_result ~sw ?clock agent prompt in
     name, result
   in
   match max_fibers with
