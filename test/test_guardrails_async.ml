@@ -42,7 +42,21 @@ let fail_output reason : Guardrails_async.output_validator =
 ;;
 
 let contains_substring haystack needle =
-  Base.String.is_substring haystack ~substring:needle
+  let haystack_len = String.length haystack in
+  let needle_len = String.length needle in
+  let rec matches_at haystack_pos needle_pos =
+    needle_pos = needle_len
+    ||
+    let haystack_idx = haystack_pos + needle_pos in
+    haystack_idx < haystack_len
+    && String.get haystack haystack_idx = String.get needle needle_pos
+    && matches_at haystack_pos (needle_pos + 1)
+  in
+  let rec search haystack_pos =
+    haystack_pos + needle_len <= haystack_len
+    && (matches_at haystack_pos 0 || search (haystack_pos + 1))
+  in
+  needle_len = 0 || search 0
 ;;
 
 (* ── Input validators ─────────────────────────────── *)
