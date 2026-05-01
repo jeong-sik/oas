@@ -141,9 +141,7 @@ let content_block_of_json json =
   | Some "tool_result" ->
     let tool_use_id = json |> member "tool_use_id" |> to_string in
     let content = json |> member "content" |> to_string in
-    let is_error =
-      json |> member "is_error" |> to_bool_option |> Option.value ~default:false
-    in
+    let is_error = Cli_common_json.member_bool "is_error" json in
     let json = Types.try_parse_json content in
     Some (ToolResult { tool_use_id; content; is_error; json })
   | Some "image" ->

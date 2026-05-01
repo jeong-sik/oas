@@ -56,7 +56,7 @@ let episode_to_json (ep : episode) : Yojson.Safe.t =
   `Assoc
     [ "id", `String ep.id
     ; "timestamp", `Float ep.timestamp
-    ; "participants", `List (List.map (fun s -> `String s) ep.participants)
+    ; "participants", Util.json_of_string_list ep.participants
     ; "action", `String ep.action
     ; "outcome", outcome_to_json ep.outcome
     ; "salience", `Float ep.salience
@@ -70,12 +70,7 @@ let episode_of_json (json : Yojson.Safe.t) : episode option =
     let id = json |> member "id" |> to_string in
     let timestamp = json |> member "timestamp" |> to_float in
     let participants =
-      json
-      |> member "participants"
-      |> to_list
-      |> List.filter_map (function
-        | `String s -> Some s
-        | _ -> None)
+      json |> member "participants" |> to_list |> Util.string_list_of_json
     in
     let action = json |> member "action" |> to_string in
     let outcome = outcome_of_json (json |> member "outcome") in

@@ -81,9 +81,7 @@ let regex_match re str =
   | Not_found -> false
 ;;
 
-let filter_non_empty =
-  List.filter (fun s -> s <> "")
-;;
+let filter_non_empty = List.filter (fun s -> s <> "")
 
 let split_on_char_trim sep s =
   String.split_on_char sep s |> List.map String.trim |> filter_non_empty
@@ -110,3 +108,47 @@ let env_or default var =
   | Some v -> v
   | None -> default
 ;;
+
+let json_member_str key json =
+  Yojson.Safe.Util.(json |> member key |> to_string_option) |> Option.value ~default:""
+;;
+
+let json_member_int key json =
+  Yojson.Safe.Util.(json |> member key |> to_int_option) |> Option.value ~default:0
+;;
+
+let json_member_bool key json =
+  Yojson.Safe.Util.(json |> member key |> to_bool_option) |> Option.value ~default:false
+;;
+
+let json_of_int_opt = function
+  | None -> `Null
+  | Some v -> `Int v
+;;
+
+let json_of_float_opt = function
+  | None -> `Null
+  | Some v -> `Float v
+;;
+
+let json_of_bool_opt = function
+  | None -> `Null
+  | Some v -> `Bool v
+;;
+
+let json_of_string_opt = function
+  | None -> `Null
+  | Some v -> `String v
+;;
+
+let json_of_string_list lst = `List (List.map (fun s -> `String s) lst)
+
+let string_list_of_json lst =
+  List.filter_map
+    (function
+      | `String s -> Some s
+      | _ -> None)
+    lst
+;;
+
+let json_of_string_pairs pairs = `Assoc (List.map (fun (k, v) -> k, `String v) pairs)

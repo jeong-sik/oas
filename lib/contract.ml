@@ -165,29 +165,21 @@ let trigger_to_json trigger =
 
 let instruction_layer_to_json layer =
   `Assoc
-    [ ( "label"
-      , Option.value ~default:`Null (Option.map (fun value -> `String value) layer.label)
-      )
-    ; "content", `String layer.content
-    ]
+    [ "label", Util.json_of_string_opt layer.label; "content", `String layer.content ]
 ;;
 
 let skill_to_json (skill : Skill.t) =
   `Assoc
     [ "name", `String skill.name
-    ; ( "description"
-      , Option.value
-          ~default:`Null
-          (Option.map (fun value -> `String value) skill.description) )
-    ; ( "path"
-      , Option.value ~default:`Null (Option.map (fun value -> `String value) skill.path) )
-    ; "allowed_tools", `List (List.map (fun value -> `String value) skill.allowed_tools)
+    ; "description", Util.json_of_string_opt skill.description
+    ; "path", Util.json_of_string_opt skill.path
+    ; "allowed_tools", Util.json_of_string_list skill.allowed_tools
     ]
 ;;
 
 let string_list_option_to_json = function
   | None -> `Null
-  | Some values -> `List (List.map (fun value -> `String value) values)
+  | Some values -> Util.json_of_string_list values
 ;;
 
 let to_json contract =

@@ -249,7 +249,7 @@ let window_to_yojson window =
     ; "cursor", cursor_to_yojson window.cursor
     ; "next_cursor", cursor_to_yojson window.next_cursor
     ; "events", `List (List.map event_record_to_yojson window.events)
-    ; "artifact_refs", `List (List.map (fun value -> `String value) window.artifact_refs)
+    ; "artifact_refs", Util.json_of_string_list window.artifact_refs
     ; ( "persistence"
       , match window.persistence with
         | None -> `Null

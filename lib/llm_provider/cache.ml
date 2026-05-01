@@ -85,8 +85,7 @@ let content_block_of_json json =
       (Types.ToolResult
          { tool_use_id = json |> member "tool_use_id" |> to_string
          ; content
-         ; is_error =
-             json |> member "is_error" |> to_bool_option |> Option.value ~default:false
+         ; is_error = Cli_common_json.member_bool "is_error" json
          ; json = parsed_json
          })
   | _ -> None

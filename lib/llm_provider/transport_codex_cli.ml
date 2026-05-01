@@ -152,9 +152,8 @@ let text_of_mcp_result_json json =
 ;;
 
 let is_error_mcp_result_json json =
-  let open Yojson.Safe.Util in
-  json |> member "is_error" |> to_bool_option |> Option.value ~default:false
-  || json |> member "isError" |> to_bool_option |> Option.value ~default:false
+  Cli_common_json.member_bool "is_error" json
+  || Cli_common_json.member_bool "isError" json
 ;;
 
 let content_blocks_of_jsonl lines =
@@ -253,7 +252,9 @@ let stdout_contains_turn_completed stdout_str =
 let default_prompt_argv_threshold = 512 * 1024
 
 let prompt_argv_threshold () =
-  Cli_common_env.int ~default:default_prompt_argv_threshold "OAS_CODEX_PROMPT_ARGV_THRESHOLD"
+  Cli_common_env.int
+    ~default:default_prompt_argv_threshold
+    "OAS_CODEX_PROMPT_ARGV_THRESHOLD"
 ;;
 
 let prompt_exceeds_argv_budget prompt = String.length prompt >= prompt_argv_threshold ()

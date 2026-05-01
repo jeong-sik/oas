@@ -67,7 +67,7 @@ let metric_to_yojson m =
   let tags_part =
     match m.tags with
     | [] -> []
-    | tags -> [ "tags", `Assoc (List.map (fun (k, v) -> k, `String v) tags) ]
+    | tags -> [ "tags", Util.json_of_string_pairs tags ]
   in
   `Assoc (base @ unit_part @ tags_part)
 ;;
@@ -129,7 +129,7 @@ let run_metrics_to_yojson rm =
                 , match v.score with
                   | Some s -> `Float s
                   | None -> `Null )
-              ; "evidence", `List (List.map (fun e -> `String e) v.evidence)
+              ; "evidence", Util.json_of_string_list v.evidence
               ; ( "detail"
                 , match v.detail with
                   | Some d -> `String d
@@ -492,7 +492,7 @@ let run_metrics_to_json (rm : run_metrics) : Yojson.Safe.t =
              , match v.score with
                | Some s -> `Float s
                | None -> `Null )
-           ; "evidence", `List (List.map (fun e -> `String e) v.evidence)
+           ; "evidence", Util.json_of_string_list v.evidence
            ; ( "detail"
              , match v.detail with
                | Some d -> `String d
@@ -526,7 +526,7 @@ let run_metrics_to_json (rm : run_metrics) : Yojson.Safe.t =
          let tags_part =
            match m.tags with
            | [] -> []
-           | tags -> [ "tags", `Assoc (List.map (fun (k, v) -> k, `String v) tags) ]
+           | tags -> [ "tags", Util.json_of_string_pairs tags ]
          in
          `Assoc (base @ unit_part @ tags_part))
       rm.metrics

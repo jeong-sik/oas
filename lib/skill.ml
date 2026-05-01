@@ -47,10 +47,7 @@ let split_csv s =
     then String.sub s 1 (String.length s - 2)
     else s
   in
-  inner
-  |> String.split_on_char ','
-  |> List.map strip_quotes
-  |> Util.filter_non_empty
+  inner |> String.split_on_char ',' |> List.map strip_quotes |> Util.filter_non_empty
 ;;
 
 let replace_all ~pattern ~replacement text =

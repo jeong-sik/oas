@@ -137,8 +137,8 @@ let tool_contracts_to_json tools =
             ; "kind", kind
             ; "mutation_class", mutation_class
             ; "shell", shell
-            ; "notes", `List (List.map (fun v -> `String v) notes)
-            ; "examples", `List (List.map (fun v -> `String v) examples)
+            ; "notes", Util.json_of_string_list notes
+            ; "examples", Util.json_of_string_list examples
             ])
        tools)
 ;;

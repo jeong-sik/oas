@@ -178,8 +178,8 @@ let descriptor_to_yojson = function
             ~default:`Null
             (Option.map permission_to_yojson descriptor.permission) )
       ; "shell", shell_json
-      ; "notes", `List (List.map (fun note -> `String note) descriptor.notes)
-      ; "examples", `List (List.map (fun example -> `String example) descriptor.examples)
+      ; "notes", Util.json_of_string_list descriptor.notes
+      ; "examples", Util.json_of_string_list descriptor.examples
       ]
 ;;
 

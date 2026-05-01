@@ -74,9 +74,7 @@ let load ~path : (baseline, string) result =
        | Error e -> Error (Printf.sprintf "Failed to parse run_metrics: %s" e)
        | Ok run_metrics ->
          let created_at = json |> member "created_at" |> to_float in
-         let description =
-           json |> member "description" |> to_string_option |> Option.value ~default:""
-         in
+         let description = Util.json_member_str "description" json in
          Ok { run_metrics; created_at; description }
      with
      | Eio.Cancel.Cancelled _ as e -> raise e

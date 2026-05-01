@@ -54,22 +54,22 @@ let runtime_mcp_policy_to_yojson (policy : runtime_mcp_policy) =
         [ "kind", `String "stdio"
         ; "name", `String name
         ; "command", `String command
-        ; "args", `List (List.map (fun arg -> `String arg) args)
-        ; "env", `Assoc (List.map (fun (k, v) -> k, `String v) env)
+        ; "args", Cli_common_json.json_of_string_list args
+        ; "env", Cli_common_json.json_of_string_pairs env
         ]
     | Http_server { name; url; headers } ->
       `Assoc
         [ "kind", `String "http"
         ; "name", `String name
         ; "url", `String url
-        ; "headers", `Assoc (List.map (fun (k, v) -> k, `String v) headers)
+        ; "headers", Cli_common_json.json_of_string_pairs headers
         ]
   in
-  let string_list xs = `List (List.map (fun x -> `String x) xs) in
   `Assoc
     [ "servers", `List (List.map server_to_yojson policy.servers)
-    ; "allowed_server_names", string_list policy.allowed_server_names
-    ; "allowed_tool_names", string_list policy.allowed_tool_names
+    ; ( "allowed_server_names"
+      , Cli_common_json.json_of_string_list policy.allowed_server_names )
+    ; "allowed_tool_names", Cli_common_json.json_of_string_list policy.allowed_tool_names
     ; ( "permission_mode"
       , match policy.permission_mode with
         | Some mode -> `String mode

@@ -79,7 +79,6 @@ let mode_of_base_url base_url =
 ;;
 
 let split_csv = Cli_common_env.split_on_char_trim ','
-;;
 
 let glm_auto_models () =
   match Cli_common_env.list ~sep:',' "ZAI_AUTO_MODELS" with

@@ -64,7 +64,8 @@ let of_markdown ?path ?(skills = []) markdown =
   ; tools =
       (let vs =
          Skill.frontmatter_values fm "tools"
-         |> List.map String.trim |> Util.filter_non_empty
+         |> List.map String.trim
+         |> Util.filter_non_empty
        in
        if vs = [] then None else Some vs)
   ; disallowed_tools =
@@ -142,9 +143,7 @@ let state_isolation_preamble = function
 
 let compose_prompt ?arguments spec =
   let rendered_skills =
-    spec.skills
-    |> List.map (Skill.render_prompt ?arguments)
-    |> Util.filter_non_empty
+    spec.skills |> List.map (Skill.render_prompt ?arguments) |> Util.filter_non_empty
   in
   let base =
     match String.trim spec.prompt, rendered_skills with

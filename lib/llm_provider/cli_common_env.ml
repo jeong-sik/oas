@@ -8,9 +8,7 @@ let trim_non_empty_opt = function
   | Some s -> trim_non_empty s
 ;;
 
-let get name =
-  trim_non_empty_opt (Sys.getenv_opt name)
-;;
+let get name = trim_non_empty_opt (Sys.getenv_opt name)
 
 let bool name =
   match get name with

@@ -51,13 +51,13 @@ let effective_max_turns config =
 (* Prompt shaping, JSON helpers, and subprocess orchestration live in the
    shared [Cli_common_*] modules to deduplicate logic across CLI transports. *)
 
-let json_of_string_pairs pairs = `Assoc (List.map (fun (k, v) -> k, `String v) pairs)
+let json_of_string_pairs = Cli_common_json.json_of_string_pairs
 
 let json_of_runtime_mcp_server = function
   | Llm_transport.Stdio_server { name = _; command; args; env } ->
     `Assoc
       [ "command", `String command
-      ; "args", `List (List.map (fun arg -> `String arg) args)
+      ; "args", Cli_common_json.json_of_string_list args
       ; "env", json_of_string_pairs env
       ]
   | Llm_transport.Http_server { name = _; url; headers } ->
@@ -155,7 +155,9 @@ let legacy_env_extra_args ~(config : config) =
 let default_prompt_argv_threshold = 512 * 1024
 
 let prompt_argv_threshold () =
-  Cli_common_env.int ~default:default_prompt_argv_threshold "OAS_CLAUDE_PROMPT_ARGV_THRESHOLD"
+  Cli_common_env.int
+    ~default:default_prompt_argv_threshold
+    "OAS_CLAUDE_PROMPT_ARGV_THRESHOLD"
 ;;
 
 (** Decide whether the prompt must be routed via stdin.  Callers that

@@ -83,9 +83,7 @@ let parse_image_generation body =
     match read_json body with
     | Error _ as err -> err
     | Ok json ->
-      let created =
-        json |> member "created" |> to_int_option |> Option.value ~default:0
-      in
+      let created = Util.json_member_int "created" json in
       let data =
         json
         |> member "data"
@@ -155,7 +153,7 @@ let parse_transcription body =
     | Ok json ->
       Ok
         { id = json |> member "id" |> to_string
-        ; created = json |> member "created" |> to_int_option |> Option.value ~default:0
+        ; created = Util.json_member_int "created" json
         ; request_id = json |> member "request_id" |> to_string_option
         ; model = json |> member "model" |> to_string
         ; text = json |> member "text" |> to_string

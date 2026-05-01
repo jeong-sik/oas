@@ -54,13 +54,13 @@ let skill_to_json (skill : Skill.t) : Yojson.Safe.t =
      @ opt_scope "scope" skill.scope
      @ (match skill.allowed_tools with
         | [] -> []
-        | tools -> [ "allowed_tools", `List (List.map (fun s -> `String s) tools) ])
+        | tools -> [ "allowed_tools", Util.json_of_string_list tools ])
      @ opt_str "argument_hint" skill.argument_hint
      @ opt_str "model" skill.model
      @
      match skill.supporting_files with
      | [] -> []
-     | files -> [ "supporting_files", `List (List.map (fun s -> `String s) files) ])
+     | files -> [ "supporting_files", Util.json_of_string_list files ])
 ;;
 
 let to_json reg =
@@ -88,12 +88,7 @@ let skill_of_json (json : Yojson.Safe.t) : (Skill.t, Error.sdk_error) result =
     let allowed_tools =
       match json |> member "allowed_tools" with
       | `Null -> []
-      | `List items ->
-        List.filter_map
-          (function
-            | `String s -> Some s
-            | _ -> None)
-          items
+      | `List items -> Util.string_list_of_json items
       | _ -> []
     in
     let argument_hint =
@@ -109,12 +104,7 @@ let skill_of_json (json : Yojson.Safe.t) : (Skill.t, Error.sdk_error) result =
     let supporting_files =
       match json |> member "supporting_files" with
       | `Null -> []
-      | `List items ->
-        List.filter_map
-          (function
-            | `String s -> Some s
-            | _ -> None)
-          items
+      | `List items -> Util.string_list_of_json items
       | _ -> []
     in
     Ok

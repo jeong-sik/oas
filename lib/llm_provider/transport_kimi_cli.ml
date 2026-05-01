@@ -41,7 +41,9 @@ let default_config =
 let default_prompt_argv_threshold = 32 * 1024
 
 let prompt_argv_threshold () =
-  Cli_common_env.int ~default:default_prompt_argv_threshold "OAS_KIMI_PROMPT_ARGV_THRESHOLD"
+  Cli_common_env.int
+    ~default:default_prompt_argv_threshold
+    "OAS_KIMI_PROMPT_ARGV_THRESHOLD"
 ;;
 
 let prompt_exceeds_argv_budget prompt = String.length prompt >= prompt_argv_threshold ()
