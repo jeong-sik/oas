@@ -61,15 +61,15 @@ let () =
 ;;
 
 let default_endpoint =
-  match Sys.getenv_opt "OAS_LOCAL_LLM_URL" with
-  | Some v when String.trim v <> "" -> String.trim v
-  | _ -> Constants.Endpoints.default_url
+  match Cli_common_env.trim_non_empty_opt (Sys.getenv_opt "OAS_LOCAL_LLM_URL") with
+  | Some v -> v
+  | None -> Constants.Endpoints.default_url
 ;;
 
 let ollama_endpoint =
-  match Sys.getenv_opt "OLLAMA_HOST" with
-  | Some url when String.trim url <> "" -> String.trim url
-  | _ -> "http://127.0.0.1:11434"
+  match Cli_common_env.trim_non_empty_opt (Sys.getenv_opt "OLLAMA_HOST") with
+  | Some url -> url
+  | None -> "http://127.0.0.1:11434"
 ;;
 
 let parse_llm_endpoints_env () =

@@ -88,3 +88,13 @@ let filter_non_empty =
 let split_on_char_trim sep s =
   String.split_on_char sep s |> List.map String.trim |> filter_non_empty
 ;;
+
+let trim_non_empty s =
+  let trimmed = String.trim s in
+  if trimmed = "" then None else Some trimmed
+;;
+
+let trim_non_empty_opt = function
+  | None -> None
+  | Some s -> trim_non_empty s
+;;

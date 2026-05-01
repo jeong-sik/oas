@@ -13,9 +13,9 @@ let warn_invalid_env ~var ~raw ~expected =
 ;;
 
 let env_or default var =
-  match Sys.getenv_opt var with
-  | Some v when String.trim v <> "" -> String.trim v
-  | _ -> default
+  match Util.trim_non_empty_opt (Sys.getenv_opt var) with
+  | Some v -> v
+  | None -> default
 ;;
 
 let int_env_or default var =

@@ -1,9 +1,15 @@
-let get name =
-  match Sys.getenv_opt name with
+let trim_non_empty s =
+  let trimmed = String.trim s in
+  if trimmed = "" then None else Some trimmed
+;;
+
+let trim_non_empty_opt = function
   | None -> None
-  | Some v ->
-    let trimmed = String.trim v in
-    if trimmed = "" then None else Some trimmed
+  | Some s -> trim_non_empty s
+;;
+
+let get name =
+  trim_non_empty_opt (Sys.getenv_opt name)
 ;;
 
 let bool name =

@@ -48,3 +48,10 @@ val filter_non_empty : string list -> string list
 
 (** Split on [sep], trim each fragment, discard empty results. *)
 val split_on_char_trim : char -> string -> string list
+
+(** [trim_non_empty s] trims [s] and returns [Some trimmed] if non-empty,
+    [None] otherwise. *)
+val trim_non_empty : string -> string option
+
+(** [trim_non_empty_opt opt] maps [trim_non_empty] over an option. *)
+val trim_non_empty_opt : string option -> string option

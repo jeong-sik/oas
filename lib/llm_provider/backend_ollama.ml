@@ -73,12 +73,12 @@ let build_request
        -1 was serialized as [`String "-1"]. This fix sends an integer for
        parseable values and a duration string otherwise. *)
   let keep_alive_raw =
-    match config.keep_alive with
-    | Some v when String.trim v <> "" -> String.trim v
-    | _ ->
-      (match Sys.getenv_opt "OAS_OLLAMA_KEEP_ALIVE" with
-       | Some v when String.trim v <> "" -> String.trim v
-       | _ -> "-1")
+    match Cli_common_env.trim_non_empty_opt config.keep_alive with
+    | Some v -> v
+    | None ->
+      (match Cli_common_env.trim_non_empty_opt (Sys.getenv_opt "OAS_OLLAMA_KEEP_ALIVE") with
+       | Some v -> v
+       | None -> "-1")
   in
   let keep_alive_json : Yojson.Safe.t =
     match int_of_string_opt keep_alive_raw with

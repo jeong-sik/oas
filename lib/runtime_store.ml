@@ -55,16 +55,16 @@ let ensure_tree store session_id =
 ;;
 
 let default_root () =
-  match Sys.getenv_opt "OAS_RUNTIME_SESSION_ROOT" with
-  | Some value when String.trim value <> "" -> String.trim value
-  | _ -> Filename.concat (Sys.getcwd ()) ".oas-runtime"
+  match Util.trim_non_empty_opt (Sys.getenv_opt "OAS_RUNTIME_SESSION_ROOT") with
+  | Some value -> value
+  | None -> Filename.concat (Sys.getcwd ()) ".oas-runtime"
 ;;
 
 let create ?root () =
   let resolved =
-    match root with
-    | Some value when String.trim value <> "" -> String.trim value
-    | _ -> default_root ()
+    match Util.trim_non_empty_opt root with
+    | Some value -> value
+    | None -> default_root ()
   in
   let store = { root = resolved } in
   let* () = ensure_dir resolved in

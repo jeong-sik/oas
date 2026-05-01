@@ -374,10 +374,6 @@ let rename_session ?session_root ~session_id ~title () =
 let tag_session ?session_root ~session_id ~tag () =
   let* store = make_store ?session_root () in
   let* session = Runtime_store.load_session store session_id in
-  let normalized =
-    match tag with
-    | Some value when String.trim value <> "" -> Some (String.trim value)
-    | _ -> None
-  in
+  let normalized = Util.trim_non_empty_opt tag in
   Runtime_store.save_session store { session with tag = normalized }
 ;;

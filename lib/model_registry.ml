@@ -4,9 +4,9 @@
     to canonical API model IDs. New models are added here only. *)
 
 let env_or default var =
-  match Sys.getenv_opt var with
-  | Some v when String.trim v <> "" -> String.trim v
-  | _ -> default
+  match Util.trim_non_empty_opt (Sys.getenv_opt var) with
+  | Some v -> v
+  | None -> default
 ;;
 
 let default_model_id = env_or "claude-sonnet-4-6-20250514" "OAS_DEFAULT_MODEL"

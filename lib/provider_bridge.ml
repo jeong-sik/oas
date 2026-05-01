@@ -37,9 +37,9 @@ let is_kimi_coding_base_url base_url =
     Local providers use {!Llm_provider.Discovery.first_discovered_model_id}
     for "auto"; cloud providers use environment-variable defaults. *)
 let env_or default var =
-  match Sys.getenv_opt var with
-  | Some v when String.trim v <> "" -> String.trim v
-  | _ -> default
+  match Util.trim_non_empty_opt (Sys.getenv_opt var) with
+  | Some v -> v
+  | None -> default
 ;;
 
 let resolve_glm_model_id model_id =
