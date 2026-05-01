@@ -77,9 +77,7 @@ let parse_param json =
   let open Yojson.Safe.Util in
   try
     let name = json |> member "name" |> to_string in
-    let description =
-      json |> member "description" |> to_string_option |> Option.value ~default:""
-    in
+    let description = Util.json_member_str "description" json in
     let param_type =
       json
       |> member "type"
@@ -87,9 +85,7 @@ let parse_param json =
       |> Option.value ~default:"string"
       |> Mcp.json_schema_type_to_param_type
     in
-    let required =
-      json |> member "required" |> to_bool_option |> Option.value ~default:false
-    in
+    let required = Util.json_member_bool "required" json in
     Ok { Types.name; description; param_type; required }
   with
   | Type_error (msg, _) ->
@@ -100,9 +96,7 @@ let parse_tool json =
   let open Yojson.Safe.Util in
   try
     let name = json |> member "name" |> to_string in
-    let description =
-      json |> member "description" |> to_string_option |> Option.value ~default:""
-    in
+    let description = Util.json_member_str "description" json in
     let params_json =
       match json |> member "parameters" with
       | `List ps -> ps

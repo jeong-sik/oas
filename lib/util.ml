@@ -110,3 +110,15 @@ let env_or default var =
   | Some v -> v
   | None -> default
 ;;
+
+let json_member_str key json =
+  Yojson.Safe.Util.(json |> member key |> to_string_option) |> Option.value ~default:""
+;;
+
+let json_member_int key json =
+  Yojson.Safe.Util.(json |> member key |> to_int_option) |> Option.value ~default:0
+;;
+
+let json_member_bool key json =
+  Yojson.Safe.Util.(json |> member key |> to_bool_option) |> Option.value ~default:false
+;;

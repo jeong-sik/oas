@@ -32,9 +32,7 @@ let json_schema_to_params schema =
            |> Option.value ~default:"string"
            |> json_schema_type_to_param_type
          in
-         let description =
-           prop |> member "description" |> to_string_option |> Option.value ~default:""
-         in
+         let description = Util.json_member_str "description" prop in
          let required = List.mem name required_list in
          { name; description; param_type; required })
       pairs

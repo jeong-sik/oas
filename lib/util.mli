@@ -63,3 +63,15 @@ val get : string -> string option
 (** [env_or default var] looks up env var [var], trims it, and returns
     the trimmed value if non-empty, otherwise [default]. *)
 val env_or : string -> string -> string
+
+(** [json_member_str key json] returns the string value for [key] in [json],
+    or [""] if missing or wrong type. *)
+val json_member_str : string -> Yojson.Safe.t -> string
+
+(** [json_member_int key json] returns the int value for [key] in [json],
+    or [0] if missing or wrong type. *)
+val json_member_int : string -> Yojson.Safe.t -> int
+
+(** [json_member_bool key json] returns the bool value for [key] in [json],
+    or [false] if missing or wrong type. *)
+val json_member_bool : string -> Yojson.Safe.t -> bool

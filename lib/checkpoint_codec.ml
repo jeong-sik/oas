@@ -28,7 +28,7 @@ let usage_of_json json =
       |> member "total_cache_read_input_tokens"
       |> to_int_option
       |> Option.value ~default:0
-  ; api_calls = json |> member "api_calls" |> to_int_option |> Option.value ~default:0
+  ; api_calls = Util.json_member_int "api_calls" json
   ; estimated_cost_usd =
       (match json |> member "estimated_cost_usd" with
        | `Float f -> f
