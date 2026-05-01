@@ -142,3 +142,6 @@ let json_of_string_opt = function
   | None -> `Null
   | Some v -> `String v
 ;;
+
+let json_of_string_list lst = `List (List.map (fun s -> `String s) lst)
+;;

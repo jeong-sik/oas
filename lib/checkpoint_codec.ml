@@ -198,7 +198,7 @@ let context_diff_to_json (diff : Context.diff) =
   in
   `Assoc
     [ kv_pairs "added" diff.added
-    ; "removed", `List (List.map (fun key -> `String key) diff.removed)
+    ; "removed", Util.json_of_string_list diff.removed
     ; kv_pairs "changed" diff.changed
     ]
 ;;

@@ -630,7 +630,7 @@ let verdict_to_json (v : verdict) : Yojson.Safe.t =
       , match v.score with
         | Some s -> `Float s
         | None -> `Null )
-    ; "evidence", `List (List.map (fun e -> `String e) v.evidence)
+    ; "evidence", Util.json_of_string_list v.evidence
     ; ( "detail"
       , match v.detail with
         | Some d -> `String d

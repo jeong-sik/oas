@@ -137,7 +137,7 @@ let event_to_payload (event : Event_bus.event) : event_payload =
       `Assoc
         [ "agent_name", `String r.agent_name
         ; "turn", `Int r.turn
-        ; "tool_names", `List (List.map (fun n -> `String n) r.tool_names)
+        ; "tool_names", Util.json_of_string_list r.tool_names
         ; "tool_count", `Int (List.length r.tool_names)
         ]
     | TurnCompleted r ->

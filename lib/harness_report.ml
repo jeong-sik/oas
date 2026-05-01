@@ -45,7 +45,7 @@ let verdict_to_json (verdict : Harness.verdict) =
       , match verdict.score with
         | Some value -> `Float value
         | None -> `Null )
-    ; "evidence", `List (List.map (fun item -> `String item) verdict.evidence)
+    ; "evidence", Util.json_of_string_list verdict.evidence
     ; ( "detail"
       , match verdict.detail with
         | Some value -> `String value
@@ -82,7 +82,7 @@ let case_result_to_json (result : case_result) =
            | Harness_case.Trace_replay -> "trace_replay") )
     ; "status", `String (status_to_string result.status)
     ; "verdicts", `List (List.map verdict_to_json result.verdicts)
-    ; "evidence", `List (List.map (fun item -> `String item) result.evidence)
+    ; "evidence", Util.json_of_string_list result.evidence
     ; ( "detail"
       , match result.detail with
         | Some value -> `String value

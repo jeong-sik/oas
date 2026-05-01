@@ -51,7 +51,7 @@ let json_of_runtime_mcp_server = function
   | Llm_transport.Stdio_server { name = _; command; args; env } ->
     `Assoc
       [ "command", `String command
-      ; "args", `List (List.map (fun arg -> `String arg) args)
+      ; "args", Cli_common_json.json_of_string_list args
       ; "env", json_of_string_pairs env
       ]
   | Llm_transport.Http_server { name = _; url; headers } ->

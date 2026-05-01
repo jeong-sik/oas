@@ -108,7 +108,7 @@ let rec is_destructive = function
 
 (* ── serialization ────────────────────────────────────────── *)
 
-let names_to_json names = `List (List.map (fun n -> `String n) names)
+let names_to_json = Util.json_of_string_list
 
 let rec to_yojson = function
   | Keep_all -> `Assoc [ "op", `String "keep_all" ]

@@ -175,13 +175,13 @@ let skill_to_json (skill : Skill.t) =
     [ "name", `String skill.name
     ; "description", Util.json_of_string_opt skill.description
     ; "path", Util.json_of_string_opt skill.path
-    ; "allowed_tools", `List (List.map (fun value -> `String value) skill.allowed_tools)
+    ; "allowed_tools", Util.json_of_string_list skill.allowed_tools
     ]
 ;;
 
 let string_list_option_to_json = function
   | None -> `Null
-  | Some values -> `List (List.map (fun value -> `String value) values)
+  | Some values -> Util.json_of_string_list values
 ;;
 
 let to_json contract =

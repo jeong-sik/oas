@@ -56,7 +56,7 @@ let episode_to_json (ep : episode) : Yojson.Safe.t =
   `Assoc
     [ "id", `String ep.id
     ; "timestamp", `Float ep.timestamp
-    ; "participants", `List (List.map (fun s -> `String s) ep.participants)
+    ; "participants", Util.json_of_string_list ep.participants
     ; "action", `String ep.action
     ; "outcome", outcome_to_json ep.outcome
     ; "salience", `Float ep.salience

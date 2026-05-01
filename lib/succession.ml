@@ -294,7 +294,7 @@ let normalize_for_model (msgs : message list) ~(target_model : string) : message
 (* Serialization                                                    *)
 (* ================================================================ *)
 
-let str_list_to_json lst = `List (List.map (fun s -> `String s) lst)
+let str_list_to_json = Util.json_of_string_list
 
 let str_list_of_json json =
   let open Yojson.Safe.Util in

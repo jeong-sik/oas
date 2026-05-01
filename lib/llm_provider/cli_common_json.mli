@@ -15,3 +15,6 @@ val member_int : string -> Yojson.Safe.t -> int
 (** [member_bool key json] returns the bool at [key], or [false] when
     the field is missing or not a bool. *)
 val member_bool : string -> Yojson.Safe.t -> bool
+
+(** Serialize string list to JSON: [["a"; "b"]] -> [`List [`String "a"; `String "b"]]. *)
+val json_of_string_list : string list -> Yojson.Safe.t

@@ -87,3 +87,6 @@ val json_of_bool_opt : bool option -> Yojson.Safe.t
 
 (** Serialize optional string to JSON: [Some s] -> [`String s], [None] -> [`Null]. *)
 val json_of_string_opt : string option -> Yojson.Safe.t
+
+(** Serialize string list to JSON: [["a"; "b"]] -> [`List [`String "a"; `String "b"]]. *)
+val json_of_string_list : string list -> Yojson.Safe.t

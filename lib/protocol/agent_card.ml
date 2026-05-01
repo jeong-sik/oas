@@ -100,7 +100,7 @@ let to_json (card : agent_card) : Yojson.Safe.t =
     | Some a ->
       [ ( "authentication"
         , `Assoc
-            ([ "schemes", `List (List.map (fun s -> `String s) a.schemes) ]
+            ([ "schemes", Util.json_of_string_list a.schemes ]
              @
              match a.credentials with
              | Some c -> [ "credentials", `String c ]
@@ -147,7 +147,7 @@ let to_json (card : agent_card) : Yojson.Safe.t =
                       | None -> []))
                 card.skills) )
        ; ( "supported_providers"
-         , `List (List.map (fun s -> `String s) card.supported_providers) )
+         , Util.json_of_string_list card.supported_providers )
        ]
      @
      match card.metadata with

@@ -172,7 +172,7 @@ let info_to_json (info : info) : Yojson.Safe.t =
   `Assoc
     [ "server_name", `String info.server_name
     ; "command", `String info.command
-    ; "args", `List (List.map (fun s -> `String s) info.args)
+    ; "args", Util.json_of_string_list info.args
     ; "env", `List (List.map env_pair_to_json info.env)
     ; ( "http_base_url"
       , match info.http_base_url with

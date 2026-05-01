@@ -261,7 +261,7 @@ let step_to_json s =
       , match s.result with
         | None -> `Null
         | Some j -> j )
-    ; "depends_on", `List (List.map (fun d -> `String d) s.depends_on)
+    ; "depends_on", Util.json_of_string_list s.depends_on
     ]
 ;;
 

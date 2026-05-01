@@ -94,7 +94,7 @@ let trace_assertion_to_json = function
   | Tool_sequence value ->
     `Assoc
       [ "type", `String "trace_tool_sequence"
-      ; "value", `List (List.map (fun item -> `String item) value)
+      ; "value", Util.json_of_string_list value
       ]
   | Tool_call_count value ->
     `Assoc [ "type", `String "trace_tool_call_count"; "value", `Int value ]
@@ -125,9 +125,9 @@ let to_json (case_ : t) =
     [ "id", `String case_.id
     ; "kind", `String (kind_to_string case_.kind)
     ; "prompt", `String case_.prompt
-    ; "tags", `List (List.map (fun tag -> `String tag) case_.tags)
+    ; "tags", Util.json_of_string_list case_.tags
     ; "assertions", `List (List.map assertion_to_json case_.assertions)
-    ; "artifacts", `List (List.map (fun path -> `String path) case_.artifacts)
+    ; "artifacts", Util.json_of_string_list case_.artifacts
     ; ( "source_trace_path"
       , match case_.source_trace_path with
         | Some path -> `String path
