@@ -268,9 +268,7 @@ let parse_response json =
         (fun part ->
            match part |> member "text" with
            | `String s ->
-             let is_thought =
-               part |> member "thought" |> to_bool_option |> Option.value ~default:false
-             in
+             let is_thought = Cli_common_json.member_bool "thought" part in
              if is_thought
              then Some (Thinking { thinking_type = "thinking"; content = s })
              else Some (Text s)
@@ -314,25 +312,15 @@ let parse_response json =
       then None
       else
         Some
-          { input_tokens =
-              um |> member "promptTokenCount" |> to_int_option |> Option.value ~default:0
-          ; output_tokens =
-              um
-              |> member "candidatesTokenCount"
-              |> to_int_option
-              |> Option.value ~default:0
+          { input_tokens = Cli_common_json.member_int "promptTokenCount" um
+          ; output_tokens = Cli_common_json.member_int "candidatesTokenCount" um
           ; cache_creation_input_tokens = 0
           ; cache_read_input_tokens =
-              um
-              |> member "cachedContentTokenCount"
-              |> to_int_option
-              |> Option.value ~default:0
+              Cli_common_json.member_int "cachedContentTokenCount" um
           ; cost_usd = None
           }
     in
-    let model_str =
-      json |> member "modelVersion" |> to_string_option |> Option.value ~default:""
-    in
+    let model_str = Cli_common_json.member_str "modelVersion" json in
     { id = ""; model = model_str; stop_reason; content; usage; telemetry = None }
   | err ->
     let msg =

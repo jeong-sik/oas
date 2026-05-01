@@ -218,11 +218,8 @@ let parse_ollama_response json_str =
       | _other when tool_blocks <> [] -> StopToolUse
       | other -> Unknown other
     in
-    let input_tokens =
-      json |> member "prompt_eval_count" |> to_int_option |> Option.value ~default:0
-    in
-    let output_tokens =
-      json |> member "eval_count" |> to_int_option |> Option.value ~default:0
+    let input_tokens = Cli_common_json.member_int "prompt_eval_count" json in
+    let output_tokens = Cli_common_json.member_int "eval_count" json
     in
     let usage =
       if input_tokens = 0 && output_tokens = 0
@@ -288,7 +285,7 @@ let parse_ollama_response json_str =
     in
     Ok
       { id = json |> member "model" |> to_string_option |> Option.value ~default:"ollama"
-      ; model = json |> member "model" |> to_string_option |> Option.value ~default:""
+      ; model = Cli_common_json.member_str "model" json
       ; stop_reason
       ; content =
           thinking_blocks

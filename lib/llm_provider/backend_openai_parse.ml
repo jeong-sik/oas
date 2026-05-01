@@ -80,7 +80,7 @@ let usage_of_openai_json json =
         let details = usage |> member "prompt_tokens_details" in
         if details = `Null
         then 0
-        else details |> member "cached_tokens" |> to_int_option |> Option.value ~default:0
+        else Cli_common_json.member_int "cached_tokens" details
     in
     Some
       { input_tokens = prompt_tokens
@@ -301,8 +301,8 @@ let parse_openai_response_result json_str =
       | other -> Unknown other
     in
     Ok
-      { id = json |> member "id" |> to_string_option |> Option.value ~default:""
-      ; model = json |> member "model" |> to_string_option |> Option.value ~default:""
+      { id = Cli_common_json.member_str "id" json
+      ; model = Cli_common_json.member_str "model" json
       ; stop_reason
       ; content =
           thinking_blocks

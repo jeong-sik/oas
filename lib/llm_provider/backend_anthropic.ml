@@ -22,13 +22,10 @@ let parse_response json =
       let input_tokens = u |> member "input_tokens" |> to_int in
       let output_tokens = u |> member "output_tokens" |> to_int in
       let cache_creation_input_tokens =
-        u
-        |> member "cache_creation_input_tokens"
-        |> to_int_option
-        |> Option.value ~default:0
+        Cli_common_json.member_int "cache_creation_input_tokens" u
       in
       let cache_read_input_tokens =
-        u |> member "cache_read_input_tokens" |> to_int_option |> Option.value ~default:0
+        Cli_common_json.member_int "cache_read_input_tokens" u
       in
       Some
         { input_tokens

@@ -13,7 +13,7 @@ let parse_sse_event event_type data_str =
     let evt_type =
       match event_type with
       | Some t -> t
-      | None -> json |> member "type" |> to_string_option |> Option.value ~default:""
+      | None -> Cli_common_json.member_str "type" json
     in
     match evt_type with
     | "message_start" ->
@@ -187,12 +187,8 @@ let parse_openai_sse_chunk data_str : openai_chunk option =
     let open Yojson.Safe.Util in
     try
       let json = Yojson.Safe.from_string data_str in
-      let chunk_id =
-        json |> member "id" |> to_string_option |> Option.value ~default:""
-      in
-      let chunk_model =
-        json |> member "model" |> to_string_option |> Option.value ~default:""
-      in
+      let chunk_id = Cli_common_json.member_str "id" json in
+      let chunk_model = Cli_common_json.member_str "model" json in
       let choice = json |> member "choices" |> index 0 in
       let delta = choice |> member "delta" in
       let delta_content = delta |> member "content" |> to_string_option in
@@ -228,16 +224,11 @@ let parse_openai_sse_chunk data_str : openai_chunk option =
             let d = u |> member "prompt_tokens_details" in
             if d = `Null
             then 0
-            else d |> member "cached_tokens" |> to_int_option |> Option.value ~default:0
+            else Cli_common_json.member_int "cached_tokens" d
           in
           Some
-            { input_tokens =
-                u |> member "prompt_tokens" |> to_int_option |> Option.value ~default:0
-            ; output_tokens =
-                u
-                |> member "completion_tokens"
-                |> to_int_option
-                |> Option.value ~default:0
+            { input_tokens = Cli_common_json.member_int "prompt_tokens" u
+            ; output_tokens = Cli_common_json.member_int "completion_tokens" u
             ; cache_creation_input_tokens = 0
             ; cache_read_input_tokens = cached
             ; cost_usd = None
@@ -379,9 +370,7 @@ let parse_gemini_sse_chunk data_str : gemini_chunk option =
   let open Yojson.Safe.Util in
   try
     let json = Yojson.Safe.from_string data_str in
-    let gem_model =
-      json |> member "modelVersion" |> to_string_option |> Option.value ~default:""
-    in
+    let gem_model = Cli_common_json.member_str "modelVersion" json in
     let candidate =
       match json |> member "candidates" with
       | `List (c :: _) -> c
@@ -399,19 +388,11 @@ let parse_gemini_sse_chunk data_str : gemini_chunk option =
       then None
       else
         Some
-          { input_tokens =
-              um |> member "promptTokenCount" |> to_int_option |> Option.value ~default:0
-          ; output_tokens =
-              um
-              |> member "candidatesTokenCount"
-              |> to_int_option
-              |> Option.value ~default:0
+          { input_tokens = Cli_common_json.member_int "promptTokenCount" um
+          ; output_tokens = Cli_common_json.member_int "candidatesTokenCount" um
           ; cache_creation_input_tokens = 0
           ; cache_read_input_tokens =
-              um
-              |> member "cachedContentTokenCount"
-              |> to_int_option
-              |> Option.value ~default:0
+              Cli_common_json.member_int "cachedContentTokenCount" um
           ; cost_usd = None
           }
     in
@@ -432,7 +413,7 @@ let gemini_chunk_to_events (state : openai_stream_state) (chunk : gemini_chunk)
   List.iter
     (fun part ->
        let is_thought =
-         part |> member "thought" |> to_bool_option |> Option.value ~default:false
+         Cli_common_json.member_bool "thought" part
        in
        match part |> member "text" |> to_string_option with
        | Some text when text <> "" ->
@@ -471,9 +452,7 @@ let gemini_chunk_to_events (state : openai_stream_state) (chunk : gemini_chunk)
        | _ ->
          (match part |> member "functionCall" with
           | `Assoc _ as fc ->
-            let name =
-              fc |> member "name" |> to_string_option |> Option.value ~default:""
-            in
+            let name = Cli_common_json.member_str "name" fc in
             let args = fc |> member "args" in
             let id = Api_common.synthesize_tool_use_id ~name args in
             let idx = state.next_block_index in
@@ -535,12 +514,8 @@ let parse_ollama_ndjson_chunk data_str : ollama_chunk option =
   let open Yojson.Safe.Util in
   try
     let json = Yojson.Safe.from_string data_str in
-    let oll_model =
-      json |> member "model" |> to_string_option |> Option.value ~default:""
-    in
-    let oll_is_done =
-      json |> member "done" |> to_bool_option |> Option.value ~default:false
-    in
+    let oll_model = Cli_common_json.member_str "model" json in
+    let oll_is_done = Cli_common_json.member_bool "done" json in
     let oll_done_reason = json |> member "done_reason" |> to_string_option in
     let message = json |> member "message" in
     let oll_delta_content =
