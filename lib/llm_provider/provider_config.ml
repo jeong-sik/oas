@@ -146,6 +146,34 @@ let show_provider_kind = Provider_kind.show
 let provider_kind_to_yojson = Provider_kind.to_yojson
 let provider_kind_of_yojson = Provider_kind.of_yojson
 
+let max_turns_hard_cap = function
+  | Claude_code -> Some 30
+  | Anthropic
+  | Kimi
+  | OpenAI_compat
+  | Ollama
+  | Gemini
+  | Glm
+  | DashScope
+  | Gemini_cli
+  | Kimi_cli
+  | Codex_cli -> None
+;;
+
+let clamp_max_turns kind requested =
+  match max_turns_hard_cap kind with
+  | Some cap -> min requested cap
+  | None -> requested
+;;
+
+let default_attempt_timeout_s = function
+  | Ollama -> Some 300.0
+  | Claude_code -> Some 120.0
+  | Kimi_cli -> Some 60.0
+  | Gemini_cli -> Some 180.0
+  | Anthropic | Kimi | OpenAI_compat | Gemini | Glm | DashScope | Codex_cli -> None
+;;
+
 (** Map thinking configuration to reasoning_effort string.
     Four levels: "none", "low" (≤2048), "medium" (≤8192), "high" (>8192).
     Shared by Ollama backends and api_openai request building.

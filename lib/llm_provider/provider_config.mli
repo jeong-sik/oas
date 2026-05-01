@@ -209,6 +209,19 @@ val provider_kind_of_yojson
   :  Yojson.Safe.t
   -> provider_kind Ppx_deriving_yojson_runtime.error_or
 
+(** Provider-internal hard cap for subprocess/native turn budgets.
+    Returns [None] when OAS has no provider-specific hard ceiling. *)
+val max_turns_hard_cap : provider_kind -> int option
+
+(** Clamp a requested per-provider turn budget to the provider's hard cap.
+    Providers without a hard cap return the requested value unchanged. *)
+val clamp_max_turns : provider_kind -> int -> int
+
+(** Provider-specific wall-clock budget hint for one provider attempt.
+    This is advisory metadata for cascade/orchestration layers; transports
+    still apply their own lower-level connect/body/idle timeouts. *)
+val default_attempt_timeout_s : provider_kind -> float option
+
 (** Map thinking configuration fields to reasoning_effort string.
     Returns "none", "low", "medium", or "high".
     @since 0.114.0 *)
