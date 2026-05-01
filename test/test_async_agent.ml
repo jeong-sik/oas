@@ -302,7 +302,16 @@ let test_all_contains_agent_exception () =
     check int "2 results" 2 (List.length results);
     (match results with
      | [ ("bad-agent", Error (Error.Internal msg)); ("good-agent", Ok resp) ] ->
-       check bool "failure captured" true (String.length msg > 0);
+       check
+         bool
+         "failure marker captured"
+         true
+         (Util.string_contains ~needle:"boom-before-turn" msg);
+       check
+         bool
+         "agent context captured"
+         true
+         (Util.string_contains ~needle:"bad-agent" msg);
        check string "sibling completed" "ok-after-failure" (extract_text resp)
      | _ -> fail "expected captured failure and completed sibling");
     Eio.Switch.fail sw Exit

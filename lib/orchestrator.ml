@@ -101,13 +101,8 @@ let run_agent_with_timeout ~sw ?clock ~task_id config agent prompt =
 ;;
 
 let run_agent_result ~sw ?clock ~task_id config agent prompt =
-  try run_agent_with_timeout ~sw ?clock ~task_id config agent prompt with
-  | Raw_trace.Trace_error e -> Error e
-  | Eio.Cancel.Cancelled _ as ex -> raise ex
-  | Out_of_memory -> raise Out_of_memory
-  | Stack_overflow -> raise Stack_overflow
-  | Sys.Break -> raise Sys.Break
-  | exn -> Error (Error.Internal (Printexc.to_string exn))
+  Nonfatal_exn.capture ~context:(Printf.sprintf "running task %s" task_id) (fun () ->
+    run_agent_with_timeout ~sw ?clock ~task_id config agent prompt)
 ;;
 
 (* ── Core execution ───────────────────────────────────────────────── *)

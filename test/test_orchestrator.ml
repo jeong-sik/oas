@@ -419,7 +419,12 @@ let test_run_task_unexpected_exception_becomes_error () =
   match tr.result with
   | Error (Error.Internal msg) ->
     check string "task id" "boom-task" tr.task_id;
-    check bool "captured exception" true (String.length msg > 0)
+    check bool "message mentions task" true (Util.string_contains ~needle:"boom-task" msg);
+    check
+      bool
+      "message mentions exception"
+      true
+      (Util.string_contains ~needle:"orchestrator boom" msg)
   | Error e -> fail (Printf.sprintf "wrong error: %s" (Error.to_string e))
   | Ok _ -> fail "expected captured exception"
 ;;

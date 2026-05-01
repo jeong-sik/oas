@@ -299,7 +299,7 @@ let test_parallel_read_timeout_keeps_sibling_result () =
       Tool.handler =
         Tool.Simple
           (fun _ ->
-            Eio.Time.with_timeout_exn clock 0.01 (fun () -> Eio.Promise.await never);
+            Eio.Time.with_timeout_exn clock 0.05 (fun () -> Eio.Promise.await never);
             Ok { Types.content = "unreachable" })
     }
   in
@@ -314,7 +314,9 @@ let test_parallel_read_timeout_keeps_sibling_result () =
       ]
   in
   let sorted =
-    List.sort (fun a b -> String.compare a.Agent_tools.tool_name b.tool_name) results
+    List.sort
+      (fun a b -> String.compare a.Agent_tools.tool_name b.Agent_tools.tool_name)
+      results
   in
   match sorted with
   | [ ok_result; timeout_result ] ->

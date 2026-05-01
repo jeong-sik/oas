@@ -31,13 +31,8 @@ let agent_name agent =
 let run_agent_result ~sw ?clock agent prompt =
   let name = agent_name agent in
   let result =
-    try Agent.run ~sw ?clock agent prompt with
-    | Raw_trace.Trace_error e -> Error e
-    | Eio.Cancel.Cancelled _ as ex -> raise ex
-    | Out_of_memory -> raise Out_of_memory
-    | Stack_overflow -> raise Stack_overflow
-    | Sys.Break -> raise Sys.Break
-    | exn -> Error (Error.Internal (Printexc.to_string exn))
+    Nonfatal_exn.capture ~context:(Printf.sprintf "running agent %s" name) (fun () ->
+      Agent.run ~sw ?clock agent prompt)
   in
   name, result
 ;;
@@ -48,6 +43,7 @@ let spawn ~sw ?clock agent prompt =
   let promise, resolver = Eio.Promise.create () in
   let resolved = Atomic.make false in
   let future = { promise; resolver; resolved; cancel_fn = None } in
+  let name = agent_name agent in
   Eio.Fiber.fork ~sw (fun () ->
     (* Run agent inside a sub-switch so cancel can terminate the fiber.
        Eio.Switch.run creates an independent error domain — failing it
@@ -59,12 +55,10 @@ let spawn ~sw ?clock agent prompt =
           Agent.run ~sw:sub_sw ?clock agent prompt)
       with
       | Cancelled -> Error (Error.Internal "cancelled")
-      | Raw_trace.Trace_error e -> Error e
-      | Eio.Cancel.Cancelled _ as ex -> raise ex
-      | Out_of_memory -> raise Out_of_memory
-      | Stack_overflow -> raise Stack_overflow
-      | Sys.Break -> raise Sys.Break
-      | exn -> Error (Error.Internal (Printexc.to_string exn))
+      | exn ->
+        Nonfatal_exn.error_of_raised
+          ~context:(Printf.sprintf "running spawned agent %s" name)
+          exn
     in
     resolve_once future result);
   future
