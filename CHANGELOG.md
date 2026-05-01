@@ -8,6 +8,12 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.187.6] - 2026-05-01
+
+### Fixed
+
+- Align generated opam package metadata and runtime SDK version with the current dune project version.
+
 ## [0.187.4] - 2026-04-30
 
 ### Fixed
