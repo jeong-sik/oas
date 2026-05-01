@@ -75,3 +75,15 @@ val json_member_int : string -> Yojson.Safe.t -> int
 (** [json_member_bool key json] returns the bool value for [key] in [json],
     or [false] if missing or wrong type. *)
 val json_member_bool : string -> Yojson.Safe.t -> bool
+
+(** Serialize optional int to JSON: [Some n] -> [`Int n], [None] -> [`Null]. *)
+val json_of_int_opt : int option -> Yojson.Safe.t
+
+(** Serialize optional float to JSON: [Some f] -> [`Float f], [None] -> [`Null]. *)
+val json_of_float_opt : float option -> Yojson.Safe.t
+
+(** Serialize optional bool to JSON: [Some b] -> [`Bool b], [None] -> [`Null]. *)
+val json_of_bool_opt : bool option -> Yojson.Safe.t
+
+(** Serialize optional string to JSON: [Some s] -> [`String s], [None] -> [`Null]. *)
+val json_of_string_opt : string option -> Yojson.Safe.t

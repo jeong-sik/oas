@@ -122,3 +122,23 @@ let json_member_int key json =
 let json_member_bool key json =
   Yojson.Safe.Util.(json |> member key |> to_bool_option) |> Option.value ~default:false
 ;;
+
+let json_of_int_opt = function
+  | None -> `Null
+  | Some v -> `Int v
+;;
+
+let json_of_float_opt = function
+  | None -> `Null
+  | Some v -> `Float v
+;;
+
+let json_of_bool_opt = function
+  | None -> `Null
+  | Some v -> `Bool v
+;;
+
+let json_of_string_opt = function
+  | None -> `Null
+  | Some v -> `String v
+;;

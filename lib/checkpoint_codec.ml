@@ -157,10 +157,7 @@ let checkpoint_to_json cp =
     ; "session_id", `String cp.session_id
     ; "agent_name", `String cp.agent_name
     ; "model", model_to_yojson cp.model
-    ; ( "system_prompt"
-      , match cp.system_prompt with
-        | Some s -> `String s
-        | None -> `Null )
+    ; "system_prompt", Util.json_of_string_opt cp.system_prompt
     ; "messages", `List (List.map message_to_json cp.messages)
     ; "usage", usage_to_json cp.usage
     ; "turn_count", `Int cp.turn_count
@@ -170,22 +167,17 @@ let checkpoint_to_json cp =
       , match cp.tool_choice with
         | Some tc -> tool_choice_to_json tc
         | None -> `Null )
-    ; ( "temperature"
-      , Option.value ~default:`Null (Option.map (fun v -> `Float v) cp.temperature) )
-    ; "top_p", Option.value ~default:`Null (Option.map (fun v -> `Float v) cp.top_p)
-    ; "top_k", Option.value ~default:`Null (Option.map (fun v -> `Int v) cp.top_k)
-    ; "min_p", Option.value ~default:`Null (Option.map (fun v -> `Float v) cp.min_p)
-    ; ( "enable_thinking"
-      , Option.value ~default:`Null (Option.map (fun v -> `Bool v) cp.enable_thinking) )
+    ; "temperature", Util.json_of_float_opt cp.temperature
+    ; "top_p", Util.json_of_float_opt cp.top_p
+    ; "top_k", Util.json_of_int_opt cp.top_k
+    ; "min_p", Util.json_of_float_opt cp.min_p
+    ; "enable_thinking", Util.json_of_bool_opt cp.enable_thinking
     ; "response_format", response_format_to_json cp.response_format
-    ; ( "thinking_budget"
-      , Option.value ~default:`Null (Option.map (fun v -> `Int v) cp.thinking_budget) )
+    ; "thinking_budget", Util.json_of_int_opt cp.thinking_budget
     ; "disable_parallel_tool_use", `Bool cp.disable_parallel_tool_use
     ; "cache_system_prompt", `Bool cp.cache_system_prompt
-    ; ( "max_input_tokens"
-      , Option.value ~default:`Null (Option.map (fun v -> `Int v) cp.max_input_tokens) )
-    ; ( "max_total_tokens"
-      , Option.value ~default:`Null (Option.map (fun v -> `Int v) cp.max_total_tokens) )
+    ; "max_input_tokens", Util.json_of_int_opt cp.max_input_tokens
+    ; "max_total_tokens", Util.json_of_int_opt cp.max_total_tokens
     ; "context", Context.to_json cp.context
     ; "mcp_sessions", Mcp_session.info_list_to_json cp.mcp_sessions
     ; "working_context", Option.value ~default:`Null cp.working_context
@@ -279,37 +271,17 @@ let delta_to_json (delta : delta) =
     | Replace_tool_choice tool_choice ->
       `Assoc
         [ "kind", `String "replace_tool_choice"
-        ; ( "tool_choice"
-          , match tool_choice with
-            | Some choice -> tool_choice_to_json choice
-            | None -> `Null )
+        ; "tool_choice", (match tool_choice with Some choice -> tool_choice_to_json choice | None -> `Null)
         ]
     | Replace_sampling patch ->
       `Assoc
         [ "kind", `String "replace_sampling"
-        ; ( "temperature"
-          , Option.value
-              ~default:`Null
-              (Option.map (fun value -> `Float value) patch.temperature) )
-        ; ( "top_p"
-          , Option.value
-              ~default:`Null
-              (Option.map (fun value -> `Float value) patch.top_p) )
-        ; ( "top_k"
-          , Option.value ~default:`Null (Option.map (fun value -> `Int value) patch.top_k)
-          )
-        ; ( "min_p"
-          , Option.value
-              ~default:`Null
-              (Option.map (fun value -> `Float value) patch.min_p) )
-        ; ( "enable_thinking"
-          , Option.value
-              ~default:`Null
-              (Option.map (fun value -> `Bool value) patch.enable_thinking) )
-        ; ( "thinking_budget"
-          , Option.value
-              ~default:`Null
-              (Option.map (fun value -> `Int value) patch.thinking_budget) )
+        ; "temperature", Util.json_of_float_opt patch.temperature
+        ; "top_p", Util.json_of_float_opt patch.top_p
+        ; "top_k", Util.json_of_int_opt patch.top_k
+        ; "min_p", Util.json_of_float_opt patch.min_p
+        ; "enable_thinking", Util.json_of_bool_opt patch.enable_thinking
+        ; "thinking_budget", Util.json_of_int_opt patch.thinking_budget
         ]
     | Replace_limits patch ->
       `Assoc

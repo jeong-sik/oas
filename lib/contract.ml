@@ -165,9 +165,7 @@ let trigger_to_json trigger =
 
 let instruction_layer_to_json layer =
   `Assoc
-    [ ( "label"
-      , Option.value ~default:`Null (Option.map (fun value -> `String value) layer.label)
-      )
+    [ "label", Util.json_of_string_opt layer.label
     ; "content", `String layer.content
     ]
 ;;
@@ -175,12 +173,8 @@ let instruction_layer_to_json layer =
 let skill_to_json (skill : Skill.t) =
   `Assoc
     [ "name", `String skill.name
-    ; ( "description"
-      , Option.value
-          ~default:`Null
-          (Option.map (fun value -> `String value) skill.description) )
-    ; ( "path"
-      , Option.value ~default:`Null (Option.map (fun value -> `String value) skill.path) )
+    ; "description", Util.json_of_string_opt skill.description
+    ; "path", Util.json_of_string_opt skill.path
     ; "allowed_tools", `List (List.map (fun value -> `String value) skill.allowed_tools)
     ]
 ;;
