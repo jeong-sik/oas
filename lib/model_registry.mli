@@ -1,4 +1,3 @@
-open Base
 (** Model registry: alias resolution and model ID normalization.
 
     The single source of truth for model alias → canonical API ID mapping.

@@ -1,4 +1,3 @@
-open Base
 (** Structured evaluation report.
 
     @since 0.68.0

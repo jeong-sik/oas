@@ -1,4 +1,3 @@
-open Base
 type check =
   { code : string
   ; name : string

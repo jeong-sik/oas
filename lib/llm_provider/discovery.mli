@@ -1,4 +1,3 @@
-open Base
 (** LLM endpoint discovery -- probes local llama-server instances.
 
     Queries OpenAI-compatible endpoints (/v1/models, /props, /slots, /health)

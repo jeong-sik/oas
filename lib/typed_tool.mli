@@ -1,4 +1,3 @@
-open Base
 (** Typed tool — compile-time enforced schema/handler type agreement.
 
     Extends the ['a schema] pattern from {!Structured} to tool definitions.

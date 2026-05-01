@@ -1,4 +1,3 @@
-open Base
 (** Multi-vendor live smoke test.
 
     Runs the golden Event_bus lifecycle transcript against whatever

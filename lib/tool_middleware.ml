@@ -1,4 +1,3 @@
-open Base
 (** Tool call middleware — reusable validation, coercion, and dispatch primitives.
 
     @since 0.101.0 *)

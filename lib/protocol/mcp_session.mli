@@ -1,4 +1,3 @@
-open Base
 (** MCP session persistence -- capture and restore server connection info.
 
     Captures serializable parts of MCP connections (specs + tool schemas)

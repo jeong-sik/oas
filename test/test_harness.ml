@@ -1,4 +1,3 @@
-open Base
 (** Tests for the Harness module — behavioral, adversarial, performance,
     regression, swiss cheese, and composability verification. *)
 

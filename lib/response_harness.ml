@@ -1,4 +1,3 @@
-open Base
 (** Response_harness — deterministic extraction layer for LLM outputs.
 
     Composes {!Lenient_json} and {!Structured} into a unified pipeline:

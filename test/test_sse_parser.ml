@@ -1,4 +1,3 @@
-open Base
 (** Tests for Sse_parser — SSE line-level parser. *)
 
 open Alcotest

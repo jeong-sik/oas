@@ -1,4 +1,3 @@
-open Base
 (** Execution mode for contract-driven agent runs.
 
     Part of the Contract-Driven Agent Loop (CDAL) PoC-1.

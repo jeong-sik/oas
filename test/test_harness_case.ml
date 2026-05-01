@@ -1,4 +1,3 @@
-open Base
 (** Tests for Harness_case and Harness_dataset. *)
 
 open Agent_sdk

@@ -1,4 +1,3 @@
-open Base
 (** Generic VCS graph snapshot contract.
 
     This module contains pure data types only. It does not execute VCS

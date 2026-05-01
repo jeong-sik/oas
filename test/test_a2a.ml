@@ -1,4 +1,3 @@
-open Base
 (** Tests for A2A Task Lifecycle — a2a_task.ml and a2a_server.ml. *)
 
 open Agent_sdk

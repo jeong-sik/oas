@@ -1,4 +1,3 @@
-open Base
 (** Tests for Contract module — runtime contract helpers. *)
 
 open Agent_sdk

@@ -1,4 +1,3 @@
-open Base
 (** Contract-driven agent runner -- PoC-1 entry point.
 
     Wraps {!Agent.run} with contract enforcement and proof capture.

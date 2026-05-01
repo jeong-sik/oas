@@ -1,4 +1,3 @@
-open Base
 (** Sessions — public API facade.
 
     Re-exports types from {!Sessions_types}, store operations from

@@ -1,4 +1,3 @@
-open Base
 (** Lenient JSON parser — recovers common LLM output malformations.
 
     Applies a deterministic chain of recovery transforms:

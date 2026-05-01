@@ -1,4 +1,3 @@
-open Base
 (** Tests for approval callback (human-in-the-loop) in execute_tools. *)
 
 open Alcotest

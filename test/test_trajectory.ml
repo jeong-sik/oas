@@ -1,4 +1,3 @@
-open Base
 (** Tests for Trajectory and Sandbox_runner modules. *)
 
 open Agent_sdk

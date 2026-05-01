@@ -1,4 +1,3 @@
-open Base
 (** Explicit runtime contract helpers.
 
     Packages system prompt, tools, MCP clients, guardrails, context,

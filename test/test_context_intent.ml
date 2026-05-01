@@ -1,4 +1,3 @@
-open Base
 open Alcotest
 open Agent_sdk
 

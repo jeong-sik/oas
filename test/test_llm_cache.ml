@@ -1,4 +1,3 @@
-open Base
 (** Tests for Llm_provider.Cache — fingerprinting, serialization roundtrip,
     and cache backend interface contract. Covers the 80 uncovered bisect points. *)
 

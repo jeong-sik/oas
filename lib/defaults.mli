@@ -1,4 +1,3 @@
-open Base
 (** Default configuration constants with environment variable overrides.
 
     Each value falls back to the compile-time default when the

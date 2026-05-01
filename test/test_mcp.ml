@@ -1,4 +1,3 @@
-open Base
 (** Unit tests for the MCP module.
     Tests pure functions only — no subprocess spawning.
 

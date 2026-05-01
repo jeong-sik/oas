@@ -1,4 +1,3 @@
-open Base
 (** Abstract transport for LLM completions.
 
     @since 0.78.0 *)

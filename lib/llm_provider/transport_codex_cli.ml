@@ -1,4 +1,3 @@
-open Base
 (** Codex CLI non-interactive transport.
 
     Uses [codex exec --json] which emits JSONL envelopes on stdout:

@@ -1,4 +1,3 @@
-open Base
 (** Tests for Durable_event — event-sourced agent loop journal. *)
 
 open Alcotest

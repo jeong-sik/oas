@@ -1,4 +1,3 @@
-open Base
 (** Multi-vendor Event_bus taxonomy invariants.
 
     Every provider OAS supports — Anthropic, OpenAI (+ compatibles),

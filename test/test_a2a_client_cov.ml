@@ -1,4 +1,3 @@
-open Base
 (** A2A Client coverage tests with mock HTTP server.
     Exercises: discover, send_task, get_task, cancel_task, text_of_task,
     and error paths (bad JSON, HTTP errors, RPC errors). *)

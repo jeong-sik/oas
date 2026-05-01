@@ -1,4 +1,3 @@
-open Base
 (** Deep unit tests for Transport module — options type construction,
     and protocol message serialization round-trips that exercise
     Transport-adjacent code paths.

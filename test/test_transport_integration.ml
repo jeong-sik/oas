@@ -1,4 +1,3 @@
-open Base
 (** Integration tests for Transport + Runtime_client + Internal_query_engine.
     Spawns a real oas_runtime.exe subprocess and exercises the IPC protocol.
     No mocks — real subprocess, real pipes, real NDJSON messages.

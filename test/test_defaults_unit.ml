@@ -1,4 +1,3 @@
-open Base
 (** Unit tests for Defaults module.
     Targets: env_or, local_llm_url, fallback_provider, default_context_reducer.
     Uses Unix.putenv/Unix environment manipulation for env var testing.

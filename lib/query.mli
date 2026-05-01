@@ -1,4 +1,3 @@
-open Base
 (** One-shot runtime query.
 
     Alias for {!Internal_client.process_query}.

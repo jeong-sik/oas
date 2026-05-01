@@ -1,4 +1,3 @@
-open Base
 (** Tracing / Observability module.
 
     Defines a {!TRACER} module type and two built-in implementations:

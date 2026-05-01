@@ -1,4 +1,3 @@
-open Base
 (** Shared utility functions.
 
     Extracted from agent.ml, runtime_server.ml, sessions.ml,

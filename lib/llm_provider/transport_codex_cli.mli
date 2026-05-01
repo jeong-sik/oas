@@ -1,4 +1,3 @@
-open Base
 (** Codex CLI non-interactive transport.
 
     Implements {!Llm_transport.t} by spawning [codex exec] subprocesses.

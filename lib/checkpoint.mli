@@ -1,4 +1,3 @@
-open Base
 (** Agent state checkpoint -- versioned JSON serialization.
 
     Captures full conversation state (messages, usage, config) as a

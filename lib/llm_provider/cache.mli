@@ -1,4 +1,3 @@
-open Base
 (** Response cache interface for LLM completions.
 
     Consumers inject their own cache backend (in-memory, file, Redis, etc.)

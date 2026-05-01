@@ -1,4 +1,3 @@
-open Base
 (** Code generation agent — natural language to OCaml code.
 
     Demonstrates:

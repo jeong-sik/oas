@@ -1,4 +1,3 @@
-open Base
 type options = Transport.options =
   { runtime_path : string option
   ; session_root : string option

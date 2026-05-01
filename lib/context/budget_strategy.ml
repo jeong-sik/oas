@@ -1,4 +1,3 @@
-open Base
 (** Budget-aware context compression strategy.
 
     Maps token budget usage ratios to progressively aggressive

@@ -1,4 +1,3 @@
-open Base
 (** Unit tests for Audit module (v0.76.0). *)
 
 open Alcotest

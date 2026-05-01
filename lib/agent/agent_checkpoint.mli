@@ -1,4 +1,3 @@
-open Base
 (** Checkpoint build/restore logic.
 
     Takes explicit parameters to avoid circular dependency with [Agent.t].

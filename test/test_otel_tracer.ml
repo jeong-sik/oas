@@ -1,4 +1,3 @@
-open Base
 (** Tests for otel_tracer.ml — OpenTelemetry-compatible tracer. *)
 
 open Alcotest

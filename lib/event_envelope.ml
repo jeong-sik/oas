@@ -1,4 +1,3 @@
-open Base
 type source_clock =
   | Wall
   | Monotonic

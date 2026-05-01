@@ -1,4 +1,3 @@
-open Base
 (** Tests for Llm_provider.Discovery -- unit tests that do not require
     a running llama-server. We test JSON parsing, env var parsing,
     and serialization. *)

@@ -1,4 +1,3 @@
-open Base
 (** Tests for API dispatch: body shape + response parsing per provider.
 
     Verifies that each of the 4 provider kinds produces correctly-shaped

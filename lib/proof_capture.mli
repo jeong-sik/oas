@@ -1,4 +1,3 @@
-open Base
 (** Transparent proof capture middleware for CDAL.
 
     Part of the Contract-Driven Agent Loop (CDAL) PoC-1.

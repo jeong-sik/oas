@@ -1,4 +1,3 @@
-open Base
 (** Property-based tests using QCheck.
     Tests round-trip properties, commutativity, and invariants. *)
 

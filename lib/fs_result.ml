@@ -1,4 +1,3 @@
-open Base
 (** Result-based filesystem operations.
 
     Normalizes [Eio.Io], [Unix.Unix_error], [Sys_error], and [Failure]

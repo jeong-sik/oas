@@ -1,4 +1,3 @@
-open Base
 (** Tool schema generator — combinator-based schema derivation.
 
     @stability Experimental

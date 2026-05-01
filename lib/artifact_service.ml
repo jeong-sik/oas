@@ -1,4 +1,3 @@
-open Base
 open Runtime
 
 let ( let* ) = Result.bind

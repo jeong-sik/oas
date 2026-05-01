@@ -1,4 +1,3 @@
-open Base
 (** Eval Metrics OTel Bridge.
 
     Bridges [Eval.run_metrics] into OTel-compatible span attributes.

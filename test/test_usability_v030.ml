@@ -1,4 +1,3 @@
-open Base
 (** Usability test — verifies that v0.30.0 features compose naturally
     from a user's perspective.  These are not unit tests; they exercise
     the Builder -> Agent -> Card -> Registry pipeline end-to-end. *)

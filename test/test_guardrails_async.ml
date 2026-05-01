@@ -1,4 +1,3 @@
-open Base
 (** Unit tests for Guardrails_async (v0.67.0). *)
 
 open Alcotest

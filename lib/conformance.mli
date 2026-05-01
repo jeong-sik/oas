@@ -1,4 +1,3 @@
-open Base
 (** Conformance checking for agent session proofs.
 
     Transforms a {!Sessions.proof_bundle} into a structured report

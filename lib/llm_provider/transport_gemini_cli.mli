@@ -1,4 +1,3 @@
-open Base
 (** Gemini CLI non-interactive transport.
 
     Implements {!Llm_transport.t} by spawning [gemini -p] subprocesses.

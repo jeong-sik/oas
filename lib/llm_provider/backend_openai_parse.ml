@@ -1,4 +1,3 @@
-open Base
 (** OpenAI-compatible response parsing.
 
     Parses JSON responses from OpenAI Chat Completions API into

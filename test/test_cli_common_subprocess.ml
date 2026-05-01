@@ -1,4 +1,3 @@
-open Base
 (* Integration tests for Cli_common_subprocess.
    Depend on /bin/sh being available in the test environment. *)
 

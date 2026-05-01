@@ -1,4 +1,3 @@
-open Base
 (** Policy engine — runtime governance for agent decisions.
 
     Rules are evaluated in priority order (highest first).

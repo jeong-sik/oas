@@ -1,4 +1,3 @@
-open Base
 (** Tests for orchestrator.ml — multi-agent task distribution. *)
 
 open Alcotest

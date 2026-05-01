@@ -1,4 +1,3 @@
-open Base
 (** SSE event parsing for Anthropic and OpenAI streaming APIs.
 
     Pure functions — no I/O or agent_sdk coupling.

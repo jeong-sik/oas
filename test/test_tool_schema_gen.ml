@@ -1,4 +1,3 @@
-open Base
 (** Tests for Tool_schema_gen — combinator-based schema derivation. *)
 
 open Agent_sdk

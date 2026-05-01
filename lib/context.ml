@@ -1,4 +1,3 @@
-open Base
 (** Cross-turn shared state for agent execution.
     Inspired by Google ADK's session.state pattern.
 

@@ -1,4 +1,3 @@
-open Base
 (** Sandbox_runner — single-call probe execution with timeout and metric collection.
 
     Runs an agent function in a controlled environment, captures trajectory,

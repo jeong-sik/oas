@@ -1,4 +1,3 @@
-open Base
 (** Tool execution helpers — lookup, hooks, event_bus, parallel Eio fibers.
 
     These functions are parameterized by explicit fields rather than Agent.t

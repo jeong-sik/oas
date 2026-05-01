@@ -1,4 +1,3 @@
-open Base
 (** OTLP HTTP/JSON span exporter for {!Otel_tracer}.
 
     Periodically flushes completed spans to an OTLP-compatible collector

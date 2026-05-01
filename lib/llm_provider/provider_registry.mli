@@ -1,4 +1,3 @@
-open Base
 (** Extensible provider registry with capability-aware queries.
 
     Formalizes the historical hardcoded provider list into a mutable

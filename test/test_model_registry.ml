@@ -1,4 +1,3 @@
-open Base
 (** Coverage for [Model_registry] (oas#1175 step 2 — vendor model alias
     SSOT).  The module is the single place where short→full Anthropic
     model IDs are resolved; new models are added here only.

@@ -1,4 +1,3 @@
-open Base
 (** Tests for Agent_tool — agent-as-tool wrapper. *)
 
 open Agent_sdk

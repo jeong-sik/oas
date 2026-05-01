@@ -1,4 +1,3 @@
-open Base
 (** OAS Runtime wire protocol types.
 
     Defines the full request/response/event protocol between the OAS

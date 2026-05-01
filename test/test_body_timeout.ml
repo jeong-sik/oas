@@ -1,4 +1,3 @@
-open Base
 (** Unit tests for [body_timeout_s] option (since 0.181.0).
 
     Validates the field flow plus the message-prefix contract that

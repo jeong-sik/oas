@@ -1,4 +1,3 @@
-open Base
 (** Tests for Uncertain module — typed wrapper for non-deterministic values. *)
 
 open Agent_sdk

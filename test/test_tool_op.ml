@@ -1,4 +1,3 @@
-open Base
 (** Tests for Tool_op -- algebraic tool set operations. *)
 
 open Alcotest

@@ -1,4 +1,3 @@
-open Base
 (** Extended MCP coverage tests — targets uncovered paths in mcp.ml and mcp_http.ml.
 
     Focuses on:

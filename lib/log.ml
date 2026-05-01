@@ -1,4 +1,3 @@
-open Base
 (** Structured Logging — level-based structured log system.
 
     Provides typed log records with key-value fields, composable sinks,

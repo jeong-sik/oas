@@ -1,4 +1,3 @@
-open Base
 (** Unit tests for Trajectory — construction, serialization, metrics.
 
     Targets 53 uncovered points in lib/trajectory.ml. *)

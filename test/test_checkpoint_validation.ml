@@ -1,4 +1,3 @@
-open Base
 (** Test_checkpoint_validation — Unit tests for DNA validation
     and continuity regression checks.
 

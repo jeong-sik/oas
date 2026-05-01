@@ -1,4 +1,3 @@
-open Base
 (** API dispatch — routes requests to provider-specific backends.
 
     @stability Evolving

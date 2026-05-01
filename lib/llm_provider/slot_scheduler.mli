@@ -1,4 +1,3 @@
-open Base
 (** Priority-aware slot scheduler for LLM requests.
 
     Replaces FIFO semaphore-based throttling with a priority queue.

@@ -1,4 +1,3 @@
-open Base
 (** Additional coverage tests for Streaming module.
 
     Targets the stream accumulation logic (create_stream_acc,

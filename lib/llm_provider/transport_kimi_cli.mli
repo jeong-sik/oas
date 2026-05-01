@@ -1,4 +1,3 @@
-open Base
 (** Kimi CLI non-interactive transport.
 
     Implements {!Llm_transport.t} by spawning [kimi --print]

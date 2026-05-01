@@ -1,4 +1,3 @@
-open Base
 (** File-backed long-term memory persistence.
 
     Follows {!Checkpoint_store} patterns: Eio.Path, atomic tmp+rename.

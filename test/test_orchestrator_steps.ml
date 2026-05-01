@@ -1,4 +1,3 @@
-open Base
 (** Tests for Orchestrator step_plan — closure-based workflow execution. *)
 
 open Agent_sdk

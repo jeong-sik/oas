@@ -1,4 +1,3 @@
-open Base
 (** Audit trail — append-only log of policy decisions and agent actions.
 
     Records every decision point evaluation, providing accountability

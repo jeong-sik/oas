@@ -1,4 +1,3 @@
-open Base
 (** Core types for Anthropic Agent SDK.
 
     LLM-level types (role, message, content_block, etc.) are re-exported from

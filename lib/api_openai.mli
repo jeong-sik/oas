@@ -1,4 +1,3 @@
-open Base
 (** OpenAI-compatible API request building and response parsing.
 
     Includes re-exports from {!Llm_provider.Backend_openai}.

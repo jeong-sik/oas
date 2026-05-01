@@ -1,4 +1,3 @@
-open Base
 (** Unit tests for SSE streaming types and usage tracking. *)
 
 open Agent_sdk.Types

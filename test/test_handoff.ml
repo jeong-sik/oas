@@ -1,4 +1,3 @@
-open Base
 (** Tests for handoff.ml — tool naming plus runner-side interception. *)
 
 open Alcotest

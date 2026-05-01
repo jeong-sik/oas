@@ -1,4 +1,3 @@
-open Base
 (** Unified model metadata — consolidates capabilities, pricing, and
     locality into a single query.
 

@@ -1,4 +1,3 @@
-open Base
 (** LLM-based evaluation and scoring.
 
     Provides a single-turn judgment call against a single provider.

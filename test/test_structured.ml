@@ -1,4 +1,3 @@
-open Base
 (** Unit tests for Structured output module. *)
 
 open Agent_sdk

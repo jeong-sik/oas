@@ -1,4 +1,3 @@
-open Base
 (** Agent implementation using Eio structured concurrency.
 
     Supports hooks, context, guardrails, and handoffs as optional features.

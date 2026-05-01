@@ -1,4 +1,3 @@
-open Base
 (** Unit tests for Streaming.{create_stream_acc, accumulate_event, finalize_stream_acc}. *)
 
 open Agent_sdk

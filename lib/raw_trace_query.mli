@@ -1,4 +1,3 @@
-open Base
 (** Read-side operations for raw traces: list runs, read, summarize, validate.
 
     Extracted from {!Raw_trace} to separate write-path (recording) from

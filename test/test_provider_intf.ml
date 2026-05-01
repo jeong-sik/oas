@@ -1,4 +1,3 @@
-open Base
 (** Provider_intf tests — module type satisfaction and dispatch. *)
 
 open Agent_sdk

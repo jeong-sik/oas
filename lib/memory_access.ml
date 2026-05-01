@@ -1,4 +1,3 @@
-open Base
 (** Memory access control — agent-scoped permission layer.
 
     @since 0.76.0 *)

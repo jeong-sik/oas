@@ -1,4 +1,3 @@
-open Base
 (** Unit tests for Eval_stats — pure statistical utilities used by the
     eval regression detector.
 

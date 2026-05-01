@@ -1,4 +1,3 @@
-open Base
 (** Unit tests for Tool_middleware — reusable validation/coercion primitives. *)
 
 open Agent_sdk

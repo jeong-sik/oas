@@ -1,4 +1,3 @@
-open Base
 (** Unit tests for Metric_contract — strict <metric> tag parser
     used by the eval/judge harness. Pure, no IO, no Eio. *)
 

@@ -1,4 +1,3 @@
-open Base
 (** Provider interface module types.
 
     Defines PROVIDER and STREAMING_PROVIDER as first-class module types

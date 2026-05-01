@@ -1,4 +1,3 @@
-open Base
 (** Live integration test: agent-sdk → llama-server (Qwen3.5)
 
     Requires: llama-server running on 127.0.0.1:8085

@@ -1,4 +1,3 @@
-open Base
 (** Ollama native API backend.
 
     Builds requests for [/api/chat] endpoint with [think] parameter

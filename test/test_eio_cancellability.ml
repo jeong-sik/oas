@@ -1,4 +1,3 @@
-open Base
 (** Regression guard for OAS HTTP cancellation assumption.
 
     OAS streaming code (lib/llm_provider/http_client.ml [read_sse],

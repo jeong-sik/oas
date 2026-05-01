@@ -1,4 +1,3 @@
-open Base
 (** Runtime health snapshot primitives.
 
     This is a small, provider-agnostic shape for reporting whether the

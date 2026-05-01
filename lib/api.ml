@@ -1,4 +1,3 @@
-open Base
 (** API dispatch — re-exports provider modules and routes create_message *)
 
 module Retry = Llm_provider.Retry

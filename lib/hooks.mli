@@ -1,4 +1,3 @@
-open Base
 (** Lifecycle hooks for agent execution.
 
     @stability Stable

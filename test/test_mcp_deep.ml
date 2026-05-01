@@ -1,4 +1,3 @@
-open Base
 (** Deep coverage tests for lib/protocol/mcp.ml.
 
     Targets the 116 uncovered lines (54.33% coverage).

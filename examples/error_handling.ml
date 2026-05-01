@@ -1,4 +1,3 @@
-open Base
 (** Error handling example: graceful recovery from tool failures.
 
     Demonstrates:

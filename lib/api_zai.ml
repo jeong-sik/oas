@@ -1,4 +1,3 @@
-open Base
 (** Z.AI general API helpers for non-chat media endpoints. *)
 
 open Llm_provider

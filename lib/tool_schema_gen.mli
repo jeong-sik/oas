@@ -1,4 +1,3 @@
-open Base
 (** Tool schema generator — combinator-based schema derivation.
 
     Alternative to PPX: declare fields with combinators, get

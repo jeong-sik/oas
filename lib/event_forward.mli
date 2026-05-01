@@ -1,4 +1,3 @@
-open Base
 (** Event Forwarding — deliver {!Event_bus} events to external targets.
 
     Supports file append and custom transports.

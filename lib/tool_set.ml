@@ -1,4 +1,3 @@
-open Base
 (** Tool Set: composable, deduplicated tool collections.
 
     Internal representation: ordered list + name→index map for O(1) lookup.

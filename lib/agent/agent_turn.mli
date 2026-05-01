@@ -1,4 +1,3 @@
-open Base
 (** Shared turn logic for sync and streaming paths.
 
     Contains helper functions that both [Agent.run_turn_with_trace] and

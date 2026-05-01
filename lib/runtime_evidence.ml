@@ -1,4 +1,3 @@
-open Base
 open Runtime
 
 let runtime_persist_failure_prefix = "[runtime_persist_failure phase="

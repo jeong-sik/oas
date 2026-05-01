@@ -1,4 +1,3 @@
-open Base
 let () =
   Oas_cli_support.with_runtime
   @@ fun ~env:_ ~sw ~net ~mgr:_ ~clock:_ ->

@@ -1,4 +1,3 @@
-open Base
 (** Working memory: 5-tier facade over {!Context.t}.
 
     - {b Scratchpad} — per-turn ephemeral data (cleared between turns).

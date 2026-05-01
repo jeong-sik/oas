@@ -1,4 +1,3 @@
-open Base
 (** Handoff message helpers — pure functions for handoff detection
     and message manipulation.
 

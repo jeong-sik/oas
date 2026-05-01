@@ -1,4 +1,3 @@
-open Base
 (** End-to-end proof: context_injector → Context.t → before_turn_params → LLM.
 
     Closes the verification gap: existing tests proved the write side

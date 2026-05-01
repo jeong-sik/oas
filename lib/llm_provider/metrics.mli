@@ -1,4 +1,3 @@
-open Base
 (** Metrics hooks for LLM completion observability.
 
     Consumers inject their own metrics backend (Prometheus, StatsD, log, etc.)

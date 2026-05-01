@@ -1,4 +1,3 @@
-open Base
 (** Atomic file save for Eio paths.
 
     Writes to a writer-unique tmp, fsyncs the tmp file, renames it into

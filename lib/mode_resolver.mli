@@ -1,4 +1,3 @@
-open Base
 (** Execution mode resolution -- deterministic downgrade logic.
 
     Part of the Contract-Driven Agent Loop (CDAL) PoC-1.

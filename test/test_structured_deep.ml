@@ -1,4 +1,3 @@
-open Base
 (** Deep coverage tests for Structured module.
 
     Targets uncovered branches in structured.ml (51 uncovered points).

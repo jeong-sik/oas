@@ -1,4 +1,3 @@
-open Base
 (** Tests for tool.ml -- handler execution, context passing, schema generation *)
 
 open Alcotest

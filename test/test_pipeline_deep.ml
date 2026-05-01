@@ -1,4 +1,3 @@
-open Base
 (** Deep coverage tests for pipeline/pipeline.ml (63 uncovered points).
 
     Pipeline.run_turn is the only public function (via .mli), so we test

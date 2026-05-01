@@ -1,4 +1,3 @@
-open Base
 (** Content replacement state for prompt-cache-preserving tool result relocation.
 
     Implements the "decision freezing" pattern from Claude Code's

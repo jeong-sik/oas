@@ -1,4 +1,3 @@
-open Base
 (** Eval Metrics OTel Bridge — emit [Eval.run_metrics] as OTel span events.
 
     OAS's [Otel_tracer] is span-based (no native counter/gauge API).

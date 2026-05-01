@@ -1,4 +1,3 @@
-open Base
 (** Priority-aware slot scheduler for LLM requests.
 
     Uses Eio.Mutex for state protection and Eio.Promise for per-waiter

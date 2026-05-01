@@ -1,4 +1,3 @@
-open Base
 (** Tool call middleware — reusable validation, coercion, and dispatch primitives.
 
     Consumers (MCP servers, custom agent loops) use these to build their own

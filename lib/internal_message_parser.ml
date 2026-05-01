@@ -1,4 +1,3 @@
-open Base
 let status session = Sdk_client_types.Session_status session
 let events events = Sdk_client_types.Session_events events
 

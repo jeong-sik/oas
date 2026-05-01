@@ -1,4 +1,3 @@
-open Base
 (** Additional coverage tests for Structured module.
 
     Targets uncovered branches in json_extractor (Type_error, Failure),

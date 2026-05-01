@@ -1,4 +1,3 @@
-open Base
 (** OAS v0.24 Bug Hunt — end-to-end reproduction and fix verification.
     Phase 1: reproduce each bug candidate.
     Phase 2: verify fixes are applied correctly.

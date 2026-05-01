@@ -1,4 +1,3 @@
-open Base
 (** Tests for Approval pipeline — composable multi-stage approval. *)
 
 open Alcotest

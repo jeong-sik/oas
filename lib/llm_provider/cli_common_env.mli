@@ -1,4 +1,3 @@
-open Base
 (** Environment-variable driven flag helpers for CLI transports.
 
     The three [transport_*_cli] modules each translate a small,

@@ -1,4 +1,3 @@
-open Base
 (** Builder patterns example: all Builder API methods and validation.
 
     Demonstrates:

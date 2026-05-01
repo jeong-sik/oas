@@ -1,4 +1,3 @@
-open Base
 (** Structured evaluation report.
 
     Combines baseline comparison, harness verdicts, and pass\@k into

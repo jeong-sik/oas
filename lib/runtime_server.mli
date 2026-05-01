@@ -1,4 +1,3 @@
-open Base
 (** Runtime protocol server: reads NDJSON from stdin, dispatches requests.
 
     Entry point for the oas_runtime binary. Integrates with

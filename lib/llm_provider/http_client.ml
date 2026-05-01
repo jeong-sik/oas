@@ -1,4 +1,3 @@
-open Base
 (** HTTP client for LLM provider endpoints.
 
     Wraps Eio + cohttp-eio with TLS. All network and HTTP-level errors

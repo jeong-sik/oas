@@ -1,4 +1,3 @@
-open Base
 let ( let* ) = Result.bind
 
 module Sdk_http_client = Mcp_protocol_http.Http_client

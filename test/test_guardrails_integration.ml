@@ -1,4 +1,3 @@
-open Base
 (** Integration tests for guardrails — verify tool filtering and limits
     interact correctly with Agent.run.
 

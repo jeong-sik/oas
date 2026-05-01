@@ -1,4 +1,3 @@
-open Base
 open Agent_sdk
 
 let base_session : Runtime.session =

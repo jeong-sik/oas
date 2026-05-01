@@ -1,4 +1,3 @@
-open Base
 let get name =
   match Sys.getenv_opt name with
   | None -> None

@@ -1,4 +1,3 @@
-open Base
 (** File-backed checkpoint persistence using [Eio.Path].
 
     Layout: [<base_dir>/<session_id>.json].

@@ -1,4 +1,3 @@
-open Base
 (** Deep coverage tests targeting mid-range uncovered modules.
 
     Covers: sessions_types, durable, event_forward, builder,

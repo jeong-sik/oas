@@ -1,4 +1,3 @@
-open Base
 (** SSE streaming example.
 
     Demonstrates:

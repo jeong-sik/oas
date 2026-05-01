@@ -1,4 +1,3 @@
-open Base
 (** Convenience wrapper for one-shot runtime protocol queries.
 
     @stability Internal

@@ -1,4 +1,3 @@
-open Base
 (** Tripwire guardrails: fail-fast parallel validators.
 
     Uses [Eio.Fiber.first] for cancel-on-first-completion semantics.

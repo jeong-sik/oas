@@ -1,4 +1,3 @@
-open Base
 open Agent_sdk
 
 let () = Unix.putenv "OAS_ALLOW_TEST_PROVIDERS" "1"

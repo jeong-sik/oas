@@ -1,4 +1,3 @@
-open Base
 (** First-class harness cases for fixture and trace-derived evals.
 
     @stability Evolving

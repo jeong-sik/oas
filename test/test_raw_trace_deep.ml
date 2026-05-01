@@ -1,4 +1,3 @@
-open Base
 (** Deep tests for raw_trace.ml and raw_trace_query.ml — targeting the
     130 uncovered points at 71%.
 

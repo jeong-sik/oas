@@ -1,4 +1,3 @@
-open Base
 (** Structured diagnostic logging for llm_provider.
 
     Default sink: stderr with structured prefix and level filtering.

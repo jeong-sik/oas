@@ -1,4 +1,3 @@
-open Base
 (** Append Instruction — hook-based dynamic instruction injection.
 
     @since 0.55.0 *)

@@ -1,4 +1,3 @@
-open Base
 (** Tests for Async_agent — Eio fiber-based background agent execution.
 
     Uses a mock HTTP server (cohttp-eio) to simulate LLM responses.

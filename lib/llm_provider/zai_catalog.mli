@@ -1,4 +1,3 @@
-open Base
 (** Z.AI catalog and routing helpers.
 
     Centralizes official endpoint constants, model aliases, and

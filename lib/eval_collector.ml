@@ -1,4 +1,3 @@
-open Base
 (** Eval Collector — automatic metric collection from Event_bus.
 
     Subscribes to an Event_bus and extracts metrics (turn count, tool calls,

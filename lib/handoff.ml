@@ -1,4 +1,3 @@
-open Base
 (** Sub-agent delegation and handoff.
     Inspired by Anthropic SDK's AgentDefinition + Task tool
     and Google ADK's Root/Sub-agent pattern.
