@@ -70,12 +70,7 @@ let episode_of_json (json : Yojson.Safe.t) : episode option =
     let id = json |> member "id" |> to_string in
     let timestamp = json |> member "timestamp" |> to_float in
     let participants =
-      json
-      |> member "participants"
-      |> to_list
-      |> List.filter_map (function
-        | `String s -> Some s
-        | _ -> None)
+      json |> member "participants" |> to_list |> Util.string_list_of_json
     in
     let action = json |> member "action" |> to_string in
     let outcome = outcome_of_json (json |> member "outcome") in

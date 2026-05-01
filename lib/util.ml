@@ -145,3 +145,10 @@ let json_of_string_opt = function
 
 let json_of_string_list lst = `List (List.map (fun s -> `String s) lst)
 ;;
+
+let string_list_of_json lst =
+  List.filter_map (function
+    | `String s -> Some s
+    | _ -> None)
+    lst
+;;

@@ -233,12 +233,7 @@ let of_json (json : Yojson.Safe.t) : (agent_card, Error.sdk_error) result =
       |> List.map (fun j -> capability_of_string (to_string j))
     in
     let supported_providers =
-      json
-      |> member "supported_providers"
-      |> to_list
-      |> List.filter_map (function
-        | `String s -> Some s
-        | _ -> None)
+      json |> member "supported_providers" |> to_list |> Util.string_list_of_json
     in
     let metadata =
       match json |> member "metadata" with
@@ -252,12 +247,7 @@ let of_json (json : Yojson.Safe.t) : (agent_card, Error.sdk_error) result =
       match json |> member "authentication" with
       | `Assoc _ as auth_json ->
         let schemes =
-          auth_json
-          |> member "schemes"
-          |> to_list
-          |> List.filter_map (function
-            | `String s -> Some s
-            | _ -> None)
+          auth_json |> member "schemes" |> to_list |> Util.string_list_of_json
         in
         let credentials =
           match auth_json |> member "credentials" with
