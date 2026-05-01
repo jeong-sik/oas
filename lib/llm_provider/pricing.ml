@@ -114,6 +114,36 @@ let pricing_for_model_opt model_id =
       string_contains ~needle:"gemini-3.1-flash-lite-preview" normalized
       || string_contains ~needle:"gemini-3.1-flash-lite" normalized
     then Some ((0.25, 1.5), no_cache)
+      (* GLM (Z.ai). Source: docs.z.ai/guides/overview/pricing, confirmed
+         2026-05-01. Cache write at standard input rate (no surcharge).
+         Cache read multiplier = cached_input_price / input_price.
+         Free models: glm-4.7-flash, glm-4.5-flash.
+         Ordering: more-specific needles before less-specific (substring
+         match) — glm-5.1 before glm-5, glm-4.7-flashx before glm-4.7. *)
+    else if string_contains ~needle:"glm-5.1" normalized
+    then Some ((1.4, 4.4), (1.0, 0.18571428571428572))
+    else if string_contains ~needle:"glm-5-turbo" normalized
+    then Some ((1.2, 4.0), (1.0, 0.2))
+    else if string_contains ~needle:"glm-4.7-flashx" normalized
+    then Some ((0.07, 0.4), (1.0, 0.14285714285714285))
+    else if string_contains ~needle:"glm-4.7-flash" normalized
+    then Some ((0.0, 0.0), no_cache)
+    else if string_contains ~needle:"glm-4.5-x" normalized
+    then Some ((2.2, 8.9), (1.0, 0.20454545454545455))
+    else if string_contains ~needle:"glm-4.5-airx" normalized
+    then Some ((1.1, 4.5), (1.0, 0.2))
+    else if string_contains ~needle:"glm-4.5-air" normalized
+    then Some ((0.2, 1.1), (1.0, 0.15))
+    else if string_contains ~needle:"glm-4.5-flash" normalized
+    then Some ((0.0, 0.0), no_cache)
+    else if string_contains ~needle:"glm-5" normalized
+    then Some ((1.0, 3.2), (1.0, 0.2))
+    else if string_contains ~needle:"glm-4.6" normalized
+    then Some ((0.6, 2.2), (1.0, 0.18333333333333332))
+    else if string_contains ~needle:"glm-4.7" normalized
+    then Some ((0.6, 2.2), (1.0, 0.18333333333333332))
+    else if string_contains ~needle:"glm-4.5" normalized
+    then Some ((0.6, 2.2), (1.0, 0.18333333333333332))
     else if
       normalized = "auto"
       || normalized = "gemini"
@@ -371,6 +401,95 @@ let%test "pricing gemini-3.1-pro (bare id)" =
 let%test "pricing gemini-3.1-flash-lite-preview" =
   let p = pricing_for_model "gemini-3.1-flash-lite-preview" in
   close_enough p.input_per_million 0.25 && close_enough p.output_per_million 1.5
+;;
+
+(* --- pricing_for_model: GLM (Z.ai) --- *)
+
+let%test "pricing glm-5.1" =
+  let p = pricing_for_model "glm-5.1" in
+  close_enough p.input_per_million 1.4
+  && close_enough p.output_per_million 4.4
+  && close_enough p.cache_write_multiplier 1.0
+  && close_enough p.cache_read_multiplier (0.26 /. 1.4)
+;;
+
+let%test "pricing glm-5-turbo" =
+  let p = pricing_for_model "glm-5-turbo" in
+  close_enough p.input_per_million 1.2
+  && close_enough p.output_per_million 4.0
+  && close_enough p.cache_read_multiplier 0.2
+;;
+
+let%test "pricing glm-5 (generic)" =
+  let p = pricing_for_model "glm-5" in
+  close_enough p.input_per_million 1.0
+  && close_enough p.output_per_million 3.2
+;;
+
+let%test "pricing glm-4.7-flashx (paid)" =
+  let p = pricing_for_model "glm-4.7-flashx" in
+  close_enough p.input_per_million 0.07
+  && close_enough p.output_per_million 0.4
+;;
+
+let%test "pricing glm-4.7-flash (free)" =
+  let p = pricing_for_model "glm-4.7-flash" in
+  close_enough p.input_per_million 0.0
+  && close_enough p.output_per_million 0.0
+;;
+
+let%test "pricing glm-4.5-x" =
+  let p = pricing_for_model "glm-4.5-x" in
+  close_enough p.input_per_million 2.2
+  && close_enough p.output_per_million 8.9
+;;
+
+let%test "pricing glm-4.5-airx" =
+  let p = pricing_for_model "glm-4.5-airx" in
+  close_enough p.input_per_million 1.1
+  && close_enough p.output_per_million 4.5
+;;
+
+let%test "pricing glm-4.5-air" =
+  let p = pricing_for_model "glm-4.5-air" in
+  close_enough p.input_per_million 0.2
+  && close_enough p.output_per_million 1.1
+;;
+
+let%test "pricing glm-4.5-flash (free)" =
+  let p = pricing_for_model "glm-4.5-flash" in
+  close_enough p.input_per_million 0.0
+  && close_enough p.output_per_million 0.0
+;;
+
+let%test "pricing glm-4.7 (generic)" =
+  let p = pricing_for_model "glm-4.7" in
+  close_enough p.input_per_million 0.6
+  && close_enough p.output_per_million 2.2
+;;
+
+let%test "pricing glm-4.5 (generic)" =
+  let p = pricing_for_model "glm-4.5" in
+  close_enough p.input_per_million 0.6
+  && close_enough p.output_per_million 2.2
+;;
+
+let%test "pricing glm-coding-plan:glm-5-turbo (prefixed variant)" =
+  let p = pricing_for_model "glm-coding-plan:glm-5-turbo" in
+  close_enough p.input_per_million 1.2
+  && close_enough p.output_per_million 4.0
+;;
+
+let%test "pricing glm-coding-plan:glm-5.1 (prefixed variant)" =
+  let p = pricing_for_model "glm-coding-plan:glm-5.1" in
+  close_enough p.input_per_million 1.4
+  && close_enough p.output_per_million 4.4
+;;
+
+let%test "pricing_for_model_opt: glm unknown returns None" =
+  match pricing_for_model_opt "glm-future-99" with
+  | None -> true
+  | Some _ -> false
 ;;
 
 (* --- pricing_for_model: claude_code alias fallback --- *)
