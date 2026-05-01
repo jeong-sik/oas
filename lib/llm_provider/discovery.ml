@@ -76,10 +76,7 @@ let parse_llm_endpoints_env () =
   match Sys.getenv_opt "LLM_ENDPOINTS" with
   | None -> []
   | Some value ->
-    value
-    |> String.split_on_char ','
-    |> List.map String.trim
-    |> List.filter (fun s -> s <> "")
+    Cli_common_env.split_on_char_trim ',' value
 ;;
 
 let endpoints_from_env () =

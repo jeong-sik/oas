@@ -140,7 +140,8 @@ let read_events store session_id ?after_seq () =
     let* raw = load_text path in
     raw
     |> String.split_on_char '\n'
-    |> List.filter (fun line -> String.trim line <> "")
+    |> List.map String.trim
+    |> Util.filter_non_empty
     |> List.fold_left
          (fun acc line ->
             let* rev = acc in

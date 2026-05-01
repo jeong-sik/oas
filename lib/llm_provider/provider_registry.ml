@@ -46,7 +46,8 @@ let path_entries ?path () =
     (match Sys.getenv_opt "PATH" with
      | Some value -> String.split_on_char ':' value
      | None -> [])
-    |> List.filter (fun entry -> String.trim entry <> "")
+    |> List.map String.trim
+    |> Cli_common_env.filter_non_empty
 ;;
 
 let command_candidates ~name =

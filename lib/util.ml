@@ -80,3 +80,11 @@ let regex_match re str =
   with
   | Not_found -> false
 ;;
+
+let filter_non_empty =
+  List.filter (fun s -> s <> "")
+;;
+
+let split_on_char_trim sep s =
+  String.split_on_char sep s |> List.map String.trim |> filter_non_empty
+;;

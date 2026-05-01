@@ -38,3 +38,9 @@ val list : ?sep:char -> string -> string list option
     is trimmed.  Entries without an [=] separator are dropped.
     Returns [None] when [name] is unset. *)
 val kv_pairs : string -> (string * string) list option
+
+(** Filter out empty strings from a list. *)
+val filter_non_empty : string list -> string list
+
+(** Split on [sep], trim each fragment, discard empty results. *)
+val split_on_char_trim : char -> string -> string list

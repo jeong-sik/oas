@@ -4,9 +4,8 @@ type t = Harness_case.t list
 
 let non_empty_lines content =
   content
-  |> String.split_on_char '\n'
-  |> List.map String.trim
-  |> List.filter (fun line -> line <> "" && not (String.starts_with ~prefix:"#" line))
+  |> Util.split_on_char_trim '\n'
+  |> List.filter (fun line -> not (String.starts_with ~prefix:"#" line))
 ;;
 
 let load ~path =

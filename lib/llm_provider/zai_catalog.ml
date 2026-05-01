@@ -80,8 +80,7 @@ let mode_of_base_url base_url =
   else General_api
 ;;
 
-let split_csv value =
-  String.split_on_char ',' value |> List.map String.trim |> List.filter (fun s -> s <> "")
+let split_csv = Cli_common_env.split_on_char_trim ','
 ;;
 
 let glm_auto_models () =
