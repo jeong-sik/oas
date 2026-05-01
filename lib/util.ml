@@ -99,8 +99,14 @@ let trim_non_empty_opt = function
   | Some s -> trim_non_empty s
 ;;
 
+let get var =
+  match Sys.getenv_opt var with
+  | None -> None
+  | Some v -> trim_non_empty v
+;;
+
 let env_or default var =
-  match trim_non_empty_opt (Sys.getenv_opt var) with
+  match get var with
   | Some v -> v
   | None -> default
 ;;

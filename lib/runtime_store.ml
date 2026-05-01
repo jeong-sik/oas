@@ -55,7 +55,7 @@ let ensure_tree store session_id =
 ;;
 
 let default_root () =
-  match Util.trim_non_empty_opt (Sys.getenv_opt "OAS_RUNTIME_SESSION_ROOT") with
+  match Util.get "OAS_RUNTIME_SESSION_ROOT" with
   | Some value -> value
   | None -> Filename.concat (Sys.getcwd ()) ".oas-runtime"
 ;;

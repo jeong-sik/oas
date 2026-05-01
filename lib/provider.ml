@@ -189,7 +189,7 @@ let first_present_env env_names =
   let rec loop = function
     | [] -> None
     | env_name :: rest ->
-      (match Util.trim_non_empty_opt (Sys.getenv_opt env_name) with
+      (match Util.get env_name with
        | Some value -> Some (env_name, value)
        | None -> loop rest)
   in
@@ -197,7 +197,7 @@ let first_present_env env_names =
 ;;
 
 let kimi_direct_base_url () =
-  match Util.trim_non_empty_opt (Sys.getenv_opt "KIMI_BASE_URL") with
+  match Util.get "KIMI_BASE_URL" with
   | Some url -> url
   | None -> "https://api.kimi.com/coding"
 ;;
