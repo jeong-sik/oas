@@ -149,12 +149,7 @@ let legacy_env_extra_args ~(config : config) =
 let default_prompt_argv_threshold = 512 * 1024
 
 let prompt_argv_threshold () =
-  match Sys.getenv_opt "OAS_CLAUDE_PROMPT_ARGV_THRESHOLD" with
-  | Some raw ->
-    (match int_of_string_opt (String.trim raw) with
-     | Some v when v >= 0 -> v
-     | _ -> default_prompt_argv_threshold)
-  | None -> default_prompt_argv_threshold
+  Cli_common_env.int ~default:default_prompt_argv_threshold "OAS_CLAUDE_PROMPT_ARGV_THRESHOLD"
 ;;
 
 (** Decide whether the prompt must be routed via stdin.  Callers that

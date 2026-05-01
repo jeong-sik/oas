@@ -52,3 +52,12 @@ let kv_pairs name =
   | None -> None
   | Some v -> Some (split_on_char_trim ',' v |> List.filter_map parse_kv)
 ;;
+
+let int ~default var =
+  match Sys.getenv_opt var with
+  | Some raw ->
+    (match int_of_string_opt (String.trim raw) with
+     | Some v when v >= 0 -> v
+     | _ -> default)
+  | None -> default
+;;
