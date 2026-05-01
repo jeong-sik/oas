@@ -50,9 +50,22 @@ let prompt_argv_threshold () =
 ;;
 
 let prompt_exceeds_argv_budget prompt = String.length prompt >= prompt_argv_threshold ()
+let sanitize_for_kimi prompt = Utf8_sanitize.sanitize prompt
+
+let prompt_contains_non_ascii prompt =
+  let rec loop idx =
+    idx < String.length prompt && (Char.code prompt.[idx] > 0x7f || loop (idx + 1))
+  in
+  loop 0
+;;
+
+let prompt_needs_stdin prompt =
+  prompt_exceeds_argv_budget prompt || prompt_contains_non_ascii prompt
+;;
 
 let stdin_for_prompt prompt =
-  if prompt_exceeds_argv_budget prompt then Some prompt else None
+  let prompt = sanitize_for_kimi prompt in
+  if prompt_needs_stdin prompt then Some prompt else None
 ;;
 
 let cli_model_override ~(config : config) ~(req_config : Provider_config.t) =
@@ -62,7 +75,8 @@ let cli_model_override ~(config : config) ~(req_config : Provider_config.t) =
 ;;
 
 let build_args ~(config : config) ~(req_config : Provider_config.t) ~prompt =
-  let prompt_via_stdin = prompt_exceeds_argv_budget prompt in
+  let prompt = sanitize_for_kimi prompt in
+  let prompt_via_stdin = prompt_needs_stdin prompt in
   let args = ref [ config.kimi_path; "--print"; "--output-format"; "stream-json" ] in
   let add a = args := !args @ a in
   if not prompt_via_stdin then add [ "-p"; prompt ];
@@ -132,10 +146,12 @@ let tool_result_of_json json =
   | None -> None
 ;;
 
+let parse_json_line line = Yojson.Safe.from_string (Utf8_sanitize.sanitize line)
+
 let blocks_of_output_line line =
   let open Yojson.Safe.Util in
   try
-    let json = Yojson.Safe.from_string line in
+    let json = parse_json_line line in
     match json |> member "role" |> to_string_option with
     | Some "assistant" ->
       let content = blocks_of_message_content (json |> member "content") in
@@ -158,7 +174,7 @@ let response_id_of_lines lines =
   let open Yojson.Safe.Util in
   let find_id line =
     try
-      let json = Yojson.Safe.from_string line in
+      let json = parse_json_line line in
       match json |> member "id" |> to_string_option with
       | Some id when String.trim id <> "" -> Some id
       | _ ->
@@ -175,7 +191,7 @@ let response_model_of_lines ~model_id lines =
   let open Yojson.Safe.Util in
   let find_model line =
     try
-      let json = Yojson.Safe.from_string line in
+      let json = parse_json_line line in
       match json |> member "model" |> to_string_option with
       | Some m when String.trim m <> "" -> Some m
       | _ -> None
@@ -204,7 +220,7 @@ let usage_of_lines lines =
   let find_usage line =
     let open Yojson.Safe.Util in
     try
-      let json = Yojson.Safe.from_string line in
+      let json = parse_json_line line in
       parse_usage json
     with
     | Yojson.Json_error _ | Type_error _ -> None
@@ -383,6 +399,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config) : Llm_transport.t =
       (fun (req : Llm_transport.completion_request) ->
         warn_external_tools_once warned req.tools;
         let prompt, _resume_existing_session = prepare_prompt_and_messages req in
+        let prompt = sanitize_for_kimi prompt in
         let model_id =
           Option.value
             ~default:"kimi-for-coding"
@@ -414,6 +431,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config) : Llm_transport.t =
       (fun ~on_event (req : Llm_transport.completion_request) ->
         warn_external_tools_once warned req.tools;
         let prompt, _resume_existing_session = prepare_prompt_and_messages req in
+        let prompt = sanitize_for_kimi prompt in
         let model_id =
           Option.value
             ~default:"kimi-for-coding"
@@ -544,6 +562,12 @@ let%test "build_args routes large prompt via stdin" =
   (not (List.mem big args)) && not (List.mem "-p" args)
 ;;
 
+let%test "build_args sanitizes broken utf8 prompt before argv" =
+  let bad = "prefix\x80suffix" in
+  let args = build_args ~config:default_config ~req_config:(kimi_req ()) ~prompt:bad in
+  (not (List.mem bad args)) && not (List.mem "-p" args)
+;;
+
 let%test "build_args adds session id when configured" =
   let config = { default_config with session_id = Some "sess-abc" } in
   let args = build_args ~config ~req_config:(kimi_req ()) ~prompt:"next" in
@@ -582,6 +606,13 @@ let%test "parse_jsonl_result accepts array-form content" =
   match parse_jsonl_result ~model_id:"kimi-for-coding" lines with
   | Ok resp -> resp.content = [ Types.Text "hello" ]
   | Error _ -> false
+;;
+
+let%test "parse_jsonl_result sanitizes broken utf8 output lines" =
+  let lines = [ "{\"role\":\"assistant\",\"content\":\"hello\x80\"}" ] in
+  match parse_jsonl_result ~model_id:"kimi-for-coding" lines with
+  | Ok { content = [ Types.Text text ]; _ } -> text = "hello\xEF\xBF\xBD"
+  | _ -> false
 ;;
 
 let%test "classify_cli_error exit 1 becomes AcceptRejected" =
