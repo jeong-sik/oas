@@ -28,10 +28,8 @@ let configured_base_urls defaults env_var =
   @
   match env_var with
   | Some var ->
-    (match Sys.getenv_opt var with
-     | Some value ->
-       let trimmed = String.trim value in
-       if trimmed = "" then [] else [ trimmed ]
+    (match Cli_common_env.get var with
+     | Some value -> [ value ]
      | None -> [])
   | None -> []
 ;;
@@ -80,20 +78,19 @@ let mode_of_base_url base_url =
   else General_api
 ;;
 
-let split_csv value =
-  String.split_on_char ',' value |> List.map String.trim |> List.filter (fun s -> s <> "")
+let split_csv = Cli_common_env.split_on_char_trim ','
 ;;
 
 let glm_auto_models () =
-  match Sys.getenv_opt "ZAI_AUTO_MODELS" with
-  | Some v when String.trim v <> "" -> split_csv v
-  | _ -> [ "glm-5.1"; "glm-5-turbo"; "glm-4.7"; "glm-4.7-flashx" ]
+  match Cli_common_env.list ~sep:',' "ZAI_AUTO_MODELS" with
+  | Some models -> models
+  | None -> [ "glm-5.1"; "glm-5-turbo"; "glm-4.7"; "glm-4.7-flashx" ]
 ;;
 
 let glm_coding_auto_models () =
-  match Sys.getenv_opt "ZAI_CODING_AUTO_MODELS" with
-  | Some v when String.trim v <> "" -> split_csv v
-  | _ -> [ "glm-5.1"; "glm-5"; "glm-5-turbo"; "glm-4.7"; "glm-4.5-air" ]
+  match Cli_common_env.list ~sep:',' "ZAI_CODING_AUTO_MODELS" with
+  | Some models -> models
+  | None -> [ "glm-5.1"; "glm-5"; "glm-5-turbo"; "glm-4.7"; "glm-4.5-air" ]
 ;;
 
 let resolve_glm_alias ~default_model model_id =

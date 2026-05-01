@@ -189,17 +189,17 @@ let first_present_env env_names =
   let rec loop = function
     | [] -> None
     | env_name :: rest ->
-      (match Sys.getenv_opt env_name with
-       | Some value when String.trim value <> "" -> Some (env_name, String.trim value)
-       | _ -> loop rest)
+      (match Util.get env_name with
+       | Some value -> Some (env_name, value)
+       | None -> loop rest)
   in
   loop env_names
 ;;
 
 let kimi_direct_base_url () =
-  match Sys.getenv_opt "KIMI_BASE_URL" with
-  | Some url when String.trim url <> "" -> String.trim url
-  | _ -> "https://api.kimi.com/coding"
+  match Util.get "KIMI_BASE_URL" with
+  | Some url -> url
+  | None -> "https://api.kimi.com/coding"
 ;;
 
 let kimi_direct_request_path = "/v1/messages"

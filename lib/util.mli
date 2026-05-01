@@ -42,3 +42,24 @@ val contains_substring_ci : haystack:string -> needle:string -> bool
 
 (** [regex_match re s] returns [true] if regex [re] matches anywhere in [s]. *)
 val regex_match : Str.regexp -> string -> bool
+
+(** Filter out empty strings from a list. *)
+val filter_non_empty : string list -> string list
+
+(** Split on [sep], trim each fragment, discard empty results. *)
+val split_on_char_trim : char -> string -> string list
+
+(** [trim_non_empty s] trims [s] and returns [Some trimmed] if non-empty,
+    [None] otherwise. *)
+val trim_non_empty : string -> string option
+
+(** [trim_non_empty_opt opt] maps [trim_non_empty] over an option. *)
+val trim_non_empty_opt : string option -> string option
+
+(** [get var] returns [Some v] if env var [var] is set to a non-empty
+    string after trimming, [None] otherwise. *)
+val get : string -> string option
+
+(** [env_or default var] looks up env var [var], trims it, and returns
+    the trimmed value if non-empty, otherwise [default]. *)
+val env_or : string -> string -> string

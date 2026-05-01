@@ -49,37 +49,33 @@ type endpoint_status =
    model name that isn't part of the endpoint's meaning. Operators
    should rename their env var; the migration is mechanical. *)
 let () =
-  match Sys.getenv_opt "OAS_LOCAL_QWEN_URL" with
-  | Some v when String.trim v <> "" ->
+  match Cli_common_env.get "OAS_LOCAL_QWEN_URL" with
+  | Some v ->
     Diag.warn
       "discovery"
       "OAS_LOCAL_QWEN_URL is set (%s) but has been removed in favor of \
        OAS_LOCAL_LLM_URL. The legacy value will be ignored. Rename the env var to \
        migrate."
-      (String.trim v)
-  | _ -> ()
+      v
+  | None -> ()
 ;;
 
 let default_endpoint =
-  match Sys.getenv_opt "OAS_LOCAL_LLM_URL" with
-  | Some v when String.trim v <> "" -> String.trim v
-  | _ -> Constants.Endpoints.default_url
+  match Cli_common_env.get "OAS_LOCAL_LLM_URL" with
+  | Some v -> v
+  | None -> Constants.Endpoints.default_url
 ;;
 
 let ollama_endpoint =
-  match Sys.getenv_opt "OLLAMA_HOST" with
-  | Some url when String.trim url <> "" -> String.trim url
-  | _ -> "http://127.0.0.1:11434"
+  match Cli_common_env.get "OLLAMA_HOST" with
+  | Some url -> url
+  | None -> "http://127.0.0.1:11434"
 ;;
 
 let parse_llm_endpoints_env () =
-  match Sys.getenv_opt "LLM_ENDPOINTS" with
+  match Cli_common_env.list ~sep:',' "LLM_ENDPOINTS" with
+  | Some urls -> urls
   | None -> []
-  | Some value ->
-    value
-    |> String.split_on_char ','
-    |> List.map String.trim
-    |> List.filter (fun s -> s <> "")
 ;;
 
 let endpoints_from_env () =

@@ -12,13 +12,8 @@ let level_to_string = function
 ;;
 
 let debug_enabled =
-  match Sys.getenv_opt "OAS_LLM_PROVIDER_DEBUG" with
-  | Some ("1" | "true") -> true
-  | _ ->
-    (* Backward compat: cascade_executor used OAS_CASCADE_DIAG *)
-    (match Sys.getenv_opt "OAS_CASCADE_DIAG" with
-     | Some ("1" | "true") -> true
-     | _ -> false)
+  Cli_common_env.bool "OAS_LLM_PROVIDER_DEBUG"
+  || Cli_common_env.bool "OAS_CASCADE_DIAG"
 ;;
 
 let default_sink (lvl : level) ~ctx msg =

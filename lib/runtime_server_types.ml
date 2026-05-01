@@ -23,9 +23,7 @@ let create ~net () =
 
 let store_of_state state = Runtime_store.create ?root:state.session_root ()
 
-let session_root_request_path = function
-  | Some value when String.trim value <> "" -> Some (String.trim value)
-  | _ -> None
+let session_root_request_path = Util.trim_non_empty_opt
 ;;
 
 let write_protocol_message state message =

@@ -81,16 +81,11 @@ let resolve_execution (session : session) (detail : spawn_agent_request) =
     | Some value when String.trim value <> "" ->
       String.lowercase_ascii (String.trim value)
     | _ ->
-      (match session.provider with
-       | Some value when String.trim value <> "" ->
-         String.lowercase_ascii (String.trim value)
-       | _ -> Defaults.fallback_provider)
+      (match Util.trim_non_empty_opt session.provider with
+       | Some value -> String.lowercase_ascii value
+       | None -> Defaults.fallback_provider)
   in
-  let requested_model =
-    match detail.model with
-    | Some value when String.trim value <> "" -> Some (String.trim value)
-    | _ -> None
-  in
+  let requested_model = Util.trim_non_empty_opt detail.model in
   match selected_provider with
   | "mock" | "echo" ->
     let* () = ensure_test_provider_enabled selected_provider in

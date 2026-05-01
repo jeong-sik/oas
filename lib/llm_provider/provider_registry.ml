@@ -30,23 +30,18 @@ let find_capable t pred = all t |> List.filter (fun e -> pred e.capabilities)
 (* ── Default registry ─────────────────────────────────── *)
 
 let has_api_key env_name =
-  env_name = ""
-  ||
-  match Sys.getenv_opt env_name with
-  | Some s -> String.trim s <> ""
-  | None -> false
+  env_name = "" || Cli_common_env.get env_name <> None
 ;;
 
 let has_any_api_key env_names = List.exists has_api_key env_names
 
 let path_entries ?path () =
   match path with
-  | Some value -> String.split_on_char ':' value
+  | Some value -> Cli_common_env.split_on_char_trim ':' value
   | None ->
-    (match Sys.getenv_opt "PATH" with
-     | Some value -> String.split_on_char ':' value
+    (match Cli_common_env.get "PATH" with
+     | Some value -> Cli_common_env.split_on_char_trim ':' value
      | None -> [])
-    |> List.filter (fun entry -> String.trim entry <> "")
 ;;
 
 let command_candidates ~name =
@@ -166,12 +161,15 @@ let claude_defaults =
   }
 ;;
 
+let env_or_default env_name default_url =
+  match Cli_common_env.get env_name with
+  | Some url -> url
+  | None -> default_url
+;;
+
 let gemini_defaults =
   { kind = Gemini
-  ; base_url =
-      (match Sys.getenv_opt "GEMINI_BASE_URL" with
-       | Some url -> url
-       | None -> "https://generativelanguage.googleapis.com/v1beta")
+  ; base_url = env_or_default "GEMINI_BASE_URL" "https://generativelanguage.googleapis.com/v1beta"
   ; api_key_env = "GEMINI_API_KEY"
   ; request_path = ""
   }
@@ -179,10 +177,7 @@ let gemini_defaults =
 
 let glm_defaults =
   { kind = Glm
-  ; base_url =
-      (match Sys.getenv_opt "ZAI_BASE_URL" with
-       | Some url when String.trim url <> "" -> String.trim url
-       | _ -> Zai_catalog.general_base_url)
+  ; base_url = env_or_default "ZAI_BASE_URL" Zai_catalog.general_base_url
   ; api_key_env = "ZAI_API_KEY"
   ; request_path = "/chat/completions"
   }
@@ -190,10 +185,7 @@ let glm_defaults =
 
 let glm_coding_defaults =
   { kind = Glm
-  ; base_url =
-      (match Sys.getenv_opt "ZAI_CODING_BASE_URL" with
-       | Some url when String.trim url <> "" -> String.trim url
-       | _ -> Zai_catalog.coding_base_url)
+  ; base_url = env_or_default "ZAI_CODING_BASE_URL" Zai_catalog.coding_base_url
   ; api_key_env = "ZAI_API_KEY"
   ; request_path = "/chat/completions"
   }
@@ -201,10 +193,7 @@ let glm_coding_defaults =
 
 let kimi_defaults =
   { kind = Kimi
-  ; base_url =
-      (match Sys.getenv_opt "KIMI_BASE_URL" with
-       | Some url when String.trim url <> "" -> String.trim url
-       | _ -> "https://api.kimi.com/coding")
+  ; base_url = env_or_default "KIMI_BASE_URL" "https://api.kimi.com/coding"
   ; api_key_env = "KIMI_API_KEY"
   ; request_path = "/v1/messages"
   }
@@ -212,10 +201,7 @@ let kimi_defaults =
 
 let ollama_defaults =
   { kind = Ollama
-  ; base_url =
-      (match Sys.getenv_opt "OLLAMA_HOST" with
-       | Some url when String.trim url <> "" -> String.trim url
-       | _ -> "http://127.0.0.1:11434")
+  ; base_url = env_or_default "OLLAMA_HOST" "http://127.0.0.1:11434"
   ; api_key_env = ""
   ; request_path = "/api/chat"
   }
@@ -227,12 +213,6 @@ let openrouter_defaults =
   ; api_key_env = "OPENROUTER_API_KEY"
   ; request_path = "/chat/completions"
   }
-;;
-
-let env_or_default env_name default_url =
-  match Sys.getenv_opt env_name with
-  | Some url when String.trim url <> "" -> String.trim url
-  | _ -> default_url
 ;;
 
 let groq_defaults =

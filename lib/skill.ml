@@ -50,7 +50,7 @@ let split_csv s =
   inner
   |> String.split_on_char ','
   |> List.map strip_quotes
-  |> List.filter (fun x -> x <> "")
+  |> Util.filter_non_empty
 ;;
 
 let replace_all ~pattern ~replacement text =

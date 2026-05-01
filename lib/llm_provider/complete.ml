@@ -584,9 +584,9 @@ let complete_http
                       config.model_id
                   in
                   let dir =
-                    match Sys.getenv_opt "OAS_DEBUG_BODY_DIR" with
-                    | Some v when String.trim v <> "" -> String.trim v
-                    | _ -> Filename.get_temp_dir_name ()
+                    match Cli_common_env.get "OAS_DEBUG_BODY_DIR" with
+                    | Some v -> v
+                    | None -> Filename.get_temp_dir_name ()
                   in
                   let path =
                     Filename.concat

@@ -274,13 +274,14 @@ let load_lines path =
   then Ok []
   else
     let* raw = Fs_result.read_file path in
-    Ok (String.split_on_char '\n' raw |> List.filter (fun line -> line <> ""))
+    Ok (String.split_on_char '\n' raw |> Util.filter_non_empty)
 ;;
 
 let read_all ~path () =
   let* lines = load_lines path in
   lines
-  |> List.filter (fun line -> String.trim line <> "")
+  |> List.map String.trim
+  |> Util.filter_non_empty
   |> List.map (fun line ->
     let* json = parse_json_string line in
     record_of_json json)

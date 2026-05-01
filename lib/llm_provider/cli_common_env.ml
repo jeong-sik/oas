@@ -1,9 +1,15 @@
-let get name =
-  match Sys.getenv_opt name with
+let trim_non_empty s =
+  let trimmed = String.trim s in
+  if trimmed = "" then None else Some trimmed
+;;
+
+let trim_non_empty_opt = function
   | None -> None
-  | Some v ->
-    let trimmed = String.trim v in
-    if trimmed = "" then None else Some trimmed
+  | Some s -> trim_non_empty s
+;;
+
+let get name =
+  trim_non_empty_opt (Sys.getenv_opt name)
 ;;
 
 let bool name =
@@ -15,8 +21,10 @@ let bool name =
      | _ -> false)
 ;;
 
+let filter_non_empty = List.filter (fun s -> s <> "")
+
 let split_on_char_trim sep s =
-  String.split_on_char sep s |> List.map String.trim |> List.filter (fun s -> s <> "")
+  String.split_on_char sep s |> List.map String.trim |> filter_non_empty
 ;;
 
 let list ?(sep = ',') name =
@@ -43,4 +51,13 @@ let kv_pairs name =
   match get name with
   | None -> None
   | Some v -> Some (split_on_char_trim ',' v |> List.filter_map parse_kv)
+;;
+
+let int ~default var =
+  match Sys.getenv_opt var with
+  | Some raw ->
+    (match int_of_string_opt (String.trim raw) with
+     | Some v when v >= 0 -> v
+     | _ -> default)
+  | None -> default
 ;;
