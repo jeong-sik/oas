@@ -93,3 +93,6 @@ val json_of_string_list : string list -> Yojson.Safe.t
 
 (** Extract string list from JSON value list, ignoring non-string elements. *)
 val string_list_of_json : Yojson.Safe.t list -> string list
+
+(** Serialize (string * string) list to JSON assoc: [[("k","v")]] -> [`Assoc [["k", `String "v"]]]. *)
+val json_of_string_pairs : (string * string) list -> Yojson.Safe.t

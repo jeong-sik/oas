@@ -55,14 +55,14 @@ let runtime_mcp_policy_to_yojson (policy : runtime_mcp_policy) =
         ; "name", `String name
         ; "command", `String command
         ; "args", Cli_common_json.json_of_string_list args
-        ; "env", `Assoc (List.map (fun (k, v) -> k, `String v) env)
+        ; "env", Cli_common_json.json_of_string_pairs env
         ]
     | Http_server { name; url; headers } ->
       `Assoc
         [ "kind", `String "http"
         ; "name", `String name
         ; "url", `String url
-        ; "headers", `Assoc (List.map (fun (k, v) -> k, `String v) headers)
+        ; "headers", Cli_common_json.json_of_string_pairs headers
         ]
   in
   `Assoc

@@ -20,6 +20,9 @@ let string_list_of_json lst =
     lst
 ;;
 
+let json_of_string_pairs pairs = `Assoc (List.map (fun (k, v) -> k, `String v) pairs)
+;;
+
 [@@@coverage off]
 
 let%test "member_str missing key" = member_str "nope" (`Assoc []) = ""

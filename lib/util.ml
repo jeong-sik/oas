@@ -152,3 +152,6 @@ let string_list_of_json lst =
     | _ -> None)
     lst
 ;;
+
+let json_of_string_pairs pairs = `Assoc (List.map (fun (k, v) -> k, `String v) pairs)
+;;

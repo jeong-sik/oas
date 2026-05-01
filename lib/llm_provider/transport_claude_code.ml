@@ -45,7 +45,7 @@ let default_config =
 (* Prompt shaping, JSON helpers, and subprocess orchestration live in the
    shared [Cli_common_*] modules to deduplicate logic across CLI transports. *)
 
-let json_of_string_pairs pairs = `Assoc (List.map (fun (k, v) -> k, `String v) pairs)
+let json_of_string_pairs = Cli_common_json.json_of_string_pairs
 
 let json_of_runtime_mcp_server = function
   | Llm_transport.Stdio_server { name = _; command; args; env } ->
