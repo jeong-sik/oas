@@ -28,6 +28,20 @@ let agent_name agent =
   card.Agent_card.name
 ;;
 
+let run_agent_result ~sw ?clock agent prompt =
+  let name = agent_name agent in
+  let result =
+    try Agent.run ~sw ?clock agent prompt with
+    | Raw_trace.Trace_error e -> Error e
+    | Eio.Cancel.Cancelled _ as ex -> raise ex
+    | Out_of_memory -> raise Out_of_memory
+    | Stack_overflow -> raise Stack_overflow
+    | Sys.Break -> raise Sys.Break
+    | exn -> Error (Error.Internal (Printexc.to_string exn))
+  in
+  name, result
+;;
+
 (* ── Spawning ─────────────────────────────────────────────────── *)
 
 let spawn ~sw ?clock agent prompt =
@@ -46,6 +60,7 @@ let spawn ~sw ?clock agent prompt =
       with
       | Cancelled -> Error (Error.Internal "cancelled")
       | Raw_trace.Trace_error e -> Error e
+      | Eio.Cancel.Cancelled _ as ex -> raise ex
       | Out_of_memory -> raise Out_of_memory
       | Stack_overflow -> raise Stack_overflow
       | Sys.Break -> raise Sys.Break
@@ -81,10 +96,8 @@ let race ~sw ?clock agents =
   match agents with
   | [] -> Error (Error.Internal "race: no agents provided")
   | [ (agent, prompt) ] ->
-    let name = agent_name agent in
-    (match Agent.run ~sw ?clock agent prompt with
-     | Ok resp -> Ok (name, resp)
-     | Error e -> Error e)
+    let name, result = run_agent_result ~sw ?clock agent prompt in
+    Result.map (fun resp -> name, resp) result
   | _ ->
     (* Each closure returns (name, result) — both Ok and Error are
        normal completions. Eio.Fiber.first returns the first fiber to
@@ -92,17 +105,7 @@ let race ~sw ?clock agents =
     let fns =
       List.map
         (fun (agent, prompt) ->
-           fun () ->
-           let name = agent_name agent in
-           let result =
-             try Agent.run ~sw ?clock agent prompt with
-             | Raw_trace.Trace_error e -> Error e
-             | Out_of_memory -> raise Out_of_memory
-             | Stack_overflow -> raise Stack_overflow
-             | Sys.Break -> raise Sys.Break
-             | exn -> Error (Error.Internal (Printexc.to_string exn))
-           in
-           name, result)
+           fun () -> run_agent_result ~sw ?clock agent prompt)
         agents
     in
     let rec any_of = function
@@ -115,11 +118,7 @@ let race ~sw ?clock agents =
 ;;
 
 let all ~sw ?clock ?max_fibers agents =
-  let run_one (agent, prompt) =
-    let name = agent_name agent in
-    let result = Agent.run ~sw ?clock agent prompt in
-    name, result
-  in
+  let run_one (agent, prompt) = run_agent_result ~sw ?clock agent prompt in
   match max_fibers with
   | Some n -> Eio.Fiber.List.map ~max_fibers:n run_one agents
   | None -> Eio.Fiber.List.map run_one agents

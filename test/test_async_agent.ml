@@ -50,9 +50,9 @@ let start_mock ~sw ~net ~clock ?(delay_sec = 0.0) response_text =
   Printf.sprintf "http://127.0.0.1:%d" port
 ;;
 
-let make_agent ~net base_url name =
+let make_agent ~net ?(hooks = Hooks.empty) base_url name =
   let config = { Types.default_config with name; max_turns = 1 } in
-  let options = { Agent.default_options with base_url } in
+  let options = { Agent.default_options with base_url; hooks } in
   Agent.create ~net ~config ~options ()
 ;;
 
@@ -285,6 +285,31 @@ let test_all_order () =
   | Exit -> ()
 ;;
 
+let test_all_contains_agent_exception () =
+  Eio_main.run
+  @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let url = start_mock ~sw ~net:env#net ~clock "ok-after-failure" in
+    let bad_hooks =
+      { Hooks.empty with before_turn = Some (fun _ -> failwith "boom-before-turn") }
+    in
+    let bad = make_agent ~net:env#net ~hooks:bad_hooks url "bad-agent" in
+    let good = make_agent ~net:env#net url "good-agent" in
+    let results = Async_agent.all ~sw ~clock ~max_fibers:2 [ bad, "go"; good, "go" ] in
+    check int "2 results" 2 (List.length results);
+    (match results with
+     | [ "bad-agent", Error (Error.Internal msg); "good-agent", Ok resp ] ->
+       check bool "failure captured" true (String.length msg > 0);
+       check string "sibling completed" "ok-after-failure" (extract_text resp)
+     | _ -> fail "expected captured failure and completed sibling");
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
 (* ── Test suite ──────────────────────────────────────────────────── *)
 
 let () =
@@ -310,6 +335,10 @@ let () =
     ; ( "all"
       , [ test_case "collects_all" `Quick test_all_collects
         ; test_case "preserves_order" `Quick test_all_order
+        ; test_case
+            "contains_agent_exception"
+            `Quick
+            test_all_contains_agent_exception
         ] )
     ]
 ;;

@@ -286,6 +286,46 @@ let test_parallel_read_tools_share_batch () =
   | _ -> fail "parallel read batch should allow both tools to start"
 ;;
 
+let test_parallel_read_timeout_keeps_sibling_result () =
+  Eio_main.run
+  @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  let never, _resolve_never = Eio.Promise.create () in
+  let descriptor = descriptor_with ~mutation_class:"read_only" Tool.Parallel_read in
+  let timeout_tool =
+    make_echo_tool ~descriptor "read_timeout"
+    |> fun tool ->
+    { tool with
+      Tool.handler =
+        Tool.Simple
+          (fun _ ->
+            Eio.Time.with_timeout_exn clock 0.01 (fun () ->
+              Eio.Promise.await never);
+            Ok { Types.content = "unreachable" })
+    }
+  in
+  let ok_tool = make_echo_tool ~descriptor "read_ok" in
+  let results =
+    execute_with_tools_in_env
+      env
+      ~tools:[ timeout_tool; ok_tool ]
+      ~hooks:Hooks.empty
+      [ ToolUse { id = "t1"; name = "read_timeout"; input = `Null }
+      ; ToolUse { id = "t2"; name = "read_ok"; input = `String "ok" }
+      ]
+  in
+  let sorted =
+    List.sort (fun a b -> String.compare a.Agent_tools.tool_name b.tool_name) results
+  in
+  match sorted with
+  | [ ok_result; timeout_result ] ->
+    check string "ok tool" "read_ok" ok_result.tool_name;
+    check bool "ok completed" false ok_result.is_error;
+    check string "timeout tool" "read_timeout" timeout_result.tool_name;
+    check bool "timeout captured" true timeout_result.is_error
+  | _ -> fail "expected timeout and sibling read results"
+;;
+
 let test_workspace_tools_run_sequentially () =
   Eio_main.run
   @@ fun env ->
@@ -593,6 +633,10 @@ let () =
         ] )
     ; ( "scheduling"
       , [ test_case "parallel read batch" `Quick test_parallel_read_tools_share_batch
+        ; test_case
+            "parallel read timeout keeps sibling"
+            `Quick
+            test_parallel_read_timeout_keeps_sibling_result
         ; test_case
             "workspace tools stay sequential"
             `Quick

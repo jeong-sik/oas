@@ -100,6 +100,16 @@ let run_agent_with_timeout ~sw ?clock ~task_id config agent prompt =
   | _ -> Agent.run ~sw ?clock agent prompt
 ;;
 
+let run_agent_result ~sw ?clock ~task_id config agent prompt =
+  try run_agent_with_timeout ~sw ?clock ~task_id config agent prompt with
+  | Raw_trace.Trace_error e -> Error e
+  | Eio.Cancel.Cancelled _ as ex -> raise ex
+  | Out_of_memory -> raise Out_of_memory
+  | Stack_overflow -> raise Stack_overflow
+  | Sys.Break -> raise Sys.Break
+  | exn -> Error (Error.Internal (Printexc.to_string exn))
+;;
+
 (* ── Core execution ───────────────────────────────────────────────── *)
 
 let run_task ~sw ?clock orch task =
@@ -134,7 +144,7 @@ let run_task ~sw ?clock orch task =
       (match orch.config.shared_context with
        | Some ctx -> Context.merge (Agent.context agent) (Context.snapshot ctx)
        | None -> ());
-      run_agent_with_timeout ~sw ?clock ~task_id:task.id orch.config agent task.prompt
+      run_agent_result ~sw ?clock ~task_id:task.id orch.config agent task.prompt
   in
   let elapsed = Unix.gettimeofday () -. t0 in
   let tr = { task_id = task.id; agent_name = task.agent_name; result; elapsed } in

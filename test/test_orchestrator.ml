@@ -48,11 +48,21 @@ let err_result ?(task_id = "t2") ?(agent_name = "b") (msg : Error.sdk_error) =
     We create a real Agent.t with env#net from Eio_main.
     The agent itself is valid; we just never call Agent.run in
     pure tests. *)
-let make_mock_agent env =
+let make_agent ?(hooks = Hooks.empty) env name =
   Agent.create
     ~net:env#net
-    ~config:{ default_config with name = "mock"; max_turns = 1 }
+    ~config:{ default_config with name; max_turns = 1 }
+    ~options:{ Agent.default_options with hooks }
     ()
+;;
+
+let make_mock_agent env = make_agent env "mock"
+
+let make_failing_agent env name =
+  let hooks =
+    { Hooks.empty with before_turn = Some (fun _ -> failwith "orchestrator boom") }
+  in
+  make_agent ~hooks env name
 ;;
 
 (* ── create ───────────────────────────────────────────────────────── *)
@@ -395,6 +405,25 @@ let test_run_task_elapsed_nonnegative () =
   check bool "elapsed >= 0" true (tr.elapsed >= 0.0)
 ;;
 
+let test_run_task_unexpected_exception_becomes_error () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let agent = make_failing_agent env "boom-agent" in
+  let orch = Orchestrator.create [ "boom-agent", agent ] in
+  let task : Orchestrator.task =
+    { id = "boom-task"; prompt = "hi"; agent_name = "boom-agent" }
+  in
+  let tr = Orchestrator.run_task ~sw orch task in
+  match tr.result with
+  | Error (Error.Internal msg) ->
+    check string "task id" "boom-task" tr.task_id;
+    check bool "captured exception" true (String.length msg > 0)
+  | Error e -> fail (Printf.sprintf "wrong error: %s" (Error.to_string e))
+  | Ok _ -> fail "expected captured exception"
+;;
+
 (* ── task field access ────────────────────────────────────────────── *)
 
 let test_task_fields () =
@@ -542,6 +571,29 @@ let test_execute_parallel_unknown_agents () =
     "all errors"
     true
     (List.for_all (fun r -> Result.is_error r.Orchestrator.result) results)
+;;
+
+let test_execute_parallel_exception_keeps_sibling_result () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let agent = make_failing_agent env "boom-agent" in
+  let orch = Orchestrator.create [ "boom-agent", agent ] in
+  let tasks =
+    [ { Orchestrator.id = "p-boom"; prompt = "x"; agent_name = "boom-agent" }
+    ; { id = "p-missing"; prompt = "y"; agent_name = "missing-agent" }
+    ]
+  in
+  let results = Orchestrator.execute_parallel ~sw orch tasks in
+  check int "2 results" 2 (List.length results);
+  (match results with
+   | [ first; second ] ->
+     check string "first task" "p-boom" first.task_id;
+     check string "second task" "p-missing" second.task_id;
+     check bool "first is captured error" true (Result.is_error first.result);
+     check bool "second still reported" true (Result.is_error second.result)
+   | _ -> fail "expected two task results")
 ;;
 
 (* ── execute_fan_out ──────────────────────────────────────────── *)
@@ -984,6 +1036,10 @@ let () =
       , [ test_case "unknown agent" `Quick test_run_task_unknown_agent
         ; test_case "callbacks called" `Quick test_run_task_unknown_agent_callbacks_called
         ; test_case "elapsed nonneg" `Quick test_run_task_elapsed_nonnegative
+        ; test_case
+            "unexpected exception becomes error"
+            `Quick
+            test_run_task_unexpected_exception_becomes_error
         ] )
     ; ( "event_bus"
       , [ test_case "config none" `Quick test_event_bus_config_none
@@ -997,6 +1053,10 @@ let () =
     ; ( "execute_parallel"
       , [ test_case "empty" `Quick test_execute_parallel_empty
         ; test_case "unknown agents" `Quick test_execute_parallel_unknown_agents
+        ; test_case
+            "exception keeps sibling result"
+            `Quick
+            test_execute_parallel_exception_keeps_sibling_result
         ] )
     ; ( "execute_fan_out"
       , [ test_case "unknown agents" `Quick test_execute_fan_out_unknown_agents
