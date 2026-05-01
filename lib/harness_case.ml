@@ -93,9 +93,7 @@ let trace_assertion_to_json = function
     `Assoc [ "type", `String "trace_tool_called"; "value", `String value ]
   | Tool_sequence value ->
     `Assoc
-      [ "type", `String "trace_tool_sequence"
-      ; "value", Util.json_of_string_list value
-      ]
+      [ "type", `String "trace_tool_sequence"; "value", Util.json_of_string_list value ]
   | Tool_call_count value ->
     `Assoc [ "type", `String "trace_tool_call_count"; "value", `Int value ]
   | Max_turns value -> `Assoc [ "type", `String "trace_max_turns"; "value", `Int value ]

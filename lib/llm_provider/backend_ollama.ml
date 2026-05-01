@@ -219,8 +219,7 @@ let parse_ollama_response json_str =
       | other -> Unknown other
     in
     let input_tokens = Cli_common_json.member_int "prompt_eval_count" json in
-    let output_tokens = Cli_common_json.member_int "eval_count" json
-    in
+    let output_tokens = Cli_common_json.member_int "eval_count" json in
     let usage =
       if input_tokens = 0 && output_tokens = 0
       then None

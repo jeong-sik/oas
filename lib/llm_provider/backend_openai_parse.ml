@@ -78,9 +78,7 @@ let usage_of_openai_json json =
       | Some n -> n
       | None ->
         let details = usage |> member "prompt_tokens_details" in
-        if details = `Null
-        then 0
-        else Cli_common_json.member_int "cached_tokens" details
+        if details = `Null then 0 else Cli_common_json.member_int "cached_tokens" details
     in
     Some
       { input_tokens = prompt_tokens

@@ -222,9 +222,7 @@ let parse_openai_sse_chunk data_str : openai_chunk option =
         else (
           let cached =
             let d = u |> member "prompt_tokens_details" in
-            if d = `Null
-            then 0
-            else Cli_common_json.member_int "cached_tokens" d
+            if d = `Null then 0 else Cli_common_json.member_int "cached_tokens" d
           in
           Some
             { input_tokens = Cli_common_json.member_int "prompt_tokens" u
@@ -412,9 +410,7 @@ let gemini_chunk_to_events (state : openai_stream_state) (chunk : gemini_chunk)
   let emit evt = events := evt :: !events in
   List.iter
     (fun part ->
-       let is_thought =
-         Cli_common_json.member_bool "thought" part
-       in
+       let is_thought = Cli_common_json.member_bool "thought" part in
        match part |> member "text" |> to_string_option with
        | Some text when text <> "" ->
          if is_thought

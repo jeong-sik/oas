@@ -29,10 +29,7 @@ let find_capable t pred = all t |> List.filter (fun e -> pred e.capabilities)
 
 (* ── Default registry ─────────────────────────────────── *)
 
-let has_api_key env_name =
-  env_name = "" || Cli_common_env.get env_name <> None
-;;
-
+let has_api_key env_name = env_name = "" || Cli_common_env.get env_name <> None
 let has_any_api_key env_names = List.exists has_api_key env_names
 
 let path_entries ?path () =
@@ -169,7 +166,8 @@ let env_or_default env_name default_url =
 
 let gemini_defaults =
   { kind = Gemini
-  ; base_url = env_or_default "GEMINI_BASE_URL" "https://generativelanguage.googleapis.com/v1beta"
+  ; base_url =
+      env_or_default "GEMINI_BASE_URL" "https://generativelanguage.googleapis.com/v1beta"
   ; api_key_env = "GEMINI_API_KEY"
   ; request_path = ""
   }

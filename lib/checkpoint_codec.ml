@@ -271,7 +271,10 @@ let delta_to_json (delta : delta) =
     | Replace_tool_choice tool_choice ->
       `Assoc
         [ "kind", `String "replace_tool_choice"
-        ; "tool_choice", (match tool_choice with Some choice -> tool_choice_to_json choice | None -> `Null)
+        ; ( "tool_choice"
+          , match tool_choice with
+            | Some choice -> tool_choice_to_json choice
+            | None -> `Null )
         ]
     | Replace_sampling patch ->
       `Assoc

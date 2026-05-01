@@ -12,8 +12,7 @@ let level_to_string = function
 ;;
 
 let debug_enabled =
-  Cli_common_env.bool "OAS_LLM_PROVIDER_DEBUG"
-  || Cli_common_env.bool "OAS_CASCADE_DIAG"
+  Cli_common_env.bool "OAS_LLM_PROVIDER_DEBUG" || Cli_common_env.bool "OAS_CASCADE_DIAG"
 ;;
 
 let default_sink (lvl : level) ~ctx msg =

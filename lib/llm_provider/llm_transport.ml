@@ -67,7 +67,8 @@ let runtime_mcp_policy_to_yojson (policy : runtime_mcp_policy) =
   in
   `Assoc
     [ "servers", `List (List.map server_to_yojson policy.servers)
-    ; "allowed_server_names", Cli_common_json.json_of_string_list policy.allowed_server_names
+    ; ( "allowed_server_names"
+      , Cli_common_json.json_of_string_list policy.allowed_server_names )
     ; "allowed_tool_names", Cli_common_json.json_of_string_list policy.allowed_tool_names
     ; ( "permission_mode"
       , match policy.permission_mode with

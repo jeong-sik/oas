@@ -146,8 +146,7 @@ let to_json (card : agent_card) : Yojson.Safe.t =
                       | Some d -> [ "description", `String d ]
                       | None -> []))
                 card.skills) )
-       ; ( "supported_providers"
-         , Util.json_of_string_list card.supported_providers )
+       ; "supported_providers", Util.json_of_string_list card.supported_providers
        ]
      @
      match card.metadata with

@@ -165,9 +165,7 @@ let trigger_to_json trigger =
 
 let instruction_layer_to_json layer =
   `Assoc
-    [ "label", Util.json_of_string_opt layer.label
-    ; "content", `String layer.content
-    ]
+    [ "label", Util.json_of_string_opt layer.label; "content", `String layer.content ]
 ;;
 
 let skill_to_json (skill : Skill.t) =

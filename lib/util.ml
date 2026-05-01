@@ -81,9 +81,7 @@ let regex_match re str =
   | Not_found -> false
 ;;
 
-let filter_non_empty =
-  List.filter (fun s -> s <> "")
-;;
+let filter_non_empty = List.filter (fun s -> s <> "")
 
 let split_on_char_trim sep s =
   String.split_on_char sep s |> List.map String.trim |> filter_non_empty
@@ -144,14 +142,13 @@ let json_of_string_opt = function
 ;;
 
 let json_of_string_list lst = `List (List.map (fun s -> `String s) lst)
-;;
 
 let string_list_of_json lst =
-  List.filter_map (function
-    | `String s -> Some s
-    | _ -> None)
+  List.filter_map
+    (function
+      | `String s -> Some s
+      | _ -> None)
     lst
 ;;
 
 let json_of_string_pairs pairs = `Assoc (List.map (fun (k, v) -> k, `String v) pairs)
-;;

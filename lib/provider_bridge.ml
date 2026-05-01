@@ -82,7 +82,9 @@ let resolve_auto_model_id
     then Util.env_or "gemini-2.5-flash" "GEMINI_DEFAULT_MODEL"
     else model_id
   | Kimi ->
-    if model_id = "auto" then Util.env_or "kimi-for-coding" "KIMI_DEFAULT_MODEL" else model_id
+    if model_id = "auto"
+    then Util.env_or "kimi-for-coding" "KIMI_DEFAULT_MODEL"
+    else model_id
   | Anthropic | Claude_code ->
     if model_id = "auto"
     then Util.env_or "claude-sonnet-4-6-20250514" "ANTHROPIC_DEFAULT_MODEL"
