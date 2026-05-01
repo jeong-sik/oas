@@ -1,3 +1,4 @@
+open Base
 (** Reflexion: act-evaluate-reflect-retry loop primitive.
 
     Based on MAR (Multi-Agent Reflexion) pattern:

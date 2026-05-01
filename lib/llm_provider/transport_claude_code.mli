@@ -1,3 +1,4 @@
+open Base
 (** Claude Code non-interactive transport.
 
     Implements {!Llm_transport.t} by spawning [claude -p] subprocesses.

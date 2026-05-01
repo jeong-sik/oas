@@ -1,3 +1,4 @@
+open Base
 (** Provider capabilities -- per-provider/model feature flags and limits.
 
     Tracks what a provider/model supports so the agent runtime can make

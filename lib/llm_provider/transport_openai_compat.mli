@@ -1,3 +1,4 @@
+open Base
 (** OpenAI Chat Completions HTTP transport.
 
     Implements {!Llm_transport.t} for any OpenAI-compatible API endpoint:

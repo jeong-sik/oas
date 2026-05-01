@@ -1,3 +1,4 @@
+open Base
 (** Advanced tests for Memory module — concurrency, property-based, failures.
 
     Extends test_memory.ml with:

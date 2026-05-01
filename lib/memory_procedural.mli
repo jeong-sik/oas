@@ -1,3 +1,4 @@
+open Base
 (** Procedural memory: learned action patterns with success/failure tracking.
 
     @since 0.75.0

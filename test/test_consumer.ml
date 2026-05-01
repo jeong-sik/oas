@@ -1,3 +1,4 @@
+open Base
 (** Tests for Consumer API — high-level agent execution with telemetry.
 
     Uses mock HTTP server for Agent.run, no real LLM. *)

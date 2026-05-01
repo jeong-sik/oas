@@ -1,3 +1,4 @@
+open Base
 (** v0.24.1 fix verification tests.
 
     B8 HIGH — streaming idle detection was missing.

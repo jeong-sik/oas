@@ -1,3 +1,4 @@
+open Base
 (** Tool_op -- algebraic operations on tool name sets. *)
 
 type t =

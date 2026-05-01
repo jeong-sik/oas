@@ -1,3 +1,4 @@
+open Base
 (** QCheck property-based tests for Context.t.
 
     Verifies:

@@ -1,3 +1,4 @@
+open Base
 (** Agent_turn_budget — Self-extending turn budget with guardrails.
     @since 0.78.0 *)
 

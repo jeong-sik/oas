@@ -1,3 +1,4 @@
+open Base
 (** Versioned runtime sync/replay window contract.
 
     This module is pure: it models a replay window over existing OAS runtime

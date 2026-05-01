@@ -1,3 +1,4 @@
+open Base
 type permission_mode =
   | Default
   | Accept_edits

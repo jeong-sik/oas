@@ -1,3 +1,4 @@
+open Base
 (** Tests for CLI binary — verifies the oas CLI builds and responds to commands.
 
     The binary path is resolved relative to the test executable location,

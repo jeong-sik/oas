@@ -1,3 +1,4 @@
+open Base
 (** Unified LLM provider types.
 
     Single source of truth for message, response, tool, and streaming types.

@@ -1,3 +1,4 @@
+open Base
 (** Event-sourced agent loop journal.
 
     Append-only event log for agent loop actions.

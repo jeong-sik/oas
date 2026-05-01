@@ -1,3 +1,4 @@
+open Base
 (** Tests for Event_forward module — event forwarding to external targets. *)
 
 open Agent_sdk

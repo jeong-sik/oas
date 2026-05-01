@@ -1,3 +1,4 @@
+open Base
 (** Sessions type definitions — pure data structures.
 
     All types carry [@@deriving yojson, show] for serialisation.

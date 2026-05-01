@@ -1,3 +1,4 @@
+open Base
 (** Reflexion: act-evaluate-reflect-retry loop primitive.
 
     Implements the separated-concerns Reflexion pattern (MAR, Shinn et al.):

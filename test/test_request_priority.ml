@@ -1,3 +1,4 @@
+open Base
 open Llm_provider
 
 let test_quota_tier_labels () =

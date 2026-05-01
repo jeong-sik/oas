@@ -1,3 +1,4 @@
+open Base
 (** Model registry: alias resolution and model ID normalization.
 
     This is the single place where vendor-specific model names are mapped

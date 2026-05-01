@@ -1,3 +1,4 @@
+open Base
 (** Lifecycle types, transition guards, and pure helpers for the Agent module.
 
     Extracted from agent.ml to reduce file size.  No dependency on

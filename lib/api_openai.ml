@@ -1,3 +1,4 @@
+open Base
 (** OpenAI-compatible API request building and response parsing.
 
     Pure serialization/parsing is delegated to {!Llm_provider.Backend_openai}.

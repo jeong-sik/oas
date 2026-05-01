@@ -1,3 +1,4 @@
+open Base
 (** OpenAI Chat Completions HTTP transport.
 
     @since 0.86.0 *)

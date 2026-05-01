@@ -1,3 +1,4 @@
+open Base
 type collect_result =
   { stdout : string
   ; stderr : string

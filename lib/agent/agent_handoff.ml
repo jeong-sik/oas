@@ -1,3 +1,4 @@
+open Base
 (** Handoff message helpers — pure functions for handoff detection and message manipulation.
 
     These functions operate only on Types.message lists and have no dependency

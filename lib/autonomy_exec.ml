@@ -1,3 +1,4 @@
+open Base
 (** Autonomy_exec — external execution primitive for autonomy loops.
 
     This module is intentionally orchestration-agnostic. Consumers supply

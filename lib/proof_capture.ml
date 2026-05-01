@@ -1,3 +1,4 @@
+open Base
 type trace_entry =
   { ts : float
   ; tool_name : string

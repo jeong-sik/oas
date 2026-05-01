@@ -1,3 +1,4 @@
+open Base
 (** Uncertain — typed wrapper for non-deterministic values.
     @since 0.119.0 *)
 

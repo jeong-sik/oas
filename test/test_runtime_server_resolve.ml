@@ -1,3 +1,4 @@
+open Base
 open Agent_sdk
 
 let with_test_providers_enabled f =

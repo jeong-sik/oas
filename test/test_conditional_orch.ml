@@ -1,3 +1,4 @@
+open Base
 (** Tests for conditional orchestration in Orchestrator module. *)
 
 open Agent_sdk

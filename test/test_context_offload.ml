@@ -1,3 +1,4 @@
+open Base
 (** Tests for Context_offload — offloading large tool results to files. *)
 
 open Agent_sdk

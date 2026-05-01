@@ -1,3 +1,4 @@
+open Base
 (** Phantom-typed verified output — compile-time enforcement of output verification.
 
     In a multi-agent society, agent outputs must be verified before

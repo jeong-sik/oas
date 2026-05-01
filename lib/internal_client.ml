@@ -1,3 +1,4 @@
+open Base
 let ( let* ) = Result.bind
 
 let process_query ~sw ~mgr ?(options = Sdk_client_types.default_options) ~prompt () =

@@ -1,3 +1,4 @@
+open Base
 (** SDK metrics collection — counters and histograms.
 
     Instance-based: each [create ()] returns independent state.

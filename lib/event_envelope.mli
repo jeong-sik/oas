@@ -1,3 +1,4 @@
+open Base
 (** Canonical event envelope for cross-runtime causality evidence.
 
     This module is intentionally independent from {!Event_bus}: existing

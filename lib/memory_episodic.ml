@@ -1,3 +1,4 @@
+open Base
 (** Episodic memory: interaction history with time-decaying salience.
 
     Stores structured episode records (who, what, when, outcome)

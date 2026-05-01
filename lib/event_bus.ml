@@ -1,3 +1,4 @@
+open Base
 (** Agent Event Bus — typed publish/subscribe for agent lifecycle events.
 
     Each subscriber gets its own bounded {!Eio.Stream.t}; [publish] copies

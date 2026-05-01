@@ -1,3 +1,4 @@
+open Base
 (** Agent configuration file loader.
 
     Loads agent configuration from a JSON file (oas.json) and converts

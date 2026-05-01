@@ -1,3 +1,4 @@
+open Base
 (** OpenTelemetry-compatible tracer for Agent SDK.
     Implements Tracing.TRACER and exports spans as OTLP JSON.
 

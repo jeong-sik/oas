@@ -1,3 +1,4 @@
+open Base
 (** SSE event parsing and synthetic event emission.
 
     Pure functions operating on {!Llm_provider.Types}. No agent_sdk coupling.

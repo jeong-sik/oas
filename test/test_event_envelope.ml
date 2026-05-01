@@ -1,3 +1,4 @@
+open Base
 (** Unit tests for Event_envelope — canonical event envelope for
     cross-runtime causality evidence.
 

@@ -1,3 +1,4 @@
+open Base
 (** CJK-aware text → token count estimation (shared).
 
     See [text_estimate.ml] for the rationale behind the approximation.

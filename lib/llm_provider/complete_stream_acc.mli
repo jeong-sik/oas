@@ -1,3 +1,4 @@
+open Base
 (** Stream accumulator: gather SSE events into a {!Types.api_response}.
 
     Depends only on [Types] -- no provider/backend/transport references.

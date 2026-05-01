@@ -1,3 +1,4 @@
+open Base
 type t =
   | Low
   | Medium

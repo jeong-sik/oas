@@ -1,3 +1,4 @@
+open Base
 (** Bridge between legacy {!Provider.config} and {!Llm_provider.Provider_config.t}.
 
     Converts from the old 4-variant provider system (Anthropic, OpenAICompat,

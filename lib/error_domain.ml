@@ -1,3 +1,4 @@
+open Base
 (** Fine-grained error domains using polymorphic variants. *)
 
 module Retry = Llm_provider.Retry

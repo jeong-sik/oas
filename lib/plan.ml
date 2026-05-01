@@ -1,3 +1,4 @@
+open Base
 (** Plan — goal decomposition and adaptive execution.
 
     @since 0.77.0 *)

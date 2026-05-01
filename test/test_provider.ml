@@ -1,3 +1,4 @@
+open Base
 (** Test Provider.resolve returns Error when env var is missing
     and Ok when present. *)
 

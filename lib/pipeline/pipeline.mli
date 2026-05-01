@@ -1,3 +1,4 @@
+open Base
 (** Turn pipeline: 6-stage decomposition of agent turn execution.
 
     [Input] -> [Parse] -> [Route] -> [Execute] -> [Collect] -> [Output]

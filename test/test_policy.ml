@@ -1,3 +1,4 @@
+open Base
 (** Unit tests for Policy module (v0.76.0). *)
 
 open Alcotest

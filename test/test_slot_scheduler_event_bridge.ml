@@ -1,3 +1,4 @@
+open Base
 (** Tests for Slot_scheduler_event_bridge — LT-14c publisher. *)
 
 open Alcotest

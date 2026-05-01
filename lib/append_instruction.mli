@@ -1,3 +1,4 @@
+open Base
 (** Append Instruction — hook-based dynamic instruction injection.
 
     Extends the static {!Contract.add_instruction_layer} with runtime-

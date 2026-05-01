@@ -1,3 +1,4 @@
+open Base
 (** Tests for metrics.ml — SDK metrics collection. *)
 
 open Alcotest

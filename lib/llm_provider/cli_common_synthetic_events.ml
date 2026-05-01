@@ -1,3 +1,4 @@
+open Base
 let replay ~on_event (resp : Types.api_response) =
   on_event (Types.MessageStart { id = resp.id; model = resp.model; usage = resp.usage });
   List.iteri

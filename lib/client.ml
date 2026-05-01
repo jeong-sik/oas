@@ -1,3 +1,4 @@
+open Base
 type permission_mode = Sdk_client_types.permission_mode =
   | Default
   | Accept_edits

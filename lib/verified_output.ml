@@ -1,3 +1,4 @@
+open Base
 (** Phantom-typed verified output.
 
     The phantom type parameter ['status] is erased at runtime.

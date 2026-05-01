@@ -1,3 +1,4 @@
+open Base
 (** Extended Streaming coverage tests — targets uncovered paths in
     streaming.ml and llm_provider/complete.ml.
 

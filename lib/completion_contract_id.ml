@@ -1,3 +1,4 @@
+open Base
 type t =
   | Allow_text_or_tool
   | Require_tool_use

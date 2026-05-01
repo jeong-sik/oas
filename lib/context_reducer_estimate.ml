@@ -1,3 +1,4 @@
+open Base
 open Types
 
 let estimate_char_tokens = Llm_provider.Text_estimate.estimate_char_tokens

@@ -1,3 +1,4 @@
+open Base
 (** Consumer API — high-level agent execution with telemetry aggregation.
 
     @since 0.55.0 *)

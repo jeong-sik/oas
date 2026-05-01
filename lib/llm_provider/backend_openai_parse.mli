@@ -1,3 +1,4 @@
+open Base
 (** OpenAI-compatible response parsing.
 
     @since 0.92.0 extracted from Backend_openai

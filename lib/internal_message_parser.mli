@@ -1,3 +1,4 @@
+open Base
 (** Internal message constructors for {!Internal_query_engine}.
 
     Converts runtime types into {!Sdk_client_types.message} values.

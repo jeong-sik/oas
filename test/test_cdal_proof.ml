@@ -1,3 +1,4 @@
+open Base
 (** Unit tests for Cdal_proof — 15-field cross-repo proof bundle.
     Pure data + JSON round-trip helpers, no Eio, no IO.
 

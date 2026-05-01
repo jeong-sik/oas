@@ -1,3 +1,4 @@
+open Base
 (** Tests for MCP-Agent lifecycle integration.
     Covers server_spec, managed types, merge_env, connect_all,
     close_all, and Agent integration with MCP clients. *)

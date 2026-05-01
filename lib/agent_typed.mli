@@ -1,3 +1,4 @@
+open Base
 (** Agent_typed — phantom-type lifecycle state machine.
 
     Wraps {!Agent.t} with phantom type parameters that encode lifecycle

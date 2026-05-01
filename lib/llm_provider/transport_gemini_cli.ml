@@ -1,3 +1,4 @@
+open Base
 (** Gemini CLI non-interactive transport.
 
     @since 0.133.0 *)

@@ -1,3 +1,4 @@
+open Base
 (** Statistical utilities for eval regression detection.
 
     @since 0.79.0 *)

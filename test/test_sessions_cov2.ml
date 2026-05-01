@@ -1,3 +1,4 @@
+open Base
 (** Sessions types deep coverage — exercises ppx-generated to_yojson/of_yojson
     for every type in sessions_types.ml, including edge cases:
     - Empty strings, negative numbers, None fields

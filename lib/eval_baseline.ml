@@ -1,3 +1,4 @@
+open Base
 (** Eval baseline: golden-file comparison for regression detection.
 
     Stores {!Eval.run_metrics} snapshots as JSON files and compares

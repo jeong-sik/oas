@@ -1,3 +1,4 @@
+open Base
 type summary =
   { total_spans : int
   ; agent_runs : int

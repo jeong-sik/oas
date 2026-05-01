@@ -1,3 +1,4 @@
+open Base
 (** A2A Client — client for Agent-to-Agent protocol.
 
     @since 0.55.0 *)

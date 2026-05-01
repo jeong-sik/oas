@@ -1,3 +1,4 @@
+open Base
 (** Tests for Succession — cross-agent context relay. *)
 
 open Agent_sdk

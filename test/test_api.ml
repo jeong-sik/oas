@@ -1,3 +1,4 @@
+open Base
 (** Tests for api.ml -- content block JSON, build_body_assoc, parse_response *)
 
 open Alcotest

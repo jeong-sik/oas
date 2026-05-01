@@ -1,3 +1,4 @@
+open Base
 (** Direct evidence pipeline coverage tests.
     Exercises direct_evidence.ml worker_run extraction, proof bundle generation,
     and conformance from a live agent + raw_trace. *)

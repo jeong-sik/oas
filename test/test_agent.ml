@@ -1,3 +1,4 @@
+open Base
 (** Unit tests for Agent module — pure functions only (no Eio, no network). *)
 
 open Agent_sdk

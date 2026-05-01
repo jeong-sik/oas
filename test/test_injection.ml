@@ -1,3 +1,4 @@
+open Base
 (** Tests for context injection hooks. *)
 
 open Alcotest

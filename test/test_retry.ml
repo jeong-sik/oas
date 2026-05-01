@@ -1,3 +1,4 @@
+open Base
 open Alcotest
 open Agent_sdk
 module Retry = Llm_provider.Retry

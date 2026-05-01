@@ -1,3 +1,4 @@
+open Base
 (** Context reducer: message windowing strategies.
 
     Reduces message lists before API calls while preserving the full

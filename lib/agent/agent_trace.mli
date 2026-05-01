@@ -1,3 +1,4 @@
+open Base
 (** Raw-trace integration helpers for the Agent module.
 
     Wraps [Raw_trace] calls with lifecycle updates and hook invocation

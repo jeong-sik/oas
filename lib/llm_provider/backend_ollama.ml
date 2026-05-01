@@ -1,3 +1,4 @@
+open Base
 (** Ollama native API request building and response parsing.
 
     Uses [/api/chat] endpoint with [think] parameter for thinking control,

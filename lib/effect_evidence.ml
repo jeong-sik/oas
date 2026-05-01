@@ -1,3 +1,4 @@
+open Base
 type effect_class =
   | Read_only
   | Local_mutation

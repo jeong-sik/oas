@@ -1,3 +1,4 @@
+open Base
 (** Slot KV cache persistence for local llama-server endpoints.
 
     Wraps llama-server's slot save/restore HTTP API to persist KV cache

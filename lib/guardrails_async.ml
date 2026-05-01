@@ -1,3 +1,4 @@
+open Base
 (** Async guardrails: parallel input/output validation via Eio fibers.
 
     Extends {!Guardrails} (tool filtering) with content validation:

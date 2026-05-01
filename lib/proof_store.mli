@@ -1,3 +1,4 @@
+open Base
 (** Local filesystem artifact store for CDAL proof bundles.
 
     Part of the Contract-Driven Agent Loop (CDAL) PoC-1.

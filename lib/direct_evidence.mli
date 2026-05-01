@@ -1,3 +1,4 @@
+open Base
 (** Direct evidence extraction from agent runs.
 
     Materializes worker run data, proof bundles, and conformance

@@ -1,3 +1,4 @@
+open Base
 type decision =
   { effective_mode : Execution_mode.t
   ; source : string

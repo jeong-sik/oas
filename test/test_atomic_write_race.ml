@@ -1,3 +1,4 @@
+open Base
 (** Race test for [Fs_atomic_eio.save_atomic].
 
     Property under test: N fibers saving to the same logical name

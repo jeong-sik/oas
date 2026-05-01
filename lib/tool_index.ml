@@ -1,3 +1,4 @@
+open Base
 (** Tool index: BM25-based retrieval for dynamic tool exposure.
 
     Pure OCaml implementation of Okapi BM25, no external dependencies.

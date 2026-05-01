@@ -1,3 +1,4 @@
+open Base
 (** Lesson_memory — helpers for failure-driven autonomy feedback loops.
 
     Records a failed attempt into episodic + procedural memory and retrieves

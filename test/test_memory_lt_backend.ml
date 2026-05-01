@@ -1,3 +1,4 @@
+open Base
 (** Tests for strengthened long_term_backend: Result, batch_persist, query. *)
 
 open Alcotest

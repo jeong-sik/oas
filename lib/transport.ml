@@ -1,3 +1,4 @@
+open Base
 (** IPC transport for oas_runtime using Eio structured concurrency.
 
     Replaces the previous OS-thread implementation (Mutex/Condition/Thread)

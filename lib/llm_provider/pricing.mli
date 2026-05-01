@@ -1,3 +1,4 @@
+open Base
 (** Per-model cost estimation.
 
     @stability Internal

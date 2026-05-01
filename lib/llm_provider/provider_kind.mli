@@ -1,3 +1,4 @@
+open Base
 (** Provider kind sum type, split from [Provider_config] so it can be shared
     by {!Types.inference_telemetry} without introducing a
     [Provider_config <-> Types] dependency cycle.

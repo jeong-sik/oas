@@ -1,3 +1,4 @@
+open Base
 (** Unit tests for Direct_evidence module — options construction,
     raw_details type, and API surface verification via public API.
 

@@ -1,3 +1,4 @@
+open Base
 (** Tests for Eval module — evaluation framework. *)
 
 open Agent_sdk

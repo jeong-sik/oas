@@ -1,3 +1,4 @@
+open Base
 (** Tests for Reflexion module — pure functions, no Eio needed. *)
 
 open Alcotest

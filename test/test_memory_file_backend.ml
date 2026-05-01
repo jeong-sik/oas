@@ -1,3 +1,4 @@
+open Base
 (** Tests for Memory_file_backend — file-backed long-term memory. *)
 
 open Agent_sdk

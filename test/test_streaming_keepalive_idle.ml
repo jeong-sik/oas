@@ -1,3 +1,4 @@
+open Base
 (** Regression test for SSE keepalive comment handling in
     [Llm_provider.Http_client.read_sse].
 

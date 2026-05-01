@@ -1,3 +1,4 @@
+open Base
 (** Extended coverage tests for Memory, Memory_tools, and Memory_access.
 
     Targets uncovered paths via PUBLIC API only:

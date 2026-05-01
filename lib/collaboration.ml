@@ -1,3 +1,4 @@
+open Base
 type participant_id = string [@@deriving yojson, show]
 type item_id = string [@@deriving yojson, show]
 type state_key = string [@@deriving yojson, show]

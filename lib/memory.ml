@@ -1,3 +1,4 @@
+open Base
 (** Working memory: 5-tier facade over {!Context.t}.
 
     Tiers map to {!Context.scope}:

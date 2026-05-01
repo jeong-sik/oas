@@ -1,3 +1,4 @@
+open Base
 (** JSONL-backed harness datasets.
 
     @stability Evolving

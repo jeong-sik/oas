@@ -1,3 +1,4 @@
+open Base
 (** Response cache interface for LLM completions. *)
 
 type t =

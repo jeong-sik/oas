@@ -1,3 +1,4 @@
+open Base
 (** SSE (Server-Sent Events) line-level parser.
 
     Extracted from streaming.ml for reuse by mcp_http.ml and consumers.

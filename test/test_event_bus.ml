@@ -1,3 +1,4 @@
+open Base
 (** Tests for Event_bus — typed publish/subscribe for agent lifecycle events. *)
 
 open Alcotest

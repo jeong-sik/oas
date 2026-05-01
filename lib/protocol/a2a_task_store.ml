@@ -1,3 +1,4 @@
+open Base
 (** File-backed A2A task persistence using Eio.Path.
 
     Layout: [<base_dir>/<task_id>.json].

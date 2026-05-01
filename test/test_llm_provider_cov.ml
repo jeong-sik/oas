@@ -1,3 +1,4 @@
+open Base
 (** Tests for llm_provider sub-library modules:
     complete, cascade_config, api_common, backend_gemini,
     capability_filter, capabilities.

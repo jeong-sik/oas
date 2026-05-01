@@ -1,3 +1,4 @@
+open Base
 (** Structured SDK error types — 2-level hierarchy.
 
     Domain-specific inner types wrap context-rich payloads.

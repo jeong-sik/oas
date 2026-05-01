@@ -1,3 +1,4 @@
+open Base
 (** Internal one-shot query client.
 
     Connects to a runtime, sends a prompt, collects responses,

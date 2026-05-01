@@ -1,3 +1,4 @@
+open Base
 (** Sessions type definitions — pure data structures with no logic.
 
     Separated from sessions.ml to reduce file size and clarify the

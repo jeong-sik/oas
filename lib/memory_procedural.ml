@@ -1,3 +1,4 @@
+open Base
 (** Procedural memory: learned action patterns with success/failure tracking.
 
     Stores reusable strategies, tool usage patterns, and decision

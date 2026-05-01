@@ -1,3 +1,4 @@
+open Base
 (** Advanced property-based tests using QCheck.
 
     Covers JSON round-trips for complex types, monotonicity invariants,

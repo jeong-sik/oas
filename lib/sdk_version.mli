@@ -1,3 +1,4 @@
+open Base
 (** Single source of truth for the SDK version string.
 
     @stability Internal

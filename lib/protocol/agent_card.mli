@@ -1,3 +1,4 @@
+open Base
 (** Agent Card — self-describing metadata for agent capability negotiation.
 
     Inspired by the A2A (Agent-to-Agent) protocol.

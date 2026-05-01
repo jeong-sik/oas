@@ -1,3 +1,4 @@
+open Base
 (** Bridge Durable_event journal events to Event_bus.
 
     Provides an [on_append] callback factory that projects each

@@ -1,3 +1,4 @@
+open Base
 (** Verify all remaining edge cases for Gemini backend. *)
 
 open Llm_provider

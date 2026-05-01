@@ -1,3 +1,4 @@
+open Base
 (** Tests for Guardrail_tripwire — fail-fast parallel validators.
     All tests use Eio_main.run for structured concurrency.
     Uses Eio.Time.sleep (not Unix.sleepf) for cancellation-aware delays. *)

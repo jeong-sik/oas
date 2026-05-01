@@ -1,3 +1,4 @@
+open Base
 (** Shared utility functions.
 
     Small helpers extracted from multiple modules to eliminate

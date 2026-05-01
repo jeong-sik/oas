@@ -1,3 +1,4 @@
+open Base
 (** Tool definition and execution example.
 
     Demonstrates:

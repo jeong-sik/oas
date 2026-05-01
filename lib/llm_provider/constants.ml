@@ -1,3 +1,4 @@
+open Base
 (** Consolidated magic numbers for the llm_provider library.
 
     Centralises retry codes, inference defaults, cache TTL, retry

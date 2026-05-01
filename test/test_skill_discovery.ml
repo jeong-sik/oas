@@ -1,3 +1,4 @@
+open Base
 (** Tests for skill discovery vs runtime prompt separation (issue #520).
 
     Verifies that:

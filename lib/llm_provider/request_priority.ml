@@ -1,3 +1,4 @@
+open Base
 (** Request priority for LLM completion scheduling.
 
     @since 0.95.0 *)

@@ -1,3 +1,4 @@
+open Base
 (** Unit tests for Lenient_json — deterministic LLM output recovery. *)
 
 open Agent_sdk

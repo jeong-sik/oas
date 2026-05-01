@@ -1,3 +1,4 @@
+open Base
 (** Tests for Agent_turn module — turn preparation, usage, idle detection. *)
 
 open Agent_sdk

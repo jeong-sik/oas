@@ -1,3 +1,4 @@
+open Base
 (** Thin OAS facade over {!Mcp_protocol_http.Http_client}.
 
     @stability Internal

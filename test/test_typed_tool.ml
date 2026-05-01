@@ -1,3 +1,4 @@
+open Base
 (** Tests for Typed_tool — compile-time type safety + runtime correctness. *)
 
 open Agent_sdk

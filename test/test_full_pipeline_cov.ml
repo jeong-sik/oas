@@ -1,3 +1,4 @@
+open Base
 (** Full-pipeline coverage tests with mock HTTP server.
     Exercises Agent.run end-to-end: api.ml, provider_intf.ml, pipeline.ml,
     backend_openai.ml, complete.ml, streaming.ml, structured.ml,

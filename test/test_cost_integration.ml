@@ -1,3 +1,4 @@
+open Base
 (** Integration tests for cost tracking — accumulation and budget enforcement.
 
     Uses mock HTTP server to verify cost accumulates across turns

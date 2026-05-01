@@ -1,3 +1,4 @@
+open Base
 (** MCP (Model Context Protocol) client.
 
     Uses a tolerant NDJSON-over-stdio client for runtime interop while

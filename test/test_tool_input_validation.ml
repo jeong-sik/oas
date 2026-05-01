@@ -1,3 +1,4 @@
+open Base
 (** Unit tests for Tool_input_validation — deterministic schema checking. *)
 
 open Agent_sdk

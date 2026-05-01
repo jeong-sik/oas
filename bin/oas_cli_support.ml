@@ -1,3 +1,4 @@
+open Base
 let with_runtime f =
   Eio_main.run
   @@ fun env ->

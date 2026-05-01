@@ -1,3 +1,4 @@
+open Base
 (** Slot KV cache persistence for local llama-server endpoints.
 
     @since 0.100.0 *)

@@ -1,3 +1,4 @@
+open Base
 (** Unit tests for A2a_task — state machine, messages, artifacts, store, JSON.
 
     Targets 56 uncovered points in lib/protocol/a2a_task.ml. *)

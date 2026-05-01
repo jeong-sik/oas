@@ -1,3 +1,4 @@
+open Base
 (** Claude Code non-interactive transport.
 
     @since 0.78.0 *)

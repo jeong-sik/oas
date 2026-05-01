@@ -1,3 +1,4 @@
+open Base
 (** Wire types for the SDK client protocol.
 
     Defines options, messages, permission callbacks, and hook callbacks

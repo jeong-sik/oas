@@ -1,3 +1,4 @@
+open Base
 (** Unit tests for Memory module (v0.65.0). *)
 
 open Alcotest

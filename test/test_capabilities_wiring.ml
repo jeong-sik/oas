@@ -1,3 +1,4 @@
+open Base
 (** Tests for capabilities wiring — discovery, context_reducer, filter. *)
 
 open Alcotest

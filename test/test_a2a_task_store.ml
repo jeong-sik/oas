@@ -1,3 +1,4 @@
+open Base
 (** Tests for A2a_task_store — file-backed A2A task persistence. *)
 
 open Alcotest

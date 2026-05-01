@@ -1,3 +1,4 @@
+open Base
 (** Statistical utilities for eval regression detection.
 
     Provides summary statistics, confidence intervals, and

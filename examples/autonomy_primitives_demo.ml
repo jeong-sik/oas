@@ -1,3 +1,4 @@
+open Base
 (** Autonomy primitives demo.
 
     Shows how an external orchestrator can compose the new autonomy helpers

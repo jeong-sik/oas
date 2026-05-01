@@ -1,3 +1,4 @@
+open Base
 (** Structured reports for harness runs. *)
 
 type case_status =
