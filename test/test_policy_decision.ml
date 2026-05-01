@@ -1,3 +1,4 @@
+open Base
 (** Tests for Policy.evaluate_with_lineage (structured decision lineage).
 
     Covers: matched rules, first-match semantics, backward compatibility,

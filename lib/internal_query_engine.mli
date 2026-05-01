@@ -1,3 +1,4 @@
+open Base
 (** Internal query engine: SDK-side event loop over runtime transport.
 
     Manages runtime connection, event synchronization, message buffering,

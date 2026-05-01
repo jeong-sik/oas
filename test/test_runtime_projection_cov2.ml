@@ -1,3 +1,4 @@
+open Base
 (** Extended coverage for runtime_projection.ml — targeting remaining uncovered paths.
 
     This file targets uncovered paths in:

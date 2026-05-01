@@ -1,3 +1,4 @@
+open Base
 (** A2A Task Lifecycle — Agent-to-Agent protocol task state machine.
 
     Implements the A2A task lifecycle with typed state transitions,

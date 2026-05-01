@@ -1,3 +1,4 @@
+open Base
 (** Policy engine — runtime governance for agent decisions.
 
     Evaluates rules at decision points during agent execution.

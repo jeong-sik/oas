@@ -1,3 +1,4 @@
+open Base
 (** Content_replacement_state ↔ Event_bus bridge.
 
     Opt-in wrappers around [Content_replacement_state.record_replacement]

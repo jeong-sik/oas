@@ -1,3 +1,4 @@
+open Base
 (** Handoff lifecycle observability example.
 
     Demonstrates the [HandoffRequested] / [HandoffCompleted] native

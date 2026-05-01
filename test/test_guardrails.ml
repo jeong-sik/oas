@@ -1,3 +1,4 @@
+open Base
 (** Tests for guardrails.ml — tool filtering and execution limits *)
 
 open Alcotest

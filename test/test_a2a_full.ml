@@ -1,3 +1,4 @@
+open Base
 (** Extended tests for A2A server and client coverage gaps.
 
     Covers uncovered lines in a2a_server.ml and a2a_client.ml via

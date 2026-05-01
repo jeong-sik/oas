@@ -1,3 +1,4 @@
+open Base
 (** Tests for Typed_tool_safe — phantom permission enforcement. *)
 
 open Agent_sdk

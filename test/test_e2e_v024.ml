@@ -1,3 +1,4 @@
+open Base
 (** OAS v0.24 End-to-End Integration Tests
     Exercises the 5 new tracks against a live local LLM (Qwen3.5 via llama-server).
 

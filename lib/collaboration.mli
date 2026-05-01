@@ -1,3 +1,4 @@
+open Base
 (** Generic observation-driven collaboration contracts.
 
     This module names shared-state shapes that downstream coordinators can map

@@ -1,3 +1,4 @@
+open Base
 (** Slot_scheduler ↔ Event_bus publisher (LT-14c / observability).
 
     Projects slot-scheduler snapshots onto the event bus without changing the

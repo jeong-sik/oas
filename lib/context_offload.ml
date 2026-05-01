@@ -1,3 +1,4 @@
+open Base
 (** Context offload: move large tool results to the filesystem.
 
     When a tool result exceeds [threshold_bytes], writes the full

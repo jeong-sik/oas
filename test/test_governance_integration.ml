@@ -1,3 +1,4 @@
+open Base
 (** Integration tests for Governance layer (Policy + Audit + Durable).
 
     Verifies the three modules work together as a coherent governance system.

@@ -1,3 +1,4 @@
+open Base
 (** Eval Collector — automatic metric collection from {!Event_bus}.
 
     Subscribes to an {!Event_bus.t} and extracts metrics (turn count,

@@ -1,3 +1,4 @@
+open Base
 (** Tests for otel_tracer.ml -- OTel-compatible TRACER implementation *)
 
 open Alcotest

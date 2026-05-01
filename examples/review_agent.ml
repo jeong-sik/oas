@@ -1,3 +1,4 @@
+open Base
 (** Code review agent — reviews GitHub PR diffs via OAS tool_use.
 
     Demonstrates:

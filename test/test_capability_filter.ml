@@ -1,3 +1,4 @@
+open Base
 (** Coverage for [Llm_provider.Capability_filter] (oas#1175 ratchet plan).
 
     [test_llm_provider_cov.ml] already exercises ~13 boolean predicate

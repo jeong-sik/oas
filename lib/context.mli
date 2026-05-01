@@ -1,3 +1,4 @@
+open Base
 (** Cross-turn shared state container.
     Values are [Yojson.Safe.t] for flexibility while maintaining
     serializability.

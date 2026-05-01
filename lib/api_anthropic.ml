@@ -1,3 +1,4 @@
+open Base
 (** Anthropic Claude API request building and response parsing.
 
     Response parsing is delegated to {!Llm_provider.Backend_anthropic}.

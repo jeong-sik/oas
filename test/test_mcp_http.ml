@@ -1,3 +1,4 @@
+open Base
 (** Tests for Mcp_http — HTTP transport for MCP servers.
 
     Since we cannot easily spin up a real HTTP MCP server in unit tests,

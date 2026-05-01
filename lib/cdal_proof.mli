@@ -1,3 +1,4 @@
+open Base
 (** CDAL proof bundle -- 15-field contract-driven execution evidence.
 
     Part of the Contract-Driven Agent Loop (CDAL) PoC-1.

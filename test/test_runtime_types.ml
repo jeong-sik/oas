@@ -1,3 +1,4 @@
+open Base
 (** Roundtrip tests for Runtime ppx-generated yojson/show functions.
     Targets the ~270 uncovered points in runtime.ml from ppx codegen. *)
 

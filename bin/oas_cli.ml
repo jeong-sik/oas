@@ -1,3 +1,4 @@
+open Base
 (** OAS CLI — command-line interface for the OCaml Agent SDK.
 
     Subcommands:

@@ -1,3 +1,4 @@
+open Base
 (** Result-based filesystem operations.
 
     All functions return [('a, Error.sdk_error) result] instead of raising.

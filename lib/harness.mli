@@ -1,3 +1,4 @@
+open Base
 (** Test harness framework for agent verification.
 
     Provides pluggable verification layers inspired by the Swiss Cheese

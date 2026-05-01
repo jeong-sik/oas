@@ -1,3 +1,4 @@
+open Base
 (** Tests for Correction_pipeline — deterministic correction stages. *)
 
 open Agent_sdk

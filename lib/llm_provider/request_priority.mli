@@ -1,3 +1,4 @@
+open Base
 (** Request priority for LLM completion scheduling.
 
     Consumers attach a priority to each completion request.

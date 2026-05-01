@@ -1,3 +1,4 @@
+open Base
 (** Evaluation Framework — quantitative agent run assessment.
 
     Collects metrics from agent runs, compares baselines vs candidates,

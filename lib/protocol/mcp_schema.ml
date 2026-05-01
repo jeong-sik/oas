@@ -1,3 +1,4 @@
+open Base
 open Types
 module Sdk_types = Mcp_protocol.Mcp_types
 

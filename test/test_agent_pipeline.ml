@@ -1,3 +1,4 @@
+open Base
 (** Agent.run full-pipeline tests with mock HTTP server.
     Exercises: pipeline stages, api dispatch, tool execution,
     streaming, hooks, context reducer, guardrails.

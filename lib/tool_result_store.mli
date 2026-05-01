@@ -1,3 +1,4 @@
+open Base
 (** Session-scoped persistent store for tool result content.
 
     Moves large tool results to the filesystem and returns previews.

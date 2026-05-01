@@ -1,3 +1,4 @@
+open Base
 (** Mock provider for testing — eliminates network dependency.
 
     Supplies pre-programmed API responses in order. When the response

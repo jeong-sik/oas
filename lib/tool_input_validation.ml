@@ -1,3 +1,4 @@
+open Base
 (** Tool input validation — deterministic schema checking with type coercion.
 
     Validates tool call arguments against declared parameter schemas.

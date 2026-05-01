@@ -1,3 +1,4 @@
+open Base
 module C = Agent_sdk.Collaboration
 
 let expect_ok = function

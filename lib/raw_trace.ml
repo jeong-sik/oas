@@ -1,3 +1,4 @@
+open Base
 open Types
 
 let ( let* ) = Result.bind

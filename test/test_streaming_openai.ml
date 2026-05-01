@@ -1,3 +1,4 @@
+open Base
 (** Unit tests for OpenAI-compatible SSE streaming parser. *)
 
 open Llm_provider.Types

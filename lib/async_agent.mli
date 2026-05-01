@@ -1,3 +1,4 @@
+open Base
 (** Async Agent — Eio fiber-based background agent execution.
 
     Provides [future]-based spawning, race, and fan-out patterns

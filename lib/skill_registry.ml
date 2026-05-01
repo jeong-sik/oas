@@ -1,3 +1,4 @@
+open Base
 (** Runtime skill registry — discover and manage skills at runtime.
 
     Wraps a [Hashtbl.t] keyed by skill name.  Unlike {!Skill} which is

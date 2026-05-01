@@ -1,3 +1,4 @@
+open Base
 (** Tool index: BM25-based retrieval for dynamic tool exposure.
 
     Indexes tool descriptions at agent startup and retrieves the

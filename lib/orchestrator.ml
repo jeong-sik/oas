@@ -1,3 +1,4 @@
+open Base
 (** Multi-agent orchestration.
 
     Distributes tasks across named agents and collects results.

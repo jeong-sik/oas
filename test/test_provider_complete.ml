@@ -1,3 +1,4 @@
+open Base
 (** Tests for Llm_provider.Complete — request JSON verification. *)
 
 module PC = Llm_provider.Provider_config

@@ -1,3 +1,4 @@
+open Base
 (** Succession — cross-agent context relay for multi-generation execution.
 
     Compresses an agent's working context into a structured DNA payload

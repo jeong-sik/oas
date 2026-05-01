@@ -1,3 +1,4 @@
+open Base
 (** SSE (Server-Sent Events) line-level parser.
 
     Follows the SSE spec: event/data/id/retry fields,

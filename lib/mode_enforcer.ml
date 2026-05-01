@@ -1,3 +1,4 @@
+open Base
 type tool_effect_class =
   | Read_only
   | Local_mutation

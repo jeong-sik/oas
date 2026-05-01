@@ -1,3 +1,4 @@
+open Base
 (** Tests for Journal_bridge — Durable_event → Event_bus projection. *)
 
 open Alcotest

@@ -1,3 +1,4 @@
+open Base
 (** Sessions store operations — file I/O, artifact retrieval, raw trace access.
 
     Read-from-store operations that bridge the runtime file layout

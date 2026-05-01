@@ -1,3 +1,4 @@
+open Base
 (** OpenAI-compatible API response parsing and request building.
 
     Pure functions operating on {!Llm_provider.Types}.

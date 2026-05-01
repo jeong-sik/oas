@@ -1,3 +1,4 @@
+open Base
 (** LLM-powered content guardrails via judge closure injection.
 
     @since 0.102.0 *)

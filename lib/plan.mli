@@ -1,3 +1,4 @@
+open Base
 (** Plan — goal decomposition and adaptive execution.
 
     Decomposes a high-level goal into ordered steps, tracks progress,

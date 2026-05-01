@@ -1,3 +1,4 @@
+open Base
 (** Unit tests for Util — pure helper functions extracted across the
     SDK. No IO, no Eio. *)
 

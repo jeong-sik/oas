@@ -1,3 +1,4 @@
+open Base
 (** Tests for Agent_registry — capability-based multi-agent discovery. *)
 
 open Alcotest

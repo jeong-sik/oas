@@ -1,3 +1,4 @@
+open Base
 (** Metrics hooks for LLM completion observability. *)
 
 type t =

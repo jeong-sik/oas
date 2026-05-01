@@ -1,3 +1,4 @@
+open Base
 (** File-system backed long-term memory persistence.
 
     Stores each key-value pair as a JSON file under a base directory.

@@ -1,3 +1,4 @@
+open Base
 (** Builder pattern for Agent creation.
     Provides a flat, chainable API as an alternative to nested Agent.create params. *)
 

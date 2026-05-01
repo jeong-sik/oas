@@ -1,3 +1,4 @@
+open Base
 (** Tests for Guardrail_llm — LLM-powered content guardrails. *)
 
 open Agent_sdk

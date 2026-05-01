@@ -1,3 +1,4 @@
+open Base
 (** Tests for Agent.clone — independent agent duplication. *)
 
 open Alcotest

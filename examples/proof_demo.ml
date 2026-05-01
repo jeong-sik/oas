@@ -1,3 +1,4 @@
+open Base
 open Agent_sdk
 
 let default_runtime_path () =

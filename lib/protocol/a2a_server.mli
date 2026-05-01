@@ -1,3 +1,4 @@
+open Base
 (** A2A Server -- JSON-RPC server for Agent-to-Agent protocol.
 
     Handles incoming task requests, serves the agent card, and manages

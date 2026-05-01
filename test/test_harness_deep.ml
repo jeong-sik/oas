@@ -1,3 +1,4 @@
+open Base
 (** Deep tests for Harness module — targeting uncovered branches.
 
     Covers: Adversarial.ErrorContains, Performance edge cases,

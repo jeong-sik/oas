@@ -1,3 +1,4 @@
+open Base
 (** Uncertain — typed wrapper for non-deterministic values.
 
     Wraps LLM outputs and heuristic results with provenance and

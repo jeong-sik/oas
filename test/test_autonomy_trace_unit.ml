@@ -1,3 +1,4 @@
+open Base
 (** Deep unit tests for Autonomy_trace_analyzer — targeting uncovered classify
     branches and edge cases through the public API.
 

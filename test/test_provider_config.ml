@@ -1,3 +1,4 @@
+open Base
 (** Tests for Provider_config — lightweight provider configuration. *)
 
 open Llm_provider

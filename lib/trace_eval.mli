@@ -1,3 +1,4 @@
+open Base
 (** Trace-level evaluation — aggregate span metrics and run health checks.
 
     Operates on {!Otel_tracer.span} lists produced by the OpenTelemetry

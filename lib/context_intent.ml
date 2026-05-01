@@ -1,3 +1,4 @@
+open Base
 (** Reusable query intent classification for OAS consumers. *)
 
 open Types

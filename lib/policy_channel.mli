@@ -1,3 +1,4 @@
+open Base
 (** Policy_channel -- shared ref for lazy tool policy propagation.
 
     When a parent agent modifies its tool policy (e.g. confiscating a tool)

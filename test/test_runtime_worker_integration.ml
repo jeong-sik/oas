@@ -1,3 +1,4 @@
+open Base
 (** Integration tests for Runtime_server_worker.
 
     Exercises the major code paths in runtime_server_worker.ml that are

@@ -1,3 +1,4 @@
+open Base
 (** Tests for Judge module -- LLM-based evaluation and scoring. *)
 
 open Agent_sdk

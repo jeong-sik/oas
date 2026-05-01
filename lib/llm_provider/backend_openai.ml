@@ -1,3 +1,4 @@
+open Base
 (** OpenAI-compatible API response parsing, message serialization,
     and request building.
 

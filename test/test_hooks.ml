@@ -1,3 +1,4 @@
+open Base
 (** Tests for hooks.ml — lifecycle events and hook decisions *)
 
 open Alcotest

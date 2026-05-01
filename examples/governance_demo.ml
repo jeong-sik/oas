@@ -1,3 +1,4 @@
+open Base
 (** Governance demo: Policy + Audit + Durable working together.
 
     Demonstrates:

@@ -1,3 +1,4 @@
+open Base
 (** Memory tool JSON parameter parsing helpers.
 
     @since 0.92.0 extracted from Memory_tools

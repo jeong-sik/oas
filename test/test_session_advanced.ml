@@ -1,3 +1,4 @@
+open Base
 (** Advanced tests for Session module — checkpoint, metadata, edge cases.
 
     Extends test_session.ml with:

@@ -1,3 +1,4 @@
+open Base
 (** Provider-level concurrency throttle with priority-aware scheduling.
 
     Internally delegates to {!Slot_scheduler} for priority queue management.

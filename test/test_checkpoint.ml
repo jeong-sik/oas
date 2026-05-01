@@ -1,3 +1,4 @@
+open Base
 open Agent_sdk
 
 let check_response_format label expected actual =

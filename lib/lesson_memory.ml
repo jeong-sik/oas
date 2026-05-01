@@ -1,3 +1,4 @@
+open Base
 (** Lesson_memory — helpers for failure-driven autonomy feedback loops.
 
     @since 0.92.1 *)

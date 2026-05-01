@@ -1,3 +1,4 @@
+open Base
 (** Wrap an agent as a callable tool (agent-as-tool pattern).
 
     Creates a {!Tool.t} whose handler spawns a child agent, runs it

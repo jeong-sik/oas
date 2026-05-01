@@ -1,3 +1,4 @@
+open Base
 (** Observable agent: see every pipeline step in the terminal.
 
     Demonstrates:

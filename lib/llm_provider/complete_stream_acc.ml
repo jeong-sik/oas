@@ -1,3 +1,4 @@
+open Base
 (** Stream accumulator: gather SSE events into a {!Types.api_response}.
 
     Extracts the stream_acc type and its operations from [Complete].

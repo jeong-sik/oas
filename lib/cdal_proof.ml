@@ -1,3 +1,4 @@
+open Base
 type result_status =
   | Completed
   | Errored

@@ -1,3 +1,4 @@
+open Base
 (** Unit tests for Memory_tools_parse — pure JSON parameter parsing
     helpers. Returns tool-compatible Result types for uniform error
     handling. No IO. *)

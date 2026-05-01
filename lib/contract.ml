@@ -1,3 +1,4 @@
+open Base
 (** Explicit runtime contract helpers.
 
     The SDK already had the primitives needed to shape an agent run

@@ -1,3 +1,4 @@
+open Base
 (** Extended Skill coverage tests — targets uncovered paths in skill.ml.
 
     Focuses on:

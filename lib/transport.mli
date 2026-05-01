@@ -1,3 +1,4 @@
+open Base
 (** IPC transport for oas_runtime using Eio structured concurrency.
 
     Spawns an oas_runtime subprocess, communicates via NDJSON over

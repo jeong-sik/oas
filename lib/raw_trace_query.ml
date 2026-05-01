@@ -1,3 +1,4 @@
+open Base
 (** Read-side operations for raw traces: list runs, read, summarize, validate.
 
     Extracted from raw_trace.ml to separate write-path (recording) from

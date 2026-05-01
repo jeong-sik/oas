@@ -1,3 +1,4 @@
+open Base
 (** Composable multi-stage approval pipeline for tool execution.
 
     Stages evaluate sequentially; first {!Decided} wins.

@@ -1,3 +1,4 @@
+open Base
 (** Tests for Custom_registered provider variant and registry integration.
     Registry uses Eio.Mutex, so all registry tests run inside Eio_main.run. *)
 

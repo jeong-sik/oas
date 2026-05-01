@@ -1,3 +1,4 @@
+open Base
 (** Raw trace.
 
     @stability Stable

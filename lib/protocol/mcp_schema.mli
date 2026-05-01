@@ -1,3 +1,4 @@
+open Base
 (** MCP schema bridge — converts between MCP SDK types and OAS types.
 
     @stability Internal

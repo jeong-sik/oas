@@ -1,3 +1,4 @@
+open Base
 (** External test placeholder for Eval_otel_bridge.
 
     Core tests are inline (%test) in lib/eval_otel_bridge.ml and run

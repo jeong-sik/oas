@@ -1,3 +1,4 @@
+open Base
 (** Kimi CLI non-interactive transport.
 
     @since 0.169.0 *)

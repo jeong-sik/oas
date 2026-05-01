@@ -1,3 +1,4 @@
+open Base
 (** Consumer API — high-level agent execution with telemetry aggregation.
 
     Wraps {!Agent.run} and collects all Layer 1 telemetry into a single

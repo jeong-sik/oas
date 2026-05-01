@@ -1,3 +1,4 @@
+open Base
 (** Session lifecycle and metadata for agent executions.
     Tracks turn count, timestamps, and cross-turn state via Context.t. *)
 

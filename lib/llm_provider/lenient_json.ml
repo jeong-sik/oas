@@ -1,3 +1,4 @@
+open Base
 (** Lenient JSON parser — recovers common LLM output malformations.
 
     LLMs frequently produce malformed JSON: markdown fences, trailing

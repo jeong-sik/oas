@@ -1,3 +1,4 @@
+open Base
 (** Phantom-typed permission enforcement for typed tools.
 
     @since 0.120.0 *)

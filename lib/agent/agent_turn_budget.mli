@@ -1,3 +1,4 @@
+open Base
 (** Agent_turn_budget — Self-extending turn budget with guardrails.
 
     Agents start with an initial turn budget and can request more via

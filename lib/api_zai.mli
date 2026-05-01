@@ -1,3 +1,4 @@
+open Base
 (** Z.AI general API helpers for non-chat media endpoints.
 
     These endpoints are distinct from chat completions and should not be

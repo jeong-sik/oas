@@ -1,3 +1,4 @@
+open Base
 (** Guardrails for tool filtering and execution limits.
     Inspired by Anthropic SDK's allowedTools + permissionMode.
 

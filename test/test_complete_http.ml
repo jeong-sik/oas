@@ -1,3 +1,4 @@
+open Base
 (** HTTP-level tests for Complete module using mock cohttp-eio server.
     Tests complete, complete_with_retry, complete_stream.
     No real LLM calls — all responses are canned JSON. *)

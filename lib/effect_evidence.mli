@@ -1,3 +1,4 @@
+open Base
 (** Tool-effect decision evidence.
 
     A record in this module captures the enforcement decision for one tool

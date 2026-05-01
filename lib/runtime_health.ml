@@ -1,3 +1,4 @@
+open Base
 type status =
   | Status_ok
   | Degraded

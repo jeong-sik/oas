@@ -1,3 +1,4 @@
+open Base
 (** Extended coverage tests for Complete module — public API only.
     Targets: is_retryable and default_retry_config. *)
 

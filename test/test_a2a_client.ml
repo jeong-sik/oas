@@ -1,3 +1,4 @@
+open Base
 (** Tests for A2A Client — protocol-level verification.
 
     Tests JSON-RPC roundtrip via A2a_server.process_request

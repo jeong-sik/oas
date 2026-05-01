@@ -1,3 +1,4 @@
+open Base
 (** Replace invalid UTF-8 bytes with U+FFFD replacement character
     and disallowed control characters with spaces.
     Valid UTF-8 with no control chars is passed through unchanged.  O(n).

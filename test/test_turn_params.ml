@@ -1,3 +1,4 @@
+open Base
 (** Tests for turn_params, BeforeTurnParams hook, and related features. *)
 
 open Agent_sdk

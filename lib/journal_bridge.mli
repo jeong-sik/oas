@@ -1,3 +1,4 @@
+open Base
 (** Bridge Durable_event journal events to Event_bus.
 
     Each journal event is projected onto {!Event_bus.Custom} with a

@@ -1,3 +1,4 @@
+open Base
 let retry_failures_of_results (results : Agent_tools.tool_execution_result list)
   : Tool_retry_policy.failure list
   =

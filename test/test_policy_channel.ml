@@ -1,3 +1,4 @@
+open Base
 (** Tests for Policy_channel -- shared ref for lazy tool policy propagation. *)
 
 open Alcotest

@@ -1,3 +1,4 @@
+open Base
 open Agent_sdk
 
 (* ── Elicitation types ──────────────────────────────────── *)

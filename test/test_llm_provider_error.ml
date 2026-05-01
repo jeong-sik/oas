@@ -1,3 +1,4 @@
+open Base
 (** Coverage for [Llm_provider.Error.provider_error] and its
     [to_string] formatter (oas#1175 — file at 0% coverage in the
     initial coverage measurement (`66.42%`, run `24887636744`)).

@@ -1,3 +1,4 @@
+open Base
 (** Content replacement state for decision freezing.
 
     See {!Content_replacement_state} (.mli) for API documentation.

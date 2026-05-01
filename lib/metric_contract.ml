@@ -1,3 +1,4 @@
+open Base
 (** Metric_contract — strict metric emission prompt and parser.
 
     @since 0.92.1 *)

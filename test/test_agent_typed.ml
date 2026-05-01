@@ -1,3 +1,4 @@
+open Base
 (** Tests for Agent_typed — phantom-type lifecycle state machine.
 
     Verifies that the typed wrapper correctly delegates to Agent.t

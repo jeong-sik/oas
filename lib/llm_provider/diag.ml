@@ -1,3 +1,4 @@
+open Base
 type level =
   | Debug
   | Info

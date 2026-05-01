@@ -1,3 +1,4 @@
+open Base
 (** Tests for Builder module — chainable agent construction API. *)
 
 open Agent_sdk

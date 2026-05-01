@@ -1,3 +1,4 @@
+open Base
 (** High-level SDK client — manages runtime connection, sessions,
     permission callbacks, and message buffering.
 

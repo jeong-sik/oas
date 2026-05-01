@@ -1,3 +1,4 @@
+open Base
 (** Phantom-typed permission enforcement for typed tools.
 
     Wraps {!Typed_tool.t} with a phantom type parameter ['perm] that

@@ -1,3 +1,4 @@
+open Base
 (** Autonomy_diff_guard — pure unified-diff validation helper.
 
     @since 0.92.1 *)

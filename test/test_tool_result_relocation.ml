@@ -1,3 +1,4 @@
+open Base
 (** Integration tests for Tool Result Relocation (RFC-OAS-005 Phase 1).
 
     Covers:

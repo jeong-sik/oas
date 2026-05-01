@@ -1,3 +1,4 @@
+open Base
 (** Context offload: move large tool results to the filesystem.
 
     Reduces context window consumption by writing large tool outputs

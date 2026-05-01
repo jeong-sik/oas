@@ -1,3 +1,4 @@
+open Base
 (** Agent_typed — phantom-type lifecycle state machine.
 
     @since 0.55.0 *)

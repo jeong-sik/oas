@@ -1,3 +1,4 @@
+open Base
 (** Core types for the Agent module.
 
     [Agent_types.t] exposes record fields for library-internal code.

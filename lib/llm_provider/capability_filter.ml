@@ -1,3 +1,4 @@
+open Base
 (** Capability predicates for provider selection.
 
     @since 0.69.0

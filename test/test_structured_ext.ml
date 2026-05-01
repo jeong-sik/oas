@@ -1,3 +1,4 @@
+open Base
 (** Extended coverage tests for Structured module pure functions.
     Targets: json_extractor, text_extractor, schema_to_tool_json. *)
 

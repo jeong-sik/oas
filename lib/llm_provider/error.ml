@@ -1,3 +1,4 @@
+open Base
 (** Provider-level error types.
 
     Independent of the OAS sdk_error hierarchy. Can be mapped to

@@ -1,3 +1,4 @@
+open Base
 (** Tests for Agent_turn_budget — self-extending turn budget with guardrails. *)
 
 open Agent_sdk

@@ -1,3 +1,4 @@
+open Base
 (** OpenTelemetry-compatible tracing with OTLP JSON export.
 
     Provides span lifecycle management, event recording, and

@@ -1,3 +1,4 @@
+open Base
 (** Tests for Progressive_tools — progressive tool disclosure. *)
 
 open Agent_sdk

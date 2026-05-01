@@ -1,3 +1,4 @@
+open Base
 (** Tool use recovery — extract ToolUse blocks from text content when the
     provider returns a tool-call intent as text instead of a proper
     ToolUse block.

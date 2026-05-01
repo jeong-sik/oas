@@ -1,3 +1,4 @@
+open Base
 module Retry = Llm_provider.Retry
 open Agent_types
 

@@ -1,3 +1,4 @@
+open Base
 (** Subprocess CLI transport demo.
 
     Shows how to wire up the four non-interactive CLI transports

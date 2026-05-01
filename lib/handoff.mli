@@ -1,3 +1,4 @@
+open Base
 (** Sub-agent delegation and handoff.
 
     Defines handoff target types and a tool constructor.

@@ -1,3 +1,4 @@
+open Base
 (** Tests for Tool_index — BM25-based tool retrieval. *)
 
 open Alcotest

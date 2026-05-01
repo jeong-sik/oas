@@ -1,3 +1,4 @@
+open Base
 (** Backend operations shared by the public memory tool factories. *)
 
 type t =

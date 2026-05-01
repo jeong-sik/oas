@@ -1,3 +1,4 @@
+open Base
 (** Multi-stage deterministic correction pipeline.
 
     @since 0.120.0 *)

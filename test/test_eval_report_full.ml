@@ -1,3 +1,4 @@
+open Base
 (** Full coverage tests for Eval_report module.
     Targets: generate (4 paths), to_json, to_string.
     Covers all 3 verdict variants: Pass, Fail, NoBaseline. *)

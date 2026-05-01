@@ -1,3 +1,4 @@
+open Base
 (** Reusable query intent classification for OAS consumers.
 
     This module owns the normalized intent taxonomy, retrieval-depth mapping,

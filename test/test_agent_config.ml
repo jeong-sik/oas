@@ -1,3 +1,4 @@
+open Base
 (** Tests for Agent_config — JSON config file loader. *)
 
 open Alcotest

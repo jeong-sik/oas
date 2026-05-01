@@ -1,3 +1,4 @@
+open Base
 (** Tests for Provider_registry and Capability_filter (v0.69.0). *)
 
 open Alcotest

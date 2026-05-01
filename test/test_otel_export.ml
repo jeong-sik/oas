@@ -1,3 +1,4 @@
+open Base
 (** Tests for Otel_export — OTLP HTTP/JSON span exporter.
 
     All tests use mock spans (no LLM calls). HTTP transport is tested

@@ -1,3 +1,4 @@
+open Base
 (** Extended Orchestrator coverage tests — targets uncovered paths in orchestrator.ml.
 
     Focuses on:

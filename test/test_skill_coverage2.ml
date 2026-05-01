@@ -1,3 +1,4 @@
+open Base
 (** Extended Skill and Skill_registry coverage — targeting remaining uncovered paths.
 
     Existing tests cover:

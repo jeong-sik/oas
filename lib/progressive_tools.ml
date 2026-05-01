@@ -1,3 +1,4 @@
+open Base
 (** Progressive tool disclosure — reveal tools in phases.
 
     Controls which tools are available to the LLM at each turn,

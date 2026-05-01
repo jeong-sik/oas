@@ -1,3 +1,4 @@
+open Base
 (** Trajectory — structured agent execution trace.
 
     Bridges OAS {!Raw_trace} records into a higher-level execution model

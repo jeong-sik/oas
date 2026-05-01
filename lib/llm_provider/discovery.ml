@@ -1,3 +1,4 @@
+open Base
 (** LLM endpoint discovery -- probes local llama-server instances.
 
     @since 0.53.0 *)

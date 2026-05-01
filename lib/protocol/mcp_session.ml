@@ -1,3 +1,4 @@
+open Base
 (** MCP session persistence — capture and restore server connection info.
 
     MCP connections (OS process + stdio pipes) cannot be serialized.

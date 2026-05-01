@@ -1,3 +1,4 @@
+open Base
 open Types
 
 let _log = Log.create ~module_name:"completion_contract" ()

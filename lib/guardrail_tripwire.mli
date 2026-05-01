@@ -1,3 +1,4 @@
+open Base
 (** Tripwire guardrails: fail-fast parallel validators.
 
     A tripwire runs concurrently with the main agent LLM call.

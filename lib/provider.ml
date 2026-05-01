@@ -1,3 +1,4 @@
+open Base
 (** Provider abstraction for local and cloud LLM endpoints *)
 
 type provider =

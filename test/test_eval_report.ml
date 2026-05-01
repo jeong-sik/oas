@@ -1,3 +1,4 @@
+open Base
 (** Unit tests for Eval_report — structured evaluation report generation.
 
     Pure logic: takes a list of [Eval.run_metrics] (and an optional

@@ -1,3 +1,4 @@
+open Base
 (** Policy_channel -- shared ref for lazy tool policy propagation.
 
     Implementation uses [Atomic.t] for lock-free reads and a CAS loop

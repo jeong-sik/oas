@@ -1,3 +1,4 @@
+open Base
 (** Agent-as-tool: wrap an agent runner as a callable {!Tool.t}.
 
     @since 0.102.0 *)

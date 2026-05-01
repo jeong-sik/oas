@@ -1,3 +1,4 @@
+open Base
 (** Tests for prompt caching: cache_control serialization, usage parsing,
     and add_usage with cache token fields. *)
 

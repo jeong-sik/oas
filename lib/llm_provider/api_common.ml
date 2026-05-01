@@ -1,3 +1,4 @@
+open Base
 (** Shared helpers, constants, and content-block serialization for API modules.
 
     Extracted from agent_sdk for shared use by consumers.

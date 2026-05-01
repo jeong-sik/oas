@@ -1,3 +1,4 @@
+open Base
 (** Per-model cost estimation.
 
     Extracted from OAS Provider module. Provides pricing lookup by model ID

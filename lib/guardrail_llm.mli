@@ -1,3 +1,4 @@
+open Base
 (** LLM-powered content guardrails.
 
     Wraps an externally-injected judge function as a

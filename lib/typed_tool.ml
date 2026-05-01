@@ -1,3 +1,4 @@
+open Base
 (** Typed tool — compile-time enforced schema/handler type agreement.
 
     @since 0.120.0 *)

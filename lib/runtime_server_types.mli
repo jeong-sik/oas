@@ -1,3 +1,4 @@
+open Base
 (** Server-side state and helpers for the runtime server.
 
     @stability Internal

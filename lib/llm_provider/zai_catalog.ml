@@ -1,3 +1,4 @@
+open Base
 (** Z.AI catalog and routing helpers. *)
 
 type api_mode =

@@ -1,3 +1,4 @@
+open Base
 (** Runtime control-channel request helpers.
 
     These functions keep stdin/stdout control-message plumbing out of the

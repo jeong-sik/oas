@@ -1,3 +1,4 @@
+open Base
 (** Text → token count estimation.
 
     Canonical CJK-aware approximation shared by every OAS subsystem that

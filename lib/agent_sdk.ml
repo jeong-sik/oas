@@ -1,3 +1,4 @@
+open Base
 (** Anthropic Agent SDK for OCaml
 
     A type-safe, Eio-based implementation of the Anthropic Agent SDK.

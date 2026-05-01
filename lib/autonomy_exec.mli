@@ -1,3 +1,4 @@
+open Base
 (** Autonomy_exec — external execution primitive for autonomy loops.
 
     This module intentionally stays below any AutoResearch-specific policy.

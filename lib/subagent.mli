@@ -1,3 +1,4 @@
+open Base
 (** Typed subagent specifications for delegation via Handoff.
 
     Loads subagent definitions from markdown frontmatter and converts

@@ -1,3 +1,4 @@
+open Base
 (** Tests for Http_client pure functions. *)
 
 open Agent_sdk

@@ -1,3 +1,4 @@
+open Base
 (** Tests for error.ml — structured SDK error types *)
 
 open Alcotest

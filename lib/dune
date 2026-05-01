@@ -4,7 +4,7 @@
  (name agent_sdk)
  (public_name agent_sdk)
  (libraries
-  llm_provider
+  base llm_provider
   eio
   eio_main
   cohttp-eio

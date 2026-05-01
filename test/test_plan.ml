@@ -1,3 +1,4 @@
+open Base
 (** Unit tests for Plan module (v0.77.0). *)
 
 open Alcotest

@@ -1,3 +1,4 @@
+open Base
 (** Markdown skill loading with lightweight frontmatter support.
 
     Parses YAML-like frontmatter (---/--- delimited) into key-value pairs

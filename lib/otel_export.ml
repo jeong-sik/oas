@@ -1,3 +1,4 @@
+open Base
 (** OTLP HTTP/JSON span exporter.
 
     Uses cohttp-eio directly for HTTP transport.
