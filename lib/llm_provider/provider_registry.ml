@@ -162,7 +162,7 @@ let claude_defaults =
 ;;
 
 let env_or_default env_name default_url =
-  match Cli_common_env.trim_non_empty_opt (Sys.getenv_opt env_name) with
+  match Cli_common_env.get env_name with
   | Some url -> url
   | None -> default_url
 ;;

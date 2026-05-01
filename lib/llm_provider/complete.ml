@@ -584,7 +584,7 @@ let complete_http
                       config.model_id
                   in
                   let dir =
-                    match Cli_common_env.trim_non_empty_opt (Sys.getenv_opt "OAS_DEBUG_BODY_DIR") with
+                    match Cli_common_env.get "OAS_DEBUG_BODY_DIR" with
                     | Some v -> v
                     | None -> Filename.get_temp_dir_name ()
                   in

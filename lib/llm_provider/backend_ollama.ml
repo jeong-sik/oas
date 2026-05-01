@@ -76,7 +76,7 @@ let build_request
     match Cli_common_env.trim_non_empty_opt config.keep_alive with
     | Some v -> v
     | None ->
-      (match Cli_common_env.trim_non_empty_opt (Sys.getenv_opt "OAS_OLLAMA_KEEP_ALIVE") with
+      (match Cli_common_env.get "OAS_OLLAMA_KEEP_ALIVE" with
        | Some v -> v
        | None -> "-1")
   in
