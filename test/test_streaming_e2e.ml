@@ -1,4 +1,3 @@
-open Base
 (* test_streaming_e2e.ml — E2E streaming test against local LLM server.
    Run: LLAMA_LIVE_TEST=1 dune exec ./test/test_streaming_e2e.exe *)
 

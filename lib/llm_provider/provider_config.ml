@@ -1,4 +1,3 @@
-open Base
 (** Lightweight provider configuration for standalone LLM calls.
     @since 0.46.0 *)
 

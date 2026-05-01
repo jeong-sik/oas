@@ -1,4 +1,3 @@
-open Base
 (** Runtime server worker — agent execution and event persistence.
 
     @stability Internal

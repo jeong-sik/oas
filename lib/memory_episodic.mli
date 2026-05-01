@@ -1,4 +1,3 @@
-open Base
 (** Episodic memory: interaction history with time-decaying salience.
 
     @since 0.75.0

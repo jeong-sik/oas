@@ -1,4 +1,3 @@
-open Base
 (** Tests for Agent.t mutable-field race condition fix.
 
     Verifies that concurrent access to Agent.t mutable fields

@@ -1,4 +1,3 @@
-open Base
 open Runtime
 open Runtime_server_types
 open Runtime_server_resolve

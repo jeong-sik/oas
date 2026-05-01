@@ -1,4 +1,3 @@
-open Base
 (** Anthropic Claude API response parsing and request building.
 
     Pure functions operating on {!Llm_provider.Types}.

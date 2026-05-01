@@ -1,4 +1,3 @@
-open Base
 (** Gemini native API request building and response parsing.
 
     Wire format: contents/parts, systemInstruction, thinkingConfig,

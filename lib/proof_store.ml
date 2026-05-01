@@ -1,4 +1,3 @@
-open Base
 type config = { root : string }
 
 type resolved_ref =

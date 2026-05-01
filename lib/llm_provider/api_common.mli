@@ -1,4 +1,3 @@
-open Base
 (** Shared helpers, constants, and content-block serialization.
 
     @stability Internal

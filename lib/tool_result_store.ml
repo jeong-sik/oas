@@ -1,4 +1,3 @@
-open Base
 (** Session-scoped persistent store for tool result content.
 
     See {!Tool_result_store} (.mli) for API documentation.

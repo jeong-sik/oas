@@ -1,4 +1,3 @@
-open Base
 type phase =
   | Bootstrapping
   | Running

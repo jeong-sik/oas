@@ -1,4 +1,3 @@
-open Base
 (** Content_replacement_state ↔ Event_bus bridge (LT-14b / observability).
 
     Lives in [agent_sdk] as an opt-in observability wrapper: delegate first

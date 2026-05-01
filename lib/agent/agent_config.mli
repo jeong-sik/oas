@@ -1,4 +1,3 @@
-open Base
 (** Agent configuration file parsing and MCP server connection.
 
     Loads agent configuration from JSON files, resolves providers,

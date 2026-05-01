@@ -1,4 +1,3 @@
-open Base
 (** Tests for Context_reducer — pure functions, no Eio needed. *)
 
 open Agent_sdk

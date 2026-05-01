@@ -1,4 +1,3 @@
-open Base
 (** Structured SDK error types.
 
     Replaces [(_, string) result] with [(_, sdk_error) result] across the SDK.

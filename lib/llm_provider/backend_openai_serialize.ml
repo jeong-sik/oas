@@ -1,4 +1,3 @@
-open Base
 (** OpenAI-compatible request serialization.
 
     Converts agent_sdk Types (content blocks, messages, tools) into

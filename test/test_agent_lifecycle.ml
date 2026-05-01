@@ -1,4 +1,3 @@
-open Base
 (** Tests for Agent_lifecycle module — snapshot building, runtime names. *)
 
 open Agent_sdk

@@ -1,4 +1,3 @@
-open Base
 let query ~sw ~mgr ?runtime_path ?session_root request =
   let options =
     { Transport.runtime_path

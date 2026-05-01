@@ -1,4 +1,3 @@
-open Base
 open Checkpoint_types
 
 let _log = Log.create ~module_name:"checkpoint" ()

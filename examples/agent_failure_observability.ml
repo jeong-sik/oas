@@ -1,4 +1,3 @@
-open Base
 (** AgentFailed observability example.
 
     Demonstrates the [AgentFailed] native variant added in v0.154.0.

@@ -1,4 +1,3 @@
-open Base
 type runtime_constraints =
   { requested_execution_mode : Execution_mode.t
   ; risk_class : Risk_class.t

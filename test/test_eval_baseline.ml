@@ -1,4 +1,3 @@
-open Base
 (** Unit tests for Eval_baseline and Eval_report (v0.68.0). *)
 
 open Alcotest

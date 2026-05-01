@@ -1,4 +1,3 @@
-open Base
 (** Structured output helpers.
 
     This module keeps the legacy tool-use helpers ([schema_to_tool_json],

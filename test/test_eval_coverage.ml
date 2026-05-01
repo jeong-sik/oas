@@ -1,4 +1,3 @@
-open Base
 (** Extended coverage tests for Eval and Eval_report modules.
 
     Existing tests cover:

@@ -1,4 +1,3 @@
-open Base
 let clamp_score score = Float.min 1.0 (Float.max 0.0 score)
 
 let filter_importance ?(threshold = 0.3) ?boost ~scorer messages =

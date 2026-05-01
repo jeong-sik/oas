@@ -1,4 +1,3 @@
-open Base
 (** Per-agent cost tracking and budget enforcement.
 
     Builds on {!Types.usage_stats.estimated_cost_usd} (accumulated

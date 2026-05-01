@@ -1,4 +1,3 @@
-open Base
 (** Bridge between legacy [Provider.config] and [Llm_provider.Provider_config.t].
 
     Allows agent_sdk code and consumers to convert from the old 5-variant

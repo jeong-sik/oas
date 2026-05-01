@@ -4,7 +4,7 @@
  (name llm_provider)
  (public_name agent_sdk.llm_provider)
  (libraries
-  base yojson
+  yojson
   ppx_deriving_yojson.runtime
   eio
   eio.unix

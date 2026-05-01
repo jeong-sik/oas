@@ -1,4 +1,3 @@
-open Base
 (** Test_autonomy_smoke — unit tests for Autonomy_trace_analyzer.
 
     All tests use synthetic {!Raw_trace.run_summary} fixtures.

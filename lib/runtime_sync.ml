@@ -1,4 +1,3 @@
-open Base
 let schema_version_current = 1
 let ( let* ) = Result.bind
 

@@ -1,4 +1,3 @@
-open Base
 (** Provider-level concurrency throttle with priority-aware scheduling.
 
     Limits concurrent LLM requests per provider to avoid overwhelming

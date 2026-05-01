@@ -1,4 +1,3 @@
-open Base
 let member_str key json =
   Yojson.Safe.Util.(json |> member key |> to_string_option) |> Option.value ~default:""
 ;;

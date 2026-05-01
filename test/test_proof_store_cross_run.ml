@@ -1,4 +1,3 @@
-open Base
 (** test_proof_store_cross_run -- Cross-run window API tests.
 
     Tests list_runs_ordered, load_window, scope filtering,

@@ -1,4 +1,3 @@
-open Base
 (** Tests for Append_instruction — hook-based dynamic instruction injection. *)
 
 open Agent_sdk

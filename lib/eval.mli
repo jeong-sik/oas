@@ -1,4 +1,3 @@
-open Base
 (** Evaluation framework for quantitative agent run assessment.
 
     Collects metrics, compares baselines vs candidates, and checks

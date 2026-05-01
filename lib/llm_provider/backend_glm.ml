@@ -1,4 +1,3 @@
-open Base
 (** ZhipuAI GLM native backend.
 
     OpenAI wire format with GLM-specific extensions:

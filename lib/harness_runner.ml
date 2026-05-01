@@ -1,4 +1,3 @@
-open Base
 (** Execute harness cases against fresh agents and emit structured reports. *)
 
 let mk_verdict ?score ~detail passed evidence : Harness.verdict =

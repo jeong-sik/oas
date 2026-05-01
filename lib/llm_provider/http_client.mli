@@ -1,4 +1,3 @@
-open Base
 (** HTTP client for LLM provider endpoints.
 
     Eio + cohttp-eio with TLS via {!Api_common.make_https}.

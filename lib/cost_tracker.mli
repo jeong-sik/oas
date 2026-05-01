@@ -1,4 +1,3 @@
-open Base
 (** Per-agent cost tracking and budget enforcement.
 
     @since 0.62.0

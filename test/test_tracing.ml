@@ -1,4 +1,3 @@
-open Base
 (** Tests for tracing.ml -- TRACER module type and built-in implementations *)
 
 open Alcotest

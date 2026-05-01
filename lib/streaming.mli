@@ -1,4 +1,3 @@
-open Base
 (** SSE streaming client for multi-provider LLM APIs.
 
     Supports Anthropic (native SSE) and OpenAI-compatible (SSE).

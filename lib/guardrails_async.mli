@@ -1,4 +1,3 @@
-open Base
 (** Async guardrails: parallel input/output validation.
 
     All validators run concurrently inside a dedicated [Eio.Switch].

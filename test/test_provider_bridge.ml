@@ -1,4 +1,3 @@
-open Base
 (** Tests for Provider_bridge: legacy Provider.config -> Provider_config.t *)
 
 let with_env key value f =

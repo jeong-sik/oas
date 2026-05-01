@@ -1,4 +1,3 @@
-open Base
 (** Tests for Fs_result — result-based filesystem operations. *)
 
 open Agent_sdk

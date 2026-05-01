@@ -1,4 +1,3 @@
-open Base
 (** Additional conformance tests targeting uncovered check paths.
     Exercises: direct evidence checks, raw trace addressability,
     worker validation + trace cross-checks, hook/tool counts,

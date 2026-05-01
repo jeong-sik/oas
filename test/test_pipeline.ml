@@ -1,4 +1,3 @@
-open Base
 (** Pipeline tests — verify the pipeline's type contracts and
     the agent's behavior through mock provider (unit-level).
     Pipeline is internal, so we test correctness through

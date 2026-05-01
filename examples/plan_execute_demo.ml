@@ -1,4 +1,3 @@
-open Base
 (** Plan-Execute demo: goal decomposition with dependency tracking.
 
     Demonstrates:

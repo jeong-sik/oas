@@ -1,4 +1,3 @@
-open Base
 (** Error_domain tests — roundtrip conversion and retryability. *)
 
 open Agent_sdk

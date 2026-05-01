@@ -1,4 +1,3 @@
-open Base
 (** Regression test for PR-O2: Pipeline Sync dispatch via Complete.complete.
 
     Proves that {!Pipeline.stage_route} in Sync mode routes through

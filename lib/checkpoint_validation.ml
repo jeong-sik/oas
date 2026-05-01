@@ -1,4 +1,3 @@
-open Base
 (** Checkpoint_validation — Quality checks for checkpoint/DNA content.
 
     Domain-independent quality checks, extracted to SDK level.

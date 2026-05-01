@@ -1,4 +1,3 @@
-open Base
 (** Event-sourced agent loop journal.
 
     Records every agent loop action as an immutable event.

@@ -1,4 +1,3 @@
-open Base
 (** Skill registry for discovery and metadata export.
 
     Holds skills for Agent Card generation, A2A capability negotiation,

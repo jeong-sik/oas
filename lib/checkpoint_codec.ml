@@ -1,4 +1,3 @@
-open Base
 open Types
 open Checkpoint_types
 

@@ -1,4 +1,3 @@
-open Base
 (** Tests for operator-level tool policy (#469).
 
     Verifies:

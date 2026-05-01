@@ -1,4 +1,3 @@
-open Base
 (** JSONL-backed harness datasets. *)
 
 type t = Harness_case.t list

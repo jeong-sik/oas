@@ -1,4 +1,3 @@
-open Base
 (** Tests for Tool_selector — 2-stage tool routing. *)
 
 open Alcotest

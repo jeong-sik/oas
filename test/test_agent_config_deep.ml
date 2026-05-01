@@ -1,4 +1,3 @@
-open Base
 (** Deep tests for Agent_config — JSON parsing, provider resolution, tool/MCP config.
 
     Targets 55 uncovered points in lib/agent/agent_config.ml. *)

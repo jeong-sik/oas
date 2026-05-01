@@ -1,4 +1,3 @@
-open Base
 (** Provider capabilities -- per-provider/model feature flags and limits.
 
     @since 0.42.0

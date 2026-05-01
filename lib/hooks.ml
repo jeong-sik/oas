@@ -1,4 +1,3 @@
-open Base
 (** Lifecycle hooks for agent execution.
     Inspired by Anthropic SDK PreToolUse/PostToolUse/Stop
     and Google ADK ToolContext patterns.

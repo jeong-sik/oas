@@ -1,4 +1,3 @@
-open Base
 open Agent_sdk
 
 let sample_tool_schema : Types.tool_schema =

@@ -1,4 +1,3 @@
-open Base
 (** Runtime evidence: telemetry reports and evidence bundles.
 
     Generates structured telemetry from session events and

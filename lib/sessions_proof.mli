@@ -1,4 +1,3 @@
-open Base
 (** Sessions proof assembly — worker-run construction and proof bundle.
 
     Transforms raw trace data and runtime participant metadata into

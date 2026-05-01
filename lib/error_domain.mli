@@ -1,4 +1,3 @@
-open Base
 (** Fine-grained error domains using polymorphic variants.
 
     Each domain constrains which errors a function can produce,

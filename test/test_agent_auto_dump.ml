@@ -1,4 +1,3 @@
-open Base
 (** Tests for Agent.save_journal and Builder.with_auto_dump_journal. *)
 
 open Alcotest

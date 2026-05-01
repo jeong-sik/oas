@@ -1,4 +1,3 @@
-open Base
 (** Checkpoint_validation — Quality checks for checkpoint/DNA content.
 
     Validates that checkpoint-derived text (DNA, compressed context)

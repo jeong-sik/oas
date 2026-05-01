@@ -1,4 +1,3 @@
-open Base
 (** Unit tests for streaming agent integration: emit_synthetic_events.
     Tests verify event sequences produced by Streaming.emit_synthetic_events
     for various api_response shapes. *)

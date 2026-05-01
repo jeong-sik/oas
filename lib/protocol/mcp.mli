@@ -1,4 +1,3 @@
-open Base
 (** MCP (Model Context Protocol) client.
 
     Spawns an MCP subprocess and communicates via JSON-RPC 2.0 NDJSON

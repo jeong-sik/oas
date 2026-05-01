@@ -1,4 +1,3 @@
-open Base
 (** Roundtrip tests for sessions_types.ml — ppx-generated yojson/show.
 
     Each type is tested: value -> to_yojson -> of_yojson -> show comparison.

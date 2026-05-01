@@ -1,4 +1,3 @@
-open Base
 open Types
 
 let group_into_turns (messages : message list) : message list list =

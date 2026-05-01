@@ -1,4 +1,3 @@
-open Base
 (** Thin wrappers over [Yojson.Safe.Util] that return safe defaults
     instead of raising on missing or mistyped fields.
 

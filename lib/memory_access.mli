@@ -1,4 +1,3 @@
-open Base
 (** Memory access control — agent-scoped permission layer.
 
     Wraps {!Memory.t} with per-agent, per-tier, per-key permissions.

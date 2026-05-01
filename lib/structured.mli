@@ -1,4 +1,3 @@
-open Base
 (** Structured output helpers.
 
     Direct extraction prefers provider-native JSON schema output via

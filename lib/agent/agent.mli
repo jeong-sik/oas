@@ -1,4 +1,3 @@
-open Base
 (** Agent: structured concurrency agent with hooks, tools, and handoffs.
 
     {b type t is abstract.}  Use accessor functions below to inspect

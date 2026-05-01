@@ -1,4 +1,3 @@
-open Base
 (** Unit tests for Cost_tracker and Context_offload (v0.62.0). *)
 
 open Alcotest

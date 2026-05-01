@@ -1,4 +1,3 @@
-open Base
 (** Structured reports for harness runs.
 
     @stability Evolving

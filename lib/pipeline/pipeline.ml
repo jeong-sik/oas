@@ -1,4 +1,3 @@
-open Base
 (** Turn pipeline: 6-stage decomposition of agent turn execution.
 
     Replaces the monolithic run_turn_core with named stages:

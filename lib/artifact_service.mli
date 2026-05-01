@@ -1,4 +1,3 @@
-open Base
 (** Artifact service.
 
     @stability Evolving

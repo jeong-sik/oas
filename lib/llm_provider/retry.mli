@@ -1,4 +1,3 @@
-open Base
 (** Structured API errors and retry logic with exponential backoff + jitter.
 
     @stability Internal

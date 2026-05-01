@@ -1,4 +1,3 @@
-open Base
 (** Shared subprocess execution for non-interactive CLI transports.
 
     Spawns a binary, concurrently collects stdout and stderr, and

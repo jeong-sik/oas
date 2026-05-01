@@ -1,4 +1,3 @@
-open Base
 (** Test Types parsing, especially Unknown stop_reason variant. *)
 
 open Agent_sdk

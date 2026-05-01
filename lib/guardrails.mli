@@ -1,4 +1,3 @@
-open Base
 (** Guardrails for tool filtering and execution limits.
 
     @stability Stable

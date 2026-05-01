@@ -1,4 +1,3 @@
-open Base
 (** Replay a completed [api_response] as a sequence of SSE events.
 
     Used by CLI transports whose underlying binary does not support

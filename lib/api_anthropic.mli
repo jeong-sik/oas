@@ -1,4 +1,3 @@
-open Base
 (** Anthropic Claude API request building and response parsing.
 
     @stability Internal

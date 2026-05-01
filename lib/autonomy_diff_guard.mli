@@ -1,4 +1,3 @@
-open Base
 (** Autonomy_diff_guard — pure unified-diff validation helper.
 
     This module does not apply or revert patches. It only validates whether

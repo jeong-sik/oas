@@ -1,4 +1,3 @@
-open Base
 (** Unit tests for Durable module (v0.76.0). *)
 
 open Alcotest

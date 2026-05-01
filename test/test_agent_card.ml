@@ -1,4 +1,3 @@
-open Base
 open Agent_sdk
 
 let jsonrpc_interface url : Agent_card.supported_interface =

@@ -1,4 +1,3 @@
-open Base
 (** LLM Provider abstraction.
 
     @stability Stable

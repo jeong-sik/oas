@@ -1,4 +1,3 @@
-open Base
 (** Unit tests for Defaults — env-or-default coercion helpers.
 
     Each test sets/unsets a unique [OAS_TEST_*] variable so test order

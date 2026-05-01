@@ -1,4 +1,3 @@
-open Base
 (** Shared prompt-shaping helpers for non-interactive CLI transports.
 
     All CLI transports (Claude Code, Gemini CLI, Codex CLI) flatten an

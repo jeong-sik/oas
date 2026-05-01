@@ -1,4 +1,3 @@
-open Base
 (** Extended Builder coverage tests — targets uncovered paths in builder.ml,
     agent.ml, and agent_tools.ml.
 

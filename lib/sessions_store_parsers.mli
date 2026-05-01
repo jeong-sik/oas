@@ -1,4 +1,3 @@
-open Base
 (** Pure JSON decoders for session store artifacts.
 
     Stateless parsing functions bridging raw JSON to typed

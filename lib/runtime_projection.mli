@@ -1,4 +1,3 @@
-open Base
 (** Runtime session state machine.
 
     Provides the core event-sourcing logic for {!Runtime.session}:

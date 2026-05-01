@@ -1,4 +1,3 @@
-open Base
 (** Abstract transport for LLM completions.
 
     Decouples the completion logic (cache, retry, request execution) from

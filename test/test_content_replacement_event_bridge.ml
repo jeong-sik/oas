@@ -1,4 +1,3 @@
-open Base
 (** Tests for Content_replacement_event_bridge — LT-14b opt-in bridge. *)
 
 open Alcotest

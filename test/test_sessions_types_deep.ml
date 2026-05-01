@@ -1,4 +1,3 @@
-open Base
 (** Deep roundtrip tests for sessions_types.ml — targeting uncovered
     ppx-generated yojson paths (94 uncovered points at 80%).
 

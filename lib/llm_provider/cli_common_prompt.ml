@@ -1,4 +1,3 @@
-open Base
 let text_of_block = function
   | Types.Text t -> Some t
   | _ -> None

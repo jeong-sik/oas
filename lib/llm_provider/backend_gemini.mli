@@ -1,4 +1,3 @@
-open Base
 (** Gemini native API request building and response parsing.
 
     Uses the Gemini [contents/parts] wire format instead of the

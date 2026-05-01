@@ -1,4 +1,3 @@
-open Base
 (** Tool execution helpers — lookup, hooks, event bus, and effect-aware
     Eio scheduling.
 

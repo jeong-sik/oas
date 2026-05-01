@@ -1,4 +1,3 @@
-open Base
 (** Tests for initial_messages — conversation history seeding.
     Issue #214: Agent.run should support injecting prior conversation
     history via agent_config.initial_messages. *)

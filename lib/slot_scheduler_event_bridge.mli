@@ -1,4 +1,3 @@
-open Base
 (** Slot_scheduler ↔ Event_bus publisher.
 
     Projects a {!Llm_provider.Slot_scheduler} snapshot onto the supplied

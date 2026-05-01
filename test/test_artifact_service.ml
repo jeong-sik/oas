@@ -1,4 +1,3 @@
-open Base
 (** Unit tests for Artifact_service — pure helpers exposed for kind/mime
     coercion. The file-IO surface (`save_text_internal`, `list`, `get_text`)
     requires Eio and a Runtime_store; those are exercised by integration

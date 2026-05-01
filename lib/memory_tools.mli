@@ -1,4 +1,3 @@
-open Base
 (** Ready-made memory tools for attaching structured memory to agents.
 
     This module provides explicit tool factories over {!Memory.t} and

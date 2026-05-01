@@ -1,4 +1,3 @@
-open Base
 (** Tests for Image and Document content block serialization round-trips *)
 
 open Agent_sdk

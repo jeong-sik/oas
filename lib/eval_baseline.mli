@@ -1,4 +1,3 @@
-open Base
 (** Eval baseline: golden-file comparison for regression detection.
 
     @since 0.68.0

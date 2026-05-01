@@ -1,4 +1,3 @@
-open Base
 (** Tests for context.ml — cross-turn shared state *)
 
 open Alcotest

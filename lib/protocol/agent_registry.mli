@@ -1,4 +1,3 @@
-open Base
 (** Agent Registry -- capability-based multi-agent discovery.
 
     Maintains a registry of local and remote agents, supporting

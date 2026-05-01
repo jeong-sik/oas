@@ -1,4 +1,3 @@
-open Base
 (** Tests for expanded capabilities — model lookup, limits, feature flags. *)
 
 open Alcotest

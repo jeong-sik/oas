@@ -2,16 +2,16 @@
  (name oas_cli_support)
  (wrapped false)
  (modules oas_cli_support)
- (libraries base eio eio_main unix))
+ (libraries eio eio_main unix))
 
 (executable
  (name oas_runtime)
  (modules oas_runtime)
  (public_name oas-runtime)
- (libraries base agent_sdk oas_cli_support eio eio_main yojson unix))
+ (libraries agent_sdk oas_cli_support eio eio_main yojson unix))
 
 (executable
  (name oas_cli)
  (modules oas_cli)
  (public_name oas)
- (libraries base agent_sdk oas_cli_support eio eio_main yojson unix cmdliner))
+ (libraries agent_sdk oas_cli_support eio eio_main yojson unix cmdliner))

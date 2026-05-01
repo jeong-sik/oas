@@ -1,4 +1,3 @@
-open Base
 (** Minimal agent example: create an agent and run a single turn.
 
     Prerequisites:

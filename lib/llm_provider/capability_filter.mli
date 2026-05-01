@@ -1,4 +1,3 @@
-open Base
 (** Capability predicates for provider selection.
 
     Composable filters for querying {!Provider_registry} by

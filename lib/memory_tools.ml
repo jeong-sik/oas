@@ -1,4 +1,3 @@
-open Base
 (** Ready-made memory tools for attaching structured memory to agents.
 
     @since 0.92.0 decomposed: parse helpers moved to Memory_tools_parse *)

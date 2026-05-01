@@ -1,4 +1,3 @@
-open Base
 (** Tool selector: 2-stage tool routing for large tool catalogs.
 
     Narrows the tool set before the LLM composes arguments, improving

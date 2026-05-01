@@ -1,4 +1,3 @@
-open Base
 (** Integration tests for new Event_bus native variants (0.154.0):
     AgentFailed, HandoffRequested, HandoffCompleted, and the
     Hooks.on_context_compacted callback.

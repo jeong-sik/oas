@@ -1,4 +1,3 @@
-open Base
 (** Approval Pipeline — composable multi-stage approval for tool execution.
 
     Replaces the single [approval_callback] with a pipeline of stages

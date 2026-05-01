@@ -1,4 +1,3 @@
-open Base
 (** Durable state machine — typed step chains with execution journal.
 
     Enables long-running agent workflows to survive process crashes

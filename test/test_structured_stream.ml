@@ -1,4 +1,3 @@
-open Base
 (** Tests for Structured output + SSE streaming integration.
 
     Verifies that emit_synthetic_events, parse_sse_event, and

@@ -1,4 +1,3 @@
-open Base
 (** Multi-stage deterministic correction pipeline.
 
     Exhausts all deterministic corrections before yielding to non-deterministic

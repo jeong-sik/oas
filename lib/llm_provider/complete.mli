@@ -1,4 +1,3 @@
-open Base
 (** Standalone LLM completion: build request, send via transport, parse response.
 
     Self-contained in llm_provider -- no agent_sdk dependency.

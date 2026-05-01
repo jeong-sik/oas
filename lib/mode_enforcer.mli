@@ -1,4 +1,3 @@
-open Base
 (** Mode enforcement middleware for CDAL.
 
     Creates hooks that block tool calls violating the effective execution mode.

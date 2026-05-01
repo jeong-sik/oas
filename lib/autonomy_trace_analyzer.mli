@@ -1,4 +1,3 @@
-open Base
 (** Autonomy Trace Analyzer — quantify whether agent behavior is
     autonomous, scripted, or random based on raw trace summaries.
 

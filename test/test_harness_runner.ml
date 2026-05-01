@@ -1,4 +1,3 @@
-open Base
 (** Tests for Harness_runner and Harness_report. *)
 
 open Agent_sdk

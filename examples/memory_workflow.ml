@@ -1,4 +1,3 @@
-open Base
 (** Memory workflow example: 5-tier memory with persistence and recall.
 
     Demonstrates:

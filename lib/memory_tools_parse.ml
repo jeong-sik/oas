@@ -1,4 +1,3 @@
-open Base
 (** Memory tool JSON parameter parsing helpers.
 
     Pure functions that extract typed values from tool input JSON.

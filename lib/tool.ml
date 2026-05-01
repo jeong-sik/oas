@@ -1,4 +1,3 @@
-open Base
 (** Tool definition and execution *)
 
 open Types

@@ -1,4 +1,3 @@
-open Base
 (** Replace invalid UTF-8 bytes with U+FFFD and disallowed control
     characters with spaces.
 

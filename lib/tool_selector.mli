@@ -1,4 +1,3 @@
-open Base
 (** Tool selector: 2-stage tool routing for large tool catalogs.
 
     When an agent has 20+ tools, sending all schemas to the LLM

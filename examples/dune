@@ -1,63 +1,63 @@
 (executable
  (name basic_agent)
- (libraries base agent_sdk eio eio_main yojson))
+ (libraries agent_sdk eio eio_main yojson))
 
 (executable
  (name tool_use)
- (libraries base agent_sdk eio eio_main yojson))
+ (libraries agent_sdk eio eio_main yojson))
 
 (executable
  (name streaming)
- (libraries base agent_sdk eio eio_main yojson))
+ (libraries agent_sdk eio eio_main yojson))
 
 (executable
  (name proof_demo)
- (libraries base agent_sdk yojson unix))
+ (libraries agent_sdk yojson unix))
 
 (executable
  (name conformance_demo)
- (libraries base agent_sdk yojson unix))
+ (libraries agent_sdk yojson unix))
 
 (executable
  (name direct_conformance_demo)
- (libraries base agent_sdk eio eio_main cohttp-eio yojson unix))
+ (libraries agent_sdk eio eio_main cohttp-eio yojson unix))
 
 (executable
  (name review_agent)
- (libraries base agent_sdk eio eio_main yojson unix str))
+ (libraries agent_sdk eio eio_main yojson unix str))
 
 (executable
  (name codegen_agent)
- (libraries base agent_sdk eio eio_main yojson unix))
+ (libraries agent_sdk eio eio_main yojson unix))
 
 (executable
  (name hooks_and_guardrails)
- (libraries base agent_sdk eio eio_main yojson))
+ (libraries agent_sdk eio eio_main yojson))
 
 (executable
  (name error_handling)
- (libraries base agent_sdk eio eio_main yojson))
+ (libraries agent_sdk eio eio_main yojson))
 
 (executable
  (name memory_workflow)
- (libraries base agent_sdk eio eio_main yojson unix))
+ (libraries agent_sdk eio eio_main yojson unix))
 
 (executable
  (name memory_tools_demo)
- (libraries base agent_sdk yojson unix))
+ (libraries agent_sdk yojson unix))
 
 (executable
  (name builder_patterns)
- (libraries base agent_sdk eio eio_main yojson))
+ (libraries agent_sdk eio eio_main yojson))
 
 (executable
  (name cli_transports_demo)
- (libraries base llm_provider eio eio_main yojson))
+ (libraries llm_provider eio eio_main yojson))
 
 (executable
  (name agent_failure_observability)
- (libraries base agent_sdk eio eio_main))
+ (libraries agent_sdk eio eio_main))
 
 (executable
  (name handoff_lifecycle)
- (libraries base agent_sdk eio eio_main cohttp cohttp-eio uri yojson))
+ (libraries agent_sdk eio eio_main cohttp cohttp-eio uri yojson))

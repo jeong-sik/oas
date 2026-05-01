@@ -1,4 +1,3 @@
-open Base
 (** Extensible provider registry with capability-aware queries.
 
     @since 0.69.0 *)

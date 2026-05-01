@@ -1,4 +1,3 @@
-open Base
 (** Atomic file save for Eio paths — unique tmp + fsync + rename. *)
 
 (** [save_atomic ~dir ~name content] writes [content] to the file

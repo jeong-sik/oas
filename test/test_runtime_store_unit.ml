@@ -1,4 +1,3 @@
-open Base
 (** Unit tests for lib/runtime_store.ml.
 
     Targets 106 uncovered lines (55.08% coverage).

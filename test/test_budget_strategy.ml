@@ -1,4 +1,3 @@
-open Base
 (** Tests for Budget_strategy — pure functions, no Eio needed. *)
 
 open Agent_sdk

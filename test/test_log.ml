@@ -1,4 +1,3 @@
-open Base
 (** Tests for Log module — structured logging. *)
 
 open Agent_sdk

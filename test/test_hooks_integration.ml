@@ -1,4 +1,3 @@
-open Base
 (** Integration tests for hooks — verify hook decisions affect Agent.run behavior.
 
     Uses a mock HTTP server (Cohttp_eio) to exercise the full agent loop

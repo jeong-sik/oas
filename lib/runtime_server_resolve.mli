@@ -1,4 +1,3 @@
-open Base
 (** Provider resolution for the runtime server.
 
     @stability Internal

@@ -1,4 +1,3 @@
-open Base
 (** Lightweight provider configuration for standalone LLM calls.
 
     Decoupled from agent_state/agent_config. Consumers can

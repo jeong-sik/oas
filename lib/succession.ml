@@ -1,4 +1,3 @@
-open Base
 (** Succession — cross-agent context relay for multi-generation execution. *)
 
 open Types

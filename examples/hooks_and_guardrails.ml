@@ -1,4 +1,3 @@
-open Base
 (** Hooks and guardrails example: lifecycle hooks + tool filtering.
 
     Demonstrates:

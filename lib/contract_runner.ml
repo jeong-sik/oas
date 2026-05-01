@@ -1,4 +1,3 @@
-open Base
 module Retry = Llm_provider.Retry
 
 type run_result =

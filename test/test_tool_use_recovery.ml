@@ -1,4 +1,3 @@
-open Base
 (** Tests for Tool_use_recovery — lenient extraction of ToolUse blocks
     from Text content. *)
 

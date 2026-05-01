@@ -1,4 +1,3 @@
-open Base
 (** Client for the runtime protocol over stdio transport.
 
     @stability Internal

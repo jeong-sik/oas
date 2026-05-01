@@ -1,4 +1,3 @@
-open Base
 type t =
   { runtime : Runtime_client.t
   ; clock : float Eio.Time.clock_ty Eio.Resource.t option

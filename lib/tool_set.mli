@@ -1,4 +1,3 @@
-open Base
 (** Tool Set: composable, deduplicated tool collections.
 
     A monoid over tool collections with last-writer-wins semantics on
