@@ -119,8 +119,8 @@ let legacy_env_extra_args ~(config : config) =
     | Some _ -> true
     | None ->
       (match env_mcp with
-       | Some v when String.trim v <> "" -> true
-       | _ -> false)
+       | Some _ -> true
+       | None -> false)
   in
   if has_mcp_config then add [ "--strict-mcp-config" ];
   (* --mcp-config: only used as fallback when config.mcp_config is None.
@@ -130,8 +130,8 @@ let legacy_env_extra_args ~(config : config) =
    | Some _ -> ()
    | None ->
      (match env_mcp with
-      | Some v when String.trim v <> "" -> add [ "--mcp-config"; v ]
-      | _ -> ()));
+      | Some v -> add [ "--mcp-config"; v ]
+      | None -> ()));
   if Cli_common_env.bool "OAS_CLAUDE_STRICT_MCP" then ();
   (match Cli_common_env.list "OAS_CLAUDE_DISALLOWED_TOOLS" with
    | None | Some [] -> ()
