@@ -1,7 +1,9 @@
 (** Async guardrails: parallel input/output validation.
 
-    All validators run concurrently inside a dedicated [Eio.Switch].
-    Cancellation propagates correctly (no exception swallowing).
+    Validators run concurrently inside a dedicated [Eio.Switch]. Validator
+    failures, timeouts, and ordinary exceptions are contained to that
+    validator's [Fail] result so sibling validators can finish. Parent switch
+    cancellation still propagates through Eio structured concurrency.
 
     @since 0.67.0
 

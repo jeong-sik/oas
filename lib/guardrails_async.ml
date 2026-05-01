@@ -39,6 +39,24 @@ type t =
 
 let empty = { input_validators = []; output_validators = [] }
 
+let exception_reason = function
+  | Eio.Time.Timeout -> "validator timed out"
+  | exn -> Printf.sprintf "validator raised: %s" (Printexc.to_string exn)
+;;
+
+let run_validator ~validator_name f =
+  try
+    match f () with
+    | Ok () -> Pass
+    | Error reason -> Fail { validator_name; reason }
+  with
+  | Eio.Cancel.Cancelled _ as e -> raise e
+  | Out_of_memory -> raise Out_of_memory
+  | Stack_overflow -> raise Stack_overflow
+  | Sys.Break -> raise Sys.Break
+  | exn -> Fail { validator_name; reason = exception_reason exn }
+;;
+
 (** Run all input validators concurrently.
 
     Creates a dedicated [Eio.Switch] for parallel execution.
@@ -55,9 +73,8 @@ let run_input (validators : input_validator list) (messages : message list)
       List.mapi
         (fun i (v : input_validator) ->
            fun () ->
-           match v.validate messages with
-           | Ok () -> ()
-           | Error reason -> results.(i) <- Fail { validator_name = v.name; reason })
+           results.(i) <-
+             run_validator ~validator_name:v.name (fun () -> v.validate messages))
         validators
     in
     Eio.Switch.run ~name:"input_validators" (fun _sw -> Eio.Fiber.all fns);
@@ -82,9 +99,8 @@ let run_output (validators : output_validator list) (response : api_response)
       List.mapi
         (fun i (v : output_validator) ->
            fun () ->
-           match v.validate response with
-           | Ok () -> ()
-           | Error reason -> results.(i) <- Fail { validator_name = v.name; reason })
+           results.(i) <-
+             run_validator ~validator_name:v.name (fun () -> v.validate response))
         validators
     in
     Eio.Switch.run ~name:"output_validators" (fun _sw -> Eio.Fiber.all fns);

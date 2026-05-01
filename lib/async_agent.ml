@@ -28,6 +28,16 @@ let agent_name agent =
   card.Agent_card.name
 ;;
 
+let run_agent_result ~sw ?clock agent prompt =
+  try Agent.run ~sw ?clock agent prompt with
+  | Eio.Cancel.Cancelled _ as e -> raise e
+  | Raw_trace.Trace_error e -> Error e
+  | Out_of_memory -> raise Out_of_memory
+  | Stack_overflow -> raise Stack_overflow
+  | Sys.Break -> raise Sys.Break
+  | exn -> Error (Error.Internal (Printexc.to_string exn))
+;;
+
 (* ── Spawning ─────────────────────────────────────────────────── *)
 
 let spawn ~sw ?clock agent prompt =
@@ -45,6 +55,7 @@ let spawn ~sw ?clock agent prompt =
           Agent.run ~sw:sub_sw ?clock agent prompt)
       with
       | Cancelled -> Error (Error.Internal "cancelled")
+      | Eio.Cancel.Cancelled _ as e -> raise e
       | Raw_trace.Trace_error e -> Error e
       | Out_of_memory -> raise Out_of_memory
       | Stack_overflow -> raise Stack_overflow
@@ -82,7 +93,7 @@ let race ~sw ?clock agents =
   | [] -> Error (Error.Internal "race: no agents provided")
   | [ (agent, prompt) ] ->
     let name = agent_name agent in
-    (match Agent.run ~sw ?clock agent prompt with
+    (match run_agent_result ~sw ?clock agent prompt with
      | Ok resp -> Ok (name, resp)
      | Error e -> Error e)
   | _ ->
@@ -94,14 +105,7 @@ let race ~sw ?clock agents =
         (fun (agent, prompt) ->
            fun () ->
            let name = agent_name agent in
-           let result =
-             try Agent.run ~sw ?clock agent prompt with
-             | Raw_trace.Trace_error e -> Error e
-             | Out_of_memory -> raise Out_of_memory
-             | Stack_overflow -> raise Stack_overflow
-             | Sys.Break -> raise Sys.Break
-             | exn -> Error (Error.Internal (Printexc.to_string exn))
-           in
+           let result = run_agent_result ~sw ?clock agent prompt in
            name, result)
         agents
     in
@@ -117,7 +121,7 @@ let race ~sw ?clock agents =
 let all ~sw ?clock ?max_fibers agents =
   let run_one (agent, prompt) =
     let name = agent_name agent in
-    let result = Agent.run ~sw ?clock agent prompt in
+    let result = run_agent_result ~sw ?clock agent prompt in
     name, result
   in
   match max_fibers with

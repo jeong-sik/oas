@@ -41,6 +41,17 @@ let fail_output reason : Guardrails_async.output_validator =
   { name = "fail_out"; validate = (fun _ -> Error reason) }
 ;;
 
+let contains_substring haystack needle =
+  let hay_len = String.length haystack in
+  let needle_len = String.length needle in
+  let rec loop i =
+    if i + needle_len > hay_len then false
+    else if String.sub haystack i needle_len = needle then true
+    else loop (i + 1)
+  in
+  needle_len = 0 || loop 0
+;;
+
 (* ── Input validators ─────────────────────────────── *)
 
 let test_input_empty () =
@@ -77,6 +88,25 @@ let test_input_one_fails () =
   | Pass -> fail "should have failed"
 ;;
 
+let test_input_exception_is_local_failure () =
+  Eio_main.run
+  @@ fun _env ->
+  let sibling_ran = ref false in
+  let raising : Guardrails_async.input_validator =
+    { name = "raise_in"; validate = (fun _ -> raise (Failure "boom")) }
+  in
+  let sibling : Guardrails_async.input_validator =
+    { name = "sibling_in"; validate = (fun _ -> sibling_ran := true; Ok ()) }
+  in
+  let result = Guardrails_async.run_input [ raising; sibling ] dummy_messages in
+  check bool "sibling still ran" true !sibling_ran;
+  match result with
+  | Fail { validator_name = "raise_in"; reason } ->
+    check bool "reason says raised" true (contains_substring reason "validator raised")
+  | Fail _ -> fail "wrong failure info"
+  | Pass -> fail "should have failed"
+;;
+
 (* ── Output validators ────────────────────────────── *)
 
 let test_output_empty () =
@@ -109,6 +139,25 @@ let test_output_one_fails () =
   match result with
   | Fail { reason = "toxic"; _ } -> ()
   | _ -> fail "should have failed with toxic"
+;;
+
+let test_output_timeout_is_local_failure () =
+  Eio_main.run
+  @@ fun _env ->
+  let sibling_ran = ref false in
+  let timeout : Guardrails_async.output_validator =
+    { name = "timeout_out"; validate = (fun _ -> raise Eio.Time.Timeout) }
+  in
+  let sibling : Guardrails_async.output_validator =
+    { name = "sibling_out"; validate = (fun _ -> sibling_ran := true; Ok ()) }
+  in
+  let response = make_response "safe content" in
+  let result = Guardrails_async.run_output [ timeout; sibling ] response in
+  check bool "sibling still ran" true !sibling_ran;
+  match result with
+  | Fail { validator_name = "timeout_out"; reason = "validator timed out" } -> ()
+  | Fail _ -> fail "wrong timeout failure info"
+  | Pass -> fail "should have failed"
 ;;
 
 (* ── Guarded ──────────────────────────────────────── *)
@@ -230,11 +279,15 @@ let () =
       , [ test_case "empty" `Quick test_input_empty
         ; test_case "all pass" `Quick test_input_all_pass
         ; test_case "one fails" `Quick test_input_one_fails
+        ; test_case "exception is local failure" `Quick
+            test_input_exception_is_local_failure
         ] )
     ; ( "output"
       , [ test_case "empty" `Quick test_output_empty
         ; test_case "all pass" `Quick test_output_all_pass
         ; test_case "one fails" `Quick test_output_one_fails
+        ; test_case "timeout is local failure" `Quick
+            test_output_timeout_is_local_failure
         ] )
     ; ( "guarded"
       , [ test_case "all pass" `Quick test_guarded_all_pass
