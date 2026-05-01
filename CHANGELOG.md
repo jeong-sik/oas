@@ -8,6 +8,12 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.187.5] - 2026-05-01
+
+### Fixed
+
+- Contain nonfatal per-agent failures in async fanout and orchestrator parallel execution so sibling agent results remain visible while explicit Eio cancellation still propagates.
+
 ## [0.187.4] - 2026-04-30
 
 ### Fixed
