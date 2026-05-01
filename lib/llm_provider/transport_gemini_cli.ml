@@ -76,6 +76,12 @@ let env_extra_args () =
   (match Cli_common_env.list "OAS_GEMINI_EXTENSIONS" with
    | None | Some [] -> ()
    | Some names -> List.iter (fun n -> add [ "-e"; n ]) names);
+  (match Cli_common_env.list "OAS_GEMINI_ADMIN_POLICY" with
+   | None | Some [] -> ()
+   | Some names -> List.iter (fun n -> add [ "--admin-policy"; n ]) names);
+  (match Cli_common_env.list "OAS_GEMINI_POLICY" with
+   | None | Some [] -> ()
+   | Some names -> List.iter (fun n -> add [ "--policy"; n ]) names);
   !extras
 ;;
 
