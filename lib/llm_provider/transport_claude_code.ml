@@ -42,12 +42,6 @@ let default_config =
   }
 ;;
 
-let effective_max_turns config =
-  Option.map
-    (Provider_config.clamp_max_turns Provider_config.Claude_code)
-    config.max_turns
-;;
-
 (* Prompt shaping, JSON helpers, and subprocess orchestration live in the
    shared [Cli_common_*] modules to deduplicate logic across CLI transports. *)
 
@@ -211,7 +205,7 @@ let build_args
   (match system_prompt with
    | Some s -> add [ "--system-prompt"; s ]
    | None -> ());
-  (match effective_max_turns config with
+  (match config.max_turns with
    | Some n -> add [ "--max-turns"; string_of_int n ]
    | None -> ());
   (match runtime_mcp_policy with
@@ -897,26 +891,6 @@ let%test "build_args omits auto model override" =
       ()
   in
   not (List.mem "--model" args)
-;;
-
-let%test "build_args clamps claude max_turns to provider hard cap" =
-  let config = { default_config with max_turns = Some 39 } in
-  let args =
-    build_args
-      ~config
-      ~req_config:
-        (Provider_config.make ~kind:Claude_code ~model_id:"auto" ~base_url:"" ())
-      ~prompt:"hello"
-      ~stream:false
-      ~system_prompt:None
-      ()
-  in
-  let rec has_clamped_flag = function
-    | "--max-turns" :: "30" :: _ -> true
-    | _ :: rest -> has_clamped_flag rest
-    | [] -> false
-  in
-  has_clamped_flag args
 ;;
 
 (* Strict-MCP/mcp-config pairing invariants are exercised by the
