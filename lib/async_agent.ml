@@ -1,6 +1,7 @@
 (** Async Agent — Eio fiber-based background agent execution.
 
     @since 0.55.0 *)
+open Base
 
 (* ── Internal cancellation exception ──────────────────────────── *)
 

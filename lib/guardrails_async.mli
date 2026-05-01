@@ -9,6 +9,7 @@
 
     @stability Evolving
     @since 0.93.1 *)
+open Base
 
 (** Input validator: checks messages before the LLM call. *)
 type input_validator =

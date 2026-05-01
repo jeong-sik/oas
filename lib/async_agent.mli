@@ -12,6 +12,7 @@
 
     @stability Evolving
     @since 0.93.1 *)
+open Base
 
 (** {1 Future type} *)
 

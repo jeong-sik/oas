@@ -8,6 +8,7 @@
     inside a dedicated [Eio.Switch]. Cancellation propagates correctly.
 
     @since 0.67.0 *)
+open Base
 
 open Types
 
@@ -73,8 +74,8 @@ let run_input (validators : input_validator list) (messages : message list)
       List.mapi
         (fun i (v : input_validator) ->
            fun () ->
-           results.(i) <-
-             run_validator ~validator_name:v.name (fun () -> v.validate messages))
+           results.(i)
+           <- run_validator ~validator_name:v.name (fun () -> v.validate messages))
         validators
     in
     Eio.Switch.run ~name:"input_validators" (fun _sw -> Eio.Fiber.all fns);
@@ -99,8 +100,8 @@ let run_output (validators : output_validator list) (response : api_response)
       List.mapi
         (fun i (v : output_validator) ->
            fun () ->
-           results.(i) <-
-             run_validator ~validator_name:v.name (fun () -> v.validate response))
+           results.(i)
+           <- run_validator ~validator_name:v.name (fun () -> v.validate response))
         validators
     in
     Eio.Switch.run ~name:"output_validators" (fun _sw -> Eio.Fiber.all fns);

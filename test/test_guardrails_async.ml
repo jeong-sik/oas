@@ -1,4 +1,5 @@
 (** Unit tests for Guardrails_async (v0.67.0). *)
+open Base
 
 open Alcotest
 open Agent_sdk
@@ -45,8 +46,10 @@ let contains_substring haystack needle =
   let hay_len = String.length haystack in
   let needle_len = String.length needle in
   let rec loop i =
-    if i + needle_len > hay_len then false
-    else if String.sub haystack i needle_len = needle then true
+    if i + needle_len > hay_len
+    then false
+    else if String.sub haystack i needle_len = needle
+    then true
     else loop (i + 1)
   in
   needle_len = 0 || loop 0
@@ -96,7 +99,12 @@ let test_input_exception_is_local_failure () =
     { name = "raise_in"; validate = (fun _ -> raise (Failure "boom")) }
   in
   let sibling : Guardrails_async.input_validator =
-    { name = "sibling_in"; validate = (fun _ -> sibling_ran := true; Ok ()) }
+    { name = "sibling_in"
+    ; validate =
+        (fun _ ->
+          sibling_ran := true;
+          Ok ())
+    }
   in
   let result = Guardrails_async.run_input [ raising; sibling ] dummy_messages in
   check bool "sibling still ran" true !sibling_ran;
@@ -149,7 +157,12 @@ let test_output_timeout_is_local_failure () =
     { name = "timeout_out"; validate = (fun _ -> raise Eio.Time.Timeout) }
   in
   let sibling : Guardrails_async.output_validator =
-    { name = "sibling_out"; validate = (fun _ -> sibling_ran := true; Ok ()) }
+    { name = "sibling_out"
+    ; validate =
+        (fun _ ->
+          sibling_ran := true;
+          Ok ())
+    }
   in
   let response = make_response "safe content" in
   let result = Guardrails_async.run_output [ timeout; sibling ] response in
@@ -279,15 +292,16 @@ let () =
       , [ test_case "empty" `Quick test_input_empty
         ; test_case "all pass" `Quick test_input_all_pass
         ; test_case "one fails" `Quick test_input_one_fails
-        ; test_case "exception is local failure" `Quick
+        ; test_case
+            "exception is local failure"
+            `Quick
             test_input_exception_is_local_failure
         ] )
     ; ( "output"
       , [ test_case "empty" `Quick test_output_empty
         ; test_case "all pass" `Quick test_output_all_pass
         ; test_case "one fails" `Quick test_output_one_fails
-        ; test_case "timeout is local failure" `Quick
-            test_output_timeout_is_local_failure
+        ; test_case "timeout is local failure" `Quick test_output_timeout_is_local_failure
         ] )
     ; ( "guarded"
       , [ test_case "all pass" `Quick test_guarded_all_pass
