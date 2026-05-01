@@ -26,7 +26,7 @@ let string_contains ~needle haystack =
 ;;
 
 let pricing_for_model_opt model_id =
-  let normalized = String.lowercase_ascii (String.trim model_id) in
+  let normalized = String.lowercase (String.strip model_id) in
   (* Anthropic cache pricing: write = 1.25x input, read = 0.1x input.
      Newer OpenAI text models expose cached input at 0.1x input.
      Local/free models keep no-op cache multipliers. *)
@@ -114,6 +114,16 @@ let pricing_for_model_opt model_id =
       string_contains ~needle:"gemini-3.1-flash-lite-preview" normalized
       || string_contains ~needle:"gemini-3.1-flash-lite" normalized
     then Some ((0.25, 1.5), no_cache)
+    else if string_contains ~needle:"glm-5.1" normalized
+    then Some ((1.4, 1.4), no_cache)
+    else if string_contains ~needle:"glm-5" normalized
+    then Some ((0.5, 0.5), no_cache)
+    else if string_contains ~needle:"glm-4.7" normalized
+    then Some ((0.14, 0.14), no_cache)
+    else if string_contains ~needle:"glm-4.5-air" normalized
+    then Some ((0.1, 0.1), no_cache)
+    else if string_contains ~needle:"glm-4" normalized
+    then Some ((1.4, 1.4), no_cache)
     else if
       normalized = "auto"
       || normalized = "gemini"
