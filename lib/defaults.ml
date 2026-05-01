@@ -12,11 +12,7 @@ let warn_invalid_env ~var ~raw ~expected =
     [ Log.S ("var", var); Log.S ("raw", raw); Log.S ("expected", expected) ]
 ;;
 
-let env_or default var =
-  match Util.trim_non_empty_opt (Sys.getenv_opt var) with
-  | Some v -> v
-  | None -> default
-;;
+let env_or = Util.env_or
 
 let int_env_or default var =
   match Sys.getenv_opt var with

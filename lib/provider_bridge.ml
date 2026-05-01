@@ -36,21 +36,15 @@ let is_kimi_coding_base_url base_url =
 
     Local providers use {!Llm_provider.Discovery.first_discovered_model_id}
     for "auto"; cloud providers use environment-variable defaults. *)
-let env_or default var =
-  match Util.trim_non_empty_opt (Sys.getenv_opt var) with
-  | Some v -> v
-  | None -> default
-;;
-
 let resolve_glm_model_id model_id =
   Llm_provider.Zai_catalog.resolve_glm_alias
-    ~default_model:(env_or "glm-5.1" "ZAI_DEFAULT_MODEL")
+    ~default_model:(Util.env_or "glm-5.1" "ZAI_DEFAULT_MODEL")
     model_id
 ;;
 
 let resolve_glm_coding_model_id model_id =
   Llm_provider.Zai_catalog.resolve_glm_coding_alias
-    ~default_model:(env_or "glm-5.1" "ZAI_CODING_DEFAULT_MODEL")
+    ~default_model:(Util.env_or "glm-5.1" "ZAI_CODING_DEFAULT_MODEL")
     model_id
 ;;
 
@@ -77,7 +71,7 @@ let resolve_auto_model_id
     then (
       match Llm_provider.Discovery.first_discovered_model_id () with
       | Some id -> id
-      | None -> env_or model_id "OLLAMA_DEFAULT_MODEL")
+      | None -> Util.env_or model_id "OLLAMA_DEFAULT_MODEL")
     else model_id
   | Glm ->
     if Llm_provider.Zai_catalog.is_coding_base_url base_url
@@ -85,13 +79,13 @@ let resolve_auto_model_id
     else resolve_glm_model_id model_id
   | Gemini ->
     if model_id = "auto"
-    then env_or "gemini-2.5-flash" "GEMINI_DEFAULT_MODEL"
+    then Util.env_or "gemini-2.5-flash" "GEMINI_DEFAULT_MODEL"
     else model_id
   | Kimi ->
-    if model_id = "auto" then env_or "kimi-for-coding" "KIMI_DEFAULT_MODEL" else model_id
+    if model_id = "auto" then Util.env_or "kimi-for-coding" "KIMI_DEFAULT_MODEL" else model_id
   | Anthropic | Claude_code ->
     if model_id = "auto"
-    then env_or "claude-sonnet-4-6-20250514" "ANTHROPIC_DEFAULT_MODEL"
+    then Util.env_or "claude-sonnet-4-6-20250514" "ANTHROPIC_DEFAULT_MODEL"
     else model_id
   | Gemini_cli | Kimi_cli | Codex_cli -> model_id
 ;;
