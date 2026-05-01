@@ -587,13 +587,13 @@ let test_execute_parallel_exception_keeps_sibling_result () =
   in
   let results = Orchestrator.execute_parallel ~sw orch tasks in
   check int "2 results" 2 (List.length results);
-  (match results with
-   | [ first; second ] ->
-     check string "first task" "p-boom" first.task_id;
-     check string "second task" "p-missing" second.task_id;
-     check bool "first is captured error" true (Result.is_error first.result);
-     check bool "second still reported" true (Result.is_error second.result)
-   | _ -> fail "expected two task results")
+  match results with
+  | [ first; second ] ->
+    check string "first task" "p-boom" first.task_id;
+    check string "second task" "p-missing" second.task_id;
+    check bool "first is captured error" true (Result.is_error first.result);
+    check bool "second still reported" true (Result.is_error second.result)
+  | _ -> fail "expected two task results"
 ;;
 
 (* ── execute_fan_out ──────────────────────────────────────────── *)

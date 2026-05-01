@@ -301,7 +301,7 @@ let test_all_contains_agent_exception () =
     let results = Async_agent.all ~sw ~clock ~max_fibers:2 [ bad, "go"; good, "go" ] in
     check int "2 results" 2 (List.length results);
     (match results with
-     | [ "bad-agent", Error (Error.Internal msg); "good-agent", Ok resp ] ->
+     | [ ("bad-agent", Error (Error.Internal msg)); ("good-agent", Ok resp) ] ->
        check bool "failure captured" true (String.length msg > 0);
        check string "sibling completed" "ok-after-failure" (extract_text resp)
      | _ -> fail "expected captured failure and completed sibling");
@@ -335,10 +335,7 @@ let () =
     ; ( "all"
       , [ test_case "collects_all" `Quick test_all_collects
         ; test_case "preserves_order" `Quick test_all_order
-        ; test_case
-            "contains_agent_exception"
-            `Quick
-            test_all_contains_agent_exception
+        ; test_case "contains_agent_exception" `Quick test_all_contains_agent_exception
         ] )
     ]
 ;;

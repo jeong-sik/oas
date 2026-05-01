@@ -299,8 +299,7 @@ let test_parallel_read_timeout_keeps_sibling_result () =
       Tool.handler =
         Tool.Simple
           (fun _ ->
-            Eio.Time.with_timeout_exn clock 0.01 (fun () ->
-              Eio.Promise.await never);
+            Eio.Time.with_timeout_exn clock 0.01 (fun () -> Eio.Promise.await never);
             Ok { Types.content = "unreachable" })
     }
   in

@@ -104,8 +104,7 @@ let race ~sw ?clock agents =
        finish and cancels the rest via structured concurrency. *)
     let fns =
       List.map
-        (fun (agent, prompt) ->
-           fun () -> run_agent_result ~sw ?clock agent prompt)
+        (fun (agent, prompt) -> fun () -> run_agent_result ~sw ?clock agent prompt)
         agents
     in
     let rec any_of = function
