@@ -30,24 +30,18 @@ let find_capable t pred = all t |> List.filter (fun e -> pred e.capabilities)
 (* ── Default registry ─────────────────────────────────── *)
 
 let has_api_key env_name =
-  env_name = ""
-  ||
-  match Sys.getenv_opt env_name with
-  | Some s -> String.trim s <> ""
-  | None -> false
+  env_name = "" || Cli_common_env.get env_name <> None
 ;;
 
 let has_any_api_key env_names = List.exists has_api_key env_names
 
 let path_entries ?path () =
   match path with
-  | Some value -> String.split_on_char ':' value
+  | Some value -> Cli_common_env.split_on_char_trim ':' value
   | None ->
-    (match Sys.getenv_opt "PATH" with
-     | Some value -> String.split_on_char ':' value
+    (match Cli_common_env.get "PATH" with
+     | Some value -> Cli_common_env.split_on_char_trim ':' value
      | None -> [])
-    |> List.map String.trim
-    |> Cli_common_env.filter_non_empty
 ;;
 
 let command_candidates ~name =
@@ -167,21 +161,18 @@ let claude_defaults =
   }
 ;;
 
-let gemini_defaults =
-  { kind = Gemini
-  ; base_url =
-      (match Sys.getenv_opt "GEMINI_BASE_URL" with
-       | Some url -> url
-       | None -> "https://generativelanguage.googleapis.com/v1beta")
-  ; api_key_env = "GEMINI_API_KEY"
-  ; request_path = ""
-  }
-;;
-
 let env_or_default env_name default_url =
   match Cli_common_env.trim_non_empty_opt (Sys.getenv_opt env_name) with
   | Some url -> url
   | None -> default_url
+;;
+
+let gemini_defaults =
+  { kind = Gemini
+  ; base_url = env_or_default "GEMINI_BASE_URL" "https://generativelanguage.googleapis.com/v1beta"
+  ; api_key_env = "GEMINI_API_KEY"
+  ; request_path = ""
+  }
 ;;
 
 let glm_defaults =
