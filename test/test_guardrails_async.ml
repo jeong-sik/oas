@@ -42,18 +42,7 @@ let fail_output reason : Guardrails_async.output_validator =
   { name = "fail_out"; validate = (fun _ -> Error reason) }
 ;;
 
-let contains_substring haystack needle =
-  let hay_len = String.length haystack in
-  let needle_len = String.length needle in
-  let rec loop i =
-    if i + needle_len > hay_len
-    then false
-    else if String.sub haystack i needle_len = needle
-    then true
-    else loop (i + 1)
-  in
-  needle_len = 0 || loop 0
-;;
+let contains_substring haystack needle = String.is_substring haystack ~substring:needle
 
 (* ── Input validators ─────────────────────────────── *)
 
@@ -110,7 +99,8 @@ let test_input_exception_is_local_failure () =
   check bool "sibling still ran" true !sibling_ran;
   match result with
   | Fail { validator_name = "raise_in"; reason } ->
-    check bool "reason says raised" true (contains_substring reason "validator raised")
+    check string "reason says raised" "validator raised" reason;
+    check bool "reason redacts exception detail" false (contains_substring reason "boom")
   | Fail _ -> fail "wrong failure info"
   | Pass -> fail "should have failed"
 ;;

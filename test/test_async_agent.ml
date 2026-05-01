@@ -294,10 +294,10 @@ let test_all_timeout_is_per_agent () =
     Eio.Switch.run
     @@ fun sw ->
     let url_fast_1 = start_mock ~sw ~net:env#net ~clock "fast-1" in
-    let url_slow = start_mock ~sw ~net:env#net ~clock ~delay_sec:0.2 "too-slow" in
+    let url_slow = start_mock ~sw ~net:env#net ~clock ~delay_sec:1.0 "too-slow" in
     let url_fast_2 = start_mock ~sw ~net:env#net ~clock "fast-2" in
     let fast_1 = make_agent ~net:env#net url_fast_1 "all-fast-1" in
-    let slow = make_agent ~max_execution_time_s:0.03 ~net:env#net url_slow "all-slow" in
+    let slow = make_agent ~max_execution_time_s:0.2 ~net:env#net url_slow "all-slow" in
     let fast_2 = make_agent ~net:env#net url_fast_2 "all-fast-2" in
     let results =
       Async_agent.all ~sw ~clock ~max_fibers:3 [ fast_1, "go"; slow, "go"; fast_2, "go" ]

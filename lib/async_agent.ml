@@ -3,6 +3,13 @@
     @since 0.55.0 *)
 open Base
 
+let log = Log.create ~module_name:"async_agent" ()
+
+let internal_agent_exception exn =
+  Log.debug log "agent execution raised" [ Log.S ("exception", Printexc.to_string exn) ];
+  Error.Internal "agent execution failed"
+;;
+
 (* ── Internal cancellation exception ──────────────────────────── *)
 
 exception Cancelled
@@ -36,7 +43,7 @@ let run_agent_result ~sw ?clock agent prompt =
   | Out_of_memory -> raise Out_of_memory
   | Stack_overflow -> raise Stack_overflow
   | Sys.Break -> raise Sys.Break
-  | exn -> Error (Error.Internal (Printexc.to_string exn))
+  | exn -> Error (internal_agent_exception exn)
 ;;
 
 (* ── Spawning ─────────────────────────────────────────────────── *)
@@ -61,7 +68,7 @@ let spawn ~sw ?clock agent prompt =
       | Out_of_memory -> raise Out_of_memory
       | Stack_overflow -> raise Stack_overflow
       | Sys.Break -> raise Sys.Break
-      | exn -> Error (Error.Internal (Printexc.to_string exn))
+      | exn -> Error (internal_agent_exception exn)
     in
     resolve_once future result);
   future

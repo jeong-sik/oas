@@ -12,6 +12,8 @@ open Base
 
 open Types
 
+let log = Log.create ~module_name:"guardrails_async" ()
+
 (** Input validator: checks messages before sending to the LLM. *)
 type input_validator =
   { name : string
@@ -40,9 +42,14 @@ type t =
 
 let empty = { input_validators = []; output_validators = [] }
 
-let exception_reason = function
+let exception_reason ~validator_name = function
   | Eio.Time.Timeout -> "validator timed out"
-  | exn -> Printf.sprintf "validator raised: %s" (Printexc.to_string exn)
+  | exn ->
+    Log.debug
+      log
+      "validator raised"
+      [ Log.S ("validator", validator_name); Log.S ("exception", Printexc.to_string exn) ];
+    "validator raised"
 ;;
 
 let run_validator ~validator_name f =
@@ -55,7 +62,7 @@ let run_validator ~validator_name f =
   | Out_of_memory -> raise Out_of_memory
   | Stack_overflow -> raise Stack_overflow
   | Sys.Break -> raise Sys.Break
-  | exn -> Fail { validator_name; reason = exception_reason exn }
+  | exn -> Fail { validator_name; reason = exception_reason ~validator_name exn }
 ;;
 
 (** Run all input validators concurrently.
