@@ -1,7 +1,6 @@
 (** Unit tests for Guardrails_async (v0.67.0). *)
-open Base
-
 open Alcotest
+
 open Agent_sdk
 
 (* ── Helpers ──────────────────────────────────────── *)
@@ -42,7 +41,9 @@ let fail_output reason : Guardrails_async.output_validator =
   { name = "fail_out"; validate = (fun _ -> Error reason) }
 ;;
 
-let contains_substring haystack needle = String.is_substring haystack ~substring:needle
+let contains_substring haystack needle =
+  Base.String.is_substring haystack ~substring:needle
+;;
 
 (* ── Input validators ─────────────────────────────── *)
 

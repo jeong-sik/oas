@@ -2,9 +2,8 @@
 
     Uses a mock HTTP server (cohttp-eio) to simulate LLM responses.
     No real LLM calls. *)
-open Base
-
 open Agent_sdk
+
 open Alcotest
 
 (* ── Mock server helpers ─────────────────────────────────────────── *)
@@ -172,6 +171,30 @@ let test_cancel_fiber_stops_before_resolve () =
   | Exit -> ()
 ;;
 
+let test_parent_cancellation_resolves_future () =
+  Eio_main.run
+  @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  let future_ref = ref None in
+  (try
+     Eio.Switch.run
+     @@ fun sw ->
+     let url = start_mock ~sw ~net:env#net ~clock ~delay_sec:5.0 "parent-cancel" in
+     let agent = make_agent ~net:env#net url "parent-cancel-agent" in
+     future_ref := Some (Async_agent.spawn ~sw ~clock agent "test");
+     Eio.Fiber.yield ();
+     Eio.Switch.fail sw Exit
+   with
+   | Exit -> ());
+  match !future_ref with
+  | None -> fail "future was not created"
+  | Some future ->
+    (match Eio.Time.with_timeout_exn clock 0.5 (fun () -> Async_agent.await future) with
+     | Ok _ -> fail "expected cancelled error"
+     | Error (Error.Internal msg) -> check string "cancel message" "cancelled" msg
+     | Error e -> fail (Printf.sprintf "wrong error: %s" (Error.to_string e)))
+;;
+
 (* ── race (first wins) ────────────────────────────────────────────── *)
 
 let test_race_first_wins () =
@@ -334,6 +357,10 @@ let () =
             "cancel_fiber_stops_before_resolve"
             `Quick
             test_cancel_fiber_stops_before_resolve
+        ; test_case
+            "parent_cancellation_resolves_future"
+            `Quick
+            test_parent_cancellation_resolves_future
         ] )
     ; ( "race"
       , [ test_case "first_wins" `Quick test_race_first_wins

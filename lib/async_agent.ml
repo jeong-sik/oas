@@ -1,12 +1,14 @@
 (** Async Agent — Eio fiber-based background agent execution.
 
     @since 0.55.0 *)
-open Base
 
 let log = Log.create ~module_name:"async_agent" ()
 
 let internal_agent_exception exn =
-  Log.debug log "agent execution raised" [ Log.S ("exception", Printexc.to_string exn) ];
+  Log.debug
+    log
+    "agent execution raised"
+    [ Log.S ("exception", Stdlib.Printexc.to_string exn) ];
   Error.Internal "agent execution failed"
 ;;
 
@@ -17,8 +19,8 @@ exception Cancelled
 (* ── Future type ──────────────────────────────────────────────── *)
 
 type 'a future =
-  { promise : ('a, Error.sdk_error) result Eio.Promise.t
-  ; resolver : ('a, Error.sdk_error) result Eio.Promise.u
+  { promise : ('a, Error.sdk_error) Result.t Eio.Promise.t
+  ; resolver : ('a, Error.sdk_error) Result.t Eio.Promise.u
   ; resolved : bool Atomic.t
   ; mutable cancel_fn : (unit -> unit) option
   }
@@ -42,7 +44,7 @@ let run_agent_result ~sw ?clock agent prompt =
   | Raw_trace.Trace_error e -> Error e
   | Out_of_memory -> raise Out_of_memory
   | Stack_overflow -> raise Stack_overflow
-  | Sys.Break -> raise Sys.Break
+  | Stdlib.Sys.Break -> raise Stdlib.Sys.Break
   | exn -> Error (internal_agent_exception exn)
 ;;
 
@@ -53,24 +55,30 @@ let spawn ~sw ?clock agent prompt =
   let resolved = Atomic.make false in
   let future = { promise; resolver; resolved; cancel_fn = None } in
   Eio.Fiber.fork ~sw (fun () ->
-    (* Run agent inside a sub-switch so cancel can terminate the fiber.
-       Eio.Switch.run creates an independent error domain — failing it
-       cancels all I/O (HTTP, DNS, etc.) within Agent.run. *)
-    let result =
-      try
-        Eio.Switch.run (fun sub_sw ->
-          future.cancel_fn <- Some (fun () -> Eio.Switch.fail sub_sw Cancelled);
-          Agent.run ~sw:sub_sw ?clock agent prompt)
-      with
-      | Cancelled -> Error (Error.Internal "cancelled")
-      | Eio.Cancel.Cancelled _ as e -> raise e
-      | Raw_trace.Trace_error e -> Error e
-      | Out_of_memory -> raise Out_of_memory
-      | Stack_overflow -> raise Stack_overflow
-      | Sys.Break -> raise Sys.Break
-      | exn -> Error (internal_agent_exception exn)
-    in
-    resolve_once future result);
+    try
+      (* Run agent inside a sub-switch so cancel can terminate the fiber.
+         Eio.Switch.run creates an independent error domain — failing it
+         cancels all I/O (HTTP, DNS, etc.) within Agent.run. *)
+      let result =
+        try
+          Eio.Switch.run (fun sub_sw ->
+            future.cancel_fn <- Some (fun () -> Eio.Switch.fail sub_sw Cancelled);
+            Agent.run ~sw:sub_sw ?clock agent prompt)
+        with
+        | Cancelled -> Error (Error.Internal "cancelled")
+        | Eio.Cancel.Cancelled _ as e -> raise e
+        | Raw_trace.Trace_error e -> Error e
+        | Out_of_memory -> raise Out_of_memory
+        | Stack_overflow -> raise Stack_overflow
+        | Stdlib.Sys.Break -> raise Stdlib.Sys.Break
+        | exn -> Error (internal_agent_exception exn)
+      in
+      resolve_once future result
+    with
+    | Eio.Cancel.Cancelled _ as e ->
+      let bt = Stdlib.Printexc.get_raw_backtrace () in
+      resolve_once future (Error (Error.Internal "cancelled"));
+      Stdlib.Printexc.raise_with_backtrace e bt);
   future
 ;;
 

@@ -8,8 +8,6 @@
     inside a dedicated [Eio.Switch]. Cancellation propagates correctly.
 
     @since 0.67.0 *)
-open Base
-
 open Types
 
 let log = Log.create ~module_name:"guardrails_async" ()
@@ -17,13 +15,13 @@ let log = Log.create ~module_name:"guardrails_async" ()
 (** Input validator: checks messages before sending to the LLM. *)
 type input_validator =
   { name : string
-  ; validate : message list -> (unit, string) result
+  ; validate : message list -> (unit, string) Result.t
   }
 
 (** Output validator: checks the LLM response. *)
 type output_validator =
   { name : string
-  ; validate : api_response -> (unit, string) result
+  ; validate : api_response -> (unit, string) Result.t
   }
 
 (** Result of a validation run. *)
@@ -48,7 +46,9 @@ let exception_reason ~validator_name = function
     Log.debug
       log
       "validator raised"
-      [ Log.S ("validator", validator_name); Log.S ("exception", Printexc.to_string exn) ];
+      [ Log.S ("validator", validator_name)
+      ; Log.S ("exception", Stdlib.Printexc.to_string exn)
+      ];
     "validator raised"
 ;;
 
@@ -61,7 +61,7 @@ let run_validator ~validator_name f =
   | Eio.Cancel.Cancelled _ as e -> raise e
   | Out_of_memory -> raise Out_of_memory
   | Stack_overflow -> raise Stack_overflow
-  | Sys.Break -> raise Sys.Break
+  | Stdlib.Sys.Break -> raise Stdlib.Sys.Break
   | exn -> Fail { validator_name; reason = exception_reason ~validator_name exn }
 ;;
 
@@ -73,9 +73,9 @@ let run_validator ~validator_name f =
 let run_input (validators : input_validator list) (messages : message list)
   : validation_result
   =
-  if validators = []
-  then Pass
-  else (
+  match validators with
+  | [] -> Pass
+  | _ ->
     let results = Array.make (List.length validators) Pass in
     let fns =
       List.mapi
@@ -90,7 +90,7 @@ let run_input (validators : input_validator list) (messages : message list)
     |> List.find_opt (function
       | Fail _ -> true
       | Pass -> false)
-    |> Option.value ~default:Pass)
+    |> Option.value ~default:Pass
 ;;
 
 (** Run all output validators concurrently.
@@ -99,9 +99,9 @@ let run_input (validators : input_validator list) (messages : message list)
 let run_output (validators : output_validator list) (response : api_response)
   : validation_result
   =
-  if validators = []
-  then Pass
-  else (
+  match validators with
+  | [] -> Pass
+  | _ ->
     let results = Array.make (List.length validators) Pass in
     let fns =
       List.mapi
@@ -116,7 +116,7 @@ let run_output (validators : output_validator list) (response : api_response)
     |> List.find_opt (function
       | Fail _ -> true
       | Pass -> false)
-    |> Option.value ~default:Pass)
+    |> Option.value ~default:Pass
 ;;
 
 (** Convenience: run input validation, then an action, then output validation.
@@ -126,8 +126,8 @@ let run_output (validators : output_validator list) (response : api_response)
 let guarded
       ~(config : t)
       ~(messages : message list)
-      ~(action : unit -> (api_response, 'e) result)
-  : (api_response, [ `Validation of validation_result | `Action of 'e ]) result
+      ~(action : unit -> (api_response, 'e) Result.t)
+  : (api_response, [ `Validation of validation_result | `Action of 'e ]) Result.t
   =
   match run_input config.input_validators messages with
   | Fail _ as f -> Error (`Validation f)
