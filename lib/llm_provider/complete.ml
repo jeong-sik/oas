@@ -1239,6 +1239,15 @@ let%test "is_retryable provider capacity failure is false" =
           }))
 ;;
 
+let%test "is_retryable provider hard quota failure is false" =
+  not
+    (is_retryable
+       (Http_client.ProviderFailure
+          { kind = Http_client.Hard_quota { retry_after = Some 7603.424 }
+          ; message = "terminal quota exhausted"
+          }))
+;;
+
 let%test "default_retry_config values" =
   default_retry_config.max_retries = 3
   && default_retry_config.initial_delay_sec = 1.0
