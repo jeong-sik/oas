@@ -729,17 +729,16 @@ let%test "classify_cli_error reclassifies wrapped terminal quota as hard quota" 
     Error
       (Http_client.NetworkError
          { message =
-             "gemini exited with code 1: TerminalQuotaError: You have exhausted \
-              your capacity on this model. reason: 'QUOTA_EXHAUSTED', \
-              retryDelayMs: 7603424.7007410005"
+             "gemini exited with code 1: TerminalQuotaError: You have exhausted your \
+              capacity on this model. reason: 'QUOTA_EXHAUSTED', retryDelayMs: \
+              7603424.7007410005"
          ; kind = Unknown
          })
   in
   match classify_cli_error err with
   | Error
       (Http_client.ProviderFailure
-         { kind = Http_client.Hard_quota { retry_after = Some retry_after }; _ })
-    ->
+         { kind = Http_client.Hard_quota { retry_after = Some retry_after }; _ }) ->
     retry_after > 7603.0 && retry_after < 7604.0
   | _ -> false
 ;;

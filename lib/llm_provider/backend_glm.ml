@@ -67,11 +67,11 @@ let classify_glm_error ~code ~message : glm_error_class * bool =
   | "1111"
   | "1112"
   | "1120"
-  | "1220" -> (Glm_auth_error, false)
-  | "1302" | "1303" | "1305" | "1312" -> (Glm_rate_limited, true)
+  | "1220" -> Glm_auth_error, false
+  | "1302" | "1303" | "1305" | "1312" -> Glm_rate_limited, true
   | "1113" | "1304" | "1308" | "1309" | "1310" | "1311" | "1313" ->
-    (Glm_quota_exceeded, false)
-  | "1230" | "1234" | "500" -> (Glm_server_error, true)
+    Glm_quota_exceeded, false
+  | "1230" | "1234" | "500" -> Glm_server_error, true
   | "1300"
   | "1301"
   | "1200"
@@ -82,16 +82,16 @@ let classify_glm_error ~code ~message : glm_error_class * bool =
   | "1214"
   | "1215"
   | "1231"
-  | "1261" -> (Glm_invalid_request, false)
+  | "1261" -> Glm_invalid_request, false
   | _ ->
     if
       contains_ci ~haystack:message ~needle:"usage limit"
       || contains_ci ~haystack:message ~needle:"quota"
       || contains_ci ~haystack:message ~needle:"exceeded"
-    then (Glm_quota_exceeded, false)
+    then Glm_quota_exceeded, false
     else if contains_ci ~haystack:message ~needle:"rate limit"
-    then (Glm_rate_limited, true)
-    else (Glm_invalid_request, false)
+    then Glm_rate_limited, true
+    else Glm_invalid_request, false
 ;;
 
 let http_code_of_glm_error_class = function
@@ -197,7 +197,11 @@ let parse_response body =
      | Error msg ->
        raise
          (Glm_api_error
-            { code = "parse"; message = msg; error_class = Glm_invalid_request; is_retryable = false })
+            { code = "parse"
+            ; message = msg
+            ; error_class = Glm_invalid_request
+            ; is_retryable = false
+            })
      | Ok resp -> extract_reasoning_content resp body)
 ;;
 

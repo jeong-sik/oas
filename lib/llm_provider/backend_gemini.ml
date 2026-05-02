@@ -61,9 +61,10 @@ let part_of_content_block id_to_name = function
       match Hashtbl.find_opt id_to_name tool_use_id with
       | Some n -> n
       | None ->
-        Diag.warn "backend_gemini"
-          "ToolResult tool_use_id '%s' has no matching ToolUse; \
-           using UUID as functionResponse name (Gemini API requires name)"
+        Diag.warn
+          "backend_gemini"
+          "ToolResult tool_use_id '%s' has no matching ToolUse; using UUID as \
+           functionResponse name (Gemini API requires name)"
           tool_use_id;
         tool_use_id
     in
