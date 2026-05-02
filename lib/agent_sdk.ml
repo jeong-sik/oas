@@ -220,6 +220,7 @@ let create_agent
     ; top_p = default_config.top_p
     ; top_k = default_config.top_k
     ; min_p = default_config.min_p
+    ; seed = default_config.seed
     ; enable_thinking = default_config.enable_thinking
     ; response_format = default_config.response_format
     ; thinking_budget = default_config.thinking_budget

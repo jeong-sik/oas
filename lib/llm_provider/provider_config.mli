@@ -42,6 +42,12 @@ type t =
   ; top_p : float option
   ; top_k : int option
   ; min_p : float option
+  ; seed : int option
+    (** Deterministic output seed. When [Some n] and the provider reports
+        [supports_seed = true], the backend emits the seed in the request
+        body. OpenAI and Gemini support this; Anthropic and GLM do not.
+        [None] = no reproducibility request.
+        @since 0.185.0 *)
   ; system_prompt : string option
   ; enable_thinking : bool option
   ; thinking_budget : int option
@@ -129,6 +135,7 @@ val make
   -> ?top_p:float
   -> ?top_k:int
   -> ?min_p:float
+  -> ?seed:int
   -> ?system_prompt:string
   -> ?enable_thinking:bool
   -> ?thinking_budget:int

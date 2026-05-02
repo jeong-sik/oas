@@ -217,6 +217,14 @@ let build_request
     | None -> body
   in
   let body =
+    match config.seed with
+    | Some s when caps.supports_seed -> ("seed", `Int s) :: body
+    | Some _ ->
+      warn_capability_drop ~model_id:config.model_id ~field:"seed";
+      body
+    | None -> body
+  in
+  let body =
     match config.enable_thinking with
     | Some enabled ->
       (match caps.thinking_control_format with

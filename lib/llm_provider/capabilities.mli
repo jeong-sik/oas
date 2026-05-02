@@ -44,6 +44,11 @@ type capabilities =
   ; (* Sampling parameters *)
     supports_top_k : bool
   ; supports_min_p : bool
+  ; supports_seed : bool
+  (** Whether the provider accepts a [seed] parameter for deterministic
+      output.  OpenAI Chat Completions and Gemini generateContent support
+      this; Anthropic and GLM do not.
+      @since 0.185.0 *)
   ; (* Advanced modalities *)
     supports_computer_use : bool
   ; supports_code_execution : bool

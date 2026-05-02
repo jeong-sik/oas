@@ -55,6 +55,12 @@ type capabilities =
   ; (* ── Sampling parameters ───────────────────────────── *)
     supports_top_k : bool
   ; supports_min_p : bool
+  ; supports_seed : bool
+  (** Whether the provider accepts a [seed] parameter for deterministic
+      output. OpenAI Chat Completions and Gemini generateContent both
+      document [seed] as a best-effort reproducibility signal; Anthropic
+      and GLM do not support it.
+      @since 0.185.0 *)
   ; (* ── Advanced modalities ───────────────────────────── *)
     supports_computer_use : bool
   ; supports_code_execution : bool
@@ -107,6 +113,7 @@ let default_capabilities =
   ; prompt_cache_alignment = None
   ; supports_top_k = false
   ; supports_min_p = false
+  ; supports_seed = false
   ; supports_computer_use = false
   ; supports_code_execution = false
   ; uses_native_thinking_envelope = false
@@ -177,6 +184,7 @@ let openai_chat_capabilities =
   ; supports_caching = true
   ; supports_prompt_caching = false
   ; prompt_cache_alignment = None
+  ; supports_seed = true
   }
 ;;
 
@@ -275,6 +283,7 @@ let gemini_capabilities =
   ; supports_prompt_caching = false
   ; prompt_cache_alignment = None
   ; supports_code_execution = true
+  ; supports_seed = true
   ; (* Google Gemini's generateContent API documents [topK] as part of
      generationConfig (ai.google.dev/api/generate-content). The
      [backend_gemini.build_request] serializer already emits it at

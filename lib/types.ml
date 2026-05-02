@@ -98,6 +98,7 @@ type agent_config =
   ; top_p : float option
   ; top_k : int option
   ; min_p : float option
+  ; seed : int option (* Deterministic output seed. @since 0.185.0 *)
   ; enable_thinking : bool option
   ; response_format : response_format
   ; thinking_budget : int option (* For Claude 3.7+ extended thinking *)
@@ -137,6 +138,7 @@ let default_config =
   ; top_p = None
   ; top_k = None
   ; min_p = None
+  ; seed = None
   ; enable_thinking = None
   ; response_format = Off
   ; thinking_budget = None

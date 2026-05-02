@@ -31,6 +31,7 @@ type t =
   ; top_p : float option
   ; top_k : int option
   ; min_p : float option
+  ; seed : int option
   ; system_prompt : string option
   ; enable_thinking : bool option
   ; thinking_budget : int option
@@ -60,6 +61,7 @@ let make
       ?top_p
       ?top_k
       ?min_p
+      ?seed
       ?system_prompt
       ?enable_thinking
       ?thinking_budget
@@ -115,6 +117,7 @@ let make
   ; top_p
   ; top_k
   ; min_p
+  ; seed
   ; system_prompt
   ; enable_thinking
   ; thinking_budget

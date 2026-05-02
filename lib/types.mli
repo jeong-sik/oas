@@ -48,6 +48,7 @@ type agent_config =
   ; top_p : float option
   ; top_k : int option
   ; min_p : float option
+  ; seed : int option (** Deterministic output seed. @since 0.185.0 *)
   ; enable_thinking : bool option
   ; response_format : response_format
   ; thinking_budget : int option

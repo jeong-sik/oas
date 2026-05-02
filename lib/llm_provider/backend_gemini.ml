@@ -187,6 +187,9 @@ let build_request
   (match config.top_k with
    | Some k -> gen_config := ("topK", `Int k) :: !gen_config
    | None -> ());
+  (match config.seed with
+   | Some s -> gen_config := ("seed", `Int s) :: !gen_config
+   | None -> ());
   (* Thinking config *)
   (match config.enable_thinking with
    | Some true ->
