@@ -57,7 +57,3 @@
 (executable
  (name agent_failure_observability)
  (libraries agent_sdk eio eio_main))
-
-(executable
- (name handoff_lifecycle)
- (libraries agent_sdk eio eio_main cohttp cohttp-eio uri yojson))

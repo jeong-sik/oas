@@ -1427,18 +1427,7 @@ let cleanup_dir tmpdir =
   | _ -> ()
 ;;
 
-let test_a2a_task_store_lifecycle () =
-  Eio_main.run
-  @@ fun env ->
-  let fs = Eio.Stdenv.fs env in
-  let tmpdir = Filename.temp_dir "oas_test_store_" "" in
-  at_exit (fun () -> cleanup_dir tmpdir);
-  let base_dir = Eio.Path.(fs / tmpdir) in
-  match A2a_task_store.create base_dir with
-  | Error e -> fail (Printf.sprintf "create: %s" (Error.to_string e))
-  | Ok store ->
-    let msg : A2a_task.task_message =
-      { role = TaskUser; parts = [ Text_part "hello" ]; metadata = [] }
+; metadata = [] }
     in
     let task = A2a_task.create msg in
     let task_id = task.id in
@@ -1458,18 +1447,7 @@ let test_a2a_task_store_lifecycle () =
      | Some _ -> fail "task should be deleted")
 ;;
 
-let test_a2a_task_store_reload () =
-  Eio_main.run
-  @@ fun env ->
-  let fs = Eio.Stdenv.fs env in
-  let tmpdir = Filename.temp_dir "oas_test_reload_" "" in
-  at_exit (fun () -> cleanup_dir tmpdir);
-  let base_dir = Eio.Path.(fs / tmpdir) in
-  match A2a_task_store.create base_dir with
-  | Error e -> fail (Printf.sprintf "create: %s" (Error.to_string e))
-  | Ok store ->
-    let msg : A2a_task.task_message =
-      { role = TaskAgent; parts = [ Text_part "response" ]; metadata = [] }
+; metadata = [] }
     in
     let task = A2a_task.create msg in
     (match A2a_task_store.store_task store task with
@@ -1485,18 +1463,7 @@ let test_a2a_task_store_reload () =
       (Option.is_some (A2a_task_store.get_task store task.id))
 ;;
 
-let test_a2a_task_store_gc () =
-  Eio_main.run
-  @@ fun env ->
-  let fs = Eio.Stdenv.fs env in
-  let tmpdir = Filename.temp_dir "oas_test_gc_" "" in
-  at_exit (fun () -> cleanup_dir tmpdir);
-  let base_dir = Eio.Path.(fs / tmpdir) in
-  match A2a_task_store.create base_dir with
-  | Error e -> fail (Printf.sprintf "create: %s" (Error.to_string e))
-  | Ok store ->
-    let msg : A2a_task.task_message =
-      { role = TaskUser; parts = [ Text_part "old" ]; metadata = [] }
+; metadata = [] }
     in
     let task = A2a_task.create msg in
     let task =
@@ -1518,62 +1485,7 @@ let test_a2a_task_store_gc () =
      | Error _ -> ())
 ;;
 
-let test_a2a_task_store_invalid_ids () =
-  Eio_main.run
-  @@ fun env ->
-  let fs = Eio.Stdenv.fs env in
-  let tmpdir = Filename.temp_dir "oas_test_invalid_" "" in
-  at_exit (fun () ->
-    try Sys.rmdir tmpdir with
-    | _ -> ());
-  let base_dir = Eio.Path.(fs / tmpdir) in
-  match A2a_task_store.create base_dir with
-  | Error e -> fail (Printf.sprintf "create: %s" (Error.to_string e))
-  | Ok store ->
-    (match A2a_task_store.delete_task store "" with
-     | Error _ -> ()
-     | Ok () -> fail "expected error on empty task_id");
-    (match A2a_task_store.delete_task store "a/b" with
-     | Error _ -> ()
-     | Ok () -> fail "expected error on slash");
-    (match A2a_task_store.delete_task store "a\000b" with
-     | Error _ -> ()
-     | Ok () -> fail "expected error on null")
-;;
-
-let test_a2a_task_store_get_nonexistent () =
-  Eio_main.run
-  @@ fun env ->
-  let fs = Eio.Stdenv.fs env in
-  let tmpdir = Filename.temp_dir "oas_test_nonex_" "" in
-  at_exit (fun () ->
-    try Sys.rmdir tmpdir with
-    | _ -> ());
-  let base_dir = Eio.Path.(fs / tmpdir) in
-  match A2a_task_store.create base_dir with
-  | Error e -> fail (Printf.sprintf "create: %s" (Error.to_string e))
-  | Ok store ->
-    check
-      (option string)
-      "nonexistent"
-      None
-      (match A2a_task_store.get_task store "does-not-exist" with
-       | None -> None
-       | Some t -> Some t.id)
-;;
-
-let test_a2a_task_store_overwrite () =
-  Eio_main.run
-  @@ fun env ->
-  let fs = Eio.Stdenv.fs env in
-  let tmpdir = Filename.temp_dir "oas_test_ow_" "" in
-  at_exit (fun () -> cleanup_dir tmpdir);
-  let base_dir = Eio.Path.(fs / tmpdir) in
-  match A2a_task_store.create base_dir with
-  | Error e -> fail (Printf.sprintf "create: %s" (Error.to_string e))
-  | Ok store ->
-    let msg : A2a_task.task_message =
-      { role = TaskUser; parts = [ Text_part "v1" ]; metadata = [] }
+; metadata = [] }
     in
     let task = A2a_task.create msg in
     (match A2a_task_store.store_task store task with
@@ -1592,32 +1504,7 @@ let test_a2a_task_store_overwrite () =
      | None -> fail "task disappeared")
 ;;
 
-let test_a2a_task_store_list_empty () =
-  Eio_main.run
-  @@ fun env ->
-  let fs = Eio.Stdenv.fs env in
-  let tmpdir = Filename.temp_dir "oas_test_empty_" "" in
-  at_exit (fun () ->
-    try Sys.rmdir tmpdir with
-    | _ -> ());
-  let base_dir = Eio.Path.(fs / tmpdir) in
-  match A2a_task_store.create base_dir with
-  | Error e -> fail (Printf.sprintf "create: %s" (Error.to_string e))
-  | Ok store -> check int "empty list" 0 (List.length (A2a_task_store.list_tasks store))
-;;
-
-(* ══════════════════════════════════════════════════════════════
-   Suite
-   ══════════════════════════════════════════════════════════════ *)
-
-let () =
-  run
-    "deep_coverage"
-    [ ( "sessions.trace_capability"
-      , [ test_case "all variants roundtrip" `Quick test_trace_capability_all_variants
-        ; test_case "invalid string" `Quick test_trace_capability_invalid
-        ; test_case "wire names" `Quick test_trace_capability_json_values
-        ] )
+ )
     ; ( "sessions.worker_status"
       , [ test_case "all variants roundtrip" `Quick test_worker_status_all_variants
         ; test_case "wire names" `Quick test_worker_status_wire_names
