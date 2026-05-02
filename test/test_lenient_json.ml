@@ -78,6 +78,24 @@ let test_unwrap_double_stringify_unit () =
   check string "unwrap" {|{"k": 1}|} (Lenient_json.unwrap_double_stringify input)
 ;;
 
+let test_conversational_prefix () =
+  let input = "Here is the JSON:\n{\"key\": \"val\"}\nHope this helps!" in
+  let result = Lenient_json.parse input in
+  check json "conversational prefix" (`Assoc [ "key", `String "val" ]) result
+;;
+
+let test_conversational_prefix_array () =
+  let input = "Sure! [1, 2, 3] that is all." in
+  let result = Lenient_json.parse input in
+  check json "conversational prefix array" (`List [ `Int 1; `Int 2; `Int 3 ]) result
+;;
+
+let test_double_stringify_union () =
+  let input = {|"\"hello\""|} in
+  let result = Lenient_json.parse input in
+  check json "double stringify union" (`String "hello") result
+;;
+
 (* ── Trailing comma ──────────────────────────────── *)
 
 let test_trailing_comma_object () =
@@ -227,10 +245,15 @@ let () =
         ; test_case "strip unit" `Quick test_strip_markdown_fence_unit
         ; test_case "no fence passthrough" `Quick test_no_fence
         ] )
+    ; ( "conversational_prefix"
+      , [ test_case "object" `Quick test_conversational_prefix
+        ; test_case "array" `Quick test_conversational_prefix_array
+        ] )
     ; ( "double_stringify"
       , [ test_case "unwrap" `Quick test_double_stringify
         ; test_case "regular string" `Quick test_double_stringify_not_json
         ; test_case "unwrap unit" `Quick test_unwrap_double_stringify_unit
+        ; test_case "union" `Quick test_double_stringify_union
         ] )
     ; ( "trailing_comma"
       , [ test_case "object" `Quick test_trailing_comma_object
