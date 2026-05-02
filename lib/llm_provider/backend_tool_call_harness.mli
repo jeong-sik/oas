@@ -21,15 +21,19 @@ type validation_result =
   }
 
 val empty_result : validation_result
+val validate_response : declared_tools:string list -> api_response -> validation_result
 
-val validate_response :
-  declared_tools:string list -> api_response -> validation_result
+val validate_anthropic_response
+  :  declared_tools:string list
+  -> Yojson.Safe.t
+  -> validation_result
 
-val validate_anthropic_response :
-  declared_tools:string list -> Yojson.Safe.t -> validation_result
+val validate_gemini_response
+  :  declared_tools:string list
+  -> Yojson.Safe.t
+  -> validation_result
 
-val validate_gemini_response :
-  declared_tools:string list -> Yojson.Safe.t -> validation_result
-
-val validate_openai_response :
-  declared_tools:string list -> Yojson.Safe.t -> validation_result
+val validate_openai_response
+  :  declared_tools:string list
+  -> Yojson.Safe.t
+  -> validation_result

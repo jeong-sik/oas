@@ -58,7 +58,7 @@ type capabilities =
   ; supports_code_execution : bool
   ; (* ── Thinking wire format ────────────────────────────── *)
     uses_native_thinking_envelope : bool
-  (** True when the provider's chat completions endpoint accepts a
+    (** True when the provider's chat completions endpoint accepts a
       native [thinking] parameter (e.g., DeepSeek V4's [type: enabled]).
       False when thinking must be passed via a non-standard field like
       Ollama's [chat_template_kwargs.enable_thinking]. *)

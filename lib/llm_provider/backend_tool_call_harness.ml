@@ -39,10 +39,13 @@ let validate_response ~declared_tools (resp : api_response) : validation_result 
   let tool_calls =
     List.filter_map
       (function
-         | ToolUse { name; input; _ } ->
-           let arguments_valid = true (* any Yojson.t is valid JSON *) in
-           Some { name; arguments_valid }
-         | _ -> None)
+        | ToolUse { name; input; _ } ->
+          let arguments_valid =
+            true
+            (* any Yojson.t is valid JSON *)
+          in
+          Some { name; arguments_valid }
+        | _ -> None)
       resp.content
   in
   let has_tool_calls = tool_calls <> [] in
@@ -54,16 +57,14 @@ let validate_response ~declared_tools (resp : api_response) : validation_result 
   in
   let declared_set = List.sort_uniq String.compare declared_tools in
   let all_tools_declared =
-    List.for_all
-      (fun (tc : tool_call_check) -> List.mem tc.name declared_set)
-      tool_calls
+    List.for_all (fun (tc : tool_call_check) -> List.mem tc.name declared_set) tool_calls
   in
   let dropped_content_blocks =
     List.length
       (List.filter
          (function
-            | Text s when String.trim s = "" -> true
-            | _ -> false)
+           | Text s when String.trim s = "" -> true
+           | _ -> false)
          resp.content)
   in
   { tool_calls_found = tool_calls
@@ -96,22 +97,22 @@ let%test "anthropic tool_use response validates correctly" =
       [ "id", `String "msg_123"
       ; "model", `String "claude-4-sonnet"
       ; "stop_reason", `String "tool_use"
-      ; "content",
-        `List
-          [ `Assoc
-              [ "type", `String "tool_use"
-              ; "id", `String "tu_001"
-              ; "name", `String "get_weather"
-              ; "input", `Assoc [ "city", `String "Seoul" ]
-              ]
-          ]
-      ; "usage",
-        `Assoc
-          [ "input_tokens", `Int 100
-          ; "output_tokens", `Int 50
-          ; "cache_creation_input_tokens", `Int 0
-          ; "cache_read_input_tokens", `Int 0
-          ]
+      ; ( "content"
+        , `List
+            [ `Assoc
+                [ "type", `String "tool_use"
+                ; "id", `String "tu_001"
+                ; "name", `String "get_weather"
+                ; "input", `Assoc [ "city", `String "Seoul" ]
+                ]
+            ] )
+      ; ( "usage"
+        , `Assoc
+            [ "input_tokens", `Int 100
+            ; "output_tokens", `Int 50
+            ; "cache_creation_input_tokens", `Int 0
+            ; "cache_read_input_tokens", `Int 0
+            ] )
       ]
   in
   let result = validate_anthropic_response ~declared_tools:[ "get_weather" ] json in
@@ -127,22 +128,22 @@ let%test "anthropic undeclared tool fails validation" =
       [ "id", `String "msg_456"
       ; "model", `String "claude-4-sonnet"
       ; "stop_reason", `String "tool_use"
-      ; "content",
-        `List
-          [ `Assoc
-              [ "type", `String "tool_use"
-              ; "id", `String "tu_002"
-              ; "name", `String "unknown_tool"
-              ; "input", `Assoc []
-              ]
-          ]
-      ; "usage",
-        `Assoc
-          [ "input_tokens", `Int 10
-          ; "output_tokens", `Int 5
-          ; "cache_creation_input_tokens", `Int 0
-          ; "cache_read_input_tokens", `Int 0
-          ]
+      ; ( "content"
+        , `List
+            [ `Assoc
+                [ "type", `String "tool_use"
+                ; "id", `String "tu_002"
+                ; "name", `String "unknown_tool"
+                ; "input", `Assoc []
+                ]
+            ] )
+      ; ( "usage"
+        , `Assoc
+            [ "input_tokens", `Int 10
+            ; "output_tokens", `Int 5
+            ; "cache_creation_input_tokens", `Int 0
+            ; "cache_read_input_tokens", `Int 0
+            ] )
       ]
   in
   let result = validate_anthropic_response ~declared_tools:[ "get_weather" ] json in
@@ -152,25 +153,25 @@ let%test "anthropic undeclared tool fails validation" =
 let%test "gemini functionCall response validates correctly" =
   let json =
     `Assoc
-      [ "candidates",
-        `List
-          [ `Assoc
-              [ "content",
-                `Assoc
-                  [ "parts",
-                    `List
-                      [ `Assoc
-                          [ "functionCall",
-                            `Assoc
-                              [ "name", `String "search"
-                              ; "args", `Assoc [ "query", `String "OCaml 5" ]
-                              ]
-                          ]
-                      ]
-                  ]
-              ; "finishReason", `String "STOP"
-              ]
-          ]
+      [ ( "candidates"
+        , `List
+            [ `Assoc
+                [ ( "content"
+                  , `Assoc
+                      [ ( "parts"
+                        , `List
+                            [ `Assoc
+                                [ ( "functionCall"
+                                  , `Assoc
+                                      [ "name", `String "search"
+                                      ; "args", `Assoc [ "query", `String "OCaml 5" ]
+                                      ] )
+                                ]
+                            ] )
+                      ] )
+                ; "finishReason", `String "STOP"
+                ]
+            ] )
       ]
   in
   let result = validate_gemini_response ~declared_tools:[ "search" ] json in
@@ -184,31 +185,35 @@ let%test "openai tool_calls response validates correctly" =
     `Assoc
       [ "id", `String "chatcmpl-123"
       ; "model", `String "gpt-4o"
-      ; "choices",
-        `List
-          [ `Assoc
-              [ "message",
-                `Assoc
-                  [ "role", `String "assistant"
-                  ; "content", `Null
-                  ; "tool_calls",
-                    `List
-                      [ `Assoc
-                          [ "id", `String "call_001"
-                          ; "type", `String "function"
-                          ; "function",
-                            `Assoc
-                              [ "name", `String "read_file"
-                              ; "arguments",
-                                `String {|{"path": "/etc/hosts"}|}
-                              ]
-                          ]
-                      ]
-                  ]
-              ; "finish_reason", `String "tool_calls"
-              ]
-          ]
-      ; "usage", `Assoc [ "prompt_tokens", `Int 50; "completion_tokens", `Int 20; "total_tokens", `Int 70 ]
+      ; ( "choices"
+        , `List
+            [ `Assoc
+                [ ( "message"
+                  , `Assoc
+                      [ "role", `String "assistant"
+                      ; "content", `Null
+                      ; ( "tool_calls"
+                        , `List
+                            [ `Assoc
+                                [ "id", `String "call_001"
+                                ; "type", `String "function"
+                                ; ( "function"
+                                  , `Assoc
+                                      [ "name", `String "read_file"
+                                      ; "arguments", `String {|{"path": "/etc/hosts"}|}
+                                      ] )
+                                ]
+                            ] )
+                      ] )
+                ; "finish_reason", `String "tool_calls"
+                ]
+            ] )
+      ; ( "usage"
+        , `Assoc
+            [ "prompt_tokens", `Int 50
+            ; "completion_tokens", `Int 20
+            ; "total_tokens", `Int 70
+            ] )
       ]
   in
   let result = validate_openai_response ~declared_tools:[ "read_file" ] json in
@@ -224,22 +229,22 @@ let%test "wrong stop_reason for tool calls fails validation" =
       [ "id", `String "msg_bad"
       ; "model", `String "claude-4-sonnet"
       ; "stop_reason", `String "end_turn"
-      ; "content",
-        `List
-          [ `Assoc
-              [ "type", `String "tool_use"
-              ; "id", `String "tu_003"
-              ; "name", `String "test"
-              ; "input", `Assoc []
-              ]
-          ]
-      ; "usage",
-        `Assoc
-          [ "input_tokens", `Int 10
-          ; "output_tokens", `Int 5
-          ; "cache_creation_input_tokens", `Int 0
-          ; "cache_read_input_tokens", `Int 0
-          ]
+      ; ( "content"
+        , `List
+            [ `Assoc
+                [ "type", `String "tool_use"
+                ; "id", `String "tu_003"
+                ; "name", `String "test"
+                ; "input", `Assoc []
+                ]
+            ] )
+      ; ( "usage"
+        , `Assoc
+            [ "input_tokens", `Int 10
+            ; "output_tokens", `Int 5
+            ; "cache_creation_input_tokens", `Int 0
+            ; "cache_read_input_tokens", `Int 0
+            ] )
       ]
   in
   let result = validate_anthropic_response ~declared_tools:[ "test" ] json in
@@ -253,13 +258,13 @@ let%test "text-only response passes validation" =
       ; "model", `String "claude-4-sonnet"
       ; "stop_reason", `String "end_turn"
       ; "content", `List [ `Assoc [ "type", `String "text"; "text", `String "Hello" ] ]
-      ; "usage",
-        `Assoc
-          [ "input_tokens", `Int 10
-          ; "output_tokens", `Int 5
-          ; "cache_creation_input_tokens", `Int 0
-          ; "cache_read_input_tokens", `Int 0
-          ]
+      ; ( "usage"
+        , `Assoc
+            [ "input_tokens", `Int 10
+            ; "output_tokens", `Int 5
+            ; "cache_creation_input_tokens", `Int 0
+            ; "cache_read_input_tokens", `Int 0
+            ] )
       ]
   in
   let result = validate_anthropic_response ~declared_tools:[] json in
