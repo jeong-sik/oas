@@ -198,6 +198,22 @@ end
 
 module Anthropic = struct
   (** Minimum system prompt length (chars) to enable prompt caching.
-      Approximation: ~1024 tokens at ~3.4 chars/token. *)
-  let prompt_cache_min_chars = 3500
+      Approximation: ~1024 tokens at ~3.4 chars/token.
+      Override with [OAS_PROMPT_CACHE_MIN_CHARS] env var. *)
+  let default_prompt_cache_min_chars = 3500
+
+  let prompt_cache_min_chars =
+    match Sys.getenv "OAS_PROMPT_CACHE_MIN_CHARS" with
+    | exception Not_found -> default_prompt_cache_min_chars
+    | s ->
+      (match int_of_string_opt s with
+       | Some n when n > 0 -> n
+       | _ ->
+         Diag.warn
+           "constants"
+           "OAS_PROMPT_CACHE_MIN_CHARS=%S is not a valid positive int, using default %d"
+           s
+           default_prompt_cache_min_chars;
+         default_prompt_cache_min_chars)
+  ;;
 end
