@@ -354,8 +354,7 @@ let provider_failure_of_stderr_line ?model line =
   else if List.exists (substring_found line) terminal_quota_markers
   then
     Some
-      (Http_client.Hard_quota
-         { retry_after = retry_after_seconds_of_retry_delay_ms line })
+      (Http_client.Hard_quota { retry_after = retry_after_seconds_of_retry_delay_ms line })
   else if List.exists (substring_found line) capacity_exhausted_markers
   then
     Some
@@ -459,7 +458,7 @@ let warn_unsupported_once (config : config) warned =
   else (
     warned := true;
     let warn field =
-      Eio.traceln "[warn] %s is not supported by gemini_cli, ignoring" field
+      Diag.warn "transport_gemini_cli" "%s is not supported by gemini_cli, ignoring" field
     in
     if Option.is_some config.mcp_config then warn "mcp_config";
     if config.allowed_tools <> [] then warn "allowed_tools";

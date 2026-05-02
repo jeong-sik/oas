@@ -349,10 +349,11 @@ let warn_external_tools_once warned tools =
   then ()
   else (
     warned := true;
-    Eio.traceln
-      "[warn] kimi_cli print mode ignores OAS req.tools. Provider-native built-in tools \
-       and configured MCP servers remain available; external OAS tool callbacks require \
-       a future wire-mode transport.")
+    Diag.warn
+      "transport_kimi_cli"
+      "kimi_cli print mode ignores OAS req.tools. Provider-native built-in tools and \
+       configured MCP servers remain available; external OAS tool callbacks require a \
+       future wire-mode transport.")
 ;;
 
 (* Drop the first [n] elements of a list.  O(n) but n is the delta between
