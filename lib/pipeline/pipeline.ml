@@ -256,7 +256,7 @@ let stage_route ~sw ?clock ~api_strategy agent prep =
       ; turn = agent.state.turn_count
       ; extra = []
       }
-      (fun _tracer -> dispatch_stream ~sw agent prep ~on_event)
+      (fun _tracer -> dispatch_stream ~sw ?clock agent prep ~on_event)
 ;;
 
 (* ── Stage 4: Collect ────────────────────────────────────── *)

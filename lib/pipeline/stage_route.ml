@@ -96,7 +96,7 @@ let dispatch_sync ~sw ?clock agent prep =
   | Error err -> Error (sdk_error_of_http_error err)
 ;;
 
-let dispatch_stream ~sw agent prep ~on_event =
+let dispatch_stream ~sw ?clock agent prep ~on_event =
   let tools = Option.value prep.Agent_turn.tools_json ~default:[] in
   let open Result in
   let* pc =
@@ -109,6 +109,7 @@ let dispatch_stream ~sw agent prep ~on_event =
     Llm_provider.Complete.complete_stream
       ~sw
       ~net:agent.net
+      ?clock
       ?transport:agent.options.transport
       ~config:pc
       ~messages:prep.effective_messages
@@ -144,5 +145,5 @@ let stage_route ~sw ?clock ~api_strategy agent prep =
       ; turn = agent.state.turn_count
       ; extra = []
       }
-      (fun _tracer -> dispatch_stream ~sw agent prep ~on_event)
+      (fun _tracer -> dispatch_stream ~sw ?clock agent prep ~on_event)
 ;;

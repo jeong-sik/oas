@@ -66,6 +66,7 @@ val make_http_transport
 val complete
   :  sw:Eio.Switch.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+  -> ?clock:_ Eio.Time.clock
   -> ?transport:Llm_transport.t
   -> config:Provider_config.t
   -> messages:Types.message list

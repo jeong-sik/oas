@@ -255,7 +255,6 @@ let extract_with_retry
       prompt
   : ('a retry_result, Error.sdk_error) result
   =
-  ignore clock;
   let base_url = Option.value ~default:Api.default_base_url base_url in
   let add_retry_usage acc resp_usage =
     match resp_usage with
@@ -295,6 +294,7 @@ let extract_with_retry
         Llm_provider.Complete.complete
           ~sw
           ~net
+          ?clock
           ~config:provider_cfg
           ~messages
           ~tools:[]
@@ -360,7 +360,6 @@ let extract_stream
       prompt
   : ('a * api_response, Error.sdk_error) result
   =
-  ignore clock;
   let base_url = Option.value ~default:Api.default_base_url base_url in
   let messages =
     [ { role = User
@@ -378,6 +377,7 @@ let extract_stream
        Llm_provider.Complete.complete_stream
          ~sw
          ~net
+         ?clock
          ~config:provider_cfg
          ~messages
          ~tools:[]
