@@ -21,35 +21,55 @@
 
 (** Strip markdown code fences: [```json ... ```] -> inner content.
     Handles [```json], [```JSON], [```], with optional language tag. *)
+let find_substring s sub =
+  let len_s = String.length s in
+  let len_sub = String.length sub in
+  let rec loop i =
+    if i + len_sub > len_s then None
+    else if String.sub s i len_sub = sub then Some i
+    else loop (i + 1)
+  in
+  loop 0
+
+let rfind_substring s sub =
+  let len_s = String.length s in
+  let len_sub = String.length sub in
+  let rec loop i =
+    if i < 0 then None
+    else if String.sub s i len_sub = sub then Some i
+    else loop (i - 1)
+  in
+  loop (len_s - len_sub)
+
 let strip_markdown_fence (s : string) : string =
   let s = String.trim s in
-  let len = String.length s in
-  if len < 6
-  then s
-  else (
-    (* Check if starts with ``` *)
-    let starts_with_fence = len >= 3 && s.[0] = '`' && s.[1] = '`' && s.[2] = '`' in
-    if not starts_with_fence
-    then s
-    else (
-      (* Find end of first line (skip language tag) *)
-      let first_newline =
-        match String.index_opt s '\n' with
-        | Some i -> i
-        | None -> len
+  match find_substring s "```", rfind_substring s "```" with
+  | Some start_idx, Some end_idx when start_idx < end_idx ->
+      let rec find_nl i =
+        if i >= end_idx then start_idx + 3
+        else if s.[i] = '
+' then i + 1
+        else find_nl (i + 1)
       in
-      (* Check if ends with ``` *)
-      let ends_with_fence =
-        len >= 3 && s.[len - 1] = '`' && s.[len - 2] = '`' && s.[len - 3] = '`'
-      in
-      if not ends_with_fence
-      then s
-      else (
-        let inner_start = first_newline + 1 in
-        let inner_end = len - 3 in
-        if inner_start >= inner_end
-        then s
-        else String.trim (String.sub s inner_start (inner_end - inner_start)))))
+      let inner_start = find_nl (start_idx + 3) in
+      String.trim (String.sub s inner_start (end_idx - inner_start))
+  | _ -> s
+;;
+
+let strip_conversational_prefix (s : string) : string =
+  let s = String.trim s in
+  let first_brace = try String.index s '{' with Not_found -> String.length s in
+  let first_bracket = try String.index s '[' with Not_found -> String.length s in
+  let first = min first_brace first_bracket in
+  if first = String.length s then s
+  else
+    let last_brace = try String.rindex s '}' with Not_found -> -1 in
+    let last_bracket = try String.rindex s ']' with Not_found -> -1 in
+    let last = max last_brace last_bracket in
+    if last > first then
+      String.trim (String.sub s first (last - first + 1))
+    else
+      String.trim (String.sub s first (String.length s - first))
 ;;
 
 (** Detect and unwrap double-stringified JSON.
@@ -71,7 +91,7 @@ let unwrap_double_stringify (s : string) : string =
       let inner_trimmed = String.trim inner in
       if
         String.length inner_trimmed > 0
-        && (inner_trimmed.[0] = '{' || inner_trimmed.[0] = '[')
+        && (inner_trimmed.[0] = '{' || inner_trimmed.[0] = '[' || inner_trimmed.[0] = '"')
       then (
         match Yojson.Safe.from_string inner_trimmed with
         | _ -> inner_trimmed (* inner parses: use it *)
@@ -220,7 +240,7 @@ let parse (s : string) : Yojson.Safe.t =
   | Some json -> maybe_unwrap_string json
   | None ->
     (* 2. Strip markdown fences *)
-    let s1 = strip_markdown_fence s in
+    let s1 = strip_conversational_prefix (strip_markdown_fence s) in
     (match try_parse s1 with
      | Some json -> json
      | None ->
@@ -245,6 +265,7 @@ let parse (s : string) : Yojson.Safe.t =
                 let s5 =
                   s
                   |> strip_markdown_fence
+                  |> strip_conversational_prefix
                   |> unwrap_double_stringify
                   |> complete_keywords
                   |> close_brackets
