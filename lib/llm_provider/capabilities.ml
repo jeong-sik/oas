@@ -50,6 +50,8 @@ type capabilities =
     supports_native_streaming : bool
   ; supports_system_prompt : bool
   ; supports_caching : bool
+  ; supports_prompt_caching : bool
+  ; prompt_cache_alignment : int option
   ; (* ── Sampling parameters ───────────────────────────── *)
     supports_top_k : bool
   ; supports_min_p : bool
@@ -99,6 +101,8 @@ let default_capabilities =
   ; supports_system_prompt = true
   ; (* most models support it *)
     supports_caching = false
+  ; supports_prompt_caching = false
+  ; prompt_cache_alignment = None
   ; supports_top_k = false
   ; supports_min_p = false
   ; supports_computer_use = false
@@ -126,6 +130,8 @@ let anthropic_capabilities =
   ; supports_image_input = true
   ; supports_native_streaming = true
   ; supports_caching = true
+  ; supports_prompt_caching = true
+  ; prompt_cache_alignment = Some 1024
   ; supports_computer_use = true
   ; (* Anthropic Messages API documents [top_k] as a valid sampling
      parameter ("Only sample from the top K options for each
@@ -166,6 +172,8 @@ let openai_chat_capabilities =
   ; supports_image_input = true
   ; supports_native_streaming = true
   ; supports_caching = true
+  ; supports_prompt_caching = false
+  ; prompt_cache_alignment = None
   }
 ;;
 
@@ -261,6 +269,8 @@ let gemini_capabilities =
   ; supports_video_input = true
   ; supports_native_streaming = true
   ; supports_caching = true
+  ; supports_prompt_caching = false
+  ; prompt_cache_alignment = None
   ; supports_code_execution = true
   ; (* Google Gemini's generateContent API documents [topK] as part of
      generationConfig (ai.google.dev/api/generate-content). The
@@ -424,6 +434,8 @@ let for_model_id model_id =
       ; supports_response_format_json = true
       ; supports_native_streaming = true
       ; supports_caching = true
+  ; supports_prompt_caching = false
+  ; prompt_cache_alignment = None
       ; uses_native_thinking_envelope = true
       }
   else if starts_with "deepseek-v4-pro"
@@ -441,6 +453,8 @@ let for_model_id model_id =
       ; supports_response_format_json = true
       ; supports_native_streaming = true
       ; supports_caching = true
+  ; supports_prompt_caching = false
+  ; prompt_cache_alignment = None
       ; uses_native_thinking_envelope = true
       }
   else if starts_with "mistral-large"
@@ -456,6 +470,8 @@ let for_model_id model_id =
       ; supports_image_input = true
       ; supports_native_streaming = true
       ; supports_caching = true
+  ; supports_prompt_caching = false
+  ; prompt_cache_alignment = None
       }
   else if starts_with "mistral-small"
   then
@@ -471,6 +487,8 @@ let for_model_id model_id =
       ; supports_image_input = true
       ; supports_native_streaming = true
       ; supports_caching = true
+  ; supports_prompt_caching = false
+  ; prompt_cache_alignment = None
       }
   else if starts_with "command"
   then
@@ -496,6 +514,8 @@ let for_model_id model_id =
       ; supports_structured_output = true
       ; supports_native_streaming = true
       ; supports_caching = true
+  ; supports_prompt_caching = false
+  ; prompt_cache_alignment = None
       }
     (* GLM flash/air variants: faster, no reasoning, smaller output.
      Must precede the broad glm-4.5/4.6/4.7/5 match below. *)
