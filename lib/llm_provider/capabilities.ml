@@ -56,6 +56,12 @@ type capabilities =
   ; (* ── Advanced modalities ───────────────────────────── *)
     supports_computer_use : bool
   ; supports_code_execution : bool
+  ; (* ── Thinking wire format ────────────────────────────── *)
+    uses_native_thinking_envelope : bool
+  (** True when the provider's chat completions endpoint accepts a
+      native [thinking] parameter (e.g., DeepSeek V4's [type: enabled]).
+      False when thinking must be passed via a non-standard field like
+      Ollama's [chat_template_kwargs.enable_thinking]. *)
   ; (* ── Provider identity ───────────────────────────────── *)
     is_ollama : bool
   ; (* ── Usage reporting ─────────────────────────────────── *)
@@ -97,6 +103,7 @@ let default_capabilities =
   ; supports_min_p = false
   ; supports_computer_use = false
   ; supports_code_execution = false
+  ; uses_native_thinking_envelope = false
   ; is_ollama = false
   ; emits_usage_tokens = true (* stricter default: most providers report usage *)
   }
@@ -417,6 +424,7 @@ let for_model_id model_id =
       ; supports_response_format_json = true
       ; supports_native_streaming = true
       ; supports_caching = true
+      ; uses_native_thinking_envelope = true
       }
   else if starts_with "deepseek-v4-pro"
   then
@@ -433,6 +441,7 @@ let for_model_id model_id =
       ; supports_response_format_json = true
       ; supports_native_streaming = true
       ; supports_caching = true
+      ; uses_native_thinking_envelope = true
       }
   else if starts_with "mistral-large"
   then

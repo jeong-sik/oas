@@ -121,7 +121,7 @@ let build_request
       let budget =
         match config.thinking_budget with
         | Some b -> b
-        | None -> 10000
+        | None -> Constants.Thinking.default_budget
       in
       ("thinking", `Assoc [ "type", `String "enabled"; "budget_tokens", `Int budget ])
       :: body
