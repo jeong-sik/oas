@@ -40,6 +40,7 @@ type strategy =
       { max_tokens : int
       ; keep_recent : int
       }
+  | Cache_alignment of { size : int }
   | Relocate_tool_results of
       { state : Content_replacement_state.t
       ; keep_recent : int
@@ -92,6 +93,7 @@ let apply_stub_tool_results = Context_reducer_apply.apply_stub_tool_results
 let apply_cap_message_tokens = Context_reducer_apply.apply_cap_message_tokens
 let apply_summarize_old = Context_reducer_apply.apply_summarize_old
 let apply_relocate_tool_results = Context_reducer_apply.apply_relocate_tool_results
+let apply_cache_alignment = Context_reducer_apply.apply_cache_alignment
 
 (** Reduce messages according to the configured strategy. *)
 let rec reduce (reducer : t) (messages : message list) : message list =
@@ -118,6 +120,7 @@ and apply_strategy strategy messages =
   | Stub_tool_results { keep_recent } -> apply_stub_tool_results ~keep_recent messages
   | Cap_message_tokens { max_tokens; keep_recent } ->
     apply_cap_message_tokens ~max_tokens ~keep_recent messages
+  | Cache_alignment { size } -> apply_cache_alignment ~size messages
   | Relocate_tool_results { state; keep_recent } ->
     apply_relocate_tool_results ~state ~keep_recent messages
   | Compose strategies ->
@@ -165,6 +168,8 @@ let cap_message_tokens ~max_tokens ~keep_recent =
   { strategy = Cap_message_tokens { max_tokens; keep_recent } }
 ;;
 
+let align_to_cache ~size = { strategy = Cache_alignment { size } }
+
 let relocate_tool_results ~state ~keep_recent =
   { strategy = Relocate_tool_results { state; keep_recent } }
 ;;
@@ -197,13 +202,22 @@ let from_capabilities ?(margin = 0.8) (caps : Llm_provider.Capabilities.capabili
   | None -> None
   | Some max_ctx ->
     let budget = int_of_float (float_of_int max_ctx *. margin) in
-    Some
-      (compose
-         [ drop_thinking
-         ; repair_dangling_tool_calls
-         ; repair_orphaned_tool_results
-         ; token_budget budget
-         ])
+    let base_reducers =
+      [ drop_thinking
+      ; repair_dangling_tool_calls
+      ; repair_orphaned_tool_results
+      ; token_budget budget
+      ]
+    in
+    let with_cache =
+      if caps.supports_prompt_caching
+      then
+        match caps.prompt_cache_alignment with
+        | Some size -> base_reducers @ [ align_to_cache ~size ]
+        | None -> base_reducers
+      else base_reducers
+    in
+    Some (compose with_cache)
 ;;
 
 (** Create a reducer from an explicit context budget with configurable thresholds.
@@ -213,7 +227,20 @@ let from_capabilities ?(margin = 0.8) (caps : Llm_provider.Capabilities.capabili
     @since 0.79.0 *)
 let from_context_config ?(compact_ratio = 0.8) ~max_tokens () =
   let budget = int_of_float (float_of_int max_tokens *. compact_ratio) in
-  compose [ drop_thinking; repair_dangling_tool_calls; token_budget budget ]
+  let aggressive =
+    compose [ drop_thinking; repair_dangling_tool_calls; repair_orphaned_tool_results; token_budget budget ]
+  in
+  let conservative =
+    compose [ drop_thinking; repair_dangling_tool_calls; repair_orphaned_tool_results; prune_tool_args ~max_arg_len:5000 () ]
+  in
+  dynamic (fun ~turn:_ ~messages ->
+    let current_tokens =
+      List.fold_left (fun acc msg -> acc + estimate_message_tokens msg) 0 messages
+    in
+    let threshold = int_of_float (float_of_int max_tokens *. 0.6) in
+    if current_tokens > threshold
+    then aggressive.strategy
+    else conservative.strategy)
 ;;
 
 let%test "estimate_next_turn_overhead empty" =
@@ -242,14 +269,14 @@ let%test "estimate_next_turn_overhead with tools" =
 let%test "from_context_config default compact_ratio 0.8" =
   let reducer = from_context_config ~max_tokens:10000 () in
   match reducer.strategy with
-  | Compose _ -> true
+  | Dynamic _ -> true
   | _ -> false
 ;;
 
 let%test "from_context_config custom compact_ratio" =
   let reducer = from_context_config ~compact_ratio:0.5 ~max_tokens:10000 () in
   match reducer.strategy with
-  | Compose _ -> true
+  | Dynamic _ -> true
   | _ -> false
 ;;
 
@@ -512,4 +539,5 @@ let%test "estimate_block_tokens ToolResult uses CJK-aware estimation" =
   in
   let tokens = estimate_block_tokens block in
   tokens >= 1
+;;
 ;;

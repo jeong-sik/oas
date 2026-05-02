@@ -42,6 +42,7 @@ type strategy =
       { max_tokens : int
       ; keep_recent : int
       }
+  | Cache_alignment of { size : int }
   | Relocate_tool_results of
       { state : Content_replacement_state.t
       ; keep_recent : int
@@ -148,6 +149,10 @@ val stub_tool_results : keep_recent:int -> t
     to maintain API pairing invariants.
     @since 0.125.0 *)
 val cap_message_tokens : max_tokens:int -> keep_recent:int -> t
+
+(** Pad or slice messages to perfectly hit prompt cache alignment boundaries.
+    @since 0.190.0 *)
+val align_to_cache : size:int -> t
 
 (** Re-apply frozen replacement decisions from
     {!Content_replacement_state} to tool result content in older turns.

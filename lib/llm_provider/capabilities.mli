@@ -39,6 +39,8 @@ type capabilities =
     supports_native_streaming : bool
   ; supports_system_prompt : bool
   ; supports_caching : bool
+  ; supports_prompt_caching : bool
+  ; prompt_cache_alignment : int option
   ; (* Sampling parameters *)
     supports_top_k : bool
   ; supports_min_p : bool
