@@ -631,7 +631,8 @@ let warn_unsupported_once (config : config) warned =
   else (
     warned := true;
     let warn field =
-      Eio.traceln "[warn] %s is not supported by codex_cli, ignoring" field
+      Diag.warn "transport_codex_cli"
+        "%s is not supported by codex_cli, ignoring" field
     in
     if Option.is_some config.mcp_config then warn "mcp_config";
     if config.allowed_tools <> [] then warn "allowed_tools";
