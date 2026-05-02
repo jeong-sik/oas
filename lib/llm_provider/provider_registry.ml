@@ -288,7 +288,7 @@ let default () =
   reg "claude" claude_defaults ~max_context:200_000 Capabilities.anthropic_capabilities;
   reg "gemini" gemini_defaults ~max_context:1_000_000 Capabilities.gemini_capabilities;
   reg "glm" glm_defaults ~max_context:200_000 Capabilities.glm_capabilities;
-  reg "glm-coding" glm_coding_defaults ~max_context:200_000 Capabilities.glm_capabilities;
+  reg "glm-coding" glm_coding_defaults ~max_context:128_000 Capabilities.glm_capabilities;
   register
     t
     { name = "kimi"

@@ -64,6 +64,11 @@ type capabilities =
       against them as structurally unreported rather than a gap.
 
       @since 0.170.9 *)
+  ; (* Model limitations *)
+    supported_models : string list option
+    (** Explicit list of supported models if the provider is restricted
+        to a specific set (e.g. Kimi CLI to "kimi-for-coding").
+        [None] means no strict client-side restriction. *)
   }
 
 val default_capabilities : capabilities
