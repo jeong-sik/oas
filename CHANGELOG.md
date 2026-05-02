@@ -8,6 +8,11 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.187.7] - 2026-05-02
+
+### Added
+- Execution Manifest with `provider_health`, `rate_limit_quota`, and Risk_class cascade mappings.
+
 ## [0.187.6] - 2026-05-01
 
 ### Fixed
