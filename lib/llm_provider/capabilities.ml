@@ -7,6 +7,16 @@
     @since 0.42.0
     @since 0.72.0 — added numeric limits, parallel tool calls, thinking split *)
 
+(** Wire-format for controlling thinking/reasoning on OpenAI-compat backends.
+    Different model families use different JSON shapes to enable/disable
+    thinking, so the runtime must know which format to emit.
+
+    @since 0.184.0 *)
+type thinking_control_format =
+  | No_thinking_control  (** No thinking control supported *)
+  | Thinking_object      (** DeepSeek-style: {"thinking":{"type":"enabled"}} *)
+  | Chat_template_kwargs (** llama-server style: {"chat_template_kwargs":{"enable_thinking":b}} *)
+
 type capabilities =
   { (* ── Numeric limits ────────────────────────────────── *)
     max_context_tokens : int option (** Model's context window. None = unknown. *)
@@ -21,6 +31,12 @@ type capabilities =
     supports_reasoning : bool (** Any form of reasoning/thinking *)
   ; supports_extended_thinking : bool (** budget_tokens / reasoning_effort *)
   ; supports_reasoning_budget : bool (** Controllable reasoning depth *)
+  ; thinking_control_format : thinking_control_format
+  (** Wire-format for thinking control on OpenAI-compat backends.
+      Determines which JSON shape the backend emits for enable_thinking.
+      Only meaningful when [supports_reasoning] or [supports_extended_thinking]
+      is true and the request goes through backend_openai.
+      @since 0.184.0 *)
   ; (* ── Output format ─────────────────────────────────── *)
     supports_response_format_json : bool (** JSON mode *)
   ; supports_structured_output : bool (** JSON schema 100% guarantee *)
@@ -65,6 +81,7 @@ let default_capabilities =
   ; supports_reasoning = false
   ; supports_extended_thinking = false
   ; supports_reasoning_budget = false
+  ; thinking_control_format = No_thinking_control
   ; supports_response_format_json = false
   ; supports_structured_output = false
   ; supports_multimodal_inputs = false
@@ -180,6 +197,7 @@ let ollama_capabilities =
   { openai_chat_extended_capabilities with
     supports_tool_choice = false
   ; supports_min_p = false
+  ; thinking_control_format = Chat_template_kwargs
   ; is_ollama = true
   }
 ;;
@@ -394,6 +412,7 @@ let for_model_id model_id =
       ; supports_reasoning = true
       ; supports_extended_thinking = true
       ; supports_reasoning_budget = true
+      ; thinking_control_format = Thinking_object
       ; supports_response_format_json = true
       ; supports_native_streaming = true
       ; supports_caching = true
@@ -409,6 +428,7 @@ let for_model_id model_id =
       ; supports_reasoning = true
       ; supports_extended_thinking = true
       ; supports_reasoning_budget = true
+      ; thinking_control_format = Thinking_object
       ; supports_response_format_json = true
       ; supports_native_streaming = true
       ; supports_caching = true
