@@ -74,7 +74,7 @@ let build_request
   let msgs_json = List.map message_to_json messages in
   let body =
     [ "model", `String config.model_id
-    ; "max_tokens", `Int (Option.value ~default:4096 config.max_tokens)
+    ; "max_tokens", `Int (Option.value ~default:Constants.Inference.unknown_model_max_tokens_fallback config.max_tokens)
     ; "messages", `List msgs_json
     ; "stream", `Bool stream
     ]

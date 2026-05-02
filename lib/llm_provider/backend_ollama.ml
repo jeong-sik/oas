@@ -121,7 +121,7 @@ let build_request
     | None -> Capabilities.ollama_capabilities
   in
   let options = ref [] in
-  (let mt = Option.value ~default:4096 config.max_tokens in
+  (let mt = Option.value ~default:Constants.Inference.unknown_model_max_tokens_fallback config.max_tokens in
    options := ("num_predict", `Int mt) :: !options);
   (match config.temperature with
    | Some t -> options := ("temperature", `Float t) :: !options
