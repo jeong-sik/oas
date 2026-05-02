@@ -7,9 +7,10 @@
     @since 0.93.1 *)
 
 type thinking_control_format =
-  | No_thinking_control  (** No thinking control supported *)
-  | Thinking_object      (** DeepSeek-style: {"thinking":{"type":"enabled"}} *)
-  | Chat_template_kwargs (** llama-server style: {"chat_template_kwargs":{"enable_thinking":b}} *)
+  | No_thinking_control (** No thinking control supported *)
+  | Thinking_object (** DeepSeek-style: {"thinking":{"type":"enabled"}} *)
+  | Chat_template_kwargs
+  (** llama-server style: {"chat_template_kwargs":{"enable_thinking":b}} *)
 
 type capabilities =
   { (* Numeric limits *)
