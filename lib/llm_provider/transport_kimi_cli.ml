@@ -68,9 +68,18 @@ let stdin_for_prompt prompt =
 let prompt_for_cli prompt = Utf8_sanitize.sanitize prompt
 
 let cli_model_override ~(config : config) ~(req_config : Provider_config.t) =
-  match String.trim req_config.model_id |> String.lowercase_ascii with
-  | "" | "auto" -> config.model
-  | _ -> Some (String.trim req_config.model_id)
+  let override =
+    match String.trim req_config.model_id |> String.lowercase_ascii with
+    | "" | "auto" -> config.model
+    | _ -> Some (String.trim req_config.model_id)
+  in
+  (match override, Capabilities.kimi_cli_capabilities.supported_models with
+   | Some m, Some supported ->
+       if not (List.mem (String.lowercase_ascii m) supported) then
+         Eio.traceln "[warn] [kimi_cli] Unsupported model %s requested. Kimi CLI officially supports %s"
+           m (String.concat ", " supported)
+   | _ -> ());
+  override
 ;;
 
 let build_args ~(config : config) ~(req_config : Provider_config.t) ~prompt =

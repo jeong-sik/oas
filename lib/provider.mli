@@ -70,6 +70,7 @@ type capabilities =
     is_ollama : bool
   ; (* Usage reporting *)
     emits_usage_tokens : bool
+  ; supported_models : string list option
   }
 
 type inference_contract =

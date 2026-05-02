@@ -89,7 +89,7 @@ let glm_auto_models () =
 let glm_coding_auto_models () =
   match Cli_common_env.list ~sep:',' "ZAI_CODING_AUTO_MODELS" with
   | Some models -> models
-  | None -> [ "glm-5.1"; "glm-5"; "glm-5-turbo"; "glm-4.7"; "glm-4.5-air" ]
+  | None -> [ "glm-5-code"; "glm-5.1"; "glm-5"; "glm-5-turbo"; "glm-4.7"; "glm-4.5-air" ]
 ;;
 
 let resolve_glm_alias ~default_model model_id =
@@ -105,7 +105,14 @@ let resolve_glm_alias ~default_model model_id =
 ;;
 
 let resolve_glm_coding_alias ~default_model model_id =
-  resolve_glm_alias ~default_model model_id
+  match String.lowercase_ascii model_id with
+  | "auto" -> default_model
+  | "code" -> "glm-5-code"
+  | "flash" -> "glm-4.7-flashx"
+  | "turbo" -> "glm-5-turbo"
+  | "vision" | "v" -> "glm-4.6v"
+  | "air" -> "glm-4.5-air"
+  | _ -> model_id
 ;;
 
 let general_concurrency_for_model model_id =

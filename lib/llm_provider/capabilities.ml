@@ -77,6 +77,8 @@ type capabilities =
       Consumers use this to decide whether a text-only turn with no
       usage should be treated as a structurally unreported one
       (not a coverage gap) vs. a real gap. *)
+  ; (* ── Model limitations ────────────────────────────────── *)
+    supported_models : string list option
   }
 
 let default_capabilities =
@@ -110,6 +112,7 @@ let default_capabilities =
   ; uses_native_thinking_envelope = false
   ; is_ollama = false
   ; emits_usage_tokens = true (* stricter default: most providers report usage *)
+  ; supported_models = None
   }
 ;;
 
@@ -306,6 +309,8 @@ let gemini_cli_capabilities =
   ; supports_tool_choice = false
   ; supports_native_streaming = false
   ; supports_system_prompt = true
+  ; supports_runtime_mcp_tools = true
+  ; supports_runtime_tool_events = true
   ; emits_usage_tokens = false (* CLI wrapper strips usage *)
   }
 ;;
@@ -320,6 +325,7 @@ let kimi_cli_capabilities =
   ; supports_system_prompt = true
   ; supports_code_execution = true
   ; emits_usage_tokens = false (* CLI wrapper strips usage *)
+  ; supported_models = Some ["kimi-for-coding"]
   }
 ;;
 
