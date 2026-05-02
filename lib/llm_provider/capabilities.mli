@@ -6,6 +6,12 @@
     @stability Internal
     @since 0.93.1 *)
 
+type thinking_control_format =
+  | No_thinking_control (** No thinking control supported *)
+  | Thinking_object (** DeepSeek-style: {"thinking":{"type":"enabled"}} *)
+  | Chat_template_kwargs
+  (** llama-server style: {"chat_template_kwargs":{"enable_thinking":b}} *)
+
 type capabilities =
   { (* Numeric limits *)
     max_context_tokens : int option
@@ -20,6 +26,7 @@ type capabilities =
     supports_reasoning : bool
   ; supports_extended_thinking : bool
   ; supports_reasoning_budget : bool
+  ; thinking_control_format : thinking_control_format
   ; (* Output format *)
     supports_response_format_json : bool
   ; supports_structured_output : bool
