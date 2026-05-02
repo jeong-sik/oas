@@ -266,6 +266,7 @@ let glm_capabilities =
   ; supports_reasoning = true
   ; supports_extended_thinking = true
   ; supports_response_format_json = true
+  ; supports_structured_output = true
   ; supports_native_streaming = true
   }
 ;;

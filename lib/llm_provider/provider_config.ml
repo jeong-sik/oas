@@ -270,7 +270,7 @@ let validate_output_schema_request (config : t) =
   | None -> Ok ()
   | Some _ ->
     (match config.kind with
-     | Gemini | Anthropic | Ollama | DashScope -> Ok ()
+     | Gemini | Anthropic | Ollama | DashScope | Glm -> Ok ()
      | Kimi ->
        Error "Kimi direct API native json_schema output is not verified yet in OAS"
      | OpenAI_compat ->
@@ -292,9 +292,6 @@ let validate_output_schema_request (config : t) =
            (Printf.sprintf
               "native structured output is only wired for official OpenAI hosts, got %s"
               config.base_url)
-     | Glm ->
-       Error
-         "GLM is currently wired for JSON mode only; native json_schema is not enabled"
      | Claude_code | Gemini_cli | Kimi_cli | Codex_cli ->
        Error
          (Printf.sprintf
