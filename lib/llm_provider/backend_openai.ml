@@ -218,24 +218,24 @@ let build_request
   in
   let body =
     match config.enable_thinking with
-    | Some enabled -> (
-      match caps.thinking_control_format with
-      | Thinking_object ->
-        if enabled
-        then (
-          let effort =
-            Provider_config.effort_of_thinking_config
-              ~enable_thinking:config.enable_thinking
-              ~thinking_budget:config.thinking_budget
-          in
-          ("reasoning_effort", `String effort)
-          :: ("thinking", `Assoc [ "type", `String "enabled" ])
-          :: body)
-        else ("thinking", `Assoc [ "type", `String "disabled" ]) :: body
-      | Chat_template_kwargs ->
-        ("chat_template_kwargs", `Assoc [ "enable_thinking", `Bool enabled ])
-        :: body
-      | No_thinking_control -> body)
+    | Some enabled ->
+      (match caps.thinking_control_format with
+       | Thinking_object ->
+         if enabled
+         then (
+           let effort =
+             Provider_config.effort_of_thinking_config
+               ~enable_thinking:config.enable_thinking
+               ~thinking_budget:config.thinking_budget
+           in
+           ("reasoning_effort", `String effort)
+           :: ("thinking", `Assoc [ "type", `String "enabled" ])
+           :: body)
+         else ("thinking", `Assoc [ "type", `String "disabled" ]) :: body
+       | Chat_template_kwargs ->
+         ("chat_template_kwargs", `Assoc [ "enable_thinking", `Bool enabled ])
+         :: body
+       | No_thinking_control -> body)
     | None -> body
   in
   (* tool_choice uses a DIFFERENT unknown-model default than top_k /
