@@ -340,8 +340,8 @@ let warn_external_tools_once warned tools =
   then ()
   else (
     warned := true;
-    Eio.traceln
-      "[warn] kimi_cli print mode ignores OAS req.tools. Provider-native built-in tools \
+    Diag.warn "transport_kimi_cli"
+      "kimi_cli print mode ignores OAS req.tools. Provider-native built-in tools \
        and configured MCP servers remain available; external OAS tool callbacks require \
        a future wire-mode transport.")
 ;;
