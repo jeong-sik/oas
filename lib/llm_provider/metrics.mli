@@ -25,6 +25,13 @@ type t =
   ; on_error : model_id:string -> error:string -> unit
   ; on_http_status : provider:string -> model_id:string -> status:int -> unit
   ; on_capability_drop : model_id:string -> field:string -> unit
+  ; on_retry : provider:string -> model_id:string -> attempt:int -> unit
+    (** Fired when a request is retried due to a retryable error.
+      @since 0.185.0 *)
+  ; on_token_usage
+    : provider:string -> model_id:string -> input_tokens:int -> output_tokens:int -> unit
+    (** Fired when a response carries usage tokens.
+      @since 0.185.0 *)
   }
 
 (** No-op metrics — all callbacks do nothing. *)

@@ -749,6 +749,14 @@ let complete
           let resp = Pricing.annotate_response_cost resp in
           let resp = patch_telemetry resp ~config latency_ms in
           m.on_request_end ~model_id ~latency_ms;
+          (match resp.usage with
+           | Some u ->
+             m.on_token_usage
+               ~provider:(Provider_registry.provider_name_of_config config)
+               ~model_id
+               ~input_tokens:u.input_tokens
+               ~output_tokens:u.output_tokens
+           | None -> ());
           (* Cache store — reuse pre-computed key *)
           (match cache, cache_key with
            | Some c, Some key ->
@@ -839,24 +847,45 @@ let complete_with_retry
       ?priority
       ()
   =
-  Retry.with_retry_map_error
-    ~clock
-    ~config:(shared_retry_config_of_complete retry_config)
-    ~classify:classify_retry_error
-    (fun () ->
-       complete
-         ~sw
-         ~net
-         ~clock
-         ?transport
-         ~config
-         ~messages
-         ~tools
-         ?runtime_mcp_policy
-         ?cache
-         ?metrics
-         ?priority
-         ())
+  let m = Option.value metrics ~default:(Metrics.get_global ()) in
+  let rc = shared_retry_config_of_complete retry_config in
+  let provider = Provider_registry.provider_name_of_config config in
+  let model_id = config.model_id in
+  let f () =
+    complete
+      ~sw
+      ~net
+      ~clock
+      ?transport
+      ~config
+      ~messages
+      ~tools
+      ?runtime_mcp_policy
+      ?cache
+      ~metrics:m
+      ?priority
+      ()
+  in
+  let rec loop attempt =
+    match f () with
+    | Ok _ as success -> success
+    | Error err ->
+      (match classify_retry_error err with
+       | Some api_err when Retry.is_retryable api_err ->
+         if attempt > rc.max_retries
+         then Error err
+         else (
+           m.on_retry ~provider ~model_id ~attempt:(attempt + 1);
+           let delay =
+             match api_err with
+             | Retry.RateLimited { retry_after = Some ra; _ } -> ra
+             | _ -> Retry.calculate_delay rc attempt
+           in
+           Eio.Time.sleep clock delay;
+           loop (attempt + 1))
+       | Some _ | None -> Error err)
+  in
+  loop 0
 ;;
 
 (* ── Streaming ───────────────────────────────────────── *)

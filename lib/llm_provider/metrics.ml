@@ -14,6 +14,13 @@ type t =
       a structured log event for alerting on misconfigured agents.
 
       @since 0.184.0 *)
+  ; on_retry : provider:string -> model_id:string -> attempt:int -> unit
+    (** Fired when a request is retried due to a retryable error.
+      @since 0.185.0 *)
+  ; on_token_usage
+    : provider:string -> model_id:string -> input_tokens:int -> output_tokens:int -> unit
+    (** Fired when a response carries usage tokens.
+      @since 0.185.0 *)
   }
 
 let noop =
@@ -24,6 +31,8 @@ let noop =
   ; on_error = (fun ~model_id:_ ~error:_ -> ())
   ; on_http_status = (fun ~provider:_ ~model_id:_ ~status:_ -> ())
   ; on_capability_drop = (fun ~model_id:_ ~field:_ -> ())
+  ; on_retry = (fun ~provider:_ ~model_id:_ ~attempt:_ -> ())
+  ; on_token_usage = (fun ~provider:_ ~model_id:_ ~input_tokens:_ ~output_tokens:_ -> ())
   }
 ;;
 
