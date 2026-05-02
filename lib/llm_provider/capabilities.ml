@@ -818,3 +818,44 @@ let%test "capabilities_for_provider_label: glm alias" =
 let%test "capabilities_for_provider_label: unknown returns None" =
   Option.is_none (capabilities_for_provider_label "not_a_real_provider_xyz")
 ;;
+
+(* ── Prefix ordering invariant ──────────────────── *)
+
+(* Each case is a model_id and the expected capability fingerprint.
+   If [for_model_id] reorders its prefix checks incorrectly, these
+   specific models would be matched by a more general prefix and
+   return wrong capabilities. The test catches that. *)
+let%test "for_model_id: specific model IDs get correct (not shadowed) capabilities" =
+  let check model_id expected =
+    match for_model_id model_id with
+    | Some c -> expected c
+    | None -> false
+  in
+  List.for_all (fun (m, e) -> check m e)
+    [ ( "glm-4.7-flash-turbo"
+      , fun c -> c.max_output_tokens = Some 16_384 && not c.supports_reasoning )
+    ; ( "glm-4.5-flash-test"
+      , fun c -> c.max_output_tokens = Some 16_384 && not c.supports_reasoning )
+    ; ( "glm-5-turbo-latest"
+      , fun c -> c.max_output_tokens = Some 16_384 && not c.supports_extended_thinking )
+    ; ( "glm-4.6v-plus"
+      , fun c -> c.supports_image_input && c.supports_reasoning )
+    ; ( "glm-4.7-flash-test"
+      , fun c -> c.max_output_tokens = Some 16_384 && not c.supports_reasoning )
+    ; ( "glm-4-flash-mini"
+      , fun c -> c.max_output_tokens = Some 4_096 && not c.supports_reasoning )
+    ; ( "glm-4v-plus"
+      , fun c -> c.supports_image_input )
+    ; ( "glm-4.5-air-test"
+      , fun c -> c.max_output_tokens = Some 16_384 && not c.supports_reasoning )
+    ; ( "glm-5v-turbo-latest"
+      , fun c -> c.supports_image_input && c.supports_reasoning && c.max_output_tokens = Some 128_000 )
+    ; ( "glm-ocr-test"
+      , fun c -> c.supports_image_input && not c.supports_tools )
+    ; ( "claude-opus-4-20250501"
+      , fun c -> c.max_output_tokens = Some 128_000 )
+    ; ( "gpt-4.1-mini"
+      , fun c -> c.max_output_tokens = Some 32_000 )
+    ; ( "deepseek-v4-flash-test"
+      , fun c -> c.uses_native_thinking_envelope )
+    ]

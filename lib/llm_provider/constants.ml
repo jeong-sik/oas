@@ -75,6 +75,13 @@ end
 module Inference = struct
   let default_temperature = Inference_profile.cascade_default.temperature
   let default_max_tokens = Inference_profile.cascade_default.max_tokens
+
+  (** Fallback [max_tokens] when both caller override and model capability
+      are absent. Emitted as a required field by OpenAI-compat and Anthropic
+      backends. Kept conservative to avoid overrunning unknown model limits,
+      but high enough to avoid silent truncation on modern models.
+      @since 0.188.0 *)
+  let unknown_model_max_tokens_fallback = 4096
 end
 
 (* ── Cache ───────────────────────────────────────── *)

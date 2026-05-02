@@ -160,7 +160,7 @@ let build_request
   (* Resolve [max_tokens] from three layers:
      1. Caller override ([config.max_tokens = Some n]) — explicit request
      2. Model capability ([caps.max_output_tokens]) — provider's ceiling
-     3. Fallback 4096 — last resort when both are unknown
+     3. Fallback [Constants.Inference.unknown_model_max_tokens_fallback] — last resort when both are unknown
 
      When the caller sends [None], they want the model's own maximum.
      When the caller sends [Some n], we clamp to the capability ceiling
@@ -171,7 +171,7 @@ let build_request
   let effective_max_tokens =
     match config.max_tokens, caps.max_output_tokens with
     | None, Some cap -> cap (* caller deferred → use model cap *)
-    | None, None -> 4096 (* unknown model, safe fallback *)
+    | None, None -> Constants.Inference.unknown_model_max_tokens_fallback
     | Some n, Some cap when n > cap ->
       warn_capability_drop ~model_id:config.model_id ~field:"max_tokens:clamp";
       cap
