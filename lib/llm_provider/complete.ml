@@ -259,6 +259,7 @@ let%test "sanitize_url_for_log handles missing path" =
 let complete_http
       ~sw
       ~net
+      ?clock
       ?(on_http_status :
          (provider:string -> model_id:string -> status:int -> unit) option)
       ~(config : Provider_config.t)
@@ -397,7 +398,14 @@ let complete_http
         let t0 = Unix.gettimeofday () in
         let result =
           match
-            Http_client.post_sync ~sw ~net ~url ~headers:config.headers ~body:body_str ()
+            Http_client.post_sync
+              ~sw
+              ~net
+              ?clock
+              ~url
+              ~headers:config.headers
+              ~body:body_str
+              ()
           with
           | Error _ as e -> e
           | Ok (code, body) ->
@@ -638,6 +646,7 @@ let complete_http
 let complete
       ~sw
       ~net
+      ?clock
       ?(transport : Llm_transport.t option)
       ~(config : Provider_config.t)
       ~(messages : Types.message list)
@@ -709,6 +718,7 @@ let complete
              complete_http
                ~sw
                ~net
+               ?clock
                ~on_http_status:m.on_http_status
                ~config
                ~messages
@@ -837,6 +847,7 @@ let complete_with_retry
        complete
          ~sw
          ~net
+         ~clock
          ?transport
          ~config
          ~messages
