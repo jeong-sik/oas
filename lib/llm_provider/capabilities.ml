@@ -55,6 +55,8 @@ type capabilities =
   ; (* ── Sampling parameters ───────────────────────────── *)
     supports_top_k : bool
   ; supports_min_p : bool
+  ; supports_seed : bool
+  (** Deterministic seed for reproducible sampling. *)
   ; (* ── Advanced modalities ───────────────────────────── *)
     supports_computer_use : bool
   ; supports_code_execution : bool
@@ -107,6 +109,7 @@ let default_capabilities =
   ; prompt_cache_alignment = None
   ; supports_top_k = false
   ; supports_min_p = false
+  ; supports_seed = false
   ; supports_computer_use = false
   ; supports_code_execution = false
   ; uses_native_thinking_envelope = false
@@ -212,10 +215,23 @@ let openai_chat_extended_capabilities =
    static-table approach, which requires JSON edits + redeploy to
    flip capability, and avoids the fragile model_id pattern match that
    the Claude Agent SDK sidesteps by being single-provider. *)
+(* NVIDIA NIM Nemotron: Llama-based OpenAI-compatible endpoint.
+   Thinking uses chat_template_kwargs (same wire format as Ollama's
+   llama-server backend). VL variants add image input.
+   Ref: build.nvidia.com/nvidia docs, Nemotron model cards. *)
+let nemotron_capabilities =
+  { openai_chat_extended_capabilities with
+    supports_tool_choice = true
+  ; supports_reasoning = true
+  ; thinking_control_format = Chat_template_kwargs
+  }
+;;
+
 let ollama_capabilities =
   { openai_chat_extended_capabilities with
     supports_tool_choice = false
   ; supports_min_p = false
+  ; supports_seed = false
   ; thinking_control_format = Chat_template_kwargs
   ; is_ollama = true
   }
@@ -523,6 +539,48 @@ let for_model_id model_id =
   ; supports_prompt_caching = false
   ; prompt_cache_alignment = None
       }
+    (* NVIDIA Nemotron: Llama-based, NIM OpenAI-compat API.
+       Base text models (nemotron-ultra, nemotron-core) get reasoning
+       but no vision. VL suffix gets image input. *)
+  else if
+    starts_with "nvidia/nemotron"
+    || starts_with "nemotron"
+  then
+    let has_vision =
+      starts_with "nvidia/nemotron-vl"
+      || starts_with "nemotron-vl"
+    in
+    Some
+      { nemotron_capabilities with
+        max_context_tokens = Some 131_072
+      ; max_output_tokens = Some 16_384
+      ; supports_multimodal_inputs = has_vision
+      ; supports_image_input = has_vision
+      }
+    (* Gemma 4: Google open-weight multimodal.
+       4 sizes (1B/4B/12B/27B-31B). All support function calling,
+       image input, streaming. 27B+ supports audio. 256K context. *)
+  else if starts_with "gemma-4" || starts_with "google/gemma-4"
+  then
+    let is_large =
+      let m = String.lowercase_ascii model_id in
+      String.length m >= 9
+      && (let s = String.sub m 0 9 in
+          s = "gemma-4-2" || s = "google/ge")
+    in
+    Some
+      { default_capabilities with
+        max_context_tokens = Some 262_144
+      ; supports_tools = true
+      ; supports_tool_choice = true
+      ; supports_response_format_json = true
+      ; supports_structured_output = true
+      ; supports_multimodal_inputs = true
+      ; supports_image_input = true
+      ; supports_audio_input = is_large
+      ; supports_native_streaming = true
+      ; supports_seed = true
+      }
     (* GLM flash/air variants: faster, no reasoning, smaller output.
      Must precede the broad glm-4.5/4.6/4.7/5 match below. *)
   else if
@@ -655,6 +713,7 @@ let capabilities_for_provider_label label =
   | "gemini" -> Some gemini_capabilities
   | "ollama" -> Some ollama_capabilities
   | "glm" | "glm-coding" -> Some glm_capabilities
+  | "nemotron" -> Some nemotron_capabilities
   | "kimi" -> Some kimi_capabilities
   | "claude_code" -> Some claude_code_capabilities
   | "gemini_cli" -> Some gemini_cli_capabilities
@@ -819,6 +878,50 @@ let%test "capabilities_for_provider_label: unknown returns None" =
   Option.is_none (capabilities_for_provider_label "not_a_real_provider_xyz")
 ;;
 
+(* --- Nemotron / Gemma 4 --- *)
+
+let%test "nemotron_capabilities has chat_template_kwargs thinking" =
+  nemotron_capabilities.thinking_control_format = Chat_template_kwargs
+;;
+
+let%test "for_model_id nemotron-ultra has reasoning" =
+  match for_model_id "nemotron-ultra-253b" with
+  | Some c -> c.supports_reasoning && c.supports_tool_choice
+  | None -> false
+;;
+
+let%test "for_model_id nemotron-vl has image input" =
+  match for_model_id "nemotron-vl" with
+  | Some c -> c.supports_image_input && c.supports_multimodal_inputs
+  | None -> false
+;;
+
+let%test "for_model_id nvidia/nemotron-core resolves" =
+  match for_model_id "nvidia/nemotron-core" with
+  | Some c -> c.supports_reasoning
+  | None -> false
+;;
+
+let%test "for_model_id gemma-4-27b has tools + seed" =
+  match for_model_id "gemma-4-27b-it" with
+  | Some c ->
+    c.supports_tools && c.supports_seed && c.supports_image_input
+    && c.max_context_tokens = Some 262_144
+  | None -> false
+;;
+
+let%test "for_model_id gemma-4-1b-it has tools" =
+  match for_model_id "gemma-4-1b-it" with
+  | Some c -> c.supports_tools && c.supports_image_input
+  | None -> false
+;;
+
+let%test "capabilities_for_provider_label: nemotron" =
+  match capabilities_for_provider_label "nemotron" with
+  | Some c -> c.thinking_control_format = Chat_template_kwargs
+  | None -> false
+;;
+
 (* ── Prefix ordering invariant ──────────────────── *)
 
 (* Each case is a model_id and the expected capability fingerprint.
@@ -858,4 +961,20 @@ let%test "for_model_id: specific model IDs get correct (not shadowed) capabiliti
       , fun c -> c.max_output_tokens = Some 32_000 )
     ; ( "deepseek-v4-flash-test"
       , fun c -> c.uses_native_thinking_envelope )
+    ; ( "nemotron-ultra-253b"
+      , fun c ->
+        c.thinking_control_format = Chat_template_kwargs && c.supports_tool_choice )
+    ; ( "nvidia/nemotron-ultra-253b"
+      , fun c ->
+        c.thinking_control_format = Chat_template_kwargs && c.supports_tool_choice )
+    ; ( "nemotron-vl"
+      , fun c -> c.supports_image_input && c.supports_multimodal_inputs )
+    ; ( "gemma-4-27b-it"
+      , fun c ->
+        c.supports_tools
+        && c.supports_image_input
+        && c.supports_seed
+        && c.max_context_tokens = Some 262_144 )
+    ; ( "google/gemma-4-27b-it"
+      , fun c -> c.supports_tools && c.supports_image_input )
     ]

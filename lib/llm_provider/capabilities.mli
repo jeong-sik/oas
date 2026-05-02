@@ -44,6 +44,9 @@ type capabilities =
   ; (* Sampling parameters *)
     supports_top_k : bool
   ; supports_min_p : bool
+  ; supports_seed : bool
+  (** Deterministic seed for reproducible sampling.
+      @since 0.185.0 *)
   ; (* Advanced modalities *)
     supports_computer_use : bool
   ; supports_code_execution : bool
@@ -84,6 +87,9 @@ val claude_code_capabilities : capabilities
 val gemini_cli_capabilities : capabilities
 val kimi_cli_capabilities : capabilities
 val codex_cli_capabilities : capabilities
+val nemotron_capabilities : capabilities
+(** NVIDIA NIM Nemotron capabilities: Llama-based, chat_template_kwargs thinking.
+    @since 0.185.0 *)
 
 (** Lookup capabilities for a known model_id.
     Returns [None] if the model is not in the built-in table. *)
@@ -93,7 +99,7 @@ val for_model_id : string -> capabilities option
 
     Recognized labels (case-insensitive, whitespace trimmed):
     [anthropic], [openai] / [openai_chat], [openai_chat_extended],
-    [gemini], [ollama], [glm] / [glm-coding], [kimi],
+    [gemini], [ollama], [glm] / [glm-coding], [kimi], [nemotron],
     [claude_code], [gemini_cli], [kimi_cli], [codex_cli].
 
     Returns [None] for labels outside this set. Intended for adapter

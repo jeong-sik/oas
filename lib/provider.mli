@@ -62,6 +62,7 @@ type capabilities =
   ; prompt_cache_alignment : int option
   ; supports_top_k : bool
   ; supports_min_p : bool
+  ; supports_seed : bool
   ; supports_computer_use : bool
   ; supports_code_execution : bool
   ; (* Thinking wire format *)
