@@ -58,10 +58,23 @@ let warn_capability_drop ~model_id ~field =
 
 (* ── Request building ──────────────────────────────────── *)
 
+let tool_choice_label = function
+  | Types.Auto -> "Auto"
+  | Any -> "Any"
+  | Tool name -> "Tool(" ^ name ^ ")"
+  | None_ -> "None_"
+;;
+
 let effective_tool_choice (config : Provider_config.t) =
   match config.kind, config.tool_choice with
   | Provider_config.Glm, Some None_ -> None
-  | Provider_config.Glm, Some _ -> Some (tool_choice_to_openai_json Auto)
+  | Provider_config.Glm, Some coerced ->
+    Diag.warn
+      "backend_openai"
+      "GLM only supports tool_choice=auto; coercing %s to Auto for model %s"
+      (tool_choice_label coerced)
+      config.model_id;
+    Some (tool_choice_to_openai_json Auto)
   | _, Some choice -> Some (tool_choice_to_openai_json choice)
   | _, None -> None
 ;;

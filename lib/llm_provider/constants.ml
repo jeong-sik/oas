@@ -78,10 +78,15 @@ module Inference = struct
 
   (** Fallback [max_tokens] when both caller override and model capability
       are absent. Emitted as a required field by OpenAI-compat and Anthropic
-      backends. Kept conservative to avoid overrunning unknown model limits,
-      but high enough to avoid silent truncation on modern models.
-      @since 0.188.0 *)
-  let unknown_model_max_tokens_fallback = 4096
+      backends.
+
+      16384 covers most modern models (GPT-4o, Claude Sonnet 4, Gemini 2.5,
+      Qwen3, DeepSeek-V3) without overrunning smaller model limits. Models
+      with lower caps should be declared in [Capabilities.for_model_id] so
+      the capability-gated path (not this fallback) applies.
+      @since 0.188.0
+      @since 0.185.0 — raised from 4096 to 16384 *)
+  let unknown_model_max_tokens_fallback = 16384
 end
 
 (* ── Cache ───────────────────────────────────────── *)
@@ -159,8 +164,13 @@ end
 
 module Thinking = struct
   (** Default extended thinking budget when not specified by caller.
-      Used by Anthropic and Gemini backends. *)
-  let default_budget = 10000
+      Used by Anthropic and Gemini backends.
+
+      16000 tokens covers most single-turn reasoning tasks. Models with
+      higher caps (Claude Opus 4: 128K, Gemini 2.5 Pro: 32K) should be
+      declared in [Capabilities] so callers can override per-model.
+      @since 0.185.0 — raised from 10000 to 16000 *)
+  let default_budget = 16000
 end
 
 (* ── Anthropic ──────────────────────────────────── *)
