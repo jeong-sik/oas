@@ -1486,8 +1486,7 @@ let%test "build_request emits chat_template_kwargs for Chat_template_kwargs capa
   let open Yojson.Safe.Util in
   (* llama-3.3-70b resolves to default_capabilities (No_thinking_control),
      so neither thinking nor chat_template_kwargs should appear *)
-  json |> member "thinking" = `Null
-  && json |> member "chat_template_kwargs" = `Null
+  json |> member "thinking" = `Null && json |> member "chat_template_kwargs" = `Null
 ;;
 
 let%test "strip_thinking_blocks removes Thinking from all messages" =
