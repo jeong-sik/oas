@@ -106,3 +106,6 @@ val capabilities_for_provider_label : string -> capabilities option
 
 (** Merge Discovery ctx_size into existing capabilities. *)
 val with_context_size : capabilities -> ctx_size:int -> capabilities
+
+(** Update tool support from Discovery. *)
+val with_tool_support : capabilities -> supports_tools:bool -> capabilities

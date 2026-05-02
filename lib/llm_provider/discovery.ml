@@ -23,6 +23,7 @@ type server_props =
   { total_slots : int
   ; ctx_size : int
   ; model : string
+  ; supports_tools : bool option
   }
 
 type slot_status =
@@ -156,7 +157,7 @@ let parse_props json =
          | _ -> "")
       | _ -> ""
     in
-    Some { total_slots; ctx_size; model }
+    Some { total_slots; ctx_size; model; supports_tools = None }
   | _ -> None
 ;;
 
@@ -261,7 +262,29 @@ let probe_ollama_context ~sw ~net base_url =
              let model_info = member "model_info" json in
              let ctx = find_context_length model_info in
              if ctx > 0
-             then Some { total_slots = 1; ctx_size = ctx; model = model_name }
+             then
+               let template =
+                 match member "template" json with
+                 | `String s -> s
+                 | _ -> ""
+               in
+               let local_contains_ci ~haystack ~needle =
+                 let h = String.lowercase_ascii haystack in
+                 let n = String.lowercase_ascii needle in
+                 let nlen = String.length n in
+                 let hlen = String.length h in
+                 if nlen > hlen then false else
+                 let rec loop i =
+                   if i > hlen - nlen then false
+                   else if String.sub h i nlen = n then true
+                   else loop (i + 1)
+                 in loop 0
+               in
+               let has_tools =
+                 String.index_opt template '{' <> None
+                 && (local_contains_ci ~haystack:template ~needle:"tools" || local_contains_ci ~haystack:template ~needle:"Tool")
+               in
+               Some { total_slots = 1; ctx_size = ctx; model = model_name; supports_tools = Some has_tools }
              else (
                warn_probe_failure
                  ~url:base_url
@@ -340,7 +363,11 @@ let infer_capabilities models props =
   in
   (* 3. Merge ctx_size from /props into capabilities *)
   match props with
-  | Some (p : server_props) -> Capabilities.with_context_size base ~ctx_size:p.ctx_size
+  | Some (p : server_props) ->
+    let c = Capabilities.with_context_size base ~ctx_size:p.ctx_size in
+    (match p.supports_tools with
+     | Some t -> Capabilities.with_tool_support c ~supports_tools:t
+     | None -> c)
   | None -> base
 ;;
 
@@ -1009,7 +1036,7 @@ let%test "infer_capabilities known model lookup has priority" =
 
 let%test "infer_capabilities merges ctx_size from props" =
   let models = [ { id = "my-model"; owned_by = "local" } ] in
-  let props = Some { total_slots = 4; ctx_size = 32768; model = "my-model" } in
+  let props = Some { total_slots = 4; ctx_size = 32768; model = "my-model"; supports_tools = None } in
   let caps = infer_capabilities models props in
   caps.max_context_tokens = Some 32768
 ;;
@@ -1029,7 +1056,7 @@ let%test "model_info_to_json" =
 ;;
 
 let%test "server_props_to_json" =
-  let json = server_props_to_json { total_slots = 4; ctx_size = 8192; model = "qwen" } in
+  let json = server_props_to_json { total_slots = 4; ctx_size = 8192; model = "qwen"; supports_tools = None } in
   let open Yojson.Safe.Util in
   json |> member "total_slots" |> to_int = 4 && json |> member "ctx_size" |> to_int = 8192
 ;;
@@ -1067,7 +1094,7 @@ let%test "endpoint_status_to_json with props and slots" =
     { url = Constants.Endpoints.default_url_localhost
     ; healthy = true
     ; models = [ { id = "m1"; owned_by = "local" } ]
-    ; props = Some { total_slots = 4; ctx_size = 8192; model = "m1" }
+    ; props = Some { total_slots = 4; ctx_size = 8192; model = "m1"; supports_tools = None }
     ; slots = Some { total = 4; busy = 1; idle = 3 }
     ; capabilities = Capabilities.default_capabilities
     }
@@ -1134,7 +1161,7 @@ let%test "max_context_of_status from props" =
     { url = "http://localhost"
     ; healthy = true
     ; models = []
-    ; props = Some { total_slots = 4; ctx_size = 32768; model = "m" }
+    ; props = Some { total_slots = 4; ctx_size = 32768; model = "m"; supports_tools = None }
     ; slots = None
     ; capabilities = Capabilities.default_capabilities
     }
@@ -1175,7 +1202,7 @@ let%test "max_context_of_status prefers props over capabilities" =
     { url = "http://localhost"
     ; healthy = true
     ; models = []
-    ; props = Some { total_slots = 2; ctx_size = 65536; model = "m" }
+    ; props = Some { total_slots = 2; ctx_size = 65536; model = "m" ; supports_tools = None }
     ; slots = None
     ; capabilities = caps
     }
@@ -1242,7 +1269,7 @@ let%test "find_context_length bare key without prefix" =
 
 let%test "infer_capabilities uses ollama context when props present" =
   let models = [ { id = "qwen3.5-35b"; owned_by = "ollama" } ] in
-  let props = Some { total_slots = 1; ctx_size = 8192; model = "qwen3.5:latest" } in
+  let props = Some { total_slots = 1; ctx_size = 8192; model = "qwen3.5:latest" ; supports_tools = None } in
   let caps = infer_capabilities models props in
   caps.max_context_tokens = Some 8192
 ;;

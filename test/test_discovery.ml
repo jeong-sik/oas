@@ -71,7 +71,7 @@ let test_endpoint_status_to_json_healthy () =
     { url = "http://127.0.0.1:8085"
     ; healthy = true
     ; models = [ { id = "qwen3.5-35b"; owned_by = "llama-server" } ]
-    ; props = Some { total_slots = 4; ctx_size = 32768; model = "qwen3.5-35b" }
+    ; props = Some { total_slots = 4; ctx_size = 32768; model = "qwen3.5-35b" ; supports_tools = None }
     ; slots = Some { total = 4; busy = 1; idle = 3 }
     ; capabilities = Capabilities.openai_chat_extended_capabilities
     }

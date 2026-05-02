@@ -20,6 +20,7 @@ type server_props =
   { total_slots : int
   ; ctx_size : int
   ; model : string
+  ; supports_tools : bool option
   }
 
 (** Slot utilization from /slots *)

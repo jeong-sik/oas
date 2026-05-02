@@ -665,6 +665,7 @@ let capabilities_for_provider_label label =
 
 (** Merge Discovery ctx_size into capabilities. *)
 let with_context_size caps ~ctx_size = { caps with max_context_tokens = Some ctx_size }
+let with_tool_support caps ~supports_tools = { caps with supports_tools }
 
 [@@@coverage off]
 

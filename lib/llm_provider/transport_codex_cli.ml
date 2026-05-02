@@ -625,7 +625,7 @@ let parse_jsonl_result ?(model_id = "codex") lines =
 
 (* Fires once per transport instance when any Claude-only config field
    is set.  Codex CLI has no flag for these yet, so we warn and drop. *)
-let warn_unsupported_once (config : config) warned =
+let warn_unsupported_once (config : config) (req_config : Provider_config.t) warned =
   if !warned
   then ()
   else (
@@ -636,7 +636,9 @@ let warn_unsupported_once (config : config) warned =
     if Option.is_some config.mcp_config then warn "mcp_config";
     if config.allowed_tools <> [] then warn "allowed_tools";
     if Option.is_some config.max_turns then warn "max_turns";
-    if Option.is_some config.permission_mode then warn "permission_mode")
+    if Option.is_some config.permission_mode then warn "permission_mode";
+    if Option.is_some req_config.min_p then warn "min_p";
+    if Option.is_some req_config.top_k then warn "top_k")
 ;;
 
 (** Strip API-key env so [codex] uses its own session/auth rather than
@@ -648,7 +650,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config) : Llm_transport.t =
   let warned = ref false in
   { complete_sync =
       (fun (req : Llm_transport.completion_request) ->
-        warn_unsupported_once config warned;
+        warn_unsupported_once config req.config warned;
         let messages = Cli_common_prompt.non_system_messages req.messages in
         let system_prompt =
           Cli_common_prompt.system_prompt_of ~req_config:req.config req.messages
@@ -710,7 +712,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config) : Llm_transport.t =
              { Llm_transport.response; latency_ms }))
   ; complete_stream =
       (fun ~on_event (req : Llm_transport.completion_request) ->
-        warn_unsupported_once config warned;
+        warn_unsupported_once config req.config warned;
         let messages = Cli_common_prompt.non_system_messages req.messages in
         let system_prompt =
           Cli_common_prompt.system_prompt_of ~req_config:req.config req.messages
