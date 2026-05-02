@@ -8,7 +8,7 @@ type t =
   ; on_error : model_id:string -> error:string -> unit
   ; on_http_status : provider:string -> model_id:string -> status:int -> unit
   ; on_capability_drop : model_id:string -> field:string -> unit
-  (** Fired when a request parameter is silently dropped because the
+    (** Fired when a request parameter is silently dropped because the
       model's capability record reports it as unsupported.
       Consumers can use this to increment a Prometheus counter or emit
       a structured log event for alerting on misconfigured agents.

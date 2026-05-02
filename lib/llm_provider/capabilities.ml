@@ -33,11 +33,11 @@ type capabilities =
   ; supports_extended_thinking : bool (** budget_tokens / reasoning_effort *)
   ; supports_reasoning_budget : bool (** Controllable reasoning depth *)
   ; thinking_control_format : thinking_control_format
-  (** Wire-format for thinking control on OpenAI-compat backends.
-      Determines which JSON shape the backend emits for enable_thinking.
-      Only meaningful when [supports_reasoning] or [supports_extended_thinking]
-      is true and the request goes through backend_openai.
-      @since 0.184.0 *)
+    (** Wire-format for thinking control on OpenAI-compat backends.
+        Determines which JSON shape the backend emits for enable_thinking.
+        Only meaningful when [supports_reasoning] or [supports_extended_thinking]
+        is true and the request goes through backend_openai.
+        @since 0.184.0 *)
   ; (* ── Output format ─────────────────────────────────── *)
     supports_response_format_json : bool (** JSON mode *)
   ; supports_structured_output : bool (** JSON schema 100% guarantee *)
