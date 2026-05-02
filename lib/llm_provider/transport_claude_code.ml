@@ -279,8 +279,9 @@ let parse_usage json =
     if plausible_single_response_usage usage
     then Some usage
     else (
-      Diag.warn "transport_claude_code"
-        "usage dropped: input_tokens=%d exceeds single-response ceiling=%d"
+      Diag.warn
+        "transport_claude_code"
+          "usage dropped: input_tokens=%d exceeds single-response ceiling=%d"
         usage.input_tokens
         claude_code_max_single_response_input_tokens;
       None)
