@@ -30,13 +30,14 @@ type glm_error =
   { code : string
   ; message : string
   ; error_class : glm_error_class
+  ; is_retryable : bool
   }
 
 exception Glm_api_error of glm_error
 
 (** Classify a GLM error code + message into a semantic class.
     Code-based classification takes priority; message keywords are fallback. *)
-val classify_glm_error : code:string -> message:string -> glm_error_class
+val classify_glm_error : code:string -> message:string -> glm_error_class * bool
 
 (** Map a GLM error class to the equivalent HTTP status code.
     Used by complete.ml to normalize provider-specific codes

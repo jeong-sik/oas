@@ -56,6 +56,8 @@ type capabilities =
   ; supports_min_p : bool
   ; supports_computer_use : bool
   ; supports_code_execution : bool
+  ; (* Thinking wire format *)
+    uses_native_thinking_envelope : bool
   ; (* Provider identity *)
     is_ollama : bool
   ; (* Usage reporting *)

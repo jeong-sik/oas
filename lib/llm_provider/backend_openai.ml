@@ -218,7 +218,7 @@ let build_request
   let body =
     match config.enable_thinking with
     | Some enabled ->
-      if String.starts_with ~prefix:"deepseek-v4" config.model_id
+      if caps.uses_native_thinking_envelope
       then
         if enabled
         then (
@@ -231,6 +231,10 @@ let build_request
           :: ("thinking", `Assoc [ "type", `String "enabled" ])
           :: body)
         else ("thinking", `Assoc [ "type", `String "disabled" ]) :: body
+      else if config.kind = Glm
+      then body
+      (* GLM injects its own native [thinking] parameter in
+         backend_glm.ml; do not add chat_template_kwargs here. *)
       else ("chat_template_kwargs", `Assoc [ "enable_thinking", `Bool enabled ]) :: body
     | None -> body
   in

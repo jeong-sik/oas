@@ -38,6 +38,12 @@ type capabilities =
   ; (* Advanced modalities *)
     supports_computer_use : bool
   ; supports_code_execution : bool
+  ; (* Thinking wire format *)
+    uses_native_thinking_envelope : bool
+  (** True when the provider accepts a native [thinking] parameter.
+      False when thinking must go through [chat_template_kwargs] or
+      similar non-standard fields (e.g., Ollama).
+      @since 0.188.0 *)
   ; (* Provider identity *)
     is_ollama : bool
   ; (* Usage reporting *)

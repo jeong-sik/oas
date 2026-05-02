@@ -148,6 +148,14 @@ module Endpoints = struct
   let localhost_prefix = "http://localhost"
 end
 
+(* ── Thinking ────────────────────────────────────── *)
+
+module Thinking = struct
+  (** Default extended thinking budget when not specified by caller.
+      Used by Anthropic and Gemini backends. *)
+  let default_budget = 10000
+end
+
 (* ── Anthropic ──────────────────────────────────── *)
 
 module Anthropic = struct

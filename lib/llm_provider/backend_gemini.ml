@@ -60,7 +60,12 @@ let part_of_content_block id_to_name = function
     let name =
       match Hashtbl.find_opt id_to_name tool_use_id with
       | Some n -> n
-      | None -> tool_use_id
+      | None ->
+        Diag.warn "backend_gemini"
+          "ToolResult tool_use_id '%s' has no matching ToolUse; \
+           using UUID as functionResponse name (Gemini API requires name)"
+          tool_use_id;
+        tool_use_id
     in
     Some
       (`Assoc
@@ -187,7 +192,7 @@ let build_request
      let budget =
        match config.thinking_budget with
        | Some b -> b
-       | None -> 10000
+       | None -> Constants.Thinking.default_budget
      in
      gen_config
      := ( "thinkingConfig"

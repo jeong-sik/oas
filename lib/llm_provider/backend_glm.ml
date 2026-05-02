@@ -23,6 +23,7 @@ type glm_error =
   { code : string
   ; message : string
   ; error_class : glm_error_class
+  ; is_retryable : bool
   }
 
 let contains_ci ~haystack ~needle =
@@ -54,7 +55,7 @@ let contains_ci ~haystack ~needle =
     - 1304,1308,1310: quota exhausted (cascadeable, not retryable)
     - 1309,1311,1313: subscription/plan (quota)
     - 1230,1234,500: server error *)
-let classify_glm_error ~code ~message : glm_error_class =
+let classify_glm_error ~code ~message : glm_error_class * bool =
   match code with
   | "1000"
   | "1001"
@@ -66,10 +67,11 @@ let classify_glm_error ~code ~message : glm_error_class =
   | "1111"
   | "1112"
   | "1120"
-  | "1220" -> Glm_auth_error
-  | "1302" | "1303" | "1305" | "1312" -> Glm_rate_limited
-  | "1113" | "1304" | "1308" | "1309" | "1310" | "1311" | "1313" -> Glm_quota_exceeded
-  | "1230" | "1234" | "500" -> Glm_server_error
+  | "1220" -> (Glm_auth_error, false)
+  | "1302" | "1303" | "1305" | "1312" -> (Glm_rate_limited, true)
+  | "1113" | "1304" | "1308" | "1309" | "1310" | "1311" | "1313" ->
+    (Glm_quota_exceeded, false)
+  | "1230" | "1234" | "500" -> (Glm_server_error, true)
   | "1300"
   | "1301"
   | "1200"
@@ -80,16 +82,16 @@ let classify_glm_error ~code ~message : glm_error_class =
   | "1214"
   | "1215"
   | "1231"
-  | "1261" -> Glm_invalid_request
+  | "1261" -> (Glm_invalid_request, false)
   | _ ->
     if
       contains_ci ~haystack:message ~needle:"usage limit"
       || contains_ci ~haystack:message ~needle:"quota"
       || contains_ci ~haystack:message ~needle:"exceeded"
-    then Glm_quota_exceeded
+    then (Glm_quota_exceeded, false)
     else if contains_ci ~haystack:message ~needle:"rate limit"
-    then Glm_rate_limited
-    else Glm_invalid_request
+    then (Glm_rate_limited, true)
+    else (Glm_invalid_request, false)
 ;;
 
 let http_code_of_glm_error_class = function
@@ -127,11 +129,6 @@ let build_request
         ("thinking", thinking) :: fields
       | None -> fields
     in
-    (* Strip chat_template_kwargs leaked from Backend_openai.
-         GLM does not recognize this llama.cpp/Ollama-specific field and
-         returns "Invalid API parameter" when present.  GLM thinking is
-         handled above via the native [thinking] parameter. *)
-    let fields = List.filter (fun (k, _) -> k <> "chat_template_kwargs") fields in
     let fields =
       if stream && config.tool_stream
       then ("tool_stream", `Bool true) :: fields
@@ -165,8 +162,8 @@ let check_glm_error body : glm_error option =
         |> to_string_option
         |> Option.value ~default:"Unknown GLM API error"
       in
-      let error_class = classify_glm_error ~code ~message in
-      Some { code; message; error_class }
+      let error_class, is_retryable = classify_glm_error ~code ~message in
+      Some { code; message; error_class; is_retryable }
   with
   | Yojson.Json_error _ -> None
 ;;
@@ -200,7 +197,7 @@ let parse_response body =
      | Error msg ->
        raise
          (Glm_api_error
-            { code = "parse"; message = msg; error_class = Glm_invalid_request })
+            { code = "parse"; message = msg; error_class = Glm_invalid_request; is_retryable = false })
      | Ok resp -> extract_reasoning_content resp body)
 ;;
 
@@ -338,31 +335,31 @@ let%test "classify quota exceeded from message" =
   classify_glm_error
     ~code:"unknown"
     ~message:"You have reached your specified API usage limits"
-  = Glm_quota_exceeded
+  = (Glm_quota_exceeded, false)
 ;;
 
 let%test "classify quota from code 1113 (arrears)" =
-  classify_glm_error ~code:"1113" ~message:"whatever" = Glm_quota_exceeded
+  classify_glm_error ~code:"1113" ~message:"whatever" = (Glm_quota_exceeded, false)
 ;;
 
 let%test "classify auth from code 1001" =
-  classify_glm_error ~code:"1001" ~message:"whatever" = Glm_auth_error
+  classify_glm_error ~code:"1001" ~message:"whatever" = (Glm_auth_error, false)
 ;;
 
 let%test "classify quota from code 1304 (daily limit)" =
-  classify_glm_error ~code:"1304" ~message:"whatever" = Glm_quota_exceeded
+  classify_glm_error ~code:"1304" ~message:"whatever" = (Glm_quota_exceeded, false)
 ;;
 
 let%test "classify quota from code 1308 (usage limit)" =
-  classify_glm_error ~code:"1308" ~message:"whatever" = Glm_quota_exceeded
+  classify_glm_error ~code:"1308" ~message:"whatever" = (Glm_quota_exceeded, false)
 ;;
 
 let%test "classify rate limited from code 1305" =
-  classify_glm_error ~code:"1305" ~message:"whatever" = Glm_rate_limited
+  classify_glm_error ~code:"1305" ~message:"whatever" = (Glm_rate_limited, true)
 ;;
 
 let%test "classify invalid request from code 1301 (unsafe content)" =
-  classify_glm_error ~code:"1301" ~message:"whatever" = Glm_invalid_request
+  classify_glm_error ~code:"1301" ~message:"whatever" = (Glm_invalid_request, false)
 ;;
 
 let%test "http_code quota maps to 429" =
