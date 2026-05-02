@@ -227,6 +227,14 @@ let capacity_exhausted_markers =
   ]
 ;;
 
+let terminal_quota_markers =
+  [ "TerminalQuotaError"
+  ; "QUOTA_EXHAUSTED"
+  ; "quota will reset after"
+  ; "You have exhausted your capacity"
+  ]
+;;
+
 let startup_crash_markers =
   [ "Detected unsettled top-level await"; "yoga_wasm_base64_esm_default" ]
 ;;
@@ -297,6 +305,40 @@ let rule_after line =
     else String.sub line start (stop - start) |> int_of_string_opt
 ;;
 
+let retry_after_seconds_of_retry_delay_ms line =
+  match find_substring line "retryDelayMs" with
+  | None -> None
+  | Some idx ->
+    let start = idx + String.length "retryDelayMs" in
+    let rec skip_sep i =
+      if i >= String.length line
+      then None
+      else (
+        match line.[i] with
+        | ' ' | '\t' | ':' | '=' -> skip_sep (i + 1)
+        | '0' .. '9' | '.' -> Some i
+        | _ -> None)
+    in
+    let rec scan_number i =
+      if i >= String.length line
+      then i
+      else (
+        match line.[i] with
+        | '0' .. '9' | '.' -> scan_number (i + 1)
+        | _ -> i)
+    in
+    (match skip_sep start with
+     | None -> None
+     | Some first ->
+       let stop = scan_number first in
+       if stop = first
+       then None
+       else
+         String.sub line first (stop - first)
+         |> float_of_string_opt
+         |> Option.map (fun ms -> ms /. 1000.0))
+;;
+
 let contains_all_markers haystack markers =
   List.for_all (substring_found haystack) markers
 ;;
@@ -309,6 +351,11 @@ let provider_failure_of_stderr_line ?model line =
          { tool_name = quoted_after line "Unrecognized tool name \""
          ; rule = rule_after line
          })
+  else if List.exists (substring_found line) terminal_quota_markers
+  then
+    Some
+      (Http_client.Hard_quota
+         { retry_after = retry_after_seconds_of_retry_delay_ms line })
   else if List.exists (substring_found line) capacity_exhausted_markers
   then
     Some
@@ -327,6 +374,17 @@ let classify_cli_error = function
              ^ "Known bad CLI runtime; rejecting without retry so the cascade can move \
                 on."
          })
+  | Error (Http_client.NetworkError { message; _ }) as err ->
+    (match provider_failure_of_stderr_line message with
+     | Some (Http_client.Hard_quota _ as kind) ->
+       Error
+         (Http_client.ProviderFailure
+            { kind
+            ; message =
+                "gemini_cli reported terminal quota exhaustion; rejecting without \
+                 same-lane retry so the cascade can move on."
+            })
+     | _ -> err)
   | other -> other
 ;;
 
@@ -667,6 +725,26 @@ let%test "classify_cli_error keeps unrelated network failures retryable" =
   | _ -> false
 ;;
 
+let%test "classify_cli_error reclassifies wrapped terminal quota as hard quota" =
+  let err =
+    Error
+      (Http_client.NetworkError
+         { message =
+             "gemini exited with code 1: TerminalQuotaError: You have exhausted \
+              your capacity on this model. reason: 'QUOTA_EXHAUSTED', \
+              retryDelayMs: 7603424.7007410005"
+         ; kind = Unknown
+         })
+  in
+  match classify_cli_error err with
+  | Error
+      (Http_client.ProviderFailure
+         { kind = Http_client.Hard_quota { retry_after = Some retry_after }; _ })
+    ->
+    retry_after > 7603.0 && retry_after < 7604.0
+  | _ -> false
+;;
+
 let%test "provider_failure_of_stderr_line detects model capacity" =
   match
     provider_failure_of_stderr_line
@@ -677,6 +755,16 @@ let%test "provider_failure_of_stderr_line detects model capacity" =
       (Http_client.Capacity_exhausted
          { scope = Http_client.Failure_scope_model; model = Some "gemini-2.5-pro"; _ }) ->
     true
+  | _ -> false
+;;
+
+let%test "provider_failure_of_stderr_line detects terminal quota hard quota" =
+  match
+    provider_failure_of_stderr_line
+      {|TerminalQuotaError: You have exhausted your capacity on this model. reason: 'QUOTA_EXHAUSTED', retryDelayMs: 7603424.7007410005|}
+  with
+  | Some (Http_client.Hard_quota { retry_after = Some retry_after }) ->
+    retry_after > 7603.0 && retry_after < 7604.0
   | _ -> false
 ;;
 
