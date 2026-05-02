@@ -32,6 +32,11 @@ type modality =
   | Video
   | Multimodal
 
+type thinking_control_format =
+  | No_thinking_control
+  | Thinking_object
+  | Chat_template_kwargs
+
 type capabilities =
   { max_context_tokens : int option
   ; max_output_tokens : int option
@@ -43,6 +48,7 @@ type capabilities =
   ; supports_reasoning : bool
   ; supports_extended_thinking : bool
   ; supports_reasoning_budget : bool
+  ; thinking_control_format : thinking_control_format
   ; supports_response_format_json : bool
   ; supports_structured_output : bool
   ; supports_multimodal_inputs : bool

@@ -24,6 +24,7 @@ type t =
   ; on_request_end : model_id:string -> latency_ms:int -> unit
   ; on_error : model_id:string -> error:string -> unit
   ; on_http_status : provider:string -> model_id:string -> status:int -> unit
+  ; on_capability_drop : model_id:string -> field:string -> unit
   }
 
 (** No-op metrics — all callbacks do nothing. *)
