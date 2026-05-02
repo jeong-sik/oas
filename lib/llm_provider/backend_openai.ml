@@ -233,8 +233,7 @@ let build_request
            :: body)
          else ("thinking", `Assoc [ "type", `String "disabled" ]) :: body
        | Chat_template_kwargs ->
-         ("chat_template_kwargs", `Assoc [ "enable_thinking", `Bool enabled ])
-         :: body
+         ("chat_template_kwargs", `Assoc [ "enable_thinking", `Bool enabled ]) :: body
        | No_thinking_control -> body)
     | None -> body
   in
