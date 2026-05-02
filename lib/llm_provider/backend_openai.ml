@@ -297,6 +297,20 @@ let build_request
     | None -> body
   in
   let body = if stream then ("stream", `Bool true) :: body else body in
+  let body =
+    if caps.supports_seed
+    then
+      let seed =
+        match config.seed with
+        | Some n -> n
+        | None ->
+          (match Constants.Deterministic.seed_of_env () with
+           | Some n -> n
+           | None -> Constants.Deterministic.default_seed)
+      in
+      ("seed", `Int seed) :: body
+    else body
+  in
   Yojson.Safe.to_string (`Assoc body)
 ;;
 

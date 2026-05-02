@@ -187,6 +187,23 @@ let build_request
   (match config.top_k with
    | Some k -> gen_config := ("topK", `Int k) :: !gen_config
    | None -> ());
+  (* Seed — Gemini API supports seed in generationConfig *)
+  (let caps =
+     match Capabilities.for_model_id config.model_id with
+     | Some c -> c
+     | None -> Capabilities.default_capabilities
+   in
+   if caps.supports_seed
+   then
+     let seed =
+       match config.seed with
+       | Some n -> n
+       | None ->
+         (match Constants.Deterministic.seed_of_env () with
+          | Some n -> n
+          | None -> Constants.Deterministic.default_seed)
+     in
+     gen_config := ("seed", `Int seed) :: !gen_config);
   (* Thinking config *)
   (match config.enable_thinking with
    | Some true ->

@@ -45,6 +45,7 @@ type t =
   ; keep_alive : string option
   ; internal_model_rotation_count : int option
   ; num_ctx : int option
+  ; seed : int option
   }
 
 let make
@@ -75,6 +76,7 @@ let make
       ?keep_alive
       ?internal_model_rotation_count
       ?num_ctx
+      ?seed
       ()
   =
   let response_format =
@@ -129,6 +131,7 @@ let make
   ; keep_alive
   ; internal_model_rotation_count
   ; num_ctx
+  ; seed
   }
 ;;
 

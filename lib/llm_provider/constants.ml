@@ -173,6 +173,27 @@ module Thinking = struct
   let default_budget = 16000
 end
 
+(* ── Deterministic output ─────────────────────────── *)
+
+module Deterministic = struct
+  (** Default seed for providers that support the [seed] parameter.
+      Overridden by [OAS_DEFAULT_SEED] env var or explicit [~seed] in
+      {!Provider_config.make}.
+      @since 0.185.0 *)
+  let default_seed = 42
+
+  let seed_of_env () =
+    match Sys.getenv "OAS_DEFAULT_SEED" with
+    | exception Not_found -> None
+    | s ->
+      (match int_of_string_opt s with
+       | Some n -> Some n
+       | None ->
+         Diag.warn "constants" "OAS_DEFAULT_SEED=%S is not a valid int, ignoring" s;
+         None)
+  ;;
+end
+
 (* ── Anthropic ──────────────────────────────────── *)
 
 module Anthropic = struct

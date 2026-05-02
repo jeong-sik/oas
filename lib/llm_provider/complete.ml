@@ -1325,6 +1325,7 @@ let%test "gemini_url sync no api_key" =
     ; keep_alive = None
     ; internal_model_rotation_count = None
     ; num_ctx = None
+    ; seed = None
     }
   in
   let url = gemini_url ~config ~stream:false in
@@ -1359,6 +1360,7 @@ let%test "gemini_url sync with api_key" =
     ; keep_alive = None
     ; internal_model_rotation_count = None
     ; num_ctx = None
+    ; seed = None
     }
   in
   let url = gemini_url ~config ~stream:false in
@@ -1394,6 +1396,7 @@ let%test "gemini_url stream with api_key" =
     ; keep_alive = None
     ; internal_model_rotation_count = None
     ; num_ctx = None
+    ; seed = None
     }
   in
   let url = gemini_url ~config ~stream:true in
@@ -1429,6 +1432,7 @@ let%test "gemini_url stream no api_key" =
     ; keep_alive = None
     ; internal_model_rotation_count = None
     ; num_ctx = None
+    ; seed = None
     }
   in
   let url = gemini_url ~config ~stream:true in
