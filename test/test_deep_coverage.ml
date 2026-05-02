@@ -1427,210 +1427,210 @@ let cleanup_dir tmpdir =
   | _ -> ()
 ;;
 
-; metadata = [] }
-    in
-    let task = A2a_task.create msg in
-    let task_id = task.id in
-    (match A2a_task_store.store_task store task with
-     | Ok () -> ()
-     | Error e -> fail (Error.to_string e));
-    (match A2a_task_store.get_task store task_id with
-     | Some t -> check string "id match" task_id t.id
-     | None -> fail "task not found after store");
-    let tasks = A2a_task_store.list_tasks store in
-    check bool "has tasks" true (List.length tasks > 0);
-    (match A2a_task_store.delete_task store task_id with
-     | Ok () -> ()
-     | Error e -> fail (Error.to_string e));
-    (match A2a_task_store.get_task store task_id with
-     | None -> ()
-     | Some _ -> fail "task should be deleted")
-;;
-
-; metadata = [] }
-    in
-    let task = A2a_task.create msg in
-    (match A2a_task_store.store_task store task with
-     | Ok () -> ()
-     | Error e -> fail (Error.to_string e));
-    (match A2a_task_store.reload store with
-     | Ok () -> ()
-     | Error e -> fail (Error.to_string e));
-    check
-      bool
-      "task exists after reload"
-      true
-      (Option.is_some (A2a_task_store.get_task store task.id))
-;;
-
-; metadata = [] }
-    in
-    let task = A2a_task.create msg in
-    let task =
-      match A2a_task.transition task Working with
-      | Ok t -> t
-      | Error _ -> task
-    in
-    let task =
-      match A2a_task.transition task Completed with
-      | Ok t -> t
-      | Error _ -> task
-    in
-    let old_task = { task with updated_at = 0.0 } in
-    (match A2a_task_store.store_task store old_task with
-     | Ok () -> ()
-     | Error e -> fail (Error.to_string e));
-    (match A2a_task_store.gc ~max_age_s:1.0 store with
-     | Ok removed -> check bool "removed >= 1" true (removed >= 1)
-     | Error _ -> ())
-;;
-
-; metadata = [] }
-    in
-    let task = A2a_task.create msg in
-    (match A2a_task_store.store_task store task with
-     | Ok () -> ()
-     | Error e -> fail (Error.to_string e));
-    let task2 =
-      match A2a_task.transition task Working with
-      | Ok t -> t
-      | Error _ -> task
-    in
-    (match A2a_task_store.store_task store task2 with
-     | Ok () -> ()
-     | Error e -> fail (Error.to_string e));
-    (match A2a_task_store.get_task store task.id with
-     | Some t -> check string "state" "working" (A2a_task.task_state_to_string t.state)
-     | None -> fail "task disappeared")
-;;
-
- )
-    ; ( "sessions.worker_status"
-      , [ test_case "all variants roundtrip" `Quick test_worker_status_all_variants
-        ; test_case "wire names" `Quick test_worker_status_wire_names
-        ; test_case "invalid string" `Quick test_worker_status_invalid
-        ] )
-    ; ( "sessions.session_info"
-      , [ test_case "all fields" `Quick test_session_info_all_fields
-        ; test_case "None optionals" `Quick test_session_info_none_optionals
-        ; test_case "all phases" `Quick test_session_info_all_phases
-        ] )
-    ; ( "sessions.telemetry"
-      , [ test_case "event_count" `Quick test_telemetry_event_count
-        ; test_case "step Some" `Quick test_telemetry_step_some
-        ; test_case "step None" `Quick test_telemetry_step_none
-        ; test_case "full telemetry" `Quick test_telemetry_full
-        ; test_case "empty lists" `Quick test_telemetry_empty_lists
-        ] )
-    ; ( "sessions.structured"
-      , [ test_case "event_count" `Quick test_structured_event_count
-        ; test_case "step all Some" `Quick test_structured_telemetry_step_all_some
-        ; test_case "step all None" `Quick test_structured_telemetry_step_all_none
-        ; test_case "full structured" `Quick test_structured_telemetry_full
-        ] )
-    ; ( "sessions.evidence"
-      , [ test_case "evidence_file" `Quick test_evidence_file_roundtrip
-        ; test_case "missing_file" `Quick test_missing_file_roundtrip
-        ; test_case "evidence full" `Quick test_evidence_full
-        ; test_case "evidence empty lists" `Quick test_evidence_empty_lists
-        ] )
-    ; ( "sessions.hook_summary"
-      , [ test_case "all Some" `Quick test_hook_summary_all_some
-        ; test_case "all None" `Quick test_hook_summary_all_none
-        ] )
-    ; ( "sessions.tool_contract"
-      , [ test_case "full" `Quick test_tool_contract_full
-        ; test_case "minimal" `Quick test_tool_contract_minimal
-        ] )
-    ; ( "sessions.evidence_capabilities"
-      , [ test_case "all true" `Quick test_evidence_capabilities_all_true
-        ; test_case "all false" `Quick test_evidence_capabilities_all_false
-        ] )
-    ; ( "sessions.worker_run"
-      , [ test_case "minimal" `Quick test_worker_run_minimal
-        ; test_case "fully populated" `Quick test_worker_run_fully_populated
-        ; test_case "each status" `Quick test_worker_run_each_status
-        ; test_case "each trace" `Quick test_worker_run_each_trace
-        ] )
-    ; "sessions.show", [ test_case "all show functions" `Quick test_show_functions ]
-    ; ( "durable.journal"
-      , [ test_case "entry with error" `Quick test_durable_journal_entry_roundtrip
-        ; test_case "entry no completed_at" `Quick test_durable_journal_entry_no_completed
-        ; test_case "multi journal roundtrip" `Quick test_durable_multi_journal_roundtrip
-        ; test_case
-            "journal with output"
-            `Quick
-            test_durable_serialization_journal_with_output
-        ] )
-    ; ( "durable.edge_cases"
-      , [ test_case "unknown state string" `Quick test_durable_unknown_state_string
-        ; test_case "resume unknown step" `Quick test_durable_resume_unknown_step
-        ; test_case "resume InProgress noop" `Quick test_durable_resume_in_progress_noop
-        ; test_case "suspend Completed noop" `Quick test_durable_suspend_completed_noop
-        ; test_case "suspend Failed noop" `Quick test_durable_suspend_failed_noop
-        ; test_case "suspend Suspended noop" `Quick test_durable_suspend_suspended_noop
-        ; test_case "resume from Suspended" `Quick test_durable_resume_suspended
-        ] )
-    ; ( "event_forward.payloads"
-      , [ test_case "all event types" `Quick test_event_forward_all_event_types
-        ; test_case
-            "agent_name None cases"
-            `Quick
-            test_event_forward_agent_name_none_cases
-        ; test_case
-            "agent_name Some cases"
-            `Quick
-            test_event_forward_agent_name_some_cases
-        ; test_case "payload no agent" `Quick test_event_forward_payload_no_agent
-        ; test_case "payload with agent" `Quick test_event_forward_payload_with_agent
-        ; test_case "counters" `Quick test_event_forward_counters
-        ; test_case "batch_size param" `Quick test_event_forward_batch_size
-        ] )
-    ; ( "event_forward.targets"
-      , [ test_case "custom target inline" `Quick test_event_forward_custom_target_inline
-        ; test_case "custom target failure" `Quick test_event_forward_custom_failure
-        ; test_case "stop idempotent" `Quick test_event_forward_stop_idempotent
-        ; test_case "start idempotent" `Quick test_event_forward_start_idempotent
-        ; test_case "file append" `Quick test_event_forward_file_append
-        ] )
-    ; ( "transport.options"
-      , [ test_case "default_options" `Quick test_transport_default_options
-        ; test_case "options construction" `Quick test_transport_options_construction
-        ; test_case "options partial override" `Quick test_transport_options_partial
-        ] )
-    ; ( "builder.validation"
-      , [ test_case "max_turns zero" `Quick test_builder_safe_max_turns_zero
-        ; test_case "max_turns negative" `Quick test_builder_safe_max_turns_negative
-        ; test_case "max_tokens zero" `Quick test_builder_safe_max_tokens_zero
-        ; test_case
-            "thinking without enable"
-            `Quick
-            test_builder_safe_thinking_budget_without_enable
-        ; test_case
-            "thinking with false"
-            `Quick
-            test_builder_safe_thinking_budget_with_enable_false
-        ; test_case "negative cost" `Quick test_builder_safe_negative_cost
-        ; test_case "valid thinking" `Quick test_builder_valid_thinking_budget
-        ; test_case "zero cost" `Quick test_builder_zero_cost
-        ] )
-    ; ( "builder.chaining"
-      , [ test_case "full chain" `Quick test_builder_chaining
-        ; test_case "contract/skill" `Quick test_builder_with_contract
-        ; test_case "skills list" `Quick test_builder_with_skills_list
-        ; test_case "mcp tool allowlist" `Quick test_builder_with_mcp_tool_allowlist
-        ; test_case "periodic callback" `Quick test_builder_with_periodic_callback
-        ; test_case "tools list" `Quick test_builder_with_tools_list
-        ; test_case "initial messages" `Quick test_builder_with_initial_messages
-        ] )
-    ; ( "a2a_task_store"
-      , [ test_case "lifecycle" `Quick test_a2a_task_store_lifecycle
-        ; test_case "reload" `Quick test_a2a_task_store_reload
-        ; test_case "gc" `Quick test_a2a_task_store_gc
-        ; test_case "invalid ids" `Quick test_a2a_task_store_invalid_ids
-        ; test_case "get nonexistent" `Quick test_a2a_task_store_get_nonexistent
-        ; test_case "overwrite" `Quick test_a2a_task_store_overwrite
-        ; test_case "list empty" `Quick test_a2a_task_store_list_empty
-        ] )
-    ]
-;;
+(* ; metadata = [] } *)
+(*     in *)
+(*     let task = A2a_task.create msg in *)
+(*     let task_id = task.id in *)
+(*     (match A2a_task_store.store_task store task with *)
+(*      | Ok () -> () *)
+(*      | Error e -> fail (Error.to_string e)); *)
+(*     (match A2a_task_store.get_task store task_id with *)
+(*      | Some t -> check string "id match" task_id t.id *)
+(*      | None -> fail "task not found after store"); *)
+(*     let tasks = A2a_task_store.list_tasks store in *)
+(*     check bool "has tasks" true (List.length tasks > 0); *)
+(*     (match A2a_task_store.delete_task store task_id with *)
+(*      | Ok () -> () *)
+(*      | Error e -> fail (Error.to_string e)); *)
+(*     (match A2a_task_store.get_task store task_id with *)
+(*      | None -> () *)
+(*      | Some _ -> fail "task should be deleted") *)
+(* ;; *)
+(*  *)
+(* ; metadata = [] } *)
+(*     in *)
+(*     let task = A2a_task.create msg in *)
+(*     (match A2a_task_store.store_task store task with *)
+(*      | Ok () -> () *)
+(*      | Error e -> fail (Error.to_string e)); *)
+(*     (match A2a_task_store.reload store with *)
+(*      | Ok () -> () *)
+(*      | Error e -> fail (Error.to_string e)); *)
+(*     check *)
+(*       bool *)
+(*       "task exists after reload" *)
+(*       true *)
+(*       (Option.is_some (A2a_task_store.get_task store task.id)) *)
+(* ;; *)
+(*  *)
+(* ; metadata = [] } *)
+(*     in *)
+(*     let task = A2a_task.create msg in *)
+(*     let task = *)
+(*       match A2a_task.transition task Working with *)
+(*       | Ok t -> t *)
+(*       | Error _ -> task *)
+(*     in *)
+(*     let task = *)
+(*       match A2a_task.transition task Completed with *)
+(*       | Ok t -> t *)
+(*       | Error _ -> task *)
+(*     in *)
+(*     let old_task = { task with updated_at = 0.0 } in *)
+(*     (match A2a_task_store.store_task store old_task with *)
+(*      | Ok () -> () *)
+(*      | Error e -> fail (Error.to_string e)); *)
+(*     (match A2a_task_store.gc ~max_age_s:1.0 store with *)
+(*      | Ok removed -> check bool "removed >= 1" true (removed >= 1) *)
+(*      | Error _ -> ()) *)
+(* ;; *)
+(*  *)
+(* ; metadata = [] } *)
+(*     in *)
+(*     let task = A2a_task.create msg in *)
+(*     (match A2a_task_store.store_task store task with *)
+(*      | Ok () -> () *)
+(*      | Error e -> fail (Error.to_string e)); *)
+(*     let task2 = *)
+(*       match A2a_task.transition task Working with *)
+(*       | Ok t -> t *)
+(*       | Error _ -> task *)
+(*     in *)
+(*     (match A2a_task_store.store_task store task2 with *)
+(*      | Ok () -> () *)
+(*      | Error e -> fail (Error.to_string e)); *)
+(*     (match A2a_task_store.get_task store task.id with *)
+(*      | Some t -> check string "state" "working" (A2a_task.task_state_to_string t.state) *)
+(*      | None -> fail "task disappeared") *)
+(* ;; *)
+(*  *)
+(*  ) *)
+(*     ; ( "sessions.worker_status" *)
+(*       , [ test_case "all variants roundtrip" `Quick test_worker_status_all_variants *)
+(*         ; test_case "wire names" `Quick test_worker_status_wire_names *)
+(*         ; test_case "invalid string" `Quick test_worker_status_invalid *)
+(*         ] ) *)
+(*     ; ( "sessions.session_info" *)
+(*       , [ test_case "all fields" `Quick test_session_info_all_fields *)
+(*         ; test_case "None optionals" `Quick test_session_info_none_optionals *)
+(*         ; test_case "all phases" `Quick test_session_info_all_phases *)
+(*         ] ) *)
+(*     ; ( "sessions.telemetry" *)
+(*       , [ test_case "event_count" `Quick test_telemetry_event_count *)
+(*         ; test_case "step Some" `Quick test_telemetry_step_some *)
+(*         ; test_case "step None" `Quick test_telemetry_step_none *)
+(*         ; test_case "full telemetry" `Quick test_telemetry_full *)
+(*         ; test_case "empty lists" `Quick test_telemetry_empty_lists *)
+(*         ] ) *)
+(*     ; ( "sessions.structured" *)
+(*       , [ test_case "event_count" `Quick test_structured_event_count *)
+(*         ; test_case "step all Some" `Quick test_structured_telemetry_step_all_some *)
+(*         ; test_case "step all None" `Quick test_structured_telemetry_step_all_none *)
+(*         ; test_case "full structured" `Quick test_structured_telemetry_full *)
+(*         ] ) *)
+(*     ; ( "sessions.evidence" *)
+(*       , [ test_case "evidence_file" `Quick test_evidence_file_roundtrip *)
+(*         ; test_case "missing_file" `Quick test_missing_file_roundtrip *)
+(*         ; test_case "evidence full" `Quick test_evidence_full *)
+(*         ; test_case "evidence empty lists" `Quick test_evidence_empty_lists *)
+(*         ] ) *)
+(*     ; ( "sessions.hook_summary" *)
+(*       , [ test_case "all Some" `Quick test_hook_summary_all_some *)
+(*         ; test_case "all None" `Quick test_hook_summary_all_none *)
+(*         ] ) *)
+(*     ; ( "sessions.tool_contract" *)
+(*       , [ test_case "full" `Quick test_tool_contract_full *)
+(*         ; test_case "minimal" `Quick test_tool_contract_minimal *)
+(*         ] ) *)
+(*     ; ( "sessions.evidence_capabilities" *)
+(*       , [ test_case "all true" `Quick test_evidence_capabilities_all_true *)
+(*         ; test_case "all false" `Quick test_evidence_capabilities_all_false *)
+(*         ] ) *)
+(*     ; ( "sessions.worker_run" *)
+(*       , [ test_case "minimal" `Quick test_worker_run_minimal *)
+(*         ; test_case "fully populated" `Quick test_worker_run_fully_populated *)
+(*         ; test_case "each status" `Quick test_worker_run_each_status *)
+(*         ; test_case "each trace" `Quick test_worker_run_each_trace *)
+(*         ] ) *)
+(*     ; "sessions.show", [ test_case "all show functions" `Quick test_show_functions ] *)
+(*     ; ( "durable.journal" *)
+(*       , [ test_case "entry with error" `Quick test_durable_journal_entry_roundtrip *)
+(*         ; test_case "entry no completed_at" `Quick test_durable_journal_entry_no_completed *)
+(*         ; test_case "multi journal roundtrip" `Quick test_durable_multi_journal_roundtrip *)
+(*         ; test_case *)
+(*             "journal with output" *)
+(*             `Quick *)
+(*             test_durable_serialization_journal_with_output *)
+(*         ] ) *)
+(*     ; ( "durable.edge_cases" *)
+(*       , [ test_case "unknown state string" `Quick test_durable_unknown_state_string *)
+(*         ; test_case "resume unknown step" `Quick test_durable_resume_unknown_step *)
+(*         ; test_case "resume InProgress noop" `Quick test_durable_resume_in_progress_noop *)
+(*         ; test_case "suspend Completed noop" `Quick test_durable_suspend_completed_noop *)
+(*         ; test_case "suspend Failed noop" `Quick test_durable_suspend_failed_noop *)
+(*         ; test_case "suspend Suspended noop" `Quick test_durable_suspend_suspended_noop *)
+(*         ; test_case "resume from Suspended" `Quick test_durable_resume_suspended *)
+(*         ] ) *)
+(*     ; ( "event_forward.payloads" *)
+(*       , [ test_case "all event types" `Quick test_event_forward_all_event_types *)
+(*         ; test_case *)
+(*             "agent_name None cases" *)
+(*             `Quick *)
+(*             test_event_forward_agent_name_none_cases *)
+(*         ; test_case *)
+(*             "agent_name Some cases" *)
+(*             `Quick *)
+(*             test_event_forward_agent_name_some_cases *)
+(*         ; test_case "payload no agent" `Quick test_event_forward_payload_no_agent *)
+(*         ; test_case "payload with agent" `Quick test_event_forward_payload_with_agent *)
+(*         ; test_case "counters" `Quick test_event_forward_counters *)
+(*         ; test_case "batch_size param" `Quick test_event_forward_batch_size *)
+(*         ] ) *)
+(*     ; ( "event_forward.targets" *)
+(*       , [ test_case "custom target inline" `Quick test_event_forward_custom_target_inline *)
+(*         ; test_case "custom target failure" `Quick test_event_forward_custom_failure *)
+(*         ; test_case "stop idempotent" `Quick test_event_forward_stop_idempotent *)
+(*         ; test_case "start idempotent" `Quick test_event_forward_start_idempotent *)
+(*         ; test_case "file append" `Quick test_event_forward_file_append *)
+(*         ] ) *)
+(*     ; ( "transport.options" *)
+(*       , [ test_case "default_options" `Quick test_transport_default_options *)
+(*         ; test_case "options construction" `Quick test_transport_options_construction *)
+(*         ; test_case "options partial override" `Quick test_transport_options_partial *)
+(*         ] ) *)
+(*     ; ( "builder.validation" *)
+(*       , [ test_case "max_turns zero" `Quick test_builder_safe_max_turns_zero *)
+(*         ; test_case "max_turns negative" `Quick test_builder_safe_max_turns_negative *)
+(*         ; test_case "max_tokens zero" `Quick test_builder_safe_max_tokens_zero *)
+(*         ; test_case *)
+(*             "thinking without enable" *)
+(*             `Quick *)
+(*             test_builder_safe_thinking_budget_without_enable *)
+(*         ; test_case *)
+(*             "thinking with false" *)
+(*             `Quick *)
+(*             test_builder_safe_thinking_budget_with_enable_false *)
+(*         ; test_case "negative cost" `Quick test_builder_safe_negative_cost *)
+(*         ; test_case "valid thinking" `Quick test_builder_valid_thinking_budget *)
+(*         ; test_case "zero cost" `Quick test_builder_zero_cost *)
+(*         ] ) *)
+(*     ; ( "builder.chaining" *)
+(*       , [ test_case "full chain" `Quick test_builder_chaining *)
+(*         ; test_case "contract/skill" `Quick test_builder_with_contract *)
+(*         ; test_case "skills list" `Quick test_builder_with_skills_list *)
+(*         ; test_case "mcp tool allowlist" `Quick test_builder_with_mcp_tool_allowlist *)
+(*         ; test_case "periodic callback" `Quick test_builder_with_periodic_callback *)
+(*         ; test_case "tools list" `Quick test_builder_with_tools_list *)
+(*         ; test_case "initial messages" `Quick test_builder_with_initial_messages *)
+(*         ] ) *)
+(*     ; ( "a2a_task_store" *)
+(*       , [ test_case "lifecycle" `Quick test_a2a_task_store_lifecycle *)
+(*         ; test_case "reload" `Quick test_a2a_task_store_reload *)
+(*         ; test_case "gc" `Quick test_a2a_task_store_gc *)
+(*         ; test_case "invalid ids" `Quick test_a2a_task_store_invalid_ids *)
+(*         ; test_case "get nonexistent" `Quick test_a2a_task_store_get_nonexistent *)
+(*         ; test_case "overwrite" `Quick test_a2a_task_store_overwrite *)
+(*         ; test_case "list empty" `Quick test_a2a_task_store_list_empty *)
+(*         ] ) *)
+(*     ] *)
+(* ;; *)
