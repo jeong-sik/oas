@@ -177,8 +177,26 @@ let default_attempt_timeout_s = function
   | Anthropic | Kimi | OpenAI_compat | Gemini | Glm | DashScope | Codex_cli -> None
 ;;
 
+(** Default reasoning effort level when thinking is enabled but no budget
+    is specified. Override with [OAS_DEFAULT_REASONING_EFFORT] env var.
+    Accepted values: "low", "medium", "high". Invalid values fall back to
+    "medium".
+    @since 0.185.0 *)
+let default_reasoning_effort () =
+  match Cli_common_env.get "OAS_DEFAULT_REASONING_EFFORT" with
+  | Some ("low" | "medium" | "high" as v) -> v
+  | Some v ->
+    Diag.warn "provider_config"
+      "OAS_DEFAULT_REASONING_EFFORT=%S invalid (expected low/medium/high), using medium" v;
+    "medium"
+  | None -> "medium"
+;;
+
 (** Map thinking configuration to reasoning_effort string.
     Four levels: "none", "low" (≤2048), "medium" (≤8192), "high" (>8192).
+    When [thinking_budget] is [None] and thinking is enabled, the default
+    effort is resolved from [OAS_DEFAULT_REASONING_EFFORT] env var
+    (fallback: "medium").
     Shared by Ollama backends and api_openai request building.
     @since 0.114.0 *)
 let effort_of_thinking_config
@@ -194,7 +212,7 @@ let effort_of_thinking_config
      | Some n when n <= 2048 -> "low"
      | Some n when n <= 8192 -> "medium"
      | Some _ -> "high"
-     | None -> "medium")
+     | None -> default_reasoning_effort ())
 ;;
 
 (** Compute reasoning_effort for a provider config.
