@@ -268,21 +268,9 @@ let probe_ollama_context ~sw ~net base_url =
                  | `String s -> s
                  | _ -> ""
                in
-               let local_contains_ci ~haystack ~needle =
-                 let h = String.lowercase_ascii haystack in
-                 let n = String.lowercase_ascii needle in
-                 let nlen = String.length n in
-                 let hlen = String.length h in
-                 if nlen > hlen then false else
-                 let rec loop i =
-                   if i > hlen - nlen then false
-                   else if String.sub h i nlen = n then true
-                   else loop (i + 1)
-                 in loop 0
-               in
                let has_tools =
                  String.index_opt template '{' <> None
-                 && (local_contains_ci ~haystack:template ~needle:"tools" || local_contains_ci ~haystack:template ~needle:"Tool")
+                 && (Retry.contains_substring_ci ~haystack:template ~needle:"tools" || Retry.contains_substring_ci ~haystack:template ~needle:"Tool")
                in
                Some { total_slots = 1; ctx_size = ctx; model = model_name; supports_tools = Some has_tools }
              else (
@@ -323,23 +311,6 @@ let probe_ollama_context ~sw ~net base_url =
 
 (* ── Capability inference ────────────────────────────────── *)
 
-let string_contains_ci ~haystack ~needle =
-  let h = String.lowercase_ascii haystack in
-  let n = String.lowercase_ascii needle in
-  let nlen = String.length n in
-  let hlen = String.length h in
-  if nlen > hlen
-  then false
-  else (
-    let found = ref false in
-    let i = ref 0 in
-    while !i <= hlen - nlen && not !found do
-      if String.sub h !i nlen = n then found := true;
-      incr i
-    done;
-    !found)
-;;
-
 (** Infer capabilities from model info and server props.
     Priority: model-specific lookup > generic inference > default. *)
 let infer_capabilities models props =
@@ -354,7 +325,7 @@ let infer_capabilities models props =
       (* 2. Generic inference by model name *)
       let needs_extended =
         List.exists
-          (fun (m : model_info) -> string_contains_ci ~haystack:m.id ~needle:"qwen")
+          (fun (m : model_info) -> Retry.contains_substring_ci ~haystack:m.id ~needle:"qwen")
           models
       in
       if needs_extended
@@ -990,26 +961,26 @@ let%test "parse_slots neither is_processing nor state defaults to idle" =
   | None -> false
 ;;
 
-(* --- string_contains_ci --- *)
+(* --- contains_substring_ci (via Retry SSOT) --- *)
 
-let%test "string_contains_ci case insensitive match" =
-  string_contains_ci ~haystack:"Qwen3.5-35B" ~needle:"qwen" = true
+let%test "contains_substring_ci case insensitive match" =
+  Retry.contains_substring_ci ~haystack:"Qwen3.5-35B" ~needle:"qwen" = true
 ;;
 
-let%test "string_contains_ci no match" =
-  string_contains_ci ~haystack:"llama" ~needle:"qwen" = false
+let%test "contains_substring_ci no match" =
+  Retry.contains_substring_ci ~haystack:"llama" ~needle:"qwen" = false
 ;;
 
-let%test "string_contains_ci needle longer than haystack" =
-  string_contains_ci ~haystack:"ab" ~needle:"abcdef" = false
+let%test "contains_substring_ci needle longer than haystack" =
+  Retry.contains_substring_ci ~haystack:"ab" ~needle:"abcdef" = false
 ;;
 
-let%test "string_contains_ci empty needle" =
-  string_contains_ci ~haystack:"anything" ~needle:"" = true
+let%test "contains_substring_ci empty needle" =
+  Retry.contains_substring_ci ~haystack:"anything" ~needle:"" = true
 ;;
 
-let%test "string_contains_ci exact match" =
-  string_contains_ci ~haystack:"QWEN" ~needle:"qwen" = true
+let%test "contains_substring_ci exact match" =
+  Retry.contains_substring_ci ~haystack:"QWEN" ~needle:"qwen" = true
 ;;
 
 (* --- infer_capabilities --- *)
