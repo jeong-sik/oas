@@ -221,14 +221,44 @@ let from_capabilities ?(margin = 0.8) (caps : Llm_provider.Capabilities.capabili
 ;;
 
 (** Create a reducer from an explicit context budget with configurable thresholds.
-    [compact_ratio] (default 0.8) determines the fraction of [max_tokens] used as budget.
-    The reducer composes: drop_thinking, repair_dangling_tool_calls, token_budget.
 
-    @since 0.79.0 *)
-let from_context_config ?(compact_ratio = 0.8) ~max_tokens () =
-  let budget = int_of_float (float_of_int max_tokens *. compact_ratio) in
+    - [compact_ratio] (default 0.8) determines the fraction of [max_tokens] used as
+      the target budget when compaction fires.
+    - [target_ratio] (default 0.5, since 0.185.0) overrides [compact_ratio] when the
+      context exceeds the watermark, producing a more aggressive ceiling enforcement.
+      When [None], [compact_ratio] is used at all levels (pre-0.185 behavior).
+    - [watermark] (default 0.9) is the context utilization fraction that triggers
+      the aggressive compaction path.
+    - [keep_recent_turns] (default 4) is the minimum number of recent turns preserved
+      even under aggressive compaction.
+
+    The reducer composes: drop_thinking, repair_dangling_tool_calls, token_budget,
+    with ceiling enforcement at the watermark threshold.
+
+    @since 0.79.0
+    @since 0.185.0 — added target_ratio, watermark, keep_recent_turns *)
+let from_context_config
+      ?(compact_ratio = 0.8)
+      ?target_ratio
+      ?(watermark = 0.9)
+      ?(keep_recent_turns = 4)
+      ~max_tokens
+      ()
+  =
+  let ceiling_budget =
+    int_of_float (float_of_int max_tokens *. Option.value ~default:compact_ratio target_ratio)
+  in
+  let normal_budget =
+    int_of_float (float_of_int max_tokens *. compact_ratio)
+  in
   let aggressive =
-    compose [ drop_thinking; repair_dangling_tool_calls; repair_orphaned_tool_results; token_budget budget ]
+    compose
+      [ drop_thinking
+      ; repair_dangling_tool_calls
+      ; repair_orphaned_tool_results
+      ; keep_last keep_recent_turns
+      ; token_budget ceiling_budget
+      ]
   in
   let conservative =
     compose [ drop_thinking; repair_dangling_tool_calls; repair_orphaned_tool_results; prune_tool_args ~max_arg_len:5000 () ]
@@ -237,9 +267,20 @@ let from_context_config ?(compact_ratio = 0.8) ~max_tokens () =
     let current_tokens =
       List.fold_left (fun acc msg -> acc + estimate_message_tokens msg) 0 messages
     in
-    let threshold = int_of_float (float_of_int max_tokens *. 0.6) in
-    if current_tokens > threshold
+    let watermark_threshold = int_of_float (float_of_int max_tokens *. watermark) in
+    let normal_threshold = int_of_float (float_of_int max_tokens *. 0.6) in
+    if current_tokens > watermark_threshold
     then aggressive.strategy
+    else if current_tokens > normal_threshold
+    then
+      (* Moderate: apply normal budget without keep_last_n floor *)
+      (compose
+         [ drop_thinking
+         ; repair_dangling_tool_calls
+         ; repair_orphaned_tool_results
+         ; token_budget normal_budget
+         ])
+        .strategy
     else conservative.strategy)
 ;;
 
