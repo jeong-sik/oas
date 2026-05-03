@@ -57,6 +57,13 @@ type capabilities =
   ; supports_min_p : bool
   ; supports_seed : bool
   (** Deterministic seed for reproducible sampling. *)
+  ; supports_seed_with_images : bool
+  (** Whether the provider respects [seed] deterministically when
+      image inputs are present.  Local providers (Ollama, llama-server)
+      achieve near-perfect determinism on identical hardware; cloud
+      providers (OpenAI, Gemini) do not guarantee deterministic output
+      when images are in the prompt. *)
+
   ; (* ── Advanced modalities ───────────────────────────── *)
     supports_computer_use : bool
   ; supports_code_execution : bool
@@ -110,6 +117,7 @@ let default_capabilities =
   ; supports_top_k = false
   ; supports_min_p = false
   ; supports_seed = false
+  ; supports_seed_with_images = false
   ; supports_computer_use = false
   ; supports_code_execution = false
   ; uses_native_thinking_envelope = false
@@ -231,7 +239,8 @@ let ollama_capabilities =
   { openai_chat_extended_capabilities with
     supports_tool_choice = false
   ; supports_min_p = false
-  ; supports_seed = false
+  ; supports_seed = true
+  ; supports_seed_with_images = true
   ; thinking_control_format = Chat_template_kwargs
   ; is_ollama = true
   }

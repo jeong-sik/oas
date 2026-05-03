@@ -47,6 +47,11 @@ type capabilities =
   ; supports_seed : bool
   (** Deterministic seed for reproducible sampling.
       @since 0.185.0 *)
+  ; supports_seed_with_images : bool
+  (** Whether seed determinism is maintained when image inputs are present.
+      Local providers (Ollama) achieve near-perfect reproducibility; cloud
+      providers (OpenAI, Gemini) do not guarantee it.
+      @since 0.185.0 *)
   ; (* Advanced modalities *)
     supports_computer_use : bool
   ; supports_code_execution : bool
