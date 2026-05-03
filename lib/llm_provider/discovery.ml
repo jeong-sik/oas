@@ -226,6 +226,24 @@ let find_context_length (model_info : Yojson.Safe.t) : int =
   | _ -> 0
 ;;
 
+(** Detect tool-calling support from a chat template string.
+    Checks for tool-related keywords and special tokens used by
+    various model families (Qwen, Llama, Mistral, etc.). *)
+let template_has_tool_support (template : string) : bool =
+  let has_tool_keyword =
+    Retry.contains_substring_ci ~haystack:template ~needle:"tools"
+    || Retry.contains_substring_ci ~haystack:template ~needle:"Tool"
+  in
+  let has_tool_call_token =
+    List.exists
+      (fun needle -> Retry.contains_substring_ci ~haystack:template ~needle)
+      [ "<|tool_call|>"; "<|tool_calls|>"; ".tool_call"
+      ; "<|im_tool|>"; "<|function_call"
+      ]
+  in
+  has_tool_call_token
+  || (String.index_opt template '{' <> None && has_tool_keyword)
+
 (** Try to detect Ollama via /api/tags and retrieve actual context size
     via /api/show. Returns synthetic server_props on success. *)
 let probe_ollama_context ~sw ~net base_url =
@@ -268,10 +286,7 @@ let probe_ollama_context ~sw ~net base_url =
                  | `String s -> s
                  | _ -> ""
                in
-               let has_tools =
-                 String.index_opt template '{' <> None
-                 && (Retry.contains_substring_ci ~haystack:template ~needle:"tools" || Retry.contains_substring_ci ~haystack:template ~needle:"Tool")
-               in
+               let has_tools = template_has_tool_support template in
                Some { total_slots = 1; ctx_size = ctx; model = model_name; supports_tools = Some has_tools }
              else (
                warn_probe_failure
@@ -1494,3 +1509,35 @@ let%test "first_discovered_model_id_for_url prevents cross-provider" =
        && first_discovered_model_id_for_url "http://127.0.0.1:11434"
           = Some "qwen3.5:9b-nvfp4")
 ;;
+
+(* --- template_has_tool_support tests --- *)
+
+let%test "template_has_tool_support detects tools keyword" =
+  template_has_tool_support "{{ .Tools }}"
+
+let%test "template_has_tool_support detects Tool keyword" =
+  template_has_tool_support "{% for tool in Tools %}{{ tool }}{% endfor %}"
+
+let%test "template_has_tool_support detects <|tool_call|> token" =
+  template_has_tool_support "<|im_start|>assistant\n<|tool_call|>\n"
+
+let%test "template_has_tool_support detects <|tool_calls|> token" =
+  template_has_tool_support "<|im_start|>assistant<|tool_calls|>["
+
+let%test "template_has_tool_support detects .tool_call token" =
+  template_has_tool_support "{% if .tool_call %}{{ .tool_call }}{% endif %}"
+
+let%test "template_has_tool_support detects <|im_tool|> token" =
+  template_has_tool_support "<|im_start|><|im_tool|>result"
+
+let%test "template_has_tool_support detects <|function_call token" =
+  template_has_tool_support "<|im_start|>assistant\n<|function_call|>{"
+
+let%test "template_has_tool_support rejects template without braces" =
+  not (template_has_tool_support "no template markers here")
+
+let%test "template_has_tool_support rejects empty string" =
+  not (template_has_tool_support "")
+
+let%test "template_has_tool_support rejects braces without tool signals" =
+  not (template_has_tool_support "{{ .Content }}")
