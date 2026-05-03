@@ -304,6 +304,7 @@ type inference_telemetry =
   { system_fingerprint : string option
   ; timings : inference_timings option
   ; reasoning_tokens : int option
+  ; reasoning_tokens_estimated : bool
   ; request_latency_ms : int
   ; peak_memory_gb : float option
   ; provider_kind : Provider_kind.t option

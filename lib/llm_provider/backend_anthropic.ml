@@ -46,6 +46,7 @@ let parse_response json =
         { Types.system_fingerprint = None
         ; timings = None
         ; reasoning_tokens = None
+        ; reasoning_tokens_estimated = false
         ; request_latency_ms = 0
         ; peak_memory_gb = None
         ; provider_kind = None

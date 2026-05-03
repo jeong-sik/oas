@@ -273,6 +273,7 @@ let parse_ollama_response json_str =
         { Types.system_fingerprint
         ; timings
         ; reasoning_tokens
+        ; reasoning_tokens_estimated = false
         ; request_latency_ms = 0
         ; peak_memory_gb = None
         ; provider_kind = None

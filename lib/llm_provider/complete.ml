@@ -151,6 +151,7 @@ let patch_telemetry
         { Types.system_fingerprint = None
         ; timings = None
         ; reasoning_tokens = None
+        ; reasoning_tokens_estimated = false
         ; request_latency_ms = latency_ms
         ; peak_memory_gb = None
         ; provider_kind = pk
@@ -1122,6 +1123,7 @@ let complete_stream_http
                   { Types.system_fingerprint = None
                   ; timings
                   ; reasoning_tokens = None
+                  ; reasoning_tokens_estimated = false
                   ; request_latency_ms = 0
                   ; peak_memory_gb = None
                   ; provider_kind = None
@@ -1605,6 +1607,7 @@ let%test "patch_telemetry fills latency and provider on existing telemetry" =
           { Types.system_fingerprint = Some "fp-1"
           ; timings = None
           ; reasoning_tokens = Some 10
+          ; reasoning_tokens_estimated = false
           ; request_latency_ms = 0
           ; peak_memory_gb = None
           ; provider_kind = None
