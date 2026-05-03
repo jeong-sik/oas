@@ -231,6 +231,13 @@ module Anthropic = struct
       Override with [OAS_PROMPT_CACHE_MIN_CHARS] env var. *)
   let default_prompt_cache_min_chars = 3500
 
+  (** Minimum tool count to auto-enable prompt caching on the last tool
+      definition. Anthropic's cache prefix benefits grow with tool count
+      because the tool definitions are repeated verbatim in every request.
+      3+ tools means the serialized tool array typically exceeds ~1024 tokens.
+      @since 0.185.0 *)
+  let prompt_cache_min_tools = 3
+
   let prompt_cache_min_chars =
     match Sys.getenv "OAS_PROMPT_CACHE_MIN_CHARS" with
     | exception Not_found -> default_prompt_cache_min_chars
