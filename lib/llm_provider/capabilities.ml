@@ -659,6 +659,20 @@ let for_model_id model_id =
       ; supports_image_input = true
       ; supports_native_streaming = true
       }
+    (* GLM-5-Code: coding-specific variant with 128K context (not 200K).
+       Z.AI docs: GLM-5-Code uses /api/coding/paas/ endpoint, 128K context. *)
+  else if starts_with "glm-5-code" then
+    Some
+      { default_capabilities with
+        max_context_tokens = Some 128_000
+      ; max_output_tokens = Some 128_000
+      ; supports_tools = true
+      ; supports_tool_choice = false
+      ; supports_reasoning = true
+      ; supports_extended_thinking = true
+      ; supports_response_format_json = true
+      ; supports_native_streaming = true
+      }
     (* GLM full text models: reasoning, large context/output, but no vision. *)
   else if
     starts_with "glm-4.5"
