@@ -734,8 +734,9 @@ let capabilities_for_provider_label label =
   | "openai" | "openai_chat" -> Some openai_chat_capabilities
   | "openai_chat_extended" -> Some openai_chat_extended_capabilities
   | "gemini" -> Some gemini_capabilities
-  | "ollama" -> Some ollama_capabilities
+  | "ollama" | "ollama_cloud" -> Some ollama_capabilities
   | "glm" | "glm-coding" -> Some glm_capabilities
+  | "dashscope" | "qwen" -> Some dashscope_capabilities
   | "nemotron" -> Some nemotron_capabilities
   | "kimi" -> Some kimi_capabilities
   | "claude_code" -> Some claude_code_capabilities
