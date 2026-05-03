@@ -217,3 +217,16 @@ module Anthropic = struct
          default_prompt_cache_min_chars)
   ;;
 end
+
+(* ── Token estimation ───────────────────────────── *)
+
+module Token_estimation = struct
+  (** Approximate characters per token for English/mixed-language text.
+      Used when a provider reports reasoning text as raw string but the
+      telemetry schema requires a token count.
+      4 chars/token is the standard GPT/BPE approximation for English.
+      CJK-heavy text is closer to 2 chars/token, but reasoning output
+      is predominantly English/code.
+      @since 0.185.0 *)
+  let chars_per_token = 4
+end

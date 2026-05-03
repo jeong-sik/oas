@@ -183,7 +183,7 @@ let telemetry_of_openai_json json =
              | _ -> None))
       in
       (match reasoning_text with
-       | Some s -> Some (max 1 (String.length s / 4))
+       | Some s -> Some (max 1 (String.length s / Constants.Token_estimation.chars_per_token))
        | None -> None)
   in
   let peak_memory_gb =

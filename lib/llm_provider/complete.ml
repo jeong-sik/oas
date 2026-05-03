@@ -160,7 +160,22 @@ let patch_telemetry
         ; provider_internal_action_count = None
         }
   in
-  { resp with model; telemetry }
+  let patched = { resp with model; telemetry } in
+  (* S01: Structured drift detection — compare actual response behavior
+     against declared capabilities. Emits structured JSON so downstream
+     observability can alert on silent capability regressions. *)
+  (match Capabilities.detect_drift caps patched with
+   | [] -> ()
+   | observations ->
+     let obs_strings =
+       List.map (fun o -> Capabilities.show_drift_observation o) observations
+     in
+     Diag.warn "complete"
+       {|{"event":"capability_drift","model":"%s","provider":"%s","observations":[%s] }|}
+       config.model_id
+       (Provider_config.show_provider_kind config.kind)
+       (String.concat "," (List.map (fun s -> "\"" ^ s ^ "\"") obs_strings)));
+  patched
 ;;
 
 (** Internal helper: canonical provider name for metric labels.

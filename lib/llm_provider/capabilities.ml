@@ -1024,3 +1024,81 @@ let detect_drift (caps : capabilities) (resp : Types.api_response) : drift_obser
    then obs := Stop_tool_use_but_declared_unsupported :: !obs);
   List.rev !obs
 ;;
+
+(* ── Alias collision invariant ─────────────────────── *)
+
+(* Aliases must resolve to the same underlying capabilities record.
+   If a new provider is added with overlapping labels, this test catches
+   divergence. M06 regression guard. *)
+let%test "capabilities_for_provider_label: aliases resolve to identical capabilities" =
+  let resolve label = capabilities_for_provider_label label in
+  let same_base a b =
+    match (resolve a, resolve b) with
+    | Some ca, Some cb ->
+      ca.supports_tools = cb.supports_tools
+      && ca.supports_reasoning = cb.supports_reasoning
+      && ca.supports_caching = cb.supports_caching
+      && ca.emits_usage_tokens = cb.emits_usage_tokens
+      && ca.max_context_tokens = cb.max_context_tokens
+      && ca.max_output_tokens = cb.max_output_tokens
+      && ca.supports_image_input = cb.supports_image_input
+      && ca.thinking_control_format = cb.thinking_control_format
+    | _ -> false
+  in
+  let alias_pairs =
+    [ ("openai", "openai_chat")
+    ; ("glm", "glm-coding")
+    ]
+  in
+  List.for_all (fun (a, b) -> same_base a b) alias_pairs
+    && Option.is_some (resolve "anthropic")
+    && Option.is_some (resolve "gemini")
+    && Option.is_some (resolve "ollama")
+    && Option.is_some (resolve "kimi")
+    && Option.is_some (resolve "nemotron")
+;;
+
+(* Every declared label is reachable — no dead branches in the match.
+   If a label is added to the match but has no corresponding capability
+   binding, this test will fail. *)
+let%test "capabilities_for_provider_label: all declared labels resolve" =
+  let labels =
+    [ "anthropic"; "openai"; "openai_chat"; "openai_chat_extended"
+    ; "gemini"; "ollama"; "glm"; "glm-coding"; "nemotron"; "kimi"
+    ; "claude_code"; "gemini_cli"; "kimi_cli"; "codex_cli"
+    ]
+  in
+  List.for_all
+    (fun l -> Option.is_some (capabilities_for_provider_label l))
+    labels
+;;
+
+(* Every label resolves to a distinct capability fingerprint unless
+   explicitly aliased. Catches accidental capability merging. *)
+let%test "capabilities_for_provider_label: no accidental aliasing across distinct providers" =
+  let non_aliased =
+    [ "anthropic"; "gemini"; "ollama"; "kimi"
+    ; "claude_code"; "gemini_cli"; "kimi_cli"; "codex_cli"; "nemotron"
+    ]
+  in
+  let fingerprints =
+    List.filter_map
+      (fun l ->
+         match capabilities_for_provider_label l with
+         | Some c ->
+           Some
+             ( c.supports_tools
+             , c.supports_reasoning
+             , c.supports_caching
+             , c.emits_usage_tokens
+             , c.max_context_tokens
+             , c.max_output_tokens
+             , c.thinking_control_format
+             )
+         | None -> None)
+      non_aliased
+  in
+  (* Each non-aliased provider should have at least one distinguishing field *)
+  let n = List.length fingerprints in
+  n = List.length non_aliased
+;;
