@@ -263,6 +263,25 @@ val tool_result_msg
   -> unit
   -> message
 
+(** {1 Tool Result Validation}
+
+    Minimal structural validation for tool result payloads. *)
+
+type tool_result_validation_error =
+  | Expected_object of string
+  | Expected_array of string
+  | Empty_content of string
+  | Json_parse_failed of string
+
+(** Validate that a ToolResult's payload matches a minimal expected shape.
+    Returns [Ok ()] when the result passes, or a descriptive error.
+    Foundation for P0's full JSON Schema validation loop. *)
+val validate_tool_result_shape
+  :  expect_object:bool
+  -> expect_array:bool
+  -> content_block
+  -> (unit, tool_result_validation_error) result
+
 val text_of_content : content_block list -> string
 val text_of_message : message -> string
 val text_of_response : api_response -> string
