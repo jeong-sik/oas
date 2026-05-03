@@ -86,7 +86,15 @@ module Inference = struct
       the capability-gated path (not this fallback) applies.
       @since 0.188.0
       @since 0.185.0 — raised from 4096 to 16384 *)
-  let unknown_model_max_tokens_fallback = 16384
+  let unknown_model_max_tokens_fallback =
+    match Sys.getenv "OAS_MAX_TOKENS_DEFAULT" with
+    | exception Not_found -> 16384
+    | s ->
+      (match int_of_string_opt s with
+       | Some n when n > 0 -> n
+       | _ ->
+         Diag.warn "constants" "OAS_MAX_TOKENS_DEFAULT=%S is not a valid positive int, using 16384" s;
+         16384)
 end
 
 (* ── Cache ───────────────────────────────────────── *)
@@ -163,15 +171,6 @@ end
 (* ── Thinking ────────────────────────────────────── *)
 
 module Thinking = struct
-  (** Default extended thinking budget when not specified by caller.
-      Used by Anthropic and Gemini backends.
-
-      16000 tokens covers most single-turn reasoning tasks. Models with
-      higher caps (Claude Opus 4: 128K, Gemini 2.5 Pro: 32K) should be
-      declared in [Capabilities] so callers can override per-model.
-      @since 0.185.0 — raised from 10000 to 16000 *)
-  let default_budget = 16000
-
   let env_budget env_var =
     match Sys.getenv env_var with
     | exception Not_found -> None
@@ -183,11 +182,26 @@ module Thinking = struct
          None)
   ;;
 
+  (** Default extended thinking budget when not specified by caller.
+      Used by Anthropic and Gemini backends.
+
+      16000 tokens covers most single-turn reasoning tasks. Models with
+      higher caps (Claude Opus 4: 128K, Gemini 2.5 Pro: 32K) should be
+      declared in [Capabilities] so callers can override per-model.
+      Override with [OAS_THINKING_BUDGET_DEFAULT] env var.
+      @since 0.185.0 — raised from 10000 to 16000 *)
+  let default_budget =
+    match env_budget "OAS_THINKING_BUDGET_DEFAULT" with
+    | Some n -> n
+    | None -> 16000
+  ;;
+
   (** Per-provider thinking budget overrides. Resolution order:
       1. Explicit [~thinking_budget] in request config
       2. Provider-specific env var ([OAS_ANTHROPIC_THINKING_BUDGET],
          [OAS_GEMINI_THINKING_BUDGET])
-      3. [default_budget] (16000)
+      3. [OAS_THINKING_BUDGET_DEFAULT] env var
+      4. Hardcoded default (16000)
       @since 0.185.0 *)
   let anthropic_budget () =
     match env_budget "OAS_ANTHROPIC_THINKING_BUDGET" with
