@@ -988,3 +988,39 @@ let%test "for_model_id: specific model IDs get correct (not shadowed) capabiliti
     ; ( "google/gemma-4-27b-it"
       , fun c -> c.supports_tools && c.supports_image_input )
     ]
+
+(* ── Capability drift detection ────────────────────────── *)
+
+type drift_observation =
+  | Usage_missing_but_declared
+  (** [emits_usage_tokens=true] but response has no usage *)
+  | Tools_used_but_declared_unsupported
+  (** Response contains ToolUse but [supports_tools=false] *)
+  | Thinking_returned_but_declared_unsupported
+  (** Response contains Thinking/RedactedThinking but [supports_reasoning=false] *)
+  | Stop_tool_use_but_declared_unsupported
+  (** [stop_reason=StopToolUse] but [supports_tools=false] *)
+[@@deriving show]
+
+let detect_drift (caps : capabilities) (resp : Types.api_response) : drift_observation list =
+  let obs = ref [] in
+  (* Usage drift *)
+  (if caps.emits_usage_tokens && resp.usage = None
+   then obs := Usage_missing_but_declared :: !obs);
+  (* Content block analysis *)
+  let has_tool_use = ref false and has_thinking = ref false in
+  List.iter
+    (function
+       | Types.ToolUse _ -> has_tool_use := true
+       | Types.Thinking _ | Types.RedactedThinking _ -> has_thinking := true
+       | _ -> ())
+    resp.content;
+  if !has_tool_use && not caps.supports_tools
+  then obs := Tools_used_but_declared_unsupported :: !obs;
+  if !has_thinking && not caps.supports_reasoning
+  then obs := Thinking_returned_but_declared_unsupported :: !obs;
+  (* Stop reason analysis *)
+  (if resp.stop_reason = Types.StopToolUse && not caps.supports_tools
+   then obs := Stop_tool_use_but_declared_unsupported :: !obs);
+  List.rev !obs
+;;

@@ -120,3 +120,19 @@ val with_context_size : capabilities -> ctx_size:int -> capabilities
 
 (** Update tool support from Discovery. *)
 val with_tool_support : capabilities -> supports_tools:bool -> capabilities
+
+(** {2 Capability Drift Detection} *)
+
+type drift_observation =
+  | Usage_missing_but_declared
+  | Tools_used_but_declared_unsupported
+  | Thinking_returned_but_declared_unsupported
+  | Stop_tool_use_but_declared_unsupported
+[@@deriving show]
+
+(** Compare an {!api_response} against declared {!capabilities}.
+    Returns observations where actual behavior contradicts
+    the capability record. Empty list = no drift detected.
+
+    @since 0.185.0 *)
+val detect_drift : capabilities -> Types.api_response -> drift_observation list
