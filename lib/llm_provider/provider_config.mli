@@ -265,6 +265,12 @@ val structured_output_name_of_schema : Yojson.Safe.t -> string
     @since 0.163.0 *)
 val validate_output_schema_request : t -> (unit, string) result
 
+(** Validate that sampling parameters unsupported by CLI subprocess
+    transports ([min_p], [top_k]) are not set.
+    Returns [Error] with the unsupported parameter names for CLI providers.
+    @since 0.185.0 *)
+val validate_cli_sampling_params : t -> (unit, string) result
+
 (** Whether the provider config points at a local loopback endpoint.
     This is the SSOT for locality checks derived from runtime configuration. *)
 val is_local : t -> bool

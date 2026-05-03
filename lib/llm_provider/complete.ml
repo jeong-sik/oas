@@ -191,6 +191,18 @@ let validate_output_schema_request (config : Provider_config.t) =
   | Error reason -> Error (Http_client.AcceptRejected { reason })
 ;;
 
+let validate_cli_sampling_params (config : Provider_config.t) =
+  match Provider_config.validate_cli_sampling_params config with
+  | Ok () -> Ok ()
+  | Error reason -> Error (Http_client.AcceptRejected { reason })
+;;
+
+let validate_all (config : Provider_config.t) =
+  match validate_output_schema_request config with
+  | Error _ as e -> e
+  | Ok () -> validate_cli_sampling_params config
+;;
+
 (** Strip query string and userinfo from a URL before logging.  Built-in
     providers use clean URLs, but [custom:model@url] accepts arbitrary
     user-supplied URLs; a misconfigured one like
@@ -267,7 +279,7 @@ let complete_http
       ~tools
       ()
   =
-  match validate_output_schema_request config with
+  match validate_all config with
   | Error err -> Error err, 0
   | Ok () ->
     if requires_non_http_transport config.kind
@@ -657,7 +669,7 @@ let complete
       ?(priority : Request_priority.t option)
       ()
   =
-  match validate_output_schema_request config with
+  match validate_all config with
   | Error err -> Error err
   | Ok () ->
     let _priority = priority in
@@ -906,7 +918,7 @@ let complete_stream_http
       ~(on_event : Types.sse_event -> unit)
       ()
   =
-  match validate_output_schema_request config with
+  match validate_all config with
   | Error err -> Error err
   | Ok () ->
     if requires_non_http_transport config.kind
@@ -1138,7 +1150,7 @@ let complete_stream
       ?(priority : Request_priority.t option)
       ()
   =
-  match validate_output_schema_request config with
+  match validate_all config with
   | Error err -> Error err
   | Ok () ->
     let _priority = priority in

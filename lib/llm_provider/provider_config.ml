@@ -299,6 +299,35 @@ let validate_output_schema_request (config : t) =
             (string_of_provider_kind config.kind)))
 ;;
 
+(** Validate that sampling parameters not supported by CLI subprocess
+    transports are not set.  CLI transports (Codex_cli, Kimi_cli,
+    Gemini_cli, Claude_code) run external binaries and cannot relay
+    fine-grained sampling parameters like [min_p] or [top_k].
+    Detecting these at validation time avoids silent downgrading at the
+    transport layer ([warn_unsupported_once]).
+    @since 0.185.0 *)
+let validate_cli_sampling_params (config : t) =
+  match config.kind with
+  | Claude_code | Gemini_cli | Kimi_cli | Codex_cli ->
+    let unsupported =
+      List.filter_map
+        (fun (label, present) -> if present then Some label else None)
+        [ "min_p", Option.is_some config.min_p
+        ; "top_k", Option.is_some config.top_k
+        ]
+    in
+    (match unsupported with
+     | [] -> Ok ()
+     | fields ->
+       Error
+         (Printf.sprintf
+            "%s does not support %s in OAS; these parameters are silently \
+             dropped by the CLI subprocess transport"
+            (string_of_provider_kind config.kind)
+            (String.concat ", " fields)))
+  | Anthropic | Kimi | OpenAI_compat | Ollama | Gemini | Glm | DashScope -> Ok ()
+;;
+
 let has_host_prefix ~url ~prefix =
   let prefix_len = String.length prefix in
   String.length url >= prefix_len
@@ -316,4 +345,38 @@ let is_local (config : t) =
   let url = String.lowercase_ascii (String.trim config.base_url) in
   has_host_prefix ~url ~prefix:Constants.Endpoints.local_prefix
   || has_host_prefix ~url ~prefix:Constants.Endpoints.localhost_prefix
+;;
+
+(* ── Inline tests ────────────────────────────────────── *)
+
+[@@@coverage off]
+
+let%test "validate_cli_sampling_params: Codex_cli with min_p → Error" =
+  let config =
+    make ~kind:Codex_cli ~model_id:"test" ~base_url:"" ~min_p:0.05 ()
+  in
+  match validate_cli_sampling_params config with
+  | Error msg -> String.contains msg 'm' && String.contains msg 'i' && String.contains msg 'n'
+  | Ok () -> false
+;;
+
+let%test "validate_cli_sampling_params: Codex_cli with top_k → Error" =
+  let config =
+    make ~kind:Codex_cli ~model_id:"test" ~base_url:"" ~top_k:40 ()
+  in
+  match validate_cli_sampling_params config with
+  | Error msg -> String.contains msg 't' && String.contains msg 'o' && String.contains msg 'p'
+  | Ok () -> false
+;;
+
+let%test "validate_cli_sampling_params: Anthropic with min_p → Ok" =
+  let config =
+    make ~kind:Anthropic ~model_id:"claude-4" ~base_url:"https://api.anthropic.com" ~min_p:0.05 ()
+  in
+  validate_cli_sampling_params config = Ok ()
+;;
+
+let%test "validate_cli_sampling_params: Codex_cli clean → Ok" =
+  let config = make ~kind:Codex_cli ~model_id:"test" ~base_url:"" () in
+  validate_cli_sampling_params config = Ok ()
 ;;
