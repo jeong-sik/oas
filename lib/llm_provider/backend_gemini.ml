@@ -213,7 +213,7 @@ let build_request
      let budget =
        match config.thinking_budget with
        | Some b -> b
-       | None -> Constants.Thinking.default_budget
+       | None -> Constants.Thinking.gemini_budget ()
      in
      gen_config
      := ( "thinkingConfig"

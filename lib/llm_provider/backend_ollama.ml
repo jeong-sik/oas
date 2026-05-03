@@ -33,11 +33,16 @@ let build_request
   in
   let body = [ "model", `String config.model_id; "messages", `List provider_messages ] in
   (* think: false by default for Ollama to prevent thinking models from
-     consuming all tokens in reasoning. Only enable when explicitly requested. *)
+     consuming all tokens in reasoning. Only enable when explicitly requested.
+     Override with OAS_OLLAMA_THINK_DEFAULT=true to enable thinking for all
+     Ollama requests by default. *)
   let think =
     match config.enable_thinking with
     | Some true -> true
-    | _ -> false
+    | Some false -> false
+    | None ->
+      Cli_common_env.bool "OAS_OLLAMA_THINK_DEFAULT"
+      (* default false: thinking models consume tokens in reasoning *)
   in
   let body = ("think", `Bool think) :: body in
   (* Ollama defaults to stream=true, so always send explicit value *)

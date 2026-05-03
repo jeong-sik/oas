@@ -171,6 +171,35 @@ module Thinking = struct
       declared in [Capabilities] so callers can override per-model.
       @since 0.185.0 — raised from 10000 to 16000 *)
   let default_budget = 16000
+
+  let env_budget env_var =
+    match Sys.getenv env_var with
+    | exception Not_found -> None
+    | s ->
+      (match int_of_string_opt s with
+       | Some n when n > 0 -> Some n
+       | _ ->
+         Diag.warn "constants" "%s=%S is not a valid positive int, ignoring" env_var s;
+         None)
+  ;;
+
+  (** Per-provider thinking budget overrides. Resolution order:
+      1. Explicit [~thinking_budget] in request config
+      2. Provider-specific env var ([OAS_ANTHROPIC_THINKING_BUDGET],
+         [OAS_GEMINI_THINKING_BUDGET])
+      3. [default_budget] (16000)
+      @since 0.185.0 *)
+  let anthropic_budget () =
+    match env_budget "OAS_ANTHROPIC_THINKING_BUDGET" with
+    | Some n -> n
+    | None -> default_budget
+  ;;
+
+  let gemini_budget () =
+    match env_budget "OAS_GEMINI_THINKING_BUDGET" with
+    | Some n -> n
+    | None -> default_budget
+  ;;
 end
 
 (* ── Deterministic output ─────────────────────────── *)
