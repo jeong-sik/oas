@@ -238,7 +238,6 @@ let nemotron_capabilities =
 let ollama_capabilities =
   { openai_chat_extended_capabilities with
     supports_tool_choice = false
-  ; supports_min_p = false
   ; supports_seed = true
   ; supports_seed_with_images = true
   ; thinking_control_format = Chat_template_kwargs

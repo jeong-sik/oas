@@ -13,6 +13,27 @@ open Types
 open Agent_types
 open Agent_trace
 
+(* ── Context compaction watermark ───────────────────── *)
+
+(** Default ratio at which proactive compaction fires (0.9 = 90% of context).
+    Override with [OAS_COMPACT_WATERMARK] env var (e.g. "0.8" for 80%).
+    Hard floor prevents silent pass-through that caused CTX 101% overrun
+    (#7083). Values outside (0.0, 1.0) are rejected.
+    @since 0.185.0 *)
+let compact_watermark_default =
+  match Sys.getenv "OAS_COMPACT_WATERMARK" with
+  | exception Not_found -> 0.9
+  | s ->
+    (match float_of_string_opt s with
+     | Some w when w > 0.0 && w < 1.0 -> w
+     | _ ->
+       Eio.traceln
+         "[warn] [pipeline] OAS_COMPACT_WATERMARK=%S invalid (expected 0.0 < v < \
+          1.0), using 0.9"
+         s;
+       0.9)
+;;
+
 let ( let* ) = Result.bind
 
 type api_strategy =
@@ -848,14 +869,14 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
      TurnStarted a second time or re-invoking before_turn_params.
 
      Hard budget gate (OAS-2): when context_compact_ratio is not configured,
-     a ratio >= 0.9 still triggers compaction. This prevents the silent
-     pass-through that caused a downstream consumer's CTX 101% overrun
-     (observed in upstream issue #7083). *)
+     a ratio >= compact_watermark_default still triggers compaction. This
+     prevents the silent pass-through that caused a downstream consumer's
+     CTX 101% overrun (observed in upstream issue #7083). *)
   let prep =
     let watermark =
       match agent.state.config.context_compact_ratio with
       | Some w when w > 0.0 && w < 1.0 -> w
-      | _ -> 0.9 (* hard floor: compact before 90% regardless of config *)
+      | _ -> compact_watermark_default
     in
     let est_tokens = total_prompt_tokens_for_agent agent agent.state.messages in
     let context_window = proactive_context_window_tokens agent in
@@ -910,7 +931,7 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
       let watermark =
         match agent.state.config.context_compact_ratio with
         | Some w when w > 0.0 && w < 1.0 -> w
-        | _ -> 0.9
+        | _ -> compact_watermark_default
       in
       let est_tokens = total_prompt_tokens_for_agent agent agent.state.messages in
       let context_window = proactive_context_window_tokens agent in
