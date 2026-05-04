@@ -74,6 +74,9 @@ let effective_tool_choice (config : Provider_config.t) =
       "GLM only supports tool_choice=auto; coercing %s to Auto for model %s"
       (tool_choice_label coerced)
       config.model_id;
+    (Metrics.get_global ()).on_capability_drop
+      ~model_id:config.model_id
+      ~field:("tool_choice." ^ tool_choice_label coerced);
     Some (tool_choice_to_openai_json Auto)
   | _, Some choice -> Some (tool_choice_to_openai_json choice)
   | _, None -> None
