@@ -171,7 +171,8 @@ let patch_telemetry
      let obs_strings =
        List.map (fun o -> Capabilities.show_drift_observation o) observations
      in
-     Diag.warn "complete"
+     Diag.warn
+       "complete"
        {|{"event":"capability_drift","model":"%s","provider":"%s","observations":[%s] }|}
        config.model_id
        (Provider_config.show_provider_kind config.kind)

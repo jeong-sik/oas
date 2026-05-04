@@ -45,8 +45,11 @@ let empty_result =
 (** Validate a JSON value against a minimal JSON Schema subset.
     Supports: type, required, properties, enum, items (arrays).
     Returns a list of violations with paths relative to the root. *)
-let rec validate_against_schema ?(json_path = "$") (schema : Yojson.Safe.t) (value : Yojson.Safe.t) :
-      schema_violation list
+let rec validate_against_schema
+          ?(json_path = "$")
+          (schema : Yojson.Safe.t)
+          (value : Yojson.Safe.t)
+  : schema_violation list
   =
   let open Yojson.Safe.Util in
   let violations = ref [] in
@@ -91,7 +94,11 @@ let rec validate_against_schema ?(json_path = "$") (schema : Yojson.Safe.t) (val
        (fun field_name ->
           if not (List.mem_assoc field_name fields)
           then add (json_path ^ "." ^ field_name) "required" "missing")
-       (List.filter_map (function `String s -> Some s | _ -> None) required_fields)
+       (List.filter_map
+          (function
+            | `String s -> Some s
+            | _ -> None)
+          required_fields)
    | _ -> ());
   (* Check "properties" recursively *)
   (match schema |> member "properties", value with
@@ -100,7 +107,12 @@ let rec validate_against_schema ?(json_path = "$") (schema : Yojson.Safe.t) (val
        (fun (field_name, field_value) ->
           match List.assoc_opt field_name props_schema with
           | Some prop_schema ->
-            violations := !violations @ validate_against_schema ~json_path:(json_path ^ "." ^ field_name) prop_schema field_value
+            violations
+            := !violations
+               @ validate_against_schema
+                   ~json_path:(json_path ^ "." ^ field_name)
+                   prop_schema
+                   field_value
           | None -> ())
        fields
    | _ -> ());
@@ -108,20 +120,27 @@ let rec validate_against_schema ?(json_path = "$") (schema : Yojson.Safe.t) (val
   (match schema |> member "enum" with
    | `List allowed ->
      let allowed_set =
-       List.fold_left
-         (fun acc v -> Yojson.Safe.to_string v :: acc)
-         [] allowed
+       List.fold_left (fun acc v -> Yojson.Safe.to_string v :: acc) [] allowed
      in
      let value_str = Yojson.Safe.to_string value in
      if not (List.mem value_str allowed_set)
-     then add json_path (Printf.sprintf "one of [%s]" (String.concat "," allowed_set)) value_str
+     then
+       add
+         json_path
+         (Printf.sprintf "one of [%s]" (String.concat "," allowed_set))
+         value_str
    | _ -> ());
   (* Check "items" for arrays *)
   (match schema |> member "items", value with
    | item_schema, `List items ->
      List.iteri
        (fun i item ->
-          violations := !violations @ validate_against_schema ~json_path:(Printf.sprintf "%s[%d]" json_path i) item_schema item)
+          violations
+          := !violations
+             @ validate_against_schema
+                 ~json_path:(Printf.sprintf "%s[%d]" json_path i)
+                 item_schema
+                 item)
        items
    | _ -> ());
   !violations
@@ -138,12 +157,12 @@ let extract_tool_schema (tool_def : Yojson.Safe.t) : Yojson.Safe.t option =
      | schema when schema <> `Null -> Some schema
      | _ ->
        (* OpenAI wraps in "function" *)
-       match tool_def |> member "function" with
-       | `Assoc func -> (
-         match `Assoc func |> member "parameters" with
-         | schema when schema <> `Null -> Some schema
-         | _ -> None)
-       | _ -> None)
+       (match tool_def |> member "function" with
+        | `Assoc func ->
+          (match `Assoc func |> member "parameters" with
+           | schema when schema <> `Null -> Some schema
+           | _ -> None)
+        | _ -> None))
 ;;
 
 (** Build a name→schema map from a list of tool definition JSONs. *)
@@ -159,11 +178,12 @@ let build_schema_map (tools : Yojson.Safe.t list) : (string * Yojson.Safe.t) lis
             | `String s -> s
             | _ -> "")
        in
-       if name = "" then None
-       else
+       if name = ""
+       then None
+       else (
          match extract_tool_schema tool with
          | Some schema -> Some (name, schema)
-         | None -> None)
+         | None -> None))
     tools
 ;;
 
@@ -220,8 +240,8 @@ let validate_response ~declared_tools (resp : api_response) : validation_result 
     {!build_schema_map} from the tool definition JSONs passed in the request.
 
     @since 0.185.0 *)
-let validate_response_with_schemas ~declared_tools ~tool_schemas (resp : api_response) :
-      validation_result
+let validate_response_with_schemas ~declared_tools ~tool_schemas (resp : api_response)
+  : validation_result
   =
   let schema_lookup =
     let tbl = Hashtbl.create 8 in

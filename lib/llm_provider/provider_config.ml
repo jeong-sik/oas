@@ -184,10 +184,12 @@ let default_attempt_timeout_s = function
     @since 0.185.0 *)
 let default_reasoning_effort () =
   match Cli_common_env.get "OAS_DEFAULT_REASONING_EFFORT" with
-  | Some ("low" | "medium" | "high" as v) -> v
+  | Some (("low" | "medium" | "high") as v) -> v
   | Some v ->
-    Diag.warn "provider_config"
-      "OAS_DEFAULT_REASONING_EFFORT=%S invalid (expected low/medium/high), using medium" v;
+    Diag.warn
+      "provider_config"
+      "OAS_DEFAULT_REASONING_EFFORT=%S invalid (expected low/medium/high), using medium"
+      v;
     "medium"
   | None -> "medium"
 ;;
@@ -330,17 +332,15 @@ let validate_cli_sampling_params (config : t) =
     let unsupported =
       List.filter_map
         (fun (label, present) -> if present then Some label else None)
-        [ "min_p", Option.is_some config.min_p
-        ; "top_k", Option.is_some config.top_k
-        ]
+        [ "min_p", Option.is_some config.min_p; "top_k", Option.is_some config.top_k ]
     in
     (match unsupported with
      | [] -> Ok ()
      | fields ->
        Error
          (Printf.sprintf
-            "%s does not support %s in OAS; these parameters are silently \
-             dropped by the CLI subprocess transport"
+            "%s does not support %s in OAS; these parameters are silently dropped by the \
+             CLI subprocess transport"
             (string_of_provider_kind config.kind)
             (String.concat ", " fields)))
   | Anthropic | Kimi | OpenAI_compat | Ollama | Gemini | Glm | DashScope -> Ok ()
@@ -370,26 +370,29 @@ let is_local (config : t) =
 [@@@coverage off]
 
 let%test "validate_cli_sampling_params: Codex_cli with min_p → Error" =
-  let config =
-    make ~kind:Codex_cli ~model_id:"test" ~base_url:"" ~min_p:0.05 ()
-  in
+  let config = make ~kind:Codex_cli ~model_id:"test" ~base_url:"" ~min_p:0.05 () in
   match validate_cli_sampling_params config with
-  | Error msg -> String.contains msg 'm' && String.contains msg 'i' && String.contains msg 'n'
+  | Error msg ->
+    String.contains msg 'm' && String.contains msg 'i' && String.contains msg 'n'
   | Ok () -> false
 ;;
 
 let%test "validate_cli_sampling_params: Codex_cli with top_k → Error" =
-  let config =
-    make ~kind:Codex_cli ~model_id:"test" ~base_url:"" ~top_k:40 ()
-  in
+  let config = make ~kind:Codex_cli ~model_id:"test" ~base_url:"" ~top_k:40 () in
   match validate_cli_sampling_params config with
-  | Error msg -> String.contains msg 't' && String.contains msg 'o' && String.contains msg 'p'
+  | Error msg ->
+    String.contains msg 't' && String.contains msg 'o' && String.contains msg 'p'
   | Ok () -> false
 ;;
 
 let%test "validate_cli_sampling_params: Anthropic with min_p → Ok" =
   let config =
-    make ~kind:Anthropic ~model_id:"claude-4" ~base_url:"https://api.anthropic.com" ~min_p:0.05 ()
+    make
+      ~kind:Anthropic
+      ~model_id:"claude-4"
+      ~base_url:"https://api.anthropic.com"
+      ~min_p:0.05
+      ()
   in
   validate_cli_sampling_params config = Ok ()
 ;;

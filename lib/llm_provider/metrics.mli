@@ -28,8 +28,8 @@ type t =
   ; on_retry : provider:string -> model_id:string -> attempt:int -> unit
     (** Fired when a request is retried due to a retryable error.
       @since 0.185.0 *)
-  ; on_token_usage
-    : provider:string -> model_id:string -> input_tokens:int -> output_tokens:int -> unit
+  ; on_token_usage :
+      provider:string -> model_id:string -> input_tokens:int -> output_tokens:int -> unit
     (** Fired when a response carries usage tokens.
       @since 0.185.0 *)
   }

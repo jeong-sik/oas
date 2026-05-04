@@ -281,7 +281,7 @@ let parse_usage json =
     else (
       Diag.warn
         "transport_claude_code"
-          "usage dropped: input_tokens=%d exceeds single-response ceiling=%d"
+        "usage dropped: input_tokens=%d exceeds single-response ceiling=%d"
         usage.input_tokens
         claude_code_max_single_response_input_tokens;
       None)

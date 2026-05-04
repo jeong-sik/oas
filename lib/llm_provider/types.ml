@@ -412,8 +412,8 @@ let tool_result_msg ~tool_use_id ~content ?(is_error = false) ?json () =
 
 type tool_result_validation_error =
   | Expected_object of string (** Expected JSON object, got other type *)
-  | Expected_array of string  (** Expected JSON array, got other type *)
-  | Empty_content of string   (** Tool returned empty content *)
+  | Expected_array of string (** Expected JSON array, got other type *)
+  | Empty_content of string (** Tool returned empty content *)
   | Json_parse_failed of string (** Content is not valid JSON *)
 [@@deriving show]
 
@@ -430,23 +430,26 @@ let validate_tool_result_shape
   | ToolResult { content; json; _ } ->
     if String.length (String.trim content) = 0
     then Error (Empty_content "ToolResult content is empty")
-    else if expect_obj || expect_arr then
-      (match json with
-       | None ->
-         (* content was not parseable as JSON *)
-         Error (Json_parse_failed "ToolResult content is not valid JSON")
-       | Some json_value ->
-         if expect_obj && not expect_arr then
-           (match json_value with
-            | `Assoc _ -> Ok ()
-            | _ -> Error (Expected_object "ToolResult JSON is not an object"))
-         else if expect_arr && not expect_obj then
-           (match json_value with
-            | `List _ -> Ok ()
-            | _ -> Error (Expected_array "ToolResult JSON is not an array"))
-         else
-           (* Both allowed — any JSON is fine *)
-           Ok ())
+    else if expect_obj || expect_arr
+    then (
+      match json with
+      | None ->
+        (* content was not parseable as JSON *)
+        Error (Json_parse_failed "ToolResult content is not valid JSON")
+      | Some json_value ->
+        if expect_obj && not expect_arr
+        then (
+          match json_value with
+          | `Assoc _ -> Ok ()
+          | _ -> Error (Expected_object "ToolResult JSON is not an object"))
+        else if expect_arr && not expect_obj
+        then (
+          match json_value with
+          | `List _ -> Ok ()
+          | _ -> Error (Expected_array "ToolResult JSON is not an array"))
+        else
+          (* Both allowed — any JSON is fine *)
+          Ok ())
     else Ok ()
   | _ -> Ok ()
 ;;

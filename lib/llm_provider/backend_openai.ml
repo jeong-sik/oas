@@ -68,8 +68,7 @@ let tool_choice_label = function
 let effective_tool_choice (config : Provider_config.t) =
   match config.kind, config.tool_choice with
   | Provider_config.Glm, Some None_ -> None
-  | Provider_config.Glm, Some Auto ->
-    Some (tool_choice_to_openai_json Auto)
+  | Provider_config.Glm, Some Auto -> Some (tool_choice_to_openai_json Auto)
   | Provider_config.Glm, Some coerced ->
     Diag.warn
       "backend_openai"
@@ -304,7 +303,7 @@ let build_request
   let body = if stream then ("stream", `Bool true) :: body else body in
   let body =
     if caps.supports_seed
-    then
+    then (
       let seed =
         match config.seed with
         | Some n -> n
@@ -313,7 +312,7 @@ let build_request
            | Some n -> n
            | None -> Constants.Deterministic.default_seed)
       in
-      ("seed", `Int seed) :: body
+      ("seed", `Int seed) :: body)
     else body
   in
   Yojson.Safe.to_string (`Assoc body)

@@ -75,9 +75,13 @@ let cli_model_override ~(config : config) ~(req_config : Provider_config.t) =
   in
   (match override, Capabilities.kimi_cli_capabilities.supported_models with
    | Some m, Some supported ->
-       if not (List.mem (String.lowercase_ascii m) supported) then
-         Eio.traceln "[warn] [kimi_cli] Unsupported model %s requested. Kimi CLI officially supports %s"
-           m (String.concat ", " supported)
+     if not (List.mem (String.lowercase_ascii m) supported)
+     then
+       Eio.traceln
+         "[warn] [kimi_cli] Unsupported model %s requested. Kimi CLI officially supports \
+          %s"
+         m
+         (String.concat ", " supported)
    | _ -> ());
   override
 ;;

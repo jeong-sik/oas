@@ -151,7 +151,7 @@ let telemetry_of_openai_json json =
         ; cache_n = (if t = `Null then None else member_int_fallback t [ "cache_n" ])
         }
   in
-  let (reasoning_tokens, reasoning_tokens_estimated) =
+  let reasoning_tokens, reasoning_tokens_estimated =
     let from_details =
       if usage = `Null
       then None
@@ -162,7 +162,7 @@ let telemetry_of_openai_json json =
         else details |> member "reasoning_tokens" |> to_int_option)
     in
     match from_details with
-    | Some _ -> (from_details, false)
+    | Some _ -> from_details, false
     | None ->
       let msg =
         try json |> member "choices" |> index 0 |> member "message" with
@@ -181,9 +181,8 @@ let telemetry_of_openai_json json =
       in
       (match reasoning_text with
        | Some s ->
-         ( Some (max 1 (String.length s / Constants.Token_estimation.chars_per_token))
-         , true )
-       | None -> (None, false))
+         Some (max 1 (String.length s / Constants.Token_estimation.chars_per_token)), true
+       | None -> None, false)
   in
   let peak_memory_gb =
     first_some

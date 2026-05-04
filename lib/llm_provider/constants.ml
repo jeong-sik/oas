@@ -93,8 +93,12 @@ module Inference = struct
       (match int_of_string_opt s with
        | Some n when n > 0 -> n
        | _ ->
-         Diag.warn "constants" "OAS_MAX_TOKENS_DEFAULT=%S is not a valid positive int, using 16384" s;
+         Diag.warn
+           "constants"
+           "OAS_MAX_TOKENS_DEFAULT=%S is not a valid positive int, using 16384"
+           s;
          16384)
+  ;;
 end
 
 (* ── Cache ───────────────────────────────────────── *)

@@ -40,9 +40,8 @@ let build_request
     match config.enable_thinking with
     | Some true -> true
     | Some false -> false
-    | None ->
-      Cli_common_env.bool "OAS_OLLAMA_THINK_DEFAULT"
-      (* default false: thinking models consume tokens in reasoning *)
+    | None -> Cli_common_env.bool "OAS_OLLAMA_THINK_DEFAULT"
+    (* default false: thinking models consume tokens in reasoning *)
   in
   let body = ("think", `Bool think) :: body in
   (* Ollama defaults to stream=true, so always send explicit value *)
@@ -126,7 +125,11 @@ let build_request
     | None -> Capabilities.ollama_capabilities
   in
   let options = ref [] in
-  (let mt = Option.value ~default:Constants.Inference.unknown_model_max_tokens_fallback config.max_tokens in
+  (let mt =
+     Option.value
+       ~default:Constants.Inference.unknown_model_max_tokens_fallback
+       config.max_tokens
+   in
    options := ("num_predict", `Int mt) :: !options);
   (match config.temperature with
    | Some t -> options := ("temperature", `Float t) :: !options

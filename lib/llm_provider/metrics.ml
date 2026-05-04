@@ -17,8 +17,8 @@ type t =
   ; on_retry : provider:string -> model_id:string -> attempt:int -> unit
     (** Fired when a request is retried due to a retryable error.
       @since 0.185.0 *)
-  ; on_token_usage
-    : provider:string -> model_id:string -> input_tokens:int -> output_tokens:int -> unit
+  ; on_token_usage :
+      provider:string -> model_id:string -> input_tokens:int -> output_tokens:int -> unit
     (** Fired when a response carries usage tokens.
       @since 0.185.0 *)
   }
@@ -89,6 +89,7 @@ let empty_state () : aggregate_state =
   ; latency_ms_sum = 0
   ; latency_ms_count = 0
   }
+;;
 
 (** Thread-safe aggregating metrics backend.
     Accumulates per-provider counters in a hash table guarded by a Mutex.
@@ -108,6 +109,7 @@ module Aggregating = struct
 
   let create ?(inner = noop) () : t =
     { hooks = inner; states = Hashtbl.create 16; mutex = Mutex.create () }
+  ;;
 
   let with_state agg key f =
     Mutex.lock agg.mutex;
@@ -130,37 +132,36 @@ module Aggregating = struct
     ; on_cache_miss = (fun ~model_id -> agg.hooks.on_cache_miss ~model_id)
     ; on_request_start =
         (fun ~model_id ->
-           agg.hooks.on_request_start ~model_id;
-           with_state agg ("unknown/" ^ model_id)
-             (fun s -> s.request_total <- s.request_total + 1))
+          agg.hooks.on_request_start ~model_id;
+          with_state agg ("unknown/" ^ model_id) (fun s ->
+            s.request_total <- s.request_total + 1))
     ; on_request_end =
         (fun ~model_id ~latency_ms ->
-           agg.hooks.on_request_end ~model_id ~latency_ms;
-           with_state agg ("unknown/" ^ model_id)
-             (fun s ->
-                s.latency_ms_sum <- s.latency_ms_sum + latency_ms;
-                s.latency_ms_count <- s.latency_ms_count + 1))
+          agg.hooks.on_request_end ~model_id ~latency_ms;
+          with_state agg ("unknown/" ^ model_id) (fun s ->
+            s.latency_ms_sum <- s.latency_ms_sum + latency_ms;
+            s.latency_ms_count <- s.latency_ms_count + 1))
     ; on_error =
         (fun ~model_id ~error ->
-           agg.hooks.on_error ~model_id ~error;
-           with_state agg ("unknown/" ^ model_id)
-             (fun s -> s.error_total <- s.error_total + 1))
+          agg.hooks.on_error ~model_id ~error;
+          with_state agg ("unknown/" ^ model_id) (fun s ->
+            s.error_total <- s.error_total + 1))
     ; on_http_status =
         (fun ~provider ~model_id ~status ->
-           agg.hooks.on_http_status ~provider ~model_id ~status)
-    ; on_capability_drop = (fun ~model_id ~field -> agg.hooks.on_capability_drop ~model_id ~field)
+          agg.hooks.on_http_status ~provider ~model_id ~status)
+    ; on_capability_drop =
+        (fun ~model_id ~field -> agg.hooks.on_capability_drop ~model_id ~field)
     ; on_retry =
         (fun ~provider ~model_id ~attempt ->
-           agg.hooks.on_retry ~provider ~model_id ~attempt;
-           with_state agg (key ~provider ~model_id)
-             (fun s -> s.retry_total <- s.retry_total + 1))
+          agg.hooks.on_retry ~provider ~model_id ~attempt;
+          with_state agg (key ~provider ~model_id) (fun s ->
+            s.retry_total <- s.retry_total + 1))
     ; on_token_usage =
         (fun ~provider ~model_id ~input_tokens ~output_tokens ->
-           agg.hooks.on_token_usage ~provider ~model_id ~input_tokens ~output_tokens;
-           with_state agg (key ~provider ~model_id)
-             (fun s ->
-                s.input_tokens_total <- s.input_tokens_total + input_tokens;
-                s.output_tokens_total <- s.output_tokens_total + output_tokens))
+          agg.hooks.on_token_usage ~provider ~model_id ~input_tokens ~output_tokens;
+          with_state agg (key ~provider ~model_id) (fun s ->
+            s.input_tokens_total <- s.input_tokens_total + input_tokens;
+            s.output_tokens_total <- s.output_tokens_total + output_tokens))
     }
   ;;
 
@@ -174,9 +175,8 @@ module Aggregating = struct
               let provider, model_id =
                 match String.index_opt k '/' with
                 | Some i ->
-                  ( String.sub k 0 i
-                  , String.sub k (i + 1) (String.length k - i - 1) )
-                | None -> (k, "")
+                  String.sub k 0 i, String.sub k (i + 1) (String.length k - i - 1)
+                | None -> k, ""
               in
               { provider
               ; model_id

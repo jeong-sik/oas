@@ -45,10 +45,10 @@ type capabilities =
     supports_top_k : bool
   ; supports_min_p : bool
   ; supports_seed : bool
-  (** Deterministic seed for reproducible sampling.
+    (** Deterministic seed for reproducible sampling.
       @since 0.185.0 *)
   ; supports_seed_with_images : bool
-  (** Whether seed determinism is maintained when image inputs are present.
+    (** Whether seed determinism is maintained when image inputs are present.
       Local providers (Ollama) achieve near-perfect reproducibility; cloud
       providers (OpenAI, Gemini) do not guarantee it.
       @since 0.185.0 *)
@@ -92,9 +92,10 @@ val claude_code_capabilities : capabilities
 val gemini_cli_capabilities : capabilities
 val kimi_cli_capabilities : capabilities
 val codex_cli_capabilities : capabilities
-val nemotron_capabilities : capabilities
+
 (** NVIDIA NIM Nemotron capabilities: Llama-based, chat_template_kwargs thinking.
     @since 0.185.0 *)
+val nemotron_capabilities : capabilities
 
 (** Lookup capabilities for a known model_id.
     Returns [None] if the model is not in the built-in table. *)

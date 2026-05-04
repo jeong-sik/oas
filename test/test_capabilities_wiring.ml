@@ -11,7 +11,8 @@ let test_discovery_infers_from_model_name () =
     [ { id = "qwen3.5-35b-a3b-q4"; owned_by = "local" } ]
   in
   let props : Discovery.server_props option =
-    Some { total_slots = 4; ctx_size = 262144; model = "qwen3.5-35b" ; supports_tools = None }
+    Some
+      { total_slots = 4; ctx_size = 262144; model = "qwen3.5-35b"; supports_tools = None }
   in
   (* Discovery.infer_capabilities is internal, but we can test via
      the endpoint_status.capabilities after Discovery.discover.

@@ -28,8 +28,8 @@ let compact_watermark_default =
      | Some w when w > 0.0 && w < 1.0 -> w
      | _ ->
        Eio.traceln
-         "[warn] [pipeline] OAS_COMPACT_WATERMARK=%S invalid (expected 0.0 < v < \
-          1.0), using 0.9"
+         "[warn] [pipeline] OAS_COMPACT_WATERMARK=%S invalid (expected 0.0 < v < 1.0), \
+          using 0.9"
          s;
        0.9)
 ;;

@@ -211,10 +211,10 @@ let from_capabilities ?(margin = 0.8) (caps : Llm_provider.Capabilities.capabili
     in
     let with_cache =
       if caps.supports_prompt_caching
-      then
+      then (
         match caps.prompt_cache_alignment with
         | Some size -> base_reducers @ [ align_to_cache ~size ]
-        | None -> base_reducers
+        | None -> base_reducers)
       else base_reducers
     in
     Some (compose with_cache)
@@ -246,11 +246,10 @@ let from_context_config
       ()
   =
   let ceiling_budget =
-    int_of_float (float_of_int max_tokens *. Option.value ~default:compact_ratio target_ratio)
+    int_of_float
+      (float_of_int max_tokens *. Option.value ~default:compact_ratio target_ratio)
   in
-  let normal_budget =
-    int_of_float (float_of_int max_tokens *. compact_ratio)
-  in
+  let normal_budget = int_of_float (float_of_int max_tokens *. compact_ratio) in
   let aggressive =
     compose
       [ drop_thinking
@@ -261,7 +260,12 @@ let from_context_config
       ]
   in
   let conservative =
-    compose [ drop_thinking; repair_dangling_tool_calls; repair_orphaned_tool_results; prune_tool_args ~max_arg_len:5000 () ]
+    compose
+      [ drop_thinking
+      ; repair_dangling_tool_calls
+      ; repair_orphaned_tool_results
+      ; prune_tool_args ~max_arg_len:5000 ()
+      ]
   in
   dynamic (fun ~turn:_ ~messages ->
     let current_tokens =
@@ -580,5 +584,4 @@ let%test "estimate_block_tokens ToolResult uses CJK-aware estimation" =
   in
   let tokens = estimate_block_tokens block in
   tokens >= 1
-;;
 ;;

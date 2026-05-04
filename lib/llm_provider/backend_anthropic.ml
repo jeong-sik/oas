@@ -75,7 +75,11 @@ let build_request
   let msgs_json = List.map message_to_json messages in
   let body =
     [ "model", `String config.model_id
-    ; "max_tokens", `Int (Option.value ~default:Constants.Inference.unknown_model_max_tokens_fallback config.max_tokens)
+    ; ( "max_tokens"
+      , `Int
+          (Option.value
+             ~default:Constants.Inference.unknown_model_max_tokens_fallback
+             config.max_tokens) )
     ; "messages", `List msgs_json
     ; "stream", `Bool stream
     ]
@@ -88,7 +92,8 @@ let build_request
         config.cache_system_prompt
         || String.length s >= Constants.Anthropic.prompt_cache_min_chars
       in
-      if should_cache_system then (
+      if should_cache_system
+      then (
         (* Anthropic prompt caching: requires ~1024+ tokens.
              Send system as content block array with cache_control breakpoint. *)
         let block =
