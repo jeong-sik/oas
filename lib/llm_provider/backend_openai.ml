@@ -68,6 +68,8 @@ let tool_choice_label = function
 let effective_tool_choice (config : Provider_config.t) =
   match config.kind, config.tool_choice with
   | Provider_config.Glm, Some None_ -> None
+  | Provider_config.Glm, Some Auto ->
+    Some (tool_choice_to_openai_json Auto)
   | Provider_config.Glm, Some coerced ->
     Diag.warn
       "backend_openai"

@@ -900,7 +900,7 @@ let complete_with_retry
     | Error err ->
       (match classify_retry_error err with
        | Some api_err when Retry.is_retryable api_err ->
-         if attempt > rc.max_retries
+         if attempt >= rc.max_retries
          then Error err
          else (
            m.on_retry ~provider ~model_id ~attempt:(attempt + 1);
