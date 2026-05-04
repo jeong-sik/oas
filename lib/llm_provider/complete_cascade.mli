@@ -51,7 +51,7 @@ val record_failure : provider_health -> string -> unit
 (** Why a cascade step was skipped. *)
 type skip_reason =
   | Circuit_breaker_open of { provider : string }
-      (** Provider is circuit-broken (consecutive failures above threshold
+  (** Provider is circuit-broken (consecutive failures above threshold
           and cooldown has not elapsed). *)
 
 (** Outcome of a cascade attempt. *)
@@ -61,20 +61,20 @@ type cascade_result =
       ; step_index : int
       ; model_id : string
       }
-      (** A provider returned a successful response. [step_index] is the
+  (** A provider returned a successful response. [step_index] is the
           0-based index into the [steps] list. *)
   | All_failed of
       { errors : (Provider_config.t * Http_client.http_error) list
       ; skipped : (Provider_config.t * skip_reason) list
       }
-      (** Every provider failed or was skipped. [errors] lists providers
+  (** Every provider failed or was skipped. [errors] lists providers
           that were tried; [skipped] lists providers that were
           circuit-broken. *)
   | Hard_quota of
       { config : Provider_config.t
       ; error : Http_client.http_error
       }
-      (** A provider hit hard account-level quota (balance depleted,
+  (** A provider hit hard account-level quota (balance depleted,
           monthly limit). Cascade stops immediately because retrying
           another provider on the same account will also fail. *)
 

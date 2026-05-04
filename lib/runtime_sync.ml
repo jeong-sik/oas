@@ -1,4 +1,5 @@
 let schema_version_current = 1
+
 open Result_syntax
 
 type persistence_backend =

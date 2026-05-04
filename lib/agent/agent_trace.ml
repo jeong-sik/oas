@@ -1,6 +1,5 @@
 open Types
 open Agent_types
-
 open Result_syntax
 
 let record_hook_invocation active_run ~hook_name ~decision ?detail () =

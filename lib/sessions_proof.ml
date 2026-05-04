@@ -6,7 +6,6 @@
 
 open Sessions_types
 open Sessions_store
-
 open Result_syntax
 
 let participant_by_name (session : Runtime.session) name =

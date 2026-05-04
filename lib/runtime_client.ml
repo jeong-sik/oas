@@ -11,6 +11,7 @@ type options = Transport.options =
   }
 
 open Result_syntax
+
 let default_options = Transport.default_options
 
 type t = { transport : Transport.t }

@@ -27,7 +27,10 @@ let test_provider_key () =
       ~base_url:"https://api.anthropic.com"
       ()
   in
-  check string "key format" "claude-sonnet-4-20250514@https://api.anthropic.com"
+  check
+    string
+    "key format"
+    "claude-sonnet-4-20250514@https://api.anthropic.com"
     (Complete_cascade.provider_key config)
 ;;
 
@@ -39,7 +42,10 @@ let test_provider_key_local () =
       ~base_url:"http://127.0.0.1:11434"
       ()
   in
-  check string "local key" "llama3@http://127.0.0.1:11434"
+  check
+    string
+    "local key"
+    "llama3@http://127.0.0.1:11434"
     (Complete_cascade.provider_key config)
 ;;
 
@@ -47,7 +53,10 @@ let test_provider_key_different_models_same_url () =
   let base = "http://localhost:11434" in
   let c1 = Provider_config.make ~kind:Ollama ~model_id:"llama3" ~base_url:base () in
   let c2 = Provider_config.make ~kind:Ollama ~model_id:"mistral" ~base_url:base () in
-  check bool "different keys" true
+  check
+    bool
+    "different keys"
+    true
     (Complete_cascade.provider_key c1 <> Complete_cascade.provider_key c2)
 ;;
 
@@ -62,7 +71,10 @@ let test_record_failure_accumulates () =
   let health = Complete_cascade.create_health () in
   let config =
     Provider_config.make
-      ~kind:Ollama ~model_id:"test" ~base_url:"http://localhost:11434" ()
+      ~kind:Ollama
+      ~model_id:"test"
+      ~base_url:"http://localhost:11434"
+      ()
   in
   let key = Complete_cascade.provider_key config in
   Complete_cascade.record_failure health key;
@@ -75,7 +87,10 @@ let test_health_success_resets () =
   let health = Complete_cascade.create_health () in
   let config =
     Provider_config.make
-      ~kind:Ollama ~model_id:"test" ~base_url:"http://localhost:11434" ()
+      ~kind:Ollama
+      ~model_id:"test"
+      ~base_url:"http://localhost:11434"
+      ()
   in
   let key = Complete_cascade.provider_key config in
   Complete_cascade.record_failure health key;
@@ -99,33 +114,30 @@ let test_default_config () =
 let test_result_success_variant () =
   let result =
     Complete_cascade.Success
-      { response = dummy_response
-      ; step_index = 0
-      ; model_id = "gpt-4"
-      }
+      { response = dummy_response; step_index = 0; model_id = "gpt-4" }
   in
-  (match result with
-   | Complete_cascade.Success { step_index; model_id; _ } ->
-     check int "step_index" 0 step_index;
-     check string "model_id" "gpt-4" model_id
-   | _ -> fail "expected Success")
+  match result with
+  | Complete_cascade.Success { step_index; model_id; _ } ->
+    check int "step_index" 0 step_index;
+    check string "model_id" "gpt-4" model_id
+  | _ -> fail "expected Success"
 ;;
 
 let test_result_all_failed_variant () =
   let config =
     Provider_config.make
-      ~kind:Ollama ~model_id:"llama3" ~base_url:"http://localhost:11434" ()
+      ~kind:Ollama
+      ~model_id:"llama3"
+      ~base_url:"http://localhost:11434"
+      ()
   in
   let err = Http_client.HttpError { code = 500; body = "internal" } in
-  let result =
-    Complete_cascade.All_failed
-      { errors = [ config, err ]; skipped = [] }
-  in
-  (match result with
-   | Complete_cascade.All_failed { errors; skipped } ->
-     check int "error count" 1 (List.length errors);
-     check int "skipped count" 0 (List.length skipped)
-   | _ -> fail "expected All_failed")
+  let result = Complete_cascade.All_failed { errors = [ config, err ]; skipped = [] } in
+  match result with
+  | Complete_cascade.All_failed { errors; skipped } ->
+    check int "error count" 1 (List.length errors);
+    check int "skipped count" 0 (List.length skipped)
+  | _ -> fail "expected All_failed"
 ;;
 
 let test_result_hard_quota_variant () =
@@ -140,25 +152,22 @@ let test_result_hard_quota_variant () =
     Http_client.HttpError
       { code = 429
       ; body =
-          "{\"error\":{\"type\":\"error\",\"message\":\"Your account has exceeded the API usage limit.\"}}"
+          "{\"error\":{\"type\":\"error\",\"message\":\"Your account has exceeded the \
+           API usage limit.\"}}"
       }
   in
-  let result =
-    Complete_cascade.Hard_quota { config; error = err }
-  in
-  (match result with
-   | Complete_cascade.Hard_quota { config = c; _ } ->
-     check string "model_id" "claude-sonnet-4-20250514" c.Provider_config.model_id
-   | _ -> fail "expected Hard_quota")
+  let result = Complete_cascade.Hard_quota { config; error = err } in
+  match result with
+  | Complete_cascade.Hard_quota { config = c; _ } ->
+    check string "model_id" "claude-sonnet-4-20250514" c.Provider_config.model_id
+  | _ -> fail "expected Hard_quota"
 ;;
 
 let test_skip_reason_variant () =
-  let reason =
-    Complete_cascade.Circuit_breaker_open { provider = "test@localhost" }
-  in
-  (match reason with
-   | Complete_cascade.Circuit_breaker_open { provider } ->
-     check string "provider" "test@localhost" provider)
+  let reason = Complete_cascade.Circuit_breaker_open { provider = "test@localhost" } in
+  match reason with
+  | Complete_cascade.Circuit_breaker_open { provider } ->
+    check string "provider" "test@localhost" provider
 ;;
 
 (* ── Test suite ───────────────────────────────────────── *)
@@ -176,11 +185,12 @@ let suite =
   ; "result_hard_quota", `Quick, test_result_hard_quota_variant
   ; "skip_reason", `Quick, test_skip_reason_variant
   ]
+;;
 
 let () =
   Alcotest.run
     "complete_cascade"
     [ ( "types_and_health"
-      , List.map (fun (n, speed, f) -> Alcotest.test_case n speed f) suite
-      )
+      , List.map (fun (n, speed, f) -> Alcotest.test_case n speed f) suite )
     ]
+;;

@@ -15,7 +15,6 @@ open Agent_trace
 open Types
 open Agent_types
 open Agent_trace
-
 open Result_syntax
 
 type api_strategy =

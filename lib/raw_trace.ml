@@ -1,5 +1,4 @@
 open Types
-
 open Result_syntax
 
 type record_type =

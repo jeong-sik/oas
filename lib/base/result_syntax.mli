@@ -18,14 +18,14 @@
     @since 0.187.7
     @stability Stable *)
 
-val ( let* ) : ('a, 'e) result -> ('a -> ('b, 'e) result) -> ('b, 'e) result
 (** Alias for {!Result.bind}. Sequential bind. *)
+val ( let* ) : ('a, 'e) result -> ('a -> ('b, 'e) result) -> ('b, 'e) result
 
-val ( let+ ) : ('a, 'e) result -> ('a -> 'b) -> ('b, 'e) result
 (** Alias for [Result.map f]. Sequential map. *)
+val ( let+ ) : ('a, 'e) result -> ('a -> 'b) -> ('b, 'e) result
 
-val ( and* ) : ('a, 'e) result -> ('b, 'e) result -> (('a * 'b), 'e) result
 (** Parallel accumulate — both must succeed. *)
+val ( and* ) : ('a, 'e) result -> ('b, 'e) result -> ('a * 'b, 'e) result
 
-val ( and+ ) : ('a, 'e) result -> ('b, 'e) result -> (('a * 'b), 'e) result
 (** Parallel accumulate — both must succeed. *)
+val ( and+ ) : ('a, 'e) result -> ('b, 'e) result -> ('a * 'b, 'e) result

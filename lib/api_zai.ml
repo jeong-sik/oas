@@ -123,9 +123,7 @@ let parse_media_async_result body =
         |> member "url"
         |> to_string_option
         |> Option.map (fun url ->
-          { url
-          ; cover_image_url = item |> member "cover_image_url" |> to_string_option
-          }))
+          { url; cover_image_url = item |> member "cover_image_url" |> to_string_option }))
     in
     Ok
       { model = json |> member "model" |> to_string
@@ -374,7 +372,7 @@ let transcribe_audio
       ~source
       ()
   =
-  let* (boundary, body) = multipart_body ?prompt ?language ~model ~source () in
+  let* boundary, body = multipart_body ?prompt ?language ~model ~source () in
   let headers = auth_headers ?api_key ("multipart/form-data; boundary=" ^ boundary) in
   post_json
     ~sw

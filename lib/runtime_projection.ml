@@ -1,6 +1,6 @@
 open Runtime
-
 open Result_syntax
+
 let now () = Unix.gettimeofday ()
 
 let make_session_id () =

@@ -1,6 +1,5 @@
 module Retry = Llm_provider.Retry
 open Agent_types
-
 open Result_syntax
 
 let sdk_error_of_http_error : Llm_provider.Http_client.http_error -> Error.sdk_error =

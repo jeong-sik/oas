@@ -57,6 +57,7 @@ type capture =
   }
 
 open Result_syntax
+
 let argv_to_string argv = String.concat " " (List.map Filename.quote argv)
 
 let status_to_string = function

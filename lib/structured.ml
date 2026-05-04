@@ -138,9 +138,7 @@ let extract ~sw ~net ?base_url ?provider ~config ~(schema : 'a schema) prompt
       }
     ]
   in
-  let* provider_cfg =
-    provider_config_for_schema ~base_url ?provider ~config ~schema ()
-  in
+  let* provider_cfg = provider_config_for_schema ~base_url ?provider ~config ~schema () in
   let* response =
     Llm_provider.Complete.complete ~sw ~net ~config:provider_cfg ~messages ~tools:[] ()
     |> Result.map_error sdk_error_of_http_error
@@ -155,8 +153,7 @@ let extract ~sw ~net ?base_url ?provider ~config ~(schema : 'a schema) prompt
 type 'a extractor = api_response -> ('a, string) result
 
 let schema_json_extractor (schema : 'a schema) : 'a extractor =
-  fun response ->
-  extract_text_json ~schema response |> Result.map_error Error.to_string
+  fun response -> extract_text_json ~schema response |> Result.map_error Error.to_string
 ;;
 
 (* NOTE: keep [json_extractor] / [text_extractor] for callers who parse
@@ -291,44 +288,44 @@ let extract_with_retry
       |> Result.map_error sdk_error_of_http_error
     in
     let total = add_retry_usage acc_usage response.usage in
-    (match extract_text_json ~schema response with
-     | Ok v -> Ok { value = v; total_usage = total; attempts = n + 1 }
-     | Error e ->
-       let error_msg = Error.to_string e in
-       let decision =
-         Tool_retry_policy.decide
-           ~policy:retry_policy
-           ~prior_retries:n
-           [ { Tool_retry_policy.tool_name = schema.name
-             ; detail = error_msg
-             ; kind = Tool_retry_policy.Validation_error
-             ; error_class = Tool_retry_policy.Deterministic
-             }
-           ]
-       in
-       (match decision with
-        | Tool_retry_policy.Retry { retry_count; summary } ->
-          (match on_validation_error with
-           | Some cb -> cb retry_count error_msg
-           | None -> ());
-          let retry_messages =
-            messages
-            @ [ { role = Assistant
-                ; content = response.content
-                ; name = None
-                ; tool_call_id = None
-                ; metadata = []
-                }
-              ; { role = User
-                ; content = [ Text (validation_feedback_message ~summary ~error_msg) ]
-                ; name = None
-                ; tool_call_id = None
-                ; metadata = []
-                }
-              ]
-          in
-          attempt retry_count total retry_messages
-        | Tool_retry_policy.Exhausted _ | Tool_retry_policy.No_retry -> Error e))
+    match extract_text_json ~schema response with
+    | Ok v -> Ok { value = v; total_usage = total; attempts = n + 1 }
+    | Error e ->
+      let error_msg = Error.to_string e in
+      let decision =
+        Tool_retry_policy.decide
+          ~policy:retry_policy
+          ~prior_retries:n
+          [ { Tool_retry_policy.tool_name = schema.name
+            ; detail = error_msg
+            ; kind = Tool_retry_policy.Validation_error
+            ; error_class = Tool_retry_policy.Deterministic
+            }
+          ]
+      in
+      (match decision with
+       | Tool_retry_policy.Retry { retry_count; summary } ->
+         (match on_validation_error with
+          | Some cb -> cb retry_count error_msg
+          | None -> ());
+         let retry_messages =
+           messages
+           @ [ { role = Assistant
+               ; content = response.content
+               ; name = None
+               ; tool_call_id = None
+               ; metadata = []
+               }
+             ; { role = User
+               ; content = [ Text (validation_feedback_message ~summary ~error_msg) ]
+               ; name = None
+               ; tool_call_id = None
+               ; metadata = []
+               }
+             ]
+         in
+         attempt retry_count total retry_messages
+       | Tool_retry_policy.Exhausted _ | Tool_retry_policy.No_retry -> Error e)
   in
   let initial_messages = [ initial_message ] in
   attempt 0 empty_usage initial_messages

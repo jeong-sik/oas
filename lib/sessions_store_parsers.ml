@@ -6,6 +6,7 @@
 open Sessions_types
 
 let json_parse_error = Util.json_parse_error
+
 open Result_syntax
 
 let parse_json_string raw =
