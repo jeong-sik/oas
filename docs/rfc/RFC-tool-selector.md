@@ -435,18 +435,18 @@ Tool_selector의 LLM 전략은 cascade를 통해 LLM을 호출할 수 있다.
 
 ```
 Selector LLM call (optional, lightweight)
-  -> cascade: "selector" profile (fast, cheap model)
+  -> provider: "selector" (fast, cheap model, caller-supplied Provider_config.t)
   -> output: tool name list
 
 Main Agent LLM call (existing)
-  -> cascade: "primary" or agent's named cascade
+  -> provider: caller-supplied primary provider
   -> input: selected tool schemas only
   -> output: tool_use blocks
 ```
 
-Selector용 cascade profile을 별도로 정의하면
+Selector용 provider를 별도로 정의하면
 main agent와 다른 모델/설정으로 selection을 수행할 수 있다.
-이는 OAS cascade_config의 기존 기능으로 충분하다.
+Provider_config.t를 직접 전달하면 된다 (cascade_config는 OAS 0.144.0에서 제거됨).
 
 ---
 

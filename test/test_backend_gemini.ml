@@ -523,20 +523,8 @@ let test_gemini_stream_finish () =
   | None -> fail "expected Some chunk"
 ;;
 
-(* ── Cascade config tests ──────────────────────────── *)
-
-let test_cascade_gemini_kind () =
-  (* Gemini parse should produce kind=Gemini if GEMINI_API_KEY is set *)
-  match Sys.getenv_opt "GEMINI_API_KEY" with
-  | Some _ ->
-    (match Cascade_config.parse_model_string "gemini:gemini-2.5-flash" with
-     | Some cfg -> check bool "kind is Gemini" true (cfg.kind = Provider_config.Gemini)
-     | None -> fail "expected Some for gemini")
-  | None ->
-    (* No key, should return None *)
-    let result = Cascade_config.parse_model_string "gemini:gemini-2.5-flash" in
-    check bool "gemini without key" true (Option.is_none result)
-;;
+(* NOTE: test_cascade_gemini_kind was removed — Cascade_config.parse_model_string
+   was deleted from OAS in 0.144.0 as part of the MASC migration. *)
 
 let test_gemini_capabilities_named () =
   let caps = Capabilities.gemini_capabilities in
@@ -789,9 +777,7 @@ let () =
             `Quick
             test_gemini_stream_tool_first_then_text
         ] )
-    ; ( "cascade_config"
-      , [ test_case "gemini kind" `Quick test_cascade_gemini_kind
-        ; test_case "capabilities named" `Quick test_gemini_capabilities_named
-        ] )
+    ; ( "capabilities"
+      , [ test_case "gemini capabilities" `Quick test_gemini_capabilities_named ] )
     ]
 ;;

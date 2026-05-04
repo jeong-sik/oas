@@ -1,4 +1,9 @@
 ---- MODULE CascadeFSM ----
+\* ARCHIVED 2026-05-04. This spec modelled cascade_fsm.ml which was deleted
+\* from OAS in 0.144.0 as part of the MASC migration. Multi-provider cascade
+\* FSM and group orchestration are now MASC-owned. Kept verbatim for
+\* historical context; do not link to it from active OAS specs.
+\*
 \* Models cascade_fsm.ml decide function directly.
 \*
 \* Verifies:
