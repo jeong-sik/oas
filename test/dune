@@ -2,3 +2,8 @@
  (name test_local_llm)
  (modules test_local_llm)
  (libraries agent_sdk eio eio_main yojson))
+
+(test
+ (name test_metrics_aggregating)
+ (modules test_metrics_aggregating)
+ (libraries agent_sdk alcotest))
