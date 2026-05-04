@@ -58,34 +58,16 @@ let warn_capability_drop ~model_id ~field =
 
 (* ── Request building ──────────────────────────────────── *)
 
-let tool_choice_label = function
-  | Types.Auto -> "Auto"
-  | Any -> "Any"
-  | Tool name -> "Tool(" ^ name ^ ")"
-  | None_ -> "None_"
-;;
-
 let effective_tool_choice (config : Provider_config.t) =
-  match config.kind, config.tool_choice with
-  | Provider_config.Glm, Some None_ -> None
-  | Provider_config.Glm, Some Auto -> Some (tool_choice_to_openai_json Auto)
-  | Provider_config.Glm, Some coerced ->
-    Diag.warn
-      "backend_openai"
-      "GLM only supports tool_choice=auto; coercing %s to Auto for model %s"
-      (tool_choice_label coerced)
-      config.model_id;
-    (Metrics.get_global ()).on_capability_drop
-      ~model_id:config.model_id
-      ~field:("tool_choice." ^ tool_choice_label coerced);
-    Some (tool_choice_to_openai_json Auto)
-  | _, Some choice -> Some (tool_choice_to_openai_json choice)
-  | _, None -> None
+  match config.tool_choice with
+  | Some None_ -> None
+  | Some choice -> Some (tool_choice_to_openai_json choice)
+  | None -> None
 ;;
 
 let effective_tools (config : Provider_config.t) tools =
-  match config.kind, config.tool_choice with
-  | Provider_config.Glm, Some None_ -> []
+  match config.tool_choice with
+  | Some None_ -> []
   | _ -> tools
 ;;
 
@@ -279,8 +261,6 @@ let build_request
   in
   let body =
     match effective_tool_choice config with
-    | Some choice_json when config.kind = Provider_config.Glm ->
-      ("tool_choice", choice_json) :: body
     | Some choice_json when supports_tool_choice -> ("tool_choice", choice_json) :: body
     | None -> body
     | Some _ -> body
@@ -340,7 +320,7 @@ let%test "tool_choice_to_openai_json Tool name" =
   && result |> member "function" |> member "name" |> to_string = "my_tool"
 ;;
 
-let%test "glm coerces named tool_choice to auto" =
+let%test "glm passes named tool_choice through (no coerce)" =
   let cfg =
     Provider_config.make
       ~kind:Provider_config.Glm
@@ -349,10 +329,13 @@ let%test "glm coerces named tool_choice to auto" =
       ~tool_choice:(Tool "calculator")
       ()
   in
-  effective_tool_choice cfg = Some (`String "auto")
+  effective_tool_choice cfg
+  = Some
+      (`Assoc
+        [ "type", `String "function"; "function", `Assoc [ "name", `String "calculator" ] ])
 ;;
 
-let%test "glm coerces tool_choice any to auto" =
+let%test "glm passes tool_choice any through (no coerce)" =
   let cfg =
     Provider_config.make
       ~kind:Provider_config.Glm
@@ -361,7 +344,7 @@ let%test "glm coerces tool_choice any to auto" =
       ~tool_choice:Any
       ()
   in
-  effective_tool_choice cfg = Some (`String "auto")
+  effective_tool_choice cfg = Some (`String "required")
 ;;
 
 let%test "glm drops tool_choice none" =
@@ -1327,7 +1310,7 @@ let%test "build_request omits tool_choice when tool_choice=None" =
   | _ -> false
 ;;
 
-let%test "glm build_request coerces explicit tool_choice to auto" =
+let%test "glm build_request drops tool_choice when unsupported" =
   let config =
     Provider_config.make
       ~kind:Provider_config.Glm
@@ -1338,8 +1321,9 @@ let%test "glm build_request coerces explicit tool_choice to auto" =
   in
   let body = build_request ~config ~messages:[] () in
   let json = Yojson.Safe.from_string body in
-  let open Yojson.Safe.Util in
-  json |> member "tool_choice" |> to_string = "auto"
+  match json with
+  | `Assoc fields -> not (List.exists (fun (k, _) -> k = "tool_choice") fields)
+  | _ -> false
 ;;
 
 let%test "glm build_request replays reasoning_content without leaking it into content" =
