@@ -348,7 +348,13 @@ let pricing_entry_of_json json =
         | `Null -> 1.0
         | v -> to_float v
       in
-      Ok { pattern; input_per_million; output_per_million; cache_write_multiplier; cache_read_multiplier })
+      Ok
+        { pattern
+        ; input_per_million
+        ; output_per_million
+        ; cache_write_multiplier
+        ; cache_read_multiplier
+        })
   with
   | Type_error (msg, _) -> Error ("type error: " ^ msg)
   | Not_found -> Error "missing required field"
@@ -1010,8 +1016,7 @@ let%test "parse_pricing_entries_json: valid array" =
 let%test "parse_pricing_entries_json: optional cache multipliers default to 1.0" =
   let json =
     Yojson.Safe.from_string
-      {|[{"pattern":"m","input_per_million":0.5,"output_per_million":2.0,
-          "cache_write_multiplier":1.25,"cache_read_multiplier":0.1}]|}
+      {|[{"pattern":"m","input_per_million":0.5,"output_per_million":2.0,"cache_write_multiplier":1.25,"cache_read_multiplier":0.1}]|}
   in
   match parse_pricing_entries_json json with
   | Ok [ e ] ->
