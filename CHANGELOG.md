@@ -8,6 +8,16 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+### Added
+- `Pricing.pricing_entry` type and dynamic pricing override API:
+  `install_pricing_overrides`, `clear_pricing_overrides`,
+  `pricing_entry_of_json`, `parse_pricing_entries_json`,
+  `load_pricing_file`, `pricing_overrides_from_env`.
+  Set `OAS_PRICING_FILE` (path to a JSON array file) or
+  `OAS_PRICING_OVERRIDES` (inline JSON) to override per-model pricing
+  at runtime without a code release.  A `Diag.warn` fires once per
+  process when installed overrides are older than 24 h (H11).
+
 ## [0.188.1] - 2026-05-05
 
 ### Changed
