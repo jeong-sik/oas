@@ -8,6 +8,20 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.188.0] - 2026-05-05
+
+### Added
+- Provider cascade routing with cross-provider failover and circuit breaking (`Complete_cascade`).
+- `agent_sdk.base` sub-library extraction: Types, Error, Context, Tool, Model_registry, Completion_contract_id, Result_syntax.
+- `ppx_let` support via `Result_syntax.Let_syntax` module (`let%bind`, `let%map`, `and%bind`).
+- LLM provider metrics module (`Metrics`) for request/response/latency tracking.
+- Dynamic prompt cache alignment and context budget compaction.
+- MCP CLI provider integration with Ollama dynamic capabilities.
+- GLM-5-Code models and Kimi CLI model restrictions.
+
+### Changed
+- `artifact_service.ml` migrated to `let%bind`/`Let_syntax.return` style.
+
 ## [0.187.7] - 2026-05-02
 
 ### Added
