@@ -1520,6 +1520,79 @@ let%test "build_request emits chat_template_kwargs for Chat_template_kwargs capa
   json |> member "thinking" = `Null && json |> member "chat_template_kwargs" = `Null
 ;;
 
+let%test "max_tokens clamped to capability ceiling when caller exceeds cap" =
+  (* glm-4-flash has max_output_tokens = Some 4_096 in for_model_id.
+     When caller requests 8_000, backend must clamp to 4_096 to
+     avoid server 400 rejection. Regression guard for S07. *)
+  let config =
+    Provider_config.make
+      ~kind:Provider_config.Glm
+      ~model_id:"glm-4-flash"
+      ~base_url:Zai_catalog.general_base_url
+      ~max_tokens:8_000
+      ()
+  in
+  let body = build_request ~config ~messages:[] () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  json |> member "max_tokens" |> to_int = 4_096
+;;
+
+let%test "max_tokens passed through when within capability cap" =
+  let config =
+    Provider_config.make
+      ~kind:Provider_config.Glm
+      ~model_id:"glm-4-flash"
+      ~base_url:Zai_catalog.general_base_url
+      ~max_tokens:2_000
+      ()
+  in
+  let body = build_request ~config ~messages:[] () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  json |> member "max_tokens" |> to_int = 2_000
+;;
+
+let%test "build_request emits chat_template_kwargs for nemotron (Chat_template_kwargs)" =
+  (* nemotron-ultra-253b resolves to nemotron_capabilities which has
+     thinking_control_format = Chat_template_kwargs. The serializer
+     must emit {"chat_template_kwargs": {"enable_thinking": true}}
+     when enable_thinking is set. This is the only thinking branch
+     that lacked a test — Thinking_object and No_thinking_control
+     already have coverage. *)
+  let config =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"nemotron-ultra-253b"
+      ~base_url:"https://integrate.api.nvidia.com"
+      ~enable_thinking:true
+      ()
+  in
+  let body = build_request ~config ~messages:[] () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  let ctk = json |> member "chat_template_kwargs" in
+  ctk |> member "enable_thinking" |> to_bool = true
+  && json |> member "thinking" = `Null
+;;
+
+let%test "build_request omits seed when model does not support it" =
+  (* glm-5.1 inherits default_capabilities.supports_seed = false.
+     The capability gate must exclude the "seed" field from the
+     wire body — GLM rejects unknown params. *)
+  let config =
+    Provider_config.make
+      ~kind:Provider_config.Glm
+      ~model_id:"glm-5.1"
+      ~base_url:Zai_catalog.general_base_url
+      ()
+  in
+  let body = build_request ~config ~messages:[] () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  json |> member "seed" = `Null
+;;
+
 let%test "strip_thinking_blocks removes Thinking from all messages" =
   let messages =
     [ { role = User
