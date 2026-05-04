@@ -247,11 +247,18 @@ let parse_jsonl_result ~model_id ~prompt lines =
     Error
       (Http_client.NetworkError
          { message = "no messages parsed from kimi output"; kind = Unknown })
-  else
+  else (
     let response_text =
-      List.filter_map (function Types.Text t -> Some t | _ -> None) content |> String.concat ""
+      List.filter_map
+        (function
+          | Types.Text t -> Some t
+          | _ -> None)
+        content
+      |> String.concat ""
     in
-    let usage = Some (Cli_common_prompt.estimate_usage ~prompt ~response_text ~model_id) in
+    let usage =
+      Some (Cli_common_prompt.estimate_usage ~prompt ~response_text ~model_id)
+    in
     Ok
       { Types.id = response_id_of_lines lines
       ; model = response_model_of_lines ~model_id lines
@@ -259,7 +266,7 @@ let parse_jsonl_result ~model_id ~prompt lines =
       ; content
       ; usage
       ; telemetry = None
-      }
+      })
 ;;
 
 (* ── Stream events ───────────────────────────────────── *)

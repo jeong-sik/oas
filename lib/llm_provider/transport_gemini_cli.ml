@@ -500,9 +500,16 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config) : Llm_transport.t =
           (match run ~sw ~mgr ~config ?model argv with
            | Error _ as e -> { Llm_transport.response = e; latency_ms = 0 }
            | Ok { stdout; stderr = _; latency_ms } ->
-             let prompt_for_estimation = Cli_common_prompt.prompt_with_system_prompt ~prompt ~system_prompt in
+             let prompt_for_estimation =
+               Cli_common_prompt.prompt_with_system_prompt ~prompt ~system_prompt
+             in
              let model_id = req.config.model_id in
-             let response = parse_json_result ~prompt:prompt_for_estimation ~model_id (String.trim stdout) in
+             let response =
+               parse_json_result
+                 ~prompt:prompt_for_estimation
+                 ~model_id
+                 (String.trim stdout)
+             in
              { Llm_transport.response; latency_ms }))
   ; complete_stream =
       (fun ~on_event (req : Llm_transport.completion_request) ->
@@ -530,9 +537,16 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config) : Llm_transport.t =
           (match run ~sw ~mgr ~config ?model argv with
            | Error _ as e -> e
            | Ok { stdout; stderr = _; latency_ms = _ } ->
-             let prompt_for_estimation = Cli_common_prompt.prompt_with_system_prompt ~prompt ~system_prompt in
+             let prompt_for_estimation =
+               Cli_common_prompt.prompt_with_system_prompt ~prompt ~system_prompt
+             in
              let model_id = req.config.model_id in
-             let result = parse_json_result ~prompt:prompt_for_estimation ~model_id (String.trim stdout) in
+             let result =
+               parse_json_result
+                 ~prompt:prompt_for_estimation
+                 ~model_id
+                 (String.trim stdout)
+             in
              (match result with
               | Ok resp ->
                 Cli_common_synthetic_events.replay ~on_event resp;
