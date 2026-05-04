@@ -1,7 +1,8 @@
 (** Result monadic binding operators.
 
     Open this module in files that use [let*] and [let+] for
-    {!Result}-based computation chains.
+    {!Result}-based computation chains. Also provides {!Let_syntax}
+    for [ppx_let] ([let%bind], [let%map]) support.
 
     {2 Usage}
 
@@ -29,3 +30,14 @@ val ( and* ) : ('a, 'e) result -> ('b, 'e) result -> ('a * 'b, 'e) result
 
 (** Parallel accumulate — both must succeed. *)
 val ( and+ ) : ('a, 'e) result -> ('b, 'e) result -> ('a * 'b, 'e) result
+
+(** ppx_let integration module.
+
+    Provides [bind], [map], [return], and [both] for [let%bind] /
+    [let%map] / [and%bind] expansion. *)
+module Let_syntax : sig
+  val return : 'a -> ('a, 'e) result
+  val bind : ('a, 'e) result -> f:('a -> ('b, 'e) result) -> ('b, 'e) result
+  val map : ('a, 'e) result -> f:('a -> 'b) -> ('b, 'e) result
+  val both : ('a, 'e) result -> ('b, 'e) result -> ('a * 'b, 'e) result
+end
