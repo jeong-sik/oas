@@ -1,5 +1,5 @@
 let schema_version_current = 1
-let ( let* ) = Result.bind
+open Result_syntax
 
 type persistence_backend =
   | Browser_indexeddb

@@ -12,7 +12,7 @@ type backend = Memory_tools_backend.t =
 let json_string = Memory_tools_backend.json_string
 let ok_json = Memory_tools_backend.ok_json
 let tool_error = Memory_tools_parse.tool_error
-let ( let* ) = Result.bind
+open Result_syntax
 let tier_to_string = Memory_tools_backend.tier_to_string
 
 (* Re-export parse helpers for backward compatibility and inline tests *)

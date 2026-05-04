@@ -1,6 +1,6 @@
 open Runtime
 
-let ( let* ) = Result.bind
+open Result_syntax
 
 type t = { root : string }
 

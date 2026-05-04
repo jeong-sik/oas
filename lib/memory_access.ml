@@ -2,6 +2,8 @@
 
     @since 0.76.0 *)
 
+open Result_syntax
+
 type permission =
   | Read
   | Write
@@ -98,65 +100,49 @@ let require t ~agent ~tier ~key needed =
 ;;
 
 let store t ~agent ~tier key value =
-  match require t ~agent ~tier ~key Write with
-  | Ok () ->
-    (match Memory.store t.mem ~tier key value with
-     | Ok () -> Ok ()
-     | Error msg ->
-       Error
-         (Backend_failed { agent_name = agent; tier; key; op = "store"; detail = msg }))
-  | Error _ as err -> err
+  let* () = require t ~agent ~tier ~key Write in
+  Memory.store t.mem ~tier key value
+  |> Result.map_error (fun msg ->
+    Backend_failed { agent_name = agent; tier; key; op = "store"; detail = msg })
 ;;
 
 let recall t ~agent ~tier key =
-  match require t ~agent ~tier ~key Read with
-  | Ok () -> Ok (Memory.recall t.mem ~tier key)
-  | Error _ as err -> err
+  let* () = require t ~agent ~tier ~key Read in
+  Ok (Memory.recall t.mem ~tier key)
 ;;
 
 let recall_exact t ~agent ~tier key =
-  match require t ~agent ~tier ~key Read with
-  | Ok () -> Ok (Memory.recall_exact t.mem ~tier key)
-  | Error _ as err -> err
+  let* () = require t ~agent ~tier ~key Read in
+  Ok (Memory.recall_exact t.mem ~tier key)
 ;;
 
 let forget t ~agent ~tier key =
-  match require t ~agent ~tier ~key Write with
-  | Ok () ->
-    (match Memory.forget t.mem ~tier key with
-     | Ok () -> Ok ()
-     | Error msg ->
-       Error
-         (Backend_failed { agent_name = agent; tier; key; op = "forget"; detail = msg }))
-  | Error _ as err -> err
+  let* () = require t ~agent ~tier ~key Write in
+  Memory.forget t.mem ~tier key
+  |> Result.map_error (fun msg ->
+    Backend_failed { agent_name = agent; tier; key; op = "forget"; detail = msg })
 ;;
 
 let store_episode t ~agent (ep : Memory.episode) =
-  match require t ~agent ~tier:Episodic ~key:ep.id Write with
-  | Ok () ->
-    Memory.store_episode t.mem ep;
-    Ok ()
-  | Error _ as err -> err
+  let* () = require t ~agent ~tier:Episodic ~key:ep.id Write in
+  Memory.store_episode t.mem ep;
+  Ok ()
 ;;
 
 let recall_episodes t ~agent ?now ?decay_rate ?min_salience ?limit () =
-  match require t ~agent ~tier:Episodic ~key:"*" Read with
-  | Ok () -> Ok (Memory.recall_episodes t.mem ?now ?decay_rate ?min_salience ?limit ())
-  | Error _ as err -> err
+  let* () = require t ~agent ~tier:Episodic ~key:"*" Read in
+  Ok (Memory.recall_episodes t.mem ?now ?decay_rate ?min_salience ?limit ())
 ;;
 
 let store_procedure t ~agent (proc : Memory.procedure) =
-  match require t ~agent ~tier:Procedural ~key:proc.id Write with
-  | Ok () ->
-    Memory.store_procedure t.mem proc;
-    Ok ()
-  | Error _ as err -> err
+  let* () = require t ~agent ~tier:Procedural ~key:proc.id Write in
+  Memory.store_procedure t.mem proc;
+  Ok ()
 ;;
 
 let find_procedure t ~agent ~pattern ?min_confidence ?(touch = false) () =
-  match require t ~agent ~tier:Procedural ~key:"*" Read with
-  | Ok () -> Ok (Memory.find_procedure t.mem ~pattern ?min_confidence ~touch ())
-  | Error _ as err -> err
+  let* () = require t ~agent ~tier:Procedural ~key:"*" Read in
+  Ok (Memory.find_procedure t.mem ~pattern ?min_confidence ~touch ())
 ;;
 
 let best_procedure t ~agent ~pattern = find_procedure t ~agent ~pattern ()

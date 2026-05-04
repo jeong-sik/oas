@@ -10,7 +10,7 @@ type options = Transport.options =
   ; cwd : string option
   }
 
-let ( let* ) = Result.bind
+open Result_syntax
 let default_options = Transport.default_options
 
 type t = { transport : Transport.t }

@@ -1,4 +1,4 @@
-let ( let* ) = Result.bind
+open Result_syntax
 
 let process_query ~sw ~mgr ?(options = Sdk_client_types.default_options) ~prompt () =
   let* client = Internal_query_engine.connect ~sw ~mgr ~options () in

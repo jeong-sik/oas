@@ -7,7 +7,7 @@
 open Sessions_types
 open Sessions_store
 
-let ( let* ) = Result.bind
+open Result_syntax
 
 let participant_by_name (session : Runtime.session) name =
   List.find_opt

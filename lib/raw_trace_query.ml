@@ -4,7 +4,7 @@
     read-path (query/analysis).  All functions operate on JSONL files
     written by Raw_trace and return structured results. *)
 
-let ( let* ) = Result.bind
+open Result_syntax
 
 (* ── Run discovery ──────────────────────────────────────────── *)
 

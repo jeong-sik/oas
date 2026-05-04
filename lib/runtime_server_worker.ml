@@ -2,7 +2,7 @@ open Runtime
 open Runtime_server_types
 open Runtime_server_resolve
 
-let ( let* ) = Result.bind
+open Result_syntax
 let _log = Log.create ~module_name:"runtime_server_worker" ()
 
 let unsupported_test_provider provider =

@@ -16,7 +16,7 @@ open Types
 open Agent_types
 open Agent_trace
 
-let ( let* ) = Result.bind
+open Result_syntax
 
 type api_strategy =
   | Sync

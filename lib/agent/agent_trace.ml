@@ -1,7 +1,7 @@
 open Types
 open Agent_types
 
-let ( let* ) = Result.bind
+open Result_syntax
 
 let record_hook_invocation active_run ~hook_name ~decision ?detail () =
   match active_run with

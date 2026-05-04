@@ -3,7 +3,7 @@ open Runtime_server_types
 open Runtime_server_resolve
 open Runtime_server_worker
 
-let ( let* ) = Result.bind
+open Result_syntax
 let first_some = Util.first_some
 let _log = Log.create ~module_name:"runtime_server" ()
 let read_control_response = Runtime_server_control.read_control_response
