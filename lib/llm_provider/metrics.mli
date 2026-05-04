@@ -69,6 +69,7 @@ val get_global : unit -> t
     @since 0.188.0 *)
 type provider_snapshot =
   { provider : string
+  ; model_id : string
   ; request_total : int
   ; error_total : int
   ; retry_total : int

@@ -58,6 +58,7 @@ let get_global () : t = Atomic.get _global
     @since 0.188.0 *)
 type provider_snapshot =
   { provider : string
+  ; model_id : string
   ; request_total : int
   ; error_total : int
   ; retry_total : int
@@ -110,19 +111,18 @@ module Aggregating = struct
 
   let with_state agg key f =
     Mutex.lock agg.mutex;
-    let result =
-      let state =
-        match Hashtbl.find_opt agg.states key with
-        | Some s -> s
-        | None ->
-          let s = empty_state () in
-          Hashtbl.replace agg.states key s;
-          s
-      in
-      f state
-    in
-    Mutex.unlock agg.mutex;
-    result
+    Fun.protect
+      ~finally:(fun () -> Mutex.unlock agg.mutex)
+      (fun () ->
+         let state =
+           match Hashtbl.find_opt agg.states key with
+           | Some s -> s
+           | None ->
+             let s = empty_state () in
+             Hashtbl.replace agg.states key s;
+             s
+         in
+         f state)
   ;;
 
   let to_hooks (agg : t) : hooks =
@@ -166,29 +166,37 @@ module Aggregating = struct
 
   let snapshot (agg : t) : provider_snapshot list =
     Mutex.lock agg.mutex;
-    let result =
-      Hashtbl.fold
-        (fun (k : aggregate_key) (s : aggregate_state) acc ->
-           { provider = k
-           ; request_total = s.request_total
-           ; error_total = s.error_total
-           ; retry_total = s.retry_total
-           ; input_tokens_total = s.input_tokens_total
-           ; output_tokens_total = s.output_tokens_total
-           ; latency_ms_sum = s.latency_ms_sum
-           ; latency_ms_count = s.latency_ms_count
-           }
-           :: acc)
-        agg.states
-        []
-    in
-    Mutex.unlock agg.mutex;
-    result
+    Fun.protect
+      ~finally:(fun () -> Mutex.unlock agg.mutex)
+      (fun () ->
+         Hashtbl.fold
+           (fun (k : aggregate_key) (s : aggregate_state) acc ->
+              let provider, model_id =
+                match String.index_opt k '/' with
+                | Some i ->
+                  ( String.sub k 0 i
+                  , String.sub k (i + 1) (String.length k - i - 1) )
+                | None -> (k, "")
+              in
+              { provider
+              ; model_id
+              ; request_total = s.request_total
+              ; error_total = s.error_total
+              ; retry_total = s.retry_total
+              ; input_tokens_total = s.input_tokens_total
+              ; output_tokens_total = s.output_tokens_total
+              ; latency_ms_sum = s.latency_ms_sum
+              ; latency_ms_count = s.latency_ms_count
+              }
+              :: acc)
+           agg.states
+           [])
   ;;
 
   let reset (agg : t) =
     Mutex.lock agg.mutex;
-    Hashtbl.reset agg.states;
-    Mutex.unlock agg.mutex
+    Fun.protect
+      ~finally:(fun () -> Mutex.unlock agg.mutex)
+      (fun () -> Hashtbl.reset agg.states)
   ;;
 end
