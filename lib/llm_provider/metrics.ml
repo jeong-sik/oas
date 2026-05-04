@@ -150,8 +150,8 @@ module Aggregating = struct
            agg.hooks.on_http_status ~provider ~model_id ~status)
     ; on_capability_drop = (fun ~model_id ~field -> agg.hooks.on_capability_drop ~model_id ~field)
     ; on_retry =
-        (fun ~provider ~model_id ~attempt:_ ->
-           agg.hooks.on_retry ~provider ~model_id ~attempt:0;
+        (fun ~provider ~model_id ~attempt ->
+           agg.hooks.on_retry ~provider ~model_id ~attempt;
            with_state agg (key ~provider ~model_id)
              (fun s -> s.retry_total <- s.retry_total + 1))
     ; on_token_usage =
