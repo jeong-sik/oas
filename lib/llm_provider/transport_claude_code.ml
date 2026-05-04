@@ -297,7 +297,7 @@ let parse_stop_reason s = Types.stop_reason_of_string s
     subtypes (e.g. [error_max_turns]) become {!Http_client.ProviderTerminal},
     not {!Http_client.NetworkError}.  See {!parse_stream_result} for the
     reasoning. *)
-let parse_json_result json_str =
+let parse_json_result ~prompt json_str =
   try
     let json = Yojson.Safe.from_string json_str in
     if Cli_common_json.member_bool "is_error" json
@@ -331,7 +331,12 @@ let parse_json_result json_str =
       let stop_reason =
         parse_stop_reason (Cli_common_json.member_str "stop_reason" json)
       in
-      let usage = parse_usage json in
+      let usage =
+        match parse_usage json with
+        | Some u -> Some (Pricing.annotate_usage_cost ~model_id:model u)
+        | None ->
+          Some (Cli_common_prompt.estimate_usage ~prompt ~response_text:result_text ~model_id:model)
+      in
       Ok
         { Types.id = session_id
         ; model
@@ -698,7 +703,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config) : Llm_transport.t =
           match run ~sw ~mgr ~config ?stdin_content:(stdin_for_prompt prompt) args with
           | Error _ as e -> { Llm_transport.response = e; latency_ms = 0 }
           | Ok { stdout; stderr = _; latency_ms } ->
-            let response = parse_json_result (String.trim stdout) in
+            let response = parse_json_result ~prompt (String.trim stdout) in
             { Llm_transport.response; latency_ms }))
   ; complete_stream =
       (fun ~on_event (req : Llm_transport.completion_request) ->
@@ -759,7 +764,7 @@ let%test "parse_json_result success" =
   let json =
     {|{"type":"result","subtype":"success","is_error":false,"result":"hello world","model":"claude-sonnet-4","stop_reason":"end_turn","session_id":"s1","duration_api_ms":100}|}
   in
-  match parse_json_result json with
+  match parse_json_result ~prompt:"" json with
   | Ok resp ->
     resp.model = "claude-sonnet-4"
     && resp.content = [ Types.Text "hello world" ]
@@ -771,8 +776,8 @@ let%test "parse_json_result drops impossible cumulative usage" =
   let json =
     {|{"type":"result","subtype":"success","is_error":false,"result":"hello","model":"claude-sonnet-4","stop_reason":"end_turn","session_id":"s1","usage":{"input_tokens":3690186,"output_tokens":42}}|}
   in
-  match parse_json_result json with
-  | Ok resp -> resp.usage = None
+  match parse_json_result ~prompt:"fake" json with
+  | Ok resp -> (match resp.usage with Some u -> u.input_tokens < 3690186 | None -> false)
   | Error _ -> false
 ;;
 
@@ -780,7 +785,7 @@ let%test "parse_json_result error" =
   let json =
     {|{"type":"result","subtype":"error","is_error":true,"result":"rate limited","model":"m","stop_reason":"","session_id":"s1"}|}
   in
-  match parse_json_result json with
+  match parse_json_result ~prompt:"" json with
   | Error (Http_client.NetworkError { message; _ }) -> String.length message > 0
   | _ -> false
 ;;
@@ -793,7 +798,7 @@ let%test "parse_json_result error_max_turns becomes ProviderTerminal Max_turns" 
   let json =
     {|{"type":"result","subtype":"error_max_turns","is_error":true,"result":"","model":"m","stop_reason":"tool_use","session_id":"s1","num_turns":31}|}
   in
-  match parse_json_result json with
+  match parse_json_result ~prompt:"" json with
   | Error (Http_client.ProviderTerminal { kind = Max_turns r; _ }) ->
     r.turns = 31 && r.limit = 31
   | _ -> false
@@ -807,13 +812,13 @@ let%test "parse_json_result unknown error subtype stays NetworkError" =
   let json =
     {|{"type":"result","subtype":"error_during_execution","is_error":true,"result":"unexpected","model":"m","stop_reason":"","session_id":"s1"}|}
   in
-  match parse_json_result json with
+  match parse_json_result ~prompt:"" json with
   | Error (Http_client.NetworkError _) -> true
   | _ -> false
 ;;
 
 let%test "parse_json_result invalid json" =
-  match parse_json_result "not json" with
+  match parse_json_result ~prompt:"" "not json" with
   | Error _ -> true
   | Ok _ -> false
 ;;

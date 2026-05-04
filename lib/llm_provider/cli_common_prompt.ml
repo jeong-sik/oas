@@ -59,6 +59,13 @@ let system_prompt_of ~(req_config : Provider_config.t) (messages : Types.message
      | _ -> None)
 ;;
 
+let estimate_usage ~prompt ~response_text ~model_id =
+  let input_tokens = Text_estimate.estimate_char_tokens prompt in
+  let output_tokens = Text_estimate.estimate_char_tokens response_text in
+  let usage = { Types.input_tokens; output_tokens; cache_creation_input_tokens = 0; cache_read_input_tokens = 0; cost_usd = None } in
+  Pricing.annotate_usage_cost ~model_id usage
+;;
+
 let prompt_with_system_prompt ~prompt ~system_prompt =
   match system_prompt |> Option.map String.trim with
   | None | Some "" -> prompt
