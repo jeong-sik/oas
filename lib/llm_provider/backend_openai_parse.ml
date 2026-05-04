@@ -151,7 +151,7 @@ let telemetry_of_openai_json json =
         ; cache_n = (if t = `Null then None else member_int_fallback t [ "cache_n" ])
         }
   in
-  let reasoning_tokens =
+  let reasoning_tokens, reasoning_tokens_estimated =
     let from_details =
       if usage = `Null
       then None
@@ -162,11 +162,8 @@ let telemetry_of_openai_json json =
         else details |> member "reasoning_tokens" |> to_int_option)
     in
     match from_details with
-    | Some _ -> from_details
+    | Some _ -> from_details, false
     | None ->
-      (* Fallback: estimate from message.reasoning content length.
-           Ollama provides reasoning text but not completion_tokens_details.
-           ~4 chars per token is a standard approximation. *)
       let msg =
         try json |> member "choices" |> index 0 |> member "message" with
         | _ -> `Null
@@ -183,8 +180,9 @@ let telemetry_of_openai_json json =
              | _ -> None))
       in
       (match reasoning_text with
-       | Some s -> Some (max 1 (String.length s / 4))
-       | None -> None)
+       | Some s ->
+         Some (max 1 (String.length s / Constants.Token_estimation.chars_per_token)), true
+       | None -> None, false)
   in
   let peak_memory_gb =
     first_some
@@ -195,6 +193,7 @@ let telemetry_of_openai_json json =
     { Types.system_fingerprint
     ; timings
     ; reasoning_tokens
+    ; reasoning_tokens_estimated
     ; request_latency_ms = 0
     ; peak_memory_gb
     ; provider_kind = None

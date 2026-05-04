@@ -56,7 +56,10 @@ let default_api_key_env = function
   | Gemini -> Some "GEMINI_API_KEY"
   | Glm -> Some "ZAI_API_KEY"
   | DashScope -> Some "DASHSCOPE_API_KEY"
-  | OpenAI_compat | Ollama | Claude_code | Gemini_cli | Kimi_cli | Codex_cli -> None
+  | OpenAI_compat | Ollama | Claude_code | Gemini_cli | Kimi_cli | Codex_cli ->
+    (* Ollama Cloud uses the same kind; set OLLAMA_API_KEY when using
+       a remote endpoint that requires authentication. *)
+    None
 ;;
 
 let is_subprocess_cli = function
@@ -69,7 +72,7 @@ let of_string raw =
   | "anthropic" | "claude" -> Some Anthropic
   | "kimi" -> Some Kimi
   | "openai_compat" | "openai" -> Some OpenAI_compat
-  | "ollama" | "llama" -> Some Ollama
+  | "ollama" | "llama" | "ollama_cloud" -> Some Ollama
   | "gemini" -> Some Gemini
   | "glm" -> Some Glm
   | "dashscope" | "qwen" -> Some DashScope

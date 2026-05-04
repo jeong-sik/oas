@@ -304,6 +304,7 @@ type inference_telemetry =
   { system_fingerprint : string option
   ; timings : inference_timings option
   ; reasoning_tokens : int option
+  ; reasoning_tokens_estimated : bool
   ; request_latency_ms : int
   ; peak_memory_gb : float option
   ; provider_kind : Provider_kind.t option
@@ -402,6 +403,55 @@ let tool_result_msg ~tool_use_id ~content ?(is_error = false) ?json () =
     ~tool_call_id:tool_use_id
     ~role:Tool
     [ ToolResult { tool_use_id; content; is_error; json } ]
+;;
+
+(** {1 Tool Result Validation}
+
+    Minimal structural validation for tool result payloads.
+    P0 Verification Loop will extend this with full JSON Schema checking. *)
+
+type tool_result_validation_error =
+  | Expected_object of string (** Expected JSON object, got other type *)
+  | Expected_array of string (** Expected JSON array, got other type *)
+  | Empty_content of string (** Tool returned empty content *)
+  | Json_parse_failed of string (** Content is not valid JSON *)
+[@@deriving show]
+
+(** Validate that a ToolResult's payload matches a minimal expected shape.
+    Returns [Ok ()] when the result passes, or a descriptive error.
+    This is the foundation for P0's full JSON Schema validation loop. *)
+let validate_tool_result_shape
+      ~expect_object:(expect_obj : bool)
+      ~expect_array:(expect_arr : bool)
+      (block : content_block)
+  : (unit, tool_result_validation_error) result
+  =
+  match block with
+  | ToolResult { content; json; _ } ->
+    if String.length (String.trim content) = 0
+    then Error (Empty_content "ToolResult content is empty")
+    else if expect_obj || expect_arr
+    then (
+      match json with
+      | None ->
+        (* content was not parseable as JSON *)
+        Error (Json_parse_failed "ToolResult content is not valid JSON")
+      | Some json_value ->
+        if expect_obj && not expect_arr
+        then (
+          match json_value with
+          | `Assoc _ -> Ok ()
+          | _ -> Error (Expected_object "ToolResult JSON is not an object"))
+        else if expect_arr && not expect_obj
+        then (
+          match json_value with
+          | `List _ -> Ok ()
+          | _ -> Error (Expected_array "ToolResult JSON is not an array"))
+        else
+          (* Both allowed — any JSON is fine *)
+          Ok ())
+    else Ok ()
+  | _ -> Ok ()
 ;;
 
 (** Extract text from content blocks, concatenating with newlines.

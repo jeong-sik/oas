@@ -589,7 +589,12 @@ let parse_jsonl_result ?(model_id = "codex") ?(prompt = "") lines =
     lines;
   let content = content_blocks_of_jsonl lines in
   let response_text =
-    List.filter_map (function Types.Text t -> Some t | _ -> None) content |> String.concat ""
+    List.filter_map
+      (function
+        | Types.Text t -> Some t
+        | _ -> None)
+      content
+    |> String.concat ""
   in
   let usage = Some (Cli_common_prompt.estimate_usage ~prompt ~response_text ~model_id) in
   let telemetry =
@@ -599,6 +604,7 @@ let parse_jsonl_result ?(model_id = "codex") ?(prompt = "") lines =
         { Types.system_fingerprint = None
         ; timings = None
         ; reasoning_tokens = None
+        ; reasoning_tokens_estimated = false
         ; request_latency_ms = 0
         ; peak_memory_gb = None
         ; provider_kind = None

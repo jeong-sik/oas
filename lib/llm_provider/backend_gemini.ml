@@ -63,9 +63,12 @@ let part_of_content_block id_to_name = function
       | None ->
         Diag.warn
           "backend_gemini"
-          "ToolResult tool_use_id '%s' has no matching ToolUse; using UUID as \
-           functionResponse name (Gemini API requires name)"
-          tool_use_id;
+          "ToolResult tool_use_id '%s' has no matching ToolUse in %d-entry lookup table; \
+           using UUID as functionResponse name (Gemini API requires name). This usually \
+           means the ToolUse block was in a conversation turn that was compacted or \
+           trimmed."
+          tool_use_id
+          (Hashtbl.length id_to_name);
         tool_use_id
     in
     Some
@@ -176,7 +179,11 @@ let build_request
   in
   (* generationConfig *)
   let gen_config = ref [] in
-  (let mt = Option.value ~default:Constants.Inference.unknown_model_max_tokens_fallback config.max_tokens in
+  (let mt =
+     Option.value
+       ~default:Constants.Inference.unknown_model_max_tokens_fallback
+       config.max_tokens
+   in
    gen_config := ("maxOutputTokens", `Int mt) :: !gen_config);
   (match config.temperature with
    | Some t -> gen_config := ("temperature", `Float t) :: !gen_config
@@ -187,13 +194,30 @@ let build_request
   (match config.top_k with
    | Some k -> gen_config := ("topK", `Int k) :: !gen_config
    | None -> ());
+  (* Seed — Gemini API supports seed in generationConfig *)
+  (let caps =
+     match Capabilities.for_model_id config.model_id with
+     | Some c -> c
+     | None -> Capabilities.default_capabilities
+   in
+   if caps.supports_seed
+   then (
+     let seed =
+       match config.seed with
+       | Some n -> n
+       | None ->
+         (match Constants.Deterministic.seed_of_env () with
+          | Some n -> n
+          | None -> Constants.Deterministic.default_seed)
+     in
+     gen_config := ("seed", `Int seed) :: !gen_config));
   (* Thinking config *)
   (match config.enable_thinking with
    | Some true ->
      let budget =
        match config.thinking_budget with
        | Some b -> b
-       | None -> Constants.Thinking.default_budget
+       | None -> Constants.Thinking.gemini_budget ()
      in
      gen_config
      := ( "thinkingConfig"

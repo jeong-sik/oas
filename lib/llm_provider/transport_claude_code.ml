@@ -281,7 +281,7 @@ let parse_usage json =
     else (
       Diag.warn
         "transport_claude_code"
-          "usage dropped: input_tokens=%d exceeds single-response ceiling=%d"
+        "usage dropped: input_tokens=%d exceeds single-response ceiling=%d"
         usage.input_tokens
         claude_code_max_single_response_input_tokens;
       None)
@@ -335,7 +335,11 @@ let parse_json_result ~prompt json_str =
         match parse_usage json with
         | Some u -> Some (Pricing.annotate_usage_cost ~model_id:model u)
         | None ->
-          Some (Cli_common_prompt.estimate_usage ~prompt ~response_text:result_text ~model_id:model)
+          Some
+            (Cli_common_prompt.estimate_usage
+               ~prompt
+               ~response_text:result_text
+               ~model_id:model)
       in
       Ok
         { Types.id = session_id
@@ -777,7 +781,10 @@ let%test "parse_json_result drops impossible cumulative usage" =
     {|{"type":"result","subtype":"success","is_error":false,"result":"hello","model":"claude-sonnet-4","stop_reason":"end_turn","session_id":"s1","usage":{"input_tokens":3690186,"output_tokens":42}}|}
   in
   match parse_json_result ~prompt:"fake" json with
-  | Ok resp -> (match resp.usage with Some u -> u.input_tokens < 3690186 | None -> false)
+  | Ok resp ->
+    (match resp.usage with
+     | Some u -> u.input_tokens < 3690186
+     | None -> false)
   | Error _ -> false
 ;;
 

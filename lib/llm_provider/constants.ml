@@ -78,10 +78,27 @@ module Inference = struct
 
   (** Fallback [max_tokens] when both caller override and model capability
       are absent. Emitted as a required field by OpenAI-compat and Anthropic
-      backends. Kept conservative to avoid overrunning unknown model limits,
-      but high enough to avoid silent truncation on modern models.
-      @since 0.188.0 *)
-  let unknown_model_max_tokens_fallback = 4096
+      backends.
+
+      16384 covers most modern models (GPT-4o, Claude Sonnet 4, Gemini 2.5,
+      Qwen3, DeepSeek-V3) without overrunning smaller model limits. Models
+      with lower caps should be declared in [Capabilities.for_model_id] so
+      the capability-gated path (not this fallback) applies.
+      @since 0.188.0
+      @since 0.185.0 — raised from 4096 to 16384 *)
+  let unknown_model_max_tokens_fallback =
+    match Sys.getenv "OAS_MAX_TOKENS_DEFAULT" with
+    | exception Not_found -> 16384
+    | s ->
+      (match int_of_string_opt s with
+       | Some n when n > 0 -> n
+       | _ ->
+         Diag.warn
+           "constants"
+           "OAS_MAX_TOKENS_DEFAULT=%S is not a valid positive int, using 16384"
+           s;
+         16384)
+  ;;
 end
 
 (* ── Cache ───────────────────────────────────────── *)
@@ -158,15 +175,112 @@ end
 (* ── Thinking ────────────────────────────────────── *)
 
 module Thinking = struct
+  let env_budget env_var =
+    match Sys.getenv env_var with
+    | exception Not_found -> None
+    | s ->
+      (match int_of_string_opt s with
+       | Some n when n > 0 -> Some n
+       | _ ->
+         Diag.warn "constants" "%s=%S is not a valid positive int, ignoring" env_var s;
+         None)
+  ;;
+
   (** Default extended thinking budget when not specified by caller.
-      Used by Anthropic and Gemini backends. *)
-  let default_budget = 10000
+      Used by Anthropic and Gemini backends.
+
+      16000 tokens covers most single-turn reasoning tasks. Models with
+      higher caps (Claude Opus 4: 128K, Gemini 2.5 Pro: 32K) should be
+      declared in [Capabilities] so callers can override per-model.
+      Override with [OAS_THINKING_BUDGET_DEFAULT] env var.
+      @since 0.185.0 — raised from 10000 to 16000 *)
+  let default_budget =
+    match env_budget "OAS_THINKING_BUDGET_DEFAULT" with
+    | Some n -> n
+    | None -> 16000
+  ;;
+
+  (** Per-provider thinking budget overrides. Resolution order:
+      1. Explicit [~thinking_budget] in request config
+      2. Provider-specific env var ([OAS_ANTHROPIC_THINKING_BUDGET],
+         [OAS_GEMINI_THINKING_BUDGET])
+      3. [OAS_THINKING_BUDGET_DEFAULT] env var
+      4. Hardcoded default (16000)
+      @since 0.185.0 *)
+  let anthropic_budget () =
+    match env_budget "OAS_ANTHROPIC_THINKING_BUDGET" with
+    | Some n -> n
+    | None -> default_budget
+  ;;
+
+  let gemini_budget () =
+    match env_budget "OAS_GEMINI_THINKING_BUDGET" with
+    | Some n -> n
+    | None -> default_budget
+  ;;
+end
+
+(* ── Deterministic output ─────────────────────────── *)
+
+module Deterministic = struct
+  (** Default seed for providers that support the [seed] parameter.
+      Overridden by [OAS_DEFAULT_SEED] env var or explicit [~seed] in
+      {!Provider_config.make}.
+      @since 0.185.0 *)
+  let default_seed = 42
+
+  let seed_of_env () =
+    match Sys.getenv "OAS_DEFAULT_SEED" with
+    | exception Not_found -> None
+    | s ->
+      (match int_of_string_opt s with
+       | Some n -> Some n
+       | None ->
+         Diag.warn "constants" "OAS_DEFAULT_SEED=%S is not a valid int, ignoring" s;
+         None)
+  ;;
 end
 
 (* ── Anthropic ──────────────────────────────────── *)
 
 module Anthropic = struct
   (** Minimum system prompt length (chars) to enable prompt caching.
-      Approximation: ~1024 tokens at ~3.4 chars/token. *)
-  let prompt_cache_min_chars = 3500
+      Approximation: ~1024 tokens at ~3.4 chars/token.
+      Override with [OAS_PROMPT_CACHE_MIN_CHARS] env var. *)
+  let default_prompt_cache_min_chars = 3500
+
+  (** Minimum tool count to auto-enable prompt caching on the last tool
+      definition. Anthropic's cache prefix benefits grow with tool count
+      because the tool definitions are repeated verbatim in every request.
+      3+ tools means the serialized tool array typically exceeds ~1024 tokens.
+      @since 0.185.0 *)
+  let prompt_cache_min_tools = 3
+
+  let prompt_cache_min_chars =
+    match Sys.getenv "OAS_PROMPT_CACHE_MIN_CHARS" with
+    | exception Not_found -> default_prompt_cache_min_chars
+    | s ->
+      (match int_of_string_opt s with
+       | Some n when n > 0 -> n
+       | _ ->
+         Diag.warn
+           "constants"
+           "OAS_PROMPT_CACHE_MIN_CHARS=%S is not a valid positive int, using default %d"
+           s
+           default_prompt_cache_min_chars;
+         default_prompt_cache_min_chars)
+  ;;
+end
+
+(* ── Token estimation ───────────────────────────── *)
+
+module Token_estimation = struct
+  (** Approximate characters per token for English/mixed-language text.
+      Used when a provider reports reasoning text as raw string but the
+      telemetry schema requires a token count.
+      4 chars/token is the standard GPT/BPE approximation for English.
+      CJK-heavy text is closer to 2 chars/token, but reasoning output
+      is predominantly English/code.
+      @since 0.185.0 *)
+  let chars_per_token = 4
 end

@@ -151,6 +151,7 @@ let patch_telemetry
         { Types.system_fingerprint = None
         ; timings = None
         ; reasoning_tokens = None
+        ; reasoning_tokens_estimated = false
         ; request_latency_ms = latency_ms
         ; peak_memory_gb = None
         ; provider_kind = pk
@@ -160,7 +161,23 @@ let patch_telemetry
         ; provider_internal_action_count = None
         }
   in
-  { resp with model; telemetry }
+  let patched = { resp with model; telemetry } in
+  (* S01: Structured drift detection — compare actual response behavior
+     against declared capabilities. Emits structured JSON so downstream
+     observability can alert on silent capability regressions. *)
+  (match Capabilities.detect_drift caps patched with
+   | [] -> ()
+   | observations ->
+     let obs_strings =
+       List.map (fun o -> Capabilities.show_drift_observation o) observations
+     in
+     Diag.warn
+       "complete"
+       {|{"event":"capability_drift","model":"%s","provider":"%s","observations":[%s] }|}
+       config.model_id
+       (Provider_config.show_provider_kind config.kind)
+       (String.concat "," (List.map (fun s -> "\"" ^ s ^ "\"") obs_strings)));
+  patched
 ;;
 
 (** Internal helper: canonical provider name for metric labels.
@@ -189,6 +206,18 @@ let validate_output_schema_request (config : Provider_config.t) =
   match Provider_config.validate_output_schema_request config with
   | Ok () -> Ok ()
   | Error reason -> Error (Http_client.AcceptRejected { reason })
+;;
+
+let validate_cli_sampling_params (config : Provider_config.t) =
+  match Provider_config.validate_cli_sampling_params config with
+  | Ok () -> Ok ()
+  | Error reason -> Error (Http_client.AcceptRejected { reason })
+;;
+
+let validate_all (config : Provider_config.t) =
+  match validate_output_schema_request config with
+  | Error _ as e -> e
+  | Ok () -> validate_cli_sampling_params config
 ;;
 
 (** Strip query string and userinfo from a URL before logging.  Built-in
@@ -267,7 +296,7 @@ let complete_http
       ~tools
       ()
   =
-  match validate_output_schema_request config with
+  match validate_all config with
   | Error err -> Error err, 0
   | Ok () ->
     if requires_non_http_transport config.kind
@@ -657,7 +686,7 @@ let complete
       ?(priority : Request_priority.t option)
       ()
   =
-  match validate_output_schema_request config with
+  match validate_all config with
   | Error err -> Error err
   | Ok () ->
     let _priority = priority in
@@ -749,6 +778,14 @@ let complete
           let resp = Pricing.annotate_response_cost resp in
           let resp = patch_telemetry resp ~config latency_ms in
           m.on_request_end ~model_id ~latency_ms;
+          (match resp.usage with
+           | Some u ->
+             m.on_token_usage
+               ~provider:(Provider_registry.provider_name_of_config config)
+               ~model_id
+               ~input_tokens:u.input_tokens
+               ~output_tokens:u.output_tokens
+           | None -> ());
           (* Cache store — reuse pre-computed key *)
           (match cache, cache_key with
            | Some c, Some key ->
@@ -839,24 +876,45 @@ let complete_with_retry
       ?priority
       ()
   =
-  Retry.with_retry_map_error
-    ~clock
-    ~config:(shared_retry_config_of_complete retry_config)
-    ~classify:classify_retry_error
-    (fun () ->
-       complete
-         ~sw
-         ~net
-         ~clock
-         ?transport
-         ~config
-         ~messages
-         ~tools
-         ?runtime_mcp_policy
-         ?cache
-         ?metrics
-         ?priority
-         ())
+  let m = Option.value metrics ~default:(Metrics.get_global ()) in
+  let rc = shared_retry_config_of_complete retry_config in
+  let provider = Provider_registry.provider_name_of_config config in
+  let model_id = config.model_id in
+  let f () =
+    complete
+      ~sw
+      ~net
+      ~clock
+      ?transport
+      ~config
+      ~messages
+      ~tools
+      ?runtime_mcp_policy
+      ?cache
+      ~metrics:m
+      ?priority
+      ()
+  in
+  let rec loop attempt =
+    match f () with
+    | Ok _ as success -> success
+    | Error err ->
+      (match classify_retry_error err with
+       | Some api_err when Retry.is_retryable api_err ->
+         if attempt >= rc.max_retries
+         then Error err
+         else (
+           m.on_retry ~provider ~model_id ~attempt:(attempt + 1);
+           let delay =
+             match api_err with
+             | Retry.RateLimited { retry_after = Some ra; _ } -> ra
+             | _ -> Retry.calculate_delay rc attempt
+           in
+           Eio.Time.sleep clock delay;
+           loop (attempt + 1))
+       | Some _ | None -> Error err)
+  in
+  loop 0
 ;;
 
 (* ── Streaming ───────────────────────────────────────── *)
@@ -877,7 +935,7 @@ let complete_stream_http
       ~(on_event : Types.sse_event -> unit)
       ()
   =
-  match validate_output_schema_request config with
+  match validate_all config with
   | Error err -> Error err
   | Ok () ->
     if requires_non_http_transport config.kind
@@ -1066,6 +1124,7 @@ let complete_stream_http
                   { Types.system_fingerprint = None
                   ; timings
                   ; reasoning_tokens = None
+                  ; reasoning_tokens_estimated = false
                   ; request_latency_ms = 0
                   ; peak_memory_gb = None
                   ; provider_kind = None
@@ -1109,7 +1168,7 @@ let complete_stream
       ?(priority : Request_priority.t option)
       ()
   =
-  match validate_output_schema_request config with
+  match validate_all config with
   | Error err -> Error err
   | Ok () ->
     let _priority = priority in
@@ -1296,6 +1355,7 @@ let%test "gemini_url sync no api_key" =
     ; keep_alive = None
     ; internal_model_rotation_count = None
     ; num_ctx = None
+    ; seed = None
     }
   in
   let url = gemini_url ~config ~stream:false in
@@ -1330,6 +1390,7 @@ let%test "gemini_url sync with api_key" =
     ; keep_alive = None
     ; internal_model_rotation_count = None
     ; num_ctx = None
+    ; seed = None
     }
   in
   let url = gemini_url ~config ~stream:false in
@@ -1365,6 +1426,7 @@ let%test "gemini_url stream with api_key" =
     ; keep_alive = None
     ; internal_model_rotation_count = None
     ; num_ctx = None
+    ; seed = None
     }
   in
   let url = gemini_url ~config ~stream:true in
@@ -1400,6 +1462,7 @@ let%test "gemini_url stream no api_key" =
     ; keep_alive = None
     ; internal_model_rotation_count = None
     ; num_ctx = None
+    ; seed = None
     }
   in
   let url = gemini_url ~config ~stream:true in
@@ -1545,6 +1608,7 @@ let%test "patch_telemetry fills latency and provider on existing telemetry" =
           { Types.system_fingerprint = Some "fp-1"
           ; timings = None
           ; reasoning_tokens = Some 10
+          ; reasoning_tokens_estimated = false
           ; request_latency_ms = 0
           ; peak_memory_gb = None
           ; provider_kind = None

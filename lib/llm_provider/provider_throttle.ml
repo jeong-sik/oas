@@ -210,7 +210,8 @@ let%test "of_discovery_status with props only" =
       { url = Constants.Endpoints.default_url_localhost
       ; healthy = true
       ; models = []
-      ; props = Some { total_slots = 8; ctx_size = 4096; model = "m" ; supports_tools = None }
+      ; props =
+          Some { total_slots = 8; ctx_size = 4096; model = "m"; supports_tools = None }
       ; slots = None
       ; capabilities = Capabilities.default_capabilities
       }

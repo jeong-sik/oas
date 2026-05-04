@@ -194,5 +194,18 @@ val from_capabilities
     composed with [drop_thinking], [repair_dangling_tool_calls],
     and [repair_orphaned_tool_results].
 
-    @since 0.79.0 *)
-val from_context_config : ?compact_ratio:float -> max_tokens:int -> unit -> t
+    When [target_ratio] is set (default [Some 0.5]), the aggressive compaction
+    path uses [max_tokens * target_ratio] as the ceiling budget, preserving the
+    last [keep_recent_turns] turns. The [watermark] (default 0.9) triggers this
+    aggressive path when context utilization exceeds it.
+
+    @since 0.79.0
+    @since 0.185.0 — added target_ratio, watermark, keep_recent_turns *)
+val from_context_config
+  :  ?compact_ratio:float
+  -> ?target_ratio:float
+  -> ?watermark:float
+  -> ?keep_recent_turns:int
+  -> max_tokens:int
+  -> unit
+  -> t

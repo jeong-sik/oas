@@ -62,7 +62,14 @@ let system_prompt_of ~(req_config : Provider_config.t) (messages : Types.message
 let estimate_usage ~prompt ~response_text ~model_id =
   let input_tokens = Text_estimate.estimate_char_tokens prompt in
   let output_tokens = Text_estimate.estimate_char_tokens response_text in
-  let usage = { Types.input_tokens; output_tokens; cache_creation_input_tokens = 0; cache_read_input_tokens = 0; cost_usd = None } in
+  let usage =
+    { Types.input_tokens
+    ; output_tokens
+    ; cache_creation_input_tokens = 0
+    ; cache_read_input_tokens = 0
+    ; cost_usd = None
+    }
+  in
   Pricing.annotate_usage_cost ~model_id usage
 ;;
 

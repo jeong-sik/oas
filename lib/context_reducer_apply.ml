@@ -465,15 +465,20 @@ let apply_relocate_tool_results ~state ~keep_recent messages =
 ;;
 
 let apply_cache_alignment ~size messages =
-  let total_tokens = List.fold_left (fun acc msg -> acc + estimate_message_tokens msg) 0 messages in
+  let total_tokens =
+    List.fold_left (fun acc msg -> acc + estimate_message_tokens msg) 0 messages
+  in
   let remainder = total_tokens mod size in
-  if remainder = 0 || total_tokens = 0 then messages
-  else
+  if remainder = 0 || total_tokens = 0
+  then messages
+  else (
     let padding_needed = size - remainder in
-    let padding_block = Text (Printf.sprintf "\n<!-- [system_padding: %d] -->\n" padding_needed) in
+    let padding_block =
+      Text (Printf.sprintf "\n<!-- [system_padding: %d] -->\n" padding_needed)
+    in
     match messages with
     | [] -> []
     | last_msg :: rest ->
-      let new_content = last_msg.content @ [padding_block] in
-      { last_msg with content = new_content } :: rest
+      let new_content = last_msg.content @ [ padding_block ] in
+      { last_msg with content = new_content } :: rest)
 ;;

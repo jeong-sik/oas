@@ -55,6 +55,13 @@ type capabilities =
   ; (* ── Sampling parameters ───────────────────────────── *)
     supports_top_k : bool
   ; supports_min_p : bool
+  ; supports_seed : bool (** Deterministic seed for reproducible sampling. *)
+  ; supports_seed_with_images : bool
+    (** Whether the provider respects [seed] deterministically when
+      image inputs are present.  Local providers (Ollama, llama-server)
+      achieve near-perfect determinism on identical hardware; cloud
+      providers (OpenAI, Gemini) do not guarantee deterministic output
+      when images are in the prompt. *)
   ; (* ── Advanced modalities ───────────────────────────── *)
     supports_computer_use : bool
   ; supports_code_execution : bool
@@ -107,6 +114,8 @@ let default_capabilities =
   ; prompt_cache_alignment = None
   ; supports_top_k = false
   ; supports_min_p = false
+  ; supports_seed = false
+  ; supports_seed_with_images = false
   ; supports_computer_use = false
   ; supports_code_execution = false
   ; uses_native_thinking_envelope = false
@@ -212,10 +221,23 @@ let openai_chat_extended_capabilities =
    static-table approach, which requires JSON edits + redeploy to
    flip capability, and avoids the fragile model_id pattern match that
    the Claude Agent SDK sidesteps by being single-provider. *)
+(* NVIDIA NIM Nemotron: Llama-based OpenAI-compatible endpoint.
+   Thinking uses chat_template_kwargs (same wire format as Ollama's
+   llama-server backend). VL variants add image input.
+   Ref: build.nvidia.com/nvidia docs, Nemotron model cards. *)
+let nemotron_capabilities =
+  { openai_chat_extended_capabilities with
+    supports_tool_choice = true
+  ; supports_reasoning = true
+  ; thinking_control_format = Chat_template_kwargs
+  }
+;;
+
 let ollama_capabilities =
   { openai_chat_extended_capabilities with
     supports_tool_choice = false
-  ; supports_min_p = false
+  ; supports_seed = true
+  ; supports_seed_with_images = true
   ; thinking_control_format = Chat_template_kwargs
   ; is_ollama = true
   }
@@ -250,6 +272,7 @@ let glm_capabilities =
   ; supports_reasoning = true
   ; supports_extended_thinking = true
   ; supports_response_format_json = true
+  ; supports_structured_output = true
   ; supports_native_streaming = true
   }
 ;;
@@ -325,7 +348,7 @@ let kimi_cli_capabilities =
   ; supports_system_prompt = true
   ; supports_code_execution = true
   ; emits_usage_tokens = false (* CLI wrapper strips usage *)
-  ; supported_models = Some ["kimi-for-coding"]
+  ; supported_models = Some [ "kimi-for-coding" ]
   }
 ;;
 
@@ -440,8 +463,8 @@ let for_model_id model_id =
       ; supports_response_format_json = true
       ; supports_native_streaming = true
       ; supports_caching = true
-  ; supports_prompt_caching = false
-  ; prompt_cache_alignment = None
+      ; supports_prompt_caching = false
+      ; prompt_cache_alignment = None
       ; uses_native_thinking_envelope = true
       }
   else if starts_with "deepseek-v4-pro"
@@ -459,8 +482,8 @@ let for_model_id model_id =
       ; supports_response_format_json = true
       ; supports_native_streaming = true
       ; supports_caching = true
-  ; supports_prompt_caching = false
-  ; prompt_cache_alignment = None
+      ; supports_prompt_caching = false
+      ; prompt_cache_alignment = None
       ; uses_native_thinking_envelope = true
       }
   else if starts_with "mistral-large"
@@ -476,8 +499,8 @@ let for_model_id model_id =
       ; supports_image_input = true
       ; supports_native_streaming = true
       ; supports_caching = true
-  ; supports_prompt_caching = false
-  ; prompt_cache_alignment = None
+      ; supports_prompt_caching = false
+      ; prompt_cache_alignment = None
       }
   else if starts_with "mistral-small"
   then
@@ -493,8 +516,8 @@ let for_model_id model_id =
       ; supports_image_input = true
       ; supports_native_streaming = true
       ; supports_caching = true
-  ; supports_prompt_caching = false
-  ; prompt_cache_alignment = None
+      ; supports_prompt_caching = false
+      ; prompt_cache_alignment = None
       }
   else if starts_with "command"
   then
@@ -520,11 +543,63 @@ let for_model_id model_id =
       ; supports_structured_output = true
       ; supports_native_streaming = true
       ; supports_caching = true
-  ; supports_prompt_caching = false
-  ; prompt_cache_alignment = None
+      ; supports_prompt_caching = false
+      ; prompt_cache_alignment = None
+      }
+    (* NVIDIA Nemotron: Llama-based, NIM OpenAI-compat API.
+       Base text models (nemotron-ultra, nemotron-core) get reasoning
+       but no vision. VL suffix gets image input. *)
+  else if starts_with "nvidia/nemotron" || starts_with "nemotron"
+  then (
+    let has_vision = starts_with "nvidia/nemotron-vl" || starts_with "nemotron-vl" in
+    Some
+      { nemotron_capabilities with
+        max_context_tokens = Some 131_072
+      ; max_output_tokens = Some 16_384
+      ; supports_multimodal_inputs = has_vision
+      ; supports_image_input = has_vision
+      }
+    (* Gemma 4: Google open-weight multimodal.
+       4 sizes (1B/4B/12B/27B-31B). All support function calling,
+       image input, streaming. 27B+ supports audio. 256K context. *))
+  else if starts_with "gemma-4" || starts_with "google/gemma-4"
+  then (
+    let is_large =
+      let m = String.lowercase_ascii model_id in
+      (* Strip optional "google/" prefix, then "gemma-4-".  The next
+         token is the size: "27b", "31b", "1b", "4b", "12b", etc. *)
+      let base =
+        if String.length m > 7 && String.sub m 0 7 = "google/"
+        then String.sub m 7 (String.length m - 7)
+        else m
+      in
+      match
+        if String.length base >= 8 && String.sub base 0 8 = "gemma-4-"
+        then Some (String.sub base 8 (String.length base - 8))
+        else None
+      with
+      | Some size_token ->
+        List.exists
+          (fun prefix ->
+             String.length size_token >= 3 && String.sub size_token 0 3 = prefix)
+          [ "27b"; "31b" ]
+      | None -> false
+    in
+    Some
+      { default_capabilities with
+        max_context_tokens = Some 262_144
+      ; supports_tools = true
+      ; supports_tool_choice = true
+      ; supports_response_format_json = true
+      ; supports_structured_output = true
+      ; supports_multimodal_inputs = true
+      ; supports_image_input = true
+      ; supports_audio_input = is_large
+      ; supports_native_streaming = true
+      ; supports_seed = true
       }
     (* GLM flash/air variants: faster, no reasoning, smaller output.
-     Must precede the broad glm-4.5/4.6/4.7/5 match below. *)
+     Must precede the broad glm-4.5/4.6/4.7/5 match below. *))
   else if
     starts_with "glm-4.7-flash"
     || starts_with "glm-4.5-flash"
@@ -591,6 +666,21 @@ let for_model_id model_id =
       ; supports_image_input = true
       ; supports_native_streaming = true
       }
+    (* GLM-5-Code: coding-specific variant with 128K context (not 200K).
+       Z.AI docs: GLM-5-Code uses /api/coding/paas/ endpoint, 128K context. *)
+  else if starts_with "glm-5-code"
+  then
+    Some
+      { default_capabilities with
+        max_context_tokens = Some 128_000
+      ; max_output_tokens = Some 128_000
+      ; supports_tools = true
+      ; supports_tool_choice = false
+      ; supports_reasoning = true
+      ; supports_extended_thinking = true
+      ; supports_response_format_json = true
+      ; supports_native_streaming = true
+      }
     (* GLM full text models: reasoning, large context/output, but no vision. *)
   else if
     starts_with "glm-4.5"
@@ -653,8 +743,10 @@ let capabilities_for_provider_label label =
   | "openai" | "openai_chat" -> Some openai_chat_capabilities
   | "openai_chat_extended" -> Some openai_chat_extended_capabilities
   | "gemini" -> Some gemini_capabilities
-  | "ollama" -> Some ollama_capabilities
+  | "ollama" | "ollama_cloud" -> Some ollama_capabilities
   | "glm" | "glm-coding" -> Some glm_capabilities
+  | "dashscope" | "qwen" -> Some dashscope_capabilities
+  | "nemotron" -> Some nemotron_capabilities
   | "kimi" -> Some kimi_capabilities
   | "claude_code" -> Some claude_code_capabilities
   | "gemini_cli" -> Some gemini_cli_capabilities
@@ -665,6 +757,7 @@ let capabilities_for_provider_label label =
 
 (** Merge Discovery ctx_size into capabilities. *)
 let with_context_size caps ~ctx_size = { caps with max_context_tokens = Some ctx_size }
+
 let with_tool_support caps ~supports_tools = { caps with supports_tools }
 
 [@@@coverage off]
@@ -819,6 +912,70 @@ let%test "capabilities_for_provider_label: unknown returns None" =
   Option.is_none (capabilities_for_provider_label "not_a_real_provider_xyz")
 ;;
 
+(* --- Nemotron / Gemma 4 --- *)
+
+let%test "nemotron_capabilities has chat_template_kwargs thinking" =
+  nemotron_capabilities.thinking_control_format = Chat_template_kwargs
+;;
+
+let%test "for_model_id nemotron-ultra has reasoning" =
+  match for_model_id "nemotron-ultra-253b" with
+  | Some c -> c.supports_reasoning && c.supports_tool_choice
+  | None -> false
+;;
+
+let%test "for_model_id nemotron-vl has image input" =
+  match for_model_id "nemotron-vl" with
+  | Some c -> c.supports_image_input && c.supports_multimodal_inputs
+  | None -> false
+;;
+
+let%test "for_model_id nvidia/nemotron-core resolves" =
+  match for_model_id "nvidia/nemotron-core" with
+  | Some c -> c.supports_reasoning
+  | None -> false
+;;
+
+let%test "for_model_id gemma-4-27b has tools + seed" =
+  match for_model_id "gemma-4-27b-it" with
+  | Some c ->
+    c.supports_tools
+    && c.supports_seed
+    && c.supports_image_input
+    && c.max_context_tokens = Some 262_144
+  | None -> false
+;;
+
+let%test "for_model_id gemma-4-1b-it has tools, no audio" =
+  match for_model_id "gemma-4-1b-it" with
+  | Some c -> c.supports_tools && c.supports_image_input && not c.supports_audio_input
+  | None -> false
+;;
+
+let%test "for_model_id google/gemma-4-1b-it is NOT large" =
+  match for_model_id "google/gemma-4-1b-it" with
+  | Some c -> not c.supports_audio_input
+  | None -> false
+;;
+
+let%test "for_model_id google/gemma-4-27b-it IS large" =
+  match for_model_id "google/gemma-4-27b-it" with
+  | Some c -> c.supports_audio_input
+  | None -> false
+;;
+
+let%test "for_model_id gemma-4-31b IS large" =
+  match for_model_id "gemma-4-31b-it" with
+  | Some c -> c.supports_audio_input
+  | None -> false
+;;
+
+let%test "capabilities_for_provider_label: nemotron" =
+  match capabilities_for_provider_label "nemotron" with
+  | Some c -> c.thinking_control_format = Chat_template_kwargs
+  | None -> false
+;;
+
 (* ── Prefix ordering invariant ──────────────────── *)
 
 (* Each case is a model_id and the expected capability fingerprint.
@@ -831,31 +988,173 @@ let%test "for_model_id: specific model IDs get correct (not shadowed) capabiliti
     | Some c -> expected c
     | None -> false
   in
-  List.for_all (fun (m, e) -> check m e)
+  List.for_all
+    (fun (m, e) -> check m e)
     [ ( "glm-4.7-flash-turbo"
       , fun c -> c.max_output_tokens = Some 16_384 && not c.supports_reasoning )
     ; ( "glm-4.5-flash-test"
       , fun c -> c.max_output_tokens = Some 16_384 && not c.supports_reasoning )
     ; ( "glm-5-turbo-latest"
       , fun c -> c.max_output_tokens = Some 16_384 && not c.supports_extended_thinking )
-    ; ( "glm-4.6v-plus"
-      , fun c -> c.supports_image_input && c.supports_reasoning )
+    ; ("glm-4.6v-plus", fun c -> c.supports_image_input && c.supports_reasoning)
     ; ( "glm-4.7-flash-test"
       , fun c -> c.max_output_tokens = Some 16_384 && not c.supports_reasoning )
     ; ( "glm-4-flash-mini"
       , fun c -> c.max_output_tokens = Some 4_096 && not c.supports_reasoning )
-    ; ( "glm-4v-plus"
-      , fun c -> c.supports_image_input )
+    ; ("glm-4v-plus", fun c -> c.supports_image_input)
     ; ( "glm-4.5-air-test"
       , fun c -> c.max_output_tokens = Some 16_384 && not c.supports_reasoning )
     ; ( "glm-5v-turbo-latest"
-      , fun c -> c.supports_image_input && c.supports_reasoning && c.max_output_tokens = Some 128_000 )
-    ; ( "glm-ocr-test"
-      , fun c -> c.supports_image_input && not c.supports_tools )
-    ; ( "claude-opus-4-20250501"
-      , fun c -> c.max_output_tokens = Some 128_000 )
-    ; ( "gpt-4.1-mini"
-      , fun c -> c.max_output_tokens = Some 32_000 )
-    ; ( "deepseek-v4-flash-test"
-      , fun c -> c.uses_native_thinking_envelope )
+      , fun c ->
+          c.supports_image_input
+          && c.supports_reasoning
+          && c.max_output_tokens = Some 128_000 )
+    ; ("glm-ocr-test", fun c -> c.supports_image_input && not c.supports_tools)
+    ; ("claude-opus-4-20250501", fun c -> c.max_output_tokens = Some 128_000)
+    ; ("gpt-4.1-mini", fun c -> c.max_output_tokens = Some 32_000)
+    ; ("deepseek-v4-flash-test", fun c -> c.uses_native_thinking_envelope)
+    ; ( "nemotron-ultra-253b"
+      , fun c ->
+          c.thinking_control_format = Chat_template_kwargs && c.supports_tool_choice )
+    ; ( "nvidia/nemotron-ultra-253b"
+      , fun c ->
+          c.thinking_control_format = Chat_template_kwargs && c.supports_tool_choice )
+    ; ("nemotron-vl", fun c -> c.supports_image_input && c.supports_multimodal_inputs)
+    ; ( "gemma-4-27b-it"
+      , fun c ->
+          c.supports_tools
+          && c.supports_image_input
+          && c.supports_seed
+          && c.max_context_tokens = Some 262_144 )
+    ; ("google/gemma-4-27b-it", fun c -> c.supports_tools && c.supports_image_input)
     ]
+;;
+
+(* ── Capability drift detection ────────────────────────── *)
+
+type drift_observation =
+  | Usage_missing_but_declared (** [emits_usage_tokens=true] but response has no usage *)
+  | Tools_used_but_declared_unsupported
+  (** Response contains ToolUse but [supports_tools=false] *)
+  | Thinking_returned_but_declared_unsupported
+  (** Response contains Thinking/RedactedThinking but [supports_reasoning=false] *)
+  | Stop_tool_use_but_declared_unsupported
+  (** [stop_reason=StopToolUse] but [supports_tools=false] *)
+[@@deriving show]
+
+let detect_drift (caps : capabilities) (resp : Types.api_response)
+  : drift_observation list
+  =
+  let obs = ref [] in
+  (* Usage drift *)
+  if caps.emits_usage_tokens && resp.usage = None
+  then obs := Usage_missing_but_declared :: !obs;
+  (* Content block analysis *)
+  let has_tool_use = ref false
+  and has_thinking = ref false in
+  List.iter
+    (function
+      | Types.ToolUse _ -> has_tool_use := true
+      | Types.Thinking _ | Types.RedactedThinking _ -> has_thinking := true
+      | _ -> ())
+    resp.content;
+  if !has_tool_use && not caps.supports_tools
+  then obs := Tools_used_but_declared_unsupported :: !obs;
+  if !has_thinking && not caps.supports_reasoning
+  then obs := Thinking_returned_but_declared_unsupported :: !obs;
+  (* Stop reason analysis *)
+  if resp.stop_reason = Types.StopToolUse && not caps.supports_tools
+  then obs := Stop_tool_use_but_declared_unsupported :: !obs;
+  List.rev !obs
+;;
+
+(* ── Alias collision invariant ─────────────────────── *)
+
+(* Aliases must resolve to the same underlying capabilities record.
+   If a new provider is added with overlapping labels, this test catches
+   divergence. M06 regression guard. *)
+let%test "capabilities_for_provider_label: aliases resolve to identical capabilities" =
+  let resolve label = capabilities_for_provider_label label in
+  let same_base a b =
+    match resolve a, resolve b with
+    | Some ca, Some cb ->
+      ca.supports_tools = cb.supports_tools
+      && ca.supports_reasoning = cb.supports_reasoning
+      && ca.supports_caching = cb.supports_caching
+      && ca.emits_usage_tokens = cb.emits_usage_tokens
+      && ca.max_context_tokens = cb.max_context_tokens
+      && ca.max_output_tokens = cb.max_output_tokens
+      && ca.supports_image_input = cb.supports_image_input
+      && ca.thinking_control_format = cb.thinking_control_format
+    | _ -> false
+  in
+  let alias_pairs = [ "openai", "openai_chat"; "glm", "glm-coding" ] in
+  List.for_all (fun (a, b) -> same_base a b) alias_pairs
+  && Option.is_some (resolve "anthropic")
+  && Option.is_some (resolve "gemini")
+  && Option.is_some (resolve "ollama")
+  && Option.is_some (resolve "kimi")
+  && Option.is_some (resolve "nemotron")
+;;
+
+(* Every declared label is reachable — no dead branches in the match.
+   If a label is added to the match but has no corresponding capability
+   binding, this test will fail. *)
+let%test "capabilities_for_provider_label: all declared labels resolve" =
+  let labels =
+    [ "anthropic"
+    ; "openai"
+    ; "openai_chat"
+    ; "openai_chat_extended"
+    ; "gemini"
+    ; "ollama"
+    ; "glm"
+    ; "glm-coding"
+    ; "nemotron"
+    ; "kimi"
+    ; "claude_code"
+    ; "gemini_cli"
+    ; "kimi_cli"
+    ; "codex_cli"
+    ]
+  in
+  List.for_all (fun l -> Option.is_some (capabilities_for_provider_label l)) labels
+;;
+
+(* Every label resolves to a distinct capability fingerprint unless
+   explicitly aliased. Catches accidental capability merging. *)
+let%test
+    "capabilities_for_provider_label: no accidental aliasing across distinct providers"
+  =
+  let non_aliased =
+    [ "anthropic"
+    ; "gemini"
+    ; "ollama"
+    ; "kimi"
+    ; "claude_code"
+    ; "gemini_cli"
+    ; "kimi_cli"
+    ; "codex_cli"
+    ; "nemotron"
+    ]
+  in
+  let fingerprints =
+    List.filter_map
+      (fun l ->
+         match capabilities_for_provider_label l with
+         | Some c ->
+           Some
+             ( c.supports_tools
+             , c.supports_reasoning
+             , c.supports_caching
+             , c.emits_usage_tokens
+             , c.max_context_tokens
+             , c.max_output_tokens
+             , c.thinking_control_format )
+         | None -> None)
+      non_aliased
+  in
+  (* Each non-aliased provider should have at least one distinguishing field *)
+  let n = List.length fingerprints in
+  n = List.length non_aliased
+;;

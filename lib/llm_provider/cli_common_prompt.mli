@@ -46,4 +46,8 @@ val system_prompt_of : req_config:Provider_config.t -> Types.message list -> str
     CLI flag is unavailable or unsupported. *)
 val prompt_with_system_prompt : prompt:string -> system_prompt:string option -> string
 
-val estimate_usage : prompt:string -> response_text:string -> model_id:string -> Types.api_usage
+val estimate_usage
+  :  prompt:string
+  -> response_text:string
+  -> model_id:string
+  -> Types.api_usage

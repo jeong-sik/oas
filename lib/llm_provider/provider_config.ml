@@ -45,6 +45,7 @@ type t =
   ; keep_alive : string option
   ; internal_model_rotation_count : int option
   ; num_ctx : int option
+  ; seed : int option
   }
 
 let make
@@ -75,6 +76,7 @@ let make
       ?keep_alive
       ?internal_model_rotation_count
       ?num_ctx
+      ?seed
       ()
   =
   let response_format =
@@ -129,6 +131,7 @@ let make
   ; keep_alive
   ; internal_model_rotation_count
   ; num_ctx
+  ; seed
   }
 ;;
 
@@ -174,8 +177,28 @@ let default_attempt_timeout_s = function
   | Anthropic | Kimi | OpenAI_compat | Gemini | Glm | DashScope | Codex_cli -> None
 ;;
 
+(** Default reasoning effort level when thinking is enabled but no budget
+    is specified. Override with [OAS_DEFAULT_REASONING_EFFORT] env var.
+    Accepted values: "low", "medium", "high". Invalid values fall back to
+    "medium".
+    @since 0.185.0 *)
+let default_reasoning_effort () =
+  match Cli_common_env.get "OAS_DEFAULT_REASONING_EFFORT" with
+  | Some (("low" | "medium" | "high") as v) -> v
+  | Some v ->
+    Diag.warn
+      "provider_config"
+      "OAS_DEFAULT_REASONING_EFFORT=%S invalid (expected low/medium/high), using medium"
+      v;
+    "medium"
+  | None -> "medium"
+;;
+
 (** Map thinking configuration to reasoning_effort string.
     Four levels: "none", "low" (≤2048), "medium" (≤8192), "high" (>8192).
+    When [thinking_budget] is [None] and thinking is enabled, the default
+    effort is resolved from [OAS_DEFAULT_REASONING_EFFORT] env var
+    (fallback: "medium").
     Shared by Ollama backends and api_openai request building.
     @since 0.114.0 *)
 let effort_of_thinking_config
@@ -191,7 +214,7 @@ let effort_of_thinking_config
      | Some n when n <= 2048 -> "low"
      | Some n when n <= 8192 -> "medium"
      | Some _ -> "high"
-     | None -> "medium")
+     | None -> default_reasoning_effort ())
 ;;
 
 (** Compute reasoning_effort for a provider config.
@@ -267,7 +290,7 @@ let validate_output_schema_request (config : t) =
   | None -> Ok ()
   | Some _ ->
     (match config.kind with
-     | Gemini | Anthropic | Ollama | DashScope -> Ok ()
+     | Gemini | Anthropic | Ollama | DashScope | Glm -> Ok ()
      | Kimi ->
        Error "Kimi direct API native json_schema output is not verified yet in OAS"
      | OpenAI_compat ->
@@ -289,14 +312,38 @@ let validate_output_schema_request (config : t) =
            (Printf.sprintf
               "native structured output is only wired for official OpenAI hosts, got %s"
               config.base_url)
-     | Glm ->
-       Error
-         "GLM is currently wired for JSON mode only; native json_schema is not enabled"
      | Claude_code | Gemini_cli | Kimi_cli | Codex_cli ->
        Error
          (Printf.sprintf
             "%s does not expose provider-native structured output in OAS"
             (string_of_provider_kind config.kind)))
+;;
+
+(** Validate that sampling parameters not supported by CLI subprocess
+    transports are not set.  CLI transports (Codex_cli, Kimi_cli,
+    Gemini_cli, Claude_code) run external binaries and cannot relay
+    fine-grained sampling parameters like [min_p] or [top_k].
+    Detecting these at validation time avoids silent downgrading at the
+    transport layer ([warn_unsupported_once]).
+    @since 0.185.0 *)
+let validate_cli_sampling_params (config : t) =
+  match config.kind with
+  | Claude_code | Gemini_cli | Kimi_cli | Codex_cli ->
+    let unsupported =
+      List.filter_map
+        (fun (label, present) -> if present then Some label else None)
+        [ "min_p", Option.is_some config.min_p; "top_k", Option.is_some config.top_k ]
+    in
+    (match unsupported with
+     | [] -> Ok ()
+     | fields ->
+       Error
+         (Printf.sprintf
+            "%s does not support %s in OAS; these parameters are silently dropped by the \
+             CLI subprocess transport"
+            (string_of_provider_kind config.kind)
+            (String.concat ", " fields)))
+  | Anthropic | Kimi | OpenAI_compat | Ollama | Gemini | Glm | DashScope -> Ok ()
 ;;
 
 let has_host_prefix ~url ~prefix =
@@ -316,4 +363,41 @@ let is_local (config : t) =
   let url = String.lowercase_ascii (String.trim config.base_url) in
   has_host_prefix ~url ~prefix:Constants.Endpoints.local_prefix
   || has_host_prefix ~url ~prefix:Constants.Endpoints.localhost_prefix
+;;
+
+(* ── Inline tests ────────────────────────────────────── *)
+
+[@@@coverage off]
+
+let%test "validate_cli_sampling_params: Codex_cli with min_p → Error" =
+  let config = make ~kind:Codex_cli ~model_id:"test" ~base_url:"" ~min_p:0.05 () in
+  match validate_cli_sampling_params config with
+  | Error msg ->
+    String.contains msg 'm' && String.contains msg 'i' && String.contains msg 'n'
+  | Ok () -> false
+;;
+
+let%test "validate_cli_sampling_params: Codex_cli with top_k → Error" =
+  let config = make ~kind:Codex_cli ~model_id:"test" ~base_url:"" ~top_k:40 () in
+  match validate_cli_sampling_params config with
+  | Error msg ->
+    String.contains msg 't' && String.contains msg 'o' && String.contains msg 'p'
+  | Ok () -> false
+;;
+
+let%test "validate_cli_sampling_params: Anthropic with min_p → Ok" =
+  let config =
+    make
+      ~kind:Anthropic
+      ~model_id:"claude-4"
+      ~base_url:"https://api.anthropic.com"
+      ~min_p:0.05
+      ()
+  in
+  validate_cli_sampling_params config = Ok ()
+;;
+
+let%test "validate_cli_sampling_params: Codex_cli clean → Ok" =
+  let config = make ~kind:Codex_cli ~model_id:"test" ~base_url:"" () in
+  validate_cli_sampling_params config = Ok ()
 ;;

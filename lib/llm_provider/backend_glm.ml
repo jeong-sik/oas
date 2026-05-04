@@ -26,24 +26,6 @@ type glm_error =
   ; is_retryable : bool
   }
 
-let contains_ci ~haystack ~needle =
-  let h = String.lowercase_ascii haystack in
-  let n = String.lowercase_ascii needle in
-  let nlen = String.length n in
-  let hlen = String.length h in
-  if nlen = 0 || nlen > hlen
-  then false
-  else (
-    let rec scan i =
-      if i > hlen - nlen
-      then false
-      else if String.sub h i nlen = n
-      then true
-      else scan (i + 1)
-    in
-    scan 0)
-;;
-
 (** Classify GLM error by code first, message fallback.
     Code mapping from docs.z.ai/api-reference/api-code:
     - 1000-1004,1100-1120: auth/account
@@ -85,11 +67,11 @@ let classify_glm_error ~code ~message : glm_error_class * bool =
   | "1261" -> Glm_invalid_request, false
   | _ ->
     if
-      contains_ci ~haystack:message ~needle:"usage limit"
-      || contains_ci ~haystack:message ~needle:"quota"
-      || contains_ci ~haystack:message ~needle:"exceeded"
+      Retry.contains_substring_ci ~haystack:message ~needle:"usage limit"
+      || Retry.contains_substring_ci ~haystack:message ~needle:"quota"
+      || Retry.contains_substring_ci ~haystack:message ~needle:"exceeded"
     then Glm_quota_exceeded, false
-    else if contains_ci ~haystack:message ~needle:"rate limit"
+    else if Retry.contains_substring_ci ~haystack:message ~needle:"rate limit"
     then Glm_rate_limited, true
     else Glm_invalid_request, false
 ;;

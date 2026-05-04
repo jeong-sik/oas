@@ -33,11 +33,15 @@ let build_request
   in
   let body = [ "model", `String config.model_id; "messages", `List provider_messages ] in
   (* think: false by default for Ollama to prevent thinking models from
-     consuming all tokens in reasoning. Only enable when explicitly requested. *)
+     consuming all tokens in reasoning. Only enable when explicitly requested.
+     Override with OAS_OLLAMA_THINK_DEFAULT=true to enable thinking for all
+     Ollama requests by default. *)
   let think =
     match config.enable_thinking with
     | Some true -> true
-    | _ -> false
+    | Some false -> false
+    | None -> Cli_common_env.bool "OAS_OLLAMA_THINK_DEFAULT"
+    (* default false: thinking models consume tokens in reasoning *)
   in
   let body = ("think", `Bool think) :: body in
   (* Ollama defaults to stream=true, so always send explicit value *)
@@ -121,7 +125,11 @@ let build_request
     | None -> Capabilities.ollama_capabilities
   in
   let options = ref [] in
-  (let mt = Option.value ~default:Constants.Inference.unknown_model_max_tokens_fallback config.max_tokens in
+  (let mt =
+     Option.value
+       ~default:Constants.Inference.unknown_model_max_tokens_fallback
+       config.max_tokens
+   in
    options := ("num_predict", `Int mt) :: !options);
   (match config.temperature with
    | Some t -> options := ("temperature", `Float t) :: !options
@@ -273,6 +281,7 @@ let parse_ollama_response json_str =
         { Types.system_fingerprint
         ; timings
         ; reasoning_tokens
+        ; reasoning_tokens_estimated = false
         ; request_latency_ms = 0
         ; peak_memory_gb = None
         ; provider_kind = None

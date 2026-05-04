@@ -112,6 +112,15 @@ type t =
       Cascade configs may surface this so a small-model profile can
       pick a smaller window than a long-context profile.
       @since 0.171.0 *)
+  ; seed : int option
+    (** Deterministic seed for providers that support it. When [Some n],
+      injected into the request body as ["seed": n] if the model's
+      {!Capabilities.t.supports_seed} is [true]. [None] = use the
+      [OAS_DEFAULT_SEED] env var, then fallback to
+      {!Constants.Deterministic.default_seed} (42).
+      Anthropic (Claude) does not support seed — the field is silently
+      ignored for that provider.
+      @since 0.185.0 *)
   }
 
 (** Default config for quick construction. Only [kind], [model_id],
@@ -144,6 +153,7 @@ val make
   -> ?keep_alive:string
   -> ?internal_model_rotation_count:int
   -> ?num_ctx:int
+  -> ?seed:int
   -> unit
   -> t
 
@@ -254,6 +264,12 @@ val structured_output_name_of_schema : Yojson.Safe.t -> string
 
     @since 0.163.0 *)
 val validate_output_schema_request : t -> (unit, string) result
+
+(** Validate that sampling parameters unsupported by CLI subprocess
+    transports ([min_p], [top_k]) are not set.
+    Returns [Error] with the unsupported parameter names for CLI providers.
+    @since 0.185.0 *)
+val validate_cli_sampling_params : t -> (unit, string) result
 
 (** Whether the provider config points at a local loopback endpoint.
     This is the SSOT for locality checks derived from runtime configuration. *)

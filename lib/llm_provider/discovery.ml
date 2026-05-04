@@ -226,6 +226,27 @@ let find_context_length (model_info : Yojson.Safe.t) : int =
   | _ -> 0
 ;;
 
+(** Detect tool-calling support from a chat template string.
+    Checks for tool-related keywords and special tokens used by
+    various model families (Qwen, Llama, Mistral, etc.). *)
+let template_has_tool_support (template : string) : bool =
+  let has_tool_keyword =
+    Retry.contains_substring_ci ~haystack:template ~needle:"tools"
+    || Retry.contains_substring_ci ~haystack:template ~needle:"Tool"
+  in
+  let has_tool_call_token =
+    List.exists
+      (fun needle -> Retry.contains_substring_ci ~haystack:template ~needle)
+      [ "<|tool_call|>"
+      ; "<|tool_calls|>"
+      ; ".tool_call"
+      ; "<|im_tool|>"
+      ; "<|function_call"
+      ]
+  in
+  has_tool_call_token || (String.index_opt template '{' <> None && has_tool_keyword)
+;;
+
 (** Try to detect Ollama via /api/tags and retrieve actual context size
     via /api/show. Returns synthetic server_props on success. *)
 let probe_ollama_context ~sw ~net base_url =
@@ -262,29 +283,19 @@ let probe_ollama_context ~sw ~net base_url =
              let model_info = member "model_info" json in
              let ctx = find_context_length model_info in
              if ctx > 0
-             then
+             then (
                let template =
                  match member "template" json with
                  | `String s -> s
                  | _ -> ""
                in
-               let local_contains_ci ~haystack ~needle =
-                 let h = String.lowercase_ascii haystack in
-                 let n = String.lowercase_ascii needle in
-                 let nlen = String.length n in
-                 let hlen = String.length h in
-                 if nlen > hlen then false else
-                 let rec loop i =
-                   if i > hlen - nlen then false
-                   else if String.sub h i nlen = n then true
-                   else loop (i + 1)
-                 in loop 0
-               in
-               let has_tools =
-                 String.index_opt template '{' <> None
-                 && (local_contains_ci ~haystack:template ~needle:"tools" || local_contains_ci ~haystack:template ~needle:"Tool")
-               in
-               Some { total_slots = 1; ctx_size = ctx; model = model_name; supports_tools = Some has_tools }
+               let has_tools = template_has_tool_support template in
+               Some
+                 { total_slots = 1
+                 ; ctx_size = ctx
+                 ; model = model_name
+                 ; supports_tools = Some has_tools
+                 })
              else (
                warn_probe_failure
                  ~url:base_url
@@ -323,23 +334,6 @@ let probe_ollama_context ~sw ~net base_url =
 
 (* ── Capability inference ────────────────────────────────── *)
 
-let string_contains_ci ~haystack ~needle =
-  let h = String.lowercase_ascii haystack in
-  let n = String.lowercase_ascii needle in
-  let nlen = String.length n in
-  let hlen = String.length h in
-  if nlen > hlen
-  then false
-  else (
-    let found = ref false in
-    let i = ref 0 in
-    while !i <= hlen - nlen && not !found do
-      if String.sub h !i nlen = n then found := true;
-      incr i
-    done;
-    !found)
-;;
-
 (** Infer capabilities from model info and server props.
     Priority: model-specific lookup > generic inference > default. *)
 let infer_capabilities models props =
@@ -354,7 +348,8 @@ let infer_capabilities models props =
       (* 2. Generic inference by model name *)
       let needs_extended =
         List.exists
-          (fun (m : model_info) -> string_contains_ci ~haystack:m.id ~needle:"qwen")
+          (fun (m : model_info) ->
+             Retry.contains_substring_ci ~haystack:m.id ~needle:"qwen")
           models
       in
       if needs_extended
@@ -990,26 +985,26 @@ let%test "parse_slots neither is_processing nor state defaults to idle" =
   | None -> false
 ;;
 
-(* --- string_contains_ci --- *)
+(* --- contains_substring_ci (via Retry SSOT) --- *)
 
-let%test "string_contains_ci case insensitive match" =
-  string_contains_ci ~haystack:"Qwen3.5-35B" ~needle:"qwen" = true
+let%test "contains_substring_ci case insensitive match" =
+  Retry.contains_substring_ci ~haystack:"Qwen3.5-35B" ~needle:"qwen" = true
 ;;
 
-let%test "string_contains_ci no match" =
-  string_contains_ci ~haystack:"llama" ~needle:"qwen" = false
+let%test "contains_substring_ci no match" =
+  Retry.contains_substring_ci ~haystack:"llama" ~needle:"qwen" = false
 ;;
 
-let%test "string_contains_ci needle longer than haystack" =
-  string_contains_ci ~haystack:"ab" ~needle:"abcdef" = false
+let%test "contains_substring_ci needle longer than haystack" =
+  Retry.contains_substring_ci ~haystack:"ab" ~needle:"abcdef" = false
 ;;
 
-let%test "string_contains_ci empty needle" =
-  string_contains_ci ~haystack:"anything" ~needle:"" = true
+let%test "contains_substring_ci empty needle" =
+  Retry.contains_substring_ci ~haystack:"anything" ~needle:"" = true
 ;;
 
-let%test "string_contains_ci exact match" =
-  string_contains_ci ~haystack:"QWEN" ~needle:"qwen" = true
+let%test "contains_substring_ci exact match" =
+  Retry.contains_substring_ci ~haystack:"QWEN" ~needle:"qwen" = true
 ;;
 
 (* --- infer_capabilities --- *)
@@ -1036,7 +1031,9 @@ let%test "infer_capabilities known model lookup has priority" =
 
 let%test "infer_capabilities merges ctx_size from props" =
   let models = [ { id = "my-model"; owned_by = "local" } ] in
-  let props = Some { total_slots = 4; ctx_size = 32768; model = "my-model"; supports_tools = None } in
+  let props =
+    Some { total_slots = 4; ctx_size = 32768; model = "my-model"; supports_tools = None }
+  in
   let caps = infer_capabilities models props in
   caps.max_context_tokens = Some 32768
 ;;
@@ -1056,7 +1053,10 @@ let%test "model_info_to_json" =
 ;;
 
 let%test "server_props_to_json" =
-  let json = server_props_to_json { total_slots = 4; ctx_size = 8192; model = "qwen"; supports_tools = None } in
+  let json =
+    server_props_to_json
+      { total_slots = 4; ctx_size = 8192; model = "qwen"; supports_tools = None }
+  in
   let open Yojson.Safe.Util in
   json |> member "total_slots" |> to_int = 4 && json |> member "ctx_size" |> to_int = 8192
 ;;
@@ -1094,7 +1094,8 @@ let%test "endpoint_status_to_json with props and slots" =
     { url = Constants.Endpoints.default_url_localhost
     ; healthy = true
     ; models = [ { id = "m1"; owned_by = "local" } ]
-    ; props = Some { total_slots = 4; ctx_size = 8192; model = "m1"; supports_tools = None }
+    ; props =
+        Some { total_slots = 4; ctx_size = 8192; model = "m1"; supports_tools = None }
     ; slots = Some { total = 4; busy = 1; idle = 3 }
     ; capabilities = Capabilities.default_capabilities
     }
@@ -1161,7 +1162,8 @@ let%test "max_context_of_status from props" =
     { url = "http://localhost"
     ; healthy = true
     ; models = []
-    ; props = Some { total_slots = 4; ctx_size = 32768; model = "m"; supports_tools = None }
+    ; props =
+        Some { total_slots = 4; ctx_size = 32768; model = "m"; supports_tools = None }
     ; slots = None
     ; capabilities = Capabilities.default_capabilities
     }
@@ -1202,7 +1204,8 @@ let%test "max_context_of_status prefers props over capabilities" =
     { url = "http://localhost"
     ; healthy = true
     ; models = []
-    ; props = Some { total_slots = 2; ctx_size = 65536; model = "m" ; supports_tools = None }
+    ; props =
+        Some { total_slots = 2; ctx_size = 65536; model = "m"; supports_tools = None }
     ; slots = None
     ; capabilities = caps
     }
@@ -1269,7 +1272,14 @@ let%test "find_context_length bare key without prefix" =
 
 let%test "infer_capabilities uses ollama context when props present" =
   let models = [ { id = "qwen3.5-35b"; owned_by = "ollama" } ] in
-  let props = Some { total_slots = 1; ctx_size = 8192; model = "qwen3.5:latest" ; supports_tools = None } in
+  let props =
+    Some
+      { total_slots = 1
+      ; ctx_size = 8192
+      ; model = "qwen3.5:latest"
+      ; supports_tools = None
+      }
+  in
   let caps = infer_capabilities models props in
   caps.max_context_tokens = Some 8192
 ;;
@@ -1522,4 +1532,46 @@ let%test "first_discovered_model_id_for_url prevents cross-provider" =
        first_discovered_model_id_for_url "http://127.0.0.1:8085" = Some "qwen3.5-9b-local"
        && first_discovered_model_id_for_url "http://127.0.0.1:11434"
           = Some "qwen3.5:9b-nvfp4")
+;;
+
+(* --- template_has_tool_support tests --- *)
+
+let%test "template_has_tool_support detects tools keyword" =
+  template_has_tool_support "{{ .Tools }}"
+;;
+
+let%test "template_has_tool_support detects Tool keyword" =
+  template_has_tool_support "{% for tool in Tools %}{{ tool }}{% endfor %}"
+;;
+
+let%test "template_has_tool_support detects <|tool_call|> token" =
+  template_has_tool_support "<|im_start|>assistant\n<|tool_call|>\n"
+;;
+
+let%test "template_has_tool_support detects <|tool_calls|> token" =
+  template_has_tool_support "<|im_start|>assistant<|tool_calls|>["
+;;
+
+let%test "template_has_tool_support detects .tool_call token" =
+  template_has_tool_support "{% if .tool_call %}{{ .tool_call }}{% endif %}"
+;;
+
+let%test "template_has_tool_support detects <|im_tool|> token" =
+  template_has_tool_support "<|im_start|><|im_tool|>result"
+;;
+
+let%test "template_has_tool_support detects <|function_call token" =
+  template_has_tool_support "<|im_start|>assistant\n<|function_call|>{"
+;;
+
+let%test "template_has_tool_support rejects template without braces" =
+  not (template_has_tool_support "no template markers here")
+;;
+
+let%test "template_has_tool_support rejects empty string" =
+  not (template_has_tool_support "")
+;;
+
+let%test "template_has_tool_support rejects braces without tool signals" =
+  not (template_has_tool_support "{{ .Content }}")
 ;;

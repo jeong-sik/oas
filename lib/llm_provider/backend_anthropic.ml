@@ -46,6 +46,7 @@ let parse_response json =
         { Types.system_fingerprint = None
         ; timings = None
         ; reasoning_tokens = None
+        ; reasoning_tokens_estimated = false
         ; request_latency_ms = 0
         ; peak_memory_gb = None
         ; provider_kind = None
@@ -74,7 +75,11 @@ let build_request
   let msgs_json = List.map message_to_json messages in
   let body =
     [ "model", `String config.model_id
-    ; "max_tokens", `Int (Option.value ~default:Constants.Inference.unknown_model_max_tokens_fallback config.max_tokens)
+    ; ( "max_tokens"
+      , `Int
+          (Option.value
+             ~default:Constants.Inference.unknown_model_max_tokens_fallback
+             config.max_tokens) )
     ; "messages", `List msgs_json
     ; "stream", `Bool stream
     ]
@@ -83,9 +88,11 @@ let build_request
     match config.system_prompt with
     | Some s when not (Api_common.string_is_blank s) ->
       let s = Utf8_sanitize.sanitize s in
-      if
+      let should_cache_system =
         config.cache_system_prompt
-        && String.length s >= Constants.Anthropic.prompt_cache_min_chars
+        || String.length s >= Constants.Anthropic.prompt_cache_min_chars
+      in
+      if should_cache_system
       then (
         (* Anthropic prompt caching: requires ~1024+ tokens.
              Send system as content block array with cache_control breakpoint. *)
@@ -121,7 +128,7 @@ let build_request
       let budget =
         match config.thinking_budget with
         | Some b -> b
-        | None -> Constants.Thinking.default_budget
+        | None -> Constants.Thinking.anthropic_budget ()
       in
       ("thinking", `Assoc [ "type", `String "enabled"; "budget_tokens", `Int budget ])
       :: body
@@ -139,7 +146,11 @@ let build_request
     match tools with
     | [] -> body
     | ts ->
-      if config.cache_system_prompt
+      let should_cache_tools =
+        config.cache_system_prompt
+        || List.length ts >= Constants.Anthropic.prompt_cache_min_tools
+      in
+      if should_cache_tools
       then (
         (* Add cache_control to last tool for extended cache prefix *)
         let ts_with_cache =

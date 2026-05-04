@@ -47,6 +47,7 @@ let patch_latency (resp : Types.api_response) (latency_ms : int) : Types.api_res
         { Llm_provider.Types.system_fingerprint = None
         ; timings = None
         ; reasoning_tokens = None
+        ; reasoning_tokens_estimated = false
         ; request_latency_ms = latency_ms
         ; peak_memory_gb = None
         ; provider_kind = None
@@ -434,6 +435,7 @@ let%test "patch_latency overwrites existing request_latency_ms" =
     { system_fingerprint = Some "fp"
     ; timings = None
     ; reasoning_tokens = Some 10
+    ; reasoning_tokens_estimated = false
     ; request_latency_ms = 0
     ; (* parser sentinel *)
       peak_memory_gb = None
