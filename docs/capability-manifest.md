@@ -68,7 +68,7 @@ for the full JSON Schema (draft-07).
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `id_prefix` | string | — | **Required.** Case-insensitive prefix matched against the model ID. |
-| `base` | string | `default` | Provider preset. See [Base presets](#base-presets) below. |
+| `base` | string | `default_capabilities` | Provider preset. See [Base presets](#base-presets) below. |
 | `max_context_tokens` | integer | from base | Context window size in tokens. |
 | `max_output_tokens` | integer | from base | Maximum output tokens. |
 | `supports_tools` | bool | from base | Tool/function calling. |
@@ -161,9 +161,10 @@ environment:
 
 ## Notes
 
-- Prefix matching is **longest-prefix-first within the manifest** (first match
-  wins, not longest).  Order your entries from most-specific to least-specific
-  if you need priority control.
+- Prefix matching is **first-match-wins**.  The manifest is scanned in order
+  and the first entry whose `id_prefix` is a prefix of the requested model ID
+  is used.  If you need priority control (e.g. a general prefix and a more
+  specific one), place the more-specific entry earlier in the list.
 - The manifest is loaded **once** on first use (lazy singleton).  Restart the
   process to pick up changes.
 - Load errors are logged via `Diag.warn` and the manifest layer is silently
