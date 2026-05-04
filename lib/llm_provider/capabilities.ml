@@ -866,21 +866,27 @@ let%test "emits_usage_tokens: claude_code reports usage" =
   claude_code_capabilities.emits_usage_tokens
 ;;
 
-let%test "emits_usage_tokens: gemini_cli strips usage" =
-  not gemini_cli_capabilities.emits_usage_tokens
+(* P7 (#1342) restored CJK-aware usage estimation for the CLI wrapper
+   transports, so the three CLI provider capability records now report
+   [emits_usage_tokens = true].  These tests previously asserted the
+   pre-#1342 behaviour ([not ... emits_usage_tokens]) and should have
+   been flipped alongside the capability change; sweep miss caught
+   here. *)
+let%test "emits_usage_tokens: gemini_cli reports usage (P7)" =
+  gemini_cli_capabilities.emits_usage_tokens
 ;;
 
-let%test "emits_usage_tokens: kimi_cli strips usage" =
-  not kimi_cli_capabilities.emits_usage_tokens
+let%test "emits_usage_tokens: kimi_cli reports usage (P7)" =
+  kimi_cli_capabilities.emits_usage_tokens
 ;;
 
-let%test "emits_usage_tokens: codex_cli strips usage" =
-  not codex_cli_capabilities.emits_usage_tokens
+let%test "emits_usage_tokens: codex_cli reports usage (P7)" =
+  codex_cli_capabilities.emits_usage_tokens
 ;;
 
-let%test "capabilities_for_provider_label: kimi_cli" =
+let%test "capabilities_for_provider_label: kimi_cli reports usage (P7)" =
   match capabilities_for_provider_label "kimi_cli" with
-  | Some c -> not c.emits_usage_tokens
+  | Some c -> c.emits_usage_tokens
   | None -> false
 ;;
 
