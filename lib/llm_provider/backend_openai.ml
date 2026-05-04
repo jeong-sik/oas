@@ -332,9 +332,9 @@ let%test "glm passes named tool_choice through (no coerce)" =
   effective_tool_choice cfg
   = Some
       (`Assoc
-        [ "type", `String "function"
-        ; "function", `Assoc [ "name", `String "calculator" ]
-        ])
+          [ "type", `String "function"
+          ; "function", `Assoc [ "name", `String "calculator" ]
+          ])
 ;;
 
 let%test "glm passes tool_choice any through (no coerce)" =
