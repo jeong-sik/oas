@@ -10,7 +10,6 @@ license: "MIT"
 homepage: "https://github.com/jeong-sik/agent-sdk"
 bug-reports: "https://github.com/jeong-sik/agent-sdk/issues"
 depends: [
-  "base"
   "ocaml" {>= "5.1"}
   "dune" {>= "3.22" & >= "3.22"}
   "eio_main" {>= "0.12"}
