@@ -182,12 +182,16 @@ let parse_usage json =
       "response": "text",
       "stats": { "models": { ... } } }
     v} *)
-let parse_json_result json_str =
+let parse_json_result ~prompt ~model_id json_str =
   try
     let json = Yojson.Safe.from_string json_str in
     let response_text = Cli_common_json.member_str "response" json in
     let session_id = Cli_common_json.member_str "session_id" json in
-    let usage = parse_usage json in
+    let usage =
+      match parse_usage json with
+      | Some u -> Some (Pricing.annotate_usage_cost ~model_id u)
+      | None -> Some (Cli_common_prompt.estimate_usage ~prompt ~response_text ~model_id)
+    in
     Ok
       { Types.id = session_id
       ; model = "gemini"
@@ -496,7 +500,9 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config) : Llm_transport.t =
           (match run ~sw ~mgr ~config ?model argv with
            | Error _ as e -> { Llm_transport.response = e; latency_ms = 0 }
            | Ok { stdout; stderr = _; latency_ms } ->
-             let response = parse_json_result (String.trim stdout) in
+             let prompt_for_estimation = Cli_common_prompt.prompt_with_system_prompt ~prompt ~system_prompt in
+             let model_id = req.config.model_id in
+             let response = parse_json_result ~prompt:prompt_for_estimation ~model_id (String.trim stdout) in
              { Llm_transport.response; latency_ms }))
   ; complete_stream =
       (fun ~on_event (req : Llm_transport.completion_request) ->
@@ -524,7 +530,9 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config) : Llm_transport.t =
           (match run ~sw ~mgr ~config ?model argv with
            | Error _ as e -> e
            | Ok { stdout; stderr = _; latency_ms = _ } ->
-             let result = parse_json_result (String.trim stdout) in
+             let prompt_for_estimation = Cli_common_prompt.prompt_with_system_prompt ~prompt ~system_prompt in
+             let model_id = req.config.model_id in
+             let result = parse_json_result ~prompt:prompt_for_estimation ~model_id (String.trim stdout) in
              (match result with
               | Ok resp ->
                 Cli_common_synthetic_events.replay ~on_event resp;
@@ -657,7 +665,7 @@ let%test "parse_json_result success (single model stats)" =
   let json =
     {|{"session_id":"sid","response":"hello world","stats":{"models":{"gemini-2.5-flash":{"tokens":{"input":10,"candidates":5,"cached":2}}}}}|}
   in
-  match parse_json_result json with
+  match parse_json_result ~prompt:"" ~model_id:"" json with
   | Ok resp ->
     resp.content = [ Types.Text "hello world" ]
     && resp.stop_reason = Types.EndTurn
@@ -674,7 +682,7 @@ let%test "parse_json_result aggregates across multiple models" =
   let json =
     {|{"session_id":"sid","response":"hi","stats":{"models":{"utility":{"tokens":{"input":100,"candidates":7,"cached":0}},"main":{"tokens":{"input":200,"candidates":3,"cached":5}}}}}|}
   in
-  match parse_json_result json with
+  match parse_json_result ~prompt:"" ~model_id:"" json with
   | Ok resp ->
     (match resp.usage with
      | Some u ->
@@ -685,13 +693,13 @@ let%test "parse_json_result aggregates across multiple models" =
 
 let%test "parse_json_result no usage" =
   let json = {|{"response":"hello"}|} in
-  match parse_json_result json with
-  | Ok resp -> resp.content = [ Types.Text "hello" ] && resp.usage = None
+  match parse_json_result ~prompt:"" ~model_id:"" json with
+  | Ok resp -> resp.content = [ Types.Text "hello" ] && Option.is_some resp.usage
   | Error _ -> false
 ;;
 
 let%test "parse_json_result invalid json" =
-  match parse_json_result "not json" with
+  match parse_json_result ~prompt:"" ~model_id:"" "not json" with
   | Error _ -> true
   | Ok _ -> false
 ;;

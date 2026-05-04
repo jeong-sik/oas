@@ -236,7 +236,7 @@ let usage_of_lines lines =
   List.find_map find_usage lines
 ;;
 
-let parse_jsonl_result ~model_id lines =
+let parse_jsonl_result ~model_id ~prompt lines =
   let content = List.concat_map blocks_of_output_line lines in
   if content = []
   then
@@ -244,15 +244,16 @@ let parse_jsonl_result ~model_id lines =
       (Http_client.NetworkError
          { message = "no messages parsed from kimi output"; kind = Unknown })
   else
+    let response_text =
+      List.filter_map (function Types.Text t -> Some t | _ -> None) content |> String.concat ""
+    in
+    let usage = Some (Cli_common_prompt.estimate_usage ~prompt ~response_text ~model_id) in
     Ok
       { Types.id = response_id_of_lines lines
       ; model = response_model_of_lines ~model_id lines
       ; stop_reason = Types.EndTurn
       ; content
-      ; (* Kimi CLI is declared [emits_usage_tokens=false]. If the CLI
-            prints a usage object, do not promote it to [api_usage] unless
-            the provider contract becomes explicitly per-response. *)
-        usage = None
+      ; usage
       ; telemetry = None
       }
 ;;
@@ -437,7 +438,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config) : Llm_transport.t =
         | Error _ as e ->
           { Llm_transport.response = classify_cli_error e; latency_ms = 0 }
         | Ok { latency_ms; _ } ->
-          let response = parse_jsonl_result ~model_id (List.rev !seen_lines) in
+          let response = parse_jsonl_result ~model_id ~prompt (List.rev !seen_lines) in
           { Llm_transport.response; latency_ms })
   ; complete_stream =
       (fun ~on_event (req : Llm_transport.completion_request) ->
@@ -485,7 +486,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config) : Llm_transport.t =
         with
         | Error _ as e -> e
         | Ok _ ->
-          (match parse_jsonl_result ~model_id (List.rev !seen_lines) with
+          (match parse_jsonl_result ~model_id ~prompt (List.rev !seen_lines) with
            | Error _ as e -> e
            | Ok resp as ok ->
              if !started
@@ -605,7 +606,7 @@ let%test "parse_jsonl_result restores tool trace" =
     ; {|{"role":"assistant","content":"Done"}|}
     ]
   in
-  match parse_jsonl_result ~model_id:"kimi-for-coding" lines with
+  match parse_jsonl_result ~model_id:"kimi-for-coding" ~prompt:"" lines with
   | Ok resp ->
     (match resp.content with
      | [ Types.Text "Checking files"
@@ -619,14 +620,14 @@ let%test "parse_jsonl_result restores tool trace" =
 
 let%test "parse_jsonl_result accepts array-form content" =
   let lines = [ {|{"role":"assistant","content":[{"type":"text","text":"hello"}]}|} ] in
-  match parse_jsonl_result ~model_id:"kimi-for-coding" lines with
+  match parse_jsonl_result ~model_id:"kimi-for-coding" ~prompt:"" lines with
   | Ok resp -> resp.content = [ Types.Text "hello" ]
   | Error _ -> false
 ;;
 
 let%test "parse_jsonl_result sanitizes broken utf8 output lines" =
   let lines = [ "{\"role\":\"assistant\",\"content\":\"hello\x80\"}" ] in
-  match parse_jsonl_result ~model_id:"kimi-for-coding" lines with
+  match parse_jsonl_result ~model_id:"kimi-for-coding" ~prompt:"" lines with
   | Ok { content = [ Types.Text text ]; _ } -> text = "hello\xEF\xBF\xBD"
   | _ -> false
 ;;
@@ -689,14 +690,14 @@ let%test "parse_jsonl_result suppresses CLI usage when present" =
     ; {|{"usage":{"input_tokens":10,"output_tokens":20}}|}
     ]
   in
-  match parse_jsonl_result ~model_id:"kimi-for-coding" lines with
-  | Ok resp -> resp.usage = None
+  match parse_jsonl_result ~model_id:"kimi-for-coding" ~prompt:"" lines with
+  | Ok resp -> Option.is_some resp.usage
   | Error _ -> false
 ;;
 
 let%test "parse_jsonl_result keeps None when usage absent" =
   let lines = [ {|{"role":"assistant","content":"hello"}|} ] in
-  match parse_jsonl_result ~model_id:"kimi-for-coding" lines with
-  | Ok resp -> resp.usage = None
+  match parse_jsonl_result ~model_id:"kimi-for-coding" ~prompt:"" lines with
+  | Ok resp -> Option.is_some resp.usage
   | Error _ -> false
 ;;

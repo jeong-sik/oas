@@ -45,3 +45,5 @@ val system_prompt_of : req_config:Provider_config.t -> Types.message list -> str
 (** Prepend a textual [System] section to [prompt] when a dedicated
     CLI flag is unavailable or unsupported. *)
 val prompt_with_system_prompt : prompt:string -> system_prompt:string option -> string
+
+val estimate_usage : prompt:string -> response_text:string -> model_id:string -> Types.api_usage

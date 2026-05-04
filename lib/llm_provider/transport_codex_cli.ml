@@ -565,7 +565,7 @@ let events_of_line_with_state (state : stream_state) line =
     because Codex CLI usage is not a stable per-response contract.
     [command_execution] items are counted as provider-native internal
     actions rather than surfaced as OAS tool calls. *)
-let parse_jsonl_result ?(model_id = "codex") lines =
+let parse_jsonl_result ?(model_id = "codex") ?(prompt = "") lines =
   let thread_id = ref "" in
   let provider_internal_action_count = ref 0 in
   List.iter
@@ -588,6 +588,10 @@ let parse_jsonl_result ?(model_id = "codex") lines =
        | Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ -> ())
     lines;
   let content = content_blocks_of_jsonl lines in
+  let response_text =
+    List.filter_map (function Types.Text t -> Some t | _ -> None) content |> String.concat ""
+  in
+  let usage = Some (Cli_common_prompt.estimate_usage ~prompt ~response_text ~model_id) in
   let telemetry =
     if !provider_internal_action_count > 0
     then
@@ -616,7 +620,7 @@ let parse_jsonl_result ?(model_id = "codex") lines =
       ; model = model_id
       ; stop_reason = Types.EndTurn
       ; content
-      ; usage = None
+      ; usage
       ; telemetry
       }
 ;;
@@ -708,7 +712,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config) : Llm_transport.t =
            with
            | Error _ as e -> { Llm_transport.response = e; latency_ms = 0 }
            | Ok { stdout = _; stderr = _; latency_ms } ->
-             let response = parse_jsonl_result ~model_id (List.rev !seen_lines) in
+             let response = parse_jsonl_result ~model_id ~prompt (List.rev !seen_lines) in
              { Llm_transport.response; latency_ms }))
   ; complete_stream =
       (fun ~on_event (req : Llm_transport.completion_request) ->
@@ -769,7 +773,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config) : Llm_transport.t =
                argv
            with
            | Error _ as e -> e
-           | Ok _ -> parse_jsonl_result ~model_id (List.rev !seen_lines)))
+           | Ok _ -> parse_jsonl_result ~model_id ~prompt (List.rev !seen_lines)))
   }
 ;;
 
@@ -1021,12 +1025,12 @@ let%test "parse_jsonl_result extracts text + thread_id and suppresses usage" =
     ; {|{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":5,"output_tokens":3}}|}
     ]
   in
-  match parse_jsonl_result lines with
+  match parse_jsonl_result ~prompt:"" lines with
   | Ok resp ->
     resp.id = "abc-123"
     && resp.content = [ Types.Text "hi" ]
     && resp.stop_reason = Types.EndTurn
-    && resp.usage = None
+    && Option.is_some resp.usage
   | Error _ -> false
 ;;
 
@@ -1038,7 +1042,7 @@ let%test "parse_jsonl_result aggregates multiple agent_messages" =
     ; {|{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":2}}|}
     ]
   in
-  match parse_jsonl_result lines with
+  match parse_jsonl_result ~prompt:"" lines with
   | Ok resp -> resp.content = [ Types.Text "first"; Types.Text "second" ]
   | Error _ -> false
 ;;
@@ -1049,7 +1053,7 @@ let%test "parse_jsonl_result preserves requested model_id" =
     ; {|{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"ok"}}|}
     ]
   in
-  match parse_jsonl_result ~model_id:"gpt-5.4" lines with
+  match parse_jsonl_result ~model_id:"gpt-5.4" ~prompt:"" lines with
   | Ok resp -> resp.model = "gpt-5.4"
   | Error _ -> false
 ;;
@@ -1061,7 +1065,7 @@ let%test "parse_jsonl_result skips command_execution items" =
     ; {|{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"done"}}|}
     ]
   in
-  match parse_jsonl_result lines with
+  match parse_jsonl_result ~prompt:"" lines with
   | Ok resp ->
     (* command_execution contributes nothing; only agent_message text. *)
     resp.content = [ Types.Text "done" ]
@@ -1069,7 +1073,7 @@ let%test "parse_jsonl_result skips command_execution items" =
 ;;
 
 let%test "parse_jsonl_result empty lines → Error" =
-  match parse_jsonl_result [] with
+  match parse_jsonl_result ~prompt:"" [] with
   | Error _ -> true
   | Ok _ -> false
 ;;
@@ -1299,7 +1303,7 @@ let%test "parse_jsonl_result includes mcp tool call blocks" =
     ; {|{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"done"}}|}
     ]
   in
-  match parse_jsonl_result lines with
+  match parse_jsonl_result ~prompt:"" lines with
   | Ok resp ->
     (match resp.content with
      | [ Types.ToolUse { name = "mcp__example__example_status"; _ }
