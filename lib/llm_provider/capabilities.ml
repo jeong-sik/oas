@@ -573,9 +573,23 @@ let for_model_id model_id =
   then
     let is_large =
       let m = String.lowercase_ascii model_id in
-      String.length m >= 9
-      && (let s = String.sub m 0 9 in
-          s = "gemma-4-2" || s = "google/ge")
+      (* Strip optional "google/" prefix, then "gemma-4-".  The next
+         token is the size: "27b", "31b", "1b", "4b", "12b", etc. *)
+      let base =
+        if String.length m > 7 && String.sub m 0 7 = "google/"
+        then String.sub m 7 (String.length m - 7)
+        else m
+      in
+      match
+        if String.length base >= 8 && String.sub base 0 8 = "gemma-4-"
+        then Some (String.sub base 8 (String.length base - 8))
+        else None
+      with
+      | Some size_token ->
+        List.exists
+          (fun prefix -> String.length size_token >= 3 && String.sub size_token 0 3 = prefix)
+          [ "27b"; "31b" ]
+      | None -> false
     in
     Some
       { default_capabilities with
@@ -934,9 +948,27 @@ let%test "for_model_id gemma-4-27b has tools + seed" =
   | None -> false
 ;;
 
-let%test "for_model_id gemma-4-1b-it has tools" =
+let%test "for_model_id gemma-4-1b-it has tools, no audio" =
   match for_model_id "gemma-4-1b-it" with
-  | Some c -> c.supports_tools && c.supports_image_input
+  | Some c -> c.supports_tools && c.supports_image_input && not c.supports_audio_input
+  | None -> false
+;;
+
+let%test "for_model_id google/gemma-4-1b-it is NOT large" =
+  match for_model_id "google/gemma-4-1b-it" with
+  | Some c -> not c.supports_audio_input
+  | None -> false
+;;
+
+let%test "for_model_id google/gemma-4-27b-it IS large" =
+  match for_model_id "google/gemma-4-27b-it" with
+  | Some c -> c.supports_audio_input
+  | None -> false
+;;
+
+let%test "for_model_id gemma-4-31b IS large" =
+  match for_model_id "gemma-4-31b-it" with
+  | Some c -> c.supports_audio_input
   | None -> false
 ;;
 
