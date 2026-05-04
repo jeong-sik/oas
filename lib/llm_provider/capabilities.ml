@@ -368,206 +368,285 @@ let codex_cli_capabilities =
 
 (* ── Model-specific overrides (lookup table) ─────────── *)
 
-(** Lookup capabilities by model_id prefix.
-    Returns None if no specific override is known. *)
-let for_model_id model_id =
-  (* Normalize: lowercase, strip quantization suffixes *)
-  let m = String.lowercase_ascii model_id in
-  let starts_with prefix =
-    String.length m >= String.length prefix
-    && String.sub m 0 (String.length prefix) = prefix
-  in
-  if starts_with "claude-opus-4"
-  then
-    Some
-      { anthropic_capabilities with
-        max_context_tokens = Some 1_000_000
-      ; max_output_tokens = Some 128_000
-      }
-  else if starts_with "claude-sonnet-4"
-  then
-    Some
-      { anthropic_capabilities with
-        max_context_tokens = Some 1_000_000
-      ; max_output_tokens = Some 64_000
-      }
-  else if starts_with "claude-haiku-4"
-  then
-    Some
-      { anthropic_capabilities with
-        max_context_tokens = Some 200_000
-      ; max_output_tokens = Some 8_192
-      }
-  else if starts_with "gpt-5"
-  then
-    Some
-      { openai_chat_extended_capabilities with
-        max_context_tokens = Some 1_050_000
-      ; max_output_tokens = Some 128_000
-      ; supports_computer_use = true
-      }
-  else if starts_with "gpt-4.1"
-  then
-    Some
-      { openai_chat_capabilities with
-        max_context_tokens = Some 1_000_000
-      ; max_output_tokens = Some 32_000
-      }
-  else if starts_with "gpt-4o"
-  then
-    Some
-      { openai_chat_capabilities with
-        max_context_tokens = Some 128_000
-      ; max_output_tokens = Some 16_384
-      }
-  else if starts_with "gemini-3" || starts_with "gemini-2.5"
-  then Some gemini_capabilities
-  else if starts_with "kimi-for-coding"
-  then Some kimi_capabilities
-  else if starts_with "qwen3"
-  then
-    Some
-      { default_capabilities with
-        max_context_tokens = Some 262_144
-      ; supports_tools = true
-      ; supports_tool_choice = true
-      ; supports_parallel_tool_calls = true
-      ; supports_reasoning = true
-      ; supports_extended_thinking = true
-      ; supports_native_streaming = true
-      ; supports_top_k = true
-      ; supports_min_p = true
-      }
-  else if starts_with "llama-4" || starts_with "llama4"
-  then
-    Some
-      { default_capabilities with
-        max_context_tokens = Some 1_000_000
-      ; supports_tools = true
-      ; supports_multimodal_inputs = true
-      ; supports_image_input = true
-      ; supports_native_streaming = true
-      }
-  else if starts_with "deepseek-v4-flash"
-  then
-    Some
-      { default_capabilities with
-        max_context_tokens = Some 1_000_000
-      ; max_output_tokens = Some 384_000
-      ; supports_tools = true
-      ; supports_tool_choice = true
-      ; supports_reasoning = true
-      ; supports_extended_thinking = true
-      ; supports_reasoning_budget = true
-      ; thinking_control_format = Thinking_object
-      ; supports_response_format_json = true
-      ; supports_native_streaming = true
-      ; supports_caching = true
-      ; supports_prompt_caching = false
-      ; prompt_cache_alignment = None
-      ; uses_native_thinking_envelope = true
-      }
-  else if starts_with "deepseek-v4-pro"
-  then
-    Some
-      { default_capabilities with
-        max_context_tokens = Some 1_000_000
-      ; max_output_tokens = Some 384_000
-      ; supports_tools = true
-      ; supports_tool_choice = true
-      ; supports_reasoning = true
-      ; supports_extended_thinking = true
-      ; supports_reasoning_budget = true
-      ; thinking_control_format = Thinking_object
-      ; supports_response_format_json = true
-      ; supports_native_streaming = true
-      ; supports_caching = true
-      ; supports_prompt_caching = false
-      ; prompt_cache_alignment = None
-      ; uses_native_thinking_envelope = true
-      }
-  else if starts_with "mistral-large"
-  then
-    Some
-      { default_capabilities with
-        max_context_tokens = Some 260_000
-      ; supports_tools = true
-      ; supports_tool_choice = true
-      ; supports_parallel_tool_calls = true
-      ; supports_structured_output = true
-      ; supports_multimodal_inputs = true
-      ; supports_image_input = true
-      ; supports_native_streaming = true
-      ; supports_caching = true
-      ; supports_prompt_caching = false
-      ; prompt_cache_alignment = None
-      }
-  else if starts_with "mistral-small"
-  then
-    Some
-      { default_capabilities with
-        max_context_tokens = Some 256_000
-      ; supports_tools = true
-      ; supports_tool_choice = true
-      ; supports_parallel_tool_calls = true
-      ; supports_reasoning = true
-      ; supports_structured_output = true
-      ; supports_multimodal_inputs = true
-      ; supports_image_input = true
-      ; supports_native_streaming = true
-      ; supports_caching = true
-      ; supports_prompt_caching = false
-      ; prompt_cache_alignment = None
-      }
-  else if starts_with "command"
-  then
-    Some
-      { default_capabilities with
-        max_context_tokens = Some 256_000
-      ; max_output_tokens = Some 32_000
-      ; supports_tools = true
-      ; supports_tool_choice = true
-      ; supports_parallel_tool_calls = true
-      ; supports_structured_output = true
-      ; supports_native_streaming = true
-      }
-  else if starts_with "grok"
-  then
-    Some
-      { default_capabilities with
-        max_context_tokens = Some 2_000_000
-      ; supports_tools = true
-      ; supports_tool_choice = true
-      ; supports_parallel_tool_calls = true
-      ; supports_reasoning = true
-      ; supports_structured_output = true
-      ; supports_native_streaming = true
-      ; supports_caching = true
-      ; supports_prompt_caching = false
-      ; prompt_cache_alignment = None
-      }
-    (* NVIDIA Nemotron: Llama-based, NIM OpenAI-compat API.
-       Base text models (nemotron-ultra, nemotron-core) get reasoning
-       but no vision. VL suffix gets image input. *)
-  else if starts_with "nvidia/nemotron" || starts_with "nemotron"
+(** Lookup model capabilities by model_id prefix.
+    Returns [None] if no specific override is known.
+
+    The model table is an ordered list of [(prefixes, capabilities)] pairs
+    scanned first-match. Order matters: more specific prefixes (e.g.
+    "glm-4.7-flash") must precede broader ones ("glm-4").
+    @since 0.184.0 — refactored from if-else chain to data-driven lookup. *)
+
+let private_starts_with m prefix =
+  String.length m >= String.length prefix
+  && String.sub m 0 (String.length prefix) = prefix
+
+(* Shared capability record for DeepSeek V4 variants (flash + pro). *)
+let deepseek_v4_capabilities =
+  { default_capabilities with
+    max_context_tokens = Some 1_000_000
+  ; max_output_tokens = Some 384_000
+  ; supports_tools = true
+  ; supports_tool_choice = true
+  ; supports_reasoning = true
+  ; supports_extended_thinking = true
+  ; supports_reasoning_budget = true
+  ; thinking_control_format = Thinking_object
+  ; supports_response_format_json = true
+  ; supports_native_streaming = true
+  ; supports_caching = true
+  ; supports_prompt_caching = false
+  ; prompt_cache_alignment = None
+  ; uses_native_thinking_envelope = true
+  }
+;;
+
+(* Shared capability record for GLM flash/air/turbo variants. *)
+let glm_fast_capabilities =
+  { default_capabilities with
+    max_context_tokens = Some 128_000
+  ; max_output_tokens = Some 16_384
+  ; supports_tools = true
+  ; supports_tool_choice = false
+  ; supports_response_format_json = true
+  ; supports_native_streaming = true
+  }
+;;
+
+(* Shared capability record for GLM full text models. *)
+let glm_text_capabilities =
+  { default_capabilities with
+    max_context_tokens = Some 200_000
+  ; max_output_tokens = Some 128_000
+  ; supports_tools = true
+  ; supports_tool_choice = false
+  ; supports_reasoning = true
+  ; supports_extended_thinking = true
+  ; supports_response_format_json = true
+  ; supports_native_streaming = true
+  }
+;;
+
+(** Ordered prefix → capabilities table. First match wins. *)
+let model_table : (string list * capabilities) list =
+  [ (* Anthropic Claude *)
+    [ "claude-opus-4" ]
+  , { anthropic_capabilities with
+      max_context_tokens = Some 1_000_000
+    ; max_output_tokens = Some 128_000
+    }
+  ; [ "claude-sonnet-4" ]
+  , { anthropic_capabilities with
+      max_context_tokens = Some 1_000_000
+    ; max_output_tokens = Some 64_000
+    }
+  ; [ "claude-haiku-4" ]
+  , { anthropic_capabilities with
+      max_context_tokens = Some 200_000
+    ; max_output_tokens = Some 8_192
+    }
+  ; (* OpenAI *)
+    [ "gpt-5" ]
+  , { openai_chat_extended_capabilities with
+      max_context_tokens = Some 1_050_000
+    ; max_output_tokens = Some 128_000
+    ; supports_computer_use = true
+    }
+  ; [ "gpt-4.1" ]
+  , { openai_chat_capabilities with
+      max_context_tokens = Some 1_000_000
+    ; max_output_tokens = Some 32_000
+    }
+  ; [ "gpt-4o" ]
+  , { openai_chat_capabilities with
+      max_context_tokens = Some 128_000
+    ; max_output_tokens = Some 16_384
+    }
+  ; (* Gemini *)
+    [ "gemini-3"; "gemini-2.5" ]
+  , gemini_capabilities
+  ; (* Kimi *)
+    [ "kimi-for-coding" ]
+  , kimi_capabilities
+  ; (* Qwen *)
+    [ "qwen3" ]
+  , { default_capabilities with
+      max_context_tokens = Some 262_144
+    ; supports_tools = true
+    ; supports_tool_choice = true
+    ; supports_parallel_tool_calls = true
+    ; supports_reasoning = true
+    ; supports_extended_thinking = true
+    ; supports_native_streaming = true
+    ; supports_top_k = true
+    ; supports_min_p = true
+    }
+  ; (* Llama *)
+    [ "llama-4"; "llama4" ]
+  , { default_capabilities with
+      max_context_tokens = Some 1_000_000
+    ; supports_tools = true
+    ; supports_multimodal_inputs = true
+    ; supports_image_input = true
+    ; supports_native_streaming = true
+    }
+  ; (* DeepSeek V4 *)
+    [ "deepseek-v4-flash" ]
+  , deepseek_v4_capabilities
+  ; [ "deepseek-v4-pro" ]
+  , deepseek_v4_capabilities
+  ; (* Mistral *)
+    [ "mistral-large" ]
+  , { default_capabilities with
+      max_context_tokens = Some 260_000
+    ; supports_tools = true
+    ; supports_tool_choice = true
+    ; supports_parallel_tool_calls = true
+    ; supports_structured_output = true
+    ; supports_multimodal_inputs = true
+    ; supports_image_input = true
+    ; supports_native_streaming = true
+    ; supports_caching = true
+    ; supports_prompt_caching = false
+    ; prompt_cache_alignment = None
+    }
+  ; [ "mistral-small" ]
+  , { default_capabilities with
+      max_context_tokens = Some 256_000
+    ; supports_tools = true
+    ; supports_tool_choice = true
+    ; supports_parallel_tool_calls = true
+    ; supports_reasoning = true
+    ; supports_structured_output = true
+    ; supports_multimodal_inputs = true
+    ; supports_image_input = true
+    ; supports_native_streaming = true
+    ; supports_caching = true
+    ; supports_prompt_caching = false
+    ; prompt_cache_alignment = None
+    }
+  ; (* Cohere Command *)
+    [ "command" ]
+  , { default_capabilities with
+      max_context_tokens = Some 256_000
+    ; max_output_tokens = Some 32_000
+    ; supports_tools = true
+    ; supports_tool_choice = true
+    ; supports_parallel_tool_calls = true
+    ; supports_structured_output = true
+    ; supports_native_streaming = true
+    }
+  ; (* Grok *)
+    [ "grok" ]
+  , { default_capabilities with
+      max_context_tokens = Some 2_000_000
+    ; supports_tools = true
+    ; supports_tool_choice = true
+    ; supports_parallel_tool_calls = true
+    ; supports_reasoning = true
+    ; supports_structured_output = true
+    ; supports_native_streaming = true
+    ; supports_caching = true
+    ; supports_prompt_caching = false
+    ; prompt_cache_alignment = None
+    }
+  ; (* GLM flash/air — must precede broad glm-4.5/4.6/4.7/5 *)
+    [ "glm-4.7-flash"; "glm-4.5-flash"; "glm-4.5-air" ]
+  , glm_fast_capabilities
+  ; (* GLM 5-turbo: reasoning but no extended thinking *)
+    [ "glm-5-turbo" ]
+  , { glm_fast_capabilities with
+      supports_reasoning = true
+    }
+  ; [ "glm-5v-turbo" ]
+  , { default_capabilities with
+      max_context_tokens = Some 200_000
+    ; max_output_tokens = Some 128_000
+    ; supports_tools = true
+    ; supports_tool_choice = false
+    ; supports_reasoning = true
+    ; supports_extended_thinking = true
+    ; supports_response_format_json = true
+    ; supports_multimodal_inputs = true
+    ; supports_image_input = true
+    ; supports_native_streaming = true
+    }
+  ; (* GLM OCR *)
+    [ "glm-ocr" ]
+  , { default_capabilities with
+      max_context_tokens = Some 128_000
+    ; max_output_tokens = Some 16_384
+    ; supports_multimodal_inputs = true
+    ; supports_image_input = true
+    ; supports_native_streaming = true
+    }
+  ; (* GLM vision *)
+    [ "glm-4.6v"; "glm-4.5v" ]
+  , { default_capabilities with
+      max_context_tokens = Some 128_000
+    ; max_output_tokens = Some 32_768
+    ; supports_tools = true
+    ; supports_tool_choice = false
+    ; supports_reasoning = true
+    ; supports_extended_thinking = true
+    ; supports_multimodal_inputs = true
+    ; supports_image_input = true
+    ; supports_native_streaming = true
+    }
+  ; (* GLM-5-Code: coding-specific, 128K context *)
+    [ "glm-5-code" ]
+  , { glm_text_capabilities with
+      max_context_tokens = Some 128_000
+    }
+  ; (* GLM full text models *)
+    [ "glm-4.5"; "glm-4.6"; "glm-4.7"; "glm-5" ]
+  , glm_text_capabilities
+  ; [ "glm-4-flash" ]
+  , { default_capabilities with
+      max_context_tokens = Some 128_000
+    ; max_output_tokens = Some 4_096
+    ; supports_tools = true
+    ; supports_native_streaming = true
+    }
+  ; [ "glm-4v" ]
+  , { default_capabilities with
+      max_context_tokens = Some 128_000
+    ; max_output_tokens = Some 4_096
+    ; supports_tools = true
+    ; supports_multimodal_inputs = true
+    ; supports_image_input = true
+    ; supports_native_streaming = true
+    }
+  ; [ "glm-4" ]
+  , { default_capabilities with
+      max_context_tokens = Some 128_000
+    ; max_output_tokens = Some 4_096
+    ; supports_tools = true
+    ; supports_tool_choice = false
+    ; supports_native_streaming = true
+    }
+  ]
+;;
+
+(** Dynamic model lookups that need sub-prefix inspection beyond
+    simple prefix matching. *)
+let for_model_dynamic m =
+  (* NVIDIA Nemotron: VL suffix gets image input *)
+  if private_starts_with m "nvidia/nemotron" || private_starts_with m "nemotron"
   then (
-    let has_vision = starts_with "nvidia/nemotron-vl" || starts_with "nemotron-vl" in
+    let has_vision =
+      private_starts_with m "nvidia/nemotron-vl" || private_starts_with m "nemotron-vl"
+    in
     Some
       { nemotron_capabilities with
         max_context_tokens = Some 131_072
       ; max_output_tokens = Some 16_384
       ; supports_multimodal_inputs = has_vision
       ; supports_image_input = has_vision
-      }
-    (* Gemma 4: Google open-weight multimodal.
-       4 sizes (1B/4B/12B/27B-31B). All support function calling,
-       image input, streaming. 27B+ supports audio. 256K context. *))
-  else if starts_with "gemma-4" || starts_with "google/gemma-4"
+      })
+  (* Gemma 4: 27B+ supports audio *)
+  else if private_starts_with m "gemma-4" || private_starts_with m "google/gemma-4"
   then (
     let is_large =
-      let m = String.lowercase_ascii model_id in
-      (* Strip optional "google/" prefix, then "gemma-4-".  The next
-         token is the size: "27b", "31b", "1b", "4b", "12b", etc. *)
       let base =
         if String.length m > 7 && String.sub m 0 7 = "google/"
         then String.sub m 7 (String.length m - 7)
@@ -597,139 +676,20 @@ let for_model_id model_id =
       ; supports_audio_input = is_large
       ; supports_native_streaming = true
       ; supports_seed = true
-      }
-    (* GLM flash/air variants: faster, no reasoning, smaller output.
-     Must precede the broad glm-4.5/4.6/4.7/5 match below. *))
-  else if
-    starts_with "glm-4.7-flash"
-    || starts_with "glm-4.5-flash"
-    || starts_with "glm-4.5-air"
-  then
-    Some
-      { default_capabilities with
-        max_context_tokens = Some 128_000
-      ; max_output_tokens = Some 16_384
-      ; supports_tools = true
-      ; supports_tool_choice = false
-      ; supports_response_format_json = true
-      ; supports_native_streaming = true
-      }
-    (* GLM 5-turbo: tool-calling optimized, fast, reasoning but no extended thinking *)
-  else if starts_with "glm-5-turbo"
-  then
-    Some
-      { default_capabilities with
-        max_context_tokens = Some 128_000
-      ; max_output_tokens = Some 16_384
-      ; supports_tools = true
-      ; supports_tool_choice = false
-      ; supports_reasoning = true
-      ; supports_response_format_json = true
-      ; supports_native_streaming = true
-      }
-  else if starts_with "glm-5v-turbo"
-  then
-    Some
-      { default_capabilities with
-        max_context_tokens = Some 200_000
-      ; max_output_tokens = Some 128_000
-      ; supports_tools = true
-      ; supports_tool_choice = false
-      ; supports_reasoning = true
-      ; supports_extended_thinking = true
-      ; supports_response_format_json = true
-      ; supports_multimodal_inputs = true
-      ; supports_image_input = true
-      ; supports_native_streaming = true
-      }
-  else if starts_with "glm-ocr"
-  then
-    Some
-      { default_capabilities with
-        max_context_tokens = Some 128_000
-      ; max_output_tokens = Some 16_384
-      ; supports_multimodal_inputs = true
-      ; supports_image_input = true
-      ; supports_native_streaming = true
-      }
-  else if starts_with "glm-4.6v" || starts_with "glm-4.5v"
-  then
-    Some
-      { default_capabilities with
-        max_context_tokens = Some 128_000
-      ; max_output_tokens = Some 32_768
-      ; supports_tools = true
-      ; supports_tool_choice = false
-      ; supports_reasoning = true
-      ; supports_extended_thinking = true
-      ; supports_multimodal_inputs = true
-      ; supports_image_input = true
-      ; supports_native_streaming = true
-      }
-    (* GLM-5-Code: coding-specific variant with 128K context (not 200K).
-       Z.AI docs: GLM-5-Code uses /api/coding/paas/ endpoint, 128K context. *)
-  else if starts_with "glm-5-code"
-  then
-    Some
-      { default_capabilities with
-        max_context_tokens = Some 128_000
-      ; max_output_tokens = Some 128_000
-      ; supports_tools = true
-      ; supports_tool_choice = false
-      ; supports_reasoning = true
-      ; supports_extended_thinking = true
-      ; supports_response_format_json = true
-      ; supports_native_streaming = true
-      }
-    (* GLM full text models: reasoning, large context/output, but no vision. *)
-  else if
-    starts_with "glm-4.5"
-    || starts_with "glm-4.6"
-    || starts_with "glm-4.7"
-    || starts_with "glm-5"
-  then
-    Some
-      { default_capabilities with
-        max_context_tokens = Some 200_000
-      ; max_output_tokens = Some 128_000
-      ; supports_tools = true
-      ; supports_tool_choice = false
-      ; supports_reasoning = true
-      ; supports_extended_thinking = true
-      ; supports_response_format_json = true
-      ; supports_native_streaming = true
-      }
-  else if starts_with "glm-4-flash"
-  then
-    Some
-      { default_capabilities with
-        max_context_tokens = Some 128_000
-      ; max_output_tokens = Some 4_096
-      ; supports_tools = true
-      ; supports_native_streaming = true
-      }
-  else if starts_with "glm-4v"
-  then
-    Some
-      { default_capabilities with
-        max_context_tokens = Some 128_000
-      ; max_output_tokens = Some 4_096
-      ; supports_tools = true
-      ; supports_multimodal_inputs = true
-      ; supports_image_input = true
-      ; supports_native_streaming = true
-      }
-  else if starts_with "glm-4"
-  then
-    Some
-      { default_capabilities with
-        max_context_tokens = Some 128_000
-      ; max_output_tokens = Some 4_096
-      ; supports_tools = true
-      ; supports_tool_choice = false
-      ; supports_native_streaming = true
-      }
+      })
   else None
+;;
+
+let for_model_id model_id =
+  let m = String.lowercase_ascii model_id in
+  let rec scan = function
+    | [] -> for_model_dynamic m
+    | (prefixes, caps) :: rest ->
+      if List.exists (private_starts_with m) prefixes
+      then Some caps
+      else scan rest
+  in
+  scan model_table
 ;;
 
 (** Lookup capabilities by provider label string.
