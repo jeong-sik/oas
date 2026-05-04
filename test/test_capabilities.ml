@@ -197,6 +197,153 @@ let test_with_context_size () =
   check bool "other fields unchanged" false c2.supports_tools
 ;;
 
+(* ── Capability manifest ─────────────────────────────── *)
+
+let make_manifest_json ?(base = "default_capabilities") ?(extra_fields = []) prefix =
+  let fields =
+    [ "id_prefix", Printf.sprintf {|"%s"|} prefix ]
+    @ (if base = "default_capabilities" then [] else [ "base", Printf.sprintf {|"%s"|} base ])
+    @ extra_fields
+  in
+  let inner =
+    fields |> List.map (fun (k, v) -> Printf.sprintf {|"%s":%s|} k v) |> String.concat ","
+  in
+  Printf.sprintf {|{"schema_version":1,"models":[{%s}]}|} inner
+;;
+
+let make_manifest ?(base = "default_capabilities") ?(extra_fields = []) prefix =
+  let json = Yojson.Safe.from_string (make_manifest_json ~base ~extra_fields prefix) in
+  match Capability_manifest.of_json json with
+  | Ok m -> m
+  | Error e -> Alcotest.failf "manifest parse error: %s" e
+;;
+
+let test_manifest_overrides_static_table () =
+  (* Build a manifest that declares a model with same prefix as claude-opus
+     but different capabilities — manifest must win. *)
+  let m =
+    make_manifest
+      ~base:"openai_chat"
+      ~extra_fields:
+        [ "max_context_tokens", "999999"
+        ; "supports_computer_use", "false"
+        ; "supports_tools", "true"
+        ]
+      "claude-opus-4"
+  in
+  match Capabilities.for_model_id_with_manifest m "claude-opus-4-6" with
+  | Some c ->
+    check (option int) "manifest overrides ctx" (Some 999999) c.max_context_tokens;
+    check bool "manifest overrides computer_use" false c.supports_computer_use;
+    check bool "manifest keeps tools" true c.supports_tools
+  | None -> fail "expected Some from manifest"
+;;
+
+let test_manifest_fallback_to_static () =
+  (* Manifest has no entry for claude-opus — should fall through to static table. *)
+  let m = make_manifest "totally-other-model" in
+  match Capabilities.for_model_id_with_manifest m "claude-opus-4-6" with
+  | Some c ->
+    check
+      (option int)
+      "fallback ctx 1M"
+      (Some 1_000_000)
+      c.max_context_tokens;
+    check bool "fallback computer_use" true c.supports_computer_use
+  | None -> fail "should fall through to static table"
+;;
+
+let test_manifest_unknown_model_still_none () =
+  (* Neither manifest nor static table knows this model. *)
+  let m = make_manifest "known-prefix" in
+  check
+    bool
+    "unknown → None"
+    true
+    (Capabilities.for_model_id_with_manifest m "totally-unknown-xyz" = None)
+;;
+
+let test_manifest_base_label_openai_chat () =
+  let m =
+    make_manifest
+      ~base:"openai_chat"
+      ~extra_fields:[ "max_context_tokens", "65536" ]
+      "custom-gpt"
+  in
+  match Capabilities.for_model_id_with_manifest m "custom-gpt-v2" with
+  | Some c ->
+    check (option int) "custom ctx" (Some 65536) c.max_context_tokens;
+    check bool "openai_chat base: tools" true c.supports_tools;
+    check bool "openai_chat base: streaming" true c.supports_native_streaming
+  | None -> fail "expected Some"
+;;
+
+let test_manifest_base_label_anthropic () =
+  let m =
+    make_manifest
+      ~base:"anthropic"
+      ~extra_fields:[ "max_context_tokens", "512000" ]
+      "my-claude"
+  in
+  match Capabilities.for_model_id_with_manifest m "my-claude-custom" with
+  | Some c ->
+    check (option int) "custom ctx 512K" (Some 512000) c.max_context_tokens;
+    check bool "anthropic base: caching" true c.supports_caching;
+    check bool "anthropic base: extended thinking" true c.supports_extended_thinking
+  | None -> fail "expected Some"
+;;
+
+let test_manifest_base_absent_uses_default () =
+  (* No base label — should use default_capabilities as base. *)
+  let m =
+    make_manifest
+      ~extra_fields:[ "supports_tools", "true"; "max_context_tokens", "32768" ]
+      "my-special-model"
+  in
+  match Capabilities.for_model_id_with_manifest m "my-special-model-q4" with
+  | Some c ->
+    check bool "tools overridden true" true c.supports_tools;
+    check (option int) "ctx overridden" (Some 32768) c.max_context_tokens;
+    (* default has supports_reasoning=false — not overridden *)
+    check bool "reasoning unchanged from default" false c.supports_reasoning
+  | None -> fail "expected Some"
+;;
+
+let test_manifest_prefix_wins_over_longer_static_prefix () =
+  (* Manifest entry "qwen3" must win over static table "qwen3" prefix too,
+     letting operator override even well-known models. *)
+  let m =
+    make_manifest
+      ~base:"openai_chat"
+      ~extra_fields:[ "supports_reasoning", "false" ]
+      "qwen3"
+  in
+  match Capabilities.for_model_id_with_manifest m "qwen3.5-35b-a3b-q4" with
+  | Some c ->
+    check bool "manifest disables reasoning" false c.supports_reasoning;
+    check bool "base openai_chat: tools" true c.supports_tools
+  | None -> fail "expected Some"
+;;
+
+let test_apply_manifest_entry_all_none_uses_base () =
+  (* Entry with only id_prefix set — should be identical to base. *)
+  let json =
+    Yojson.Safe.from_string
+      {|{"schema_version":1,"models":[{"id_prefix":"x","base":"anthropic"}]}|}
+  in
+  let manifest = Capability_manifest.of_json json |> Result.get_ok in
+  let entry = List.hd manifest in
+  let caps = Capabilities.apply_manifest_entry entry in
+  let base = Capabilities.anthropic_capabilities in
+  check bool "tools matches base" base.supports_tools caps.supports_tools;
+  check
+    (option int)
+    "ctx matches base"
+    base.max_context_tokens
+    caps.max_context_tokens;
+  check bool "caching matches base" base.supports_caching caps.supports_caching
+;;
+
 (* ── Suite ───────────────────────────────────────────── *)
 
 let () =
@@ -228,5 +375,21 @@ let () =
         ; test_case "case insensitive" `Quick test_lookup_case_insensitive
         ] )
     ; "merge", [ test_case "with_context_size" `Quick test_with_context_size ]
+    ; ( "manifest"
+      , [ test_case "overrides static table" `Quick test_manifest_overrides_static_table
+        ; test_case "fallback to static" `Quick test_manifest_fallback_to_static
+        ; test_case "unknown model → None" `Quick test_manifest_unknown_model_still_none
+        ; test_case "base openai_chat" `Quick test_manifest_base_label_openai_chat
+        ; test_case "base anthropic" `Quick test_manifest_base_label_anthropic
+        ; test_case "base absent = default" `Quick test_manifest_base_absent_uses_default
+        ; test_case
+            "manifest prefix wins"
+            `Quick
+            test_manifest_prefix_wins_over_longer_static_prefix
+        ; test_case
+            "all-None entry matches base"
+            `Quick
+            test_apply_manifest_entry_all_none_uses_base
+        ] )
     ]
 ;;

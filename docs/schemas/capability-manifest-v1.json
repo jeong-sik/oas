@@ -1,0 +1,160 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "capability-manifest-v1",
+  "title": "OAS Capability Manifest v1",
+  "description": "External model capability overrides for the OAS agent SDK. Load with OAS_CAPABILITY_MANIFEST=path/to/manifest.json.",
+  "type": "object",
+  "required": ["schema_version", "models"],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "description": "Schema version. Must be 1.",
+      "const": 1
+    },
+    "models": {
+      "type": "array",
+      "description": "Ordered list of model entries. Earlier entries take priority.",
+      "items": {
+        "$ref": "#/definitions/model_entry"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "model_entry": {
+      "type": "object",
+      "required": ["id_prefix"],
+      "description": "Capability overrides for models whose ID starts with id_prefix (case-insensitive prefix match). All fields except id_prefix are optional.",
+      "properties": {
+        "id_prefix": {
+          "type": "string",
+          "description": "Case-insensitive prefix matched against the model ID. E.g. 'my-llama-q4' matches 'my-llama-q4-k4' and 'my-llama-q4-k8'."
+        },
+        "base": {
+          "type": "string",
+          "description": "Provider preset to use as a starting point before applying overrides. One of: 'openai_chat', 'openai_chat_extended', 'anthropic', 'gemini', 'ollama', 'glm', 'kimi', 'nemotron'. Defaults to OAS default_capabilities if absent or unrecognised.",
+          "examples": ["openai_chat", "anthropic", "gemini", "ollama"]
+        },
+        "max_context_tokens": {
+          "type": "integer",
+          "description": "Maximum context window size in tokens. Overrides the base preset value.",
+          "examples": [131072, 262144, 1000000]
+        },
+        "max_output_tokens": {
+          "type": "integer",
+          "description": "Maximum output tokens. Overrides the base preset value.",
+          "examples": [4096, 8192, 32768]
+        },
+        "supports_tools": {
+          "type": "boolean",
+          "description": "Whether the model supports tool/function calling."
+        },
+        "supports_tool_choice": {
+          "type": "boolean",
+          "description": "Whether the model supports tool_choice (forced tool selection)."
+        },
+        "supports_parallel_tool_calls": {
+          "type": "boolean",
+          "description": "Whether the model can call multiple tools in a single turn."
+        },
+        "supports_reasoning": {
+          "type": "boolean",
+          "description": "Whether the model has any reasoning/thinking capability (union flag)."
+        },
+        "supports_extended_thinking": {
+          "type": "boolean",
+          "description": "Whether the model supports budget_tokens-controlled extended thinking."
+        },
+        "supports_reasoning_budget": {
+          "type": "boolean",
+          "description": "Whether the model supports reasoning budget control (budget_tokens, reasoning_effort, etc.)."
+        },
+        "supports_response_format_json": {
+          "type": "boolean",
+          "description": "Whether the model supports JSON output mode (syntactically valid JSON, no schema guarantee)."
+        },
+        "supports_structured_output": {
+          "type": "boolean",
+          "description": "Whether the model supports provider-native schema-constrained output."
+        },
+        "supports_multimodal_inputs": {
+          "type": "boolean",
+          "description": "Union flag: true if the model accepts any non-text input modality."
+        },
+        "supports_image_input": {
+          "type": "boolean",
+          "description": "Whether the model accepts image inputs."
+        },
+        "supports_audio_input": {
+          "type": "boolean",
+          "description": "Whether the model accepts audio inputs (native tokens, not transcription)."
+        },
+        "supports_video_input": {
+          "type": "boolean",
+          "description": "Whether the model accepts video inputs."
+        },
+        "supports_native_streaming": {
+          "type": "boolean",
+          "description": "Whether the model/provider supports server-sent event streaming."
+        },
+        "supports_system_prompt": {
+          "type": "boolean",
+          "description": "Whether the model supports a system prompt. Set to false for models that require folding system content into the first user message."
+        },
+        "supports_caching": {
+          "type": "boolean",
+          "description": "Whether the provider supports prompt caching (reduces cost on repeated prefixes)."
+        },
+        "supports_prompt_caching": {
+          "type": "boolean",
+          "description": "Whether prompt caching uses explicit cache breakpoints (e.g. Anthropic cache_control)."
+        },
+        "supports_top_k": {
+          "type": "boolean",
+          "description": "Whether the model accepts top_k sampling parameter."
+        },
+        "supports_min_p": {
+          "type": "boolean",
+          "description": "Whether the model accepts min_p sampling parameter."
+        },
+        "supports_seed": {
+          "type": "boolean",
+          "description": "Whether the model accepts a seed for deterministic sampling."
+        },
+        "supports_computer_use": {
+          "type": "boolean",
+          "description": "Whether the model supports computer-use tool category."
+        },
+        "supports_code_execution": {
+          "type": "boolean",
+          "description": "Whether the model supports server-side code execution (sandbox)."
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "examples": [
+    {
+      "schema_version": 1,
+      "models": [
+        {
+          "id_prefix": "my-local-llama",
+          "base": "openai_chat",
+          "max_context_tokens": 131072,
+          "supports_tools": true,
+          "supports_reasoning": false,
+          "supports_top_k": true,
+          "supports_min_p": true
+        },
+        {
+          "id_prefix": "my-vision-model",
+          "base": "openai_chat",
+          "max_context_tokens": 65536,
+          "supports_tools": true,
+          "supports_image_input": true,
+          "supports_multimodal_inputs": true
+        }
+      ]
+    }
+  ]
+}
