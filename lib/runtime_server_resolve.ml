@@ -1,6 +1,5 @@
 open Runtime
-
-let ( let* ) = Result.bind
+open Result_syntax
 
 type execution_resolution =
   { selected_provider : string

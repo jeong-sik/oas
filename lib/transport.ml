@@ -19,7 +19,7 @@ type options =
   ; cwd : string option
   }
 
-let ( let* ) = Result.bind
+open Result_syntax
 
 type control_handler =
   Runtime.control_request -> (Runtime.control_response, Error.sdk_error) result

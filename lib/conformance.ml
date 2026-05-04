@@ -39,7 +39,7 @@ type report =
   }
 [@@deriving yojson]
 
-let ( let* ) = Result.bind
+open Result_syntax
 
 let unique_trace_capabilities worker_runs =
   worker_runs

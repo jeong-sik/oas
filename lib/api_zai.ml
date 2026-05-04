@@ -1,5 +1,6 @@
 (** Z.AI general API helpers for non-chat media endpoints. *)
 
+open Result_syntax
 open Llm_provider
 
 type async_task_status =
@@ -80,84 +81,74 @@ let parse_guard f =
 let parse_image_generation body =
   parse_guard (fun () ->
     let open Yojson.Safe.Util in
-    match read_json body with
-    | Error _ as err -> err
-    | Ok json ->
-      let created = Util.json_member_int "created" json in
-      let data =
-        json
-        |> member "data"
-        |> to_list
-        |> List.filter_map (fun item ->
-          item |> member "url" |> to_string_option |> Option.map (fun url -> { url }))
-      in
-      Ok { created; data })
+    let* json = read_json body in
+    let created = Util.json_member_int "created" json in
+    let data =
+      json
+      |> member "data"
+      |> to_list
+      |> List.filter_map (fun item ->
+        item |> member "url" |> to_string_option |> Option.map (fun url -> { url }))
+    in
+    Ok { created; data })
 ;;
 
 let parse_async_submit body =
   parse_guard (fun () ->
     let open Yojson.Safe.Util in
-    match read_json body with
-    | Error _ as err -> err
-    | Ok json ->
-      Ok
-        { model = json |> member "model" |> to_string
-        ; id = json |> member "id" |> to_string
-        ; request_id = json |> member "request_id" |> to_string_option
-        ; task_status =
-            json
-            |> member "task_status"
-            |> to_string_option
-            |> Option.map status_of_string
-            |> Option.value ~default:(Unknown "")
-        })
+    let* json = read_json body in
+    Ok
+      { model = json |> member "model" |> to_string
+      ; id = json |> member "id" |> to_string
+      ; request_id = json |> member "request_id" |> to_string_option
+      ; task_status =
+          json
+          |> member "task_status"
+          |> to_string_option
+          |> Option.map status_of_string
+          |> Option.value ~default:(Unknown "")
+      })
 ;;
 
 let parse_media_async_result body =
   parse_guard (fun () ->
     let open Yojson.Safe.Util in
-    match read_json body with
-    | Error _ as err -> err
-    | Ok json ->
-      let results =
-        json
-        |> member "video_result"
-        |> to_list
-        |> List.filter_map (fun item ->
-          item
-          |> member "url"
+    let* json = read_json body in
+    let results =
+      json
+      |> member "video_result"
+      |> to_list
+      |> List.filter_map (fun item ->
+        item
+        |> member "url"
+        |> to_string_option
+        |> Option.map (fun url ->
+          { url; cover_image_url = item |> member "cover_image_url" |> to_string_option }))
+    in
+    Ok
+      { model = json |> member "model" |> to_string
+      ; task_status =
+          json
+          |> member "task_status"
           |> to_string_option
-          |> Option.map (fun url ->
-            { url
-            ; cover_image_url = item |> member "cover_image_url" |> to_string_option
-            }))
-      in
-      Ok
-        { model = json |> member "model" |> to_string
-        ; task_status =
-            json
-            |> member "task_status"
-            |> to_string_option
-            |> Option.map status_of_string
-            |> Option.value ~default:(Unknown "")
-        ; results
-        ; request_id = json |> member "request_id" |> to_string_option
-        })
+          |> Option.map status_of_string
+          |> Option.value ~default:(Unknown "")
+      ; results
+      ; request_id = json |> member "request_id" |> to_string_option
+      })
 ;;
 
 let parse_transcription body =
   parse_guard (fun () ->
     let open Yojson.Safe.Util in
-    match read_json body with
-    | Error _ as err -> err
-    | Ok json ->
-      Ok
-        { id = json |> member "id" |> to_string
-        ; created = Util.json_member_int "created" json
-        ; request_id = json |> member "request_id" |> to_string_option
-        ; model = json |> member "model" |> to_string
-        ; text = json |> member "text" |> to_string
-        })
+    let* json = read_json body in
+    Ok
+      { id = json |> member "id" |> to_string
+      ; created = Util.json_member_int "created" json
+      ; request_id = json |> member "request_id" |> to_string_option
+      ; model = json |> member "model" |> to_string
+      ; text = json |> member "text" |> to_string
+      })
 ;;
 
 let post_json ~sw ~net ~url ~headers body parse =
@@ -347,32 +338,27 @@ let multipart_body ?prompt ?language ~model ~source () =
   (match language with
    | Some value -> add_field "language" value
    | None -> ());
-  let source_result =
+  let* () =
     match source with
     | File_base64 data ->
       add_field "file_base64" data;
       Ok ()
     | File_path path ->
       let filename = Filename.basename path in
-      (match read_file path with
-       | Error _ as err -> err
-       | Ok content ->
-         add_line ("--" ^ boundary);
-         add_line
-           (Printf.sprintf
-              "Content-Disposition: form-data; name=\"file\"; filename=%S"
-              filename);
-         add_line "Content-Type: application/octet-stream";
-         add_line "";
-         Buffer.add_string buf content;
-         Buffer.add_string buf "\r\n";
-         Ok ())
+      let* content = read_file path in
+      add_line ("--" ^ boundary);
+      add_line
+        (Printf.sprintf
+           "Content-Disposition: form-data; name=\"file\"; filename=%S"
+           filename);
+      add_line "Content-Type: application/octet-stream";
+      add_line "";
+      Buffer.add_string buf content;
+      Buffer.add_string buf "\r\n";
+      Ok ()
   in
-  match source_result with
-  | Error _ as err -> err
-  | Ok () ->
-    add_line ("--" ^ boundary ^ "--");
-    Ok (boundary, Buffer.contents buf)
+  add_line ("--" ^ boundary ^ "--");
+  Ok (boundary, Buffer.contents buf)
 ;;
 
 let transcribe_audio
@@ -386,17 +372,15 @@ let transcribe_audio
       ~source
       ()
   =
-  match multipart_body ?prompt ?language ~model ~source () with
-  | Error _ as err -> err
-  | Ok (boundary, body) ->
-    let headers = auth_headers ?api_key ("multipart/form-data; boundary=" ^ boundary) in
-    post_json
-      ~sw
-      ~net
-      ~url:(base_url ^ "/audio/transcriptions")
-      ~headers
-      body
-      parse_transcription
+  let* boundary, body = multipart_body ?prompt ?language ~model ~source () in
+  let headers = auth_headers ?api_key ("multipart/form-data; boundary=" ^ boundary) in
+  post_json
+    ~sw
+    ~net
+    ~url:(base_url ^ "/audio/transcriptions")
+    ~headers
+    body
+    parse_transcription
 ;;
 
 [@@@coverage off]

@@ -72,7 +72,7 @@ let parse_metadata_field json =
   | _ -> tool_error "expected 'metadata' to be an object"
 ;;
 
-let ( let* ) = Result.bind
+open Result_syntax
 
 let parse_value_json json =
   let* raw = parse_string_field json "value_json" in

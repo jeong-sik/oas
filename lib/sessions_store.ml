@@ -6,8 +6,8 @@
 
 open Sessions_types
 open Sessions_store_parsers
+open Result_syntax
 
-let ( let* ) = Result.bind
 let make_store ?session_root () = Runtime_store.create ?root:session_root ()
 let file_read_error = Util.file_read_error
 let first_some = Util.first_some

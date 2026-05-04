@@ -1,6 +1,5 @@
 open Types
-
-let ( let* ) = Result.bind
+open Result_syntax
 
 type record_type =
   | Run_started

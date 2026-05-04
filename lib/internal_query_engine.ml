@@ -11,7 +11,7 @@ type t =
   ; mutable hook_callback : Sdk_client_types.hook_callback option
   }
 
-let ( let* ) = Result.bind
+open Result_syntax
 
 let append_message state message =
   Eio.Mutex.use_rw ~protect:true state.message_mu (fun () ->

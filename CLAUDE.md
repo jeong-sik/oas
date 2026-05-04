@@ -71,7 +71,9 @@ Configure via `LLM_ENDPOINTS` env var (comma-separated, default `http://127.0.0.
 
 ## Provider Routing
 
-OAS provides multi-provider routing via `Complete.complete_cascade`.
+OAS provides multi-provider cascade routing via `Complete_cascade.complete_cascade`.
+Each step delegates to `Complete.complete_with_retry` (single-provider retry).
+The cascade layer adds cross-provider failover and circuit breaking.
 Cascade configuration (model lists, health filtering, failover) is
 the responsibility of downstream consumers.
 

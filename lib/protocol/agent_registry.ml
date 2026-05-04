@@ -10,7 +10,7 @@
     - Remote discovery via GET <url>/.well-known/agent.json
     - No dependency on Orchestrator — can be used standalone *)
 
-let ( let* ) = Result.bind
+open Result_syntax
 
 (* ── Agent entry ─────────────────────────────────────────── *)
 

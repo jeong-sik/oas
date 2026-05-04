@@ -65,12 +65,6 @@ type capabilities =
   ; (* ── Advanced modalities ───────────────────────────── *)
     supports_computer_use : bool
   ; supports_code_execution : bool
-  ; (* ── Thinking wire format ────────────────────────────── *)
-    uses_native_thinking_envelope : bool
-    (** True when the provider's chat completions endpoint accepts a
-      native [thinking] parameter (e.g., DeepSeek V4's [type: enabled]).
-      False when thinking must be passed via a non-standard field like
-      Ollama's [chat_template_kwargs.enable_thinking]. *)
   ; (* ── Provider identity ───────────────────────────────── *)
     is_ollama : bool
   ; (* ── Usage reporting ─────────────────────────────────── *)
@@ -118,7 +112,6 @@ let default_capabilities =
   ; supports_seed_with_images = false
   ; supports_computer_use = false
   ; supports_code_execution = false
-  ; uses_native_thinking_envelope = false
   ; is_ollama = false
   ; emits_usage_tokens = true (* stricter default: most providers report usage *)
   ; supported_models = None
@@ -465,7 +458,6 @@ let for_model_id model_id =
       ; supports_caching = true
       ; supports_prompt_caching = false
       ; prompt_cache_alignment = None
-      ; uses_native_thinking_envelope = true
       }
   else if starts_with "deepseek-v4-pro"
   then
@@ -484,7 +476,6 @@ let for_model_id model_id =
       ; supports_caching = true
       ; supports_prompt_caching = false
       ; prompt_cache_alignment = None
-      ; uses_native_thinking_envelope = true
       }
   else if starts_with "mistral-large"
   then
@@ -866,27 +857,21 @@ let%test "emits_usage_tokens: claude_code reports usage" =
   claude_code_capabilities.emits_usage_tokens
 ;;
 
-(* P7 (#1342) restored CJK-aware usage estimation for the CLI wrapper
-   transports, so the three CLI provider capability records now report
-   [emits_usage_tokens = true].  These tests previously asserted the
-   pre-#1342 behaviour ([not ... emits_usage_tokens]) and should have
-   been flipped alongside the capability change; sweep miss caught
-   here. *)
-let%test "emits_usage_tokens: gemini_cli reports usage (P7)" =
-  gemini_cli_capabilities.emits_usage_tokens
+let%test "emits_usage_tokens: gemini_cli strips usage" =
+  not gemini_cli_capabilities.emits_usage_tokens
 ;;
 
-let%test "emits_usage_tokens: kimi_cli reports usage (P7)" =
-  kimi_cli_capabilities.emits_usage_tokens
+let%test "emits_usage_tokens: kimi_cli strips usage" =
+  not kimi_cli_capabilities.emits_usage_tokens
 ;;
 
-let%test "emits_usage_tokens: codex_cli reports usage (P7)" =
-  codex_cli_capabilities.emits_usage_tokens
+let%test "emits_usage_tokens: codex_cli strips usage" =
+  not codex_cli_capabilities.emits_usage_tokens
 ;;
 
-let%test "capabilities_for_provider_label: kimi_cli reports usage (P7)" =
+let%test "capabilities_for_provider_label: kimi_cli" =
   match capabilities_for_provider_label "kimi_cli" with
-  | Some c -> c.emits_usage_tokens
+  | Some c -> not c.emits_usage_tokens
   | None -> false
 ;;
 
@@ -1018,7 +1003,7 @@ let%test "for_model_id: specific model IDs get correct (not shadowed) capabiliti
     ; ("glm-ocr-test", fun c -> c.supports_image_input && not c.supports_tools)
     ; ("claude-opus-4-20250501", fun c -> c.max_output_tokens = Some 128_000)
     ; ("gpt-4.1-mini", fun c -> c.max_output_tokens = Some 32_000)
-    ; ("deepseek-v4-flash-test", fun c -> c.uses_native_thinking_envelope)
+    ; ("deepseek-v4-flash-test", fun c -> c.thinking_control_format = Thinking_object)
     ; ( "nemotron-ultra-253b"
       , fun c ->
           c.thinking_control_format = Chat_template_kwargs && c.supports_tool_choice )

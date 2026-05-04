@@ -6,7 +6,8 @@
 open Sessions_types
 
 let json_parse_error = Util.json_parse_error
-let ( let* ) = Result.bind
+
+open Result_syntax
 
 let parse_json_string raw =
   try Ok (Yojson.Safe.from_string raw) with
