@@ -78,10 +78,14 @@ let rec validate_against_schema
      (match value with
       | `String _ -> ()
       | _ -> add json_path "string" (type_name value))
-   | `String "number" | `String "integer" ->
+   | `String "number" ->
      (match value with
-      | `Int _ | `Float _ -> ()
+      | `Int _ | `Intlit _ | `Float _ -> ()
       | _ -> add json_path "number" (type_name value))
+   | `String "integer" ->
+     (match value with
+      | `Int _ | `Intlit _ -> ()
+      | _ -> add json_path "integer" (type_name value))
    | `String "boolean" ->
      (match value with
       | `Bool _ -> ()
