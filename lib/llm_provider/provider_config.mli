@@ -258,9 +258,14 @@ val structured_output_name_of_schema : Yojson.Safe.t -> string
     Conservative policy:
     - [OpenAI_compat] is accepted only for official OpenAI hosts with a
       model capability record that reports [supports_structured_output].
-    - [Gemini], [Anthropic], and [Ollama] are accepted.
+    - [Gemini], [Anthropic], [Ollama], and [DashScope] are accepted.
+      DashScope (Qwen) exposes [response_format.json_schema] on its
+      OpenAI-compatible endpoint; the field is forwarded by
+      [backend_openai.ml] without additional host validation.
     - [Kimi] is rejected until native json_schema support is verified.
-    - [Glm] and CLI kinds are rejected.
+    - [Glm] is rejected: Z.AI's current official docs document JSON mode
+      ([json_object]) only; [response_format.json_schema] is not listed.
+    - CLI kinds are rejected.
 
     @since 0.163.0 *)
 val validate_output_schema_request : t -> (unit, string) result

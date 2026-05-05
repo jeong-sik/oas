@@ -265,7 +265,16 @@ let glm_capabilities =
   ; supports_reasoning = true
   ; supports_extended_thinking = true
   ; supports_response_format_json = true
-  ; supports_structured_output = true
+  ; (* Z.AI's current official docs describe JSON mode via
+     response_format={"type":"json_object"} plus prompt/schema-in-text
+     guidance, but do not document a native JSON-schema request field
+     equivalent to OpenAI's json_schema response_format. OAS therefore
+     treats GLM as JSON-mode-only: supports_response_format_json=true
+     but supports_structured_output=false. validate_output_schema_request
+     rejects output_schema for GLM configs to prevent silent pass-through
+     of schemas the provider will not enforce.
+     Ref: https://docs.z.ai/guides/capabilities/struct-output — checked 2026-04-21. *)
+    supports_structured_output = false
   ; supports_native_streaming = true
   }
 ;;

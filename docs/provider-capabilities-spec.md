@@ -79,7 +79,7 @@ Consider adding:
 | `Openai_responses` request_kind | OpenAI Responses API: server-side state, built-in tools, remote MCP. Distinct from chat completions. |
 | `supports_remote_mcp` | OpenAI Responses API passes MCP servers as API parameters. |
 
-## Structured Output Semantics (updated 2026-04-21)
+## Structured Output Semantics (updated 2026-05-05)
 
 Use two layers when discussing structured output support:
 
@@ -113,6 +113,7 @@ The two flags are related but not interchangeable:
 | Gemini | `generationConfig.responseMimeType = "application/json"` plus `responseJsonSchema` / `responseSchema` | Native schema guarantee + JSON mode | `backend_gemini.ml` emits `responseMimeType` plus `responseJsonSchema` for `JsonSchema _`; `JsonMode` keeps `responseMimeType` only | OAS uses `responseJsonSchema`; other documented field names remain provider aliases. |
 | Anthropic | `output_config.format` for JSON outputs; strict tool use is separate | Native schema guarantee for JSON outputs; strict tool use validates tool names and inputs, not assistant text shape | `backend_anthropic.ml` emits `output_config.format`; `lib/structured.ml` direct extraction uses native schema output | Strict tool use remains separate; do not describe Anthropic structured output as "tool-use only". |
 | Ollama | `/api/chat` `format` accepts `"json"` or a JSON schema | JSON mode or native schema guarantee, depending on `format` | `backend_ollama.ml` emits `/api/chat format` as `"json"` or a JSON schema | Native schema still depends on the target Ollama server honoring `format`. |
+| DashScope (Qwen) | `response_format: {type: "json_schema", "json_schema": {...}}` plus JSON mode `json_object` on the OpenAI-compatible endpoint (`dashscope-intl.aliyuncs.com/compatible-mode/v1`) | Native schema guarantee + JSON mode for Qwen3 series and newer models | OAS forwards `output_schema` via `backend_openai.ml` `json_schema` path; `validate_output_schema_request` accepts `DashScope` kind unconditionally without per-model capability check | All Qwen3 / qwen-max / qwen-turbo models support this on the OpenAI-compat endpoint. Ref: DashScope structured output guide — checked 2026-05-05. |
 | GLM | `response_format = {"type":"json_object"}` plus prompt/schema-in-text guidance | JSON mode only in the current official docs | OAS keeps GLM on the OpenAI-style `json_object` path and rejects `output_schema` up front | Keep caller-side validation; do not treat this as provider-native schema enforcement. |
 | Generic OpenAI-compatible / llama.cpp | Varies by server, release, and host integration | Host-specific; do not assume schema support | OAS rejects native schema by default for generic OpenAI-compatible hosts; only official OpenAI hosts pass validation today | OpenAI-compatible wire shape is not enough evidence for native schema support. |
 
@@ -208,6 +209,7 @@ reference from the March 2026 survey unless otherwise noted.
 - [근거] Ollama Structured Outputs: https://docs.ollama.com/capabilities/structured-outputs — checked 2026-04-21 — High
 - [근거] Ollama `/api/chat` format field: https://docs.ollama.com/api/chat — checked 2026-04-21 — High
 - [근거] GLM Structured Output overview: https://docs.z.ai/guides/capabilities/struct-output — checked 2026-04-21 — High
+- [근거] DashScope (Qwen) Structured Output / `response_format.json_schema` on OpenAI-compatible endpoint: https://www.alibabacloud.com/help/en/model-studio/structured-output — checked 2026-05-05 — High
 - Qwen 3.5 blog (qwen.ai)
 - Meta Llama 4 (llama.com)
 - DeepSeek API docs (api-docs.deepseek.com)
@@ -217,5 +219,5 @@ reference from the March 2026 survey unless otherwise noted.
 - MCP specification 2025-11-25
 - arxiv: SimpleTool (2603.00030), SelfBudgeter (2505.11274), Agent Skills (2602.12430)
 
-Structured output section revalidated: 2026-04-21.
+Structured output section revalidated: 2026-05-05.
 Full matrix baseline: 2026-03-20.

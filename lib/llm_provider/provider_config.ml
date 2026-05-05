@@ -290,7 +290,11 @@ let validate_output_schema_request (config : t) =
   | None -> Ok ()
   | Some _ ->
     (match config.kind with
-     | Gemini | Anthropic | Ollama | DashScope | Glm -> Ok ()
+     | Gemini | Anthropic | Ollama | DashScope -> Ok ()
+     | Glm ->
+       Error
+         "GLM supports JSON mode (json_object) only; native json_schema output is not \
+          documented in the current Z.AI API"
      | Kimi ->
        Error "Kimi direct API native json_schema output is not verified yet in OAS"
      | OpenAI_compat ->
