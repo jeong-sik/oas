@@ -100,7 +100,8 @@ let base_messages agent =
     test asserts green; see #799).  When no sink is registered the record
     is counted by {!Log.dropped_without_sink_count} and otherwise discarded,
     so hosts can detect missing telemetry wiring without forcing stderr
-    output. *)
+    output. Disabled records below the global log level are filtered before
+    this counter is considered. *)
 let stop_reason_label : Types.stop_reason -> string = function
   | EndTurn -> "end_turn"
   | StopToolUse -> "stop_tool_use"
