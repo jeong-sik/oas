@@ -71,6 +71,12 @@ type agent_config =
   ; yield_on_tool : bool (** Release LLM slot during tool execution. @since 0.100.0 *)
   ; exit_condition : ((int -> bool)[@opaque]) option
     (** Custom exit predicate called with turn_count after each turn. When it returns true the agent loop exits cleanly. @since 0.115.0 *)
+  ; call_time_pruner_keep_recent : int
+    (** Number of most recent turns whose tool results are NOT stubbed by the
+        call-time pruner in {!Agent_turn.prepare_messages}.  Default [2]. *)
+  ; call_time_pruner_keep_last : int
+    (** Maximum number of most recent turns retained by the call-time pruner
+        in {!Agent_turn.prepare_messages}.  Default [100]. *)
   }
 [@@deriving show]
 

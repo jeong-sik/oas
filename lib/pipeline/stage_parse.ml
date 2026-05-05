@@ -37,6 +37,7 @@ let last_tool_results_from messages =
     re-preparation (Stage 2.3). *)
 let prepare_turn_for_agent agent ~turn_params =
   Agent_turn.prepare_turn
+    ~config:agent.state.config
     ~guardrails:agent.options.guardrails
     ~operator_policy:agent.options.operator_policy
     ~policy_channel:agent.options.policy_channel

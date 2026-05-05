@@ -150,6 +150,7 @@ let test_prepare_messages_no_reducer () =
       ~context_reducer:None
       ~tiered_memory:None
       ~turn_params:Hooks.default_turn_params
+      ()
   in
   Alcotest.(check int) "same count" 1 (List.length result)
 ;;
@@ -173,6 +174,7 @@ let test_prepare_messages_extra_context () =
       ~context_reducer:None
       ~tiered_memory:None
       ~turn_params
+      ()
   in
   Alcotest.(check int) "prepended system msg" 2 (List.length result);
   let first = List.hd result in
@@ -205,6 +207,7 @@ let test_prepare_messages_system_prompt_override_noop () =
       ~context_reducer:None
       ~tiered_memory:None
       ~turn_params
+      ()
   in
   (* system_prompt_override is handled in pipeline stage_parse, not
      in prepare_messages. Message count should remain unchanged. *)
@@ -233,6 +236,7 @@ let test_prepare_messages_both_override_and_extra_context () =
       ~context_reducer:None
       ~tiered_memory:None
       ~turn_params
+      ()
   in
   (* extra_system_context injects a User message; system_prompt_override
      is applied separately in pipeline. So only extra_system_context
@@ -305,6 +309,7 @@ let test_prepare_messages_with_tiered_memory_after_system () =
       ~context_reducer:None
       ~tiered_memory:(Some tiered_memory)
       ~turn_params:Hooks.default_turn_params
+      ()
   in
   Alcotest.(check int) "system + recall + raw" 3 (List.length result);
   let first = List.nth result 0 in
@@ -347,6 +352,7 @@ let test_prepare_messages_omits_blank_tiered_memory () =
       ~context_reducer:None
       ~tiered_memory:(Some tiered_memory)
       ~turn_params:Hooks.default_turn_params
+      ()
   in
   Alcotest.(check int) "blank recall omitted" 1 (List.length result);
   Alcotest.(check string)
@@ -377,6 +383,7 @@ let test_prepare_messages_tiered_memory_reserves_token_budget () =
       ~context_reducer:reducer
       ~tiered_memory:None
       ~turn_params:Hooks.default_turn_params
+      ()
   in
   let tiered_memory : Agent_turn.tiered_memory =
     { long_term = Some (String.make 200 'r'); mid_term = None; short_term = None }
@@ -387,6 +394,7 @@ let test_prepare_messages_tiered_memory_reserves_token_budget () =
       ~context_reducer:reducer
       ~tiered_memory:(Some tiered_memory)
       ~turn_params:Hooks.default_turn_params
+      ()
   in
   let baseline_raw =
     List.filter (fun msg -> not (is_tiered_recall_message msg)) baseline

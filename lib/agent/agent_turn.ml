@@ -247,14 +247,28 @@ let inject_tiered_memory_message ~tiered_memory messages =
     leading_system @ (recall :: rest)
 ;;
 
-let prepare_messages ~messages ~context_reducer ~tiered_memory ~turn_params =
+let prepare_messages ?config ~messages ~context_reducer ~tiered_memory ~turn_params () =
   (* Apply call-time stubbing: older tool results are replaced with
      short stubs before sending to the LLM.  This is done here (not in
      state.messages) so the stored conversation prefix stays byte-identical
-     across turns — enabling local LLM prefix KV-cache reuse. *)
+     across turns — enabling local LLM prefix KV-cache reuse.
+
+     The two knobs ([keep_recent], [keep_last]) come from the agent
+     config when one is supplied; otherwise we fall back to the
+     historical defaults (2 / 100) so legacy callers stay unchanged. *)
+  let keep_recent, keep_last =
+    match config with
+    | Some (c : Types.agent_config) ->
+      c.call_time_pruner_keep_recent, c.call_time_pruner_keep_last
+    | None ->
+      ( Types.default_config.call_time_pruner_keep_recent
+      , Types.default_config.call_time_pruner_keep_last )
+  in
   let call_time_pruner =
     Context_reducer.compose
-      [ Context_reducer.stub_tool_results ~keep_recent:2; Context_reducer.keep_last 100 ]
+      [ Context_reducer.stub_tool_results ~keep_recent
+      ; Context_reducer.keep_last keep_last
+      ]
   in
   let pruned = Context_reducer.reduce call_time_pruner messages in
   let effective =
@@ -282,6 +296,7 @@ let prepare_messages ~messages ~context_reducer ~tiered_memory ~turn_params =
 ;;
 
 let prepare_turn
+      ?config
       ~guardrails
       ~operator_policy
       ~policy_channel
@@ -305,7 +320,7 @@ let prepare_turn
       ()
   in
   let effective_messages =
-    prepare_messages ~messages ~context_reducer ~tiered_memory ~turn_params
+    prepare_messages ?config ~messages ~context_reducer ~tiered_memory ~turn_params ()
   in
   { tools_json; effective_messages; effective_guardrails; visible_tool_names }
 ;;
