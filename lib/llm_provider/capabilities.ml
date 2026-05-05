@@ -361,9 +361,9 @@ let codex_cli_capabilities =
 
 (* ── Model-specific overrides (lookup table) ─────────── *)
 
-(** Lookup capabilities by model_id prefix.
+(** Lookup capabilities by model_id prefix using the built-in static table.
     Returns None if no specific override is known. *)
-let for_model_id model_id =
+let for_model_id_static model_id =
   (* Normalize: lowercase, strip quantization suffixes *)
   let m = String.lowercase_ascii model_id in
   let starts_with prefix =
@@ -750,6 +750,93 @@ let capabilities_for_provider_label label =
 let with_context_size caps ~ctx_size = { caps with max_context_tokens = Some ctx_size }
 
 let with_tool_support caps ~supports_tools = { caps with supports_tools }
+
+(* ── Capability manifest integration ───────────────────── *)
+
+(** Apply a capability manifest entry on top of a base capabilities record.
+
+    [base_label] resolves to a provider preset via
+    [capabilities_for_provider_label]; defaults to [default_capabilities]
+    when absent or unrecognised.  Each [Some] field in [entry] overrides
+    the corresponding field of the base; [None] fields are left unchanged. *)
+let apply_manifest_entry (entry : Capability_manifest.entry) : capabilities =
+  let base =
+    match entry.base_label with
+    | None -> default_capabilities
+    | Some label ->
+      (match capabilities_for_provider_label label with
+       | Some c -> c
+       | None -> default_capabilities)
+  in
+  let override_bool base_val = function
+    | Some b -> b
+    | None -> base_val
+  in
+  let override_int_opt base_val = function
+    | Some n -> Some n
+    | None -> base_val
+  in
+  { base with
+    max_context_tokens = override_int_opt base.max_context_tokens entry.max_context_tokens
+  ; max_output_tokens = override_int_opt base.max_output_tokens entry.max_output_tokens
+  ; supports_tools = override_bool base.supports_tools entry.supports_tools
+  ; supports_tool_choice =
+      override_bool base.supports_tool_choice entry.supports_tool_choice
+  ; supports_parallel_tool_calls =
+      override_bool base.supports_parallel_tool_calls entry.supports_parallel_tool_calls
+  ; supports_reasoning = override_bool base.supports_reasoning entry.supports_reasoning
+  ; supports_extended_thinking =
+      override_bool base.supports_extended_thinking entry.supports_extended_thinking
+  ; supports_reasoning_budget =
+      override_bool base.supports_reasoning_budget entry.supports_reasoning_budget
+  ; supports_response_format_json =
+      override_bool base.supports_response_format_json entry.supports_response_format_json
+  ; supports_structured_output =
+      override_bool base.supports_structured_output entry.supports_structured_output
+  ; supports_multimodal_inputs =
+      override_bool base.supports_multimodal_inputs entry.supports_multimodal_inputs
+  ; supports_image_input =
+      override_bool base.supports_image_input entry.supports_image_input
+  ; supports_audio_input =
+      override_bool base.supports_audio_input entry.supports_audio_input
+  ; supports_video_input =
+      override_bool base.supports_video_input entry.supports_video_input
+  ; supports_native_streaming =
+      override_bool base.supports_native_streaming entry.supports_native_streaming
+  ; supports_system_prompt =
+      override_bool base.supports_system_prompt entry.supports_system_prompt
+  ; supports_caching = override_bool base.supports_caching entry.supports_caching
+  ; supports_prompt_caching =
+      override_bool base.supports_prompt_caching entry.supports_prompt_caching
+  ; supports_top_k = override_bool base.supports_top_k entry.supports_top_k
+  ; supports_min_p = override_bool base.supports_min_p entry.supports_min_p
+  ; supports_seed = override_bool base.supports_seed entry.supports_seed
+  ; supports_computer_use =
+      override_bool base.supports_computer_use entry.supports_computer_use
+  ; supports_code_execution =
+      override_bool base.supports_code_execution entry.supports_code_execution
+  }
+;;
+
+(** Look up capabilities for [model_id] against an explicit manifest,
+    falling back to the built-in static table when no manifest entry
+    matches. *)
+let for_model_id_with_manifest manifest model_id =
+  match Capability_manifest.lookup manifest model_id with
+  | Some entry -> Some (apply_manifest_entry entry)
+  | None -> for_model_id_static model_id
+;;
+
+(** Look up capabilities for [model_id].
+
+    Checks the globally loaded capability manifest (from
+    [OAS_CAPABILITY_MANIFEST]) first; falls through to the built-in
+    static prefix table when no manifest entry matches. *)
+let for_model_id model_id =
+  match Capability_manifest.global () with
+  | Some manifest -> for_model_id_with_manifest manifest model_id
+  | None -> for_model_id_static model_id
+;;
 
 [@@@coverage off]
 

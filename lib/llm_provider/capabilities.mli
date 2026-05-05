@@ -116,6 +116,27 @@ val with_context_size : capabilities -> ctx_size:int -> capabilities
 (** Update tool support from Discovery. *)
 val with_tool_support : capabilities -> supports_tools:bool -> capabilities
 
+(** {2 Capability Manifest} *)
+
+(** Apply a {!Capability_manifest.entry} on top of a provider-preset base.
+
+    [entry.base_label] (if present) is resolved via
+    {!capabilities_for_provider_label}; unknown or absent labels fall back
+    to {!default_capabilities}.  Each [Some] field in [entry] overrides the
+    corresponding field; [None] fields inherit from the base.
+
+    @since 0.188.0 *)
+val apply_manifest_entry : Capability_manifest.entry -> capabilities
+
+(** Look up capabilities for [model_id] against an explicit manifest,
+    falling back to the built-in static prefix table on a miss.
+
+    Useful for testing the manifest integration path without relying on
+    the [OAS_CAPABILITY_MANIFEST] env var.
+
+    @since 0.188.0 *)
+val for_model_id_with_manifest : Capability_manifest.t -> string -> capabilities option
+
 (** {2 Capability Drift Detection} *)
 
 type drift_observation =
