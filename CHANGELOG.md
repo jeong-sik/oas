@@ -8,6 +8,15 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.190.25] - 2026-05-06
+
+### Fixed
+- `Complete_cascade` provider-health tracker now uses `Eio.Mutex.lock`/`unlock` instead of `Stdlib.Mutex` + `Fun.protect`. The cascade path runs on Eio, so a `Stdlib.Mutex` waiter would block the whole domain rather than yield through the scheduler. This is one concrete cancellation hotspot retired from the broader cancellation-guard epic — not the whole epic. Refs: jeong-sik/masc-mcp#10395, jeong-sik/masc-mcp#11929. (#1435)
+
+### Added
+- `test/test_complete_cascade.ml`: concurrent Eio fiber regression that records provider failures through the shared health tracker, proving the new `Eio.Mutex` path is safe under concurrent updates. (#1435)
+- `test/dune`: re-wired `test_runtime` (worker integration) and `test_structured_stream` as standalone test stanzas, clearing the last entries from the compile-failure orphan list. (#1434, #1436)
+
 ## [0.190.24] - 2026-05-06
 
 ### Added
