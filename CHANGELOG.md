@@ -8,6 +8,14 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.190.19] - 2026-05-06
+
+### Added
+- `test/dune`: re-wired `test_full_pipeline_cov` as a standalone test stanza, removing the last entry from the `pre-existing runtime failures` orphan list. (#1421)
+
+### Fixed
+- `test/test_full_pipeline_cov.ml`: canned mock provider response text is now JSON-escaped before being embedded in the response body string, so the structured-JSON parse path under test no longer fails on unescaped quotes/backslashes inside the mocked content. (#1421)
+
 ## [0.190.18] - 2026-05-06
 
 ### Added
