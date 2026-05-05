@@ -177,6 +177,21 @@ let test_validate_output_schema_glm_rejected () =
     (Result.is_error (Provider_config.validate_output_schema_request cfg))
 ;;
 
+let test_validate_output_schema_dashscope_accepted () =
+  let cfg =
+    Provider_config.make
+      ~kind:DashScope
+      ~model_id:"qwen-max"
+      ~base_url:"https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+      ~output_schema:(`Assoc [ "type", `String "object" ])
+      ()
+  in
+  check_bool
+    "dashscope accepted"
+    true
+    (Result.is_ok (Provider_config.validate_output_schema_request cfg))
+;;
+
 let test_validate_output_schema_kimi_rejected () =
   let cfg =
     Provider_config.make
@@ -721,6 +736,10 @@ let () =
             "kimi rejected"
             `Quick
             test_validate_output_schema_kimi_rejected
+        ; Alcotest.test_case
+            "dashscope accepted"
+            `Quick
+            test_validate_output_schema_dashscope_accepted
         ] )
     ; ( "locality"
       , [ Alcotest.test_case "loopback ip" `Quick test_is_local_loopback_ip

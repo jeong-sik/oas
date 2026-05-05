@@ -338,6 +338,20 @@ let test_apply_manifest_entry_all_none_uses_base () =
   check bool "caching matches base" base.supports_caching caps.supports_caching
 ;;
 
+(* ── DashScope preset ────────────────────────────────── *)
+
+let test_dashscope_capabilities () =
+  let c = Capabilities.dashscope_capabilities in
+  (* DashScope (Qwen) exposes response_format.json_schema on its OpenAI-compatible
+     endpoint; native schema output is supported. Ref: DashScope structured output
+     guide — checked 2026-05-05. *)
+  check bool "has structured output" true c.supports_structured_output;
+  check bool "has json mode" true c.supports_response_format_json;
+  check bool "has tools" true c.supports_tools;
+  check bool "has tool_choice" true c.supports_tool_choice;
+  check bool "has min_p" true c.supports_min_p
+;;
+
 (* ── Suite ───────────────────────────────────────────── *)
 
 let () =
@@ -351,6 +365,7 @@ let () =
       , [ test_case "anthropic" `Quick test_anthropic_capabilities
         ; test_case "openai" `Quick test_openai_capabilities
         ; test_case "openai extended" `Quick test_openai_extended
+        ; test_case "dashscope" `Quick test_dashscope_capabilities
         ] )
     ; ( "model_lookup"
       , [ test_case "claude opus" `Quick test_lookup_claude_opus
