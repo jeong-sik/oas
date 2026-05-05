@@ -767,12 +767,16 @@ let test_run_participant_mock () =
     match
       Runtime_server_worker.run_participant store state session_id resolution detail
     with
-    | Ok text ->
-      Alcotest.(check bool) "mock response non-empty" true (String.length text > 0);
+    | Ok result ->
+      Alcotest.(check bool)
+        "mock response non-empty"
+        true
+        (String.length result.summary > 0);
       let expected = "Mock runtime response for alice: say hello" in
-      Alcotest.(check string) "mock response content" expected text
-    | Error e ->
-      Alcotest.fail (Printf.sprintf "run_participant mock failed: %s" (Error.to_string e)))
+      Alcotest.(check string) "mock response content" expected result.summary
+    | Error failure ->
+      Alcotest.fail
+        (Printf.sprintf "run_participant mock failed: %s" (Error.to_string failure.error)))
 ;;
 
 let test_run_participant_echo () =
@@ -813,12 +817,13 @@ let test_run_participant_echo () =
     match
       Runtime_server_worker.run_participant store state session_id resolution detail
     with
-    | Ok text ->
-      Alcotest.(check bool) "echo text non-empty" true (String.length text > 0);
+    | Ok result ->
+      Alcotest.(check bool) "echo text non-empty" true (String.length result.summary > 0);
       let expected = "Mock runtime response for bob: echo this message" in
-      Alcotest.(check string) "echo response content" expected text
-    | Error e ->
-      Alcotest.fail (Printf.sprintf "run_participant echo failed: %s" (Error.to_string e)))
+      Alcotest.(check string) "echo response content" expected result.summary
+    | Error failure ->
+      Alcotest.fail
+        (Printf.sprintf "run_participant echo failed: %s" (Error.to_string failure.error)))
 ;;
 
 (* ── persist_event with agent lifecycle events ────────────────── *)
