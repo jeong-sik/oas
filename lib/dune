@@ -5,7 +5,7 @@
  (public_name agent_sdk)
  (libraries
   llm_provider
-  agent_sdk_base
+  (re_export agent_sdk_base)
   eio
   eio_main
   cohttp-eio
@@ -21,6 +21,8 @@
   mcp_protocol
   mcp_protocol.eio
   mcp_protocol.http)
+ (flags
+  (:standard -open Agent_sdk_base))
  (inline_tests)
  (preprocess
   (pps ppx_deriving_yojson ppx_deriving.show ppx_inline_test ppx_let))

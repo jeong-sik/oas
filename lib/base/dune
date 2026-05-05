@@ -3,7 +3,7 @@
 (library
  (name agent_sdk_base)
  (public_name agent_sdk.base)
- (wrapped false)
+ (wrapped true)
  (libraries llm_provider yojson eio)
  (inline_tests)
  (preprocess
