@@ -3,6 +3,36 @@
 open Alcotest
 open Llm_provider
 
+let string_contains_sub s sub =
+  let s_len = String.length s in
+  let sub_len = String.length sub in
+  let rec loop i =
+    if sub_len = 0
+    then true
+    else if i + sub_len > s_len
+    then false
+    else if String.sub s i sub_len = sub
+    then true
+    else loop (i + 1)
+  in
+  loop 0
+;;
+
+let check_contains label s sub =
+  if not (string_contains_sub s sub)
+  then Alcotest.failf "%s: expected %S to contain %S" label s sub
+;;
+
+let with_temp_manifest contents f =
+  let path = Filename.temp_file "oas-capability-manifest" ".json" in
+  let oc = open_out path in
+  Fun.protect ~finally:(fun () -> close_out_noerr oc) (fun () ->
+    output_string oc contents);
+  Fun.protect
+    ~finally:(fun () -> try Sys.remove path with Sys_error _ -> ())
+    (fun () -> f path)
+;;
+
 (* ── Default capabilities ────────────────────────────── *)
 
 let test_default_no_limits () =
@@ -338,6 +368,85 @@ let test_apply_manifest_entry_all_none_uses_base () =
   check bool "caching matches base" base.supports_caching caps.supports_caching
 ;;
 
+let test_manifest_wrong_type_fields_warn_and_ignore () =
+  let warnings = ref [] in
+  let json =
+    Yojson.Safe.from_string
+      {|{"schema_version":1,"models":[{"id_prefix":"typed","base":17,"max_context_tokens":"131072","supports_tools":"yes"}]}|}
+  in
+  let manifest =
+    Diag.with_sink
+      (fun level ~ctx msg -> warnings := (level, ctx, msg) :: !warnings)
+      (fun () -> Capability_manifest.of_json json)
+  in
+  let entry =
+    match manifest with
+    | Ok [ entry ] -> entry
+    | Ok _ -> Alcotest.fail "expected one manifest entry"
+    | Error msg -> Alcotest.failf "unexpected parse error: %s" msg
+  in
+  check (option string) "wrong-type base ignored" None entry.base_label;
+  check (option int) "wrong-type int ignored" None entry.max_context_tokens;
+  check (option bool) "wrong-type bool ignored" None entry.supports_tools;
+  let has_warning field expected =
+    List.exists
+      (fun (level, ctx, msg) ->
+         level = Diag.Warn
+         && String.equal ctx "capability_manifest"
+         && string_contains_sub msg (Printf.sprintf "field %S" field)
+         && string_contains_sub msg (Printf.sprintf "expected %s" expected))
+      !warnings
+  in
+  check bool "warned for base" true (has_warning "base" "string");
+  check bool "warned for max_context_tokens" true (has_warning "max_context_tokens" "int");
+  check bool "warned for supports_tools" true (has_warning "supports_tools" "bool")
+;;
+
+let test_manifest_load_file_missing_returns_error () =
+  let path = Filename.temp_file "oas-capability-manifest-missing" ".json" in
+  Sys.remove path;
+  match Capability_manifest.load_file path with
+  | Error msg ->
+    check_contains "mentions cannot read" msg "cannot read capability manifest";
+    check_contains "mentions path" msg path
+  | Ok _ -> Alcotest.fail "expected missing manifest path to fail"
+;;
+
+let test_manifest_load_file_malformed_returns_error () =
+  with_temp_manifest {|{"schema_version":1,"models":[|} (fun path ->
+    match Capability_manifest.load_file path with
+    | Error msg ->
+      check_contains "mentions JSON parse" msg "capability manifest JSON parse error";
+      check_contains "mentions path" msg path
+    | Ok _ -> Alcotest.fail "expected malformed manifest JSON to fail")
+;;
+
+let test_manifest_load_runtime_file_success_logs_info () =
+  let logs = ref [] in
+  with_temp_manifest
+    {|{"schema_version":1,"models":[{"id_prefix":"runtime-visible","supports_tools":true}] }|}
+    (fun path ->
+       let manifest =
+         Diag.with_sink
+           (fun level ~ctx msg -> logs := (level, ctx, msg) :: !logs)
+           (fun () -> Capability_manifest.load_runtime_file path)
+       in
+       (match manifest with
+        | Some [ entry ] -> check string "loaded id_prefix" "runtime-visible" entry.id_prefix
+        | Some _ -> Alcotest.fail "expected one runtime manifest entry"
+        | None -> Alcotest.fail "expected runtime manifest to load");
+       let has_info =
+         List.exists
+           (fun (level, ctx, msg) ->
+              level = Diag.Info
+              && String.equal ctx "capability_manifest"
+              && string_contains_sub msg "loaded 1 entries"
+              && string_contains_sub msg path)
+           !logs
+       in
+       check bool "logs info load success" true has_info)
+;;
+
 (* ── DashScope preset ────────────────────────────────── *)
 
 let test_dashscope_capabilities () =
@@ -496,6 +605,22 @@ let () =
             "all-None entry matches base"
             `Quick
             test_apply_manifest_entry_all_none_uses_base
+        ; test_case
+            "wrong-type fields warn and ignore"
+            `Quick
+            test_manifest_wrong_type_fields_warn_and_ignore
+        ; test_case
+            "missing manifest file errors"
+            `Quick
+            test_manifest_load_file_missing_returns_error
+        ; test_case
+            "malformed manifest file errors"
+            `Quick
+            test_manifest_load_file_malformed_returns_error
+        ; test_case
+            "runtime manifest load logs success"
+            `Quick
+            test_manifest_load_runtime_file_success_logs_info
         ] )
     ; ( "prefix_ordering"
       , [ test_case

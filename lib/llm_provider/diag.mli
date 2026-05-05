@@ -22,6 +22,10 @@ val level_to_string : level -> string
     Thread-safe via [Atomic.t]. *)
 val set_sink : (level -> ctx:string -> string -> unit) -> unit
 
+(** Temporarily replace the global diagnostic sink while [f] runs.
+    The previous sink is restored even if [f] raises. *)
+val with_sink : (level -> ctx:string -> string -> unit) -> (unit -> 'a) -> 'a
+
 (** Emit diagnostics at the given level.
     [ctx] is the module/subsystem name (e.g. "cascade_executor"). *)
 val debug : string -> ('a, unit, string, unit) format4 -> 'a

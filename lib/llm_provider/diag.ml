@@ -23,6 +23,12 @@ let default_sink (lvl : level) ~ctx msg =
 
 let _sink : (level -> ctx:string -> string -> unit) Atomic.t = Atomic.make default_sink
 let set_sink s = Atomic.set _sink s
+let with_sink sink f =
+  let previous = Atomic.get _sink in
+  Atomic.set _sink sink;
+  Fun.protect ~finally:(fun () -> Atomic.set _sink previous) f
+;;
+
 let emit lvl ctx fmt = Printf.ksprintf (fun msg -> (Atomic.get _sink) lvl ~ctx msg) fmt
 let debug ctx fmt = emit Debug ctx fmt
 let info ctx fmt = emit Info ctx fmt
