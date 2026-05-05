@@ -206,7 +206,8 @@ let test_payload_kind_canonical_labels () =
       , "handoff_requested" )
     ; ( Event_bus.HandoffCompleted { from_agent = "a"; to_agent = "b"; elapsed = 0.0 }
       , "handoff_completed" )
-    ; Event_bus.Custom ("masc.keeper.lifecycle", `Null), "custom:masc.keeper.lifecycle"
+    ; ( Event_bus.Custom ("downstream.agent.lifecycle", `Null)
+      , "custom:downstream.agent.lifecycle" )
     ]
   in
   List.iter
