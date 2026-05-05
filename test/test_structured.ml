@@ -576,7 +576,10 @@ let () =
         ; Alcotest.test_case "json_extractor no text" `Quick test_json_extractor_no_text
         ; Alcotest.test_case "text_extractor success" `Quick test_text_extractor_success
         ; Alcotest.test_case "text_extractor none" `Quick test_text_extractor_none
-        ; Alcotest.test_case "schema_extractor success" `Quick test_schema_extractor_success
+        ; Alcotest.test_case
+            "schema_extractor success"
+            `Quick
+            test_schema_extractor_success
         ; Alcotest.test_case
             "schema_extractor parse failure"
             `Quick
