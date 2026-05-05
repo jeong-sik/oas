@@ -334,27 +334,59 @@ let probe_ollama_context ~sw ~net base_url =
 
 (* ── Capability inference ────────────────────────────────── *)
 
+(** Overlay Ollama-specific identity fields onto any capability record.
+    Applied when a model-specific lookup is found but the endpoint is
+    known to be Ollama — identity ([is_ollama]), seed support, and
+    [thinking_control_format] differ from cloud or llama-server providers. *)
+let with_ollama_flags (caps : Capabilities.capabilities) : Capabilities.capabilities =
+  { caps with
+    is_ollama = true
+  ; supports_seed = true
+  ; supports_seed_with_images = true
+  ; thinking_control_format = Capabilities.Chat_template_kwargs
+  }
+;;
+
 (** Infer capabilities from model info and server props.
-    Priority: model-specific lookup > generic inference > default. *)
-let infer_capabilities models props =
+    Priority: model-specific lookup > generic inference > default.
+    When [is_ollama] is [true], [ollama_capabilities] is used as the
+    fallback base so that Ollama identity flags ([is_ollama], seed,
+    [thinking_control_format]) are always set.  For model-specific
+    lookups, Ollama identity fields are overlaid via {!with_ollama_flags}
+    so provider-level semantics are preserved without losing context-window
+    or reasoning metadata from the built-in table. *)
+let infer_capabilities ~is_ollama models props =
   (* 1. Try model-specific lookup *)
   let from_lookup =
     List.find_map (fun (m : model_info) -> Capabilities.for_model_id m.id) models
   in
   let base =
     match from_lookup with
-    | Some caps -> caps
+    | Some caps ->
+      (* Overlay Ollama identity flags when running on an Ollama endpoint
+         so model-specific context-window and reasoning metadata is kept
+         while provider-level flags (is_ollama, seed, thinking_control_format)
+         reflect the actual serving backend. *)
+      if is_ollama then with_ollama_flags caps else caps
     | None ->
-      (* 2. Generic inference by model name *)
-      let needs_extended =
-        List.exists
-          (fun (m : model_info) ->
-             Retry.contains_substring_ci ~haystack:m.id ~needle:"qwen")
-          models
-      in
-      if needs_extended
-      then Capabilities.openai_chat_extended_capabilities
-      else Capabilities.openai_chat_capabilities
+      if is_ollama
+      then
+        (* Ollama base: inherits extended reasoning, top_k/min_p, and
+           Ollama-specific flags (is_ollama, seed, conservative tool_choice).
+           Dynamic tool support from /api/show template analysis is applied
+           below via with_tool_support. *)
+        Capabilities.ollama_capabilities
+      else (
+        (* 2. Generic inference by model name for non-Ollama endpoints *)
+        let needs_extended =
+          List.exists
+            (fun (m : model_info) ->
+               Retry.contains_substring_ci ~haystack:m.id ~needle:"qwen")
+            models
+        in
+        if needs_extended
+        then Capabilities.openai_chat_extended_capabilities
+        else Capabilities.openai_chat_capabilities)
   in
   (* 3. Merge ctx_size from /props into capabilities *)
   match props with
@@ -487,7 +519,7 @@ let probe_endpoint ~sw ~net url =
       | Some _ as p -> p
       | None -> probe_ollama_context ~sw ~net base
     in
-    let capabilities = infer_capabilities models props in
+    let capabilities = infer_capabilities ~is_ollama models props in
     { url = base; healthy; models; props; slots; capabilities })
 ;;
 
@@ -1011,7 +1043,7 @@ let%test "contains_substring_ci exact match" =
 
 let%test "infer_capabilities qwen model gets extended" =
   let models = [ { id = "Qwen3.5-35B-A3B"; owned_by = "local" } ] in
-  let caps = infer_capabilities models None in
+  let caps = infer_capabilities ~is_ollama:false models None in
   caps.supports_reasoning = true
   && caps.supports_top_k = true
   && caps.supports_min_p = true
@@ -1019,13 +1051,13 @@ let%test "infer_capabilities qwen model gets extended" =
 
 let%test "infer_capabilities unknown model gets basic openai" =
   let models = [ { id = "my-custom-model"; owned_by = "local" } ] in
-  let caps = infer_capabilities models None in
+  let caps = infer_capabilities ~is_ollama:false models None in
   caps.supports_tools = true && caps.supports_reasoning = false
 ;;
 
 let%test "infer_capabilities known model lookup has priority" =
   let models = [ { id = "claude-opus-4-20260320"; owned_by = "anthropic" } ] in
-  let caps = infer_capabilities models None in
+  let caps = infer_capabilities ~is_ollama:false models None in
   caps.supports_caching = true && caps.supports_computer_use = true
 ;;
 
@@ -1034,12 +1066,12 @@ let%test "infer_capabilities merges ctx_size from props" =
   let props =
     Some { total_slots = 4; ctx_size = 32768; model = "my-model"; supports_tools = None }
   in
-  let caps = infer_capabilities models props in
+  let caps = infer_capabilities ~is_ollama:false models props in
   caps.max_context_tokens = Some 32768
 ;;
 
 let%test "infer_capabilities no models defaults" =
-  let caps = infer_capabilities [] None in
+  let caps = infer_capabilities ~is_ollama:false [] None in
   caps.supports_tools = true
 ;;
 
@@ -1280,14 +1312,48 @@ let%test "infer_capabilities uses ollama context when props present" =
       ; supports_tools = None
       }
   in
-  let caps = infer_capabilities models props in
+  let caps = infer_capabilities ~is_ollama:true models props in
   caps.max_context_tokens = Some 8192
 ;;
 
 let%test "infer_capabilities defaults to 262K when no props for qwen" =
   let models = [ { id = "qwen3.5-35b"; owned_by = "ollama" } ] in
-  let caps = infer_capabilities models None in
+  let caps = infer_capabilities ~is_ollama:true models None in
   caps.max_context_tokens = Some 262_144
+;;
+
+(* --- infer_capabilities Ollama identity --- *)
+
+let%test "infer_capabilities ollama unknown model gets is_ollama flag" =
+  let models = [ { id = "llama3.3"; owned_by = "ollama" } ] in
+  let caps = infer_capabilities ~is_ollama:true models None in
+  caps.is_ollama = true
+;;
+
+let%test "infer_capabilities ollama unknown model gets seed and conservative tool_choice" =
+  let models = [ { id = "phi4"; owned_by = "ollama" } ] in
+  let caps = infer_capabilities ~is_ollama:true models None in
+  caps.is_ollama = true && caps.supports_seed = true && caps.supports_tool_choice = false
+;;
+
+let%test "infer_capabilities ollama tool support propagated from api_show template" =
+  let models = [ { id = "phi4"; owned_by = "ollama" } ] in
+  let props =
+    Some { total_slots = 1; ctx_size = 65536; model = "phi4"; supports_tools = Some true }
+  in
+  let caps = infer_capabilities ~is_ollama:true models props in
+  caps.is_ollama = true && caps.supports_tools = true && caps.max_context_tokens = Some 65536
+;;
+
+let%test "infer_capabilities ollama qwen known lookup preserves ctx with ollama flags" =
+  (* qwen3.5-35b is in for_model_id with 262K context and supports_reasoning.
+     On an Ollama endpoint, Ollama identity flags should be overlaid. *)
+  let models = [ { id = "qwen3.5-35b"; owned_by = "ollama" } ] in
+  let caps = infer_capabilities ~is_ollama:true models None in
+  caps.is_ollama = true
+  && caps.supports_seed = true
+  && caps.max_context_tokens = Some 262_144
+  && caps.supports_reasoning = true
 ;;
 
 (* --- discovered context state (atomic snapshot) --- *)
