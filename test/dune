@@ -3,22 +3,269 @@
  (modules test_local_llm)
  (libraries agent_sdk eio eio_main yojson))
 
-(test
- (name test_metrics_aggregating)
- (modules test_metrics_aggregating)
+; --- AUTO-WIRED ORPHANS (fix/test-dune-orphans) ---
+; ---- (1) compile failures — not wired until bodies are fixed ----
+; The following files are NOT wired here because they fail to compile
+; against current main.  Bodies untouched per fix scope.  Tracked separately:
+;   - test/test_agent_card.ml          (Agent_card.agent_info missing 'cascade')
+;   - test/test_complete_http.ml       (record missing on_capability_drop etc.)
+;   - test/test_deep_coverage.ml       (Alcotest.run call commented out, dead body)
+;   - test/test_discovery.ml           (record missing 'supports_tools')
+;   - test/test_event_integration.ml   (Unbound module Handoff)
+;   - test/test_guardrails_async.ml    (pattern shape mismatch vs new return type)
+;   - test/test_pipeline_deep.ml       (record missing 'enable_thinking')
+;   - test/test_provider_config.ml     (record missing 'reasoning_tokens_estimated')
+;   - test/test_runtime_worker_integration.ml (type mismatch on participant_run_success)
+;   - test/test_structured_stream.ml   (build error — see CI log)
+;
+; ---- (2) pre-existing runtime failures — compile OK, runtest fails ----
+; The following suites compile but have pre-existing test failures.
+; They are excluded until the failures are fixed in separate PRs:
+;   - test/test_api.ml                 (with_setters context_thresholds)
+;   - test/test_builder.ml             (with_setters)
+;   - test/test_cli.ml                 (version/init/card/help/eval)
+;   - test/test_full_pipeline_cov.ml   (structured JSON parse)
+;   - test/test_lenient_json.ml        (double_stringify union)
+;   - test/test_llm_provider_cov.ml    (backend_gemini thinking default)
+;   - test/test_provider_bridge.ml     (to_provider_config zai coding auto)
+;   - test/test_provider_complete.ml   (openai_build_request glm reasoning)
+;   - test/test_streaming.ml           (parse_sse_event unknown/malformed)
+
+(tests
+ (names
+  test_metrics_aggregating
+  test_capabilities
+  test_call_time_pruner_config
+  test_agent
+  test_agent_auto_dump
+  test_agent_config
+  test_agent_config_deep
+  test_agent_lifecycle
+  test_agent_pipeline
+  test_agent_race
+  test_agent_registry
+  test_agent_sdk
+  test_agent_stream
+  test_agent_tool
+  test_agent_turn
+  test_agent_turn_budget_unit
+  test_agent_typed
+  test_api_dispatch
+  test_append_instruction
+  test_approval
+  test_approval_pipeline
+  test_artifact_service
+  test_async_agent
+  test_atomic_write_race
+  test_audit
+  test_autonomy_smoke
+  test_autonomy_trace_unit
+  test_backend_gemini
+  test_body_timeout
+  test_budget_strategy
+  test_bug_hunt
+  test_builder_coverage
+  test_cache
+  test_capabilities_wiring
+  test_capability_filter
+  test_cdal
+  test_cdal_proof
+  test_checkpoint
+  test_checkpoint_store
+  test_checkpoint_validation
+  test_cli_common_subprocess
+  test_clone
+  test_complete_ext
+  test_conditional_orch
+  test_conformance
+  test_conformance_cov2
+  test_conformance_pure
+  test_consumer
+  test_content_replacement_event_bridge
+  test_context
+  test_context_flow_proof
+  test_context_intent
+  test_context_offload
+  test_context_reducer
+  test_contract
+  test_contract_runner
+  test_correction_pipeline
+  test_cost_integration
+  test_cost_tracker
+  test_coverage_hotspots_srt
+  test_custom_provider
+  test_defaults
+  test_defaults_unit
+  test_direct_evidence
+  test_direct_evidence_unit
+  test_durable
+  test_durable_event
+  test_e2e_v024
+  test_eio_cancellability
+  test_elicitation
+  test_error
+  test_error_domain
+  test_eval
+  test_eval_baseline
+  test_eval_coverage
+  test_eval_otel_bridge
+  test_eval_report
+  test_eval_report_full
+  test_eval_stats
+  test_event_bus
+  test_event_envelope
+  test_event_forward
+  test_evidence_pipeline_cov
+  test_fs_result
+  test_gemini_edge_cases
+  test_governance_integration
+  test_guardrail_llm
+  test_guardrail_tripwire
+  test_guardrails
+  test_guardrails_integration
+  test_harness
+  test_harness_case
+  test_harness_deep
+  test_harness_runner
+  test_hooks
+  test_hooks_integration
+  test_http_client
+  test_initial_messages
+  test_injection
+  test_integration
+  test_journal_bridge
+  test_judge
+  test_llm_cache
+  test_llm_call
+  test_llm_provider_error
+  test_log
+  test_mcp
+  test_mcp_coverage
+  test_mcp_deep
+  test_mcp_http
+  test_mcp_integration
+  test_mcp_session
+  test_memory
+  test_memory_access
+  test_memory_coverage
+  test_memory_episodic
+  test_memory_file_backend
+  test_memory_lt_backend
+  test_memory_procedural
+  test_memory_tools
+  test_memory_tools_parse
+  test_metric_contract
+  test_metrics
+  test_model_registry
+  test_module_check
+  test_multimodal
+  test_multivendor_events
+  test_multivendor_live
+  test_operator_policy
+  test_orchestrator
+  test_orchestrator_coverage
+  test_orchestrator_steps
+  test_otel
+  test_otel_export
+  test_otel_tracer
+  test_pipeline
+  test_pipeline_metrics
+  test_plan
+  test_policy
+  test_policy_channel
+  test_policy_decision
+  test_progressive_tools
+  test_proof_store_cross_run
+  test_provider
+  test_provider_intf
+  test_provider_registry
+  test_raw_trace
+  test_raw_trace_deep
+  test_reflexion
+  test_request_priority
+  test_retry
+  test_runtime
+  test_runtime_evidence
+  test_runtime_projection_cov2
+  test_runtime_server_resolve
+  test_runtime_server_types
+  test_runtime_server_worker
+  test_runtime_store_unit
+  test_runtime_sync
+  test_runtime_types
+  test_sdk_client_types
+  test_session
+  test_session_advanced
+  test_session_resume
+  test_sessions_cov2
+  test_sessions_proof_unit
+  test_sessions_types
+  test_sessions_types_deep
+  test_skill
+  test_skill_coverage
+  test_skill_coverage2
+  test_skill_discovery
+  test_skill_registry
+  test_slot_scheduler_event_bridge
+  test_sse_parser
+  test_stream_accumulator
+  test_streaming_cov
+  test_streaming_coverage
+  test_streaming_e2e
+  test_streaming_keepalive_idle
+  test_streaming_openai
+  test_structured
+  test_structured_coverage
+  test_structured_deep
+  test_structured_ext
+  test_subagent
+  test_succession
+  test_swiss_verdict_json
+  test_tool
+  test_tool_index
+  test_tool_input_validation
+  test_tool_middleware
+  test_tool_result_relocation
+  test_tool_schema_gen
+  test_tool_selector
+  test_tool_use_recovery
+  test_trace_eval
+  test_tracing
+  test_trajectory
+  test_trajectory_unit
+  test_transport_deep
+  test_transport_integration
+  test_turn_budget
+  test_turn_params
+  test_typed_tool
+  test_typed_tool_safe
+  test_types
+  test_uncertain
+  test_usability_v030
+  test_util
+  test_v024_fixes
+  test_vcs_graph_snapshot
+  test_verified_output)
  (libraries agent_sdk alcotest))
+
+; QCheck-based property tests
+
+(tests
+ (names
+  test_checkpoint_delta
+  test_context_properties
+  test_memory_advanced
+  test_property
+  test_property_advanced
+  test_tool_op
+  test_tool_set)
+ (libraries agent_sdk alcotest qcheck-core qcheck-alcotest))
+
+; Tests with extra dependencies — kept as individual stanzas
+; so the grouped (tests (names ...)) above does not need to pull
+; them into the rest of the suite.
 
 (test
  (name test_complete_cascade)
  (modules test_complete_cascade)
  (libraries agent_sdk alcotest eio_main))
-
-(test
- (name test_capabilities)
- (modules test_capabilities)
- (libraries agent_sdk alcotest))
-
-(test
- (name test_call_time_pruner_config)
- (modules test_call_time_pruner_config)
- (libraries agent_sdk alcotest))
