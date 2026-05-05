@@ -47,7 +47,9 @@ let () =
       let first = List.hd items in
       let name = Yojson.Safe.Util.(first |> member "name" |> to_string) in
       check string "first name" "oas.eval.verdict_passed_total" name;
-      let run_id = Yojson.Safe.Util.(first |> member "tags" |> member "run_id" |> to_string) in
+      let run_id =
+        Yojson.Safe.Util.(first |> member "tags" |> member "run_id" |> to_string)
+      in
       let agent_name =
         Yojson.Safe.Util.(first |> member "tags" |> member "agent_name" |> to_string)
       in
