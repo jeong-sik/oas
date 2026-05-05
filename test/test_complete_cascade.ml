@@ -152,6 +152,28 @@ let test_provider_health_scores_list () =
   check (float 0.001) "moonshot optimistic" 1.0 (List.assoc moonshot_key scores)
 ;;
 
+let test_provider_health_eio_mutex_concurrent_recording () =
+  Eio_main.run
+  @@ fun _env ->
+  let health = Complete_cascade.create_health () in
+  let key = "concurrent-model@https://example.invalid" in
+  let workers =
+    List.init 10 (fun _ ->
+      fun () ->
+      for _ = 1 to 10 do
+        Complete_cascade.record_failure health key
+      done)
+  in
+  Eio.Fiber.all workers;
+  let info =
+    Complete_cascade.provider_health_info
+      health
+      ~cascade_config:Complete_cascade.default_cascade_config
+      ~provider_key:key
+  in
+  check int "all fiber writes recorded" 100 info.consecutive_failures
+;;
+
 (* ── cascade_config defaults ──────────────────────────── *)
 
 let test_default_config () =
@@ -463,6 +485,9 @@ let suite =
   ; "health_success_reset", `Quick, test_health_success_resets
   ; "provider_health_info_scores", `Quick, test_provider_health_info_scores_failures
   ; "provider_health_scores_list", `Quick, test_provider_health_scores_list
+  ; ( "provider_health_eio_mutex_concurrent_recording"
+    , `Quick
+    , test_provider_health_eio_mutex_concurrent_recording )
   ; "default_config", `Quick, test_default_config
   ; "result_success", `Quick, test_result_success_variant
   ; "result_all_failed", `Quick, test_result_all_failed_variant
