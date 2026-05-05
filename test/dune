@@ -11,7 +11,7 @@
 (test
  (name test_complete_cascade)
  (modules test_complete_cascade)
- (libraries agent_sdk alcotest))
+ (libraries agent_sdk alcotest eio_main))
 
 (test
  (name test_capabilities)

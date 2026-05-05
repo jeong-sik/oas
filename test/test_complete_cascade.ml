@@ -170,6 +170,108 @@ let test_skip_reason_variant () =
     check string "provider" "test@localhost" provider
 ;;
 
+let test_attempt_timeout_fast_paths_without_retrying_same_step () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let clock = Eio.Stdenv.clock env in
+  let calls = Atomic.make 0 in
+  let transport : Llm_transport.t =
+    { complete_sync =
+        (fun _ ->
+          Atomic.incr calls;
+          Eio.Time.sleep clock 5.0;
+          { Llm_transport.response = Ok dummy_response; latency_ms = 5000 })
+    ; complete_stream =
+        (fun ~on_event:_ _ ->
+          Atomic.incr calls;
+          Eio.Time.sleep clock 5.0;
+          Ok dummy_response)
+    }
+  in
+  let config =
+    Provider_config.make
+      ~kind:Ollama
+      ~model_id:"slow"
+      ~base_url:"http://localhost:11434"
+      ()
+  in
+  let started_at = Unix.gettimeofday () in
+  let result =
+    Complete_cascade.complete_cascade
+      ~sw
+      ~net:(Eio.Stdenv.net env)
+      ~clock
+      ~transport
+      ~attempt_timeout_s:0.01
+      ~steps:[ config ]
+      ~messages:[]
+      ()
+  in
+  let elapsed_s = Unix.gettimeofday () -. started_at in
+  check int "single provider attempt" 1 (Atomic.get calls);
+  (* Fast-path property the test name advertises: the call must NOT wait
+     for the full 5s sleep before returning. Use a generous 1s ceiling so
+     CI scheduling jitter does not flake; a broken implementation that
+     waited for the underlying transport would clock in around 5s. *)
+  check
+    bool
+    (Printf.sprintf "elapsed %.3fs < 1.0s (timeout fast-path)" elapsed_s)
+    true
+    (elapsed_s < 1.0);
+  match result with
+  | Complete_cascade.All_failed
+      { errors = [ (_, Http_client.NetworkError { kind; _ }) ]; _ } ->
+    check bool "timeout classified" true (kind = Http_client.Timeout)
+  | _ -> fail "expected timeout All_failed"
+;;
+
+let test_attempt_timeout_disable_via_nonpositive_sentinel () =
+  (* `?attempt_timeout_s:(Some 0.0)` (or any negative) opts out of the
+     cascade-level timeout, so a transport that takes longer than the
+     provider's default still runs to completion. Without this escape
+     hatch, callers depending on long-running local models could not
+     opt out individually once provider defaults landed. *)
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let clock = Eio.Stdenv.clock env in
+  let transport : Llm_transport.t =
+    { complete_sync =
+        (fun _ ->
+          Eio.Time.sleep clock 0.05;
+          { Llm_transport.response = Ok dummy_response; latency_ms = 50 })
+    ; complete_stream =
+        (fun ~on_event:_ _ ->
+          Eio.Time.sleep clock 0.05;
+          Ok dummy_response)
+    }
+  in
+  let config =
+    Provider_config.make
+      ~kind:Ollama
+      ~model_id:"local"
+      ~base_url:"http://localhost:11434"
+      ()
+  in
+  let result =
+    Complete_cascade.complete_cascade
+      ~sw
+      ~net:(Eio.Stdenv.net env)
+      ~clock
+      ~transport
+      ~attempt_timeout_s:0.0
+      ~steps:[ config ]
+      ~messages:[]
+      ()
+  in
+  match result with
+  | Complete_cascade.Success _ -> ()
+  | _ -> fail "expected Success when timeout disabled by sentinel"
+;;
+
 (* ── Test suite ───────────────────────────────────────── *)
 
 let suite =
@@ -184,6 +286,9 @@ let suite =
   ; "result_all_failed", `Quick, test_result_all_failed_variant
   ; "result_hard_quota", `Quick, test_result_hard_quota_variant
   ; "skip_reason", `Quick, test_skip_reason_variant
+  ; ( "attempt_timeout_fast_path"
+    , `Quick
+    , test_attempt_timeout_fast_paths_without_retrying_same_step )
   ]
 ;;
 
