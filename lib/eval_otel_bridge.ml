@@ -402,11 +402,11 @@ let%test "to_metrics_json carries run correlation tags" =
     }
   in
   match to_metrics_json (extract rm) with
-  | `List (`Assoc fields :: _) -> (
-    match List.assoc_opt "tags" fields with
-    | Some (`Assoc tags) ->
-      List.assoc_opt "run_id" tags = Some (`String "run-json")
-      && List.assoc_opt "agent_name" tags = Some (`String "agent-json")
-    | _ -> false)
+  | `List (`Assoc fields :: _) ->
+    (match List.assoc_opt "tags" fields with
+     | Some (`Assoc tags) ->
+       List.assoc_opt "run_id" tags = Some (`String "run-json")
+       && List.assoc_opt "agent_name" tags = Some (`String "agent-json")
+     | _ -> false)
   | _ -> false
 ;;

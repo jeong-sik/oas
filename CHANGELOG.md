@@ -8,6 +8,14 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.190.20] - 2026-05-06
+
+### Added
+- `Eval_otel_bridge.to_metrics_json`: each exported metric object now carries a `tags` field with `agent_name` and `run_id`, so dashboards and report consumers can join JSON metrics back to the originating eval run without out-of-band context. The native OTel summary span already carried this correlation; the JSON export path was the gap. (#1423)
+
+### Fixed
+- `lib/eval_otel_bridge.ml` and `test/test_eval_otel_bridge.ml`: ocamlformat auto-promote on the new `to_metrics_json` correlation-tags blocks. #1423 was merged with the OCaml Format check failing (non-required gate), so the canonical breakdown of the new `match` arm and the long `Yojson.Safe.Util.(...)` chain landed unfmt; the bump captures the auto-promote as a single restart.
+
 ## [0.190.19] - 2026-05-06
 
 ### Added
