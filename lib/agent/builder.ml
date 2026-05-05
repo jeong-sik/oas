@@ -354,10 +354,8 @@ let build b =
     ; priority = b.priority
     ; yield_on_tool = b.yield_on_tool
     ; exit_condition = b.exit_condition
-    ; call_time_pruner_keep_recent =
-        Types.default_config.call_time_pruner_keep_recent
-    ; call_time_pruner_keep_last =
-        Types.default_config.call_time_pruner_keep_last
+    ; call_time_pruner_keep_recent = Types.default_config.call_time_pruner_keep_recent
+    ; call_time_pruner_keep_last = Types.default_config.call_time_pruner_keep_last
     }
   in
   let options =
