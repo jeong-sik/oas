@@ -334,10 +334,11 @@ let probe_ollama_context ~sw ~net base_url =
 
 (* ── Capability inference ────────────────────────────────── *)
 
-(** Overlay Ollama-specific identity fields onto any capability record.
-    Applied when a model-specific lookup is found but the endpoint is
-    known to be Ollama — identity ([is_ollama]), seed support, and
-    [thinking_control_format] differ from cloud or llama-server providers. *)
+(** Overlay Ollama-specific identity fields onto a capability record returned
+    by a model-specific lookup ([for_model_id]).  When the serving endpoint is
+    Ollama, the identity ([is_ollama]), seed support, and
+    [thinking_control_format] fields must reflect the Ollama backend even when
+    the base capabilities come from a cloud-model entry in the built-in table. *)
 let with_ollama_flags (caps : Capabilities.capabilities) : Capabilities.capabilities =
   { caps with
     is_ollama = true
@@ -373,8 +374,8 @@ let infer_capabilities ~is_ollama models props =
       then
         (* Ollama base: inherits extended reasoning, top_k/min_p, and
            Ollama-specific flags (is_ollama, seed, conservative tool_choice).
-           Dynamic tool support from /api/show template analysis is applied
-           below via with_tool_support. *)
+           Dynamic tool support from /api/show template analysis is merged
+           below via the props handling in step 3. *)
         Capabilities.ollama_capabilities
       else (
         (* 2. Generic inference by model name for non-Ollama endpoints *)
@@ -1345,7 +1346,7 @@ let%test "infer_capabilities ollama tool support propagated from api_show templa
   caps.is_ollama = true && caps.supports_tools = true && caps.max_context_tokens = Some 65536
 ;;
 
-let%test "infer_capabilities ollama qwen known lookup preserves ctx with ollama flags" =
+let%test "infer_capabilities ollama known model lookup preserves context and overlays ollama flags" =
   (* qwen3.5-35b is in for_model_id with 262K context and supports_reasoning.
      On an Ollama endpoint, Ollama identity flags should be overlaid. *)
   let models = [ { id = "qwen3.5-35b"; owned_by = "ollama" } ] in
