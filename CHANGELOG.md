@@ -8,6 +8,14 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.190.26] - 2026-05-06
+
+### Fixed
+- `lib/protocol/mcp_schema.ml`: MCP builtin tool descriptors now route through the centralized `Mode_enforcer` registry instead of carrying their own duplicated permission table (-84 / +5, **net -79 LOC**). Read/write/external MCP-wrapped tools now expose `Tool.permission` so downstream coordinators can decide whether tool use is read-only, workspace-mutating, or externally effectful. Previously MCP-wrapped builtins had mutation/concurrency metadata but no `Tool.permission`, leading strict required-tool and approval policies to treat them as unclassified. (#1438)
+
+### Added
+- `test/test_mcp.ml`: regression coverage proving strict effectful-tool contracts accept MCP write tools and reject MCP read-only tools. (#1438)
+
 ## [0.190.25] - 2026-05-06
 
 ### Fixed
