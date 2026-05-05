@@ -187,7 +187,7 @@ let test_guarded_all_pass () =
     { input_validators = [ pass_input ]; output_validators = [ pass_output ] }
   in
   let action () = Ok (make_response "result") in
-  match Guardrails_async.guarded ~config ~messages:dummy_messages ~action with
+  match Guardrails_async.guarded ~config ~messages:dummy_messages ~action () with
   | Ok resp ->
     check
       string
@@ -210,7 +210,7 @@ let test_guarded_input_blocks () =
     action_called := true;
     Ok (make_response "should not reach")
   in
-  match Guardrails_async.guarded ~config ~messages:dummy_messages ~action with
+  match Guardrails_async.guarded ~config ~messages:dummy_messages ~action () with
   | Error (`Validation (Fail { reason = "banned"; _ })) ->
     check bool "action not called" false !action_called
   | _ -> fail "should have been blocked by input"
@@ -223,7 +223,7 @@ let test_guarded_output_rejects () =
     { input_validators = [ pass_input ]; output_validators = [ fail_output "unsafe" ] }
   in
   let action () = Ok (make_response "raw") in
-  match Guardrails_async.guarded ~config ~messages:dummy_messages ~action with
+  match Guardrails_async.guarded ~config ~messages:dummy_messages ~action () with
   | Error (`Validation (Fail { reason = "unsafe"; _ })) -> ()
   | _ -> fail "should have been rejected by output"
 ;;
@@ -235,7 +235,7 @@ let test_guarded_action_error () =
     { input_validators = [ pass_input ]; output_validators = [ pass_output ] }
   in
   let action () = Error "api down" in
-  match Guardrails_async.guarded ~config ~messages:dummy_messages ~action with
+  match Guardrails_async.guarded ~config ~messages:dummy_messages ~action () with
   | Error (`Action "api down") -> ()
   | _ -> fail "should propagate action error"
 ;;
