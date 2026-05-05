@@ -1,6 +1,6 @@
 # OAS — OCaml Agent SDK
 
-OCaml 5.x + Eio 기반 에이전트 SDK. 버전 SSOT: `lib/sdk_version.ml` (현재 `0.184.0`).
+OCaml 5.x + Eio 기반 에이전트 SDK. 버전 SSOT: `lib/sdk_version.ml` (실제 값은 그 파일 참조 — 본 줄의 숫자는 빠르게 stale 됨).
 
 ## Architecture
 
@@ -38,7 +38,7 @@ Full `dune build @all` / `dune runtest`는 CI 또는 명시적인 수동 검증�
 - OCaml 5.x, Eio 구조적 동시성
 - `.mli` API 계약 우선
 - `ppx_deriving_yojson`, `ppx_deriving.show` 사용
-- `bisect_ppx` 커버리지 (75%+)
+- `bisect_ppx` 커버리지 — CI ratchet floor (현 floor 는 `.github/workflows/ci.yml` `THRESHOLD` 값, 측정값보다 낮게 설정됨)
 - 테스트: alcotest + qcheck (property-based)
 - 파일 300줄 이상 → 분할 검토 (`agent.ml` → `agent/` 서브디렉토리)
 

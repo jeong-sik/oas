@@ -33,23 +33,8 @@ jobs:
           ocaml-compiler: ${{ matrix.ocaml-compiler }}
           dune-cache: true
 
-      - name: Pin fork packages
-        run: |
-          source scripts/mcp-sdk-pin.sh
-          opam pin add bisect_ppx git+https://github.com/patricoferris/bisect_ppx.git#5.2 --no-action --yes
-          opam pin add mcp_protocol "git+${MCP_SDK_URL}#${MCP_SDK_SHA}" --no-action --yes
-
-      - name: Install dependencies
-        run: |
-          for attempt in 1 2 3; do
-            opam install . --deps-only --with-test --yes && break
-            if [ "$attempt" -eq 3 ]; then
-              echo "opam install failed after ${attempt} attempts"
-              exit 1
-            fi
-            echo "opam install failed (attempt ${attempt}); retrying in 15s..."
-            sleep 15
-          done
+      - name: Pin fork packages and install dependencies
+        run: opam exec -- bash scripts/ci-setup-deps.sh
 
       - name: Build
         run: opam exec -- dune build @all
@@ -188,23 +173,8 @@ jobs:
           ocaml-compiler: 5.4.1
           dune-cache: true
 
-      - name: Pin fork packages
-        run: |
-          source scripts/mcp-sdk-pin.sh
-          opam pin add bisect_ppx git+https://github.com/patricoferris/bisect_ppx.git#5.2 --no-action --yes
-          opam pin add mcp_protocol "git+${MCP_SDK_URL}#${MCP_SDK_SHA}" --no-action --yes
-
-      - name: Install dependencies
-        run: |
-          for attempt in 1 2 3; do
-            opam install . --deps-only --with-test --yes && break
-            if [ "$attempt" -eq 3 ]; then
-              echo "opam install failed after ${attempt} attempts"
-              exit 1
-            fi
-            echo "opam install failed (attempt ${attempt}); retrying in 15s..."
-            sleep 15
-          done
+      - name: Pin fork packages and install dependencies
+        run: opam exec -- bash scripts/ci-setup-deps.sh
 
       - name: Check warnings as errors
         run: opam exec -- dune build @install --force
