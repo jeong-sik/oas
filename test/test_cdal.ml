@@ -1112,7 +1112,7 @@ let test_mode_enforcer_records_effect_evidence () =
       "source path"
       true
       (match edit_effect.source_path with
-       | Some path -> contains_substring ~sub:"mode_enforcer.ml" path
+       | Some path -> contains_substring ~sub:"lib/mode_enforcer.ml" path
        | None -> false);
     Alcotest.(check bool)
       "source line recorded"
