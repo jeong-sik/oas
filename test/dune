@@ -186,6 +186,7 @@
   test_raw_trace
   test_raw_trace_deep
   test_reflexion
+  test_relay_delivery
   test_request_priority
   test_retry
   test_runtime
