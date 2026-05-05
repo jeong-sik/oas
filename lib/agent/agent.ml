@@ -97,9 +97,10 @@ let base_messages agent =
     slow one.  Goes through {!Log.info} rather than [Printf.eprintf]
     so [ppx_inline_test] does not capture the line as an unexpected
     stderr diff (raw eprintf during tests makes CI fail even when every
-    test asserts green; see #799).  When no sink is registered the call
-    is a no-op, so hosts that do not care about Agent telemetry pay
-    nothing. *)
+    test asserts green; see #799).  When no sink is registered the record
+    is counted by {!Log.dropped_without_sink_count} and otherwise discarded,
+    so hosts can detect missing telemetry wiring without forcing stderr
+    output. *)
 let stop_reason_label : Types.stop_reason -> string = function
   | EndTurn -> "end_turn"
   | StopToolUse -> "stop_tool_use"

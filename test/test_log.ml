@@ -277,6 +277,21 @@ let test_stderr_sink () =
   sink record
 ;;
 
+let test_dropped_without_sink_count () =
+  setup ();
+  Alcotest.(check int) "initial count" 0 (Log.dropped_without_sink_count ());
+  Log.warn log "no sink" [];
+  Log.error log "still no sink" [];
+  Alcotest.(check int) "records without sink" 2 (Log.dropped_without_sink_count ());
+  let sink, get = Log.collector_sink () in
+  Log.add_sink sink;
+  Log.error log "with sink" [];
+  Alcotest.(check int) "count unchanged after sink" 2 (Log.dropped_without_sink_count ());
+  Alcotest.(check int) "sink receives record" 1 (List.length (get ()));
+  Log.clear_sinks ();
+  Alcotest.(check int) "clear resets count" 0 (Log.dropped_without_sink_count ())
+;;
+
 let test_emit_below_level () =
   setup ();
   Log.set_global_level Log.Error;
@@ -341,6 +356,10 @@ let () =
             `Quick
             test_clear_sinks_racing_add_sink_removes_stale_sinks
         ; Alcotest.test_case "stderr sink" `Quick test_stderr_sink
+        ; Alcotest.test_case
+            "dropped without sink count"
+            `Quick
+            test_dropped_without_sink_count
         ] )
     ; "field", [ Alcotest.test_case "to_json" `Quick test_field_to_json ]
     ; ( "record"

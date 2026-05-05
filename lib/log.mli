@@ -65,6 +65,9 @@ type sink = record -> unit
 val set_global_level : level -> unit
 val add_sink : sink -> unit
 val clear_sinks : unit -> unit
+val dropped_without_sink_count : unit -> int
+(** Number of enabled log records dropped because no sink was registered since
+    the last {!clear_sinks}. *)
 
 (** {2 Logger instance} *)
 

@@ -118,6 +118,7 @@ type sink = record -> unit
    reappear. *)
 let global_level = Atomic.make Info
 let global_sinks : sink list Atomic.t = Atomic.make []
+let dropped_without_sink = Atomic.make 0
 
 let rec atomic_update atom ~f =
   let current = Atomic.get atom in
@@ -127,7 +128,13 @@ let rec atomic_update atom ~f =
 
 let set_global_level level = Atomic.set global_level level
 let add_sink sink = atomic_update global_sinks ~f:(fun sinks -> sink :: sinks)
-let clear_sinks () = Atomic.set global_sinks []
+
+let clear_sinks () =
+  Atomic.set global_sinks [];
+  Atomic.set dropped_without_sink 0
+;;
+
+let dropped_without_sink_count () = Atomic.get dropped_without_sink
 
 (* ── Logger instance ──────────────────────────────────────────── *)
 
@@ -157,7 +164,9 @@ let emit t level message fields =
       ; span_id = t.span_id
       }
     in
-    List.iter (fun sink -> sink record) (Atomic.get global_sinks))
+    match Atomic.get global_sinks with
+    | [] -> ignore (Atomic.fetch_and_add dropped_without_sink 1 : int)
+    | sinks -> List.iter (fun sink -> sink record) sinks)
 ;;
 
 let debug t message fields = emit t Debug message fields
