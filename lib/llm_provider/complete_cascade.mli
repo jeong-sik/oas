@@ -89,6 +89,10 @@ type cascade_result =
     4. On hard quota error, record failure and return [Hard_quota]
     5. On other error, record failure and try next step
 
+    [?attempt_timeout_s] caps one provider step, including its internal
+    retry loop. When omitted, provider-specific defaults from
+    {!Provider_config.default_attempt_timeout_s} are used when present.
+
     When [health] is [None], a fresh tracker is created per call.
     Pass a shared tracker to maintain circuit state across calls. *)
 val complete_cascade
@@ -99,6 +103,7 @@ val complete_cascade
   -> ?cache:Cache.t
   -> ?metrics:Metrics.t
   -> ?retry_config:Complete.retry_config
+  -> ?attempt_timeout_s:float
   -> ?cascade_config:cascade_config
   -> ?health:provider_health
   -> steps:Provider_config.t list

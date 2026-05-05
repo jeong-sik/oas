@@ -170,6 +170,52 @@ let test_skip_reason_variant () =
     check string "provider" "test@localhost" provider
 ;;
 
+let test_attempt_timeout_fast_paths_without_retrying_same_step () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let clock = Eio.Stdenv.clock env in
+  let calls = Atomic.make 0 in
+  let transport : Llm_transport.t =
+    { complete_sync =
+        (fun _ ->
+          Atomic.incr calls;
+          Eio.Time.sleep clock 5.0;
+          { Llm_transport.response = Ok dummy_response; latency_ms = 5000 })
+    ; complete_stream =
+        (fun ~on_event:_ _ ->
+          Atomic.incr calls;
+          Eio.Time.sleep clock 5.0;
+          Ok dummy_response)
+    }
+  in
+  let config =
+    Provider_config.make
+      ~kind:Ollama
+      ~model_id:"slow"
+      ~base_url:"http://localhost:11434"
+      ()
+  in
+  let result =
+    Complete_cascade.complete_cascade
+      ~sw
+      ~net:(Eio.Stdenv.net env)
+      ~clock
+      ~transport
+      ~attempt_timeout_s:0.01
+      ~steps:[ config ]
+      ~messages:[]
+      ()
+  in
+  check int "single provider attempt" 1 (Atomic.get calls);
+  match result with
+  | Complete_cascade.All_failed
+      { errors = [ (_, Http_client.NetworkError { kind; _ }) ]; _ } ->
+    check bool "timeout classified" true (kind = Http_client.Timeout)
+  | _ -> fail "expected timeout All_failed"
+;;
+
 (* ── Test suite ───────────────────────────────────────── *)
 
 let suite =
@@ -184,6 +230,9 @@ let suite =
   ; "result_all_failed", `Quick, test_result_all_failed_variant
   ; "result_hard_quota", `Quick, test_result_hard_quota_variant
   ; "skip_reason", `Quick, test_skip_reason_variant
+  ; ( "attempt_timeout_fast_path"
+    , `Quick
+    , test_attempt_timeout_fast_paths_without_retrying_same_step )
   ]
 ;;
 
