@@ -8,6 +8,14 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.190.7] - 2026-05-05
+
+### Fixed
+- `test/test_discovery.ml` orphan stanza rescue. orphan 사유 "(record missing 'supports_tools')" 가 stale — `props` 레코드 literal 한 곳에 `supports_tools = None` 추가 후 8 alcotest 케이스 default runtest 신호에 합류. (#1392)
+
+### Tests
+- `test_event_bus.ml` 의 Custom event payload fixture 를 masc-specific `masc.keeper.lifecycle` 에서 downstream-neutral `downstream.agent.lifecycle` 로 교체. SDK 레이어 테스트가 특정 컨슈머 namespace 에 결합되는 것 방지. (#1393)
+
 ## [0.190.6] - 2026-05-05
 
 ### Fixed
