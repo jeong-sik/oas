@@ -12,7 +12,6 @@
 ;   - test/test_deep_coverage.ml       (Alcotest.run call commented out, dead body)
 ;   - test/test_event_integration.ml   (Unbound module Handoff)
 ;   - test/test_guardrails_async.ml    (pattern shape mismatch vs new return type)
-;   - test/test_pipeline_deep.ml       (record missing 'enable_thinking')
 ;   - test/test_runtime_worker_integration.ml (type mismatch on participant_run_success)
 ;   - test/test_structured_stream.ml   (build error — see CI log)
 ;
@@ -172,6 +171,7 @@
   test_otel_export
   test_otel_tracer
   test_pipeline
+  test_pipeline_deep
   test_pipeline_metrics
   test_plan
   test_policy
