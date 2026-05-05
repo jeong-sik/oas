@@ -38,7 +38,7 @@ let attempt_timeout_error ~model_id ~timeout_s =
     { kind = Http_client.Timeout
     ; message =
         Printf.sprintf
-          "cascade provider attempt for %s exceeded attempt_timeout_s %.1fs"
+          "cascade provider attempt for %s exceeded attempt_timeout_s %gs"
           model_id
           timeout_s
     }
@@ -162,9 +162,15 @@ let complete_cascade
             ()
         in
         let result =
+          (* Sentinel: [Some t] with [t <= 0.0] disables the cascade-level
+             timeout for this call, even when the provider default would
+             otherwise apply. Required so callers can opt out for
+             long-running local models without losing the per-kind default
+             for everyone else. *)
           let timeout_s =
             match attempt_timeout_s with
-            | Some timeout_s -> Some timeout_s
+            | Some t when t <= 0.0 -> None
+            | Some t -> Some t
             | None -> Provider_config.default_attempt_timeout_s config.kind
           in
           match timeout_s with

@@ -90,8 +90,17 @@ type cascade_result =
     5. On other error, record failure and try next step
 
     [?attempt_timeout_s] caps one provider step, including its internal
-    retry loop. When omitted, provider-specific defaults from
-    {!Provider_config.default_attempt_timeout_s} are used when present.
+    retry loop:
+    - omitted (no argument): provider-specific defaults from
+      {!Provider_config.default_attempt_timeout_s} apply when present
+      (Ollama, Claude_code, Kimi_cli, Gemini_cli have positive defaults;
+      others have none).
+    - [Some t] with [t > 0.0]: use [t] seconds for this call, regardless
+      of the provider default.
+    - [Some t] with [t <= 0.0]: disable the cascade-level timeout for
+      this call. Use this to opt out for long-running local models
+      (e.g. an Ollama instance loading a large MoE) where the provider
+      default is too aggressive.
 
     When [health] is [None], a fresh tracker is created per call.
     Pass a shared tracker to maintain circuit state across calls. *)
