@@ -1343,10 +1343,15 @@ let%test "infer_capabilities ollama tool support propagated from api_show templa
     Some { total_slots = 1; ctx_size = 65536; model = "phi4"; supports_tools = Some true }
   in
   let caps = infer_capabilities ~is_ollama:true models props in
-  caps.is_ollama = true && caps.supports_tools = true && caps.max_context_tokens = Some 65536
+  caps.is_ollama = true
+  && caps.supports_tools = true
+  && caps.max_context_tokens = Some 65536
 ;;
 
-let%test "infer_capabilities ollama known model lookup preserves context and overlays ollama flags" =
+let%test
+    "infer_capabilities ollama known model lookup preserves context and overlays ollama \
+     flags"
+  =
   (* qwen3.5-35b is in for_model_id with 262K context and supports_reasoning.
      On an Ollama endpoint, Ollama identity flags should be overlaid. *)
   let models = [ { id = "qwen3.5-35b"; owned_by = "ollama" } ] in
