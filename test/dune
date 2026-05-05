@@ -8,7 +8,6 @@
 ; The following files are NOT wired here because they fail to compile
 ; against current main.  Bodies untouched per fix scope.  Tracked separately:
 ;   - test/test_agent_card.ml          (Agent_card.agent_info missing 'cascade')
-;   - test/test_complete_http.ml       (record missing on_capability_drop etc.)
 ;   - test/test_deep_coverage.ml       (Alcotest.run call commented out, dead body)
 ;   - test/test_event_integration.ml   (Unbound module Handoff)
 ;   - test/test_guardrails_async.ml    (pattern shape mismatch vs new return type)
@@ -310,4 +309,9 @@
 (test
  (name test_provider_complete)
  (modules test_provider_complete)
+ (libraries agent_sdk llm_provider alcotest eio_main))
+
+(test
+ (name test_complete_http)
+ (modules test_complete_http)
  (libraries agent_sdk llm_provider alcotest eio_main))

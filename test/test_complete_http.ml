@@ -294,7 +294,8 @@ let test_complete_metrics () =
     let end_count = ref 0 in
     let status_calls = ref [] in
     let metrics : Metrics.t =
-      { on_cache_hit = (fun ~model_id:_ -> incr hit_count)
+      { Metrics.noop with
+        on_cache_hit = (fun ~model_id:_ -> incr hit_count)
       ; on_cache_miss = (fun ~model_id:_ -> incr miss_count)
       ; on_request_start = (fun ~model_id:_ -> incr start_count)
       ; on_request_end = (fun ~model_id:_ ~latency_ms:_ -> incr end_count)
@@ -383,7 +384,8 @@ let test_complete_error_metrics () =
     let error_count = ref 0 in
     let status_calls = ref [] in
     let metrics : Metrics.t =
-      { on_cache_hit = (fun ~model_id:_ -> ())
+      { Metrics.noop with
+        on_cache_hit = (fun ~model_id:_ -> ())
       ; on_cache_miss = (fun ~model_id:_ -> ())
       ; on_request_start = (fun ~model_id:_ -> ())
       ; on_request_end = (fun ~model_id:_ ~latency_ms:_ -> ())
