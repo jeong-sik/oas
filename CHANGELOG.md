@@ -8,6 +8,15 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.190.22] - 2026-05-06
+
+### Fixed
+- `Llm_provider.Retry` now classifies the provider message `"Your account has exceeded the API usage limit"` as **hard account-level quota exhaustion** rather than a transient rate limit, so `Complete_cascade.complete_cascade` halts immediately instead of burning retries on the dead provider and cascading into fallback work. Surfaces the terminal quota state to callers without the wasted attempts. Related: jeong-sik/masc-mcp#11929. (#1428)
+
+### Added
+- `test/test_complete_cascade.ml`: cascade regression proving hard-quota classification stops without invoking fallback providers; the existing nonpositive `attempt_timeout_s` sentinel regression wired into the `complete_cascade` Alcotest suite; cascade test header updated to reflect current mocked-transport coverage. (#1428)
+- `test/dune` + `test/test_deep_coverage.ml`: re-wired `test_deep_coverage` and restored the Alcotest runner for the active deep-coverage sections (74 tests). The commented A2A task-store section is left untouched per its dead-body status. (#1427)
+
 ## [0.190.21] - 2026-05-06
 
 ### Added
