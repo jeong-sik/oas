@@ -110,9 +110,12 @@ let parse_sse_event event_type data_str =
     | "error" ->
       let msg = json |> member "error" |> member "message" |> to_string in
       Some (SSEError msg)
-    | _ -> None
+    | other -> Some (SSEUnknownEventType { event_type = other; raw = data_str })
   with
-  | Yojson.Safe.Util.Type_error _ | Yojson.Json_error _ -> None
+  | Yojson.Safe.Util.Type_error (msg, _) ->
+    Some (SSEParseFailed { raw = data_str; reason = "type_error: " ^ msg })
+  | Yojson.Json_error msg ->
+    Some (SSEParseFailed { raw = data_str; reason = "json_error: " ^ msg })
 ;;
 
 (** Emit synthetic SSE events from a complete [api_response].
@@ -913,5 +916,51 @@ let%test "ollama_chunk_to_events: thinking delta emits thinking block first" =
   | [ ContentBlockStart { index = 0; content_type = "thinking"; _ }
     ; ContentBlockDelta { index = 0; delta = ThinkingDelta "considering" }
     ] -> true
+  | _ -> false
+;;
+
+(* parse_sse_event regression: the previous implementation returned [None]
+   for both unknown event types and JSON parse failures, silently dropping
+   the chunk. Downstream consumers then proceeded as if the chunk were a
+   harmless heartbeat (like Ping), eventually finalizing without seeing
+   MessageStop and presenting a phantom completion. The accumulator could
+   not distinguish "no event in this chunk" from "we lost data here".
+   These regression tests pin the new contract: the parser surfaces a
+   structured failure event so the accumulator and cascade layer can react. *)
+
+let%test "parse_sse_event: unknown event type yields SSEUnknownEventType" =
+  let raw = "{\"type\":\"future_event_v3\"}" in
+  match parse_sse_event None raw with
+  | Some (SSEUnknownEventType { event_type; raw = r }) ->
+    event_type = "future_event_v3" && r = raw
+  | _ -> false
+;;
+
+let%test "parse_sse_event: malformed JSON yields SSEParseFailed" =
+  let raw = "{not valid json" in
+  match parse_sse_event None raw with
+  | Some (SSEParseFailed { raw = r; reason }) ->
+    r = raw && String.length reason > 0
+  | _ -> false
+;;
+
+let%test "parse_sse_event: type field missing yields SSEUnknownEventType (not silent None)" =
+  (* The [type] field is absent and event_type is unspecified.
+     Cli_common_json.member_str returns "" rather than raising, so the
+     match falls into the unknown-type branch. The contract is that we
+     emit *something* the consumer can react to; what matters here is
+     that we never return [None] for this input. *)
+  let raw = "{\"id\":\"foo\"}" in
+  match parse_sse_event None raw with
+  | Some (SSEUnknownEventType { event_type = ""; _ }) -> true
+  | Some (SSEParseFailed _) -> true
+  | _ -> false
+;;
+
+let%test "parse_sse_event: known event still parses normally" =
+  (* Sanity: refactor must not regress the happy path. *)
+  let raw = "{\"type\":\"message_stop\"}" in
+  match parse_sse_event None raw with
+  | Some MessageStop -> true
   | _ -> false
 ;;
