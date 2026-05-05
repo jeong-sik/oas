@@ -8,6 +8,11 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.190.18] - 2026-05-06
+
+### Added
+- `test/dune`: re-wired `test_cli` as a standalone test stanza with full provider/runtime libraries (`cohttp-eio`, `eio_main`, `str`, `unix`, `yojson`) and `OAS_RUNTIME_PATH` env wiring so the CLI version/init/card/help/eval suite can locate the runtime binary inside the dune sandbox. (#1419)
+
 ## [0.190.17] - 2026-05-06
 
 ### Added
