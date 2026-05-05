@@ -8,7 +8,10 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.189.0] - 2026-05-05
+
 ### Added
+- `Capability_manifest` module: external JSON manifest for runtime model capability overrides (`OAS_CAPABILITY_MANIFEST`). Supports prefix-matching, schema-version gating, and per-model boolean/int overrides for tool-use, structured-output, multimodal, sampling, and reasoning capabilities. (#1347)
 - `Pricing.pricing_entry` type and dynamic pricing override API:
   `install_pricing_overrides`, `clear_pricing_overrides`,
   `pricing_entry_of_json`, `parse_pricing_entries_json`,
@@ -17,6 +20,9 @@ original tag dates. `0.100.4` was never tagged or released.
   `OAS_PRICING_OVERRIDES` (inline JSON) to override per-model pricing
   at runtime without a code release.  A `Diag.warn` fires once per
   process when installed overrides are older than 24 h (H11).
+
+### Fixed
+- SSE streaming parse failures and unknown event types are now surfaced via the new `SSEParseFailed` and `SSEUnknownEventType` events, both in `Llm_provider.Streaming.parse_sse_event` and the public `Agent_sdk.Streaming` accumulator. Previously the wildcard catch-all silently dropped malformed/unknown chunks, producing phantom completions when the cascade layer expected provider failover. (#1357)
 
 ## [0.188.1] - 2026-05-05
 
