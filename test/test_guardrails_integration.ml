@@ -230,7 +230,9 @@ let test_empty_tools_no_crash () =
       { Agent.default_options with
         base_url
       ; guardrails =
-          { Guardrails.permissive with tool_filter = Guardrails.DenyList [ "nonexistent" ] }
+          { Guardrails.permissive with
+            tool_filter = Guardrails.DenyList [ "nonexistent" ]
+          }
       }
     in
     let agent = Agent.create ~net ~options ~tools:[] () in

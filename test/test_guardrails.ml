@@ -23,7 +23,9 @@ let test_allow_all () =
 ;;
 
 let test_allow_list () =
-  let g = { Guardrails.permissive with tool_filter = Guardrails.AllowList [ "a"; "c" ] } in
+  let g =
+    { Guardrails.permissive with tool_filter = Guardrails.AllowList [ "a"; "c" ] }
+  in
   let tools = [ make_tool "a"; make_tool "b"; make_tool "c" ] in
   let filtered = Guardrails.filter_tools g tools in
   let names = List.map (fun (t : Tool.t) -> t.schema.name) filtered in
