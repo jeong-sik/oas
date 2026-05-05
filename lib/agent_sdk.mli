@@ -11,6 +11,7 @@
 (** {1 Core Modules} *)
 
 module Sdk_version = Sdk_version
+module Result_syntax = Result_syntax
 module Types = Types
 module Model_registry = Model_registry
 module Uncertain = Uncertain
