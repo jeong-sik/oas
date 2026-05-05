@@ -777,8 +777,7 @@ let apply_manifest_entry (entry : Capability_manifest.entry) : capabilities =
     | None -> base_val
   in
   { base with
-    max_context_tokens =
-      override_int_opt base.max_context_tokens entry.max_context_tokens
+    max_context_tokens = override_int_opt base.max_context_tokens entry.max_context_tokens
   ; max_output_tokens = override_int_opt base.max_output_tokens entry.max_output_tokens
   ; supports_tools = override_bool base.supports_tools entry.supports_tools
   ; supports_tool_choice =

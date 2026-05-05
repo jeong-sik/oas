@@ -152,4 +152,3 @@ type drift_observation =
 
     @since 0.185.0 *)
 val detect_drift : capabilities -> Types.api_response -> drift_observation list
-

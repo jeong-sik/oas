@@ -46,9 +46,9 @@
 type entry =
   { id_prefix : string
   ; base_label : string option
-      (** Provider preset label, e.g. ["openai_chat"] or ["anthropic"]. *)
-  ; max_context_tokens : int option  (** [None] = inherit from base. *)
-  ; max_output_tokens : int option  (** [None] = inherit from base. *)
+    (** Provider preset label, e.g. ["openai_chat"] or ["anthropic"]. *)
+  ; max_context_tokens : int option (** [None] = inherit from base. *)
+  ; max_output_tokens : int option (** [None] = inherit from base. *)
   ; supports_tools : bool option
   ; supports_tool_choice : bool option
   ; supports_parallel_tool_calls : bool option

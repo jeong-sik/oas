@@ -203,8 +203,7 @@ let%test "of_json: missing schema_version returns error" =
 
 let%test "of_json: entry missing id_prefix returns error" =
   let json =
-    Yojson.Safe.from_string
-      {|{"schema_version":1,"models":[{"base":"openai_chat"}]}|}
+    Yojson.Safe.from_string {|{"schema_version":1,"models":[{"base":"openai_chat"}]}|}
   in
   match of_json json with
   | Error _ -> true
@@ -231,8 +230,7 @@ let%test "lookup: prefix match is case-insensitive" =
 
 let%test "lookup: no match returns None" =
   let json =
-    Yojson.Safe.from_string
-      {|{"schema_version":1,"models":[{"id_prefix":"model-a"}]}|}
+    Yojson.Safe.from_string {|{"schema_version":1,"models":[{"id_prefix":"model-a"}]}|}
   in
   let manifest = of_json json |> Result.get_ok in
   lookup manifest "model-b" = None

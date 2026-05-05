@@ -202,7 +202,9 @@ let test_with_context_size () =
 let make_manifest_json ?(base = "default_capabilities") ?(extra_fields = []) prefix =
   let fields =
     [ "id_prefix", Printf.sprintf {|"%s"|} prefix ]
-    @ (if base = "default_capabilities" then [] else [ "base", Printf.sprintf {|"%s"|} base ])
+    @ (if base = "default_capabilities"
+       then []
+       else [ "base", Printf.sprintf {|"%s"|} base ])
     @ extra_fields
   in
   let inner =
@@ -244,11 +246,7 @@ let test_manifest_fallback_to_static () =
   let m = make_manifest "totally-other-model" in
   match Capabilities.for_model_id_with_manifest m "claude-opus-4-6" with
   | Some c ->
-    check
-      (option int)
-      "fallback ctx 1M"
-      (Some 1_000_000)
-      c.max_context_tokens;
+    check (option int) "fallback ctx 1M" (Some 1_000_000) c.max_context_tokens;
     check bool "fallback computer_use" true c.supports_computer_use
   | None -> fail "should fall through to static table"
 ;;
@@ -336,11 +334,7 @@ let test_apply_manifest_entry_all_none_uses_base () =
   let caps = Capabilities.apply_manifest_entry entry in
   let base = Capabilities.anthropic_capabilities in
   check bool "tools matches base" base.supports_tools caps.supports_tools;
-  check
-    (option int)
-    "ctx matches base"
-    base.max_context_tokens
-    caps.max_context_tokens;
+  check (option int) "ctx matches base" base.max_context_tokens caps.max_context_tokens;
   check bool "caching matches base" base.supports_caching caps.supports_caching
 ;;
 
