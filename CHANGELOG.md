@@ -8,6 +8,11 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.190.5] - 2026-05-05
+
+### Fixed
+- `test/test_provider_config.ml` orphan stanza rescue. orphan 사유 "(record missing 'reasoning_tokens_estimated')" 가 stale 였음 — 필드는 `lib/llm_provider/types.mli:182` 에 이미 존재했고 다른 callsite 도 `; reasoning_tokens_estimated = false` 명시. `inference_telemetry` literal 한 곳만 누락되어 한 줄 추가 후 47 alcotest 케이스 다시 default runtest 신호에 합류. (#1388)
+
 ## [0.190.4] - 2026-05-05
 
 ### Added
