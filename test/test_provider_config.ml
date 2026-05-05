@@ -487,6 +487,7 @@ let telemetry_with_kind (pk : Provider_config.provider_kind option)
   { system_fingerprint = None
   ; timings = None
   ; reasoning_tokens = None
+  ; reasoning_tokens_estimated = false
   ; request_latency_ms = 0
   ; peak_memory_gb = None
   ; provider_kind = pk
