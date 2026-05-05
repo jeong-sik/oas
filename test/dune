@@ -17,7 +17,6 @@
 ; ---- (2) pre-existing runtime failures — compile OK, runtest fails ----
 ; The following suites compile but have pre-existing test failures.
 ; They are excluded until the failures are fixed in separate PRs:
-;   - test/test_cli.ml                 (version/init/card/help/eval)
 ;   - test/test_full_pipeline_cov.ml   (structured JSON parse)
 ;
 ; Dune runs tests in sandboxes, so runtime-spawning tests cannot rely on
@@ -335,3 +334,14 @@
  (name test_builder)
  (modules test_builder)
  (libraries agent_sdk alcotest eio_main))
+
+(test
+ (name test_cli)
+ (modules test_cli)
+ (libraries agent_sdk alcotest cohttp-eio eio eio_main str unix yojson)
+ (deps ../bin/oas_cli.exe %{bin:oas-runtime})
+ (action
+  (setenv
+   OAS_RUNTIME_PATH
+   %{bin:oas-runtime}
+   (run %{test}))))
