@@ -152,12 +152,12 @@ let test_handoff_emits_request_and_completion () =
       Cohttp_eio.Server.run socket server ~on_error:(fun _ -> ()));
     let bus = Event_bus.create () in
     let sub = Event_bus.subscribe bus in
-    let target : Handoff.handoff_target =
-      { name = "researcher"
-      ; description = "Research specialist"
-      ; config = { Types.default_config with name = "researcher" }
-      ; tools = []
-      }
+    let target =
+      Subagent.to_handoff_target
+        ~parent_config:Types.default_config
+        ~base_tools:[]
+        (Subagent.of_markdown
+           "---\nname: researcher\ndescription: Research specialist\n---\nResearch.")
     in
     let provider : Provider.config =
       { provider = Provider.Local { base_url }; model_id = "mock"; api_key_env = "" }
