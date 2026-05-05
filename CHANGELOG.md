@@ -8,6 +8,14 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.190.9] - 2026-05-05
+
+### Added
+- `Complete_cascade.provider_health_info` carries `circuit_open`, `health_score`, `consecutive_failures`, and `cooldown_remaining_s`. `provider_health_scores` exposes a list helper. `Execution_manifest` gains `provider_health` and optional `cascade_config`. `Effect_evidence` records carry `source_path`/`source_line`. `Agent_sdk` re-exports `Execution_manifest`. (#1398)
+
+### Changed
+- `circuit_open_and_remaining` returns `(false, None)` once the cooldown has elapsed instead of `(false, Some 0.0)`; the `.mli` documents the `cooldown_remaining_s` invariant. `Mode_enforcer.record_effect_evidence` writes `Filename.basename __FILE__` so evidence rows do not leak absolute build paths. (#1398)
+
 ## [0.190.8] - 2026-05-05
 
 ### Fixed
