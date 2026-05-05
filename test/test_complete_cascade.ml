@@ -1,7 +1,5 @@
-(** Tests for Complete_cascade: health tracking, circuit breaking, result types.
-
-    Only tests pure logic (no HTTP/Eio). End-to-end cascade tests require
-    transport mocking and live in integration tests. *)
+(** Tests for Complete_cascade: health tracking, circuit breaking, result types,
+    and mocked transport control-flow guards. No live HTTP is used here. *)
 
 open Alcotest
 open Llm_provider
@@ -287,6 +285,71 @@ let test_circuit_open_skips_provider_and_falls_back () =
   | _ -> fail "expected fallback Success"
 ;;
 
+let test_hard_quota_stops_without_calling_fallback () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let clock = Eio.Stdenv.clock env in
+  let primary =
+    Provider_config.make
+      ~kind:Anthropic
+      ~model_id:"claude-sonnet-4-20250514"
+      ~base_url:"https://api.anthropic.com"
+      ()
+  in
+  let fallback =
+    Provider_config.make
+      ~kind:Kimi
+      ~model_id:"moonshot-v1"
+      ~base_url:"https://api.moonshot.cn"
+      ()
+  in
+  let called_models = ref [] in
+  let hard_quota_error =
+    Http_client.HttpError
+      { code = 429
+      ; body =
+          "{\"error\":{\"type\":\"error\",\"message\":\"Your account has exceeded the \
+           API usage limit.\"}}"
+      }
+  in
+  let transport : Llm_transport.t =
+    { complete_sync =
+        (fun (req : Llm_transport.completion_request) ->
+          called_models := req.config.model_id :: !called_models;
+          let response =
+            if String.equal req.config.model_id primary.model_id
+            then Error hard_quota_error
+            else Ok dummy_response
+          in
+          { Llm_transport.response; latency_ms = 25 })
+    ; complete_stream =
+        (fun ~on_event:_ (req : Llm_transport.completion_request) ->
+          called_models := req.config.model_id :: !called_models;
+          if String.equal req.config.model_id primary.model_id
+          then Error hard_quota_error
+          else Ok dummy_response)
+    }
+  in
+  let result =
+    Complete_cascade.complete_cascade
+      ~sw
+      ~net:(Eio.Stdenv.net env)
+      ~clock
+      ~transport
+      ~steps:[ primary; fallback ]
+      ~messages:[]
+      ()
+  in
+  check (list string) "only primary provider called" [ primary.model_id ] !called_models;
+  match result with
+  | Complete_cascade.Hard_quota { config; error } ->
+    check string "hard quota provider" primary.model_id config.model_id;
+    check bool "preserves hard quota error" true (error = hard_quota_error)
+  | _ -> fail "expected Hard_quota without fallback"
+;;
+
 let test_attempt_timeout_fast_paths_without_retrying_same_step () =
   Eio_main.run
   @@ fun env ->
@@ -406,9 +469,15 @@ let suite =
   ; "result_hard_quota", `Quick, test_result_hard_quota_variant
   ; "skip_reason", `Quick, test_skip_reason_variant
   ; "circuit_open_fallback", `Quick, test_circuit_open_skips_provider_and_falls_back
+  ; ( "hard_quota_stops_without_fallback"
+    , `Quick
+    , test_hard_quota_stops_without_calling_fallback )
   ; ( "attempt_timeout_fast_path"
     , `Quick
     , test_attempt_timeout_fast_paths_without_retrying_same_step )
+  ; ( "attempt_timeout_disable_nonpositive"
+    , `Quick
+    , test_attempt_timeout_disable_via_nonpositive_sentinel )
   ]
 ;;
 
