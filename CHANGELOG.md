@@ -8,6 +8,12 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.190.12] - 2026-05-05
+
+### Changed
+- `.github/workflows/ci.yml`: extracted the duplicated "Pin fork packages" + 3-attempt `opam install . --deps-only --with-test --yes` retry block from the `build-and-test` and `lint` jobs into a single shared script `scripts/ci-setup-deps.sh`. Both jobs now invoke `opam exec -- bash scripts/ci-setup-deps.sh`. Removes ~28 lines of duplication and one drift surface (fork SHA / retry policy now changes in one place).
+- `CLAUDE.md`: removed the literal `0.184.0` from the SDK version SSOT line (drifted vs `lib/sdk_version.ml`); coverage convention reworded from aspirational `75%+` to the actual CI ratchet floor pattern referenced from `ci.yml` `THRESHOLD`.
+
 ## [0.190.11] - 2026-05-05
 
 ### Added
