@@ -33,7 +33,7 @@
 
 (tests
  (names
-  test_metrics_aggregating test_complete_cascade test_capabilities
+  test_metrics_aggregating test_capabilities
   test_call_time_pruner_config test_agent test_agent_auto_dump
   test_agent_config test_agent_config_deep test_agent_lifecycle
   test_agent_pipeline test_agent_race test_agent_registry
@@ -113,3 +113,11 @@
   test_checkpoint_delta test_context_properties test_memory_advanced
   test_property test_property_advanced test_tool_op test_tool_set)
  (libraries agent_sdk alcotest qcheck-core qcheck-alcotest))
+
+; Tests with extra dependencies — kept as individual stanzas
+; so the grouped (tests (names ...)) above does not need to pull
+; them into the rest of the suite.
+(test
+ (name test_complete_cascade)
+ (modules test_complete_cascade)
+ (libraries agent_sdk alcotest eio_main))

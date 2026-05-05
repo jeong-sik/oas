@@ -8,6 +8,25 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.190.1] - 2026-05-05
+
+### Fixed
+- `Complete_cascade.complete_cascade` honors per-kind attempt-timeout defaults (`Provider_config.default_attempt_timeout_s`) so unbounded provider waits no longer stall a turn. `Some t` with `t <= 0.0` opts out of the cascade-level timeout for callers that need to keep long-running local-model calls (e.g. an Ollama instance loading a large MoE) running to completion. Error messages render the timeout via `%g` so short test budgets like `0.01s` are not truncated to `0.0s`. Fast-path regression test now asserts elapsed wall-clock time stays below 1.0s; a broken implementation that waited the full transport sleep would fail. (#1375)
+
+## [0.190.0] - 2026-05-05
+
+### Added
+- `Guardrails_async.run_output_validators` now takes a per-validator deadline (default 5s) so a single hung validator no longer stalls the whole turn. Timeouts are reported as `Timeout` rather than swallowed. (#1368)
+- `Guardrails.tool_filter` defaults tightened to `DenyList []` with an explicit cap, replacing the implicit allow-all that left tool exposure unbounded by default. Existing callers passing `Allow_all` are unaffected. (#1370)
+
+### Changed
+- `Agent_turn_budget` derives `current_max`, `extensions_count`, and `total_extended` from `history` instead of carrying parallel mutable fields. Eliminates the lock-step update invariant that previously could drift on partial-failure paths. (#1364)
+- `Provider_config` exposes `request_path_default_for_kind` and `output_schema_of_response_format` helpers. `make` uses them, and direct record-literal callers can pin the same defaults via the helpers instead of duplicating the per-kind table. (#1366, #1367)
+- `Agent_turn` `call_time_pruner` magic numbers (token thresholds, stage hooks) externalized to a typed `call_time_pruner_config` so consumers can override per-deployment without forking. (#1371)
+
+### Security
+- `Autonomy_diff_guard` normalizes input (Unicode NFC, whitespace, and quote folding) before substring matching so guard rules cannot be bypassed by trivially-encoded variants. Adds 100+ regression cases. (#1369)
+
 ## [0.189.1] - 2026-05-05
 
 ### Added

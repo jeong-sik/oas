@@ -33,6 +33,17 @@ type cascade_result =
       ; error : Http_client.http_error
       }
 
+let attempt_timeout_error ~model_id ~timeout_s =
+  Http_client.NetworkError
+    { kind = Http_client.Timeout
+    ; message =
+        Printf.sprintf
+          "cascade provider attempt for %s exceeded attempt_timeout_s %gs"
+          model_id
+          timeout_s
+    }
+;;
+
 (* --- Per-provider health tracking (Mutex-guarded) --- *)
 
 type provider_entry =
@@ -115,6 +126,7 @@ let complete_cascade
       ?cache
       ?metrics
       ?retry_config
+      ?attempt_timeout_s
       ?(cascade_config = default_cascade_config)
       ?(health = create_health ~clock ())
       ~steps
@@ -135,7 +147,7 @@ let complete_cascade
           errors
           ((config, Circuit_breaker_open { provider = key }) :: skipped)
       else (
-        let result =
+        let attempt () =
           Complete.complete_with_retry
             ~sw
             ~net
@@ -148,6 +160,25 @@ let complete_cascade
             ~messages
             ?tools
             ()
+        in
+        let result =
+          (* Sentinel: [Some t] with [t <= 0.0] disables the cascade-level
+             timeout for this call, even when the provider default would
+             otherwise apply. Required so callers can opt out for
+             long-running local models without losing the per-kind default
+             for everyone else. *)
+          let timeout_s =
+            match attempt_timeout_s with
+            | Some t when t <= 0.0 -> None
+            | Some t -> Some t
+            | None -> Provider_config.default_attempt_timeout_s config.kind
+          in
+          match timeout_s with
+          | None -> attempt ()
+          | Some timeout_s ->
+            (try Eio.Time.with_timeout_exn clock timeout_s attempt with
+             | Eio.Time.Timeout ->
+               Error (attempt_timeout_error ~model_id:config.model_id ~timeout_s))
         in
         match result with
         | Ok response ->
