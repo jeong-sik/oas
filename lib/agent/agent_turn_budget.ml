@@ -26,52 +26,52 @@ let denial_reason_to_string = function
   | Cost_exceeded -> "cost_exceeded"
 ;;
 
+(** [history] is the only mutable cell. The previous implementation kept
+    [current_max], [extensions_count], and [total_extended] as parallel
+    mutable fields, which meant [try_extend] had to update four cells
+    in lock-step; a bug in any one update produced a stats_json that
+    disagreed with try_extend. Deriving each value from [history] turns
+    those invariants into definitions. *)
 type t =
   { initial : int
   ; ceiling : int
   ; max_per_extend : int
   ; max_extensions : int
-  ; mutable current_max : int
-  ; mutable extensions_count : int
-  ; mutable total_extended : int
   ; mutable history : (float * int * string) list (* ts, granted, reason *)
   }
 
 let create ~initial ~ceiling ?(max_per_extend = 20) ?(max_extensions = 10) () =
-  { initial
-  ; ceiling = max ceiling initial
-  ; max_per_extend
-  ; max_extensions
-  ; current_max = initial
-  ; extensions_count = 0
-  ; total_extended = 0
-  ; history = []
-  }
+  { initial; ceiling = max ceiling initial; max_per_extend; max_extensions; history = [] }
 ;;
 
-let current_max t = t.current_max
+let extensions_count t = List.length t.history
+
+let total_extended t =
+  List.fold_left (fun acc (_, granted, _) -> acc + granted) 0 t.history
+;;
+
+let current_max t = min (t.initial + total_extended t) t.ceiling
 
 let try_extend t ~additional ~reason =
-  if t.extensions_count >= t.max_extensions
+  let cur_extensions = extensions_count t in
+  if cur_extensions >= t.max_extensions
   then Error Extension_limit_reached
   else if additional > t.max_per_extend
   then Error Per_extend_cap_exceeded
   else (
     let additional = max 1 additional in
-    let new_max = min (t.current_max + additional) t.ceiling in
-    let granted = new_max - t.current_max in
+    let cur_max = current_max t in
+    let new_max = min (cur_max + additional) t.ceiling in
+    let granted = new_max - cur_max in
     if granted <= 0
     then Error Ceiling_reached
     else (
-      t.current_max <- new_max;
-      t.extensions_count <- t.extensions_count + 1;
-      t.total_extended <- t.total_extended + granted;
       t.history <- (Unix.gettimeofday (), granted, reason) :: t.history;
       Ok
         { granted
         ; new_max
         ; ceiling = t.ceiling
-        ; extensions_so_far = t.extensions_count
+        ; extensions_so_far = cur_extensions + 1
         ; reason
         }))
 ;;
@@ -110,7 +110,7 @@ let make_tool ~agent_ref ~budget ?(max_idle_before_extend = 2) () =
         Printf.sprintf
           "Denied: %s. Budget: %d/%d."
           (denial_reason_to_string reason_code)
-          budget.current_max
+          (current_max budget)
           budget.ceiling
       in
       Ok { content = msg }
@@ -121,9 +121,9 @@ let make_tool ~agent_ref ~budget ?(max_idle_before_extend = 2) () =
            Printf.sprintf
              "Denied: %s. Budget: %d/%d, extensions: %d/%d."
              (denial_reason_to_string reason_code)
-             budget.current_max
+             (current_max budget)
              budget.ceiling
-             budget.extensions_count
+             (extensions_count budget)
              budget.max_extensions
          in
          Ok { content = msg }
@@ -173,11 +173,11 @@ let make_tool ~agent_ref ~budget ?(max_idle_before_extend = 2) () =
 let stats_json t =
   `Assoc
     [ "initial", `Int t.initial
-    ; "current_max", `Int t.current_max
+    ; "current_max", `Int (current_max t)
     ; "ceiling", `Int t.ceiling
-    ; "extensions_count", `Int t.extensions_count
+    ; "extensions_count", `Int (extensions_count t)
     ; "max_extensions", `Int t.max_extensions
-    ; "total_extended", `Int t.total_extended
+    ; "total_extended", `Int (total_extended t)
     ; "max_per_extend", `Int t.max_per_extend
     ; ( "history"
       , `List
