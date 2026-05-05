@@ -8,6 +8,14 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.190.11] - 2026-05-05
+
+### Added
+- `Agent_sdk.Log.dropped_without_sink_count` exposes how many enabled log records were discarded because no sink was registered, allowing hosts to detect missing telemetry wiring without forcing stderr output. `Log.emit` reads `global_sinks` first and only allocates a record on the `sinks` arm, so the no-sink path stays cheap. `clear_sinks` now also resets the dropped counter so isolated tests start at 0. (#1402)
+
+### Changed
+- `lib/agent/agent.ml` per-turn log docstring reworded from "the record is counted and otherwise discarded" to "enabled emit attempt is counted and dropped without allocating a record" so it matches the actual `Log.emit` no-sink branch behavior. (#1402)
+
 ## [0.190.10] - 2026-05-05
 
 ### Changed
