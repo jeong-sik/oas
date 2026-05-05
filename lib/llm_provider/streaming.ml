@@ -939,12 +939,13 @@ let%test "parse_sse_event: unknown event type yields SSEUnknownEventType" =
 let%test "parse_sse_event: malformed JSON yields SSEParseFailed" =
   let raw = "{not valid json" in
   match parse_sse_event None raw with
-  | Some (SSEParseFailed { raw = r; reason }) ->
-    r = raw && String.length reason > 0
+  | Some (SSEParseFailed { raw = r; reason }) -> r = raw && String.length reason > 0
   | _ -> false
 ;;
 
-let%test "parse_sse_event: type field missing yields SSEUnknownEventType (not silent None)" =
+let%test
+    "parse_sse_event: type field missing yields SSEUnknownEventType (not silent None)"
+  =
   (* The [type] field is absent and event_type is unspecified.
      Cli_common_json.member_str returns "" rather than raising, so the
      match falls into the unknown-type branch. The contract is that we

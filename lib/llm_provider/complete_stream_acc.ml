@@ -88,11 +88,7 @@ let accumulate_event (acc : stream_acc) = function
       if String.length raw > 200 then String.sub raw 0 200 ^ "...(truncated)" else raw
     in
     acc.sse_error
-    := Some
-         (Printf.sprintf
-            "sse_unknown_event_type: %s | chunk: %s"
-            event_type
-            preview)
+    := Some (Printf.sprintf "sse_unknown_event_type: %s | chunk: %s" event_type preview)
   | Types.MessageStop | Types.Ping -> ()
 ;;
 
@@ -424,8 +420,7 @@ let%test "accumulate_event SSEParseFailed marks stream error with reason" =
   let acc = create_stream_acc () in
   accumulate_event
     acc
-    (Types.SSEParseFailed
-       { raw = "{not json"; reason = "json_error: Line 1, bytes 0-9" });
+    (Types.SSEParseFailed { raw = "{not json"; reason = "json_error: Line 1, bytes 0-9" });
   match !(acc.sse_error) with
   | Some msg ->
     let starts s prefix =

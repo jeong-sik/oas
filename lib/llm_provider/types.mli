@@ -245,7 +245,7 @@ type sse_event =
       { raw : string
       ; reason : string
       }
-        (** A chunk's JSON could not be parsed (Yojson Json_error or
+  (** A chunk's JSON could not be parsed (Yojson Json_error or
             Type_error). Previously the parser returned [None] and the
             chunk was silently dropped; consumers that then saw
             [MessageStop] would never know the response was incomplete.
@@ -256,7 +256,7 @@ type sse_event =
       { event_type : string
       ; raw : string
       }
-        (** The chunk parsed cleanly but [event_type] did not match any
+  (** The chunk parsed cleanly but [event_type] did not match any
             documented variant. Likely a provider that added a new event
             type the OAS adapter has not yet learned. Emit explicitly so
             the consumer can decide (log + skip vs fail-fast) instead of
