@@ -8,6 +8,14 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.190.24] - 2026-05-06
+
+### Added
+- `test/dune`: re-wired `test_guardrails_async` as a standalone focused suite, removing it from the compile-failure orphan list. (#1432)
+
+### Changed
+- `test/test_guardrails_async.ml`: guarded-call assertions updated to the current final-unit API shape. 14 tests pass under the focused dune build. (#1432)
+
 ## [0.190.23] - 2026-05-06
 
 ### Added
