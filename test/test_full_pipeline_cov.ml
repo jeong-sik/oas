@@ -26,7 +26,7 @@ let openai_text_response ?(id = "chatcmpl-1") text =
   Printf.sprintf
     {|{"id":"%s","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":"%s"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}|}
     id
-    text
+    (escape_json_string text)
 ;;
 
 let anthropic_text_response
@@ -39,7 +39,7 @@ let anthropic_text_response
     {|{"id":"%s","type":"message","role":"assistant","model":"%s","content":[{"type":"text","text":"%s"}],"stop_reason":"%s","usage":{"input_tokens":10,"output_tokens":5,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}|}
     id
     model
-    text
+    (escape_json_string text)
     stop_reason
 ;;
 
@@ -54,7 +54,7 @@ let openai_tool_use ?(id = "chatcmpl-t") tool_name input_json =
 let openai_multi_content tool_name input_json text =
   Printf.sprintf
     {|{"id":"chatcmpl-m","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":"%s","tool_calls":[{"id":"call_2","type":"function","function":{"name":"%s","arguments":"%s"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":20,"completion_tokens":15,"total_tokens":35}}|}
-    text
+    (escape_json_string text)
     tool_name
     (escape_json_string input_json)
 ;;
@@ -62,7 +62,7 @@ let openai_multi_content tool_name input_json text =
 let openai_response text =
   Printf.sprintf
     {|{"id":"chatcmpl-1","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":"%s"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}|}
-    text
+    (escape_json_string text)
 ;;
 
 let openai_sse text =
@@ -72,7 +72,7 @@ let openai_sse text =
      data: \
      {\"id\":\"chatcmpl-s1\",\"object\":\"chat.completion.chunk\",\"model\":\"mock\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15}}\n\n\
      data: [DONE]\n\n"
-    text
+    (escape_json_string text)
 ;;
 
 (** Multi-response mock server cycling through responses. *)
