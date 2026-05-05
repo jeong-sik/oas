@@ -225,15 +225,21 @@ let test_parse_error_event () =
 
 let test_parse_invalid_json () =
   match Agent_sdk.Streaming.parse_sse_event None "not json at all" with
-  | None -> ()
-  | Some _ -> Alcotest.fail "expected None for invalid JSON"
+  | Some (SSEParseFailed { raw; reason }) ->
+    Alcotest.(check string) "raw" "not json at all" raw;
+    Alcotest.(check bool) "reason is present" true (String.length reason > 0)
+  | Some _ -> Alcotest.fail "expected SSEParseFailed for invalid JSON"
+  | None -> Alcotest.fail "parse returned None"
 ;;
 
 let test_parse_unknown_event_type () =
   let data = {|{"type":"unknown_future_event","data":"x"}|} in
   match Agent_sdk.Streaming.parse_sse_event None data with
-  | None -> ()
-  | Some _ -> Alcotest.fail "expected None for unknown event type"
+  | Some (SSEUnknownEventType { event_type; raw }) ->
+    Alcotest.(check string) "event_type" "unknown_future_event" event_type;
+    Alcotest.(check string) "raw" data raw
+  | Some _ -> Alcotest.fail "expected SSEUnknownEventType"
+  | None -> Alcotest.fail "parse returned None"
 ;;
 
 let test_parse_message_start_with_cache () =

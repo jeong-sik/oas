@@ -23,7 +23,6 @@
 ;   - test/test_full_pipeline_cov.ml   (structured JSON parse)
 ;   - test/test_lenient_json.ml        (double_stringify union)
 ;   - test/test_llm_provider_cov.ml    (backend_gemini thinking default)
-;   - test/test_streaming.ml           (parse_sse_event unknown/malformed)
 ;
 ; Dune runs tests in sandboxes, so runtime-spawning tests cannot rely on
 ; cwd-relative _build/default/bin/oas_runtime.exe discovery.
@@ -300,6 +299,11 @@
    OAS_RUNTIME_PATH
    %{bin:oas-runtime}
    (run %{test}))))
+
+(test
+ (name test_streaming)
+ (modules test_streaming)
+ (libraries agent_sdk alcotest))
 
 (test
  (name test_provider_bridge)
