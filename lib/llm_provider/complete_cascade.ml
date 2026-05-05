@@ -14,7 +14,7 @@ type cascade_config =
   ; circuit_cooldown_s : float
   }
 
-let default_cascade_config = { circuit_threshold = 3; circuit_cooldown_s = 60.0 }
+let default_cascade_config = { circuit_threshold = 3; circuit_cooldown_s = 30.0 }
 
 type skip_reason = Circuit_breaker_open of { provider : string }
 
@@ -92,19 +92,71 @@ let record_failure health key =
     Hashtbl.replace health.entries key entry)
 ;;
 
+let circuit_open_and_remaining health ~ccfg entry =
+  if entry.consecutive_failures < ccfg.circuit_threshold
+  then false, None
+  else (
+    match entry.last_failure_time with
+    | None -> true, None
+    | Some t ->
+      let elapsed = health.time_fn () -. t in
+      let remaining = ccfg.circuit_cooldown_s -. elapsed in
+      if remaining > 0.0 then true, Some remaining else false, Some 0.0)
+;;
+
 let is_circuit_open health ~ccfg key =
   with_mutex health (fun () ->
     match Hashtbl.find_opt health.entries key with
     | None -> false
+    | Some entry -> fst (circuit_open_and_remaining health ~ccfg entry))
+;;
+
+type provider_health_info =
+  { provider_key : string
+  ; health_score : float
+  ; consecutive_failures : int
+  ; circuit_open : bool
+  ; cooldown_remaining_s : float option
+  }
+
+let health_score ~ccfg ~circuit_open consecutive_failures =
+  if circuit_open
+  then 0.0
+  else (
+    let threshold = max 1 ccfg.circuit_threshold in
+    let ratio = float_of_int consecutive_failures /. float_of_int threshold in
+    Float.max 0.0 (Float.min 1.0 (1.0 -. ratio)))
+;;
+
+let provider_health_info health ~cascade_config ~provider_key =
+  with_mutex health (fun () ->
+    match Hashtbl.find_opt health.entries provider_key with
+    | None ->
+      { provider_key
+      ; health_score = 1.0
+      ; consecutive_failures = 0
+      ; circuit_open = false
+      ; cooldown_remaining_s = None
+      }
     | Some entry ->
-      if entry.consecutive_failures < ccfg.circuit_threshold
-      then false
-      else (
-        match entry.last_failure_time with
-        | None -> true
-        | Some t ->
-          let elapsed = health.time_fn () -. t in
-          elapsed < ccfg.circuit_cooldown_s))
+      let circuit_open, cooldown_remaining_s =
+        circuit_open_and_remaining health ~ccfg:cascade_config entry
+      in
+      { provider_key
+      ; health_score =
+          health_score ~ccfg:cascade_config ~circuit_open entry.consecutive_failures
+      ; consecutive_failures = entry.consecutive_failures
+      ; circuit_open
+      ; cooldown_remaining_s
+      })
+;;
+
+let provider_health_scores health ~cascade_config ~provider_keys =
+  List.map
+    (fun provider_key ->
+       let info = provider_health_info health ~cascade_config ~provider_key in
+       provider_key, info.health_score)
+    provider_keys
 ;;
 
 (* --- Error classification --- *)

@@ -31,6 +31,8 @@ type t =
   ; input_summary : string
   ; sandbox : string option
   ; workdir : string option
+  ; source_path : string option
+  ; source_line : int option
   ; started_at : float
   ; ended_at : float option
   ; result_status : result_status
@@ -107,6 +109,8 @@ let make
       ?input_summary
       ?sandbox
       ?workdir
+      ?source_path
+      ?source_line
       ?ended_at
       ?(result_status = Pending)
       ?violation_kind
@@ -132,6 +136,8 @@ let make
       Option.value input_summary ~default:(clip (Yojson.Safe.to_string input))
   ; sandbox
   ; workdir
+  ; source_path
+  ; source_line
   ; started_at
   ; ended_at
   ; result_status
@@ -158,6 +164,8 @@ let to_json t =
     ; "input_summary", `String t.input_summary
     ; "sandbox", option_to_json (fun v -> `String v) t.sandbox
     ; "workdir", option_to_json (fun v -> `String v) t.workdir
+    ; "source_path", option_to_json (fun v -> `String v) t.source_path
+    ; "source_line", option_to_json (fun v -> `Int v) t.source_line
     ; "started_at", `Float t.started_at
     ; "ended_at", option_to_json (fun v -> `Float v) t.ended_at
     ; "result_status", `String (result_status_to_string t.result_status)
@@ -237,6 +245,8 @@ let of_json = function
     let* input_summary = string_field "input_summary" fields in
     let* sandbox = option_string_field "sandbox" fields in
     let* workdir = option_string_field "workdir" fields in
+    let* source_path = option_string_field "source_path" fields in
+    let* source_line = option_int_field "source_line" fields in
     let* started_at = float_field "started_at" fields in
     let* ended_at = option_float_field "ended_at" fields in
     let* result_status =
@@ -257,6 +267,8 @@ let of_json = function
       ; input_summary
       ; sandbox
       ; workdir
+      ; source_path
+      ; source_line
       ; started_at
       ; ended_at
       ; result_status

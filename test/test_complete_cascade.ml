@@ -101,12 +101,61 @@ let test_health_success_resets () =
   check bool "success reset then failure" true true
 ;;
 
+let test_provider_health_info_scores_failures () =
+  let health = Complete_cascade.create_health () in
+  let config =
+    Provider_config.make
+      ~kind:Ollama
+      ~model_id:"test"
+      ~base_url:"http://localhost:11434"
+      ()
+  in
+  let key = Complete_cascade.provider_key config in
+  let ccfg = Complete_cascade.default_cascade_config in
+  let initial =
+    Complete_cascade.provider_health_info health ~cascade_config:ccfg ~provider_key:key
+  in
+  check (float 0.001) "unknown provider score" 1.0 initial.health_score;
+  check int "unknown provider failures" 0 initial.consecutive_failures;
+  Complete_cascade.record_failure health key;
+  let one =
+    Complete_cascade.provider_health_info health ~cascade_config:ccfg ~provider_key:key
+  in
+  check (float 0.001) "one failure score" (2.0 /. 3.0) one.health_score;
+  check bool "one failure circuit closed" false one.circuit_open;
+  Complete_cascade.record_failure health key;
+  Complete_cascade.record_failure health key;
+  let open_ =
+    Complete_cascade.provider_health_info health ~cascade_config:ccfg ~provider_key:key
+  in
+  check (float 0.001) "open circuit score" 0.0 open_.health_score;
+  check bool "three failures open circuit" true open_.circuit_open;
+  match open_.cooldown_remaining_s with
+  | Some remaining -> check bool "cooldown remaining is positive" true (remaining > 0.0)
+  | None -> fail "expected cooldown_remaining_s"
+;;
+
+let test_provider_health_scores_list () =
+  let health = Complete_cascade.create_health () in
+  let ccfg = Complete_cascade.default_cascade_config in
+  Complete_cascade.record_failure health "anthropic";
+  let scores =
+    Complete_cascade.provider_health_scores
+      health
+      ~cascade_config:ccfg
+      ~provider_keys:[ "anthropic"; "moonshot" ]
+  in
+  check int "score count" 2 (List.length scores);
+  check (float 0.001) "anthropic degraded" (2.0 /. 3.0) (List.assoc "anthropic" scores);
+  check (float 0.001) "moonshot optimistic" 1.0 (List.assoc "moonshot" scores)
+;;
+
 (* ── cascade_config defaults ──────────────────────────── *)
 
 let test_default_config () =
   let cfg = Complete_cascade.default_cascade_config in
   check int "circuit_threshold" 3 cfg.Complete_cascade.circuit_threshold;
-  check (float 0.01) "circuit_cooldown_s" 60.0 cfg.Complete_cascade.circuit_cooldown_s
+  check (float 0.01) "circuit_cooldown_s" 30.0 cfg.Complete_cascade.circuit_cooldown_s
 ;;
 
 (* ── cascade_result variant construction ──────────────── *)
@@ -281,6 +330,8 @@ let suite =
   ; "health_create", `Quick, test_health_create_no_crash
   ; "health_failures", `Quick, test_record_failure_accumulates
   ; "health_success_reset", `Quick, test_health_success_resets
+  ; "provider_health_info_scores", `Quick, test_provider_health_info_scores_failures
+  ; "provider_health_scores_list", `Quick, test_provider_health_scores_list
   ; "default_config", `Quick, test_default_config
   ; "result_success", `Quick, test_result_success_variant
   ; "result_all_failed", `Quick, test_result_all_failed_variant

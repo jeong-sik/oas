@@ -37,6 +37,8 @@ type t =
   ; input_summary : string
   ; sandbox : string option
   ; workdir : string option
+  ; source_path : string option
+  ; source_line : int option
   ; started_at : float
   ; ended_at : float option
   ; result_status : result_status
@@ -60,6 +62,8 @@ val make
   -> ?input_summary:string
   -> ?sandbox:string
   -> ?workdir:string
+  -> ?source_path:string
+  -> ?source_line:int
   -> ?ended_at:float
   -> ?result_status:result_status
   -> ?violation_kind:string

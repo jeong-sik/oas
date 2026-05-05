@@ -203,6 +203,8 @@ let test_effect_evidence_roundtrip () =
       ~result_status:Effect_evidence.Pending
       ~sandbox:"docker"
       ~workdir:"/workspace"
+      ~source_path:"lib/mode_enforcer.ml"
+      ~source_line:410
       ~turn:4
       ~execution_mode:"draft"
       ()
@@ -219,7 +221,12 @@ let test_effect_evidence_roundtrip () =
       "decision"
       "approval_required"
       (Effect_evidence.decision_to_string decoded.decision);
-    Alcotest.(check (option string)) "sandbox" (Some "docker") decoded.sandbox
+    Alcotest.(check (option string)) "sandbox" (Some "docker") decoded.sandbox;
+    Alcotest.(check (option string))
+      "source_path"
+      (Some "lib/mode_enforcer.ml")
+      decoded.source_path;
+    Alcotest.(check (option int)) "source_line" (Some 410) decoded.source_line
 ;;
 
 let test_runtime_health_roundtrip () =
@@ -1100,7 +1107,17 @@ let test_mode_enforcer_records_effect_evidence () =
     Alcotest.(check (option string))
       "violation"
       (Some "mutating_in_diagnose")
-      edit_effect.violation_kind
+      edit_effect.violation_kind;
+    Alcotest.(check bool)
+      "source path"
+      true
+      (match edit_effect.source_path with
+       | Some path -> contains_substring ~sub:"mode_enforcer.ml" path
+       | None -> false);
+    Alcotest.(check bool)
+      "source line recorded"
+      true
+      (Option.value ~default:0 edit_effect.source_line > 0)
   | _ -> Alcotest.fail "unexpected effect evidence order"
 ;;
 
@@ -1443,7 +1460,13 @@ let test_evidence_effects_in_proof () =
              "mode"
              (Some "diagnose")
              evidence.execution_mode;
-           Alcotest.(check (option int)) "turn" (Some 2) evidence.turn
+           Alcotest.(check (option int)) "turn" (Some 2) evidence.turn;
+           Alcotest.(check bool)
+             "source path"
+             true
+             (match evidence.source_path with
+              | Some path -> contains_substring ~sub:"mode_enforcer.ml" path
+              | None -> false)
          | Error e -> Alcotest.fail e)
       | Ok other ->
         Alcotest.fail
