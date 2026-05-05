@@ -8,6 +8,11 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.190.6] - 2026-05-05
+
+### Fixed
+- `Agent_sdk` top-level mli/ml 의 base 모듈 re-export 들을 `Agent_sdk_base.*` 로 명시 qualify. `agent_sdk.base` `wrapped: true` 전환 (#1385) 이후 `Agent_sdk.cmi` 가 global `Types`/`Error` 인터페이스를 import 하던 잔존 의존을 제거. ocamlobjinfo 기준 `Agent_sdk_base__Types`, `Agent_sdk_base__Error` 만 import 하도록 정리. (#1389)
+
 ## [0.190.5] - 2026-05-05
 
 ### Fixed
