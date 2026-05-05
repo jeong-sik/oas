@@ -27,6 +27,13 @@ type provider_kind = Provider_kind.t =
   | Kimi_cli (** Subprocess transport via [kimi --print]. @since 0.169.0 *)
   | Codex_cli (** Subprocess transport via [codex exec]. @since 0.133.0 *)
 
+(** Default HTTP request path for a given provider kind, returning
+    [""] for CLI subprocess kinds that do not dispatch over a path.
+    Single source of truth shared by [make] and direct record-literal
+    callers; pin the [kind] and the [request_path] together via this
+    helper to avoid the two fields drifting out of sync. *)
+val request_path_default_for_kind : provider_kind -> string
+
 type t =
   { kind : provider_kind
   ; model_id : string

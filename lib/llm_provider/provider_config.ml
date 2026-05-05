@@ -18,6 +18,21 @@ type provider_kind = Provider_kind.t =
   | Kimi_cli
   | Codex_cli
 
+(** Default [request_path] for a given provider kind. Centralised so that
+    [make] and any caller building a record literal stay aligned with the
+    same wire-format defaults. CLI variants and Gemini return [""] because
+    they don't dispatch over an HTTP path. *)
+let request_path_default_for_kind = function
+  | Anthropic -> "/v1/messages"
+  | Kimi -> "/v1/messages"
+  | OpenAI_compat -> "/v1/chat/completions"
+  | Ollama -> "/api/chat"
+  | Gemini -> ""
+  | Glm -> "/chat/completions"
+  | DashScope -> "/chat/completions"
+  | Claude_code | Gemini_cli | Kimi_cli | Codex_cli -> ""
+;;
+
 type t =
   { kind : provider_kind
   ; model_id : string
@@ -94,16 +109,7 @@ let make
   let request_path =
     match request_path with
     | Some p -> p
-    | None ->
-      (match kind with
-       | Anthropic -> "/v1/messages"
-       | Kimi -> "/v1/messages"
-       | OpenAI_compat -> "/v1/chat/completions"
-       | Ollama -> "/api/chat"
-       | Gemini -> ""
-       | Glm -> "/chat/completions"
-       | DashScope -> "/chat/completions"
-       | Claude_code | Gemini_cli | Kimi_cli | Codex_cli -> "")
+    | None -> request_path_default_for_kind kind
   in
   { kind
   ; model_id
