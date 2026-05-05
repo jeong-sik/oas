@@ -10,7 +10,6 @@
 ;   - test/test_agent_card.ml          (Agent_card.agent_info missing 'cascade')
 ;   - test/test_complete_http.ml       (record missing on_capability_drop etc.)
 ;   - test/test_deep_coverage.ml       (Alcotest.run call commented out, dead body)
-;   - test/test_discovery.ml           (record missing 'supports_tools')
 ;   - test/test_event_integration.ml   (Unbound module Handoff)
 ;   - test/test_guardrails_async.ml    (pattern shape mismatch vs new return type)
 ;   - test/test_pipeline_deep.ml       (record missing 'enable_thinking')
@@ -101,6 +100,7 @@
   test_defaults_unit
   test_direct_evidence
   test_direct_evidence_unit
+  test_discovery
   test_durable
   test_durable_event
   test_e2e_v024
