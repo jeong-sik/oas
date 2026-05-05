@@ -14,7 +14,6 @@
  (synopsis "Anthropic Agent SDK for OCaml (Eio Edition)")
  (description "A native OCaml implementation of the Anthropic Agent SDK using OCaml 5.x Eio for structured concurrency, inspired by Go SDK patterns.")
  (depends
-  base
   (ocaml (>= 5.1))
   (dune (>= 3.22))
   (eio_main (>= 0.12))
