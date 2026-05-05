@@ -154,19 +154,20 @@ let emit t level message fields =
   (* Zero-cost: skip record allocation if level is below threshold *)
   if level_to_int level >= level_to_int (Atomic.get global_level)
   then (
-    let record =
-      { ts = Unix.gettimeofday ()
-      ; level
-      ; module_name = t.module_name
-      ; message
-      ; fields
-      ; trace_id = t.trace_id
-      ; span_id = t.span_id
-      }
-    in
     match Atomic.get global_sinks with
     | [] -> ignore (Atomic.fetch_and_add dropped_without_sink 1 : int)
-    | sinks -> List.iter (fun sink -> sink record) sinks)
+    | sinks ->
+      let record =
+        { ts = Unix.gettimeofday ()
+        ; level
+        ; module_name = t.module_name
+        ; message
+        ; fields
+        ; trace_id = t.trace_id
+        ; span_id = t.span_id
+        }
+      in
+      List.iter (fun sink -> sink record) sinks)
 ;;
 
 let debug t message fields = emit t Debug message fields
