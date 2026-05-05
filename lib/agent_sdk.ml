@@ -190,6 +190,7 @@ module Vcs_graph_snapshot = Vcs_graph_snapshot
 module Execution_mode = Execution_mode
 module Risk_class = Risk_class
 module Risk_contract = Risk_contract
+module Execution_manifest = Execution_manifest
 module Cdal_proof = Cdal_proof
 module Mode_resolver = Mode_resolver
 module Effect_evidence = Effect_evidence

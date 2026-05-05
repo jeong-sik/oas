@@ -16,10 +16,10 @@ type cascade_config =
         Default: 3. *)
   ; circuit_cooldown_s : float
     (** Seconds before a circuit-broken provider is retried (half-open).
-        Default: 60.0. *)
+        Default: 30.0. *)
   }
 
-(** Default cascade config: circuit_threshold=3, circuit_cooldown_s=60.0. *)
+(** Default cascade config: circuit_threshold=3, circuit_cooldown_s=30.0. *)
 val default_cascade_config : cascade_config
 
 (** {1 Health Tracking} *)
@@ -45,6 +45,35 @@ val record_success : provider_health -> string -> unit
     Increments the consecutive failure count and updates the timestamp.
     After [circuit_threshold] consecutive failures, the circuit opens. *)
 val record_failure : provider_health -> string -> unit
+
+(** Provider health snapshot derived from the circuit-breaker state. *)
+type provider_health_info =
+  { provider_key : string
+  ; health_score : float
+    (** [0.0, 1.0], where [1.0] means no active failures and [0.0] means the
+        provider has reached the circuit threshold. *)
+  ; consecutive_failures : int
+  ; circuit_open : bool
+  ; cooldown_remaining_s : float option
+    (** [Some t] (where [t > 0.0]) when [circuit_open = true]: seconds remaining
+        until the circuit may close. [None] when the circuit is closed — either
+        because the consecutive failure count is below the threshold or because
+        the cooldown has already elapsed. Consumers can therefore treat
+        [None] as "no active cooldown" without having to special-case
+        [Some 0.0]. *)
+  }
+
+val provider_health_info
+  :  provider_health
+  -> cascade_config:cascade_config
+  -> provider_key:string
+  -> provider_health_info
+
+val provider_health_scores
+  :  provider_health
+  -> cascade_config:cascade_config
+  -> provider_keys:string list
+  -> (string * float) list
 
 (** {1 Result} *)
 

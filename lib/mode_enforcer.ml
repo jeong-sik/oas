@@ -415,6 +415,8 @@ let record_effect_evidence
       ~decision_source:"mode_enforcer"
       ~input
       ~input_summary:(truncate_input input)
+      ~source_path:(Filename.basename __FILE__)
+      ~source_line:__LINE__
       ~started_at:ts
       ~ended_at:ts
       ~result_status
