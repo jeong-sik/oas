@@ -152,7 +152,7 @@ let extract ~sw ~net ?base_url ?provider ~config ~(schema : 'a schema) prompt
     Use with {!run_structured} for Agent.t-level structured output. *)
 type 'a extractor = api_response -> ('a, string) result
 
-let schema_json_extractor (schema : 'a schema) : 'a extractor =
+let schema_extractor (schema : 'a schema) : 'a extractor =
   fun response -> extract_text_json ~schema response |> Result.map_error Error.to_string
 ;;
 

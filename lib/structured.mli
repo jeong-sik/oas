@@ -20,6 +20,12 @@ type 'a schema =
 
 val schema_to_tool_json : _ schema -> Yojson.Safe.t
 
+(** Return the object JSON schema used for provider-native structured output.
+
+    This is the same schema shape embedded under [input_schema] by
+    {!schema_to_tool_json}, but without the tool wrapper fields. *)
+val schema_to_json_schema : _ schema -> Yojson.Safe.t
+
 val extract_tool_input
   :  schema:'a schema
   -> content_block list
@@ -42,6 +48,13 @@ val extract
 (** {1 Extractors} *)
 
 type 'a extractor = api_response -> ('a, string) result
+
+(** Build an {!extractor} from a typed schema.
+
+    This is the Agent-level counterpart to {!extract}: it parses the response
+    text as JSON, accepts fenced JSON, and delegates shape validation to
+    [schema.parse]. *)
+val schema_extractor : 'a schema -> 'a extractor
 
 val json_extractor : (Yojson.Safe.t -> 'a) -> 'a extractor
 val text_extractor : (string -> 'a option) -> 'a extractor

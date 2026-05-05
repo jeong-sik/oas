@@ -61,6 +61,23 @@ let test_schema_to_json_structure () =
   Alcotest.(check bool) "age required" true (List.mem "age" required)
 ;;
 
+let test_schema_to_json_schema_structure () =
+  let json = Structured.schema_to_json_schema person_schema in
+  let open Yojson.Safe.Util in
+  Alcotest.(check string) "type" "object" (json |> member "type" |> to_string);
+  Alcotest.(check bool)
+    "no tool wrapper name"
+    true
+    (match member "name" json with
+     | `Null -> true
+     | _ -> false);
+  let props = json |> member "properties" in
+  Alcotest.(check string)
+    "name prop type"
+    "string"
+    (props |> member "name" |> member "type" |> to_string)
+;;
+
 (* --- extract_tool_input --- *)
 
 let test_extract_tool_input_success () =
@@ -418,6 +435,24 @@ let test_text_extractor_none () =
   | Ok _ -> Alcotest.fail "expected error"
 ;;
 
+let test_schema_extractor_success () =
+  let extract = Structured.schema_extractor person_schema in
+  let resp = make_response [ Text "```json\n{\"name\":\"Dana\",\"age\":42}\n```" ] in
+  match extract resp with
+  | Ok (name, age) ->
+    Alcotest.(check string) "name" "Dana" name;
+    Alcotest.(check int) "age" 42 age
+  | Error e -> Alcotest.fail e
+;;
+
+let test_schema_extractor_parse_failure () =
+  let extract = Structured.schema_extractor person_schema in
+  let resp = make_response [ Text "{\"name\":123}" ] in
+  match extract resp with
+  | Error e -> Alcotest.(check bool) "has error text" true (String.length e > 0)
+  | Ok _ -> Alcotest.fail "expected schema parse error"
+;;
+
 (* --- extract_with_retry: unit-level logic tests --- *)
 
 (** Test that max_retries=0 means only 1 attempt (no retry).
@@ -499,6 +534,10 @@ let () =
       , [ Alcotest.test_case "structure" `Quick test_schema_to_json_structure
         ; Alcotest.test_case "optional params" `Quick test_schema_optional_params
         ; Alcotest.test_case "tool choice name" `Quick test_schema_tool_choice_name
+        ; Alcotest.test_case
+            "json schema structure"
+            `Quick
+            test_schema_to_json_schema_structure
         ; Alcotest.test_case "empty params" `Quick test_schema_empty_params
         ; Alcotest.test_case "all param types" `Quick test_schema_all_param_types
         ; Alcotest.test_case
@@ -537,6 +576,11 @@ let () =
         ; Alcotest.test_case "json_extractor no text" `Quick test_json_extractor_no_text
         ; Alcotest.test_case "text_extractor success" `Quick test_text_extractor_success
         ; Alcotest.test_case "text_extractor none" `Quick test_text_extractor_none
+        ; Alcotest.test_case "schema_extractor success" `Quick test_schema_extractor_success
+        ; Alcotest.test_case
+            "schema_extractor parse failure"
+            `Quick
+            test_schema_extractor_parse_failure
         ] )
     ; ( "extract_with_retry"
       , [ Alcotest.test_case

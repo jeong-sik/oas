@@ -8,6 +8,12 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+### Added
+- `Structured.schema_to_json_schema` exposes the provider-native object schema
+  generated from a typed schema, and `Structured.schema_extractor` lets
+  `run_structured` callers reuse the same fenced-JSON parsing and
+  `schema.parse` validation as direct structured extraction.
+
 ## [0.190.12] - 2026-05-05
 
 ### Changed
