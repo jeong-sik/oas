@@ -46,7 +46,13 @@ let () =
       check int "3 metrics" 3 (List.length items);
       let first = List.hd items in
       let name = Yojson.Safe.Util.(first |> member "name" |> to_string) in
-      check string "first name" "oas.eval.verdict_passed_total" name
+      check string "first name" "oas.eval.verdict_passed_total" name;
+      let run_id = Yojson.Safe.Util.(first |> member "tags" |> member "run_id" |> to_string) in
+      let agent_name =
+        Yojson.Safe.Util.(first |> member "tags" |> member "agent_name" |> to_string)
+      in
+      check string "run id tag" "test-run-1" run_id;
+      check string "agent name tag" "test-agent" agent_name
     | _ -> fail "expected JSON list"
   in
   run

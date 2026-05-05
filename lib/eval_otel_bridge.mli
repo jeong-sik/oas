@@ -55,7 +55,8 @@ val emit_run_metrics : Otel_tracer.instance -> Eval.run_metrics -> unit
 (** {1 JSON export} *)
 
 (** Produce a JSON array of metric objects for external consumption.
-    Each object has [name], [value], and [type] fields. *)
+    Each object has [name], [value], [type], and correlation [tags]
+    containing [agent_name] and [run_id]. *)
 val to_metrics_json : metrics_snapshot -> Yojson.Safe.t
 
 (** Convert snapshot to a flat list of [otel_metric] records. *)

@@ -180,6 +180,9 @@ let emit_run_metrics (inst : Otel_tracer.instance) (rm : Eval.run_metrics) : uni
 
 let to_metrics_json (snap : metrics_snapshot) : Yojson.Safe.t =
   let metrics = to_metric_list snap in
+  let tags =
+    `Assoc [ "agent_name", `String snap.agent_name; "run_id", `String snap.run_id ]
+  in
   `List
     (List.map
        (fun (m : otel_metric) ->
@@ -187,6 +190,7 @@ let to_metrics_json (snap : metrics_snapshot) : Yojson.Safe.t =
             [ "name", `String m.name
             ; "value", `Float m.value
             ; "type", `String m.metric_type
+            ; "tags", tags
             ])
        metrics)
 ;;
@@ -384,5 +388,25 @@ let%test "to_metrics_json produces valid JSON array" =
   let json = to_metrics_json (extract rm) in
   match json with
   | `List items -> List.length items = 3
+  | _ -> false
+;;
+
+let%test "to_metrics_json carries run correlation tags" =
+  let rm : Eval.run_metrics =
+    { run_id = "run-json"
+    ; agent_name = "agent-json"
+    ; timestamp = 0.0
+    ; metrics = []
+    ; harness_verdicts = []
+    ; trace_summary = None
+    }
+  in
+  match to_metrics_json (extract rm) with
+  | `List (`Assoc fields :: _) -> (
+    match List.assoc_opt "tags" fields with
+    | Some (`Assoc tags) ->
+      List.assoc_opt "run_id" tags = Some (`String "run-json")
+      && List.assoc_opt "agent_name" tags = Some (`String "agent-json")
+    | _ -> false)
   | _ -> false
 ;;
