@@ -112,12 +112,14 @@ type sink = record -> unit
 
 (* Global logger configuration is shared across domains.
    Atomic.t keeps reads lock-free. [add_sink] linearizes through a CAS
-   loop and [clear_sinks] publishes an empty sink set with a single
-   atomic store. When they race, the final sink set reflects whichever
-   operation linearizes last; sinks removed by [clear_sinks] do not
-   reappear. *)
+   loop. [clear_sinks] first resets the no-sink drop counter, then
+   publishes an empty sink set with an atomic store. When [add_sink] and
+   [clear_sinks] race, the final sink set reflects whichever sink-set
+   operation linearizes last; records emitted after the counter reset can
+   still be counted if they observe no sinks. *)
 let global_level = Atomic.make Info
 let global_sinks : sink list Atomic.t = Atomic.make []
+let dropped_without_sink = Atomic.make 0
 
 let rec atomic_update atom ~f =
   let current = Atomic.get atom in
@@ -127,7 +129,13 @@ let rec atomic_update atom ~f =
 
 let set_global_level level = Atomic.set global_level level
 let add_sink sink = atomic_update global_sinks ~f:(fun sinks -> sink :: sinks)
-let clear_sinks () = Atomic.set global_sinks []
+
+let clear_sinks () =
+  Atomic.set dropped_without_sink 0;
+  Atomic.set global_sinks []
+;;
+
+let dropped_without_sink_count () = Atomic.get dropped_without_sink
 
 (* ── Logger instance ──────────────────────────────────────────── *)
 
@@ -147,17 +155,20 @@ let emit t level message fields =
   (* Zero-cost: skip record allocation if level is below threshold *)
   if level_to_int level >= level_to_int (Atomic.get global_level)
   then (
-    let record =
-      { ts = Unix.gettimeofday ()
-      ; level
-      ; module_name = t.module_name
-      ; message
-      ; fields
-      ; trace_id = t.trace_id
-      ; span_id = t.span_id
-      }
-    in
-    List.iter (fun sink -> sink record) (Atomic.get global_sinks))
+    match Atomic.get global_sinks with
+    | [] -> ignore (Atomic.fetch_and_add dropped_without_sink 1 : int)
+    | sinks ->
+      let record =
+        { ts = Unix.gettimeofday ()
+        ; level
+        ; module_name = t.module_name
+        ; message
+        ; fields
+        ; trace_id = t.trace_id
+        ; span_id = t.span_id
+        }
+      in
+      List.iter (fun sink -> sink record) sinks)
 ;;
 
 let debug t message fields = emit t Debug message fields

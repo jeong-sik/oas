@@ -58,13 +58,19 @@ type sink = record -> unit
 
     Underlying globals use [Atomic.t]. Concurrent sink registration is
     linearized with a CAS loop so [add_sink] does not lose updates
-    across domains. [clear_sinks] publishes an empty sink set with a
-    single atomic store, so a race between [add_sink] and [clear_sinks]
-    resolves to whichever operation linearizes last. *)
+    across domains. [clear_sinks] first resets the no-sink drop counter,
+    then publishes an empty sink set with an atomic store. A race between
+    [add_sink] and [clear_sinks] resolves to whichever sink-set operation
+    linearizes last; records emitted after the counter reset can still be
+    counted if they observe no sinks. *)
 
 val set_global_level : level -> unit
 val add_sink : sink -> unit
 val clear_sinks : unit -> unit
+
+(** Number of enabled log records dropped because no sink was registered since
+    the last {!clear_sinks}. *)
+val dropped_without_sink_count : unit -> int
 
 (** {2 Logger instance} *)
 
