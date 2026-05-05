@@ -7,7 +7,6 @@
 ; ---- (1) compile failures — not wired until bodies are fixed ----
 ; The following files are NOT wired here because they fail to compile
 ; against current main.  Bodies untouched per fix scope.  Tracked separately:
-;   - test/test_structured_stream.ml   (build error — see CI log)
 ;
 ; ---- (2) pre-existing runtime failures — compile OK, runtest fails ----
 ; The following suites compile but have pre-existing test failures.
@@ -210,6 +209,7 @@
   test_structured_coverage
   test_structured_deep
   test_structured_ext
+  test_structured_stream
   test_subagent
   test_succession
   test_swiss_verdict_json

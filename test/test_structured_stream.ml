@@ -163,6 +163,8 @@ let test_on_event_callback_fires () =
       | MessageStop -> "message_stop"
       | Ping -> "ping"
       | SSEError _ -> "error"
+      | SSEParseFailed _ -> "parse_failed"
+      | SSEUnknownEventType _ -> "unknown_event_type"
     in
     event_types := t :: !event_types);
   let types = List.rev !event_types in
