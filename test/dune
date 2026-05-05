@@ -24,8 +24,6 @@
 ;   - test/test_full_pipeline_cov.ml   (structured JSON parse)
 ;   - test/test_lenient_json.ml        (double_stringify union)
 ;   - test/test_llm_provider_cov.ml    (backend_gemini thinking default)
-;   - test/test_provider_bridge.ml     (to_provider_config zai coding auto)
-;   - test/test_provider_complete.ml   (openai_build_request glm reasoning)
 ;   - test/test_streaming.ml           (parse_sse_event unknown/malformed)
 ;
 ; Dune runs tests in sandboxes, so runtime-spawning tests cannot rely on
@@ -303,3 +301,13 @@
    OAS_RUNTIME_PATH
    %{bin:oas-runtime}
    (run %{test}))))
+
+(test
+ (name test_provider_bridge)
+ (modules test_provider_bridge)
+ (libraries agent_sdk alcotest unix))
+
+(test
+ (name test_provider_complete)
+ (modules test_provider_complete)
+ (libraries agent_sdk llm_provider alcotest eio_main))

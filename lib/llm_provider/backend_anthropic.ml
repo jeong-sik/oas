@@ -90,7 +90,7 @@ let build_request
       let s = Utf8_sanitize.sanitize s in
       let should_cache_system =
         config.cache_system_prompt
-        || String.length s >= Constants.Anthropic.prompt_cache_min_chars
+        && String.length s >= Constants.Anthropic.prompt_cache_min_chars
       in
       if should_cache_system
       then (

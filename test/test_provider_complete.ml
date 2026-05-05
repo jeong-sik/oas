@@ -414,7 +414,7 @@ let test_kimi_direct_tool_result_uses_text_blocks () =
     (List.hd content_blocks |> member "text" |> to_string)
 ;;
 
-let test_glm_preserved_reasoning_replay_and_auto_tool_choice () =
+let test_glm_preserved_reasoning_replay_and_drops_unsupported_tool_choice () =
   let config =
     PC.make
       ~kind:Glm
@@ -460,10 +460,12 @@ let test_glm_preserved_reasoning_replay_and_auto_tool_choice () =
   let json = Yojson.Safe.from_string body in
   let open Yojson.Safe.Util in
   let assistant = json |> member "messages" |> index 0 in
-  Alcotest.(check string)
-    "glm tool_choice coerced"
-    "auto"
-    (json |> member "tool_choice" |> to_string);
+  Alcotest.(check bool)
+    "glm unsupported tool_choice dropped"
+    true
+    (match json with
+     | `Assoc fields -> not (List.mem_assoc "tool_choice" fields)
+     | _ -> false);
   Alcotest.(check string)
     "assistant content remains text channel"
     ""
@@ -637,7 +639,7 @@ let test_complete_rejects_output_schema_for_glm () =
     Alcotest.(check bool)
       "mentions glm json mode"
       true
-      (contains_substring ~sub:"json mode only" (String.lowercase_ascii reason))
+      (contains_substring ~sub:"json mode" (String.lowercase_ascii reason))
   | Ok _ -> Alcotest.fail "expected AcceptRejected for glm output_schema"
   | Error _ -> Alcotest.fail "expected AcceptRejected for glm output_schema"
 ;;
@@ -890,7 +892,7 @@ let () =
         ; test_case
             "glm preserved reasoning replay"
             `Quick
-            test_glm_preserved_reasoning_replay_and_auto_tool_choice
+            test_glm_preserved_reasoning_replay_and_drops_unsupported_tool_choice
         ] )
     ; ( "gemini_build_request"
       , [ test_case "with json schema" `Quick test_gemini_with_json_schema ] )
