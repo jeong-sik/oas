@@ -174,7 +174,8 @@ let%test "mcp_tool_of_sdk_tool None description becomes empty" =
 let%test "descriptor_for_builtin_tool read is read_only" =
   match descriptor_for_builtin_tool "read" with
   | Some d ->
-    d.mutation_class = Some "read_only" && d.concurrency_class = Some Tool.Parallel_read
+    d.mutation_class = Some "read_only"
+    && d.concurrency_class = Some Tool.Parallel_read
     && d.permission = Some Tool.ReadOnly
   | None -> false
 ;;

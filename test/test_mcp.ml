@@ -194,17 +194,19 @@ let test_mcp_builtin_tool_descriptor_permission () =
   in
   (match Tool.descriptor read_tool with
    | Some d ->
-     Alcotest.(check (option string)) "read mutation" (Some "read_only")
+     Alcotest.(check (option string))
+       "read mutation"
+       (Some "read_only")
        d.Tool.mutation_class;
-     Alcotest.(check bool) "read permission" true
-       (d.Tool.permission = Some Tool.ReadOnly)
+     Alcotest.(check bool) "read permission" true (d.Tool.permission = Some Tool.ReadOnly)
    | None -> Alcotest.fail "read_file descriptor missing");
   (match Tool.descriptor write_tool with
    | Some d ->
-     Alcotest.(check (option string)) "write mutation" (Some "local_mutation")
+     Alcotest.(check (option string))
+       "write mutation"
+       (Some "local_mutation")
        d.Tool.mutation_class;
-     Alcotest.(check bool) "write permission" true
-       (d.Tool.permission = Some Tool.Write)
+     Alcotest.(check bool) "write permission" true (d.Tool.permission = Some Tool.Write)
    | None -> Alcotest.fail "write descriptor missing");
   (match
      Completion_contract.effectful_tool_satisfies
@@ -217,14 +219,20 @@ let test_mcp_builtin_tool_descriptor_permission () =
        { name = "read_file"; input = `Assoc []; tool = Some read_tool }
    with
    | Error msg ->
-     Alcotest.(check bool) "read-only rejected" true
+     Alcotest.(check bool)
+       "read-only rejected"
+       true
        (contains_substring ~sub:"read-only" msg)
    | Ok () -> Alcotest.fail "read-only tool should not satisfy effectful contract");
   match Tool.descriptor external_tool with
   | Some d ->
-    Alcotest.(check (option string)) "external mutation" (Some "external_effect")
+    Alcotest.(check (option string))
+      "external mutation"
+      (Some "external_effect")
       d.Tool.mutation_class;
-    Alcotest.(check bool) "external permission" true
+    Alcotest.(check bool)
+      "external permission"
+      true
       (d.Tool.permission = Some Tool.Destructive)
   | None -> Alcotest.fail "web_fetch descriptor missing"
 ;;
