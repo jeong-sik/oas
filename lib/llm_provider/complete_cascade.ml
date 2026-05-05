@@ -44,7 +44,7 @@ let attempt_timeout_error ~model_id ~timeout_s =
     }
 ;;
 
-(* --- Per-provider health tracking (Mutex-guarded) --- *)
+(* --- Per-provider health tracking (Eio.Mutex-guarded) --- *)
 
 type provider_entry =
   { consecutive_failures : int
@@ -53,7 +53,7 @@ type provider_entry =
 
 type provider_health =
   { entries : (string, provider_entry) Hashtbl.t
-  ; mutex : Mutex.t
+  ; mutex : Eio.Mutex.t
   ; time_fn : unit -> float
   }
 
@@ -63,7 +63,7 @@ let create_health ?clock () =
     | Some c -> fun () -> Eio.Time.now c
     | None -> fun () -> Unix.time ()
   in
-  { entries = Hashtbl.create 8; mutex = Mutex.create (); time_fn }
+  { entries = Hashtbl.create 8; mutex = Eio.Mutex.create (); time_fn }
 ;;
 
 let provider_key (config : Provider_config.t) =
@@ -71,8 +71,18 @@ let provider_key (config : Provider_config.t) =
 ;;
 
 let with_mutex health f =
-  Mutex.lock health.mutex;
-  Fun.protect ~finally:(fun () -> Mutex.unlock health.mutex) f
+  (* Avoid [use_rw ~protect:true] here: health snapshots are also used by
+     pure tests/callers outside an Eio cancellation context.  The protected
+     block is synchronous Hashtbl mutation, so manual unlock-on-exception
+     keeps Eio-fiber waiters cooperative without requiring Cancel.protect. *)
+  Eio.Mutex.lock health.mutex;
+  match f () with
+  | v ->
+    Eio.Mutex.unlock health.mutex;
+    v
+  | exception exn ->
+    Eio.Mutex.unlock health.mutex;
+    raise exn
 ;;
 
 let record_success health key =

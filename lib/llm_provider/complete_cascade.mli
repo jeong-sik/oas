@@ -24,8 +24,9 @@ val default_cascade_config : cascade_config
 
 (** {1 Health Tracking} *)
 
-(** Thread-safe per-provider health state for circuit breaking.
-    Create once and share across cascade calls to maintain circuit state. *)
+(** Fiber-safe per-provider health state for circuit breaking.
+    Create once and share across cascade calls in the same Eio runtime to
+    maintain circuit state. *)
 type provider_health
 
 (** Create an empty health tracker.
