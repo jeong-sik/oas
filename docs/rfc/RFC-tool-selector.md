@@ -428,25 +428,25 @@ let agent =
 
 소비자 쪽에서 그룹을 정의하고 OAS에 전달한다. OAS는 그룹이 무엇을 의미하는지 모른다.
 
-### 6.3 Cascade와의 관계
+### 6.3 Selector Provider와의 관계
 
-Tool_selector의 LLM 전략은 cascade를 통해 LLM을 호출할 수 있다.
-하지만 selector LLM 호출과 main agent LLM 호출은 별개다:
+Tool_selector의 LLM 전략은 caller가 넘긴 단일 `Provider_config.t`로 LLM을 호출한다 (`Tool_selector.default_rerank_fn` 참조 — `Llm_provider.Complete.complete` 직접 호출).
+선택 호출과 main agent 호출은 별개의 provider를 받을 수 있다:
 
 ```
 Selector LLM call (optional, lightweight)
-  -> cascade: "selector" profile (fast, cheap model)
+  -> provider: "selector" (fast, cheap model, caller-supplied Provider_config.t)
   -> output: tool name list
 
 Main Agent LLM call (existing)
-  -> cascade: "primary" or agent's named cascade
+  -> provider: caller-supplied primary provider
   -> input: selected tool schemas only
   -> output: tool_use blocks
 ```
 
-Selector용 cascade profile을 별도로 정의하면
+Selector용 provider를 별도로 정의하면
 main agent와 다른 모델/설정으로 selection을 수행할 수 있다.
-이는 OAS cascade_config의 기존 기능으로 충분하다.
+Provider_config.t를 직접 전달하면 된다 (cascade_config는 OAS 0.144.0에서 제거됨).
 
 ---
 

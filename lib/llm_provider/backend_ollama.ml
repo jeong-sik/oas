@@ -639,3 +639,113 @@ let%test "parse_ollama_response returns timings=None when no timing fields prese
      | Some { timings = None; _ } -> true
      | _ -> false)
 ;;
+
+let%test "build_request sets think=true when enable_thinking=true" =
+  with_keep_alive_env "" (fun () ->
+    let config =
+      Provider_config.make
+        ~kind:Ollama
+        ~model_id:"qwen3:8b"
+        ~base_url:"http://127.0.0.1:11434"
+        ~enable_thinking:true
+        ()
+    in
+    let body = build_request ~config ~messages:[] () in
+    let json = Yojson.Safe.from_string body in
+    let open Yojson.Safe.Util in
+    json |> member "think" |> to_bool = true)
+;;
+
+let%test "build_request sets think=false when enable_thinking=false" =
+  with_keep_alive_env "" (fun () ->
+    let config =
+      Provider_config.make
+        ~kind:Ollama
+        ~model_id:"qwen3:8b"
+        ~base_url:"http://127.0.0.1:11434"
+        ~enable_thinking:false
+        ()
+    in
+    let body = build_request ~config ~messages:[] () in
+    let json = Yojson.Safe.from_string body in
+    let open Yojson.Safe.Util in
+    json |> member "think" |> to_bool = false)
+;;
+
+let%test "build_request maps max_tokens to num_predict in options" =
+  with_keep_alive_env "" (fun () ->
+    let config =
+      Provider_config.make
+        ~kind:Ollama
+        ~model_id:"qwen3:8b"
+        ~base_url:"http://127.0.0.1:11434"
+        ~max_tokens:2048
+        ()
+    in
+    let body = build_request ~config ~messages:[] () in
+    let json = Yojson.Safe.from_string body in
+    let open Yojson.Safe.Util in
+    json |> member "options" |> member "num_predict" |> to_int = 2048)
+;;
+
+let%test
+    "build_request includes top_k in options when supports_top_k=true (default ollama \
+     caps)"
+  =
+  (* Pins the supported path: default Ollama capabilities have
+     supports_top_k=true, so the serializer threads top_k into options.
+     The capability-gated drop path (supports_top_k=false ->
+     warn_capability_drop) is covered by the OpenAI-compat tests in
+     backend_openai.ml; Ollama uses the same gate via shared helpers. *)
+  with_keep_alive_env "" (fun () ->
+    let config =
+      Provider_config.make
+        ~kind:Ollama
+        ~model_id:"qwen3:8b"
+        ~base_url:"http://127.0.0.1:11434"
+        ~top_k:40
+        ()
+    in
+    let body = build_request ~config ~messages:[] () in
+    let json = Yojson.Safe.from_string body in
+    let open Yojson.Safe.Util in
+    json |> member "options" |> member "top_k" |> to_int = 40)
+;;
+
+let%test "parse_ollama_response maps done_reason=tool_calls to StopToolUse" =
+  let json =
+    {|{"model":"qwen3:8b","done":true,"done_reason":"tool_calls",
+       "message":{"role":"assistant","content":"",
+         "tool_calls":[{"function":{"name":"get_weather","arguments":"{\"city\":\"Seoul\"}"}}]}}|}
+  in
+  match parse_ollama_response json with
+  | Error _ -> false
+  | Ok resp ->
+    resp.stop_reason = Types.StopToolUse
+    &&
+      (match resp.content with
+      | [ Types.ToolUse { name = "get_weather"; _ } ] -> true
+      | _ -> false)
+;;
+
+let%test "parse_ollama_response returns Error on error field" =
+  let json = {|{"error":"model \"nonexistent\" not found, try pulling it first"}|} in
+  match parse_ollama_response json with
+  | Error msg -> String.starts_with ~prefix:"model" msg
+  | Ok _ -> false
+;;
+
+let%test "parse_ollama_response extracts thinking block from message" =
+  let json =
+    {|{"model":"qwen3:8b","done":true,"done_reason":"stop",
+       "message":{"role":"assistant","content":"The answer is 42.",
+         "thinking":"Let me reason about this step by step."}}|}
+  in
+  match parse_ollama_response json with
+  | Error _ -> false
+  | Ok resp ->
+    (match resp.content with
+     | [ Types.Thinking { content = thinking }; Types.Text "The answer is 42." ] ->
+       String.length thinking > 0
+     | _ -> false)
+;;

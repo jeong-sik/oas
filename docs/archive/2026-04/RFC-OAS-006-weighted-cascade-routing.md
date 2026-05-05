@@ -1,9 +1,17 @@
 # RFC-OAS-006: Weighted Cascade Routing
 
-**Status**: Draft
+> **ARCHIVED 2026-05-04.** This RFC was written when `cascade_config.ml` and
+> `cascade_executor.ml` were OAS-owned modules. Both modules were deleted in OAS
+> 0.144.0 as part of the MASC migration (cascade FSM and group orchestration are
+> now MASC-owned). The multi-provider failover loop described here is now driven
+> by downstream consumers (MASC's `try_cascade`); OAS only provides
+> `Complete.complete_with_retry` for single-provider calls. This document is
+> kept verbatim for historical context; do not implement it in OAS.
+
+**Status**: Draft — Archived (superseded by MASC migration)
 **Author**: jeong-sik
 **Date**: 2026-04-15
-**Scope**: `lib/llm_provider/cascade_config.ml`, `cascade_executor.ml`
+**Scope**: `lib/llm_provider/cascade_config.ml`, `cascade_executor.ml` — both deleted in 0.144.0
 
 ## Problem
 

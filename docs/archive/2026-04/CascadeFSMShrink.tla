@@ -1,4 +1,9 @@
 ---- MODULE CascadeFSMShrink ----
+\* ARCHIVED 2026-05-04. This spec described a Phase 2 target for cascade_fsm.ml
+\* which was deleted from OAS in 0.144.0 as part of the MASC migration.
+\* Multi-provider cascade FSM (including ShrinkContext) is now MASC-owned.
+\* Kept verbatim for historical context; do not link from active OAS specs.
+\*
 \* Phase 2 target model: cascade FSM with ShrinkContext transition.
 \*
 \* Key difference from CascadeFSM: when all providers fail with
