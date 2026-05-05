@@ -7,7 +7,6 @@
 ; ---- (1) compile failures — not wired until bodies are fixed ----
 ; The following files are NOT wired here because they fail to compile
 ; against current main.  Bodies untouched per fix scope.  Tracked separately:
-;   - test/test_agent_card.ml          (Agent_card.agent_info missing 'cascade')
 ;   - test/test_deep_coverage.ml       (Alcotest.run call commented out, dead body)
 ;   - test/test_event_integration.ml   (Unbound module Handoff)
 ;   - test/test_guardrails_async.ml    (pattern shape mismatch vs new return type)
@@ -28,6 +27,7 @@
   test_capabilities
   test_call_time_pruner_config
   test_agent
+  test_agent_card
   test_agent_auto_dump
   test_agent_config
   test_agent_config_deep

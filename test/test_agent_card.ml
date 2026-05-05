@@ -23,7 +23,6 @@ let base_info : Agent_card.agent_info =
         }
       ]
   ; provider = None
-  ; cascade = None
   ; mcp_clients_count = 0
   ; has_elicitation = false
   ; skill_registry = None
