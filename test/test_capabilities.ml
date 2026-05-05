@@ -352,6 +352,103 @@ let test_dashscope_capabilities () =
   check bool "has min_p" true c.supports_min_p
 ;;
 
+(* ── Prefix ordering invariant (M01) ────────────────────── *)
+
+(* [for_model_id] resolves capabilities via a sequential if-else chain of
+   [starts_with] prefix checks.  Whenever prefix A is a string prefix of
+   prefix B (every model-id starting with B also starts with A), the branch
+   for B *must* be evaluated before the branch for A; otherwise any model-id
+   that starts with B is permanently captured by A, silently returning wrong
+   capabilities (e.g. tool_choice sent to a model that does not support it
+   → 400 error, anti-pattern M01).
+
+   Each case below uses a concrete model-id that begins with the *longer*
+   (more-specific) prefix — and therefore also with the *shorter* one — and
+   asserts the capability fingerprint that is unique to the longer branch.
+   If the two branches were swapped the assertion would fail.
+
+   When adding a new prefix to [for_model_id], check whether it creates a
+   new shadow pair with an existing prefix and add a corresponding entry
+   here.  The full ordered prefix list lives in
+   [lib/llm_provider/capabilities.ml]. *)
+let test_prefix_ordering_invariant () =
+  (* Each entry: (model_id, label, discriminating_predicate).
+     The predicate is true only when the more-specific (longer-prefix)
+     branch wins. *)
+  let cases =
+    [ (* glm-4.7-flash must precede glm-4.7 (inside broad glm-4.5|4.6|4.7|5 branch) *)
+      ( "glm-4.7-flash-x"
+      , "glm-4.7-flash must precede broad glm-4.7"
+      , fun (c : Capabilities.capabilities) ->
+          (not c.supports_reasoning) && c.max_output_tokens = Some 16_384 )
+    ; (* glm-4.5-flash must precede glm-4.5 (inside broad branch) *)
+      ( "glm-4.5-flash-x"
+      , "glm-4.5-flash must precede broad glm-4.5"
+      , fun (c : Capabilities.capabilities) ->
+          (not c.supports_reasoning) && c.max_output_tokens = Some 16_384 )
+    ; (* glm-4.5-air must precede glm-4.5 (inside broad branch) *)
+      ( "glm-4.5-air-x"
+      , "glm-4.5-air must precede broad glm-4.5"
+      , fun (c : Capabilities.capabilities) ->
+          (not c.supports_reasoning) && c.max_output_tokens = Some 16_384 )
+    ; (* glm-5-turbo must precede glm-5 (inside broad branch) *)
+      ( "glm-5-turbo-x"
+      , "glm-5-turbo must precede broad glm-5"
+      , fun (c : Capabilities.capabilities) ->
+          (not c.supports_extended_thinking) && c.max_output_tokens = Some 16_384 )
+    ; (* glm-5v-turbo must precede glm-5 (inside broad branch).
+         Discriminator: supports_image_input (5v-turbo) vs not (broad glm-5). *)
+      ( "glm-5v-turbo-x"
+      , "glm-5v-turbo must precede broad glm-5"
+      , fun (c : Capabilities.capabilities) ->
+          c.supports_image_input && c.max_output_tokens = Some 128_000 )
+    ; (* glm-5-code must precede glm-5 (inside broad branch).
+         Discriminator: 128K context (code branch) vs 200K (broad glm-5). *)
+      ( "glm-5-code-x"
+      , "glm-5-code must precede broad glm-5"
+      , fun (c : Capabilities.capabilities) ->
+          c.max_context_tokens = Some 128_000 && c.supports_extended_thinking )
+    ; (* glm-4.6v must precede glm-4.6 (inside broad branch) *)
+      ( "glm-4.6v-x"
+      , "glm-4.6v must precede broad glm-4.6"
+      , fun (c : Capabilities.capabilities) ->
+          c.supports_image_input
+          && c.supports_reasoning
+          && c.max_output_tokens = Some 32_768 )
+    ; (* glm-4.5v must precede glm-4.5 (inside broad branch) *)
+      ( "glm-4.5v-x"
+      , "glm-4.5v must precede broad glm-4.5"
+      , fun (c : Capabilities.capabilities) ->
+          c.supports_image_input
+          && c.supports_reasoning
+          && c.max_output_tokens = Some 32_768 )
+    ; (* broad glm-4.5 branch must precede glm-4.
+         Discriminator: supports_reasoning + 128K output (broad) vs neither (glm-4). *)
+      ( "glm-4.5-latest"
+      , "broad glm-4.5 branch must precede glm-4"
+      , fun (c : Capabilities.capabilities) ->
+          c.supports_reasoning && c.max_output_tokens = Some 128_000 )
+    ; (* glm-4v must precede glm-4.
+         Discriminator: supports_image_input (glm-4v) vs not (glm-4). *)
+      ( "glm-4v-x"
+      , "glm-4v must precede glm-4"
+      , fun (c : Capabilities.capabilities) ->
+          c.supports_image_input && c.supports_multimodal_inputs )
+    ]
+  in
+  List.iter
+    (fun (model_id, label, ok) ->
+       match Capabilities.for_model_id model_id with
+       | None ->
+         fail
+           (Printf.sprintf
+              "prefix ordering [%s]: for_model_id %S returned None"
+              label
+              model_id)
+       | Some c -> check bool (Printf.sprintf "prefix ordering: %s" label) true (ok c))
+    cases
+;;
+
 (* ── Suite ───────────────────────────────────────────── *)
 
 let () =
@@ -399,6 +496,12 @@ let () =
             "all-None entry matches base"
             `Quick
             test_apply_manifest_entry_all_none_uses_base
+        ] )
+    ; ( "prefix_ordering"
+      , [ test_case
+            "shadow pairs all resolve to specific branch (M01)"
+            `Quick
+            test_prefix_ordering_invariant
         ] )
     ]
 ;;
