@@ -8,11 +8,18 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.190.13] - 2026-05-05
+
 ### Added
-- `Structured.schema_to_json_schema` exposes the provider-native object schema
-  generated from a typed schema, and `Structured.schema_extractor` lets
-  `run_structured` callers reuse the same fenced-JSON parsing and
-  `schema.parse` validation as direct structured extraction.
+- `Structured.schema_to_json_schema` exposes the provider-native object schema generated from a typed schema, and `Structured.schema_extractor` lets `run_structured` callers reuse the same fenced-JSON parsing and `schema.parse` validation as direct structured extraction. (#1405)
+- `test/dune`: re-wired `test_provider_bridge` and `test_provider_complete` as focused provider test stanzas, restoring coverage for ZAI coding auto-model order, GLM request shaping, Anthropic prompt caching, and structured-output rejection. (#1406)
+
+### Fixed
+- `Backend_anthropic.build_request` now requires both `cache_system_prompt = true` AND `String.length s >= prompt_cache_min_chars` to mark the system prompt cacheable (changed `||` → `&&`). Short system prompts stay plain strings even when the user opts into caching, matching Anthropic's documented minimum prompt length gate. (#1406)
+
+### Changed
+- `test/test_provider_bridge.ml`: ZAI coding auto-model default order updated to `[glm-5-code; glm-5.1; glm-5; glm-5-turbo; glm-4.7; glm-4.5-air]`. (#1406)
+- `test/test_provider_complete.ml`: `test_glm_preserved_reasoning_replay_and_auto_tool_choice` renamed to `..._drops_unsupported_tool_choice` and assertion changed from "tool_choice coerced to auto" to "tool_choice key absent from request" to match current production behavior. Output-schema rejection assertion loosened from `"json mode only"` to `"json mode"`. (#1406)
 
 ## [0.190.12] - 2026-05-05
 
