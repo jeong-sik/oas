@@ -7,7 +7,6 @@
 ; ---- (1) compile failures — not wired until bodies are fixed ----
 ; The following files are NOT wired here because they fail to compile
 ; against current main.  Bodies untouched per fix scope.  Tracked separately:
-;   - test/test_guardrails_async.ml    (pattern shape mismatch vs new return type)
 ;   - test/test_runtime_worker_integration.ml (type mismatch on participant_run_success)
 ;   - test/test_structured_stream.ml   (build error — see CI log)
 ;
@@ -353,3 +352,8 @@
  (name test_event_integration)
  (modules test_event_integration)
  (libraries agent_sdk alcotest cohttp-eio eio eio_main unix yojson))
+
+(test
+ (name test_guardrails_async)
+ (modules test_guardrails_async)
+ (libraries agent_sdk alcotest eio eio_main))
