@@ -285,10 +285,22 @@ let openai_host_supports_output_schema base_url =
   | None -> false
 ;;
 
+(** A native-schema request is in effect when either field carries one.
+    Callers can build a [Provider_config.t] directly with [response_format =
+    JsonSchema _] and [output_schema = None]; gating only on [output_schema]
+    would let that path skip provider/host validation and still emit
+    [response_format.type=json_schema] in [backend_openai]. *)
+let structured_schema_requested (config : t) : bool =
+  match config.output_schema, config.response_format with
+  | Some _, _ -> true
+  | None, Types.JsonSchema _ -> true
+  | None, (Types.JsonMode | Types.Off) -> false
+;;
+
 let validate_output_schema_request (config : t) =
-  match config.output_schema with
-  | None -> Ok ()
-  | Some _ ->
+  match structured_schema_requested config with
+  | false -> Ok ()
+  | true ->
     (match config.kind with
      | Gemini | Anthropic | Ollama | DashScope -> Ok ()
      | Glm ->

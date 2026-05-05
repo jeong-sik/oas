@@ -197,7 +197,6 @@ let test_with_context_size () =
   check bool "other fields unchanged" false c2.supports_tools
 ;;
 
-<<<<<<< HEAD
 (* ── Capability manifest ─────────────────────────────── *)
 
 let make_manifest_json ?(base = "default_capabilities") ?(extra_fields = []) prefix =
