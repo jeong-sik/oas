@@ -33,6 +33,21 @@ let request_path_default_for_kind = function
   | Claude_code | Gemini_cli | Kimi_cli | Codex_cli -> ""
 ;;
 
+(** [output_schema] derived from [response_format] when no explicit
+    schema is supplied. Centralised so [make] and direct record-literal
+    callers stay aligned: a config that carries
+    [response_format = JsonSchema s] always exposes
+    [output_schema = Some s], and any other [response_format] leaves
+    [output_schema = None]. The optional [override] argument keeps the
+    legacy semantics of [make] (an explicit [output_schema] wins
+    regardless of [response_format]). *)
+let output_schema_of_response_format ?override (response_format : Types.response_format) =
+  match override, response_format with
+  | Some schema, _ -> Some schema
+  | None, Types.JsonSchema schema -> Some schema
+  | None, Types.JsonMode | None, Types.Off -> None
+;;
+
 type t =
   { kind : provider_kind
   ; model_id : string
@@ -101,10 +116,7 @@ let make
     | None, None -> Types.response_format_of_json_mode response_format_json
   in
   let output_schema =
-    match output_schema, response_format with
-    | Some schema, _ -> Some schema
-    | None, Types.JsonSchema schema -> Some schema
-    | None, Types.JsonMode | None, Types.Off -> None
+    output_schema_of_response_format ?override:output_schema response_format
   in
   let request_path =
     match request_path with
