@@ -88,10 +88,7 @@ let run_validator ?deadline ~validator_name f =
     Creates a dedicated [Eio.Switch] for parallel execution.
     Returns the first failure found, or [Pass] if all succeed.
     Cancellation exceptions propagate correctly. *)
-let run_input
-      ?deadline
-      (validators : input_validator list)
-      (messages : message list)
+let run_input ?deadline (validators : input_validator list) (messages : message list)
   : validation_result
   =
   match validators with
@@ -103,10 +100,8 @@ let run_input
         (fun i (v : input_validator) ->
            fun () ->
            results.(i)
-           <- run_validator
-                ?deadline
-                ~validator_name:v.name
-                (fun () -> v.validate messages))
+           <- run_validator ?deadline ~validator_name:v.name (fun () ->
+                v.validate messages))
         validators
     in
     Eio.Switch.run ~name:"input_validators" (fun _sw -> Eio.Fiber.all fns);
@@ -120,10 +115,7 @@ let run_input
 (** Run all output validators concurrently.
 
     Same parallel execution pattern as {!run_input}. *)
-let run_output
-      ?deadline
-      (validators : output_validator list)
-      (response : api_response)
+let run_output ?deadline (validators : output_validator list) (response : api_response)
   : validation_result
   =
   match validators with
@@ -135,10 +127,8 @@ let run_output
         (fun i (v : output_validator) ->
            fun () ->
            results.(i)
-           <- run_validator
-                ?deadline
-                ~validator_name:v.name
-                (fun () -> v.validate response))
+           <- run_validator ?deadline ~validator_name:v.name (fun () ->
+                v.validate response))
         validators
     in
     Eio.Switch.run ~name:"output_validators" (fun _sw -> Eio.Fiber.all fns);
