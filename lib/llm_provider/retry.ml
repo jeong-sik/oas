@@ -128,6 +128,8 @@ let malformed_json_indicators =
     - Anthropic: "You have insufficient credits"; "billing_hard_limit"
     - OpenAI: "You exceeded your current quota, please check your plan
       and billing details"
+    - Provider account-limit variants: "Your account has exceeded the
+      API usage limit"
     - Google / Gemini: "Resource exhausted"
     - Mistral: "insufficient_quota"
     - Together.ai: "insufficient_funds"
@@ -141,6 +143,7 @@ let hard_quota_indicators =
   ; "insufficient_quota"
   ; "insufficient_funds"
   ; "exceeded your current quota"
+  ; "exceeded the api usage limit"
   ; "no resource package"
   ; "quota exceeded"
   ; "billing_hard_limit"
@@ -680,6 +683,7 @@ let%test "is_hard_quota_message positive cases" =
   is_hard_quota_message "Insufficient balance"
   && is_hard_quota_message "insufficient credit balance"
   && is_hard_quota_message "You exceeded your current quota"
+  && is_hard_quota_message "Your account has exceeded the API usage limit."
   && is_hard_quota_message "quota exceeded"
   && is_hard_quota_message "insufficient_quota"
   && is_hard_quota_message "resource exhausted"
