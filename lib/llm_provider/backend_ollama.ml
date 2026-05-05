@@ -688,12 +688,15 @@ let%test "build_request maps max_tokens to num_predict in options" =
     json |> member "options" |> member "num_predict" |> to_int = 2048)
 ;;
 
-let%test "build_request omits top_k from options when capability says no" =
-  (* ollama_capabilities has supports_top_k=true by default.
-     To test the capability drop path, we need a model that resolves
-     to capabilities with supports_top_k=false. Since we can't easily
-     inject custom capabilities, test the default path (top_k included)
-     and verify the code path exists. *)
+let%test
+    "build_request includes top_k in options when supports_top_k=true (default ollama \
+     caps)"
+  =
+  (* Pins the supported path: default Ollama capabilities have
+     supports_top_k=true, so the serializer threads top_k into options.
+     The capability-gated drop path (supports_top_k=false ->
+     warn_capability_drop) is covered by the OpenAI-compat tests in
+     backend_openai.ml; Ollama uses the same gate via shared helpers. *)
   with_keep_alive_env "" (fun () ->
     let config =
       Provider_config.make
@@ -706,10 +709,6 @@ let%test "build_request omits top_k from options when capability says no" =
     let body = build_request ~config ~messages:[] () in
     let json = Yojson.Safe.from_string body in
     let open Yojson.Safe.Util in
-    (* Default ollama_capabilities has supports_top_k=true, so top_k
-       should appear in options. The capability gate code path is
-       exercised — when supports_top_k=false, it calls
-       warn_capability_drop instead. *)
     json |> member "options" |> member "top_k" |> to_int = 40)
 ;;
 
@@ -723,19 +722,16 @@ let%test "parse_ollama_response maps done_reason=tool_calls to StopToolUse" =
   | Error _ -> false
   | Ok resp ->
     resp.stop_reason = Types.StopToolUse
-    && (match resp.content with
-        | [ Types.ToolUse { name = "get_weather"; _ } ] -> true
-        | _ -> false)
+    &&
+      (match resp.content with
+      | [ Types.ToolUse { name = "get_weather"; _ } ] -> true
+      | _ -> false)
 ;;
 
 let%test "parse_ollama_response returns Error on error field" =
-  let json =
-    {|{"error":"model \"nonexistent\" not found, try pulling it first"}|}
-  in
+  let json = {|{"error":"model \"nonexistent\" not found, try pulling it first"}|} in
   match parse_ollama_response json with
-  | Error msg ->
-    String.length msg > 0
-    && String.sub msg 0 5 = "model"
+  | Error msg -> String.starts_with ~prefix:"model" msg
   | Ok _ -> false
 ;;
 

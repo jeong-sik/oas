@@ -1572,8 +1572,7 @@ let%test "build_request emits chat_template_kwargs for nemotron (Chat_template_k
   let json = Yojson.Safe.from_string body in
   let open Yojson.Safe.Util in
   let ctk = json |> member "chat_template_kwargs" in
-  ctk |> member "enable_thinking" |> to_bool = true
-  && json |> member "thinking" = `Null
+  ctk |> member "enable_thinking" |> to_bool = true && json |> member "thinking" = `Null
 ;;
 
 let%test "build_request omits seed when model does not support it" =
