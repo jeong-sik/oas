@@ -64,6 +64,13 @@ jobs:
       - name: Test
         env:
           ALCOTEST_QUICK_TESTS: "1"
+          # Test stanzas wired in `test/dune` may exercise `Transport.find_runtime`,
+          # which searches `_build/default/bin/oas_runtime.exe` relative to the test's
+          # cwd. Under `dune runtest` each binary runs from a sandbox dir whose cwd
+          # is NOT the repo root, so the relative search misses the freshly-built
+          # runtime. Pin an absolute path so wired runtime/transport/sdk tests can
+          # locate the binary regardless of sandbox cwd.
+          OAS_RUNTIME_PATH: ${{ github.workspace }}/_build/default/bin/oas_runtime.exe
         run: opam exec -- dune runtest
 
       - name: Upload harness eval artifacts
@@ -85,6 +92,10 @@ jobs:
           # io_uring_queue_init under bisect eventually returns ENOMEM and
           # fails the step.
           EIO_BACKEND: "posix"
+          # See note on the Test step: dune sandbox cwd is not the repo root,
+          # so `Transport.find_runtime` cannot resolve the runtime via the
+          # default relative search. Pin the absolute path here too.
+          OAS_RUNTIME_PATH: ${{ github.workspace }}/_build/default/bin/oas_runtime.exe
         run: |
           mkdir -p _coverage
           # Pin coverage file location outside dune's per-test sandboxes.
@@ -95,6 +106,11 @@ jobs:
           # library to write files at a stable absolute prefix instead.
           export BISECT_FILE="$PWD/_coverage/bisect"
           opam exec -- dune clean
+          # Rebuild the runtime binary up-front so test stanzas that use
+          # `Transport.find_runtime` via `OAS_RUNTIME_PATH` find it. Without
+          # this explicit build, the runtest step below only rebuilds
+          # test-reachable targets and the bin/oas_runtime.exe path is empty.
+          opam exec -- dune build bin/oas_runtime.exe
           # `--instrument-with bisect_ppx` activates the
           # `(instrumentation (backend bisect_ppx))` stanza declared in
           # lib/dune. Without this flag dune ignores the stanza and no
