@@ -8,6 +8,14 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.190.23] - 2026-05-06
+
+### Added
+- `test/dune`: re-wired `test_event_integration` as a standalone test stanza with its Eio/Cohttp dependencies, removing it from the compile-failure orphan list. (#1430)
+
+### Changed
+- `test/test_event_integration.ml`: replaced the stale private `Handoff` type reference with the public `Subagent.to_handoff_target` helper so the suite compiles against the current `lib/agent` interface. 5 tests pass under the focused dune build. (#1430)
+
 ## [0.190.22] - 2026-05-06
 
 ### Fixed
