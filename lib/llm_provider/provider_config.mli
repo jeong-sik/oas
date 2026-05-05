@@ -34,6 +34,18 @@ type provider_kind = Provider_kind.t =
     helper to avoid the two fields drifting out of sync. *)
 val request_path_default_for_kind : provider_kind -> string
 
+(** Derive [output_schema] from a [response_format].
+    Returns [Some schema] when [response_format = JsonSchema schema]
+    and [None] otherwise. With [?override:(Some s)] the helper
+    short-circuits to [Some s], preserving the legacy semantics of
+    [make]'s explicit schema argument. Use this helper to keep the
+    [response_format] / [output_schema] pair consistent in record
+    literals built outside [make]. *)
+val output_schema_of_response_format
+  :  ?override:Yojson.Safe.t
+  -> Types.response_format
+  -> Yojson.Safe.t option
+
 type t =
   { kind : provider_kind
   ; model_id : string
