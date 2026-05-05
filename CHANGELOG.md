@@ -8,6 +8,11 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.190.8] - 2026-05-05
+
+### Fixed
+- `test/test_pipeline_deep.ml` orphan stanza rescue. orphan 사유 "(record missing 'enable_thinking')" 가 stale — `Hooks.turn_params` literal 한 곳에 `enable_thinking = None` 추가 후 22 alcotest 케이스 default runtest 신호에 합류. 같은 sprint-b orphan rescue 시리즈 (#1388/#1392/#1394) 의 일부. (#1394)
+
 ## [0.190.7] - 2026-05-05
 
 ### Fixed
