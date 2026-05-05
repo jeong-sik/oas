@@ -124,6 +124,12 @@ type agent_config =
     (** Release LLM slot during tool execution, re-acquire before next turn. @since 0.100.0 *)
   ; exit_condition : ((int -> bool)[@opaque]) option
     (** Custom exit predicate called with turn_count after each turn. @since 0.115.0 *)
+  ; call_time_pruner_keep_recent : int
+    (** Number of most recent turns whose tool results are NOT stubbed by the
+        call-time pruner in [Agent_turn.prepare_messages].  Default 2. *)
+  ; call_time_pruner_keep_last : int
+    (** Maximum number of most recent turns retained by the call-time pruner
+        in [Agent_turn.prepare_messages].  Default 100. *)
   }
 [@@deriving show]
 
@@ -154,6 +160,8 @@ let default_config =
   ; priority = None
   ; yield_on_tool = false
   ; exit_condition = None
+  ; call_time_pruner_keep_recent = 2
+  ; call_time_pruner_keep_last = 100
   }
 ;;
 

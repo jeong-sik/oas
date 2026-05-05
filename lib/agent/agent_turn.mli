@@ -116,18 +116,25 @@ val apply_context_reducer
   -> Types.message list
 
 val prepare_messages
-  :  messages:Types.message list
+  :  ?config:Types.agent_config
+  -> messages:Types.message list
   -> context_reducer:Context_reducer.t option
   -> tiered_memory:tiered_memory option
   -> turn_params:Hooks.turn_params
+  -> unit
   -> Types.message list
 
 (** Full turn preparation: tools + messages + guardrails.
 
     @since 0.94.0 added [operator_policy] parameter
-    @since 0.100.0 added [tool_selector] parameter *)
+    @since 0.100.0 added [tool_selector] parameter
+    @since 0.185.0 added optional [config] parameter so the call-time
+      pruner can read [call_time_pruner_keep_recent] /
+      [call_time_pruner_keep_last] from the agent configuration.
+      Omitting it preserves the historical defaults [2] / [100]. *)
 val prepare_turn
-  :  guardrails:Guardrails.t
+  :  ?config:Types.agent_config
+  -> guardrails:Guardrails.t
   -> operator_policy:Guardrails.tool_filter option
   -> policy_channel:Policy_channel.t option
   -> tools:Tool_set.t

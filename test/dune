@@ -17,3 +17,8 @@
  (name test_capabilities)
  (modules test_capabilities)
  (libraries agent_sdk alcotest))
+
+(test
+ (name test_call_time_pruner_config)
+ (modules test_call_time_pruner_config)
+ (libraries agent_sdk alcotest))
