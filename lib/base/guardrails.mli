@@ -21,7 +21,18 @@ type t =
   ; max_tool_calls_per_turn : int option
   }
 
+(** Conservative default: denies common shell/exec tools and caps
+    tool calls per turn.  Downstream SDK consumers that omit
+    [~guardrails] inherit this policy. *)
 val default : t
+
+(** Unrestricted policy: every tool allowed, no per-turn cap.
+    Use only when the caller has separate trust boundaries
+    (research / tests / operator-controlled environments).
+
+    @since 0.184.1 *)
+val permissive : t
+
 val is_allowed : t -> Types.tool_schema -> bool
 val filter_tools : t -> Tool.t list -> Tool.t list
 val exceeds_limit : t -> int -> bool

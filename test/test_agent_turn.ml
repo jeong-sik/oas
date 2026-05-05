@@ -7,7 +7,7 @@ open Agent_sdk
 let test_prepare_turn_empty_tools () =
   let prep =
     Agent_turn.prepare_turn
-      ~guardrails:Guardrails.default
+      ~guardrails:Guardrails.permissive
       ~operator_policy:None
       ~policy_channel:None
       ~tools:Tool_set.empty
@@ -36,7 +36,7 @@ let test_prepare_turn_with_tools () =
   in
   let prep =
     Agent_turn.prepare_turn
-      ~guardrails:Guardrails.default
+      ~guardrails:Guardrails.permissive
       ~operator_policy:None
       ~policy_channel:None
       ~tools:(Tool_set.of_list [ tool ])
@@ -64,7 +64,7 @@ let test_prepare_turn_with_guardrails_filter () =
       Ok { Types.content = "" })
   in
   let guardrails =
-    { Guardrails.default with tool_filter = Guardrails.AllowList [ "a" ] }
+    { Guardrails.permissive with tool_filter = Guardrails.AllowList [ "a" ] }
   in
   let prep =
     Agent_turn.prepare_turn
@@ -96,7 +96,7 @@ let test_prepare_turn_with_guardrails_filter () =
 let test_prepare_turn_visible_tool_names_empty () =
   let prep =
     Agent_turn.prepare_turn
-      ~guardrails:Guardrails.default
+      ~guardrails:Guardrails.permissive
       ~operator_policy:None
       ~policy_channel:None
       ~tools:Tool_set.empty
@@ -116,7 +116,7 @@ let test_prepare_turn_visible_tool_names_preserves_order () =
   let tools = Tool_set.of_list [ make "Bash"; make "Read"; make "Edit" ] in
   let prep =
     Agent_turn.prepare_turn
-      ~guardrails:Guardrails.default
+      ~guardrails:Guardrails.permissive
       ~operator_policy:None
       ~policy_channel:None
       ~tools
@@ -709,7 +709,7 @@ let test_prepare_turn_filter_override () =
   in
   let prep =
     Agent_turn.prepare_turn
-      ~guardrails:Guardrails.default
+      ~guardrails:Guardrails.permissive
       ~operator_policy:None
       ~policy_channel:None
       ~tools:(Tool_set.of_list [ tool_a; tool_b ])

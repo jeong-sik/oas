@@ -88,7 +88,7 @@ let test_deny_list_hides_tool () =
          { Agent.default_options with
            base_url
          ; guardrails =
-             { Guardrails.default with tool_filter = Guardrails.DenyList [ "b" ] }
+             { Guardrails.permissive with tool_filter = Guardrails.DenyList [ "b" ] }
          }
        in
        let agent = Agent.create ~net ~options ~tools () in
@@ -109,7 +109,7 @@ let test_allow_list_filters () =
          { Agent.default_options with
            base_url
          ; guardrails =
-             { Guardrails.default with tool_filter = Guardrails.AllowList [ "a" ] }
+             { Guardrails.permissive with tool_filter = Guardrails.AllowList [ "a" ] }
          }
        in
        let agent = Agent.create ~net ~options ~tools () in
@@ -132,7 +132,7 @@ let test_custom_prefix_filter () =
          { Agent.default_options with
            base_url
          ; guardrails =
-             { Guardrails.default with
+             { Guardrails.permissive with
                tool_filter =
                  Guardrails.Custom
                    (fun schema ->
@@ -190,7 +190,7 @@ let test_limit_blocks_multi_tool_response () =
     let options =
       { Agent.default_options with
         base_url
-      ; guardrails = { Guardrails.default with max_tool_calls_per_turn = Some 2 }
+      ; guardrails = { Guardrails.permissive with max_tool_calls_per_turn = Some 2 }
       }
     in
     let config = { default_config with max_turns = 3 } in
@@ -230,7 +230,9 @@ let test_empty_tools_no_crash () =
       { Agent.default_options with
         base_url
       ; guardrails =
-          { Guardrails.default with tool_filter = Guardrails.DenyList [ "nonexistent" ] }
+          { Guardrails.permissive with
+            tool_filter = Guardrails.DenyList [ "nonexistent" ]
+          }
       }
     in
     let agent = Agent.create ~net ~options ~tools:[] () in

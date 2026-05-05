@@ -19,14 +19,14 @@ let make_tool name =
 (* ── merge_operator_policy unit tests ──────────────────── *)
 
 let test_merge_no_operator () =
-  let agent = Guardrails.default in
+  let agent = Guardrails.permissive in
   let merged, source = Guardrails.merge_operator_policy ~operator:None ~agent in
   check bool "same filter" true (merged.tool_filter = Guardrails.AllowAll);
   check bool "agent source" true (source = Guardrails.Agent)
 ;;
 
 let test_merge_operator_allowlist () =
-  let agent = Guardrails.default in
+  let agent = Guardrails.permissive in
   let merged, source =
     Guardrails.merge_operator_policy
       ~operator:(Some (Guardrails.AllowList [ "a"; "b" ]))
@@ -41,7 +41,7 @@ let test_merge_operator_allowlist () =
 
 let test_merge_operator_denylist () =
   let agent =
-    { Guardrails.default with tool_filter = Guardrails.AllowList [ "a"; "b"; "c" ] }
+    { Guardrails.permissive with tool_filter = Guardrails.AllowList [ "a"; "b"; "c" ] }
   in
   let merged, source =
     Guardrails.merge_operator_policy ~operator:(Some (Guardrails.DenyList [ "b" ])) ~agent
@@ -53,7 +53,7 @@ let test_merge_operator_denylist () =
 ;;
 
 let test_merge_preserves_max_calls () =
-  let agent = { Guardrails.default with max_tool_calls_per_turn = Some 5 } in
+  let agent = { Guardrails.permissive with max_tool_calls_per_turn = Some 5 } in
   let merged, _ =
     Guardrails.merge_operator_policy
       ~operator:(Some (Guardrails.AllowList [ "a" ]))
@@ -72,7 +72,7 @@ let test_operator_restricts_allow_all () =
   let tools = Tool_set.of_list [ tool_a; tool_b; tool_c ] in
   let tools_json, _, _ =
     Agent_turn.prepare_tools
-      ~guardrails:Guardrails.default
+      ~guardrails:Guardrails.permissive
       ~operator_policy:(Some (Guardrails.AllowList [ "a" ]))
       ~policy_channel:None
       ~tools
@@ -92,7 +92,7 @@ let test_operator_denylist_on_allowall () =
   let tools = Tool_set.of_list [ make_tool "a"; make_tool "b"; make_tool "c" ] in
   let tools_json, _, _ =
     Agent_turn.prepare_tools
-      ~guardrails:Guardrails.default
+      ~guardrails:Guardrails.permissive
       ~operator_policy:(Some (Guardrails.DenyList [ "b" ]))
       ~policy_channel:None
       ~tools
@@ -110,7 +110,7 @@ let test_operator_denylist_on_allowall () =
 let test_no_operator_is_noop () =
   (* No operator policy = agent guardrails unchanged *)
   let guardrails =
-    { Guardrails.default with tool_filter = Guardrails.AllowList [ "a" ] }
+    { Guardrails.permissive with tool_filter = Guardrails.AllowList [ "a" ] }
   in
   let tools = Tool_set.of_list [ make_tool "a"; make_tool "b" ] in
   let tools_json, _, _ =
@@ -141,7 +141,7 @@ let test_turn_override_intersects_operator () =
   in
   let tools_json, _, _ =
     Agent_turn.prepare_tools
-      ~guardrails:Guardrails.default
+      ~guardrails:Guardrails.permissive
       ~operator_policy:(Some (Guardrails.AllowList [ "a"; "b" ]))
       ~policy_channel:None
       ~tools
@@ -167,7 +167,7 @@ let test_turn_override_cannot_widen_operator () =
   in
   let tools_json, _, _ =
     Agent_turn.prepare_tools
-      ~guardrails:Guardrails.default
+      ~guardrails:Guardrails.permissive
       ~operator_policy:(Some (Guardrails.AllowList [ "a" ]))
       ~policy_channel:None
       ~tools
@@ -187,7 +187,7 @@ let test_full_prepare_turn_with_operator () =
   let tools = Tool_set.of_list [ make_tool "x"; make_tool "y"; make_tool "z" ] in
   let prep =
     Agent_turn.prepare_turn
-      ~guardrails:Guardrails.default
+      ~guardrails:Guardrails.permissive
       ~operator_policy:(Some (Guardrails.DenyList [ "y" ]))
       ~policy_channel:None
       ~tools

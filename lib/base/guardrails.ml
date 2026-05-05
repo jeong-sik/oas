@@ -25,7 +25,16 @@ type t =
   ; max_tool_calls_per_turn : int option
   }
 
-let default = { tool_filter = AllowAll; max_tool_calls_per_turn = None }
+let default =
+  { tool_filter = DenyList [ "bash"; "shell"; "shell_exec"; "exec"; "rm"; "sh" ]
+  ; max_tool_calls_per_turn = Some 50
+  }
+;;
+
+(** Unrestricted policy: every tool allowed, no per-turn cap.
+    Use this only when the caller has separate trust boundaries
+    (research / tests / operator-controlled environments). *)
+let permissive = { tool_filter = AllowAll; max_tool_calls_per_turn = None }
 
 (** Check if a tool is allowed by the filter *)
 let is_allowed guardrails (schema : tool_schema) =

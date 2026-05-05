@@ -10,20 +10,22 @@ let make_tool name =
 ;;
 
 let test_default () =
-  let g = Guardrails.default in
-  check bool "default filter is AllowAll" true (g.tool_filter = Guardrails.AllowAll);
-  check bool "default limit is None" true (g.max_tool_calls_per_turn = None)
+  let g = Guardrails.permissive in
+  check bool "permissive filter is AllowAll" true (g.tool_filter = Guardrails.AllowAll);
+  check bool "permissive limit is None" true (g.max_tool_calls_per_turn = None)
 ;;
 
 let test_allow_all () =
-  let g = Guardrails.default in
+  let g = Guardrails.permissive in
   let tools = [ make_tool "a"; make_tool "b"; make_tool "c" ] in
   let filtered = Guardrails.filter_tools g tools in
   check int "all tools pass" 3 (List.length filtered)
 ;;
 
 let test_allow_list () =
-  let g = { Guardrails.default with tool_filter = Guardrails.AllowList [ "a"; "c" ] } in
+  let g =
+    { Guardrails.permissive with tool_filter = Guardrails.AllowList [ "a"; "c" ] }
+  in
   let tools = [ make_tool "a"; make_tool "b"; make_tool "c" ] in
   let filtered = Guardrails.filter_tools g tools in
   let names = List.map (fun (t : Tool.t) -> t.schema.name) filtered in
@@ -31,7 +33,7 @@ let test_allow_list () =
 ;;
 
 let test_deny_list () =
-  let g = { Guardrails.default with tool_filter = Guardrails.DenyList [ "b" ] } in
+  let g = { Guardrails.permissive with tool_filter = Guardrails.DenyList [ "b" ] } in
   let tools = [ make_tool "a"; make_tool "b"; make_tool "c" ] in
   let filtered = Guardrails.filter_tools g tools in
   let names = List.map (fun (t : Tool.t) -> t.schema.name) filtered in
@@ -40,7 +42,7 @@ let test_deny_list () =
 
 let test_custom_filter () =
   let g =
-    { Guardrails.default with
+    { Guardrails.permissive with
       tool_filter = Guardrails.Custom (fun schema -> String.length schema.name > 1)
     }
   in
@@ -51,22 +53,22 @@ let test_custom_filter () =
 ;;
 
 let test_exceeds_limit_none () =
-  let g = Guardrails.default in
+  let g = Guardrails.permissive in
   check bool "no limit" false (Guardrails.exceeds_limit g 100)
 ;;
 
 let test_exceeds_limit_under () =
-  let g = { Guardrails.default with max_tool_calls_per_turn = Some 5 } in
+  let g = { Guardrails.permissive with max_tool_calls_per_turn = Some 5 } in
   check bool "under limit" false (Guardrails.exceeds_limit g 3)
 ;;
 
 let test_exceeds_limit_equal () =
-  let g = { Guardrails.default with max_tool_calls_per_turn = Some 5 } in
+  let g = { Guardrails.permissive with max_tool_calls_per_turn = Some 5 } in
   check bool "at limit" false (Guardrails.exceeds_limit g 5)
 ;;
 
 let test_exceeds_limit_over () =
-  let g = { Guardrails.default with max_tool_calls_per_turn = Some 5 } in
+  let g = { Guardrails.permissive with max_tool_calls_per_turn = Some 5 } in
   check bool "over limit" true (Guardrails.exceeds_limit g 6)
 ;;
 
