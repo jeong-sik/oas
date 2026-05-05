@@ -22,6 +22,40 @@ let default_banned_patterns =
   [ "ptrace"; "mount("; "umount("; "reboot("; "shutdown("; "mkfs"; "rm -rf /" ]
 ;;
 
+(* Normalize a command-ish string for matching:
+   - strip shell-style line comments (# to end of line) per line
+   - drop quote / backslash characters that don't change semantics for the
+     coarse substrings we care about
+   - collapse runs of ASCII whitespace to single spaces
+   - lowercase ASCII
+
+   This is intentionally cheap; it is a bypass-resistance layer, not a full
+   shell parser. The original line is still passed through to the issue
+   record so reviewers can see the verbatim source. *)
+let normalize_command s =
+  let buf = Buffer.create (String.length s) in
+  let in_comment = ref false in
+  String.iter
+    (fun c ->
+      if !in_comment
+      then (
+        if c = '\n'
+        then (
+          in_comment := false;
+          let len = Buffer.length buf in
+          if len > 0 && Buffer.nth buf (len - 1) <> ' ' then Buffer.add_char buf ' '))
+      else (
+        match c with
+        | '#' -> in_comment := true
+        | '\'' | '"' | '`' | '\\' -> ()
+        | ' ' | '\t' | '\n' | '\r' ->
+          let len = Buffer.length buf in
+          if len > 0 && Buffer.nth buf (len - 1) <> ' ' then Buffer.add_char buf ' '
+        | _ -> Buffer.add_char buf (Char.lowercase_ascii c)))
+    s;
+  String.trim (Buffer.contents buf)
+;;
+
 let show_issue = function
   | Empty_patch -> "patch is empty or has no touched paths"
   | Unsafe_path path -> Printf.sprintf "unsafe patch path: %s" path
@@ -155,14 +189,19 @@ let validate_patch ~allowed_paths ?(banned_patterns = default_banned_patterns) p
       when String.length line > 0
            && line.[0] = '+'
            && not (Util.string_contains ~needle:"+++ " line) ->
-      let lowered = String.lowercase_ascii line in
+      (* Strip the leading '+' before normalization so comment-stripping
+         and whitespace-collapsing operate on the actual added content. *)
+      let added = String.sub line 1 (String.length line - 1) in
+      let normalized_line = normalize_command added in
       let content_issues =
         List.filter_map
           (fun pattern ->
+             let normalized_pattern = normalize_command pattern in
              if
-               Util.contains_substring_ci
-                 ~haystack:lowered
-                 ~needle:(String.lowercase_ascii pattern)
+               normalized_pattern <> ""
+               && Util.contains_substring_ci
+                    ~haystack:normalized_line
+                    ~needle:normalized_pattern
              then Some (Banned_addition { path = current_path; pattern; line })
              else None)
           banned_patterns
@@ -282,4 +321,90 @@ let%test "validate_patch rejects empty patch" =
          | Empty_patch -> true
          | _ -> false)
        report.issues
+;;
+
+(* === Bypass-resistance tests (Tier C C-4) ===
+
+   Each helper builds a minimal patch with [added_line] as the added
+   content; we then assert whether the matcher catches a [rm -rf /]
+   class addition. *)
+
+let make_addition_patch added_line =
+  String.concat
+    "\n"
+    [ "diff --git a/lib/foo.ml b/lib/foo.ml"
+    ; "--- a/lib/foo.ml"
+    ; "+++ b/lib/foo.ml"
+    ; "@@"
+    ; "+" ^ added_line
+    ]
+;;
+
+let has_banned_rm_rf report =
+  List.exists
+    (function
+      | Banned_addition { pattern = "rm -rf /"; _ } -> true
+      | _ -> false)
+    report.issues
+;;
+
+let%test "normalize catches double-whitespace bypass" =
+  let patch = make_addition_patch "rm  -rf /" in
+  let report = validate_patch ~allowed_paths:[ "lib/" ] patch in
+  has_banned_rm_rf report
+;;
+
+let%test "normalize catches backslash-escape bypass" =
+  let patch = make_addition_patch {|r\m -rf /|} in
+  let report = validate_patch ~allowed_paths:[ "lib/" ] patch in
+  has_banned_rm_rf report
+;;
+
+let%test "normalize catches surrounding-whitespace bypass" =
+  let patch = make_addition_patch "  rm   -rf  /  " in
+  let report = validate_patch ~allowed_paths:[ "lib/" ] patch in
+  has_banned_rm_rf report
+;;
+
+let%test "normalize catches uppercase bypass" =
+  let patch = make_addition_patch "RM -RF /" in
+  let report = validate_patch ~allowed_paths:[ "lib/" ] patch in
+  has_banned_rm_rf report
+;;
+
+let%test "normalize catches per-token quoting bypass" =
+  let patch = make_addition_patch {|'rm' '-rf' '/'|} in
+  let report = validate_patch ~allowed_paths:[ "lib/" ] patch in
+  has_banned_rm_rf report
+;;
+
+let%test "normalize catches pre-comment dangerous content" =
+  (* semicolon-separated: dangerous part is BEFORE the comment, must match *)
+  let patch = make_addition_patch "echo hello; rm -rf /" in
+  let report = validate_patch ~allowed_paths:[ "lib/" ] patch in
+  has_banned_rm_rf report
+;;
+
+let%test "normalize ignores content inside line comment" =
+  (* the dangerous text is after [#] so it's a comment, not executed.
+     Per audit, this must NOT trigger. *)
+  let patch = make_addition_patch "echo hello # rm -rf /" in
+  let report = validate_patch ~allowed_paths:[ "lib/" ] patch in
+  not (has_banned_rm_rf report)
+;;
+
+let%test "normalize still flags mount(" =
+  let patch = make_addition_patch "let _ = mount(something)" in
+  let report = validate_patch ~allowed_paths:[ "lib/" ] patch in
+  List.exists
+    (function
+      | Banned_addition { pattern = "mount("; _ } -> true
+      | _ -> false)
+    report.issues
+;;
+
+let%test "normalize keeps benign line accepted" =
+  let patch = make_addition_patch "let answer = 42" in
+  let report = validate_patch ~allowed_paths:[ "lib/" ] patch in
+  report.accepted
 ;;
