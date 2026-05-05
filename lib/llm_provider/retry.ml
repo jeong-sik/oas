@@ -131,7 +131,10 @@ let malformed_json_indicators =
     - Google / Gemini: "Resource exhausted"
     - Mistral: "insufficient_quota"
     - Together.ai: "insufficient_funds"
-    - z.ai CJK: "余额不足" / "额度不足" *)
+    - z.ai CJK: "余额不足" / "额度不足"
+    - z.ai / GLM admin disable: "Your usage allocation has been disabled
+      by your admin"
+    - Generic: "account suspended", "account has been disabled" *)
 let hard_quota_indicators =
   [ "insufficient balance"
   ; "insufficient credit"
@@ -145,6 +148,10 @@ let hard_quota_indicators =
   ; "resource_exhausted"
   ; "余额不足"
   ; "额度不足"
+  ; "disabled by your admin"
+  ; "usage allocation has been disabled"
+  ; "account suspended"
+  ; "account has been disabled"
   ]
 ;;
 
@@ -677,6 +684,9 @@ let%test "is_hard_quota_message positive cases" =
   && is_hard_quota_message "insufficient_quota"
   && is_hard_quota_message "resource exhausted"
   && is_hard_quota_message "余额不足"
+  && is_hard_quota_message "Your usage allocation has been disabled by your admin"
+  && is_hard_quota_message "Account suspended"
+  && is_hard_quota_message "Account has been disabled"
 ;;
 
 let%test "is_hard_quota_message negative cases" =
