@@ -8,6 +8,16 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.190.14] - 2026-05-05
+
+### Added
+- `test/dune`: re-wired `test_complete_http`, `test_streaming`, and `test_llm_provider_cov` as focused test stanzas. Removes them from the runtime-failure orphan list and restores coverage for HTTP request metrics shaping, SSE typed-error parsing, and Gemini thinking-budget defaults. (#1408, #1410, #1411)
+
+### Changed
+- `test/test_complete_http.ml`: tests now construct `Metrics.t` via `{ Metrics.noop with on_cache_hit = ...; ... }` so they tolerate new optional metric callbacks (`on_capability_drop`, etc.) added since the suite was orphaned. (#1408)
+- `test/test_streaming.ml`: `test_parse_invalid_json` and `test_parse_unknown_event_type` now assert the typed `SSEParseFailed` and `SSEUnknownEventType` variants instead of the previous `None` return, matching the current `Streaming.parse_sse_event` contract. (#1410)
+- `test/test_llm_provider_cov.ml`: Gemini thinking default assertion follows `Constants.Thinking.gemini_budget ()` instead of the previously hard-coded value, so environment overrides flow through. (#1411)
+
 ## [0.190.13] - 2026-05-05
 
 ### Added
