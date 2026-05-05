@@ -133,6 +133,7 @@ module Tool_use_recovery = Tool_use_recovery
 module Tool_selector = Tool_selector
 module Lesson_memory = Lesson_memory
 module Event_forward = Event_forward
+module Relay_delivery = Relay_delivery
 module Metrics = Metrics
 module Progressive_tools = Progressive_tools
 module Autonomy_trace_analyzer = Autonomy_trace_analyzer

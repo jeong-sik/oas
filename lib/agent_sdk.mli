@@ -102,6 +102,7 @@ module Autonomy_diff_guard = Autonomy_diff_guard
 module Metric_contract = Metric_contract
 module Lesson_memory = Lesson_memory
 module Event_forward = Event_forward
+module Relay_delivery = Relay_delivery
 module Metrics = Metrics
 module Progressive_tools = Progressive_tools
 module Autonomy_trace_analyzer = Autonomy_trace_analyzer
