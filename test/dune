@@ -4,6 +4,7 @@
  (libraries agent_sdk eio eio_main yojson))
 
 ; --- AUTO-WIRED ORPHANS (fix/test-dune-orphans) ---
+; ---- (1) compile failures — not wired until bodies are fixed ----
 ; The following files are NOT wired here because they fail to compile
 ; against current main.  Bodies untouched per fix scope.  Tracked separately:
 ;   - test/test_agent_card.ml          (Agent_card.agent_info missing 'cascade')
@@ -17,6 +18,7 @@
 ;   - test/test_runtime_worker_integration.ml (type mismatch on participant_run_success)
 ;   - test/test_structured_stream.ml   (build error — see CI log)
 ;
+; ---- (2) pre-existing runtime failures — compile OK, runtest fails ----
 ; The following suites compile but have pre-existing test failures.
 ; They are excluded until the failures are fixed in separate PRs:
 ;   - test/test_api.ml                 (with_setters context_thresholds)
