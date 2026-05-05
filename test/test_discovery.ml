@@ -168,7 +168,7 @@ let test_refresh_and_sync_updates_context () =
     { url = "http://test"
     ; healthy = true
     ; models = []
-    ; props = Some { total_slots; ctx_size; model = "test" }
+    ; props = Some { total_slots; ctx_size; model = "test"; supports_tools = None }
     ; slots = None
     ; capabilities = Capabilities.default_capabilities
     }
