@@ -55,6 +55,12 @@ type provider_health_info =
   ; consecutive_failures : int
   ; circuit_open : bool
   ; cooldown_remaining_s : float option
+    (** [Some t] (where [t > 0.0]) when [circuit_open = true]: seconds remaining
+        until the circuit may close. [None] when the circuit is closed — either
+        because the consecutive failure count is below the threshold or because
+        the cooldown has already elapsed. Consumers can therefore treat
+        [None] as "no active cooldown" without having to special-case
+        [Some 0.0]. *)
   }
 
 val provider_health_info

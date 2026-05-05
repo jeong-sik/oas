@@ -101,7 +101,7 @@ let circuit_open_and_remaining health ~ccfg entry =
     | Some t ->
       let elapsed = health.time_fn () -. t in
       let remaining = ccfg.circuit_cooldown_s -. elapsed in
-      if remaining > 0.0 then true, Some remaining else false, Some 0.0)
+      if remaining > 0.0 then true, Some remaining else false, None)
 ;;
 
 let is_circuit_open health ~ccfg key =

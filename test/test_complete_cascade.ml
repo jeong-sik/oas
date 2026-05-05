@@ -138,16 +138,20 @@ let test_provider_health_info_scores_failures () =
 let test_provider_health_scores_list () =
   let health = Complete_cascade.create_health () in
   let ccfg = Complete_cascade.default_cascade_config in
-  Complete_cascade.record_failure health "anthropic";
+  (* Use canonical [model_id@base_url] keys so the test reflects how
+     [provider_health] is keyed in production via [Complete_cascade.provider_key]. *)
+  let anthropic_key = "claude-3-5-sonnet@https://api.anthropic.com" in
+  let moonshot_key = "kimi-k2@https://api.moonshot.ai" in
+  Complete_cascade.record_failure health anthropic_key;
   let scores =
     Complete_cascade.provider_health_scores
       health
       ~cascade_config:ccfg
-      ~provider_keys:[ "anthropic"; "moonshot" ]
+      ~provider_keys:[ anthropic_key; moonshot_key ]
   in
   check int "score count" 2 (List.length scores);
-  check (float 0.001) "anthropic degraded" (2.0 /. 3.0) (List.assoc "anthropic" scores);
-  check (float 0.001) "moonshot optimistic" 1.0 (List.assoc "moonshot" scores)
+  check (float 0.001) "anthropic degraded" (2.0 /. 3.0) (List.assoc anthropic_key scores);
+  check (float 0.001) "moonshot optimistic" 1.0 (List.assoc moonshot_key scores)
 ;;
 
 (* ── cascade_config defaults ──────────────────────────── *)
