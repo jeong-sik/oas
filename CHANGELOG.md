@@ -8,6 +8,11 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.190.3] - 2026-05-05
+
+### Fixed
+- `Capability_manifest`: 성공한 매니페스트 로드를 `Diag.info` 로 승격해 운영자가 디버그 플래그 없이도 override 레이어 활성화를 확인할 수 있게 함. 잘못된 JSON 타입(예: bool 자리에 string)은 silent fallback 대신 `Diag.warn` 으로 보고. `member_int` 가 Yojson 의 `Intlit` 변형도 명시적으로 처리해 큰 정수 리터럴이 잘못된 "expected int, got int" 메시지로 무시되는 문제 해결. `Diag.with_sink` 의 mli 가 테스트/단일 스레드 부트스트랩 전용 의도를 명시. (#1381, fixes #1372)
+
 ## [0.190.2] - 2026-05-05
 
 ### Build
