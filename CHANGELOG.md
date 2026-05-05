@@ -8,6 +8,11 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.190.1] - 2026-05-05
+
+### Fixed
+- `Complete_cascade.complete_cascade` honors per-kind attempt-timeout defaults (`Provider_config.default_attempt_timeout_s`) so unbounded provider waits no longer stall a turn. `Some t` with `t <= 0.0` opts out of the cascade-level timeout for callers that need to keep long-running local-model calls (e.g. an Ollama instance loading a large MoE) running to completion. Error messages render the timeout via `%g` so short test budgets like `0.01s` are not truncated to `0.0s`. Fast-path regression test now asserts elapsed wall-clock time stays below 1.0s; a broken implementation that waited the full transport sleep would fail. (#1375)
+
 ## [0.190.0] - 2026-05-05
 
 ### Added
