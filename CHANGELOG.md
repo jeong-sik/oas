@@ -8,6 +8,17 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.188.1] - 2026-05-05
+
+### Changed
+- Removed unused Jane Street `base` package from opam/dune-project dependency lists. No `open Base` or `Base.<Module>` usage existed in `lib/`, `bin/`, or `test/`; the local `agent_sdk.base` sub-library is unrelated. (#1349)
+
+### Tests
+- Added regression coverage for capability-gated serializer paths in `Backend_ollama` and `Backend_openai`: `top_k` inclusion under default capabilities, `seed` capability gate, and Ollama `done_reason=tool_calls` / thinking-block parsing. (#1356)
+
+### Docs
+- Archived `RFC-OAS-006-weighted-cascade-routing` and the `CascadeFSM*` TLA+ specs to `docs/archive/2026-04/`. Aligned `RFC-tool-selector` Section 6.3 wording with the post-0.144.0 single-provider implementation. Removed dead `Cascade_config` test sections from `test_llm_provider_cov.ml` (-235 LOC) and `test_backend_gemini.ml` (-22 LOC). (#1350)
+
 ## [0.188.0] - 2026-05-05
 
 ### Added
