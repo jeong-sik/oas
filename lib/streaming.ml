@@ -87,7 +87,19 @@ let accumulate_event (acc : stream_acc) = function
        if u.cache_read_input_tokens > 0 then acc.cache_read := u.cache_read_input_tokens
      | None -> ())
   | SSEError msg -> acc.sse_error := Some msg
-  | _ -> ()
+  | SSEParseFailed { raw; reason } ->
+    let preview =
+      if String.length raw > 200 then String.sub raw 0 200 ^ "...(truncated)" else raw
+    in
+    acc.sse_error
+    := Some (Printf.sprintf "sse_parse_failed: %s | chunk: %s" reason preview)
+  | SSEUnknownEventType { event_type; raw } ->
+    let preview =
+      if String.length raw > 200 then String.sub raw 0 200 ^ "...(truncated)" else raw
+    in
+    acc.sse_error
+    := Some (Printf.sprintf "sse_unknown_event_type: %s | chunk: %s" event_type preview)
+  | MessageStop | Ping | ContentBlockStop _ -> ()
 ;;
 
 let finalize_stream_acc (acc : stream_acc) =

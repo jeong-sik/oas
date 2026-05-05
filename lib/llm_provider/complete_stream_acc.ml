@@ -77,6 +77,18 @@ let accumulate_event (acc : stream_acc) = function
      | Some u -> acc.output_tokens := !(acc.output_tokens) + u.output_tokens
      | None -> ())
   | Types.SSEError msg -> acc.sse_error := Some msg
+  | Types.SSEParseFailed { raw; reason } ->
+    let preview =
+      if String.length raw > 200 then String.sub raw 0 200 ^ "...(truncated)" else raw
+    in
+    acc.sse_error
+    := Some (Printf.sprintf "sse_parse_failed: %s | chunk: %s" reason preview)
+  | Types.SSEUnknownEventType { event_type; raw } ->
+    let preview =
+      if String.length raw > 200 then String.sub raw 0 200 ^ "...(truncated)" else raw
+    in
+    acc.sse_error
+    := Some (Printf.sprintf "sse_unknown_event_type: %s | chunk: %s" event_type preview)
   | Types.MessageStop | Types.Ping -> ()
 ;;
 
@@ -396,6 +408,61 @@ let%test "accumulate_event SSEError records error" =
   let acc = create_stream_acc () in
   accumulate_event acc (Types.SSEError "bad");
   !(acc.sse_error) = Some "bad"
+;;
+
+(* SSEParseFailed and SSEUnknownEventType replace the previous silent [None]
+   discard in [parse_sse_event]. They MUST mark [sse_error] so that
+   [finalize_stream_acc] yields [Error _] and the cascade layer can route to
+   another provider instead of presenting a phantom completion (a partial
+   response with no MessageStop, treated as success by downstream consumers). *)
+
+let%test "accumulate_event SSEParseFailed marks stream error with reason" =
+  let acc = create_stream_acc () in
+  accumulate_event
+    acc
+    (Types.SSEParseFailed { raw = "{not json"; reason = "json_error: Line 1, bytes 0-9" });
+  match !(acc.sse_error) with
+  | Some msg ->
+    let starts s prefix =
+      String.length s >= String.length prefix
+      && String.sub s 0 (String.length prefix) = prefix
+    in
+    starts msg "sse_parse_failed:"
+  | None -> false
+;;
+
+let%test "accumulate_event SSEUnknownEventType marks stream error with type" =
+  let acc = create_stream_acc () in
+  accumulate_event
+    acc
+    (Types.SSEUnknownEventType
+       { event_type = "future_event_v3"; raw = "{\"type\":\"future_event_v3\"}" });
+  match !(acc.sse_error) with
+  | Some msg ->
+    let contains s sub =
+      let n = String.length s in
+      let m = String.length sub in
+      let rec loop i = i + m <= n && (String.sub s i m = sub || loop (i + 1)) in
+      m <= n && loop 0
+    in
+    contains msg "future_event_v3"
+  | None -> false
+;;
+
+let%test "accumulate_event SSEParseFailed truncates large raw chunks" =
+  let acc = create_stream_acc () in
+  let big = String.make 5000 'x' in
+  accumulate_event acc (Types.SSEParseFailed { raw = big; reason = "test" });
+  match !(acc.sse_error) with
+  | Some msg ->
+    let contains s sub =
+      let n = String.length s in
+      let m = String.length sub in
+      let rec loop i = i + m <= n && (String.sub s i m = sub || loop (i + 1)) in
+      m <= n && loop 0
+    in
+    String.length msg < 5000 && contains msg "truncated"
+  | None -> false
 ;;
 
 (* --- finalize_stream_acc edge cases --- *)

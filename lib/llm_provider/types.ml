@@ -357,6 +357,14 @@ type sse_event =
   | MessageStop
   | Ping
   | SSEError of string
+  | SSEParseFailed of
+      { raw : string
+      ; reason : string
+      }
+  | SSEUnknownEventType of
+      { event_type : string
+      ; raw : string
+      }
 
 (** {1 Convenience Constructors}
 
