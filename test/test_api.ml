@@ -1189,14 +1189,18 @@ let test_parse_sse_error () =
 
 let test_parse_sse_unknown_type () =
   match Streaming.parse_sse_event (Some "future_event") "{}" with
-  | None -> ()
-  | Some _ -> fail "expected None for unknown type"
+  | Some (Types.SSEUnknownEventType { event_type; raw }) ->
+    check string "event_type" "future_event" event_type;
+    check string "raw" "{}" raw
+  | _ -> fail "expected SSEUnknownEventType for unknown type"
 ;;
 
 let test_parse_sse_malformed_json () =
   match Streaming.parse_sse_event (Some "message_start") "not json" with
-  | None -> ()
-  | Some _ -> fail "expected None for malformed JSON"
+  | Some (Types.SSEParseFailed { raw; reason }) ->
+    check string "raw" "not json" raw;
+    check bool "reason present" true (String.length reason > 0)
+  | _ -> fail "expected SSEParseFailed for malformed JSON"
 ;;
 
 (* ------------------------------------------------------------------ *)
