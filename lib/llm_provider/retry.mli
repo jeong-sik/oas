@@ -43,10 +43,19 @@ val is_retryable : api_error -> bool
 val error_message : api_error -> string
 val is_context_overflow_message : string -> bool
 
-(** True when the error represents hard account-level quota exhaustion
-    (balance 0, credit depleted, monthly quota reached, resource exhausted).
-    A retry of the exact same request will never succeed until billing /
-    capacity is restored out-of-band.
+(** True when a [RateLimited] (429) error is non-retryable due to a
+    persistent account-state condition rather than transient throttling.
+
+    Two categories are detected:
+    - Quota / balance exhaustion: balance 0, credit depleted, monthly
+      quota reached, resource exhausted. Resolved by recharging or
+      waiting for the next billing cycle.
+    - Account access disabled: admin-disabled allocation, suspended /
+      disabled account. Resolved by re-enabling the account or contacting
+      the provider; recharging alone does not unblock.
+
+    In either case retrying the exact same request will never succeed
+    until the underlying account state is changed out-of-band.
 
     Only [RateLimited] messages are inspected; other variants return [false].
 
