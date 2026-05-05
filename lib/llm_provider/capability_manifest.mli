@@ -87,6 +87,10 @@ val of_json : Yojson.Safe.t -> (t, string) result
     path.  Returns [Error msg] on I/O or JSON parse errors. *)
 val load_file : string -> (t, string) result
 
+(** [load_runtime_file path] reads a manifest for runtime use and emits
+    operator diagnostics for success or failure. *)
+val load_runtime_file : string -> t option
+
 (** [lookup t model_id] returns the first entry whose [id_prefix] is a
     case-insensitive prefix of [model_id].  Returns [None] when no
     entry matches. *)

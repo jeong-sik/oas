@@ -35,22 +35,63 @@ type t = entry list
 
 (* ── JSON parsing helpers ───────────────────────────────── *)
 
+let json_kind = function
+  | `Null -> "null"
+  | `Bool _ -> "bool"
+  | `Int _ -> "int"
+  | `Intlit _ -> "intlit"
+  | `Float _ -> "float"
+  | `String _ -> "string"
+  | `Assoc _ -> "object"
+  | `List _ -> "array"
+  | `Tuple _ -> "tuple"
+  | `Variant _ -> "variant"
+;;
+
+let warn_type_mismatch key ~expected actual =
+  match actual with
+  | `Null -> ()
+  | _ ->
+    Diag.warn
+      "capability_manifest"
+      "ignoring field %S: expected %s, got %s"
+      key
+      expected
+      (json_kind actual)
+;;
+
 let member_bool key json =
   match Yojson.Safe.Util.member key json with
   | `Bool b -> Some b
-  | _ -> None
+  | actual ->
+    warn_type_mismatch key ~expected:"bool" actual;
+    None
 ;;
 
 let member_int key json =
   match Yojson.Safe.Util.member key json with
   | `Int n -> Some n
-  | _ -> None
+  | `Intlit s ->
+    (match int_of_string_opt s with
+     | Some n -> Some n
+     | None ->
+       Diag.warn
+         "capability_manifest"
+         "ignoring field %S: integer literal %S out of native int range"
+         key
+         s;
+       None)
+  | actual ->
+    warn_type_mismatch key ~expected:"int" actual;
+    None
 ;;
 
 let member_string_opt key json =
   match Yojson.Safe.Util.member key json with
   | `String s -> Some s
-  | _ -> None
+  | actual ->
+    warn_type_mismatch key ~expected:"string" actual;
+    None
 ;;
 
 let parse_entry json =
@@ -134,6 +175,20 @@ let load_file path =
   Result.bind read_result of_json
 ;;
 
+let load_runtime_file path =
+  match load_file path with
+  | Ok manifest ->
+    Diag.info
+      "capability_manifest"
+      "loaded %d entries from %s"
+      (List.length manifest)
+      path;
+    Some manifest
+  | Error msg ->
+    Diag.warn "capability_manifest" "failed to load %s: %s" path msg;
+    None
+;;
+
 (* ── Lookup ─────────────────────────────────────────────── *)
 
 let lookup (t : t) model_id =
@@ -152,18 +207,7 @@ let global_manifest : t option Lazy.t =
   lazy
     (match Cli_common_env.get "OAS_CAPABILITY_MANIFEST" with
      | None -> None
-     | Some path ->
-       (match load_file path with
-        | Ok manifest ->
-          Diag.debug
-            "capability_manifest"
-            "loaded %d entries from %s"
-            (List.length manifest)
-            path;
-          Some manifest
-        | Error msg ->
-          Diag.warn "capability_manifest" "failed to load %s: %s" path msg;
-          None))
+     | Some path -> load_runtime_file path)
 ;;
 
 let global () = Lazy.force global_manifest
