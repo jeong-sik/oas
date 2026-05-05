@@ -8,6 +8,17 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.190.4] - 2026-05-05
+
+### Added
+- `Relay_delivery` 프리미티브: persist-then-publish 패턴을 위한 2-stage delivery state machine + retry queue + stats. `Runtime_health` probe 도 함께 노출. (#1383)
+
+### Changed
+- `agent_sdk.base` 라이브러리 `wrapped: true` 로 전환. `Agent_sdk` 가 `Agent_sdk_base` 전체를 `re_export` 하고 `Result_syntax` 를 포함한 모든 base 모듈을 top-level alias 로 노출. 직접 `agent_sdk.base` 의존하던 다운스트림은 `agent_sdk` 또는 qualified `Agent_sdk_base.*` 경로로 마이그레이션. (#1385)
+
+### Build
+- 신규 `.github/workflows/pr-automation.yml` Draft Auto-Merge Guard: human approval 라벨 없는 PR 의 auto-merge 활성화 + draft 해제를 자동 차단. labels REST 페이지네이션 사용, `allow-auto-merge` 빌트인 라벨은 명시적으로 bypass 후보에서 제외. (#1384, fixes #1278)
+
 ## [0.190.3] - 2026-05-05
 
 ### Fixed
