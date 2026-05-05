@@ -8,6 +8,14 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.190.21] - 2026-05-06
+
+### Added
+- `test/dune`: re-wired `test_agent_card` as a standalone test stanza, removing it from the compile-fail orphan list. (#1425)
+
+### Fixed
+- `test/test_agent_card.ml`: removed the stale `cascade` field from the `Agent_card.agent_info` fixture; the field was dropped from the production type but the orphaned test still populated it, blocking compile. (#1425)
+
 ## [0.190.20] - 2026-05-06
 
 ### Added
