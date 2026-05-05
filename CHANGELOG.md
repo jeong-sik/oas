@@ -8,6 +8,17 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.189.1] - 2026-05-05
+
+### Added
+- Ollama dynamic capability discovery via `/api/show`: `Discovery` overlays Ollama-reported tool/multimodal/JSON capabilities on top of the static capability table when probing Ollama endpoints. Pure capability merge with no new public API. (#1362)
+
+### Fixed
+- DashScope structured output now goes through `validate_output_schema_request` correctly. The validator previously gated only on `config.output_schema`, allowing callers to construct a `Provider_config.t` with `response_format = JsonSchema _` and `output_schema = None` and silently bypass GLM/DashScope tightening. The new helper `structured_schema_requested` treats either field as a native-schema request. (#1360)
+
+### Tests
+- Added `prefix_ordering` regression suite for `Capabilities.for_model_id`: every shadow pair (longer prefix shadowed by an earlier shorter prefix) is asserted to resolve to the more-specific branch. Anti-pattern M01: silent capability mismatch when prefixes are reordered. (#1361)
+
 ## [0.189.0] - 2026-05-05
 
 ### Added
