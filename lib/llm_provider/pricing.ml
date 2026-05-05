@@ -209,7 +209,8 @@ let static_pricing_opt_normalized normalized =
        ; output_per_million
        ; cache_write_multiplier = cw
        ; cache_read_multiplier = cr
-       } : pricing)
+       }
+       : pricing)
   | None -> None
 ;;
 
@@ -229,7 +230,8 @@ let pricing_for_model_opt model_id =
        ; output_per_million = e.output_per_million
        ; cache_write_multiplier = e.cache_write_multiplier
        ; cache_read_multiplier = e.cache_read_multiplier
-       } : pricing)
+       }
+       : pricing)
   | None -> static_pricing_opt_normalized normalized
 ;;
 
@@ -367,9 +369,21 @@ let parse_pricing_entries_json json =
   match json with
   | `List entries ->
     let results = List.map pricing_entry_of_json entries in
-    let errors = List.filter_map (function Error e -> Some e | Ok _ -> None) results in
+    let errors =
+      List.filter_map
+        (function
+          | Error e -> Some e
+          | Ok _ -> None)
+        results
+    in
     (match errors with
-     | [] -> Ok (List.filter_map (function Ok e -> Some e | Error _ -> None) results)
+     | [] ->
+       Ok
+         (List.filter_map
+            (function
+              | Ok e -> Some e
+              | Error _ -> None)
+            results)
      | errs -> Error ("pricing entry parse errors: " ^ String.concat "; " errs))
   | _ -> Error "expected a JSON array of pricing entries"
 ;;
@@ -379,9 +393,9 @@ let parse_pricing_entries_json json =
     On failure, leaves any existing overrides intact and returns [Error msg]. *)
 let load_pricing_file path =
   match
-    (try Ok (Yojson.Safe.from_file path) with
-     | Sys_error msg -> Error ("cannot read pricing file: " ^ msg)
-     | Yojson.Json_error msg -> Error ("pricing file JSON parse error: " ^ msg))
+    try Ok (Yojson.Safe.from_file path) with
+    | Sys_error msg -> Error ("cannot read pricing file: " ^ msg)
+    | Yojson.Json_error msg -> Error ("pricing file JSON parse error: " ^ msg)
   with
   | Error _ as e -> e
   | Ok json ->
@@ -421,8 +435,8 @@ let pricing_overrides_from_env () =
      | Some raw when String.trim raw <> "" ->
        let raw = String.trim raw in
        (match
-          (try Ok (Yojson.Safe.from_string raw)
-           with Yojson.Json_error msg -> Error ("JSON parse error: " ^ msg))
+          try Ok (Yojson.Safe.from_string raw) with
+          | Yojson.Json_error msg -> Error ("JSON parse error: " ^ msg)
         with
         | Error msg ->
           Diag.warn
@@ -972,7 +986,8 @@ let%test "install_pricing_overrides: overrides shadow static table entry" =
   install_pricing_overrides [ entry ];
   let result =
     match pricing_for_model_opt "claude-opus-4-6" with
-    | Some p -> close_enough p.input_per_million 20.0 && close_enough p.output_per_million 100.0
+    | Some p ->
+      close_enough p.input_per_million 20.0 && close_enough p.output_per_million 100.0
     | None -> false
   in
   clear_pricing_overrides ();
@@ -1033,7 +1048,8 @@ let%test "parse_pricing_entries_json: not an array returns Error" =
 
 let%test "parse_pricing_entries_json: empty pattern returns Error" =
   let json =
-    Yojson.Safe.from_string {|[{"pattern":"","input_per_million":1.0,"output_per_million":2.0}]|}
+    Yojson.Safe.from_string
+      {|[{"pattern":"","input_per_million":1.0,"output_per_million":2.0}]|}
   in
   match parse_pricing_entries_json json with
   | Error _ -> true
