@@ -8,6 +8,14 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.190.10] - 2026-05-05
+
+### Changed
+- `Mode_enforcer.record_effect_evidence` now stores the repo-relative path produced by `__FILE__` (e.g. `lib/mode_enforcer.ml`) in `source_path` instead of the basename-only payload introduced in 0.190.9. The repo-relative form preserves directory context while still being build-environment independent. The corresponding `test/test_cdal.ml` substring assertion was tightened to fail on basename-only regressions. (#1400)
+
+### Added
+- `test_circuit_open_skips_provider_and_falls_back` regression in `test/test_complete_cascade.ml`: proves an OPEN provider is skipped and the next provider in the cascade succeeds without invoking the open one. (#1400)
+
 ## [0.190.9] - 2026-05-05
 
 ### Added
