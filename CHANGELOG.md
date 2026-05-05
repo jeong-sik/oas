@@ -8,6 +8,14 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.190.16] - 2026-05-06
+
+### Added
+- `test/dune`: re-wired `test_api` as a standalone test stanza. (#1415)
+
+### Changed
+- `test/test_api.ml`: SSE unknown-event and malformed-JSON assertions updated to expect the structured parser error variants emitted by the current `Streaming.parse_sse_event` contract, replacing the previous `None`-return expectations. (#1415)
+
 ## [0.190.15] - 2026-05-06
 
 ### Added
