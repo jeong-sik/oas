@@ -60,89 +60,7 @@ let mcp_tool_of_sdk_tool (t : Sdk_types.tool) : mcp_tool =
   }
 ;;
 
-let descriptor_for_builtin_tool name =
-  let empty =
-    { Tool.kind = None
-    ; mutation_class = None
-    ; concurrency_class = None
-    ; permission = None
-    ; shell = None
-    ; notes = []
-    ; examples = []
-    }
-  in
-  match String.lowercase_ascii name with
-  (* Read-only: file/code, notebook, browser observation, task queries *)
-  | "read"
-  | "glob"
-  | "grep"
-  | "search"
-  | "list_dir"
-  | "find_file"
-  | "read_file"
-  | "find_symbol"
-  | "get_symbols_overview"
-  | "find_referencing_symbols"
-  | "search_for_pattern"
-  | "notebook_read"
-  | "read_console_messages"
-  | "read_network_requests"
-  | "get_page_text"
-  | "read_page"
-  | "tabs_context_mcp"
-  | "task_list"
-  | "task_get"
-  | "task_output" ->
-    Some
-      { empty with
-        mutation_class = Some "read_only"
-      ; concurrency_class = Some Tool.Parallel_read
-      }
-  (* Local-mutation: file editing, task/team management *)
-  | "write"
-  | "edit"
-  | "create_text_file"
-  | "replace_content"
-  | "rename_symbol"
-  | "insert_after_symbol"
-  | "insert_before_symbol"
-  | "replace_symbol_body"
-  | "notebook_edit"
-  | "task_create"
-  | "task_update"
-  | "task_stop"
-  | "team_create"
-  | "team_delete" ->
-    Some
-      { empty with
-        mutation_class = Some "workspace_mutating"
-      ; concurrency_class = Some Tool.Sequential_workspace
-      }
-  (* External-effect: HITL, web, browser interaction *)
-  | "ask_user_question"
-  | "web_fetch"
-  | "web_search"
-  | "navigate"
-  | "computer"
-  | "find"
-  | "form_input"
-  | "javascript_tool"
-  | "tabs_create_mcp"
-  | "upload_image" ->
-    Some
-      { empty with
-        mutation_class = Some "external_effect"
-      ; concurrency_class = Some Tool.Exclusive_external
-      }
-  (* Shell-dynamic *)
-  | "bash" | "execute_shell_command" ->
-    Some
-      { empty with
-        mutation_class = Some "external_effect"
-      ; concurrency_class = Some Tool.Exclusive_external
-      }
-  | _ -> None
-;;
+let descriptor_for_builtin_tool = Mode_enforcer.builtin_descriptor
 
 (** Convert {!mcp_tool} to SDK {!Tool.t} with the given call handler. *)
 let mcp_tool_to_sdk_tool ~call_fn mcp_tool =
@@ -257,6 +175,7 @@ let%test "descriptor_for_builtin_tool read is read_only" =
   match descriptor_for_builtin_tool "read" with
   | Some d ->
     d.mutation_class = Some "read_only" && d.concurrency_class = Some Tool.Parallel_read
+    && d.permission = Some Tool.ReadOnly
   | None -> false
 ;;
 
@@ -265,14 +184,16 @@ let%test "descriptor_for_builtin_tool web_fetch is external" =
   | Some d ->
     d.mutation_class = Some "external_effect"
     && d.concurrency_class = Some Tool.Exclusive_external
+    && d.permission = Some Tool.Destructive
   | None -> false
 ;;
 
 let%test "descriptor_for_builtin_tool task_create is mutation" =
   match descriptor_for_builtin_tool "task_create" with
   | Some d ->
-    d.mutation_class = Some "workspace_mutating"
+    d.mutation_class = Some "local_mutation"
     && d.concurrency_class = Some Tool.Sequential_workspace
+    && d.permission = Some Tool.Write
   | None -> false
 ;;
 
