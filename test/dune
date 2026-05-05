@@ -22,7 +22,6 @@
 ;   - test/test_cli.ml                 (version/init/card/help/eval)
 ;   - test/test_full_pipeline_cov.ml   (structured JSON parse)
 ;   - test/test_lenient_json.ml        (double_stringify union)
-;   - test/test_llm_provider_cov.ml    (backend_gemini thinking default)
 ;
 ; Dune runs tests in sandboxes, so runtime-spawning tests cannot rely on
 ; cwd-relative _build/default/bin/oas_runtime.exe discovery.
@@ -319,3 +318,8 @@
  (name test_complete_http)
  (modules test_complete_http)
  (libraries agent_sdk llm_provider alcotest eio_main))
+
+(test
+ (name test_llm_provider_cov)
+ (modules test_llm_provider_cov)
+ (libraries agent_sdk llm_provider alcotest))

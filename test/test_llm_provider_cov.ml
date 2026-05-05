@@ -707,7 +707,7 @@ let test_build_request_with_thinking_default_budget () =
   let tc = gc |> member "thinkingConfig" in
   Alcotest.(check int)
     "default thinkingBudget"
-    10000
+    (Constants.Thinking.gemini_budget ())
     (tc |> member "thinkingBudget" |> to_int)
 ;;
 
