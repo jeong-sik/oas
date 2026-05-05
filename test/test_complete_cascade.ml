@@ -223,6 +223,70 @@ let test_skip_reason_variant () =
     check string "provider" "test@localhost" provider
 ;;
 
+let test_circuit_open_skips_provider_and_falls_back () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let clock = Eio.Stdenv.clock env in
+  let health = Complete_cascade.create_health ~clock () in
+  let anthropic =
+    Provider_config.make
+      ~kind:Anthropic
+      ~model_id:"claude-sonnet-4-20250514"
+      ~base_url:"https://api.anthropic.com"
+      ()
+  in
+  let moonshot =
+    Provider_config.make
+      ~kind:Kimi
+      ~model_id:"moonshot-v1"
+      ~base_url:"https://api.moonshot.cn"
+      ()
+  in
+  let anthropic_key = Complete_cascade.provider_key anthropic in
+  Complete_cascade.record_failure health anthropic_key;
+  Complete_cascade.record_failure health anthropic_key;
+  Complete_cascade.record_failure health anthropic_key;
+  let seen_models = ref [] in
+  let transport : Llm_transport.t =
+    { complete_sync =
+        (fun (req : Llm_transport.completion_request) ->
+          seen_models := req.config.model_id :: !seen_models;
+          { Llm_transport.response = Ok dummy_response; latency_ms = 25 })
+    ; complete_stream =
+        (fun ~on_event:_ (req : Llm_transport.completion_request) ->
+          seen_models := req.config.model_id :: !seen_models;
+          Ok dummy_response)
+    }
+  in
+  let result =
+    Complete_cascade.complete_cascade
+      ~sw
+      ~net:(Eio.Stdenv.net env)
+      ~clock
+      ~transport
+      ~health
+      ~steps:[ anthropic; moonshot ]
+      ~messages:[]
+      ()
+  in
+  check (list string) "only fallback provider called" [ "moonshot-v1" ] !seen_models;
+  let ccfg = Complete_cascade.default_cascade_config in
+  let anthropic_info =
+    Complete_cascade.provider_health_info
+      health
+      ~cascade_config:ccfg
+      ~provider_key:anthropic_key
+  in
+  check bool "anthropic circuit remains open" true anthropic_info.circuit_open;
+  match result with
+  | Complete_cascade.Success { step_index; model_id; _ } ->
+    check int "fallback step index" 1 step_index;
+    check string "fallback model" "moonshot-v1" model_id
+  | _ -> fail "expected fallback Success"
+;;
+
 let test_attempt_timeout_fast_paths_without_retrying_same_step () =
   Eio_main.run
   @@ fun env ->
@@ -341,6 +405,7 @@ let suite =
   ; "result_all_failed", `Quick, test_result_all_failed_variant
   ; "result_hard_quota", `Quick, test_result_hard_quota_variant
   ; "skip_reason", `Quick, test_skip_reason_variant
+  ; "circuit_open_fallback", `Quick, test_circuit_open_skips_provider_and_falls_back
   ; ( "attempt_timeout_fast_path"
     , `Quick
     , test_attempt_timeout_fast_paths_without_retrying_same_step )
