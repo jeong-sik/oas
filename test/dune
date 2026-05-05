@@ -30,6 +30,10 @@
 ;   - test/test_provider_bridge.ml     (to_provider_config zai coding auto)
 ;   - test/test_provider_complete.ml   (openai_build_request glm reasoning)
 ;   - test/test_streaming.ml           (parse_sse_event unknown/malformed)
+;
+; Dune runs tests in sandboxes, so runtime-spawning tests cannot rely on
+; cwd-relative _build/default/bin/oas_runtime.exe discovery.
+; Point all wired suites at the locally built public runtime binary.
 
 (tests
  (names
@@ -246,7 +250,13 @@
   test_v024_fixes
   test_vcs_graph_snapshot
   test_verified_output)
- (libraries agent_sdk alcotest))
+ (libraries agent_sdk alcotest)
+ (deps %{bin:oas-runtime})
+ (action
+  (setenv
+   OAS_RUNTIME_PATH
+   %{bin:oas-runtime}
+   (run %{test}))))
 
 ; QCheck-based property tests
 
@@ -259,7 +269,13 @@
   test_property_advanced
   test_tool_op
   test_tool_set)
- (libraries agent_sdk alcotest qcheck-core qcheck-alcotest))
+ (libraries agent_sdk alcotest qcheck-core qcheck-alcotest)
+ (deps %{bin:oas-runtime})
+ (action
+  (setenv
+   OAS_RUNTIME_PATH
+   %{bin:oas-runtime}
+   (run %{test}))))
 
 ; Tests with extra dependencies — kept as individual stanzas
 ; so the grouped (tests (names ...)) above does not need to pull
@@ -268,4 +284,10 @@
 (test
  (name test_complete_cascade)
  (modules test_complete_cascade)
- (libraries agent_sdk alcotest eio_main))
+ (libraries agent_sdk alcotest eio_main)
+ (deps %{bin:oas-runtime})
+ (action
+  (setenv
+   OAS_RUNTIME_PATH
+   %{bin:oas-runtime}
+   (run %{test}))))
