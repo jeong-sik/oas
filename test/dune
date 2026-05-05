@@ -14,7 +14,6 @@
 ;   - test/test_event_integration.ml   (Unbound module Handoff)
 ;   - test/test_guardrails_async.ml    (pattern shape mismatch vs new return type)
 ;   - test/test_pipeline_deep.ml       (record missing 'enable_thinking')
-;   - test/test_provider_config.ml     (record missing 'reasoning_tokens_estimated')
 ;   - test/test_runtime_worker_integration.ml (type mismatch on participant_run_success)
 ;   - test/test_structured_stream.ml   (build error — see CI log)
 ;
@@ -181,6 +180,7 @@
   test_progressive_tools
   test_proof_store_cross_run
   test_provider
+  test_provider_config
   test_provider_intf
   test_provider_registry
   test_raw_trace
