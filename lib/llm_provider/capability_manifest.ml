@@ -124,12 +124,14 @@ let of_json json =
 ;;
 
 let load_file path =
-  (try Ok (Yojson.Safe.from_file path) with
-   | Sys_error msg ->
-     Error (Printf.sprintf "cannot read capability manifest %s: %s" path msg)
-   | Yojson.Json_error msg ->
-     Error (Printf.sprintf "capability manifest JSON parse error in %s: %s" path msg))
-  |> Result.bind of_json
+  let read_result =
+    try Ok (Yojson.Safe.from_file path) with
+    | Sys_error msg ->
+      Error (Printf.sprintf "cannot read capability manifest %s: %s" path msg)
+    | Yojson.Json_error msg ->
+      Error (Printf.sprintf "capability manifest JSON parse error in %s: %s" path msg)
+  in
+  Result.bind read_result of_json
 ;;
 
 (* ── Lookup ─────────────────────────────────────────────── *)
