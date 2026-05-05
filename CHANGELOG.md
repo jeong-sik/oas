@@ -8,6 +8,14 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.190.2] - 2026-05-05
+
+### Build
+- `test/dune` 의 wired stanza 들이 `Transport.find_runtime` 호출 시 sandbox cwd 에서 `_build/default/bin/oas_runtime.exe` 를 못 찾는 문제 해결. 두 단계로 처리:
+  - `.github/workflows/ci.yml`: Test/Coverage step 에 `OAS_RUNTIME_PATH=${{ github.workspace }}/_build/default/bin/oas_runtime.exe` 환경변수 export. Coverage step 의 `dune clean` 이후엔 `dune build bin/oas_runtime.exe` 도 추가. (#1377)
+  - `test/dune`: 모든 wired `(tests ...)` 와 `test_complete_cascade` stanza 에 `(deps %{bin:oas-runtime})` + `(action (setenv OAS_RUNTIME_PATH %{bin:oas-runtime} (run %{test})))` 추가. self-contained 동작 — 로컬 `dune runtest` 도 더 이상 환경변수 의존성 없음. (#1378)
+- 이전에 wired 안 돼 있던 100+ 테스트 모듈을 `test/dune` 에 그룹화 stanza 로 정식 wiring. 기존에 실수로 격리돼 있던 회귀 테스트들이 CI 의 default runtest 신호에 합류. compile-fail / pre-existing 실패 suite 는 헤더 코멘트로 명시 skip 처리. (#1374)
+
 ## [0.190.1] - 2026-05-05
 
 ### Fixed
