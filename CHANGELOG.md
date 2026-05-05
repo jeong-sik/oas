@@ -8,6 +8,14 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.190.15] - 2026-05-06
+
+### Added
+- `test/dune`: re-wired `test_lenient_json` as a focused stanza, removing it from the runtime-failure orphan list. (#1413)
+
+### Changed
+- `Lenient_json.parse`: `maybe_unwrap_string` now also triggers when the inner string starts with `"`, matching the existing recovery transform's behavior so triple-stringified JSON strings are unwrapped consistently with double-stringified objects/arrays. Trigger condition expanded from `t.[0] = '{' || t.[0] = '['` to `t.[0] = '{' || t.[0] = '[' || t.[0] = '"'`. (#1413)
+
 ## [0.190.14] - 2026-05-05
 
 ### Added
