@@ -26,10 +26,13 @@ let check_contains label s sub =
 let with_temp_manifest contents f =
   let path = Filename.temp_file "oas-capability-manifest" ".json" in
   let oc = open_out path in
-  Fun.protect ~finally:(fun () -> close_out_noerr oc) (fun () ->
-    output_string oc contents);
   Fun.protect
-    ~finally:(fun () -> try Sys.remove path with Sys_error _ -> ())
+    ~finally:(fun () -> close_out_noerr oc)
+    (fun () -> output_string oc contents);
+  Fun.protect
+    ~finally:(fun () ->
+      try Sys.remove path with
+      | Sys_error _ -> ())
     (fun () -> f path)
 ;;
 
@@ -402,6 +405,67 @@ let test_manifest_wrong_type_fields_warn_and_ignore () =
   check bool "warned for supports_tools" true (has_warning "supports_tools" "bool")
 ;;
 
+let test_manifest_intlit_in_range_accepted () =
+  (* Yojson.Safe represents large literals as `Intlit s. Build the JSON value
+     directly to exercise the Intlit branch deterministically. *)
+  let json =
+    `Assoc
+      [ "schema_version", `Int 1
+      ; ( "models"
+        , `List
+            [ `Assoc
+                [ "id_prefix", `String "intlit-ok"
+                ; "max_context_tokens", `Intlit "131072"
+                ]
+            ] )
+      ]
+  in
+  match Capability_manifest.of_json json with
+  | Ok [ entry ] ->
+    check (option int) "intlit accepted" (Some 131_072) entry.max_context_tokens
+  | Ok _ -> Alcotest.fail "expected one manifest entry"
+  | Error msg -> Alcotest.failf "unexpected parse error: %s" msg
+;;
+
+let test_manifest_intlit_out_of_range_warns () =
+  let warnings = ref [] in
+  let huge = "99999999999999999999999999" in
+  let json =
+    `Assoc
+      [ "schema_version", `Int 1
+      ; ( "models"
+        , `List
+            [ `Assoc
+                [ "id_prefix", `String "intlit-overflow"
+                ; "max_context_tokens", `Intlit huge
+                ]
+            ] )
+      ]
+  in
+  let manifest =
+    Diag.with_sink
+      (fun level ~ctx msg -> warnings := (level, ctx, msg) :: !warnings)
+      (fun () -> Capability_manifest.of_json json)
+  in
+  let entry =
+    match manifest with
+    | Ok [ entry ] -> entry
+    | Ok _ -> Alcotest.fail "expected one manifest entry"
+    | Error msg -> Alcotest.failf "unexpected parse error: %s" msg
+  in
+  check (option int) "out-of-range intlit ignored" None entry.max_context_tokens;
+  let has_warning =
+    List.exists
+      (fun (level, ctx, msg) ->
+         level = Diag.Warn
+         && String.equal ctx "capability_manifest"
+         && string_contains_sub msg "max_context_tokens"
+         && string_contains_sub msg "out of native int range")
+      !warnings
+  in
+  check bool "warned about overflow" true has_warning
+;;
+
 let test_manifest_load_file_missing_returns_error () =
   let path = Filename.temp_file "oas-capability-manifest-missing" ".json" in
   Sys.remove path;
@@ -432,7 +496,8 @@ let test_manifest_load_runtime_file_success_logs_info () =
            (fun () -> Capability_manifest.load_runtime_file path)
        in
        (match manifest with
-        | Some [ entry ] -> check string "loaded id_prefix" "runtime-visible" entry.id_prefix
+        | Some [ entry ] ->
+          check string "loaded id_prefix" "runtime-visible" entry.id_prefix
         | Some _ -> Alcotest.fail "expected one runtime manifest entry"
         | None -> Alcotest.fail "expected runtime manifest to load");
        let has_info =
@@ -609,6 +674,14 @@ let () =
             "wrong-type fields warn and ignore"
             `Quick
             test_manifest_wrong_type_fields_warn_and_ignore
+        ; test_case
+            "intlit in range accepted"
+            `Quick
+            test_manifest_intlit_in_range_accepted
+        ; test_case
+            "intlit out of range warns"
+            `Quick
+            test_manifest_intlit_out_of_range_warns
         ; test_case
             "missing manifest file errors"
             `Quick

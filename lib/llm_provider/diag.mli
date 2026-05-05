@@ -23,7 +23,15 @@ val level_to_string : level -> string
 val set_sink : (level -> ctx:string -> string -> unit) -> unit
 
 (** Temporarily replace the global diagnostic sink while [f] runs.
-    The previous sink is restored even if [f] raises. *)
+    The previous sink is restored even if [f] raises.
+
+    Concurrency: the swap-and-restore is intended for tests and
+    single-threaded bootstrap. The sink is global, so during [f]
+    diagnostics from other threads/domains are also routed through
+    [sink]; a concurrent [set_sink] from another thread can be
+    overwritten when the previous sink is restored on return. Do not
+    use in production code paths that may run alongside other
+    diagnostic producers. *)
 val with_sink : (level -> ctx:string -> string -> unit) -> (unit -> 'a) -> 'a
 
 (** Emit diagnostics at the given level.

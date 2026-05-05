@@ -39,7 +39,7 @@ let json_kind = function
   | `Null -> "null"
   | `Bool _ -> "bool"
   | `Int _ -> "int"
-  | `Intlit _ -> "int"
+  | `Intlit _ -> "intlit"
   | `Float _ -> "float"
   | `String _ -> "string"
   | `Assoc _ -> "object"
@@ -71,6 +71,16 @@ let member_bool key json =
 let member_int key json =
   match Yojson.Safe.Util.member key json with
   | `Int n -> Some n
+  | `Intlit s ->
+    (match int_of_string_opt s with
+     | Some n -> Some n
+     | None ->
+       Diag.warn
+         "capability_manifest"
+         "ignoring field %S: integer literal %S out of native int range"
+         key
+         s;
+       None)
   | actual ->
     warn_type_mismatch key ~expected:"int" actual;
     None
