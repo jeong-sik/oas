@@ -237,12 +237,12 @@ let parse (s : string) : Yojson.Safe.t =
     | exception Yojson.Json_error _ -> None
   in
   (* Unwrap double-stringified JSON: if direct parse yields a string
-     whose content is itself a JSON object or array, parse the inner value.
+     whose content is itself JSON, parse the inner value.
      This handles LLMs that wrap JSON in an extra layer of string escaping. *)
   let maybe_unwrap_string = function
     | `String inner ->
       let t = String.trim inner in
-      if String.length t > 0 && (t.[0] = '{' || t.[0] = '[')
+      if String.length t > 0 && (t.[0] = '{' || t.[0] = '[' || t.[0] = '"')
       then (
         match try_parse t with
         | Some json -> json

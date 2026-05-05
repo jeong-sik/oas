@@ -21,7 +21,6 @@
 ;   - test/test_builder.ml             (with_setters)
 ;   - test/test_cli.ml                 (version/init/card/help/eval)
 ;   - test/test_full_pipeline_cov.ml   (structured JSON parse)
-;   - test/test_lenient_json.ml        (double_stringify union)
 ;
 ; Dune runs tests in sandboxes, so runtime-spawning tests cannot rely on
 ; cwd-relative _build/default/bin/oas_runtime.exe discovery.
@@ -323,3 +322,8 @@
  (name test_llm_provider_cov)
  (modules test_llm_provider_cov)
  (libraries agent_sdk llm_provider alcotest))
+
+(test
+ (name test_lenient_json)
+ (modules test_lenient_json)
+ (libraries agent_sdk alcotest))
