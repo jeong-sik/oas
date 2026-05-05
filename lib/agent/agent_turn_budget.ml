@@ -41,12 +41,7 @@ type t =
   }
 
 let create ~initial ~ceiling ?(max_per_extend = 20) ?(max_extensions = 10) () =
-  { initial
-  ; ceiling = max ceiling initial
-  ; max_per_extend
-  ; max_extensions
-  ; history = []
-  }
+  { initial; ceiling = max ceiling initial; max_per_extend; max_extensions; history = [] }
 ;;
 
 let extensions_count t = List.length t.history
