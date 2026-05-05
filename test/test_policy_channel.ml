@@ -76,7 +76,7 @@ let test_channel_restricts_tools () =
   in
   let tools_json, _, _ =
     Agent_turn.prepare_tools
-      ~guardrails:Guardrails.default
+      ~guardrails:Guardrails.permissive
       ~operator_policy:None
       ~policy_channel:(Some ch)
       ~tools
@@ -95,7 +95,7 @@ let test_channel_none_is_noop () =
   let tools = Tool_set.of_list [ make_tool "a"; make_tool "b" ] in
   let tools_json, _, _ =
     Agent_turn.prepare_tools
-      ~guardrails:Guardrails.default
+      ~guardrails:Guardrails.permissive
       ~operator_policy:None
       ~policy_channel:None
       ~tools
@@ -115,7 +115,7 @@ let test_channel_empty_is_noop () =
   let tools = Tool_set.of_list [ make_tool "a"; make_tool "b" ] in
   let tools_json, _, _ =
     Agent_turn.prepare_tools
-      ~guardrails:Guardrails.default
+      ~guardrails:Guardrails.permissive
       ~operator_policy:None
       ~policy_channel:(Some ch)
       ~tools
@@ -139,7 +139,7 @@ let test_channel_overrides_operator_policy () =
   let tools = Tool_set.of_list [ make_tool "a"; make_tool "b"; make_tool "c" ] in
   let tools_json, _, _ =
     Agent_turn.prepare_tools
-      ~guardrails:Guardrails.default
+      ~guardrails:Guardrails.permissive
       ~operator_policy:(Some (Guardrails.AllowList [ "a"; "b" ]))
       ~policy_channel:(Some ch)
       ~tools
@@ -168,7 +168,7 @@ let test_multiple_updates_compose_correctly () =
   in
   let tools_json, _, _ =
     Agent_turn.prepare_tools
-      ~guardrails:Guardrails.default
+      ~guardrails:Guardrails.permissive
       ~operator_policy:None
       ~policy_channel:(Some ch)
       ~tools
@@ -191,7 +191,7 @@ let test_shared_channel_between_agents () =
   (* Before push: child sees all *)
   let tools_json_before, _, _ =
     Agent_turn.prepare_tools
-      ~guardrails:Guardrails.default
+      ~guardrails:Guardrails.permissive
       ~operator_policy:None
       ~policy_channel:(Some ch)
       ~tools
@@ -209,7 +209,7 @@ let test_shared_channel_between_agents () =
   (* After push: child sees reduced set *)
   let tools_json_after, _, _ =
     Agent_turn.prepare_tools
-      ~guardrails:Guardrails.default
+      ~guardrails:Guardrails.permissive
       ~operator_policy:None
       ~policy_channel:(Some ch)
       ~tools

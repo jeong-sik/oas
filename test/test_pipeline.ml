@@ -164,7 +164,7 @@ let test_agent_turn_preparation () =
   in
   let prep =
     Agent_turn.prepare_turn
-      ~guardrails:Guardrails.default
+      ~guardrails:Guardrails.permissive
       ~operator_policy:None
       ~policy_channel:None
       ~tools
@@ -301,7 +301,7 @@ let test_mock_to_provider_config () =
 (* ── Guardrails: tool filtering (exercises pipeline's Stage 2/5) ── *)
 
 let test_guardrails_allow_all () =
-  let g = Guardrails.default in
+  let g = Guardrails.permissive in
   let schema : Types.tool_schema =
     { name = "test"; description = "test"; parameters = [] }
   in
@@ -340,7 +340,7 @@ let test_guardrails_exceeds_limit () =
 ;;
 
 let test_guardrails_no_limit () =
-  let g = Guardrails.default in
+  let g = Guardrails.permissive in
   Alcotest.(check bool) "100 within (no limit)" false (Guardrails.exceeds_limit g 100)
 ;;
 
@@ -402,7 +402,7 @@ let test_prepare_turn_no_tools () =
   in
   let prep =
     Agent_turn.prepare_turn
-      ~guardrails:Guardrails.default
+      ~guardrails:Guardrails.permissive
       ~operator_policy:None
       ~policy_channel:None
       ~tools:Tool_set.empty
@@ -444,7 +444,7 @@ let test_prepare_turn_preserves_messages () =
   in
   let prep =
     Agent_turn.prepare_turn
-      ~guardrails:Guardrails.default
+      ~guardrails:Guardrails.permissive
       ~operator_policy:None
       ~policy_channel:None
       ~tools:Tool_set.empty
@@ -738,7 +738,7 @@ let test_prepare_turn_extra_context () =
   in
   let prep =
     Agent_turn.prepare_turn
-      ~guardrails:Guardrails.default
+      ~guardrails:Guardrails.permissive
       ~operator_policy:None
       ~policy_channel:None
       ~tools:Tool_set.empty
@@ -790,7 +790,7 @@ let test_prepare_turn_tool_filter_override () =
   in
   let prep =
     Agent_turn.prepare_turn
-      ~guardrails:Guardrails.default
+      ~guardrails:Guardrails.permissive
       ~operator_policy:None
       ~policy_channel:None
       ~tools
