@@ -37,21 +37,21 @@ let normalize_command s =
   let in_comment = ref false in
   String.iter
     (fun c ->
-      if !in_comment
-      then (
-        if c = '\n'
-        then (
-          in_comment := false;
-          let len = Buffer.length buf in
-          if len > 0 && Buffer.nth buf (len - 1) <> ' ' then Buffer.add_char buf ' '))
-      else (
-        match c with
-        | '#' -> in_comment := true
-        | '\'' | '"' | '`' | '\\' -> ()
-        | ' ' | '\t' | '\n' | '\r' ->
-          let len = Buffer.length buf in
-          if len > 0 && Buffer.nth buf (len - 1) <> ' ' then Buffer.add_char buf ' '
-        | _ -> Buffer.add_char buf (Char.lowercase_ascii c)))
+       if !in_comment
+       then (
+         if c = '\n'
+         then (
+           in_comment := false;
+           let len = Buffer.length buf in
+           if len > 0 && Buffer.nth buf (len - 1) <> ' ' then Buffer.add_char buf ' '))
+       else (
+         match c with
+         | '#' -> in_comment := true
+         | '\'' | '"' | '`' | '\\' -> ()
+         | ' ' | '\t' | '\n' | '\r' ->
+           let len = Buffer.length buf in
+           if len > 0 && Buffer.nth buf (len - 1) <> ' ' then Buffer.add_char buf ' '
+         | _ -> Buffer.add_char buf (Char.lowercase_ascii c)))
     s;
   String.trim (Buffer.contents buf)
 ;;
