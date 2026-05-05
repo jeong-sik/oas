@@ -144,7 +144,7 @@ let option_float_field name fields =
   | Some _ -> Error (Printf.sprintf "field %s must be a number or null" name)
 ;;
 
-let ( let* ) = Result.bind
+open Result_syntax
 
 let probe_of_json = function
   | `Assoc fields ->

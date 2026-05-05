@@ -4,7 +4,7 @@
     into [Error.Io (FileOpFailed ...)].
     Pattern extracted from checkpoint_store.ml / a2a_task_store.ml. *)
 
-let ( let* ) = Result.bind
+open Result_syntax
 
 let io_error_of_exn ~op ~path = function
   | Eio.Io _ as exn ->

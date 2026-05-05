@@ -6,7 +6,7 @@ type resolved_ref =
   ; path : string
   }
 
-let ( let* ) = Result.bind
+open Result_syntax
 
 let default_config =
   let home =

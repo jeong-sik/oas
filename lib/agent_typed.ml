@@ -1,5 +1,6 @@
 (** Agent_typed — phantom-type lifecycle state machine.
 
+    @stability Stable
     @since 0.55.0 *)
 
 (* Phantom state tags *)

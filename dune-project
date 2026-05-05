@@ -1,6 +1,6 @@
 (lang dune 3.22)
 (name agent_sdk)
-(version 0.187.7)
+(version 0.188.0)
 
 (generate_opam_files true)
 
@@ -24,6 +24,7 @@
   (yojson (>= 2.1))
   (ppx_deriving_yojson (>= 3.7))
   (ppx_deriving (>= 5.2.1))
+  (ppx_let (>= 0.17))
   (uri (>= 4.4))
   (mcp_protocol (>= 1.3.0))
   (cmdliner (>= 1.3.0))

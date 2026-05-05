@@ -1,6 +1,5 @@
 open Runtime
-
-let ( let* ) = Result.bind
+open Result_syntax
 
 type descriptor = Runtime.artifact
 
@@ -54,9 +53,9 @@ let save_text_internal store ~session_id ~name ~kind ~content =
       (Runtime_store.artifacts_dir store session_id)
       (Printf.sprintf "%s.%s" artifact_id extension)
   in
-  let* () = Runtime_store.ensure_tree store session_id in
-  let* () = Runtime_store.save_text path content in
-  Ok
+  let%bind () = Runtime_store.ensure_tree store session_id in
+  let%bind () = Runtime_store.save_text path content in
+  Let_syntax.return
     { artifact_id
     ; name
     ; kind
@@ -86,18 +85,18 @@ let persisted_path (artifact : descriptor) =
 ;;
 
 let overwrite_text_internal artifact ~content =
-  let* path = persisted_path artifact in
+  let%bind path = persisted_path artifact in
   Runtime_store.save_text path content
 ;;
 
 let list ?session_root ~session_id () =
-  let* store = make_store ?session_root () in
-  let* session = Runtime_store.load_session store session_id in
-  Ok session.artifacts
+  let%bind store = make_store ?session_root () in
+  let%bind session = Runtime_store.load_session store session_id in
+  Let_syntax.return session.artifacts
 ;;
 
 let find_descriptor ?session_root ~session_id ~artifact_id () =
-  let* artifacts = list ?session_root ~session_id () in
+  let%bind artifacts = list ?session_root ~session_id () in
   match
     List.find_opt
       (fun (artifact : descriptor) -> String.equal artifact.artifact_id artifact_id)
@@ -115,7 +114,7 @@ let find_descriptor ?session_root ~session_id ~artifact_id () =
 ;;
 
 let get_text ?session_root ~session_id ~artifact_id () =
-  let* artifact = find_descriptor ?session_root ~session_id ~artifact_id () in
+  let%bind artifact = find_descriptor ?session_root ~session_id ~artifact_id () in
   match artifact.inline_content, artifact.path with
   | Some content, _ -> Ok content
   | None, Some path -> Runtime_store.load_text path

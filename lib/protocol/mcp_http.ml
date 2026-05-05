@@ -1,5 +1,4 @@
-let ( let* ) = Result.bind
-
+open Result_syntax
 module Sdk_http_client = Mcp_protocol_http.Http_client
 
 type config =

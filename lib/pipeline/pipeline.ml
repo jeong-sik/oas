@@ -34,7 +34,7 @@ let compact_watermark_default =
        0.9)
 ;;
 
-let ( let* ) = Result.bind
+open Result_syntax
 
 type api_strategy =
   | Sync

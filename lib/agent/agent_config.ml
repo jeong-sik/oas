@@ -30,7 +30,7 @@
     or any string (treated as OpenAI-compatible with api_key_env = that string).
 *)
 
-let ( let* ) = Result.bind
+open Result_syntax
 
 (* ── Tool config ─────────────────────────────────────────── *)
 

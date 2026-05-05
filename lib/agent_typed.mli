@@ -4,21 +4,19 @@
     state at the type level. Prevents calling [run] on a completed agent
     or [close] before completion at compile time.
 
-    This is an {b experimental} opt-in module. Existing [Agent.t] API
-    is unaffected.
+    Opt-in module. Existing [Agent.t] API is unaffected.
 
     Usage:
     {[
       let agent = Agent_typed.create ~net () in
       let completed = Agent_typed.run ~sw agent "hello" in
       Agent_typed.close completed
-      (* Agent_typed.run ~sw completed "again"  -- TYPE ERROR
-
-    @stability Evolving
-    @since 0.93.1 *)
+      (* Agent_typed.run ~sw completed "again"  -- TYPE ERROR *)
     ]}
 
-    @since 0.55.0 *)
+    @stability Stable
+    @since 0.55.0
+    @since 0.184.0 — Stable promotion *)
 
 (** Phantom state tags. Not constructible — used only as type parameters. *)
 type created

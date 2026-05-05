@@ -1,3 +1,4 @@
+open Result_syntax
 open Types
 open Agent_types
 open Agent_trace

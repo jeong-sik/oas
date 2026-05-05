@@ -113,19 +113,12 @@ let build_request
      lowers either flag actually takes effect everywhere in the
      request-build pipeline.
 
-     For the default [ollama_capabilities] (capabilities.ml around
-     line 215): [supports_top_k] is inherited from
-     [openai_chat_extended_capabilities] = true, but [supports_min_p]
-     is explicitly overridden to false because docs.ollama.com does
-     not document min_p as a first-class option (the parameter is
-     silently dropped by some Ollama versions when sent inside
-     [options]).  So out of the box, [top_k] flows through and
-     [min_p] is dropped with a one-shot WARN from
-     Backend_openai.warn_capability_drop.
-
-     The gate also fires when an operator explicitly flips either
-     flag for a specific Ollama variant (overriding [for_model_id]
-     in capabilities.ml). *)
+     For the default ollama_capabilities (inherited from
+     openai_chat_extended_capabilities) both flags are true, so
+     behaviour is byte-identical for the common path. The gate only
+     fires when an operator explicitly sets [supports_min_p = false]
+     or [supports_top_k = false] for a specific Ollama variant — at
+     which point the one-shot WARN from Backend_openai also fires. *)
   let caps =
     match Capabilities.for_model_id config.model_id with
     | Some c -> c

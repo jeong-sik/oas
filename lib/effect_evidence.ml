@@ -217,7 +217,7 @@ let option_int_field name fields =
   | Some _ -> Error (Printf.sprintf "field %s must be an int or null" name)
 ;;
 
-let ( let* ) = Result.bind
+open Result_syntax
 
 let of_json = function
   | `Assoc fields ->

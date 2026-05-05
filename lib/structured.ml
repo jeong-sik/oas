@@ -7,6 +7,7 @@
     instead of silently falling back to prompt-only JSON mode. *)
 
 module Retry = Llm_provider.Retry
+open Result_syntax
 open Types
 
 type 'a schema =
@@ -113,15 +114,13 @@ let sdk_error_of_http_error = function
 
 let provider_config_for_schema ~base_url ?provider ~config ~(schema : _ schema) () =
   let state = { config; messages = []; turn_count = 0; usage = empty_usage } in
-  match Provider.provider_config_of_agent ~state ~base_url provider with
-  | Error _ as err -> err
-  | Ok provider_cfg ->
-    Ok
-      { provider_cfg with
-        Llm_provider.Provider_config.tool_choice = None
-      ; response_format = Types.JsonSchema (schema_to_json_schema schema)
-      ; output_schema = Some (schema_to_json_schema schema)
-      }
+  let* provider_cfg = Provider.provider_config_of_agent ~state ~base_url provider in
+  Ok
+    { provider_cfg with
+      Llm_provider.Provider_config.tool_choice = None
+    ; response_format = Types.JsonSchema (schema_to_json_schema schema)
+    ; output_schema = Some (schema_to_json_schema schema)
+    }
 ;;
 
 (** Extract structured output from a prompt using provider-native JSON
@@ -130,9 +129,6 @@ let extract ~sw ~net ?base_url ?provider ~config ~(schema : 'a schema) prompt
   : ('a, Error.sdk_error) result
   =
   let base_url = Option.value ~default:Api.default_base_url base_url in
-  let provider_cfg_result =
-    provider_config_for_schema ~base_url ?provider ~config ~schema ()
-  in
   let messages =
     [ { role = User
       ; content = [ Text prompt ]
@@ -142,14 +138,12 @@ let extract ~sw ~net ?base_url ?provider ~config ~(schema : 'a schema) prompt
       }
     ]
   in
-  match provider_cfg_result with
-  | Error e -> Error e
-  | Ok provider_cfg ->
-    (match
-       Llm_provider.Complete.complete ~sw ~net ~config:provider_cfg ~messages ~tools:[] ()
-     with
-     | Error e -> Error (sdk_error_of_http_error e)
-     | Ok response -> extract_text_json ~schema response)
+  let* provider_cfg = provider_config_for_schema ~base_url ?provider ~config ~schema () in
+  let* response =
+    Llm_provider.Complete.complete ~sw ~net ~config:provider_cfg ~messages ~tools:[] ()
+    |> Result.map_error sdk_error_of_http_error
+  in
+  extract_text_json ~schema response
 ;;
 
 (* ── Extractors ────────────────────────────────────────────────── *)
@@ -159,10 +153,7 @@ let extract ~sw ~net ?base_url ?provider ~config ~(schema : 'a schema) prompt
 type 'a extractor = api_response -> ('a, string) result
 
 let schema_json_extractor (schema : 'a schema) : 'a extractor =
-  fun response ->
-  match extract_text_json ~schema response with
-  | Ok value -> Ok value
-  | Error e -> Error (Error.to_string e)
+  fun response -> extract_text_json ~schema response |> Result.map_error Error.to_string
 ;;
 
 (* NOTE: keep [json_extractor] / [text_extractor] for callers who parse
@@ -207,12 +198,9 @@ let text_extractor (parse : string -> 'a option) : 'a extractor =
     Uses the full Agent pipeline (hooks, tools, tracing) unlike {!extract}
     which calls the API directly. *)
 let run_structured ~sw ?clock agent prompt ~(extract : 'a extractor) =
-  match Agent.run ~sw ?clock agent prompt with
-  | Error e -> Error e
-  | Ok response ->
-    (match extract response with
-     | Ok v -> Ok v
-     | Error detail -> Error (Error.Serialization (JsonParseError { detail })))
+  let* response = Agent.run ~sw ?clock agent prompt in
+  extract response
+  |> Result.map_error (fun detail -> Error.Serialization (JsonParseError { detail }))
 ;;
 
 let validation_feedback_message ~summary ~error_msg =
@@ -286,64 +274,61 @@ let extract_with_retry
     ; feedback_style = Tool_retry_policy.Plain_error_text
     }
   in
-  match provider_config_for_schema ~base_url ?provider ~config ~schema () with
-  | Error e -> Error e
-  | Ok provider_cfg ->
-    let rec attempt n acc_usage messages =
-      match
-        Llm_provider.Complete.complete
-          ~sw
-          ~net
-          ?clock
-          ~config:provider_cfg
-          ~messages
-          ~tools:[]
-          ()
-      with
-      | Error e -> Error (sdk_error_of_http_error e)
-      | Ok response ->
-        let total = add_retry_usage acc_usage response.usage in
-        (match extract_text_json ~schema response with
-         | Ok v -> Ok { value = v; total_usage = total; attempts = n + 1 }
-         | Error e ->
-           let error_msg = Error.to_string e in
-           let decision =
-             Tool_retry_policy.decide
-               ~policy:retry_policy
-               ~prior_retries:n
-               [ { Tool_retry_policy.tool_name = schema.name
-                 ; detail = error_msg
-                 ; kind = Tool_retry_policy.Validation_error
-                 ; error_class = Tool_retry_policy.Deterministic
-                 }
-               ]
-           in
-           (match decision with
-            | Tool_retry_policy.Retry { retry_count; summary } ->
-              (match on_validation_error with
-               | Some cb -> cb retry_count error_msg
-               | None -> ());
-              let retry_messages =
-                messages
-                @ [ { role = Assistant
-                    ; content = response.content
-                    ; name = None
-                    ; tool_call_id = None
-                    ; metadata = []
-                    }
-                  ; { role = User
-                    ; content = [ Text (validation_feedback_message ~summary ~error_msg) ]
-                    ; name = None
-                    ; tool_call_id = None
-                    ; metadata = []
-                    }
-                  ]
-              in
-              attempt retry_count total retry_messages
-            | Tool_retry_policy.Exhausted _ | Tool_retry_policy.No_retry -> Error e))
+  let* provider_cfg = provider_config_for_schema ~base_url ?provider ~config ~schema () in
+  let rec attempt n acc_usage messages =
+    let* response =
+      Llm_provider.Complete.complete
+        ~sw
+        ~net
+        ?clock
+        ~config:provider_cfg
+        ~messages
+        ~tools:[]
+        ()
+      |> Result.map_error sdk_error_of_http_error
     in
-    let initial_messages = [ initial_message ] in
-    attempt 0 empty_usage initial_messages
+    let total = add_retry_usage acc_usage response.usage in
+    match extract_text_json ~schema response with
+    | Ok v -> Ok { value = v; total_usage = total; attempts = n + 1 }
+    | Error e ->
+      let error_msg = Error.to_string e in
+      let decision =
+        Tool_retry_policy.decide
+          ~policy:retry_policy
+          ~prior_retries:n
+          [ { Tool_retry_policy.tool_name = schema.name
+            ; detail = error_msg
+            ; kind = Tool_retry_policy.Validation_error
+            ; error_class = Tool_retry_policy.Deterministic
+            }
+          ]
+      in
+      (match decision with
+       | Tool_retry_policy.Retry { retry_count; summary } ->
+         (match on_validation_error with
+          | Some cb -> cb retry_count error_msg
+          | None -> ());
+         let retry_messages =
+           messages
+           @ [ { role = Assistant
+               ; content = response.content
+               ; name = None
+               ; tool_call_id = None
+               ; metadata = []
+               }
+             ; { role = User
+               ; content = [ Text (validation_feedback_message ~summary ~error_msg) ]
+               ; name = None
+               ; tool_call_id = None
+               ; metadata = []
+               }
+             ]
+         in
+         attempt retry_count total retry_messages
+       | Tool_retry_policy.Exhausted _ | Tool_retry_policy.No_retry -> Error e)
+  in
+  let initial_messages = [ initial_message ] in
+  attempt 0 empty_usage initial_messages
 ;;
 
 (** Extract structured output with SSE streaming.
@@ -370,25 +355,21 @@ let extract_stream
       }
     ]
   in
-  match provider_config_for_schema ~base_url ?provider ~config ~schema () with
-  | Error e -> Error e
-  | Ok provider_cfg ->
-    (match
-       Llm_provider.Complete.complete_stream
-         ~sw
-         ~net
-         ?clock
-         ~config:provider_cfg
-         ~messages
-         ~tools:[]
-         ~on_event
-         ()
-     with
-     | Error e -> Error (sdk_error_of_http_error e)
-     | Ok response ->
-       (match extract_text_json ~schema response with
-        | Ok value -> Ok (value, response)
-        | Error e -> Error e))
+  let* provider_cfg = provider_config_for_schema ~base_url ?provider ~config ~schema () in
+  let* response =
+    Llm_provider.Complete.complete_stream
+      ~sw
+      ~net
+      ?clock
+      ~config:provider_cfg
+      ~messages
+      ~tools:[]
+      ~on_event
+      ()
+    |> Result.map_error sdk_error_of_http_error
+  in
+  let* value = extract_text_json ~schema response in
+  Ok (value, response)
 ;;
 
 [@@@coverage off]
