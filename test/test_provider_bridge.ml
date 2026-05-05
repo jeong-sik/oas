@@ -153,7 +153,7 @@ let test_zai_coding_auto_models_default_order () =
   with_env "ZAI_CODING_AUTO_MODELS" "" (fun () ->
     Alcotest.(check (list string))
       "coding auto order"
-      [ "glm-5.1"; "glm-5"; "glm-5-turbo"; "glm-4.7"; "glm-4.5-air" ]
+      [ "glm-5-code"; "glm-5.1"; "glm-5"; "glm-5-turbo"; "glm-4.7"; "glm-4.5-air" ]
       (Llm_provider.Zai_catalog.glm_coding_auto_models ()))
 ;;
 
