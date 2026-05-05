@@ -51,10 +51,12 @@ let test_process_once_tracks_retry_queue_health () =
   check int "queue retains retryable item" 1 stats.queue_depth;
   check int "publish retry counted" 1 stats.retry_publish_total;
   let probe = Relay_delivery.health_probe ~checked_at:12.0 stats in
-  check string "health probe name" "event_relay"
+  check
+    string
+    "health probe name"
+    "event_relay"
     (Runtime_health.probe_name_to_string probe.name);
-  check string "health degraded" "degraded"
-    (Runtime_health.status_to_string probe.status)
+  check string "health degraded" "degraded" (Runtime_health.status_to_string probe.status)
 ;;
 
 let test_process_once_drop_after_max_attempts () =
@@ -72,11 +74,19 @@ let test_process_once_drop_after_max_attempts () =
 
 let test_enqueue_overflow_counts_queue_drop () =
   let relay = Relay_delivery.create ~max_attempts:3 ~max_queue_depth:1 () in
-  check (option string) "first enqueue no drop" None
-    (Option.map (fun pending -> pending.Relay_delivery.payload)
+  check
+    (option string)
+    "first enqueue no drop"
+    None
+    (Option.map
+       (fun pending -> pending.Relay_delivery.payload)
        (Relay_delivery.enqueue relay "old"));
-  check (option string) "second enqueue drops old" (Some "old")
-    (Option.map (fun pending -> pending.Relay_delivery.payload)
+  check
+    (option string)
+    "second enqueue drops old"
+    (Some "old")
+    (Option.map
+       (fun pending -> pending.Relay_delivery.payload)
        (Relay_delivery.enqueue relay "new"));
   let stats = Relay_delivery.stats relay in
   check int "queue keeps newest" 1 stats.queue_depth;

@@ -129,9 +129,7 @@ let pending t = t.pending
 
 let stats t =
   let retry_total = t.retry_persist_total + t.retry_publish_total in
-  let drop_total =
-    t.drop_persist_total + t.drop_publish_total + t.drop_queue_total
-  in
+  let drop_total = t.drop_persist_total + t.drop_publish_total + t.drop_queue_total in
   { queue_depth = List.length t.pending
   ; retry_total
   ; drop_total
