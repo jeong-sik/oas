@@ -292,6 +292,26 @@ let test_dropped_without_sink_count () =
   Alcotest.(check int) "clear resets count" 0 (Log.dropped_without_sink_count ())
 ;;
 
+let test_dropped_without_sink_ignores_below_level () =
+  setup ();
+  (* Records filtered out by the global level threshold are not "enabled"
+     and must NOT bump the dropped-without-sink counter, even when no sink
+     is attached. *)
+  Log.set_global_level Log.Error;
+  Log.debug log "below threshold" [];
+  Log.info log "below threshold" [];
+  Log.warn log "below threshold" [];
+  Alcotest.(check int)
+    "below-level records do not increment counter"
+    0
+    (Log.dropped_without_sink_count ());
+  Log.error log "above threshold no sink" [];
+  Alcotest.(check int)
+    "enabled record without sink increments counter"
+    1
+    (Log.dropped_without_sink_count ())
+;;
+
 let test_emit_below_level () =
   setup ();
   Log.set_global_level Log.Error;
@@ -360,6 +380,10 @@ let () =
             "dropped without sink count"
             `Quick
             test_dropped_without_sink_count
+        ; Alcotest.test_case
+            "dropped without sink ignores below-level records"
+            `Quick
+            test_dropped_without_sink_ignores_below_level
         ] )
     ; "field", [ Alcotest.test_case "to_json" `Quick test_field_to_json ]
     ; ( "record"
