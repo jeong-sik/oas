@@ -674,17 +674,30 @@ let test_with_max_total_tokens () =
     (Agent.state agent).config.max_total_tokens
 ;;
 
-(** Extract the Token_budget value from a Compose strategy produced by
+(** Probe message large enough to push [from_context_config]'s dynamic strategy
+    into its budgeted branch for the context sizes covered below. *)
+let context_budget_probe_messages =
+  [ { Types.role = Types.User
+    ; content = [ Types.Text (String.make 1_200_000 'x') ]
+    ; name = None
+    ; tool_call_id = None
+    ; metadata = []
+    }
+  ]
+;;
+
+(** Extract the [Token_budget] value from reducer strategies produced by
     [Context_reducer.from_context_config]. Returns [None] if not found. *)
 let extract_token_budget reducer =
-  match reducer.Context_reducer.strategy with
-  | Context_reducer.Compose strategies ->
-    List.find_map
-      (function
-        | Context_reducer.Token_budget n -> Some n
-        | _ -> None)
-      strategies
-  | _ -> None
+  let rec loop strategy =
+    match strategy with
+    | Context_reducer.Token_budget n -> Some n
+    | Context_reducer.Dynamic selector ->
+      loop (selector ~turn:1 ~messages:context_budget_probe_messages)
+    | Context_reducer.Compose strategies -> List.find_map loop strategies
+    | _ -> None
+  in
+  loop reducer.Context_reducer.strategy
 ;;
 
 (* --- 26. with_context_thresholds: explicit context_window_tokens --- *)
