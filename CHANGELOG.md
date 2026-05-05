@@ -8,6 +8,14 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.190.17] - 2026-05-06
+
+### Added
+- `test/dune`: re-wired `test_builder` as an Eio-enabled standalone test stanza. (#1417)
+
+### Changed
+- `test/test_builder.ml` `extract_token_budget`: helper now recursively traverses `Context_reducer.Dynamic` strategies via a probe message large enough to drive the dynamic selector into its budgeted branch, so `from_context_config` assertions inspect the realized strategy shape instead of bailing on `Dynamic`. (#1417)
+
 ## [0.190.16] - 2026-05-06
 
 ### Added
