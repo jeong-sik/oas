@@ -39,27 +39,42 @@ jobs:
             const pr = context.payload.pull_request;
             const pullNumber = pr.number;
 
-            const bypassLabels = (process.env.OAS_DRAFT_GUARD_BYPASS_LABELS || "human-approved-ready")
+            // `allow-auto-merge` is the GitHub-builtin label that simply
+            // *enables* auto-merge — it is not an approval signal. We strip
+            // it from the bypass list so a misconfiguration cannot turn the
+            // builtin into a draft-guard bypass. Operators who want to
+            // bypass the guard must use a distinct label such as
+            // `human-approved-ready`.
+            const RESERVED_BYPASS_LABELS = new Set(["allow-auto-merge"]);
+            const rawBypassLabels = (process.env.OAS_DRAFT_GUARD_BYPASS_LABELS || "human-approved-ready")
               .split(",")
               .map((label) => label.trim().toLowerCase())
-              .filter((label) => label && label !== "allow-auto-merge");
+              .filter(Boolean);
+            const ignoredBypass = rawBypassLabels.filter((label) => RESERVED_BYPASS_LABELS.has(label));
+            if (ignoredBypass.length > 0) {
+              core.warning(
+                `Ignoring reserved label(s) in OAS_DRAFT_GUARD_BYPASS_LABELS: ${ignoredBypass.join(", ")}. ` +
+                  `These are GitHub-builtin and do not signal human approval.`
+              );
+            }
+            const bypassLabels = rawBypassLabels.filter((label) => !RESERVED_BYPASS_LABELS.has(label));
             const hardStopLabels = (process.env.OAS_DRAFT_GUARD_HARD_STOP_LABELS || "do-not-merge")
               .split(",")
               .map((label) => label.trim().toLowerCase())
               .filter(Boolean);
 
+            // GraphQL for PR metadata (id needed for mutations); labels via
+            // REST `paginate` so PRs with >100 labels still see every entry.
             const query = `
               query($owner: String!, $repo: String!, $number: Int!) {
                 repository(owner: $owner, name: $repo) {
                   pullRequest(number: $number) {
                     id
                     number
-                    title
                     closed
                     merged
                     isDraft
                     autoMergeRequest { enabledAt }
-                    labels(first: 100) { nodes { name } }
                   }
                 }
               }
@@ -76,7 +91,13 @@ jobs:
               return;
             }
 
-            const labels = live.labels.nodes.map((label) => label.name.toLowerCase());
+            const labelNodes = await github.paginate(github.rest.issues.listLabelsOnIssue, {
+              owner,
+              repo,
+              issue_number: pullNumber,
+              per_page: 100
+            });
+            const labels = labelNodes.map((label) => label.name.toLowerCase());
             const hasBypass = labels.some((label) => bypassLabels.includes(label));
             const hardStops = labels.filter((label) => hardStopLabels.includes(label));
             const hasHardStop = hardStops.length > 0;
