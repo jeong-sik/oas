@@ -13,6 +13,16 @@ type intent =
   | Status_check
   | Knowledge_query
   | Coordination
+  | Cognitive_op
+  (** Pure SDK/host cognitive operation — gravity ranking, intent
+          prediction, mode transition, disclosure-level change. No
+          retrieval needed; routes to {!Skip} retrieval depth.
+
+          Added for RFC-0036 Extension A so the host's cognitive layer
+          can request classification without being routed to
+          {!Task_command} (which triggers heavy retrieval).
+
+          @since 0.190.28 *)
 [@@deriving yojson, show]
 
 type retrieval_depth =

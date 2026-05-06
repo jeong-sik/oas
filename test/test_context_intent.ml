@@ -129,7 +129,41 @@ let test_prompt_mentions_all_categories () =
     ; "status_check"
     ; "knowledge_query"
     ; "coordination"
+    ; "cognitive_op"
     ]
+;;
+
+let test_intent_of_string_cognitive_op () =
+  match Context_intent.intent_of_string "cognitive_op" with
+  | Ok Context_intent.Cognitive_op -> ()
+  | Ok other -> failf "expected cognitive_op, got %s" (Context_intent.show_intent other)
+  | Error msg -> failf "intent_of_string returned error: %s" msg
+;;
+
+let test_intent_of_string_cognitive_aliases () =
+  let aliases =
+    [ "cognitive"; "ranking"; "projection"; "gravity"; "intent_prediction" ]
+  in
+  List.iter
+    (fun alias ->
+       match Context_intent.intent_of_string alias with
+       | Ok Context_intent.Cognitive_op -> ()
+       | Ok other ->
+         failf
+           "expected Cognitive_op for alias %s, got %s"
+           alias
+           (Context_intent.show_intent other)
+       | Error msg -> failf "intent_of_string alias %s returned error: %s" alias msg)
+    aliases
+;;
+
+let test_depth_for_cognitive_op () =
+  let depth = Context_intent.depth_for_intent Context_intent.Cognitive_op in
+  check
+    bool
+    "Cognitive_op routes to Skip (no retrieval)"
+    true
+    (depth = Context_intent.Skip)
 ;;
 
 let test_classify_hybrid_requires_explicit_fallback () =
@@ -203,6 +237,14 @@ let () =
             "explicit fallback required"
             `Quick
             test_classify_hybrid_requires_explicit_fallback
+        ] )
+    ; ( "cognitive_op (RFC-0036 Extension A)"
+      , [ test_case "intent_of_string canonical" `Quick test_intent_of_string_cognitive_op
+        ; test_case
+            "intent_of_string aliases"
+            `Quick
+            test_intent_of_string_cognitive_aliases
+        ; test_case "depth_for_intent → Skip" `Quick test_depth_for_cognitive_op
         ] )
     ]
 ;;

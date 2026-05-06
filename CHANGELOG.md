@@ -8,6 +8,15 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.190.28] - 2026-05-07
+
+### Added
+- `lib/context_intent.ml(.mli)`: `Cognitive_op` variant added to `intent`. Pure SDK/host cognitive operations (gravity ranking, intent prediction, mode transition, disclosure-level change) classify here instead of being misrouted to `Task_command`. Routes to `Skip` retrieval depth — no retrieval needed for pure-host cognitive ops. `intent_of_string` accepts canonical "cognitive_op" plus aliases "cognitive", "ranking", "projection", "gravity", "intent_prediction". `prompt_for_query` lists the new category. Structured-output schema description updated to enumerate all 6 categories. RFC-0036 PR-A2.
+- `test/test_context_intent.ml`: 3 new alcotest cases under "cognitive_op (RFC-0036 Extension A)" group — `intent_of_string` canonical, `intent_of_string` 5 aliases (cognitive / ranking / projection / gravity / intent_prediction), `depth_for_intent → Skip`. Existing `test_prompt_mentions_all_categories` extended to require "cognitive_op" in the prompt.
+
+### Notes
+- The variant addition is **additive**: no existing pattern match in oas or downstream masc-mcp matches `Context_intent.intent` exhaustively without an `Ok other -> ...` fallback (verified by `rg "match.*Context_intent" lib/ test/` returning 0 hits in masc-mcp). PR-A1 (host-side wildcard guard) was therefore not opened.
+
 ## [0.190.27] - 2026-05-07
 
 ### Added

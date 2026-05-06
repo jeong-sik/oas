@@ -8,6 +8,7 @@ type intent =
   | Status_check
   | Knowledge_query
   | Coordination
+  | Cognitive_op
 [@@deriving yojson, show]
 
 type retrieval_depth =
@@ -30,6 +31,7 @@ let intent_to_string = function
   | Status_check -> "status_check"
   | Knowledge_query -> "knowledge_query"
   | Coordination -> "coordination"
+  | Cognitive_op -> "cognitive_op"
 ;;
 
 let normalize_label raw =
@@ -48,16 +50,22 @@ let intent_of_string raw =
   | "status_check" | "status" | "progress" -> Ok Status_check
   | "knowledge_query" | "knowledge" | "query" | "question" -> Ok Knowledge_query
   | "coordination" | "coordinate" | "transfer" | "handoff" -> Ok Coordination
+  | "cognitive_op"
+  | "cognitive"
+  | "ranking"
+  | "projection"
+  | "gravity"
+  | "intent_prediction" -> Ok Cognitive_op
   | other ->
     Error
       (Printf.sprintf
          "unknown intent '%s' (expected conversational, task_command, status_check, \
-          knowledge_query, coordination)"
+          knowledge_query, coordination, cognitive_op)"
          other)
 ;;
 
 let depth_for_intent = function
-  | Conversational | Task_command -> Skip
+  | Conversational | Task_command | Cognitive_op -> Skip
   | Status_check | Coordination -> Light
   | Knowledge_query -> Full
 ;;
@@ -305,7 +313,7 @@ let schema =
       [ { name = "intent"
         ; description =
             "One of: conversational, task_command, status_check, knowledge_query, \
-             coordination."
+             coordination, cognitive_op."
         ; param_type = String
         ; required = true
         }
@@ -335,7 +343,9 @@ let prompt_for_query query =
      open/blocked.\n\
      - knowledge_query: asks for explanation, lookup, facts, docs, or analysis.\n\
      - coordination: asks to assign, route, transfer, sync, notify, or coordinate across \
-     actors.\n\n\
+     actors.\n\
+     - cognitive_op: pure SDK/host cognitive operation — gravity ranking, intent \
+     prediction, mode transition, disclosure-level change. No retrieval needed.\n\n\
      Return only the tool input.\n\
      Set confidence to a number between 0.0 and 1.0.\n\n\
      Query:\n\
