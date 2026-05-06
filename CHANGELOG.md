@@ -8,6 +8,12 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.190.27] - 2026-05-07
+
+### Added
+- `lib/cognitive_event.{ml,mli}`: typed JSON-codecable cognitive event schema for SDK consumers. Four variants — `Gravity_ranked`, `Intent_predicted`, `Mode_transitioned`, `Disclosure_level` — backed by `[@@deriving yojson, show]` plus a `name` label getter and an `is_well_formed` invariant checker. The host (masc-mcp) emits these; the SDK does not produce them itself in this PR. The type lives here so future SDK-side consumers (Hooks, Tracing) share a single schema. RFC-0036 PR-B.
+- `test/test_cognitive_event.ml`: 5 alcotest cases (label stability, well-formed accepts, well-formed rejects 12 invalid inputs, yojson roundtrip, yojson rejects garbage).
+
 ## [0.190.26] - 2026-05-06
 
 ### Fixed

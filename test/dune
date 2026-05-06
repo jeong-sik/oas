@@ -361,3 +361,8 @@
  (name test_runtime_worker_integration)
  (modules test_runtime_worker_integration)
  (libraries agent_sdk alcotest eio eio_main unix))
+
+(test
+ (name test_cognitive_event)
+ (modules test_cognitive_event)
+ (libraries agent_sdk alcotest))
