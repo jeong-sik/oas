@@ -70,10 +70,7 @@ val with_mcp_tool_allowlist : string list -> t -> t
 
     Passing [[]] records an explicit empty quota specification. This allows a
     right-hand contract to clear inherited quota metadata during {!merge}. *)
-val with_quota_allocations
-  :  Llm_provider.Request_priority.quota_allocation list
-  -> t
-  -> t
+val with_quota_allocations : Llm_provider.Request_priority.quota_allocation list -> t -> t
 
 val with_default_quota_allocations
   :  total_requests_per_minute:int

@@ -125,8 +125,7 @@ let with_quota_allocations allocations contract =
 
 let with_default_quota_allocations ~total_requests_per_minute contract =
   match
-    Llm_provider.Request_priority.default_quota_allocations
-      ~total_requests_per_minute
+    Llm_provider.Request_priority.default_quota_allocations ~total_requests_per_minute
   with
   | Ok allocations -> Ok (with_quota_allocations allocations contract)
   | Error _ as error -> error
@@ -202,13 +201,10 @@ let string_list_option_to_json = function
   | Some values -> Util.json_of_string_list values
 ;;
 
-let quota_allocation_to_json
-      (allocation : Llm_provider.Request_priority.quota_allocation)
+let quota_allocation_to_json (allocation : Llm_provider.Request_priority.quota_allocation)
   =
   `Assoc
-    [ ( "tier"
-      , `String
-          (Llm_provider.Request_priority.quota_tier_label allocation.tier) )
+    [ "tier", `String (Llm_provider.Request_priority.quota_tier_label allocation.tier)
     ; "share_percent", `Int allocation.share_percent
     ; "requests_per_minute", `Int allocation.requests_per_minute
     ]
