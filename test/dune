@@ -28,6 +28,7 @@
   test_agent_config_deep
   test_agent_lifecycle
   test_agent_pipeline
+  test_agent_periodic_cleanup
   test_agent_race
   test_agent_registry
   test_agent_sdk
