@@ -75,8 +75,11 @@ type strategy =
       ; classifier : [ `Bm25 | `Llm ] (** How to pick the relevant group(s). *)
       ; always_include : string list
       }
-  (** Group-based selection. Not yet implemented (Phase 3).
-        @raises Failure when called with [`Llm] classifier. *)
+  (** Group-based selection.
+
+        [`Bm25] classification is implemented. [`Llm] classification is not
+        implemented yet and currently returns an empty tool set, keeping the
+        path fail-closed without crashing the process. *)
 
 (** Select tools relevant to the current turn context.
 

@@ -290,15 +290,26 @@ let test_topk_llm_invalid_names_dropped () =
 
 (* ── Categorical stubs ──────────────────────────── *)
 
-let test_categorical_llm_not_implemented () =
-  match
+let test_categorical_llm_unimplemented_returns_empty () =
+  let result =
     Tool_selector.select
       ~strategy:(Categorical { groups = []; classifier = `Llm; always_include = [] })
       ~context:"q"
       ~tools:tools_5
-  with
-  | exception Failure _ -> ()
-  | _ -> fail "expected Failure for Categorical `Llm"
+  in
+  check int "empty" 0 (List.length result)
+;;
+
+let test_categorical_llm_unimplemented_returns_empty_with_index () =
+  let index = Tool_index.of_tools tools_5 in
+  let result =
+    Tool_selector.select_with_index
+      ~strategy:(Categorical { groups = []; classifier = `Llm; always_include = [] })
+      ~index
+      ~context:"q"
+      ~tools:tools_5
+  in
+  check int "empty" 0 (List.length result)
 ;;
 
 (* ── Confidence threshold ───────────────────────── *)
@@ -416,8 +427,15 @@ let () =
         ; test_case "invalid names dropped" `Quick test_topk_llm_invalid_names_dropped
         ] )
     ; ( "stubs"
-      , [ test_case "Categorical Llm raises" `Quick test_categorical_llm_not_implemented ]
-      )
+      , [ test_case
+            "Categorical Llm empty fallback"
+            `Quick
+            test_categorical_llm_unimplemented_returns_empty
+        ; test_case
+            "Categorical Llm empty fallback with index"
+            `Quick
+            test_categorical_llm_unimplemented_returns_empty_with_index
+        ] )
     ; ( "categorical_bm25"
       , [ test_case "file query matches file_ops" `Quick test_categorical_bm25 ] )
     ]
