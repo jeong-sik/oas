@@ -316,5 +316,6 @@ val text_of_response : api_response -> string
 (** Zero-valued usage sentinel for accumulation. *)
 val zero_api_usage : api_usage
 
-(** Extract usage from a response, defaulting to {!zero_api_usage}. *)
-val usage_of_response : api_response -> api_usage
+(** Extract usage from a response, preserving [None] when the provider did not
+    report usage. *)
+val usage_of_response : api_response -> api_usage option
