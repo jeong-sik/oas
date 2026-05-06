@@ -20,6 +20,96 @@ type provider_error =
       { provider : string
       ; detail : string
       }
+  | RateLimit of
+      { provider : string
+      ; retry_after : float option
+      ; detail : string
+      }
+  | HardQuota of
+      { provider : string
+      ; retry_after : float option
+      ; detail : string
+      }
+  | CapacityExhausted of
+      { scope : capacity_scope
+      ; affected : string list
+      ; retry_after : float option
+      ; detail : string
+      }
+  | AuthError of
+      { provider : string
+      ; detail : string
+      }
+  | ServerError of
+      { provider : string
+      ; code : int
+      ; transient : bool
+      ; detail : string
+      }
+  | NetworkError of
+      { provider : string
+      ; kind : Http_client.network_error_kind
+      ; detail : string
+      }
+  | Timeout of
+      { provider : string
+      ; detail : string
+      }
+  | InvalidRequest of
+      { provider : string
+      ; reason : string
+      }
+  | NotFound of
+      { provider : string
+      ; detail : string
+      }
+  | ProviderTerminal of
+      { provider : string
+      ; reason : string
+      ; detail : string
+      }
+
+and capacity_scope =
+  | CapacityModel
+  | CapacityAccount
+  | CapacityRegion
+  | CapacityProvider
+  | CapacityUnknown
+
+let provider_name = function
+  | Some provider when String.trim provider <> "" -> provider
+  | _ -> "unknown"
+;;
+
+let affected_provider provider = if provider = "unknown" then [] else [ provider ]
+
+let capacity_scope_to_string = function
+  | CapacityModel -> "model"
+  | CapacityAccount -> "account"
+  | CapacityRegion -> "region"
+  | CapacityProvider -> "provider"
+  | CapacityUnknown -> "unknown"
+;;
+
+let network_error_kind_to_string = function
+  | Http_client.Connection_refused -> "connection_refused"
+  | Http_client.Dns_failure -> "dns_failure"
+  | Http_client.Tls_error -> "tls_error"
+  | Http_client.Timeout -> "timeout"
+  | Http_client.Local_resource_exhaustion -> "local_resource_exhaustion"
+  | Http_client.End_of_file -> "end_of_file"
+  | Http_client.Unknown -> "unknown"
+;;
+
+let retry_after_suffix = function
+  | None -> ""
+  | Some seconds -> Printf.sprintf " (retry_after: %.3fs)" seconds
+;;
+
+let affected_suffix = function
+  | [] -> ""
+  | affected -> Printf.sprintf " affected=[%s]" (String.concat "," affected)
+;;
 
 let to_string = function
   | MissingApiKey r -> Printf.sprintf "Missing API key env var: %s" r.var_name
@@ -28,4 +118,156 @@ let to_string = function
   | UnknownVariant r -> Printf.sprintf "Unknown %s variant: %s" r.type_name r.value
   | ProviderUnavailable r ->
     Printf.sprintf "Provider '%s' unavailable: %s" r.provider r.detail
+  | RateLimit r ->
+    Printf.sprintf
+      "Provider '%s' rate limited: %s%s"
+      r.provider
+      r.detail
+      (retry_after_suffix r.retry_after)
+  | HardQuota r ->
+    Printf.sprintf
+      "Provider '%s' hard quota exhausted: %s%s"
+      r.provider
+      r.detail
+      (retry_after_suffix r.retry_after)
+  | CapacityExhausted r ->
+    Printf.sprintf
+      "Provider capacity exhausted (%s): %s%s%s"
+      (capacity_scope_to_string r.scope)
+      r.detail
+      (affected_suffix r.affected)
+      (retry_after_suffix r.retry_after)
+  | AuthError r -> Printf.sprintf "Provider '%s' auth error: %s" r.provider r.detail
+  | ServerError r ->
+    Printf.sprintf
+      "Provider '%s' server error %d (transient=%b): %s"
+      r.provider
+      r.code
+      r.transient
+      r.detail
+  | NetworkError r ->
+    Printf.sprintf
+      "Provider '%s' network error (%s): %s"
+      r.provider
+      (network_error_kind_to_string r.kind)
+      r.detail
+  | Timeout r -> Printf.sprintf "Provider '%s' timeout: %s" r.provider r.detail
+  | InvalidRequest r ->
+    Printf.sprintf "Provider '%s' invalid request: %s" r.provider r.reason
+  | NotFound r -> Printf.sprintf "Provider '%s' not found: %s" r.provider r.detail
+  | ProviderTerminal r ->
+    Printf.sprintf "Provider '%s' terminal %s: %s" r.provider r.reason r.detail
+;;
+
+let of_retry_api_error ?provider err =
+  let provider = provider_name provider in
+  match err with
+  | Retry.RateLimited r when Retry.is_hard_quota err ->
+    HardQuota { provider; retry_after = r.retry_after; detail = r.message }
+  | Retry.RateLimited r ->
+    RateLimit { provider; retry_after = r.retry_after; detail = r.message }
+  | Retry.Overloaded r ->
+    CapacityExhausted
+      { scope = CapacityProvider
+      ; affected = affected_provider provider
+      ; retry_after = None
+      ; detail = r.message
+      }
+  | Retry.ServerError r ->
+    ServerError
+      { provider
+      ; code = r.status
+      ; transient = Retry.is_retryable err
+      ; detail = r.message
+      }
+  | Retry.AuthError r -> AuthError { provider; detail = r.message }
+  | Retry.InvalidRequest r -> InvalidRequest { provider; reason = r.message }
+  | Retry.NotFound r -> NotFound { provider; detail = r.message }
+  | Retry.ContextOverflow r ->
+    InvalidRequest { provider; reason = Retry.error_message (Retry.ContextOverflow r) }
+  | Retry.NetworkError r -> NetworkError { provider; kind = r.kind; detail = r.message }
+  | Retry.Timeout r -> Timeout { provider; detail = r.message }
+;;
+
+let capacity_scope_of_http = function
+  | Http_client.Failure_scope_model -> CapacityModel
+  | Http_client.Failure_scope_account -> CapacityAccount
+  | Http_client.Failure_scope_region -> CapacityRegion
+  | Http_client.Failure_scope_provider -> CapacityProvider
+  | Http_client.Failure_scope_unknown -> CapacityUnknown
+;;
+
+let of_provider_failure ?provider kind message =
+  let provider = provider_name provider in
+  match kind with
+  | Http_client.Capacity_exhausted { scope; retry_after; model } ->
+    let affected =
+      match model with
+      | Some model -> [ model ]
+      | None -> affected_provider provider
+    in
+    CapacityExhausted
+      { scope = capacity_scope_of_http scope; affected; retry_after; detail = message }
+  | Http_client.Hard_quota { retry_after } ->
+    HardQuota { provider; retry_after; detail = message }
+  | Http_client.Capability_mismatch { capability } ->
+    let reason =
+      match capability with
+      | Some capability -> Printf.sprintf "missing capability: %s" capability
+      | None -> "missing provider capability"
+    in
+    InvalidRequest { provider; reason = reason ^ ": " ^ message }
+  | Http_client.Cli_policy_invalid { tool_name; rule } ->
+    let tool =
+      match tool_name with
+      | Some name -> name
+      | None -> "unknown_tool"
+    in
+    let reason =
+      match rule with
+      | Some n -> Printf.sprintf "CLI policy rejected %s at rule %d" tool n
+      | None -> Printf.sprintf "CLI policy rejected %s" tool
+    in
+    InvalidRequest { provider; reason = reason ^ ": " ^ message }
+  | Http_client.Cli_startup_failed { reason } ->
+    ProviderUnavailable { provider; detail = Printf.sprintf "%s: %s" reason message }
+  | Http_client.Provider_parse_error { parser } ->
+    let parser =
+      match parser with
+      | Some parser -> parser
+      | None -> "unknown_parser"
+    in
+    ParseError { detail = Printf.sprintf "%s: %s" parser message }
+  | Http_client.Unknown_provider_failure { reason } ->
+    let reason =
+      match reason with
+      | Some reason -> reason
+      | None -> "unknown_provider_failure"
+    in
+    ProviderUnavailable { provider; detail = Printf.sprintf "%s: %s" reason message }
+;;
+
+let of_http_error ?provider = function
+  | Http_client.HttpError { code; body } ->
+    Retry.classify_error ~status:code ~body |> of_retry_api_error ?provider
+  | Http_client.NetworkError { message; kind } ->
+    NetworkError { provider = provider_name provider; kind; detail = message }
+  | Http_client.AcceptRejected { reason } ->
+    InvalidRequest
+      { provider = provider_name provider; reason = "accept rejected: " ^ reason }
+  | Http_client.CliTransportRequired { kind } ->
+    InvalidConfig
+      { field = "transport"
+      ; detail = Printf.sprintf "CLI transport required for %s" kind
+      }
+  | Http_client.ProviderTerminal { kind = Http_client.Max_turns r; message } ->
+    ProviderTerminal
+      { provider = provider_name provider
+      ; reason = Printf.sprintf "max_turns:%d/%d" r.turns r.limit
+      ; detail = message
+      }
+  | Http_client.ProviderTerminal { kind = Http_client.Other reason; message } ->
+    ProviderTerminal { provider = provider_name provider; reason; detail = message }
+  | Http_client.ProviderFailure { kind; message } ->
+    of_provider_failure ?provider kind message
 ;;

@@ -20,5 +20,63 @@ type provider_error =
       { provider : string
       ; detail : string
       }
+  | RateLimit of
+      { provider : string
+      ; retry_after : float option
+      ; detail : string
+      }
+  | HardQuota of
+      { provider : string
+      ; retry_after : float option
+      ; detail : string
+      }
+  | CapacityExhausted of
+      { scope : capacity_scope
+      ; affected : string list
+      ; retry_after : float option
+      ; detail : string
+      }
+  | AuthError of
+      { provider : string
+      ; detail : string
+      }
+  | ServerError of
+      { provider : string
+      ; code : int
+      ; transient : bool
+      ; detail : string
+      }
+  | NetworkError of
+      { provider : string
+      ; kind : Http_client.network_error_kind
+      ; detail : string
+      }
+  | Timeout of
+      { provider : string
+      ; detail : string
+      }
+  | InvalidRequest of
+      { provider : string
+      ; reason : string
+      }
+  | NotFound of
+      { provider : string
+      ; detail : string
+      }
+  | ProviderTerminal of
+      { provider : string
+      ; reason : string
+      ; detail : string
+      }
+
+and capacity_scope =
+  | CapacityModel
+  | CapacityAccount
+  | CapacityRegion
+  | CapacityProvider
+  | CapacityUnknown
 
 val to_string : provider_error -> string
+val capacity_scope_to_string : capacity_scope -> string
+val of_retry_api_error : ?provider:string -> Retry.api_error -> provider_error
+val of_http_error : ?provider:string -> Http_client.http_error -> provider_error
