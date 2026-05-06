@@ -25,6 +25,7 @@ type t =
   ; skills : Skill.t list
   ; tool_grants : string list option
   ; mcp_tool_allowlist : string list option
+  ; quota_allocations : Llm_provider.Request_priority.quota_allocation list option
   }
 
 let context_key = "agent_sdk.contract"
@@ -36,6 +37,7 @@ let empty =
   ; skills = []
   ; tool_grants = None
   ; mcp_tool_allowlist = None
+  ; quota_allocations = None
   }
 ;;
 
@@ -117,6 +119,19 @@ let with_mcp_tool_allowlist names contract =
   { contract with mcp_tool_allowlist = Some (normalize_names names) }
 ;;
 
+let with_quota_allocations allocations contract =
+  { contract with quota_allocations = Some allocations }
+;;
+
+let with_default_quota_allocations ~total_requests_per_minute contract =
+  match
+    Llm_provider.Request_priority.default_quota_allocations
+      ~total_requests_per_minute
+  with
+  | Ok allocations -> Ok (with_quota_allocations allocations contract)
+  | Error _ as error -> error
+;;
+
 let merge left right =
   { runtime_awareness =
       (match right.runtime_awareness with
@@ -136,6 +151,10 @@ let merge left right =
       (match right.mcp_tool_allowlist with
        | Some _ -> right.mcp_tool_allowlist
        | None -> left.mcp_tool_allowlist)
+  ; quota_allocations =
+      (match right.quota_allocations with
+       | Some _ -> right.quota_allocations
+       | None -> left.quota_allocations)
   }
 ;;
 
@@ -146,6 +165,7 @@ let is_empty contract =
   && contract.skills = []
   && contract.tool_grants = None
   && contract.mcp_tool_allowlist = None
+  && contract.quota_allocations = None
 ;;
 
 let trigger_to_json trigger =
@@ -182,6 +202,23 @@ let string_list_option_to_json = function
   | Some values -> Util.json_of_string_list values
 ;;
 
+let quota_allocation_to_json
+      (allocation : Llm_provider.Request_priority.quota_allocation)
+  =
+  `Assoc
+    [ ( "tier"
+      , `String
+          (Llm_provider.Request_priority.quota_tier_label allocation.tier) )
+    ; "share_percent", `Int allocation.share_percent
+    ; "requests_per_minute", `Int allocation.requests_per_minute
+    ]
+;;
+
+let quota_allocations_to_json = function
+  | None -> `Null
+  | Some allocations -> `List (List.map quota_allocation_to_json allocations)
+;;
+
 let to_json contract =
   `Assoc
     [ ( "runtime_awareness"
@@ -194,6 +231,7 @@ let to_json contract =
     ; "skills", `List (List.map skill_to_json contract.skills)
     ; "tool_grants", string_list_option_to_json contract.tool_grants
     ; "mcp_tool_allowlist", string_list_option_to_json contract.mcp_tool_allowlist
+    ; "quota_allocations", quota_allocations_to_json contract.quota_allocations
     ]
 ;;
 

@@ -27,6 +27,7 @@ type t =
   ; skills : Skill.t list
   ; tool_grants : string list option
   ; mcp_tool_allowlist : string list option
+  ; quota_allocations : Llm_provider.Request_priority.quota_allocation list option
   }
 
 val context_key : string
@@ -60,6 +61,24 @@ val with_skills : Skill.t list -> t -> t
 
 val with_tool_grants : string list -> t -> t
 val with_mcp_tool_allowlist : string list -> t -> t
+
+(** Attach declarative quota allocation metadata to the contract.
+
+    OAS carries the quota specification only. Distributed counters, lease
+    expiry, adaptive multipliers, and provider-specific rate-limit managers
+    remain downstream responsibilities.
+
+    Passing [[]] records an explicit empty quota specification. This allows a
+    right-hand contract to clear inherited quota metadata during {!merge}. *)
+val with_quota_allocations
+  :  Llm_provider.Request_priority.quota_allocation list
+  -> t
+  -> t
+
+val with_default_quota_allocations
+  :  total_requests_per_minute:int
+  -> t
+  -> (t, Llm_provider.Request_priority.quota_allocation_error) result
 
 (** {1 Operations} *)
 

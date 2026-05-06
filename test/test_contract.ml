@@ -1,6 +1,7 @@
 (** Tests for Contract module — runtime contract helpers. *)
 
 open Agent_sdk
+module RP = Llm_provider.Request_priority
 
 (* ── Helpers ──────────────────────────────────────────── *)
 
@@ -17,7 +18,8 @@ let test_empty_contract () =
   check_int "instruction_layers is empty" 0 (List.length c.instruction_layers);
   check_int "skills is empty" 0 (List.length c.skills);
   check_bool "tool_grants is None" true (c.tool_grants = None);
-  check_bool "mcp_tool_allowlist is None" true (c.mcp_tool_allowlist = None)
+  check_bool "mcp_tool_allowlist is None" true (c.mcp_tool_allowlist = None);
+  check_bool "quota_allocations is None" true (c.quota_allocations = None)
 ;;
 
 let test_is_empty_on_empty () =
@@ -27,6 +29,14 @@ let test_is_empty_on_empty () =
 let test_is_empty_with_awareness () =
   let c = Contract.with_runtime_awareness "test" Contract.empty in
   check_bool "not empty with awareness" false (Contract.is_empty c)
+;;
+
+let test_is_empty_with_quota_allocations () =
+  let allocation : RP.quota_allocation =
+    { tier = RP.P0_critical; share_percent = 100; requests_per_minute = 10 }
+  in
+  let c = Contract.with_quota_allocations [ allocation ] Contract.empty in
+  check_bool "not empty with quota allocations" false (Contract.is_empty c)
 ;;
 
 (* ── with_runtime_awareness ───────────────────────────── *)
@@ -144,6 +154,53 @@ let test_with_mcp_allowlist () =
   | None -> Alcotest.fail "expected allowlist"
 ;;
 
+let test_with_quota_allocations () =
+  let allocation : RP.quota_allocation =
+    { tier = RP.P1_standard; share_percent = 40; requests_per_minute = 400 }
+  in
+  let c = Contract.with_quota_allocations [ allocation ] Contract.empty in
+  match c.quota_allocations with
+  | Some [ stored ] ->
+    check_string
+      "tier"
+      "p1_standard"
+      (RP.quota_tier_label stored.tier);
+    check_int "share" 40 stored.share_percent;
+    check_int "rpm" 400 stored.requests_per_minute
+  | _ -> Alcotest.fail "expected one quota allocation"
+;;
+
+let test_with_empty_quota_allocations_clears_spec () =
+  let allocation : RP.quota_allocation =
+    { tier = RP.P1_standard; share_percent = 40; requests_per_minute = 400 }
+  in
+  let c =
+    Contract.empty
+    |> Contract.with_quota_allocations [ allocation ]
+    |> Contract.with_quota_allocations []
+  in
+  check_bool "empty list clears quota spec" true (c.quota_allocations = Some [])
+;;
+
+let test_with_default_quota_allocations () =
+  match Contract.with_default_quota_allocations ~total_requests_per_minute:1000 Contract.empty with
+  | Error e -> Alcotest.fail (RP.show_quota_allocation_error e)
+  | Ok c ->
+    (match c.quota_allocations with
+     | Some [ p0; p1; p2 ] ->
+       check_int "p0 rpm" 400 p0.requests_per_minute;
+       check_int "p1 rpm" 400 p1.requests_per_minute;
+       check_int "p2 rpm" 200 p2.requests_per_minute
+     | _ -> Alcotest.fail "expected three default allocations")
+;;
+
+let test_with_default_quota_allocations_rejects_invalid_total () =
+  match Contract.with_default_quota_allocations ~total_requests_per_minute:0 Contract.empty with
+  | Error (RP.Invalid_total_requests_per_minute 0) -> ()
+  | Ok _ -> Alcotest.fail "expected invalid total error"
+  | Error e -> Alcotest.fail (RP.show_quota_allocation_error e)
+;;
+
 (* ── merge ────────────────────────────────────────────── *)
 
 let test_merge_right_wins_awareness () =
@@ -175,6 +232,42 @@ let test_merge_tool_grants_right_wins () =
   | _ -> Alcotest.fail "right tool_grants should win"
 ;;
 
+let test_merge_quota_allocations_right_wins () =
+  let allocation tier requests_per_minute : RP.quota_allocation =
+    { tier; share_percent = 100; requests_per_minute }
+  in
+  let left =
+    Contract.with_quota_allocations [ allocation RP.P2_background 2 ] Contract.empty
+  in
+  let right =
+    Contract.with_quota_allocations [ allocation RP.P0_critical 10 ] Contract.empty
+  in
+  let merged = Contract.merge left right in
+  match merged.quota_allocations with
+  | Some [ stored ] ->
+    check_string
+      "right tier"
+      "p0_critical"
+      (RP.quota_tier_label stored.tier);
+    check_int "right rpm" 10 stored.requests_per_minute
+  | _ -> Alcotest.fail "right quota allocations should win"
+;;
+
+let test_merge_empty_quota_allocations_clears_left () =
+  let allocation tier requests_per_minute : RP.quota_allocation =
+    { tier; share_percent = 100; requests_per_minute }
+  in
+  let left =
+    Contract.with_quota_allocations [ allocation RP.P1_standard 10 ] Contract.empty
+  in
+  let right = Contract.with_quota_allocations [] Contract.empty in
+  let merged = Contract.merge left right in
+  match merged.quota_allocations with
+  | Some [] -> ()
+  | Some _ -> Alcotest.fail "expected right empty list to clear inherited quotas"
+  | None -> Alcotest.fail "expected explicit empty quota spec"
+;;
+
 (* ── to_json / compose_system_prompt ──────────────────── *)
 
 let test_to_json_empty () =
@@ -190,6 +283,20 @@ let test_to_json_with_trigger () =
   let trigger_json = Yojson.Safe.Util.member "trigger" json in
   let kind = Yojson.Safe.Util.(member "kind" trigger_json |> to_string) in
   check_string "kind" "test" kind
+;;
+
+let test_to_json_with_quota_allocations () =
+  let c =
+    Contract.empty
+    |> Contract.with_quota_allocations
+         [ { tier = RP.P0_critical; share_percent = 40; requests_per_minute = 400 } ]
+  in
+  let json = Contract.to_json c in
+  let open Yojson.Safe.Util in
+  let first = json |> member "quota_allocations" |> index 0 in
+  check_string "tier" "p0_critical" (first |> member "tier" |> to_string);
+  check_int "share" 40 (first |> member "share_percent" |> to_int);
+  check_int "rpm" 400 (first |> member "requests_per_minute" |> to_int)
 ;;
 
 let test_compose_system_prompt_empty () =
@@ -269,6 +376,25 @@ let test_context_with_contract_non_empty () =
   | None -> Alcotest.fail "expected context"
 ;;
 
+let test_context_with_contract_includes_quota_allocations () =
+  let c =
+    Contract.empty
+    |> Contract.with_quota_allocations
+         [ { tier = RP.P0_critical; share_percent = 40; requests_per_minute = 400 } ]
+  in
+  match Contract.context_with_contract c with
+  | Some ctx ->
+    let open Yojson.Safe.Util in
+    (match Context.get ctx Contract.context_key with
+     | Some json ->
+       let first = json |> member "quota_allocations" |> index 0 in
+       check_string "tier" "p0_critical" (first |> member "tier" |> to_string);
+       check_int "share" 40 (first |> member "share_percent" |> to_int);
+       check_int "rpm" 400 (first |> member "requests_per_minute" |> to_int)
+     | None -> Alcotest.fail "expected contract context value")
+  | None -> Alcotest.fail "expected context"
+;;
+
 let test_context_with_contract_preserves_identity () =
   let original = Context.create () in
   Context.set original "user_data" (`String "hello");
@@ -296,6 +422,10 @@ let () =
       , [ Alcotest.test_case "empty contract" `Quick test_empty_contract
         ; Alcotest.test_case "is_empty on empty" `Quick test_is_empty_on_empty
         ; Alcotest.test_case "is_empty with awareness" `Quick test_is_empty_with_awareness
+        ; Alcotest.test_case
+            "is_empty with quota allocations"
+            `Quick
+            test_is_empty_with_quota_allocations
         ] )
     ; ( "runtime_awareness"
       , [ Alcotest.test_case "set awareness" `Quick test_runtime_awareness_set
@@ -321,6 +451,22 @@ let () =
     ; ( "tool_grants"
       , [ Alcotest.test_case "with_tool_grants" `Quick test_with_tool_grants
         ; Alcotest.test_case "with_mcp_allowlist" `Quick test_with_mcp_allowlist
+        ; Alcotest.test_case
+            "with_quota_allocations"
+            `Quick
+            test_with_quota_allocations
+        ; Alcotest.test_case
+            "with empty quota allocations"
+            `Quick
+            test_with_empty_quota_allocations_clears_spec
+        ; Alcotest.test_case
+            "with default quota allocations"
+            `Quick
+            test_with_default_quota_allocations
+        ; Alcotest.test_case
+            "with default quota allocations rejects invalid total"
+            `Quick
+            test_with_default_quota_allocations_rejects_invalid_total
         ] )
     ; ( "merge"
       , [ Alcotest.test_case "right wins awareness" `Quick test_merge_right_wins_awareness
@@ -330,10 +476,22 @@ let () =
             "tool_grants right wins"
             `Quick
             test_merge_tool_grants_right_wins
+        ; Alcotest.test_case
+            "quota allocations right wins"
+            `Quick
+            test_merge_quota_allocations_right_wins
+        ; Alcotest.test_case
+            "empty quota allocations clear left"
+            `Quick
+            test_merge_empty_quota_allocations_clears_left
         ] )
     ; ( "json"
       , [ Alcotest.test_case "to_json empty" `Quick test_to_json_empty
         ; Alcotest.test_case "to_json with trigger" `Quick test_to_json_with_trigger
+        ; Alcotest.test_case
+            "to_json with quota allocations"
+            `Quick
+            test_to_json_with_quota_allocations
         ] )
     ; ( "compose_system_prompt"
       , [ Alcotest.test_case "empty" `Quick test_compose_system_prompt_empty
@@ -354,6 +512,10 @@ let () =
             "non-empty contract"
             `Quick
             test_context_with_contract_non_empty
+        ; Alcotest.test_case
+            "quota allocations injected"
+            `Quick
+            test_context_with_contract_includes_quota_allocations
         ; Alcotest.test_case
             "preserves identity"
             `Quick
