@@ -107,6 +107,16 @@ type cascade_result =
   (** A provider hit hard account-level quota (balance depleted,
           monthly limit). Cascade stops immediately because retrying
           another provider on the same account will also fail. *)
+  | Provider_terminal of
+      { config : Provider_config.t
+      ; kind : Http_client.provider_terminal_kind
+      ; message : string
+      }
+  (** A provider reported a structured terminal condition, such as
+          [Max_turns]. Cascade stops immediately so the agent/runtime
+          layer can checkpoint, resume, or surface the typed terminal
+          condition instead of hiding it by falling through to another
+          provider. *)
 
 (** {1 Execution} *)
 
@@ -117,7 +127,9 @@ type cascade_result =
     2. Call {!Complete.complete_with_retry} with the step's config
     3. On success, clear the provider's failure count and return
     4. On hard quota error, record failure and return [Hard_quota]
-    5. On other error, record failure and try next step
+    5. On provider terminal condition, return [Provider_terminal]
+       without falling through or poisoning provider health
+    6. On other error, record failure and try next step
 
     [?attempt_timeout_s] caps one provider step, including its internal
     retry loop:

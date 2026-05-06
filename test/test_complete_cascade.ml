@@ -236,6 +236,31 @@ let test_result_hard_quota_variant () =
   | _ -> fail "expected Hard_quota"
 ;;
 
+let test_result_provider_terminal_variant () =
+  let config =
+    Provider_config.make
+      ~kind:Claude_code
+      ~model_id:"claude-code"
+      ~base_url:"cli://claude-code"
+      ()
+  in
+  let result =
+    Complete_cascade.Provider_terminal
+      { config
+      ; kind = Http_client.Max_turns { turns = 31; limit = 31 }
+      ; message = "error_max_turns"
+      }
+  in
+  match result with
+  | Complete_cascade.Provider_terminal
+      { config = c; kind = Http_client.Max_turns r; message } ->
+    check string "terminal provider" "claude-code" c.Provider_config.model_id;
+    check int "turns" 31 r.turns;
+    check int "limit" 31 r.limit;
+    check string "message" "error_max_turns" message
+  | _ -> fail "expected Provider_terminal"
+;;
+
 let test_skip_reason_variant () =
   let reason = Complete_cascade.Circuit_breaker_open { provider = "test@localhost" } in
   match reason with
@@ -372,6 +397,85 @@ let test_hard_quota_stops_without_calling_fallback () =
   | _ -> fail "expected Hard_quota without fallback"
 ;;
 
+let test_provider_terminal_stops_without_calling_fallback () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let clock = Eio.Stdenv.clock env in
+  let primary =
+    Provider_config.make
+      ~kind:Claude_code
+      ~model_id:"claude-code"
+      ~base_url:"cli://claude-code"
+      ()
+  in
+  let fallback =
+    Provider_config.make
+      ~kind:Kimi
+      ~model_id:"moonshot-v1"
+      ~base_url:"https://api.moonshot.cn"
+      ()
+  in
+  let health = Complete_cascade.create_health ~clock () in
+  let called_models = ref [] in
+  let terminal_error =
+    Http_client.ProviderTerminal
+      { kind = Http_client.Max_turns { turns = 31; limit = 31 }
+      ; message = "error_max_turns"
+      }
+  in
+  let transport : Llm_transport.t =
+    { complete_sync =
+        (fun (req : Llm_transport.completion_request) ->
+          called_models := req.config.model_id :: !called_models;
+          let response =
+            if String.equal req.config.model_id primary.model_id
+            then Error terminal_error
+            else Ok dummy_response
+          in
+          { Llm_transport.response; latency_ms = 25 })
+    ; complete_stream =
+        (fun ~on_event:_ (req : Llm_transport.completion_request) ->
+          called_models := req.config.model_id :: !called_models;
+          if String.equal req.config.model_id primary.model_id
+          then Error terminal_error
+          else Ok dummy_response)
+    }
+  in
+  let result =
+    Complete_cascade.complete_cascade
+      ~sw
+      ~net:(Eio.Stdenv.net env)
+      ~clock
+      ~transport
+      ~health
+      ~steps:[ primary; fallback ]
+      ~messages:[]
+      ()
+  in
+  check (list string) "only primary provider called" [ primary.model_id ] !called_models;
+  let primary_health =
+    Complete_cascade.provider_health_info
+      health
+      ~cascade_config:Complete_cascade.default_cascade_config
+      ~provider_key:(Complete_cascade.provider_key primary)
+  in
+  check
+    int
+    "terminal result does not poison provider health"
+    0
+    primary_health.consecutive_failures;
+  match result with
+  | Complete_cascade.Provider_terminal { config; kind = Http_client.Max_turns r; message }
+    ->
+    check string "terminal provider" primary.model_id config.model_id;
+    check int "turns" 31 r.turns;
+    check int "limit" 31 r.limit;
+    check string "message" "error_max_turns" message
+  | _ -> fail "expected Provider_terminal without fallback"
+;;
+
 let test_attempt_timeout_fast_paths_without_retrying_same_step () =
   Eio_main.run
   @@ fun env ->
@@ -492,11 +596,15 @@ let suite =
   ; "result_success", `Quick, test_result_success_variant
   ; "result_all_failed", `Quick, test_result_all_failed_variant
   ; "result_hard_quota", `Quick, test_result_hard_quota_variant
+  ; "result_provider_terminal", `Quick, test_result_provider_terminal_variant
   ; "skip_reason", `Quick, test_skip_reason_variant
   ; "circuit_open_fallback", `Quick, test_circuit_open_skips_provider_and_falls_back
   ; ( "hard_quota_stops_without_fallback"
     , `Quick
     , test_hard_quota_stops_without_calling_fallback )
+  ; ( "provider_terminal_stops_without_fallback"
+    , `Quick
+    , test_provider_terminal_stops_without_calling_fallback )
   ; ( "attempt_timeout_fast_path"
     , `Quick
     , test_attempt_timeout_fast_paths_without_retrying_same_step )
