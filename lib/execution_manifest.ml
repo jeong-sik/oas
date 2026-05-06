@@ -71,8 +71,7 @@ let cascade_strategy_for_risk_class = function
     ; circuit_cooldown_s = 60.0
     ; health_check_interval_s = 10.0
     }
-  | Risk_class.Medium ->
-    neutral_cascade_strategy
+  | Risk_class.Medium -> neutral_cascade_strategy
   | Risk_class.Low ->
     { max_steps = 2
     ; step_timeout_s = 30.0

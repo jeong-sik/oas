@@ -78,8 +78,16 @@ let test_high_risk_is_stricter_than_low_for_timeout_and_circuit () =
   let high = EM.cascade_strategy_for_risk_class Agent_sdk.Risk_class.High in
   let low = EM.cascade_strategy_for_risk_class Agent_sdk.Risk_class.Low in
   check bool "high has lower step timeout" true (high.step_timeout_s < low.step_timeout_s);
-  check bool "high has lower cooldown" true (high.circuit_cooldown_s < low.circuit_cooldown_s);
-  check bool "high opens circuit sooner" true (high.circuit_threshold < low.circuit_threshold)
+  check
+    bool
+    "high has lower cooldown"
+    true
+    (high.circuit_cooldown_s < low.circuit_cooldown_s);
+  check
+    bool
+    "high opens circuit sooner"
+    true
+    (high.circuit_threshold < low.circuit_threshold)
 ;;
 
 let test_cascade_config_for_risk_class_projects_legacy_shape () =
@@ -90,8 +98,7 @@ let test_cascade_config_for_risk_class_projects_legacy_shape () =
 
 let test_complete_cascade_lifts_with_neutral_strategy_defaults () =
   let complete_cfg =
-    Llm_provider.Complete_cascade.
-      { circuit_threshold = 7; circuit_cooldown_s = 42.0 }
+    Llm_provider.Complete_cascade.{ circuit_threshold = 7; circuit_cooldown_s = 42.0 }
   in
   let strategy = EM.cascade_strategy_of_complete_cascade complete_cfg in
   check int "lifted circuit threshold" 7 strategy.circuit_threshold;
