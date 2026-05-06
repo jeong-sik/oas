@@ -30,6 +30,7 @@ module Hooks = Agent_sdk_base.Hooks
 module Tracing = Tracing
 module Context_reducer = Context_reducer
 module Context_intent = Context_intent
+module Cognitive_event = Cognitive_event
 module Budget_strategy = Budget_strategy
 module Tool = Agent_sdk_base.Tool
 module Typed_tool = Typed_tool

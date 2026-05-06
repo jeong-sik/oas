@@ -11,6 +11,11 @@ original tag dates. `0.100.4` was never tagged or released.
 ### Changed
 - `Llm_provider.Llm_transport.sync_result.latency_ms`, `Types.inference_telemetry.request_latency_ms`, and `Metrics.on_request_end` now carry `int option` latency. Transports report `Some ms` only when they measured elapsed time and `None` when latency is unavailable, so telemetry JSON emits `null` instead of conflating unknown latency with a measured `0`. Downstream repos such as `masc-mcp` must handle the optional field when updating their OAS pin. (#1450)
 
+### Added
+- `lib/cognitive_event.{ml,mli}`: typed JSON-codecable cognitive event schema for SDK consumers. Four variants — `Gravity_ranked`, `Intent_predicted`, `Mode_transitioned`, `Disclosure_level` — backed by `[@@deriving yojson, show]` plus a `name` label getter and an `is_well_formed` invariant checker. The host (masc-mcp) emits these; the SDK does not produce them itself in this PR. The type lives here so future SDK-side consumers (Hooks, Tracing) share a single schema. RFC-0036 PR-B.
+- `test/test_cognitive_event.ml`: 5 alcotest cases (label stability, well-formed accepts, well-formed rejects 12 invalid inputs, yojson roundtrip, yojson rejects garbage).
+
+
 ## [0.190.26] - 2026-05-06
 
 ### Fixed
