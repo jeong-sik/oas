@@ -161,10 +161,7 @@ let test_with_quota_allocations () =
   let c = Contract.with_quota_allocations [ allocation ] Contract.empty in
   match c.quota_allocations with
   | Some [ stored ] ->
-    check_string
-      "tier"
-      "p1_standard"
-      (RP.quota_tier_label stored.tier);
+    check_string "tier" "p1_standard" (RP.quota_tier_label stored.tier);
     check_int "share" 40 stored.share_percent;
     check_int "rpm" 400 stored.requests_per_minute
   | _ -> Alcotest.fail "expected one quota allocation"
@@ -183,7 +180,9 @@ let test_with_empty_quota_allocations_clears_spec () =
 ;;
 
 let test_with_default_quota_allocations () =
-  match Contract.with_default_quota_allocations ~total_requests_per_minute:1000 Contract.empty with
+  match
+    Contract.with_default_quota_allocations ~total_requests_per_minute:1000 Contract.empty
+  with
   | Error e -> Alcotest.fail (RP.show_quota_allocation_error e)
   | Ok c ->
     (match c.quota_allocations with
@@ -195,7 +194,9 @@ let test_with_default_quota_allocations () =
 ;;
 
 let test_with_default_quota_allocations_rejects_invalid_total () =
-  match Contract.with_default_quota_allocations ~total_requests_per_minute:0 Contract.empty with
+  match
+    Contract.with_default_quota_allocations ~total_requests_per_minute:0 Contract.empty
+  with
   | Error (RP.Invalid_total_requests_per_minute 0) -> ()
   | Ok _ -> Alcotest.fail "expected invalid total error"
   | Error e -> Alcotest.fail (RP.show_quota_allocation_error e)
@@ -245,10 +246,7 @@ let test_merge_quota_allocations_right_wins () =
   let merged = Contract.merge left right in
   match merged.quota_allocations with
   | Some [ stored ] ->
-    check_string
-      "right tier"
-      "p0_critical"
-      (RP.quota_tier_label stored.tier);
+    check_string "right tier" "p0_critical" (RP.quota_tier_label stored.tier);
     check_int "right rpm" 10 stored.requests_per_minute
   | _ -> Alcotest.fail "right quota allocations should win"
 ;;
@@ -451,10 +449,7 @@ let () =
     ; ( "tool_grants"
       , [ Alcotest.test_case "with_tool_grants" `Quick test_with_tool_grants
         ; Alcotest.test_case "with_mcp_allowlist" `Quick test_with_mcp_allowlist
-        ; Alcotest.test_case
-            "with_quota_allocations"
-            `Quick
-            test_with_quota_allocations
+        ; Alcotest.test_case "with_quota_allocations" `Quick test_with_quota_allocations
         ; Alcotest.test_case
             "with empty quota allocations"
             `Quick
