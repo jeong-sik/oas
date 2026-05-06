@@ -120,9 +120,7 @@ let with_mcp_tool_allowlist names contract =
 ;;
 
 let with_quota_allocations allocations contract =
-  match allocations with
-  | [] -> { contract with quota_allocations = None }
-  | _ -> { contract with quota_allocations = Some allocations }
+  { contract with quota_allocations = Some allocations }
 ;;
 
 let with_default_quota_allocations ~total_requests_per_minute contract =

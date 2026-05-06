@@ -66,7 +66,10 @@ val with_mcp_tool_allowlist : string list -> t -> t
 
     OAS carries the quota specification only. Distributed counters, lease
     expiry, adaptive multipliers, and provider-specific rate-limit managers
-    remain downstream responsibilities. *)
+    remain downstream responsibilities.
+
+    Passing [[]] records an explicit empty quota specification. This allows a
+    right-hand contract to clear inherited quota metadata during {!merge}. *)
 val with_quota_allocations
   :  Llm_provider.Request_priority.quota_allocation list
   -> t

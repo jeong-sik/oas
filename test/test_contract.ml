@@ -179,7 +179,7 @@ let test_with_empty_quota_allocations_clears_spec () =
     |> Contract.with_quota_allocations [ allocation ]
     |> Contract.with_quota_allocations []
   in
-  check_bool "empty list clears quota spec" true (c.quota_allocations = None)
+  check_bool "empty list clears quota spec" true (c.quota_allocations = Some [])
 ;;
 
 let test_with_default_quota_allocations () =
@@ -251,6 +251,21 @@ let test_merge_quota_allocations_right_wins () =
       (RP.quota_tier_label stored.tier);
     check_int "right rpm" 10 stored.requests_per_minute
   | _ -> Alcotest.fail "right quota allocations should win"
+;;
+
+let test_merge_empty_quota_allocations_clears_left () =
+  let allocation tier requests_per_minute : RP.quota_allocation =
+    { tier; share_percent = 100; requests_per_minute }
+  in
+  let left =
+    Contract.with_quota_allocations [ allocation RP.P1_standard 10 ] Contract.empty
+  in
+  let right = Contract.with_quota_allocations [] Contract.empty in
+  let merged = Contract.merge left right in
+  match merged.quota_allocations with
+  | Some [] -> ()
+  | Some _ -> Alcotest.fail "expected right empty list to clear inherited quotas"
+  | None -> Alcotest.fail "expected explicit empty quota spec"
 ;;
 
 (* ── to_json / compose_system_prompt ──────────────────── *)
@@ -361,6 +376,25 @@ let test_context_with_contract_non_empty () =
   | None -> Alcotest.fail "expected context"
 ;;
 
+let test_context_with_contract_includes_quota_allocations () =
+  let c =
+    Contract.empty
+    |> Contract.with_quota_allocations
+         [ { tier = RP.P0_critical; share_percent = 40; requests_per_minute = 400 } ]
+  in
+  match Contract.context_with_contract c with
+  | Some ctx ->
+    let open Yojson.Safe.Util in
+    (match Context.get ctx Contract.context_key with
+     | Some json ->
+       let first = json |> member "quota_allocations" |> index 0 in
+       check_string "tier" "p0_critical" (first |> member "tier" |> to_string);
+       check_int "share" 40 (first |> member "share_percent" |> to_int);
+       check_int "rpm" 400 (first |> member "requests_per_minute" |> to_int)
+     | None -> Alcotest.fail "expected contract context value")
+  | None -> Alcotest.fail "expected context"
+;;
+
 let test_context_with_contract_preserves_identity () =
   let original = Context.create () in
   Context.set original "user_data" (`String "hello");
@@ -446,6 +480,10 @@ let () =
             "quota allocations right wins"
             `Quick
             test_merge_quota_allocations_right_wins
+        ; Alcotest.test_case
+            "empty quota allocations clear left"
+            `Quick
+            test_merge_empty_quota_allocations_clears_left
         ] )
     ; ( "json"
       , [ Alcotest.test_case "to_json empty" `Quick test_to_json_empty
@@ -474,6 +512,10 @@ let () =
             "non-empty contract"
             `Quick
             test_context_with_contract_non_empty
+        ; Alcotest.test_case
+            "quota allocations injected"
+            `Quick
+            test_context_with_contract_includes_quota_allocations
         ; Alcotest.test_case
             "preserves identity"
             `Quick
