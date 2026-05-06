@@ -4,6 +4,22 @@
 open Alcotest
 open Llm_provider
 
+let contains text needle =
+  let text_len = String.length text in
+  let needle_len = String.length needle in
+  if needle_len = 0
+  then true
+  else (
+    let rec loop idx =
+      if idx + needle_len > text_len
+      then false
+      else if String.sub text idx needle_len = needle
+      then true
+      else loop (idx + 1)
+    in
+    loop 0)
+;;
+
 let dummy_response =
   Types.
     { id = "test-id"
@@ -424,8 +440,15 @@ let test_attempt_timeout_fast_paths_without_retrying_same_step () =
     (elapsed_s < 1.0);
   match result with
   | Complete_cascade.All_failed
-      { errors = [ (_, Http_client.NetworkError { kind; _ }) ]; _ } ->
-    check bool "timeout classified" true (kind = Http_client.Timeout)
+      { errors = [ (config, Http_client.NetworkError { kind; message }) ]; _ } ->
+    check bool "timeout classified" true (kind = Http_client.Timeout);
+    check bool "phase recorded" true (contains message "phase=provider_step");
+    check bool "attempt index recorded" true (contains message "attempt_index=0");
+    check
+      bool
+      "provider key recorded"
+      true
+      (contains message (Complete_cascade.provider_key config))
   | _ -> fail "expected timeout All_failed"
 ;;
 
