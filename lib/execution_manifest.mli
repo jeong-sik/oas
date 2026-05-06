@@ -4,6 +4,11 @@
 type provider_health_score = string * float
 
 type cascade_config =
+  { circuit_threshold : int
+  ; circuit_cooldown_s : float
+  }
+
+type cascade_strategy =
   { max_steps : int
   ; step_timeout_s : float
   ; global_timeout_s : float
@@ -32,12 +37,25 @@ val make
   -> unit
   -> t
 
+(** Compatibility projection of the advisory strategy for consumers that only
+    understand the existing complete-cascade circuit breaker settings. *)
+val cascade_config_for_risk_class : Risk_class.t -> cascade_config
+
+(** Neutral advisory values used when lifting legacy complete-cascade configs.
+    Kept separate from any risk-class policy so compatibility behavior does not
+    drift when a risk class is retuned. *)
+val neutral_cascade_strategy : cascade_strategy
+
 (** Product-neutral advisory cascade defaults for a risk class.
 
     OAS only carries the contract policy here; it does not own the distributed
     cascade runtime, provider quota manager, or health tracker. *)
-val cascade_config_for_risk_class : Risk_class.t -> cascade_config
+val cascade_strategy_for_risk_class : Risk_class.t -> cascade_strategy
 
 val cascade_config_of_complete_cascade
   :  Llm_provider.Complete_cascade.cascade_config
   -> cascade_config
+
+val cascade_strategy_of_complete_cascade
+  :  Llm_provider.Complete_cascade.cascade_config
+  -> cascade_strategy

@@ -45,13 +45,11 @@ let test_make_carries_provider_health_and_cascade_config () =
   | None -> fail "expected cascade_config"
   | Some cfg ->
     check int "circuit_threshold" 3 cfg.circuit_threshold;
-    check (float 0.001) "circuit_cooldown_s" 30.0 cfg.circuit_cooldown_s;
-    check int "max_steps defaulted" 3 cfg.max_steps;
-    check (float 0.001) "step_timeout_s defaulted" 20.0 cfg.step_timeout_s
+    check (float 0.001) "circuit_cooldown_s" 30.0 cfg.circuit_cooldown_s
 ;;
 
-let test_cascade_config_for_risk_class_critical () =
-  let cfg = EM.cascade_config_for_risk_class Agent_sdk.Risk_class.Critical in
+let test_cascade_strategy_for_risk_class_critical () =
+  let cfg = EM.cascade_strategy_for_risk_class Agent_sdk.Risk_class.Critical in
   check int "critical max_steps" 5 cfg.max_steps;
   check (float 0.001) "critical step timeout" 5.0 cfg.step_timeout_s;
   check (float 0.001) "critical global timeout" 15.0 cfg.global_timeout_s;
@@ -63,8 +61,8 @@ let test_cascade_config_for_risk_class_critical () =
   check (float 0.001) "critical health check" 5.0 cfg.health_check_interval_s
 ;;
 
-let test_cascade_config_for_risk_class_low () =
-  let cfg = EM.cascade_config_for_risk_class Agent_sdk.Risk_class.Low in
+let test_cascade_strategy_for_risk_class_low () =
+  let cfg = EM.cascade_strategy_for_risk_class Agent_sdk.Risk_class.Low in
   check int "low max_steps" 2 cfg.max_steps;
   check (float 0.001) "low step timeout" 30.0 cfg.step_timeout_s;
   check (float 0.001) "low global timeout" 120.0 cfg.global_timeout_s;
@@ -77,11 +75,33 @@ let test_cascade_config_for_risk_class_low () =
 ;;
 
 let test_high_risk_is_stricter_than_low_for_timeout_and_circuit () =
-  let high = EM.cascade_config_for_risk_class Agent_sdk.Risk_class.High in
-  let low = EM.cascade_config_for_risk_class Agent_sdk.Risk_class.Low in
+  let high = EM.cascade_strategy_for_risk_class Agent_sdk.Risk_class.High in
+  let low = EM.cascade_strategy_for_risk_class Agent_sdk.Risk_class.Low in
   check bool "high has lower step timeout" true (high.step_timeout_s < low.step_timeout_s);
   check bool "high has lower cooldown" true (high.circuit_cooldown_s < low.circuit_cooldown_s);
   check bool "high opens circuit sooner" true (high.circuit_threshold < low.circuit_threshold)
+;;
+
+let test_cascade_config_for_risk_class_projects_legacy_shape () =
+  let cfg = EM.cascade_config_for_risk_class Agent_sdk.Risk_class.Critical in
+  check int "critical circuit threshold" 3 cfg.circuit_threshold;
+  check (float 0.001) "critical cooldown" 30.0 cfg.circuit_cooldown_s
+;;
+
+let test_complete_cascade_lifts_with_neutral_strategy_defaults () =
+  let complete_cfg =
+    Llm_provider.Complete_cascade.
+      { circuit_threshold = 7; circuit_cooldown_s = 42.0 }
+  in
+  let strategy = EM.cascade_strategy_of_complete_cascade complete_cfg in
+  check int "lifted circuit threshold" 7 strategy.circuit_threshold;
+  check (float 0.001) "lifted cooldown" 42.0 strategy.circuit_cooldown_s;
+  check int "neutral max steps" EM.neutral_cascade_strategy.max_steps strategy.max_steps;
+  check
+    (float 0.001)
+    "neutral step timeout"
+    EM.neutral_cascade_strategy.step_timeout_s
+    strategy.step_timeout_s
 ;;
 
 let () =
@@ -96,15 +116,23 @@ let () =
         ; test_case
             "critical risk cascade defaults"
             `Quick
-            test_cascade_config_for_risk_class_critical
+            test_cascade_strategy_for_risk_class_critical
         ; test_case
             "low risk cascade defaults"
             `Quick
-            test_cascade_config_for_risk_class_low
+            test_cascade_strategy_for_risk_class_low
         ; test_case
             "high risk cascade defaults are stricter than low"
             `Quick
             test_high_risk_is_stricter_than_low_for_timeout_and_circuit
+        ; test_case
+            "risk cascade config projects legacy shape"
+            `Quick
+            test_cascade_config_for_risk_class_projects_legacy_shape
+        ; test_case
+            "complete cascade lifts with neutral strategy defaults"
+            `Quick
+            test_complete_cascade_lifts_with_neutral_strategy_defaults
         ] )
     ]
 ;;
