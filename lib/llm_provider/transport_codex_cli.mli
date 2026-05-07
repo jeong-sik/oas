@@ -55,9 +55,10 @@ type config =
     (** When [Some s] and [clock] is [Some _], the [codex]
         subprocess is aborted via [SIGINT] if no stdout line
         arrives within [s] seconds.  Mirrors the kimi-cli idle
-        bound introduced for masc-mcp keeper turns in
-        masc-mcp PR #13894 (RFC-0022 attempt liveness); the
-        same field is wired here so OAS callers can opt-in.
+        bound introduced for long-running coordinator turns
+        (boundary-allow: see masc-mcp #13894 for original RFC-0022
+        attempt-liveness context); the same field is wired here so
+        OAS callers can opt-in.
 
         Default [None].
 

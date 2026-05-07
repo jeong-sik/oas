@@ -2,11 +2,12 @@
     Master Report transport schema).
 
     A typed, JSON-codecable enumeration of the cognitive events that
-    the host (masc-mcp) emits when its cognitive layer fires
-    (gravity ranking, intent prediction, mode transition, disclosure
-    level change). The SDK does not produce these events itself in
-    this PR; the type lives here so both the host emitter and any
-    future SDK-side consumer (Hooks, Tracing) share a single schema.
+    a downstream coordinator host (boundary-allow: e.g. masc-mcp)
+    emits when its cognitive layer fires (gravity ranking, intent
+    prediction, mode transition, disclosure level change). The SDK
+    does not produce these events itself in this PR; the type lives
+    here so both the host emitter and any future SDK-side consumer
+    (Hooks, Tracing) share a single schema.
 
     Design choices:
 

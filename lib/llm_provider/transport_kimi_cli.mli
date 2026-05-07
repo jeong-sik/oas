@@ -55,9 +55,10 @@ type config =
   ; stdout_idle_timeout_s : float option
     (** When [Some s] and [clock] is [Some _], the [kimi]
         subprocess is aborted via [SIGINT] if no stdout line
-        arrives within [s] seconds.  Mirrors masc-mcp PR #13894
-        ([Kimi_cli_transport_local], RFC-0022 attempt liveness)
-        and oas PRs #1458 (codex_cli) / #1459 (claude_code).
+        arrives within [s] seconds.  External-coordinator origin
+        (boundary-allow: masc-mcp #13894, [Kimi_cli_transport_local],
+        RFC-0022 attempt liveness) and oas PRs #1458 (codex_cli) /
+        #1459 (claude_code).
         Default [None].
 
         @since 0.191.0 *)
