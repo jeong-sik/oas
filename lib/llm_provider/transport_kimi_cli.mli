@@ -43,6 +43,24 @@ type config =
         The transport then reuses the CLI's on-disk session state and sends
         only the message delta on later turns, which avoids re-transmitting
         the entire conversation history in session-reuse mode. Default [None]. *)
+  ; clock : float Eio.Time.clock_ty Eio.Resource.t option
+    (** Optional Eio clock used together with
+        [stdout_idle_timeout_s] to bound subprocess silence.
+        Both must be [Some _] for the idle bound to engage —
+        see {!Cli_common_subprocess.run_stream_lines}.
+
+        Default [None].
+
+        @since 0.191.0 *)
+  ; stdout_idle_timeout_s : float option
+    (** When [Some s] and [clock] is [Some _], the [kimi]
+        subprocess is aborted via [SIGINT] if no stdout line
+        arrives within [s] seconds.  Mirrors masc-mcp PR #13894
+        ([Kimi_cli_transport_local], RFC-0022 attempt liveness)
+        and oas PRs #1458 (codex_cli) / #1459 (claude_code).
+        Default [None].
+
+        @since 0.191.0 *)
   }
 
 (** Sensible defaults: [kimi] in PATH, [kimi-for-coding], no explicit

@@ -13,6 +13,14 @@ type config =
   ; extra_env : (string * string) list
   ; cancel : unit Eio.Promise.t option
   ; session_id : string option
+  ; clock : float Eio.Time.clock_ty Eio.Resource.t option
+    (* Optional Eio clock used together with [stdout_idle_timeout_s]
+       to bound stdout silence.  Default [None]. *)
+  ; stdout_idle_timeout_s : float option
+    (* When [Some s] and [clock] is [Some _], the kimi subprocess
+       is aborted via [SIGINT] if no stdout line arrives within [s]
+       seconds.  Wired into [Cli_common_subprocess.run_stream_lines].
+       Default [None]. *)
   }
 
 let default_config =
@@ -26,6 +34,8 @@ let default_config =
   ; extra_env = []
   ; cancel = None
   ; session_id = None
+  ; clock = None
+  ; stdout_idle_timeout_s = None
   }
 ;;
 
@@ -438,6 +448,8 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config) : Llm_transport.t =
           Cli_common_subprocess.run_stream_lines
             ~sw
             ~mgr
+            ?clock:config.clock
+            ?stdout_idle_timeout_s:config.stdout_idle_timeout_s
             ~name:"kimi"
             ~cwd:config.cwd
             ~extra_env:config.extra_env
@@ -487,6 +499,8 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config) : Llm_transport.t =
             (Cli_common_subprocess.run_stream_lines
                ~sw
                ~mgr
+               ?clock:config.clock
+               ?stdout_idle_timeout_s:config.stdout_idle_timeout_s
                ~name:"kimi"
                ~cwd:config.cwd
                ~extra_env:config.extra_env
