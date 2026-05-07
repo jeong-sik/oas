@@ -259,25 +259,42 @@ let with_optional_timeout ?clock agent f =
   | _ -> f ()
 ;;
 
+let stop_once stop =
+  let stopped = Atomic.make false in
+  fun () -> if Atomic.compare_and_set stopped false true then stop ()
+;;
+
+let with_periodic_callbacks ~sw:_ ?clock agent f =
+  match agent.options.periodic_callbacks with
+  | [] -> with_optional_timeout ?clock agent f
+  | callbacks ->
+    Eio.Switch.run
+    @@ fun callback_sw ->
+    let stop = start_periodic_callbacks ~sw:callback_sw ?clock callbacks |> stop_once in
+    (match with_optional_timeout ?clock agent f with
+     | result ->
+       stop ();
+       result
+     | exception exn ->
+       stop ();
+       raise exn)
+;;
+
 let run ~sw ?clock ?on_yield ?on_resume agent user_prompt =
-  let stop = start_periodic_callbacks ~sw ?clock agent.options.periodic_callbacks in
-  with_optional_timeout ?clock agent (fun () ->
-    Fun.protect ~finally:stop (fun () ->
-      run_loop ~sw ?clock ~api_strategy:Sync ?on_yield ?on_resume agent user_prompt))
+  with_periodic_callbacks ~sw ?clock agent (fun () ->
+    run_loop ~sw ?clock ~api_strategy:Sync ?on_yield ?on_resume agent user_prompt)
 ;;
 
 let run_stream ~sw ?clock ~on_event ?on_yield ?on_resume agent user_prompt =
-  let stop = start_periodic_callbacks ~sw ?clock agent.options.periodic_callbacks in
-  with_optional_timeout ?clock agent (fun () ->
-    Fun.protect ~finally:stop (fun () ->
-      run_loop
-        ~sw
-        ?clock
-        ~api_strategy:(Stream { on_event })
-        ?on_yield
-        ?on_resume
-        agent
-        user_prompt))
+  with_periodic_callbacks ~sw ?clock agent (fun () ->
+    run_loop
+      ~sw
+      ?clock
+      ~api_strategy:(Stream { on_event })
+      ?on_yield
+      ?on_resume
+      agent
+      user_prompt)
 ;;
 
 (* ── Handoff support ─────────────────────────────────────────── *)

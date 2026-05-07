@@ -1,0 +1,141 @@
+(** Regression coverage for Agent periodic callback cleanup.
+
+    Periodic callbacks run in Eio fibers while an agent turn is in flight. The
+    agent must stop that loop when the run exits normally or by cancellation so
+    long-lived caller switches do not retain active callback loops. *)
+
+open Agent_sdk
+
+let response : Types.api_response =
+  { id = "periodic-cleanup-response"
+  ; model = "mock-model"
+  ; stop_reason = Types.EndTurn
+  ; content = [ Types.Text "ok" ]
+  ; usage = None
+  ; telemetry = None
+  }
+;;
+
+let provider : Provider.config =
+  { provider = Provider.Local { base_url = "http://mock.local" }
+  ; model_id = "mock-model"
+  ; api_key_env = ""
+  }
+;;
+
+let make_transport ~clock ~sleep_s () : Llm_provider.Llm_transport.t =
+  let complete () =
+    Eio.Time.sleep clock sleep_s;
+    response
+  in
+  { complete_sync =
+      (fun _req ->
+        { Llm_provider.Llm_transport.response = Ok (complete ()); latency_ms = 0 })
+  ; complete_stream = (fun ~on_event:_ _req -> Ok (complete ()))
+  }
+;;
+
+let make_agent ~net ~transport ~callback () =
+  let options =
+    { Agent.default_options with
+      provider = Some provider
+    ; transport = Some transport
+    ; periodic_callbacks = [ callback ]
+    }
+  in
+  let config =
+    { Types.default_config with
+      name = "periodic-cleanup"
+    ; model = "mock-model"
+    ; max_turns = 1
+    }
+  in
+  Agent.create ~net ~config ~options ()
+;;
+
+let check_callback_loop_stopped ~clock calls =
+  let calls_at_exit = Atomic.get calls in
+  Alcotest.(check bool) "callback loop had started" true (calls_at_exit > 0);
+  Eio.Time.sleep clock 0.015;
+  let calls_after_quiesce = Atomic.get calls in
+  Eio.Time.sleep clock 0.04;
+  Alcotest.(check int) "callback loop stopped" calls_after_quiesce (Atomic.get calls)
+;;
+
+let test_run_stops_periodic_callbacks_after_success () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let clock = Eio.Stdenv.clock env in
+  let calls = Atomic.make 0 in
+  let callback : Agent.periodic_callback =
+    { interval_sec = 0.005; callback = (fun () -> Atomic.incr calls) }
+  in
+  let transport = make_transport ~clock ~sleep_s:0.03 () in
+  let agent = make_agent ~net:(Eio.Stdenv.net env) ~transport ~callback () in
+  (match Agent.run ~sw ~clock agent "finish" with
+   | Ok _ -> ()
+   | Error err -> Alcotest.fail ("expected success: " ^ Error.to_string err));
+  check_callback_loop_stopped ~clock calls
+;;
+
+let test_run_stops_periodic_callbacks_after_cancellation () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let clock = Eio.Stdenv.clock env in
+  let calls = Atomic.make 0 in
+  let callback : Agent.periodic_callback =
+    { interval_sec = 0.005; callback = (fun () -> Atomic.incr calls) }
+  in
+  let transport = make_transport ~clock ~sleep_s:1.0 () in
+  let agent = make_agent ~net:(Eio.Stdenv.net env) ~transport ~callback () in
+  (try
+     ignore
+       (Eio.Time.with_timeout_exn clock 0.05 (fun () ->
+          Agent.run ~sw ~clock agent "cancel"));
+     Alcotest.fail "expected timeout"
+   with
+   | Eio.Time.Timeout -> ());
+  check_callback_loop_stopped ~clock calls
+;;
+
+let test_run_stream_uses_same_cleanup_scope () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let clock = Eio.Stdenv.clock env in
+  let calls = Atomic.make 0 in
+  let callback : Agent.periodic_callback =
+    { interval_sec = 0.005; callback = (fun () -> Atomic.incr calls) }
+  in
+  let transport = make_transport ~clock ~sleep_s:0.03 () in
+  let agent = make_agent ~net:(Eio.Stdenv.net env) ~transport ~callback () in
+  (match Agent.run_stream ~sw ~clock ~on_event:(fun _ -> ()) agent "finish" with
+   | Ok _ -> ()
+   | Error err -> Alcotest.fail ("expected stream success: " ^ Error.to_string err));
+  check_callback_loop_stopped ~clock calls
+;;
+
+let () =
+  Alcotest.run
+    "Agent periodic callback cleanup"
+    [ ( "cleanup"
+      , [ Alcotest.test_case
+            "run stops callbacks after success"
+            `Quick
+            test_run_stops_periodic_callbacks_after_success
+        ; Alcotest.test_case
+            "run stops callbacks after cancellation"
+            `Quick
+            test_run_stops_periodic_callbacks_after_cancellation
+        ; Alcotest.test_case
+            "run_stream uses same cleanup"
+            `Quick
+            test_run_stream_uses_same_cleanup_scope
+        ] )
+    ]
+;;
