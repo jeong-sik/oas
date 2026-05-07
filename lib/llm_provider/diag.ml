@@ -11,9 +11,16 @@ let level_to_string = function
   | Error -> "ERROR"
 ;;
 
-let debug_enabled =
-  Cli_common_env.bool "OAS_LLM_PROVIDER_DEBUG" || Cli_common_env.bool "OAS_CASCADE_DIAG"
+let env_bool name =
+  match Sys.getenv_opt name with
+  | None -> false
+  | Some raw ->
+    (match String.lowercase_ascii (String.trim raw) with
+     | "1" | "true" | "yes" | "on" -> true
+     | _ -> false)
 ;;
+
+let debug_enabled = env_bool "OAS_LLM_PROVIDER_DEBUG" || env_bool "OAS_CASCADE_DIAG"
 
 let default_sink (lvl : level) ~ctx msg =
   match lvl with

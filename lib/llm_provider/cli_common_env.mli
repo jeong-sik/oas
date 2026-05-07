@@ -52,6 +52,8 @@ val trim_non_empty : string -> string option
 (** [trim_non_empty_opt opt] maps [trim_non_empty] over an option. *)
 val trim_non_empty_opt : string option -> string option
 
-(** [int ~default var] parses env var [var] as a non-negative integer.
-    Returns [default] when unset, empty, negative, or non-numeric. *)
-val int : default:int -> string -> int
+(** [int ?allow_negative ~default var] parses env var [var] as an integer.
+    Returns [default] when unset or empty.  Negative values are rejected
+    unless [allow_negative] is [true].  Rejected negative and non-numeric
+    values emit a warning before falling back to [default]. *)
+val int : ?allow_negative:bool -> default:int -> string -> int
