@@ -729,7 +729,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config) : Llm_transport.t =
                argv
            with
            | Error _ as e -> { Llm_transport.response = e; latency_ms = None }
-           | Ok { stdout = _; stderr = _; latency_ms } ->
+           | Ok { stdout = _; stderr = _; latency_ms; recovered_exit_code = _ } ->
              let response = parse_jsonl_result ~model_id ~prompt (List.rev !seen_lines) in
              { Llm_transport.response; latency_ms = Some latency_ms }))
   ; complete_stream =

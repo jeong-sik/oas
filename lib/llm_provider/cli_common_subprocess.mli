@@ -9,6 +9,9 @@ type collect_result =
   { stdout : string
   ; stderr : string
   ; latency_ms : int
+  ; recovered_exit_code : int option
+    (** [Some code] when [stdout_recovery] converted a nonzero exit into
+            [Ok]. [None] means the subprocess exited 0. *)
   }
 
 (** Default stderr-line handler used when [~on_stderr_line] is
@@ -55,9 +58,12 @@ val default_on_stderr_line : name:string -> string -> unit
       retrying the cascade.  The hook is invoked only on nonzero exits
       and predicate exceptions are caught and logged.
 
-    Returns [Ok { stdout; stderr; latency_ms }] on a zero exit code (or
-    on a nonzero exit when [stdout_recovery] accepts the captured
-    stdout), or a [NetworkError] describing the failure. *)
+    Returns [Ok { stdout; stderr; latency_ms; recovered_exit_code }]
+    on a zero exit code or on a nonzero exit when [stdout_recovery]
+    accepts the captured stdout.  Recovered results preserve the
+    original nonzero code in [recovered_exit_code] and keep stderr in
+    [stderr].  Otherwise returns a [NetworkError] describing the
+    failure. *)
 val run_collect
   :  sw:Eio.Switch.t
   -> mgr:_ Eio.Process.mgr
