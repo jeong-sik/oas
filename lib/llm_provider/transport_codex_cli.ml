@@ -31,6 +31,14 @@ type config =
   ; cancel : unit Eio.Promise.t option
     (* When [Some p] and [p] resolves mid-run, the [codex]
        subprocess receives [SIGINT].  Default [None]. *)
+  ; clock : float Eio.Time.clock_ty Eio.Resource.t option
+    (* Optional Eio clock used together with [stdout_idle_timeout_s]
+       to bound stdout silence.  Default [None]. *)
+  ; stdout_idle_timeout_s : float option
+    (* When [Some s] and [clock] is [Some _], the codex subprocess
+       is aborted via [SIGINT] if no stdout line arrives within [s]
+       seconds.  Wired into [Cli_common_subprocess.run_stream_lines].
+       Default [None]. *)
   }
 
 let default_config =
@@ -42,6 +50,8 @@ let default_config =
   ; max_turns = None
   ; permission_mode = None
   ; cancel = None
+  ; clock = None
+  ; stdout_idle_timeout_s = None
   }
 ;;
 
@@ -714,6 +724,8 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config) : Llm_transport.t =
                ~stdout_recovery:stdout_contains_turn_completed
                ~on_line
                ?cancel:config.cancel
+               ?clock:config.clock
+               ?stdout_idle_timeout_s:config.stdout_idle_timeout_s
                argv
            with
            | Error _ as e -> { Llm_transport.response = e; latency_ms = 0 }
@@ -776,6 +788,8 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config) : Llm_transport.t =
                ~stdout_recovery:stdout_contains_turn_completed
                ~on_line
                ?cancel:config.cancel
+               ?clock:config.clock
+               ?stdout_idle_timeout_s:config.stdout_idle_timeout_s
                argv
            with
            | Error _ as e -> e

@@ -42,6 +42,26 @@ type config =
         Default [None].
 
         @since 0.148.0 *)
+  ; clock : float Eio.Time.clock_ty Eio.Resource.t option
+    (** Optional Eio clock used together with
+        [stdout_idle_timeout_s] to bound subprocess silence.
+        Both must be [Some _] for the idle bound to engage —
+        see {!Cli_common_subprocess.run_stream_lines}.
+
+        Default [None].
+
+        @since 0.191.0 *)
+  ; stdout_idle_timeout_s : float option
+    (** When [Some s] and [clock] is [Some _], the [codex]
+        subprocess is aborted via [SIGINT] if no stdout line
+        arrives within [s] seconds.  Mirrors the kimi-cli idle
+        bound introduced for masc-mcp keeper turns in
+        masc-mcp PR #13894 (RFC-0022 attempt liveness); the
+        same field is wired here so OAS callers can opt-in.
+
+        Default [None].
+
+        @since 0.191.0 *)
   }
 
 (** Sensible defaults: [codex] in PATH, no overrides. *)
