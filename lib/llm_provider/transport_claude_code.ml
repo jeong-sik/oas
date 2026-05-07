@@ -26,6 +26,14 @@ type config =
     (* When [Some p] and [p] is resolved mid-run, the [claude]
        subprocess receives [SIGINT].  Applied to every call served
        by the transport instance.  Default [None]. *)
+  ; clock : float Eio.Time.clock_ty Eio.Resource.t option
+    (* Optional Eio clock used together with [stdout_idle_timeout_s]
+       to bound stdout silence.  Default [None]. *)
+  ; stdout_idle_timeout_s : float option
+    (* When [Some s] and [clock] is [Some _], the claude subprocess
+       is aborted via [SIGINT] if no stdout line arrives within [s]
+       seconds.  Wired into both [Cli_common_subprocess.run_collect]
+       and [Cli_common_subprocess.run_stream_lines].  Default [None]. *)
   }
 
 let default_config =
@@ -39,6 +47,8 @@ let default_config =
   ; tool_use_via_stream_json = true
   ; forward_tool_results = false
   ; cancel = None
+  ; clock = None
+  ; stdout_idle_timeout_s = None
   }
 ;;
 
@@ -635,6 +645,8 @@ let run ~sw ~mgr ~(config : config) ?stdin_content args =
   Cli_common_subprocess.run_collect
     ~sw
     ~mgr
+    ?clock:config.clock
+    ?stdout_idle_timeout_s:config.stdout_idle_timeout_s
     ~name:"claude"
     ~cwd:config.cwd
     ~extra_env:(subprocess_session_isolation_env ())
@@ -680,6 +692,8 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config) : Llm_transport.t =
             Cli_common_subprocess.run_stream_lines
               ~sw
               ~mgr
+              ?clock:config.clock
+              ?stdout_idle_timeout_s:config.stdout_idle_timeout_s
               ~name:"claude"
               ~cwd:config.cwd
               ~extra_env:(subprocess_session_isolation_env ())
@@ -742,6 +756,8 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config) : Llm_transport.t =
           Cli_common_subprocess.run_stream_lines
             ~sw
             ~mgr
+            ?clock:config.clock
+            ?stdout_idle_timeout_s:config.stdout_idle_timeout_s
             ~name:"claude"
             ~cwd:config.cwd
             ~extra_env:(subprocess_session_isolation_env ())
