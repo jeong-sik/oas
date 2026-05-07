@@ -37,6 +37,26 @@ type config =
         Default [None].
 
         @since 0.148.0 *)
+  ; clock : float Eio.Time.clock_ty Eio.Resource.t option
+    (** Optional Eio clock used together with
+        [stdout_idle_timeout_s] to bound subprocess silence.
+        Both must be [Some _] for the idle bound to engage —
+        see {!Cli_common_subprocess.run_collect}.
+
+        Default [None].
+
+        @since 0.191.0 *)
+  ; stdout_idle_timeout_s : float option
+    (** When [Some s] and [clock] is [Some _], the [gemini]
+        subprocess is aborted via [SIGINT] if no stdout line
+        arrives within [s] seconds.  Mirrors masc-mcp PR #13894
+        ([Kimi_cli_transport_local], RFC-0022 attempt liveness)
+        and oas PRs #1458 (codex_cli) / #1459 (claude_code) /
+        #1460 (kimi_cli).
+
+        Default [None].
+
+        @since 0.191.0 *)
   }
 
 (** Sensible defaults: [gemini] in PATH, yolo enabled, no overrides. *)
