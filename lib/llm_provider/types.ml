@@ -490,8 +490,5 @@ let zero_api_usage =
   }
 ;;
 
-let usage_of_response (resp : api_response) =
-  match resp.usage with
-  | Some u -> u
-  | None -> zero_api_usage
+let usage_of_response (resp : api_response) = resp.usage
 ;;

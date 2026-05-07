@@ -413,9 +413,11 @@ let test_usage_of_response_some () =
     ; telemetry = None
     }
   in
-  let u = Types.usage_of_response resp in
-  check int "input" 100 u.input_tokens;
-  check int "output" 50 u.output_tokens
+  match Types.usage_of_response resp with
+  | Some u ->
+    check int "input" 100 u.input_tokens;
+    check int "output" 50 u.output_tokens
+  | None -> fail "expected reported usage"
 ;;
 
 let test_usage_of_response_none () =
@@ -428,9 +430,7 @@ let test_usage_of_response_none () =
     ; telemetry = None
     }
   in
-  let u = Types.usage_of_response resp in
-  check int "input fallback" 0 u.input_tokens;
-  check int "output fallback" 0 u.output_tokens
+  check (option reject) "missing usage preserved" None (Types.usage_of_response resp)
 ;;
 
 (* ── Capability_filter combinators ──────────────────── *)
