@@ -32,6 +32,11 @@ type cascade_result =
       { config : Provider_config.t
       ; error : Http_client.http_error
       }
+  | Provider_terminal of
+      { config : Provider_config.t
+      ; kind : Http_client.provider_terminal_kind
+      ; message : string
+      }
 
 let attempt_timeout_error ~attempt_index ~model_id ~provider_key ~timeout_s =
   Http_client.NetworkError
@@ -255,6 +260,8 @@ let complete_cascade
           record_success health key;
           Success
             { response; step_index = idx; model_id = config.Provider_config.model_id }
+        | Error (Http_client.ProviderTerminal { kind; message }) ->
+          Provider_terminal { config; kind; message }
         | Error err ->
           record_failure health key;
           if is_hard_quota_http_error err
