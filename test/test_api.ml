@@ -950,7 +950,7 @@ let test_message_to_json_ignores_metadata () =
     ; name = Some "assistant"
     ; tool_call_id = Some "call_1"
     ; metadata =
-        [ ( "masc.replay"
+        [ ( "replay.namespace"
           , `Assoc
               [ "kind", `String "state_snapshot"
               ; "version", `Int 1

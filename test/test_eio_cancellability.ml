@@ -12,11 +12,11 @@
     intact across four scenarios.  This test ports those reproducers
     so a future Eio/cohttp-eio dependency bump that breaks cancellation
     fails CI immediately, instead of silently regressing into 3585s
-    keeper hangs in masc-mcp.
+    keeper hangs in masc-mcp. boundary-allow: cross-repo regression context.
 
     Cross-ref: planning/claude-plans/oas-execution-cancellability.md
                 (in jeong-sik/me) — falsified self-confession comment in
-                masc-mcp [keeper_llm_bridge.ml:35-39].
+                masc-mcp [keeper_llm_bridge.ml:35-39]. boundary-allow.
 
     All four cases use a 2.0s timeout budget; overshoot must stay under
     [overshoot_tolerance_s].  CI jitter is bounded by [tolerance];

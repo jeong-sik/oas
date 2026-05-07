@@ -555,13 +555,13 @@ let test_is_idle_exact_distinguishes_inputs () =
 ;;
 
 let test_is_idle_name_only_collapses_inputs () =
-  let a = [ fp "masc_status" {|{"token":"x"}|} ] in
-  let b = [ fp "masc_status" {|{"token":"y"}|} ] in
+  let a = [ fp "mock_tool_alpha" {|{"token":"x"}|} ] in
+  let b = [ fp "mock_tool_alpha" {|{"token":"y"}|} ] in
   Alcotest.(check bool)
     "Name_only: same name, different input -> idle"
     true
     (Agent_turn.is_idle ~granularity:Agent_turn.Name_only (Some a) b);
-  let c = [ fp "masc_heartbeat" {|{"token":"x"}|} ] in
+  let c = [ fp "mock_tool_beta" {|{"token":"x"}|} ] in
   Alcotest.(check bool)
     "Name_only: different name -> not idle"
     false
@@ -569,8 +569,8 @@ let test_is_idle_name_only_collapses_inputs () =
 ;;
 
 let test_is_idle_name_and_subset_placeholder_matches_name_only () =
-  let a = [ fp "masc_status" {|{"token":"x","verbose":true}|} ] in
-  let b = [ fp "masc_status" {|{"token":"y","verbose":false}|} ] in
+  let a = [ fp "mock_tool_alpha" {|{"token":"x","verbose":true}|} ] in
+  let b = [ fp "mock_tool_alpha" {|{"token":"y","verbose":false}|} ] in
   (* Placeholder semantics: keys list is currently ignored; behaves
      as Name_only. Locking this in a test so future leaves that wire
      up real subset matching will break loudly here. *)

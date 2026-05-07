@@ -524,7 +524,7 @@ let test_gemini_stream_finish () =
 ;;
 
 (* NOTE: test_cascade_gemini_kind was removed — Cascade_config.parse_model_string
-   was deleted from OAS in 0.144.0 as part of the MASC migration. *)
+   was deleted from OAS in 0.144.0 as part of the MASC migration (boundary-allow). *)
 
 let test_gemini_capabilities_named () =
   let caps = Capabilities.gemini_capabilities in

@@ -400,7 +400,7 @@ let test_empty_delta_roundtrip () =
 
 let test_delta_roundtrip_preserves_message_metadata () =
   let replay_metadata =
-    [ ( "masc.replay"
+    [ ( "replay.namespace"
       , `Assoc
           [ "kind", `String "state_snapshot"
           ; "version", `Int 1
@@ -431,7 +431,7 @@ let test_delta_roundtrip_preserves_message_metadata () =
           }
         ; { role = Assistant
           ; content = [ Text "done" ]
-          ; name = Some "keeper"
+          ; name = Some "agent_role_a"
           ; tool_call_id = Some "call_1"
           ; metadata = replay_metadata
           }
@@ -445,7 +445,7 @@ let test_delta_roundtrip_preserves_message_metadata () =
   | Ok rebuilt ->
     (match rebuilt.messages with
      | _ :: [ assistant ] ->
-       Alcotest.(check (option string)) "name" (Some "keeper") assistant.name;
+       Alcotest.(check (option string)) "name" (Some "agent_role_a") assistant.name;
        Alcotest.(check (option string))
          "tool_call_id"
          (Some "call_1")
