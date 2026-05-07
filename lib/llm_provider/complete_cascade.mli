@@ -120,7 +120,10 @@ type cascade_result =
     5. On other error, record failure and try next step
 
     [?attempt_timeout_s] caps one provider step, including its internal
-    retry loop:
+    retry loop. Timeout errors include the cascade phase, provider
+    attempt index, model id, and provider key in the structured
+    [NetworkError] message so downstream receipts can distinguish a
+    provider-step timeout from a caller-side budget gate:
     - omitted (no argument): provider-specific defaults from
       {!Provider_config.default_attempt_timeout_s} apply when present
       (Ollama, Claude_code, Kimi_cli, Gemini_cli have positive defaults;

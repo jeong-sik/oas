@@ -33,13 +33,16 @@ type cascade_result =
       ; error : Http_client.http_error
       }
 
-let attempt_timeout_error ~model_id ~timeout_s =
+let attempt_timeout_error ~attempt_index ~model_id ~provider_key ~timeout_s =
   Http_client.NetworkError
     { kind = Http_client.Timeout
     ; message =
         Printf.sprintf
-          "cascade provider attempt for %s exceeded attempt_timeout_s %gs"
+          "cascade provider attempt timed out phase=provider_step attempt_index=%d \
+           model=%s provider_key=%s attempt_timeout_s=%gs"
+          attempt_index
           model_id
+          provider_key
           timeout_s
     }
 ;;
@@ -240,7 +243,12 @@ let complete_cascade
           | Some timeout_s ->
             (try Eio.Time.with_timeout_exn clock timeout_s attempt with
              | Eio.Time.Timeout ->
-               Error (attempt_timeout_error ~model_id:config.model_id ~timeout_s))
+               Error
+                 (attempt_timeout_error
+                    ~attempt_index:idx
+                    ~model_id:config.model_id
+                    ~provider_key:key
+                    ~timeout_s))
         in
         match result with
         | Ok response ->
